@@ -13,7 +13,6 @@ const progress = @import("progress.zig");
 const async = @import("async.zig");
 const proc = @import("proc.zig");
 const operate = @import("operate.zig");
-const stream = @import("stream.zig");
 const fdtable = @import("fdtable.zig");
 
 /// set by init(), cleared by stop(); null = console output dropped
@@ -198,7 +197,7 @@ pub const io_inst: Io = .{
 
 pub var stderr_writer: Io.File.Writer = .{
     .io = io_inst,
-    .file = stream.stderr(),
+    .file = fdtable.stderr(),
     .mode = .streaming_simple,
     .interface = .{
         .vtable = &@import("stderr.zig").stderr_writer_vtable,
