@@ -1,0 +1,19 @@
+const std = @import("std");
+const uefi = std.os.uefi;
+const Io = std.Io;
+
+pub const netListenIp = Io.failingNetListenIp;
+pub const netAccept = Io.failingNetAccept;
+pub const netBindIp = Io.failingNetBindIp;
+pub const netConnectIp = Io.failingNetConnectIp;
+pub const netListenUnix = Io.failingNetListenUnix;
+pub const netConnectUnix = Io.failingNetConnectUnix;
+pub const netSocketCreatePair = Io.failingNetSocketCreatePair;
+pub const netSend = Io.failingNetSend;
+pub const netWrite = Io.failingNetWrite;
+pub const netWriteFile = Io.failingNetWriteFile;
+pub const netClose = Io.unreachableNetClose;
+pub const netShutdown = Io.failingNetShutdown;
+pub const netInterfaceNameResolve = Io.failingNetInterfaceNameResolve;
+pub const netInterfaceName = Io.unreachableNetInterfaceName;
+pub const netLookup = Io.failingNetLookup;
