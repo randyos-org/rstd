@@ -10,21 +10,23 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
 
-pub const stdin_fd: i32 = std.c.STDIN_FILENO;
-pub const stdout_fd: i32 = std.c.STDOUT_FILENO;
-pub const stderr_fd: i32 = std.c.STDERR_FILENO;
-const first_real_fd: i32 = 3;
+pub const fd_t = i32;
+pub const no_handle: fd_t = -1;
+pub const stdin_fd: fd_t = std.c.STDIN_FILENO;
+pub const stdout_fd: fd_t = std.c.STDOUT_FILENO;
+pub const stderr_fd: fd_t = std.c.STDERR_FILENO;
+const first_real_fd: fd_t = 3;
 
 const max_open_files = 16;
 var slots: [max_open_files]?*uefi.protocol.File = @splat(null);
 
 /// Store `file` in the first free slot, returning its newly assigned fd.
 /// `null` if the table is full.
-pub fn alloc(file: *uefi.protocol.File) ?i32 {
+pub fn alloc(file: *uefi.protocol.File) ?fd_t {
     for (&slots, 0..) |*slot, i| {
         if (slot.* == null) {
             slot.* = file;
-            return first_real_fd + @as(i32, @intCast(i));
+            return first_real_fd + @as(fd_t, @intCast(i));
         }
     }
     return null;
@@ -32,18 +34,18 @@ pub fn alloc(file: *uefi.protocol.File) ?i32 {
 
 /// Look up the real file behind `fd`, if `fd` is a real (>= first_real_fd),
 /// currently-open handle.
-pub fn get(fd: i32) ?*uefi.protocol.File {
+pub fn get(fd: fd_t) ?*uefi.protocol.File {
     if (fd < first_real_fd) return null;
-    const index: usize = @intCast(fd - first_real_fd);
+    const index: usize = @intCast(@as(fd_t, fd) - @as(fd_t, first_real_fd));
     if (index >= slots.len) return null;
     return slots[index];
 }
 
 /// Free `fd`'s slot, if it held one. Does not close the underlying file --
 /// callers close before freeing (see `file.zig`'s `fileClose`).
-pub fn free(fd: i32) void {
+pub fn free(fd: fd_t) void {
     if (fd < first_real_fd) return;
-    const index: usize = @intCast(fd - first_real_fd);
+    const index: usize = @intCast(@as(fd_t, fd) - @as(fd_t, first_real_fd));
     if (index >= slots.len) return;
     slots[index] = null;
 }

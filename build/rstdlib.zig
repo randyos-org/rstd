@@ -16,8 +16,8 @@ pub fn addRstd(
     options: *BuildOptions,
     target: ?ResolvedTarget,
 ) *Module {
-    const rstd_root = b.path("src/rstd/__root__.zig");
-    const rstd_mod = b.createModule(.{
+    const rstd_root = b.path("src/__root__.zig");
+    const rstd_mod = b.addModule("rstd", .{
         .root_source_file = rstd_root,
     });
     rstdbuild.addBuildOptsModToModule(options, rstd_mod);

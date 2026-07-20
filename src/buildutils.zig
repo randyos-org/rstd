@@ -15,6 +15,10 @@ pub fn getOptimize(b: *Build) OptimizeMode {
     return b.standardOptimizeOption(.{});
 }
 
+pub fn getTarget(b: *Build) ResolvedTarget {
+    return b.standardTargetOptions(.{});
+}
+
 pub fn addBuildDir(b: *Build) *BuildDir {
     return b.addWriteFiles();
 }

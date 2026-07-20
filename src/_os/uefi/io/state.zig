@@ -24,7 +24,8 @@ pub var con_out: ?*uefi.protocol.SimpleTextOutput = null;
 pub var stopped: bool = false;
 
 /// opened boot-volume root dir (see dir.openRootDir). single slot, not a
-/// table: `Io.Dir` has no handle bits on UEFI, so values can't be told apart.
+/// table: there's only ever one `Io.Dir` here, so its handle value is just a
+/// placeholder (see dir.zig's `no_handle`), not a lookup key.
 pub var root_dir: ?*uefi.protocol.File = null;
 
 /// per-task cancel-protection state; only one task here

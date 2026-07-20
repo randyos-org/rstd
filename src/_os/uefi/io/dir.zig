@@ -5,34 +5,35 @@ const log = std.log.scoped(.bootfs);
 
 const state = @import("state.zig");
 const fdtable = @import("fdtable.zig");
+const no_handle = fdtable.no_handle;
 
 /// Locate Simple File System protocol, open root volume into `t.root_dir`,
-/// return handle-less `Io.Dir` token (see state.zig). Idempotent.
+/// return placeholder-handle `Io.Dir` token (see state.zig). Idempotent.
 pub fn openRootDir() Io.Dir {
     if (state.root_dir == null) {
         const bs = state.bootServices() orelse {
             log.err("boot services unavailable", .{});
-            return .{ .handle = {} };
+            return .{ .handle = no_handle };
         };
 
         log.debug("locating simple file system protocol", .{});
         const res = bs.locateProtocol(uefi.protocol.SimpleFileSystem, null) catch |err| {
             log.err("locating simple file system protocol failed: {s}", .{@errorName(err)});
-            return .{ .handle = {} };
+            return .{ .handle = no_handle };
         };
         const file_system = res orelse {
             log.err("simple file system protocol not found!", .{});
-            return .{ .handle = {} };
+            return .{ .handle = no_handle };
         };
 
         log.debug("opening root volume", .{});
         state.root_dir = file_system.openVolume() catch |err| {
             log.err("opening root volume failed: {s}", .{@errorName(err)});
-            return .{ .handle = {} };
+            return .{ .handle = no_handle };
         };
     }
     // return .{ .handle = state.root_dir };
-    return .{ .handle = {} };
+    return .{ .handle = no_handle };
 }
 
 // ------------------------------

@@ -10,14 +10,17 @@ const impl = switch (sysinfo.os.tag) {
 pub const time = impl.time;
 pub const ioFactory = impl.ioFactory;
 /// Comptime-known `Io` value; only present for targets whose impl needs one
-/// as `std_options_debug_io` (see `_os/uefi/io/__root__.zig`).
-pub const io_inst: std.Io = if (@hasDecl(impl, "io_inst")) impl.io_inst else {};
+/// as `std_options_debug_io` (see `_os/uefi/io/__root__.zig`). `null` for
+/// impls that don't provide one, so callers fall back to std's own default.
+pub const io_inst: ?std.Io = if (@hasDecl(impl, "io_inst")) impl.io_inst else null;
 pub const init: ?fn () void = if (@hasDecl(impl, "init")) impl.init else null;
 pub const stop: ?fn () void = if (@hasDecl(impl, "stop")) impl.stop else null;
 pub const stdout = if (@hasDecl(impl, "stdout")) impl.stdout else std.Io.File.stdout;
 pub const stderr = if (@hasDecl(impl, "stderr")) impl.stderr else std.Io.File.stderr;
 pub const stdin = if (@hasDecl(impl, "stdin")) impl.stdin else std.Io.File.stdin;
 pub const cwdFn: ?fn () std.Io.Dir = if (@hasDecl(impl, "cwdFn")) impl.cwdFn else null;
+pub const PATH_MAX = if (@hasDecl(impl, "PATH_MAX")) impl.PATH_MAX else std.c.PATH_MAX;
+pub const NAME_MAX = if (@hasDecl(impl, "NAME_MAX")) impl.NAME_MAX else std.c.NAME_MAX;
 
 pub const cwd = cwdFn orelse std.Io.Dir.cwd;
 

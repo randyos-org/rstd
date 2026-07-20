@@ -57,6 +57,8 @@ pub const cwdFn: ?fn () std.Io.Dir = dir.openRootDir;
 pub const init: ?fn () void = state.init;
 pub const stop: ?fn () void = state.stop;
 pub const io_inst: Io = state.io_inst;
+pub const PATH_MAX = 4096; // std.os.linux.PATH_MAX
+pub const NAME_MAX = 255; // std.os.linux.NAME_MAX
 
 pub fn ioFactory() Io {
     return io_inst;
