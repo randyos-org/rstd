@@ -1,5 +1,4 @@
 const std = @import("std");
-const log = std.log.scoped(.machine);
 
 pub const HardwareInterface = enum {
     acpi,

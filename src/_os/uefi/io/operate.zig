@@ -25,9 +25,17 @@ pub fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.
             // TODO: back with EFI network protocols (see net.zig)
             .net_receive = .{ error.NetworkDown, 0 },
         },
+        .net_send => .{
+            // TODO: back with EFI network protocols (see net.zig)
+            .net_send = .{ error.NetworkDown, 0 },
+        },
         .net_read => .{
             // TODO: back with EFI network protocols (see net.zig)
             .net_read = error.NetworkDown,
+        },
+        .net_write => .{
+            // TODO: back with EFI network protocols (see net.zig)
+            .net_write = error.NetworkDown,
         },
     };
 }

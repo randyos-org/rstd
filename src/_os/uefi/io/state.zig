@@ -1,7 +1,9 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
-const log = std.log.scoped(.iostate);
+
+const logging = @import("../../../logging.zig");
+const log = logging.Logger(@This());
 
 const time = @import("time.zig");
 const stderr_mod = @import("stderr.zig");
@@ -45,7 +47,7 @@ pub fn init() void {
     }
     time.init() catch |err| {
         // not fatal: log lines just lack a monotonic clock; console's already up
-        log.err("starting bootloader timer failed: {s}", .{@errorName(err)});
+        log.err(@src(), "starting bootloader timer failed: {s}", .{@errorName(err)});
     };
 }
 
@@ -185,8 +187,6 @@ pub const io_inst: Io = .{
         .netListenUnix = net.netListenUnix,
         .netConnectUnix = net.netConnectUnix,
         .netSocketCreatePair = net.netSocketCreatePair,
-        .netSend = net.netSend,
-        .netWrite = net.netWrite,
         .netWriteFile = net.netWriteFile,
         .netClose = net.netClose,
         .netShutdown = net.netShutdown,

@@ -1,7 +1,9 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
-const log = std.log.scoped(.random);
+
+const logging = @import("../../../logging.zig");
+const log = logging.Logger(@This());
 
 const state = @import("state.zig");
 const time = @import("time.zig");

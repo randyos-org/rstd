@@ -1,7 +1,9 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
-const log = std.log.scoped(.bootfs);
+
+const logging = @import("../../../logging.zig");
+const log = logging.Logger(@This());
 
 const state = @import("state.zig");
 const fdtable = @import("fdtable.zig");
@@ -12,23 +14,23 @@ const no_handle = fdtable.no_handle;
 pub fn openRootDir() Io.Dir {
     if (state.root_dir == null) {
         const bs = state.bootServices() orelse {
-            log.err("boot services unavailable", .{});
+            log.err(@src(), "boot services unavailable", .{});
             return .{ .handle = no_handle };
         };
 
-        log.debug("locating simple file system protocol", .{});
+        log.debug(@src(), "locating simple file system protocol", .{});
         const res = bs.locateProtocol(uefi.protocol.SimpleFileSystem, null) catch |err| {
-            log.err("locating simple file system protocol failed: {s}", .{@errorName(err)});
+            log.err(@src(), "locating simple file system protocol failed: {s}", .{@errorName(err)});
             return .{ .handle = no_handle };
         };
         const file_system = res orelse {
-            log.err("simple file system protocol not found!", .{});
+            log.err(@src(), "simple file system protocol not found!", .{});
             return .{ .handle = no_handle };
         };
 
-        log.debug("opening root volume", .{});
+        log.debug(@src(), "opening root volume", .{});
         state.root_dir = file_system.openVolume() catch |err| {
-            log.err("opening root volume failed: {s}", .{@errorName(err)});
+            log.err(@src(), "opening root volume failed: {s}", .{@errorName(err)});
             return .{ .handle = no_handle };
         };
     }

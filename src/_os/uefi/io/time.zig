@@ -14,7 +14,6 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
-const log = std.log.scoped(.boottime);
 // const BootServices = uefi.tables.BootServices;
 
 const state = @import("state.zig");
