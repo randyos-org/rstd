@@ -2,7 +2,7 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
 
-const logging = @import("../../../logging.zig");
+const logging = @import("../../../log.zig");
 const log = logging.Logger(@This());
 
 const state = @import("state.zig");

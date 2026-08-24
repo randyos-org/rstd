@@ -13,6 +13,8 @@
 //!   e.g., `rstd_ansi` for `src/rstd/ansi.zig` and `rstd_bootinfo` for
 //!   `src/rstd/bootinfo.zig`.
 
+const std = @import("std");
+
 /// system/compiler details
 pub const sysinfo = @import("builtin");
 
@@ -24,10 +26,18 @@ pub const buildutils = @import("buildutils.zig");
 pub const machine = @import("machine.zig");
 pub const io = @import("io.zig");
 
-pub const zigconfig = @import("zigconfig.zig");
+pub const debug = @import("debug.zig");
+pub const rgl = @import("rgl/__root__.zig");
+pub const log = @import("log.zig");
 pub const mem = @import("mem.zig");
-pub const logging = @import("logging.zig");
+pub const windows = @import("_os/windows/__root__.zig");
+pub const zigcfg = @import("zigcfg.zig");
+
 // pub const ansi = @import("ansi.zig");
 // pub const Terminal = @import("Terminal.zig");
 
-pub const Logger = logging.Logger;
+pub const Logger = log.Logger;
+
+test {
+    std.testing.refAllDecls(@This());
+}
