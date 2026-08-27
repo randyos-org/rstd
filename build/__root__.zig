@@ -8,7 +8,7 @@ const Build = rstdbuild.Build;
 
 pub fn build(b: *Build) !void {
     // standard build setup
-    // const optimize = rstdbuild.getOptimize(b);
+    const optimize = rstdbuild.getOptimize(b);
     const target = rstdbuild.getTarget(b);
     const docs = rstdbuild.addDocs(b);
 
@@ -20,6 +20,16 @@ pub fn build(b: *Build) !void {
     });
     rstdbuild.addBuildOptsModToModule(build_options, rstd_mod);
     rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
+
+    // rgl's Vulkan/SPIR-V shaders pull in no extra dependency (the
+    // spirv32-vulkan target ships in the compiler), but rstd is a
+    // general std lib supplement used by headless/CLI code too, so
+    // compiling them only happens when asked for.
+    const vulkan_opt = b.option(bool, "vulkan", "Compile rgl's Vulkan/SPIR-V shaders") orelse false;
+    build_options.addOption(bool, "has_vulkan", vulkan_opt);
+    if (vulkan_opt) {
+        try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
+    }
 
     // docs
     // ----

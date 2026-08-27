@@ -30,6 +30,7 @@ auxv
 auxvec
 bdflush
 bind
+Blobby
 bootdbg
 bootefi
 bootfs
@@ -45,6 +46,7 @@ BSDRDATA
 bufs
 buildah
 buildutils
+bvec
 cachestat
 capget
 capset
@@ -55,6 +57,7 @@ chown
 chroot
 chvalid
 cimgui
+clampf
 clfsh
 CLKTCK
 clock_adjtime
@@ -99,6 +102,7 @@ DLAB
 dngettext
 DOFORK
 dotenv
+dotni
 DSYNC
 dtes
 dup
@@ -374,6 +378,7 @@ IGNOREPPC
 ihdr
 imgs
 Imgui
+Inigo
 init
 init_module
 inode
@@ -400,6 +405,7 @@ ioprio_get
 ioprio_set
 ioredtbl
 iovec
+iquilezles
 iretq
 ISACTIVEICON
 iterm
@@ -544,6 +550,7 @@ NORESERVE
 nospu
 nostdinc
 nouveau
+nref
 NSYNC
 oabi
 objc
@@ -648,6 +655,7 @@ pyproject
 qcow
 qemu
 query_module
+Quilez's
 quotactl
 quotactl_fd
 randyos
@@ -869,6 +877,7 @@ tmpfs
 toolchain
 truncate
 tuxcall
+tvec
 UAHDESTROYWINDOW
 UAHDRAWMENU
 UAHDRAWMENUITEM

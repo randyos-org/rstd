@@ -22,7 +22,7 @@ pub const sysinfo = @import("builtin");
 pub const build_options = @import("build_options");
 
 // exported modules at the Zig build level
-pub const buildutils = @import("buildutils.zig");
+pub const buildutils = @import("buildutils/__root__.zig");
 pub const machine = @import("machine.zig");
 pub const io = @import("io.zig");
 
