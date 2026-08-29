@@ -668,6 +668,7 @@ RDFSBASE
 RDGSBASE
 RDLCK
 RDMSR
+rdoc
 RDPMC
 read
 readahead
