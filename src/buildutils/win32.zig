@@ -2,9 +2,9 @@ const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Module = rstdbuild.Module;
-const ZigModule = @import("zigmodule.zig").ZigModule;
+const DepModule = @import("deps.zig").DepModule;
 
-pub fn addWin32(b: *Build) ZigModule {
+pub fn addWin32(b: *Build) DepModule {
     return .{ .mod = b.dependency("win32", .{}).module("win32"), .name = "win32" };
 }
 

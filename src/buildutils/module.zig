@@ -1,4 +1,3 @@
-// const std = @import("std");
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
@@ -16,8 +15,8 @@ pub fn cloneModuleWithTarget(b: *Build, existing: *Module, target: ?ResolvedTarg
     clone.* = existing.*;
     clone.resolved_target = target;
     // The struct copy above also copies the memoized import-graph cache
-    // (keyed off existing's identity as root); reset it so the clone -
-    // a distinct root - recomputes its own instead of reusing existing's.
+    // (keyed off existing's identity as root); reset it so the clone
+    // recomputes its own
     clone.cached_graph = .{ .modules = &.{}, .names = &.{} };
     // Also deep-copy `import_table`: a plain struct copy shares its
     // backing array with `existing`, so a later `addImport` on the clone

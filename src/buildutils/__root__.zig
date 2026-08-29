@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const machine = @import("../machine.zig");
+
 pub const Build = std.Build;
 pub const Step = Build.Step;
 pub const BuildDir = Step.WriteFile;
@@ -42,10 +44,10 @@ pub const ScopeLevel = options_mod.ScopeLevel;
 pub const addLogScopeOptions = options_mod.addLogScopeOptions;
 pub const addBuildOptsModToModule = options_mod.addBuildOptsModToModule;
 
-const zigmodule_mod = @import("zigmodule.zig");
-pub const ZigCLink = zigmodule_mod.ZigCLink;
-pub const ZigCBind = zigmodule_mod.ZigCBind;
-pub const ZigModule = zigmodule_mod.ZigModule;
+const deps_mod = @import("deps.zig");
+pub const DepCLink = deps_mod.DepCLink;
+pub const DepCBind = deps_mod.DepCBind;
+pub const DepModule = deps_mod.DepModule;
 
 const freedesktop_mod = @import("freedesktop.zig");
 pub const addLinuxDesktopFile = freedesktop_mod.addLinuxDesktopFile;

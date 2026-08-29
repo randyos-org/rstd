@@ -23,14 +23,15 @@ pub const build_options = @import("build_options");
 
 // exported modules at the Zig build level
 pub const buildutils = @import("buildutils/__root__.zig");
-pub const machine = @import("machine.zig");
-pub const io = @import("io.zig");
 
+pub const bytes = @import("bytes.zig");
 pub const debug = @import("debug.zig");
 pub const dll = @import("dll.zig");
-pub const rgl = @import("rgl/__root__.zig");
+pub const io = @import("io.zig");
 pub const log = @import("log.zig");
+pub const machine = @import("machine.zig");
 pub const mem = @import("mem.zig");
+pub const rgl = @import("rgl/__root__.zig");
 pub const windows = @import("_os/windows/__root__.zig");
 pub const zigcfg = @import("zigcfg.zig");
 

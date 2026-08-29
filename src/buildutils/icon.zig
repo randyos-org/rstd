@@ -1,4 +1,5 @@
-// const std = @import("std");
+// const rc = @import("rc");
+
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const LazyPath = rstdbuild.LazyPath;
@@ -7,7 +8,6 @@ const Module = rstdbuild.Module;
 
 const files = @import("files.zig");
 const addRstd = @import("rstd.zig").addRstd;
-// const rc = @import("rc");
 
 pub const Icon = struct {
     const Self = @This();

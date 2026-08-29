@@ -4,7 +4,6 @@ const files = @import("files.zig");
 const Build = rstdbuild.Build;
 const LazyPath = rstdbuild.LazyPath;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
-const allocPrint = @import("std").fmt.allocPrint;
 
 /// add a FreeDesktop `.desktop` file and icon to the install step for Linux targets
 pub fn addLinuxDesktopFile(
@@ -17,8 +16,8 @@ pub fn addLinuxDesktopFile(
 ) !void {
     if (target.result.os.tag != .linux) return;
 
-    const desktop_name = try allocPrint(b.allocator, "{s}.desktop", .{name});
-    const desktop_contents = try allocPrint(b.allocator,
+    const desktop_name = try b.allocator.print("{s}.desktop", .{name});
+    const desktop_contents = try b.allocator.print(
         \\[Desktop Entry]
         \\Type=Application
         \\Version=1.0
@@ -33,7 +32,7 @@ pub fn addLinuxDesktopFile(
     const build_dir = files.addBuildDir(b);
     const desktop_path = build_dir.add(desktop_name, desktop_contents);
 
-    const icon_name = try allocPrint(b.allocator, "{s}.png", .{name});
+    const icon_name = try b.allocator.print("{s}.png", .{name});
     const install_step = b.getInstallStep();
     install_step.dependOn(&b.addInstallFileWithDir(
         desktop_path,

@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const zon = @import("../build.zig.zon");
 pub const rstd = @import("../src/__root__.zig");
 

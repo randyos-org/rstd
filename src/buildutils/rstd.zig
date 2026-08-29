@@ -5,14 +5,14 @@ const module = @import("module.zig");
 const Build = rstdbuild.Build;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Docs = docs_mod.Docs;
-const ZigModule = @import("zigmodule.zig").ZigModule;
+const DepModule = @import("deps.zig").DepModule;
 
 pub fn addRstd(
     b: *Build,
     target: ?ResolvedTarget,
     docs: ?Docs,
     vulkan: bool,
-) !ZigModule {
+) !DepModule {
     const rstd_dep = b.dependency("rstd", .{
         .target = target,
         .vulkan = vulkan,

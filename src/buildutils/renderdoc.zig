@@ -3,9 +3,9 @@ const Build = rstdbuild.Build;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Module = rstdbuild.Module;
 const OptimizeMode = rstdbuild.OptimizeMode;
-const ZigModule = @import("zigmodule.zig").ZigModule;
+const DepModule = @import("deps.zig").DepModule;
 
-pub fn addRenderDoc(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) ZigModule {
+pub fn addRenderDoc(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) DepModule {
     const tc = b.addTranslateC(.{
         .root_source_file = b.dependency("renderdoc", .{}).path("renderdoc/api/app/renderdoc_app.h"),
         .target = target,

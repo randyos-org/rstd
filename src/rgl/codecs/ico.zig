@@ -2,33 +2,28 @@ const std = @import("std");
 
 const Image = @import("../Image.zig");
 const png = @import("png.zig");
+const bytes = @import("../../bytes.zig");
 
-fn appendU16LE(alloc: std.mem.Allocator, list: *std.ArrayList(u8), v: u16) !void {
-    try list.appendSlice(alloc, &std.mem.toBytes(std.mem.nativeToLittle(u16, v)));
-}
-fn appendU32LE(alloc: std.mem.Allocator, list: *std.ArrayList(u8), v: u32) !void {
-    try list.appendSlice(alloc, &std.mem.toBytes(std.mem.nativeToLittle(u32, v)));
-}
+const appendIntLE = bytes.appendIntLE;
 
-/// writeICO packs PNG-encoded images (Vista+ supports PNG entries) into one
-/// .ico.
+/// packs PNG-encoded images (Vista+ supports PNG entries) into one .ico
 pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs: []const Image) !void {
-    const Entry = struct { w: i32, h: i32, png: []const u8 };
+    const Entry = struct { w: u32, h: u32, png: []const u8 };
     var entries: std.ArrayList(Entry) = .empty;
     defer entries.deinit(allocator);
 
     for (imgs) |im| {
         const png_bytes = try png.encode(allocator, &im);
-        try entries.append(allocator, .{ .w = @intCast(im.width), .h = @intCast(im.height), .png = png_bytes });
+        try entries.append(allocator, .{ .w = im.width, .h = im.height, .png = png_bytes });
     }
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
 
     // ICONDIR
-    try appendU16LE(allocator, &out, 0); // reserved
-    try appendU16LE(allocator, &out, 1); // type: icon
-    try appendU16LE(allocator, &out, @intCast(entries.items.len));
+    try appendIntLE(allocator, &out, u16, 0); // reserved
+    try appendIntLE(allocator, &out, u16, 1); // type: icon
+    try appendIntLE(allocator, &out, u16, @intCast(entries.items.len));
 
     var offset: u32 = 6 + 16 * @as(u32, @intCast(entries.items.len));
     for (entries.items) |e| {
@@ -42,10 +37,10 @@ pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs
         try out.append(allocator, dim(e.h));
         try out.append(allocator, 0); // color palette
         try out.append(allocator, 0); // reserved
-        try appendU16LE(allocator, &out, 1); // planes
-        try appendU16LE(allocator, &out, 32); // bpp
-        try appendU32LE(allocator, &out, @intCast(e.png.len)); // bytes
-        try appendU32LE(allocator, &out, offset); // offset
+        try appendIntLE(allocator, &out, u16, 1); // planes
+        try appendIntLE(allocator, &out, u16, 32); // bpp
+        try appendIntLE(allocator, &out, u32, @intCast(e.png.len)); // bytes
+        try appendIntLE(allocator, &out, u32, offset); // offset
         offset += @intCast(e.png.len);
     }
     for (entries.items) |e| {

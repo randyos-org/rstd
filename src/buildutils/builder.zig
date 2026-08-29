@@ -1,4 +1,3 @@
-// const std = @import("std");
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const OptimizeMode = rstdbuild.OptimizeMode;

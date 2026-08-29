@@ -46,7 +46,7 @@ pub fn addLogScopeOptions(
     } else false;
 
     // Values are @backingInt(LogLevel); logging.zig converts back with @enumFromInt.
-    var levels: std.StringArrayHashMapUnmanaged(LogLevelInt) = .empty;
+    var levels: std.array_hash_map.String(LogLevelInt) = .empty;
     if (!reset_defaults) {
         for (default_scope_levels) |dsl| try levels.put(b.allocator, dsl.scope, @backingInt(dsl.level));
     }
