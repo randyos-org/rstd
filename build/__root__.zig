@@ -20,9 +20,13 @@ pub fn build(b: *Build) !void {
     });
     rstdbuild.addBuildOptsModToModule(build_options, rstd_mod);
     rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
-    // only add RenderDoc to non-Vulkan targets
-    if (target.result.os.tag != .vulkan) {
-        rstdbuild.addRenderDoc(b, target, optimize).addImportToModule(rstd_mod);
+    // only add RenderDoc to non-Vulkan, desktop-OS targets
+    switch (target.result.os.tag) {
+        .windows,
+        .linux,
+        .macos,
+        => rstdbuild.addRenderDoc(b, target, optimize).addImportToModule(rstd_mod),
+        else => {},
     }
 
     // rgl's Vulkan/SPIR-V shaders pull in no extra dependency (the
