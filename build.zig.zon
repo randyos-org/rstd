@@ -8,6 +8,14 @@
             .url = "git+https://github.com/marlersoft/zigwin32#65cb93421729e89c0acc99f90550e8ad0e6ceb87",
             .hash = "win32-32.0.17-preview-mX5pFV2k5QN3LlWB1QQWEJv6wltK3Eq5Nn-ZDa_2_Na6",
         },
+        .renderdoc = .{
+            .url = "git+https://github.com/baldurk/renderdoc.git#cbeb5804cf5372b163cab5469a52d0ad89832bdb",
+            .hash = "N-V-__8AACi8yAyv7GHLjXzWor_RJiNT6r5Lx4yj8g79rU5m",
+        },
+        .rc = .{
+            .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
+            .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",
+        },
     },
 
     // package hash is computed from files in .paths

@@ -20,6 +20,10 @@ pub fn build(b: *Build) !void {
     });
     rstdbuild.addBuildOptsModToModule(build_options, rstd_mod);
     rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
+    // only add RenderDoc to non-Vulkan targets
+    if (target.result.os.tag != .vulkan) {
+        rstdbuild.addRenderDoc(b, target, optimize).addImportToModule(rstd_mod);
+    }
 
     // rgl's Vulkan/SPIR-V shaders pull in no extra dependency (the
     // spirv32-vulkan target ships in the compiler), but rstd is a

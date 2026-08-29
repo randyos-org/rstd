@@ -58,7 +58,7 @@ pub fn addLogScopeOptions(
         _ = levels.swapRemove(scope);
     }
     for (log_scope_level_args) |arg| {
-        const eq = std.mem.indexOfScalar(u8, arg, '=') orelse
+        const eq = std.mem.findScalar(u8, arg, '=') orelse
             std.debug.panic("-Dlog-scope-level value \"{s}\" is missing '=' (expected \"scope=level\")", .{arg});
         const scope = arg[0..eq];
         const level_name = arg[eq + 1 ..];

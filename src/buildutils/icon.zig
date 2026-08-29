@@ -7,6 +7,7 @@ const Module = rstdbuild.Module;
 
 const files = @import("files.zig");
 const addRstd = @import("rstd.zig").addRstd;
+// const rc = @import("rc");
 
 pub const Icon = struct {
     const Self = @This();
@@ -16,7 +17,23 @@ pub const Icon = struct {
     rgba_build_path: LazyPath,
     rgba_name: []const u8,
 
-    pub fn addToModule(self: *const Self, mod: *Module) void {
+    // `addWin32ResourceFile` is deprecated in favor of the `rc` package
+    // (https://codeberg.org/ziglang/rc, already in build.zig.zon), but `rc`'s
+    // resinator/aro dependency chain doesn't build yet against this
+    // toolchain's std-library churn
+    pub fn addToModule(self: *const Self, b: *Build, mod: *Module) void {
+        _ = b;
+        // const target = mod.resolved_target.?;
+        // if (target.result.os.tag == .windows) {
+        //     const rc_dep = b.dependency("rc", .{});
+        //     var compiler: rc.Compiler = .init(rc_dep, .{
+        //         .rc_files = &.{self.rc_build_path},
+        //         .target = target,
+        //         .optimize = mod.optimize.?,
+        //     });
+        //     mod.addObjectFile(compiler.getObjectFile());
+        // }
+
         mod.addWin32ResourceFile(.{ .file = self.rc_build_path });
         mod.addAnonymousImport(self.png_name, .{ .root_source_file = self.png_build_path });
         mod.addAnonymousImport(self.rgba_name, .{ .root_source_file = self.rgba_build_path });

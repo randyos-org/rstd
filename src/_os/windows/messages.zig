@@ -520,9 +520,9 @@ pub const WinMsg = enum(u32) {
     _,
 };
 
-pub fn msgToStr(msg: u32, buf: *[6]u8) []const u8 {
+pub fn msgToStr(msg: u32, buf: *[6]u8) ![]const u8 {
     return switch (@as(WinMsg, @fromBackingInt(@intCast(msg)))) {
-        _ => std.fmt.bufPrint(buf, "0x{x:04}", .{msg}) catch unreachable,
+        _ => try std.mem.print(buf, "0x{x:04}", .{msg}),
         else => |e| @tagName(e),
     };
 }

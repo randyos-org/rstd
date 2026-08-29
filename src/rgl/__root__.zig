@@ -5,6 +5,8 @@ pub const codecs = @import("codecs/__root__.zig");
 pub const color = @import("color.zig");
 pub const draw = @import("draw.zig");
 pub const shaders = @import("shaders/__root__.zig");
+pub const render = @import("render.zig");
+pub const renderdoc = @import("renderdoc.zig");
 
 test {
     // shaders excluded: its @embedFiles only resolve when build.zig

@@ -99,6 +99,7 @@ dgettext
 dir
 DIRENV
 DLAB
+dlopen
 dngettext
 DOFORK
 dotenv
@@ -545,6 +546,7 @@ nlist
 NOATIME
 NOCTTY
 NOHUGEPAGE
+NOLOAD
 nommu
 NORESERVE
 nospu
@@ -713,6 +715,7 @@ rt_sigsuspend
 rt_sigtimedwait
 rt_tgsigqueueinfo
 rtas
+RTLD
 rtnetlink
 RTPRIO
 RTTIME
@@ -831,6 +834,7 @@ statfs
 statmount
 statx
 std
+stdbool
 stdlib
 STPCLK
 stty

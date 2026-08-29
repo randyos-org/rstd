@@ -59,3 +59,6 @@ pub const addRstd = rstd_dep_mod.addRstd;
 const win32_mod = @import("win32.zig");
 pub const addWin32 = win32_mod.addWin32;
 pub const addWin32ToModIfWinTgt = win32_mod.addWin32ToModIfWinTgt;
+
+const renderdoc_mod = @import("renderdoc.zig");
+pub const addRenderDoc = renderdoc_mod.addRenderDoc;
