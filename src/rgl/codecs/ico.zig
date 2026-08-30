@@ -28,7 +28,7 @@ pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs
     var offset: u32 = 6 + 16 * @as(u32, @intCast(entries.items.len));
     for (entries.items) |e| {
         const dim = struct {
-            fn f(v: i32) u8 {
+            fn f(v: u32) u8 {
                 if (v >= 256) return 0; // 0 means 256 in the ICO spec
                 return @intCast(v);
             }
