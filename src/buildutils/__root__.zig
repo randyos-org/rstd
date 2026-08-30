@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const machine = @import("../machine.zig");
+pub const io = @import("../io.zig");
 
 pub const Build = std.Build;
 pub const Step = Build.Step;
