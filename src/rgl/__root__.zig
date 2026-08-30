@@ -12,8 +12,11 @@ test {
     // shaders excluded: its @embedFiles only resolve when build.zig
     // compiled rgl's shaders (-Dvulkan=true), which a plain `zig build
     // rstd-test` doesn't do by default.
+    //
+    // renderdoc is also excluded since it is only conditionally included
     std.testing.refAllDecls(Image);
     std.testing.refAllDecls(codecs);
     std.testing.refAllDecls(color);
     std.testing.refAllDecls(draw);
+    std.testing.refAllDecls(render);
 }
