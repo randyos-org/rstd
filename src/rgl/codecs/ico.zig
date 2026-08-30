@@ -23,7 +23,7 @@ pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs
     // ICONDIR
     try appendIntLE(allocator, &out, u16, 0); // reserved
     try appendIntLE(allocator, &out, u16, 1); // type: icon
-    try appendIntLE(allocator, &out, u16, @intCast(entries.items.len));
+    try appendIntLE(allocator, &out, u16, entries.items.len);
 
     var offset: u32 = 6 + 16 * @as(u32, @intCast(entries.items.len));
     for (entries.items) |e| {
@@ -39,7 +39,7 @@ pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs
         try out.append(allocator, 0); // reserved
         try appendIntLE(allocator, &out, u16, 1); // planes
         try appendIntLE(allocator, &out, u16, 32); // bpp
-        try appendIntLE(allocator, &out, u32, @intCast(e.png.len)); // bytes
+        try appendIntLE(allocator, &out, u32, e.png.len); // bytes
         try appendIntLE(allocator, &out, u32, offset); // offset
         offset += @intCast(e.png.len);
     }
