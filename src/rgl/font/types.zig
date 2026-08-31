@@ -129,11 +129,6 @@ test "TTF Fixed type serialization and math" {
     try testExpectEqualSlices(u8, &expected_neg_bytes, &neg_bytes);
 }
 
-pub const FWord = i16;
-pub const UFWord = u16;
-pub const LongDateTime = i64;
-pub const Tag = [4]u8;
-
 pub const Version16Dot16 = packed struct(u32) {
     minor: u16,
     major: u16,
@@ -172,3 +167,30 @@ test "Parsing Version16Dot16" {
     try testExpectEqual(@as(u16, 1), version.major);
     try testExpectEqual(@as(u16, 0), version.minor);
 }
+
+pub const FWord = i16;
+pub const UFWord = u16;
+pub const LongDateTime = i64;
+
+pub const TagStr = packed struct(u32) {
+    data: [4]u8,
+
+    pub fn strip(self: TagStr) []const u8 {
+        var len = 4;
+        while (len > 0 and self.data[len - 1] == ' ') : (len -= 1) {}
+        return self.data[0..len];
+    }
+
+    pub fn fromInt(v: u32) TagStr {
+        var tag: TagStr = undefined;
+        writeIntBE(u32, &tag, v);
+        return tag;
+    }
+
+    pub fn fromStr(s: []const u8) !TagStr {
+        if (s.len > 4) return error.StringTooLong;
+        var tag: TagStr = @splat(" ");
+        @memcpy(&tag, s);
+        return tag;
+    }
+};

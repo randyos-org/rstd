@@ -48,12 +48,16 @@ bufs
 buildah
 buildutils
 bvec
+bytecode
 cachestat
 callgsubr
 callsubr
 capget
 capset
+CBDT
+CBLC
 cgroup
+charstrings
 chdir
 chmod
 chown
@@ -109,6 +113,7 @@ dngettext
 DOFORK
 dotenv
 dotni
+downscaling
 DSYNC
 dtes
 dup
@@ -126,6 +131,7 @@ EBADR
 EBADRQC
 EBADSLT
 EBFONT
+EBSC
 ECHRNG
 ECOMM
 EDK
@@ -251,6 +257,7 @@ fdtable
 FERR
 fgetxattr
 fheight
+fi
 file_getattr
 file_setattr
 filesystem
@@ -264,6 +271,8 @@ flock
 flut
 fontdicts
 fork
+fpgm
+FreeType
 fremovexattr
 fsconfig
 fsetxattr
@@ -311,6 +320,7 @@ futex_wait
 futex_waitv
 futex_wake
 futimesat
+fvar
 FWAIT
 FXRSTOR
 fxsr
@@ -367,6 +377,7 @@ glibc
 glsl
 GLSL
 Glslang
+glyf
 gobj
 gobject
 gofmt
@@ -374,12 +385,14 @@ gresource
 gsubrs
 gterm
 gtty
+gvar
 gzclose
 gzlib
 gzread
 gzwrite
 Harf
 Harfbuzz
+HarfBuzz
 hflex
 hhcurveto
 HLAT
@@ -388,6 +401,7 @@ hprime
 hstem
 hstemhm
 HUGETLB
+HVAR
 hvcurveto
 HWCAP
 HWPOISON
@@ -505,6 +519,7 @@ membarrier
 memfd_create
 memfd_secret
 memsz
+MERG
 migrate_pages
 mincore
 MINSIGSTKSZ
@@ -537,6 +552,7 @@ mq_timedsend
 mq_unlink
 mremap
 MSDF
+MSDF-based
 mseal
 msgctl
 msgget
@@ -551,6 +567,7 @@ munlock
 munlockall
 munmap
 musl
+MVAR
 MWAIT
 name_to_handle_at
 nanoftp
@@ -620,6 +637,7 @@ pciconfig
 PCID
 pcide
 PCLMULQDQ
+PCLT
 pdcm
 pdict
 perf_event_open
@@ -758,6 +776,8 @@ rtnetlink
 RTPRIO
 RTTIME
 RXRSTOR
+sbix
+scanline
 sched_get_priority_max
 sched_get_priority_min
 sched_getaffinity
@@ -881,6 +901,7 @@ stty
 Subr
 Subrs
 subrsoff
+supersampling
 swapoff
 swapon
 symlink
@@ -904,6 +925,8 @@ systemd-udevd
 SYSTIMER
 tee
 termio
+texel
+texels
 tgkill
 thisreallyprobablydoesntexist
 Tiano
@@ -923,7 +946,10 @@ tkill
 tmpfs
 toolchain
 topdictidx
+TrueType
+TrueType-style
 truncate
+Turbopack
 tuxcall
 tvec
 Txxxxx
@@ -987,10 +1013,12 @@ vmove
 vmoveto
 vmsplice
 vmxe
+VORG
 vserver
 vstem
 vstemhm
 vsyscall
+VVAR
 vvcurveto
 wait4
 waitid
@@ -1042,26 +1070,3 @@ ziggify
 zigimg
 zutil
 zxdg
-rfont
-TrueType
-Turbopack
-MSDF-based
-charstrings
-bytecode
-scanline
-supersampling
-MSDF
-FreeType
-TrueType-style
-TrueType
-glyf
-downscaling
-TrueType
-texel
-TrueType
-texels
-TrueType
-fi
-HarfBuzz
-sphtext
-sphimp
