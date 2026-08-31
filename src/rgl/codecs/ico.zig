@@ -4,10 +4,14 @@ const Image = @import("../Image.zig");
 const png = @import("png.zig");
 const bytes = @import("../../bytes.zig");
 
+const zigstd = @import("../../zigstd.zig");
+const Allocator = zigstd.Allocator;
+const StdIo = zigstd.StdIo;
+
 const appendIntLE = bytes.appendIntLE;
 
 /// packs PNG-encoded images (Vista+ supports PNG entries) into one .ico
-pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs: []const Image) !void {
+pub fn writeICO(allocator: Allocator, io: StdIo, name: []const u8, imgs: []const Image) !void {
     const Entry = struct { w: u32, h: u32, png: []const u8 };
     var entries: std.ArrayList(Entry) = .empty;
     defer entries.deinit(allocator);
@@ -52,8 +56,9 @@ pub fn writeICO(allocator: std.mem.Allocator, io: std.Io, name: []const u8, imgs
 }
 
 test "writeICO produces a valid one-entry ICONDIR header" {
-    const alloc = std.testing.allocator;
-    var threaded: std.Io.Threaded = .init(alloc, .{});
+    const alloc = zigstd.testAllocator;
+    const readIntLE = bytes.readIntLE;
+    var threaded: StdIo.Threaded = .init(alloc, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -62,12 +67,12 @@ test "writeICO produces a valid one-entry ICONDIR header" {
 
     const path = "_test_ico_write_ico_output.ico";
     try writeICO(alloc, io, path, &.{img});
-    defer std.Io.Dir.cwd().deleteFile(io, path) catch {};
+    defer StdIo.Dir.cwd().deleteFile(io, path) catch {};
 
-    const written = try std.Io.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
+    const written = try StdIo.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
     defer alloc.free(written);
     // ICONDIR: reserved=0, type=1 (icon), count=1
-    try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, written[0..2], .little));
-    try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, written[2..4], .little));
-    try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, written[4..6], .little));
+    try zigstd.testExpectEqual(@as(u16, 0), readIntLE(u16, written[0..2]));
+    try zigstd.testExpectEqual(@as(u16, 1), readIntLE(u16, written[2..4]));
+    try zigstd.testExpectEqual(@as(u16, 1), readIntLE(u16, written[4..6]));
 }

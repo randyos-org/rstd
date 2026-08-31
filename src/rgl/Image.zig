@@ -1,22 +1,27 @@
-const std = @import("std");
+// const std = @import("std");
 
 const color = @import("color.zig");
 const Point = @import("draw.zig").Point;
 const RGBA = color.RGBA;
+
+const bytes = @import("../bytes.zig");
+const zigstd = @import("../zigstd.zig");
+const Allocator = zigstd.Allocator;
+const StdIo = zigstd.StdIo;
 
 const Self = @This();
 width: u32,
 height: u32,
 data: []RGBA,
 
-pub fn init(alloc: std.mem.Allocator, width: u32, height: u32, fill: ?RGBA) !Self {
+pub fn init(alloc: Allocator, width: u32, height: u32, fill: ?RGBA) !Self {
     const data = try alloc.alloc(RGBA, width * height);
     errdefer alloc.free(data);
     if (fill) |f| @memset(data, f);
     return .{ .width = width, .height = height, .data = data };
 }
 
-pub fn destroy(self: *Self, alloc: std.mem.Allocator) void {
+pub fn destroy(self: *Self, alloc: Allocator) void {
     alloc.free(self.data);
 }
 
@@ -36,35 +41,35 @@ pub fn getPixelPoint(img: *const Self, p: Point) RGBA {
     return img.data[(p.y * img.width) + p.x];
 }
 
-pub fn writeRgbaFile(self: *const Self, io: std.Io, path: []const u8) !void {
+pub fn writeRgbaFile(self: *const Self, io: StdIo, path: []const u8) !void {
     // RGBA is a packed struct of four u8 fields, so img.data is already
     // byte-for-byte identical to the output format -- no copy needed.
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = std.mem.sliceAsBytes(self.data) });
+    try StdIo.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = bytes.fromSlice(self.data) });
 }
 
 test "init/setPixel/getPixel round-trip by (x,y) and by Point" {
-    const alloc = std.testing.allocator;
+    const alloc = zigstd.testAllocator;
     var img = try init(alloc, 3, 2, null);
     defer img.destroy(alloc);
 
     img.setPixel(1, 0, .{ .r = 10, .g = 20, .b = 30, .a = 40 });
-    try std.testing.expect(img.getPixel(1, 0).equals(.{ .r = 10, .g = 20, .b = 30, .a = 40 }));
+    try zigstd.testExpectTrue(img.getPixel(1, 0).equals(.{ .r = 10, .g = 20, .b = 30, .a = 40 }));
 
     const p: Point = .{ .x = 2, .y = 1 };
     img.setPixelPoint(p, .{ .r = 1, .g = 2, .b = 3, .a = 4 });
-    try std.testing.expect(img.getPixelPoint(p).equals(.{ .r = 1, .g = 2, .b = 3, .a = 4 }));
+    try zigstd.testExpectTrue(img.getPixelPoint(p).equals(.{ .r = 1, .g = 2, .b = 3, .a = 4 }));
 }
 
 test "init fills every pixel when given a fill color" {
-    const alloc = std.testing.allocator;
+    const alloc = zigstd.testAllocator;
     var img = try init(alloc, 4, 4, RGBA.blank);
     defer img.destroy(alloc);
-    for (img.data) |p| try std.testing.expect(p.equals(RGBA.blank));
+    for (img.data) |p| try zigstd.testExpectTrue(p.equals(RGBA.blank));
 }
 
 test "writeRgbaFile writes tightly-packed RGBA bytes" {
-    const alloc = std.testing.allocator;
-    var threaded: std.Io.Threaded = .init(alloc, .{});
+    const alloc = zigstd.testAllocator;
+    var threaded: StdIo.Threaded = .init(alloc, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -75,9 +80,9 @@ test "writeRgbaFile writes tightly-packed RGBA bytes" {
 
     const path = "_test_image_write_rgba_output.rgba";
     try img.writeRgbaFile(io, path);
-    defer std.Io.Dir.cwd().deleteFile(io, path) catch {};
+    defer StdIo.Dir.cwd().deleteFile(io, path) catch {};
 
-    const written = try std.Io.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
+    const written = try StdIo.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
     defer alloc.free(written);
-    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, written);
+    try zigstd.testExpectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, written);
 }

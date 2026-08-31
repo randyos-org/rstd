@@ -1,5 +1,6 @@
-const std = @import("std");
+// const std = @import("std");
 const win32 = @import("win32");
+const zigstd = @import("../../zigstd.zig");
 
 const wmconst = win32.ui.windows_and_messaging;
 const ctlconst = win32.ui.controls;
@@ -522,7 +523,7 @@ pub const WinMsg = enum(u32) {
 
 pub fn msgToStr(msg: u32, buf: *[6]u8) ![]const u8 {
     return switch (@as(WinMsg, @fromBackingInt(@intCast(msg)))) {
-        _ => try std.mem.print(buf, "0x{x:04}", .{msg}),
+        _ => try zigstd.sprintf(buf, "0x{x:04}", .{msg}),
         else => |e| @tagName(e),
     };
 }

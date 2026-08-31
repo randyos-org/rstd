@@ -2,6 +2,7 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
 
+const bytes = @import("../../../bytes.zig");
 const logging = @import("../../../log.zig");
 const log = logging.Logger(@This());
 
@@ -60,7 +61,7 @@ pub fn dirOpenFile(userdata: ?*anyopaque, _: Io.Dir, sub_path: []const u8, optio
     // UEFI wants UCS-2 with backslash separators.
     var path_utf16: [128:0]u16 = undefined;
     if (sub_path.len >= path_utf16.len) return error.NameTooLong;
-    const len = std.unicode.utf8ToUtf16Le(&path_utf16, sub_path) catch return error.BadPathName;
+    const len = bytes.utf8ToWinStrBuf(&path_utf16, sub_path) catch return error.BadPathName;
     for (path_utf16[0..len]) |*unit| {
         if (unit.* == '/') unit.* = '\\';
     }

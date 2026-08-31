@@ -12,9 +12,10 @@ const build_options = @import("build_options");
 
 const std = @import("std");
 const root = @import("root");
+const equal = @import("zigstd.zig").equal;
 
 fn moduleName(comptime module: [:0]const u8) []const u8 {
-    if (@hasDecl(root, "log_module_name") and std.mem.eql(u8, module, "root"))
+    if (@hasDecl(root, "log_module_name") and equal(u8, module, "root"))
         return root.log_module_name;
     return module;
 }
@@ -95,7 +96,7 @@ pub fn logFn(
 
 fn levelEnabled(comptime level: std.log.Level, comptime scope_name: []const u8) bool {
     for (build_options.logger_scope_names, build_options.logger_scope_name_levels) |name, scope_level| {
-        if (std.mem.eql(u8, name, scope_name)) return @backingInt(level) <= scope_level;
+        if (equal(u8, name, scope_name)) return @backingInt(level) <= scope_level;
     }
     return @backingInt(level) <= @backingInt(std.options.log_level);
 }

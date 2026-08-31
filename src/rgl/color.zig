@@ -119,7 +119,7 @@ pub fn gammaDecodeChannel(law: GammaLawConsts, encoded: f32) f32 {
 /// Rounds an already byte-scaled value (e.g. `128 + cb * 255`) to the nearest `u8`,
 /// clamping first so an out-of-range result can't overflow the cast.
 pub inline fn roundToByte(value: f32) u8 {
-    return @intFromFloat(clamp(@round(value), 0, 255));
+    return @trunc(clamp(@round(value), 0, 255));
 }
 
 /// Converts a `u8` channel to its normalized `[0, 1]` float value.
@@ -157,7 +157,7 @@ pub const RGBA = packed struct {
     pub const blank: Self = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return self.asU32() == other.asU32();
+        return self.toU32() == other.toU32();
     }
 
     pub fn print(self: Self) void {
@@ -172,15 +172,15 @@ pub const RGBA = packed struct {
         std.debug.print("#{X}{X}{X}", .{ self.r, self.g, self.b });
     }
 
-    pub inline fn asU32(self: Self) u32 {
+    pub inline fn toU32(self: Self) u32 {
         return @bitCast(self);
     }
 
-    pub inline fn asArray(self: Self) [4]u8 {
+    pub inline fn toArray(self: Self) [4]u8 {
         return .{ self.r, self.g, self.b, self.a };
     }
 
-    pub inline fn asRGBAf32(self: Self) RGBAf32 {
+    pub inline fn toRGBAf32(self: Self) RGBAf32 {
         return .{
             .r = byteToFloat(self.r),
             .g = byteToFloat(self.g),
@@ -189,7 +189,7 @@ pub const RGBA = packed struct {
         };
     }
 
-    pub inline fn asBGRA(self: Self) BGRA {
+    pub inline fn toBGRA(self: Self) BGRA {
         return .{ .b = self.b, .g = self.g, .r = self.r, .a = self.a };
     }
 };
@@ -212,11 +212,11 @@ pub const RGBAf32 = packed struct {
         std.debug.print("<RGBAf32 {f} {f} {f} {f}>", .{ self.r, self.g, self.b, self.a });
     }
 
-    pub inline fn asArray(self: Self) [4]f32 {
+    pub inline fn toArray(self: Self) [4]f32 {
         return .{ self.r, self.g, self.b, self.a };
     }
 
-    pub inline fn asRGBA(self: Self) RGBA {
+    pub inline fn toRGBA(self: Self) RGBA {
         return .{
             .r = floatToByte(self.r),
             .g = floatToByte(self.g),
@@ -225,7 +225,7 @@ pub const RGBAf32 = packed struct {
         };
     }
 
-    pub fn asHSLAf32(self: Self) HSLAf32 {
+    pub fn toHSLAf32(self: Self) HSLAf32 {
         const red = clamp(self.r, 0, 1);
         const green = clamp(self.g, 0, 1);
         const blue = clamp(self.b, 0, 1);
@@ -249,7 +249,7 @@ pub const RGBAf32 = packed struct {
 
     /// Converts gamma-encoded (display-ready) R'G'B' to linear-light RGB. Alpha is
     /// always linear and passes through unchanged.
-    pub fn asLinear(self: Self, law: GammaLawConsts) Self {
+    pub fn toLinear(self: Self, law: GammaLawConsts) Self {
         return .{
             .r = gammaDecodeChannel(law, self.r),
             .g = gammaDecodeChannel(law, self.g),
@@ -260,7 +260,7 @@ pub const RGBAf32 = packed struct {
 
     /// Converts linear-light RGB to a gamma-encoded (display-ready) R'G'B' signal.
     /// Alpha is always linear and passes through unchanged.
-    pub fn asGammaEncoded(self: Self, law: GammaLawConsts) Self {
+    pub fn toGammaEncoded(self: Self, law: GammaLawConsts) Self {
         return .{
             .r = gammaEncodeChannel(law, self.r),
             .g = gammaEncodeChannel(law, self.g),
@@ -270,7 +270,7 @@ pub const RGBAf32 = packed struct {
     }
 
     /// Derives luma/chroma from gamma-encoded R'G'B' per `consts`' matrix.
-    pub fn asYCbCrAf32(self: Self, consts: YCbCrConsts) YCbCrAf32 {
+    pub fn toYCbCrAf32(self: Self, consts: YCbCrConsts) YCbCrAf32 {
         const kr = consts.kr;
         const kb = consts.kb;
         const kg = 1 - kr - kb;
@@ -292,18 +292,18 @@ pub const BGRA = packed struct {
     a: u8,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return self.asU32() == other.asU32();
+        return self.toU32() == other.toU32();
     }
 
     pub fn print(self: Self) void {
         std.debug.print("<BGRA {d} {d} {d} {d}>", .{ self.b, self.g, self.r, self.a });
     }
 
-    pub inline fn asU32(self: Self) u32 {
+    pub inline fn toU32(self: Self) u32 {
         return @bitCast(self);
     }
 
-    pub inline fn asRGBA(self: Self) RGBA {
+    pub inline fn toRGBA(self: Self) RGBA {
         return .{ .r = self.r, .g = self.g, .b = self.b, .a = self.a };
     }
 };
@@ -323,11 +323,11 @@ pub const HSLAf32 = packed struct {
         std.debug.print("<HSLAf32 {f} {f} {f} {f}>", .{ self.h, self.s, self.l, self.a });
     }
 
-    pub inline fn asArray(self: Self) [4]f32 {
+    pub inline fn toArray(self: Self) [4]f32 {
         return .{ self.h, self.s, self.l, self.a };
     }
 
-    pub fn asRGBAf32(self: Self) RGBAf32 {
+    pub fn toRGBAf32(self: Self) RGBAf32 {
         const s = clamp(self.s, 0, 1);
         const l = clamp(self.l, 0, 1);
         const chroma = (1 - @abs(2 * l - 1)) * s;
@@ -356,11 +356,11 @@ pub const HSLAf32 = packed struct {
         };
     }
 
-    pub fn asRGBA(self: Self) RGBA {
-        return self.asRGBAf32().asRGBA();
+    pub fn toRGBA(self: Self) RGBA {
+        return self.toRGBAf32().toRGBA();
     }
 
-    pub fn asHSLA(self: Self) HSLA {
+    pub fn toHSLA(self: Self) HSLA {
         return .{
             .h = floatToByte(self.h),
             .s = floatToByte(self.s),
@@ -378,18 +378,18 @@ pub const HSLA = packed struct {
     a: u8,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return self.asU32() == other.asU32();
+        return self.toU32() == other.toU32();
     }
 
     pub fn print(self: Self) void {
         std.debug.print("<HSLA {d} {d} {d} {d}>", .{ self.h, self.s, self.l, self.a });
     }
 
-    pub inline fn asU32(self: Self) u32 {
+    pub inline fn toU32(self: Self) u32 {
         return @bitCast(self);
     }
 
-    pub inline fn asHSLAf32(self: Self) HSLAf32 {
+    pub inline fn toHSLAf32(self: Self) HSLAf32 {
         return .{
             .h = byteToFloat(self.h),
             .s = byteToFloat(self.s),
@@ -398,12 +398,12 @@ pub const HSLA = packed struct {
         };
     }
 
-    pub inline fn asRGBAf32(self: Self) RGBAf32 {
-        return self.asHSLAf32().asRGBAf32();
+    pub inline fn toRGBAf32(self: Self) RGBAf32 {
+        return self.toHSLAf32().toRGBAf32();
     }
 
-    pub inline fn asRGBA(self: Self) RGBA {
-        return self.asRGBAf32().asRGBA();
+    pub inline fn toRGBA(self: Self) RGBA {
+        return self.toRGBAf32().toRGBA();
     }
 };
 
@@ -424,11 +424,11 @@ pub const YCbCrAf32 = packed struct {
         std.debug.print("<YCbCrAf32 {f} {f} {f} {f}>", .{ self.y, self.cb, self.cr, self.a });
     }
 
-    pub inline fn asArray(self: Self) [4]f32 {
+    pub inline fn toArray(self: Self) [4]f32 {
         return .{ self.y, self.cb, self.cr, self.a };
     }
 
-    pub fn asRGBAf32(self: Self, consts: YCbCrConsts) RGBAf32 {
+    pub fn toRGBAf32(self: Self, consts: YCbCrConsts) RGBAf32 {
         const kr = consts.kr;
         const kb = consts.kb;
         const kg = 1 - kr - kb;
@@ -444,7 +444,7 @@ pub const YCbCrAf32 = packed struct {
         };
     }
 
-    pub fn asYCbCrA(self: Self, range: YCbCrRange) YCbCrA {
+    pub fn toYCbCrA(self: Self, range: YCbCrRange) YCbCrA {
         const r = rangeConsts(range);
         return .{
             .y = scaledOffsetToByte(self.y, r.luma_scale, r.luma_offset),
@@ -454,8 +454,8 @@ pub const YCbCrAf32 = packed struct {
         };
     }
 
-    pub fn asRGBA(self: Self, consts: YCbCrConsts) RGBA {
-        return self.asRGBAf32(consts).asRGBA();
+    pub fn toRGBA(self: Self, consts: YCbCrConsts) RGBA {
+        return self.toRGBAf32(consts).toRGBA();
     }
 };
 
@@ -470,22 +470,22 @@ pub const YCbCrA = packed struct {
     a: u8,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return self.asU32() == other.asU32();
+        return self.toU32() == other.toU32();
     }
 
     pub fn print(self: Self) void {
         std.debug.print("<YCbCrA {d} {d} {d} {d}>", .{ self.y, self.cb, self.cr, self.a });
     }
 
-    pub inline fn asU32(self: Self) u32 {
+    pub inline fn toU32(self: Self) u32 {
         return @bitCast(self);
     }
 
-    pub inline fn asArray(self: Self) [4]u8 {
+    pub inline fn toArray(self: Self) [4]u8 {
         return .{ self.y, self.cb, self.cr, self.a };
     }
 
-    pub fn asYCbCrAf32(self: Self, range: YCbCrRange) YCbCrAf32 {
+    pub fn toYCbCrAf32(self: Self, range: YCbCrRange) YCbCrAf32 {
         const r = rangeConsts(range);
         return .{
             .y = byteToScaledOffset(self.y, r.luma_scale, r.luma_offset),
@@ -495,12 +495,12 @@ pub const YCbCrA = packed struct {
         };
     }
 
-    pub fn asRGBAf32(self: Self, consts: YCbCrConsts, range: YCbCrRange) RGBAf32 {
-        return self.asYCbCrAf32(range).asRGBAf32(consts);
+    pub fn toRGBAf32(self: Self, consts: YCbCrConsts, range: YCbCrRange) RGBAf32 {
+        return self.toYCbCrAf32(range).toRGBAf32(consts);
     }
 
-    pub fn asRGBA(self: Self, consts: YCbCrConsts, range: YCbCrRange) RGBA {
-        return self.asRGBAf32(consts, range).asRGBA();
+    pub fn toRGBA(self: Self, consts: YCbCrConsts, range: YCbCrRange) RGBA {
+        return self.toRGBAf32(consts, range).toRGBA();
     }
 };
 
@@ -541,10 +541,10 @@ const _hsl_rgb_samples = [_]_HslRgbSample{
     .{ .r = 0.495, .g = 0.493, .b = 0.721, .h_deg = 240.5, .s = 0.290, .l = 0.607 }, // #7E7EB8
 };
 
-test "RGBAf32.asHSLAf32 matches the Wikipedia HSL reference table" {
+test "RGBAf32.toHSLAf32 matches the Wikipedia HSL reference table" {
     for (_hsl_rgb_samples) |sample| {
         const rgba = RGBAf32{ .r = sample.r, .g = sample.g, .b = sample.b, .a = 1 };
-        const hsl = rgba.asHSLAf32();
+        const hsl = rgba.toHSLAf32();
         if (sample.s != 0) {
             // hue is meaningless (and left at 0) for achromatic colors
             try std.testing.expectApproxEqAbs(sample.h_deg / 360.0, hsl.h, 0.003);
@@ -554,10 +554,10 @@ test "RGBAf32.asHSLAf32 matches the Wikipedia HSL reference table" {
     }
 }
 
-test "HSLAf32.asRGBAf32 matches the Wikipedia HSL reference table" {
+test "HSLAf32.toRGBAf32 matches the Wikipedia HSL reference table" {
     for (_hsl_rgb_samples) |sample| {
         const hsl = HSLAf32{ .h = sample.h_deg / 360.0, .s = sample.s, .l = sample.l, .a = 1 };
-        const rgba = hsl.asRGBAf32();
+        const rgba = hsl.toRGBAf32();
         try std.testing.expectApproxEqAbs(sample.r, rgba.r, 0.003);
         try std.testing.expectApproxEqAbs(sample.g, rgba.g, 0.003);
         try std.testing.expectApproxEqAbs(sample.b, rgba.b, 0.003);
@@ -569,7 +569,7 @@ test "RGBA <-> RGBAf32 round-trips every byte value exactly" {
     while (channel <= 255) : (channel += 1) {
         const byte: u8 = @intCast(channel);
         const original = RGBA{ .r = byte, .g = byte, .b = byte, .a = byte };
-        try std.testing.expectEqual(original, original.asRGBAf32().asRGBA());
+        try std.testing.expectEqual(original, original.toRGBAf32().toRGBA());
     }
 }
 
@@ -578,7 +578,7 @@ test "HSLA <-> HSLAf32 round-trips every byte value exactly" {
     while (channel <= 255) : (channel += 1) {
         const byte: u8 = @intCast(channel);
         const original = HSLA{ .h = byte, .s = byte, .l = byte, .a = byte };
-        try std.testing.expectEqual(original, original.asHSLAf32().asHSLA());
+        try std.testing.expectEqual(original, original.toHSLAf32().toHSLA());
     }
 }
 
@@ -605,7 +605,7 @@ test "RGBAf32.toLinear/toGammaEncoded round-trip for every standard" {
     for (_gamma_laws) |law| {
         for (_gamma_round_trip_samples) |value| {
             const rgba = RGBAf32{ .r = value, .g = value, .b = value, .a = 1 };
-            const round_tripped = rgba.asGammaEncoded(law).asLinear(law);
+            const round_tripped = rgba.toGammaEncoded(law).toLinear(law);
             try std.testing.expectApproxEqAbs(value, round_tripped.r, 1e-4);
             try std.testing.expectApproxEqAbs(value, round_tripped.g, 1e-4);
             try std.testing.expectApproxEqAbs(value, round_tripped.b, 1e-4);
@@ -647,30 +647,30 @@ const _ycbcr_601_full_range_samples = [_]_YCbCr601FullRangeSample{
     .{ .r = 0.000, .g = 0.000, .b = 1.000, .y = 29, .cb = 255, .cr = 107 }, // blue
 };
 
-test "RGBAf32.asYCbCrAf32 (rec601, full range) matches known JPEG conversion values" {
+test "RGBAf32.toYCbCrAf32 (rec601, full range) matches known JPEG conversion values" {
     for (_ycbcr_601_full_range_samples) |sample| {
         const rgba = RGBAf32{ .r = sample.r, .g = sample.g, .b = sample.b, .a = 1 };
-        const ycbcr = rgba.asYCbCrAf32(Rec601Std.ycbcr).asYCbCrA(.full);
+        const ycbcr = rgba.toYCbCrAf32(Rec601Std.ycbcr).toYCbCrA(.full);
         try std.testing.expectEqual(sample.y, ycbcr.y);
         try std.testing.expectEqual(sample.cb, ycbcr.cb);
         try std.testing.expectEqual(sample.cr, ycbcr.cr);
     }
 }
 
-test "YCbCrA.asRGBA (rec601, full range) matches known JPEG conversion values" {
+test "YCbCrA.toRGBA (rec601, full range) matches known JPEG conversion values" {
     for (_ycbcr_601_full_range_samples) |sample| {
         const ycbcr = YCbCrA{ .y = sample.y, .cb = sample.cb, .cr = sample.cr, .a = 255 };
-        const rgba = ycbcr.asRGBA(Rec601Std.ycbcr, .full);
-        try std.testing.expectApproxEqAbs(sample.r, rgba.asRGBAf32().r, 0.004);
-        try std.testing.expectApproxEqAbs(sample.g, rgba.asRGBAf32().g, 0.004);
-        try std.testing.expectApproxEqAbs(sample.b, rgba.asRGBAf32().b, 0.004);
+        const rgba = ycbcr.toRGBA(Rec601Std.ycbcr, .full);
+        try std.testing.expectApproxEqAbs(sample.r, rgba.toRGBAf32().r, 0.004);
+        try std.testing.expectApproxEqAbs(sample.g, rgba.toRGBAf32().g, 0.004);
+        try std.testing.expectApproxEqAbs(sample.b, rgba.toRGBAf32().b, 0.004);
     }
 }
 
 test "srgb's YCbCr matrix matches rec601's" {
     for (_ycbcr_601_full_range_samples) |sample| {
         const rgba = RGBAf32{ .r = sample.r, .g = sample.g, .b = sample.b, .a = 1 };
-        try std.testing.expectEqual(rgba.asYCbCrAf32(Rec601Std.ycbcr), rgba.asYCbCrAf32(SrgbStd.ycbcr));
+        try std.testing.expectEqual(rgba.toYCbCrAf32(Rec601Std.ycbcr), rgba.toYCbCrAf32(SrgbStd.ycbcr));
     }
 }
 
@@ -678,8 +678,8 @@ const ycbcr_consts = [_]YCbCrConsts{ SrgbStd.ycbcr, Rec601Std.ycbcr, Rec709Std.y
 
 test "safe-range Y hits the standard 16 (black) / 235 (white) video levels" {
     for (ycbcr_consts) |consts| {
-        const black = (RGBAf32{ .r = 0, .g = 0, .b = 0, .a = 1 }).asYCbCrAf32(consts).asYCbCrA(.safe);
-        const white = (RGBAf32{ .r = 1, .g = 1, .b = 1, .a = 1 }).asYCbCrAf32(consts).asYCbCrA(.safe);
+        const black = (RGBAf32{ .r = 0, .g = 0, .b = 0, .a = 1 }).toYCbCrAf32(consts).toYCbCrA(.safe);
+        const white = (RGBAf32{ .r = 1, .g = 1, .b = 1, .a = 1 }).toYCbCrAf32(consts).toYCbCrA(.safe);
         try std.testing.expectEqual(@as(u8, 16), black.y);
         try std.testing.expectEqual(@as(u8, 128), black.cb);
         try std.testing.expectEqual(@as(u8, 128), black.cr);
@@ -701,7 +701,7 @@ test "RGBAf32 <-> YCbCrAf32 round-trips for every standard and range" {
         for (ranges) |range| {
             for (colors) |color| {
                 const rgba = RGBAf32{ .r = color[0], .g = color[1], .b = color[2], .a = 1 };
-                const round_tripped = rgba.asYCbCrAf32(consts).asYCbCrA(range).asYCbCrAf32(range).asRGBAf32(consts);
+                const round_tripped = rgba.toYCbCrAf32(consts).toYCbCrA(range).toYCbCrAf32(range).toRGBAf32(consts);
                 // Byte quantization (safe range in particular, with its narrower
                 // 219/224-step scale) introduces rounding noise that the matrix
                 // inversion can amplify, so this needs a looser tolerance than the

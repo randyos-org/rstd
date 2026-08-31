@@ -4,10 +4,15 @@ const flate = std.compress.flate;
 const RGBA = @import("../color.zig").RGBA;
 const Image = @import("../Image.zig");
 const bytes = @import("../../bytes.zig");
+const zigstd = @import("../../zigstd.zig");
+const Allocator = zigstd.Allocator;
+const StdIo = zigstd.StdIo;
+const equal = zigstd.equal;
 
 const appendIntBE = bytes.appendIntBE;
 const appendArrayBytes = bytes.appendArrayBytes;
 const readIntBE = bytes.readIntBE;
+const writeIntBE = bytes.writeIntBE;
 const ByteArrayList = bytes.ByteArrayList;
 // const structAsBytes = bytes.structAsBytes;
 
@@ -19,11 +24,24 @@ fn crc32(data: []const u8) u32 {
     return h.final();
 }
 
-pub const PngChunkType = enum(u32) {
-    IHDR = readIntBE(u32, "IHDR"),
-    IDAT = readIntBE(u32, "IDAT"),
-    IEND = readIntBE(u32, "IEND"),
-    _, // any other (ancillary) chunk type
+pub const PngChunkType = enum {
+    const Self = @This();
+
+    IHDR,
+    IDAT,
+    IEND,
+
+    pub fn toInt(id: Self) u32 {
+        var array4: [4]u8 = undefined;
+        @memcpy(&array4, @tagName(id));
+        return readIntBE(u32, &array4);
+    }
+
+    pub fn fromInt(v: u32) !Self {
+        var array4: [4]u8 = undefined;
+        writeIntBE(u32, &array4, v);
+        return std.meta.stringToEnum(Self, &array4) orelse error.UnsupportedPngChunk;
+    }
 };
 
 pub const PngChunk = struct {
@@ -39,10 +57,10 @@ pub const PngChunk = struct {
         return meta_size + self.data.len;
     }
 
-    pub fn appendToByteArrayList(self: *const Self, alloc: std.mem.Allocator, list: *ByteArrayList) !void {
+    pub fn appendToByteArrayList(self: *const Self, alloc: Allocator, list: *ByteArrayList) !void {
         try appendIntBE(alloc, list, u32, self.data.len);
         const start = list.items.len;
-        try appendIntBE(alloc, list, u32, @backingInt(self.chunk_type));
+        try appendIntBE(alloc, list, u32, self.chunk_type.toInt());
         try list.appendSlice(alloc, self.data);
         try appendIntBE(alloc, list, u32, crc32(list.items[start..]));
     }
@@ -54,9 +72,9 @@ pub const PngChunk = struct {
         const crc_start = total_len - 4;
 
         if (in.len < total_len) return error.InvalidPngChunk;
-        const chunk_type: PngChunkType = @fromBackingInt(readIntBE(u32, in[type_start..data_start]));
+        const chunk_type = try PngChunkType.fromInt(readIntBE(u32, in[type_start..data_start]));
         const data = in[data_start..crc_start];
-        const crc = readIntBE(u32, in[crc_start..total_len]);
+        const crc = readIntBE(u32, in[crc_start..][0..4]);
         if (crc != crc32(in[type_start..crc_start])) return error.InvalidPngChunk;
         return .{
             .chunk_type = chunk_type,
@@ -82,8 +100,8 @@ pub const IHdr = struct {
     interlace_method: u8,
 
     pub fn toBytes(self: *Self, out: *[size]u8) void {
-        std.mem.writeInt(u32, out[0..4], @intCast(self.width), .big);
-        std.mem.writeInt(u32, out[4..8], @intCast(self.height), .big);
+        writeIntBE(u32, out[0..4], self.width);
+        writeIntBE(u32, out[4..8], self.height);
         out[8] = self.bit_depth;
         out[9] = @backingInt(self.color_type);
         out[10] = self.compression_method;
@@ -110,7 +128,7 @@ pub const IHdr = struct {
         };
     }
 
-    pub fn appendToByteArrayList(self: *Self, alloc: std.mem.Allocator, list: *ByteArrayList) !void {
+    pub fn appendToByteArrayList(self: *Self, alloc: Allocator, list: *ByteArrayList) !void {
         var buf: [size]u8 = undefined;
         self.toBytes(&buf);
         try (PngChunk{
@@ -122,7 +140,7 @@ pub const IHdr = struct {
 
 /// a minimal, non-interlaced, filter-type-0 (None) RGBA8 PNG
 /// encoder. See https://www.w3.org/TR/png/ for the chunk layout.
-pub fn encode(alloc: std.mem.Allocator, img: *const Image) ![]u8 {
+pub fn encode(alloc: Allocator, img: *const Image) ![]u8 {
     var out: ByteArrayList = .empty;
     defer out.deinit(alloc);
     try out.appendSlice(alloc, &png_signature);
@@ -151,7 +169,7 @@ pub fn encode(alloc: std.mem.Allocator, img: *const Image) ![]u8 {
         try appendArrayBytes(alloc, &uncompressed, img.data[y * w .. (y + 1) * w]);
     }
 
-    var idat: std.Io.Writer.Allocating = try .initCapacity(alloc, 4096);
+    var idat: StdIo.Writer.Allocating = try .initCapacity(alloc, 4096);
     defer idat.deinit();
     var window: [flate.max_window_len]u8 = undefined;
     var compressor = try flate.Compress.init(&idat.writer, &window, .zlib, .default);
@@ -171,11 +189,12 @@ pub fn encode(alloc: std.mem.Allocator, img: *const Image) ![]u8 {
 
 /// a minimal decoder for 8-bit depth, non-interlaced, RGB or RGBA color type,
 /// any per-scanline filter (None/Sub/Up/Average/Paeth), any chunk ordering
-/// with unknown ancillary chunks (pHYs, tEXt, gAMA, iCCP, ...) skipped.
-/// Palette, grayscale, 16-bit, and interlaced PNGs are out of scope.
-pub fn decode(alloc: std.mem.Allocator, raw_bytes: []const u8) !Image {
+/// with unrecognized ancillary chunks (pHYs, tEXt, gAMA, iCCP, ...) reported
+/// via std.debug.print and skipped. Palette, grayscale, 16-bit, and
+/// interlaced PNGs are out of scope.
+pub fn decode(alloc: Allocator, raw_bytes: []const u8) !Image {
     const sig_len = png_signature.len;
-    if (raw_bytes.len < sig_len or !std.mem.eql(u8, raw_bytes[0..sig_len], &png_signature)) {
+    if (raw_bytes.len < sig_len or !equal(u8, raw_bytes[0..sig_len], &png_signature)) {
         return error.InvalidPngSignature;
     }
     var pos: usize = sig_len;
@@ -191,17 +210,28 @@ pub fn decode(alloc: std.mem.Allocator, raw_bytes: []const u8) !Image {
     pos += ihdr_chunk.len();
 
     // Collect all IDAT chunks (PNG allows the compressed stream to be split
-    // across several of them) and skip any unrecognized ancillary chunks
-    // (pHYs, tEXt, gAMA, iCCP, ...) until IEND.
+    // across several of them) until IEND. PngChunkType.fromInt rejects any
+    // chunk type other than IHDR/IDAT/IEND; ancillary chunks (pHYs, tEXt,
+    // gAMA, iCCP, ...) are caught here, reported, and skipped rather than
+    // aborting the whole decode.
     var idat: ByteArrayList = .empty;
     defer idat.deinit(alloc);
     while (true) {
-        const chunk = try PngChunk.fromBytes(raw_bytes[pos..]);
+        const chunk = PngChunk.fromBytes(raw_bytes[pos..]) catch |err| switch (err) {
+            error.UnsupportedPngChunk => {
+                const data_len = readIntBE(u32, raw_bytes[pos..][0..PngChunk.type_start]);
+                const tag = raw_bytes[pos..][PngChunk.type_start..PngChunk.data_start];
+                std.debug.print("png.decode: ignoring unsupported chunk \"{s}\"\n", .{tag});
+                pos += PngChunk.meta_size + data_len;
+                continue;
+            },
+            else => return err,
+        };
         pos += chunk.len();
         switch (chunk.chunk_type) {
             .IDAT => try idat.appendSlice(alloc, chunk.data),
             .IEND => break,
-            else => {},
+            .IHDR => return error.InvalidPngChunk,
         }
     }
 
@@ -212,11 +242,11 @@ pub fn decode(alloc: std.mem.Allocator, raw_bytes: []const u8) !Image {
     const h: usize = @intCast(height);
     const stride = w * bpp;
 
-    var idat_reader: std.Io.Reader = .fixed(idat.items);
+    var idat_reader: StdIo.Reader = .fixed(idat.items);
     var inflate_buf: [flate.max_window_len]u8 = undefined;
     var decompress: flate.Decompress = .init(&idat_reader, .zlib, &inflate_buf);
 
-    var uncompressed: std.Io.Writer.Allocating = try .initCapacity(alloc, h * (stride + 1));
+    var uncompressed: StdIo.Writer.Allocating = try .initCapacity(alloc, h * (stride + 1));
     defer uncompressed.deinit();
     _ = try decompress.reader.streamRemaining(&uncompressed.writer);
     const filtered = uncompressed.written();
@@ -290,7 +320,7 @@ fn paeth(a: u8, b: u8, c: u8) u8 {
 }
 
 test "encode/decode round-trips a small RGBA image" {
-    const alloc = std.testing.allocator;
+    const alloc = zigstd.testAllocator;
     var img = try Image.init(alloc, 3, 2, null);
     defer img.destroy(alloc);
     img.setPixel(0, 0, .{ .r = 255, .g = 0, .b = 0, .a = 255 });
@@ -306,12 +336,12 @@ test "encode/decode round-trips a small RGBA image" {
     var decoded = try decode(alloc, raw_bytes);
     defer decoded.destroy(alloc);
 
-    try std.testing.expectEqual(img.width, decoded.width);
-    try std.testing.expectEqual(img.height, decoded.height);
-    for (img.data, decoded.data) |a, b| try std.testing.expect(a.equals(b));
+    try zigstd.testExpectEqual(img.width, decoded.width);
+    try zigstd.testExpectEqual(img.height, decoded.height);
+    for (img.data, decoded.data) |a, b| try zigstd.testExpectTrue(a.equals(b));
 }
 
 test "decode rejects a non-PNG signature" {
-    const alloc = std.testing.allocator;
-    try std.testing.expectError(error.InvalidPngSignature, decode(alloc, "not a png"));
+    const alloc = zigstd.testAllocator;
+    try zigstd.testExpectError(error.InvalidPngSignature, decode(alloc, "not a png"));
 }

@@ -4,6 +4,7 @@ const os_tag = sysinfo.os.tag;
 const is_windows = os_tag == .windows;
 const DynLib = std.DynLib;
 const win32 = @import("win32");
+const Allocator = @import("zigstd.zig").Allocator;
 
 pub const WinDll = struct {
     const Self = @This();
@@ -61,7 +62,7 @@ pub fn findLoaded(name: [:0]const u8) ?Dll {
     return .{ .inner = .{ .handle = handle } };
 }
 
-pub fn loadDll(alloc: std.mem.Allocator, lib_name: []const u8) !Dll {
+pub fn loadDll(alloc: Allocator, lib_name: []const u8) !Dll {
     const lib_name_fmt = if (is_windows) "{s}.dll" else "lib{s}.so";
     const lib = try alloc.print(lib_name_fmt, .{lib_name});
     defer alloc.free(lib);
