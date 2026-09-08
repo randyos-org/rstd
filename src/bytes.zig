@@ -26,27 +26,27 @@ pub fn appendArrayBytes(alloc: Allocator, list: *ByteArrayList, data: anytype) !
     try list.appendSlice(alloc, fromSlice(data));
 }
 
-pub inline fn readIntEndian(int_type: type, raw_bytes: *const [@sizeOf(int_type)]u8, endian: Endian) int_type {
-    return @intCast(std.mem.readInt(int_type, raw_bytes, endian));
+pub inline fn readIntEndian(int_type: type, raw_bytes: []const u8, endian: Endian) int_type {
+    return @intCast(std.mem.readInt(int_type, raw_bytes[0..@sizeOf(int_type)], endian));
 }
 
-pub inline fn readIntBE(int_type: type, raw_bytes: *const [@sizeOf(int_type)]u8) int_type {
+pub inline fn readIntBE(int_type: type, raw_bytes: []const u8) int_type {
     return readIntEndian(int_type, raw_bytes, .big);
 }
 
-pub inline fn readIntLE(int_type: type, raw_bytes: *const [@sizeOf(int_type)]u8) int_type {
+pub inline fn readIntLE(int_type: type, raw_bytes: []const u8) int_type {
     return readIntEndian(int_type, raw_bytes, .little);
 }
 
-pub inline fn writeIntEndian(int_type: type, raw_bytes: *[@sizeOf(int_type)]u8, v: anytype, endian: Endian) void {
-    std.mem.writeInt(int_type, raw_bytes, @intCast(v), endian);
+pub inline fn writeIntEndian(int_type: type, raw_bytes: []u8, v: anytype, endian: Endian) void {
+    std.mem.writeInt(int_type, raw_bytes[0..@sizeOf(int_type)], @intCast(v), endian);
 }
 
-pub inline fn writeIntBE(int_type: type, raw_bytes: *[@sizeOf(int_type)]u8, v: anytype) void {
+pub inline fn writeIntBE(int_type: type, raw_bytes: []u8, v: anytype) void {
     writeIntEndian(int_type, raw_bytes, v, .big);
 }
 
-pub inline fn writeIntLE(int_type: type, raw_bytes: *[@sizeOf(int_type)]u8, v: anytype) void {
+pub inline fn writeIntLE(int_type: type, raw_bytes: []u8, v: anytype) void {
     writeIntEndian(int_type, raw_bytes, v, .little);
 }
 
@@ -75,34 +75,109 @@ pub inline fn leToNative(val: anytype) @TypeOf(val) {
     return toNative(val, .little);
 }
 
-pub fn typeSwapIfNotNative(comptime T: type, val: *const []u8, endian: Endian) T {
-    if (sysinfo.cpu.arch.endian() == endian) return viewAsValue(T, val);
+pub fn arraySwapIfNotNative(comptime Elem: type, dest: []Elem, src: []const u8, endian: Endian) void {
+    const dest_bytes = fromSlice(dest);
+    @memcpy(dest_bytes, src[0..dest_bytes.len]);
+    if (sysinfo.cpu.arch.endian() != endian) {
+        std.mem.byteSwapAllElements(Elem, dest);
+    }
+}
+
+pub inline fn arrayNativeToBE(comptime Elem: type, dest: []Elem, src: []const u8) void {
+    arraySwapIfNotNative(Elem, dest, src, .big);
+}
+
+pub inline fn arrayNativeToLE(comptime Elem: type, dest: []Elem, src: []const u8) void {
+    arraySwapIfNotNative(Elem, dest, src, .little);
+}
+
+pub const arrayToNative = arraySwapIfNotNative;
+
+pub inline fn arrayBEToNative(comptime Elem: type, dest: []Elem, src: []const u8) void {
+    arrayToNative(Elem, dest, src, .big);
+}
+
+pub inline fn arrayLEToNative(comptime Elem: type, dest: []Elem, src: []const u8) void {
+    arrayToNative(Elem, dest, src, .little);
+}
+
+pub fn typeSwapIfNotNative(comptime T: type, val: []const u8, endian: Endian) T {
+    if (sysinfo.cpu.arch.endian() == endian) return viewAsValue(T, val).*;
     const size = @sizeOf(T);
-    var ret: [size]u8 = undefined;
+    var ret: [size]u8 align(@alignOf(T)) = undefined;
     @memcpy(&ret, val[0..size]);
-    std.mem.byteSwap(T, &ret);
+    std.mem.byteSwap(T, viewAsValue(T, &ret));
     return viewAsValue(T, &ret).*;
 }
 
-pub inline fn typeNativeToBE(comptime T: type, val: *const []u8) T {
+pub inline fn typeNativeToBE(comptime T: type, val: []const u8) T {
     return typeSwapIfNotNative(T, val, .big);
 }
 
-pub inline fn typeNativeToLE(comptime T: type, val: *const []u8) T {
+pub inline fn typeNativeToLE(comptime T: type, val: []const u8) T {
     return typeSwapIfNotNative(T, val, .little);
 }
 
 pub const typeToNative = typeSwapIfNotNative;
 
-pub inline fn typeBEToNative(comptime T: type, val: *const []u8) T {
+pub inline fn typeBEToNative(comptime T: type, val: []const u8) T {
     return typeToNative(T, val, .big);
 }
 
-pub inline fn typeLEToNative(comptime T: type, val: *const []u8) T {
+pub inline fn typeLEToNative(comptime T: type, val: []const u8) T {
     return typeToNative(T, val, .little);
 }
 
+pub fn allocTypeSwapIfNotNative(alloc: Allocator, comptime T: type, val: []const u8, endian: Endian) !*T {
+    const ret = try alloc.create(T);
+    ret.* = typeSwapIfNotNative(T, val, endian);
+    return ret;
+}
+
+pub inline fn allocTypeNativeToBE(alloc: Allocator, comptime T: type, val: []const u8) !*T {
+    return allocTypeSwapIfNotNative(alloc, T, val, .big);
+}
+
+pub inline fn allocTypeNativeToLE(alloc: Allocator, comptime T: type, val: []const u8) !*T {
+    return allocTypeSwapIfNotNative(alloc, T, val, .little);
+}
+
+pub const allocTypeToNative = allocTypeSwapIfNotNative;
+
+pub inline fn allocTypeBEToNative(alloc: Allocator, comptime T: type, val: []const u8) !*T {
+    return allocTypeToNative(alloc, T, val, .big);
+}
+
+pub inline fn allocTypeLEToNative(alloc: Allocator, comptime T: type, val: []const u8) !*T {
+    return allocTypeToNative(alloc, T, val, .little);
+}
+
+pub fn allocArraySwapIfNotNative(alloc: Allocator, comptime Elem: type, count: usize, src: []const u8, endian: Endian) ![]Elem {
+    const dest = try alloc.alloc(Elem, count);
+    arraySwapIfNotNative(Elem, dest, src, endian);
+    return dest;
+}
+
+pub inline fn allocArrayNativeToBE(alloc: Allocator, comptime Elem: type, count: usize, src: []const u8) ![]Elem {
+    return allocArraySwapIfNotNative(alloc, Elem, count, src, .big);
+}
+
+pub inline fn allocArrayNativeToLE(alloc: Allocator, comptime Elem: type, count: usize, src: []const u8) ![]Elem {
+    return allocArraySwapIfNotNative(alloc, Elem, count, src, .little);
+}
+
+pub const allocArrayToNative = allocArraySwapIfNotNative;
+
+pub inline fn allocArrayBEToNative(alloc: Allocator, comptime Elem: type, count: usize, src: []const u8) ![]Elem {
+    return allocArrayToNative(alloc, Elem, count, src, .big);
+}
+
+pub inline fn allocArrayLEToNative(alloc: Allocator, comptime Elem: type, count: usize, src: []const u8) ![]Elem {
+    return allocArrayToNative(alloc, Elem, count, src, .little);
+}
+
 pub const viewAsValue = std.mem.bytesAsValue;
+pub const viewAsSlice = std.mem.bytesAsSlice;
 pub const fromSlice = std.mem.sliceAsBytes;
 
 pub const utf8ToWinStrConst = std.unicode.utf8ToUtf16LeStringLiteral;
@@ -115,3 +190,38 @@ pub const utf8ToWinStrAlloc = std.unicode.utf8ToUtf16LeAlloc;
 pub const winStrToUtf8Buf = std.unicode.utf16LeToUtf8;
 pub const winStrToUtf8Alloc = std.unicode.utf16LeToUtf8Alloc;
 pub const winStrToUtf8AllocZ = std.unicode.utf16LeToUtf8AllocZ;
+
+pub const BytesError = error{
+    EndOfStream,
+};
+
+pub inline fn checkSize(val: []const u8, offset: usize, comptime T: type) BytesError!void {
+    return checkOffset(val, offset + @sizeOf(T));
+}
+
+pub inline fn checkOffset(val: []const u8, offset: usize) BytesError!void {
+    if (offset > val.len) return BytesError.EndOfStream;
+}
+
+pub inline fn checkRange(val: []const u8, start: usize, end: usize) BytesError!void {
+    try checkOffset(val, start);
+    try checkOffset(val, end);
+}
+
+pub inline fn checkSlice(val: []const u8, offset: usize, len: usize) BytesError!void {
+    return checkRange(val, offset, offset + len);
+}
+
+pub inline fn checkArray(val: []const u8, offset: usize, count: usize, comptime T: type) BytesError!void {
+    return checkSlice(val, offset, count * @sizeOf(T));
+}
+
+pub inline fn safeRange(val: []const u8, start: usize, end: usize, check: bool) BytesError![]const u8 {
+    if (check) try checkRange(val, start, end);
+    return val[start..end];
+}
+
+pub inline fn safeSlice(val: []const u8, offset: usize, len: usize, check: bool) BytesError![]const u8 {
+    if (check) try checkSlice(val, offset, len);
+    return val[offset .. offset + len];
+}

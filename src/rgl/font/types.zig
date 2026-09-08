@@ -172,25 +172,46 @@ pub const FWord = i16;
 pub const UFWord = u16;
 pub const LongDateTime = i64;
 
-pub const TagStr = packed struct(u32) {
+pub const TagStr = extern struct {
     data: [4]u8,
 
-    pub fn strip(self: TagStr) []const u8 {
-        var len = 4;
+    pub fn strip(self: *const TagStr) []const u8 {
+        var len: usize = 4;
         while (len > 0 and self.data[len - 1] == ' ') : (len -= 1) {}
         return self.data[0..len];
     }
 
     pub fn fromInt(v: u32) TagStr {
         var tag: TagStr = undefined;
-        writeIntBE(u32, &tag, v);
+        writeIntBE(u32, &tag.data, v);
         return tag;
     }
 
     pub fn fromStr(s: []const u8) !TagStr {
         if (s.len > 4) return error.StringTooLong;
-        var tag: TagStr = @splat(" ");
-        @memcpy(&tag, s);
+        var tag: TagStr = .{ .data = @splat(' ') };
+        @memcpy(tag.data[0..s.len], s);
         return tag;
     }
+};
+
+test "TagStr.fromStr pads short tags with spaces, strip() removes them" {
+    const short = try TagStr.fromStr("cvt");
+    try testExpectEqualSlices(u8, "cvt ", &short.data);
+    try testExpectEqualSlices(u8, "cvt", short.strip());
+
+    const full = try TagStr.fromStr("cmap");
+    try testExpectEqualSlices(u8, "cmap", &full.data);
+    try testExpectEqualSlices(u8, "cmap", full.strip());
+}
+
+test "TagStr.fromInt/fromStr agree on the same 4 bytes" {
+    const from_str = try TagStr.fromStr("cmap");
+    const from_int = TagStr.fromInt(readIntBE(u32, &from_str.data));
+    try testExpectEqualSlices(u8, &from_str.data, &from_int.data);
+}
+
+pub const GlyphIndex = enum(u16) {
+    notdef = 0,
+    _,
 };

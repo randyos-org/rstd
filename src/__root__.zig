@@ -29,6 +29,7 @@ pub const io = @import("io.zig");
 pub const log = @import("log.zig");
 pub const machine = @import("machine.zig");
 pub const mem = @import("mem.zig");
+pub const reduce = @import("reduce.zig");
 pub const rgl = @import("rgl/__root__.zig");
 pub const windows = @import("_os/windows/__root__.zig");
 pub const zigcfg = @import("zigcfg.zig");

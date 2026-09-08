@@ -74,7 +74,7 @@ pub const PngChunk = struct {
         if (in.len < total_len) return error.InvalidPngChunk;
         const chunk_type = try PngChunkType.fromInt(readIntBE(u32, in[type_start..data_start]));
         const data = in[data_start..crc_start];
-        const crc = readIntBE(u32, in[crc_start..][0..4]);
+        const crc = readIntBE(u32, in[crc_start..]);
         if (crc != crc32(in[type_start..crc_start])) return error.InvalidPngChunk;
         return .{
             .chunk_type = chunk_type,
@@ -100,8 +100,8 @@ pub const IHdr = struct {
     interlace_method: u8,
 
     pub fn toBytes(self: *Self, out: *[size]u8) void {
-        writeIntBE(u32, out[0..4], self.width);
-        writeIntBE(u32, out[4..8], self.height);
+        writeIntBE(u32, out[0..], self.width);
+        writeIntBE(u32, out[4..], self.height);
         out[8] = self.bit_depth;
         out[9] = @backingInt(self.color_type);
         out[10] = self.compression_method;
@@ -111,8 +111,8 @@ pub const IHdr = struct {
 
     pub fn fromBytes(in: *const [size]u8) Self {
         return .{
-            .width = readIntBE(u32, in[0..4]),
-            .height = readIntBE(u32, in[4..8]),
+            .width = readIntBE(u32, in[0..]),
+            .height = readIntBE(u32, in[4..]),
             .bit_depth = in[8],
             .color_type = @fromBackingInt(in[9]),
             .compression_method = in[10],

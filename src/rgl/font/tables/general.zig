@@ -2,25 +2,12 @@ const std = @import("std");
 
 const types = @import("../types.zig");
 const bytes = @import("../../../bytes.zig");
+const zigstd = @import("../../../zigstd.zig");
 
 const readIntBE = bytes.readIntBE;
 const writeIntBE = bytes.writeIntBE;
 const TagStr = types.TagStr;
 const Fixed = types.Fixed;
-
-const PlatformId = enum(u16) {
-    unicode = 0,
-    mac = 1,
-    iso = 2,
-    microsoft = 3,
-};
-
-const MicrosoftEncodingId = enum(u16) {
-    symbol = 0,
-    unicode_bmp = 1,
-    shiftjis = 2,
-    unicode_full = 10,
-};
 
 /// The list of all known table tags published in either the TTF or OTF specs.
 ///
@@ -172,21 +159,30 @@ pub const TableTag = enum {
     vmtx,
 
     pub fn toInt(id: Self) u32 {
-        var array4: TagStr = @splat(" ");
-        @memcpy(&array4, @tagName(id));
-        return readIntBE(u32, &array4);
+        var tag: TagStr = .{ .data = @splat(' ') };
+        const name = @tagName(id);
+        @memcpy(tag.data[0..name.len], name);
+        return readIntBE(u32, &tag.data);
     }
 
-    pub fn fromInt(v: u32) !Self {
+    pub const Error = error{UnsupportedTag};
+
+    pub fn fromInt(v: u32) Error!Self {
         var tag: TagStr = undefined;
-        writeIntBE(u32, &tag, v);
+        writeIntBE(u32, &tag.data, v);
         return fromTagStr(tag);
     }
 
-    pub fn fromTagStr(tag: TagStr) !Self {
+    pub fn fromTagStr(tag: TagStr) Error!Self {
         return std.meta.stringToEnum(Self, tag.strip()) orelse error.UnsupportedTag;
     }
 };
+
+test "TableTag.toInt/fromInt round-trip, including a 3-letter tag needing space padding" {
+    try zigstd.testExpectEqual(TableTag.cmap, try TableTag.fromInt(TableTag.cmap.toInt()));
+    try zigstd.testExpectEqual(TableTag.cvt, try TableTag.fromInt(TableTag.cvt.toInt()));
+    try zigstd.testExpectEqual(@as(u32, 0x63767420), TableTag.cvt.toInt()); // "cvt "
+}
 
 pub const ScalerType = enum {
     const Self = @This();
@@ -195,21 +191,31 @@ pub const ScalerType = enum {
     ps,
     otf,
 
-    pub fn fromInt(v: u32) !Self {
-        const alttrue = TagStr.fromInt(0x00010000);
-        const truestr = TagStr.fromStr("true");
-        const typ1 = TagStr.fromStr("typ1");
-        const otto = TagStr.fromStr("OTTO");
-        switch (v) {
-            alttrue, truestr => return .ttf,
-            typ1 => return .ps,
-            otto => return .otf,
-            else => return error.UnsupportedScalerType,
-        }
+    pub const Error = error{UnsupportedScalerType};
+
+    pub fn fromInt(v: u32) Error!Self {
+        const alttrue: u32 = 0x00010000;
+        const truestr = comptime readIntBE(u32, "true");
+        const typ1 = comptime readIntBE(u32, "typ1");
+        const otto = comptime readIntBE(u32, "OTTO");
+        return switch (v) {
+            alttrue, truestr => .ttf,
+            typ1 => .ps,
+            otto => .otf,
+            else => error.UnsupportedScalerType,
+        };
     }
 };
 
-const OffsetTable = packed struct {
+test "ScalerType.fromInt recognizes all four accepted forms and rejects anything else" {
+    try zigstd.testExpectEqual(ScalerType.ttf, try ScalerType.fromInt(0x00010000));
+    try zigstd.testExpectEqual(ScalerType.ttf, try ScalerType.fromInt(readIntBE(u32, "true")));
+    try zigstd.testExpectEqual(ScalerType.ps, try ScalerType.fromInt(readIntBE(u32, "typ1")));
+    try zigstd.testExpectEqual(ScalerType.otf, try ScalerType.fromInt(readIntBE(u32, "OTTO")));
+    try zigstd.testExpectError(error.UnsupportedScalerType, ScalerType.fromInt(0xDEADBEEF));
+}
+
+pub const OffsetTable = extern struct {
     scaler: u32,
     num_tables: u16,
     search_range: u16,
@@ -217,7 +223,7 @@ const OffsetTable = packed struct {
     range_shift: u16,
 };
 
-const TableRecord = extern struct {
+pub const TableRecord = extern struct {
     const Self = @This();
 
     tag: TagStr,
@@ -233,78 +239,17 @@ const TableRecord = extern struct {
     }
 };
 
-const HeadTable = packed struct {
-    const Self = @This();
+test "OffsetTable matches the sfnt wire layout (12 bytes, no padding)" {
+    try zigstd.testExpectEqual(@as(usize, 12), @sizeOf(OffsetTable));
+    try zigstd.testExpectEqual(@as(usize, 4), @offsetOf(OffsetTable, "num_tables"));
+    try zigstd.testExpectEqual(@as(usize, 6), @offsetOf(OffsetTable, "search_range"));
+    try zigstd.testExpectEqual(@as(usize, 8), @offsetOf(OffsetTable, "entry_selector"));
+    try zigstd.testExpectEqual(@as(usize, 10), @offsetOf(OffsetTable, "range_shift"));
+}
 
-    version: Fixed,
-    font_revision: Fixed,
-    checksum_adjustment: u32,
-    magic_number: u32,
-    flags: u16,
-    units_per_em: u16,
-    created: i64,
-    modified: i64,
-    x_min: i16,
-    y_min: i16,
-    x_max: i16,
-    y_max: i16,
-    mac_style: u16,
-    lowest_rec_ppem: u16,
-    font_direction_hint: i16,
-    index_to_loc_format: i16,
-    glyph_data_format: i16,
-
-    pub fn calcTableChecksum(self: *Self, table_data: *[]const u8) u32 {
-        var sum: u32 = self.version + self.font_revision;
-        // assume checksum_adjustment is 0 for this calculation
-        const nLongs = (@sizeOf(Self) + 3) / 4 - 3; // subtract 3 for the two Fixed fields and checksum_adjustment
-        for (0..nLongs) |i| sum += @as(u32, table_data[12 + i * 4]);
-        return sum;
-    }
-
-    /// When calculating the raw_font_checksum_adj0, the checksum_adjustment field is assumed to be 0.
-    /// You may need to actually temporarily set it to zero since we don't necessarily know the packing scheme,
-    /// so set it to zero, calculate the checksum for the entire font byte array with the zero checksum,
-    /// and pass that value here.  Do not forget to then re-set the checksum_adjustment following the calculation.
-    pub fn calcChecksumAdj(raw_font_checksum_adj0: u32) u32 {
-        return 0xB1B0AFBA - raw_font_checksum_adj0;
-    }
-};
-
-const MaxpTable = packed struct {
-    version: Fixed,
-    num_glyphs: u16,
-    max_points: u16,
-    max_contours: u16,
-    max_component_points: u16,
-    max_component_contours: u16,
-    max_zones: u16,
-    max_twilight_points: u16,
-    max_storage: u16,
-    max_function_defs: u16,
-    max_instruction_defs: u16,
-    maxStackElements: u16,
-    maxSizeOfInstructions: u16,
-    maxComponentElements: u16,
-    maxComponentDepth: u16,
-};
-
-const HheaTable = packed struct {
-    version: Fixed,
-    ascent: i16,
-    descent: i16,
-    line_gap: i16,
-    advance_width_max: u16,
-    min_left_side_bearing: i16,
-    min_right_side_bearing: i16,
-    x_max_extent: i16,
-    caret_slope_rise: i16,
-    caret_slope_run: i16,
-    caret_offset: i16,
-    reserved1: i16,
-    reserved2: i16,
-    reserved3: i16,
-    reserved4: i16,
-    metric_data_format: i16,
-    num_of_long_hor_metrics: u16,
-};
+test "TableRecord matches the sfnt wire layout (16 bytes, no padding)" {
+    try zigstd.testExpectEqual(@as(usize, 16), @sizeOf(TableRecord));
+    try zigstd.testExpectEqual(@as(usize, 4), @offsetOf(TableRecord, "checksum"));
+    try zigstd.testExpectEqual(@as(usize, 8), @offsetOf(TableRecord, "offset"));
+    try zigstd.testExpectEqual(@as(usize, 12), @offsetOf(TableRecord, "length"));
+}
