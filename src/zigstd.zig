@@ -9,6 +9,7 @@ pub const StdIo = std.Io;
 pub const equal = std.mem.eql;
 pub const sprintf = std.mem.print;
 pub const log2Int = std.math.log2_int;
+pub const assert = std.debug.assert;
 
 pub const testExpectTrue = std.testing.expect;
 pub const testExpectEqual = std.testing.expectEqual;

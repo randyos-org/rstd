@@ -16,7 +16,7 @@ pub fn appendIntBE(alloc: Allocator, list: *ByteArrayList, int_type: type, v: an
 }
 
 pub fn appendIntEndian(alloc: Allocator, list: *ByteArrayList, int_type: type, v: anytype, endian: Endian) !void {
-    const size = @sizeOf(int_type);
+    const size = intByteWidth(int_type);
     var buf: [size]u8 = undefined;
     writeIntEndian(int_type, &buf, v, endian);
     try list.appendSlice(alloc, &buf);
@@ -26,8 +26,14 @@ pub fn appendArrayBytes(alloc: Allocator, list: *ByteArrayList, data: anytype) !
     try list.appendSlice(alloc, fromSlice(data));
 }
 
+// Wire width of int_type in bytes. Unlike @sizeOf, this isn't rounded up to
+// an ABI-friendly power of 2, so it also works for odd widths like u24
+pub inline fn intByteWidth(comptime int_type: type) comptime_int {
+    return @divExact(@bitSizeOf(int_type), 8);
+}
+
 pub inline fn readIntEndian(int_type: type, raw_bytes: []const u8, endian: Endian) int_type {
-    return @intCast(std.mem.readInt(int_type, raw_bytes[0..@sizeOf(int_type)], endian));
+    return @intCast(std.mem.readInt(int_type, raw_bytes[0..intByteWidth(int_type)], endian));
 }
 
 pub inline fn readIntBE(int_type: type, raw_bytes: []const u8) int_type {
@@ -39,7 +45,7 @@ pub inline fn readIntLE(int_type: type, raw_bytes: []const u8) int_type {
 }
 
 pub inline fn writeIntEndian(int_type: type, raw_bytes: []u8, v: anytype, endian: Endian) void {
-    std.mem.writeInt(int_type, raw_bytes[0..@sizeOf(int_type)], @intCast(v), endian);
+    std.mem.writeInt(int_type, raw_bytes[0..intByteWidth(int_type)], @intCast(v), endian);
 }
 
 pub inline fn writeIntBE(int_type: type, raw_bytes: []u8, v: anytype) void {
@@ -48,6 +54,60 @@ pub inline fn writeIntBE(int_type: type, raw_bytes: []u8, v: anytype) void {
 
 pub inline fn writeIntLE(int_type: type, raw_bytes: []u8, v: anytype) void {
     writeIntEndian(int_type, raw_bytes, v, .little);
+}
+
+// These all read/write at the very start of the given slice; slice to the
+// right offset before calling rather than passing one in.
+pub inline fn setU16BE(dst: []u8, v: u16) void {
+    writeIntBE(u16, dst[0..], v);
+}
+
+pub inline fn setI16BE(dst: []u8, v: i16) void {
+    writeIntBE(i16, dst[0..], v);
+}
+
+pub inline fn setU24BE(dst: []u8, v: u24) void {
+    writeIntBE(u24, dst[0..], v);
+}
+
+pub inline fn setU32BE(dst: []u8, v: u32) void {
+    writeIntBE(u32, dst[0..], v);
+}
+
+pub inline fn setI32BE(dst: []u8, v: i32) void {
+    writeIntBE(i32, dst[0..], v);
+}
+
+pub inline fn setI64BE(dst: []u8, v: i64) void {
+    writeIntBE(i64, dst[0..], v);
+}
+
+pub inline fn getU16BE(src: []const u8) u16 {
+    return readIntBE(u16, src[0..]);
+}
+
+pub inline fn getI16BE(src: []const u8) i16 {
+    return readIntBE(i16, src[0..]);
+}
+
+pub inline fn getU24BE(src: []const u8) u24 {
+    return readIntBE(u24, src[0..]);
+}
+
+pub inline fn getU32BE(src: []const u8) u32 {
+    return readIntBE(u32, src[0..]);
+}
+
+pub inline fn getI32BE(src: []const u8) i32 {
+    return readIntBE(i32, src[0..]);
+}
+
+pub inline fn getI64BE(src: []const u8) i64 {
+    return readIntBE(i64, src[0..]);
+}
+
+pub inline fn getU16LE(src: []const u8) u16 {
+    return readIntLE(u16, src[0..]);
 }
 
 pub inline fn nativeToBE(val: anytype) @TypeOf(val) {

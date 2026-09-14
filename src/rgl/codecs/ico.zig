@@ -57,7 +57,7 @@ pub fn writeICO(allocator: Allocator, io: StdIo, name: []const u8, imgs: []const
 
 test "writeICO produces a valid one-entry ICONDIR header" {
     const alloc = zigstd.testAllocator;
-    const readIntLE = bytes.readIntLE;
+    const getU16LE = bytes.getU16LE;
     var threaded: StdIo.Threaded = .init(alloc, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -72,7 +72,7 @@ test "writeICO produces a valid one-entry ICONDIR header" {
     const written = try StdIo.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
     defer alloc.free(written);
     // ICONDIR: reserved=0, type=1 (icon), count=1
-    try zigstd.testExpectEqual(@as(u16, 0), readIntLE(u16, written[0..2]));
-    try zigstd.testExpectEqual(@as(u16, 1), readIntLE(u16, written[2..4]));
-    try zigstd.testExpectEqual(@as(u16, 1), readIntLE(u16, written[4..6]));
+    try zigstd.testExpectEqual(@as(u16, 0), getU16LE(written));
+    try zigstd.testExpectEqual(@as(u16, 1), getU16LE(written[2..]));
+    try zigstd.testExpectEqual(@as(u16, 1), getU16LE(written[4..]));
 }

@@ -1,13 +1,13 @@
 const std = @import("std");
 
-const types = @import("../types.zig");
+const types = @import("../stream_types.zig");
 const bytes = @import("../../../bytes.zig");
 const zigstd = @import("../../../zigstd.zig");
 
 const readIntBE = bytes.readIntBE;
 const writeIntBE = bytes.writeIntBE;
 const TagStr = types.TagStr;
-const Fixed = types.Fixed;
+const Offset32 = types.Offset32;
 
 /// The list of all known table tags published in either the TTF or OTF specs.
 ///
@@ -158,6 +158,11 @@ pub const TableTag = enum {
     /// Vertical Metrics
     vmtx,
 
+    // ---
+    // Miscellaneous tables
+    /// FontForge extensions
+    PfEd,
+
     pub fn toInt(id: Self) u32 {
         var tag: TagStr = .{ .data = @splat(' ') };
         const name = @tagName(id);
@@ -228,18 +233,19 @@ pub const TableRecord = extern struct {
 
     tag: TagStr,
     checksum: u32,
-    offset: u32,
+    offset: Offset32,
     length: u32,
 
-    pub fn calcTableChecksum(self: *Self, table_data: *[]const u8) u32 {
-        var sum: u32 = 0;
-        const nLongs = (self.length + 3) / 4;
-        for (0..nLongs) |i| sum += @as(u32, table_data[i * 4]);
-        return sum;
-    }
+    // doesn't type-check against the current struct shape; unused for now
+    // pub fn calcTableChecksum(self: *Self, table_data: *[]const u8) u32 {
+    //     var sum: u32 = 0;
+    //     const nLongs = (self.length + 3) / 4;
+    //     for (0..nLongs) |i| sum += @as(u32, table_data[i * 4]);
+    //     return sum;
+    // }
 };
 
-test "OffsetTable matches the sfnt wire layout (12 bytes, no padding)" {
+test "OffsetTable matches the sfnt stream layout (12 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 12), @sizeOf(OffsetTable));
     try zigstd.testExpectEqual(@as(usize, 4), @offsetOf(OffsetTable, "num_tables"));
     try zigstd.testExpectEqual(@as(usize, 6), @offsetOf(OffsetTable, "search_range"));
@@ -247,7 +253,7 @@ test "OffsetTable matches the sfnt wire layout (12 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 10), @offsetOf(OffsetTable, "range_shift"));
 }
 
-test "TableRecord matches the sfnt wire layout (16 bytes, no padding)" {
+test "TableRecord matches the sfnt stream layout (16 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 16), @sizeOf(TableRecord));
     try zigstd.testExpectEqual(@as(usize, 4), @offsetOf(TableRecord, "checksum"));
     try zigstd.testExpectEqual(@as(usize, 8), @offsetOf(TableRecord, "offset"));

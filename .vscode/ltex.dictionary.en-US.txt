@@ -28,6 +28,7 @@ audiodev
 autodoc
 auxv
 auxvec
+bbox
 bboxes
 bdflush
 bind
@@ -85,6 +86,7 @@ Codeberg
 comptime
 connect
 copy_file_range
+cpht
 creat
 create_module
 creds
@@ -155,6 +157,7 @@ ELIBBAD
 ELIBEXEC
 ELIBMAX
 ELIBSCN
+elidable
 ELNRNG
 embedders
 EMEDIUMTYPE
@@ -248,6 +251,7 @@ fcstat
 fcstr
 fcweight
 fcxml
+fdarray
 fdarrayoff
 fdatasync
 fdselect
@@ -394,6 +398,7 @@ halvable
 Harf
 Harfbuzz
 HarfBuzz
+hasc
 hflex
 hhcurveto
 HLAT
@@ -497,6 +502,7 @@ LoupOS
 LPKDRAWSWITCHWND
 lremovexattr
 lretq
+lsbs
 lseek
 lsetxattr
 lsm_get_self_attr
@@ -514,6 +520,7 @@ markdownlint
 MAXIOV
 MAXPHYADDR
 mbind
+MCGA
 mcpu
 mdgen
 membarrier
@@ -710,6 +717,7 @@ quotactl_fd
 randyos
 RandyOS
 randyosk
+Rasterizes
 RAX
 rccurve
 rcurveline
@@ -1027,6 +1035,7 @@ waitpid
 wasi
 wcount
 wcwidth
+wdth
 wght
 WHPX
 winfnt
@@ -1048,6 +1057,7 @@ xcodeproject
 XGETBV
 xgettext
 xhci
+xhgt
 xinclude
 xlib
 xlink
@@ -1057,6 +1067,7 @@ xpointer
 xptr
 XRSTOR
 XSAVES
+xscale
 XSDP
 xsdt
 XSETBV

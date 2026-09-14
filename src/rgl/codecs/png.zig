@@ -11,8 +11,8 @@ const equal = zigstd.equal;
 
 const appendIntBE = bytes.appendIntBE;
 const appendArrayBytes = bytes.appendArrayBytes;
-const readIntBE = bytes.readIntBE;
-const writeIntBE = bytes.writeIntBE;
+const getU32BE = bytes.getU32BE;
+const setU32BE = bytes.setU32BE;
 const ByteArrayList = bytes.ByteArrayList;
 // const structAsBytes = bytes.structAsBytes;
 
@@ -34,12 +34,12 @@ pub const PngChunkType = enum {
     pub fn toInt(id: Self) u32 {
         var array4: [4]u8 = undefined;
         @memcpy(&array4, @tagName(id));
-        return readIntBE(u32, &array4);
+        return getU32BE(&array4);
     }
 
     pub fn fromInt(v: u32) !Self {
         var array4: [4]u8 = undefined;
-        writeIntBE(u32, &array4, v);
+        setU32BE(&array4, v);
         return std.meta.stringToEnum(Self, &array4) orelse error.UnsupportedPngChunk;
     }
 };
@@ -67,14 +67,14 @@ pub const PngChunk = struct {
 
     pub fn fromBytes(in: []const u8) !Self {
         if (in.len < meta_size) return error.InvalidPngChunk;
-        const data_len = readIntBE(u32, in[0..type_start]);
+        const data_len = getU32BE(in);
         const total_len = meta_size + data_len;
         const crc_start = total_len - 4;
 
         if (in.len < total_len) return error.InvalidPngChunk;
-        const chunk_type = try PngChunkType.fromInt(readIntBE(u32, in[type_start..data_start]));
+        const chunk_type = try PngChunkType.fromInt(getU32BE(in[type_start..]));
         const data = in[data_start..crc_start];
-        const crc = readIntBE(u32, in[crc_start..]);
+        const crc = getU32BE(in[crc_start..]);
         if (crc != crc32(in[type_start..crc_start])) return error.InvalidPngChunk;
         return .{
             .chunk_type = chunk_type,
@@ -100,8 +100,8 @@ pub const IHdr = struct {
     interlace_method: u8,
 
     pub fn toBytes(self: *Self, out: *[size]u8) void {
-        writeIntBE(u32, out[0..], self.width);
-        writeIntBE(u32, out[4..], self.height);
+        setU32BE(out, self.width);
+        setU32BE(out[4..], self.height);
         out[8] = self.bit_depth;
         out[9] = @backingInt(self.color_type);
         out[10] = self.compression_method;
@@ -111,8 +111,8 @@ pub const IHdr = struct {
 
     pub fn fromBytes(in: *const [size]u8) Self {
         return .{
-            .width = readIntBE(u32, in[0..]),
-            .height = readIntBE(u32, in[4..]),
+            .width = getU32BE(in),
+            .height = getU32BE(in[4..]),
             .bit_depth = in[8],
             .color_type = @fromBackingInt(in[9]),
             .compression_method = in[10],
@@ -187,12 +187,18 @@ pub fn encode(alloc: Allocator, img: *const Image) ![]u8 {
     return out.toOwnedSlice(alloc);
 }
 
+pub const DecodeOptions = struct {
+    /// Print a diagnostic when an unrecognized ancillary chunk is skipped.
+    /// Off by default: this goes to stderr, which build-time callers (e.g.
+    /// genicon) treat as a failure even at exit code 0.
+    debug: bool = false,
+};
+
 /// a minimal decoder for 8-bit depth, non-interlaced, RGB or RGBA color type,
 /// any per-scanline filter (None/Sub/Up/Average/Paeth), any chunk ordering
-/// with unrecognized ancillary chunks (pHYs, tEXt, gAMA, iCCP, ...) reported
-/// via std.debug.print and skipped. Palette, grayscale, 16-bit, and
-/// interlaced PNGs are out of scope.
-pub fn decode(alloc: Allocator, raw_bytes: []const u8) !Image {
+/// with unrecognized ancillary chunks (pHYs, tEXt, gAMA, iCCP, ...) skipped.
+/// Palette, grayscale, 16-bit, and interlaced PNGs are out of scope.
+pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !Image {
     const sig_len = png_signature.len;
     if (raw_bytes.len < sig_len or !equal(u8, raw_bytes[0..sig_len], &png_signature)) {
         return error.InvalidPngSignature;
@@ -212,16 +218,17 @@ pub fn decode(alloc: Allocator, raw_bytes: []const u8) !Image {
     // Collect all IDAT chunks (PNG allows the compressed stream to be split
     // across several of them) until IEND. PngChunkType.fromInt rejects any
     // chunk type other than IHDR/IDAT/IEND; ancillary chunks (pHYs, tEXt,
-    // gAMA, iCCP, ...) are caught here, reported, and skipped rather than
-    // aborting the whole decode.
+    // gAMA, iCCP, ...) are skipped rather than aborting the whole decode.
     var idat: ByteArrayList = .empty;
     defer idat.deinit(alloc);
     while (true) {
         const chunk = PngChunk.fromBytes(raw_bytes[pos..]) catch |err| switch (err) {
             error.UnsupportedPngChunk => {
-                const data_len = readIntBE(u32, raw_bytes[pos..][0..PngChunk.type_start]);
-                const tag = raw_bytes[pos..][PngChunk.type_start..PngChunk.data_start];
-                std.debug.print("png.decode: ignoring unsupported chunk \"{s}\"\n", .{tag});
+                const data_len = getU32BE(raw_bytes[pos..]);
+                if (options.debug) {
+                    const tag = raw_bytes[pos..][PngChunk.type_start..PngChunk.data_start];
+                    std.debug.print("png.decode: ignoring unsupported chunk \"{s}\"\n", .{tag});
+                }
                 pos += PngChunk.meta_size + data_len;
                 continue;
             },
@@ -333,7 +340,7 @@ test "encode/decode round-trips a small RGBA image" {
     const raw_bytes = try encode(alloc, &img);
     defer alloc.free(raw_bytes);
 
-    var decoded = try decode(alloc, raw_bytes);
+    var decoded = try decode(alloc, raw_bytes, .{});
     defer decoded.destroy(alloc);
 
     try zigstd.testExpectEqual(img.width, decoded.width);
@@ -343,5 +350,5 @@ test "encode/decode round-trips a small RGBA image" {
 
 test "decode rejects a non-PNG signature" {
     const alloc = zigstd.testAllocator;
-    try zigstd.testExpectError(error.InvalidPngSignature, decode(alloc, "not a png"));
+    try zigstd.testExpectError(error.InvalidPngSignature, decode(alloc, "not a png", .{}));
 }

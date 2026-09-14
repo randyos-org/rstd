@@ -7,6 +7,7 @@ pub const draw = @import("draw.zig");
 pub const shaders = @import("shaders/__root__.zig");
 pub const render = @import("render.zig");
 pub const renderdoc = @import("renderdoc.zig");
+pub const font = @import("font/__root__.zig");
 
 test {
     // shaders excluded: its @embedFiles only resolve when build.zig
@@ -19,4 +20,5 @@ test {
     std.testing.refAllDecls(color);
     std.testing.refAllDecls(draw);
     std.testing.refAllDecls(render);
+    std.testing.refAllDecls(font);
 }

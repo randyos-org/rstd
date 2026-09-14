@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     const raw_path = args[4];
 
     const png_data = try std.Io.Dir.cwd().readFileAlloc(io, in_png_path, alloc, .unlimited);
-    const m = try png.decode(alloc, png_data);
+    const m = try png.decode(alloc, png_data, .{});
 
     // Emit PNG (256) and a multi-size ICO.
     const icon256 = try downsample(alloc, &m, 256);
