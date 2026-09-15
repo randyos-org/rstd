@@ -40,8 +40,23 @@ fn vert() callconv(.spirv_vertex) void {
 fn frag() callconv(.{ .spirv_fragment = .{} }) void {
     const sampled = spirv.imageSampleImplicitLod(atlas, param_tex_coord.*);
     const color = param_color.*;
-    // Atlas is single-channel coverage in `.r`; tint by the instance
-    // color and premultiply.
-    const alpha = color[3] * sampled[0];
+    const px_range = lib.globals.glyph_msdf_px_range;
+
+    // 0 (Globals' default) means the bound atlas is plain single-channel
+    // coverage - sample .r directly as alpha, same as before. Otherwise
+    // it's an msdf.Generator atlas: median(r,g,b) recovers the signed
+    // distance, thresholded against px_range for an antialiased edge. This
+    // px_range*(distance-0.5) form is only correct at 1:1 texel:screen-pixel
+    // scale (true here, since a glyph's on-screen quad is exactly the size
+    // buildTextAtlas rasterized it at) - a renderer that scales glyphs up
+    // or down would need the fwidth-based screenPxRange() correction
+    // msdfgen's own example shader uses instead.
+    const coverage = if (px_range == 0) sampled[0] else blk: {
+        const distance = lib.math.median3(sampled[0], sampled[1], sampled[2]);
+        const screen_px_distance = px_range * (distance - 0.5);
+        break :blk lib.math.clamp(screen_px_distance + 0.5, 0.0, 1.0);
+    };
+
+    const alpha = color[3] * coverage;
     lib.compile.frag_color_out.* = lib.coords.rgbPreMulAlpha(lib.coords.rgb(color), alpha);
 }

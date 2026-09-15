@@ -91,6 +91,16 @@ pub const EncRecord = extern struct {
         return (self.platform_id == .unicode and encoding_id.unicode == .unicode_2_bmp) or
             (self.platform_id == .microsoft and encoding_id.microsoft == .unicode_bmp);
     }
+
+    /// A full-repertoire Unicode encoding (format 12/13-capable, i.e. not
+    /// limited to the BMP) - (3,10) on Windows, or (0,4)/(0,6) on the
+    /// Unicode platform.
+    pub fn isUnicodeFull(self: Self) bool {
+        const encoding_id = self.encodingId() orelse return false;
+        return (self.platform_id == .unicode and
+            (encoding_id.unicode == .unicode_2_full or encoding_id.unicode == .unicode_full)) or
+            (self.platform_id == .microsoft and encoding_id.microsoft == .unicode_full);
+    }
 };
 
 pub const CmapSubtable = union(enum) {
@@ -183,6 +193,17 @@ pub const CmapTable = struct {
         while (i < self.numTables()) : (i += 1) {
             const record = self.getRecord(i);
             if (record.isUnicodeBmp()) return record;
+        }
+        return null;
+    }
+
+    /// Scans records for a full-repertoire Unicode encoding (format 12/13,
+    /// covering codepoints past the BMP). Returns null if the font has none.
+    pub fn findUnicodeFullRecord(self: Self) ?EncRecord {
+        var i: usize = 0;
+        while (i < self.numTables()) : (i += 1) {
+            const record = self.getRecord(i);
+            if (record.isUnicodeFull()) return record;
         }
         return null;
     }
@@ -288,6 +309,51 @@ test "CmapTable.findUnicodeBmpRecord skips non-matching records" {
     const cmap = try CmapTable.init(buf, true);
     const record = cmap.findUnicodeBmpRecord().?;
     try zigstd.testExpectEqual(PlatformId.microsoft, record.platform_id);
+}
+
+test "EncRecord.isUnicodeFull recognizes the Windows and Unicode-platform full-repertoire encodings" {
+    const windows_full: EncRecord = .{
+        .platform_id = .microsoft,
+        ._encoding_id = @backingInt(MicrosoftEncodingId.unicode_full),
+        .cmap_offset = 0,
+    };
+    try zigstd.testExpectTrue(windows_full.isUnicodeFull());
+    try zigstd.testExpectTrue(!windows_full.isUnicodeBmp());
+
+    const unicode_full: EncRecord = .{
+        .platform_id = .unicode,
+        ._encoding_id = @backingInt(UnicodeEncodingId.unicode_full),
+        .cmap_offset = 0,
+    };
+    try zigstd.testExpectTrue(unicode_full.isUnicodeFull());
+
+    const windows_bmp: EncRecord = .{
+        .platform_id = .microsoft,
+        ._encoding_id = @backingInt(MicrosoftEncodingId.unicode_bmp),
+        .cmap_offset = 0,
+    };
+    try zigstd.testExpectTrue(!windows_bmp.isUnicodeFull());
+}
+
+test "CmapTable.findUnicodeFullRecord finds a (3,10) record and skips a BMP-only one" {
+    const alloc = zigstd.testAllocator;
+    const buf = try buildCmap(alloc);
+    defer alloc.free(buf);
+
+    // buildCmap() only has mac + Windows-BMP records - no full-repertoire
+    // encoding present yet.
+    const cmap = try CmapTable.init(buf, true);
+    try zigstd.testExpectTrue(cmap.findUnicodeFullRecord() == null);
+
+    // Same layout, but promote the Windows record to (3,10) full-repertoire.
+    var full_buf = try alloc.dupe(u8, buf);
+    defer alloc.free(full_buf);
+    bytes.setU16BE(full_buf[14..], @backingInt(MicrosoftEncodingId.unicode_full));
+
+    const full_cmap = try CmapTable.init(full_buf, true);
+    const record = full_cmap.findUnicodeFullRecord().?;
+    try zigstd.testExpectEqual(PlatformId.microsoft, record.platform_id);
+    try zigstd.testExpectTrue(record.isUnicodeFull());
 }
 
 test "CmapTable.getSubtable parses the resolved record and looks up a glyph" {

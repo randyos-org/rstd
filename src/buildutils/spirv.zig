@@ -43,6 +43,11 @@ fn compileShaderStage(
         .optimize = optimize,
     });
     shader_mod.addOptions("shader_opts", shader_opts);
+    // A standalone module for just linalg (no dependencies of its own
+    // beyond std), so shaders/lib/math.zig can share its formulas with
+    // linalg's other consumers without needing the full `rstd` module.
+    const linalg_mod = b.createModule(.{ .root_source_file = b.path("src/linalg/__root__.zig") });
+    shader_mod.addImport("linalg", linalg_mod);
     if (add_rstd) {
         const rstd_mod = try rstdbuild.addRstd(b, spirv_target, null, true);
         rstd_mod.addImportToModule(shader_mod);

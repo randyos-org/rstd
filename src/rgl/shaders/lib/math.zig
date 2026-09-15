@@ -1,5 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
+const linalg = @import("linalg");
 const V2f32 = types.V2f32;
 const V3f32 = types.V3f32;
 
@@ -27,11 +28,6 @@ pub inline fn inversesqrt(x: anytype) @TypeOf(x) {
     return 1 / @sqrt(x);
 }
 
-pub fn mix(a: anytype, b: anytype, t: f32) @TypeOf(a) {
-    const tvec: @TypeOf(a) = @splat(t);
-    return a + (b - a) * tvec;
-}
-
 pub fn step_scalar(edge: f32, x: f32) f32 {
     return if (x < edge) 0 else 1;
 }
@@ -40,41 +36,27 @@ pub inline fn fract(x: anytype) @TypeOf(x) {
     return x - @floor(x);
 }
 
-pub inline fn dot(a: anytype, b: anytype) f32 {
-    return sum(a * b);
+/// Median of three scalars - the standard way to recover a signed distance
+/// from a 3-channel MSDF texture sample
+pub inline fn median3(a: anytype, b: @TypeOf(a), c: @TypeOf(a)) @TypeOf(a) {
+    return @max(@min(a, b), @min(@max(a, b), c));
 }
 
-pub inline fn sum(v: anytype) @TypeOf(v[0]) {
-    return @reduce(.Add, v);
-}
+pub const mix = linalg.mix;
+pub const dot = linalg.dot;
+pub const sum = linalg.sum;
+pub const dot2 = linalg.dot2;
+pub const length = linalg.length;
+pub const distance = linalg.distance;
+pub const cross = linalg.cross3;
 
-pub inline fn dot2(v: anytype) f32 {
-    return sum(v * v);
-}
-
-pub inline fn length(v: anytype) f32 {
-    return @sqrt(dot2(v));
+pub inline fn normalize(v: V3f32) V3f32 {
+    return linalg.norm(v, V3f32{ 0, 0, 0 });
 }
 
 pub fn smoothstep_scalar(edge0: f32, edge1: f32, x: f32) f32 {
     const t = std.math.clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
-}
-
-pub inline fn distance(p0: anytype, p1: anytype) f32 {
-    return length(p1 - p0);
-}
-
-pub inline fn cross(a: V3f32, b: V3f32) V3f32 {
-    return .{
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    };
-}
-
-pub inline fn normalize(v: V3f32) V3f32 {
-    return v / length(v);
 }
 
 pub inline fn reflect(i: anytype, n: anytype) @TypeOf(i) {

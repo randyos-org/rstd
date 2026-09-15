@@ -13,6 +13,7 @@ const CompositeGlyph = @import("CompositeGlyph.zig");
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const Vertex = aux_types.Vertex;
+const V2f32 = aux_types.V2f32;
 
 /// Decodes the glyph occupying `range` (via GlyfTable+CompositeGlyph's
 /// checked parse), then walks its points/components into vmove/vline/vcurve
@@ -138,7 +139,9 @@ fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, comp
         // only pick up one factor of it. That's wrong: the spec's own
         // formula (used here) is just the plain affine transform, no extra
         // magnitude multiply.
-        const mtx = [6]f32{ c.xscale, c.scale01, c.scale10, c.yscale, c.dx, c.dy };
+        const row_x: V2f32 = .{ c.xscale, c.scale10 };
+        const row_y: V2f32 = .{ c.scale01, c.yscale };
+        const translate: V2f32 = .{ c.dx, c.dy };
 
         // Get indexed glyph.
         const comp_verts = try glyphShapeTT(loca, glyf, gpa, c.glyph_index);
@@ -146,23 +149,28 @@ fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, comp
         if (comp_verts.len > 0) {
             // Transform vertices.
             for (comp_verts) |*v| {
-                {
-                    const vx: f32 = @floatFromInt(v.x);
-                    const vy: f32 = @floatFromInt(v.y);
-                    v.x = @intFromFloat(@trunc(mtx[0] * vx + mtx[2] * vy + mtx[4]));
-                    v.y = @intFromFloat(@trunc(mtx[1] * vx + mtx[3] * vy + mtx[5]));
-                }
-                {
-                    const vx: f32 = @floatFromInt(v.cx);
-                    const vy: f32 = @floatFromInt(v.cy);
-                    v.cx = @intFromFloat(@trunc(mtx[0] * vx + mtx[2] * vy + mtx[4]));
-                    v.cy = @intFromFloat(@trunc(mtx[1] * vx + mtx[3] * vy + mtx[5]));
-                }
+                const p0 = transformPoint(row_x, row_y, translate, v.x, v.y);
+                v.x = p0[0];
+                v.y = p0[1];
+                const p1 = transformPoint(row_x, row_y, translate, v.cx, v.cy);
+                v.cx = p1[0];
+                v.cy = p1[1];
             }
             try vertices.appendSlice(gpa, comp_verts);
         }
     }
     return vertices.toOwnedSlice(gpa);
+}
+
+/// 2D affine transform of one (x, y) point via two matrix rows + a
+/// translation, as `V2f32` dot products - mirrors how mist's own
+/// EdgeSegment/Shape geometry represents points, so composite-glyph
+/// transforms and the MSDF math read the same way.
+fn transformPoint(row_x: V2f32, row_y: V2f32, translate: V2f32, x: i16, y: i16) [2]i16 {
+    const p: V2f32 = .{ @floatFromInt(x), @floatFromInt(y) };
+    const tx = @reduce(.Add, row_x * p) + translate[0];
+    const ty = @reduce(.Add, row_y * p) + translate[1];
+    return .{ @trunc(tx), @trunc(ty) };
 }
 
 fn closeShape(

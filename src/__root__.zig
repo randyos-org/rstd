@@ -26,6 +26,7 @@ pub const bytes = @import("bytes.zig");
 pub const debug = @import("debug.zig");
 pub const dll = @import("dll.zig");
 pub const io = @import("io.zig");
+pub const linalg = @import("linalg/__root__.zig");
 pub const log = @import("log.zig");
 pub const machine = @import("machine.zig");
 pub const mem = @import("mem.zig");

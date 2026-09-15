@@ -266,7 +266,7 @@ pub fn getGlyphBoundingBox(self: Self, glyph: GlyphIndex) ?aux_types.GlyphBoundi
 }
 
 /// Combines hmtx's advance width with the glyph outline's own bounding box.
-pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetrics {
+pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetricsDesign {
     const advance_width = if (self.hmtx) |hmtx| hmtx.getMetrics(glyph).advance_width else 0;
     const bbox = self.getGlyphBoundingBox(glyph) orelse
         return .{ .advance_width = advance_width, .bearing_x = 0, .bearing_y = 0 };
@@ -274,11 +274,14 @@ pub fn getGlyphMetrics(self: Self, glyph: GlyphIndex) aux_types.GlyphMetrics {
 }
 
 /// Resolves a Unicode codepoint to a glyph index via the font's preferred
-/// Unicode cmap subtable. Returns null if the font has no such subtable, or
-/// the subtable has no mapping for this codepoint.
+/// Unicode cmap subtable. Prefers a full-repertoire subtable (format 12/13,
+/// covering codepoints past the BMP) over a BMP-only one when both exist,
+/// since the former is always a superset of the latter's mappings. Returns
+/// null if the font has no Unicode subtable, or the subtable has no mapping
+/// for this codepoint.
 pub fn getGlyphIndex(self: Self, codepoint: u32) ?GlyphIndex {
     const cmap = self.cmap orelse return null;
-    const record = cmap.findUnicodeBmpRecord() orelse return null;
+    const record = cmap.findUnicodeFullRecord() orelse cmap.findUnicodeBmpRecord() orelse return null;
     const subtable = cmap.getSubtable(record, false) catch return null;
     const glyph = subtable.getGlyphIndex(codepoint);
     return if (glyph == .notdef) null else glyph;

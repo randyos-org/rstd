@@ -81,4 +81,6 @@ fn frag() callconv(.{ .spirv_fragment = .{} }) void {
 }
 
 const main = lib.compile.exportShaderMain(&vert, &frag);
-comptime { _ = main; }
+comptime {
+    _ = main;
+}
