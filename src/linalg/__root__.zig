@@ -5,6 +5,8 @@
 
 const std = @import("std");
 
+pub const matlab = @import("matlab/__root__.zig");
+
 pub const V2f32 = @Vector(2, f32);
 pub const V3f32 = @Vector(3, f32);
 pub const V4f32 = @Vector(4, f32);
