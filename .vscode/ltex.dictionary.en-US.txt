@@ -15,6 +15,7 @@ AESKLE
 AESNI
 afs_syscall
 alarm
+ALFB
 alphabg
 amdgpu
 apprt
@@ -25,6 +26,7 @@ Args
 argv
 ARMEB
 ASLR
+atanm
 audiodev
 autodoc
 auxv
@@ -85,11 +87,18 @@ CMOV
 CMPXCHG
 cnxt
 Codeberg
+coeffi
+coeffr
+compi
+compr
 comptime
 comqr
+congruential
+CONJG
 connect
 copy_file_range
 corth
+cosm
 cpht
 creat
 create_module
@@ -114,6 +123,7 @@ Deinitialize
 delete_module
 devtmpfs
 dgettext
+diagonalizable
 dir
 DIRENV
 DLAB
@@ -153,6 +163,7 @@ EFTYPE
 EGID
 Ehdr
 EHWPOISON
+eigendecomposition
 EISNAM
 EISPACK
 eist
@@ -432,6 +443,7 @@ HWPOISON
 ICACHEBSIZE
 idat
 IEND
+ierr
 ifndef
 ifreund
 IGNOREPPC
@@ -476,6 +488,7 @@ ISACTIVEICON
 iterm
 ivalue
 journald
+jpvt
 kassert
 kcmp
 KEEPONFORK
@@ -491,10 +504,12 @@ kloop
 kmain
 kmod
 kpanic
+KRON
 kwin
 landlock_add_rule
 landlock_create_ruleset
 landlock_restrict_self
+LAPACK
 lapic
 LBTRACKPOINT
 lchown
@@ -518,6 +533,7 @@ listxattr
 listxattrat
 llistxattr
 LOADIWKEY
+logm
 lookup_dcookie
 loup-os
 LoupOS
@@ -539,6 +555,7 @@ madvise
 malloc
 map_shadow_stack
 markdownlint
+MATFN
 matmul
 MAXIOV
 MAXPHYADDR
@@ -559,6 +576,7 @@ mkdir
 mkdirat
 mknod
 mknodat
+mldivide
 mlock
 mlock2
 mlockall
@@ -581,6 +599,7 @@ mq_open
 mq_timedreceive
 mq_timedsend
 mq_unlink
+mrdivide
 mremap
 MSDF
 MSDF-based
@@ -648,6 +667,7 @@ open_tree_attr
 openat
 openat2
 Opto
+ortr
 os
 osdep
 osfxsr
@@ -738,6 +758,8 @@ pyproject
 pythag
 qcow
 qemu
+qrauxi
+qrauxr
 qrsl
 query_module
 Quilez's
@@ -753,6 +775,7 @@ rcond
 rcurveline
 RDFSBASE
 RDGSBASE
+rdiv
 RDLCK
 RDMSR
 rdoc
@@ -792,6 +815,9 @@ rmove
 rmoveto
 rnglists
 rodata
+rootsi
+rootsr
+rowr
 rrcurveto
 rref
 RRGGBB
@@ -919,6 +945,7 @@ SIGVTALRM
 SIGXCPU
 SIGXFSZ
 Simdutf
+sinm
 SLDT
 smap
 SMEP
@@ -934,6 +961,7 @@ sphimp
 sphtext
 Spirv
 splice
+sqrtm
 srcs
 Srmount
 ssetmask
@@ -950,6 +978,7 @@ Subr
 Subrs
 subrsoff
 supersampling
+svdapi
 swapoff
 swapon
 symlink
@@ -994,6 +1023,8 @@ tkill
 tmpfs
 toolchain
 topdictidx
+TRIL
+TRIU
 TrueType
 TrueType-style
 truncate
@@ -1030,6 +1061,7 @@ unref
 unshare
 unwrite
 uprobe
+URAND
 urandom
 uretprobe
 uring
@@ -1087,6 +1119,7 @@ wdotcr
 wdotui
 wdotur
 wdth
+wexp
 wgeco
 wgedi
 wgefa
@@ -1101,7 +1134,9 @@ wmconst
 wmul
 WNOHANG
 wnrm
+workr
 wpofa
+wpow
 wqrdc
 wqrsl
 WRFSBASE
@@ -1114,6 +1149,7 @@ wrscal
 wscal
 wset
 wsign
+wsin
 wsqrt
 wsvdc
 wswap
