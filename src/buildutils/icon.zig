@@ -49,7 +49,7 @@ pub const Icon = struct {
         rgba_name: []const u8,
     ) !Icon {
         const target = b.graph.host;
-        const rstd = try addRstd(b, target, null, false);
+        const rstd = try addRstd(b, target, null, false, .{});
 
         const mod = b.createModule(.{
             .root_source_file = rstd.dep.?.path("src/rgl/gen_icon.zig"),

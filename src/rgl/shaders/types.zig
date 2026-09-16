@@ -1,11 +1,15 @@
 const std = @import("std");
 const spirv = std.spirv;
 
-pub const ShaderStage = enum { frag, vert };
+const rsimd = @import("../../simd/__root__.zig");
+const zigvec = rsimd.zigvec;
 
-pub const V2f32 = @Vector(2, f32);
-pub const V3f32 = @Vector(3, f32);
-pub const V4f32 = @Vector(4, f32);
+pub const V2f32 = zigvec.V2f32;
+pub const V3f32 = zigvec.V3f32;
+pub const V4f32 = zigvec.V4f32;
+pub const splatVec = zigvec.splatVecF32;
+
+pub const ShaderStage = enum { frag, vert };
 
 // aliases to resemble glsl
 pub const Float = f32;
@@ -21,10 +25,6 @@ pub const SamplerCube = Sampler;
 
 // improve readability
 pub const Rgba = Vec4;
-
-pub inline fn splatVec(N: usize, v: f32) @Vector(N, f32) {
-    return @as(@Vector(N, f32), @splat(v));
-}
 
 pub const Sampler = @SpirvType(.sampler);
 pub const AnyImage = @SpirvType(.{ .image = .{

@@ -811,6 +811,7 @@ rline
 rlinecurve
 rlineto
 rmdir
+rmod
 rmove
 rmoveto
 rnglists
@@ -827,6 +828,7 @@ RSDT
 rseq
 rseq_slice_yield
 rset
+rsimd
 rstd
 rstdbuild
 rstddep
@@ -1184,5 +1186,6 @@ zig
 zigcfg
 ziggify
 zigimg
+zigvec
 zutil
 zxdg

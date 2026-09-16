@@ -3,11 +3,12 @@
 const std = @import("std");
 const spirv = std.spirv;
 pub const shader_opts = @import("shader_opts");
-const lib = @import("lib/__root__.zig");
-
-const Vec2 = lib.types.Vec2;
-const Vec4 = lib.types.Vec4;
-const splatVec = lib.types.splatVec;
+const shader_mod = @import("rstd").rgl.shaders;
+const lib = shader_mod.lib;
+const types = shader_mod.types;
+const Vec2 = types.Vec2;
+const Vec4 = types.Vec4;
+const splatVec = types.splatVec;
 const param = lib.compile.param;
 const paramFlat = lib.compile.paramFlat;
 const input = lib.compile.input;

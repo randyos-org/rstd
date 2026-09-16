@@ -28,6 +28,7 @@ pub const getTarget = builder_mod.getTarget;
 
 const module_mod = @import("module.zig");
 pub const cloneModuleWithTarget = module_mod.cloneModuleWithTarget;
+pub const cloneRootForTarget = module_mod.cloneRootForTarget;
 
 const files_mod = @import("files.zig");
 pub const addBuildDir = files_mod.addBuildDir;
@@ -58,6 +59,7 @@ pub const Icon = icon_mod.Icon;
 
 const rstd_dep_mod = @import("rstd.zig");
 pub const addRstd = rstd_dep_mod.addRstd;
+pub const RstdOptions = rstd_dep_mod.RstdOptions;
 
 const win32_mod = @import("win32.zig");
 pub const addWin32 = win32_mod.addWin32;

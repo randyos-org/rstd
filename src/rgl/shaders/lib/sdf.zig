@@ -2,7 +2,7 @@
 //! iquilezles.org/articles/distfunctions2d
 
 const std = @import("std");
-const types = @import("types.zig");
+const types = @import("../types.zig");
 const math = @import("math.zig");
 const Float = types.Float;
 const Vec2 = types.Vec2;

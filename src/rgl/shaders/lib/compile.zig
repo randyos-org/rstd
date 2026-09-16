@@ -4,7 +4,7 @@ const std = @import("std");
 // `@import("shader_opts")` directly to avoid circular dependency issues.
 const shader_opts = @import("root").shader_opts;
 
-const types = @import("types.zig");
+const types = @import("../types.zig");
 const ShaderStage = types.ShaderStage;
 
 pub inline fn getCurrentShaderStage() ShaderStage {

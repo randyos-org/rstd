@@ -4,8 +4,9 @@ const ReduceOp = std.builtin.ReduceOp;
 fn Elem(comptime ArrType: type) type {
     return switch (@typeInfo(ArrType)) {
         .array => |info| info.child,
+        .vector => |info| info.child,
         .pointer => |info| info.child,
-        else => @compileError("expects a fixed-size array or a slice, found " ++ @typeName(ArrType)),
+        else => @compileError("expects a fixed-size array, a vector, or a slice, found " ++ @typeName(ArrType)),
     };
 }
 
@@ -27,6 +28,7 @@ fn combine(comptime op: ReduceOp, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 pub fn reduce(comptime op: ReduceOp, arr: anytype) Elem(@TypeOf(arr)) {
     return switch (@typeInfo(@TypeOf(arr))) {
         .array => |info| @reduce(op, @as(@Vector(info.len, info.child), arr)),
+        .vector => @reduce(op, arr),
         .pointer => |info| sliceReduce(op, info.child, arr),
         else => unreachable,
     };

@@ -1,5 +1,5 @@
 const std = @import("std");
-const types = @import("types.zig");
+const types = @import("../types.zig");
 const Vec2 = types.Vec2;
 const Vec3 = types.Vec3;
 const Vec4 = types.Vec4;

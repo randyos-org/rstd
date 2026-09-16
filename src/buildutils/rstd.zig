@@ -6,14 +6,20 @@ const Build = rstdbuild.Build;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Docs = docs_mod.Docs;
 const DepModule = @import("deps.zig").DepModule;
+const Module = rstdbuild.Module;
+
+pub const RstdOptions = struct {
+    _rstd_mod: ?*Module = null,
+};
 
 pub fn addRstd(
     b: *Build,
     target: ?ResolvedTarget,
     docs: ?Docs,
     vulkan: bool,
+    options: RstdOptions,
 ) !DepModule {
-    const rstd_dep = b.dependency("rstd", .{
+    const rstd_dep = if (options._rstd_mod) |_| null else b.dependency("rstd", .{
         .target = target,
         .vulkan = vulkan,
     });
@@ -23,8 +29,13 @@ pub fn addRstd(
     // doing that would stamp out a second Module rooted at the exact same
     // generated file the caller's own module wraps too, which the compiler
     // now rejects ("file exists in modules 'build_options' and
-    // 'build_options0'").
-    const rstd_mod = rstd_dep.module("rstd");
+    // 'build_options0'"). Using `cloneRootForTarget` rather than
+    // `cloneModuleWithTarget` here also matters: `rmod` is rstd's own native
+    // `rstd_mod`, which by this point carries `win32`/`renderdoc` (added for
+    // the native target and pulling in libc) -- fine for docs/tests, but
+    // fatal for a spirv32-vulkan `target` (no libc), which is the case this
+    // branch (`_rstd_mod` reuse, from `wireRglShaders`) exists for.
+    const rstd_mod = if (options._rstd_mod) |rmod| module.cloneRootForTarget(b, rmod, target) else rstd_dep.?.module("rstd");
 
     if (docs) |d| {
         // The registered "rstd" module has no target (consumers set their
