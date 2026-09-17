@@ -4,9 +4,21 @@
 //! keeping its own copy of the same handful of formulas.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const zigstd = @import("../zigstd.zig");
 const rsimd = @import("../simd/__root__.zig");
 const zigvec = rsimd.zigvec;
+
+/// SPIR-V targets (rgl's shaders -- see rgl/shaders/) don't support f64,
+/// which `std.math.hypot`'s overflow/underflow-safe fallback in `length`
+/// below needs internally. Shader inputs (pixel-space positions,
+/// normalized directions, SDF distances) never approach the extremes that
+/// fallback exists for, so `length` skips it entirely there rather than
+/// failing to compile.
+const on_spirv = switch (builtin.cpu.arch) {
+    .spirv32, .spirv64 => true,
+    else => false,
+};
 
 const splatAs = zigvec.splatAs;
 const zeroAs = zigvec.zeroAs;
@@ -33,12 +45,13 @@ pub inline fn dot2(v: anytype) @TypeOf(v[0]) {
 }
 
 /// Euclidean norm. Tries the cheap `sqrt(dot2(v))` path unconditionally
-/// first and falls back to std.math.hypot if overflow/underflow.
+/// first and falls back to std.math.hypot if overflow/underflow (except on
+/// SPIR-V, which can't use that fallback).
 pub inline fn length(v: anytype) @TypeOf(v[0]) {
     const T = @TypeOf(v[0]);
     const sq = dot2(v);
-    const looks_fine = std.math.isFinite(sq) and
-        (sq != 0 or !@reduce(.Or, v != zeroAs(v)));
+    const looks_fine = on_spirv or (std.math.isFinite(sq) and
+        (sq != 0 or !@reduce(.Or, v != zeroAs(v))));
     if (looks_fine) return @sqrt(sq);
 
     const len = @typeInfo(@TypeOf(v)).vector.len;

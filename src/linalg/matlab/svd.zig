@@ -5,14 +5,15 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
-/// WSVDC: reduce the complex `n`x`p` matrix `xr`/`xi` (column-major,
-/// leading dimension `ldx >= n`) by unitary transformations `U` and `V` to
-/// diagonal form. The diagonal entries of `S` are the singular values of
-/// `X`; the columns of `U` are the corresponding left singular vectors,
-/// and the columns of `V` the right singular vectors. `X` is destroyed.
+/// WSVDC: reduce the complex `n`x`p` matrix `x` (`n = x.m`, `p = x.n`) by
+/// unitary transformations `U` and `V` to diagonal form. The diagonal
+/// entries of `S` are the singular values of `X`; the columns of `U` are
+/// the corresponding left singular vectors, and the columns of `V` the
+/// right singular vectors. `x` is destroyed.
 ///
 /// `sr`/`si` (length `min(n+1, p)`) receive the singular values in
 /// descending order (only the first `min(n, p)` are meaningful); `er`/`ei`
@@ -21,11 +22,11 @@ const ix = blas1.ix;
 ///
 /// `job` selects what to compute, as a two-digit decimal `AB`:
 /// - `A == 0`: don't compute left singular vectors.
-/// - `A == 1`: return all `n` left singular vectors in `ur`/`ui`
-///   (`ldu >= n`, `min(n, p)` or more columns).
+/// - `A == 1`: return all `n` left singular vectors in `u`
+///   (`u.lda >= n`, `min(n, p)` or more columns).
 /// - `A >= 2`: return only the first `min(n, p)` left singular vectors.
 /// - `B == 0`: don't compute right singular vectors.
-/// - `B == 1`: return the right singular vectors in `vr`/`vi` (`ldv >= p`).
+/// - `B == 1`: return the right singular vectors in `v` (`v.lda >= p`).
 ///
 /// Returns `info`: the singular values (and vectors)
 /// `s[info]..s[min(n,p)-1]` (0-based) are correct; `info == 0` means all of
@@ -33,25 +34,29 @@ const ix = blas1.ix;
 /// `S` on its diagonal and `E` on its superdiagonal, so `X` and that
 /// bidiagonal matrix always share singular values.
 pub fn wsvdc(
-    xr: []f64,
-    xi: []f64,
-    ldx: usize,
-    n: usize,
-    p: usize,
+    x: CxMat,
     sr: []f64,
     si: []f64,
     er: []f64,
     ei: []f64,
-    ur: []f64,
-    ui: []f64,
-    ldu: usize,
-    vr: []f64,
-    vi: []f64,
-    ldv: usize,
+    u: CxMat,
+    v: CxMat,
     workr: []f64,
     worki: []f64,
     job: usize,
 ) usize {
+    const xr = x.r;
+    const xi = x.i;
+    const ldx = x.lda;
+    const n = x.m;
+    const p = x.n;
+    const ur = u.r;
+    const ui = u.i;
+    const ldu = u.lda;
+    const vr = v.r;
+    const vi = v.i;
+    const ldv = v.lda;
+
     const maxit = 75;
     const small = 1.0 / std.math.pow(f64, 2.0, 48.0);
 
@@ -472,7 +477,7 @@ test "wsvdc reconstructs a known real 2x2 matrix via U*S*ctrans(V)" {
     var workr: [2]f64 = @splat(0.0);
     var worki: [2]f64 = @splat(0.0);
 
-    const info = wsvdc(&xr, &xi, 2, 2, 2, &sr, &si, &er, &ei, &ur, &ui, 2, &vr, &vi, 2, &workr, &worki, 11);
+    const info = wsvdc(CxMat.initPacked(&xr, &xi, 2, 2), &sr, &si, &er, &ei, CxMat.initPacked(&ur, &ui, 2, 2), CxMat.initPacked(&vr, &vi, 2, 2), &workr, &worki, 11);
     try zigstd.testExpectEqual(@as(usize, 0), info);
 
     const golden = (1.0 + @sqrt(5.0)) / 2.0;
@@ -518,7 +523,7 @@ test "wsvdc handles a genuinely complex diagonal matrix" {
     var workr: [2]f64 = @splat(0.0);
     var worki: [2]f64 = @splat(0.0);
 
-    const info = wsvdc(&xr, &xi, 2, 2, 2, &sr, &si, &er, &ei, &ur, &ui, 2, &vr, &vi, 2, &workr, &worki, 11);
+    const info = wsvdc(CxMat.initPacked(&xr, &xi, 2, 2), &sr, &si, &er, &ei, CxMat.initPacked(&ur, &ui, 2, 2), CxMat.initPacked(&vr, &vi, 2, 2), &workr, &worki, 11);
     try zigstd.testExpectEqual(@as(usize, 0), info);
     try zigstd.testExpectApproxEqAbs(2.0, sr[0], 1e-9);
     try zigstd.testExpectApproxEqAbs(1.0, sr[1], 1e-9);

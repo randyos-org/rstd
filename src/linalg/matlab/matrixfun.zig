@@ -1,13 +1,16 @@
 //! `POLY`/`ROOTS`, and elementwise vs. matrix-valued elementary functions,
-//! split out of `api.zig` to keep files under this project's line-count
+//! kept as its own file (rather than folded into `__root__.zig`/`CxMat.zig`,
+//! which re-export these) to keep files under this project's line-count
 //! guideline.
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const eigen_general = @import("eigen_general.zig");
 const eig_mod = @import("eig.zig");
 const divide = @import("divide.zig");
+const elementary = @import("elementary.zig");
 
 const Cx = blas1.Cx;
 const ix = blas1.ix;
@@ -70,7 +73,7 @@ pub fn roots(allocator: zigstd.Allocator, coeffr: []const f64, coeffi: []const f
     @memset(orti, 0.0);
     var dummy: [1]f64 = .{0.0};
 
-    const ierr = eigen_general.comqr3(n, n, 1, n, ortr, orti, compr, compi, wr[0..n], wi[0..n], &dummy, &dummy, 0);
+    const ierr = eigen_general.comqr3(CxMat.initPacked(compr, compi, n, n), 1, n, ortr, orti, wr[0..n], wi[0..n], CxMat.initPacked(&dummy, &dummy, 1, 1), 0);
     if (ierr != 0) return error.EigenvalueDidNotConverge;
     return n;
 }
@@ -116,35 +119,31 @@ pub fn atan(ar: []f64, ai: []f64) void {
 /// `for (ar) |*r| r.* = @round(r.*);` (ROUND, real part only - the
 /// original ignored the imaginary part), `ar`/`ai` themselves are
 /// REAL/IMAG, and `Cx.init(r, -i)` is CONJG.
-/// Applies `f` to the eigenvalues of the `n`x`n` matrix `ar`/`ai` (not
-/// mutated) and reconstructs `f(A) = V * diag(f(lambda)) * inv(V)` - the
-/// matrix function, not the entrywise one (see `sin`/`cos`/... above for
-/// that). Only correct when `A` is diagonalizable; a defective matrix
+/// Applies `f.call(lambda)` to each eigenvalue of the `n`x`n` matrix `a`
+/// (not mutated) and reconstructs `f(A) = V * diag(f(lambda)) * inv(V)` -
+/// the matrix function, not the entrywise one (see `sin`/`cos`/... above
+/// for that). Only correct when `A` is diagonalizable; a defective matrix
 /// (repeated eigenvalue without a full set of eigenvectors) makes `V`
 /// singular and this will fail or blow up, matching the original, which
-/// used the same eigendecomposition approach.
-fn applyMatrixFunction(
-    allocator: zigstd.Allocator,
-    comptime f: anytype,
-    ar: []const f64,
-    ai: []const f64,
-    n: usize,
-    out_r: []f64,
-    out_i: []f64,
-) !void {
-    const result = try eig_mod.eig(allocator, ar, ai, n, true);
+/// used the same eigendecomposition approach. `f` is a small value (often
+/// zero-sized) with a `call(self, Cx) Cx` method rather than a bare
+/// function, so callers needing runtime parameters (e.g. `powm`'s
+/// exponent) can close over them without duplicating this function.
+fn applyMatrixFunction(allocator: zigstd.Allocator, f: anytype, a: CxMat, out: CxMat) !void {
+    const n = a.n;
+    const result = try eig_mod.eig(allocator, a, true);
     defer result.deinit(allocator);
     const vr = result.vectors_r.?;
     const vi = result.vectors_i.?;
 
     var j: usize = 1;
     while (j <= n) : (j += 1) {
-        const s = f(Cx.init(result.values_r[j - 1], result.values_i[j - 1]));
+        const s = f.call(Cx.init(result.values_r[j - 1], result.values_i[j - 1]));
         var i: usize = 1;
         while (i <= n) : (i += 1) {
             const t = blas1.wmul(Cx.init(vr[ix(n, i, j)], vi[ix(n, i, j)]), s);
-            out_r[ix(n, i, j)] = t.re;
-            out_i[ix(n, i, j)] = t.im;
+            out.r[ix(n, i, j)] = t.re;
+            out.i[ix(n, i, j)] = t.im;
         }
     }
 
@@ -165,26 +164,74 @@ fn applyMatrixFunction(
     const rowi = try allocator.alloc(f64, n);
     defer allocator.free(rowi);
 
-    _ = divide.mrdivide(out_r, out_i, n, n, n, v_copy_r, v_copy_i, n, ipvt, zr, zi, rowr, rowi);
+    const v_copy_mat = CxMat.initPacked(v_copy_r, v_copy_i, n, n);
+    _ = divide.mrdivide(out, v_copy_mat, ipvt, zr, zi, rowr, rowi);
 }
 
-pub fn expm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, std.math.complex.exp, ar, ai, n, out_r, out_i);
+const ExpCtx = struct {
+    pub fn call(_: @This(), z: Cx) Cx {
+        return std.math.complex.exp(z);
+    }
+};
+const LogCtx = struct {
+    pub fn call(_: @This(), z: Cx) Cx {
+        return blas1.wlog(z);
+    }
+};
+const SqrtCtx = struct {
+    pub fn call(_: @This(), z: Cx) Cx {
+        return std.math.complex.sqrt(z);
+    }
+};
+const SinCtx = struct {
+    pub fn call(_: @This(), z: Cx) Cx {
+        return std.math.complex.sin(z);
+    }
+};
+const CosCtx = struct {
+    pub fn call(_: @This(), z: Cx) Cx {
+        return std.math.complex.cos(z);
+    }
+};
+const AtanCtx = struct {
+    pub fn call(_: @This(), z: Cx) Cx {
+        return blas1.watan(z);
+    }
+};
+const PowCtx = struct {
+    p: Cx,
+    pub fn call(self: @This(), z: Cx) Cx {
+        return elementary.wpow(z, self.p);
+    }
+};
+
+pub fn expm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, ExpCtx{}, a, out);
 }
-pub fn logm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, blas1.wlog, ar, ai, n, out_r, out_i);
+pub fn logm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, LogCtx{}, a, out);
 }
-pub fn sqrtm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, std.math.complex.sqrt, ar, ai, n, out_r, out_i);
+pub fn sqrtm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, SqrtCtx{}, a, out);
 }
-pub fn sinm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, std.math.complex.sin, ar, ai, n, out_r, out_i);
+pub fn sinm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, SinCtx{}, a, out);
 }
-pub fn cosm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, std.math.complex.cos, ar, ai, n, out_r, out_i);
+pub fn cosm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, CosCtx{}, a, out);
 }
-pub fn atanm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, blas1.watan, ar, ai, n, out_r, out_i);
+pub fn atanm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, AtanCtx{}, a, out);
+}
+
+/// POWER (`X**p`, matrix case): `a` raised to the complex power `p`, via
+/// the same eigendecomposition approach as `expm`/`logm`/... above. The
+/// original special-cased positive integer `p` as repeated multiplication
+/// instead; this port always goes through the eigendecomposition, so a
+/// caller wanting that accuracy for a known small integer power can chain
+/// `matmul` calls directly.
+pub fn powm(allocator: zigstd.Allocator, a: CxMat, p: Cx, out: CxMat) !void {
+    return applyMatrixFunction(allocator, PowCtx{ .p = p }, a, out);
 }
 
 
@@ -231,9 +278,24 @@ test "expm matches a hand-verifiable diagonalizable case" {
     const ai: [4]f64 = @splat(0.0);
     var out_r: [4]f64 = @splat(0.0);
     var out_i: [4]f64 = @splat(0.0);
-    try expm(zigstd.testAllocator, &ar, &ai, 2, &out_r, &out_i);
+    var ar_mut = ar;
+    var ai_mut = ai;
+    try expm(zigstd.testAllocator, CxMat.initPacked(&ar_mut, &ai_mut, 2, 2), CxMat.initPacked(&out_r, &out_i, 2, 2));
     try zigstd.testExpectApproxEqAbs(1.0, out_r[ix(2, 1, 1)], 1e-8);
     try zigstd.testExpectApproxEqAbs(2.0, out_r[ix(2, 2, 2)], 1e-8);
+    try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 1, 2)], 1e-8);
+    try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 2, 1)], 1e-8);
+}
+
+test "powm matches a hand-verifiable diagonalizable case" {
+    // A = diag(2, 3) -> A**3 = diag(8, 27).
+    var ar = [_]f64{ 2.0, 0.0, 0.0, 3.0 };
+    var ai: [4]f64 = @splat(0.0);
+    var out_r: [4]f64 = @splat(0.0);
+    var out_i: [4]f64 = @splat(0.0);
+    try powm(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, 2, 2), Cx.init(3.0, 0.0), CxMat.initPacked(&out_r, &out_i, 2, 2));
+    try zigstd.testExpectApproxEqAbs(8.0, out_r[ix(2, 1, 1)], 1e-8);
+    try zigstd.testExpectApproxEqAbs(27.0, out_r[ix(2, 2, 2)], 1e-8);
     try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 1, 2)], 1e-8);
     try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 2, 1)], 1e-8);
 }

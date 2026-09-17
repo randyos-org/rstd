@@ -20,3 +20,19 @@ pub fn addVulkan(b: *rstdbuild.Build) rstdbuild.DepModule {
         .root_source_file = cmd.addOutputFileArg("vk.zig"),
     }), .name = "vulkan" };
 }
+
+/// Adds rstd's own generated vulkan-zig module (built above, wired onto
+/// rstd's shared module when `-Dvulkan=true`) onto `mod` under the import
+/// name "vulkan". `rstd_mod` is the `DepModule` a consumer's own
+/// `addRstd(...)` call returned.
+///
+/// A consumer that wants its own code to see the same `vk.*` types
+/// rgl/vulkan/gpu.zig uses (so handles can cross that boundary) should
+/// call this instead of generating a second, separate copy via `addVulkan`
+/// -- vk-zig's types are nominal, so two independently-generated copies
+/// are NOT interchangeable even when byte-identical.
+pub fn addVulkanImportToModule(rstd_mod: rstdbuild.DepModule, mod: *rstdbuild.Module) void {
+    const dep = rstd_mod.dep orelse
+        @panic("addVulkanImportToModule needs rstd_mod.dep -- addRstd() must have fetched rstd via b.dependency(), not reused an in-graph module");
+    mod.addImport("vulkan", dep.module("vulkan-zig"));
+}

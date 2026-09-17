@@ -1,21 +1,30 @@
 //! Complex LU factorization/solve/determinant/inverse, ported from
 //! `matlab88.f90`'s WGECO/WGEFA/WGESL/WGEDI (themselves LINPACK's
 //! ZGECO/ZGEFA/ZGESL/ZGEDI, split into real/imaginary array pairs). See
-//! `blas1.zig` for the shared matrix/vector conventions this port uses.
+//! `blas1.zig` for the shared matrix/vector conventions this port uses,
+//! and `CxMat.zig` for the `self`-shaped calling convention matrix-level
+//! functions like these now use - `ipvt`/`br`/`bi`/`workr`/`worki` stay
+//! loose parameters since they're vector-shaped, not matrix-shaped.
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
 /// WGEFA: factor a complex N×N matrix by Gaussian elimination with partial
-/// pivoting. `ar`/`ai` (column-major, leading dimension `lda`) are
+/// pivoting. `self` (column-major, leading dimension `self.lda`) is
 /// overwritten with the packed L\U factors; `ipvt` (length N) receives the
 /// pivot vector. Returns 0 on success, or the 1-based column index of the
 /// first exactly-zero pivot (`wgesl`/`wgedi` will divide by zero if called
 /// after that - use `wgeco`'s `rcond` for a reliable singularity check).
-pub fn wgefa(ar: []f64, ai: []f64, lda: usize, n: usize, ipvt: []usize) usize {
+pub fn wgefa(self: CxMat, ipvt: []usize) usize {
+    const ar = self.r;
+    const ai = self.i;
+    const lda = self.lda;
+    const n = self.n;
+
     var info: usize = 0;
     if (n >= 2) {
         var k: usize = 1;
@@ -60,8 +69,14 @@ pub fn wgefa(ar: []f64, ai: []f64, lda: usize, n: usize, ipvt: []usize) usize {
 }
 
 /// WGESL: solve `A*x = b` (`job == 0`) or `ctrans(A)*x = b` (`job != 0`)
-/// using the factors from `wgefa`/`wgeco`. `b` is overwritten with `x`.
-pub fn wgesl(ar: []const f64, ai: []const f64, lda: usize, n: usize, ipvt: []const usize, br: []f64, bi: []f64, job: usize) void {
+/// using the factors from `wgefa`/`wgeco` (`self`). `b` is overwritten
+/// with `x`.
+pub fn wgesl(self: CxMat, ipvt: []const usize, br: []f64, bi: []f64, job: usize) void {
+    const ar = self.r;
+    const ai = self.i;
+    const lda = self.lda;
+    const n = self.n;
+
     if (job == 0) {
         if (n >= 2) {
             var k: usize = 1;
@@ -112,18 +127,23 @@ pub fn wgesl(ar: []const f64, ai: []const f64, lda: usize, n: usize, ipvt: []con
     }
 }
 
-/// WGECO: factor a complex N×N matrix (via `wgefa`) and estimate its
-/// reciprocal condition number. `zr`/`zi` (length N, scratch) receive an
-/// approximate null vector when `A` is nearly singular. If `rcond` is not
-/// needed, `wgefa` alone is faster.
-pub fn wgeco(ar: []f64, ai: []f64, lda: usize, n: usize, ipvt: []usize, zr: []f64, zi: []f64) f64 {
+/// WGECO: factor a complex N×N matrix (`self`, via `wgefa`) and estimate
+/// its reciprocal condition number. `zr`/`zi` (length N, scratch) receive
+/// an approximate null vector when `A` is nearly singular. If `rcond` is
+/// not needed, `wgefa` alone is faster.
+pub fn wgeco(self: CxMat, ipvt: []usize, zr: []f64, zi: []f64) f64 {
+    const ar = self.r;
+    const ai = self.i;
+    const lda = self.lda;
+    const n = self.n;
+
     var anorm: f64 = 0.0;
     var j: usize = 1;
     while (j <= n) : (j += 1) {
         anorm = @max(anorm, blas1.wasum(n, ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1));
     }
 
-    _ = wgefa(ar, ai, lda, n, ipvt);
+    _ = wgefa(self, ipvt);
 
     // Solve ctrans(U)*w = e, choosing e to grow w as much as possible.
     var ek = Cx.init(1.0, 0.0);
@@ -252,23 +272,25 @@ pub fn wgeco(ar: []f64, ai: []f64, lda: usize, n: usize, ipvt: []usize, zr: []f6
 /// in the mantissa alone for large ill-scaled matrices.
 pub const Determinant = struct { mantissa: Cx, exponent10: f64 };
 
-/// WGEDI: compute the determinant and/or inverse of a matrix from the
-/// factors produced by `wgefa`/`wgeco`. `job`: 11 = both, 01 = inverse
+/// WGEDI: compute the determinant and/or inverse of a matrix (`self`) from
+/// the factors produced by `wgefa`/`wgeco`. `job`: 11 = both, 01 = inverse
 /// only, 10 = determinant only (`det_out` is unused and may be `null` when
 /// the determinant isn't requested). `workr`/`worki` are length-N scratch.
 /// Dividing by zero here means the input had an exactly-zero pivot; check
 /// `wgefa`'s `info` or `wgeco`'s `rcond` first if that's a possibility.
 pub fn wgedi(
-    ar: []f64,
-    ai: []f64,
-    lda: usize,
-    n: usize,
+    self: CxMat,
     ipvt: []const usize,
     workr: []f64,
     worki: []f64,
     job: usize,
     det_out: ?*Determinant,
 ) void {
+    const ar = self.r;
+    const ai = self.i;
+    const lda = self.lda;
+    const n = self.n;
+
     if (job / 10 != 0) {
         var det = Cx.init(1.0, 0.0);
         var exp10: f64 = 0.0;
@@ -343,13 +365,14 @@ test "wgesl solves a known complex 2x2 system" {
     var ipvt = [_]usize{ 0, 0 };
     var zr = [_]f64{ 0.0, 0.0 };
     var zi = [_]f64{ 0.0, 0.0 };
-    const rcond = wgeco(&ar, &ai, 2, 2, &ipvt, &zr, &zi);
+    const mat = CxMat.initPacked(&ar, &ai, 2, 2);
+    const rcond = wgeco(mat, &ipvt, &zr, &zi);
     try zigstd.testExpectTrue(rcond > 0.0);
 
     // b = A * [1, 1+i]
     var br = [_]f64{ 1.0 * 1.0 - 1.0 * 0.0 + 2.0 * 1.0, 3.0 * 1.0 + 4.0 * 1.0 - (-1.0) * 1.0 };
     var bi = [_]f64{ 1.0 * 0.0 + 1.0 * 1.0 + 2.0 * 1.0, 3.0 * 0.0 + 4.0 * 1.0 + (-1.0) * 1.0 };
-    wgesl(&ar, &ai, 2, 2, &ipvt, &br, &bi, 0);
+    wgesl(mat, &ipvt, &br, &bi, 0);
     try zigstd.testExpectApproxEqAbs(1.0, br[0], 1e-10);
     try zigstd.testExpectApproxEqAbs(0.0, bi[0], 1e-10);
     try zigstd.testExpectApproxEqAbs(1.0, br[1], 1e-10);
@@ -361,13 +384,14 @@ test "wgedi inverts and finds the determinant of a diagonal matrix" {
     var ar = [_]f64{ 2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, -4.0 };
     var ai: [9]f64 = @splat(0.0);
     var ipvt = [_]usize{ 0, 0, 0 };
-    const info = wgefa(&ar, &ai, 3, 3, &ipvt);
+    const mat = CxMat.initPacked(&ar, &ai, 3, 3);
+    const info = wgefa(mat, &ipvt);
     try zigstd.testExpectEqual(@as(usize, 0), info);
 
     var det: Determinant = undefined;
     var workr: [3]f64 = @splat(0.0);
     var worki: [3]f64 = @splat(0.0);
-    wgedi(&ar, &ai, 3, 3, &ipvt, &workr, &worki, 11, &det);
+    wgedi(mat, &ipvt, &workr, &worki, 11, &det);
 
     const value = det.mantissa.re * std.math.pow(f64, 10.0, det.exponent10);
     try zigstd.testExpectApproxEqAbs(-24.0, value, 1e-9);

@@ -7,11 +7,12 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
-/// WQRDC: Householder-reduce the complex `n`x`p` matrix `xr`/`xi`
-/// (column-major, `ldx >= n`) to `Q*R`, with optional column pivoting.
+/// WQRDC: Householder-reduce the complex `n`x`p` matrix `x` (`n = x.m`,
+/// `p = x.n`) to `Q*R`, with optional column pivoting.
 ///
 /// `jpvt` (length `p`) controls pivoting when `job != 0` (ignored when
 /// `job == 0`): on entry, `jpvt[k] > 0` freezes column `k` at the front,
@@ -19,16 +20,12 @@ const ix = blas1.ix;
 /// be reordered by decreasing norm. On return, `jpvt[k]` is the original
 /// (1-based) index of the column now in position `k+1`.
 ///
-/// On return, the upper triangle of `xr`/`xi` holds `R`; below the
-/// diagonal it holds information (together with `qrauxr`/`qrauxi`, length
-/// `p`) needed to recover the unitary `Q` - see `wqrsl`. `workr`/`worki`
-/// (length `p`) are scratch, unused when `job == 0`.
+/// On return, the upper triangle of `x` holds `R`; below the diagonal it
+/// holds information (together with `qrauxr`/`qrauxi`, length `p`) needed
+/// to recover the unitary `Q` - see `wqrsl`. `workr`/`worki` (length `p`)
+/// are scratch, unused when `job == 0`.
 pub fn wqrdc(
-    xr: []f64,
-    xi: []f64,
-    ldx: usize,
-    n: usize,
-    p: usize,
+    x: CxMat,
     qrauxr: []f64,
     qrauxi: []f64,
     jpvt: []isize,
@@ -36,6 +33,12 @@ pub fn wqrdc(
     worki: []f64,
     job: usize,
 ) void {
+    const xr = x.r;
+    const xi = x.i;
+    const ldx = x.lda;
+    const n = x.m;
+    const p = x.n;
+
     var pl: usize = 1;
     var pu: usize = 0;
 
@@ -189,15 +192,13 @@ pub fn wqrdc(
 /// singular, in which case it's the 1-based index of the first zero
 /// diagonal element of `R` (and `b` is left unaltered).
 pub fn wqrsl(
-    // Not const: the algorithm temporarily overwrites each diagonal entry
-    // `x(j,j)` with `qraux(j)` (the Householder vector's leading element,
-    // which wqrdc replaced `x(j,j)` with `-nrmxl` in storage) to apply the
-    // reflector, then restores the original value before moving on - a net
-    // no-op from the caller's perspective, but a real write while it lasts.
-    xr: []f64,
-    xi: []f64,
-    ldx: usize,
-    n: usize,
+    // `x`'s storage (`x.r`/`x.i`) is not const: the algorithm temporarily
+    // overwrites each diagonal entry `x(j,j)` with `qraux(j)` (the
+    // Householder vector's leading element, which wqrdc replaced `x(j,j)`
+    // with `-nrmxl` in storage) to apply the reflector, then restores the
+    // original value before moving on - a net no-op from the caller's
+    // perspective, but a real write while it lasts.
+    x: CxMat,
     k: usize,
     qrauxr: []const f64,
     qrauxi: []const f64,
@@ -215,6 +216,11 @@ pub fn wqrsl(
     xbi: []f64,
     job: usize,
 ) usize {
+    const xr = x.r;
+    const xi = x.i;
+    const ldx = x.lda;
+    const n = x.m;
+
     var info: usize = 0;
 
     const cqy = job / 10000 != 0;
@@ -379,8 +385,9 @@ test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
     var jpvt: [2]isize = @splat(0);
     var workr: [2]f64 = @splat(0.0);
     var worki: [2]f64 = @splat(0.0);
+    const x_mat = CxMat.initPacked(&xr, &xi, 3, 2);
 
-    wqrdc(&xr, &xi, 3, 3, 2, &qrauxr, &qrauxi, &jpvt, &workr, &worki, 0);
+    wqrdc(x_mat, &qrauxr, &qrauxi, &jpvt, &workr, &worki, 0);
 
     // Extract R (2x2 upper triangular) before x's storage is reused below.
     var r = [_]f64{ 0.0, 0.0, 0.0, 0.0 }; // column-major 2x2
@@ -399,10 +406,7 @@ test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
         var dummy: [3]f64 = @splat(0.0);
         var dummyi: [3]f64 = @splat(0.0);
         const info = wqrsl(
-            &xr,
-            &xi,
-            3,
-            3,
+            x_mat,
             2,
             &qrauxr,
             &qrauxi,
@@ -455,7 +459,8 @@ test "wqrsl solves an exact least-squares fit y = 1 + 2x" {
     var jpvt: [2]isize = @splat(0);
     var workr: [2]f64 = @splat(0.0);
     var worki: [2]f64 = @splat(0.0);
-    wqrdc(&xr, &xi, 3, 3, 2, &qrauxr, &qrauxi, &jpvt, &workr, &worki, 0);
+    const x_mat = CxMat.initPacked(&xr, &xi, 3, 2);
+    wqrdc(x_mat, &qrauxr, &qrauxi, &jpvt, &workr, &worki, 0);
 
     var yr = [_]f64{ 1.0, 3.0, 5.0 };
     var yi: [3]f64 = @splat(0.0);
@@ -469,10 +474,7 @@ test "wqrsl solves an exact least-squares fit y = 1 + 2x" {
     var dummyi: [3]f64 = @splat(0.0);
 
     const info = wqrsl(
-        &xr,
-        &xi,
-        3,
-        3,
+        x_mat,
         2,
         &qrauxr,
         &qrauxi,

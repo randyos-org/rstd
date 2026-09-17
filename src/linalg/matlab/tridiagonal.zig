@@ -10,18 +10,24 @@
 //! pair in this port is represented.
 
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const ix = blas1.ix;
 
-/// HTRIDI: reduce the Hermitian matrix in the lower triangle of `ar`/`ai`
-/// (column-major, leading dimension `nm`, order `n`) to a real symmetric
+/// HTRIDI: reduce the Hermitian matrix in the lower triangle of `self`
+/// (order `self.n`, leading dimension `self.lda`) to a real symmetric
 /// tridiagonal matrix by unitary similarity transformations.
 ///
 /// On return: `d` holds the tridiagonal's diagonal; `e` holds its
 /// subdiagonal in positions `2..n` (`e[0]` is set to 0); `e2` holds the
 /// squares of `e`'s entries (may be the same array as `e` if not needed
-/// separately); `ar`/`ai`'s lower triangle and `taur`/`taui` hold
-/// information needed by `htribk` to recover eigenvectors.
-pub fn htridi(nm: usize, n: usize, ar: []f64, ai: []f64, d: []f64, e: []f64, e2: []f64, taur: []f64, taui: []f64) void {
+/// separately); `self`'s lower triangle and `taur`/`taui` hold information
+/// needed by `htribk` to recover eigenvectors.
+pub fn htridi(self: CxMat, d: []f64, e: []f64, e2: []f64, taur: []f64, taui: []f64) void {
+    const nm = self.lda;
+    const n = self.n;
+    const ar = self.r;
+    const ai = self.i;
+
     taur[n - 1] = 1.0;
     taui[n - 1] = 0.0;
     var idx: usize = 1;
@@ -127,14 +133,22 @@ pub fn htridi(nm: usize, n: usize, ar: []f64, ai: []f64, d: []f64, e: []f64, e2:
     }
 }
 
-/// HTRIBK: back-transform the first `m` columns of `zr` (eigenvectors of
-/// the real symmetric tridiagonal matrix `htridi` produced) into the
+/// HTRIBK: back-transform the columns of `z` (`self.n`x`m`, eigenvectors
+/// of the real symmetric tridiagonal matrix `htridi` produced) into the
 /// eigenvectors of the original complex Hermitian matrix, using the
-/// transformation data `htridi` left in `ar`/`ai`/`taur`/`taui`.
+/// transformation data `htridi` left in `self`/`taur`/`taui`.
 ///
 /// The last component of each returned eigenvector is real, and vector
 /// Euclidean norms are preserved.
-pub fn htribk(nm: usize, n: usize, ar: []const f64, ai: []const f64, taur: []const f64, taui: []const f64, m: usize, zr: []f64, zi: []f64) void {
+pub fn htribk(self: CxMat, taur: []const f64, taui: []const f64, z: CxMat) void {
+    const nm = self.lda;
+    const n = self.n;
+    const ar = self.r;
+    const ai = self.i;
+    const m = z.n;
+    const zr = z.r;
+    const zi = z.i;
+
     if (m == 0) return;
 
     var k: usize = 1;
@@ -193,7 +207,7 @@ test "htridi preserves trace and Frobenius norm of a real symmetric matrix" {
     var e2: [3]f64 = undefined;
     var taur: [3]f64 = undefined;
     var taui: [3]f64 = undefined;
-    htridi(3, 3, &ar, &ai, &d, &e, &e2, &taur, &taui);
+    htridi(CxMat.initPacked(&ar, &ai, 3, 3), &d, &e, &e2, &taur, &taui);
 
     const trace = d[0] + d[1] + d[2];
     try zigstd.testExpectApproxEqAbs(12.0, trace, 1e-10);

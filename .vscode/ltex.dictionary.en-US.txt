@@ -834,6 +834,7 @@ revents
 RFLAGS
 rfont
 rgbprime
+rglvk
 rlim
 rlimit
 rline

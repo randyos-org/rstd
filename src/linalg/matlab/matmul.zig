@@ -13,54 +13,42 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const ix = blas1.ix;
 
-/// `C = A*B`: `A` is `m`x`n`, `B` is `n`x`p`, `C` is `m`x`p` (all
-/// column-major, leading dimensions `lda`/`ldb`/`ldc`). The shared `n`
-/// parameter *is* the dimension-compatibility rule (`A`'s column count and
-/// `B`'s row count are the same caller-supplied value) rather than a
-/// runtime check on four independent dimensions the way the original
-/// Fortran needed - a caller can't pass mismatched inner dimensions
-/// through this signature in the first place.
+/// `C = A*B`: `A` is `m`x`n`, `B` is `n`x`p`, `C` is `m`x`p`. The shared
+/// `a.n == b.m` requirement *is* the dimension-compatibility rule (checked
+/// by the caller constructing matching `CxMat`s) rather than a runtime
+/// check on four independent dimensions the way the original Fortran
+/// needed.
 ///
-/// `cr`/`ci` must not alias `ar`/`ai`/`br`/`bi`. `scratch_r`/`scratch_i`
-/// (length >= `n`) are caller-owned workspace, not returned data.
+/// `out` must not alias `a`/`b`. `scratch_r`/`scratch_i` (length >= `a.n`)
+/// are caller-owned workspace, not returned data.
 ///
 /// A row of `A` is strided (not contiguous) in this column-major layout,
 /// unlike a column of `B` - so each row of `A` is gathered into
 /// `scratch_r`/`scratch_i` once and reused across all `p` columns of `B`,
 /// rather than re-gathering it per output element (`m` gathers total, not
 /// `m*p`).
-pub fn matmul(
-    ar: []const f64,
-    ai: []const f64,
-    lda: usize,
-    m: usize,
-    n: usize,
-    br: []const f64,
-    bi: []const f64,
-    ldb: usize,
-    p: usize,
-    cr: []f64,
-    ci: []f64,
-    ldc: usize,
-    scratch_r: []f64,
-    scratch_i: []f64,
-) void {
+pub fn matmul(a: CxMat, b: CxMat, out: CxMat, scratch_r: []f64, scratch_i: []f64) void {
+    const m = a.m;
+    const n = a.n;
+    const p = b.n;
+
     var i: usize = 1;
     while (i <= m) : (i += 1) {
         var k: usize = 1;
         while (k <= n) : (k += 1) {
-            scratch_r[k - 1] = ar[ix(lda, i, k)];
-            scratch_i[k - 1] = ai[ix(lda, i, k)];
+            scratch_r[k - 1] = a.r[a.idx(i, k)];
+            scratch_i[k - 1] = a.i[a.idx(i, k)];
         }
 
         var j: usize = 1;
         while (j <= p) : (j += 1) {
-            const col_r = br[ix(ldb, 1, j)..];
-            const col_i = bi[ix(ldb, 1, j)..];
-            cr[ix(ldc, i, j)] = blas1.wdotur(n, scratch_r[0..n], scratch_i[0..n], 1, col_r, col_i, 1);
-            ci[ix(ldc, i, j)] = blas1.wdotui(n, scratch_r[0..n], scratch_i[0..n], 1, col_r, col_i, 1);
+            const col_r = b.r[b.idx(1, j)..];
+            const col_i = b.i[b.idx(1, j)..];
+            out.r[out.idx(i, j)] = blas1.wdotur(n, scratch_r[0..n], scratch_i[0..n], 1, col_r, col_i, 1);
+            out.i[out.idx(i, j)] = blas1.wdotui(n, scratch_r[0..n], scratch_i[0..n], 1, col_r, col_i, 1);
         }
     }
 }
@@ -68,16 +56,16 @@ pub fn matmul(
 test "matmul matches hand computation for a small real case" {
     // A = [[1,2],[3,4]] (2x2), B = [[5,6],[7,8]] (2x2).
     // A*B = [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]] = [[19,22],[43,50]].
-    const ar = [_]f64{ 1.0, 3.0, 2.0, 4.0 };
-    const ai: [4]f64 = @splat(0.0);
-    const br = [_]f64{ 5.0, 7.0, 6.0, 8.0 };
-    const bi: [4]f64 = @splat(0.0);
+    var ar = [_]f64{ 1.0, 3.0, 2.0, 4.0 };
+    var ai: [4]f64 = @splat(0.0);
+    var br = [_]f64{ 5.0, 7.0, 6.0, 8.0 };
+    var bi: [4]f64 = @splat(0.0);
     var cr: [4]f64 = undefined;
     var ci: [4]f64 = undefined;
     var scratch_r: [2]f64 = undefined;
     var scratch_i: [2]f64 = undefined;
 
-    matmul(&ar, &ai, 2, 2, 2, &br, &bi, 2, 2, &cr, &ci, 2, &scratch_r, &scratch_i);
+    matmul(CxMat.initPacked(&ar, &ai, 2, 2), CxMat.initPacked(&br, &bi, 2, 2), CxMat.initPacked(&cr, &ci, 2, 2), &scratch_r, &scratch_i);
 
     try zigstd.testExpectApproxEqAbs(19.0, cr[ix(2, 1, 1)], 1e-12);
     try zigstd.testExpectApproxEqAbs(43.0, cr[ix(2, 2, 1)], 1e-12);
@@ -121,7 +109,7 @@ test "matmul handles non-square, complex operands and matches a naive reference 
     const scratch_i = try alloc.alloc(f64, n);
     defer alloc.free(scratch_i);
 
-    matmul(ar, ai, m, m, n, br, bi, n, p, cr, ci, m, scratch_r, scratch_i);
+    matmul(CxMat.initPacked(ar, ai, m, n), CxMat.initPacked(br, bi, n, p), CxMat.initPacked(cr, ci, m, p), scratch_r, scratch_i);
 
     var i: usize = 1;
     while (i <= m) : (i += 1) {

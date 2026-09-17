@@ -1,22 +1,31 @@
 //! Orthogonal (unitary) reduction of a general complex matrix to upper
 //! Hessenberg form, ported from `matlab88.f90`'s CORTH (EISPACK's complex
 //! analogue of ORTHES). See `blas1.zig` for the shared matrix/vector
-//! conventions this port uses.
+//! conventions this port uses, and `CxMat.zig` for the `self`-shaped
+//! calling convention matrix-level functions like this one now use -
+//! `low`/`igh` stay loose parameters since they describe a sub-range of
+//! `self`, not `self`'s own shape.
 
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const ix = blas1.ix;
 const rsimd = @import("../../simd/__root__.zig");
 
-/// CORTH: reduce the submatrix of `ar`/`ai` (column-major, leading
-/// dimension `nm`, order `n`) in rows/columns `low..igh` to upper
-/// Hessenberg form by unitary similarity transformations. If a prior
-/// balancing step was not used, pass `low = 1, igh = n`.
+/// CORTH: reduce the submatrix of `self` (order `self.n`, leading
+/// dimension `self.lda`) in rows/columns `low..igh` to upper Hessenberg
+/// form by unitary similarity transformations. If a prior balancing step
+/// was not used, pass `low = 1, igh = self.n`.
 ///
-/// On return, `ar`/`ai` hold the Hessenberg matrix, with information about
+/// On return, `self` holds the Hessenberg matrix, with information about
 /// the transformations in the elements below it; `ortr`/`orti` (indexed
 /// `low..igh`) hold further information needed to recover the
 /// transformations (e.g. for `comqr3`'s eigenvector back-transformation).
-pub fn corth(nm: usize, n: usize, low: usize, igh: usize, ar: []f64, ai: []f64, ortr: []f64, orti: []f64) void {
+pub fn corth(self: CxMat, low: usize, igh: usize, ortr: []f64, orti: []f64) void {
+    const nm = self.lda;
+    const n = self.n;
+    const ar = self.r;
+    const ai = self.i;
+
     if (igh < low + 2) return; // la = igh-1 < kp1 = low+1: nothing to do
 
     var m: usize = low + 1;
@@ -120,7 +129,7 @@ test "corth preserves trace (similarity transform)" {
     var ortr: [3]f64 = @splat(0.0);
     var orti: [3]f64 = @splat(0.0);
 
-    corth(3, 3, 1, 3, &ar, &ai, &ortr, &orti);
+    corth(CxMat.initPacked(&ar, &ai, 3, 3), 1, 3, &ortr, &orti);
 
     const trace = ar[ix(3, 1, 1)] + ar[ix(3, 2, 2)] + ar[ix(3, 3, 3)];
     try zigstd.testExpectApproxEqAbs(16.0, trace, 1e-9);

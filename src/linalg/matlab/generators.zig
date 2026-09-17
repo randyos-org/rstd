@@ -1,16 +1,26 @@
 //! Row reduction and matrix generation, ported from `matlab88.f90`'s RREF,
 //! HILBER, MAGIC, and the EYE/ONES/DIAG/TRIL/TRIU/KRON command bodies in
 //! `MATFN6`. See `blas1.zig` for the shared matrix/vector conventions this
-//! port uses.
+//! port uses, and `CxMat.zig` for the `self`-shaped calling convention the
+//! complex-matrix functions here now use. `hilber`/`magic` stay on loose
+//! `(a, lda, n)` parameters rather than `CxMat` - they're real-only (no
+//! imaginary part to bundle), so a complex-matrix wrapper doesn't fit them.
 
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
-/// RREF: reduce the M×N complex matrix `ar`/`ai` to reduced row-echelon
-/// form in place, treating any entry no larger than
-/// `eps * 2*max(M,N) * max_column_norm(A)` as a numerical zero.
-pub fn rref(ar: []f64, ai: []f64, lda: usize, m: usize, n: usize, eps: f64) void {
+/// RREF: reduce `self` to reduced row-echelon form in place, treating any
+/// entry no larger than `eps * 2*max(M,N) * max_column_norm(A)` as a
+/// numerical zero.
+pub fn rref(self: CxMat, eps: f64) void {
+    const ar = self.r;
+    const ai = self.i;
+    const lda = self.lda;
+    const m = self.m;
+    const n = self.n;
+
     var tol: f64 = 0.0;
     var j: usize = 1;
     while (j <= n) : (j += 1) {
@@ -76,24 +86,25 @@ pub fn hilber(a: []f64, lda: usize, n: usize) void {
     }
 }
 
-/// EYE: fill the `m`x`n` complex matrix `ar`/`ai` with the (rectangular)
-/// identity - 1 where `i == j`, 0 elsewhere.
-pub fn eye(ar: []f64, ai: []f64, lda: usize, m: usize, n: usize) void {
+/// EYE: fill `self` with the (rectangular) identity - 1 where `i == j`, 0
+/// elsewhere.
+pub fn eye(self: CxMat) void {
     var j: usize = 1;
-    while (j <= n) : (j += 1) {
+    while (j <= self.n) : (j += 1) {
         var i: usize = 1;
-        while (i <= m) : (i += 1) {
-            ar[ix(lda, i, j)] = if (i == j) 1.0 else 0.0;
-            ai[ix(lda, i, j)] = 0.0;
+        while (i <= self.m) : (i += 1) {
+            self.r[self.idx(i, j)] = if (i == j) 1.0 else 0.0;
+            self.i[self.idx(i, j)] = 0.0;
         }
     }
 }
 
-/// ONES: fill the `m`x`n` complex matrix `ar`/`ai` with all ones.
-pub fn ones(ar: []f64, ai: []f64, lda: usize, m: usize, n: usize) void {
+/// ONES: fill `self` with all ones.
+pub fn ones(self: CxMat) void {
     var j: usize = 1;
-    while (j <= n) : (j += 1) {
-        blas1.wset(m, Cx.init(1.0, 0.0), ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1);
+    while (j <= self.n) : (j += 1) {
+        const c = self.col(j);
+        blas1.wset(self.m, Cx.init(1.0, 0.0), c.r, c.i, 1);
     }
 }
 
@@ -178,25 +189,27 @@ pub fn magic(a: []f64, lda: usize, n: usize) void {
 
 /// DIAG: if `v` (length `n`) is a vector, `diagFromVector` builds the
 /// `n+|k|`-order square matrix with `v` on the `k`-th diagonal (`k == 0`:
-/// main diagonal; `k > 0`: above it; `k < 0`: below it) into `ar`/`ai`
-/// (must be sized for that larger order). Everything off that diagonal is
+/// main diagonal; `k > 0`: above it; `k < 0`: below it) into `self` (must
+/// be sized for that larger order). Everything off that diagonal is
 /// zeroed first.
-pub fn diagFromVector(vr: []const f64, vi: []const f64, n: usize, k: isize, ar: []f64, ai: []f64) void {
+pub fn diagFromVector(self: CxMat, vr: []const f64, vi: []const f64, n: usize, k: isize) void {
     const order = n + @as(usize, @intCast(@abs(k)));
-    blas1.wset(order * order, Cx.init(0.0, 0.0), ar, ai, 1);
+    blas1.wset(order * order, Cx.init(0.0, 0.0), self.r, self.i, 1);
     var idx: usize = 1;
     while (idx <= n) : (idx += 1) {
         const row: usize = if (k < 0) idx + @as(usize, @intCast(-k)) else idx;
         const col: usize = if (k < 0) idx else idx + @as(usize, @intCast(k));
-        ar[ix(order, row, col)] = vr[idx - 1];
-        ai[ix(order, row, col)] = vi[idx - 1];
+        self.r[self.idx(row, col)] = vr[idx - 1];
+        self.i[self.idx(row, col)] = vi[idx - 1];
     }
 }
 
-/// DIAG: extract the `k`-th diagonal of the `m`x`n` matrix `ar`/`ai` into
-/// the length-`min(m, n-k)` (`k>=0`) or `min(m+k, n)` (`k<0`) vector
-/// `dr`/`di`. Returns how many entries were written.
-pub fn diagToVector(ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize, k: isize, dr: []f64, di: []f64) usize {
+/// DIAG: extract the `k`-th diagonal of `self` into the length-
+/// `min(m, n-k)` (`k>=0`) or `min(m+k, n)` (`k<0`) vector `dr`/`di`.
+/// Returns how many entries were written.
+pub fn diagToVector(self: CxMat, k: isize, dr: []f64, di: []f64) usize {
+    const m = self.m;
+    const n = self.n;
     const len: usize = if (k >= 0)
         @min(m, n -| @as(usize, @intCast(k)))
     else
@@ -205,73 +218,72 @@ pub fn diagToVector(ar: []const f64, ai: []const f64, lda: usize, m: usize, n: u
     while (idx <= len) : (idx += 1) {
         const row: usize = if (k < 0) idx + @as(usize, @intCast(-k)) else idx;
         const col: usize = if (k < 0) idx else idx + @as(usize, @intCast(k));
-        dr[idx - 1] = ar[ix(lda, row, col)];
-        di[idx - 1] = ai[ix(lda, row, col)];
+        dr[idx - 1] = self.r[self.idx(row, col)];
+        di[idx - 1] = self.i[self.idx(row, col)];
     }
     return len;
 }
 
-/// TRIL: zero the strict upper triangle above the `k`-th diagonal of the
-/// `m`x`n` matrix `ar`/`ai` in place, leaving its lower triangular part
-/// (`k == 0`: including the main diagonal; `k < 0`: below that).
-pub fn tril(ar: []f64, ai: []f64, lda: usize, m: usize, n: usize, k: isize) void {
+/// TRIL: zero the strict upper triangle above the `k`-th diagonal of
+/// `self` in place, leaving its lower triangular part (`k == 0`: including
+/// the main diagonal; `k < 0`: below that).
+pub fn tril(self: CxMat, k: isize) void {
+    const m = self.m;
+    const n = self.n;
     var j: usize = 1;
     while (j <= n) : (j += 1) {
         const jk = @as(isize, @intCast(j)) - k;
         if (jk <= 0) continue;
         const count: usize = @intCast(jk - 1);
-        if (count > 0) blas1.wset(@min(count, m), Cx.init(0.0, 0.0), ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1);
+        if (count > 0) {
+            const c = self.col(j);
+            blas1.wset(@min(count, m), Cx.init(0.0, 0.0), c.r, c.i, 1);
+        }
     }
 }
 
-/// TRIU: zero the strict lower triangle below the `k`-th diagonal of the
-/// `m`x`n` matrix `ar`/`ai` in place, leaving its upper triangular part.
-pub fn triu(ar: []f64, ai: []f64, lda: usize, m: usize, n: usize, k: isize) void {
+/// TRIU: zero the strict lower triangle below the `k`-th diagonal of
+/// `self` in place, leaving its upper triangular part.
+pub fn triu(self: CxMat, k: isize) void {
+    const m = self.m;
+    const n = self.n;
     var j: usize = 1;
     while (j <= n) : (j += 1) {
         const jk = @as(isize, @intCast(j)) - k;
         const first_zero: usize = if (jk < 1) 1 else @as(usize, @intCast(jk)) + 1;
         if (first_zero > m) continue;
-        blas1.wset(m - first_zero + 1, Cx.init(0.0, 0.0), ar[ix(lda, first_zero, j)..], ai[ix(lda, first_zero, j)..], 1);
+        blas1.wset(m - first_zero + 1, Cx.init(0.0, 0.0), self.r[self.idx(first_zero, j)..], self.i[self.idx(first_zero, j)..], 1);
     }
 }
 
 pub const KronOp = enum { mul, div, rdiv };
 
-/// KRON: the Kronecker (tensor) product of the `ma`x`na` matrix `a` (must
-/// be tightly packed - leading dimension `ma`, no padding) and the
-/// `m`x`n` matrix `b` (leading dimension `ldb`), written into `ar`/`ai`
-/// (`(ma*m)`x`(na*n)`, leading dimension `ma*m`). Block `(ia, ja)` of the
+/// KRON: the Kronecker (tensor) product of `a` (must be tightly packed -
+/// `a.lda == a.m`, no padding) and `b`, written into `out`
+/// (`(a.m*b.m)`x`(a.n*b.n)`, tightly packed). Block `(ia, ja)` of the
 /// result is `A(ia,ja)` combined element-by-element with all of `B`, via
 /// `op`: `.mul` is the standard Kronecker product; `.div`/`.rdiv` apply
 /// the same block structure with elementwise division instead
 /// (`A(ia,ja) / B(i,j)` or `B(i,j) / A(ia,ja)`), matching the original's
-/// shared implementation of all three.
-pub fn kron(
-    ar_a: []const f64,
-    ai_a: []const f64,
-    ma: usize,
-    na: usize,
-    ar_b: []const f64,
-    ai_b: []const f64,
-    ldb: usize,
-    m: usize,
-    n: usize,
-    ar: []f64,
-    ai: []f64,
-    op: KronOp,
-) void {
-    const lda_result = ma * m;
+/// shared implementation of all three. Three co-equal matrices, so this
+/// isn't a `self`-shaped method the way single-matrix operations are.
+pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
+    const ma = a.m;
+    const na = a.n;
+    const m = b.m;
+    const n = b.n;
+    const lda_result = out.lda;
+
     var ja: usize = 1;
     while (ja <= na) : (ja += 1) {
         var j: usize = 1;
         while (j <= n) : (j += 1) {
             var ia: usize = 1;
             while (ia <= ma) : (ia += 1) {
-                const a_val = Cx.init(ar_a[ix(ma, ia, ja)], ai_a[ix(ma, ia, ja)]);
+                const a_val = a.get(ia, ja);
                 var i: usize = 1;
                 while (i <= m) : (i += 1) {
-                    const b_val = Cx.init(ar_b[ix(ldb, i, j)], ai_b[ix(ldb, i, j)]);
+                    const b_val = b.get(i, j);
                     const v = switch (op) {
                         .mul => blas1.wmul(a_val, b_val),
                         .div => blas1.wdiv(a_val, b_val),
@@ -279,8 +291,8 @@ pub fn kron(
                     };
                     const row = (ia - 1) * m + i;
                     const col = (ja - 1) * n + j;
-                    ar[ix(lda_result, row, col)] = v.re;
-                    ai[ix(lda_result, row, col)] = v.im;
+                    out.r[ix(lda_result, row, col)] = v.re;
+                    out.i[ix(lda_result, row, col)] = v.im;
                 }
             }
         }
@@ -305,13 +317,14 @@ test "hilber matches the known inverse of the 3x3 Hilbert matrix" {
 test "eye and ones produce the expected 2x3 matrices" {
     var ar: [6]f64 = @splat(0.0);
     var ai: [6]f64 = @splat(0.0);
-    eye(&ar, &ai, 2, 2, 3);
+    const mat = CxMat.init(&ar, &ai, 2, 2, 3);
+    eye(mat);
     try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-12);
     try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-12);
     try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 2, 2)], 1e-12);
     try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 1, 3)], 1e-12);
 
-    ones(&ar, &ai, 2, 2, 3);
+    ones(mat);
     for (ar) |v| try zigstd.testExpectApproxEqAbs(1.0, v, 1e-12);
 }
 
@@ -359,7 +372,7 @@ test "diagFromVector and diagToVector round-trip" {
     const vi = [_]f64{ 0.0, 0.0, 0.0 };
     var ar: [16]f64 = @splat(0.0); // room for order 4 (n=3, k=1)
     var ai: [16]f64 = @splat(0.0);
-    diagFromVector(&vr, &vi, 3, 1, &ar, &ai);
+    diagFromVector(CxMat.initPacked(&ar, &ai, 4, 4), &vr, &vi, 3, 1);
     // order = 3+1 = 4; diagonal k=1 means A(i, i+1) = v(i).
     try zigstd.testExpectApproxEqAbs(1.0, ar[ix(4, 1, 2)], 1e-12);
     try zigstd.testExpectApproxEqAbs(2.0, ar[ix(4, 2, 3)], 1e-12);
@@ -367,7 +380,7 @@ test "diagFromVector and diagToVector round-trip" {
 
     var dr: [3]f64 = @splat(0.0);
     var di: [3]f64 = @splat(0.0);
-    const len = diagToVector(&ar, &ai, 4, 4, 4, 1, &dr, &di);
+    const len = diagToVector(CxMat.initPacked(&ar, &ai, 4, 4), 1, &dr, &di);
     try zigstd.testExpectEqual(@as(usize, 3), len);
     try zigstd.testExpectApproxEqAbs(1.0, dr[0], 1e-12);
     try zigstd.testExpectApproxEqAbs(2.0, dr[1], 1e-12);
@@ -380,24 +393,29 @@ test "tril and triu zero the expected triangle" {
     var ar2 = ar;
     var ai2 = ai;
 
-    tril(&ar, &ai, 3, 3, 3, 0);
+    tril(CxMat.initPacked(&ar, &ai, 3, 3), 0);
     try zigstd.testExpectApproxEqAbs(0.0, ar[ix(3, 1, 2)], 1e-12); // above diagonal zeroed
     try zigstd.testExpectApproxEqAbs(2.0, ar[ix(3, 2, 1)], 1e-12); // below diagonal kept
 
-    triu(&ar2, &ai2, 3, 3, 3, 0);
+    triu(CxMat.initPacked(&ar2, &ai2, 3, 3), 0);
     try zigstd.testExpectApproxEqAbs(0.0, ar2[ix(3, 2, 1)], 1e-12); // below diagonal zeroed
     try zigstd.testExpectApproxEqAbs(4.0, ar2[ix(3, 1, 2)], 1e-12); // above diagonal kept
 }
 
 test "kron matches the textbook 2x2 example" {
     // A = [[1,2],[3,4]], B = [[0,5],[6,7]].
-    const ar_a = [_]f64{ 1.0, 3.0, 2.0, 4.0 };
-    const ai_a: [4]f64 = @splat(0.0);
-    const ar_b = [_]f64{ 0.0, 6.0, 5.0, 7.0 };
-    const ai_b: [4]f64 = @splat(0.0);
+    var ar_a = [_]f64{ 1.0, 3.0, 2.0, 4.0 };
+    var ai_a: [4]f64 = @splat(0.0);
+    var ar_b = [_]f64{ 0.0, 6.0, 5.0, 7.0 };
+    var ai_b: [4]f64 = @splat(0.0);
     var ar: [16]f64 = @splat(0.0);
     var ai: [16]f64 = @splat(0.0);
-    kron(&ar_a, &ai_a, 2, 2, &ar_b, &ai_b, 2, 2, 2, &ar, &ai, .mul);
+    kron(
+        CxMat.initPacked(&ar_a, &ai_a, 2, 2),
+        CxMat.initPacked(&ar_b, &ai_b, 2, 2),
+        CxMat.initPacked(&ar, &ai, 4, 4),
+        .mul,
+    );
 
     // Expected kron(A,B) (row-major for readability):
     // [ 0  5 |  0 10]
@@ -415,7 +433,7 @@ test "rref reduces a simple rank-deficient system" {
     // [[1, 2, 3], [2, 4, 6]] -> rank 1, row-reduces to [[1,2,3],[0,0,0]].
     var ar = [_]f64{ 1.0, 2.0, 2.0, 4.0, 3.0, 6.0 }; // column-major, 2x3
     var ai: [6]f64 = @splat(0.0);
-    rref(&ar, &ai, 2, 2, 3, 1e-12);
+    rref(CxMat.initPacked(&ar, &ai, 2, 3), 1e-12);
     try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-9);
     try zigstd.testExpectApproxEqAbs(2.0, ar[ix(2, 1, 2)], 1e-9);
     try zigstd.testExpectApproxEqAbs(3.0, ar[ix(2, 1, 3)], 1e-9);

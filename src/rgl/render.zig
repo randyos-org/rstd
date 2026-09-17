@@ -18,6 +18,8 @@ const RGBA = color.RGBA;
 const Image = @import("Image.zig");
 const sw = @import("sw/__root__.zig");
 const vulkan = @import("vulkan/__root__.zig");
+pub const PipelineId = vulkan.PipelineId;
+pub const custom_pipeline_id_start = vulkan.custom_pipeline_id_start;
 
 /// Starts a new frame. `clear`, if given, replaces every pixel (sw) or
 /// discards every batched instance (vulkan) left over from the last one.
@@ -87,6 +89,19 @@ pub fn drawImage(surface: *Surface, pos: Point, img: *const Image) !void {
     }
 }
 
+/// Draws one instance of a caller-registered custom pipeline (a shader
+/// other than rgl's own rect/glyph/image built-ins -- e.g. an app's own
+/// accelerated path for a common shape). vulkan-only: a custom shader has
+/// no meaning to the sw backend, which has no shader/pipeline concept at
+/// all to begin with, so this fails with `error.CustomShaderUnsupported`
+/// there rather than silently doing nothing.
+pub fn drawCustom(surface: *Surface, pipeline: PipelineId, comptime Instance: type, instance: Instance) !void {
+    switch (surface.impl) {
+        .sw => return error.CustomShaderUnsupported,
+        .vulkan => |*v| try vulkan.drawCustom(v, pipeline, Instance, instance),
+    }
+}
+
 test "the same call sequence runs on both backends" {
     const std = @import("std");
     const zigstd = @import("../zigstd.zig");
@@ -115,4 +130,18 @@ test "the same call sequence runs on both backends" {
         endFrame(&surface);
         std.mem.doNotOptimizeAway(&surface);
     }
+}
+
+test "drawCustom works on vulkan and is rejected cleanly on sw" {
+    const zigstd = @import("../zigstd.zig");
+    const alloc = zigstd.testAllocator;
+    const MyInstance = extern struct { pos: [2]f32 };
+
+    var vk_surface = try Surface.init(alloc, 4, 4, .{ .vulkan = .{} });
+    defer vk_surface.destroy(alloc);
+    try drawCustom(&vk_surface, custom_pipeline_id_start, MyInstance, .{ .pos = .{ 1, 2 } });
+
+    var sw_surface = try Surface.init(alloc, 4, 4, .{ .sw = .{} });
+    defer sw_surface.destroy(alloc);
+    try zigstd.testExpectError(error.CustomShaderUnsupported, drawCustom(&sw_surface, custom_pipeline_id_start, MyInstance, .{ .pos = .{ 1, 2 } }));
 }

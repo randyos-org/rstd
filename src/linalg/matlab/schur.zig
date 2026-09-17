@@ -12,6 +12,7 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const hessenberg = @import("hessenberg.zig");
 const eigen_general = @import("eigen_general.zig");
 const Cx = blas1.Cx;
@@ -37,15 +38,12 @@ pub const HessResult = struct {
 
 pub const HessError = zigstd.Allocator.Error;
 
-/// HESS: see `HessResult`. `ar`/`ai` (`n`x`n`, column-major) are not
-/// mutated.
-pub fn hess(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize) HessError!HessResult {
-    const h_r = try allocator.alloc(f64, n * n);
-    errdefer allocator.free(h_r);
-    const h_i = try allocator.alloc(f64, n * n);
-    errdefer allocator.free(h_i);
-    @memcpy(h_r, ar[0 .. n * n]);
-    @memcpy(h_i, ai[0 .. n * n]);
+/// HESS: see `HessResult`. `a` is not mutated (a cloned copy is reduced
+/// in place instead).
+pub fn hess(allocator: zigstd.Allocator, a: CxMat) HessError!HessResult {
+    const n = a.n;
+    var h = try a.clone(allocator);
+    errdefer h.deinit(allocator);
 
     const ortr = try allocator.alloc(f64, n);
     defer allocator.free(ortr);
@@ -54,12 +52,13 @@ pub fn hess(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: us
     @memset(ortr, 0.0);
     @memset(orti, 0.0);
 
-    hessenberg.corth(n, n, 1, n, h_r, h_i, ortr, orti);
+    hessenberg.corth(h, 1, n, ortr, orti);
 
     const p_r = try allocator.alloc(f64, n * n);
     errdefer allocator.free(p_r);
     const p_i = try allocator.alloc(f64, n * n);
     errdefer allocator.free(p_i);
+    const p = CxMat.initPacked(p_r, p_i, n, n);
 
     // job == 3 skips QR iteration entirely, so wr/wi are never touched -
     // still sized n rather than a 1-element dummy, since that skip isn't
@@ -70,7 +69,7 @@ pub fn hess(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: us
     const wi = try allocator.alloc(f64, n);
     defer allocator.free(wi);
 
-    _ = eigen_general.comqr3(n, n, 1, n, ortr, orti, h_r, h_i, wr, wi, p_r, p_i, 3);
+    _ = eigen_general.comqr3(h, 1, n, ortr, orti, wr, wi, p, 3);
 
     // Only now, after comqr3's P-accumulation has read whatever it needed
     // from H's lower triangle (corth stores part of its Householder-vector
@@ -82,11 +81,11 @@ pub fn hess(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: us
     if (n >= 3) {
         var col: usize = 1;
         while (col <= n - 2) : (col += 1) {
-            blas1.wset(n - col - 1, Cx.init(0.0, 0.0), h_r[ix(n, col + 2, col)..], h_i[ix(n, col + 2, col)..], 1);
+            blas1.wset(n - col - 1, Cx.init(0.0, 0.0), h.r[ix(n, col + 2, col)..], h.i[ix(n, col + 2, col)..], 1);
         }
     }
 
-    return .{ .p_r = p_r, .p_i = p_i, .h_r = h_r, .h_i = h_i };
+    return .{ .p_r = p_r, .p_i = p_i, .h_r = h.r, .h_i = h.i };
 }
 
 /// `<U, T>`: `A`'s unitary similarity `U` and (upper triangular) Schur
@@ -108,16 +107,13 @@ pub const SchurResult = struct {
 
 pub const SchurError = error{EigenvalueDidNotConverge} || zigstd.Allocator.Error;
 
-/// SCHUR: see `SchurResult`. `ar`/`ai` (`n`x`n`, column-major) are not
-/// mutated. Returns an error if an eigenvalue failed to converge after
-/// `30*n` QR iterations (matching `comqr3`'s own failure contract).
-pub fn schur(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize) SchurError!SchurResult {
-    const t_r = try allocator.alloc(f64, n * n);
-    errdefer allocator.free(t_r);
-    const t_i = try allocator.alloc(f64, n * n);
-    errdefer allocator.free(t_i);
-    @memcpy(t_r, ar[0 .. n * n]);
-    @memcpy(t_i, ai[0 .. n * n]);
+/// SCHUR: see `SchurResult`. `a` is not mutated (a cloned copy is reduced
+/// in place instead). Returns an error if an eigenvalue failed to converge
+/// after `30*n` QR iterations (matching `comqr3`'s own failure contract).
+pub fn schur(allocator: zigstd.Allocator, a: CxMat) SchurError!SchurResult {
+    const n = a.n;
+    var t = try a.clone(allocator);
+    errdefer t.deinit(allocator);
 
     const ortr = try allocator.alloc(f64, n);
     defer allocator.free(ortr);
@@ -126,24 +122,21 @@ pub fn schur(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: u
     @memset(ortr, 0.0);
     @memset(orti, 0.0);
 
-    hessenberg.corth(n, n, 1, n, t_r, t_i, ortr, orti);
+    hessenberg.corth(t, 1, n, ortr, orti);
 
     const u_r = try allocator.alloc(f64, n * n);
     errdefer allocator.free(u_r);
     const u_i = try allocator.alloc(f64, n * n);
     errdefer allocator.free(u_i);
+    const u = CxMat.initPacked(u_r, u_i, n, n);
 
     const wr = try allocator.alloc(f64, n);
     defer allocator.free(wr);
     const wi = try allocator.alloc(f64, n);
     defer allocator.free(wi);
 
-    const ierr = eigen_general.comqr3(n, n, 1, n, ortr, orti, t_r, t_i, wr, wi, u_r, u_i, 1);
-    if (ierr != 0) {
-        allocator.free(u_r);
-        allocator.free(u_i);
-        return error.EigenvalueDidNotConverge;
-    }
+    const ierr = eigen_general.comqr3(t, 1, n, ortr, orti, wr, wi, u, 1);
+    if (ierr != 0) return error.EigenvalueDidNotConverge;
 
     // The QR iteration converges the subdiagonal toward zero (a genuine,
     // small-but-not-exactly-zero numerical residual, left as-is) but never
@@ -156,11 +149,11 @@ pub fn schur(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: u
     if (n >= 3) {
         var col: usize = 1;
         while (col <= n - 2) : (col += 1) {
-            blas1.wset(n - col - 1, Cx.init(0.0, 0.0), t_r[ix(n, col + 2, col)..], t_i[ix(n, col + 2, col)..], 1);
+            blas1.wset(n - col - 1, Cx.init(0.0, 0.0), t.r[ix(n, col + 2, col)..], t.i[ix(n, col + 2, col)..], 1);
         }
     }
 
-    return .{ .u_r = u_r, .u_i = u_i, .t_r = t_r, .t_i = t_i };
+    return .{ .u_r = u_r, .u_i = u_i, .t_r = t.r, .t_i = t.i };
 }
 
 fn matSub(alloc: zigstd.Allocator, n: usize, ar: []const f64, ai: []const f64, br: []const f64, bi: []const f64) ![2][]f64 {
@@ -175,10 +168,10 @@ fn matSub(alloc: zigstd.Allocator, n: usize, ar: []const f64, ai: []const f64, b
 
 test "hess reduces to zero below the first subdiagonal, and P*H*P' reconstructs A" {
     const n = 3;
-    const ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
-    const ai: [n * n]f64 = @splat(0.0);
+    var ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
+    var ai: [n * n]f64 = @splat(0.0);
 
-    var result = try hess(zigstd.testAllocator, &ar, &ai, n);
+    var result = try hess(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, n, n));
     defer result.deinit(zigstd.testAllocator);
 
     // Zero below the first subdiagonal: only (2,1) and (3,2) survive below
@@ -192,7 +185,9 @@ test "hess reduces to zero below the first subdiagonal, and P*H*P' reconstructs 
     var scratch_i: [n]f64 = undefined;
     var ph_r: [n * n]f64 = undefined;
     var ph_i: [n * n]f64 = undefined;
-    matmul_mod.matmul(result.p_r, result.p_i, n, n, n, result.h_r, result.h_i, n, n, &ph_r, &ph_i, n, &scratch_r, &scratch_i);
+    const p_mat = CxMat.initPacked(result.p_r, result.p_i, n, n);
+    const h_mat = CxMat.initPacked(result.h_r, result.h_i, n, n);
+    matmul_mod.matmul(p_mat, h_mat, CxMat.initPacked(&ph_r, &ph_i, n, n), &scratch_r, &scratch_i);
 
     // P' = conjugate transpose of P.
     var pt_r: [n * n]f64 = undefined;
@@ -205,7 +200,7 @@ test "hess reduces to zero below the first subdiagonal, and P*H*P' reconstructs 
     }
     var recon_r: [n * n]f64 = undefined;
     var recon_i: [n * n]f64 = undefined;
-    matmul_mod.matmul(&ph_r, &ph_i, n, n, n, &pt_r, &pt_i, n, n, &recon_r, &recon_i, n, &scratch_r, &scratch_i);
+    matmul_mod.matmul(CxMat.initPacked(&ph_r, &ph_i, n, n), CxMat.initPacked(&pt_r, &pt_i, n, n), CxMat.initPacked(&recon_r, &recon_i, n, n), &scratch_r, &scratch_i);
 
     const diff = try matSub(zigstd.testAllocator, n, &recon_r, &recon_i, &ar, &ai);
     defer zigstd.testAllocator.free(diff[0]);
@@ -218,10 +213,10 @@ test "hess reduces to zero below the first subdiagonal, and P*H*P' reconstructs 
 
 test "schur produces an upper triangular T with A's eigenvalues on the diagonal" {
     const n = 3;
-    const ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
-    const ai: [n * n]f64 = @splat(0.0);
+    var ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
+    var ai: [n * n]f64 = @splat(0.0);
 
-    var result = try schur(zigstd.testAllocator, &ar, &ai, n);
+    var result = try schur(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, n, n));
     defer result.deinit(zigstd.testAllocator);
 
     // Upper triangular. The subdiagonal (row == col+1) converges toward

@@ -3,8 +3,8 @@
 //! `std.math.complex` calls directly, wired in `matrixfun.zig`).
 //!
 //! Operates on a single `Cx` scalar. For applying one across a whole
-//! vector or matrix, see `api.zig`'s elementwise (`sin`, `cos`, ...) and
-//! matrix-function (`sinm`, `cosm`, ...) wrappers.
+//! vector or matrix, see `__root__.zig`'s elementwise (`sin`, `cos`, ...)
+//! and `CxMat`'s matrix-function (`sinm`, `cosm`, ...) methods.
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");

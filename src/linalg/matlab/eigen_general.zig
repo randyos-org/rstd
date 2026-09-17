@@ -9,6 +9,7 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
@@ -36,20 +37,23 @@ const ix = blas1.ix;
 /// to converge after `30*n` iterations total (eigenvalues past that index
 /// are still correct; none of the eigenvectors are valid in that case).
 pub fn comqr3(
-    nm: usize,
-    n: usize,
+    self: CxMat,
     low: usize,
     igh: usize,
     ortr: []f64,
     orti: []f64,
-    hr: []f64,
-    hi: []f64,
     wr: []f64,
     wi: []f64,
-    zr: []f64,
-    zi: []f64,
+    z: CxMat,
     job: usize,
 ) usize {
+    const nm = self.lda;
+    const n = self.n;
+    const hr = self.r;
+    const hi = self.i;
+    const zr = z.r;
+    const zi = z.i;
+
     var skip_realification = false;
 
     if (job != 0) {
@@ -435,7 +439,7 @@ test "comqr3 finds eigenvalues of a trivial 2x2 upper-triangular Hessenberg matr
     var zr: [4]f64 = @splat(0.0);
     var zi: [4]f64 = @splat(0.0);
 
-    const ierr = comqr3(2, 2, 1, 2, &ortr, &orti, &hr, &hi, &wr, &wi, &zr, &zi, 0);
+    const ierr = comqr3(CxMat.initPacked(&hr, &hi, 2, 2), 1, 2, &ortr, &orti, &wr, &wi, CxMat.initPacked(&zr, &zi, 2, 2), 0);
     try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     const lo = @min(wr[0], wr[1]);
@@ -458,7 +462,7 @@ test "comqr3 recovers eigenvalues and eigenvectors of a symmetric 2x2 matrix" {
     var zi: [4]f64 = @splat(0.0);
 
     const a = [_]f64{ 2.0, 1.0, 1.0, 2.0 }; // original A, untouched, for verification
-    const ierr = comqr3(2, 2, 1, 2, &ortr, &orti, &hr, &hi, &wr, &wi, &zr, &zi, 2);
+    const ierr = comqr3(CxMat.initPacked(&hr, &hi, 2, 2), 1, 2, &ortr, &orti, &wr, &wi, CxMat.initPacked(&zr, &zi, 2, 2), 2);
     try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     for (0..2) |col| {
@@ -487,13 +491,13 @@ test "corth + comqr3 recover eigenpairs of a genuinely non-symmetric 3x3 matrix"
     var hi: [9]f64 = @splat(0.0);
     var ortr: [3]f64 = @splat(0.0);
     var orti: [3]f64 = @splat(0.0);
-    hessenberg.corth(3, 3, 1, 3, &hr, &hi, &ortr, &orti);
+    hessenberg.corth(CxMat.initPacked(&hr, &hi, 3, 3), 1, 3, &ortr, &orti);
 
     var wr: [3]f64 = @splat(0.0);
     var wi: [3]f64 = @splat(0.0);
     var zr: [9]f64 = @splat(0.0);
     var zi: [9]f64 = @splat(0.0);
-    const ierr = comqr3(3, 3, 1, 3, &ortr, &orti, &hr, &hi, &wr, &wi, &zr, &zi, 2);
+    const ierr = comqr3(CxMat.initPacked(&hr, &hi, 3, 3), 1, 3, &ortr, &orti, &wr, &wi, CxMat.initPacked(&zr, &zi, 3, 3), 2);
     try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     // Trace is preserved by similarity.

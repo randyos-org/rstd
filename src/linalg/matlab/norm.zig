@@ -12,8 +12,8 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const svd = @import("svd.zig");
-const ix = blas1.ix;
 
 /// `NORM(V,2)` / `NORM(V)`: Euclidean norm. Alias of `blas1.wnrm2`, which
 /// is already the overflow-safe incremental-`pythag` algorithm the
@@ -49,18 +49,14 @@ pub fn vecNormInf(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     return m;
 }
 
-/// `NORM(X)` / `NORM(X,2)`: largest singular value of `ar`/`ai` (`n`x`p`,
-/// column-major, leading dimension `n` - destroyed, matching `wsvdc`).
-/// `sr`/`si` (length `min(n+1,p)`), `er`/`ei` (length `p`), and
-/// `workr`/`worki` (length `n`) are `wsvdc`'s own scratch - see
-/// `svdapi.zig`'s `singularValues` (the same job-0, no-vectors call shape
-/// this mirrors) for the exact sizes. Only `sr[0]` (the largest singular
-/// value) is read back here.
+/// `NORM(X)` / `NORM(X,2)`: largest singular value of `self` (destroyed,
+/// matching `wsvdc`). `sr`/`si` (length `min(self.m+1,self.n)`), `er`/`ei`
+/// (length `self.n`), and `workr`/`worki` (length `self.m`) are `wsvdc`'s
+/// own scratch - see `svdapi.zig`'s `singularValues` (the same job-0,
+/// no-vectors call shape this mirrors) for the exact sizes. Only `sr[0]`
+/// (the largest singular value) is read back here.
 pub fn matNorm2(
-    ar: []f64,
-    ai: []f64,
-    n: usize,
-    p: usize,
+    self: CxMat,
     sr: []f64,
     si: []f64,
     er: []f64,
@@ -69,17 +65,18 @@ pub fn matNorm2(
     worki: []f64,
 ) usize {
     var no_vecs: [1]f64 = .{0.0};
-    return svd.wsvdc(ar, ai, n, n, p, sr, si, er, ei, &no_vecs, &no_vecs, 1, &no_vecs, &no_vecs, 1, workr, worki, 0);
+    const dummy = CxMat.init(&no_vecs, &no_vecs, 1, 1, 1);
+    return svd.wsvdc(self, sr, si, er, ei, dummy, dummy, workr, worki, 0);
 }
 
 /// `NORM(X,1)`: max column sum of `|re|+|im|` (matches `lu.wgeco`'s own
 /// `anorm` computation, the same convention this port already uses
 /// internally for a matrix 1-norm).
-pub fn matNorm1(ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize) f64 {
+pub fn matNorm1(self: CxMat) f64 {
     var result: f64 = 0.0;
     var j: usize = 1;
-    while (j <= n) : (j += 1) {
-        result = @max(result, blas1.wasum(m, ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1));
+    while (j <= self.n) : (j += 1) {
+        result = @max(result, blas1.wasum(self.m, self.r[self.idx(1, j)..], self.i[self.idx(1, j)..], 1));
     }
     return result;
 }
@@ -88,11 +85,11 @@ pub fn matNorm1(ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize
 /// contiguous) in this column-major layout, so this doesn't take
 /// `wasum`'s `@Vector` fast path - matching every other row-wise access in
 /// this port.
-pub fn matNormInf(ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize) f64 {
+pub fn matNormInf(self: CxMat) f64 {
     var result: f64 = 0.0;
     var i: usize = 1;
-    while (i <= m) : (i += 1) {
-        result = @max(result, blas1.wasum(n, ar[ix(lda, i, 1)..], ai[ix(lda, i, 1)..], @intCast(lda)));
+    while (i <= self.m) : (i += 1) {
+        result = @max(result, blas1.wasum(self.n, self.r[self.idx(i, 1)..], self.i[self.idx(i, 1)..], @intCast(self.lda)));
     }
     return result;
 }
@@ -100,9 +97,11 @@ pub fn matNormInf(ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usi
 /// `NORM(X,'FRO')`: Frobenius norm, `sqrt(sum(|x_ij|**2))` - the whole
 /// `m`x`n` matrix read as one flat length-`m*n` vector and passed straight
 /// to `wnrm2` (a column-major matrix's storage already *is* one flat
-/// contiguous run).
-pub fn matNormFro(ar: []const f64, ai: []const f64, m: usize, n: usize) f64 {
-    return blas1.wnrm2(m * n, ar[0 .. m * n], ai[0 .. m * n], 1);
+/// contiguous run - only valid when `self.lda == self.m`, i.e. no
+/// submatrix view; a strided view would need a per-column loop instead).
+pub fn matNormFro(self: CxMat) f64 {
+    const len = self.m * self.n;
+    return blas1.wnrm2(len, self.r[0..len], self.i[0..len], 1);
 }
 
 test "vecNorm2 matches wnrm2 and the 3-4-5 triangle" {
@@ -128,15 +127,16 @@ test "vecNormInf finds the largest-magnitude entry" {
 
 test "matNorm1/matNormInf/matNormFro match hand computation for a real 2x2" {
     // A = [[1, -3], [4, 2]] (column-major: col1=[1,4], col2=[-3,2]).
-    const ar = [_]f64{ 1.0, 4.0, -3.0, 2.0 };
-    const ai: [4]f64 = @splat(0.0);
+    var ar = [_]f64{ 1.0, 4.0, -3.0, 2.0 };
+    var ai: [4]f64 = @splat(0.0);
+    const a = CxMat.initPacked(&ar, &ai, 2, 2);
 
     // 1-norm: max column sum of abs = max(1+4, 3+2) = 5.
-    try zigstd.testExpectApproxEqAbs(5.0, matNorm1(&ar, &ai, 2, 2, 2), 1e-12);
+    try zigstd.testExpectApproxEqAbs(5.0, matNorm1(a), 1e-12);
     // inf-norm: max row sum of abs = max(1+3, 4+2) = 6.
-    try zigstd.testExpectApproxEqAbs(6.0, matNormInf(&ar, &ai, 2, 2, 2), 1e-12);
+    try zigstd.testExpectApproxEqAbs(6.0, matNormInf(a), 1e-12);
     // Frobenius: sqrt(1+16+9+4) = sqrt(30).
-    try zigstd.testExpectApproxEqAbs(@sqrt(30.0), matNormFro(&ar, &ai, 2, 2), 1e-9);
+    try zigstd.testExpectApproxEqAbs(@sqrt(30.0), matNormFro(a), 1e-9);
 }
 
 test "matNorm2 (largest singular value) matches a known case" {
@@ -151,7 +151,7 @@ test "matNorm2 (largest singular value) matches a known case" {
     var workr: [2]f64 = undefined;
     var worki: [2]f64 = undefined;
 
-    const info = matNorm2(&ar, &ai, 2, 2, &sr, &si, &er, &ei, &workr, &worki);
+    const info = matNorm2(CxMat.initPacked(&ar, &ai, 2, 2), &sr, &si, &er, &ei, &workr, &worki);
     try zigstd.testExpectEqual(@as(usize, 0), info);
     try zigstd.testExpectApproxEqAbs(5.0, sr[0], 1e-9);
 }

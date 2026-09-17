@@ -1,5 +1,6 @@
-//! `EIG`'s dispatch logic, split out of `api.zig` to keep files under this
-//! project's line-count guideline: pick the Hermitian eigensolver
+//! `EIG`'s dispatch logic, kept as its own file (rather than folded into
+//! `CxMat.zig`, whose `eig` method delegates here) to keep files under
+//! this project's line-count guideline: pick the Hermitian eigensolver
 //! (`tridiagonal.htridi` + `eigen_symmetric.imtql2` + `tridiagonal.htribk`)
 //! or the general one (`hessenberg.corth` + `eigen_general.comqr3`),
 //! exactly as the original REPL's `EIG` command did.
@@ -7,6 +8,7 @@
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const tridiagonal = @import("tridiagonal.zig");
 const eigen_symmetric = @import("eigen_symmetric.zig");
 const hessenberg = @import("hessenberg.zig");
@@ -36,36 +38,33 @@ pub const EigResult = struct {
 
 pub const EigError = error{EigenvalueDidNotConverge} || zigstd.Allocator.Error;
 
-fn isHermitian(ar: []const f64, ai: []const f64, n: usize) bool {
+fn isHermitian(a: CxMat) bool {
     var j: usize = 1;
-    while (j <= n) : (j += 1) {
+    while (j <= a.n) : (j += 1) {
         var i: usize = 1;
         while (i <= j) : (i += 1) {
-            if (ar[ix(n, i, j)] != ar[ix(n, j, i)] or ai[ix(n, i, j)] != -ai[ix(n, j, i)]) return false;
+            if (a.r[a.idx(i, j)] != a.r[a.idx(j, i)] or a.i[a.idx(i, j)] != -a.i[a.idx(j, i)]) return false;
         }
     }
     return true;
 }
 
-/// EIG: eigenvalues (and, if `want_vectors`, eigenvectors) of the `n`x`n`
-/// complex matrix `ar`/`ai` (column-major, leading dimension `n` - not
-/// mutated). Automatically dispatches to the Hermitian eigensolver
+/// EIG: eigenvalues (and, if `want_vectors`, eigenvectors) of the complex
+/// matrix `a` (not mutated - a cloned copy is reduced in place instead).
+/// Automatically dispatches to the Hermitian eigensolver
 /// (`htridi`+`imtql2`+`htribk`, real eigenvalues) or the general one
 /// (`corth`+`comqr3`), exactly as the original REPL's `EIG` command did.
-pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, want_vectors: bool) EigError!EigResult {
-    const work_r = try allocator.alloc(f64, n * n);
-    defer allocator.free(work_r);
-    const work_i = try allocator.alloc(f64, n * n);
-    defer allocator.free(work_i);
-    @memcpy(work_r, ar[0 .. n * n]);
-    @memcpy(work_i, ai[0 .. n * n]);
+pub fn eig(allocator: zigstd.Allocator, a: CxMat, want_vectors: bool) EigError!EigResult {
+    const n = a.n;
+    var work = try a.clone(allocator);
+    defer work.deinit(allocator);
 
     const values_r = try allocator.alloc(f64, n);
     errdefer allocator.free(values_r);
     const values_i = try allocator.alloc(f64, n);
     errdefer allocator.free(values_i);
 
-    if (isHermitian(ar, ai, n)) {
+    if (isHermitian(a)) {
         @memset(values_i, 0.0);
         const e = try allocator.alloc(f64, n);
         defer allocator.free(e);
@@ -76,7 +75,7 @@ pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usi
         const taui = try allocator.alloc(f64, n);
         defer allocator.free(taui);
 
-        tridiagonal.htridi(n, n, work_r, work_i, values_r, e, e2, taur, taui);
+        tridiagonal.htridi(work, values_r, e, e2, taur, taui);
 
         if (!want_vectors) {
             var no_vectors: [0]f64 = .{};
@@ -96,7 +95,7 @@ pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usi
 
         const ierr = eigen_symmetric.imtql2(n, values_r, e, zr, n, 1);
         if (ierr != 0) return error.EigenvalueDidNotConverge;
-        tridiagonal.htribk(n, n, work_r, work_i, taur, taui, n, zr, zi);
+        tridiagonal.htribk(work, taur, taui, CxMat.initPacked(zr, zi, n, n));
         return .{ .values_r = values_r, .values_i = values_i, .vectors_r = zr, .vectors_i = zi };
     }
 
@@ -107,7 +106,7 @@ pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usi
     @memset(ortr, 0.0);
     @memset(orti, 0.0);
 
-    hessenberg.corth(n, n, 1, n, work_r, work_i, ortr, orti);
+    hessenberg.corth(work, 1, n, ortr, orti);
 
     const zr = try allocator.alloc(f64, n * n);
     errdefer allocator.free(zr);
@@ -117,7 +116,7 @@ pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usi
     @memset(zi, 0.0);
 
     const job: usize = if (want_vectors) 2 else 0;
-    const ierr = eigen_general.comqr3(n, n, 1, n, ortr, orti, work_r, work_i, values_r, values_i, zr, zi, job);
+    const ierr = eigen_general.comqr3(work, 1, n, ortr, orti, values_r, values_i, CxMat.initPacked(zr, zi, n, n), job);
     if (ierr != 0) {
         allocator.free(zr);
         allocator.free(zi);
@@ -134,9 +133,9 @@ pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usi
 
 test "eig dispatches to the Hermitian path for a symmetric matrix" {
     // A = [[2,1],[1,2]]: eigenvalues 1 and 3.
-    const ar = [_]f64{ 2.0, 1.0, 1.0, 2.0 };
-    const ai: [4]f64 = @splat(0.0);
-    const result = try eig(zigstd.testAllocator, &ar, &ai, 2, true);
+    var ar = [_]f64{ 2.0, 1.0, 1.0, 2.0 };
+    var ai: [4]f64 = @splat(0.0);
+    const result = try eig(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, 2, 2), true);
     defer result.deinit(zigstd.testAllocator);
 
     const lo = @min(result.values_r[0], result.values_r[1]);
@@ -147,9 +146,9 @@ test "eig dispatches to the Hermitian path for a symmetric matrix" {
 }
 
 test "eig dispatches to the general path for a non-symmetric matrix" {
-    const ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
-    const ai: [9]f64 = @splat(0.0);
-    const result = try eig(zigstd.testAllocator, &ar, &ai, 3, false);
+    var ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
+    var ai: [9]f64 = @splat(0.0);
+    const result = try eig(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, 3, 3), false);
     defer result.deinit(zigstd.testAllocator);
 
     try zigstd.testExpectTrue(result.vectors_r == null);

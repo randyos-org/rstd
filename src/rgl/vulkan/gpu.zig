@@ -29,11 +29,12 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const batch = @import("__root__.zig");
-const RectInstance = batch.RectInstance;
-const GlyphInstance = batch.GlyphInstance;
-const ImageInstance = batch.ImageInstance;
-const VkSurface = batch.VkSurface;
+const rglvk = @import("__root__.zig");
+const RectInstance = rglvk.RectInstance;
+const GlyphInstance = rglvk.GlyphInstance;
+const ImageInstance = rglvk.ImageInstance;
+const VkSurface = rglvk.VkSurface;
+const Batch = rglvk.Batch;
 
 const shaders = @import("../shaders/__root__.zig");
 
@@ -270,134 +271,123 @@ fn findMemoryType(mem_props: vk.PhysicalDeviceMemoryProperties, reqs: vk.MemoryR
 }
 
 /// A host-visible vertex buffer that grows (recreating itself) to fit
-/// whatever's uploaded into it. One of these per instance-struct type, per
-/// frame-in-flight, is the intended usage.
+/// whatever's uploaded into it. Works directly against a `Batch`'s raw
+/// bytes rather than a typed slice, so the exact same buffer/upload/record
+/// path serves rgl's own built-in pipelines and a caller's custom shader
+/// alike -- gpu.zig never needs to know the instance struct, only its
+/// size (which `Batch.stride` already folds into the byte count). One of
+/// these per pipeline, per frame-in-flight, is the intended usage.
 ///
 /// TODO: this recreates the whole buffer on every capacity increase rather
 /// than a smarter growth policy, and offers no double-buffering of its
 /// own -- fine for now since nothing calls this against a live swapchain
 /// yet, but revisit once a real per-frame-in-flight caller exists.
-pub fn InstanceBuffer(comptime T: type) type {
-    return struct {
-        const Self = @This();
+pub const InstanceBuffer = struct {
+    buf: vk.Buffer = .null_handle,
+    mem: vk.DeviceMemory = .null_handle,
+    capacity_bytes: usize = 0,
 
-        buf: vk.Buffer = .null_handle,
-        mem: vk.DeviceMemory = .null_handle,
-        capacity: usize = 0,
+    pub fn destroy(self: *InstanceBuffer, dev: vk.DeviceProxy) void {
+        if (self.buf != .null_handle) dev.destroyBuffer(self.buf, null);
+        if (self.mem != .null_handle) dev.freeMemory(self.mem, null);
+        self.* = .{};
+    }
 
-        pub fn destroy(self: *Self, dev: vk.DeviceProxy) void {
-            if (self.buf != .null_handle) dev.destroyBuffer(self.buf, null);
-            if (self.mem != .null_handle) dev.freeMemory(self.mem, null);
-            self.* = .{};
+    /// Recreates the buffer if `bytes` doesn't fit the current one, then
+    /// uploads via a map/copy/unmap (no persistent mapping).
+    pub fn upload(self: *InstanceBuffer, dev: vk.DeviceProxy, mem_props: vk.PhysicalDeviceMemoryProperties, bytes: []const u8) !void {
+        if (bytes.len == 0) return;
+        if (bytes.len > self.capacity_bytes) {
+            self.destroy(dev);
+            self.buf = try dev.createBuffer(&.{
+                .size = bytes.len,
+                .usage = .{ .vertex_buffer = true },
+                .sharing_mode = .exclusive,
+            }, null);
+            errdefer dev.destroyBuffer(self.buf, null);
+
+            const reqs = dev.getBufferMemoryRequirements(self.buf);
+            const mem_type = findMemoryType(mem_props, reqs, .{ .host_visible = true, .host_coherent = true }) orelse return error.NoSuitableMemoryType;
+            self.mem = try dev.allocateMemory(&.{ .allocation_size = reqs.size, .memory_type_index = mem_type }, null);
+            try dev.bindBufferMemory(self.buf, self.mem, 0);
+            self.capacity_bytes = bytes.len;
         }
 
-        /// Recreates the buffer if `items` doesn't fit the current one,
-        /// then uploads via a map/copy/unmap (no persistent mapping).
-        pub fn upload(self: *Self, dev: vk.DeviceProxy, mem_props: vk.PhysicalDeviceMemoryProperties, items: []const T) !void {
-            if (items.len == 0) return;
-            if (items.len > self.capacity) {
-                self.destroy(dev);
-                const size: u64 = @sizeOf(T) * items.len;
-                self.buf = try dev.createBuffer(&.{
-                    .size = size,
-                    .usage = .{ .vertex_buffer = true },
-                    .sharing_mode = .exclusive,
-                }, null);
-                errdefer dev.destroyBuffer(self.buf, null);
-
-                const reqs = dev.getBufferMemoryRequirements(self.buf);
-                const mem_type = findMemoryType(mem_props, reqs, .{ .host_visible = true, .host_coherent = true }) orelse return error.NoSuitableMemoryType;
-                self.mem = try dev.allocateMemory(&.{ .allocation_size = reqs.size, .memory_type_index = mem_type }, null);
-                try dev.bindBufferMemory(self.buf, self.mem, 0);
-                self.capacity = items.len;
-            }
-
-            const mapped = try dev.mapMemory(self.mem, 0, vk.WHOLE_SIZE, .{});
-            defer dev.unmapMemory(self.mem);
-            const dst: [*]T = @ptrCast(@alignCast(mapped.?));
-            @memcpy(dst[0..items.len], items);
-        }
-    };
-}
-
-/// Per-frame-in-flight GPU resources for the rect/roundrect/circle/line
-/// pipeline -- the one primitive family that needs no texture/descriptor
-/// set, so it's the only one fully wired up end to end (see the TODOs
-/// below for glyph/image).
-pub const RectFrameResources = struct {
-    vbuf: InstanceBuffer(RectInstance) = .{},
-
-    pub fn destroy(self: *RectFrameResources, dev: vk.DeviceProxy) void {
-        self.vbuf.destroy(dev);
+        const mapped = try dev.mapMemory(self.mem, 0, vk.WHOLE_SIZE, .{});
+        defer dev.unmapMemory(self.mem);
+        const dst: [*]u8 = @ptrCast(mapped.?);
+        @memcpy(dst[0..bytes.len], bytes);
     }
 };
 
-/// Uploads `surface.rects` and records the draw for it into `cmd`, which
-/// must already be recording inside an active render pass instance whose
-/// viewport/scissor were set by the caller (both are dynamic state here,
-/// same as shader_smoke_test.zig). No-op if there's nothing to draw.
+/// Per-pipeline, per-frame-in-flight GPU resources. rect is the one
+/// primitive family that needs no texture/descriptor set, so it's the
+/// only one fully wired up end to end (see the TODOs below for
+/// glyph/image); a custom pipeline just owns its own `InstanceBuffer` the
+/// same way and calls `recordBatch` directly.
+pub const FrameResources = struct {
+    rect: InstanceBuffer = .{},
+    glyph: InstanceBuffer = .{},
+    image: InstanceBuffer = .{},
+
+    pub fn destroy(self: *FrameResources, dev: vk.DeviceProxy) void {
+        self.rect.destroy(dev);
+        self.glyph.destroy(dev);
+        self.image.destroy(dev);
+    }
+};
+
+/// Uploads `batch` and records its draw into `cmd`, which must already be
+/// recording inside an active render pass instance whose viewport/scissor
+/// were set by the caller (both are dynamic state here, same as
+/// shader_smoke_test.zig). Works for any pipeline -- built-in or custom --
+/// since neither `Batch` nor this function need to know the concrete
+/// instance type, only its byte size. `descriptor_set`, when given, is
+/// bound before drawing (glyph/image's atlas/texture; rect and most custom
+/// shaders need none). No-op if `batch` is null or empty.
 ///
-/// Caller is responsible for calling `batch.clearBatches(surface)` once
-/// this frame's submission is known to have been consumed (e.g. after the
+/// Caller is responsible for calling `clearBatches(surface)` once this
+/// frame's submission is known to have been consumed (e.g. after the
 /// corresponding fence signals) -- recording alone doesn't clear it, since
 /// the instance data has to stay valid until the GPU has actually read it.
-pub fn recordRectBatch(
+pub fn recordBatch(
     dev: vk.DeviceProxy,
     mem_props: vk.PhysicalDeviceMemoryProperties,
     cmd: vk.CommandBuffer,
     pipeline: Pipeline,
-    resources: *RectFrameResources,
-    surface: *const VkSurface,
+    resources: *InstanceBuffer,
+    batch: ?*const Batch,
     globals: Globals,
+    descriptor_set: ?vk.DescriptorSet,
 ) !void {
-    const instances = surface.rects.items;
-    if (instances.len == 0) return;
+    const b = batch orelse return;
+    if (b.bytes.items.len == 0) return;
 
-    try resources.vbuf.upload(dev, mem_props, instances);
+    try resources.upload(dev, mem_props, b.bytes.items);
 
     dev.cmdBindPipeline(cmd, .graphics, pipeline.handle);
+    if (descriptor_set) |ds| {
+        dev.cmdBindDescriptorSets(cmd, .graphics, pipeline.layout, 0, (&ds)[0..1], null);
+    }
     dev.cmdPushConstants(cmd, pipeline.layout, .{ .vertex = true, .fragment = true }, 0, @sizeOf(Globals), &globals);
     const offsets = [_]vk.DeviceSize{0};
-    dev.cmdBindVertexBuffers(cmd, 0, (&resources.vbuf.buf)[0..1], &offsets);
-    dev.cmdDraw(cmd, 4, @intCast(instances.len), 0, 0);
+    dev.cmdBindVertexBuffers(cmd, 0, (&resources.buf)[0..1], &offsets);
+    dev.cmdDraw(cmd, 4, @intCast(b.count()), 0, 0);
 }
 
-/// TODO: glyph batches need a live glyph atlas texture (upload + image
-/// view + sampler + descriptor set, rebuilt whenever the set of on-screen
-/// glyphs changes) before this can bind one and draw -- see
-/// shader_smoke_test.zig's buildStringAtlasViaSfnt/glyph_tex_* setup for
-/// the reference version of that plumbing. Left unrecorded for now.
-pub fn recordGlyphBatch(
-    dev: vk.DeviceProxy,
-    cmd: vk.CommandBuffer,
-    pipeline: Pipeline,
-    surface: *const VkSurface,
-    globals: Globals,
-) void {
-    _ = dev;
-    _ = cmd;
-    _ = pipeline;
-    _ = globals;
-    if (surface.glyphs.items.len == 0) return;
-    // TODO: bind an atlas descriptor set + instance buffer, then cmdDraw.
-}
+// TODO: glyph batches need a live glyph atlas texture (upload + image
+// view + sampler + descriptor set, rebuilt whenever the set of on-screen
+// glyphs changes) before there's a `vk.DescriptorSet` to pass to
+// `recordBatch` -- see shader_smoke_test.zig's
+// buildStringAtlasViaSfnt/glyph_tex_* setup for the reference version of
+// that plumbing. Once it exists, recording is just:
+//   try recordBatch(dev, mem_props, cmd, pipelines.glyph, &resources.glyph,
+//       surface.batch(rglvk.glyph_pipeline_id), globals, atlas_descriptor_set);
 
-/// TODO: each unique source `Image` needs its own descriptor set (one
-/// combined-image-sampler per drawImage call site, per ImageDraw's own doc
-/// comment) -- allocating/caching/uploading those per-image textures isn't
-/// implemented yet, so instances are grouped but never actually drawn.
-pub fn recordImageBatch(
-    dev: vk.DeviceProxy,
-    cmd: vk.CommandBuffer,
-    pipeline: Pipeline,
-    surface: *const VkSurface,
-    globals: Globals,
-) void {
-    _ = dev;
-    _ = cmd;
-    _ = pipeline;
-    _ = globals;
-    if (surface.images.items.len == 0) return;
-    // TODO: for each unique `image` pointer, upload/bind its texture +
-    // descriptor set, then cmdDraw its instances as one batch.
-}
+// TODO: each unique source `Image` (`surface.images`) needs its own
+// descriptor set (one combined-image-sampler per drawImage call site) --
+// allocating/caching/uploading those per-image textures isn't implemented
+// yet. Once it exists, recording groups `surface.images` by `.image`
+// pointer and calls `recordBatch` once per group with that image's own
+// descriptor set and a `Batch`-shaped view of its instances (or a small
+// adapter, since `ImageDraw` isn't stored as a plain `Batch` today).

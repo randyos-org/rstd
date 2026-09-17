@@ -35,6 +35,7 @@ pub fn build(b: *Build) !void {
     build_options.addOption(bool, "has_vulkan", vulkan_opt);
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
+        rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
     }
 
     // docs
@@ -55,7 +56,6 @@ pub fn build(b: *Build) !void {
     // tests
     // -----
     const rstd_test_mod = try rstdbuild.cloneModuleWithTarget(b, rstd_mod, target);
-    if (vulkan_opt) rstdbuild.addVulkan(b).addImportToModule(rstd_test_mod);
     const rstd_test_exe = b.addTest(.{
         .root_module = rstd_test_mod,
     });

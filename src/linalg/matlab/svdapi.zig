@@ -1,22 +1,22 @@
-//! SVD-based conveniences (`COND`, `RANK`, `PINV`) and `ORTH`, split out of
-//! `api.zig` to keep files under this project's line-count guideline.
+//! SVD-based conveniences (`COND`, `RANK`, `PINV`) and `ORTH`, kept as
+//! their own file (rather than folded into `CxMat.zig`, whose methods
+//! delegate here) to keep files under this project's line-count guideline.
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const CxMat = @import("CxMat.zig");
 const svd_mod = @import("svd.zig");
 const qr_mod = @import("qr.zig");
 
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
-fn singularValues(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize) ![]f64 {
-    const work_r = try allocator.alloc(f64, n * p);
-    defer allocator.free(work_r);
-    const work_i = try allocator.alloc(f64, n * p);
-    defer allocator.free(work_i);
-    @memcpy(work_r, ar[0 .. n * p]);
-    @memcpy(work_i, ai[0 .. n * p]);
+fn singularValues(allocator: zigstd.Allocator, a: CxMat) ![]f64 {
+    var work = try a.clone(allocator);
+    defer work.deinit(allocator);
+    const n = a.m;
+    const p = a.n;
 
     const mm = @min(n + 1, p);
     const sr = try allocator.alloc(f64, mm);
@@ -32,29 +32,30 @@ fn singularValues(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64,
     const worki = try allocator.alloc(f64, n);
     defer allocator.free(worki);
     var dummy: [1]f64 = .{0.0};
+    const dummy_mat = CxMat.init(&dummy, &dummy, 1, 1, 1);
 
-    _ = svd_mod.wsvdc(work_r, work_i, n, n, p, sr, si, er, ei, &dummy, &dummy, 1, &dummy, &dummy, 1, workr, worki, 0);
+    _ = svd_mod.wsvdc(work, sr, si, er, ei, dummy_mat, dummy_mat, workr, worki, 0);
     return sr;
 }
 
-/// COND: ratio of the largest to smallest singular value of the `n`x`p`
-/// matrix `ar`/`ai` (2-norm condition number). `A` is not mutated.
-pub fn cond(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize) !f64 {
-    const s = try singularValues(allocator, ar, ai, n, p);
+/// COND: ratio of the largest to smallest singular value of `a` (2-norm
+/// condition number). `a` is not mutated.
+pub fn cond(allocator: zigstd.Allocator, a: CxMat) !f64 {
+    const s = try singularValues(allocator, a);
     defer allocator.free(s);
-    const smallest = s[@min(n, p) - 1];
+    const smallest = s[@min(a.m, a.n) - 1];
     if (smallest == 0.0) return std.math.inf(f64);
     return s[0] / smallest;
 }
 
-/// RANK: number of singular values of the `n`x`p` matrix `ar`/`ai` that
-/// exceed `tol` (pass `null` to use the same default the original used:
-/// `max(n, p) * eps * largest_singular_value`). `A` is not mutated.
-pub fn rank(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize, tol: ?f64) !usize {
-    const s = try singularValues(allocator, ar, ai, n, p);
+/// RANK: number of singular values of `a` that exceed `tol` (pass `null`
+/// to use the same default the original used:
+/// `max(n, p) * eps * largest_singular_value`). `a` is not mutated.
+pub fn rank(allocator: zigstd.Allocator, a: CxMat, tol: ?f64) !usize {
+    const s = try singularValues(allocator, a);
     defer allocator.free(s);
-    const mn = @min(n, p);
-    const threshold = tol orelse @as(f64, @floatFromInt(@max(n, p))) * std.math.floatEps(f64) * s[0];
+    const mn = @min(a.m, a.n);
+    const threshold = tol orelse @as(f64, @floatFromInt(@max(a.m, a.n))) * std.math.floatEps(f64) * s[0];
     var k: usize = 0;
     for (s[0..mn]) |sv| {
         if (sv <= threshold) break;
@@ -63,27 +64,22 @@ pub fn rank(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: us
     return k;
 }
 
-/// PINV: Moore-Penrose pseudoinverse of the `n`x`p` matrix `ar`/`ai`, via
-/// SVD (`pinv(A) = V * pinv(S) * ctrans(U)`, treating singular values at or
+/// PINV: Moore-Penrose pseudoinverse of `a`, via SVD
+/// (`pinv(A) = V * pinv(S) * ctrans(U)`, treating singular values at or
 /// below `tol` as zero - `null` uses the same default as `rank`). Writes
 /// the `p`x`n` result into caller-supplied `result_r`/`result_i`
-/// (column-major, leading dimension `p`). `A` is not mutated.
+/// (column-major, leading dimension `p`). `a` is not mutated.
 pub fn pinv(
     allocator: zigstd.Allocator,
-    ar: []const f64,
-    ai: []const f64,
-    n: usize,
-    p: usize,
+    a: CxMat,
     tol: ?f64,
     result_r: []f64,
     result_i: []f64,
 ) !void {
-    const work_r = try allocator.alloc(f64, n * p);
-    defer allocator.free(work_r);
-    const work_i = try allocator.alloc(f64, n * p);
-    defer allocator.free(work_i);
-    @memcpy(work_r, ar[0 .. n * p]);
-    @memcpy(work_i, ai[0 .. n * p]);
+    var work = try a.clone(allocator);
+    defer work.deinit(allocator);
+    const n = a.m;
+    const p = a.n;
 
     const mn = @min(n, p);
     const mm = @min(n + 1, p);
@@ -108,7 +104,7 @@ pub fn pinv(
     const worki = try allocator.alloc(f64, n);
     defer allocator.free(worki);
 
-    _ = svd_mod.wsvdc(work_r, work_i, n, n, p, sr, si, er, ei, ur, ui, n, vr, vi, p, workr, worki, 11);
+    _ = svd_mod.wsvdc(work, sr, si, er, ei, CxMat.initPacked(ur, ui, n, n), CxMat.initPacked(vr, vi, p, p), workr, worki, 11);
 
     const threshold = tol orelse @as(f64, @floatFromInt(@max(n, p))) * std.math.floatEps(f64) * sr[0];
     var k: usize = 0;
@@ -137,19 +133,14 @@ pub fn pinv(
     }
 }
 
-/// ORTH: `Q` from a QR decomposition of the `m`x`n` matrix `ar`/`ai`
-/// (`n <= m`, not mutated) - an orthonormal basis (as columns) for its
-/// column space. Caller owns the returned `m`x`n` slices.
-pub fn orth(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize) !struct { r: []f64, i: []f64 } {
-    const work_r = try allocator.alloc(f64, m * n);
-    defer allocator.free(work_r);
-    const work_i = try allocator.alloc(f64, m * n);
-    defer allocator.free(work_i);
-    var j: usize = 1;
-    while (j <= n) : (j += 1) {
-        @memcpy(work_r[(j - 1) * m ..][0..m], ar[ix(lda, 1, j)..][0..m]);
-        @memcpy(work_i[(j - 1) * m ..][0..m], ai[ix(lda, 1, j)..][0..m]);
-    }
+/// ORTH: `Q` from a QR decomposition of `a` (`m`x`n`, `n <= m`, not
+/// mutated) - an orthonormal basis (as columns) for its column space.
+/// Caller owns the returned `m`x`n` slices.
+pub fn orth(allocator: zigstd.Allocator, a: CxMat) !struct { r: []f64, i: []f64 } {
+    const m = a.m;
+    const n = a.n;
+    var work = try a.clone(allocator);
+    defer work.deinit(allocator);
 
     const qrauxr = try allocator.alloc(f64, n);
     defer allocator.free(qrauxr);
@@ -163,7 +154,7 @@ pub fn orth(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, lda: 
     defer allocator.free(jpvt);
     @memset(jpvt, 0);
 
-    qr_mod.wqrdc(work_r, work_i, m, m, n, qrauxr, qrauxi, jpvt, workr, worki, 0);
+    qr_mod.wqrdc(work, qrauxr, qrauxi, jpvt, workr, worki, 0);
 
     const result_r = try allocator.alloc(f64, m * n);
     errdefer allocator.free(result_r);
@@ -187,10 +178,7 @@ pub fn orth(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, lda: 
         basis_r[col - 1] = 1.0;
 
         _ = qr_mod.wqrsl(
-            work_r,
-            work_i,
-            m,
-            m,
+            work,
             n,
             qrauxr,
             qrauxi,
@@ -219,18 +207,19 @@ pub fn orth(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, lda: 
 
 test "cond, rank and pinv agree for a known rank-deficient matrix" {
     // A = [[1,2],[2,4]] (rank 1, columns parallel).
-    const ar = [_]f64{ 1.0, 2.0, 2.0, 4.0 };
-    const ai: [4]f64 = @splat(0.0);
+    var ar = [_]f64{ 1.0, 2.0, 2.0, 4.0 };
+    var ai: [4]f64 = @splat(0.0);
+    const a = CxMat.initPacked(&ar, &ai, 2, 2);
 
-    const c = try cond(zigstd.testAllocator, &ar, &ai, 2, 2);
+    const c = try cond(zigstd.testAllocator, a);
     try zigstd.testExpectTrue(c > 1e10 or std.math.isInf(c));
 
-    const r = try rank(zigstd.testAllocator, &ar, &ai, 2, 2, null);
+    const r = try rank(zigstd.testAllocator, a, null);
     try zigstd.testExpectEqual(@as(usize, 1), r);
 
     var pr: [4]f64 = @splat(0.0);
     var pi: [4]f64 = @splat(0.0);
-    try pinv(zigstd.testAllocator, &ar, &ai, 2, 2, null, &pr, &pi);
+    try pinv(zigstd.testAllocator, a, null, &pr, &pi);
     // A * pinv(A) * A should reconstruct A (pseudoinverse identity).
     var apa_full: [4]f64 = @splat(0.0);
     for (0..2) |row| {
@@ -249,9 +238,9 @@ test "cond, rank and pinv agree for a known rank-deficient matrix" {
 
 test "orth returns an orthonormal basis spanning the column space" {
     // A = [[1,1],[0,1],[1,0]] (3x2, full column rank).
-    const ar = [_]f64{ 1.0, 0.0, 1.0, 1.0, 1.0, 0.0 };
-    const ai: [6]f64 = @splat(0.0);
-    const q = try orth(zigstd.testAllocator, &ar, &ai, 3, 3, 2);
+    var ar = [_]f64{ 1.0, 0.0, 1.0, 1.0, 1.0, 0.0 };
+    var ai: [6]f64 = @splat(0.0);
+    const q = try orth(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, 3, 2));
     defer zigstd.testAllocator.free(q.r);
     defer zigstd.testAllocator.free(q.i);
 

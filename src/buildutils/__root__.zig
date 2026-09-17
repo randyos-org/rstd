@@ -70,3 +70,4 @@ pub const addRenderDoc = renderdoc_mod.addRenderDoc;
 
 const vulkan_mod = @import("vulkan.zig");
 pub const addVulkan = vulkan_mod.addVulkan;
+pub const addVulkanImportToModule = vulkan_mod.addVulkanImportToModule;
