@@ -37,6 +37,9 @@ pub const eig = @import("eig.zig");
 pub const divide = @import("divide.zig");
 pub const svdapi = @import("svdapi.zig");
 pub const matrixfun = @import("matrixfun.zig");
+pub const matmul = @import("matmul.zig");
+pub const schur = @import("schur.zig");
+pub const norm = @import("norm.zig");
 pub const api = @import("api.zig");
 
 pub const Cx = blas1.Cx;
@@ -60,5 +63,8 @@ test {
     std.testing.refAllDecls(divide);
     std.testing.refAllDecls(svdapi);
     std.testing.refAllDecls(matrixfun);
+    std.testing.refAllDecls(matmul);
+    std.testing.refAllDecls(schur);
+    std.testing.refAllDecls(norm);
     std.testing.refAllDecls(api);
 }

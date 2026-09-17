@@ -18,6 +18,7 @@
 //! did not guarantee portably) runs without tripping Zig's overflow checks.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 
 /// URAND's generator state (the original's `IY` parameter).
 pub const Urand = struct {
@@ -88,7 +89,6 @@ pub const Urand = struct {
     }
 };
 
-const testing = std.testing;
 
 test "Urand produces a deterministic, repeatable, bounded sequence" {
     var a = Urand.init(12345);
@@ -96,8 +96,8 @@ test "Urand produces a deterministic, repeatable, bounded sequence" {
     for (0..20) |_| {
         const va = a.next();
         const vb = b.next();
-        try testing.expectEqual(va, vb);
-        try testing.expect(va > 0.0 and va < 1.0);
+        try zigstd.testExpectEqual(va, vb);
+        try zigstd.testExpectTrue(va > 0.0 and va < 1.0);
     }
 }
 
@@ -107,7 +107,7 @@ test "Urand.next has roughly the right mean over many draws" {
     const n = 20000;
     for (0..n) |_| sum += rng.next();
     const mean = sum / @as(f64, n);
-    try testing.expectApproxEqAbs(0.5, mean, 0.02);
+    try zigstd.testExpectApproxEqAbs(0.5, mean, 0.02);
 }
 
 test "Urand.nextNormal has roughly zero mean and unit variance" {
@@ -122,6 +122,6 @@ test "Urand.nextNormal has roughly zero mean and unit variance" {
     }
     const mean = sum / @as(f64, n);
     const variance = sum2 / @as(f64, n) - mean * mean;
-    try testing.expectApproxEqAbs(0.0, mean, 0.05);
-    try testing.expectApproxEqAbs(1.0, variance, 0.1);
+    try zigstd.testExpectApproxEqAbs(0.0, mean, 0.05);
+    try zigstd.testExpectApproxEqAbs(1.0, variance, 0.1);
 }

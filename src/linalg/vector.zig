@@ -4,10 +4,12 @@
 //! keeping its own copy of the same handful of formulas.
 
 const std = @import("std");
+const zigstd = @import("../zigstd.zig");
 const rsimd = @import("../simd/__root__.zig");
 const zigvec = rsimd.zigvec;
 
 const splatAs = zigvec.splatAs;
+const zeroAs = zigvec.zeroAs;
 const V2f32 = zigvec.V2f32;
 const V3f32 = zigvec.V3f32;
 const V4f32 = zigvec.V4f32;
@@ -30,8 +32,19 @@ pub inline fn dot2(v: anytype) @TypeOf(v[0]) {
     return dot(v, v);
 }
 
+/// Euclidean norm. Tries the cheap `sqrt(dot2(v))` path unconditionally
+/// first and falls back to std.math.hypot if overflow/underflow.
 pub inline fn length(v: anytype) @TypeOf(v[0]) {
-    return @sqrt(dot2(v));
+    const T = @TypeOf(v[0]);
+    const sq = dot2(v);
+    const looks_fine = std.math.isFinite(sq) and
+        (sq != 0 or !@reduce(.Or, v != zeroAs(v)));
+    if (looks_fine) return @sqrt(sq);
+
+    const len = @typeInfo(@TypeOf(v)).vector.len;
+    var acc: T = @abs(v[0]);
+    inline for (1..len) |i| acc = std.math.hypot(acc, v[i]);
+    return acc;
 }
 
 pub inline fn distance(a: anytype, b: @TypeOf(a)) @TypeOf(a[0]) {
@@ -64,41 +77,71 @@ pub inline fn cross3(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 
 test "dot sanity" {
     const ret = dot(V3f32{ 1, 2, 3 }, V3f32{ 4, 5, 6 });
-    try std.testing.expectApproxEqAbs(32, ret, 0.001);
+    try zigstd.testExpectApproxEqAbs(32, ret, 0.001);
 }
 
 test "dot/length/distance agree with the obvious 3-4-5 triangle" {
     const a: V2f32 = .{ 0, 0 };
     const b: V2f32 = .{ 3, 4 };
-    try std.testing.expectEqual(@as(f32, 25), dot2(b - a));
-    try std.testing.expectEqual(@as(f32, 5), length(b - a));
-    try std.testing.expectEqual(@as(f32, 5), distance(a, b));
+    try zigstd.testExpectEqual(@as(f32, 25), dot2(b - a));
+    try zigstd.testExpectEqual(@as(f32, 5), length(b - a));
+    try zigstd.testExpectEqual(@as(f32, 5), distance(a, b));
+}
+
+test "length doesn't overflow to inf on huge components" {
+    // sqrt(dot2(v)) would square 1e300 to 1e600, which overflows f64
+    // (max ~1.8e308) to +inf; the hypot-fold never squares anything that
+    // large without going through hypot's own overflow-safe rescale first.
+    const v: V2f64 = .{ 1e300, 1e300 };
+    const want = @sqrt(2.0) * 1e300;
+    try zigstd.testExpectApproxEqAbs(want, length(v), want * 1e-12);
+    try zigstd.testExpectTrue(std.math.isFinite(length(v)));
+}
+
+test "length doesn't underflow to 0 on tiny components" {
+    // sqrt(dot2(v)) would square 1e-200 to 1e-400, which underflows f64
+    // (smallest subnormal ~4.9e-324) to exactly 0, losing the vector
+    // entirely; the hypot-fold stays nonzero.
+    const v: V2f64 = .{ 1e-200, 1e-200 };
+    const want = @sqrt(2.0) * 1e-200;
+    try zigstd.testExpectApproxEqAbs(want, length(v), want * 1e-12);
+    try zigstd.testExpectTrue(length(v) > 0);
+}
+
+test "length stays safe across a 3-component fold with mixed extreme magnitudes" {
+    // Exercises the fold across more than one hypot call (unlike the 2D
+    // cases above, which only ever call hypot once): a huge component, a
+    // tiny one, and an ordinary one all combined in the same vector.
+    const v: V3f64 = .{ 1e300, 1e-200, 3.0 };
+    const want = 1e300; // the other two components are negligible next to it
+    try zigstd.testExpectApproxEqAbs(want, length(v), want * 1e-9);
+    try zigstd.testExpectTrue(std.math.isFinite(length(v)));
 }
 
 test "cross2 is positive for a counter-clockwise turn" {
     const a: V2f64 = .{ 1, 0 };
     const b: V2f64 = .{ 0, 1 };
-    try std.testing.expectEqual(@as(f64, 1), cross2(a, b));
+    try zigstd.testExpectEqual(@as(f64, 1), cross2(a, b));
 }
 
 test "cross3 matches the standard basis identity x cross y = z" {
     const x: V3f32 = .{ 1, 0, 0 };
     const y: V3f32 = .{ 0, 1, 0 };
-    try std.testing.expectEqual(V3f32{ 0, 0, 1 }, cross3(x, y));
+    try zigstd.testExpectEqual(V3f32{ 0, 0, 1 }, cross3(x, y));
 }
 
 test "cross sanity" {
     const ret = cross3(V3f32{ 1, 2, 3 }, V3f32{ 5, 11, 34 });
-    try std.testing.expectApproxEqAbs(35, ret[0], 0.0001);
-    try std.testing.expectApproxEqAbs(-19, ret[1], 0.0001);
-    try std.testing.expectApproxEqAbs(1, ret[2], 0.0001);
+    try zigstd.testExpectApproxEqAbs(35, ret[0], 0.0001);
+    try zigstd.testExpectApproxEqAbs(-19, ret[1], 0.0001);
+    try zigstd.testExpectApproxEqAbs(1, ret[2], 0.0001);
 }
 
 test "normalizeSafe falls back on the zero vector instead of producing NaN" {
     const zero: V2f64 = .{ 0, 0 };
     const fallback: V2f64 = .{ 0, 1 };
-    try std.testing.expectEqual(fallback, norm(zero, fallback));
+    try zigstd.testExpectEqual(fallback, norm(zero, fallback));
 
     const v: V2f64 = .{ 0, 5 };
-    try std.testing.expectEqual(V2f64{ 0, 1 }, norm(v, fallback));
+    try zigstd.testExpectEqual(V2f64{ 0, 1 }, norm(v, fallback));
 }

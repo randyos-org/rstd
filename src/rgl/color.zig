@@ -1,4 +1,5 @@
 const std = @import("std");
+const zigstd = @import("../zigstd.zig");
 const math = std.math;
 const clamp = math.clamp;
 const pow = math.pow;
@@ -547,10 +548,10 @@ test "RGBAf32.toHSLAf32 matches the Wikipedia HSL reference table" {
         const hsl = rgba.toHSLAf32();
         if (sample.s != 0) {
             // hue is meaningless (and left at 0) for achromatic colors
-            try std.testing.expectApproxEqAbs(sample.h_deg / 360.0, hsl.h, 0.003);
+            try zigstd.testExpectApproxEqAbs(sample.h_deg / 360.0, hsl.h, 0.003);
         }
-        try std.testing.expectApproxEqAbs(sample.s, hsl.s, 0.003);
-        try std.testing.expectApproxEqAbs(sample.l, hsl.l, 0.003);
+        try zigstd.testExpectApproxEqAbs(sample.s, hsl.s, 0.003);
+        try zigstd.testExpectApproxEqAbs(sample.l, hsl.l, 0.003);
     }
 }
 
@@ -558,9 +559,9 @@ test "HSLAf32.toRGBAf32 matches the Wikipedia HSL reference table" {
     for (_hsl_rgb_samples) |sample| {
         const hsl = HSLAf32{ .h = sample.h_deg / 360.0, .s = sample.s, .l = sample.l, .a = 1 };
         const rgba = hsl.toRGBAf32();
-        try std.testing.expectApproxEqAbs(sample.r, rgba.r, 0.003);
-        try std.testing.expectApproxEqAbs(sample.g, rgba.g, 0.003);
-        try std.testing.expectApproxEqAbs(sample.b, rgba.b, 0.003);
+        try zigstd.testExpectApproxEqAbs(sample.r, rgba.r, 0.003);
+        try zigstd.testExpectApproxEqAbs(sample.g, rgba.g, 0.003);
+        try zigstd.testExpectApproxEqAbs(sample.b, rgba.b, 0.003);
     }
 }
 
@@ -569,7 +570,7 @@ test "RGBA <-> RGBAf32 round-trips every byte value exactly" {
     while (channel <= 255) : (channel += 1) {
         const byte: u8 = @intCast(channel);
         const original = RGBA{ .r = byte, .g = byte, .b = byte, .a = byte };
-        try std.testing.expectEqual(original, original.toRGBAf32().toRGBA());
+        try zigstd.testExpectEqual(original, original.toRGBAf32().toRGBA());
     }
 }
 
@@ -578,7 +579,7 @@ test "HSLA <-> HSLAf32 round-trips every byte value exactly" {
     while (channel <= 255) : (channel += 1) {
         const byte: u8 = @intCast(channel);
         const original = HSLA{ .h = byte, .s = byte, .l = byte, .a = byte };
-        try std.testing.expectEqual(original, original.toHSLAf32().toHSLA());
+        try zigstd.testExpectEqual(original, original.toHSLAf32().toHSLA());
     }
 }
 
@@ -593,12 +594,12 @@ const _gamma_round_trip_samples = [_]f32{ 0.0, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 
 
 test "gamma encode/decode fixed points (0, 1, and sRGB midpoint)" {
     for (_gamma_laws) |law| {
-        try std.testing.expectApproxEqAbs(@as(f32, 0.0), gammaEncodeChannel(law, 0.0), 1e-6);
-        try std.testing.expectApproxEqAbs(@as(f32, 1.0), gammaEncodeChannel(law, 1.0), 1e-6);
-        try std.testing.expectApproxEqAbs(@as(f32, 0.0), gammaDecodeChannel(law, 0.0), 1e-6);
-        try std.testing.expectApproxEqAbs(@as(f32, 1.0), gammaDecodeChannel(law, 1.0), 1e-6);
+        try zigstd.testExpectApproxEqAbs(@as(f32, 0.0), gammaEncodeChannel(law, 0.0), 1e-6);
+        try zigstd.testExpectApproxEqAbs(@as(f32, 1.0), gammaEncodeChannel(law, 1.0), 1e-6);
+        try zigstd.testExpectApproxEqAbs(@as(f32, 0.0), gammaDecodeChannel(law, 0.0), 1e-6);
+        try zigstd.testExpectApproxEqAbs(@as(f32, 1.0), gammaDecodeChannel(law, 1.0), 1e-6);
     }
-    try std.testing.expectApproxEqAbs(@as(f32, 0.214041), gammaDecodeChannel(SrgbStd.gamma_law, 0.5), 0.0005);
+    try zigstd.testExpectApproxEqAbs(@as(f32, 0.214041), gammaDecodeChannel(SrgbStd.gamma_law, 0.5), 0.0005);
 }
 
 test "RGBAf32.toLinear/toGammaEncoded round-trip for every standard" {
@@ -606,17 +607,17 @@ test "RGBAf32.toLinear/toGammaEncoded round-trip for every standard" {
         for (_gamma_round_trip_samples) |value| {
             const rgba = RGBAf32{ .r = value, .g = value, .b = value, .a = 1 };
             const round_tripped = rgba.toGammaEncoded(law).toLinear(law);
-            try std.testing.expectApproxEqAbs(value, round_tripped.r, 1e-4);
-            try std.testing.expectApproxEqAbs(value, round_tripped.g, 1e-4);
-            try std.testing.expectApproxEqAbs(value, round_tripped.b, 1e-4);
+            try zigstd.testExpectApproxEqAbs(value, round_tripped.r, 1e-4);
+            try zigstd.testExpectApproxEqAbs(value, round_tripped.g, 1e-4);
+            try zigstd.testExpectApproxEqAbs(value, round_tripped.b, 1e-4);
         }
     }
 }
 
 test "rec601 and rec709 share the same gamma curve" {
     for (_gamma_round_trip_samples) |value| {
-        try std.testing.expectEqual(gammaEncodeChannel(Rec601Std.gamma_law, value), gammaEncodeChannel(Rec709Std.gamma_law, value));
-        try std.testing.expectEqual(gammaDecodeChannel(Rec601Std.gamma_law, value), gammaDecodeChannel(Rec709Std.gamma_law, value));
+        try zigstd.testExpectEqual(gammaEncodeChannel(Rec601Std.gamma_law, value), gammaEncodeChannel(Rec709Std.gamma_law, value));
+        try zigstd.testExpectEqual(gammaDecodeChannel(Rec601Std.gamma_law, value), gammaDecodeChannel(Rec709Std.gamma_law, value));
     }
 }
 
@@ -651,9 +652,9 @@ test "RGBAf32.toYCbCrAf32 (rec601, full range) matches known JPEG conversion val
     for (_ycbcr_601_full_range_samples) |sample| {
         const rgba = RGBAf32{ .r = sample.r, .g = sample.g, .b = sample.b, .a = 1 };
         const ycbcr = rgba.toYCbCrAf32(Rec601Std.ycbcr).toYCbCrA(.full);
-        try std.testing.expectEqual(sample.y, ycbcr.y);
-        try std.testing.expectEqual(sample.cb, ycbcr.cb);
-        try std.testing.expectEqual(sample.cr, ycbcr.cr);
+        try zigstd.testExpectEqual(sample.y, ycbcr.y);
+        try zigstd.testExpectEqual(sample.cb, ycbcr.cb);
+        try zigstd.testExpectEqual(sample.cr, ycbcr.cr);
     }
 }
 
@@ -661,16 +662,16 @@ test "YCbCrA.toRGBA (rec601, full range) matches known JPEG conversion values" {
     for (_ycbcr_601_full_range_samples) |sample| {
         const ycbcr = YCbCrA{ .y = sample.y, .cb = sample.cb, .cr = sample.cr, .a = 255 };
         const rgba = ycbcr.toRGBA(Rec601Std.ycbcr, .full);
-        try std.testing.expectApproxEqAbs(sample.r, rgba.toRGBAf32().r, 0.004);
-        try std.testing.expectApproxEqAbs(sample.g, rgba.toRGBAf32().g, 0.004);
-        try std.testing.expectApproxEqAbs(sample.b, rgba.toRGBAf32().b, 0.004);
+        try zigstd.testExpectApproxEqAbs(sample.r, rgba.toRGBAf32().r, 0.004);
+        try zigstd.testExpectApproxEqAbs(sample.g, rgba.toRGBAf32().g, 0.004);
+        try zigstd.testExpectApproxEqAbs(sample.b, rgba.toRGBAf32().b, 0.004);
     }
 }
 
 test "srgb's YCbCr matrix matches rec601's" {
     for (_ycbcr_601_full_range_samples) |sample| {
         const rgba = RGBAf32{ .r = sample.r, .g = sample.g, .b = sample.b, .a = 1 };
-        try std.testing.expectEqual(rgba.toYCbCrAf32(Rec601Std.ycbcr), rgba.toYCbCrAf32(SrgbStd.ycbcr));
+        try zigstd.testExpectEqual(rgba.toYCbCrAf32(Rec601Std.ycbcr), rgba.toYCbCrAf32(SrgbStd.ycbcr));
     }
 }
 
@@ -680,12 +681,12 @@ test "safe-range Y hits the standard 16 (black) / 235 (white) video levels" {
     for (ycbcr_consts) |consts| {
         const black = (RGBAf32{ .r = 0, .g = 0, .b = 0, .a = 1 }).toYCbCrAf32(consts).toYCbCrA(.safe);
         const white = (RGBAf32{ .r = 1, .g = 1, .b = 1, .a = 1 }).toYCbCrAf32(consts).toYCbCrA(.safe);
-        try std.testing.expectEqual(@as(u8, 16), black.y);
-        try std.testing.expectEqual(@as(u8, 128), black.cb);
-        try std.testing.expectEqual(@as(u8, 128), black.cr);
-        try std.testing.expectEqual(@as(u8, 235), white.y);
-        try std.testing.expectEqual(@as(u8, 128), white.cb);
-        try std.testing.expectEqual(@as(u8, 128), white.cr);
+        try zigstd.testExpectEqual(@as(u8, 16), black.y);
+        try zigstd.testExpectEqual(@as(u8, 128), black.cb);
+        try zigstd.testExpectEqual(@as(u8, 128), black.cr);
+        try zigstd.testExpectEqual(@as(u8, 235), white.y);
+        try zigstd.testExpectEqual(@as(u8, 128), white.cb);
+        try zigstd.testExpectEqual(@as(u8, 128), white.cr);
     }
 }
 
@@ -706,9 +707,9 @@ test "RGBAf32 <-> YCbCrAf32 round-trips for every standard and range" {
                 // 219/224-step scale) introduces rounding noise that the matrix
                 // inversion can amplify, so this needs a looser tolerance than the
                 // exact-formula tests above.
-                try std.testing.expectApproxEqAbs(color[0], round_tripped.r, 0.01);
-                try std.testing.expectApproxEqAbs(color[1], round_tripped.g, 0.01);
-                try std.testing.expectApproxEqAbs(color[2], round_tripped.b, 0.01);
+                try zigstd.testExpectApproxEqAbs(color[0], round_tripped.r, 0.01);
+                try zigstd.testExpectApproxEqAbs(color[1], round_tripped.g, 0.01);
+                try zigstd.testExpectApproxEqAbs(color[2], round_tripped.b, 0.01);
             }
         }
     }

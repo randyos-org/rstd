@@ -288,31 +288,31 @@ pub fn kron(
 }
 
 const std = @import("std");
-const testing = std.testing;
+const zigstd = @import("../../zigstd.zig");
 
 test "hilber matches the known inverse of the 3x3 Hilbert matrix" {
     // inv(hilb(3)) = [[9,-36,30],[-36,192,-180],[30,-180,180]].
     var a: [9]f64 = @splat(0.0);
     hilber(&a, 3, 3);
-    try testing.expectApproxEqAbs(9.0, a[ix(3, 1, 1)], 1e-6);
-    try testing.expectApproxEqAbs(-36.0, a[ix(3, 1, 2)], 1e-6);
-    try testing.expectApproxEqAbs(30.0, a[ix(3, 1, 3)], 1e-6);
-    try testing.expectApproxEqAbs(192.0, a[ix(3, 2, 2)], 1e-6);
-    try testing.expectApproxEqAbs(-180.0, a[ix(3, 2, 3)], 1e-6);
-    try testing.expectApproxEqAbs(180.0, a[ix(3, 3, 3)], 1e-6);
+    try zigstd.testExpectApproxEqAbs(9.0, a[ix(3, 1, 1)], 1e-6);
+    try zigstd.testExpectApproxEqAbs(-36.0, a[ix(3, 1, 2)], 1e-6);
+    try zigstd.testExpectApproxEqAbs(30.0, a[ix(3, 1, 3)], 1e-6);
+    try zigstd.testExpectApproxEqAbs(192.0, a[ix(3, 2, 2)], 1e-6);
+    try zigstd.testExpectApproxEqAbs(-180.0, a[ix(3, 2, 3)], 1e-6);
+    try zigstd.testExpectApproxEqAbs(180.0, a[ix(3, 3, 3)], 1e-6);
 }
 
 test "eye and ones produce the expected 2x3 matrices" {
     var ar: [6]f64 = @splat(0.0);
     var ai: [6]f64 = @splat(0.0);
     eye(&ar, &ai, 2, 2, 3);
-    try testing.expectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-12);
-    try testing.expectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-12);
-    try testing.expectApproxEqAbs(1.0, ar[ix(2, 2, 2)], 1e-12);
-    try testing.expectApproxEqAbs(0.0, ar[ix(2, 1, 3)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 2, 2)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 1, 3)], 1e-12);
 
     ones(&ar, &ai, 2, 2, 3);
-    for (ar) |v| try testing.expectApproxEqAbs(1.0, v, 1e-12);
+    for (ar) |v| try zigstd.testExpectApproxEqAbs(1.0, v, 1e-12);
 }
 
 fn checkMagicSquare(a: []const f64, n: usize) !void {
@@ -326,8 +326,8 @@ fn checkMagicSquare(a: []const f64, n: usize) !void {
             row_sum += a[ix(n, i, j)];
             col_sum += a[ix(n, j, i)];
         }
-        try testing.expectApproxEqAbs(target, row_sum, 1e-9);
-        try testing.expectApproxEqAbs(target, col_sum, 1e-9);
+        try zigstd.testExpectApproxEqAbs(target, row_sum, 1e-9);
+        try zigstd.testExpectApproxEqAbs(target, col_sum, 1e-9);
     }
     var diag1: f64 = 0.0;
     var diag2: f64 = 0.0;
@@ -336,8 +336,8 @@ fn checkMagicSquare(a: []const f64, n: usize) !void {
         diag1 += a[ix(n, k, k)];
         diag2 += a[ix(n, k, n + 1 - k)];
     }
-    try testing.expectApproxEqAbs(target, diag1, 1e-9);
-    try testing.expectApproxEqAbs(target, diag2, 1e-9);
+    try zigstd.testExpectApproxEqAbs(target, diag1, 1e-9);
+    try zigstd.testExpectApproxEqAbs(target, diag2, 1e-9);
 }
 
 test "magic produces valid squares for odd, singly-even and doubly-even orders" {
@@ -361,17 +361,17 @@ test "diagFromVector and diagToVector round-trip" {
     var ai: [16]f64 = @splat(0.0);
     diagFromVector(&vr, &vi, 3, 1, &ar, &ai);
     // order = 3+1 = 4; diagonal k=1 means A(i, i+1) = v(i).
-    try testing.expectApproxEqAbs(1.0, ar[ix(4, 1, 2)], 1e-12);
-    try testing.expectApproxEqAbs(2.0, ar[ix(4, 2, 3)], 1e-12);
-    try testing.expectApproxEqAbs(3.0, ar[ix(4, 3, 4)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(1.0, ar[ix(4, 1, 2)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(2.0, ar[ix(4, 2, 3)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(3.0, ar[ix(4, 3, 4)], 1e-12);
 
     var dr: [3]f64 = @splat(0.0);
     var di: [3]f64 = @splat(0.0);
     const len = diagToVector(&ar, &ai, 4, 4, 4, 1, &dr, &di);
-    try testing.expectEqual(@as(usize, 3), len);
-    try testing.expectApproxEqAbs(1.0, dr[0], 1e-12);
-    try testing.expectApproxEqAbs(2.0, dr[1], 1e-12);
-    try testing.expectApproxEqAbs(3.0, dr[2], 1e-12);
+    try zigstd.testExpectEqual(@as(usize, 3), len);
+    try zigstd.testExpectApproxEqAbs(1.0, dr[0], 1e-12);
+    try zigstd.testExpectApproxEqAbs(2.0, dr[1], 1e-12);
+    try zigstd.testExpectApproxEqAbs(3.0, dr[2], 1e-12);
 }
 
 test "tril and triu zero the expected triangle" {
@@ -381,12 +381,12 @@ test "tril and triu zero the expected triangle" {
     var ai2 = ai;
 
     tril(&ar, &ai, 3, 3, 3, 0);
-    try testing.expectApproxEqAbs(0.0, ar[ix(3, 1, 2)], 1e-12); // above diagonal zeroed
-    try testing.expectApproxEqAbs(2.0, ar[ix(3, 2, 1)], 1e-12); // below diagonal kept
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(3, 1, 2)], 1e-12); // above diagonal zeroed
+    try zigstd.testExpectApproxEqAbs(2.0, ar[ix(3, 2, 1)], 1e-12); // below diagonal kept
 
     triu(&ar2, &ai2, 3, 3, 3, 0);
-    try testing.expectApproxEqAbs(0.0, ar2[ix(3, 2, 1)], 1e-12); // below diagonal zeroed
-    try testing.expectApproxEqAbs(4.0, ar2[ix(3, 1, 2)], 1e-12); // above diagonal kept
+    try zigstd.testExpectApproxEqAbs(0.0, ar2[ix(3, 2, 1)], 1e-12); // below diagonal zeroed
+    try zigstd.testExpectApproxEqAbs(4.0, ar2[ix(3, 1, 2)], 1e-12); // above diagonal kept
 }
 
 test "kron matches the textbook 2x2 example" {
@@ -404,11 +404,11 @@ test "kron matches the textbook 2x2 example" {
     // [ 6  7 | 12 14]
     // [ 0 15 |  0 20]
     // [18 21 | 24 28]
-    try testing.expectApproxEqAbs(0.0, ar[ix(4, 1, 1)], 1e-12);
-    try testing.expectApproxEqAbs(5.0, ar[ix(4, 1, 2)], 1e-12);
-    try testing.expectApproxEqAbs(10.0, ar[ix(4, 1, 4)], 1e-12);
-    try testing.expectApproxEqAbs(18.0, ar[ix(4, 4, 1)], 1e-12);
-    try testing.expectApproxEqAbs(28.0, ar[ix(4, 4, 4)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(4, 1, 1)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(5.0, ar[ix(4, 1, 2)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(10.0, ar[ix(4, 1, 4)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(18.0, ar[ix(4, 4, 1)], 1e-12);
+    try zigstd.testExpectApproxEqAbs(28.0, ar[ix(4, 4, 4)], 1e-12);
 }
 
 test "rref reduces a simple rank-deficient system" {
@@ -416,10 +416,10 @@ test "rref reduces a simple rank-deficient system" {
     var ar = [_]f64{ 1.0, 2.0, 2.0, 4.0, 3.0, 6.0 }; // column-major, 2x3
     var ai: [6]f64 = @splat(0.0);
     rref(&ar, &ai, 2, 2, 3, 1e-12);
-    try testing.expectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-9);
-    try testing.expectApproxEqAbs(2.0, ar[ix(2, 1, 2)], 1e-9);
-    try testing.expectApproxEqAbs(3.0, ar[ix(2, 1, 3)], 1e-9);
-    try testing.expectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-9);
-    try testing.expectApproxEqAbs(0.0, ar[ix(2, 2, 2)], 1e-9);
-    try testing.expectApproxEqAbs(0.0, ar[ix(2, 2, 3)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(2.0, ar[ix(2, 1, 2)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(3.0, ar[ix(2, 1, 3)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 2)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 3)], 1e-9);
 }

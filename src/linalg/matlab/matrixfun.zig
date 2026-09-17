@@ -3,8 +3,8 @@
 //! guideline.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
-const elementary = @import("elementary.zig");
 const eigen_general = @import("eigen_general.zig");
 const eig_mod = @import("eig.zig");
 const divide = @import("divide.zig");
@@ -39,7 +39,7 @@ pub fn poly(rootsr: []const f64, rootsi: []const f64, n: usize, cr: []f64, ci: [
 /// matrix - which is already upper Hessenberg by construction, so this
 /// skips `corth` and calls `comqr3` directly. Writes into `wr`/`wi` and
 /// returns the degree found (`0` for the zero polynomial).
-pub fn roots(allocator: std.mem.Allocator, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) !usize {
+pub fn roots(allocator: zigstd.Allocator, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) !usize {
     var start: usize = 0;
     while (start < coeffr.len and blas1.cabs1(coeffr[start], coeffi[start]) == 0.0) start += 1;
     if (start >= coeffr.len) return 0;
@@ -75,7 +75,7 @@ pub fn roots(allocator: std.mem.Allocator, coeffr: []const f64, coeffi: []const 
     return n;
 }
 
-fn applyElementwise(comptime f: fn (Cx) Cx, ar: []f64, ai: []f64) void {
+fn applyElementwise(comptime f: anytype, ar: []f64, ai: []f64) void {
     for (ar, ai) |*vr, *vi| {
         const r = f(Cx.init(vr.*, vi.*));
         vr.* = r.re;
@@ -91,16 +91,16 @@ fn applyElementwise(comptime f: fn (Cx) Cx, ar: []f64, ai: []f64) void {
 /// (`sin([1,2,3])` elementwise vs. `sin(square_matrix)` matrix-valued);
 /// this port keeps them as separate, explicitly named functions instead.
 pub fn sin(ar: []f64, ai: []f64) void {
-    applyElementwise(elementary.wsin, ar, ai);
+    applyElementwise(std.math.complex.sin, ar, ai);
 }
 pub fn cos(ar: []f64, ai: []f64) void {
-    applyElementwise(elementary.wcos, ar, ai);
+    applyElementwise(std.math.complex.cos, ar, ai);
 }
 pub fn exp(ar: []f64, ai: []f64) void {
-    applyElementwise(elementary.wexp, ar, ai);
+    applyElementwise(std.math.complex.exp, ar, ai);
 }
 pub fn sqrt(ar: []f64, ai: []f64) void {
-    applyElementwise(blas1.wsqrt, ar, ai);
+    applyElementwise(std.math.complex.sqrt, ar, ai);
 }
 pub fn log(ar: []f64, ai: []f64) void {
     applyElementwise(blas1.wlog, ar, ai);
@@ -113,8 +113,8 @@ pub fn atan(ar: []f64, ai: []f64) void {
 /// commands, each trivial enough not to need a loop helper - apply
 /// directly with a `for` where you need them:
 /// `for (ar, ai) |r, i| out[k] = blas1.pythag(r, i);` (ABS),
-/// `for (ar) |*r| r.* = elementary.round(r.*);` (ROUND, real part only -
-/// the original ignored the imaginary part), `ar`/`ai` themselves are
+/// `for (ar) |*r| r.* = @round(r.*);` (ROUND, real part only - the
+/// original ignored the imaginary part), `ar`/`ai` themselves are
 /// REAL/IMAG, and `Cx.init(r, -i)` is CONJG.
 /// Applies `f` to the eigenvalues of the `n`x`n` matrix `ar`/`ai` (not
 /// mutated) and reconstructs `f(A) = V * diag(f(lambda)) * inv(V)` - the
@@ -124,8 +124,8 @@ pub fn atan(ar: []f64, ai: []f64) void {
 /// singular and this will fail or blow up, matching the original, which
 /// used the same eigendecomposition approach.
 fn applyMatrixFunction(
-    allocator: std.mem.Allocator,
-    comptime f: fn (Cx) Cx,
+    allocator: zigstd.Allocator,
+    comptime f: anytype,
     ar: []const f64,
     ai: []const f64,
     n: usize,
@@ -168,26 +168,25 @@ fn applyMatrixFunction(
     _ = divide.mrdivide(out_r, out_i, n, n, n, v_copy_r, v_copy_i, n, ipvt, zr, zi, rowr, rowi);
 }
 
-pub fn expm(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, elementary.wexp, ar, ai, n, out_r, out_i);
+pub fn expm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
+    return applyMatrixFunction(allocator, std.math.complex.exp, ar, ai, n, out_r, out_i);
 }
-pub fn logm(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
+pub fn logm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
     return applyMatrixFunction(allocator, blas1.wlog, ar, ai, n, out_r, out_i);
 }
-pub fn sqrtm(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, blas1.wsqrt, ar, ai, n, out_r, out_i);
+pub fn sqrtm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
+    return applyMatrixFunction(allocator, std.math.complex.sqrt, ar, ai, n, out_r, out_i);
 }
-pub fn sinm(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, elementary.wsin, ar, ai, n, out_r, out_i);
+pub fn sinm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
+    return applyMatrixFunction(allocator, std.math.complex.sin, ar, ai, n, out_r, out_i);
 }
-pub fn cosm(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
-    return applyMatrixFunction(allocator, elementary.wcos, ar, ai, n, out_r, out_i);
+pub fn cosm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
+    return applyMatrixFunction(allocator, std.math.complex.cos, ar, ai, n, out_r, out_i);
 }
-pub fn atanm(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
+pub fn atanm(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, out_r: []f64, out_i: []f64) !void {
     return applyMatrixFunction(allocator, blas1.watan, ar, ai, n, out_r, out_i);
 }
 
-const testing = std.testing;
 
 test "poly and roots are inverse to each other for known roots" {
     // roots 1, 2, 3 -> (x-1)(x-2)(x-3) = x^3 - 6x^2 + 11x - 6.
@@ -196,34 +195,34 @@ test "poly and roots are inverse to each other for known roots" {
     var cr: [4]f64 = @splat(0.0);
     var ci: [4]f64 = @splat(0.0);
     poly(&rootsr, &rootsi, 3, &cr, &ci);
-    try testing.expectApproxEqAbs(1.0, cr[0], 1e-9);
-    try testing.expectApproxEqAbs(-6.0, cr[1], 1e-9);
-    try testing.expectApproxEqAbs(11.0, cr[2], 1e-9);
-    try testing.expectApproxEqAbs(-6.0, cr[3], 1e-9);
+    try zigstd.testExpectApproxEqAbs(1.0, cr[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(-6.0, cr[1], 1e-9);
+    try zigstd.testExpectApproxEqAbs(11.0, cr[2], 1e-9);
+    try zigstd.testExpectApproxEqAbs(-6.0, cr[3], 1e-9);
 
     var wr: [3]f64 = @splat(0.0);
     var wi: [3]f64 = @splat(0.0);
-    const n = try roots(testing.allocator, &cr, &ci, &wr, &wi);
-    try testing.expectEqual(@as(usize, 3), n);
+    const n = try roots(zigstd.testAllocator, &cr, &ci, &wr, &wi);
+    try zigstd.testExpectEqual(@as(usize, 3), n);
     var sorted = wr;
     std.mem.sort(f64, &sorted, {}, std.sort.asc(f64));
-    try testing.expectApproxEqAbs(1.0, sorted[0], 1e-7);
-    try testing.expectApproxEqAbs(2.0, sorted[1], 1e-7);
-    try testing.expectApproxEqAbs(3.0, sorted[2], 1e-7);
+    try zigstd.testExpectApproxEqAbs(1.0, sorted[0], 1e-7);
+    try zigstd.testExpectApproxEqAbs(2.0, sorted[1], 1e-7);
+    try zigstd.testExpectApproxEqAbs(3.0, sorted[2], 1e-7);
 }
 
 test "sin/cos/exp/sqrt/log/atan apply elementwise" {
     var ar = [_]f64{ 0.0, std.math.pi / 2.0 };
     var ai: [2]f64 = @splat(0.0);
     sin(&ar, &ai);
-    try testing.expectApproxEqAbs(0.0, ar[0], 1e-9);
-    try testing.expectApproxEqAbs(1.0, ar[1], 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(1.0, ar[1], 1e-9);
 
     var br = [_]f64{ 4.0, 9.0 };
     var bi: [2]f64 = @splat(0.0);
     sqrt(&br, &bi);
-    try testing.expectApproxEqAbs(2.0, br[0], 1e-9);
-    try testing.expectApproxEqAbs(3.0, br[1], 1e-9);
+    try zigstd.testExpectApproxEqAbs(2.0, br[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(3.0, br[1], 1e-9);
 }
 
 test "expm matches a hand-verifiable diagonalizable case" {
@@ -232,9 +231,9 @@ test "expm matches a hand-verifiable diagonalizable case" {
     const ai: [4]f64 = @splat(0.0);
     var out_r: [4]f64 = @splat(0.0);
     var out_i: [4]f64 = @splat(0.0);
-    try expm(testing.allocator, &ar, &ai, 2, &out_r, &out_i);
-    try testing.expectApproxEqAbs(1.0, out_r[ix(2, 1, 1)], 1e-8);
-    try testing.expectApproxEqAbs(2.0, out_r[ix(2, 2, 2)], 1e-8);
-    try testing.expectApproxEqAbs(0.0, out_r[ix(2, 1, 2)], 1e-8);
-    try testing.expectApproxEqAbs(0.0, out_r[ix(2, 2, 1)], 1e-8);
+    try expm(zigstd.testAllocator, &ar, &ai, 2, &out_r, &out_i);
+    try zigstd.testExpectApproxEqAbs(1.0, out_r[ix(2, 1, 1)], 1e-8);
+    try zigstd.testExpectApproxEqAbs(2.0, out_r[ix(2, 2, 2)], 1e-8);
+    try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 1, 2)], 1e-8);
+    try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 2, 1)], 1e-8);
 }

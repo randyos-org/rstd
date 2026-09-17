@@ -10,6 +10,7 @@
 //! instead, so the result is directly usable without that table.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 
 fn digitChar(d: usize) u8 {
     return if (d < 10) '0' + @as(u8, @intCast(d)) else 'A' + @as(u8, @intCast(d - 10));
@@ -19,7 +20,7 @@ fn digitChar(d: usize) u8 {
 /// - e.g. base 10 renders like `+0.314159,+01` for `pi/10`. `eps` sets the
 /// mantissa length (`-log_b(eps) + 4` digits; pass `0` for a full
 /// double-precision mantissa in base `b`). Caller owns the returned slice.
-pub fn base(allocator: std.mem.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
+pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     var xa = @abs(x);
     var k: i64 = 0;
     if (xa != 0.0) k = @intFromFloat(@floor(@log(xa) / @log(b)));
@@ -67,20 +68,19 @@ pub fn base(allocator: std.mem.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     return out.toOwnedSlice(allocator);
 }
 
-const testing = std.testing;
 
 test "base renders a simple base-10 value" {
     // 3.14 = 0.314 * 10^1.
-    const s = try base(testing.allocator, 3.14, 10.0, 0.001);
-    defer testing.allocator.free(s);
-    try testing.expect(std.mem.startsWith(u8, s, "+0.314"));
-    try testing.expect(std.mem.endsWith(u8, s, ",+1"));
+    const s = try base(zigstd.testAllocator, 3.14, 10.0, 0.001);
+    defer zigstd.testAllocator.free(s);
+    try zigstd.testExpectTrue(std.mem.startsWith(u8, s, "+0.314"));
+    try zigstd.testExpectTrue(std.mem.endsWith(u8, s, ",+1"));
 }
 
 test "base marks negative numbers and zero exponent" {
     // -0.5 = -0.5 * 10^0.
-    const s = try base(testing.allocator, -0.5, 10.0, 0.01);
-    defer testing.allocator.free(s);
-    try testing.expect(std.mem.startsWith(u8, s, "-0.5"));
-    try testing.expect(std.mem.endsWith(u8, s, ",+0"));
+    const s = try base(zigstd.testAllocator, -0.5, 10.0, 0.01);
+    defer zigstd.testAllocator.free(s);
+    try zigstd.testExpectTrue(std.mem.startsWith(u8, s, "-0.5"));
+    try zigstd.testExpectTrue(std.mem.endsWith(u8, s, ",+0"));
 }

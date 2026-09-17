@@ -137,9 +137,12 @@ meaning outside a session. `SIZE` is REPL introspection a typed caller already h
 `EigResult` has `values_r`/`values_i` (length `n`) and optional `vectors_r`/`vectors_i`
 (`n`x`n`, column-major); call `.deinit(allocator)` to free it. `ABS`/`ROUND`/`REAL`/
 `IMAG`/`CONJG` weren't given wrapper functions - they're one-liners you can inline
-directly: `blas1.pythag(re, im)` (ABS), `elementary.round(re)` (ROUND, real part only -
-the original ignored the imaginary part), `re`/`im` themselves (REAL/IMAG), and
-`Cx.init(re, -im)` (CONJG).
+directly: `blas1.pythag(re, im)` (ABS), `@round(re)` (ROUND, real part only - the
+original ignored the imaginary part), `re`/`im` themselves (REAL/IMAG), and
+`Cx.init(re, -im)` (CONJG). Likewise, `SIN`/`COS`/`EXP`/`SQRT` route straight through
+`std.math.complex` (via `matrixfun.zig`'s `applyElementwise`/`applyMatrixFunction`)
+rather than through a named wrapper in this port - std's versions carry
+overflow/edge-case handling the original Fortran formulas didn't have.
 
 ### Low-level kernels, by module
 
@@ -147,15 +150,14 @@ the original ignored the imaginary part), `re`/`im` themselves (REAL/IMAG), and
 | --- | --- | --- | --- |
 | `blas1` | `pythag` | `PYTHAG` | Overflow-safe `sqrt(a^2+b^2)` (aliases `std.math.hypot`). |
 | `blas1` | `wmul`, `wdiv` | `WMUL`, `WDIV` | Complex scalar multiply/divide (`wdiv` is overflow-scaled). |
-| `blas1` | `wsign`, `wsqrt`, `wlog`, `watan` | `WSIGN`, `WSQRT`, `WLOG`, `WATAN` | Complex scalar sign-copy, sqrt, log, arctangent. |
+| `blas1` | `wsign`, `wlog`, `watan` | `WSIGN`, `WLOG`, `WATAN` | Complex scalar sign-copy, log, arctangent. `WSQRT` is `std.math.complex.sqrt` directly - no wrapper. |
 | `blas1` | `wnrm2`, `wasum`, `iwamax` | `WNRM2`, `WASUM`, `IWAMAX` | Complex vector 2-norm, 1-norm, max-magnitude index. |
 | `blas1` | `wrscal`, `wscal`, `waxpy` | `WRSCAL`, `WSCAL`, `WAXPY` | Complex vector scale (real/complex scalar) and `y += s*x`. |
 | `blas1` | `wdotur`, `wdotui`, `wdotcr`, `wdotci` | `WDOTUR`/`UI`/`CR`/`CI` | Complex dot products (unconjugated/conjugated, real/imag part). |
 | `blas1` | `wcopy`, `wset`, `wswap` | `WCOPY`, `WSET`, `WSWAP` | Complex vector copy, fill, swap. |
 | `blas1` | `rset`, `rswap`, `rrot`, `rrotg` | `RSET`, `RSWAP`, `RROT`, `RROTG` | Real vector fill/swap and Givens rotation apply/construct. |
 | `blas1` | `ix` | *(new)* | 1-based `(i, j)` → 0-based flat column-major offset. |
-| `elementary` | `wsin`, `wcos`, `wexp`, `wpow` | `MATFN2`'s `SIN`/`COS`/`EXP`/power bodies | Elementary complex scalar functions. |
-| `elementary` | `round` | `ROUND` | Round to the nearest integer via exact binary decomposition. |
+| `elementary` | `wpow` | `MATFN2`'s power body | `x^y` (principal branch). `SIN`/`COS`/`EXP`/`SQRT` are `std.math.complex` calls directly - no wrapper. `ROUND` is `@round` directly. |
 | `lu` | `wgefa` | `WGEFA` | Complex LU factorization with partial pivoting. |
 | `lu` | `wgesl` | `WGESL` | Solve `A*x=b` or `ctrans(A)*x=b` from `wgefa`'s factors. |
 | `lu` | `wgeco` | `WGECO` | `wgefa` + reciprocal condition number estimate. |

@@ -4,6 +4,7 @@
 //! `blas1.zig` for the shared matrix/vector conventions this port uses.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
@@ -334,7 +335,6 @@ pub fn wgedi(
     }
 }
 
-const std_testing = std.testing;
 
 test "wgesl solves a known complex 2x2 system" {
     // A = [[1+i, 2], [3, 4-i]], b chosen so x = [1, 1+i].
@@ -344,16 +344,16 @@ test "wgesl solves a known complex 2x2 system" {
     var zr = [_]f64{ 0.0, 0.0 };
     var zi = [_]f64{ 0.0, 0.0 };
     const rcond = wgeco(&ar, &ai, 2, 2, &ipvt, &zr, &zi);
-    try std_testing.expect(rcond > 0.0);
+    try zigstd.testExpectTrue(rcond > 0.0);
 
     // b = A * [1, 1+i]
     var br = [_]f64{ 1.0 * 1.0 - 1.0 * 0.0 + 2.0 * 1.0, 3.0 * 1.0 + 4.0 * 1.0 - (-1.0) * 1.0 };
     var bi = [_]f64{ 1.0 * 0.0 + 1.0 * 1.0 + 2.0 * 1.0, 3.0 * 0.0 + 4.0 * 1.0 + (-1.0) * 1.0 };
     wgesl(&ar, &ai, 2, 2, &ipvt, &br, &bi, 0);
-    try std_testing.expectApproxEqAbs(1.0, br[0], 1e-10);
-    try std_testing.expectApproxEqAbs(0.0, bi[0], 1e-10);
-    try std_testing.expectApproxEqAbs(1.0, br[1], 1e-10);
-    try std_testing.expectApproxEqAbs(1.0, bi[1], 1e-10);
+    try zigstd.testExpectApproxEqAbs(1.0, br[0], 1e-10);
+    try zigstd.testExpectApproxEqAbs(0.0, bi[0], 1e-10);
+    try zigstd.testExpectApproxEqAbs(1.0, br[1], 1e-10);
+    try zigstd.testExpectApproxEqAbs(1.0, bi[1], 1e-10);
 }
 
 test "wgedi inverts and finds the determinant of a diagonal matrix" {
@@ -362,7 +362,7 @@ test "wgedi inverts and finds the determinant of a diagonal matrix" {
     var ai: [9]f64 = @splat(0.0);
     var ipvt = [_]usize{ 0, 0, 0 };
     const info = wgefa(&ar, &ai, 3, 3, &ipvt);
-    try std_testing.expectEqual(@as(usize, 0), info);
+    try zigstd.testExpectEqual(@as(usize, 0), info);
 
     var det: Determinant = undefined;
     var workr: [3]f64 = @splat(0.0);
@@ -370,11 +370,11 @@ test "wgedi inverts and finds the determinant of a diagonal matrix" {
     wgedi(&ar, &ai, 3, 3, &ipvt, &workr, &worki, 11, &det);
 
     const value = det.mantissa.re * std.math.pow(f64, 10.0, det.exponent10);
-    try std_testing.expectApproxEqAbs(-24.0, value, 1e-9);
-    try std_testing.expectApproxEqAbs(0.0, det.mantissa.im, 1e-9);
+    try zigstd.testExpectApproxEqAbs(-24.0, value, 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, det.mantissa.im, 1e-9);
 
     // Inverse of diag(2,3,-4) is diag(0.5, 1/3, -0.25).
-    try std_testing.expectApproxEqAbs(0.5, ar[ix(3, 1, 1)], 1e-10);
-    try std_testing.expectApproxEqAbs(1.0 / 3.0, ar[ix(3, 2, 2)], 1e-10);
-    try std_testing.expectApproxEqAbs(-0.25, ar[ix(3, 3, 3)], 1e-10);
+    try zigstd.testExpectApproxEqAbs(0.5, ar[ix(3, 1, 1)], 1e-10);
+    try zigstd.testExpectApproxEqAbs(1.0 / 3.0, ar[ix(3, 2, 2)], 1e-10);
+    try zigstd.testExpectApproxEqAbs(-0.25, ar[ix(3, 3, 3)], 1e-10);
 }

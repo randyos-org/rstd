@@ -5,6 +5,7 @@
 //! for the shared matrix/vector conventions this port uses.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
@@ -367,7 +368,6 @@ pub fn wqrsl(
     return info;
 }
 
-const testing = std.testing;
 
 test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
     // X = [[1,1],[0,1],[1,0]] (column-major, no pivoting).
@@ -420,7 +420,7 @@ test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
             &dummyi,
             10000,
         );
-        try testing.expectEqual(@as(usize, 0), info);
+        try zigstd.testExpectEqual(@as(usize, 0), info);
         for (0..3) |row| q[ix(3, row + 1, col + 1)] = qy[row];
     }
 
@@ -430,7 +430,7 @@ test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
             var dot: f64 = 0.0;
             for (0..3) |row| dot += q[ix(3, row + 1, a + 1)] * q[ix(3, row + 1, b + 1)];
             const expected: f64 = if (a == b) 1.0 else 0.0;
-            try testing.expectApproxEqAbs(expected, dot, 1e-9);
+            try zigstd.testExpectApproxEqAbs(expected, dot, 1e-9);
         }
     }
 
@@ -439,7 +439,7 @@ test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
         for (0..2) |col| {
             var sum: f64 = 0.0;
             for (0..2) |k| sum += q[ix(3, row + 1, k + 1)] * r[ix(2, k + 1, col + 1)];
-            try testing.expectApproxEqAbs(x_orig[ix(3, row + 1, col + 1)], sum, 1e-9);
+            try zigstd.testExpectApproxEqAbs(x_orig[ix(3, row + 1, col + 1)], sum, 1e-9);
         }
     }
 }
@@ -490,8 +490,8 @@ test "wqrsl solves an exact least-squares fit y = 1 + 2x" {
         &dummyi,
         110,
     );
-    try testing.expectEqual(@as(usize, 0), info);
-    try testing.expectApproxEqAbs(1.0, b[0], 1e-9);
-    try testing.expectApproxEqAbs(2.0, b[1], 1e-9);
-    for (rsd) |r_| try testing.expectApproxEqAbs(0.0, r_, 1e-8);
+    try zigstd.testExpectEqual(@as(usize, 0), info);
+    try zigstd.testExpectApproxEqAbs(1.0, b[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(2.0, b[1], 1e-9);
+    for (rsd) |r_| try zigstd.testExpectApproxEqAbs(0.0, r_, 1e-8);
 }

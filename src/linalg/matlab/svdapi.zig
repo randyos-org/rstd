@@ -2,6 +2,7 @@
 //! `api.zig` to keep files under this project's line-count guideline.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const svd_mod = @import("svd.zig");
 const qr_mod = @import("qr.zig");
@@ -9,7 +10,7 @@ const qr_mod = @import("qr.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
 
-fn singularValues(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize) ![]f64 {
+fn singularValues(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize) ![]f64 {
     const work_r = try allocator.alloc(f64, n * p);
     defer allocator.free(work_r);
     const work_i = try allocator.alloc(f64, n * p);
@@ -38,7 +39,7 @@ fn singularValues(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64
 
 /// COND: ratio of the largest to smallest singular value of the `n`x`p`
 /// matrix `ar`/`ai` (2-norm condition number). `A` is not mutated.
-pub fn cond(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize) !f64 {
+pub fn cond(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize) !f64 {
     const s = try singularValues(allocator, ar, ai, n, p);
     defer allocator.free(s);
     const smallest = s[@min(n, p) - 1];
@@ -49,7 +50,7 @@ pub fn cond(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: u
 /// RANK: number of singular values of the `n`x`p` matrix `ar`/`ai` that
 /// exceed `tol` (pass `null` to use the same default the original used:
 /// `max(n, p) * eps * largest_singular_value`). `A` is not mutated.
-pub fn rank(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize, tol: ?f64) !usize {
+pub fn rank(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, p: usize, tol: ?f64) !usize {
     const s = try singularValues(allocator, ar, ai, n, p);
     defer allocator.free(s);
     const mn = @min(n, p);
@@ -68,7 +69,7 @@ pub fn rank(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: u
 /// the `p`x`n` result into caller-supplied `result_r`/`result_i`
 /// (column-major, leading dimension `p`). `A` is not mutated.
 pub fn pinv(
-    allocator: std.mem.Allocator,
+    allocator: zigstd.Allocator,
     ar: []const f64,
     ai: []const f64,
     n: usize,
@@ -139,7 +140,7 @@ pub fn pinv(
 /// ORTH: `Q` from a QR decomposition of the `m`x`n` matrix `ar`/`ai`
 /// (`n <= m`, not mutated) - an orthonormal basis (as columns) for its
 /// column space. Caller owns the returned `m`x`n` slices.
-pub fn orth(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize) !struct { r: []f64, i: []f64 } {
+pub fn orth(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, lda: usize, m: usize, n: usize) !struct { r: []f64, i: []f64 } {
     const work_r = try allocator.alloc(f64, m * n);
     defer allocator.free(work_r);
     const work_i = try allocator.alloc(f64, m * n);
@@ -215,22 +216,21 @@ pub fn orth(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, lda:
     return .{ .r = result_r, .i = result_i };
 }
 
-const testing = std.testing;
 
 test "cond, rank and pinv agree for a known rank-deficient matrix" {
     // A = [[1,2],[2,4]] (rank 1, columns parallel).
     const ar = [_]f64{ 1.0, 2.0, 2.0, 4.0 };
     const ai: [4]f64 = @splat(0.0);
 
-    const c = try cond(testing.allocator, &ar, &ai, 2, 2);
-    try testing.expect(c > 1e10 or std.math.isInf(c));
+    const c = try cond(zigstd.testAllocator, &ar, &ai, 2, 2);
+    try zigstd.testExpectTrue(c > 1e10 or std.math.isInf(c));
 
-    const r = try rank(testing.allocator, &ar, &ai, 2, 2, null);
-    try testing.expectEqual(@as(usize, 1), r);
+    const r = try rank(zigstd.testAllocator, &ar, &ai, 2, 2, null);
+    try zigstd.testExpectEqual(@as(usize, 1), r);
 
     var pr: [4]f64 = @splat(0.0);
     var pi: [4]f64 = @splat(0.0);
-    try pinv(testing.allocator, &ar, &ai, 2, 2, null, &pr, &pi);
+    try pinv(zigstd.testAllocator, &ar, &ai, 2, 2, null, &pr, &pi);
     // A * pinv(A) * A should reconstruct A (pseudoinverse identity).
     var apa_full: [4]f64 = @splat(0.0);
     for (0..2) |row| {
@@ -244,23 +244,23 @@ test "cond, rank and pinv agree for a known rank-deficient matrix" {
             apa_full[ix(2, row + 1, col + 1)] = s;
         }
     }
-    for (0..4) |idx| try testing.expectApproxEqAbs(ar[idx], apa_full[idx], 1e-6);
+    for (0..4) |idx| try zigstd.testExpectApproxEqAbs(ar[idx], apa_full[idx], 1e-6);
 }
 
 test "orth returns an orthonormal basis spanning the column space" {
     // A = [[1,1],[0,1],[1,0]] (3x2, full column rank).
     const ar = [_]f64{ 1.0, 0.0, 1.0, 1.0, 1.0, 0.0 };
     const ai: [6]f64 = @splat(0.0);
-    const q = try orth(testing.allocator, &ar, &ai, 3, 3, 2);
-    defer testing.allocator.free(q.r);
-    defer testing.allocator.free(q.i);
+    const q = try orth(zigstd.testAllocator, &ar, &ai, 3, 3, 2);
+    defer zigstd.testAllocator.free(q.r);
+    defer zigstd.testAllocator.free(q.i);
 
     for (0..2) |a_col| {
         for (0..2) |b_col| {
             var dot: f64 = 0.0;
             for (0..3) |row| dot += q.r[ix(3, row + 1, a_col + 1)] * q.r[ix(3, row + 1, b_col + 1)];
             const expected: f64 = if (a_col == b_col) 1.0 else 0.0;
-            try testing.expectApproxEqAbs(expected, dot, 1e-9);
+            try zigstd.testExpectApproxEqAbs(expected, dot, 1e-9);
         }
     }
 }

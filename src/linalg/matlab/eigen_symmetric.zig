@@ -4,6 +4,7 @@
 //! shared matrix/vector conventions this port uses.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const ix = blas1.ix;
 
@@ -119,7 +120,6 @@ pub fn imtql2(n: usize, d: []f64, e: []f64, z: []f64, nm: usize, job: usize) usi
     return 0;
 }
 
-const testing = std.testing;
 
 test "imtql2 finds eigenvalues/eigenvectors of a small tridiagonal matrix" {
     // Symmetric tridiagonal: diag [2,2,2], off-diag [1,1] -> eigenvalues
@@ -132,12 +132,12 @@ test "imtql2 finds eigenvalues/eigenvectors of a small tridiagonal matrix" {
     z[ix(3, 3, 3)] = 1.0;
 
     const ierr = imtql2(3, &d, &e, &z, 3, 1);
-    try testing.expectEqual(@as(usize, 0), ierr);
+    try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     const sqrt2 = @sqrt(2.0);
-    try testing.expectApproxEqAbs(2.0 - sqrt2, d[0], 1e-10);
-    try testing.expectApproxEqAbs(2.0, d[1], 1e-10);
-    try testing.expectApproxEqAbs(2.0 + sqrt2, d[2], 1e-10);
+    try zigstd.testExpectApproxEqAbs(2.0 - sqrt2, d[0], 1e-10);
+    try zigstd.testExpectApproxEqAbs(2.0, d[1], 1e-10);
+    try zigstd.testExpectApproxEqAbs(2.0 + sqrt2, d[2], 1e-10);
 
     // Columns of z should be unit-norm (orthonormal eigenvectors).
     for (0..3) |col| {
@@ -146,6 +146,6 @@ test "imtql2 finds eigenvalues/eigenvectors of a small tridiagonal matrix" {
             const v = z[ix(3, row + 1, col + 1)];
             norm2 += v * v;
         }
-        try testing.expectApproxEqAbs(1.0, norm2, 1e-10);
+        try zigstd.testExpectApproxEqAbs(1.0, norm2, 1e-10);
     }
 }

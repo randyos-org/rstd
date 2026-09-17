@@ -67,3 +67,6 @@ pub const addWin32ToModIfWinTgt = win32_mod.addWin32ToModIfWinTgt;
 
 const renderdoc_mod = @import("renderdoc.zig");
 pub const addRenderDoc = renderdoc_mod.addRenderDoc;
+
+const vulkan_mod = @import("vulkan.zig");
+pub const addVulkan = vulkan_mod.addVulkan;

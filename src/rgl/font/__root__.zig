@@ -16,17 +16,8 @@
 
 const std = @import("std");
 
-pub const Sfnt = @import("Sfnt.zig");
-pub const render = @import("render/__root__.zig");
-pub const types = @import("stream_types.zig");
-pub const aux_types = @import("aux_types.zig");
-pub const vga = @import("vga.zig");
-pub const tables = @import("tables/__root__.zig");
-pub const msdf = @import("msdf/__root__.zig");
-
-pub const Vertex = aux_types.Vertex;
-pub const BitmapBox = render.bounds.BitmapBox;
-pub const CharstringCtx = tables.CharstringCtx;
+pub const sfnt = @import("sfnt/__root__.zig");
+pub const vga = @import("vga/__root__.zig");
 
 test {
     std.testing.refAllDecls(@This());

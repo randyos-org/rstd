@@ -5,6 +5,7 @@
 //! exactly as the original REPL's `EIG` command did.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const tridiagonal = @import("tridiagonal.zig");
 const eigen_symmetric = @import("eigen_symmetric.zig");
@@ -25,7 +26,7 @@ pub const EigResult = struct {
     vectors_r: ?[]f64,
     vectors_i: ?[]f64,
 
-    pub fn deinit(self: EigResult, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: EigResult, allocator: zigstd.Allocator) void {
         allocator.free(self.values_r);
         allocator.free(self.values_i);
         if (self.vectors_r) |v| allocator.free(v);
@@ -33,7 +34,7 @@ pub const EigResult = struct {
     }
 };
 
-pub const EigError = error{EigenvalueDidNotConverge} || std.mem.Allocator.Error;
+pub const EigError = error{EigenvalueDidNotConverge} || zigstd.Allocator.Error;
 
 fn isHermitian(ar: []const f64, ai: []const f64, n: usize) bool {
     var j: usize = 1;
@@ -51,7 +52,7 @@ fn isHermitian(ar: []const f64, ai: []const f64, n: usize) bool {
 /// mutated). Automatically dispatches to the Hermitian eigensolver
 /// (`htridi`+`imtql2`+`htribk`, real eigenvalues) or the general one
 /// (`corth`+`comqr3`), exactly as the original REPL's `EIG` command did.
-pub fn eig(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: usize, want_vectors: bool) EigError!EigResult {
+pub fn eig(allocator: zigstd.Allocator, ar: []const f64, ai: []const f64, n: usize, want_vectors: bool) EigError!EigResult {
     const work_r = try allocator.alloc(f64, n * n);
     defer allocator.free(work_r);
     const work_i = try allocator.alloc(f64, n * n);
@@ -130,30 +131,29 @@ pub fn eig(allocator: std.mem.Allocator, ar: []const f64, ai: []const f64, n: us
     return .{ .values_r = values_r, .values_i = values_i, .vectors_r = zr, .vectors_i = zi };
 }
 
-const testing = std.testing;
 
 test "eig dispatches to the Hermitian path for a symmetric matrix" {
     // A = [[2,1],[1,2]]: eigenvalues 1 and 3.
     const ar = [_]f64{ 2.0, 1.0, 1.0, 2.0 };
     const ai: [4]f64 = @splat(0.0);
-    const result = try eig(testing.allocator, &ar, &ai, 2, true);
-    defer result.deinit(testing.allocator);
+    const result = try eig(zigstd.testAllocator, &ar, &ai, 2, true);
+    defer result.deinit(zigstd.testAllocator);
 
     const lo = @min(result.values_r[0], result.values_r[1]);
     const hi = @max(result.values_r[0], result.values_r[1]);
-    try testing.expectApproxEqAbs(1.0, lo, 1e-9);
-    try testing.expectApproxEqAbs(3.0, hi, 1e-9);
-    try testing.expect(result.vectors_r != null);
+    try zigstd.testExpectApproxEqAbs(1.0, lo, 1e-9);
+    try zigstd.testExpectApproxEqAbs(3.0, hi, 1e-9);
+    try zigstd.testExpectTrue(result.vectors_r != null);
 }
 
 test "eig dispatches to the general path for a non-symmetric matrix" {
     const ar = [_]f64{ 1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 10.0 };
     const ai: [9]f64 = @splat(0.0);
-    const result = try eig(testing.allocator, &ar, &ai, 3, false);
-    defer result.deinit(testing.allocator);
+    const result = try eig(zigstd.testAllocator, &ar, &ai, 3, false);
+    defer result.deinit(zigstd.testAllocator);
 
-    try testing.expect(result.vectors_r == null);
+    try zigstd.testExpectTrue(result.vectors_r == null);
     var trace: f64 = 0.0;
     for (result.values_r) |v| trace += v;
-    try testing.expectApproxEqAbs(16.0, trace, 1e-8);
+    try zigstd.testExpectApproxEqAbs(16.0, trace, 1e-8);
 }

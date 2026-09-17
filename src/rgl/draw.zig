@@ -2,79 +2,30 @@
 const Image = @import("Image.zig");
 const color = @import("color.zig");
 const RGBA = color.RGBA;
+const geometry = @import("geometry.zig");
+const Point = geometry.Point;
+const PointF32 = geometry.PointF32;
 
 const zigstd = @import("../zigstd.zig");
 const Allocator = zigstd.Allocator;
 const testExpectEqual = zigstd.testExpectEqual;
 
-pub const Point = struct {
-    const Self = @This();
-    x: u32,
-    y: u32,
-
-    pub const zero: Self = .{ .x = 0, .y = 0 };
-
-    pub fn toPointF32(self: Self) PointF32 {
-        return .{ .x = @floatFromInt(self.x), .y = @floatFromInt(self.y) };
-    }
-
-    pub fn toPointI32(self: Self) PointI32 {
-        return .{ .x = @intCast(self.x), .y = @intCast(self.y) };
-    }
-};
-
-pub const PointI32 = struct {
-    const Self = @This();
-    x: i32,
-    y: i32,
-
-    pub const zero: Self = .{ .x = 0, .y = 0 };
-
-    pub fn toPointF32(self: Self) PointF32 {
-        return .{ .x = @floatFromInt(self.x), .y = @floatFromInt(self.y) };
-    }
-
-    pub fn toPoint(self: Self) Point {
-        return .{ .x = @intCast(self.x), .y = @intCast(self.y) };
-    }
-
-    pub fn add(self: Self, other: Self) Self {
-        return .{ .x = self.x + other.x, .y = self.y + other.y };
-    }
-};
-
-pub const PointF32 = struct {
-    const Self = @This();
-    x: f32,
-    y: f32,
-
-    pub const zero: Self = .{ .x = 0, .y = 0 };
-
-    pub fn toPoint(self: Self) Point {
-        return .{ .x = @round(self.x), .y = @round(self.y) };
-    }
-
-    pub fn toPointI32(self: Self) PointI32 {
-        return .{ .x = @round(self.x), .y = @round(self.y) };
-    }
-
-    pub fn scaled(self: Self, s: f32) Self {
-        return .{ .x = self.x * s, .y = self.y * s };
-    }
-
-    pub fn add(self: Self, other: Self) Self {
-        return .{ .x = self.x + other.x, .y = self.y + other.y };
-    }
-};
-
 /// fillRoundRect fills an axis-aligned rounded rectangle with hard edges
 /// (the downsample step provides antialiasing). Alpha of col is blended
-/// over dst.
+/// over dst. `start`/`end` may extend outside `dst` (a box can be
+/// partially off-screen) -- only the iteration bounds are clamped to
+/// `dst`'s size, not `start`/`end` themselves, so `insideRound`'s rounding
+/// math still sees the shape's true corners rather than the clipped ones.
 pub fn fillRoundRect(dst: *Image, start: PointF32, end: PointF32, r: f32, c: RGBA) void {
-    var p: PointF32 = start;
-    while (p.y < end.y) : (p.y += 1) {
-        p.x = start.x;
-        while (p.x < end.x) : (p.x += 1) {
+    const w: f32 = @floatFromInt(dst.width);
+    const h: f32 = @floatFromInt(dst.height);
+    const clip_start: PointF32 = .{ .x = @max(start.x, 0), .y = @max(start.y, 0) };
+    const clip_end: PointF32 = .{ .x = @min(end.x, w), .y = @min(end.y, h) };
+
+    var p: PointF32 = clip_start;
+    while (p.y < clip_end.y) : (p.y += 1) {
+        p.x = clip_start.x;
+        while (p.x < clip_end.x) : (p.x += 1) {
             const center = p.add(.{ .x = 0.5, .y = 0.5 });
             if (!insideRound(center, start, end, r)) continue;
             blendPixel(dst, p.toPoint(), c);
@@ -146,22 +97,24 @@ pub fn downsample(alloc: Allocator, src: *const Image, n: u32) !Image {
     return out;
 }
 
-test "Point/PointF32/PointI32 conversions and arithmetic" {
-    const p: Point = .{ .x = 3, .y = 5 };
-    try testExpectEqual(PointF32{ .x = 3, .y = 5 }, p.toPointF32());
-    try testExpectEqual(PointI32{ .x = 3, .y = 5 }, p.toPointI32());
+test "fillRoundRect clips a box extending past the image's edges without panicking" {
+    const alloc = zigstd.testAllocator;
+    var img = try Image.init(alloc, 10, 10, color.RGBA.blank);
+    defer img.destroy(alloc);
 
-    const pf: PointF32 = .{ .x = 2.6, .y = 4.4 };
-    try testExpectEqual(Point{ .x = 3, .y = 4 }, pf.toPoint());
-    try testExpectEqual(PointI32{ .x = 3, .y = 4 }, pf.toPointI32());
+    fillRoundRect(
+        &img,
+        .{ .x = -5, .y = -5 },
+        .{ .x = 5, .y = 5 },
+        0,
+        .{ .r = 255, .g = 0, .b = 0, .a = 255 },
+    );
 
-    const pi: PointI32 = .{ .x = 2, .y = 7 };
-    try testExpectEqual(PointF32{ .x = 2, .y = 7 }, pi.toPointF32());
-    try testExpectEqual(Point{ .x = 2, .y = 7 }, pi.toPoint());
-    try testExpectEqual(PointI32{ .x = 7, .y = 12 }, pi.add(.{ .x = 5, .y = 5 }));
-
-    try testExpectEqual(PointF32{ .x = 5, .y = 10 }, (PointF32{ .x = 1, .y = 2 }).scaled(5));
-    try testExpectEqual(PointF32{ .x = 4, .y = 6 }, (PointF32{ .x = 1, .y = 2 }).add(.{ .x = 3, .y = 4 }));
+    // visible corner of the box is filled...
+    try zigstd.testExpectTrue(img.getPixel(0, 0).equals(.{ .r = 255, .g = 0, .b = 0, .a = 255 }));
+    try zigstd.testExpectTrue(img.getPixel(4, 4).equals(.{ .r = 255, .g = 0, .b = 0, .a = 255 }));
+    // ...and nothing past the box's true (partially off-screen) edge is.
+    try zigstd.testExpectTrue(img.getPixel(5, 5).equals(color.RGBA.blank));
 }
 
 test "fillRoundRect fills the center and clips a fully-rounded corner" {

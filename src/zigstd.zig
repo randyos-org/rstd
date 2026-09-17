@@ -15,5 +15,7 @@ pub const testExpectTrue = std.testing.expect;
 pub const testExpectEqual = std.testing.expectEqual;
 pub const testExpectEqualSlices = std.testing.expectEqualSlices;
 pub const testExpectError = std.testing.expectError;
+pub const testExpectApproxEqAbs = std.testing.expectApproxEqAbs;
+pub const testExpectApproxEqRel = std.testing.expectApproxEqRel;
 pub const testAllocator = std.testing.allocator;
 pub const TestFailingAllocator = std.testing.FailingAllocator;

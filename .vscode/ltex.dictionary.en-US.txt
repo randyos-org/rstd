@@ -18,6 +18,7 @@ alarm
 ALFB
 alphabg
 amdgpu
+anorm
 apprt
 apprts
 arch_prctl
@@ -34,7 +35,9 @@ auxvec
 bbox
 bboxes
 bdflush
+bidiagonal
 bind
+Blits
 blitted
 Blobby
 bootdbg
@@ -47,6 +50,7 @@ bootseg
 bootwdog
 bootx
 bpf
+Bresenham
 brk
 BSDRDATA
 bufs
@@ -89,6 +93,7 @@ cnxt
 Codeberg
 coeffi
 coeffr
+COMLR
 compi
 compr
 comptime
@@ -100,6 +105,7 @@ copy_file_range
 corth
 cosm
 cpht
+cqty
 creat
 create_module
 creds
@@ -135,6 +141,8 @@ dotni
 downscaling
 DSYNC
 dtes
+Dubrulle
+dummyi
 dup
 dup2
 dup3
@@ -164,6 +172,7 @@ EGID
 Ehdr
 EHWPOISON
 eigendecomposition
+eigenpairs
 EISNAM
 EISPACK
 eist
@@ -298,6 +307,8 @@ fork
 fpgm
 FreeType
 fremovexattr
+frob
+Frobenius
 fsconfig
 fsetxattr
 FSGSBASE
@@ -487,8 +498,10 @@ iretq
 ISACTIVEICON
 iterm
 ivalue
+jobu
 journald
 jpvt
+kase
 kassert
 kcmp
 KEEPONFORK
@@ -504,6 +517,7 @@ kloop
 kmain
 kmod
 kpanic
+kres
 KRON
 kwin
 landlock_add_rule
@@ -513,6 +527,7 @@ LAPACK
 lapic
 LBTRACKPOINT
 lchown
+lcur
 ld
 lgdt
 lgetxattr
@@ -532,6 +547,7 @@ listns
 listxattr
 listxattrat
 llistxattr
+llls
 LOADIWKEY
 logm
 lookup_dcookie
@@ -558,6 +574,9 @@ markdownlint
 MATFN
 matmul
 MAXIOV
+maxit
+maxj
+maxnrm
 MAXPHYADDR
 mbind
 MCGA
@@ -629,6 +648,8 @@ NCPOINTERLAST
 NCUAHDRAWCAPTION
 NCUAHDRAWFRAME
 NDELAY
+negj
+negl
 NETLINK
 newfstatat
 nflist
@@ -649,6 +670,10 @@ nostdinc
 nouveau
 nranges
 nref
+nrmxl
+nrmxli
+nrmxlr
+nrtp
 NSYNC
 oabi
 objc
@@ -758,9 +783,12 @@ pyproject
 pythag
 qcow
 qemu
+qraux
 qrauxi
 qrauxr
 qrsl
+qtyi
+qtyr
 query_module
 Quilez's
 quotactl
@@ -785,6 +813,7 @@ readahead
 readlink
 readlinkat
 readv
+realification
 reboot
 recancel
 recompiles
@@ -824,6 +853,8 @@ rref
 RRGGBB
 rrot
 rrotg
+rsdi
+rsdr
 RSDT
 rseq
 rseq_slice_yield
@@ -909,6 +940,7 @@ settimeofday
 setuid
 setxattr
 setxattrat
+sfloat
 sfnm
 sfnt
 sgetmask
@@ -981,6 +1013,7 @@ Subrs
 subrsoff
 supersampling
 svdapi
+swapj
 swapoff
 swapon
 symlink
@@ -1025,6 +1058,8 @@ tkill
 tmpfs
 toolchain
 topdictidx
+TRBAK
+tred
 TRIL
 TRIU
 TrueType
@@ -1057,6 +1092,7 @@ umount2
 uname
 Uncancelable
 uncompr
+unconj
 unlink
 unlinkat
 unref
@@ -1108,6 +1144,8 @@ vvcurveto
 wait4
 waitid
 waitpid
+wantu
+wantv
 wasi
 wasum
 watan
@@ -1116,6 +1154,7 @@ wcopy
 wcount
 wcwidth
 wdiv
+wdot
 wdotci
 wdotcr
 wdotui
@@ -1180,12 +1219,21 @@ XSETBV
 xtpr
 xzlib
 yaboot
+ynorm
 ypixel
 YSCALE
+ZGECO
+ZGEDI
+ZGEFA
+ZGESL
 zig
 zigcfg
 ziggify
 zigimg
 zigvec
+ZPOFA
+ZQRDC
+ZQRSL
+ZSVDC
 zutil
 zxdg

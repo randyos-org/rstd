@@ -20,9 +20,15 @@
 //! `eig.zig` (`eig`), `divide.zig` (`mrdivide`), `svdapi.zig`
 //! (`cond`/`rank`/`pinv`/`orth`), `matrixfun.zig` (`poly`/`roots`, the
 //! elementwise `sin`/`cos`/... family, and the matrix-valued
-//! `expm`/`logm`/... family).
+//! `expm`/`logm`/... family), `matmul.zig` (`matmul`, the `*` operator's
+//! math with the REPL stack-machine bookkeeping left out), `schur.zig`
+//! (`hess`/`schur`), `norm.zig` (`vecNorm2`/`vecNormP`/`vecNormInf`/
+//! `matNorm2`/`matNorm1`/`matNormInf`/`matNormFro`), `elementary.zig`
+//! (`wpow`, re-exported as `pow`), and `random.zig` (`Urand`, re-exported
+//! as `Rand`).
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const lu_mod = @import("lu.zig");
 const cholesky = @import("cholesky.zig");
@@ -33,6 +39,11 @@ const eig_mod = @import("eig.zig");
 const divide_mod = @import("divide.zig");
 const svdapi = @import("svdapi.zig");
 const matrixfun = @import("matrixfun.zig");
+const matmul_mod = @import("matmul.zig");
+const schur_mod = @import("schur.zig");
+const norm_mod = @import("norm.zig");
+const elementary = @import("elementary.zig");
+const random = @import("random.zig");
 
 const Cx = blas1.Cx;
 const ix = blas1.ix;
@@ -116,6 +127,33 @@ pub const sinm = matrixfun.sinm;
 pub const cosm = matrixfun.cosm;
 pub const atanm = matrixfun.atanm;
 
+/// `X*Y`: matrix multiplication. See `matmul.zig`.
+pub const matmul = matmul_mod.matmul;
+
+/// HESS/SCHUR: see `schur.zig`.
+pub const hess = schur_mod.hess;
+pub const HessResult = schur_mod.HessResult;
+pub const schur = schur_mod.schur;
+pub const SchurResult = schur_mod.SchurResult;
+
+/// NORM: see `norm.zig`. Split by vector-vs-matrix and norm-kind, matching
+/// this file's existing `sin`/`sinm`-style shape-explicit naming rather
+/// than one function that dispatches on argument shape.
+pub const vecNorm2 = norm_mod.vecNorm2;
+pub const vecNormP = norm_mod.vecNormP;
+pub const vecNormInf = norm_mod.vecNormInf;
+pub const matNorm2 = norm_mod.matNorm2;
+pub const matNorm1 = norm_mod.matNorm1;
+pub const matNormInf = norm_mod.matNormInf;
+pub const matNormFro = norm_mod.matNormFro;
+
+/// POWER (`X**Y`): REPL name for `elementary.wpow`.
+pub const pow = elementary.wpow;
+
+/// RAND: REPL name for `random.Urand` - seed with `.init(seed)`, then
+/// `.next()`/`.nextNormal()`/`.fillUniform()`/`.fillNormal()`.
+pub const Rand = random.Urand;
+
 /// DET: determinant of the `n`x`n` matrix `ar`/`ai` (column-major, leading
 /// dimension `lda`), via LU factorization. `A` is destroyed; `ipvt`
 /// (length `n`) is scratch.
@@ -182,7 +220,6 @@ pub fn prod(ar: []const f64, ai: []const f64) Cx {
     return acc;
 }
 
-const testing = std.testing;
 
 test "det, inv and chol agree on a small real matrix" {
     var ar = [_]f64{ 4.0, 2.0, 2.0, 3.0 }; // [[4,2],[2,3]], det=8, SPD
@@ -192,33 +229,33 @@ test "det, inv and chol agree on a small real matrix" {
     var ar_for_det = ar;
     var ai_for_det = ai;
     const d = det(&ar_for_det, &ai_for_det, 2, 2, &ipvt);
-    try testing.expectApproxEqAbs(8.0, d.mantissa.re * std.math.pow(f64, 10.0, d.exponent10), 1e-9);
+    try zigstd.testExpectApproxEqAbs(8.0, d.mantissa.re * std.math.pow(f64, 10.0, d.exponent10), 1e-9);
 
     var ar_for_inv = ar;
     var ai_for_inv = ai;
     var zr: [2]f64 = @splat(0.0);
     var zi: [2]f64 = @splat(0.0);
     const rc = inv(&ar_for_inv, &ai_for_inv, 2, 2, &ipvt, &zr, &zi);
-    try testing.expect(rc > 0.0);
+    try zigstd.testExpectTrue(rc > 0.0);
     // inv([[4,2],[2,3]]) = [[3,-2],[-2,4]] / 8.
-    try testing.expectApproxEqAbs(3.0 / 8.0, ar_for_inv[ix(2, 1, 1)], 1e-9);
-    try testing.expectApproxEqAbs(-2.0 / 8.0, ar_for_inv[ix(2, 1, 2)], 1e-9);
-    try testing.expectApproxEqAbs(4.0 / 8.0, ar_for_inv[ix(2, 2, 2)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(3.0 / 8.0, ar_for_inv[ix(2, 1, 1)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(-2.0 / 8.0, ar_for_inv[ix(2, 1, 2)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(4.0 / 8.0, ar_for_inv[ix(2, 2, 2)], 1e-9);
 
     const info = chol(&ar, &ai, 2, 2);
-    try testing.expectEqual(@as(usize, 0), info);
-    try testing.expectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-12); // lower triangle zeroed
+    try zigstd.testExpectEqual(@as(usize, 0), info);
+    try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-12); // lower triangle zeroed
 }
 
 test "sum and prod match hand computation" {
     const ar = [_]f64{ 1.0, 2.0, 3.0 };
     const ai = [_]f64{ 0.0, 1.0, 0.0 };
     const s = sum(&ar, &ai);
-    try testing.expectApproxEqAbs(6.0, s.re, 1e-12);
-    try testing.expectApproxEqAbs(1.0, s.im, 1e-12);
+    try zigstd.testExpectApproxEqAbs(6.0, s.re, 1e-12);
+    try zigstd.testExpectApproxEqAbs(1.0, s.im, 1e-12);
 
     const p = prod(&ar, &ai);
     // 1 * (2+i) * 3 = 6+3i
-    try testing.expectApproxEqAbs(6.0, p.re, 1e-12);
-    try testing.expectApproxEqAbs(3.0, p.im, 1e-12);
+    try zigstd.testExpectApproxEqAbs(6.0, p.re, 1e-12);
+    try zigstd.testExpectApproxEqAbs(3.0, p.im, 1e-12);
 }

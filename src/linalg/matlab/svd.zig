@@ -3,6 +3,7 @@
 //! shared matrix/vector conventions this port uses.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
@@ -453,7 +454,6 @@ pub fn wsvdc(
     return info;
 }
 
-const testing = std.testing;
 
 test "wsvdc reconstructs a known real 2x2 matrix via U*S*ctrans(V)" {
     // X = [[1,1],[0,1]] (the classic shear matrix; singular values
@@ -473,14 +473,14 @@ test "wsvdc reconstructs a known real 2x2 matrix via U*S*ctrans(V)" {
     var worki: [2]f64 = @splat(0.0);
 
     const info = wsvdc(&xr, &xi, 2, 2, 2, &sr, &si, &er, &ei, &ur, &ui, 2, &vr, &vi, 2, &workr, &worki, 11);
-    try testing.expectEqual(@as(usize, 0), info);
+    try zigstd.testExpectEqual(@as(usize, 0), info);
 
     const golden = (1.0 + @sqrt(5.0)) / 2.0;
-    try testing.expect(sr[0] >= sr[1]);
-    try testing.expectApproxEqAbs(golden, sr[0], 1e-9);
-    try testing.expectApproxEqAbs(1.0 / golden, sr[1], 1e-9);
-    try testing.expectApproxEqAbs(0.0, si[0], 1e-9);
-    try testing.expectApproxEqAbs(0.0, si[1], 1e-9);
+    try zigstd.testExpectTrue(sr[0] >= sr[1]);
+    try zigstd.testExpectApproxEqAbs(golden, sr[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(1.0 / golden, sr[1], 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, si[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(0.0, si[1], 1e-9);
 
     for (0..2) |row| {
         for (0..2) |col| {
@@ -497,8 +497,8 @@ test "wsvdc reconstructs a known real 2x2 matrix via U*S*ctrans(V)" {
                 re += term.re;
                 im += term.im;
             }
-            try testing.expectApproxEqAbs(x[ix(2, row + 1, col + 1)], re, 1e-8);
-            try testing.expectApproxEqAbs(0.0, im, 1e-8);
+            try zigstd.testExpectApproxEqAbs(x[ix(2, row + 1, col + 1)], re, 1e-8);
+            try zigstd.testExpectApproxEqAbs(0.0, im, 1e-8);
         }
     }
 }
@@ -519,7 +519,7 @@ test "wsvdc handles a genuinely complex diagonal matrix" {
     var worki: [2]f64 = @splat(0.0);
 
     const info = wsvdc(&xr, &xi, 2, 2, 2, &sr, &si, &er, &ei, &ur, &ui, 2, &vr, &vi, 2, &workr, &worki, 11);
-    try testing.expectEqual(@as(usize, 0), info);
-    try testing.expectApproxEqAbs(2.0, sr[0], 1e-9);
-    try testing.expectApproxEqAbs(1.0, sr[1], 1e-9);
+    try zigstd.testExpectEqual(@as(usize, 0), info);
+    try zigstd.testExpectApproxEqAbs(2.0, sr[0], 1e-9);
+    try zigstd.testExpectApproxEqAbs(1.0, sr[1], 1e-9);
 }

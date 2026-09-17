@@ -12,6 +12,17 @@
         .renderdoc = .{
             .url = "git+https://github.com/baldurk/renderdoc.git#cbeb5804cf5372b163cab5469a52d0ad89832bdb",
             .hash = "N-V-__8AACi8yAyv7GHLjXzWor_RJiNT6r5Lx4yj8g79rU5m",
+            .lazy = true,
+        },
+        .vulkan_headers = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers.git#015e25c3c91b70eb1a754d36fb14c4ba6ad9b0b9",
+            .hash = "N-V-__8AAHAZeALsJNAOsFHuMyyXDuoFVG48EQdnJGNAZ3Th",
+            .lazy = true,
+        },
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#a6ca07453ba82e6fbdd910c2e364ae3ee77d7f81",
+            .hash = "vulkan-0.0.0-r7Ytx4mEAwA-B_7J6joJcsXYXL-wDb1CKLCrv-culpfR",
+            .lazy = true,
         },
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",

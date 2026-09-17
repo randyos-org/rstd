@@ -27,7 +27,7 @@ pub fn wpofa(ar: []f64, ai: []f64, lda: usize, n: usize) usize {
                 const d = blas1.wdiv(Cx.init(tr, ti), Cx.init(ar[ix(lda, k, k)], ai[ix(lda, k, k)]));
                 ar[ix(lda, k, j)] = d.re;
                 ai[ix(lda, k, j)] = d.im;
-                s += d.re * d.re + d.im * d.im;
+                s += d.squaredMagnitude();
             }
         }
         s = ar[ix(lda, j, j)] - s;
@@ -38,27 +38,27 @@ pub fn wpofa(ar: []f64, ai: []f64, lda: usize, n: usize) usize {
 }
 
 const std = @import("std");
-const testing = std.testing;
+const zigstd = @import("../../zigstd.zig");
 
 test "wpofa factors a known real SPD matrix" {
     // A = [[4, 2], [2, 3]] (upper triangle supplied, real).
     var ar = [_]f64{ 4.0, 0.0, 2.0, 3.0 }; // column-major; lower-left unused
     var ai: [4]f64 = @splat(0.0);
     const info = wpofa(&ar, &ai, 2, 2);
-    try testing.expectEqual(@as(usize, 0), info);
+    try zigstd.testExpectEqual(@as(usize, 0), info);
 
     // R = [[2, 1], [0, sqrt(2)]]; check ctrans(R)*R == A.
     const r11 = ar[ix(2, 1, 1)];
     const r12 = ar[ix(2, 1, 2)];
     const r22 = ar[ix(2, 2, 2)];
-    try testing.expectApproxEqAbs(4.0, r11 * r11, 1e-10);
-    try testing.expectApproxEqAbs(2.0, r11 * r12, 1e-10);
-    try testing.expectApproxEqAbs(3.0, r12 * r12 + r22 * r22, 1e-10);
+    try zigstd.testExpectApproxEqAbs(4.0, r11 * r11, 1e-10);
+    try zigstd.testExpectApproxEqAbs(2.0, r11 * r12, 1e-10);
+    try zigstd.testExpectApproxEqAbs(3.0, r12 * r12 + r22 * r22, 1e-10);
 }
 
 test "wpofa rejects a non positive-definite matrix" {
     var ar = [_]f64{ 1.0, 0.0, 5.0, 1.0 };
     var ai: [4]f64 = @splat(0.0);
     const info = wpofa(&ar, &ai, 2, 2);
-    try testing.expectEqual(@as(usize, 2), info);
+    try zigstd.testExpectEqual(@as(usize, 2), info);
 }

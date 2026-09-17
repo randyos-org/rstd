@@ -2,7 +2,7 @@
 //! `RAT`.
 
 const std = @import("std");
-const elementary = @import("elementary.zig");
+const zigstd = @import("../../zigstd.zig");
 
 pub const Fraction = struct { numerator: f64, denominator: f64 };
 
@@ -17,7 +17,7 @@ pub fn rat(x: f64, max_term: f64, d: []f64) Fraction {
     var k: usize = 0;
     for (0..d.len) |i| {
         k = i;
-        d[k] = elementary.round(z);
+        d[k] = @round(z);
         z -= d[k];
         if (@abs(z) * max_term <= 1.0) break;
         z = 1.0 / z;
@@ -41,18 +41,17 @@ pub fn rat(x: f64, max_term: f64, d: []f64) Fraction {
     return .{ .numerator = t, .denominator = s };
 }
 
-const testing = std.testing;
 
 test "rat recovers a simple exact fraction" {
     var d: [10]f64 = @splat(0.0);
     const f = rat(22.0 / 7.0, 100.0, &d);
-    try testing.expectApproxEqAbs(22.0, f.numerator, 1e-9);
-    try testing.expectApproxEqAbs(7.0, f.denominator, 1e-9);
+    try zigstd.testExpectApproxEqAbs(22.0, f.numerator, 1e-9);
+    try zigstd.testExpectApproxEqAbs(7.0, f.denominator, 1e-9);
 }
 
 test "rat reconstructs the original value" {
     var d: [10]f64 = @splat(0.0);
     const x = std.math.pi;
     const f = rat(x, 1000.0, &d);
-    try testing.expectApproxEqAbs(x, f.numerator / f.denominator, 1e-6);
+    try zigstd.testExpectApproxEqAbs(x, f.numerator / f.denominator, 1e-6);
 }

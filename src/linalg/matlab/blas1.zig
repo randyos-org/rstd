@@ -22,11 +22,14 @@
 //! line) is dropped throughout this port; it had no effect on results.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
+
+const rsimd = @import("../../simd/__root__.zig");
 
 pub const Cx = std.math.Complex(f64);
 
-const vec_len: usize = std.simd.suggestVectorLength(f64) orelse 4;
-const Vf64 = @Vector(vec_len, f64);
+const vec_len = rsimd.zigvec.f64_simd_lanes;
+const Vf64 = rsimd.zigvec.SimdVecF64;
 
 inline fn loadVec(s: []const f64, i: usize) Vf64 {
     return s[i..][0..vec_len].*;
@@ -37,8 +40,11 @@ inline fn storeVec(s: []f64, i: usize, v: Vf64) void {
 }
 
 /// CABS1: `|re| + |im|`, the cheap "1-norm" pivoting/singularity metric
-/// LINPACK uses in place of the true complex magnitude.
-pub fn cabs1(re: f64, im: f64) f64 {
+/// LINPACK uses in place of the true complex magnitude. `anytype` (rather
+/// than a fixed `f64`) so the same body also works as `reduce.mapReduce`'s
+/// per-chunk map in `wasum` below, called once against `f64` scalars (the
+/// tail) and once against `Vf64` chunks (the SIMD body).
+pub fn cabs1(re: anytype, im: @TypeOf(re)) @TypeOf(re) {
     return @abs(re) + @abs(im);
 }
 
@@ -73,8 +79,11 @@ pub fn wdiv(a: Cx, b: Cx) Cx {
     const ais = a.im / s;
     const brs = b.re / s;
     const bis = b.im / s;
-    const d = brs * brs + bis * bis;
-    return Cx.init((ars * brs + ais * bis) / d, (ais * brs - ars * bis) / d);
+    const d = @mulAdd(f64, bis, bis, brs * brs);
+    return Cx.init(
+        @mulAdd(f64, ais, bis, ars * brs) / d,
+        @mulAdd(f64, -ars, bis, ais * brs) / d,
+    );
 }
 
 /// WSIGN: if `y != 0`, `z = x*y/|y|`; if `y == 0`, `z = x`.
@@ -84,27 +93,16 @@ pub fn wsign(x: Cx, y: Cx) Cx {
     return wmul(Cx.init(y.re / t, y.im / t), x);
 }
 
-/// WSQRT: `y = sqrt(x)` with `re(y) >= 0` and `sign(im(y)) == sign(im(x))`.
-pub fn wsqrt(x: Cx) Cx {
-    const tr = x.re;
-    const ti = x.im;
-    var s = @sqrt(0.5 * (pythag(tr, ti) + @abs(tr)));
-    var yr: f64 = 0.0;
-    var yi: f64 = 0.0;
-    if (tr >= 0.0) yr = s;
-    if (ti < 0.0) s = -s;
-    if (tr <= 0.0) yi = s;
-    if (tr < 0.0) yr = 0.5 * (ti / yi);
-    if (tr > 0.0) yi = 0.5 * (ti / yr);
-    return Cx.init(yr, yi);
-}
-
-/// WLOG: `y = log(x)`.
+/// WLOG: `y = log(x)`. Delegates to `std.math.complex.log`, except this
+/// port's branch-cut convention for the negative real axis is preserved
+/// explicitly: for `x.im == 0.0` (which also matches `-0.0`) and
+/// `x.re < 0.0`, the angle is forced to `+pi` rather than left to
+/// `atan2`'s signed-zero handling (which would give `-pi` for a `-0.0`
+/// imaginary part).
 pub fn wlog(x: Cx) Cx {
-    const r = pythag(x.re, x.im);
-    var t = std.math.atan2(x.im, x.re);
-    if (x.im == 0.0 and x.re < 0.0) t = @abs(t);
-    return Cx.init(@log(r), t);
+    var r = std.math.complex.log(x);
+    if (x.im == 0.0 and x.re < 0.0) r.im = @abs(r.im);
+    return r;
 }
 
 /// WATAN: `y = atan(x) = (i/2)*log((i+x)/(i-x))`.
@@ -115,10 +113,37 @@ pub fn watan(x: Cx) Cx {
     return Cx.init(-l.im / 2.0, l.re / 2.0);
 }
 
-/// WNRM2: Euclidean norm of `x`. Left scalar-only: the original accumulates
-/// via repeated `PYTHAG(s, ...)` specifically to stay overflow-safe, which
-/// is an inherently sequential refinement rather than a lane-parallel sum.
+/// WNRM2: Euclidean norm of `x`. Tries a fast SIMD sum-of-squares first
+/// (unit stride only) and only falls back to `wnrm2Safe`'s sequential
+/// `pythag`-chain (the original's own algorithm) when that visibly
+/// failed - matches `linalg.vector.length`'s gated design, and for the
+/// same reason: chaining `pythag` unconditionally costs real per-call
+/// overhead (NaN/Inf checks, a compensated-arithmetic correction term)
+/// that a lane-parallel sum-of-squares avoids for the overwhelmingly
+/// common case of ordinary-magnitude components.
 pub fn wnrm2(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
+    if (n == 0) return 0.0;
+    if (incx == 1) {
+        const sumSquares = struct {
+            fn f(re: anytype, im: @TypeOf(re)) @TypeOf(re) {
+                return @mulAdd(@TypeOf(re), im, im, re * re);
+            }
+        }.f;
+        const sq = rsimd.reduce.mapReduce(.Add, f64, sumSquares, .{ xr[0..n], xi[0..n] });
+        // sq == 0.0 is ambiguous by itself: genuinely all-zero input, or
+        // every squared term underflowed - wasum (sum of non-negative
+        // |re|+|im| terms, no cancellation possible) tells them apart
+        // cheaply, and already has its own SIMD fast path too.
+        const looks_fine = std.math.isFinite(sq) and (sq != 0.0 or wasum(n, xr, xi, incx) == 0.0);
+        if (looks_fine) return @sqrt(sq);
+    }
+    return wnrm2Safe(n, xr, xi, incx);
+}
+
+/// The overflow/underflow-safe fallback `wnrm2` uses when its fast path
+/// fails, and directly for non-unit strides (`mapReduce` has no stride
+/// support - see `wasum`'s/`wdot`'s doc comments for the same reasoning).
+fn wnrm2Safe(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     var s: f64 = 0.0;
     if (n == 0) return s;
     var i_x = stride0(n, incx);
@@ -135,16 +160,7 @@ pub fn wnrm2(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
 /// WASUM: 1-norm of `x` (sum of `|re|+|im|`).
 pub fn wasum(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     if (n == 0) return 0.0;
-    if (incx == 1) {
-        var acc: Vf64 = @splat(0.0);
-        var i: usize = 0;
-        while (i + vec_len <= n) : (i += vec_len) {
-            acc += @abs(loadVec(xr, i)) + @abs(loadVec(xi, i));
-        }
-        var s: f64 = @reduce(.Add, acc);
-        while (i < n) : (i += 1) s += cabs1(xr[i], xi[i]);
-        return s;
-    }
+    if (incx == 1) return rsimd.reduce.mapReduce(.Add, f64, cabs1, .{ xr[0..n], xi[0..n] });
     var s: f64 = 0.0;
     var i_x = stride0(n, incx);
     var i: usize = 0;
@@ -214,8 +230,8 @@ pub fn wscal(n: usize, s: Cx, xr: []f64, xi: []f64, incx: isize) void {
         while (i + vec_len <= n) : (i += vec_len) {
             const xrv = loadVec(xr, i);
             const xiv = loadVec(xi, i);
-            storeVec(xr, i, sr * xrv - si * xiv);
-            storeVec(xi, i, sr * xiv + si * xrv);
+            storeVec(xr, i, @mulAdd(Vf64, -si, xiv, sr * xrv));
+            storeVec(xi, i, @mulAdd(Vf64, si, xrv, sr * xiv));
         }
         while (i < n) : (i += 1) {
             const t = wmul(s, Cx.init(xr[i], xi[i]));
@@ -254,12 +270,12 @@ pub fn waxpy(
         while (i + vec_len <= n) : (i += vec_len) {
             const xrv = loadVec(xr, i);
             const xiv = loadVec(xi, i);
-            storeVec(yr, i, loadVec(yr, i) + sr * xrv - si * xiv);
-            storeVec(yi, i, loadVec(yi, i) + sr * xiv + si * xrv);
+            storeVec(yr, i, @mulAdd(Vf64, -si, xiv, @mulAdd(Vf64, sr, xrv, loadVec(yr, i))));
+            storeVec(yi, i, @mulAdd(Vf64, si, xrv, @mulAdd(Vf64, sr, xiv, loadVec(yi, i))));
         }
         while (i < n) : (i += 1) {
-            yr[i] += s.re * xr[i] - s.im * xi[i];
-            yi[i] += s.re * xi[i] + s.im * xr[i];
+            yr[i] = @mulAdd(f64, -s.im, xi[i], @mulAdd(f64, s.re, xr[i], yr[i]));
+            yi[i] = @mulAdd(f64, s.im, xr[i], @mulAdd(f64, s.re, xi[i], yi[i]));
         }
         return;
     }
@@ -269,8 +285,8 @@ pub fn waxpy(
     while (i < n) : (i += 1) {
         const xu: usize = @intCast(i_x);
         const yu: usize = @intCast(i_y);
-        yr[yu] += s.re * xr[xu] - s.im * xi[xu];
-        yi[yu] += s.re * xi[xu] + s.im * xr[xu];
+        yr[yu] = @mulAdd(f64, -s.im, xi[xu], @mulAdd(f64, s.re, xr[xu], yr[yu]));
+        yi[yu] = @mulAdd(f64, s.im, xr[xu], @mulAdd(f64, s.re, xi[xu], yi[yu]));
         i_x += incx;
         i_y += incy;
     }
@@ -290,30 +306,18 @@ fn wdot(
 ) f64 {
     if (n == 0) return 0.0;
     if (incx == 1 and incy == 1) {
-        var acc: Vf64 = @splat(0.0);
-        var i: usize = 0;
-        while (i + vec_len <= n) : (i += vec_len) {
-            const xrv = loadVec(xr, i);
-            const xiv = loadVec(xi, i);
-            const yrv = loadVec(yr, i);
-            const yiv = loadVec(yi, i);
-            acc += switch (kind) {
-                .unconjugated_re => xrv * yrv - xiv * yiv,
-                .unconjugated_im => xrv * yiv + xiv * yrv,
-                .conjugated_re => xrv * yrv + xiv * yiv,
-                .conjugated_im => xrv * yiv - xiv * yrv,
-            };
-        }
-        var s: f64 = @reduce(.Add, acc);
-        while (i < n) : (i += 1) {
-            s += switch (kind) {
-                .unconjugated_re => xr[i] * yr[i] - xi[i] * yi[i],
-                .unconjugated_im => xr[i] * yi[i] + xi[i] * yr[i],
-                .conjugated_re => xr[i] * yr[i] + xi[i] * yi[i],
-                .conjugated_im => xr[i] * yi[i] - xi[i] * yr[i],
-            };
-        }
-        return s;
+        const mapFn = struct {
+            fn f(xrv: anytype, xiv: @TypeOf(xrv), yrv: @TypeOf(xrv), yiv: @TypeOf(xrv)) @TypeOf(xrv) {
+                const T = @TypeOf(xrv);
+                return switch (kind) {
+                    .unconjugated_re => @mulAdd(T, -xiv, yiv, xrv * yrv),
+                    .unconjugated_im => @mulAdd(T, xiv, yrv, xrv * yiv),
+                    .conjugated_re => @mulAdd(T, xiv, yiv, xrv * yrv),
+                    .conjugated_im => @mulAdd(T, -xiv, yrv, xrv * yiv),
+                };
+            }
+        }.f;
+        return rsimd.reduce.mapReduce(.Add, f64, mapFn, .{ xr[0..n], xi[0..n], yr[0..n], yi[0..n] });
     }
     var s: f64 = 0.0;
     var i_x = stride0(n, incx);
@@ -323,10 +327,10 @@ fn wdot(
         const xu: usize = @intCast(i_x);
         const yu: usize = @intCast(i_y);
         s += switch (kind) {
-            .unconjugated_re => xr[xu] * yr[yu] - xi[xu] * yi[yu],
-            .unconjugated_im => xr[xu] * yi[yu] + xi[xu] * yr[yu],
-            .conjugated_re => xr[xu] * yr[yu] + xi[xu] * yi[yu],
-            .conjugated_im => xr[xu] * yi[yu] - xi[xu] * yr[yu],
+            .unconjugated_re => @mulAdd(f64, -xi[xu], yi[yu], xr[xu] * yr[yu]),
+            .unconjugated_im => @mulAdd(f64, xi[xu], yr[yu], xr[xu] * yi[yu]),
+            .conjugated_re => @mulAdd(f64, xi[xu], yi[yu], xr[xu] * yr[yu]),
+            .conjugated_im => @mulAdd(f64, -xi[xu], yr[yu], xr[xu] * yi[yu]),
         };
         i_x += incx;
         i_y += incy;
@@ -445,12 +449,12 @@ pub fn rrot(n: usize, x: []f64, incx: isize, y: []f64, incy: isize, c: f64, s: f
         while (i + vec_len <= n) : (i += vec_len) {
             const xv = loadVec(x, i);
             const yv = loadVec(y, i);
-            storeVec(x, i, cv * xv + sv * yv);
-            storeVec(y, i, cv * yv - sv * xv);
+            storeVec(x, i, @mulAdd(Vf64, sv, yv, cv * xv));
+            storeVec(y, i, @mulAdd(Vf64, -sv, xv, cv * yv));
         }
         while (i < n) : (i += 1) {
-            const temp = c * x[i] + s * y[i];
-            y[i] = c * y[i] - s * x[i];
+            const temp = @mulAdd(f64, s, y[i], c * x[i]);
+            y[i] = @mulAdd(f64, -s, x[i], c * y[i]);
             x[i] = temp;
         }
         return;
@@ -461,8 +465,8 @@ pub fn rrot(n: usize, x: []f64, incx: isize, y: []f64, incy: isize, c: f64, s: f
     while (i < n) : (i += 1) {
         const xu: usize = @intCast(i_x);
         const yu: usize = @intCast(i_y);
-        const temp = c * x[xu] + s * y[yu];
-        y[yu] = c * y[yu] - s * x[xu];
+        const temp = @mulAdd(f64, s, y[yu], c * x[xu]);
+        y[yu] = @mulAdd(f64, -s, x[xu], c * y[yu]);
         x[xu] = temp;
         i_x += incx;
         i_y += incy;
@@ -491,24 +495,14 @@ pub fn rrotg(da: f64, db: f64) Givens {
     return .{ .r = r, .c = c, .s = s };
 }
 
-const testing = std.testing;
 
 test "wdiv is the inverse of wmul" {
     const a = Cx.init(3.0, -2.0);
     const b = Cx.init(-1.5, 4.0);
     const prod = wmul(a, b);
     const back = wdiv(prod, b);
-    try testing.expectApproxEqAbs(a.re, back.re, 1e-12);
-    try testing.expectApproxEqAbs(a.im, back.im, 1e-12);
-}
-
-test "wsqrt squares back to the input" {
-    const x = Cx.init(-3.0, 4.0);
-    const r = wsqrt(x);
-    const sq = wmul(r, r);
-    try testing.expectApproxEqAbs(x.re, sq.re, 1e-12);
-    try testing.expectApproxEqAbs(x.im, sq.im, 1e-12);
-    try testing.expect(r.re >= 0.0);
+    try zigstd.testExpectApproxEqAbs(a.re, back.re, 1e-12);
+    try zigstd.testExpectApproxEqAbs(a.im, back.im, 1e-12);
 }
 
 test "waxpy/wdot round trip over a SIMD-width-crossing vector" {
@@ -525,8 +519,8 @@ test "waxpy/wdot round trip over a SIMD-width-crossing vector" {
     }
     waxpy(n, Cx.init(2.0, 0.0), &xr, &xi, 1, &yr, &yi, 1);
     for (0..n) |k| {
-        try testing.expectApproxEqAbs(1.0 + 2.0 * xr[k], yr[k], 1e-12);
-        try testing.expectApproxEqAbs(2.0 * xi[k], yi[k], 1e-12);
+        try zigstd.testExpectApproxEqAbs(1.0 + 2.0 * xr[k], yr[k], 1e-12);
+        try zigstd.testExpectApproxEqAbs(2.0 * xi[k], yi[k], 1e-12);
     }
 
     const dot_re = wdotcr(n, &xr, &xi, 1, &xr, &xi, 1);
@@ -535,11 +529,57 @@ test "waxpy/wdot round trip over a SIMD-width-crossing vector" {
         for (0..n) |k| acc += xr[k] * xr[k] + xi[k] * xi[k];
         break :blk acc;
     };
-    try testing.expectApproxEqAbs(expected, dot_re, 1e-9);
+    try zigstd.testExpectApproxEqAbs(expected, dot_re, 1e-9);
 }
 
 test "iwamax finds the largest-magnitude element" {
     const xr = [_]f64{ 1.0, -2.0, 0.5 };
     const xi = [_]f64{ 0.0, 0.0, 9.0 };
-    try testing.expectEqual(@as(usize, 3), iwamax(3, &xr, &xi, 1));
+    try zigstd.testExpectEqual(@as(usize, 3), iwamax(3, &xr, &xi, 1));
+}
+
+test "wnrm2 matches a hand-computed value for ordinary magnitudes" {
+    const xr = [_]f64{ 3.0, 0.0 };
+    const xi = [_]f64{ 0.0, 4.0 };
+    try zigstd.testExpectApproxEqAbs(5.0, wnrm2(2, &xr, &xi, 1), 1e-12);
+}
+
+test "wnrm2's fast path falls back instead of overflowing to inf on huge components" {
+    // Squaring 1e300 overflows f64 to +inf; the fallback's incremental
+    // pythag chain never squares anything that large without hypot's own
+    // overflow-safe rescale first.
+    const xr = [_]f64{ 1e300, 1e300 };
+    const xi: [2]f64 = @splat(0.0);
+    const want = @sqrt(2.0) * 1e300;
+    const got = wnrm2(2, &xr, &xi, 1);
+    try zigstd.testExpectApproxEqAbs(want, got, want * 1e-12);
+    try zigstd.testExpectTrue(std.math.isFinite(got));
+}
+
+test "wnrm2's fast path falls back instead of underflowing to 0 on tiny components" {
+    // Squaring 1e-200 underflows f64 to exactly 0, losing the vector
+    // entirely if trusted directly; wasum's all-zero check catches it.
+    const xr = [_]f64{ 1e-200, 1e-200 };
+    const xi: [2]f64 = @splat(0.0);
+    const want = @sqrt(2.0) * 1e-200;
+    const got = wnrm2(2, &xr, &xi, 1);
+    try zigstd.testExpectApproxEqAbs(want, got, want * 1e-12);
+    try zigstd.testExpectTrue(got > 0);
+}
+
+test "wnrm2 returns exactly 0 for the genuine zero vector, not a false-positive fallback" {
+    const xr: [4]f64 = @splat(0.0);
+    const xi: [4]f64 = @splat(0.0);
+    try zigstd.testExpectEqual(@as(f64, 0.0), wnrm2(4, &xr, &xi, 1));
+}
+
+test "wnrm2's fast and safe paths agree on a SIMD-width-crossing vector" {
+    const n = vec_len * 2 + 3;
+    var xr: [n]f64 = undefined;
+    var xi: [n]f64 = undefined;
+    for (0..n) |k| {
+        xr[k] = @floatFromInt(k + 1);
+        xi[k] = @floatFromInt(2 * k);
+    }
+    try zigstd.testExpectApproxEqAbs(wnrm2(n, &xr, &xi, 1), wnrm2Safe(n, &xr, &xi, 1), 1e-9);
 }

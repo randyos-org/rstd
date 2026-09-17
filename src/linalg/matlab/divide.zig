@@ -2,6 +2,7 @@
 //! project's line-count guideline.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const lu_mod = @import("lu.zig");
 
@@ -50,7 +51,6 @@ pub fn mrdivide(
     return rc;
 }
 
-const testing = std.testing;
 
 test "mrdivide solves X*B=A" {
     // A = [[1,2],[3,4]], B = [[2,0],[1,2]] (both square, real).
@@ -66,7 +66,7 @@ test "mrdivide solves X*B=A" {
 
     const b_for_check = br;
     const rc = mrdivide(&ar, &ai, 2, 2, 2, &br, &bi, 2, &ipvt, &zr, &zi, &rowr, &rowi);
-    try testing.expect(rc > 0.0);
+    try zigstd.testExpectTrue(rc > 0.0);
 
     // Check X*B == original A.
     const a_orig = [_]f64{ 1.0, 3.0, 2.0, 4.0 };
@@ -74,7 +74,7 @@ test "mrdivide solves X*B=A" {
         for (0..2) |col| {
             var s: f64 = 0.0;
             for (0..2) |k| s += ar[ix(2, row + 1, k + 1)] * b_for_check[ix(2, k + 1, col + 1)];
-            try testing.expectApproxEqAbs(a_orig[ix(2, row + 1, col + 1)], s, 1e-9);
+            try zigstd.testExpectApproxEqAbs(a_orig[ix(2, row + 1, col + 1)], s, 1e-9);
         }
     }
 }

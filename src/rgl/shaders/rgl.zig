@@ -35,19 +35,35 @@ const param_shape_kind = paramFlat("shape_kind", u32, 6);
 
 const in_rect_pos = input("rect_pos", Vec2, 0);
 const in_rect_size = input("rect_size", Vec2, 1);
-const in_corner_radius = input("instance_corner_radius", f32, 2);
-const in_border_width = input("instance_border_width", f32, 3);
-const in_fill_color = input("instance_fill_color", Vec4, 4);
-const in_border_color = input("instance_border_color", Vec4, 5);
-const in_shape_kind = input("instance_shape_kind", u32, 6);
+const in_rotation = input("instance_rotation", f32, 2);
+const in_corner_radius = input("instance_corner_radius", f32, 3);
+const in_border_width = input("instance_border_width", f32, 4);
+const in_fill_color = input("instance_fill_color", Vec4, 5);
+const in_border_color = input("instance_border_color", Vec4, 6);
+const in_shape_kind = input("instance_shape_kind", u32, 7);
 
 fn vert() callconv(.spirv_vertex) void {
     const corner = lib.coords.quadCorner(spirv.vertex_index);
     const rect_size = in_rect_size.*;
-    const pixel_pos = in_rect_pos.* + rect_size * corner;
+    // local_offset stays in the shape's own unrotated frame -- it's what
+    // param_local_pos feeds the SDF math below, which never needs to know
+    // about rotation at all. Only the screen-space vertex position (i.e.
+    // where that frame's origin/axes actually sit) gets rotated, about the
+    // rect's own center, so drawLine's thin rotated rects work the same
+    // way any other shape_kind does.
+    const local_offset = (corner - splatVec(2, 0.5)) * rect_size;
+    const center = in_rect_pos.* + rect_size * splatVec(2, 0.5);
+    const rotation = in_rotation.*;
+    const cos_r = lib.math.cos(rotation);
+    const sin_r = lib.math.sin(rotation);
+    const rotated_offset = Vec2{
+        local_offset[0] * cos_r - local_offset[1] * sin_r,
+        local_offset[0] * sin_r + local_offset[1] * cos_r,
+    };
+    const pixel_pos = center + rotated_offset;
     spirv.position_out.* = lib.coords.fromScreenToNdc(pixel_pos, lib.globals.screen_size);
 
-    param_local_pos.* = (corner - splatVec(2, 0.5)) * rect_size;
+    param_local_pos.* = local_offset;
     param_half_size.* = rect_size * splatVec(2, 0.5);
     param_corner_radius.* = in_corner_radius.*;
     param_border_width.* = in_border_width.*;

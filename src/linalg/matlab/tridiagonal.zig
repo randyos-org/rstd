@@ -175,7 +175,7 @@ pub fn htribk(nm: usize, n: usize, ar: []const f64, ai: []const f64, taur: []con
 }
 
 const std = @import("std");
-const testing = std.testing;
+const zigstd = @import("../../zigstd.zig");
 
 test "htridi preserves trace and Frobenius norm of a real symmetric matrix" {
     // A = [[4,1,2],[1,3,0],[2,0,5]] (Hermitian similarity preserves both).
@@ -196,8 +196,8 @@ test "htridi preserves trace and Frobenius norm of a real symmetric matrix" {
     htridi(3, 3, &ar, &ai, &d, &e, &e2, &taur, &taui);
 
     const trace = d[0] + d[1] + d[2];
-    try testing.expectApproxEqAbs(12.0, trace, 1e-10);
+    try zigstd.testExpectApproxEqAbs(12.0, trace, 1e-10);
 
     const frob2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] + 2.0 * (e[1] * e[1] + e[2] * e[2]);
-    try testing.expectApproxEqAbs(60.0, frob2, 1e-10);
+    try zigstd.testExpectApproxEqAbs(60.0, frob2, 1e-10);
 }

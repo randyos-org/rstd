@@ -4,6 +4,13 @@
 //! keeping its own copy of the same handful of formulas.
 
 const std = @import("std");
+const simd = std.simd;
+
+pub const f32_simd_lanes = std.simd.suggestVectorLength(f32) orelse 1;
+pub const SimdVecF32 = @Vector(f32_simd_lanes, f32);
+
+pub const f64_simd_lanes = std.simd.suggestVectorLength(f64) orelse 1;
+pub const SimdVecF64 = @Vector(f64_simd_lanes, f64);
 
 pub const V2f32 = @Vector(2, f32);
 pub const V3f32 = @Vector(3, f32);
@@ -67,4 +74,8 @@ pub inline fn zeroVecF32(N: usize) @Vector(N, f32) {
 
 pub inline fn zeroVecF64(N: usize) @Vector(N, f64) {
     return zeroVecType(N, f64);
+}
+
+pub inline fn zeroAs(typeSrcVec: anytype) @TypeOf(typeSrcVec) {
+    return splatAs(typeSrcVec, 0);
 }

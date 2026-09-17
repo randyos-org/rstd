@@ -1,7 +1,7 @@
 // const std = @import("std");
 
 const color = @import("color.zig");
-const Point = @import("draw.zig").Point;
+const Point = @import("geometry.zig").Point;
 const RGBA = color.RGBA;
 
 const bytes = @import("../bytes.zig");

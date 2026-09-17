@@ -5,6 +5,7 @@
 
 const blas1 = @import("blas1.zig");
 const ix = blas1.ix;
+const rsimd = @import("../../simd/__root__.zig");
 
 /// CORTH: reduce the submatrix of `ar`/`ai` (column-major, leading
 /// dimension `nm`, order `n`) in rows/columns `low..igh` to upper
@@ -23,9 +24,12 @@ pub fn corth(nm: usize, n: usize, low: usize, igh: usize, ar: []f64, ai: []f64, 
         var h: f64 = 0.0;
         ortr[m - 1] = 0.0;
         orti[m - 1] = 0.0;
-        var scale: f64 = 0.0;
-        var row: usize = m;
-        while (row <= igh) : (row += 1) scale += @abs(ar[ix(nm, row, m - 1)]) + @abs(ai[ix(nm, row, m - 1)]);
+        // scale = sum(|ar|+|ai|) over rows m..igh of column m-1: contiguous
+        // (unit-stride) since row varies with column fixed in this
+        // column-major layout, so it's safe to route through mapReduce.
+        const col_start = ix(nm, m, m - 1);
+        const col_len = igh - m + 1;
+        const scale = rsimd.reduce.mapReduce(.Add, f64, blas1.cabs1, .{ ar[col_start..][0..col_len], ai[col_start..][0..col_len] });
         if (scale == 0.0) continue;
 
         const mp = m + igh;
@@ -97,7 +101,7 @@ pub fn corth(nm: usize, n: usize, low: usize, igh: usize, ar: []f64, ai: []f64, 
 }
 
 const std = @import("std");
-const testing = std.testing;
+const zigstd = @import("../../zigstd.zig");
 
 test "corth preserves trace (similarity transform)" {
     // A = [[1,2,3],[4,5,6],[7,8,10]] (real, column-major).
@@ -119,5 +123,5 @@ test "corth preserves trace (similarity transform)" {
     corth(3, 3, 1, 3, &ar, &ai, &ortr, &orti);
 
     const trace = ar[ix(3, 1, 1)] + ar[ix(3, 2, 2)] + ar[ix(3, 3, 3)];
-    try testing.expectApproxEqAbs(16.0, trace, 1e-9);
+    try zigstd.testExpectApproxEqAbs(16.0, trace, 1e-9);
 }

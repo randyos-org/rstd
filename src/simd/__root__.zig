@@ -28,3 +28,7 @@ pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
         else => @compileError("Invalid base type, only floats and their vectors are supported"),
     }
 }
+
+test {
+    std.testing.refAllDecls(@This());
+}

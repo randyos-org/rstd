@@ -7,6 +7,7 @@
 //! Hessenberg form + transformation info this one consumes.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
@@ -194,7 +195,7 @@ pub fn comqr3(
                 if (xr != 0.0 or xi != 0.0) {
                     const yr = (hr[ix(nm, enm1, enm1)] - sr) / 2.0;
                     const yi = (hi[ix(nm, enm1, enm1)] - si) / 2.0;
-                    var zz = blas1.wsqrt(Cx.init(yr * yr - yi * yi + xr, 2.0 * yr * yi + xi));
+                    var zz = std.math.complex.sqrt(Cx.init(yr * yr - yi * yi + xr, 2.0 * yr * yi + xi));
                     if (yr * zz.re + yi * zz.im < 0.0) zz = Cx.init(-zz.re, -zz.im);
                     const d = blas1.wdiv(Cx.init(xr, xi), Cx.init(yr + zz.re, yi + zz.im));
                     sr -= d.re;
@@ -420,7 +421,6 @@ pub fn comqr3(
     return 0;
 }
 
-const testing = std.testing;
 const hessenberg = @import("hessenberg.zig");
 
 test "comqr3 finds eigenvalues of a trivial 2x2 upper-triangular Hessenberg matrix" {
@@ -436,14 +436,14 @@ test "comqr3 finds eigenvalues of a trivial 2x2 upper-triangular Hessenberg matr
     var zi: [4]f64 = @splat(0.0);
 
     const ierr = comqr3(2, 2, 1, 2, &ortr, &orti, &hr, &hi, &wr, &wi, &zr, &zi, 0);
-    try testing.expectEqual(@as(usize, 0), ierr);
+    try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     const lo = @min(wr[0], wr[1]);
     const hi_val = @max(wr[0], wr[1]);
-    try testing.expectApproxEqAbs(2.0, lo, 1e-10);
-    try testing.expectApproxEqAbs(3.0, hi_val, 1e-10);
-    try testing.expectApproxEqAbs(0.0, wi[0], 1e-10);
-    try testing.expectApproxEqAbs(0.0, wi[1], 1e-10);
+    try zigstd.testExpectApproxEqAbs(2.0, lo, 1e-10);
+    try zigstd.testExpectApproxEqAbs(3.0, hi_val, 1e-10);
+    try zigstd.testExpectApproxEqAbs(0.0, wi[0], 1e-10);
+    try zigstd.testExpectApproxEqAbs(0.0, wi[1], 1e-10);
 }
 
 test "comqr3 recovers eigenvalues and eigenvectors of a symmetric 2x2 matrix" {
@@ -459,25 +459,25 @@ test "comqr3 recovers eigenvalues and eigenvectors of a symmetric 2x2 matrix" {
 
     const a = [_]f64{ 2.0, 1.0, 1.0, 2.0 }; // original A, untouched, for verification
     const ierr = comqr3(2, 2, 1, 2, &ortr, &orti, &hr, &hi, &wr, &wi, &zr, &zi, 2);
-    try testing.expectEqual(@as(usize, 0), ierr);
+    try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     for (0..2) |col| {
         const lambda = wr[col];
-        try testing.expectApproxEqAbs(0.0, wi[col], 1e-9);
+        try zigstd.testExpectApproxEqAbs(0.0, wi[col], 1e-9);
         // A*v - lambda*v should vanish (v = column `col` of z, real since A and
         // lambda are real here).
         for (0..2) |row| {
             var av: f64 = 0.0;
             for (0..2) |k| av += a[ix(2, row + 1, k + 1)] * zr[ix(2, k + 1, col + 1)];
             const residual = av - lambda * zr[ix(2, row + 1, col + 1)];
-            try testing.expectApproxEqAbs(0.0, residual, 1e-8);
+            try zigstd.testExpectApproxEqAbs(0.0, residual, 1e-8);
         }
     }
 
     const lo = @min(wr[0], wr[1]);
     const hi_val = @max(wr[0], wr[1]);
-    try testing.expectApproxEqAbs(1.0, lo, 1e-9);
-    try testing.expectApproxEqAbs(3.0, hi_val, 1e-9);
+    try zigstd.testExpectApproxEqAbs(1.0, lo, 1e-9);
+    try zigstd.testExpectApproxEqAbs(3.0, hi_val, 1e-9);
 }
 
 test "corth + comqr3 recover eigenpairs of a genuinely non-symmetric 3x3 matrix" {
@@ -494,10 +494,10 @@ test "corth + comqr3 recover eigenpairs of a genuinely non-symmetric 3x3 matrix"
     var zr: [9]f64 = @splat(0.0);
     var zi: [9]f64 = @splat(0.0);
     const ierr = comqr3(3, 3, 1, 3, &ortr, &orti, &hr, &hi, &wr, &wi, &zr, &zi, 2);
-    try testing.expectEqual(@as(usize, 0), ierr);
+    try zigstd.testExpectEqual(@as(usize, 0), ierr);
 
     // Trace is preserved by similarity.
-    try testing.expectApproxEqAbs(16.0, wr[0] + wr[1] + wr[2], 1e-8);
+    try zigstd.testExpectApproxEqAbs(16.0, wr[0] + wr[1] + wr[2], 1e-8);
 
     for (0..3) |col| {
         // A*v - lambda*v should vanish; lambda/v may be complex in general,
@@ -515,8 +515,8 @@ test "corth + comqr3 recover eigenpairs of a genuinely non-symmetric 3x3 matrix"
             const vi = zi[ix(3, row + 1, col + 1)];
             const lv_r = lr * vr - li * vi;
             const lv_i = lr * vi + li * vr;
-            try testing.expectApproxEqAbs(0.0, av_r - lv_r, 1e-7);
-            try testing.expectApproxEqAbs(0.0, av_i - lv_i, 1e-7);
+            try zigstd.testExpectApproxEqAbs(0.0, av_r - lv_r, 1e-7);
+            try zigstd.testExpectApproxEqAbs(0.0, av_i - lv_i, 1e-7);
         }
     }
 }

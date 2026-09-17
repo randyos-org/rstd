@@ -55,6 +55,7 @@ pub fn build(b: *Build) !void {
     // tests
     // -----
     const rstd_test_mod = try rstdbuild.cloneModuleWithTarget(b, rstd_mod, target);
+    if (vulkan_opt) rstdbuild.addVulkan(b).addImportToModule(rstd_test_mod);
     const rstd_test_exe = b.addTest(.{
         .root_module = rstd_test_mod,
     });
