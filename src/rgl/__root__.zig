@@ -1,4 +1,4 @@
-const std = @import("std");
+const zigstd = @import("../zigstd.zig");
 
 pub const Image = @import("Image.zig");
 pub const Surface = @import("Surface.zig");
@@ -21,16 +21,16 @@ test {
     // it's only ever analyzed by something that actually imports it.
     //
     // renderdoc is also excluded since it is only conditionally included
-    std.testing.refAllDecls(Image);
-    std.testing.refAllDecls(Surface);
-    std.testing.refAllDecls(codecs);
-    std.testing.refAllDecls(color);
-    std.testing.refAllDecls(draw);
-    std.testing.refAllDecls(geometry);
-    std.testing.refAllDecls(render);
-    std.testing.refAllDecls(font);
-    std.testing.refAllDecls(sw);
-    std.testing.refAllDecls(vulkan);
+    zigstd.testRefAllDecls(Image);
+    zigstd.testRefAllDecls(Surface);
+    zigstd.testRefAllDecls(codecs);
+    zigstd.testRefAllDecls(color);
+    zigstd.testRefAllDecls(draw);
+    zigstd.testRefAllDecls(geometry);
+    zigstd.testRefAllDecls(render);
+    zigstd.testRefAllDecls(font);
+    zigstd.testRefAllDecls(sw);
+    zigstd.testRefAllDecls(vulkan);
 
     // gpu.zig needs the real vulkan-zig bindings, only wired up with
     // -Dvulkan=true (see src/buildutils/vulkan.zig); refAllDecls it too
@@ -38,6 +38,6 @@ test {
     // type-checks even without a physical GPU to run it against.
     const build_options = @import("build_options");
     if (build_options.has_vulkan) {
-        std.testing.refAllDecls(vulkan.gpu);
+        zigstd.testRefAllDecls(vulkan.gpu);
     }
 }

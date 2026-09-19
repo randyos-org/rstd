@@ -47,6 +47,5 @@ pub const zigstd = @import("zigstd.zig");
 pub const Logger = log.Logger;
 
 test {
-    const std = @import("std");
-    std.testing.refAllDecls(@This());
+    zigstd.testRefAllDecls(@This());
 }

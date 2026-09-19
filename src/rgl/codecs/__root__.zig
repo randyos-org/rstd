@@ -1,8 +1,8 @@
-const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 
 pub const ico = @import("ico.zig");
 pub const png = @import("png.zig");
 
 test {
-    std.testing.refAllDecls(@This());
+    zigstd.testRefAllDecls(@This());
 }

@@ -4,7 +4,7 @@
 //! keeping its own copy of the same handful of formulas.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const zigstd = @import("../zigstd.zig");
 const rsimd = @import("../simd/__root__.zig");
 const zigvec = rsimd.zigvec;
@@ -15,7 +15,7 @@ const zigvec = rsimd.zigvec;
 /// normalized directions, SDF distances) never approach the extremes that
 /// fallback exists for, so `length` skips it entirely there rather than
 /// failing to compile.
-const on_spirv = switch (builtin.cpu.arch) {
+const on_spirv = switch (sysinfo.cpu.arch) {
     .spirv32, .spirv64 => true,
     else => false,
 };
@@ -28,6 +28,7 @@ const V4f32 = zigvec.V4f32;
 const V2f64 = zigvec.V2f64;
 const V3f64 = zigvec.V3f64;
 const V4f64 = zigvec.V4f64;
+const mulAdd = rsimd.mulAdd;
 
 /// Fused multiply-accumulate chain rather than an elementwise multiply
 /// followed by a horizontal add: one fewer independently-rounded step,
@@ -36,7 +37,7 @@ pub inline fn dot(a: anytype, b: @TypeOf(a)) @TypeOf(a[0]) {
     const T = @TypeOf(a[0]);
     const len = @typeInfo(@TypeOf(a)).vector.len;
     var acc: T = a[0] * b[0];
-    inline for (1..len) |i| acc = @mulAdd(T, a[i], b[i], acc);
+    inline for (1..len) |i| acc = mulAdd(T, a[i], b[i], acc);
     return acc;
 }
 

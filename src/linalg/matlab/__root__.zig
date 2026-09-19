@@ -18,7 +18,6 @@
 //! API - see `CxMat.zig`'s "Domain-file methods" section for how its
 //! methods delegate to them.
 
-const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 
 const blas1 = @import("blas1.zig");
@@ -105,29 +104,29 @@ pub fn prod(ar: []const f64, ai: []const f64) Cx {
 }
 
 test {
-    std.testing.refAllDecls(CxMat);
-    std.testing.refAllDecls(blas1);
-    std.testing.refAllDecls(elementary);
-    std.testing.refAllDecls(lu);
-    std.testing.refAllDecls(cholesky);
-    std.testing.refAllDecls(generators);
-    std.testing.refAllDecls(tridiagonal);
-    std.testing.refAllDecls(eigen_symmetric);
-    std.testing.refAllDecls(hessenberg);
-    std.testing.refAllDecls(eigen_general);
-    std.testing.refAllDecls(svd);
-    std.testing.refAllDecls(qr);
-    std.testing.refAllDecls(rat_mod);
-    std.testing.refAllDecls(base_mod);
-    std.testing.refAllDecls(random);
-    std.testing.refAllDecls(eig);
-    std.testing.refAllDecls(divide);
-    std.testing.refAllDecls(svdapi);
-    std.testing.refAllDecls(matrixfun);
-    std.testing.refAllDecls(matmul);
-    std.testing.refAllDecls(schur);
-    std.testing.refAllDecls(norm);
-    std.testing.refAllDecls(elementwise);
+    zigstd.testRefAllDecls(CxMat);
+    zigstd.testRefAllDecls(blas1);
+    zigstd.testRefAllDecls(elementary);
+    zigstd.testRefAllDecls(lu);
+    zigstd.testRefAllDecls(cholesky);
+    zigstd.testRefAllDecls(generators);
+    zigstd.testRefAllDecls(tridiagonal);
+    zigstd.testRefAllDecls(eigen_symmetric);
+    zigstd.testRefAllDecls(hessenberg);
+    zigstd.testRefAllDecls(eigen_general);
+    zigstd.testRefAllDecls(svd);
+    zigstd.testRefAllDecls(qr);
+    zigstd.testRefAllDecls(rat_mod);
+    zigstd.testRefAllDecls(base_mod);
+    zigstd.testRefAllDecls(random);
+    zigstd.testRefAllDecls(eig);
+    zigstd.testRefAllDecls(divide);
+    zigstd.testRefAllDecls(svdapi);
+    zigstd.testRefAllDecls(matrixfun);
+    zigstd.testRefAllDecls(matmul);
+    zigstd.testRefAllDecls(schur);
+    zigstd.testRefAllDecls(norm);
+    zigstd.testRefAllDecls(elementwise);
 }
 
 test "sum and prod match hand computation" {

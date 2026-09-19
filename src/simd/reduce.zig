@@ -1,6 +1,9 @@
 const std = @import("std");
 const zigstd = @import("../zigstd.zig");
+const rsimd = @import("__root__.zig");
+
 const ReduceOp = std.builtin.ReduceOp;
+const vectorLen = rsimd.vectorLen;
 
 fn Elem(comptime ArrType: type) type {
     return switch (@typeInfo(ArrType)) {
@@ -42,7 +45,7 @@ fn scalarReduce(comptime op: ReduceOp, comptime T: type, arr: []const T) T {
 }
 
 fn sliceReduce(comptime op: ReduceOp, comptime T: type, arr: []const T) T {
-    const chunk_len = comptime std.simd.suggestVectorLength(T) orelse 1;
+    const chunk_len = vectorLen(T);
 
     if (chunk_len < 2 or arr.len < chunk_len) return scalarReduce(op, T, arr);
 
@@ -141,7 +144,7 @@ pub fn mapReduce(
     const n = slices[0].len;
     inline for (slices) |s| std.debug.assert(s.len == n);
 
-    const chunk_len = comptime std.simd.suggestVectorLength(T) orelse 1;
+    const chunk_len = vectorLen(T);
     if (chunk_len < 2 or n < chunk_len) return mapScalarReduce(op, T, mapFn, slices, 0, n);
 
     var x: @Vector(chunk_len, T) = mapVecAt(T, chunk_len, mapFn, slices, 0);
@@ -176,7 +179,7 @@ test "mapReduce(.Add, cabs1) matches a plain scalar loop, scalar-only path" {
 }
 
 test "mapReduce(.Add, cabs1) matches a plain scalar loop, crossing a SIMD-width boundary" {
-    const chunk_len = comptime std.simd.suggestVectorLength(f64) orelse 1;
+    const chunk_len = vectorLen(f64);
     const n = chunk_len * 2 + 3;
 
     var xr: [n]f64 = undefined;
@@ -194,7 +197,7 @@ test "mapReduce(.Add, cabs1) matches a plain scalar loop, crossing a SIMD-width 
 }
 
 test "mapReduce(.Add, unconjRe) reduces four parallel slices" {
-    const chunk_len = comptime std.simd.suggestVectorLength(f64) orelse 1;
+    const chunk_len = vectorLen(f64);
     const n = chunk_len + 1;
 
     var xr: [n]f64 = undefined;

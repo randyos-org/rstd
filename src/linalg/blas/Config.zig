@@ -1,0 +1,241 @@
+//! Everything the reference reads from the environment at init, in one
+//! place. Defaults match the reference's "unset" behavior (0 / absent).
+
+const Self = @This();
+
+const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
+
+/// `OPENBLAS_VERBOSE` -- 0 quiet, 2 prints the selected core name.
+verbose: i32 = 0,
+/// `OPENBLAS_BLOCK_FACTOR` -- scales the GEMM blocking parameters.
+block_factor: i32 = 0,
+/// `OPENBLAS_THREAD_TIMEOUT` -- thread-pool spin timeout, log2 ticks.
+thread_timeout: u32 = 0,
+/// `OPENBLAS_NUM_THREADS`, falling back to
+/// `OPENBLAS_DEFAULT_NUM_THREADS`. The reference lets the former win
+/// unless it is unset and the latter is not.
+num_threads: i32 = 0,
+/// `GOTO_NUM_THREADS` -- legacy GotoBLAS spelling.
+goto_num_threads: i32 = 0,
+/// `OMP_NUM_THREADS` -- consulted only in OpenMP builds.
+omp_num_threads: i32 = 0,
+/// `OMP_ADAPTIVE`.
+omp_adaptive: i32 = 0,
+/// `OPENBLAS_CORETYPE` -- forces a core type by name, bypassing CPU
+/// detection entirely. Invaluable for benchmarking and for working
+/// around a bad detection result without a rebuild. Read in every
+/// `dynamic_*.c`, not just x86's.
+core_type: ?[]const u8 = null,
+
+/// `GET_OPENBLAS_CORETYPE` -- POWER-specific (`dynamic_power.c` only).
+/// A bare presence check (`if (getenv(...))`), not a parsed value: if
+/// set to anything at all, including an empty string, the selected
+/// core name is echoed straight to stderr in addition to the normal
+/// `openblas_warning` mechanism.
+get_openblas_coretype: bool = false,
+
+/// `GOTO_DEBUG` -- legacy per-call debug print, gating the
+/// `PRINT_DEBUG_CNAME`/`PRINT_DEBUG_NAME` macros (`common.h`).
+/// Does *not* clamp negative values to 0.
+goto_debug: i32 = 0,
+
+/// `OPENBLAS_MAIN_FREE` -- whether the main thread's NUMA
+/// shared-memory buffer gets freed (`driver/others/init.c`).
+/// Checks `"OPENBLAS_MAIN_FREE" || "GOTOBLAS_MAIN_FREE"`, collapsed to one bool.
+main_free: bool = false,
+
+/// `OPENBLAS_L2_SIZE` -- overrides the detected L2 cache size used by
+/// `kernel/setparam-ref.c`'s tuning heuristics.
+/// No negative clamp); 0 means "not overridden"
+/// (an L2 size of 0 is never a real value to tune for).
+l2_size_override: i32 = 0,
+
+/// `LD_HWCAP_MASK` -- s390x-only (`cpuid_zarch.h`). ANDed against
+/// `getauxval(AT_HWCAP)` to let the user mask *out* specific feature
+/// bits the kernel reports, even if the hardware genuinely has them.
+/// Parsed with `strtoul(p, NULL, 0)` -- base-0, so `0x`/`0`-prefixed
+/// values pick hex/octal the way the C source does.
+ld_hwcap_mask: ?u64 = null,
+
+pub fn init(env: *std.process.Environ.Map) Self {
+    var c: Self = .{};
+    c.verbose = readInt(env, "OPENBLAS_VERBOSE");
+    c.block_factor = readInt(env, "OPENBLAS_BLOCK_FACTOR");
+    c.thread_timeout = @intCast(readInt(env, "OPENBLAS_THREAD_TIMEOUT"));
+
+    const default_threads = readInt(env, "OPENBLAS_DEFAULT_NUM_THREADS");
+    const threads = readInt(env, "OPENBLAS_NUM_THREADS");
+    c.num_threads = if (threads != 0 or default_threads == 0) threads else default_threads;
+
+    c.goto_num_threads = readInt(env, "GOTO_NUM_THREADS");
+    c.omp_num_threads = readInt(env, "OMP_NUM_THREADS");
+    c.omp_adaptive = readInt(env, "OMP_ADAPTIVE");
+    c.core_type = readValue(env, "OPENBLAS_CORETYPE");
+
+    c.get_openblas_coretype = isSet(env, "GET_OPENBLAS_CORETYPE");
+    c.goto_debug = readIntRaw(i32, env, "GOTO_DEBUG", 0) orelse 0;
+    c.main_free = (readIntRaw(i32, env, "OPENBLAS_MAIN_FREE", 0) orelse 0) != 0 or
+        (readIntRaw(i32, env, "GOTOBLAS_MAIN_FREE", 0) orelse 0) != 0;
+    c.l2_size_override = readIntRaw(i32, env, "OPENBLAS_L2_SIZE", 0) orelse 0;
+    c.ld_hwcap_mask = readIntRaw(u64, env, "LD_HWCAP_MASK", null);
+    return c;
+}
+
+/// Reads `key`, returning null when unset or empty.
+pub fn readValue(env: *std.process.Environ.Map, comptime key: []const u8) ?[]const u8 {
+    const v = env.get(key) orelse return null;
+    return if (v.len == 0) null else v;
+}
+
+/// clamps negatives to 0.
+pub fn readInt(env: *std.process.Environ.Map, comptime key: []const u8) i32 {
+    const parsed = readIntRaw(i32, env, key, 0) orelse 0;
+    return if (parsed < 0) 0 else parsed;
+}
+
+/// clamps unset to `default`.
+pub fn readIntRaw(comptime T: type, env: *std.process.Environ.Map, comptime key: []const u8, default: ?T) ?T {
+    const v = readValue(env, key) orelse return default;
+    return std.fmt.parseInt(T, std.mem.trim(u8, v, " \t\r\n"), 0) catch default;
+}
+
+/// True if `key` is set in the environment at all, regardless of value --
+/// even an empty string counts, matching a bare C `if (getenv(...))`.
+/// `readValue` treats an empty value as "not set," so this can't just
+/// delegate to it.
+pub fn isSet(env: *std.process.Environ.Map, comptime key: []const u8) bool {
+    return env.contains(key);
+}
+
+/// Builds an empty `Environ.Map` for a test, pre-populated with `pairs`.
+fn testEnv(pairs: []const [2][]const u8) std.process.Environ.Map {
+    var env: std.process.Environ.Map = .init(zigstd.testAllocator);
+    for (pairs) |kv| env.put(kv[0], kv[1]) catch unreachable;
+    return env;
+}
+
+test "unset variables yield every default" {
+    var env = testEnv(&.{});
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ"));
+    try zigstd.testExpectTrue(readValue(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ") == null);
+    try zigstd.testExpectEqual(@as(?i32, 0), readIntRaw(i32, &env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ", 0));
+    try zigstd.testExpectTrue(!isSet(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ"));
+
+    const c = Self.init(&env);
+    try zigstd.testExpectEqual(Self{}, c);
+}
+
+test "readInt clamps a negative value to 0" {
+    var env = testEnv(&.{.{ "OPENBLAS_BLOCK_FACTOR", "-5" }});
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "OPENBLAS_BLOCK_FACTOR"));
+}
+
+test "readIntRaw does not clamp negatives, unlike readInt" {
+    var env = testEnv(&.{.{ "GOTO_DEBUG", "-5" }});
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(?i32, -5), readIntRaw(i32, &env, "GOTO_DEBUG", 0));
+    try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "GOTO_DEBUG"));
+
+    const c = Self.init(&env);
+    try zigstd.testExpectEqual(@as(i32, -5), c.goto_debug);
+}
+
+test "a malformed value falls back to the default instead of erroring" {
+    var env = testEnv(&.{.{ "OPENBLAS_VERBOSE", "not-a-number" }});
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(?i32, 0), readIntRaw(i32, &env, "OPENBLAS_VERBOSE", 0));
+}
+
+test "OPENBLAS_NUM_THREADS wins over OPENBLAS_DEFAULT_NUM_THREADS when both are set" {
+    var env = testEnv(&.{
+        .{ "OPENBLAS_NUM_THREADS", "4" },
+        .{ "OPENBLAS_DEFAULT_NUM_THREADS", "8" },
+    });
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(i32, 4), Self.init(&env).num_threads);
+}
+
+test "OPENBLAS_DEFAULT_NUM_THREADS is used only when OPENBLAS_NUM_THREADS is unset" {
+    var env = testEnv(&.{.{ "OPENBLAS_DEFAULT_NUM_THREADS", "8" }});
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(i32, 8), Self.init(&env).num_threads);
+}
+
+test "neither thread-count variable set yields 0 threads" {
+    var env = testEnv(&.{});
+    defer env.deinit();
+
+    try zigstd.testExpectEqual(@as(i32, 0), Self.init(&env).num_threads);
+}
+
+test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {
+    var env = testEnv(&.{.{ "GET_OPENBLAS_CORETYPE", "" }});
+    defer env.deinit();
+
+    try zigstd.testExpectTrue(isSet(&env, "GET_OPENBLAS_CORETYPE"));
+    try zigstd.testExpectTrue(readValue(&env, "GET_OPENBLAS_CORETYPE") == null);
+    try zigstd.testExpectTrue(Self.init(&env).get_openblas_coretype);
+}
+
+test "OPENBLAS_MAIN_FREE and GOTOBLAS_MAIN_FREE are either-or" {
+    {
+        var env = testEnv(&.{.{ "OPENBLAS_MAIN_FREE", "1" }});
+        defer env.deinit();
+        try zigstd.testExpectTrue(Self.init(&env).main_free);
+    }
+    {
+        var env = testEnv(&.{.{ "GOTOBLAS_MAIN_FREE", "1" }});
+        defer env.deinit();
+        try zigstd.testExpectTrue(Self.init(&env).main_free);
+    }
+    {
+        var env = testEnv(&.{});
+        defer env.deinit();
+        try zigstd.testExpectTrue(!Self.init(&env).main_free);
+    }
+}
+
+test "LD_HWCAP_MASK base-0 parsing: matches strtoul for hex, diverges for bare-leading-zero octal" {
+    {
+        var env = testEnv(&.{.{ "LD_HWCAP_MASK", "0xff" }});
+        defer env.deinit();
+        try zigstd.testExpectEqual(@as(?u64, 0xff), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
+    }
+    {
+        // C's strtoul(p, NULL, 0) would read "010" as octal 8; Zig's
+        // parseInt with base 0 does not infer octal from a bare leading
+        // zero, only from an explicit "0o" prefix, so this parses as
+        // decimal 10, not 8.
+        var env = testEnv(&.{.{ "LD_HWCAP_MASK", "010" }});
+        defer env.deinit();
+        try zigstd.testExpectEqual(@as(?u64, 10), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
+    }
+    {
+        var env = testEnv(&.{.{ "LD_HWCAP_MASK", "0o10" }});
+        defer env.deinit();
+        try zigstd.testExpectEqual(@as(?u64, 8), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
+    }
+}
+
+test "a fully populated environment produces a matching config" {
+    var env = testEnv(&.{
+        .{ "OPENBLAS_VERBOSE", "2" },
+        .{ "OPENBLAS_CORETYPE", "Haswell" },
+        .{ "OPENBLAS_L2_SIZE", "262144" },
+    });
+    defer env.deinit();
+
+    const c = Self.init(&env);
+    try zigstd.testExpectEqual(@as(i32, 2), c.verbose);
+    try zigstd.testExpectEqualStrings("Haswell", c.core_type.?);
+    try zigstd.testExpectEqual(@as(i32, 262144), c.l2_size_override);
+}

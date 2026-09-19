@@ -25,6 +25,7 @@ const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 
 const rsimd = @import("../../simd/__root__.zig");
+const mulAdd = rsimd.mulAdd;
 
 pub const Cx = std.math.Complex(f64);
 
@@ -79,10 +80,10 @@ pub fn wdiv(a: Cx, b: Cx) Cx {
     const ais = a.im / s;
     const brs = b.re / s;
     const bis = b.im / s;
-    const d = @mulAdd(f64, bis, bis, brs * brs);
+    const d = mulAdd(f64, bis, bis, brs * brs);
     return Cx.init(
-        @mulAdd(f64, ais, bis, ars * brs) / d,
-        @mulAdd(f64, -ars, bis, ais * brs) / d,
+        mulAdd(f64, ais, bis, ars * brs) / d,
+        mulAdd(f64, -ars, bis, ais * brs) / d,
     );
 }
 
@@ -126,7 +127,7 @@ pub fn wnrm2(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     if (incx == 1) {
         const sumSquares = struct {
             fn f(re: anytype, im: @TypeOf(re)) @TypeOf(re) {
-                return @mulAdd(@TypeOf(re), im, im, re * re);
+                return mulAdd(@TypeOf(re), im, im, re * re);
             }
         }.f;
         const sq = rsimd.reduce.mapReduce(.Add, f64, sumSquares, .{ xr[0..n], xi[0..n] });
@@ -230,8 +231,8 @@ pub fn wscal(n: usize, s: Cx, xr: []f64, xi: []f64, incx: isize) void {
         while (i + vec_len <= n) : (i += vec_len) {
             const xrv = loadVec(xr, i);
             const xiv = loadVec(xi, i);
-            storeVec(xr, i, @mulAdd(Vf64, -si, xiv, sr * xrv));
-            storeVec(xi, i, @mulAdd(Vf64, si, xrv, sr * xiv));
+            storeVec(xr, i, mulAdd(Vf64, -si, xiv, sr * xrv));
+            storeVec(xi, i, mulAdd(Vf64, si, xrv, sr * xiv));
         }
         while (i < n) : (i += 1) {
             const t = wmul(s, Cx.init(xr[i], xi[i]));
@@ -270,12 +271,12 @@ pub fn waxpy(
         while (i + vec_len <= n) : (i += vec_len) {
             const xrv = loadVec(xr, i);
             const xiv = loadVec(xi, i);
-            storeVec(yr, i, @mulAdd(Vf64, -si, xiv, @mulAdd(Vf64, sr, xrv, loadVec(yr, i))));
-            storeVec(yi, i, @mulAdd(Vf64, si, xrv, @mulAdd(Vf64, sr, xiv, loadVec(yi, i))));
+            storeVec(yr, i, mulAdd(Vf64, -si, xiv, mulAdd(Vf64, sr, xrv, loadVec(yr, i))));
+            storeVec(yi, i, mulAdd(Vf64, si, xrv, mulAdd(Vf64, sr, xiv, loadVec(yi, i))));
         }
         while (i < n) : (i += 1) {
-            yr[i] = @mulAdd(f64, -s.im, xi[i], @mulAdd(f64, s.re, xr[i], yr[i]));
-            yi[i] = @mulAdd(f64, s.im, xr[i], @mulAdd(f64, s.re, xi[i], yi[i]));
+            yr[i] = mulAdd(f64, -s.im, xi[i], mulAdd(f64, s.re, xr[i], yr[i]));
+            yi[i] = mulAdd(f64, s.im, xr[i], mulAdd(f64, s.re, xi[i], yi[i]));
         }
         return;
     }
@@ -285,8 +286,8 @@ pub fn waxpy(
     while (i < n) : (i += 1) {
         const xu: usize = @intCast(i_x);
         const yu: usize = @intCast(i_y);
-        yr[yu] = @mulAdd(f64, -s.im, xi[xu], @mulAdd(f64, s.re, xr[xu], yr[yu]));
-        yi[yu] = @mulAdd(f64, s.im, xr[xu], @mulAdd(f64, s.re, xi[xu], yi[yu]));
+        yr[yu] = mulAdd(f64, -s.im, xi[xu], mulAdd(f64, s.re, xr[xu], yr[yu]));
+        yi[yu] = mulAdd(f64, s.im, xr[xu], mulAdd(f64, s.re, xi[xu], yi[yu]));
         i_x += incx;
         i_y += incy;
     }
@@ -310,10 +311,10 @@ fn wdot(
             fn f(xrv: anytype, xiv: @TypeOf(xrv), yrv: @TypeOf(xrv), yiv: @TypeOf(xrv)) @TypeOf(xrv) {
                 const T = @TypeOf(xrv);
                 return switch (kind) {
-                    .unconjugated_re => @mulAdd(T, -xiv, yiv, xrv * yrv),
-                    .unconjugated_im => @mulAdd(T, xiv, yrv, xrv * yiv),
-                    .conjugated_re => @mulAdd(T, xiv, yiv, xrv * yrv),
-                    .conjugated_im => @mulAdd(T, -xiv, yrv, xrv * yiv),
+                    .unconjugated_re => mulAdd(T, -xiv, yiv, xrv * yrv),
+                    .unconjugated_im => mulAdd(T, xiv, yrv, xrv * yiv),
+                    .conjugated_re => mulAdd(T, xiv, yiv, xrv * yrv),
+                    .conjugated_im => mulAdd(T, -xiv, yrv, xrv * yiv),
                 };
             }
         }.f;
@@ -327,10 +328,10 @@ fn wdot(
         const xu: usize = @intCast(i_x);
         const yu: usize = @intCast(i_y);
         s += switch (kind) {
-            .unconjugated_re => @mulAdd(f64, -xi[xu], yi[yu], xr[xu] * yr[yu]),
-            .unconjugated_im => @mulAdd(f64, xi[xu], yr[yu], xr[xu] * yi[yu]),
-            .conjugated_re => @mulAdd(f64, xi[xu], yi[yu], xr[xu] * yr[yu]),
-            .conjugated_im => @mulAdd(f64, -xi[xu], yr[yu], xr[xu] * yi[yu]),
+            .unconjugated_re => mulAdd(f64, -xi[xu], yi[yu], xr[xu] * yr[yu]),
+            .unconjugated_im => mulAdd(f64, xi[xu], yr[yu], xr[xu] * yi[yu]),
+            .conjugated_re => mulAdd(f64, xi[xu], yi[yu], xr[xu] * yr[yu]),
+            .conjugated_im => mulAdd(f64, -xi[xu], yr[yu], xr[xu] * yi[yu]),
         };
         i_x += incx;
         i_y += incy;
@@ -449,12 +450,12 @@ pub fn rrot(n: usize, x: []f64, incx: isize, y: []f64, incy: isize, c: f64, s: f
         while (i + vec_len <= n) : (i += vec_len) {
             const xv = loadVec(x, i);
             const yv = loadVec(y, i);
-            storeVec(x, i, @mulAdd(Vf64, sv, yv, cv * xv));
-            storeVec(y, i, @mulAdd(Vf64, -sv, xv, cv * yv));
+            storeVec(x, i, mulAdd(Vf64, sv, yv, cv * xv));
+            storeVec(y, i, mulAdd(Vf64, -sv, xv, cv * yv));
         }
         while (i < n) : (i += 1) {
-            const temp = @mulAdd(f64, s, y[i], c * x[i]);
-            y[i] = @mulAdd(f64, -s, x[i], c * y[i]);
+            const temp = mulAdd(f64, s, y[i], c * x[i]);
+            y[i] = mulAdd(f64, -s, x[i], c * y[i]);
             x[i] = temp;
         }
         return;
@@ -465,8 +466,8 @@ pub fn rrot(n: usize, x: []f64, incx: isize, y: []f64, incy: isize, c: f64, s: f
     while (i < n) : (i += 1) {
         const xu: usize = @intCast(i_x);
         const yu: usize = @intCast(i_y);
-        const temp = @mulAdd(f64, s, y[yu], c * x[xu]);
-        y[yu] = @mulAdd(f64, -s, x[xu], c * y[yu]);
+        const temp = mulAdd(f64, s, y[yu], c * x[xu]);
+        y[yu] = mulAdd(f64, -s, x[xu], c * y[yu]);
         x[xu] = temp;
         i_x += incx;
         i_y += incy;
@@ -494,7 +495,6 @@ pub fn rrotg(da: f64, db: f64) Givens {
     }
     return .{ .r = r, .c = c, .s = s };
 }
-
 
 test "wdiv is the inverse of wmul" {
     const a = Cx.init(3.0, -2.0);

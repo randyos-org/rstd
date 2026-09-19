@@ -1,4 +1,4 @@
-const std = @import("std");
+const zigstd = @import("../../../../zigstd.zig");
 
 pub const rasterize = @import("rasterize.zig");
 pub const pack = @import("pack.zig");
@@ -8,5 +8,5 @@ pub const layout = @import("layout.zig");
 pub const GlyphCache = @import("GlyphCache.zig");
 
 test {
-    std.testing.refAllDecls(@This());
+    zigstd.testRefAllDecls(@This());
 }

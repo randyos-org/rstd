@@ -5,11 +5,12 @@
 
 const std = @import("std");
 const simd = std.simd;
+const rsimd = @import("__root__.zig");
 
-pub const f32_simd_lanes = std.simd.suggestVectorLength(f32) orelse 1;
+pub const f32_simd_lanes = rsimd.vectorLen(f32);
 pub const SimdVecF32 = @Vector(f32_simd_lanes, f32);
 
-pub const f64_simd_lanes = std.simd.suggestVectorLength(f64) orelse 1;
+pub const f64_simd_lanes = rsimd.vectorLen(f64);
 pub const SimdVecF64 = @Vector(f64_simd_lanes, f64);
 
 pub const V2f32 = @Vector(2, f32);

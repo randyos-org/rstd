@@ -36,10 +36,10 @@ pub const CmapSubtable = cmap.CmapSubtable;
 pub const CmapEncRecord = cmap.EncRecord;
 
 test {
-    const std = @import("std");
-    std.testing.refAllDecls(@This());
-    std.testing.refAllDecls(cff);
-    std.testing.refAllDecls(gpos);
-    std.testing.refAllDecls(glyf);
-    std.testing.refAllDecls(cmap);
+    const zigstd = @import("../../../../zigstd.zig");
+    zigstd.testRefAllDecls(@This());
+    zigstd.testRefAllDecls(cff);
+    zigstd.testRefAllDecls(gpos);
+    zigstd.testRefAllDecls(glyf);
+    zigstd.testRefAllDecls(cmap);
 }

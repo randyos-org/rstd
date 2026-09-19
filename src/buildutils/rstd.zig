@@ -42,6 +42,9 @@ pub fn addRstd(
         // own via addImport), so clone it with one bound rather than
         // redeclaring root_source_file/imports/options.
         const rstd_docs_mod = try module.cloneModuleWithTarget(b, rstd_mod, target);
+        // Docs only analyze the source; the BLAS kernel objects would make
+        // this object link others, which the self-hosted COFF linker rejects.
+        rstd_docs_mod.link_objects = .empty;
         const rstd_docs_obj = b.addObject(.{
             .name = "rstd",
             .root_module = rstd_docs_mod,

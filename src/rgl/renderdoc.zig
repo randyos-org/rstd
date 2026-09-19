@@ -1,4 +1,5 @@
 const std = @import("std");
+const sysinfo = @import("builtin");
 const renderdoc = @import("renderdoc");
 const dll = @import("../dll.zig");
 
@@ -9,7 +10,7 @@ var rdoc_cap_started: bool = false;
 var rdoc_load_failed: bool = false;
 
 fn loadRenderDocAPI() ?*RenderDocApi {
-    const lib_name = if (@import("builtin").os.tag == .windows) "renderdoc.dll" else "librenderdoc.so";
+    const lib_name = if (sysinfo.os.tag == .windows) "renderdoc.dll" else "librenderdoc.so";
     // Check if RenderDoc is already injected into this process
     var rdc_lib = dll.findLoaded(lib_name) orelse return null;
     const get_api_fn = rdc_lib.lookup(pRENDERDOC_GetAPI, "RENDERDOC_GetAPI") orelse return null;
