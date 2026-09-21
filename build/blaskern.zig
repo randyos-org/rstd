@@ -40,27 +40,31 @@ pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget) void {
     switch (target.result.cpu.arch) {
         inline else => |a| {
             const arch = cpu.GetCpuArch(a);
-            addForArch(b, mod, target, arch.CoreType, arch.kernel);
+            addForArch(b, mod, target, a, arch.CoreType, arch.kernel);
         },
     }
 }
 
-fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime Core: type, comptime registry: type) void {
+fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag: std.Target.Cpu.Arch, comptime Core: type, comptime registry: type) void {
     const arch = target.result.cpu.arch;
     if (!registry.supports(arch)) return;
     var groups: std.ArrayList(Group) = .empty;
 
     inline for (@typeInfo(Core).@"enum".field_names) |name| {
         const core = @field(Core, name);
-        if (comptime registry.hasKernels(core)) {
-            const spec = corespec.of(core);
-            const g = for (groups.items) |*g| {
-                if (g.spec.eql(spec)) break g;
-            } else blk: {
-                groups.append(b.allocator, .{ .spec = spec }) catch @panic("OOM");
-                break :blk &groups.items[groups.items.len - 1];
-            };
-            g.cores.append(b.allocator, name) catch @panic("OOM");
+        // its kernels must run on the target CPU
+        const runs = if (@hasDecl(registry, "runsOn")) registry.runsOn(target.result.cpu, core) else true;
+        if (comptime registry.hasKernels(arch_tag, core)) {
+            if (runs) {
+                const spec = corespec.of(core);
+                const g = for (groups.items) |*g| {
+                    if (g.spec.eql(spec)) break g;
+                } else blk: {
+                    groups.append(b.allocator, .{ .spec = spec }) catch @panic("OOM");
+                    break :blk &groups.items[groups.items.len - 1];
+                };
+                g.cores.append(b.allocator, name) catch @panic("OOM");
+            }
         }
     }
 

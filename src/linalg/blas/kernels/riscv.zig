@@ -14,7 +14,8 @@ pub fn supports(arch: std.Target.Cpu.Arch) bool {
 }
 
 /// Whether any routine has a kernel for `core`.
-pub fn hasKernels(comptime core: Core) bool {
+pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool {
+    _ = arch;
     _ = core;
     return false;
 }

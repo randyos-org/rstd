@@ -3,20 +3,20 @@
 //! (0 = all passed), which the run step maps to the process exit code.
 //!
 //! Use with `zig test -target <arch>-freestanding --test-runner runner.zig`
-//! and the matching `qemutest/<arch>.ld`; `<arch>.zig` supplies the boot code.
+//! and the matching `_qemutest/<arch>.ld`; `<arch>.zig` supplies the boot code.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const mem = @import("mem.zig");
 
 const arch = switch (sysinfo.cpu.arch) {
-    .aarch64 => @import("qemutest/aarch64.zig"),
-    .riscv64 => @import("qemutest/riscv64.zig"),
-    .arm => @import("qemutest/arm.zig"),
-    .loongarch64 => @import("qemutest/loongarch64.zig"),
-    .mips64el => @import("qemutest/mips64.zig"),
-    .s390x => @import("qemutest/s390x.zig"),
-    .powerpc64le => @import("qemutest/ppc64le.zig"),
+    .aarch64 => @import("_qemutest/aarch64.zig"),
+    .riscv64 => @import("_qemutest/riscv64.zig"),
+    .arm => @import("_qemutest/arm.zig"),
+    .loongarch64 => @import("_qemutest/loongarch64.zig"),
+    .mips64el => @import("_qemutest/mips64.zig"),
+    .s390x => @import("_qemutest/s390x.zig"),
+    .powerpc64le => @import("_qemutest/ppc64le.zig"),
     else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.cpu.arch)),
 };
 

@@ -1,6 +1,6 @@
 //! x86_64 side of axpy: picks the per-core kernels for a core type.
 //!
-//! The kernels themselves (`kernel_x86_64.zig`) are compiled per core into
+//! The kernels themselves (`kernel.zig`) are compiled per core into
 //! objects with that core's CPU features, by the build (`build/blaskern.zig`),
 //! and linked in; this file only names their symbols and
 //! points the vtable at them, following the reference's `KERNEL.<CORE>`
@@ -8,12 +8,11 @@
 //! `axpy.installGeneric`.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
-const zigstd = @import("../../../../zigstd.zig");
-const Vtable = @import("../../Vtable.zig");
-const x86 = @import("../../cpu/x86.zig");
-const axpy = @import("__root__.zig");
-const kx = @import("kernel_x86_64.zig");
+const zigstd = @import("../../../../../zigstd.zig");
+const Vtable = @import("../../../Vtable.zig");
+const x86 = @import("../../../cpu/x86.zig");
+const axpy = @import("../__root__.zig");
+const kx = @import("kernel.zig");
 
 fn ext(comptime K: type, comptime name: []const u8) K {
     return @extern(K, .{ .name = name });
@@ -65,7 +64,6 @@ pub fn install(vt: *Vtable, core: x86.CoreType) void {
 // Each core's kernels run only where the host CPU can execute them.
 
 test "per-core kernels match a scalar loop where the host supports them" {
-    if (comptime sysinfo.cpu.arch != .x86_64) return error.SkipZigTest;
     inline for (@typeInfo(x86.CoreType).@"enum".field_names) |name| {
         const core = @field(x86.CoreType, name);
         var vt: Vtable = .{};

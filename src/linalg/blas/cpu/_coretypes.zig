@@ -81,6 +81,16 @@ pub const PowerCoreType = enum {
     power8,
     power9,
     power10,
+    // Not detected at run time (`dynamic_power.c` has no such core); the
+    // targets of static builds, named as in the reference's `TARGET`.
+    power3,
+    power4,
+    power5,
+    ppc970,
+    cell,
+    ppc440,
+    ppc440fp2,
+    ppcg4,
 };
 
 // ---- riscv.zig ----

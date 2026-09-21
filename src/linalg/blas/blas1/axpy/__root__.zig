@@ -36,7 +36,15 @@ const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
-pub const x86_64 = @import("x86_64.zig");
+// The per-architecture kernels of the target only: what the other
+// architectures install, and their tests, cannot be built for it.
+pub const x86_64 = if (sysinfo.cpu.arch == .x86_64) @import("x86_64/install.zig") else struct {};
+pub const x86 = if (sysinfo.cpu.arch == .x86) @import("x86/install.zig") else struct {};
+pub const arm64 = if (sysinfo.cpu.arch == .aarch64) @import("arm64/install.zig") else struct {};
+pub const arm = if (sysinfo.cpu.arch == .arm) @import("arm/install.zig") else struct {};
+pub const loongarch64 = if (sysinfo.cpu.arch == .loongarch64) @import("loongarch64/install.zig") else struct {};
+pub const mips64 = if (sysinfo.cpu.arch == .mips64 or sysinfo.cpu.arch == .mips64el) @import("mips64/install.zig") else struct {};
+pub const power = if (sysinfo.cpu.arch.isPowerPC()) @import("power/install.zig") else struct {};
 
 // ---- kernel ABI and drivers -------------------------------------------------
 
@@ -111,6 +119,12 @@ pub fn install(vt: *Vtable, core: cpu.CoreType) void {
     installGeneric(vt);
     switch (sysinfo.cpu.arch) {
         .x86_64 => x86_64.install(vt, core),
+        .x86 => x86.install(vt, core),
+        .aarch64 => arm64.install(vt, core),
+        .arm => arm.install(vt, core),
+        .loongarch64 => loongarch64.install(vt, core),
+        .mips64, .mips64el => mips64.install(vt, core),
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => power.install(vt, core),
         else => {},
     }
 }

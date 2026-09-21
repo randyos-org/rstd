@@ -31,8 +31,9 @@ pub const ilp64 = false; // build_options.ilp64;
 /// Fortran `INTEGER`. Appears in every public routine's signature.  See `ilp64` above.
 pub const BlasInt = if (ilp64) i64 else i32;
 
-/// Kernel-level index/stride type. Always 64-bit where the pointer is.
-pub const BlasLong = i64;
+/// Kernel-level index/stride type: `long`, so pointer-sized where the pointer
+/// is 64 bits (LP64 and Win64's `long long`) and 32 bits on 32-bit targets.
+pub const BlasLong = if (@bitSizeOf(usize) >= 64) i64 else i32;
 
 /// Whether extended-precision routines use `f80` rather than `f64`.
 /// `EXPRECISION` in the reference; off by default, where `XDouble` is just

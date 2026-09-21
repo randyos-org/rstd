@@ -4,7 +4,7 @@
 //! Each core's kernels are the reference's `{s,d,c,z}axpy.c` as compiled for
 //! that core: the shared driver (`kernel.zig`) around a block kernel that is
 //! either a hand-written inline-asm microkernel, transcribed by script into
-//! `x86_64_microk.zig` and used here as written, or, for the AVX-512 cores
+//! `microk.zig` and used here as written, or, for the AVX-512 cores
 //! whose upstream block is C intrinsics, the same loops on `@Vector`s. Which
 //! block a core uses is the reference's `#if defined(<CORE>)` chain.
 //!
@@ -13,20 +13,27 @@
 //! contracted is the separate policy in `fma.zig`.
 //!
 //! The cores without a `.c` kernel (Prescott, Core2, Penryn, Atom, Opteron, ...)
-//! use whole-function `.S` kernels upstream. Those are preprocessed per core
-//! and ABI by script (`x86_64_sfiles.zig`) and emitted here as naked functions
-//! whose body is that assembly; they read their arguments straight from the
-//! ABI registers, as the reference's do. The x87 `qaxpy`/`xaxpy` are not
-//! ported: they only exist upstream in `EXPRECISION` builds.
+//! use whole-function `.S` kernels upstream. Those are in `asm/`, one
+//! Zig file per source with its `#if`s and macros resolved for a core and ABI,
+//! and are emitted here as naked functions whose body is that assembly; they
+//! read their arguments straight from the ABI registers, as the reference's
+//! do. The x87 `qaxpy`/`xaxpy` are not ported: they only exist upstream in
+//! `EXPRECISION` builds.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const types = @import("../../types.zig");
-const coretypes = @import("../../cpu/_coretypes.zig");
-const fma = @import("../../fma.zig");
-const kernel = @import("kernel.zig");
-const mk = @import("x86_64_microk.zig");
-// const sf = @import("x86_64_sfiles.zig"); // .S kernels, disabled for now
+const types = @import("../../../types.zig");
+const coretypes = @import("../../../cpu/_coretypes.zig");
+const fma = @import("../../../fma.zig");
+const kernel = @import("../kernel.zig");
+const mk = @import("microk.zig");
+const asmexport = @import("../../../asm/exports.zig");
+const axpy_sse = @import("asm/axpy_sse.zig");
+const axpy_sse2 = @import("asm/axpy_sse2.zig");
+const axpy_atom = @import("asm/axpy_atom.zig");
+const zaxpy_sse = @import("asm/zaxpy_sse.zig");
+const zaxpy_sse2 = @import("asm/zaxpy_sse2.zig");
+const zaxpy_atom = @import("asm/zaxpy_atom.zig");
 
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
@@ -188,83 +195,75 @@ fn cplxKernel(comptime F: type, comptime core: Core) ?type {
 
 // ---- kernels and exports ---------------------------------------------------
 
-// The whole-function `.S` kernels are disabled for now; see `x86_64_asm.zig`.
-// // ---- the whole-function `.S` kernels ---------------------------------------
-//
-// /// The ABI family whose variant of the `.S` kernels this build uses.
-// const abi_os: sf.Os = if (sysinfo.os.tag == .windows or sysinfo.os.tag == .uefi) .win64 else .sysv;
-//
-// const SText = struct { alignment: u29, code: []const u8 };
-//
-// /// Joins a text's lines (see `x86_64_sfiles.zig`) into assembly.
-// fn join(comptime lines: []const []const u8, comptime idx: []const u16) []const u8 {
-//     comptime {
-//         @setEvalBranchQuota(10_000_000);
-//         var n: usize = 0;
-//         for (idx) |i| n += lines[i].len + 1;
-//         var buf: [n]u8 = undefined;
-//         var p: usize = 0;
-//         for (idx) |i| {
-//             @memcpy(buf[p..][0..lines[i].len], lines[i]);
-//             p += lines[i].len;
-//             buf[p] = '\n';
-//             p += 1;
-//         }
-//         const out = buf;
-//         return &out;
-//     }
-// }
-//
-// /// Index of the `.S` text `role` (`saxpy`, `caxpyc`, ...) uses for `core`, if
-// /// the reference uses one there. Cheap: it only looks at the entry table.
-// fn sIndex(comptime role: []const u8, comptime core: Core) ?usize {
-//     comptime {
-//         for (@field(sf, role).entries) |e| {
-//             if (e.os == abi_os and std.mem.eql(u8, e.core, @tagName(core))) return e.text;
-//         }
-//         return null;
-//     }
-// }
-//
-// /// Text number `t` of `role`. Memoized per text, so cores that share one
-// /// build it once.
-// fn sText(comptime role: []const u8, comptime t: usize) SText {
-//     comptime {
-//         const R = @field(sf, role);
-//         return .{ .alignment = R.texts[t].alignment, .code = join(&R.lines, R.texts[t].lines) };
-//     }
-// }
-//
-// /// A function whose body is `text` and nothing else; the exported symbol is
-// /// referenced through a C-ABI pointer type, so its declared signature is moot.
-// fn Naked(comptime t: SText) type {
-//     return struct {
-//         fn f() align(t.alignment) callconv(.naked) void {
-//             asm volatile (t.code);
-//         }
-//     };
-// }
+// ---- the whole-function `.S` kernels ---------------------------------------
+
+/// The ABI family whose variant of the `.S` kernels this build uses.
+const windows = sysinfo.os.tag == .windows or sysinfo.os.tag == .uefi;
+
+/// `PROLOGUE`'s `.align`, in bytes: 512 for ELF (SysV), 16 for Win64.
+const entry_alignment: u29 = if (windows) 16 else 512;
+
+/// The `.S` source `role` (`saxpy`, `daxpy`, `caxpy`, `caxpyc`, `zaxpy`,
+/// `zaxpyc`) uses on `core`, if the reference uses one there: its
+/// `KERNEL.<CORE>` choice, else the default in `KERNEL`.
+fn sFile(comptime role: []const u8, comptime core: Core) ?type {
+    const single = std.mem.eql(u8, role, "saxpy");
+    const double = std.mem.eql(u8, role, "daxpy");
+    const complex_single = std.mem.eql(u8, role, "caxpy") or std.mem.eql(u8, role, "caxpyc");
+    return switch (core) {
+        .prescott, .core2, .penryn, .dunnington, .opteron, .opteron_sse3, .barcelona, .bobcat, .nano => if (single)
+            axpy_sse
+        else if (double)
+            axpy_sse2
+        else if (complex_single)
+            zaxpy_sse
+        else
+            zaxpy_sse2,
+        .atom => if (single)
+            axpy_sse
+        else if (double)
+            axpy_atom
+        else if (complex_single)
+            zaxpy_sse
+        else
+            zaxpy_atom,
+        .nehalem => if (single or double) null else if (complex_single) zaxpy_sse else zaxpy_sse2,
+        .bulldozer => if (single) axpy_sse else null,
+        else => null,
+    };
+}
+
+const SText = struct { alignment: u29, code: []const u8 };
+
+/// `role`'s `.S` kernel for `core` on this ABI. The local labels carry the
+/// role and core, so the kernels of one object do not clash.
+fn sText(comptime role: []const u8, comptime core: Core) SText {
+    comptime {
+        const conj = role[role.len - 1] == 'c';
+        const double = role[0] == 'd' or role[0] == 'z';
+        return .{
+            .alignment = entry_alignment,
+            .code = sFile(role, core).?.text(double, conj, windows, core, asmexport.labelSuffix(role, @tagName(core))),
+        };
+    }
+}
 
 // ---- kernels and exports ---------------------------------------------------
 
 /// Whether `core` has a `role` kernel (`daxpy`, `saxpy`, `caxpy`, `zaxpy`).
 pub fn has(comptime core: Core, comptime role: []const u8) bool {
     return comptime blk: {
-        if (std.mem.eql(u8, role, "daxpy")) break :blk realBlock(f64, core).block != .none;
-        if (std.mem.eql(u8, role, "saxpy")) break :blk realBlock(f32, core).block != .none;
-        if (std.mem.eql(u8, role, "caxpy")) break :blk cplxKernel(f32, core) != null;
-        break :blk cplxKernel(f64, core) != null;
+        if (std.mem.eql(u8, role, "daxpy")) break :blk realBlock(f64, core).block != .none or sFile("daxpy", core) != null;
+        if (std.mem.eql(u8, role, "saxpy")) break :blk realBlock(f32, core).block != .none or sFile("saxpy", core) != null;
+        if (std.mem.eql(u8, role, "caxpy")) break :blk cplxKernel(f32, core) != null or sFile("caxpy", core) != null;
+        break :blk cplxKernel(f64, core) != null or sFile("zaxpy", core) != null;
     };
 }
 
 /// Exported symbol of `role` (`daxpy`, `caxpyc`, ...) for `core`, following
 /// the reference's `TSUFFIX = _<CORE>` naming.
 pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-    comptime {
-        var up: [@tagName(core).len]u8 = undefined;
-        for (@tagName(core), 0..) |ch, k| up[k] = std.ascii.toUpper(ch);
-        return "rstd_blas_" ++ role ++ "_k_" ++ &up;
-    }
+    return asmexport.symbol(role, @tagName(core));
 }
 
 fn realKernel(comptime T: type, comptime core: Core) kernel.RealKernel(T) {
@@ -283,29 +282,35 @@ fn cplxEntry(comptime F: type, comptime core: Core, comptime conj: bool) kernel.
     return kernel.complexEntry(F, kernel.Cplx(F, conj, 512 / (@sizeOf(F) * 4), CplxAsm(F, K, conj), fma.fuse));
 }
 
-// fn exportS(comptime role: []const u8, comptime core: Core) void {
-//     if (comptime sIndex(role, core)) |t| @export(&Naked(sText(role, t)).f, .{ .name = symbol(role, core) });
-// }
+fn exportS(comptime role: []const u8, comptime core: Core) void {
+    if (comptime sFile(role, core) != null) @export(&asmexport.Naked(sText(role, core).code, sText(role, core).alignment).f, .{ .name = symbol(role, core) });
+}
 
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
     if (has(core, "daxpy")) {
-        if (realBlock(f64, core).block != .none) @export(realKernel(f64, core), .{ .name = symbol("daxpy", core) });
+        if (realBlock(f64, core).block != .none) @export(realKernel(f64, core), .{ .name = symbol("daxpy", core) }) else exportS("daxpy", core);
     }
     if (has(core, "saxpy")) {
-        if (realBlock(f32, core).block != .none) @export(realKernel(f32, core), .{ .name = symbol("saxpy", core) });
+        if (realBlock(f32, core).block != .none) @export(realKernel(f32, core), .{ .name = symbol("saxpy", core) }) else exportS("saxpy", core);
     }
     if (has(core, "caxpy")) {
         if (cplxKernel(f32, core) != null) {
             @export(cplxEntry(f32, core, false), .{ .name = symbol("caxpy", core) });
             @export(cplxEntry(f32, core, true), .{ .name = symbol("caxpyc", core) });
+        } else {
+            exportS("caxpy", core);
+            exportS("caxpyc", core);
         }
     }
     if (has(core, "zaxpy")) {
         if (cplxKernel(f64, core) != null) {
             @export(cplxEntry(f64, core, false), .{ .name = symbol("zaxpy", core) });
             @export(cplxEntry(f64, core, true), .{ .name = symbol("zaxpyc", core) });
+        } else {
+            exportS("zaxpy", core);
+            exportS("zaxpyc", core);
         }
     }
 }

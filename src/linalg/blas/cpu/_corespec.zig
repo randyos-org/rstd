@@ -111,6 +111,13 @@ pub fn power(core: coretypes.PowerCoreType) Spec {
         .power8 => .{ .model = "pwr8", .features = &.{"vsx"} },
         .power9 => .{ .model = "pwr9", .features = &.{"vsx"} },
         .power10 => .{ .model = "pwr10", .features = &.{"vsx"} },
+        // `-mcpu` of the static targets in `Makefile.power`
+        .power3 => .{ .model = "pwr3" },
+        .power4 => .{ .model = "pwr4" },
+        .power5 => .{ .model = "pwr5" },
+        .ppc970, .cell => .{ .model = "970" },
+        .ppc440, .ppc440fp2 => .{ .model = "440" },
+        .ppcg4 => .{ .model = "g4" },
     };
 }
 
@@ -129,7 +136,9 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
 pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         .loongson3r4 => .{ .features = &.{ "msa", "fp64" } },
-        .mips64_generic, .loongson3r3, .unknown => .{},
+        // `-march=mips64r2 -mtune=loongson3a`; the 4-operand `madd.s` needs it
+        .loongson3r3 => .{ .features = &.{"mips64r2"} },
+        .mips64_generic, .unknown => .{},
     };
 }
 

@@ -1,25 +1,24 @@
-//! BLAS kernel registry for power: no kernels are ported yet, so no per-core
-//! object is built and every core keeps the portable kernels. See
-//! `x86.zig` for what a registry provides and how to fill one in.
+//! BLAS kernel registry for POWER: what `build/blaskern.zig` and `_kernel.zig`
+//! ask of a registry. See `x86.zig` for what one provides.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const coretypes = @import("../cpu/_coretypes.zig");
+const axpy = @import("../blas1/axpy/power/kernel.zig");
 
 pub const Core = coretypes.PowerCoreType;
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    _ = arch;
-    return false;
+    return arch.isPowerPC();
 }
 
-/// Whether any routine has a kernel for `core`.
-pub fn hasKernels(comptime core: Core) bool {
-    _ = core;
-    return false;
+/// Whether any routine has a kernel for `core` on `arch`.
+pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool {
+    return axpy.has(arch, core);
 }
 
-/// Exports every kernel `core` has.
+/// Exports every kernel `core` has, for the architecture being compiled.
 pub fn exportCore(comptime core: Core) void {
-    _ = core;
+    axpy.exportCore(sysinfo.cpu.arch, core);
 }
