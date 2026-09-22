@@ -1,5 +1,5 @@
 //! RISC-V 64 boot for QEMU's `virt` machine (`-bios none -kernel`, M-mode, one
-//! hart) and RISC-V semihosting for console and exit (`-semihosting`).
+//! hart, floating point and vector state on) and RISC-V semihosting for console and exit (`-semihosting`).
 
 comptime {
     asm (
@@ -7,7 +7,7 @@ comptime {
         \\.globl _start
         \\_start:
         \\  csrr t0, mstatus
-        \\  li t1, 0x6000
+        \\  li t1, 0x6600
         \\  or t0, t0, t1
         \\  csrw mstatus, t0
         \\  la sp, __stack_top

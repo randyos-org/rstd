@@ -33,8 +33,15 @@ const Group = struct {
     cores: std.ArrayList([]const u8) = .empty,
 };
 
+var force_llvm: ?bool = null;
+var option_read = false;
+
 /// Builds the per-core kernel objects for `target` and links them into `mod`.
 pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget) void {
+    if (!option_read) {
+        option_read = true;
+        force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
+    }
     // `GetCpuArch` picks a type, so the runtime architecture becomes a
     // compile-time one here; each arm is one instantiation per architecture family.
     switch (target.result.cpu.arch) {
@@ -84,6 +91,8 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
         opts.addOption(bool, "fuse_fma_set", g.spec.fuse_fma != null);
         opts.addOption(bool, "fuse_fma", g.spec.fuse_fma orelse false);
 
+        // LLVM only where the kernels need it; `-Dblas-llvm` overrides either way.
+        const llvm = force_llvm orelse needsLlvm(arch, g.cores.items);
         const obj = b.addObject(.{
             .name = b.fmt("rstd-blaskernel-{s}", .{g.cores.items[0]}),
             .root_module = b.createModule(.{
@@ -93,10 +102,27 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
                 .optimize = .ReleaseFast,
                 .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
             }),
-            .use_llvm = true,
+            .use_llvm = llvm,
         });
         mod.addObject(obj);
     }
+}
+
+/// Whether the kernels of `cores` can only be built with LLVM, found by building
+/// every architecture with `-Dblas-llvm=false`:
+///
+///   * wasm32/wasm64: yes. The self-hosted backend builds them but emits invalid
+///     wasm for the SIMD kernel (node: "type error in branch, expected v128, got
+///     i32" in `Real(f32).unit`).
+///   * x86_64: yes for every core that has kernels. The self-hosted backend's own
+///     assembler rejects the register-based memory operands (`(%rdx)`) of the
+///     converted assembly and, past SSE, the VEX/EVEX mnemonics (`vzeroupper`).
+///   * aarch64, riscv64 and the rest: yes; they have no self-hosted backend that
+///     covers inline assembly and vectors, and riscv64 also fails on `zbb` in std.
+fn needsLlvm(arch: std.Target.Cpu.Arch, cores: []const []const u8) bool {
+    _ = arch;
+    _ = cores;
+    return true;
 }
 
 fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.Model {

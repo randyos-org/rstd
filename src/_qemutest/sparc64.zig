@@ -1,0 +1,76 @@
+//! SPARC64 boot for QEMU's `sun4u` machine (`-kernel`, loaded by OpenBIOS)
+//! and the Open Firmware client interface for console and exit, which is
+//! what the firmware leaves a program to use. `_start` gets the interface's
+//! entry point in `%o4`, sets up the biased stack, and turns the FPU on.
+//! Exit resets the machine (`reset-all`), which `-no-reboot` turns into qemu
+//! exiting, so the run step judges the result from the printed summary.
+
+// non-zero so it lives in .data, out of the bss `_start` clears after storing it
+export var client_interface: usize = 1;
+
+comptime {
+    asm (
+        \\.section .text.boot, "ax"
+        \\.globl _start
+        \\_start:
+        \\  setx client_interface, %g2, %g1
+        \\  stx %o4, [%g1]
+        \\  setx __stack_top, %g2, %g1
+        \\  sub %g1, 2047 + 512, %sp
+        \\  rdpr %pstate, %g1
+        \\  or %g1, 0x10, %g1
+        \\  wrpr %g1, %pstate
+        \\  wr %g0, 4, %fprs
+        \\  setx __bss_start, %g2, %o0
+        \\  setx __bss_end, %g2, %o1
+        \\1:
+        \\  cmp %o0, %o1
+        \\  bgeu,pn %xcc, 2f
+        \\  nop
+        \\  stx %g0, [%o0]
+        \\  ba 1b
+        \\  add %o0, 8, %o0
+        \\2:
+        \\  call qemutest_main
+        \\  nop
+        \\3:
+        \\  ba 3b
+        \\  nop
+    );
+}
+
+/// One client-interface call: the service, then its arguments and room for
+/// its results, all in 64-bit cells.
+fn call(cells: []u64) void {
+    const f: *const fn ([*]u64) callconv(.c) u64 = @ptrFromInt(client_interface);
+    _ = f(cells.ptr);
+}
+
+fn serviceName(comptime s: []const u8) u64 {
+    return @intFromPtr((s ++ "\x00").ptr);
+}
+
+var stdout_handle: u32 = 0;
+
+fn openStdout() void {
+    var find = [_]u64{ serviceName("finddevice"), 1, 1, serviceName("/chosen"), 0 };
+    call(&find);
+    var handle: [4]u8 align(4) = undefined;
+    var prop = [_]u64{ serviceName("getprop"), 4, 1, find[4], serviceName("stdout"), @intFromPtr(&handle), 4, 0 };
+    call(&prop);
+    stdout_handle = (@as(u32, handle[0]) << 24) | (@as(u32, handle[1]) << 16) | (@as(u32, handle[2]) << 8) | handle[3];
+}
+
+pub fn writeByte(c: u8) void {
+    if (stdout_handle == 0) openStdout();
+    var ch = c;
+    var write = [_]u64{ serviceName("write"), 3, 1, stdout_handle, @intFromPtr(&ch), 1, 0 };
+    call(&write);
+}
+
+pub fn exit(code: usize) noreturn {
+    _ = code;
+    var reset = [_]u64{ serviceName("interpret"), 1, 1, serviceName("reset-all"), 0 };
+    call(&reset);
+    while (true) {}
+}

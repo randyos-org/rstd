@@ -4,6 +4,7 @@ pub const rstd = @import("../src/__root__.zig");
 const rstdbuild = rstd.buildutils;
 const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
+const wasmtest = @import("wasmtest.zig");
 const Build = rstdbuild.Build;
 
 pub fn build(b: *Build) !void {
@@ -71,4 +72,5 @@ pub fn build(b: *Build) !void {
 
     // the same tests that need no OS, on emulated machines
     qemutest.addQemuTests(b, optimize);
+    wasmtest.addWasmTests(b, optimize);
 }
