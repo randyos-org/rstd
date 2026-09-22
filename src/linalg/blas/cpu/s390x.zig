@@ -20,7 +20,8 @@ pub const HWCAP_S390_VX: usize = 2048;
 pub const HWCAP_S390_VXE: usize = 8192;
 
 pub fn detect() CoreType {
-    const caps = auxv.hwcap();
+    // `LD_HWCAP_MASK` masks bits out of what the kernel reports, as in the reference
+    const caps = auxv.hwcap() & (blas.config.ld_hwcap_mask orelse ~@as(u64, 0));
     if (caps & HWCAP_S390_VXE != 0) return .z14;
     if (caps & HWCAP_S390_VX != 0) return .z13;
     return .zarch_generic;
@@ -28,9 +29,12 @@ pub fn detect() CoreType {
 
 const Vtable = @import("../Vtable.zig");
 const axpy = @import("../blas1/axpy/__root__.zig");
+const blas = @import("../__root__.zig");
+const gemm_params = @import("../blas3/gemm/params.zig");
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
     axpy.install(&vt, core_type);
+    gemm_params.installCore(&vt, .s390x, core_type, .fromConfig(blas.config));
     return vt;
 }
 

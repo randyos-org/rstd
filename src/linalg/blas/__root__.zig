@@ -35,11 +35,14 @@ pub fn init(env: *std.process.Environ.Map) void {
             if (cpu.fromName(corename)) |ct| {
                 core_type = ct;
             } else {
+                // OpenBLAS warns and detects (`OPENBLAS_CORETYPE` names no core here)
+                blasWarn(1, "unknown OPENBLAS_CORETYPE '{s}', detecting the core", .{corename});
                 core_type = cpu.detect();
             }
         } else {
             core_type = cpu.detect();
         }
+        blasWarn(2, "core: {s}", .{@tagName(core_type)});
 
         _vtable = cpu.vtableFromCoreType(core_type);
         if (_vtable.init) |f| f();
@@ -47,6 +50,14 @@ pub fn init(env: *std.process.Environ.Map) void {
         return;
     }
     while (phase.load(.acquire) != .ready) std.atomic.spinLoopHint();
+}
+
+/// A diagnostic, shown when `OPENBLAS_VERBOSE` is at least `level`. Only where
+/// there is somewhere to print to.
+fn blasWarn(level: i32, comptime fmt: []const u8, args: anytype) void {
+    if (comptime @import("builtin").os.tag == .freestanding) return;
+    if (config.verbose < level) return;
+    std.debug.print("OpenBLAS: " ++ fmt ++ "\n", args);
 }
 
 pub fn shutdown() void {

@@ -22,6 +22,8 @@ pub const mips = @import("mips.zig");
 pub const power = @import("power.zig");
 pub const riscv = @import("riscv.zig");
 pub const s390x = @import("s390x.zig");
+pub const sparc = @import("sparc.zig");
+pub const wasm = @import("wasm.zig");
 pub const x86 = @import("x86.zig");
 
 /// Panics with a standard message for a ported function that has no
@@ -45,6 +47,8 @@ pub fn GetCpuArch(a: std.Target.Cpu.Arch) type {
         .s390x => s390x,
         .mips, .mipsel, .mips64, .mips64el => mips,
         .loongarch32, .loongarch64 => loongarch,
+        .sparc, .sparc64 => sparc,
+        .wasm32, .wasm64 => wasm,
         else => generic,
     };
 }

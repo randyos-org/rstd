@@ -430,22 +430,33 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--others")) others = true else try want.append(a, arg);
     }
 
-    // the roles: axpy, kept as it was, or every other routine of the level-1 rules
+    // the roles: axpy, kept as it was, or every other routine of the level-1
+    // rules, each going to its own `blas1/<dir>/`, as axpy already does
     const text = map.read(try map.path(&.{ map.root, "kernel", "Makefile.L1" })).?;
-    var picked: std.ArrayList(roles.Role) = .empty;
+    var by_dir: std.StringArrayHashMapUnmanaged(std.ArrayList(roles.Role)) = .empty;
     for (try roles.parse(a, text)) |r| {
         const is_axpy = std.mem.indexOf(u8, r.name, "axpy") != null and std.mem.indexOf(u8, r.name, "axpby") == null;
-        if (is_axpy != others) try picked.append(a, r);
+        if (is_axpy == others) continue;
+        const dir = if (others) try roles.dirFor(a, r.key) else "axpy";
+        const e = try by_dir.getOrPut(a, dir);
+        if (!e.found_existing) e.value_ptr.* = .empty;
+        try e.value_ptr.append(a, r);
     }
-    const out_root = if (others) (init.environ_map.get("BLAS_OUT_KERNELS") orelse "src/linalg/blas/kernels") else map.out_root;
+    const base = init.environ_map.get("BLAS_OUT_KERNELS") orelse "src/linalg/blas/blas1";
 
-    for (arches) |ar| {
-        if (want.items.len > 0) {
-            const listed = for (want.items) |w| {
-                if (std.mem.eql(u8, w, ar.name)) break true;
-            } else false;
-            if (!listed) continue;
+    var dirs = by_dir.iterator();
+    while (dirs.next()) |kv| {
+        // axpy keeps `BLAS_OUT` (its whole out_root, as before); every other
+        // routine nests under `base/<dir>`
+        const out_root = if (others) try std.fmt.allocPrint(a, "{s}/{s}", .{ base, kv.key_ptr.* }) else map.out_root;
+        for (arches) |ar| {
+            if (want.items.len > 0) {
+                const listed = for (want.items) |w| {
+                    if (std.mem.eql(u8, w, ar.name)) break true;
+                } else false;
+                if (!listed) continue;
+            }
+            try convert(a, ar, kv.value_ptr.items, out_root);
         }
-        try convert(a, ar, picked.items, out_root);
     }
 }

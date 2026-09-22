@@ -100,6 +100,11 @@ pub const RiscvCoreType = enum {
     riscv64_generic,
     riscv64_zvl128b,
     riscv64_zvl256b,
+    // Not detected at run time (`dynamic_riscv64.c` has no such core); the
+    // targets of static builds, named as in the reference's `TARGET`.
+    c910v,
+    u74,
+    x280,
 };
 
 // ---- s390x.zig ----
@@ -116,6 +121,15 @@ pub const MipsCoreType = enum {
     loongson3r3,
     loongson3r4,
     unknown,
+    // Not detected at run time (`dynamic_mips64.c` has no such core); the
+    // targets of static builds, named as in the reference's `TARGET`. The
+    // first three are 32-bit, the last three MIPS64 release 6.
+    mips24k,
+    mips1004k,
+    p5600,
+    i6400,
+    i6500,
+    p6600,
 };
 
 // ---- loongarch.zig ----
@@ -131,4 +145,20 @@ pub const LoongarchCoreType = enum {
 };
 
 // ---- generic.zig ----
+// ---- sparc.zig ----
+/// The reference's two SPARC targets, named as in its `TARGET`: `SPARC` is
+/// V9 and `SPARCV7` the generic one; neither is detected at run time.
+pub const SparcCoreType = enum {
+    sparcv7,
+    sparc,
+};
+
+// ---- wasm.zig ----
+/// The reference has one target for WebAssembly, `WASM128_GENERIC`; the other
+/// core type is a module compiled without SIMD128.
+pub const WasmCoreType = enum {
+    wasm_generic,
+    wasm128_generic,
+};
+
 pub const GenericCoreType = enum { generic };

@@ -54,3 +54,36 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
     }
     return out.items;
 }
+
+/// Keys that don't reduce to `<precision><base>KERNEL`, so `dirFor` cannot
+/// strip them algorithmically: the bf16 dot forms (built from `sdot.c`/`ddot.c`
+/// under different flags, so they keep the plain dot kernel's variable name
+/// instead of one prefixed with their own precision) and the bf16 conversions.
+const dir_overrides = [_]struct { key: []const u8, dir: []const u8 }{
+    .{ .key = "DSDOTKERNEL", .dir = "dot" },
+    .{ .key = "SBDOTKERNEL", .dir = "dot" },
+    .{ .key = "BF16TOKERNEL", .dir = "bf16" },
+    .{ .key = "TOBF16KERNEL", .dir = "bf16" },
+};
+
+/// The `blas1/<dir>` a role's kernel lives under, from its `key`: one BLAS
+/// routine family per directory, precisions and the conjugated/index forms
+/// together, the way `blas1/axpy/` already holds every `axpy` kernel. Regular
+/// keys are `<precision><base>KERNEL`, or `I<precision><base>KERNEL` for an
+/// index routine (kept as an `i` prefix on the directory, so `iamax` and
+/// `amax` stay apart, as the routines themselves do).
+pub fn dirFor(a: std.mem.Allocator, key: []const u8) ![]const u8 {
+    for (dir_overrides) |o| {
+        if (std.mem.eql(u8, o.key, key)) return o.dir;
+    }
+    var s = key;
+    var prefix: []const u8 = "";
+    if (s.len > 0 and s[0] == 'I') {
+        prefix = "i";
+        s = s[1..];
+    }
+    if (s.len > 0 and std.mem.indexOfScalar(u8, "SDCZQXB", s[0]) != null) s = s[1..];
+    if (std.mem.endsWith(u8, s, "KERNEL")) s = s[0 .. s.len - "KERNEL".len];
+    const lower = try std.ascii.allocLowerString(a, s);
+    return std.fmt.allocPrint(a, "{s}{s}", .{ prefix, lower });
+}

@@ -128,6 +128,12 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
         .riscv64_generic => .{ .features = &.{ "m", "a", "f", "d", "c" } },
         .riscv64_zvl128b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl128b" } },
         .riscv64_zvl256b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl256b" } },
+        // `Makefile.riscv64`: the T-Head core has the pre-ratification vector
+        // extension, which this toolchain cannot assemble (it has no
+        // `xtheadvector`), SiFive's U74 none, and SiFive's X280 the ratified one
+        .c910v => .{ .features = &.{ "m", "a", "f", "d", "c" } },
+        .u74 => .{ .features = &.{ "m", "a", "f", "d", "c" } },
+        .x280 => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl512b" } },
     };
 }
 
@@ -136,6 +142,11 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
 pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         .loongson3r4 => .{ .features = &.{ "msa", "fp64" } },
+        // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
+        // the SIMD architecture; the 24K and 1004K have none
+        .mips24k, .mips1004k => .{ .model = "mips32r2" },
+        .p5600 => .{ .model = "p5600", .features = &.{ "msa", "fp64" } },
+        .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{ "msa", "fp64" } },
         // `-march=mips64r2 -mtune=loongson3a`; the 4-operand `madd.s` needs it
         .loongson3r3 => .{ .features = &.{"mips64r2"} },
         .mips64_generic, .unknown => .{},
@@ -162,6 +173,24 @@ pub fn s390x(core: coretypes.S390xCoreType) Spec {
     };
 }
 
+// ---- sparc (`Makefile.sparc`: `-mcpu=v9`) -----------------------------------
+
+pub fn sparc(core: coretypes.SparcCoreType) Spec {
+    return switch (core) {
+        .sparc => .{ .model = "v9" },
+        .sparcv7 => .{},
+    };
+}
+
+// ---- wasm (`Makefile.wasm`: `-msimd128`) ---------------------------------------
+
+pub fn wasm(core: coretypes.WasmCoreType) Spec {
+    return switch (core) {
+        .wasm128_generic => .{ .features = &.{"simd128"} },
+        .wasm_generic => .{},
+    };
+}
+
 /// The spec of any architecture's core type.
 pub fn of(core: anytype) Spec {
     return switch (@TypeOf(core)) {
@@ -173,6 +202,8 @@ pub fn of(core: anytype) Spec {
         coretypes.MipsCoreType => mips(core),
         coretypes.LoongarchCoreType => loongarch(core),
         coretypes.S390xCoreType => s390x(core),
+        coretypes.SparcCoreType => sparc(core),
+        coretypes.WasmCoreType => wasm(core),
         else => .{},
     };
 }
@@ -198,6 +229,8 @@ test "every model and feature named in a spec exists for its architecture" {
     try check(std.Target.mips, coretypes.MipsCoreType);
     try check(std.Target.loongarch, coretypes.LoongarchCoreType);
     try check(std.Target.s390x, coretypes.S390xCoreType);
+    try check(std.Target.sparc, coretypes.SparcCoreType);
+    try check(std.Target.wasm, coretypes.WasmCoreType);
 }
 
 test "cores that share flags compare equal, others do not" {

@@ -125,9 +125,12 @@ pub fn detect() CoreType {
 
 const Vtable = @import("../Vtable.zig");
 const axpy = @import("../blas1/axpy/__root__.zig");
+const blas = @import("../__root__.zig");
+const gemm_params = @import("../blas3/gemm/params.zig");
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
     axpy.install(&vt, core_type);
+    gemm_params.installCore(&vt, .arm64, core_type, .fromConfig(blas.config));
     return vt;
 }
 

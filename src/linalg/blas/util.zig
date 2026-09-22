@@ -12,3 +12,10 @@ pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
         addr - @as(usize, @intCast(-byte_offset));
     return @ptrFromInt(new_addr);
 }
+
+/// The symbol of the kernel `role` (`daxpy`, ...) of `core`. The per-core objects
+/// (`build/blaskern.zig`) export it and each architecture's `install.zig` looks it
+/// up by the same name.
+pub fn kernelSymbol(comptime role: []const u8, comptime core: []const u8) []const u8 {
+    return "blaskern_" ++ role ++ "_" ++ core;
+}

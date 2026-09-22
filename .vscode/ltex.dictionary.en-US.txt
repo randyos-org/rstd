@@ -475,6 +475,7 @@ fmul
 fmuladd
 fmuls
 fneg
+fninit
 fnmadd
 fnmadds
 FNMSUB
@@ -1173,6 +1174,7 @@ Pspec
 pthread
 ptrace
 ptypkg
+purgem
 pushfq
 pushl
 putpmsg
@@ -1539,6 +1541,7 @@ STFXDUX
 STFXDX
 stfxsux
 stfxsx
+stosl
 stp
 STPCLK
 str
