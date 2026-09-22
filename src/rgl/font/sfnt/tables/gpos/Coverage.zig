@@ -32,7 +32,7 @@ pub inline fn glyphCount(self: Coverage) u16 {
 /// format 1 only: glyphArray[index].
 pub fn getGlyph(self: Coverage, index: usize) GlyphIndex {
     const pos = 2 * @sizeOf(u16) + index * @sizeOf(u16);
-    return @enumFromInt(bytes.getU16BE(self.table_data[pos..]));
+    return @fromBackingInt(@intCast(bytes.getU16BE(self.table_data[pos..])));
 }
 
 /// format 2 only: number of RangeRecords.

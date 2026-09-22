@@ -59,7 +59,7 @@ pub const Format10 = struct {
     /// glyphIdArray[index], with index counted from the start of the array
     /// (not from startCharCode()). getGlyphIndex() is what most callers want.
     pub fn getRawGlyphId(self: Self, index: usize) GlyphIndex {
-        return @enumFromInt(bytes.getU16BE(self.table_data[header_end + index * @sizeOf(GlyphIndex) ..]));
+        return @fromBackingInt(@intCast(bytes.getU16BE(self.table_data[header_end + index * @sizeOf(GlyphIndex) ..])));
     }
 
     pub fn getGlyphIndex(self: Self, codepoint: u32) GlyphIndex {

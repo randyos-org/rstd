@@ -100,14 +100,14 @@ test "LocaTable.getGlyphRange returns the byte span between consecutive offsets"
 
     const loca = try LocaTable.init(buf, 3, true, true);
 
-    const r0 = loca.getGlyphRange(@enumFromInt(0)).?;
+    const r0 = loca.getGlyphRange(@fromBackingInt(@intCast(0))).?;
     try zigstd.testExpectEqual(@as(u32, 0), r0.start);
     try zigstd.testExpectEqual(@as(u32, 40), r0.end);
 
     // glyph 1 has no outline: loca[1] == loca[2]
-    try zigstd.testExpectEqual(@as(?LocaTable.GlyphRange, null), loca.getGlyphRange(@enumFromInt(1)));
+    try zigstd.testExpectEqual(@as(?LocaTable.GlyphRange, null), loca.getGlyphRange(@fromBackingInt(@intCast(1))));
 
-    const r2 = loca.getGlyphRange(@enumFromInt(2)).?;
+    const r2 = loca.getGlyphRange(@fromBackingInt(@intCast(2))).?;
     try zigstd.testExpectEqual(@as(u32, 40), r2.start);
     try zigstd.testExpectEqual(@as(u32, 120), r2.end);
 }
@@ -119,5 +119,5 @@ test "LocaTable.getGlyphRange returns null for an out-of-range glyph" {
 
     const loca = try LocaTable.init(buf, 1, true, true);
 
-    try zigstd.testExpectEqual(@as(?LocaTable.GlyphRange, null), loca.getGlyphRange(@enumFromInt(1)));
+    try zigstd.testExpectEqual(@as(?LocaTable.GlyphRange, null), loca.getGlyphRange(@fromBackingInt(@intCast(1))));
 }

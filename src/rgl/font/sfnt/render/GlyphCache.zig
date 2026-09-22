@@ -258,7 +258,7 @@ test "GlyphCache.getOrAdd caches a glyph's placement across repeated calls" {
     var cache = try Self.init(alloc, 256);
     defer cache.deinit(alloc);
 
-    const glyph: GlyphIndex = @enumFromInt(1);
+    const glyph: GlyphIndex = @fromBackingInt(@intCast(1));
     const first = (try cache.getOrAdd(alloc, sfnt, glyph, 1.0)).?;
     try zigstd.testExpectEqual(@as(u32, 200), first.w);
     try zigstd.testExpectEqual(@as(u32, 300), first.h);
@@ -279,7 +279,7 @@ test "GlyphCache.getOrAdd returns null and caches the miss for a glyph with no v
     var cache = try Self.init(alloc, 256);
     defer cache.deinit(alloc);
 
-    const space: GlyphIndex = @enumFromInt(2);
+    const space: GlyphIndex = @fromBackingInt(@intCast(2));
     try zigstd.testExpectEqual(@as(?Self.PixelRect, null), try cache.getOrAdd(alloc, sfnt, space, 1.0));
     try zigstd.testExpectEqual(@as(usize, 1), cache.locations.count());
     try zigstd.testExpectEqual(@as(?Self.PixelRect, null), try cache.getOrAdd(alloc, sfnt, space, 1.0));
@@ -296,7 +296,7 @@ test "GlyphCache grows the canvas to fit a glyph larger than the initial size, p
     var cache = try Self.init(alloc, 8);
     defer cache.deinit(alloc);
 
-    const glyph: GlyphIndex = @enumFromInt(1);
+    const glyph: GlyphIndex = @fromBackingInt(@intCast(1));
     const rect = (try cache.getOrAdd(alloc, sfnt, glyph, 1.0)).?;
     try zigstd.testExpectEqual(@as(u32, 200), rect.w);
     try zigstd.testExpectEqual(@as(u32, 300), rect.h);

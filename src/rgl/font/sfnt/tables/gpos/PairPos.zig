@@ -121,7 +121,7 @@ pub const PairSet = struct {
     }
 
     pub fn getSecondGlyph(self: Self, index: usize) GlyphIndex {
-        return @enumFromInt(bytes.getU16BE(self.table_data[self.getPairValueRecordOffset(index)..]));
+        return @fromBackingInt(@intCast(bytes.getU16BE(self.table_data[self.getPairValueRecordOffset(index)..])));
     }
 };
 

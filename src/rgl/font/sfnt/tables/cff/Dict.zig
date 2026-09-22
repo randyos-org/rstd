@@ -44,7 +44,7 @@ pub fn getOperandBytes(self: Dict, op: Operator) ?[]const u8 {
             pos += 1;
         }
 
-        if (code == @intFromEnum(op)) return self.table_data[start..operand_end];
+        if (code == @backingInt(op)) return self.table_data[start..operand_end];
     }
     return null;
 }

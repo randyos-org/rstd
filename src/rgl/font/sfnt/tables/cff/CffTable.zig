@@ -143,7 +143,7 @@ pub inline fn numGlyphs(self: CffTable) u16 {
 /// caller's responsibility (glyph < numGlyphs()), matching this
 /// module's other raw index accessors.
 pub fn getCharString(self: CffTable, glyph: GlyphIndex) []const u8 {
-    return self.charstrings_index.get(@intCast(@intFromEnum(glyph)));
+    return self.charstrings_index.get(@intCast(@backingInt(glyph)));
 }
 
 pub fn getGlobalSubr(self: CffTable, index: usize) []const u8 {
@@ -156,7 +156,7 @@ pub fn getGlobalSubr(self: CffTable, index: usize) []const u8 {
 pub fn getFdIndexForGlyph(self: CffTable, glyph: GlyphIndex) u8 {
     const off = self.fdselect_offset orelse return 0;
     const data = self.table_data[off..];
-    const gid: usize = @intCast(@intFromEnum(glyph));
+    const gid: usize = @intCast(@backingInt(glyph));
 
     return switch (data[0]) {
         0 => data[1 + gid],
@@ -199,9 +199,9 @@ test "CffTable.getFdIndexForGlyph decodes FDSelect formats 0 and 3" {
     var t0: CffTable = undefined;
     t0.table_data = &fmt0;
     t0.fdselect_offset = 0;
-    try zigstd.testExpectEqual(@as(u8, 0), t0.getFdIndexForGlyph(@enumFromInt(0)));
-    try zigstd.testExpectEqual(@as(u8, 2), t0.getFdIndexForGlyph(@enumFromInt(1)));
-    try zigstd.testExpectEqual(@as(u8, 1), t0.getFdIndexForGlyph(@enumFromInt(2)));
+    try zigstd.testExpectEqual(@as(u8, 0), t0.getFdIndexForGlyph(@fromBackingInt(@intCast(0))));
+    try zigstd.testExpectEqual(@as(u8, 2), t0.getFdIndexForGlyph(@fromBackingInt(@intCast(1))));
+    try zigstd.testExpectEqual(@as(u8, 1), t0.getFdIndexForGlyph(@fromBackingInt(@intCast(2))));
 
     // Format 3: ranges [0,5)->FD0, [5,10)->FD1, sentinel at 10.
     var fmt3: [1 + 2 + 2 * 3 + 2]u8 = undefined;
@@ -216,10 +216,10 @@ test "CffTable.getFdIndexForGlyph decodes FDSelect formats 0 and 3" {
     var t3: CffTable = undefined;
     t3.table_data = &fmt3;
     t3.fdselect_offset = 0;
-    try zigstd.testExpectEqual(@as(u8, 0), t3.getFdIndexForGlyph(@enumFromInt(0)));
-    try zigstd.testExpectEqual(@as(u8, 0), t3.getFdIndexForGlyph(@enumFromInt(4)));
-    try zigstd.testExpectEqual(@as(u8, 1), t3.getFdIndexForGlyph(@enumFromInt(5)));
-    try zigstd.testExpectEqual(@as(u8, 1), t3.getFdIndexForGlyph(@enumFromInt(9)));
+    try zigstd.testExpectEqual(@as(u8, 0), t3.getFdIndexForGlyph(@fromBackingInt(@intCast(0))));
+    try zigstd.testExpectEqual(@as(u8, 0), t3.getFdIndexForGlyph(@fromBackingInt(@intCast(4))));
+    try zigstd.testExpectEqual(@as(u8, 1), t3.getFdIndexForGlyph(@fromBackingInt(@intCast(5))));
+    try zigstd.testExpectEqual(@as(u8, 1), t3.getFdIndexForGlyph(@fromBackingInt(@intCast(9))));
 }
 
 // Builds a minimal, non-CID CFF table: a Top DICT with CharStrings+Private,
@@ -312,10 +312,10 @@ test "CffTable resolves CharStrings and (via Private -> Subrs) local Subrs for a
     try zigstd.testExpectEqual(false, cff.is_cid);
     try zigstd.testExpectEqual(@as(u16, 2), cff.numGlyphs());
 
-    try zigstd.testExpectEqual(@as(usize, 1), cff.getCharString(@enumFromInt(0)).len);
-    try zigstd.testExpectEqual(@as(usize, 3), cff.getCharString(@enumFromInt(1)).len);
+    try zigstd.testExpectEqual(@as(usize, 1), cff.getCharString(@fromBackingInt(@intCast(0))).len);
+    try zigstd.testExpectEqual(@as(usize, 3), cff.getCharString(@fromBackingInt(@intCast(1))).len);
 
-    const subrs = cff.getLocalSubrIndexForGlyph(@enumFromInt(0)).?;
+    const subrs = cff.getLocalSubrIndexForGlyph(@fromBackingInt(@intCast(0))).?;
     try zigstd.testExpectEqual(@as(u16, 1), subrs.count());
     try zigstd.testExpectEqual(true, @import("std").mem.eql(u8, &.{ 0xAA, 0xBB, 0xCC }, subrs.get(0)));
 }
@@ -454,8 +454,8 @@ test "CffTable resolves per-glyph Font DICT/Private/Subrs for a CID-keyed font" 
     try zigstd.testExpectEqual(true, cff.is_cid);
     try zigstd.testExpectEqual(@as(u16, 2), cff.numGlyphs());
 
-    const glyph0: GlyphIndex = @enumFromInt(0);
-    const glyph1: GlyphIndex = @enumFromInt(1);
+    const glyph0: GlyphIndex = @fromBackingInt(@intCast(0));
+    const glyph1: GlyphIndex = @fromBackingInt(@intCast(1));
 
     try zigstd.testExpectEqual(@as(u8, 0), cff.getFdIndexForGlyph(glyph0));
     try zigstd.testExpectEqual(@as(u8, 1), cff.getFdIndexForGlyph(glyph1));

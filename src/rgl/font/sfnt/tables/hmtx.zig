@@ -99,11 +99,11 @@ test "HmtxTable.getMetrics reads full records for glyphs within num_h_metrics" {
 
     const hmtx = try HmtxTable.init(buf, 3, 5, true);
 
-    const m0 = hmtx.getMetrics(@enumFromInt(0));
+    const m0 = hmtx.getMetrics(@fromBackingInt(@intCast(0)));
     try zigstd.testExpectEqual(@as(u16, 500), m0.advance_width);
     try zigstd.testExpectEqual(@as(i16, 10), m0.left_side_bearing);
 
-    const m2 = hmtx.getMetrics(@enumFromInt(2));
+    const m2 = hmtx.getMetrics(@fromBackingInt(@intCast(2)));
     try zigstd.testExpectEqual(@as(u16, 700), m2.advance_width);
     try zigstd.testExpectEqual(@as(i16, 0), m2.left_side_bearing);
 }
@@ -119,11 +119,11 @@ test "HmtxTable.getMetrics shares the last advance_width for glyphs past num_h_m
 
     const hmtx = try HmtxTable.init(buf, 2, 4, true);
 
-    const m2 = hmtx.getMetrics(@enumFromInt(2));
+    const m2 = hmtx.getMetrics(@fromBackingInt(@intCast(2)));
     try zigstd.testExpectEqual(@as(u16, 700), m2.advance_width); // shared from the last h_metrics entry
     try zigstd.testExpectEqual(@as(i16, 3), m2.left_side_bearing); // its own trailing lsb
 
-    const m3 = hmtx.getMetrics(@enumFromInt(3));
+    const m3 = hmtx.getMetrics(@fromBackingInt(@intCast(3)));
     try zigstd.testExpectEqual(@as(u16, 700), m3.advance_width);
     try zigstd.testExpectEqual(@as(i16, -7), m3.left_side_bearing);
 }
@@ -139,7 +139,7 @@ test "HmtxTable.init handles num_h_metrics == num_glyphs (no trailing lsb array)
 
     const hmtx = try HmtxTable.init(buf, 2, 2, true);
 
-    const m1 = hmtx.getMetrics(@enumFromInt(1));
+    const m1 = hmtx.getMetrics(@fromBackingInt(@intCast(1)));
     try zigstd.testExpectEqual(@as(u16, 600), m1.advance_width);
     try zigstd.testExpectEqual(@as(i16, -5), m1.left_side_bearing);
 }
@@ -154,7 +154,7 @@ test "HmtxTable.getMetrics falls back to the last full record for an out-of-rang
 
     const hmtx = try HmtxTable.init(buf, 1, 1, true);
 
-    const m = hmtx.getMetrics(@enumFromInt(99));
+    const m = hmtx.getMetrics(@fromBackingInt(@intCast(99)));
     try zigstd.testExpectEqual(@as(u16, 500), m.advance_width);
     try zigstd.testExpectEqual(@as(i16, 10), m.left_side_bearing);
 }

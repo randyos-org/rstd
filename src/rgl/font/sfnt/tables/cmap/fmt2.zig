@@ -114,7 +114,7 @@ pub const Format2 = struct {
         const target = id_range_offset_field_pos + @as(usize, sh.id_range_offset) + @as(usize, rel) * @sizeOf(GlyphIndex);
         if (target < glyph_array_start or target + @sizeOf(GlyphIndex) > self.table_data.len) return .notdef;
 
-        const raw: GlyphIndex = @enumFromInt(bytes.getU16BE(self.table_data[target..]));
+        const raw: GlyphIndex = @fromBackingInt(@intCast(bytes.getU16BE(self.table_data[target..])));
         if (raw == .notdef) return .notdef;
         const delta: u16 = @bitCast(sh.id_delta);
         return @fromBackingInt(@backingInt(raw) +% delta);

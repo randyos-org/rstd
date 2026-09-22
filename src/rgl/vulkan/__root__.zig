@@ -54,7 +54,7 @@ pub const RectInstance = extern struct {
     border_width: f32 = 0,
     fill_color: [4]f32,
     border_color: [4]f32 = .{ 0, 0, 0, 0 },
-    shape_kind: u32 = @intFromEnum(ShapeKind.rect),
+    shape_kind: u32 = @backingInt(ShapeKind.rect),
 };
 
 /// One instance of the glyph pipeline (shaders/glyph.zig).
@@ -257,7 +257,7 @@ pub fn fillCircle(surface: *VkSurface, center: PointF32, radius: f32, c: RGBA) !
         .rect_pos = .{ center.x - radius, center.y - radius },
         .rect_size = .{ radius * 2, radius * 2 },
         .fill_color = rgbaToVec4(c),
-        .shape_kind = @intFromEnum(ShapeKind.circle),
+        .shape_kind = @backingInt(ShapeKind.circle),
     });
 }
 

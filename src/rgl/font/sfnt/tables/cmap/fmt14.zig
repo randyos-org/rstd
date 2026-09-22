@@ -258,7 +258,7 @@ test "Format14.getGlyphVariant finds an explicit non-default glyph mapping" {
         alloc,
         0xFE0F,
         &.{},
-        &.{.{ .unicode_value = 0x2603, .glyph_id = @enumFromInt(42) }},
+        &.{.{ .unicode_value = 0x2603, .glyph_id = @fromBackingInt(@intCast(42)) }},
     );
     defer alloc.free(buf);
 

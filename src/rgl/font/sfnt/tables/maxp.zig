@@ -54,55 +54,55 @@ pub const MaxpTable = struct {
     /// Valid only when version() is 1.0 (0x00010000); version 0.5 fonts have
     /// no TTF-specific section, so calling these on one reads past the table.
     pub inline fn maxPoints(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_points")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_points") ..]);
     }
 
     pub inline fn maxContours(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_contours")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_contours") ..]);
     }
 
     pub inline fn maxComponentPoints(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_points")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_points") ..]);
     }
 
     pub inline fn maxComponentContours(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_contours")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_contours") ..]);
     }
 
     pub inline fn maxZones(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_zones")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_zones") ..]);
     }
 
     pub inline fn maxTwilightPoints(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_twilight_points")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_twilight_points") ..]);
     }
 
     pub inline fn maxStorage(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_storage")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_storage") ..]);
     }
 
     pub inline fn maxFunctionDefs(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_function_defs")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_function_defs") ..]);
     }
 
     pub inline fn maxInstructionDefs(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_instruction_defs")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_instruction_defs") ..]);
     }
 
     pub inline fn maxStackElements(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_stack_elements")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_stack_elements") ..]);
     }
 
     pub inline fn maxSizeOfInstructions(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_size_of_instructions")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_size_of_instructions") ..]);
     }
 
     pub inline fn maxComponentElements(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_elements")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_elements") ..]);
     }
 
     pub inline fn maxComponentDepth(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_depth")..]);
+        return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_depth") ..]);
     }
 };
 

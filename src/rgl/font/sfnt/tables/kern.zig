@@ -211,28 +211,28 @@ fn buildKern(alloc: zigstd.Allocator, pairs: []const KernSubtable.KernPair) ![]u
 test "KernTable.getKernValue resolves an exact pair via format 0" {
     const alloc = zigstd.testAllocator;
     const buf = try buildKern(alloc, &.{
-        .{ .left = @enumFromInt(5), .right = @enumFromInt(10), .value = -20 },
-        .{ .left = @enumFromInt(5), .right = @enumFromInt(20), .value = -30 },
-        .{ .left = @enumFromInt(7), .right = @enumFromInt(1), .value = 15 },
+        .{ .left = @fromBackingInt(@intCast(5)), .right = @fromBackingInt(@intCast(10)), .value = -20 },
+        .{ .left = @fromBackingInt(@intCast(5)), .right = @fromBackingInt(@intCast(20)), .value = -30 },
+        .{ .left = @fromBackingInt(@intCast(7)), .right = @fromBackingInt(@intCast(1)), .value = 15 },
     });
     defer alloc.free(buf);
 
     const kern = try KernTable.init(buf, true);
 
-    try zigstd.testExpectEqual(@as(?types.FWord, -20), kern.getKernValue(@enumFromInt(5), @enumFromInt(10)));
-    try zigstd.testExpectEqual(@as(?types.FWord, -30), kern.getKernValue(@enumFromInt(5), @enumFromInt(20)));
-    try zigstd.testExpectEqual(@as(?types.FWord, 15), kern.getKernValue(@enumFromInt(7), @enumFromInt(1)));
+    try zigstd.testExpectEqual(@as(?types.FWord, -20), kern.getKernValue(@fromBackingInt(@intCast(5)), @fromBackingInt(@intCast(10))));
+    try zigstd.testExpectEqual(@as(?types.FWord, -30), kern.getKernValue(@fromBackingInt(@intCast(5)), @fromBackingInt(@intCast(20))));
+    try zigstd.testExpectEqual(@as(?types.FWord, 15), kern.getKernValue(@fromBackingInt(@intCast(7)), @fromBackingInt(@intCast(1))));
 }
 
 test "KernTable.getKernValue returns null for a pair with no entry" {
     const alloc = zigstd.testAllocator;
     const buf = try buildKern(alloc, &.{
-        .{ .left = @enumFromInt(5), .right = @enumFromInt(10), .value = -20 },
+        .{ .left = @fromBackingInt(@intCast(5)), .right = @fromBackingInt(@intCast(10)), .value = -20 },
     });
     defer alloc.free(buf);
 
     const kern = try KernTable.init(buf, true);
 
-    try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(@enumFromInt(5), @enumFromInt(11)));
-    try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(@enumFromInt(6), @enumFromInt(10)));
+    try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(@fromBackingInt(@intCast(5)), @fromBackingInt(@intCast(11))));
+    try zigstd.testExpectEqual(@as(?types.FWord, null), kern.getKernValue(@fromBackingInt(@intCast(6)), @fromBackingInt(@intCast(10))));
 }
