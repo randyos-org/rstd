@@ -1,193 +1,105 @@
-//! Converts OpenBLAS x86_64 `axpy` `.S` kernels into Zig files whose bodies
-//! are the same assembly, written inline.
+//! Converts OpenBLAS `axpy` `.S` kernels into Zig files whose bodies are the
+//! same assembly, written inline.
 //!
-//!     OPENBLAS=<checkout> zig run tools/blas_asm/gen.zig
+//!     OPENBLAS=<checkout> zig run tools/blas_asm/gen.zig [-- <arch>...]
+//!
+//! With no architecture named, converts all that `arch/<name>.zig` describes.
 //!
 //! The source is preprocessed once per core, since OpenBLAS selects code with
-//! `#ifdef <CORE>`. Which cores use a source comes from the `KERNEL.<core>`
-//! files (`kernel_map.zig`). Cores whose expansions are identical share one
-//! file, named for the first of them, with the rest listed in its header.
-//! Merging the files into fewer, idiomatic ones is done by hand afterward;
-//! the header of each says where its text came from.
+//! `#ifdef <CORE>`. Which cores use a source, and for which precisions, comes
+//! from the `KERNEL.<core>` files (`kernel_map.zig`). Cores whose expansions
+//! are identical share one file, named for the first of them, with the rest
+//! listed in its header; when that is every core that uses it, there is no
+//! core in the name. Merging the files into fewer, idiomatic ones is done by
+//! hand afterward; the header of each says where its text came from.
 //!
-//! The body is left as the C preprocessor emits it. Only five things change,
-//! none of them instructions:
+//! The body is left as the C preprocessor emits it. Only these change, none
+//! of them instructions:
 //!
-//!   1. the assembler directives that declare the function are dropped; Zig
-//!      declares it,
+//!   1. the directives that declare the function are dropped; Zig declares it,
 //!   2. the argument shuffling the source does by hand is dropped; Zig's
-//!      calling convention delivers the arguments into the same registers
-//!      the source picked, pinned by the operand list,
-//!   3. `alpha` is loaded from a pointer, as the source's own Windows path
-//!      loads it from the stack,
-//!   4. each `ret` becomes a jump to the end of the block, since the block
-//!      is inside a Zig function that has its own epilogue,
-//!   5. tabs become spaces, which Zig's tokenizer requires inside `\\`.
+//!      calling convention delivers the arguments, into the registers the
+//!      source picked, pinned by the operand list,
+//!   3. each `ret` becomes a jump to the end of the block, since the block is
+//!      inside a Zig function that has its own epilogue,
+//!   4. tabs become spaces, which Zig's tokenizer requires inside `\\`.
 //!
 //! The registers stay exactly as OpenBLAS chose them. Nothing is reallocated.
 //! The clobber list is read off the body, so a register the source starts
 //! using is declared without anyone remembering to.
+//!
+//! Each function has the reference's kernel signature, so it is exported as
+//! the kernel directly. `index.zig` lists which cores use which file.
 
 const std = @import("std");
 const Io = std.Io;
 const map = @import("kernel_map.zig");
+const arch = @import("arch/__root__.zig");
+const roles = @import("roles.zig");
 
-const arch = "x86_64";
+const Arch = arch.Arch;
+const Kernel = arch.Kernel;
+const Prec = arch.Prec;
 
-/// A core, the macro OpenBLAS's headers test for it, and whether its build
-/// defines `HAVE_SSE3`.
-const Core = struct {
-    name: []const u8,
-    macro: []const u8,
-    sse3: bool,
+const arches = [_]Arch{
+    @import("arch/x86_64.zig").x86_64,
+    @import("arch/arm64.zig").arm64,
+    @import("arch/loongarch64.zig").loongarch64,
+    @import("arch/mips64.zig").mips64,
+    @import("arch/arm.zig").arm,
+    @import("arch/power.zig").power,
+    @import("arch/x86.zig").x86,
+    @import("arch/sparc.zig").sparc,
 };
 
-/// Real or complex, single or double.
-const Prec = enum {
-    s,
-    d,
-    c,
-    z,
-
-    fn complex(p: Prec) bool {
-        return p == .c or p == .z;
-    }
-    fn double(p: Prec) bool {
-        return p == .d or p == .z;
-    }
-    fn float(p: Prec) []const u8 {
-        return if (p.double()) "f64" else "f32";
-    }
-};
-
-/// One source, and the precision it is built for.
-const Kernel = struct {
-    /// Under `kernel/x86_64/` in the OpenBLAS checkout.
-    source: []const u8,
-    prec: Prec,
-    /// The conjugated complex form.
-    conj: bool = false,
-
-    fn stem(k: Kernel) []const u8 {
-        return k.source[0 .. k.source.len - 2];
-    }
-    /// `saxpy`, `zaxpyc`, ...
-    fn name(k: Kernel) []const u8 {
-        return std.fmt.allocPrint(map.arena, "{t}axpy{s}", .{ k.prec, if (k.conj) "c" else "" }) catch @panic("OOM");
-    }
-    /// The precision letter `Makefile.L1` keys the source by.
-    fn letter(k: Kernel) []const u8 {
-        return switch (k.prec) {
-            .s => "S",
-            .d => "D",
-            .c => "C",
-            .z => "Z",
-        };
-    }
-};
-
-const kernels = [_]Kernel{
-    .{ .source = "axpy_sse.S", .prec = .s },
-    .{ .source = "axpy_sse2.S", .prec = .d },
-    .{ .source = "axpy_atom.S", .prec = .d },
-    .{ .source = "zaxpy_sse.S", .prec = .c },
-    .{ .source = "zaxpy_sse.S", .prec = .c, .conj = true },
-    .{ .source = "zaxpy_sse2.S", .prec = .z },
-    .{ .source = "zaxpy_sse2.S", .prec = .z, .conj = true },
-    .{ .source = "zaxpy_atom.S", .prec = .z },
-    .{ .source = "zaxpy_atom.S", .prec = .z, .conj = true },
-};
-
-/// The registers the body expects its arguments in, and the Zig variables
-/// that carry them. `rdx` holds the address of `alpha`.
-const operands = [_][3][]const u8{
-    .{ "m", "rdi", "m" },
-    .{ "x", "rcx", "xp" },
-    .{ "incx", "r8", "ix" },
-    .{ "y", "r9", "yp" },
-    .{ "incy", "rsi", "iy" },
-    .{ "ap", "rdx", "ap" },
-};
-
-/// General registers by every name they go by, to the 64-bit one.
-fn canonical(reg: []const u8) ?[]const u8 {
-    const legacy = [_][]const u8{ "ax", "bx", "cx", "dx", "si", "di", "bp" };
-    for (legacy) |l| {
-        const wide = std.fmt.allocPrint(map.arena, "r{s}", .{l}) catch @panic("OOM");
-        if (std.mem.eql(u8, reg, wide) or std.mem.eql(u8, reg[1..], l) and reg[0] == 'e') return wide;
-        if (std.mem.eql(u8, reg, l)) return wide;
-    }
-    // al, bl, cl, dl and sil, dil, bpl
-    const low = [_][2][]const u8{
-        .{ "al", "rax" },  .{ "ah", "rax" },  .{ "bl", "rbx" },  .{ "bh", "rbx" },
-        .{ "cl", "rcx" },  .{ "ch", "rcx" },  .{ "dl", "rdx" },  .{ "dh", "rdx" },
-        .{ "sil", "rsi" }, .{ "dil", "rdi" }, .{ "bpl", "rbp" },
-    };
-    for (low) |l| if (std.mem.eql(u8, reg, l[0])) return l[1];
-    if (reg.len >= 2 and reg[0] == 'r') {
-        var end = reg.len;
-        if (std.mem.indexOfScalar(u8, "dwb", reg[end - 1]) != null and end > 2 and std.ascii.isDigit(reg[end - 2])) end -= 1;
-        const n = std.fmt.parseInt(u8, reg[1..end], 10) catch return null;
-        if (n >= 8 and n <= 15) return std.fmt.allocPrint(map.arena, "r{d}", .{n}) catch @panic("OOM");
-    }
-    return null;
+/// OpenBLAS's names: `daxpy_atom` for the double kernel of `axpy_atom.S`,
+/// `zaxpyc_sse2` for the conjugated complex one of `zaxpy_sse2.S`, then the
+/// build variant and, where cores differ within one, the first core.
+fn fileName(a: std.mem.Allocator, k: Kernel, width: []const u8, first: ?[]const u8) ![]const u8 {
+    const stem = k.stem();
+    // what follows the routine's name in the source's: `_sse2` of `dot_sse2`
+    const rest = if (std.mem.indexOfScalar(u8, stem, '_')) |at| stem[at..] else "";
+    const core = if (first) |f| try std.fmt.allocPrint(a, "_{s}", .{f}) else "";
+    return std.fmt.allocPrint(a, "{s}{s}{s}{s}.zig", .{ try k.role(a), rest, width, core });
 }
 
-/// The registers `text` mentions that are not operands, as Zig clobber names.
-fn clobbers(text: []const []const u8) []const []const u8 {
-    var seen: std.StringArrayHashMapUnmanaged(void) = .empty;
-    for (text) |line| {
-        var i: usize = 0;
-        while (std.mem.indexOfScalarPos(u8, line, i, '%')) |p| {
-            var e = p + 1;
-            while (e < line.len and std.ascii.isAlphanumeric(line[e])) e += 1;
-            const reg = line[p + 1 .. e];
-            i = e;
-            if (reg.len == 0) continue;
-            const is_vec = std.mem.startsWith(u8, reg, "xmm") or std.mem.startsWith(u8, reg, "ymm") or std.mem.startsWith(u8, reg, "zmm");
-            const name = if (is_vec) reg else canonical(reg) orelse continue;
-            if (std.mem.eql(u8, name, "rsp")) continue;
-            const pinned = for (operands) |o| {
-                if (std.mem.eql(u8, o[1], name)) break true;
-            } else false;
-            if (!pinned) seen.put(map.arena, name, {}) catch @panic("OOM");
+/// The axpy kernels keep pinned operands; every other routine is a naked
+/// function of the source's own.
+fn isAxpy(k: Kernel) bool {
+    return std.mem.indexOf(u8, k.role_name, "axpy") != null;
+}
+
+/// Tabs become spaces to the next multiple of eight.
+fn expandTabs(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var col: usize = 0;
+    for (s) |c| {
+        if (c == '\t') {
+            const n = 8 - col % 8;
+            try out.appendNTimes(a, ' ', n);
+            col += n;
+        } else {
+            try out.append(a, c);
+            col += 1;
         }
     }
-    const names = seen.keys();
-    std.mem.sort([]const u8, names, {}, struct {
-        fn lt(_: void, a: []const u8, b: []const u8) bool {
-            return std.mem.lessThan(u8, a, b);
-        }
-    }.lt);
-    return names;
+    return out.items;
 }
 
 /// Runs the preprocessor over the source the way OpenBLAS's build does.
-fn preprocess(inc: []const u8, k: Kernel, c: Core) []const u8 {
-    const a = map.arena;
+fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant, dump_macros: bool) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
-    argv.appendSlice(a, &.{
-        "zig",                                    "cc",
-        "-E",                                     "-P",
-        "-x",                                     "assembler-with-cpp",
-        "-w",                                     "-I",
-        inc,                                      "-I",
-        map.root,                                 "-I",
-        map.path(&.{ map.root, "kernel", arch }), "-DASSEMBLER",
-        "-DARCH_X86_64",                          "-DOS_LINUX",
-        "-DASMNAME=k",                            "-DASMFNAME=k_",
-        "-DNAME=k_",                              "-DCNAME=k",
-        "-target",                                "x86_64-linux-gnu",
-        "-DHAVE_SSE",                             "-DHAVE_SSE2",
-    }) catch @panic("OOM");
-    argv.append(a, std.fmt.allocPrint(a, "-D{s}", .{c.macro}) catch @panic("OOM")) catch @panic("OOM");
-    argv.append(a, std.fmt.allocPrint(a, "-DCORE_{s}", .{c.macro}) catch @panic("OOM")) catch @panic("OOM");
-    if (c.sse3) argv.append(a, "-DHAVE_SSE3") catch @panic("OOM");
-    if (k.prec.double()) argv.append(a, "-DDOUBLE") catch @panic("OOM");
-    if (k.prec.complex()) argv.append(a, "-DCOMPLEX") catch @panic("OOM");
-    if (k.conj) argv.append(a, "-DCONJ") catch @panic("OOM");
-    argv.append(a, map.path(&.{ map.root, "kernel", arch, k.source })) catch @panic("OOM");
-    argv.appendSlice(a, &.{ "-o", "-" }) catch @panic("OOM");
+    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.name }), "-target", ar.triple });
+    try argv.appendSlice(a, ar.defines);
+    if (k.prec.double()) try argv.append(a, "-DDOUBLE");
+    if (k.prec.complex()) try argv.append(a, "-DCOMPLEX");
+    if (k.conj) try argv.append(a, "-DCONJ");
+    try argv.appendSlice(a, k.defines);
+    try argv.appendSlice(a, try ar.core_defines(a, k, core));
+    try argv.appendSlice(a, v.defines);
+    if (dump_macros) try argv.append(a, "-dM");
+    try argv.append(a, try map.path(&.{ map.root, "kernel", ar.name, k.source }));
+    try argv.appendSlice(a, &.{ "-o", "-" });
 
     const r = std.process.run(a, map.io, .{ .argv = argv.items }) catch |e|
         map.die("cannot run the preprocessor: {t}", .{e});
@@ -195,158 +107,345 @@ fn preprocess(inc: []const u8, k: Kernel, c: Core) []const u8 {
     return r.stdout;
 }
 
-fn has(line: []const u8, needle: []const u8) bool {
-    return std.mem.indexOf(u8, line, needle) != null;
+/// The final macro definitions of the source, for `arch.macros`.
+fn readMacros(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant) !void {
+    arch.macros.clearRetainingCapacity();
+    var it = std.mem.splitScalar(u8, try runCpp(a, ar, inc, k, core, v, true), '\n');
+    while (it.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \r");
+        const prefix = "#define ";
+        if (!std.mem.startsWith(u8, line, prefix)) continue;
+        const rest = line[prefix.len..];
+        const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse continue;
+        try arch.macros.put(a, rest[0..sp], std.mem.trim(u8, rest[sp..], " "));
+    }
 }
 
-/// Tabs become spaces to the next multiple of eight.
-fn expandTabs(s: []const u8) []const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var col: usize = 0;
-    for (s) |c| {
-        if (c == '\t') {
-            const n = 8 - col % 8;
-            out.appendNTimes(map.arena, ' ', n) catch @panic("OOM");
-            col += n;
-        } else {
-            out.append(map.arena, c) catch @panic("OOM");
-            col += 1;
-        }
+/// The preprocessed source, tab-free and without empty lines.
+fn preprocess(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant) ![]const []const u8 {
+    const text = try runCpp(a, ar, inc, k, core, v, false);
+    var out: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |raw| {
+        const line = std.mem.trimEnd(u8, try expandTabs(a, raw), " \r");
+        if (std.mem.trim(u8, line, " ").len == 0) continue;
+        try out.append(a, line);
     }
     return out.items;
 }
 
-/// The body, as the lines that go inside the `asm` block.
-fn body(k: Kernel, expanded: []const u8) []const []const u8 {
-    var out: std.ArrayList([]const u8) = .empty;
-    // `alpha` arrives by pointer, as the source's Windows path also does; the
-    // real part goes where the source's Linux path expects it, `xmm0`, and
-    // the imaginary part in `xmm1`
-    const load = if (k.prec.double()) " movsd" else " movss";
-    const step: usize = if (k.prec.double()) 8 else 4;
-    out.append(map.arena, std.fmt.allocPrint(map.arena, "{s} (%rdx), %xmm0", .{load}) catch @panic("OOM")) catch @panic("OOM");
-    if (k.prec.complex()) out.append(map.arena, std.fmt.allocPrint(map.arena, "{s} {d}(%rdx), %xmm1", .{ load, step }) catch @panic("OOM")) catch @panic("OOM");
-    var it = std.mem.splitScalar(u8, expanded, '\n');
-    while (it.next()) |raw| {
-        const line = std.mem.trimEnd(u8, expandTabs(raw), " \r");
-        if (std.mem.trim(u8, line, " ").len == 0) continue;
-        // the directives that declare the function, and the ABI shuffling
-        if (has(line, ".globl") or has(line, ".size k") or has(line, ".section .note")) continue;
-        if (has(line, "movq 8(%rsp)")) continue;
-        if (has(line, "(%rsp)")) map.die("the body reads the stack: {s}", .{line});
-        // `ret` leaves the Zig function without its epilogue; jump to the end
-        if (std.mem.eql(u8, std.mem.trim(u8, line, " "), "ret")) {
-            out.append(map.arena, " jmp 9f") catch @panic("OOM");
+fn same(x: []const []const u8, y: []const []const u8) bool {
+    if (x.len != y.len) return false;
+    for (x, y) |p, q| if (!std.mem.eql(u8, p, q)) return false;
+    return true;
+}
+
+fn lowered(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    return try std.ascii.allocLowerString(a, s);
+}
+
+fn put(b: *std.ArrayList(u8), a: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
+    try b.print(a, fmt, args);
+}
+
+/// Whether `c` can be part of a label or macro name.
+fn isName(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$';
+}
+
+/// Every label and macro the assembler sees is global to the object, and one
+/// object holds several of these kernels, so each name gets the file's name
+/// appended and each macro is removed again at the end. Numeric labels are
+/// local to their block and stay as they are.
+fn finish(a: std.mem.Allocator, lines: []const []const u8, suffix: []const u8) ![]const []const u8 {
+    var labels: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var macros: std.ArrayList([]const u8) = .empty;
+    for (lines) |line| {
+        const t = std.mem.trim(u8, line, " ");
+        if (std.mem.startsWith(u8, t, ".macro ")) {
+            var it = std.mem.tokenizeAny(u8, t[".macro ".len..], " ,");
+            if (it.next()) |name| try macros.append(a, name);
             continue;
         }
-        out.append(map.arena, line) catch @panic("OOM");
+        var e: usize = 0;
+        while (e < t.len and isName(t[e])) e += 1;
+        if (e > 0 and e < t.len and t[e] == ':' and !std.ascii.isDigit(t[0])) try labels.put(a, t[0..e], {});
     }
-    out.append(map.arena, "9:") catch @panic("OOM");
+
+    var out: std.ArrayList([]const u8) = .empty;
+    for (lines) |line| {
+        // the function's own label; Zig declares the function
+        const t = std.mem.trim(u8, line, " ");
+        if (std.mem.eql(u8, t, "k:") or std.mem.eql(u8, t, "k_:")) continue;
+        var buf: std.ArrayList(u8) = .empty;
+        var i: usize = 0;
+        while (i < line.len) {
+            if (isName(line[i]) and (i == 0 or !isName(line[i - 1]))) {
+                var e = i;
+                while (e < line.len and isName(line[e])) e += 1;
+                const tok = line[i..e];
+                try buf.appendSlice(a, tok);
+                if (labels.contains(tok)) try buf.appendSlice(a, suffix);
+                i = e;
+            } else {
+                try buf.append(a, line[i]);
+                i += 1;
+            }
+        }
+        try out.append(a, buf.items);
+    }
+    for (macros.items) |m| try out.append(a, try std.fmt.allocPrint(a, " .purgem {s}", .{m}));
     return out.items;
 }
 
-fn emit(w: *std.ArrayList(u8), k: Kernel, cores: []const u8, lines: []const []const u8) void {
-    const a = map.arena;
+/// The text of one Zig file.
+fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, cores: []const u8, lines: []const []const u8) ![]const u8 {
+    var w: std.ArrayList(u8) = .empty;
     const F = k.prec.float();
-    w.print(a,
-        \\//! `{s}`, from OpenBLAS `kernel/x86_64/{s}`, as expanded for {s}.
+    const role = try k.role(a);
+    if (ar.naked or !isAxpy(k)) {
+        // the whole function is the source's: it reads its arguments from the
+        // ABI's places itself, saves what it uses, and returns
+        try put(&w, a,
+            \\//! `{s}`, from OpenBLAS `kernel/{s}/{s}`, as expanded for {s}.
+            \\//!
+            \\//! Generated by `tools/blas_asm/gen.zig`; the function is the assembly of
+            \\//! that source, unchanged, as a naked function, so it reads its own
+            \\//! arguments as the reference's does. Re-derive it rather than editing it.
+            \\
+            \\pub fn {s}() callconv(.naked) void {{
+            \\    asm volatile (
+            \\
+        , .{ role, ar.name, k.source, cores, role });
+        for (lines) |l| try put(&w, a, "        \\\\{s}\n", .{l});
+        try put(&w, a, "    );\n}}\n", .{});
+        return w.items;
+    }
+    const pins = try ar.pins(a, k);
+
+    try put(&w, a,
+        \\//! `{s}`, from OpenBLAS `kernel/{s}/{s}`, as expanded for {s}.
         \\//!
         \\//! Generated by `tools/blas_asm/gen.zig`; the body is the assembly of
         \\//! that source, unchanged, with OpenBLAS's own registers pinned by the
         \\//! operand list. Re-derive it rather than editing it.
         \\
         \\pub noinline fn {s}(
-    , .{ k.name(), k.source, cores, k.name() }) catch @panic("OOM");
+        \\    n: isize,
+        \\    _: isize,
+        \\    _: isize,
+        \\
+    , .{ role, ar.name, k.source, cores, role });
     if (k.prec.complex()) {
-        w.print(a, "n: isize, alpha_r: {s}, alpha_i: {s}, x: [*]{s}, inc_x: isize, y: [*]{s}, inc_y: isize", .{ F, F, F, F }) catch @panic("OOM");
+        try put(&w, a, "    alpha_r: {s},\n    alpha_i: {s},\n", .{ F, F });
     } else {
-        w.print(a, "n: isize, alpha: {s}, x: [*]{s}, inc_x: isize, y: [*]{s}, inc_y: isize", .{ F, F, F }) catch @panic("OOM");
+        try put(&w, a, "    alpha: {s},\n", .{F});
     }
-    w.print(a, ") void {{\n    var m = n;\n    var xp = x;\n    var ix = inc_x;\n    var yp = y;\n    var iy = inc_y;\n", .{}) catch @panic("OOM");
-    if (k.prec.complex()) {
-        w.print(a, "    const al = [2]{s}{{ alpha_r, alpha_i }};\n", .{F}) catch @panic("OOM");
-    } else {
-        w.print(a, "    const al = [1]{s}{{alpha}};\n", .{F}) catch @panic("OOM");
+    try put(&w, a, "    x: [*]{s},\n    inc_x: isize,\n    y: [*]{s},\n    inc_y: isize,\n    _: [*]{s},\n    _: isize,\n) callconv(.c) i32 {{\n", .{ F, F, F });
+
+    for (pins) |pin| if (pin.init) |i| try put(&w, a, "    {s} {s} = {s};\n", .{ if (pin.inout) "var" else "const", pin.variable, i });
+    for (try ar.decls(a, k)) |d| try put(&w, a, "    {s}\n", .{d});
+    try put(&w, a, "    asm volatile (\n", .{});
+    for (lines) |l| try put(&w, a, "        \\\\{s}\n", .{l});
+
+    // outputs, then inputs
+    var first = true;
+    for (pins) |pin| {
+        if (!pin.inout) continue;
+        try put(&w, a, "        {s} [{s}] \"+{{{s}}}\" ({s}),\n", .{ if (first) ":" else " ", pin.name, pin.reg, pin.variable });
+        first = false;
     }
-    w.print(a, "    var ap: [*]const {s} = &al;\n    asm volatile (\n", .{F}) catch @panic("OOM");
-    for (lines) |l| w.print(a, "        \\\\{s}\n", .{l}) catch @panic("OOM");
-    for (operands, 0..) |o, i| {
-        w.print(a, "        {s} [{s}] \"+{{{s}}}\" ({s}),\n", .{ if (i == 0) ":" else " ", o[0], o[1], o[2] }) catch @panic("OOM");
+    var any_in = false;
+    for (pins) |pin| {
+        if (pin.inout) continue;
+        try put(&w, a, "        {s} [{s}] \"{{{s}}}\" ({s}),\n", .{ if (!any_in) ":" else " ", pin.name, pin.reg, pin.variable });
+        any_in = true;
     }
-    w.print(a, "        :\n        : .{{ .memory = true, .cc = true", .{}) catch @panic("OOM");
-    for (clobbers(lines)) |c| w.print(a, ", .{s} = true", .{c}) catch @panic("OOM");
-    w.print(a, " }});\n}}\n", .{}) catch @panic("OOM");
+    if (!any_in) try put(&w, a, "        :\n", .{});
+    try put(&w, a, "        : .{{", .{});
+    var sep: []const u8 = " ";
+    for (ar.always_clobbers) |c| {
+        try put(&w, a, "{s}.{s} = true", .{ sep, c });
+        sep = ", ";
+    }
+    for (try ar.clobbers(a, lines, pins)) |c| try put(&w, a, ", .{s} = true", .{c});
+    try put(&w, a, " }});\n    return 0;\n}}\n", .{});
+    return w.items;
 }
 
-fn same(a: []const []const u8, b: []const []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |x, y| if (!std.mem.eql(u8, x, y)) return false;
-    return true;
+/// A source and precision, and the cores that use it.
+const Job = struct {
+    kernel: Kernel,
+    cores: std.ArrayList([]const u8) = .empty,
+};
+
+fn findJob(jobs: *std.ArrayList(Job), k: Kernel) ?*Job {
+    for (jobs.items) |*j| {
+        if (std.mem.eql(u8, j.kernel.role_name, k.role_name) and std.mem.eql(u8, j.kernel.source, k.source)) return j;
+    }
+    return null;
 }
 
-/// Whether `core` uses `k.source` for `k`'s precision.
-fn uses(core: []const u8, k: Kernel) bool {
-    for (map.resolve(arch, core, k.letter())) |s| if (std.mem.eql(u8, s, k.source)) return true;
-    return false;
-}
+const Entry = struct { role: []const u8, variant: []const u8, cores: []const u8, file: []const u8 };
 
-fn coreOf(name: []const u8) Core {
-    // `OPTERON_SSE3` is `OPTERON` with SSE3; the headers know one macro
-    const sse3 = !std.mem.eql(u8, name, "OPTERON");
-    const macro = if (std.mem.eql(u8, name, "OPTERON_SSE3")) "OPTERON" else name;
-    return .{ .name = name, .macro = macro, .sse3 = sse3 };
+fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8) !void {
+    const io = map.io;
+    const inc = try std.fmt.allocPrint(a, ".zig-cache/blas_asm_inc_{s}", .{ar.name});
+    try Io.Dir.cwd().createDirPath(io, inc);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try map.path(&.{ inc, "config.h" }), .data = ar.config_h });
+
+    const dir = try std.fmt.allocPrint(a, "{s}/{s}/asm", .{ out_root, ar.name });
+    try Io.Dir.cwd().createDirPath(io, dir);
+
+    // which sources and precisions the cores use
+    var jobs: std.ArrayList(Job) = .empty;
+    const all_cores = try map.cores(ar.name) orelse return;
+    for (all_cores) |core| {
+        for (role_list) |r| {
+            for (try map.resolveKey(ar.name, core, r.key, "Makefile.L1")) |source| {
+                if (!ar.is_asm(source)) continue;
+                const k: Kernel = .{ .source = source, .prec = r.prec, .conj = r.conj, .role_name = r.name, .defines = r.defines };
+                const job = findJob(&jobs, k) orelse blk: {
+                    try jobs.append(a, .{ .kernel = k });
+                    break :blk &jobs.items[jobs.items.len - 1];
+                };
+                try job.cores.append(a, core);
+            }
+        }
+    }
+
+    // a core with more than one alternative for a kernel (chosen upstream by
+    // compiler version or byte order) is not indexed for it
+    var ambiguous: std.StringHashMapUnmanaged(void) = .empty;
+    for (all_cores) |core| {
+        for (role_list) |r| {
+            if ((try map.resolveKey(ar.name, core, r.key, "Makefile.L1")).len < 2) continue;
+            try ambiguous.put(a, try std.fmt.allocPrint(a, "{s}:{s}", .{ try lowered(a, core), r.name }), {});
+        }
+    }
+
+    var entries: std.ArrayList(Entry) = .empty;
+    for (jobs.items) |job| {
+        const k = job.kernel;
+        for (ar.variants) |v| {
+            const Group = struct { text: []const []const u8, names: std.ArrayList(u8) = .empty, cores: std.ArrayList(u8) = .empty, first: []const u8 };
+            var groups: std.ArrayList(Group) = .empty;
+            try readMacros(a, ar, inc, k, job.cores.items[0], v);
+            outer: for (job.cores.items) |core| {
+                const lines = if (isAxpy(k)) try ar.transform(a, k, try preprocess(a, ar, inc, k, core, v)) else try arch.nakedLines(a, try preprocess(a, ar, inc, k, core, v));
+                const lower = try lowered(a, core);
+                const key = try std.fmt.allocPrint(a, "{s}:{s}", .{ lower, try k.role(a) });
+                const indexed = !ambiguous.contains(key);
+                for (groups.items) |*g| {
+                    if (same(g.text, lines)) {
+                        try g.names.print(a, ", {s}", .{lower});
+                        if (indexed) try g.cores.print(a, ",{s}", .{lower});
+                        continue :outer;
+                    }
+                }
+                var g: Group = .{ .text = lines, .first = lower };
+                try g.names.print(a, "{s}", .{lower});
+                if (indexed) try g.cores.print(a, "{s}", .{lower});
+                try groups.append(a, g);
+            }
+
+            for (groups.items) |g| {
+                const cores = g.names.items;
+                const width = if (v.name.len > 0) try std.fmt.allocPrint(a, "_{s}", .{v.name}) else "";
+                const file = try fileName(a, k, width, if (groups.items.len == 1) null else g.first);
+                // sources the toolchain cannot assemble are not converted at all
+                const unsupported = for (ar.unsupported) |u| {
+                    if (std.mem.eql(u8, u, k.source)) break true;
+                } else std.mem.indexOf(u8, k.source, "_hummer") != null;
+                if (unsupported) continue;
+                const dest = try map.path(&.{ dir, file });
+                const suffix = try std.fmt.allocPrint(a, "_{s}", .{file[0 .. file.len - ".zig".len]});
+                try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = try emit(a, ar, k, cores, try finish(a, g.text, suffix)) });
+                _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", dest } });
+                if (g.cores.items.len > 0) try entries.append(a, .{ .role = try k.role(a), .variant = v.name, .cores = g.cores.items, .file = file });
+                std.debug.print("wrote {s} ({d} body lines): {s}\n", .{ dest, g.text.len, cores });
+            }
+        }
+    }
+
+    // which file serves which core
+    var idx: std.ArrayList(u8) = .empty;
+    try put(&idx, a,
+        \\//! Which converted file serves which cores, per kernel. Generated by
+        \\//! `tools/blas_asm/gen.zig`; re-derive it rather than editing it.
+        \\
+        \\const std = @import("std");
+        \\
+        \\pub const Entry = struct {{
+        \\    role: []const u8,
+        \\    /// Empty when the file is the same however the source is built.
+        \\    variant: []const u8,
+        \\    cores: []const []const u8,
+        \\    module: type,
+        \\}};
+        \\
+        \\pub const entries = [_]Entry{{
+        \\
+    , .{});
+    for (entries.items) |e| {
+        try put(&idx, a, "    .{{ .role = \"{s}\", .variant = \"{s}\", .cores = &.{{", .{ e.role, e.variant });
+        var it = std.mem.splitScalar(u8, e.cores, ',');
+        while (it.next()) |c| try put(&idx, a, " \"{s}\",", .{c});
+        try put(&idx, a, " }}, .module = @import(\"{s}\") }},\n", .{e.file});
+    }
+    try put(&idx, a, "}};\n\n", .{});
+    try idx.appendSlice(a,
+        \\/// The file whose function `role` is, for `core` built as `variant`, if it
+        \\/// is assembly there.
+        \\pub fn source(comptime role: []const u8, comptime core: []const u8, comptime variant: []const u8) ?type {
+        \\    @setEvalBranchQuota(1_000_000);
+        \\    inline for (entries) |e| {
+        \\        if (comptime std.mem.eql(u8, e.role, role) and (e.variant.len == 0 or std.mem.eql(u8, e.variant, variant))) {
+        \\            inline for (e.cores) |c| {
+        \\                if (comptime std.mem.eql(u8, c, core)) return e.module;
+        \\            }
+        \\        }
+        \\    }
+        \\    return null;
+        \\}
+        \\
+    );
+    const idx_path = try map.path(&.{ dir, "index.zig" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = idx_path, .data = idx.items });
+    _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", idx_path } });
 }
 
 pub fn main(init: std.process.Init) !void {
-    const arena = init.arena.allocator();
+    const a = init.arena.allocator();
     const checkout = init.environ_map.get("OPENBLAS") orelse
         map.die("set OPENBLAS to the OpenBLAS checkout", .{});
-    map.init(arena, init.io, checkout);
-    const io = init.io;
+    try map.init(a, init.io, checkout);
+    if (init.environ_map.get("BLAS_OUT")) |o| map.out_root = o;
 
-    // the two headers the sources include; nothing in them matters here
-    const inc = ".zig-cache/blas_asm_inc";
-    try Io.Dir.cwd().createDirPath(io, inc);
-    try Io.Dir.cwd().writeFile(io, .{
-        .sub_path = inc ++ "/config.h",
-        .data = "#define ARCH_X86_64 1\n#define BINARY64 1\n",
-    });
-
-    const dir = "src/linalg/blas/blas1/axpy/x86_64/asm";
-    try Io.Dir.cwd().createDirPath(io, dir);
-    const all_cores = map.cores(arch).?;
-
-    for (kernels) |k| {
-        // group the cores by the text they expand to
-        const Group = struct { text: []const []const u8, names: std.ArrayList(u8) = .empty, first: []const u8 };
-        var groups: std.ArrayList(Group) = .empty;
-        outer: for (all_cores) |name| {
-            if (!uses(name, k)) continue;
-            const c = coreOf(name);
-            const lines = body(k, preprocess(inc, k, c));
-            for (groups.items) |*g| {
-                if (same(g.text, lines)) {
-                    try g.names.print(arena, ", {s}", .{lowered(c.name)});
-                    continue :outer;
-                }
-            }
-            var g: Group = .{ .text = lines, .first = lowered(c.name) };
-            try g.names.print(arena, "{s}", .{lowered(c.name)});
-            try groups.append(arena, g);
-        }
-
-        for (groups.items) |g| {
-            var out: std.ArrayList(u8) = .empty;
-            emit(&out, k, g.names.items, g.text);
-            const file = try std.fmt.allocPrint(arena, "{s}{s}_{s}.zig", .{ k.stem(), if (k.conj) "_conj" else "", g.first });
-            const dest = map.path(&.{ dir, file });
-            try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = out.items });
-            _ = try std.process.run(arena, io, .{ .argv = &.{ "zig", "fmt", dest } });
-            std.debug.print("wrote {s} ({d} body lines): {s}\n", .{ dest, g.text.len, g.names.items });
-        }
+    var want: std.ArrayList([]const u8) = .empty;
+    var others = false;
+    var args = try init.minimal.args.iterateAllocator(a);
+    _ = args.next();
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--others")) others = true else try want.append(a, arg);
     }
-}
 
-fn lowered(s: []const u8) []const u8 {
-    return std.ascii.allocLowerString(map.arena, s) catch @panic("OOM");
+    // the roles: axpy, kept as it was, or every other routine of the level-1 rules
+    const text = map.read(try map.path(&.{ map.root, "kernel", "Makefile.L1" })).?;
+    var picked: std.ArrayList(roles.Role) = .empty;
+    for (try roles.parse(a, text)) |r| {
+        const is_axpy = std.mem.indexOf(u8, r.name, "axpy") != null and std.mem.indexOf(u8, r.name, "axpby") == null;
+        if (is_axpy != others) try picked.append(a, r);
+    }
+    const out_root = if (others) (init.environ_map.get("BLAS_OUT_KERNELS") orelse "src/linalg/blas/kernels") else map.out_root;
+
+    for (arches) |ar| {
+        if (want.items.len > 0) {
+            const listed = for (want.items) |w| {
+                if (std.mem.eql(u8, w, ar.name)) break true;
+            } else false;
+            if (!listed) continue;
+        }
+        try convert(a, ar, picked.items, out_root);
+    }
 }
