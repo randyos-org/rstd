@@ -8,10 +8,10 @@
 //!     precision (`asm/__root__.zig` says which core uses which), exported as the
 //!     kernel directly;
 //!   * the C driver `{s,d,c,z}axpy.c` around a block kernel, which is the
-//!     shared driver in `../kernel.zig` around a block from `microk/` (the
+//!     shared driver in `../kernel.zig` around a block from `uk/` (the
 //!     reference's inline-assembly microkernel, as written), or, for the
 //!     AVX-512 cores whose upstream block is C intrinsics, the same loops on
-//!     `@Vector`s. `microk/__root__.zig` says which block each core's driver
+//!     `@Vector`s. `uk/__root__.zig` says which block each core's driver
 //!     includes and at what block size.
 //!
 //! The build gives the object the core's CPU features; the assembler needs
@@ -26,8 +26,8 @@ const fma = @import("../../../fma.zig");
 const util = @import("../../../util.zig");
 const registry = @import("../../../asm_registry.zig");
 const kernel = @import("../kernel.zig");
-const c_driven = @import("../c_driven.zig");
-const mk = @import("microk/__root__.zig");
+const uk = @import("../uk_block.zig");
+const ukidx = @import("uk/__root__.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -37,8 +37,8 @@ const roles = kernel.roles;
 const asm_kernels = registry.Registry(Core, @import("asm/__root__.zig"), "", roles);
 
 /// The C-driven entry for `role` on `core`, if it has one.
-fn cEntry(comptime role: []const u8, comptime core: Core) ?mk.Entry {
-    return mk.find(role, @tagName(core));
+fn cEntry(comptime role: []const u8, comptime core: Core) ?ukidx.Entry {
+    return ukidx.find(role, @tagName(core));
 }
 
 const has_avx512f = std.Target.x86.featureSetHas(sysinfo.cpu.features, .avx512f);
@@ -79,7 +79,7 @@ pub fn exportCore(comptime core: Core) void {
         if (comptime asm_kernels.hasRole(core, role)) {
             asm_kernels.exportOne(role, core);
         } else if (comptime cEntry(role, core)) |e| {
-            @export(c_driven.driven(role, e, VectorBlock), .{ .name = symbol(role, core) });
+            @export(uk.driven(role, e, VectorBlock), .{ .name = symbol(role, core) });
         }
     }
 }

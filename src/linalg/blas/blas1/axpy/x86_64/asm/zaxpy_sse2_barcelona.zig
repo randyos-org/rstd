@@ -4,7 +4,19 @@
 //! that source, unchanged, with OpenBLAS's own registers pinned by the
 //! operand list. Re-derive it rather than editing it.
 
-pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: isize, y: [*]f64, inc_y: isize) void {
+pub noinline fn zaxpy(
+    n: isize,
+    _: isize,
+    _: isize,
+    alpha_r: f64,
+    alpha_i: f64,
+    x: [*]f64,
+    inc_x: isize,
+    y: [*]f64,
+    inc_y: isize,
+    _: [*]f64,
+    _: isize,
+) callconv(.c) i32 {
     var m = n;
     var xp = x;
     var ix = inc_x;
@@ -18,11 +30,11 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ salq $4, %r8
         \\ salq $4, %rsi
         \\ testq %rdi, %rdi
-        \\ jle .L999
+        \\ jle .L999_zaxpy_sse2_barcelona
         \\ cmpq $2 * 8, %r8
-        \\ jne .L50
+        \\ jne .L50_zaxpy_sse2_barcelona
         \\ cmpq $2 * 8, %rsi
-        \\ jne .L50
+        \\ jne .L50_zaxpy_sse2_barcelona
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ pcmpeqb %xmm7, %xmm7
@@ -32,20 +44,20 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ shufps $0x0c, %xmm7, %xmm7
         \\ xorpd %xmm7, %xmm15
         \\ testq $8, %r9
-        \\ jne .L30
+        \\ jne .L30_zaxpy_sse2_barcelona
         \\ testq $8, %rcx
-        \\ jne .L20
+        \\ jne .L20_zaxpy_sse2_barcelona
         \\ movq %rdi, %rax
         \\ sarq $3, %rax
-        \\ jle .L15
+        \\ jle .L15_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm0
         \\ movaps -14 * 8(%rcx), %xmm1
         \\ movaps -12 * 8(%rcx), %xmm2
         \\ movaps -10 * 8(%rcx), %xmm3
         \\ decq %rax
-        \\ jle .L12
+        \\ jle .L12_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L11:
+        \\.L11_zaxpy_sse2_barcelona:
         \\ movaps -8 * 8(%rcx), %xmm4
         \\ movaps -6 * 8(%rcx), %xmm5
         \\ prefetchw ((128 * 5) + 0) - 128(%r9)
@@ -109,9 +121,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ decq %rax
-        \\ jg .L11
+        \\ jg .L11_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L12:
+        \\.L12_zaxpy_sse2_barcelona:
         \\ movaps -8 * 8(%rcx), %xmm4
         \\ movaps -6 * 8(%rcx), %xmm5
         \\ pshufd $0x4e, %xmm0, %xmm8
@@ -167,10 +179,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ .align 8
-        \\.L15:
+        \\.L15_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $4, %rax
-        \\ jle .L16
+        \\ jle .L16_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm0
         \\ movaps -14 * 8(%rcx), %xmm1
         \\ movaps -12 * 8(%rcx), %xmm2
@@ -202,10 +214,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $8 * 8, %rcx
         \\ addq $8 * 8, %r9
         \\ .align 8
-        \\.L16:
+        \\.L16_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $2, %rax
-        \\ jle .L17
+        \\ jle .L17_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm0
         \\ movaps -14 * 8(%rcx), %xmm1
         \\ pshufd $0x4e, %xmm0, %xmm8
@@ -223,10 +235,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $4 * 8, %rcx
         \\ addq $4 * 8, %r9
         \\ .align 8
-        \\.L17:
+        \\.L17_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $1, %rax
-        \\ jle .L999
+        \\ jle .L999_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm0
         \\ pshufd $0x4e, %xmm0, %xmm8
         \\ mulpd %xmm14, %xmm0
@@ -234,12 +246,12 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addpd -16 * 8(%r9), %xmm0
         \\ addpd %xmm8, %xmm0
         \\ movaps %xmm0, -16 * 8(%r9)
-        \\ jmp .L999
+        \\ jmp .L999_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L20:
+        \\.L20_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ sarq $3, %rax
-        \\ jle .L25
+        \\ jle .L25_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm0
         \\ movhps -15 * 8(%rcx), %xmm0
         \\ movsd -14 * 8(%rcx), %xmm1
@@ -249,9 +261,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movsd -10 * 8(%rcx), %xmm3
         \\ movhps -9 * 8(%rcx), %xmm3
         \\ decq %rax
-        \\ jle .L22
+        \\ jle .L22_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L21:
+        \\.L21_zaxpy_sse2_barcelona:
         \\ movsd -8 * 8(%rcx), %xmm4
         \\ movhps -7 * 8(%rcx), %xmm4
         \\ prefetchw ((128 * 5) + 0) - 128(%r9)
@@ -323,9 +335,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ decq %rax
-        \\ jg .L21
+        \\ jg .L21_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L22:
+        \\.L22_zaxpy_sse2_barcelona:
         \\ movsd -8 * 8(%rcx), %xmm4
         \\ movhps -7 * 8(%rcx), %xmm4
         \\ pshufd $0x4e, %xmm0, %xmm8
@@ -385,10 +397,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ .align 8
-        \\.L25:
+        \\.L25_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $4, %rax
-        \\ jle .L26
+        \\ jle .L26_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm0
         \\ movhps -15 * 8(%rcx), %xmm0
         \\ movsd -14 * 8(%rcx), %xmm1
@@ -424,10 +436,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $8 * 8, %rcx
         \\ addq $8 * 8, %r9
         \\ .align 8
-        \\.L26:
+        \\.L26_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $2, %rax
-        \\ jle .L27
+        \\ jle .L27_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm0
         \\ movhps -15 * 8(%rcx), %xmm0
         \\ pshufd $0x4e, %xmm0, %xmm8
@@ -447,10 +459,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $4 * 8, %rcx
         \\ addq $4 * 8, %r9
         \\ .align 8
-        \\.L27:
+        \\.L27_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $1, %rax
-        \\ jle .L999
+        \\ jle .L999_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm0
         \\ movhps -15 * 8(%rcx), %xmm0
         \\ pshufd $0x4e, %xmm0, %xmm8
@@ -459,11 +471,11 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addpd -16 * 8(%r9), %xmm0
         \\ addpd %xmm8, %xmm0
         \\ movaps %xmm0, -16 * 8(%r9)
-        \\ jmp .L999
+        \\ jmp .L999_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L30:
+        \\.L30_zaxpy_sse2_barcelona:
         \\ testq $8, %rcx
-        \\ jne .L40
+        \\ jne .L40_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm1
         \\ pshufd $0x4e, %xmm1, %xmm8
         \\ mulpd %xmm14, %xmm1
@@ -479,17 +491,17 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $2 * 8, %rcx
         \\ addq $1 * 8, %r9
         \\ decq %rdi
-        \\ jle .L39
+        \\ jle .L39_zaxpy_sse2_barcelona
         \\ movq %rdi, %rax
         \\ sarq $3, %rax
-        \\ jle .L35
+        \\ jle .L35_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm1
         \\ movaps -14 * 8(%rcx), %xmm2
         \\ movaps -12 * 8(%rcx), %xmm3
         \\ decq %rax
-        \\ jle .L32
+        \\ jle .L32_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L31:
+        \\.L31_zaxpy_sse2_barcelona:
         \\ prefetchw ((128 * 5) + 0) - 128(%r9)
         \\ pshufd $0x4e, %xmm1, %xmm8
         \\ mulpd %xmm14, %xmm1
@@ -561,9 +573,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ decq %rax
-        \\ jg .L31
+        \\ jg .L31_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L32:
+        \\.L32_zaxpy_sse2_barcelona:
         \\ pshufd $0x4e, %xmm1, %xmm8
         \\ mulpd %xmm14, %xmm1
         \\ mulpd %xmm15, %xmm8
@@ -628,10 +640,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ .align 8
-        \\.L35:
+        \\.L35_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $4, %rax
-        \\ jle .L36
+        \\ jle .L36_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm1
         \\ movaps -14 * 8(%rcx), %xmm2
         \\ movaps -12 * 8(%rcx), %xmm3
@@ -668,10 +680,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $8 * 8, %rcx
         \\ addq $8 * 8, %r9
         \\ .align 8
-        \\.L36:
+        \\.L36_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $2, %rax
-        \\ jle .L37
+        \\ jle .L37_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm1
         \\ movaps -14 * 8(%rcx), %xmm2
         \\ pshufd $0x4e, %xmm1, %xmm8
@@ -692,10 +704,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $4 * 8, %rcx
         \\ addq $4 * 8, %r9
         \\ .align 8
-        \\.L37:
+        \\.L37_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $1, %rax
-        \\ jle .L39
+        \\ jle .L39_zaxpy_sse2_barcelona
         \\ movaps -16 * 8(%rcx), %xmm1
         \\ pshufd $0x4e, %xmm1, %xmm8
         \\ mulpd %xmm14, %xmm1
@@ -708,13 +720,13 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $2 * 8, %rcx
         \\ addq $2 * 8, %r9
         \\ .align 8
-        \\.L39:
+        \\.L39_zaxpy_sse2_barcelona:
         \\ shufpd $1, %xmm0, %xmm0
         \\ addsd -16 * 8(%r9), %xmm0
         \\ movlps %xmm0, -16 * 8(%r9)
-        \\ jmp .L999
+        \\ jmp .L999_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L40:
+        \\.L40_zaxpy_sse2_barcelona:
         \\ movsd -16 * 8(%rcx), %xmm1
         \\ movhps -15 * 8(%rcx), %xmm1
         \\ pshufd $0x4e, %xmm1, %xmm8
@@ -731,10 +743,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $2 * 8, %rcx
         \\ addq $1 * 8, %r9
         \\ decq %rdi
-        \\ jle .L49
+        \\ jle .L49_zaxpy_sse2_barcelona
         \\ movq %rdi, %rax
         \\ sarq $3, %rax
-        \\ jle .L45
+        \\ jle .L45_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm1
         \\ movhps -15 * 8(%rcx), %xmm1
         \\ movsd -14 * 8(%rcx), %xmm2
@@ -742,9 +754,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movsd -12 * 8(%rcx), %xmm3
         \\ movhps -11 * 8(%rcx), %xmm3
         \\ decq %rax
-        \\ jle .L42
+        \\ jle .L42_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L41:
+        \\.L41_zaxpy_sse2_barcelona:
         \\ prefetchw ((128 * 5) + 0) - 128(%r9)
         \\ pshufd $0x4e, %xmm1, %xmm8
         \\ mulpd %xmm14, %xmm1
@@ -824,9 +836,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ decq %rax
-        \\ jg .L41
+        \\ jg .L41_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L42:
+        \\.L42_zaxpy_sse2_barcelona:
         \\ pshufd $0x4e, %xmm1, %xmm8
         \\ mulpd %xmm14, %xmm1
         \\ mulpd %xmm15, %xmm8
@@ -896,10 +908,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ subq $-16 * 8, %rcx
         \\ subq $-16 * 8, %r9
         \\ .align 8
-        \\.L45:
+        \\.L45_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $4, %rax
-        \\ jle .L46
+        \\ jle .L46_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm1
         \\ movhps -15 * 8(%rcx), %xmm1
         \\ movsd -14 * 8(%rcx), %xmm2
@@ -940,10 +952,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $8 * 8, %rcx
         \\ addq $8 * 8, %r9
         \\ .align 8
-        \\.L46:
+        \\.L46_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $2, %rax
-        \\ jle .L47
+        \\ jle .L47_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm1
         \\ movhps -15 * 8(%rcx), %xmm1
         \\ movsd -14 * 8(%rcx), %xmm2
@@ -966,10 +978,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $4 * 8, %rcx
         \\ addq $4 * 8, %r9
         \\ .align 8
-        \\.L47:
+        \\.L47_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $1, %rax
-        \\ jle .L49
+        \\ jle .L49_zaxpy_sse2_barcelona
         \\ movsd -16 * 8(%rcx), %xmm1
         \\ movhps -15 * 8(%rcx), %xmm1
         \\ pshufd $0x4e, %xmm1, %xmm8
@@ -983,13 +995,13 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ addq $2 * 8, %rcx
         \\ addq $2 * 8, %r9
         \\ .align 8
-        \\.L49:
+        \\.L49_zaxpy_sse2_barcelona:
         \\ shufpd $1, %xmm0, %xmm0
         \\ addsd -16 * 8(%r9), %xmm0
         \\ movlps %xmm0, -16 * 8(%r9)
-        \\ jmp .L999
+        \\ jmp .L999_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L50:
+        \\.L50_zaxpy_sse2_barcelona:
         \\ movaps %xmm0, %xmm14 # a 0
         \\ pxor %xmm15, %xmm15 # 0 0
         \\ subsd %xmm1, %xmm15 # -b 0
@@ -998,12 +1010,12 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movq %r9, %r11
         \\ movq %rdi, %rax
         \\ cmpq $0, %r8
-        \\ jne .L59
+        \\ jne .L59_zaxpy_sse2_barcelona
         \\ cmpq $0, %rsi
-        \\ je .L58
-        \\.L59:
+        \\ je .L58_zaxpy_sse2_barcelona
+        \\.L59_zaxpy_sse2_barcelona:
         \\ sarq $3, %rax
-        \\ jle .L55
+        \\ jle .L55_zaxpy_sse2_barcelona
         \\ movddup 0 * 8(%rcx), %xmm0
         \\ movddup 1 * 8(%rcx), %xmm1
         \\ addq %r8, %rcx
@@ -1033,9 +1045,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ mulpd %xmm14, %xmm4
         \\ mulpd %xmm14, %xmm6
         \\ decq %rax
-        \\ jle .L52
+        \\ jle .L52_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L51:
+        \\.L51_zaxpy_sse2_barcelona:
         \\ addpd %xmm0, %xmm8
         \\ mulpd %xmm15, %xmm1
         \\ addpd %xmm2, %xmm9
@@ -1141,9 +1153,9 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movhpd 1 * 8(%r9), %xmm11
         \\ addq %rsi, %r9
         \\ decq %rax
-        \\ jg .L51
+        \\ jg .L51_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L52:
+        \\.L52_zaxpy_sse2_barcelona:
         \\ addpd %xmm0, %xmm8
         \\ mulpd %xmm15, %xmm1
         \\ addpd %xmm2, %xmm9
@@ -1221,10 +1233,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movhpd %xmm11, 1 * 8(%r11)
         \\ addq %rsi, %r11
         \\ .align 8
-        \\.L55:
+        \\.L55_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $4, %rax
-        \\ jle .L56
+        \\ jle .L56_zaxpy_sse2_barcelona
         \\ movddup 0 * 8(%rcx), %xmm0
         \\ movddup 1 * 8(%rcx), %xmm1
         \\ addq %r8, %rcx
@@ -1278,10 +1290,10 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movhpd %xmm11, 1 * 8(%r11)
         \\ addq %rsi, %r11
         \\ .align 8
-        \\.L56:
+        \\.L56_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $2, %rax
-        \\ jle .L57
+        \\ jle .L57_zaxpy_sse2_barcelona
         \\ movddup 0 * 8(%rcx), %xmm0
         \\ movddup 1 * 8(%rcx), %xmm1
         \\ addq %r8, %rcx
@@ -1309,11 +1321,11 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movhpd %xmm9, 1 * 8(%r11)
         \\ addq %rsi, %r11
         \\ .align 8
-        \\.L57:
+        \\.L57_zaxpy_sse2_barcelona:
         \\ movq %rdi, %rax
         \\ andq $1, %rax
-        \\ jle .L999
-        \\.L58:
+        \\ jle .L999_zaxpy_sse2_barcelona
+        \\.L58_zaxpy_sse2_barcelona:
         \\ movddup 0 * 8(%rcx), %xmm0
         \\ movddup 1 * 8(%rcx), %xmm1
         \\ movsd 0 * 8(%r9), %xmm8
@@ -1325,12 +1337,12 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
         \\ movlpd %xmm8, 0 * 8(%r11)
         \\ movhpd %xmm8, 1 * 8(%r11)
         \\ decq %rax
-        \\ jg .L58
+        \\ jg .L58_zaxpy_sse2_barcelona
         \\ .align 8
-        \\.L999:
+        \\.L999_zaxpy_sse2_barcelona:
         \\ xorq %rax, %rax
-        \\ jmp 9f
-        \\9:
+        \\ jmp 9999f
+        \\9999:
         : [m] "+{rdi}" (m),
           [x] "+{rcx}" (xp),
           [incx] "+{r8}" (ix),
@@ -1338,5 +1350,6 @@ pub noinline fn zaxpy(n: isize, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: is
           [incy] "+{rsi}" (iy),
           [ap] "+{rdx}" (ap),
         :
-        : .{ .memory = true, .cc = true, .r11 = true, .rax = true, .xmm0 = true, .xmm1 = true, .xmm10 = true, .xmm11 = true, .xmm14 = true, .xmm15 = true, .xmm2 = true, .xmm3 = true, .xmm4 = true, .xmm5 = true, .xmm6 = true, .xmm7 = true, .xmm8 = true, .xmm9 = true });
+        : .{ .memory = true, .cc = true, .xmm0 = true, .xmm1 = true, .xmm7 = true, .xmm14 = true, .xmm15 = true, .rax = true, .xmm2 = true, .xmm3 = true, .xmm4 = true, .xmm5 = true, .xmm8 = true, .xmm6 = true, .r11 = true, .xmm9 = true, .xmm10 = true, .xmm11 = true });
+    return 0;
 }

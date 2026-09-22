@@ -3,21 +3,21 @@
 //!
 //! The reference's `zarch/{s,d,c,z}axpy.c` are the shared C driver around a
 //! block that is inline assembly on the vector facility: the block is in
-//! `microk/`, as written, and composed with the driver in `../kernel.zig`.
-//! `microk/__root__.zig` says which core uses which. The cores whose
+//! `uk/`, as written, and composed with the driver in `../kernel.zig`.
+//! `uk/__root__.zig` says which core uses which. The cores whose
 //! `KERNEL.<CORE>` names the plain C loops keep the portable kernels.
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const util = @import("../../../util.zig");
 const roles = @import("../kernel.zig").roles;
-const c_driven = @import("../c_driven.zig");
-const mk = @import("microk/__root__.zig");
+const uk = @import("../uk_block.zig");
+const ukidx = @import("uk/__root__.zig");
 
 pub const Core = coretypes.S390xCoreType;
 
 /// The entry for `role` on `core`, if it has one.
-fn entry(comptime role: []const u8, comptime core: Core) ?mk.Entry {
-    return mk.find(role, @tagName(core));
+fn entry(comptime role: []const u8, comptime core: Core) ?ukidx.Entry {
+    return ukidx.find(role, @tagName(core));
 }
 
 /// Whether `role` has a kernel of its own on `core`.
@@ -43,7 +43,7 @@ pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
 pub fn exportCore(comptime core: Core) void {
     inline for (roles) |role| {
         if (comptime entry(role, core)) |e| {
-            @export(c_driven.driven(role, e, c_driven.NoVector), .{ .name = symbol(role, core) });
+            @export(uk.driven(role, e, uk.NoVector), .{ .name = symbol(role, core) });
         }
     }
 }

@@ -1,6 +1,6 @@
 //! The kernels whose upstream source is a driver around a microkernel block:
 //! the shared driver in `kernel.zig` composed with the block an architecture's
-//! `microk/__root__.zig` names for a core.
+//! `uk/__root__.zig` names for a core.
 //!
 //! An entry says the driver's block size, and either an assembly function of
 //! a converted module, or that the block is C intrinsics upstream (written
@@ -15,7 +15,7 @@ const kernel = @import("kernel.zig");
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
 
-/// What a driver calls for its contiguous part, as a block `microk/__root__.zig`
+/// What a driver calls for its contiguous part, as a block `uk/__root__.zig`
 /// names (or an architecture's own entries, which use this type).
 pub const Block = enum {
     /// A function of `module`, called as the reference's block kernels are.

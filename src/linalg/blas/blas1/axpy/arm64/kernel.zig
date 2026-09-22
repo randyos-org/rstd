@@ -11,7 +11,7 @@ const std = @import("std");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
 const roles = @import("../kernel.zig").roles;
-const c_driven = @import("../c_driven.zig");
+const uk = @import("../uk_block.zig");
 const sve = @import("sve.zig");
 const thunderx = @import("thunderx.zig");
 
@@ -22,7 +22,7 @@ pub const symbol = R.symbol;
 
 const thunderx_entry = .{
     .mask = 32,
-    .block = c_driven.Block.assembly,
+    .block = uk.Block.assembly,
     .kernel = "daxpy_kernel_8",
     .module = thunderx,
 };
@@ -58,7 +58,7 @@ pub fn exportCore(comptime core: Core) void {
             const T = if (role[0] == 'd') f64 else f32;
             @export(&sve.Real(T).call, .{ .name = symbol(role, core) });
         } else if (comptime usesThunderx(core, role)) {
-            @export(c_driven.driven(role, thunderx_entry, c_driven.NoVector), .{ .name = symbol(role, core) });
+            @export(uk.driven(role, thunderx_entry, uk.NoVector), .{ .name = symbol(role, core) });
         }
     }
 }

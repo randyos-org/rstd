@@ -2,7 +2,7 @@
 //! `kernel/power/{s,d,c,z}axpy.c` and their `_power10.c` forms around a block.
 //!
 //! The blocks are of two kinds. Where upstream is inline assembly (`d`, `z`
-//! and the POWER10 ones) the block is the converted `microk/` file, called with
+//! and the POWER10 ones) the block is the converted `uk/` file, called with
 //! the scalar arguments by value as there. Where it is AltiVec intrinsics
 //! (`saxpy.c`, `caxpy.c`) the block is the same loop on Zig vectors.
 
@@ -10,7 +10,7 @@ const std = @import("std");
 const types = @import("../../../types.zig");
 const fma = @import("../../../fma.zig");
 const kernel = @import("../kernel.zig");
-const c_driven = @import("../c_driven.zig");
+const uk = @import("../uk_block.zig");
 const util = @import("../../../util.zig");
 
 const BlasLong = types.BlasLong;
@@ -115,30 +115,30 @@ fn RealAligned(comptime T: type, comptime mask: comptime_int, comptime Block: ty
 /// aligned power10 drivers.
 pub const Source = enum { power8, power10 };
 
-/// The block module of `role` for `source`, by the file names of `microk/`.
-fn microk(comptime role: []const u8, comptime source: Source) type {
+/// The block module of `role` for `source`, by the file names of `uk/`.
+fn ukModule(comptime role: []const u8, comptime source: Source) type {
     return switch (source) {
         .power8 => if (role[0] == 'd')
-            @import("microk/daxpy_power8.zig")
+            @import("uk/daxpy_power8.zig")
         else if (role[0] == 'z')
-            @import("microk/zaxpy_power8.zig")
+            @import("uk/zaxpy_power8.zig")
         else
             struct {},
         .power10 => if (role[0] == 'd')
-            @import("microk/daxpy_power10.zig")
+            @import("uk/daxpy_power10.zig")
         else if (role[0] == 's')
-            @import("microk/saxpy_power10.zig")
+            @import("uk/saxpy_power10.zig")
         else if (role[0] == 'c')
-            @import("microk/caxpy_power10.zig")
+            @import("uk/caxpy_power10.zig")
         else
-            @import("microk/zaxpy_power10.zig"),
+            @import("uk/zaxpy_power10.zig"),
     };
 }
 
 /// The kernel `role` has on the cores of `source`, in the reference's ABI.
-pub fn entry(comptime role: []const u8, comptime source: Source) c_driven.Kernel(role) {
+pub fn entry(comptime role: []const u8, comptime source: Source) uk.Kernel(role) {
     const conj = role.len == 6;
-    const mod = microk(role, source);
+    const mod = ukModule(role, source);
     const fuse = fma.fuse;
     switch (role[0]) {
         'd' => {
