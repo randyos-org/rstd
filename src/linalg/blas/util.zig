@@ -19,3 +19,18 @@ pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
 pub fn kernelSymbol(comptime role: []const u8, comptime core: []const u8) []const u8 {
     return "blaskern_" ++ role ++ "_" ++ core;
 }
+
+/// Loads a `V` from `p`, which is not assumed aligned to `V`'s natural
+/// alignment -- e.g. a kernel walking a caller's buffer by an arbitrary
+/// stride, where nothing guarantees the vector-width alignment `@Vector`
+/// otherwise wants. (Lives here, not in `simd/`, because the per-core kernel
+/// objects that use it are their own module rooted at `_kernel.zig` and
+/// cannot reach outside `linalg/blas/`; see `kernels/__root__.zig`.)
+pub inline fn load(comptime V: type, p: [*]const @typeInfo(V).vector.child) V {
+    return @as(*align(1) const V, @ptrCast(p)).*;
+}
+
+/// Stores `v` to `p`, unaligned; see `load`.
+pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) void {
+    @as(*align(1) V, @ptrCast(p)).* = v;
+}

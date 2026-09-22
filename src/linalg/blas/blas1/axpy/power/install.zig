@@ -12,12 +12,15 @@ const Vtable = @import("../../../Vtable.zig");
 const power = @import("../../../cpu/power.zig");
 const axpy = @import("../__root__.zig");
 const kx = @import("kernel.zig");
+const registry = @import("../../../kernels/power.zig");
 
 fn ext(comptime K: type, comptime name: []const u8) K {
     return @extern(K, .{ .name = name });
 }
 
 fn installCore(vt: *Vtable, comptime core: power.CoreType) void {
+    // no object is linked for a core that does not run on this CPU
+    if (comptime !registry.runsOn(sysinfo.cpu, core)) return;
     if (comptime kx.hasRole(sysinfo.cpu.arch, core, "daxpy")) vt.daxpy_k = ext(axpy.RealKernel(f64), kx.symbol("daxpy", core));
     if (comptime kx.hasRole(sysinfo.cpu.arch, core, "saxpy")) vt.saxpy_k = ext(axpy.RealKernel(f32), kx.symbol("saxpy", core));
     if (comptime kx.hasRole(sysinfo.cpu.arch, core, "caxpy")) {

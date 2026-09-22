@@ -505,3 +505,10 @@ pub fn xgemm_oncopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, b: [
 pub fn xgemm_otcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, b: [*]XDouble) i32 {
     return blas._vtable.xgemm_otcopy.?(m, n, a, lda, b);
 }
+
+pub const params = @import("params.zig");
+
+test {
+    _ = @import("generic.zig");
+    _ = @import("params.zig");
+}

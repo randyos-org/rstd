@@ -29,7 +29,7 @@
 //! using is declared without anyone remembering to.
 //!
 //! Each function has the reference's kernel signature, so it is exported as
-//! the kernel directly. `index.zig` lists which cores use which file.
+//! the kernel directly. `asm/__root__.zig` lists which cores use which file.
 
 const std = @import("std");
 const Io = std.Io;
@@ -410,7 +410,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         \\}
         \\
     );
-    const idx_path = try map.path(&.{ dir, "index.zig" });
+    const idx_path = try map.path(&.{ dir, "__root__.zig" });
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = idx_path, .data = idx.items });
     _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", idx_path } });
 }

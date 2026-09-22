@@ -9,14 +9,22 @@ pub const Core = coretypes.MipsCoreType;
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    return arch == .mips64 or arch == .mips64el;
+    return arch.isMIPS();
 }
 
-/// Whether `core`'s kernels run on `cpu`: they are release 2 code, which
-/// release 6 does not run.
+/// Whether `core`'s kernels run on `cpu`: a core's code is for one word size,
+/// the Loongson 3A kernels are release 2 code, which release 6 does not run,
+/// and the SIMD kernels need the release that has the SIMD architecture.
 pub fn runsOn(cpu: std.Target.Cpu, core: Core) bool {
-    _ = core;
-    return !cpu.has(.mips, .mips64r6);
+    const wide = cpu.arch.isMIPS64();
+    return switch (core) {
+        .mips24k, .mips1004k, .p5600 => !wide and (core != .p5600 or cpu.has(.mips, .mips32r5)),
+        .i6400, .i6500, .p6600 => wide and cpu.has(.mips, .mips64r6),
+        .loongson3r3 => wide and !cpu.has(.mips, .mips64r6),
+        // release 2 code with the SIMD architecture, whose objects do not link with release 6's
+        .loongson3r4 => wide and !cpu.has(.mips, .mips64r6),
+        .mips64_generic, .unknown => wide,
+    };
 }
 
 /// Whether any routine has a kernel for `core`.

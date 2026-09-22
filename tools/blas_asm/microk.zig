@@ -786,7 +786,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, out_dir: []const u8) !void {
         \\}
         \\
     );
-    const dest = try map.path(&.{ out_dir, "index.zig" });
+    const dest = try map.path(&.{ out_dir, "__root__.zig" });
     try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = dest, .data = w.items });
     _ = try std.process.run(a, map.io, .{ .argv = &.{ "zig", "fmt", dest } });
     std.debug.print("wrote {s}\n", .{dest});

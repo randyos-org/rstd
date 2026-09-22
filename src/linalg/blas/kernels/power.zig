@@ -13,6 +13,17 @@ pub fn supports(arch: std.Target.Cpu.Arch) bool {
     return arch.isPowerPC();
 }
 
+/// Whether `core`'s kernels run on `cpu`: the 32-bit cores have no 64-bit code,
+/// and the vector ones need their instructions.
+pub fn runsOn(cpu: std.Target.Cpu, core: Core) bool {
+    return switch (core) {
+        .power8, .power9 => cpu.has(.powerpc, .vsx),
+        .power10 => cpu.has(.powerpc, .vsx) and cpu.has(.powerpc, .isa_v31_instructions),
+        .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerPC64(),
+        else => true,
+    };
+}
+
 /// Whether any routine has a kernel for `core` on `arch`.
 pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool {
     return axpy.has(arch, core);

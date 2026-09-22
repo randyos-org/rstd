@@ -16,6 +16,8 @@ pub fn ForArch(comptime arch: std.Target.Cpu.Arch) type {
         .s390x => @import("s390x.zig"),
         .mips, .mipsel, .mips64, .mips64el => @import("mips.zig"),
         .loongarch32, .loongarch64 => @import("loongarch.zig"),
+        .sparc, .sparc64 => @import("sparc.zig"),
+        .wasm32, .wasm64 => @import("wasm.zig"),
         else => @import("generic.zig"),
     };
 }

@@ -42,16 +42,21 @@ pub fn install(vt: *Vtable, core: mips.CoreType) void {
 
 // ---- tests -----------------------------------------------------------------
 
-test "per-core kernels are installed" {
-    // Not run: see `kernel.zig`. Installing them checks that the
-    // symbols exist and link.
+test "per-core kernels match a scalar loop where the machine supports them" {
     inline for (@typeInfo(mips.CoreType).@"enum".field_names) |name| {
         const core = @field(mips.CoreType, name);
         if (comptime !registry.runsOn(sysinfo.cpu, core)) continue;
+        // release 2 with the SIMD architecture: no machine here has it; the
+        // same kernels run as the release 6 cores'
+        if (comptime core == .loongson3r4 and !sysinfo.cpu.has(.mips, .msa)) continue;
         var vt: Vtable = .{};
         axpy.installGeneric(&vt);
         install(&vt, core);
-        try std.testing.expect(vt.saxpy_k != null and vt.daxpy_k != null);
-        try std.testing.expect(vt.caxpy_k != null and vt.zaxpy_k != null);
+        try axpy.checkReal(f32, vt.saxpy_k.?);
+        try axpy.checkReal(f64, vt.daxpy_k.?);
+        try axpy.checkComplex(f32, false, vt.caxpy_k.?);
+        try axpy.checkComplex(f32, true, vt.caxpyc_k.?);
+        try axpy.checkComplex(f64, false, vt.zaxpy_k.?);
+        try axpy.checkComplex(f64, true, vt.zaxpyc_k.?);
     }
 }

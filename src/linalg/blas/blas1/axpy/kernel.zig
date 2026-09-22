@@ -17,6 +17,12 @@ const types = @import("../../types.zig");
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
 
+/// The six kernel symbol names an architecture's `<arch>/kernel.zig` and
+/// `install.zig` iterate over (real and complex, plain and conjugated). Passed
+/// to `asm_registry.Registry`, which cannot derive it the way it derives a
+/// naked-function routine's roles off `index`.
+pub const roles: []const []const u8 = &.{ "saxpy", "daxpy", "caxpy", "caxpyc", "zaxpy", "zaxpyc" };
+
 // ---- kernel ABI ------------------------------------------------------------
 
 /// Vtable slot type for the real kernels (`saxpy_k`, `daxpy_k`, `qaxpy_k`).

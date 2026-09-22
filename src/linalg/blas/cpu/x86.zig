@@ -279,9 +279,6 @@ const gemm_params = @import("../blas3/gemm/params.zig");
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
     axpy.install(&vt, core_type);
-    switch (core_type) {
-        inline else => |c| kernel.installAsm(&vt, c),
-    }
     gemm_params.installCore(&vt, (if (@sizeOf(usize) == 8) .x86_64 else .x86), core_type, .fromConfig(blas.config));
     return vt;
 }

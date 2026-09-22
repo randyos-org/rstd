@@ -43,8 +43,12 @@ pub const x86 = if (sysinfo.cpu.arch == .x86) @import("x86/install.zig") else st
 pub const arm64 = if (sysinfo.cpu.arch == .aarch64) @import("arm64/install.zig") else struct {};
 pub const arm = if (sysinfo.cpu.arch == .arm) @import("arm/install.zig") else struct {};
 pub const loongarch64 = if (sysinfo.cpu.arch == .loongarch64) @import("loongarch64/install.zig") else struct {};
-pub const mips64 = if (sysinfo.cpu.arch == .mips64 or sysinfo.cpu.arch == .mips64el) @import("mips64/install.zig") else struct {};
+pub const mips64 = if (sysinfo.cpu.arch.isMIPS()) @import("mips64/install.zig") else struct {};
 pub const power = if (sysinfo.cpu.arch.isPowerPC()) @import("power/install.zig") else struct {};
+pub const sparc = if (sysinfo.cpu.arch.isSPARC()) @import("sparc/install.zig") else struct {};
+pub const wasm = if (sysinfo.cpu.arch.isWasm()) @import("wasm/install.zig") else struct {};
+pub const s390x = if (sysinfo.cpu.arch == .s390x) @import("s390x/install.zig") else struct {};
+pub const riscv64 = if (sysinfo.cpu.arch == .riscv64) @import("riscv64/install.zig") else struct {};
 
 // ---- kernel ABI and drivers -------------------------------------------------
 
@@ -123,8 +127,12 @@ pub fn install(vt: *Vtable, core: cpu.CoreType) void {
         .aarch64 => arm64.install(vt, core),
         .arm => arm.install(vt, core),
         .loongarch64 => loongarch64.install(vt, core),
-        .mips64, .mips64el => mips64.install(vt, core),
+        .mips, .mipsel, .mips64, .mips64el => mips64.install(vt, core),
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => power.install(vt, core),
+        .riscv64 => riscv64.install(vt, core),
+        .s390x => s390x.install(vt, core),
+        .sparc, .sparc64 => sparc.install(vt, core),
+        .wasm32, .wasm64 => wasm.install(vt, core),
         else => {},
     }
 }
