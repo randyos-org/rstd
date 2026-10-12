@@ -13,13 +13,12 @@ pub fn build(b: *Build) !void {
     const target = rstdbuild.getTarget(b);
     const docs = rstdbuild.addDocs(b);
 
-    const build_options = rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version);
-
     const rstd_root = b.path("src/__root__.zig");
     const rstd_mod = b.addModule("rstd", .{
         .root_source_file = rstd_root,
     });
-    rstdbuild.addBuildOptsModToModule(build_options, rstd_mod);
+    const rstd_options = try rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version, null);
+    rstd_mod.addImport("rstd_options", try rstdbuild.optionsModule(rstd_options));
     blaskern.addBlasKernels(b, rstd_mod, target);
     rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
     // only add RenderDoc to non-Vulkan, desktop-OS targets
@@ -36,7 +35,7 @@ pub fn build(b: *Build) !void {
     // general std lib supplement used by headless/CLI code too, so
     // compiling them only happens when asked for.
     const vulkan_opt = b.option(bool, "vulkan", "Compile rgl's Vulkan/SPIR-V shaders") orelse false;
-    build_options.addOption(bool, "has_vulkan", vulkan_opt);
+    rstd_options.addOption(bool, "has_vulkan", vulkan_opt);
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         rstdbuild.addVulkan(b).addImportToModule(rstd_mod);

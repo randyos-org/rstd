@@ -27,7 +27,8 @@ pub fn cloneModuleWithTarget(b: *Build, existing: *Module, target: ?ResolvedTarg
 }
 
 /// Rebuilds `existing`'s root as a fresh `Module` bound to `target`, carrying
-/// over only its "build_options" import rather than the whole import table.
+/// over only its "build_options" and "rstd_options" imports rather than the
+/// whole import table.
 ///
 /// Unlike `cloneModuleWithTarget`, this is for a `target` that can't support
 /// `existing`'s other target-specific imports -- e.g. rstd's own `rstd_mod`
@@ -40,8 +41,8 @@ pub fn cloneRootForTarget(b: *Build, existing: *Module, target: ?ResolvedTarget)
         .root_source_file = existing.root_source_file,
         .target = target,
     });
-    if (existing.import_table.get("build_options")) |build_options_mod| {
-        clone.addImport("build_options", build_options_mod);
+    for ([_][]const u8{ "build_options", "rstd_options" }) |name| {
+        if (existing.import_table.get(name)) |options_mod| clone.addImport(name, options_mod);
     }
     return clone;
 }

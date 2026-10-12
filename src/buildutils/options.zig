@@ -4,12 +4,32 @@ const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const BuildOptions = rstdbuild.BuildOptions;
+const DepModule = @import("deps.zig").DepModule;
 
-pub fn addBuildOptionsModule(b: *Build, pkg_name: []const u8, version: []const u8) *BuildOptions {
+/// Creates a package's `build_options`. Pass the package's rstd module
+/// (from `addRstd`) to make rstd read these options too: rstd code such as
+/// `rstd.Logger` imports `build_options` and expects the application's
+/// settings (e.g. `addLogScopeOptions`), falling back to rstd's own when no
+/// parent provides them.
+pub fn addBuildOptionsModule(b: *Build, pkg_name: []const u8, version: []const u8, rstd: ?*const DepModule) !*BuildOptions {
     const options = b.addOptions();
     options.addOption([]const u8, "package_name", pkg_name);
     options.addOption([]const u8, "version", version);
+    if (rstd) |r| r.mod.addImport("build_options", try optionsModule(options));
     return options;
+}
+
+/// One module per options step. `Options.createModule` (and so
+/// `Module.addOptions`) wraps the generated file in a new module on every
+/// call, and two such modules in one compilation are rejected ("file exists
+/// in modules 'build_options' and 'build_options0'"), so everything that
+/// imports a given options step must share this module.
+var options_modules: std.array_hash_map.Auto(*BuildOptions, *Module) = .empty;
+
+pub fn optionsModule(options: *BuildOptions) !*Module {
+    const gop = try options_modules.getOrPut(options.step.owner.allocator, options);
+    if (!gop.found_existing) gop.value_ptr.* = options.createModule();
+    return gop.value_ptr.*;
 }
 
 pub const LogLevel = std.log.Level;
@@ -71,6 +91,6 @@ pub fn addLogScopeOptions(
     build_options.addOption([]const LogLevelInt, "logger_scope_name_levels", levels.values());
 }
 
-pub fn addBuildOptsModToModule(build_options: *BuildOptions, module: *Module) void {
-    module.addOptions("build_options", build_options);
+pub fn addBuildOptsModToModule(build_options: *BuildOptions, module: *Module) !void {
+    module.addImport("build_options", try optionsModule(build_options));
 }

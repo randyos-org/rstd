@@ -36,8 +36,8 @@ test {
     // -Dvulkan=true (see src/buildutils/vulkan.zig); refAllDecls it too
     // when that's on, so its pipeline/command-buffer code at least
     // type-checks even without a physical GPU to run it against.
-    const build_options = @import("build_options");
-    if (build_options.has_vulkan) {
+    const rstd_options = @import("rstd_options");
+    if (rstd_options.has_vulkan) {
         zigstd.testRefAllDecls(vulkan.gpu);
     }
 }

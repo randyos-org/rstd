@@ -48,11 +48,13 @@ pub const LogLevel = options_mod.LogLevel;
 pub const ScopeLevel = options_mod.ScopeLevel;
 pub const addLogScopeOptions = options_mod.addLogScopeOptions;
 pub const addBuildOptsModToModule = options_mod.addBuildOptsModToModule;
+pub const optionsModule = options_mod.optionsModule;
 
 const deps_mod = @import("deps.zig");
 pub const DepCLink = deps_mod.DepCLink;
 pub const DepCBind = deps_mod.DepCBind;
 pub const DepModule = deps_mod.DepModule;
+pub const declaresDependency = deps_mod.declaresDependency;
 
 const freedesktop_mod = @import("freedesktop.zig");
 pub const addLinuxDesktopFile = freedesktop_mod.addLinuxDesktopFile;
