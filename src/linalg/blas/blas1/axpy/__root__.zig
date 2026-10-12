@@ -8,17 +8,17 @@
 //!     negative-stride pointer adjustment.
 //!   * `saxpy`/`daxpy`/`qaxpy`/`caxpy`/`zaxpy`/`xaxpy` (+ `*c`): typed kernel
 //!     wrappers over the vtable, no interface semantics.
-//!   * `*_k`: the same wrappers with the reference's kernel ABI (padding
-//!     `dummy*` arguments, interleaved complex, `i32` result). Falls back to
-//!     the generic kernel while the vtable slot is still null (pre-`init`).
-//!   * `*_generic` and the per-arch modules (`x86_64`, ...): the kernel
-//!     implementations that `install` points the vtable at, per core type.
+//!   * `blas.kernel(.saxpy_k)` and the rest: the vtable slots, in the
+//!     reference's kernel ABI (padding `dummy*` arguments, interleaved
+//!     complex, `i32` result).
+//!   * `*_generic`: the portable kernels, which the slots hold until `init`
+//!     and wherever a core has none of its own. A core's own are in `<arch>/`,
+//!     installed by `kernels/<arch>.zig`.
 //!
 //! Complex values are `std.math.Complex(F)` rather than the reference's
 //! `da_r`/`da_i` over interleaved floats, so `util.at` needs no doubled stride.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
@@ -35,20 +35,6 @@ const Complex = std.math.Complex;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
-
-// The per-architecture kernels of the target only: what the other
-// architectures install, and their tests, cannot be built for it.
-pub const x86_64 = if (sysinfo.cpu.arch == .x86_64) @import("x86_64/kernel.zig") else struct {};
-pub const x86 = if (sysinfo.cpu.arch == .x86) @import("x86/kernel.zig") else struct {};
-pub const arm64 = if (sysinfo.cpu.arch == .aarch64) @import("arm64/kernel.zig") else struct {};
-pub const arm = if (sysinfo.cpu.arch == .arm) @import("arm/kernel.zig") else struct {};
-pub const loongarch64 = if (sysinfo.cpu.arch == .loongarch64) @import("loongarch64/kernel.zig") else struct {};
-pub const mips64 = if (sysinfo.cpu.arch.isMIPS()) @import("mips64/kernel.zig") else struct {};
-pub const power = if (sysinfo.cpu.arch.isPowerPC()) @import("power/kernel.zig") else struct {};
-pub const sparc = if (sysinfo.cpu.arch.isSPARC()) @import("sparc/kernel.zig") else struct {};
-pub const wasm = if (sysinfo.cpu.arch.isWasm()) @import("wasm/kernel.zig") else struct {};
-pub const s390x = if (sysinfo.cpu.arch == .s390x) @import("s390x/kernel.zig") else struct {};
-pub const riscv64 = if (sysinfo.cpu.arch == .riscv64) @import("riscv64/kernel.zig") else struct {};
 
 // ---- kernel ABI and drivers -------------------------------------------------
 
@@ -117,106 +103,44 @@ pub fn installGeneric(vt: *Vtable) void {
     vt.xaxpyc_k = xaxpyc_generic;
 }
 
-/// Fills the axpy slots for `core`: the generic kernels, then the target
-/// architecture's per-core-type overrides (the `KERNEL.<CORE>` selection).
-pub fn install(vt: *Vtable, core: cpu.CoreType) void {
-    installGeneric(vt);
-    switch (sysinfo.cpu.arch) {
-        .x86_64 => x86_64.install(vt, core),
-        .x86 => x86.install(vt, core),
-        .aarch64 => arm64.install(vt, core),
-        .arm => arm.install(vt, core),
-        .loongarch64 => loongarch64.install(vt, core),
-        .mips, .mipsel, .mips64, .mips64el => mips64.install(vt, core),
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => power.install(vt, core),
-        .riscv64 => riscv64.install(vt, core),
-        .s390x => s390x.install(vt, core),
-        .sparc, .sparc64 => sparc.install(vt, core),
-        .wasm32, .wasm64 => wasm.install(vt, core),
-        else => {},
-    }
-}
-
-// ---- vtable wrappers, reference ABI ----------------------------------------
-
-pub fn sbaxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return blas._vtable.sbaxpy_k.?(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn saxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return (blas._vtable.saxpy_k orelse saxpy_generic)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn daxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, dummy: [*]f64, dummy2: BlasLong) i32 {
-    return (blas._vtable.daxpy_k orelse daxpy_generic)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn qaxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, dummy: [*]XDouble, dummy2: BlasLong) i32 {
-    return (blas._vtable.qaxpy_k orelse qaxpy_generic)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn caxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: f32, da_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return (blas._vtable.caxpy_k orelse caxpy_generic)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn caxpyc_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: f32, da_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return (blas._vtable.caxpyc_k orelse caxpyc_generic)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn zaxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: f64, da_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, dummy: [*]f64, dummy2: BlasLong) i32 {
-    return (blas._vtable.zaxpy_k orelse zaxpy_generic)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn zaxpyc_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: f64, da_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, dummy: [*]f64, dummy2: BlasLong) i32 {
-    return (blas._vtable.zaxpyc_k orelse zaxpyc_generic)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn xaxpy_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: XDouble, da_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, dummy: [*]XDouble, dummy2: BlasLong) i32 {
-    return (blas._vtable.xaxpy_k orelse xaxpy_generic)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-pub fn xaxpyc_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: XDouble, da_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, dummy: [*]XDouble, dummy2: BlasLong) i32 {
-    return (blas._vtable.xaxpyc_k orelse xaxpyc_generic)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
 // ---- typed kernel wrappers -------------------------------------------------
 // Kernel semantics: strides may be negative, but then the pointers must
 // already name the first element visited (`taxpy` does that adjustment).
 
 pub fn saxpy(n: BlasLong, da: f32, x: [*]f32, incx: BlasLong, y: [*]f32, incy: BlasLong) void {
-    _ = saxpy_k(n, 0, 0, da, x, incx, y, incy, y, 0);
+    _ = blas.kernel(.saxpy_k)(n, 0, 0, da, x, incx, y, incy, y, 0);
 }
 
 pub fn daxpy(n: BlasLong, da: f64, x: [*]f64, incx: BlasLong, y: [*]f64, incy: BlasLong) void {
-    _ = daxpy_k(n, 0, 0, da, x, incx, y, incy, y, 0);
+    _ = blas.kernel(.daxpy_k)(n, 0, 0, da, x, incx, y, incy, y, 0);
 }
 
 pub fn qaxpy(n: BlasLong, da: XDouble, x: [*]XDouble, incx: BlasLong, y: [*]XDouble, incy: BlasLong) void {
-    _ = qaxpy_k(n, 0, 0, da, x, incx, y, incy, y, 0);
+    _ = blas.kernel(.qaxpy_k)(n, 0, 0, da, x, incx, y, incy, y, 0);
 }
 
 pub fn caxpy(n: BlasLong, da: Complex32, x: [*]Complex32, incx: BlasLong, y: [*]Complex32, incy: BlasLong) void {
-    _ = caxpy_k(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
+    _ = blas.kernel(.caxpy_k)(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
 }
 
 pub fn caxpyc(n: BlasLong, da: Complex32, x: [*]Complex32, incx: BlasLong, y: [*]Complex32, incy: BlasLong) void {
-    _ = caxpyc_k(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
+    _ = blas.kernel(.caxpyc_k)(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
 }
 
 pub fn zaxpy(n: BlasLong, da: Complex64, x: [*]Complex64, incx: BlasLong, y: [*]Complex64, incy: BlasLong) void {
-    _ = zaxpy_k(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
+    _ = blas.kernel(.zaxpy_k)(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
 }
 
 pub fn zaxpyc(n: BlasLong, da: Complex64, x: [*]Complex64, incx: BlasLong, y: [*]Complex64, incy: BlasLong) void {
-    _ = zaxpyc_k(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
+    _ = blas.kernel(.zaxpyc_k)(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
 }
 
 pub fn xaxpy(n: BlasLong, da: ComplexXD, x: [*]ComplexXD, incx: BlasLong, y: [*]ComplexXD, incy: BlasLong) void {
-    _ = xaxpy_k(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
+    _ = blas.kernel(.xaxpy_k)(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
 }
 
 pub fn xaxpyc(n: BlasLong, da: ComplexXD, x: [*]ComplexXD, incx: BlasLong, y: [*]ComplexXD, incy: BlasLong) void {
-    _ = xaxpyc_k(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
+    _ = blas.kernel(.xaxpyc_k)(n, 0, 0, da.re, da.im, @ptrCast(x), incx, @ptrCast(y), incy, @ptrCast(y), 0);
 }
 
 // ---- interface -------------------------------------------------------------
@@ -512,9 +436,10 @@ test "generic kernels match a scalar loop (all types, contiguous and strided)" {
     try checkComplex(XDouble, true, xaxpyc_generic);
 }
 
-test "install fills every axpy slot for the host core type" {
+test "a core's kernels fill every axpy slot, for the host's core type" {
     var vt: Vtable = .{};
-    install(&vt, cpu.detect());
+    installGeneric(&vt);
+    cpu.kernel.install(&vt, cpu.detect());
     try zigstd.testExpectTrue(vt.saxpy_k != null and vt.daxpy_k != null and vt.qaxpy_k != null);
     try zigstd.testExpectTrue(vt.caxpy_k != null and vt.caxpyc_k != null);
     try zigstd.testExpectTrue(vt.zaxpy_k != null and vt.zaxpyc_k != null);
@@ -527,22 +452,13 @@ test "install fills every axpy slot for the host core type" {
     try checkComplex(f64, true, vt.zaxpyc_k.?);
 }
 
-// ---- tests: per-architecture kernels ----------------------------------------
-//
-// One per architecture, skipped on any other (`x86_64` etc. above are
-// `struct {}` there; the comptime return keeps the rest unanalyzed). They
-// live here rather than in each `kernel.zig` because they need this file's
-// full interface (`checkReal`, ...), which `kernel.zig` must stay free of
-// (see `kernels/__root__.zig`).
-
-test "x86_64: per-core kernels match a scalar loop where the host supports them" {
-    if (comptime sysinfo.cpu.arch != .x86_64) return error.SkipZigTest;
-    inline for (@typeInfo(x86_64.Core).@"enum".field_names) |name| {
-        const core = @field(x86_64.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        x86_64.install(&vt, core);
-        if (cpu.x86_64.supportsCore(core)) {
+test "every core's kernels match a scalar loop, where this machine runs them" {
+    inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
+        const core = @field(cpu.CoreType, name);
+        if (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core)) {
+            var vt: Vtable = .{};
+            installGeneric(&vt);
+            cpu.kernel.install(&vt, core);
             try checkReal(f32, vt.saxpy_k.?);
             try checkReal(f64, vt.daxpy_k.?);
             try checkComplex(f32, false, vt.caxpy_k.?);
@@ -550,171 +466,6 @@ test "x86_64: per-core kernels match a scalar loop where the host supports them"
             try checkComplex(f64, false, vt.zaxpy_k.?);
             try checkComplex(f64, true, vt.zaxpyc_k.?);
         }
-    }
-}
-
-test "x86 (32-bit): per-core kernels match a scalar loop" {
-    if (comptime sysinfo.cpu.arch != .x86) return error.SkipZigTest;
-    inline for (@typeInfo(x86.Core).@"enum".field_names) |name| {
-        const core = @field(x86.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        x86.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "arm64: per-core kernels match a scalar loop" {
-    if (comptime sysinfo.cpu.arch != .aarch64) return error.SkipZigTest;
-    inline for (@typeInfo(arm64.Core).@"enum".field_names) |name| {
-        const core = @field(arm64.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        arm64.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "arm: per-core kernels match a scalar loop" {
-    if (comptime sysinfo.cpu.arch != .arm) return error.SkipZigTest;
-    inline for (@typeInfo(arm.Core).@"enum".field_names) |name| {
-        const core = @field(arm.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        arm.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "loongarch64: per-core kernels match a scalar loop" {
-    if (comptime sysinfo.cpu.arch != .loongarch64) return error.SkipZigTest;
-    inline for (@typeInfo(loongarch64.Core).@"enum".field_names) |name| {
-        const core = @field(loongarch64.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        loongarch64.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "mips64: per-core kernels match a scalar loop where the machine supports them" {
-    if (comptime !sysinfo.cpu.arch.isMIPS()) return error.SkipZigTest;
-    const registry = @import("../../kernels/mips.zig");
-    inline for (@typeInfo(mips64.Core).@"enum".field_names) |name| {
-        const core = @field(mips64.Core, name);
-        if (comptime !registry.runsOn(sysinfo.cpu, core)) continue;
-        // release 2 with the SIMD architecture: no machine here has it; the
-        // same kernels run as the release 6 cores'
-        if (comptime core == .loongson3r4 and !sysinfo.cpu.has(.mips, .msa)) continue;
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        mips64.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "power: per-core kernels match a scalar loop" {
-    if (comptime !sysinfo.cpu.arch.isPowerPC()) return error.SkipZigTest;
-    inline for (@typeInfo(power.Core).@"enum".field_names) |name| {
-        const core = @field(power.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        power.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "sparc: per-core kernels match a scalar loop" {
-    if (comptime !sysinfo.cpu.arch.isSPARC()) return error.SkipZigTest;
-    inline for (@typeInfo(sparc.Core).@"enum".field_names) |name| {
-        const core = @field(sparc.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        sparc.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "wasm: per-core kernels match a scalar loop" {
-    if (comptime !sysinfo.cpu.arch.isWasm()) return error.SkipZigTest;
-    inline for (@typeInfo(wasm.Core).@"enum".field_names) |name| {
-        const core = @field(wasm.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        wasm.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "s390x: per-core kernels match a scalar loop" {
-    if (comptime sysinfo.cpu.arch != .s390x) return error.SkipZigTest;
-    inline for (@typeInfo(s390x.Core).@"enum".field_names) |name| {
-        const core = @field(s390x.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        s390x.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
-    }
-}
-
-test "riscv64: per-core kernels match a scalar loop" {
-    if (comptime sysinfo.cpu.arch != .riscv64) return error.SkipZigTest;
-    inline for (@typeInfo(riscv64.Core).@"enum".field_names) |name| {
-        const core = @field(riscv64.Core, name);
-        var vt: Vtable = .{};
-        installGeneric(&vt);
-        riscv64.install(&vt, core);
-        try checkReal(f32, vt.saxpy_k.?);
-        try checkReal(f64, vt.daxpy_k.?);
-        try checkComplex(f32, false, vt.caxpy_k.?);
-        try checkComplex(f32, true, vt.caxpyc_k.?);
-        try checkComplex(f64, false, vt.zaxpy_k.?);
-        try checkComplex(f64, true, vt.zaxpyc_k.?);
     }
 }
 

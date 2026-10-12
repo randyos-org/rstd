@@ -17,16 +17,15 @@ const sysinfo = @import("builtin");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
-const kregistry = @import("../../../kernels/arm64.zig");
 const kernel = @import("../kernel.zig");
 const roles = kernel.roles;
-const uk = @import("../uk_block.zig");
+const uk = @import("../../uk_block.zig");
 const sve = @import("sve.zig");
 const thunderx = @import("thunderx.zig");
 
-const R = registry.Registry(coretypes.Arm64CoreType, @import("asm/__root__.zig"), "", roles);
+const R = registry.Kernels(coretypes.Arm64CoreType, @import("asm/__root__.zig"));
 
-pub const Core = R.Core;
+pub const Core = coretypes.Arm64CoreType;
 pub const symbol = R.symbol;
 
 const thunderx_entry = .{
@@ -65,35 +64,14 @@ pub fn exportCore(comptime core: Core) void {
             R.exportOne(role, core);
         } else if (comptime usesSve(core, role)) {
             const T = if (role[0] == 'd') f64 else f32;
-            @export(&sve.Real(T).call, .{ .name = symbol(role, core) });
+            @export(&sve.Real(T).call, .{ .name = symbol(role, core), .visibility = .hidden });
         } else if (comptime usesThunderx(core, role)) {
-            @export(uk.driven(role, thunderx_entry, uk.NoVector), .{ .name = symbol(role, core) });
+            @export(uk.driven(kernel, role, thunderx_entry, uk.NoVector), .{ .name = symbol(role, core), .visibility = .hidden });
         }
     }
 }
 
-fn ext(comptime K: type, comptime name: []const u8) K {
-    return @extern(K, .{ .name = name });
-}
-
-fn installCore(vt: *Vtable, comptime core: Core) void {
-    // no object is linked for a core that does not run on this CPU
-    if (comptime !kregistry.runsOn(sysinfo.cpu, core)) return;
-    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
-    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
-    if (comptime hasRole(core, "caxpy")) {
-        vt.caxpy_k = ext(kernel.ComplexKernel(f32), symbol("caxpy", core));
-        vt.caxpyc_k = ext(kernel.ComplexKernel(f32), symbol("caxpyc", core));
-    }
-    if (comptime hasRole(core, "zaxpy")) {
-        vt.zaxpy_k = ext(kernel.ComplexKernel(f64), symbol("zaxpy", core));
-        vt.zaxpyc_k = ext(kernel.ComplexKernel(f64), symbol("zaxpyc", core));
-    }
-}
-
-/// Overrides the generic kernels installed by `axpy.install` for `core`.
-pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline else => |c| installCore(vt, c),
-    }
+/// Points the vtable at the kernels `core` has.
+pub fn install(vt: *Vtable, comptime core: Core) void {
+    registry.installRoles(vt, core, roles, hasRole);
 }

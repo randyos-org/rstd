@@ -16,36 +16,15 @@ const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
 const roles = kernel.roles;
 
-const width = if (@sizeOf(usize) == 8) "64" else "32";
+const R = registry.Kernels(coretypes.SparcCoreType, @import("asm/__root__.zig"));
 
-const R = registry.Registry(coretypes.SparcCoreType, @import("asm/__root__.zig"), width, roles);
-
-pub const Core = R.Core;
-pub const has = R.hasAny;
+pub const Core = coretypes.SparcCoreType;
+pub const has = R.has;
 pub const hasRole = R.hasRole;
 pub const symbol = R.symbol;
 pub const exportCore = R.exportCore;
 
-fn ext(comptime K: type, comptime name: []const u8) K {
-    return @extern(K, .{ .name = name });
-}
-
-fn installCore(vt: *Vtable, comptime core: Core) void {
-    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
-    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
-    if (comptime hasRole(core, "caxpy")) {
-        vt.caxpy_k = ext(kernel.ComplexKernel(f32), symbol("caxpy", core));
-        vt.caxpyc_k = ext(kernel.ComplexKernel(f32), symbol("caxpyc", core));
-    }
-    if (comptime hasRole(core, "zaxpy")) {
-        vt.zaxpy_k = ext(kernel.ComplexKernel(f64), symbol("zaxpy", core));
-        vt.zaxpyc_k = ext(kernel.ComplexKernel(f64), symbol("zaxpyc", core));
-    }
-}
-
-/// Overrides the generic kernels installed by `axpy.install` for `core`.
-pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline else => |c| installCore(vt, c),
-    }
+/// Points the vtable at the kernels `core` has.
+pub fn install(vt: *Vtable, comptime core: Core) void {
+    registry.installRoles(vt, core, roles, hasRole);
 }

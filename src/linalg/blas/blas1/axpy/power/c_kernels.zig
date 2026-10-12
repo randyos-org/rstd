@@ -10,7 +10,6 @@ const std = @import("std");
 const types = @import("../../../types.zig");
 const fma = @import("../../../fma.zig");
 const kernel = @import("../kernel.zig");
-const uk = @import("../uk_block.zig");
 const util = @import("../../../util.zig");
 
 const BlasLong = types.BlasLong;
@@ -136,33 +135,32 @@ fn ukModule(comptime role: []const u8, comptime source: Source) type {
 }
 
 /// The kernel `role` has on the cores of `source`, in the reference's ABI.
-pub fn entry(comptime role: []const u8, comptime source: Source) uk.Kernel(role) {
+pub fn entry(comptime role: []const u8, comptime source: Source) kernel.Kernel(role) {
     const conj = role.len == 6;
     const mod = ukModule(role, source);
-    const fuse = fma.fuse;
     switch (role[0]) {
         'd' => {
             const Block = RealByValue(f64, mod.daxpy_kernel_8);
             if (source == .power10) return kernel.realEntry(f64, RealAligned(f64, 16, Block));
-            return kernel.realEntry(f64, kernel.Real(f64, 16, Block, fuse));
+            return kernel.entry(role, 16, Block);
         },
         's' => {
             if (source == .power10) {
                 const Block = RealByValue(f32, mod.saxpy_kernel_64);
                 return kernel.realEntry(f32, RealAligned(f32, 64, Block));
             }
-            return kernel.realEntry(f32, kernel.Real(f32, 64, SaxpyVec, fuse));
+            return kernel.entry(role, 64, SaxpyVec);
         },
         'c' => {
             if (source == .power10) {
                 const f = if (conj) mod.caxpyc_kernel_8 else mod.caxpy_kernel_8;
-                return kernel.complexEntry(f32, kernel.Cplx(f32, conj, 16, CplxByValue(f32, f), fuse));
+                return kernel.entry(role, 16, CplxByValue(f32, f));
             }
-            return kernel.complexEntry(f32, kernel.Cplx(f32, conj, 16, CaxpyVec(conj), fuse));
+            return kernel.entry(role, 16, CaxpyVec(conj));
         },
         else => {
             const f = if (conj) mod.zaxpyc_kernel_4 else mod.zaxpy_kernel_4;
-            return kernel.complexEntry(f64, kernel.Cplx(f64, conj, 16, CplxByValue(f64, f), fuse));
+            return kernel.entry(role, 16, CplxByValue(f64, f));
         },
     }
 }

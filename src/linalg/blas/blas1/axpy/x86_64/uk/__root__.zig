@@ -3,16 +3,7 @@
 //! `tools/blas_asm/uk.zig`; re-derive it rather than editing it.
 
 const std = @import("std");
-
-/// What the driver calls for the contiguous part.
-pub const Block = enum {
-    /// An assembly function of `module`.
-    assembly,
-    /// C intrinsics upstream, written on vectors in `kernel.zig`.
-    vector,
-    /// Nothing: the core's driver has no block, the scalar loops do it all.
-    none,
-};
+const Block = @import("../../../uk_block.zig").Block;
 
 pub const Entry = struct {
     role: []const u8,

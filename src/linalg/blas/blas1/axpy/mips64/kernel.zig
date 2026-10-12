@@ -16,14 +16,13 @@ const sysinfo = @import("builtin");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
-const kregistry = @import("../../../kernels/mips.zig");
 const kernel = @import("../kernel.zig");
 const roles = kernel.roles;
 const msa = @import("../mips/msa.zig");
 
-const R = registry.Registry(coretypes.MipsCoreType, @import("asm/__root__.zig"), "", roles);
+const R = registry.Kernels(coretypes.MipsCoreType, @import("asm/__root__.zig"));
 
-pub const Core = R.Core;
+pub const Core = coretypes.MipsCoreType;
 
 /// Whether `core` uses the SIMD kernels.
 fn usesMsa(comptime core: Core) bool {
@@ -40,7 +39,7 @@ pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
 
 /// Whether `core` has any axpy kernel of its own.
 pub fn has(comptime core: Core) bool {
-    return usesMsa(core) or R.hasAny(core);
+    return usesMsa(core) or R.has(core);
 }
 
 /// Exported symbol of `role` for `core`.
@@ -50,39 +49,18 @@ pub const symbol = R.symbol;
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
     if (comptime usesMsa(core)) {
-        @export(&msa.Real(f32).call, .{ .name = symbol("saxpy", core) });
-        @export(&msa.Real(f64).call, .{ .name = symbol("daxpy", core) });
-        @export(&msa.Cplx(f32, false).call, .{ .name = symbol("caxpy", core) });
-        @export(&msa.Cplx(f32, true).call, .{ .name = symbol("caxpyc", core) });
-        @export(&msa.Cplx(f64, false).call, .{ .name = symbol("zaxpy", core) });
-        @export(&msa.Cplx(f64, true).call, .{ .name = symbol("zaxpyc", core) });
+        @export(&msa.Real(f32).call, .{ .name = symbol("saxpy", core), .visibility = .hidden });
+        @export(&msa.Real(f64).call, .{ .name = symbol("daxpy", core), .visibility = .hidden });
+        @export(&msa.Cplx(f32, false).call, .{ .name = symbol("caxpy", core), .visibility = .hidden });
+        @export(&msa.Cplx(f32, true).call, .{ .name = symbol("caxpyc", core), .visibility = .hidden });
+        @export(&msa.Cplx(f64, false).call, .{ .name = symbol("zaxpy", core), .visibility = .hidden });
+        @export(&msa.Cplx(f64, true).call, .{ .name = symbol("zaxpyc", core), .visibility = .hidden });
         return;
     }
     R.exportCore(core);
 }
 
-fn ext(comptime K: type, comptime name: []const u8) K {
-    return @extern(K, .{ .name = name });
-}
-
-fn installCore(vt: *Vtable, comptime core: Core) void {
-    // no object is linked for a core that does not run on this CPU
-    if (comptime !kregistry.runsOn(sysinfo.cpu, core)) return;
-    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
-    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
-    if (comptime hasRole(core, "caxpy")) {
-        vt.caxpy_k = ext(kernel.ComplexKernel(f32), symbol("caxpy", core));
-        vt.caxpyc_k = ext(kernel.ComplexKernel(f32), symbol("caxpyc", core));
-    }
-    if (comptime hasRole(core, "zaxpy")) {
-        vt.zaxpy_k = ext(kernel.ComplexKernel(f64), symbol("zaxpy", core));
-        vt.zaxpyc_k = ext(kernel.ComplexKernel(f64), symbol("zaxpyc", core));
-    }
-}
-
-/// Overrides the generic kernels installed by `axpy.install` for `core`.
-pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline else => |c| installCore(vt, c),
-    }
+/// Points the vtable at the kernels `core` has.
+pub fn install(vt: *Vtable, comptime core: Core) void {
+    registry.installRoles(vt, core, roles, hasRole);
 }

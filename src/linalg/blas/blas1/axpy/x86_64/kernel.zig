@@ -32,7 +32,7 @@ const util = @import("../../../util.zig");
 const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
-const uk = @import("../uk_block.zig");
+const uk = @import("../../uk_block.zig");
 const ukidx = @import("uk/__root__.zig");
 
 const BlasLong = types.BlasLong;
@@ -40,7 +40,7 @@ const BlasLong = types.BlasLong;
 pub const Core = coretypes.X86CoreType;
 const roles = kernel.roles;
 
-const asm_kernels = registry.Registry(Core, @import("asm/__root__.zig"), "", roles);
+const asm_kernels = registry.Kernels(Core, @import("asm/__root__.zig"));
 
 /// The C-driven entry for `role` on `core`, if it has one.
 fn cEntry(comptime role: []const u8, comptime core: Core) ?ukidx.Entry {
@@ -50,8 +50,9 @@ fn cEntry(comptime role: []const u8, comptime core: Core) ?ukidx.Entry {
 const has_avx512f = std.Target.x86.featureSetHas(sysinfo.cpu.features, .avx512f);
 
 /// `y += alpha * x` over a whole block, on vectors as wide as the core's
-/// widest: what the reference's intrinsics block does.
-fn VectorBlock(comptime T: type) type {
+/// widest: what the reference's intrinsics block does (real roles only).
+fn VectorBlock(comptime role: []const u8) type {
+    const T = uk.Float(role);
     const width = (if (has_avx512f) 64 else 32) / @sizeOf(T);
     const V = @Vector(width, T);
     return struct {
@@ -93,53 +94,12 @@ pub fn exportCore(comptime core: Core) void {
         if (comptime asm_kernels.hasRole(core, role)) {
             asm_kernels.exportOne(role, core);
         } else if (comptime cEntry(role, core)) |e| {
-            @export(uk.driven(role, e, VectorBlock), .{ .name = symbol(role, core) });
+            @export(uk.driven(kernel, role, e, VectorBlock), .{ .name = symbol(role, core), .visibility = .hidden });
         }
     }
 }
 
-fn ext(comptime K: type, comptime name: []const u8) K {
-    return @extern(K, .{ .name = name });
-}
-
-fn installCore(vt: *Vtable, comptime core: Core) void {
-    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
-    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
-    if (comptime hasRole(core, "caxpy")) {
-        vt.caxpy_k = ext(kernel.ComplexKernel(f32), symbol("caxpy", core));
-        vt.caxpyc_k = ext(kernel.ComplexKernel(f32), symbol("caxpyc", core));
-    }
-    if (comptime hasRole(core, "zaxpy")) {
-        vt.zaxpy_k = ext(kernel.ComplexKernel(f64), symbol("zaxpy", core));
-        vt.zaxpyc_k = ext(kernel.ComplexKernel(f64), symbol("zaxpyc", core));
-    }
-}
-
-/// Overrides the generic kernels installed by `axpy.install` for `core`.
-pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline .prescott,
-        .core2,
-        .penryn,
-        .dunnington,
-        .opteron,
-        .opteron_sse3,
-        .barcelona,
-        .bobcat,
-        .nano,
-        .atom,
-        .nehalem,
-        .sandybridge,
-        .bulldozer,
-        .piledriver,
-        .steamroller,
-        .excavator,
-        .haswell,
-        .zen,
-        .skylakex,
-        .cooperlake,
-        .sapphirerapids,
-        => |c| installCore(vt, c),
-        else => {},
-    }
+/// Points the vtable at the kernels `core` has.
+pub fn install(vt: *Vtable, comptime core: Core) void {
+    registry.installRoles(vt, core, roles, hasRole);
 }

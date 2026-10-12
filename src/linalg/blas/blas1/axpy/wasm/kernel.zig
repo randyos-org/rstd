@@ -11,9 +11,11 @@
 //! upstream are the plain C loops, which the portable kernels are.
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
+const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
 const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
+const roles = kernel.roles;
 const simd = @import("simd.zig");
 
 pub const Core = coretypes.WasmCoreType;
@@ -37,22 +39,11 @@ pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
     if (comptime core != .wasm128_generic) return;
-    @export(&simd.Real(f32).call, .{ .name = symbol("saxpy", core) });
-    @export(&simd.Real(f64).call, .{ .name = symbol("daxpy", core) });
+    @export(&simd.Real(f32).call, .{ .name = symbol("saxpy", core), .visibility = .hidden });
+    @export(&simd.Real(f64).call, .{ .name = symbol("daxpy", core), .visibility = .hidden });
 }
 
-fn ext(comptime K: type, comptime name: []const u8) K {
-    return @extern(K, .{ .name = name });
-}
-
-fn installCore(vt: *Vtable, comptime core: Core) void {
-    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
-    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
-}
-
-/// Overrides the generic kernels installed by `axpy.install` for `core`.
-pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline else => |c| installCore(vt, c),
-    }
+/// Points the vtable at the kernels `core` has.
+pub fn install(vt: *Vtable, comptime core: Core) void {
+    registry.installRoles(vt, core, roles, hasRole);
 }

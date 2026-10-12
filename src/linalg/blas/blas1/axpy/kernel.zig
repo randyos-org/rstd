@@ -1,6 +1,6 @@
 //! Shared pieces of the axpy kernels: the reference's kernel ABI and the
 //! `CNAME` drivers of `kernel/x86_64/{s,d,c,z}axpy.c`. Nothing here depends on
-//! the BLAS root, so the per-core kernel objects (`blaskernel_*.zig`) can use
+//! the BLAS root, so the per-core kernel objects (`_kernel.zig`) can use
 //! it too.
 //!
 //! A driver is an optional block kernel for the contiguous part plus the
@@ -13,14 +13,14 @@
 const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
+const fma = @import("../../fma.zig");
+const uk = @import("../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
 
-/// The six kernel symbol names an architecture's `<arch>/kernel.zig` and
-/// `install.zig` iterate over (real and complex, plain and conjugated). Passed
-/// to `asm_registry.Registry`, which cannot derive it the way it derives a
-/// naked-function routine's roles off `index`.
+/// The six kernel symbol names an architecture's `<arch>/kernel.zig` iterates
+/// over (real and complex, plain and conjugated).
 pub const roles: []const []const u8 = &.{ "saxpy", "daxpy", "caxpy", "caxpyc", "zaxpy", "zaxpyc" };
 
 // ---- kernel ABI ------------------------------------------------------------
@@ -53,6 +53,44 @@ pub fn complexEntry(comptime F: type, comptime Impl: type) ComplexKernel(F) {
             return 0;
         }
     }.f;
+}
+
+// ---- the driver, as `uk_block.driven` takes it -----------------------------
+
+/// `caxpyc`, `zaxpyc`.
+fn isConj(comptime role: []const u8) bool {
+    return role.len == 6;
+}
+
+/// The kernel type of `role`.
+pub fn Kernel(comptime role: []const u8) type {
+    const F = uk.Float(role);
+    return if (uk.isComplex(role)) ComplexKernel(F) else RealKernel(F);
+}
+
+/// A block calling the reference's `f(n, x, y, alpha)`, with `alpha` as an
+/// array of its components.
+pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
+    const F = uk.Float(role);
+    if (uk.isComplex(role)) return struct {
+        pub fn run(n1: BlasLong, alpha: Complex(F), x: [*]Complex(F), y: [*]Complex(F)) void {
+            const a = [2]F{ alpha.re, alpha.im };
+            f(n1, @ptrCast(x), @ptrCast(y), @ptrCast(&a));
+        }
+    };
+    return struct {
+        pub fn run(n1: BlasLong, alpha: F, x: [*]F, y: [*]F) void {
+            const a = alpha;
+            f(n1, x, y, @ptrCast(&a));
+        }
+    };
+}
+
+/// The kernel `role` around `Block` (null for none), blocks of `mask`.
+pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Block: ?type) Kernel(role) {
+    const F = uk.Float(role);
+    if (comptime uk.isComplex(role)) return complexEntry(F, Cplx(F, isConj(role), mask, Block, fma.fuse));
+    return realEntry(F, Real(F, mask, Block, fma.fuse));
 }
 
 // ---- drivers ---------------------------------------------------------------
