@@ -1502,6 +1502,7 @@ somatcopy
 sphimp
 sphtext
 Spirv
+spki
 splice
 sqrtm
 sradi

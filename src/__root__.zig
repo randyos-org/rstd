@@ -24,6 +24,7 @@ pub const rstd_options = @import("rstd_options");
 pub const buildutils = @import("buildutils/__root__.zig");
 
 pub const bytes = @import("bytes.zig");
+pub const crypto = @import("crypto/__root__.zig");
 pub const debug = @import("debug.zig");
 pub const dll = @import("dll.zig");
 pub const io = @import("io.zig");
