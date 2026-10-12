@@ -65,6 +65,7 @@ pub const Icon = icon_mod.Icon;
 const rstd_dep_mod = @import("rstd.zig");
 pub const addRstd = rstd_dep_mod.addRstd;
 pub const RstdOptions = rstd_dep_mod.RstdOptions;
+pub const BlasCores = rstd_dep_mod.BlasCores;
 
 const win32_mod = @import("win32.zig");
 pub const addWin32 = win32_mod.addWin32;

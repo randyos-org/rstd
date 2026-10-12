@@ -6,7 +6,6 @@
 //! Add a routine to `modules` to wire it in.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
@@ -69,13 +68,7 @@ pub fn exportCore(comptime core: Core) void {
     inline for (modules) |m| m.exportCore(core);
 }
 
-/// Points the vtable at the kernels `core` has; the portable ones stay where
-/// it has none, and for a core whose object is not linked for this target.
+/// Points the vtable at the kernels `core` has (see `asm_registry.install`).
 pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline else => |c| {
-            if (comptime !runsOn(sysinfo.cpu, c)) return;
-            inline for (modules) |m| m.install(vt, c);
-        },
-    }
+    registry.install(vt, modules, core);
 }

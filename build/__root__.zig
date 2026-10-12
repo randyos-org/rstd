@@ -19,7 +19,11 @@ pub fn build(b: *Build) !void {
     });
     const rstd_options = try rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version, null);
     rstd_mod.addImport("rstd_options", try rstdbuild.optionsModule(rstd_options));
-    blaskern.addBlasKernels(b, rstd_mod, target);
+    // Debug builds link only the target's BLAS kernels, which is far faster
+    // to compile; `-Dblas-cores=all` builds every core to test dispatch.
+    const blas_cores = b.option(rstdbuild.BlasCores, "blas-cores", "BLAS kernel objects to build: the target's core only (debug default) or all") orelse
+        @as(rstdbuild.BlasCores, if (optimize == .debug) .target else .all);
+    blaskern.addBlasKernels(b, rstd_mod, target, blas_cores);
     rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
     // only add RenderDoc to non-Vulkan, desktop-OS targets
     switch (target.result.os.tag) {

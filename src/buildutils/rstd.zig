@@ -8,8 +8,16 @@ const Docs = docs_mod.Docs;
 const DepModule = @import("deps.zig").DepModule;
 const Module = rstdbuild.Module;
 
+/// Which cores get a BLAS kernel object: `target`, only the one the build
+/// target maps to; `all`, every core it can run (for runtime dispatch).
+pub const BlasCores = enum { target, all };
+
 pub const RstdOptions = struct {
     _rstd_mod: ?*Module = null,
+    /// The consumer's optimize mode; picks `blas_cores`' default (`target` in
+    /// debug, else `all`). Unset, rstd treats the build as debug.
+    optimize: ?rstdbuild.Optimize = null,
+    blas_cores: ?BlasCores = null,
 };
 
 pub fn addRstd(
@@ -22,6 +30,8 @@ pub fn addRstd(
     const rstd_dep = if (options._rstd_mod) |_| null else b.dependency("rstd", .{
         .target = target,
         .vulkan = vulkan,
+        .optimize = options.optimize,
+        .@"blas-cores" = options.blas_cores,
     });
     // rstd_mod already has its own "build_options" import, wired up by
     // rstd's own build.zig when it configured itself; don't re-add one

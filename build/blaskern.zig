@@ -12,12 +12,18 @@
 //! (`src/linalg/blas/kernels/<arch>.zig`) has kernels for, groups them by
 //! equal spec, and builds one object per group.
 //!
+//! `-Dblas-cores=target` (the debug default) builds only the group the target
+//! maps to: the host's detected core for a native target, else the group with
+//! the most features the target has. A detected core not linked at runtime
+//! uses that one instead (`asm_registry.install`).
+//!
 //! The architecture's core types and kernel registry come from
 //! `cpu.GetCpuArch(arch)`. Supporting another architecture means filling in its
 //! `kernels/<arch>.zig` (a stub exists for each); its specs are already in
 //! `_corespec.zig`.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const rstd = @import("../src/__root__.zig");
 const rstdbuild = rstd.buildutils;
 const Build = rstdbuild.Build;
@@ -30,14 +36,18 @@ const corespec = @import("../src/linalg/blas/cpu/_corespec.zig");
 /// Cores with equal specs, served by one object.
 const Group = struct {
     spec: corespec.Spec,
+    query: std.Target.Query,
     cores: std.ArrayList([]const u8) = .empty,
 };
 
 var force_llvm: ?bool = null;
 var option_read = false;
 
-/// Builds the per-core kernel objects for `target` and links them into `mod`.
-pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget) void {
+/// Builds the per-core kernel objects for `target` and links them into `mod`:
+/// for every core the target can run (`.all`), or only the core the target
+/// maps to (`.target`). It also gives `mod` the `blaskern_linked` module,
+/// which tells `asm_registry.install` what got linked.
+pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) void {
     if (!option_read) {
         option_read = true;
         force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
@@ -47,27 +57,34 @@ pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget) void {
     switch (target.result.cpu.arch) {
         inline else => |a| {
             const arch = cpu.GetCpuArch(a);
-            addForArch(b, mod, target, a, arch.CoreType, arch.kernel);
+            addForArch(b, mod, target, cores, a, arch, arch.kernel);
         },
     }
 }
 
-fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag: std.Target.Cpu.Arch, comptime Core: type, comptime registry: type) void {
+fn addForArch(
+    b: *Build,
+    mod: *Module,
+    target: ResolvedTarget,
+    cores: rstdbuild.BlasCores,
+    comptime arch_tag: std.Target.Cpu.Arch,
+    comptime cpu_arch: type,
+    comptime registry: type,
+) void {
     const arch = target.result.cpu.arch;
-    if (!registry.supports(arch)) return;
     var groups: std.ArrayList(Group) = .empty;
 
-    inline for (@typeInfo(Core).@"enum".field_names) |name| {
-        const core = @field(Core, name);
+    inline for (@typeInfo(cpu_arch.CoreType).@"enum".field_names) |name| {
+        const core = @field(cpu_arch.CoreType, name);
         // its kernels must run on the target CPU
         const runs = if (@hasDecl(registry, "runsOn")) registry.runsOn(target.result.cpu, core) else true;
         if (comptime registry.hasKernels(arch_tag, core)) {
-            if (runs) {
+            if (runs and registry.supports(arch)) {
                 const spec = corespec.of(core);
                 const g = for (groups.items) |*g| {
                     if (g.spec.eql(spec)) break g;
                 } else blk: {
-                    groups.append(b.allocator, .{ .spec = spec }) catch @panic("OOM");
+                    groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) }) catch @panic("OOM");
                     break :blk &groups.items[groups.items.len - 1];
                 };
                 g.cores.append(b.allocator, name) catch @panic("OOM");
@@ -75,17 +92,25 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
         }
     }
 
-    for (groups.items) |g| {
-        var query = target.query;
-        query.cpu_features_sub = .empty;
-        if (g.spec.model) |name| {
-            query.cpu_model = .{ .explicit = findModel(arch, name) };
-            query.cpu_features_add = .empty;
-        } else {
-            query.cpu_model = .baseline;
-            query.cpu_features_add = featureSet(arch, g.spec.features);
-        }
+    var fallback: ?[]const u8 = null;
+    if (cores == .target) {
+        const pick = pickTarget(b, target, arch_tag, cpu_arch, groups.items);
+        if (pick) |p| {
+            const g = groups.items[p.group];
+            groups.clearRetainingCapacity();
+            groups.appendAssumeCapacity(g);
+            fallback = p.core;
+        } else groups.clearRetainingCapacity();
+    }
 
+    var linked: std.ArrayList([]const u8) = .empty;
+    for (groups.items) |g| linked.appendSlice(b.allocator, g.cores.items) catch @panic("OOM");
+    const linked_opts = b.addOptions();
+    linked_opts.addOption([]const []const u8, "cores", linked.items);
+    linked_opts.addOption(?[]const u8, "fallback", fallback);
+    mod.addImport("blaskern_linked", linked_opts.createModule());
+
+    for (groups.items) |g| {
         const opts = b.addOptions();
         opts.addOption([]const []const u8, "cores", g.cores.items);
         opts.addOption(bool, "fuse_fma_set", g.spec.fuse_fma != null);
@@ -97,7 +122,7 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
             .name = b.fmt("rstd-blaskernel-{s}", .{g.cores.items[0]}),
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/linalg/blas/_kernel.zig"),
-                .target = b.resolveTargetQuery(query),
+                .target = b.resolveTargetQuery(g.query),
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
                 .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
@@ -109,6 +134,56 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
         });
         mod.addObject(obj);
     }
+}
+
+/// The target query a group's object is built with: its model, or the
+/// baseline plus its features.
+fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
+    const arch = target.result.cpu.arch;
+    var query = target.query;
+    query.cpu_features_sub = .empty;
+    if (spec.model) |name| {
+        query.cpu_model = .{ .explicit = findModel(arch, name) };
+        query.cpu_features_add = .empty;
+    } else {
+        query.cpu_model = .baseline;
+        query.cpu_features_add = featureSet(arch, spec.features);
+    }
+    return query;
+}
+
+/// The group, and the core in it, that `target` maps to. A native target asks
+/// the host, as the runtime would (`cpu.<arch>.detect`); otherwise it is the
+/// group with the most features that are all the target's.
+fn pickTarget(
+    b: *Build,
+    target: ResolvedTarget,
+    comptime arch_tag: std.Target.Cpu.Arch,
+    comptime cpu_arch: type,
+    groups: []const Group,
+) ?struct { group: usize, core: []const u8 } {
+    if (comptime arch_tag == sysinfo.cpu.arch) {
+        if (target.query.isNativeCpu()) {
+            const name = @tagName(cpu_arch.detect());
+            for (groups, 0..) |g, i| {
+                for (g.cores.items) |c| {
+                    if (std.mem.eql(u8, c, name)) return .{ .group = i, .core = c };
+                }
+            }
+        }
+    }
+    var best: ?usize = null;
+    var best_count: usize = 0;
+    for (groups, 0..) |g, i| {
+        const features = b.resolveTargetQuery(g.query).result.cpu.features;
+        if (!target.result.cpu.features.isSuperSetOf(features)) continue;
+        if (best == null or features.count() > best_count) {
+            best = i;
+            best_count = features.count();
+        }
+    }
+    const i = best orelse return null;
+    return .{ .group = i, .core = groups[i].cores.items[0] };
 }
 
 /// Whether the kernels of `cores` can only be built with LLVM, found by building

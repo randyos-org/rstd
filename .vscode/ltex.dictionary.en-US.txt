@@ -1382,6 +1382,7 @@ sdbg
 sdc
 SDGT
 sdot
+sdsdot
 seccomp
 security
 segbuf

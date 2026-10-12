@@ -20,6 +20,36 @@ pub const variant: []const u8 = switch (builtin.cpu.arch) {
     else => "",
 };
 
+/// The cores whose kernel objects this build links, and the one standing in
+/// for a detected core that is not linked (`build/blaskern.zig`).
+const linked = @import("blaskern_linked");
+
+/// Whether `core`'s kernel object is linked.
+pub fn isLinked(core: anytype) bool {
+    @setEvalBranchQuota(100_000);
+    for (linked.cores) |name| {
+        if (std.mem.eql(u8, name, @tagName(core))) return true;
+    }
+    return false;
+}
+
+/// Points the vtable at `core`'s kernels from `modules` (an arch's list in
+/// `kernels/<arch>.zig`). A core with no linked object uses the build's pick
+/// for the target instead, if any; otherwise the portable kernels stay.
+pub fn install(vt: *Vtable, comptime modules: anytype, core: anytype) void {
+    const Core = @TypeOf(core);
+    const pick: Core = if (isLinked(core)) core else if (comptime linked.fallback) |f|
+        comptime std.meta.stringToEnum(Core, f).?
+    else
+        return;
+    switch (pick) {
+        inline else => |c| {
+            if (comptime !isLinked(c)) return;
+            inline for (modules) |m| m.install(vt, c);
+        },
+    }
+}
+
 /// Points the vtable slot of each of `roles` that `core` has (`hasRole`) at
 /// the kernel the per-core object exports for it, for a routine whose kernels
 /// are not all converted assembly (`Kernels.install` does this from `index`).

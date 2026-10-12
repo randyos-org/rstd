@@ -3,7 +3,6 @@ const uefi = std.os.uefi;
 const Io = std.Io;
 
 pub const netListenIp = Io.failingNetListenIp;
-pub const netAccept = Io.failingNetAccept;
 pub const netBindIp = Io.failingNetBindIp;
 pub const netConnectIp = Io.failingNetConnectIp;
 pub const netListenUnix = Io.failingNetListenUnix;

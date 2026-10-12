@@ -38,12 +38,7 @@ pub fn exportCore(comptime core: Core) void {
     inline for (modules) |m| m.exportCore(core);
 }
 
-/// Points the vtable at the kernels `core` has; the portable ones stay where
-/// it has none.
+/// Points the vtable at the kernels `core` has (see `asm_registry.install`).
 pub fn install(vt: *Vtable, core: Core) void {
-    switch (core) {
-        inline else => |c| {
-            inline for (modules) |m| m.install(vt, c);
-        },
-    }
+    registry.install(vt, modules, core);
 }

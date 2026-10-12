@@ -25,7 +25,7 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) void {
         .target = target,
         .optimize = optimize,
     });
-    blaskern.addBlasKernels(b, test_mod, target);
+    blaskern.addBlasKernels(b, test_mod, target, .all);
     const test_exe = b.addTest(.{
         .name = "rstd-wasm",
         .root_module = test_mod,

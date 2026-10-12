@@ -27,6 +27,7 @@ const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const rsimd = @import("../../../../simd/__root__.zig");
 const fma = @import("../../fma.zig");
+const registry = @import("../../asm_registry.zig");
 
 const BlasInt = types.BlasInt;
 const BlasLong = types.BlasLong;
@@ -452,10 +453,10 @@ test "a core's kernels fill every axpy slot, for the host's core type" {
     try checkComplex(f64, true, vt.zaxpyc_k.?);
 }
 
-test "every core's kernels match a scalar loop, where this machine runs them" {
+test "every linked core's kernels match a scalar loop, where this machine runs them" {
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
         const core = @field(cpu.CoreType, name);
-        if (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core)) {
+        if (registry.isLinked(core) and (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core))) {
             var vt: Vtable = .{};
             installGeneric(&vt);
             cpu.kernel.install(&vt, core);

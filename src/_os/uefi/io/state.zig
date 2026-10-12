@@ -165,13 +165,13 @@ pub const io_inst: Io = .{
         .processSetCurrentDir = proc.processSetCurrentDir,
         .processSetCurrentPath = proc.processSetCurrentPath,
         .processReplace = proc.processReplace,
-        .processReplacePath = proc.processReplacePath,
         .processSpawn = proc.processSpawn,
-        .processSpawnPath = proc.processSpawnPath,
         .childWait = proc.childWait,
         .childKill = proc.childKill,
 
         .progressParentFile = progress.progressParentFile,
+        .inheritParentDir = proc.inheritParentDir,
+        .inheritParentFile = proc.inheritParentFile,
 
         .now = time.now,
         .clockResolution = time.clockResolution,
@@ -181,7 +181,6 @@ pub const io_inst: Io = .{
         .randomSecure = random.randomSecure,
 
         .netListenIp = net.netListenIp,
-        .netAccept = net.netAccept,
         .netBindIp = net.netBindIp,
         .netConnectIp = net.netConnectIp,
         .netListenUnix = net.netListenUnix,

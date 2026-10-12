@@ -193,7 +193,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) void {
             .code_model = m.code_model,
         });
         // the kernels of the architectures that have any
-        blaskern.addBlasKernels(b, test_mod, target);
+        blaskern.addBlasKernels(b, test_mod, target, .all);
         const test_exe = b.addTest(.{
             .name = b.fmt("rstd-qemu-{s}", .{m.name}),
             .root_module = test_mod,
