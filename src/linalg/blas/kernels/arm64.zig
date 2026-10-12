@@ -34,14 +34,6 @@ pub fn supports(arch: std.Target.Cpu.Arch) bool {
     return arch == .aarch64;
 }
 
-/// Whether `core`'s kernels run on `cpu`: the SVE cores' need the extension.
-pub fn runsOn(cpu: std.Target.Cpu, core: Core) bool {
-    return switch (core) {
-        .a64fx, .neoversev1 => cpu.has(.aarch64, .sve),
-        else => true,
-    };
-}
-
 /// Whether any routine has a kernel for `core`.
 pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool {
     _ = arch;

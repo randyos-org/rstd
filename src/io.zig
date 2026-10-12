@@ -25,12 +25,7 @@ pub fn printerr(local_io: std.Io, msg: []const u8) !void {
     try stderr().writeStreamingAll(local_io, msg);
 }
 
-pub fn fileExists(local_io: std.Io, path: []const u8) bool {
-    std.Io.Dir.cwd().access(local_io, path, .{}) catch {
-        return false;
-    };
-    return true;
-}
+pub const fileExists = @import("buildutils/io.zig").fileExists;
 
 pub fn getTimeSeconds() f64 {
     const ns = std.Io.Clock.now(.boot, std.Options.debug_io).toNanoseconds();

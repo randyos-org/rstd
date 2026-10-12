@@ -1,7 +1,14 @@
+//! Helpers for build scripts (rstd's own and its consumers').
+//!
+//! Import only `std`, files in this directory, and `../machine.zig` (std-only
+//! data). A build script's compile depends on every file it can reach by
+//! `@import`, so one edge into the rest of rstd recompiles every consumer's
+//! build script on any rstd edit.
+
 const std = @import("std");
 
 pub const machine = @import("../machine.zig");
-pub const io = @import("../io.zig");
+pub const io = @import("io.zig");
 
 pub const Build = std.Build;
 pub const Step = Build.Step;

@@ -1,7 +1,6 @@
 pub const zon = @import("../build.zig.zon");
-pub const rstd = @import("../src/__root__.zig");
 
-const rstdbuild = rstd.buildutils;
+const rstdbuild = @import("../src/buildutils/__root__.zig");
 const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
 const wasmtest = @import("wasmtest.zig");

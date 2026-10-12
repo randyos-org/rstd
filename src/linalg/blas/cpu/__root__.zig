@@ -12,6 +12,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const zigstd = @import("../../../zigstd.zig");
 const Vtable = @import("../Vtable.zig");
+const corespec = @import("_corespec.zig");
 
 // pub const auxv = @import("_auxv.zig");
 pub const arm = @import("arm.zig");
@@ -104,4 +105,23 @@ test "fromName is case insensitive and rejects unknown names" {
 
 test "detect returns something for whatever we are built for" {
     _ = detect();
+}
+
+test "corespec.kernelCores lists the cores with kernels" {
+    const tag = sysinfo.cpu.arch;
+    const R = @import("../kernels/__root__.zig").ForArch(tag);
+    const actual = comptime blk: {
+        @setEvalBranchQuota(100_000_000);
+        var cores: []const corespec.CoreType(tag) = &.{};
+        if (R.supports(tag)) for (@typeInfo(R.Core).@"enum".field_names) |n| {
+            if (R.hasKernels(tag, @field(R.Core, n))) cores = cores ++ .{@field(R.Core, n)};
+        };
+        break :blk cores;
+    };
+    if (!std.mem.eql(corespec.CoreType(tag), actual, corespec.kernelCores(tag))) {
+        std.debug.print("kernelCores(.{t}) should be:", .{tag});
+        for (actual) |c| std.debug.print(" .{t},", .{c});
+        std.debug.print("\n", .{});
+        return error.TestUnexpectedResult;
+    }
 }

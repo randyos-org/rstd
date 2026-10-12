@@ -1,17 +1,16 @@
-// const std = @import("std");
+const std = @import("std");
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const CompileStep = rstdbuild.CompileStep;
 const LazyPath = rstdbuild.LazyPath;
 const Dependency = rstdbuild.Dependency;
-const zigstd = @import("../zigstd.zig");
 
 /// Whether `b`'s package declares a dependency named `name` in its own
 /// build.zig.zon (so `b.dependency(name, ...)` can resolve it).
 pub fn declaresDependency(b: *Build, name: []const u8) bool {
     for (b.available_deps) |dep| {
-        if (zigstd.equal(u8, dep[0], name)) return true;
+        if (std.mem.eql(u8, dep[0], name)) return true;
     }
     return false;
 }

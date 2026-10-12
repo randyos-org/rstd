@@ -1,7 +1,7 @@
-//! 32-bit x86 CPU detection: the detector shared with x86_64 (`_x86.zig`),
+//! 32-bit x86 CPU detection: the detector shared with x86_64 (`_detect/x86.zig`),
 //! with 32-bit x86's own kernel registry and vtable.
 
-const detector = @import("_x86.zig");
+const detector = @import("_detect/x86.zig");
 const Vtable = @import("../Vtable.zig");
 const blas1 = @import("../blas1/__root__.zig");
 const blas = @import("../__root__.zig");

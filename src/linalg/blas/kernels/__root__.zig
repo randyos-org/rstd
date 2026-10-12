@@ -2,7 +2,8 @@
 //! registries, which stay inside `linalg/blas/`) because the per-core object
 //! root (`_kernel.zig`) is compiled on its own and cannot reach `cpu/`, which
 //! is where the same choice is made for the rest of the library
-//! (`cpu.GetCpuArch(arch).kernel`); keep the two in step.
+//! (`cpu.GetCpuArch(arch).kernel`); keep the two, and `corespec.CoreType`, in
+//! step.
 
 const std = @import("std");
 

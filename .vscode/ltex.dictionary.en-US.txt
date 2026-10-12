@@ -969,6 +969,7 @@ msgctl
 msgget
 msgrcv
 msgsnd
+msimd
 msoffice
 msse
 mssse
@@ -1499,6 +1500,7 @@ socat
 socket
 socketpair
 somatcopy
+sparcv
 sphimp
 sphtext
 Spirv

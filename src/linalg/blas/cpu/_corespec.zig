@@ -210,6 +210,99 @@ pub fn of(core: anytype) Spec {
     };
 }
 
+// ---- what the build makes objects for ---------------------------------------
+// `build/blaskern.zig` reads these instead of the registries, which would make
+// its compile depend on every kernel source.
+
+/// The core type of `arch`'s registry (`kernels/__root__.zig`'s `ForArch`).
+pub fn CoreType(comptime arch: std.Target.Cpu.Arch) type {
+    return switch (arch) {
+        .x86_64, .x86 => coretypes.X86CoreType,
+        .aarch64, .aarch64_be => coretypes.Arm64CoreType,
+        .arm, .armeb, .thumb, .thumbeb => coretypes.ArmCoreType,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => coretypes.PowerCoreType,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => coretypes.RiscvCoreType,
+        .s390x => coretypes.S390xCoreType,
+        .mips, .mipsel, .mips64, .mips64el => coretypes.MipsCoreType,
+        .loongarch32, .loongarch64 => coretypes.LoongarchCoreType,
+        .sparc, .sparc64 => coretypes.SparcCoreType,
+        .wasm32, .wasm64 => coretypes.WasmCoreType,
+        else => coretypes.GenericCoreType,
+    };
+}
+
+/// The detector of `arch` (`detect()`): light, unlike `cpu/<arch>.zig`, which
+/// adds the kernels.
+pub fn Detector(comptime arch: std.Target.Cpu.Arch) type {
+    return switch (arch) {
+        .x86_64, .x86 => @import("_detect/x86.zig"),
+        .aarch64, .aarch64_be => @import("_detect/arm64.zig"),
+        .arm, .armeb, .thumb, .thumbeb => @import("_detect/arm.zig"),
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => @import("_detect/power.zig"),
+        .riscv32, .riscv32be, .riscv64, .riscv64be => @import("_detect/riscv.zig"),
+        .s390x => @import("_detect/s390x.zig"),
+        .mips, .mipsel, .mips64, .mips64el => @import("_detect/mips.zig"),
+        .loongarch32, .loongarch64 => @import("_detect/loongarch.zig"),
+        .sparc, .sparc64 => @import("_detect/sparc.zig"),
+        .wasm32, .wasm64 => @import("_detect/wasm.zig"),
+        else => @import("_detect/generic.zig"),
+    };
+}
+
+/// The cores of `arch` with kernels: each registry's `hasKernels`, as compiled
+/// for that architecture. Derived from the registries; re-derive rather than
+/// edit (the test in `kernels/__root__.zig` fails with the right list).
+pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
+    return switch (arch) {
+        .x86_64 => &.{ .prescott, .atom, .core2, .penryn, .dunnington, .nehalem, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids },
+        .x86 => &.{ .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .core2, .penryn, .dunnington, .nehalem, .athlon, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .zen },
+        .aarch64 => &.{ .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .thunderx2t99, .tsv110, .emag8180, .neoversen1, .neoversev1, .neoversev2, .neoversen2, .thunderx3t110, .cortexa55, .armv8sve, .a64fx, .armv9sme, .vortex, .vortexm4 },
+        .arm => &.{ .armv6, .armv7 },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => &.{ .power6, .power8, .power9, .power10, .power3, .power4, .power5, .ppc970, .cell, .ppc440, .ppc440fp2, .ppcg4 },
+        .mips, .mipsel, .mips64, .mips64el => &.{ .loongson3r3, .loongson3r4, .p5600, .i6400, .i6500, .p6600 },
+        .loongarch64 => &.{ .la64_generic, .la264, .la464 },
+        .riscv64 => &.{ .riscv64_zvl128b, .x280 },
+        .s390x => &.{ .z13, .z14 },
+        .sparc, .sparc64 => &.{ .sparcv7, .sparc },
+        .wasm32, .wasm64 => &.{.wasm128_generic},
+        else => &.{},
+    };
+}
+
+/// Whether `core`'s kernels run on `cpu`.
+pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
+    return switch (@TypeOf(core)) {
+        // the SVE cores need the extension
+        coretypes.Arm64CoreType => switch (core) {
+            .a64fx, .neoversev1 => cpu.has(.aarch64, .sve),
+            else => true,
+        },
+        // a core's code is for one word size; the Loongson 3A kernels are
+        // release 2 code, which release 6 does not run; the SIMD kernels need
+        // the release that has the SIMD architecture
+        coretypes.MipsCoreType => runsOnMips(cpu, core),
+        // the 32-bit cores have no 64-bit code; the vector ones need their
+        // instructions
+        coretypes.PowerCoreType => switch (core) {
+            .power8, .power9 => cpu.has(.powerpc, .vsx),
+            .power10 => cpu.has(.powerpc, .vsx) and cpu.has(.powerpc, .isa_v31_instructions),
+            .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerPC64(),
+            else => true,
+        },
+        else => true,
+    };
+}
+
+fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
+    const wide = cpu.arch.isMIPS64();
+    return switch (core) {
+        .mips24k, .mips1004k, .p5600 => !wide and (core != .p5600 or cpu.has(.mips, .mips32r5)),
+        .i6400, .i6500, .p6600 => wide and cpu.has(.mips, .mips64r6),
+        .loongson3r3, .loongson3r4 => wide and !cpu.has(.mips, .mips64r6),
+        .mips64_generic, .unknown => wide,
+    };
+}
+
 // ---- tests -----------------------------------------------------------------
 
 /// Every model and feature named for `Core` exists in `Target` (a

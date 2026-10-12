@@ -7,9 +7,9 @@
 //! identically on Windows, Linux, macOS and freestanding.
 
 const std = @import("std");
-const coretypes = @import("_coretypes.zig");
-const corespec = @import("_corespec.zig");
-const zigstd = @import("../../../zigstd.zig");
+const coretypes = @import("../_coretypes.zig");
+const corespec = @import("../_corespec.zig");
+const zigstd = @import("../../../../zigstd.zig");
 const sysinfo = @import("builtin");
 
 pub const CoreType = coretypes.X86CoreType;

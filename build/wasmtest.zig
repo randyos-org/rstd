@@ -4,8 +4,7 @@
 //! core's kernels are the ones exercised.
 
 const std = @import("std");
-const rstd = @import("../src/__root__.zig");
-const rstdbuild = rstd.buildutils;
+const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Optimize = rstdbuild.Optimize;
 const blaskern = @import("blaskern.zig");

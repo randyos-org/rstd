@@ -9,7 +9,7 @@ pub const V3f32 = zigvec.V3f32;
 pub const V4f32 = zigvec.V4f32;
 pub const splatVec = zigvec.splatVecF32;
 
-pub const ShaderStage = enum { frag, vert };
+pub const ShaderStage = @import("../../buildutils/shadertypes.zig").Stage;
 
 // aliases to resemble glsl
 pub const Float = f32;

@@ -8,8 +8,7 @@ const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Optimize = rstdbuild.Optimize;
 const RstdOptions = rstdbuild.RstdOptions;
 
-const shadertypes = @import("../rgl/shaders/types.zig");
-pub const ShaderStage = shadertypes.ShaderStage;
+pub const ShaderStage = @import("shadertypes.zig").Stage;
 
 pub const CompiledShader = struct {
     spv_vert_path: LazyPath,

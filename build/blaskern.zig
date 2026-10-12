@@ -7,30 +7,30 @@
 //! and any backend.
 //!
 //! What each core is compiled with is not written here: it is
-//! `src/linalg/blas/cpu/_corespec.zig`, shared with the runtime. This walks
-//! the target architecture's core types, keeps those a kernel registry
-//! (`src/linalg/blas/kernels/<arch>.zig`) has kernels for, groups them by
-//! equal spec, and builds one object per group.
+//! `src/linalg/blas/cpu/_corespec.zig`, shared with the runtime. This takes
+//! the target architecture's cores with kernels (`corespec.kernelCores`),
+//! keeps those the target can run, groups them by equal spec, and builds one
+//! object per group.
 //!
 //! `-Dblas-cores=target` (the debug default) builds only the group the target
 //! maps to: the host's detected core for a native target, else the group with
 //! the most features the target has. A detected core not linked at runtime
 //! uses that one instead (`asm_registry.install`).
 //!
-//! The architecture's core types and kernel registry come from
-//! `cpu.GetCpuArch(arch)`. Supporting another architecture means filling in its
-//! `kernels/<arch>.zig` (a stub exists for each); its specs are already in
-//! `_corespec.zig`.
+//! Supporting another architecture means filling in its `kernels/<arch>.zig`
+//! (a stub exists for each) and listing its cores in `corespec.kernelCores`;
+//! its specs are already in `_corespec.zig`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const rstd = @import("../src/__root__.zig");
-const rstdbuild = rstd.buildutils;
+const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 
-const cpu = @import("../src/linalg/blas/cpu/__root__.zig");
+// Only `cpu/`'s light files (`_corespec.zig` and the `_detect/<arch>.zig` detectors
+// it names): the registries or `cpu/<arch>.zig` would make this script's
+// compile depend on every kernel source.
 const corespec = @import("../src/linalg/blas/cpu/_corespec.zig");
 
 /// Cores with equal specs, served by one object.
@@ -52,13 +52,9 @@ pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rs
         option_read = true;
         force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
     }
-    // `GetCpuArch` picks a type, so the runtime architecture becomes a
-    // compile-time one here; each arm is one instantiation per architecture family.
+    // the core type depends on the architecture, so it becomes compile-time here
     switch (target.result.cpu.arch) {
-        inline else => |a| {
-            const arch = cpu.GetCpuArch(a);
-            addForArch(b, mod, target, cores, a, arch, arch.kernel);
-        },
+        inline else => |a| addForArch(b, mod, target, cores, a),
     }
 }
 
@@ -68,33 +64,26 @@ fn addForArch(
     target: ResolvedTarget,
     cores: rstdbuild.BlasCores,
     comptime arch_tag: std.Target.Cpu.Arch,
-    comptime cpu_arch: type,
-    comptime registry: type,
 ) void {
     const arch = target.result.cpu.arch;
     var groups: std.ArrayList(Group) = .empty;
 
-    inline for (@typeInfo(cpu_arch.CoreType).@"enum".field_names) |name| {
-        const core = @field(cpu_arch.CoreType, name);
+    for (corespec.kernelCores(arch_tag)) |core| {
         // its kernels must run on the target CPU
-        const runs = if (@hasDecl(registry, "runsOn")) registry.runsOn(target.result.cpu, core) else true;
-        if (comptime registry.hasKernels(arch_tag, core)) {
-            if (runs and registry.supports(arch)) {
-                const spec = corespec.of(core);
-                const g = for (groups.items) |*g| {
-                    if (g.spec.eql(spec)) break g;
-                } else blk: {
-                    groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) }) catch @panic("OOM");
-                    break :blk &groups.items[groups.items.len - 1];
-                };
-                g.cores.append(b.allocator, name) catch @panic("OOM");
-            }
-        }
+        if (!corespec.runsOn(target.result.cpu, core)) continue;
+        const spec = corespec.of(core);
+        const g = for (groups.items) |*g| {
+            if (g.spec.eql(spec)) break g;
+        } else blk: {
+            groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) }) catch @panic("OOM");
+            break :blk &groups.items[groups.items.len - 1];
+        };
+        g.cores.append(b.allocator, @tagName(core)) catch @panic("OOM");
     }
 
     var fallback: ?[]const u8 = null;
     if (cores == .target) {
-        const pick = pickTarget(b, target, arch_tag, cpu_arch, groups.items);
+        const pick = pickTarget(b, target, arch_tag, groups.items);
         if (pick) |p| {
             const g = groups.items[p.group];
             groups.clearRetainingCapacity();
@@ -153,18 +142,17 @@ fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
 }
 
 /// The group, and the core in it, that `target` maps to. A native target asks
-/// the host, as the runtime would (`cpu.<arch>.detect`); otherwise it is the
+/// the host, as the runtime would (`corespec.Detector`); otherwise it is the
 /// group with the most features that are all the target's.
 fn pickTarget(
     b: *Build,
     target: ResolvedTarget,
     comptime arch_tag: std.Target.Cpu.Arch,
-    comptime cpu_arch: type,
     groups: []const Group,
 ) ?struct { group: usize, core: []const u8 } {
     if (comptime arch_tag == sysinfo.cpu.arch) {
         if (target.query.isNativeCpu()) {
-            const name = @tagName(cpu_arch.detect());
+            const name = @tagName(corespec.Detector(arch_tag).detect());
             for (groups, 0..) |g, i| {
                 for (g.cores.items) |c| {
                     if (std.mem.eql(u8, c, name)) return .{ .group = i, .core = c };
