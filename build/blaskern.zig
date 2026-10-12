@@ -45,8 +45,8 @@ var option_read = false;
 
 /// Builds the per-core kernel objects for `target` and links them into `mod`:
 /// for every core the target can run (`.all`), or only the core the target
-/// maps to (`.target`). It also gives `mod` the `blaskern_linked` module,
-/// which tells `asm_registry.install` what got linked.
+/// maps to (`.target`), or none (`.none`). It also gives `mod` the
+/// `blaskern_linked` module, which tells `asm_registry.install` what got linked.
 pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) void {
     if (!option_read) {
         option_read = true;
@@ -82,7 +82,9 @@ fn addForArch(
     }
 
     var fallback: ?[]const u8 = null;
-    if (cores == .target) {
+    if (cores == .none) {
+        groups.clearRetainingCapacity();
+    } else if (cores == .target) {
         const pick = pickTarget(b, target, arch_tag, groups.items);
         if (pick) |p| {
             const g = groups.items[p.group];

@@ -9,8 +9,10 @@ const DepModule = @import("deps.zig").DepModule;
 const Module = rstdbuild.Module;
 
 /// Which cores get a BLAS kernel object: `target`, only the one the build
-/// target maps to; `all`, every core it can run (for runtime dispatch).
-pub const BlasCores = enum { target, all };
+/// target maps to; `all`, every core it can run (for runtime dispatch);
+/// `none`, no kernel objects, for consumers that leave BLAS unused (the
+/// portable kernels stay installed).
+pub const BlasCores = enum { target, all, none };
 
 pub const RstdOptions = struct {
     _rstd_mod: ?*Module = null,

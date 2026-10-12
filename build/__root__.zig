@@ -20,7 +20,7 @@ pub fn build(b: *Build) !void {
     rstd_mod.addImport("rstd_options", try rstdbuild.optionsModule(rstd_options));
     // Debug builds link only the target's BLAS kernels, which is far faster
     // to compile; `-Dblas-cores=all` builds every core to test dispatch.
-    const blas_cores = b.option(rstdbuild.BlasCores, "blas-cores", "BLAS kernel objects to build: the target's core only (debug default) or all") orelse
+    const blas_cores = b.option(rstdbuild.BlasCores, "blas-cores", "BLAS kernel objects to build: the target's core only (debug default), all, or none") orelse
         @as(rstdbuild.BlasCores, if (optimize == .debug) .target else .all);
     blaskern.addBlasKernels(b, rstd_mod, target, blas_cores);
     rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
