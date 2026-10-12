@@ -118,8 +118,9 @@ fn addForArch(
             }),
             .use_llvm = llvm,
             // the self-hosted linker writes the object otherwise, and pads and
-            // misplaces SPARC symbols (calls land in zeroed `.text`)
-            .use_lld = llvm,
+            // misplaces SPARC symbols (calls land in zeroed `.text`); LLD cannot
+            // write Mach-O, so macOS objects keep the self-hosted linker
+            .use_lld = llvm and target.result.ofmt != .macho,
         });
         mod.addObject(obj);
     }
