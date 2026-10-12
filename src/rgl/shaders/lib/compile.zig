@@ -21,11 +21,14 @@ fn StageFn() type {
     };
 }
 
-/// `const main = exportShaderMain(&vert, &frag); comptime { _ = main; }`
-pub inline fn exportShaderMain(comptime vert: *const VertFn, comptime frag: *const FragFn) *const StageFn() {
-    const main = switch (getCurrentShaderStage()) {
-        .vert => vert,
-        .frag => frag,
+/// `const main = exportShaderMain(struct { pub const vert = v; pub const frag = f; });`
+/// `comptime { _ = main; }`
+/// Struct decls are lazy, so only the current stage's fn gets compiled;
+/// the other stage's stores to `param`s would be read-only input writes.
+pub inline fn exportShaderMain(comptime S: type) *const StageFn() {
+    const main: *const StageFn() = switch (getCurrentShaderStage()) {
+        .vert => &S.vert,
+        .frag => &S.frag,
     };
     @export(main, .{ .name = "main" });
     return main;

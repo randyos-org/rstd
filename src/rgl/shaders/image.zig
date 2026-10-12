@@ -18,7 +18,10 @@ const input = lib.compile.input;
 const param_uv = param("uv", Vec2, 0);
 const param_color = param("color", Vec4, 1);
 
-const main = lib.compile.exportShaderMain(&vert, &frag);
+const main = lib.compile.exportShaderMain(struct {
+    pub const vert = vertMain;
+    pub const frag = fragMain;
+});
 comptime {
     _ = main;
 }
@@ -29,7 +32,7 @@ const in_rect_pos = input("rect_pos", Vec2, 0);
 const in_rect_size = input("rect_size", Vec2, 1);
 const in_color = input("instance_color", Vec4, 2);
 
-fn vert() callconv(.spirv_vertex) void {
+fn vertMain() callconv(.spirv_vertex) void {
     const corner = lib.coords.quadCorner(spirv.vertex_index);
     const pixel_pos = in_rect_pos.* + in_rect_size.* * corner;
     spirv.position_out.* = lib.coords.fromScreenToNdc(pixel_pos, lib.globals.screen_size);
@@ -38,7 +41,7 @@ fn vert() callconv(.spirv_vertex) void {
     param_color.* = in_color.*;
 }
 
-fn frag() callconv(.{ .spirv_fragment = .{} }) void {
+fn fragMain() callconv(.{ .spirv_fragment = .{} }) void {
     // Sampled image holds straight alpha; premultiply to match rgl.zig.
     const sampled = spirv.imageSampleImplicitLod(image, param_uv.*);
     const color = param_color.*;

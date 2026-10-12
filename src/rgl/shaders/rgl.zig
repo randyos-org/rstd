@@ -42,7 +42,7 @@ const in_fill_color = input("instance_fill_color", Vec4, 5);
 const in_border_color = input("instance_border_color", Vec4, 6);
 const in_shape_kind = input("instance_shape_kind", u32, 7);
 
-fn vert() callconv(.spirv_vertex) void {
+fn vertMain() callconv(.spirv_vertex) void {
     const corner = lib.coords.quadCorner(spirv.vertex_index);
     const rect_size = in_rect_size.*;
     // local_offset stays in the shape's own unrotated frame -- it's what
@@ -72,7 +72,7 @@ fn vert() callconv(.spirv_vertex) void {
     param_shape_kind.* = in_shape_kind.*;
 }
 
-fn frag() callconv(.{ .spirv_fragment = .{} }) void {
+fn fragMain() callconv(.{ .spirv_fragment = .{} }) void {
     const p = param_local_pos.*;
     const half_size = param_half_size.*;
     const border_width = param_border_width.*;
@@ -97,7 +97,10 @@ fn frag() callconv(.{ .spirv_fragment = .{} }) void {
     lib.compile.frag_color_out.* = lib.coords.rgbPreMulAlpha(lib.coords.rgb(base_color), alpha);
 }
 
-const main = lib.compile.exportShaderMain(&vert, &frag);
+const main = lib.compile.exportShaderMain(struct {
+    pub const vert = vertMain;
+    pub const frag = fragMain;
+});
 comptime {
     _ = main;
 }

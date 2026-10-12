@@ -17,7 +17,10 @@ const input = lib.compile.input;
 const param_tex_coord = param("tex_coord", Vec2, 0);
 const param_color = param("color", Vec4, 1);
 
-const main = lib.compile.exportShaderMain(&vert, &frag);
+const main = lib.compile.exportShaderMain(struct {
+    pub const vert = vertMain;
+    pub const frag = fragMain;
+});
 comptime {
     _ = main;
 }
@@ -29,7 +32,7 @@ const in_glyph_size = input("glyph_size", Vec2, 1);
 const in_atlas_pos = input("atlas_pos", Vec2, 2);
 const in_color = input("instance_color", Vec4, 3);
 
-fn vert() callconv(.spirv_vertex) void {
+fn vertMain() callconv(.spirv_vertex) void {
     const corner = lib.coords.quadCorner(spirv.vertex_index);
     const pixel_pos = in_glyph_pos.* + in_glyph_size.* * corner;
     spirv.position_out.* = lib.coords.fromScreenToNdc(pixel_pos, lib.globals.screen_size);
@@ -41,7 +44,7 @@ fn vert() callconv(.spirv_vertex) void {
     param_color.* = in_color.*;
 }
 
-fn frag() callconv(.{ .spirv_fragment = .{} }) void {
+fn fragMain() callconv(.{ .spirv_fragment = .{} }) void {
     const sampled = spirv.imageSampleImplicitLod(atlas, param_tex_coord.*);
     const color = param_color.*;
     const px_range = lib.globals.glyph_msdf_px_range;
