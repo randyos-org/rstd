@@ -1,5 +1,10 @@
 //! x86_64 axpy kernels, one set per core, built into the per-core kernel
-//! objects (`src/linalg/blas/_kernel.zig`).
+//! objects (`src/linalg/blas/_kernel.zig`), and how they get installed into
+//! the vtable (`install`): cores without an entry keep the portable kernels
+//! from `axpy.installGeneric`. Per-core tests live in `axpy/__root__.zig`,
+//! not here -- they need the full axpy interface (`checkReal`, ...), which
+//! imports outside `src/linalg/blas/` and so cannot appear in this file (see
+//! `kernels/__root__.zig`).
 //!
 //! A core's kernel is one of two things upstream, chosen by its
 //! `KERNEL.<CORE>`:
@@ -28,6 +33,7 @@ const registry = @import("../../../asm_registry.zig");
 const kernel = @import("../kernel.zig");
 const uk = @import("../uk_block.zig");
 const ukidx = @import("uk/__root__.zig");
+const Vtable = @import("../../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -63,8 +69,16 @@ fn VectorBlock(comptime T: type) type {
 }
 
 /// Whether `role` has a kernel of its own on `core`, either kind.
-pub fn has(comptime core: Core, comptime role: []const u8) bool {
+pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
     return asm_kernels.hasRole(core, role) or cEntry(role, core) != null;
+}
+
+/// Whether `core` has any axpy kernel of its own.
+pub fn has(comptime core: Core) bool {
+    inline for (roles) |role| {
+        if (comptime hasRole(core, role)) return true;
+    }
+    return false;
 }
 
 /// Exported symbol of `role` for `core`.
@@ -81,5 +95,51 @@ pub fn exportCore(comptime core: Core) void {
         } else if (comptime cEntry(role, core)) |e| {
             @export(uk.driven(role, e, VectorBlock), .{ .name = symbol(role, core) });
         }
+    }
+}
+
+fn ext(comptime K: type, comptime name: []const u8) K {
+    return @extern(K, .{ .name = name });
+}
+
+fn installCore(vt: *Vtable, comptime core: Core) void {
+    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
+    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
+    if (comptime hasRole(core, "caxpy")) {
+        vt.caxpy_k = ext(kernel.ComplexKernel(f32), symbol("caxpy", core));
+        vt.caxpyc_k = ext(kernel.ComplexKernel(f32), symbol("caxpyc", core));
+    }
+    if (comptime hasRole(core, "zaxpy")) {
+        vt.zaxpy_k = ext(kernel.ComplexKernel(f64), symbol("zaxpy", core));
+        vt.zaxpyc_k = ext(kernel.ComplexKernel(f64), symbol("zaxpyc", core));
+    }
+}
+
+/// Overrides the generic kernels installed by `axpy.install` for `core`.
+pub fn install(vt: *Vtable, core: Core) void {
+    switch (core) {
+        inline .prescott,
+        .core2,
+        .penryn,
+        .dunnington,
+        .opteron,
+        .opteron_sse3,
+        .barcelona,
+        .bobcat,
+        .nano,
+        .atom,
+        .nehalem,
+        .sandybridge,
+        .bulldozer,
+        .piledriver,
+        .steamroller,
+        .excavator,
+        .haswell,
+        .zen,
+        .skylakex,
+        .cooperlake,
+        .sapphirerapids,
+        => |c| installCore(vt, c),
+        else => {},
     }
 }

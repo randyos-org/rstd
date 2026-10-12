@@ -13,34 +13,33 @@ const auxv = @import("_auxv.zig");
 pub const CoreType = coretypes.PowerCoreType;
 pub const kernel = @import("../kernels/power.zig");
 
-/// `AT_PLATFORM` points at a NUL-terminated string such as "power9".
-pub fn platform() ?[]const u8 {
+/// The `AT_PLATFORM` names `detect` distinguishes; tags match the strings.
+pub const Platform = enum { power11, power10, power9, power8, power7, power6, power6x };
+
+/// `AT_PLATFORM` (a NUL-terminated string such as "power9"), if it is one we
+/// know. A chip in compatibility mode reports the mode it is in.
+pub fn platform() ?Platform {
     const ptr = auxv.get(auxv.AT_PLATFORM);
     if (ptr == 0) return null;
-    return std.mem.sliceTo(@as([*:0]const u8, @ptrFromInt(ptr)), 0);
+    return std.meta.stringToEnum(Platform, std.mem.sliceTo(@as([*:0]const u8, @ptrFromInt(ptr)), 0));
 }
 
 pub fn detect() CoreType {
-    const name = platform() orelse return .unknown;
-
-    // Newest first: a "power11" chip running in compatibility mode still
-    // reports the mode it is in, so an exact match is what we want.
-    if (std.mem.eql(u8, name, "power11")) return .power10;
-    if (std.mem.eql(u8, name, "power10")) return .power10;
-    if (std.mem.eql(u8, name, "power9")) return .power9;
-    if (std.mem.eql(u8, name, "power8")) return .power8;
-    if (std.mem.eql(u8, name, "power7")) return .power6;
-    if (std.mem.eql(u8, name, "power6") or std.mem.eql(u8, name, "power6x")) return .power6;
-    return .unknown;
+    return switch (platform() orelse return .unknown) {
+        .power11, .power10 => .power10,
+        .power9 => .power9,
+        .power8 => .power8,
+        .power7, .power6, .power6x => .power6,
+    };
 }
 
 const Vtable = @import("../Vtable.zig");
-const axpy = @import("../blas1/axpy/__root__.zig");
+const blas1 = @import("../blas1/__root__.zig");
 const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
-    axpy.install(&vt, core_type);
+    blas1.install(&vt, core_type);
     gemm_params.installCore(&vt, (if (@sizeOf(usize) == 8) .power64 else .power32), core_type, .fromConfig(blas.config));
     return vt;
 }

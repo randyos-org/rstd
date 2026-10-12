@@ -205,6 +205,7 @@ creat
 create_module
 creds
 cscal
+csky
 csoff
 CSPRNG
 csrot
@@ -1877,6 +1878,7 @@ XSETBV
 xswap
 xsymm
 xsymv
+xtheadvector
 xtpr
 xtrmm
 xtrsm

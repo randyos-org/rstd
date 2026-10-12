@@ -1,5 +1,10 @@
 //! RISC-V axpy kernels, one set per core, built into the per-core kernel
-//! objects (`src/linalg/blas/_kernel.zig`).
+//! objects (`src/linalg/blas/_kernel.zig`), and how they get installed into
+//! the vtable (`install`): cores without an entry keep the portable kernels
+//! from `axpy.installGeneric`. Per-core tests live in `axpy/__root__.zig`,
+//! not here -- they need the full axpy interface (`checkReal`, ...), which
+//! imports outside `src/linalg/blas/` and so cannot appear in this file (see
+//! `kernels/__root__.zig`).
 //!
 //! The reference's kernels here are C over the vector extension's
 //! intrinsics, `axpy_rvv.c` and `zaxpy_rvv.c` for the cores whose
@@ -9,6 +14,8 @@
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const util = @import("../../../util.zig");
+const Vtable = @import("../../../Vtable.zig");
+const kernel = @import("../kernel.zig");
 const rvv = @import("rvv.zig");
 
 pub const Core = coretypes.RiscvCoreType;
@@ -47,4 +54,28 @@ pub fn exportCore(comptime core: Core) void {
     @export(&rvv.Cplx(f32, true).call, .{ .name = symbol("caxpyc", core) });
     @export(&rvv.Cplx(f64, false).call, .{ .name = symbol("zaxpy", core) });
     @export(&rvv.Cplx(f64, true).call, .{ .name = symbol("zaxpyc", core) });
+}
+
+fn ext(comptime K: type, comptime name: []const u8) K {
+    return @extern(K, .{ .name = name });
+}
+
+fn installCore(vt: *Vtable, comptime core: Core) void {
+    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
+    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
+    if (comptime hasRole(core, "caxpy")) {
+        vt.caxpy_k = ext(kernel.ComplexKernel(f32), symbol("caxpy", core));
+        vt.caxpyc_k = ext(kernel.ComplexKernel(f32), symbol("caxpyc", core));
+    }
+    if (comptime hasRole(core, "zaxpy")) {
+        vt.zaxpy_k = ext(kernel.ComplexKernel(f64), symbol("zaxpy", core));
+        vt.zaxpyc_k = ext(kernel.ComplexKernel(f64), symbol("zaxpyc", core));
+    }
+}
+
+/// Overrides the generic kernels installed by `axpy.install` for `core`.
+pub fn install(vt: *Vtable, core: Core) void {
+    switch (core) {
+        inline else => |c| installCore(vt, c),
+    }
 }

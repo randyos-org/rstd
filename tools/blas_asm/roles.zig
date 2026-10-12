@@ -24,10 +24,16 @@ pub const Role = struct {
 
 /// The roles of `text`, a Makefile, skipping the extended-precision ones
 /// (`XDOUBLE`), which no supported target builds.
+///
+/// The scan does not understand `ifdef`/`else`/`endif`: where a role's rule
+/// is guarded by one (`dsdot`/`sdsdot`, built from `DSDOTKERNEL` if set, else
+/// from `SDOTKERNEL`), both branches parse as separate roles of the same
+/// name. Only the first (the `ifdef`-true branch, textually first) is kept,
+/// matching Make's own precedence; a later same-named role is dropped.
 pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
     var out: std.ArrayList(Role) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |line| {
+    outer: while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "$(KDIR)")) continue;
         const colon = std.mem.indexOf(u8, line, " : $(KERNELDIR)/$(") orelse continue;
         const tail = line[colon + " : $(KERNELDIR)/$(".len ..];
@@ -37,6 +43,9 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
         const obj_start = "$(KDIR)".len;
         const obj_end = std.mem.indexOf(u8, line[obj_start..], "_k$(TSUFFIX)") orelse continue;
         const name = line[obj_start .. obj_start + obj_end];
+        for (out.items) |r| {
+            if (std.mem.eql(u8, r.name, name)) continue :outer;
+        }
 
         // the recipe line
         const flags = lines.next() orelse break;

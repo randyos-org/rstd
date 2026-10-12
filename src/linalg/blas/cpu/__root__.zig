@@ -25,6 +25,7 @@ pub const s390x = @import("s390x.zig");
 pub const sparc = @import("sparc.zig");
 pub const wasm = @import("wasm.zig");
 pub const x86 = @import("x86.zig");
+pub const x86_64 = @import("x86_64.zig");
 
 /// Panics with a standard message for a ported function that has no
 /// implementation yet for the running build's `(os, arch)`. Call with
@@ -39,7 +40,8 @@ pub fn unsupported(src: zigstd.SrcInfo) noreturn {
 
 pub fn GetCpuArch(a: std.Target.Cpu.Arch) type {
     return switch (a) {
-        .x86, .x86_64 => x86,
+        .x86_64 => x86_64,
+        .x86 => x86,
         .aarch64, .aarch64_be => arm64,
         .arm, .armeb, .thumb, .thumbeb => arm,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => power,

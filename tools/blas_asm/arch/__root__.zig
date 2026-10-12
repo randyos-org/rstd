@@ -58,6 +58,50 @@ pub const Kernel = struct {
     }
 };
 
+/// Whether `c` can be part of a plain assembly name (a coarser version of
+/// the identically-named check in `gen.zig`, which this file cannot import).
+fn isNameChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$';
+}
+
+/// `-DDYNAMIC_ARCH` (`gen.zig` always sets it) turns some sources' calls into
+/// another routine's kernel, upstream self-contained via that routine's own
+/// `gotoblas`-style dispatch trampoline (e.g. `bl camax_k`), into a direct
+/// call to one core's own kernel (`bl camax_k_LA264`): OpenBLAS's own name
+/// for exactly the symbol this project's per-core kernel object already
+/// builds and exports, under this project's own naming instead
+/// (`util.kernelSymbol`: `blaskern_camax_la264`). Rewrites any such call to
+/// that name, so it resolves within the same isolated per-core object.
+fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const u8 {
+    if (std.mem.indexOf(u8, line, "_k_") == null) return line;
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < line.len) {
+        if (isNameChar(line[i]) and (i == 0 or !isNameChar(line[i - 1]))) {
+            var e = i;
+            while (e < line.len and isNameChar(line[e])) e += 1;
+            const tok = line[i..e];
+            if (std.mem.indexOf(u8, tok, "_k_")) |sep| rewrite: {
+                const role = tok[0..sep];
+                const core = tok[sep + "_k_".len ..];
+                if (role.len == 0 or core.len == 0) break :rewrite;
+                // digits are neither upper nor lower, so they pass either way
+                for (role) |c| if (std.ascii.isUpper(c)) break :rewrite;
+                for (core) |c| if (std.ascii.isLower(c)) break :rewrite;
+                try out.print(a, "blaskern_{s}_{s}", .{ role, try std.ascii.allocLowerString(a, core) });
+                i = e;
+                continue;
+            }
+            try out.appendSlice(a, tok);
+            i = e;
+        } else {
+            try out.append(a, line[i]);
+            i += 1;
+        }
+    }
+    return out.items;
+}
+
 /// The lines of a source as a naked function's body: the assembly of the source
 /// as it is, less what declares the function. Used for every routine but axpy.
 pub fn nakedLines(a: std.mem.Allocator, lines: []const []const u8) Error![]const []const u8 {
@@ -66,13 +110,17 @@ pub fn nakedLines(a: std.mem.Allocator, lines: []const []const u8) Error![]const
         // the prologue macro puts several statements on one line
         var parts = std.mem.splitScalar(u8, line, ';');
         while (parts.next()) |part| {
-            const t = std.mem.trim(u8, part, " ");
+            const t = std.mem.trim(u8, part, " \t");
             if (t.len == 0) continue;
             if (std.mem.startsWith(u8, t, ".globl") or std.mem.startsWith(u8, t, ".global") or
                 std.mem.startsWith(u8, t, ".hidden") or std.mem.startsWith(u8, t, ".type") or
                 std.mem.startsWith(u8, t, ".size") or std.mem.startsWith(u8, t, ".section .note") or
-                std.mem.startsWith(u8, t, ".file") or std.mem.startsWith(u8, t, ".ident")) continue;
-            try out.append(a, try std.fmt.allocPrint(a, " {s}", .{t}));
+                std.mem.startsWith(u8, t, ".file") or std.mem.startsWith(u8, t, ".ident") or
+                // MIPS/Alpha/IA64-style PROLOGUE/EPILOGUE: `.ent NAME`/`.end NAME`
+                // (not `.endm`/`.endif`/`.endr`, which need the space to miss).
+                std.mem.startsWith(u8, t, ".ent ") or std.mem.eql(u8, t, ".end") or
+                std.mem.startsWith(u8, t, ".end ")) continue;
+            try out.append(a, try std.fmt.allocPrint(a, " {s}", .{try rewriteDynamicArchCalls(a, t)}));
         }
     }
     return out.items;

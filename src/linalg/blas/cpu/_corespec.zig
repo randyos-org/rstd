@@ -141,7 +141,9 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
 
 pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
-        .loongson3r4 => .{ .features = &.{ "msa", "fp64" } },
+        // MSA needs the revision-5 feature bit explicitly; GCC's `-mmsa` implies
+        // it, LLVM's integrated assembler does not.
+        .loongson3r4 => .{ .features = &.{ "msa", "fp64", "mips64r5" } },
         // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
         // the SIMD architecture; the 24K and 1004K have none
         .mips24k, .mips1004k => .{ .model = "mips32r2" },

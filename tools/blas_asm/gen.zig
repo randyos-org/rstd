@@ -87,9 +87,13 @@ fn expandTabs(a: std.mem.Allocator, s: []const u8) ![]const u8 {
 }
 
 /// Runs the preprocessor over the source the way OpenBLAS's build does.
+///
+/// `-DDYNAMIC_ARCH`: this project always builds that way (one object per
+/// core, like OpenBLAS's own `DYNAMIC_ARCH=1`), so sources that branch on it
+/// should convert as they would for that build, not a single-target one.
 fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant, dump_macros: bool) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.name }), "-target", ar.triple });
+    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-DDYNAMIC_ARCH", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.name }), "-target", ar.triple });
     try argv.appendSlice(a, ar.defines);
     if (k.prec.double()) try argv.append(a, "-DDOUBLE");
     if (k.prec.complex()) try argv.append(a, "-DCOMPLEX");
@@ -153,6 +157,17 @@ fn isName(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$';
 }
 
+/// The end of the name token starting at `s[i]`, one past a trailing `\@`
+/// (GAS's per-macro-invocation unique-label marker) if there is one: the
+/// assembler resolves that itself, per invocation, so it is left alone and
+/// just carried along as part of the name for suffixing purposes.
+fn nameEnd(s: []const u8, i: usize) usize {
+    var e = i;
+    while (e < s.len and isName(s[e])) e += 1;
+    if (e + 1 < s.len and s[e] == '\\' and s[e + 1] == '@') e += 2;
+    return e;
+}
+
 /// Every label and macro the assembler sees is global to the object, and one
 /// object holds several of these kernels, so each name gets the file's name
 /// appended and each macro is removed again at the end. Numeric labels are
@@ -167,8 +182,7 @@ fn finish(a: std.mem.Allocator, lines: []const []const u8, suffix: []const u8) !
             if (it.next()) |name| try macros.append(a, name);
             continue;
         }
-        var e: usize = 0;
-        while (e < t.len and isName(t[e])) e += 1;
+        const e = nameEnd(t, 0);
         if (e > 0 and e < t.len and t[e] == ':' and !std.ascii.isDigit(t[0])) try labels.put(a, t[0..e], {});
     }
 
@@ -181,8 +195,7 @@ fn finish(a: std.mem.Allocator, lines: []const []const u8, suffix: []const u8) !
         var i: usize = 0;
         while (i < line.len) {
             if (isName(line[i]) and (i == 0 or !isName(line[i - 1]))) {
-                var e = i;
-                while (e < line.len and isName(line[e])) e += 1;
+                const e = nameEnd(line, i);
                 const tok = line[i..e];
                 try buf.appendSlice(a, tok);
                 if (labels.contains(tok)) try buf.appendSlice(a, suffix);

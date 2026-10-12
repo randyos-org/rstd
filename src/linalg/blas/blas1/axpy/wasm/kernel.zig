@@ -1,5 +1,10 @@
 //! WebAssembly axpy kernels, one set per core, built into the per-core kernel
-//! objects (`src/linalg/blas/_kernel.zig`).
+//! objects (`src/linalg/blas/_kernel.zig`), and how they get installed into
+//! the vtable (`install`): cores without an entry keep the portable kernels
+//! from `axpy.installGeneric`. Per-core tests live in `axpy/__root__.zig`,
+//! not here -- they need the full axpy interface (`checkReal`, ...), which
+//! imports outside `src/linalg/blas/` and so cannot appear in this file (see
+//! `kernels/__root__.zig`).
 //!
 //! Only `saxpy` and `daxpy` have a kernel of their own (`simd.zig`, from
 //! `kernel/wasm/axpy.c`, for the core with SIMD128); the complex kernels
@@ -7,6 +12,8 @@
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const util = @import("../../../util.zig");
+const Vtable = @import("../../../Vtable.zig");
+const kernel = @import("../kernel.zig");
 const simd = @import("simd.zig");
 
 pub const Core = coretypes.WasmCoreType;
@@ -32,4 +39,20 @@ pub fn exportCore(comptime core: Core) void {
     if (comptime core != .wasm128_generic) return;
     @export(&simd.Real(f32).call, .{ .name = symbol("saxpy", core) });
     @export(&simd.Real(f64).call, .{ .name = symbol("daxpy", core) });
+}
+
+fn ext(comptime K: type, comptime name: []const u8) K {
+    return @extern(K, .{ .name = name });
+}
+
+fn installCore(vt: *Vtable, comptime core: Core) void {
+    if (comptime hasRole(core, "daxpy")) vt.daxpy_k = ext(kernel.RealKernel(f64), symbol("daxpy", core));
+    if (comptime hasRole(core, "saxpy")) vt.saxpy_k = ext(kernel.RealKernel(f32), symbol("saxpy", core));
+}
+
+/// Overrides the generic kernels installed by `axpy.install` for `core`.
+pub fn install(vt: *Vtable, core: Core) void {
+    switch (core) {
+        inline else => |c| installCore(vt, c),
+    }
 }

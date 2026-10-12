@@ -54,14 +54,21 @@ pub fn Kernels(comptime Core: type, comptime index: type, comptime variant: []co
         /// Points the vtable at the kernels `core` has.
         /// (`vt` is any pointer to the vtable, so the per-core objects, which export
         /// these, need not import it.)
+        ///
+        /// A role with no matching vtable field (e.g. `sdsdot`: OpenBLAS compiles
+        /// it per-core same as `dsdot`, but its own `gotoblas_t` has no
+        /// `sdsdot_k` slot either) is still exported, just not installed here.
         pub fn install(vt: anytype, comptime core: Core) void {
             @setEvalBranchQuota(1_000_000);
+            const VtableChild = @typeInfo(@TypeOf(vt)).pointer.child;
             inline for (index.entries) |e| {
                 if (comptime serves(e, core)) {
                     const field = e.role ++ "_k";
-                    const Slot = @FieldType(@typeInfo(@TypeOf(vt)).pointer.child, field);
-                    const Fn = @typeInfo(Slot).optional.child;
-                    @field(vt, field) = @extern(Fn, .{ .name = util.kernelSymbol(e.role, @tagName(core)) });
+                    if (comptime @hasField(VtableChild, field)) {
+                        const Slot = @FieldType(VtableChild, field);
+                        const Fn = @typeInfo(Slot).optional.child;
+                        @field(vt, field) = @extern(Fn, .{ .name = util.kernelSymbol(e.role, @tagName(core)) });
+                    }
                 }
             }
         }

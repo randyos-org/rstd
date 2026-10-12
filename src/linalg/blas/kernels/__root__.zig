@@ -8,7 +8,8 @@ const std = @import("std");
 
 pub fn ForArch(comptime arch: std.Target.Cpu.Arch) type {
     return switch (arch) {
-        .x86, .x86_64 => @import("x86.zig"),
+        .x86_64 => @import("x86_64.zig"),
+        .x86 => @import("x86.zig"),
         .aarch64, .aarch64_be => @import("arm64.zig"),
         .arm, .armeb, .thumb, .thumbeb => @import("arm.zig"),
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => @import("power.zig"),

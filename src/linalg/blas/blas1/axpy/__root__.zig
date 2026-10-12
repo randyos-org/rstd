@@ -38,17 +38,17 @@ const ComplexXD = types.ComplexXD;
 
 // The per-architecture kernels of the target only: what the other
 // architectures install, and their tests, cannot be built for it.
-pub const x86_64 = if (sysinfo.cpu.arch == .x86_64) @import("x86_64/install.zig") else struct {};
-pub const x86 = if (sysinfo.cpu.arch == .x86) @import("x86/install.zig") else struct {};
-pub const arm64 = if (sysinfo.cpu.arch == .aarch64) @import("arm64/install.zig") else struct {};
-pub const arm = if (sysinfo.cpu.arch == .arm) @import("arm/install.zig") else struct {};
-pub const loongarch64 = if (sysinfo.cpu.arch == .loongarch64) @import("loongarch64/install.zig") else struct {};
-pub const mips64 = if (sysinfo.cpu.arch.isMIPS()) @import("mips64/install.zig") else struct {};
-pub const power = if (sysinfo.cpu.arch.isPowerPC()) @import("power/install.zig") else struct {};
-pub const sparc = if (sysinfo.cpu.arch.isSPARC()) @import("sparc/install.zig") else struct {};
-pub const wasm = if (sysinfo.cpu.arch.isWasm()) @import("wasm/install.zig") else struct {};
-pub const s390x = if (sysinfo.cpu.arch == .s390x) @import("s390x/install.zig") else struct {};
-pub const riscv64 = if (sysinfo.cpu.arch == .riscv64) @import("riscv64/install.zig") else struct {};
+pub const x86_64 = if (sysinfo.cpu.arch == .x86_64) @import("x86_64/kernel.zig") else struct {};
+pub const x86 = if (sysinfo.cpu.arch == .x86) @import("x86/kernel.zig") else struct {};
+pub const arm64 = if (sysinfo.cpu.arch == .aarch64) @import("arm64/kernel.zig") else struct {};
+pub const arm = if (sysinfo.cpu.arch == .arm) @import("arm/kernel.zig") else struct {};
+pub const loongarch64 = if (sysinfo.cpu.arch == .loongarch64) @import("loongarch64/kernel.zig") else struct {};
+pub const mips64 = if (sysinfo.cpu.arch.isMIPS()) @import("mips64/kernel.zig") else struct {};
+pub const power = if (sysinfo.cpu.arch.isPowerPC()) @import("power/kernel.zig") else struct {};
+pub const sparc = if (sysinfo.cpu.arch.isSPARC()) @import("sparc/kernel.zig") else struct {};
+pub const wasm = if (sysinfo.cpu.arch.isWasm()) @import("wasm/kernel.zig") else struct {};
+pub const s390x = if (sysinfo.cpu.arch == .s390x) @import("s390x/kernel.zig") else struct {};
+pub const riscv64 = if (sysinfo.cpu.arch == .riscv64) @import("riscv64/kernel.zig") else struct {};
 
 // ---- kernel ABI and drivers -------------------------------------------------
 
@@ -525,6 +525,197 @@ test "install fills every axpy slot for the host core type" {
     try checkComplex(f32, true, vt.caxpyc_k.?);
     try checkComplex(f64, false, vt.zaxpy_k.?);
     try checkComplex(f64, true, vt.zaxpyc_k.?);
+}
+
+// ---- tests: per-architecture kernels ----------------------------------------
+//
+// One per architecture, skipped on any other (`x86_64` etc. above are
+// `struct {}` there; the comptime return keeps the rest unanalyzed). They
+// live here rather than in each `kernel.zig` because they need this file's
+// full interface (`checkReal`, ...), which `kernel.zig` must stay free of
+// (see `kernels/__root__.zig`).
+
+test "x86_64: per-core kernels match a scalar loop where the host supports them" {
+    if (comptime sysinfo.cpu.arch != .x86_64) return error.SkipZigTest;
+    inline for (@typeInfo(x86_64.Core).@"enum".field_names) |name| {
+        const core = @field(x86_64.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        x86_64.install(&vt, core);
+        if (cpu.x86_64.supportsCore(core)) {
+            try checkReal(f32, vt.saxpy_k.?);
+            try checkReal(f64, vt.daxpy_k.?);
+            try checkComplex(f32, false, vt.caxpy_k.?);
+            try checkComplex(f32, true, vt.caxpyc_k.?);
+            try checkComplex(f64, false, vt.zaxpy_k.?);
+            try checkComplex(f64, true, vt.zaxpyc_k.?);
+        }
+    }
+}
+
+test "x86 (32-bit): per-core kernels match a scalar loop" {
+    if (comptime sysinfo.cpu.arch != .x86) return error.SkipZigTest;
+    inline for (@typeInfo(x86.Core).@"enum".field_names) |name| {
+        const core = @field(x86.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        x86.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "arm64: per-core kernels match a scalar loop" {
+    if (comptime sysinfo.cpu.arch != .aarch64) return error.SkipZigTest;
+    inline for (@typeInfo(arm64.Core).@"enum".field_names) |name| {
+        const core = @field(arm64.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        arm64.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "arm: per-core kernels match a scalar loop" {
+    if (comptime sysinfo.cpu.arch != .arm) return error.SkipZigTest;
+    inline for (@typeInfo(arm.Core).@"enum".field_names) |name| {
+        const core = @field(arm.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        arm.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "loongarch64: per-core kernels match a scalar loop" {
+    if (comptime sysinfo.cpu.arch != .loongarch64) return error.SkipZigTest;
+    inline for (@typeInfo(loongarch64.Core).@"enum".field_names) |name| {
+        const core = @field(loongarch64.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        loongarch64.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "mips64: per-core kernels match a scalar loop where the machine supports them" {
+    if (comptime !sysinfo.cpu.arch.isMIPS()) return error.SkipZigTest;
+    const registry = @import("../../kernels/mips.zig");
+    inline for (@typeInfo(mips64.Core).@"enum".field_names) |name| {
+        const core = @field(mips64.Core, name);
+        if (comptime !registry.runsOn(sysinfo.cpu, core)) continue;
+        // release 2 with the SIMD architecture: no machine here has it; the
+        // same kernels run as the release 6 cores'
+        if (comptime core == .loongson3r4 and !sysinfo.cpu.has(.mips, .msa)) continue;
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        mips64.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "power: per-core kernels match a scalar loop" {
+    if (comptime !sysinfo.cpu.arch.isPowerPC()) return error.SkipZigTest;
+    inline for (@typeInfo(power.Core).@"enum".field_names) |name| {
+        const core = @field(power.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        power.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "sparc: per-core kernels match a scalar loop" {
+    if (comptime !sysinfo.cpu.arch.isSPARC()) return error.SkipZigTest;
+    inline for (@typeInfo(sparc.Core).@"enum".field_names) |name| {
+        const core = @field(sparc.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        sparc.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "wasm: per-core kernels match a scalar loop" {
+    if (comptime !sysinfo.cpu.arch.isWasm()) return error.SkipZigTest;
+    inline for (@typeInfo(wasm.Core).@"enum".field_names) |name| {
+        const core = @field(wasm.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        wasm.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "s390x: per-core kernels match a scalar loop" {
+    if (comptime sysinfo.cpu.arch != .s390x) return error.SkipZigTest;
+    inline for (@typeInfo(s390x.Core).@"enum".field_names) |name| {
+        const core = @field(s390x.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        s390x.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
+}
+
+test "riscv64: per-core kernels match a scalar loop" {
+    if (comptime sysinfo.cpu.arch != .riscv64) return error.SkipZigTest;
+    inline for (@typeInfo(riscv64.Core).@"enum".field_names) |name| {
+        const core = @field(riscv64.Core, name);
+        var vt: Vtable = .{};
+        installGeneric(&vt);
+        riscv64.install(&vt, core);
+        try checkReal(f32, vt.saxpy_k.?);
+        try checkReal(f64, vt.daxpy_k.?);
+        try checkComplex(f32, false, vt.caxpy_k.?);
+        try checkComplex(f32, true, vt.caxpyc_k.?);
+        try checkComplex(f64, false, vt.zaxpy_k.?);
+        try checkComplex(f64, true, vt.zaxpyc_k.?);
+    }
 }
 
 test {
