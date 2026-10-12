@@ -39,6 +39,7 @@ andq
 ands
 andx
 anorm
+apos
 apprt
 apprts
 arch_prctl
@@ -251,6 +252,7 @@ dgemv
 dger
 dgettext
 diagonalizable
+difat
 dimatcopy
 dir
 DIRENV
@@ -644,6 +646,7 @@ HFLOAT
 hhcurveto
 hilb
 hilber
+Hinnant
 HLAT
 hlineto
 hprime
@@ -891,6 +894,7 @@ maxit
 maxj
 maxnrm
 MAXPHYADDR
+MBCS
 mbind
 MCGA
 mcpu
@@ -965,6 +969,7 @@ msgctl
 msgget
 msgrcv
 msgsnd
+msoffice
 msse
 mssse
 MSUB
@@ -1088,6 +1093,7 @@ outl
 outncopy
 outucopy
 outw
+OVBA
 OVMF
 paeth
 PAGESZ
@@ -1670,6 +1676,7 @@ uname
 Uncancelable
 uncompr
 unconj
+unenc
 unlink
 unlinkat
 unloop
