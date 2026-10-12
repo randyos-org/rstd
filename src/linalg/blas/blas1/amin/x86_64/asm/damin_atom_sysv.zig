@@ -29,7 +29,7 @@ const Body = struct {
     pub fn damin() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 512
+            \\ .balign 512
             \\ xorps %xmm0, %xmm0
             \\ leaq (, %rdx, 8), %rdx
             \\ testq %rdi, %rdi
@@ -61,7 +61,7 @@ const Body = struct {
             \\ movsd 7 * 8(%rsi), %xmm11
             \\ decq %rax
             \\ jle 20001f
-            \\ .align 16
+            \\ .balign 16
             \\ 20000:
             \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
             \\ andps %xmm15, %xmm4
@@ -91,7 +91,7 @@ const Body = struct {
             \\ addq $8 * 8, %rsi
             \\ decq %rax
             \\ jg 20000b
-            \\ .align 16
+            \\ .balign 16
             \\ 20001:
             \\ andps %xmm15, %xmm4
             \\ minsd %xmm4, %xmm0
@@ -110,7 +110,7 @@ const Body = struct {
             \\ andps %xmm15, %xmm11
             \\ minsd %xmm11, %xmm3
             \\ addq $8 * 8, %rsi
-            \\ .align 16
+            \\ .balign 16
             \\ 20002:
             \\ testq $4, %rdi
             \\ jle 20003f
@@ -127,7 +127,7 @@ const Body = struct {
             \\ andps %xmm15, %xmm7
             \\ minsd %xmm7, %xmm3
             \\ addq $4 * 8, %rsi
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ testq $2, %rdi
             \\ jle 20004f
@@ -138,7 +138,7 @@ const Body = struct {
             \\ andps %xmm15, %xmm5
             \\ minsd %xmm5, %xmm2
             \\ addq $2 * 8, %rsi
-            \\ .align 8
+            \\ .balign 8
             \\ 20004:
             \\ testq $1, %rdi
             \\ jle 20011f
@@ -146,7 +146,7 @@ const Body = struct {
             \\ andps %xmm15, %xmm4
             \\ minsd %xmm4, %xmm3
             \\ jmp 20011f
-            \\ .align 8
+            \\ .balign 8
             \\ 20005:
             \\ movq %rdi, %rax
             \\ sarq $3, %rax
@@ -168,7 +168,7 @@ const Body = struct {
             \\ movsd (%rsi), %xmm11
             \\ decq %rax
             \\ jle 20007f
-            \\ .align 16
+            \\ .balign 16
             \\ 20006:
             \\ andps %xmm15, %xmm4
             \\ addq %rdx, %rsi
@@ -204,7 +204,7 @@ const Body = struct {
             \\ movsd (%rsi), %xmm11
             \\ decq %rax
             \\ jg 20006b
-            \\ .align 16
+            \\ .balign 16
             \\ 20007:
             \\ andps %xmm15, %xmm4
             \\ addq %rdx, %rsi
@@ -223,7 +223,7 @@ const Body = struct {
             \\ minsd %xmm10, %xmm2
             \\ andps %xmm15, %xmm11
             \\ minsd %xmm11, %xmm3
-            \\ .align 16
+            \\ .balign 16
             \\ 20008:
             \\ testq $4, %rdi
             \\ jle 20009f
@@ -243,7 +243,7 @@ const Body = struct {
             \\ minsd %xmm6, %xmm2
             \\ andps %xmm15, %xmm7
             \\ minsd %xmm7, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20009:
             \\ testq $2, %rdi
             \\ jle 20010f
@@ -255,7 +255,7 @@ const Body = struct {
             \\ minsd %xmm4, %xmm1
             \\ andps %xmm15, %xmm5
             \\ minsd %xmm5, %xmm2
-            \\ .align 8
+            \\ .balign 8
             \\ 20010:
             \\ testq $1, %rdi
             \\ jle 20011f
@@ -263,12 +263,12 @@ const Body = struct {
             \\ addq %rdx, %rsi
             \\ andps %xmm15, %xmm4
             \\ minsd %xmm4, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20011:
             \\ minsd %xmm1, %xmm0
             \\ minsd %xmm3, %xmm2
             \\ minsd %xmm2, %xmm0
-            \\ .align 16
+            \\ .balign 16
             \\ 20012:
             \\ ret
             \\

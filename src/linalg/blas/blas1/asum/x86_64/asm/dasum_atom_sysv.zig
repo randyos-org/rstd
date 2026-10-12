@@ -29,7 +29,7 @@ const Body = struct {
     pub fn dasum() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 512
+            \\ .balign 512
             \\ xorps %xmm0, %xmm0
             \\ testq %rdi, %rdi
             \\ jle 20014f
@@ -51,7 +51,7 @@ const Body = struct {
             \\ andps %xmm15, %xmm0
             \\ decq %rdi
             \\ jle 20014f
-            \\ .align 8
+            \\ .balign 8
             \\ 20000:
             \\ subq $-16 * 8, %rsi
             \\ movq %rdi, %rax
@@ -67,7 +67,7 @@ const Body = struct {
             \\ movaps -2 * 8(%rsi), %xmm11
             \\ decq %rax
             \\ jle 20002f
-            \\ .align 16
+            \\ .balign 16
             \\ 20001:
             \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
             \\ andps %xmm15, %xmm4
@@ -114,7 +114,7 @@ const Body = struct {
             \\ subq $-16 * 8, %rsi
             \\ decq %rax
             \\ jg 20001b
-            \\ .align 16
+            \\ .balign 16
             \\ 20002:
             \\ andps %xmm15, %xmm4
             \\ addsd %xmm13, %xmm3
@@ -150,7 +150,7 @@ const Body = struct {
             \\ addsd %xmm11, %xmm2
             \\ addsd %xmm13, %xmm3
             \\ subq $-16 * 8, %rsi
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ andq $15, %rdi
             \\ jle 20013f
@@ -177,7 +177,7 @@ const Body = struct {
             \\ pshufd $0x4e, %xmm7, %xmm13
             \\ addsd %xmm7, %xmm2
             \\ addsd %xmm13, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20004:
             \\ testq $4, %rdi
             \\ je 20005f
@@ -192,7 +192,7 @@ const Body = struct {
             \\ pshufd $0x4e, %xmm5, %xmm13
             \\ addsd %xmm5, %xmm2
             \\ addsd %xmm13, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20005:
             \\ testq $2, %rdi
             \\ je 20006f
@@ -202,7 +202,7 @@ const Body = struct {
             \\ pshufd $0x4e, %xmm4, %xmm5
             \\ addsd %xmm4, %xmm2
             \\ addsd %xmm5, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20006:
             \\ testq $1, %rdi
             \\ je 20013f
@@ -210,7 +210,7 @@ const Body = struct {
             \\ andps %xmm15, %xmm4
             \\ addsd %xmm4, %xmm0
             \\ jmp 20013f
-            \\ .align 8
+            \\ .balign 8
             \\ 20007:
             \\ movq %rdi, %rax
             \\ sarq $3, %rax
@@ -232,7 +232,7 @@ const Body = struct {
             \\ movsd (%rsi), %xmm11
             \\ decq %rax
             \\ jle 20009f
-            \\ .align 16
+            \\ .balign 16
             \\ 20008:
             \\ andps %xmm15, %xmm4
             \\ addq %rdx, %rsi
@@ -268,7 +268,7 @@ const Body = struct {
             \\ movsd (%rsi), %xmm11
             \\ decq %rax
             \\ jg 20008b
-            \\ .align 16
+            \\ .balign 16
             \\ 20009:
             \\ andps %xmm15, %xmm4
             \\ addq %rdx, %rsi
@@ -287,7 +287,7 @@ const Body = struct {
             \\ addsd %xmm10, %xmm2
             \\ andps %xmm15, %xmm11
             \\ addsd %xmm11, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20010:
             \\ andq $7, %rdi
             \\ jle 20013f
@@ -309,7 +309,7 @@ const Body = struct {
             \\ addsd %xmm6, %xmm2
             \\ andps %xmm15, %xmm7
             \\ addsd %xmm7, %xmm3
-            \\ .align 8
+            \\ .balign 8
             \\ 20011:
             \\ testq $2, %rdi
             \\ je 20012f
@@ -321,19 +321,19 @@ const Body = struct {
             \\ andps %xmm15, %xmm5
             \\ addsd %xmm4, %xmm0
             \\ addsd %xmm5, %xmm1
-            \\ .align 8
+            \\ .balign 8
             \\ 20012:
             \\ testq $1, %rdi
             \\ je 20013f
             \\ movsd (%rsi), %xmm4
             \\ andps %xmm15, %xmm4
             \\ addsd %xmm4, %xmm0
-            \\ .align 8
+            \\ .balign 8
             \\ 20013:
             \\ addsd %xmm1, %xmm0
             \\ addsd %xmm3, %xmm2
             \\ addsd %xmm2, %xmm0
-            \\ .align 16
+            \\ .balign 16
             \\ 20014:
             \\ ret
             \\

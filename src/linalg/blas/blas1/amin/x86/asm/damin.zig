@@ -83,7 +83,7 @@ fn Body(comptime on: [6]bool) type {
         pub fn damin() callconv(.naked) void {
             asm volatile (
                 \\ .text
-                \\ .align 16
+                \\ .balign 16
                 \\ pushl %esi
                 \\ pushl %ebx
                 \\ movl 4 + 8 + 0(%esp), %ebx
@@ -106,7 +106,7 @@ fn Body(comptime on: [6]bool) type {
                 \\ movl %ebx, %edx
                 \\ sarl $3, %edx
                 \\ jle 20001f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20000:
                 \\
             ++ (if (on[0])
@@ -177,12 +177,12 @@ fn Body(comptime on: [6]bool) type {
                 \\ addl $8 * 8, %ecx
                 \\ decl %edx
                 \\ jg 20000b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20001:
                 \\ movl %ebx, %edx
                 \\ andl $7, %edx
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20002:
                 \\ fldl 0 * 8(%ecx)
                 \\ fabs
@@ -193,12 +193,12 @@ fn Body(comptime on: [6]bool) type {
                 \\ decl %edx
                 \\ jg 20002b
                 \\ jmp 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20003:
                 \\ movl %ebx, %edx
                 \\ sarl $3, %edx
                 \\ jle 20005f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20004:
                 \\ fldl 0 * 8(%ecx)
                 \\ addl %esi, %ecx
@@ -250,12 +250,12 @@ fn Body(comptime on: [6]bool) type {
                 \\ fstp %st(1)
                 \\ decl %edx
                 \\ jg 20004b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20005:
                 \\ movl %ebx, %edx
                 \\ andl $7, %edx
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20006:
                 \\ fldl 0 * 8(%ecx)
                 \\ fabs
@@ -265,7 +265,7 @@ fn Body(comptime on: [6]bool) type {
                 \\ addl %esi, %ecx
                 \\ decl %edx
                 \\ jg 20006b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20007:
                 \\ popl %ebx
                 \\ popl %esi

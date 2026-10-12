@@ -19,4 +19,5 @@ pub const x86: arch.Arch = .{
     .config_h = "#define ARCH_X86 1\n#define BINARY32 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_X86", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
+    .align_bytes = true,
 };

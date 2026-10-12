@@ -30,7 +30,7 @@ const Body = struct {
     pub fn zamax() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 512
+            \\ .balign 512
             \\ subq $256, %rsp
             \\ movups %xmm6, 0(%rsp)
             \\ movups %xmm7, 16(%rsp)
@@ -67,7 +67,7 @@ const Body = struct {
             \\ movq %rcx, %rax
             \\ sarq $3, %rax
             \\ jle 20002f
-            \\ .align 16
+            \\ .balign 16
             \\ 20001:
             \\ prefetch ((128 * 3) + 0) - 128(%rdx)
             \\ movlps 0 * 8(%rdx), %xmm4
@@ -106,7 +106,7 @@ const Body = struct {
             \\ addq $16 * 8, %rdx
             \\ decq %rax
             \\ jg 20001b
-            \\ .align 16
+            \\ .balign 16
             \\ 20002:
             \\ andq $7, %rcx
             \\ jle 20010f
@@ -129,7 +129,7 @@ const Body = struct {
             \\ maxpd %xmm4, %xmm0
             \\ maxpd %xmm6, %xmm1
             \\ addq $8 * 8, %rdx
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ testq $2, %rcx
             \\ je 20004f
@@ -142,7 +142,7 @@ const Body = struct {
             \\ andpd %xmm15, %xmm5
             \\ addpd %xmm5, %xmm4
             \\ maxpd %xmm4, %xmm0
-            \\ .align 8
+            \\ .balign 8
             \\ 20004:
             \\ testq $1, %rcx
             \\ je 20010f
@@ -153,12 +153,12 @@ const Body = struct {
             \\ addpd %xmm5, %xmm4
             \\ maxsd %xmm4, %xmm2
             \\ jmp 20010f
-            \\ .align 16
+            \\ .balign 16
             \\ 20005:
             \\ movq %rcx, %rax
             \\ sarq $3, %rax
             \\ jle 20007f
-            \\ .align 16
+            \\ .balign 16
             \\ 20006:
             \\ prefetch ((128 * 3) + 0) - 128(%rdx)
             \\ movlps 0 * 8(%rdx), %xmm4
@@ -204,7 +204,7 @@ const Body = struct {
             \\ maxpd %xmm6, %xmm3
             \\ decq %rax
             \\ jg 20006b
-            \\ .align 16
+            \\ .balign 16
             \\ 20007:
             \\ andq $7, %rcx
             \\ jle 20010f
@@ -230,7 +230,7 @@ const Body = struct {
             \\ addpd %xmm7, %xmm6
             \\ maxpd %xmm4, %xmm0
             \\ maxpd %xmm6, %xmm1
-            \\ .align 8
+            \\ .balign 8
             \\ 20008:
             \\ testq $2, %rcx
             \\ je 20009f
@@ -244,7 +244,7 @@ const Body = struct {
             \\ andpd %xmm15, %xmm5
             \\ addpd %xmm5, %xmm4
             \\ maxpd %xmm4, %xmm2
-            \\ .align 8
+            \\ .balign 8
             \\ 20009:
             \\ testq $1, %rcx
             \\ je 20010f
@@ -255,7 +255,7 @@ const Body = struct {
             \\ addpd %xmm5, %xmm4
             \\ maxsd %xmm4, %xmm3
             \\ jmp 20010f
-            \\ .align 16
+            \\ .balign 16
             \\ 20010:
             \\ maxpd %xmm1, %xmm0
             \\ maxpd %xmm3, %xmm2
@@ -263,7 +263,7 @@ const Body = struct {
             \\ movapd %xmm0, %xmm1
             \\ unpckhpd %xmm0, %xmm0
             \\ maxsd %xmm1, %xmm0
-            \\ .align 16
+            \\ .balign 16
             \\ 20011:
             \\ movups 0(%rsp), %xmm6
             \\ movups 16(%rsp), %xmm7

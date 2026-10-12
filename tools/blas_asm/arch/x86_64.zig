@@ -26,6 +26,7 @@ pub const x86_64: arch.Arch = .{
     .config_h = "#define ARCH_X86_64 1\n#define BINARY64 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_X86_64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k" },
     .core_defines = coreDefines,
+    .align_bytes = true,
     .variants = &.{
         .{ .name = "sysv", .defines = &.{"-DOS_LINUX"} },
         .{ .name = "win", .defines = &.{"-DOS_WINNT"} },

@@ -102,8 +102,9 @@ fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const
 }
 
 /// The lines of a source as a naked function's body: the assembly of the source
-/// as it is, less what declares the function.
-pub fn nakedLines(a: std.mem.Allocator, lines: []const []const u8) Error![]const []const u8 {
+/// as it is, less what declares the function, with `.align` as `.balign` where
+/// `ar.align_bytes`.
+pub fn nakedLines(a: std.mem.Allocator, ar: Arch, lines: []const []const u8) Error![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     for (lines) |line| {
         // the prologue macro puts several statements on one line
@@ -119,6 +120,10 @@ pub fn nakedLines(a: std.mem.Allocator, lines: []const []const u8) Error![]const
                 // (not `.endm`/`.endif`/`.endr`, which need the space to miss).
                 std.mem.startsWith(u8, t, ".ent ") or std.mem.eql(u8, t, ".end") or
                 std.mem.startsWith(u8, t, ".end ")) continue;
+            if (ar.align_bytes and std.mem.startsWith(u8, t, ".align ")) {
+                try out.append(a, try std.fmt.allocPrint(a, " .b{s}", .{t[1..]}));
+                continue;
+            }
             try out.append(a, try std.fmt.allocPrint(a, " {s}", .{try rewriteDynamicArchCalls(a, t)}));
         }
     }
@@ -152,6 +157,10 @@ pub const Arch = struct {
     variants: []const Variant = &.{.{ .name = "", .defines = &.{} }},
     /// Whether this source is one to convert (some are C, done elsewhere).
     is_asm: *const fn (source: []const u8) bool = isDotS,
+    /// Whether the sources' `.align` takes a byte count, as x86's does for
+    /// ELF and COFF. Mach-O reads it as a power of two instead, so these are
+    /// written as `.balign`, which means bytes on every object format.
+    align_bytes: bool = false,
 };
 
 pub fn isDotS(source: []const u8) bool {
