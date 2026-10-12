@@ -11,8 +11,8 @@
 //! upstream are the plain C loops, which the portable kernels are.
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
-const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
+const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
 const simd = @import("simd.zig");
 

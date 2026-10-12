@@ -13,8 +13,8 @@
 //! `KERNEL.<CORE>` names the plain C loops keep the portable kernels.
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
-const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
+const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
 const roles = kernel.roles;
 const uk = @import("../uk_block.zig");

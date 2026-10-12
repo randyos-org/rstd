@@ -30,10 +30,10 @@ const coretypes = @import("../../../cpu/_coretypes.zig");
 const fma = @import("../../../fma.zig");
 const util = @import("../../../util.zig");
 const registry = @import("../../../asm_registry.zig");
+const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
 const uk = @import("../uk_block.zig");
 const ukidx = @import("uk/__root__.zig");
-const Vtable = @import("../../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 

@@ -13,8 +13,8 @@
 //! (`riscv64_generic`, `u74`) keep the portable kernels.
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
-const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
+const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
 const rvv = @import("rvv.zig");
 

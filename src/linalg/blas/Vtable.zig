@@ -12,9 +12,12 @@
 //! conditionally compiling fields in or out, this keeps one flat struct
 //! with every field always present as an optional pointer -- whatever does
 //! not apply to the running build or core type is simply left `null`.
+//!
+//! Import nothing outside `src/linalg/blas/`: the per-core kernel objects
+//! take `*Vtable` too (see `kernels/__root__.zig`). Its test is in
+//! `__root__.zig` for that reason.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const types = @import("types.zig");
 
 const BlasLong = types.BlasLong;
@@ -1458,13 +1461,3 @@ zgeadd_k: ?*const fn (BlasLong, BlasLong, f64, f64, [*]f64, BlasLong, f64, f64, 
 // #define XGEMM3M_UNROLL_M gotoblas -> xgemm3m_unroll_m
 // #define XGEMM3M_UNROLL_N gotoblas -> xgemm3m_unroll_n
 // #define XGEMM3M_UNROLL_MN gotoblas -> xgemm3m_unroll_mn
-
-test "VTable default-initializes with every kernel pointer null" {
-    const vt: @This() = .{};
-    try zigstd.testExpectTrue(vt.sgemm_kernel == null);
-    try zigstd.testExpectTrue(vt.dgemm_kernel == null);
-    try zigstd.testExpectTrue(vt.cgemm_kernel_n == null);
-    try zigstd.testExpectTrue(vt.zgemm_kernel_n == null);
-    try zigstd.testExpectTrue(vt.init == null);
-    try zigstd.testExpectEqual(@as(i32, 0), vt.dtb_entries);
-}

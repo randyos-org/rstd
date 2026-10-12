@@ -6,6 +6,7 @@
 
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
+const Vtable = @import("../../../Vtable.zig");
 
 pub const Core = coretypes.ArmCoreType;
 const variant = "";
@@ -14,7 +15,7 @@ const K = registry.Kernels(Core, @import("asm/__root__.zig"), variant);
 pub const has = K.has;
 pub const exportCore = K.exportCore;
 
-pub fn install(vt: anytype, core: Core) void {
+pub fn install(vt: *Vtable, core: Core) void {
     switch (core) {
         inline else => |c| K.install(vt, c),
     }

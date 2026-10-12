@@ -977,6 +977,18 @@ pub const zomatcopy_k_ctc = ext.omatcopy.zomatcopy_k_ctc;
 pub const zomatcopy_k_rnc = ext.omatcopy.zomatcopy_k_rnc;
 pub const zomatcopy_k_rtc = ext.omatcopy.zomatcopy_k_rtc;
 
+// lives here, not in `Vtable.zig`, so that file stays import-free for the
+// per-core kernel objects, which use its type (see `kernels/__root__.zig`)
+test "VTable default-initializes with every kernel pointer null" {
+    const vt: Vtable = .{};
+    try zigstd.testExpectTrue(vt.sgemm_kernel == null);
+    try zigstd.testExpectTrue(vt.dgemm_kernel == null);
+    try zigstd.testExpectTrue(vt.cgemm_kernel_n == null);
+    try zigstd.testExpectTrue(vt.zgemm_kernel_n == null);
+    try zigstd.testExpectTrue(vt.init == null);
+    try zigstd.testExpectEqual(@as(i32, 0), vt.dtb_entries);
+}
+
 test {
     _ = @import("_test_types.zig");
     zigstd.testRefAllDecls(@This());

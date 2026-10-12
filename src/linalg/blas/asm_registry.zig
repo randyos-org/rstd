@@ -14,10 +14,11 @@
 //! pinned to fixed registers by an `asm` block's operand list -- so far only
 //! `axpy`'s own kernels, whose signature (and so pin list) is uniform across
 //! every core -- and takes the routine's fixed role list (`axpy`'s own copy is
-//! `blas1/axpy/roles.zig`) as a parameter, since nothing here can derive it.
+//! `blas1/axpy/kernel.zig`'s `roles`) as a parameter, since nothing here can derive it.
 
 const std = @import("std");
 const util = @import("util.zig");
+const Vtable = @import("Vtable.zig");
 
 /// `variant` picks between files a source is converted to more than once, such
 /// as 32-bit and 64-bit; empty when there is only one.
@@ -52,20 +53,17 @@ pub fn Kernels(comptime Core: type, comptime index: type, comptime variant: []co
         }
 
         /// Points the vtable at the kernels `core` has.
-        /// (`vt` is any pointer to the vtable, so the per-core objects, which export
-        /// these, need not import it.)
         ///
         /// A role with no matching vtable field (e.g. `sdsdot`: OpenBLAS compiles
         /// it per-core same as `dsdot`, but its own `gotoblas_t` has no
         /// `sdsdot_k` slot either) is still exported, just not installed here.
-        pub fn install(vt: anytype, comptime core: Core) void {
+        pub fn install(vt: *Vtable, comptime core: Core) void {
             @setEvalBranchQuota(1_000_000);
-            const VtableChild = @typeInfo(@TypeOf(vt)).pointer.child;
             inline for (index.entries) |e| {
                 if (comptime serves(e, core)) {
                     const field = e.role ++ "_k";
-                    if (comptime @hasField(VtableChild, field)) {
-                        const Slot = @FieldType(VtableChild, field);
+                    if (comptime @hasField(Vtable, field)) {
+                        const Slot = @FieldType(Vtable, field);
                         const Fn = @typeInfo(Slot).optional.child;
                         @field(vt, field) = @extern(Fn, .{ .name = util.kernelSymbol(e.role, @tagName(core)) });
                     }
