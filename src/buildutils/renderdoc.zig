@@ -2,10 +2,10 @@ const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Module = rstdbuild.Module;
-const OptimizeMode = rstdbuild.OptimizeMode;
+const Optimize = rstdbuild.Optimize;
 const DepModule = @import("deps.zig").DepModule;
 
-pub fn addRenderDoc(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) DepModule {
+pub fn addRenderDoc(b: *Build, target: ResolvedTarget, optimize: Optimize) DepModule {
     const tc = b.addTranslateC(.{
         .root_source_file = b.dependency("renderdoc", .{}).path("renderdoc/api/app/renderdoc_app.h"),
         .target = target,

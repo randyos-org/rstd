@@ -3,7 +3,7 @@
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const LazyPath = rstdbuild.LazyPath;
-const OptimizeMode = rstdbuild.OptimizeMode;
+const Optimize = rstdbuild.Optimize;
 const Module = rstdbuild.Module;
 
 const files = @import("files.zig");
@@ -41,7 +41,7 @@ pub const Icon = struct {
 
     pub fn addGenIconStep(
         b: *Build,
-        optimize: OptimizeMode,
+        optimize: Optimize,
         in_png_path: LazyPath,
         png_name: []const u8,
         ico_name: []const u8,

@@ -99,7 +99,7 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
                 .root_source_file = b.path("src/linalg/blas/_kernel.zig"),
                 .target = b.resolveTargetQuery(query),
                 // Kernels are always built for speed, whatever the consumer uses.
-                .optimize = .ReleaseFast,
+                .optimize = .fast,
                 .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
             }),
             .use_llvm = llvm,

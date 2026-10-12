@@ -1,10 +1,10 @@
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
-const OptimizeMode = rstdbuild.OptimizeMode;
+const Optimize = rstdbuild.Optimize;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 
-pub fn getOptimize(b: *Build) OptimizeMode {
-    return b.standardOptimizeOption(.{});
+pub fn getOptimize(b: *Build) Optimize {
+    return b.standardOptimizeOption(.{}) orelse .debug;
 }
 
 pub fn getTarget(b: *Build) ResolvedTarget {

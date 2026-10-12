@@ -5,7 +5,7 @@ const Build = rstdbuild.Build;
 const LazyPath = rstdbuild.LazyPath;
 const Module = rstdbuild.Module;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
-const OptimizeMode = rstdbuild.OptimizeMode;
+const Optimize = rstdbuild.Optimize;
 const RstdOptions = rstdbuild.RstdOptions;
 
 const shadertypes = @import("../rgl/shaders/types.zig");
@@ -29,7 +29,7 @@ pub const CompiledShader = struct {
 fn compileShaderStage(
     b: *Build,
     spirv_target: ResolvedTarget,
-    optimize: OptimizeMode,
+    optimize: Optimize,
     src: LazyPath,
     name: []const u8,
     stage: ShaderStage,
@@ -71,7 +71,7 @@ fn compileShaderStage(
 /// Compile `src` to a vert+frag SPIR-V pair named `name`.
 pub fn addShader(
     b: *Build,
-    optimize: OptimizeMode,
+    optimize: Optimize,
     src: LazyPath,
     name: []const u8,
     rstd_opts: RstdOptions,
@@ -95,7 +95,7 @@ pub fn addShader(
 /// @embedFiles directly onto `rstd_mod`. Called from rstd's own
 /// build.zig (gated behind `-Dvulkan`), not from a consumer's; only the
 /// build.zig that created `rstd_mod` can add imports to it.
-pub fn wireRglShaders(b: *Build, optimize: OptimizeMode, rstd_mod: *Module) !void {
+pub fn wireRglShaders(b: *Build, optimize: Optimize, rstd_mod: *Module) !void {
     const rgl = try addShader(b, optimize, b.path("src/rgl/shaders/rgl.zig"), "rgl", .{ ._rstd_mod = rstd_mod });
     const glyph = try addShader(b, optimize, b.path("src/rgl/shaders/glyph.zig"), "rgl.glyph", .{ ._rstd_mod = rstd_mod });
     const image = try addShader(b, optimize, b.path("src/rgl/shaders/image.zig"), "rgl.image", .{ ._rstd_mod = rstd_mod });

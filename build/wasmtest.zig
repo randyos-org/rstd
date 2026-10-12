@@ -7,13 +7,13 @@ const std = @import("std");
 const rstd = @import("../src/__root__.zig");
 const rstdbuild = rstd.buildutils;
 const Build = rstdbuild.Build;
-const OptimizeMode = rstdbuild.OptimizeMode;
+const Optimize = rstdbuild.Optimize;
 const blaskern = @import("blaskern.zig");
 
 /// Same selection as the emulated machines.
 const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.axpy", "simd." };
 
-pub fn addWasmTests(b: *Build, optimize: OptimizeMode) void {
+pub fn addWasmTests(b: *Build, optimize: Optimize) void {
     const step = b.step("wasm-test", "Run rstd's hardware-independent tests as a WASI module under Node");
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,

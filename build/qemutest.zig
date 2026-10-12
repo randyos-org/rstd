@@ -12,7 +12,7 @@ const std = @import("std");
 const rstd = @import("../src/__root__.zig");
 const rstdbuild = rstd.buildutils;
 const Build = rstdbuild.Build;
-const OptimizeMode = rstdbuild.OptimizeMode;
+const Optimize = rstdbuild.Optimize;
 const blaskern = @import("blaskern.zig");
 
 const Machine = struct {
@@ -28,7 +28,7 @@ const Machine = struct {
     llvm: bool = false,
     /// Overrides the build's optimize mode; OpenBIOS maps about 4 MB of a sparc64
     /// image, which debug builds of the tests outgrow.
-    optimize: ?OptimizeMode = null,
+    optimize: ?Optimize = null,
     code_model: std.builtin.CodeModel = .default,
     memory: []const u8 = "128M",
     /// Exit status carries the result; otherwise the printed summary does.
@@ -133,7 +133,7 @@ const machines = [_]Machine{
     },
     .{
         .name = "sparc64",
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
         .qemu = "qemu-system-sparc64",
         .args = &.{ "-M", "sun4u" },
@@ -178,7 +178,7 @@ const machines = [_]Machine{
 const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.axpy", "linalg.blas.blas3.gemm.params", "simd." };
 
 /// Adds the `qemu-test` step and its per-arch `qemu-test-<arch>` steps.
-pub fn addQemuTests(b: *Build, optimize: OptimizeMode) void {
+pub fn addQemuTests(b: *Build, optimize: Optimize) void {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
 

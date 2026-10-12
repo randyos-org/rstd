@@ -7,7 +7,10 @@ pub const Build = std.Build;
 pub const Step = Build.Step;
 pub const BuildDir = Step.WriteFile;
 pub const InstallDir = Step.InstallDir;
-pub const OptimizeMode = std.builtin.OptimizeMode;
+pub const Optimize = std.builtin.Optimize;
+/// Kept for consumers still on the pre-0.18 name (the top-level randyos
+/// build); new code uses `Optimize`.
+pub const OptimizeMode = Optimize;
 pub const TargetQuery = std.Target.Query;
 pub const RunStep = Step.Run;
 pub const CompileStep = Step.Compile;
