@@ -5,6 +5,47 @@ const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
 const wasmtest = @import("wasmtest.zig");
 const Build = rstdbuild.Build;
+const Module = rstdbuild.Module;
+const Compile = rstdbuild.CompileStep;
+const ResolvedTarget = rstdbuild.ResolvedTarget;
+const Optimize = rstdbuild.Optimize;
+
+/// rstd's module for `target`: its options, BLAS kernels and platform imports.
+/// `name` registers it for consumers; null keeps it private to this build (a
+/// second target, as `build.local.zig` uses).
+pub fn addRstdModule(
+    b: *Build,
+    name: ?[]const u8,
+    target: ResolvedTarget,
+    optimize: Optimize,
+    blas_cores: rstdbuild.BlasCores,
+    vulkan: bool,
+) !*Module {
+    const root = b.path("src/__root__.zig");
+    const mod = if (name) |n|
+        b.addModule(n, .{ .root_source_file = root })
+    else
+        b.createModule(.{ .root_source_file = root, .target = target, .optimize = optimize });
+    const options = try rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version, null);
+    options.addOption(bool, "has_vulkan", vulkan);
+    mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
+    blaskern.addBlasKernels(b, mod, target, blas_cores);
+    rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
+    // only add RenderDoc to non-Vulkan, desktop-OS targets
+    switch (target.result.os.tag) {
+        .windows,
+        .linux,
+        .macos,
+        => rstdbuild.addRenderDoc(b, target, optimize).addImportToModule(mod),
+        else => {},
+    }
+    return mod;
+}
+
+/// rstd's unit tests for `target`, from a module of `addRstdModule`.
+pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget) !*Compile {
+    return b.addTest(.{ .root_module = try rstdbuild.cloneModuleWithTarget(b, mod, target) });
+}
 
 pub fn build(b: *Build) !void {
     // standard build setup
@@ -12,33 +53,16 @@ pub fn build(b: *Build) !void {
     const target = rstdbuild.getTarget(b);
     const docs = rstdbuild.addDocs(b);
 
-    const rstd_root = b.path("src/__root__.zig");
-    const rstd_mod = b.addModule("rstd", .{
-        .root_source_file = rstd_root,
-    });
-    const rstd_options = try rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version, null);
-    rstd_mod.addImport("rstd_options", try rstdbuild.optionsModule(rstd_options));
     // Debug builds link only the target's BLAS kernels, which is far faster
     // to compile; `-Dblas-cores=all` builds every core to test dispatch.
     const blas_cores = b.option(rstdbuild.BlasCores, "blas-cores", "BLAS kernel objects to build: the target's core only (debug default), all, or none") orelse
         @as(rstdbuild.BlasCores, if (optimize == .debug) .target else .all);
-    blaskern.addBlasKernels(b, rstd_mod, target, blas_cores);
-    rstdbuild.addWin32ToModIfWinTgt(b, target, rstd_mod);
-    // only add RenderDoc to non-Vulkan, desktop-OS targets
-    switch (target.result.os.tag) {
-        .windows,
-        .linux,
-        .macos,
-        => rstdbuild.addRenderDoc(b, target, optimize).addImportToModule(rstd_mod),
-        else => {},
-    }
-
     // rgl's Vulkan/SPIR-V shaders pull in no extra dependency (the
     // spirv32-vulkan target ships in the compiler), but rstd is a
     // general std lib supplement used by headless/CLI code too, so
     // compiling them only happens when asked for.
     const vulkan_opt = b.option(bool, "vulkan", "Compile rgl's Vulkan/SPIR-V shaders") orelse false;
-    rstd_options.addOption(bool, "has_vulkan", vulkan_opt);
+    const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, vulkan_opt);
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
@@ -64,10 +88,7 @@ pub fn build(b: *Build) !void {
 
     // tests
     // -----
-    const rstd_test_mod = try rstdbuild.cloneModuleWithTarget(b, rstd_mod, target);
-    const rstd_test_exe = b.addTest(.{
-        .root_module = rstd_test_mod,
-    });
+    const rstd_test_exe = try addRstdTest(b, rstd_mod, target);
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);

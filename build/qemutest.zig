@@ -38,6 +38,8 @@ const Machine = struct {
     /// stderr as a diagnostic (a "failed command" echo on a passing step), so
     /// expecting it keeps a passing run quiet.
     stderr_note: ?[]const u8 = null,
+    /// Why this rig is not wired up yet; a stub gets no step.
+    stub: ?[]const u8 = null,
 };
 
 const machines = [_]Machine{
@@ -164,6 +166,19 @@ const machines = [_]Machine{
         .stderr_note = "kernel_addr changed",
     },
     .{
+        // Mach-O on PowerPC, the one big-endian 32-bit Mach-O target qemu can
+        // boot (OpenBIOS on `mac99`); covers the object format the other rigs
+        // do not.
+        .name = "powerpc-macho",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .ofmt = .macho, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "G4" },
+        .linker_script = "",
+        .memory = "256M",
+        .semihosting = false,
+        .stub = "needs the powerpc-macos Zig port, a linker script, and a check that OpenBIOS boots the image",
+    },
+    .{
         .name = "s390x",
         .query = .{ .cpu_arch = .s390x, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.s390x.cpu.z14 } },
         .qemu = "qemu-system-s390x",
@@ -184,6 +199,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) void {
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
 
     for (machines) |m| {
+        if (m.stub != null) continue;
         const target = b.resolveTargetQuery(m.query);
         const test_mod = b.createModule(.{
             .root_source_file = b.path("src/_test_qemu.zig"),
