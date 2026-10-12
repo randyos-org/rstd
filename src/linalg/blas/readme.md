@@ -4,6 +4,39 @@ Port of the OpenBLAS kernel tree; the converters are in `tools/blas_asm/`.
 Which OpenBLAS source each core uses is in the generated `coverage.md` files
 next to each routine.
 
+## Layout
+
+- `Vtable.zig`: the reference's `gotoblas_t`; `blas.kernel(.slot)` calls a slot.
+- `blas{1,2,3}/`, `ext/`: one directory per routine. Its `__root__.zig` holds
+  the interface (stubs until ported), and `<arch>/asm/` the converted
+  assembly.
+- `kernels/<arch>.zig`: the one list of an architecture's kernel modules, and
+  the `install` that points the vtable at a core's kernels.
+- `cpu/<arch>.zig`: detection, and `canRun` where the tests need it.
+- `blas1/uk_block.zig`: a routine's C driver around a converted microkernel
+  block, for routines whose upstream kernel is C.
+
+## Converted assembly
+
+`tools/blas_asm/gen.zig` turns each upstream `.S` into a naked function.
+
+- **ABI variants:** a source is preprocessed once per variant: x86_64 `sysv`
+  and `win`, arm `hf` and `sf`, POWER and SPARC `32` and `64`.
+- **Merged texts:** cores whose texts differ in under 10% of lines share one
+  file, with the differing lines chosen at comptime.
+- **Labels:** named labels become numeric local labels, so none reach the
+  symbol table.
+
+## Symbols and linking
+
+Kernels are exported as `blaskern_<role>_<core>` with hidden visibility, so
+they never leave a shared library rstd is built into. COFF has no visibility;
+a DLL exports nothing without `dllexport`.
+
+The qemu rigs link with `lld`, since the self-hosted ELF linker ignores linker
+scripts. LLVM-built kernel objects do too; the self-hosted linker misplaces
+their symbols.
+
 ## Not supported by Zig
 
 These OpenBLAS platforms and cores are not converted; the portable kernels

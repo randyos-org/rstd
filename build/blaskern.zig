@@ -103,6 +103,9 @@ fn addForArch(b: *Build, mod: *Module, target: ResolvedTarget, comptime arch_tag
                 .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
             }),
             .use_llvm = llvm,
+            // the self-hosted linker writes the object otherwise, and pads and
+            // misplaces SPARC symbols (calls land in zeroed `.text`)
+            .use_lld = llvm,
         });
         mod.addObject(obj);
     }

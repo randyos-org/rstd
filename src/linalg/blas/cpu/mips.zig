@@ -13,6 +13,12 @@ const auxv = @import("_auxv.zig");
 pub const CoreType = coretypes.MipsCoreType;
 pub const kernel = @import("../kernels/mips.zig");
 
+/// Whether this machine can run `core`'s kernels (for tests): the Loongson
+/// 3A R4's need the SIMD architecture, which no release 2 machine here has.
+pub fn canRun(core: CoreType) bool {
+    return core != .loongson3r4 or sysinfo.cpu.has(.mips, .msa);
+}
+
 pub const HWCAP_LOONGSON_CPUCFG: usize = 1 << 14;
 
 const LOONGSON_CFG1: u32 = 0x1;
@@ -74,7 +80,8 @@ const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
-    blas1.install(&vt, core_type);
+    blas1.installGeneric(&vt);
+    kernel.install(&vt, core_type);
     gemm_params.installCore(&vt, (if (@sizeOf(usize) == 8) .mips64 else .mips32), core_type, .fromConfig(blas.config));
     return vt;
 }

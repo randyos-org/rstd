@@ -3,7 +3,6 @@
 //! One file per routine, holding the vtable wrappers for that routine.
 
 const zigstd = @import("../../../zigstd.zig");
-const cpu = @import("../cpu/__root__.zig");
 const Vtable = @import("../Vtable.zig");
 
 pub const amax = @import("amax/__root__.zig");
@@ -26,7 +25,7 @@ pub const scal = @import("scal/__root__.zig");
 pub const sum = @import("sum/__root__.zig");
 pub const swap = @import("swap/__root__.zig");
 
-/// Every routine above, for `install`. Add a routine here to wire it in.
+/// Every routine above, for `installGeneric`.
 const routines = .{
     axpy,
     amax,
@@ -49,11 +48,12 @@ const routines = .{
     swap,
 };
 
-/// Points the vtable at every level-1 routine's kernels for `core`. Each
-/// routine's own `install` picks the target architecture's (and does nothing
-/// on one it has none for); `axpy`'s, first, also fills the portable kernels.
-pub fn install(vt: *Vtable, core: cpu.CoreType) void {
-    inline for (routines) |r| r.install(vt, core);
+/// Points the vtable at every level-1 routine's portable kernels, where it has
+/// them; a core's own kernels go over these (`cpu.kernel.install`).
+pub fn installGeneric(vt: *Vtable) void {
+    inline for (routines) |r| {
+        if (@hasDecl(r, "installGeneric")) r.installGeneric(vt);
+    }
 }
 
 test {

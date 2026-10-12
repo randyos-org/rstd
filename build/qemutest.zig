@@ -24,10 +24,12 @@ const Machine = struct {
     /// Machine and CPU selection plus whatever boots a bare `-kernel` ELF.
     args: []const []const u8,
     linker_script: []const u8,
-    /// The self-hosted backend and linker (the x86_64 default) ignore the script.
+    /// Use the LLVM backend instead of the self-hosted one for code generation.
     llvm: bool = false,
     /// Overrides the build's optimize mode; OpenBIOS maps about 4 MB of a sparc64
-    /// image, which debug builds of the tests outgrow.
+    /// image, which debug builds of the tests outgrow. sparc64 uses `.fast`, as
+    /// `.small` from Zig 0.18.0-dev.250 jumps into unrelated code in the gemm
+    /// parameter test (an LLVM `-Oz` miscompile on sparc64, it appears).
     optimize: ?Optimize = null,
     code_model: std.builtin.CodeModel = .default,
     memory: []const u8 = "128M",
@@ -133,7 +135,7 @@ const machines = [_]Machine{
     },
     .{
         .name = "sparc64",
-        .optimize = .small,
+        .optimize = .fast,
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
         .qemu = "qemu-system-sparc64",
         .args = &.{ "-M", "sun4u" },
@@ -198,7 +200,8 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) void {
             .test_runner = .{ .path = b.path("src/_test_qemu_runner.zig"), .mode = .simple },
             .filters = if (filters.len != 0) filters else default_filters,
             .use_llvm = if (m.llvm) true else null,
-            .use_lld = if (m.llvm) true else null,
+            // every rig needs its linker script, which only lld honors
+            .use_lld = true,
         });
         test_exe.setLinkerScript(b.path(m.linker_script));
 

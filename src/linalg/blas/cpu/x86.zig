@@ -10,11 +10,13 @@ const gemm_params = @import("../blas3/gemm/params.zig");
 pub const CoreType = detector.CoreType;
 pub const kernel = @import("../kernels/x86.zig");
 pub const detect = detector.detect;
-pub const supportsCore = detector.supportsCore;
+/// Whether this machine can run `core`'s kernels (for tests).
+pub const canRun = detector.supportsCore;
 
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
-    blas1.install(&vt, core_type);
+    blas1.installGeneric(&vt);
+    kernel.install(&vt, core_type);
     gemm_params.installCore(&vt, .x86, core_type, .fromConfig(blas.config));
     return vt;
 }

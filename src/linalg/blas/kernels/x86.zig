@@ -1,45 +1,39 @@
-//! 32-bit x86 BLAS kernel registry (`kernels/<arch>.zig`): which routines
-//! have kernels for which cores, and how to export them. The per-core kernel
-//! object root (`_kernel.zig`) exports through it, and the build
-//! (`build/blaskern.zig`) asks it which cores need an object at all.
+//! BLAS kernel registry for x86: which routines have kernels for which
+//! cores, how the per-core objects (`_kernel.zig`) export them, and how
+//! `cpu/x86.zig` points the vtable at them. The build (`build/blaskern.zig`)
+//! asks it which cores need an object at all.
 //!
-//! x86_64 is the separate `kernels/x86_64.zig`; the two share nothing
-//! below their `CoreType`, which `cpu/_x86.zig`'s shared detector defines.
-//!
-//! To add a routine, import its `x86/kernel.zig` here and add it to
-//! `hasKernels` and `exportCore`.
+//! Add a routine to `modules` to wire it in.
 
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
-const axpy = @import("../blas1/axpy/x86/kernel.zig");
-const amax = @import("../blas1/amax/x86/kernel.zig");
-const amin = @import("../blas1/amin/x86/kernel.zig");
-const asum = @import("../blas1/asum/x86/kernel.zig");
-const axpby = @import("../blas1/axpby/x86/kernel.zig");
-const copy = @import("../blas1/copy/x86/kernel.zig");
-const dot = @import("../blas1/dot/x86/kernel.zig");
-const iamax = @import("../blas1/iamax/x86/kernel.zig");
-const iamin = @import("../blas1/iamin/x86/kernel.zig");
-const imax = @import("../blas1/imax/x86/kernel.zig");
-const imin = @import("../blas1/imin/x86/kernel.zig");
-const max = @import("../blas1/max/x86/kernel.zig");
-const min = @import("../blas1/min/x86/kernel.zig");
-const nrm2 = @import("../blas1/nrm2/x86/kernel.zig");
-const rot = @import("../blas1/rot/x86/kernel.zig");
-const rotm = @import("../blas1/rotm/x86/kernel.zig");
-const scal = @import("../blas1/scal/x86/kernel.zig");
-const sum = @import("../blas1/sum/x86/kernel.zig");
-const swap = @import("../blas1/swap/x86/kernel.zig");
-
-/// Every routine registered above, each with the uniform `has(core)` /
-/// `exportCore(core)` pair `hasKernels`/`exportCore` need. Add a routine
-/// here (not to those functions) to wire it in.
-const modules = .{
-    axpy, amax, amin, asum, axpby, copy, dot, iamax, iamin,
-    imax, imin, max,  min,  nrm2,  rot,  rotm, scal, sum,  swap,
-};
+const registry = @import("../asm_registry.zig");
+const Vtable = @import("../Vtable.zig");
 
 pub const Core = coretypes.X86CoreType;
+
+/// Every routine with kernels here: each routine's converted assembly (its
+/// `asm/__root__.zig`), and `axpy`'s own module, which adds the kernels
+/// upstream writes in C.
+const modules = .{
+    @import("../blas1/axpy/x86/kernel.zig"),
+    registry.Kernels(Core, @import("../blas1/amax/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/amin/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/asum/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/copy/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/dot/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/iamax/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/iamin/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/imax/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/imin/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/max/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/min/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/nrm2/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/rot/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/scal/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/sum/x86/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas1/swap/x86/asm/__root__.zig")),
+};
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
@@ -57,7 +51,15 @@ pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool 
 
 /// Exports every kernel `core` has.
 pub fn exportCore(comptime core: Core) void {
-    inline for (modules) |m| {
-        if (comptime m.has(core)) m.exportCore(core);
+    inline for (modules) |m| m.exportCore(core);
+}
+
+/// Points the vtable at the kernels `core` has; the portable ones stay where
+/// it has none.
+pub fn install(vt: *Vtable, core: Core) void {
+    switch (core) {
+        inline else => |c| {
+            inline for (modules) |m| m.install(vt, c);
+        },
     }
 }

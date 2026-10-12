@@ -17,23 +17,23 @@ const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
 pub fn sblaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f32, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]f32) i32 {
-    return blas._vtable.sblaswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.sblaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }
 pub fn slaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f32, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]f32) i32 {
-    return blas._vtable.slaswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.slaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }
 pub fn dlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f64, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]f64) i32 {
-    return blas._vtable.dlaswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.dlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }
 pub fn qlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]XDouble, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]XDouble) i32 {
-    return blas._vtable.qlaswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.qlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }
 pub fn claswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f32, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]f32) i32 {
-    return blas._vtable.claswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.claswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }
 pub fn zlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f64, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]f64) i32 {
-    return blas._vtable.zlaswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.zlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }
 pub fn xlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]XDouble, lda: BlasLong, ipiv: [*]BlasInt, buffer: [*]XDouble) i32 {
-    return blas._vtable.xlaswp_ncopy.?(n, k1, k2, a, lda, ipiv, buffer);
+    return blas.kernel(.xlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
 }

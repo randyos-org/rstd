@@ -1,44 +1,75 @@
 //! The per-core kernels that are assembly upstream, for any routine at any
-//! BLAS level: `index` is that architecture's generated `asm/__root__.zig`
-//! (which converted file serves which cores), turned into what the per-core
-//! kernel objects (`src/linalg/blas/_kernel.zig`) and the architecture's
-//! `install.zig` ask for. Both generics here read `index` the same way; each
-//! routine's `<arch>/kernel.zig` picks whichever matches its kernel's calling
-//! convention, three directories down from here
-//! (`blas1/<routine>/<arch>/kernel.zig`, and the same depth under `blas2/` and
-//! `blas3/`).
-//!
-//! `Kernels` is for a naked function that keeps the source's own ABI, which
-//! every routine but `axpy` converts to; its roles come straight off `index`,
-//! so it takes nothing else. `Registry` is for a kernel whose operands are
-//! pinned to fixed registers by an `asm` block's operand list -- so far only
-//! `axpy`'s own kernels, whose signature (and so pin list) is uniform across
-//! every core -- and takes the routine's fixed role list (`axpy`'s own copy is
-//! `blas1/axpy/kernel.zig`'s `roles`) as a parameter, since nothing here can derive it.
+//! BLAS level. `index` is one architecture's generated `asm/__root__.zig` for
+//! a routine: which converted file has which kernel, each file saying which
+//! cores (and build variants) it serves. Each kernel is the source's own
+//! function, naked, so it is exported and installed as is.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 
-/// `variant` picks between files a source is converted to more than once, such
-/// as 32-bit and 64-bit; empty when there is only one.
-pub fn Kernels(comptime Core: type, comptime index: type, comptime variant: []const u8) type {
+/// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target needs: the
+/// calling convention or pointer width the sources have a path for. It is
+/// the compiled target's, so `has`, which the build script asks about the
+/// target it is building for, does not depend on it.
+pub const variant: []const u8 = switch (builtin.cpu.arch) {
+    .x86_64 => if (builtin.os.tag == .windows) "win" else "sysv",
+    .arm, .armeb, .thumb, .thumbeb => if (builtin.abi.float() == .hard) "hf" else "sf",
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le, .sparc, .sparc64 => if (@sizeOf(usize) == 8) "64" else "32",
+    else => "",
+};
+
+/// Points the vtable slot of each of `roles` that `core` has (`hasRole`) at
+/// the kernel the per-core object exports for it, for a routine whose kernels
+/// are not all converted assembly (`Kernels.install` does this from `index`).
+pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const []const u8, comptime hasRole: anytype) void {
+    inline for (roles) |role| {
+        if (comptime hasRole(core, role)) {
+            const Fn = @typeInfo(@FieldType(Vtable, role ++ "_k")).optional.child;
+            @field(vt, role ++ "_k") = @extern(Fn, .{ .name = util.kernelSymbol(role, @tagName(core)) });
+        }
+    }
+}
+
+pub fn Kernels(comptime Core: type, comptime index: type) type {
     return struct {
-        fn serves(comptime e: anytype, comptime core: Core) bool {
-            if (!(e.variant.len == 0 or std.mem.eql(u8, e.variant, variant))) return false;
-            inline for (e.cores) |c| {
-                if (comptime std.mem.eql(u8, c, @tagName(core))) return true;
+        /// `e`'s function for `core` on this target, if it has one.
+        fn kernel(comptime e: anytype, comptime core: Core) ?type {
+            return e.module.kernel(@tagName(core), variant);
+        }
+
+        /// Whether any of these kernels serves `core`, built any way.
+        pub fn has(comptime core: Core) bool {
+            @setEvalBranchQuota(1_000_000);
+            inline for (index.entries) |e| {
+                if (comptime e.module.serves(@tagName(core))) return true;
             }
             return false;
         }
 
-        /// Whether `core` has any of these kernels.
-        pub fn has(comptime core: Core) bool {
+        /// Whether `role` has a kernel on `core` for this target.
+        pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
             @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
-                if (comptime serves(e, core)) return true;
+                if (comptime std.mem.eql(u8, e.role, role) and kernel(e, core) != null) return true;
             }
             return false;
+        }
+
+        /// Exported symbol of `role` for `core`.
+        pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
+            return util.kernelSymbol(role, @tagName(core));
+        }
+
+        /// Exports the kernel `role` has on `core`, if it has one.
+        pub fn exportOne(comptime role: []const u8, comptime core: Core) void {
+            @setEvalBranchQuota(1_000_000);
+            inline for (index.entries) |e| {
+                if (comptime std.mem.eql(u8, e.role, role)) {
+                    if (comptime kernel(e, core)) |K| @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
+                }
+            }
         }
 
         /// Exports every kernel `core` has. Call from a container-level `comptime`
@@ -46,9 +77,7 @@ pub fn Kernels(comptime Core: type, comptime index: type, comptime variant: []co
         pub fn exportCore(comptime core: Core) void {
             @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
-                if (comptime serves(e, core)) {
-                    @export(&@field(e.module, e.role), .{ .name = util.kernelSymbol(e.role, @tagName(core)) });
-                }
+                if (comptime kernel(e, core)) |K| @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
             }
         }
 
@@ -60,62 +89,13 @@ pub fn Kernels(comptime Core: type, comptime index: type, comptime variant: []co
         pub fn install(vt: *Vtable, comptime core: Core) void {
             @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
-                if (comptime serves(e, core)) {
+                if (comptime kernel(e, core) != null) {
                     const field = e.role ++ "_k";
                     if (comptime @hasField(Vtable, field)) {
-                        const Slot = @FieldType(Vtable, field);
-                        const Fn = @typeInfo(Slot).optional.child;
-                        @field(vt, field) = @extern(Fn, .{ .name = util.kernelSymbol(e.role, @tagName(core)) });
+                        const Fn = @typeInfo(@FieldType(Vtable, field)).optional.child;
+                        @field(vt, field) = @extern(Fn, .{ .name = symbol(e.role, core), .visibility = .hidden });
                     }
                 }
-            }
-        }
-    };
-}
-
-/// `variant` picks between the files a source is converted to more than once,
-/// such as 32-bit and 64-bit; empty when there is only one. `roles` is the
-/// routine's fixed set of kernel names (`axpy`'s is `saxpy`, `daxpy`, `caxpy`,
-/// `caxpyc`, `zaxpy`, `zaxpyc`): unlike `Kernels`, nothing here can read it off
-/// `index`, since a pinned-operand kernel's whole-function form carries no
-/// entry beyond the file that already names its own role.
-pub fn Registry(comptime CoreType: type, comptime index: type, comptime variant: []const u8, comptime roles: []const []const u8) type {
-    return struct {
-        pub const Core = CoreType;
-
-        /// The file `role` is on `core`, if it is assembly there.
-        fn source(comptime core: Core, comptime role: []const u8) ?type {
-            return index.source(role, @tagName(core), variant);
-        }
-
-        /// Whether `role` has an assembly kernel on `core`.
-        pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-            return comptime source(core, role) != null;
-        }
-
-        /// Whether `core` has any assembly kernel of `roles`.
-        pub fn hasAny(comptime core: Core) bool {
-            inline for (roles) |role| {
-                if (comptime source(core, role) != null) return true;
-            }
-            return false;
-        }
-
-        /// Exported symbol of `role` for `core`.
-        pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-            return util.kernelSymbol(role, @tagName(core));
-        }
-
-        /// Exports the kernel `role` has on `core`, which must have one.
-        pub fn exportOne(comptime role: []const u8, comptime core: Core) void {
-            @export(&@field(source(core, role).?, role), .{ .name = symbol(role, core) });
-        }
-
-        /// Exports every kernel of `roles` that `core` has. Call from a
-        /// container-level `comptime` block of the object's root file.
-        pub fn exportCore(comptime core: Core) void {
-            inline for (roles) |role| {
-                if (comptime source(core, role) != null) exportOne(role, core);
             }
         }
     };

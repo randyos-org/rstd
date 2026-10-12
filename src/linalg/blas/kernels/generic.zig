@@ -3,6 +3,7 @@
 //! `x86.zig` for what a registry provides and how to fill one in.
 
 const std = @import("std");
+const Vtable = @import("../Vtable.zig");
 const coretypes = @import("../cpu/_coretypes.zig");
 
 pub const Core = coretypes.GenericCoreType;
@@ -22,5 +23,11 @@ pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool 
 
 /// Exports every kernel `core` has.
 pub fn exportCore(comptime core: Core) void {
+    _ = core;
+}
+
+/// No kernels; the portable ones stay.
+pub fn install(vt: *Vtable, core: Core) void {
+    _ = vt;
     _ = core;
 }

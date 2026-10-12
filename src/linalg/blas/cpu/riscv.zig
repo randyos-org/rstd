@@ -64,7 +64,8 @@ const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
-    blas1.install(&vt, core_type);
+    blas1.installGeneric(&vt);
+    kernel.install(&vt, core_type);
     gemm_params.installCore(&vt, .riscv64, core_type, .fromConfig(blas.config));
     return vt;
 }

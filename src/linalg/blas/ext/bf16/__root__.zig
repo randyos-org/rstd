@@ -17,14 +17,14 @@ const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
 pub fn sbstobf16_k(n: BlasLong, in: [*]f32, inc_in: BlasLong, out: [*]BF16, inc_out: BlasLong) void {
-    blas._vtable.sbstobf16_k.?(n, in, inc_in, out, inc_out);
+    blas.kernel(.sbstobf16_k)(n, in, inc_in, out, inc_out);
 }
 pub fn sbdtobf16_k(n: BlasLong, in: [*]f64, inc_in: BlasLong, out: [*]BF16, inc_out: BlasLong) void {
-    blas._vtable.sbdtobf16_k.?(n, in, inc_in, out, inc_out);
+    blas.kernel(.sbdtobf16_k)(n, in, inc_in, out, inc_out);
 }
 pub fn sbf16tos_k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]f32, inc_out: BlasLong) void {
-    blas._vtable.sbf16tos_k.?(n, in, inc_in, out, inc_out);
+    blas.kernel(.sbf16tos_k)(n, in, inc_in, out, inc_out);
 }
 pub fn dbf16tod_k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]f64, inc_out: BlasLong) void {
-    blas._vtable.dbf16tod_k.?(n, in, inc_in, out, inc_out);
+    blas.kernel(.dbf16tod_k)(n, in, inc_in, out, inc_out);
 }

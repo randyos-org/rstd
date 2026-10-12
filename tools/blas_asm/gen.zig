@@ -1,35 +1,25 @@
-//! Converts OpenBLAS `axpy` `.S` kernels into Zig files whose bodies are the
-//! same assembly, written inline.
+//! Converts OpenBLAS's level-1 `.S` kernels into Zig files whose bodies are
+//! the same assembly, as naked functions.
 //!
-//!     OPENBLAS=<checkout> zig run tools/blas_asm/gen.zig [-- <arch>...]
+//!     OPENBLAS=<checkout> zig run tools/blas_asm/gen.zig [-- <arch|routine>...]
 //!
-//! With no architecture named, converts all that `arch/<name>.zig` describes.
+//! With nothing named, converts every routine for every architecture that
+//! `arch/<name>.zig` describes; otherwise only the architectures and routines
+//! (`blas1/<routine>/` names, such as `axpy`) named.
 //!
-//! The source is preprocessed once per core, since OpenBLAS selects code with
-//! `#ifdef <CORE>`. Which cores use a source, and for which precisions, comes
-//! from the `KERNEL.<core>` files (`kernel_map.zig`). Cores whose expansions
-//! are identical share one file, named for the first of them, with the rest
-//! listed in its header; when that is every core that uses it, there is no
-//! core in the name. Merging the files into fewer, idiomatic ones is done by
-//! hand afterward; the header of each says where its text came from.
+//! The source is preprocessed once per core and variant, since OpenBLAS
+//! selects code with `#ifdef <CORE>` (and the ABI with `WINDOWS_ABI` and the
+//! like). Which cores use a source, and for which precisions, comes from the
+//! `KERNEL.<core>` files (`kernel_map.zig`). Cores whose expansions are
+//! identical share one file.
 //!
-//! The body is left as the C preprocessor emits it. Only these change, none
-//! of them instructions:
+//! Each function is the source's own, unchanged: it reads its arguments where
+//! the calling convention puts them, saves what it uses, and returns. Only the
+//! directives that declare the function go (Zig declares it), tabs become
+//! spaces (Zig's tokenizer requires it inside `\`), and labels get the
+//! file's name appended (one object holds many of these).
 //!
-//!   1. the directives that declare the function are dropped; Zig declares it,
-//!   2. the argument shuffling the source does by hand is dropped; Zig's
-//!      calling convention delivers the arguments, into the registers the
-//!      source picked, pinned by the operand list,
-//!   3. each `ret` becomes a jump to the end of the block, since the block is
-//!      inside a Zig function that has its own epilogue,
-//!   4. tabs become spaces, which Zig's tokenizer requires inside `\\`.
-//!
-//! The registers stay exactly as OpenBLAS chose them. Nothing is reallocated.
-//! The clobber list is read off the body, so a register the source starts
-//! using is declared without anyone remembering to.
-//!
-//! Each function has the reference's kernel signature, so it is exported as
-//! the kernel directly. `asm/__root__.zig` lists which cores use which file.
+//! `asm/__root__.zig` lists which cores use which file.
 
 const std = @import("std");
 const Io = std.Io;
@@ -61,12 +51,6 @@ fn fileName(a: std.mem.Allocator, k: Kernel, width: []const u8, first: ?[]const 
     const rest = if (std.mem.indexOfScalar(u8, stem, '_')) |at| stem[at..] else "";
     const core = if (first) |f| try std.fmt.allocPrint(a, "_{s}", .{f}) else "";
     return std.fmt.allocPrint(a, "{s}{s}{s}{s}.zig", .{ try k.role(a), rest, width, core });
-}
-
-/// The axpy kernels keep pinned operands; every other routine is a naked
-/// function of the source's own.
-fn isAxpy(k: Kernel) bool {
-    return std.mem.indexOf(u8, k.role_name, "axpy") != null;
 }
 
 /// Tabs become spaces to the next multiple of eight.
@@ -111,20 +95,6 @@ fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []co
     return r.stdout;
 }
 
-/// The final macro definitions of the source, for `arch.macros`.
-fn readMacros(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant) !void {
-    arch.macros.clearRetainingCapacity();
-    var it = std.mem.splitScalar(u8, try runCpp(a, ar, inc, k, core, v, true), '\n');
-    while (it.next()) |raw| {
-        const line = std.mem.trim(u8, raw, " \r");
-        const prefix = "#define ";
-        if (!std.mem.startsWith(u8, line, prefix)) continue;
-        const rest = line[prefix.len..];
-        const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse continue;
-        try arch.macros.put(a, rest[0..sp], std.mem.trim(u8, rest[sp..], " "));
-    }
-}
-
 /// The preprocessed source, tab-free and without empty lines.
 fn preprocess(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant) ![]const []const u8 {
     const text = try runCpp(a, ar, inc, k, core, v, false);
@@ -136,12 +106,6 @@ fn preprocess(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: 
         try out.append(a, line);
     }
     return out.items;
-}
-
-fn same(x: []const []const u8, y: []const []const u8) bool {
-    if (x.len != y.len) return false;
-    for (x, y) |p, q| if (!std.mem.eql(u8, p, q)) return false;
-    return true;
 }
 
 fn lowered(a: std.mem.Allocator, s: []const u8) ![]const u8 {
@@ -158,9 +122,7 @@ fn isName(c: u8) bool {
 }
 
 /// The end of the name token starting at `s[i]`, one past a trailing `\@`
-/// (GAS's per-macro-invocation unique-label marker) if there is one: the
-/// assembler resolves that itself, per invocation, so it is left alone and
-/// just carried along as part of the name for suffixing purposes.
+/// (GAS's per-macro-invocation marker), which makes it part of the name.
 fn nameEnd(s: []const u8, i: usize) usize {
     var e = i;
     while (e < s.len and isName(s[e])) e += 1;
@@ -168,37 +130,78 @@ fn nameEnd(s: []const u8, i: usize) usize {
     return e;
 }
 
-/// Every label and macro the assembler sees is global to the object, and one
-/// object holds several of these kernels, so each name gets the file's name
-/// appended and each macro is removed again at the end. Numeric labels are
-/// local to their block and stay as they are.
-fn finish(a: std.mem.Allocator, lines: []const []const u8, suffix: []const u8) ![]const []const u8 {
-    var labels: std.StringArrayHashMapUnmanaged(void) = .empty;
+/// The named label a line starts by defining (`name:`), if any. Numeric
+/// labels are already local and stay as the source has them.
+fn definedLabel(line: []const u8) ?[]const u8 {
+    const t = std.mem.trim(u8, line, " ");
+    const e = nameEnd(t, 0);
+    if (e == 0 or e >= t.len or t[e] != ':' or std.ascii.isDigit(t[0])) return null;
+    return t[0..e];
+}
+
+/// The function's own label; Zig declares the function.
+fn isOwnLabel(name: []const u8) bool {
+    return std.mem.eql(u8, name, "k") or std.mem.eql(u8, name, "k_");
+}
+
+/// The first number a named label becomes, above any the sources use.
+const label_base = 20000;
+
+/// The source's lines as a function body. The function's own label goes, and
+/// every named label becomes a numeric one, `names` giving its number (the
+/// same across the cores of one file, so their shared lines stay equal): the
+/// assembler keeps numeric labels local however many functions in one object
+/// define them, so each core's function can be instantiated beside another's.
+/// The macros the source defines are purged again at the end.
+fn finish(a: std.mem.Allocator, lines: []const []const u8, names: *const std.StringArrayHashMapUnmanaged(void)) ![]const []const u8 {
+    // which `.macro` ... `.endm` each line is in (0 for none), and where each
+    // label is defined
+    const region = try a.alloc(usize, lines.len);
     var macros: std.ArrayList([]const u8) = .empty;
-    for (lines) |line| {
+    var defs: std.StringHashMapUnmanaged(std.ArrayList(usize)) = .empty;
+    var cur: usize = 0;
+    for (lines, 0..) |line, i| {
         const t = std.mem.trim(u8, line, " ");
         if (std.mem.startsWith(u8, t, ".macro ")) {
             var it = std.mem.tokenizeAny(u8, t[".macro ".len..], " ,");
             if (it.next()) |name| try macros.append(a, name);
-            continue;
+            cur = macros.items.len;
         }
-        const e = nameEnd(t, 0);
-        if (e > 0 and e < t.len and t[e] == ':' and !std.ascii.isDigit(t[0])) try labels.put(a, t[0..e], {});
+        region[i] = cur;
+        if (std.mem.eql(u8, t, ".endm")) cur = 0;
+        if (definedLabel(line)) |n| {
+            const e = try defs.getOrPut(a, n);
+            if (!e.found_existing) e.value_ptr.* = .empty;
+            try e.value_ptr.append(a, i);
+        }
     }
 
     var out: std.ArrayList([]const u8) = .empty;
-    for (lines) |line| {
-        // the function's own label; Zig declares the function
-        const t = std.mem.trim(u8, line, " ");
-        if (std.mem.eql(u8, t, "k:") or std.mem.eql(u8, t, "k_:")) continue;
+    for (lines, 0..) |line, li| {
+        if (definedLabel(line)) |n| if (isOwnLabel(n)) continue;
+        const start = line.len - std.mem.trimStart(u8, line, " ").len;
         var buf: std.ArrayList(u8) = .empty;
         var i: usize = 0;
         while (i < line.len) {
             if (isName(line[i]) and (i == 0 or !isName(line[i - 1]))) {
                 const e = nameEnd(line, i);
                 const tok = line[i..e];
-                try buf.appendSlice(a, tok);
-                if (labels.contains(tok)) try buf.appendSlice(a, suffix);
+                if (names.getIndex(tok)) |num| {
+                    try buf.print(a, "{d}", .{label_base + num});
+                    // a reference names the definition by direction: in a
+                    // macro, the one in that macro's text, else the one outside
+                    if (!(i == start and e < line.len and line[e] == ':')) {
+                        var fwd = false;
+                        var found = false;
+                        for (defs.get(tok).?.items) |d| {
+                            if (region[d] != region[li]) continue;
+                            found = true;
+                            if (d > li) fwd = true;
+                        }
+                        if (!found) std.debug.panic("label {s} is referenced across a macro's boundary: {s}", .{ tok, line });
+                        try buf.append(a, if (fwd) 'f' else 'b');
+                    }
+                } else try buf.appendSlice(a, tok);
                 i = e;
             } else {
                 try buf.append(a, line[i]);
@@ -211,78 +214,210 @@ fn finish(a: std.mem.Allocator, lines: []const []const u8, suffix: []const u8) !
     return out.items;
 }
 
-/// The text of one Zig file.
-fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, cores: []const u8, lines: []const []const u8) ![]const u8 {
-    var w: std.ArrayList(u8) = .empty;
-    const F = k.prec.float();
-    const role = try k.role(a);
-    if (ar.naked or !isAxpy(k)) {
-        // the whole function is the source's: it reads its arguments from the
-        // ABI's places itself, saves what it uses, and returns
-        try put(&w, a,
-            \\//! `{s}`, from OpenBLAS `kernel/{s}/{s}`, as expanded for {s}.
-            \\//!
-            \\//! Generated by `tools/blas_asm/gen.zig`; the function is the assembly of
-            \\//! that source, unchanged, as a naked function, so it reads its own
-            \\//! arguments as the reference's does. Re-derive it rather than editing it.
-            \\
-            \\pub fn {s}() callconv(.naked) void {{
-            \\    asm volatile (
-            \\
-        , .{ role, ar.name, k.source, cores, role });
-        for (lines) |l| try put(&w, a, "        \\\\{s}\n", .{l});
-        try put(&w, a, "    );\n}}\n", .{});
-        return w.items;
-    }
-    const pins = try ar.pins(a, k);
+const Op = union(enum) { eq: [2]usize, del: usize, ins: usize };
 
+/// The shortest edit script from `x` to `y` (Myers), or null when it takes
+/// more than `max_d` insertions and deletions.
+fn diff(a: std.mem.Allocator, x: []const []const u8, y: []const []const u8, max_d: usize) !?[]const Op {
+    var scratch: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer scratch.deinit();
+    const s = scratch.allocator();
+    const n: isize = @intCast(x.len);
+    const m: isize = @intCast(y.len);
+    const max: isize = @intCast(@min(max_d, x.len + y.len));
+    const off = max + 1;
+    const v = try s.alloc(isize, @intCast(2 * max + 3));
+    @memset(v, 0);
+    // `trace[d]` is `v[-d - 1 .. d + 1]` before step `d`
+    var trace: std.ArrayList([]const isize) = .empty;
+    var d: isize = 0;
+    found: while (d <= max) : (d += 1) {
+        try trace.append(s, try s.dupe(isize, v[@intCast(off - d - 1)..@intCast(off + d + 2)]));
+        var k = -d;
+        while (k <= d) : (k += 2) {
+            var px: isize = if (k == -d or (k != d and v[@intCast(off + k - 1)] < v[@intCast(off + k + 1)]))
+                v[@intCast(off + k + 1)]
+            else
+                v[@intCast(off + k - 1)] + 1;
+            var py = px - k;
+            while (px < n and py < m and std.mem.eql(u8, x[@intCast(px)], y[@intCast(py)])) {
+                px += 1;
+                py += 1;
+            }
+            v[@intCast(off + k)] = px;
+            if (px >= n and py >= m) break :found;
+        }
+    } else return null;
+
+    var rev: std.ArrayList(Op) = .empty;
+    var px = n;
+    var py = m;
+    while (d > 0) : (d -= 1) {
+        const t = trace.items[@intCast(d)];
+        const at = struct {
+            fn f(tr: []const isize, dd: isize, kk: isize) isize {
+                return tr[@intCast(kk + dd + 1)];
+            }
+        }.f;
+        const k = px - py;
+        const down = k == -d or (k != d and at(t, d, k - 1) < at(t, d, k + 1));
+        const pk = if (down) k + 1 else k - 1;
+        const prev_x = at(t, d, pk);
+        const prev_y = prev_x - pk;
+        const mid_x = if (down) prev_x else prev_x + 1;
+        while (px > mid_x) {
+            px -= 1;
+            py -= 1;
+            try rev.append(s, .{ .eq = .{ @intCast(px), @intCast(py) } });
+        }
+        if (down) try rev.append(s, .{ .ins = @intCast(prev_y) }) else try rev.append(s, .{ .del = @intCast(prev_x) });
+        px = prev_x;
+        py = prev_y;
+    }
+    while (px > 0) {
+        px -= 1;
+        py -= 1;
+        try rev.append(s, .{ .eq = .{ @intCast(px), @intCast(py) } });
+    }
+    const ops = try a.alloc(Op, rev.items.len);
+    for (ops, 0..) |*o, i| o.* = rev.items[rev.items.len - 1 - i];
+    return ops;
+}
+
+/// Whether two expansions are close enough to share a file: at most a tenth
+/// of their lines differ.
+fn similar(a: std.mem.Allocator, x: []const []const u8, y: []const []const u8) !bool {
+    return (try diff(a, x, y, (x.len + y.len) / 10)) != null;
+}
+
+/// A line of a merged body, and which of the merged texts have it.
+const MLine = struct { text: []const u8, mask: u128 };
+
+/// One sequence that holds every text in order: each text is exactly the
+/// lines whose mask has its bit.
+fn merge(a: std.mem.Allocator, texts: []const []const []const u8) ![]const MLine {
+    var m: std.ArrayList(MLine) = .empty;
+    for (texts[0]) |l| try m.append(a, .{ .text = l, .mask = 1 });
+    for (texts[1..], 1..) |t, i| {
+        const bit = @as(u128, 1) << @intCast(i);
+        const old = try a.alloc([]const u8, m.items.len);
+        for (m.items, old) |l, *o| o.* = l.text;
+        const ops = (try diff(a, old, t, std.math.maxInt(usize))).?;
+        var next: std.ArrayList(MLine) = .empty;
+        for (ops) |op| switch (op) {
+            .eq => |p| try next.append(a, .{ .text = m.items[p[0]].text, .mask = m.items[p[0]].mask | bit }),
+            .del => |ai| try next.append(a, m.items[ai]),
+            .ins => |bi| try next.append(a, .{ .text = t[bi], .mask = bit }),
+        };
+        m = next;
+    }
+    return m.items;
+}
+
+/// One expansion of a source: a core, built as one variant.
+const Text = struct { core: []const u8, variant: []const u8, lines: []const []const u8 };
+
+/// The text of one Zig file: the merged expansions of `texts`, one naked
+/// function per core and variant, the lines only some have under `parts`.
+fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: []const MLine) ![]const u8 {
+    var w: std.ArrayList(u8) = .empty;
+    const role = try k.role(a);
+    const all: u128 = if (texts.len == 128) std.math.maxInt(u128) else (@as(u128, 1) << @intCast(texts.len)) - 1;
+
+    // the masks of the lines not every text has, each a part
+    var conds: std.AutoArrayHashMapUnmanaged(u128, void) = .empty;
+    for (lines) |l| if (l.mask != all) try conds.put(a, l.mask, {});
+    const part_count = conds.count();
+
+    // header: the cores per variant
+    var who: std.ArrayList(u8) = .empty;
+    for (ar.variants) |v| {
+        var first = true;
+        for (texts) |t| if (std.mem.eql(u8, t.variant, v.name)) {
+            if (first and who.items.len > 0) try who.appendSlice(a, "; ");
+            try who.appendSlice(a, if (first) "" else ", ");
+            try who.appendSlice(a, t.core);
+            first = false;
+        };
+        if (!first and v.name.len > 0) try put(&who, a, " ({s})", .{v.name});
+    }
     try put(&w, a,
         \\//! `{s}`, from OpenBLAS `kernel/{s}/{s}`, as expanded for {s}.
         \\//!
-        \\//! Generated by `tools/blas_asm/gen.zig`; the body is the assembly of
-        \\//! that source, unchanged, with OpenBLAS's own registers pinned by the
-        \\//! operand list. Re-derive it rather than editing it.
+        \\//! Generated by `tools/blas_asm/gen.zig`: the assembly of that source,
+        \\//! unchanged, as a naked function per core; the lines only some cores
+        \\//! have are under `parts`. Re-derive it rather than editing it.
         \\
-        \\pub noinline fn {s}(
-        \\    n: isize,
-        \\    _: isize,
-        \\    _: isize,
+        \\const std = @import("std");
         \\
-    , .{ role, ar.name, k.source, cores, role });
-    if (k.prec.complex()) {
-        try put(&w, a, "    alpha_r: {s},\n    alpha_i: {s},\n", .{ F, F });
+        \\/// Each function's core and variant.
+        \\const keys = [_][2][]const u8{{
+        \\
+    , .{ role, ar.name, k.source, who.items });
+    for (texts) |t| try put(&w, a, "    .{{ \"{s}\", \"{s}\" }},\n", .{ t.core, t.variant });
+    try put(&w, a, "}};\n\n", .{});
+    if (part_count > 0) {
+        try put(&w, a, "/// Which parts each key's function has.\nconst parts = [_][{d}]bool{{\n", .{part_count});
+        for (texts, 0..) |_, i| {
+            try put(&w, a, "    .{{", .{});
+            for (conds.keys(), 0..) |c, j| try put(&w, a, "{s}{s}", .{ if (j == 0) " " else ", ", if (c & (@as(u128, 1) << @intCast(i)) != 0) "true" else "false" });
+            try put(&w, a, " }},\n", .{});
+        }
+        try put(&w, a, "}};\n\n", .{});
+    }
+    try put(&w, a,
+        \\/// Whether any build of `core` uses this file.
+        \\pub fn serves(comptime core: []const u8) bool {{
+        \\    inline for (keys) |key| if (comptime std.mem.eql(u8, key[0], core)) return true;
+        \\    return false;
+        \\}}
+        \\
+        \\/// The function for `core` built as `variant`, if this file has it.
+        \\pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {{
+        \\
+    , .{});
+    if (part_count > 0) {
+        try w.appendSlice(a,
+            \\    inline for (keys, 0..) |key, i| {
+            \\        if (comptime std.mem.eql(u8, key[0], core) and std.mem.eql(u8, key[1], variant)) return Body(parts[i]);
+            \\
+        );
     } else {
-        try put(&w, a, "    alpha: {s},\n", .{F});
+        try w.appendSlice(a,
+            \\    inline for (keys) |key| {
+            \\        if (comptime std.mem.eql(u8, key[0], core) and std.mem.eql(u8, key[1], variant)) return Body;
+            \\
+        );
     }
-    try put(&w, a, "    x: [*]{s},\n    inc_x: isize,\n    y: [*]{s},\n    inc_y: isize,\n    _: [*]{s},\n    _: isize,\n) callconv(.c) i32 {{\n", .{ F, F, F });
-
-    for (pins) |pin| if (pin.init) |i| try put(&w, a, "    {s} {s} = {s};\n", .{ if (pin.inout) "var" else "const", pin.variable, i });
-    for (try ar.decls(a, k)) |d| try put(&w, a, "    {s}\n", .{d});
-    try put(&w, a, "    asm volatile (\n", .{});
-    for (lines) |l| try put(&w, a, "        \\\\{s}\n", .{l});
-
-    // outputs, then inputs
+    try w.appendSlice(a,
+        \\    }
+        \\    return null;
+        \\}
+        \\
+        \\
+    );
+    if (part_count > 0) {
+        try put(&w, a, "fn Body(comptime on: [{d}]bool) type {{\n    return struct {{\n", .{part_count});
+    } else {
+        try put(&w, a, "const Body = struct {{\n", .{});
+    }
+    try put(&w, a, "pub fn {s}() callconv(.naked) void {{\nasm volatile (\n", .{role});
+    var i: usize = 0;
     var first = true;
-    for (pins) |pin| {
-        if (!pin.inout) continue;
-        try put(&w, a, "        {s} [{s}] \"+{{{s}}}\" ({s}),\n", .{ if (first) ":" else " ", pin.name, pin.reg, pin.variable });
+    while (i < lines.len) {
+        const mask = lines[i].mask;
+        var e = i;
+        while (e < lines.len and lines[e].mask == mask) e += 1;
+        if (!first) try put(&w, a, "++ ", .{});
+        if (mask != all) try put(&w, a, "(if (on[{d}])\n", .{conds.getIndex(mask).?});
+        for (lines[i..e]) |l| try put(&w, a, "\\\\{s}\n", .{l.text});
+        try put(&w, a, "\\\\\n", .{});
+        if (mask != all) try put(&w, a, "else \"\")\n", .{});
         first = false;
+        i = e;
     }
-    var any_in = false;
-    for (pins) |pin| {
-        if (pin.inout) continue;
-        try put(&w, a, "        {s} [{s}] \"{{{s}}}\" ({s}),\n", .{ if (!any_in) ":" else " ", pin.name, pin.reg, pin.variable });
-        any_in = true;
-    }
-    if (!any_in) try put(&w, a, "        :\n", .{});
-    try put(&w, a, "        : .{{", .{});
-    var sep: []const u8 = " ";
-    for (ar.always_clobbers) |c| {
-        try put(&w, a, "{s}.{s} = true", .{ sep, c });
-        sep = ", ";
-    }
-    for (try ar.clobbers(a, lines, pins)) |c| try put(&w, a, ", .{s} = true", .{c});
-    try put(&w, a, " }});\n    return 0;\n}}\n", .{});
+    try w.appendSlice(a, ");\n}\n");
+    try w.appendSlice(a, if (part_count > 0) "};\n}\n" else "};\n");
     return w.items;
 }
 
@@ -299,7 +434,7 @@ fn findJob(jobs: *std.ArrayList(Job), k: Kernel) ?*Job {
     return null;
 }
 
-const Entry = struct { role: []const u8, variant: []const u8, cores: []const u8, file: []const u8 };
+const Entry = struct { role: []const u8, file: []const u8 };
 
 fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8) !void {
     const io = map.io;
@@ -308,7 +443,6 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = try map.path(&.{ inc, "config.h" }), .data = ar.config_h });
 
     const dir = try std.fmt.allocPrint(a, "{s}/{s}/asm", .{ out_root, ar.name });
-    try Io.Dir.cwd().createDirPath(io, dir);
 
     // which sources and precisions the cores use
     var jobs: std.ArrayList(Job) = .empty;
@@ -326,9 +460,11 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             }
         }
     }
+    if (jobs.items.len == 0) return;
+    try Io.Dir.cwd().createDirPath(io, dir);
 
     // a core with more than one alternative for a kernel (chosen upstream by
-    // compiler version or byte order) is not indexed for it
+    // compiler version or byte order) is not converted for it
     var ambiguous: std.StringHashMapUnmanaged(void) = .empty;
     for (all_cores) |core| {
         for (role_list) |r| {
@@ -340,89 +476,86 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     var entries: std.ArrayList(Entry) = .empty;
     for (jobs.items) |job| {
         const k = job.kernel;
-        for (ar.variants) |v| {
-            const Group = struct { text: []const []const u8, names: std.ArrayList(u8) = .empty, cores: std.ArrayList(u8) = .empty, first: []const u8 };
-            var groups: std.ArrayList(Group) = .empty;
-            try readMacros(a, ar, inc, k, job.cores.items[0], v);
-            outer: for (job.cores.items) |core| {
-                const lines = if (isAxpy(k)) try ar.transform(a, k, try preprocess(a, ar, inc, k, core, v)) else try arch.nakedLines(a, try preprocess(a, ar, inc, k, core, v));
-                const lower = try lowered(a, core);
-                const key = try std.fmt.allocPrint(a, "{s}:{s}", .{ lower, try k.role(a) });
-                const indexed = !ambiguous.contains(key);
-                for (groups.items) |*g| {
-                    if (same(g.text, lines)) {
-                        try g.names.print(a, ", {s}", .{lower});
-                        if (indexed) try g.cores.print(a, ",{s}", .{lower});
-                        continue :outer;
-                    }
-                }
-                var g: Group = .{ .text = lines, .first = lower };
-                try g.names.print(a, "{s}", .{lower});
-                if (indexed) try g.cores.print(a, "{s}", .{lower});
-                try groups.append(a, g);
-            }
+        // sources the toolchain cannot assemble are not converted at all
+        const unsupported = for (ar.unsupported) |u| {
+            if (std.mem.eql(u8, u, k.source)) break true;
+        } else std.mem.indexOf(u8, k.source, "_hummer") != null;
+        if (unsupported) continue;
 
-            for (groups.items) |g| {
-                const cores = g.names.items;
-                const width = if (v.name.len > 0) try std.fmt.allocPrint(a, "_{s}", .{v.name}) else "";
-                const file = try fileName(a, k, width, if (groups.items.len == 1) null else g.first);
-                // sources the toolchain cannot assemble are not converted at all
-                const unsupported = for (ar.unsupported) |u| {
-                    if (std.mem.eql(u8, u, k.source)) break true;
-                } else std.mem.indexOf(u8, k.source, "_hummer") != null;
-                if (unsupported) continue;
-                const dest = try map.path(&.{ dir, file });
-                const suffix = try std.fmt.allocPrint(a, "_{s}", .{file[0 .. file.len - ".zig".len]});
-                try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = try emit(a, ar, k, cores, try finish(a, g.text, suffix)) });
-                _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", dest } });
-                if (g.cores.items.len > 0) try entries.append(a, .{ .role = try k.role(a), .variant = v.name, .cores = g.cores.items, .file = file });
-                std.debug.print("wrote {s} ({d} body lines): {s}\n", .{ dest, g.text.len, cores });
+        // every core's expansion, per variant
+        var texts: std.ArrayList(Text) = .empty;
+        for (ar.variants) |v| for (job.cores.items) |core| {
+            const lower = try lowered(a, core);
+            if (ambiguous.contains(try std.fmt.allocPrint(a, "{s}:{s}", .{ lower, try k.role(a) }))) continue;
+            try texts.append(a, .{ .core = lower, .variant = v.name, .lines = try arch.nakedLines(a, try preprocess(a, ar, inc, k, core, v)) });
+        };
+        if (texts.items.len == 0) continue;
+
+        // close expansions share a file
+        var clusters: std.ArrayList(std.ArrayList(usize)) = .empty;
+        for (texts.items, 0..) |t, i| {
+            for (clusters.items) |*c| {
+                if (try similar(a, texts.items[c.items[0]].lines, t.lines)) {
+                    try c.append(a, i);
+                    break;
+                }
+            } else {
+                var c: std.ArrayList(usize) = .empty;
+                try c.append(a, i);
+                try clusters.append(a, c);
             }
+        }
+
+        // a file is named for its variant where there are several, and for its
+        // first core where that alone leaves two files the same name
+        const variant_tags = try a.alloc([]const u8, clusters.items.len);
+        for (clusters.items, variant_tags) |c, *vt| {
+            const v = texts.items[c.items[0]].variant;
+            const one = for (c.items) |i| {
+                if (!std.mem.eql(u8, texts.items[i].variant, v)) break false;
+            } else true;
+            vt.* = if (one and ar.variants.len > 1) v else "";
+        }
+
+        for (clusters.items, variant_tags, 0..) |c, variant_tag, ci| {
+            if (c.items.len > 128) map.die("{s}: more than 128 expansions in one file", .{k.source});
+            const members = try a.alloc(Text, c.items.len);
+            for (c.items, members) |i, *mbr| mbr.* = texts.items[i];
+            var names: std.StringArrayHashMapUnmanaged(void) = .empty;
+            for (members) |t| for (t.lines) |l| if (definedLabel(l)) |n| if (!isOwnLabel(n)) try names.put(a, n, {});
+            const bodies = try a.alloc([]const []const u8, members.len);
+            for (members, bodies) |t, *b| b.* = try finish(a, t.lines, &names);
+            const merged = try merge(a, bodies);
+
+            const shared = for (variant_tags, 0..) |other, oi| {
+                if (oi != ci and std.mem.eql(u8, other, variant_tag)) break true;
+            } else false;
+            var tag: std.ArrayList(u8) = .empty;
+            if (shared) try tag.appendSlice(a, members[0].core);
+            if (shared and variant_tag.len > 0) try tag.append(a, '_');
+            try tag.appendSlice(a, variant_tag);
+            const file = try fileName(a, k, "", if (tag.items.len > 0) tag.items else null);
+            const dest = try map.path(&.{ dir, file });
+            try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = try emit(a, ar, k, members, merged) });
+            _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", dest } });
+            try entries.append(a, .{ .role = try k.role(a), .file = file });
+            std.debug.print("wrote {s} ({d} lines, {d} expansions)\n", .{ dest, merged.len, members.len });
         }
     }
 
-    // which file serves which core
+    // which file serves which kernel
     var idx: std.ArrayList(u8) = .empty;
     try put(&idx, a,
-        \\//! Which converted file serves which cores, per kernel. Generated by
-        \\//! `tools/blas_asm/gen.zig`; re-derive it rather than editing it.
+        \\//! Which converted file has which kernel; each says which cores it serves.
+        \\//! Generated by `tools/blas_asm/gen.zig`; re-derive it rather than editing it.
         \\
-        \\const std = @import("std");
-        \\
-        \\pub const Entry = struct {{
-        \\    role: []const u8,
-        \\    /// Empty when the file is the same however the source is built.
-        \\    variant: []const u8,
-        \\    cores: []const []const u8,
-        \\    module: type,
-        \\}};
+        \\pub const Entry = struct {{ role: []const u8, module: type }};
         \\
         \\pub const entries = [_]Entry{{
         \\
     , .{});
-    for (entries.items) |e| {
-        try put(&idx, a, "    .{{ .role = \"{s}\", .variant = \"{s}\", .cores = &.{{", .{ e.role, e.variant });
-        var it = std.mem.splitScalar(u8, e.cores, ',');
-        while (it.next()) |c| try put(&idx, a, " \"{s}\",", .{c});
-        try put(&idx, a, " }}, .module = @import(\"{s}\") }},\n", .{e.file});
-    }
-    try put(&idx, a, "}};\n\n", .{});
-    try idx.appendSlice(a,
-        \\/// The file whose function `role` is, for `core` built as `variant`, if it
-        \\/// is assembly there.
-        \\pub fn source(comptime role: []const u8, comptime core: []const u8, comptime variant: []const u8) ?type {
-        \\    @setEvalBranchQuota(1_000_000);
-        \\    inline for (entries) |e| {
-        \\        if (comptime std.mem.eql(u8, e.role, role) and (e.variant.len == 0 or std.mem.eql(u8, e.variant, variant))) {
-        \\            inline for (e.cores) |c| {
-        \\                if (comptime std.mem.eql(u8, c, core)) return e.module;
-        \\            }
-        \\        }
-        \\    }
-        \\    return null;
-        \\}
-        \\
-    );
+    for (entries.items) |e| try put(&idx, a, "    .{{ .role = \"{s}\", .module = @import(\"{s}\") }},\n", .{ e.role, e.file });
+    try put(&idx, a, "}};\n", .{});
     const idx_path = try map.path(&.{ dir, "__root__.zig" });
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = idx_path, .data = idx.items });
     _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", idx_path } });
@@ -433,42 +566,38 @@ pub fn main(init: std.process.Init) !void {
     const checkout = init.environ_map.get("OPENBLAS") orelse
         map.die("set OPENBLAS to the OpenBLAS checkout", .{});
     try map.init(a, init.io, checkout);
-    if (init.environ_map.get("BLAS_OUT")) |o| map.out_root = o;
+    const base = init.environ_map.get("BLAS_OUT") orelse "src/linalg/blas/blas1";
 
     var want: std.ArrayList([]const u8) = .empty;
-    var others = false;
     var args = try init.minimal.args.iterateAllocator(a);
     _ = args.next();
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--others")) others = true else try want.append(a, arg);
-    }
+    while (args.next()) |arg| try want.append(a, arg);
+    const wants = struct {
+        fn any(list: []const []const u8, names: []const []const u8) bool {
+            for (list) |w| for (names) |n| if (std.mem.eql(u8, w, n)) return true;
+            return false;
+        }
+    }.any;
 
-    // the roles: axpy, kept as it was, or every other routine of the level-1
-    // rules, each going to its own `blas1/<dir>/`, as axpy already does
+    // every level-1 rule's role, grouped into its routine's `blas1/<dir>/`
     const text = map.read(try map.path(&.{ map.root, "kernel", "Makefile.L1" })).?;
     var by_dir: std.StringArrayHashMapUnmanaged(std.ArrayList(roles.Role)) = .empty;
     for (try roles.parse(a, text)) |r| {
-        const is_axpy = std.mem.indexOf(u8, r.name, "axpy") != null and std.mem.indexOf(u8, r.name, "axpby") == null;
-        if (is_axpy == others) continue;
-        const dir = if (others) try roles.dirFor(a, r.key) else "axpy";
-        const e = try by_dir.getOrPut(a, dir);
+        const e = try by_dir.getOrPut(a, try roles.dirFor(a, r.key));
         if (!e.found_existing) e.value_ptr.* = .empty;
         try e.value_ptr.append(a, r);
     }
-    const base = init.environ_map.get("BLAS_OUT_KERNELS") orelse "src/linalg/blas/blas1";
+    var arch_named = false;
+    var dir_named = false;
+    for (arches) |ar| arch_named = arch_named or wants(want.items, &.{ar.name});
+    for (by_dir.keys()) |d| dir_named = dir_named or wants(want.items, &.{d});
 
     var dirs = by_dir.iterator();
     while (dirs.next()) |kv| {
-        // axpy keeps `BLAS_OUT` (its whole out_root, as before); every other
-        // routine nests under `base/<dir>`
-        const out_root = if (others) try std.fmt.allocPrint(a, "{s}/{s}", .{ base, kv.key_ptr.* }) else map.out_root;
+        if (dir_named and !wants(want.items, &.{kv.key_ptr.*})) continue;
+        const out_root = try std.fmt.allocPrint(a, "{s}/{s}", .{ base, kv.key_ptr.* });
         for (arches) |ar| {
-            if (want.items.len > 0) {
-                const listed = for (want.items) |w| {
-                    if (std.mem.eql(u8, w, ar.name)) break true;
-                } else false;
-                if (!listed) continue;
-            }
+            if (arch_named and !wants(want.items, &.{ar.name})) continue;
             try convert(a, ar, kv.value_ptr.items, out_root);
         }
     }

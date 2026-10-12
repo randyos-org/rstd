@@ -17,50 +17,50 @@ const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
 pub fn sbger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas._vtable.sbger_k.?(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.sbger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn sger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas._vtable.sger_k.?(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.sger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn dger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas._vtable.dger_k.?(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.dger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn qger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas._vtable.qger_k.?(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.qger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn cgeru_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f32, alpha_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas._vtable.cgeru_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.cgeru_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn cgerc_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f32, alpha_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas._vtable.cgerc_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.cgerc_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn cgerv_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f32, alpha_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas._vtable.cgerv_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.cgerv_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn cgerd_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f32, alpha_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas._vtable.cgerd_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.cgerd_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn zgeru_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas._vtable.zgeru_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.zgeru_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn zgerc_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas._vtable.zgerc_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.zgerc_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn zgerv_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas._vtable.zgerv_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.zgerv_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn zgerd_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas._vtable.zgerd_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.zgerd_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn xgeru_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas._vtable.xgeru_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.xgeru_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn xgerc_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas._vtable.xgerc_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.xgerc_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn xgerv_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas._vtable.xgerv_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.xgerv_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }
 pub fn xgerd_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas._vtable.xgerd_k.?(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
+    return blas.kernel(.xgerd_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
 }

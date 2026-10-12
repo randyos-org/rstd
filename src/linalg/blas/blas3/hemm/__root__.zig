@@ -17,38 +17,38 @@ const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
 pub fn chemm_iutcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.chemm_iutcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.chemm_iutcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn chemm_iltcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.chemm_iltcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.chemm_iltcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn chemm_outcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.chemm_outcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.chemm_outcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn chemm_oltcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.chemm_oltcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.chemm_oltcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn zhemm_iutcopy(m: BlasLong, n: BlasLong, a: [*]f64, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f64) i32 {
-    return blas._vtable.zhemm_iutcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.zhemm_iutcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn zhemm_iltcopy(m: BlasLong, n: BlasLong, a: [*]f64, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f64) i32 {
-    return blas._vtable.zhemm_iltcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.zhemm_iltcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn zhemm_outcopy(m: BlasLong, n: BlasLong, a: [*]f64, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f64) i32 {
-    return blas._vtable.zhemm_outcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.zhemm_outcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn zhemm_oltcopy(m: BlasLong, n: BlasLong, a: [*]f64, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f64) i32 {
-    return blas._vtable.zhemm_oltcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.zhemm_oltcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn xhemm_iutcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]XDouble) i32 {
-    return blas._vtable.xhemm_iutcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.xhemm_iutcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn xhemm_iltcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]XDouble) i32 {
-    return blas._vtable.xhemm_iltcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.xhemm_iltcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn xhemm_outcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]XDouble) i32 {
-    return blas._vtable.xhemm_outcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.xhemm_outcopy)(m, n, a, lda, posX, posY, b);
 }
 pub fn xhemm_oltcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]XDouble) i32 {
-    return blas._vtable.xhemm_oltcopy.?(m, n, a, lda, posX, posY, b);
+    return blas.kernel(.xhemm_oltcopy)(m, n, a, lda, posX, posY, b);
 }

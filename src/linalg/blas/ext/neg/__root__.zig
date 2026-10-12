@@ -17,23 +17,23 @@ const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
 pub fn sbneg_tcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.sbneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.sbneg_tcopy)(m, n, a, lda, b);
 }
 pub fn sneg_tcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.sneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.sneg_tcopy)(m, n, a, lda, b);
 }
 pub fn dneg_tcopy(m: BlasLong, n: BlasLong, a: [*]f64, lda: BlasLong, b: [*]f64) i32 {
-    return blas._vtable.dneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.dneg_tcopy)(m, n, a, lda, b);
 }
 pub fn qneg_tcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, b: [*]XDouble) i32 {
-    return blas._vtable.qneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.qneg_tcopy)(m, n, a, lda, b);
 }
 pub fn cneg_tcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, b: [*]f32) i32 {
-    return blas._vtable.cneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.cneg_tcopy)(m, n, a, lda, b);
 }
 pub fn zneg_tcopy(m: BlasLong, n: BlasLong, a: [*]f64, lda: BlasLong, b: [*]f64) i32 {
-    return blas._vtable.zneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.zneg_tcopy)(m, n, a, lda, b);
 }
 pub fn xneg_tcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, b: [*]XDouble) i32 {
-    return blas._vtable.xneg_tcopy.?(m, n, a, lda, b);
+    return blas.kernel(.xneg_tcopy)(m, n, a, lda, b);
 }
