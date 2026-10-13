@@ -10,10 +10,11 @@
 //!     step checks the printed summary for "0 failed".
 //!   * `.macos`: rstd's unit tests in an installed macOS, which the Mach-O
 //!     kernels need, copied in and run over SSH. It boots with OSX-KVM's
-//!     OpenCore and firmware, so only with `-Dmacos-vm`, which fetches OSX-KVM
-//!     (a lazy dependency). The VM lives in `.macos-vm/<name>/` (gitignored).
+//!     OpenCore and firmware, a lazy dependency fetched only when rstd is the
+//!     project being built (`-Dmacos-vm=false` skips it), so a dependent never
+//!     fetches it. The VM lives in `.macos-vm/<name>/` (gitignored).
 //!
-//! A macOS machine, once (every step with `-Dmacos-vm`):
+//! A macOS machine, once:
 //!
 //!   1. `zig build qemu-setup-<name>`: fetches a recovery image
 //!      (`-Dmac-release`, Sonoma by default) and makes the disk.
@@ -264,20 +265,24 @@ const machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },
         .qemu = "qemu-system-x86_64",
         .args = &.{
-            // WHPX, as randyos's own VM uses on Windows; "tcg" emulates (slow)
-            "-accel",  "whpx",
+            // TCG emulates (slow) but honors the Intel vendor below; under WHPX
+            // ("whpx", as randyos's own VM uses) the kernel stopped at
+            // EXITBS:START, as if it saw the host's AMD CPUID
+            "-accel",  "tcg,thread=multi",
             "-M",      "q35",
-            // OSX-KVM's model: macOS wants an Intel CPU, and under WHPX `max`
-            // and `host` fault the firmware (randyos's `build/qemu.zig`)
-            "-cpu",    "Penryn,vendor=GenuineIntel,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt",
+            // OSX-KVM's OpenCore-Boot.sh model, less its KVM-only flags: macOS
+            // wants an Intel CPU, from 13 with AVX2. Under WHPX `max` and `host`
+            // fault the firmware (randyos's `build/qemu.zig`).
+            "-cpu",    "Skylake-Client,-hle,-rtm,vendor=GenuineIntel,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt",
             "-smp",    "4,cores=2,sockets=1",
+            // keyboard and mouse on xHCI: macOS has no USB 1.1 driver
+            "-device", "qemu-xhci,id=xhci",
+            "-device", "usb-kbd,bus=xhci.0",
+            "-device", "usb-tablet,bus=xhci.0",
             "-device", "usb-ehci,id=ehci",
-            "-device", "usb-kbd",
-            "-device", "usb-tablet",
             "-smbios", "type=2",
             "-device", "ich9-ahci,id=sata",
             "-device", "vmware-svga",
-            "-usb",
         },
         .memory = "6G",
         .boot = .macos,
@@ -292,11 +297,13 @@ const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.axpy", "linal
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
-    const macos_vm = b.option(bool, "macos-vm", "Add the macOS VM rigs (fetches OSX-KVM)") orelse false;
+    // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
+    const macos_vm = b.option(bool, "macos-vm", "Add the macOS VM rigs, fetching OSX-KVM (default: when rstd is the root project)") orelse b.isRoot();
     const mac: MacOptions = if (macos_vm) .{
         .user = b.option([]const u8, "mac-user", "macOS account in the VM") orelse "",
         .port = b.option(u16, "mac-port", "Host port forwarded to the VM's ssh") orelse 2222,
         .release = b.option(MacRelease, "mac-release", "macOS release qemu-setup fetches (default sonoma)") orelse .sonoma,
+        .gdb = b.option(bool, "mac-gdb", "Let gdb attach to the macOS VM on localhost:1234") orelse false,
     } else .{};
 
     for (machines) |m| {
@@ -386,7 +393,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     }
 
     inline for (.{ "install", "start" }) |cmd| {
-        const run = try macosQemu(b, m, kvm, paths, mac.port, std.mem.eql(u8, cmd, "install"));
+        const run = try macosQemu(b, m, kvm, paths, mac, std.mem.eql(u8, cmd, "install"));
         b.step(b.fmt("qemu-" ++ cmd ++ "-{s}", .{m.name}), b.fmt("macOS VM {s}: " ++ cmd ++ ", in a window", .{m.name})).dependOn(&run.step);
     }
 
@@ -408,7 +415,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
 }
 
 /// The macOS VMs' SSH login (`-Dmac-user`, `-Dmac-port`) and release.
-const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma };
+const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false };
 
 /// The releases `fetch-macOS-v2.py` offers that the tests run on: the machine
 /// builds them for macOS 13 and up. The tags are the fetcher's `-s` names.
@@ -420,7 +427,7 @@ const MacPaths = struct { dmg: []const u8, img: []const u8, disk: []const u8, va
 
 /// QEMU on `m`'s command line plus OSX-KVM's firmware, SMC key and OpenCore,
 /// and the disks; `install` adds the recovery image.
-fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, port: u16, install: bool) !*Build.Step.Run {
+fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac: MacOptions, install: bool) !*Build.Step.Run {
     const run = console(b, &.{m.qemu});
     run.addArgs(m.args);
     run.addArgs(&.{ "-m", m.memory, "-device", b.fmt("isa-applesmc,osk={s}", .{try smcKey(b, kvm)}), "-drive" });
@@ -431,13 +438,18 @@ fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, por
         "-device", "ide-hd,bus=sata.2,drive=OpenCoreBoot",
         "-drive",  b.fmt("id=MacHDD,if=none,format=qcow2,file={s}", .{paths.disk}),
         "-device", "ide-hd,bus=sata.4,drive=MacHDD",
-        "-netdev", b.fmt("user,id=net0,hostfwd=tcp::{d}-:22", .{port}),
+        "-netdev", b.fmt("user,id=net0,hostfwd=tcp::{d}-:22", .{mac.port}),
         "-device", "virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27",
     });
     if (install) run.addArgs(&.{
         "-drive",  b.fmt("id=InstallMedia,if=none,format=raw,file={s}", .{paths.img}),
         "-device", "ide-hd,bus=sata.3,drive=InstallMedia",
     });
+    // A `(qemu)` prompt in this console: `info status` says whether it runs,
+    // and `RIP` in `info registers` moves while the guest executes.
+    run.addArgs(&.{ "-monitor", "stdio" });
+    // gdb-multiarch, then `target remote localhost:1234`
+    if (mac.gdb) run.addArg("-s");
     return run;
 }
 

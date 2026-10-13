@@ -57,7 +57,7 @@ pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const
     inline for (roles) |role| {
         if (comptime hasRole(core, role)) {
             const Fn = @typeInfo(@FieldType(Vtable, role ++ "_k")).optional.child;
-            @field(vt, role ++ "_k") = @extern(Fn, .{ .name = util.kernelSymbol(role, @tagName(core)) });
+            @field(vt, role ++ "_k") = @extern(Fn, .{ .name = util.kernelSymbol(role, @tagName(core)), .visibility = .hidden });
         }
     }
 }

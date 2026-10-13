@@ -1,5 +1,6 @@
 pub const zon = @import("../build.zig.zon");
 
+const std = @import("std");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
@@ -96,6 +97,16 @@ pub fn build(b: *Build) !void {
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
+
+    // Mach-O, which no machine here runs: building is what catches assembly
+    // that other object formats accept (`.align`), so build every core's
+    // kernels for both architectures. `qemu-test-x86_64-macos` runs them.
+    const macho_step = b.step("rstd-check-macho", "Build rstd's unit tests for macOS (x86_64, aarch64) without running them");
+    for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
+        const macho = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .macos });
+        const macho_mod = try addRstdModule(b, null, macho, optimize, .all, false, false);
+        macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho)).step);
+    }
 
     // the same tests that need no OS, on emulated machines
     try qemutest.addQemuTests(b, optimize);

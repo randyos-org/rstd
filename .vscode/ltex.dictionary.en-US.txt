@@ -381,6 +381,7 @@ execveat
 EXFULL
 exit
 exit_group
+EXITBS
 EXLCK
 EXPRECISION
 faccessat
@@ -711,6 +712,7 @@ ins
 insn
 intrin
 Ints
+invtsc
 io_cancel
 io_destroy
 io_getevents
@@ -1926,6 +1928,7 @@ xzlib
 yaboot
 ybuf
 ynorm
+yonah
 ypixel
 YSCALE
 zamax
