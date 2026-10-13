@@ -53,7 +53,7 @@ const Body = struct {
     pub fn scopy() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 16
+            \\ .balign 16
             \\ pushl %edi
             \\ pushl %esi
             \\ pushl %ebx
@@ -73,7 +73,7 @@ const Body = struct {
             \\ movl %ebx, %eax # i = m
             \\ sarl $3, %eax
             \\ jle 20001f
-            \\ .align 4
+            \\ .balign 4
             \\ 20000:
             \\ flds 7 * 4(%ecx)
             \\ flds 6 * 4(%ecx)
@@ -95,12 +95,12 @@ const Body = struct {
             \\ addl $8 * 4, %edx
             \\ decl %eax
             \\ jg 20000b
-            \\ .align 4
+            \\ .balign 4
             \\ 20001:
             \\ movl %ebx, %eax # i = m
             \\ andl $7, %eax
             \\ jle 20003f
-            \\ .align 4
+            \\ .balign 4
             \\ 20002:
             \\ flds (%ecx)
             \\ fstps (%edx)
@@ -114,12 +114,12 @@ const Body = struct {
             \\ popl %esi
             \\ popl %edi
             \\ ret
-            \\ .align 8
+            \\ .balign 8
             \\ 20004:
             \\ movl %ebx, %eax
             \\ sarl $3, %eax
             \\ jle 20006f
-            \\ .align 4
+            \\ .balign 4
             \\ 20005:
             \\ flds (%ecx)
             \\ addl %esi, %ecx
@@ -163,7 +163,7 @@ const Body = struct {
             \\ movl %ebx, %eax
             \\ andl $7, %eax
             \\ jle 20008f
-            \\ .align 4
+            \\ .balign 4
             \\ 20007:
             \\ flds (%ecx)
             \\ fstps (%edx)

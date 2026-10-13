@@ -53,7 +53,7 @@ const Body = struct {
     pub fn cswap() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 16
+            \\ .balign 16
             \\ pushl %ebp
             \\ pushl %edi
             \\ pushl %esi
@@ -72,7 +72,7 @@ const Body = struct {
             \\ movl %edx, %eax
             \\ sarl $1, %eax
             \\ jle 20001f
-            \\ .align 8
+            \\ .balign 8
             \\ 20000:
             \\ fldl 2 * 4(%esi)
             \\ fldl 0 * 4(%esi)
@@ -86,24 +86,24 @@ const Body = struct {
             \\ addl $4 * 4, %edi
             \\ decl %eax
             \\ jg 20000b
-            \\ .align 8
+            \\ .balign 8
             \\ 20001:
             \\ movl %edx, %eax
             \\ andl $1, %eax
             \\ jle 20007f
-            \\ .align 8
+            \\ .balign 8
             \\ 20002:
             \\ fldl 0 * 4(%esi)
             \\ fldl 0 * 4(%edi)
             \\ fstpl 0 * 4(%esi)
             \\ fstpl 0 * 4(%edi)
             \\ jmp 20007f
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ movl %edx, %eax
             \\ sarl $1, %eax
             \\ jle 20005f
-            \\ .align 4
+            \\ .balign 4
             \\ 20004:
             \\ fldl 0 * 4(%esi)
             \\ addl %ebx, %esi
@@ -121,18 +121,18 @@ const Body = struct {
             \\ leal (%edi, %ecx, 2), %edi
             \\ decl %eax
             \\ jg 20004b
-            \\ .align 8
+            \\ .balign 8
             \\ 20005:
             \\ movl %edx, %eax
             \\ andl $1, %eax
             \\ jle 20007f
-            \\ .align 8
+            \\ .balign 8
             \\ 20006:
             \\ fldl 0 * 4(%esi)
             \\ fldl 0 * 4(%edi)
             \\ fstpl 0 * 4(%esi)
             \\ fstpl 0 * 4(%edi)
-            \\ .align 8
+            \\ .balign 8
             \\ 20007:
             \\ xorl %eax,%eax
             \\ popl %ebx

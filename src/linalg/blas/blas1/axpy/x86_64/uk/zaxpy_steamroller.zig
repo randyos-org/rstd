@@ -12,10 +12,10 @@ pub noinline fn zaxpy_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
             \\        vmovddup                (%[alpha]), %%xmm0
             \\        vmovddup               8(%[alpha]), %%xmm1
             \\        vmulpd          (%[mvec]), %%xmm1 , %%xmm1
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        vmovups        (%[x],%[i],8), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],8), %%xmm7
             \\        vmovups      32(%[x],%[i],8), %%xmm9
             \\        vmovups      48(%[x],%[i],8), %%xmm11
@@ -28,7 +28,7 @@ pub noinline fn zaxpy_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
             \\        vpermilpd       $0x1 , %%xmm9 , %%xmm8
             \\        vpermilpd       $0x1 , %%xmm11, %%xmm10
             \\        vfmadd213pd    (%[y],%[i],8), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213pd  16(%[y],%[i],8), %%xmm0 , %%xmm7
             \\        vfmadd213pd  32(%[y],%[i],8), %%xmm0 , %%xmm9
             \\        vfmadd213pd  48(%[y],%[i],8), %%xmm0 , %%xmm11
@@ -49,7 +49,7 @@ pub noinline fn zaxpy_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
             \\        vfmadd231pd     %%xmm1 , %%xmm8 , %%xmm14
             \\        vfmadd231pd     %%xmm1 , %%xmm10, %%xmm15
             \\        vmovups %%xmm5 ,   (%[y],%[i],8)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],8)
             \\        vmovups %%xmm9 , 32(%[y],%[i],8)
             \\        vmovups %%xmm11, 48(%[y],%[i],8)
@@ -74,11 +74,11 @@ pub noinline fn zaxpy_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
             \\        vmovddup                (%[alpha]), %%xmm0
             \\        vmovddup               8(%[alpha]), %%xmm1
             \\        vmulpd          (%[mvec]), %%xmm1 , %%xmm1
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        prefetcht0      512(%[x],%[i],8)
             \\        vmovups        (%[x],%[i],8), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],8), %%xmm7
             \\        vmovups      32(%[x],%[i],8), %%xmm9
             \\        vmovups      48(%[x],%[i],8), %%xmm11
@@ -88,7 +88,7 @@ pub noinline fn zaxpy_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
             \\        vpermilpd       $0x1 , %%xmm11, %%xmm10
             \\        prefetcht0      512(%[y],%[i],8)
             \\        vfmadd213pd    (%[y],%[i],8), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213pd  16(%[y],%[i],8), %%xmm0 , %%xmm7
             \\        vfmadd213pd  32(%[y],%[i],8), %%xmm0 , %%xmm9
             \\        vfmadd213pd  48(%[y],%[i],8), %%xmm0 , %%xmm11
@@ -97,7 +97,7 @@ pub noinline fn zaxpy_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
             \\        vfmadd231pd     %%xmm1 , %%xmm8 , %%xmm9
             \\        vfmadd231pd     %%xmm1 , %%xmm10, %%xmm11
             \\        vmovups %%xmm5 ,   (%[y],%[i],8)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],8)
             \\        vmovups %%xmm9 , 32(%[y],%[i],8)
             \\        vmovups %%xmm11, 48(%[y],%[i],8)
@@ -125,10 +125,10 @@ pub noinline fn zaxpyc_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]con
             \\        vmovddup                (%[alpha]), %%xmm0
             \\        vmovddup               8(%[alpha]), %%xmm1
             \\        vmulpd          (%[mvec]), %%xmm0 , %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        vmovups        (%[x],%[i],8), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],8), %%xmm7
             \\        vmovups      32(%[x],%[i],8), %%xmm9
             \\        vmovups      48(%[x],%[i],8), %%xmm11
@@ -141,7 +141,7 @@ pub noinline fn zaxpyc_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]con
             \\        vpermilpd       $0x1 , %%xmm9 , %%xmm8
             \\        vpermilpd       $0x1 , %%xmm11, %%xmm10
             \\        vfmadd213pd    (%[y],%[i],8), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213pd  16(%[y],%[i],8), %%xmm0 , %%xmm7
             \\        vfmadd213pd  32(%[y],%[i],8), %%xmm0 , %%xmm9
             \\        vfmadd213pd  48(%[y],%[i],8), %%xmm0 , %%xmm11
@@ -162,7 +162,7 @@ pub noinline fn zaxpyc_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]con
             \\        vfmadd231pd     %%xmm1 , %%xmm8 , %%xmm14
             \\        vfmadd231pd     %%xmm1 , %%xmm10, %%xmm15
             \\        vmovups %%xmm5 ,   (%[y],%[i],8)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],8)
             \\        vmovups %%xmm9 , 32(%[y],%[i],8)
             \\        vmovups %%xmm11, 48(%[y],%[i],8)
@@ -187,11 +187,11 @@ pub noinline fn zaxpyc_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]con
             \\        vmovddup                (%[alpha]), %%xmm0
             \\        vmovddup               8(%[alpha]), %%xmm1
             \\        vmulpd          (%[mvec]), %%xmm0 , %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        prefetcht0      512(%[x],%[i],8)
             \\        vmovups        (%[x],%[i],8), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],8), %%xmm7
             \\        vmovups      32(%[x],%[i],8), %%xmm9
             \\        vmovups      48(%[x],%[i],8), %%xmm11
@@ -201,7 +201,7 @@ pub noinline fn zaxpyc_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]con
             \\        vpermilpd       $0x1 , %%xmm11, %%xmm10
             \\        prefetcht0      512(%[y],%[i],8)
             \\        vfmadd213pd    (%[y],%[i],8), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213pd  16(%[y],%[i],8), %%xmm0 , %%xmm7
             \\        vfmadd213pd  32(%[y],%[i],8), %%xmm0 , %%xmm9
             \\        vfmadd213pd  48(%[y],%[i],8), %%xmm0 , %%xmm11
@@ -210,7 +210,7 @@ pub noinline fn zaxpyc_kernel_4(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]con
             \\        vfmadd231pd     %%xmm1 , %%xmm8 , %%xmm9
             \\        vfmadd231pd     %%xmm1 , %%xmm10, %%xmm11
             \\        vmovups %%xmm5 ,   (%[y],%[i],8)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],8)
             \\        vmovups %%xmm9 , 32(%[y],%[i],8)
             \\        vmovups %%xmm11, 48(%[y],%[i],8)

@@ -40,6 +40,9 @@ var cpp_extra: []const []const u8 = &.{};
 /// Whether the target is POWER, whose blocks use VSX registers by number.
 var is_power = false;
 
+/// Whether the target's `.align` takes a byte count (`Target.align_bytes`).
+var align_bytes = false;
+
 fn runCpp(source: []const u8, conj: bool) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(map.arena, &.{ "zig", "cc", "-E", "-P", "-x", "c", "-w" });
@@ -297,7 +300,13 @@ fn emitAsm(w: *std.ArrayList(u8), indent: []const u8, stmt: []const u8, locals: 
                 col += 1;
             }
         }
-        if (std.mem.trim(u8, line.items, " ").len == 0) continue;
+        const text = std.mem.trimStart(u8, line.items, " ");
+        if (text.len == 0) continue;
+        if (align_bytes and std.mem.startsWith(u8, text, ".align ")) {
+            const lead = line.items[0 .. line.items.len - text.len];
+            try put(w, "{s}    \\\\{s}.b{s}\n", .{ indent, lead, text[1..] });
+            continue;
+        }
         try put(w, "{s}    \\\\{s}\n", .{ indent, line.items });
     }
 
@@ -519,10 +528,15 @@ const Target = struct {
     power: bool = false,
     /// Whether there is a driver `#if` chain to index.
     index: bool = true,
+    /// Whether the blocks' `.align` takes a byte count, as x86's does for ELF
+    /// and COFF. Mach-O reads it as a power of two instead, so these are
+    /// written as `.balign`, which means bytes on every object format (as
+    /// `arch.Arch.align_bytes` does for the `.S` kernels).
+    align_bytes: bool = false,
 };
 
 const targets = [_]Target{
-    .{ .ob_dir = "x86_64", .out = "x86_64", .in_file = false },
+    .{ .ob_dir = "x86_64", .out = "x86_64", .in_file = false, .align_bytes = true },
     .{ .ob_dir = "zarch", .out = "s390x", .in_file = true },
     .{ .ob_dir = "power", .out = "power", .in_file = false, .power = true, .index = false },
 };
@@ -580,6 +594,7 @@ pub fn main(init: std.process.Init) !void {
     for (targets) |t| {
         cc_name = if (std.mem.eql(u8, t.out, "s390x")) "ps" else "cc";
         is_power = t.power;
+        align_bytes = t.align_bytes;
         cpp_extra = if (t.power) &.{
             "-target",                                                           "powerpc64le-linux",
             "-mcpu=pwr10",                                                       "-DPOWER10",

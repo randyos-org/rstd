@@ -30,7 +30,7 @@ const Body = struct {
     pub fn dcopy() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 512
+            \\ .balign 512
             \\ leaq (, %rdx, 8), %rdx
             \\ leaq (, %r8, 8), %r8
             \\ cmpq $8, %rdx
@@ -45,7 +45,7 @@ const Body = struct {
             \\ addq $1 * 8, %rcx
             \\ decq %rdi
             \\ jle 20007f
-            \\ .align 16
+            \\ .balign 16
             \\ 20000:
             \\ subq $-16 * 8, %rsi
             \\ subq $-16 * 8, %rcx
@@ -64,7 +64,7 @@ const Body = struct {
             \\ movups -2 * 8(%rsi), %xmm7
             \\ decq %rax
             \\ jle 20002f
-            \\ .align 8
+            \\ .balign 8
             \\ 20001:
             \\ prefetchw ((128 * 3) + 0) - 128(%rcx)
             \\ movups %xmm0, -16 * 8(%rcx)
@@ -98,7 +98,7 @@ const Body = struct {
             \\ subq $-16 * 8, %rsi
             \\ decq %rax
             \\ jg 20001b
-            \\ .align 8
+            \\ .balign 8
             \\ 20002:
             \\ movups %xmm0, -16 * 8(%rcx)
             \\ movups %xmm1, -14 * 8(%rcx)
@@ -110,11 +110,11 @@ const Body = struct {
             \\ movups %xmm7, -2 * 8(%rcx)
             \\ subq $-16 * 8, %rcx
             \\ subq $-16 * 8, %rsi
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ testq $8, %rdi
             \\ jle 20004f
-            \\ .align 8
+            \\ .balign 8
             \\ movups -16 * 8(%rsi), %xmm0
             \\ movups -14 * 8(%rsi), %xmm1
             \\ movups -12 * 8(%rsi), %xmm2
@@ -125,38 +125,38 @@ const Body = struct {
             \\ movups %xmm3, -10 * 8(%rcx)
             \\ addq $8 * 8, %rsi
             \\ addq $8 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20004:
             \\ testq $4, %rdi
             \\ jle 20005f
-            \\ .align 8
+            \\ .balign 8
             \\ movups -16 * 8(%rsi), %xmm0
             \\ movups -14 * 8(%rsi), %xmm1
             \\ movups %xmm0, -16 * 8(%rcx)
             \\ movups %xmm1, -14 * 8(%rcx)
             \\ addq $4 * 8, %rsi
             \\ addq $4 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20005:
             \\ testq $2, %rdi
             \\ jle 20006f
-            \\ .align 8
+            \\ .balign 8
             \\ movups -16 * 8(%rsi), %xmm0
             \\ movups %xmm0, -16 * 8(%rcx)
             \\ addq $2 * 8, %rsi
             \\ addq $2 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20006:
             \\ testq $1, %rdi
             \\ jle 20007f
-            \\ .align 8
+            \\ .balign 8
             \\ movlps -16 * 8(%rsi), %xmm0
             \\ movlps %xmm0, -16 * 8(%rcx)
-            \\ .align 8
+            \\ .balign 8
             \\ 20007:
             \\ xorq %rax,%rax
             \\ ret
-            \\ .align 8
+            \\ .balign 8
             \\ 20008:
             \\ movq %rdi, %rax
             \\ sarq $4, %rax
@@ -171,7 +171,7 @@ const Body = struct {
             \\ movups -2 * 8(%rsi), %xmm7
             \\ decq %rax
             \\ jle 20010f
-            \\ .align 8
+            \\ .balign 8
             \\ 20009:
             \\ prefetchw ((128 * 3) + 0) - 128(%rcx)
             \\ movlps %xmm0, -16 * 8(%rcx)
@@ -213,7 +213,7 @@ const Body = struct {
             \\ subq $-16 * 8, %rsi
             \\ decq %rax
             \\ jg 20009b
-            \\ .align 8
+            \\ .balign 8
             \\ 20010:
             \\ movlps %xmm0, -16 * 8(%rcx)
             \\ movhps %xmm0, -15 * 8(%rcx)
@@ -233,11 +233,11 @@ const Body = struct {
             \\ movhps %xmm7, -1 * 8(%rcx)
             \\ subq $-16 * 8, %rcx
             \\ subq $-16 * 8, %rsi
-            \\ .align 8
+            \\ .balign 8
             \\ 20011:
             \\ testq $8, %rdi
             \\ jle 20012f
-            \\ .align 8
+            \\ .balign 8
             \\ movups -16 * 8(%rsi), %xmm0
             \\ movlps %xmm0, -16 * 8(%rcx)
             \\ movhps %xmm0, -15 * 8(%rcx)
@@ -252,11 +252,11 @@ const Body = struct {
             \\ movhps %xmm3, -9 * 8(%rcx)
             \\ addq $8 * 8, %rsi
             \\ addq $8 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20012:
             \\ testq $4, %rdi
             \\ jle 20013f
-            \\ .align 8
+            \\ .balign 8
             \\ movups -16 * 8(%rsi), %xmm0
             \\ movlps %xmm0, -16 * 8(%rcx)
             \\ movhps %xmm0, -15 * 8(%rcx)
@@ -265,33 +265,33 @@ const Body = struct {
             \\ movhps %xmm1, -13 * 8(%rcx)
             \\ addq $4 * 8, %rsi
             \\ addq $4 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20013:
             \\ testq $2, %rdi
             \\ jle 20014f
-            \\ .align 8
+            \\ .balign 8
             \\ movups -16 * 8(%rsi), %xmm0
             \\ movlps %xmm0, -16 * 8(%rcx)
             \\ movhps %xmm0, -15 * 8(%rcx)
             \\ addq $2 * 8, %rsi
             \\ addq $2 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20014:
             \\ testq $1, %rdi
             \\ jle 20015f
-            \\ .align 8
+            \\ .balign 8
             \\ movlps -16 * 8(%rsi), %xmm0
             \\ movlps %xmm0, -16 * 8(%rcx)
-            \\ .align 8
+            \\ .balign 8
             \\ 20015:
             \\ xorq %rax,%rax
             \\ ret
-            \\ .align 8
+            \\ .balign 8
             \\ 20016:
             \\ movq %rdi, %rax
             \\ sarq $3, %rax
             \\ jle 20018f
-            \\ .align 8
+            \\ .balign 8
             \\ 20017:
             \\ movlps (%rsi), %xmm0
             \\ addq %rdx, %rsi
@@ -327,12 +327,12 @@ const Body = struct {
             \\ addq %r8, %rcx
             \\ decq %rax
             \\ jg 20017b
-            \\ .align 8
+            \\ .balign 8
             \\ 20018:
             \\ movq %rdi, %rax
             \\ andq $7, %rax
             \\ jle 20020f
-            \\ .align 8
+            \\ .balign 8
             \\ 20019:
             \\ movlps (%rsi), %xmm0
             \\ addq %rdx, %rsi
@@ -340,7 +340,7 @@ const Body = struct {
             \\ addq %r8, %rcx
             \\ decq %rax
             \\ jg 20019b
-            \\ .align 8
+            \\ .balign 8
             \\ 20020:
             \\ xorq %rax, %rax
             \\ ret

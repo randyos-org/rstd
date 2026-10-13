@@ -75,7 +75,7 @@ fn Body(comptime on: [6]bool) type {
         pub fn dnrm2() callconv(.naked) void {
             asm volatile (
                 \\ .text
-                \\ .align 512
+                \\ .balign 512
                 \\ emms
                 \\ fldz
                 \\ testq %rcx, %rcx
@@ -91,7 +91,7 @@ fn Body(comptime on: [6]bool) type {
                 \\ movq %rcx, %rax
                 \\ sarq $3, %rax
                 \\ jle 20001f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20000:
                 \\
             ++ (if (on[0])
@@ -142,11 +142,11 @@ fn Body(comptime on: [6]bool) type {
                 \\ faddp %st, %st(1)
                 \\ decq %rax
                 \\ jg 20000b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20001:
                 \\ andq $7, %rcx
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20002:
                 \\ fldl (%rdx)
                 \\ fmul %st(0), %st
@@ -155,12 +155,12 @@ fn Body(comptime on: [6]bool) type {
                 \\ decq %rcx
                 \\ jg 20002b
                 \\ jmp 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20003:
                 \\ movq %rcx, %rax
                 \\ sarq $3, %rax
                 \\ jle 20005f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20004:
                 \\ fldl (%rdx)
                 \\ addq %r8, %rdx
@@ -196,11 +196,11 @@ fn Body(comptime on: [6]bool) type {
                 \\ faddp %st, %st(1)
                 \\ decq %rax
                 \\ jg 20004b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20005:
                 \\ andq $7, %rcx
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20006:
                 \\ fldl (%rdx)
                 \\ addq %r8, %rdx
@@ -208,12 +208,12 @@ fn Body(comptime on: [6]bool) type {
                 \\ faddp %st,%st(1)
                 \\ decq %rcx
                 \\ jg 20006b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20007:
                 \\ faddp %st,%st(2)
                 \\ faddp %st,%st(1)
                 \\ faddp %st,%st(1)
-                \\ .align 16
+                \\ .balign 16
                 \\ 20008:
                 \\ fsqrt
                 \\ sub $2 * 8, %rsp

@@ -8,7 +8,7 @@ pub noinline fn daxpy_kernel_8(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
     if (n < 640) {
         asm volatile (
             \\vmovddup                (%[alpha]), %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        vmovups                  (%[y],%[i],8), %%xmm8
             \\        vmovups                16(%[y],%[i],8), %%xmm9
@@ -46,7 +46,7 @@ pub noinline fn daxpy_kernel_8(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
     } else {
         asm volatile (
             \\vmovddup                (%[alpha]), %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        prefetcht0             512(%[y],%[i],8)
             \\        vmovups                  (%[y],%[i],8), %%xmm8

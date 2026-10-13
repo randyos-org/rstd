@@ -53,7 +53,7 @@ const Body = struct {
     pub fn dscal() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 16
+            \\ .balign 16
             \\ pushl %edi
             \\ pushl %esi
             \\ pushl %ebx
@@ -73,7 +73,7 @@ const Body = struct {
             \\ movl %edx, %ecx # ecx = n
             \\ sarl $3, %ecx # (n >> 3)
             \\ jle 20001f
-            \\ .align 16
+            \\ .balign 16
             \\ 20000:
             \\ fstl 0 * 8(%edi)
             \\ fstl 1 * 8(%edi)
@@ -86,25 +86,25 @@ const Body = struct {
             \\ addl $8 * 8, %edi
             \\ decl %ecx
             \\ jg 20000b
-            \\ .align 16
+            \\ .balign 16
             \\ 20001:
             \\ movl %edx, %ecx
             \\ andl $7, %ecx
             \\ jle 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20002:
             \\ fstl 0 * 8(%edi)
             \\ addl $8, %edi
             \\ decl %ecx
             \\ jg 20002b
             \\ jmp 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20003:
             \\ sall $3, %esi
             \\ movl %edx, %ecx # ecx = n
             \\ sarl $3, %ecx # (n >> 3)
             \\ jle 20005f
-            \\ .align 16
+            \\ .balign 16
             \\ 20004:
             \\ fstl 0 * 8(%edi)
             \\ addl %esi, %edi
@@ -124,26 +124,26 @@ const Body = struct {
             \\ addl %esi, %edi
             \\ decl %ecx
             \\ jg 20004b
-            \\ .align 16
+            \\ .balign 16
             \\ 20005:
             \\ movl %edx, %ecx
             \\ andl $7, %ecx
             \\ jle 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20006:
             \\ fstl 0 * 8(%edi)
             \\ addl %esi, %edi
             \\ decl %ecx
             \\ jg 20006b
             \\ jmp 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20007:
             \\ cmpl $1,%esi
             \\ jne 20011f
             \\ movl %edx, %ecx # ecx = n
             \\ sarl $3, %ecx # (n >> 3)
             \\ jle 20009f
-            \\ .align 16
+            \\ .balign 16
             \\ 20008:
             \\ fldl 0 * 8(%edi)
             \\ fmul %st(1), %st
@@ -172,12 +172,12 @@ const Body = struct {
             \\ addl $8 * 8, %edi
             \\ decl %ecx
             \\ jg 20008b
-            \\ .align 16
+            \\ .balign 16
             \\ 20009:
             \\ movl %edx, %ecx
             \\ andl $7, %ecx
             \\ jle 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20010:
             \\ fldl 0 * 8(%edi)
             \\ fmul %st(1), %st
@@ -186,13 +186,13 @@ const Body = struct {
             \\ decl %ecx
             \\ jg 20010b
             \\ jmp 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20011:
             \\ sall $3, %esi
             \\ movl %edx, %ecx # ecx = n
             \\ sarl $3, %ecx # (n >> 3)
             \\ jle 20013f
-            \\ .align 16
+            \\ .balign 16
             \\ 20012:
             \\ fldl 0 * 8(%edi)
             \\ fmul %st(1), %st
@@ -228,12 +228,12 @@ const Body = struct {
             \\ addl %esi, %edi
             \\ decl %ecx
             \\ jg 20012b
-            \\ .align 16
+            \\ .balign 16
             \\ 20013:
             \\ movl %edx, %ecx
             \\ andl $7, %ecx
             \\ jle 20015f
-            \\ .align 16
+            \\ .balign 16
             \\ 20014:
             \\ fldl 0 * 8(%edi)
             \\ fmul %st(1), %st
@@ -241,7 +241,7 @@ const Body = struct {
             \\ addl %esi, %edi
             \\ decl %ecx
             \\ jg 20014b
-            \\ .align 16
+            \\ .balign 16
             \\ 20015:
             \\ .byte 0xdf, 0xc0 # %st(0)
             \\ xorl %eax,%eax

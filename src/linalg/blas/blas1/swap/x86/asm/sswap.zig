@@ -53,7 +53,7 @@ const Body = struct {
     pub fn sswap() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 16
+            \\ .balign 16
             \\ pushl %ebp
             \\ pushl %edi
             \\ pushl %esi
@@ -72,7 +72,7 @@ const Body = struct {
             \\ movl %edx, %eax
             \\ sarl $2, %eax
             \\ jle 20001f
-            \\ .align 8
+            \\ .balign 8
             \\ 20000:
             \\ flds 3 * 4(%esi)
             \\ flds 2 * 4(%esi)
@@ -94,12 +94,12 @@ const Body = struct {
             \\ addl $4 * 4, %edi
             \\ decl %eax
             \\ jg 20000b
-            \\ .align 8
+            \\ .balign 8
             \\ 20001:
             \\ movl %edx, %eax
             \\ andl $3, %eax
             \\ jle 20008f
-            \\ .align 8
+            \\ .balign 8
             \\ 20002:
             \\ flds (%esi)
             \\ flds (%edi)
@@ -110,7 +110,7 @@ const Body = struct {
             \\ decl %eax
             \\ jg 20002b
             \\ jmp 20008f
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ cmpl $0, %ebx
             \\ jne 20004f
@@ -121,7 +121,7 @@ const Body = struct {
             \\ movl %edx, %eax
             \\ sarl $2, %eax
             \\ jle 20006f
-            \\ .align 4
+            \\ .balign 4
             \\ 20005:
             \\ flds (%esi)
             \\ addl %ebx, %esi
@@ -155,12 +155,12 @@ const Body = struct {
             \\ leal (%edi, %ecx, 4), %edi
             \\ decl %eax
             \\ jg 20005b
-            \\ .align 8
+            \\ .balign 8
             \\ 20006:
             \\ movl %edx, %eax
             \\ andl $3, %eax
             \\ jle 20008f
-            \\ .align 8
+            \\ .balign 8
             \\ 20007:
             \\ flds (%esi)
             \\ flds (%edi)
@@ -170,7 +170,7 @@ const Body = struct {
             \\ addl %ecx, %edi
             \\ decl %eax
             \\ jg 20007b
-            \\ .align 8
+            \\ .balign 8
             \\ 20008:
             \\ xorl %eax,%eax
             \\ popl %ebx

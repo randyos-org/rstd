@@ -9,7 +9,7 @@ pub noinline fn saxpy_kernel_16(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
         asm volatile (
             \\vzeroupper
             \\        vbroadcastss            (%[alpha]), %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        vmovups                  (%[y],%[i],4), %%xmm8
             \\        vmovups                16(%[y],%[i],4), %%xmm9
@@ -49,7 +49,7 @@ pub noinline fn saxpy_kernel_16(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
         asm volatile (
             \\vzeroupper
             \\        vbroadcastss            (%[alpha]), %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        prefetcht0              512(%[y],%[i],4)
             \\        prefetcht0              576(%[y],%[i],4)

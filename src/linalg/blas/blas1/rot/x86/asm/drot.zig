@@ -83,7 +83,7 @@ fn Body(comptime on: [1]bool) type {
         pub fn drot() callconv(.naked) void {
             asm volatile (
                 \\ .text
-                \\ .align 16
+                \\ .balign 16
                 \\ pushl %edi
                 \\ pushl %esi
                 \\ pushl %ebx
@@ -105,7 +105,7 @@ fn Body(comptime on: [1]bool) type {
                 \\ movl %ebx, %eax
                 \\ sarl $2, %eax
                 \\ jle 20001f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20000:
                 \\
             ++ (if (on[0])
@@ -175,12 +175,12 @@ fn Body(comptime on: [1]bool) type {
                 \\ addl $4 * 8, %edi
                 \\ decl %eax
                 \\ jg 20000b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20001:
                 \\ movl %ebx, %eax
                 \\ andl $3, %eax
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20002:
                 \\ fldl 0 * 8(%esi)
                 \\ fldl 0 * 8(%edi)
@@ -200,12 +200,12 @@ fn Body(comptime on: [1]bool) type {
                 \\ decl %eax
                 \\ jg 20002b
                 \\ jmp 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20003:
                 \\ movl %ebx, %eax
                 \\ sarl $2, %eax
                 \\ jle 20005f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20004:
                 \\ fldl 0 * 8(%esi)
                 \\ fldl 0 * 8(%edi)
@@ -269,12 +269,12 @@ fn Body(comptime on: [1]bool) type {
                 \\ addl %edx, %edi
                 \\ decl %eax
                 \\ jg 20004b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20005:
                 \\ movl %ebx, %eax
                 \\ andl $3, %eax
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20006:
                 \\ fldl 0 * 8(%esi)
                 \\ fldl 0 * 8(%edi)
@@ -293,7 +293,7 @@ fn Body(comptime on: [1]bool) type {
                 \\ addl %edx, %edi
                 \\ decl %eax
                 \\ jg 20006b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20007:
                 \\ .byte 0xdf, 0xc0 # %st(0)
                 \\ .byte 0xdf, 0xc0 # %st(0)

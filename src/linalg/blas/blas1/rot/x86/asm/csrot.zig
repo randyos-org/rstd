@@ -83,7 +83,7 @@ fn Body(comptime on: [1]bool) type {
         pub fn csrot() callconv(.naked) void {
             asm volatile (
                 \\ .text
-                \\ .align 16
+                \\ .balign 16
                 \\ pushl %edi
                 \\ pushl %esi
                 \\ pushl %ebx
@@ -105,7 +105,7 @@ fn Body(comptime on: [1]bool) type {
                 \\ movl %ebx, %eax
                 \\ sarl $1, %eax
                 \\ jle 20001f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20000:
                 \\
             ++ (if (on[0])
@@ -175,12 +175,12 @@ fn Body(comptime on: [1]bool) type {
                 \\ addl $4 * 4, %edi
                 \\ decl %eax
                 \\ jg 20000b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20001:
                 \\ movl %ebx, %eax
                 \\ andl $1, %eax
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20002:
                 \\ flds 0 * 4(%esi)
                 \\ flds 0 * 4(%edi)
@@ -209,12 +209,12 @@ fn Body(comptime on: [1]bool) type {
                 \\ fsubrp %st, %st(1)
                 \\ fstps 1 * 4(%edi)
                 \\ jmp 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20003:
                 \\ movl %ebx, %eax
                 \\ sarl $1, %eax
                 \\ jle 20005f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20004:
                 \\ flds 0 * 4(%esi)
                 \\ flds 0 * 4(%edi)
@@ -274,12 +274,12 @@ fn Body(comptime on: [1]bool) type {
                 \\ addl %edx, %edi
                 \\ decl %eax
                 \\ jg 20004b
-                \\ .align 16
+                \\ .balign 16
                 \\ 20005:
                 \\ movl %ebx, %eax
                 \\ andl $1, %eax
                 \\ jle 20007f
-                \\ .align 16
+                \\ .balign 16
                 \\ 20006:
                 \\ flds 0 * 4(%esi)
                 \\ flds 0 * 4(%edi)
@@ -307,7 +307,7 @@ fn Body(comptime on: [1]bool) type {
                 \\ fmul %st(3), %st
                 \\ fsubrp %st, %st(1)
                 \\ fstps 1 * 4(%edi)
-                \\ .align 16
+                \\ .balign 16
                 \\ 20007:
                 \\ .byte 0xdf, 0xc0 # %st(0)
                 \\ .byte 0xdf, 0xc0 # %st(0)

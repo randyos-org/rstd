@@ -32,7 +32,7 @@ const Body = struct {
     pub fn dcopy() callconv(.naked) void {
         asm volatile (
             \\ .text
-            \\ .align 512
+            \\ .balign 512
             \\ leaq (, %rdx, 8), %rdx
             \\ leaq (, %r8, 8), %r8
             \\ cmpq $8, %rdx
@@ -47,7 +47,7 @@ const Body = struct {
             \\ addq $1 * 8, %rcx
             \\ decq %rdi
             \\ jle 20007f
-            \\ .align 16
+            \\ .balign 16
             \\ 20000:
             \\ subq $-16 * 8, %rsi
             \\ subq $-16 * 8, %rcx
@@ -64,7 +64,7 @@ const Body = struct {
             \\ vmovups -2 * 8(%rsi), %xmm7
             \\ decq %rax
             \\ jle 20002f
-            \\ .align 16
+            \\ .balign 16
             \\ 20001:
             \\ prefetchnta 640(%rsi)
             \\ nop
@@ -94,7 +94,7 @@ const Body = struct {
             \\ subq $-16 * 8, %rsi
             \\ decq %rax
             \\ jg 20001b
-            \\ .align 8
+            \\ .balign 8
             \\ 20002:
             \\ vmovups %xmm0, -16 * 8(%rcx)
             \\ vmovups %xmm1, -14 * 8(%rcx)
@@ -106,11 +106,11 @@ const Body = struct {
             \\ vmovups %xmm7, -2 * 8(%rcx)
             \\ subq $-16 * 8, %rcx
             \\ subq $-16 * 8, %rsi
-            \\ .align 8
+            \\ .balign 8
             \\ 20003:
             \\ testq $8, %rdi
             \\ jle 20004f
-            \\ .align 8
+            \\ .balign 8
             \\ vmovups -16 * 8(%rsi), %xmm0
             \\ vmovups -14 * 8(%rsi), %xmm1
             \\ vmovups -12 * 8(%rsi), %xmm2
@@ -121,43 +121,43 @@ const Body = struct {
             \\ vmovups %xmm3, -10 * 8(%rcx)
             \\ addq $8 * 8, %rsi
             \\ addq $8 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20004:
             \\ testq $4, %rdi
             \\ jle 20005f
-            \\ .align 8
+            \\ .balign 8
             \\ vmovups -16 * 8(%rsi), %xmm0
             \\ vmovups -14 * 8(%rsi), %xmm1
             \\ vmovups %xmm0, -16 * 8(%rcx)
             \\ vmovups %xmm1, -14 * 8(%rcx)
             \\ addq $4 * 8, %rsi
             \\ addq $4 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20005:
             \\ testq $2, %rdi
             \\ jle 20006f
-            \\ .align 8
+            \\ .balign 8
             \\ vmovups -16 * 8(%rsi), %xmm0
             \\ vmovups %xmm0, -16 * 8(%rcx)
             \\ addq $2 * 8, %rsi
             \\ addq $2 * 8, %rcx
-            \\ .align 8
+            \\ .balign 8
             \\ 20006:
             \\ testq $1, %rdi
             \\ jle 20007f
-            \\ .align 8
+            \\ .balign 8
             \\ vmovsd -16 * 8(%rsi), %xmm0
             \\ vmovsd %xmm0, -16 * 8(%rcx)
-            \\ .align 8
+            \\ .balign 8
             \\ 20007:
             \\ xorq %rax,%rax
             \\ ret
-            \\ .align 8
+            \\ .balign 8
             \\ 20008:
             \\ movq %rdi, %rax
             \\ sarq $3, %rax
             \\ jle 20010f
-            \\ .align 8
+            \\ .balign 8
             \\ 20009:
             \\ vmovsd (%rsi), %xmm0
             \\ addq %rdx, %rsi
@@ -193,12 +193,12 @@ const Body = struct {
             \\ addq %r8, %rcx
             \\ decq %rax
             \\ jg 20009b
-            \\ .align 8
+            \\ .balign 8
             \\ 20010:
             \\ movq %rdi, %rax
             \\ andq $7, %rax
             \\ jle 20012f
-            \\ .align 8
+            \\ .balign 8
             \\ 20011:
             \\ vmovsd (%rsi), %xmm0
             \\ addq %rdx, %rsi
@@ -206,7 +206,7 @@ const Body = struct {
             \\ addq %r8, %rcx
             \\ decq %rax
             \\ jg 20011b
-            \\ .align 8
+            \\ .balign 8
             \\ 20012:
             \\ xorq %rax, %rax
             \\ ret

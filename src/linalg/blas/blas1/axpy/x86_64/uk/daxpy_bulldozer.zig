@@ -7,20 +7,20 @@ pub noinline fn daxpy_kernel_8(n_in: isize, x: [*]f64, y: [*]f64, alpha: [*]cons
     var i: isize = 0;
     asm volatile (
         \\vmovddup                (%[alpha]), %%xmm0
-        \\        .align 16
+        \\        .balign 16
         \\        1:
         \\        prefetcht0      768(%[y],%[i],8)
         \\        vmovups                  (%[x],%[i],8), %%xmm12
         \\        vfmaddpd       (%[y],%[i],8), %%xmm0 , %%xmm12, %%xmm8
         \\        vmovups                16(%[x],%[i],8), %%xmm13
-        \\        .align 2
+        \\        .balign 2
         \\        vmovups         %%xmm8 ,   (%[y],%[i],8)
         \\        vfmaddpd     16(%[y],%[i],8), %%xmm0 , %%xmm13, %%xmm9
-        \\        .align 2
+        \\        .balign 2
         \\        vmovups                32(%[x],%[i],8), %%xmm14
         \\        vmovups         %%xmm9 , 16(%[y],%[i],8)
         \\        prefetcht0      768(%[x],%[i],8)
-        \\        .align 2
+        \\        .balign 2
         \\        vfmaddpd     32(%[y],%[i],8), %%xmm0 , %%xmm14, %%xmm10
         \\        vmovups                48(%[x],%[i],8), %%xmm15
         \\        vmovups         %%xmm10, 32(%[y],%[i],8)

@@ -12,10 +12,10 @@ pub noinline fn caxpy_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]cons
             \\        vbroadcastss            (%[alpha]), %%xmm0
             \\        vbroadcastss           4(%[alpha]), %%xmm1
             \\        vmulps          (%[mvec]), %%xmm1 , %%xmm1
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        vmovups        (%[x],%[i],4), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],4), %%xmm7
             \\        vmovups      32(%[x],%[i],4), %%xmm9
             \\        vmovups      48(%[x],%[i],4), %%xmm11
@@ -28,7 +28,7 @@ pub noinline fn caxpy_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]cons
             \\        vpermilps       $0xb1 , %%xmm9 , %%xmm8
             \\        vpermilps       $0xb1 , %%xmm11, %%xmm10
             \\        vfmadd213ps    (%[y],%[i],4), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213ps  16(%[y],%[i],4), %%xmm0 , %%xmm7
             \\        vfmadd213ps  32(%[y],%[i],4), %%xmm0 , %%xmm9
             \\        vfmadd213ps  48(%[y],%[i],4), %%xmm0 , %%xmm11
@@ -49,7 +49,7 @@ pub noinline fn caxpy_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]cons
             \\        vfmadd231ps     %%xmm1 , %%xmm8 , %%xmm14
             \\        vfmadd231ps     %%xmm1 , %%xmm10, %%xmm15
             \\        vmovups %%xmm5 ,   (%[y],%[i],4)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],4)
             \\        vmovups %%xmm9 , 32(%[y],%[i],4)
             \\        vmovups %%xmm11, 48(%[y],%[i],4)
@@ -74,11 +74,11 @@ pub noinline fn caxpy_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]cons
             \\        vbroadcastss            (%[alpha]), %%xmm0
             \\        vbroadcastss           4(%[alpha]), %%xmm1
             \\        vmulps          (%[mvec]), %%xmm1 , %%xmm1
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        prefetcht0      512(%[x],%[i],4)
             \\        vmovups        (%[x],%[i],4), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],4), %%xmm7
             \\        vmovups      32(%[x],%[i],4), %%xmm9
             \\        vmovups      48(%[x],%[i],4), %%xmm11
@@ -88,7 +88,7 @@ pub noinline fn caxpy_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]cons
             \\        vpermilps       $0xb1 , %%xmm11, %%xmm10
             \\        prefetcht0      512(%[y],%[i],4)
             \\        vfmadd213ps    (%[y],%[i],4), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213ps  16(%[y],%[i],4), %%xmm0 , %%xmm7
             \\        vfmadd213ps  32(%[y],%[i],4), %%xmm0 , %%xmm9
             \\        vfmadd213ps  48(%[y],%[i],4), %%xmm0 , %%xmm11
@@ -97,7 +97,7 @@ pub noinline fn caxpy_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]cons
             \\        vfmadd231ps     %%xmm1 , %%xmm8 , %%xmm9
             \\        vfmadd231ps     %%xmm1 , %%xmm10, %%xmm11
             \\        vmovups %%xmm5 ,   (%[y],%[i],4)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],4)
             \\        vmovups %%xmm9 , 32(%[y],%[i],4)
             \\        vmovups %%xmm11, 48(%[y],%[i],4)
@@ -125,10 +125,10 @@ pub noinline fn caxpyc_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
             \\        vbroadcastss            (%[alpha]), %%xmm0
             \\        vbroadcastss           4(%[alpha]), %%xmm1
             \\        vmulps          (%[mvec]), %%xmm0 , %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        vmovups        (%[x],%[i],4), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],4), %%xmm7
             \\        vmovups      32(%[x],%[i],4), %%xmm9
             \\        vmovups      48(%[x],%[i],4), %%xmm11
@@ -141,7 +141,7 @@ pub noinline fn caxpyc_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
             \\        vpermilps       $0xb1 , %%xmm9 , %%xmm8
             \\        vpermilps       $0xb1 , %%xmm11, %%xmm10
             \\        vfmadd213ps    (%[y],%[i],4), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213ps  16(%[y],%[i],4), %%xmm0 , %%xmm7
             \\        vfmadd213ps  32(%[y],%[i],4), %%xmm0 , %%xmm9
             \\        vfmadd213ps  48(%[y],%[i],4), %%xmm0 , %%xmm11
@@ -162,7 +162,7 @@ pub noinline fn caxpyc_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
             \\        vfmadd231ps     %%xmm1 , %%xmm8 , %%xmm14
             \\        vfmadd231ps     %%xmm1 , %%xmm10, %%xmm15
             \\        vmovups %%xmm5 ,   (%[y],%[i],4)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],4)
             \\        vmovups %%xmm9 , 32(%[y],%[i],4)
             \\        vmovups %%xmm11, 48(%[y],%[i],4)
@@ -187,11 +187,11 @@ pub noinline fn caxpyc_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
             \\        vbroadcastss            (%[alpha]), %%xmm0
             \\        vbroadcastss           4(%[alpha]), %%xmm1
             \\        vmulps          (%[mvec]), %%xmm0 , %%xmm0
-            \\        .align 16
+            \\        .balign 16
             \\        1:
             \\        prefetcht0      512(%[x],%[i],4)
             \\        vmovups        (%[x],%[i],4), %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups      16(%[x],%[i],4), %%xmm7
             \\        vmovups      32(%[x],%[i],4), %%xmm9
             \\        vmovups      48(%[x],%[i],4), %%xmm11
@@ -201,7 +201,7 @@ pub noinline fn caxpyc_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
             \\        vpermilps       $0xb1 , %%xmm11, %%xmm10
             \\        prefetcht0      512(%[y],%[i],4)
             \\        vfmadd213ps    (%[y],%[i],4), %%xmm0 , %%xmm5
-            \\        .align 2
+            \\        .balign 2
             \\        vfmadd213ps  16(%[y],%[i],4), %%xmm0 , %%xmm7
             \\        vfmadd213ps  32(%[y],%[i],4), %%xmm0 , %%xmm9
             \\        vfmadd213ps  48(%[y],%[i],4), %%xmm0 , %%xmm11
@@ -210,7 +210,7 @@ pub noinline fn caxpyc_kernel_8(n_in: isize, x: [*]f32, y: [*]f32, alpha: [*]con
             \\        vfmadd231ps     %%xmm1 , %%xmm8 , %%xmm9
             \\        vfmadd231ps     %%xmm1 , %%xmm10, %%xmm11
             \\        vmovups %%xmm5 ,   (%[y],%[i],4)
-            \\        .align 2
+            \\        .balign 2
             \\        vmovups %%xmm7 , 16(%[y],%[i],4)
             \\        vmovups %%xmm9 , 32(%[y],%[i],4)
             \\        vmovups %%xmm11, 48(%[y],%[i],4)

@@ -37,7 +37,7 @@ fn Body(comptime on: [2]bool) type {
         pub fn zaxpy() callconv(.naked) void {
             asm volatile (
                 \\ .text
-                \\ .align 512
+                \\ .balign 512
                 \\ movq 8(%rsp), %rsi
                 \\ salq $4, %r8
                 \\ salq $4, %rsi
@@ -78,7 +78,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps -10 * 8(%rcx), %xmm3
                 \\ decq %rax
                 \\ jle 20001f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20000:
                 \\ movaps -8 * 8(%rcx), %xmm4
                 \\ movaps -6 * 8(%rcx), %xmm5
@@ -144,7 +144,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ subq $-16 * 8, %r9
                 \\ decq %rax
                 \\ jg 20000b
-                \\ .align 8
+                \\ .balign 8
                 \\ 20001:
                 \\ movaps -8 * 8(%rcx), %xmm4
                 \\ movaps -6 * 8(%rcx), %xmm5
@@ -200,7 +200,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm7, -2 * 8(%r9)
                 \\ subq $-16 * 8, %rcx
                 \\ subq $-16 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20002:
                 \\ movq %rdi, %rax
                 \\ andq $4, %rax
@@ -235,7 +235,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm3, -10 * 8(%r9)
                 \\ addq $8 * 8, %rcx
                 \\ addq $8 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20003:
                 \\ movq %rdi, %rax
                 \\ andq $2, %rax
@@ -256,7 +256,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm1, -14 * 8(%r9)
                 \\ addq $4 * 8, %rcx
                 \\ addq $4 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20004:
                 \\ movq %rdi, %rax
                 \\ andq $1, %rax
@@ -269,7 +269,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ addpd %xmm8, %xmm0
                 \\ movaps %xmm0, -16 * 8(%r9)
                 \\ jmp 20033f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20005:
                 \\ movq %rdi, %rax
                 \\ sarq $3, %rax
@@ -284,7 +284,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movhps -9 * 8(%rcx), %xmm3
                 \\ decq %rax
                 \\ jle 20007f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20006:
                 \\ movlps -8 * 8(%rcx), %xmm4
                 \\ movhps -7 * 8(%rcx), %xmm4
@@ -358,7 +358,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ subq $-16 * 8, %r9
                 \\ decq %rax
                 \\ jg 20006b
-                \\ .align 8
+                \\ .balign 8
                 \\ 20007:
                 \\ movlps -8 * 8(%rcx), %xmm4
                 \\ movhps -7 * 8(%rcx), %xmm4
@@ -418,7 +418,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm7, -2 * 8(%r9)
                 \\ subq $-16 * 8, %rcx
                 \\ subq $-16 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20008:
                 \\ movq %rdi, %rax
                 \\ andq $4, %rax
@@ -457,7 +457,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm3, -10 * 8(%r9)
                 \\ addq $8 * 8, %rcx
                 \\ addq $8 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20009:
                 \\ movq %rdi, %rax
                 \\ andq $2, %rax
@@ -480,7 +480,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm1, -14 * 8(%r9)
                 \\ addq $4 * 8, %rcx
                 \\ addq $4 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20010:
                 \\ movq %rdi, %rax
                 \\ andq $1, %rax
@@ -494,7 +494,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ addpd %xmm8, %xmm0
                 \\ movaps %xmm0, -16 * 8(%r9)
                 \\ jmp 20033f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20011:
                 \\ testq $8, %rcx
                 \\ jne 20018f
@@ -522,7 +522,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps -12 * 8(%rcx), %xmm3
                 \\ decq %rax
                 \\ jle 20013f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20012:
                 \\ prefetchw ((128 * 3) + 0) - 128(%r9)
                 \\ pshufd $0x4e, %xmm1, %xmm8
@@ -596,7 +596,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ subq $-16 * 8, %r9
                 \\ decq %rax
                 \\ jg 20012b
-                \\ .align 8
+                \\ .balign 8
                 \\ 20013:
                 \\ pshufd $0x4e, %xmm1, %xmm8
                 \\ mulpd %xmm14, %xmm1
@@ -661,7 +661,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm3, -2 * 8(%r9)
                 \\ subq $-16 * 8, %rcx
                 \\ subq $-16 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20014:
                 \\ movq %rdi, %rax
                 \\ andq $4, %rax
@@ -701,7 +701,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm4, %xmm0
                 \\ addq $8 * 8, %rcx
                 \\ addq $8 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20015:
                 \\ movq %rdi, %rax
                 \\ andq $2, %rax
@@ -725,7 +725,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm2, %xmm0
                 \\ addq $4 * 8, %rcx
                 \\ addq $4 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20016:
                 \\ movq %rdi, %rax
                 \\ andq $1, %rax
@@ -741,13 +741,13 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm1, %xmm0
                 \\ addq $2 * 8, %rcx
                 \\ addq $2 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20017:
                 \\ shufpd $1, %xmm0, %xmm0
                 \\ addsd -16 * 8(%r9), %xmm0
                 \\ movlps %xmm0, -16 * 8(%r9)
                 \\ jmp 20033f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20018:
                 \\ movlps -16 * 8(%rcx), %xmm1
                 \\ movhps -15 * 8(%rcx), %xmm1
@@ -777,7 +777,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movhps -11 * 8(%rcx), %xmm3
                 \\ decq %rax
                 \\ jle 20020f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20019:
                 \\ prefetchw ((128 * 3) + 0) - 128(%r9)
                 \\ pshufd $0x4e, %xmm1, %xmm8
@@ -859,7 +859,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ subq $-16 * 8, %r9
                 \\ decq %rax
                 \\ jg 20019b
-                \\ .align 8
+                \\ .balign 8
                 \\ 20020:
                 \\ pshufd $0x4e, %xmm1, %xmm8
                 \\ mulpd %xmm14, %xmm1
@@ -929,7 +929,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm3, -2 * 8(%r9)
                 \\ subq $-16 * 8, %rcx
                 \\ subq $-16 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20021:
                 \\ movq %rdi, %rax
                 \\ andq $4, %rax
@@ -973,7 +973,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm4, %xmm0
                 \\ addq $8 * 8, %rcx
                 \\ addq $8 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20022:
                 \\ movq %rdi, %rax
                 \\ andq $2, %rax
@@ -999,7 +999,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm2, %xmm0
                 \\ addq $4 * 8, %rcx
                 \\ addq $4 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20023:
                 \\ movq %rdi, %rax
                 \\ andq $1, %rax
@@ -1016,13 +1016,13 @@ fn Body(comptime on: [2]bool) type {
                 \\ movaps %xmm1, %xmm0
                 \\ addq $2 * 8, %rcx
                 \\ addq $2 * 8, %r9
-                \\ .align 8
+                \\ .balign 8
                 \\ 20024:
                 \\ shufpd $1, %xmm0, %xmm0
                 \\ addsd -16 * 8(%r9), %xmm0
                 \\ movlps %xmm0, -16 * 8(%r9)
                 \\ jmp 20033f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20025:
                 \\ movaps %xmm0, %xmm14 # a 0
                 \\ pxor %xmm15, %xmm15 # 0 0
@@ -1076,7 +1076,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ mulpd %xmm14, %xmm6
                 \\ decq %rax
                 \\ jle 20028f
-                \\ .align 8
+                \\ .balign 8
                 \\ 20027:
                 \\ addpd %xmm0, %xmm8
                 \\ mulpd %xmm15, %xmm1
@@ -1200,7 +1200,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ addq %rsi, %r9
                 \\ decq %rax
                 \\ jg 20027b
-                \\ .align 8
+                \\ .balign 8
                 \\ 20028:
                 \\ addpd %xmm0, %xmm8
                 \\ mulpd %xmm15, %xmm1
@@ -1286,7 +1286,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movlpd %xmm11, 0 * 8(%r11)
                 \\ movhpd %xmm11, 1 * 8(%r11)
                 \\ addq %rsi, %r11
-                \\ .align 8
+                \\ .balign 8
                 \\ 20029:
                 \\ movq %rdi, %rax
                 \\ andq $4, %rax
@@ -1351,7 +1351,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movlpd %xmm11, 0 * 8(%r11)
                 \\ movhpd %xmm11, 1 * 8(%r11)
                 \\ addq %rsi, %r11
-                \\ .align 8
+                \\ .balign 8
                 \\ 20030:
                 \\ movq %rdi, %rax
                 \\ andq $2, %rax
@@ -1386,7 +1386,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movlpd %xmm9, 0 * 8(%r11)
                 \\ movhpd %xmm9, 1 * 8(%r11)
                 \\ addq %rsi, %r11
-                \\ .align 8
+                \\ .balign 8
                 \\ 20031:
                 \\ movq %rdi, %rax
                 \\ andq $1, %rax
@@ -1406,7 +1406,7 @@ fn Body(comptime on: [2]bool) type {
                 \\ movhpd %xmm8, 1 * 8(%r11)
                 \\ decq %rax
                 \\ jg 20032b
-                \\ .align 8
+                \\ .balign 8
                 \\ 20033:
                 \\ xorq %rax, %rax
                 \\ ret
