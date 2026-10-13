@@ -12,6 +12,7 @@
         .renderdoc = .{
             .url = "git+https://github.com/baldurk/renderdoc.git#cbeb5804cf5372b163cab5469a52d0ad89832bdb",
             .hash = "N-V-__8AACi8yAyv7GHLjXzWor_RJiNT6r5Lx4yj8g79rU5m",
+            // only with -Drenderdoc (src/buildutils/renderdoc.zig)
             .lazy = true,
         },
         .vulkan_headers = .{
@@ -27,6 +28,21 @@
         // .rc = .{
         //     .url = "git+https://codeberg.org/ziglang/rc#23b64112d428b13f59967a0e6587b3391d0aeb76",
         //     .hash = "rc-0.0.0-rMftL9REAADo6nZWJwkxvJGHVKNNwXT-SxFQGdbiv5DW",
+        //     .lazy = true,
+        // },
+        .osx_kvm = .{
+            .url = "git+https://github.com/kholia/OSX-KVM#4c378a4b5e0b219783683012bec680325eb40719",
+            .hash = "N-V-__8AAKUnqQKGAifHk6tDAjx9sNpxjFjWRJi9cvVxV9x9",
+            // only with -Dmacos-vm (build/qemutest.zig)
+            .lazy = true,
+        },
+        // Its build.zig does not build on current Zig master (standardOptimizeOption
+        // returns an optional); src/buildutils/renderdoc.zig uses the built-in
+        // translate-c until it does.
+        // .translate_c = .{
+        //     .url = "git+https://codeberg.org/ziglang/translate-c#9b5eb014df946d26b86c3d42b5d133d0fe48fe61",
+        //     .hash = "translate_c-0.0.0-Q_BUWu5OBwCBUFLkC6LVoVWssXLQG5E8NZvxu9XbaZ75",
+        //     // only with -Drenderdoc (src/buildutils/renderdoc.zig)
         //     .lazy = true,
         // },
     },

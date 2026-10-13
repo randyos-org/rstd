@@ -20,6 +20,9 @@ pub const RstdOptions = struct {
     /// debug, else `all`). Unset, rstd treats the build as debug.
     optimize: ?rstdbuild.Optimize = null,
     blas_cores: ?BlasCores = null,
+    /// RenderDoc capture support in `rgl.renderdoc`; fetches renderdoc and
+    /// translate-c only when set.
+    renderdoc: bool = false,
 };
 
 pub fn addRstd(
@@ -34,6 +37,7 @@ pub fn addRstd(
         .vulkan = vulkan,
         .optimize = options.optimize,
         .@"blas-cores" = options.blas_cores,
+        .renderdoc = options.renderdoc,
     });
     // rstd_mod already has its own "build_options" import, wired up by
     // rstd's own build.zig when it configured itself; don't re-add one

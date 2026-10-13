@@ -15,5 +15,5 @@ __pycache__/
 *.pyo
 *.pyd
 
-# local-only build steps (see the file header)
-/build.local.zig
+# the macOS test VMs: disks, images, firmware settings (build/qemutest.zig)
+/.macos-vm/

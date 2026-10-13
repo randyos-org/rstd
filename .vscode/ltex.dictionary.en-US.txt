@@ -24,6 +24,7 @@ AESKLE
 AESNI
 afs_syscall
 aghi
+ahci
 alarm
 ALFB
 alphabg
@@ -39,7 +40,9 @@ andq
 ands
 andx
 anorm
+APFS
 apos
+applesmc
 apprt
 apprts
 arch_prctl
@@ -911,6 +914,7 @@ migrate_pages
 mincore
 MINSIGSTKSZ
 mipsel
+miscompile
 mitchellh
 mkdir
 mkdirat
