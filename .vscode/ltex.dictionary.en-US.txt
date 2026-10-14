@@ -225,6 +225,8 @@ culted
 cval
 daddiu
 daddu
+daemonized
+daemonizes
 damax
 damin
 dasum

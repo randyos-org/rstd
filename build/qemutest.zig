@@ -310,6 +310,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         .port = b.option(u16, "mac-port", "Host port forwarded to the VM's ssh") orelse 2222,
         .release = b.option(MacRelease, "mac-release", "macOS release qemu-setup fetches (default sonoma)") orelse .sonoma,
         .gdb = b.option(bool, "mac-gdb", "Let gdb attach to the macOS VM on localhost:1234") orelse false,
+        .detach = b.option(bool, "mac-detach", "qemu-install/start return once the macOS VM is up rather than when it stops") orelse false,
     } else .{};
 
     for (machines) |m| {
@@ -421,7 +422,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
 }
 
 /// The macOS VMs' SSH login (`-Dmac-user`, `-Dmac-port`) and release.
-const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false };
+const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false, detach: bool = false };
 
 /// The releases `fetch-macOS-v2.py` offers that the tests run on: the machine
 /// builds them for macOS 13 and up. The tags are the fetcher's `-s` names.
@@ -434,7 +435,10 @@ const MacPaths = struct { dmg: []const u8, img: []const u8, disk: []const u8, va
 /// QEMU on `m`'s command line plus OSX-KVM's firmware, SMC key and OpenCore,
 /// and the disks; `install` adds the recovery image.
 fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac: MacOptions, install: bool) !*Build.Step.Run {
-    const run = console(b, &.{m.qemu});
+    // Detached on Windows, `start` gives qemu its own console (the monitor's)
+    // and returns; elsewhere `-daemonize` puts qemu in the background, below.
+    const windows = b.graph.host.result.os.tag == .windows;
+    const run = console(b, if (mac.detach and windows) &.{ "cmd", "/c", "start", "", m.qemu } else &.{m.qemu});
     run.addArgs(m.args);
     run.addArgs(&.{ "-m", m.memory, "-device", b.fmt("isa-applesmc,osk={s}", .{try smcKey(b, kvm)}), "-drive" });
     run.addPrefixedFileArg("if=pflash,format=raw,readonly=on,file=", kvm.path("OVMF_CODE_4M.fd"));
@@ -452,8 +456,12 @@ fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac
         "-device", "ide-hd,bus=sata.3,drive=InstallMedia",
     });
     // A `(qemu)` prompt in this console: `info status` says whether it runs,
-    // and `RIP` in `info registers` moves while the guest executes.
-    run.addArgs(&.{ "-monitor", "stdio" });
+    // and `RIP` in `info registers` moves while the guest executes. In the
+    // background qemu has no console; its monitor is a socket instead.
+    if (mac.detach and !windows) {
+        const sock = b.fmt("{s}/monitor.sock", .{std.fs.path.dirname(paths.disk).?});
+        run.addArgs(&.{ "-daemonize", "-monitor", b.fmt("unix:{s},server,nowait", .{sock}) });
+    } else run.addArgs(&.{ "-monitor", "stdio" });
     // gdb-multiarch, then `target remote localhost:1234`
     if (mac.gdb) run.addArg("-s");
     return run;
