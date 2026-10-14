@@ -37,31 +37,31 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "1",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
-    "0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "1, 0",
+    "0, 1",
+    "0, 1",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "1, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
+    "0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -80,7 +80,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0
+    \\ .macro __bk bp0, bp1
     \\ .balign 16
     \\ pushl %edi
     \\ pushl %esi
@@ -106,6 +106,9 @@ const text =
     \\ .balign 16
     \\ 20000:
     \\ .if \bp0
+    \\ prefetcht0 (144 + 0) * 8(%esi)
+    \\ .endif
+    \\ .if \bp1
     \\ prefetchw (144 + 0) * 8(%esi)
     \\ .endif
     \\ fldl 0 * 8(%esi)
@@ -135,6 +138,9 @@ const text =
     \\ fsubrp %st, %st(1)
     \\ fstpl 1 * 8(%edi)
     \\ .if \bp0
+    \\ prefetcht0 (144 + 0) * 8(%edi)
+    \\ .endif
+    \\ .if \bp1
     \\ prefetchw (144 + 0) * 8(%edi)
     \\ .endif
     \\ fldl 2 * 8(%esi)
