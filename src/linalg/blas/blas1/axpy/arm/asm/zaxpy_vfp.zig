@@ -18,16 +18,16 @@ const keys = [_][2][]const u8{
     .{ "cortexa9", "sf" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ true, false },
-    .{ true, false },
-    .{ true, false },
-    .{ false, true },
-    .{ false, true },
-    .{ false, true },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "1, 0",
+    "1, 0",
+    "1, 0",
+    "0, 1",
+    "0, 1",
+    "0, 1",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -44,146 +44,147 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .macro KERNEL_F4
+    \\ pld [ r3, #512 ]
+    \\ vldmia.f64 r3!, { d4 - d7 }
+    \\ pld [ r1, #512 ]
+    \\ vldmia.f64 r1 , { d8 - d11 }
+    \\ fmacd d8 , d0, d4
+    \\ vmls.f64 d8 , d1, d5
+    \\ fmacd d9 , d0, d5
+    \\ fmacd d9 , d1, d4
+    \\ vstmia.f64 r1!, { d8 }
+    \\ vstmia.f64 r1!, { d9 }
+    \\ fmacd d10, d0, d6
+    \\ vmls.f64 d10, d1, d7
+    \\ fmacd d11, d0, d7
+    \\ fmacd d11, d1, d6
+    \\ vstmia.f64 r1!, { d10 }
+    \\ vstmia.f64 r1!, { d11 }
+    \\ pld [ r3, #512 ]
+    \\ vldmia.f64 r3!, { d4 - d7 }
+    \\ pld [ r1, #512 ]
+    \\ vldmia.f64 r1 , { d8 - d11 }
+    \\ fmacd d8 , d0, d4
+    \\ vmls.f64 d8 , d1, d5
+    \\ fmacd d9 , d0, d5
+    \\ fmacd d9 , d1, d4
+    \\ vstmia.f64 r1!, { d8 }
+    \\ vstmia.f64 r1!, { d9 }
+    \\ fmacd d10, d0, d6
+    \\ vmls.f64 d10, d1, d7
+    \\ fmacd d11, d0, d7
+    \\ fmacd d11, d1, d6
+    \\ vstmia.f64 r1!, { d10 }
+    \\ vstmia.f64 r1!, { d11 }
+    \\ .endm
+    \\ .macro KERNEL_F1
+    \\ vldmia.f64 r3!, { d4 - d5 }
+    \\ vldmia.f64 r1 , { d8 - d9 }
+    \\ fmacd d8 , d0, d4
+    \\ vmls.f64 d8 , d1, d5
+    \\ fmacd d9 , d0, d5
+    \\ fmacd d9 , d1, d4
+    \\ vstmia.f64 r1!, { d8 }
+    \\ vstmia.f64 r1!, { d9 }
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f64 r3 , { d4 - d5 }
+    \\ vldmia.f64 r1 , { d8 - d9 }
+    \\ fmacd d8 , d0, d4
+    \\ vmls.f64 d8 , d1, d5
+    \\ fmacd d9 , d0, d5
+    \\ fmacd d9 , d1, d4
+    \\ vstmia.f64 r1 , { d8 - d9 }
+    \\ add r3, r3, r2
+    \\ add r1, r1, r4
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ push {r4 , fp}
+    \\ add fp, sp, #8
+    \\ sub sp, sp, #256
+    \\ .if \bp0
+    \\ ldr r2 , [fp, #0 ]
+    \\ ldr r1, [fp, #4 ]
+    \\ ldr r4 , [fp, #8 ]
+    \\ .endif
+    \\ .if \bp1
+    \\ vldr d0, [fp, #0]
+    \\ vldr d1, [fp, #8]
+    \\ ldr r3, [fp, #16 ]
+    \\ ldr r2 , [fp, #20 ]
+    \\ ldr r1, [fp, #24 ]
+    \\ ldr r4 , [fp, #28 ]
+    \\ .endif
+    \\ sub r12, fp, #128
+    \\ vstm r12, { d8 - d15}
+    \\ cmp r0, #0
+    \\ ble 20008f
+    \\ cmp r2, #1
+    \\ bne 20004f
+    \\ cmp r4, #1
+    \\ bne 20004f
+    \\ 20000:
+    \\ asrs r12, r0, #2
+    \\ ble 20002f
+    \\ .align 5
+    \\ 20001:
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ ble 20002f
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ bne 20001b
+    \\ 20002:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20003:
+    \\ KERNEL_F1
+    \\ subs r12, r12, #1
+    \\ bne 20003b
+    \\ b 20008f
+    \\ 20004:
+    \\ lsl r2, r2, #4
+    \\ lsl r4, r4, #4
+    \\ asrs r12, r0, #2
+    \\ ble 20006f
+    \\ .align 5
+    \\ 20005:
+    \\ KERNEL_S1
+    \\ KERNEL_S1
+    \\ KERNEL_S1
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20005b
+    \\ 20006:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20007:
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20007b
+    \\ 20008:
+    \\ sub r3, fp, #128
+    \\ vldm r3, { d8 - d15 }
+    \\ mov r0, #0
+    \\ sub sp, fp, #8
+    \\ pop {r4,fp}
+    \\ bx lr
+    \\ .purgem KERNEL_F4
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn zaxpy() callconv(.naked) void {
-            asm volatile (
-                \\ .macro KERNEL_F4
-                \\ pld [ r3, #512 ]
-                \\ vldmia.f64 r3!, { d4 - d7 }
-                \\ pld [ r1, #512 ]
-                \\ vldmia.f64 r1 , { d8 - d11 }
-                \\ fmacd d8 , d0, d4
-                \\ vmls.f64 d8 , d1, d5
-                \\ fmacd d9 , d0, d5
-                \\ fmacd d9 , d1, d4
-                \\ vstmia.f64 r1!, { d8 }
-                \\ vstmia.f64 r1!, { d9 }
-                \\ fmacd d10, d0, d6
-                \\ vmls.f64 d10, d1, d7
-                \\ fmacd d11, d0, d7
-                \\ fmacd d11, d1, d6
-                \\ vstmia.f64 r1!, { d10 }
-                \\ vstmia.f64 r1!, { d11 }
-                \\ pld [ r3, #512 ]
-                \\ vldmia.f64 r3!, { d4 - d7 }
-                \\ pld [ r1, #512 ]
-                \\ vldmia.f64 r1 , { d8 - d11 }
-                \\ fmacd d8 , d0, d4
-                \\ vmls.f64 d8 , d1, d5
-                \\ fmacd d9 , d0, d5
-                \\ fmacd d9 , d1, d4
-                \\ vstmia.f64 r1!, { d8 }
-                \\ vstmia.f64 r1!, { d9 }
-                \\ fmacd d10, d0, d6
-                \\ vmls.f64 d10, d1, d7
-                \\ fmacd d11, d0, d7
-                \\ fmacd d11, d1, d6
-                \\ vstmia.f64 r1!, { d10 }
-                \\ vstmia.f64 r1!, { d11 }
-                \\ .endm
-                \\ .macro KERNEL_F1
-                \\ vldmia.f64 r3!, { d4 - d5 }
-                \\ vldmia.f64 r1 , { d8 - d9 }
-                \\ fmacd d8 , d0, d4
-                \\ vmls.f64 d8 , d1, d5
-                \\ fmacd d9 , d0, d5
-                \\ fmacd d9 , d1, d4
-                \\ vstmia.f64 r1!, { d8 }
-                \\ vstmia.f64 r1!, { d9 }
-                \\ .endm
-                \\ .macro KERNEL_S1
-                \\ vldmia.f64 r3 , { d4 - d5 }
-                \\ vldmia.f64 r1 , { d8 - d9 }
-                \\ fmacd d8 , d0, d4
-                \\ vmls.f64 d8 , d1, d5
-                \\ fmacd d9 , d0, d5
-                \\ fmacd d9 , d1, d4
-                \\ vstmia.f64 r1 , { d8 - d9 }
-                \\ add r3, r3, r2
-                \\ add r1, r1, r4
-                \\ .endm
-                \\ .arm
-                \\ .align 5
-                \\ push {r4 , fp}
-                \\ add fp, sp, #8
-                \\ sub sp, sp, #256
-                \\
-            ++ (if (on[0])
-                \\ ldr r2 , [fp, #0 ]
-                \\ ldr r1, [fp, #4 ]
-                \\ ldr r4 , [fp, #8 ]
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ vldr d0, [fp, #0]
-                \\ vldr d1, [fp, #8]
-                \\ ldr r3, [fp, #16 ]
-                \\ ldr r2 , [fp, #20 ]
-                \\ ldr r1, [fp, #24 ]
-                \\ ldr r4 , [fp, #28 ]
-                \\
-            else
-                "") ++
-                \\ sub r12, fp, #128
-                \\ vstm r12, { d8 - d15}
-                \\ cmp r0, #0
-                \\ ble 20008f
-                \\ cmp r2, #1
-                \\ bne 20004f
-                \\ cmp r4, #1
-                \\ bne 20004f
-                \\ 20000:
-                \\ asrs r12, r0, #2
-                \\ ble 20002f
-                \\ .align 5
-                \\ 20001:
-                \\ KERNEL_F4
-                \\ subs r12, r12, #1
-                \\ ble 20002f
-                \\ KERNEL_F4
-                \\ subs r12, r12, #1
-                \\ bne 20001b
-                \\ 20002:
-                \\ ands r12, r0, #3
-                \\ ble 20008f
-                \\ 20003:
-                \\ KERNEL_F1
-                \\ subs r12, r12, #1
-                \\ bne 20003b
-                \\ b 20008f
-                \\ 20004:
-                \\ lsl r2, r2, #4
-                \\ lsl r4, r4, #4
-                \\ asrs r12, r0, #2
-                \\ ble 20006f
-                \\ .align 5
-                \\ 20005:
-                \\ KERNEL_S1
-                \\ KERNEL_S1
-                \\ KERNEL_S1
-                \\ KERNEL_S1
-                \\ subs r12, r12, #1
-                \\ bne 20005b
-                \\ 20006:
-                \\ ands r12, r0, #3
-                \\ ble 20008f
-                \\ 20007:
-                \\ KERNEL_S1
-                \\ subs r12, r12, #1
-                \\ bne 20007b
-                \\ 20008:
-                \\ sub r3, fp, #128
-                \\ vldm r3, { d8 - d15 }
-                \\ mov r0, #0
-                \\ sub sp, fp, #8
-                \\ pop {r4,fp}
-                \\ bx lr
-                \\ .purgem KERNEL_F4
-                \\ .purgem KERNEL_F1
-                \\ .purgem KERNEL_S1
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

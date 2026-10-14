@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn zaxpyc() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .balign 512
             \\ movaps %xmm3, %xmm0
             \\ movsd 40(%rsp), %xmm1

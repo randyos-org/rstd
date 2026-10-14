@@ -54,7 +54,6 @@ const Body = struct {
     pub fn saxpy() callconv(.naked) void {
         asm volatile (
             \\ .macro PROLOGUE
-            \\ .text
             \\ .p2align 2
             \\ .endm
             \\ .macro KERNEL_F1
