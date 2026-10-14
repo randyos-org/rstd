@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "armv6", "sf" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,150 +32,152 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .macro KERNEL_F1
+    \\ vldmia.f64 r1!, { d4 - d5 }
+    \\ vcmpe.f64 d4, d6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 20000f
+    \\ vabs.f64 d4, d4
+    \\ vcmpe.f64 d0, d4
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f64 d2 , d4, d0
+    \\ vmlage.f64 d1 , d2 , d2
+    \\ bge 20000f
+    \\ vdiv.f64 d2 , d0, d4
+    \\ vmul.f64 d2 , d2, d2
+    \\ vmul.f64 d3 , d1, d2
+    \\ vadd.f64 d1 , d3, d7
+    \\ vmov.f64 d0 , d4
+    \\ 20000:
+    \\ vcmpe.f64 d5, d6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 20001f
+    \\ vabs.f64 d5, d5
+    \\ vcmpe.f64 d0, d5
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f64 d2 , d5, d0
+    \\ vmlage.f64 d1 , d2 , d2
+    \\ bge 20001f
+    \\ vdiv.f64 d2 , d0, d5
+    \\ vmul.f64 d2 , d2, d2
+    \\ vmul.f64 d3 , d1, d2
+    \\ vadd.f64 d1 , d3, d7
+    \\ vmov.f64 d0 , d5
+    \\ 20001:
+    \\ .endm
+    \\ .macro KERNEL_F8
+    \\ pld [ r1, #512 ]
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ pld [ r1, #512 ]
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ pld [ r1, #512 ]
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ pld [ r1, #512 ]
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f64 r1, { d4 - d5 }
+    \\ vcmpe.f64 d4, d6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 20002f
+    \\ vabs.f64 d4, d4
+    \\ vcmpe.f64 d0, d4
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f64 d2 , d4, d0
+    \\ vmlage.f64 d1 , d2 , d2
+    \\ bge 20002f
+    \\ vdiv.f64 d2 , d0, d4
+    \\ vmul.f64 d2 , d2, d2
+    \\ vmul.f64 d3 , d1, d2
+    \\ vadd.f64 d1 , d3, d7
+    \\ vmov.f64 d0 , d4
+    \\ 20002:
+    \\ vcmpe.f64 d5, d6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 20003f
+    \\ vabs.f64 d5, d5
+    \\ vcmpe.f64 d0, d5
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f64 d2 , d5, d0
+    \\ vmlage.f64 d1 , d2 , d2
+    \\ bge 20003f
+    \\ vdiv.f64 d2 , d0, d5
+    \\ vmul.f64 d2 , d2, d2
+    \\ vmul.f64 d3 , d1, d2
+    \\ vadd.f64 d1 , d3, d7
+    \\ vmov.f64 d0 , d5
+    \\ 20003:
+    \\ add r1, r1, r2
+    \\ .endm
+    \\ .arm
+    \\ b 20006f
+    \\ 20004:
+    \\ .word 0x00000000
+    \\ .word 0x00000000
+    \\ 20005:
+    \\ .word 0x00000000
+    \\ .word 0x3ff00000
+    \\ .align 5
+    \\ 20006:
+    \\ vldr.64 d0 , 20004b
+    \\ vldr.64 d1 , 20005b
+    \\ vmov.f64 d7 , d1
+    \\ vmov.f64 d6 , d0
+    \\ cmp r0, #0
+    \\ ble 20014f
+    \\ cmp r2, #0
+    \\ beq 20014f
+    \\ cmp r2, #1
+    \\ bne 20011f
+    \\ 20007:
+    \\ asrs r12, r0, #3
+    \\ ble 20009f
+    \\ 20008:
+    \\ KERNEL_F8
+    \\ subs r12, r12, #1
+    \\ bne 20008b
+    \\ 20009:
+    \\ ands r12, r0, #7
+    \\ ble 20014f
+    \\ 20010:
+    \\ KERNEL_F1
+    \\ subs r12, r12, #1
+    \\ bne 20010b
+    \\ b 20014f
+    \\ 20011:
+    \\ lsl r2, r2, #4
+    \\ 20012:
+    \\ mov r12, r0
+    \\ .align 5
+    \\ 20013:
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20013b
+    \\ 20014:
+    \\ vsqrt.f64 d1, d1
+    \\ vmul.f64 d0, d0, d1
+    \\ .if \bp0
+    \\ vmov r0, r1, d0
+    \\ .endif
+    \\ bx lr
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_F8
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn znrm2() callconv(.naked) void {
-            asm volatile (
-                \\ .macro KERNEL_F1
-                \\ vldmia.f64 r1!, { d4 - d5 }
-                \\ vcmpe.f64 d4, d6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 20000f
-                \\ vabs.f64 d4, d4
-                \\ vcmpe.f64 d0, d4
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f64 d2 , d4, d0
-                \\ vmlage.f64 d1 , d2 , d2
-                \\ bge 20000f
-                \\ vdiv.f64 d2 , d0, d4
-                \\ vmul.f64 d2 , d2, d2
-                \\ vmul.f64 d3 , d1, d2
-                \\ vadd.f64 d1 , d3, d7
-                \\ vmov.f64 d0 , d4
-                \\ 20000:
-                \\ vcmpe.f64 d5, d6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 20001f
-                \\ vabs.f64 d5, d5
-                \\ vcmpe.f64 d0, d5
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f64 d2 , d5, d0
-                \\ vmlage.f64 d1 , d2 , d2
-                \\ bge 20001f
-                \\ vdiv.f64 d2 , d0, d5
-                \\ vmul.f64 d2 , d2, d2
-                \\ vmul.f64 d3 , d1, d2
-                \\ vadd.f64 d1 , d3, d7
-                \\ vmov.f64 d0 , d5
-                \\ 20001:
-                \\ .endm
-                \\ .macro KERNEL_F8
-                \\ pld [ r1, #512 ]
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ pld [ r1, #512 ]
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ pld [ r1, #512 ]
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ pld [ r1, #512 ]
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ .endm
-                \\ .macro KERNEL_S1
-                \\ vldmia.f64 r1, { d4 - d5 }
-                \\ vcmpe.f64 d4, d6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 20002f
-                \\ vabs.f64 d4, d4
-                \\ vcmpe.f64 d0, d4
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f64 d2 , d4, d0
-                \\ vmlage.f64 d1 , d2 , d2
-                \\ bge 20002f
-                \\ vdiv.f64 d2 , d0, d4
-                \\ vmul.f64 d2 , d2, d2
-                \\ vmul.f64 d3 , d1, d2
-                \\ vadd.f64 d1 , d3, d7
-                \\ vmov.f64 d0 , d4
-                \\ 20002:
-                \\ vcmpe.f64 d5, d6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 20003f
-                \\ vabs.f64 d5, d5
-                \\ vcmpe.f64 d0, d5
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f64 d2 , d5, d0
-                \\ vmlage.f64 d1 , d2 , d2
-                \\ bge 20003f
-                \\ vdiv.f64 d2 , d0, d5
-                \\ vmul.f64 d2 , d2, d2
-                \\ vmul.f64 d3 , d1, d2
-                \\ vadd.f64 d1 , d3, d7
-                \\ vmov.f64 d0 , d5
-                \\ 20003:
-                \\ add r1, r1, r2
-                \\ .endm
-                \\ .arm
-                \\ b 20006f
-                \\ 20004:
-                \\ .word 0x00000000
-                \\ .word 0x00000000
-                \\ 20005:
-                \\ .word 0x00000000
-                \\ .word 0x3ff00000
-                \\ .align 5
-                \\ 20006:
-                \\ vldr.64 d0 , 20004b
-                \\ vldr.64 d1 , 20005b
-                \\ vmov.f64 d7 , d1
-                \\ vmov.f64 d6 , d0
-                \\ cmp r0, #0
-                \\ ble 20014f
-                \\ cmp r2, #0
-                \\ beq 20014f
-                \\ cmp r2, #1
-                \\ bne 20011f
-                \\ 20007:
-                \\ asrs r12, r0, #3
-                \\ ble 20009f
-                \\ 20008:
-                \\ KERNEL_F8
-                \\ subs r12, r12, #1
-                \\ bne 20008b
-                \\ 20009:
-                \\ ands r12, r0, #7
-                \\ ble 20014f
-                \\ 20010:
-                \\ KERNEL_F1
-                \\ subs r12, r12, #1
-                \\ bne 20010b
-                \\ b 20014f
-                \\ 20011:
-                \\ lsl r2, r2, #4
-                \\ 20012:
-                \\ mov r12, r0
-                \\ .align 5
-                \\ 20013:
-                \\ KERNEL_S1
-                \\ subs r12, r12, #1
-                \\ bne 20013b
-                \\ 20014:
-                \\ vsqrt.f64 d1, d1
-                \\ vmul.f64 d0, d0, d1
-                \\
-            ++ (if (on[0])
-                \\ vmov r0, r1, d0
-                \\
-            else
-                "") ++
-                \\ bx lr
-                \\ .purgem KERNEL_F1
-                \\ .purgem KERNEL_F8
-                \\ .purgem KERNEL_S1
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

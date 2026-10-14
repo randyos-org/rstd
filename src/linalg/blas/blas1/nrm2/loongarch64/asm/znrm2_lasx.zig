@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn znrm2() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ xvxor.v $xr19, $xr19, $xr19
             \\ xvxor.v $xr20, $xr20, $xr20

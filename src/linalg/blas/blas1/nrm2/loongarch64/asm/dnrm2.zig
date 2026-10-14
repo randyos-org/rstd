@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn dnrm2() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ addi.d $r18, $r0, 0x7FF
             \\ slli.d $r18, $r18, 52

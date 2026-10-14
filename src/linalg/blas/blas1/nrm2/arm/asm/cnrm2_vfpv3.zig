@@ -16,14 +16,14 @@ const keys = [_][2][]const u8{
     .{ "cortexa9", "sf" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{false},
-    .{false},
-    .{true},
-    .{true},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "0",
+    "0",
+    "1",
+    "1",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -40,141 +40,143 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .macro KERNEL_F1
+    \\ vldmia.f32 r1!, { s4 - s5 }
+    \\ vcmpe.f32 s4, s6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 1f
+    \\ vabs.f32 s4, s4
+    \\ vcmpe.f32 s0, s4
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f32 s2 , s4, s0
+    \\ vmlage.f32 s1 , s2 , s2
+    \\ bge 1f
+    \\ vdiv.f32 s2 , s0, s4
+    \\ vmul.f32 s2 , s2, s2
+    \\ vmul.f32 s3 , s1, s2
+    \\ vadd.f32 s1 , s3, s7
+    \\ vmov.f32 s0 , s4
+    \\ 1:
+    \\ vcmpe.f32 s5, s6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 2f
+    \\ vabs.f32 s5, s5
+    \\ vcmpe.f32 s0, s5
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f32 s2 , s5, s0
+    \\ vmlage.f32 s1 , s2 , s2
+    \\ bge 2f
+    \\ vdiv.f32 s2 , s0, s5
+    \\ vmul.f32 s2 , s2, s2
+    \\ vmul.f32 s3 , s1, s2
+    \\ vadd.f32 s1 , s3, s7
+    \\ vmov.f32 s0 , s5
+    \\ 2:
+    \\ .endm
+    \\ .macro KERNEL_F8
+    \\ pld [ r1, #512 ]
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ pld [ r1, #512 ]
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ KERNEL_F1
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f32 r1, { s4 - s5 }
+    \\ vcmpe.f32 s4, s6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 1f
+    \\ vabs.f32 s4, s4
+    \\ vcmpe.f32 s0, s4
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f32 s2 , s4, s0
+    \\ vmlage.f32 s1 , s2 , s2
+    \\ bge 1f
+    \\ vdiv.f32 s2 , s0, s4
+    \\ vmul.f32 s2 , s2, s2
+    \\ vmul.f32 s3 , s1, s2
+    \\ vadd.f32 s1 , s3, s7
+    \\ vmov.f32 s0 , s4
+    \\ 1:
+    \\ vcmpe.f32 s5, s6
+    \\ vmrs APSR_nzcv, fpscr
+    \\ beq 2f
+    \\ vabs.f32 s5, s5
+    \\ vcmpe.f32 s0, s5
+    \\ vmrs APSR_nzcv, fpscr
+    \\ vdivge.f32 s2 , s5, s0
+    \\ vmlage.f32 s1 , s2 , s2
+    \\ bge 2f
+    \\ vdiv.f32 s2 , s0, s5
+    \\ vmul.f32 s2 , s2, s2
+    \\ vmul.f32 s3 , s1, s2
+    \\ vadd.f32 s1 , s3, s7
+    \\ vmov.f32 s0 , s5
+    \\ 2:
+    \\ add r1, r1, r2
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ movs r12 , #0
+    \\ vmov.f32 s0 , r12
+    \\ vmov.f32 s1 , #1.0
+    \\ vmov.f32 s7 , s1
+    \\ vmov.f32 s6 , s0
+    \\ cmp r0, #0
+    \\ ble 20007f
+    \\ cmp r2, #0
+    \\ beq 20007f
+    \\ cmp r2, #1
+    \\ bne 20004f
+    \\ 20000:
+    \\ asrs r12, r0, #3
+    \\ ble 20002f
+    \\ 20001:
+    \\ KERNEL_F8
+    \\ subs r12, r12, #1
+    \\ bne 20001b
+    \\ 20002:
+    \\ ands r12, r0, #7
+    \\ ble 20007f
+    \\ 20003:
+    \\ KERNEL_F1
+    \\ subs r12, r12, #1
+    \\ bne 20003b
+    \\ b 20007f
+    \\ 20004:
+    \\ lsl r2, r2, #3
+    \\ 20005:
+    \\ mov r12, r0
+    \\ .align 5
+    \\ 20006:
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20006b
+    \\ 20007:
+    \\ vsqrt.f32 s1, s1
+    \\ vmul.f32 s0, s0, s1
+    \\ .if \bp0
+    \\ vmov r0, s0
+    \\ .endif
+    \\ bx lr
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_F8
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn cnrm2() callconv(.naked) void {
-            asm volatile (
-                \\ .macro KERNEL_F1
-                \\ vldmia.f32 r1!, { s4 - s5 }
-                \\ vcmpe.f32 s4, s6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 1f
-                \\ vabs.f32 s4, s4
-                \\ vcmpe.f32 s0, s4
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f32 s2 , s4, s0
-                \\ vmlage.f32 s1 , s2 , s2
-                \\ bge 1f
-                \\ vdiv.f32 s2 , s0, s4
-                \\ vmul.f32 s2 , s2, s2
-                \\ vmul.f32 s3 , s1, s2
-                \\ vadd.f32 s1 , s3, s7
-                \\ vmov.f32 s0 , s4
-                \\ 1:
-                \\ vcmpe.f32 s5, s6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 2f
-                \\ vabs.f32 s5, s5
-                \\ vcmpe.f32 s0, s5
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f32 s2 , s5, s0
-                \\ vmlage.f32 s1 , s2 , s2
-                \\ bge 2f
-                \\ vdiv.f32 s2 , s0, s5
-                \\ vmul.f32 s2 , s2, s2
-                \\ vmul.f32 s3 , s1, s2
-                \\ vadd.f32 s1 , s3, s7
-                \\ vmov.f32 s0 , s5
-                \\ 2:
-                \\ .endm
-                \\ .macro KERNEL_F8
-                \\ pld [ r1, #512 ]
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ pld [ r1, #512 ]
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ KERNEL_F1
-                \\ .endm
-                \\ .macro KERNEL_S1
-                \\ vldmia.f32 r1, { s4 - s5 }
-                \\ vcmpe.f32 s4, s6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 1f
-                \\ vabs.f32 s4, s4
-                \\ vcmpe.f32 s0, s4
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f32 s2 , s4, s0
-                \\ vmlage.f32 s1 , s2 , s2
-                \\ bge 1f
-                \\ vdiv.f32 s2 , s0, s4
-                \\ vmul.f32 s2 , s2, s2
-                \\ vmul.f32 s3 , s1, s2
-                \\ vadd.f32 s1 , s3, s7
-                \\ vmov.f32 s0 , s4
-                \\ 1:
-                \\ vcmpe.f32 s5, s6
-                \\ vmrs APSR_nzcv, fpscr
-                \\ beq 2f
-                \\ vabs.f32 s5, s5
-                \\ vcmpe.f32 s0, s5
-                \\ vmrs APSR_nzcv, fpscr
-                \\ vdivge.f32 s2 , s5, s0
-                \\ vmlage.f32 s1 , s2 , s2
-                \\ bge 2f
-                \\ vdiv.f32 s2 , s0, s5
-                \\ vmul.f32 s2 , s2, s2
-                \\ vmul.f32 s3 , s1, s2
-                \\ vadd.f32 s1 , s3, s7
-                \\ vmov.f32 s0 , s5
-                \\ 2:
-                \\ add r1, r1, r2
-                \\ .endm
-                \\ .arm
-                \\ .align 5
-                \\ movs r12 , #0
-                \\ vmov.f32 s0 , r12
-                \\ vmov.f32 s1 , #1.0
-                \\ vmov.f32 s7 , s1
-                \\ vmov.f32 s6 , s0
-                \\ cmp r0, #0
-                \\ ble 20007f
-                \\ cmp r2, #0
-                \\ beq 20007f
-                \\ cmp r2, #1
-                \\ bne 20004f
-                \\ 20000:
-                \\ asrs r12, r0, #3
-                \\ ble 20002f
-                \\ 20001:
-                \\ KERNEL_F8
-                \\ subs r12, r12, #1
-                \\ bne 20001b
-                \\ 20002:
-                \\ ands r12, r0, #7
-                \\ ble 20007f
-                \\ 20003:
-                \\ KERNEL_F1
-                \\ subs r12, r12, #1
-                \\ bne 20003b
-                \\ b 20007f
-                \\ 20004:
-                \\ lsl r2, r2, #3
-                \\ 20005:
-                \\ mov r12, r0
-                \\ .align 5
-                \\ 20006:
-                \\ KERNEL_S1
-                \\ subs r12, r12, #1
-                \\ bne 20006b
-                \\ 20007:
-                \\ vsqrt.f32 s1, s1
-                \\ vmul.f32 s0, s0, s1
-                \\
-            ++ (if (on[0])
-                \\ vmov r0, s0
-                \\
-            else
-                "") ++
-                \\ bx lr
-                \\ .purgem KERNEL_F1
-                \\ .purgem KERNEL_F8
-                \\ .purgem KERNEL_S1
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

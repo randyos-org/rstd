@@ -31,29 +31,29 @@ const keys = [_][2][]const u8{
     .{ "zen", "sysv" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][6]bool{
-    .{ true, false, false, false, false, true },
-    .{ false, true, false, false, false, true },
-    .{ false, true, false, false, false, true },
-    .{ false, true, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, true, false, false, true },
-    .{ false, false, false, true, false, true },
-    .{ false, false, false, false, true, false },
-    .{ false, false, false, false, true, false },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, true, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 0, 0, 0, 1",
+    "0, 1, 0, 0, 0, 1",
+    "0, 1, 0, 0, 0, 1",
+    "0, 1, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 1, 0, 0, 1",
+    "0, 0, 0, 1, 0, 1",
+    "0, 0, 0, 0, 1, 0",
+    "0, 0, 0, 0, 1, 0",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 1, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -70,169 +70,162 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [6]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5
+    \\ .balign 512
+    \\ fldz
+    \\ testq %rdi, %rdi
+    \\ jle 20008f
+    \\ testq %rdx, %rdx
+    \\ je 20008f
+    \\ salq $4, %rdx
+    \\ fldz
+    \\ fldz
+    \\ fldz
+    \\ cmpq $8 * 2, %rdx
+    \\ jne 20003f
+    \\ movq %rdi, %rax
+    \\ sarq $2, %rax
+    \\ jle 20001f
+    \\ .balign 16
+    \\ 20000:
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 2 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 3 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ fldl 4 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 5 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 6 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 7 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ addq $8 * 8, %rsi
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ decq %rax
+    \\ jg 20000b
+    \\ .balign 16
+    \\ 20001:
+    \\ andq $3, %rdi
+    \\ jle 20007f
+    \\ .balign 16
+    \\ 20002:
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ faddp %st,%st(3)
+    \\ faddp %st,%st(1)
+    \\ addq $2 * 8, %rsi
+    \\ decq %rdi
+    \\ jg 20002b
+    \\ jmp 20007f
+    \\ .balign 16
+    \\ 20003:
+    \\ movq %rdi, %rax
+    \\ sarq $2, %rax
+    \\ jle 20005f
+    \\ .balign 16
+    \\ 20004:
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ addq %rdx, %rsi
+    \\ fmul %st(0), %st
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ addq %rdx, %rsi
+    \\ fmul %st(0), %st
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ addq %rdx, %rsi
+    \\ fmul %st(0), %st
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ addq %rdx, %rsi
+    \\ fmul %st(0), %st
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ decq %rax
+    \\ jg 20004b
+    \\ .balign 16
+    \\ 20005:
+    \\ andq $3, %rdi
+    \\ jle 20007f
+    \\ .balign 16
+    \\ 20006:
+    \\ fldl 0 * 8(%rsi)
+    \\ fmul %st(0), %st
+    \\ fldl 1 * 8(%rsi)
+    \\ addq %rdx, %rsi
+    \\ fmul %st(0), %st
+    \\ faddp %st,%st(3)
+    \\ faddp %st,%st(1)
+    \\ decq %rdi
+    \\ jg 20006b
+    \\ .balign 16
+    \\ 20007:
+    \\ faddp %st,%st(2)
+    \\ faddp %st,%st(1)
+    \\ faddp %st,%st(1)
+    \\ .balign 16
+    \\ 20008:
+    \\ fsqrt
+    \\ subq $2 * 8, %rsp
+    \\ fstpl (%rsp)
+    \\ .if \bp5
+    \\ movsd (%rsp), %xmm0
+    \\ .endif
+    \\ .if \bp4
+    \\ movlps (%rsp), %xmm0
+    \\ .endif
+    \\ add $2 * 8, %rsp
+    \\ ret
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn znrm2() callconv(.naked) void {
-            asm volatile (
-                \\ .text
-                \\ .balign 512
-                \\ fldz
-                \\ testq %rdi, %rdi
-                \\ jle 20008f
-                \\ testq %rdx, %rdx
-                \\ je 20008f
-                \\ salq $4, %rdx
-                \\ fldz
-                \\ fldz
-                \\ fldz
-                \\ cmpq $8 * 2, %rdx
-                \\ jne 20003f
-                \\ movq %rdi, %rax
-                \\ sarq $2, %rax
-                \\ jle 20001f
-                \\ .balign 16
-                \\ 20000:
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[4])
-                \\ prefetch ((128 * 3) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 2 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 3 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ fldl 4 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 5 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 6 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 7 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ addq $8 * 8, %rsi
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ decq %rax
-                \\ jg 20000b
-                \\ .balign 16
-                \\ 20001:
-                \\ andq $3, %rdi
-                \\ jle 20007f
-                \\ .balign 16
-                \\ 20002:
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ faddp %st,%st(3)
-                \\ faddp %st,%st(1)
-                \\ addq $2 * 8, %rsi
-                \\ decq %rdi
-                \\ jg 20002b
-                \\ jmp 20007f
-                \\ .balign 16
-                \\ 20003:
-                \\ movq %rdi, %rax
-                \\ sarq $2, %rax
-                \\ jle 20005f
-                \\ .balign 16
-                \\ 20004:
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ addq %rdx, %rsi
-                \\ fmul %st(0), %st
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ addq %rdx, %rsi
-                \\ fmul %st(0), %st
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ addq %rdx, %rsi
-                \\ fmul %st(0), %st
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ addq %rdx, %rsi
-                \\ fmul %st(0), %st
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ decq %rax
-                \\ jg 20004b
-                \\ .balign 16
-                \\ 20005:
-                \\ andq $3, %rdi
-                \\ jle 20007f
-                \\ .balign 16
-                \\ 20006:
-                \\ fldl 0 * 8(%rsi)
-                \\ fmul %st(0), %st
-                \\ fldl 1 * 8(%rsi)
-                \\ addq %rdx, %rsi
-                \\ fmul %st(0), %st
-                \\ faddp %st,%st(3)
-                \\ faddp %st,%st(1)
-                \\ decq %rdi
-                \\ jg 20006b
-                \\ .balign 16
-                \\ 20007:
-                \\ faddp %st,%st(2)
-                \\ faddp %st,%st(1)
-                \\ faddp %st,%st(1)
-                \\ .balign 16
-                \\ 20008:
-                \\ fsqrt
-                \\ subq $2 * 8, %rsp
-                \\ fstpl (%rsp)
-                \\
-            ++ (if (on[5])
-                \\ movsd (%rsp), %xmm0
-                \\
-            else
-                "") ++ (if (on[4])
-                \\ movlps (%rsp), %xmm0
-                \\
-            else
-                "") ++
-                \\ add $2 * 8, %rsp
-                \\ ret
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
