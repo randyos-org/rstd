@@ -120,6 +120,15 @@ pub fn nakedLines(a: std.mem.Allocator, ar: Arch, lines: []const []const u8) Err
                 // (not `.endm`/`.endif`/`.endr`, which need the space to miss).
                 std.mem.startsWith(u8, t, ".ent ") or std.mem.eql(u8, t, ".end") or
                 std.mem.startsWith(u8, t, ".end ")) continue;
+            // Zig places the function in its own section; the source's `.text`
+            // would move the code out of it where functions get a section each.
+            // Any other section would hold data the code needs: not handled.
+            if (std.mem.eql(u8, t, ".text")) continue;
+            if (std.mem.startsWith(u8, t, ".section ")) {
+                const name = std.mem.trim(u8, t[".section ".len..], " \t\"");
+                if (std.mem.eql(u8, name, ".text")) continue;
+                std.debug.panic("a naked function cannot switch sections: {s}", .{t});
+            }
             if (ar.align_bytes and std.mem.startsWith(u8, t, ".align ")) {
                 try out.append(a, try std.fmt.allocPrint(a, " .b{s}", .{t[1..]}));
                 continue;

@@ -11,13 +11,14 @@
 //! selects code with `#ifdef <CORE>` (and the ABI with `WINDOWS_ABI` and the
 //! like). Which cores use a source, and for which precisions, comes from the
 //! `KERNEL.<core>` files (`kernel_map.zig`). Cores whose expansions are
-//! identical share one file.
+//! identical, or nearly (`similar`), share one file.
 //!
 //! Each function is the source's own, unchanged: it reads its arguments where
 //! the calling convention puts them, saves what it uses, and returns. Only the
-//! directives that declare the function go (Zig declares it), tabs become
-//! spaces (Zig's tokenizer requires it inside `\`), and labels get the
-//! file's name appended (one object holds many of these).
+//! directives that declare the function or its section go (Zig places it),
+//! tabs become spaces (Zig's tokenizer requires it inside `\`), named labels
+//! become numeric local ones (one object holds many of these), and x86's
+//! `.align` becomes `.balign` (Mach-O reads `.align` as a power of two).
 //!
 //! `asm/__root__.zig` lists which cores use which file.
 
@@ -357,11 +358,11 @@ fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: [
     for (texts) |t| try put(&w, a, "    .{{ \"{s}\", \"{s}\" }},\n", .{ t.core, t.variant });
     try put(&w, a, "}};\n\n", .{});
     if (part_count > 0) {
-        try put(&w, a, "/// Which parts each key's function has.\nconst parts = [_][{d}]bool{{\n", .{part_count});
+        try put(&w, a, "/// Which parts each key's function has: `__bk`'s arguments.\nconst parts = [_][]const u8{{\n", .{});
         for (texts, 0..) |_, i| {
-            try put(&w, a, "    .{{", .{});
-            for (conds.keys(), 0..) |c, j| try put(&w, a, "{s}{s}", .{ if (j == 0) " " else ", ", if (c & (@as(u128, 1) << @intCast(i)) != 0) "true" else "false" });
-            try put(&w, a, " }},\n", .{});
+            try put(&w, a, "    \"", .{});
+            for (conds.keys(), 0..) |c, j| try put(&w, a, "{s}{s}", .{ if (j == 0) "" else ", ", if (c & (@as(u128, 1) << @intCast(i)) != 0) "1" else "0" });
+            try put(&w, a, "\",\n", .{});
         }
         try put(&w, a, "}};\n\n", .{});
     }
@@ -396,28 +397,46 @@ fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: [
         \\
         \\
     );
-    if (part_count > 0) {
-        try put(&w, a, "fn Body(comptime on: [{d}]bool) type {{\n    return struct {{\n", .{part_count});
-    } else {
-        try put(&w, a, "const Body = struct {{\n", .{});
+    if (part_count == 0) {
+        try put(&w, a, "const Body = struct {{\npub fn {s}() callconv(.naked) void {{\nasm volatile (\n", .{role});
+        for (lines) |l| try put(&w, a, "\\\\{s}\n", .{l.text});
+        try w.appendSlice(a, "\\\\\n);\n}\n};\n");
+        return w.items;
     }
-    try put(&w, a, "pub fn {s}() callconv(.naked) void {{\nasm volatile (\n", .{role});
+
+    // The parts are chosen by the assembler, not by joining strings at
+    // comptime, which costs minutes per file: the text is one macro, each
+    // part between `.if \bpN` and `.endif`, and a function expands it with
+    // its part flags. A macro, not symbols, so nothing reaches the object.
+    try w.appendSlice(a,
+        \\/// The functions' one text, a macro whose parameters select the parts.
+        \\const text =
+        \\
+    );
+    try w.appendSlice(a, "\\\\ .macro __bk");
+    for (0..part_count) |j| try put(&w, a, "{s} bp{d}", .{ if (j == 0) "" else ",", j });
+    try w.appendSlice(a, "\n");
     var i: usize = 0;
-    var first = true;
     while (i < lines.len) {
         const mask = lines[i].mask;
         var e = i;
         while (e < lines.len and lines[e].mask == mask) e += 1;
-        if (!first) try put(&w, a, "++ ", .{});
-        if (mask != all) try put(&w, a, "(if (on[{d}])\n", .{conds.getIndex(mask).?});
+        if (mask != all) try put(&w, a, "\\\\ .if \\bp{d}\n", .{conds.getIndex(mask).?});
         for (lines[i..e]) |l| try put(&w, a, "\\\\{s}\n", .{l.text});
-        try put(&w, a, "\\\\\n", .{});
-        if (mask != all) try put(&w, a, "else \"\")\n", .{});
-        first = false;
+        if (mask != all) try w.appendSlice(a, "\\\\ .endif\n");
         i = e;
     }
-    try w.appendSlice(a, ");\n}\n");
-    try w.appendSlice(a, if (part_count > 0) "};\n}\n" else "};\n");
+    try w.appendSlice(a, "\\\\ .endm\n\\\\\n;\n\n");
+    try put(&w, a,
+        \\fn Body(comptime args: []const u8) type {{
+        \\    return struct {{
+        \\        pub fn {s}() callconv(.naked) void {{
+        \\            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
+        \\        }}
+        \\    }};
+        \\}}
+        \\
+    , .{role});
     return w.items;
 }
 

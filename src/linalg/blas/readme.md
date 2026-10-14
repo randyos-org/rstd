@@ -26,6 +26,9 @@ next to each routine.
   file, with the differing lines chosen at comptime.
 - **Labels:** named labels become numeric local labels, so none reach the
   symbol table.
+- **Alignment:** x86 `.align N` means N bytes on ELF and COFF but 2^N on
+  Mach-O, so the x86 sources' `.align` is written as `.balign`, bytes on every
+  object format. `uk.zig` does the same for the C drivers' blocks.
 
 ## Symbols and linking
 
@@ -34,8 +37,8 @@ they never leave a shared library rstd is built into. COFF has no visibility;
 a DLL exports nothing without `dllexport`.
 
 The qemu rigs link with `lld`, since the self-hosted ELF linker ignores linker
-scripts. LLVM-built kernel objects do too; the self-hosted linker misplaces
-their symbols.
+scripts. LLVM-built kernel objects do too, since the self-hosted linker
+misplaces their symbols, except on Mach-O, which `lld` cannot write.
 
 ## Not supported by Zig
 
@@ -72,8 +75,20 @@ and aarch64 and riscv64 have no self-hosted backend that covers them.
 `-Dblas-llvm=true|false` overrides the choice; leaving it unset uses LLVM only
 where `build/blaskern.zig` (`needsLlvm`) says the kernels need it.
 
+`-Dblas-cores` picks which objects are built: `target`, the debug default,
+builds only the core the target maps to (the host's own, detected, for a
+native target); `all`, the release default, every core the target can run;
+`none`, no objects, leaving the portable kernels. A consumer passes its
+optimize mode to rstd so that the default follows it.
+
 ## Qemu rigs
 
 `zig build qemu-test-<machine>` runs the kernel tests under `qemu-system-*`
 (see `build/qemutest.zig` for the machines). `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
+
+Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
+x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
+since WHPX on an AMD host shows macOS the AMD CPU, which it does not boot on.
+`zig build rstd-check-macho` builds the tests for x86_64 and aarch64 macOS
+without running them, which is where Mach-O assembly errors show.

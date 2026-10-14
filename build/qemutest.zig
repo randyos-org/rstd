@@ -267,7 +267,10 @@ const machines = [_]Machine{
         .args = &.{
             // TCG emulates (slow) but honors the Intel vendor below; under WHPX
             // ("whpx", as randyos's own VM uses) the kernel stopped at
-            // EXITBS:START, as if it saw the host's AMD CPUID
+            // EXITBS:START, as if it saw the host's AMD CPUID. Once the
+            // installer hung here with every CPU spinning in the kernel,
+            // interrupts off, possibly after the host slept; if it recurs
+            // with the host awake, use `thread=single` (one host thread).
             "-accel",  "tcg,thread=multi",
             "-M",      "q35",
             // OSX-KVM's OpenCore-Boot.sh model, less its KVM-only flags: macOS
