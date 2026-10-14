@@ -33,27 +33,27 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 1, 0, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1",
-    "0, 1, 0, 0, 0, 0",
-    "0, 1, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 1",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0",
+    "1, 0, 0, 1, 0, 0, 0",
+    "1, 0, 0, 1, 0, 0, 0",
+    "1, 0, 0, 1, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 1, 0, 0",
+    "1, 0, 0, 0, 0, 1, 0",
+    "0, 1, 0, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 1",
+    "1, 0, 0, 0, 0, 1, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -72,7 +72,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6
     \\ .macro LOAD_AND_COMPARE_TO_MXX REG
     \\ movss 0 * 4(%rsi), \REG
     \\ addq %rdx, %rsi
@@ -148,6 +148,9 @@ const text =
     \\ .endif
     \\ .if \bp1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movups 0 * 4(%rsi), %xmm4
     \\ andps %xmm15, %xmm4
@@ -265,6 +268,9 @@ const text =
     \\ .endif
     \\ .if \bp1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movups 0 * 4(%rsi), %xmm1
     \\ andps %xmm15, %xmm1
@@ -385,6 +391,9 @@ const text =
     \\ .endif
     \\ .if \bp5
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ .if \bp0
     \\ movsd 0 * 4(%rsi), %xmm4
@@ -516,6 +525,9 @@ const text =
     \\ .endif
     \\ .if \bp5
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ .if \bp0
     \\ movsd 0 * 4(%rsi), %xmm1
@@ -652,6 +664,9 @@ const text =
     \\ .endif
     \\ .if \bp1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movss 0 * 4(%rsi), %xmm4
     \\ addq %rdx, %rsi
