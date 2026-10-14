@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "ppcg4", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,207 +32,187 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ sldi 9, 9, 4
+    \\ li 11, 8
+    \\ sub 8, 8, 9
+    \\ li 5, 3 * 16 * 8
+    \\ cmpdi 0, 3, 0
+    \\ blelr- 0
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20004f
+    \\ fcmpu 0, 0, 2
+    \\ bne- 0, 20004f
+    \\ lwz 12, (((0) * 8) + 96)(1)
+    \\ cmpdi 0, 12, 1
+    \\ beq- 0, 20004f
+    \\ 20000:
+    \\ sradi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 20002f
+    \\ .align 4
+    \\ 20001:
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ bdnz 20001b
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20003:
+    \\ stfdux 0, 8, 9
+    \\ stfdx 0, 8, 11
+    \\ bdnz 20003b
+    \\ blr
+    \\ .align 4
+    \\ 20004:
+    \\ mr 4, 8
+    \\ sradi. 0, 3, 2
+    \\ mtspr 9, 0
+    \\ beq- 20007f
+    \\ lfdux 0, 8, 9
+    \\ lfdx 3, 8, 11
+    \\ lfdux 4, 8, 9
+    \\ lfdx 5, 8, 11
+    \\ lfdux 6, 8, 9
+    \\ fmul 10, 1, 0
+    \\ lfdx 7, 8, 11
+    \\ fmul 11, 1, 3
+    \\ lfdux 8, 8, 9
+    \\ fmul 12, 1, 4
+    \\ fmul 13, 1, 5
+    \\ bdz 20006f
+    \\ .align 4
+    \\ 20005:
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ fnmsub 10, 2, 3, 10
+    \\ lfdx 9, 8, 11
+    \\ fmadd 11, 2, 0, 11
+    \\ lfdux 0, 8, 9
+    \\ fnmsub 12, 2, 5, 12
+    \\ lfdx 3, 8, 11
+    \\ fmadd 13, 2, 4, 13
+    \\ lfdux 4, 8, 9
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfdux 10, 4, 9
+    \\ fmul 10, 1, 6
+    \\ stfdx 11, 4, 11
+    \\ fmul 11, 1, 7
+    \\ stfdux 12, 4, 9
+    \\ fmul 12, 1, 8
+    \\ stfdx 13, 4, 11
+    \\ fmul 13, 1, 9
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ fnmsub 10, 2, 7, 10
+    \\ lfdx 5, 8, 11
+    \\ fmadd 11, 2, 6, 11
+    \\ lfdux 6, 8, 9
+    \\ fnmsub 12, 2, 9, 12
+    \\ lfdx 7, 8, 11
+    \\ fmadd 13, 2, 8, 13
+    \\ lfdux 8, 8, 9
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfdux 10, 4, 9
+    \\ fmul 10, 1, 0
+    \\ stfdx 11, 4, 11
+    \\ fmul 11, 1, 3
+    \\ stfdux 12, 4, 9
+    \\ fmul 12, 1, 4
+    \\ stfdx 13, 4, 11
+    \\ fmul 13, 1, 5
+    \\ bdnz 20005b
+    \\ .align 4
+    \\ 20006:
+    \\ fnmsub 10, 2, 3, 10
+    \\ lfdx 9, 8, 11
+    \\ fmadd 11, 2, 0, 11
+    \\ fnmsub 12, 2, 5, 12
+    \\ fmadd 13, 2, 4, 13
+    \\ stfdux 10, 4, 9
+    \\ fmul 10, 1, 6
+    \\ stfdx 11, 4, 11
+    \\ fmul 11, 1, 7
+    \\ stfdux 12, 4, 9
+    \\ fmul 12, 1, 8
+    \\ stfdx 13, 4, 11
+    \\ fmul 13, 1, 9
+    \\ fnmsub 10, 2, 7, 10
+    \\ fmadd 11, 2, 6, 11
+    \\ fnmsub 12, 2, 9, 12
+    \\ fmadd 13, 2, 8, 13
+    \\ stfdux 10, 4, 9
+    \\ stfdx 11, 4, 11
+    \\ stfdux 12, 4, 9
+    \\ stfdx 13, 4, 11
+    \\ .align 4
+    \\ 20007:
+    \\ andi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20008:
+    \\ lfdux 3, 8, 9
+    \\ lfdx 4, 8, 11
+    \\ fmul 5, 1, 3
+    \\ fmul 6, 1, 4
+    \\ fnmsub 5, 2, 4, 5
+    \\ fmadd 6, 2, 3, 6
+    \\ stfdux 5, 4, 9
+    \\ stfdx 6, 4, 11
+    \\ bdnz 20008b
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn zscal() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -8
-                \\ li 0, 0
-                \\ stw 0, 0(1)
-                \\ lfs 0, 0(1)
-                \\ addi 1, 1, 8
-                \\ sldi 9, 9, 4
-                \\ li 11, 8
-                \\ sub 8, 8, 9
-                \\ li 5, 3 * 16 * 8
-                \\ cmpdi 0, 3, 0
-                \\ blelr- 0
-                \\ fcmpu 0, 0, 1
-                \\ bne- 0, 20004f
-                \\ fcmpu 0, 0, 2
-                \\ bne- 0, 20004f
-                \\ lwz 12, (((0) * 8) + 96)(1)
-                \\ cmpdi 0, 12, 1
-                \\ beq- 0, 20004f
-                \\ 20000:
-                \\ sradi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beq- 20002f
-                \\ .align 4
-                \\ 20001:
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\ bdnz 20001b
-                \\ .align 4
-                \\ 20002:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20003:
-                \\ stfdux 0, 8, 9
-                \\ stfdx 0, 8, 11
-                \\ bdnz 20003b
-                \\ blr
-                \\ .align 4
-                \\ 20004:
-                \\ mr 4, 8
-                \\ sradi. 0, 3, 2
-                \\ mtspr 9, 0
-                \\ beq- 20007f
-                \\ lfdux 0, 8, 9
-                \\ lfdx 3, 8, 11
-                \\ lfdux 4, 8, 9
-                \\ lfdx 5, 8, 11
-                \\ lfdux 6, 8, 9
-                \\ fmul 10, 1, 0
-                \\ lfdx 7, 8, 11
-                \\ fmul 11, 1, 3
-                \\ lfdux 8, 8, 9
-                \\ fmul 12, 1, 4
-                \\ fmul 13, 1, 5
-                \\ bdz 20006f
-                \\ .align 4
-                \\ 20005:
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ fnmsub 10, 2, 3, 10
-                \\ lfdx 9, 8, 11
-                \\ fmadd 11, 2, 0, 11
-                \\ lfdux 0, 8, 9
-                \\ fnmsub 12, 2, 5, 12
-                \\ lfdx 3, 8, 11
-                \\ fmadd 13, 2, 4, 13
-                \\ lfdux 4, 8, 9
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 10, 4, 9
-                \\ fmul 10, 1, 6
-                \\ stfdx 11, 4, 11
-                \\ fmul 11, 1, 7
-                \\ stfdux 12, 4, 9
-                \\ fmul 12, 1, 8
-                \\ stfdx 13, 4, 11
-                \\ fmul 13, 1, 9
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ fnmsub 10, 2, 7, 10
-                \\ lfdx 5, 8, 11
-                \\ fmadd 11, 2, 6, 11
-                \\ lfdux 6, 8, 9
-                \\ fnmsub 12, 2, 9, 12
-                \\ lfdx 7, 8, 11
-                \\ fmadd 13, 2, 8, 13
-                \\ lfdux 8, 8, 9
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 10, 4, 9
-                \\ fmul 10, 1, 0
-                \\ stfdx 11, 4, 11
-                \\ fmul 11, 1, 3
-                \\ stfdux 12, 4, 9
-                \\ fmul 12, 1, 4
-                \\ stfdx 13, 4, 11
-                \\ fmul 13, 1, 5
-                \\ bdnz 20005b
-                \\ .align 4
-                \\ 20006:
-                \\ fnmsub 10, 2, 3, 10
-                \\ lfdx 9, 8, 11
-                \\ fmadd 11, 2, 0, 11
-                \\ fnmsub 12, 2, 5, 12
-                \\ fmadd 13, 2, 4, 13
-                \\ stfdux 10, 4, 9
-                \\ fmul 10, 1, 6
-                \\ stfdx 11, 4, 11
-                \\ fmul 11, 1, 7
-                \\ stfdux 12, 4, 9
-                \\ fmul 12, 1, 8
-                \\ stfdx 13, 4, 11
-                \\ fmul 13, 1, 9
-                \\ fnmsub 10, 2, 7, 10
-                \\ fmadd 11, 2, 6, 11
-                \\ fnmsub 12, 2, 9, 12
-                \\ fmadd 13, 2, 8, 13
-                \\ stfdux 10, 4, 9
-                \\ stfdx 11, 4, 11
-                \\ stfdux 12, 4, 9
-                \\ stfdx 13, 4, 11
-                \\ .align 4
-                \\ 20007:
-                \\ andi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20008:
-                \\ lfdux 3, 8, 9
-                \\ lfdx 4, 8, 11
-                \\ fmul 5, 1, 3
-                \\ fmul 6, 1, 4
-                \\ fnmsub 5, 2, 4, 5
-                \\ fmadd 6, 2, 3, 6
-                \\ stfdux 5, 4, 9
-                \\ stfdx 6, 4, 11
-                \\ bdnz 20008b
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

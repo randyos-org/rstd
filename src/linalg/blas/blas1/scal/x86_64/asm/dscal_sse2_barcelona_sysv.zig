@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "bobcat", "sysv" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,499 +32,443 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .balign 512
+    \\ movq 24(%rsp), %r9
+    \\ testq %rdi, %rdi
+    \\ jle 20024f
+    \\ leaq (, %r8, 8), %r8
+    \\ xorps %xmm1, %xmm1
+    \\ comisd %xmm0, %xmm1
+    \\ jne 20011f # Alpha != 0.e0
+    \\ jp 20011f # For Alpha = NaN
+    \\ cmpq $1, %r9
+    \\ je 20011f # disable the Alpha=zero path as it does not handle x=inf or nan
+    \\ cmpq $8, %r8
+    \\ jne 20006f
+    \\ testq $15, %rcx # aligned for quad word?
+    \\ je 20000f
+    \\ movsd %xmm1, 0 * 8(%rcx)
+    \\ addq $8, %rcx
+    \\ decq %rdi
+    \\ jle 20024f
+    \\ .balign 8
+    \\ 20000:
+    \\ movq %rdi, %rax # rcx = n
+    \\ sarq $4, %rax
+    \\ jle 20002f
+    \\ .balign 16
+    \\ 20001:
+    \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
+    \\ movaps %xmm1, 0 * 8(%rcx)
+    \\ movaps %xmm1, 2 * 8(%rcx)
+    \\ movaps %xmm1, 4 * 8(%rcx)
+    \\ movaps %xmm1, 6 * 8(%rcx)
+    \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
+    \\ movaps %xmm1, 8 * 8(%rcx)
+    \\ movaps %xmm1, 10 * 8(%rcx)
+    \\ movaps %xmm1, 12 * 8(%rcx)
+    \\ movaps %xmm1, 14 * 8(%rcx)
+    \\ addq $16 * 8, %rcx
+    \\ decq %rax
+    \\ jg 20001b
+    \\ .balign 16
+    \\ 20002:
+    \\ testq $15, %rdi
+    \\ je 20024f
+    \\ testq $8, %rdi
+    \\ je 20003f
+    \\ movaps %xmm1, 0 * 8(%rcx)
+    \\ movaps %xmm1, 2 * 8(%rcx)
+    \\ movaps %xmm1, 4 * 8(%rcx)
+    \\ movaps %xmm1, 6 * 8(%rcx)
+    \\ addq $8 * 8, %rcx
+    \\ .balign 8
+    \\ 20003:
+    \\ testq $4, %rdi
+    \\ je 20004f
+    \\ movaps %xmm1, 0 * 8(%rcx)
+    \\ movaps %xmm1, 2 * 8(%rcx)
+    \\ addq $4 * 8, %rcx
+    \\ .balign 8
+    \\ 20004:
+    \\ testq $2, %rdi
+    \\ je 20005f
+    \\ movaps %xmm1, 0 * 8(%rcx)
+    \\ addq $2 * 8, %rcx
+    \\ .balign 8
+    \\ 20005:
+    \\ testq $1, %rdi
+    \\ je 20024f
+    \\ movsd %xmm1, 0 * 8(%rcx)
+    \\ jmp 20024f
+    \\ .balign 16
+    \\ 20006:
+    \\ movq %rdi, %rax
+    \\ sarq $3, %rax
+    \\ jle 20008f
+    \\ .balign 16
+    \\ 20007:
+    \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ decq %rax
+    \\ jg 20007b
+    \\ .balign 16
+    \\ 20008:
+    \\ testq $7, %rdi
+    \\ je 20024f
+    \\ testq $4, %rdi
+    \\ je 20009f
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ .balign 8
+    \\ 20009:
+    \\ testq $2, %rdi
+    \\ je 20010f
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ movsd %xmm1, (%rcx)
+    \\ addq %r8, %rcx
+    \\ .balign 8
+    \\ 20010:
+    \\ testq $1, %rdi
+    \\ je 20024f
+    \\ movsd %xmm1, (%rcx)
+    \\ jmp 20024f
+    \\ .balign 16
+    \\ 20011:
+    \\ unpcklpd %xmm0, %xmm0
+    \\ cmpq $8, %r8
+    \\ jne 20019f
+    \\ testq $8, %rcx
+    \\ je 20012f
+    \\ movsd 0 * 8(%rcx), %xmm1
+    \\ mulsd %xmm0, %xmm1
+    \\ movsd %xmm1, 0 * 8(%rcx)
+    \\ addq $8, %rcx
+    \\ decq %rdi
+    \\ jle 20024f
+    \\ .balign 8
+    \\ 20012:
+    \\ subq $-16 * 8, %rcx
+    \\ movq %rdi, %rax # rcx = n
+    \\ sarq $4, %rax
+    \\ jle 20015f
+    \\ .if \bp0
+    \\ movaps %xmm0, %xmm1
+    \\ mulpd -16 * 8(%rcx), %xmm1
+    \\ movaps %xmm0, %xmm2
+    \\ mulpd -14 * 8(%rcx), %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulpd -12 * 8(%rcx), %xmm3
+    \\ movaps %xmm0, %xmm4
+    \\ mulpd -10 * 8(%rcx), %xmm4
+    \\ movaps %xmm0, %xmm5
+    \\ mulpd -8 * 8(%rcx), %xmm5
+    \\ movaps %xmm0, %xmm6
+    \\ mulpd -6 * 8(%rcx), %xmm6
+    \\ movaps %xmm0, %xmm7
+    \\ mulpd -4 * 8(%rcx), %xmm7
+    \\ movaps %xmm0, %xmm8
+    \\ mulpd -2 * 8(%rcx), %xmm8
+    \\ .endif
+    \\ .if \bp1
+    \\ movaps -16 * 8(%rcx), %xmm1
+    \\ movaps -14 * 8(%rcx), %xmm2
+    \\ movaps -12 * 8(%rcx), %xmm3
+    \\ movaps -10 * 8(%rcx), %xmm4
+    \\ movaps -8 * 8(%rcx), %xmm5
+    \\ movaps -6 * 8(%rcx), %xmm6
+    \\ movaps -4 * 8(%rcx), %xmm7
+    \\ movaps -2 * 8(%rcx), %xmm8
+    \\ .endif
+    \\ decq %rax
+    \\ jle 20014f
+    \\ .balign 16
+    \\ 20013:
+    \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm1
+    \\ .endif
+    \\ movaps %xmm1, -16 * 8(%rcx)
+    \\ .if \bp1
+    \\ movaps 0 * 8(%rcx), %xmm1
+    \\ mulpd %xmm0, %xmm2
+    \\ .endif
+    \\ movaps %xmm2, -14 * 8(%rcx)
+    \\ .if \bp1
+    \\ movaps 2 * 8(%rcx), %xmm2
+    \\ mulpd %xmm0, %xmm3
+    \\ .endif
+    \\ movaps %xmm3, -12 * 8(%rcx)
+    \\ .if \bp1
+    \\ movaps 4 * 8(%rcx), %xmm3
+    \\ mulpd %xmm0, %xmm4
+    \\ .endif
+    \\ movaps %xmm4, -10 * 8(%rcx)
+    \\ .if \bp0
+    \\ movaps %xmm0, %xmm1
+    \\ mulpd 0 * 8(%rcx), %xmm1
+    \\ movaps %xmm0, %xmm2
+    \\ mulpd 2 * 8(%rcx), %xmm2
+    \\ movaps %xmm0, %xmm3
+    \\ mulpd 4 * 8(%rcx), %xmm3
+    \\ movaps %xmm0, %xmm4
+    \\ mulpd 6 * 8(%rcx), %xmm4
+    \\ .endif
+    \\ .if \bp1
+    \\ movaps 6 * 8(%rcx), %xmm4
+    \\ .endif
+    \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm5
+    \\ .endif
+    \\ movaps %xmm5, -8 * 8(%rcx)
+    \\ .if \bp1
+    \\ movaps 8 * 8(%rcx), %xmm5
+    \\ mulpd %xmm0, %xmm6
+    \\ .endif
+    \\ movaps %xmm6, -6 * 8(%rcx)
+    \\ .if \bp1
+    \\ movaps 10 * 8(%rcx), %xmm6
+    \\ mulpd %xmm0, %xmm7
+    \\ .endif
+    \\ movaps %xmm7, -4 * 8(%rcx)
+    \\ .if \bp1
+    \\ movaps 12 * 8(%rcx), %xmm7
+    \\ mulpd %xmm0, %xmm8
+    \\ .endif
+    \\ movaps %xmm8, -2 * 8(%rcx)
+    \\ .if \bp0
+    \\ movaps %xmm0, %xmm5
+    \\ mulpd 8 * 8(%rcx), %xmm5
+    \\ movaps %xmm0, %xmm6
+    \\ mulpd 10 * 8(%rcx), %xmm6
+    \\ movaps %xmm0, %xmm7
+    \\ mulpd 12 * 8(%rcx), %xmm7
+    \\ movaps %xmm0, %xmm8
+    \\ mulpd 14 * 8(%rcx), %xmm8
+    \\ .endif
+    \\ .if \bp1
+    \\ movaps 14 * 8(%rcx), %xmm8
+    \\ .endif
+    \\ subq $-16 * 8, %rcx
+    \\ decq %rax
+    \\ jg 20013b
+    \\ .balign 16
+    \\ 20014:
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm1
+    \\ .endif
+    \\ movaps %xmm1, -16 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm2
+    \\ .endif
+    \\ movaps %xmm2, -14 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm3
+    \\ .endif
+    \\ movaps %xmm3, -12 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm4
+    \\ .endif
+    \\ movaps %xmm4, -10 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm5
+    \\ .endif
+    \\ movaps %xmm5, -8 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm6
+    \\ .endif
+    \\ movaps %xmm6, -6 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm7
+    \\ .endif
+    \\ movaps %xmm7, -4 * 8(%rcx)
+    \\ .if \bp1
+    \\ mulpd %xmm0, %xmm8
+    \\ .endif
+    \\ movaps %xmm8, -2 * 8(%rcx)
+    \\ subq $-16 * 8, %rcx
+    \\ .balign 8
+    \\ 20015:
+    \\ testq $15, %rdi
+    \\ je 20024f
+    \\ testq $8, %rdi
+    \\ je 20016f
+    \\ movaps -16 * 8(%rcx), %xmm1
+    \\ movaps -14 * 8(%rcx), %xmm2
+    \\ movaps -12 * 8(%rcx), %xmm3
+    \\ movaps -10 * 8(%rcx), %xmm4
+    \\ mulpd %xmm0, %xmm1
+    \\ movaps %xmm1, -16 * 8(%rcx)
+    \\ mulpd %xmm0, %xmm2
+    \\ movaps %xmm2, -14 * 8(%rcx)
+    \\ mulpd %xmm0, %xmm3
+    \\ movaps %xmm3, -12 * 8(%rcx)
+    \\ mulpd %xmm0, %xmm4
+    \\ movaps %xmm4, -10 * 8(%rcx)
+    \\ addq $8 * 8, %rcx
+    \\ .balign 8
+    \\ 20016:
+    \\ testq $4, %rdi
+    \\ je 20017f
+    \\ movaps -16 * 8(%rcx), %xmm1
+    \\ movaps -14 * 8(%rcx), %xmm2
+    \\ mulpd %xmm0, %xmm1
+    \\ movaps %xmm1, -16 * 8(%rcx)
+    \\ mulpd %xmm0, %xmm2
+    \\ movaps %xmm2, -14 * 8(%rcx)
+    \\ addq $4 * 8, %rcx
+    \\ .balign 8
+    \\ 20017:
+    \\ testq $2, %rdi
+    \\ je 20018f
+    \\ movaps -16 * 8(%rcx), %xmm1
+    \\ mulpd %xmm0, %xmm1
+    \\ movaps %xmm1, -16 * 8(%rcx)
+    \\ addq $2 * 8, %rcx
+    \\ .balign 8
+    \\ 20018:
+    \\ testq $1, %rdi
+    \\ je 20024f
+    \\ movsd -16 * 8(%rcx), %xmm1
+    \\ mulsd %xmm0, %xmm1
+    \\ movsd %xmm1, -16 * 8(%rcx)
+    \\ jmp 20024f
+    \\ .balign 8
+    \\ 20019:
+    \\ movq %rcx, %r10
+    \\ movq %rdi, %rax # rcx = n
+    \\ sarq $3, %rax # (n >> 3)
+    \\ jle 20021f
+    \\ .balign 16
+    \\ 20020:
+    \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
+    \\ movsd (%rcx), %xmm1
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm2
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm3
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm4
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm5
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm6
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm7
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm8
+    \\ addq %r8, %rcx
+    \\ mulsd %xmm0, %xmm1
+    \\ mulsd %xmm0, %xmm2
+    \\ mulsd %xmm0, %xmm3
+    \\ mulsd %xmm0, %xmm4
+    \\ mulsd %xmm0, %xmm5
+    \\ mulsd %xmm0, %xmm6
+    \\ mulsd %xmm0, %xmm7
+    \\ mulsd %xmm0, %xmm8
+    \\ movsd %xmm1, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm2, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm3, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm4, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm5, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm6, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm7, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm8, (%r10)
+    \\ addq %r8, %r10
+    \\ decq %rax
+    \\ jg 20020b
+    \\ .balign 16
+    \\ 20021:
+    \\ testq $7, %rdi
+    \\ je 20024f
+    \\ testq $4, %rdi
+    \\ je 20022f
+    \\ movsd (%rcx), %xmm1
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm2
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm3
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm4
+    \\ addq %r8, %rcx
+    \\ mulsd %xmm0, %xmm1
+    \\ mulsd %xmm0, %xmm2
+    \\ mulsd %xmm0, %xmm3
+    \\ mulsd %xmm0, %xmm4
+    \\ movsd %xmm1, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm2, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm3, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm4, (%r10)
+    \\ addq %r8, %r10
+    \\ .balign 8
+    \\ 20022:
+    \\ testq $2, %rdi
+    \\ je 20023f
+    \\ movsd (%rcx), %xmm1
+    \\ addq %r8, %rcx
+    \\ movsd (%rcx), %xmm2
+    \\ addq %r8, %rcx
+    \\ mulsd %xmm0, %xmm1
+    \\ mulsd %xmm0, %xmm2
+    \\ movsd %xmm1, (%r10)
+    \\ addq %r8, %r10
+    \\ movsd %xmm2, (%r10)
+    \\ addq %r8, %r10
+    \\ .balign 8
+    \\ 20023:
+    \\ testq $1, %rdi
+    \\ je 20024f
+    \\ movsd (%rcx), %xmm1
+    \\ mulsd %xmm0, %xmm1
+    \\ movsd %xmm1, (%rcx)
+    \\ .balign 16
+    \\ 20024:
+    \\ xorq %rax, %rax
+    \\ ret
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn dscal() callconv(.naked) void {
-            asm volatile (
-                \\ .text
-                \\ .balign 512
-                \\ movq 24(%rsp), %r9
-                \\ testq %rdi, %rdi
-                \\ jle 20024f
-                \\ leaq (, %r8, 8), %r8
-                \\ xorps %xmm1, %xmm1
-                \\ comisd %xmm0, %xmm1
-                \\ jne 20011f # Alpha != 0.e0
-                \\ jp 20011f # For Alpha = NaN
-                \\ cmpq $1, %r9
-                \\ je 20011f # disable the Alpha=zero path as it does not handle x=inf or nan
-                \\ cmpq $8, %r8
-                \\ jne 20006f
-                \\ testq $15, %rcx # aligned for quad word?
-                \\ je 20000f
-                \\ movsd %xmm1, 0 * 8(%rcx)
-                \\ addq $8, %rcx
-                \\ decq %rdi
-                \\ jle 20024f
-                \\ .balign 8
-                \\ 20000:
-                \\ movq %rdi, %rax # rcx = n
-                \\ sarq $4, %rax
-                \\ jle 20002f
-                \\ .balign 16
-                \\ 20001:
-                \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
-                \\ movaps %xmm1, 0 * 8(%rcx)
-                \\ movaps %xmm1, 2 * 8(%rcx)
-                \\ movaps %xmm1, 4 * 8(%rcx)
-                \\ movaps %xmm1, 6 * 8(%rcx)
-                \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
-                \\ movaps %xmm1, 8 * 8(%rcx)
-                \\ movaps %xmm1, 10 * 8(%rcx)
-                \\ movaps %xmm1, 12 * 8(%rcx)
-                \\ movaps %xmm1, 14 * 8(%rcx)
-                \\ addq $16 * 8, %rcx
-                \\ decq %rax
-                \\ jg 20001b
-                \\ .balign 16
-                \\ 20002:
-                \\ testq $15, %rdi
-                \\ je 20024f
-                \\ testq $8, %rdi
-                \\ je 20003f
-                \\ movaps %xmm1, 0 * 8(%rcx)
-                \\ movaps %xmm1, 2 * 8(%rcx)
-                \\ movaps %xmm1, 4 * 8(%rcx)
-                \\ movaps %xmm1, 6 * 8(%rcx)
-                \\ addq $8 * 8, %rcx
-                \\ .balign 8
-                \\ 20003:
-                \\ testq $4, %rdi
-                \\ je 20004f
-                \\ movaps %xmm1, 0 * 8(%rcx)
-                \\ movaps %xmm1, 2 * 8(%rcx)
-                \\ addq $4 * 8, %rcx
-                \\ .balign 8
-                \\ 20004:
-                \\ testq $2, %rdi
-                \\ je 20005f
-                \\ movaps %xmm1, 0 * 8(%rcx)
-                \\ addq $2 * 8, %rcx
-                \\ .balign 8
-                \\ 20005:
-                \\ testq $1, %rdi
-                \\ je 20024f
-                \\ movsd %xmm1, 0 * 8(%rcx)
-                \\ jmp 20024f
-                \\ .balign 16
-                \\ 20006:
-                \\ movq %rdi, %rax
-                \\ sarq $3, %rax
-                \\ jle 20008f
-                \\ .balign 16
-                \\ 20007:
-                \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ decq %rax
-                \\ jg 20007b
-                \\ .balign 16
-                \\ 20008:
-                \\ testq $7, %rdi
-                \\ je 20024f
-                \\ testq $4, %rdi
-                \\ je 20009f
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ .balign 8
-                \\ 20009:
-                \\ testq $2, %rdi
-                \\ je 20010f
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ movsd %xmm1, (%rcx)
-                \\ addq %r8, %rcx
-                \\ .balign 8
-                \\ 20010:
-                \\ testq $1, %rdi
-                \\ je 20024f
-                \\ movsd %xmm1, (%rcx)
-                \\ jmp 20024f
-                \\ .balign 16
-                \\ 20011:
-                \\ unpcklpd %xmm0, %xmm0
-                \\ cmpq $8, %r8
-                \\ jne 20019f
-                \\ testq $8, %rcx
-                \\ je 20012f
-                \\ movsd 0 * 8(%rcx), %xmm1
-                \\ mulsd %xmm0, %xmm1
-                \\ movsd %xmm1, 0 * 8(%rcx)
-                \\ addq $8, %rcx
-                \\ decq %rdi
-                \\ jle 20024f
-                \\ .balign 8
-                \\ 20012:
-                \\ subq $-16 * 8, %rcx
-                \\ movq %rdi, %rax # rcx = n
-                \\ sarq $4, %rax
-                \\ jle 20015f
-                \\
-            ++ (if (on[0])
-                \\ movaps %xmm0, %xmm1
-                \\ mulpd -16 * 8(%rcx), %xmm1
-                \\ movaps %xmm0, %xmm2
-                \\ mulpd -14 * 8(%rcx), %xmm2
-                \\ movaps %xmm0, %xmm3
-                \\ mulpd -12 * 8(%rcx), %xmm3
-                \\ movaps %xmm0, %xmm4
-                \\ mulpd -10 * 8(%rcx), %xmm4
-                \\ movaps %xmm0, %xmm5
-                \\ mulpd -8 * 8(%rcx), %xmm5
-                \\ movaps %xmm0, %xmm6
-                \\ mulpd -6 * 8(%rcx), %xmm6
-                \\ movaps %xmm0, %xmm7
-                \\ mulpd -4 * 8(%rcx), %xmm7
-                \\ movaps %xmm0, %xmm8
-                \\ mulpd -2 * 8(%rcx), %xmm8
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ movaps -16 * 8(%rcx), %xmm1
-                \\ movaps -14 * 8(%rcx), %xmm2
-                \\ movaps -12 * 8(%rcx), %xmm3
-                \\ movaps -10 * 8(%rcx), %xmm4
-                \\ movaps -8 * 8(%rcx), %xmm5
-                \\ movaps -6 * 8(%rcx), %xmm6
-                \\ movaps -4 * 8(%rcx), %xmm7
-                \\ movaps -2 * 8(%rcx), %xmm8
-                \\
-            else
-                "") ++
-                \\ decq %rax
-                \\ jle 20014f
-                \\ .balign 16
-                \\ 20013:
-                \\ prefetchw ((128 * 5) + 0) - 128(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm1
-                \\
-            else
-                "") ++
-                \\ movaps %xmm1, -16 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ movaps 0 * 8(%rcx), %xmm1
-                \\ mulpd %xmm0, %xmm2
-                \\
-            else
-                "") ++
-                \\ movaps %xmm2, -14 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ movaps 2 * 8(%rcx), %xmm2
-                \\ mulpd %xmm0, %xmm3
-                \\
-            else
-                "") ++
-                \\ movaps %xmm3, -12 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ movaps 4 * 8(%rcx), %xmm3
-                \\ mulpd %xmm0, %xmm4
-                \\
-            else
-                "") ++
-                \\ movaps %xmm4, -10 * 8(%rcx)
-                \\
-            ++ (if (on[0])
-                \\ movaps %xmm0, %xmm1
-                \\ mulpd 0 * 8(%rcx), %xmm1
-                \\ movaps %xmm0, %xmm2
-                \\ mulpd 2 * 8(%rcx), %xmm2
-                \\ movaps %xmm0, %xmm3
-                \\ mulpd 4 * 8(%rcx), %xmm3
-                \\ movaps %xmm0, %xmm4
-                \\ mulpd 6 * 8(%rcx), %xmm4
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ movaps 6 * 8(%rcx), %xmm4
-                \\
-            else
-                "") ++
-                \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm5
-                \\
-            else
-                "") ++
-                \\ movaps %xmm5, -8 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ movaps 8 * 8(%rcx), %xmm5
-                \\ mulpd %xmm0, %xmm6
-                \\
-            else
-                "") ++
-                \\ movaps %xmm6, -6 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ movaps 10 * 8(%rcx), %xmm6
-                \\ mulpd %xmm0, %xmm7
-                \\
-            else
-                "") ++
-                \\ movaps %xmm7, -4 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ movaps 12 * 8(%rcx), %xmm7
-                \\ mulpd %xmm0, %xmm8
-                \\
-            else
-                "") ++
-                \\ movaps %xmm8, -2 * 8(%rcx)
-                \\
-            ++ (if (on[0])
-                \\ movaps %xmm0, %xmm5
-                \\ mulpd 8 * 8(%rcx), %xmm5
-                \\ movaps %xmm0, %xmm6
-                \\ mulpd 10 * 8(%rcx), %xmm6
-                \\ movaps %xmm0, %xmm7
-                \\ mulpd 12 * 8(%rcx), %xmm7
-                \\ movaps %xmm0, %xmm8
-                \\ mulpd 14 * 8(%rcx), %xmm8
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ movaps 14 * 8(%rcx), %xmm8
-                \\
-            else
-                "") ++
-                \\ subq $-16 * 8, %rcx
-                \\ decq %rax
-                \\ jg 20013b
-                \\ .balign 16
-                \\ 20014:
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm1
-                \\
-            else
-                "") ++
-                \\ movaps %xmm1, -16 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm2
-                \\
-            else
-                "") ++
-                \\ movaps %xmm2, -14 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm3
-                \\
-            else
-                "") ++
-                \\ movaps %xmm3, -12 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm4
-                \\
-            else
-                "") ++
-                \\ movaps %xmm4, -10 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm5
-                \\
-            else
-                "") ++
-                \\ movaps %xmm5, -8 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm6
-                \\
-            else
-                "") ++
-                \\ movaps %xmm6, -6 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm7
-                \\
-            else
-                "") ++
-                \\ movaps %xmm7, -4 * 8(%rcx)
-                \\
-            ++ (if (on[1])
-                \\ mulpd %xmm0, %xmm8
-                \\
-            else
-                "") ++
-                \\ movaps %xmm8, -2 * 8(%rcx)
-                \\ subq $-16 * 8, %rcx
-                \\ .balign 8
-                \\ 20015:
-                \\ testq $15, %rdi
-                \\ je 20024f
-                \\ testq $8, %rdi
-                \\ je 20016f
-                \\ movaps -16 * 8(%rcx), %xmm1
-                \\ movaps -14 * 8(%rcx), %xmm2
-                \\ movaps -12 * 8(%rcx), %xmm3
-                \\ movaps -10 * 8(%rcx), %xmm4
-                \\ mulpd %xmm0, %xmm1
-                \\ movaps %xmm1, -16 * 8(%rcx)
-                \\ mulpd %xmm0, %xmm2
-                \\ movaps %xmm2, -14 * 8(%rcx)
-                \\ mulpd %xmm0, %xmm3
-                \\ movaps %xmm3, -12 * 8(%rcx)
-                \\ mulpd %xmm0, %xmm4
-                \\ movaps %xmm4, -10 * 8(%rcx)
-                \\ addq $8 * 8, %rcx
-                \\ .balign 8
-                \\ 20016:
-                \\ testq $4, %rdi
-                \\ je 20017f
-                \\ movaps -16 * 8(%rcx), %xmm1
-                \\ movaps -14 * 8(%rcx), %xmm2
-                \\ mulpd %xmm0, %xmm1
-                \\ movaps %xmm1, -16 * 8(%rcx)
-                \\ mulpd %xmm0, %xmm2
-                \\ movaps %xmm2, -14 * 8(%rcx)
-                \\ addq $4 * 8, %rcx
-                \\ .balign 8
-                \\ 20017:
-                \\ testq $2, %rdi
-                \\ je 20018f
-                \\ movaps -16 * 8(%rcx), %xmm1
-                \\ mulpd %xmm0, %xmm1
-                \\ movaps %xmm1, -16 * 8(%rcx)
-                \\ addq $2 * 8, %rcx
-                \\ .balign 8
-                \\ 20018:
-                \\ testq $1, %rdi
-                \\ je 20024f
-                \\ movsd -16 * 8(%rcx), %xmm1
-                \\ mulsd %xmm0, %xmm1
-                \\ movsd %xmm1, -16 * 8(%rcx)
-                \\ jmp 20024f
-                \\ .balign 8
-                \\ 20019:
-                \\ movq %rcx, %r10
-                \\ movq %rdi, %rax # rcx = n
-                \\ sarq $3, %rax # (n >> 3)
-                \\ jle 20021f
-                \\ .balign 16
-                \\ 20020:
-                \\ prefetchw ((128 * 5) + 64) - 128(%rcx)
-                \\ movsd (%rcx), %xmm1
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm2
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm3
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm4
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm5
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm6
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm7
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm8
-                \\ addq %r8, %rcx
-                \\ mulsd %xmm0, %xmm1
-                \\ mulsd %xmm0, %xmm2
-                \\ mulsd %xmm0, %xmm3
-                \\ mulsd %xmm0, %xmm4
-                \\ mulsd %xmm0, %xmm5
-                \\ mulsd %xmm0, %xmm6
-                \\ mulsd %xmm0, %xmm7
-                \\ mulsd %xmm0, %xmm8
-                \\ movsd %xmm1, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm2, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm3, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm4, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm5, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm6, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm7, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm8, (%r10)
-                \\ addq %r8, %r10
-                \\ decq %rax
-                \\ jg 20020b
-                \\ .balign 16
-                \\ 20021:
-                \\ testq $7, %rdi
-                \\ je 20024f
-                \\ testq $4, %rdi
-                \\ je 20022f
-                \\ movsd (%rcx), %xmm1
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm2
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm3
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm4
-                \\ addq %r8, %rcx
-                \\ mulsd %xmm0, %xmm1
-                \\ mulsd %xmm0, %xmm2
-                \\ mulsd %xmm0, %xmm3
-                \\ mulsd %xmm0, %xmm4
-                \\ movsd %xmm1, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm2, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm3, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm4, (%r10)
-                \\ addq %r8, %r10
-                \\ .balign 8
-                \\ 20022:
-                \\ testq $2, %rdi
-                \\ je 20023f
-                \\ movsd (%rcx), %xmm1
-                \\ addq %r8, %rcx
-                \\ movsd (%rcx), %xmm2
-                \\ addq %r8, %rcx
-                \\ mulsd %xmm0, %xmm1
-                \\ mulsd %xmm0, %xmm2
-                \\ movsd %xmm1, (%r10)
-                \\ addq %r8, %r10
-                \\ movsd %xmm2, (%r10)
-                \\ addq %r8, %r10
-                \\ .balign 8
-                \\ 20023:
-                \\ testq $1, %rdi
-                \\ je 20024f
-                \\ movsd (%rcx), %xmm1
-                \\ mulsd %xmm0, %xmm1
-                \\ movsd %xmm1, (%rcx)
-                \\ .balign 16
-                \\ 20024:
-                \\ xorq %rax, %rax
-                \\ ret
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

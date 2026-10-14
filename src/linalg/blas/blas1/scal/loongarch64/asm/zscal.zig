@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn zscal() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ li.d $r18, 2 * 8
             \\ ld.d $r5, $sp, 0

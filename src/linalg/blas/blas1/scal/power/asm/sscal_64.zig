@@ -13,11 +13,11 @@ const keys = [_][2][]const u8{
     .{ "ppc970", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][3]bool{
-    .{ true, false, false },
-    .{ false, true, false },
-    .{ false, false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 0",
+    "0, 1, 0",
+    "0, 0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -34,302 +34,301 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [3]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ sldi 8, 8, 2
+    \\ .if \bp0
+    \\ li 5, (64 + 128 * 13)
+    \\ .endif
+    \\ .if \bp1
+    \\ li 5, (16 + 128 * 100)
+    \\ .endif
+    \\ .if \bp2
+    \\ li 5, (96 + 128 * 12)
+    \\ .endif
+    \\ cmpdi 0, 3, 0
+    \\ blelr- 0
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20007f
+    \\ ld 11, 120(1)
+    \\ cmpdi 0, 11, 1
+    \\ beq- 0, 20007f
+    \\ cmpdi 0, 8, 4
+    \\ bne- 0, 20003f
+    \\ sradi. 0, 3, 4
+    \\ mtspr 9, 0
+    \\ beq- 0, 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ stfs 0, 0 * 4(7)
+    \\ stfs 0, 1 * 4(7)
+    \\ stfs 0, 2 * 4(7)
+    \\ stfs 0, 3 * 4(7)
+    \\ stfs 0, 4 * 4(7)
+    \\ stfs 0, 5 * 4(7)
+    \\ stfs 0, 6 * 4(7)
+    \\ stfs 0, 7 * 4(7)
+    \\ stfs 0, 8 * 4(7)
+    \\ stfs 0, 9 * 4(7)
+    \\ stfs 0, 10 * 4(7)
+    \\ stfs 0, 11 * 4(7)
+    \\ stfs 0, 12 * 4(7)
+    \\ stfs 0, 13 * 4(7)
+    \\ stfs 0, 14 * 4(7)
+    \\ stfs 0, 15 * 4(7)
+    \\ addi 7, 7, 16 * 4
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ andi. 0, 3, 15
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20002:
+    \\ stfs 0, 0 * 4(7)
+    \\ addi 7, 7, 1 * 4
+    \\ bdnz 20002b
+    \\ blr
+    \\ .align 4
+    \\ 20003:
+    \\ sradi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 20005f
+    \\ .align 4
+    \\ 20004:
+    \\ dcbtst 7, 5
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ bdnz 20004b
+    \\ .align 4
+    \\ 20005:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20006:
+    \\ stfs 0, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ bdnz 20006b
+    \\ blr
+    \\ .align 4
+    \\ 20007:
+    \\ cmpdi 0, 8, 4
+    \\ bne- 20012f
+    \\ mr 4, 7
+    \\ sradi. 0, 3, 4
+    \\ mtspr 9, 0
+    \\ beq+ 20010f
+    \\ lfs 2, 0 * 4(7)
+    \\ lfs 3, 1 * 4(7)
+    \\ lfs 4, 2 * 4(7)
+    \\ lfs 5, 3 * 4(7)
+    \\ lfs 6, 4 * 4(7)
+    \\ lfs 7, 5 * 4(7)
+    \\ lfs 8, 6 * 4(7)
+    \\ lfs 9, 7 * 4(7)
+    \\ bdz 20009f
+    \\ .align 4
+    \\ 20008:
+    \\ fmuls 10, 1, 2
+    \\ fmuls 11, 1, 3
+    \\ fmuls 12, 1, 4
+    \\ fmuls 13, 1, 5
+    \\ lfs 2, 8 * 4(7)
+    \\ lfs 3, 9 * 4(7)
+    \\ lfs 4, 10 * 4(7)
+    \\ lfs 5, 11 * 4(7)
+    \\ stfs 10, 0 * 4(7)
+    \\ stfs 11, 1 * 4(7)
+    \\ stfs 12, 2 * 4(7)
+    \\ stfs 13, 3 * 4(7)
+    \\ fmuls 10, 1, 6
+    \\ fmuls 11, 1, 7
+    \\ fmuls 12, 1, 8
+    \\ fmuls 13, 1, 9
+    \\ lfs 6, 12 * 4(7)
+    \\ lfs 7, 13 * 4(7)
+    \\ lfs 8, 14 * 4(7)
+    \\ lfs 9, 15 * 4(7)
+    \\ stfs 10, 4 * 4(7)
+    \\ stfs 11, 5 * 4(7)
+    \\ stfs 12, 6 * 4(7)
+    \\ stfs 13, 7 * 4(7)
+    \\ fmuls 10, 1, 2
+    \\ fmuls 11, 1, 3
+    \\ fmuls 12, 1, 4
+    \\ fmuls 13, 1, 5
+    \\ lfs 2, 16 * 4(7)
+    \\ lfs 3, 17 * 4(7)
+    \\ lfs 4, 18 * 4(7)
+    \\ lfs 5, 19 * 4(7)
+    \\ stfs 10, 8 * 4(7)
+    \\ stfs 11, 9 * 4(7)
+    \\ stfs 12, 10 * 4(7)
+    \\ stfs 13, 11 * 4(7)
+    \\ fmuls 10, 1, 6
+    \\ fmuls 11, 1, 7
+    \\ fmuls 12, 1, 8
+    \\ fmuls 13, 1, 9
+    \\ lfs 6, 20 * 4(7)
+    \\ lfs 7, 21 * 4(7)
+    \\ lfs 8, 22 * 4(7)
+    \\ lfs 9, 23 * 4(7)
+    \\ stfs 10, 12 * 4(7)
+    \\ stfs 11, 13 * 4(7)
+    \\ stfs 12, 14 * 4(7)
+    \\ stfs 13, 15 * 4(7)
+    \\ addi 7, 7, 16 * 4
+    \\ dcbtst 7, 5
+    \\ bdnz 20008b
+    \\ .align 4
+    \\ 20009:
+    \\ fmuls 10, 1, 2
+    \\ fmuls 11, 1, 3
+    \\ fmuls 12, 1, 4
+    \\ fmuls 13, 1, 5
+    \\ lfs 2, 8 * 4(7)
+    \\ lfs 3, 9 * 4(7)
+    \\ lfs 4, 10 * 4(7)
+    \\ lfs 5, 11 * 4(7)
+    \\ stfs 10, 0 * 4(7)
+    \\ stfs 11, 1 * 4(7)
+    \\ stfs 12, 2 * 4(7)
+    \\ stfs 13, 3 * 4(7)
+    \\ fmuls 10, 1, 6
+    \\ fmuls 11, 1, 7
+    \\ fmuls 12, 1, 8
+    \\ fmuls 13, 1, 9
+    \\ lfs 6, 12 * 4(7)
+    \\ lfs 7, 13 * 4(7)
+    \\ lfs 8, 14 * 4(7)
+    \\ lfs 9, 15 * 4(7)
+    \\ stfs 10, 4 * 4(7)
+    \\ stfs 11, 5 * 4(7)
+    \\ stfs 12, 6 * 4(7)
+    \\ stfs 13, 7 * 4(7)
+    \\ fmuls 10, 1, 2
+    \\ fmuls 11, 1, 3
+    \\ fmuls 12, 1, 4
+    \\ fmuls 13, 1, 5
+    \\ stfs 10, 8 * 4(7)
+    \\ stfs 11, 9 * 4(7)
+    \\ stfs 12, 10 * 4(7)
+    \\ stfs 13, 11 * 4(7)
+    \\ fmuls 10, 1, 6
+    \\ fmuls 11, 1, 7
+    \\ fmuls 12, 1, 8
+    \\ fmuls 13, 1, 9
+    \\ stfs 10, 12 * 4(7)
+    \\ stfs 11, 13 * 4(7)
+    \\ stfs 12, 14 * 4(7)
+    \\ stfs 13, 15 * 4(7)
+    \\ addi 7, 7, 16 * 4
+    \\ .align 4
+    \\ 20010:
+    \\ andi. 0, 3, 15
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20011:
+    \\ lfs 2, 0 * 4(7)
+    \\ fmuls 2, 1, 2
+    \\ stfs 2, 0 * 4(7)
+    \\ addi 7, 7, 1 * 4
+    \\ bdnz 20011b
+    \\ blr
+    \\ .align 4
+    \\ 20012:
+    \\ mr 4, 7
+    \\ sradi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 20014f
+    \\ .align 4
+    \\ 20013:
+    \\ lfs 2, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ lfs 3, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ lfs 4, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ lfs 5, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ fmuls 2, 1, 2
+    \\ fmuls 3, 1, 3
+    \\ fmuls 4, 1, 4
+    \\ fmuls 5, 1, 5
+    \\ lfs 6, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ lfs 7, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ lfs 8, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ lfs 9, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ fmuls 6, 1, 6
+    \\ fmuls 7, 1, 7
+    \\ fmuls 8, 1, 8
+    \\ fmuls 9, 1, 9
+    \\ stfs 2, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 3, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 4, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 5, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 6, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 7, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 8, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ stfs 9, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ bdnz 20013b
+    \\ .align 4
+    \\ 20014:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20015:
+    \\ lfs 2, 0 * 4(4)
+    \\ add 4, 4, 8
+    \\ fmuls 2, 1, 2
+    \\ stfs 2, 0 * 4(7)
+    \\ add 7, 7, 8
+    \\ bdnz 20015b
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn sscal() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -8
-                \\ li 0, 0
-                \\ stw 0, 0(1)
-                \\ lfs 0, 0(1)
-                \\ addi 1, 1, 8
-                \\ sldi 8, 8, 2
-                \\
-            ++ (if (on[0])
-                \\ li 5, (64 + 128 * 13)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ li 5, (16 + 128 * 100)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ li 5, (96 + 128 * 12)
-                \\
-            else
-                "") ++
-                \\ cmpdi 0, 3, 0
-                \\ blelr- 0
-                \\ fcmpu 0, 0, 1
-                \\ bne- 0, 20007f
-                \\ ld 11, 120(1)
-                \\ cmpdi 0, 11, 1
-                \\ beq- 0, 20007f
-                \\ cmpdi 0, 8, 4
-                \\ bne- 0, 20003f
-                \\ sradi. 0, 3, 4
-                \\ mtspr 9, 0
-                \\ beq- 0, 20001f
-                \\ .align 4
-                \\ 20000:
-                \\ stfs 0, 0 * 4(7)
-                \\ stfs 0, 1 * 4(7)
-                \\ stfs 0, 2 * 4(7)
-                \\ stfs 0, 3 * 4(7)
-                \\ stfs 0, 4 * 4(7)
-                \\ stfs 0, 5 * 4(7)
-                \\ stfs 0, 6 * 4(7)
-                \\ stfs 0, 7 * 4(7)
-                \\ stfs 0, 8 * 4(7)
-                \\ stfs 0, 9 * 4(7)
-                \\ stfs 0, 10 * 4(7)
-                \\ stfs 0, 11 * 4(7)
-                \\ stfs 0, 12 * 4(7)
-                \\ stfs 0, 13 * 4(7)
-                \\ stfs 0, 14 * 4(7)
-                \\ stfs 0, 15 * 4(7)
-                \\ addi 7, 7, 16 * 4
-                \\ bdnz 20000b
-                \\ .align 4
-                \\ 20001:
-                \\ andi. 0, 3, 15
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20002:
-                \\ stfs 0, 0 * 4(7)
-                \\ addi 7, 7, 1 * 4
-                \\ bdnz 20002b
-                \\ blr
-                \\ .align 4
-                \\ 20003:
-                \\ sradi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beq- 20005f
-                \\ .align 4
-                \\ 20004:
-                \\ dcbtst 7, 5
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ bdnz 20004b
-                \\ .align 4
-                \\ 20005:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20006:
-                \\ stfs 0, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ bdnz 20006b
-                \\ blr
-                \\ .align 4
-                \\ 20007:
-                \\ cmpdi 0, 8, 4
-                \\ bne- 20012f
-                \\ mr 4, 7
-                \\ sradi. 0, 3, 4
-                \\ mtspr 9, 0
-                \\ beq+ 20010f
-                \\ lfs 2, 0 * 4(7)
-                \\ lfs 3, 1 * 4(7)
-                \\ lfs 4, 2 * 4(7)
-                \\ lfs 5, 3 * 4(7)
-                \\ lfs 6, 4 * 4(7)
-                \\ lfs 7, 5 * 4(7)
-                \\ lfs 8, 6 * 4(7)
-                \\ lfs 9, 7 * 4(7)
-                \\ bdz 20009f
-                \\ .align 4
-                \\ 20008:
-                \\ fmuls 10, 1, 2
-                \\ fmuls 11, 1, 3
-                \\ fmuls 12, 1, 4
-                \\ fmuls 13, 1, 5
-                \\ lfs 2, 8 * 4(7)
-                \\ lfs 3, 9 * 4(7)
-                \\ lfs 4, 10 * 4(7)
-                \\ lfs 5, 11 * 4(7)
-                \\ stfs 10, 0 * 4(7)
-                \\ stfs 11, 1 * 4(7)
-                \\ stfs 12, 2 * 4(7)
-                \\ stfs 13, 3 * 4(7)
-                \\ fmuls 10, 1, 6
-                \\ fmuls 11, 1, 7
-                \\ fmuls 12, 1, 8
-                \\ fmuls 13, 1, 9
-                \\ lfs 6, 12 * 4(7)
-                \\ lfs 7, 13 * 4(7)
-                \\ lfs 8, 14 * 4(7)
-                \\ lfs 9, 15 * 4(7)
-                \\ stfs 10, 4 * 4(7)
-                \\ stfs 11, 5 * 4(7)
-                \\ stfs 12, 6 * 4(7)
-                \\ stfs 13, 7 * 4(7)
-                \\ fmuls 10, 1, 2
-                \\ fmuls 11, 1, 3
-                \\ fmuls 12, 1, 4
-                \\ fmuls 13, 1, 5
-                \\ lfs 2, 16 * 4(7)
-                \\ lfs 3, 17 * 4(7)
-                \\ lfs 4, 18 * 4(7)
-                \\ lfs 5, 19 * 4(7)
-                \\ stfs 10, 8 * 4(7)
-                \\ stfs 11, 9 * 4(7)
-                \\ stfs 12, 10 * 4(7)
-                \\ stfs 13, 11 * 4(7)
-                \\ fmuls 10, 1, 6
-                \\ fmuls 11, 1, 7
-                \\ fmuls 12, 1, 8
-                \\ fmuls 13, 1, 9
-                \\ lfs 6, 20 * 4(7)
-                \\ lfs 7, 21 * 4(7)
-                \\ lfs 8, 22 * 4(7)
-                \\ lfs 9, 23 * 4(7)
-                \\ stfs 10, 12 * 4(7)
-                \\ stfs 11, 13 * 4(7)
-                \\ stfs 12, 14 * 4(7)
-                \\ stfs 13, 15 * 4(7)
-                \\ addi 7, 7, 16 * 4
-                \\ dcbtst 7, 5
-                \\ bdnz 20008b
-                \\ .align 4
-                \\ 20009:
-                \\ fmuls 10, 1, 2
-                \\ fmuls 11, 1, 3
-                \\ fmuls 12, 1, 4
-                \\ fmuls 13, 1, 5
-                \\ lfs 2, 8 * 4(7)
-                \\ lfs 3, 9 * 4(7)
-                \\ lfs 4, 10 * 4(7)
-                \\ lfs 5, 11 * 4(7)
-                \\ stfs 10, 0 * 4(7)
-                \\ stfs 11, 1 * 4(7)
-                \\ stfs 12, 2 * 4(7)
-                \\ stfs 13, 3 * 4(7)
-                \\ fmuls 10, 1, 6
-                \\ fmuls 11, 1, 7
-                \\ fmuls 12, 1, 8
-                \\ fmuls 13, 1, 9
-                \\ lfs 6, 12 * 4(7)
-                \\ lfs 7, 13 * 4(7)
-                \\ lfs 8, 14 * 4(7)
-                \\ lfs 9, 15 * 4(7)
-                \\ stfs 10, 4 * 4(7)
-                \\ stfs 11, 5 * 4(7)
-                \\ stfs 12, 6 * 4(7)
-                \\ stfs 13, 7 * 4(7)
-                \\ fmuls 10, 1, 2
-                \\ fmuls 11, 1, 3
-                \\ fmuls 12, 1, 4
-                \\ fmuls 13, 1, 5
-                \\ stfs 10, 8 * 4(7)
-                \\ stfs 11, 9 * 4(7)
-                \\ stfs 12, 10 * 4(7)
-                \\ stfs 13, 11 * 4(7)
-                \\ fmuls 10, 1, 6
-                \\ fmuls 11, 1, 7
-                \\ fmuls 12, 1, 8
-                \\ fmuls 13, 1, 9
-                \\ stfs 10, 12 * 4(7)
-                \\ stfs 11, 13 * 4(7)
-                \\ stfs 12, 14 * 4(7)
-                \\ stfs 13, 15 * 4(7)
-                \\ addi 7, 7, 16 * 4
-                \\ .align 4
-                \\ 20010:
-                \\ andi. 0, 3, 15
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20011:
-                \\ lfs 2, 0 * 4(7)
-                \\ fmuls 2, 1, 2
-                \\ stfs 2, 0 * 4(7)
-                \\ addi 7, 7, 1 * 4
-                \\ bdnz 20011b
-                \\ blr
-                \\ .align 4
-                \\ 20012:
-                \\ mr 4, 7
-                \\ sradi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beq- 20014f
-                \\ .align 4
-                \\ 20013:
-                \\ lfs 2, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ lfs 3, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ lfs 4, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ lfs 5, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ fmuls 2, 1, 2
-                \\ fmuls 3, 1, 3
-                \\ fmuls 4, 1, 4
-                \\ fmuls 5, 1, 5
-                \\ lfs 6, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ lfs 7, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ lfs 8, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ lfs 9, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ fmuls 6, 1, 6
-                \\ fmuls 7, 1, 7
-                \\ fmuls 8, 1, 8
-                \\ fmuls 9, 1, 9
-                \\ stfs 2, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 3, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 4, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 5, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 6, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 7, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 8, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ stfs 9, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ bdnz 20013b
-                \\ .align 4
-                \\ 20014:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20015:
-                \\ lfs 2, 0 * 4(4)
-                \\ add 4, 4, 8
-                \\ fmuls 2, 1, 2
-                \\ stfs 2, 0 * 4(7)
-                \\ add 7, 7, 8
-                \\ bdnz 20015b
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

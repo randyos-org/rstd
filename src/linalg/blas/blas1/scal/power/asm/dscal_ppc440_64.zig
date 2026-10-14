@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "ppcg4", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,170 +32,156 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ sldi 8, 8, 3
+    \\ li 5, 3 * 16 * 8
+    \\ cmpdi 0, 3, 0
+    \\ blelr- 0
+    \\ sub 7, 7, 8
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20003f
+    \\ lwz 11, (((0) * 8) + 96)(1)
+    \\ cmpdi 0, 11, 1
+    \\ beq- 0, 20003f
+    \\ sradi. 0, 3, 4
+    \\ mtspr 9, 0
+    \\ beq- 0, 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ .if \bp0
+    \\ dcbtst 7, 5
+    \\ .endif
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ .if \bp0
+    \\ dcbtst 7, 5
+    \\ .endif
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ .if \bp0
+    \\ dcbtst 7, 5
+    \\ .endif
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ .if \bp0
+    \\ dcbtst 7, 5
+    \\ .endif
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ stfdux 0, 7, 8
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ andi. 0, 3, 15
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20002:
+    \\ stfdux 0, 7, 8
+    \\ bdnz 20002b
+    \\ blr
+    \\ .align 4
+    \\ 20003:
+    \\ mr 4, 7
+    \\ sradi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq+ 20006f
+    \\ lfdux 2, 7, 8
+    \\ lfdux 3, 7, 8
+    \\ lfdux 4, 7, 8
+    \\ lfdux 5, 7, 8
+    \\ bdz 20005f
+    \\ .align 4
+    \\ 20004:
+    \\ lfdux 6, 7, 8
+    \\ fmul 2, 1, 2
+    \\ lfdux 7, 7, 8
+    \\ fmul 3, 1, 3
+    \\ lfdux 8, 7, 8
+    \\ fmul 4, 1, 4
+    \\ lfdux 9, 7, 8
+    \\ fmul 5, 1, 5
+    \\ .if \bp0
+    \\ dcbtst 7, 5
+    \\ .endif
+    \\ stfdux 2, 4, 8
+    \\ stfdux 3, 4, 8
+    \\ stfdux 4, 4, 8
+    \\ stfdux 5, 4, 8
+    \\ lfdux 2, 7, 8
+    \\ fmul 6, 1, 6
+    \\ lfdux 3, 7, 8
+    \\ fmul 7, 1, 7
+    \\ lfdux 4, 7, 8
+    \\ fmul 8, 1, 8
+    \\ lfdux 5, 7, 8
+    \\ fmul 9, 1, 9
+    \\ stfdux 6, 4, 8
+    \\ stfdux 7, 4, 8
+    \\ stfdux 8, 4, 8
+    \\ stfdux 9, 4, 8
+    \\ .if \bp0
+    \\ dcbtst 7, 5
+    \\ .endif
+    \\ bdnz 20004b
+    \\ .align 4
+    \\ 20005:
+    \\ lfdux 6, 7, 8
+    \\ fmul 2, 1, 2
+    \\ lfdux 7, 7, 8
+    \\ fmul 3, 1, 3
+    \\ lfdux 8, 7, 8
+    \\ fmul 4, 1, 4
+    \\ lfdux 9, 7, 8
+    \\ fmul 5, 1, 5
+    \\ stfdux 2, 4, 8
+    \\ fmul 6, 1, 6
+    \\ stfdux 3, 4, 8
+    \\ fmul 7, 1, 7
+    \\ stfdux 4, 4, 8
+    \\ fmul 8, 1, 8
+    \\ stfdux 5, 4, 8
+    \\ fmul 9, 1, 9
+    \\ stfdux 6, 4, 8
+    \\ stfdux 7, 4, 8
+    \\ stfdux 8, 4, 8
+    \\ stfdux 9, 4, 8
+    \\ .align 4
+    \\ 20006:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20007:
+    \\ lfdux 2, 7, 8
+    \\ fmul 2, 1, 2
+    \\ stfdux 2, 4, 8
+    \\ bdnz 20007b
+    \\ blr
+    \\ .align 4
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn dscal() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -8
-                \\ li 0, 0
-                \\ stw 0, 0(1)
-                \\ lfs 0, 0(1)
-                \\ addi 1, 1, 8
-                \\ sldi 8, 8, 3
-                \\ li 5, 3 * 16 * 8
-                \\ cmpdi 0, 3, 0
-                \\ blelr- 0
-                \\ sub 7, 7, 8
-                \\ fcmpu 0, 0, 1
-                \\ bne- 0, 20003f
-                \\ lwz 11, (((0) * 8) + 96)(1)
-                \\ cmpdi 0, 11, 1
-                \\ beq- 0, 20003f
-                \\ sradi. 0, 3, 4
-                \\ mtspr 9, 0
-                \\ beq- 0, 20001f
-                \\ .align 4
-                \\ 20000:
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 7, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 7, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 7, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 7, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ stfdux 0, 7, 8
-                \\ bdnz 20000b
-                \\ .align 4
-                \\ 20001:
-                \\ andi. 0, 3, 15
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20002:
-                \\ stfdux 0, 7, 8
-                \\ bdnz 20002b
-                \\ blr
-                \\ .align 4
-                \\ 20003:
-                \\ mr 4, 7
-                \\ sradi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beq+ 20006f
-                \\ lfdux 2, 7, 8
-                \\ lfdux 3, 7, 8
-                \\ lfdux 4, 7, 8
-                \\ lfdux 5, 7, 8
-                \\ bdz 20005f
-                \\ .align 4
-                \\ 20004:
-                \\ lfdux 6, 7, 8
-                \\ fmul 2, 1, 2
-                \\ lfdux 7, 7, 8
-                \\ fmul 3, 1, 3
-                \\ lfdux 8, 7, 8
-                \\ fmul 4, 1, 4
-                \\ lfdux 9, 7, 8
-                \\ fmul 5, 1, 5
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 7, 5
-                \\
-            else
-                "") ++
-                \\ stfdux 2, 4, 8
-                \\ stfdux 3, 4, 8
-                \\ stfdux 4, 4, 8
-                \\ stfdux 5, 4, 8
-                \\ lfdux 2, 7, 8
-                \\ fmul 6, 1, 6
-                \\ lfdux 3, 7, 8
-                \\ fmul 7, 1, 7
-                \\ lfdux 4, 7, 8
-                \\ fmul 8, 1, 8
-                \\ lfdux 5, 7, 8
-                \\ fmul 9, 1, 9
-                \\ stfdux 6, 4, 8
-                \\ stfdux 7, 4, 8
-                \\ stfdux 8, 4, 8
-                \\ stfdux 9, 4, 8
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 7, 5
-                \\
-            else
-                "") ++
-                \\ bdnz 20004b
-                \\ .align 4
-                \\ 20005:
-                \\ lfdux 6, 7, 8
-                \\ fmul 2, 1, 2
-                \\ lfdux 7, 7, 8
-                \\ fmul 3, 1, 3
-                \\ lfdux 8, 7, 8
-                \\ fmul 4, 1, 4
-                \\ lfdux 9, 7, 8
-                \\ fmul 5, 1, 5
-                \\ stfdux 2, 4, 8
-                \\ fmul 6, 1, 6
-                \\ stfdux 3, 4, 8
-                \\ fmul 7, 1, 7
-                \\ stfdux 4, 4, 8
-                \\ fmul 8, 1, 8
-                \\ stfdux 5, 4, 8
-                \\ fmul 9, 1, 9
-                \\ stfdux 6, 4, 8
-                \\ stfdux 7, 4, 8
-                \\ stfdux 8, 4, 8
-                \\ stfdux 9, 4, 8
-                \\ .align 4
-                \\ 20006:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20007:
-                \\ lfdux 2, 7, 8
-                \\ fmul 2, 1, 2
-                \\ stfdux 2, 4, 8
-                \\ bdnz 20007b
-                \\ blr
-                \\ .align 4
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn dscal() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .balign 512
             \\ movq 24(%rsp), %r9
             \\ testq %rdi, %rdi

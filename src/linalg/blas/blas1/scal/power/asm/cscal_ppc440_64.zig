@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "ppcg4", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,183 +32,175 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .align 6
+    \\ addi 1, 1, -8
+    \\ li 0, 0
+    \\ stw 0, 0(1)
+    \\ lfs 0, 0(1)
+    \\ addi 1, 1, 8
+    \\ sldi 9, 9, 3
+    \\ li 11, 4
+    \\ sub 8, 8, 9
+    \\ li 5, 3 * 16 * 4
+    \\ cmpdi 0, 3, 0
+    \\ blelr- 0
+    \\ fcmpu 0, 0, 1
+    \\ bne- 0, 20004f
+    \\ fcmpu 0, 0, 2
+    \\ bne- 0, 20004f
+    \\ lwz 12, (((0) * 8) + 96)(1)
+    \\ cmpdi 0, 12, 1
+    \\ beq- 0, 20004f
+    \\ 20000:
+    \\ sradi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq- 20002f
+    \\ .align 4
+    \\ 20001:
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ bdnz 20001b
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20003:
+    \\ stfsux 0, 8, 9
+    \\ stfsx 0, 8, 11
+    \\ bdnz 20003b
+    \\ blr
+    \\ .align 4
+    \\ 20004:
+    \\ mr 4, 8
+    \\ sradi. 0, 3, 2
+    \\ mtspr 9, 0
+    \\ beq- 20007f
+    \\ lfsux 0, 8, 9
+    \\ lfsx 3, 8, 11
+    \\ lfsux 4, 8, 9
+    \\ lfsx 5, 8, 11
+    \\ lfsux 6, 8, 9
+    \\ fmuls 10, 1, 0
+    \\ lfsx 7, 8, 11
+    \\ fmuls 11, 1, 3
+    \\ lfsux 8, 8, 9
+    \\ fmuls 12, 1, 4
+    \\ fmuls 13, 1, 5
+    \\ bdz 20006f
+    \\ .align 4
+    \\ 20005:
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ fnmsubs 10, 2, 3, 10
+    \\ lfsx 9, 8, 11
+    \\ fmadds 11, 2, 0, 11
+    \\ lfsux 0, 8, 9
+    \\ fnmsubs 12, 2, 5, 12
+    \\ lfsx 3, 8, 11
+    \\ fmadds 13, 2, 4, 13
+    \\ lfsux 4, 8, 9
+    \\ stfsux 10, 4, 9
+    \\ fmuls 10, 1, 6
+    \\ stfsx 11, 4, 11
+    \\ fmuls 11, 1, 7
+    \\ stfsux 12, 4, 9
+    \\ fmuls 12, 1, 8
+    \\ stfsx 13, 4, 11
+    \\ fmuls 13, 1, 9
+    \\ .if \bp0
+    \\ dcbtst 8, 5
+    \\ .endif
+    \\ fnmsubs 10, 2, 7, 10
+    \\ lfsx 5, 8, 11
+    \\ fmadds 11, 2, 6, 11
+    \\ lfsux 6, 8, 9
+    \\ fnmsubs 12, 2, 9, 12
+    \\ lfsx 7, 8, 11
+    \\ fmadds 13, 2, 8, 13
+    \\ lfsux 8, 8, 9
+    \\ stfsux 10, 4, 9
+    \\ fmuls 10, 1, 0
+    \\ stfsx 11, 4, 11
+    \\ fmuls 11, 1, 3
+    \\ stfsux 12, 4, 9
+    \\ fmuls 12, 1, 4
+    \\ stfsx 13, 4, 11
+    \\ fmuls 13, 1, 5
+    \\ bdnz 20005b
+    \\ .align 4
+    \\ 20006:
+    \\ fnmsubs 10, 2, 3, 10
+    \\ lfsx 9, 8, 11
+    \\ fmadds 11, 2, 0, 11
+    \\ fnmsubs 12, 2, 5, 12
+    \\ fmadds 13, 2, 4, 13
+    \\ stfsux 10, 4, 9
+    \\ fmuls 10, 1, 6
+    \\ stfsx 11, 4, 11
+    \\ fmuls 11, 1, 7
+    \\ stfsux 12, 4, 9
+    \\ fmuls 12, 1, 8
+    \\ stfsx 13, 4, 11
+    \\ fmuls 13, 1, 9
+    \\ fnmsubs 10, 2, 7, 10
+    \\ fmadds 11, 2, 6, 11
+    \\ fnmsubs 12, 2, 9, 12
+    \\ fmadds 13, 2, 8, 13
+    \\ stfsux 10, 4, 9
+    \\ stfsx 11, 4, 11
+    \\ stfsux 12, 4, 9
+    \\ stfsx 13, 4, 11
+    \\ .align 4
+    \\ 20007:
+    \\ andi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beqlr+
+    \\ .align 4
+    \\ 20008:
+    \\ lfsux 3, 8, 9
+    \\ lfsx 4, 8, 11
+    \\ fmuls 5, 1, 3
+    \\ fmuls 6, 1, 4
+    \\ fnmsubs 5, 2, 4, 5
+    \\ fmadds 6, 2, 3, 6
+    \\ stfsux 5, 4, 9
+    \\ stfsx 6, 4, 11
+    \\ bdnz 20008b
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn cscal() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -8
-                \\ li 0, 0
-                \\ stw 0, 0(1)
-                \\ lfs 0, 0(1)
-                \\ addi 1, 1, 8
-                \\ sldi 9, 9, 3
-                \\ li 11, 4
-                \\ sub 8, 8, 9
-                \\ li 5, 3 * 16 * 4
-                \\ cmpdi 0, 3, 0
-                \\ blelr- 0
-                \\ fcmpu 0, 0, 1
-                \\ bne- 0, 20004f
-                \\ fcmpu 0, 0, 2
-                \\ bne- 0, 20004f
-                \\ lwz 12, (((0) * 8) + 96)(1)
-                \\ cmpdi 0, 12, 1
-                \\ beq- 0, 20004f
-                \\ 20000:
-                \\ sradi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beq- 20002f
-                \\ .align 4
-                \\ 20001:
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ bdnz 20001b
-                \\ .align 4
-                \\ 20002:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20003:
-                \\ stfsux 0, 8, 9
-                \\ stfsx 0, 8, 11
-                \\ bdnz 20003b
-                \\ blr
-                \\ .align 4
-                \\ 20004:
-                \\ mr 4, 8
-                \\ sradi. 0, 3, 2
-                \\ mtspr 9, 0
-                \\ beq- 20007f
-                \\ lfsux 0, 8, 9
-                \\ lfsx 3, 8, 11
-                \\ lfsux 4, 8, 9
-                \\ lfsx 5, 8, 11
-                \\ lfsux 6, 8, 9
-                \\ fmuls 10, 1, 0
-                \\ lfsx 7, 8, 11
-                \\ fmuls 11, 1, 3
-                \\ lfsux 8, 8, 9
-                \\ fmuls 12, 1, 4
-                \\ fmuls 13, 1, 5
-                \\ bdz 20006f
-                \\ .align 4
-                \\ 20005:
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ fnmsubs 10, 2, 3, 10
-                \\ lfsx 9, 8, 11
-                \\ fmadds 11, 2, 0, 11
-                \\ lfsux 0, 8, 9
-                \\ fnmsubs 12, 2, 5, 12
-                \\ lfsx 3, 8, 11
-                \\ fmadds 13, 2, 4, 13
-                \\ lfsux 4, 8, 9
-                \\ stfsux 10, 4, 9
-                \\ fmuls 10, 1, 6
-                \\ stfsx 11, 4, 11
-                \\ fmuls 11, 1, 7
-                \\ stfsux 12, 4, 9
-                \\ fmuls 12, 1, 8
-                \\ stfsx 13, 4, 11
-                \\ fmuls 13, 1, 9
-                \\
-            ++ (if (on[0])
-                \\ dcbtst 8, 5
-                \\
-            else
-                "") ++
-                \\ fnmsubs 10, 2, 7, 10
-                \\ lfsx 5, 8, 11
-                \\ fmadds 11, 2, 6, 11
-                \\ lfsux 6, 8, 9
-                \\ fnmsubs 12, 2, 9, 12
-                \\ lfsx 7, 8, 11
-                \\ fmadds 13, 2, 8, 13
-                \\ lfsux 8, 8, 9
-                \\ stfsux 10, 4, 9
-                \\ fmuls 10, 1, 0
-                \\ stfsx 11, 4, 11
-                \\ fmuls 11, 1, 3
-                \\ stfsux 12, 4, 9
-                \\ fmuls 12, 1, 4
-                \\ stfsx 13, 4, 11
-                \\ fmuls 13, 1, 5
-                \\ bdnz 20005b
-                \\ .align 4
-                \\ 20006:
-                \\ fnmsubs 10, 2, 3, 10
-                \\ lfsx 9, 8, 11
-                \\ fmadds 11, 2, 0, 11
-                \\ fnmsubs 12, 2, 5, 12
-                \\ fmadds 13, 2, 4, 13
-                \\ stfsux 10, 4, 9
-                \\ fmuls 10, 1, 6
-                \\ stfsx 11, 4, 11
-                \\ fmuls 11, 1, 7
-                \\ stfsux 12, 4, 9
-                \\ fmuls 12, 1, 8
-                \\ stfsx 13, 4, 11
-                \\ fmuls 13, 1, 9
-                \\ fnmsubs 10, 2, 7, 10
-                \\ fmadds 11, 2, 6, 11
-                \\ fnmsubs 12, 2, 9, 12
-                \\ fmadds 13, 2, 8, 13
-                \\ stfsux 10, 4, 9
-                \\ stfsx 11, 4, 11
-                \\ stfsux 12, 4, 9
-                \\ stfsx 13, 4, 11
-                \\ .align 4
-                \\ 20007:
-                \\ andi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beqlr+
-                \\ .align 4
-                \\ 20008:
-                \\ lfsux 3, 8, 9
-                \\ lfsx 4, 8, 11
-                \\ fmuls 5, 1, 3
-                \\ fmuls 6, 1, 4
-                \\ fnmsubs 5, 2, 4, 5
-                \\ fmadds 6, 2, 3, 6
-                \\ stfsux 5, 4, 9
-                \\ stfsx 6, 4, 11
-                \\ bdnz 20008b
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
