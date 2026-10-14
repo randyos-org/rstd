@@ -30,24 +30,24 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 0",
-    "1, 0, 0",
-    "1, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 1, 0",
-    "0, 0, 1",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 1",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
-    "0, 0, 0",
+    "1, 0, 1, 0, 0",
+    "1, 0, 1, 0, 0",
+    "1, 0, 1, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 1, 0",
+    "1, 0, 0, 0, 1",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0",
+    "1, 0, 0, 0, 1",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -66,9 +66,14 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4
     \\ .balign 512
+    \\ .if \bp0
     \\ xorps %xmm0, %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ pxor %xmm0, %xmm0
+    \\ .endif
     \\ leaq (, %rdx, 8), %rdx
     \\ testq %rdi, %rdi
     \\ jle 20014f
@@ -104,14 +109,17 @@ const text =
     \\ jle 20002f
     \\ .balign 16
     \\ 20001:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ minpd %xmm4, %xmm0
     \\ movaps -8 * 8(%rsi), %xmm4
@@ -121,13 +129,13 @@ const text =
     \\ movaps -4 * 8(%rsi), %xmm6
     \\ minpd %xmm7, %xmm3
     \\ movaps -2 * 8(%rsi), %xmm7
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
     \\ .endif
     \\ minpd %xmm4, %xmm0
@@ -200,14 +208,17 @@ const text =
     \\ jle 20009f
     \\ .balign 16
     \\ 20008:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movsd (%rsi), %xmm4
     \\ addq %rdx, %rsi
@@ -229,13 +240,13 @@ const text =
     \\ movhps (%rsi), %xmm7
     \\ addq %rdx, %rsi
     \\ minpd %xmm7, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
     \\ .endif
     \\ movsd (%rsi), %xmm4
