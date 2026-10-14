@@ -14,12 +14,12 @@ const keys = [_][2][]const u8{
     .{ "sparcv7", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ true, false },
-    .{ false, true },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "1, 0",
+    "0, 1",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -36,130 +36,130 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 32
+    \\ .proc 07
+    \\ .if \bp0
+    \\ save %sp, -64, %sp
+    \\ .endif
+    \\ .if \bp1
+    \\ save %sp, -256, %sp
+    \\ .endif
+    \\ sll %i2, 3, %i2
+    \\ sll %i4, 3, %i4
+    \\ cmp %i2, 2 * 4
+    \\ bne 20004f
+    \\ nop
+    \\ cmp %i4, 2 * 4
+    \\ bne 20004f
+    \\ nop
+    \\ sra %i0, 2, %i5
+    \\ cmp %i5, 0
+    \\ ble,pn %icc, 20001f
+    \\ nop
+    \\ 20000:
+    \\ prefetch [%i1 + 32 * 4], 0
+    \\ prefetch [%i3 + 32 * 4], 0
+    \\ ld [%i1 + 0 * 4], %f0
+    \\ ld [%i1 + 1 * 4], %f1
+    \\ ld [%i1 + 2 * 4], %f2
+    \\ ld [%i1 + 3 * 4], %f3
+    \\ ld [%i1 + 4 * 4], %f4
+    \\ ld [%i1 + 5 * 4], %f5
+    \\ ld [%i1 + 6 * 4], %f6
+    \\ ld [%i1 + 7 * 4], %f7
+    \\ st %f0, [%i3 + 0 * 4]
+    \\ add %i5, -1, %i5
+    \\ st %f1, [%i3 + 1 * 4]
+    \\ cmp %i5, 0
+    \\ st %f2, [%i3 + 2 * 4]
+    \\ add %i1, 8 * 4, %i1
+    \\ st %f3, [%i3 + 3 * 4]
+    \\ st %f4, [%i3 + 4 * 4]
+    \\ st %f5, [%i3 + 5 * 4]
+    \\ st %f6, [%i3 + 6 * 4]
+    \\ st %f7, [%i3 + 7 * 4]
+    \\ bg,pt %icc, 20000b
+    \\ add %i3, 8 * 4, %i3
+    \\ 20001:
+    \\ and %i0, 3, %i5
+    \\ cmp %i5, 0
+    \\ ble,a,pn %icc, 20003f
+    \\ nop
+    \\ 20002:
+    \\ ld [%i1 + 0 * 4], %f0
+    \\ ld [%i1 + 1 * 4], %f1
+    \\ add %i5, -1, %i5
+    \\ cmp %i5, 0
+    \\ st %f0, [%i3 + 0 * 4]
+    \\ add %i1, 2 * 4, %i1
+    \\ st %f1, [%i3 + 1 * 4]
+    \\ bg,pt %icc, 20002b
+    \\ add %i3, 2 * 4, %i3
+    \\ 20003:
+    \\ return %i7 + 8
+    \\ clr %g0
+    \\ 20004:
+    \\ sra %i0, 2, %i5
+    \\ cmp %i5, 0
+    \\ ble,pn %icc, 20006f
+    \\ nop
+    \\ 20005:
+    \\ ld [%i1 + 0 * 4], %f0
+    \\ ld [%i1 + 1 * 4], %f1
+    \\ add %i1, %i2, %i1
+    \\ ld [%i1 + 0 * 4], %f2
+    \\ ld [%i1 + 1 * 4], %f3
+    \\ add %i1, %i2, %i1
+    \\ ld [%i1 + 0 * 4], %f4
+    \\ ld [%i1 + 1 * 4], %f5
+    \\ add %i1, %i2, %i1
+    \\ ld [%i1 + 0 * 4], %f6
+    \\ ld [%i1 + 1 * 4], %f7
+    \\ add %i1, %i2, %i1
+    \\ st %f0, [%i3 + 0 * 4]
+    \\ add %i5, -1, %i5
+    \\ st %f1, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ cmp %i5, 0
+    \\ st %f2, [%i3 + 0 * 4]
+    \\ st %f3, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ st %f4, [%i3 + 0 * 4]
+    \\ st %f5, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ st %f6, [%i3 + 0 * 4]
+    \\ st %f7, [%i3 + 1 * 4]
+    \\ bg,pt %icc, 20005b
+    \\ add %i3, %i4, %i3
+    \\ 20006:
+    \\ and %i0, 3, %i5
+    \\ cmp %i5, 0
+    \\ ble,a,pn %icc, 20008f
+    \\ nop
+    \\ 20007:
+    \\ ld [%i1 + 0 * 4], %f0
+    \\ ld [%i1 + 1 * 4], %f1
+    \\ add %i5, -1, %i5
+    \\ cmp %i5, 0
+    \\ add %i1, %i2, %i1
+    \\ st %f0, [%i3 + 0 * 4]
+    \\ st %f1, [%i3 + 1 * 4]
+    \\ bg,pt %icc, 20007b
+    \\ add %i3, %i4, %i3
+    \\ 20008:
+    \\ return %i7 + 8
+    \\ clr %o0
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn ccopy() callconv(.naked) void {
-            asm volatile (
-                \\ .section ".text"
-                \\ .align 32
-                \\ .proc 07
-                \\
-            ++ (if (on[0])
-                \\ save %sp, -64, %sp
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ save %sp, -256, %sp
-                \\
-            else
-                "") ++
-                \\ sll %i2, 3, %i2
-                \\ sll %i4, 3, %i4
-                \\ cmp %i2, 2 * 4
-                \\ bne 20004f
-                \\ nop
-                \\ cmp %i4, 2 * 4
-                \\ bne 20004f
-                \\ nop
-                \\ sra %i0, 2, %i5
-                \\ cmp %i5, 0
-                \\ ble,pn %icc, 20001f
-                \\ nop
-                \\ 20000:
-                \\ prefetch [%i1 + 32 * 4], 0
-                \\ prefetch [%i3 + 32 * 4], 0
-                \\ ld [%i1 + 0 * 4], %f0
-                \\ ld [%i1 + 1 * 4], %f1
-                \\ ld [%i1 + 2 * 4], %f2
-                \\ ld [%i1 + 3 * 4], %f3
-                \\ ld [%i1 + 4 * 4], %f4
-                \\ ld [%i1 + 5 * 4], %f5
-                \\ ld [%i1 + 6 * 4], %f6
-                \\ ld [%i1 + 7 * 4], %f7
-                \\ st %f0, [%i3 + 0 * 4]
-                \\ add %i5, -1, %i5
-                \\ st %f1, [%i3 + 1 * 4]
-                \\ cmp %i5, 0
-                \\ st %f2, [%i3 + 2 * 4]
-                \\ add %i1, 8 * 4, %i1
-                \\ st %f3, [%i3 + 3 * 4]
-                \\ st %f4, [%i3 + 4 * 4]
-                \\ st %f5, [%i3 + 5 * 4]
-                \\ st %f6, [%i3 + 6 * 4]
-                \\ st %f7, [%i3 + 7 * 4]
-                \\ bg,pt %icc, 20000b
-                \\ add %i3, 8 * 4, %i3
-                \\ 20001:
-                \\ and %i0, 3, %i5
-                \\ cmp %i5, 0
-                \\ ble,a,pn %icc, 20003f
-                \\ nop
-                \\ 20002:
-                \\ ld [%i1 + 0 * 4], %f0
-                \\ ld [%i1 + 1 * 4], %f1
-                \\ add %i5, -1, %i5
-                \\ cmp %i5, 0
-                \\ st %f0, [%i3 + 0 * 4]
-                \\ add %i1, 2 * 4, %i1
-                \\ st %f1, [%i3 + 1 * 4]
-                \\ bg,pt %icc, 20002b
-                \\ add %i3, 2 * 4, %i3
-                \\ 20003:
-                \\ return %i7 + 8
-                \\ clr %g0
-                \\ 20004:
-                \\ sra %i0, 2, %i5
-                \\ cmp %i5, 0
-                \\ ble,pn %icc, 20006f
-                \\ nop
-                \\ 20005:
-                \\ ld [%i1 + 0 * 4], %f0
-                \\ ld [%i1 + 1 * 4], %f1
-                \\ add %i1, %i2, %i1
-                \\ ld [%i1 + 0 * 4], %f2
-                \\ ld [%i1 + 1 * 4], %f3
-                \\ add %i1, %i2, %i1
-                \\ ld [%i1 + 0 * 4], %f4
-                \\ ld [%i1 + 1 * 4], %f5
-                \\ add %i1, %i2, %i1
-                \\ ld [%i1 + 0 * 4], %f6
-                \\ ld [%i1 + 1 * 4], %f7
-                \\ add %i1, %i2, %i1
-                \\ st %f0, [%i3 + 0 * 4]
-                \\ add %i5, -1, %i5
-                \\ st %f1, [%i3 + 1 * 4]
-                \\ add %i3, %i4, %i3
-                \\ cmp %i5, 0
-                \\ st %f2, [%i3 + 0 * 4]
-                \\ st %f3, [%i3 + 1 * 4]
-                \\ add %i3, %i4, %i3
-                \\ st %f4, [%i3 + 0 * 4]
-                \\ st %f5, [%i3 + 1 * 4]
-                \\ add %i3, %i4, %i3
-                \\ st %f6, [%i3 + 0 * 4]
-                \\ st %f7, [%i3 + 1 * 4]
-                \\ bg,pt %icc, 20005b
-                \\ add %i3, %i4, %i3
-                \\ 20006:
-                \\ and %i0, 3, %i5
-                \\ cmp %i5, 0
-                \\ ble,a,pn %icc, 20008f
-                \\ nop
-                \\ 20007:
-                \\ ld [%i1 + 0 * 4], %f0
-                \\ ld [%i1 + 1 * 4], %f1
-                \\ add %i5, -1, %i5
-                \\ cmp %i5, 0
-                \\ add %i1, %i2, %i1
-                \\ st %f0, [%i3 + 0 * 4]
-                \\ st %f1, [%i3 + 1 * 4]
-                \\ bg,pt %icc, 20007b
-                \\ add %i3, %i4, %i3
-                \\ 20008:
-                \\ return %i7 + 8
-                \\ clr %o0
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

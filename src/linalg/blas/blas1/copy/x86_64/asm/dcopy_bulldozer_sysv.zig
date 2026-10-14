@@ -31,7 +31,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn dcopy() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .balign 512
             \\ leaq (, %rdx, 8), %rdx
             \\ leaq (, %r8, 8), %r8

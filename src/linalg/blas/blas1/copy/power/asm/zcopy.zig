@@ -26,24 +26,24 @@ const keys = [_][2][]const u8{
     .{ "ppcg4", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][8]bool{
-    .{ true, false, true, false, false, false, true, true },
-    .{ true, false, false, true, false, false, true, true },
-    .{ true, false, false, true, false, false, true, true },
-    .{ true, false, false, true, false, false, true, true },
-    .{ true, false, false, false, true, false, false, false },
-    .{ true, false, false, false, false, true, true, false },
-    .{ true, false, false, false, false, true, true, false },
-    .{ true, false, false, false, false, true, true, false },
-    .{ false, true, true, false, false, false, true, true },
-    .{ false, true, false, true, false, false, true, true },
-    .{ false, true, false, true, false, false, true, true },
-    .{ false, true, false, true, false, false, true, true },
-    .{ false, true, false, false, true, false, false, false },
-    .{ false, true, false, false, false, true, true, false },
-    .{ false, true, false, false, false, true, true, false },
-    .{ false, true, false, false, false, true, true, false },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 1, 0, 0, 0, 1, 1",
+    "1, 0, 0, 1, 0, 0, 1, 1",
+    "1, 0, 0, 1, 0, 0, 1, 1",
+    "1, 0, 0, 1, 0, 0, 1, 1",
+    "1, 0, 0, 0, 1, 0, 0, 0",
+    "1, 0, 0, 0, 0, 1, 1, 0",
+    "1, 0, 0, 0, 0, 1, 1, 0",
+    "1, 0, 0, 0, 0, 1, 1, 0",
+    "0, 1, 1, 0, 0, 0, 1, 1",
+    "0, 1, 0, 1, 0, 0, 1, 1",
+    "0, 1, 0, 1, 0, 0, 1, 1",
+    "0, 1, 0, 1, 0, 0, 1, 1",
+    "0, 1, 0, 0, 1, 0, 0, 0",
+    "0, 1, 0, 0, 0, 1, 1, 0",
+    "0, 1, 0, 0, 0, 1, 1, 0",
+    "0, 1, 0, 0, 0, 1, 1, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -60,231 +60,200 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [8]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6, bp7
+    \\ .align 6
+    \\ addi 1, 1, -16
+    \\ li 0, 0
+    \\ stfd 14, 0(1)
+    \\ stfd 15, 8(1)
+    \\ .if \bp0
+    \\ slwi 5, 5, 4
+    \\ slwi 7, 7, 4
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 5, 5, 4
+    \\ sldi 7, 7, 4
+    \\ .endif
+    \\ subi 9, 5, 8
+    \\ subi 10, 7, 8
+    \\ .if \bp2
+    \\ li 8, ((64 + 128 * 13)) / 2
+    \\ .endif
+    \\ .if \bp3
+    \\ li 8, ((96 + 128 * 12)) / 2
+    \\ .endif
+    \\ .if \bp4
+    \\ li 8, ((16 + 128 * 100)) / 2
+    \\ .endif
+    \\ .if \bp5
+    \\ li 8, ((96 + 128 * 12))
+    \\ .endif
+    \\ .if \bp0
+    \\ cmpwi 0, 3, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 3, 0
+    \\ .endif
+    \\ ble- 20007f
+    \\ .if \bp0
+    \\ cmpwi 0, 5, 2 * 8
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 5, 2 * 8
+    \\ .endif
+    \\ bne- 0, 20003f
+    \\ .if \bp0
+    \\ cmpwi 0, 7, 2 * 8
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 7, 2 * 8
+    \\ .endif
+    \\ bne- 0, 20003f
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 0, 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ lfd 0, 0 * 8(4)
+    \\ lfd 1, 1 * 8(4)
+    \\ lfd 2, 2 * 8(4)
+    \\ lfd 3, 3 * 8(4)
+    \\ stfd 0, 0 * 8(6)
+    \\ stfd 1, 1 * 8(6)
+    \\ stfd 2, 2 * 8(6)
+    \\ stfd 3, 3 * 8(6)
+    \\ lfd 4, 4 * 8(4)
+    \\ lfd 5, 5 * 8(4)
+    \\ lfd 6, 6 * 8(4)
+    \\ lfd 7, 7 * 8(4)
+    \\ stfd 4, 4 * 8(6)
+    \\ stfd 5, 5 * 8(6)
+    \\ stfd 6, 6 * 8(6)
+    \\ stfd 7, 7 * 8(6)
+    \\ lfd 8, 8 * 8(4)
+    \\ lfd 9, 9 * 8(4)
+    \\ lfd 10, 10 * 8(4)
+    \\ lfd 11, 11 * 8(4)
+    \\ stfd 8, 8 * 8(6)
+    \\ stfd 9, 9 * 8(6)
+    \\ stfd 10, 10 * 8(6)
+    \\ stfd 11, 11 * 8(6)
+    \\ lfd 12, 12 * 8(4)
+    \\ lfd 13, 13 * 8(4)
+    \\ lfd 14, 14 * 8(4)
+    \\ lfd 15, 15 * 8(4)
+    \\ stfd 12, 12 * 8(6)
+    \\ stfd 13, 13 * 8(6)
+    \\ stfd 14, 14 * 8(6)
+    \\ stfd 15, 15 * 8(6)
+    \\ .if \bp6
+    \\ dcbtst 6, 8
+    \\ .endif
+    \\ .if \bp7
+    \\ dcbt 4, 8
+    \\ .endif
+    \\ addi 4, 4, 16 * 8
+    \\ addi 6, 6, 16 * 8
+    \\ .if \bp4
+    \\ dcbtst 6, 8
+    \\ dcbtst 4, 8
+    \\ .endif
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beq 20007f
+    \\ .align 4
+    \\ 20002:
+    \\ lfd 8, 0 * 8(4)
+    \\ lfd 9, 1 * 8(4)
+    \\ addi 4, 4, 2 * 8
+    \\ stfd 8, 0 * 8(6)
+    \\ stfd 9, 1 * 8(6)
+    \\ addi 6, 6, 2 * 8
+    \\ bdnz 20002b
+    \\ b 20007f
+    \\ .align 4
+    \\ 20003:
+    \\ sub 4, 4, 9
+    \\ sub 6, 6, 10
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 20005f
+    \\ .align 4
+    \\ 20004:
+    \\ lfdx 0, 4, 9
+    \\ lfdux 1, 4, 5
+    \\ lfdx 2, 4, 9
+    \\ lfdux 3, 4, 5
+    \\ lfdx 4, 4, 9
+    \\ lfdux 5, 4, 5
+    \\ lfdx 6, 4, 9
+    \\ lfdux 7, 4, 5
+    \\ lfdx 8, 4, 9
+    \\ lfdux 9, 4, 5
+    \\ lfdx 10, 4, 9
+    \\ lfdux 11, 4, 5
+    \\ lfdx 12, 4, 9
+    \\ lfdux 13, 4, 5
+    \\ lfdx 14, 4, 9
+    \\ lfdux 15, 4, 5
+    \\ stfdx 0, 6, 10
+    \\ stfdux 1, 6, 7
+    \\ stfdx 2, 6, 10
+    \\ stfdux 3, 6, 7
+    \\ stfdx 4, 6, 10
+    \\ stfdux 5, 6, 7
+    \\ stfdx 6, 6, 10
+    \\ stfdux 7, 6, 7
+    \\ stfdx 8, 6, 10
+    \\ stfdux 9, 6, 7
+    \\ stfdx 10, 6, 10
+    \\ stfdux 11, 6, 7
+    \\ stfdx 12, 6, 10
+    \\ stfdux 13, 6, 7
+    \\ stfdx 14, 6, 10
+    \\ stfdux 15, 6, 7
+    \\ bdnz 20004b
+    \\ .align 4
+    \\ 20005:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beq 20007f
+    \\ .align 4
+    \\ 20006:
+    \\ lfdx 8, 4, 9
+    \\ lfdux 9, 4, 5
+    \\ stfdx 8, 6, 10
+    \\ stfdux 9, 6, 7
+    \\ bdnz 20006b
+    \\ .align 4
+    \\ 20007:
+    \\ lfd 14, 0(1)
+    \\ lfd 15, 8(1)
+    \\ addi 1, 1, 16
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn zcopy() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -16
-                \\ li 0, 0
-                \\ stfd 14, 0(1)
-                \\ stfd 15, 8(1)
-                \\
-            ++ (if (on[0])
-                \\ slwi 5, 5, 4
-                \\ slwi 7, 7, 4
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sldi 5, 5, 4
-                \\ sldi 7, 7, 4
-                \\
-            else
-                "") ++
-                \\ subi 9, 5, 8
-                \\ subi 10, 7, 8
-                \\
-            ++ (if (on[2])
-                \\ li 8, ((64 + 128 * 13)) / 2
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ li 8, ((96 + 128 * 12)) / 2
-                \\
-            else
-                "") ++ (if (on[4])
-                \\ li 8, ((16 + 128 * 100)) / 2
-                \\
-            else
-                "") ++ (if (on[5])
-                \\ li 8, ((96 + 128 * 12))
-                \\
-            else
-                "") ++ (if (on[0])
-                \\ cmpwi 0, 3, 0
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 3, 0
-                \\
-            else
-                "") ++
-                \\ ble- 20007f
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 5, 2 * 8
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 5, 2 * 8
-                \\
-            else
-                "") ++
-                \\ bne- 0, 20003f
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 7, 2 * 8
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 7, 2 * 8
-                \\
-            else
-                "") ++
-                \\ bne- 0, 20003f
-                \\
-            ++ (if (on[0])
-                \\ srawi. 0, 3, 3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sradi. 0, 3, 3
-                \\
-            else
-                "") ++
-                \\ mtspr 9, 0
-                \\ beq- 0, 20001f
-                \\ .align 4
-                \\ 20000:
-                \\ lfd 0, 0 * 8(4)
-                \\ lfd 1, 1 * 8(4)
-                \\ lfd 2, 2 * 8(4)
-                \\ lfd 3, 3 * 8(4)
-                \\ stfd 0, 0 * 8(6)
-                \\ stfd 1, 1 * 8(6)
-                \\ stfd 2, 2 * 8(6)
-                \\ stfd 3, 3 * 8(6)
-                \\ lfd 4, 4 * 8(4)
-                \\ lfd 5, 5 * 8(4)
-                \\ lfd 6, 6 * 8(4)
-                \\ lfd 7, 7 * 8(4)
-                \\ stfd 4, 4 * 8(6)
-                \\ stfd 5, 5 * 8(6)
-                \\ stfd 6, 6 * 8(6)
-                \\ stfd 7, 7 * 8(6)
-                \\ lfd 8, 8 * 8(4)
-                \\ lfd 9, 9 * 8(4)
-                \\ lfd 10, 10 * 8(4)
-                \\ lfd 11, 11 * 8(4)
-                \\ stfd 8, 8 * 8(6)
-                \\ stfd 9, 9 * 8(6)
-                \\ stfd 10, 10 * 8(6)
-                \\ stfd 11, 11 * 8(6)
-                \\ lfd 12, 12 * 8(4)
-                \\ lfd 13, 13 * 8(4)
-                \\ lfd 14, 14 * 8(4)
-                \\ lfd 15, 15 * 8(4)
-                \\ stfd 12, 12 * 8(6)
-                \\ stfd 13, 13 * 8(6)
-                \\ stfd 14, 14 * 8(6)
-                \\ stfd 15, 15 * 8(6)
-                \\
-            ++ (if (on[6])
-                \\ dcbtst 6, 8
-                \\
-            else
-                "") ++ (if (on[7])
-                \\ dcbt 4, 8
-                \\
-            else
-                "") ++
-                \\ addi 4, 4, 16 * 8
-                \\ addi 6, 6, 16 * 8
-                \\
-            ++ (if (on[4])
-                \\ dcbtst 6, 8
-                \\ dcbtst 4, 8
-                \\
-            else
-                "") ++
-                \\ bdnz 20000b
-                \\ .align 4
-                \\ 20001:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beq 20007f
-                \\ .align 4
-                \\ 20002:
-                \\ lfd 8, 0 * 8(4)
-                \\ lfd 9, 1 * 8(4)
-                \\ addi 4, 4, 2 * 8
-                \\ stfd 8, 0 * 8(6)
-                \\ stfd 9, 1 * 8(6)
-                \\ addi 6, 6, 2 * 8
-                \\ bdnz 20002b
-                \\ b 20007f
-                \\ .align 4
-                \\ 20003:
-                \\ sub 4, 4, 9
-                \\ sub 6, 6, 10
-                \\
-            ++ (if (on[0])
-                \\ srawi. 0, 3, 3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sradi. 0, 3, 3
-                \\
-            else
-                "") ++
-                \\ mtspr 9, 0
-                \\ beq- 20005f
-                \\ .align 4
-                \\ 20004:
-                \\ lfdx 0, 4, 9
-                \\ lfdux 1, 4, 5
-                \\ lfdx 2, 4, 9
-                \\ lfdux 3, 4, 5
-                \\ lfdx 4, 4, 9
-                \\ lfdux 5, 4, 5
-                \\ lfdx 6, 4, 9
-                \\ lfdux 7, 4, 5
-                \\ lfdx 8, 4, 9
-                \\ lfdux 9, 4, 5
-                \\ lfdx 10, 4, 9
-                \\ lfdux 11, 4, 5
-                \\ lfdx 12, 4, 9
-                \\ lfdux 13, 4, 5
-                \\ lfdx 14, 4, 9
-                \\ lfdux 15, 4, 5
-                \\ stfdx 0, 6, 10
-                \\ stfdux 1, 6, 7
-                \\ stfdx 2, 6, 10
-                \\ stfdux 3, 6, 7
-                \\ stfdx 4, 6, 10
-                \\ stfdux 5, 6, 7
-                \\ stfdx 6, 6, 10
-                \\ stfdux 7, 6, 7
-                \\ stfdx 8, 6, 10
-                \\ stfdux 9, 6, 7
-                \\ stfdx 10, 6, 10
-                \\ stfdux 11, 6, 7
-                \\ stfdx 12, 6, 10
-                \\ stfdux 13, 6, 7
-                \\ stfdx 14, 6, 10
-                \\ stfdux 15, 6, 7
-                \\ bdnz 20004b
-                \\ .align 4
-                \\ 20005:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beq 20007f
-                \\ .align 4
-                \\ 20006:
-                \\ lfdx 8, 4, 9
-                \\ lfdux 9, 4, 5
-                \\ stfdx 8, 6, 10
-                \\ stfdux 9, 6, 7
-                \\ bdnz 20006b
-                \\ .align 4
-                \\ 20007:
-                \\ lfd 14, 0(1)
-                \\ lfd 15, 8(1)
-                \\ addi 1, 1, 16
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

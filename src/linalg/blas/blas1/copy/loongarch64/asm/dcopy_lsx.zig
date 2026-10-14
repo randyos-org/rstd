@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn dcopy() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ bge $r0, $r4, 20017f
             \\ li.d $r18, 1
