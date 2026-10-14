@@ -33,27 +33,27 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 0, 0, 0, 1",
-    "1, 0, 1, 0, 0, 0",
-    "1, 0, 1, 0, 0, 0",
-    "1, 0, 1, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 0, 1, 0",
-    "0, 1, 0, 0, 0, 0",
-    "0, 1, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 1, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 1, 0, 0, 0",
+    "1, 0, 0, 0, 1, 0, 0",
+    "0, 1, 0, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 1",
+    "1, 0, 0, 0, 1, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
+    "1, 0, 0, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -72,7 +72,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6
     \\ .balign 512
     \\ leaq (, %rdx, 4), %rdx
     \\ leaq (, %r8, 4), %r8
@@ -165,6 +165,9 @@ const text =
     \\ xorps %xmm1, %xmm1
     \\ addps 4 * 4(%rsi), %xmm1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movaps %xmm2, -24 * 4(%rcx)
     \\ .if \bp0
@@ -360,6 +363,9 @@ const text =
     \\ .if \bp1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
     \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
+    \\ .endif
     \\ shufps $0x4e, %xmm3, %xmm2
     \\ movaps %xmm2, -24 * 4(%rcx)
     \\ movaps 6 * 4(%rsi), %xmm2
@@ -554,6 +560,9 @@ const text =
     \\ .endif
     \\ .if \bp1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movss %xmm3, %xmm2
     \\ shufps $0x39, %xmm2, %xmm2
@@ -768,6 +777,9 @@ const text =
     \\ .endif
     \\ .if \bp1
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp6
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ movss %xmm3, %xmm2
     \\ shufps $0x93, %xmm3, %xmm2
