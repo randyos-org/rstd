@@ -215,6 +215,7 @@ csky
 csoff
 CSPRNG
 csrot
+csrutil
 csrwr
 cstype
 csymm
@@ -913,6 +914,7 @@ mbind
 MCGA
 mcpu
 mdgen
+mdutil
 membarrier
 memfd_create
 memfd_secret
@@ -1090,6 +1092,7 @@ opteron
 Opto
 ortr
 os
+osascript
 osdep
 osfxsr
 OSPKE
@@ -1158,6 +1161,7 @@ pld
 PLDL
 PMLNE
 PMLNT
+pmset
 poll
 pollfd
 pollfds
@@ -1659,6 +1663,7 @@ TMPVX
 TMPVY
 TMPX
 TMPY
+tmutil
 tocbss
 toks
 toolchain

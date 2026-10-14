@@ -49,12 +49,17 @@ step "reduce motion" defaults write com.apple.universalaccess reduceMotion -bool
 step "reduce transparency" defaults write com.apple.universalaccess reduceTransparency -bool true
 
 # A solid color wallpaper: the dynamic ones flicker without a GPU. Prefers a
-# dark gray if this release has one, else the first solid color. macOS asks
-# once whether Terminal may control System Events; allow it.
+# dark gray if this release has one, else the first solid color. It needs
+# Terminal allowed to control System Events (Automation); macOS asks once,
+# and a refusal (-1743) sticks until changed there.
 solid="/System/Library/Desktop Pictures/Solid Colors"
 picture=$(ls "$solid"/*Gray*.png "$solid"/*.png 2>/dev/null | head -1)
 if [ -n "$picture" ]; then
-    step "solid wallpaper" osascript -e "tell application \"System Events\" to tell every desktop to set picture to \"$picture\""
+    echo "== solid wallpaper"
+    if ! osascript -e "tell application \"System Events\" to tell every desktop to set picture to \"$picture\""; then
+        echo "   (failed: allow Terminal to control System Events in the pane opening now, then run this again)"
+        open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+    fi
 else
     echo "== solid wallpaper: no pictures in $solid (use Wallpaper > Colors)"
 fi
