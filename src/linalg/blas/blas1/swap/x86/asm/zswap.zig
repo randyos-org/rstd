@@ -52,7 +52,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn zswap() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .balign 16
             \\ pushl %ebp
             \\ pushl %edi

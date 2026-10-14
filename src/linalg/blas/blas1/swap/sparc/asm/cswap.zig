@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "sparcv7", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,222 +32,222 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 32
+    \\ .proc 07
+    \\ .if \bp0
+    \\ save %sp, -64, %sp
+    \\ ld [%sp + 128 + 28], %i1
+    \\ ld [%sp + 128 + 32], %i2
+    \\ ld [%sp + 128 + 36], %i3
+    \\ .endif
+    \\ .if \bp1
+    \\ save %sp, -256, %sp
+    \\ ldx [%sp + 2423 + 56], %i1
+    \\ ldx [%sp + 2423 + 64], %i2
+    \\ ldx [%sp + 2423 + 72], %i3
+    \\ .endif
+    \\ sll %i1, 3, %i1
+    \\ sll %i3, 3, %i3
+    \\ cmp %i1, 2 * 4
+    \\ bne 20005f
+    \\ nop
+    \\ cmp %i3, 2 * 4
+    \\ bne 20005f
+    \\ nop
+    \\ sra %i0, 2, %i4
+    \\ cmp %i4, 0
+    \\ ble,pn %icc, 20002f
+    \\ nop
+    \\ ld [%i5 + 0 * 4], %f0
+    \\ ld [%i2 + 0 * 4], %f8
+    \\ ld [%i5 + 1 * 4], %f1
+    \\ ld [%i2 + 1 * 4], %f9
+    \\ ld [%i5 + 2 * 4], %f2
+    \\ ld [%i2 + 2 * 4], %f10
+    \\ ld [%i5 + 3 * 4], %f3
+    \\ ld [%i2 + 3 * 4], %f11
+    \\ ld [%i5 + 4 * 4], %f4
+    \\ ld [%i2 + 4 * 4], %f12
+    \\ ld [%i5 + 5 * 4], %f5
+    \\ ld [%i2 + 5 * 4], %f13
+    \\ ld [%i5 + 6 * 4], %f6
+    \\ ld [%i2 + 6 * 4], %f14
+    \\ ld [%i5 + 7 * 4], %f7
+    \\ ld [%i2 + 7 * 4], %f15
+    \\ deccc %i4
+    \\ ble,pn %icc, 20001f
+    \\ nop
+    \\ 20000:
+    \\ prefetch [%i5 + 256 * 4], 0
+    \\ deccc %i4
+    \\ st %f0, [%i2 + 0 * 4]
+    \\ ld [%i5 + 8 * 4], %f0
+    \\ st %f8, [%i5 + 0 * 4]
+    \\ ld [%i2 + 8 * 4], %f8
+    \\ st %f1, [%i2 + 1 * 4]
+    \\ ld [%i5 + 9 * 4], %f1
+    \\ st %f9, [%i5 + 1 * 4]
+    \\ ld [%i2 + 9 * 4], %f9
+    \\ st %f2, [%i2 + 2 * 4]
+    \\ ld [%i5 + 10 * 4], %f2
+    \\ st %f10, [%i5 + 2 * 4]
+    \\ ld [%i2 + 10 * 4], %f10
+    \\ st %f3, [%i2 + 3 * 4]
+    \\ ld [%i5 + 11 * 4], %f3
+    \\ st %f11, [%i5 + 3 * 4]
+    \\ ld [%i2 + 11 * 4], %f11
+    \\ prefetch [%i2 + 256 * 4], 0
+    \\ add %i5, 8 * 4, %i5
+    \\ st %f4, [%i2 + 4 * 4]
+    \\ ld [%i5 + 4 * 4], %f4
+    \\ st %f12, [%i5 - 4 * 4]
+    \\ ld [%i2 + 12 * 4], %f12
+    \\ st %f5, [%i2 + 5 * 4]
+    \\ ld [%i5 + 5 * 4], %f5
+    \\ st %f13, [%i5 - 3 * 4]
+    \\ ld [%i2 + 13 * 4], %f13
+    \\ st %f6, [%i2 + 6 * 4]
+    \\ ld [%i5 + 6 * 4], %f6
+    \\ st %f14, [%i5 - 2 * 4]
+    \\ ld [%i2 + 14 * 4], %f14
+    \\ st %f7, [%i2 + 7 * 4]
+    \\ ld [%i5 + 7 * 4], %f7
+    \\ st %f15, [%i5 - 1 * 4]
+    \\ ld [%i2 + 15 * 4], %f15
+    \\ bg,pt %icc, 20000b
+    \\ add %i2, 8 * 4, %i2
+    \\ 20001:
+    \\ st %f0, [%i2 + 0 * 4]
+    \\ st %f8, [%i5 + 0 * 4]
+    \\ st %f1, [%i2 + 1 * 4]
+    \\ st %f9, [%i5 + 1 * 4]
+    \\ st %f2, [%i2 + 2 * 4]
+    \\ st %f10, [%i5 + 2 * 4]
+    \\ st %f3, [%i2 + 3 * 4]
+    \\ st %f11, [%i5 + 3 * 4]
+    \\ st %f4, [%i2 + 4 * 4]
+    \\ st %f12, [%i5 + 4 * 4]
+    \\ st %f5, [%i2 + 5 * 4]
+    \\ st %f13, [%i5 + 5 * 4]
+    \\ st %f6, [%i2 + 6 * 4]
+    \\ st %f14, [%i5 + 6 * 4]
+    \\ st %f7, [%i2 + 7 * 4]
+    \\ st %f15, [%i5 + 7 * 4]
+    \\ add %i5, 8 * 4, %i5
+    \\ add %i2, 8 * 4, %i2
+    \\ 20002:
+    \\ and %i0, 3, %i4
+    \\ cmp %i4, 0
+    \\ ble,a,pn %icc, 20004f
+    \\ nop
+    \\ 20003:
+    \\ ld [%i5 + 0 * 4], %f0
+    \\ add %i4, -1, %i4
+    \\ ld [%i5 + 1 * 4], %f1
+    \\ ld [%i2 + 0 * 4], %f8
+    \\ ld [%i2 + 1 * 4], %f9
+    \\ cmp %i4, 0
+    \\ st %f0, [%i2 + 0 * 4]
+    \\ st %f1, [%i2 + 1 * 4]
+    \\ add %i2, 2 * 4, %i2
+    \\ st %f8, [%i5 + 0 * 4]
+    \\ st %f9, [%i5 + 1 * 4]
+    \\ bg,pt %icc, 20003b
+    \\ add %i5, 2 * 4, %i5
+    \\ 20004:
+    \\ return %i7 + 8
+    \\ clr %g0
+    \\ 20005:
+    \\ sra %i0, 2, %i4
+    \\ mov %i5, %l0
+    \\ cmp %i4, 0
+    \\ ble,pn %icc, 20007f
+    \\ mov %i2, %l1
+    \\ 20006:
+    \\ ld [%i5 + 0 * 4], %f0
+    \\ ld [%i2 + 0 * 4], %f8
+    \\ ld [%i5 + 1 * 4], %f1
+    \\ add %i5, %i1, %i5
+    \\ ld [%i2 + 1 * 4], %f9
+    \\ add %i2, %i3, %i2
+    \\ ld [%i5 + 0 * 4], %f2
+    \\ ld [%i2 + 0 * 4], %f10
+    \\ ld [%i5 + 1 * 4], %f3
+    \\ add %i5, %i1, %i5
+    \\ ld [%i2 + 1 * 4], %f11
+    \\ add %i2, %i3, %i2
+    \\ ld [%i5 + 0 * 4], %f4
+    \\ ld [%i2 + 0 * 4], %f12
+    \\ ld [%i5 + 1 * 4], %f5
+    \\ add %i5, %i1, %i5
+    \\ ld [%i2 + 1 * 4], %f13
+    \\ add %i2, %i3, %i2
+    \\ ld [%i5 + 0 * 4], %f6
+    \\ ld [%i2 + 0 * 4], %f14
+    \\ ld [%i5 + 1 * 4], %f7
+    \\ add %i5, %i1, %i5
+    \\ ld [%i2 + 1 * 4], %f15
+    \\ add %i2, %i3, %i2
+    \\ st %f0, [%l1 + 0 * 4]
+    \\ add %i4, -1, %i4
+    \\ st %f8, [%l0 + 0 * 4]
+    \\ cmp %i4, 0
+    \\ st %f1, [%l1 + 1 * 4]
+    \\ add %l1, %i3, %l1
+    \\ st %f9, [%l0 + 1 * 4]
+    \\ add %l0, %i1, %l0
+    \\ st %f2, [%l1 + 0 * 4]
+    \\ st %f10, [%l0 + 0 * 4]
+    \\ st %f3, [%l1 + 1 * 4]
+    \\ add %l1, %i3, %l1
+    \\ st %f11, [%l0 + 1 * 4]
+    \\ add %l0, %i1, %l0
+    \\ st %f4, [%l1 + 0 * 4]
+    \\ st %f12, [%l0 + 0 * 4]
+    \\ st %f5, [%l1 + 1 * 4]
+    \\ add %l1, %i3, %l1
+    \\ st %f13, [%l0 + 1 * 4]
+    \\ add %l0, %i1, %l0
+    \\ st %f6, [%l1 + 0 * 4]
+    \\ st %f14, [%l0 + 0 * 4]
+    \\ st %f7, [%l1 + 1 * 4]
+    \\ add %l1, %i3, %l1
+    \\ st %f15, [%l0 + 1 * 4]
+    \\ bg,pt %icc, 20006b
+    \\ add %l0, %i1, %l0
+    \\ 20007:
+    \\ and %i0, 3, %i4
+    \\ cmp %i4, 0
+    \\ ble,a,pn %icc, 20009f
+    \\ nop
+    \\ 20008:
+    \\ ld [%i5 + 0 * 4], %f0
+    \\ add %i4, -1, %i4
+    \\ ld [%i5 + 1 * 4], %f1
+    \\ ld [%i2 + 0 * 4], %f8
+    \\ cmp %i4, 0
+    \\ ld [%i2 + 1 * 4], %f9
+    \\ st %f8, [%i5 + 0 * 4]
+    \\ st %f9, [%i5 + 1 * 4]
+    \\ add %i5, %i1, %i5
+    \\ st %f0, [%i2 + 0 * 4]
+    \\ st %f1, [%i2 + 1 * 4]
+    \\ bg,pt %icc, 20008b
+    \\ add %i2, %i3, %i2
+    \\ 20009:
+    \\ return %i7 + 8
+    \\ clr %o0
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn cswap() callconv(.naked) void {
-            asm volatile (
-                \\ .section ".text"
-                \\ .align 32
-                \\ .proc 07
-                \\
-            ++ (if (on[0])
-                \\ save %sp, -64, %sp
-                \\ ld [%sp + 128 + 28], %i1
-                \\ ld [%sp + 128 + 32], %i2
-                \\ ld [%sp + 128 + 36], %i3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ save %sp, -256, %sp
-                \\ ldx [%sp + 2423 + 56], %i1
-                \\ ldx [%sp + 2423 + 64], %i2
-                \\ ldx [%sp + 2423 + 72], %i3
-                \\
-            else
-                "") ++
-                \\ sll %i1, 3, %i1
-                \\ sll %i3, 3, %i3
-                \\ cmp %i1, 2 * 4
-                \\ bne 20005f
-                \\ nop
-                \\ cmp %i3, 2 * 4
-                \\ bne 20005f
-                \\ nop
-                \\ sra %i0, 2, %i4
-                \\ cmp %i4, 0
-                \\ ble,pn %icc, 20002f
-                \\ nop
-                \\ ld [%i5 + 0 * 4], %f0
-                \\ ld [%i2 + 0 * 4], %f8
-                \\ ld [%i5 + 1 * 4], %f1
-                \\ ld [%i2 + 1 * 4], %f9
-                \\ ld [%i5 + 2 * 4], %f2
-                \\ ld [%i2 + 2 * 4], %f10
-                \\ ld [%i5 + 3 * 4], %f3
-                \\ ld [%i2 + 3 * 4], %f11
-                \\ ld [%i5 + 4 * 4], %f4
-                \\ ld [%i2 + 4 * 4], %f12
-                \\ ld [%i5 + 5 * 4], %f5
-                \\ ld [%i2 + 5 * 4], %f13
-                \\ ld [%i5 + 6 * 4], %f6
-                \\ ld [%i2 + 6 * 4], %f14
-                \\ ld [%i5 + 7 * 4], %f7
-                \\ ld [%i2 + 7 * 4], %f15
-                \\ deccc %i4
-                \\ ble,pn %icc, 20001f
-                \\ nop
-                \\ 20000:
-                \\ prefetch [%i5 + 256 * 4], 0
-                \\ deccc %i4
-                \\ st %f0, [%i2 + 0 * 4]
-                \\ ld [%i5 + 8 * 4], %f0
-                \\ st %f8, [%i5 + 0 * 4]
-                \\ ld [%i2 + 8 * 4], %f8
-                \\ st %f1, [%i2 + 1 * 4]
-                \\ ld [%i5 + 9 * 4], %f1
-                \\ st %f9, [%i5 + 1 * 4]
-                \\ ld [%i2 + 9 * 4], %f9
-                \\ st %f2, [%i2 + 2 * 4]
-                \\ ld [%i5 + 10 * 4], %f2
-                \\ st %f10, [%i5 + 2 * 4]
-                \\ ld [%i2 + 10 * 4], %f10
-                \\ st %f3, [%i2 + 3 * 4]
-                \\ ld [%i5 + 11 * 4], %f3
-                \\ st %f11, [%i5 + 3 * 4]
-                \\ ld [%i2 + 11 * 4], %f11
-                \\ prefetch [%i2 + 256 * 4], 0
-                \\ add %i5, 8 * 4, %i5
-                \\ st %f4, [%i2 + 4 * 4]
-                \\ ld [%i5 + 4 * 4], %f4
-                \\ st %f12, [%i5 - 4 * 4]
-                \\ ld [%i2 + 12 * 4], %f12
-                \\ st %f5, [%i2 + 5 * 4]
-                \\ ld [%i5 + 5 * 4], %f5
-                \\ st %f13, [%i5 - 3 * 4]
-                \\ ld [%i2 + 13 * 4], %f13
-                \\ st %f6, [%i2 + 6 * 4]
-                \\ ld [%i5 + 6 * 4], %f6
-                \\ st %f14, [%i5 - 2 * 4]
-                \\ ld [%i2 + 14 * 4], %f14
-                \\ st %f7, [%i2 + 7 * 4]
-                \\ ld [%i5 + 7 * 4], %f7
-                \\ st %f15, [%i5 - 1 * 4]
-                \\ ld [%i2 + 15 * 4], %f15
-                \\ bg,pt %icc, 20000b
-                \\ add %i2, 8 * 4, %i2
-                \\ 20001:
-                \\ st %f0, [%i2 + 0 * 4]
-                \\ st %f8, [%i5 + 0 * 4]
-                \\ st %f1, [%i2 + 1 * 4]
-                \\ st %f9, [%i5 + 1 * 4]
-                \\ st %f2, [%i2 + 2 * 4]
-                \\ st %f10, [%i5 + 2 * 4]
-                \\ st %f3, [%i2 + 3 * 4]
-                \\ st %f11, [%i5 + 3 * 4]
-                \\ st %f4, [%i2 + 4 * 4]
-                \\ st %f12, [%i5 + 4 * 4]
-                \\ st %f5, [%i2 + 5 * 4]
-                \\ st %f13, [%i5 + 5 * 4]
-                \\ st %f6, [%i2 + 6 * 4]
-                \\ st %f14, [%i5 + 6 * 4]
-                \\ st %f7, [%i2 + 7 * 4]
-                \\ st %f15, [%i5 + 7 * 4]
-                \\ add %i5, 8 * 4, %i5
-                \\ add %i2, 8 * 4, %i2
-                \\ 20002:
-                \\ and %i0, 3, %i4
-                \\ cmp %i4, 0
-                \\ ble,a,pn %icc, 20004f
-                \\ nop
-                \\ 20003:
-                \\ ld [%i5 + 0 * 4], %f0
-                \\ add %i4, -1, %i4
-                \\ ld [%i5 + 1 * 4], %f1
-                \\ ld [%i2 + 0 * 4], %f8
-                \\ ld [%i2 + 1 * 4], %f9
-                \\ cmp %i4, 0
-                \\ st %f0, [%i2 + 0 * 4]
-                \\ st %f1, [%i2 + 1 * 4]
-                \\ add %i2, 2 * 4, %i2
-                \\ st %f8, [%i5 + 0 * 4]
-                \\ st %f9, [%i5 + 1 * 4]
-                \\ bg,pt %icc, 20003b
-                \\ add %i5, 2 * 4, %i5
-                \\ 20004:
-                \\ return %i7 + 8
-                \\ clr %g0
-                \\ 20005:
-                \\ sra %i0, 2, %i4
-                \\ mov %i5, %l0
-                \\ cmp %i4, 0
-                \\ ble,pn %icc, 20007f
-                \\ mov %i2, %l1
-                \\ 20006:
-                \\ ld [%i5 + 0 * 4], %f0
-                \\ ld [%i2 + 0 * 4], %f8
-                \\ ld [%i5 + 1 * 4], %f1
-                \\ add %i5, %i1, %i5
-                \\ ld [%i2 + 1 * 4], %f9
-                \\ add %i2, %i3, %i2
-                \\ ld [%i5 + 0 * 4], %f2
-                \\ ld [%i2 + 0 * 4], %f10
-                \\ ld [%i5 + 1 * 4], %f3
-                \\ add %i5, %i1, %i5
-                \\ ld [%i2 + 1 * 4], %f11
-                \\ add %i2, %i3, %i2
-                \\ ld [%i5 + 0 * 4], %f4
-                \\ ld [%i2 + 0 * 4], %f12
-                \\ ld [%i5 + 1 * 4], %f5
-                \\ add %i5, %i1, %i5
-                \\ ld [%i2 + 1 * 4], %f13
-                \\ add %i2, %i3, %i2
-                \\ ld [%i5 + 0 * 4], %f6
-                \\ ld [%i2 + 0 * 4], %f14
-                \\ ld [%i5 + 1 * 4], %f7
-                \\ add %i5, %i1, %i5
-                \\ ld [%i2 + 1 * 4], %f15
-                \\ add %i2, %i3, %i2
-                \\ st %f0, [%l1 + 0 * 4]
-                \\ add %i4, -1, %i4
-                \\ st %f8, [%l0 + 0 * 4]
-                \\ cmp %i4, 0
-                \\ st %f1, [%l1 + 1 * 4]
-                \\ add %l1, %i3, %l1
-                \\ st %f9, [%l0 + 1 * 4]
-                \\ add %l0, %i1, %l0
-                \\ st %f2, [%l1 + 0 * 4]
-                \\ st %f10, [%l0 + 0 * 4]
-                \\ st %f3, [%l1 + 1 * 4]
-                \\ add %l1, %i3, %l1
-                \\ st %f11, [%l0 + 1 * 4]
-                \\ add %l0, %i1, %l0
-                \\ st %f4, [%l1 + 0 * 4]
-                \\ st %f12, [%l0 + 0 * 4]
-                \\ st %f5, [%l1 + 1 * 4]
-                \\ add %l1, %i3, %l1
-                \\ st %f13, [%l0 + 1 * 4]
-                \\ add %l0, %i1, %l0
-                \\ st %f6, [%l1 + 0 * 4]
-                \\ st %f14, [%l0 + 0 * 4]
-                \\ st %f7, [%l1 + 1 * 4]
-                \\ add %l1, %i3, %l1
-                \\ st %f15, [%l0 + 1 * 4]
-                \\ bg,pt %icc, 20006b
-                \\ add %l0, %i1, %l0
-                \\ 20007:
-                \\ and %i0, 3, %i4
-                \\ cmp %i4, 0
-                \\ ble,a,pn %icc, 20009f
-                \\ nop
-                \\ 20008:
-                \\ ld [%i5 + 0 * 4], %f0
-                \\ add %i4, -1, %i4
-                \\ ld [%i5 + 1 * 4], %f1
-                \\ ld [%i2 + 0 * 4], %f8
-                \\ cmp %i4, 0
-                \\ ld [%i2 + 1 * 4], %f9
-                \\ st %f8, [%i5 + 0 * 4]
-                \\ st %f9, [%i5 + 1 * 4]
-                \\ add %i5, %i1, %i5
-                \\ st %f0, [%i2 + 0 * 4]
-                \\ st %f1, [%i2 + 1 * 4]
-                \\ bg,pt %icc, 20008b
-                \\ add %i2, %i3, %i2
-                \\ 20009:
-                \\ return %i7 + 8
-                \\ clr %o0
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
