@@ -18,16 +18,16 @@ const keys = [_][2][]const u8{
     .{ "cortexa9", "sf" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{false},
-    .{false},
-    .{false},
-    .{true},
-    .{true},
-    .{true},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "0",
+    "0",
+    "0",
+    "1",
+    "1",
+    "1",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -44,127 +44,129 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .macro KERNEL_F4
+    \\ vldmia.f32 r1!, { s8 - s9 }
+    \\ vldmia.f32 r6!, { s4 - s5}
+    \\ fmacs s0 , s4, s8
+    \\ vldmia.f32 r1!, { s10 - s11 }
+    \\ fmacs s1 , s5, s9
+    \\ vldmia.f32 r6!, { s6 - s7 }
+    \\ fmacs s0 , s6, s10
+    \\ fmacs s1 , s7, s11
+    \\ .endm
+    \\ .macro KERNEL_F1
+    \\ vldmia.f32 r1!, { s4 }
+    \\ vldmia.f32 r6!, { s8 }
+    \\ fmacs s0 , s4, s8
+    \\ .endm
+    \\ .macro KERNEL_S4
+    \\ nop
+    \\ vldmia.f32 r1, { s4 }
+    \\ vldmia.f32 r6, { s8 }
+    \\ add r1, r1, r2
+    \\ add r6, r6, r7
+    \\ fmacs s0 , s4, s8
+    \\ vldmia.f32 r1, { s5 }
+    \\ vldmia.f32 r6, { s9 }
+    \\ add r1, r1, r2
+    \\ add r6, r6, r7
+    \\ fmacs s1 , s5, s9
+    \\ vldmia.f32 r1, { s6 }
+    \\ vldmia.f32 r6, { s10 }
+    \\ add r1, r1, r2
+    \\ add r6, r6, r7
+    \\ fmacs s0 , s6, s10
+    \\ vldmia.f32 r1, { s7 }
+    \\ vldmia.f32 r6, { s11 }
+    \\ add r1, r1, r2
+    \\ add r6, r6, r7
+    \\ fmacs s1 , s7, s11
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f32 r1, { s4 }
+    \\ vldmia.f32 r6, { s8 }
+    \\ add r1, r1, r2
+    \\ fmacs s0 , s4, s8
+    \\ add r6, r6, r7
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ push {r4 - r9, fp}
+    \\ add fp, sp, #24
+    \\ sub sp, sp, #256
+    \\ sub r4, fp, #128
+    \\ vstm r4, { s8 - s15 }
+    \\ mov r6, r3
+    \\ ldr r7, [fp, #4 ]
+    \\ movs r4, #0
+    \\ vmov s0, r4
+    \\ vmov s1, r4
+    \\ cmp r0, #0
+    \\ ble 20008f
+    \\ # cmp r2, #0
+    \\ # beq 20008f
+    \\ # cmp r7, #0
+    \\ # beq 20008f
+    \\ cmp r2, #1
+    \\ bne 20004f
+    \\ cmp r7, #1
+    \\ bne 20004f
+    \\ 20000:
+    \\ asrs r5, r0, #2
+    \\ ble 20002f
+    \\ 20001:
+    \\ KERNEL_F4
+    \\ subs r5, r5, #1
+    \\ bne 20001b
+    \\ 20002:
+    \\ ands r5, r0, #3
+    \\ ble 20008f
+    \\ 20003:
+    \\ KERNEL_F1
+    \\ subs r5, r5, #1
+    \\ bne 20003b
+    \\ b 20008f
+    \\ 20004:
+    \\ lsl r2, r2, #2
+    \\ lsl r7, r7, #2
+    \\ asrs r5, r0, #2
+    \\ ble 20006f
+    \\ 20005:
+    \\ KERNEL_S4
+    \\ subs r5, r5, #1
+    \\ bne 20005b
+    \\ 20006:
+    \\ ands r5, r0, #3
+    \\ ble 20008f
+    \\ 20007:
+    \\ KERNEL_S1
+    \\ subs r5, r5, #1
+    \\ bne 20007b
+    \\ 20008:
+    \\ sub r3, fp, #128
+    \\ vldm r3, { s8 - s15}
+    \\ vadd.f32 s0 , s0, s1
+    \\ .if \bp0
+    \\ vmov r0, s0
+    \\ .endif
+    \\ sub sp, fp, #24
+    \\ pop {r4 - r9, fp}
+    \\ bx lr
+    \\ .purgem KERNEL_F4
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_S4
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn sdot() callconv(.naked) void {
-            asm volatile (
-                \\ .macro KERNEL_F4
-                \\ vldmia.f32 r1!, { s8 - s9 }
-                \\ vldmia.f32 r6!, { s4 - s5}
-                \\ fmacs s0 , s4, s8
-                \\ vldmia.f32 r1!, { s10 - s11 }
-                \\ fmacs s1 , s5, s9
-                \\ vldmia.f32 r6!, { s6 - s7 }
-                \\ fmacs s0 , s6, s10
-                \\ fmacs s1 , s7, s11
-                \\ .endm
-                \\ .macro KERNEL_F1
-                \\ vldmia.f32 r1!, { s4 }
-                \\ vldmia.f32 r6!, { s8 }
-                \\ fmacs s0 , s4, s8
-                \\ .endm
-                \\ .macro KERNEL_S4
-                \\ nop
-                \\ vldmia.f32 r1, { s4 }
-                \\ vldmia.f32 r6, { s8 }
-                \\ add r1, r1, r2
-                \\ add r6, r6, r7
-                \\ fmacs s0 , s4, s8
-                \\ vldmia.f32 r1, { s5 }
-                \\ vldmia.f32 r6, { s9 }
-                \\ add r1, r1, r2
-                \\ add r6, r6, r7
-                \\ fmacs s1 , s5, s9
-                \\ vldmia.f32 r1, { s6 }
-                \\ vldmia.f32 r6, { s10 }
-                \\ add r1, r1, r2
-                \\ add r6, r6, r7
-                \\ fmacs s0 , s6, s10
-                \\ vldmia.f32 r1, { s7 }
-                \\ vldmia.f32 r6, { s11 }
-                \\ add r1, r1, r2
-                \\ add r6, r6, r7
-                \\ fmacs s1 , s7, s11
-                \\ .endm
-                \\ .macro KERNEL_S1
-                \\ vldmia.f32 r1, { s4 }
-                \\ vldmia.f32 r6, { s8 }
-                \\ add r1, r1, r2
-                \\ fmacs s0 , s4, s8
-                \\ add r6, r6, r7
-                \\ .endm
-                \\ .arm
-                \\ .align 5
-                \\ push {r4 - r9, fp}
-                \\ add fp, sp, #24
-                \\ sub sp, sp, #256
-                \\ sub r4, fp, #128
-                \\ vstm r4, { s8 - s15 }
-                \\ mov r6, r3
-                \\ ldr r7, [fp, #4 ]
-                \\ movs r4, #0
-                \\ vmov s0, r4
-                \\ vmov s1, r4
-                \\ cmp r0, #0
-                \\ ble 20008f
-                \\ # cmp r2, #0
-                \\ # beq 20008f
-                \\ # cmp r7, #0
-                \\ # beq 20008f
-                \\ cmp r2, #1
-                \\ bne 20004f
-                \\ cmp r7, #1
-                \\ bne 20004f
-                \\ 20000:
-                \\ asrs r5, r0, #2
-                \\ ble 20002f
-                \\ 20001:
-                \\ KERNEL_F4
-                \\ subs r5, r5, #1
-                \\ bne 20001b
-                \\ 20002:
-                \\ ands r5, r0, #3
-                \\ ble 20008f
-                \\ 20003:
-                \\ KERNEL_F1
-                \\ subs r5, r5, #1
-                \\ bne 20003b
-                \\ b 20008f
-                \\ 20004:
-                \\ lsl r2, r2, #2
-                \\ lsl r7, r7, #2
-                \\ asrs r5, r0, #2
-                \\ ble 20006f
-                \\ 20005:
-                \\ KERNEL_S4
-                \\ subs r5, r5, #1
-                \\ bne 20005b
-                \\ 20006:
-                \\ ands r5, r0, #3
-                \\ ble 20008f
-                \\ 20007:
-                \\ KERNEL_S1
-                \\ subs r5, r5, #1
-                \\ bne 20007b
-                \\ 20008:
-                \\ sub r3, fp, #128
-                \\ vldm r3, { s8 - s15}
-                \\ vadd.f32 s0 , s0, s1
-                \\
-            ++ (if (on[0])
-                \\ vmov r0, s0
-                \\
-            else
-                "") ++
-                \\ sub sp, fp, #24
-                \\ pop {r4 - r9, fp}
-                \\ bx lr
-                \\ .purgem KERNEL_F4
-                \\ .purgem KERNEL_F1
-                \\ .purgem KERNEL_S4
-                \\ .purgem KERNEL_S1
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

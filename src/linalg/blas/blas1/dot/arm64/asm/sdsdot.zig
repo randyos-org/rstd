@@ -56,7 +56,6 @@ const Body = struct {
     pub fn sdsdot() callconv(.naked) void {
         asm volatile (
             \\ .macro PROLOGUE
-            \\ .text
             \\ .p2align 2
             \\ .endm
             \\ .macro KERNEL_F1

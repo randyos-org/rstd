@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn zdotu() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ vxor.v $vr16, $vr16, $vr16
             \\ vxor.v $vr17, $vr17, $vr17

@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn cdotu() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .set mips64
             \\ .align 5
             \\ .set noreorder

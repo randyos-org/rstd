@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn sdot() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ vxor.v $vr8, $vr8, $vr8
             \\ vxor.v $vr9, $vr9, $vr9

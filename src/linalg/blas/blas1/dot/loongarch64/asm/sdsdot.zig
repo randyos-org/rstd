@@ -29,7 +29,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn sdsdot() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ movgr2fr.d $f22, $r0
             \\ movgr2fr.d $f8, $r0

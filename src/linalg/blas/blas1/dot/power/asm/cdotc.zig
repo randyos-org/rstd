@@ -20,18 +20,18 @@ const keys = [_][2][]const u8{
     .{ "ppc970", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][6]bool{
-    .{ true, false, true, false, false, true },
-    .{ true, false, true, false, false, true },
-    .{ true, false, true, false, false, true },
-    .{ true, false, false, true, false, false },
-    .{ true, false, false, false, true, true },
-    .{ false, true, true, false, false, true },
-    .{ false, true, true, false, false, true },
-    .{ false, true, true, false, false, true },
-    .{ false, true, false, true, false, false },
-    .{ false, true, false, false, true, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 1, 0, 0, 1",
+    "1, 0, 1, 0, 0, 1",
+    "1, 0, 1, 0, 0, 1",
+    "1, 0, 0, 1, 0, 0",
+    "1, 0, 0, 0, 1, 1",
+    "0, 1, 1, 0, 0, 1",
+    "0, 1, 1, 0, 0, 1",
+    "0, 1, 1, 0, 0, 1",
+    "0, 1, 0, 1, 0, 0",
+    "0, 1, 0, 0, 1, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -48,499 +48,469 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [6]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5
+    \\ .align 6
+    \\ addi 1, 1, -160
+    \\ li 0, 0
+    \\ stfd 14, 0(1)
+    \\ stfd 15, 8(1)
+    \\ stfd 16, 16(1)
+    \\ stfd 17, 24(1)
+    \\ stfd 18, 32(1)
+    \\ stfd 19, 40(1)
+    \\ stfd 20, 48(1)
+    \\ stfd 21, 56(1)
+    \\ stfd 22, 64(1)
+    \\ stfd 23, 72(1)
+    \\ stfd 24, 80(1)
+    \\ stfd 25, 88(1)
+    \\ stfd 26, 96(1)
+    \\ stfd 27, 104(1)
+    \\ stfd 28, 112(1)
+    \\ stfd 29, 120(1)
+    \\ stfd 30, 128(1)
+    \\ stfd 31, 136(1)
+    \\ stw 0, 144(1)
+    \\ lfs 0,144(1)
+    \\ .if \bp0
+    \\ slwi 5, 5, 3
+    \\ slwi 7, 7, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 5, 5, 3
+    \\ sldi 7, 7, 3
+    \\ .endif
+    \\ subi 10, 5, 4
+    \\ subi 11, 7, 4
+    \\ fmr 1, 0
+    \\ fmr 2, 0
+    \\ fmr 3, 0
+    \\ fmr 4, 0
+    \\ fmr 5, 0
+    \\ fmr 6, 0
+    \\ fmr 7, 0
+    \\ fmr 24, 0
+    \\ fmr 25, 0
+    \\ fmr 26, 0
+    \\ fmr 27, 0
+    \\ fmr 28, 0
+    \\ fmr 29, 0
+    \\ fmr 30, 0
+    \\ fmr 31, 0
+    \\ .if \bp2
+    \\ li 8, ((96 + 128 * 12)) / 2
+    \\ .endif
+    \\ .if \bp3
+    \\ li 8, ((16 + 128 * 100)) / 2
+    \\ .endif
+    \\ .if \bp4
+    \\ li 8, ((96 + 128 * 12))
+    \\ .endif
+    \\ .if \bp0
+    \\ cmpwi 0, 3, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 3, 0
+    \\ .endif
+    \\ ble- 20009f
+    \\ .if \bp0
+    \\ cmpwi 0, 5, 2 * 4
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 5, 2 * 4
+    \\ .endif
+    \\ bne- 0, 20004f
+    \\ .if \bp0
+    \\ cmpwi 0, 7, 2 * 4
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 7, 2 * 4
+    \\ .endif
+    \\ bne- 0, 20004f
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 0, 20002f
+    \\ .align 4
+    \\ lfs 8, 0 * 4(4)
+    \\ lfs 9, 1 * 4(4)
+    \\ lfs 10, 2 * 4(4)
+    \\ lfs 11, 3 * 4(4)
+    \\ lfs 16, 0 * 4(6)
+    \\ lfs 17, 1 * 4(6)
+    \\ lfs 18, 2 * 4(6)
+    \\ lfs 19, 3 * 4(6)
+    \\ lfs 12, 4 * 4(4)
+    \\ lfs 13, 5 * 4(4)
+    \\ lfs 14, 6 * 4(4)
+    \\ lfs 15, 7 * 4(4)
+    \\ lfs 20, 4 * 4(6)
+    \\ lfs 21, 5 * 4(6)
+    \\ lfs 22, 6 * 4(6)
+    \\ lfs 23, 7 * 4(6)
+    \\ bdz 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ lfs 8, 8 * 4(4)
+    \\ lfs 9, 9 * 4(4)
+    \\ lfs 10, 10 * 4(4)
+    \\ lfs 11, 11 * 4(4)
+    \\ lfs 16, 8 * 4(6)
+    \\ lfs 17, 9 * 4(6)
+    \\ lfs 18, 10 * 4(6)
+    \\ lfs 19, 11 * 4(6)
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ lfs 12, 12 * 4(4)
+    \\ lfs 13, 13 * 4(4)
+    \\ lfs 14, 14 * 4(4)
+    \\ lfs 15, 15 * 4(4)
+    \\ lfs 20, 12 * 4(6)
+    \\ lfs 21, 13 * 4(6)
+    \\ lfs 22, 14 * 4(6)
+    \\ lfs 23, 15 * 4(6)
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ lfs 8, 16 * 4(4)
+    \\ lfs 9, 17 * 4(4)
+    \\ lfs 10, 18 * 4(4)
+    \\ lfs 11, 19 * 4(4)
+    \\ lfs 16, 16 * 4(6)
+    \\ lfs 17, 17 * 4(6)
+    \\ lfs 18, 18 * 4(6)
+    \\ lfs 19, 19 * 4(6)
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ lfs 12, 20 * 4(4)
+    \\ lfs 13, 21 * 4(4)
+    \\ lfs 14, 22 * 4(4)
+    \\ lfs 15, 23 * 4(4)
+    \\ lfs 20, 20 * 4(6)
+    \\ lfs 21, 21 * 4(6)
+    \\ lfs 22, 22 * 4(6)
+    \\ lfs 23, 23 * 4(6)
+    \\ .if \bp5
+    \\ dcbt 4, 8
+    \\ .endif
+    \\ .if \bp2
+    \\ dcbt 6, 8
+    \\ .endif
+    \\ addi 4, 4, 16 * 4
+    \\ addi 6, 6, 16 * 4
+    \\ .if \bp3
+    \\ dcbtst 4, 8
+    \\ dcbtst 6, 8
+    \\ .endif
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ lfs 8, 8 * 4(4)
+    \\ lfs 9, 9 * 4(4)
+    \\ lfs 10, 10 * 4(4)
+    \\ lfs 11, 11 * 4(4)
+    \\ lfs 16, 8 * 4(6)
+    \\ lfs 17, 9 * 4(6)
+    \\ lfs 18, 10 * 4(6)
+    \\ lfs 19, 11 * 4(6)
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ lfs 12, 12 * 4(4)
+    \\ lfs 13, 13 * 4(4)
+    \\ lfs 14, 14 * 4(4)
+    \\ lfs 15, 15 * 4(4)
+    \\ lfs 20, 12 * 4(6)
+    \\ lfs 21, 13 * 4(6)
+    \\ lfs 22, 14 * 4(6)
+    \\ lfs 23, 15 * 4(6)
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ addi 4, 4, 16 * 4
+    \\ addi 6, 6, 16 * 4
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beq 20009f
+    \\ .align 4
+    \\ 20003:
+    \\ lfs 8, 0 * 4(4)
+    \\ lfs 9, 1 * 4(4)
+    \\ lfs 16, 0 * 4(6)
+    \\ lfs 17, 1 * 4(6)
+    \\ addi 4, 4, 2 * 4
+    \\ addi 6, 6, 2 * 4
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ bdnz 20003b
+    \\ b 20009f
+    \\ .align 4
+    \\ 20004:
+    \\ sub 4, 4, 10
+    \\ sub 6, 6, 11
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 20007f
+    \\ lfsx 8, 4, 10
+    \\ lfsx 16, 6, 11
+    \\ lfsux 9, 4, 5
+    \\ lfsux 17, 6, 7
+    \\ lfsx 10, 4, 10
+    \\ lfsx 18, 6, 11
+    \\ lfsux 11, 4, 5
+    \\ lfsux 19, 6, 7
+    \\ lfsx 12, 4, 10
+    \\ lfsx 20, 6, 11
+    \\ lfsux 13, 4, 5
+    \\ lfsux 21, 6, 7
+    \\ lfsx 14, 4, 10
+    \\ lfsx 22, 6, 11
+    \\ lfsux 15, 4, 5
+    \\ lfsux 23, 6, 7
+    \\ bdz 20006f
+    \\ .align 4
+    \\ 20005:
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ lfsx 8, 4, 10
+    \\ lfsx 16, 6, 11
+    \\ lfsux 9, 4, 5
+    \\ lfsux 17, 6, 7
+    \\ lfsx 10, 4, 10
+    \\ lfsx 18, 6, 11
+    \\ lfsux 11, 4, 5
+    \\ lfsux 19, 6, 7
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ lfsx 12, 4, 10
+    \\ lfsx 20, 6, 11
+    \\ lfsux 13, 4, 5
+    \\ lfsux 21, 6, 7
+    \\ lfsx 14, 4, 10
+    \\ lfsx 22, 6, 11
+    \\ lfsux 15, 4, 5
+    \\ lfsux 23, 6, 7
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ lfsx 8, 4, 10
+    \\ lfsx 16, 6, 11
+    \\ lfsux 9, 4, 5
+    \\ lfsux 17, 6, 7
+    \\ lfsx 10, 4, 10
+    \\ lfsx 18, 6, 11
+    \\ lfsux 11, 4, 5
+    \\ lfsux 19, 6, 7
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ lfsx 12, 4, 10
+    \\ lfsx 20, 6, 11
+    \\ lfsux 13, 4, 5
+    \\ lfsux 21, 6, 7
+    \\ lfsx 14, 4, 10
+    \\ lfsx 22, 6, 11
+    \\ lfsux 15, 4, 5
+    \\ lfsux 23, 6, 7
+    \\ bdnz 20005b
+    \\ .align 4
+    \\ 20006:
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ lfsx 8, 4, 10
+    \\ lfsx 16, 6, 11
+    \\ lfsux 9, 4, 5
+    \\ lfsux 17, 6, 7
+    \\ lfsx 10, 4, 10
+    \\ lfsx 18, 6, 11
+    \\ lfsux 11, 4, 5
+    \\ lfsux 19, 6, 7
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ lfsx 12, 4, 10
+    \\ lfsx 20, 6, 11
+    \\ lfsux 13, 4, 5
+    \\ lfsux 21, 6, 7
+    \\ lfsx 14, 4, 10
+    \\ lfsx 22, 6, 11
+    \\ lfsux 15, 4, 5
+    \\ lfsux 23, 6, 7
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ fmadds 4, 10, 18, 4
+    \\ fmadds 5, 11, 19, 5
+    \\ fmadds 6, 11, 18, 6
+    \\ fmadds 7, 10, 19, 7
+    \\ fmadds 24, 12, 20, 24
+    \\ fmadds 25, 13, 21, 25
+    \\ fmadds 26, 13, 20, 26
+    \\ fmadds 27, 12, 21, 27
+    \\ fmadds 28, 14, 22, 28
+    \\ fmadds 29, 15, 23, 29
+    \\ fmadds 30, 15, 22, 30
+    \\ fmadds 31, 14, 23, 31
+    \\ .align 4
+    \\ 20007:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beq 20009f
+    \\ .align 4
+    \\ 20008:
+    \\ lfsx 8, 4, 10
+    \\ lfsux 9, 4, 5
+    \\ lfsx 16, 6, 11
+    \\ lfsux 17, 6, 7
+    \\ fmadds 0, 8, 16, 0
+    \\ fmadds 1, 9, 17, 1
+    \\ fmadds 2, 9, 16, 2
+    \\ fmadds 3, 8, 17, 3
+    \\ bdnz 20008b
+    \\ .align 4
+    \\ 20009:
+    \\ fadds 0, 0, 4
+    \\ fadds 1, 1, 5
+    \\ fadds 2, 2, 6
+    \\ fadds 3, 3, 7
+    \\ fadds 24, 28, 24
+    \\ fadds 25, 29, 25
+    \\ fadds 26, 30, 26
+    \\ fadds 27, 31, 27
+    \\ fadds 0, 0, 24
+    \\ fadds 1, 1, 25
+    \\ fadds 2, 2, 26
+    \\ fadds 3, 3, 27
+    \\ fadds 1, 0, 1
+    \\ fsubs 2, 3, 2
+    \\ lfd 14, 0(1)
+    \\ lfd 15, 8(1)
+    \\ lfd 16, 16(1)
+    \\ lfd 17, 24(1)
+    \\ lfd 18, 32(1)
+    \\ lfd 19, 40(1)
+    \\ lfd 20, 48(1)
+    \\ lfd 21, 56(1)
+    \\ lfd 22, 64(1)
+    \\ lfd 23, 72(1)
+    \\ lfd 24, 80(1)
+    \\ lfd 25, 88(1)
+    \\ lfd 26, 96(1)
+    \\ lfd 27, 104(1)
+    \\ lfd 28, 112(1)
+    \\ lfd 29, 120(1)
+    \\ lfd 30, 128(1)
+    \\ lfd 31, 136(1)
+    \\ addi 1, 1, 160
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn cdotc() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -160
-                \\ li 0, 0
-                \\ stfd 14, 0(1)
-                \\ stfd 15, 8(1)
-                \\ stfd 16, 16(1)
-                \\ stfd 17, 24(1)
-                \\ stfd 18, 32(1)
-                \\ stfd 19, 40(1)
-                \\ stfd 20, 48(1)
-                \\ stfd 21, 56(1)
-                \\ stfd 22, 64(1)
-                \\ stfd 23, 72(1)
-                \\ stfd 24, 80(1)
-                \\ stfd 25, 88(1)
-                \\ stfd 26, 96(1)
-                \\ stfd 27, 104(1)
-                \\ stfd 28, 112(1)
-                \\ stfd 29, 120(1)
-                \\ stfd 30, 128(1)
-                \\ stfd 31, 136(1)
-                \\ stw 0, 144(1)
-                \\ lfs 0,144(1)
-                \\
-            ++ (if (on[0])
-                \\ slwi 5, 5, 3
-                \\ slwi 7, 7, 3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sldi 5, 5, 3
-                \\ sldi 7, 7, 3
-                \\
-            else
-                "") ++
-                \\ subi 10, 5, 4
-                \\ subi 11, 7, 4
-                \\ fmr 1, 0
-                \\ fmr 2, 0
-                \\ fmr 3, 0
-                \\ fmr 4, 0
-                \\ fmr 5, 0
-                \\ fmr 6, 0
-                \\ fmr 7, 0
-                \\ fmr 24, 0
-                \\ fmr 25, 0
-                \\ fmr 26, 0
-                \\ fmr 27, 0
-                \\ fmr 28, 0
-                \\ fmr 29, 0
-                \\ fmr 30, 0
-                \\ fmr 31, 0
-                \\
-            ++ (if (on[2])
-                \\ li 8, ((96 + 128 * 12)) / 2
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ li 8, ((16 + 128 * 100)) / 2
-                \\
-            else
-                "") ++ (if (on[4])
-                \\ li 8, ((96 + 128 * 12))
-                \\
-            else
-                "") ++ (if (on[0])
-                \\ cmpwi 0, 3, 0
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 3, 0
-                \\
-            else
-                "") ++
-                \\ ble- 20009f
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 5, 2 * 4
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 5, 2 * 4
-                \\
-            else
-                "") ++
-                \\ bne- 0, 20004f
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 7, 2 * 4
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 7, 2 * 4
-                \\
-            else
-                "") ++
-                \\ bne- 0, 20004f
-                \\
-            ++ (if (on[0])
-                \\ srawi. 0, 3, 3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sradi. 0, 3, 3
-                \\
-            else
-                "") ++
-                \\ mtspr 9, 0
-                \\ beq- 0, 20002f
-                \\ .align 4
-                \\ lfs 8, 0 * 4(4)
-                \\ lfs 9, 1 * 4(4)
-                \\ lfs 10, 2 * 4(4)
-                \\ lfs 11, 3 * 4(4)
-                \\ lfs 16, 0 * 4(6)
-                \\ lfs 17, 1 * 4(6)
-                \\ lfs 18, 2 * 4(6)
-                \\ lfs 19, 3 * 4(6)
-                \\ lfs 12, 4 * 4(4)
-                \\ lfs 13, 5 * 4(4)
-                \\ lfs 14, 6 * 4(4)
-                \\ lfs 15, 7 * 4(4)
-                \\ lfs 20, 4 * 4(6)
-                \\ lfs 21, 5 * 4(6)
-                \\ lfs 22, 6 * 4(6)
-                \\ lfs 23, 7 * 4(6)
-                \\ bdz 20001f
-                \\ .align 4
-                \\ 20000:
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ lfs 8, 8 * 4(4)
-                \\ lfs 9, 9 * 4(4)
-                \\ lfs 10, 10 * 4(4)
-                \\ lfs 11, 11 * 4(4)
-                \\ lfs 16, 8 * 4(6)
-                \\ lfs 17, 9 * 4(6)
-                \\ lfs 18, 10 * 4(6)
-                \\ lfs 19, 11 * 4(6)
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ lfs 12, 12 * 4(4)
-                \\ lfs 13, 13 * 4(4)
-                \\ lfs 14, 14 * 4(4)
-                \\ lfs 15, 15 * 4(4)
-                \\ lfs 20, 12 * 4(6)
-                \\ lfs 21, 13 * 4(6)
-                \\ lfs 22, 14 * 4(6)
-                \\ lfs 23, 15 * 4(6)
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ lfs 8, 16 * 4(4)
-                \\ lfs 9, 17 * 4(4)
-                \\ lfs 10, 18 * 4(4)
-                \\ lfs 11, 19 * 4(4)
-                \\ lfs 16, 16 * 4(6)
-                \\ lfs 17, 17 * 4(6)
-                \\ lfs 18, 18 * 4(6)
-                \\ lfs 19, 19 * 4(6)
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ lfs 12, 20 * 4(4)
-                \\ lfs 13, 21 * 4(4)
-                \\ lfs 14, 22 * 4(4)
-                \\ lfs 15, 23 * 4(4)
-                \\ lfs 20, 20 * 4(6)
-                \\ lfs 21, 21 * 4(6)
-                \\ lfs 22, 22 * 4(6)
-                \\ lfs 23, 23 * 4(6)
-                \\
-            ++ (if (on[5])
-                \\ dcbt 4, 8
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ dcbt 6, 8
-                \\
-            else
-                "") ++
-                \\ addi 4, 4, 16 * 4
-                \\ addi 6, 6, 16 * 4
-                \\
-            ++ (if (on[3])
-                \\ dcbtst 4, 8
-                \\ dcbtst 6, 8
-                \\
-            else
-                "") ++
-                \\ bdnz 20000b
-                \\ .align 4
-                \\ 20001:
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ lfs 8, 8 * 4(4)
-                \\ lfs 9, 9 * 4(4)
-                \\ lfs 10, 10 * 4(4)
-                \\ lfs 11, 11 * 4(4)
-                \\ lfs 16, 8 * 4(6)
-                \\ lfs 17, 9 * 4(6)
-                \\ lfs 18, 10 * 4(6)
-                \\ lfs 19, 11 * 4(6)
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ lfs 12, 12 * 4(4)
-                \\ lfs 13, 13 * 4(4)
-                \\ lfs 14, 14 * 4(4)
-                \\ lfs 15, 15 * 4(4)
-                \\ lfs 20, 12 * 4(6)
-                \\ lfs 21, 13 * 4(6)
-                \\ lfs 22, 14 * 4(6)
-                \\ lfs 23, 15 * 4(6)
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ addi 4, 4, 16 * 4
-                \\ addi 6, 6, 16 * 4
-                \\ .align 4
-                \\ 20002:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beq 20009f
-                \\ .align 4
-                \\ 20003:
-                \\ lfs 8, 0 * 4(4)
-                \\ lfs 9, 1 * 4(4)
-                \\ lfs 16, 0 * 4(6)
-                \\ lfs 17, 1 * 4(6)
-                \\ addi 4, 4, 2 * 4
-                \\ addi 6, 6, 2 * 4
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ bdnz 20003b
-                \\ b 20009f
-                \\ .align 4
-                \\ 20004:
-                \\ sub 4, 4, 10
-                \\ sub 6, 6, 11
-                \\
-            ++ (if (on[0])
-                \\ srawi. 0, 3, 3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sradi. 0, 3, 3
-                \\
-            else
-                "") ++
-                \\ mtspr 9, 0
-                \\ beq- 20007f
-                \\ lfsx 8, 4, 10
-                \\ lfsx 16, 6, 11
-                \\ lfsux 9, 4, 5
-                \\ lfsux 17, 6, 7
-                \\ lfsx 10, 4, 10
-                \\ lfsx 18, 6, 11
-                \\ lfsux 11, 4, 5
-                \\ lfsux 19, 6, 7
-                \\ lfsx 12, 4, 10
-                \\ lfsx 20, 6, 11
-                \\ lfsux 13, 4, 5
-                \\ lfsux 21, 6, 7
-                \\ lfsx 14, 4, 10
-                \\ lfsx 22, 6, 11
-                \\ lfsux 15, 4, 5
-                \\ lfsux 23, 6, 7
-                \\ bdz 20006f
-                \\ .align 4
-                \\ 20005:
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ lfsx 8, 4, 10
-                \\ lfsx 16, 6, 11
-                \\ lfsux 9, 4, 5
-                \\ lfsux 17, 6, 7
-                \\ lfsx 10, 4, 10
-                \\ lfsx 18, 6, 11
-                \\ lfsux 11, 4, 5
-                \\ lfsux 19, 6, 7
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ lfsx 12, 4, 10
-                \\ lfsx 20, 6, 11
-                \\ lfsux 13, 4, 5
-                \\ lfsux 21, 6, 7
-                \\ lfsx 14, 4, 10
-                \\ lfsx 22, 6, 11
-                \\ lfsux 15, 4, 5
-                \\ lfsux 23, 6, 7
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ lfsx 8, 4, 10
-                \\ lfsx 16, 6, 11
-                \\ lfsux 9, 4, 5
-                \\ lfsux 17, 6, 7
-                \\ lfsx 10, 4, 10
-                \\ lfsx 18, 6, 11
-                \\ lfsux 11, 4, 5
-                \\ lfsux 19, 6, 7
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ lfsx 12, 4, 10
-                \\ lfsx 20, 6, 11
-                \\ lfsux 13, 4, 5
-                \\ lfsux 21, 6, 7
-                \\ lfsx 14, 4, 10
-                \\ lfsx 22, 6, 11
-                \\ lfsux 15, 4, 5
-                \\ lfsux 23, 6, 7
-                \\ bdnz 20005b
-                \\ .align 4
-                \\ 20006:
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ lfsx 8, 4, 10
-                \\ lfsx 16, 6, 11
-                \\ lfsux 9, 4, 5
-                \\ lfsux 17, 6, 7
-                \\ lfsx 10, 4, 10
-                \\ lfsx 18, 6, 11
-                \\ lfsux 11, 4, 5
-                \\ lfsux 19, 6, 7
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ lfsx 12, 4, 10
-                \\ lfsx 20, 6, 11
-                \\ lfsux 13, 4, 5
-                \\ lfsux 21, 6, 7
-                \\ lfsx 14, 4, 10
-                \\ lfsx 22, 6, 11
-                \\ lfsux 15, 4, 5
-                \\ lfsux 23, 6, 7
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ fmadds 4, 10, 18, 4
-                \\ fmadds 5, 11, 19, 5
-                \\ fmadds 6, 11, 18, 6
-                \\ fmadds 7, 10, 19, 7
-                \\ fmadds 24, 12, 20, 24
-                \\ fmadds 25, 13, 21, 25
-                \\ fmadds 26, 13, 20, 26
-                \\ fmadds 27, 12, 21, 27
-                \\ fmadds 28, 14, 22, 28
-                \\ fmadds 29, 15, 23, 29
-                \\ fmadds 30, 15, 22, 30
-                \\ fmadds 31, 14, 23, 31
-                \\ .align 4
-                \\ 20007:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beq 20009f
-                \\ .align 4
-                \\ 20008:
-                \\ lfsx 8, 4, 10
-                \\ lfsux 9, 4, 5
-                \\ lfsx 16, 6, 11
-                \\ lfsux 17, 6, 7
-                \\ fmadds 0, 8, 16, 0
-                \\ fmadds 1, 9, 17, 1
-                \\ fmadds 2, 9, 16, 2
-                \\ fmadds 3, 8, 17, 3
-                \\ bdnz 20008b
-                \\ .align 4
-                \\ 20009:
-                \\ fadds 0, 0, 4
-                \\ fadds 1, 1, 5
-                \\ fadds 2, 2, 6
-                \\ fadds 3, 3, 7
-                \\ fadds 24, 28, 24
-                \\ fadds 25, 29, 25
-                \\ fadds 26, 30, 26
-                \\ fadds 27, 31, 27
-                \\ fadds 0, 0, 24
-                \\ fadds 1, 1, 25
-                \\ fadds 2, 2, 26
-                \\ fadds 3, 3, 27
-                \\ fadds 1, 0, 1
-                \\ fsubs 2, 3, 2
-                \\ lfd 14, 0(1)
-                \\ lfd 15, 8(1)
-                \\ lfd 16, 16(1)
-                \\ lfd 17, 24(1)
-                \\ lfd 18, 32(1)
-                \\ lfd 19, 40(1)
-                \\ lfd 20, 48(1)
-                \\ lfd 21, 56(1)
-                \\ lfd 22, 64(1)
-                \\ lfd 23, 72(1)
-                \\ lfd 24, 80(1)
-                \\ lfd 25, 88(1)
-                \\ lfd 26, 96(1)
-                \\ lfd 27, 104(1)
-                \\ lfd 28, 112(1)
-                \\ lfd 29, 120(1)
-                \\ lfd 30, 128(1)
-                \\ lfd 31, 136(1)
-                \\ addi 1, 1, 160
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
