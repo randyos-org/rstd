@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn damin() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .balign 512
             \\ subq $256, %rsp
             \\ movups %xmm6, 0(%rsp)

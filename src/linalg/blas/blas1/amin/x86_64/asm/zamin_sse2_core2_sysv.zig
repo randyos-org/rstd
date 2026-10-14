@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn zamin() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .balign 512
             \\ pxor %xmm0, %xmm0
             \\ testq %rdi, %rdi

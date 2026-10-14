@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn camin() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ movgr2fr.w $f22, $r0
             \\ xvxor.v $xr18, $xr18, $xr18
