@@ -18,16 +18,16 @@ const keys = [_][2][]const u8{
     .{ "cortexa9", "sf" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][1]bool{
-    .{false},
-    .{false},
-    .{false},
-    .{false},
-    .{true},
-    .{true},
-    .{true},
-    .{true},
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "0",
+    "0",
+    "0",
+    "0",
+    "1",
+    "1",
+    "1",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -44,136 +44,138 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [1]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0
+    \\ .macro KERNEL_F4
+    \\ pld [ r1, #512 ]
+    \\ vldmia.f32 r1!, { s4 - s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vldmia.f32 r1!, { s6 - s7 }
+    \\ vabs.f32 s6, s6
+    \\ vadd.f32 s1 , s1, s5
+    \\ vabs.f32 s7, s7
+    \\ vadd.f32 s0 , s0, s6
+    \\ vadd.f32 s1 , s1, s7
+    \\ vldmia.f32 r1!, { s4 - s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vldmia.f32 r1!, { s6 - s7 }
+    \\ vabs.f32 s6, s6
+    \\ vadd.f32 s1 , s1, s5
+    \\ vabs.f32 s7, s7
+    \\ vadd.f32 s0 , s0, s6
+    \\ vadd.f32 s1 , s1, s7
+    \\ .endm
+    \\ .macro KERNEL_F1
+    \\ vldmia.f32 r1!, { s4 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vldmia.f32 r1!, { s4 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ .endm
+    \\ .macro KERNEL_S4
+    \\ vldmia.f32 r1, { s4 -s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vadd.f32 s0 , s0, s5
+    \\ add r1, r1, r2
+    \\ vldmia.f32 r1, { s4 -s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vadd.f32 s0 , s0, s5
+    \\ add r1, r1, r2
+    \\ vldmia.f32 r1, { s4 -s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vadd.f32 s0 , s0, s5
+    \\ add r1, r1, r2
+    \\ vldmia.f32 r1, { s4 -s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vadd.f32 s0 , s0, s5
+    \\ add r1, r1, r2
+    \\ .endm
+    \\ .macro KERNEL_S1
+    \\ vldmia.f32 r1, { s4 -s5 }
+    \\ vabs.f32 s4, s4
+    \\ vadd.f32 s0 , s0, s4
+    \\ vabs.f32 s5, s5
+    \\ vadd.f32 s0 , s0, s5
+    \\ add r1, r1, r2
+    \\ .endm
+    \\ .arm
+    \\ .align 5
+    \\ movs r12, #0
+    \\ vmov s0, r12
+    \\ vmov s1, r12
+    \\ cmp r0, #0
+    \\ ble 20008f
+    \\ cmp r2, #0
+    \\ beq 20008f
+    \\ cmp r2, #1
+    \\ bne 20004f
+    \\ 20000:
+    \\ asrs r12, r0, #2
+    \\ ble 20002f
+    \\ .align 5
+    \\ 20001:
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ ble 20002f
+    \\ KERNEL_F4
+    \\ subs r12, r12, #1
+    \\ bne 20001b
+    \\ 20002:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20003:
+    \\ KERNEL_F1
+    \\ subs r12, r12, #1
+    \\ bne 20003b
+    \\ b 20008f
+    \\ 20004:
+    \\ lsl r2, r2, #3
+    \\ asrs r12, r0, #2
+    \\ ble 20006f
+    \\ .align 5
+    \\ 20005:
+    \\ KERNEL_S4
+    \\ subs r12, r12, #1
+    \\ bne 20005b
+    \\ 20006:
+    \\ ands r12, r0, #3
+    \\ ble 20008f
+    \\ 20007:
+    \\ KERNEL_S1
+    \\ subs r12, r12, #1
+    \\ bne 20007b
+    \\ 20008:
+    \\ vadd.f32 s0 , s0, s1
+    \\ .if \bp0
+    \\ vmov r0, s0
+    \\ .endif
+    \\ bx lr
+    \\ .purgem KERNEL_F4
+    \\ .purgem KERNEL_F1
+    \\ .purgem KERNEL_S4
+    \\ .purgem KERNEL_S1
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn casum() callconv(.naked) void {
-            asm volatile (
-                \\ .macro KERNEL_F4
-                \\ pld [ r1, #512 ]
-                \\ vldmia.f32 r1!, { s4 - s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vldmia.f32 r1!, { s6 - s7 }
-                \\ vabs.f32 s6, s6
-                \\ vadd.f32 s1 , s1, s5
-                \\ vabs.f32 s7, s7
-                \\ vadd.f32 s0 , s0, s6
-                \\ vadd.f32 s1 , s1, s7
-                \\ vldmia.f32 r1!, { s4 - s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vldmia.f32 r1!, { s6 - s7 }
-                \\ vabs.f32 s6, s6
-                \\ vadd.f32 s1 , s1, s5
-                \\ vabs.f32 s7, s7
-                \\ vadd.f32 s0 , s0, s6
-                \\ vadd.f32 s1 , s1, s7
-                \\ .endm
-                \\ .macro KERNEL_F1
-                \\ vldmia.f32 r1!, { s4 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vldmia.f32 r1!, { s4 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ .endm
-                \\ .macro KERNEL_S4
-                \\ vldmia.f32 r1, { s4 -s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vadd.f32 s0 , s0, s5
-                \\ add r1, r1, r2
-                \\ vldmia.f32 r1, { s4 -s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vadd.f32 s0 , s0, s5
-                \\ add r1, r1, r2
-                \\ vldmia.f32 r1, { s4 -s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vadd.f32 s0 , s0, s5
-                \\ add r1, r1, r2
-                \\ vldmia.f32 r1, { s4 -s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vadd.f32 s0 , s0, s5
-                \\ add r1, r1, r2
-                \\ .endm
-                \\ .macro KERNEL_S1
-                \\ vldmia.f32 r1, { s4 -s5 }
-                \\ vabs.f32 s4, s4
-                \\ vadd.f32 s0 , s0, s4
-                \\ vabs.f32 s5, s5
-                \\ vadd.f32 s0 , s0, s5
-                \\ add r1, r1, r2
-                \\ .endm
-                \\ .arm
-                \\ .align 5
-                \\ movs r12, #0
-                \\ vmov s0, r12
-                \\ vmov s1, r12
-                \\ cmp r0, #0
-                \\ ble 20008f
-                \\ cmp r2, #0
-                \\ beq 20008f
-                \\ cmp r2, #1
-                \\ bne 20004f
-                \\ 20000:
-                \\ asrs r12, r0, #2
-                \\ ble 20002f
-                \\ .align 5
-                \\ 20001:
-                \\ KERNEL_F4
-                \\ subs r12, r12, #1
-                \\ ble 20002f
-                \\ KERNEL_F4
-                \\ subs r12, r12, #1
-                \\ bne 20001b
-                \\ 20002:
-                \\ ands r12, r0, #3
-                \\ ble 20008f
-                \\ 20003:
-                \\ KERNEL_F1
-                \\ subs r12, r12, #1
-                \\ bne 20003b
-                \\ b 20008f
-                \\ 20004:
-                \\ lsl r2, r2, #3
-                \\ asrs r12, r0, #2
-                \\ ble 20006f
-                \\ .align 5
-                \\ 20005:
-                \\ KERNEL_S4
-                \\ subs r12, r12, #1
-                \\ bne 20005b
-                \\ 20006:
-                \\ ands r12, r0, #3
-                \\ ble 20008f
-                \\ 20007:
-                \\ KERNEL_S1
-                \\ subs r12, r12, #1
-                \\ bne 20007b
-                \\ 20008:
-                \\ vadd.f32 s0 , s0, s1
-                \\
-            ++ (if (on[0])
-                \\ vmov r0, s0
-                \\
-            else
-                "") ++
-                \\ bx lr
-                \\ .purgem KERNEL_F4
-                \\ .purgem KERNEL_F1
-                \\ .purgem KERNEL_S4
-                \\ .purgem KERNEL_S1
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

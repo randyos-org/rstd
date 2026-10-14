@@ -14,12 +14,12 @@ const keys = [_][2][]const u8{
     .{ "ppcg4", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][4]bool{
-    .{ true, false, true, false },
-    .{ true, false, false, true },
-    .{ false, true, true, false },
-    .{ false, true, false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 1, 0",
+    "1, 0, 0, 1",
+    "0, 1, 1, 0",
+    "0, 1, 0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -36,286 +36,258 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [4]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3
+    \\ .align 6
+    \\ addi 1, 1, -160
+    \\ li 0, 0
+    \\ stfd 14, 0(1)
+    \\ stfd 15, 8(1)
+    \\ stfd 16, 16(1)
+    \\ stfd 17, 24(1)
+    \\ stfd 18, 32(1)
+    \\ stfd 19, 40(1)
+    \\ stfd 20, 48(1)
+    \\ stfd 21, 56(1)
+    \\ stfd 22, 64(1)
+    \\ stfd 23, 72(1)
+    \\ stfd 24, 80(1)
+    \\ stfd 25, 88(1)
+    \\ stfd 26, 96(1)
+    \\ stfd 27, 104(1)
+    \\ stfd 28, 112(1)
+    \\ stfd 29, 120(1)
+    \\ stfd 30, 128(1)
+    \\ stfd 31, 136(1)
+    \\ stw 0, 144(1)
+    \\ lfs 0,144(1)
+    \\ fmr 1, 0
+    \\ .if \bp0
+    \\ slwi 5, 5, 4
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 5, 5, 4
+    \\ .endif
+    \\ fmr 2, 0
+    \\ fmr 3, 0
+    \\ subi 9, 5, 8
+    \\ fmr 4, 0
+    \\ sub 4, 4, 9
+    \\ fmr 5, 0
+    \\ li 8, 3 * 16 * 8
+    \\ fmr 6, 0
+    \\ .if \bp0
+    \\ cmpwi 0, 3, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 3, 0
+    \\ .endif
+    \\ fmr 7, 0
+    \\ ble- 20004f
+    \\ .if \bp0
+    \\ cmpwi 0, 5, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 5, 0
+    \\ .endif
+    \\ ble- 20004f
+    \\ .if \bp0
+    \\ srawi. 0, 3, 3
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 3
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 20002f
+    \\ lfdx 8, 4, 9
+    \\ lfdux 9, 4, 5
+    \\ lfdx 10, 4, 9
+    \\ lfdux 11, 4, 5
+    \\ lfdx 12, 4, 9
+    \\ lfdux 13, 4, 5
+    \\ lfdx 14, 4, 9
+    \\ lfdux 15, 4, 5
+    \\ fabs 16, 8
+    \\ lfdx 24, 4, 9
+    \\ fabs 17, 9
+    \\ lfdux 25, 4, 5
+    \\ fabs 18, 10
+    \\ lfdx 26, 4, 9
+    \\ fabs 19, 11
+    \\ lfdux 27, 4, 5
+    \\ fabs 20, 12
+    \\ lfdx 28, 4, 9
+    \\ fabs 21, 13
+    \\ lfdux 29, 4, 5
+    \\ fabs 22, 14
+    \\ lfdx 30, 4, 9
+    \\ fabs 23, 15
+    \\ lfdux 31, 4, 5
+    \\ bdz 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ lfdx 8, 4, 9
+    \\ fadd 0, 0, 16
+    \\ .if \bp2
+    \\ nop
+    \\ .endif
+    \\ .if \bp3
+    \\ dcbt 4, 8
+    \\ .endif
+    \\ fabs 16, 24
+    \\ lfdux 9, 4, 5
+    \\ fadd 1, 1, 17
+    \\ nop
+    \\ fabs 17, 25
+    \\ lfdx 10, 4, 9
+    \\ fadd 2, 2, 18
+    \\ nop
+    \\ fabs 18, 26
+    \\ lfdux 11, 4, 5
+    \\ fadd 3, 3, 19
+    \\ nop
+    \\ fabs 19, 27
+    \\ lfdx 12, 4, 9
+    \\ fadd 4, 4, 20
+    \\ .if \bp2
+    \\ nop
+    \\ .endif
+    \\ .if \bp3
+    \\ dcbt 4, 8
+    \\ .endif
+    \\ fabs 20, 28
+    \\ lfdux 13, 4, 5
+    \\ fadd 5, 5, 21
+    \\ nop
+    \\ fabs 21, 29
+    \\ lfdx 14, 4, 9
+    \\ fadd 6, 6, 22
+    \\ nop
+    \\ fabs 22, 30
+    \\ lfdux 15, 4, 5
+    \\ fadd 7, 7, 23
+    \\ nop
+    \\ fabs 23, 31
+    \\ lfdx 24, 4, 9
+    \\ fadd 0, 0, 16
+    \\ .if \bp2
+    \\ nop
+    \\ .endif
+    \\ .if \bp3
+    \\ dcbt 4, 8
+    \\ .endif
+    \\ fabs 16, 8
+    \\ lfdux 25, 4, 5
+    \\ fadd 1, 1, 17
+    \\ nop
+    \\ fabs 17, 9
+    \\ lfdx 26, 4, 9
+    \\ fadd 2, 2, 18
+    \\ nop
+    \\ fabs 18, 10
+    \\ lfdux 27, 4, 5
+    \\ fadd 3, 3, 19
+    \\ nop
+    \\ fabs 19, 11
+    \\ lfdx 28, 4, 9
+    \\ fadd 4, 4, 20
+    \\ .if \bp2
+    \\ nop
+    \\ .endif
+    \\ .if \bp3
+    \\ dcbt 4, 8
+    \\ .endif
+    \\ fabs 20, 12
+    \\ lfdux 29, 4, 5
+    \\ fadd 5, 5, 21
+    \\ nop
+    \\ fabs 21, 13
+    \\ lfdx 30, 4, 9
+    \\ fadd 6, 6, 22
+    \\ nop
+    \\ fabs 22, 14
+    \\ lfdux 31, 4, 5
+    \\ fadd 7, 7, 23
+    \\ fabs 23, 15
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ fadd 0, 0, 16
+    \\ fabs 16, 24
+    \\ fadd 1, 1, 17
+    \\ fabs 17, 25
+    \\ fadd 2, 2, 18
+    \\ fabs 18, 26
+    \\ fadd 3, 3, 19
+    \\ fabs 19, 27
+    \\ fadd 4, 4, 20
+    \\ fabs 20, 28
+    \\ fadd 5, 5, 21
+    \\ fabs 21, 29
+    \\ fadd 6, 6, 22
+    \\ fabs 22, 30
+    \\ fadd 7, 7, 23
+    \\ fabs 23, 31
+    \\ fadd 0, 0, 16
+    \\ fadd 1, 1, 17
+    \\ fadd 2, 2, 18
+    \\ fadd 3, 3, 19
+    \\ fadd 4, 4, 20
+    \\ fadd 5, 5, 21
+    \\ fadd 6, 6, 22
+    \\ fadd 7, 7, 23
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 7
+    \\ mtspr 9, 0
+    \\ beq 20004f
+    \\ .align 4
+    \\ 20003:
+    \\ lfdx 8, 4, 9
+    \\ lfdux 9, 4, 5
+    \\ fabs 8, 8
+    \\ fabs 9, 9
+    \\ fadd 0, 0, 8
+    \\ fadd 1, 1, 9
+    \\ bdnz 20003b
+    \\ .align 4
+    \\ 20004:
+    \\ fadd 0, 0, 1
+    \\ fadd 2, 2, 3
+    \\ fadd 4, 4, 5
+    \\ fadd 6, 6, 7
+    \\ fadd 0, 0, 2
+    \\ fadd 4, 4, 6
+    \\ fadd 1, 0, 4
+    \\ lfd 14, 0(1)
+    \\ lfd 15, 8(1)
+    \\ lfd 16, 16(1)
+    \\ lfd 17, 24(1)
+    \\ lfd 18, 32(1)
+    \\ lfd 19, 40(1)
+    \\ lfd 20, 48(1)
+    \\ lfd 21, 56(1)
+    \\ lfd 22, 64(1)
+    \\ lfd 23, 72(1)
+    \\ lfd 24, 80(1)
+    \\ lfd 25, 88(1)
+    \\ lfd 26, 96(1)
+    \\ lfd 27, 104(1)
+    \\ lfd 28, 112(1)
+    \\ lfd 29, 120(1)
+    \\ lfd 30, 128(1)
+    \\ lfd 31, 136(1)
+    \\ addi 1, 1, 160
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn zasum() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -160
-                \\ li 0, 0
-                \\ stfd 14, 0(1)
-                \\ stfd 15, 8(1)
-                \\ stfd 16, 16(1)
-                \\ stfd 17, 24(1)
-                \\ stfd 18, 32(1)
-                \\ stfd 19, 40(1)
-                \\ stfd 20, 48(1)
-                \\ stfd 21, 56(1)
-                \\ stfd 22, 64(1)
-                \\ stfd 23, 72(1)
-                \\ stfd 24, 80(1)
-                \\ stfd 25, 88(1)
-                \\ stfd 26, 96(1)
-                \\ stfd 27, 104(1)
-                \\ stfd 28, 112(1)
-                \\ stfd 29, 120(1)
-                \\ stfd 30, 128(1)
-                \\ stfd 31, 136(1)
-                \\ stw 0, 144(1)
-                \\ lfs 0,144(1)
-                \\ fmr 1, 0
-                \\
-            ++ (if (on[0])
-                \\ slwi 5, 5, 4
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sldi 5, 5, 4
-                \\
-            else
-                "") ++
-                \\ fmr 2, 0
-                \\ fmr 3, 0
-                \\ subi 9, 5, 8
-                \\ fmr 4, 0
-                \\ sub 4, 4, 9
-                \\ fmr 5, 0
-                \\ li 8, 3 * 16 * 8
-                \\ fmr 6, 0
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 3, 0
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 3, 0
-                \\
-            else
-                "") ++
-                \\ fmr 7, 0
-                \\ ble- 20004f
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 5, 0
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 5, 0
-                \\
-            else
-                "") ++
-                \\ ble- 20004f
-                \\
-            ++ (if (on[0])
-                \\ srawi. 0, 3, 3
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sradi. 0, 3, 3
-                \\
-            else
-                "") ++
-                \\ mtspr 9, 0
-                \\ beq- 20002f
-                \\ lfdx 8, 4, 9
-                \\ lfdux 9, 4, 5
-                \\ lfdx 10, 4, 9
-                \\ lfdux 11, 4, 5
-                \\ lfdx 12, 4, 9
-                \\ lfdux 13, 4, 5
-                \\ lfdx 14, 4, 9
-                \\ lfdux 15, 4, 5
-                \\ fabs 16, 8
-                \\ lfdx 24, 4, 9
-                \\ fabs 17, 9
-                \\ lfdux 25, 4, 5
-                \\ fabs 18, 10
-                \\ lfdx 26, 4, 9
-                \\ fabs 19, 11
-                \\ lfdux 27, 4, 5
-                \\ fabs 20, 12
-                \\ lfdx 28, 4, 9
-                \\ fabs 21, 13
-                \\ lfdux 29, 4, 5
-                \\ fabs 22, 14
-                \\ lfdx 30, 4, 9
-                \\ fabs 23, 15
-                \\ lfdux 31, 4, 5
-                \\ bdz 20001f
-                \\ .align 4
-                \\ 20000:
-                \\ lfdx 8, 4, 9
-                \\ fadd 0, 0, 16
-                \\
-            ++ (if (on[2])
-                \\ nop
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ dcbt 4, 8
-                \\
-            else
-                "") ++
-                \\ fabs 16, 24
-                \\ lfdux 9, 4, 5
-                \\ fadd 1, 1, 17
-                \\ nop
-                \\ fabs 17, 25
-                \\ lfdx 10, 4, 9
-                \\ fadd 2, 2, 18
-                \\ nop
-                \\ fabs 18, 26
-                \\ lfdux 11, 4, 5
-                \\ fadd 3, 3, 19
-                \\ nop
-                \\ fabs 19, 27
-                \\ lfdx 12, 4, 9
-                \\ fadd 4, 4, 20
-                \\
-            ++ (if (on[2])
-                \\ nop
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ dcbt 4, 8
-                \\
-            else
-                "") ++
-                \\ fabs 20, 28
-                \\ lfdux 13, 4, 5
-                \\ fadd 5, 5, 21
-                \\ nop
-                \\ fabs 21, 29
-                \\ lfdx 14, 4, 9
-                \\ fadd 6, 6, 22
-                \\ nop
-                \\ fabs 22, 30
-                \\ lfdux 15, 4, 5
-                \\ fadd 7, 7, 23
-                \\ nop
-                \\ fabs 23, 31
-                \\ lfdx 24, 4, 9
-                \\ fadd 0, 0, 16
-                \\
-            ++ (if (on[2])
-                \\ nop
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ dcbt 4, 8
-                \\
-            else
-                "") ++
-                \\ fabs 16, 8
-                \\ lfdux 25, 4, 5
-                \\ fadd 1, 1, 17
-                \\ nop
-                \\ fabs 17, 9
-                \\ lfdx 26, 4, 9
-                \\ fadd 2, 2, 18
-                \\ nop
-                \\ fabs 18, 10
-                \\ lfdux 27, 4, 5
-                \\ fadd 3, 3, 19
-                \\ nop
-                \\ fabs 19, 11
-                \\ lfdx 28, 4, 9
-                \\ fadd 4, 4, 20
-                \\
-            ++ (if (on[2])
-                \\ nop
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ dcbt 4, 8
-                \\
-            else
-                "") ++
-                \\ fabs 20, 12
-                \\ lfdux 29, 4, 5
-                \\ fadd 5, 5, 21
-                \\ nop
-                \\ fabs 21, 13
-                \\ lfdx 30, 4, 9
-                \\ fadd 6, 6, 22
-                \\ nop
-                \\ fabs 22, 14
-                \\ lfdux 31, 4, 5
-                \\ fadd 7, 7, 23
-                \\ fabs 23, 15
-                \\ bdnz 20000b
-                \\ .align 4
-                \\ 20001:
-                \\ fadd 0, 0, 16
-                \\ fabs 16, 24
-                \\ fadd 1, 1, 17
-                \\ fabs 17, 25
-                \\ fadd 2, 2, 18
-                \\ fabs 18, 26
-                \\ fadd 3, 3, 19
-                \\ fabs 19, 27
-                \\ fadd 4, 4, 20
-                \\ fabs 20, 28
-                \\ fadd 5, 5, 21
-                \\ fabs 21, 29
-                \\ fadd 6, 6, 22
-                \\ fabs 22, 30
-                \\ fadd 7, 7, 23
-                \\ fabs 23, 31
-                \\ fadd 0, 0, 16
-                \\ fadd 1, 1, 17
-                \\ fadd 2, 2, 18
-                \\ fadd 3, 3, 19
-                \\ fadd 4, 4, 20
-                \\ fadd 5, 5, 21
-                \\ fadd 6, 6, 22
-                \\ fadd 7, 7, 23
-                \\ .align 4
-                \\ 20002:
-                \\ andi. 0, 3, 7
-                \\ mtspr 9, 0
-                \\ beq 20004f
-                \\ .align 4
-                \\ 20003:
-                \\ lfdx 8, 4, 9
-                \\ lfdux 9, 4, 5
-                \\ fabs 8, 8
-                \\ fabs 9, 9
-                \\ fadd 0, 0, 8
-                \\ fadd 1, 1, 9
-                \\ bdnz 20003b
-                \\ .align 4
-                \\ 20004:
-                \\ fadd 0, 0, 1
-                \\ fadd 2, 2, 3
-                \\ fadd 4, 4, 5
-                \\ fadd 6, 6, 7
-                \\ fadd 0, 0, 2
-                \\ fadd 4, 4, 6
-                \\ fadd 1, 0, 4
-                \\ lfd 14, 0(1)
-                \\ lfd 15, 8(1)
-                \\ lfd 16, 16(1)
-                \\ lfd 17, 24(1)
-                \\ lfd 18, 32(1)
-                \\ lfd 19, 40(1)
-                \\ lfd 20, 48(1)
-                \\ lfd 21, 56(1)
-                \\ lfd 22, 64(1)
-                \\ lfd 23, 72(1)
-                \\ lfd 24, 80(1)
-                \\ lfd 25, 88(1)
-                \\ lfd 26, 96(1)
-                \\ lfd 27, 104(1)
-                \\ lfd 28, 112(1)
-                \\ lfd 29, 120(1)
-                \\ lfd 30, 128(1)
-                \\ lfd 31, 136(1)
-                \\ addi 1, 1, 160
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

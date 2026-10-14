@@ -35,33 +35,33 @@ const keys = [_][2][]const u8{
     .{ "zen", "" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][6]bool{
-    .{ true, false, false, false, false, false },
-    .{ false, true, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, true, false, false, false },
-    .{ false, false, true, false, false, false },
-    .{ false, false, true, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, true, false, false },
-    .{ false, false, false, false, true, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, true },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, true, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
-    .{ false, false, false, false, false, false },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 1, 0, 0, 0",
+    "0, 0, 1, 0, 0, 0",
+    "0, 0, 1, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 1, 0, 0",
+    "0, 0, 0, 0, 1, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 1",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 1, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -78,168 +78,164 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [6]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5
+    \\ .balign 16
+    \\ pushl %esi
+    \\ pushl %ebx
+    \\ movl 4 + 8 + 0(%esp), %edx
+    \\ movl 8 + 8 + 0(%esp), %ecx
+    \\ movl 12 + 8 + 0(%esp), %esi
+    \\ fldz
+    \\ testl %edx, %edx
+    \\ jle 20008f
+    \\ testl %esi, %esi
+    \\ jle 20008f
+    \\ sall $4, %esi
+    \\ fldz
+    \\ fldz
+    \\ fldz
+    \\ cmpl $8 * 2, %esi
+    \\ jne 20003f
+    \\ movl %edx, %eax
+    \\ sarl $2, %eax
+    \\ jle 20001f
+    \\ .balign 16
+    \\ 20000:
+    \\ .if \bp0
+    \\ prefetch ((128 * 10) + 0) - 128(%ecx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%ecx)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetch ((128 * 5) + 0) - 128(%ecx)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%ecx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%ecx)
+    \\ .endif
+    \\ .if \bp5
+    \\ prefetch ((128 * 3) + 0) - 128(%ecx)
+    \\ .endif
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ fabs
+    \\ fldl 2 * 8(%ecx)
+    \\ fabs
+    \\ fldl 3 * 8(%ecx)
+    \\ fabs
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ fldl 4 * 8(%ecx)
+    \\ fabs
+    \\ fldl 5 * 8(%ecx)
+    \\ fabs
+    \\ fldl 6 * 8(%ecx)
+    \\ fabs
+    \\ fldl 7 * 8(%ecx)
+    \\ fabs
+    \\ addl $8 * 8, %ecx
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ decl %eax
+    \\ jg 20000b
+    \\ .balign 16
+    \\ 20001:
+    \\ movl %edx, %eax
+    \\ andl $3, %eax
+    \\ jle 20007f
+    \\ .balign 16
+    \\ 20002:
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ fabs
+    \\ faddp %st,%st(3)
+    \\ faddp %st,%st(1)
+    \\ addl $2 * 8, %ecx
+    \\ decl %eax
+    \\ jg 20002b
+    \\ jmp 20007f
+    \\ .balign 16
+    \\ 20003:
+    \\ movl %edx, %eax
+    \\ sarl $2, %eax
+    \\ jle 20005f
+    \\ .balign 16
+    \\ 20004:
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ addl %esi, %ecx
+    \\ fabs
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ addl %esi, %ecx
+    \\ fabs
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ addl %esi, %ecx
+    \\ fabs
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ addl %esi, %ecx
+    \\ fabs
+    \\ faddp %st, %st(7)
+    \\ faddp %st, %st(5)
+    \\ faddp %st, %st(3)
+    \\ faddp %st, %st(1)
+    \\ decl %eax
+    \\ jg 20004b
+    \\ .balign 16
+    \\ 20005:
+    \\ movl %edx, %eax
+    \\ andl $3, %eax
+    \\ jle 20007f
+    \\ .balign 16
+    \\ 20006:
+    \\ fldl 0 * 8(%ecx)
+    \\ fabs
+    \\ fldl 1 * 8(%ecx)
+    \\ addl %esi, %ecx
+    \\ fabs
+    \\ faddp %st,%st(3)
+    \\ faddp %st,%st(1)
+    \\ decl %eax
+    \\ jg 20006b
+    \\ .balign 16
+    \\ 20007:
+    \\ faddp %st,%st(2)
+    \\ faddp %st,%st(1)
+    \\ faddp %st,%st(1)
+    \\ .balign 16
+    \\ 20008:
+    \\ popl %ebx
+    \\ popl %esi
+    \\ ret
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn zasum() callconv(.naked) void {
-            asm volatile (
-                \\ .text
-                \\ .balign 16
-                \\ pushl %esi
-                \\ pushl %ebx
-                \\ movl 4 + 8 + 0(%esp), %edx
-                \\ movl 8 + 8 + 0(%esp), %ecx
-                \\ movl 12 + 8 + 0(%esp), %esi
-                \\ fldz
-                \\ testl %edx, %edx
-                \\ jle 20008f
-                \\ testl %esi, %esi
-                \\ jle 20008f
-                \\ sall $4, %esi
-                \\ fldz
-                \\ fldz
-                \\ fldz
-                \\ cmpl $8 * 2, %esi
-                \\ jne 20003f
-                \\ movl %edx, %eax
-                \\ sarl $2, %eax
-                \\ jle 20001f
-                \\ .balign 16
-                \\ 20000:
-                \\
-            ++ (if (on[0])
-                \\ prefetch ((128 * 10) + 0) - 128(%ecx)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%ecx)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetch ((128 * 5) + 0) - 128(%ecx)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 4) + 0) - 128(%ecx)
-                \\
-            else
-                "") ++ (if (on[4])
-                \\ prefetcht0 ((128 * 12) + 0) - 128(%ecx)
-                \\
-            else
-                "") ++ (if (on[5])
-                \\ prefetch ((128 * 3) + 0) - 128(%ecx)
-                \\
-            else
-                "") ++
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ fabs
-                \\ fldl 2 * 8(%ecx)
-                \\ fabs
-                \\ fldl 3 * 8(%ecx)
-                \\ fabs
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ fldl 4 * 8(%ecx)
-                \\ fabs
-                \\ fldl 5 * 8(%ecx)
-                \\ fabs
-                \\ fldl 6 * 8(%ecx)
-                \\ fabs
-                \\ fldl 7 * 8(%ecx)
-                \\ fabs
-                \\ addl $8 * 8, %ecx
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ decl %eax
-                \\ jg 20000b
-                \\ .balign 16
-                \\ 20001:
-                \\ movl %edx, %eax
-                \\ andl $3, %eax
-                \\ jle 20007f
-                \\ .balign 16
-                \\ 20002:
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ fabs
-                \\ faddp %st,%st(3)
-                \\ faddp %st,%st(1)
-                \\ addl $2 * 8, %ecx
-                \\ decl %eax
-                \\ jg 20002b
-                \\ jmp 20007f
-                \\ .balign 16
-                \\ 20003:
-                \\ movl %edx, %eax
-                \\ sarl $2, %eax
-                \\ jle 20005f
-                \\ .balign 16
-                \\ 20004:
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ addl %esi, %ecx
-                \\ fabs
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ addl %esi, %ecx
-                \\ fabs
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ addl %esi, %ecx
-                \\ fabs
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ addl %esi, %ecx
-                \\ fabs
-                \\ faddp %st, %st(7)
-                \\ faddp %st, %st(5)
-                \\ faddp %st, %st(3)
-                \\ faddp %st, %st(1)
-                \\ decl %eax
-                \\ jg 20004b
-                \\ .balign 16
-                \\ 20005:
-                \\ movl %edx, %eax
-                \\ andl $3, %eax
-                \\ jle 20007f
-                \\ .balign 16
-                \\ 20006:
-                \\ fldl 0 * 8(%ecx)
-                \\ fabs
-                \\ fldl 1 * 8(%ecx)
-                \\ addl %esi, %ecx
-                \\ fabs
-                \\ faddp %st,%st(3)
-                \\ faddp %st,%st(1)
-                \\ decl %eax
-                \\ jg 20006b
-                \\ .balign 16
-                \\ 20007:
-                \\ faddp %st,%st(2)
-                \\ faddp %st,%st(1)
-                \\ faddp %st,%st(1)
-                \\ .balign 16
-                \\ 20008:
-                \\ popl %ebx
-                \\ popl %esi
-                \\ ret
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
