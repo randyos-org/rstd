@@ -18,12 +18,12 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "0, 0",
-    "0, 0",
-    "1, 0",
-    "0, 1",
-    "0, 0",
-    "0, 0",
+    "1, 0, 0, 0",
+    "1, 0, 0, 0",
+    "1, 0, 1, 0",
+    "1, 0, 0, 1",
+    "1, 0, 0, 0",
+    "0, 1, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -42,13 +42,18 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1
+    \\ .macro __bk bp0, bp1, bp2, bp3
     \\ .balign 512
     \\ movq 24(%rsp), %r9
     \\ testq %rdi, %rdi
     \\ jle 20024f
     \\ leaq (, %r8, 8), %r8
+    \\ .if \bp0
     \\ xorps %xmm1, %xmm1
+    \\ .endif
+    \\ .if \bp1
+    \\ pxor %xmm1, %xmm1
+    \\ .endif
     \\ comisd %xmm0, %xmm1
     \\ jne 20011f # Alpha != 0.e0
     \\ jp 20011f # For Alpha = NaN
@@ -69,20 +74,20 @@ const text =
     \\ jle 20002f
     \\ .balign 16
     \\ 20001:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rcx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rcx)
     \\ .endif
     \\ movaps %xmm1, 0 * 8(%rcx)
     \\ movaps %xmm1, 2 * 8(%rcx)
     \\ movaps %xmm1, 4 * 8(%rcx)
     \\ movaps %xmm1, 6 * 8(%rcx)
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rcx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rcx)
     \\ .endif
     \\ movaps %xmm1, 8 * 8(%rcx)
@@ -129,10 +134,10 @@ const text =
     \\ jle 20008f
     \\ .balign 16
     \\ 20007:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rcx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rcx)
     \\ .endif
     \\ movsd %xmm1, (%rcx)
@@ -212,10 +217,10 @@ const text =
     \\ jle 20014f
     \\ .balign 16
     \\ 20013:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rcx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rcx)
     \\ .endif
     \\ mulpd %xmm0, %xmm1
@@ -230,10 +235,10 @@ const text =
     \\ mulpd %xmm0, %xmm4
     \\ movaps %xmm4, -10 * 8(%rcx)
     \\ movaps 6 * 8(%rcx), %xmm4
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rcx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rcx)
     \\ .endif
     \\ mulpd %xmm0, %xmm5
@@ -324,10 +329,10 @@ const text =
     \\ jle 20021f
     \\ .balign 16
     \\ 20020:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rcx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rcx)
     \\ .endif
     \\ movsd (%rcx), %xmm1
