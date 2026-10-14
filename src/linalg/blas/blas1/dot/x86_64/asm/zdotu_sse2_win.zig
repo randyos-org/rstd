@@ -22,16 +22,16 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 0, 0, 1",
-    "1, 0, 0, 0, 1",
-    "0, 0, 0, 0, 1",
-    "0, 0, 0, 0, 1",
-    "0, 1, 0, 0, 1",
-    "0, 0, 1, 0, 1",
-    "0, 0, 0, 1, 0",
-    "0, 0, 0, 1, 0",
-    "0, 0, 0, 0, 1",
-    "0, 0, 0, 0, 1",
+    "1, 0, 1, 0, 0, 0, 1",
+    "1, 0, 1, 0, 0, 0, 1",
+    "1, 0, 0, 0, 0, 0, 1",
+    "1, 0, 0, 0, 0, 0, 1",
+    "1, 0, 0, 1, 0, 0, 1",
+    "1, 0, 0, 0, 1, 0, 1",
+    "1, 0, 0, 0, 0, 1, 0",
+    "1, 0, 0, 0, 0, 1, 0",
+    "1, 0, 0, 0, 0, 0, 1",
+    "0, 1, 0, 0, 0, 0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -50,7 +50,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2, bp3, bp4
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6
     \\ .balign 512
     \\ movq 40(%rsp), %r10
     \\ movq 48(%rsp), %r11
@@ -67,10 +67,18 @@ const text =
     \\ movups %xmm15, 144(%rsp)
     \\ salq $4, %r9
     \\ salq $4, %r11
+    \\ .if \bp0
     \\ xorps %xmm0, %xmm0
     \\ xorps %xmm1, %xmm1
     \\ xorps %xmm2, %xmm2
     \\ xorps %xmm3, %xmm3
+    \\ .endif
+    \\ .if \bp1
+    \\ pxor %xmm0, %xmm0
+    \\ pxor %xmm1, %xmm1
+    \\ pxor %xmm2, %xmm2
+    \\ pxor %xmm3, %xmm3
+    \\ .endif
     \\ cmpq $0, %rdx
     \\ jle 20031f
     \\ cmpq $2 * 8, %r9
@@ -98,17 +106,20 @@ const text =
     \\ jle 20001f
     \\ .balign 8
     \\ 20000:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r8)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r8)
     \\ .endif
     \\ pshufd $0x4e, %xmm8, %xmm12
     \\ mulpd %xmm4, %xmm8
@@ -124,17 +135,20 @@ const text =
     \\ mulpd %xmm5, %xmm12
     \\ movaps -6 * 8(%r8), %xmm5
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r10)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r10)
     \\ .endif
     \\ pshufd $0x4e, %xmm10, %xmm12
     \\ mulpd %xmm6, %xmm10
@@ -150,16 +164,16 @@ const text =
     \\ mulpd %xmm7, %xmm12
     \\ movaps -2 * 8(%r8), %xmm7
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r8)
     \\ .endif
     \\ pshufd $0x4e, %xmm8, %xmm12
@@ -176,16 +190,16 @@ const text =
     \\ mulpd %xmm5, %xmm12
     \\ movaps 2 * 8(%r8), %xmm5
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r10)
     \\ .endif
     \\ pshufd $0x4e, %xmm10, %xmm12
@@ -329,33 +343,33 @@ const text =
     \\ movq %rdx, %rax
     \\ sarq $3, %rax
     \\ jle 20008f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r8), %xmm4
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -14 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -14 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps -13 * 8(%r8), %xmm5
     \\ movaps -16 * 8(%r10), %xmm8
     \\ movaps -14 * 8(%r10), %xmm9
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -12 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -12 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps -11 * 8(%r8), %xmm6
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -10 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -10 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps -9 * 8(%r8), %xmm7
@@ -365,27 +379,30 @@ const text =
     \\ jle 20007f
     \\ .balign 8
     \\ 20006:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r8)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r8)
     \\ .endif
     \\ pshufd $0x4e, %xmm8, %xmm12
     \\ mulpd %xmm4, %xmm8
     \\ addpd %xmm8, %xmm0
     \\ movaps -8 * 8(%r10), %xmm8
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -8 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -8 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps -7 * 8(%r8), %xmm4
@@ -395,35 +412,38 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ movaps -6 * 8(%r10), %xmm9
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -6 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -6 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps -5 * 8(%r8), %xmm5
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r10)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r10)
     \\ .endif
     \\ pshufd $0x4e, %xmm10, %xmm12
     \\ mulpd %xmm6, %xmm10
     \\ addpd %xmm10, %xmm0
     \\ movaps -4 * 8(%r10), %xmm10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -4 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -4 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps -3 * 8(%r8), %xmm6
@@ -433,24 +453,24 @@ const text =
     \\ addpd %xmm11, %xmm2
     \\ movaps -2 * 8(%r10), %xmm11
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -2 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -2 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps -1 * 8(%r8), %xmm7
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r8)
     \\ .endif
     \\ pshufd $0x4e, %xmm8, %xmm12
@@ -458,10 +478,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ movaps 0 * 8(%r10), %xmm8
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
@@ -471,24 +491,24 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ movaps 2 * 8(%r10), %xmm9
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 2 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 2 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 3 * 8(%r8), %xmm5
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r10)
     \\ .endif
     \\ pshufd $0x4e, %xmm10, %xmm12
@@ -496,10 +516,10 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ movaps 4 * 8(%r10), %xmm10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 4 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 4 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps 5 * 8(%r8), %xmm6
@@ -509,10 +529,10 @@ const text =
     \\ addpd %xmm11, %xmm2
     \\ movaps 6 * 8(%r10), %xmm11
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 6 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 6 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps 7 * 8(%r8), %xmm7
@@ -528,10 +548,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ movaps -8 * 8(%r10), %xmm8
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -8 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -8 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps -7 * 8(%r8), %xmm4
@@ -541,10 +561,10 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ movaps -6 * 8(%r10), %xmm9
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -6 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -6 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps -5 * 8(%r8), %xmm5
@@ -554,10 +574,10 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ movaps -4 * 8(%r10), %xmm10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -4 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -4 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps -3 * 8(%r8), %xmm6
@@ -567,10 +587,10 @@ const text =
     \\ addpd %xmm11, %xmm2
     \\ movaps -2 * 8(%r10), %xmm11
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -2 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -2 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps -1 * 8(%r8), %xmm7
@@ -601,10 +621,10 @@ const text =
     \\ 20008:
     \\ testq $4, %rdx
     \\ jle 20009f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r8), %xmm4
@@ -614,10 +634,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ mulpd %xmm4, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -14 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -14 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps -13 * 8(%r8), %xmm5
@@ -627,10 +647,10 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ mulpd %xmm5, %xmm12
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -12 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -12 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps -11 * 8(%r8), %xmm6
@@ -640,10 +660,10 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ mulpd %xmm6, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -10 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -10 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps -9 * 8(%r8), %xmm7
@@ -659,10 +679,10 @@ const text =
     \\ 20009:
     \\ testq $2, %rdx
     \\ jle 20010f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r8), %xmm4
@@ -672,10 +692,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ mulpd %xmm4, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -14 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -14 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps -13 * 8(%r8), %xmm5
@@ -691,10 +711,10 @@ const text =
     \\ 20010:
     \\ testq $1, %rdx
     \\ jle 20030f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r8), %xmm4
@@ -712,33 +732,33 @@ const text =
     \\ movq %rdx, %rax
     \\ sarq $3, %rax
     \\ jle 20014f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r10), %xmm4
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -14 * 8(%r10), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -14 * 8(%r10), %xmm5
     \\ .endif
     \\ movhps -13 * 8(%r10), %xmm5
     \\ movaps -16 * 8(%r8), %xmm8
     \\ movaps -14 * 8(%r8), %xmm9
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -12 * 8(%r10), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -12 * 8(%r10), %xmm6
     \\ .endif
     \\ movhps -11 * 8(%r10), %xmm6
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -10 * 8(%r10), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -10 * 8(%r10), %xmm7
     \\ .endif
     \\ movhps -9 * 8(%r10), %xmm7
@@ -748,27 +768,30 @@ const text =
     \\ jle 20013f
     \\ .balign 8
     \\ 20012:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r10)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r10)
     \\ .endif
     \\ pshufd $0x4e, %xmm8, %xmm12
     \\ mulpd %xmm4, %xmm8
     \\ addpd %xmm8, %xmm0
     \\ movaps -8 * 8(%r8), %xmm8
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -8 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -8 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps -7 * 8(%r10), %xmm4
@@ -778,35 +801,38 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ movaps -6 * 8(%r8), %xmm9
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -6 * 8(%r10), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -6 * 8(%r10), %xmm5
     \\ .endif
     \\ movhps -5 * 8(%r10), %xmm5
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r8)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r8)
     \\ .endif
     \\ pshufd $0x4e, %xmm10, %xmm12
     \\ mulpd %xmm6, %xmm10
     \\ addpd %xmm10, %xmm0
     \\ movaps -4 * 8(%r8), %xmm10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -4 * 8(%r10), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -4 * 8(%r10), %xmm6
     \\ .endif
     \\ movhps -3 * 8(%r10), %xmm6
@@ -816,24 +842,24 @@ const text =
     \\ addpd %xmm11, %xmm2
     \\ movaps -2 * 8(%r8), %xmm11
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -2 * 8(%r10), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -2 * 8(%r10), %xmm7
     \\ .endif
     \\ movhps -1 * 8(%r10), %xmm7
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r10)
     \\ .endif
     \\ pshufd $0x4e, %xmm8, %xmm12
@@ -841,10 +867,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ movaps 0 * 8(%r8), %xmm8
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm4
@@ -854,24 +880,24 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ movaps 2 * 8(%r8), %xmm9
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 2 * 8(%r10), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 2 * 8(%r10), %xmm5
     \\ .endif
     \\ movhps 3 * 8(%r10), %xmm5
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r8)
     \\ .endif
     \\ pshufd $0x4e, %xmm10, %xmm12
@@ -879,10 +905,10 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ movaps 4 * 8(%r8), %xmm10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 4 * 8(%r10), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 4 * 8(%r10), %xmm6
     \\ .endif
     \\ movhps 5 * 8(%r10), %xmm6
@@ -892,10 +918,10 @@ const text =
     \\ addpd %xmm11, %xmm2
     \\ movaps 6 * 8(%r8), %xmm11
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 6 * 8(%r10), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 6 * 8(%r10), %xmm7
     \\ .endif
     \\ movhps 7 * 8(%r10), %xmm7
@@ -911,10 +937,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ movaps -8 * 8(%r8), %xmm8
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -8 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -8 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps -7 * 8(%r10), %xmm4
@@ -924,10 +950,10 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ movaps -6 * 8(%r8), %xmm9
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -6 * 8(%r10), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -6 * 8(%r10), %xmm5
     \\ .endif
     \\ movhps -5 * 8(%r10), %xmm5
@@ -937,10 +963,10 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ movaps -4 * 8(%r8), %xmm10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -4 * 8(%r10), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -4 * 8(%r10), %xmm6
     \\ .endif
     \\ movhps -3 * 8(%r10), %xmm6
@@ -950,10 +976,10 @@ const text =
     \\ addpd %xmm11, %xmm2
     \\ movaps -2 * 8(%r8), %xmm11
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -2 * 8(%r10), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -2 * 8(%r10), %xmm7
     \\ .endif
     \\ movhps -1 * 8(%r10), %xmm7
@@ -984,10 +1010,10 @@ const text =
     \\ 20014:
     \\ testq $4, %rdx
     \\ jle 20015f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r10), %xmm4
@@ -997,10 +1023,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ mulpd %xmm4, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -14 * 8(%r10), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -14 * 8(%r10), %xmm5
     \\ .endif
     \\ movhps -13 * 8(%r10), %xmm5
@@ -1010,10 +1036,10 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ mulpd %xmm5, %xmm12
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -12 * 8(%r10), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -12 * 8(%r10), %xmm6
     \\ .endif
     \\ movhps -11 * 8(%r10), %xmm6
@@ -1023,10 +1049,10 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ mulpd %xmm6, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -10 * 8(%r10), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -10 * 8(%r10), %xmm7
     \\ .endif
     \\ movhps -9 * 8(%r10), %xmm7
@@ -1042,10 +1068,10 @@ const text =
     \\ 20015:
     \\ testq $2, %rdx
     \\ jle 20016f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r10), %xmm4
@@ -1055,10 +1081,10 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ mulpd %xmm4, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -14 * 8(%r10), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -14 * 8(%r10), %xmm5
     \\ .endif
     \\ movhps -13 * 8(%r10), %xmm5
@@ -1076,10 +1102,10 @@ const text =
     \\ shufpd $1, %xmm3, %xmm3
     \\ testq $1, %rdx
     \\ jle 20030f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd -16 * 8(%r10), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps -16 * 8(%r10), %xmm4
     \\ .endif
     \\ movhps -15 * 8(%r10), %xmm4
@@ -1110,17 +1136,20 @@ const text =
     \\ jle 20019f
     \\ .balign 8
     \\ 20018:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r10)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r10)
     \\ .endif
     \\ movsd %xmm9, %xmm8
     \\ pshufd $0x4e, %xmm8, %xmm12
@@ -1140,17 +1169,20 @@ const text =
     \\ mulpd %xmm5, %xmm12
     \\ movaps -8 * 8(%r8), %xmm5
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 0) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 0) - 128(%r8)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%r8)
     \\ .endif
     \\ movsd %xmm11, %xmm10
     \\ pshufd $0x4e, %xmm10, %xmm12
@@ -1170,16 +1202,16 @@ const text =
     \\ mulpd %xmm7, %xmm12
     \\ movaps -4 * 8(%r8), %xmm7
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r10)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r10)
     \\ .endif
     \\ movsd %xmm9, %xmm8
@@ -1200,16 +1232,16 @@ const text =
     \\ mulpd %xmm5, %xmm12
     \\ movaps 0 * 8(%r8), %xmm5
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp0
+    \\ .if \bp2
     \\ prefetch ((128 * 5) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetcht0 ((128 * 4) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r8)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 3) + 64) - 128(%r8)
     \\ .endif
     \\ movsd %xmm11, %xmm10
@@ -1395,66 +1427,66 @@ const text =
     \\ movq %rdx, %rax
     \\ sarq $3, %rax
     \\ jle 20027f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
     \\ addq %r11, %r10
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm5
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm9
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm9
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm9
     \\ addq %r11, %r10
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm6
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm10
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm10
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm10
     \\ addq %r11, %r10
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm7
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm11
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm11
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm11
@@ -1466,19 +1498,19 @@ const text =
     \\ pshufd $0x4e, %xmm8, %xmm12
     \\ mulpd %xmm4, %xmm8
     \\ addpd %xmm8, %xmm0
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
     \\ addq %r11, %r10
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
@@ -1487,19 +1519,19 @@ const text =
     \\ pshufd $0x4e, %xmm9, %xmm12
     \\ mulpd %xmm5, %xmm9
     \\ addpd %xmm9, %xmm2
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm9
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm9
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm9
     \\ addq %r11, %r10
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm5
@@ -1508,19 +1540,19 @@ const text =
     \\ pshufd $0x4e, %xmm10, %xmm12
     \\ mulpd %xmm6, %xmm10
     \\ addpd %xmm10, %xmm0
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm10
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm10
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm10
     \\ addq %r11, %r10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm6
@@ -1529,19 +1561,19 @@ const text =
     \\ pshufd $0x4e, %xmm11, %xmm12
     \\ mulpd %xmm7, %xmm11
     \\ addpd %xmm11, %xmm2
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm11
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm11
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm11
     \\ addq %r11, %r10
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm7
@@ -1550,19 +1582,19 @@ const text =
     \\ pshufd $0x4e, %xmm8, %xmm12
     \\ mulpd %xmm4, %xmm8
     \\ addpd %xmm8, %xmm0
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
     \\ addq %r11, %r10
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
@@ -1571,19 +1603,19 @@ const text =
     \\ pshufd $0x4e, %xmm9, %xmm12
     \\ mulpd %xmm5, %xmm9
     \\ addpd %xmm9, %xmm2
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm9
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm9
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm9
     \\ addq %r11, %r10
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm5
@@ -1592,19 +1624,19 @@ const text =
     \\ pshufd $0x4e, %xmm10, %xmm12
     \\ mulpd %xmm6, %xmm10
     \\ addpd %xmm10, %xmm0
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm10
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm10
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm10
     \\ addq %r11, %r10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm6
@@ -1613,19 +1645,19 @@ const text =
     \\ pshufd $0x4e, %xmm11, %xmm12
     \\ mulpd %xmm7, %xmm11
     \\ addpd %xmm11, %xmm2
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm11
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm11
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm11
     \\ addq %r11, %r10
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm7
@@ -1638,19 +1670,19 @@ const text =
     \\ pshufd $0x4e, %xmm8, %xmm12
     \\ mulpd %xmm4, %xmm8
     \\ addpd %xmm8, %xmm0
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
     \\ addq %r11, %r10
     \\ mulpd %xmm4, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
@@ -1659,19 +1691,19 @@ const text =
     \\ pshufd $0x4e, %xmm9, %xmm12
     \\ mulpd %xmm5, %xmm9
     \\ addpd %xmm9, %xmm2
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm9
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm9
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm9
     \\ addq %r11, %r10
     \\ mulpd %xmm5, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm5
@@ -1680,19 +1712,19 @@ const text =
     \\ pshufd $0x4e, %xmm10, %xmm12
     \\ mulpd %xmm6, %xmm10
     \\ addpd %xmm10, %xmm0
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm10
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm10
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm10
     \\ addq %r11, %r10
     \\ mulpd %xmm6, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm6
@@ -1701,19 +1733,19 @@ const text =
     \\ pshufd $0x4e, %xmm11, %xmm12
     \\ mulpd %xmm7, %xmm11
     \\ addpd %xmm11, %xmm2
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm11
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm11
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm11
     \\ addq %r11, %r10
     \\ mulpd %xmm7, %xmm12
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm7
@@ -1743,18 +1775,18 @@ const text =
     \\ 20027:
     \\ testq $4, %rdx
     \\ jle 20028f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
@@ -1764,18 +1796,18 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ mulpd %xmm4, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm5
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm9
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm9
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm9
@@ -1785,18 +1817,18 @@ const text =
     \\ addpd %xmm9, %xmm2
     \\ mulpd %xmm5, %xmm12
     \\ addpd %xmm12, %xmm3
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm6
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm6
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm6
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm10
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm10
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm10
@@ -1806,18 +1838,18 @@ const text =
     \\ addpd %xmm10, %xmm0
     \\ mulpd %xmm6, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm7
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm7
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm7
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm11
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm11
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm11
@@ -1831,18 +1863,18 @@ const text =
     \\ 20028:
     \\ testq $2, %rdx
     \\ jle 20029f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
@@ -1852,18 +1884,18 @@ const text =
     \\ addpd %xmm8, %xmm0
     \\ mulpd %xmm4, %xmm12
     \\ addpd %xmm12, %xmm1
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm5
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm5
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm5
     \\ addq %r9, %r8
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm9
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm9
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm9
@@ -1877,17 +1909,17 @@ const text =
     \\ 20029:
     \\ testq $1, %rdx
     \\ jle 20030f
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r8), %xmm4
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r8), %xmm4
     \\ .endif
     \\ movhps 1 * 8(%r8), %xmm4
-    \\ .if \bp4
+    \\ .if \bp6
     \\ movsd 0 * 8(%r10), %xmm8
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ movlps 0 * 8(%r10), %xmm8
     \\ .endif
     \\ movhps 1 * 8(%r10), %xmm8
