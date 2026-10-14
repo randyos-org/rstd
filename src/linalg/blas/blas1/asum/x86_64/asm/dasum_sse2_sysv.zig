@@ -28,22 +28,22 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 1, 0, 0, 1, 0, 1, 0",
-    "1, 0, 1, 0, 0, 1, 0, 1, 0",
-    "1, 0, 1, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 0, 1, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 1, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 1, 1, 0, 1, 0",
-    "0, 1, 0, 0, 0, 1, 0, 0, 1",
-    "0, 1, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 1, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0",
+    "1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1",
+    "1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -62,16 +62,28 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6, bp7, bp8
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6, bp7, bp8, bp9, bp10
     \\ .balign 512
+    \\ .if \bp0
     \\ xorps %xmm0, %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ pxor %xmm0, %xmm0
+    \\ .endif
     \\ testq %rdi, %rdi
     \\ jle 20012f
     \\ testq %rdx, %rdx
     \\ jle 20012f
+    \\ .if \bp0
     \\ xorps %xmm1, %xmm1
     \\ xorps %xmm2, %xmm2
     \\ xorps %xmm3, %xmm3
+    \\ .endif
+    \\ .if \bp1
+    \\ pxor %xmm1, %xmm1
+    \\ pxor %xmm2, %xmm2
+    \\ pxor %xmm3, %xmm3
+    \\ .endif
     \\ pcmpeqb %xmm15, %xmm15
     \\ psrlq $1, %xmm15
     \\ salq $3, %rdx
@@ -80,10 +92,10 @@ const text =
     \\ jne 20007f
     \\ testq $8, %rsi
     \\ je 20000f
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm0
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -16 * 8(%rsi), %xmm0
     \\ .endif
     \\ addq $8, %rsi
@@ -107,17 +119,20 @@ const text =
     \\ jle 20002f
     \\ .balign 16
     \\ 20001:
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetch ((128 * 5) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp4
+    \\ .if \bp6
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetch ((128 * 3) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rsi)
     \\ .endif
     \\ andps %xmm15, %xmm4
     \\ addpd %xmm4, %xmm0
@@ -131,16 +146,16 @@ const text =
     \\ andps %xmm15, %xmm7
     \\ addpd %xmm7, %xmm3
     \\ movaps 6 * 8(%rsi), %xmm7
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetch ((128 * 5) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp4
+    \\ .if \bp6
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetch ((128 * 3) + 64) - 128(%rsi)
     \\ .endif
     \\ andps %xmm15, %xmm8
@@ -218,10 +233,10 @@ const text =
     \\ 20006:
     \\ testq $1, %rdi
     \\ je 20011f
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm4
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ xorps %xmm4, %xmm4
     \\ movlps -16 * 8(%rsi), %xmm4
     \\ .endif
@@ -235,65 +250,65 @@ const text =
     \\ jle 20009f
     \\ .balign 16
     \\ 20008:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm4
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -16 * 8(%rsi), %xmm4
     \\ .endif
     \\ addq %rdx, %rsi
-    \\ .if \bp5
+    \\ .if \bp7
     \\ movhpd -16 * 8(%rsi), %xmm4
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp8
     \\ movhps -16 * 8(%rsi), %xmm4
     \\ .endif
     \\ addq %rdx, %rsi
     \\ andps %xmm15, %xmm4
     \\ addpd %xmm4, %xmm0
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm5
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -16 * 8(%rsi), %xmm5
     \\ .endif
     \\ addq %rdx, %rsi
-    \\ .if \bp5
+    \\ .if \bp7
     \\ movhpd -16 * 8(%rsi), %xmm5
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp8
     \\ movhps -16 * 8(%rsi), %xmm5
     \\ .endif
     \\ addq %rdx, %rsi
     \\ andps %xmm15, %xmm5
     \\ addpd %xmm5, %xmm1
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm6
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -16 * 8(%rsi), %xmm6
     \\ .endif
     \\ addq %rdx, %rsi
-    \\ .if \bp5
+    \\ .if \bp7
     \\ movhpd -16 * 8(%rsi), %xmm6
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp8
     \\ movhps -16 * 8(%rsi), %xmm6
     \\ .endif
     \\ addq %rdx, %rsi
     \\ andps %xmm15, %xmm6
     \\ addpd %xmm6, %xmm2
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm7
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -16 * 8(%rsi), %xmm7
     \\ .endif
     \\ addq %rdx, %rsi
-    \\ .if \bp5
+    \\ .if \bp7
     \\ movhpd -16 * 8(%rsi), %xmm7
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp8
     \\ movhps -16 * 8(%rsi), %xmm7
     \\ .endif
     \\ addq %rdx, %rsi
@@ -303,17 +318,17 @@ const text =
     \\ jg 20008b
     \\ .balign 16
     \\ 20009:
-    \\ .if \bp1
+    \\ .if \bp3
     \\ xorps %xmm4, %xmm4
     \\ .endif
     \\ andq $7, %rdi
     \\ jle 20011f
     \\ .balign 16
     \\ 20010:
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -16 * 8(%rsi), %xmm4
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -16 * 8(%rsi), %xmm4
     \\ .endif
     \\ andps %xmm15, %xmm4
@@ -328,10 +343,10 @@ const text =
     \\ addpd %xmm2, %xmm0
     \\ .balign 16
     \\ 20012:
-    \\ .if \bp7
+    \\ .if \bp9
     \\ haddpd %xmm0, %xmm0
     \\ .endif
-    \\ .if \bp8
+    \\ .if \bp10
     \\ movhlps %xmm0, %xmm1
     \\ addsd %xmm1, %xmm0
     \\ .endif
