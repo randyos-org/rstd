@@ -1,4 +1,5 @@
-//! Vtable wrappers for the `amax` kernels.
+//! `AMAX`: the largest `|x|`. The vtable wrappers, the portable kernels
+//! (`*_generic`), and tests of every core's kernels against a plain loop.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -36,4 +37,51 @@ pub fn zamax_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) f64 {
 }
 pub fn xamax_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
     return blas.kernel(.xamax_k)(n, x, inc_x);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
+const extremum = @import("../extremum.zig");
+const check = @import("../check.zig");
+
+const find: extremum.Find = .{ .abs = true, .max = true };
+
+pub const samax_generic = &extremum.Extremum(f32, 1, find).value;
+pub const damax_generic = &extremum.Extremum(f64, 1, find).value;
+pub const qamax_generic = &extremum.Extremum(XDouble, 1, find).value;
+pub const camax_generic = &extremum.Extremum(f32, 2, find).value;
+pub const zamax_generic = &extremum.Extremum(f64, 2, find).value;
+pub const xamax_generic = &extremum.Extremum(XDouble, 2, find).value;
+
+/// Points every amax slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    vt.samax_k = samax_generic;
+    vt.damax_k = damax_generic;
+    vt.qamax_k = qamax_generic;
+    vt.camax_k = camax_generic;
+    vt.zamax_k = zamax_generic;
+    vt.xamax_k = xamax_generic;
+}
+
+// ---- tests -----------------------------------------------------------------
+
+fn checkAll(vt: *const Vtable) !void {
+    try extremum.checkKernel(f32, find, "samax", vt.samax_k.?);
+    try extremum.checkKernel(f64, find, "damax", vt.damax_k.?);
+    try extremum.checkKernel(std.math.Complex(f32), find, "camax", vt.camax_k.?);
+    try extremum.checkKernel(std.math.Complex(f64), find, "zamax", vt.zamax_k.?);
+}
+
+test "portable amax kernels match a plain loop" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    try extremum.checkKernel(XDouble, find, "qamax", vt.qamax_k.?);
+    try extremum.checkKernel(std.math.Complex(XDouble), find, "xamax", vt.xamax_k.?);
+}
+
+test "every linked core's amax kernels match a plain loop, where this machine runs them" {
+    try check.eachCore(checkAll);
 }

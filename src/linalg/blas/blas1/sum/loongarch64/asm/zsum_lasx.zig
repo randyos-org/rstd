@@ -148,7 +148,7 @@ const Body = struct {
             \\ blt $r0, $r17, 20008b
             \\ .align 3
             \\ 20009:
-            \\ fmov.s $f0, $f16
+            \\ fmov.d $f0, $f16
             \\ jirl $r0, $r1, 0x0
             \\ .align 3
             \\

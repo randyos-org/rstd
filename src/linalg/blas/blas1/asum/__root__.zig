@@ -1,4 +1,5 @@
-//! Vtable wrappers for the `asum` kernels.
+//! `ASUM`: the sum of `|x|`. The vtable wrappers, the portable kernels
+//! (`*_generic`), and tests of every core's kernels against a plain loop.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -36,4 +37,83 @@ pub fn zasum_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) f64 {
 }
 pub fn xasum_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
     return blas.kernel(.xasum_k)(n, x, inc_x);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
+const check = @import("../check.zig");
+
+/// `kernel/arm/asum.c` and `zasum.c`: the sum of `|x|`, of `|re| + |im|` for
+/// complex; an element is `w` floats.
+fn Asum(comptime F: type, comptime w: comptime_int) type {
+    return struct {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(.c) F {
+            if (n <= 0 or inc_x <= 0) return 0;
+            var sum: F = 0;
+            var i: BlasLong = 0;
+            while (i < n) : (i += 1) {
+                inline for (0..w) |c| sum += @abs(util.at(F, x, i * inc_x * w + c).*);
+            }
+            return sum;
+        }
+    };
+}
+
+pub const sasum_generic = &Asum(f32, 1).k;
+pub const dasum_generic = &Asum(f64, 1).k;
+pub const qasum_generic = &Asum(XDouble, 1).k;
+pub const casum_generic = &Asum(f32, 2).k;
+pub const zasum_generic = &Asum(f64, 2).k;
+pub const xasum_generic = &Asum(XDouble, 2).k;
+
+/// Points every asum slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    vt.sasum_k = sasum_generic;
+    vt.dasum_k = dasum_generic;
+    vt.qasum_k = qasum_generic;
+    vt.casum_k = casum_generic;
+    vt.zasum_k = zasum_generic;
+    vt.xasum_k = xasum_generic;
+}
+
+// ---- tests -----------------------------------------------------------------
+
+/// `kern` against a plain loop in `f64`; `T` is the element type.
+fn checkAsum(comptime T: type, kern: anytype) !void {
+    const F = check.FloatOf(T);
+    for (check.sizes) |n| {
+        for ([_]usize{ 1, 2, 3 }) |inc| {
+            var x: [check.capacity]T = undefined;
+            check.fill(T, &x, n + 1);
+            var want: f64 = 0;
+            for (0..n) |i| {
+                const v = x[i * inc];
+                want += if (comptime check.isComplex(T)) @abs(@as(f64, v.re)) + @abs(@as(f64, v.im)) else @abs(@as(f64, v));
+            }
+            const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
+            check.expectClose(F, @floatCast(want), got, check.tolerance(F, 2 * n)) catch |e| return check.case(e, "asum", T, n, .{ inc, 0 });
+        }
+    }
+}
+
+fn checkAll(vt: *const Vtable) !void {
+    try checkAsum(f32, vt.sasum_k.?);
+    try checkAsum(f64, vt.dasum_k.?);
+    try checkAsum(std.math.Complex(f32), vt.casum_k.?);
+    try checkAsum(std.math.Complex(f64), vt.zasum_k.?);
+}
+
+test "portable asum kernels match a plain loop" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    try checkAsum(XDouble, vt.qasum_k.?);
+    try checkAsum(std.math.Complex(XDouble), vt.xasum_k.?);
+}
+
+test "every linked core's asum kernels match a plain loop, where this machine runs them" {
+    try check.eachCore(checkAll);
 }

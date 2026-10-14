@@ -175,6 +175,7 @@ const Body = struct {
             \\ xvbitsel.v $xr15, $xr16, $xr15, $xr23
             \\ xvbitsel.v $xr20, $xr22, $xr20, $xr23
             \\ blt $r0, $r12, 20003b
+            \\ b 20001b
             \\ .align 3
             \\ 20004:
             \\ fcmp.ceq.d $fcc0, $f15, $f10

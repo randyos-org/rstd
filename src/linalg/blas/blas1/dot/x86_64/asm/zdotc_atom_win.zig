@@ -30,6 +30,7 @@ const Body = struct {
         asm volatile (
             \\ .balign 512
             \\ movq 40(%rsp), %r10
+            \\ movq 48(%rsp), %r11
             \\ subq $256, %rsp
             \\ movups %xmm6, 0(%rsp)
             \\ movups %xmm7, 16(%rsp)
@@ -41,99 +42,99 @@ const Body = struct {
             \\ movups %xmm13, 112(%rsp)
             \\ movups %xmm14, 128(%rsp)
             \\ movups %xmm15, 144(%rsp)
-            \\ salq $4, %r8
+            \\ salq $4, %r9
             \\ pxor %xmm0, %xmm0
-            \\ salq $4, %r10
+            \\ salq $4, %r11
             \\ pxor %xmm1, %xmm1
             \\ pxor %xmm2, %xmm2
-            \\ cmpq $0, %rcx
+            \\ cmpq $0, %rdx
             \\ pxor %xmm3, %xmm3
             \\ jle 20008f
-            \\ cmpq $2 * 8, %r8
+            \\ cmpq $2 * 8, %r9
             \\ jne 20004f
-            \\ cmpq $2 * 8, %r10
+            \\ cmpq $2 * 8, %r11
             \\ jne 20004f
-            \\ movq %rcx, %rax
+            \\ movq %rdx, %rax
             \\ sarq $2, %rax
             \\ jle 20002f
-            \\ movsd 0 * 8(%rdx), %xmm4
-            \\ movsd 0 * 8(%r9), %xmm6
-            \\ movsd 1 * 8(%rdx), %xmm5
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 0 * 8(%r8), %xmm4
+            \\ movsd 0 * 8(%r10), %xmm6
+            \\ movsd 1 * 8(%r8), %xmm5
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
-            \\ movsd 2 * 8(%rdx), %xmm10
+            \\ movsd 2 * 8(%r8), %xmm10
             \\ mulsd %xmm7, %xmm8
-            \\ movsd 2 * 8(%r9), %xmm11
+            \\ movsd 2 * 8(%r10), %xmm11
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ movsd 3 * 8(%rdx), %xmm12
+            \\ movsd 3 * 8(%r8), %xmm12
             \\ mulsd %xmm6, %xmm9
-            \\ movsd 3 * 8(%r9), %xmm13
+            \\ movsd 3 * 8(%r10), %xmm13
             \\ decq %rax
             \\ jle 20001f
             \\ .balign 8
             \\ 20000:
-            \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rdx)
+            \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%r8)
             \\ addsd %xmm4, %xmm0
             \\ movaps %xmm10, %xmm14
             \\ mulsd %xmm11, %xmm10
-            \\ movsd 4 * 8(%rdx), %xmm4
+            \\ movsd 4 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
             \\ mulsd %xmm13, %xmm14
-            \\ movsd 4 * 8(%r9), %xmm6
+            \\ movsd 4 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
             \\ movaps %xmm12, %xmm15
             \\ mulsd %xmm13, %xmm12
-            \\ movsd 5 * 8(%rdx), %xmm5
+            \\ movsd 5 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
             \\ mulsd %xmm11, %xmm15
-            \\ movsd 5 * 8(%r9), %xmm7
+            \\ movsd 5 * 8(%r10), %xmm7
             \\ addsd %xmm10, %xmm0
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
-            \\ movsd 6 * 8(%rdx), %xmm10
+            \\ movsd 6 * 8(%r8), %xmm10
             \\ addsd %xmm14, %xmm1
             \\ mulsd %xmm7, %xmm8
-            \\ movsd 6 * 8(%r9), %xmm11
+            \\ movsd 6 * 8(%r10), %xmm11
             \\ addsd %xmm12, %xmm2
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ movsd 7 * 8(%rdx), %xmm12
+            \\ movsd 7 * 8(%r8), %xmm12
             \\ addsd %xmm15, %xmm3
             \\ mulsd %xmm6, %xmm9
-            \\ movsd 7 * 8(%r9), %xmm13
-            \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%r9)
+            \\ movsd 7 * 8(%r10), %xmm13
+            \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%r10)
             \\ addsd %xmm4, %xmm0
             \\ movaps %xmm10, %xmm14
             \\ mulsd %xmm11, %xmm10
-            \\ movsd 8 * 8(%rdx), %xmm4
+            \\ movsd 8 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
             \\ mulsd %xmm13, %xmm14
-            \\ movsd 8 * 8(%r9), %xmm6
+            \\ movsd 8 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
             \\ movaps %xmm12, %xmm15
             \\ mulsd %xmm13, %xmm12
-            \\ movsd 9 * 8(%rdx), %xmm5
+            \\ movsd 9 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
             \\ mulsd %xmm11, %xmm15
-            \\ movsd 9 * 8(%r9), %xmm7
+            \\ movsd 9 * 8(%r10), %xmm7
             \\ addsd %xmm10, %xmm0
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
-            \\ movsd 10 * 8(%rdx), %xmm10
+            \\ movsd 10 * 8(%r8), %xmm10
             \\ addsd %xmm14, %xmm1
             \\ mulsd %xmm7, %xmm8
-            \\ movsd 10 * 8(%r9), %xmm11
+            \\ movsd 10 * 8(%r10), %xmm11
             \\ addsd %xmm12, %xmm2
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ movsd 11 * 8(%rdx), %xmm12
+            \\ movsd 11 * 8(%r8), %xmm12
             \\ addsd %xmm15, %xmm3
             \\ mulsd %xmm6, %xmm9
-            \\ movsd 11 * 8(%r9), %xmm13
-            \\ addq $8 * 8, %rdx
-            \\ addq $8 * 8, %r9
+            \\ movsd 11 * 8(%r10), %xmm13
+            \\ addq $8 * 8, %r8
+            \\ addq $8 * 8, %r10
             \\ decq %rax
             \\ jg 20000b
             \\ .balign 8
@@ -141,31 +142,31 @@ const Body = struct {
             \\ addsd %xmm4, %xmm0
             \\ movaps %xmm10, %xmm14
             \\ mulsd %xmm11, %xmm10
-            \\ movsd 4 * 8(%rdx), %xmm4
+            \\ movsd 4 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
             \\ mulsd %xmm13, %xmm14
-            \\ movsd 4 * 8(%r9), %xmm6
+            \\ movsd 4 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
             \\ movaps %xmm12, %xmm15
             \\ mulsd %xmm13, %xmm12
-            \\ movsd 5 * 8(%rdx), %xmm5
+            \\ movsd 5 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
             \\ mulsd %xmm11, %xmm15
-            \\ movsd 5 * 8(%r9), %xmm7
+            \\ movsd 5 * 8(%r10), %xmm7
             \\ addsd %xmm10, %xmm0
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
-            \\ movsd 6 * 8(%rdx), %xmm10
+            \\ movsd 6 * 8(%r8), %xmm10
             \\ addsd %xmm14, %xmm1
             \\ mulsd %xmm7, %xmm8
-            \\ movsd 6 * 8(%r9), %xmm11
+            \\ movsd 6 * 8(%r10), %xmm11
             \\ addsd %xmm12, %xmm2
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ movsd 7 * 8(%rdx), %xmm12
+            \\ movsd 7 * 8(%r8), %xmm12
             \\ addsd %xmm15, %xmm3
             \\ mulsd %xmm6, %xmm9
-            \\ movsd 7 * 8(%r9), %xmm13
+            \\ movsd 7 * 8(%r10), %xmm13
             \\ addsd %xmm4, %xmm0
             \\ movaps %xmm10, %xmm14
             \\ mulsd %xmm11, %xmm10
@@ -180,27 +181,27 @@ const Body = struct {
             \\ addsd %xmm14, %xmm1
             \\ addsd %xmm12, %xmm2
             \\ addsd %xmm15, %xmm3
-            \\ addq $8 * 8, %rdx
-            \\ addq $8 * 8, %r9
+            \\ addq $8 * 8, %r8
+            \\ addq $8 * 8, %r10
             \\ .balign 8
             \\ 20002:
-            \\ movq %rcx, %rax
+            \\ movq %rdx, %rax
             \\ andq $2, %rax
             \\ jle 20003f
-            \\ movsd 0 * 8(%rdx), %xmm4
-            \\ movsd 0 * 8(%r9), %xmm6
-            \\ movsd 1 * 8(%rdx), %xmm5
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 0 * 8(%r8), %xmm4
+            \\ movsd 0 * 8(%r10), %xmm6
+            \\ movsd 1 * 8(%r8), %xmm5
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
-            \\ movsd 2 * 8(%rdx), %xmm10
+            \\ movsd 2 * 8(%r8), %xmm10
             \\ mulsd %xmm7, %xmm8
-            \\ movsd 2 * 8(%r9), %xmm11
+            \\ movsd 2 * 8(%r10), %xmm11
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ movsd 3 * 8(%rdx), %xmm12
+            \\ movsd 3 * 8(%r8), %xmm12
             \\ mulsd %xmm6, %xmm9
-            \\ movsd 3 * 8(%r9), %xmm13
+            \\ movsd 3 * 8(%r10), %xmm13
             \\ addsd %xmm4, %xmm0
             \\ movaps %xmm10, %xmm14
             \\ mulsd %xmm11, %xmm10
@@ -215,17 +216,17 @@ const Body = struct {
             \\ addsd %xmm14, %xmm1
             \\ addsd %xmm12, %xmm2
             \\ addsd %xmm15, %xmm3
-            \\ addq $4 * 8, %rdx
-            \\ addq $4 * 8, %r9
+            \\ addq $4 * 8, %r8
+            \\ addq $4 * 8, %r10
             \\ .balign 8
             \\ 20003:
-            \\ movq %rcx, %rax
+            \\ movq %rdx, %rax
             \\ andq $1, %rax
             \\ jle 20008f
-            \\ movsd 0 * 8(%rdx), %xmm4
-            \\ movsd 0 * 8(%r9), %xmm6
-            \\ movsd 1 * 8(%rdx), %xmm5
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 0 * 8(%r8), %xmm4
+            \\ movsd 0 * 8(%r10), %xmm6
+            \\ movsd 1 * 8(%r8), %xmm5
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
@@ -239,71 +240,71 @@ const Body = struct {
             \\ jmp 20008f
             \\ .balign 8
             \\ 20004:
-            \\ movq %rcx, %rax
+            \\ movq %rdx, %rax
             \\ sarq $2, %rax
             \\ jle 20006f
             \\ .balign 8
             \\ 20005:
-            \\ movsd 0 * 8(%rdx), %xmm4
-            \\ movsd 0 * 8(%r9), %xmm6
-            \\ movsd 1 * 8(%rdx), %xmm5
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 0 * 8(%r8), %xmm4
+            \\ movsd 0 * 8(%r10), %xmm6
+            \\ movsd 1 * 8(%r8), %xmm5
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ addq %r8, %rdx
+            \\ addq %r9, %r8
             \\ mulsd %xmm6, %xmm9
-            \\ addq %r10, %r9
+            \\ addq %r11, %r10
             \\ addsd %xmm4, %xmm0
-            \\ movsd 0 * 8(%rdx), %xmm4
+            \\ movsd 0 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
-            \\ movsd 0 * 8(%r9), %xmm6
+            \\ movsd 0 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
-            \\ movsd 1 * 8(%rdx), %xmm5
+            \\ movsd 1 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ addq %r8, %rdx
+            \\ addq %r9, %r8
             \\ mulsd %xmm6, %xmm9
-            \\ addq %r10, %r9
+            \\ addq %r11, %r10
             \\ addsd %xmm4, %xmm0
-            \\ movsd 0 * 8(%rdx), %xmm4
+            \\ movsd 0 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
-            \\ movsd 0 * 8(%r9), %xmm6
+            \\ movsd 0 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
-            \\ movsd 1 * 8(%rdx), %xmm5
+            \\ movsd 1 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ addq %r8, %rdx
+            \\ addq %r9, %r8
             \\ mulsd %xmm6, %xmm9
-            \\ addq %r10, %r9
+            \\ addq %r11, %r10
             \\ addsd %xmm4, %xmm0
-            \\ movsd 0 * 8(%rdx), %xmm4
+            \\ movsd 0 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
-            \\ movsd 0 * 8(%r9), %xmm6
+            \\ movsd 0 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
-            \\ movsd 1 * 8(%rdx), %xmm5
+            \\ movsd 1 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ addq %r8, %rdx
+            \\ addq %r9, %r8
             \\ mulsd %xmm6, %xmm9
-            \\ addq %r10, %r9
+            \\ addq %r11, %r10
             \\ addsd %xmm4, %xmm0
             \\ addsd %xmm8, %xmm1
             \\ addsd %xmm5, %xmm2
@@ -312,52 +313,52 @@ const Body = struct {
             \\ jg 20005b
             \\ .balign 8
             \\ 20006:
-            \\ testq $3, %rcx
+            \\ testq $3, %rdx
             \\ je 20008f
-            \\ movq %rcx, %rax
+            \\ movq %rdx, %rax
             \\ andq $2, %rax
             \\ jle 20007f
-            \\ movsd 0 * 8(%rdx), %xmm4
-            \\ movsd 0 * 8(%r9), %xmm6
-            \\ movsd 1 * 8(%rdx), %xmm5
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 0 * 8(%r8), %xmm4
+            \\ movsd 0 * 8(%r10), %xmm6
+            \\ movsd 1 * 8(%r8), %xmm5
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ addq %r8, %rdx
+            \\ addq %r9, %r8
             \\ mulsd %xmm6, %xmm9
-            \\ addq %r10, %r9
+            \\ addq %r11, %r10
             \\ addsd %xmm4, %xmm0
-            \\ movsd 0 * 8(%rdx), %xmm4
+            \\ movsd 0 * 8(%r8), %xmm4
             \\ addsd %xmm8, %xmm1
-            \\ movsd 0 * 8(%r9), %xmm6
+            \\ movsd 0 * 8(%r10), %xmm6
             \\ addsd %xmm5, %xmm2
-            \\ movsd 1 * 8(%rdx), %xmm5
+            \\ movsd 1 * 8(%r8), %xmm5
             \\ addsd %xmm9, %xmm3
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
             \\ movaps %xmm5, %xmm9
             \\ mulsd %xmm7, %xmm5
-            \\ addq %r8, %rdx
+            \\ addq %r9, %r8
             \\ mulsd %xmm6, %xmm9
-            \\ addq %r10, %r9
+            \\ addq %r11, %r10
             \\ addsd %xmm4, %xmm0
             \\ addsd %xmm8, %xmm1
             \\ addsd %xmm5, %xmm2
             \\ addsd %xmm9, %xmm3
             \\ .balign 8
             \\ 20007:
-            \\ movq %rcx, %rax
+            \\ movq %rdx, %rax
             \\ andq $1, %rax
             \\ jle 20008f
-            \\ movsd 0 * 8(%rdx), %xmm4
-            \\ movsd 0 * 8(%r9), %xmm6
-            \\ movsd 1 * 8(%rdx), %xmm5
-            \\ movsd 1 * 8(%r9), %xmm7
+            \\ movsd 0 * 8(%r8), %xmm4
+            \\ movsd 0 * 8(%r10), %xmm6
+            \\ movsd 1 * 8(%r8), %xmm5
+            \\ movsd 1 * 8(%r10), %xmm7
             \\ movaps %xmm4, %xmm8
             \\ mulsd %xmm6, %xmm4
             \\ mulsd %xmm7, %xmm8
@@ -372,6 +373,9 @@ const Body = struct {
             \\ 20008:
             \\ addsd %xmm2, %xmm0
             \\ subsd %xmm3, %xmm1
+            \\ movq %rcx, %rax
+            \\ movsd %xmm0, (%rax)
+            \\ movsd %xmm1, 8(%rax)
             \\ movups 0(%rsp), %xmm6
             \\ movups 16(%rsp), %xmm7
             \\ movups 32(%rsp), %xmm8

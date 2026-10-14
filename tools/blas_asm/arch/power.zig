@@ -23,6 +23,15 @@ pub const power: arch.Arch = .{
     .unsupported = &.{ "axpy_hummer.S", "zaxpy_hummer.S" },
     .variants = &.{
         .{ .name = "32", .defines = &.{} },
-        .{ .name = "64", .defines = &.{"-D__64BIT__"} },
+        .{ .name = "64", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr },
     },
+};
+
+/// The complex dots return in f1/f2 as ELFv2 says, but Zig (0.18.0-dev.249)
+/// reads a two-float struct from r3/r4. Each source already has the copy into
+/// r3/r4 for gfortran; turn it on, keeping f1/f2 for callers that follow the
+/// ABI. Drop this once Zig does.
+const zdot_gpr = [_]arch.Patch{
+    .{ .source = "zdot.S", .find = "#if defined(F_INTERFACE) && defined(F_INTERFACE_GFORT)", .replace = "#if 1" },
+    .{ .source = "zdot_cell.S", .find = "#if defined(F_INTERFACE) && defined(F_INTERFACE_GFORT)", .replace = "#if 1" },
 };

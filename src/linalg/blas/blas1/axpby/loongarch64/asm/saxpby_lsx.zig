@@ -205,6 +205,7 @@ const Body = struct {
             \\ addi.d $r5, $r5, 8 * 4
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20010b
+            \\ move $r7, $r19
             \\ b 20025f
             \\ .align 3
             \\ 20011:
@@ -273,6 +274,7 @@ const Body = struct {
             \\ add.d $r19, $r19, $r8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20012b
+            \\ move $r7, $r19
             \\ b 20025f
             \\ .align 3
             \\ 20013:
@@ -581,6 +583,7 @@ const Body = struct {
             \\ add.d $r19, $r19, $r8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20024b
+            \\ move $r7, $r19
             \\ b 20025f
             \\ .align 3
             \\ 20025:

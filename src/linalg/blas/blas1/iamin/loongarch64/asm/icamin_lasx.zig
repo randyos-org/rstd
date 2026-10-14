@@ -275,9 +275,9 @@ const Body = struct {
             \\ xvfmul.s $xr11, $xr19, $xr9
             \\ xvfmul.s $xr12, $xr19, $xr10
             \\ xvfcmp.clt.s $xr23, $xr9, $xr8
-            \\ xvfcmp.clt.s $xr18, $xr10, $xr8
+            \\ xvfcmp.clt.s $xr16, $xr10, $xr8
             \\ xvbitsel.v $xr9, $xr9, $xr11, $xr23
-            \\ xvbitsel.v $xr10, $xr10, $xr12, $xr18
+            \\ xvbitsel.v $xr10, $xr10, $xr12, $xr16
             \\ xvfadd.s $xr9, $xr9, $xr10
             \\ xvfmin.s $xr11, $xr15, $xr9
             \\ xvfcmp.ceq.s $xr23, $xr11, $xr15
@@ -348,13 +348,13 @@ const Body = struct {
             \\ xvpickve.w $xr11, $xr15, 6
             \\ xvpickve.w $xr12, $xr15, 7
             \\ xvfcmp.clt.s $xr23, $xr10, $xr9
-            \\ xvbitsel.v $xr9, $xr9, $xr10, $xr23
+            \\ xvbitsel.v $xr14, $xr9, $xr10, $xr23
             \\ xvbitsel.v $xr17, $xr21, $xr22, $xr23
             \\ xvfcmp.clt.s $xr23, $xr12, $xr11
             \\ xvbitsel.v $xr15, $xr11, $xr12, $xr23
             \\ xvbitsel.v $xr18, $xr8, $xr19, $xr23
-            \\ xvfcmp.clt.s $xr23, $xr9, $xr15
-            \\ xvbitsel.v $xr15, $xr15, $xr9, $xr23
+            \\ xvfcmp.clt.s $xr23, $xr14, $xr15
+            \\ xvbitsel.v $xr15, $xr15, $xr14, $xr23
             \\ xvbitsel.v $xr20, $xr18, $xr17, $xr23
             \\ fcmp.ceq.d $fcc0, $f15, $f9
             \\ bceqz $fcc0, 20010f

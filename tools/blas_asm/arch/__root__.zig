@@ -145,6 +145,19 @@ pub const Variant = struct {
     /// In the file name, and how the registry picks between them.
     name: []const u8,
     defines: []const []const u8,
+    /// Fixes for sources built this way only, beyond `Arch.patches`.
+    patches: []const Patch = &.{},
+};
+
+/// Our fix for a bug in an upstream source, applied to its text before it is
+/// preprocessed. `find` must occur exactly `count` times, so a fix that no
+/// longer matches the source stops the generator rather than vanishing.
+pub const Patch = struct {
+    /// The file under `kernel/<arch>/`.
+    source: []const u8,
+    find: []const u8,
+    replace: []const u8,
+    count: usize = 1,
 };
 
 pub const Arch = struct {
@@ -162,6 +175,8 @@ pub const Arch = struct {
     /// Sources the toolchain cannot assemble. They are not converted; the
     /// platforms and cores are listed in `src/linalg/blas/readme.md`.
     unsupported: []const []const u8 = &.{},
+    /// Fixes for upstream bugs, for every variant.
+    patches: []const Patch = &.{},
     /// The ways to build each source; empty name for just one.
     variants: []const Variant = &.{.{ .name = "", .defines = &.{} }},
     /// Whether this source is one to convert (some are C, done elsewhere).

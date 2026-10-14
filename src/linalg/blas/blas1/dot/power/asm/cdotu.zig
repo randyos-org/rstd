@@ -483,6 +483,11 @@ const text =
     \\ fadds 3, 3, 27
     \\ fsubs 1, 0, 1
     \\ fadds 2, 2, 3
+    \\ .if \bp1
+    \\ stfs 1, 144(1)
+    \\ stfs 2, 148(1)
+    \\ ld 3, 144(1)
+    \\ .endif
     \\ lfd 14, 0(1)
     \\ lfd 15, 8(1)
     \\ lfd 16, 16(1)

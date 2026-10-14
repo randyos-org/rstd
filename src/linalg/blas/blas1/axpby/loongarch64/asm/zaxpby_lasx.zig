@@ -273,17 +273,17 @@ const Body = struct {
             \\ b 20015f
             \\ .align 3
             \\ 20015:
-            \\ xvstelm.d $xr12, $r7, 0, 0
-            \\ xvstelm.d $xr12, $r7, 0, 0
+            \\ xvstelm.d $xr12, $r7, 0 * 8, 0
+            \\ xvstelm.d $xr12, $r7, 1 * 8, 0
             \\ add.d $r7, $r7, $r8
-            \\ xvstelm.d $xr12, $r7, 0, 0
-            \\ xvstelm.d $xr12, $r7, 0, 0
+            \\ xvstelm.d $xr12, $r7, 0 * 8, 0
+            \\ xvstelm.d $xr12, $r7, 1 * 8, 0
             \\ add.d $r7, $r7, $r8
-            \\ xvstelm.d $xr12, $r7, 0, 0
-            \\ xvstelm.d $xr12, $r7, 0, 0
+            \\ xvstelm.d $xr12, $r7, 0 * 8, 0
+            \\ xvstelm.d $xr12, $r7, 1 * 8, 0
             \\ add.d $r7, $r7, $r8
-            \\ xvstelm.d $xr12, $r7, 0, 0
-            \\ xvstelm.d $xr12, $r7, 0, 0
+            \\ xvstelm.d $xr12, $r7, 0 * 8, 0
+            \\ xvstelm.d $xr12, $r7, 1 * 8, 0
             \\ add.d $r7, $r7, $r8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20015b

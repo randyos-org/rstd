@@ -118,6 +118,7 @@ const Body = struct {
             \\ addi.w $r17, $r17, 1
             \\ ld.w $r13, $r19, 0 * 4
             \\ add.d $r19, $r19, $r6
+            \\ xvinsgr2vr.w $xr15, $r13, 0
             \\ srai.d $r12, $r4, 3
             \\ bge $r0, $r12, 20014f
             \\ ld.w $r15, $r19, 0 * 4

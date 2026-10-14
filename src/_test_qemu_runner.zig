@@ -46,6 +46,11 @@ fn print(s: []const u8) void {
     for (s) |c| arch.writeByte(c);
 }
 
+/// The console, for tests with something to say; there is no stderr here.
+pub fn testWrite(s: []const u8) void {
+    print(s);
+}
+
 fn printInt(v: usize) void {
     var buf: [20]u8 = undefined;
     var i: usize = buf.len;

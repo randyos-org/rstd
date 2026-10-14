@@ -1,4 +1,5 @@
-//! Vtable wrappers for the `iamax` kernels.
+//! `IAMAX`: the 1-based index of the largest `|x|`. The vtable wrappers, the portable kernels
+//! (`*_generic`), and tests of every core's kernels against a plain loop.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -36,4 +37,51 @@ pub fn izamax_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) BlasLong {
 }
 pub fn ixamax_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) BlasLong {
     return blas.kernel(.ixamax_k)(n, x, inc_x);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
+const extremum = @import("../extremum.zig");
+const check = @import("../check.zig");
+
+const find: extremum.Find = .{ .abs = true, .max = true };
+
+pub const isamax_generic = &extremum.Extremum(f32, 1, find).index;
+pub const idamax_generic = &extremum.Extremum(f64, 1, find).index;
+pub const iqamax_generic = &extremum.Extremum(XDouble, 1, find).index;
+pub const icamax_generic = &extremum.Extremum(f32, 2, find).index;
+pub const izamax_generic = &extremum.Extremum(f64, 2, find).index;
+pub const ixamax_generic = &extremum.Extremum(XDouble, 2, find).index;
+
+/// Points every iamax slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    vt.isamax_k = isamax_generic;
+    vt.idamax_k = idamax_generic;
+    vt.iqamax_k = iqamax_generic;
+    vt.icamax_k = icamax_generic;
+    vt.izamax_k = izamax_generic;
+    vt.ixamax_k = ixamax_generic;
+}
+
+// ---- tests -----------------------------------------------------------------
+
+fn checkAll(vt: *const Vtable) !void {
+    try extremum.checkKernel(f32, find, "isamax", vt.isamax_k.?);
+    try extremum.checkKernel(f64, find, "idamax", vt.idamax_k.?);
+    try extremum.checkKernel(std.math.Complex(f32), find, "icamax", vt.icamax_k.?);
+    try extremum.checkKernel(std.math.Complex(f64), find, "izamax", vt.izamax_k.?);
+}
+
+test "portable iamax kernels match a plain loop" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    try extremum.checkKernel(XDouble, find, "iqamax", vt.iqamax_k.?);
+    try extremum.checkKernel(std.math.Complex(XDouble), find, "ixamax", vt.ixamax_k.?);
+}
+
+test "every linked core's iamax kernels match a plain loop, where this machine runs them" {
+    try check.eachCore(checkAll);
 }

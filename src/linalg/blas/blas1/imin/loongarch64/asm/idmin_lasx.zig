@@ -152,7 +152,6 @@ const Body = struct {
             \\ xvinsgr2vr.d $xr13, $r15, 1
             \\ xvinsgr2vr.d $xr13, $r18, 2
             \\ xvinsgr2vr.d $xr13, $r16, 3
-            \\ xvadd.d $xr21, $xr21, $xr18
             \\ ld.d $r13, $r5, 0 * 8
             \\ add.d $r5, $r5, $r6
             \\ ld.d $r15, $r5, 0 * 8

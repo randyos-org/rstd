@@ -87,13 +87,34 @@ fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []co
     try argv.appendSlice(a, try ar.core_defines(a, k, core));
     try argv.appendSlice(a, v.defines);
     if (dump_macros) try argv.append(a, "-dM");
-    try argv.append(a, try map.path(&.{ map.root, "kernel", ar.name, k.source }));
+    try argv.append(a, try patched(a, ar, inc, k.source, v));
     try argv.appendSlice(a, &.{ "-o", "-" });
 
     const r = std.process.run(a, map.io, .{ .argv = argv.items }) catch |e|
         map.die("cannot run the preprocessor: {t}", .{e});
     if (r.stderr.len > 0) std.debug.print("{s}", .{r.stderr});
     return r.stdout;
+}
+
+/// The path of `source` with our patches for variant `v` applied: a copy under
+/// `inc` when any apply (its includes still resolve through `-I`), else the
+/// upstream file.
+fn patched(a: std.mem.Allocator, ar: Arch, inc: []const u8, source: []const u8, v: arch.Variant) ![]const u8 {
+    const upstream = try map.path(&.{ map.root, "kernel", ar.name, source });
+    var text: ?[]const u8 = null;
+    for ([_][]const arch.Patch{ ar.patches, v.patches }) |list| for (list) |p| {
+        if (!std.mem.eql(u8, p.source, source)) continue;
+        const t = text orelse map.read(upstream) orelse map.die("cannot read {s}", .{upstream});
+        const n = std.mem.count(u8, t, p.find);
+        if (n != p.count) map.die("patch for {s} matches {d} times, not {d}:\n{s}", .{ source, n, p.count, p.find });
+        text = try std.mem.replaceOwned(u8, a, t, p.find, p.replace);
+    };
+    const t = text orelse return upstream;
+    const dir = try map.path(&.{ inc, "patched", if (v.name.len == 0) "_" else v.name });
+    try Io.Dir.cwd().createDirPath(map.io, dir);
+    const out = try map.path(&.{ dir, source });
+    try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = out, .data = t });
+    return out;
 }
 
 /// The preprocessed source, tab-free and without empty lines.

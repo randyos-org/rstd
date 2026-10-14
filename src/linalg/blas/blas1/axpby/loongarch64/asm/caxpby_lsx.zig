@@ -273,17 +273,17 @@ const Body = struct {
             \\ b 20015f
             \\ .align 3
             \\ 20015:
-            \\ vstelm.w $vr12, $r7, 0, 0
-            \\ vstelm.w $vr12, $r7, 0, 0
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
             \\ add.d $r7, $r7, $r8
-            \\ vstelm.w $vr12, $r7, 0, 0
-            \\ vstelm.w $vr12, $r7, 0, 0
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
             \\ add.d $r7, $r7, $r8
-            \\ vstelm.w $vr12, $r7, 0, 0
-            \\ vstelm.w $vr12, $r7, 0, 0
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
             \\ add.d $r7, $r7, $r8
-            \\ vstelm.w $vr12, $r7, 0, 0
-            \\ vstelm.w $vr12, $r7, 0, 0
+            \\ vstelm.w $vr12, $r7, 0 * 4, 0
+            \\ vstelm.w $vr12, $r7, 1 * 4, 0
             \\ add.d $r7, $r7, $r8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20015b
@@ -328,6 +328,7 @@ const Body = struct {
             \\ vstelm.w $vr15, $r19, 1 * 4, 3
             \\ add.d $r19, $r19, $r8
             \\ blt $r0, $r12, 20016b
+            \\ move $r7, $r19
             \\ b 20019f
             \\ .align 3
             \\ 20017:

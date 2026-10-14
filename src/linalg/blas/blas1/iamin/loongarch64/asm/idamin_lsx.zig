@@ -154,8 +154,8 @@ const Body = struct {
             \\ addi.d $r12, $r12, -1
             \\ vbitsel.v $vr10, $vr12, $vr10, $vr23
             \\ vfmina.d $vr16, $vr15, $vr11
-            \\ vbitsel.v $vr15, $vr16, $vr15, $vr23
             \\ vfcmp.ceq.d $vr23, $vr15, $vr16
+            \\ vbitsel.v $vr15, $vr16, $vr15, $vr23
             \\ vbitsel.v $vr20, $vr10, $vr20, $vr23
             \\ blt $r0, $r12, 20003b
             \\ .align 3

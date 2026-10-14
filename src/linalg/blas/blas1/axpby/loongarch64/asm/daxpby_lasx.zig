@@ -178,13 +178,13 @@ const Body = struct {
             \\ xvstelm.d $xr22, $r19, 0, 3
             \\ add.d $r19, $r19, $r8
             \\ addi.d $r5, $r5, 8 * 8
-            \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20009b
             \\ move $r7, $r19
             \\ b 20025f
             \\ .align 3
             \\ 20010:
             \\ xvld $xr8, $r5, 0 * 8
+            \\ addi.d $r12, $r12, -1
             \\ xvld $xr20, $r5, 4 * 8
             \\ xvfmul.d $xr8, $xr8, $xr23
             \\ xvfmul.d $xr20, $xr20, $xr23

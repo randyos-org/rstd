@@ -1,4 +1,6 @@
-//! Vtable wrappers for the `rotm` kernels.
+//! `ROTM`: the modified Givens rotation `param` names. The vtable wrappers,
+//! the portable kernels (`*_generic`), and tests of every core's kernels
+//! against a plain loop.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -27,4 +29,104 @@ pub fn drotm_k(n: BlasLong, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLo
 }
 pub fn qrotm_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, param: [*]XDouble) i32 {
     return blas.kernel(.qrotm_k)(n, x, inc_x, y, inc_y, param);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
+const check = @import("../check.zig");
+
+/// The matrix `param` names: `param[0]` is the flag, -2 the identity, -1 the
+/// full `[h11 h12; h21 h22]` (`param[1..5]` = h11, h21, h12, h22), 0
+/// `[1 h12; h21 1]` and 1 `[h11 1; -1 h22]`.
+fn matrix(comptime F: type, param: [*]const F) ?[4]F {
+    const flag = param[0];
+    if (flag == -2) return null;
+    if (flag < 0) return .{ param[1], param[3], param[2], param[4] };
+    if (flag == 0) return .{ 1, param[3], param[2], 1 };
+    return .{ param[1], 1, -1, param[4] };
+}
+
+/// `kernel/generic/rotm.c`: `x := h11*x + h12*y`, `y := h21*x + h22*y`. A
+/// negative stride starts from the far end, as reference BLAS does.
+fn Rotm(comptime F: type) type {
+    return struct {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, param: [*]F) callconv(.c) i32 {
+            if (n <= 0) return 0;
+            const h = matrix(F, param) orelse return 0;
+            var ix: BlasLong = if (inc_x < 0) (1 - n) * inc_x else 0;
+            var iy: BlasLong = if (inc_y < 0) (1 - n) * inc_y else 0;
+            var i: BlasLong = 0;
+            while (i < n) : (i += 1) {
+                const px = util.at(F, x, ix);
+                const py = util.at(F, y, iy);
+                const a = px.*;
+                const b = py.*;
+                px.* = a * h[0] + b * h[1];
+                py.* = a * h[2] + b * h[3];
+                ix += inc_x;
+                iy += inc_y;
+            }
+            return 0;
+        }
+    };
+}
+
+pub const srotm_generic = &Rotm(f32).k;
+pub const drotm_generic = &Rotm(f64).k;
+pub const qrotm_generic = &Rotm(XDouble).k;
+
+/// Points every rotm slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    vt.srotm_k = srotm_generic;
+    vt.drotm_k = drotm_generic;
+    vt.qrotm_k = qrotm_generic;
+}
+
+// ---- tests -----------------------------------------------------------------
+
+/// `kern` against a plain loop, for every flag.
+fn checkRotm(comptime F: type, kern: anytype) !void {
+    for ([_]F{ -2, -1, 0, 1 }) |flag| {
+        var param = [5]F{ flag, 0.75, -0.5, 0.25, 1.25 };
+        const h = matrix(F, &param);
+        for (check.sizes) |n| {
+            for (check.strides) |inc| {
+                var x: [check.capacity]F = undefined;
+                var y: [check.capacity]F = undefined;
+                check.fill(F, &x, n + 1);
+                check.fill(F, &y, n + 7);
+                var want_x = x;
+                var want_y = y;
+                if (h) |m| for (0..n) |i| {
+                    const a = x[i * inc[0]];
+                    const b = y[i * inc[1]];
+                    want_x[i * inc[0]] = a * m[0] + b * m[1];
+                    want_y[i * inc[1]] = a * m[2] + b * m[3];
+                };
+                _ = kern(@intCast(n), &x, @intCast(inc[0]), &y, @intCast(inc[1]), &param);
+                const tol = check.tolerance(F, 2);
+                check.expectCloseSlices(F, &want_x, &x, tol) catch |e| return check.case(e, "rotm x", F, n, inc);
+                check.expectCloseSlices(F, &want_y, &y, tol) catch |e| return check.case(e, "rotm y", F, n, inc);
+            }
+        }
+    }
+}
+
+fn checkAll(vt: *const Vtable) !void {
+    try checkRotm(f32, vt.srotm_k.?);
+    try checkRotm(f64, vt.drotm_k.?);
+}
+
+test "portable rotm kernels match a plain loop" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    try checkRotm(XDouble, vt.qrotm_k.?);
+}
+
+test "every linked core's rotm kernels match a plain loop, where this machine runs them" {
+    try check.eachCore(checkAll);
 }

@@ -53,6 +53,53 @@ serve them where they are targets at all.
 | POWER BG/P (double FPU)   | LLVM cannot assemble the "hummer" instructions       |
 | RISC-V C910V              | LLVM has no `xtheadvector`                           |
 
+## Fixes to upstream sources
+
+The per-core tests in the qemu rigs found bugs in some of OpenBLAS's own
+assembly files (still there on OpenBLAS master, v0.3.34-317). The generator
+fixes each one before converting it: `patches` in `tools/blas_asm/arch/`, an
+exact text edit that must match, with a comment saying what was wrong. The
+generated files carry the fixed code.
+
+- `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte
+  result first, shifting the arguments along; the kernel read that address
+  as `n`. Fixed the way `zdot_sse2.S` already does it.
+
+The rest are the `lsx` and `lasx` kernels under `loongarch64/`, mostly where
+a stride is not 1:
+
+- `sum_lsx.S`, `sum_lasx.S`, `csum_lsx.S`, `csum_lasx.S`: the double result
+  was returned with a single-precision move, leaving its upper half undefined
+  (NaN under qemu). `sum_lasx.S` also added doubles as floats.
+- `casum_lasx.S`, `csum_lasx.S`: single precision's final sum added the last
+  block of eight twice; `casum` also added lane 6 in place of lane 7.
+- `axpby_lsx.S`, `caxpby_lsx.S`: with `beta` zero and a stride on `y`,
+  the leftover elements were written over the first ones.
+- `axpby_lasx.S`: double precision skipped every other block of eight, and
+  with `beta` zero never stopped.
+- `caxpby_lsx.S`, `caxpby_lasx.S`: with `alpha` and `beta` zero and a
+  stride on `y`, zeroed only the real parts, and `lasx` single one of them twice.
+- `max_lsx.S`, `min_lsx.S`: with a stride on `x`, compared by magnitude, as
+  `amax` does.
+- `camin_lsx.S`, `camin_lasx.S`: with a stride on `x`, the minimum started from
+  `|re(x0)|` rather than `|re(x0)| + |im(x0)|`.
+- `imax_lasx.S`, `imin_lasx.S`: with a stride on `x`, single precision below 8
+  compared against a first element never loaded, and double counted the
+  indices up twice as fast.
+- `iamin_lsx.S`, `iamin_lasx.S`: with a stride on `x`, double kept a minimum by
+  the previous comparison, and `lasx` skipped the reduction across lanes.
+- `icamin_lsx.S`, `icamin_lasx.S`: `lsx` below 4 elements started the index
+  at 4 rather than 1, and with a stride on `x` its single precision started
+  from an absolute value never computed; `lasx` single, with a stride on `x`,
+  overwrote its index step, and its reduction over lanes 4 to 7 mistook its
+  own partial minimum for lane 4's value, returning lane 4's index.
+
+One more patch works around Zig, not OpenBLAS: `power/zdot.S` and
+`zdot_cell.S` return the complex result in f1/f2 as the ELFv2 ABI says, but
+Zig reads a two-float struct from r3/r4. The sources already copy it into
+r3/r4 for the Fortran interface; the patch turns that on. It can go once Zig
+follows the ABI.
+
 ## Kernels that call another routine's kernel
 
 A handful of upstream sources branch into another routine's own kernel rather

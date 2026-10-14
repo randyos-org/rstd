@@ -30,8 +30,8 @@ const Body = struct {
         asm volatile (
             \\ .align 5
             \\ li.d $r17, 0
-            \\ bge $r0, $r4, 20011f
-            \\ bge $r0, $r6, 20011f
+            \\ bge $r0, $r4, 20012f
+            \\ bge $r0, $r6, 20012f
             \\ li.d $r19, 1
             \\ slli.d $r19, $r19, 3
             \\ slli.d $r6, $r6, 3
@@ -159,6 +159,8 @@ const Body = struct {
             \\ vinsgr2vr.w $vr10, $r15, 2
             \\ vinsgr2vr.w $vr9, $r18, 3
             \\ vinsgr2vr.w $vr10, $r16, 3
+            \\ vfmul.s $vr11, $vr19, $vr9
+            \\ vfmul.s $vr12, $vr19, $vr10
             \\ vfcmp.clt.s $vr23, $vr9, $vr8
             \\ vfcmp.clt.s $vr18, $vr10, $vr8
             \\ vbitsel.v $vr9, $vr9, $vr11, $vr23
@@ -241,16 +243,19 @@ const Body = struct {
             \\ 20008:
             \\ movfr2gr.s $r17, $f20
             \\ .align 3
+            \\ b 20010f
             \\ 20009:
+            \\ li.d $r17, 1
+            \\ 20010:
             \\ andi $r12, $r4, 3
-            \\ bge $r0, $r12, 20011f
+            \\ bge $r0, $r12, 20012f
             \\ srai.d $r14, $r4, 2
             \\ slli.d $r14, $r14, 2
             \\ addi.d $r14, $r14, 1
             \\ movgr2fr.d $f21, $r14
             \\ movgr2fr.d $f20, $r17
             \\ .align 3
-            \\ 20010:
+            \\ 20011:
             \\ fld.s $f12, $r5, 0 * 4
             \\ fld.s $f13, $r5, 1 * 4
             \\ addi.d $r12, $r12, -1
@@ -264,10 +269,10 @@ const Body = struct {
             \\ fsel $f20, $f21, $f20, $fcc0
             \\ addi.d $r14, $r14, 1
             \\ movgr2fr.d $f21, $r14
-            \\ blt $r0, $r12, 20010b
+            \\ blt $r0, $r12, 20011b
             \\ movfr2gr.s $r17, $f20
             \\ .align 3
-            \\ 20011:
+            \\ 20012:
             \\ move $r4, $r17
             \\ jirl $r0, $r1, 0x0
             \\ .align 3

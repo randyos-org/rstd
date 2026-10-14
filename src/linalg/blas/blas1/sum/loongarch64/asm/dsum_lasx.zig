@@ -41,9 +41,9 @@ const Body = struct {
             \\ .align 3
             \\ 20000:
             \\ xvld $xr12, $r5, 0
-            \\ xvfadd.s $xr16, $xr16, $xr12
+            \\ xvfadd.d $xr16, $xr16, $xr12
             \\ xvld $xr13, $r5, 32
-            \\ xvfadd.s $xr16, $xr16, $xr13
+            \\ xvfadd.d $xr16, $xr16, $xr13
             \\ addi.d $r5, $r5, 8 * 8
             \\ addi.d $r17, $r17, -1
             \\ blt $r0, $r17, 20000b
@@ -121,7 +121,7 @@ const Body = struct {
             \\ blt $r0, $r17, 20008b
             \\ .align 3
             \\ 20009:
-            \\ fmov.s $f0, $f16
+            \\ fmov.d $f0, $f16
             \\ jirl $r0, $r1, 0x0
             \\ .align 3
             \\

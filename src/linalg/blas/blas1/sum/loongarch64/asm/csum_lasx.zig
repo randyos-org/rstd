@@ -50,7 +50,7 @@ const Body = struct {
             \\ blt $r0, $r17, 20000b
             \\ .align 3
             \\ 20001:
-            \\ xvfadd.s $xr17, $xr16, $xr17
+            \\ xvor.v $xr17, $xr16, $xr16
             \\ xvpickve.w $xr13, $xr16, 1
             \\ xvpickve.w $xr14, $xr16, 2
             \\ xvpickve.w $xr15, $xr16, 3
@@ -130,7 +130,7 @@ const Body = struct {
             \\ blt $r0, $r17, 20005b
             \\ .align 3
             \\ 20006:
-            \\ xvfadd.s $xr17, $xr16, $xr17
+            \\ xvor.v $xr17, $xr16, $xr16
             \\ xvpickve.w $xr13, $xr16, 1
             \\ xvpickve.w $xr14, $xr16, 2
             \\ xvpickve.w $xr15, $xr16, 3

@@ -99,8 +99,8 @@ const Body = struct {
             \\ vinsgr2vr.w $vr4, $r15, 1
             \\ vinsgr2vr.w $vr4, $r16, 2
             \\ vinsgr2vr.w $vr4, $r17, 3
-            \\ vfmaxa.s $vr1, $vr3, $vr4
-            \\ vfmaxa.s $vr0, $vr0, $vr1
+            \\ vfmax.s $vr1, $vr3, $vr4
+            \\ vfmax.s $vr0, $vr0, $vr1
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20005b
             \\ .align 3

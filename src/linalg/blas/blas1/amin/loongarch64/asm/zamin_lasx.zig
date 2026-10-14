@@ -38,6 +38,7 @@ const Body = struct {
             \\ fabs.d $f20, $f20
             \\ fabs.d $f21, $f21
             \\ fadd.d $f22, $f21, $f20
+            \\ fmov.d $f20, $f22
             \\ xvreplve0.d $xr22, $xr22
             \\ li.d $r16, 1
             \\ slli.d $r16, $r16, 4

@@ -271,13 +271,16 @@ const machines = [_]Machine{
             // installer hung here with every CPU spinning in the kernel,
             // interrupts off, possibly after the host slept; if it recurs
             // with the host awake, use `thread=single` (one host thread).
-            "-accel",  "tcg,thread=multi",
+            // A 2 GB translation cache keeps macOS's code from being flushed
+            // and translated again.
+            "-accel",  "tcg,thread=multi,tb-size=2048",
             "-M",      "q35",
             // OSX-KVM's OpenCore-Boot.sh model, less its KVM-only flags: macOS
             // wants an Intel CPU, from 13 with AVX2. Under WHPX `max` and `host`
             // fault the firmware (randyos's `build/qemu.zig`).
             "-cpu",    "Skylake-Client,-hle,-rtm,vendor=GenuineIntel,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt",
-            "-smp",    "4,cores=2,sockets=1",
+            // each vCPU is a host thread under `thread=multi`
+            "-smp",    "8,cores=4,sockets=1",
             // keyboard and mouse on xHCI: macOS has no USB 1.1 driver
             "-device", "qemu-xhci,id=xhci",
             "-device", "usb-kbd,bus=xhci.0",
@@ -294,7 +297,7 @@ const machines = [_]Machine{
 
 /// Tests that need an OS (allocator, files, threads) live in files the test
 /// root also reaches, so the runnable ones are picked by name instead.
-const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.axpy", "linalg.blas.blas3.gemm.params", "simd." };
+const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "linalg.blas.blas3.gemm.params", "simd." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
@@ -439,7 +442,7 @@ fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac
     run.addPrefixedFileArg("id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file=", kvm.path("OpenCore/OpenCore.qcow2"));
     run.addArgs(&.{
         "-device", "ide-hd,bus=sata.2,drive=OpenCoreBoot",
-        "-drive",  b.fmt("id=MacHDD,if=none,format=qcow2,file={s}", .{paths.disk}),
+        "-drive",  b.fmt("id=MacHDD,if=none,format=qcow2,cache=writeback,file={s}", .{paths.disk}),
         "-device", "ide-hd,bus=sata.4,drive=MacHDD",
         "-netdev", b.fmt("user,id=net0,hostfwd=tcp::{d}-:22", .{mac.port}),
         "-device", "virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27",

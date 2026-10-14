@@ -1,4 +1,5 @@
-//! Vtable wrappers for the `copy` kernels.
+//! `COPY`: `y := x`. The vtable wrappers, the portable kernels (`*_generic`),
+//! and tests of every core's kernels against a plain loop.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -36,4 +37,80 @@ pub fn zcopy_k(n: BlasLong, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLo
 }
 pub fn xcopy_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong) i32 {
     return blas.kernel(.xcopy_k)(n, x, inc_x, y, inc_y);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
+const check = @import("../check.zig");
+
+/// `kernel/arm/copy.c` and `zcopy.c`: `y := x`; an element is `w` floats.
+fn Copy(comptime F: type, comptime w: comptime_int) type {
+    return struct {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(.c) i32 {
+            var i: BlasLong = 0;
+            while (i < n) : (i += 1) {
+                inline for (0..w) |c| util.at(F, y, i * inc_y * w + c).* = util.at(F, x, i * inc_x * w + c).*;
+            }
+            return 0;
+        }
+    };
+}
+
+pub const scopy_generic = &Copy(f32, 1).k;
+pub const dcopy_generic = &Copy(f64, 1).k;
+pub const qcopy_generic = &Copy(XDouble, 1).k;
+pub const ccopy_generic = &Copy(f32, 2).k;
+pub const zcopy_generic = &Copy(f64, 2).k;
+pub const xcopy_generic = &Copy(XDouble, 2).k;
+
+/// Points every copy slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    vt.scopy_k = scopy_generic;
+    vt.dcopy_k = dcopy_generic;
+    vt.qcopy_k = qcopy_generic;
+    vt.ccopy_k = ccopy_generic;
+    vt.zcopy_k = zcopy_generic;
+    vt.xcopy_k = xcopy_generic;
+}
+
+// ---- tests -----------------------------------------------------------------
+
+/// `kern` against a plain loop; `T` is the element type, real or complex.
+fn checkCopy(comptime T: type, kern: anytype) !void {
+    const F = check.FloatOf(T);
+    for (check.sizes) |n| {
+        var x: [check.capacity]T = undefined;
+        var y: [check.capacity]T = undefined;
+        check.fill(T, &x, n + 1);
+        check.fill(T, &y, n + 7);
+        for (check.strides) |inc| {
+            var want = y;
+            var got = y;
+            for (0..n) |i| want[i * inc[1]] = x[i * inc[0]];
+            _ = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc[0]), @as([*]F, @ptrCast(&got)), @intCast(inc[1]));
+            check.expectCloseSlices(T, &want, &got, 0) catch |e| return check.case(e, "copy", T, n, inc);
+        }
+    }
+}
+
+fn checkAll(vt: *const Vtable) !void {
+    try checkCopy(f32, vt.scopy_k.?);
+    try checkCopy(f64, vt.dcopy_k.?);
+    try checkCopy(std.math.Complex(f32), vt.ccopy_k.?);
+    try checkCopy(std.math.Complex(f64), vt.zcopy_k.?);
+}
+
+test "portable copy kernels match a plain loop" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    try checkCopy(XDouble, vt.qcopy_k.?);
+    try checkCopy(std.math.Complex(XDouble), vt.xcopy_k.?);
+}
+
+test "every linked core's copy kernels match a plain loop, where this machine runs them" {
+    try check.eachCore(checkAll);
 }

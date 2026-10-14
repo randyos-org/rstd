@@ -199,9 +199,9 @@ const Body = struct {
             \\ xvfmul.d $xr11, $xr19, $xr9
             \\ xvfmul.d $xr12, $xr19, $xr10
             \\ xvfcmp.clt.d $xr23, $xr9, $xr8
-            \\ xvfcmp.clt.d $xr18, $xr10, $xr8
+            \\ xvfcmp.clt.d $xr16, $xr10, $xr8
             \\ xvbitsel.v $xr9, $xr9, $xr11, $xr23
-            \\ xvbitsel.v $xr10, $xr10, $xr12, $xr18
+            \\ xvbitsel.v $xr10, $xr10, $xr12, $xr16
             \\ xvfadd.d $xr9, $xr9, $xr10
             \\ xvfmin.d $xr11, $xr15, $xr9
             \\ xvfcmp.ceq.d $xr23, $xr11, $xr15

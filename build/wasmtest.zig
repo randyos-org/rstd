@@ -10,7 +10,7 @@ const Optimize = rstdbuild.Optimize;
 const blaskern = @import("blaskern.zig");
 
 /// Same selection as the emulated machines.
-const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.axpy", "simd." };
+const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "simd." };
 
 pub fn addWasmTests(b: *Build, optimize: Optimize) void {
     const step = b.step("wasm-test", "Run rstd's hardware-independent tests as a WASI module under Node");

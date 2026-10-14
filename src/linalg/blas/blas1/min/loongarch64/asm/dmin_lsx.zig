@@ -87,7 +87,7 @@ const Body = struct {
             \\ add.d $r5, $r5, $r6
             \\ vinsgr2vr.d $vr4, $r16, 0
             \\ vinsgr2vr.d $vr4, $r17, 1
-            \\ vfmaxa.d $vr1, $vr3, $vr4
+            \\ vfmin.d $vr1, $vr3, $vr4
             \\ ld.d $r14, $r5, 0 * 8
             \\ add.d $r5, $r5, $r6
             \\ ld.d $r15, $r5, 0 * 8
@@ -100,9 +100,9 @@ const Body = struct {
             \\ add.d $r5, $r5, $r6
             \\ vinsgr2vr.d $vr4, $r16, 0
             \\ vinsgr2vr.d $vr4, $r17, 1
-            \\ vfmaxa.d $vr2, $vr3, $vr4
-            \\ vfmaxa.d $vr1, $vr1, $vr2
-            \\ vfmaxa.d $vr0, $vr0, $vr1
+            \\ vfmin.d $vr2, $vr3, $vr4
+            \\ vfmin.d $vr1, $vr1, $vr2
+            \\ vfmin.d $vr0, $vr0, $vr1
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20005b
             \\ .align 3

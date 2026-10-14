@@ -1,0 +1,110 @@
+//! Test helpers shared by the level-1 routines: random operands, tolerant
+//! comparison, and running a check against every core's kernels.
+
+const std = @import("std");
+const sysinfo = @import("builtin");
+const zigstd = @import("../../../zigstd.zig");
+const cpu = @import("../cpu/__root__.zig");
+const registry = @import("../asm_registry.zig");
+const Vtable = @import("../Vtable.zig");
+const blas1 = @import("__root__.zig");
+
+/// Lengths that straddle every unroll and block size of the kernels. Not 0:
+/// the interface returns before calling a kernel with `n <= 0`, and kernels
+/// rely on it (`x86_64/copy_sse2.S` copies an element before testing `n`).
+pub const sizes = [_]usize{ 1, 2, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 257 };
+
+/// Element strides: contiguous, and strided in either operand.
+pub const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 1 }, .{ 1, 3 }, .{ 2, 2 } };
+
+/// The longest operand `sizes` and `strides` need, in elements.
+pub const capacity = 257 * 3;
+
+pub fn isComplex(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasField(T, "re");
+}
+
+pub fn FloatOf(comptime T: type) type {
+    return if (isComplex(T)) @FieldType(T, "re") else T;
+}
+
+/// Values in [-2, 2), from `seed`.
+pub fn fill(comptime T: type, buf: []T, seed: u64) void {
+    var prng = std.Random.DefaultPrng.init(seed);
+    const r = prng.random();
+    for (buf) |*v| {
+        if (comptime isComplex(T)) {
+            v.* = T.init(@floatCast(r.float(f64) * 4 - 2), @floatCast(r.float(f64) * 4 - 2));
+        } else {
+            v.* = @floatCast(r.float(f64) * 4 - 2);
+        }
+    }
+}
+
+/// The tolerance for a result of `terms` rounded operations on values of at
+/// most 4 in magnitude: kernels sum in any order, the reference in one.
+pub fn tolerance(comptime F: type, terms: usize) F {
+    const per: F = if (F == f32) 1e-6 else 1e-14;
+    return per * 16 * @as(F, @floatFromInt(@max(terms, 1)));
+}
+
+pub fn expectClose(comptime T: type, want: T, got: T, tol: FloatOf(T)) !void {
+    if (comptime isComplex(T)) {
+        try close(want.re, got.re, tol);
+        try close(want.im, got.im, tol);
+    } else {
+        try close(want, got, tol);
+    }
+}
+
+// Not `std.testing`: its failure message blocks forever on a freestanding rig.
+fn close(want: anytype, got: @TypeOf(want), tol: @TypeOf(want)) !void {
+    if (std.math.approxEqAbs(@TypeOf(want), want, got, tol)) return;
+    say("got {e}, want {e} within {e}: ", .{ got, want, tol });
+    return error.TestExpectedApproxEqAbs;
+}
+
+pub fn expectCloseSlices(comptime T: type, want: []const T, got: []const T, tol: FloatOf(T)) !void {
+    try zigstd.testExpectEqual(want.len, got.len);
+    for (want, got, 0..) |w, g, i| expectClose(T, w, g, tol) catch |e| {
+        say("element {d}: ", .{i});
+        return e;
+    };
+}
+
+/// Says which case of a check failed: on stderr, or a qemu rig's console.
+pub fn say(comptime f: []const u8, args: anytype) void {
+    const root = @import("root");
+    if (comptime sysinfo.os.tag != .freestanding) {
+        std.debug.print(f, args);
+    } else if (comptime @hasDecl(root, "testWrite")) {
+        var buf: [256]u8 = undefined;
+        root.testWrite(std.fmt.bufPrint(&buf, f, args) catch return);
+    }
+}
+
+/// Names a failed case of `routine` before passing its error on.
+pub fn case(e: anyerror, routine: []const u8, comptime T: type, n: usize, inc: [2]usize) anyerror {
+    say("{s} {s} n={d} inc={d},{d}: ", .{ routine, @typeName(T), n, inc[0], inc[1] });
+    return e;
+}
+
+/// Runs `check` on a vtable holding each linked core's kernels over the
+/// portable ones, for every core this machine runs. A failing core does not
+/// stop the rest, so one run names them all.
+pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
+    var failed: ?anyerror = null;
+    inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
+        const core = @field(cpu.CoreType, name);
+        if (registry.isLinked(core) and (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core))) {
+            var vt: Vtable = .{};
+            blas1.installGeneric(&vt);
+            cpu.kernel.install(&vt, core);
+            check(&vt) catch |e| {
+                say("core {s}\n", .{name});
+                failed = e;
+            };
+        }
+    }
+    if (failed) |e| return e;
+}
