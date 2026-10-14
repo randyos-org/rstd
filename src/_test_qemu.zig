@@ -4,5 +4,6 @@
 
 test {
     _ = @import("simd/__root__.zig");
-    _ = @import("linalg/blas/blas1/axpy/__root__.zig");
+    // the whole BLAS tree; `-Dqemu-test-filter` picks what runs
+    _ = @import("linalg/blas/__root__.zig");
 }

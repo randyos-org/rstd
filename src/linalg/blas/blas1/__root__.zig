@@ -25,6 +25,9 @@ pub const scal = @import("scal/__root__.zig");
 pub const sum = @import("sum/__root__.zig");
 pub const swap = @import("swap/__root__.zig");
 
+/// The BLAS calls themselves (`copy`, `dot`, `nrm2`, ...), over the kernels.
+pub const interface = @import("interface.zig");
+
 /// Every routine above, for `installGeneric`.
 const routines = .{
     axpy,
@@ -46,6 +49,8 @@ const routines = .{
     scal,
     sum,
     swap,
+    // the bfloat16 conversions live with the extensions; `sbdot` uses them
+    @import("../ext/bf16/__root__.zig"),
 };
 
 /// Points the vtable at every level-1 routine's portable kernels, where it has
