@@ -56,7 +56,6 @@ const Body = struct {
     pub fn csrot() callconv(.naked) void {
         asm volatile (
             \\ .macro PROLOGUE
-            \\ .text
             \\ .p2align 2
             \\ .endm
             \\ .macro INIT

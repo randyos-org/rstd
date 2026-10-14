@@ -12,10 +12,10 @@ const keys = [_][2][]const u8{
     .{ "ppc440fp2", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -32,228 +32,220 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 6
+    \\ addi 1, 1, -32
+    \\ li 0, 0
+    \\ stfd 14, 0(1)
+    \\ stfd 15, 8(1)
+    \\ stfd 16, 16(1)
+    \\ stfd 17, 24(1)
+    \\ .if \bp0
+    \\ slwi 5, 5, 4
+    \\ slwi 7, 7, 4
+    \\ .endif
+    \\ .if \bp1
+    \\ sldi 5, 5, 4
+    \\ sldi 7, 7, 4
+    \\ .endif
+    \\ subi 11, 5, 8
+    \\ subi 12, 7, 8
+    \\ li 8, 2 * 16 * 8
+    \\ .if \bp0
+    \\ cmpwi 0, 3, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 3, 0
+    \\ .endif
+    \\ ble- 20004f
+    \\ sub 4, 4, 11
+    \\ sub 6, 6, 12
+    \\ mr 9, 4
+    \\ mr 10, 6
+    \\ .if \bp0
+    \\ srawi. 0, 3, 2
+    \\ .endif
+    \\ .if \bp1
+    \\ sradi. 0, 3, 2
+    \\ .endif
+    \\ mtspr 9, 0
+    \\ beq- 20002f
+    \\ lfdx 0, 4, 11
+    \\ lfdx 3, 6, 12
+    \\ lfdux 4, 4, 5
+    \\ fmul 10, 1, 0
+    \\ lfdux 5, 6, 7
+    \\ fmul 11, 1, 3
+    \\ lfdx 6, 4, 11
+    \\ fmul 12, 1, 4
+    \\ lfdx 7, 6, 12
+    \\ fmul 13, 1, 5
+    \\ lfdux 8, 4, 5
+    \\ fmadd 10, 2, 3, 10
+    \\ lfdux 9, 6, 7
+    \\ fnmsub 11, 2, 0, 11
+    \\ lfdx 0, 4, 11
+    \\ fmadd 12, 2, 5, 12
+    \\ lfdx 3, 6, 12
+    \\ fnmsub 13, 2, 4, 13
+    \\ lfdux 4, 4, 5
+    \\ bdz 20001f
+    \\ .align 4
+    \\ 20000:
+    \\ fmul 14, 1, 6
+    \\ lfdux 5, 6, 7
+    \\ fmul 15, 1, 7
+    \\ stfdx 10, 9, 11
+    \\ fmul 16, 1, 8
+    \\ stfdx 11, 10, 12
+    \\ fmul 17, 1, 9
+    \\ stfdux 12, 9, 5
+    \\ fmadd 14, 2, 7, 14
+    \\ stfdux 13, 10, 7
+    \\ fnmsub 15, 2, 6, 15
+    \\ lfdx 6, 4, 11
+    \\ fmadd 16, 2, 9, 16
+    \\ lfdx 7, 6, 12
+    \\ fnmsub 17, 2, 8, 17
+    \\ lfdux 8, 4, 5
+    \\ fmul 10, 1, 0
+    \\ lfdux 9, 6, 7
+    \\ fmul 11, 1, 3
+    \\ stfdx 14, 9, 11
+    \\ fmul 12, 1, 4
+    \\ stfdx 15, 10, 12
+    \\ fmul 13, 1, 5
+    \\ stfdux 16, 9, 5
+    \\ fmadd 10, 2, 3, 10
+    \\ stfdux 17, 10, 7
+    \\ fnmsub 11, 2, 0, 11
+    \\ lfdx 0, 4, 11
+    \\ fmadd 12, 2, 5, 12
+    \\ lfdx 3, 6, 12
+    \\ fnmsub 13, 2, 4, 13
+    \\ lfdux 4, 4, 5
+    \\ fmul 14, 1, 6
+    \\ lfdux 5, 6, 7
+    \\ fmul 15, 1, 7
+    \\ stfdx 10, 9, 11
+    \\ fmul 16, 1, 8
+    \\ stfdx 11, 10, 12
+    \\ fmul 17, 1, 9
+    \\ stfdux 12, 9, 5
+    \\ fmadd 14, 2, 7, 14
+    \\ stfdux 13, 10, 7
+    \\ fnmsub 15, 2, 6, 15
+    \\ lfdx 6, 4, 11
+    \\ fmadd 16, 2, 9, 16
+    \\ lfdx 7, 6, 12
+    \\ fnmsub 17, 2, 8, 17
+    \\ lfdux 8, 4, 5
+    \\ fmul 10, 1, 0
+    \\ stfdx 14, 9, 11
+    \\ fmul 11, 1, 3
+    \\ stfdx 15, 10, 12
+    \\ fmul 12, 1, 4
+    \\ stfdux 16, 9, 5
+    \\ fmul 13, 1, 5
+    \\ stfdux 17, 10, 7
+    \\ fmadd 10, 2, 3, 10
+    \\ lfdux 9, 6, 7
+    \\ fnmsub 11, 2, 0, 11
+    \\ lfdx 0, 4, 11
+    \\ fmadd 12, 2, 5, 12
+    \\ lfdx 3, 6, 12
+    \\ fnmsub 13, 2, 4, 13
+    \\ lfdux 4, 4, 5
+    \\ bdnz 20000b
+    \\ .align 4
+    \\ 20001:
+    \\ fmul 14, 1, 6
+    \\ lfdux 5, 6, 7
+    \\ fmul 15, 1, 7
+    \\ stfdx 10, 9, 11
+    \\ fmul 16, 1, 8
+    \\ stfdx 11, 10, 12
+    \\ fmul 17, 1, 9
+    \\ stfdux 12, 9, 5
+    \\ fmadd 14, 2, 7, 14
+    \\ stfdux 13, 10, 7
+    \\ fnmsub 15, 2, 6, 15
+    \\ lfdx 6, 4, 11
+    \\ fmadd 16, 2, 9, 16
+    \\ lfdx 7, 6, 12
+    \\ fnmsub 17, 2, 8, 17
+    \\ lfdux 8, 4, 5
+    \\ fmul 10, 1, 0
+    \\ lfdux 9, 6, 7
+    \\ fmul 11, 1, 3
+    \\ stfdx 14, 9, 11
+    \\ fmul 12, 1, 4
+    \\ stfdx 15, 10, 12
+    \\ fmul 13, 1, 5
+    \\ stfdux 16, 9, 5
+    \\ fmadd 10, 2, 3, 10
+    \\ stfdux 17, 10, 7
+    \\ fnmsub 11, 2, 0, 11
+    \\ fmadd 12, 2, 5, 12
+    \\ fnmsub 13, 2, 4, 13
+    \\ fmul 14, 1, 6
+    \\ stfdx 10, 9, 11
+    \\ fmul 15, 1, 7
+    \\ stfdx 11, 10, 12
+    \\ fmul 16, 1, 8
+    \\ stfdux 12, 9, 5
+    \\ fmul 17, 1, 9
+    \\ stfdux 13, 10, 7
+    \\ fmadd 14, 2, 7, 14
+    \\ fnmsub 15, 2, 6, 15
+    \\ fmadd 16, 2, 9, 16
+    \\ fnmsub 17, 2, 8, 17
+    \\ stfdx 14, 9, 11
+    \\ stfdx 15, 10, 12
+    \\ stfdux 16, 9, 5
+    \\ stfdux 17, 10, 7
+    \\ .align 4
+    \\ 20002:
+    \\ andi. 0, 3, 3
+    \\ mtspr 9, 0
+    \\ beq 20004f
+    \\ .align 4
+    \\ 20003:
+    \\ lfdx 0, 4, 11
+    \\ lfdx 3, 6, 12
+    \\ lfdux 4, 4, 5
+    \\ lfdux 5, 6, 7
+    \\ fmul 10, 1, 0
+    \\ fmul 11, 1, 3
+    \\ fmul 12, 1, 4
+    \\ fmul 13, 1, 5
+    \\ fmadd 10, 2, 3, 10
+    \\ fnmsub 11, 2, 0, 11
+    \\ fmadd 12, 2, 5, 12
+    \\ fnmsub 13, 2, 4, 13
+    \\ stfdx 10, 9, 11
+    \\ stfdx 11, 10, 12
+    \\ stfdux 12, 9, 5
+    \\ stfdux 13, 10, 7
+    \\ bdnz 20003b
+    \\ .align 4
+    \\ 20004:
+    \\ lfd 14, 0(1)
+    \\ lfd 15, 8(1)
+    \\ lfd 16, 16(1)
+    \\ lfd 17, 24(1)
+    \\ addi 1, 1, 32
+    \\ blr
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn zdrot() callconv(.naked) void {
-            asm volatile (
-                \\ .section .text
-                \\ .align 6
-                \\ addi 1, 1, -32
-                \\ li 0, 0
-                \\ stfd 14, 0(1)
-                \\ stfd 15, 8(1)
-                \\ stfd 16, 16(1)
-                \\ stfd 17, 24(1)
-                \\
-            ++ (if (on[0])
-                \\ slwi 5, 5, 4
-                \\ slwi 7, 7, 4
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sldi 5, 5, 4
-                \\ sldi 7, 7, 4
-                \\
-            else
-                "") ++
-                \\ subi 11, 5, 8
-                \\ subi 12, 7, 8
-                \\ li 8, 2 * 16 * 8
-                \\
-            ++ (if (on[0])
-                \\ cmpwi 0, 3, 0
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ cmpdi 0, 3, 0
-                \\
-            else
-                "") ++
-                \\ ble- 20004f
-                \\ sub 4, 4, 11
-                \\ sub 6, 6, 12
-                \\ mr 9, 4
-                \\ mr 10, 6
-                \\
-            ++ (if (on[0])
-                \\ srawi. 0, 3, 2
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ sradi. 0, 3, 2
-                \\
-            else
-                "") ++
-                \\ mtspr 9, 0
-                \\ beq- 20002f
-                \\ lfdx 0, 4, 11
-                \\ lfdx 3, 6, 12
-                \\ lfdux 4, 4, 5
-                \\ fmul 10, 1, 0
-                \\ lfdux 5, 6, 7
-                \\ fmul 11, 1, 3
-                \\ lfdx 6, 4, 11
-                \\ fmul 12, 1, 4
-                \\ lfdx 7, 6, 12
-                \\ fmul 13, 1, 5
-                \\ lfdux 8, 4, 5
-                \\ fmadd 10, 2, 3, 10
-                \\ lfdux 9, 6, 7
-                \\ fnmsub 11, 2, 0, 11
-                \\ lfdx 0, 4, 11
-                \\ fmadd 12, 2, 5, 12
-                \\ lfdx 3, 6, 12
-                \\ fnmsub 13, 2, 4, 13
-                \\ lfdux 4, 4, 5
-                \\ bdz 20001f
-                \\ .align 4
-                \\ 20000:
-                \\ fmul 14, 1, 6
-                \\ lfdux 5, 6, 7
-                \\ fmul 15, 1, 7
-                \\ stfdx 10, 9, 11
-                \\ fmul 16, 1, 8
-                \\ stfdx 11, 10, 12
-                \\ fmul 17, 1, 9
-                \\ stfdux 12, 9, 5
-                \\ fmadd 14, 2, 7, 14
-                \\ stfdux 13, 10, 7
-                \\ fnmsub 15, 2, 6, 15
-                \\ lfdx 6, 4, 11
-                \\ fmadd 16, 2, 9, 16
-                \\ lfdx 7, 6, 12
-                \\ fnmsub 17, 2, 8, 17
-                \\ lfdux 8, 4, 5
-                \\ fmul 10, 1, 0
-                \\ lfdux 9, 6, 7
-                \\ fmul 11, 1, 3
-                \\ stfdx 14, 9, 11
-                \\ fmul 12, 1, 4
-                \\ stfdx 15, 10, 12
-                \\ fmul 13, 1, 5
-                \\ stfdux 16, 9, 5
-                \\ fmadd 10, 2, 3, 10
-                \\ stfdux 17, 10, 7
-                \\ fnmsub 11, 2, 0, 11
-                \\ lfdx 0, 4, 11
-                \\ fmadd 12, 2, 5, 12
-                \\ lfdx 3, 6, 12
-                \\ fnmsub 13, 2, 4, 13
-                \\ lfdux 4, 4, 5
-                \\ fmul 14, 1, 6
-                \\ lfdux 5, 6, 7
-                \\ fmul 15, 1, 7
-                \\ stfdx 10, 9, 11
-                \\ fmul 16, 1, 8
-                \\ stfdx 11, 10, 12
-                \\ fmul 17, 1, 9
-                \\ stfdux 12, 9, 5
-                \\ fmadd 14, 2, 7, 14
-                \\ stfdux 13, 10, 7
-                \\ fnmsub 15, 2, 6, 15
-                \\ lfdx 6, 4, 11
-                \\ fmadd 16, 2, 9, 16
-                \\ lfdx 7, 6, 12
-                \\ fnmsub 17, 2, 8, 17
-                \\ lfdux 8, 4, 5
-                \\ fmul 10, 1, 0
-                \\ stfdx 14, 9, 11
-                \\ fmul 11, 1, 3
-                \\ stfdx 15, 10, 12
-                \\ fmul 12, 1, 4
-                \\ stfdux 16, 9, 5
-                \\ fmul 13, 1, 5
-                \\ stfdux 17, 10, 7
-                \\ fmadd 10, 2, 3, 10
-                \\ lfdux 9, 6, 7
-                \\ fnmsub 11, 2, 0, 11
-                \\ lfdx 0, 4, 11
-                \\ fmadd 12, 2, 5, 12
-                \\ lfdx 3, 6, 12
-                \\ fnmsub 13, 2, 4, 13
-                \\ lfdux 4, 4, 5
-                \\ bdnz 20000b
-                \\ .align 4
-                \\ 20001:
-                \\ fmul 14, 1, 6
-                \\ lfdux 5, 6, 7
-                \\ fmul 15, 1, 7
-                \\ stfdx 10, 9, 11
-                \\ fmul 16, 1, 8
-                \\ stfdx 11, 10, 12
-                \\ fmul 17, 1, 9
-                \\ stfdux 12, 9, 5
-                \\ fmadd 14, 2, 7, 14
-                \\ stfdux 13, 10, 7
-                \\ fnmsub 15, 2, 6, 15
-                \\ lfdx 6, 4, 11
-                \\ fmadd 16, 2, 9, 16
-                \\ lfdx 7, 6, 12
-                \\ fnmsub 17, 2, 8, 17
-                \\ lfdux 8, 4, 5
-                \\ fmul 10, 1, 0
-                \\ lfdux 9, 6, 7
-                \\ fmul 11, 1, 3
-                \\ stfdx 14, 9, 11
-                \\ fmul 12, 1, 4
-                \\ stfdx 15, 10, 12
-                \\ fmul 13, 1, 5
-                \\ stfdux 16, 9, 5
-                \\ fmadd 10, 2, 3, 10
-                \\ stfdux 17, 10, 7
-                \\ fnmsub 11, 2, 0, 11
-                \\ fmadd 12, 2, 5, 12
-                \\ fnmsub 13, 2, 4, 13
-                \\ fmul 14, 1, 6
-                \\ stfdx 10, 9, 11
-                \\ fmul 15, 1, 7
-                \\ stfdx 11, 10, 12
-                \\ fmul 16, 1, 8
-                \\ stfdux 12, 9, 5
-                \\ fmul 17, 1, 9
-                \\ stfdux 13, 10, 7
-                \\ fmadd 14, 2, 7, 14
-                \\ fnmsub 15, 2, 6, 15
-                \\ fmadd 16, 2, 9, 16
-                \\ fnmsub 17, 2, 8, 17
-                \\ stfdx 14, 9, 11
-                \\ stfdx 15, 10, 12
-                \\ stfdux 16, 9, 5
-                \\ stfdux 17, 10, 7
-                \\ .align 4
-                \\ 20002:
-                \\ andi. 0, 3, 3
-                \\ mtspr 9, 0
-                \\ beq 20004f
-                \\ .align 4
-                \\ 20003:
-                \\ lfdx 0, 4, 11
-                \\ lfdx 3, 6, 12
-                \\ lfdux 4, 4, 5
-                \\ lfdux 5, 6, 7
-                \\ fmul 10, 1, 0
-                \\ fmul 11, 1, 3
-                \\ fmul 12, 1, 4
-                \\ fmul 13, 1, 5
-                \\ fmadd 10, 2, 3, 10
-                \\ fnmsub 11, 2, 0, 11
-                \\ fmadd 12, 2, 5, 12
-                \\ fnmsub 13, 2, 4, 13
-                \\ stfdx 10, 9, 11
-                \\ stfdx 11, 10, 12
-                \\ stfdux 12, 9, 5
-                \\ stfdux 13, 10, 7
-                \\ bdnz 20003b
-                \\ .align 4
-                \\ 20004:
-                \\ lfd 14, 0(1)
-                \\ lfd 15, 8(1)
-                \\ lfd 16, 16(1)
-                \\ lfd 17, 24(1)
-                \\ addi 1, 1, 32
-                \\ blr
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
