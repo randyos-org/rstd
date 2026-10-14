@@ -30,24 +30,24 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 0, 0",
-    "0, 1, 0, 0",
-    "0, 1, 0, 0",
-    "0, 1, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 1, 0",
-    "0, 0, 0, 1",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 1",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
-    "0, 0, 0, 0",
+    "1, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0",
+    "0, 1, 0, 0, 0",
+    "0, 1, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 1, 0, 0",
+    "0, 0, 0, 1, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 1",
+    "0, 0, 0, 1, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -66,7 +66,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2, bp3
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4
     \\ .balign 512
     \\ subq $256, %rsp
     \\ movups %xmm6, 0(%rsp)
@@ -130,6 +130,9 @@ const text =
     \\ .endif
     \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
     \\ .endif
     \\ movapd 0 * 8(%rdx), %xmm4
     \\ andpd %xmm15, %xmm4
@@ -254,6 +257,9 @@ const text =
     \\ .endif
     \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
     \\ .endif
     \\ movapd 0 * 8(%rdx), %xmm1
     \\ andpd %xmm15, %xmm1
@@ -383,6 +389,9 @@ const text =
     \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
     \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
+    \\ .endif
     \\ movsd 0 * 8(%rdx), %xmm4
     \\ movhpd 1 * 8(%rdx), %xmm4
     \\ andpd %xmm15, %xmm4
@@ -509,6 +518,9 @@ const text =
     \\ .endif
     \\ .if \bp3
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp4
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
     \\ .endif
     \\ movsd 0 * 8(%rdx), %xmm1
     \\ movhpd 1 * 8(%rdx), %xmm1
