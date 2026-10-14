@@ -29,7 +29,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn dmin() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ bge $r0, $r4, 20009f
             \\ bge $r0, $r6, 20009f

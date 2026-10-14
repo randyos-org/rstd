@@ -8,6 +8,7 @@ pub const entries = [_]Entry{
     .{ .role = "smin", .module = @import("smin_sse_win.zig") },
     .{ .role = "dmin", .module = @import("dmin_atom_sysv.zig") },
     .{ .role = "dmin", .module = @import("dmin_atom_win.zig") },
-    .{ .role = "dmin", .module = @import("dmin_sse2_sysv.zig") },
+    .{ .role = "dmin", .module = @import("dmin_sse2_barcelona_sysv.zig") },
+    .{ .role = "dmin", .module = @import("dmin_sse2_opteron_sysv.zig") },
     .{ .role = "dmin", .module = @import("dmin_sse2_win.zig") },
 };
