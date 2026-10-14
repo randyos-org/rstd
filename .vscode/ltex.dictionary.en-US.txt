@@ -1,6 +1,7 @@
 _sysctl
 AAPCS
 ABGR
+abssq
 accept
 accept4
 access
@@ -208,6 +209,7 @@ cqty
 creat
 create_module
 creds
+CROTG
 cscal
 csky
 csoff
@@ -271,8 +273,10 @@ dnum
 DNUMOPT
 DOFORK
 domatcopy
+dotc
 dotenv
 dotni
+dotu
 downscaling
 drot
 drotm
@@ -299,6 +303,8 @@ DWMEXILEFRAME
 DWMTHUMBNAILSIZECHANGED
 DWMTRANSITIONSTATECHANGED
 dxpy
+DZASUM
+DZNRM
 eabi
 eabihf
 EADV
@@ -566,6 +572,7 @@ FXMADD
 FXRSTOR
 fxsr
 FXWSAVE
+gamsq
 gdb
 gdkwayland
 gdkx
@@ -1281,6 +1288,7 @@ retarget
 revents
 RFLAGS
 rfont
+rgamsq
 rgbprime
 rglvk
 riscv
@@ -1299,7 +1307,9 @@ rnglists
 rodata
 rootsi
 rootsr
+rotg
 rotm
+rotmg
 rowr
 rrcurveto
 rref
@@ -1329,10 +1339,14 @@ rt_sigtimedwait
 rt_tgsigqueueinfo
 rtas
 RTLD
+rtmax
+rtmin
 rtnetlink
 RTPRIO
 RTTIME
 RXRSTOR
+safmax
+safmin
 salq
 samax
 samin
@@ -1369,6 +1383,7 @@ sbtrsm
 scal
 scalarized
 scanline
+SCASUM
 SCCB
 sched_get_priority_max
 sched_get_priority_min
@@ -1382,6 +1397,7 @@ sched_setattr
 sched_setparam
 sched_setscheduler
 sched_yield
+SCNRM
 scomptime
 sd
 sd-event
@@ -1945,6 +1961,7 @@ zdot
 zdotc
 zdotu
 zdrot
+ZDSCAL
 zgeadd
 ZGECO
 ZGEDI
@@ -1965,6 +1982,7 @@ ziggify
 zigimg
 zigvec
 zimatcopy
+zlartg
 zlaswp
 zneg
 znrm
@@ -1974,6 +1992,8 @@ zparts
 ZPOFA
 ZQRDC
 ZQRSL
+zrot
+zrotg
 zscal
 zstr
 zsum

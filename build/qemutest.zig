@@ -21,9 +21,9 @@
 //!   2. `zig build qemu-install-<name>`, then in the window: "macOS Base
 //!      System" in the OpenCore picker; Disk Utility, erase the QEMU HARDDISK
 //!      as APFS; reinstall macOS onto it (pick "macOS Installer", then the
-//!      disk, at each reboot); create an account; System Settings > General >
-//!      Sharing, turn on Remote Login; at the next picker, select the disk and
-//!      press Ctrl+Enter to make it the default.
+//!      disk, at each reboot); create an account; run `tools/configure_macos.sh`
+//!      in it (its header says how), which makes the disk the default boot,
+//!      turns on Remote Login and turns off what slows an emulated Mac.
 //!   3. Authorize an SSH key (`ssh-keygen` makes one if you have none):
 //!      `type %USERPROFILE%\.ssh\id_ed25519.pub | ssh -p 2222 <account>@localhost
 //!      "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"`.
