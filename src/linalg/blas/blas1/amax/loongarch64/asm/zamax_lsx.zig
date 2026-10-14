@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn zamax() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ vxor.v $vr22, $vr22, $vr22
             \\ vxor.v $vr18, $vr18, $vr18

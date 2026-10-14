@@ -56,7 +56,6 @@ const Body = struct {
     pub fn camax() callconv(.naked) void {
         asm volatile (
             \\ .macro PROLOGUE
-            \\ .text
             \\ .p2align 2
             \\ .endm
             \\ .macro INIT_F1
