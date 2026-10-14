@@ -86,6 +86,64 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
     }
 }
 
+/// The `-D` symbols getarch puts in a core's `config.h` (its `ARCHCONFIG`,
+/// then `CORE_<CORENAME>`), from its `FORCE_<core>` block in `getarch.c`;
+/// null when there is none. A block that falls back for `NO_AVX2` and the
+/// like defines `ARCHCONFIG` more than once; the last, the full core, wins.
+pub fn getarch(core: []const u8) !?[]const []const u8 {
+    const text = read(try path(&.{ root, "getarch.c" })) orelse return null;
+    const tag = try std.fmt.allocPrint(arena, "FORCE_{s}", .{core});
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    var depth: usize = 0; // within the block: its nested `#if`s
+    var in_block = false;
+    var config: ?[]const u8 = null;
+    var corename: ?[]const u8 = null;
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (!in_block) {
+            if (!std.mem.startsWith(u8, line, "#if")) continue;
+            const at = std.mem.indexOf(u8, line, tag) orelse continue;
+            const e = at + tag.len;
+            if (e < line.len and (std.ascii.isAlphanumeric(line[e]) or line[e] == '_')) continue;
+            in_block = true;
+            depth = 0;
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, "#if")) depth += 1;
+        if (std.mem.startsWith(u8, line, "#endif")) {
+            if (depth == 0) break;
+            depth -= 1;
+        }
+        if (std.mem.startsWith(u8, line, "#define CORENAME")) {
+            const q = std.mem.indexOfScalar(u8, line, '"') orelse continue;
+            const e = std.mem.indexOfScalarPos(u8, line, q + 1, '"') orelse continue;
+            corename = line[q + 1 .. e];
+        }
+        if (!std.mem.startsWith(u8, line, "#define ARCHCONFIG")) continue;
+        // the string literals, joined, across the continuation lines
+        var s: std.ArrayList(u8) = .empty;
+        var cur = line;
+        while (true) {
+            var rest = cur;
+            while (std.mem.indexOfScalar(u8, rest, '"')) |q| {
+                const e = std.mem.indexOfScalarPos(u8, rest, q + 1, '"') orelse break;
+                try s.appendSlice(arena, rest[q + 1 .. e]);
+                try s.append(arena, ' ');
+                rest = rest[e + 1 ..];
+            }
+            if (!std.mem.endsWith(u8, cur, "\\")) break;
+            cur = std.mem.trim(u8, lines.next() orelse break, " \t\r");
+        }
+        config = s.items;
+    }
+    const c = config orelse return null;
+    var out: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.tokenizeAny(u8, c, " \t");
+    while (it.next()) |tok| if (std.mem.startsWith(u8, tok, "-D")) try out.append(arena, tok);
+    try out.append(arena, try std.fmt.allocPrint(arena, "-DCORE_{s}", .{corename orelse core}));
+    return out.items;
+}
+
 /// The cores of `arch`: the suffixes of its `KERNEL.<core>` files, sorted,
 /// or `(all)` when it has only `KERNEL`.
 pub fn cores(arch: []const u8) !?[]const []const u8 {

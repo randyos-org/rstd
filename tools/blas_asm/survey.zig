@@ -1,10 +1,11 @@
 //! Lists which OpenBLAS source each core uses for each `axpy` precision, and
 //! whether that source is assembly or C.
 //!
-//!     OPENBLAS=<checkout> zig run tools/blas_asm/survey.zig [-- gemm]
+//!     OPENBLAS=<checkout> zig run tools/blas_asm/survey.zig [-- gemm | l2 [<dest>]]
 //!
 //! With `gemm`, lists the `gemm` kernel, beta and packing (copy) sources instead,
-//! from the defaults of `Makefile.L3`.
+//! from the defaults of `Makefile.L3`. With `l2`, lists the level-2 sources
+//! (`Makefile.L2`) and which C ones carry assembly or intrinsics.
 //!
 //! Reads `kernel/<arch>/KERNEL.<core>`, falling back to `kernel/<arch>/KERNEL`
 //! and then to the defaults in `kernel/Makefile.L1`, as the build does. A core
@@ -50,6 +51,7 @@ pub fn main(init: std.process.Init) !void {
     _ = args.next();
     if (args.next()) |mode| {
         if (std.mem.eql(u8, mode, "gemm")) return try gemm(init, arena);
+        if (std.mem.eql(u8, mode, "l2")) return try l2(init, arena, args.next() orelse "src/linalg/blas/blas2/coverage.md");
         map.die("unknown survey '{s}'", .{mode});
     }
 
@@ -226,4 +228,190 @@ fn flushTable(arena: std.mem.Allocator, out: *std.ArrayList(u8), rows: []const [
         }
         try out.append(arena, '\n');
     }
+}
+
+/// One level-2 table: its routine and the make variable of each column.
+const L2Family = struct { name: []const u8, cols: []const [2][]const u8 };
+
+const l2_families = [_]L2Family{
+    .{ .name = "gemv", .cols = &.{
+        .{ "S n", "SGEMVNKERNEL" }, .{ "S t", "SGEMVTKERNEL" },
+        .{ "D n", "DGEMVNKERNEL" }, .{ "D t", "DGEMVTKERNEL" },
+        .{ "C n", "CGEMVNKERNEL" }, .{ "C t", "CGEMVTKERNEL" },
+        .{ "Z n", "ZGEMVNKERNEL" }, .{ "Z t", "ZGEMVTKERNEL" },
+        .{ "Q n", "QGEMVNKERNEL" }, .{ "Q t", "QGEMVTKERNEL" },
+        .{ "X n", "XGEMVNKERNEL" }, .{ "X t", "XGEMVTKERNEL" },
+    } },
+    .{ .name = "ger", .cols = &.{
+        .{ "S", "SGERKERNEL" },    .{ "D", "DGERKERNEL" },    .{ "Q", "QGERKERNEL" },
+        .{ "C u", "CGERUKERNEL" }, .{ "C c", "CGERCKERNEL" }, .{ "Z u", "ZGERUKERNEL" },
+        .{ "Z c", "ZGERCKERNEL" }, .{ "X u", "XGERUKERNEL" }, .{ "X c", "XGERCKERNEL" },
+    } },
+    .{ .name = "symv", .cols = &.{
+        .{ "S U", "SSYMV_U_KERNEL" }, .{ "S L", "SSYMV_L_KERNEL" },
+        .{ "D U", "DSYMV_U_KERNEL" }, .{ "D L", "DSYMV_L_KERNEL" },
+        .{ "Q U", "QSYMV_U_KERNEL" }, .{ "Q L", "QSYMV_L_KERNEL" },
+        .{ "C U", "CSYMV_U_KERNEL" }, .{ "C L", "CSYMV_L_KERNEL" },
+        .{ "Z U", "ZSYMV_U_KERNEL" }, .{ "Z L", "ZSYMV_L_KERNEL" },
+        .{ "X U", "XSYMV_U_KERNEL" }, .{ "X L", "XSYMV_L_KERNEL" },
+    } },
+    .{ .name = "hemv", .cols = &.{
+        .{ "C U", "CHEMV_U_KERNEL" }, .{ "C L", "CHEMV_L_KERNEL" }, .{ "C V", "CHEMV_V_KERNEL" }, .{ "C M", "CHEMV_M_KERNEL" },
+        .{ "Z U", "ZHEMV_U_KERNEL" }, .{ "Z L", "ZHEMV_L_KERNEL" }, .{ "Z V", "ZHEMV_V_KERNEL" }, .{ "Z M", "ZHEMV_M_KERNEL" },
+        .{ "X U", "XHEMV_U_KERNEL" }, .{ "X L", "XHEMV_L_KERNEL" }, .{ "X V", "XHEMV_V_KERNEL" }, .{ "X M", "XHEMV_M_KERNEL" },
+    } },
+    .{ .name = "half-precision gemv", .cols = &.{
+        .{ "SB n", "SBGEMVNKERNEL" }, .{ "SB t", "SBGEMVTKERNEL" },
+        .{ "B n", "BGEMVNKERNEL" },   .{ "B t", "BGEMVTKERNEL" },
+        .{ "SH n", "SHGEMVNKERNEL" }, .{ "SH t", "SHGEMVTKERNEL" },
+    } },
+};
+
+/// What a C source holds besides plain C: the `.c` files it `#include`s
+/// (OpenBLAS's per-core microkernels), and whether it, or one of those, has
+/// inline assembly or vector intrinsics. A text search, so a heuristic.
+const CInfo = struct {
+    inline_asm: bool = false,
+    intrinsics: bool = false,
+    /// `name (asm)` / `name (intrinsics)` / `name (C)` per included `.c`.
+    includes: std.ArrayList([]const u8) = .empty,
+};
+
+fn hasAsm(t: []const u8) bool {
+    for ([_][]const u8{ "__asm__", "asm volatile", "__asm ", "__asm(", " asm(" }) |n| if (std.mem.indexOf(u8, t, n) != null) return true;
+    return false;
+}
+
+fn hasIntrinsics(t: []const u8) bool {
+    for ([_][]const u8{ "immintrin.h", "arm_neon.h", "arm_sve.h", "arm_sme.h", "altivec.h", "riscv_vector.h", "lsxintrin.h", "lasxintrin.h", "vecintrin.h", "msa.h", "wasm_simd128.h", "__vector", "_mm256_", "_mm512_", "_mm_", "vld1q_", "svld1", "__riscv_v", "__lsx_", "__lasx_", "vec_xl", "vec_madd" }) |n| if (std.mem.indexOf(u8, t, n) != null) return true;
+    return false;
+}
+
+fn classifyC(arena: std.mem.Allocator, arch: []const u8, source: []const u8) !CInfo {
+    const p = try map.path(&.{ map.root, "kernel", arch, source });
+    var info: CInfo = .{};
+    const text = map.read(p) orelse {
+        try info.includes.append(arena, "(missing)");
+        return info;
+    };
+    info.inline_asm = hasAsm(text);
+    info.intrinsics = hasIntrinsics(text);
+    const dir = std.fs.path.dirname(p) orelse ".";
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (!std.mem.startsWith(u8, line, "#include")) continue;
+        const q = std.mem.indexOfScalar(u8, line, '"') orelse continue;
+        const e = std.mem.indexOfScalarPos(u8, line, q + 1, '"') orelse continue;
+        const name = line[q + 1 .. e];
+        if (!std.mem.endsWith(u8, name, ".c")) continue;
+        const sub = map.read(try map.path(&.{ dir, name }));
+        const kind = if (sub) |t| (if (hasAsm(t)) "asm" else if (hasIntrinsics(t)) "intrinsics" else "C") else "missing";
+        const entry = try std.fmt.allocPrint(arena, "{s} ({s})", .{ name, kind });
+        for (info.includes.items) |o| {
+            if (std.mem.eql(u8, o, entry)) break;
+        } else try info.includes.append(arena, entry);
+    }
+    return info;
+}
+
+const Use = struct {
+    roles: std.StringArrayHashMapUnmanaged(void) = .empty,
+    cores: std.StringArrayHashMapUnmanaged(void) = .empty,
+};
+
+fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void {
+    var w: std.ArrayList(u8) = .empty;
+    try w.appendSlice(arena,
+        \\# Level-2 kernel coverage
+        \\
+        \\Generated by `tools/blas_asm/survey.zig l2` from OpenBLAS `kernel/`;
+        \\re-derive it rather than editing it. Each cell is the source that core's
+        \\`KERNEL.<core>` selects for the column's make variable, falling back to the
+        \\architecture's `KERNEL`, then to the `Makefile.L2` default. `|` separates
+        \\alternatives chosen by a conditional. The complex `gemv` forms `r`/`o`/`s`
+        \\build the `n` source and `c`/`u`/`d` the `t` source (`CONJ`/`XCONJ`);
+        \\`ger`'s `v`/`d` build the `u`/`c` source with `XCONJ`. The half-precision
+        \\kernels are built only with `BUILD_BFLOAT16`/`BUILD_HFLOAT16`.
+        \\
+        \\
+    );
+
+    // every distinct (architecture, source): its roles and cores
+    var seen: std.StringArrayHashMapUnmanaged(Use) = .empty;
+
+    for (arches) |arch| {
+        const cores = try map.cores(arch) orelse continue;
+        try w.print(arena, "## {s}\n\n", .{arch});
+        for (l2_families) |fam| {
+            try w.print(arena, "### {s} {s}\n\n| core |", .{ arch, fam.name });
+            for (fam.cols) |c| try w.print(arena, " {s} |", .{c[0]});
+            try w.appendSlice(arena, "\n|---|");
+            for (fam.cols) |_| try w.appendSlice(arena, "---|");
+            try w.append(arena, '\n');
+            for (cores) |core| {
+                try w.print(arena, "| {s} |", .{core});
+                for (fam.cols) |c| {
+                    const v = try map.resolveKey(arch, core, c[1], "Makefile.L2");
+                    for (v) |s| {
+                        const e = try seen.getOrPut(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ arch, s }));
+                        if (!e.found_existing) e.value_ptr.* = .{};
+                        try e.value_ptr.roles.put(arena, c[1], {});
+                        try e.value_ptr.cores.put(arena, core, {});
+                    }
+                    try w.print(arena, " {s} |", .{try join(v)});
+                }
+                try w.append(arena, '\n');
+            }
+            try w.append(arena, '\n');
+        }
+    }
+
+    // the sources, by kind
+    try w.appendSlice(arena,
+        \\## Sources
+        \\
+        \\Every distinct (architecture, source). `kind` is `S` for assembly; for C,
+        \\`generic` (plain C), `intrinsics` or `inline asm` in the file itself, or
+        \\`C + includes`; `includes` lists the `.c` files it includes, each marked by
+        \\what it holds (a text search: `asm` means inline assembly).
+        \\
+        \\| architecture | source | kind | includes | roles | cores |
+        \\|---|---|---|---|---|---|
+        \\
+    );
+    var n_asm: usize = 0;
+    var n_c: usize = 0;
+    var n_c_asm: usize = 0;
+    var n_c_intr: usize = 0;
+    var n_missing: usize = 0;
+    for (seen.keys(), seen.values()) |k, u| {
+        const slash = std.mem.indexOfScalar(u8, k, '/').?;
+        const arch = k[0..slash];
+        const source = k[slash + 1 ..];
+        var kind: []const u8 = "S";
+        var inc: []const u8 = "";
+        // a default no file backs: a precision this architecture never builds
+        if (map.read(try map.path(&.{ map.root, "kernel", arch, source })) == null) {
+            kind = "missing";
+            n_missing += 1;
+        } else if (isAsm(source)) n_asm += 1 else {
+            n_c += 1;
+            const info = try classifyC(arena, arch, source);
+            var any_asm = info.inline_asm;
+            var any_intr = info.intrinsics;
+            for (info.includes.items) |i| {
+                if (std.mem.endsWith(u8, i, "(asm)")) any_asm = true;
+                if (std.mem.endsWith(u8, i, "(intrinsics)")) any_intr = true;
+            }
+            if (any_asm) n_c_asm += 1 else if (any_intr) n_c_intr += 1;
+            kind = if (info.inline_asm) "inline asm" else if (info.intrinsics) "intrinsics" else if (info.includes.items.len > 0) "C + includes" else "generic";
+            inc = try join(info.includes.items);
+        }
+        try w.print(arena, "| {s} | `{s}` | {s} | {s} | {s} | {s} |\n", .{ arch, source, kind, inc, try std.mem.join(arena, ", ", u.roles.keys()), try std.mem.join(arena, ", ", u.cores.keys()) });
+    }
+    try w.print(arena, "\n## Totals\n\n{d} distinct (architecture, source) pairs: {d} assembly, {d} C ({d} with inline assembly in the file or an included `.c`, {d} more with intrinsics only), {d} missing.\n", .{ seen.count(), n_asm, n_c, n_c_asm, n_c_intr, n_missing });
+
+    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try alignTables(arena, w.items) });
+    std.debug.print("wrote {s}: {d} sources ({d} asm, {d} C, {d} C with asm)\n", .{ dest, seen.count(), n_asm, n_c, n_c_asm });
 }

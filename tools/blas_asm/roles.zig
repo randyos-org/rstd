@@ -40,9 +40,11 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
         const close = std.mem.indexOfScalar(u8, tail, ')') orelse continue;
         const key = tail[0..close];
 
+        // `sdot_k$(TSUFFIX)` is role `sdot`; level 2 has `sgemv_n$(TSUFFIX)`
         const obj_start = "$(KDIR)".len;
-        const obj_end = std.mem.indexOf(u8, line[obj_start..], "_k$(TSUFFIX)") orelse continue;
-        const name = line[obj_start .. obj_start + obj_end];
+        const obj_end = std.mem.indexOf(u8, line[obj_start..], "$(TSUFFIX)") orelse continue;
+        var name = line[obj_start .. obj_start + obj_end];
+        if (std.mem.endsWith(u8, name, "_k")) name = name[0 .. name.len - 2];
         for (out.items) |r| {
             if (std.mem.eql(u8, r.name, name)) continue :outer;
         }
@@ -75,6 +77,14 @@ const dir_overrides = [_]struct { key: []const u8, dir: []const u8 }{
     .{ .key = "TOBF16KERNEL", .dir = "bf16" },
 };
 
+/// The level-2 routines, as their make variables spell them.
+const level2_dirs = [_][2][]const u8{
+    .{ "GEMV", "gemv" },
+    .{ "GER", "ger" },
+    .{ "SYMV", "symv" },
+    .{ "HEMV", "hemv" },
+};
+
 /// The `blas1/<dir>` a role's kernel lives under, from its `key`: one BLAS
 /// routine family per directory, precisions and the conjugated/index forms
 /// together, the way `blas1/axpy/` already holds every `axpy` kernel. Regular
@@ -84,6 +94,12 @@ const dir_overrides = [_]struct { key: []const u8, dir: []const u8 }{
 pub fn dirFor(a: std.mem.Allocator, key: []const u8) ![]const u8 {
     for (dir_overrides) |o| {
         if (std.mem.eql(u8, o.key, key)) return o.dir;
+    }
+    // level 2 keys carry a form after the routine (`SGEMVNKERNEL`,
+    // `CGERUKERNEL`, `ZHEMV_V_KERNEL`) and the half-precision gemvs a
+    // two-letter prefix (`SBGEMVNKERNEL`): the routine is found by name
+    for (level2_dirs) |d| {
+        if (std.mem.indexOf(u8, key, d[0]) != null) return d[1];
     }
     var s = key;
     var prefix: []const u8 = "";

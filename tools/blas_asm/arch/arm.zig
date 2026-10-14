@@ -4,11 +4,14 @@
 
 const std = @import("std");
 const arch = @import("__root__.zig");
+const map = @import("../kernel_map.zig");
 const Error = arch.Error;
 
 const Kernel = arch.Kernel;
 
 fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const []const u8 {
+    // what getarch's `config.h` defines, where it knows the core
+    if (try map.getarch(core)) |d| return d;
     var out: std.ArrayList([]const u8) = .empty;
     try out.append(a, try std.fmt.allocPrint(a, "-D{s}", .{core}));
     try out.appendSlice(a, &.{ "-DARMV7", "-DHAVE_VFP", "-DHAVE_VFPV3" });

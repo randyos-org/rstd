@@ -50,14 +50,20 @@ pub fn install(vt: *Vtable, comptime modules: anytype, core: anytype) void {
     }
 }
 
+/// The vtable slot of `role`: level 1's and `ger`'s are `<role>_k` (`sdot_k`,
+/// `cgeru_k`), the other level-2 ones the role itself (`sgemv_n`, `chemv_V`).
+fn slot(comptime role: []const u8) []const u8 {
+    return if (@hasField(Vtable, role ++ "_k")) role ++ "_k" else role;
+}
+
 /// Points the vtable slot of each of `roles` that `core` has (`hasRole`) at
 /// the kernel the per-core object exports for it, for a routine whose kernels
 /// are not all converted assembly (`Kernels.install` does this from `index`).
 pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const []const u8, comptime hasRole: anytype) void {
     inline for (roles) |role| {
         if (comptime hasRole(core, role)) {
-            const Fn = @typeInfo(@FieldType(Vtable, role ++ "_k")).optional.child;
-            @field(vt, role ++ "_k") = @extern(Fn, .{ .name = util.kernelSymbol(role, @tagName(core)), .visibility = .hidden });
+            const Fn = @typeInfo(@FieldType(Vtable, slot(role))).optional.child;
+            @field(vt, slot(role)) = @extern(Fn, .{ .name = util.kernelSymbol(role, @tagName(core)), .visibility = .hidden });
         }
     }
 }
@@ -120,7 +126,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
                 if (comptime kernel(e, core) != null) {
-                    const field = e.role ++ "_k";
+                    const field = comptime slot(e.role);
                     if (comptime @hasField(Vtable, field)) {
                         const Fn = @typeInfo(@FieldType(Vtable, field)).optional.child;
                         @field(vt, field) = @extern(Fn, .{ .name = symbol(e.role, core), .visibility = .hidden });

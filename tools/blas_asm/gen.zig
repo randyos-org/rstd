@@ -1,11 +1,13 @@
-//! Converts OpenBLAS's level-1 `.S` kernels into Zig files whose bodies are
-//! the same assembly, as naked functions.
+//! Converts OpenBLAS's level-1 and level-2 `.S` kernels into Zig files whose
+//! bodies are the same assembly, as naked functions.
 //!
-//!     OPENBLAS=<checkout> zig run tools/blas_asm/gen.zig [-- <arch|routine>...]
+//!     OPENBLAS=<checkout> zig run tools/blas_asm/gen.zig [-- <arch|level|routine>...]
 //!
 //! With nothing named, converts every routine for every architecture that
-//! `arch/<name>.zig` describes; otherwise only the architectures and routines
-//! (`blas1/<routine>/` names, such as `axpy`) named.
+//! `arch/<name>.zig` describes; otherwise only the architectures, levels
+//! (`blas1`, `blas2`) and routines (`blas<n>/<routine>/` names, such as
+//! `axpy` or `gemv`) named. Output goes under `$BLAS_OUT` (default
+//! `src/linalg/blas`), as `blas<n>/<routine>/<arch>/asm/`.
 //!
 //! The source is preprocessed once per core and variant, since OpenBLAS
 //! selects code with `#ifdef <CORE>` (and the ABI with `WINDOWS_ABI` and the
@@ -49,7 +51,12 @@ const arches = [_]Arch{
 fn fileName(a: std.mem.Allocator, k: Kernel, width: []const u8, first: ?[]const u8) ![]const u8 {
     const stem = k.stem();
     // what follows the routine's name in the source's: `_sse2` of `dot_sse2`
-    const rest = if (std.mem.indexOfScalar(u8, stem, '_')) |at| stem[at..] else "";
+    var rest = if (std.mem.indexOfScalar(u8, stem, '_')) |at| stem[at..] else "";
+    // and its form, which the role (`zgemv_r`, `zhemv_U`) already names:
+    // `_atom` of `zgemv_n_atom`, `_sse2` of `zsymv_U_sse2`
+    if (std.mem.indexOfScalar(u8, k.role_name, '_') != null and rest.len >= 2 and
+        std.mem.indexOfScalar(u8, "ntUL", rest[1]) != null and (rest.len == 2 or rest[2] == '_'))
+        rest = rest[2..];
     const core = if (first) |f| try std.fmt.allocPrint(a, "_{s}", .{f}) else "";
     return std.fmt.allocPrint(a, "{s}{s}{s}{s}.zig", .{ try k.role(a), rest, width, core });
 }
@@ -147,7 +154,16 @@ fn isName(c: u8) bool {
 /// (GAS's per-macro-invocation marker), which makes it part of the name.
 fn nameEnd(s: []const u8, i: usize) usize {
     var e = i;
-    while (e < s.len and isName(s[e])) e += 1;
+    while (true) {
+        while (e < s.len and isName(s[e])) e += 1;
+        // a macro's parameter spliced into the name (`.L_\XW\()_N_7`, in
+        // loongarch64's gemv): one name, so it becomes a numeric label too
+        if (std.mem.startsWith(u8, s[e..], "\\()")) {
+            e += 3;
+        } else if (e > i and e + 1 < s.len and s[e] == '\\' and (std.ascii.isAlphabetic(s[e + 1]) or s[e + 1] == '_')) {
+            e += 1;
+        } else break;
+    }
     if (e + 1 < s.len and s[e] == '\\' and s[e + 1] == '@') e += 2;
     return e;
 }
@@ -220,7 +236,8 @@ fn finish(a: std.mem.Allocator, lines: []const []const u8, names: *const std.Str
                             found = true;
                             if (d > li) fwd = true;
                         }
-                        if (!found) std.debug.panic("label {s} is referenced across a macro's boundary: {s}", .{ tok, line });
+                        if (!found) fwd = outsideDirection(lines, region, macros.items, defs.get(tok).?.items, region[li]) orelse
+                            std.debug.panic("label {s} is referenced across a macro's boundary: {s}", .{ tok, line });
                         try buf.append(a, if (fwd) 'f' else 'b');
                     }
                 } else try buf.appendSlice(a, tok);
@@ -234,6 +251,31 @@ fn finish(a: std.mem.Allocator, lines: []const []const u8, names: *const std.Str
     }
     for (macros.items) |m| try out.append(a, try std.fmt.allocPrint(a, " .purgem {s}", .{m}));
     return out.items;
+}
+
+/// For a macro (`region`) jumping to a label defined once outside any macro
+/// (`.L_END` in loongarch64's `sgemv_n_8_lasx.S`): forward when every
+/// top-level invocation precedes that label, back when every one follows it,
+/// null when they straddle it or there is no such invocation.
+fn outsideDirection(lines: []const []const u8, region: []const usize, macros: []const []const u8, defs: []const usize, macro: usize) ?bool {
+    if (macro == 0) return null;
+    var def: ?usize = null;
+    for (defs) |d| if (region[d] == 0) {
+        if (def != null) return null;
+        def = d;
+    };
+    const at = def orelse return null;
+    const name = macros[macro - 1];
+    var before = false;
+    var after = false;
+    for (lines, 0..) |l, i| {
+        if (region[i] != 0) continue;
+        const t = std.mem.trim(u8, l, " ");
+        if (!std.mem.startsWith(u8, t, name) or (t.len > name.len and t[name.len] != ' ')) continue;
+        if (i < at) before = true else after = true;
+    }
+    if (before == after) return null;
+    return before;
 }
 
 const Op = union(enum) { eq: [2]usize, del: usize, ins: usize };
@@ -476,7 +518,7 @@ fn findJob(jobs: *std.ArrayList(Job), k: Kernel) ?*Job {
 
 const Entry = struct { role: []const u8, file: []const u8 };
 
-fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8) !void {
+fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8, makefile: []const u8) !void {
     const io = map.io;
     const inc = try std.fmt.allocPrint(a, ".zig-cache/blas_asm_inc_{s}", .{ar.name});
     try Io.Dir.cwd().createDirPath(io, inc);
@@ -489,7 +531,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     const all_cores = try map.cores(ar.name) orelse return;
     for (all_cores) |core| {
         for (role_list) |r| {
-            for (try map.resolveKey(ar.name, core, r.key, "Makefile.L1")) |source| {
+            for (try map.resolveKey(ar.name, core, r.key, makefile)) |source| {
                 if (!ar.is_asm(source)) continue;
                 const k: Kernel = .{ .source = source, .prec = r.prec, .conj = r.conj, .role_name = r.name, .defines = r.defines };
                 const job = findJob(&jobs, k) orelse blk: {
@@ -508,7 +550,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     var ambiguous: std.StringHashMapUnmanaged(void) = .empty;
     for (all_cores) |core| {
         for (role_list) |r| {
-            if ((try map.resolveKey(ar.name, core, r.key, "Makefile.L1")).len < 2) continue;
+            if ((try map.resolveKey(ar.name, core, r.key, makefile)).len < 2) continue;
             try ambiguous.put(a, try std.fmt.allocPrint(a, "{s}:{s}", .{ try lowered(a, core), r.name }), {});
         }
     }
@@ -606,7 +648,7 @@ pub fn main(init: std.process.Init) !void {
     const checkout = init.environ_map.get("OPENBLAS") orelse
         map.die("set OPENBLAS to the OpenBLAS checkout", .{});
     try map.init(a, init.io, checkout);
-    const base = init.environ_map.get("BLAS_OUT") orelse "src/linalg/blas/blas1";
+    const base = init.environ_map.get("BLAS_OUT") orelse "src/linalg/blas";
 
     var want: std.ArrayList([]const u8) = .empty;
     var args = try init.minimal.args.iterateAllocator(a);
@@ -619,26 +661,40 @@ pub fn main(init: std.process.Init) !void {
         }
     }.any;
 
-    // every level-1 rule's role, grouped into its routine's `blas1/<dir>/`
-    const text = map.read(try map.path(&.{ map.root, "kernel", "Makefile.L1" })).?;
-    var by_dir: std.StringArrayHashMapUnmanaged(std.ArrayList(roles.Role)) = .empty;
-    for (try roles.parse(a, text)) |r| {
-        const e = try by_dir.getOrPut(a, try roles.dirFor(a, r.key));
-        if (!e.found_existing) e.value_ptr.* = .empty;
-        try e.value_ptr.append(a, r);
+    // every rule's role, grouped into its routine's `blas<n>/<dir>/`
+    const Group = struct { level: Level, dir: []const u8, roles: std.ArrayList(roles.Role) = .empty };
+    var groups: std.StringArrayHashMapUnmanaged(Group) = .empty;
+    for (levels) |lv| {
+        const text = map.read(try map.path(&.{ map.root, "kernel", lv.makefile })).?;
+        for (try roles.parse(a, text)) |r| {
+            const d = try roles.dirFor(a, r.key);
+            const e = try groups.getOrPut(a, try std.fmt.allocPrint(a, "{s}/{s}", .{ lv.dir, d }));
+            if (!e.found_existing) e.value_ptr.* = .{ .level = lv, .dir = d };
+            try e.value_ptr.roles.append(a, r);
+        }
     }
     var arch_named = false;
     var dir_named = false;
+    var level_named = false;
     for (arches) |ar| arch_named = arch_named or wants(want.items, &.{ar.name});
-    for (by_dir.keys()) |d| dir_named = dir_named or wants(want.items, &.{d});
+    for (groups.values()) |g| dir_named = dir_named or wants(want.items, &.{g.dir});
+    for (levels) |lv| level_named = level_named or wants(want.items, &.{lv.dir});
 
-    var dirs = by_dir.iterator();
-    while (dirs.next()) |kv| {
-        if (dir_named and !wants(want.items, &.{kv.key_ptr.*})) continue;
-        const out_root = try std.fmt.allocPrint(a, "{s}/{s}", .{ base, kv.key_ptr.* });
+    for (groups.keys(), groups.values()) |path, g| {
+        if (dir_named and !wants(want.items, &.{g.dir})) continue;
+        if (level_named and !wants(want.items, &.{g.level.dir})) continue;
+        const out_root = try std.fmt.allocPrint(a, "{s}/{s}", .{ base, path });
         for (arches) |ar| {
             if (arch_named and !wants(want.items, &.{ar.name})) continue;
-            try convert(a, ar, kv.value_ptr.items, out_root);
+            try convert(a, ar, g.roles.items, out_root, g.level.makefile);
         }
     }
 }
+
+/// A BLAS level: the rules that build its kernels, and its directory.
+const Level = struct { makefile: []const u8, dir: []const u8 };
+
+const levels = [_]Level{
+    .{ .makefile = "Makefile.L1", .dir = "blas1" },
+    .{ .makefile = "Makefile.L2", .dir = "blas2" },
+};

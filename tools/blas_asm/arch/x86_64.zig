@@ -5,11 +5,15 @@
 
 const std = @import("std");
 const arch = @import("__root__.zig");
+const map = @import("../kernel_map.zig");
 const Error = arch.Error;
 
 const Kernel = arch.Kernel;
 
 fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const []const u8 {
+    // what getarch's `config.h` defines, where it knows the core: `PRESCOTT`
+    // builds as `PENTIUM4`, and the gemvs read `DTB_DEFAULT_ENTRIES`
+    if (try map.getarch(core)) |d| return d;
     // `OPTERON_SSE3` is `OPTERON` with SSE3; the headers know one macro
     const macro = if (std.mem.eql(u8, core, "OPTERON_SSE3")) "OPTERON" else core;
     var out: std.ArrayList([]const u8) = .empty;
@@ -20,10 +24,13 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
     return out.items;
 }
 
+/// getarch's usual value, for a core it has no block for.
+pub const dtb_default = "#ifndef DTB_DEFAULT_ENTRIES\n#define DTB_DEFAULT_ENTRIES 64\n#endif\n";
+
 pub const x86_64: arch.Arch = .{
     .name = "x86_64",
     .triple = "x86_64-linux-gnu",
-    .config_h = "#define ARCH_X86_64 1\n#define BINARY64 1\n",
+    .config_h = "#define ARCH_X86_64 1\n#define BINARY64 1\n" ++ dtb_default,
     .defines = &.{ "-DASSEMBLER", "-DARCH_X86_64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k" },
     .core_defines = coreDefines,
     .align_bytes = true,
