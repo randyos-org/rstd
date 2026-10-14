@@ -28,26 +28,26 @@ const keys = [_][2][]const u8{
     .{ "zen", "sysv" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][4]bool{
-    .{ true, false, false, false },
-    .{ false, true, false, false },
-    .{ false, true, false, false },
-    .{ false, true, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, true, false },
-    .{ false, false, false, true },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, true },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
-    .{ false, false, false, false },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0, 0, 0",
+    "0, 1, 0, 0",
+    "0, 1, 0, 0",
+    "0, 1, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 1, 0",
+    "0, 0, 0, 1",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 1",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
+    "0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -64,871 +64,839 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [4]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1, bp2, bp3
+    \\ .balign 512
+    \\ pxor %xmm0, %xmm0
+    \\ xor %rax, %rax
+    \\ testq %rdi, %rdi
+    \\ jle 20037f
+    \\ leaq (, %rdx, 8), %rdx
+    \\ testq %rdx, %rdx
+    \\ jle 20037f
+    \\ movq %rdi, %r11
+    \\ movq %rsi, %r10
+    \\ pcmpeqb %xmm15, %xmm15
+    \\ psrlq $1, %xmm15
+    \\ movsd (%rsi), %xmm0
+    \\ addq %rdx, %rsi
+    \\ decq %rdi
+    \\ andpd %xmm15, %xmm0
+    \\ unpcklpd %xmm0, %xmm0
+    \\ movapd %xmm0, %xmm1
+    \\ movapd %xmm0, %xmm2
+    \\ movapd %xmm0, %xmm3
+    \\ cmpq $8, %rdx
+    \\ jne 20025f
+    \\ cmpq $7, %rdi
+    \\ jle 20013f
+    \\ testq $7, %rsi
+    \\ jne 20013f # Purely Unaligned Mode
+    \\ testq $15, %rsi # Checking for 128bit align
+    \\ je 20000f
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ unpcklpd %xmm4, %xmm4
+    \\ maxpd %xmm4, %xmm3
+    \\ decq %rdi
+    \\ addq $8, %rsi
+    \\ .balign 8
+    \\ 20000:
+    \\ movq %rdi, %rcx
+    \\ sarq $4, %rcx
+    \\ jle 20002f
+    \\ .balign 16
+    \\ 20001:
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ movapd 0 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movapd 2 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movapd 4 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movapd 6 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
+    \\ .endif
+    \\ movapd 8 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movapd 10 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movapd 12 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movapd 14 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ addq $16 * 8, %rsi
+    \\ decq %rcx
+    \\ jg 20001b
+    \\ .balign 16
+    \\ 20002:
+    \\ andq $15, %rdi
+    \\ jle 20006f
+    \\ testq $8, %rdi
+    \\ je 20003f
+    \\ movapd 0 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movapd 2 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movapd 4 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movapd 6 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ addq $8 * 8, %rsi
+    \\ .balign 8
+    \\ 20003:
+    \\ testq $4, %rdi
+    \\ je 20004f
+    \\ movapd 0 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movapd 2 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ addq $4 * 8, %rsi
+    \\ .balign 8
+    \\ 20004:
+    \\ testq $2, %rdi
+    \\ je 20005f
+    \\ movapd 0 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ addq $2 * 8, %rsi
+    \\ 20005:
+    \\ testq $1, %rdi
+    \\ je 20006f
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ unpcklpd %xmm7, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ .balign 8
+    \\ 20006:
+    \\ movq %r10, %rsi
+    \\ movq %r11, %rdi
+    \\ maxpd %xmm1, %xmm0
+    \\ maxpd %xmm3, %xmm2
+    \\ maxpd %xmm2, %xmm0
+    \\ movapd %xmm0, %xmm1
+    \\ unpckhpd %xmm0, %xmm0
+    \\ maxsd %xmm1, %xmm0
+    \\ unpcklpd %xmm0, %xmm0
+    \\ .balign 8
+    \\ testq $15, %rsi # Checking for 128bit align
+    \\ je 20007f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ andpd %xmm15, %xmm1
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ addq $8, %rsi
+    \\ decq %rdi
+    \\ .balign 8
+    \\ 20007:
+    \\ movq %rdi, %rcx
+    \\ sarq $3, %rcx
+    \\ jle 20010f
+    \\ .balign 16
+    \\ 20008:
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ movapd 0 * 8(%rsi), %xmm1
+    \\ andpd %xmm15, %xmm1
+    \\ cmpeqpd %xmm0, %xmm1
+    \\ movapd 2 * 8(%rsi), %xmm3
+    \\ andpd %xmm15, %xmm3
+    \\ cmpeqpd %xmm0, %xmm3
+    \\ movapd 4 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ cmpeqpd %xmm0, %xmm5
+    \\ movapd 6 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ cmpeqpd %xmm0, %xmm7
+    \\ orpd %xmm3, %xmm1
+    \\ orpd %xmm7, %xmm5
+    \\ orpd %xmm5, %xmm1
+    \\ movmskpd %xmm1, %r11
+    \\ testq $3, %r11
+    \\ jne 20009f
+    \\ addq $8 * 8, %rsi
+    \\ addq $8, %rax
+    \\ decq %rcx
+    \\ jg 20008b
+    \\ jmp 20010f
+    \\ .balign 16
+    \\ 20009:
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movsd 1 * 8(%rsi), %xmm2
+    \\ movsd 2 * 8(%rsi), %xmm3
+    \\ movsd 3 * 8(%rsi), %xmm4
+    \\ movsd 4 * 8(%rsi), %xmm5
+    \\ movsd 5 * 8(%rsi), %xmm6
+    \\ movsd 6 * 8(%rsi), %xmm7
+    \\ movsd 7 * 8(%rsi), %xmm8
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ andpd %xmm15, %xmm3
+    \\ andpd %xmm15, %xmm4
+    \\ andpd %xmm15, %xmm5
+    \\ andpd %xmm15, %xmm6
+    \\ andpd %xmm15, %xmm7
+    \\ andpd %xmm15, %xmm8
+    \\ addq $8 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm3
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm4
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm5
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm6
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm7
+    \\ je 20037f
+    \\ incq %rax
+    \\ jmp 20037f
+    \\ .balign 8
+    \\ 20010:
+    \\ testq $4, %rdi
+    \\ je 20011f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movsd 1 * 8(%rsi), %xmm2
+    \\ movsd 2 * 8(%rsi), %xmm3
+    \\ movsd 3 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ andpd %xmm15, %xmm3
+    \\ andpd %xmm15, %xmm4
+    \\ addq $4 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm3
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm4
+    \\ je 20037f
+    \\ .balign 8
+    \\ 20011:
+    \\ testq $2, %rdi
+    \\ je 20012f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movsd 1 * 8(%rsi), %xmm2
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ addq $2 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ .balign 8
+    \\ 20012:
+    \\ incq %rax
+    \\ jmp 20037f
+    \\ .balign 8
+    \\ 20013:
+    \\ movq %rdi, %rcx
+    \\ sarq $4, %rcx
+    \\ jle 20015f
+    \\ .balign 16
+    \\ 20014:
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ movhpd 1 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 2 * 8(%rsi), %xmm5
+    \\ movhpd 3 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movsd 4 * 8(%rsi), %xmm6
+    \\ movhpd 5 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movsd 6 * 8(%rsi), %xmm7
+    \\ movhpd 7 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
+    \\ .endif
+    \\ movsd 8 * 8(%rsi), %xmm4
+    \\ movhpd 9 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 10 * 8(%rsi), %xmm5
+    \\ movhpd 11 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movsd 12 * 8(%rsi), %xmm6
+    \\ movhpd 13 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movsd 14 * 8(%rsi), %xmm7
+    \\ movhpd 15 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ addq $16 * 8, %rsi
+    \\ decq %rcx
+    \\ jg 20014b
+    \\ .balign 16
+    \\ 20015:
+    \\ andq $15, %rdi
+    \\ jle 20019f
+    \\ testq $8, %rdi
+    \\ je 20016f
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ movhpd 1 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 2 * 8(%rsi), %xmm5
+    \\ movhpd 3 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movsd 4 * 8(%rsi), %xmm6
+    \\ movhpd 5 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movsd 6 * 8(%rsi), %xmm7
+    \\ movhpd 7 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ addq $8 * 8, %rsi
+    \\ .balign 8
+    \\ 20016:
+    \\ testq $4, %rdi
+    \\ je 20017f
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ movhpd 1 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 2 * 8(%rsi), %xmm5
+    \\ movhpd 3 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ addq $4 * 8, %rsi
+    \\ .balign 8
+    \\ 20017:
+    \\ testq $2, %rdi
+    \\ je 20018f
+    \\ movsd 0 * 8(%rsi), %xmm6
+    \\ movhpd 1 * 8(%rsi), %xmm6
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ addq $2 * 8, %rsi
+    \\ 20018:
+    \\ testq $1, %rdi
+    \\ je 20019f
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ unpcklpd %xmm7, %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ .balign 8
+    \\ 20019:
+    \\ movq %r10, %rsi
+    \\ movq %r11, %rdi
+    \\ maxpd %xmm1, %xmm0
+    \\ maxpd %xmm3, %xmm2
+    \\ maxpd %xmm2, %xmm0
+    \\ movapd %xmm0, %xmm1
+    \\ unpckhpd %xmm0, %xmm0
+    \\ maxsd %xmm1, %xmm0
+    \\ unpcklpd %xmm0, %xmm0
+    \\ movq %rdi, %rcx
+    \\ sarq $3, %rcx
+    \\ jle 20022f
+    \\ .balign 16
+    \\ 20020:
+    \\ .if \bp0
+    \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetch ((128 * 5) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp2
+    \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
+    \\ .endif
+    \\ .if \bp3
+    \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
+    \\ .endif
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movhpd 1 * 8(%rsi), %xmm1
+    \\ andpd %xmm15, %xmm1
+    \\ cmpeqpd %xmm0, %xmm1
+    \\ movsd 2 * 8(%rsi), %xmm3
+    \\ movhpd 3 * 8(%rsi), %xmm3
+    \\ andpd %xmm15, %xmm3
+    \\ cmpeqpd %xmm0, %xmm3
+    \\ movsd 4 * 8(%rsi), %xmm5
+    \\ movhpd 5 * 8(%rsi), %xmm5
+    \\ andpd %xmm15, %xmm5
+    \\ cmpeqpd %xmm0, %xmm5
+    \\ movsd 6 * 8(%rsi), %xmm7
+    \\ movhpd 7 * 8(%rsi), %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ cmpeqpd %xmm0, %xmm7
+    \\ orpd %xmm3, %xmm1
+    \\ orpd %xmm7, %xmm5
+    \\ orpd %xmm5, %xmm1
+    \\ movmskpd %xmm1, %r11
+    \\ testq $3, %r11
+    \\ jne 20021f
+    \\ addq $8 * 8, %rsi
+    \\ addq $8, %rax
+    \\ decq %rcx
+    \\ jg 20020b
+    \\ jmp 20022f
+    \\ .balign 16
+    \\ 20021:
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movsd 1 * 8(%rsi), %xmm2
+    \\ movsd 2 * 8(%rsi), %xmm3
+    \\ movsd 3 * 8(%rsi), %xmm4
+    \\ movsd 4 * 8(%rsi), %xmm5
+    \\ movsd 5 * 8(%rsi), %xmm6
+    \\ movsd 6 * 8(%rsi), %xmm7
+    \\ movsd 7 * 8(%rsi), %xmm8
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ andpd %xmm15, %xmm3
+    \\ andpd %xmm15, %xmm4
+    \\ andpd %xmm15, %xmm5
+    \\ andpd %xmm15, %xmm6
+    \\ andpd %xmm15, %xmm7
+    \\ andpd %xmm15, %xmm8
+    \\ addq $8 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm3
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm4
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm5
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm6
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm7
+    \\ je 20037f
+    \\ incq %rax
+    \\ jmp 20037f
+    \\ .balign 8
+    \\ 20022:
+    \\ testq $4, %rdi
+    \\ je 20023f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movsd 1 * 8(%rsi), %xmm2
+    \\ movsd 2 * 8(%rsi), %xmm3
+    \\ movsd 3 * 8(%rsi), %xmm4
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ andpd %xmm15, %xmm3
+    \\ andpd %xmm15, %xmm4
+    \\ addq $4 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm3
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm4
+    \\ je 20037f
+    \\ .balign 8
+    \\ 20023:
+    \\ testq $2, %rdi
+    \\ je 20024f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ movsd 1 * 8(%rsi), %xmm2
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ addq $2 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ .balign 8
+    \\ 20024:
+    \\ incq %rax
+    \\ jmp 20037f
+    \\ .balign 16
+    \\ 20025:
+    \\ movq %rdi, %rcx
+    \\ sarq $4, %rcx
+    \\ jle 20027f
+    \\ .balign 16
+    \\ 20026:
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movsd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movsd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ decq %rcx
+    \\ jg 20026b
+    \\ .balign 16
+    \\ 20027:
+    \\ andq $15, %rdi
+    \\ jle 20031f
+    \\ testq $8, %rdi
+    \\ je 20028f
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ movsd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ .balign 8
+    \\ 20028:
+    \\ testq $4, %rdi
+    \\ je 20029f
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm4
+    \\ maxpd %xmm4, %xmm0
+    \\ movsd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm5
+    \\ maxpd %xmm5, %xmm1
+    \\ .balign 8
+    \\ 20029:
+    \\ testq $2, %rdi
+    \\ je 20030f
+    \\ movsd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm6
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm6
+    \\ maxpd %xmm6, %xmm2
+    \\ .balign 8
+    \\ 20030:
+    \\ testq $1, %rdi
+    \\ je 20031f
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ unpcklpd %xmm7, %xmm7
+    \\ andpd %xmm15, %xmm7
+    \\ maxpd %xmm7, %xmm3
+    \\ maxpd %xmm1, %xmm0
+    \\ maxpd %xmm3, %xmm2
+    \\ maxpd %xmm2, %xmm0
+    \\ movapd %xmm0, %xmm1
+    \\ unpckhpd %xmm0, %xmm0
+    \\ maxsd %xmm1, %xmm0
+    \\ .balign 16
+    \\ 20031:
+    \\ movq %r10, %rsi
+    \\ movq %r11, %rdi
+    \\ maxpd %xmm1, %xmm0
+    \\ maxpd %xmm3, %xmm2
+    \\ maxpd %xmm2, %xmm0
+    \\ movapd %xmm0, %xmm1
+    \\ unpckhpd %xmm0, %xmm0
+    \\ maxsd %xmm1, %xmm0
+    \\ unpcklpd %xmm0, %xmm0
+    \\ movq %rdi, %rcx
+    \\ sarq $3, %rcx
+    \\ jle 20034f
+    \\ .balign 16
+    \\ 20032:
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm1
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm1
+    \\ cmpeqpd %xmm0, %xmm1
+    \\ movsd 0 * 8(%rsi), %xmm3
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm3
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm3
+    \\ cmpeqpd %xmm0, %xmm3
+    \\ movsd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm5
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm5
+    \\ cmpeqpd %xmm0, %xmm5
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ movhpd 0 * 8(%rsi), %xmm7
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm7
+    \\ cmpeqpd %xmm0, %xmm7
+    \\ orpd %xmm3, %xmm1
+    \\ orpd %xmm7, %xmm5
+    \\ orpd %xmm5, %xmm1
+    \\ movmskpd %xmm1, %r11
+    \\ testq $3, %r11
+    \\ jne 20033f
+    \\ addq $8, %rax
+    \\ decq %rcx
+    \\ jg 20032b
+    \\ jmp 20034f
+    \\ .balign 16
+    \\ 20033:
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm8
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm7
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm6
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm5
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm3
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm2
+    \\ subq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ andpd %xmm15, %xmm3
+    \\ andpd %xmm15, %xmm4
+    \\ andpd %xmm15, %xmm5
+    \\ andpd %xmm15, %xmm6
+    \\ andpd %xmm15, %xmm7
+    \\ andpd %xmm15, %xmm8
+    \\ addq $8 * 8, %rsi
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm3
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm4
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm5
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm6
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm7
+    \\ je 20037f
+    \\ incq %rax
+    \\ jmp 20037f
+    \\ .balign 8
+    \\ 20034:
+    \\ testq $4, %rdi
+    \\ je 20035f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ addq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm2
+    \\ addq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm3
+    \\ addq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm4
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ andpd %xmm15, %xmm3
+    \\ andpd %xmm15, %xmm4
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm3
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm4
+    \\ je 20037f
+    \\ .balign 8
+    \\ 20035:
+    \\ testq $2, %rdi
+    \\ je 20036f
+    \\ movsd 0 * 8(%rsi), %xmm1
+    \\ addq %rdx, %rsi
+    \\ movsd 0 * 8(%rsi), %xmm2
+    \\ addq %rdx, %rsi
+    \\ andpd %xmm15, %xmm1
+    \\ andpd %xmm15, %xmm2
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm1
+    \\ je 20037f
+    \\ incq %rax
+    \\ comisd %xmm0, %xmm2
+    \\ je 20037f
+    \\ .balign 8
+    \\ 20036:
+    \\ incq %rax
+    \\ .balign 8
+    \\ 20037:
+    \\ ret
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn idamax() callconv(.naked) void {
-            asm volatile (
-                \\ .text
-                \\ .balign 512
-                \\ pxor %xmm0, %xmm0
-                \\ xor %rax, %rax
-                \\ testq %rdi, %rdi
-                \\ jle 20037f
-                \\ leaq (, %rdx, 8), %rdx
-                \\ testq %rdx, %rdx
-                \\ jle 20037f
-                \\ movq %rdi, %r11
-                \\ movq %rsi, %r10
-                \\ pcmpeqb %xmm15, %xmm15
-                \\ psrlq $1, %xmm15
-                \\ movsd (%rsi), %xmm0
-                \\ addq %rdx, %rsi
-                \\ decq %rdi
-                \\ andpd %xmm15, %xmm0
-                \\ unpcklpd %xmm0, %xmm0
-                \\ movapd %xmm0, %xmm1
-                \\ movapd %xmm0, %xmm2
-                \\ movapd %xmm0, %xmm3
-                \\ cmpq $8, %rdx
-                \\ jne 20025f
-                \\ cmpq $7, %rdi
-                \\ jle 20013f
-                \\ testq $7, %rsi
-                \\ jne 20013f # Purely Unaligned Mode
-                \\ testq $15, %rsi # Checking for 128bit align
-                \\ je 20000f
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ unpcklpd %xmm4, %xmm4
-                \\ maxpd %xmm4, %xmm3
-                \\ decq %rdi
-                \\ addq $8, %rsi
-                \\ .balign 8
-                \\ 20000:
-                \\ movq %rdi, %rcx
-                \\ sarq $4, %rcx
-                \\ jle 20002f
-                \\ .balign 16
-                \\ 20001:
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ movapd 0 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movapd 2 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movapd 4 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movapd 6 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ movapd 8 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movapd 10 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movapd 12 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movapd 14 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ addq $16 * 8, %rsi
-                \\ decq %rcx
-                \\ jg 20001b
-                \\ .balign 16
-                \\ 20002:
-                \\ andq $15, %rdi
-                \\ jle 20006f
-                \\ testq $8, %rdi
-                \\ je 20003f
-                \\ movapd 0 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movapd 2 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movapd 4 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movapd 6 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ addq $8 * 8, %rsi
-                \\ .balign 8
-                \\ 20003:
-                \\ testq $4, %rdi
-                \\ je 20004f
-                \\ movapd 0 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movapd 2 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ addq $4 * 8, %rsi
-                \\ .balign 8
-                \\ 20004:
-                \\ testq $2, %rdi
-                \\ je 20005f
-                \\ movapd 0 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ addq $2 * 8, %rsi
-                \\ 20005:
-                \\ testq $1, %rdi
-                \\ je 20006f
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ unpcklpd %xmm7, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ .balign 8
-                \\ 20006:
-                \\ movq %r10, %rsi
-                \\ movq %r11, %rdi
-                \\ maxpd %xmm1, %xmm0
-                \\ maxpd %xmm3, %xmm2
-                \\ maxpd %xmm2, %xmm0
-                \\ movapd %xmm0, %xmm1
-                \\ unpckhpd %xmm0, %xmm0
-                \\ maxsd %xmm1, %xmm0
-                \\ unpcklpd %xmm0, %xmm0
-                \\ .balign 8
-                \\ testq $15, %rsi # Checking for 128bit align
-                \\ je 20007f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ andpd %xmm15, %xmm1
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ addq $8, %rsi
-                \\ decq %rdi
-                \\ .balign 8
-                \\ 20007:
-                \\ movq %rdi, %rcx
-                \\ sarq $3, %rcx
-                \\ jle 20010f
-                \\ .balign 16
-                \\ 20008:
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ movapd 0 * 8(%rsi), %xmm1
-                \\ andpd %xmm15, %xmm1
-                \\ cmpeqpd %xmm0, %xmm1
-                \\ movapd 2 * 8(%rsi), %xmm3
-                \\ andpd %xmm15, %xmm3
-                \\ cmpeqpd %xmm0, %xmm3
-                \\ movapd 4 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ cmpeqpd %xmm0, %xmm5
-                \\ movapd 6 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ cmpeqpd %xmm0, %xmm7
-                \\ orpd %xmm3, %xmm1
-                \\ orpd %xmm7, %xmm5
-                \\ orpd %xmm5, %xmm1
-                \\ movmskpd %xmm1, %r11
-                \\ testq $3, %r11
-                \\ jne 20009f
-                \\ addq $8 * 8, %rsi
-                \\ addq $8, %rax
-                \\ decq %rcx
-                \\ jg 20008b
-                \\ jmp 20010f
-                \\ .balign 16
-                \\ 20009:
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movsd 1 * 8(%rsi), %xmm2
-                \\ movsd 2 * 8(%rsi), %xmm3
-                \\ movsd 3 * 8(%rsi), %xmm4
-                \\ movsd 4 * 8(%rsi), %xmm5
-                \\ movsd 5 * 8(%rsi), %xmm6
-                \\ movsd 6 * 8(%rsi), %xmm7
-                \\ movsd 7 * 8(%rsi), %xmm8
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ andpd %xmm15, %xmm3
-                \\ andpd %xmm15, %xmm4
-                \\ andpd %xmm15, %xmm5
-                \\ andpd %xmm15, %xmm6
-                \\ andpd %xmm15, %xmm7
-                \\ andpd %xmm15, %xmm8
-                \\ addq $8 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm3
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm4
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm5
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm6
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm7
-                \\ je 20037f
-                \\ incq %rax
-                \\ jmp 20037f
-                \\ .balign 8
-                \\ 20010:
-                \\ testq $4, %rdi
-                \\ je 20011f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movsd 1 * 8(%rsi), %xmm2
-                \\ movsd 2 * 8(%rsi), %xmm3
-                \\ movsd 3 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ andpd %xmm15, %xmm3
-                \\ andpd %xmm15, %xmm4
-                \\ addq $4 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm3
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm4
-                \\ je 20037f
-                \\ .balign 8
-                \\ 20011:
-                \\ testq $2, %rdi
-                \\ je 20012f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movsd 1 * 8(%rsi), %xmm2
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ addq $2 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ .balign 8
-                \\ 20012:
-                \\ incq %rax
-                \\ jmp 20037f
-                \\ .balign 8
-                \\ 20013:
-                \\ movq %rdi, %rcx
-                \\ sarq $4, %rcx
-                \\ jle 20015f
-                \\ .balign 16
-                \\ 20014:
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ movhpd 1 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 2 * 8(%rsi), %xmm5
-                \\ movhpd 3 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movsd 4 * 8(%rsi), %xmm6
-                \\ movhpd 5 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movsd 6 * 8(%rsi), %xmm7
-                \\ movhpd 7 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 64) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ movsd 8 * 8(%rsi), %xmm4
-                \\ movhpd 9 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 10 * 8(%rsi), %xmm5
-                \\ movhpd 11 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movsd 12 * 8(%rsi), %xmm6
-                \\ movhpd 13 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movsd 14 * 8(%rsi), %xmm7
-                \\ movhpd 15 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ addq $16 * 8, %rsi
-                \\ decq %rcx
-                \\ jg 20014b
-                \\ .balign 16
-                \\ 20015:
-                \\ andq $15, %rdi
-                \\ jle 20019f
-                \\ testq $8, %rdi
-                \\ je 20016f
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ movhpd 1 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 2 * 8(%rsi), %xmm5
-                \\ movhpd 3 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movsd 4 * 8(%rsi), %xmm6
-                \\ movhpd 5 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movsd 6 * 8(%rsi), %xmm7
-                \\ movhpd 7 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ addq $8 * 8, %rsi
-                \\ .balign 8
-                \\ 20016:
-                \\ testq $4, %rdi
-                \\ je 20017f
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ movhpd 1 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 2 * 8(%rsi), %xmm5
-                \\ movhpd 3 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ addq $4 * 8, %rsi
-                \\ .balign 8
-                \\ 20017:
-                \\ testq $2, %rdi
-                \\ je 20018f
-                \\ movsd 0 * 8(%rsi), %xmm6
-                \\ movhpd 1 * 8(%rsi), %xmm6
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ addq $2 * 8, %rsi
-                \\ 20018:
-                \\ testq $1, %rdi
-                \\ je 20019f
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ unpcklpd %xmm7, %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ .balign 8
-                \\ 20019:
-                \\ movq %r10, %rsi
-                \\ movq %r11, %rdi
-                \\ maxpd %xmm1, %xmm0
-                \\ maxpd %xmm3, %xmm2
-                \\ maxpd %xmm2, %xmm0
-                \\ movapd %xmm0, %xmm1
-                \\ unpckhpd %xmm0, %xmm0
-                \\ maxsd %xmm1, %xmm0
-                \\ unpcklpd %xmm0, %xmm0
-                \\ movq %rdi, %rcx
-                \\ sarq $3, %rcx
-                \\ jle 20022f
-                \\ .balign 16
-                \\ 20020:
-                \\
-            ++ (if (on[0])
-                \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ prefetch ((128 * 5) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[2])
-                \\ prefetcht0 ((128 * 4) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++ (if (on[3])
-                \\ prefetcht0 ((128 * 12) + 0) - 128(%rsi)
-                \\
-            else
-                "") ++
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movhpd 1 * 8(%rsi), %xmm1
-                \\ andpd %xmm15, %xmm1
-                \\ cmpeqpd %xmm0, %xmm1
-                \\ movsd 2 * 8(%rsi), %xmm3
-                \\ movhpd 3 * 8(%rsi), %xmm3
-                \\ andpd %xmm15, %xmm3
-                \\ cmpeqpd %xmm0, %xmm3
-                \\ movsd 4 * 8(%rsi), %xmm5
-                \\ movhpd 5 * 8(%rsi), %xmm5
-                \\ andpd %xmm15, %xmm5
-                \\ cmpeqpd %xmm0, %xmm5
-                \\ movsd 6 * 8(%rsi), %xmm7
-                \\ movhpd 7 * 8(%rsi), %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ cmpeqpd %xmm0, %xmm7
-                \\ orpd %xmm3, %xmm1
-                \\ orpd %xmm7, %xmm5
-                \\ orpd %xmm5, %xmm1
-                \\ movmskpd %xmm1, %r11
-                \\ testq $3, %r11
-                \\ jne 20021f
-                \\ addq $8 * 8, %rsi
-                \\ addq $8, %rax
-                \\ decq %rcx
-                \\ jg 20020b
-                \\ jmp 20022f
-                \\ .balign 16
-                \\ 20021:
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movsd 1 * 8(%rsi), %xmm2
-                \\ movsd 2 * 8(%rsi), %xmm3
-                \\ movsd 3 * 8(%rsi), %xmm4
-                \\ movsd 4 * 8(%rsi), %xmm5
-                \\ movsd 5 * 8(%rsi), %xmm6
-                \\ movsd 6 * 8(%rsi), %xmm7
-                \\ movsd 7 * 8(%rsi), %xmm8
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ andpd %xmm15, %xmm3
-                \\ andpd %xmm15, %xmm4
-                \\ andpd %xmm15, %xmm5
-                \\ andpd %xmm15, %xmm6
-                \\ andpd %xmm15, %xmm7
-                \\ andpd %xmm15, %xmm8
-                \\ addq $8 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm3
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm4
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm5
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm6
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm7
-                \\ je 20037f
-                \\ incq %rax
-                \\ jmp 20037f
-                \\ .balign 8
-                \\ 20022:
-                \\ testq $4, %rdi
-                \\ je 20023f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movsd 1 * 8(%rsi), %xmm2
-                \\ movsd 2 * 8(%rsi), %xmm3
-                \\ movsd 3 * 8(%rsi), %xmm4
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ andpd %xmm15, %xmm3
-                \\ andpd %xmm15, %xmm4
-                \\ addq $4 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm3
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm4
-                \\ je 20037f
-                \\ .balign 8
-                \\ 20023:
-                \\ testq $2, %rdi
-                \\ je 20024f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ movsd 1 * 8(%rsi), %xmm2
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ addq $2 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ .balign 8
-                \\ 20024:
-                \\ incq %rax
-                \\ jmp 20037f
-                \\ .balign 16
-                \\ 20025:
-                \\ movq %rdi, %rcx
-                \\ sarq $4, %rcx
-                \\ jle 20027f
-                \\ .balign 16
-                \\ 20026:
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movsd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movsd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ decq %rcx
-                \\ jg 20026b
-                \\ .balign 16
-                \\ 20027:
-                \\ andq $15, %rdi
-                \\ jle 20031f
-                \\ testq $8, %rdi
-                \\ je 20028f
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ movsd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ .balign 8
-                \\ 20028:
-                \\ testq $4, %rdi
-                \\ je 20029f
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm4
-                \\ maxpd %xmm4, %xmm0
-                \\ movsd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm5
-                \\ maxpd %xmm5, %xmm1
-                \\ .balign 8
-                \\ 20029:
-                \\ testq $2, %rdi
-                \\ je 20030f
-                \\ movsd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm6
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm6
-                \\ maxpd %xmm6, %xmm2
-                \\ .balign 8
-                \\ 20030:
-                \\ testq $1, %rdi
-                \\ je 20031f
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ unpcklpd %xmm7, %xmm7
-                \\ andpd %xmm15, %xmm7
-                \\ maxpd %xmm7, %xmm3
-                \\ maxpd %xmm1, %xmm0
-                \\ maxpd %xmm3, %xmm2
-                \\ maxpd %xmm2, %xmm0
-                \\ movapd %xmm0, %xmm1
-                \\ unpckhpd %xmm0, %xmm0
-                \\ maxsd %xmm1, %xmm0
-                \\ .balign 16
-                \\ 20031:
-                \\ movq %r10, %rsi
-                \\ movq %r11, %rdi
-                \\ maxpd %xmm1, %xmm0
-                \\ maxpd %xmm3, %xmm2
-                \\ maxpd %xmm2, %xmm0
-                \\ movapd %xmm0, %xmm1
-                \\ unpckhpd %xmm0, %xmm0
-                \\ maxsd %xmm1, %xmm0
-                \\ unpcklpd %xmm0, %xmm0
-                \\ movq %rdi, %rcx
-                \\ sarq $3, %rcx
-                \\ jle 20034f
-                \\ .balign 16
-                \\ 20032:
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm1
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm1
-                \\ cmpeqpd %xmm0, %xmm1
-                \\ movsd 0 * 8(%rsi), %xmm3
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm3
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm3
-                \\ cmpeqpd %xmm0, %xmm3
-                \\ movsd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm5
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm5
-                \\ cmpeqpd %xmm0, %xmm5
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ movhpd 0 * 8(%rsi), %xmm7
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm7
-                \\ cmpeqpd %xmm0, %xmm7
-                \\ orpd %xmm3, %xmm1
-                \\ orpd %xmm7, %xmm5
-                \\ orpd %xmm5, %xmm1
-                \\ movmskpd %xmm1, %r11
-                \\ testq $3, %r11
-                \\ jne 20033f
-                \\ addq $8, %rax
-                \\ decq %rcx
-                \\ jg 20032b
-                \\ jmp 20034f
-                \\ .balign 16
-                \\ 20033:
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm8
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm7
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm6
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm5
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm3
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm2
-                \\ subq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ andpd %xmm15, %xmm3
-                \\ andpd %xmm15, %xmm4
-                \\ andpd %xmm15, %xmm5
-                \\ andpd %xmm15, %xmm6
-                \\ andpd %xmm15, %xmm7
-                \\ andpd %xmm15, %xmm8
-                \\ addq $8 * 8, %rsi
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm3
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm4
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm5
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm6
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm7
-                \\ je 20037f
-                \\ incq %rax
-                \\ jmp 20037f
-                \\ .balign 8
-                \\ 20034:
-                \\ testq $4, %rdi
-                \\ je 20035f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ addq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm2
-                \\ addq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm3
-                \\ addq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm4
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ andpd %xmm15, %xmm3
-                \\ andpd %xmm15, %xmm4
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm3
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm4
-                \\ je 20037f
-                \\ .balign 8
-                \\ 20035:
-                \\ testq $2, %rdi
-                \\ je 20036f
-                \\ movsd 0 * 8(%rsi), %xmm1
-                \\ addq %rdx, %rsi
-                \\ movsd 0 * 8(%rsi), %xmm2
-                \\ addq %rdx, %rsi
-                \\ andpd %xmm15, %xmm1
-                \\ andpd %xmm15, %xmm2
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm1
-                \\ je 20037f
-                \\ incq %rax
-                \\ comisd %xmm0, %xmm2
-                \\ je 20037f
-                \\ .balign 8
-                \\ 20036:
-                \\ incq %rax
-                \\ .balign 8
-                \\ 20037:
-                \\ ret
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

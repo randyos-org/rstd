@@ -14,12 +14,12 @@ const keys = [_][2][]const u8{
     .{ "sparcv7", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ true, false },
-    .{ false, true },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "1, 0",
+    "0, 1",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -36,326 +36,326 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 32
+    \\ .proc 07
+    \\ .if \bp0
+    \\ save %sp, -64, %sp
+    \\ .endif
+    \\ .if \bp1
+    \\ save %sp, -256, %sp
+    \\ .endif
+    \\ .word ((2 << 30) | ((0) << 25) | ( 0x36 << 19) | ( 0x60 << 5))
+    \\ cmp %i0, 0
+    \\ ble 20005f
+    \\ clr %o0
+    \\ cmp %i2, 0
+    \\ ble 20005f
+    \\ sll %i2, 3, %i2
+    \\ mov 1, %o0
+    \\ add %i0, -1, %i0
+    \\ ldd [%i1], %f6
+    \\ add %i1, %i2, %i1
+    \\ cmp %i0, 0
+    \\ ble 20005f
+    \\ fabsd %f6, %f0
+    \\ fabsd %f6, %f2
+    \\ mov 1, %o1
+    \\ fabsd %f6, %f4
+    \\ mov 1, %o2
+    \\ fabsd %f6, %f6
+    \\ mov 1, %o3
+    \\ mov 2, %o4
+    \\ cmp %i2, 8
+    \\ bne 20006f
+    \\ nop
+    \\ sra %i0, 3, %i3
+    \\ cmp %i3, 0
+    \\ ble,pn %icc, 20002f
+    \\ nop
+    \\ ldd [%i1 + 0 * 8], %f16
+    \\ ldd [%i1 + 1 * 8], %f18
+    \\ ldd [%i1 + 2 * 8], %f20
+    \\ ldd [%i1 + 3 * 8], %f22
+    \\ ldd [%i1 + 4 * 8], %f24
+    \\ add %i3, -1, %i3
+    \\ ldd [%i1 + 5 * 8], %f26
+    \\ cmp %i3, 0
+    \\ ldd [%i1 + 6 * 8], %f28
+    \\ ldd [%i1 + 7 * 8], %f30
+    \\ ble,pt %icc, 20001f
+    \\ add %i1, 8 * 8, %i1
+    \\ 20000:
+    \\ fabsd %f16, %f8
+    \\ prefetch [%i1 + 40 * 8], 0
+    \\ fabsd %f18, %f10
+    \\ ldd [%i1 + 0 * 8], %f16
+    \\ fabsd %f20, %f12
+    \\ ldd [%i1 + 1 * 8], %f18
+    \\ fabsd %f22, %f14
+    \\ ldd [%i1 + 2 * 8], %f20
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ ldd [%i1 + 3 * 8], %f22
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ nop
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ fabsd %f24, %f8
+    \\ ldd [%i1 + 4 * 8], %f24
+    \\ fabsd %f26, %f10
+    \\ ldd [%i1 + 5 * 8], %f26
+    \\ fabsd %f28, %f12
+    \\ ldd [%i1 + 6 * 8], %f28
+    \\ fabsd %f30, %f14
+    \\ ldd [%i1 + 7 * 8], %f30
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ nop
+    \\ movg %fcc0, %o4, %o0
+    \\ add %i3, -1, %i3
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ cmp %i3, 0
+    \\ movg %fcc1, %o4, %o1
+    \\ add %i1, 8 * 8, %i1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ bg,pt %icc, 20000b
+    \\ add %o4, 4, %o4
+    \\ 20001:
+    \\ fabsd %f16, %f8
+    \\ fabsd %f18, %f10
+    \\ fabsd %f20, %f12
+    \\ fabsd %f22, %f14
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ fabsd %f24, %f8
+    \\ fabsd %f26, %f10
+    \\ fabsd %f28, %f12
+    \\ fabsd %f30, %f14
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ 20002:
+    \\ and %i0, 7, %i3
+    \\ cmp %i3, 0
+    \\ ble,a,pn %icc, 20004f
+    \\ nop
+    \\ 20003:
+    \\ ldd [%i1 + 0 * 8], %f16
+    \\ fabsd %f16, %f8
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %i3, -1, %i3
+    \\ add %o4, 1, %o4
+    \\ cmp %i3, 0
+    \\ bg,pt %icc, 20003b
+    \\ add %i1, 1 * 8, %i1
+    \\ 20004:
+    \\ fcmpd %fcc0, %f2, %f0
+    \\ add %o1, 1, %o1
+    \\ fcmpd %fcc1, %f6, %f4
+    \\ add %o2, 2, %o2
+    \\ add %o3, 3, %o3
+    \\ fmovdg %fcc0, %f2, %f0
+    \\ movg %fcc0, %o1, %o0
+    \\ fmovdg %fcc1, %f6, %f4
+    \\ movg %fcc1, %o3, %o2
+    \\ fcmpd %fcc0, %f4, %f0
+    \\ movg %fcc0, %o2, %o0
+    \\ 20005:
+    \\ mov %o0, %i0
+    \\ return %i7 + 8
+    \\ nop
+    \\ 20006:
+    \\ sra %i0, 3, %i3
+    \\ cmp %i3, 0
+    \\ ble,pn %icc, 20009f
+    \\ nop
+    \\ ldd [%i1 + 0 * 8], %f16
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f18
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f20
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f22
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f24
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f26
+    \\ add %i1, %i2, %i1
+    \\ add %i3, -1, %i3
+    \\ ldd [%i1 + 0 * 8], %f28
+    \\ cmp %i3, 0
+    \\ add %i1, %i2, %i1
+    \\ ldd [%i1 + 0 * 8], %f30
+    \\ ble,pt %icc, 20008f
+    \\ add %i1, %i2, %i1
+    \\ 20007:
+    \\ fabsd %f16, %f8
+    \\ ldd [%i1 + 0 * 8], %f16
+    \\ add %i1, %i2, %i1
+    \\ fabsd %f18, %f10
+    \\ ldd [%i1 + 0 * 8], %f18
+    \\ add %i1, %i2, %i1
+    \\ fabsd %f20, %f12
+    \\ ldd [%i1 + 0 * 8], %f20
+    \\ add %i1, %i2, %i1
+    \\ fabsd %f22, %f14
+    \\ ldd [%i1 + 0 * 8], %f22
+    \\ add %i1, %i2, %i1
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ fabsd %f24, %f8
+    \\ ldd [%i1 + 0 * 8], %f24
+    \\ add %i1, %i2, %i1
+    \\ fabsd %f26, %f10
+    \\ ldd [%i1 + 0 * 8], %f26
+    \\ add %i1, %i2, %i1
+    \\ fabsd %f28, %f12
+    \\ ldd [%i1 + 0 * 8], %f28
+    \\ add %i1, %i2, %i1
+    \\ fabsd %f30, %f14
+    \\ ldd [%i1 + 0 * 8], %f30
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %i3, -1, %i3
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ cmp %i3, 0
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ bg,pt %icc, 20007b
+    \\ add %i1, %i2, %i1
+    \\ 20008:
+    \\ fabsd %f16, %f8
+    \\ fabsd %f18, %f10
+    \\ fabsd %f20, %f12
+    \\ fabsd %f22, %f14
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ fabsd %f24, %f8
+    \\ fabsd %f26, %f10
+    \\ fabsd %f28, %f12
+    \\ fabsd %f30, %f14
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fcmpd %fcc1, %f10, %f2
+    \\ fcmpd %fcc2, %f12, %f4
+    \\ fcmpd %fcc3, %f14, %f6
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovdg %fcc1, %f10, %f2
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovdg %fcc2, %f12, %f4
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovdg %fcc3, %f14, %f6
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ 20009:
+    \\ and %i0, 7, %i3
+    \\ cmp %i3, 0
+    \\ ble,a,pn %icc, 20011f
+    \\ nop
+    \\ 20010:
+    \\ ldd [%i1 + 0 * 8], %f16
+    \\ fabsd %f16, %f8
+    \\ fcmpd %fcc0, %f8, %f0
+    \\ fmovdg %fcc0, %f8, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %i3, -1, %i3
+    \\ add %o4, 1, %o4
+    \\ cmp %i3, 0
+    \\ bg,pt %icc, 20010b
+    \\ add %i1, %i2, %i1
+    \\ 20011:
+    \\ fcmpd %fcc0, %f2, %f0
+    \\ add %o1, 1, %o1
+    \\ fcmpd %fcc1, %f6, %f4
+    \\ add %o2, 2, %o2
+    \\ add %o3, 3, %o3
+    \\ fmovdg %fcc0, %f2, %f0
+    \\ movg %fcc0, %o1, %o0
+    \\ fmovdg %fcc1, %f6, %f4
+    \\ movg %fcc1, %o3, %o2
+    \\ fcmpd %fcc0, %f4, %f0
+    \\ movg %fcc0, %o2, %o0
+    \\ mov %o0, %i0
+    \\ return %i7 + 8
+    \\ nop
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn idamax() callconv(.naked) void {
-            asm volatile (
-                \\ .section ".text"
-                \\ .align 32
-                \\ .proc 07
-                \\
-            ++ (if (on[0])
-                \\ save %sp, -64, %sp
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ save %sp, -256, %sp
-                \\
-            else
-                "") ++
-                \\ .word ((2 << 30) | ((0) << 25) | ( 0x36 << 19) | ( 0x60 << 5))
-                \\ cmp %i0, 0
-                \\ ble 20005f
-                \\ clr %o0
-                \\ cmp %i2, 0
-                \\ ble 20005f
-                \\ sll %i2, 3, %i2
-                \\ mov 1, %o0
-                \\ add %i0, -1, %i0
-                \\ ldd [%i1], %f6
-                \\ add %i1, %i2, %i1
-                \\ cmp %i0, 0
-                \\ ble 20005f
-                \\ fabsd %f6, %f0
-                \\ fabsd %f6, %f2
-                \\ mov 1, %o1
-                \\ fabsd %f6, %f4
-                \\ mov 1, %o2
-                \\ fabsd %f6, %f6
-                \\ mov 1, %o3
-                \\ mov 2, %o4
-                \\ cmp %i2, 8
-                \\ bne 20006f
-                \\ nop
-                \\ sra %i0, 3, %i3
-                \\ cmp %i3, 0
-                \\ ble,pn %icc, 20002f
-                \\ nop
-                \\ ldd [%i1 + 0 * 8], %f16
-                \\ ldd [%i1 + 1 * 8], %f18
-                \\ ldd [%i1 + 2 * 8], %f20
-                \\ ldd [%i1 + 3 * 8], %f22
-                \\ ldd [%i1 + 4 * 8], %f24
-                \\ add %i3, -1, %i3
-                \\ ldd [%i1 + 5 * 8], %f26
-                \\ cmp %i3, 0
-                \\ ldd [%i1 + 6 * 8], %f28
-                \\ ldd [%i1 + 7 * 8], %f30
-                \\ ble,pt %icc, 20001f
-                \\ add %i1, 8 * 8, %i1
-                \\ 20000:
-                \\ fabsd %f16, %f8
-                \\ prefetch [%i1 + 40 * 8], 0
-                \\ fabsd %f18, %f10
-                \\ ldd [%i1 + 0 * 8], %f16
-                \\ fabsd %f20, %f12
-                \\ ldd [%i1 + 1 * 8], %f18
-                \\ fabsd %f22, %f14
-                \\ ldd [%i1 + 2 * 8], %f20
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ ldd [%i1 + 3 * 8], %f22
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ nop
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ fabsd %f24, %f8
-                \\ ldd [%i1 + 4 * 8], %f24
-                \\ fabsd %f26, %f10
-                \\ ldd [%i1 + 5 * 8], %f26
-                \\ fabsd %f28, %f12
-                \\ ldd [%i1 + 6 * 8], %f28
-                \\ fabsd %f30, %f14
-                \\ ldd [%i1 + 7 * 8], %f30
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ nop
-                \\ movg %fcc0, %o4, %o0
-                \\ add %i3, -1, %i3
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ cmp %i3, 0
-                \\ movg %fcc1, %o4, %o1
-                \\ add %i1, 8 * 8, %i1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ bg,pt %icc, 20000b
-                \\ add %o4, 4, %o4
-                \\ 20001:
-                \\ fabsd %f16, %f8
-                \\ fabsd %f18, %f10
-                \\ fabsd %f20, %f12
-                \\ fabsd %f22, %f14
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ fabsd %f24, %f8
-                \\ fabsd %f26, %f10
-                \\ fabsd %f28, %f12
-                \\ fabsd %f30, %f14
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ 20002:
-                \\ and %i0, 7, %i3
-                \\ cmp %i3, 0
-                \\ ble,a,pn %icc, 20004f
-                \\ nop
-                \\ 20003:
-                \\ ldd [%i1 + 0 * 8], %f16
-                \\ fabsd %f16, %f8
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %i3, -1, %i3
-                \\ add %o4, 1, %o4
-                \\ cmp %i3, 0
-                \\ bg,pt %icc, 20003b
-                \\ add %i1, 1 * 8, %i1
-                \\ 20004:
-                \\ fcmpd %fcc0, %f2, %f0
-                \\ add %o1, 1, %o1
-                \\ fcmpd %fcc1, %f6, %f4
-                \\ add %o2, 2, %o2
-                \\ add %o3, 3, %o3
-                \\ fmovdg %fcc0, %f2, %f0
-                \\ movg %fcc0, %o1, %o0
-                \\ fmovdg %fcc1, %f6, %f4
-                \\ movg %fcc1, %o3, %o2
-                \\ fcmpd %fcc0, %f4, %f0
-                \\ movg %fcc0, %o2, %o0
-                \\ 20005:
-                \\ mov %o0, %i0
-                \\ return %i7 + 8
-                \\ nop
-                \\ 20006:
-                \\ sra %i0, 3, %i3
-                \\ cmp %i3, 0
-                \\ ble,pn %icc, 20009f
-                \\ nop
-                \\ ldd [%i1 + 0 * 8], %f16
-                \\ add %i1, %i2, %i1
-                \\ ldd [%i1 + 0 * 8], %f18
-                \\ add %i1, %i2, %i1
-                \\ ldd [%i1 + 0 * 8], %f20
-                \\ add %i1, %i2, %i1
-                \\ ldd [%i1 + 0 * 8], %f22
-                \\ add %i1, %i2, %i1
-                \\ ldd [%i1 + 0 * 8], %f24
-                \\ add %i1, %i2, %i1
-                \\ ldd [%i1 + 0 * 8], %f26
-                \\ add %i1, %i2, %i1
-                \\ add %i3, -1, %i3
-                \\ ldd [%i1 + 0 * 8], %f28
-                \\ cmp %i3, 0
-                \\ add %i1, %i2, %i1
-                \\ ldd [%i1 + 0 * 8], %f30
-                \\ ble,pt %icc, 20008f
-                \\ add %i1, %i2, %i1
-                \\ 20007:
-                \\ fabsd %f16, %f8
-                \\ ldd [%i1 + 0 * 8], %f16
-                \\ add %i1, %i2, %i1
-                \\ fabsd %f18, %f10
-                \\ ldd [%i1 + 0 * 8], %f18
-                \\ add %i1, %i2, %i1
-                \\ fabsd %f20, %f12
-                \\ ldd [%i1 + 0 * 8], %f20
-                \\ add %i1, %i2, %i1
-                \\ fabsd %f22, %f14
-                \\ ldd [%i1 + 0 * 8], %f22
-                \\ add %i1, %i2, %i1
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ fabsd %f24, %f8
-                \\ ldd [%i1 + 0 * 8], %f24
-                \\ add %i1, %i2, %i1
-                \\ fabsd %f26, %f10
-                \\ ldd [%i1 + 0 * 8], %f26
-                \\ add %i1, %i2, %i1
-                \\ fabsd %f28, %f12
-                \\ ldd [%i1 + 0 * 8], %f28
-                \\ add %i1, %i2, %i1
-                \\ fabsd %f30, %f14
-                \\ ldd [%i1 + 0 * 8], %f30
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %i3, -1, %i3
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ cmp %i3, 0
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ bg,pt %icc, 20007b
-                \\ add %i1, %i2, %i1
-                \\ 20008:
-                \\ fabsd %f16, %f8
-                \\ fabsd %f18, %f10
-                \\ fabsd %f20, %f12
-                \\ fabsd %f22, %f14
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ fabsd %f24, %f8
-                \\ fabsd %f26, %f10
-                \\ fabsd %f28, %f12
-                \\ fabsd %f30, %f14
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fcmpd %fcc1, %f10, %f2
-                \\ fcmpd %fcc2, %f12, %f4
-                \\ fcmpd %fcc3, %f14, %f6
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovdg %fcc1, %f10, %f2
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovdg %fcc2, %f12, %f4
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovdg %fcc3, %f14, %f6
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ 20009:
-                \\ and %i0, 7, %i3
-                \\ cmp %i3, 0
-                \\ ble,a,pn %icc, 20011f
-                \\ nop
-                \\ 20010:
-                \\ ldd [%i1 + 0 * 8], %f16
-                \\ fabsd %f16, %f8
-                \\ fcmpd %fcc0, %f8, %f0
-                \\ fmovdg %fcc0, %f8, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %i3, -1, %i3
-                \\ add %o4, 1, %o4
-                \\ cmp %i3, 0
-                \\ bg,pt %icc, 20010b
-                \\ add %i1, %i2, %i1
-                \\ 20011:
-                \\ fcmpd %fcc0, %f2, %f0
-                \\ add %o1, 1, %o1
-                \\ fcmpd %fcc1, %f6, %f4
-                \\ add %o2, 2, %o2
-                \\ add %o3, 3, %o3
-                \\ fmovdg %fcc0, %f2, %f0
-                \\ movg %fcc0, %o1, %o0
-                \\ fmovdg %fcc1, %f6, %f4
-                \\ movg %fcc1, %o3, %o2
-                \\ fcmpd %fcc0, %f4, %f0
-                \\ movg %fcc0, %o2, %o0
-                \\ mov %o0, %i0
-                \\ return %i7 + 8
-                \\ nop
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }

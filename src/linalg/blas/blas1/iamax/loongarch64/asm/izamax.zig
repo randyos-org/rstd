@@ -28,7 +28,6 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 const Body = struct {
     pub fn izamax() callconv(.naked) void {
         asm volatile (
-            \\ .text
             \\ .align 5
             \\ li.d $r17, 0
             \\ bge $r0, $r4, 20005f

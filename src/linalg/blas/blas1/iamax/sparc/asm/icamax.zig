@@ -14,12 +14,12 @@ const keys = [_][2][]const u8{
     .{ "sparcv7", "64" },
 };
 
-/// Which parts each key's function has.
-const parts = [_][2]bool{
-    .{ true, false },
-    .{ true, false },
-    .{ false, true },
-    .{ false, true },
+/// Which parts each key's function has: `__bk`'s arguments.
+const parts = [_][]const u8{
+    "1, 0",
+    "1, 0",
+    "0, 1",
+    "0, 1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -36,289 +36,289 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
     return null;
 }
 
-fn Body(comptime on: [2]bool) type {
+/// The functions' one text, a macro whose parameters select the parts.
+const text =
+    \\ .macro __bk bp0, bp1
+    \\ .align 32
+    \\ .proc 07
+    \\ .if \bp0
+    \\ save %sp, -64, %sp
+    \\ .endif
+    \\ .if \bp1
+    \\ save %sp, -256, %sp
+    \\ .endif
+    \\ .word ((2 << 30) | ((0) << 25) | ( 0x36 << 19) | ( 0x61 << 5))
+    \\ cmp %i0, 0
+    \\ ble 20005f
+    \\ clr %o0
+    \\ cmp %i2, 0
+    \\ ble 20005f
+    \\ sll %i2, 3, %i2
+    \\ mov 1, %o0
+    \\ ld [%i1 + 0 * 4], %f0
+    \\ ld [%i1 + 1 * 4], %f1
+    \\ add %i0, -1, %i0
+    \\ fabss %f0, %f0
+    \\ add %i1, %i2, %i1
+    \\ fabss %f1, %f1
+    \\ cmp %i0, 0
+    \\ ble 20005f
+    \\ fadds %f0, %f1, %f0
+    \\ fmovs %f0, %f1
+    \\ mov 1, %o1
+    \\ fmovs %f0, %f2
+    \\ mov 1, %o2
+    \\ fmovs %f0, %f3
+    \\ mov 1, %o3
+    \\ mov 2, %o4
+    \\ cmp %i2, 2 * 4
+    \\ bne 20006f
+    \\ nop
+    \\ sra %i0, 2, %i3
+    \\ cmp %i3, 0
+    \\ ble,pn %icc, 20002f
+    \\ nop
+    \\ ld [%i1 + 0 * 4], %f12
+    \\ ld [%i1 + 1 * 4], %f13
+    \\ ld [%i1 + 2 * 4], %f14
+    \\ ld [%i1 + 3 * 4], %f15
+    \\ ld [%i1 + 4 * 4], %f16
+    \\ add %i3, -1, %i3
+    \\ ld [%i1 + 5 * 4], %f17
+    \\ cmp %i3, 0
+    \\ ld [%i1 + 6 * 4], %f18
+    \\ ld [%i1 + 7 * 4], %f19
+    \\ ble,pt %icc, 20001f
+    \\ add %i1, 8 * 4, %i1
+    \\ 20000:
+    \\ prefetch [%i1 + 32 * 4], 0
+    \\ fabss %f12, %f4
+    \\ ld [%i1 + 0 * 4], %f12
+    \\ fabss %f13, %f5
+    \\ ld [%i1 + 1 * 4], %f13
+    \\ fabss %f14, %f6
+    \\ ld [%i1 + 2 * 4], %f14
+    \\ fabss %f15, %f7
+    \\ ld [%i1 + 3 * 4], %f15
+    \\ fabss %f16, %f8
+    \\ ld [%i1 + 4 * 4], %f16
+    \\ fabss %f17, %f9
+    \\ ld [%i1 + 5 * 4], %f17
+    \\ fabss %f18, %f10
+    \\ ld [%i1 + 6 * 4], %f18
+    \\ fabss %f19, %f11
+    \\ ld [%i1 + 7 * 4], %f19
+    \\ fadds %f4, %f5, %f4
+    \\ fadds %f6, %f7, %f6
+    \\ fadds %f8, %f9, %f8
+    \\ fadds %f10, %f11, %f10
+    \\ fcmps %fcc0, %f4, %f0
+    \\ fcmps %fcc1, %f6, %f1
+    \\ fcmps %fcc2, %f8, %f2
+    \\ fcmps %fcc3, %f10, %f3
+    \\ fmovsg %fcc0, %f4, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %i3, -1, %i3
+    \\ fmovsg %fcc1, %f6, %f1
+    \\ movg %fcc1, %o4, %o1
+    \\ cmp %i3, 0
+    \\ fmovsg %fcc2, %f8, %f2
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovsg %fcc3, %f10, %f3
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ bg,pt %icc, 20000b
+    \\ add %i1, 8 * 4, %i1
+    \\ 20001:
+    \\ fabss %f12, %f4
+    \\ fabss %f13, %f5
+    \\ fabss %f14, %f6
+    \\ fabss %f15, %f7
+    \\ fabss %f16, %f8
+    \\ fabss %f17, %f9
+    \\ fabss %f18, %f10
+    \\ fabss %f19, %f11
+    \\ fadds %f4, %f5, %f4
+    \\ fadds %f6, %f7, %f6
+    \\ fadds %f8, %f9, %f8
+    \\ fadds %f10, %f11, %f10
+    \\ fcmps %fcc0, %f4, %f0
+    \\ fcmps %fcc1, %f6, %f1
+    \\ fcmps %fcc2, %f8, %f2
+    \\ fcmps %fcc3, %f10, %f3
+    \\ fmovsg %fcc0, %f4, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovsg %fcc1, %f6, %f1
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovsg %fcc2, %f8, %f2
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovsg %fcc3, %f10, %f3
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ 20002:
+    \\ and %i0, 3, %i3
+    \\ cmp %i3, 0
+    \\ ble,a,pn %icc, 20004f
+    \\ nop
+    \\ 20003:
+    \\ ld [%i1 + 0 * 4], %f12
+    \\ ld [%i1 + 1 * 4], %f13
+    \\ fabss %f12, %f4
+    \\ fabss %f13, %f5
+    \\ fadds %f4, %f5, %f4
+    \\ fcmps %fcc0, %f4, %f0
+    \\ fmovsg %fcc0, %f4, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %o4, 1, %o4
+    \\ add %i3, -1, %i3
+    \\ cmp %i3, 0
+    \\ bg,pt %icc, 20003b
+    \\ add %i1, 2 * 4, %i1
+    \\ 20004:
+    \\ fcmps %fcc0, %f1, %f0
+    \\ add %o1, 1, %o1
+    \\ fcmps %fcc1, %f3, %f2
+    \\ add %o2, 2, %o2
+    \\ add %o3, 3, %o3
+    \\ fmovsg %fcc0, %f1, %f0
+    \\ movg %fcc0, %o1, %o0
+    \\ fmovsg %fcc1, %f3, %f2
+    \\ movg %fcc1, %o3, %o2
+    \\ fcmps %fcc0, %f2, %f0
+    \\ movg %fcc0, %o2, %o0
+    \\ 20005:
+    \\ mov %o0, %i0
+    \\ return %i7 + 8
+    \\ nop
+    \\ 20006:
+    \\ sra %i0, 2, %i3
+    \\ cmp %i3, 0
+    \\ ble,pn %icc, 20009f
+    \\ nop
+    \\ ld [%i1 + 0 * 4], %f12
+    \\ ld [%i1 + 1 * 4], %f13
+    \\ add %i1, %i2, %i1
+    \\ ld [%i1 + 0 * 4], %f14
+    \\ ld [%i1 + 1 * 4], %f15
+    \\ add %i1, %i2, %i1
+    \\ ld [%i1 + 0 * 4], %f16
+    \\ ld [%i1 + 1 * 4], %f17
+    \\ add %i1, %i2, %i1
+    \\ add %i3, -1, %i3
+    \\ ld [%i1 + 0 * 4], %f18
+    \\ cmp %i3, 0
+    \\ ld [%i1 + 1 * 4], %f19
+    \\ ble,pt %icc, 20008f
+    \\ add %i1, %i2, %i1
+    \\ 20007:
+    \\ fabss %f12, %f4
+    \\ ld [%i1 + 0 * 4], %f12
+    \\ fabss %f13, %f5
+    \\ ld [%i1 + 1 * 4], %f13
+    \\ add %i1, %i2, %i1
+    \\ fabss %f14, %f6
+    \\ ld [%i1 + 0 * 4], %f14
+    \\ fabss %f15, %f7
+    \\ ld [%i1 + 1 * 4], %f15
+    \\ add %i1, %i2, %i1
+    \\ fabss %f16, %f8
+    \\ ld [%i1 + 0 * 4], %f16
+    \\ fabss %f17, %f9
+    \\ ld [%i1 + 1 * 4], %f17
+    \\ add %i1, %i2, %i1
+    \\ fabss %f18, %f10
+    \\ ld [%i1 + 0 * 4], %f18
+    \\ fabss %f19, %f11
+    \\ ld [%i1 + 1 * 4], %f19
+    \\ fadds %f4, %f5, %f4
+    \\ fadds %f6, %f7, %f6
+    \\ fadds %f8, %f9, %f8
+    \\ fadds %f10, %f11, %f10
+    \\ fcmps %fcc0, %f4, %f0
+    \\ fcmps %fcc1, %f6, %f1
+    \\ fcmps %fcc2, %f8, %f2
+    \\ fcmps %fcc3, %f10, %f3
+    \\ fmovsg %fcc0, %f4, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %i3, -1, %i3
+    \\ fmovsg %fcc1, %f6, %f1
+    \\ movg %fcc1, %o4, %o1
+    \\ cmp %i3, 0
+    \\ fmovsg %fcc2, %f8, %f2
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovsg %fcc3, %f10, %f3
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ bg,pt %icc, 20007b
+    \\ add %i1, %i2, %i1
+    \\ 20008:
+    \\ fabss %f12, %f4
+    \\ fabss %f13, %f5
+    \\ fabss %f14, %f6
+    \\ fabss %f15, %f7
+    \\ fabss %f16, %f8
+    \\ fabss %f17, %f9
+    \\ fabss %f18, %f10
+    \\ fabss %f19, %f11
+    \\ fadds %f4, %f5, %f4
+    \\ fadds %f6, %f7, %f6
+    \\ fadds %f8, %f9, %f8
+    \\ fadds %f10, %f11, %f10
+    \\ fcmps %fcc0, %f4, %f0
+    \\ fcmps %fcc1, %f6, %f1
+    \\ fcmps %fcc2, %f8, %f2
+    \\ fcmps %fcc3, %f10, %f3
+    \\ fmovsg %fcc0, %f4, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ fmovsg %fcc1, %f6, %f1
+    \\ movg %fcc1, %o4, %o1
+    \\ fmovsg %fcc2, %f8, %f2
+    \\ movg %fcc2, %o4, %o2
+    \\ fmovsg %fcc3, %f10, %f3
+    \\ movg %fcc3, %o4, %o3
+    \\ add %o4, 4, %o4
+    \\ 20009:
+    \\ and %i0, 3, %i3
+    \\ cmp %i3, 0
+    \\ ble,a,pn %icc, 20011f
+    \\ nop
+    \\ 20010:
+    \\ ld [%i1 + 0 * 4], %f12
+    \\ ld [%i1 + 1 * 4], %f13
+    \\ fabss %f12, %f4
+    \\ add %i3, -1, %i3
+    \\ fabss %f13, %f5
+    \\ cmp %i3, 0
+    \\ fadds %f4, %f5, %f4
+    \\ fcmps %fcc0, %f4, %f0
+    \\ fmovsg %fcc0, %f4, %f0
+    \\ movg %fcc0, %o4, %o0
+    \\ add %o4, 1, %o4
+    \\ bg,pt %icc, 20010b
+    \\ add %i1, %i2, %i1
+    \\ 20011:
+    \\ fcmps %fcc0, %f1, %f0
+    \\ add %o1, 1, %o1
+    \\ fcmps %fcc1, %f3, %f2
+    \\ add %o2, 2, %o2
+    \\ add %o3, 3, %o3
+    \\ fmovsg %fcc0, %f1, %f0
+    \\ movg %fcc0, %o1, %o0
+    \\ fmovsg %fcc1, %f3, %f2
+    \\ movg %fcc1, %o3, %o2
+    \\ fcmps %fcc0, %f2, %f0
+    \\ movg %fcc0, %o2, %o0
+    \\ mov %o0, %i0
+    \\ return %i7 + 8
+    \\ nop
+    \\ .endm
+    \\
+;
+
+fn Body(comptime args: []const u8) type {
     return struct {
         pub fn icamax() callconv(.naked) void {
-            asm volatile (
-                \\ .section ".text"
-                \\ .align 32
-                \\ .proc 07
-                \\
-            ++ (if (on[0])
-                \\ save %sp, -64, %sp
-                \\
-            else
-                "") ++ (if (on[1])
-                \\ save %sp, -256, %sp
-                \\
-            else
-                "") ++
-                \\ .word ((2 << 30) | ((0) << 25) | ( 0x36 << 19) | ( 0x61 << 5))
-                \\ cmp %i0, 0
-                \\ ble 20005f
-                \\ clr %o0
-                \\ cmp %i2, 0
-                \\ ble 20005f
-                \\ sll %i2, 3, %i2
-                \\ mov 1, %o0
-                \\ ld [%i1 + 0 * 4], %f0
-                \\ ld [%i1 + 1 * 4], %f1
-                \\ add %i0, -1, %i0
-                \\ fabss %f0, %f0
-                \\ add %i1, %i2, %i1
-                \\ fabss %f1, %f1
-                \\ cmp %i0, 0
-                \\ ble 20005f
-                \\ fadds %f0, %f1, %f0
-                \\ fmovs %f0, %f1
-                \\ mov 1, %o1
-                \\ fmovs %f0, %f2
-                \\ mov 1, %o2
-                \\ fmovs %f0, %f3
-                \\ mov 1, %o3
-                \\ mov 2, %o4
-                \\ cmp %i2, 2 * 4
-                \\ bne 20006f
-                \\ nop
-                \\ sra %i0, 2, %i3
-                \\ cmp %i3, 0
-                \\ ble,pn %icc, 20002f
-                \\ nop
-                \\ ld [%i1 + 0 * 4], %f12
-                \\ ld [%i1 + 1 * 4], %f13
-                \\ ld [%i1 + 2 * 4], %f14
-                \\ ld [%i1 + 3 * 4], %f15
-                \\ ld [%i1 + 4 * 4], %f16
-                \\ add %i3, -1, %i3
-                \\ ld [%i1 + 5 * 4], %f17
-                \\ cmp %i3, 0
-                \\ ld [%i1 + 6 * 4], %f18
-                \\ ld [%i1 + 7 * 4], %f19
-                \\ ble,pt %icc, 20001f
-                \\ add %i1, 8 * 4, %i1
-                \\ 20000:
-                \\ prefetch [%i1 + 32 * 4], 0
-                \\ fabss %f12, %f4
-                \\ ld [%i1 + 0 * 4], %f12
-                \\ fabss %f13, %f5
-                \\ ld [%i1 + 1 * 4], %f13
-                \\ fabss %f14, %f6
-                \\ ld [%i1 + 2 * 4], %f14
-                \\ fabss %f15, %f7
-                \\ ld [%i1 + 3 * 4], %f15
-                \\ fabss %f16, %f8
-                \\ ld [%i1 + 4 * 4], %f16
-                \\ fabss %f17, %f9
-                \\ ld [%i1 + 5 * 4], %f17
-                \\ fabss %f18, %f10
-                \\ ld [%i1 + 6 * 4], %f18
-                \\ fabss %f19, %f11
-                \\ ld [%i1 + 7 * 4], %f19
-                \\ fadds %f4, %f5, %f4
-                \\ fadds %f6, %f7, %f6
-                \\ fadds %f8, %f9, %f8
-                \\ fadds %f10, %f11, %f10
-                \\ fcmps %fcc0, %f4, %f0
-                \\ fcmps %fcc1, %f6, %f1
-                \\ fcmps %fcc2, %f8, %f2
-                \\ fcmps %fcc3, %f10, %f3
-                \\ fmovsg %fcc0, %f4, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %i3, -1, %i3
-                \\ fmovsg %fcc1, %f6, %f1
-                \\ movg %fcc1, %o4, %o1
-                \\ cmp %i3, 0
-                \\ fmovsg %fcc2, %f8, %f2
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovsg %fcc3, %f10, %f3
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ bg,pt %icc, 20000b
-                \\ add %i1, 8 * 4, %i1
-                \\ 20001:
-                \\ fabss %f12, %f4
-                \\ fabss %f13, %f5
-                \\ fabss %f14, %f6
-                \\ fabss %f15, %f7
-                \\ fabss %f16, %f8
-                \\ fabss %f17, %f9
-                \\ fabss %f18, %f10
-                \\ fabss %f19, %f11
-                \\ fadds %f4, %f5, %f4
-                \\ fadds %f6, %f7, %f6
-                \\ fadds %f8, %f9, %f8
-                \\ fadds %f10, %f11, %f10
-                \\ fcmps %fcc0, %f4, %f0
-                \\ fcmps %fcc1, %f6, %f1
-                \\ fcmps %fcc2, %f8, %f2
-                \\ fcmps %fcc3, %f10, %f3
-                \\ fmovsg %fcc0, %f4, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovsg %fcc1, %f6, %f1
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovsg %fcc2, %f8, %f2
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovsg %fcc3, %f10, %f3
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ 20002:
-                \\ and %i0, 3, %i3
-                \\ cmp %i3, 0
-                \\ ble,a,pn %icc, 20004f
-                \\ nop
-                \\ 20003:
-                \\ ld [%i1 + 0 * 4], %f12
-                \\ ld [%i1 + 1 * 4], %f13
-                \\ fabss %f12, %f4
-                \\ fabss %f13, %f5
-                \\ fadds %f4, %f5, %f4
-                \\ fcmps %fcc0, %f4, %f0
-                \\ fmovsg %fcc0, %f4, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %o4, 1, %o4
-                \\ add %i3, -1, %i3
-                \\ cmp %i3, 0
-                \\ bg,pt %icc, 20003b
-                \\ add %i1, 2 * 4, %i1
-                \\ 20004:
-                \\ fcmps %fcc0, %f1, %f0
-                \\ add %o1, 1, %o1
-                \\ fcmps %fcc1, %f3, %f2
-                \\ add %o2, 2, %o2
-                \\ add %o3, 3, %o3
-                \\ fmovsg %fcc0, %f1, %f0
-                \\ movg %fcc0, %o1, %o0
-                \\ fmovsg %fcc1, %f3, %f2
-                \\ movg %fcc1, %o3, %o2
-                \\ fcmps %fcc0, %f2, %f0
-                \\ movg %fcc0, %o2, %o0
-                \\ 20005:
-                \\ mov %o0, %i0
-                \\ return %i7 + 8
-                \\ nop
-                \\ 20006:
-                \\ sra %i0, 2, %i3
-                \\ cmp %i3, 0
-                \\ ble,pn %icc, 20009f
-                \\ nop
-                \\ ld [%i1 + 0 * 4], %f12
-                \\ ld [%i1 + 1 * 4], %f13
-                \\ add %i1, %i2, %i1
-                \\ ld [%i1 + 0 * 4], %f14
-                \\ ld [%i1 + 1 * 4], %f15
-                \\ add %i1, %i2, %i1
-                \\ ld [%i1 + 0 * 4], %f16
-                \\ ld [%i1 + 1 * 4], %f17
-                \\ add %i1, %i2, %i1
-                \\ add %i3, -1, %i3
-                \\ ld [%i1 + 0 * 4], %f18
-                \\ cmp %i3, 0
-                \\ ld [%i1 + 1 * 4], %f19
-                \\ ble,pt %icc, 20008f
-                \\ add %i1, %i2, %i1
-                \\ 20007:
-                \\ fabss %f12, %f4
-                \\ ld [%i1 + 0 * 4], %f12
-                \\ fabss %f13, %f5
-                \\ ld [%i1 + 1 * 4], %f13
-                \\ add %i1, %i2, %i1
-                \\ fabss %f14, %f6
-                \\ ld [%i1 + 0 * 4], %f14
-                \\ fabss %f15, %f7
-                \\ ld [%i1 + 1 * 4], %f15
-                \\ add %i1, %i2, %i1
-                \\ fabss %f16, %f8
-                \\ ld [%i1 + 0 * 4], %f16
-                \\ fabss %f17, %f9
-                \\ ld [%i1 + 1 * 4], %f17
-                \\ add %i1, %i2, %i1
-                \\ fabss %f18, %f10
-                \\ ld [%i1 + 0 * 4], %f18
-                \\ fabss %f19, %f11
-                \\ ld [%i1 + 1 * 4], %f19
-                \\ fadds %f4, %f5, %f4
-                \\ fadds %f6, %f7, %f6
-                \\ fadds %f8, %f9, %f8
-                \\ fadds %f10, %f11, %f10
-                \\ fcmps %fcc0, %f4, %f0
-                \\ fcmps %fcc1, %f6, %f1
-                \\ fcmps %fcc2, %f8, %f2
-                \\ fcmps %fcc3, %f10, %f3
-                \\ fmovsg %fcc0, %f4, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %i3, -1, %i3
-                \\ fmovsg %fcc1, %f6, %f1
-                \\ movg %fcc1, %o4, %o1
-                \\ cmp %i3, 0
-                \\ fmovsg %fcc2, %f8, %f2
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovsg %fcc3, %f10, %f3
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ bg,pt %icc, 20007b
-                \\ add %i1, %i2, %i1
-                \\ 20008:
-                \\ fabss %f12, %f4
-                \\ fabss %f13, %f5
-                \\ fabss %f14, %f6
-                \\ fabss %f15, %f7
-                \\ fabss %f16, %f8
-                \\ fabss %f17, %f9
-                \\ fabss %f18, %f10
-                \\ fabss %f19, %f11
-                \\ fadds %f4, %f5, %f4
-                \\ fadds %f6, %f7, %f6
-                \\ fadds %f8, %f9, %f8
-                \\ fadds %f10, %f11, %f10
-                \\ fcmps %fcc0, %f4, %f0
-                \\ fcmps %fcc1, %f6, %f1
-                \\ fcmps %fcc2, %f8, %f2
-                \\ fcmps %fcc3, %f10, %f3
-                \\ fmovsg %fcc0, %f4, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ fmovsg %fcc1, %f6, %f1
-                \\ movg %fcc1, %o4, %o1
-                \\ fmovsg %fcc2, %f8, %f2
-                \\ movg %fcc2, %o4, %o2
-                \\ fmovsg %fcc3, %f10, %f3
-                \\ movg %fcc3, %o4, %o3
-                \\ add %o4, 4, %o4
-                \\ 20009:
-                \\ and %i0, 3, %i3
-                \\ cmp %i3, 0
-                \\ ble,a,pn %icc, 20011f
-                \\ nop
-                \\ 20010:
-                \\ ld [%i1 + 0 * 4], %f12
-                \\ ld [%i1 + 1 * 4], %f13
-                \\ fabss %f12, %f4
-                \\ add %i3, -1, %i3
-                \\ fabss %f13, %f5
-                \\ cmp %i3, 0
-                \\ fadds %f4, %f5, %f4
-                \\ fcmps %fcc0, %f4, %f0
-                \\ fmovsg %fcc0, %f4, %f0
-                \\ movg %fcc0, %o4, %o0
-                \\ add %o4, 1, %o4
-                \\ bg,pt %icc, 20010b
-                \\ add %i1, %i2, %i1
-                \\ 20011:
-                \\ fcmps %fcc0, %f1, %f0
-                \\ add %o1, 1, %o1
-                \\ fcmps %fcc1, %f3, %f2
-                \\ add %o2, 2, %o2
-                \\ add %o3, 3, %o3
-                \\ fmovsg %fcc0, %f1, %f0
-                \\ movg %fcc0, %o1, %o0
-                \\ fmovsg %fcc1, %f3, %f2
-                \\ movg %fcc1, %o3, %o2
-                \\ fcmps %fcc0, %f2, %f0
-                \\ movg %fcc0, %o2, %o0
-                \\ mov %o0, %i0
-                \\ return %i7 + 8
-                \\ nop
-                \\
-            );
+            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };
 }
