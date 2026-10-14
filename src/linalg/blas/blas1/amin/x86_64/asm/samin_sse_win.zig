@@ -33,27 +33,27 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0, 1, 0, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 1, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 1, 0",
-    "1, 0, 0, 0, 0, 1",
-    "0, 1, 0, 0, 0, 0",
-    "0, 1, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 1",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
-    "1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 1, 0, 0, 0",
+    "1, 0, 1, 0, 0, 1, 0, 0",
+    "1, 0, 1, 0, 0, 1, 0, 0",
+    "1, 0, 1, 0, 0, 1, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 1, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1",
+    "1, 0, 0, 1, 0, 0, 0, 0",
+    "1, 0, 0, 1, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "0, 1, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 1",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
+    "1, 0, 1, 0, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -72,7 +72,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5
+    \\ .macro __bk bp0, bp1, bp2, bp3, bp4, bp5, bp6, bp7
     \\ .balign 512
     \\ subq $256, %rsp
     \\ movups %xmm6, 0(%rsp)
@@ -85,7 +85,12 @@ const text =
     \\ movups %xmm13, 112(%rsp)
     \\ movups %xmm14, 128(%rsp)
     \\ movups %xmm15, 144(%rsp)
+    \\ .if \bp0
     \\ xorps %xmm0, %xmm0
+    \\ .endif
+    \\ .if \bp1
+    \\ pxor %xmm0, %xmm0
+    \\ .endif
     \\ leaq (, %r8, 4), %r8
     \\ testq %rcx, %rcx
     \\ jle 20015f
@@ -116,10 +121,10 @@ const text =
     \\ 20000:
     \\ testq $2 * 4, %rdx
     \\ je 20001f
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -32 * 4(%rdx), %xmm2
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -32 * 4(%rdx), %xmm2
     \\ .endif
     \\ unpcklps %xmm2, %xmm2
@@ -139,20 +144,23 @@ const text =
     \\ jle 20003f
     \\ .balign 16
     \\ 20002:
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rdx)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 5) + 0) - 128(%rdx)
     \\ .endif
-    \\ .if \bp4
+    \\ .if \bp6
     \\ prefetcht0 ((128 * 4) + 0) - 128(%rdx)
     \\ .endif
-    \\ .if \bp5
+    \\ .if \bp7
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetch ((128 * 3) + 0) - 128(%rdx)
+    \\ .endif
+    \\ .if \bp1
+    \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
     \\ .endif
     \\ andps %xmm15, %xmm4
     \\ minps %xmm4, %xmm0
@@ -166,19 +174,19 @@ const text =
     \\ andps %xmm15, %xmm7
     \\ minps %xmm7, %xmm3
     \\ movaps -4 * 4(%rdx), %xmm7
-    \\ .if \bp2
+    \\ .if \bp4
     \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rdx)
     \\ .endif
-    \\ .if \bp3
+    \\ .if \bp5
     \\ prefetch ((128 * 5) + 64) - 128(%rdx)
     \\ .endif
-    \\ .if \bp4
+    \\ .if \bp6
     \\ prefetcht0 ((128 * 4) + 64) - 128(%rdx)
     \\ .endif
-    \\ .if \bp5
+    \\ .if \bp7
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rdx)
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ prefetch ((128 * 3) + 64) - 128(%rdx)
     \\ .endif
     \\ andps %xmm15, %xmm4
@@ -259,10 +267,10 @@ const text =
     \\ 20007:
     \\ testq $2, %rcx
     \\ je 20008f
-    \\ .if \bp0
+    \\ .if \bp2
     \\ movsd -32 * 4(%rdx), %xmm4
     \\ .endif
-    \\ .if \bp1
+    \\ .if \bp3
     \\ movlps -32 * 4(%rdx), %xmm4
     \\ .endif
     \\ unpcklps %xmm4, %xmm4
