@@ -674,6 +674,7 @@ pub fn main(init: std.process.Init) !void {
     for (levels) |lv| {
         const text = map.read(try map.path(&.{ map.root, "kernel", lv.makefile })).?;
         for (try roles.parse(a, text)) |r| {
+            if (r.extended) continue;
             const d = try roles.dirFor(a, r.key);
             const e = try groups.getOrPut(a, try std.fmt.allocPrint(a, "{s}/{s}", .{ lv.dir, d }));
             if (!e.found_existing) e.value_ptr.* = .{ .level = lv, .dir = d };

@@ -88,11 +88,12 @@ pub fn checkKernel(comptime T: type, comptime find: Find, routine: []const u8, k
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
+            const W = check.Wide(F);
             var best: usize = 0;
-            var best_key: f64 = undefined;
+            var best_key: W = undefined;
             for (0..n) |i| {
                 const v = x[i * inc];
-                const k: f64 = if (comptime complex) @abs(@as(f64, v.re)) + @abs(@as(f64, v.im)) else if (find.abs) @abs(@as(f64, v)) else v;
+                const k: W = if (comptime complex) @abs(@as(W, v.re)) + @abs(@as(W, v.im)) else if (find.abs) @abs(@as(W, v)) else v;
                 if (i == 0 or (if (find.max) k > best_key else k < best_key)) {
                     best = i;
                     best_key = k;
@@ -102,8 +103,21 @@ pub fn checkKernel(comptime T: type, comptime find: Find, routine: []const u8, k
             const ok = if (@TypeOf(got) == BlasLong)
                 check.expectClose(f64, @floatFromInt(best + 1), @floatFromInt(got), 0)
             else
-                check.expectClose(F, @floatCast(best_key), got, check.tolerance(F, 1));
+                check.expectCloseRef(F, best_key, got, check.tolerance(F, 1));
             ok catch |e| return check.case(e, routine, T, n, .{ inc, 0 });
         }
     }
+}
+
+test "the portable extremes at the extended type match a plain loop" {
+    const E = check.Ext;
+    inline for (.{ false, true }) |abs| inline for (.{ false, true }) |max| {
+        const find: Find = .{ .abs = abs, .max = max };
+        try checkKernel(E, find, "value", &Extremum(E, 1, find).value);
+        try checkKernel(E, find, "index", &Extremum(E, 1, find).index);
+        if (abs) {
+            try checkKernel(std.math.Complex(E), find, "value", &Extremum(E, 2, find).value);
+            try checkKernel(std.math.Complex(E), find, "index", &Extremum(E, 2, find).index);
+        }
+    };
 }

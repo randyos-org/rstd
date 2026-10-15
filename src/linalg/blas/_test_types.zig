@@ -28,3 +28,36 @@ test "isBlasType covers the full family and rejects everything else" {
         try zigstd.testExpectTrue(!isBlasType(T));
     }
 }
+
+test "XDouble is the x87 long double exactly where the reference enables EXPRECISION" {
+    const sysinfo = @import("builtin");
+    const x86 = sysinfo.cpu.arch == .x86 or sysinfo.cpu.arch == .x86_64;
+    if (types.exprecision) {
+        try zigstd.testExpectTrue(x86 and sysinfo.os.tag != .windows);
+        try zigstd.testExpectEqual(@as(u16, 80), @typeInfo(XDouble).float.bits);
+        try zigstd.testExpectEqual(@sizeOf(c_longdouble), @sizeOf(XDouble));
+        try zigstd.testExpectTrue(XDouble != f64 and ComplexXD != Complex64);
+    } else if (!types.quad_precision) {
+        try zigstd.testExpectTrue(XDouble == f64 and ComplexXD == Complex64);
+    }
+    if (sysinfo.os.tag == .windows or sysinfo.os.tag == .uefi or !x86) try zigstd.testExpectTrue(!types.exprecision);
+    try zigstd.testExpectTrue(types.isExtended(f80) and types.isExtended(f128) and !types.isExtended(f64));
+}
+
+test "EXPRECISION by target: x87 long double, never a Microsoft ABI" {
+    const on = types.exprecisionOn;
+    try zigstd.testExpectTrue(on(.x86_64, .linux, 80, true));
+    try zigstd.testExpectTrue(on(.x86, .linux, 80, true));
+    try zigstd.testExpectTrue(on(.x86_64, .macos, 80, true));
+    try zigstd.testExpectTrue(on(.x86_64, .freestanding, 80, true));
+    // Microsoft ABIs, even with an 80-bit long double (windows-gnu, uefi-gnu)
+    inline for (.{ std.Target.Cpu.Arch.x86, .x86_64 }) |arch| {
+        try zigstd.testExpectTrue(!on(arch, .windows, 80, true));
+        try zigstd.testExpectTrue(!on(arch, .uefi, 80, true));
+    }
+    // no x87 unit, or a long double that is not x87's
+    try zigstd.testExpectTrue(!on(.x86_64, .linux, 80, false));
+    try zigstd.testExpectTrue(!on(.x86_64, .linux, 64, true));
+    try zigstd.testExpectTrue(!on(.aarch64, .linux, 128, false));
+    try zigstd.testExpectTrue(!on(.aarch64, .macos, 64, false));
+}

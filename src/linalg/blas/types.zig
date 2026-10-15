@@ -7,6 +7,7 @@
 //! is on LP64 and as the reference's `long long` is on 64-bit Windows.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 
 const SrcInfo = std.builtin.SourceLocation;
 
@@ -14,15 +15,33 @@ const SrcInfo = std.builtin.SourceLocation;
 /// `long long`), the same as the interface's `isize`.
 pub const BlasLong = isize;
 
-/// Whether extended-precision routines use `f80` rather than `f64`.
-/// `EXPRECISION` in the reference; off by default, where `XDouble` is just
-/// `f64` and the `q`/`x` families are aliases of `d`/`z`.
-pub const exprecision = false;
-
 /// Whether extended-precision routines use `f128`. `QUAD_PRECISION` in the
 /// reference, which builds it as a software type and rules out
 /// `EXPRECISION`; Zig's `f128` (compiler-rt arithmetic) plays that role.
+/// Opt-in: off unless set here.
 pub const quad_precision = false;
+
+/// `EXPRECISION`: the `q`/`x` families compute in x87 `long double`. The
+/// reference sets it for x86 and x86_64 built with gcc or clang, never for a
+/// Microsoft-ABI target (`Makefile.system`); here likewise (`exprecisionOn`).
+/// Elsewhere `q`/`x` alias `d`/`z`.
+pub const exprecision = !quad_precision and exprecisionOn(
+    sysinfo.cpu.arch,
+    sysinfo.os.tag,
+    @typeInfo(c_longdouble).float.bits,
+    sysinfo.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.cpu.features, .x87),
+);
+
+/// Whether a target gets `EXPRECISION`: x86 or x86_64 with an x87 unit, whose
+/// `long double` is the 80-bit x87 type, and not a Microsoft-ABI OS (Windows,
+/// UEFI), which the reference never builds it for.
+pub fn exprecisionOn(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag, longdouble_bits: u16, x87: bool) bool {
+    if (!arch.isX86() or !x87 or longdouble_bits != 80) return false;
+    return switch (os) {
+        .windows, .uefi => false,
+        else => true,
+    };
+}
 
 comptime {
     if (quad_precision and exprecision) @compileError("quad_precision and exprecision are mutually exclusive");
@@ -44,9 +63,21 @@ pub const BF16 = enum(u16) { _ };
 /// IEEE half. `_Float16` in the reference, under `BUILD_HFLOAT16`.
 pub const HF16 = f16;
 
-/// `XDouble`: `f64` in a default build, `f80` with `exprecision`, `f128`
-/// with `quad_precision`.
-pub const XDouble = if (quad_precision) f128 else if (exprecision) f80 else f64;
+/// `XDouble` (`xdouble`): `c_longdouble` (x87 `f80`) with `exprecision`,
+/// `f128` with `quad_precision`, else `f64`. `f80` keeps Zig's native size: 16
+/// bytes on x86_64, 12 on x86, where the reference builds with
+/// `-m128bit-long-double` (`SIZE` 16). Not an ABI drop-in, so nothing depends
+/// on 16; buffer formulas count bytes and round up to whole elements. The gemm
+/// blocking (`blas3/gemm/params.zig`) keeps the reference's 16 and 32, which
+/// only make its blocks a little smaller than they could be at 12 bytes.
+pub const XDouble = if (quad_precision) f128 else if (exprecision) c_longdouble else f64;
+
+/// Whether float `F` is wider than `f64` (`f80`, `f128`): such types never
+/// fuse (`fma.zig`), and the portable `q`/`x` reductions take the x87
+/// kernels' accumulator order.
+pub fn isExtended(comptime F: type) bool {
+    return @typeInfo(F).float.bits > 64;
+}
 
 /// Complex counterparts, matching the `c`/`z`/`x` families.
 pub const Complex32 = std.math.Complex(f32);
@@ -82,7 +113,10 @@ pub fn Acc(comptime F: type) type {
 
 /// C-ABI complex values, for kernel signatures that return one (the `dotu`/
 /// `dotc` kernels): `std.math.Complex` has automatic layout, which a
-/// `callconv(.c)` return type cannot have.
+/// `callconv(.c)` return type cannot have. An extern struct, not C's
+/// `_Complex`: `CComplexXD` at `f80` returns through a hidden pointer on
+/// SysV, not in `st(0)`/`st(1)` as the x87 `xdotu`/`xdotc` do, so only Zig
+/// kernels fill those slots.
 pub fn CComplex(comptime F: type) type {
     return extern struct {
         re: F,
@@ -105,9 +139,9 @@ pub const CComplexXD = CComplex(XDouble);
 
 /// Every element type a BLAS routine can be defined over.
 ///
-/// Note these are not all distinct: with both extended modes off, `XDouble` *is*
-/// `f64` and `ComplexXD` *is* `Complex64`, so the `q`/`x` families alias
-/// `d`/`z`. That is the reference's behavior too, and it is why this is a
+/// Note these are not always distinct: without `exprecision` or
+/// `quad_precision`, `XDouble` *is* `f64` and `ComplexXD` *is* `Complex64`,
+/// so the `q`/`x` families alias `d`/`z`. That is the reference's behavior too, and it is why this is a
 /// membership test rather than a `switch` -- a switch cannot have the same
 /// type in two prongs.
 pub const blas_types = .{

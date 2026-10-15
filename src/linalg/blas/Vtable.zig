@@ -498,7 +498,10 @@ dneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.
 dlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f64, BlasLong, [*]isize, [*]f64) callconv(.c) i32 = null,
 //#endif //(BUILD_DOUBLE==1)
 
-// EXPRECISION (q-family; XDouble is f64 unless types.exprecision or types.quad_precision is on)
+// EXPRECISION (q-family; XDouble is f64 unless types.exprecision or types.quad_precision is on).
+// The q/x slots hold the portable Zig kernels on every core, never the x87 assembly:
+// `xdotu_k`/`xdotc_k` return an extern struct, through a hidden pointer at f80, where
+// the assembly returns `_Complex long double` in st(0)/st(1).
 //#ifdef EXPRECISION
 qgemm_p: i32 = 0,
 qgemm_q: i32 = 0,

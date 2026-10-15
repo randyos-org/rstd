@@ -120,6 +120,11 @@ test "portable copy kernels match a plain loop" {
     try checkCopy(std.math.Complex(XDouble), vt.xcopy_k.?);
 }
 
+test "portable copy kernels at the extended type match a plain loop" {
+    try checkCopy(check.Ext, &Copy(check.Ext, 1).k);
+    try checkCopy(std.math.Complex(check.Ext), &Copy(check.Ext, 2).k);
+}
+
 test "every linked core's copy kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }

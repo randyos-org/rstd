@@ -452,9 +452,9 @@ fn Drive(comptime T: type, comptime file: File, comptime op: Trans, comptime uni
 const Kind = enum { trmv, trsv, tbmv, tbsv, tpmv, tpsv };
 
 /// Elements of `F` a copy of `x` takes, rounded to a 64-byte multiple so
-/// the `gemv` buffer after it stays aligned.
+/// the `gemv` buffer after it stays aligned (`f80` on x86 is 12 bytes).
 fn copyElems(comptime T: type, n: usize) usize {
-    const per = 64 / @sizeOf(Float(T));
+    const per = 64 / std.math.gcd(64, @sizeOf(Float(T)));
     const comp: usize = if (isComplex(T)) 2 else 1;
     return std.mem.alignForward(usize, n * comp, per);
 }
@@ -598,7 +598,7 @@ pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Di
 
 // ---- tests -----------------------------------------------------------------
 
-const all = .{ f32, f64, Complex32, Complex64 };
+const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 const ops = [_]Trans{ .n, .t, .r, .c };
 const sizes = [_]usize{ 1, 2, 3, 5, 8, 17, 70 };
 const incs = [_]isize{ 1, 2, -1, -3 };
@@ -688,7 +688,8 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
         const k = if (layout == .band) @min(k_req, n - 1) else 0;
         const lda = if (layout == .band) k + 1 + (n % 3) else n + (n % 3);
         for (std.enums.values(Uplo)) |uplo| for (ops) |op| for (std.enums.values(Diag)) |diag| for (incs) |inc| {
-            var a: [max_n * (max_n + 3)]T = undefined;
+            // static: at max_n a complex f80 frame would be ~330 KB
+            const a = guard.operand(T, .a, max_n * (max_n + 3));
             check.fill(T, a[0..storageLen(layout, n, lda)], n * 31 + k + @backingInt(op));
             const alen = storageLen(layout, n, lda);
             // small off-diagonals and a dominant diagonal keep solves tame
@@ -698,7 +699,7 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
                 const dg = &a[index(layout, uplo, n, k, lda, i, i)];
                 dg.* = if (comptime isComplex(T)) .init(3 + @abs(dg.re), dg.im) else 3 + @abs(dg.*);
             }
-            var d: [max_n * max_n]T = undefined;
+            const d = guard.operand(T, .want, max_n * max_n);
             dense(T, layout, uplo, op, diag == .unit, n, k, lda, a[0..alen], d[0 .. n * n]);
 
             const span = (n - 1) * @abs(inc) + 1;
@@ -722,7 +723,7 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
             const kk: isize = @intCast(k);
             const ll: isize = @intCast(lda);
             const ii: isize = @intCast(inc);
-            try call(T, kind, vt, gpa, uplo, op, diag, nn, kk, &a, ll, &x, ii);
+            try call(T, kind, vt, gpa, uplo, op, diag, nn, kk, a.ptr, ll, &x, ii);
             const tol = check.tolerance(F, 4 * n + 4);
             if (!solve) {
                 expectSame(T, want[0..span], x[0..span], tol) catch |e| return report(e, T, kind, uplo, op, diag, n, k, inc, vt.dtb_entries);

@@ -339,6 +339,13 @@ test "portable gemv kernels match plain arithmetic" {
     inline for (variants) |v| try checkGemv(C(XDouble), v[1], v[2], v[3], @field(vt, "xgemv_" ++ v[0]).?);
 }
 
+test "portable gemv kernels at the extended type match plain arithmetic" {
+    const E = check.Ext;
+    try checkGemv(E, false, false, false, &Gemv(E).n);
+    try checkGemv(E, true, false, false, &Gemv(E).t);
+    inline for (variants) |v| try checkGemv(C(E), v[1], v[2], v[3], &Zgemv(E, v[1], v[2], v[3]).k);
+}
+
 test "every linked core's gemv kernels match plain arithmetic, where this machine runs them" {
     try check.eachCore(checkAll);
 }

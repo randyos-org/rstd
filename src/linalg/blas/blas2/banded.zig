@@ -604,10 +604,10 @@ pub fn her2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, 
 
 // ---- tests -------------------------------------------------------------------
 
-const all = .{ f32, f64, Complex32, Complex64 };
+const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 const talloc = std.testing.allocator;
 const max_n = 9;
-const max_mem = 4096;
+const max_mem = 256;
 
 /// Where logical element `i` of a vector of `n` with stride `inc` lives.
 fn vecAt(i: usize, n: usize, inc: isize) usize {

@@ -89,8 +89,8 @@ pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
 /// The kernel `role` around `Block` (null for none), blocks of `mask`.
 pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Block: ?type) Kernel(role) {
     const F = uk.Float(role);
-    if (comptime uk.isComplex(role)) return complexEntry(F, Cplx(F, isConj(role), mask, Block, fma.fuse));
-    return realEntry(F, Real(F, mask, Block, fma.fuse));
+    if (comptime uk.isComplex(role)) return complexEntry(F, Cplx(F, isConj(role), mask, Block, fma.fuseFor(F)));
+    return realEntry(F, Real(F, mask, Block, fma.fuseFor(F)));
 }
 
 // ---- drivers ---------------------------------------------------------------

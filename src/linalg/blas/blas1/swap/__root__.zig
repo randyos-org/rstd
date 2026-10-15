@@ -142,6 +142,11 @@ test "portable swap kernels match a plain loop" {
     try checkSwap(std.math.Complex(XDouble), vt.xswap_k.?);
 }
 
+test "portable swap kernels at the extended type match a plain loop" {
+    try checkSwap(check.Ext, &Swap(check.Ext).real);
+    try checkSwap(std.math.Complex(check.Ext), &Swap(check.Ext).complex);
+}
+
 test "every linked core's swap kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }

@@ -154,6 +154,11 @@ test "portable axpby kernels match a plain loop" {
     try checkAll(&vt);
 }
 
+test "portable axpby kernels at the extended type match a plain loop" {
+    try checkAxpby(check.Ext, &Axpby(check.Ext).real);
+    try checkAxpby(std.math.Complex(check.Ext), &Axpby(check.Ext).complex);
+}
+
 test "every linked core's axpby kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }

@@ -11,7 +11,9 @@
 //!     only so an assembler accepts a hand-written microkernel while the
 //!     core's flags leave contraction off;
 //!   * otherwise the answer follows the target: fused where the hardware has
-//!     an FMA unit, so `@mulAdd` never degrades into a libm `fma()` call.
+//!     an FMA unit, so `@mulAdd` never degrades into a libm `fma()` call;
+//!   * never for floats wider than `f64` (`fuseFor`): `@mulAdd(f80)` is a
+//!     soft `fmal` call, and the reference's x87 `q`/`x` kernels never fuse.
 //!
 //! Contraction is taken the way a C compiler does it within one expression
 //! (clang's `-ffp-contract=on`, and gcc's `fast` for the single-expression
@@ -25,6 +27,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const root = @import("root");
+const types = @import("types.zig");
 
 /// Whether the target has a hardware fused multiply-add.
 pub const hardware = switch (sysinfo.cpu.arch) {
@@ -77,13 +80,36 @@ pub const fuse_vector: bool = if (@hasDecl(root, "blas_fuse_fma_vector"))
     root.blas_fuse_fma_vector
 else if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else vector_madd;
 
-/// `a*b + c`, fused when `fuse` says so (`@mulAdd` is strictly single-rounded,
-/// so it must not be used on targets without an FMA unit).
+/// Whether `T`, a float or a vector of them, can fuse at all: not past `f64`.
+pub fn fusible(comptime T: type) bool {
+    const E = switch (@typeInfo(T)) {
+        .vector => |v| v.child,
+        else => T,
+    };
+    return !types.isExtended(E);
+}
+
+/// `fuse` for multiply-adds in `T`.
+pub fn fuseFor(comptime T: type) bool {
+    return fuse and fusible(T);
+}
+
+/// `a*b + c`, fused when `fuseFor` says so (`@mulAdd` is strictly
+/// single-rounded, so it must not be used on targets without an FMA unit).
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    return if (fuse) @mulAdd(T, a, b, c) else a * b + c;
+    return if (comptime fuseFor(T)) @mulAdd(T, a, b, c) else a * b + c;
 }
 
 test "mulAdd agrees with a*b+c on exact values" {
     try std.testing.expectEqual(@as(f64, 14.0), mulAdd(f64, 2.0, 3.0, 8.0));
     try std.testing.expectEqual(@as(f32, 14.0), mulAdd(f32, 2.0, 3.0, 8.0));
+}
+
+test "extended floats never fuse" {
+    inline for (.{ f80, f128, @Vector(2, f80) }) |T| try std.testing.expect(!fuseFor(T));
+    // by width, not identity: a 64-bit `c_longdouble` of its own fuses as f64 does
+    try std.testing.expectEqual(fuse and @typeInfo(c_longdouble).float.bits <= 64, fuseFor(c_longdouble));
+    // (1 + 2^-63)(1 - 2^-63) - 1 is -2^-126 fused, 0 rounded first
+    const e: f80 = std.math.ldexp(@as(f80, 1), -63);
+    try std.testing.expectEqual(@as(f80, 0), mulAdd(f80, 1 + e, 1 - e, -1));
 }

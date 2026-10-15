@@ -64,14 +64,17 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../check.zig");
+const x87 = @import("../x87.zig");
 
 /// `x . y` after `kernel/arm/dot.c`, summed sequentially in `Acc` (`f64` for
 /// `sdot` too, so it is at least as accurate as the reference's `float` or
 /// `double` products) and returned as `R` (`dsdot` returns the `f64` sum).
 /// Not bit-identical to `generic/dot.c`'s unrolled sums; see the readme.
+/// Wider than `f64`, it is x86_64 `dot.S`'s x87 sum instead (`x87.zig`).
 fn Dot(comptime F: type, comptime Acc: type, comptime R: type) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
+            if (comptime types.isExtended(F)) return x87.dot(F, n, x, inc_x, y, inc_y);
             var sum: Acc = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) sum += @as(Acc, util.at(F, x, i * inc_x).*) * @as(Acc, util.at(F, y, i * inc_y).*);
@@ -87,6 +90,10 @@ fn Zdot(comptime F: type, comptime conj: bool) type {
     const R = if (types.hasSlots(F)) types.CComplex(F) else std.math.Complex(F);
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
+            if (comptime types.isExtended(F)) {
+                const z = x87.zdot(F, conj, n, x, inc_x, y, inc_y);
+                return .{ .re = z[0], .im = z[1] };
+            }
             var re: A = 0;
             var im: A = 0;
             var i: BlasLong = 0;
@@ -164,30 +171,36 @@ fn checkDotTol(comptime T: type, comptime conj: bool, kern: anytype, comptime na
         check.fill(T, &x, n + 1);
         check.fill(T, &y, n + 7);
         for (check.strides) |inc| {
-            var re: f64 = 0;
-            var im: f64 = 0;
+            const W = check.Wide(F);
+            var re: W = 0;
+            var im: W = 0;
             for (0..n) |i| {
                 const a = x[i * inc[0]];
                 const b = y[i * inc[1]];
                 if (comptime complex) {
-                    const ar: f64 = a.re;
-                    const ai: f64 = if (conj) -a.im else a.im;
+                    const ar: W = a.re;
+                    const ai: W = if (conj) -a.im else a.im;
                     re += ar * b.re - ai * b.im;
                     im += ai * b.re + ar * b.im;
                 } else {
-                    re += @as(f64, a) * @as(f64, b);
+                    re += @as(W, a) * @as(W, b);
                 }
             }
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc[0]), @as([*]F, @ptrCast(&y)), @intCast(inc[1]));
             const R = @TypeOf(got);
             const tol = check.tolerance(if (complex or narrow) F else R, 4 * n);
             const ok = if (comptime complex)
-                check.expectClose(std.math.Complex(F), .init(@floatCast(re), @floatCast(im)), got.toComplex(), tol)
+                complexRef(F, re, im, got, tol)
             else
-                check.expectClose(R, @floatCast(re), got, tol);
+                check.expectCloseRef(R, re, got, tol);
             ok catch |e| return check.case(e, if (conj) "dotc" else "dot", T, n, inc);
         }
     }
+}
+
+fn complexRef(comptime F: type, re: check.Wide(F), im: check.Wide(F), got: anytype, tol: F) !void {
+    try check.expectCloseRef(F, re, got.re, tol);
+    try check.expectCloseRef(F, im, got.im, tol);
 }
 
 fn checkAll(vt: *const Vtable) !void {
@@ -208,6 +221,13 @@ test "portable dot kernels match a plain loop" {
     try checkDot(XDouble, false, vt.qdot_k.?);
     try checkDot(std.math.Complex(XDouble), false, vt.xdotu_k.?);
     try checkDot(std.math.Complex(XDouble), true, vt.xdotc_k.?);
+}
+
+test "portable dot kernels at the extended type match a plain loop" {
+    const E = check.Ext;
+    try checkDot(E, false, &Dot(E, E, E).k);
+    try checkDot(std.math.Complex(E), false, &Zdot(E, false).k);
+    try checkDot(std.math.Complex(E), true, &Zdot(E, true).k);
 }
 
 test "every linked core's dot kernels match a plain loop, where this machine runs them" {

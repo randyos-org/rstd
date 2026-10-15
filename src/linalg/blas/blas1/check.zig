@@ -11,6 +11,16 @@ const blas1 = @import("__root__.zig");
 const portable = @import("../portable.zig");
 const types = @import("../types.zig");
 
+/// The extended float the `q`/`x` portable kernels are tested at: `XDouble`
+/// where it is one, else `f80`, whose kernels are generic Zig ones
+/// (`types.kernelCc`) while the vtable's `q`/`x` slots are `f64`.
+pub const Ext = if (types.isExtended(types.XDouble)) types.XDouble else f80;
+
+/// `XDouble` and `ComplexXD` where they are types of their own, for the type
+/// lists of tests that go through the vtable; empty where they alias `f64`.
+pub const x_real = if (types.XDouble == f64) .{} else .{types.XDouble};
+pub const x_complex = if (types.XDouble == f64) .{} else .{types.ComplexXD};
+
 /// Lengths that straddle every unroll and block size of the kernels. Not 0:
 /// the interface returns before calling a kernel with `n <= 0`, and kernels
 /// rely on it (`x86_64/copy_sse2.S` copies an element before testing `n`).
@@ -25,25 +35,37 @@ pub const capacity = 257 * 3;
 pub const isComplex = types.isComplex;
 pub const FloatOf = types.Float;
 
-/// Values in [-2, 2), from `seed`.
+/// Values in [-2, 2), from `seed`; past `f64`, with every significand bit
+/// random.
 pub fn fill(comptime T: type, buf: []T, seed: u64) void {
     var prng = std.Random.DefaultPrng.init(seed);
     const r = prng.random();
     for (buf) |*v| {
         if (comptime isComplex(T)) {
-            v.* = T.init(@floatCast(r.float(f64) * 4 - 2), @floatCast(r.float(f64) * 4 - 2));
+            v.* = T.init(random(FloatOf(T), r), random(FloatOf(T), r));
         } else {
-            v.* = @floatCast(r.float(f64) * 4 - 2);
+            v.* = random(T, r);
         }
     }
+}
+
+fn random(comptime F: type, r: std.Random) F {
+    if (comptime !types.isExtended(F)) return @floatCast(r.float(f64) * 4 - 2);
+    // [1, 2) with every fraction bit random, built from bits: converting a
+    // u128 is a libcall the self-hosted x86_64 backend leaves on the x87 stack
+    const U = @Int(.unsigned, @bitSizeOf(F));
+    const frac: U = (@as(U, 1) << std.math.floatFractionalBits(F)) - 1;
+    const v: F = @bitCast(@as(U, @bitCast(@as(F, 1))) | (@as(U, @truncate(r.int(u128))) & frac));
+    return v * 4 - 6;
 }
 
 /// The tolerance for a result of `terms` rounded operations on values of at
 /// most 4 in magnitude: kernels sum in any order, the reference in one.
 pub fn tolerance(comptime F: type, terms: usize) F {
-    const per: F = switch (F) {
-        f32 => 1e-6,
-        f64 => 1e-14,
+    // by width: a 64-bit `c_longdouble` is its own type but gets f64's allowance
+    const per: F = switch (@typeInfo(F).float.bits) {
+        32 => 1e-6,
+        64 => 1e-14,
         else => 8 * std.math.floatEps(F),
     };
     return per * 16 * @as(F, @floatFromInt(@max(terms, 1)));
@@ -63,6 +85,14 @@ fn close(want: anytype, got: @TypeOf(want), tol: @TypeOf(want)) !void {
     if (std.math.approxEqAbs(@TypeOf(want), want, got, tol)) return;
     say("got {e}, want {e} within {e}: ", .{ got, want, tol });
     return error.TestExpectedApproxEqAbs;
+}
+
+/// `expectClose` of `got` against a reference summed in `Wide(F)`; past
+/// `f64` compared there, as narrowing `f128` to `f80` is a libcall the
+/// self-hosted x86_64 backend leaves on the x87 stack.
+pub fn expectCloseRef(comptime F: type, want: Wide(F), got: F, tol: Wide(F)) !void {
+    if (comptime types.isExtended(F)) return close(want, @as(Wide(F), got), tol);
+    return close(@as(F, @floatCast(want)), got, @as(F, @floatCast(tol)));
 }
 
 pub fn expectCloseSlices(comptime T: type, want: []const T, got: []const T, tol: FloatOf(T)) !void {
@@ -150,4 +180,11 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
         }
     }
     if (failed) |e| return e;
+}
+
+test "tolerance goes by width, so a 64-bit c_longdouble gets f64's" {
+    const L = c_longdouble;
+    const want: L = if (@typeInfo(L).float.bits == 64) 1e-14 * 16 else 8 * std.math.floatEps(L) * 16;
+    try zigstd.testExpectEqual(want, tolerance(L, 1));
+    try zigstd.testExpectEqual(8 * std.math.floatEps(f80) * 16, tolerance(f80, 1));
 }

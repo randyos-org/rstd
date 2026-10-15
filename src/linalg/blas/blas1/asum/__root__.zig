@@ -44,13 +44,16 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../check.zig");
+const x87 = @import("../x87.zig");
 
 /// `kernel/arm/asum.c` and `zasum.c`: the sum of `|x|`, of `|re| + |im|` for
-/// complex; an element is `w` floats.
+/// complex; an element is `w` floats. Wider than `f64`, x86_64 `asum.S`'s
+/// and `zasum.S`'s x87 sum (`x87.zig`).
 fn Asum(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x <= 0) return 0;
+            if (comptime types.isExtended(F)) return x87.sum(F, w, .abs, n, x, inc_x);
             var sum: types.Acc(F) = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
@@ -97,13 +100,14 @@ fn checkAsum(comptime T: type, kern: anytype) !void {
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            var want: f64 = 0;
+            const W = check.Wide(F);
+            var want: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
-                want += if (comptime check.isComplex(T)) @abs(@as(f64, v.re)) + @abs(@as(f64, v.im)) else @abs(@as(f64, v));
+                want += if (comptime check.isComplex(T)) @abs(@as(W, v.re)) + @abs(@as(W, v.im)) else @abs(@as(W, v));
             }
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
-            check.expectClose(F, @floatCast(want), got, check.tolerance(F, 2 * n)) catch |e| return check.case(e, "asum", T, n, .{ inc, 0 });
+            check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n)) catch |e| return check.case(e, "asum", T, n, .{ inc, 0 });
         }
     }
 }
@@ -121,6 +125,11 @@ test "portable asum kernels match a plain loop" {
     try checkAll(&vt);
     try checkAsum(XDouble, vt.qasum_k.?);
     try checkAsum(std.math.Complex(XDouble), vt.xasum_k.?);
+}
+
+test "portable asum kernels at the extended type match a plain loop" {
+    try checkAsum(check.Ext, &Asum(check.Ext, 1).k);
+    try checkAsum(std.math.Complex(check.Ext), &Asum(check.Ext, 2).k);
 }
 
 test "every linked core's asum kernels match a plain loop, where this machine runs them" {

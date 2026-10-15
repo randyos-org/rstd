@@ -98,14 +98,15 @@ fn checkSum(comptime T: type, kern: anytype) !void {
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            var acc: f64 = 0;
+            const W = check.Wide(F);
+            var acc: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
-                acc += if (comptime complex) @as(f64, v.re) + @as(f64, v.im) else @as(f64, v);
+                acc += if (comptime complex) @as(W, v.re) + @as(W, v.im) else @as(W, v);
             }
             const want = acc;
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
-            check.expectClose(F, @floatCast(want), got, check.tolerance(F, 2 * n)) catch |e| return check.case(e, "sum", T, n, .{ inc, 0 });
+            check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n)) catch |e| return check.case(e, "sum", T, n, .{ inc, 0 });
         }
     }
 }
@@ -123,6 +124,11 @@ test "portable sum kernels match a plain loop" {
     try checkAll(&vt);
     try checkSum(XDouble, vt.qsum_k.?);
     try checkSum(std.math.Complex(XDouble), vt.xsum_k.?);
+}
+
+test "portable sum kernels at the extended type match a plain loop" {
+    try checkSum(check.Ext, &Sum(check.Ext, 1).k);
+    try checkSum(std.math.Complex(check.Ext), &Sum(check.Ext, 2).k);
 }
 
 test "every linked core's sum kernels match a plain loop, where this machine runs them" {

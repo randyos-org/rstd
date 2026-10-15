@@ -325,8 +325,9 @@ pub fn bf16to(comptime F: type, n: isize, in: [*]BF16, inc_in: isize, out: [*]F,
 
 /// `?ROTG` (`interface/rotg.c`): the rotation `[c s; -s c]` that zeroes `b`
 /// against `a`. `a` becomes `r`, `b` the reconstruction value `z`.
-/// Computed in `XDouble`, as the reference does in `long double` on x86, or
-/// in `T` where that is wider; a narrower input is rounded once on the way out.
+/// Computed in `XDouble`, as the reference does in `long double` on x86 (x87
+/// where `XDouble` is), or in `T` where that is wider; a narrower input is
+/// rounded once on the way out.
 pub fn rotg(comptime T: type, a: *T, b: *T, c: *T, s: *T) void {
     if (comptime isComplex(T)) @compileError("rotg: use zrotg for " ++ @typeName(T));
     const X = if (@bitSizeOf(T) > @bitSizeOf(XDouble)) T else XDouble;
@@ -573,8 +574,8 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 
 // ---- tests -------------------------------------------------------------------
 
-const reals = .{ f32, f64 };
-const all = .{ f32, f64, Complex32, Complex64 };
+const reals = .{ f32, f64 } ++ check.x_real;
+const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 
 fn zero(comptime T: type) T {
     return if (comptime isComplex(T)) .init(0, 0) else 0;
@@ -602,7 +603,8 @@ test "interface: n <= 0 changes nothing and returns zero" {
             copy(T, n, &x, 1, &y, 1);
             swap(T, n, &x, 1, &y, 1);
             scal(T, n, zero(T), &x, 1);
-            axpby(T, n, zero(T), &x, 1, zero(T), &y, 1);
+            // the reference has no extended axpby
+            if (comptime !types.isExtended(Float(T))) axpby(T, n, zero(T), &x, 1, zero(T), &y, 1);
             rot(T, n, &x, 1, &y, 1, 0, 1);
             try same(T, &x0, &x);
             try same(T, &y0, &y);
@@ -734,6 +736,7 @@ test "interface: rot, rotm and axpby match a plain loop" {
         try same(T, &mx, &x);
         try same(T, &my, &y);
 
+        if (comptime types.isExtended(T)) continue;
         var ay = y;
         for (0..n) |i| ay[i] = 1.5 * x[i * 2] - 0.5 * y[i];
         axpby(T, n, 1.5, &x, 2, -0.5, &y, 1);
@@ -823,7 +826,7 @@ test "interface: rotg zeroes b, and rotmg's param zeroes the second component" {
 }
 
 test "interface: zrotg zeroes b against a over every branch" {
-    inline for (.{ Complex32, Complex64 }) |C| {
+    inline for (.{ Complex32, Complex64 } ++ check.x_complex) |C| {
         const F = Float(C);
         const eps: f64 = if (F == f32) 1e-5 else 1e-12;
         // magnitudes that take the unscaled and both scaled paths, with a or b zero,
@@ -858,12 +861,13 @@ test "interface: zrotg zeroes b against a over every branch" {
             const bottom = C.init(-s.re, s.im).mul(a0).add(scale(C, b, c));
             try check.expectClose(C, a, top, @floatCast(eps * norm));
             try check.expectClose(C, .init(0, 0), bottom, @floatCast(eps * norm));
-            try check.expectClose(f64, 1, @as(f64, c) * c + abssq(C, s), eps);
+            const W = check.Wide(F);
+            try check.expectClose(W, 1, @as(W, c) * c + abssq(C, s), eps);
             // |r| against the norm of (a0, b), formed in f64 on scaled parts
             const inv = 1 / norm;
             const want = @sqrt(k[0] * inv * k[0] * inv + k[1] * inv * k[1] * inv + k[2] * inv * k[2] * inv + k[3] * inv * k[3] * inv);
-            const got = @sqrt(@as(f64, a.re) * inv * a.re * inv + @as(f64, a.im) * inv * a.im * inv);
-            try check.expectClose(f64, want, got, eps);
+            const got = @sqrt(@as(W, a.re) * inv * a.re * inv + @as(W, a.im) * inv * a.im * inv);
+            try check.expectClose(W, want, got, eps);
         }
     }
 }
@@ -1123,10 +1127,11 @@ test "interface: rotg handles scaled and special inputs" {
             var s: T = undefined;
             rotg(T, &a, &b, &c, &s);
             try std.testing.expect(std.math.isFinite(a));
-            try check.expectClose(f64, 1, @as(f64, c) * c + @as(f64, s) * s, 1e-6);
+            const W = check.Wide(T);
+            try check.expectClose(W, 1, @as(W, c) * c + @as(W, s) * s, 1e-6);
             // the rotation zeroes b: -s*a0 + c*b0 = 0, relative to the norm
             const norm = @max(@abs(ab[0]), @abs(ab[1]));
-            const resid = -@as(f64, s) * ab[0] + @as(f64, c) * ab[1];
+            const resid = -@as(W, s) * ab[0] + @as(W, c) * ab[1];
             try std.testing.expect(@abs(resid) <= 1e-6 * norm);
         }
         var a: T = 0;

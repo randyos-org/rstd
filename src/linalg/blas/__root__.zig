@@ -283,6 +283,33 @@ test "threads racing the first kernel call select the core once and all see it" 
     try zigstd.testExpectTrue(_vtable.dtb_entries > 0);
 }
 
+/// The `q`/`x` kernel slots' names.
+const qx_slots = blk: {
+    @setEvalBranchQuota(100_000);
+    const info = @typeInfo(Vtable).@"struct";
+    var names: []const []const u8 = &.{};
+    for (info.field_names, info.field_types) |f, F| {
+        const qx = f[0] == 'q' or f[0] == 'x' or (f[0] == 'i' and (f[1] == 'q' or f[1] == 'x'));
+        if (qx and @typeInfo(F) == .optional) names = names ++ .{f};
+    }
+    break :blk names;
+};
+
+test "no core puts a kernel of its own in a q or x slot" {
+    @setEvalBranchQuota(100_000);
+    const registry = @import("asm_registry.zig");
+    const portable = @import("portable.zig");
+    var base: Vtable = .{};
+    portable.install(&base);
+    inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
+        if (registry.isLinked(@field(cpu.CoreType, name))) {
+            var vt = base;
+            cpu.kernel.install(&vt, @field(cpu.CoreType, name));
+            inline for (qx_slots) |f| try zigstd.testExpectTrue(@field(vt, f) == @field(base, f));
+        }
+    }
+}
+
 test {
     _ = @import("_test_types.zig");
     _ = @import("abi.zig");

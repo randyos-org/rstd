@@ -382,7 +382,7 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: i
 const testing = std.testing;
 /// Scratch from the heap holds NaN, so a missing clear shows.
 var poison: guard.Poison = .{ .child = testing.allocator };
-const all = .{ f32, f64, Complex32, Complex64 };
+const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 
 /// Points the global vtable at the portable kernels until
 /// `defer blas.testRestore(saved)`.

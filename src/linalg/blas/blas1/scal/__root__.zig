@@ -159,6 +159,11 @@ test "portable scal kernels match a plain loop" {
     try checkScal(std.math.Complex(XDouble), vt.xscal_k.?);
 }
 
+test "portable scal kernels at the extended type match a plain loop" {
+    try checkScal(check.Ext, &Scal(check.Ext).real);
+    try checkScal(std.math.Complex(check.Ext), &Scal(check.Ext).complex);
+}
+
 test "portable scal: a zero alpha with flag 1 turns NaN and infinity into NaN" {
     var x = [_]f64{ 1, std.math.nan(f64), std.math.inf(f64), -2 };
     _ = dscal_generic(4, 0, 0, 0, &x, 1, &x, 0, &x, 1);

@@ -56,11 +56,11 @@ fn hasSimdBlock(comptime T: type) bool {
 }
 
 fn GenericReal(comptime T: type) type {
-    return Real(T, 128 / @sizeOf(T), if (hasSimdBlock(T)) SimdBlock(T) else null, fma.fuse);
+    return Real(T, 128 / @sizeOf(T), if (hasSimdBlock(T)) SimdBlock(T) else null, fma.fuseFor(T));
 }
 
 fn GenericCplx(comptime F: type, comptime conj: bool) type {
-    return Cplx(F, conj, 16, null, fma.fuse);
+    return Cplx(F, conj, 16, null, fma.fuseFor(F));
 }
 
 // ---- generic implementations (vtable targets) ------------------------------
@@ -98,30 +98,22 @@ pub fn installGeneric(vt: *Vtable) void {
     vt.xaxpyc_k = xaxpyc_generic;
 }
 
-fn isComplex(comptime T: type) bool {
-    return T == Complex32 or T == Complex64 or T == ComplexXD;
-}
+const isComplex = check.isComplex;
 
 // ---- tests: portable kernels vs. a scalar reference ------------------------
 
-fn fill(comptime T: type, buf: []T, seed: u32) void {
-    var prng = std.Random.DefaultPrng.init(seed);
-    const r = prng.random();
-    for (buf) |*v| {
-        if (comptime isComplex(T)) {
-            v.* = T.init(@floatCast(r.float(f64) * 4 - 2), @floatCast(r.float(f64) * 4 - 2));
-        } else {
-            v.* = @floatCast(r.float(f64) * 4 - 2);
-        }
-    }
-}
+const check = @import("../check.zig");
+const fill = check.fill;
 
-fn FloatOf(comptime T: type) type {
-    return if (isComplex(T)) @FieldType(T, "re") else T;
-}
+const FloatOf = check.FloatOf;
 
 fn expectClose(comptime T: type, want: []const T, got: []const T) !void {
-    const tol: FloatOf(T) = if (FloatOf(T) == f32) 1e-5 else 1e-12;
+    // by width: past 64 bits nothing fuses, so the kernels give the loop's bits
+    const tol: FloatOf(T) = switch (@typeInfo(FloatOf(T)).float.bits) {
+        32 => 1e-5,
+        64 => 1e-12,
+        else => 0,
+    };
     try zigstd.testExpectEqual(want.len, got.len);
     for (want, got) |w, g| {
         if (comptime isComplex(T)) {
@@ -194,6 +186,13 @@ test "generic kernels match a scalar loop (all types, contiguous and strided)" {
     try checkComplex(f64, true, zaxpyc_generic);
     try checkComplex(XDouble, false, xaxpy_generic);
     try checkComplex(XDouble, true, xaxpyc_generic);
+}
+
+test "generic kernels at the extended type give a plain unfused loop's bits" {
+    const E = check.Ext;
+    try checkReal(E, realEntry(E, GenericReal(E)));
+    try checkComplex(E, false, complexEntry(E, GenericCplx(E, false)));
+    try checkComplex(E, true, complexEntry(E, GenericCplx(E, true)));
 }
 
 test "a core's kernels fill every axpy slot, for the host's core type" {

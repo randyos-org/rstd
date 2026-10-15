@@ -164,7 +164,7 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
 
 /// `a*b + c` under the build's contraction policy (`fma.zig`).
 inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
-    const fused = if (n == 1) fma.fuse else fma.fuse_vector;
+    const fused = (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
     return if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c;
 }
 
@@ -293,7 +293,7 @@ pub fn Kernels(comptime T: type, comptime geo: Geometry) type {
         /// function for every row tail of a column width.
         fn thin(comptime wn: usize, w: usize, k: usize, alpha: T, pa: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
             const V = @Vector(wn, T);
-            const fused = fma.fuse_vector;
+            const fused = fma.fuse_vector and fma.fusible(T);
             for (0..w) |r| {
                 var acc: [2]V = .{ @splat(0), @splat(0) };
                 var l: usize = 0;
@@ -354,12 +354,14 @@ pub fn Kernels(comptime T: type, comptime geo: Geometry) type {
 
 /// The precisions these kernels serve, by vtable prefix.
 const precisions = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } };
+/// Those a core's object may replace: `q` slots keep the portable kernels.
+const core_precisions = .{ precisions[0], precisions[1] };
 const roles = .{ "kernel", "beta", "incopy", "itcopy", "oncopy", "otcopy" };
 
-/// Points `vt`'s real gemm slots at `K(T)` for each precision, and its unrolls
+/// Points `vt`'s real gemm slots at `K(T)` for each of `list`, and its unrolls
 /// at the tiles; `unroll(prefix, which)` gives the tile size to store.
-fn fill(vt: *Vtable, comptime source: anytype) void {
-    inline for (precisions) |p| {
+fn fill(vt: *Vtable, comptime list: anytype, comptime source: anytype) void {
+    inline for (list) |p| {
         inline for (roles) |r| @field(vt, p[0] ++ "gemm_" ++ r) = source.function(p[0], p[1], r);
         @field(vt, p[0] ++ "gemm_unroll_m") = source.unroll(p[0], p[1], "m");
         @field(vt, p[0] ++ "gemm_unroll_n") = source.unroll(p[0], p[1], "n");
@@ -383,7 +385,7 @@ pub fn settle(vt: *Vtable) void {
 
 /// The portable kernels: the main library's own build of these.
 pub fn installGeneric(vt: *Vtable) void {
-    fill(vt, struct {
+    fill(vt, precisions, struct {
         fn function(comptime _: []const u8, comptime T: type, comptime r: []const u8) @TypeOf(&@field(Kernels(T, geometry(T)), r)) {
             return &@field(Kernels(T, geometry(T)), r);
         }
@@ -412,7 +414,7 @@ pub fn Registry(comptime Core: type) type {
         }
 
         pub fn exportCore(comptime core: Core) void {
-            inline for (precisions) |p| {
+            inline for (core_precisions) |p| {
                 const K = Kernels(p[1], geometry(p[1]));
                 inline for (roles) |r| {
                     @export(&@field(K, r), .{ .name = util.kernelSymbol(p[0] ++ "gemm_" ++ r, @tagName(core)), .visibility = .hidden });
@@ -424,7 +426,7 @@ pub fn Registry(comptime Core: type) type {
         }
 
         pub fn install(vt: *Vtable, comptime core: Core) void {
-            fill(vt, struct {
+            fill(vt, core_precisions, struct {
                 fn function(comptime pre: []const u8, comptime _: type, comptime r: []const u8) @typeInfo(@FieldType(Vtable, pre ++ "gemm_" ++ r)).optional.child {
                     const Fn = @typeInfo(@FieldType(Vtable, pre ++ "gemm_" ++ r)).optional.child;
                     return @extern(Fn, .{ .name = util.kernelSymbol(pre ++ "gemm_" ++ r, @tagName(core)), .visibility = .hidden });

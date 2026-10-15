@@ -20,10 +20,14 @@ pub const Role = struct {
     conj: bool,
     /// The `-D` symbols beyond `DOUBLE`, `COMPLEX` and `CONJ`.
     defines: []const []const u8,
+    /// An x87 `q`/`x` rule (`XDOUBLE`), never converted: the portable kernels
+    /// at `XDouble` serve those slots. `prec` is then that of the same flags
+    /// without it.
+    extended: bool = false,
 };
 
-/// The roles of `text`, a Makefile, skipping the extended-precision ones
-/// (`XDOUBLE`), which no supported target builds.
+/// The roles of `text`, a Makefile; the extended-precision ones (`XDOUBLE`)
+/// are marked `extended`.
 ///
 /// The scan does not understand `ifdef`/`else`/`endif`: where a role's rule
 /// is guarded by one (`dsdot`/`sdsdot`, built from `DSDOTKERNEL` if set, else
@@ -51,7 +55,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
 
         // the recipe line
         const flags = lines.next() orelse break;
-        if (std.mem.indexOf(u8, flags, "-DXDOUBLE") != null) continue;
+        const ext = std.mem.indexOf(u8, flags, "-DXDOUBLE") != null;
         var double = false;
         var complex = false;
         var conj = false;
@@ -61,7 +65,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
             if (std.mem.eql(u8, tok, "-DDOUBLE")) double = true else if (std.mem.eql(u8, tok, "-DCOMPLEX")) complex = true else if (std.mem.eql(u8, tok, "-DCONJ")) conj = true else if (std.mem.startsWith(u8, tok, "-D") and !std.mem.startsWith(u8, tok, "-DXDOUBLE")) try defines.append(a, try a.dupe(u8, tok));
         }
         const prec: arch.Prec = if (complex) (if (double) .z else .c) else (if (double) .d else .s);
-        try out.append(a, .{ .name = try a.dupe(u8, name), .key = try a.dupe(u8, key), .prec = prec, .conj = conj, .defines = defines.items });
+        try out.append(a, .{ .name = try a.dupe(u8, name), .key = try a.dupe(u8, key), .prec = prec, .conj = conj, .defines = defines.items, .extended = ext });
     }
     return out.items;
 }
@@ -111,4 +115,21 @@ pub fn dirFor(a: std.mem.Allocator, key: []const u8) ![]const u8 {
     if (std.mem.endsWith(u8, s, "KERNEL")) s = s[0 .. s.len - "KERNEL".len];
     const lower = try std.ascii.allocLowerString(a, s);
     return std.fmt.allocPrint(a, "{s}{s}", .{ prefix, lower });
+}
+
+test "extended-precision rules parse, marked extended" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const text =
+        "$(KDIR)qdot_k$(TSUFFIX).$(SUFFIX) $(KDIR)qdot_k$(TPSUFFIX).$(PSUFFIX) : $(KERNELDIR)/$(QDOTKERNEL)\n" ++
+        "\t$(CC) -c $(CFLAGS) -UCOMPLEX -DXDOUBLE $< -o $@\n" ++
+        "$(KDIR)xdotc_k$(TSUFFIX).$(SUFFIX) $(KDIR)xdotc_k$(TPSUFFIX).$(PSUFFIX) : $(KERNELDIR)/$(XDOTKERNEL)\n" ++
+        "\t$(CC) -c $(CFLAGS) -DCOMPLEX -DXDOUBLE -DCONJ $< -o $@\n" ++
+        "$(KDIR)ddot_k$(TSUFFIX).$(SUFFIX) $(KDIR)ddot_k$(TPSUFFIX).$(PSUFFIX) : $(KERNELDIR)/$(DDOTKERNEL)\n" ++
+        "\t$(CC) -c $(CFLAGS) -UCOMPLEX -DDOUBLE $< -o $@\n";
+    const rs = try parse(arena.allocator(), text);
+    try std.testing.expectEqual(@as(usize, 3), rs.len);
+    try std.testing.expect(rs[0].extended and rs[1].extended and !rs[2].extended);
+    try std.testing.expect(rs[1].conj and rs[1].defines.len == 0 and rs[1].prec.complex());
+    try std.testing.expectEqual(arch.Prec.d, rs[2].prec);
 }

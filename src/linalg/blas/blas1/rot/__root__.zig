@@ -143,6 +143,11 @@ test "portable rot kernels match a plain loop" {
     try checkRot(std.math.Complex(XDouble), vt.xqrot_k.?);
 }
 
+test "portable rot kernels at the extended type match a plain loop" {
+    try checkRot(check.Ext, &Rot(check.Ext, 1).k);
+    try checkRot(std.math.Complex(check.Ext), &Rot(check.Ext, 2).k);
+}
+
 test "every linked core's rot kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }

@@ -82,8 +82,8 @@ const max_elem = 32;
 
 /// Operands for shapes too big for the stack: a matrix and its expected
 /// value, vectors, and copies of them.
-var store_a: [4400 * max_elem]u8 align(16) = undefined;
-var store_w: [4400 * max_elem]u8 align(16) = undefined;
+var store_a: [5120 * max_elem]u8 align(16) = undefined;
+var store_w: [5120 * max_elem]u8 align(16) = undefined;
 var store_x: [400 * max_elem]u8 align(16) = undefined;
 var store_y: [400 * max_elem]u8 align(16) = undefined;
 var store_x0: [400 * max_elem]u8 align(16) = undefined;
@@ -101,7 +101,8 @@ pub fn operand(comptime T: type, which: Operands, n: usize) []T {
         .x0 => &store_x0,
         .y0 => &store_y0,
     };
-    return std.mem.bytesAsSlice(T, store)[0..n];
+    // whole elements only: `f80` on x86 is 12 bytes
+    return std.mem.bytesAsSlice(T, store[0 .. store.len / @sizeOf(T) * @sizeOf(T)])[0..n];
 }
 
 /// An allocator over `child` whose fresh memory is all ones bits (NaN), so a

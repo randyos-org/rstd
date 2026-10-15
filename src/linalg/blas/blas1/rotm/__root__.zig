@@ -135,6 +135,10 @@ test "portable rotm kernels match a plain loop" {
     try checkRotm(XDouble, vt.qrotm_k.?);
 }
 
+test "portable rotm kernels at the extended type match a plain loop" {
+    try checkRotm(check.Ext, &Rotm(check.Ext).k);
+}
+
 test "every linked core's rotm kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }

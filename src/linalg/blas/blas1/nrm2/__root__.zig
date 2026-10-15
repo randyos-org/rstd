@@ -44,14 +44,18 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../check.zig");
+const x87 = @import("../x87.zig");
 
 /// `kernel/arm/nrm2.c` and `znrm2.c`: the Euclidean norm, scaled by the
 /// largest magnitude so far so the squares cannot overflow; an element is `w`
 /// floats. Only a zero stride is refused: a negative one walks backwards.
+/// Wider than `f64`, x86_64 `nrm2.S`'s and `znrm2.S`'s plain sum of squares
+/// (`x87.zig`), unscaled: it overflows where they do.
 fn Nrm2(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x == 0) return 0;
+            if (comptime types.isExtended(F)) return @sqrt(x87.sum(F, w, .square, n, x, inc_x));
             if (w == 1 and n == 1) return @abs(x[0]);
             var scale: types.Acc(F) = 0;
             var ssq: types.Acc(F) = 1;
@@ -112,14 +116,15 @@ fn checkNrm2(comptime T: type, kern: anytype) !void {
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            var acc: f64 = 0;
+            const W = check.Wide(F);
+            var acc: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
-                acc += if (comptime complex) @as(f64, v.re) * v.re + @as(f64, v.im) * v.im else @as(f64, v) * v;
+                acc += if (comptime complex) @as(W, v.re) * v.re + @as(W, v.im) * v.im else @as(W, v) * v;
             }
             const want = @sqrt(acc);
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
-            check.expectClose(F, @floatCast(want), got, check.tolerance(F, 2 * n) * @max(1, @as(F, @floatCast(want)))) catch |e| return check.case(e, "nrm2", T, n, .{ inc, 0 });
+            check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n) * @max(1, want)) catch |e| return check.case(e, "nrm2", T, n, .{ inc, 0 });
         }
     }
 }
@@ -139,6 +144,25 @@ test "portable nrm2 kernels match a plain loop" {
     try checkNrm2(std.math.Complex(XDouble), vt.xnrm2_k.?);
 }
 
+test "portable nrm2 kernels at the extended type match a plain loop" {
+    try checkNrm2(check.Ext, &Nrm2(check.Ext, 1).k);
+    try checkNrm2(std.math.Complex(check.Ext), &Nrm2(check.Ext, 2).k);
+}
+
 test "every linked core's nrm2 kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "nrm2 past 64 bits is the plain sum of squares, overflow included; at 64 bits or less, scaled" {
+    // by width, so a 64-bit `c_longdouble` of its own takes the scaled path
+    inline for (.{ f32, f64, c_longdouble, f80, f128 }) |F| {
+        const big = if (comptime types.isExtended(F)) std.math.ldexp(@as(F, 1), 16000) else std.math.floatMax(F) / 2;
+        var x = [_]F{ big, big };
+        const got = Nrm2(F, 1).k(2, &x, 1);
+        if (comptime types.isExtended(F)) {
+            try std.testing.expect(std.math.isInf(got));
+        } else {
+            try std.testing.expectApproxEqRel(big * @sqrt(@as(F, 2)), got, 1e-6);
+        }
+    }
 }
