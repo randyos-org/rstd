@@ -276,13 +276,13 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
     const dest = try std.fmt.allocPrint(vm.arena, "{s}:/tmp/rstd-test", .{vm.login});
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(vm.arena, &.{ "scp", "-q", "-P", vm.port });
-    try argv.appendSlice(vm.arena, &ssh_options);
+    try argv.appendSlice(vm.arena, patientOptions(vm));
     try argv.appendSlice(vm.arena, &.{ exe, dest });
-    if (!try exec(vm.io, argv.items, .inherit)) {
+    if (try patient(vm, argv.items, .inherit) != 0) {
         std.debug.print("macOS VM: copying the tests in failed\n", .{});
         return false;
     }
-    return ssh(vm, &.{"/tmp/rstd-test"}, .inherit);
+    return try sshPatient(vm, &.{"/tmp/rstd-test"}, .inherit) == 0;
 }
 
 /// Shuts the VM down from inside, which needs passwordless `sudo shutdown`
@@ -290,7 +290,7 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
 fn shutdown(vm: Vm) !void {
     std.debug.print("macOS VM: shutting down\n", .{});
     // `-l` lists the rule without running anything
-    if (!try ssh(vm, &.{ "sudo", "-n", "-l", "/sbin/shutdown" }, .quiet)) {
+    if (try sshPatient(vm, &.{ "sudo", "-n", "-l", "/sbin/shutdown" }, .quiet) != 0) {
         std.debug.print("macOS VM: no passwordless sudo shutdown (run tools/configure_macos.sh in the VM); left running\n", .{});
         return error.NoShutdown;
     }
@@ -298,7 +298,7 @@ fn shutdown(vm: Vm) !void {
     const serial_path = try vm.path("serial.log");
     var serial_at: u64 = serialLength(vm.io, serial_path);
     // the connection drops as it goes down, so the result says little
-    _ = try ssh(vm, &.{ "sudo", "-n", "/sbin/shutdown", "-h", "now" }, .quiet);
+    _ = try execCode(vm.io, try sshArgv(vm, patientOptions(vm), &.{ "sudo", "-n", "/sbin/shutdown", "-h", "now" }), .quiet);
     const pid = try qemuPid(vm) orelse return;
     // Never killed for taking long: it may be writing the disk out. Only a
     // VM that looks frozen is, and only if the user says so.
@@ -419,23 +419,66 @@ fn running(vm: Vm, pid: []const u8) !bool {
     return std.mem.indexOf(u8, result.stdout, "qemu-system") != null;
 }
 
-const ssh_options = [_][]const u8{ "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new" };
+/// Polling a VM that is still booting: a short connect timeout.
+const poll_options = [_][]const u8{ "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new" };
+
+/// A VM that answered but is saturated (the login window and USB HID drivers
+/// can hold its load average near 70 under emulation) takes minutes to
+/// answer: a long connect timeout, and a try again while ssh reports the
+/// connection failed (exit 255, not the command's own status).
+const patient_timeout_s = 180;
+const patient_tries = 10;
+const patient_pause_s = 15;
+
+fn patientOptions(vm: Vm) []const []const u8 {
+    _ = vm;
+    return &.{ "-o", "BatchMode=yes", "-o", std.fmt.comptimePrint("ConnectTimeout={d}", .{patient_timeout_s}), "-o", "ServerAliveInterval=30", "-o", "StrictHostKeyChecking=accept-new" };
+}
+
+/// `ssh <options> login command`.
+fn sshArgv(vm: Vm, options: []const []const u8, command: []const []const u8) ![]const []const u8 {
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.appendSlice(vm.arena, &.{ "ssh", "-p", vm.port });
+    try argv.appendSlice(vm.arena, options);
+    try argv.append(vm.arena, vm.login);
+    try argv.appendSlice(vm.arena, command);
+    return argv.items;
+}
 
 /// Runs `command` in the VM over SSH; whether it succeeded. QEMU's port
 /// forward accepts before sshd is up, so a TCP connect alone says nothing.
 fn ssh(vm: Vm, command: []const []const u8, output: Output) !bool {
-    var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(vm.arena, &.{ "ssh", "-p", vm.port });
-    try argv.appendSlice(vm.arena, &ssh_options);
-    try argv.append(vm.arena, vm.login);
-    try argv.appendSlice(vm.arena, command);
-    return exec(vm.io, argv.items, output);
+    return try execCode(vm.io, try sshArgv(vm, &poll_options, command), output) == 0;
+}
+
+/// `command` over SSH, patiently; its exit status.
+fn sshPatient(vm: Vm, command: []const []const u8, output: Output) !u8 {
+    return patient(vm, try sshArgv(vm, patientOptions(vm), command), output);
+}
+
+/// Runs an ssh or scp `argv`, again while it could not connect (255).
+fn patient(vm: Vm, argv: []const []const u8, output: Output) !u8 {
+    var code: u8 = 255;
+    for (0..patient_tries) |attempt| {
+        code = try execCode(vm.io, argv, output);
+        if (code != 255) return code;
+        if (attempt + 1 < patient_tries) {
+            std.debug.print("macOS VM: no answer yet (too busy?); trying again in {d} s\n", .{patient_pause_s});
+            try vm.io.sleep(.fromSeconds(patient_pause_s), .awake);
+        }
+    }
+    return code;
 }
 
 const Output = enum { quiet, inherit };
 
 /// Runs `argv` to completion; whether it exited 0.
 fn exec(io: Io, argv: []const []const u8, output: Output) !bool {
+    return try execCode(io, argv, output) == 0;
+}
+
+/// Runs `argv` to completion; its exit status (255 when it did not exit).
+fn execCode(io: Io, argv: []const []const u8, output: Output) !u8 {
     const stdio: std.process.SpawnOptions.StdIo = if (output == .quiet) .ignore else .inherit;
     var child = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = stdio, .stderr = stdio }) catch |err| switch (err) {
         error.FileNotFound => {
@@ -444,7 +487,10 @@ fn exec(io: Io, argv: []const []const u8, output: Output) !bool {
         },
         else => |e| return e,
     };
-    return (try child.wait(io)).success();
+    return switch (try child.wait(io)) {
+        .exited => |code| code,
+        else => 255,
+    };
 }
 
 fn fileExists(vm: Vm, name: []const u8) !bool {
