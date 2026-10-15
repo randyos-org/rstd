@@ -7,7 +7,7 @@
 //! the running core), in the same order and with the same blocking.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const check = @import("../blas1/check.zig");
@@ -46,7 +46,7 @@ fn pageUp(addr: usize) usize {
 /// Elements of the buffer a gemv kernel of `m` by `n` gets
 /// (`interface/gemv.c`'s `buffer_size`; `cs` is 2 for complex).
 pub fn gemvLen(comptime F: type, comptime cs: usize, m: usize, n: usize) usize {
-    const pad = if (builtin.os.tag == .windows) 160 / @sizeOf(F) else 0;
+    const pad = if (sysinfo.os.tag == .windows) 160 / @sizeOf(F) else 0;
     return (cs * (m + n) + 128 / @sizeOf(F) + pad + 3) & ~@as(usize, 3);
 }
 
@@ -206,7 +206,7 @@ pub fn Compose(comptime pre: []const u8, comptime T: type, comptime lower: bool,
             const gb = pageAt(gemvbuffer);
             // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN
             // or infinity; cleared as `interface.gemv` does
-            if (comptime complex and builtin.cpu.arch == .x86_64) @memset(gb[0..gemvLen(F, cs, @intCast(m), @intCast(p))], 0);
+            if (comptime complex and sysinfo.cpu.arch == .x86_64) @memset(gb[0..gemvLen(F, cs, @intCast(m), @intCast(p))], 0);
             var is: BlasLong = if (lower) 0 else m - offset;
             const end: BlasLong = if (lower) offset else m;
             while (is < end) : (is += p) {

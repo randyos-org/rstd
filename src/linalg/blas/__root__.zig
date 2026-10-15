@@ -1,7 +1,7 @@
 //! Derived from code in OpenBLAS
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const zigstd = @import("../../zigstd.zig");
 
 pub const types = @import("types.zig");
@@ -88,8 +88,8 @@ fn initWith(env: Config.Env) bool {
     const ct = chosen.served orelse chosen.core;
     core_type = ct;
     blasWarn(2, "core: {s}", .{@tagName(ct)});
-    if (comptime builtin.cpu.arch.isPowerPC()) {
-        if (config.get_openblas_coretype and comptime builtin.os.tag != .freestanding)
+    if (comptime sysinfo.cpu.arch.isPowerPC()) {
+        if (config.get_openblas_coretype and comptime sysinfo.os.tag != .freestanding)
             std.debug.print("Core: {s}\n", .{@tagName(ct)});
     }
 
@@ -116,11 +116,11 @@ fn claim() bool {
 /// libc's `environ` (`_NSGetEnviron()` on Darwin, where a dylib has no
 /// `environ`). Zig hands the block to `main` only, so elsewhere there is none.
 fn processEnv() Config.Env {
-    if (comptime builtin.os.tag == .windows) return .windows;
-    if (comptime !builtin.link_libc) return .none;
-    const envp: [*:null]const ?[*:0]const u8 = switch (builtin.os.tag) {
+    if (comptime sysinfo.os.tag == .windows) return .windows;
+    if (comptime !sysinfo.link_libc) return .none;
+    const envp: [*:null]const ?[*:0]const u8 = switch (sysinfo.os.tag) {
         .freestanding, .other, .uefi => return .none,
-        else => if (comptime builtin.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
+        else => if (comptime sysinfo.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
     };
     return .{ .posix = std.mem.span(envp) };
 }
@@ -137,7 +137,7 @@ const LogSink = struct {
 /// A diagnostic, shown when `OPENBLAS_VERBOSE` is at least `level`. Only where
 /// there is somewhere to print to.
 fn blasWarn(level: i32, comptime fmt: []const u8, args: anytype) void {
-    if (comptime builtin.os.tag == .freestanding) return;
+    if (comptime sysinfo.os.tag == .freestanding) return;
     if (config.verbose < level) return;
     std.debug.print("OpenBLAS: " ++ fmt ++ "\n", args);
 }
@@ -171,7 +171,7 @@ pub const TestSaved = struct { vt: Vtable, ready: bool };
 /// Puts `vt` in place of the selected kernels, without selecting a core
 /// first, until `testRestore`.
 pub fn testUse(vt: *const Vtable) TestSaved {
-    if (!builtin.is_test) @compileError("tests only");
+    if (!sysinfo.is_test) @compileError("tests only");
     const saved: TestSaved = .{ .vt = _vtable, .ready = !claim() };
     _vtable = vt.*;
     phase.store(.ready, .release);
@@ -181,12 +181,12 @@ pub fn testUse(vt: *const Vtable) TestSaved {
 /// The selected table itself, for a test that adjusts one parameter in place
 /// (after `testUse`, so a core is not selected under it).
 pub fn testTable() *Vtable {
-    if (!builtin.is_test) @compileError("tests only");
+    if (!sysinfo.is_test) @compileError("tests only");
     return &_vtable;
 }
 
 pub fn testRestore(saved: TestSaved) void {
-    if (!builtin.is_test) @compileError("tests only");
+    if (!sysinfo.is_test) @compileError("tests only");
     _vtable = saved.vt;
     if (!saved.ready) phase.store(.uninit, .release);
 }
@@ -266,7 +266,7 @@ fn raceKernel(i: usize) void {
 }
 
 test "threads racing the first kernel call select the core once and all see it" {
-    if (builtin.single_threaded) return error.SkipZigTest;
+    if (sysinfo.single_threaded) return error.SkipZigTest;
     shutdown();
     defer _ = vtable();
     race_seen = @splat(null);

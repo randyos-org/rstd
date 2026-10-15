@@ -55,7 +55,7 @@ const x86_sse41 = [_][]const u8{ "sse3", "ssse3", "sse4_1" };
 
 pub fn x86(core: coretypes.X86CoreType) Spec {
     return switch (core) {
-        .nehalem => .{ .features = &x86_sse41, .fuse_fma = false },
+        .nehalem, .penryn, .dunnington => .{ .features = &x86_sse41, .fuse_fma = false },
         .sandybridge => .{ .features = &(x86_sse41 ++ [_][]const u8{"avx"}), .fuse_fma = false },
         .bulldozer => .{ .features = &.{ "sse3", "avx", "fma4" }, .fuse_fma = false },
         .piledriver, .steamroller, .excavator => .{ .features = &.{ "sse3", "sse4_1", "avx", "fma", "fma4" }, .fuse_fma = false },
@@ -64,10 +64,8 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
         .cooperlake => .{ .model = "cooperlake", .fuse_fma = true },
         .sapphirerapids => .{ .model = "sapphirerapids", .fuse_fma = true },
         // Older cores: what `getarch.c` lists as `HAVE_*`.
-        .prescott, .opteron_sse3, .barcelona => .{ .features = &.{"sse3"}, .fuse_fma = false },
+        .prescott, .opteron_sse3, .barcelona, .yonah => .{ .features = &.{"sse3"}, .fuse_fma = false },
         .core2, .atom, .nano, .bobcat => .{ .features = &.{ "sse3", "ssse3" }, .fuse_fma = false },
-        .penryn, .dunnington => .{ .features = &x86_sse41, .fuse_fma = false },
-        .yonah => .{ .features = &.{"sse3"}, .fuse_fma = false },
         .opteron, .katmai, .coppermine, .northwood, .banias, .athlon, .p5, .p6, .viac3, .unknown => .{ .fuse_fma = false },
     };
 }
@@ -77,10 +75,9 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
 pub fn arm64(core: coretypes.Arm64CoreType) Spec {
     return switch (core) {
         .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .emag8180, .ft2000, .unknown => .{},
-        .cortexa76, .cortexx1 => .{ .features = &.{"v8_2a"} },
+        .cortexa76, .cortexx1, .cortexa55, .tsv110, .neoversen1 => .{ .features = &.{"v8_2a"} },
         .cortexa510, .cortexa710, .cortexx2 => .{ .features = &.{ "v8_4a", "sve" } },
         .ampere1 => .{ .features = &.{ "v8_6a", "aes", "sha2", "crc", "fullfp16", "sha3", "rand" } },
-        .cortexa55, .tsv110, .neoversen1 => .{ .features = &.{"v8_2a"} },
         .thunderx2t99 => .{ .features = &.{"v8_1a"} },
         .thunderx3t110, .vortex => .{ .features = &.{"v8_3a"} },
         .vortexm4 => .{ .features = &.{ "v8_4a", "sme", "sme_f64f64" } },
@@ -100,10 +97,9 @@ pub fn arm(core: coretypes.ArmCoreType) Spec {
         .armv5 => .{},
         .armv6 => .{ .features = &.{ "v6", "vfp2" } },
         .armv7 => .{ .features = &.{ "v7a", "vfp3" } },
-        .neon => .{ .features = &.{ "v7a", "neon" } },
+        // Cortex-A9 and A15: `-mfpu=neon` for their `HAVE_NEON`
+        .neon, .cortexa9, .cortexa15 => .{ .features = &.{ "v7a", "neon" } },
         .vfpv4 => .{ .features = &.{ "v7a", "vfp4" } },
-        // `-mfpu=neon` for their `HAVE_NEON`
-        .cortexa9, .cortexa15 => .{ .features = &.{ "v7a", "neon" } },
     };
 }
 
@@ -130,14 +126,12 @@ pub fn power(core: coretypes.PowerCoreType) Spec {
 
 pub fn riscv(core: coretypes.RiscvCoreType) Spec {
     return switch (core) {
-        .riscv64_generic => .{ .features = &.{ "m", "a", "f", "d", "c" } },
-        .riscv64_zvl128b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl128b" } },
-        .riscv64_zvl256b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl256b" } },
         // `Makefile.riscv64`: the T-Head core has the pre-ratification vector
         // extension, which this toolchain cannot assemble (it has no
         // `xtheadvector`), SiFive's U74 none, and SiFive's X280 the ratified one
-        .c910v => .{ .features = &.{ "m", "a", "f", "d", "c" } },
-        .u74 => .{ .features = &.{ "m", "a", "f", "d", "c" } },
+        .riscv64_generic, .c910v, .u74 => .{ .features = &.{ "m", "a", "f", "d", "c" } },
+        .riscv64_zvl128b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl128b" } },
+        .riscv64_zvl256b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl256b" } },
         .x280 => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl512b" } },
     };
 }

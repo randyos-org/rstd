@@ -4,10 +4,10 @@
 //! Release 6 has compact branches (no delay slots) and MSA, which `_start`
 //! turns on; both turn on the FPU (with 64-bit registers, `Status.FR`).
 
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 
 comptime {
-    if (builtin.cpu.has(.mips, .mips64r6)) {
+    if (sysinfo.cpu.has(.mips, .mips64r6)) {
         asm (
             \\.set noreorder
             \\.set noat

@@ -17,7 +17,7 @@
 //! `guard` fails while that QEMU runs, so a second one is not started.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const Io = std.Io;
 
 /// How often a shutdown is checked for a frozen VM, and how long nothing
@@ -27,7 +27,7 @@ const freeze_s = 60;
 const poll_s = 10;
 /// How often a boot that prints nothing says it is still going.
 const beat_s = 30;
-const windows = builtin.os.tag == .windows;
+const windows = sysinfo.os.tag == .windows;
 
 const Vm = struct {
     io: Io,

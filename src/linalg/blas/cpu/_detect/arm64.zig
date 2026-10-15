@@ -169,10 +169,10 @@ pub fn probe() Caps {
         },
         .windows => {
             const PF = std.os.windows.PF;
-            c.sve = auxv.processorFeature(@intFromEnum(PF.ARM_SVE_INSTRUCTIONS_AVAILABLE));
-            c.sve2 = auxv.processorFeature(@intFromEnum(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE));
-            c.sme = auxv.processorFeature(@intFromEnum(PF.ARM_SME_INSTRUCTIONS_AVAILABLE));
-            c.bf16 = auxv.processorFeature(@intFromEnum(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE));
+            c.sve = auxv.processorFeature(@backingInt(PF.ARM_SVE_INSTRUCTIONS_AVAILABLE));
+            c.sve2 = auxv.processorFeature(@backingInt(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE));
+            c.sme = auxv.processorFeature(@backingInt(PF.ARM_SME_INSTRUCTIONS_AVAILABLE));
+            c.bf16 = auxv.processorFeature(@backingInt(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE));
             if (midrFromRegistry()) |raw| {
                 const m = Midr.fromRaw(raw);
                 c.midr = true;
@@ -271,9 +271,8 @@ fn pick(c: Caps) Decision {
 /// part table that names a core only names one the CPU's generation has.
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
-        .a64fx, .armv8sve => c.sve,
+        .a64fx, .armv8sve, .cortexa510, .cortexa710, .cortexx2 => c.sve,
         .neoversev1 => c.sve and c.bf16,
-        .cortexa510, .cortexa710, .cortexx2 => c.sve,
         .neoversen2, .neoversev2 => c.sve and c.sve2 and c.bf16,
         .armv9sme => c.sve and c.sve2 and c.sme,
         .vortexm4 => c.sme or c.apple,
@@ -290,9 +289,8 @@ pub fn parent(core: CoreType) ?CoreType {
         .neoversev2 => .neoversen2,
         .neoversen2 => .neoversev1,
         .neoversev1, .a64fx, .armv9sme => .armv8sve,
-        .armv8sve => .neoversen1,
+        .armv8sve, .vortex => .neoversen1,
         .vortexm4 => .vortex,
-        .vortex => .neoversen1,
         .cortexa55 => .cortexa53,
         .armv8, .unknown => null,
         else => .armv8,

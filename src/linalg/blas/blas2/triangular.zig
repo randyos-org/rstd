@@ -21,7 +21,7 @@
 //! it is on the stack; beyond that it comes from the caller's allocator.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
@@ -556,7 +556,7 @@ fn call(
     defer if (heap) gpa.free(buf);
     // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
     // infinity; cleared as `interface.gemv` does
-    if (comptime isComplex(T) and builtin.cpu.arch == .x86_64) @memset(buf, 0);
+    if (comptime isComplex(T) and sysinfo.cpu.arch == .x86_64) @memset(buf, 0);
 
     // `_U` for upper untransposed or lower transposed
     const fl: File = if ((uplo == .upper) != trans.transposed()) .u else .l;

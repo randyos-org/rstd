@@ -15,7 +15,7 @@
 //! drivers would be chosen where marked.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
@@ -201,7 +201,7 @@ fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: BlasInt
     // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity; the
     // reference clears its stack buffer for every `trans` but `n`, here the
     // heap one too since the allocator hands out whatever it holds
-    if (comptime complex and t != .n and builtin.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    if (comptime complex and t != .n and sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
         _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
@@ -372,7 +372,7 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: B
     defer sc.deinit(allocator);
     // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
     // and NaN there reaches `y`
-    if (builtin.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    if (sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`symv_thread_*`)
     if (comptime complex) {
         _ = slot(T, name)(long(n), long(n), alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);

@@ -4,7 +4,7 @@
 const Self = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const zigstd = @import("../../zigstd.zig");
 
 /// `OPENBLAS_VERBOSE` -- 0 quiet, 2 prints the selected core name.
@@ -84,7 +84,7 @@ pub const Env = union(enum) {
                 const entry = std.mem.span(opt orelse continue);
                 if (entry.len > key.len and entry[key.len] == '=' and std.mem.eql(u8, entry[0..key.len], key)) break entry[key.len + 1 ..];
             } else return null,
-            .windows => if (comptime builtin.os.tag == .windows) blk: {
+            .windows => if (comptime sysinfo.os.tag == .windows) blk: {
                 const w = std.process.Environ.getWindows(.{ .block = .global }, std.unicode.wtf8ToWtf16LeStringLiteral(key)) orelse return null;
                 if (w.len * 3 > buf.len) break :blk tooLong(buf);
                 break :blk buf[0..std.unicode.wtf16LeToWtf8(buf, w)];

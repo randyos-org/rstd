@@ -5,7 +5,7 @@
 //! function, naked, so it is exported and installed as is.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 const abi = @import("abi.zig");
@@ -14,7 +14,7 @@ const select = @import("cpu/_select.zig");
 /// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target's calling
 /// convention needs (`abi.zig`). The compiled target's, so `has`, which the
 /// build script asks about the target it is building for, does not depend on it.
-pub const variant: []const u8 = abi.variantName(&builtin.target);
+pub const variant: []const u8 = abi.variantName(&sysinfo.target);
 
 /// The cores whose kernel objects this build links, and the one standing in
 /// for a detected core that is not linked (`build/blaskern.zig`).

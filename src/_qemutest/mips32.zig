@@ -4,10 +4,10 @@
 //! the 64-bit floating-point registers it needs (`Status.FR`); release 2 has
 //! the 32-bit FPU only.
 
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 
 comptime {
-    if (builtin.cpu.has(.mips, .mips32r5)) {
+    if (sysinfo.cpu.has(.mips, .mips32r5)) {
         asm (
             \\.set noreorder
             \\.set noat

@@ -169,6 +169,26 @@ fn size(a: std.mem.Allocator, w: *std.ArrayList(u8), v: ?i64, dynamic: []const u
     } else try w.appendSlice(a, dynamic);
 }
 
+/// Writes a switch's prongs, one per distinct value, with every core that has
+/// it (in table order) on the prong's left side.
+fn writeProngs(a: std.mem.Allocator, out: *std.ArrayList(u8), names: []const []const u8, values: []const []const u8) !void {
+    for (values, 0..) |v, i| {
+        const seen = for (values[0..i]) |p| {
+            if (std.mem.eql(u8, p, v)) break true;
+        } else false;
+        if (seen) continue;
+        try out.appendSlice(a, "        ");
+        var first = true;
+        for (names, values) |n, w| {
+            if (!std.mem.eql(u8, w, v)) continue;
+            if (!first) try out.appendSlice(a, ", ");
+            try out.print(a, ".{s}", .{n});
+            first = false;
+        }
+        try out.print(a, " => {s},\n", .{v});
+    }
+}
+
 /// `DTB_DEFAULT_ENTRIES` is not in `param.h`; `getarch.c` gives it per core
 /// (`-DFORCE_<core>`, the way `Makefile.system` builds a `DYNAMIC_ARCH` kernel).
 /// Preprocessing is enough to read it, and works for any target. Tried in
@@ -240,14 +260,16 @@ pub fn main(init: std.process.Init) !void {
         try dtb.print(a, "/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.\npub fn {s}_dtb(core: coretypes.{s}) ?i32 {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
         const macros = try a.alloc([]const u8, names.len);
         for (names, macros) |name, *m| m.* = try coreMacro(a, fam, name);
-        for (names, macros) |name, macro| {
-            if (try dtbEntries(a, io, checkout, fam, name, macro)) |n| {
-                try dtb.print(a, "        .{s} => {d},\n", .{ name, n });
-            } else try dtb.print(a, "        .{s} => null,\n", .{name});
+        const dtb_vals = try a.alloc([]const u8, names.len);
+        for (names, macros, dtb_vals) |name, macro, *v| {
+            v.* = if (try dtbEntries(a, io, checkout, fam, name, macro)) |n| try std.fmt.allocPrint(a, "{d}", .{n}) else "null";
         }
+        try writeProngs(a, &dtb, names, dtb_vals);
         try dtb.appendSlice(a, "    };\n}\n\n");
         try out.print(a, "pub fn {s}(core: coretypes.{s}) ?Table {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
-        for (names, macros) |name, macro| {
+        const table_vals = try a.alloc([]const u8, names.len);
+        for (names, macros, table_vals) |name, macro, *tv| {
+            var val: std.ArrayList(u8) = .empty;
             var argv: std.ArrayList([]const u8) = .empty;
             try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
             try argv.appendSlice(a, fam.defines);
@@ -260,7 +282,7 @@ pub fn main(init: std.process.Init) !void {
                 else => false,
             };
             if (!built) {
-                try out.print(a, "        .{s} => null,\n", .{name});
+                tv.* = "null";
                 std.debug.print("{s}/{s}: header does not build\n", .{ fam.name, name });
                 continue;
             }
@@ -269,11 +291,11 @@ pub fn main(init: std.process.Init) !void {
             const have_p = vals.get("s.P") orelse null;
             const have_q = vals.get("s.Q") orelse null;
             if (have_p == null or have_q == null) {
-                try out.print(a, "        .{s} => null,\n", .{name});
+                tv.* = "null";
                 std.debug.print("{s}/{s}: header defines no blocking\n", .{ fam.name, name });
                 continue;
             }
-            try out.print(a, "        .{s} => .{{\n", .{name});
+            try val.appendSlice(a, ".{\n");
             for (precs) |pr| {
                 const key = struct {
                     fn k(al: std.mem.Allocator, f: []const u8, w: []const u8) ![]const u8 {
@@ -283,7 +305,7 @@ pub fn main(init: std.process.Init) !void {
                 const um = (vals.get(try key(a, pr.field, "UNROLL_M")) orelse null);
                 const pp = (vals.get(try key(a, pr.field, "P")) orelse null);
                 if (um == null and pp == null) continue;
-                try out.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
+                try val.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
                     pr.field,
                     um orelse 0,
                     (vals.get(try key(a, pr.field, "UNROLL_N")) orelse null) orelse 0,
@@ -291,21 +313,23 @@ pub fn main(init: std.process.Init) !void {
                     (vals.get(try key(a, pr.field, "ALIGN_K")) orelse null) orelse 0,
                     (vals.get(try key(a, pr.field, "P_BASE")) orelse null) orelse 0,
                 });
-                try size(a, &out, pp, ".dynamic");
-                try out.appendSlice(a, ", .q = ");
-                try size(a, &out, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic");
-                try out.appendSlice(a, ", .r = ");
-                try size(a, &out, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer");
-                try out.appendSlice(a, " },\n");
+                try size(a, &val, pp, ".dynamic");
+                try val.appendSlice(a, ", .q = ");
+                try size(a, &val, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic");
+                try val.appendSlice(a, ", .r = ");
+                try size(a, &val, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer");
+                try val.appendSlice(a, " },\n");
             }
             for (globals) |g| {
                 if ((vals.get(g[0]) orelse null)) |x| {
                     const field = if (std.mem.eql(u8, g[0], "align")) "align_" else g[0];
-                    try out.print(a, "            .{s} = {d},\n", .{ field, x });
+                    try val.print(a, "            .{s} = {d},\n", .{ field, x });
                 }
             }
-            try out.appendSlice(a, "        },\n");
+            try val.appendSlice(a, "        }");
+            tv.* = val.items;
         }
+        try writeProngs(a, &out, names, table_vals);
         try out.appendSlice(a, "    };\n}\n\n");
         try out.appendSlice(a, dtb.items);
     }
