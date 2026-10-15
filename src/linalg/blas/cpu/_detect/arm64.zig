@@ -92,6 +92,9 @@ pub fn cpuCountFromPossible(text: []const u8) usize {
 /// else of the last CPU. `dynamic_arm64.c` reads `cpu_capability` as hex, a
 /// file Linux does not have; `cpuid_arm64.c` reads `cpu_capacity` as decimal,
 /// which is what Linux has. Its counts of low, mid and high CPUs are unused.
+/// The implementer and part a sysfs scan settles on.
+pub const Part = struct { implementer: u32, part: u32 };
+
 pub const SysfsScan = struct {
     implementer: u32 = 0,
     last_part: u32 = 0,
@@ -112,14 +115,14 @@ pub const SysfsScan = struct {
         return true;
     }
 
-    pub fn result(s: SysfsScan) ?struct { implementer: u32, part: u32 } {
+    pub fn result(s: SysfsScan) ?Part {
         if (s.count == 0) return null;
         return .{ .implementer = s.implementer, .part = if (s.fast_part != 0) s.fast_part else s.last_part };
     }
 };
 
 /// All CPUs' MIDR from sysfs; null if a CPU's file is missing.
-fn midrFromSysfs() ?struct { implementer: u32, part: u32 } {
+fn midrFromSysfs() ?Part {
     var buf: [64]u8 = undefined;
     var cap: [16]u8 = undefined;
     const possible = auxv.readFile("/sys/devices/system/cpu/possible", &buf);
