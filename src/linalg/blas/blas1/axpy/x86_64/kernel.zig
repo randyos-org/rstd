@@ -17,7 +17,7 @@
 //!     reference's inline-assembly microkernel, as written), or, for the
 //!     AVX-512 cores whose upstream block is C intrinsics, the same loops on
 //!     `@Vector`s. `uk/__root__.zig` says which block each core's driver
-//!     includes and at what block size.
+//!     includes and at what block size. `uk.Kernels` composes them.
 //!
 //! The build gives the object the core's CPU features; the assembler needs
 //! them to accept the mnemonics, while whether the C-derived multiply-adds are
@@ -28,24 +28,12 @@ const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const fma = @import("../../../fma.zig");
-const util = @import("../../../util.zig");
-const registry = @import("../../../asm_registry.zig");
-const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
 const uk = @import("../../uk_block.zig");
-const ukidx = @import("uk/__root__.zig");
 
 const BlasLong = types.BlasLong;
 
 pub const Core = coretypes.X86CoreType;
-const roles = kernel.roles;
-
-const asm_kernels = registry.Kernels(Core, @import("asm/__root__.zig"));
-
-/// The C-driven entry for `role` on `core`, if it has one.
-fn cEntry(comptime role: []const u8, comptime core: Core) ?ukidx.Entry {
-    return ukidx.find(role, @tagName(core));
-}
 
 const has_avx512f = std.Target.x86.featureSetHas(sysinfo.cpu.features, .avx512f);
 
@@ -69,37 +57,10 @@ fn VectorBlock(comptime role: []const u8) type {
     };
 }
 
-/// Whether `role` has a kernel of its own on `core`, either kind.
-pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    return asm_kernels.hasRole(core, role) or cEntry(role, core) != null;
-}
+const K = uk.Kernels(Core, kernel, @import("asm/__root__.zig"), @import("uk/__root__.zig"), VectorBlock);
 
-/// Whether `core` has any axpy kernel of its own.
-pub fn has(comptime core: Core) bool {
-    inline for (roles) |role| {
-        if (comptime hasRole(core, role)) return true;
-    }
-    return false;
-}
-
-/// Exported symbol of `role` for `core`.
-pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-    return util.kernelSymbol(role, @tagName(core));
-}
-
-/// Exports every axpy kernel `core` has. Call from a container-level `comptime`
-/// block of the object's root file.
-pub fn exportCore(comptime core: Core) void {
-    inline for (roles) |role| {
-        if (comptime asm_kernels.hasRole(core, role)) {
-            asm_kernels.exportOne(role, core);
-        } else if (comptime cEntry(role, core)) |e| {
-            @export(uk.driven(kernel, role, e, VectorBlock), .{ .name = symbol(role, core), .visibility = .hidden });
-        }
-    }
-}
-
-/// Points the vtable at the kernels `core` has.
-pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
-}
+pub const hasRole = K.hasRole;
+pub const has = K.has;
+pub const symbol = K.symbol;
+pub const exportCore = K.exportCore;
+pub const install = K.install;

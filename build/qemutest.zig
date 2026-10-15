@@ -483,7 +483,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    run.addArtifactArg(try buildroot.addRstdTest(b, mod, target));
+    run.addArtifactArg(try buildroot.addRstdTest(b, mod, target, &.{}));
     run.addArg(m.qemu);
     try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
     if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);

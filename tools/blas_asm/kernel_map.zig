@@ -1,6 +1,6 @@
 //! Reads OpenBLAS's kernel selection: which source each core uses for each
-//! `axpy` precision, as `kernel/<arch>/KERNEL.<core>`, then `KERNEL`, then the
-//! defaults in `kernel/Makefile.L1` decide it.
+//! precision of a routine (`Routine`), as `kernel/<arch>/KERNEL.<core>`, then
+//! `KERNEL`, then the defaults in `kernel/Makefile.L1` decide it.
 
 const std = @import("std");
 const Io = std.Io;
@@ -9,8 +9,55 @@ pub var arena: std.mem.Allocator = undefined;
 pub var io: Io = undefined;
 /// The OpenBLAS checkout.
 pub var root: []const u8 = undefined;
-/// Where the converted files go, under `<out_root>/<arch>/asm/`.
-pub var out_root: []const u8 = "src/linalg/blas/blas1/axpy";
+/// The level-1 directory `uk.zig`'s output goes under, as
+/// `<out_root>/<routine>/<arch>/uk/`.
+pub var out_root: []const u8 = "src/linalg/blas/blas1";
+
+/// A routine whose C kernels are converted, and what its roles are.
+pub const Routine = enum {
+    axpy,
+    dot,
+
+    pub fn roles(r: Routine) []const Role {
+        return switch (r) {
+            .axpy => &.{
+                .{ .name = "saxpy", .letter = 's', .make = "S" },
+                .{ .name = "daxpy", .letter = 'd', .make = "D" },
+                .{ .name = "caxpy", .letter = 'c', .make = "C" },
+                .{ .name = "caxpyc", .letter = 'c', .make = "C", .function = 1 },
+                .{ .name = "zaxpy", .letter = 'z', .make = "Z" },
+                .{ .name = "zaxpyc", .letter = 'z', .make = "Z", .function = 1 },
+            },
+            // the blocks do not know conjugation, and `dsdot` runs `sdot`'s
+            .dot => &.{
+                .{ .name = "sdot", .letter = 's', .make = "S" },
+                .{ .name = "dsdot", .letter = 's', .make = "DS" },
+                .{ .name = "ddot", .letter = 'd', .make = "D" },
+                .{ .name = "cdotu", .letter = 'c', .make = "C" },
+                .{ .name = "cdotc", .letter = 'c', .make = "C" },
+                .{ .name = "zdotu", .letter = 'z', .make = "Z" },
+                .{ .name = "zdotc", .letter = 'z', .make = "Z" },
+            },
+        };
+    }
+
+    /// The make variable of a role's source: `SAXPYKERNEL`, `DSDOTKERNEL`.
+    pub fn variable(r: Routine, role: Role) ![]const u8 {
+        return try std.fmt.allocPrint(arena, "{s}{s}KERNEL", .{ role.make, try std.ascii.allocUpperString(arena, @tagName(r)) });
+    }
+};
+
+/// One kernel of a routine.
+pub const Role = struct {
+    name: []const u8,
+    /// The precision letter, which names its driver (`<letter><routine>.c`).
+    letter: u8,
+    /// The make variable's precision prefix, as `Makefile.L1` has it.
+    make: []const u8,
+    /// Which function of a converted block it calls: 0 the first (the real
+    /// or plain one), 1 the second (the conjugated one).
+    function: usize = 0,
+};
 
 pub fn die(comptime f: []const u8, args: anytype) noreturn {
     std.debug.print(f ++ "\n", args);
@@ -26,6 +73,16 @@ pub fn init(a: std.mem.Allocator, i: Io, checkout: []const u8) !void {
 
 pub fn path(parts: []const []const u8) ![]const u8 {
     return try std.mem.join(arena, "/", parts);
+}
+
+/// Runs `zig fmt` on `p`; a file it rejects is a generator bug, so it stops.
+pub fn format(p: []const u8) !void {
+    const r = try std.process.run(arena, io, .{ .argv = &.{ "zig", "fmt", p } });
+    switch (r.term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    die("zig fmt rejects {s}:\n{s}", .{ p, r.stderr });
 }
 
 pub fn read(p: []const u8) ?[]const u8 {

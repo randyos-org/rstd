@@ -14,7 +14,8 @@ next to each routine.
   the `install` that points the vtable at a core's kernels.
 - `cpu/<arch>.zig`: detection, and `canRun` where the tests need it.
 - `blas1/uk_block.zig`: a routine's C driver around a converted microkernel
-  block, for routines whose upstream kernel is C.
+  block, for routines whose upstream kernel is C (`axpy`, `dot`);
+  `blas1/c_kernels.md` says how such a kernel is ported.
 
 ## Converted assembly
 

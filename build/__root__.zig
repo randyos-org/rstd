@@ -47,8 +47,8 @@ pub fn addRstdModule(
 }
 
 /// rstd's unit tests for `target`, from a module of `addRstdModule`.
-pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget) !*Compile {
-    return b.addTest(.{ .root_module = try rstdbuild.cloneModuleWithTarget(b, mod, target) });
+pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, filters: []const []const u8) !*Compile {
+    return b.addTest(.{ .root_module = try rstdbuild.cloneModuleWithTarget(b, mod, target), .filters = filters });
 }
 
 pub fn build(b: *Build) !void {
@@ -93,7 +93,8 @@ pub fn build(b: *Build) !void {
 
     // tests
     // -----
-    const rstd_test_exe = try addRstdTest(b, rstd_mod, target);
+    const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
+    const rstd_test_exe = try addRstdTest(b, rstd_mod, target, test_filter);
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
@@ -105,7 +106,7 @@ pub fn build(b: *Build) !void {
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const macho = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .macos });
         const macho_mod = try addRstdModule(b, null, macho, optimize, .all, false, false);
-        macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho)).step);
+        macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, &.{})).step);
     }
 
     // the same tests that need no OS, on emulated machines
