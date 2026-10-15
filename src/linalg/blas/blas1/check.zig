@@ -110,6 +110,7 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
             var vt: Vtable = .{};
             portable.install(&vt);
             cpu.kernel.install(&vt, core);
+            portable.alias(&vt);
             check(&vt) catch |e| {
                 say("core {s}\n", .{name});
                 failed = e;

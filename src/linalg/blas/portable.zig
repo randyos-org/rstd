@@ -10,4 +10,9 @@ const levels = .{
 
 pub fn install(vt: *Vtable) void {
     inline for (levels) |l| l.installGeneric(vt);
+    alias(vt);
 }
+
+/// Points the bfloat16-named slots with no kernel of their own at the `f32`
+/// kernels `vt` holds (`ext/bf16/kernel.zig`); again after a core's kernels.
+pub const alias = @import("ext/bf16/kernel.zig").alias;

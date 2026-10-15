@@ -16,6 +16,7 @@ pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
     portable.install(&vt);
     kernel.install(&vt, core_type);
+    portable.alias(&vt);
     gemm_params.installCore(&vt, .arm64, core_type, .fromConfig(blas.config));
     return vt;
 }

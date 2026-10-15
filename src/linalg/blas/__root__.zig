@@ -26,6 +26,7 @@ const generic_vtable: Vtable = blk: {
     var vt: Vtable = .{};
     blas1.installGeneric(&vt);
     blas2.installGeneric(&vt);
+    @import("portable.zig").alias(&vt);
     break :blk vt;
 };
 

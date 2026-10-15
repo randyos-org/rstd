@@ -292,6 +292,53 @@ pub fn axpby(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, bet
     }
 }
 
+// ---- bfloat16 ----------------------------------------------------------------
+
+/// `SBDOT` (`interface/bf16dot.c`): the dot of two bfloat16 vectors, 0 for
+/// `n <= 0`, returned in `f32`.
+pub fn sbdot(n: BlasInt, x: [*]BF16, incx: BlasInt, y: [*]BF16, incy: BlasInt) f32 {
+    if (n <= 0) return 0;
+    const kn = long(n);
+    return blas.kernel(.sbdot_k)(kn, first(BF16, x, kn, incx), incx, first(BF16, y, kn, incy), incy);
+}
+
+/// `BSCAL` (`interface/scal.c` built `BGEMM`): `x := alpha*x` over bfloat16.
+/// Nothing for `incx <= 0`, and nothing to do for `alpha == 1`; like `scal`
+/// it passes the kernel flag 1.
+pub fn bscal(n: BlasInt, alpha: BF16, x: [*]BF16, incx: BlasInt) void {
+    if (incx <= 0 or n <= 0) return;
+    if (@import("../ext/bf16/__root__.zig").scalarToF32(alpha) == 1) return;
+    _ = blas.kernel(.bscal_k)(long(n), 0, 0, alpha, x, incx, x, 0, x, 1);
+}
+
+/// `SBSTOBF16` and `SBDTOBF16` (`interface/tobf16.c`): `out := bf16(in)`,
+/// rounding to nearest even; `f32` or `f64` in.
+pub fn sbtobf16(comptime F: type, n: BlasInt, in: [*]F, inc_in: BlasInt, out: [*]BF16, inc_out: BlasInt) void {
+    if (n <= 0) return;
+    const kn = long(n);
+    const kern = if (comptime F == f32)
+        blas.kernel(.sbstobf16_k)
+    else if (comptime F == f64)
+        blas.kernel(.sbdtobf16_k)
+    else
+        @compileError("sbtobf16: " ++ @typeName(F) ++ " is not f32 or f64");
+    kern(kn, first(F, in, kn, inc_in), inc_in, first(BF16, out, kn, inc_out), inc_out);
+}
+
+/// `SBF16TOS` and `DBF16TOD` (`interface/bf16to.c`): `out := in` widened to
+/// `f32` or `f64`.
+pub fn bf16to(comptime F: type, n: BlasInt, in: [*]BF16, inc_in: BlasInt, out: [*]F, inc_out: BlasInt) void {
+    if (n <= 0) return;
+    const kn = long(n);
+    const kern = if (comptime F == f32)
+        blas.kernel(.sbf16tos_k)
+    else if (comptime F == f64)
+        blas.kernel(.dbf16tod_k)
+    else
+        @compileError("bf16to: " ++ @typeName(F) ++ " is not f32 or f64");
+    kern(kn, first(BF16, in, kn, inc_in), inc_in, first(F, out, kn, inc_out), inc_out);
+}
+
 // ---- rotation set-up ---------------------------------------------------------
 
 /// `?ROTG` (`interface/rotg.c`): the rotation `[c s; -s c]` that zeroes `b`
@@ -835,6 +882,68 @@ test "interface: zrotg zeroes b against a over every branch" {
             try check.expectClose(f64, want, got, eps);
         }
     }
+}
+
+const bf = @import("../ext/bf16/__root__.zig");
+
+fn b16(v: f32) BF16 {
+    return bf.toBf16(v);
+}
+
+test "interface: sbdot, the conversions and bscal do nothing for n <= 0" {
+    var x = [_]BF16{ b16(1), b16(2) };
+    var f = [_]f32{ 7, 8 };
+    var d = [_]f64{ 7, 8 };
+    for ([_]BlasInt{ 0, -3 }) |n| {
+        try std.testing.expectEqual(@as(f32, 0), sbdot(n, &x, 1, &x, 1));
+        sbtobf16(f32, n, &f, 1, &x, 1);
+        sbtobf16(f64, n, &d, 1, &x, 1);
+        bf16to(f32, n, &x, 1, &f, 1);
+        bf16to(f64, n, &x, 1, &d, 1);
+        bscal(n, b16(0), &x, 1);
+    }
+    try std.testing.expectEqual(@as(f32, 7), f[0]);
+    try std.testing.expectEqual(@as(f64, 8), d[1]);
+    try std.testing.expectEqual(@as(f32, 2), bf.fromBf16(x[1]));
+}
+
+test "interface: a negative stride reads and writes bfloat16 vectors from their ends" {
+    const n = 5;
+    var f: [n * 2]f32 = undefined;
+    check.fill(f32, &f, 21);
+    var h: [n * 3]BF16 = @splat(b16(0));
+    // stride -3 puts element 0 last: the last element of the buffer region
+    sbtobf16(f32, n, &f, 2, &h, -3);
+    for (0..n) |i| {
+        try std.testing.expectEqual(@backingInt(b16(f[i * 2])), @backingInt(h[(n - 1 - i) * 3]));
+    }
+    var back: [n]f64 = undefined;
+    bf16to(f64, n, &h, -3, &back, 1);
+    for (0..n) |i| try std.testing.expectEqual(@as(f64, bf.fromBf16(b16(f[i * 2]))), back[i]);
+    // a reversed read of the same storage dots against itself forwards
+    var fwd: [n]BF16 = undefined;
+    for (0..n) |i| fwd[i] = h[(n - 1 - i) * 3];
+    try std.testing.expectEqual(sbdot(n, &fwd, 1, &fwd, 1), sbdot(n, &h, -3, &h, -3));
+    var want: f64 = 0;
+    for (0..n) |i| want += @as(f64, bf.fromBf16(fwd[i])) * bf.fromBf16(fwd[i]);
+    try check.expectClose(f32, @floatCast(want), sbdot(n, &fwd, 1, &fwd, 1), check.tolerance(f32, 4 * n));
+}
+
+test "interface: bscal skips alpha 1 and a non-positive stride, and scales the rest" {
+    var x = [_]BF16{ b16(1.5), b16(-2), b16(4) };
+    bscal(3, b16(1), &x, 1);
+    bscal(3, b16(2), &x, 0);
+    bscal(3, b16(2), &x, -1);
+    try std.testing.expectEqual(@as(f32, -2), bf.fromBf16(x[1]));
+    bscal(3, b16(2), &x, 1);
+    try std.testing.expectEqual(@as(f32, 3), bf.fromBf16(x[0]));
+    try std.testing.expectEqual(@as(f32, -4), bf.fromBf16(x[1]));
+    try std.testing.expectEqual(@as(f32, 8), bf.fromBf16(x[2]));
+    // flag 1: a zero alpha zeroes the finite elements and keeps NaN
+    x[2] = b16(std.math.nan(f32));
+    bscal(3, b16(0), &x, 1);
+    try std.testing.expectEqual(@as(f32, 0), bf.fromBf16(x[0]));
+    try std.testing.expect(std.math.isNan(bf.fromBf16(x[2])));
 }
 
 test "interface: rotg handles scaled and special inputs" {

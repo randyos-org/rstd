@@ -253,6 +253,7 @@ decq
 defconds
 Deinitialize
 delete_module
+Denormals
 devtmpfs
 dgeadd
 dgemm
@@ -1666,6 +1667,7 @@ TMPVY
 TMPX
 TMPY
 tmutil
+tobf
 tocbss
 toks
 toolchain

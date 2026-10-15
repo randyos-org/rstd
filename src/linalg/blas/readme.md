@@ -100,6 +100,40 @@ serve them where they are targets at all.
 | POWER BG/P (double FPU)   | LLVM cannot assemble the "hummer" instructions       |
 | RISC-V C910V              | LLVM has no `xtheadvector`                           |
 
+## bfloat16 and half precision
+
+The kernels are `ext/bf16/kernel.zig` (conversions, `bscal`, `sbdot`, and the
+`bgemv`/`sbgemv`/`shgemv` family); the interfaces are `blas1/interface.zig`
+(`sbdot`, `bscal`, `sbtobf16`, `bf16to`) and `blas2/interface.zig`
+(`gemvHalf`). They are portable Zig, the same on every core: no core installs
+a kernel of its own for any of them, and the per-core sources the reference
+selects (AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA, RVV) are not ported.
+
+- **Aliases:** `kernel/setparam-ref.c` fills the bfloat16-named slots that
+  have no kernel of their own with the `f32` kernels: 17 level-1 ones
+  (`sbamax_k` to `sbswap_k`) and `dsbdot_k` (with `dsdot_k`), which the
+  level-1 interfaces reach, and `sbger_k`, `sbsymv_*`, `sbtrsm_*`, `sbtrmm_*`,
+  `sbsymm_*`, `sbneg_tcopy` and `sblaswp_ncopy`, which nothing calls yet and
+  stay null while their `f32` slots are. `portable.alias` sets them once, at
+  the end of every vtable's build (`generic_vtable`, `vtableFromCoreType`).
+- **Conversions:** round to nearest even; denormals flush to a signed zero and
+  NaNs come out quiet, in both directions (`x86_64/tobf16.c`, `bf16to.c`).
+- **`bscal`:** `x := alpha*x` through `f32`. The flag `dummy2` is 0 for a
+  zero `alpha` giving zero, 1 for it keeping NaN and infinity as NaN; as in
+  `generic/scal.c` that test is on the bits of `alpha`, so only +0 counts.
+- **`sbdot`:** both operands widened to `f32`, the products and their sum in
+  `f64`, returned as `f32`; no buffer. Differs from the reference's `sdot` on
+  the widened data (and from the AVX-512 BF16 kernel) by rounding only.
+- **Half `gemv`:** each result sums `a*x` in `f32` in index order, unfused,
+  and rounds once on the store (`alpha*acc + beta*y`, `beta == 0` never reads
+  `y`). Without a transpose, rows go in blocks of 256 with the columns
+  outermost, so `A` is read down its columns. For `bgemv` the scalars and `y`
+  are bfloat16. With `m` or `n` zero the kernel yields `beta*y`; the
+  interface returns first.
+- **Interface:** `gemvHalf` checks arguments as `interface/sbgemv.c` does, and
+  for `alpha == 0` only scales `y` by `beta`. The reference's threaded drivers
+  are not ported. `sbdot` and the others return at once for `n <= 0`.
+
 ## Fixes to upstream sources
 
 The per-core tests in the qemu rigs found bugs in some of OpenBLAS's own
