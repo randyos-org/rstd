@@ -85,7 +85,7 @@ fn expandTabs(a: std.mem.Allocator, s: []const u8) ![]const u8 {
 /// should convert as they would for that build, not a single-target one.
 fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []const u8, v: arch.Variant, dump_macros: bool) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-DDYNAMIC_ARCH", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.name }), "-target", ar.triple });
+    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-x", "assembler-with-cpp", "-w", "-DDYNAMIC_ARCH", "-I", inc, "-I", map.root, "-I", try map.path(&.{ map.root, "kernel", ar.name }), "-target", v.triple orelse ar.triple });
     try argv.appendSlice(a, ar.defines);
     if (k.prec.double()) try argv.append(a, "-DDOUBLE");
     if (k.prec.complex()) try argv.append(a, "-DCOMPLEX");
@@ -588,15 +588,22 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             }
         }
 
-        // a file is named for its variant where there are several, and for its
+        // a file is named for its variants unless it has them all, and for its
         // first core where that alone leaves two files the same name
         const variant_tags = try a.alloc([]const u8, clusters.items.len);
         for (clusters.items, variant_tags) |c, *vt| {
-            const v = texts.items[c.items[0]].variant;
-            const one = for (c.items) |i| {
-                if (!std.mem.eql(u8, texts.items[i].variant, v)) break false;
-            } else true;
-            vt.* = if (one and ar.variants.len > 1) v else "";
+            var names: std.ArrayList(u8) = .empty;
+            var count: usize = 0;
+            for (ar.variants) |v| {
+                const has = for (c.items) |i| {
+                    if (std.mem.eql(u8, texts.items[i].variant, v.name)) break true;
+                } else false;
+                if (!has) continue;
+                count += 1;
+                if (names.items.len > 0) try names.append(a, '_');
+                try names.appendSlice(a, v.name);
+            }
+            vt.* = if (count == ar.variants.len) "" else names.items;
         }
 
         for (clusters.items, variant_tags, 0..) |c, variant_tag, ci| {

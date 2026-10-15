@@ -1,5 +1,7 @@
-//! PowerPC and POWER, little-endian ELFv2. Each source names its argument
-//! registers per pointer width (`__64BIT__`): the `32` and `64` variants.
+//! PowerPC and POWER. Each source names its argument registers per pointer
+//! width (`__64BIT__`) and the prologue and frame follow the ABI: `32` and
+//! `32le` (SysV), `64` (little-endian ELFv2) and `64be` (big-endian ELFv2;
+//! Zig emits ELFv2 for every 64-bit target, glibc's included).
 
 const std = @import("std");
 const arch = @import("__root__.zig");
@@ -20,13 +22,15 @@ pub const power: arch.Arch = .{
     .name = "power",
     .triple = "powerpc64le-linux-gnu",
     .config_h = "#define ARCH_POWER 1\n#define BINARY64 1\n",
-    .defines = &.{ "-DASSEMBLER", "-DARCH_POWER", "-DOS_LINUX", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-D__BYTE_ORDER__=__ORDER_LITTLE_ENDIAN__" },
+    .defines = &.{ "-DASSEMBLER", "-DARCH_POWER", "-DOS_LINUX", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k" },
     .core_defines = coreDefines,
     // the Blue Gene double-precision FPU instructions are not in LLVM
     .unsupported = &.{ "axpy_hummer.S", "zaxpy_hummer.S" },
     .variants = &.{
-        .{ .name = "32", .defines = &.{} },
+        .{ .name = "32", .defines = &.{}, .triple = "powerpc-linux-gnu" },
+        .{ .name = "32le", .defines = &.{}, .triple = "powerpcle-linux-gnu" },
         .{ .name = "64", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr },
+        .{ .name = "64be", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr, .triple = "powerpc64-linux-musl" },
     },
 };
 

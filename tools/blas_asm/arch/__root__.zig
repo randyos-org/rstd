@@ -145,6 +145,8 @@ pub const Variant = struct {
     /// In the file name, and how the registry picks between them.
     name: []const u8,
     defines: []const []const u8,
+    /// The target to preprocess for, where it is not `Arch.triple`.
+    triple: ?[]const u8 = null,
     /// Fixes for sources built this way only, beyond `Arch.patches`.
     patches: []const Patch = &.{},
 };
