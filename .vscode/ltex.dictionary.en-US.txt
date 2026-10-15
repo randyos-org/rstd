@@ -256,6 +256,7 @@ defconds
 Deinitialize
 delete_module
 Denormals
+Deque
 devtmpfs
 dgeadd
 dgemm
@@ -386,6 +387,7 @@ EUCLEAN
 EUNATCH
 eventfd
 eventfd2
+Excls
 EXECFD
 EXECFN
 execve
