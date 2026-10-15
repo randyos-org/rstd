@@ -14,7 +14,6 @@ const rsimd = @import("../../../../simd/__root__.zig");
 const fma = @import("../../fma.zig");
 const registry = @import("../../asm_registry.zig");
 
-const BlasInt = types.BlasInt;
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 const Complex = std.math.Complex;

@@ -1,35 +1,14 @@
-//! Integer types at the two layers of the library.
+//! Element and index types.
 //!
-//! The reference has both, and they are not the same width:
-//!
-//!   * `BlasInt` (`blasint` in `common.h`) is the *interface* integer -- what a Fortran
-//!     `INTEGER` is. 32-bit by default; 64-bit in an ILP64 build
-//!     (`INTERFACE64=1`, which defines `USE64BITINT`). This is the one that
-//!     appears in public signatures, and changing it changes the ABI, which
-//!     is why ILP64 builds ship under a different library name.
-//!
-//!   * `BlasLong` (`BLASLONG`) is the *kernel* index type, always 64-bit on 64-bit
-//!     targets. Kernels index into packed panels and can exceed a 32-bit
-//!     count regardless of what the caller's `INTEGER` is. Note the
-//!     reference spells this `long long` on 64-bit Windows specifically,
-//!     because Windows keeps `long` at 32 bits.
+//! Sizes, strides and leading dimensions are `isize` at the interface, so a
+//! call can address any array that fits in memory; this is not the reference's
+//! Fortran `INTEGER` (`blasint`), since there is no Fortran or C ABI here.
+//! `BlasLong` (`BLASLONG`) is the kernel index type, pointer-sized as `long`
+//! is on LP64 and as the reference's `long long` is on 64-bit Windows.
 
 const std = @import("std");
-// const build_options = @import("build_options");
 
 const SrcInfo = std.builtin.SourceLocation;
-
-/// Whether this is an ILP64 build (`INTERFACE64=1` in the reference).
-///
-/// A plain constant for now. It becomes a real build option if there is
-/// a public ABI to expose to Fortran.  We can hardcode it as a constant right
-/// now since we aren't expressing these as a C ABI and intended for Zig targets
-/// only.  Keeping as an available constant, though, in case that ever changes
-/// and we want to export an API to Fortran.
-pub const ilp64 = false; // build_options.ilp64;
-
-/// Fortran `INTEGER`. Appears in every public routine's signature.  See `ilp64` above.
-pub const BlasInt = if (ilp64) i64 else i32;
 
 /// Kernel-level index/stride type: `long`, so pointer-sized where the pointer
 /// is 64 bits (LP64 and Win64's `long long`) and 32 bits on 32-bit targets.

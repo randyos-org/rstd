@@ -10,7 +10,7 @@
 //! matrix); the Fortran interface accepts them.
 //!
 //! Element type `T` is `f32`, `f64`, `XDouble` or a `Complex` of one; sizes
-//! and strides are `BlasInt`. Vectors with a negative stride start at the
+//! and strides are `isize`. Vectors with a negative stride start at the
 //! pointer given, as in the Fortran interface. No vtable slot exists for
 //! these routines; every kernel used is a level-1 slot, and `gbmv` uses no
 //! gemv kernel.
@@ -28,7 +28,6 @@ const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const interface = @import("interface.zig");
 
-const BlasInt = types.BlasInt;
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
@@ -172,7 +171,7 @@ fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
     return if (inc < 0) at(T, p, -(n - 1) * inc) else p;
 }
 
-fn long(v: BlasInt) BlasLong {
+fn long(v: isize) BlasLong {
     return @intCast(v);
 }
 
@@ -419,7 +418,7 @@ fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comp
 /// `?GBMV` (`interface/gbmv.c`, `zgbmv.c`): `y := alpha*op(A)*x + beta*y` for
 /// an `m` by `n` matrix with `kl` sub- and `ku` superdiagonals in band
 /// storage. `beta == 0` stores `alpha*op(A)*x` without reading `y`.
-pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: BlasInt, n: BlasInt, kl: BlasInt, ku: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: isize, n: isize, kl: isize, ku: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (kl < 0 or ku < 0) return error.InvalidK;
@@ -446,7 +445,7 @@ pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: BlasInt, 
 
 /// Shared tail of the matrix-vector products: `beta` scaling, `alpha == 0`,
 /// start-of-vector pointers, and the uplo dispatch.
-fn mvInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: BlasInt, k: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+fn mvInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n == 0) return;
     _ = blas.vtable();
     const kn = long(n);
@@ -461,7 +460,7 @@ fn mvInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gp
 
 /// `?SBMV` (`interface/sbmv.c`, `zsbmv.c`): `y := alpha*S*x + beta*y` for the
 /// symmetric `n` by `n` matrix of `k` bands in band storage.
-pub fn sbmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, k: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn sbmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (k < 0) return error.InvalidK;
     if (lda < k + 1) return error.InvalidLda;
@@ -472,7 +471,7 @@ pub fn sbmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, k:
 
 /// `?HBMV` (`interface/zhbmv.c`): `sbmv` for a Hermitian matrix; the
 /// diagonal's imaginary part is not read.
-pub fn hbmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt, k: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn hbmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hbmv: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (k < 0) return error.InvalidK;
@@ -485,7 +484,7 @@ pub fn hbmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt
 }
 
 /// `?SPMV` (`interface/spmv.c`, `zspmv.c`): `sbmv` for packed storage.
-pub fn spmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, alpha: T, a: [*]T, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn spmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
@@ -493,7 +492,7 @@ pub fn spmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, al
 }
 
 /// `?HPMV` (`interface/zhpmv.c`): `hbmv` for packed storage.
-pub fn hpmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt, alpha: T, a: [*]T, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn hpmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hpmv: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
@@ -503,7 +502,7 @@ pub fn hpmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt
     }
 }
 
-fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: BlasInt, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     if (n == 0) return;
     if (comptime kind == .symmetric) {
         if (isZero(T, alpha)) return;
@@ -515,7 +514,7 @@ fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, 
     }
 }
 
-fn rank2Interface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+fn rank2Interface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (n == 0 or isZero(T, alpha)) return;
     _ = blas.vtable();
     const px = first(T, x, long(n), incx);
@@ -527,14 +526,14 @@ fn rank2Interface(comptime T: type, comptime kind: Kind, comptime packed_: bool,
 
 /// `?SPR` (`interface/spr.c`, `zspr.c`): `A += alpha*x*x^T` on the packed
 /// triangle. Columns where `x[i]` is zero are skipped.
-pub fn spr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, a: [*]T) Error!void {
+pub fn spr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T) Error!void {
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     try rankInterface(T, .symmetric, true, gpa, uplo == .lower, n, alpha, x, incx, a, 0);
 }
 
 /// `?SYR` (`interface/syr.c`, `zsyr.c`): `spr` for full storage.
-pub fn syr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+pub fn syr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
@@ -543,7 +542,7 @@ pub fn syr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, alp
 
 /// `?HPR` (`interface/zhpr.c`): `A += alpha*x*x^H` for real `alpha`; the
 /// diagonal's imaginary part becomes zero.
-pub fn hpr(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt, alpha: Float(T), x: [*]T, incx: BlasInt, a: [*]T) Error!void {
+pub fn hpr(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T) Error!void {
     if (comptime !isComplex(T)) @compileError("hpr: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
@@ -553,7 +552,7 @@ pub fn hpr(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt,
 }
 
 /// `?HER` (`interface/zher.c`): `hpr` for full storage.
-pub fn her(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt, alpha: Float(T), x: [*]T, incx: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+pub fn her(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("her: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
@@ -565,7 +564,7 @@ pub fn her(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt,
 
 /// `?SPR2` (`interface/spr2.c`, `zspr2.c`): `A += alpha*(x*y^T + y*x^T)` on
 /// the packed triangle.
-pub fn spr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T) Error!void {
+pub fn spr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
@@ -573,7 +572,7 @@ pub fn spr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, al
 }
 
 /// `?SYR2` (`interface/syr2.c`, `zsyr2.c`): `spr2` for full storage.
-pub fn syr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+pub fn syr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
@@ -583,7 +582,7 @@ pub fn syr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: BlasInt, al
 
 /// `?HPR2` (`interface/zhpr2.c`): `A += alpha*x*y^H + conj(alpha)*y*x^H`; the
 /// diagonal's imaginary part becomes zero.
-pub fn hpr2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T) Error!void {
+pub fn hpr2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
     if (comptime !isComplex(T)) @compileError("hpr2: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
@@ -594,7 +593,7 @@ pub fn hpr2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt
 }
 
 /// `?HER2` (`interface/zher2.c`): `hpr2` for full storage.
-pub fn her2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+pub fn her2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("her2: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
@@ -613,7 +612,7 @@ const max_n = 9;
 const max_mem = 4096;
 
 /// Where logical element `i` of a vector of `n` with stride `inc` lives.
-fn vecAt(i: usize, n: usize, inc: i32) usize {
+fn vecAt(i: usize, n: usize, inc: isize) usize {
     const s: usize = @abs(inc);
     return if (inc > 0) i * s else (n - 1 - i) * s;
 }
@@ -654,7 +653,7 @@ fn tol(comptime T: type, terms: usize) Float(T) {
 }
 
 const cases = [_]struct { n: usize, k: usize }{ .{ .n = 1, .k = 0 }, .{ .n = 2, .k = 1 }, .{ .n = 3, .k = 0 }, .{ .n = 5, .k = 2 }, .{ .n = 9, .k = 1 }, .{ .n = 9, .k = 4 }, .{ .n = 9, .k = 12 } };
-const inc_pairs = [_][2]i32{ .{ 1, 1 }, .{ 2, 3 }, .{ -1, 1 }, .{ 1, -2 }, .{ -3, -2 } };
+const inc_pairs = [_][2]isize{ .{ 1, 1 }, .{ 2, 3 }, .{ -1, 1 }, .{ 1, -2 }, .{ -3, -2 } };
 
 fn scalarOf(comptime T: type, re: f64, im: f64) T {
     return if (comptime isComplex(T)) T.init(@floatCast(re), @floatCast(im)) else @floatCast(re);
@@ -691,8 +690,8 @@ fn checkMv(comptime T: type, comptime st: Store, comptime kind: Kind, lower: boo
             .hermitian_rev => if (lower) .lower_rev else .upper_rev,
             else => if (lower) .lower else .upper,
         };
-        const nn: BlasInt = @intCast(n);
-        const lda: BlasInt = @intCast(ld);
+        const nn: isize = @intCast(n);
+        const lda: isize = @intCast(ld);
         switch (st) {
             .band => if (kind == .symmetric)
                 try sbmv(T, talloc, un, nn, @intCast(k), alpha, &a, lda, &xs, inc[0], beta, &ys, inc[1])
@@ -763,8 +762,8 @@ fn checkRank(comptime T: type, comptime st: Store, comptime kind: Kind, lower: b
             .hermitian_rev => if (lower) .lower_rev else .upper_rev,
             else => if (lower) .lower else .upper,
         };
-        const nn: BlasInt = @intCast(n);
-        const lda: BlasInt = @intCast(ld);
+        const nn: isize = @intCast(n);
+        const lda: isize = @intCast(ld);
         switch (st) {
             .packed_ => if (two) {
                 if (kind == .symmetric)

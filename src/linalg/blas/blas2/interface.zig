@@ -1,7 +1,7 @@
 //! The level-2 interface: the checks, `beta` scaling and pointer set-up
 //! OpenBLAS's `interface/{gemv,zgemv,ger,zger,symv,zsymv,zhemv}.c` do before
 //! calling a kernel. Like `blas1/interface.zig`, each takes the element type
-//! `T` explicitly, with `m`, `n`, `lda` and the strides `BlasInt`; matrices
+//! `T` explicitly, with `m`, `n`, `lda` and the strides `isize`; matrices
 //! are column-major.
 //!
 //! A negative stride names the vector's last element first: the interface
@@ -26,7 +26,6 @@ const portable = @import("../portable.zig");
 const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
-const BlasInt = types.BlasInt;
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
@@ -89,13 +88,13 @@ fn raw(comptime T: type, p: [*]T) [*]Float(T) {
     return @ptrCast(p);
 }
 
-fn long(v: BlasInt) BlasLong {
+fn long(v: isize) BlasLong {
     return @intCast(v);
 }
 
 /// Where a vector of `n` with stride `inc` starts: its last element when
 /// `inc < 0`.
-fn first(comptime T: type, p: [*]T, n: BlasInt, inc: BlasInt) [*]T {
+fn first(comptime T: type, p: [*]T, n: isize, inc: isize) [*]T {
     return if (inc < 0) @ptrCast(util.at(T, p, -(long(n) - 1) * inc)) else p;
 }
 
@@ -110,7 +109,7 @@ fn isZero(comptime T: type, v: T) bool {
 /// `y := beta*y` over `n` elements at the unadjusted `y`, the way the
 /// reference does it: with the scal kernel's flag 0, so a zero `beta`
 /// overwrites NaN.
-fn scaleY(comptime T: type, n: BlasInt, beta: T, y: [*]T, incy: BlasInt) void {
+fn scaleY(comptime T: type, n: isize, beta: T, y: [*]T, incy: isize) void {
     const py = raw(T, y);
     const inc: BlasLong = @intCast(@abs(incy));
     if (comptime isComplex(T)) {
@@ -168,7 +167,7 @@ fn Scratch(comptime F: type) type {
 /// `?GEMV` (`interface/gemv.c`, `zgemv.c`): `y := alpha*op(A)*x + beta*y`,
 /// `A` being `m` by `n`. `y` is scaled by `beta` first (a zero `beta`
 /// overwrites NaN), and nothing more happens for a zero `alpha`.
-pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: BlasInt, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (!isComplex(T) and @backingInt(trans) > @backingInt(Trans.c)) return error.InvalidTrans;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
@@ -190,7 +189,7 @@ pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: BlasInt, n:
     }
 }
 
-fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: BlasInt, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) Allocator.Error!void {
+fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (comptime !complex and @backingInt(t) > @backingInt(Trans.c)) return;
@@ -235,7 +234,7 @@ pub const HalfGemv = enum {
 /// `y` (when `beta` is not 1) without reading `A` or `x`. The kernels take no
 /// scratch buffer, so there is no allocator; the reference's threaded
 /// drivers are not here.
-pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: BlasInt, n: BlasInt, alpha: kind.Out(), a: [*]kind.In(), lda: BlasInt, x: [*]kind.In(), incx: BlasInt, beta: kind.Out(), y: [*]kind.Out(), incy: BlasInt) ArgError!void {
+pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha: kind.Out(), a: [*]kind.In(), lda: isize, x: [*]kind.In(), incx: isize, beta: kind.Out(), y: [*]kind.Out(), incy: isize) ArgError!void {
     const In = kind.In();
     const Out = kind.Out();
     if (@backingInt(trans) > @backingInt(Trans.c)) return error.InvalidTrans;
@@ -279,17 +278,17 @@ fn halfToF32(comptime T: type, v: T) f32 {
 // ---- ger ---------------------------------------------------------------------
 
 /// `?GER`, `?GERU` (`interface/ger.c`, `zger.c`): `A := alpha*x*y^T + A`.
-pub fn ger(allocator: Allocator, comptime T: type, m: BlasInt, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+pub fn ger(allocator: Allocator, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     return gerImpl(allocator, T, false, m, n, alpha, x, incx, y, incy, a, lda);
 }
 
 /// `?GERC`: `A := alpha*x*y^H + A`. Complex only.
-pub fn gerc(allocator: Allocator, comptime T: type, m: BlasInt, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+pub fn gerc(allocator: Allocator, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("gerc: " ++ @typeName(T) ++ " is not complex");
     return gerImpl(allocator, T, true, m, n, alpha, x, incx, y, incy, a, lda);
 }
 
-fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: BlasInt, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
+fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (m < 0) return error.InvalidM;
@@ -320,19 +319,19 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: BlasI
 
 /// `?SYMV` (`interface/symv.c`, `zsymv.c`): `y := alpha*S*x + beta*y` for the
 /// symmetric `S` whose `uplo` triangle (`u` or `l`) is stored in `a`.
-pub fn symv(allocator: Allocator, comptime T: type, uplo: Uplo, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn symv(allocator: Allocator, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (uplo == .v or uplo == .m) return error.InvalidUplo;
     return mv(allocator, T, "symv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
 /// `?HEMV` (`interface/zhemv.c`): the same for the Hermitian `S`; `v` and
 /// `m` use the upper and lower triangles for `conj(S)`. Complex only.
-pub fn hemv(allocator: Allocator, comptime T: type, uplo: Uplo, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+pub fn hemv(allocator: Allocator, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hemv: " ++ @typeName(T) ++ " is not complex");
     return mv(allocator, T, "hemv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
-fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: Uplo, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
+fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
@@ -352,7 +351,7 @@ fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: U
     }
 }
 
-fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) Allocator.Error!void {
+fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
@@ -418,12 +417,12 @@ fn val(comptime T: type, re: Float(T), im: Float(T)) T {
 
 /// Element `i` of a vector of `n` at stride `inc`, as an index into its
 /// storage: stride -2 puts element 0 last.
-fn vi(n: usize, inc: BlasInt, i: usize) usize {
+fn vi(n: usize, inc: isize, i: usize) usize {
     const k: usize = @abs(inc);
     return if (inc < 0) (n - 1 - i) * k else i * k;
 }
 
-fn randomVec(comptime T: type, n: usize, inc: BlasInt, seed: u64) ![]T {
+fn randomVec(comptime T: type, n: usize, inc: isize, seed: u64) ![]T {
     const v = try testing.allocator.alloc(T, guard.span(n, @abs(inc)));
     check.fill(T, v, seed);
     return v;
@@ -435,7 +434,7 @@ fn expectSame(comptime T: type, want: []const T, got: []const T, terms: usize) !
 
 const Case = struct { m: usize, n: usize };
 const shapes = [_]Case{ .{ .m = 1, .n = 1 }, .{ .m = 5, .n = 3 }, .{ .m = 3, .n = 5 }, .{ .m = 9, .n = 7 }, .{ .m = 17, .n = 4 } };
-const stride_pairs = [_][2]BlasInt{ .{ 1, 1 }, .{ 2, -3 }, .{ -1, 2 }, .{ -2, -1 } };
+const stride_pairs = [_][2]isize{ .{ 1, 1 }, .{ 2, -3 }, .{ -1, 2 }, .{ -2, -1 } };
 
 /// `alpha`, `beta` pairs: general, and each special case.
 fn scalars(comptime T: type) [6][2]T {
@@ -449,7 +448,7 @@ fn scalars(comptime T: type) [6][2]T {
     };
 }
 
-fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: BlasInt, incy: BlasInt, alpha: T, beta: T) !void {
+fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: isize, incy: isize, alpha: T, beta: T) !void {
     const tr = transposed(trans);
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
@@ -550,7 +549,7 @@ test "interface: gemv, ger, symv and hemv report the first bad argument and do n
     try testing.expectEqualSlices(f64, &.{ 1, 2, 3, 4 }, &a);
 }
 
-fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: BlasInt, incy: BlasInt, alpha: T) !void {
+fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: isize, incy: isize, alpha: T) !void {
     const lda = m + 2;
     const a = try testing.allocator.alloc(T, lda * n);
     defer testing.allocator.free(a);
@@ -601,7 +600,7 @@ fn symAt(comptime T: type, kind: sym.Kind, upper: bool, a: []const T, lda: usize
     };
 }
 
-fn testMv(comptime T: type, herm: bool, uplo: Uplo, n: usize, incx: BlasInt, incy: BlasInt, alpha: T, beta: T) !void {
+fn testMv(comptime T: type, herm: bool, uplo: Uplo, n: usize, incx: isize, incy: isize, alpha: T, beta: T) !void {
     const lda = n + 1;
     const a = try testing.allocator.alloc(T, lda * n);
     defer testing.allocator.free(a);
@@ -690,7 +689,7 @@ fn halfVal(comptime E: type, v: E) f64 {
     return if (E == types.BF16) bf.fromBf16(v) else @floatCast(v);
 }
 
-fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx: BlasInt, incy: BlasInt, alpha: f32, beta: f32) !void {
+fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx: isize, incy: isize, alpha: f32, beta: f32) !void {
     const In = kind.In();
     const Out = kind.Out();
     const tr = transposed(trans);

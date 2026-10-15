@@ -31,7 +31,6 @@ const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const interface = @import("interface.zig");
-const BlasInt = types.BlasInt;
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
@@ -519,12 +518,12 @@ fn call(
     uplo: Uplo,
     trans: Trans,
     diag: Diag,
-    n: BlasInt,
-    k: BlasInt,
+    n: isize,
+    k: isize,
     a: [*]T,
-    lda: BlasInt,
+    lda: isize,
     x: [*]T,
-    incx: BlasInt,
+    incx: isize,
 ) Error!void {
     const F = Float(T);
     const banded = kind == .tbmv or kind == .tbsv;
@@ -573,37 +572,37 @@ fn call(
 /// lower triangular of `n`, column-major with leading dimension `lda`. The
 /// other triangle (and the diagonal for `unit`) is not read. A negative
 /// `incx` walks `x` from its end.
-pub fn trmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
+pub fn trmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
     return call(T, .trmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TRSV` (`interface/trsv.c`, `ztrsv.c`): solves `op(A) * y = x`, `y`
 /// replacing `x`. No singularity check, as in the reference.
-pub fn trsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
+pub fn trsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
     return call(T, .trsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TBMV` (`interface/tbmv.c`, `ztbmv.c`): `x := op(A) * x`, `A` triangular
 /// band with `k` off-diagonals in LAPACK band storage: `A(i,j)` is
 /// `a[k + i - j + j*lda]` (upper) or `a[i - j + j*lda]` (lower).
-pub fn tbmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, k: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
+pub fn tbmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
     return call(T, .tbmv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TBSV` (`interface/tbsv.c`, `ztbsv.c`): solves `op(A) * y = x` for band `A`.
-pub fn tbsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, k: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
+pub fn tbsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
     return call(T, .tbsv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TPMV` (`interface/tpmv.c`, `ztpmv.c`): `x := op(A) * x`, `A` packed by
 /// columns: `A(i,j)` is `ap[j*(j+1)/2 + i]` (upper, `i <= j`) or
 /// `ap[j*(2n-j+1)/2 + i - j]` (lower, `i >= j`).
-pub fn tpmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, ap: [*]T, x: [*]T, incx: BlasInt) Error!void {
+pub fn tpmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
     return call(T, .tpmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 /// `?TPSV` (`interface/tpsv.c`, `ztpsv.c`): solves `op(A) * y = x` for packed `A`.
-pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, ap: [*]T, x: [*]T, incx: BlasInt) Error!void {
+pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
     return call(T, .tpsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
@@ -700,7 +699,7 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
         const lda = if (layout == .band) k + 1 + (n % 3) else n + (n % 3);
         for (std.enums.values(Uplo)) |uplo| for (ops) |op| for (std.enums.values(Diag)) |diag| for (incs) |inc| {
             var a: [max_n * (max_n + 3)]T = undefined;
-            check.fill(T, a[0..storageLen(layout, n, lda)], n * 31 + k + @intFromEnum(op));
+            check.fill(T, a[0..storageLen(layout, n, lda)], n * 31 + k + @backingInt(op));
             const alen = storageLen(layout, n, lda);
             // small off-diagonals and a dominant diagonal keep solves tame
             const sc: F = 1 / @sqrt(@as(F, @floatFromInt(n + 1)));
@@ -729,10 +728,10 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
                 for (0..n) |i| want[phys(i, n, inc)] = rl[i];
             }
 
-            const nn: BlasInt = @intCast(n);
-            const kk: BlasInt = @intCast(k);
-            const ll: BlasInt = @intCast(lda);
-            const ii: BlasInt = @intCast(inc);
+            const nn: isize = @intCast(n);
+            const kk: isize = @intCast(k);
+            const ll: isize = @intCast(lda);
+            const ii: isize = @intCast(inc);
             try call(T, kind, vt, gpa, uplo, op, diag, nn, kk, &a, ll, &x, ii);
             const tol = check.tolerance(F, 4 * n + 4);
             if (!solve) {

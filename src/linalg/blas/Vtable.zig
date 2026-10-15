@@ -21,7 +21,6 @@ const std = @import("std");
 const types = @import("types.zig");
 
 const BlasLong = types.BlasLong;
-const BlasInt = types.BlasInt;
 const HF16 = types.HF16;
 const BF16 = types.BF16;
 const XDouble = types.XDouble;
@@ -188,7 +187,7 @@ sbsymm_outcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, Blas
 sbsymm_oltcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 
 sbneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
-sblaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f32, BlasLong, [*]BlasInt, [*]f32) callconv(.c) i32 = null,
+sblaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f32, BlasLong, [*]isize, [*]f32) callconv(.c) i32 = null,
 
 //#ifdef SMALL_MATRIX_OPT // (bfloat16)
 sbgemm_small_matrix_permit: ?*const fn (i32, i32, BlasLong, BlasLong, BlasLong, f32, f32) callconv(.c) i32 = null,
@@ -366,7 +365,7 @@ ssymm_outcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasL
 ssymm_oltcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, [*]f32) callconv(.c) i32 = null,
 
 sneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
-slaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f32, BlasLong, [*]BlasInt, [*]f32) callconv(.c) i32 = null,
+slaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f32, BlasLong, [*]isize, [*]f32) callconv(.c) i32 = null,
 //#endif //(BUILD_SINGLE==1)
 
 // double precision (d)
@@ -496,7 +495,7 @@ dsymm_outcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasL
 dsymm_oltcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, [*]f64) callconv(.c) i32 = null,
 
 dneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
-dlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f64, BlasLong, [*]BlasInt, [*]f64) callconv(.c) i32 = null,
+dlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f64, BlasLong, [*]isize, [*]f64) callconv(.c) i32 = null,
 //#endif //(BUILD_DOUBLE==1)
 
 // EXPRECISION (q-family; XDouble is f64 unless types.exprecision or types.quad_precision is on)
@@ -594,7 +593,7 @@ qsymm_outcopy: ?*const fn (BlasLong, BlasLong, [*]XDouble, BlasLong, BlasLong, B
 qsymm_oltcopy: ?*const fn (BlasLong, BlasLong, [*]XDouble, BlasLong, BlasLong, BlasLong, [*]XDouble) callconv(.c) i32 = null,
 
 qneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]XDouble, BlasLong, [*]XDouble) callconv(.c) i32 = null,
-qlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]XDouble, BlasLong, [*]BlasInt, [*]XDouble) callconv(.c) i32 = null,
+qlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]XDouble, BlasLong, [*]isize, [*]XDouble) callconv(.c) i32 = null,
 //#endif //def EXPRECISION
 
 // single-precision complex (c)
@@ -819,7 +818,7 @@ chemm3m_oucopyi: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, Bla
 chemm3m_olcopyi: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, BlasLong, BlasLong, f32, f32, [*]f32) callconv(.c) i32 = null,
 
 cneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]f32, BlasLong, [*]f32) callconv(.c) i32 = null,
-claswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f32, BlasLong, [*]BlasInt, [*]f32) callconv(.c) i32 = null,
+claswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f32, BlasLong, [*]isize, [*]f32) callconv(.c) i32 = null,
 //#endif //(BUILD_COMPLEX==1)
 
 // double-precision complex (z)
@@ -1043,7 +1042,7 @@ zhemm3m_oucopyi: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, Bla
 zhemm3m_olcopyi: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, BlasLong, BlasLong, f64, f64, [*]f64) callconv(.c) i32 = null,
 
 zneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]f64, BlasLong, [*]f64) callconv(.c) i32 = null,
-zlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f64, BlasLong, [*]BlasInt, [*]f64) callconv(.c) i32 = null,
+zlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]f64, BlasLong, [*]isize, [*]f64) callconv(.c) i32 = null,
 //#endif //(BUILD_COMPLEX16 == 1)
 
 // EXPRECISION (x-family; ComplexXD is Complex64 unless types.exprecision or types.quad_precision is on)
@@ -1218,7 +1217,7 @@ xhemm3m_oucopyi: ?*const fn (BlasLong, BlasLong, [*]XDouble, BlasLong, BlasLong,
 xhemm3m_olcopyi: ?*const fn (BlasLong, BlasLong, [*]XDouble, BlasLong, BlasLong, BlasLong, XDouble, XDouble, [*]XDouble) callconv(.c) i32 = null,
 
 xneg_tcopy: ?*const fn (BlasLong, BlasLong, [*]XDouble, BlasLong, [*]XDouble) callconv(.c) i32 = null,
-xlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]XDouble, BlasLong, [*]BlasInt, [*]XDouble) callconv(.c) i32 = null,
+xlaswp_ncopy: ?*const fn (BlasLong, BlasLong, BlasLong, [*]XDouble, BlasLong, [*]isize, [*]XDouble) callconv(.c) i32 = null,
 //#endif //def EXPRECISION
 
 init: ?*const fn () callconv(.c) void = null,

@@ -14,7 +14,6 @@ const uk = @import("../uk_block.zig");
 const types = @import("../../types.zig");
 
 const BlasLong = types.BlasLong;
-const BlasInt = types.BlasInt;
 const HF16 = types.HF16;
 const BF16 = types.BF16;
 const XDouble = types.XDouble;

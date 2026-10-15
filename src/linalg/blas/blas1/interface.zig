@@ -1,7 +1,7 @@
 //! The level-1 interface: the checks and pointer set-up OpenBLAS's
 //! `interface/*.c` do before calling a kernel. Each takes the element type `T`
 //! (`f32`, `f64`, `XDouble`, or their `Complex`) explicitly; `n` and strides
-//! are `BlasInt`, as in the Fortran interface.
+//! are `isize`.
 //!
 //! A negative stride names the vector's last element first: the interface
 //! moves the pointer to it, and the kernel walks back from there. Kernels
@@ -14,7 +14,6 @@ const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("check.zig");
 
-const BlasInt = types.BlasInt;
 const BlasLong = types.BlasLong;
 const BF16 = types.BF16;
 const XDouble = types.XDouble;
@@ -56,21 +55,21 @@ fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
     return if (inc < 0) @ptrCast(util.at(T, p, -(n - 1) * inc)) else p;
 }
 
-fn long(v: BlasInt) BlasLong {
+fn long(v: isize) BlasLong {
     return @intCast(v);
 }
 
 // ---- copy, swap, scal --------------------------------------------------------
 
 /// `?COPY` (`interface/copy.c`): `y := x`.
-pub fn copy(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) void {
+pub fn copy(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (n <= 0) return;
     const kn = long(n);
     _ = slot(T, "", "copy")(kn, raw(T, first(T, x, kn, incx)), incx, raw(T, first(T, y, kn, incy)), incy);
 }
 
 /// `?SWAP` (`interface/swap.c`, `zswap.c`): `x <-> y`.
-pub fn swap(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) void {
+pub fn swap(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (n <= 0) return;
     const kn = long(n);
     const px = raw(T, first(T, x, kn, incx));
@@ -86,7 +85,7 @@ pub fn swap(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy:
 /// `incx <= 0`, and nothing to do for `alpha == 1`. With the flag the
 /// interface passes (1), a zero `alpha` leaves NaN and infinity as NaN, as
 /// `alpha*x` would, and finite elements 0.
-pub fn scal(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt) void {
+pub fn scal(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) void {
     if (n <= 0 or incx <= 0) return;
     const px = raw(T, x);
     if (comptime isComplex(T)) {
@@ -99,7 +98,7 @@ pub fn scal(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt) void
 }
 
 /// `CSSCAL`/`ZDSCAL`: complex `x` scaled by a real `alpha`.
-pub fn scalReal(comptime T: type, n: BlasInt, alpha: Float(T), x: [*]T, incx: BlasInt) void {
+pub fn scalReal(comptime T: type, n: isize, alpha: Float(T), x: [*]T, incx: isize) void {
     if (comptime !isComplex(T)) @compileError("scalReal: " ++ @typeName(T) ++ " is not complex");
     scal(T, n, .init(alpha, 0), x, incx);
 }
@@ -107,17 +106,17 @@ pub fn scalReal(comptime T: type, n: BlasInt, alpha: Float(T), x: [*]T, incx: Bl
 // ---- dot ---------------------------------------------------------------------
 
 /// `?DOT`/`?DOTU` (`interface/dot.c`, `zdot.c`): `x . y`, 0 for `n <= 0`.
-pub fn dot(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) T {
+pub fn dot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) T {
     return dotImpl(T, false, n, x, incx, y, incy);
 }
 
 /// `?DOTC`: `conj(x) . y`. Complex only.
-pub fn dotc(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) T {
+pub fn dotc(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) T {
     if (comptime !isComplex(T)) @compileError("dotc: " ++ @typeName(T) ++ " is not complex");
     return dotImpl(T, true, n, x, incx, y, incy);
 }
 
-fn dotImpl(comptime T: type, comptime conj: bool, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) T {
+fn dotImpl(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) T {
     if (n <= 0) return zero(T);
     const kn = long(n);
     const px = raw(T, first(T, x, kn, incx));
@@ -130,7 +129,7 @@ fn dotImpl(comptime T: type, comptime conj: bool, n: BlasInt, x: [*]T, incx: Bla
 
 /// `DSDOT` (`interface/dsdot.c`): the dot of two `f32` vectors, summed and
 /// returned in `f64`.
-pub fn dsdot(n: BlasInt, x: [*]f32, incx: BlasInt, y: [*]f32, incy: BlasInt) f64 {
+pub fn dsdot(n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) f64 {
     if (n <= 0) return 0;
     const kn = long(n);
     return blas.kernel(.dsdot_k)(kn, first(f32, x, kn, incx), incx, first(f32, y, kn, incy), incy);
@@ -138,7 +137,7 @@ pub fn dsdot(n: BlasInt, x: [*]f32, incx: BlasInt, y: [*]f32, incy: BlasInt) f64
 
 /// `SDSDOT` (`interface/sdsdot.c`): `alpha + x . y`, summed in `f64` and
 /// returned as `f32`; `alpha` alone for `n <= 0`.
-pub fn sdsdot(n: BlasInt, alpha: f32, x: [*]f32, incx: BlasInt, y: [*]f32, incy: BlasInt) f32 {
+pub fn sdsdot(n: isize, alpha: f32, x: [*]f32, incx: isize, y: [*]f32, incy: isize) f32 {
     if (n <= 0) return alpha;
     return @floatCast(dsdot(n, x, incx, y, incy) + alpha);
 }
@@ -148,7 +147,7 @@ pub fn sdsdot(n: BlasInt, alpha: f32, x: [*]f32, incx: BlasInt, y: [*]f32, incy:
 /// `?NRM2`/`SCNRM2`/`DZNRM2` (`interface/nrm2.c`): the Euclidean norm. For
 /// `incx == 0` it is `sqrt(n) * |x[0]|`, worked out here as the reference
 /// does; a negative stride is the same vector backwards.
-pub fn nrm2(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt) Float(T) {
+pub fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
     const F = Float(T);
     if (n <= 0) return 0;
     const fn_: F = @floatFromInt(n);
@@ -171,14 +170,14 @@ pub fn nrm2(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt) Float(T) {
 /// `?ASUM`/`SCASUM`/`DZASUM` (`interface/asum.c`): the sum of `|x|`, of
 /// `|re| + |im|` for complex. 0 for `n <= 0`; the kernel gives 0 for
 /// `incx <= 0`.
-pub fn asum(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt) Float(T) {
+pub fn asum(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
     if (n <= 0) return 0;
     return slot(T, "", "asum")(long(n), raw(T, x), incx);
 }
 
 /// `?SUM` (`interface/sum.c`, an OpenBLAS extension): the sum of `x`, of
 /// `re + im` for complex.
-pub fn sum(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt) Float(T) {
+pub fn sum(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
     if (n <= 0) return 0;
     return slot(T, "", "sum")(long(n), raw(T, x), incx);
 }
@@ -191,7 +190,7 @@ pub const Extreme = enum { amax, amin, max, min };
 /// `I?AMAX`, `I?AMIN`, `I?MAX`, `I?MIN` (`interface/imax.c`): the 1-based
 /// index of the first extreme element; 0 for `n <= 0` (and, from the
 /// kernel, for `incx <= 0`). `max` and `min` are real only.
-pub fn index(comptime T: type, comptime which: Extreme, n: BlasInt, x: [*]T, incx: BlasInt) BlasInt {
+pub fn index(comptime T: type, comptime which: Extreme, n: isize, x: [*]T, incx: isize) isize {
     if (n <= 0) return 0;
     const ret: BlasLong = slot(T, "i", @tagName(which))(long(n), raw(T, x), incx);
     return @intCast(@min(ret, long(n)));
@@ -200,7 +199,7 @@ pub fn index(comptime T: type, comptime which: Extreme, n: BlasInt, x: [*]T, inc
 /// `?AMAX`, `?AMIN`, `?MAX`, `?MIN` (`interface/max.c`, OpenBLAS extensions):
 /// the extreme value itself, `|x|` for `amax`/`amin`. 0 for `n <= 0`; for
 /// `incx == 0`, `x[0]` (by magnitude for `amax`/`amin`).
-pub fn extreme(comptime T: type, comptime which: Extreme, n: BlasInt, x: [*]T, incx: BlasInt) Float(T) {
+pub fn extreme(comptime T: type, comptime which: Extreme, n: isize, x: [*]T, incx: isize) Float(T) {
     if (n <= 0) return 0;
     if (incx == 0) {
         if (comptime isComplex(T)) return @abs(x[0].re) + @abs(x[0].im);
@@ -213,7 +212,7 @@ pub fn extreme(comptime T: type, comptime which: Extreme, n: BlasInt, x: [*]T, i
 
 /// `?ROT`, `CSROT`/`ZDROT` (`interface/rot.c`, `zrot.c`): the plane rotation
 /// `x := c*x + s*y`, `y := c*y - s*x`, with real `c` and `s`.
-pub fn rot(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, c: Float(T), s: Float(T)) void {
+pub fn rot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) void {
     if (n <= 0) return;
     const kn = long(n);
     const px = raw(T, first(T, x, kn, incx));
@@ -232,7 +231,7 @@ pub fn rot(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: 
 /// `?ROTM` (`interface/rotm.c`): the modified rotation `param` describes
 /// (`param[0]` the flag). The reference passes everything to the kernel,
 /// which handles `n <= 0` and negative strides itself.
-pub fn rotm(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, param: *const [5]T) void {
+pub fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, param: *const [5]T) void {
     if (comptime isComplex(T)) @compileError("rotm: " ++ @typeName(T) ++ " is not real");
     _ = slot(T, "", "rotm")(long(n), x, incx, y, incy, @constCast(param));
 }
@@ -241,17 +240,17 @@ pub fn rotm(comptime T: type, n: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy:
 
 /// `?AXPY` (`interface/axpy.c`, `zaxpy.c`): `y := alpha*x + y`. Nothing to
 /// do for `alpha == 0`; both strides zero is `y[0] += n*alpha*x[0]`.
-pub fn axpy(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) void {
+pub fn axpy(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     axpyImpl(T, false, n, alpha, x, incx, y, incy);
 }
 
 /// `?AXPYC`: `y := alpha*conj(x) + y`. Complex only.
-pub fn axpyc(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) void {
+pub fn axpyc(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (comptime !isComplex(T)) @compileError("axpyc: " ++ @typeName(T) ++ " is not complex");
     axpyImpl(T, true, n, alpha, x, incx, y, incy);
 }
 
-fn axpyImpl(comptime T: type, comptime conj: bool, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) void {
+fn axpyImpl(comptime T: type, comptime conj: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (n <= 0) return;
     const kn = long(n);
     if (comptime isComplex(T)) {
@@ -280,7 +279,7 @@ fn axpyImpl(comptime T: type, comptime conj: bool, n: BlasInt, alpha: T, x: [*]T
 
 /// `?AXPBY` (`interface/axpby.c`, `zaxpby.c`, an OpenBLAS extension):
 /// `y := alpha*x + beta*y`.
-pub fn axpby(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) void {
+pub fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) void {
     if (n <= 0) return;
     const kn = long(n);
     const px = raw(T, first(T, x, kn, incx));
@@ -296,7 +295,7 @@ pub fn axpby(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, bet
 
 /// `SBDOT` (`interface/bf16dot.c`): the dot of two bfloat16 vectors, 0 for
 /// `n <= 0`, returned in `f32`.
-pub fn sbdot(n: BlasInt, x: [*]BF16, incx: BlasInt, y: [*]BF16, incy: BlasInt) f32 {
+pub fn sbdot(n: isize, x: [*]BF16, incx: isize, y: [*]BF16, incy: isize) f32 {
     if (n <= 0) return 0;
     const kn = long(n);
     return blas.kernel(.sbdot_k)(kn, first(BF16, x, kn, incx), incx, first(BF16, y, kn, incy), incy);
@@ -305,7 +304,7 @@ pub fn sbdot(n: BlasInt, x: [*]BF16, incx: BlasInt, y: [*]BF16, incy: BlasInt) f
 /// `BSCAL` (`interface/scal.c` built `BGEMM`): `x := alpha*x` over bfloat16.
 /// Nothing for `incx <= 0`, and nothing to do for `alpha == 1`; like `scal`
 /// it passes the kernel flag 1.
-pub fn bscal(n: BlasInt, alpha: BF16, x: [*]BF16, incx: BlasInt) void {
+pub fn bscal(n: isize, alpha: BF16, x: [*]BF16, incx: isize) void {
     if (incx <= 0 or n <= 0) return;
     if (@import("../ext/bf16/__root__.zig").scalarToF32(alpha) == 1) return;
     _ = blas.kernel(.bscal_k)(long(n), 0, 0, alpha, x, incx, x, 0, x, 1);
@@ -313,7 +312,7 @@ pub fn bscal(n: BlasInt, alpha: BF16, x: [*]BF16, incx: BlasInt) void {
 
 /// `SBSTOBF16` and `SBDTOBF16` (`interface/tobf16.c`): `out := bf16(in)`,
 /// rounding to nearest even; `f32` or `f64` in.
-pub fn sbtobf16(comptime F: type, n: BlasInt, in: [*]F, inc_in: BlasInt, out: [*]BF16, inc_out: BlasInt) void {
+pub fn sbtobf16(comptime F: type, n: isize, in: [*]F, inc_in: isize, out: [*]BF16, inc_out: isize) void {
     if (n <= 0) return;
     const kn = long(n);
     const kern = if (comptime F == f32)
@@ -327,7 +326,7 @@ pub fn sbtobf16(comptime F: type, n: BlasInt, in: [*]F, inc_in: BlasInt, out: [*
 
 /// `SBF16TOS` and `DBF16TOD` (`interface/bf16to.c`): `out := in` widened to
 /// `f32` or `f64`.
-pub fn bf16to(comptime F: type, n: BlasInt, in: [*]BF16, inc_in: BlasInt, out: [*]F, inc_out: BlasInt) void {
+pub fn bf16to(comptime F: type, n: isize, in: [*]BF16, inc_in: isize, out: [*]F, inc_out: isize) void {
     if (n <= 0) return;
     const kn = long(n);
     const kern = if (comptime F == f32)
@@ -600,7 +599,7 @@ fn same(comptime T: type, want: []const T, got: []const T) !void {
     try check.expectCloseSlices(T, want, got, check.tolerance(Float(T), 4));
 }
 
-fn sameInt(want: BlasInt, got: BlasInt) !void {
+fn sameInt(want: isize, got: isize) !void {
     if (want == got) return;
     check.say("got {d}, want {d}: ", .{ got, want });
     return error.TestExpectedEqual;
@@ -614,7 +613,7 @@ test "interface: n <= 0 changes nothing and returns zero" {
         check.fill(T, &y, 2);
         const x0 = x;
         const y0 = y;
-        for ([_]BlasInt{ 0, -1 }) |n| {
+        for ([_]isize{ 0, -1 }) |n| {
             copy(T, n, &x, 1, &y, 1);
             swap(T, n, &x, 1, &y, 1);
             scal(T, n, zero(T), &x, 1);
@@ -894,7 +893,7 @@ test "interface: sbdot, the conversions and bscal do nothing for n <= 0" {
     var x = [_]BF16{ b16(1), b16(2) };
     var f = [_]f32{ 7, 8 };
     var d = [_]f64{ 7, 8 };
-    for ([_]BlasInt{ 0, -3 }) |n| {
+    for ([_]isize{ 0, -3 }) |n| {
         try std.testing.expectEqual(@as(f32, 0), sbdot(n, &x, 1, &x, 1));
         sbtobf16(f32, n, &f, 1, &x, 1);
         sbtobf16(f64, n, &d, 1, &x, 1);
