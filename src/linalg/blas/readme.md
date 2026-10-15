@@ -140,5 +140,10 @@ natively and `zig build wasm-test` under node.
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
 since WHPX on an AMD host shows macOS the AMD CPU, which it does not boot on.
+If the VM does not answer SSH, the step starts it headless (log in
+`.macos-vm/x86_64-macos/qemu.log`, VNC on 127.0.0.1:5901), prints its serial
+console (`serial.log`) while it boots, and shuts it down
+after the tests, pass or fail, unless `-Dmac-keep`. `qemu-kill-x86_64-macos`
+kills a VM a build step started.
 `zig build rstd-check-macho` builds the tests for x86_64 and aarch64 macOS
 without running them, which is where Mach-O assembly errors show.

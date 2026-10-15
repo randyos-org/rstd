@@ -1045,6 +1045,7 @@ NOHUGEPAGE
 NOLOAD
 nomacro
 nommu
+NOPASSWD
 noreorder
 NORESERVE
 nospu
@@ -1159,6 +1160,7 @@ PKRU
 plainx
 pld
 PLDL
+plutil
 PMLNE
 PMLNT
 pmset

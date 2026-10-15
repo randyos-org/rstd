@@ -30,10 +30,10 @@
 //!
 //! Then `zig build qemu-start-<name>` boots it in a window, and, while it is
 //! up, `zig build qemu-test-<name> -Dmac-user=<account>` runs the tests in it.
-//! With the VM shut down, `qemu-snapshot-<name>` saves a restore point and
-//! `qemu-restore-<name>` goes back to it (`-Dmac-snapshot=<name>`, default
-//! `clean`): worth doing once it is set up, since a hard stop of the VM can
-//! leave macOS unable to boot.
+//! With the VM shut down, `qemu-snapshot-<name>` saves a restore point (both
+//! disks and the NVRAM) and `qemu-restore-<name>` goes back to it
+//! (`-Dmac-snapshot=<name>`, default `clean`): worth doing once it is set
+//! up, since a hard stop of the VM can leave macOS unable to boot.
 
 const std = @import("std");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
@@ -303,12 +303,14 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
     const macos_vm = b.option(bool, "macos-vm", "Add the macOS VM rigs, fetching OSX-KVM (default: when rstd is the root project)") orelse b.isRoot();
     const mac: MacOptions = if (macos_vm) .{
-        .user = b.option([]const u8, "mac-user", "macOS account in the VM") orelse "",
+        .user = b.option([]const u8, "mac-user", "macOS account in the VM (default randyos)") orelse "randyos",
         .port = b.option(u16, "mac-port", "Host port forwarded to the VM's ssh") orelse 2222,
         .release = b.option(MacRelease, "mac-release", "macOS release qemu-setup fetches (default sonoma)") orelse .sonoma,
         .gdb = b.option(bool, "mac-gdb", "Let gdb attach to the macOS VM on localhost:1234") orelse false,
         .detach = b.option(bool, "mac-detach", "qemu-install/start return once the macOS VM is up rather than when it stops") orelse false,
-        .mttcg = b.option(bool, "mac-mttcg", "Run the macOS VM's vCPUs on host threads of their own: faster in the window, but macOS has hung and misread files under it; false for test runs (default true)") orelse true,
+        .headless = b.option(bool, "mac-headless", "qemu-install/start show no window, VNC on 127.0.0.1:5901 instead; test runs always start the VM this way") orelse false,
+        .keep = b.option(bool, "mac-keep", "Leave the macOS VM a test run started running afterward") orelse false,
+        .mttcg = b.option(bool, "mac-mttcg", "Run the macOS VM's vCPUs on host threads of their own: faster in the window, but macOS has hung and misread files under it (default: true in a window, false headless)"),
         .ovmf_vars = b.option([]const u8, "mac-ovmf-vars", "Empty OVMF variable store for qemu-setup (default: QEMU's edk2-i386-vars.fd)"),
         .snapshot = b.option([]const u8, "mac-snapshot", "Name of the restore point qemu-snapshot/restore make or go back to (default clean)") orelse "clean",
     } else .{};
@@ -374,6 +376,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
         .img = b.fmt("{s}/BaseSystem.img", .{vm}),
         .disk = b.fmt("{s}/mac_hdd.qcow2", .{vm}),
         .vars = b.fmt("{s}/OVMF_VARS.fd", .{vm}),
+        .opencore = b.fmt("{s}/OpenCore.qcow2", .{vm}),
     };
 
     const setup = b.step(b.fmt("qemu-setup-{s}", .{m.name}), b.fmt("macOS VM {s}: fetch a recovery image, make the disk", .{m.name}));
@@ -404,50 +407,116 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
             setup.dependOn(&copy.step);
         } else setup.dependOn(&b.addFail("no edk2-i386-vars.fd next to qemu-system-x86_64; pass the 4 MiB OVMF variable store with -Dmac-ovmf-vars=<path>").step);
     }
-    const vars_wrong = if (rstdbuild.io.fileSize(b.graph.io, try b.root.joinString(b.allocator, paths.vars))) |size| size != ovmf_vars_size else false;
+    // OpenCore's own copy, writable: `configure_macos.sh` edits its config
+    // (boot-args) from inside the VM
+    const opencore_missing = !try exists(b, paths.opencore);
+    if (opencore_missing) {
+        const copy = b.addUpdateSourceFiles();
+        copy.addCopyFileToSource(kvm.path("OpenCore/OpenCore.qcow2"), paths.opencore);
+        setup.dependOn(&copy.step);
+    }
+    // what keeps the VM from starting
+    const not_ready: ?*Build.Step = if (if (rstdbuild.io.fileSize(b.graph.io, try b.root.joinString(b.allocator, paths.vars))) |size| size != ovmf_vars_size else false)
+        &b.addFail(b.fmt("{s} is not a 528 KiB OVMF variable store, so NVRAM would not persist; with the VM off, delete it and run qemu-setup-{s}", .{ paths.vars, m.name })).step
+    else if (opencore_missing)
+        &b.addFail(b.fmt("no {s}; run qemu-setup-{s}", .{ paths.opencore, m.name })).step
+    else
+        null;
+    const windows = b.graph.host.result.os.tag == .windows;
+
+    const tool = b.addExecutable(.{ .name = "macos_vm", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/macos_vm.zig"),
+        .target = b.graph.host,
+    }) });
+    // a second qemu on the same files fails, and deletes the first's pid file
+    const guard = b.addRunArtifact(tool);
+    guard.setCwd(b.path("."));
+    guard.stdio = .inherit;
+    guard.has_side_effects = true;
+    guard.disable_zig_progress = true;
+    guard.addArgs(&.{ "guard", vm });
 
     inline for (.{ "install", "start" }) |cmd| {
-        const run = try macosQemu(b, m, kvm, paths, mac, std.mem.eql(u8, cmd, "install"));
-        if (vars_wrong) run.step.dependOn(&b.addFail(b.fmt("{s} is not a 528 KiB OVMF variable store, so NVRAM would not persist; with the VM off, delete it and run qemu-setup-{s}", .{ paths.vars, m.name })).step);
-        b.step(b.fmt("qemu-" ++ cmd ++ "-{s}", .{m.name}), b.fmt("macOS VM {s}: " ++ cmd ++ ", in a window", .{m.name})).dependOn(&run.step);
+        // Detached on Windows, `start` gives qemu its own console (the
+        // monitor's) and returns; elsewhere `-daemonize` (`qemuArgs`).
+        const run = console(b, if (mac.detach and windows) &.{ "cmd", "/c", "start", "", m.qemu } else &.{m.qemu});
+        try qemuArgs(b, run, m, kvm, paths, mac, .{
+            .install = std.mem.eql(u8, cmd, "install"),
+            .headless = mac.headless,
+            .monitor = if (mac.detach) (if (windows) .stdio else .daemon) else .stdio,
+        });
+        if (not_ready) |s| run.step.dependOn(s);
+        run.step.dependOn(&guard.step);
+        b.step(b.fmt("qemu-" ++ cmd ++ "-{s}", .{m.name}), b.fmt("macOS VM {s}: " ++ cmd ++ "{s}", .{ m.name, if (mac.headless) ", headless" else ", in a window" })).dependOn(&run.step);
     }
 
-    // A named restore point: the disk's own snapshot plus a copy of the
-    // firmware settings, which live outside it. qemu-img will not touch a
-    // disk the running VM holds, so neither step works on a live VM.
+    // A named restore point: a snapshot of each disk (macOS's and OpenCore's,
+    // whose config holds the boot-args) plus a copy of the firmware
+    // settings, which live outside them. qemu-img will not touch a disk the
+    // running VM holds, so neither step works on a live VM.
     const saved_vars = b.fmt("{s}/OVMF_VARS.{s}.fd", .{ vm, mac.snapshot });
-    const snap = console(b, &.{ "qemu-img", "snapshot", "-c", mac.snapshot, paths.disk });
-    // qemu-img would add a second snapshot of the same name
-    if (hasSnapshot(b, paths.disk, mac.snapshot)) snap.step.dependOn(&b.addFail(b.fmt("{s} already has a snapshot named {s}; pick another with -Dmac-snapshot", .{ paths.disk, mac.snapshot })).step);
     const keep = b.addUpdateSourceFiles();
     keep.addCopyFileToSource(b.path(paths.vars), saved_vars);
-    keep.step.dependOn(&snap.step);
-    b.step(b.fmt("qemu-snapshot-{s}", .{m.name}), b.fmt("macOS VM {s}: save a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&keep.step);
-    const back = console(b, &.{ "qemu-img", "snapshot", "-a", mac.snapshot, paths.disk });
     const put = b.addUpdateSourceFiles();
     put.addCopyFileToSource(b.path(saved_vars), paths.vars);
-    put.step.dependOn(&back.step);
+    for ([_][]const u8{ paths.disk, paths.opencore }) |disk| {
+        const snap = console(b, &.{ "qemu-img", "snapshot", "-c", mac.snapshot, disk });
+        // qemu-img would add a second snapshot of the same name
+        if (hasSnapshot(b, disk, mac.snapshot)) snap.step.dependOn(&b.addFail(b.fmt("{s} already has a snapshot named {s}; pick another with -Dmac-snapshot", .{ disk, mac.snapshot })).step);
+        snap.step.dependOn(&guard.step);
+        keep.step.dependOn(&snap.step);
+        // restore points from before OpenCore had its own disk lack one there
+        if (disk.ptr == paths.opencore.ptr and !hasSnapshot(b, disk, mac.snapshot)) continue;
+        const back = console(b, &.{ "qemu-img", "snapshot", "-a", mac.snapshot, disk });
+        back.step.dependOn(&guard.step);
+        put.step.dependOn(&back.step);
+    }
+    b.step(b.fmt("qemu-snapshot-{s}", .{m.name}), b.fmt("macOS VM {s}: save a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&keep.step);
     b.step(b.fmt("qemu-restore-{s}", .{m.name}), b.fmt("macOS VM {s}: go back to a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&put.step);
 
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
-    const login = b.fmt("{s}@localhost", .{mac.user});
-    const port = b.fmt("{d}", .{mac.port});
-    const ssh_options: []const []const u8 = &.{ "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new" };
-    const copy = b.addSystemCommand(&.{ "scp", "-q", "-P", port });
-    copy.addArgs(ssh_options);
-    copy.addArtifactArg(try buildroot.addRstdTest(b, mod, target));
-    copy.addArg(b.fmt("{s}:/tmp/rstd-test", .{login}));
-    copy.has_side_effects = true;
-    if (mac.user.len == 0) copy.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);
-    const run = console(b, &.{ "ssh", "-p", port });
-    run.addArgs(ssh_options);
-    run.addArgs(&.{ login, "/tmp/rstd-test" });
-    run.step.dependOn(&copy.step);
+    // In one program, so the VM it started is stopped when tests fail too.
+    const run = b.addRunArtifact(tool);
+    run.setCwd(b.path("."));
+    run.stdio = .inherit;
+    // QEMU, started from it, would hold the progress pipe open
+    run.disable_zig_progress = true;
+    run.has_side_effects = true;
+    run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
+    run.addArtifactArg(try buildroot.addRstdTest(b, mod, target));
+    run.addArg(m.qemu);
+    try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
+    if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);
+    if (not_ready) |s| run.step.dependOn(s);
+
+    const Control = struct { name: []const u8, about: []const u8, login: bool };
+    for ([_]Control{
+        .{ .name = "up", .about = "start headless unless SSH answers; returns once it does", .login = true },
+        .{ .name = "down", .about = "shut down over SSH (passwordless sudo shutdown), else kill", .login = true },
+        .{ .name = "kill", .about = "kill its qemu (`qemu.pid`), as pulling the plug", .login = false },
+    }) |c| {
+        const ctl = b.addRunArtifact(tool);
+        ctl.setCwd(b.path("."));
+        ctl.stdio = .inherit;
+        ctl.disable_zig_progress = true;
+        ctl.has_side_effects = true;
+        ctl.addArgs(&.{ c.name, vm });
+        if (c.login) {
+            ctl.addArgs(&.{ b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}) });
+            if (mac.user.len == 0) ctl.step.dependOn(&b.addFail(b.fmt("qemu-{s} needs -Dmac-user=<account>", .{c.name})).step);
+        }
+        if (std.mem.eql(u8, c.name, "up")) {
+            ctl.addArg(m.qemu);
+            try qemuArgs(b, ctl, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
+            if (not_ready) |s| ctl.step.dependOn(s);
+        }
+        b.step(b.fmt("qemu-{s}-{s}", .{ c.name, m.name }), b.fmt("macOS VM {s}: {s}", .{ m.name, c.about })).dependOn(&ctl.step);
+    }
     return run;
 }
 
 /// The macOS VMs' SSH login (`-Dmac-user`, `-Dmac-port`) and release.
-const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false, detach: bool = false, mttcg: bool = true, ovmf_vars: ?[]const u8 = null, snapshot: []const u8 = "clean" };
+const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false, detach: bool = false, headless: bool = false, keep: bool = false, mttcg: ?bool = null, ovmf_vars: ?[]const u8 = null, snapshot: []const u8 = "clean" };
 
 /// The releases `fetch-macOS-v2.py` offers that the tests run on: the machine
 /// builds them for macOS 13 and up. The tags are the fetcher's `-s` names.
@@ -455,15 +524,23 @@ const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: Ma
 const MacRelease = enum { ventura, sonoma, sequoia, tahoe };
 
 /// A macOS machine's files in `.macos-vm/<name>/`, relative to the build root.
-const MacPaths = struct { dmg: []const u8, img: []const u8, disk: []const u8, vars: []const u8 };
+const MacPaths = struct { dmg: []const u8, img: []const u8, disk: []const u8, vars: []const u8, opencore: []const u8 };
 
-/// QEMU on `m`'s command line plus OSX-KVM's firmware, SMC key and OpenCore,
-/// and the disks; `install` adds the recovery image.
-fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac: MacOptions, install: bool) !*Build.Step.Run {
-    // Detached on Windows, `start` gives qemu its own console (the monitor's)
-    // and returns; elsewhere `-daemonize` puts qemu in the background, below.
-    const windows = b.graph.host.result.os.tag == .windows;
-    const run = console(b, if (mac.detach and windows) &.{ "cmd", "/c", "start", "", m.qemu } else &.{m.qemu});
+/// How `qemuArgs` sets up the VM.
+const QemuMode = struct {
+    /// the recovery image too
+    install: bool = false,
+    /// no window; VNC on 127.0.0.1:5901
+    headless: bool = false,
+    /// `stdio`: a `(qemu)` prompt in this console; `socket`: none, the
+    /// monitor on `monitor.sock` in the VM's directory; `daemon`: that, and
+    /// qemu goes to the background
+    monitor: enum { stdio, socket, daemon } = .stdio,
+};
+
+/// Appends `m`'s command line to `run`, which starts QEMU, plus OSX-KVM's
+/// firmware, SMC key and OpenCore, and the disks.
+fn qemuArgs(b: *Build, run: *Build.Step.Run, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac: MacOptions, mode: QemuMode) !void {
     // TCG emulates (slow) but honors the Intel vendor the CPU model sets;
     // under WHPX ("whpx", as randyos's own VM uses) the kernel stopped at
     // EXITBS:START, as if it saw the host's AMD CPUID. A host thread per
@@ -471,35 +548,43 @@ fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac
     // with interrupts off at a reboot and the installer's restart, and
     // decompressing system files failed now and then (a boot loop on a hash
     // mismatch, the login window crashing on a page-in) where the same files
-    // read back fine; `-Dmac-mttcg=false` (one host thread) for test runs.
+    // read back fine; so one host thread headless, where speed matters less.
     // A 2 GB translation cache keeps macOS's code from being translated again.
-    run.addArgs(&.{ "-accel", b.fmt("tcg,thread={s},tb-size=2048", .{if (mac.mttcg) "multi" else "single"}) });
+    const multi = mac.mttcg orelse !mode.headless;
+    run.addArgs(&.{ "-accel", b.fmt("tcg,thread={s},tb-size=2048", .{if (multi) "multi" else "single"}) });
     run.addArgs(m.args);
     run.addArgs(&.{ "-m", m.memory, "-device", b.fmt("isa-applesmc,osk={s}", .{try smcKey(b, kvm)}), "-drive" });
     run.addPrefixedFileArg("if=pflash,format=raw,readonly=on,file=", kvm.path("OVMF_CODE_4M.fd"));
-    run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,file={s}", .{paths.vars}), "-drive" });
-    run.addPrefixedFileArg("id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file=", kvm.path("OpenCore/OpenCore.qcow2"));
     run.addArgs(&.{
+        "-drive",  b.fmt("if=pflash,format=raw,file={s}", .{paths.vars}),
+        "-drive",  b.fmt("id=OpenCoreBoot,if=none,format=qcow2,file={s}", .{paths.opencore}),
         "-device", "ide-hd,bus=sata.2,drive=OpenCoreBoot",
         "-drive",  b.fmt("id=MacHDD,if=none,format=qcow2,cache=writeback,file={s}", .{paths.disk}),
         "-device", "ide-hd,bus=sata.4,drive=MacHDD",
         "-netdev", b.fmt("user,id=net0,hostfwd=tcp::{d}-:22", .{mac.port}),
         "-device", "virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27",
     });
-    if (install) run.addArgs(&.{
+    if (mode.install) run.addArgs(&.{
         "-drive",  b.fmt("id=InstallMedia,if=none,format=raw,file={s}", .{paths.img}),
         "-device", "ide-hd,bus=sata.3,drive=InstallMedia",
     });
-    // A `(qemu)` prompt in this console: `info status` says whether it runs,
-    // and `RIP` in `info registers` moves while the guest executes. In the
-    // background qemu has no console; its monitor is a socket instead.
-    if (mac.detach and !windows) {
-        const sock = b.fmt("{s}/monitor.sock", .{std.fs.path.dirname(paths.disk).?});
-        run.addArgs(&.{ "-daemonize", "-monitor", b.fmt("unix:{s},server,nowait", .{sock}) });
-    } else run.addArgs(&.{ "-monitor", "stdio" });
+    if (mode.headless) run.addArgs(&.{ "-display", "none", "-vnc", "127.0.0.1:1" });
+    // A `(qemu)` prompt: `info status` says whether it runs, and `RIP` in
+    // `info registers` moves while the guest executes. Without a console
+    // the monitor is a socket.
+    const dir = std.fs.path.dirname(paths.disk).?;
+    // for `qemu-kill` and test runs; QEMU removes it at a clean exit
+    run.addArgs(&.{ "-pidfile", b.fmt("{s}/qemu.pid", .{dir}) });
+    // COM1: macOS's console with `serial=3` in OpenCore's boot-args
+    run.addArgs(&.{ "-serial", b.fmt("file:{s}/serial.log", .{dir}) });
+    const sock = b.fmt("{s}/monitor.sock", .{dir});
+    switch (mode.monitor) {
+        .stdio => run.addArgs(&.{ "-monitor", "stdio" }),
+        .socket => run.addArgs(&.{ "-monitor", b.fmt("unix:{s},server,nowait", .{sock}) }),
+        .daemon => run.addArgs(&.{ "-daemonize", "-monitor", b.fmt("unix:{s},server,nowait", .{sock}) }),
+    }
     // gdb-multiarch, then `target remote localhost:1234`
     if (mac.gdb) run.addArg("-s");
-    return run;
 }
 
 /// The Apple SMC key OSX-KVM's boot script passes, read from it.
