@@ -15,7 +15,7 @@ const max_bytes = 96 * 1024;
 var space: [2 * page + max_bytes]u8 align(page) = undefined;
 
 /// The vtable `use` replaced; static, since a vtable is large for a rig's stack.
-var saved: Vtable = undefined;
+var saved: blas.TestSaved = undefined;
 var in_use = false;
 
 /// Points the global vtable, which the composed kernels call through, at `vt`
@@ -23,13 +23,12 @@ var in_use = false;
 pub fn use(vt: *const Vtable) void {
     std.debug.assert(!in_use);
     in_use = true;
-    saved = blas._vtable;
-    blas._vtable = vt.*;
+    saved = blas.testUse(vt);
 }
 
 pub fn restore() void {
     std.debug.assert(in_use);
-    blas._vtable = saved;
+    blas.testRestore(saved);
     in_use = false;
 }
 
