@@ -128,10 +128,10 @@ fn midrFromSysfs() ?struct { implementer: u32, part: u32 } {
     var scan: SysfsScan = .{};
     for (0..n) |i| {
         var path: [96]u8 = undefined;
-        const midr_path = std.fmt.bufPrintZ(&path, "/sys/devices/system/cpu/cpu{d}/regs/identification/midr_el1", .{i}) catch return null;
+        const midr_path = std.mem.printSentinel(&path, "/sys/devices/system/cpu/cpu{d}/regs/identification/midr_el1", .{i}, 0) catch return null;
         const midr = auxv.readFile(midr_path, &buf);
         if (midr.len == 0 and possible.len == 0) break;
-        const cap_path = std.fmt.bufPrintZ(&path, "/sys/devices/system/cpu/cpu{d}/cpu_capacity", .{i}) catch return null;
+        const cap_path = std.mem.printSentinel(&path, "/sys/devices/system/cpu/cpu{d}/cpu_capacity", .{i}, 0) catch return null;
         if (!scan.add(midr, auxv.readFile(cap_path, &cap))) return null;
     }
     return scan.result();
