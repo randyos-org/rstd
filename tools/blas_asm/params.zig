@@ -105,6 +105,7 @@ const globals = [_][2][]const u8{
     .{ "divide_limit", "GEMM_DIVIDE_LIMIT" },
     .{ "preferred_size", "GEMM_PREFERRED_SIZE" },
     .{ "dtb_entries", "DTB_DEFAULT_ENTRIES" },
+    .{ "symv_p", "SYMV_P" },
 };
 
 fn probeSource(a: std.mem.Allocator) ![]const u8 {

@@ -38,7 +38,7 @@ const ComplexXD = types.ComplexXD;
 pub const Error = interface.Error;
 
 /// Bytes of each vector copy kept on the stack (OpenBLAS's `STACK_ALLOC`).
-pub const stack_bytes = 4096;
+pub const stack_bytes = interface.stack_bytes;
 
 pub const Uplo = enum {
     upper,

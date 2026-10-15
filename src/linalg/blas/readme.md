@@ -13,6 +13,8 @@ next to each routine.
 - `kernels/<arch>.zig`: the one list of an architecture's kernel modules, and
   the `install` that points the vtable at a core's kernels.
 - `cpu/<arch>.zig`: detection, and `canRun` where the tests need it.
+- `blas2/buffers.md`: what each level-2 kernel does with its `buffer`, and
+  what the interface gives it.
 - `blas1/uk_block.zig`: a routine's C driver around a converted microkernel
   block, for routines whose upstream kernel is C (`axpy`, `dot`);
   `blas1/c_kernels.md` says how such a kernel is ported.

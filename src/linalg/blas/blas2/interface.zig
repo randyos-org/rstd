@@ -23,6 +23,7 @@ const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
+const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasInt = types.BlasInt;
@@ -121,19 +122,45 @@ fn scaleY(comptime T: type, n: BlasInt, beta: T, y: [*]T, incy: BlasInt) void {
 
 // ---- scratch buffer ----------------------------------------------------------
 
-/// `MAX_STACK_ALLOC`: up to this many bytes of scratch live on the stack.
-const stack_bytes = 2048;
-const StackBuf = [stack_bytes]u8;
-const scratch_align = 64;
+/// `MAX_STACK_ALLOC`: up to this many bytes of scratch live on the stack, in
+/// every level-2 driver; the rest comes from the allocator.
+pub const stack_bytes = 2048;
+/// The reference's stack buffers are `aligned(0x20)`; no ported kernel needs
+/// more than 16 (`buffers.md`).
+pub const stack_align = 32;
+/// `blas_memory_alloc`'s buffers are pages; the generic symv and hemv lay
+/// their copies out on page boundaries from it.
+pub const heap_align = 4096;
 
-/// `len` elements of scratch, from `stack` if they fit, else the allocator.
-fn scratch(comptime F: type, allocator: Allocator, stack: *align(scratch_align) StackBuf, len: usize) Allocator.Error![]align(scratch_align) F {
-    if (len * @sizeOf(F) <= stack_bytes) return @as([*]align(scratch_align) F, @ptrCast(stack))[0..len];
-    return allocator.alignedAlloc(F, .@"64", len);
-}
+/// Scratch for `F` elements: on the stack when `stack_bytes` holds them, else
+/// from the allocator.
+fn Scratch(comptime F: type) type {
+    return struct {
+        const Self = @This();
+        ptr: [*]F,
+        len: usize,
+        heap: ?[]align(heap_align) F = null,
 
-fn release(comptime F: type, allocator: Allocator, stack: *align(scratch_align) StackBuf, buf: []align(scratch_align) F) void {
-    if (@intFromPtr(buf.ptr) != @intFromPtr(stack)) allocator.free(buf);
+        fn init(allocator: Allocator, stack: *align(stack_align) [stack_bytes]u8, len: usize) Allocator.Error!Self {
+            if (len * @sizeOf(F) <= stack_bytes) return .{ .ptr = @ptrCast(stack), .len = len };
+            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
+            return .{ .ptr = h.ptr, .len = len, .heap = h };
+        }
+
+        /// Always from the allocator, as the reference's `blas_memory_alloc`.
+        fn heapOnly(allocator: Allocator, len: usize) Allocator.Error!Self {
+            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
+            return .{ .ptr = h.ptr, .len = len, .heap = h };
+        }
+
+        fn slice(self: Self) []F {
+            return self.ptr[0..self.len];
+        }
+
+        fn deinit(self: Self, allocator: Allocator) void {
+            if (self.heap) |h| allocator.free(h);
+        }
+    };
 }
 
 // ---- gemv --------------------------------------------------------------------
@@ -168,17 +195,18 @@ fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: BlasInt
     const complex = comptime isComplex(T);
     if (comptime !complex and @backingInt(t) > @backingInt(Trans.c)) return;
     const name = comptime "gemv_" ++ if (complex) @tagName(t) else if (transposed(t)) "t" else "n";
-    var stack: StackBuf align(scratch_align) = undefined;
-    const len = ((if (complex) 2 else 1) * (@as(usize, @intCast(m)) + @as(usize, @intCast(n))) + 128 / @sizeOf(F) + 3) & ~@as(usize, 3);
-    const buf = try scratch(F, allocator, &stack, len);
-    defer release(F, allocator, &stack, buf);
-    // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity
-    if (comptime complex and transposed(t) and builtin.cpu.arch == .x86_64) @memset(buf, 0);
+    var stack: [stack_bytes]u8 align(stack_align) = undefined;
+    const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, if (complex) 2 else 1, @intCast(m), @intCast(n)));
+    defer sc.deinit(allocator);
+    // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity; the
+    // reference clears its stack buffer for every `trans` but `n`, here the
+    // heap one too since the allocator hands out whatever it holds
+    if (comptime complex and t != .n and builtin.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
-        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, buf.ptr);
+        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
     } else {
-        _ = slot(T, name)(long(m), long(n), 0, alpha, a, long(lda), x, incx, y, incy, buf.ptr);
+        _ = slot(T, name)(long(m), long(n), 0, alpha, a, long(lda), x, incx, y, incy, sc.ptr);
     }
 }
 
@@ -274,17 +302,17 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: BlasI
     const name = comptime if (complex) (if (conj) "gerc_k" else "geru_k") else "ger_k";
     const px = first(T, x, m, incx);
     const py = first(T, y, n, incy);
-    var stack: StackBuf align(scratch_align) = undefined;
-    // the kernels copy `x` into the buffer only for a non-unit stride
-    const unit = incx == 1 and incy == 1;
-    const buf = try scratch(F, allocator, &stack, if (unit) 0 else (if (complex) 2 else 1) * @as(usize, @intCast(m)));
-    defer release(F, allocator, &stack, buf);
-    const pb: [*]F = if (unit) @ptrCast(px) else buf.ptr;
+    var stack: [stack_bytes]u8 align(stack_align) = undefined;
+    // the kernels use the buffer only to copy a strided `x` (`buffers.md`);
+    // for a unit one the reference may pass NULL, so no kernel reads it
+    const unit = incx == 1;
+    const sc: Scratch(F) = if (unit) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
+    defer sc.deinit(allocator);
     // the reference threads big problems here (`ger_thread`)
     if (comptime complex) {
-        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), long(lda), pb);
+        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), long(lda), sc.ptr);
     } else {
-        _ = slot(T, name)(long(m), long(n), 0, alpha, px, incx, py, incy, a, long(lda), pb);
+        _ = slot(T, name)(long(m), long(n), 0, alpha, px, incx, py, incy, a, long(lda), sc.ptr);
     }
 }
 
@@ -329,22 +357,35 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: B
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
     if (comptime !@hasField(Vtable, letter(T) ++ name)) unreachable;
-    var stack: StackBuf align(scratch_align) = undefined;
-    // the kernels copy `x` and `y` there, the second at a 512-byte boundary
-    const len = 2 * (if (complex) 2 else 1) * @as(usize, @intCast(n)) + 1280 / @sizeOf(F);
-    const buf = try scratch(F, allocator, &stack, len);
-    defer release(F, allocator, &stack, buf);
+    // what the core's kernel needs, whichever it is (`buffers.md`)
+    const cs = if (complex) 2 else 1;
+    const un: usize = @intCast(n);
+    const bytes = @max(sym.composeBytes(F, cs, un, incx == 1, incy == 1), sym.sseBytes(F, cs, un));
+    // the portable kernel on a core without its own gemv runs plain loops,
+    // which need no buffer (`symmetric.Auto`)
+    const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
+    const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
+    const auto = sym.Auto(letter(T), T, lower, kind);
+    const direct = @field(blas._vtable, letter(T) ++ name) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
+    var none: [1]F = undefined;
+    const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else try Scratch(F).heapOnly(allocator, (bytes + @sizeOf(F) - 1) / @sizeOf(F));
+    defer sc.deinit(allocator);
+    // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
+    // and NaN there reaches `y`
+    if (builtin.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`symv_thread_*`)
     if (comptime complex) {
-        _ = slot(T, name)(long(n), long(n), alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, buf.ptr);
+        _ = slot(T, name)(long(n), long(n), alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
     } else {
-        _ = slot(T, name)(long(n), long(n), alpha, a, long(lda), x, incx, y, incy, buf.ptr);
+        _ = slot(T, name)(long(n), long(n), alpha, a, long(lda), x, incx, y, incy, sc.ptr);
     }
 }
 
 // ---- tests -------------------------------------------------------------------
 
 const testing = std.testing;
+/// Scratch from the heap holds NaN, so a missing clear shows.
+var poison: guard.Poison = .{ .child = testing.allocator };
 const all = .{ f32, f64, Complex32, Complex64 };
 
 /// Points the global vtable at the portable kernels until the returned vtable
@@ -384,12 +425,8 @@ fn vi(n: usize, inc: BlasInt, i: usize) usize {
     return if (inc < 0) (n - 1 - i) * k else i * k;
 }
 
-fn span(n: usize, inc: BlasInt) usize {
-    return (n - 1) * @abs(inc) + 1;
-}
-
 fn randomVec(comptime T: type, n: usize, inc: BlasInt, seed: u64) ![]T {
-    const v = try testing.allocator.alloc(T, span(n, inc));
+    const v = try testing.allocator.alloc(T, guard.span(n, @abs(inc)));
     check.fill(T, v, seed);
     return v;
 }
@@ -443,7 +480,7 @@ fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: BlasInt, i
         const scaled = if (isZero(T, beta)) zeroT(T) else mulT(T, beta, y[k]);
         want[k] = if (isZero(T, alpha)) scaled else addT(T, scaled, mulT(T, alpha, acc));
     }
-    try gemv(testing.allocator, T, trans, @intCast(m), @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+    try gemv(poison.allocator(), T, trans, @intCast(m), @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     try expectSame(T, want, y, lenx);
 }
 
@@ -533,9 +570,9 @@ fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: BlasInt, incy
     };
     if (conj) {
         if (comptime !isComplex(T)) unreachable;
-        try gerc(testing.allocator, T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
+        try gerc(poison.allocator(), T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
     } else {
-        try ger(testing.allocator, T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
+        try ger(poison.allocator(), T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
     }
     try expectSame(T, want, a, 1);
 }
@@ -587,9 +624,9 @@ fn testMv(comptime T: type, herm: bool, uplo: Uplo, n: usize, incx: BlasInt, inc
         want[k] = if (isZero(T, alpha)) scaled else addT(T, scaled, mulT(T, alpha, acc));
     }
     if (kind == .symmetric) {
-        try symv(testing.allocator, T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+        try symv(poison.allocator(), T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     } else if (comptime isComplex(T)) {
-        try hemv(testing.allocator, T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+        try hemv(poison.allocator(), T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     }
     try expectSame(T, want, y, n);
 }
@@ -613,7 +650,7 @@ test "interface: symv and hemv match plain arithmetic, for every triangle, strid
     }
 }
 
-test "interface: problems over the stack buffer allocate, and small ones never do" {
+test "interface: problems over the stack buffer allocate, and small gemv and ger never do" {
     const saved = usePortable();
     defer blas._vtable = saved;
     inline for (all) |T| {
@@ -631,12 +668,15 @@ test "interface: problems over the stack buffer allocate, and small ones never d
         const fa = testing.failing_allocator;
         try gemv(fa, T, .n, 2, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
         try ger(fa, T, 2, 2, val(T, 1, 0), &x, 2, &y, 1, &a, 2);
+        // nor for symv on the portable gemv (plain loops), or a unit-stride ger
         try symv(fa, T, .u, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
-        // and a big one reports the failure
         const big = 600;
-        const bx = try testing.allocator.alloc(T, big);
+        const bx = try testing.allocator.alloc(T, 2 * big);
         defer testing.allocator.free(bx);
-        try testing.expectError(error.OutOfMemory, ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 1, &y, 2, bx.ptr, big));
+        check.fill(T, bx, 3);
+        try ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 1, &y, 2, bx.ptr, big);
+        // and a big one that needs a buffer reports the failure
+        try testing.expectError(error.OutOfMemory, ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 2, &y, 2, bx.ptr, big));
     }
 }
 
@@ -661,9 +701,9 @@ fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx:
     const lda = m + 2;
     const a = try testing.allocator.alloc(In, lda * n);
     defer testing.allocator.free(a);
-    const x = try testing.allocator.alloc(In, span(lenx, incx));
+    const x = try testing.allocator.alloc(In, guard.span(lenx, @abs(incx)));
     defer testing.allocator.free(x);
-    const y = try testing.allocator.alloc(Out, span(leny, incy));
+    const y = try testing.allocator.alloc(Out, guard.span(leny, @abs(incy)));
     defer testing.allocator.free(y);
     var f: [1024]f32 = undefined;
     check.fill(f32, f[0..a.len], m * 7 + n);

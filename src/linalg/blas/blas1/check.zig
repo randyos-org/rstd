@@ -73,15 +73,6 @@ pub fn expectCloseSlices(comptime T: type, want: []const T, got: []const T, tol:
     };
 }
 
-/// Work space for kernels that take a `buffer` (the level-2 ones pack their
-/// operands there), as the interface allocates it; static, since the rigs'
-/// stacks are small.
-var work_space: [32768]f64 align(4096) = undefined;
-
-pub fn work(comptime F: type) [*]F {
-    return @ptrCast(&work_space);
-}
-
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {
     const root = @import("root");

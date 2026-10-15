@@ -134,6 +134,8 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../../blas1/check.zig");
 const half = @import("half.zig");
+const sym = @import("../symmetric.zig");
+const guard = @import("../guard.zig");
 
 /// `kernel/arm/gemv_n.c` and `gemv_t.c`: `y += alpha*A*x` (`n`, `y` of `m`)
 /// or `y += alpha*A^T*x` (`t`, `y` of `n`). The interface has already scaled
@@ -225,30 +227,36 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 const C = std.math.Complex;
-/// Shapes across the kernels' blocks; small enough for the rigs' stacks.
-const sizes = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 }, .{ 3, 2 }, .{ 4, 4 }, .{ 7, 5 }, .{ 8, 8 }, .{ 9, 16 }, .{ 16, 9 }, .{ 17, 17 }, .{ 33, 4 }, .{ 4, 33 } };
+/// Shapes across the kernels' blocks, then bigger ones through their
+/// multi-block loops (storage is static: `guard.operand`).
+const sizes = [_][2]usize{
+    .{ 1, 1 },   .{ 2, 3 },    .{ 3, 2 },    .{ 4, 4 },   .{ 7, 5 },   .{ 8, 8 }, .{ 9, 16 }, .{ 16, 9 }, .{ 17, 17 }, .{ 33, 4 }, .{ 4, 33 },
+    .{ 65, 65 }, .{ 100, 37 }, .{ 37, 100 }, .{ 129, 3 }, .{ 3, 129 },
+};
 const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 } };
-const cap = 33 * 3 + 2; // a vector's span at stride 3
 
 /// `kern` against plain arithmetic; `T` is the element type and the flags
-/// are the variant's.
+/// are the variant's. Its buffer is the interface's, exactly (`sym.gemvLen`),
+/// 32-byte aligned as a stack one is, with nothing written outside it.
 fn checkGemv(comptime T: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool, kern: anytype) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
+    const cs = if (complex) 2 else 1;
     const alpha: T = if (complex) .init(1.25, -0.5) else 1.25;
     for (sizes) |mn| for (strides) |inc| {
         const m = mn[0];
         const n = mn[1];
         const lda = m + 1;
-        var a: [400]T = undefined; // lda * n at most 18 * 17
-        var x: [cap]T = undefined;
-        var y: [cap]T = undefined;
-        check.fill(T, &a, m * 7 + n);
-        check.fill(T, &x, m + 3);
-        check.fill(T, &y, n + 5);
-        var want = y;
         const rows = if (trans) n else m; // y's length
         const inner = if (trans) m else n; // x's length
+        const a = guard.operand(T, .a, lda * n);
+        const x = guard.operand(T, .x, guard.span(inner, inc[0]));
+        const y = guard.operand(T, .y, guard.span(rows, inc[1]));
+        const want = guard.operand(T, .want, y.len);
+        check.fill(T, a, m * 7 + n);
+        check.fill(T, x, m + 3);
+        check.fill(T, y, n + 5);
+        @memcpy(want, y);
         for (0..rows) |r| {
             var acc: T = if (complex) .init(0, 0) else 0;
             for (0..inner) |q| {
@@ -262,14 +270,21 @@ fn checkGemv(comptime T: type, comptime trans: bool, comptime conj: bool, compti
             }
             if (complex) want[r * inc[1]] = want[r * inc[1]].add(alpha.mul(acc)) else want[r * inc[1]] += alpha * acc;
         }
+        const bytes = sym.gemvLen(F, cs, m, n) * @sizeOf(F);
+        // x86_64 `zgemv_t.S` needs a buffer free of NaN, which its callers clear
+        const buf = guard.open(F, bytes, 32, if (complex and trans) .junk else .nan);
         if (complex) {
-            _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, @ptrCast(&a), @intCast(lda), @ptrCast(&x), @intCast(inc[0]), @ptrCast(&y), @intCast(inc[1]), check.work(F));
+            _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, @ptrCast(a.ptr), @intCast(lda), @ptrCast(x.ptr), @intCast(inc[0]), @ptrCast(y.ptr), @intCast(inc[1]), buf);
         } else {
-            _ = kern(@intCast(m), @intCast(n), 0, alpha, &a, @intCast(lda), &x, @intCast(inc[0]), &y, @intCast(inc[1]), check.work(F));
+            _ = kern(@intCast(m), @intCast(n), 0, alpha, a.ptr, @intCast(lda), x.ptr, @intCast(inc[0]), y.ptr, @intCast(inc[1]), buf);
         }
-        check.expectCloseSlices(T, &want, &y, check.tolerance(F, 4 * inner)) catch |e| {
+        check.expectCloseSlices(T, want, y, check.tolerance(F, 4 * inner)) catch |e| {
             check.say("m={d} n={d} trans={} conj={} xconj={}: ", .{ m, n, trans, conj, xconj });
             return check.case(e, "gemv", T, rows, inc);
+        };
+        guard.intact(bytes, 32) catch |e| {
+            check.say("m={d} n={d} trans={} conj={} xconj={}: ", .{ m, n, trans, conj, xconj });
+            return check.case(e, "gemv buffer", T, rows, inc);
         };
     };
 }

@@ -21,11 +21,13 @@
 //! it is on the stack; beyond that it comes from the caller's allocator.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
+const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const interface = @import("interface.zig");
@@ -41,7 +43,7 @@ pub const ArgError = interface.ArgError;
 pub const Error = ArgError || Allocator.Error;
 
 /// Work space kept on the stack; bigger problems use the allocator.
-pub const stack_bytes = 4096;
+pub const stack_bytes = interface.stack_bytes;
 
 /// `dtb_entries` when the vtable has none yet.
 const default_dtb = 64;
@@ -546,10 +548,15 @@ fn call(
         const comp: usize = if (isComplex(T)) 2 else 1;
         elems += comp * (2 * un + @as(usize, @intCast(o.dtb))) + 40;
     }
+    // the copy of `x` is rounded to 64 bytes, so the gemv buffer after it
+    // keeps the stack's alignment
     var stack: [stack_bytes / @sizeOf(F)]F align(64) = undefined;
     const heap = elems > stack.len;
     const buf: []align(64) F = if (heap) try gpa.alignedAlloc(F, .@"64", elems) else stack[0..elems];
     defer if (heap) gpa.free(buf);
+    // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
+    // infinity; cleared as `interface.gemv` does
+    if (comptime isComplex(T) and builtin.cpu.arch == .x86_64) @memset(buf, 0);
 
     // `_U` for upper untransposed or lower transposed
     const fl: File = if ((uplo == .upper) != trans.transposed()) .u else .l;
@@ -684,7 +691,9 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
     const N = Num(T);
     const layout = comptime layoutOf(kind);
     const solve = comptime isSolve(kind);
-    const gpa = std.testing.allocator;
+    // scratch from the heap holds NaN, so a missing clear shows
+    var poison: guard.Poison = .{ .child = std.testing.allocator };
+    const gpa = poison.allocator();
     for (sizes) |n| for ([_]usize{ 0, 1, 3, 1000 }) |k_req| {
         if (layout != .band and k_req != 0) continue;
         const k = if (layout == .band) @min(k_req, n - 1) else 0;

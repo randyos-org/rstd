@@ -74,6 +74,8 @@ pub const Table = struct {
     divide_limit: i32 = 0,
     preferred_size: i32 = 1,
     dtb_entries: i32 = 0,
+    /// `SYMV_P`: the block of the generic symv and hemv.
+    symv_p: i32 = 0,
 };
 
 /// The packing buffer `r` is derived from (`BUFFER_SIZE`, `common_<arch>.h`).
@@ -289,6 +291,7 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
     vt.divide_limit = table.divide_limit;
     vt.preferred_size = table.preferred_size;
     vt.dtb_entries = table.dtb_entries;
+    vt.symv_p = table.symv_p;
 
     // the primaries, whose `p` the rules and overrides decide; x86 always
     // derives `r`, the other families take the header's constant
@@ -399,6 +402,10 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
 noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !void {
     var vt: Vtable = .{};
     installCore(&vt, family, core, .{ .l2_kb = 512, .l3_kb = 8192, .threads = 1 });
+    if (vt.symv_p != 4 and vt.symv_p != 8 and vt.symv_p != 16) {
+        std.debug.print("{s}/{s}: symv_p={d}\n", .{ @tagName(family), @tagName(core), vt.symv_p });
+        return error.TestUnexpectedResult;
+    }
     inline for (.{ "s", "d", "c", "z" }) |pre| {
         const p = @field(vt, pre ++ "gemm_p");
         const q = @field(vt, pre ++ "gemm_q");

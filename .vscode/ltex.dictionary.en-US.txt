@@ -1679,6 +1679,7 @@ tred
 TRIL
 TRIU
 trmm
+trmv
 trsm
 TrueType
 TrueType-style
@@ -1977,6 +1978,7 @@ ZGEDI
 ZGEFA
 zgemm
 zgemv
+zger
 zgerc
 zgerd
 zgeru
