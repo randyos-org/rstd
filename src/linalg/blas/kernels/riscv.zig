@@ -17,6 +17,7 @@ pub const Core = coretypes.RiscvCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/riscv64/kernel.zig"),
+    @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
 
 /// Whether this registry has kernels for `arch`.

@@ -506,8 +506,82 @@ pub fn xgemm_otcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, b: [
 }
 
 pub const params = @import("params.zig");
+pub const kernel = @import("kernel.zig");
+
+/// Points the real gemm slots at the portable kernels (`kernel.zig`).
+pub const installGeneric = kernel.installGeneric;
+
+/// The portable kernels over real `T` (`portable.kernel`'s source for a
+/// type without slots).
+pub fn Portable(comptime T: type) type {
+    if (comptime @import("../../types.zig").isComplex(T)) @compileError("complex gemm is not ported yet");
+    const K = kernel.Kernels(T, kernel.geometry(T));
+    return struct {
+        pub const gemm_kernel = &K.kernel;
+        pub const gemm_beta = &K.beta;
+        pub const gemm_incopy = &K.incopy;
+        pub const gemm_itcopy = &K.itcopy;
+        pub const gemm_oncopy = &K.oncopy;
+        pub const gemm_otcopy = &K.otcopy;
+    };
+}
+
+const std = @import("std");
+const check = @import("../check.zig");
+const level3 = @import("../level3.zig");
+const blas1check = @import("../../blas1/check.zig");
+const Vtable = @import("../../Vtable.zig");
+
+test "portable gemm kernels match the wide reference through the driver" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try check.coreCases(&vt);
+}
+
+test "every linked core's gemm kernels match the wide reference, where this machine runs them" {
+    try blas1check.eachCore(check.coreCases);
+}
+
+test "the unrolls are the installed kernels' own after a core's blocking" {
+    const portable = @import("../../portable.zig");
+    const K = kernel.Kernels(f32, kernel.geometry(f32));
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    // a core whose object is not linked keeps the portable kernels
+    params.installCore(&vt, .x86_64, .skylakex, .{});
+    portable.finish(&vt);
+    try std.testing.expectEqual(K.unroll_m, vt.sgemm_unroll_m);
+    try std.testing.expectEqual(K.unroll_n, vt.sgemm_unroll_n);
+    try std.testing.expectEqual(@max(K.unroll_m, K.unroll_n), vt.sgemm_unroll_mn);
+}
+
+test "negative or zero blocking falls back to the generic sizes" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    vt.dgemm_p = -7;
+    vt.dgemm_q = 0;
+    vt.dgemm_r = -100;
+    const blk = level3.Blocking.of(f64, &vt);
+    try std.testing.expect(blk.p > 0 and blk.q == 128 and blk.r == 4096);
+    try check.gemmCases(f64, &vt);
+}
+
+test "a packing buffer on the stack is poisoned in tests: a copy that writes nothing shows" {
+    const Nop = struct {
+        fn copy(_: BlasLong, _: BlasLong, _: [*]f64, _: BlasLong, _: [*]f64) callconv(.c) i32 {
+            return 0;
+        }
+    };
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    vt.dgemm_itcopy = &Nop.copy;
+    var a: [4]f64 = @splat(1);
+    var c: [4]f64 = @splat(0);
+    try level3.gemm(std.testing.failing_allocator, f64, &vt, false, false, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
+    for (c) |v| try std.testing.expect(std.math.isNan(v));
+}
 
 test {
-    _ = @import("generic.zig");
-    _ = @import("params.zig");
+    _ = kernel;
+    _ = params;
 }

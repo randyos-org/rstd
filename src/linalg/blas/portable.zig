@@ -9,20 +9,27 @@ const types = @import("types.zig");
 const gemm_params = @import("blas3/gemm/params.zig");
 const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
+const blas3 = @import("blas3/__root__.zig");
 
 const XDouble = types.XDouble;
 
-const levels = .{ blas1, blas2 };
+const levels = .{ blas1, blas2, blas3 };
 
 pub fn install(vt: *Vtable) void {
-    vt.dtb_entries = gemm_params.dtbFor(.generic, .generic);
+    // the generic target's blocking; `finish` sets the portable kernels' unrolls
+    gemm_params.installCore(vt, .generic, .generic, .{});
     inline for (levels) |l| l.installGeneric(vt);
-    alias(vt);
+    finish(vt);
 }
 
-/// Points the bfloat16-named slots with no kernel of their own at the `f32`
-/// kernels `vt` holds (`ext/bf16/kernel.zig`); again after a core's kernels.
-pub const alias = @import("ext/bf16/kernel.zig").alias;
+/// What follows from the kernels `vt` ends with; again after a core's:
+/// the bfloat16-named slots with no kernel of their own point at the `f32`
+/// kernels (`ext/bf16/kernel.zig`), and the gemm unrolls are those of the
+/// portable kernels wherever those stayed (`blas3/gemm/kernel.zig`).
+pub fn finish(vt: *Vtable) void {
+    @import("ext/bf16/kernel.zig").alias(vt);
+    @import("blas3/gemm/kernel.zig").settle(vt);
+}
 
 // ---- type dispatch ---------------------------------------------------------
 
@@ -71,6 +78,12 @@ pub const Op = enum {
     hemv_L,
     hemv_V,
     hemv_M,
+    gemm_kernel,
+    gemm_beta,
+    gemm_incopy,
+    gemm_itcopy,
+    gemm_oncopy,
+    gemm_otcopy,
 };
 
 /// The module whose `Portable(T)` builds `op`'s kernel.
@@ -92,6 +105,7 @@ fn Module(comptime op: Op) type {
         .ger_k, .geru_k, .gerc_k, .gerv_k, .gerd_k => blas2.ger,
         .symv_U, .symv_L => blas2.symv,
         .hemv_U, .hemv_L, .hemv_V, .hemv_M => blas2.hemv,
+        .gemm_kernel, .gemm_beta, .gemm_incopy, .gemm_itcopy, .gemm_oncopy, .gemm_otcopy => blas3.gemm,
     };
 }
 

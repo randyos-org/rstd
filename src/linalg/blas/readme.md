@@ -9,7 +9,7 @@ next to each routine.
 - `Vtable.zig`: the reference's `gotoblas_t`; `blas.kernel(.slot)` calls a slot.
 - `blas{1,2,3}/`, `ext/`: one directory per routine. Its `__root__.zig` holds
   the interface (stubs until ported), and `<arch>/asm/` the converted
-  assembly.
+  assembly; `blas{1,2,3}/interface.zig` are the Zig entry points.
 - `kernels/<arch>.zig`: the one list of an architecture's kernel modules, and
   the `install` that points the vtable at a core's kernels.
 - `cpu/<arch>.zig`: detection, and `canRun` where the tests need it.
@@ -41,6 +41,36 @@ layer, and no `xerbla` callback. The interfaces are Zig functions
 column-major data; bad arguments return a named error in the order the
 reference's `xerbla` numbers them. Chosen on purpose, so the audit gaps for
 those layers are closed by this decision, not by code.
+
+## Level 3
+
+Only real `gemm` is ported so far (`sgemm`, `dgemm`, and `qgemm` for
+`XDouble` through the same code); complex, the other routines, the
+small-matrix kernels and threading come later.
+
+- **Interface:** `blas3/interface.zig`'s `gemm` checks its arguments in the
+  reference's `xerbla` order (leading dimensions against `max(1, rows)`, as
+  the reference BLAS does), returns for empty `C`, and calls the driver.
+  Sizes and leading dimensions are `isize`; real `r` and `c` transposes are
+  `n` and `t`. No `gemv` forwarding for one-column problems.
+- **Driver:** `blas3/level3.zig` is `driver/level3/level3.c`'s loops, with
+  `P`, `Q`, `R` from the vtable (`gemm/params.zig`). The packing space comes
+  from the caller's allocator, sized to the problem (2 KiB or less on the
+  stack). `B` is packed in chunks of `3 * unroll_n` columns and the kernel is
+  always called per chunk, so a stated unroll that does not match the
+  kernels costs speed, never correctness.
+- **Kernels:** `blas3/gemm/kernel.zig`, Zig on `@Vector`s, built into the
+  main library (the portable kernels) and into every per-core object, so
+  each core's features set the vector width and register count, and from
+  them the tile (`geometry`). They never make a core need an object of its
+  own. The objects export their unrolls as data; `cpu/<arch>.zig` sets the
+  core's blocking before its kernels, and `portable.finish` restores the
+  portable kernels' unrolls where those stayed, so the vtable's unrolls are
+  always the installed kernels' own. `gemm/notes.md` has the measurements.
+- **Tests:** `blas3/check.zig` compares with a plain gemm in twice the
+  precision, within `2 (k + 2) eps` of the sum of magnitudes, on a vtable
+  whose blocking is shrunk so every block and panel edge comes at small
+  sizes, and for every linked core this machine runs.
 
 ## Converted assembly
 
@@ -134,7 +164,7 @@ selects (AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA, RVV) are not ported.
   (`sbamax_k` to `sbswap_k`) and `dsbdot_k` (with `dsdot_k`), which the
   level-1 interfaces reach, and `sbger_k`, `sbsymv_*`, `sbtrsm_*`, `sbtrmm_*`,
   `sbsymm_*`, `sbneg_tcopy` and `sblaswp_ncopy`, which nothing calls yet and
-  stay null while their `f32` slots are. `portable.alias` sets them once, at
+  stay null while their `f32` slots are. `portable.finish` sets them once, at
   the end of every vtable's build (`generic_vtable`, `vtableFromCoreType`).
 - **Conversions:** round to nearest even; denormals flush to a signed zero and
   NaNs come out quiet, in both directions (`x86_64/tobf16.c`, `bf16to.c`).

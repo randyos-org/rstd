@@ -15,9 +15,10 @@ pub const detect = detector.detect;
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
     portable.install(&vt);
-    kernel.install(&vt, core_type);
-    portable.alias(&vt);
+    // blocking first: a core's level-3 kernels set their own unrolls
     gemm_params.installCore(&vt, .riscv64, core_type, .fromConfig(blas.config));
+    kernel.install(&vt, core_type);
+    portable.finish(&vt);
     return vt;
 }
 

@@ -17,6 +17,7 @@ pub const Core = coretypes.WasmCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/wasm/kernel.zig"),
+    @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
 
 /// Whether this registry has kernels for `arch`.
