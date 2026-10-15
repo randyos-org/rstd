@@ -45,7 +45,7 @@ pub const Error = ArgError || Allocator.Error;
 /// Work space kept on the stack; bigger problems use the allocator.
 pub const stack_bytes = interface.stack_bytes;
 
-/// `dtb_entries` when the vtable has none yet.
+/// `dtb_entries` of a hand-built vtable that has none.
 const default_dtb = 64;
 
 pub const Uplo = enum {
@@ -574,37 +574,37 @@ fn call(
 /// other triangle (and the diagonal for `unit`) is not read. A negative
 /// `incx` walks `x` from its end.
 pub fn trmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .trmv, &blas._vtable, gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
+    return call(T, .trmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TRSV` (`interface/trsv.c`, `ztrsv.c`): solves `op(A) * y = x`, `y`
 /// replacing `x`. No singularity check, as in the reference.
 pub fn trsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .trsv, &blas._vtable, gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
+    return call(T, .trsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TBMV` (`interface/tbmv.c`, `ztbmv.c`): `x := op(A) * x`, `A` triangular
 /// band with `k` off-diagonals in LAPACK band storage: `A(i,j)` is
 /// `a[k + i - j + j*lda]` (upper) or `a[i - j + j*lda]` (lower).
 pub fn tbmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, k: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tbmv, &blas._vtable, gpa, uplo, trans, diag, n, k, a, lda, x, incx);
+    return call(T, .tbmv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TBSV` (`interface/tbsv.c`, `ztbsv.c`): solves `op(A) * y = x` for band `A`.
 pub fn tbsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, k: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tbsv, &blas._vtable, gpa, uplo, trans, diag, n, k, a, lda, x, incx);
+    return call(T, .tbsv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TPMV` (`interface/tpmv.c`, `ztpmv.c`): `x := op(A) * x`, `A` packed by
 /// columns: `A(i,j)` is `ap[j*(j+1)/2 + i]` (upper, `i <= j`) or
 /// `ap[j*(2n-j+1)/2 + i - j]` (lower, `i >= j`).
 pub fn tpmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, ap: [*]T, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tpmv, &blas._vtable, gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
+    return call(T, .tpmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 /// `?TPSV` (`interface/tpsv.c`, `ztpsv.c`): solves `op(A) * y = x` for packed `A`.
 pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, ap: [*]T, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tpsv, &blas._vtable, gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
+    return call(T, .tpsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 // ---- tests -----------------------------------------------------------------
