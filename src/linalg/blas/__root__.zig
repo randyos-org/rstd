@@ -224,6 +224,9 @@ test "init keeps its own copy of the environment, shutdown goes back to the port
     defer _ = vtable();
     try zigstd.testExpectTrue(_vtable.daxpy_k == generic_vtable.daxpy_k);
     const detected = @tagName(cpu.detect());
+    // the core that runs it: a detected core not linked into this build falls back
+    const chosen = cpu.choose(detected, null, LogSink{});
+    const runs = @tagName(chosen.served orelse chosen.core);
     {
         var env: std.process.Environ.Map = .init(zigstd.testAllocator);
         defer env.deinit();
@@ -234,7 +237,7 @@ test "init keeps its own copy of the environment, shutdown goes back to the port
     // the map is gone; the copy is not
     try zigstd.testExpectEqualStrings(detected, config.coreType().?);
     try zigstd.testExpectEqual(@as(i32, 3), config.num_threads);
-    try zigstd.testExpectEqualStrings(detected, coreName());
+    try zigstd.testExpectEqualStrings(runs, coreName());
 
     shutdown();
     try zigstd.testExpectEqual(@as(i32, 0), config.num_threads);
@@ -243,7 +246,7 @@ test "init keeps its own copy of the environment, shutdown goes back to the port
     defer env.deinit();
     try env.put("OPENBLAS_CORETYPE", "no-such-core");
     try zigstd.testExpectTrue(init(&env));
-    try zigstd.testExpectEqualStrings(detected, coreName());
+    try zigstd.testExpectEqualStrings(runs, coreName());
 }
 
 test "a test's table needs no core, and goes back to the unset state" {
