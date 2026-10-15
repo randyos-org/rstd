@@ -1,6 +1,7 @@
 _sysctl
 AAPCS
 ABGR
+abiversion
 abssq
 accept
 accept4
@@ -635,7 +636,10 @@ GLSL
 Glslang
 glyf
 gmacros
+gnueabi
 gnueabihf
+gnusf
+gnux
 gobj
 gobject
 gofmt

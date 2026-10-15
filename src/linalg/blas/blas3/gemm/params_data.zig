@@ -481,6 +481,65 @@ pub fn x86_64(core: coretypes.X86CoreType) ?Table {
             .preferred_size = 16,
             .symv_p = 8,
         },
+        .p5 => null,
+        .p6 => null,
+        .viac3 => .{
+            .s = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 1, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 1, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 256,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .yonah => null,
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn x86_64_dtb(core: coretypes.X86CoreType) ?i32 {
+    return switch (core) {
+        .unknown => null,
+        .katmai => 64,
+        .coppermine => 64,
+        .northwood => 64,
+        .prescott => 64,
+        .banias => 64,
+        .atom => 64,
+        .core2 => 256,
+        .penryn => 256,
+        .dunnington => 256,
+        .nehalem => 64,
+        .athlon => 32,
+        .opteron => 32,
+        .opteron_sse3 => 32,
+        .barcelona => 48,
+        .nano => 128,
+        .sandybridge => 64,
+        .bobcat => 40,
+        .bulldozer => 32,
+        .piledriver => 64,
+        .haswell => 64,
+        .steamroller => 64,
+        .excavator => 64,
+        .zen => 64,
+        .skylakex => 64,
+        .cooperlake => 64,
+        .sapphirerapids => 64,
+        .p5 => null,
+        .p6 => null,
+        .viac3 => 128,
+        .yonah => 64,
     };
 }
 
@@ -942,6 +1001,65 @@ pub fn x86(core: coretypes.X86CoreType) ?Table {
             .preferred_size = 16,
             .symv_p = 8,
         },
+        .p5 => null,
+        .p6 => null,
+        .viac3 => .{
+            .s = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 1, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 1, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 256,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .yonah => null,
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn x86_dtb(core: coretypes.X86CoreType) ?i32 {
+    return switch (core) {
+        .unknown => null,
+        .katmai => 64,
+        .coppermine => 64,
+        .northwood => 64,
+        .prescott => 64,
+        .banias => 64,
+        .atom => 64,
+        .core2 => 256,
+        .penryn => 256,
+        .dunnington => 256,
+        .nehalem => 64,
+        .athlon => 32,
+        .opteron => 32,
+        .opteron_sse3 => 32,
+        .barcelona => 48,
+        .nano => 128,
+        .sandybridge => 64,
+        .bobcat => 40,
+        .bulldozer => 32,
+        .piledriver => 64,
+        .haswell => 64,
+        .steamroller => 64,
+        .excavator => 64,
+        .zen => 64,
+        .skylakex => 64,
+        .cooperlake => 64,
+        .sapphirerapids => 64,
+        .p5 => null,
+        .p6 => null,
+        .viac3 => 128,
+        .yonah => 64,
     };
 }
 
@@ -1365,6 +1483,174 @@ pub fn arm64(core: coretypes.Arm64CoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
+        .cortexa76 => .{
+            .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 512 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 64 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 16,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .cortexa510 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 352 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 4, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 160 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 16, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 16, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 112 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 16,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .cortexa710 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 352 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 4, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 160 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 16, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 16, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 112 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 16,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .cortexx1 => .{
+            .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 512 }, .q = .{ .fixed = 1024 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 512 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 512 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .{ .fixed = 2048 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .cortexx2 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 352 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 4, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 160 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 16, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 16, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 112 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 16,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .ampere1 => .{
+            .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 240 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 240 }, .q = .{ .fixed = 320 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 112 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 16,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .ft2000 => .{
+            .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 352 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 160 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 4096 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 112 }, .r = .{ .fixed = 2048 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn arm64_dtb(core: coretypes.Arm64CoreType) ?i32 {
+    return switch (core) {
+        .armv8 => 64,
+        .cortexa53 => 64,
+        .cortexa57 => 64,
+        .cortexa72 => 64,
+        .cortexa73 => 64,
+        .falkor => 64,
+        .thunderx => 64,
+        .thunderx2t99 => 64,
+        .tsv110 => 64,
+        .emag8180 => 64,
+        .neoversen1 => 64,
+        .neoversev1 => 64,
+        .neoversev2 => 64,
+        .neoversen2 => 64,
+        .thunderx3t110 => 64,
+        .cortexa55 => 64,
+        .armv8sve => 64,
+        .a64fx => 64,
+        .armv9sme => 64,
+        .vortex => 64,
+        .vortexm4 => 64,
+        .unknown => null,
+        .cortexa76 => 64,
+        .cortexa510 => 64,
+        .cortexa710 => 64,
+        .cortexx1 => 64,
+        .cortexx2 => 64,
+        .ampere1 => 64,
+        .ft2000 => 64,
     };
 }
 
@@ -1465,6 +1751,57 @@ pub fn arm(core: coretypes.ArmCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
+        .cortexa9 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 240 }, .r = .{ .fixed = 12288 } },
+            .d = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 8192 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 96 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 64 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+        .cortexa15 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 240 }, .r = .{ .fixed = 12288 } },
+            .d = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 8192 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 96 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 64 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 16383,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+        },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn arm_dtb(core: coretypes.ArmCoreType) ?i32 {
+    return switch (core) {
+        .armv5 => 64,
+        .armv6 => 64,
+        .armv7 => 64,
+        .neon => 64,
+        .vfpv4 => 128,
+        .cortexa9 => 128,
+        .cortexa15 => 128,
     };
 }
 
@@ -1702,6 +2039,25 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn power64_dtb(core: coretypes.PowerCoreType) ?i32 {
+    return switch (core) {
+        .unknown => null,
+        .power6 => 128,
+        .power8 => 128,
+        .power9 => 128,
+        .power10 => 128,
+        .power3 => 256,
+        .power4 => 128,
+        .power5 => 128,
+        .ppc970 => 128,
+        .cell => 128,
+        .ppc440 => 64,
+        .ppc440fp2 => 64,
+        .ppcg4 => 128,
+    };
+}
+
 pub fn power32(core: coretypes.PowerCoreType) ?Table {
     return switch (core) {
         .unknown => null,
@@ -1936,6 +2292,25 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn power32_dtb(core: coretypes.PowerCoreType) ?i32 {
+    return switch (core) {
+        .unknown => null,
+        .power6 => 128,
+        .power8 => 128,
+        .power9 => 128,
+        .power10 => 128,
+        .power3 => 256,
+        .power4 => 128,
+        .power5 => 128,
+        .ppc970 => 128,
+        .cell => 128,
+        .ppc440 => 64,
+        .ppc440fp2 => 64,
+        .ppcg4 => 128,
+    };
+}
+
 pub fn riscv64(core: coretypes.RiscvCoreType) ?Table {
     return switch (core) {
         .riscv64_generic => .{
@@ -2037,6 +2412,18 @@ pub fn riscv64(core: coretypes.RiscvCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn riscv64_dtb(core: coretypes.RiscvCoreType) ?i32 {
+    return switch (core) {
+        .riscv64_generic => 128,
+        .riscv64_zvl128b => 128,
+        .riscv64_zvl256b => 128,
+        .c910v => 128,
+        .u74 => 128,
+        .x280 => null,
+    };
+}
+
 pub fn s390x(core: coretypes.S390xCoreType) ?Table {
     return switch (core) {
         .zarch_generic => .{
@@ -2096,6 +2483,15 @@ pub fn s390x(core: coretypes.S390xCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn s390x_dtb(core: coretypes.S390xCoreType) ?i32 {
+    return switch (core) {
+        .zarch_generic => 64,
+        .z13 => 64,
+        .z14 => 64,
     };
 }
 
@@ -2276,6 +2672,22 @@ pub fn mips64(core: coretypes.MipsCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn mips64_dtb(core: coretypes.MipsCoreType) ?i32 {
+    return switch (core) {
+        .mips64_generic => 64,
+        .loongson3r3 => 64,
+        .loongson3r4 => 64,
+        .unknown => null,
+        .mips24k => 64,
+        .mips1004k => 64,
+        .p5600 => 64,
+        .i6400 => 64,
+        .i6500 => 64,
+        .p6600 => 64,
+    };
+}
+
 pub fn mips32(core: coretypes.MipsCoreType) ?Table {
     return switch (core) {
         .mips64_generic => .{
@@ -2453,6 +2865,22 @@ pub fn mips32(core: coretypes.MipsCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn mips32_dtb(core: coretypes.MipsCoreType) ?i32 {
+    return switch (core) {
+        .mips64_generic => 64,
+        .loongson3r3 => 64,
+        .loongson3r4 => 64,
+        .unknown => null,
+        .mips24k => 64,
+        .mips1004k => 64,
+        .p5600 => 64,
+        .i6400 => 64,
+        .i6500 => 64,
+        .p6600 => 64,
+    };
+}
+
 pub fn loongarch64(core: coretypes.LoongarchCoreType) ?Table {
     return switch (core) {
         .la64_generic => .{
@@ -2519,6 +2947,19 @@ pub fn loongarch64(core: coretypes.LoongarchCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn loongarch64_dtb(core: coretypes.LoongarchCoreType) ?i32 {
+    return switch (core) {
+        .la64_generic => 64,
+        .la264 => 64,
+        .la464 => 64,
+        .loongsongeneric => 64,
+        .loongson2k1000 => 64,
+        .loongson3r5 => 64,
+        .unknown => null,
+    };
+}
+
 pub fn sparc(core: coretypes.SparcCoreType) ?Table {
     return switch (core) {
         .sparcv7 => .{
@@ -2562,6 +3003,14 @@ pub fn sparc(core: coretypes.SparcCoreType) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn sparc_dtb(core: coretypes.SparcCoreType) ?i32 {
+    return switch (core) {
+        .sparcv7 => 64,
+        .sparc => 64,
+    };
+}
+
 pub fn wasm(core: coretypes.WasmCoreType) ?Table {
     return switch (core) {
         .wasm_generic => null,
@@ -2584,6 +3033,14 @@ pub fn wasm(core: coretypes.WasmCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn wasm_dtb(core: coretypes.WasmCoreType) ?i32 {
+    return switch (core) {
+        .wasm_generic => null,
+        .wasm128_generic => 128,
     };
 }
 
@@ -2611,5 +3068,12 @@ pub fn generic(core: coretypes.GenericCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
+    };
+}
+
+/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
+pub fn generic_dtb(core: coretypes.GenericCoreType) ?i32 {
+    return switch (core) {
+        .generic => 128,
     };
 }

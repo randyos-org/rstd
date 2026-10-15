@@ -197,7 +197,7 @@ test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
             pad[2 * i] = @fromBackingInt(@intCast(s));
             pad[2 * i + 1] = @fromBackingInt(@intCast(0x1234));
         }
-        _ = kernel.bscal_k(xs.len, 0, 0, @fromBackingInt(@intCast(da)), &pad, 2, &pad, 0, &pad, flag);
+        _ = kernel.bscal_k(xs.len, 0, 0, @fromBackingInt(@intCast(da)), &pad, 2, &pad, 0, &pad, @intCast(flag));
         for (xs, 0..) |s, i| {
             try std.testing.expectEqual(bscalModel(flag, da, s), @backingInt(pad[2 * i]));
             try std.testing.expectEqual(@as(u16, 0x1234), @backingInt(pad[2 * i + 1]));

@@ -2,6 +2,7 @@
 //! none of its own; a core's kernels then go over them (`cpu.kernel.install`).
 
 const Vtable = @import("Vtable.zig");
+const gemm_params = @import("blas3/gemm/params.zig");
 
 const levels = .{
     @import("blas1/__root__.zig"),
@@ -9,6 +10,7 @@ const levels = .{
 };
 
 pub fn install(vt: *Vtable) void {
+    vt.dtb_entries = gemm_params.dtbFor(.generic, .generic);
     inline for (levels) |l| l.installGeneric(vt);
     alias(vt);
 }

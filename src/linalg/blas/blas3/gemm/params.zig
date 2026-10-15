@@ -73,7 +73,6 @@ pub const Table = struct {
     divide_rate: i32 = 2,
     divide_limit: i32 = 0,
     preferred_size: i32 = 1,
-    dtb_entries: i32 = 0,
     /// `SYMV_P`: the block of the generic symv and hemv.
     symv_p: i32 = 0,
 };
@@ -290,7 +289,6 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
     vt.divide_rate = table.divide_rate;
     vt.divide_limit = table.divide_limit;
     vt.preferred_size = table.preferred_size;
-    vt.dtb_entries = table.dtb_entries;
     vt.symv_p = table.symv_p;
 
     // the primaries, whose `p` the rules and overrides decide; x86 always
@@ -381,11 +379,25 @@ pub fn tableFor(comptime family: Family, core: CoreOf(family)) ?Table {
     };
 }
 
+/// `DTB_DEFAULT_ENTRIES` of `core` (`getarch.c`). Where `getarch.c` has no
+/// entry, a build for the core takes what its `cpuid_<arch>.c` prints (riscv64:
+/// 64, for every core), else the generic target's.
+pub fn dtbFor(comptime family: Family, core: CoreOf(family)) i32 {
+    const own = switch (family) {
+        inline else => |f| @field(data, @tagName(f) ++ "_dtb")(core),
+    };
+    return own orelse switch (family) {
+        .riscv64 => 64,
+        else => data.generic_dtb(.generic).?,
+    };
+}
+
 /// Installs the parameters of `core`. A core `param.h` has no blocking for takes
 /// the generic set and its rule, as OpenBLAS's generic target does.
 pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), env: Env) void {
     switch (core) {
         inline else => |c| {
+            defer vt.dtb_entries = dtbFor(family, c);
             if (tableFor(family, c)) |table| {
                 install(vt, family, @tagName(c), table, env);
             } else {
@@ -396,6 +408,14 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
 }
 
 // ---- tests -----------------------------------------------------------------
+
+test "dtb entries: getarch's per core, cpuid's or generic's otherwise" {
+    try std.testing.expectEqual(@as(i32, 256), dtbFor(.x86_64, .core2));
+    try std.testing.expectEqual(@as(i32, 40), dtbFor(.x86_64, .bobcat));
+    try std.testing.expectEqual(@as(i32, 64), dtbFor(.riscv64, .x280));
+    try std.testing.expectEqual(@as(i32, 128), dtbFor(.x86_64, .unknown));
+    try std.testing.expectEqual(@as(i32, 128), dtbFor(.generic, .generic));
+}
 
 /// One core's checks, in a frame of its own: a vtable is large, and the test
 /// visits hundreds of cores.
