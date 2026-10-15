@@ -64,6 +64,9 @@ generated files carry the fixed code.
 - `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte
   result first, shifting the arguments along; the kernel read that address
   as `n`. Fixed the way `zdot_sse2.S` already does it.
+- `x86_64/zgemv_t_atom.S`, Windows: read the double `alpha_i`, which Windows
+  passes on the stack, with a single-precision load; its sibling kernels use
+  the double one.
 
 The rest are the `lsx` and `lasx` kernels under `loongarch64/`, mostly where
 a stride is not 1:

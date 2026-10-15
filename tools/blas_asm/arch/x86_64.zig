@@ -43,6 +43,9 @@ pub const x86_64: arch.Arch = .{
 
 /// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
 const patches = [_]arch.Patch{
+    // Windows passes the double `alpha_i` on the stack; this read it with a
+    // single-precision load, as every sibling `zgemv` kernel does not
+    .{ .source = "zgemv_t_atom.S", .find = "\tmovss\tOLD_ALPHA_I, %xmm1\n", .replace = "\tmovsd\tOLD_ALPHA_I, %xmm1\n" },
     // Windows passes the address of a 16-byte result first and shifts the
     // arguments along; `zdot_atom.S` read that address as `n`. Taken from
     // `zdot_sse2.S`, which gets it right.

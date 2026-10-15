@@ -4,7 +4,7 @@
 
 const detector = @import("_detect/s390x.zig");
 const Vtable = @import("../Vtable.zig");
-const blas1 = @import("../blas1/__root__.zig");
+const portable = @import("../portable.zig");
 const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
 
@@ -17,7 +17,7 @@ pub fn detect() CoreType {
 
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
-    blas1.installGeneric(&vt);
+    portable.install(&vt);
     kernel.install(&vt, core_type);
     gemm_params.installCore(&vt, .s390x, core_type, .fromConfig(blas.config));
     return vt;

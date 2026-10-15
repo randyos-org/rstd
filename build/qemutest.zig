@@ -30,11 +30,16 @@
 //!
 //! Then `zig build qemu-start-<name>` boots it in a window, and, while it is
 //! up, `zig build qemu-test-<name> -Dmac-user=<account>` runs the tests in it.
+//! With the VM shut down, `qemu-snapshot-<name>` saves a restore point and
+//! `qemu-restore-<name>` goes back to it (`-Dmac-snapshot=<name>`, default
+//! `clean`): worth doing once it is set up, since a hard stop of the VM can
+//! leave macOS unable to boot.
 
 const std = @import("std");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Optimize = rstdbuild.Optimize;
+const console = rstdbuild.console;
 const blaskern = @import("blaskern.zig");
 const buildroot = @import("__root__.zig");
 
@@ -264,16 +269,8 @@ const machines = [_]Machine{
         .name = "x86_64-macos",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },
         .qemu = "qemu-system-x86_64",
+        // `-accel` is added by `macosQemu` (`-Dmac-mttcg`)
         .args = &.{
-            // TCG emulates (slow) but honors the Intel vendor below; under WHPX
-            // ("whpx", as randyos's own VM uses) the kernel stopped at
-            // EXITBS:START, as if it saw the host's AMD CPUID. Once the
-            // installer hung here with every CPU spinning in the kernel,
-            // interrupts off, possibly after the host slept; if it recurs
-            // with the host awake, use `thread=single` (one host thread).
-            // A 2 GB translation cache keeps macOS's code from being flushed
-            // and translated again.
-            "-accel",  "tcg,thread=multi,tb-size=2048",
             "-M",      "q35",
             // OSX-KVM's OpenCore-Boot.sh model, less its KVM-only flags: macOS
             // wants an Intel CPU, from 13 with AVX2. Under WHPX `max` and `host`
@@ -297,7 +294,7 @@ const machines = [_]Machine{
 
 /// Tests that need an OS (allocator, files, threads) live in files the test
 /// root also reaches, so the runnable ones are picked by name instead.
-const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "linalg.blas.blas3.gemm.params", "simd." };
+const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.gemm.params", "simd." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
@@ -311,6 +308,9 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         .release = b.option(MacRelease, "mac-release", "macOS release qemu-setup fetches (default sonoma)") orelse .sonoma,
         .gdb = b.option(bool, "mac-gdb", "Let gdb attach to the macOS VM on localhost:1234") orelse false,
         .detach = b.option(bool, "mac-detach", "qemu-install/start return once the macOS VM is up rather than when it stops") orelse false,
+        .mttcg = b.option(bool, "mac-mttcg", "Run the macOS VM's vCPUs on host threads of their own: faster in the window, but macOS has hung and misread files under it; false for test runs (default true)") orelse true,
+        .ovmf_vars = b.option([]const u8, "mac-ovmf-vars", "Empty OVMF variable store for qemu-setup (default: QEMU's edk2-i386-vars.fd)"),
+        .snapshot = b.option([]const u8, "mac-snapshot", "Name of the restore point qemu-snapshot/restore make or go back to (default clean)") orelse "clean",
     } else .{};
 
     for (machines) |m| {
@@ -393,16 +393,41 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
         setup.dependOn(&run.step);
     }
     if (!exists(b, paths.disk)) setup.dependOn(&console(b, &.{ "qemu-img", "create", "-f", "qcow2", paths.disk, "96G" }).step);
+    // The firmware's settings (NVRAM: the default boot disk, boot-args). It
+    // must be the variable store `OVMF_CODE_4M.fd` was built for, 528 KiB;
+    // OSX-KVM's 128 KiB ones are for the older 2 MiB firmware, and with one
+    // the firmware keeps NVRAM in memory and the choices never persist.
     if (!exists(b, paths.vars)) {
-        const copy = b.addUpdateSourceFiles();
-        copy.addCopyFileToSource(kvm.path("OVMF_VARS-1920x1080.fd"), paths.vars);
-        setup.dependOn(&copy.step);
+        if (mac.ovmf_vars orelse ovmfVarsTemplate(b)) |template| {
+            const copy = b.addUpdateSourceFiles();
+            copy.addCopyFileToSource(.{ .cwd_relative = template }, paths.vars);
+            setup.dependOn(&copy.step);
+        } else setup.dependOn(&b.addFail("no edk2-i386-vars.fd next to qemu-system-x86_64; pass the 4 MiB OVMF variable store with -Dmac-ovmf-vars=<path>").step);
     }
+    const vars_wrong = if (rstdbuild.io.fileSize(b.graph.io, b.pathFromRoot(paths.vars))) |size| size != ovmf_vars_size else false;
 
     inline for (.{ "install", "start" }) |cmd| {
         const run = try macosQemu(b, m, kvm, paths, mac, std.mem.eql(u8, cmd, "install"));
+        if (vars_wrong) run.step.dependOn(&b.addFail(b.fmt("{s} is not a 528 KiB OVMF variable store, so NVRAM would not persist; with the VM off, delete it and run qemu-setup-{s}", .{ paths.vars, m.name })).step);
         b.step(b.fmt("qemu-" ++ cmd ++ "-{s}", .{m.name}), b.fmt("macOS VM {s}: " ++ cmd ++ ", in a window", .{m.name})).dependOn(&run.step);
     }
+
+    // A named restore point: the disk's own snapshot plus a copy of the
+    // firmware settings, which live outside it. qemu-img will not touch a
+    // disk the running VM holds, so neither step works on a live VM.
+    const saved_vars = b.fmt("{s}/OVMF_VARS.{s}.fd", .{ vm, mac.snapshot });
+    const snap = console(b, &.{ "qemu-img", "snapshot", "-c", mac.snapshot, paths.disk });
+    // qemu-img would add a second snapshot of the same name
+    if (hasSnapshot(b, paths.disk, mac.snapshot)) snap.step.dependOn(&b.addFail(b.fmt("{s} already has a snapshot named {s}; pick another with -Dmac-snapshot", .{ paths.disk, mac.snapshot })).step);
+    const keep = b.addUpdateSourceFiles();
+    keep.addCopyFileToSource(b.path(paths.vars), saved_vars);
+    keep.step.dependOn(&snap.step);
+    b.step(b.fmt("qemu-snapshot-{s}", .{m.name}), b.fmt("macOS VM {s}: save a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&keep.step);
+    const back = console(b, &.{ "qemu-img", "snapshot", "-a", mac.snapshot, paths.disk });
+    const put = b.addUpdateSourceFiles();
+    put.addCopyFileToSource(b.path(saved_vars), paths.vars);
+    put.step.dependOn(&back.step);
+    b.step(b.fmt("qemu-restore-{s}", .{m.name}), b.fmt("macOS VM {s}: go back to a restore point (-Dmac-snapshot) of the stopped VM", .{m.name})).dependOn(&put.step);
 
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
     const login = b.fmt("{s}@localhost", .{mac.user});
@@ -422,7 +447,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
 }
 
 /// The macOS VMs' SSH login (`-Dmac-user`, `-Dmac-port`) and release.
-const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false, detach: bool = false };
+const MacOptions = struct { user: []const u8 = "", port: u16 = 2222, release: MacRelease = .sonoma, gdb: bool = false, detach: bool = false, mttcg: bool = true, ovmf_vars: ?[]const u8 = null, snapshot: []const u8 = "clean" };
 
 /// The releases `fetch-macOS-v2.py` offers that the tests run on: the machine
 /// builds them for macOS 13 and up. The tags are the fetcher's `-s` names.
@@ -439,6 +464,16 @@ fn macosQemu(b: *Build, m: Machine, kvm: *Build.Dependency, paths: MacPaths, mac
     // and returns; elsewhere `-daemonize` puts qemu in the background, below.
     const windows = b.graph.host.result.os.tag == .windows;
     const run = console(b, if (mac.detach and windows) &.{ "cmd", "/c", "start", "", m.qemu } else &.{m.qemu});
+    // TCG emulates (slow) but honors the Intel vendor the CPU model sets;
+    // under WHPX ("whpx", as randyos's own VM uses) the kernel stopped at
+    // EXITBS:START, as if it saw the host's AMD CPUID. A host thread per
+    // vCPU (`thread=multi`) keeps the window usable, but under it macOS hung
+    // with interrupts off at a reboot and the installer's restart, and
+    // decompressing system files failed now and then (a boot loop on a hash
+    // mismatch, the login window crashing on a page-in) where the same files
+    // read back fine; `-Dmac-mttcg=false` (one host thread) for test runs.
+    // A 2 GB translation cache keeps macOS's code from being translated again.
+    run.addArgs(&.{ "-accel", b.fmt("tcg,thread={s},tb-size=2048", .{if (mac.mttcg) "multi" else "single"}) });
     run.addArgs(m.args);
     run.addArgs(&.{ "-m", m.memory, "-device", b.fmt("isa-applesmc,osk={s}", .{try smcKey(b, kvm)}), "-drive" });
     run.addPrefixedFileArg("if=pflash,format=raw,readonly=on,file=", kvm.path("OVMF_CODE_4M.fd"));
@@ -476,16 +511,53 @@ fn smcKey(b: *Build, kvm: *Build.Dependency) ![]const u8 {
     return script[start..end];
 }
 
-fn exists(b: *Build, path: []const u8) bool {
-    b.root.access(b.graph.io, path, .{}) catch return false;
-    return true;
+/// Whether the qcow2 image at `path` holds a snapshot named `name`, from its
+/// snapshot table (QEMU's `docs/interop/qcow2.rst`); false when unreadable.
+fn hasSnapshot(b: *Build, path: []const u8, name: []const u8) bool {
+    const io = b.graph.io;
+    const file = b.root.openFile(io, path, .{}) catch return false;
+    defer file.close(io);
+    var header: [72]u8 = undefined;
+    if ((file.readPositionalAll(io, &header, 0) catch return false) != header.len) return false;
+    if (!std.mem.eql(u8, header[0..4], "QFI\xfb")) return false;
+    const count = std.mem.readInt(u32, header[60..64], .big);
+    var at = std.mem.readInt(u64, header[64..72], .big);
+    for (0..count) |_| {
+        // l1 offset and size, id and name lengths, dates, vm state, extra
+        var entry: [40]u8 = undefined;
+        if ((file.readPositionalAll(io, &entry, at) catch return false) != entry.len) return false;
+        const id_len = std.mem.readInt(u16, entry[12..14], .big);
+        const name_len = std.mem.readInt(u16, entry[14..16], .big);
+        const extra_len = std.mem.readInt(u32, entry[36..40], .big);
+        const name_at = at + entry.len + extra_len + id_len;
+        if (name_len == name.len) {
+            var buf: [256]u8 = undefined;
+            if (name_len <= buf.len and (file.readPositionalAll(io, buf[0..name_len], name_at) catch return false) == name_len and
+                std.mem.eql(u8, buf[0..name_len], name)) return true;
+        }
+        // entries are padded to a multiple of 8
+        at = std.mem.alignForward(u64, name_at + name_len, 8);
+    }
+    return false;
 }
 
-/// A command on the console (it may ask questions or open a window), from the
-/// build root.
-fn console(b: *Build, argv: []const []const u8) *Build.Step.Run {
-    const run = b.addSystemCommand(argv);
-    run.setCwd(b.path("."));
-    run.stdio = .inherit;
-    return run;
+/// The size of the variable store `OVMF_CODE_4M.fd` uses.
+const ovmf_vars_size = 540672;
+
+/// QEMU's own empty variable store for its 4 MiB x86 edk2, which
+/// `OVMF_CODE_4M.fd` matches: `../share/qemu/edk2-i386-vars.fd` from
+/// `qemu-system-x86_64`, as MSYS2 and the official builds lay it out.
+fn ovmfVarsTemplate(b: *Build) ?[]const u8 {
+    const qemu = b.findProgram(.{ .names = &.{"qemu-system-x86_64"} }) orelse return null;
+    const bin = std.fs.path.dirname(qemu) orelse return null;
+    for ([_][]const u8{ "../share/qemu", "share" }) |rel| {
+        const path = b.pathJoin(&.{ bin, rel, "edk2-i386-vars.fd" });
+        if (rstdbuild.io.fileExists(b.graph.io, path)) return path;
+    }
+    return null;
+}
+
+/// Whether `path`, relative to the build root, exists.
+fn exists(b: *Build, path: []const u8) bool {
+    return rstdbuild.io.fileExists(b.graph.io, b.pathFromRoot(path));
 }

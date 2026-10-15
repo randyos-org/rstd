@@ -59,7 +59,7 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
         .nehalem => .{ .features = &x86_sse41, .fuse_fma = false },
         .sandybridge => .{ .features = &(x86_sse41 ++ [_][]const u8{"avx"}), .fuse_fma = false },
         .bulldozer => .{ .features = &.{ "sse3", "avx", "fma4" }, .fuse_fma = false },
-        .piledriver, .steamroller, .excavator => .{ .features = &.{ "sse3", "sse4_1", "avx", "fma" }, .fuse_fma = false },
+        .piledriver, .steamroller, .excavator => .{ .features = &.{ "sse3", "sse4_1", "avx", "fma", "fma4" }, .fuse_fma = false },
         .haswell, .zen => .{ .features = &(x86_sse41 ++ [_][]const u8{ "avx", "avx2", "fma" }), .fuse_fma = true },
         .skylakex => .{ .model = "skylake_avx512", .fuse_fma = true },
         .cooperlake => .{ .model = "cooperlake", .fuse_fma = true },

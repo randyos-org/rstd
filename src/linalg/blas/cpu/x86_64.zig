@@ -3,7 +3,7 @@
 
 const detector = @import("_detect/x86.zig");
 const Vtable = @import("../Vtable.zig");
-const blas1 = @import("../blas1/__root__.zig");
+const portable = @import("../portable.zig");
 const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
 
@@ -15,7 +15,7 @@ pub const canRun = detector.supportsCore;
 
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};
-    blas1.installGeneric(&vt);
+    portable.install(&vt);
     kernel.install(&vt, core_type);
     gemm_params.installCore(&vt, .x86_64, core_type, .fromConfig(blas.config));
     return vt;

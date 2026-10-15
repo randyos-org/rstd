@@ -35,6 +35,7 @@ pub const ShaderStage = spirv.ShaderStage;
 const builder_mod = @import("builder.zig");
 pub const getOptimize = builder_mod.getOptimize;
 pub const getTarget = builder_mod.getTarget;
+pub const console = builder_mod.console;
 
 const module_mod = @import("module.zig");
 pub const cloneModuleWithTarget = module_mod.cloneModuleWithTarget;

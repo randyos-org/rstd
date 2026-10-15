@@ -33,7 +33,7 @@ pub fn addDocs(b: *Build) Docs {
 
     const docs_port = b.option(u16, "docs-port", "Port for `zig build run-docs` to serve documentation on") orelse 3000;
     const run_docs_step = b.step("run-docs", "Serve the generated documentation locally");
-    const server_cmd = b.addSystemCommand(&.{
+    const server_cmd = rstdbuild.console(b, &.{
         "python", "-m", "http.server", b.fmt("{d}", .{docs_port}), "-b", "127.0.0.1", "-d", "zig-out/docs/",
     });
     server_cmd.step.dependOn(docs_step);
