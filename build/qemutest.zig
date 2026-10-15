@@ -378,7 +378,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
 
     const setup = b.step(b.fmt("qemu-setup-{s}", .{m.name}), b.fmt("macOS VM {s}: fetch a recovery image, make the disk", .{m.name}));
     var fetch: ?*Build.Step.Run = null;
-    if (!exists(b, paths.dmg)) {
+    if (!try exists(b, paths.dmg)) {
         const run = console(b, &.{"python"});
         run.addFileArg(kvm.path("fetch-macOS-v2.py"));
         run.addArgs(&.{ "-s", @tagName(mac.release) });
@@ -387,24 +387,24 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
         setup.dependOn(&run.step);
         fetch = run;
     }
-    if (!exists(b, paths.img)) {
+    if (!try exists(b, paths.img)) {
         const run = console(b, &.{ "qemu-img", "convert", "-f", "dmg", "-O", "raw", paths.dmg, paths.img });
         if (fetch) |f| run.step.dependOn(&f.step);
         setup.dependOn(&run.step);
     }
-    if (!exists(b, paths.disk)) setup.dependOn(&console(b, &.{ "qemu-img", "create", "-f", "qcow2", paths.disk, "96G" }).step);
+    if (!try exists(b, paths.disk)) setup.dependOn(&console(b, &.{ "qemu-img", "create", "-f", "qcow2", paths.disk, "96G" }).step);
     // The firmware's settings (NVRAM: the default boot disk, boot-args). It
     // must be the variable store `OVMF_CODE_4M.fd` was built for, 528 KiB;
     // OSX-KVM's 128 KiB ones are for the older 2 MiB firmware, and with one
     // the firmware keeps NVRAM in memory and the choices never persist.
-    if (!exists(b, paths.vars)) {
+    if (!try exists(b, paths.vars)) {
         if (mac.ovmf_vars orelse ovmfVarsTemplate(b)) |template| {
             const copy = b.addUpdateSourceFiles();
             copy.addCopyFileToSource(.{ .cwd_relative = template }, paths.vars);
             setup.dependOn(&copy.step);
         } else setup.dependOn(&b.addFail("no edk2-i386-vars.fd next to qemu-system-x86_64; pass the 4 MiB OVMF variable store with -Dmac-ovmf-vars=<path>").step);
     }
-    const vars_wrong = if (rstdbuild.io.fileSize(b.graph.io, b.pathFromRoot(paths.vars))) |size| size != ovmf_vars_size else false;
+    const vars_wrong = if (rstdbuild.io.fileSize(b.graph.io, try b.root.joinString(b.allocator, paths.vars))) |size| size != ovmf_vars_size else false;
 
     inline for (.{ "install", "start" }) |cmd| {
         const run = try macosQemu(b, m, kvm, paths, mac, std.mem.eql(u8, cmd, "install"));
@@ -558,6 +558,6 @@ fn ovmfVarsTemplate(b: *Build) ?[]const u8 {
 }
 
 /// Whether `path`, relative to the build root, exists.
-fn exists(b: *Build, path: []const u8) bool {
-    return rstdbuild.io.fileExists(b.graph.io, b.pathFromRoot(path));
+fn exists(b: *Build, path: []const u8) !bool {
+    return rstdbuild.io.fileExists(b.graph.io, try b.root.joinString(b.allocator, path));
 }
