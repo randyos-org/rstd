@@ -17,6 +17,16 @@ next to each routine.
   block, for routines whose upstream kernel is C (`axpy`, `dot`);
   `blas1/c_kernels.md` says how such a kernel is ported.
 
+## Not a drop-in
+
+This is a Zig library, not a replacement `libopenblas`: there are no CBLAS
+(`cblas_*`) or Fortran-named (`dgemv_`) entry points, no row-major mapping
+layer, and no `xerbla` callback. The interfaces are Zig functions
+(`blas1/interface.zig`, `blas2/`) that take the Fortran argument order and
+column-major data; bad arguments return a named error in the order the
+reference's `xerbla` numbers them. Chosen on purpose, so the audit gaps for
+those layers are closed by this decision, not by code.
+
 ## Converted assembly
 
 `tools/blas_asm/gen.zig` turns each upstream `.S` into a naked function.
