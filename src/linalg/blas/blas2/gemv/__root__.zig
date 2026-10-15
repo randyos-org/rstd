@@ -133,6 +133,7 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../../blas1/check.zig");
+const half = @import("half.zig");
 
 /// `kernel/arm/gemv_n.c` and `gemv_t.c`: `y += alpha*A*x` (`n`, `y` of `m`)
 /// or `y += alpha*A^T*x` (`t`, `y` of `n`). The interface has already scaled
@@ -205,8 +206,9 @@ const variants = .{
     .{ "s", false, true, true },   .{ "d", true, true, true },
 };
 
-/// Points every gemv slot but the half-precision ones at the portable kernels.
+/// Points every gemv slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
+    half.installGeneric(vt);
     vt.sgemv_n = &Gemv(f32).n;
     vt.sgemv_t = &Gemv(f32).t;
     vt.dgemv_n = &Gemv(f64).n;
@@ -282,6 +284,11 @@ fn checkAll(vt: *const Vtable) !void {
             try checkGemv(C(p[1]), v[1], v[2], v[3], @field(vt, p[0] ++ "gemv_" ++ v[0]).?);
         }
     }
+}
+
+// the half-precision kernels and their tests
+comptime {
+    _ = half;
 }
 
 test "portable gemv kernels match plain arithmetic" {

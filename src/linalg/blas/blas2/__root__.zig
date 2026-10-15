@@ -1,13 +1,19 @@
 //! BLAS Level 2 (matrix-vector) routines.
 //!
-//! One file per routine, holding the vtable wrappers for that routine.
+//! One directory per kernel-backed routine, holding its vtable wrappers and
+//! portable kernels; `interface.zig`, `triangular.zig` and `banded.zig` are the
+//! checks and drivers in front of them (the OpenBLAS `interface/` and
+//! `driver/level2/` code).
 
 const zigstd = @import("../../../zigstd.zig");
 
+pub const banded = @import("banded.zig");
 pub const gemv = @import("gemv/__root__.zig");
 pub const ger = @import("ger/__root__.zig");
 pub const hemv = @import("hemv/__root__.zig");
+pub const interface = @import("interface.zig");
 pub const symv = @import("symv/__root__.zig");
+pub const triangular = @import("triangular.zig");
 
 const Vtable = @import("../Vtable.zig");
 

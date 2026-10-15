@@ -25,6 +25,7 @@ const generic_vtable: Vtable = blk: {
     @setEvalBranchQuota(100_000);
     var vt: Vtable = .{};
     blas1.installGeneric(&vt);
+    blas2.installGeneric(&vt);
     break :blk vt;
 };
 
