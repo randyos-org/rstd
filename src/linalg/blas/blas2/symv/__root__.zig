@@ -1,4 +1,6 @@
-//! Vtable wrappers for the `symv` kernels.
+//! `SYMV` kernels: `y += alpha*S*x` for a symmetric `S` stored as one
+//! triangle. The vtable wrappers, the portable kernels, and tests of every
+//! core's kernels against plain arithmetic.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -57,4 +59,45 @@ pub fn xsymv_L(m: BlasLong, offset: BlasLong, alpha_r: XDouble, alpha_i: XDouble
 }
 pub fn xsymv_U(m: BlasLong, offset: BlasLong, alpha_r: XDouble, alpha_i: XDouble, a: [*]XDouble, lda: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, buffer: [*]XDouble) i32 {
     return blas.kernel(.xsymv_U)(m, offset, alpha_r, alpha_i, a, lda, x, inc_x, y, inc_y, buffer);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
+const sym = @import("../symmetric.zig");
+
+/// Points every symv slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {
+        @field(vt, p[0] ++ "symv_U") = &sym.Kernel(p[1], false, .symmetric).real;
+        @field(vt, p[0] ++ "symv_L") = &sym.Kernel(p[1], true, .symmetric).real;
+    }
+    inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
+        @field(vt, p[0] ++ "symv_U") = &sym.Kernel(std.math.Complex(p[1]), false, .symmetric).cplx;
+        @field(vt, p[0] ++ "symv_L") = &sym.Kernel(std.math.Complex(p[1]), true, .symmetric).cplx;
+    }
+}
+
+// ---- tests -----------------------------------------------------------------
+
+fn checkAll(vt: *const Vtable) !void {
+    inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", std.math.Complex(f32) }, .{ "z", std.math.Complex(f64) } }) |p| {
+        try sym.checkKernel(p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
+        try sym.checkKernel(p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
+    }
+}
+
+test "portable symv kernels match plain arithmetic" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    inline for (.{ .{ "q", XDouble }, .{ "x", std.math.Complex(XDouble) } }) |p| {
+        try sym.checkKernel(p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
+        try sym.checkKernel(p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
+    }
+}
+
+test "every linked core's symv kernels match plain arithmetic, where this machine runs them" {
+    try @import("../../blas1/check.zig").eachCore(checkAll);
 }
