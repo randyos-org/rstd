@@ -1,8 +1,10 @@
 //! The level-2 interface: the checks, `beta` scaling and pointer set-up
 //! OpenBLAS's `interface/{gemv,zgemv,ger,zger,symv,zsymv,zhemv}.c` do before
 //! calling a kernel. Like `blas1/interface.zig`, each takes the element type
-//! `T` explicitly, with `m`, `n`, `lda` and the strides `isize`; matrices
-//! are column-major.
+//! `T` explicitly, any float type or its `Complex`, with `m`, `n`, `lda` and
+//! the strides `isize`; matrices are column-major. Kernels come from
+//! `portable.kernel`: the core's for a type with vtable slots, else the
+//! portable ones built for `T`.
 //!
 //! A negative stride names the vector's last element first: the interface
 //! moves the pointer to it. The kernels need a scratch `buffer`; the
@@ -23,14 +25,13 @@ const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
+const Op = portable.Op;
 const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
-const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
 
 /// The reference's `xerbla` argument, by name.
 /// Bad arguments, shared by every level-2 interface file; there is no xerbla.
@@ -64,38 +65,17 @@ fn transposed(t: Trans) bool {
     };
 }
 
-fn isComplex(comptime T: type) bool {
-    return check.isComplex(T);
-}
-
-const Float = check.FloatOf;
-
-/// The reference's precision letter for `T` (`f64` before `XDouble`, which
-/// may be the same type).
-fn letter(comptime T: type) []const u8 {
-    if (T == f32 or T == Complex32) return if (T == f32) "s" else "c";
-    if (T == f64 or T == Complex64) return if (T == f64) "d" else "z";
-    if (T == XDouble or T == ComplexXD) return if (T == XDouble) "q" else "x";
-    @compileError("not a BLAS element type: " ++ @typeName(T));
-}
-
-/// The kernel in the slot named `letter(T) ++ name`.
-fn slot(comptime T: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, letter(T) ++ name)).optional.child {
-    return blas.kernel(@field(blas.Slot, letter(T) ++ name));
-}
+const isComplex = types.isComplex;
+const Float = types.Float;
 
 fn raw(comptime T: type, p: [*]T) [*]Float(T) {
     return @ptrCast(p);
 }
 
-fn long(v: isize) BlasLong {
-    return @intCast(v);
-}
-
 /// Where a vector of `n` with stride `inc` starts: its last element when
 /// `inc < 0`.
 fn first(comptime T: type, p: [*]T, n: isize, inc: isize) [*]T {
-    return if (inc < 0) @ptrCast(util.at(T, p, -(long(n) - 1) * inc)) else p;
+    return if (inc < 0) @ptrCast(util.at(T, p, -(n - 1) * inc)) else p;
 }
 
 fn isOne(comptime T: type, v: T) bool {
@@ -113,9 +93,9 @@ fn scaleY(comptime T: type, n: isize, beta: T, y: [*]T, incy: isize) void {
     const py = raw(T, y);
     const inc: BlasLong = @intCast(@abs(incy));
     if (comptime isComplex(T)) {
-        _ = slot(T, "scal_k")(long(n), 0, 0, beta.re, beta.im, py, inc, py, 0, py, 0);
+        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, beta.re, beta.im, py, inc, py, 0, py, 0);
     } else {
-        _ = slot(T, "scal_k")(long(n), 0, 0, beta, py, inc, py, 0, py, 0);
+        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, beta, py, inc, py, 0, py, 0);
     }
 }
 
@@ -178,6 +158,9 @@ pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: isize, n: i
     const tr = transposed(trans);
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
+    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
     if (!isOne(T, beta)) scaleY(T, leny, beta, y, incy);
     if (isZero(T, alpha)) return;
     switch (trans) {
@@ -193,7 +176,7 @@ fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: isize, 
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (comptime !complex and @backingInt(t) > @backingInt(Trans.c)) return;
-    const name = comptime "gemv_" ++ if (complex) @tagName(t) else if (transposed(t)) "t" else "n";
+    const op = @field(Op, "gemv_" ++ if (complex) @tagName(t) else if (transposed(t)) "t" else "n");
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
     const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, if (complex) 2 else 1, @intCast(m), @intCast(n)));
     defer sc.deinit(allocator);
@@ -203,9 +186,9 @@ fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: isize, 
     if (comptime complex and t != .n and sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
-        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
     } else {
-        _ = slot(T, name)(long(m), long(n), 0, alpha, a, long(lda), x, incx, y, incy, sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, a, lda, x, incx, y, incy, sc.ptr);
     }
 }
 
@@ -247,6 +230,9 @@ pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha
     const tr = transposed(trans);
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
+    if (!util.fitsMatrix(m, n, lda, @sizeOf(In))) return error.InvalidLda;
+    if (!util.fits(lenx, incx, @sizeOf(In))) return error.InvalidIncx;
+    if (!util.fits(leny, incy, @sizeOf(Out))) return error.InvalidIncy;
     // `SBF16TOS_K` of the scalars, for bfloat16
     const alpha_f = halfToF32(Out, alpha);
     const beta_f = halfToF32(Out, beta);
@@ -254,9 +240,9 @@ pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha
         if (beta_f != 1) {
             const inc: BlasLong = @intCast(@abs(incy));
             if (comptime kind == .bgemv) {
-                _ = blas.kernel(.bscal_k)(long(leny), 0, 0, beta, y, inc, y, 0, y, 0);
+                _ = blas.kernel(.bscal_k)(leny, 0, 0, beta, y, inc, y, 0, y, 0);
             } else {
-                _ = blas.kernel(.sscal_k)(long(leny), 0, 0, beta, y, inc, y, 0, y, 0);
+                _ = blas.kernel(.sscal_k)(leny, 0, 0, beta, y, inc, y, 0, y, 0);
             }
         }
         return;
@@ -265,9 +251,9 @@ pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha
     const py = first(Out, y, leny, incy);
     const name = @tagName(kind);
     _ = if (tr)
-        blas.kernel(@field(blas.Slot, name ++ "_t"))(long(m), long(n), alpha, a, long(lda), px, incx, beta, py, incy)
+        blas.kernel(@field(blas.Slot, name ++ "_t"))(m, n, alpha, a, lda, px, incx, beta, py, incy)
     else
-        blas.kernel(@field(blas.Slot, name ++ "_n"))(long(m), long(n), alpha, a, long(lda), px, incx, beta, py, incy);
+        blas.kernel(@field(blas.Slot, name ++ "_n"))(m, n, alpha, a, lda, px, incx, beta, py, incy);
 }
 
 /// A `gemvHalf` scalar as `f32`.
@@ -297,8 +283,11 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize
     if (incy == 0) return error.InvalidIncy;
     if (lda < @max(1, m)) return error.InvalidLda;
     if (m == 0 or n == 0) return;
+    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(m, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     if (isZero(T, alpha)) return;
-    const name = comptime if (complex) (if (conj) "gerc_k" else "geru_k") else "ger_k";
+    const op: Op = comptime if (complex) (if (conj) .gerc_k else .geru_k) else .ger_k;
     const px = first(T, x, m, incx);
     const py = first(T, y, n, incy);
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
@@ -309,9 +298,9 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize
     defer sc.deinit(allocator);
     // the reference threads big problems here (`ger_thread`)
     if (comptime complex) {
-        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), long(lda), sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), lda, sc.ptr);
     } else {
-        _ = slot(T, name)(long(m), long(n), 0, alpha, px, incx, py, incy, a, long(lda), sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, px, incx, py, incy, a, lda, sc.ptr);
     }
 }
 
@@ -337,6 +326,9 @@ fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: U
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
     if (n == 0) return;
+    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     if (!isOne(T, beta)) scaleY(T, n, beta, y, incy);
     if (isZero(T, alpha)) return;
     const px = first(T, x, n, incx);
@@ -355,28 +347,33 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: i
     const F = Float(T);
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
-    if (comptime !@hasField(Vtable, letter(T) ++ name)) unreachable;
-    // what the core's kernel needs, whichever it is (`buffers.md`)
-    const cs = if (complex) 2 else 1;
-    const un: usize = @intCast(n);
-    const bytes = @max(sym.composeBytes(F, cs, un, incx == 1, incy == 1), sym.sseBytes(F, cs, un));
+    if (comptime !@hasField(Op, name)) unreachable;
+    const op = @field(Op, name);
     // the portable kernel on a core without its own gemv runs plain loops,
-    // which need no buffer (`symmetric.Auto`)
-    const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
-    const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
-    const auto = sym.Auto(letter(T), T, lower, kind);
-    const direct = @field(blas.table().*, letter(T) ++ name) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
+    // which need no buffer (`symmetric.Auto`), as does any type without slots
+    const direct = if (comptime portable.slot(T, op)) |s| blk: {
+        const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
+        const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
+        const auto = sym.Auto(portable.letter(T).?, T, lower, kind);
+        break :blk @field(blas.table().*, s) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
+    } else true;
     var none: [1]F = undefined;
-    const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else try Scratch(F).heapOnly(allocator, (bytes + @sizeOf(F) - 1) / @sizeOf(F));
+    const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else blk: {
+        // what the core's kernel needs, whichever it is (`buffers.md`)
+        const cs = if (complex) 2 else 1;
+        const un: usize = @intCast(n);
+        const bytes = @max(sym.composeBytes(F, cs, un, incx == 1, incy == 1), sym.sseBytes(F, cs, un));
+        break :blk try Scratch(F).heapOnly(allocator, (bytes + @sizeOf(F) - 1) / @sizeOf(F));
+    };
     defer sc.deinit(allocator);
     // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
     // and NaN there reaches `y`
     if (sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`symv_thread_*`)
     if (comptime complex) {
-        _ = slot(T, name)(long(n), long(n), alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(n, n, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
     } else {
-        _ = slot(T, name)(long(n), long(n), alpha, a, long(lda), x, incx, y, incy, sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(n, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
     }
 }
 
@@ -791,6 +788,188 @@ test "interface: half-precision gemv reports the first bad argument and ignores 
         try gemvHalf(kind, .n, 0, 2, one, &a, 1, &x, 1, halfIn(Out, 0), &y, 1);
         try gemvHalf(kind, .n, 2, 0, one, &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
         try testing.expectEqual(@as(f64, 5), halfVal(Out, y[0]));
+    }
+}
+
+// ---- any float type --------------------------------------------------------
+
+/// `op(A)` element `(r, q)` of the column-major `a`, widened: `A`'s `(q, r)`
+/// for `tr`, conjugated for `cj`.
+fn opAt(comptime T: type, a: []const T, lda: usize, tr: bool, cj: bool, r: usize, q: usize) check.Wide(T) {
+    const e = check.wide(T, if (tr) a[q + r * lda] else a[r + q * lda]);
+    return if (cj) check.conjW(e) else e;
+}
+
+/// `y := alpha*M*x + beta*y` against `got`, `M` given by `ctx.at(r, q)`; `x`
+/// at stride 2, `y` and `got` at stride -1.
+fn expectMv(comptime T: type, rows: usize, cols: usize, ctx: anytype, alpha: T, x: []const T, beta: T, y: []const T, got: []const T) !void {
+    const wa = check.wide(T, alpha);
+    const wb = check.wide(T, beta);
+    for (0..rows) |r| {
+        var acc = check.wide(T, zeroT(T));
+        var mag: f128 = 0;
+        for (0..cols) |q| {
+            const e = ctx.at(r, q);
+            const xv = check.wide(T, x[2 * q]);
+            acc = check.addW(acc, check.mulW(e, xv));
+            mag += check.abs1(e) * check.abs1(xv);
+        }
+        const yv = check.wide(T, y[rows - 1 - r]);
+        const want = check.addW(check.mulW(wa, acc), check.mulW(wb, yv));
+        try check.expectNear(T, want, got[rows - 1 - r], @floatFromInt(2 * (cols + 2)), check.abs1(wa) * mag + check.abs1(wb) * check.abs1(yv));
+    }
+}
+
+/// Level 2 over `T`, which has no vtable slots, against an `f128` reference:
+/// `gemv`, `ger`, `symv`, `hemv`, `trmv`, `trsv` and `gbmv`.
+fn anyFloat(comptime T: type) !void {
+    const W = check.Wide(T);
+    const tri = @import("triangular.zig");
+    const band = @import("banded.zig");
+    const al = testing.allocator;
+    const complex = comptime isComplex(T);
+    const m = 7;
+    const n = 5;
+    const lda = m + 1;
+    var a: [lda * n]T = undefined;
+    var x: [2 * m]T = undefined;
+    var y: [m]T = undefined;
+    check.fill(T, &a, 21);
+    check.fill(T, &x, 22);
+    check.fill(T, &y, 23);
+    const alpha = val(T, 1.25, -0.5);
+    const beta = val(T, -0.75, 0.25);
+
+    const OpCtx = struct {
+        a: []const T,
+        tr: bool,
+        cj: bool,
+        fn at(c: @This(), r: usize, q: usize) W {
+            return opAt(T, c.a, lda, c.tr, c.cj, r, q);
+        }
+    };
+    const transes = if (complex) [_]Trans{ .n, .t, .c } else [_]Trans{ .n, .t };
+    for (transes) |t| {
+        const tr = transposed(t);
+        var got = y;
+        try gemv(al, T, t, m, n, alpha, &a, lda, &x, 2, beta, &got, -1);
+        const ctx: OpCtx = .{ .a = &a, .tr = tr, .cj = t == .c };
+        try expectMv(T, if (tr) n else m, if (tr) m else n, ctx, alpha, &x, beta, &y, &got);
+    }
+
+    const wa = check.wide(T, alpha);
+    for ([_]bool{ false, true }) |conj| {
+        if (conj and !complex) continue;
+        var got = a;
+        if (!conj) {
+            try ger(al, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
+        } else if (comptime complex) {
+            try gerc(al, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
+        }
+        for (0..n) |j| for (0..m) |i| {
+            const xv = check.wide(T, x[2 * i]);
+            const yv = check.wide(T, y[n - 1 - j]);
+            const e = check.wide(T, a[i + j * lda]);
+            const want = check.addW(e, check.mulW(wa, check.mulW(xv, if (conj) check.conjW(yv) else yv)));
+            const mag = check.abs1(wa) * check.abs1(xv) * check.abs1(yv) + check.abs1(e);
+            try check.expectNear(T, want, got[i + j * lda], 8, mag);
+        };
+    }
+
+    // `symv` and `hemv` on the leading `n` by `n` block
+    const SymCtx = struct {
+        a: []const T,
+        kind: sym.Kind,
+        upper: bool,
+        fn at(c: @This(), r: usize, q: usize) W {
+            return check.wide(T, symAt(T, c.kind, c.upper, c.a, lda, r, q));
+        }
+    };
+    for ([_]bool{ false, true }) |herm| {
+        if (herm and !complex) continue;
+        for ([_]Uplo{ .u, .l }) |uplo| {
+            var got = y;
+            if (!herm) {
+                try symv(al, T, uplo, n, alpha, &a, lda, &x, 2, beta, &got, -1);
+            } else if (comptime complex) {
+                try hemv(al, T, uplo, n, alpha, &a, lda, &x, 2, beta, &got, -1);
+            }
+            const ctx: SymCtx = .{ .a = &a, .kind = if (herm) .hermitian else .symmetric, .upper = uplo == .u };
+            try expectMv(T, n, n, ctx, alpha, &x, beta, &y, &got);
+        }
+    }
+
+    // `trmv`, and `trsv` on a matrix kept well away from singular
+    var d = a;
+    for (0..n) |i| d[i + i * lda] = addT(T, d[i + i * lda], val(T, 4, 0));
+    const TriCtx = struct {
+        a: []const T,
+        upper: bool,
+        tr: bool,
+        cj: bool,
+        fn at(c: @This(), r: usize, q: usize) W {
+            // `A(i, j)`, zero outside its triangle
+            const i = if (c.tr) q else r;
+            const j = if (c.tr) r else q;
+            if (if (c.upper) i > j else i < j) return check.wide(T, zeroT(T));
+            return opAt(T, c.a, lda, c.tr, c.cj, r, q);
+        }
+    };
+    for ([_]tri.Uplo{ .upper, .lower }) |uplo| for ([_]tri.Trans{ .n, .t, .c }) |t| {
+        const ctx: TriCtx = .{ .a = &d, .upper = uplo == .upper, .tr = t != .n, .cj = t == .c and complex };
+        var got = x;
+        try tri.trmv(T, al, uplo, t, .non_unit, n, &d, lda, &got, 2);
+        // `op(A) x` is `expectMv` with `alpha` 1 and `beta` 0, read back at
+        // stride -1
+        var rev: [n]T = undefined;
+        for (0..n) |i| rev[n - 1 - i] = got[2 * i];
+        try expectMv(T, n, n, ctx, val(T, 1, 0), &x, zeroT(T), &rev, &rev);
+        got = x;
+        try tri.trsv(T, al, uplo, t, .non_unit, n, &d, lda, &got, 2);
+        // the residual of `op(A) z = x`, relative to `|op(A)| |z|`
+        for (0..n) |r| {
+            var acc = check.wide(T, zeroT(T));
+            var mag: f128 = 0;
+            for (0..n) |q| {
+                const z = check.wide(T, got[2 * q]);
+                acc = check.addW(acc, check.mulW(ctx.at(r, q), z));
+                mag += check.abs1(ctx.at(r, q)) * check.abs1(z);
+            }
+            try check.expectNear(T, acc, x[2 * r], @floatFromInt(4 * (n + 2)), mag);
+        }
+    };
+
+    // `gbmv`, one sub- and two superdiagonals in band storage
+    const kl = 1;
+    const ku = 2;
+    const ldb = kl + ku + 1;
+    var ab: [ldb * n]T = undefined;
+    check.fill(T, &ab, 24);
+    const BandCtx = struct {
+        ab: []const T,
+        tr: bool,
+        fn at(c: @This(), r: usize, q: usize) W {
+            const i = if (c.tr) q else r;
+            const j = if (c.tr) r else q;
+            if (i + ku < j or i > j + kl) return check.wide(T, zeroT(T));
+            return check.wide(T, c.ab[ku + i - j + j * ldb]);
+        }
+    };
+    for ([_]band.Trans{ .n, .t }) |t| {
+        const tr = t == .t;
+        var got = y;
+        try band.gbmv(T, al, t, m, n, kl, ku, alpha, &ab, ldb, &x, 2, beta, &got, -1);
+        const ctx: BandCtx = .{ .ab = &ab, .tr = tr };
+        try expectMv(T, if (tr) n else m, if (tr) m else n, ctx, alpha, &x, beta, &y, &got);
+    }
+}
+
+test "interface: level 2 at any float type runs the portable kernels built for it" {
+    inline for (check.any_floats) |F| {
+        inline for (.{ F, std.math.Complex(F) }) |T| anyFloat(T) catch |e| {
+            check.say("{s}\n", .{@typeName(T)});
+            return e;
+        };
     }
 }
 

@@ -10,9 +10,9 @@ const std = @import("std");
 
 const SrcInfo = std.builtin.SourceLocation;
 
-/// Kernel-level index/stride type: `long`, so pointer-sized where the pointer
-/// is 64 bits (LP64 and Win64's `long long`) and 32 bits on 32-bit targets.
-pub const BlasLong = if (@bitSizeOf(usize) >= 64) i64 else i32;
+/// Kernel-level index/stride type: `long`, pointer-sized (LP64, and Win64's
+/// `long long`), the same as the interface's `isize`.
+pub const BlasLong = isize;
 
 /// Whether extended-precision routines use `f80` rather than `f64`.
 /// `EXPRECISION` in the reference; off by default, where `XDouble` is just
@@ -53,6 +53,33 @@ pub const Complex32 = std.math.Complex(f32);
 pub const Complex64 = std.math.Complex(f64);
 pub const ComplexXD = std.math.Complex(XDouble);
 
+/// True for `std.math.Complex` of any float type.
+pub fn isComplex(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasField(T, "re") and T == std.math.Complex(@FieldType(T, "re"));
+}
+
+/// The float type of `T`'s parts: `T` itself for a real type.
+pub fn Float(comptime T: type) type {
+    return if (isComplex(T)) @FieldType(T, "re") else T;
+}
+
+/// Whether the vtable has slots over `F` (`f32`, `f64`, `XDouble`).
+pub fn hasSlots(comptime F: type) bool {
+    return F == f32 or F == f64 or F == XDouble;
+}
+
+/// Calling convention of the portable kernels over `F`: C for the vtable's
+/// types, Zig's own for the rest, which only Zig calls.
+pub fn kernelCc(comptime F: type) std.builtin.CallingConvention {
+    return if (hasSlots(F)) .c else .auto;
+}
+
+/// The type the portable kernels accumulate `F` in: `f32` below it, so a
+/// long sum of `f16` neither stalls nor overflows; `F` itself otherwise.
+pub fn Acc(comptime F: type) type {
+    return if (@bitSizeOf(F) < 32) f32 else F;
+}
+
 /// C-ABI complex values, for kernel signatures that return one (the `dotu`/
 /// `dotc` kernels): `std.math.Complex` has automatic layout, which a
 /// `callconv(.c)` return type cannot have.
@@ -66,6 +93,12 @@ pub fn CComplex(comptime F: type) type {
         }
     };
 }
+
+/// A `CComplex` or `std.math.Complex` value as the latter.
+pub fn complexOf(v: anytype) std.math.Complex(@TypeOf(v.re)) {
+    return .init(v.re, v.im);
+}
+
 pub const CComplex32 = CComplex(f32);
 pub const CComplex64 = CComplex(f64);
 pub const CComplexXD = CComplex(XDouble);

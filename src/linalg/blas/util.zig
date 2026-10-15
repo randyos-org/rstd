@@ -1,3 +1,5 @@
+const std = @import("std");
+
 /// Equivalent of C's `base[offset]` where `offset` may be negative -- BLAS
 /// routines allow negative `inc_x`/`inc_y` (iterate a vector in reverse),
 /// which does not map onto Zig's `usize`-indexed pointer/slice arithmetic
@@ -34,4 +36,24 @@ pub inline fn load(comptime V: type, p: [*]const @typeInfo(V).vector.child) V {
 /// Stores `v` to `p`, unaligned; see `load`.
 pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) void {
     @as(*align(1) V, @ptrCast(p)).* = v;
+}
+
+/// Whether a vector of `n` elements of `size` bytes at stride `inc` fits in
+/// the address space: `((n - 1) * |inc| + 1) * size` bytes, with no overflow.
+/// Where it does not, no such vector can exist; the interfaces refuse it so
+/// no index computation overflows.
+pub fn fits(n: isize, inc: isize, size: usize) bool {
+    if (inc == std.math.minInt(isize)) return false;
+    if (n <= 1) return true;
+    return fitsMatrix(1, n, @intCast(@abs(inc)), size);
+}
+
+/// Whether a column-major `rows` by `cols` matrix with leading dimension `ld`
+/// fits, as `fits` does for a vector: `(cols - 1) * ld + rows` elements.
+pub fn fitsMatrix(rows: isize, cols: isize, ld: isize, size: usize) bool {
+    if (rows <= 0 or cols <= 0) return true;
+    const span = std.math.mul(isize, cols - 1, ld) catch return false;
+    const elems = std.math.add(isize, span, rows) catch return false;
+    _ = std.math.mul(isize, elems, std.math.cast(isize, size) orelse return false) catch return false;
+    return true;
 }

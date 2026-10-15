@@ -73,21 +73,24 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../../blas1/check.zig");
 const guard = @import("../guard.zig");
+const portable = @import("../../portable.zig");
 
 /// `kernel/generic/ger.c` and `zger.c`: the rank-1 update `A += alpha*x*y^T`,
 /// `A` column-major `m` by `n`, as a copy of `x` where its stride is not 1
 /// (into `buffer`, `m` elements) and one axpy of the core per column. `y` is
 /// conjugated for `conj` (`gerc`, `gerd`), and `x` for `xconj` (`gerv`, `gerd`),
-/// which takes `axpyc`. `pre` is the precision letter, whose kernels it calls.
-fn Ger(comptime pre: []const u8, comptime F: type, comptime complex: bool, comptime conj: bool, comptime xconj: bool) type {
+/// which takes `axpyc`. `T` is the element type, whose kernels it calls.
+fn Ger(comptime T: type, comptime conj: bool, comptime xconj: bool) type {
+    const F = types.Float(T);
+    const complex = comptime types.isComplex(T);
     const cs: BlasLong = if (complex) 2 else 1;
     return struct {
         fn run(m: BlasLong, n: BlasLong, alpha_r: F, alpha_i: F, x: [*]F, inc_x: BlasLong, y0: [*]F, inc_y: BlasLong, a0: [*]F, lda: BlasLong, buffer: [*]F) void {
-            const axpy = blas.kernel(@field(blas.Slot, pre ++ "axpy" ++ (if (xconj) "c" else "") ++ "_k"));
+            const axpy = portable.fetch(T, if (xconj) .axpyc_k else .axpy_k, blas.vtable);
             var xs = x;
             if (inc_x != 1) {
                 xs = buffer;
-                _ = blas.kernel(@field(blas.Slot, pre ++ "copy_k"))(m, x, inc_x, xs, 1);
+                _ = portable.fetch(T, .copy_k, blas.vtable)(m, x, inc_x, xs, 1);
             }
             var a = a0;
             var y = y0;
@@ -109,15 +112,27 @@ fn Ger(comptime pre: []const u8, comptime F: type, comptime complex: bool, compt
                 y = @ptrCast(util.at(F, y, cs * inc_y));
             }
         }
-        fn real(m: BlasLong, n: BlasLong, _: BlasLong, alpha: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, a: [*]F, lda: BlasLong, buffer: [*]F) callconv(.c) i32 {
+        fn real(m: BlasLong, n: BlasLong, _: BlasLong, alpha: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, a: [*]F, lda: BlasLong, buffer: [*]F) callconv(types.kernelCc(F)) i32 {
             run(m, n, alpha, 0, x, inc_x, y, inc_y, a, lda, buffer);
             return 0;
         }
-        fn cplx(m: BlasLong, n: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, a: [*]F, lda: BlasLong, buffer: [*]F) callconv(.c) i32 {
+        fn cplx(m: BlasLong, n: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, a: [*]F, lda: BlasLong, buffer: [*]F) callconv(types.kernelCc(F)) i32 {
             run(m, n, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
             return 0;
         }
         const k = if (complex) cplx else real;
+    };
+}
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    return struct {
+        pub const ger_k = &Ger(T, false, false).k;
+        pub const geru_k = &Ger(T, false, false).k;
+        pub const gerc_k = &Ger(T, true, false).k;
+        pub const gerv_k = &Ger(T, false, true).k;
+        pub const gerd_k = &Ger(T, true, true).k;
     };
 }
 
@@ -127,10 +142,10 @@ const variants = .{ .{ "u", false, false }, .{ "c", true, false }, .{ "v", false
 /// Points every ger slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {
-        @field(vt, p[0] ++ "ger_k") = &Ger(p[0], p[1], false, false, false).k;
+        @field(vt, p[0] ++ "ger_k") = &Ger(p[1], false, false).k;
     }
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        inline for (variants) |v| @field(vt, p[0] ++ "ger" ++ v[0] ++ "_k") = &Ger(p[0], p[1], true, v[1], v[2]).k;
+        inline for (variants) |v| @field(vt, p[0] ++ "ger" ++ v[0] ++ "_k") = &Ger(std.math.Complex(p[1]), v[1], v[2]).k;
     }
 }
 

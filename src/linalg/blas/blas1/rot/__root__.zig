@@ -51,7 +51,7 @@ const check = @import("../check.zig");
 /// and `zdrot` take a real `c` and `s`).
 fn Rot(comptime F: type, comptime w: comptime_int) type {
     return struct {
-        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, c: F, s: F) callconv(.c) i32 {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, c: F, s: F) callconv(types.kernelCc(F)) i32 {
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 inline for (0..w) |j| {
@@ -73,6 +73,16 @@ pub const qrot_generic = &Rot(XDouble, 1).k;
 pub const csrot_generic = &Rot(f32, 2).k;
 pub const zdrot_generic = &Rot(f64, 2).k;
 pub const xqrot_generic = &Rot(XDouble, 2).k;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    const w = if (types.isComplex(T)) 2 else 1;
+    return struct {
+        pub const rot_k = &Rot(F, w).k;
+    };
+}
 
 /// Points every rot slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {

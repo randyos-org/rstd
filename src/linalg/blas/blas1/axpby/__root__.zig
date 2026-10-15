@@ -41,7 +41,7 @@ const check = @import("../check.zig");
 /// alpha does not read `x`, and a zero beta does not read `y`.
 fn Axpby(comptime F: type) type {
     return struct {
-        fn real(n: BlasLong, alpha: F, x: [*]F, inc_x: BlasLong, beta: F, y: [*]F, inc_y: BlasLong) callconv(.c) i32 {
+        fn real(n: BlasLong, alpha: F, x: [*]F, inc_x: BlasLong, beta: F, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) i32 {
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 const py = util.at(F, y, i * inc_y);
@@ -50,7 +50,7 @@ fn Axpby(comptime F: type) type {
             }
             return 0;
         }
-        fn complex(n: BlasLong, alpha_r: F, alpha_i: F, x: [*]F, inc_x: BlasLong, beta_r: F, beta_i: F, y: [*]F, inc_y: BlasLong) callconv(.c) i32 {
+        fn complex(n: BlasLong, alpha_r: F, alpha_i: F, x: [*]F, inc_x: BlasLong, beta_r: F, beta_i: F, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) i32 {
             const no_alpha = alpha_r == 0 and alpha_i == 0;
             const no_beta = beta_r == 0 and beta_i == 0;
             var i: BlasLong = 0;
@@ -82,6 +82,15 @@ pub const saxpby_generic = &Axpby(f32).real;
 pub const daxpby_generic = &Axpby(f64).real;
 pub const caxpby_generic = &Axpby(f32).complex;
 pub const zaxpby_generic = &Axpby(f64).complex;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    return struct {
+        pub const axpby_k = if (types.isComplex(T)) &Axpby(F).complex else &Axpby(F).real;
+    };
+}
 
 /// Points every axpby slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {

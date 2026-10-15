@@ -71,7 +71,7 @@ const check = @import("../check.zig");
 /// Not bit-identical to `generic/dot.c`'s unrolled sums; see the readme.
 fn Dot(comptime F: type, comptime Acc: type, comptime R: type) type {
     return struct {
-        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(.c) R {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
             var sum: Acc = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) sum += @as(Acc, util.at(F, x, i * inc_x).*) * @as(Acc, util.at(F, y, i * inc_y).*);
@@ -80,18 +80,21 @@ fn Dot(comptime F: type, comptime Acc: type, comptime R: type) type {
     };
 }
 
-/// `kernel/arm/zdot.c`: `x . y`, or `conj(x) . y` (`dotc`), summed in `F`.
+/// `kernel/arm/zdot.c`: `x . y`, or `conj(x) . y` (`dotc`), summed in
+/// `types.Acc(F)`. Returned as `CComplex` over a vtable type, else `Complex`.
 fn Zdot(comptime F: type, comptime conj: bool) type {
+    const A = types.Acc(F);
+    const R = if (types.hasSlots(F)) types.CComplex(F) else std.math.Complex(F);
     return struct {
-        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(.c) types.CComplex(F) {
-            var re: F = 0;
-            var im: F = 0;
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
+            var re: A = 0;
+            var im: A = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
-                const xr = util.at(F, x, i * inc_x * 2).*;
-                const xi = util.at(F, x, i * inc_x * 2 + 1).*;
-                const yr = util.at(F, y, i * inc_y * 2).*;
-                const yi = util.at(F, y, i * inc_y * 2 + 1).*;
+                const xr: A = util.at(F, x, i * inc_x * 2).*;
+                const xi: A = util.at(F, x, i * inc_x * 2 + 1).*;
+                const yr: A = util.at(F, y, i * inc_y * 2).*;
+                const yi: A = util.at(F, y, i * inc_y * 2 + 1).*;
                 if (conj) {
                     re += xr * yr + xi * yi;
                     im -= xi * yr - xr * yi;
@@ -100,7 +103,7 @@ fn Zdot(comptime F: type, comptime conj: bool) type {
                     im += xi * yr + xr * yi;
                 }
             }
-            return .{ .re = re, .im = im };
+            return .{ .re = @floatCast(re), .im = @floatCast(im) };
         }
     };
 }
@@ -115,6 +118,17 @@ pub const zdotu_generic = &Zdot(f64, false).k;
 pub const zdotc_generic = &Zdot(f64, true).k;
 pub const xdotu_generic = &Zdot(XDouble, false).k;
 pub const xdotc_generic = &Zdot(XDouble, true).k;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    return struct {
+        pub const dot_k = &Dot(F, types.Acc(F), F).k;
+        pub const dotu_k = &Zdot(F, false).k;
+        pub const dotc_k = &Zdot(F, true).k;
+    };
+}
 
 /// Points every dot slot at the portable kernels, except `sbdot` and
 /// `dsbdot`: `sbdot` is `ext/bf16`'s, and `dsbdot` aliases `dsdot` there

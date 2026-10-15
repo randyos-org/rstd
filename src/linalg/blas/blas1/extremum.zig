@@ -46,15 +46,36 @@ pub fn Extremum(comptime F: type, comptime w: comptime_int, comptime find: Find)
             return .{ best, best_key };
         }
 
-        pub fn value(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(.c) F {
+        pub fn value(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x <= 0) return 0;
             return scan(n, x, inc_x)[1];
         }
 
-        pub fn index(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(.c) BlasLong {
+        pub fn index(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) BlasLong {
             if (n <= 0 or inc_x <= 0) return 0;
             return scan(n, x, inc_x)[0] + 1;
         }
+    };
+}
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`); `max` and `min` are real only.
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    const w = if (types.isComplex(T)) 2 else 1;
+    const amax: Find = .{ .abs = true, .max = true };
+    const amin: Find = .{ .abs = true, .max = false };
+    const max: Find = .{ .abs = false, .max = true };
+    const min: Find = .{ .abs = false, .max = false };
+    return struct {
+        pub const amax_k = &Extremum(F, w, amax).value;
+        pub const amin_k = &Extremum(F, w, amin).value;
+        pub const max_k = &Extremum(F, w, max).value;
+        pub const min_k = &Extremum(F, w, min).value;
+        pub const iamax_k = &Extremum(F, w, amax).index;
+        pub const iamin_k = &Extremum(F, w, amin).index;
+        pub const imax_k = &Extremum(F, w, max).index;
+        pub const imin_k = &Extremum(F, w, min).index;
     };
 }
 

@@ -1,11 +1,11 @@
 //! The triangular level-2 routines: `?TRMV`/`?TRSV` (full storage), `?TBMV`/
-//! `?TBSV` (band) and `?TPMV`/`?TPSV` (packed), for `f32`, `f64`, `XDouble`
-//! and their complex types. The interface checks and set-up of
+//! `?TBSV` (band) and `?TPMV`/`?TPSV` (packed), for any float type and its
+//! `Complex`. The interface checks and set-up of
 //! `interface/{trmv,trsv,tbmv,tbsv,tpmv,tpsv}.c` and the `z` variants, over
 //! `driver/level2/{,z}{trmv,trsv,tbmv,tbsv,tpmv,tpsv}_{U,L}.c`.
 //!
-//! The drivers are loops over the vtable's `copy`, `axpy`, `dot` and `gemv`
-//! kernels, one generic body per routine for every type and variant. As in
+//! The drivers are loops over the `copy`, `axpy`, `dot` and `gemv` kernels
+//! (`portable.kernel`), one generic body per routine for every type and variant. As in
 //! the reference, the `_U` driver also does the transposed lower matrix and
 //! the `_L` driver the transposed upper one, so a call picks its driver by
 //! `(uplo == upper) != transposed`. The threaded drivers
@@ -27,15 +27,14 @@ const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
+const portable = @import("../portable.zig");
 const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const interface = @import("interface.zig");
 const BlasLong = types.BlasLong;
-const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
 
 pub const ArgError = interface.ArgError;
 
@@ -105,21 +104,8 @@ pub const Diag = enum {
 
 // ---- element helpers -------------------------------------------------------
 
-fn isComplex(comptime T: type) bool {
-    return T == Complex32 or T == Complex64 or T == ComplexXD;
-}
-
-fn Float(comptime T: type) type {
-    return if (isComplex(T)) @FieldType(T, "re") else T;
-}
-
-/// The reference's precision letter for `T`.
-fn letter(comptime T: type) []const u8 {
-    if (T == f32 or T == Complex32) return if (T == f32) "s" else "c";
-    if (T == f64 or T == Complex64) return if (T == f64) "d" else "z";
-    if (T == XDouble or T == ComplexXD) return if (T == XDouble) "q" else "x";
-    @compileError("not a BLAS element type: " ++ @typeName(T));
-}
+const isComplex = types.isComplex;
+const Float = types.Float;
 
 fn raw(comptime T: type, p: [*]T) [*]Float(T) {
     return @ptrCast(p);
@@ -185,10 +171,9 @@ fn Num(comptime T: type) type {
 
 // ---- kernels ---------------------------------------------------------------
 
-/// The vtable's kernels for `T`, on unit-stride vectors.
+/// The kernels for `T` (`portable.kernel`), on unit-stride vectors.
 fn Ops(comptime T: type) type {
     const F = Float(T);
-    const l = letter(T);
     return struct {
         const Self = @This();
 
@@ -196,31 +181,31 @@ fn Ops(comptime T: type) type {
         dtb: BlasLong,
 
         fn copy(s: Self, n: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) void {
-            _ = @field(s.vt, l ++ "copy_k").?(n, raw(T, x), incx, raw(T, y), incy);
+            _ = portable.kernel(T, s.vt, .copy_k)(n, raw(T, x), incx, raw(T, y), incy);
         }
 
         /// `y += alpha*x`, `x` conjugated for `cj`.
         fn axpy(s: Self, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
             if (comptime isComplex(T)) {
-                const k = @field(s.vt, l ++ (if (cj) "axpyc_k" else "axpy_k")).?;
+                const k = portable.kernel(T, s.vt, if (cj) .axpyc_k else .axpy_k);
                 _ = k(n, 0, 0, alpha.re, alpha.im, raw(T, x), 1, raw(T, y), 1, raw(T, y), 0);
             } else {
-                _ = @field(s.vt, l ++ "axpy_k").?(n, 0, 0, alpha, x, 1, y, 1, y, 0);
+                _ = portable.kernel(T, s.vt, .axpy_k)(n, 0, 0, alpha, x, 1, y, 1, y, 0);
             }
         }
 
         /// `x . y`, `x` conjugated for `cj`.
         fn dot(s: Self, comptime cj: bool, n: BlasLong, x: [*]T, y: [*]T) T {
             if (comptime isComplex(T)) {
-                const k = @field(s.vt, l ++ (if (cj) "dotc_k" else "dotu_k")).?;
-                return k(n, raw(T, x), 1, raw(T, y), 1).toComplex();
+                const k = portable.kernel(T, s.vt, if (cj) .dotc_k else .dotu_k);
+                return types.complexOf(k(n, raw(T, x), 1, raw(T, y), 1));
             }
-            return @field(s.vt, l ++ "dot_k").?(n, x, 1, y, 1);
+            return portable.kernel(T, s.vt, .dot_k)(n, x, 1, y, 1);
         }
 
         /// `y += alpha*op(A)*x`, `A` of `m` by `n`.
         fn gemv(s: Self, comptime op: Trans, m: BlasLong, n: BlasLong, alpha: F, a: [*]T, lda: BlasLong, x: [*]T, y: [*]T, buf: [*]F) void {
-            const k = @field(s.vt, l ++ "gemv_" ++ @tagName(op)).?;
+            const k = portable.kernel(T, s.vt, @field(portable.Op, "gemv_" ++ @tagName(op)));
             if (comptime isComplex(T)) {
                 _ = k(m, n, 0, alpha, 0, raw(T, a), lda, raw(T, x), 1, raw(T, y), 1, buf);
             } else {
@@ -535,6 +520,11 @@ fn call(
     } else if (!packed_ and lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (n == 0) return;
+    // nothing past the address space (`util.fits`)
+    if (packed_) {
+        if (!util.fitsMatrix(n, n, n, @sizeOf(T))) return error.InvalidN;
+    } else if (!util.fitsMatrix(if (banded) lda else n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
 
     const kn: BlasLong = n;
     const o: Ops(T) = .{ .vt = vt, .dtb = if (vt.dtb_entries > 0) vt.dtb_entries else default_dtb };

@@ -54,7 +54,7 @@ const zigstd = @import("../../../../zigstd.zig");
 /// interface passes, a zero alpha turns NaN and infinity into NaN instead.
 fn Scal(comptime F: type) type {
     return struct {
-        fn real(n: BlasLong, _: BlasLong, _: BlasLong, da: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, flag: BlasLong) callconv(.c) i32 {
+        fn real(n: BlasLong, _: BlasLong, _: BlasLong, da: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, flag: BlasLong) callconv(types.kernelCc(F)) i32 {
             if (n <= 0 or inc_x <= 0) return 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
@@ -63,7 +63,7 @@ fn Scal(comptime F: type) type {
             }
             return 0;
         }
-        fn complex(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, flag: BlasLong) callconv(.c) i32 {
+        fn complex(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, flag: BlasLong) callconv(types.kernelCc(F)) i32 {
             if (n <= 0 or inc_x <= 0) return 0;
             const zero = flag == 0 and da_r == 0 and da_i == 0;
             var i: BlasLong = 0;
@@ -90,6 +90,15 @@ pub const qscal_generic = &Scal(XDouble).real;
 pub const cscal_generic = &Scal(f32).complex;
 pub const zscal_generic = &Scal(f64).complex;
 pub const xscal_generic = &Scal(XDouble).complex;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    return struct {
+        pub const scal_k = if (types.isComplex(T)) &Scal(F).complex else &Scal(F).real;
+    };
+}
 
 /// Points every scal slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {

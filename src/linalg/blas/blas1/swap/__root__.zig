@@ -62,11 +62,11 @@ fn swapElements(comptime F: type, comptime w: comptime_int, n: BlasLong, x: [*]F
 
 fn Swap(comptime F: type) type {
     return struct {
-        fn real(n: BlasLong, _: BlasLong, _: BlasLong, _: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F, _: BlasLong) callconv(.c) i32 {
+        fn real(n: BlasLong, _: BlasLong, _: BlasLong, _: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F, _: BlasLong) callconv(types.kernelCc(F)) i32 {
             swapElements(F, 1, n, x, inc_x, y, inc_y);
             return 0;
         }
-        fn complex(n: BlasLong, _: BlasLong, _: BlasLong, _: F, _: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F, _: BlasLong) callconv(.c) i32 {
+        fn complex(n: BlasLong, _: BlasLong, _: BlasLong, _: F, _: F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F, _: BlasLong) callconv(types.kernelCc(F)) i32 {
             swapElements(F, 2, n, x, inc_x, y, inc_y);
             return 0;
         }
@@ -79,6 +79,15 @@ pub const qswap_generic = &Swap(XDouble).real;
 pub const cswap_generic = &Swap(f32).complex;
 pub const zswap_generic = &Swap(f64).complex;
 pub const xswap_generic = &Swap(XDouble).complex;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    return struct {
+        pub const swap_k = if (types.isComplex(T)) &Swap(F).complex else &Swap(F).real;
+    };
+}
 
 /// Points every swap slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {

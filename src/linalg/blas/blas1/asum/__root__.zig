@@ -49,14 +49,14 @@ const check = @import("../check.zig");
 /// complex; an element is `w` floats.
 fn Asum(comptime F: type, comptime w: comptime_int) type {
     return struct {
-        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(.c) F {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x <= 0) return 0;
-            var sum: F = 0;
+            var sum: types.Acc(F) = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 inline for (0..w) |c| sum += @abs(util.at(F, x, i * inc_x * w + c).*);
             }
-            return sum;
+            return @floatCast(sum);
         }
     };
 }
@@ -67,6 +67,16 @@ pub const qasum_generic = &Asum(XDouble, 1).k;
 pub const casum_generic = &Asum(f32, 2).k;
 pub const zasum_generic = &Asum(f64, 2).k;
 pub const xasum_generic = &Asum(XDouble, 2).k;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    const w = if (types.isComplex(T)) 2 else 1;
+    return struct {
+        pub const asum_k = &Asum(F, w).k;
+    };
+}
 
 /// Points every asum slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {

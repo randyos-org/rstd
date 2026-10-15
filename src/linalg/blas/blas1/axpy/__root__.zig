@@ -75,6 +75,16 @@ pub const zaxpyc_generic = complexEntry(f64, GenericCplx(f64, true));
 pub const xaxpy_generic = complexEntry(XDouble, GenericCplx(XDouble, false));
 pub const xaxpyc_generic = complexEntry(XDouble, GenericCplx(XDouble, true));
 
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    return struct {
+        pub const axpy_k = if (types.isComplex(T)) complexEntry(F, GenericCplx(F, false)) else realEntry(F, GenericReal(F));
+        pub const axpyc_k = complexEntry(F, GenericCplx(F, true));
+    };
+}
+
 /// Points every axpy slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     vt.saxpy_k = saxpy_generic;

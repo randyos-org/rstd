@@ -1,7 +1,9 @@
 //! The level-1 interface: the checks and pointer set-up OpenBLAS's
 //! `interface/*.c` do before calling a kernel. Each takes the element type `T`
-//! (`f32`, `f64`, `XDouble`, or their `Complex`) explicitly; `n` and strides
-//! are `isize`.
+//! explicitly, any float type or its `Complex`; `n` and strides are `isize`.
+//! A type with vtable slots (`f32`, `f64`, `XDouble` and their `Complex`)
+//! runs the core's kernels, any other the portable ones built for it
+//! (`portable.kernel`).
 //!
 //! A negative stride names the vector's last element first: the interface
 //! moves the pointer to it, and the kernel walks back from there. Kernels
@@ -11,38 +13,17 @@ const std = @import("std");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const Vtable = @import("../Vtable.zig");
 const check = @import("check.zig");
+const portable = @import("../portable.zig");
 
 const BlasLong = types.BlasLong;
 const BF16 = types.BF16;
 const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
 
-fn isComplex(comptime T: type) bool {
-    return T == Complex32 or T == Complex64 or T == ComplexXD;
-}
-
-/// The float type of `T`'s parts.
-fn Float(comptime T: type) type {
-    return if (isComplex(T)) @FieldType(T, "re") else T;
-}
-
-/// The reference's precision letter for `T` (`f64` before `XDouble`, which
-/// may be the same type).
-fn letter(comptime T: type) []const u8 {
-    if (T == f32 or T == Complex32) return if (T == f32) "s" else "c";
-    if (T == f64 or T == Complex64) return if (T == f64) "d" else "z";
-    if (T == XDouble or T == ComplexXD) return if (T == XDouble) "q" else "x";
-    @compileError("not a BLAS element type: " ++ @typeName(T));
-}
-
-/// The kernel for `T` in the slot named `prefix ++ letter(T) ++ base ++ "_k"`.
-fn slot(comptime T: type, comptime prefix: []const u8, comptime base: []const u8) @typeInfo(@FieldType(Vtable, prefix ++ letter(T) ++ base ++ "_k")).optional.child {
-    return blas.kernel(@field(blas.Slot, prefix ++ letter(T) ++ base ++ "_k"));
-}
+const isComplex = types.isComplex;
+const Float = types.Float;
 
 /// `T`'s elements as the kernels take them: floats, two per complex.
 fn raw(comptime T: type, p: [*]T) [*]Float(T) {
@@ -52,11 +33,14 @@ fn raw(comptime T: type, p: [*]T) [*]Float(T) {
 /// Where a vector of `n` with stride `inc` starts: its last element when
 /// `inc < 0`.
 fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
+    span(T, n, inc);
     return if (inc < 0) @ptrCast(util.at(T, p, -(n - 1) * inc)) else p;
 }
 
-fn long(v: isize) BlasLong {
-    return @intCast(v);
+/// Refuses a vector that could not exist in memory (`util.fits`), so no
+/// index overflows; level 1 has no error to return it by.
+fn span(comptime T: type, n: isize, inc: isize) void {
+    if (!util.fits(n, inc, @sizeOf(T))) @panic("blas: vector of n at stride inc overflows the address space");
 }
 
 // ---- copy, swap, scal --------------------------------------------------------
@@ -64,20 +48,18 @@ fn long(v: isize) BlasLong {
 /// `?COPY` (`interface/copy.c`): `y := x`.
 pub fn copy(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (n <= 0) return;
-    const kn = long(n);
-    _ = slot(T, "", "copy")(kn, raw(T, first(T, x, kn, incx)), incx, raw(T, first(T, y, kn, incy)), incy);
+    _ = portable.fetch(T, .copy_k, blas.vtable)(n, raw(T, first(T, x, n, incx)), incx, raw(T, first(T, y, n, incy)), incy);
 }
 
 /// `?SWAP` (`interface/swap.c`, `zswap.c`): `x <-> y`.
 pub fn swap(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (n <= 0) return;
-    const kn = long(n);
-    const px = raw(T, first(T, x, kn, incx));
-    const py = raw(T, first(T, y, kn, incy));
+    const px = raw(T, first(T, x, n, incx));
+    const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
-        _ = slot(T, "", "swap")(kn, 0, 0, 0, 0, px, incx, py, incy, py, 0);
+        _ = portable.fetch(T, .swap_k, blas.vtable)(n, 0, 0, 0, 0, px, incx, py, incy, py, 0);
     } else {
-        _ = slot(T, "", "swap")(kn, 0, 0, 0, px, incx, py, incy, py, 0);
+        _ = portable.fetch(T, .swap_k, blas.vtable)(n, 0, 0, 0, px, incx, py, incy, py, 0);
     }
 }
 
@@ -87,13 +69,14 @@ pub fn swap(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isi
 /// `alpha*x` would, and finite elements 0.
 pub fn scal(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) void {
     if (n <= 0 or incx <= 0) return;
+    span(T, n, incx);
     const px = raw(T, x);
     if (comptime isComplex(T)) {
         if (alpha.re == 1 and alpha.im == 0) return;
-        _ = slot(T, "", "scal")(long(n), 0, 0, alpha.re, alpha.im, px, incx, px, 0, px, 1);
+        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, alpha.re, alpha.im, px, incx, px, 0, px, 1);
     } else {
         if (alpha == 1) return;
-        _ = slot(T, "", "scal")(long(n), 0, 0, alpha, px, incx, px, 0, px, 1);
+        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, alpha, px, incx, px, 0, px, 1);
     }
 }
 
@@ -118,21 +101,19 @@ pub fn dotc(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isi
 
 fn dotImpl(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) T {
     if (n <= 0) return zero(T);
-    const kn = long(n);
-    const px = raw(T, first(T, x, kn, incx));
-    const py = raw(T, first(T, y, kn, incy));
+    const px = raw(T, first(T, x, n, incx));
+    const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
-        return slot(T, "", if (conj) "dotc" else "dotu")(kn, px, incx, py, incy).toComplex();
+        return types.complexOf(portable.fetch(T, if (conj) .dotc_k else .dotu_k, blas.vtable)(n, px, incx, py, incy));
     }
-    return slot(T, "", "dot")(kn, px, incx, py, incy);
+    return portable.fetch(T, .dot_k, blas.vtable)(n, px, incx, py, incy);
 }
 
 /// `DSDOT` (`interface/dsdot.c`): the dot of two `f32` vectors, summed and
 /// returned in `f64`.
 pub fn dsdot(n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) f64 {
     if (n <= 0) return 0;
-    const kn = long(n);
-    return blas.kernel(.dsdot_k)(kn, first(f32, x, kn, incx), incx, first(f32, y, kn, incy), incy);
+    return blas.kernel(.dsdot_k)(n, first(f32, x, n, incx), incx, first(f32, y, n, incy), incy);
 }
 
 /// `SDSDOT` (`interface/sdsdot.c`): `alpha + x . y`, summed in `f64` and
@@ -150,21 +131,22 @@ pub fn sdsdot(n: isize, alpha: f32, x: [*]f32, incx: isize, y: [*]f32, incy: isi
 pub fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
     const F = Float(T);
     if (n <= 0) return 0;
-    const fn_: F = @floatFromInt(n);
+    // the count and its root in the accumulator type: `n` may be past `F`'s range
+    const A = types.Acc(F);
+    const fn_: A = @floatFromInt(n);
     if (comptime !isComplex(T)) {
         if (n == 1) return @abs(x[0]);
-        if (incx == 0) return @sqrt(fn_) * @abs(x[0]);
+        if (incx == 0) return @floatCast(@sqrt(fn_) * @abs(@as(A, x[0])));
     } else if (incx == 0) {
-        const fr = @abs(x[0].re);
-        const fi = @abs(x[0].im);
+        const fr: A = @abs(x[0].re);
+        const fi: A = @abs(x[0].im);
         const lo = @min(fr, fi);
         const hi = @max(fr, fi);
-        if (hi == 0) return hi;
-        if (hi == lo) return @sqrt(fn_) * @sqrt(@as(F, 2)) * hi;
-        return @sqrt(fn_) * hi * @sqrt(1 + (lo / hi) * (lo / hi));
+        if (hi == 0) return 0;
+        if (hi == lo) return @floatCast(@sqrt(fn_) * @sqrt(@as(A, 2)) * hi);
+        return @floatCast(@sqrt(fn_) * hi * @sqrt(1 + (lo / hi) * (lo / hi)));
     }
-    const kn = long(n);
-    return slot(T, "", "nrm2")(kn, raw(T, first(T, x, kn, incx)), incx);
+    return portable.fetch(T, .nrm2_k, blas.vtable)(n, raw(T, first(T, x, n, incx)), incx);
 }
 
 /// `?ASUM`/`SCASUM`/`DZASUM` (`interface/asum.c`): the sum of `|x|`, of
@@ -172,14 +154,16 @@ pub fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
 /// `incx <= 0`.
 pub fn asum(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
     if (n <= 0) return 0;
-    return slot(T, "", "asum")(long(n), raw(T, x), incx);
+    span(T, n, incx);
+    return portable.fetch(T, .asum_k, blas.vtable)(n, raw(T, x), incx);
 }
 
 /// `?SUM` (`interface/sum.c`, an OpenBLAS extension): the sum of `x`, of
 /// `re + im` for complex.
 pub fn sum(comptime T: type, n: isize, x: [*]T, incx: isize) Float(T) {
     if (n <= 0) return 0;
-    return slot(T, "", "sum")(long(n), raw(T, x), incx);
+    span(T, n, incx);
+    return portable.fetch(T, .sum_k, blas.vtable)(n, raw(T, x), incx);
 }
 
 // ---- extremes ----------------------------------------------------------------
@@ -191,21 +175,29 @@ pub const Extreme = enum { amax, amin, max, min };
 /// index of the first extreme element; 0 for `n <= 0` (and, from the
 /// kernel, for `incx <= 0`). `max` and `min` are real only.
 pub fn index(comptime T: type, comptime which: Extreme, n: isize, x: [*]T, incx: isize) isize {
+    comptime realOnly(T, which);
     if (n <= 0) return 0;
-    const ret: BlasLong = slot(T, "i", @tagName(which))(long(n), raw(T, x), incx);
-    return @intCast(@min(ret, long(n)));
+    span(T, n, incx);
+    const ret: BlasLong = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(which) ++ "_k"), blas.vtable)(n, raw(T, x), incx);
+    return @intCast(@min(ret, n));
 }
 
 /// `?AMAX`, `?AMIN`, `?MAX`, `?MIN` (`interface/max.c`, OpenBLAS extensions):
 /// the extreme value itself, `|x|` for `amax`/`amin`. 0 for `n <= 0`; for
 /// `incx == 0`, `x[0]` (by magnitude for `amax`/`amin`).
 pub fn extreme(comptime T: type, comptime which: Extreme, n: isize, x: [*]T, incx: isize) Float(T) {
+    comptime realOnly(T, which);
     if (n <= 0) return 0;
+    span(T, n, incx);
     if (incx == 0) {
         if (comptime isComplex(T)) return @abs(x[0].re) + @abs(x[0].im);
         return if (which == .amax or which == .amin) @abs(x[0]) else x[0];
     }
-    return slot(T, "", @tagName(which))(long(n), raw(T, x), incx);
+    return portable.fetch(T, @field(portable.Op, @tagName(which) ++ "_k"), blas.vtable)(n, raw(T, x), incx);
+}
+
+fn realOnly(comptime T: type, comptime which: Extreme) void {
+    if (isComplex(T) and (which == .max or which == .min)) @compileError(@tagName(which) ++ ": " ++ @typeName(T) ++ " is not real");
 }
 
 // ---- rotations ---------------------------------------------------------------
@@ -214,18 +206,9 @@ pub fn extreme(comptime T: type, comptime which: Extreme, n: isize, x: [*]T, inc
 /// `x := c*x + s*y`, `y := c*y - s*x`, with real `c` and `s`.
 pub fn rot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) void {
     if (n <= 0) return;
-    const kn = long(n);
-    const px = raw(T, first(T, x, kn, incx));
-    const py = raw(T, first(T, y, kn, incy));
-    const kern = if (comptime T == Complex32)
-        blas.kernel(.csrot_k)
-    else if (comptime T == Complex64)
-        blas.kernel(.zdrot_k)
-    else if (comptime T == ComplexXD)
-        blas.kernel(.xqrot_k)
-    else
-        slot(T, "", "rot");
-    _ = kern(kn, px, incx, py, incy, c, s);
+    const px = raw(T, first(T, x, n, incx));
+    const py = raw(T, first(T, y, n, incy));
+    _ = portable.fetch(T, .rot_k, blas.vtable)(n, px, incx, py, incy, c, s);
 }
 
 /// `?ROTM` (`interface/rotm.c`): the modified rotation `param` describes
@@ -233,7 +216,9 @@ pub fn rot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isiz
 /// which handles `n <= 0` and negative strides itself.
 pub fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, param: *const [5]T) void {
     if (comptime isComplex(T)) @compileError("rotm: " ++ @typeName(T) ++ " is not real");
-    _ = slot(T, "", "rotm")(long(n), x, incx, y, incy, @constCast(param));
+    span(T, n, incx);
+    span(T, n, incy);
+    _ = portable.fetch(T, .rotm_k, blas.vtable)(n, x, incx, y, incy, @constCast(param));
 }
 
 // ---- axpy, axpby -------------------------------------------------------------
@@ -252,28 +237,29 @@ pub fn axpyc(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T
 
 fn axpyImpl(comptime T: type, comptime conj: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) void {
     if (n <= 0) return;
-    const kn = long(n);
     if (comptime isComplex(T)) {
         if (alpha.re == 0 and alpha.im == 0) return;
         if (incx == 0 and incy == 0) {
             // the reference does this unconjugated for `axpyc` too
-            const cn: Float(T) = @floatFromInt(kn);
-            y[0].re += cn * (alpha.re * x[0].re - alpha.im * x[0].im);
-            y[0].im += cn * (alpha.im * x[0].re + alpha.re * x[0].im);
+            // the count in the accumulator type: `n` may be past `F`'s range
+            const A = types.Acc(Float(T));
+            const cn: A = @floatFromInt(n);
+            y[0].re += @floatCast(cn * (alpha.re * x[0].re - alpha.im * x[0].im));
+            y[0].im += @floatCast(cn * (alpha.im * x[0].re + alpha.re * x[0].im));
             return;
         }
-        const px = raw(T, first(T, x, kn, incx));
-        const py = raw(T, first(T, y, kn, incy));
-        _ = slot(T, "", if (conj) "axpyc" else "axpy")(kn, 0, 0, alpha.re, alpha.im, px, incx, py, incy, py, 0);
+        const px = raw(T, first(T, x, n, incx));
+        const py = raw(T, first(T, y, n, incy));
+        _ = portable.fetch(T, if (conj) .axpyc_k else .axpy_k, blas.vtable)(n, 0, 0, alpha.re, alpha.im, px, incx, py, incy, py, 0);
     } else {
         if (alpha == 0) return;
         if (incx == 0 and incy == 0) {
-            y[0] += @as(T, @floatFromInt(kn)) * alpha * x[0];
+            y[0] += @floatCast(@as(types.Acc(T), @floatFromInt(n)) * alpha * x[0]);
             return;
         }
-        const px = first(T, x, kn, incx);
-        const py = first(T, y, kn, incy);
-        _ = slot(T, "", "axpy")(kn, 0, 0, alpha, px, incx, py, incy, py, 0);
+        const px = first(T, x, n, incx);
+        const py = first(T, y, n, incy);
+        _ = portable.fetch(T, .axpy_k, blas.vtable)(n, 0, 0, alpha, px, incx, py, incy, py, 0);
     }
 }
 
@@ -281,13 +267,12 @@ fn axpyImpl(comptime T: type, comptime conj: bool, n: isize, alpha: T, x: [*]T, 
 /// `y := alpha*x + beta*y`.
 pub fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) void {
     if (n <= 0) return;
-    const kn = long(n);
-    const px = raw(T, first(T, x, kn, incx));
-    const py = raw(T, first(T, y, kn, incy));
+    const px = raw(T, first(T, x, n, incx));
+    const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
-        _ = slot(T, "", "axpby")(kn, alpha.re, alpha.im, px, incx, beta.re, beta.im, py, incy);
+        _ = portable.fetch(T, .axpby_k, blas.vtable)(n, alpha.re, alpha.im, px, incx, beta.re, beta.im, py, incy);
     } else {
-        _ = slot(T, "", "axpby")(kn, alpha, px, incx, beta, py, incy);
+        _ = portable.fetch(T, .axpby_k, blas.vtable)(n, alpha, px, incx, beta, py, incy);
     }
 }
 
@@ -297,8 +282,7 @@ pub fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, beta: T
 /// `n <= 0`, returned in `f32`.
 pub fn sbdot(n: isize, x: [*]BF16, incx: isize, y: [*]BF16, incy: isize) f32 {
     if (n <= 0) return 0;
-    const kn = long(n);
-    return blas.kernel(.sbdot_k)(kn, first(BF16, x, kn, incx), incx, first(BF16, y, kn, incy), incy);
+    return blas.kernel(.sbdot_k)(n, first(BF16, x, n, incx), incx, first(BF16, y, n, incy), incy);
 }
 
 /// `BSCAL` (`interface/scal.c` built `BGEMM`): `x := alpha*x` over bfloat16.
@@ -306,48 +290,46 @@ pub fn sbdot(n: isize, x: [*]BF16, incx: isize, y: [*]BF16, incy: isize) f32 {
 /// it passes the kernel flag 1.
 pub fn bscal(n: isize, alpha: BF16, x: [*]BF16, incx: isize) void {
     if (incx <= 0 or n <= 0) return;
+    span(BF16, n, incx);
     if (@import("../ext/bf16/__root__.zig").scalarToF32(alpha) == 1) return;
-    _ = blas.kernel(.bscal_k)(long(n), 0, 0, alpha, x, incx, x, 0, x, 1);
+    _ = blas.kernel(.bscal_k)(n, 0, 0, alpha, x, incx, x, 0, x, 1);
 }
 
 /// `SBSTOBF16` and `SBDTOBF16` (`interface/tobf16.c`): `out := bf16(in)`,
 /// rounding to nearest even; `f32` or `f64` in.
 pub fn sbtobf16(comptime F: type, n: isize, in: [*]F, inc_in: isize, out: [*]BF16, inc_out: isize) void {
     if (n <= 0) return;
-    const kn = long(n);
     const kern = if (comptime F == f32)
         blas.kernel(.sbstobf16_k)
     else if (comptime F == f64)
         blas.kernel(.sbdtobf16_k)
     else
         @compileError("sbtobf16: " ++ @typeName(F) ++ " is not f32 or f64");
-    kern(kn, first(F, in, kn, inc_in), inc_in, first(BF16, out, kn, inc_out), inc_out);
+    kern(n, first(F, in, n, inc_in), inc_in, first(BF16, out, n, inc_out), inc_out);
 }
 
 /// `SBF16TOS` and `DBF16TOD` (`interface/bf16to.c`): `out := in` widened to
 /// `f32` or `f64`.
 pub fn bf16to(comptime F: type, n: isize, in: [*]BF16, inc_in: isize, out: [*]F, inc_out: isize) void {
     if (n <= 0) return;
-    const kn = long(n);
     const kern = if (comptime F == f32)
         blas.kernel(.sbf16tos_k)
     else if (comptime F == f64)
         blas.kernel(.dbf16tod_k)
     else
         @compileError("bf16to: " ++ @typeName(F) ++ " is not f32 or f64");
-    kern(kn, first(BF16, in, kn, inc_in), inc_in, first(F, out, kn, inc_out), inc_out);
+    kern(n, first(BF16, in, n, inc_in), inc_in, first(F, out, n, inc_out), inc_out);
 }
 
 // ---- rotation set-up ---------------------------------------------------------
 
 /// `?ROTG` (`interface/rotg.c`): the rotation `[c s; -s c]` that zeroes `b`
 /// against `a`. `a` becomes `r`, `b` the reconstruction value `z`.
-/// Computed in `XDouble`, as the reference does in `long double` on x86, so
-/// it widens to x87 once `XDouble` does; until then (`XDouble` is `f64`) an
-/// `f32` input is computed in `f64` and rounded once on the way out.
+/// Computed in `XDouble`, as the reference does in `long double` on x86, or
+/// in `T` where that is wider; a narrower input is rounded once on the way out.
 pub fn rotg(comptime T: type, a: *T, b: *T, c: *T, s: *T) void {
     if (comptime isComplex(T)) @compileError("rotg: use zrotg for " ++ @typeName(T));
-    const X = XDouble;
+    const X = if (@bitSizeOf(T) > @bitSizeOf(XDouble)) T else XDouble;
     const da: X = a.*;
     const db: X = b.*;
     const safmin: X = std.math.floatMin(T);
@@ -480,9 +462,12 @@ fn abssq(comptime T: type, z: T) Float(T) {
 /// `d1`, `d2` and `x1` are updated.
 pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void {
     if (comptime isComplex(T)) @compileError("rotmg: " ++ @typeName(T) ++ " is not real");
-    const gam: T = 4096;
-    const gamsq: T = 16777216;
-    const rgamsq: T = 5.9604645e-8;
+    // the reference's bounds, 4096 and its square; a narrow type (`f16`)
+    // keeps `d1`, `d2` within its range by 16 and 256 instead
+    const narrow = @bitSizeOf(T) < 32;
+    const gam: T = if (narrow) 16 else 4096;
+    const gamsq: T = if (narrow) 256 else 16777216;
+    const rgamsq: T = if (narrow) 1.0 / 256.0 else 5.9604645e-8;
     var h11: T = 0;
     var h21: T = 0;
     var h12: T = 0;
@@ -880,6 +865,188 @@ test "interface: zrotg zeroes b against a over every branch" {
             const got = @sqrt(@as(f64, a.re) * inv * a.re * inv + @as(f64, a.im) * inv * a.im * inv);
             try check.expectClose(f64, want, got, eps);
         }
+    }
+}
+
+/// Level 1 over `T`, which has no vtable slots, against an `f128` reference:
+/// `x` at stride 2 and `y` at stride -1.
+fn anyFloat(comptime T: type) !void {
+    const W = check.Wide(T);
+    const n = 37;
+    const ulps = 2 * (n + 2);
+    var x: [2 * n]T = undefined;
+    var y: [n]T = undefined;
+    check.fill(T, &x, 11);
+    check.fill(T, &y, 12);
+    var wx: [n]W = undefined;
+    var wy: [n]W = undefined;
+    for (0..n) |i| {
+        wx[i] = check.wide(T, x[2 * i]);
+        wy[i] = check.wide(T, y[n - 1 - i]);
+    }
+    const alpha: T = if (comptime isComplex(T)) .init(1.25, -0.5) else 1.25;
+    const beta: T = if (comptime isComplex(T)) .init(-0.75, 0.25) else -0.75;
+    const wa = check.wide(T, alpha);
+    const wb = check.wide(T, beta);
+
+    // reductions
+    var d = zero(W);
+    var dc = zero(W);
+    var dscale: f128 = 0;
+    var ssq: f128 = 0;
+    var s1: f128 = 0;
+    var best: usize = 0;
+    for (0..n) |i| {
+        d = check.addW(d, check.mulW(wx[i], wy[i]));
+        dc = check.addW(dc, check.mulW(check.conjW(wx[i]), wy[i]));
+        dscale += check.abs1(wx[i]) * check.abs1(wy[i]);
+        ssq += if (comptime isComplex(T)) wx[i].re * wx[i].re + wx[i].im * wx[i].im else wx[i] * wx[i];
+        s1 += check.abs1(wx[i]);
+        if (check.abs1(wx[i]) > check.abs1(wx[best])) best = i;
+    }
+    try check.expectNear(T, d, dot(T, n, &x, 2, &y, -1), ulps, dscale);
+    if (comptime isComplex(T)) try check.expectNear(T, dc, dotc(T, n, &x, 2, &y, -1), ulps, dscale);
+    const norm = @sqrt(ssq);
+    try check.expectNear(Float(T), norm, nrm2(T, n, &x, 2), ulps, norm);
+    try check.expectNear(Float(T), s1, asum(T, n, &x, 2), ulps, s1);
+    try check.expectNear(Float(T), check.abs1(wx[best]), extreme(T, .amax, n, &x, 2), 4, s1);
+    // the first of near-equal keys may differ; its key must be the largest
+    const at = index(T, .amax, n, &x, 2);
+    try check.expectNear(Float(T), check.abs1(wx[best]), @floatCast(check.abs1(wx[@intCast(at - 1)])), 4, check.abs1(wx[best]));
+
+    // updates, element by element
+    var y2 = y;
+    axpy(T, n, alpha, &x, 2, &y2, -1);
+    for (0..n) |i| {
+        const want = check.addW(check.mulW(wa, wx[i]), wy[i]);
+        try check.expectNear(T, want, y2[n - 1 - i], 8, check.abs1(wa) * check.abs1(wx[i]) + check.abs1(wy[i]));
+    }
+    y2 = y;
+    axpby(T, n, alpha, &x, 2, beta, &y2, -1);
+    for (0..n) |i| {
+        const want = check.addW(check.mulW(wa, wx[i]), check.mulW(wb, wy[i]));
+        try check.expectNear(T, want, y2[n - 1 - i], 8, check.abs1(wa) * check.abs1(wx[i]) + check.abs1(wb) * check.abs1(wy[i]));
+    }
+    var x2 = x;
+    scal(T, n, alpha, &x2, 2);
+    for (0..n) |i| try check.expectNear(T, check.mulW(wa, wx[i]), x2[2 * i], 8, check.abs1(wa) * check.abs1(wx[i]));
+    const c: Float(T) = 0.6;
+    const sn: Float(T) = 0.8;
+    x2 = x;
+    y2 = y;
+    rot(T, n, &x2, 2, &y2, -1, c, sn);
+    const wc = check.wide(Float(T), c);
+    const ws = check.wide(Float(T), sn);
+    for (0..n) |i| {
+        const mag = check.abs1(wx[i]) + check.abs1(wy[i]);
+        const rx = if (comptime isComplex(T)) W.init(wc * wx[i].re + ws * wy[i].re, wc * wx[i].im + ws * wy[i].im) else wc * wx[i] + ws * wy[i];
+        const ry = if (comptime isComplex(T)) W.init(wc * wy[i].re - ws * wx[i].re, wc * wy[i].im - ws * wx[i].im) else wc * wy[i] - ws * wx[i];
+        try check.expectNear(T, rx, x2[2 * i], 8, mag);
+        try check.expectNear(T, ry, y2[n - 1 - i], 8, mag);
+    }
+    x2 = x;
+    y2 = y;
+    swap(T, n, &x2, 2, &y2, -1);
+    copy(T, n, &x2, 2, &y2, -1);
+    for (0..n) |i| {
+        try check.expectNear(T, wy[i], x2[2 * i], 0, 0);
+        try check.expectNear(T, wy[i], y2[n - 1 - i], 0, 0);
+    }
+    if (comptime isComplex(T)) return;
+
+    var ps = [5]T{ -1, 2, 3, -1, 0.5 };
+    x2 = x;
+    y2 = y;
+    rotm(T, n, &x2, 2, &y2, -1, &ps);
+    for (0..n) |i| {
+        const mag = 2 * @abs(wx[i]) + @abs(wy[i]);
+        try check.expectNear(T, 2 * wx[i] - wy[i], x2[2 * i], 8, mag);
+        try check.expectNear(T, 3 * wx[i] + 0.5 * wy[i], y2[n - 1 - i], 8, mag);
+    }
+    try check.expectNear(T, sumOf(T, &wx), sum(T, n, &x, 2), ulps, s1);
+    var ga: T = 3;
+    var gb: T = 4;
+    var gc: T = undefined;
+    var gs: T = undefined;
+    rotg(T, &ga, &gb, &gc, &gs);
+    try check.expectNear(T, 5, ga, 4, 5);
+    try check.expectNear(T, 0.6, gc, 4, 1);
+    try check.expectNear(T, 0.8, gs, 4, 1);
+}
+
+fn sumOf(comptime T: type, w: []const check.Wide(T)) f128 {
+    var acc: f128 = 0;
+    for (w) |v| acc += v;
+    return acc;
+}
+
+test "interface: level 1 at any float type runs the portable kernels built for it" {
+    inline for (check.any_floats) |F| {
+        inline for (.{ F, std.math.Complex(F) }) |T| anyFloat(T) catch |e| {
+            check.say("{s}\n", .{@typeName(T)});
+            return e;
+        };
+    }
+}
+
+test "interface: f16 reductions accumulate wide, and counts past its range stay finite" {
+    const H = f16;
+    const C = std.math.Complex(H);
+    const al = std.testing.allocator;
+    // past 2048 an f16 sum of ones stalls; past 65504 it overflows
+    const n = 5000;
+    const ones = try al.alloc(H, n);
+    defer al.free(ones);
+    @memset(ones, 1);
+    try check.expectClose(H, 5000, asum(H, n, ones.ptr, 1), 0);
+    try check.expectClose(H, 5000, sum(H, n, ones.ptr, 1), 0);
+    try check.expectClose(H, 5000, dot(H, n, ones.ptr, 1, ones.ptr, 1), 0);
+    const big = try al.alloc(H, 4000);
+    defer al.free(big);
+    for (big, 0..) |*v, i| v.* = if (i < 2000) 40 else -40;
+    try check.expectClose(H, 0, sum(H, 4000, big.ptr, 1), 0);
+    const cones = try al.alloc(C, 3000);
+    defer al.free(cones);
+    @memset(cones, .init(1, 0));
+    try check.expectClose(C, .init(3000, 0), dot(C, 3000, cones.ptr, 1, cones.ptr, 1), 0);
+    try check.expectClose(C, .init(3000, 0), dotc(C, 3000, cones.ptr, 1, cones.ptr, 1), 0);
+    // gemv's transposed sums, real and complex
+    var y = [_]H{0};
+    try @import("../blas2/interface.zig").gemv(al, H, .t, n, 1, 1, ones.ptr, n, ones.ptr, 1, 0, &y, 1);
+    try check.expectClose(H, 5000, y[0], 0);
+    var cy = [_]C{.init(0, 0)};
+    try @import("../blas2/interface.zig").gemv(al, C, .c, 3000, 1, .init(1, 0), cones.ptr, 3000, cones.ptr, 1, .init(0, 0), &cy, 1);
+    try check.expectClose(C, .init(3000, 0), cy[0], 0);
+    // a zero stride: sqrt(n) |x[0]| with n past f16's range
+    var x = [_]H{0.01};
+    const want: f64 = @sqrt(70000.0) * @as(f64, @as(H, 0.01));
+    try check.expectClose(f64, want, nrm2(H, 70000, &x, 0), 4e-3);
+    var cx = [_]C{.init(0.01, 0)};
+    try check.expectClose(f64, want, nrm2(C, 70000, &cx, 0), 4e-3);
+    var yz = [_]H{0};
+    axpy(H, 70000, 1, &x, 0, &yz, 0);
+    try check.expectClose(f64, 700, yz[0], 1);
+}
+
+test "interface: rotmg in f16 rescales within its range" {
+    const H = f16;
+    // d1 small and large enough to take each rescaling loop
+    for ([_][4]H{ .{ 1.0 / 1024.0, 1, 1, 0.5 }, .{ 1000, 1, 1, 0.5 }, .{ 2, 3, 1.5, 0.5 }, .{ 1, 1.0 / 2048.0, 0.25, 4 } }) |c| {
+        var d1 = c[0];
+        var d2 = c[1];
+        var x1 = c[2];
+        const y1 = c[3];
+        var param: [5]H = @splat(0);
+        rotmg(H, &d1, &d2, &x1, y1, &param);
+        for ([_]H{ d1, d2, x1 }) |v| try std.testing.expect(std.math.isFinite(v) and v != 0);
+        var hx = [1]H{c[2]};
+        var hy = [1]H{y1};
+        rotm(H, 1, &hx, 1, &hy, 1, &param);
+        try check.expectClose(f64, 0, hy[0], 1e-2 * @abs(@as(f64, c[2])));
+        try check.expectClose(f64, x1, hx[0], 4e-3 * @abs(@as(f64, x1)));
+        // the weighted length d1*x1^2 + d2*y1^2 is kept
+        const was = @as(f64, c[0]) * c[2] * c[2] + @as(f64, c[1]) * y1 * y1;
+        try check.expectClose(f64, was, @as(f64, d1) * x1 * x1, 1e-2 * was);
     }
 }
 

@@ -27,18 +27,18 @@ pub const roles: []const []const u8 = &.{ "saxpy", "daxpy", "caxpy", "caxpyc", "
 
 /// Vtable slot type for the real kernels (`saxpy_k`, `daxpy_k`, `qaxpy_k`).
 pub fn RealKernel(comptime T: type) type {
-    return *const fn (BlasLong, BlasLong, BlasLong, T, [*]T, BlasLong, [*]T, BlasLong, [*]T, BlasLong) callconv(.c) i32;
+    return *const fn (BlasLong, BlasLong, BlasLong, T, [*]T, BlasLong, [*]T, BlasLong, [*]T, BlasLong) callconv(types.kernelCc(T)) i32;
 }
 
 /// Vtable slot type for the complex kernels; `F` is the component type.
 pub fn ComplexKernel(comptime F: type) type {
-    return *const fn (BlasLong, BlasLong, BlasLong, F, F, [*]F, BlasLong, [*]F, BlasLong, [*]F, BlasLong) callconv(.c) i32;
+    return *const fn (BlasLong, BlasLong, BlasLong, F, F, [*]F, BlasLong, [*]F, BlasLong, [*]F, BlasLong) callconv(types.kernelCc(F)) i32;
 }
 
 /// Wraps `Impl.call(n, alpha, x, incx, y, incy)` in the real kernel ABI.
 pub fn realEntry(comptime T: type, comptime Impl: type) RealKernel(T) {
     return &struct {
-        fn f(n: BlasLong, _: BlasLong, _: BlasLong, da: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, _: [*]T, _: BlasLong) callconv(.c) i32 {
+        fn f(n: BlasLong, _: BlasLong, _: BlasLong, da: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, _: [*]T, _: BlasLong) callconv(types.kernelCc(T)) i32 {
             Impl.call(n, da, x, incx, y, incy);
             return 0;
         }
@@ -48,7 +48,7 @@ pub fn realEntry(comptime T: type, comptime Impl: type) RealKernel(T) {
 /// Wraps `Impl.call` in the complex kernel ABI (interleaved `F` pairs).
 pub fn complexEntry(comptime F: type, comptime Impl: type) ComplexKernel(F) {
     return &struct {
-        fn f(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, _: [*]F, _: BlasLong) callconv(.c) i32 {
+        fn f(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, _: [*]F, _: BlasLong) callconv(types.kernelCc(F)) i32 {
             Impl.call(n, Complex(F).init(da_r, da_i), @ptrCast(x), incx, @ptrCast(y), incy);
             return 0;
         }

@@ -98,7 +98,16 @@ fn copyBlock(comptime T: type, comptime lower: bool, comptime kind: Kind, m: usi
 pub fn Direct(comptime T: type, comptime lower: bool, comptime kind: Kind) type {
     const complex = comptime check.isComplex(T);
     const F = check.FloatOf(T);
+    // the row sums accumulate wide (`types.Acc`)
+    const A = types.Acc(F);
+    const W = if (complex) std.math.Complex(A) else A;
     return struct {
+        fn wide(v: T) W {
+            return if (complex) .init(v.re, v.im) else v;
+        }
+        fn narrow(v: W) T {
+            return if (complex) .init(@floatCast(v.re), @floatCast(v.im)) else @floatCast(v);
+        }
         fn get(a: [*]F, i: BlasLong) T {
             if (complex) return .init(util.at(F, a, 2 * i).*, util.at(F, a, 2 * i + 1).*);
             return util.at(F, a, i).*;
@@ -128,23 +137,25 @@ pub fn Direct(comptime T: type, comptime lower: bool, comptime kind: Kind) type 
             const end: BlasLong = if (lower) offset else m;
             while (j < end) : (j += 1) {
                 const xj = mul(alpha, get(x, j * inc_x));
-                var acc: T = if (complex) .init(0, 0) else 0;
+                var acc: W = if (complex) .init(0, 0) else 0;
                 var i: BlasLong = if (lower) j + 1 else 0;
                 const stop: BlasLong = if (lower) m else j;
                 while (i < stop) : (i += 1) {
                     const e = pair(get(a, i + j * lda));
                     add(y, i * inc_y, mul(e[0], xj));
-                    acc = if (complex) acc.add(mul(e[1], get(x, i * inc_x))) else acc + e[1] * get(x, i * inc_x);
+                    const p = wide(e[1]);
+                    const q = wide(get(x, i * inc_x));
+                    acc = if (complex) acc.add(p.mul(q)) else acc + p * q;
                 }
-                add(y, j * inc_y, mul(alpha, acc));
+                add(y, j * inc_y, narrow(if (complex) wide(alpha).mul(acc) else wide(alpha) * acc));
                 add(y, j * inc_y, mul(diag(get(a, j + j * lda)), xj));
             }
         }
-        pub fn real(m: BlasLong, offset: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+        pub fn real(m: BlasLong, offset: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
             run(m, offset, alpha, a, lda, x, inc_x, y, inc_y);
             return 0;
         }
-        pub fn cplx(m: BlasLong, offset: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+        pub fn cplx(m: BlasLong, offset: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
             run(m, offset, .init(alpha_r, alpha_i), a, lda, x, inc_x, y, inc_y);
             return 0;
         }

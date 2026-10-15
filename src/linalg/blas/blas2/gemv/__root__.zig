@@ -141,7 +141,7 @@ const guard = @import("../guard.zig");
 /// `y` by `beta`.
 fn Gemv(comptime F: type) type {
     return struct {
-        fn n(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+        fn n(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
             var j: BlasLong = 0;
             while (j < cols) : (j += 1) {
                 const tv = alpha * util.at(F, x, j * inc_x).*;
@@ -150,13 +150,14 @@ fn Gemv(comptime F: type) type {
             }
             return 0;
         }
-        fn t(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+        fn t(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
             var j: BlasLong = 0;
             while (j < cols) : (j += 1) {
-                var acc: F = 0;
+                const A = types.Acc(F);
+                var acc: A = 0;
                 var i: BlasLong = 0;
-                while (i < m) : (i += 1) acc += util.at(F, a, i + j * lda).* * util.at(F, x, i * inc_x).*;
-                util.at(F, y, j * inc_y).* += alpha * acc;
+                while (i < m) : (i += 1) acc += @as(A, util.at(F, a, i + j * lda).*) * util.at(F, x, i * inc_x).*;
+                util.at(F, y, j * inc_y).* += @floatCast(alpha * acc);
             }
             return 0;
         }
@@ -167,23 +168,27 @@ fn Gemv(comptime F: type) type {
 /// conjugated for `conj` (`CONJ`) and `x` for `xconj` (`XCONJ`): `r` is
 /// `conj(A)*x`, `o` is `A*conj(x)`, `c` is `A^H*x`, and so on.
 fn Zgemv(comptime F: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool) type {
+    const W = std.math.Complex(types.Acc(F));
     return struct {
+        fn wide(v: std.math.Complex(F)) W {
+            return .init(v.re, v.im);
+        }
         fn get(p: [*]F, i: BlasLong, c: bool) std.math.Complex(F) {
             const re = util.at(F, p, 2 * i).*;
             const im = util.at(F, p, 2 * i + 1).*;
             return .init(re, if (c) -im else im);
         }
-        fn k(m: BlasLong, cols: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+        fn k(m: BlasLong, cols: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
             const alpha: std.math.Complex(F) = .init(alpha_r, alpha_i);
             var j: BlasLong = 0;
             while (j < cols) : (j += 1) {
                 if (trans) {
-                    var acc: std.math.Complex(F) = .init(0, 0);
+                    var acc: W = .init(0, 0);
                     var i: BlasLong = 0;
-                    while (i < m) : (i += 1) acc = acc.add(get(a, i + j * lda, conj).mul(get(x, i * inc_x, xconj)));
-                    const v = alpha.mul(acc);
-                    util.at(F, y, 2 * j * inc_y).* += v.re;
-                    util.at(F, y, 2 * j * inc_y + 1).* += v.im;
+                    while (i < m) : (i += 1) acc = acc.add(wide(get(a, i + j * lda, conj)).mul(wide(get(x, i * inc_x, xconj))));
+                    const v = wide(alpha).mul(acc);
+                    util.at(F, y, 2 * j * inc_y).* += @floatCast(v.re);
+                    util.at(F, y, 2 * j * inc_y + 1).* += @floatCast(v.im);
                 } else {
                     const tv = alpha.mul(get(x, j * inc_x, xconj));
                     var i: BlasLong = 0;
@@ -196,6 +201,26 @@ fn Zgemv(comptime F: type, comptime trans: bool, comptime conj: bool, comptime x
             }
             return 0;
         }
+    };
+}
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    if (!types.isComplex(T)) return struct {
+        pub const gemv_n = &Gemv(F).n;
+        pub const gemv_t = &Gemv(F).t;
+    };
+    return struct {
+        pub const gemv_n = &Zgemv(F, false, false, false).k;
+        pub const gemv_t = &Zgemv(F, true, false, false).k;
+        pub const gemv_r = &Zgemv(F, false, true, false).k;
+        pub const gemv_c = &Zgemv(F, true, true, false).k;
+        pub const gemv_o = &Zgemv(F, false, false, true).k;
+        pub const gemv_u = &Zgemv(F, true, false, true).k;
+        pub const gemv_s = &Zgemv(F, false, true, true).k;
+        pub const gemv_d = &Zgemv(F, true, true, true).k;
     };
 }
 

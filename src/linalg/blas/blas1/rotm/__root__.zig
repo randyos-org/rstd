@@ -52,7 +52,7 @@ fn matrix(comptime F: type, param: [*]const F) ?[4]F {
 /// negative stride starts from the far end, as reference BLAS does.
 fn Rotm(comptime F: type) type {
     return struct {
-        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, param: [*]F) callconv(.c) i32 {
+        fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, param: [*]F) callconv(types.kernelCc(F)) i32 {
             if (n <= 0) return 0;
             const h = matrix(F, param) orelse return 0;
             var ix: BlasLong = if (inc_x < 0) (1 - n) * inc_x else 0;
@@ -76,6 +76,15 @@ fn Rotm(comptime F: type) type {
 pub const srotm_generic = &Rotm(f32).k;
 pub const drotm_generic = &Rotm(f64).k;
 pub const qrotm_generic = &Rotm(XDouble).k;
+
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`).
+pub fn Portable(comptime T: type) type {
+    const F = types.Float(T);
+    return struct {
+        pub const rotm_k = &Rotm(F).k;
+    };
+}
 
 /// Points every rotm slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {

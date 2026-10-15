@@ -6,7 +6,6 @@ const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const types = @import("types.zig");
 
-const BlasLong = types.BlasLong;
 const BF16 = types.BF16;
 const isBlasType = types.isBlasType;
 const HF16 = types.HF16;
@@ -14,10 +13,6 @@ const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
-
-test "the kernel index type is pointer-sized, as the interface's isize is" {
-    try zigstd.testExpectEqual(@sizeOf(isize), @sizeOf(BlasLong));
-}
 
 test "BF16 is a distinct 16-bit type, not an arithmetic one" {
     try zigstd.testExpectEqual(@as(usize, 2), @sizeOf(BF16));

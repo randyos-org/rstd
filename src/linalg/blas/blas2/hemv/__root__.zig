@@ -65,6 +65,17 @@ const guard = @import("../guard.zig");
 /// matrix.
 const variants = .{ .{ "U", false, sym.Kind.hermitian }, .{ "L", true, sym.Kind.hermitian }, .{ "V", false, sym.Kind.hermitian_rev }, .{ "M", true, sym.Kind.hermitian_rev } };
 
+/// The portable kernels over `T`, any float's `Complex`, by the slot they
+/// would fill (`portable.kernel`): the direct loops, which need no buffer.
+pub fn Portable(comptime T: type) type {
+    return struct {
+        pub const hemv_U = &sym.Direct(T, false, .hermitian).cplx;
+        pub const hemv_L = &sym.Direct(T, true, .hermitian).cplx;
+        pub const hemv_V = &sym.Direct(T, false, .hermitian_rev).cplx;
+        pub const hemv_M = &sym.Direct(T, true, .hermitian_rev).cplx;
+    };
+}
+
 /// Points every hemv slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {

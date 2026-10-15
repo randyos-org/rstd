@@ -67,6 +67,17 @@ const Vtable = @import("../../Vtable.zig");
 const sym = @import("../symmetric.zig");
 const guard = @import("../guard.zig");
 
+/// The portable kernels over `T`, any float or its `Complex`, by the slot
+/// they would fill (`portable.kernel`): the direct loops, which need no
+/// buffer.
+pub fn Portable(comptime T: type) type {
+    const c = types.isComplex(T);
+    return struct {
+        pub const symv_U = if (c) &sym.Direct(T, false, .symmetric).cplx else &sym.Direct(T, false, .symmetric).real;
+        pub const symv_L = if (c) &sym.Direct(T, true, .symmetric).cplx else &sym.Direct(T, true, .symmetric).real;
+    };
+}
+
 /// Points every symv slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {

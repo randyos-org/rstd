@@ -9,6 +9,7 @@ const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
 const blas1 = @import("__root__.zig");
 const portable = @import("../portable.zig");
+const types = @import("../types.zig");
 
 /// Lengths that straddle every unroll and block size of the kernels. Not 0:
 /// the interface returns before calling a kernel with `n <= 0`, and kernels
@@ -21,13 +22,8 @@ pub const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 1 }, .{ 1, 3 }, .{ 2, 2 } };
 /// The longest operand `sizes` and `strides` need, in elements.
 pub const capacity = 257 * 3;
 
-pub fn isComplex(comptime T: type) bool {
-    return @typeInfo(T) == .@"struct" and @hasField(T, "re");
-}
-
-pub fn FloatOf(comptime T: type) type {
-    return if (isComplex(T)) @FieldType(T, "re") else T;
-}
+pub const isComplex = types.isComplex;
+pub const FloatOf = types.Float;
 
 /// Values in [-2, 2), from `seed`.
 pub fn fill(comptime T: type, buf: []T, seed: u64) void {
@@ -45,7 +41,11 @@ pub fn fill(comptime T: type, buf: []T, seed: u64) void {
 /// The tolerance for a result of `terms` rounded operations on values of at
 /// most 4 in magnitude: kernels sum in any order, the reference in one.
 pub fn tolerance(comptime F: type, terms: usize) F {
-    const per: F = if (F == f32) 1e-6 else 1e-14;
+    const per: F = switch (F) {
+        f32 => 1e-6,
+        f64 => 1e-14,
+        else => 8 * std.math.floatEps(F),
+    };
     return per * 16 * @as(F, @floatFromInt(@max(terms, 1)));
 }
 
@@ -72,6 +72,47 @@ pub fn expectCloseSlices(comptime T: type, want: []const T, got: []const T, tol:
         return e;
     };
 }
+
+// ---- a wide reference, for any float type ----------------------------------
+
+/// `T` at the precision of the `f128` reference.
+pub fn Wide(comptime T: type) type {
+    return if (isComplex(T)) std.math.Complex(f128) else f128;
+}
+
+pub fn wide(comptime T: type, v: T) Wide(T) {
+    return if (comptime isComplex(T)) .init(v.re, v.im) else v;
+}
+
+/// `|re| + |im|` of a `Wide` value, `|v|` for a real one.
+pub fn abs1(v: anytype) f128 {
+    return if (comptime isComplex(@TypeOf(v))) @abs(v.re) + @abs(v.im) else @abs(v);
+}
+
+pub fn mulW(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return if (comptime isComplex(@TypeOf(a))) a.mul(b) else a * b;
+}
+
+pub fn addW(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return if (comptime isComplex(@TypeOf(a))) a.add(b) else a + b;
+}
+
+pub fn conjW(a: anytype) @TypeOf(a) {
+    return if (comptime isComplex(@TypeOf(a))) a.conjugate() else a;
+}
+
+/// `got` against the reference `want`, within `ulps` units of `T`'s
+/// precision of `scale`: a backward-error bound, `scale` being the sum of the
+/// magnitudes that went into `want`.
+pub fn expectNear(comptime T: type, want: Wide(T), got: T, ulps: f128, scale: f128) !void {
+    const F = FloatOf(T);
+    const tol = ulps * std.math.floatEps(F) * scale + std.math.floatMin(F);
+    try expectClose(Wide(T), want, wide(T, got), tol);
+}
+
+/// The float types beyond the vtable's to test the interface at: `f80` too
+/// where it may cross the C ABI.
+pub const any_floats = if (sysinfo.cpu.arch.isX86()) .{ f16, f80, f128 } else .{ f16, f128 };
 
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {

@@ -9,11 +9,11 @@
 //! its `HEMVREV` forms (upper and lower, the transpose of the Hermitian
 //! matrix); the Fortran interface accepts them.
 //!
-//! Element type `T` is `f32`, `f64`, `XDouble` or a `Complex` of one; sizes
-//! and strides are `isize`. Vectors with a negative stride start at the
+//! Element type `T` is any float type or its `Complex`; sizes and strides
+//! are `isize`. Vectors with a negative stride start at the
 //! pointer given, as in the Fortran interface. No vtable slot exists for
-//! these routines; every kernel used is a level-1 slot, and `gbmv` uses no
-//! gemv kernel.
+//! these routines; every kernel used is a level-1 one (`portable.kernel`),
+//! and `gbmv` uses no gemv kernel.
 //!
 //! There is no xerbla here: bad arguments return `interface.ArgError`
 //! (`info` is the first failing argument in the reference's check order).
@@ -27,12 +27,11 @@ const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const interface = @import("interface.zig");
+const portable = @import("../portable.zig");
 
 const BlasLong = types.BlasLong;
-const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
 
 pub const Error = interface.Error;
 
@@ -132,25 +131,8 @@ pub const Trans = enum {
 
 // ---- element helpers ---------------------------------------------------------
 
-fn isComplex(comptime T: type) bool {
-    return T == Complex32 or T == Complex64 or T == ComplexXD;
-}
-
-fn Float(comptime T: type) type {
-    return if (isComplex(T)) @FieldType(T, "re") else T;
-}
-
-fn letter(comptime T: type) []const u8 {
-    if (T == f32 or T == Complex32) return if (T == f32) "s" else "c";
-    if (T == f64 or T == Complex64) return if (T == f64) "d" else "z";
-    if (T == XDouble or T == ComplexXD) return if (T == XDouble) "q" else "x";
-    @compileError("not a BLAS element type: " ++ @typeName(T));
-}
-
-fn slot(comptime T: type, comptime base: []const u8) @typeInfo(@FieldType(Vtable, letter(T) ++ base ++ "_k")).optional.child {
-    // the routine fetched the table at its start (`blas.vtable()`)
-    return @field(blas.table(), letter(T) ++ base ++ "_k").?;
-}
+const isComplex = types.isComplex;
+const Float = types.Float;
 
 fn raw(comptime T: type, p: [*]T) [*]Float(T) {
     return @ptrCast(p);
@@ -169,10 +151,6 @@ fn el(comptime T: type, p: [*]T, i: BlasLong) *T {
 /// `inc < 0`.
 fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
     return if (inc < 0) at(T, p, -(n - 1) * inc) else p;
-}
-
-fn long(v: isize) BlasLong {
-    return @intCast(v);
 }
 
 fn zero(comptime T: type) T {
@@ -209,9 +187,9 @@ fn isOne(comptime T: type, a: T) bool {
 fn axpyK(comptime T: type, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
     if (n <= 0) return;
     if (comptime isComplex(T)) {
-        _ = slot(T, if (cj) "axpyc" else "axpy")(n, 0, 0, alpha.re, alpha.im, raw(T, x), 1, raw(T, y), 1, raw(T, y), 0);
+        _ = portable.fetch(T, if (cj) .axpyc_k else .axpy_k, blas.table)(n, 0, 0, alpha.re, alpha.im, raw(T, x), 1, raw(T, y), 1, raw(T, y), 0);
     } else {
-        _ = slot(T, "axpy")(n, 0, 0, alpha, x, 1, y, 1, y, 0);
+        _ = portable.fetch(T, .axpy_k, blas.table)(n, 0, 0, alpha, x, 1, y, 1, y, 0);
     }
 }
 
@@ -219,14 +197,14 @@ fn axpyK(comptime T: type, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y:
 fn dotK(comptime T: type, comptime cj: bool, n: BlasLong, x: [*]T, y: [*]T) T {
     if (n <= 0) return zero(T);
     if (comptime isComplex(T)) {
-        return slot(T, if (cj) "dotc" else "dotu")(n, raw(T, x), 1, raw(T, y), 1).toComplex();
+        return types.complexOf(portable.fetch(T, if (cj) .dotc_k else .dotu_k, blas.table)(n, raw(T, x), 1, raw(T, y), 1));
     }
-    return slot(T, "dot")(n, x, 1, y, 1);
+    return portable.fetch(T, .dot_k, blas.table)(n, x, 1, y, 1);
 }
 
 fn copyK(comptime T: type, n: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) void {
     if (n <= 0) return;
-    _ = slot(T, "copy")(n, raw(T, x), incx, raw(T, y), incy);
+    _ = portable.fetch(T, .copy_k, blas.table)(n, raw(T, x), incx, raw(T, y), incy);
 }
 
 /// `y := beta*y`, with the interface's flag 0: a zero `beta` stores zeros.
@@ -234,9 +212,9 @@ fn scalK(comptime T: type, n: BlasLong, beta: T, y: [*]T, incy: BlasLong) void {
     if (n <= 0) return;
     const p = raw(T, y);
     if (comptime isComplex(T)) {
-        _ = slot(T, "scal")(n, 0, 0, beta.re, beta.im, p, incy, p, 0, p, 0);
+        _ = portable.fetch(T, .scal_k, blas.table)(n, 0, 0, beta.re, beta.im, p, incy, p, 0, p, 0);
     } else {
-        _ = slot(T, "scal")(n, 0, 0, beta, p, incy, p, 0, p, 0);
+        _ = portable.fetch(T, .scal_k, blas.table)(n, 0, 0, beta, p, incy, p, 0, p, 0);
     }
 }
 
@@ -415,6 +393,15 @@ fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comp
 
 // ---- interface ---------------------------------------------------------------
 
+/// Refuses a matrix of order `n` that could not exist in memory
+/// (`util.fitsMatrix`): `lda` columns of band or full storage, or the packed
+/// triangle, bounded by `n` columns of `n`.
+fn spans(comptime T: type, comptime packed_: bool, n: isize, lda: isize) interface.ArgError!void {
+    if (packed_) {
+        if (!util.fitsMatrix(n, n, n, @sizeOf(T))) return error.InvalidN;
+    } else if (!util.fitsMatrix(lda, n, lda, @sizeOf(T))) return error.InvalidLda;
+}
+
 /// `?GBMV` (`interface/gbmv.c`, `zgbmv.c`): `y := alpha*op(A)*x + beta*y` for
 /// an `m` by `n` matrix with `kl` sub- and `ku` superdiagonals in band
 /// storage. `beta == 0` stores `alpha*op(A)*x` without reading `y`.
@@ -428,18 +415,21 @@ pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: isize, n:
     if (m == 0 or n == 0) return;
     _ = blas.vtable();
     const tr = trans.transposed();
-    const lenx = long(if (tr) m else n);
-    const leny = long(if (tr) n else m);
+    const lenx = if (tr) m else n;
+    const leny = if (tr) n else m;
+    if (!util.fitsMatrix(lda, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
     if (!isOne(T, beta)) scalK(T, leny, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, lenx, incx);
     const py = first(T, y, leny, incy);
     if (comptime isComplex(T)) {
         switch (trans) {
-            inline else => |t| try gbmvDriver(T, comptime t.transposed(), comptime t.conjA(), comptime t.conjX(), gpa, long(m), long(n), long(ku), long(kl), alpha, a, long(lda), px, incx, py, incy),
+            inline else => |t| try gbmvDriver(T, comptime t.transposed(), comptime t.conjA(), comptime t.conjX(), gpa, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
         }
     } else switch (tr) {
-        inline else => |t| try gbmvDriver(T, t, false, false, gpa, long(m), long(n), long(ku), long(kl), alpha, a, long(lda), px, incx, py, incy),
+        inline else => |t| try gbmvDriver(T, t, false, false, gpa, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
     }
 }
 
@@ -447,14 +437,17 @@ pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: isize, n:
 /// start-of-vector pointers, and the uplo dispatch.
 fn mvInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n == 0) return;
+    try spans(T, packed_, n, lda);
+    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
-    const kn = long(n);
+    const kn = n;
     if (!isOne(T, beta)) scalK(T, kn, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, kn, incx);
     const py = first(T, y, kn, incy);
     switch (lower) {
-        inline else => |lo| try mvDriver(T, kind, lo, packed_, gpa, kn, long(k), alpha, a, long(lda), px, incx, py, incy),
+        inline else => |lo| try mvDriver(T, kind, lo, packed_, gpa, kn, k, alpha, a, lda, px, incx, py, incy),
     }
 }
 
@@ -504,23 +497,28 @@ pub fn hpmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, 
 
 fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     if (n == 0) return;
+    try spans(T, packed_, n, lda);
+    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (comptime kind == .symmetric) {
         if (isZero(T, alpha)) return;
     } else if (alpha == 0) return;
     _ = blas.vtable();
-    const px = first(T, x, long(n), incx);
+    const px = first(T, x, n, incx);
     switch (lower) {
-        inline else => |lo| try rankDriver(T, kind, lo, packed_, gpa, long(n), alpha, px, incx, a, long(lda)),
+        inline else => |lo| try rankDriver(T, kind, lo, packed_, gpa, n, alpha, px, incx, a, lda),
     }
 }
 
 fn rank2Interface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (n == 0 or isZero(T, alpha)) return;
+    try spans(T, packed_, n, lda);
+    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
-    const px = first(T, x, long(n), incx);
-    const py = first(T, y, long(n), incy);
+    const px = first(T, x, n, incx);
+    const py = first(T, y, n, incy);
     switch (lower) {
-        inline else => |lo| try rank2Driver(T, kind, lo, packed_, gpa, long(n), alpha, px, incx, py, incy, a, long(lda)),
+        inline else => |lo| try rank2Driver(T, kind, lo, packed_, gpa, n, alpha, px, incx, py, incy, a, lda),
     }
 }
 
