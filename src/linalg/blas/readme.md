@@ -19,6 +19,19 @@ next to each routine.
   block, for routines whose upstream kernel is C (`axpy`, `dot`);
   `blas1/c_kernels.md` says how such a kernel is ported.
 
+## Initialization
+
+`blas.init(env)` selects the core and fills the vtable with its kernels, once
+and thread safe; the first kernel call does it by itself if the program has
+not. A routine fetches the table once per call (`blas.vtable()`, or
+`blas.kernel` for one kernel) and code under it reads `blas.table()`. On its
+own, init reads `OPENBLAS_*` from the process (the Windows PEB, or libc's
+`environ`, `_NSGetEnviron()` on Darwin) one variable at a time; Zig gives a
+library no environment elsewhere, so there only `blas.init(env)` honors them.
+`blas.shutdown()` goes back to the portable kernels; the next call selects
+again. `DTB_ENTRIES` per core is in `params_data.zig`
+(`tools/blas_asm/params.zig`, from `getarch.c`).
+
 ## Not a drop-in
 
 This is a Zig library, not a replacement `libopenblas`: there are no CBLAS
@@ -34,7 +47,12 @@ those layers are closed by this decision, not by code.
 `tools/blas_asm/gen.zig` turns each upstream `.S` into a naked function.
 
 - **ABI variants:** a source is preprocessed once per variant: x86_64 `sysv`
-  and `win`, arm `hf` and `sf`, POWER and SPARC `32` and `64`.
+  and `win`, arm `hf` and `sf`, POWER `32`, `32le`, `64` (little-endian
+  ELFv2) and `64be` (big-endian; Zig emits ELFv2 there too), SPARC `32` and
+  `64`.
+  `abi.zig` picks the one a target needs from its C calling convention, so
+  x86_64 UEFI gets `win`. The build stops for a target whose ABI has none
+  (x32, MIPS n32); `-Dblas-cores=none` leaves the portable kernels.
 - **Merged texts:** cores whose texts differ in under 10% of lines share one
   file, with the differing lines chosen at comptime.
 - **Labels:** named labels become numeric local labels, so none reach the
@@ -213,6 +231,54 @@ builds only the core the target maps to (the host's own, detected, for a
 native target); `all`, the release default, every core the target can run;
 `none`, no objects, leaving the portable kernels. A consumer passes its
 optimize mode to rstd so that the default follows it.
+
+## Core selection
+
+`blas.init` calls `cpu.choose` (`cpu/_select.zig`), which is `gotoblas_dynamic_init`
+in two steps.
+
+1. **Which core.** `OPENBLAS_CORETYPE` if it names a core (case-insensitive;
+   `unknown` is no name) and the CPU can run it, else the detector's answer. A
+   name no core has is reported at `OPENBLAS_VERBOSE` 1 and detection decides
+   (the reference falls back to its generic core instead). A core the CPU cannot
+   run is replaced by the closest one it can.
+2. **Which object.** A core with no kernel object in the build (`-Dblas-cores`,
+   or a core with no assembly) is served by the closest linked core that needs no
+   feature it lacks, by instruction set (`select.served`), else the build's pick,
+   else the portable kernels. The reference's `#define gotoblas_X gotoblas_Y`
+   chains follow no such rule (Barcelona to Nehalem puts SSSE3 code on a CPU
+   without it). The served core's parameters are used too.
+
+Each `cpu/_detect/<arch>.zig` is a thin `probe` (cpuid, auxv, sysfs, sysctl) that
+fills a `Caps`, and pure `decide`, `runnable` and table functions the tests feed
+synthetic values. `decide` never returns a core `runnable` rejects.
+
+Where the port differs from `dynamic*.c`:
+
+- x86: the OS AVX, AVX2 and AVX-512 state checks and the reference's fallbacks
+  and warnings are kept; AMD family 10h and 12h are Barcelona (the reference
+  returns NULL), FMA3 is required for the Haswell and Zen kernels, `cpuid` leaves
+  are range-checked, and macOS's lazy ZMM state is not mistaken for no AVX-512.
+- arm: the reference has no run-time dispatch; `cpuid_arm.c`'s choice is made at
+  run time from the hwcap bits, requiring 32 VFP registers for the ARMv7 kernels.
+- arm64: the part table follows `dynamic_arm64.c`; Windows reads `MIDR_EL1` from
+  the registry and SVE, SVE2, SME and BF16 from `IsProcessorFeaturePresent`,
+  FreeBSD uses the auxiliary vector as Linux does. Without the `MIDR_EL1`
+  emulation the per-CPU sysfs pass reads `cpu_capacity` (decimal), as
+  `cpuid_arm64.c` does; `dynamic_arm64.c` reads `cpu_capability`, which Linux
+  does not have.
+- riscv: `vlenb` picks ZVL256B (no object yet, so ZVL128B serves it).
+- power: POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440
+  (static targets upstream) are told by `AT_PLATFORM`, the PVR or the hwcap ISA
+  bits, so none runs a later generation's code; a CPU nothing names gets the
+  portable kernels (the reference guesses POWER8). AIX is not a Zig target.
+- mips: the reference tests `HWCAP_LOONGSON_CPUCFG` the wrong way round and its
+  `cpucfg` word has both registers zero; both are corrected here, unverified on
+  hardware.
+- Static-only `TARGET`s (P5, P6, VIAC3, Yonah; Cortex-A76, A510, A710, X1,
+  X2, Ampere1, FT2000) are cores that `OPENBLAS_CORETYPE` can name, with their
+  objects; detection, like the reference's, never picks them. Cortex-A9 and A15
+  are detected by part, as `cpuid_arm.c` does.
 
 ## Qemu rigs
 

@@ -8,17 +8,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
+const abi = @import("abi.zig");
+const select = @import("cpu/_select.zig");
 
-/// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target needs: the
-/// calling convention or pointer width the sources have a path for. It is
-/// the compiled target's, so `has`, which the build script asks about the
-/// target it is building for, does not depend on it.
-pub const variant: []const u8 = switch (builtin.cpu.arch) {
-    .x86_64 => if (builtin.os.tag == .windows) "win" else "sysv",
-    .arm, .armeb, .thumb, .thumbeb => if (builtin.abi.float() == .hard) "hf" else "sf",
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le, .sparc, .sparc64 => if (@sizeOf(usize) == 8) "64" else "32",
-    else => "",
-};
+/// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target's calling
+/// convention needs (`abi.zig`). The compiled target's, so `has`, which the
+/// build script asks about the target it is building for, does not depend on it.
+pub const variant: []const u8 = abi.variantName(&builtin.target);
 
 /// The cores whose kernel objects this build links, and the one standing in
 /// for a detected core that is not linked (`build/blaskern.zig`).
@@ -33,16 +29,30 @@ pub fn isLinked(core: anytype) bool {
     return false;
 }
 
-/// Points the vtable at `core`'s kernels from `modules` (an arch's list in
-/// `kernels/<arch>.zig`). A core with no linked object uses the build's pick
-/// for the target instead, if any; otherwise the portable kernels stay.
-pub fn install(vt: *Vtable, comptime modules: anytype, core: anytype) void {
+/// The linked objects as `select.served` reads them: which cores have one, and
+/// the build's pick for the target as the last resort.
+pub fn LinkedCtx(comptime Core: type) type {
+    return struct {
+        pub const fallback: ?Core = if (linked.fallback) |f| std.meta.stringToEnum(Core, f) else null;
+        pub fn ok(_: @This(), core: Core) bool {
+            return isLinked(core);
+        }
+    };
+}
+
+/// The core whose object serves `core`: itself if linked, else the closest linked
+/// core that needs nothing `core` does not (`select.served`), else the build's
+/// pick for the target. Null means the portable kernels.
+pub fn served(core: anytype) ?@TypeOf(core) {
     const Core = @TypeOf(core);
-    const pick: Core = if (isLinked(core)) core else if (comptime linked.fallback) |f|
-        comptime std.meta.stringToEnum(Core, f).?
-    else
-        return;
-    switch (pick) {
+    return select.served(Core, core, LinkedCtx(Core){});
+}
+
+/// Points the vtable at `core`'s kernels from `modules` (an arch's list in
+/// `kernels/<arch>.zig`), or at those of the core that serves it (`served`).
+/// With none, the portable kernels stay.
+pub fn install(vt: *Vtable, comptime modules: anytype, core: anytype) void {
+    switch (served(core) orelse return) {
         inline else => |c| {
             if (comptime !isLinked(c)) return;
             inline for (modules) |m| m.install(vt, c);
@@ -113,7 +123,11 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
         pub fn exportCore(comptime core: Core) void {
             @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
-                if (comptime kernel(e, core)) |K| @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
+                if (comptime kernel(e, core)) |K| {
+                    @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
+                } else if (comptime e.module.serves(@tagName(core)) and !hasRole(core, e.role)) {
+                    @compileError("no '" ++ variant ++ "' build of " ++ e.role ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
+                }
             }
         }
 
