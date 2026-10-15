@@ -33,6 +33,7 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/scal/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/power/asm/__root__.zig")),
+    registry.Kernels(Core, @import("../blas2/gemv/power/asm/__root__.zig")),
 };
 
 /// Whether this registry has kernels for `arch`.

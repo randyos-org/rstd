@@ -1,4 +1,6 @@
-//! Vtable wrappers for the `gemv` kernels.
+//! `GEMV` kernels: `y += alpha * op(A) * x`, `A` column-major `m` by `n`. The
+//! vtable wrappers, the portable kernels (`*_generic`), and tests of every
+//! core's kernels against plain arithmetic.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
@@ -123,4 +125,174 @@ pub fn xgemv_s(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alp
 }
 pub fn xgemv_d(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, a: [*]XDouble, lda: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, buffer: [*]XDouble) i32 {
     return blas.kernel(.xgemv_d)(m, n, dummy1, alpha_r, alpha_i, a, lda, x, inc_x, y, inc_y, buffer);
+}
+
+// ---- portable kernels ------------------------------------------------------
+
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
+const check = @import("../../blas1/check.zig");
+
+/// `kernel/arm/gemv_n.c` and `gemv_t.c`: `y += alpha*A*x` (`n`, `y` of `m`)
+/// or `y += alpha*A^T*x` (`t`, `y` of `n`). The interface has already scaled
+/// `y` by `beta`.
+fn Gemv(comptime F: type) type {
+    return struct {
+        fn n(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+            var j: BlasLong = 0;
+            while (j < cols) : (j += 1) {
+                const tv = alpha * util.at(F, x, j * inc_x).*;
+                var i: BlasLong = 0;
+                while (i < m) : (i += 1) util.at(F, y, i * inc_y).* += tv * util.at(F, a, i + j * lda).*;
+            }
+            return 0;
+        }
+        fn t(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+            var j: BlasLong = 0;
+            while (j < cols) : (j += 1) {
+                var acc: F = 0;
+                var i: BlasLong = 0;
+                while (i < m) : (i += 1) acc += util.at(F, a, i + j * lda).* * util.at(F, x, i * inc_x).*;
+                util.at(F, y, j * inc_y).* += alpha * acc;
+            }
+            return 0;
+        }
+    };
+}
+
+/// `kernel/arm/zgemv_n.c` and `zgemv_t.c`: `y += alpha*op(A)*x` with `A`
+/// conjugated for `conj` (`CONJ`) and `x` for `xconj` (`XCONJ`): `r` is
+/// `conj(A)*x`, `o` is `A*conj(x)`, `c` is `A^H*x`, and so on.
+fn Zgemv(comptime F: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool) type {
+    return struct {
+        fn get(p: [*]F, i: BlasLong, c: bool) std.math.Complex(F) {
+            const re = util.at(F, p, 2 * i).*;
+            const im = util.at(F, p, 2 * i + 1).*;
+            return .init(re, if (c) -im else im);
+        }
+        fn k(m: BlasLong, cols: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(.c) i32 {
+            const alpha: std.math.Complex(F) = .init(alpha_r, alpha_i);
+            var j: BlasLong = 0;
+            while (j < cols) : (j += 1) {
+                if (trans) {
+                    var acc: std.math.Complex(F) = .init(0, 0);
+                    var i: BlasLong = 0;
+                    while (i < m) : (i += 1) acc = acc.add(get(a, i + j * lda, conj).mul(get(x, i * inc_x, xconj)));
+                    const v = alpha.mul(acc);
+                    util.at(F, y, 2 * j * inc_y).* += v.re;
+                    util.at(F, y, 2 * j * inc_y + 1).* += v.im;
+                } else {
+                    const tv = alpha.mul(get(x, j * inc_x, xconj));
+                    var i: BlasLong = 0;
+                    while (i < m) : (i += 1) {
+                        const v = tv.mul(get(a, i + j * lda, conj));
+                        util.at(F, y, 2 * i * inc_y).* += v.re;
+                        util.at(F, y, 2 * i * inc_y + 1).* += v.im;
+                    }
+                }
+            }
+            return 0;
+        }
+    };
+}
+
+/// The complex variants by suffix: transposed, `A` conjugated, `x` conjugated.
+const variants = .{
+    .{ "n", false, false, false }, .{ "t", true, false, false },
+    .{ "r", false, true, false },  .{ "c", true, true, false },
+    .{ "o", false, false, true },  .{ "u", true, false, true },
+    .{ "s", false, true, true },   .{ "d", true, true, true },
+};
+
+/// Points every gemv slot but the half-precision ones at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    vt.sgemv_n = &Gemv(f32).n;
+    vt.sgemv_t = &Gemv(f32).t;
+    vt.dgemv_n = &Gemv(f64).n;
+    vt.dgemv_t = &Gemv(f64).t;
+    vt.qgemv_n = &Gemv(XDouble).n;
+    vt.qgemv_t = &Gemv(XDouble).t;
+    inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
+        inline for (variants) |v| {
+            @field(vt, p[0] ++ "gemv_" ++ v[0]) = &Zgemv(p[1], v[1], v[2], v[3]).k;
+        }
+    }
+}
+
+// ---- tests -----------------------------------------------------------------
+
+const C = std.math.Complex;
+/// Shapes across the kernels' blocks; small enough for the rigs' stacks.
+const sizes = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 }, .{ 3, 2 }, .{ 4, 4 }, .{ 7, 5 }, .{ 8, 8 }, .{ 9, 16 }, .{ 16, 9 }, .{ 17, 17 }, .{ 33, 4 }, .{ 4, 33 } };
+const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 } };
+const cap = 33 * 3 + 2; // a vector's span at stride 3
+
+/// `kern` against plain arithmetic; `T` is the element type and the flags
+/// are the variant's.
+fn checkGemv(comptime T: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool, kern: anytype) !void {
+    const F = check.FloatOf(T);
+    const complex = comptime check.isComplex(T);
+    const alpha: T = if (complex) .init(1.25, -0.5) else 1.25;
+    for (sizes) |mn| for (strides) |inc| {
+        const m = mn[0];
+        const n = mn[1];
+        const lda = m + 1;
+        var a: [400]T = undefined; // lda * n at most 18 * 17
+        var x: [cap]T = undefined;
+        var y: [cap]T = undefined;
+        check.fill(T, &a, m * 7 + n);
+        check.fill(T, &x, m + 3);
+        check.fill(T, &y, n + 5);
+        var want = y;
+        const rows = if (trans) n else m; // y's length
+        const inner = if (trans) m else n; // x's length
+        for (0..rows) |r| {
+            var acc: T = if (complex) .init(0, 0) else 0;
+            for (0..inner) |q| {
+                const e = if (trans) a[q + r * lda] else a[r + q * lda];
+                const xv = x[q * inc[0]];
+                if (complex) {
+                    const ae = if (conj) e.conjugate() else e;
+                    const xe = if (xconj) xv.conjugate() else xv;
+                    acc = acc.add(ae.mul(xe));
+                } else acc += e * xv;
+            }
+            if (complex) want[r * inc[1]] = want[r * inc[1]].add(alpha.mul(acc)) else want[r * inc[1]] += alpha * acc;
+        }
+        if (complex) {
+            _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, @ptrCast(&a), @intCast(lda), @ptrCast(&x), @intCast(inc[0]), @ptrCast(&y), @intCast(inc[1]), check.work(F));
+        } else {
+            _ = kern(@intCast(m), @intCast(n), 0, alpha, &a, @intCast(lda), &x, @intCast(inc[0]), &y, @intCast(inc[1]), check.work(F));
+        }
+        check.expectCloseSlices(T, &want, &y, check.tolerance(F, 4 * inner)) catch |e| {
+            check.say("m={d} n={d} trans={} conj={} xconj={}: ", .{ m, n, trans, conj, xconj });
+            return check.case(e, "gemv", T, rows, inc);
+        };
+    };
+}
+
+fn checkAll(vt: *const Vtable) !void {
+    try checkGemv(f32, false, false, false, vt.sgemv_n.?);
+    try checkGemv(f32, true, false, false, vt.sgemv_t.?);
+    try checkGemv(f64, false, false, false, vt.dgemv_n.?);
+    try checkGemv(f64, true, false, false, vt.dgemv_t.?);
+    inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
+        inline for (variants) |v| {
+            try checkGemv(C(p[1]), v[1], v[2], v[3], @field(vt, p[0] ++ "gemv_" ++ v[0]).?);
+        }
+    }
+}
+
+test "portable gemv kernels match plain arithmetic" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAll(&vt);
+    try checkGemv(XDouble, false, false, false, vt.qgemv_n.?);
+    try checkGemv(XDouble, true, false, false, vt.qgemv_t.?);
+    inline for (variants) |v| try checkGemv(C(XDouble), v[1], v[2], v[3], @field(vt, "xgemv_" ++ v[0]).?);
+}
+
+test "every linked core's gemv kernels match plain arithmetic, where this machine runs them" {
+    try check.eachCore(checkAll);
 }
