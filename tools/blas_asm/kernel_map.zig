@@ -103,27 +103,66 @@ const Assigns = struct {
     }
 };
 
-/// Applies the assignments to `<f>AXPYKERNEL` in `path`, in order, following
-/// `include`s where they appear as make does. An unconditional assignment
-/// replaces what was there; one under a conditional adds an alternative. With
-/// `defaults` set, only a variable nothing has set yet is assigned, which is
-/// what the `ifndef` blocks of the default files mean.
+/// One open conditional of a makefile.
+const Cond = struct {
+    /// `ifdef`/`ifndef` on the variable itself, which make decides from what
+    /// has been assigned so far; any other test (`ifeq` on the core, the
+    /// compiler, `NO_LSX`) is unknown, so both sides count as alternatives.
+    known: bool,
+    /// For a known one: whether the branch being read is taken.
+    taken: bool,
+    /// For a known one: whether the `if` branch was the taken one.
+    if_taken: bool,
+};
+
+/// Applies the assignments to `key` in `file`, in order, following `include`s
+/// where they appear as make does. A plain assignment replaces what was
+/// there; one under a conditional we cannot decide adds an alternative. An
+/// `ifndef`/`ifdef` on `key` itself is decided from what is assigned so far,
+/// which is how a later file's plain assignment overrides an earlier core's
+/// and how the `ifndef` defaults only fill a gap. With `defaults` set, only a
+/// variable nothing has set yet is assigned (for the default files, whose
+/// every assignment sits in an `ifndef`).
 fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8, defaults: bool) !void {
     const text = read(file) orelse return;
-    var depth: usize = 0;
+    var stack: std.ArrayList(Cond) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
-        if (std.mem.startsWith(u8, line, "ifeq") or std.mem.startsWith(u8, line, "ifneq") or
-            std.mem.startsWith(u8, line, "ifdef") or std.mem.startsWith(u8, line, "ifndef"))
-        {
-            depth += 1;
+        const is_if = std.mem.startsWith(u8, line, "ifeq") or std.mem.startsWith(u8, line, "ifneq") or
+            std.mem.startsWith(u8, line, "ifdef") or std.mem.startsWith(u8, line, "ifndef");
+        if (is_if) {
+            var c: Cond = .{ .known = false, .taken = true, .if_taken = true };
+            const negate = std.mem.startsWith(u8, line, "ifndef");
+            if (negate or std.mem.startsWith(u8, line, "ifdef")) {
+                const name = std.mem.trim(u8, line[if (negate) 6 else 5 ..], " \t");
+                if (std.mem.eql(u8, name, key)) {
+                    c.known = true;
+                    c.taken = (a.values.items.len == 0) == negate;
+                    c.if_taken = c.taken;
+                }
+            }
+            try stack.append(arena, c);
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, "else")) {
+            if (stack.items.len > 0) {
+                const c = &stack.items[stack.items.len - 1];
+                if (c.known) c.taken = !c.if_taken;
+            }
             continue;
         }
         if (std.mem.startsWith(u8, line, "endif")) {
-            depth -|= 1;
+            _ = stack.pop();
             continue;
         }
+        var live = true;
+        var undecided = false;
+        for (stack.items) |c| {
+            if (c.known and !c.taken) live = false;
+            if (!c.known) undecided = true;
+        }
+        if (!live) continue;
         if (std.mem.startsWith(u8, line, "include ") or std.mem.startsWith(u8, line, "-include ")) {
             const target = std.mem.trim(u8, line[std.mem.indexOfScalar(u8, line, ' ').?..], " ");
             const marker = "$(KERNELDIR)";
@@ -139,7 +178,7 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
         rest = std.mem.trim(u8, rest[1..], " \t");
         if (defaults) {
             if (a.values.items.len == 0) try a.set(rest, false);
-        } else try a.set(rest, depth > 0);
+        } else try a.set(rest, undecided);
     }
 }
 
@@ -228,15 +267,17 @@ pub fn resolve(arch: []const u8, core: []const u8, f: []const u8) ![]const []con
     return try resolveKey(arch, core, key, "Makefile.L1");
 }
 
-/// The sources `core` assigns to the make variable `key`, with the defaults
-/// of `kernel/<defaults>` when neither its `KERNEL.<core>` nor `KERNEL` does.
+/// The sources `core` assigns to the make variable `key`, in the order
+/// `kernel/Makefile` reads them: `KERNEL.<core>`, then the architecture's
+/// `KERNEL` (whose plain assignments override the core's), then the defaults
+/// of `kernel/<defaults>`.
 pub fn resolveKey(arch: []const u8, core: []const u8, key: []const u8, defaults: []const u8) ![]const []const u8 {
     const dir = try path(&.{ root, "kernel", arch });
     var a: Assigns = .{};
     if (!std.mem.eql(u8, core, "(all)")) {
         try apply(&a, try path(&.{ dir, try std.fmt.allocPrint(arena, "KERNEL.{s}", .{core}) }), dir, key, false);
     }
-    try apply(&a, try path(&.{ dir, "KERNEL" }), dir, key, true);
+    try apply(&a, try path(&.{ dir, "KERNEL" }), dir, key, false);
     if (a.values.items.len == 0) try apply(&a, try path(&.{ root, "kernel", defaults }), dir, key, true);
     return a.values.items;
 }

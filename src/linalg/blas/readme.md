@@ -31,6 +31,19 @@ next to each routine.
   Mach-O, so the x86 sources' `.align` is written as `.balign`, bytes on every
   object format. `uk.zig` does the same for the C drivers' blocks.
 
+## Kernel selection
+
+Which source a core uses follows `kernel/Makefile`: the core's
+`KERNEL.<core>` (and what it includes), then the architecture's `KERNEL`, then
+`Makefile.L1` and the like. A plain assignment in `KERNEL` overrides the core's
+choice; only an `ifndef` leaves it. `kernel_map.zig` evaluates this, deciding
+`ifdef`/`ifndef` on the variable itself and listing both sides of any other
+conditional as alternatives. Upstream consequences: x86_64 `csum`/`zsum` on the
+AVX-512 cores are `zsum_sse.S`/`zsum_sse2.S`; loongarch64 `dsdot` is `dot.S`
+on LA264 and LA464; arm64 `csum` is `csum.S` everywhere; MIPS64's MSA complex
+`axpy`, `rot`, `swap` and `scal` are never selected, `KERNEL` resets them to
+the `arm/` C.
+
 ## Symbols and linking
 
 Kernels are exported as `blaskern_<role>_<core>` with hidden visibility, so
