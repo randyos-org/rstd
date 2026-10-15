@@ -33,7 +33,7 @@ pub const Kind = enum { symmetric, hermitian, hermitian_rev };
 /// `SYMV_P` of the running core; the generic target's value until a core's
 /// parameters are installed.
 pub fn symvP() usize {
-    const p = blas._vtable.symv_p;
+    const p = blas.table().symv_p;
     return if (p > 0) @intCast(p) else 16;
 }
 
@@ -251,7 +251,7 @@ pub fn Auto(comptime pre: []const u8, comptime T: type, comptime lower: bool, co
         /// runs; the direct loops need no buffer.
         pub fn native() bool {
             inline for (.{ C.first_gemv, C.second_gemv, pre ++ "gemv_n" }) |name| {
-                if (@field(blas._vtable, name) != @field(portable_gemv, name)) return true;
+                if (@field(blas.table().*, name) != @field(portable_gemv, name)) return true;
             }
             return false;
         }
@@ -292,7 +292,7 @@ pub fn checkKernel(comptime T: type, comptime lower: bool, comptime kind: Kind, 
     const alpha: T = if (complex) .init(1.25, -0.5) else 1.25;
     const cs = if (complex) 2 else 1;
     for (blocks) |p| for (sizes) |m| for (strides) |inc| for ([_]usize{ m, if (m > 4) (if (lower) 4 else m - 4) else m }) |offset| {
-        blas._vtable.symv_p = p;
+        blas.testTable().symv_p = p;
         const lda = m + 1;
         const a = guard.operand(T, .a, lda * m);
         const x = guard.operand(T, .x, guard.span(m, inc[0]));
