@@ -44,6 +44,29 @@ on LA264 and LA464; arm64 `csum` is `csum.S` everywhere; MIPS64's MSA complex
 `axpy`, `rot`, `swap` and `scal` are never selected, `KERNEL` resets them to
 the `arm/` C.
 
+## Portable kernels
+
+The portable kernels are Zig algorithms with the reference's documented
+semantics, not copies of its C: `dsdot` accumulates in `f64` (so does `sdot`),
+`nrm2` scales against overflow and underflow, `scal`'s flag keeps NaN and
+Inf, `i?amax` returns the first of equal extremes, and a NaN first element is
+never replaced. Not required by the design, so not done: reproducing the
+reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial
+sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
+its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
+`zrotg.c`'s scaled branches are wrong). `rotg` computes in `XDouble`, which
+is where the reference uses `long double` on x86; it is an `f64` alias until
+the x87 work lands, after which `rotg` widens with it. Tests compare against a
+wide-precision reference with tolerances; exact comparison is kept where a Zig
+kernel stands in for a converted kernel of the same core.
+
+Contraction (`fma.zig`) is decided per target: fused where the ISA has a
+scalar fused multiply-add (x86 with FMA, AArch64, ARM with VFPv4, PowerPC,
+RISC-V F/D, LoongArch, s390x, MIPS release 6), not on SPARC, WebAssembly or
+earlier MIPS, whose `madd` rounds the product. Vector multiply-adds also fuse
+on MIPS with MSA and WebAssembly with `relaxed_simd`. A per-core kernel
+object overrides the policy with that core's flags.
+
 ## Symbols and linking
 
 Kernels are exported as `blaskern_<role>_<core>` with hidden visibility, so
