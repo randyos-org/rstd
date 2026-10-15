@@ -7,6 +7,10 @@
 //! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
 
 const blas = @import("../../__root__.zig");
+const sysinfo = @import("builtin");
+const zigstd = @import("../../../../zigstd.zig");
+const kernel = @import("kernel.zig");
+const uk = @import("../uk_block.zig");
 const types = @import("../../types.zig");
 
 const BlasLong = types.BlasLong;
@@ -143,8 +147,13 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 /// `kern` against a plain loop in `f64`; `T` is the element type, `conj`
-/// conjugates `x` (`dotc`).
+/// conjugates `x` (`dotc`). `narrow` allows a `dsdot` the error of summing
+/// `f32` products: the reference's blocks do, 32 at a time.
 fn checkDot(comptime T: type, comptime conj: bool, kern: anytype) !void {
+    try checkDotTol(T, conj, kern, false);
+}
+
+fn checkDotTol(comptime T: type, comptime conj: bool, kern: anytype, comptime narrow: bool) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
     for (check.sizes) |n| {
@@ -169,7 +178,7 @@ fn checkDot(comptime T: type, comptime conj: bool, kern: anytype) !void {
             }
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc[0]), @as([*]F, @ptrCast(&y)), @intCast(inc[1]));
             const R = @TypeOf(got);
-            const tol = check.tolerance(if (complex) F else R, 4 * n);
+            const tol = check.tolerance(if (complex or narrow) F else R, 4 * n);
             const ok = if (comptime complex)
                 check.expectClose(std.math.Complex(F), .init(@floatCast(re), @floatCast(im)), got.toComplex(), tol)
             else
@@ -182,7 +191,7 @@ fn checkDot(comptime T: type, comptime conj: bool, kern: anytype) !void {
 fn checkAll(vt: *const Vtable) !void {
     try checkDot(f32, false, vt.sdot_k.?);
     try checkDot(f64, false, vt.ddot_k.?);
-    try checkDot(f32, false, vt.dsdot_k.?);
+    try checkDotTol(f32, false, vt.dsdot_k.?, true);
     try checkDot(std.math.Complex(f32), false, vt.cdotu_k.?);
     try checkDot(std.math.Complex(f32), true, vt.cdotc_k.?);
     try checkDot(std.math.Complex(f64), false, vt.zdotu_k.?);
@@ -193,6 +202,7 @@ test "portable dot kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkAll(&vt);
+    try checkDot(f32, false, vt.dsdot_k.?);
     try checkDot(XDouble, false, vt.qdot_k.?);
     try checkDot(std.math.Complex(XDouble), false, vt.xdotu_k.?);
     try checkDot(std.math.Complex(XDouble), true, vt.xdotc_k.?);
@@ -221,4 +231,73 @@ test "portable sbdot matches sdot over the widened operands" {
 
 test "every linked core's dot kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "the C drivers around the reference's fallback blocks match a plain loop" {
+    inline for (.{ .{ "sdot", 32 }, .{ "ddot", 16 } }) |r| {
+        try checkDot(uk.Float(r[0]), false, kernel.entry(r[0], r[1], null));
+    }
+    try checkDotTol(f32, false, kernel.entry("dsdot", 32, null), true);
+    inline for (.{ .{ "cdotu", false, 16 }, .{ "cdotc", true, 16 }, .{ "zdotu", false, 8 }, .{ "zdotc", true, 8 } }) |r| {
+        const F = uk.Float(r[0]);
+        try checkDot(std.math.Complex(F), r[1], kernel.entry(r[0], r[2], null));
+    }
+}
+
+/// The reduction of `ddot_microk_skylakex-2.c` (`sdot_microk_skylakex-2.c` for
+/// `f32`) lane by lane: `fm` is the contraction, `wide` the 512-bit pass.
+fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: usize, x: []const T, y: []const T) T {
+    const l256 = 32 / @sizeOf(T);
+    const l512 = 64 / @sizeOf(T);
+    var acc: [4][l256]T = @splat(@splat(0));
+    var i: usize = 0;
+    if (wide) {
+        var w: [4][l512]T = @splat(@splat(0));
+        const step = 4 * l512;
+        while (i < n & ~@as(usize, step - 1)) : (i += step) {
+            for (0..4) |g| for (0..l512) |l| {
+                w[g][l] = kernel.fmadd(fuse, T, x[i + g * l512 + l], y[i + g * l512 + l], w[g][l]);
+            };
+        }
+        for (0..4) |g| for (0..l256) |l| {
+            acc[g][l] = w[g][l] + w[g][l + l256];
+        };
+    }
+    while (i < n) : (i += 4 * l256) {
+        for (0..4) |g| for (0..l256) |l| {
+            acc[g][l] = kernel.fmadd(fuse, T, x[i + g * l256 + l], y[i + g * l256 + l], acc[g][l]);
+        };
+    }
+    var h: [l256 / 2]T = undefined;
+    for (&h, 0..) |*e, l| {
+        const a = ((acc[0][l] + acc[1][l]) + acc[2][l]) + acc[3][l];
+        const b = ((acc[0][l + l256 / 2] + acc[1][l + l256 / 2]) + acc[2][l + l256 / 2]) + acc[3][l + l256 / 2];
+        e.* = a + b;
+    }
+    return if (T == f64) h[0] + h[1] else (h[0] + h[1]) + (h[2] + h[3]);
+}
+
+test "x86_64's vector blocks sum in the reference's order, bit for bit" {
+    if (comptime sysinfo.cpu.arch != .x86_64) return error.SkipZigTest;
+    const vb = @import("x86_64/kernel.zig");
+    inline for (.{ .{ "ddot", f64, 16 }, .{ "sdot", f32, 32 } }) |r| {
+        const T = r[1];
+        var x: [1024]T = undefined;
+        var y: [1024]T = undefined;
+        check.fill(T, &x, 3);
+        check.fill(T, &y, 5);
+        inline for (.{ false, true }) |wide| inline for (.{ false, true }) |fuse| {
+            const B = vb.VectorBlockWith(r[0], wide, fuse);
+            var n: usize = r[2];
+            while (n <= 1024) : (n += r[2]) {
+                const want = skylakexModel(T, wide, fuse, n, &x, &y);
+                const got = B.run(@intCast(n), &x, &y);
+                const U = if (T == f64) u64 else u32;
+                zigstd.testExpectEqual(@as(U, @bitCast(want)), @as(U, @bitCast(got))) catch |e| {
+                    check.say("{s} wide={} fuse={} n={d}: ", .{ r[0], wide, fuse, n });
+                    return e;
+                };
+            }
+        };
+    }
 }
