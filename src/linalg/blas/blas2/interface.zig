@@ -366,7 +366,7 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: B
     const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
     const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
     const auto = sym.Auto(letter(T), T, lower, kind);
-    const direct = @field(blas._vtable, letter(T) ++ name) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
+    const direct = @field(blas.table().*, letter(T) ++ name) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
     var none: [1]F = undefined;
     const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else try Scratch(F).heapOnly(allocator, (bytes + @sizeOf(F) - 1) / @sizeOf(F));
     defer sc.deinit(allocator);
@@ -388,14 +388,12 @@ const testing = std.testing;
 var poison: guard.Poison = .{ .child = testing.allocator };
 const all = .{ f32, f64, Complex32, Complex64 };
 
-/// Points the global vtable at the portable kernels until the returned vtable
-/// is put back (`defer blas._vtable = saved`).
-fn usePortable() Vtable {
-    const saved = blas._vtable;
+/// Points the global vtable at the portable kernels until
+/// `defer blas.testRestore(saved)`.
+fn usePortable() blas.TestSaved {
     var vt: Vtable = .{};
     portable.install(&vt);
-    blas._vtable = vt;
-    return saved;
+    return blas.testUse(&vt);
 }
 
 fn mulT(comptime T: type, p: T, q: T) T {
@@ -486,7 +484,7 @@ fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: BlasInt, i
 
 test "interface: gemv matches plain arithmetic, for every trans, stride and scalar case" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         const transes = if (comptime isComplex(T)) std.enums.values(Trans) else &[_]Trans{ .n, .t, .r, .c };
         for (transes) |trans| for (shapes) |s| for (stride_pairs) |inc| for (scalars(T)) |ab| {
@@ -500,7 +498,7 @@ test "interface: gemv matches plain arithmetic, for every trans, stride and scal
 
 test "interface: gemv beta 0 overwrites NaN in y, and alpha 0 never reads x or a" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         const nan = val(T, std.math.nan(Float(T)), std.math.nan(Float(T)));
         var a = [_]T{ nan, nan, nan, nan };
@@ -516,7 +514,7 @@ test "interface: gemv beta 0 overwrites NaN in y, and alpha 0 never reads x or a
 
 test "interface: gemv, ger, symv and hemv report the first bad argument and do nothing for empty problems" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     const al = testing.allocator;
     var a = [_]f64{ 1, 2, 3, 4 };
     var x = [_]f64{ 1, 1 };
@@ -579,7 +577,7 @@ fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: BlasInt, incy
 
 test "interface: ger and gerc match plain arithmetic, for every stride and an alpha of 0" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         for (shapes) |s| for (stride_pairs) |inc| for ([_]T{ val(T, 1.25, -0.5), val(T, 0, 0), val(T, -1, 0) }) |alpha| {
             testGer(T, false, s.m, s.n, inc[0], inc[1], alpha) catch |e| {
@@ -635,7 +633,7 @@ const mv_sizes = [_]usize{ 1, 2, 5, 8, 9, 17 };
 
 test "interface: symv and hemv match plain arithmetic, for every triangle, stride and scalar case" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         for ([_]bool{ false, true }) |herm| {
             if (herm and !comptime isComplex(T)) continue;
@@ -652,7 +650,7 @@ test "interface: symv and hemv match plain arithmetic, for every triangle, strid
 
 test "interface: problems over the stack buffer allocate, and small gemv and ger never do" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         try testGemv(T, .n, 300, 300, 1, 1, val(T, 1.5, 0.5), val(T, 0.5, 0));
         try testGemv(T, if (isComplex(T)) .c else .t, 300, 300, -2, 3, val(T, 1.5, 0.5), val(T, 1, 0));
@@ -741,7 +739,7 @@ const half_scalars = [_][2]f32{ .{ 1.25, 0.5 }, .{ 1, 1 }, .{ 0, 0.5 }, .{ 1.5, 
 
 test "interface: the half-precision gemvs match plain arithmetic, for every trans, stride and scalar case" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (std.enums.values(HalfGemv)) |kind| {
         for ([_]Trans{ .n, .t, .r, .c }) |trans| for (shapes) |s| for (stride_pairs) |inc| for (half_scalars) |ab| {
             testGemvHalf(kind, trans, s.m, s.n, inc[0], inc[1], ab[0], ab[1]) catch |e| return e;
@@ -751,7 +749,7 @@ test "interface: the half-precision gemvs match plain arithmetic, for every tran
 
 test "interface: half-precision gemv beta 0 overwrites NaN, alpha 0 never reads x or a" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (std.enums.values(HalfGemv)) |kind| {
         const In = kind.In();
         const Out = kind.Out();
@@ -775,7 +773,7 @@ test "interface: half-precision gemv beta 0 overwrites NaN, alpha 0 never reads 
 
 test "interface: half-precision gemv reports the first bad argument and ignores empty problems" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (std.enums.values(HalfGemv)) |kind| {
         const In = kind.In();
         const Out = kind.Out();
@@ -799,9 +797,8 @@ test "interface: half-precision gemv reports the first bad argument and ignores 
 
 fn checkAll(vt: *const Vtable) !void {
     // the interface reaches kernels through the global vtable
-    const saved = blas._vtable;
-    blas._vtable = vt.*;
-    defer blas._vtable = saved;
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
     inline for (std.enums.values(HalfGemv)) |kind| {
         try testGemvHalf(kind, .n, 9, 7, 2, 1, 1.25, 0.5);
         try testGemvHalf(kind, .t, 9, 7, -1, 3, 1.25, 0.5);
