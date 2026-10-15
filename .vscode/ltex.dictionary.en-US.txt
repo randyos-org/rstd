@@ -93,6 +93,7 @@ blasint
 blaskern
 blaskernel
 blaslong
+BLASULONG
 ble
 blez
 Blits
@@ -1180,6 +1181,7 @@ pread64
 preadv
 preadv2
 prealloc
+precs
 PREFETCHD
 prefetcht
 prefetchw

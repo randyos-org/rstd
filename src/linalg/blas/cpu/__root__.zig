@@ -13,6 +13,8 @@ const sysinfo = @import("builtin");
 const zigstd = @import("../../../zigstd.zig");
 const Vtable = @import("../Vtable.zig");
 const corespec = @import("_corespec.zig");
+const registry = @import("../asm_registry.zig");
+pub const select = @import("_select.zig");
 
 // pub const auxv = @import("_auxv.zig");
 pub const arm = @import("arm.zig");
@@ -73,38 +75,66 @@ pub fn detect() CoreType {
     return arch.detect();
 }
 
-/// Resolves a core type from an `OPENBLAS_CORETYPE` value, case
-/// insensitively. Returns null when the name is not one this architecture
-/// knows, which the reference reports as "Core not found" before falling
-/// back to detection.
-pub fn fromName(name: []const u8) ?CoreType {
-    inline for (@typeInfo(CoreType).@"enum".field_names) |field_name| {
-        if (std.ascii.eqlIgnoreCase(field_name, name)) {
-            return @field(CoreType, field_name);
-        }
-    }
-    return null;
+/// The architecture's detector (`_detect/<arch>.zig`): `Caps`, `probe`,
+/// `decide`, `runnable`.
+pub const detector = corespec.Detector(sysinfo.cpu.arch);
+
+/// What `choose` decided: the core the CPU or the user asked for, and the core
+/// whose kernels serve it (null: the portable ones).
+pub const Chosen = select.Chosen(CoreType);
+
+/// The core to run, as `gotoblas_dynamic_init` picks it: `forced`
+/// (`OPENBLAS_CORETYPE`) if it names a core the CPU can run, else detection,
+/// each served by the closest core with a kernel object in this build.
+/// `hwcap_mask` is `LD_HWCAP_MASK` (s390x only). `log.warn(level, fmt, args)`
+/// reports what was not as asked. See `select.choose`.
+pub fn choose(forced: ?[]const u8, hwcap_mask: ?u64, log: anytype) Chosen {
+    const caps = if (comptime @hasDecl(detector, "probeMasked"))
+        detector.probeMasked(hwcap_mask orelse ~@as(u64, 0))
+    else
+        detector.probe();
+    return select.choose(detector, caps, forced, registry.LinkedCtx(CoreType){}, log);
 }
 
-test "fromName round-trips every core type for this architecture" {
+/// Resolves a core type from an `OPENBLAS_CORETYPE` value, case
+/// insensitively. Returns null when the name is not one this architecture
+/// knows (or is the placeholder `unknown`), which the reference reports as
+/// "Core not found" before falling back.
+pub fn fromName(name: []const u8) ?CoreType {
+    return select.byName(CoreType, name);
+}
+
+test "fromName round-trips every selectable core type for this architecture" {
     inline for (@typeInfo(CoreType).@"enum".field_names) |field_name| {
-        try std.testing.expectEqual(
-            @as(?CoreType, @field(CoreType, field_name)),
-            fromName(field_name),
-        );
+        const want: ?CoreType = if (select.selectable(@field(CoreType, field_name))) @field(CoreType, field_name) else null;
+        try std.testing.expectEqual(want, fromName(field_name));
     }
 }
 
 test "fromName is case insensitive and rejects unknown names" {
-    const first = @typeInfo(CoreType).@"enum".field_names[0];
+    const first = comptime for (@typeInfo(CoreType).@"enum".field_names) |n| {
+        if (select.selectable(@field(CoreType, n))) break n;
+    } else unreachable;
     var upper: [64]u8 = undefined;
     const up = std.ascii.upperString(upper[0..first.len], first);
     try std.testing.expect(fromName(up) != null);
     try std.testing.expect(fromName("definitely-not-a-core") == null);
+    try std.testing.expect(fromName("unknown") == null);
 }
 
 test "detect returns something for whatever we are built for" {
     _ = detect();
+}
+
+const NoLog = struct {
+    pub fn warn(_: NoLog, _: i32, comptime _: []const u8, _: anytype) void {}
+};
+
+test "choose gives a core the CPU can run, and its server is linked or portable" {
+    const r = choose(null, null, NoLog{});
+    // the placeholder is a CPU nothing names: no core of its own to run
+    if (select.selectable(r.core)) try std.testing.expect(detector.runnable(r.core, detector.probe()));
+    if (r.served) |k| try std.testing.expect(registry.isLinked(k));
 }
 
 test "corespec.kernelCores lists the cores with kernels" {
@@ -124,4 +154,21 @@ test "corespec.kernelCores lists the cores with kernels" {
         std.debug.print("\n", .{});
         return error.TestUnexpectedResult;
     }
+}
+
+// every detector's decision tests run on any host: they feed synthetic values
+test {
+    _ = select;
+    _ = @import("_auxv.zig");
+    _ = @import("_detect/x86.zig");
+    _ = @import("_detect/arm.zig");
+    _ = @import("_detect/arm64.zig");
+    _ = @import("_detect/riscv.zig");
+    _ = @import("_detect/loongarch.zig");
+    _ = @import("_detect/power.zig");
+    _ = @import("_detect/s390x.zig");
+    _ = @import("_detect/mips.zig");
+    _ = @import("_detect/sparc.zig");
+    _ = @import("_detect/wasm.zig");
+    _ = @import("_detect/generic.zig");
 }
