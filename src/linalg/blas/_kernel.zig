@@ -19,6 +19,9 @@ const kernels = @import("kernels/__root__.zig").ForArch(sysinfo.cpu.arch);
 /// Read by `fma.zig`.
 pub const blas_fuse_fma: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.hardware;
 
+/// The vector multiply-adds'; the group's policy is for the scalar flags.
+pub const blas_fuse_fma_vector: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.vector_madd;
+
 comptime {
     @setEvalBranchQuota(1_000_000);
     for (opts.cores) |name| kernels.exportCore(std.meta.stringToEnum(kernels.Core, name).?);

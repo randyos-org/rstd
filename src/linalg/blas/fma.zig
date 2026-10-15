@@ -13,6 +13,13 @@
 //!   * otherwise the answer follows the target: fused where the hardware has
 //!     an FMA unit, so `@mulAdd` never degrades into a libm `fma()` call.
 //!
+//! Contraction is taken the way a C compiler does it within one expression
+//! (clang's `-ffp-contract=on`, and gcc's `fast` for the single-expression
+//! statements the reference kernels use): `a*b + c*d` is `fma(a, b, c*d)`,
+//! `a*b - c*d` is `fma(a, b, -(c*d))`, a longer chain fuses each product into
+//! the running sum from the left, and a product kept in its own statement, or
+//! converted (`float` to `double`) before the add, stays rounded.
+//!
 //! `rsimd.mulAdd` delegates here.
 
 const std = @import("std");
@@ -35,11 +42,40 @@ pub const hardware = switch (sysinfo.cpu.arch) {
     .riscv32, .riscv32be, .riscv64, .riscv64be => std.Target.riscv.featureSetHasAny(sysinfo.cpu.features, .{
         .f, .d,
     }),
+    // LoongArch has fmadd.s/fmadd.d in the base F/D ISA.
+    .loongarch32, .loongarch64 => std.Target.loongarch.featureSetHasAny(sysinfo.cpu.features, .{ .f, .d }),
+    // z/Architecture has the BFP multiply-and-add (MAEBR/MADBR) in its base.
+    .s390x => true,
+    // Before release 6, MADD.fmt rounds the product, so it equals a*b + c and
+    // gcc's use of it never changes a result; R6 adds the fused MADDF.fmt.
+    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.cpu.features, .{
+        .mips32r6, .mips64r6,
+    }),
+    // No scalar fused multiply-add: LLVM has none for SPARC (gcc's needs
+    // -mfmaf, which OpenBLAS never passes), and WebAssembly's only exists as
+    // `relaxed_simd` vector madd (see `vector_madd`).
+    else => false,
+};
+
+/// Whether a vector multiply-add (`v_muladd_*` of `intrin.h`, MSA `fmadd`)
+/// fuses on this target: where scalar fusion does, for MIPS with MSA (whose
+/// `fmadd` is fused whatever the scalar ISA), and for WebAssembly with
+/// `relaxed_simd` (`wasm_f32x4_relaxed_madd`; the spec lets an engine fuse or
+/// not, taken here as fused, as on engines with hardware FMA).
+pub const vector_madd = hardware or switch (sysinfo.cpu.arch) {
+    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHas(sysinfo.cpu.features, .msa),
+    .wasm32, .wasm64 => std.Target.wasm.featureSetHas(sysinfo.cpu.features, .relaxed_simd),
     else => false,
 };
 
 /// The build's policy: the root's `blas_fuse_fma` if it declares one.
 pub const fuse: bool = if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else hardware;
+
+/// The same for vector multiply-adds; a root's `blas_fuse_fma_vector` wins,
+/// then its `blas_fuse_fma`.
+pub const fuse_vector: bool = if (@hasDecl(root, "blas_fuse_fma_vector"))
+    root.blas_fuse_fma_vector
+else if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else vector_madd;
 
 /// `a*b + c`, fused when `fuse` says so (`@mulAdd` is strictly single-rounded,
 /// so it must not be used on targets without an FMA unit).
