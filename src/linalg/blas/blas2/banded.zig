@@ -149,7 +149,8 @@ fn letter(comptime T: type) []const u8 {
 }
 
 fn slot(comptime T: type, comptime base: []const u8) @typeInfo(@FieldType(Vtable, letter(T) ++ base ++ "_k")).optional.child {
-    return blas.kernel(@field(blas.Slot, letter(T) ++ base ++ "_k"));
+    // the routine fetched the table at its start (`blas.vtable()`)
+    return @field(blas.table(), letter(T) ++ base ++ "_k").?;
 }
 
 fn raw(comptime T: type, p: [*]T) [*]Float(T) {
@@ -426,6 +427,7 @@ pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: BlasInt, 
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
     if (m == 0 or n == 0) return;
+    _ = blas.vtable();
     const tr = trans.transposed();
     const lenx = long(if (tr) m else n);
     const leny = long(if (tr) n else m);
@@ -446,6 +448,7 @@ pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: BlasInt, 
 /// start-of-vector pointers, and the uplo dispatch.
 fn mvInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: BlasInt, k: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
     if (n == 0) return;
+    _ = blas.vtable();
     const kn = long(n);
     if (!isOne(T, beta)) scalK(T, kn, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
@@ -505,6 +508,7 @@ fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, 
     if (comptime kind == .symmetric) {
         if (isZero(T, alpha)) return;
     } else if (alpha == 0) return;
+    _ = blas.vtable();
     const px = first(T, x, long(n), incx);
     switch (lower) {
         inline else => |lo| try rankDriver(T, kind, lo, packed_, gpa, long(n), alpha, px, incx, a, long(lda)),
@@ -513,6 +517,7 @@ fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, 
 
 fn rank2Interface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt, a: [*]T, lda: BlasInt) Error!void {
     if (n == 0 or isZero(T, alpha)) return;
+    _ = blas.vtable();
     const px = first(T, x, long(n), incx);
     const py = first(T, y, long(n), incy);
     switch (lower) {
@@ -662,7 +667,7 @@ fn checkMv(comptime T: type, comptime st: Store, comptime kind: Kind, lower: boo
         seed += 1;
         const n = c.n;
         const k = if (st == .band) c.k else 0;
-        const ld = k + 1 + (seed & 1);
+        const ld: usize = k + 1 + @as(usize, @intCast(seed & 1));
         var a: [max_mem]T = undefined;
         var xs: [max_mem]T = undefined;
         var ys: [max_mem]T = undefined;
@@ -716,7 +721,7 @@ fn checkRank(comptime T: type, comptime st: Store, comptime kind: Kind, lower: b
     for (cases) |c| for (inc_pairs) |inc| for ([_]bool{ false, true }) |two| {
         seed += 1;
         const n = c.n;
-        const ld = n + (seed & 1);
+        const ld: usize = n + @as(usize, @intCast(seed & 1));
         var a: [max_mem]T = undefined;
         var xs: [max_mem]T = undefined;
         var ys: [max_mem]T = undefined;
@@ -801,7 +806,7 @@ fn checkGbmv(comptime T: type) !void {
         for (shapes) |s| for (inc_pairs) |inc| for ([_]f64{ 1, 0, 0.5 }) |bre| {
             seed += 1;
             const m, const n, const kl, const ku = s;
-            const ld = kl + ku + 1 + (seed & 1);
+            const ld: usize = kl + ku + 1 + @as(usize, @intCast(seed & 1));
             const lenx = if (tr.transposed()) m else n;
             const leny = if (tr.transposed()) n else m;
             var a: [max_mem]T = undefined;
@@ -855,9 +860,8 @@ fn runAll() !void {
 
 /// Runs the cases with `vt`'s kernels in the global vtable.
 fn withCore(vt: *const Vtable) anyerror!void {
-    const saved = blas._vtable;
-    blas._vtable = vt.*;
-    defer blas._vtable = saved;
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
     try runAll();
 }
 
