@@ -296,11 +296,17 @@ pub fn axpby(comptime T: type, n: BlasInt, alpha: T, x: [*]T, incx: BlasInt, bet
 
 /// `?ROTG` (`interface/rotg.c`): the rotation `[c s; -s c]` that zeroes `b`
 /// against `a`. `a` becomes `r`, `b` the reconstruction value `z`.
+/// Computed in `XDouble`, as the reference does in `long double` on x86, so
+/// it widens to x87 once `XDouble` does; until then (`XDouble` is `f64`) an
+/// `f32` input is computed in `f64` and rounded once on the way out.
 pub fn rotg(comptime T: type, a: *T, b: *T, c: *T, s: *T) void {
     if (comptime isComplex(T)) @compileError("rotg: use zrotg for " ++ @typeName(T));
-    const safmin = std.math.floatMin(T);
-    const ada = @abs(a.*);
-    const adb = @abs(b.*);
+    const X = XDouble;
+    const da: X = a.*;
+    const db: X = b.*;
+    const safmin: X = std.math.floatMin(T);
+    const ada = @abs(da);
+    const adb = @abs(db);
     if (adb == 0) {
         c.* = 1;
         s.* = 0;
@@ -315,25 +321,30 @@ pub fn rotg(comptime T: type, a: *T, b: *T, c: *T, s: *T) void {
         return;
     }
     const sc = @min(@max(safmin, @max(ada, adb)), 1 / safmin);
-    const sigma: T = std.math.copysign(@as(T, 1), if (ada > adb) a.* else b.*);
-    const aa = a.* / sc;
-    const bb = b.* / sc;
+    const sigma = std.math.copysign(@as(X, 1), if (ada > adb) da else db);
+    const aa = da / sc;
+    const bb = db / sc;
     const r = sigma * sc * @sqrt(aa * aa + bb * bb);
-    c.* = a.* / r;
-    s.* = b.* / r;
-    var z: T = 1;
-    if (ada > adb) z = s.*;
-    if (ada <= adb and c.* != 0) z = 1 / c.*;
-    a.* = r;
-    b.* = z;
+    const cx = da / r;
+    const sx = db / r;
+    var z: X = 1;
+    if (ada > adb) z = sx;
+    if (ada <= adb and cx != 0) z = 1 / cx;
+    c.* = @floatCast(cx);
+    s.* = @floatCast(sx);
+    a.* = @floatCast(r);
+    b.* = @floatCast(z);
 }
 
 /// `CROTG`/`ZROTG`: the rotation with real `c` and complex `s` that zeroes
 /// `b` against `a`, `[c s; -conj(s) c] [a; b] = [r; 0]`; `a` becomes `r`.
 /// Follows LAPACK's `zlartg`, scaling against overflow and underflow.
-/// `interface/zrotg.c` transcribes the same algorithm but slips in the
-/// scaled branches (a sign in `s`, square roots for squared norms, `|a|^2`
-/// for `a`), so this ports `zlartg` itself.
+/// `interface/zrotg.c` transcribes the same algorithm but its scaled branches
+/// are wrong (square roots where `zlartg` has squared norms, `a` rescaled by
+/// the wrong factor, a multiply where a divide belongs), so results there
+/// are wrong in the last bits and sometimes worse; this is the sound
+/// algorithm, not a copy of `zrotg.c`, and is tested against a wide-precision
+/// reference over all its branches.
 pub fn zrotg(comptime T: type, a: *T, b: T, c: *Float(T), s: *T) void {
     if (comptime !isComplex(T)) @compileError("zrotg: " ++ @typeName(T) ++ " is not complex");
     const F = Float(T);
@@ -780,22 +791,115 @@ test "interface: rotg zeroes b, and rotmg's param zeroes the second component" {
     }
 }
 
-test "interface: zrotg zeroes b against a, unscaled and scaled" {
-    const C = Complex64;
-    // ordinary, then tiny and huge enough to take the scaled branches
-    for ([_]f64{ 1, 1e-300, 1e300 }) |mag| {
-        const a0: C = .init(1 * mag, 2 * mag);
-        const b: C = .init(3 * mag, -1 * mag);
-        var a = a0;
-        var c: f64 = undefined;
-        var s: C = undefined;
-        zrotg(C, &a, b, &c, &s);
-        // [c s; -conj(s) c] [a0; b] = [r; 0], with |r| = |(a0, b)|
-        const top = scale(C, a0, c).add(s.mul(b));
-        const bottom = C.init(-s.re, s.im).mul(a0).add(scale(C, b, c));
-        try check.expectClose(C, a, top, 1e-12 * mag);
-        try check.expectClose(C, .init(0, 0), bottom, 1e-12 * mag);
-        try check.expectClose(f64, @sqrt(15.0), @sqrt(abssq(C, scale(C, a, 1 / mag))), 1e-12);
-        try check.expectClose(f64, 1, c * c + abssq(C, s), 1e-12);
+test "interface: zrotg zeroes b against a over every branch" {
+    inline for (.{ Complex32, Complex64 }) |C| {
+        const F = Float(C);
+        const eps: f64 = if (F == f32) 1e-5 else 1e-12;
+        // magnitudes that take the unscaled and both scaled paths, with a or b zero,
+        // b real or imaginary only, and a tiny against a huge b (and the reverse)
+        const big: f64 = if (F == f32) 1e30 else 1e300;
+        const tiny: f64 = if (F == f32) 1e-30 else 1e-300;
+        const cases = [_][4]f64{
+            .{ 1, 2, 3, -1 },
+            .{ 1 * tiny, 2 * tiny, 3 * tiny, -1 * tiny },
+            .{ 1 * big, 2 * big, 3 * big, -1 * big },
+            .{ 0, 0, 3, -4 },
+            .{ 0, 0, 3 * big, -4 * big },
+            .{ 0, 0, 3 * tiny, -4 * tiny },
+            .{ 0, 0, 0, 5 },
+            .{ 0, 0, -5, 0 },
+            .{ 1, 2, 0, 0 },
+            .{ tiny, tiny, big, big },
+            .{ big, big, tiny, tiny },
+            .{ 1, -2, 0, 3 },
+            .{ -2, 1, 7, 0 },
+        };
+        for (cases) |k| {
+            const a0: C = .init(@floatCast(k[0]), @floatCast(k[1]));
+            const b: C = .init(@floatCast(k[2]), @floatCast(k[3]));
+            var a = a0;
+            var c: F = undefined;
+            var s: C = undefined;
+            zrotg(C, &a, b, &c, &s);
+            // [c s; -conj(s) c] [a0; b] = [r; 0], |r| = |(a0, b)|, c real, c^2 + |s|^2 = 1
+            const norm = @max(@max(@abs(k[0]), @abs(k[1])), @max(@abs(k[2]), @abs(k[3])));
+            const top = scale(C, a0, c).add(s.mul(b));
+            const bottom = C.init(-s.re, s.im).mul(a0).add(scale(C, b, c));
+            try check.expectClose(C, a, top, @floatCast(eps * norm));
+            try check.expectClose(C, .init(0, 0), bottom, @floatCast(eps * norm));
+            try check.expectClose(f64, 1, @as(f64, c) * c + abssq(C, s), eps);
+            // |r| against the norm of (a0, b), formed in f64 on scaled parts
+            const inv = 1 / norm;
+            const want = @sqrt(k[0] * inv * k[0] * inv + k[1] * inv * k[1] * inv + k[2] * inv * k[2] * inv + k[3] * inv * k[3] * inv);
+            const got = @sqrt(@as(f64, a.re) * inv * a.re * inv + @as(f64, a.im) * inv * a.im * inv);
+            try check.expectClose(f64, want, got, eps);
+        }
     }
+}
+
+test "interface: rotg handles scaled and special inputs" {
+    inline for (reals) |T| {
+        const big: T = std.math.floatMax(T) / 4;
+        const tiny: T = std.math.floatMin(T) * 4;
+        for ([_][2]T{ .{ big, big }, .{ tiny, tiny }, .{ big, tiny }, .{ tiny, big }, .{ -3, 4 }, .{ 3, -4 } }) |ab| {
+            var a = ab[0];
+            var b = ab[1];
+            var c: T = undefined;
+            var s: T = undefined;
+            rotg(T, &a, &b, &c, &s);
+            try std.testing.expect(std.math.isFinite(a));
+            try check.expectClose(f64, 1, @as(f64, c) * c + @as(f64, s) * s, 1e-6);
+            // the rotation zeroes b: -s*a0 + c*b0 = 0, relative to the norm
+            const norm = @max(@abs(ab[0]), @abs(ab[1]));
+            const resid = -@as(f64, s) * ab[0] + @as(f64, c) * ab[1];
+            try std.testing.expect(@abs(resid) <= 1e-6 * norm);
+        }
+        var a: T = 0;
+        var b: T = 0;
+        var c: T = undefined;
+        var s: T = undefined;
+        rotg(T, &a, &b, &c, &s);
+        try std.testing.expectEqual(@as(T, 1), c);
+        try std.testing.expectEqual(@as(T, 0), s);
+        a = std.math.nan(T);
+        b = 1;
+        rotg(T, &a, &b, &c, &s);
+        try std.testing.expect(std.math.isNan(a));
+    }
+}
+
+test "portable kernels: special values and ranges" {
+    const nrm2k = @import("nrm2/__root__.zig");
+    const scalk = @import("scal/__root__.zig");
+    const iamaxk = @import("iamax/__root__.zig");
+    const dotk = @import("dot/__root__.zig");
+    // nrm2 neither overflows nor underflows
+    inline for (.{ .{ f32, nrm2k.snrm2_generic }, .{ f64, nrm2k.dnrm2_generic } }) |p| {
+        const T = p[0];
+        const big: T = std.math.floatMax(T) / 2;
+        const tiny: T = std.math.floatMin(T);
+        var x = [_]T{ big, big, big };
+        try check.expectClose(f64, @as(f64, big) * @sqrt(3.0), p[1](3, &x, 1), @as(f64, big) * 1e-6);
+        x = .{ tiny, tiny, tiny };
+        try check.expectClose(f64, @as(f64, tiny) * @sqrt(3.0), p[1](3, &x, 1), @as(f64, tiny) * 1e-6);
+        x = .{ 0, 0, 0 };
+        try std.testing.expectEqual(@as(T, 0), p[1](3, &x, 1));
+    }
+    // scal with a zero alpha: the flag makes NaN and Inf stay NaN
+    var v = [_]f64{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
+    _ = scalk.dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 1);
+    try std.testing.expectEqual(@as(f64, 0), v[0]);
+    try std.testing.expect(std.math.isNan(v[1]) and std.math.isNan(v[2]));
+    try std.testing.expectEqual(@as(f64, 0), v[3]);
+    v = .{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
+    _ = scalk.dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 0);
+    for (v) |e| try std.testing.expectEqual(@as(f64, 0), e);
+    // iamax: first of equal maxima, 1-based; a NaN first element is never replaced
+    var ties = [_]f64{ 1, -3, 3, 2 };
+    try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.idamax_generic(4, &ties, 1));
+    var nan_first = [_]f64{ std.math.nan(f64), 5, 7 };
+    try std.testing.expectEqual(@as(BlasLong, 1), iamaxk.idamax_generic(3, &nan_first, 1));
+    // dsdot accumulates in double: a sum f32 would lose
+    var xs: [3]f32 = .{ 16777216, 1, 1 };
+    try std.testing.expectEqual(@as(f64, 16777216.0 * 16777216.0 + 2), dotk.dsdot_generic(3, &xs, 1, &xs, 1));
 }

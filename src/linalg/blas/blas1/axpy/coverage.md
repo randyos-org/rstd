@@ -128,15 +128,15 @@ as `C`, `Z` and `X`.
 
 ## mips64
 
-| core           | S                                            | D                                                  | C                                         | Z                                         | Q        | X         |
-| -------------- | -------------------------------------------- | -------------------------------------------------- | ----------------------------------------- | ----------------------------------------- | -------- | --------- |
-| generic        | `../arm/axpy.c`                              | `../arm/axpy.c`                                    | `../arm/zaxpy.c`                          | `../arm/zaxpy.c`                          | `axpy.S` | `zaxpy.S` |
-| I6400          | `../mips/saxpy_msa.c` \| `../arm/axpy.c`     | `../mips/daxpy_msa.c` \| `../arm/axpy.c`           | `../mips/caxpy_msa.c` \| `../arm/zaxpy.c` | `../mips/zaxpy_msa.c` \| `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
-| I6500          | `../mips/saxpy_msa.c` \| `../arm/axpy.c`     | `../mips/daxpy_msa.c` \| `../arm/axpy.c`           | `../mips/caxpy_msa.c` \| `../arm/zaxpy.c` | `../mips/zaxpy_msa.c` \| `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
-| LOONGSON3R3    | `axpy_loongson3a.S`                          | `daxpy_loongson3a_simd.S`                          | `../arm/zaxpy.c`                          | `../arm/zaxpy.c`                          | `axpy.S` | `zaxpy.S` |
-| LOONGSON3R4    | `../mips/saxpy_msa.c` \| `axpy_loongson3a.S` | `../mips/daxpy_msa.c` \| `daxpy_loongson3a_simd.S` | `../mips/caxpy_msa.c`                     | `../mips/zaxpy_msa.c`                     | `axpy.S` | `zaxpy.S` |
-| MIPS64_GENERIC | `../arm/axpy.c`                              | `../arm/axpy.c`                                    | `../arm/zaxpy.c`                          | `../arm/zaxpy.c`                          | `axpy.S` | `zaxpy.S` |
-| P6600          | `../mips/saxpy_msa.c` \| `../arm/axpy.c`     | `../mips/daxpy_msa.c` \| `../arm/axpy.c`           | `../mips/caxpy_msa.c` \| `../arm/zaxpy.c` | `../mips/zaxpy_msa.c` \| `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| core           | S                                            | D                                                  | C                | Z                | Q        | X         |
+| -------------- | -------------------------------------------- | -------------------------------------------------- | ---------------- | ---------------- | -------- | --------- |
+| generic        | `../arm/axpy.c`                              | `../arm/axpy.c`                                    | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| I6400          | `../mips/saxpy_msa.c` \| `../arm/axpy.c`     | `../mips/daxpy_msa.c` \| `../arm/axpy.c`           | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| I6500          | `../mips/saxpy_msa.c` \| `../arm/axpy.c`     | `../mips/daxpy_msa.c` \| `../arm/axpy.c`           | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| LOONGSON3R3    | `axpy_loongson3a.S`                          | `daxpy_loongson3a_simd.S`                          | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| LOONGSON3R4    | `../mips/saxpy_msa.c` \| `axpy_loongson3a.S` | `../mips/daxpy_msa.c` \| `daxpy_loongson3a_simd.S` | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| MIPS64_GENERIC | `../arm/axpy.c`                              | `../arm/axpy.c`                                    | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
+| P6600          | `../mips/saxpy_msa.c` \| `../arm/axpy.c`     | `../mips/daxpy_msa.c` \| `../arm/axpy.c`           | `../arm/zaxpy.c` | `../arm/zaxpy.c` | `axpy.S` | `zaxpy.S` |
 
 ## mips
 
@@ -202,4 +202,4 @@ as `C`, `Z` and `X`.
 
 ## Totals
 
-104 distinct (architecture, source) pairs: 53 assembly, 51 C.
+102 distinct (architecture, source) pairs: 53 assembly, 49 C.

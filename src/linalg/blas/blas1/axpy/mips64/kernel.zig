@@ -10,7 +10,9 @@
 //! `NO_MSA` where a core may or may not have the SIMD architecture: the SIMD
 //! cores use `mips/{s,d,c,z}axpy_msa.c` (`msa.zig`), the Loongson 3A R3 the
 //! whole-function `.S` kernels in `asm/` (`asm/__root__.zig`). The cores with
-//! neither keep the portable kernels.
+//! neither keep the portable kernels. On MIPS64 the architecture's `KERNEL`
+//! then resets the complex ones to `arm/zaxpy.c` (it is read after the core's
+//! file), so only `saxpy` and `daxpy` use the SIMD kernels there.
 
 const sysinfo = @import("builtin");
 const coretypes = @import("../../../cpu/_coretypes.zig");
@@ -24,22 +26,30 @@ const R = registry.Kernels(coretypes.MipsCoreType, @import("asm/__root__.zig"));
 
 pub const Core = coretypes.MipsCoreType;
 
-/// Whether `core` uses the SIMD kernels.
-fn usesMsa(comptime core: Core) bool {
+/// Whether `core` uses the SIMD kernel for `role`.
+fn usesMsa(comptime core: Core, comptime role: []const u8) bool {
+    const complex = comptime role[0] == 'c' or role[0] == 'z';
+    if (complex and sysinfo.cpu.arch.isMIPS64()) return false;
     return switch (core) {
         .loongson3r4, .p5600, .i6400, .i6500, .p6600 => true,
         else => false,
     };
 }
 
+/// Whether `core` uses the SIMD kernel for any role.
+fn usesAnyMsa(comptime core: Core) bool {
+    inline for (roles) |r| if (usesMsa(core, r)) return true;
+    return false;
+}
+
 /// Whether `role` has a kernel of its own on `core`.
 pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    return usesMsa(core) or R.hasRole(core, role);
+    return usesMsa(core, role) or R.hasRole(core, role);
 }
 
 /// Whether `core` has any axpy kernel of its own.
 pub fn has(comptime core: Core) bool {
-    return usesMsa(core) or R.has(core);
+    return usesAnyMsa(core) or R.has(core);
 }
 
 /// Exported symbol of `role` for `core`.
@@ -48,14 +58,17 @@ pub const symbol = R.symbol;
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
-    if (comptime usesMsa(core)) {
-        @export(&msa.Real(f32).call, .{ .name = symbol("saxpy", core), .visibility = .hidden });
-        @export(&msa.Real(f64).call, .{ .name = symbol("daxpy", core), .visibility = .hidden });
-        @export(&msa.Cplx(f32, false).call, .{ .name = symbol("caxpy", core), .visibility = .hidden });
-        @export(&msa.Cplx(f32, true).call, .{ .name = symbol("caxpyc", core), .visibility = .hidden });
-        @export(&msa.Cplx(f64, false).call, .{ .name = symbol("zaxpy", core), .visibility = .hidden });
-        @export(&msa.Cplx(f64, true).call, .{ .name = symbol("zaxpyc", core), .visibility = .hidden });
-        return;
+    if (comptime usesAnyMsa(core)) {
+        inline for (.{
+            .{ "saxpy", &msa.Real(f32).call },
+            .{ "daxpy", &msa.Real(f64).call },
+            .{ "caxpy", &msa.Cplx(f32, false).call },
+            .{ "caxpyc", &msa.Cplx(f32, true).call },
+            .{ "zaxpy", &msa.Cplx(f64, false).call },
+            .{ "zaxpyc", &msa.Cplx(f64, true).call },
+        }) |e| {
+            if (comptime usesMsa(core, e[0])) @export(e[1], .{ .name = symbol(e[0], core), .visibility = .hidden });
+        }
     }
     R.exportCore(core);
 }

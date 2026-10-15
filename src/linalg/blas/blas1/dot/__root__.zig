@@ -66,8 +66,10 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../check.zig");
 
-/// `kernel/arm/dot.c`: `x . y`, summed in `Acc` (`double` in the reference,
-/// for `sdot` too) and returned as `R` (`dsdot` returns the `f64` sum).
+/// `x . y` after `kernel/arm/dot.c`, summed sequentially in `Acc` (`f64` for
+/// `sdot` too, so it is at least as accurate as the reference's `float` or
+/// `double` products) and returned as `R` (`dsdot` returns the `f64` sum).
+/// Not bit-identical to `generic/dot.c`'s unrolled sums; see the readme.
 fn Dot(comptime F: type, comptime Acc: type, comptime R: type) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(.c) R {

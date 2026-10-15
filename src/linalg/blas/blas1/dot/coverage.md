@@ -160,12 +160,12 @@ as `C`, `Z` and `X`.
 
 ## loongarch64
 
-| core         | S                  | DS           | D              | C               | Z               | Q       | X        |
-| ------------ | ------------------ | ------------ | -------------- | --------------- | --------------- | ------- | -------- |
-| generic      | `../generic/dot.c` | `dot.S`      | `../arm/dot.c` | `../arm/zdot.c` | `../arm/zdot.c` | `dot.S` | `zdot.S` |
-| LA264        | `sdot_lsx.S`       | `dot_lsx.S`  | `dot_lsx.S`    | `cdot_lsx.S`    | `cdot_lsx.S`    | `dot.S` | `zdot.S` |
-| LA464        | `dot_lasx.S`       | `dot_lasx.S` | `dot_lasx.S`   | `cdot_lasx.S`   | `cdot_lasx.S`   | `dot.S` | `zdot.S` |
-| LA64_GENERIC | `dot.S`            | `dot.S`      | `dot.S`        | `zdot.S`        | `zdot.S`        | `dot.S` | `zdot.S` |
+| core         | S                  | DS      | D              | C               | Z               | Q       | X        |
+| ------------ | ------------------ | ------- | -------------- | --------------- | --------------- | ------- | -------- |
+| generic      | `../generic/dot.c` | `dot.S` | `../arm/dot.c` | `../arm/zdot.c` | `../arm/zdot.c` | `dot.S` | `zdot.S` |
+| LA264        | `sdot_lsx.S`       | `dot.S` | `dot_lsx.S`    | `cdot_lsx.S`    | `cdot_lsx.S`    | `dot.S` | `zdot.S` |
+| LA464        | `dot_lasx.S`       | `dot.S` | `dot_lasx.S`   | `cdot_lasx.S`   | `cdot_lasx.S`   | `dot.S` | `zdot.S` |
+| LA64_GENERIC | `dot.S`            | `dot.S` | `dot.S`        | `zdot.S`        | `zdot.S`        | `dot.S` | `zdot.S` |
 
 ## zarch
 
