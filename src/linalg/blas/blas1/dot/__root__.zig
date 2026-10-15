@@ -106,19 +106,6 @@ fn Zdot(comptime F: type, comptime conj: bool) type {
     };
 }
 
-const bf16 = @import("../../ext/bf16/__root__.zig");
-
-/// `kernel/x86_64/sbdot.c`: `sdot` over `x` and `y` widened to float.
-fn sbdot(n: BlasLong, x: [*]BF16, inc_x: BlasLong, y: [*]BF16, inc_y: BlasLong) callconv(.c) f32 {
-    var sum: f64 = 0;
-    var i: BlasLong = 0;
-    while (i < n) : (i += 1) {
-        sum += @as(f64, bf16.fromBf16(util.at(BF16, x, i * inc_x).*)) * bf16.fromBf16(util.at(BF16, y, i * inc_y).*);
-    }
-    return @floatCast(sum);
-}
-
-pub const sbdot_generic = &sbdot;
 pub const sdot_generic = &Dot(f32, f64, f32).k;
 pub const ddot_generic = &Dot(f64, f64, f64).k;
 pub const dsdot_generic = &Dot(f32, f64, f64).k;
@@ -130,10 +117,10 @@ pub const zdotc_generic = &Zdot(f64, true).k;
 pub const xdotu_generic = &Zdot(XDouble, false).k;
 pub const xdotc_generic = &Zdot(XDouble, true).k;
 
-/// Points every dot slot but `dsbdot`'s (no kernel upstream) at the portable
-/// kernels.
+/// Points every dot slot at the portable kernels, except `sbdot` and
+/// `dsbdot`: `sbdot` is `ext/bf16`'s, and `dsbdot` aliases `dsdot` there
+/// (`kernel/setparam-ref.c`), as every bfloat16-named level-1 slot does.
 pub fn installGeneric(vt: *Vtable) void {
-    vt.sbdot_k = sbdot_generic;
     vt.sdot_k = sdot_generic;
     vt.ddot_k = ddot_generic;
     vt.dsdot_k = dsdot_generic;
@@ -208,27 +195,6 @@ test "portable dot kernels match a plain loop" {
     try checkDot(XDouble, false, vt.qdot_k.?);
     try checkDot(std.math.Complex(XDouble), false, vt.xdotu_k.?);
     try checkDot(std.math.Complex(XDouble), true, vt.xdotc_k.?);
-}
-
-test "portable sbdot matches sdot over the widened operands" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    for (check.sizes) |n| {
-        for (check.strides) |inc| {
-            var f: [check.capacity]f32 = undefined;
-            check.fill(f32, &f, n + 1);
-            var x: [check.capacity]BF16 = undefined;
-            var y: [check.capacity]BF16 = undefined;
-            for (&x, &y, 0..) |*a, *b, i| {
-                a.* = bf16.toBf16(f[i]);
-                b.* = bf16.toBf16(f[check.capacity - 1 - i]);
-            }
-            var want: f64 = 0;
-            for (0..n) |i| want += @as(f64, bf16.fromBf16(x[i * inc[0]])) * bf16.fromBf16(y[i * inc[1]]);
-            const got = vt.sbdot_k.?(@intCast(n), &x, @intCast(inc[0]), &y, @intCast(inc[1]));
-            check.expectClose(f32, @floatCast(want), got, check.tolerance(f32, 4 * n)) catch |e| return check.case(e, "sbdot", BF16, n, inc);
-        }
-    }
 }
 
 test "every linked core's dot kernels match a plain loop, where this machine runs them" {

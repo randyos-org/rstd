@@ -32,6 +32,7 @@ const ResolvedTarget = rstdbuild.ResolvedTarget;
 // it names): the registries or `cpu/<arch>.zig` would make this script's
 // compile depend on every kernel source.
 const corespec = @import("../src/linalg/blas/cpu/_corespec.zig");
+const abi = @import("../src/linalg/blas/abi.zig");
 
 /// Cores with equal specs, served by one object.
 const Group = struct {
@@ -68,6 +69,16 @@ fn addForArch(
     const arch = target.result.cpu.arch;
     var groups: std.ArrayList(Group) = .empty;
 
+    // the converted assembly has a path per calling convention (`abi.zig`)
+    switch (abi.variantOf(&target.result)) {
+        .variant => if (cores == .none) return addLinked(b, mod, &.{}, null),
+        .none => return addLinked(b, mod, &.{}, null),
+        .unsupported => |why| if (cores == .none) return addLinked(b, mod, &.{}, null) else std.process.fatal(
+            "no BLAS kernels for {s}-{s}-{s}: {s}; pass -Dblas-cores=none for the portable ones",
+            .{ @tagName(arch), @tagName(target.result.os.tag), @tagName(target.result.abi), why },
+        ),
+    }
+
     for (corespec.kernelCores(arch_tag)) |core| {
         // its kernels must run on the target CPU
         if (!corespec.runsOn(target.result.cpu, core)) continue;
@@ -82,9 +93,7 @@ fn addForArch(
     }
 
     var fallback: ?[]const u8 = null;
-    if (cores == .none) {
-        groups.clearRetainingCapacity();
-    } else if (cores == .target) {
+    if (cores == .target) {
         const pick = pickTarget(b, target, arch_tag, groups.items);
         if (pick) |p| {
             const g = groups.items[p.group];
@@ -96,10 +105,7 @@ fn addForArch(
 
     var linked: std.ArrayList([]const u8) = .empty;
     for (groups.items) |g| linked.appendSlice(b.allocator, g.cores.items) catch @panic("OOM");
-    const linked_opts = b.addOptions();
-    linked_opts.addOption([]const []const u8, "cores", linked.items);
-    linked_opts.addOption(?[]const u8, "fallback", fallback);
-    mod.addImport("blaskern_linked", linked_opts.createModule());
+    addLinked(b, mod, linked.items, fallback);
 
     for (groups.items) |g| {
         const opts = b.addOptions();
@@ -126,6 +132,14 @@ fn addForArch(
         });
         mod.addObject(obj);
     }
+}
+
+/// Tells `asm_registry.install` which cores' objects are linked.
+fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]const u8) void {
+    const opts = b.addOptions();
+    opts.addOption([]const []const u8, "cores", linked);
+    opts.addOption(?[]const u8, "fallback", fallback);
+    mod.addImport("blaskern_linked", opts.createModule());
 }
 
 /// The target query a group's object is built with: its model, or the

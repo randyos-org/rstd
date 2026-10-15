@@ -17,7 +17,6 @@
 //! architectures so far.
 
 const std = @import("std");
-const zigstd = @import("../../../zigstd.zig");
 const coretypes = @import("_coretypes.zig");
 
 pub const Spec = struct {
@@ -56,7 +55,7 @@ const x86_sse41 = [_][]const u8{ "sse3", "ssse3", "sse4_1" };
 
 pub fn x86(core: coretypes.X86CoreType) Spec {
     return switch (core) {
-        .nehalem => .{ .features = &x86_sse41, .fuse_fma = false },
+        .nehalem, .penryn, .dunnington => .{ .features = &x86_sse41, .fuse_fma = false },
         .sandybridge => .{ .features = &(x86_sse41 ++ [_][]const u8{"avx"}), .fuse_fma = false },
         .bulldozer => .{ .features = &.{ "sse3", "avx", "fma4" }, .fuse_fma = false },
         .piledriver, .steamroller, .excavator => .{ .features = &.{ "sse3", "sse4_1", "avx", "fma", "fma4" }, .fuse_fma = false },
@@ -65,10 +64,9 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
         .cooperlake => .{ .model = "cooperlake", .fuse_fma = true },
         .sapphirerapids => .{ .model = "sapphirerapids", .fuse_fma = true },
         // Older cores: what `getarch.c` lists as `HAVE_*`.
-        .prescott, .opteron_sse3, .barcelona => .{ .features = &.{"sse3"}, .fuse_fma = false },
+        .prescott, .opteron_sse3, .barcelona, .yonah => .{ .features = &.{"sse3"}, .fuse_fma = false },
         .core2, .atom, .nano, .bobcat => .{ .features = &.{ "sse3", "ssse3" }, .fuse_fma = false },
-        .penryn, .dunnington => .{ .features = &x86_sse41, .fuse_fma = false },
-        .opteron, .katmai, .coppermine, .northwood, .banias, .athlon, .unknown => .{ .fuse_fma = false },
+        .opteron, .katmai, .coppermine, .northwood, .banias, .athlon, .p5, .p6, .viac3, .unknown => .{ .fuse_fma = false },
     };
 }
 
@@ -76,8 +74,10 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
 
 pub fn arm64(core: coretypes.Arm64CoreType) Spec {
     return switch (core) {
-        .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .emag8180, .unknown => .{},
-        .cortexa55, .tsv110, .neoversen1 => .{ .features = &.{"v8_2a"} },
+        .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .emag8180, .ft2000, .unknown => .{},
+        .cortexa76, .cortexx1, .cortexa55, .tsv110, .neoversen1 => .{ .features = &.{"v8_2a"} },
+        .cortexa510, .cortexa710, .cortexx2 => .{ .features = &.{ "v8_4a", "sve" } },
+        .ampere1 => .{ .features = &.{ "v8_6a", "aes", "sha2", "crc", "fullfp16", "sha3", "rand" } },
         .thunderx2t99 => .{ .features = &.{"v8_1a"} },
         .thunderx3t110, .vortex => .{ .features = &.{"v8_3a"} },
         .vortexm4 => .{ .features = &.{ "v8_4a", "sme", "sme_f64f64" } },
@@ -96,8 +96,9 @@ pub fn arm(core: coretypes.ArmCoreType) Spec {
     return switch (core) {
         .armv5 => .{},
         .armv6 => .{ .features = &.{ "v6", "vfp2" } },
-        .armv7 => .{ .features = &.{ "v7a", "neon" } },
-        .neon => .{ .features = &.{ "v7a", "neon" } },
+        .armv7 => .{ .features = &.{ "v7a", "vfp3" } },
+        // Cortex-A9 and A15: `-mfpu=neon` for their `HAVE_NEON`
+        .neon, .cortexa9, .cortexa15 => .{ .features = &.{ "v7a", "neon" } },
         .vfpv4 => .{ .features = &.{ "v7a", "vfp4" } },
     };
 }
@@ -125,14 +126,12 @@ pub fn power(core: coretypes.PowerCoreType) Spec {
 
 pub fn riscv(core: coretypes.RiscvCoreType) Spec {
     return switch (core) {
-        .riscv64_generic => .{ .features = &.{ "m", "a", "f", "d", "c" } },
-        .riscv64_zvl128b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl128b" } },
-        .riscv64_zvl256b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl256b" } },
         // `Makefile.riscv64`: the T-Head core has the pre-ratification vector
         // extension, which this toolchain cannot assemble (it has no
         // `xtheadvector`), SiFive's U74 none, and SiFive's X280 the ratified one
-        .c910v => .{ .features = &.{ "m", "a", "f", "d", "c" } },
-        .u74 => .{ .features = &.{ "m", "a", "f", "d", "c" } },
+        .riscv64_generic, .c910v, .u74 => .{ .features = &.{ "m", "a", "f", "d", "c" } },
+        .riscv64_zvl128b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl128b" } },
+        .riscv64_zvl256b => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl256b" } },
         .x280 => .{ .features = &.{ "m", "a", "f", "d", "c", "v", "zvl512b" } },
     };
 }
@@ -255,9 +254,9 @@ pub fn Detector(comptime arch: std.Target.Cpu.Arch) type {
 pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
     return switch (arch) {
         .x86_64 => &.{ .prescott, .atom, .core2, .penryn, .dunnington, .nehalem, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids },
-        .x86 => &.{ .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .core2, .penryn, .dunnington, .nehalem, .athlon, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .zen },
-        .aarch64 => &.{ .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .thunderx2t99, .tsv110, .emag8180, .neoversen1, .neoversev1, .neoversev2, .neoversen2, .thunderx3t110, .cortexa55, .armv8sve, .a64fx, .armv9sme, .vortex, .vortexm4 },
-        .arm => &.{ .armv6, .armv7 },
+        .x86 => &.{ .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .core2, .penryn, .dunnington, .nehalem, .athlon, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .zen, .p5, .p6, .viac3, .yonah },
+        .aarch64 => &.{ .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .thunderx2t99, .tsv110, .emag8180, .neoversen1, .neoversev1, .neoversev2, .neoversen2, .thunderx3t110, .cortexa55, .armv8sve, .a64fx, .armv9sme, .vortex, .vortexm4, .cortexa76, .cortexa510, .cortexa710, .cortexx1, .cortexx2, .ampere1, .ft2000 },
+        .arm => &.{ .armv6, .armv7, .cortexa9, .cortexa15 },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => &.{ .power6, .power8, .power9, .power10, .power3, .power4, .power5, .ppc970, .cell, .ppc440, .ppc440fp2, .ppcg4 },
         .mips, .mipsel, .mips64, .mips64el => &.{ .loongson3r3, .loongson3r4, .p5600, .i6400, .i6500, .p6600 },
         .loongarch64 => &.{ .la64_generic, .la264, .la464 },
@@ -274,7 +273,7 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
     return switch (@TypeOf(core)) {
         // the SVE cores need the extension
         coretypes.Arm64CoreType => switch (core) {
-            .a64fx, .neoversev1 => cpu.has(.aarch64, .sve),
+            .a64fx, .neoversev1, .cortexa510, .cortexa710, .cortexx2 => cpu.has(.aarch64, .sve),
             else => true,
         },
         // a core's code is for one word size; the Loongson 3A kernels are
@@ -310,8 +309,8 @@ fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
 fn check(comptime Target: type, comptime Core: type) !void {
     inline for (@typeInfo(Core).@"enum".field_names) |core_name| {
         const s = comptime of(@field(Core, core_name));
-        if (s.model) |m| try zigstd.testExpectTrue(@hasDecl(Target.cpu, m));
-        for (s.features) |name| try zigstd.testExpectTrue(std.meta.stringToEnum(Target.Feature, name) != null);
+        if (s.model) |m| try std.testing.expect(@hasDecl(Target.cpu, m));
+        for (s.features) |name| try std.testing.expect(std.meta.stringToEnum(Target.Feature, name) != null);
     }
 }
 
@@ -329,8 +328,8 @@ test "every model and feature named in a spec exists for its architecture" {
 }
 
 test "cores that share flags compare equal, others do not" {
-    try zigstd.testExpectTrue(x86(.haswell).eql(x86(.zen)));
-    try zigstd.testExpectTrue(x86(.piledriver).eql(x86(.excavator)));
-    try zigstd.testExpectTrue(!x86(.haswell).eql(x86(.sandybridge)));
-    try zigstd.testExpectTrue(!x86(.skylakex).eql(x86(.cooperlake)));
+    try std.testing.expect(x86(.haswell).eql(x86(.zen)));
+    try std.testing.expect(x86(.piledriver).eql(x86(.excavator)));
+    try std.testing.expect(!x86(.haswell).eql(x86(.sandybridge)));
+    try std.testing.expect(!x86(.skylakex).eql(x86(.cooperlake)));
 }

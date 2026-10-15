@@ -21,11 +21,13 @@
 //! it is on the stack; beyond that it comes from the caller's allocator.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
+const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const interface = @import("interface.zig");
@@ -41,9 +43,9 @@ pub const ArgError = interface.ArgError;
 pub const Error = ArgError || Allocator.Error;
 
 /// Work space kept on the stack; bigger problems use the allocator.
-pub const stack_bytes = 4096;
+pub const stack_bytes = interface.stack_bytes;
 
-/// `dtb_entries` when the vtable has none yet.
+/// `dtb_entries` of a hand-built vtable that has none.
 const default_dtb = 64;
 
 pub const Uplo = enum {
@@ -546,10 +548,15 @@ fn call(
         const comp: usize = if (isComplex(T)) 2 else 1;
         elems += comp * (2 * un + @as(usize, @intCast(o.dtb))) + 40;
     }
+    // the copy of `x` is rounded to 64 bytes, so the gemv buffer after it
+    // keeps the stack's alignment
     var stack: [stack_bytes / @sizeOf(F)]F align(64) = undefined;
     const heap = elems > stack.len;
     const buf: []align(64) F = if (heap) try gpa.alignedAlloc(F, .@"64", elems) else stack[0..elems];
     defer if (heap) gpa.free(buf);
+    // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
+    // infinity; cleared as `interface.gemv` does
+    if (comptime isComplex(T) and sysinfo.cpu.arch == .x86_64) @memset(buf, 0);
 
     // `_U` for upper untransposed or lower transposed
     const fl: File = if ((uplo == .upper) != trans.transposed()) .u else .l;
@@ -567,37 +574,37 @@ fn call(
 /// other triangle (and the diagonal for `unit`) is not read. A negative
 /// `incx` walks `x` from its end.
 pub fn trmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .trmv, &blas._vtable, gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
+    return call(T, .trmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TRSV` (`interface/trsv.c`, `ztrsv.c`): solves `op(A) * y = x`, `y`
 /// replacing `x`. No singularity check, as in the reference.
 pub fn trsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .trsv, &blas._vtable, gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
+    return call(T, .trsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TBMV` (`interface/tbmv.c`, `ztbmv.c`): `x := op(A) * x`, `A` triangular
 /// band with `k` off-diagonals in LAPACK band storage: `A(i,j)` is
 /// `a[k + i - j + j*lda]` (upper) or `a[i - j + j*lda]` (lower).
 pub fn tbmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, k: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tbmv, &blas._vtable, gpa, uplo, trans, diag, n, k, a, lda, x, incx);
+    return call(T, .tbmv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TBSV` (`interface/tbsv.c`, `ztbsv.c`): solves `op(A) * y = x` for band `A`.
 pub fn tbsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, k: BlasInt, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tbsv, &blas._vtable, gpa, uplo, trans, diag, n, k, a, lda, x, incx);
+    return call(T, .tbsv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TPMV` (`interface/tpmv.c`, `ztpmv.c`): `x := op(A) * x`, `A` packed by
 /// columns: `A(i,j)` is `ap[j*(j+1)/2 + i]` (upper, `i <= j`) or
 /// `ap[j*(2n-j+1)/2 + i - j]` (lower, `i >= j`).
 pub fn tpmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, ap: [*]T, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tpmv, &blas._vtable, gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
+    return call(T, .tpmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 /// `?TPSV` (`interface/tpsv.c`, `ztpsv.c`): solves `op(A) * y = x` for packed `A`.
 pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: BlasInt, ap: [*]T, x: [*]T, incx: BlasInt) Error!void {
-    return call(T, .tpsv, &blas._vtable, gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
+    return call(T, .tpsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 // ---- tests -----------------------------------------------------------------
@@ -684,7 +691,9 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
     const N = Num(T);
     const layout = comptime layoutOf(kind);
     const solve = comptime isSolve(kind);
-    const gpa = std.testing.allocator;
+    // scratch from the heap holds NaN, so a missing clear shows
+    var poison: guard.Poison = .{ .child = std.testing.allocator };
+    const gpa = poison.allocator();
     for (sizes) |n| for ([_]usize{ 0, 1, 3, 1000 }) |k_req| {
         if (layout != .band and k_req != 0) continue;
         const k = if (layout == .band) @min(k_req, n - 1) else 0;

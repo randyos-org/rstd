@@ -23,6 +23,9 @@ const Family = struct {
     /// Enum type in `cpu/_coretypes.zig`.
     core_type: []const u8,
     defines: []const []const u8,
+    /// The `zig cc -target` triple that makes `getarch.c` take this architecture's
+    /// branch, with libc headers to include (wasm's block is not gated).
+    target: []const u8,
     /// Cores whose macro is not just the upper-cased enum name.
     renames: []const [2][]const u8 = &.{},
 };
@@ -34,24 +37,25 @@ const x86_renames = [_][2][]const u8{
     .{ "northwood", "CORE_NORTHWOOD" },
     .{ "prescott", "CORE_PRESCOTT" },
     .{ "banias", "CORE_BANIAS" },
+    .{ "yonah", "CORE_YONAH" },
     .{ "opteron_sse3", "OPTERON" },
 };
 
 const families = [_]Family{
-    .{ .name = "x86_64", .core_type = "X86CoreType", .defines = &.{ "-DARCH_X86_64", "-DBINARY64" }, .renames = &x86_renames },
-    .{ .name = "x86", .core_type = "X86CoreType", .defines = &.{ "-DARCH_X86", "-DBINARY32" }, .renames = &x86_renames },
-    .{ .name = "arm64", .core_type = "Arm64CoreType", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-DARMV8" } },
-    .{ .name = "arm", .core_type = "ArmCoreType", .defines = &.{ "-DARCH_ARM", "-DBINARY32" }, .renames = &.{ .{ "neon", "ARMV7" }, .{ "vfpv4", "ARMV7,CORTEXA15" } } },
-    .{ .name = "power64", .core_type = "PowerCoreType", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-DOS_LINUX" } },
-    .{ .name = "power32", .core_type = "PowerCoreType", .defines = &.{ "-DARCH_POWER", "-DBINARY32", "-DOS_LINUX" } },
-    .{ .name = "riscv64", .core_type = "RiscvCoreType", .defines = &.{ "-DARCH_RISCV64", "-DBINARY64" } },
-    .{ .name = "s390x", .core_type = "S390xCoreType", .defines = &.{ "-DARCH_ZARCH", "-DBINARY64" } },
-    .{ .name = "mips64", .core_type = "MipsCoreType", .defines = &.{ "-DARCH_MIPS64", "-DBINARY64" } },
-    .{ .name = "mips32", .core_type = "MipsCoreType", .defines = &.{ "-DARCH_MIPS", "-DBINARY32" } },
-    .{ .name = "loongarch64", .core_type = "LoongarchCoreType", .defines = &.{ "-DARCH_LOONGARCH64", "-DBINARY64" } },
-    .{ .name = "sparc", .core_type = "SparcCoreType", .defines = &.{ "-DARCH_SPARC", "-DBINARY32" }, .renames = &.{ .{ "sparcv7", "SPARC,V7" }, .{ "sparc", "SPARC,V9" } } },
-    .{ .name = "wasm", .core_type = "WasmCoreType", .defines = &.{ "-DARCH_WASM", "-DBINARY32" } },
-    .{ .name = "generic", .core_type = "GenericCoreType", .defines = &.{ "-DARCH_X86_64", "-DBINARY64" }, .renames = &.{.{ "generic", "GENERIC" }} },
+    .{ .name = "x86_64", .core_type = "X86CoreType", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_X86_64", "-DBINARY64" }, .renames = &x86_renames },
+    .{ .name = "x86", .core_type = "X86CoreType", .target = "x86-linux-gnu", .defines = &.{ "-DARCH_X86", "-DBINARY32" }, .renames = &x86_renames },
+    .{ .name = "arm64", .core_type = "Arm64CoreType", .target = "aarch64-linux-gnu", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-DARMV8" } },
+    .{ .name = "arm", .core_type = "ArmCoreType", .target = "arm-linux-gnueabihf", .defines = &.{ "-DARCH_ARM", "-DBINARY32" }, .renames = &.{ .{ "neon", "ARMV7" }, .{ "vfpv4", "ARMV7,CORTEXA15" }, .{ "cortexa9", "ARMV7,CORTEXA9" }, .{ "cortexa15", "ARMV7,CORTEXA15" } } },
+    .{ .name = "power64", .core_type = "PowerCoreType", .target = "powerpc64le-linux-gnu", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-DOS_LINUX" } },
+    .{ .name = "power32", .core_type = "PowerCoreType", .target = "powerpc-linux-musleabihf", .defines = &.{ "-DARCH_POWER", "-DBINARY32", "-DOS_LINUX" } },
+    .{ .name = "riscv64", .core_type = "RiscvCoreType", .target = "riscv64-linux-gnu", .defines = &.{ "-DARCH_RISCV64", "-DBINARY64" } },
+    .{ .name = "s390x", .core_type = "S390xCoreType", .target = "s390x-linux-gnu", .defines = &.{ "-DARCH_ZARCH", "-DBINARY64" } },
+    .{ .name = "mips64", .core_type = "MipsCoreType", .target = "mips64el-linux-gnuabi64", .defines = &.{ "-DARCH_MIPS64", "-DBINARY64" } },
+    .{ .name = "mips32", .core_type = "MipsCoreType", .target = "mips-linux-gnueabihf", .defines = &.{ "-DARCH_MIPS", "-DBINARY32" } },
+    .{ .name = "loongarch64", .core_type = "LoongarchCoreType", .target = "loongarch64-linux-gnu", .defines = &.{ "-DARCH_LOONGARCH64", "-DBINARY64" } },
+    .{ .name = "sparc", .core_type = "SparcCoreType", .target = "sparc-linux-gnu", .defines = &.{ "-DARCH_SPARC", "-DBINARY32" }, .renames = &.{ .{ "sparcv7", "SPARC,V7" }, .{ "sparc", "SPARC,V9" } } },
+    .{ .name = "wasm", .core_type = "WasmCoreType", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_WASM", "-DBINARY32" } },
+    .{ .name = "generic", .core_type = "GenericCoreType", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_X86_64", "-DBINARY64" }, .renames = &.{.{ "generic", "GENERIC" }} },
 };
 
 const probe_head =
@@ -104,7 +108,7 @@ const globals = [_][2][]const u8{
     .{ "divide_rate", "GEMM_DIVIDE_RATE" },
     .{ "divide_limit", "GEMM_DIVIDE_LIMIT" },
     .{ "preferred_size", "GEMM_PREFERRED_SIZE" },
-    .{ "dtb_entries", "DTB_DEFAULT_ENTRIES" },
+    .{ "symv_p", "SYMV_P" },
 };
 
 fn probeSource(a: std.mem.Allocator) ![]const u8 {
@@ -165,6 +169,64 @@ fn size(a: std.mem.Allocator, w: *std.ArrayList(u8), v: ?i64, dynamic: []const u
     } else try w.appendSlice(a, dynamic);
 }
 
+/// Writes a switch's prongs, one per distinct value, with every core that has
+/// it (in table order) on the prong's left side.
+fn writeProngs(a: std.mem.Allocator, out: *std.ArrayList(u8), names: []const []const u8, values: []const []const u8) !void {
+    for (values, 0..) |v, i| {
+        const seen = for (values[0..i]) |p| {
+            if (std.mem.eql(u8, p, v)) break true;
+        } else false;
+        if (seen) continue;
+        try out.appendSlice(a, "        ");
+        var first = true;
+        for (names, values) |n, w| {
+            if (!std.mem.eql(u8, w, v)) continue;
+            if (!first) try out.appendSlice(a, ", ");
+            try out.print(a, ".{s}", .{n});
+            first = false;
+        }
+        try out.print(a, " => {s},\n", .{v});
+    }
+}
+
+/// `DTB_DEFAULT_ENTRIES` is not in `param.h`; `getarch.c` gives it per core
+/// (`-DFORCE_<core>`, the way `Makefile.system` builds a `DYNAMIC_ARCH` kernel).
+/// Preprocessing is enough to read it, and works for any target. Tried in
+/// order: the core's own name, then `macro`'s parts, most specific (last) first.
+fn dtbEntries(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Family, core: []const u8, macro: []const u8) !?i64 {
+    var cands: std.ArrayList([]const u8) = .empty;
+    try cands.append(a, try upper(a, core));
+    var parts = std.mem.splitBackwardsScalar(u8, macro, ',');
+    while (parts.next()) |part| try cands.append(a, if (std.mem.startsWith(u8, part, "CORE_")) part[5..] else part);
+    for (cands.items) |name| {
+        const cc = try std.process.run(a, io, .{ .argv = &.{
+            "zig",                                             "cc",      "-E",       "-w", "-DDYNAMIC_ARCH",
+            try std.fmt.allocPrint(a, "-DFORCE_{s}", .{name}), "-target", fam.target, "-I", checkout,
+            try map.path(&.{ checkout, "getarch.c" }),
+        } });
+        const ok = switch (cc.term) {
+            .exited => |c| c == 0,
+            else => false,
+        };
+        if (!ok or cc.stderr.len > 0) map.die("preprocessing getarch.c for {s} ({s}) failed:\n{s}", .{ name, fam.name, cc.stderr });
+        // the first value in the text is the core's; later ones repeat it
+        const key = "-DDTB_DEFAULT_ENTRIES=";
+        const at = std.mem.indexOf(u8, cc.stdout, key) orelse continue;
+        var end = at + key.len;
+        while (end < cc.stdout.len and std.ascii.isDigit(cc.stdout[end])) end += 1;
+        return try std.fmt.parseInt(i64, cc.stdout[at + key.len .. end], 10);
+    }
+    return null;
+}
+
+/// The `param.h` macro(s) of `name`: its upper-case name unless renamed.
+fn coreMacro(a: std.mem.Allocator, fam: Family, name: []const u8) ![]const u8 {
+    for (fam.renames) |r| {
+        if (std.mem.eql(u8, r[0], name)) return r[1];
+    }
+    return upper(a, name);
+}
+
 pub fn main(init: std.process.Init) !void {
     const a = init.arena.allocator();
     const checkout = init.environ_map.get("OPENBLAS") orelse
@@ -193,12 +255,21 @@ pub fn main(init: std.process.Init) !void {
 
     for (families) |fam| {
         const names = try coreNames(a, types_text, fam.core_type);
+        var dtb: std.ArrayList(u8) = .empty;
+        defer dtb.deinit(a);
+        try dtb.print(a, "/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.\npub fn {s}_dtb(core: coretypes.{s}) ?i32 {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
+        const macros = try a.alloc([]const u8, names.len);
+        for (names, macros) |name, *m| m.* = try coreMacro(a, fam, name);
+        const dtb_vals = try a.alloc([]const u8, names.len);
+        for (names, macros, dtb_vals) |name, macro, *v| {
+            v.* = if (try dtbEntries(a, io, checkout, fam, name, macro)) |n| try std.fmt.allocPrint(a, "{d}", .{n}) else "null";
+        }
+        try writeProngs(a, &dtb, names, dtb_vals);
+        try dtb.appendSlice(a, "    };\n}\n\n");
         try out.print(a, "pub fn {s}(core: coretypes.{s}) ?Table {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
-        for (names) |name| {
-            var macro = try upper(a, name);
-            for (fam.renames) |r| {
-                if (std.mem.eql(u8, r[0], name)) macro = r[1];
-            }
+        const table_vals = try a.alloc([]const u8, names.len);
+        for (names, macros, table_vals) |name, macro, *tv| {
+            var val: std.ArrayList(u8) = .empty;
             var argv: std.ArrayList([]const u8) = .empty;
             try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
             try argv.appendSlice(a, fam.defines);
@@ -211,7 +282,7 @@ pub fn main(init: std.process.Init) !void {
                 else => false,
             };
             if (!built) {
-                try out.print(a, "        .{s} => null,\n", .{name});
+                tv.* = "null";
                 std.debug.print("{s}/{s}: header does not build\n", .{ fam.name, name });
                 continue;
             }
@@ -220,11 +291,11 @@ pub fn main(init: std.process.Init) !void {
             const have_p = vals.get("s.P") orelse null;
             const have_q = vals.get("s.Q") orelse null;
             if (have_p == null or have_q == null) {
-                try out.print(a, "        .{s} => null,\n", .{name});
+                tv.* = "null";
                 std.debug.print("{s}/{s}: header defines no blocking\n", .{ fam.name, name });
                 continue;
             }
-            try out.print(a, "        .{s} => .{{\n", .{name});
+            try val.appendSlice(a, ".{\n");
             for (precs) |pr| {
                 const key = struct {
                     fn k(al: std.mem.Allocator, f: []const u8, w: []const u8) ![]const u8 {
@@ -234,7 +305,7 @@ pub fn main(init: std.process.Init) !void {
                 const um = (vals.get(try key(a, pr.field, "UNROLL_M")) orelse null);
                 const pp = (vals.get(try key(a, pr.field, "P")) orelse null);
                 if (um == null and pp == null) continue;
-                try out.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
+                try val.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
                     pr.field,
                     um orelse 0,
                     (vals.get(try key(a, pr.field, "UNROLL_N")) orelse null) orelse 0,
@@ -242,22 +313,25 @@ pub fn main(init: std.process.Init) !void {
                     (vals.get(try key(a, pr.field, "ALIGN_K")) orelse null) orelse 0,
                     (vals.get(try key(a, pr.field, "P_BASE")) orelse null) orelse 0,
                 });
-                try size(a, &out, pp, ".dynamic");
-                try out.appendSlice(a, ", .q = ");
-                try size(a, &out, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic");
-                try out.appendSlice(a, ", .r = ");
-                try size(a, &out, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer");
-                try out.appendSlice(a, " },\n");
+                try size(a, &val, pp, ".dynamic");
+                try val.appendSlice(a, ", .q = ");
+                try size(a, &val, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic");
+                try val.appendSlice(a, ", .r = ");
+                try size(a, &val, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer");
+                try val.appendSlice(a, " },\n");
             }
             for (globals) |g| {
                 if ((vals.get(g[0]) orelse null)) |x| {
                     const field = if (std.mem.eql(u8, g[0], "align")) "align_" else g[0];
-                    try out.print(a, "            .{s} = {d},\n", .{ field, x });
+                    try val.print(a, "            .{s} = {d},\n", .{ field, x });
                 }
             }
-            try out.appendSlice(a, "        },\n");
+            try val.appendSlice(a, "        }");
+            tv.* = val.items;
         }
+        try writeProngs(a, &out, names, table_vals);
         try out.appendSlice(a, "    };\n}\n\n");
+        try out.appendSlice(a, dtb.items);
     }
 
     const dest = "src/linalg/blas/blas3/gemm/params_data.zig";

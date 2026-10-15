@@ -25,7 +25,7 @@ pub const sparc: arch.Arch = .{
     .defines = &.{ "-DASSEMBLER", "-DARCH_SPARC", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
     .variants = &.{
-        .{ .name = "32", .defines = &.{} },
+        .{ .name = "32", .defines = &.{}, .triple = "sparc-linux-gnu" },
         .{ .name = "64", .defines = &.{"-D__64BIT__"} },
     },
 };

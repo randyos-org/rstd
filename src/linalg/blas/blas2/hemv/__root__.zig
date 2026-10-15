@@ -60,6 +60,7 @@ pub fn xhemv_V(m: BlasLong, offset: BlasLong, alpha_r: XDouble, alpha_i: XDouble
 const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const sym = @import("../symmetric.zig");
+const guard = @import("../guard.zig");
 
 /// The variants by suffix: lower triangle, and the transposed (`HEMVREV`)
 /// matrix.
@@ -68,23 +69,30 @@ const variants = .{ .{ "U", false, sym.Kind.hermitian }, .{ "L", true, sym.Kind.
 /// Points every hemv slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        inline for (variants) |v| @field(vt, p[0] ++ "hemv_" ++ v[0]) = &sym.Kernel(std.math.Complex(p[1]), v[1], v[2]).cplx;
+        inline for (variants) |v| @field(vt, p[0] ++ "hemv_" ++ v[0]) = &sym.Auto(p[0], std.math.Complex(p[1]), v[1], v[2]).cplx;
     }
 }
 
 // ---- tests -----------------------------------------------------------------
 
 fn checkAll(vt: *const Vtable) !void {
+    guard.use(vt);
+    defer guard.restore();
+    try checkSlots(vt);
+}
+
+fn checkSlots(vt: *const Vtable) !void {
     inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
-        inline for (variants) |v| try sym.checkKernel(std.math.Complex(p[1]), v[1], v[2], @field(vt, p[0] ++ "hemv_" ++ v[0]).?, p[0] ++ "hemv_" ++ v[0]);
+        inline for (variants) |v| try sym.checkBoth(p[0], std.math.Complex(p[1]), v[1], v[2], @field(vt, p[0] ++ "hemv_" ++ v[0]).?, p[0] ++ "hemv_" ++ v[0]);
     }
 }
 
 test "portable hemv kernels match plain arithmetic" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
-    inline for (variants) |v| try sym.checkKernel(std.math.Complex(XDouble), v[1], v[2], @field(vt, "xhemv_" ++ v[0]).?, "xhemv_" ++ v[0]);
+    const vt = guard.portableVtable();
+    guard.use(vt);
+    defer guard.restore();
+    try checkSlots(vt);
+    inline for (variants) |v| try sym.checkBoth("x", std.math.Complex(XDouble), v[1], v[2], @field(vt, "xhemv_" ++ v[0]).?, "xhemv_" ++ v[0]);
 }
 
 test "every linked core's hemv kernels match plain arithmetic, where this machine runs them" {

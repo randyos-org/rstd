@@ -4,6 +4,7 @@
 const Self = @This();
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const zigstd = @import("../../zigstd.zig");
 
 /// `OPENBLAS_VERBOSE` -- 0 quiet, 2 prints the selected core name.
@@ -25,8 +26,10 @@ omp_adaptive: i32 = 0,
 /// `OPENBLAS_CORETYPE` -- forces a core type by name, bypassing CPU
 /// detection entirely. Invaluable for benchmarking and for working
 /// around a bad detection result without a rebuild. Read in every
-/// `dynamic_*.c`, not just x86's.
-core_type: ?[]const u8 = null,
+/// `dynamic_*.c`, not just x86's. Kept here, not borrowed from the
+/// environment, which may change or go away; see `coreType`.
+core_type_buf: [value_max]u8 = @splat(0),
+core_type_len: u8 = 0,
 
 /// `GET_OPENBLAS_CORETYPE` -- POWER-specific (`dynamic_power.c` only).
 /// A bare presence check (`if (getenv(...))`), not a parsed value: if
@@ -58,7 +61,54 @@ l2_size_override: i32 = 0,
 /// values pick hex/octal the way the C source does.
 ld_hwcap_mask: ?u64 = null,
 
-pub fn init(env: *std.process.Environ.Map) Self {
+/// The longest value read; longer ones read as unparseable (a NUL), so they
+/// fall back to the default (or, for a core name, to detection).
+pub const value_max = 64;
+
+/// Where the variables come from: a map the program passes (`blas.init`), or
+/// the process's own block, read one variable at a time with no allocation.
+pub const Env = union(enum) {
+    map: *const std.process.Environ.Map,
+    /// `NAME=value` strings, as `environ` holds them.
+    posix: []const ?[*:0]const u8,
+    /// The process's, through the PEB.
+    windows,
+    none,
+
+    /// `key`'s value, empty if set to nothing; copied into `buf` where it
+    /// cannot be borrowed (Windows).
+    pub fn get(e: Env, comptime key: []const u8, buf: *[value_max]u8) ?[]const u8 {
+        const v: []const u8 = switch (e) {
+            .map => |m| m.get(key) orelse return null,
+            .posix => |entries| for (entries) |opt| {
+                const entry = std.mem.span(opt orelse continue);
+                if (entry.len > key.len and entry[key.len] == '=' and std.mem.eql(u8, entry[0..key.len], key)) break entry[key.len + 1 ..];
+            } else return null,
+            .windows => if (comptime sysinfo.os.tag == .windows) blk: {
+                const w = std.process.Environ.getWindows(.{ .block = .global }, std.unicode.wtf8ToWtf16LeStringLiteral(key)) orelse return null;
+                if (w.len * 3 > buf.len) break :blk tooLong(buf);
+                break :blk buf[0..std.unicode.wtf16LeToWtf8(buf, w)];
+            } else return null,
+            .none => return null,
+        };
+        return if (v.len > value_max) tooLong(buf) else v;
+    }
+
+    fn tooLong(buf: *[value_max]u8) []const u8 {
+        buf[0] = 0;
+        return buf[0..1];
+    }
+};
+
+fn asEnv(env: anytype) Env {
+    return if (@TypeOf(env) == Env) env else .{ .map = env };
+}
+
+pub fn init(env: *const std.process.Environ.Map) Self {
+    return fromEnv(.{ .map = env });
+}
+
+pub fn fromEnv(env: Env) Self {
     var c: Self = .{};
     c.verbose = readInt(env, "OPENBLAS_VERBOSE");
     c.block_factor = readInt(env, "OPENBLAS_BLOCK_FACTOR");
@@ -71,7 +121,11 @@ pub fn init(env: *std.process.Environ.Map) Self {
     c.goto_num_threads = readInt(env, "GOTO_NUM_THREADS");
     c.omp_num_threads = readInt(env, "OMP_NUM_THREADS");
     c.omp_adaptive = readInt(env, "OMP_ADAPTIVE");
-    c.core_type = readValue(env, "OPENBLAS_CORETYPE");
+    var buf: [value_max]u8 = undefined;
+    if (readValue(env, "OPENBLAS_CORETYPE", &buf)) |name| {
+        @memcpy(c.core_type_buf[0..name.len], name);
+        c.core_type_len = @intCast(name.len);
+    }
 
     c.get_openblas_coretype = isSet(env, "GET_OPENBLAS_CORETYPE");
     c.goto_debug = readIntRaw(i32, env, "GOTO_DEBUG", 0) orelse 0;
@@ -82,21 +136,27 @@ pub fn init(env: *std.process.Environ.Map) Self {
     return c;
 }
 
-/// Reads `key`, returning null when unset or empty.
-pub fn readValue(env: *std.process.Environ.Map, comptime key: []const u8) ?[]const u8 {
-    const v = env.get(key) orelse return null;
+/// `OPENBLAS_CORETYPE`, if set.
+pub fn coreType(c: *const Self) ?[]const u8 {
+    return if (c.core_type_len == 0) null else c.core_type_buf[0..c.core_type_len];
+}
+
+/// Reads `key` into `buf` (or borrows it), returning null when unset or empty.
+pub fn readValue(env: anytype, comptime key: []const u8, buf: *[value_max]u8) ?[]const u8 {
+    const v = asEnv(env).get(key, buf) orelse return null;
     return if (v.len == 0) null else v;
 }
 
 /// clamps negatives to 0.
-pub fn readInt(env: *std.process.Environ.Map, comptime key: []const u8) i32 {
+pub fn readInt(env: anytype, comptime key: []const u8) i32 {
     const parsed = readIntRaw(i32, env, key, 0) orelse 0;
     return if (parsed < 0) 0 else parsed;
 }
 
 /// clamps unset to `default`.
-pub fn readIntRaw(comptime T: type, env: *std.process.Environ.Map, comptime key: []const u8, default: ?T) ?T {
-    const v = readValue(env, key) orelse return default;
+pub fn readIntRaw(comptime T: type, env: anytype, comptime key: []const u8, default: ?T) ?T {
+    var buf: [value_max]u8 = undefined;
+    const v = readValue(env, key, &buf) orelse return default;
     return std.fmt.parseInt(T, std.mem.trim(u8, v, " \t\r\n"), 0) catch default;
 }
 
@@ -104,8 +164,9 @@ pub fn readIntRaw(comptime T: type, env: *std.process.Environ.Map, comptime key:
 /// even an empty string counts, matching a bare C `if (getenv(...))`.
 /// `readValue` treats an empty value as "not set," so this can't just
 /// delegate to it.
-pub fn isSet(env: *std.process.Environ.Map, comptime key: []const u8) bool {
-    return env.contains(key);
+pub fn isSet(env: anytype, comptime key: []const u8) bool {
+    var buf: [value_max]u8 = undefined;
+    return asEnv(env).get(key, &buf) != null;
 }
 
 /// Builds an empty `Environ.Map` for a test, pre-populated with `pairs`.
@@ -118,9 +179,10 @@ fn testEnv(pairs: []const [2][]const u8) std.process.Environ.Map {
 test "unset variables yield every default" {
     var env = testEnv(&.{});
     defer env.deinit();
+    var buf: [value_max]u8 = undefined;
 
     try zigstd.testExpectEqual(@as(i32, 0), readInt(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ"));
-    try zigstd.testExpectTrue(readValue(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ") == null);
+    try zigstd.testExpectTrue(readValue(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ", &buf) == null);
     try zigstd.testExpectEqual(@as(?i32, 0), readIntRaw(i32, &env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ", 0));
     try zigstd.testExpectTrue(!isSet(&env, "OPENBLAS_DEFINITELY_NOT_SET_XYZ"));
 
@@ -182,7 +244,8 @@ test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {
     defer env.deinit();
 
     try zigstd.testExpectTrue(isSet(&env, "GET_OPENBLAS_CORETYPE"));
-    try zigstd.testExpectTrue(readValue(&env, "GET_OPENBLAS_CORETYPE") == null);
+    var buf: [value_max]u8 = undefined;
+    try zigstd.testExpectTrue(readValue(&env, "GET_OPENBLAS_CORETYPE", &buf) == null);
     try zigstd.testExpectTrue(Self.init(&env).get_openblas_coretype);
 }
 
@@ -235,7 +298,19 @@ test "a fully populated environment produces a matching config" {
     defer env.deinit();
 
     const c = Self.init(&env);
+    env.deinit();
+    env = testEnv(&.{});
     try zigstd.testExpectEqual(@as(i32, 2), c.verbose);
-    try zigstd.testExpectEqualStrings("Haswell", c.core_type.?);
+    try zigstd.testExpectEqualStrings("Haswell", c.coreType().?);
     try zigstd.testExpectEqual(@as(i32, 262144), c.l2_size_override);
+}
+
+test "the process block is read one variable at a time, and over-long values read as unparseable" {
+    const xs: [80:0]u8 = @splat('x');
+    const ones: [70:0]u8 = @splat('1');
+    const entries = [_]?[*:0]const u8{ "OPENBLAS_VERBOSEX=9", "OPENBLAS_VERBOSE=3", "OPENBLAS_CORETYPE=" ++ xs, "OPENBLAS_NUM_THREADS=" ++ ones, null };
+    const c = fromEnv(.{ .posix = entries[0..4] });
+    try zigstd.testExpectEqual(@as(i32, 3), c.verbose);
+    try zigstd.testExpectEqual(@as(i32, 0), c.num_threads);
+    try zigstd.testExpectEqualStrings("\x00", c.coreType().?);
 }

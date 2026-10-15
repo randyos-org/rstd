@@ -15,7 +15,7 @@
 //! drivers would be chosen where marked.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
@@ -23,6 +23,7 @@ const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
+const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasInt = types.BlasInt;
@@ -121,19 +122,45 @@ fn scaleY(comptime T: type, n: BlasInt, beta: T, y: [*]T, incy: BlasInt) void {
 
 // ---- scratch buffer ----------------------------------------------------------
 
-/// `MAX_STACK_ALLOC`: up to this many bytes of scratch live on the stack.
-const stack_bytes = 2048;
-const StackBuf = [stack_bytes]u8;
-const scratch_align = 64;
+/// `MAX_STACK_ALLOC`: up to this many bytes of scratch live on the stack, in
+/// every level-2 driver; the rest comes from the allocator.
+pub const stack_bytes = 2048;
+/// The reference's stack buffers are `aligned(0x20)`; no ported kernel needs
+/// more than 16 (`buffers.md`).
+pub const stack_align = 32;
+/// `blas_memory_alloc`'s buffers are pages; the generic symv and hemv lay
+/// their copies out on page boundaries from it.
+pub const heap_align = 4096;
 
-/// `len` elements of scratch, from `stack` if they fit, else the allocator.
-fn scratch(comptime F: type, allocator: Allocator, stack: *align(scratch_align) StackBuf, len: usize) Allocator.Error![]align(scratch_align) F {
-    if (len * @sizeOf(F) <= stack_bytes) return @as([*]align(scratch_align) F, @ptrCast(stack))[0..len];
-    return allocator.alignedAlloc(F, .@"64", len);
-}
+/// Scratch for `F` elements: on the stack when `stack_bytes` holds them, else
+/// from the allocator.
+fn Scratch(comptime F: type) type {
+    return struct {
+        const Self = @This();
+        ptr: [*]F,
+        len: usize,
+        heap: ?[]align(heap_align) F = null,
 
-fn release(comptime F: type, allocator: Allocator, stack: *align(scratch_align) StackBuf, buf: []align(scratch_align) F) void {
-    if (@intFromPtr(buf.ptr) != @intFromPtr(stack)) allocator.free(buf);
+        fn init(allocator: Allocator, stack: *align(stack_align) [stack_bytes]u8, len: usize) Allocator.Error!Self {
+            if (len * @sizeOf(F) <= stack_bytes) return .{ .ptr = @ptrCast(stack), .len = len };
+            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
+            return .{ .ptr = h.ptr, .len = len, .heap = h };
+        }
+
+        /// Always from the allocator, as the reference's `blas_memory_alloc`.
+        fn heapOnly(allocator: Allocator, len: usize) Allocator.Error!Self {
+            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
+            return .{ .ptr = h.ptr, .len = len, .heap = h };
+        }
+
+        fn slice(self: Self) []F {
+            return self.ptr[0..self.len];
+        }
+
+        fn deinit(self: Self, allocator: Allocator) void {
+            if (self.heap) |h| allocator.free(h);
+        }
+    };
 }
 
 // ---- gemv --------------------------------------------------------------------
@@ -142,7 +169,7 @@ fn release(comptime F: type, allocator: Allocator, stack: *align(scratch_align) 
 /// `A` being `m` by `n`. `y` is scaled by `beta` first (a zero `beta`
 /// overwrites NaN), and nothing more happens for a zero `alpha`.
 pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: BlasInt, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, beta: T, y: [*]T, incy: BlasInt) Error!void {
-    if (!isComplex(T) and @intFromEnum(trans) > @intFromEnum(Trans.c)) return error.InvalidTrans;
+    if (!isComplex(T) and @backingInt(trans) > @backingInt(Trans.c)) return error.InvalidTrans;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, m)) return error.InvalidLda;
@@ -157,7 +184,7 @@ pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: BlasInt, n:
     switch (trans) {
         inline else => |t| {
             // `r`..`d` have no real kernel; `gemv` returned above for those
-            if (comptime !isComplex(T) and @intFromEnum(t) > @intFromEnum(Trans.c)) unreachable;
+            if (comptime !isComplex(T) and @backingInt(t) > @backingInt(Trans.c)) unreachable;
             try gemvRun(allocator, T, t, m, n, alpha, a, lda, first(T, x, lenx, incx), incx, first(T, y, leny, incy), incy);
         },
     }
@@ -166,20 +193,87 @@ pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: BlasInt, n:
 fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: BlasInt, n: BlasInt, alpha: T, a: [*]T, lda: BlasInt, x: [*]T, incx: BlasInt, y: [*]T, incy: BlasInt) Allocator.Error!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
-    if (comptime !complex and @intFromEnum(t) > @intFromEnum(Trans.c)) return;
+    if (comptime !complex and @backingInt(t) > @backingInt(Trans.c)) return;
     const name = comptime "gemv_" ++ if (complex) @tagName(t) else if (transposed(t)) "t" else "n";
-    var stack: StackBuf align(scratch_align) = undefined;
-    const len = ((if (complex) 2 else 1) * (@as(usize, @intCast(m)) + @as(usize, @intCast(n))) + 128 / @sizeOf(F) + 3) & ~@as(usize, 3);
-    const buf = try scratch(F, allocator, &stack, len);
-    defer release(F, allocator, &stack, buf);
-    // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity
-    if (comptime complex and transposed(t) and builtin.cpu.arch == .x86_64) @memset(buf, 0);
+    var stack: [stack_bytes]u8 align(stack_align) = undefined;
+    const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, if (complex) 2 else 1, @intCast(m), @intCast(n)));
+    defer sc.deinit(allocator);
+    // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity; the
+    // reference clears its stack buffer for every `trans` but `n`, here the
+    // heap one too since the allocator hands out whatever it holds
+    if (comptime complex and t != .n and sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
-        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, buf.ptr);
+        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
     } else {
-        _ = slot(T, name)(long(m), long(n), 0, alpha, a, long(lda), x, incx, y, incy, buf.ptr);
+        _ = slot(T, name)(long(m), long(n), 0, alpha, a, long(lda), x, incx, y, incy, sc.ptr);
     }
+}
+
+// ---- half-precision gemv -----------------------------------------------------
+
+/// The half-precision `gemv`s: `sbgemv` is bfloat16 in and `f32` out, `bgemv`
+/// bfloat16 throughout, `shgemv` `f16` in and `f32` out.
+pub const HalfGemv = enum {
+    sbgemv,
+    bgemv,
+    shgemv,
+
+    fn In(comptime k: HalfGemv) type {
+        return if (k == .shgemv) types.HF16 else types.BF16;
+    }
+
+    /// The type of `y`, `alpha` and `beta`.
+    fn Out(comptime k: HalfGemv) type {
+        return if (k == .bgemv) types.BF16 else f32;
+    }
+};
+
+/// `SBGEMV`, `BGEMV`, `SHGEMV` (`interface/sbgemv.c`): `y := alpha*op(A)*x +
+/// beta*y`, `A` being `m` by `n`; `trans` is `n`/`r` or `t`/`c`. Unlike
+/// `gemv`, the kernel applies `beta` itself, and a zero `alpha` only scales
+/// `y` (when `beta` is not 1) without reading `A` or `x`. The kernels take no
+/// scratch buffer, so there is no allocator; the reference's threaded
+/// drivers are not here.
+pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: BlasInt, n: BlasInt, alpha: kind.Out(), a: [*]kind.In(), lda: BlasInt, x: [*]kind.In(), incx: BlasInt, beta: kind.Out(), y: [*]kind.Out(), incy: BlasInt) ArgError!void {
+    const In = kind.In();
+    const Out = kind.Out();
+    if (@backingInt(trans) > @backingInt(Trans.c)) return error.InvalidTrans;
+    if (m < 0) return error.InvalidM;
+    if (n < 0) return error.InvalidN;
+    if (lda < @max(1, m)) return error.InvalidLda;
+    if (incx == 0) return error.InvalidIncx;
+    if (incy == 0) return error.InvalidIncy;
+    if (m == 0 or n == 0) return;
+    const tr = transposed(trans);
+    const lenx = if (tr) m else n;
+    const leny = if (tr) n else m;
+    // `SBF16TOS_K` of the scalars, for bfloat16
+    const alpha_f = halfToF32(Out, alpha);
+    const beta_f = halfToF32(Out, beta);
+    if (alpha_f == 0) {
+        if (beta_f != 1) {
+            const inc: BlasLong = @intCast(@abs(incy));
+            if (comptime kind == .bgemv) {
+                _ = blas.kernel(.bscal_k)(long(leny), 0, 0, beta, y, inc, y, 0, y, 0);
+            } else {
+                _ = blas.kernel(.sscal_k)(long(leny), 0, 0, beta, y, inc, y, 0, y, 0);
+            }
+        }
+        return;
+    }
+    const px = first(In, x, lenx, incx);
+    const py = first(Out, y, leny, incy);
+    const name = @tagName(kind);
+    _ = if (tr)
+        blas.kernel(@field(blas.Slot, name ++ "_t"))(long(m), long(n), alpha, a, long(lda), px, incx, beta, py, incy)
+    else
+        blas.kernel(@field(blas.Slot, name ++ "_n"))(long(m), long(n), alpha, a, long(lda), px, incx, beta, py, incy);
+}
+
+/// A `gemvHalf` scalar as `f32`.
+fn halfToF32(comptime T: type, v: T) f32 {
+    return if (T == f32) v else @import("../ext/bf16/__root__.zig").scalarToF32(v);
 }
 
 // ---- ger ---------------------------------------------------------------------
@@ -208,17 +302,17 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: BlasI
     const name = comptime if (complex) (if (conj) "gerc_k" else "geru_k") else "ger_k";
     const px = first(T, x, m, incx);
     const py = first(T, y, n, incy);
-    var stack: StackBuf align(scratch_align) = undefined;
-    // the kernels copy `x` into the buffer only for a non-unit stride
-    const unit = incx == 1 and incy == 1;
-    const buf = try scratch(F, allocator, &stack, if (unit) 0 else (if (complex) 2 else 1) * @as(usize, @intCast(m)));
-    defer release(F, allocator, &stack, buf);
-    const pb: [*]F = if (unit) @ptrCast(px) else buf.ptr;
+    var stack: [stack_bytes]u8 align(stack_align) = undefined;
+    // the kernels use the buffer only to copy a strided `x` (`buffers.md`);
+    // for a unit one the reference may pass NULL, so no kernel reads it
+    const unit = incx == 1;
+    const sc: Scratch(F) = if (unit) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
+    defer sc.deinit(allocator);
     // the reference threads big problems here (`ger_thread`)
     if (comptime complex) {
-        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), long(lda), pb);
+        _ = slot(T, name)(long(m), long(n), 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), long(lda), sc.ptr);
     } else {
-        _ = slot(T, name)(long(m), long(n), 0, alpha, px, incx, py, incy, a, long(lda), pb);
+        _ = slot(T, name)(long(m), long(n), 0, alpha, px, incx, py, incy, a, long(lda), sc.ptr);
     }
 }
 
@@ -263,32 +357,43 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: B
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
     if (comptime !@hasField(Vtable, letter(T) ++ name)) unreachable;
-    var stack: StackBuf align(scratch_align) = undefined;
-    // the kernels copy `x` and `y` there, the second at a 512-byte boundary
-    const len = 2 * (if (complex) 2 else 1) * @as(usize, @intCast(n)) + 1280 / @sizeOf(F);
-    const buf = try scratch(F, allocator, &stack, len);
-    defer release(F, allocator, &stack, buf);
+    // what the core's kernel needs, whichever it is (`buffers.md`)
+    const cs = if (complex) 2 else 1;
+    const un: usize = @intCast(n);
+    const bytes = @max(sym.composeBytes(F, cs, un, incx == 1, incy == 1), sym.sseBytes(F, cs, un));
+    // the portable kernel on a core without its own gemv runs plain loops,
+    // which need no buffer (`symmetric.Auto`)
+    const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
+    const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
+    const auto = sym.Auto(letter(T), T, lower, kind);
+    const direct = @field(blas.table().*, letter(T) ++ name) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
+    var none: [1]F = undefined;
+    const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else try Scratch(F).heapOnly(allocator, (bytes + @sizeOf(F) - 1) / @sizeOf(F));
+    defer sc.deinit(allocator);
+    // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
+    // and NaN there reaches `y`
+    if (sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`symv_thread_*`)
     if (comptime complex) {
-        _ = slot(T, name)(long(n), long(n), alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, buf.ptr);
+        _ = slot(T, name)(long(n), long(n), alpha.re, alpha.im, raw(T, a), long(lda), raw(T, x), incx, raw(T, y), incy, sc.ptr);
     } else {
-        _ = slot(T, name)(long(n), long(n), alpha, a, long(lda), x, incx, y, incy, buf.ptr);
+        _ = slot(T, name)(long(n), long(n), alpha, a, long(lda), x, incx, y, incy, sc.ptr);
     }
 }
 
 // ---- tests -------------------------------------------------------------------
 
 const testing = std.testing;
+/// Scratch from the heap holds NaN, so a missing clear shows.
+var poison: guard.Poison = .{ .child = testing.allocator };
 const all = .{ f32, f64, Complex32, Complex64 };
 
-/// Points the global vtable at the portable kernels until the returned vtable
-/// is put back (`defer blas._vtable = saved`).
-fn usePortable() Vtable {
-    const saved = blas._vtable;
+/// Points the global vtable at the portable kernels until
+/// `defer blas.testRestore(saved)`.
+fn usePortable() blas.TestSaved {
     var vt: Vtable = .{};
     portable.install(&vt);
-    blas._vtable = vt;
-    return saved;
+    return blas.testUse(&vt);
 }
 
 fn mulT(comptime T: type, p: T, q: T) T {
@@ -318,12 +423,8 @@ fn vi(n: usize, inc: BlasInt, i: usize) usize {
     return if (inc < 0) (n - 1 - i) * k else i * k;
 }
 
-fn span(n: usize, inc: BlasInt) usize {
-    return (n - 1) * @abs(inc) + 1;
-}
-
 fn randomVec(comptime T: type, n: usize, inc: BlasInt, seed: u64) ![]T {
-    const v = try testing.allocator.alloc(T, span(n, inc));
+    const v = try testing.allocator.alloc(T, guard.span(n, @abs(inc)));
     check.fill(T, v, seed);
     return v;
 }
@@ -377,13 +478,13 @@ fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: BlasInt, i
         const scaled = if (isZero(T, beta)) zeroT(T) else mulT(T, beta, y[k]);
         want[k] = if (isZero(T, alpha)) scaled else addT(T, scaled, mulT(T, alpha, acc));
     }
-    try gemv(testing.allocator, T, trans, @intCast(m), @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+    try gemv(poison.allocator(), T, trans, @intCast(m), @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     try expectSame(T, want, y, lenx);
 }
 
 test "interface: gemv matches plain arithmetic, for every trans, stride and scalar case" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         const transes = if (comptime isComplex(T)) std.enums.values(Trans) else &[_]Trans{ .n, .t, .r, .c };
         for (transes) |trans| for (shapes) |s| for (stride_pairs) |inc| for (scalars(T)) |ab| {
@@ -397,7 +498,7 @@ test "interface: gemv matches plain arithmetic, for every trans, stride and scal
 
 test "interface: gemv beta 0 overwrites NaN in y, and alpha 0 never reads x or a" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         const nan = val(T, std.math.nan(Float(T)), std.math.nan(Float(T)));
         var a = [_]T{ nan, nan, nan, nan };
@@ -413,7 +514,7 @@ test "interface: gemv beta 0 overwrites NaN in y, and alpha 0 never reads x or a
 
 test "interface: gemv, ger, symv and hemv report the first bad argument and do nothing for empty problems" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     const al = testing.allocator;
     var a = [_]f64{ 1, 2, 3, 4 };
     var x = [_]f64{ 1, 1 };
@@ -467,16 +568,16 @@ fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: BlasInt, incy
     };
     if (conj) {
         if (comptime !isComplex(T)) unreachable;
-        try gerc(testing.allocator, T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
+        try gerc(poison.allocator(), T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
     } else {
-        try ger(testing.allocator, T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
+        try ger(poison.allocator(), T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
     }
     try expectSame(T, want, a, 1);
 }
 
 test "interface: ger and gerc match plain arithmetic, for every stride and an alpha of 0" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         for (shapes) |s| for (stride_pairs) |inc| for ([_]T{ val(T, 1.25, -0.5), val(T, 0, 0), val(T, -1, 0) }) |alpha| {
             testGer(T, false, s.m, s.n, inc[0], inc[1], alpha) catch |e| {
@@ -521,9 +622,9 @@ fn testMv(comptime T: type, herm: bool, uplo: Uplo, n: usize, incx: BlasInt, inc
         want[k] = if (isZero(T, alpha)) scaled else addT(T, scaled, mulT(T, alpha, acc));
     }
     if (kind == .symmetric) {
-        try symv(testing.allocator, T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+        try symv(poison.allocator(), T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     } else if (comptime isComplex(T)) {
-        try hemv(testing.allocator, T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+        try hemv(poison.allocator(), T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     }
     try expectSame(T, want, y, n);
 }
@@ -532,7 +633,7 @@ const mv_sizes = [_]usize{ 1, 2, 5, 8, 9, 17 };
 
 test "interface: symv and hemv match plain arithmetic, for every triangle, stride and scalar case" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         for ([_]bool{ false, true }) |herm| {
             if (herm and !comptime isComplex(T)) continue;
@@ -547,9 +648,9 @@ test "interface: symv and hemv match plain arithmetic, for every triangle, strid
     }
 }
 
-test "interface: problems over the stack buffer allocate, and small ones never do" {
+test "interface: problems over the stack buffer allocate, and small gemv and ger never do" {
     const saved = usePortable();
-    defer blas._vtable = saved;
+    defer blas.testRestore(saved);
     inline for (all) |T| {
         try testGemv(T, .n, 300, 300, 1, 1, val(T, 1.5, 0.5), val(T, 0.5, 0));
         try testGemv(T, if (isComplex(T)) .c else .t, 300, 300, -2, 3, val(T, 1.5, 0.5), val(T, 1, 0));
@@ -565,20 +666,146 @@ test "interface: problems over the stack buffer allocate, and small ones never d
         const fa = testing.failing_allocator;
         try gemv(fa, T, .n, 2, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
         try ger(fa, T, 2, 2, val(T, 1, 0), &x, 2, &y, 1, &a, 2);
+        // nor for symv on the portable gemv (plain loops), or a unit-stride ger
         try symv(fa, T, .u, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
-        // and a big one reports the failure
         const big = 600;
-        const bx = try testing.allocator.alloc(T, big);
+        const bx = try testing.allocator.alloc(T, 2 * big);
         defer testing.allocator.free(bx);
-        try testing.expectError(error.OutOfMemory, ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 1, &y, 2, bx.ptr, big));
+        check.fill(T, bx, 3);
+        try ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 1, &y, 2, bx.ptr, big);
+        // and a big one that needs a buffer reports the failure
+        try testing.expectError(error.OutOfMemory, ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 2, &y, 2, bx.ptr, big));
+    }
+}
+
+// ---- half-precision gemv tests ----------------------------------------------
+
+const bf = @import("../ext/bf16/__root__.zig");
+
+fn halfIn(comptime E: type, v: f32) E {
+    return if (E == types.BF16) bf.toBf16(v) else @floatCast(v);
+}
+
+fn halfVal(comptime E: type, v: E) f64 {
+    return if (E == types.BF16) bf.fromBf16(v) else @floatCast(v);
+}
+
+fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx: BlasInt, incy: BlasInt, alpha: f32, beta: f32) !void {
+    const In = kind.In();
+    const Out = kind.Out();
+    const tr = transposed(trans);
+    const lenx = if (tr) m else n;
+    const leny = if (tr) n else m;
+    const lda = m + 2;
+    const a = try testing.allocator.alloc(In, lda * n);
+    defer testing.allocator.free(a);
+    const x = try testing.allocator.alloc(In, guard.span(lenx, @abs(incx)));
+    defer testing.allocator.free(x);
+    const y = try testing.allocator.alloc(Out, guard.span(leny, @abs(incy)));
+    defer testing.allocator.free(y);
+    var f: [1024]f32 = undefined;
+    check.fill(f32, f[0..a.len], m * 7 + n);
+    for (a, f[0..a.len]) |*d, v| d.* = halfIn(In, v);
+    check.fill(f32, f[0..x.len], 3);
+    for (x, f[0..x.len]) |*d, v| d.* = halfIn(In, v);
+    check.fill(f32, f[0..y.len], 4);
+    for (y, f[0..y.len]) |*d, v| d.* = halfIn(Out, v);
+    const want = try testing.allocator.dupe(Out, y);
+    defer testing.allocator.free(want);
+    for (0..leny) |r| {
+        var acc: f64 = 0;
+        for (0..lenx) |q| {
+            const e = if (tr) a[q + r * lda] else a[r + q * lda];
+            acc += halfVal(In, e) * halfVal(In, x[vi(lenx, incx, q)]);
+        }
+        const k = vi(leny, incy, r);
+        const af: f64 = halfVal(Out, halfIn(Out, alpha));
+        const bt: f64 = halfVal(Out, halfIn(Out, beta));
+        const prior: f64 = if (bt == 0) 0 else bt * halfVal(Out, y[k]);
+        want[k] = halfIn(Out, @floatCast(if (af == 0) prior else af * acc + prior));
+    }
+    try gemvHalf(kind, trans, @intCast(m), @intCast(n), halfIn(Out, alpha), a.ptr, @intCast(lda), x.ptr, incx, halfIn(Out, beta), y.ptr, incy);
+    for (want, y, 0..) |w, g, i| {
+        const wv = halfVal(Out, w);
+        const tol: f64 = if (Out == types.BF16) 0.012 * @abs(wv) + 1e-3 else 1e-5 * @as(f64, @floatFromInt(lenx + 2)) + 1e-6 * @abs(wv);
+        if (!(@abs(wv - halfVal(Out, g)) <= tol)) {
+            check.say("{s} {s} m={d} n={d} inc={d},{d} alpha={d} beta={d} y[{d}]: got {d}, want {d}\n", .{ @tagName(kind), @tagName(trans), m, n, incx, incy, alpha, beta, i, halfVal(Out, g), wv });
+            return error.TestExpectedApproxEqAbs;
+        }
+    }
+}
+
+const half_scalars = [_][2]f32{ .{ 1.25, 0.5 }, .{ 1, 1 }, .{ 0, 0.5 }, .{ 1.5, 0 }, .{ 0, 1 }, .{ -1, 2 }, .{ 0, 0 } };
+
+test "interface: the half-precision gemvs match plain arithmetic, for every trans, stride and scalar case" {
+    const saved = usePortable();
+    defer blas.testRestore(saved);
+    inline for (std.enums.values(HalfGemv)) |kind| {
+        for ([_]Trans{ .n, .t, .r, .c }) |trans| for (shapes) |s| for (stride_pairs) |inc| for (half_scalars) |ab| {
+            testGemvHalf(kind, trans, s.m, s.n, inc[0], inc[1], ab[0], ab[1]) catch |e| return e;
+        };
+    }
+}
+
+test "interface: half-precision gemv beta 0 overwrites NaN, alpha 0 never reads x or a" {
+    const saved = usePortable();
+    defer blas.testRestore(saved);
+    inline for (std.enums.values(HalfGemv)) |kind| {
+        const In = kind.In();
+        const Out = kind.Out();
+        const nan_in = halfIn(In, std.math.nan(f32));
+        var a = [_]In{ nan_in, nan_in, nan_in, nan_in };
+        var x = [_]In{ nan_in, nan_in };
+        var y = [_]Out{ halfIn(Out, std.math.nan(f32)), halfIn(Out, std.math.nan(f32)) };
+        try gemvHalf(kind, .n, 2, 2, halfIn(Out, 0), &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
+        try testing.expectEqual(@as(f64, 0), halfVal(Out, y[0]));
+        try testing.expectEqual(@as(f64, 0), halfVal(Out, y[1]));
+        y = .{ halfIn(Out, 1), halfIn(Out, 2) };
+        try gemvHalf(kind, .t, 2, 2, halfIn(Out, 0), &a, 2, &x, -1, halfIn(Out, 2), &y, 1);
+        try testing.expectEqual(@as(f64, 2), halfVal(Out, y[0]));
+        try testing.expectEqual(@as(f64, 4), halfVal(Out, y[1]));
+        // beta 1 with alpha 0 touches nothing, even through a stride
+        y = .{ halfIn(Out, 1), halfIn(Out, 2) };
+        try gemvHalf(kind, .n, 2, 2, halfIn(Out, 0), &a, 2, &x, 1, halfIn(Out, 1), &y, -1);
+        try testing.expectEqual(@as(f64, 1), halfVal(Out, y[0]));
+    }
+}
+
+test "interface: half-precision gemv reports the first bad argument and ignores empty problems" {
+    const saved = usePortable();
+    defer blas.testRestore(saved);
+    inline for (std.enums.values(HalfGemv)) |kind| {
+        const In = kind.In();
+        const Out = kind.Out();
+        var a = [_]In{ halfIn(In, 1), halfIn(In, 2), halfIn(In, 3), halfIn(In, 4) };
+        var x = [_]In{ halfIn(In, 1), halfIn(In, 1) };
+        var y = [_]Out{ halfIn(Out, 5), halfIn(Out, 6) };
+        const one = halfIn(Out, 1);
+        try testing.expectError(error.InvalidTrans, gemvHalf(kind, .o, 2, 2, one, &a, 2, &x, 1, one, &y, 1));
+        try testing.expectError(error.InvalidTrans, gemvHalf(kind, .d, -1, -1, one, &a, 0, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidM, gemvHalf(kind, .n, -1, -1, one, &a, 0, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidN, gemvHalf(kind, .n, 2, -1, one, &a, 0, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidLda, gemvHalf(kind, .n, 2, 2, one, &a, 1, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidIncx, gemvHalf(kind, .t, 2, 2, one, &a, 2, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidIncy, gemvHalf(kind, .t, 2, 2, one, &a, 2, &x, 1, one, &y, 0));
+        // an empty problem does not even apply beta
+        try gemvHalf(kind, .n, 0, 2, one, &a, 1, &x, 1, halfIn(Out, 0), &y, 1);
+        try gemvHalf(kind, .n, 2, 0, one, &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
+        try testing.expectEqual(@as(f64, 5), halfVal(Out, y[0]));
     }
 }
 
 fn checkAll(vt: *const Vtable) !void {
     // the interface reaches kernels through the global vtable
-    const saved = blas._vtable;
-    blas._vtable = vt.*;
-    defer blas._vtable = saved;
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
+    inline for (std.enums.values(HalfGemv)) |kind| {
+        try testGemvHalf(kind, .n, 9, 7, 2, 1, 1.25, 0.5);
+        try testGemvHalf(kind, .t, 9, 7, -1, 3, 1.25, 0.5);
+        try testGemvHalf(kind, .n, 33, 4, 1, 1, 1.25, 0);
+        try testGemvHalf(kind, .t, 4, 33, 1, 1, 1.25, 1);
+        try testGemvHalf(kind, .r, 17, 3, 1, -2, 0, 0.5);
+    }
     inline for (all) |T| {
         try testGemv(T, .n, 9, 7, 2, 1, val(T, 1.25, -0.5), val(T, 0.5, 0.25));
         try testGemv(T, .t, 9, 7, -1, 3, val(T, 1.25, -0.5), val(T, 0.5, 0.25));

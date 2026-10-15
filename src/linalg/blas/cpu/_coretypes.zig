@@ -35,6 +35,12 @@ pub const X86CoreType = enum {
     skylakex,
     cooperlake,
     sapphirerapids,
+    // Not detected at run time (`dynamic.c` has no such core); the targets of
+    // static builds, named as in the reference's `TARGET`.
+    p5,
+    p6,
+    viac3,
+    yonah,
 };
 
 // ---- arm64.zig ----
@@ -62,6 +68,15 @@ pub const Arm64CoreType = enum {
     vortex,
     vortexm4,
     unknown,
+    // Not detected at run time (`dynamic_arm64.c` has no such core); the
+    // targets of static builds, named as in the reference's `TARGET`.
+    cortexa76,
+    cortexa510,
+    cortexa710,
+    cortexx1,
+    cortexx2,
+    ampere1,
+    ft2000,
 };
 
 // ---- arm.zig ----
@@ -71,6 +86,9 @@ pub const ArmCoreType = enum {
     armv7,
     neon,
     vfpv4,
+    // static targets of the reference, which `cpuid_arm.c` finds by part
+    cortexa9,
+    cortexa15,
 };
 
 // ---- power.zig ----

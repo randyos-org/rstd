@@ -1,6 +1,7 @@
 //! Derived from code in OpenBLAS
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const zigstd = @import("../../zigstd.zig");
 
 pub const types = @import("types.zig");
@@ -16,16 +17,16 @@ const ext = @import("ext/__root__.zig");
 const InitPhase = enum(u8) { uninit, running, ready };
 
 pub var config: Config = .{};
-pub var core_type: cpu.CoreType = undefined;
-pub var _vtable: Vtable = generic_vtable;
+/// Null until `init` selects a core (and under a test's own table).
+var core_type: ?cpu.CoreType = null;
+var _vtable: Vtable = generic_vtable;
 
 /// The vtable before `init` and after `shutdown`: the portable kernels, where
 /// there are any.
 const generic_vtable: Vtable = blk: {
     @setEvalBranchQuota(100_000);
     var vt: Vtable = .{};
-    blas1.installGeneric(&vt);
-    blas2.installGeneric(&vt);
+    @import("portable.zig").install(&vt);
     break :blk vt;
 };
 
@@ -35,63 +36,159 @@ pub const Slot = blk: {
     break :blk std.meta.FieldEnum(Vtable);
 };
 
+var phase = std.atomic.Value(InitPhase).init(.uninit);
+/// How many times a core was selected; the tests watch the handshake with it.
+var inits = std.atomic.Value(u32).init(0);
+
+/// The vtable, initialized first if nothing has done so (or after `shutdown`).
+/// A routine fetches it once per call and passes it down, or uses `kernel`
+/// once; code under such a call reads `table` instead.
+pub inline fn vtable() *const Vtable {
+    if (phase.load(.acquire) != .ready) initCold();
+    return &_vtable;
+}
+
+fn initCold() void {
+    @branchHint(.cold);
+    _ = initWith(processEnv());
+}
+
+/// The vtable, for code a routine reaches after its own `vtable()` call.
+pub inline fn table() *const Vtable {
+    if (std.debug.runtime_safety) std.debug.assert(phase.load(.monotonic) == .ready);
+    return &_vtable;
+}
+
 /// The kernel in vtable slot `slot` (`.daxpy_k`), as the reference's `DAXPY_K`
 /// is `gotoblas->daxpy_k`. A slot with no kernel for the running core, and no
 /// portable one, is a bug in the caller.
-pub fn kernel(comptime slot: Slot) @typeInfo(@FieldType(Vtable, @tagName(slot))).optional.child {
-    return @field(_vtable, @tagName(slot)).?;
+pub inline fn kernel(comptime slot: Slot) @typeInfo(@FieldType(Vtable, @tagName(slot))).optional.child {
+    return @field(vtable(), @tagName(slot)).?;
 }
 
-var phase = std.atomic.Value(InitPhase).init(.uninit);
+/// Selects the core and fills the vtable with its kernels, once; true if this
+/// call did it. The first kernel call does the same on its own, reading the
+/// process environment where a library can (`processEnv`); this call is how
+/// `OPENBLAS_*` is honored elsewhere, and it must come before the first kernel
+/// call to count. Later calls do nothing until `shutdown`. The values kept are
+/// copied, so `env` may go away after.
+pub fn init(env: *const std.process.Environ.Map) bool {
+    return initWith(.{ .map = env });
+}
 
-/// Runs initialization exactly once.
-///
 /// A mutex would drag in threading support we do not want on freestanding
 /// targets, so this is a three-state handshake: the winner of the
 /// compare-exchange initializes while any other thread spins until it publishes.
-pub fn init(env: *std.process.Environ.Map) void {
-    if (phase.load(.acquire) == .ready) return;
-    if (phase.cmpxchgStrong(.uninit, .running, .acquire, .monotonic) == null) {
-        config = .init(env);
+fn initWith(env: Config.Env) bool {
+    if (!claim()) return false;
+    config = .fromEnv(env);
 
-        if (config.core_type) |corename| {
-            if (cpu.fromName(corename)) |ct| {
-                core_type = ct;
-            } else {
-                // OpenBLAS warns and detects (`OPENBLAS_CORETYPE` names no core here)
-                blasWarn(1, "unknown OPENBLAS_CORETYPE '{s}', detecting the core", .{corename});
-                core_type = cpu.detect();
-            }
-        } else {
-            core_type = cpu.detect();
-        }
-        blasWarn(2, "core: {s}", .{@tagName(core_type)});
-
-        _vtable = cpu.vtableFromCoreType(core_type);
-        if (_vtable.init) |f| f();
-        phase.store(.ready, .release);
-        return;
+    const chosen = cpu.choose(config.coreType(), config.ld_hwcap_mask, LogSink{});
+    // the core whose kernels run, as `gotoblas_corename` names it
+    const ct = chosen.served orelse chosen.core;
+    core_type = ct;
+    blasWarn(2, "core: {s}", .{@tagName(ct)});
+    if (comptime sysinfo.cpu.arch.isPowerPC()) {
+        if (config.get_openblas_coretype and comptime sysinfo.os.tag != .freestanding)
+            std.debug.print("Core: {s}\n", .{@tagName(ct)});
     }
-    while (phase.load(.acquire) != .ready) std.atomic.spinLoopHint();
+
+    _vtable = cpu.vtableFromCoreType(ct);
+    if (_vtable.init) |f| f();
+    _ = inits.fetchAdd(1, .monotonic);
+    phase.store(.ready, .release);
+    return true;
 }
+
+/// Moves `uninit` to `running` for this caller; false once another caller has
+/// published the table.
+fn claim() bool {
+    while (true) {
+        switch (phase.load(.acquire)) {
+            .ready => return false,
+            .running => std.atomic.spinLoopHint(),
+            .uninit => if (phase.cmpxchgWeak(.uninit, .running, .acquire, .monotonic) == null) return true,
+        }
+    }
+}
+
+/// The process environment where a library can read it: the Windows PEB, or
+/// libc's `environ` (`_NSGetEnviron()` on Darwin, where a dylib has no
+/// `environ`). Zig hands the block to `main` only, so elsewhere there is none.
+fn processEnv() Config.Env {
+    if (comptime sysinfo.os.tag == .windows) return .windows;
+    if (comptime !sysinfo.link_libc) return .none;
+    const envp: [*:null]const ?[*:0]const u8 = switch (sysinfo.os.tag) {
+        .freestanding, .other, .uefi => return .none,
+        else => if (comptime sysinfo.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
+    };
+    return .{ .posix = std.mem.span(envp) };
+}
+
+extern "c" fn _NSGetEnviron() *[*:null]?[*:0]u8;
+
+/// `cpu.choose`'s log: `OPENBLAS_VERBOSE` decides what shows.
+const LogSink = struct {
+    pub fn warn(_: LogSink, level: i32, comptime fmt: []const u8, args: anytype) void {
+        blasWarn(level, fmt, args);
+    }
+};
 
 /// A diagnostic, shown when `OPENBLAS_VERBOSE` is at least `level`. Only where
 /// there is somewhere to print to.
 fn blasWarn(level: i32, comptime fmt: []const u8, args: anytype) void {
-    if (comptime @import("builtin").os.tag == .freestanding) return;
+    if (comptime sysinfo.os.tag == .freestanding) return;
     if (config.verbose < level) return;
     std.debug.print("OpenBLAS: " ++ fmt ++ "\n", args);
 }
 
+/// Back to the portable kernels and the unset state; the next kernel call, or
+/// `init`, selects a core again. No kernel call may be running (the
+/// reference's `gotoblas_quit` has the same rule).
 pub fn shutdown() void {
-    if (phase.load(.acquire) != .ready) return;
+    if (phase.cmpxchgStrong(.ready, .running, .acquire, .monotonic) != null) return;
     // if (vtable.quit) |f| f();
     _vtable = generic_vtable;
+    config = .{};
+    core_type = null;
     phase.store(.uninit, .release);
 }
 
+/// The selected core, selecting it first if need be; null under a test's own
+/// table (`testUse`).
+pub fn coreType() ?cpu.CoreType {
+    _ = vtable();
+    return core_type;
+}
+
 pub fn coreName() []const u8 {
-    return @tagName(core_type);
+    return if (coreType()) |ct| @tagName(ct) else "test";
+}
+
+/// What `testUse` replaced.
+pub const TestSaved = struct { vt: Vtable, ready: bool };
+
+/// Puts `vt` in place of the selected kernels, without selecting a core
+/// first, until `testRestore`.
+pub fn testUse(vt: *const Vtable) TestSaved {
+    if (!sysinfo.is_test) @compileError("tests only");
+    const saved: TestSaved = .{ .vt = _vtable, .ready = !claim() };
+    _vtable = vt.*;
+    phase.store(.ready, .release);
+    return saved;
+}
+
+/// The selected table itself, for a test that adjusts one parameter in place
+/// (after `testUse`, so a core is not selected under it).
+pub fn testTable() *Vtable {
+    if (!sysinfo.is_test) @compileError("tests only");
+    return &_vtable;
+}
+
+pub fn testRestore(saved: TestSaved) void {
+    if (!sysinfo.is_test) @compileError("tests only");
+    _vtable = saved.vt;
+    if (!saved.ready) phase.store(.uninit, .release);
 }
 
 // lives here, not in `Vtable.zig`, so that file stays import-free for the
@@ -106,7 +203,85 @@ test "VTable default-initializes with every kernel pointer null" {
     try zigstd.testExpectEqual(@as(i32, 0), vt.dtb_entries);
 }
 
+test "a kernel call initializes by itself, and init after that does nothing" {
+    shutdown();
+    defer _ = vtable();
+    const before = inits.load(.monotonic);
+    try zigstd.testExpectTrue(phase.load(.acquire) == .uninit);
+    try zigstd.testExpectTrue(kernel(.daxpy_k) == table().daxpy_k.?);
+    try zigstd.testExpectTrue(phase.load(.acquire) == .ready);
+    try zigstd.testExpectEqual(before + 1, inits.load(.monotonic));
+    try zigstd.testExpectTrue(table().dtb_entries > 0);
+    try zigstd.testExpectTrue(coreType() != null);
+    var env: std.process.Environ.Map = .init(zigstd.testAllocator);
+    defer env.deinit();
+    try zigstd.testExpectTrue(!init(&env));
+    try zigstd.testExpectEqual(before + 1, inits.load(.monotonic));
+}
+
+test "init keeps its own copy of the environment, shutdown goes back to the portable kernels" {
+    shutdown();
+    defer _ = vtable();
+    try zigstd.testExpectTrue(_vtable.daxpy_k == generic_vtable.daxpy_k);
+    const detected = @tagName(cpu.detect());
+    {
+        var env: std.process.Environ.Map = .init(zigstd.testAllocator);
+        defer env.deinit();
+        try env.put("OPENBLAS_CORETYPE", detected);
+        try env.put("OPENBLAS_NUM_THREADS", "3");
+        try zigstd.testExpectTrue(init(&env));
+    }
+    // the map is gone; the copy is not
+    try zigstd.testExpectEqualStrings(detected, config.coreType().?);
+    try zigstd.testExpectEqual(@as(i32, 3), config.num_threads);
+    try zigstd.testExpectEqualStrings(detected, coreName());
+
+    shutdown();
+    try zigstd.testExpectEqual(@as(i32, 0), config.num_threads);
+    try zigstd.testExpectTrue(_vtable.daxpy_k == generic_vtable.daxpy_k);
+    var env: std.process.Environ.Map = .init(zigstd.testAllocator);
+    defer env.deinit();
+    try env.put("OPENBLAS_CORETYPE", "no-such-core");
+    try zigstd.testExpectTrue(init(&env));
+    try zigstd.testExpectEqualStrings(detected, coreName());
+}
+
+test "a test's table needs no core, and goes back to the unset state" {
+    shutdown();
+    defer _ = vtable();
+    const before = inits.load(.monotonic);
+    const vt: Vtable = generic_vtable;
+    const saved = testUse(&vt);
+    try zigstd.testExpectTrue(phase.load(.acquire) == .ready);
+    try zigstd.testExpectTrue(coreType() == null);
+    testRestore(saved);
+    try zigstd.testExpectTrue(phase.load(.acquire) == .uninit);
+    try zigstd.testExpectEqual(before, inits.load(.monotonic));
+}
+
+var race_seen: [4]?cpu.CoreType = @splat(null);
+
+fn raceKernel(i: usize) void {
+    race_seen[i] = if (kernel(.daxpy_k) == _vtable.daxpy_k.?) core_type else null;
+}
+
+test "threads racing the first kernel call select the core once and all see it" {
+    if (sysinfo.single_threaded) return error.SkipZigTest;
+    shutdown();
+    defer _ = vtable();
+    race_seen = @splat(null);
+    const before = inits.load(.monotonic);
+    var threads: [race_seen.len]std.Thread = undefined;
+    for (&threads, 0..) |*t, i| t.* = try std.Thread.spawn(.{}, raceKernel, .{i});
+    for (threads) |t| t.join();
+    try zigstd.testExpectEqual(before + 1, inits.load(.monotonic));
+    try zigstd.testExpectTrue(phase.load(.acquire) == .ready);
+    for (race_seen) |seen| try zigstd.testExpectTrue(seen != null and seen.? == core_type.?);
+    try zigstd.testExpectTrue(_vtable.dtb_entries > 0);
+}
+
 test {
     _ = @import("_test_types.zig");
+    _ = @import("abi.zig");
     zigstd.testRefAllDecls(@This());
 }

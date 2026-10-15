@@ -33,6 +33,9 @@ const CComplex64 = types.CComplex64;
 const CComplexXD = types.CComplexXD;
 
 dtb_entries: i32 = 0,
+/// `SYMV_P`, the block of `kernel/generic/symv_k.c` and `zhemv_k.c`. A compile-time
+/// constant of each core's `param.h` upstream; 0 here is the generic target's 16.
+symv_p: i32 = 0,
 switch_ratio: i32 = 0,
 divide_rate: i32 = 0,
 divide_limit: i32 = 0,

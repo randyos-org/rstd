@@ -4,12 +4,12 @@
 pub const Entry = struct { role: []const u8, module: type };
 
 pub const entries = [_]Entry{
-    .{ .role = "sswap", .module = @import("sswap_32.zig") },
-    .{ .role = "sswap", .module = @import("sswap_64.zig") },
-    .{ .role = "dswap", .module = @import("dswap_32.zig") },
-    .{ .role = "dswap", .module = @import("dswap_64.zig") },
-    .{ .role = "cswap", .module = @import("cswap_32.zig") },
-    .{ .role = "cswap", .module = @import("cswap_64.zig") },
-    .{ .role = "zswap", .module = @import("zswap_32.zig") },
-    .{ .role = "zswap", .module = @import("zswap_64.zig") },
+    .{ .role = "sswap", .module = @import("sswap_32_32le.zig") },
+    .{ .role = "sswap", .module = @import("sswap_64_64be.zig") },
+    .{ .role = "dswap", .module = @import("dswap_32_32le.zig") },
+    .{ .role = "dswap", .module = @import("dswap_64_64be.zig") },
+    .{ .role = "cswap", .module = @import("cswap_32_32le.zig") },
+    .{ .role = "cswap", .module = @import("cswap_64_64be.zig") },
+    .{ .role = "zswap", .module = @import("zswap_32_32le.zig") },
+    .{ .role = "zswap", .module = @import("zswap_64_64be.zig") },
 };

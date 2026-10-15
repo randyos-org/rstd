@@ -1,17 +1,18 @@
 //! RISC-V CPU detection, mirroring `driver/others/dynamic_riscv64.c`.
 //!
-//! The reference deliberately invokes the `riscv_hwprobe` syscall directly
-//! rather than through glibc, because glibc's wrapper landed later than
-//! the kernel support and it wants to work on kernels that have the RVV
-//! backports but not the hwprobe patches. It falls back to `AT_HWCAP`'s
-//! 'V' bit when the syscall is unavailable.
+//! The reference invokes the `riscv_hwprobe` syscall directly rather than
+//! through glibc, falls back to `AT_HWCAP`'s 'V' bit on kernels without it,
+//! then checks the vector unit really is RVV 1.0 (T-Head's 0.7.1 also sets the
+//! bit) and reads `vlenb` to tell VLEN 128 from 256 and up.
 
 const std = @import("std");
 const coretypes = @import("../_coretypes.zig");
+const select = @import("../_select.zig");
 const sysinfo = @import("builtin");
 const auxv = @import("../_auxv.zig");
 
 pub const CoreType = coretypes.RiscvCoreType;
+pub const Decision = select.Decision(CoreType);
 
 /// `AT_HWCAP` reports base ISA extensions as letter bits: bit 0 is 'A',
 /// so 'V' is bit 21.
@@ -19,7 +20,6 @@ pub const HWCAP_ISA_V: usize = 1 << ('V' - 'A');
 
 const RISCV_HWPROBE_KEY_IMA_EXT_0: i64 = 4;
 const RISCV_HWPROBE_IMA_V: u64 = 1 << 2;
-const RISCV_HWPROBE_KEY_CPUPERF_0: i64 = 5;
 
 const Pair = extern struct { key: i64, value: u64 };
 
@@ -40,21 +40,93 @@ fn hwprobe(pairs: []Pair, flags: usize) bool {
     return @as(isize, @bitCast(rc)) == 0;
 }
 
-pub fn supportVector() bool {
+/// `vlenb` (CSR 0xc22), in bytes. Only legal where a vector unit exists.
+fn readVlenb() u32 {
+    return asm volatile ("csrr %[out], 0xc22"
+        : [out] "=r" (-> u32),
+    );
+}
+
+/// Whether the vector unit takes RVV 1.0's `vsetvli ... ta, ma`: 0.7.1 parts
+/// set `vill` in `vtype`, which reads back negative.
+fn isRvv100() bool {
+    const r = asm volatile (
+        \\.option push
+        \\.option arch, +v
+        \\vsetvli t0, x0, e8, m1, ta, ma
+        \\csrr %[out], vtype
+        \\slt %[out], x0, %[out]
+        \\.option pop
+        : [out] "=r" (-> usize),
+        :
+        : .{ .x5 = true });
+    return r != 0;
+}
+
+pub const Caps = struct {
+    /// RVV 1.0 present and usable
+    vector: bool = false,
+    /// bytes per vector register, 0 if unknown
+    vlenb: u32 = 0,
+};
+
+pub fn probe() Caps {
+    if (comptime !sysinfo.cpu.arch.isRISCV()) return .{};
+    if (sysinfo.os.tag != .linux) return .{};
     var pairs = [_]Pair{.{ .key = RISCV_HWPROBE_KEY_IMA_EXT_0, .value = 0 }};
-    if (hwprobe(&pairs, 0)) return pairs[0].value & RISCV_HWPROBE_IMA_V != 0;
-    // Older kernels: fall back to the hwcap letter bit.
-    return auxv.hwcap() & HWCAP_ISA_V != 0;
+    if (hwprobe(&pairs, 0)) {
+        if (pairs[0].value & RISCV_HWPROBE_IMA_V == 0) return .{};
+    } else {
+        // older kernels: the hwcap letter bit, then the 0.7.1 check
+        if (auxv.hwcap() & HWCAP_ISA_V == 0) return .{};
+        if (!isRvv100()) return .{};
+    }
+    return .{ .vector = true, .vlenb = readVlenb() };
+}
+
+/// Whether the kernels of `core` run: the vector ones want the vector unit and
+/// the VLEN they are named for.
+pub fn runnable(core: CoreType, c: Caps) bool {
+    return switch (core) {
+        .riscv64_generic, .c910v, .u74 => true,
+        .riscv64_zvl128b => c.vector and c.vlenb >= 16,
+        .riscv64_zvl256b => c.vector and c.vlenb >= 32,
+        .x280 => c.vector and c.vlenb >= 64,
+    };
+}
+
+/// VLEN 256 and up is ZVL256B, 128 ZVL128B, anything else generic.
+pub fn decide(c: Caps) Decision {
+    if (!c.vector or c.vlenb < 16) return .{ .core = .riscv64_generic };
+    if (c.vlenb >= 32) return .{ .core = .riscv64_zvl256b };
+    return .{ .core = .riscv64_zvl128b };
 }
 
 pub fn detect() CoreType {
-    if (!supportVector()) return .riscv64_generic;
+    return decide(probe()).core;
+}
 
-    // The reference distinguishes VLEN>=256 from VLEN==128 to pick between
-    // the two vector kernel sets. Without a reliable VLEN query we take the
-    // conservative choice, which is correct on any vector-capable part --
-    // just not always the fastest one.
-    return .riscv64_zvl128b;
+pub fn detectNoted() Decision {
+    return decide(probe());
+}
+
+test "decide reads the vector length" {
+    try std.testing.expectEqual(CoreType.riscv64_generic, decide(.{}).core);
+    try std.testing.expectEqual(CoreType.riscv64_generic, decide(.{ .vector = true, .vlenb = 0 }).core);
+    try std.testing.expectEqual(CoreType.riscv64_generic, decide(.{ .vector = false, .vlenb = 32 }).core);
+    try std.testing.expectEqual(CoreType.riscv64_zvl128b, decide(.{ .vector = true, .vlenb = 16 }).core);
+    try std.testing.expectEqual(CoreType.riscv64_zvl256b, decide(.{ .vector = true, .vlenb = 32 }).core);
+    try std.testing.expectEqual(CoreType.riscv64_zvl256b, decide(.{ .vector = true, .vlenb = 64 }).core);
+}
+
+test "the vector cores need their VLEN" {
+    const v128: Caps = .{ .vector = true, .vlenb = 16 };
+    try std.testing.expect(runnable(.riscv64_zvl128b, v128));
+    try std.testing.expect(!runnable(.riscv64_zvl256b, v128));
+    try std.testing.expect(!runnable(.x280, v128));
+    try std.testing.expect(runnable(.x280, .{ .vector = true, .vlenb = 64 }));
+    try std.testing.expect(runnable(.riscv64_generic, .{}));
+    try std.testing.expect(!runnable(.riscv64_zvl128b, .{}));
 }
 
 test "detect runs on RISC-V targets" {

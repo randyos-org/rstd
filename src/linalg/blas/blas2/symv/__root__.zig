@@ -66,35 +66,43 @@ pub fn xsymv_U(m: BlasLong, offset: BlasLong, alpha_r: XDouble, alpha_i: XDouble
 const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const sym = @import("../symmetric.zig");
+const guard = @import("../guard.zig");
 
 /// Points every symv slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {
-        @field(vt, p[0] ++ "symv_U") = &sym.Kernel(p[1], false, .symmetric).real;
-        @field(vt, p[0] ++ "symv_L") = &sym.Kernel(p[1], true, .symmetric).real;
+        @field(vt, p[0] ++ "symv_U") = &sym.Auto(p[0], p[1], false, .symmetric).real;
+        @field(vt, p[0] ++ "symv_L") = &sym.Auto(p[0], p[1], true, .symmetric).real;
     }
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        @field(vt, p[0] ++ "symv_U") = &sym.Kernel(std.math.Complex(p[1]), false, .symmetric).cplx;
-        @field(vt, p[0] ++ "symv_L") = &sym.Kernel(std.math.Complex(p[1]), true, .symmetric).cplx;
+        @field(vt, p[0] ++ "symv_U") = &sym.Auto(p[0], std.math.Complex(p[1]), false, .symmetric).cplx;
+        @field(vt, p[0] ++ "symv_L") = &sym.Auto(p[0], std.math.Complex(p[1]), true, .symmetric).cplx;
     }
 }
 
 // ---- tests -----------------------------------------------------------------
 
 fn checkAll(vt: *const Vtable) !void {
+    guard.use(vt);
+    defer guard.restore();
+    try checkSlots(vt);
+}
+
+fn checkSlots(vt: *const Vtable) !void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", std.math.Complex(f32) }, .{ "z", std.math.Complex(f64) } }) |p| {
-        try sym.checkKernel(p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
-        try sym.checkKernel(p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
+        try sym.checkBoth(p[0], p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
+        try sym.checkBoth(p[0], p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
     }
 }
 
 test "portable symv kernels match plain arithmetic" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = guard.portableVtable();
+    guard.use(vt);
+    defer guard.restore();
+    try checkSlots(vt);
     inline for (.{ .{ "q", XDouble }, .{ "x", std.math.Complex(XDouble) } }) |p| {
-        try sym.checkKernel(p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
-        try sym.checkKernel(p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
+        try sym.checkBoth(p[0], p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
+        try sym.checkBoth(p[0], p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
     }
 }
 
