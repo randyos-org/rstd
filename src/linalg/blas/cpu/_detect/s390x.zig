@@ -31,7 +31,26 @@ pub fn probe() Caps {
 
 /// `probe`, with the bits of `mask` (`LD_HWCAP_MASK`) only, as in the reference.
 pub fn probeMasked(mask: u64) Caps {
-    return .{ .hwcap = auxv.hwcap() & @as(usize, @truncate(mask)) };
+    const hw = if (comptime sysinfo.os.tag == .freestanding) facilities() else auxv.hwcap();
+    return .{ .hwcap = hw & @as(usize, @truncate(mask)) };
+}
+
+/// With no OS to ask, the facility list (`STFLE`, unprivileged) as hwcap bits:
+/// facility 129 is the Vector Facility, 135 Vector-Enhancements 1.
+fn facilities() usize {
+    if (comptime sysinfo.cpu.arch != .s390x) return 0;
+    var list: [3]u64 = @splat(0);
+    _ = asm volatile ("stfle 0(%[p])"
+        : [n] "={r0}" (-> u64),
+        : [p] "a" (&list),
+          [in] "{r0}" (@as(u64, list.len - 1)),
+        : .{ .memory = true, .ps = true });
+    const has = struct {
+        fn bit(l: [3]u64, n: u8) bool {
+            return l[n / 64] >> @intCast(63 - n % 64) & 1 != 0;
+        }
+    }.bit;
+    return (if (has(list, 129)) HWCAP_S390_VX else 0) | (if (has(list, 135)) HWCAP_S390_VXE else 0);
 }
 
 /// z14's vector enhancements need the Vector Facility too.
@@ -47,6 +66,11 @@ pub fn decide(c: Caps) Decision {
     if (c.hwcap & HWCAP_S390_VXE != 0) return select.guard(@This(), .{ .core = .z14 }, c);
     if (c.hwcap & HWCAP_S390_VX != 0) return .{ .core = .z13 };
     return .{ .core = .zarch_generic };
+}
+
+/// Whether the kernels of `core` run on this CPU.
+pub fn supportsCore(core: CoreType) bool {
+    return runnable(core, probe());
 }
 
 pub fn detect() CoreType {
@@ -80,6 +104,6 @@ test "LD_HWCAP_MASK hides capabilities" {
 
 test "detect runs on s390x targets" {
     if (comptime sysinfo.cpu.arch != .s390x) return error.SkipZigTest;
-    _ = detect();
+    try std.testing.expect(supportsCore(detect()));
     _ = detectMasked(0);
 }

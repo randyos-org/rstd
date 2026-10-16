@@ -11,6 +11,7 @@ const gemm_params = @import("../blas3/gemm/params.zig");
 pub const CoreType = detector.CoreType;
 pub const kernel = @import("../kernels/riscv.zig");
 pub const detect = detector.detect;
+pub const canRun = detector.supportsCore;
 
 pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     var vt: Vtable = .{};

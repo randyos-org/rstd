@@ -27,6 +27,11 @@ pub fn decide(c: Caps) Decision {
     return .{ .core = if (c.v9) .sparc else .sparcv7 };
 }
 
+/// Whether the kernels of `core` run on this CPU.
+pub fn supportsCore(core: CoreType) bool {
+    return runnable(core, probe());
+}
+
 pub fn detect() CoreType {
     return decide(probe()).core;
 }
@@ -42,5 +47,5 @@ test "V9 targets get the V9 core" {
 }
 
 test "detect runs" {
-    _ = detect();
+    try std.testing.expect(supportsCore(detect()));
 }

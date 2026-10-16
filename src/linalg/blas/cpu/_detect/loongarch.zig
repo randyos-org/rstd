@@ -14,6 +14,8 @@ pub const Decision = select.Decision(CoreType);
 
 pub const HWCAP_LSX: usize = 1 << 4;
 pub const HWCAP_LASX: usize = 1 << 5;
+const CPUCFG2_LSX: u32 = 1 << 6;
+const CPUCFG2_LASX: u32 = 1 << 7;
 
 const PRID_SERIES_MASK: u32 = 0xf000;
 const PRID_SERIES_LA264: u32 = 0xa000;
@@ -60,7 +62,14 @@ pub fn supportLasx() bool {
 
 pub fn probe() Caps {
     if (comptime !sysinfo.cpu.arch.isLoongArch()) return .{};
-    return .{ .prid = cpucfg(0), .features = .init(.{ .lsx = supportLsx(), .lasx = supportLasx() }) };
+    switch (comptime sysinfo.os.tag) {
+        // no OS to ask: `cpucfg` word 2 says what the CPU has
+        .freestanding, .uefi => {
+            const cfg2 = cpucfg(2);
+            return .{ .prid = cpucfg(0), .features = .init(.{ .lsx = cfg2 & CPUCFG2_LSX != 0, .lasx = cfg2 & CPUCFG2_LASX != 0 }) };
+        },
+        else => return .{ .prid = cpucfg(0), .features = .init(.{ .lsx = supportLsx(), .lasx = supportLasx() }) },
+    }
 }
 
 pub fn runnable(core: CoreType, c: Caps) bool {
@@ -91,6 +100,11 @@ pub fn decide(c: Caps) Decision {
     return select.guard(@This(), d, c);
 }
 
+/// Whether the kernels of `core` run on this CPU.
+pub fn supportsCore(core: CoreType) bool {
+    return runnable(core, probe());
+}
+
 pub fn detect() CoreType {
     return decide(probe()).core;
 }
@@ -117,5 +131,5 @@ test "series and OS extensions pick the core" {
 
 test "detect runs on LoongArch targets" {
     if (comptime !sysinfo.cpu.arch.isLoongArch()) return error.SkipZigTest;
-    _ = detect();
+    try std.testing.expect(supportsCore(detect()));
 }

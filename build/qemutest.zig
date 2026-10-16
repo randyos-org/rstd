@@ -140,8 +140,9 @@ const machines = [_]Machine{
         .name = "riscv64",
         .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
         .qemu = "qemu-system-riscv64",
-        // the vector extension, which the RVV kernels need
-        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=256", "-smp", "1", "-bios", "none" },
+        // the vector extension, which the RVV kernels need, at the VLEN of
+        // the widest linked core (x280's 512)
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=512", "-smp", "1", "-bios", "none" },
         .boot = .{
             .kernel = .{
                 .linker_script = "test/qemu/riscv64.ld",
