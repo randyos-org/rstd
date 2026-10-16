@@ -135,7 +135,7 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
             var c: Cond = .{ .known = false, .taken = true, .if_taken = true };
             const negate = std.mem.startsWith(u8, line, "ifndef");
             if (negate or std.mem.startsWith(u8, line, "ifdef")) {
-                const name = std.mem.trim(u8, line[if (negate) 6 else 5 ..], " \t");
+                const name = std.mem.trim(u8, line[if (negate) 6 else 5..], " \t");
                 if (std.mem.eql(u8, name, key)) {
                     c.known = true;
                     c.taken = (a.values.items.len == 0) == negate;
