@@ -66,6 +66,30 @@ pub fn readMidr() Midr {
 
 // ---- probes ----------------------------------------------------------------
 
+/// An ID register, by its `S3_0_C0_Cn_m` name so the assembler needs no
+/// feature (SVE, SME) to accept it.
+fn idRegister(comptime name: []const u8) u64 {
+    return asm volatile ("mrs %[out], " ++ name
+        : [out] "=r" (-> u64),
+    );
+}
+
+/// What the ID registers say, with no OS to ask: `ID_AA64PFR0_EL1.SVE`,
+/// `ID_AA64ZFR0_EL1.SVEver`, `ID_AA64ISAR1_EL1.BF16`, `ID_AA64PFR1_EL1.SME`.
+fn idRegisters() Caps {
+    var c: Caps = .{};
+    c.sve = (idRegister("s3_0_c0_c4_0") >> 32) & 0xf != 0;
+    // ZFR0 reads as zero without SVE
+    if (c.sve) c.sve2 = idRegister("s3_0_c0_c4_4") & 0xf != 0;
+    c.bf16 = (idRegister("s3_0_c0_c6_1") >> 44) & 0xf != 0;
+    c.sme = (idRegister("s3_0_c0_c4_1") >> 24) & 0xf != 0;
+    const m = readMidr();
+    c.midr = true;
+    c.implementer = m.implementer;
+    c.part = m.part;
+    return c;
+}
+
 /// A hex number as the sysfs files print it ("0x00000000411fd070"), the low 32
 /// bits, as `strtoul` into an int gives.
 pub fn parseHex(text: []const u8) ?u32 {
@@ -184,6 +208,8 @@ pub fn probe() Caps {
             }
             return c;
         },
+        // no OS to ask: the ID registers, readable at EL1 and up
+        .freestanding, .uefi => return idRegisters(),
         else => {},
     }
     const hw = auxv.hwcap();
@@ -267,6 +293,11 @@ fn pick(c: Caps) Decision {
     if (c.sme) return .{ .core = if (c.sve) .armv9sme else .vortexm4 };
     if (c.sve) return .{ .core = .armv8sve };
     return .{ .core = .armv8 };
+}
+
+/// Whether the kernels of `core` run on this CPU.
+pub fn supportsCore(core: CoreType) bool {
+    return runnable(core, probe());
 }
 
 /// Whether the kernels of `core` run on a CPU with `c`'s extensions. The ISA
