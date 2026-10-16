@@ -26,8 +26,23 @@ pub const Vendor = enum { unknown, intel, amd, centaur, hygon, zhaoxin };
 /// `_unresolved` is only `cachedTier`'s pre-probe state; never returned.
 pub const Tier = enum(u8) { _unresolved, baseline, avx2, avx512 };
 
-/// What the decisions read, probed once. The `support_*` flags include the OS
-/// having enabled the state (XCR0), as `dynamic.c` does.
+/// The extensions the decisions read; the AVX ones only with the OS having
+/// enabled their state (XCR0), as `dynamic.c` does.
+pub const Feature = enum {
+    sse3,
+    ssse3,
+    sse4_1,
+    avx,
+    avx2,
+    /// FMA3, by LLVM's name as `_corespec.zig` spells it
+    fma,
+    fma4,
+    avx512,
+    avx512_bf16,
+    amx_bf16,
+};
+
+/// What the decisions read, probed once.
 pub const Caps = struct {
     vendor: Vendor = .unknown,
     /// CPUID.1:EAX (stepping, model, family, extended model and family)
@@ -38,16 +53,7 @@ pub const Caps = struct {
     edx_ext1: u32 = 0,
     /// CPUID.80000000h:EAX, the highest extended leaf
     max_ext_leaf: u32 = 0,
-    sse3: bool = false,
-    ssse3: bool = false,
-    sse4_1: bool = false,
-    avx: bool = false,
-    avx2: bool = false,
-    fma3: bool = false,
-    fma4: bool = false,
-    avx512: bool = false,
-    avx512_bf16: bool = false,
-    amx_bf16: bool = false,
+    features: std.EnumSet(Feature) = .empty,
     /// a 64-bit build, which has no 32-bit-only cores
     is64: bool = @sizeOf(usize) == 8,
 
@@ -78,23 +84,18 @@ pub const Caps = struct {
     pub fn has3dnow(c: Caps) bool {
         return c.max_ext_leaf & 0xffff >= 1 and c.edx_ext1 & (1 << 30) != 0 and c.edx_ext1 & (1 << 31) != 0;
     }
-};
+    pub fn has(c: Caps, f: Feature) bool {
+        return c.features.contains(f);
+    }
 
-/// The old summary, kept for callers that want the display family and model.
-pub const Features = struct {
-    vendor: Vendor = .unknown,
-    family: u32 = 0,
-    model: u32 = 0,
-    stepping: u32 = 0,
-    avx: bool = false,
-    avx2: bool = false,
-    avx512: bool = false,
-    avx512_bf16: bool = false,
-    amx_bf16: bool = false,
-
-    pub fn tier(f: Features) Tier {
-        if (f.avx512) return .avx512;
-        if (f.avx2) return .avx2;
+    /// Every one of `fs`, the set built at compile time.
+    pub fn hasAll(c: Caps, comptime fs: []const Feature) bool {
+        return c.features.supersetOf(comptime std.EnumSet(Feature).initMany(fs));
+    }
+    /// The coarse tier the AVX extensions give.
+    pub fn tier(c: Caps) Tier {
+        if (c.has(.avx512)) return .avx512;
+        if (c.has(.avx2)) return .avx2;
         return .baseline;
     }
 };
@@ -177,9 +178,11 @@ pub fn probe() Caps {
     const leaf1 = cpuidChecked(max, 1, 0);
     c.eax1 = leaf1.eax;
     c.ecx1 = leaf1.ecx;
-    c.sse3 = leaf1.ecx & (1 << 0) != 0;
-    c.ssse3 = leaf1.ecx & (1 << 9) != 0;
-    c.sse4_1 = leaf1.ecx & (1 << 19) != 0;
+    c.features = .init(.{
+        .sse3 = leaf1.ecx & (1 << 0) != 0,
+        .ssse3 = leaf1.ecx & (1 << 9) != 0,
+        .sse4_1 = leaf1.ecx & (1 << 19) != 0,
+    });
 
     // 3DNow! lives in the extended leaves, which only AMD and clones have
     const ext_max = cpuid(0x80000000, 0).eax;
@@ -192,26 +195,27 @@ pub fn probe() Caps {
     // OS state: XSAVE, OSXSAVE and AVX reported, and XCR0 enabling XMM and YMM
     const state_bits = (1 << 26) | (1 << 27) | (1 << 28);
     const xcr0: u32 = if (leaf1.ecx & state_bits == state_bits) xgetbv() else 0;
-    c.avx = xcr0 & 0b110 == 0b110;
-    if (!c.avx) return c;
-    c.fma3 = leaf1.ecx & (1 << 12) != 0;
-    if (c.max_ext_leaf >= 0x80000001) c.fma4 = cpuid(0x80000001, 0).ecx & (1 << 16) != 0;
+    if (xcr0 & 0b110 != 0b110) return c;
+    c.features.insert(.avx);
+    c.features.setPresent(.fma, leaf1.ecx & (1 << 12) != 0);
+    if (c.max_ext_leaf >= 0x80000001) c.features.setPresent(.fma4, cpuid(0x80000001, 0).ecx & (1 << 16) != 0);
 
     const leaf7 = cpuidChecked(max, 7, 0);
-    c.avx2 = leaf7.ebx & (1 << 5) != 0;
+    const avx2 = leaf7.ebx & (1 << 5) != 0;
+    c.features.setPresent(.avx2, avx2);
     // AVX512VL and the OS saving opmask/ZMM state. macOS saves the ZMM state
     // lazily, on the first AVX-512 instruction, so XCR0 does not show it yet.
     const zmm_saved = sysinfo.os.tag.isDarwin() or xcr0 & 0xe0 == 0xe0;
-    c.avx512 = c.avx2 and leaf7.ebx & (1 << 31) != 0 and zmm_saved;
-    if (!c.avx512) return c;
-    c.avx512_bf16 = max >= 7 and cpuid(7, 1).eax & (1 << 5) != 0;
+    if (!(avx2 and leaf7.ebx & (1 << 31) != 0 and zmm_saved)) return c;
+    c.features.insert(.avx512);
+    c.features.setPresent(.avx512_bf16, max >= 7 and cpuid(7, 1).eax & (1 << 5) != 0);
 
     // CPUID.7.0:EDX AMX-TILE (24) and AMX-BF16 (22); CPUID.D.0:EAX[17:18] state
     const amx_tile = 0x01000000;
     const amx_bf16 = 0x00400000;
     const amx_state = 0x00060000;
-    c.amx_bf16 = leaf7.edx & amx_tile != 0 and leaf7.edx & amx_bf16 != 0 and
-        cpuidChecked(max, 0xd, 0).eax & amx_state == amx_state;
+    c.features.setPresent(.amx_bf16, leaf7.edx & amx_tile != 0 and leaf7.edx & amx_bf16 != 0 and
+        cpuidChecked(max, 0xd, 0).eax & amx_state == amx_state);
     return c;
 }
 
@@ -229,23 +233,13 @@ pub fn runnable(core: CoreType, c: Caps) bool {
     }
     const s = corespec.x86(core);
     if (s.model != null) {
-        if (!(c.avx512 and c.fma3)) return false;
-        if (core == .cooperlake and !c.avx512_bf16) return false;
-        if (core == .sapphirerapids and !(c.avx512_bf16 and c.amx_bf16)) return false;
+        if (!c.hasAll(&.{ .avx512, .fma })) return false;
+        if (core == .cooperlake and !c.has(.avx512_bf16)) return false;
+        if (core == .sapphirerapids and !c.hasAll(&.{ .avx512_bf16, .amx_bf16 })) return false;
     }
     // the extensions `_corespec.zig` names, by their LLVM feature names
-    const Feature = enum { sse3, ssse3, sse4_1, avx, avx2, fma, fma4 };
-    for (s.features) |f| {
-        const ok = switch (std.meta.stringToEnum(Feature, f) orelse return false) {
-            .sse3 => c.sse3,
-            .ssse3 => c.ssse3,
-            .sse4_1 => c.sse4_1,
-            .avx => c.avx,
-            .avx2 => c.avx2,
-            .fma => c.fma3,
-            .fma4 => c.fma4,
-        };
-        if (!ok) return false;
+    for (s.features) |name| {
+        if (!c.has(std.meta.stringToEnum(Feature, name) orelse return false)) return false;
     }
     return true;
 }
@@ -253,21 +247,6 @@ pub fn runnable(core: CoreType, c: Caps) bool {
 /// Whether this machine can run `core`'s kernels (for tests).
 pub fn supportsCore(core: CoreType) bool {
     return runnable(core, probe());
-}
-
-pub fn features() Features {
-    const c = probe();
-    return .{
-        .vendor = c.vendor,
-        .family = c.displayFamily(),
-        .model = c.displayModel(),
-        .stepping = c.stepping(),
-        .avx = c.avx,
-        .avx2 = c.avx2,
-        .avx512 = c.avx512,
-        .avx512_bf16 = c.avx512_bf16,
-        .amx_bf16 = c.amx_bf16,
-    };
 }
 
 // ---- core type selection ---------------------------------------------------
@@ -284,13 +263,13 @@ const Rung = enum { sapphire, cooper, skx, haswell, sandy };
 /// model's generation that the OS lets the CPU use, then the next one down, with
 /// the warning each step has. `avx2_note` is the models whose Haswell step warns.
 fn ladder(c: Caps, start: Rung, avx2_note: bool) Decision {
-    const s = @intFromEnum(start);
-    if (s <= @intFromEnum(Rung.sapphire) and c.amx_bf16) return .{ .core = .sapphirerapids };
-    if (s <= @intFromEnum(Rung.cooper) and c.avx512_bf16) return .{ .core = .cooperlake };
-    if (s <= @intFromEnum(Rung.skx) and c.avx512) return .{ .core = .skylakex };
-    if (s <= @intFromEnum(Rung.haswell) and c.avx2) return .{ .core = .haswell, .note = if (avx2_note) haswell_fallback else null };
+    const s = @backingInt(start);
+    if (s <= @backingInt(Rung.sapphire) and c.has(.amx_bf16)) return .{ .core = .sapphirerapids };
+    if (s <= @backingInt(Rung.cooper) and c.has(.avx512_bf16)) return .{ .core = .cooperlake };
+    if (s <= @backingInt(Rung.skx) and c.has(.avx512)) return .{ .core = .skylakex };
+    if (s <= @backingInt(Rung.haswell) and c.has(.avx2)) return .{ .core = .haswell, .note = if (avx2_note) haswell_fallback else null };
     // Sandy Bridge on a Sandy or Ivy Bridge row is no fallback
-    if (c.avx) return .{ .core = .sandybridge, .note = if (s < @intFromEnum(Rung.sandy)) sandybridge_fallback else null };
+    if (c.has(.avx)) return .{ .core = .sandybridge, .note = if (s < @backingInt(Rung.sandy)) sandybridge_fallback else null };
     return .{ .core = .nehalem, .note = nehalem_fallback };
 }
 
@@ -356,9 +335,9 @@ const intel6 = [_]Row{
 };
 
 fn zen(c: Caps, start: Rung) Decision {
-    if (start == .cooper and c.avx512_bf16) return .{ .core = .cooperlake };
-    if (start != .haswell and c.avx512) return .{ .core = .skylakex };
-    if (c.avx) return .{ .core = .zen };
+    if (start == .cooper and c.has(.avx512_bf16)) return .{ .core = .cooperlake };
+    if (start != .haswell and c.has(.avx512)) return .{ .core = .skylakex };
+    if (c.has(.avx)) return .{ .core = .zen };
     return .{ .core = .barcelona, .note = barcelona_fallback };
 }
 
@@ -379,9 +358,9 @@ fn amd(c: Caps) ?Decision {
         // K8, family 11h
         0, 2 => {
             if (exmodel == 6 and model == 11) { // QEMU virtual cpu
-                if (c.avx512_bf16) return .{ .core = .cooperlake };
-                if (c.avx512) return .{ .core = .skylakex };
-                return if (c.avx2) .{ .core = .zen } else .{ .core = .barcelona };
+                if (c.has(.avx512_bf16)) return .{ .core = .cooperlake };
+                if (c.has(.avx512)) return .{ .core = .skylakex };
+                return if (c.has(.avx2)) .{ .core = .zen } else .{ .core = .barcelona };
             }
             return .{ .core = if (c.ecx1 & 1 != 0) .opteron_sse3 else .opteron };
         },
@@ -401,7 +380,7 @@ fn amd(c: Caps) ?Decision {
                 },
                 else => return null,
             };
-            return if (c.avx) .{ .core = core } else need_avx;
+            return if (c.has(.avx)) .{ .core = core } else need_avx;
         },
         // Zen (17h), Hygon Dhyana
         8, 9 => return zen(c, .haswell),
@@ -421,7 +400,7 @@ fn centaur(c: Caps) ?Decision {
             return .{ .core = .nehalem };
         },
         0x7 => switch (c.exmodel()) {
-            5, 6 => return .{ .core = if (c.avx2) .zen else .dunnington },
+            5, 6 => return .{ .core = if (c.has(.avx2)) .zen else .dunnington },
             else => return .{ .core = .nehalem },
         },
         else => return if (c.family() >= 0x8) .{ .core = .nehalem } else null,
@@ -429,7 +408,7 @@ fn centaur(c: Caps) ?Decision {
 }
 
 fn zhaoxin(c: Caps) Decision {
-    if (c.avx2) return .{ .core = .zen };
+    if (c.has(.avx2)) return .{ .core = .zen };
     if (c.family() == 0x7 and c.exmodel() == 5) return .{ .core = .dunnington };
     return .{ .core = .nehalem };
 }
@@ -461,13 +440,13 @@ pub fn modelCore(c: Caps) ?Decision {
 /// The capability ladder `gotoblas_dynamic_init` falls back on for a CPU the
 /// model tables do not know: the richest core the CPU and OS support.
 fn capsCore(c: Caps, is64: bool) CoreType {
-    if (c.avx512_bf16) return .cooperlake;
-    if (c.avx512) return .skylakex;
-    if (c.avx2) return .haswell;
-    if (c.avx) return .sandybridge;
+    if (c.has(.avx512_bf16)) return .cooperlake;
+    if (c.has(.avx512)) return .skylakex;
+    if (c.has(.avx2)) return .haswell;
+    if (c.has(.avx)) return .sandybridge;
     // 32-bit builds end at Katmai, the reference's pick; 64-bit at Prescott. A
     // CPU with no SSE3 gets the most that it can run.
-    if (c.sse3) return .prescott;
+    if (c.has(.sse3)) return .prescott;
     return if (is64) .opteron else .katmai;
 }
 
@@ -505,10 +484,7 @@ pub fn detectNoted() Decision {
 /// The coarse tier, for callers that only care about vector width and FMA
 /// rather than the specific microarchitecture.
 pub fn detectTier() Tier {
-    const c = probe();
-    if (c.avx512) return .avx512;
-    if (c.avx2) return .avx2;
-    return .baseline;
+    return probe().tier();
 }
 
 /// Module-level so every kernel and element type shares one probe. Racing
@@ -528,21 +504,25 @@ pub fn cachedTier() Tier {
 
 /// A CPU as the tests describe it: CPUID.1:EAX and the extensions the OS lets it use.
 fn cpu(v: Vendor, eax1: u32, level: enum { sse3, sse41, avx, avx2, avx512, bf16, amx }) Caps {
-    var c: Caps = .{ .vendor = v, .eax1 = eax1 };
-    const n = @intFromEnum(level);
-    c.sse3 = true;
-    c.ssse3 = true;
-    c.sse4_1 = n >= 1;
-    c.avx = n >= 2;
-    // the Bulldozer family has FMA3 and FMA4 below AVX2
-    c.fma3 = n >= 3 or (v == .amd and n == 2);
-    c.fma4 = v == .amd and n == 2;
-    c.avx2 = n >= 3;
-    c.avx512 = n >= 4;
-    c.avx512_bf16 = n >= 5;
-    c.amx_bf16 = n >= 6;
-    c.max_ext_leaf = 0x80000008;
-    return c;
+    const n = @backingInt(level);
+    return .{
+        .vendor = v,
+        .eax1 = eax1,
+        .max_ext_leaf = 0x80000008,
+        .features = .init(.{
+            .sse3 = true,
+            .ssse3 = true,
+            .sse4_1 = n >= 1,
+            .avx = n >= 2,
+            // the Bulldozer family has FMA3 and FMA4 below AVX2
+            .fma = n >= 3 or (v == .amd and n == 2),
+            .fma4 = v == .amd and n == 2,
+            .avx2 = n >= 3,
+            .avx512 = n >= 4,
+            .avx512_bf16 = n >= 5,
+            .amx_bf16 = n >= 6,
+        }),
+    };
 }
 
 fn expectCore(want: CoreType, c: Caps) !void {
@@ -614,9 +594,9 @@ test "an OS that hides AVX state gets the old kernels, with the reference's warn
 test "AMD families" {
     try expectCore(.opteron, blk: {
         var c = cpu(.amd, 0x20f12, .sse3); // K8
-        c.sse3 = false;
+        c.features.remove(.sse3);
         c.ecx1 = 0;
-        c.ssse3 = false;
+        c.features.remove(.ssse3);
         break :blk c;
     });
     var k8e = cpu(.amd, 0x40f12, .sse3);
@@ -651,8 +631,8 @@ test "AMD without AVX uses Barcelona" {
 
 test "Athlon needs 3DNow! and its extension" {
     var c = cpu(.amd, 0x680, .sse3); // family 6
-    c.sse3 = false;
-    c.ssse3 = false;
+    c.features.remove(.sse3);
+    c.features.remove(.ssse3);
     c.edx_ext1 = (1 << 30) | (1 << 31);
     try std.testing.expectEqual(CoreType.athlon, decideWidth(c, false).core);
     // 64-bit builds have none
@@ -680,15 +660,15 @@ test "an unknown model takes the richest core the CPU and OS support" {
     try expectCore(.prescott, cpu(.unknown, 0, .sse3));
     // no SSE3 at all: a 64-bit build still gets a core it can run
     var old = cpu(.unknown, 0, .sse3);
-    old.sse3 = false;
-    old.ssse3 = false;
+    old.features.remove(.sse3);
+    old.features.remove(.ssse3);
     try expectCore(.opteron, old);
     try std.testing.expectEqual(CoreType.katmai, decideWidth(old, false).core);
 }
 
 test "FMA3 missing under AVX2 does not give the Haswell kernels" {
     var c = cpu(.intel, 0x306c3, .avx2);
-    c.fma3 = false;
+    c.features.remove(.fma);
     try expectCore(.sandybridge, c);
 }
 
@@ -747,12 +727,12 @@ test "64-bit builds run no 32-bit-only core, and Athlon needs 3DNow!" {
 
 test "feature probes execute without faulting" {
     if (comptime !sysinfo.cpu.arch.isX86()) return error.SkipZigTest;
-    const f = features();
+    const c = probe();
     // Nothing to assert about which CPU this is -- the point is that every
     // cpuid/xgetbv path runs to completion and reports a coherent result.
-    try std.testing.expect(f.family > 0);
-    if (f.avx512) try std.testing.expect(f.avx2);
-    if (f.avx2) try std.testing.expect(f.avx);
+    try std.testing.expect(c.displayFamily() > 0);
+    if (c.has(.avx512)) try std.testing.expect(c.has(.avx2));
+    if (c.has(.avx2)) try std.testing.expect(c.has(.avx));
 }
 
 test "cachedTier matches detectTier and is stable across calls" {

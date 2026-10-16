@@ -21,10 +21,25 @@ const PRID_SERIES_LA364: u32 = 0xb000;
 const PRID_SERIES_LA464: u32 = 0xc000;
 const PRID_SERIES_LA664: u32 = 0xd000;
 
+pub const Feature = enum {
+    /// 128-bit vectors
+    lsx,
+    /// 256-bit vectors
+    lasx,
+};
+
 pub const Caps = struct {
     prid: u32 = 0,
-    lsx: bool = false,
-    lasx: bool = false,
+    features: std.EnumSet(Feature) = .empty,
+
+    pub fn has(c: Caps, f: Feature) bool {
+        return c.features.contains(f);
+    }
+
+    /// Every one of `fs`, the set built at compile time.
+    pub fn hasAll(c: Caps, comptime fs: []const Feature) bool {
+        return c.features.supersetOf(comptime std.EnumSet(Feature).initMany(fs));
+    }
 };
 
 /// `cpucfg` is unprivileged, like x86's `cpuid`.
@@ -45,13 +60,13 @@ pub fn supportLasx() bool {
 
 pub fn probe() Caps {
     if (comptime !sysinfo.cpu.arch.isLoongArch()) return .{};
-    return .{ .prid = cpucfg(0), .lsx = supportLsx(), .lasx = supportLasx() };
+    return .{ .prid = cpucfg(0), .features = .init(.{ .lsx = supportLsx(), .lasx = supportLasx() }) };
 }
 
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
-        .la264, .loongson2k1000 => c.lsx,
-        .la464, .loongson3r5 => c.lsx and c.lasx,
+        .la264, .loongson2k1000 => c.has(.lsx),
+        .la464, .loongson3r5 => c.hasAll(&.{ .lsx, .lasx }),
         .la64_generic, .loongsongeneric => true,
         .unknown => false,
     };
@@ -61,13 +76,13 @@ pub fn runnable(core: CoreType, c: Caps) bool {
 /// core within it; an unknown series is generic.
 pub fn decide(c: Caps) Decision {
     const d: Decision = switch (c.prid & PRID_SERIES_MASK) {
-        PRID_SERIES_LA464, PRID_SERIES_LA664 => if (c.lasx)
+        PRID_SERIES_LA464, PRID_SERIES_LA664 => if (c.has(.lasx))
             .{ .core = .la464 }
-        else if (c.lsx)
+        else if (c.has(.lsx))
             .{ .core = .la264 }
         else
             .{ .core = .la64_generic },
-        PRID_SERIES_LA264, PRID_SERIES_LA364 => if (c.lsx)
+        PRID_SERIES_LA264, PRID_SERIES_LA364 => if (c.has(.lsx))
             .{ .core = .la264 }
         else
             .{ .core = .la64_generic },
@@ -87,7 +102,7 @@ pub fn detectNoted() Decision {
 test "series and OS extensions pick the core" {
     const t = struct {
         fn core(prid: u32, lsx: bool, lasx: bool) CoreType {
-            return decide(.{ .prid = prid, .lsx = lsx, .lasx = lasx }).core;
+            return decide(.{ .prid = prid, .features = .init(.{ .lsx = lsx, .lasx = lasx }) }).core;
         }
     };
     try std.testing.expectEqual(CoreType.la464, t.core(0x14c010, true, true)); // 3A5000

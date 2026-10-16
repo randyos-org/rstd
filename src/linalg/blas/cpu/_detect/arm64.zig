@@ -23,17 +23,31 @@ pub const HWCAP2_SVE2: usize = 1 << 1;
 pub const HWCAP2_BF16: usize = 1 << 14;
 pub const HWCAP2_SME: usize = 1 << 23;
 
-/// What the decisions read. `implementer` and `part` are valid when `midr`.
-pub const Caps = struct {
+pub const Feature = enum {
     /// Apple silicon, which has no `MIDR_EL1` and answers by `sysctl`
-    apple: bool = false,
-    midr: bool = false,
+    apple,
+    /// `implementer` and `part` are valid
+    midr,
+    sve,
+    sve2,
+    sme,
+    bf16,
+};
+
+/// What the decisions read.
+pub const Caps = struct {
+    features: std.EnumSet(Feature) = .empty,
     implementer: u32 = 0,
     part: u32 = 0,
-    sve: bool = false,
-    sve2: bool = false,
-    sme: bool = false,
-    bf16: bool = false,
+
+    pub fn has(c: Caps, f: Feature) bool {
+        return c.features.contains(f);
+    }
+
+    /// Every one of `fs`, the set built at compile time.
+    pub fn hasAll(c: Caps, comptime fs: []const Feature) bool {
+        return c.features.supersetOf(comptime std.EnumSet(Feature).initMany(fs));
+    }
 };
 
 pub const Midr = struct {
@@ -77,17 +91,20 @@ fn idRegister(comptime name: []const u8) u64 {
 /// What the ID registers say, with no OS to ask: `ID_AA64PFR0_EL1.SVE`,
 /// `ID_AA64ZFR0_EL1.SVEver`, `ID_AA64ISAR1_EL1.BF16`, `ID_AA64PFR1_EL1.SME`.
 fn idRegisters() Caps {
-    var c: Caps = .{};
-    c.sve = (idRegister("s3_0_c0_c4_0") >> 32) & 0xf != 0;
-    // ZFR0 reads as zero without SVE
-    if (c.sve) c.sve2 = idRegister("s3_0_c0_c4_4") & 0xf != 0;
-    c.bf16 = (idRegister("s3_0_c0_c6_1") >> 44) & 0xf != 0;
-    c.sme = (idRegister("s3_0_c0_c4_1") >> 24) & 0xf != 0;
+    const sve = (idRegister("s3_0_c0_c4_0") >> 32) & 0xf != 0;
     const m = readMidr();
-    c.midr = true;
-    c.implementer = m.implementer;
-    c.part = m.part;
-    return c;
+    return .{
+        .features = .init(.{
+            .midr = true,
+            .sve = sve,
+            // ZFR0 reads as zero without SVE
+            .sve2 = sve and idRegister("s3_0_c0_c4_4") & 0xf != 0,
+            .bf16 = (idRegister("s3_0_c0_c6_1") >> 44) & 0xf != 0,
+            .sme = (idRegister("s3_0_c0_c4_1") >> 24) & 0xf != 0,
+        }),
+        .implementer = m.implementer,
+        .part = m.part,
+    };
 }
 
 /// A hex number as the sysfs files print it ("0x00000000411fd070"), the low 32
@@ -190,19 +207,21 @@ pub fn probe() Caps {
     var c: Caps = .{};
     switch (comptime sysinfo.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
-            c.apple = true;
-            c.sme = (auxv.sysctlInt("hw.optional.arm.FEAT_SME") orelse 0) != 0;
+            c.features.insert(.apple);
+            c.features.setPresent(.sme, (auxv.sysctlInt("hw.optional.arm.FEAT_SME") orelse 0) != 0);
             return c;
         },
         .windows => {
             const PF = std.os.windows.PF;
-            c.sve = auxv.processorFeature(@backingInt(PF.ARM_SVE_INSTRUCTIONS_AVAILABLE));
-            c.sve2 = auxv.processorFeature(@backingInt(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE));
-            c.sme = auxv.processorFeature(@backingInt(PF.ARM_SME_INSTRUCTIONS_AVAILABLE));
-            c.bf16 = auxv.processorFeature(@backingInt(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE));
+            c.features = .init(.{
+                .sve = auxv.processorFeature(@backingInt(PF.ARM_SVE_INSTRUCTIONS_AVAILABLE)),
+                .sve2 = auxv.processorFeature(@backingInt(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE)),
+                .sme = auxv.processorFeature(@backingInt(PF.ARM_SME_INSTRUCTIONS_AVAILABLE)),
+                .bf16 = auxv.processorFeature(@backingInt(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE)),
+            });
             if (midrFromRegistry()) |raw| {
                 const m = Midr.fromRaw(raw);
-                c.midr = true;
+                c.features.insert(.midr);
                 c.implementer = m.implementer;
                 c.part = m.part;
             }
@@ -214,18 +233,20 @@ pub fn probe() Caps {
     }
     const hw = auxv.hwcap();
     const hw2 = auxv.hwcap2();
-    c.sve = hw & HWCAP_SVE != 0;
-    c.sve2 = hw2 & HWCAP2_SVE2 != 0;
-    c.sme = hw2 & HWCAP2_SME != 0;
-    c.bf16 = hw2 & HWCAP2_BF16 != 0;
+    c.features = .init(.{
+        .sve = hw & HWCAP_SVE != 0,
+        .sve2 = hw2 & HWCAP2_SVE2 != 0,
+        .sme = hw2 & HWCAP2_SME != 0,
+        .bf16 = hw2 & HWCAP2_BF16 != 0,
+    });
     if (hw & HWCAP_CPUID != 0) {
         const m = readMidr();
-        c.midr = true;
+        c.features.insert(.midr);
         c.implementer = m.implementer;
         c.part = m.part;
     } else if (sysinfo.os.tag == .linux) {
         if (midrFromSysfs()) |m| {
-            c.midr = true;
+            c.features.insert(.midr);
             c.implementer = m.implementer;
             c.part = m.part;
         }
@@ -239,14 +260,14 @@ const neoversen1_fallback = "Your OS does not support SVE instructions. OpenBLAS
 
 /// The SVE cores want SVE in the OS, else Neoverse N1's kernels (`dynamic_arm64.c`).
 fn sveOr(c: Caps, core: CoreType) Decision {
-    if (!c.sve) return .{ .core = .neoversen1, .note = neoversen1_fallback };
+    if (!c.has(.sve)) return .{ .core = .neoversen1, .note = neoversen1_fallback };
     return .{ .core = core };
 }
 
 /// `get_coretype`'s `switch (implementer)`: the part table. Null where the
 /// reference falls out of the switch to the SME and SVE tests.
 pub fn modelCore(c: Caps) ?Decision {
-    if (!c.midr) return null;
+    if (!c.has(.midr)) return null;
     switch (c.implementer) {
         0x41 => switch (c.part) { // Arm
             0xd03 => return .{ .core = .cortexa53 },
@@ -275,7 +296,7 @@ pub fn modelCore(c: Caps) ?Decision {
             else => {},
         },
         0x51 => if (c.part == 0xc00) return .{ .core = .falkor }, // Qualcomm
-        0x61 => return .{ .core = if (c.sme) .vortexm4 else .vortex }, // Apple
+        0x61 => return .{ .core = if (c.has(.sme)) .vortexm4 else .vortex }, // Apple
         else => {},
     }
     return null;
@@ -288,10 +309,10 @@ pub fn decide(c: Caps) Decision {
 }
 
 fn pick(c: Caps) Decision {
-    if (c.apple) return .{ .core = if (c.sme) .vortexm4 else .vortex };
+    if (c.has(.apple)) return .{ .core = if (c.has(.sme)) .vortexm4 else .vortex };
     if (modelCore(c)) |d| return d;
-    if (c.sme) return .{ .core = if (c.sve) .armv9sme else .vortexm4 };
-    if (c.sve) return .{ .core = .armv8sve };
+    if (c.has(.sme)) return .{ .core = if (c.has(.sve)) .armv9sme else .vortexm4 };
+    if (c.has(.sve)) return .{ .core = .armv8sve };
     return .{ .core = .armv8 };
 }
 
@@ -305,11 +326,11 @@ pub fn supportsCore(core: CoreType) bool {
 /// part table that names a core only names one the CPU's generation has.
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
-        .a64fx, .armv8sve, .cortexa510, .cortexa710, .cortexx2 => c.sve,
-        .neoversev1 => c.sve and c.bf16,
-        .neoversen2, .neoversev2 => c.sve and c.sve2 and c.bf16,
-        .armv9sme => c.sve and c.sve2 and c.sme,
-        .vortexm4 => c.sme or c.apple,
+        .a64fx, .armv8sve, .cortexa510, .cortexa710, .cortexx2 => c.has(.sve),
+        .neoversev1 => c.hasAll(&.{ .sve, .bf16 }),
+        .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16 }),
+        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme }),
+        .vortexm4 => c.has(.sme) or c.has(.apple),
         .unknown => false,
         else => true,
     };
@@ -342,11 +363,11 @@ pub fn detectNoted() Decision {
 // ---- tests -----------------------------------------------------------------
 
 fn arm(part: u32) Caps {
-    return .{ .midr = true, .implementer = 0x41, .part = part };
+    return .{ .features = .initOne(.midr), .implementer = 0x41, .part = part };
 }
 
 test "Arm parts" {
-    const sve: Caps = .{ .midr = true, .implementer = 0x41, .sve = true, .sve2 = true, .bf16 = true };
+    const sve: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = 0x41 };
     var c = arm(0xd03);
     try std.testing.expectEqual(CoreType.cortexa53, decide(c).core);
     c.part = 0xd05;
@@ -383,7 +404,7 @@ test "an SVE part on an OS without SVE gets Neoverse N1 and a warning" {
 test "other implementers" {
     const t = struct {
         fn core(imp: u32, part: u32) CoreType {
-            return decide(.{ .midr = true, .implementer = imp, .part = part, .sve = true, .sve2 = true, .bf16 = true }).core;
+            return decide(.{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = imp, .part = part }).core;
         }
     };
     try std.testing.expectEqual(CoreType.thunderx2t99, t.core(0x42, 0x516)); // Vulcan
@@ -404,34 +425,35 @@ test "other implementers" {
 }
 
 test "an unknown part takes SME, then SVE, as the reference does" {
-    var c: Caps = .{ .midr = true, .implementer = 0x99, .part = 1, .sve = true, .sve2 = true };
+    var c: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2 }), .implementer = 0x99, .part = 1 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(c).core);
-    c.sme = true;
+    c.features.insert(.sme);
     try std.testing.expectEqual(CoreType.armv9sme, decide(c).core);
-    c.sve = false;
-    c.sve2 = false;
+    c.features.remove(.sve);
+    c.features.remove(.sve2);
     try std.testing.expectEqual(CoreType.vortexm4, decide(c).core);
     // without the identity register the same tests apply
-    try std.testing.expectEqual(CoreType.armv8sve, decide(.{ .sve = true }).core);
+    try std.testing.expectEqual(CoreType.armv8sve, decide(.{ .features = .initOne(.sve) }).core);
     try std.testing.expectEqual(CoreType.armv8, decide(.{}).core);
 }
 
 test "Apple silicon" {
-    try std.testing.expectEqual(CoreType.vortex, decide(.{ .apple = true }).core);
-    try std.testing.expectEqual(CoreType.vortexm4, decide(.{ .apple = true, .sme = true }).core);
+    try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initOne(.apple) }).core);
+    try std.testing.expectEqual(CoreType.vortexm4, decide(.{ .features = .initMany(&.{ .apple, .sme }) }).core);
     // Apple's own implementer code, as Linux (Asahi) reports it
-    try std.testing.expectEqual(CoreType.vortex, decide(.{ .midr = true, .implementer = 0x61 }).core);
+    try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initOne(.midr), .implementer = 0x61 }).core);
 }
 
 test "a Neoverse part short of what its core needs stays in its class" {
     // V2 with SVE but without SVE2 or BF16 in the hwcaps
-    const v2: Caps = .{ .midr = true, .implementer = 0x41, .part = 0xd4f, .sve = true };
+    const v2: Caps = .{ .features = .initMany(&.{ .midr, .sve }), .implementer = 0x41, .part = 0xd4f };
     try std.testing.expectEqual(CoreType.armv8sve, decide(v2).core);
     // V1 without BF16: generic SVE, not A64FX's or a static target's kernels
-    const v1: Caps = .{ .midr = true, .implementer = 0x41, .part = 0xd40, .sve = true };
+    const v1: Caps = .{ .features = .initMany(&.{ .midr, .sve }), .implementer = 0x41, .part = 0xd40 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(v1).core);
     // with SVE2 and BF16 it is V2
-    try std.testing.expectEqual(CoreType.neoversev2, decide(.{ .midr = true, .implementer = 0x41, .part = 0xd4f, .sve = true, .sve2 = true, .bf16 = true }).core);
+    const v2_full: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = 0x41, .part = 0xd4f };
+    try std.testing.expectEqual(CoreType.neoversev2, decide(v2_full).core);
     for (std.enums.values(CoreType)) |c| try std.testing.expect(c == .unknown or c == .armv8 or parent(c) != null);
 }
 
@@ -446,7 +468,11 @@ test "no CPU is given a core it cannot run" {
     var mask: u32 = 0;
     while (mask < 16) : (mask += 1) {
         for (parts) |p| {
-            const c: Caps = .{ .midr = true, .implementer = p[0], .part = p[1], .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0 };
+            const c: Caps = .{
+                .features = .init(.{ .midr = true, .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0 }),
+                .implementer = p[0],
+                .part = p[1],
+            };
             try std.testing.expect(runnable(decide(c).core, c));
         }
     }

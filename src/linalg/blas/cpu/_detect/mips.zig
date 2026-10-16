@@ -21,9 +21,19 @@ const LOONGSON_CFG1: u32 = 0x1;
 const MMI_MASK: u32 = 0x00000010;
 const MSA_MASK: u32 = 0x00000020;
 
+pub const Feature = enum {
+    /// Loongson multimedia instructions
+    mmi,
+    /// MIPS SIMD architecture
+    msa,
+};
+
 pub const Caps = struct {
-    mmi: bool = false,
-    msa: bool = false,
+    features: std.EnumSet(Feature) = .empty,
+
+    pub fn has(c: Caps, f: Feature) bool {
+        return c.features.contains(f);
+    }
 };
 
 /// Whether this machine can run `core`'s kernels (for tests): the Loongson
@@ -54,7 +64,7 @@ pub fn cpucfg(word: u32) u32 {
 
 /// Caps from CPUCFG word 1.
 pub fn capsFromCfg1(cfg: u32) Caps {
-    return .{ .mmi = cfg & MMI_MASK != 0, .msa = cfg & MSA_MASK != 0 };
+    return .{ .features = .init(.{ .mmi = cfg & MMI_MASK != 0, .msa = cfg & MSA_MASK != 0 }) };
 }
 
 /// Caps from the first "model name" line of `/proc/cpuinfo`: 3A/3B 3000 are the
@@ -66,8 +76,8 @@ pub fn capsFromCpuinfo(text: []const u8) Caps {
             return std.mem.indexOf(u8, n, a) != null or std.mem.indexOf(u8, n, b) != null;
         }
     }.any;
-    if (has(name, "Loongson-3A3000", "Loongson-3B3000")) return .{ .mmi = true };
-    if (has(name, "Loongson-3A4000", "Loongson-3B4000")) return .{ .mmi = true, .msa = true };
+    if (has(name, "Loongson-3A3000", "Loongson-3B3000")) return .{ .features = .initOne(.mmi) };
+    if (has(name, "Loongson-3A4000", "Loongson-3B4000")) return .{ .features = .initMany(&.{ .mmi, .msa }) };
     return .{};
 }
 
@@ -81,16 +91,16 @@ pub fn probe() Caps {
 
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
-        .loongson3r4 => c.msa,
-        .loongson3r3 => c.mmi or c.msa,
+        .loongson3r4 => c.has(.msa),
+        .loongson3r3 => c.has(.mmi) or c.has(.msa),
         .unknown => false,
         else => true,
     };
 }
 
 pub fn decide(c: Caps) Decision {
-    if (c.msa) return .{ .core = .loongson3r4 };
-    if (c.mmi) return .{ .core = .loongson3r3 };
+    if (c.has(.msa)) return .{ .core = .loongson3r4 };
+    if (c.has(.mmi)) return .{ .core = .loongson3r3 };
     return .{ .core = .mips64_generic };
 }
 
@@ -125,9 +135,9 @@ test "cpuinfo model names pick the core" {
 }
 
 test "the Loongson cores need their SIMD" {
-    try std.testing.expect(runnable(.loongson3r3, .{ .mmi = true }));
-    try std.testing.expect(!runnable(.loongson3r4, .{ .mmi = true }));
-    try std.testing.expect(runnable(.loongson3r4, .{ .mmi = true, .msa = true }));
+    try std.testing.expect(runnable(.loongson3r3, .{ .features = .initOne(.mmi) }));
+    try std.testing.expect(!runnable(.loongson3r4, .{ .features = .initOne(.mmi) }));
+    try std.testing.expect(runnable(.loongson3r4, .{ .features = .initMany(&.{ .mmi, .msa }) }));
     try std.testing.expect(runnable(.mips64_generic, .{}));
 }
 
