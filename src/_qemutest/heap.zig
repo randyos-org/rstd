@@ -1,19 +1,25 @@
-//! The rigs' page allocator, `std.heap.page_allocator` there: a static region
+//! The rigs' page allocator, `std.heap.page_allocator` there: a region
 //! handed out in whole pages and tracked by a bitmap, so freed pages are
 //! reused. One test cycling through every core frees as much as it takes.
+//! The runner gives it the region (`use`): a static buffer, or one the boot
+//! code gets from the firmware.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const mem = @import("../mem.zig");
 
 const page = mem.page_size;
-/// sparc64's OpenBIOS maps only about 4 MB of the image.
-const pages = (if (sysinfo.cpu.arch == .sparc64) 1 << 20 else 32 << 20) / page;
+/// Page indices align as addresses do, up to this.
+pub const max_align = 1 << 16;
+/// The largest region, and what the runner asks for.
+pub const max_len = 32 << 20;
 
-/// Page indices then align as addresses do, up to this.
-const max_align = 1 << 16;
-var region: [pages * page]u8 align(max_align) = undefined;
-var used: std.StaticBitSet(pages) = .empty;
+var region: []align(max_align) u8 = &.{};
+var used: std.StaticBitSet(max_len / page) = .empty;
+
+/// Hands out `r` from now on; before, every allocation fails.
+pub fn use(r: []align(max_align) u8) void {
+    region = r[0..@min(r.len, max_len)];
+}
 
 pub const allocator: std.mem.Allocator = .{ .ptr = undefined, .vtable = &.{
     .alloc = alloc,
@@ -22,18 +28,22 @@ pub const allocator: std.mem.Allocator = .{ .ptr = undefined, .vtable = &.{
     .free = free,
 } };
 
+fn pages() usize {
+    return region.len / page;
+}
+
 fn count(len: usize) usize {
     return (len + page - 1) / page;
 }
 
 fn first(p: [*]u8) usize {
-    return (@intFromPtr(p) - @intFromPtr(&region)) / page;
+    return (@intFromPtr(p) - @intFromPtr(region.ptr)) / page;
 }
 
 /// The first `n` free pages starting at a multiple of `step`.
 fn findRun(n: usize, step: usize) ?usize {
     var i: usize = 0;
-    outer: while (i + n <= pages) {
+    outer: while (i + n <= pages()) {
         for (i..i + n) |j| if (used.isSet(j)) {
             i = std.mem.alignForward(usize, j + 1, step);
             continue :outer;
@@ -59,7 +69,7 @@ fn resize(_: *anyopaque, memory: []u8, _: std.mem.Alignment, new_len: usize, _: 
         used.setRangeValue(.{ .start = i + new, .end = i + old }, false);
         return true;
     }
-    if (i + new > pages) return false;
+    if (i + new > pages()) return false;
     for (i + old..i + new) |j| if (used.isSet(j)) return false;
     used.setRangeValue(.{ .start = i + old, .end = i + new }, true);
     return true;

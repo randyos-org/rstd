@@ -157,10 +157,17 @@ fn printStack(used: usize) void {
     print(")");
 }
 
+const heap = @import("_qemutest/heap.zig");
+
+/// The heap, where the boot code cannot get one from the firmware
+/// (`heapRegion`): sparc64's maps only 4 MB of the image.
+var static_heap: [if (@hasDecl(arch, "heapRegion")) 0 else heap.max_len]u8 align(heap.max_align) = undefined;
+
 export fn qemutest_main() callconv(.c) noreturn {
     print("qemutest ");
     print(@tagName(sysinfo.cpu.arch));
     print("\n");
+    heap.use(if (@hasDecl(arch, "heapRegion")) arch.heapRegion(heap.max_len, heap.max_align) else &static_heap);
     paintStack();
     var pass: usize = 0;
     var fail: usize = 0;

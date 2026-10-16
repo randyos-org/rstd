@@ -169,6 +169,8 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
         const core = @field(cpu.CoreType, name);
         if (registry.isLinked(core) and (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core))) {
+            // on the rigs, where a core can take minutes, so a hang shows where
+            if (progress()) say("[{s}] ", .{name});
             withCore(core, check) catch |e| {
                 say("core {s}\n", .{name});
                 failed = e;
@@ -176,6 +178,16 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
         }
     }
     if (failed) |e| return e;
+}
+
+/// Whether `eachCore` names each core as it starts: on the freestanding rigs,
+/// and on the Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
+fn progress() bool {
+    return switch (sysinfo.os.tag) {
+        .freestanding => true,
+        .linux => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
+        else => false,
+    };
 }
 
 /// One core per call: inlined into `eachCore`'s loop, each core's table and

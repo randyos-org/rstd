@@ -33,7 +33,20 @@
         .osx_kvm = .{
             .url = "git+https://github.com/kholia/OSX-KVM#4c378a4b5e0b219783683012bec680325eb40719",
             .hash = "N-V-__8AAKUnqQKGAifHk6tDAjx9sNpxjFjWRJi9cvVxV9x9",
-            // only with -Dmacos-vm (build/qemutest.zig)
+            // only with the macOS rigs (build/qemutest.zig: when rstd is the root project, unless -Dmacos-vm-off)
+            .lazy = true,
+        },
+        // Debian 13 netboot kernels for the Linux rigs (build/qemutest.zig: when
+        // rstd is the root project, unless -Dlinux-vm-off); a dated installer
+        // build, so the archive stays put
+        .debian_netboot_arm64 = .{
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-arm64/20250803+deb13u7/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAGUaHwUjNvYZqYXy5pBbz2FaPUoGI7YIIJHI2s3t",
+            .lazy = true,
+        },
+        .debian_netboot_amd64 = .{
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/20250803+deb13u7/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAHk0iAORDawnDVweOxTXYqxa6CP4pg0bt3O96Yr0",
             .lazy = true,
         },
         // Its build.zig does not build on current Zig master (standardOptimizeOption
