@@ -7,7 +7,8 @@
 //!     `src/_test_qemu.zig`). Where the machine has semihosting (aarch64, arm,
 //!     riscv64, mips64el) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
-//!     step checks the printed summary for "0 failed".
+//!     step checks the printed summary for "0 failed". The console is also
+//!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
 //!   * `.macos`: rstd's unit tests in an installed macOS, which the Mach-O
 //!     kernels need, copied in and run over SSH. It boots with OSX-KVM's
 //!     OpenCore and firmware, a lazy dependency fetched only when rstd is the
@@ -292,9 +293,9 @@ const machines = [_]Machine{
     },
 };
 
-/// Tests that need an OS (allocator, files, threads) live in files the test
-/// root also reaches, so the runnable ones are picked by name instead.
-const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.gemm.params", "simd." };
+/// Tests that need an OS (files, threads) live in files the test root also
+/// reaches, so the runnable ones are picked by name; the runner supplies a heap.
+const default_filters: []const []const u8 = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "simd." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
@@ -322,10 +323,19 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
             .kernel => |k| addKernelRun(b, m, k, target, m.optimize orelse optimize, filters),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
         };
-        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}", .{m.name}));
+        const about = switch (m.boot) {
+            .kernel => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
+            .macos => b.fmt("Run rstd's tests under qemu-system on {s}", .{m.name}),
+        };
+        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), about);
         step.dependOn(&run.step);
         all.dependOn(&run.step);
     }
+}
+
+/// Where `m`'s console is logged live, relative to the build root.
+fn liveLog(b: *Build, m: Machine) []const u8 {
+    return b.fmt(".zig-cache/qemu-test-{s}.log", .{m.name});
 }
 
 /// QEMU booting `m`'s freestanding test kernel.
@@ -335,6 +345,8 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .target = target,
         .optimize = optimize,
         .code_model = k.code_model,
+        // no threads under a test kernel
+        .single_threaded = true,
     });
     // the kernels of the architectures that have any
     blaskern.addBlasKernels(b, test_mod, target, .all);
@@ -351,8 +363,12 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
 
     const run = b.addSystemCommand(&.{m.qemu});
     run.addArgs(m.args);
+    // The console is also logged as it is written (`liveLog`): the summary check
+    // below captures stdout, which zig shows only once qemu exits. Naming the
+    // serial and monitor keeps `-nographic`'s firmware console.
     run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
-    if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native" });
+    run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off,logfile={s}", .{liveLog(b, m)}), "-serial", "chardev:con", "-mon", "chardev=con" });
+    if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
     run.addArg("-kernel");
     run.addArtifactArg(test_exe);
     run.has_side_effects = true;

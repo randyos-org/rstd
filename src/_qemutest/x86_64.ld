@@ -21,6 +21,7 @@ SECTIONS
     __pd = .;
     . += 4096;
     . = ALIGN(16);
+    __stack_bottom = .;
     . += 0x100000;
     __stack_top = .;
 }

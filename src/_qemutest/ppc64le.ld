@@ -23,7 +23,8 @@ SECTIONS
         __bss_end = .;
     } :image
     . = ALIGN(16);
-    . += 0x40000;
+    __stack_bottom = .;
+    . += 0x100000;
     __stack_top = .;
     qemutest_entry = _start - 0x400000;
 }
