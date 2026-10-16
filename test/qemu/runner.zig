@@ -3,24 +3,23 @@
 //! (0 = all passed), which the run step maps to the process exit code.
 //!
 //! Use with `zig test -target <arch>-freestanding --test-runner runner.zig`
-//! and the matching `_qemutest/<arch>.ld`; `<arch>.zig` supplies the boot code.
+//! and the matching `<arch>.ld`; `<arch>.zig` supplies the boot code.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const mem = @import("mem.zig");
 
 const arch = switch (sysinfo.cpu.arch) {
-    .aarch64 => @import("_qemutest/aarch64.zig"),
-    .riscv64 => @import("_qemutest/riscv64.zig"),
-    .arm => @import("_qemutest/arm.zig"),
-    .loongarch64 => @import("_qemutest/loongarch64.zig"),
-    .mips64el => @import("_qemutest/mips64.zig"),
-    .mipsel => @import("_qemutest/mips32.zig"),
-    .x86 => @import("_qemutest/x86.zig"),
-    .x86_64 => @import("_qemutest/x86_64.zig"),
-    .sparc64 => @import("_qemutest/sparc64.zig"),
-    .s390x => @import("_qemutest/s390x.zig"),
-    .powerpc64le => @import("_qemutest/ppc64le.zig"),
+    .aarch64 => @import("aarch64.zig"),
+    .riscv64 => @import("riscv64.zig"),
+    .arm => @import("arm.zig"),
+    .loongarch64 => @import("loongarch64.zig"),
+    .mips64el => @import("mips64.zig"),
+    .mipsel => @import("mips32.zig"),
+    .x86 => @import("x86.zig"),
+    .x86_64 => @import("x86_64.zig"),
+    .sparc64 => @import("sparc64.zig"),
+    .s390x => @import("s390x.zig"),
+    .powerpc64le => @import("ppc64le.zig"),
     else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.cpu.arch)),
 };
 
@@ -49,14 +48,14 @@ pub const panic = std.debug.FullPanic(struct {
 }.call);
 
 /// Freestanding targets have no page size to infer, and no page allocator;
-/// `_qemutest/heap.zig` is one, under `std.testing.allocator`.
+/// `heap.zig` is one, under `std.testing.allocator`.
 pub const std_os_options: std.Options.OperatingSystem = .{
     .heap = struct {
-        pub const page_size_min = mem.page_size;
-        pub const page_size_max = mem.page_size;
-        pub const page_allocator = @import("_qemutest/heap.zig").allocator;
+        pub const page_size_min = heap.page_size;
+        pub const page_size_max = heap.page_size;
+        pub const page_allocator = @import("heap.zig").allocator;
         pub fn queryPageSize() usize {
-            return mem.page_size;
+            return heap.page_size;
         }
     },
     // one CPU and no threads; `std.heap.SafeAllocator` asks for the count
@@ -157,7 +156,7 @@ fn printStack(used: usize) void {
     print(")");
 }
 
-const heap = @import("_qemutest/heap.zig");
+const heap = @import("heap.zig");
 
 /// The heap, where the boot code cannot get one from the firmware
 /// (`heapRegion`): sparc64's maps only 4 MB of the image.

@@ -1,5 +1,5 @@
 //! Test runner for `rstd-check-uefi`: links the OS-free tests (the qemu
-//! rigs' root, `_test_qemu.zig`: simd and BLAS) for UEFI without running
+//! rigs' root, `src/_test_qemu.zig`: simd and BLAS) for UEFI without running
 //! them, so the code only UEFI builds compile (`types.exprecisionOn`, the
 //! arm64 ID-register probe) is checked. No machine runs them yet.
 
@@ -12,7 +12,7 @@ pub fn main() void {
 
 /// Nothing here runs, so failing stand-ins do for what std would otherwise
 /// take from an OS: the testing allocator and Io, pages, and (as in
-/// `_test_qemu_runner.zig`) one CPU and no threads.
+/// `test/qemu/runner.zig`) one CPU and no threads.
 pub const std_os_options: std.Options.OperatingSystem = .{
     .testing = struct {
         pub const allocator = std.testing.failing_allocator;

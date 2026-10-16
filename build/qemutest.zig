@@ -1,16 +1,16 @@
 //! `qemu-test` step: runs rstd's tests on emulated machines with
 //! `qemu-system-*`. Needs `qemu-system-<arch>` on `PATH`. A machine boots one
-//! of two ways (`Boot`):
+//! of three ways (`Boot`):
 //!
 //!   * `.kernel`: a freestanding test kernel per architecture (boot code in
-//!     `src/_qemutest/`, runner in `src/_test_qemu_runner.zig`, test root in
+//!     `test/qemu/`, runner in `test/qemu/runner.zig`, test root in
 //!     `src/_test_qemu.zig`). Where the machine has semihosting (aarch64, arm,
 //!     riscv64, mips64el) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
 //!     step checks the printed summary for "0 failed". The console is also
 //!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
 //!   * `.linux`: rstd's full test suite as a static Linux executable, in an
-//!     initramfs whose init (`src/_linuxtest/init.zig`) mounts procfs, sysfs
+//!     initramfs whose init (`test/linux/init.zig`) mounts procfs, sysfs
 //!     and devtmpfs, runs it and reports. The kernel is a Debian netboot one,
 //!     a lazy dependency fetched only when rstd is the project being built
 //!     (`-Dlinux-vm-off` skips it). No disk, network or
@@ -98,7 +98,7 @@ const Boot = union(enum) {
     };
 
     /// A Debian netboot kernel (a lazy dependency) and an initramfs of
-    /// `src/_linuxtest/init.zig` as PID 1 and the hosted test executable.
+    /// `test/linux/init.zig` as PID 1 and the hosted test executable.
     const Linux = struct {
         /// The `build.zig.zon` dependency, and the kernel's path in it.
         dep: []const u8,
@@ -115,7 +115,7 @@ const machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/aarch64.ld",
+            .linker_script = "test/qemu/aarch64.ld",
         } },
     },
     .{
@@ -124,7 +124,7 @@ const machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "neoverse-v1" },
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/aarch64.ld",
+            .linker_script = "test/qemu/aarch64.ld",
         } },
     },
     .{
@@ -133,7 +133,7 @@ const machines = [_]Machine{
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/arm.ld",
+            .linker_script = "test/qemu/arm.ld",
         } },
     },
     .{
@@ -144,7 +144,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=256", "-smp", "1", "-bios", "none" },
         .boot = .{
             .kernel = .{
-                .linker_script = "src/_qemutest/riscv64.ld",
+                .linker_script = "test/qemu/riscv64.ld",
                 // The kernel sits at 0x80000000, out of reach of the default `medlow`.
                 .code_model = .medany,
             },
@@ -157,7 +157,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "la464" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/loongarch64.ld",
+            .linker_script = "test/qemu/loongarch64.ld",
             .semihosting = false,
         } },
     },
@@ -168,7 +168,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "Loongson-3A1000" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips64.ld",
+            .linker_script = "test/qemu/mips64.ld",
         } },
     },
     .{
@@ -178,7 +178,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "I6400" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips64.ld",
+            .linker_script = "test/qemu/mips64.ld",
         } },
     },
     .{
@@ -188,7 +188,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "24Kf" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips32.ld",
+            .linker_script = "test/qemu/mips32.ld",
         } },
     },
     .{
@@ -198,7 +198,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "P5600" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips32.ld",
+            .linker_script = "test/qemu/mips32.ld",
         } },
     },
     .{
@@ -208,7 +208,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "pentium3" },
         .memory = "128M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/x86.ld",
+            .linker_script = "test/qemu/x86.ld",
             .semihosting = false,
         } },
     },
@@ -219,7 +219,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .memory = "128M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/x86_64.ld",
+            .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
             .semihosting = false,
         } },
@@ -243,7 +243,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "sun4u" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/sparc64.ld",
+            .linker_script = "test/qemu/sparc64.ld",
             .semihosting = false,
         } },
     },
@@ -255,7 +255,7 @@ const machines = [_]Machine{
         .memory = "512M",
         .boot = .{
             .kernel = .{
-                .linker_script = "src/_qemutest/ppc64le.ld",
+                .linker_script = "test/qemu/ppc64le.ld",
                 .semihosting = false,
                 // the firmware loader's 0x400000 shift, see the linker script
                 .stderr_note = "kernel_addr changed",
@@ -269,7 +269,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
         .memory = "512M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/ppc64le.ld",
+            .linker_script = "test/qemu/ppc64le.ld",
             .semihosting = false,
             .stderr_note = "kernel_addr changed",
         } },
@@ -296,7 +296,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "s390-ccw-virtio", "-cpu", "max" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/s390x.ld",
+            .linker_script = "test/qemu/s390x.ld",
             .semihosting = false,
         } },
     },
@@ -441,7 +441,7 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine) void {
     run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off,logfile={s}", .{liveLog(b, m)}), "-serial", "chardev:con", "-mon", "chardev=con" });
 }
 
-/// QEMU booting a Debian kernel with an initramfs of `src/_linuxtest/init.zig`
+/// QEMU booting a Debian kernel with an initramfs of `test/linux/init.zig`
 /// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
 /// null until the kernel's package is fetched.
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8) !?*Build.Step.Run {
@@ -449,7 +449,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
     const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
-        .root_source_file = b.path("src/_linuxtest/init.zig"),
+        .root_source_file = b.path("test/linux/init.zig"),
         .target = target,
         .optimize = optimize,
     }) });
@@ -472,7 +472,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     // panic=-1: a dead init restarts at once, which -no-reboot makes an exit
     run.addArgs(&.{ "-append", b.fmt("console={s} rdinit=/init panic=-1 quiet loglevel=3", .{l.console}) });
     run.has_side_effects = true;
-    // `passed` in src/_linuxtest/init.zig
+    // `passed` in test/linux/init.zig
     run.expectStdOutMatch("linuxtest: /test exited 0");
     return run;
 }
@@ -492,7 +492,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
-        .test_runner = .{ .path = b.path("src/_test_qemu_runner.zig"), .mode = .simple },
+        .test_runner = .{ .path = b.path("test/qemu/runner.zig"), .mode = .simple },
         .filters = if (filters.len != 0) filters else default_filters,
         .use_llvm = if (k.llvm) true else null,
         // every rig needs its linker script, which only lld honors

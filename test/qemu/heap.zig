@@ -5,9 +5,9 @@
 //! code gets from the firmware.
 
 const std = @import("std");
-const mem = @import("../mem.zig");
-
-const page = mem.page_size;
+/// The page size the rigs use, on every target.
+pub const page_size = 4096;
+const page = page_size;
 /// Page indices align as addresses do, up to this.
 pub const max_align = 1 << 16;
 /// The largest region, and what the runner asks for.

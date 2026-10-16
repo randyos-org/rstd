@@ -120,7 +120,7 @@ pub fn build(b: *Build) !void {
         uefi_step.dependOn(&b.addTest(.{
             .name = b.fmt("rstd-check-uefi-{t}", .{arch}),
             .root_module = uefi_mod,
-            .test_runner = .{ .path = b.path("src/_check_uefi_runner.zig"), .mode = .simple },
+            .test_runner = .{ .path = b.path("test/uefi/runner.zig"), .mode = .simple },
         }).step);
     }
 

@@ -148,7 +148,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `std.Thread.getCpuCount()` unconditionally. On freestanding, which has no
   `Thread` implementation, that is a compile error even with
   `-fsingle-threaded`, so `std.testing.allocator` cannot be used there.
-- **Workaround:** the freestanding test runner (`src/_test_qemu_runner.zig`)
+- **Workaround:** the freestanding test runner (`test/qemu/runner.zig`)
   overrides `std_os_options.Thread` with a one-CPU implementation.
 - **Issue text:**
 
