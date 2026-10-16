@@ -302,12 +302,16 @@ test "no core puts a kernel of its own in a q or x slot" {
     var base: Vtable = .{};
     portable.install(&base);
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
-        if (registry.isLinked(@field(cpu.CoreType, name))) {
-            var vt = base;
-            cpu.kernel.install(&vt, @field(cpu.CoreType, name));
-            inline for (qx_slots) |f| try zigstd.testExpectTrue(@field(vt, f) == @field(base, f));
-        }
+        if (registry.isLinked(@field(cpu.CoreType, name))) try qxUntouched(&base, @field(cpu.CoreType, name));
     }
+}
+
+/// One core per call: inlined into the loop, each core's table and install
+/// would keep a frame slot of their own (~400 KB on a 64-bit debug build).
+fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {
+    var vt = base.*;
+    cpu.kernel.install(&vt, core);
+    inline for (qx_slots) |f| try zigstd.testExpectTrue(@field(vt, f) == @field(base, f));
 }
 
 test {

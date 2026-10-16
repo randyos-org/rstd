@@ -169,17 +169,23 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
         const core = @field(cpu.CoreType, name);
         if (registry.isLinked(core) and (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core))) {
-            var vt: Vtable = .{};
-            portable.install(&vt);
-            cpu.kernel.install(&vt, core);
-            portable.finish(&vt);
-            check(&vt) catch |e| {
+            withCore(core, check) catch |e| {
                 say("core {s}\n", .{name});
                 failed = e;
             };
         }
     }
     if (failed) |e| return e;
+}
+
+/// One core per call: inlined into `eachCore`'s loop, each core's table and
+/// install would keep a frame slot of their own (~400 KB on i386 debug).
+fn withCore(comptime core: cpu.CoreType, comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    cpu.kernel.install(&vt, core);
+    portable.finish(&vt);
+    return check(&vt);
 }
 
 test "tolerance goes by width, so a 64-bit c_longdouble gets f64's" {
