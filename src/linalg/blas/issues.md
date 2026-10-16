@@ -140,6 +140,16 @@ When an issue is fixed upstream, drop the workaround and its entry.
   is `.fast` or the sparc backend (a smaller image that fits a debug build
   would tell). No issue text until then.
 
+### lld cannot link 32-bit SPARC
+
+- **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
+  object, then fails to link: `ld.lld: unsupported e_machine value: 2`
+  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9).
+- **Workaround:** none; 32-bit SPARC is compile-checked only (the kernel
+  objects build) and has no rig.
+- **Issue text:** an lld feature request rather than a Zig bug, and probably
+  known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
