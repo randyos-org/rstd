@@ -320,7 +320,7 @@ fn shutdown(vm: Vm) !void {
     echoSerial(vm.io, serial_path, &serial_at);
     std.debug.print("macOS VM: down after {d} s\n", .{waited});
     Io.Dir.cwd().deleteFile(vm.io, try vm.path("qemu.pid")) catch {};
-    Io.Dir.cwd().deleteFile(vm.io, try vm.path("autostarted")) catch {};
+    Io.Dir.cwd().deleteFile(vm.io, try vm.path("autostarted")) catch return;
 }
 
 /// A digest of what the VM is doing: every vCPU's instruction pointer and
@@ -394,7 +394,7 @@ fn kill(vm: Vm) !void {
     } else std.debug.print("macOS VM: no {s}; not started by a build step\n", .{try vm.path("qemu.pid")});
     // QEMU removes its pid file at a clean exit, not when killed
     Io.Dir.cwd().deleteFile(io, try vm.path("qemu.pid")) catch {};
-    Io.Dir.cwd().deleteFile(io, try vm.path("autostarted")) catch {};
+    Io.Dir.cwd().deleteFile(io, try vm.path("autostarted")) catch return;
 }
 
 /// The pid in `qemu.pid`, as text.

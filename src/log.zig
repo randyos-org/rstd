@@ -127,7 +127,7 @@ fn logImpl(
     defer std.debug.unlockStderr();
     // a line that cannot be written is dropped, as std's own logFn does:
     // logging must not end the program (a GUI app's console handle, a closed pipe)
-    logToTerminal(stderr, level, full_scope_name, format, args, src) catch {};
+    logToTerminal(stderr, level, full_scope_name, format, args, src) catch return;
 }
 
 /// Formats + writes one log line (scope filter, timestamp, colored level)
