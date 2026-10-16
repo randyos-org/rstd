@@ -57,7 +57,12 @@ const text =
     \\ fmovs %f0, %f14
     \\ cmp %i2, 0
     \\ beq 20005f
+    \\ .if \bp0
     \\ sll %i2, 2, %i2
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 2, %i2
+    \\ .endif
     \\ cmp %i0, 0
     \\ ble 20005f
     \\ nop

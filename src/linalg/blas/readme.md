@@ -234,6 +234,11 @@ Zig reads a two-float struct from r3/r4. The sources already copy it into
 r3/r4 for the Fortran interface; the patch turns that on. It can go once Zig
 follows the ABI.
 
+And the sparc kernels' `64` variant shifts with `sllx` where the sources say
+`sll`: they scale 64-bit strides with `sll`, which under qemu keeps only the
+low 32 bits, so negative strides broke. `issues.md` has the details, and the
+open question of whether real hardware behaves the same.
+
 ## Kernels that call another routine's kernel
 
 A handful of upstream sources branch into another routine's own kernel rather

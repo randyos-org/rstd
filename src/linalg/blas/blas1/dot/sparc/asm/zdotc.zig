@@ -49,9 +49,19 @@ const text =
     \\ .word ((2 << 30) | ((6) << 25) | ( 0x36 << 19) | ( 0x60 << 5))
     \\ fmovd %f0, %f6
     \\ fmovd %f0, %f8
+    \\ .if \bp0
     \\ sll %i2, 4, %i2
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 4, %i2
+    \\ .endif
     \\ fmovd %f0, %f10
+    \\ .if \bp0
     \\ sll %i4, 4, %i4
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i4, 4, %i4
+    \\ .endif
     \\ fmovd %f0, %f12
     \\ fmovd %f0, %f14
     \\ cmp %i2, 2 * 8

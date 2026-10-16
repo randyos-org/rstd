@@ -53,7 +53,12 @@ const text =
     \\ nop
     \\ cmp %i2, 0
     \\ ble 20005f
+    \\ .if \bp0
     \\ sll %i2, 4, %i2
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 4, %i2
+    \\ .endif
     \\ ldd [%i1 + 0 * 8], %f0
     \\ ldd [%i1 + 1 * 8], %f2
     \\ add %i0, -1, %i0

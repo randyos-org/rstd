@@ -569,7 +569,13 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         for (ar.variants) |v| for (job.cores.items) |core| {
             const lower = try lowered(a, core);
             if (ambiguous.contains(try std.fmt.allocPrint(a, "{s}:{s}", .{ lower, try k.role(a) }))) continue;
-            try texts.append(a, .{ .core = lower, .variant = v.name, .lines = try arch.nakedLines(a, ar, try preprocess(a, ar, inc, k, core, v)) });
+            var lines = try arch.nakedLines(a, ar, try preprocess(a, ar, inc, k, core, v));
+            if (v.rewrite) |rewrite| {
+                const out = try a.alloc([]const u8, lines.len);
+                for (lines, out) |l, *o| o.* = try rewrite(a, l);
+                lines = out;
+            }
+            try texts.append(a, .{ .core = lower, .variant = v.name, .lines = lines });
         };
         if (texts.items.len == 0) continue;
 

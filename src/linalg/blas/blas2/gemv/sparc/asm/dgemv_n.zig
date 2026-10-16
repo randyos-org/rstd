@@ -63,7 +63,7 @@ const text =
     \\ ldx [%sp + 2423 + 88], %l2
     \\ fmovd %f6, %f54
     \\ std %f6, [%sp + 2423 + 40]
-    \\ sll %i5, 3, %i5
+    \\ sllx %i5, 3, %i5
     \\ .endif
     \\ cmp %i0, 0
     \\ ble %icc, 20028f
@@ -71,11 +71,16 @@ const text =
     \\ sll %i4, 3, %i4
     \\ .endif
     \\ .if \bp1
-    \\ sll %i3, 3, %i3
+    \\ sllx %i3, 3, %i3
     \\ .endif
     \\ cmp %i1, 0
     \\ ble %icc, 20028f
+    \\ .if \bp0
     \\ sll %l1, 3, %l1
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %l1, 3, %l1
+    \\ .endif
     \\ .word ((2 << 30) | ((21) << 25) | ( 0x36 << 19) | ( 0x60 << 5))
     \\ cmp %l1, 8
     \\ be %icc, 20001f

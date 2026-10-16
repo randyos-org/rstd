@@ -50,6 +50,7 @@ const text =
     \\ ld [%sp + 128 + 40], %l1
     \\ ld [%sp + 128 + 44], %l2
     \\ ld [%sp + 128 + 16], %f27
+    \\ sll %i5, 2, %i5
     \\ .endif
     \\ .if \bp1
     \\ save %sp, -256, %sp
@@ -60,14 +61,24 @@ const text =
     \\ ldx [%sp + 2423 + 88], %l2
     \\ fmovs %f7, %f27
     \\ st %f7, [%sp + 2423 + 40]
+    \\ sllx %i5, 2, %i5
     \\ .endif
-    \\ sll %i5, 2, %i5
     \\ cmp %i0, 0
     \\ ble %icc, 20028f
+    \\ .if \bp0
     \\ sll %i3, 2, %i3
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i3, 2, %i3
+    \\ .endif
     \\ cmp %i1, 0
     \\ ble %icc, 20028f
+    \\ .if \bp0
     \\ sll %l1, 2, %l1
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %l1, 2, %l1
+    \\ .endif
     \\ .word ((2 << 30) | ((26) << 25) | ( 0x36 << 19) | ( 0x61 << 5))
     \\ cmp %l1, 4
     \\ be %icc, 20001f

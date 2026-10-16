@@ -70,14 +70,31 @@ const text =
     \\ .endif
     \\ clr %l4
     \\ mov 4000, %l3
+    \\ .if \bp0
     \\ sll %i2, 3, %i2
     \\ sll %l3, 3, %l3
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 3, %i2
+    \\ sllx %l3, 3, %l3
+    \\ .endif
     \\ smul %i2, %i1, %g1
+    \\ .if \bp0
     \\ sll %i4, 3, %i4
     \\ sll %l1, 3, %l1
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i4, 3, %i4
+    \\ sllx %l1, 3, %l1
+    \\ .endif
     \\ sub %l3, %g1, %g1
     \\ 20000:
+    \\ .if \bp0
     \\ sll %l4, 3, %l3
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %l4, 3, %l3
+    \\ .endif
     \\ sub %i0, %l4, %l6
     \\ mov 4000, %l5
     \\ cmp %l6, %l5

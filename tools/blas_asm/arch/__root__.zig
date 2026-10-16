@@ -149,6 +149,9 @@ pub const Variant = struct {
     triple: ?[]const u8 = null,
     /// Fixes for sources built this way only, beyond `Arch.patches`.
     patches: []const Patch = &.{},
+    /// A change to every statement of every source built this way, after
+    /// preprocessing (`nakedLines`'s output, one statement each).
+    rewrite: ?*const fn (a: std.mem.Allocator, statement: []const u8) Error![]const u8 = null,
 };
 
 /// Our fix for a bug in an upstream source, applied to its text before it is
