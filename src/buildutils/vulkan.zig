@@ -17,7 +17,7 @@ pub fn addVulkan(b: *rstdbuild.Build) rstdbuild.DepModule {
 
     // return a Zig module build object for the output vk.zig as "vulkan"
     return .{ .mod = b.addModule("vulkan-zig", .{
-        .root_source_file = cmd.addOutputFileArg("vk.zig"),
+        .root_source_file = cmd.addOutputFileArg2("vk.zig", .{}),
     }), .name = "vulkan" };
 }
 

@@ -458,7 +458,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
         .target = b.graph.host,
     }) });
     const pack = b.addRunArtifact(tool);
-    const cpio = pack.addOutputFileArg("initramfs.cpio");
+    const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
     pack.addPrefixedArtifactArg("init=", init_exe);
     pack.addPrefixedArtifactArg("test=", test_exe);
 
