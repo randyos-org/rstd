@@ -217,6 +217,16 @@ const machines = [_]Machine{
         } },
     },
     .{
+        .name = "mips64r6",
+        .query = .{ .cpu_arch = .mips64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips64r6 } },
+        .qemu = "qemu-system-mips64",
+        .args = &.{ "-M", "malta", "-cpu", "I6400" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips64.ld",
+        } },
+    },
+    .{
         .name = "mips32r2",
         .query = .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips32r2 } },
         .qemu = "qemu-system-mips",
