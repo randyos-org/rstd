@@ -451,3 +451,14 @@ And for POWER:
 > the first stack word. `LDLONG FLAG, FRAMESLOT(1)(SP)` (`scal.S`) and
 > `FRAMESLOT(2)(SP)` (`zscal.S`) under `__64BIT__`, `FRAMESLOT(0)(SP)`
 > otherwise, give the right slot for each ABI.
+
+And for the x87 extended kernels (not converted here; the portable `scal`
+runs for `XDouble`, keeping NaN as the flag asks):
+
+> **x86_64 x87 `scal.S` and `zscal.S` (`qscal`, `xscal`): a zero alpha ignores the flag**
+>
+> `interface/scal.c` and `zscal.c` pass the flag (`dummy2 = 1`) that asks a
+> zero alpha to multiply, so NaN and Inf in `x` give NaN, as reference BLAS
+> does and as the other `scal` kernels do. `kernel/x86_64/scal.S` and
+> `zscal.S` never read it: a zero alpha stores zeros, so `qscal` and `xscal`
+> turn NaN and Inf into 0.
