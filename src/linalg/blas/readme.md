@@ -70,7 +70,9 @@ small-matrix kernels and threading come later.
 - **Tests:** `blas3/check.zig` compares with a plain gemm in twice the
   precision, within `2 (k + 2) eps` of the sum of magnitudes, on a vtable
   whose blocking is shrunk so every block and panel edge comes at small
-  sizes, and for every linked core this machine runs.
+  sizes, and for every linked core this machine runs; then special values in
+  each operand, and shapes past the core's own `R` (natively, past twice its
+  `P` and `Q` too).
 
 ## Converted assembly
 
@@ -120,11 +122,11 @@ is where the reference uses `long double` on x86: the x87 `f80` where
 `gemv` do take the order of the x87 `q`/`x` kernels, so they give those
 kernels' bits (`blas1/x87.zig`, `blas2/gemv/x87.zig`). Tests compare against a
 wide-precision reference with tolerances; exact comparison is kept where a Zig
-kernel stands in for a converted kernel of the same core. `blas1/edge.zig`
-puts NaN, infinities, signed zeros, denormals and huge and tiny values
-through every core's kernels, with NaN wherever a routine must not read or
-write; where a core's upstream kernels do otherwise, `issues.md` says what
-they do, and the tests check that.
+kernel stands in for a converted kernel of the same core. `blas1/edge.zig`,
+`blas2/edge.zig` and `blas3/check.zig` put NaN, infinities, signed zeros,
+denormals and huge and tiny values through every core's kernels, with NaN
+wherever a routine must not read or write; where a core's upstream kernels
+do otherwise, `issues.md` says what they do, and the tests check that.
 
 Contraction (`fma.zig`) is decided per target: fused where the ISA has a
 scalar fused multiply-add (x86 with FMA, AArch64, ARM with VFPv4, PowerPC,

@@ -279,20 +279,40 @@ const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 } };
 /// are the variant's. Its buffer is the interface's, exactly (`sym.gemvLen`),
 /// 32-byte aligned as a stack one is, with nothing written outside it.
 fn checkGemv(comptime T: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool, kern: anytype) !void {
+    try checkGemvAt(T, trans, conj, xconj, kern, &sizes, &strides, null);
+}
+
+/// Past the x87 kernels' 4096-row blocks along the sum (`t` forms) and past
+/// every column block (`n` forms, `DTB_ENTRIES` and `x87.colBlock`); on the
+/// rigs only the shape that crosses the form's own block, at unit stride.
+const big_sizes = [_][2]usize{ .{ 4100, 5 }, .{ 5, 4100 } };
+
+fn checkGemvBig(comptime T: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool, kern: anytype) !void {
+    const rig = check.rig();
+    const shapes: []const [2]usize = if (!rig) &big_sizes else if (trans) big_sizes[0..1] else big_sizes[1..2];
+    const incs: []const [2]usize = if (rig) strides[0..1] else &strides;
+    try checkGemvAt(T, trans, conj, xconj, kern, shapes, incs, std.testing.allocator);
+}
+
+/// `checkGemv` over `shapes` and `incs`, its operands from `al` where given,
+/// else static.
+fn checkGemvAt(comptime T: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool, kern: anytype, shapes: []const [2]usize, incs: []const [2]usize, al: ?std.mem.Allocator) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
     const cs = if (complex) 2 else 1;
     const alpha: T = if (complex) .init(1.25, -0.5) else 1.25;
-    for (sizes) |mn| for (strides) |inc| {
+    for (shapes) |mn| for (incs) |inc| {
         const m = mn[0];
         const n = mn[1];
         const lda = m + 1;
         const rows = if (trans) n else m; // y's length
         const inner = if (trans) m else n; // x's length
-        const a = guard.operand(T, .a, lda * n);
-        const x = guard.operand(T, .x, guard.span(inner, inc[0]));
-        const y = guard.operand(T, .y, guard.span(rows, inc[1]));
-        const want = guard.operand(T, .want, y.len);
+        const ops = try Operands(T).get(al, lda * n, guard.span(inner, inc[0]), guard.span(rows, inc[1]));
+        defer ops.free(al);
+        const a = ops.a;
+        const x = ops.x;
+        const y = ops.y;
+        const want = ops.want;
         check.fill(T, a, m * 7 + n);
         check.fill(T, x, m + 3);
         check.fill(T, y, n + 5);
@@ -341,6 +361,48 @@ fn checkAll(vt: *const Vtable) !void {
     }
 }
 
+/// `checkGemv`'s operands: static, or from an allocator for big shapes.
+fn Operands(comptime T: type) type {
+    return struct {
+        a: []T,
+        x: []T,
+        y: []T,
+        want: []T,
+
+        fn get(al: ?std.mem.Allocator, na: usize, nx: usize, ny: usize) !@This() {
+            const g = al orelse return .{ .a = guard.operand(T, .a, na), .x = guard.operand(T, .x, nx), .y = guard.operand(T, .y, ny), .want = guard.operand(T, .want, ny) };
+            const a = try g.alloc(T, na);
+            errdefer g.free(a);
+            const x = try g.alloc(T, nx);
+            errdefer g.free(x);
+            const y = try g.alloc(T, ny);
+            errdefer g.free(y);
+            return .{ .a = a, .x = x, .y = y, .want = try g.alloc(T, ny) };
+        }
+
+        fn free(self: @This(), al: ?std.mem.Allocator) void {
+            const g = al orelse return;
+            g.free(self.want);
+            g.free(self.y);
+            g.free(self.x);
+            g.free(self.a);
+        }
+    };
+}
+
+/// `checkAll` past the blocks.
+fn checkAllBig(vt: *const Vtable) !void {
+    try checkGemvBig(f32, false, false, false, vt.sgemv_n.?);
+    try checkGemvBig(f32, true, false, false, vt.sgemv_t.?);
+    try checkGemvBig(f64, false, false, false, vt.dgemv_n.?);
+    try checkGemvBig(f64, true, false, false, vt.dgemv_t.?);
+    inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
+        inline for (variants) |v| {
+            try checkGemvBig(C(p[1]), v[1], v[2], v[3], @field(vt, p[0] ++ "gemv_" ++ v[0]).?);
+        }
+    }
+}
+
 // the half-precision and x87 kernels and their tests
 comptime {
     _ = half;
@@ -365,4 +427,17 @@ test "portable gemv kernels at the extended type match plain arithmetic" {
 
 test "every linked core's gemv kernels match plain arithmetic, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "portable gemv kernels past the x87 row block and every column block" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAllBig(&vt);
+    try checkGemvBig(XDouble, false, false, false, vt.qgemv_n.?);
+    try checkGemvBig(XDouble, true, false, false, vt.qgemv_t.?);
+    inline for (variants) |v| try checkGemvBig(C(XDouble), v[1], v[2], v[3], @field(vt, "xgemv_" ++ v[0]).?);
+}
+
+test "every linked core's gemv kernels past the x87 row block and every column block" {
+    try check.eachCore(checkAllBig);
 }
