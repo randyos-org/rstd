@@ -115,8 +115,8 @@ reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial
 sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
 its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
 `zrotg.c`'s scaled branches are wrong). `rotg` computes in `XDouble`, which
-is where the reference uses `long double` on x86; it is an `f64` alias until
-the x87 work lands, after which `rotg` widens with it. Tests compare against a
+is where the reference uses `long double` on x86: the x87 `f80` where
+`types.exprecision` is on, else `f64`. Tests compare against a
 wide-precision reference with tolerances; exact comparison is kept where a Zig
 kernel stands in for a converted kernel of the same core.
 
