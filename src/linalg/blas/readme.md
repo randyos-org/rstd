@@ -227,6 +227,10 @@ a stride is not 1:
   from an absolute value never computed; `lasx` single, with a stride on `x`,
   overwrote its index step, and its reduction over lanes 4 to 7 mistook its
   own partial minimum for lane 4's value, returning lane 4's index.
+- `snrm2_lsx.S`, `snrm2_lasx.S`, `cnrm2_lsx.S`, `cnrm2_lasx.S`: with a
+  negative stride, returned 0. They scale by `?amax_k` of the same vector,
+  which returns 0 for a stride below 1; they now walk x forwards from its
+  lowest element.
 
 One more patch works around Zig, not OpenBLAS: `power/zdot.S` and
 `zdot_cell.S` return the complex result in f1/f2 as the ELFv2 ABI says, but

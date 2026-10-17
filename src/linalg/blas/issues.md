@@ -382,6 +382,9 @@ issue covering the `loongarch64` ones could read:
 >   value never computed; `lasx` single with `incx != 1` overwrites its index
 >   step, and its reduction over lanes 4 to 7 mistakes its own partial
 >   minimum for lane 4's value.
+> - `snrm2_lsx`, `snrm2_lasx`, `cnrm2_lsx`, `cnrm2_lasx`: with `incx < 0`
+>   (which `interface/nrm2.c` passes on), return 0: the scale comes from
+>   `?amax_k` on the same arguments, and it returns 0 for `incx <= 0`.
 
 And for `x86_64`:
 
