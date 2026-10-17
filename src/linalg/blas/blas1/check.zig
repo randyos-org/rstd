@@ -181,11 +181,11 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
 }
 
 /// Whether `eachCore` names each core as it starts: on the freestanding rigs,
-/// and on the Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
+/// and on the Linux rigs and remote Macs, which set `RSTD_TEST_PROGRESS`.
 fn progress() bool {
     return switch (sysinfo.os.tag) {
         .freestanding => true,
-        .linux => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
+        .linux, .macos => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         else => false,
     };
 }
