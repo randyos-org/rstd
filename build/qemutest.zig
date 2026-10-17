@@ -332,6 +332,15 @@ const machines = [_]Machine{
         .boot = .{ .linux = .{ .dep = "debian_netboot_armhf", .kernel = "debian-installer/armhf/vmlinuz", .console = "ttyAMA0" } },
     },
     .{
+        .name = "linux-riscv64",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .linux },
+        .qemu = "qemu-system-riscv64",
+        // the vector extension at the widest linked core's VLEN, as `riscv64`
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=512", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_riscv64", .kernel = "debian-installer/riscv64/linux", .console = "ttyS0" } },
+    },
+    .{
         // macOS 13 and up; Zig's default minimum is 15.0
         .name = "x86_64-macos",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },

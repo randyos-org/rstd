@@ -54,6 +54,11 @@
             .hash = "N-V-__8AAKhLRQRIQiqWgh8o9GAvkzj2dO5berJQbiljpYIa",
             .lazy = true,
         },
+        .debian_netboot_riscv64 = .{
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-riscv64/20250803+deb13u7/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AACySyARjh_Xnw5gzJNOwYW1TWg6kK7H_ZPsDyNmb",
+            .lazy = true,
+        },
         // Its build.zig does not build on current Zig master (standardOptimizeOption
         // returns an optional); src/buildutils/renderdoc.zig uses the built-in
         // translate-c until it does.
