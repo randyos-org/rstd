@@ -279,7 +279,7 @@ const machines = [_]Machine{
         .memory = "512M",
         .boot = .{
             .kernel = .{
-                .linker_script = "test/qemu/ppc64le.ld",
+                .linker_script = "test/qemu/ppc64.ld",
                 .semihosting = false,
                 // the firmware loader's 0x400000 shift, see the linker script
                 .stderr_note = "kernel_addr changed",
@@ -295,7 +295,22 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
         .memory = "512M",
         .boot = .{ .kernel = .{
-            .linker_script = "test/qemu/ppc64le.ld",
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
+        // big-endian, ELFv2 as Zig emits it; POWER10 runs every 64-bit core
+        .name = "powerpc64",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
             .semihosting = false,
             .stderr_note = "kernel_addr changed",
         } },

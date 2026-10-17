@@ -345,6 +345,10 @@ XOP, of which WHPX keeps what the host has. TCG implements no AVX-512, FMA4
 or XOP, so the skylakex, cooperlake and sapphirerapids kernels, and the
 bulldozer family's, run only there, on a host that has them.
 
+The big-endian rigs are `s390x` and `powerpc64` (`pseries` under VOF, a
+POWER10, so every 64-bit POWER core runs; Zig emits ELFv2 there too, so it
+boots as the little-endian rigs do).
+
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
 since WHPX on an AMD host shows macOS the AMD CPU, which it does not boot on.
