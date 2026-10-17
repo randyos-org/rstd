@@ -630,3 +630,17 @@ infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 - **`copy` and signed zero.** `x86_64/copy_sse.S`, `copy_sse2.S`,
   `zcopy_sse.S` and `zcopy_sse2.S` built for `OPTERON` load with `xorps` and
   `addps`/`addpd`, so -0 comes out +0 (and a signaling NaN quiet).
+
+The level-2 edge-case tests (`blas2/edge.zig`) found two more:
+
+- **`symv` and infinity.** `x86_64/symv_L_sse.S` (`ssymv_L` on atom,
+  barcelona, bobcat, core2, dunnington, nano, opteron, penryn, prescott):
+  an infinity in the last element of `x` (`n = 7`) gave NaN in `y[0]` where
+  the reference gives infinity. With finite junk in the storage it must not
+  read, the same, so it is the kernel's own arithmetic. `edge.zig`'s
+  `symvInfNan` accepts it.
+- **Rank updates and a zero `x(j)`.** Reference `zher`, `zhpr`, `dsyr2` and
+  the rest skip a column whose factor is zero; OpenBLAS's
+  `driver/level2/syr_k.c` and `spr_k.c` do, but `zher_k.c`, `zhpr_k.c` and
+  the rank-2 drivers do not, so an infinity elsewhere in `x` meets the zero
+  and gives NaN in that column. `banded.zig` follows OpenBLAS's drivers.

@@ -543,6 +543,8 @@ fn call(
     const heap = elems > stack.len;
     const buf: []align(64) F = if (heap) try gpa.alignedAlloc(F, .@"64", elems) else stack[0..elems];
     defer if (heap) gpa.free(buf);
+    // poisoned in tests, as `interface.zig`'s scratch is
+    if (sysinfo.is_test and !heap) @memset(std.mem.sliceAsBytes(buf), 0xff);
     // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
     // infinity; cleared as `interface.gemv` does
     if (comptime isComplex(T) and sysinfo.cpu.arch == .x86_64) @memset(buf, 0);

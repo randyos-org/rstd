@@ -236,6 +236,8 @@ fn Scratch(comptime T: type) type {
                 self.heap = try gpa.alloc(T, len);
                 break :blk self.heap.?;
             };
+            // poisoned in tests, as `interface.zig`'s scratch is
+            if (@import("builtin").is_test) @memset(std.mem.sliceAsBytes(buf), 0xff);
             copyK(T, n, v, inc, buf.ptr, 1);
             return buf.ptr;
         }

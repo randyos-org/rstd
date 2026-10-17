@@ -121,7 +121,12 @@ fn Scratch(comptime F: type) type {
         heap: ?[]align(heap_align) F = null,
 
         fn init(allocator: Allocator, stack: *align(stack_align) [stack_bytes]u8, len: usize) Allocator.Error!Self {
-            if (len * @sizeOf(F) <= stack_bytes) return .{ .ptr = @ptrCast(stack), .len = len };
+            if (len * @sizeOf(F) <= stack_bytes) {
+                // tests poison it as their allocators do the heap: scratch
+                // read before it is written shows as NaN
+                if (sysinfo.is_test) @memset(stack, 0xff);
+                return .{ .ptr = @ptrCast(stack), .len = len };
+            }
             const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
             return .{ .ptr = h.ptr, .len = len, .heap = h };
         }

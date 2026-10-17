@@ -306,7 +306,7 @@ const machines = [_]Machine{
             .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
-            .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
+            .{ .name = "blas2-interface", .filters = &.{ "linalg.blas.blas2.interface.", "linalg.blas.blas2.edge." } },
             .{ .name = "blas3", .filters = &.{"linalg.blas.blas3."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
         },
@@ -330,6 +330,9 @@ const machines = [_]Machine{
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
+            // in two, as one is past the window
+            .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas.blas2.edge.test.portable level-2 routines, real", "linalg.blas.blas2.edge.test.every linked core's level-2 routines, real" } },
+            .{ .name = "blas2-edge-complex", .filters = &.{ "linalg.blas.blas2.edge.test.portable level-2 routines, complex", "linalg.blas.blas2.edge.test.every linked core's level-2 routines, complex" } },
             .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
             // but "every core of every family", 6 MB alone in debug: `sparc64` runs it
             .{ .name = "blas3-params", .filters = &.{

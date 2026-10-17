@@ -3,7 +3,8 @@
 What each ported level-2 kernel does with its `buffer` argument, read from
 its OpenBLAS source (v0.3.34-317), and what `interface.zig` gives it. The
 kernel tests (`guard.zig`) hand every kernel exactly this buffer, with
-canaries on both sides, for shapes up to 129.
+canaries on both sides, for shapes up to 129 (and `gemv`'s past 4096). The
+interfaces' own stack buffers hold NaN in tests, as the allocator's do.
 
 ## What the interface allocates
 

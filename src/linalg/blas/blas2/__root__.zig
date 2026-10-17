@@ -26,5 +26,6 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 test {
+    _ = @import("edge.zig");
     zigstd.testRefAllDecls(@This());
 }

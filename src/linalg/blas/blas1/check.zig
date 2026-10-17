@@ -157,6 +157,11 @@ pub fn divW(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
     return if (comptime isComplex(@TypeOf(a))) a.div(b) else a / b;
 }
 
+/// `f` times `a`, part by part: a real factor, with no cross terms.
+pub fn scaleW(f: f128, a: anytype) @TypeOf(a) {
+    return if (comptime isComplex(@TypeOf(a))) .init(f * a.re, f * a.im) else f * a;
+}
+
 pub fn conjW(a: anytype) @TypeOf(a) {
     return if (comptime isComplex(@TypeOf(a))) a.conjugate() else a;
 }
@@ -282,6 +287,21 @@ pub fn component(comptime F: type, want: f128, got: anytype, ulps: f128, scale: 
     const g: f128 = got;
     say("got {e}, want {e}: ", .{ g, want });
     return error.TestExpectedApproxEqAbs;
+}
+
+/// `expectWide` where complex infinities may meet in another order than the
+/// reference's: a complex part that should be infinite or NaN may come out
+/// either (Inf times a finite complex value is NaN in one order of the
+/// multiplications, infinite in another).
+pub fn expectWideAnyOrder(comptime T: type, want: Wide(T), got: T, ulps: f128, scale: f128) !void {
+    if (comptime isComplex(T)) {
+        const lax = !std.math.isFinite(want.re) and !std.math.isFinite(got.re);
+        const lay = !std.math.isFinite(want.im) and !std.math.isFinite(got.im);
+        if (!lax) try component(FloatOf(T), want.re, got.re, ulps, scale);
+        if (!lay) try component(FloatOf(T), want.im, got.im, ulps, scale);
+        return;
+    }
+    return expectWide(T, want, got, ulps, scale);
 }
 
 /// Whether `expectWide` would pass, saying nothing.
