@@ -120,7 +120,11 @@ is where the reference uses `long double` on x86: the x87 `f80` where
 `gemv` do take the order of the x87 `q`/`x` kernels, so they give those
 kernels' bits (`blas1/x87.zig`, `blas2/gemv/x87.zig`). Tests compare against a
 wide-precision reference with tolerances; exact comparison is kept where a Zig
-kernel stands in for a converted kernel of the same core.
+kernel stands in for a converted kernel of the same core. `blas1/edge.zig`
+puts NaN, infinities, signed zeros, denormals and huge and tiny values
+through every core's kernels, with NaN wherever a routine must not read or
+write; where a core's upstream kernels do otherwise, `issues.md` says what
+they do, and the tests check that.
 
 Contraction (`fma.zig`) is decided per target: fused where the ISA has a
 scalar fused multiply-add (x86 with FMA, AArch64, ARM with VFPv4, PowerPC,
@@ -203,9 +207,12 @@ generated files carry the fixed code.
 - `x86_64/scal_sse.S`, `scal_sse2.S`, `scal_atom.S`, Windows: read the flag
   (whether a zero `alpha` keeps NaN) from `incy`'s stack slot, `64(%rsp)`,
   not the tenth argument's, `80(%rsp)`, so a zero `alpha` stored zeros over
-  NaN and infinity where the interface asks for NaN.
+  NaN and infinity where the interface asks for NaN. `scal_sse.S` also took
+  a NaN `alpha` for zero (`comiss` sets ZF for NaN; `scal_sse2.S` has the
+  `jp`), so with flag 0, as for a level-2 `beta`, NaN became zeros.
 - `x86_64/zscal_atom.S`: never read the flag at all, so a zero `alpha`
-  always stored zeros; it now tests it as `scal_atom.S` does.
+  always stored zeros; it now tests it as `scal_atom.S` does. A NaN
+  imaginary part beside a zero real one also counted as zero.
 - `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
   argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
   ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero
@@ -227,6 +234,8 @@ a stride is not 1:
   with `beta` zero never stopped.
 - `caxpby_lsx.S`, `caxpby_lasx.S`: with `alpha` and `beta` zero and a
   stride on `y`, zeroed only the real parts, and `lasx` single one of them twice.
+- `caxpby_lsx.S`: double, with a stride on `x` and none on `y`, stored the
+  upper half of each block's second pair over both halves.
 - `max_lsx.S`, `min_lsx.S`: with a stride on `x`, compared by magnitude, as
   `amax` does.
 - `camin_lsx.S`, `camin_lasx.S`: with a stride on `x`, the minimum started from

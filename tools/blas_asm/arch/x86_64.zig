@@ -69,8 +69,12 @@ const patches = [_]arch.Patch{
     .{ .source = "scal_sse.S", .find = "\tmovq\t64(%rsp), %r9\n", .replace = "\tmovq\t80(%rsp), %r9\n" },
     .{ .source = "scal_sse2.S", .find = "\tmovq\t64(%rsp), FLAG\n", .replace = "\tmovq\t80(%rsp), FLAG\n" },
     .{ .source = "scal_atom.S", .find = "\tmovq    64(%rsp), %r9\n", .replace = "\tmovq\t80(%rsp), %r9\n" },
+    // `comiss` sets ZF for NaN too, so a NaN alpha took the zero path;
+    // `scal_sse2.S` has the `jp`
+    .{ .source = "scal_sse.S", .find = "\tjne\t.L100\t\t# Alpha != ZERO\n", .replace = "\tjne\t.L100\t\t# Alpha != ZERO\n\tjp\t.L100\n" },
     // `zscal_atom.S` never read the flag (whether a zero alpha keeps NaN), so
-    // a zero alpha always stored zeros; read and test it as `scal_atom.S` does
+    // a zero alpha always stored zeros; read and test it as `scal_atom.S` does.
+    // The `jp`: a NaN imaginary part beside a zero real one counted as zero
     .{
         .source = "zscal_atom.S",
         .find = "\tmovq\t56(%rsp), INCX\n#endif\n",
@@ -79,6 +83,6 @@ const patches = [_]arch.Patch{
     .{
         .source = "zscal_atom.S",
         .find = "\tjne\t.L30\t\t# Alpha_i != ZERO\n",
-        .replace = "\tjne\t.L30\t\t# Alpha_i != ZERO\n\tcmpq\t$1, %r9\n\tje\t.L30\n",
+        .replace = "\tjne\t.L30\t\t# Alpha_i != ZERO\n\tjp\t.L30\n\tcmpq\t$1, %r9\n\tje\t.L30\n",
     },
 };

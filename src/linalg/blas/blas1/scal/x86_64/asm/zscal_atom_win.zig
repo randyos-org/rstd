@@ -54,6 +54,7 @@ const Body = struct {
             \\ jp 20007f
             \\ comisd %xmm1, %xmm15
             \\ jne 20007f # Alpha_i != 0.e0
+            \\ jp 20007f
             \\ cmpq $1, %r9
             \\ je 20007f
             \\ cmpq $2 * 8, %r8

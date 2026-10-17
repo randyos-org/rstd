@@ -63,5 +63,6 @@ pub fn installGeneric(vt: *Vtable) void {
 
 test {
     _ = @import("x87.zig");
+    _ = @import("edge.zig");
     zigstd.testRefAllDecls(@This());
 }

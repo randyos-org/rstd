@@ -165,7 +165,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
   has `c.* = sqrt(@floatCast(a.*))`, where `sqrt` is the f64 routine; still
   so on Zig master (added in 2c5f54c898, 2025-04-28).
 - **Workaround:** test references take the root with `check.sqrtW`, which on
-  sparc64 refines `@sqrt` with two Newton steps in `f128`. The library's own
+  sparc64 refines `@sqrt` with two Newton steps in `f128`, scaling by even
+  powers of two into f64's range first (a denormal's square is 0 in f64, and
+  the steps from 0 give infinity). The library's own
   `f128` square roots (the portable `nrm2` and `rotg` at `f128`) stay at f64
   precision there until Zig is fixed.
 - **Issue text:**
@@ -520,7 +522,7 @@ And for `x86_64`:
 
 And the `scal` flag on `x86_64`:
 
-> **x86_64 `scal_sse.S`, `scal_sse2.S`, `scal_atom.S` (Windows) and `zscal_atom.S`: the flag argument is lost**
+> **x86_64 `scal_sse.S`, `scal_sse2.S`, `scal_atom.S` (Windows) and `zscal_atom.S`: the flag argument is lost, and a NaN alpha counts as zero**
 >
 > `interface/scal.c` and `zscal.c` pass `dummy2 = 1` so that a zero alpha
 > multiplies, turning NaN and Inf into NaN.
@@ -532,6 +534,11 @@ And the `scal` flag on `x86_64`:
 > - `zscal_atom.S` never reads the flag: a zero alpha always stores zeros.
 >   Loading it as `scal_atom.S` does (`24(%rsp)`, `88(%rsp)` on Windows) and
 >   branching to the multiply path when it is 1 fixes it.
+> - `scal_sse.S` tests `alpha == 0` with `comiss` and `jne` alone; a NaN
+>   alpha sets ZF too and takes the zero path (`scal_sse2.S` has
+>   `jp .L100`). With flag 0, as the level-2 drivers scale `y` by `beta`, a
+>   NaN `beta` gives zeros. `zscal_atom.S` likewise tests `alpha_i == 0`
+>   without `jp`, so `(0, NaN)` counts as zero.
 
 And for POWER:
 
@@ -572,3 +579,54 @@ only the elements it uses):
 > `x[m]`/`x[n]` (`xgemv_t`, `xgemv_n`). The value is discarded, but the read
 > faults where `x` ends at an unmapped page. Testing the count before the
 > load, or loading at the top of each trip, avoids it.
+
+### Special values some converted kernels treat otherwise
+
+The edge-case tests (`blas1/edge.zig`, on every rig) found these. They are
+not fixed here: `edge.zig`'s `Quirk` names each, and the tests check what
+the kernels do rather than the reference. Reference BLAS's `i?amax` replaces
+its pick only on a strict `>`, so NaN is picked only as the first element,
+and then nothing replaces it; LAPACK 3.10's `nrm2` is infinite for an
+infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
+
+- **Extremes, NaN replaced.** `arm64/amax.S` and `iamax.S` (every arm64
+  core, `amax` and `iamax`), `x86/amax.S` and `iamax.S` (`amin`, `min`,
+  `iamin`, `imin`) and `arm/amax_vfp.S` and `iamax_vfp.S` (the real minima)
+  replace their pick unless the new key is `<=` it (`>=` for a minimum): a
+  NaN is picked where it is met, and the next element replaces it, so a
+  NaN first is passed over and a NaN last is the result.
+- **Extremes, lane by lane.** `x86_64/amax_sse.S`, `amax_sse2.S`,
+  `zamax_sse.S`, `zamax_sse2.S`, `iamax_sse.S`, `iamax_sse2.S`,
+  `izamax_sse.S` and `izamax_sse2.S` (every x86_64 core, all eight
+  routines), `power/amax.S` and its kin (every POWER core) and the
+  `loongarch64` extremes compare in vector lanes, so what a NaN does depends
+  on where it falls: a NaN first may be passed over, a later one picked.
+  With a NaN in the maximum, `iamax_sse2.S` returned `n + 1` (`interface.zig`
+  clamps the index to `n`); `power/amax.S`, with a NaN last, returned an
+  element smaller than the maximum; `loongarch64/amax_lsx.S` returned 0 for
+  a lone NaN.
+- **Extremes, ties.** `mips64/iamax.S` (loongson3r3, loongson3r4) and the
+  `sparc` index kernels: of equal keys (two infinities), a later one.
+- **`nrm2` of an infinity is NaN.** `power/nrm2.S` and its kin (every POWER
+  core), `mips64/dnrm2.S` and `znrm2.S` (Loongson), `loongarch64/dnrm2.S`
+  and `znrm2.S` (generic), `znrm2_lsx.S` and `znrm2_lasx.S`, and
+  `sparc/znrm2.S`: their scaled sums divide the infinity by itself.
+- **`nrm2` of a NaN is 0.** `loongarch64/snrm2_lsx.S`, `dnrm2_lsx.S`,
+  `cnrm2_lsx.S` and the `lasx` ones, for a lone NaN: the scale is `?amax_k`
+  of the vector, which passes NaN over.
+- **`nrm2` of denormals.** The same POWER, Loongson, `loongarch64` and
+  `sparc` kernels: `dnrm2` gave 0 or a value 15% off, `znrm2` (and
+  `loongarch64`'s `snrm2` and `cnrm2`) infinity, where LAPACK's is
+  accurate; they square the denormals, or scale by a reciprocal that
+  overflows. `power/dnrm2_ppc440.S` and `znrm2_ppc440.S` (ppcg4, ppc440)
+  gave NaN: their square root goes through `frsqrte` of a denormal sum.
+- **`axpby` with a zero scalar.** `loongarch64/axpby_lsx.S`,
+  `axpby_lasx.S`, `caxpby_lsx.S` and `caxpby_lasx.S`: the blocked loops for a
+  zero `alpha` (`beta`) never advance `X` (`Y`), and the elements past the
+  last block are `beta*y + alpha*x` whatever the scalars, from `x` (`y`)
+  elements the blocks left behind. Zero times a finite value hides it; a NaN
+  or infinity anywhere in that operand reaches them as NaN, where
+  `kernel/arm/axpby.c` reads neither operand.
+- **`copy` and signed zero.** `x86_64/copy_sse.S`, `copy_sse2.S`,
+  `zcopy_sse.S` and `zcopy_sse2.S` built for `OPTERON` load with `xorps` and
+  `addps`/`addpd`, so -0 comes out +0 (and a signaling NaN quiet).

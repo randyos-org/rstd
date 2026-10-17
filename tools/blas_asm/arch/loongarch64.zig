@@ -59,6 +59,9 @@ const patches = [_]arch.Patch{
     },
     // as in axpby_lsx, with beta zero and x and y strided
     .{ .source = "caxpby_lsx.S", .find = "    blt $r0, I, .L222\n    b .L997\n", .replace = "    blt $r0, I, .L222\n    move Y, YY\n    b .L997\n", .count = 2 },
+    // double, x strided and y not: the second pair of each block of four
+    // stored its upper half over both halves
+    .{ .source = "caxpby_lsx.S", .find = "    vst VX3, Y, 4 * SIZE\n    vst VX3, Y, 6 * SIZE\n", .replace = "    vst VX2, Y, 4 * SIZE\n    vst VX3, Y, 6 * SIZE\n" },
     // with alpha and beta zero and y strided, stored each zero twice at the
     // real part, never the imaginary; lasx single also stored one to `YY`,
     // which still points at y's start

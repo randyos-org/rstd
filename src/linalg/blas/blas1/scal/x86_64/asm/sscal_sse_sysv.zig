@@ -72,6 +72,7 @@ const text =
     \\ comiss %xmm0, %xmm1
     \\ shufps $0, %xmm0, %xmm0
     \\ jne 20012f # Alpha != 0.e0f
+    \\ jp 20012f
     \\ cmpq $1, %r9
     \\ je 20012f
     \\ cmpq $4, %r8

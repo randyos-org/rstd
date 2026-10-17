@@ -325,7 +325,7 @@ const Body = struct {
             \\ vilvl.d $vr21, $vr15 ,$vr16
             \\ vilvh.d $vr22, $vr15, $vr16
             \\ addi.d $r12, $r12, -1
-            \\ vst $vr22, $r7, 4 * 8
+            \\ vst $vr21, $r7, 4 * 8
             \\ vst $vr22, $r7, 6 * 8
             \\ addi.d $r7, $r7, 8 * 8
             \\ blt $r0, $r12, 20011b
