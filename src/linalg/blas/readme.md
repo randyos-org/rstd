@@ -198,6 +198,12 @@ generated files carry the fixed code.
 - `x86_64/zgemv_t_atom.S`, Windows: read the double `alpha_i`, which Windows
   passes on the stack, with a single-precision load; its sibling kernels use
   the double one.
+- `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
+  argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
+  ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero
+  `alpha` could multiply where it should store zeros: `cgbmv` with `beta`
+  zero gave NaN. The fix reads it through `FRAMESLOT`, which has each ABI's
+  offset; FreeBSD's offsets were already right.
 
 The rest are the `lsx` and `lasx` kernels under `loongarch64/`, mostly where
 a stride is not 1:

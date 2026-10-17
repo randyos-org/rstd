@@ -385,7 +385,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in `readme.md`: an `x86_64` pair on Windows, and the
+upstream sources" in `readme.md`: an `x86_64` pair on Windows, a POWER pair
+on ELFv2, and the
 `loongarch64` `lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
 
@@ -434,3 +435,19 @@ And for `x86_64`:
 > - `zgemv_t_atom.S`: reads the double `alpha_i`, passed on the stack on
 >   Windows, with a single-precision load; its sibling kernels use the
 >   double one.
+
+And for POWER:
+
+> **power `scal.S` and `zscal.S`: the flag argument is read at ELFv1's offset on Linux ELFv2**
+>
+> `kernel/power/scal.S` and `zscal.S` load the last argument (`dummy2`,
+> the flag that keeps NaN for a zero alpha) with `LDLONG FLAG, 120(SP)` /
+> `128(SP)` on Linux, the ELFv1 parameter save area. Under ELFv2 (ppc64le,
+> and big-endian ELFv2 such as musl) the slots are 16 bytes lower, as the
+> FreeBSD branch already has (104/112), so the kernel reads past its
+> arguments and a zero alpha either stores zeros or multiplies depending on
+> stack contents (NaN where zeros belong, for example `cgbmv` with
+> `beta == 0` on POWER6, PPC970 and CELL). 32-bit SysV passes the flag in
+> the first stack word. `LDLONG FLAG, FRAMESLOT(1)(SP)` (`scal.S`) and
+> `FRAMESLOT(2)(SP)` (`zscal.S`) under `__64BIT__`, `FRAMESLOT(0)(SP)`
+> otherwise, give the right slot for each ABI.
