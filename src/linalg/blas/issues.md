@@ -239,7 +239,12 @@ When an issue is fixed upstream, drop the workaround and its entry.
   'Content-Type' header", although the URL ends in `.tar.gz`.
 - **Workaround:** the Linux rigs' kernels come from Debian's netboot
   `.tar.gz` on deb.debian.org (which sends `application/x-gzip`), pinned to a
-  dated installer build (`build.zig.zon`).
+  dated installer build (`build.zig.zon`). s390x and mips64el have no Linux
+  rig: Debian ships their installer kernels only as single files, sent with
+  no `Content-Type` (13's s390x `generic/kernel.debian`, 12's mips64el
+  `malta/netboot/vmlinuz-*-5kc-malta`). Both boot the rig's initramfs by
+  hand: s390x on `s390-ccw-virtio` with `console=ttysclp0`, mips64el on
+  `malta` (`-cpu MIPS64R2-generic`, 256 MB; 1 GB hangs) with `ttyS0`.
 - **Issue text:**
 
   > **`zig fetch`: fall back to the URL's extension when `Content-Type` is missing, and allow single files**
