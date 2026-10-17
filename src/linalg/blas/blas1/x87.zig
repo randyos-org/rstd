@@ -3,6 +3,8 @@
 //! reductions take for floats wider than `f64`. At `f80` they give the
 //! assembly's bits: the same accumulators, filled and folded in its order,
 //! with nothing fused. No overflow guard in `nrm2`, as in the assembly.
+//! `kernel/x86/`'s are in the same order. The gemv sums are in
+//! `blas2/gemv/x87.zig`.
 
 const std = @import("std");
 const types = @import("../types.zig");

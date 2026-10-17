@@ -116,7 +116,9 @@ sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
 its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
 `zrotg.c`'s scaled branches are wrong). `rotg` computes in `XDouble`, which
 is where the reference uses `long double` on x86: the x87 `f80` where
-`types.exprecision` is on, else `f64`. Tests compare against a
+`types.exprecision` is on, else `f64`. Wider than `f64`, the reductions and
+`gemv` do take the order of the x87 `q`/`x` kernels, so they give those
+kernels' bits (`blas1/x87.zig`, `blas2/gemv/x87.zig`). Tests compare against a
 wide-precision reference with tolerances; exact comparison is kept where a Zig
 kernel stands in for a converted kernel of the same core.
 

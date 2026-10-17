@@ -75,8 +75,8 @@ pub const HF16 = f16;
 pub const XDouble = if (quad_precision) f128 else if (exprecision) c_longdouble else f64;
 
 /// Whether float `F` is wider than `f64` (`f80`, `f128`): such types never
-/// fuse (`fma.zig`), and the portable `q`/`x` reductions take the x87
-/// kernels' accumulator order.
+/// fuse (`fma.zig`), and the portable `q`/`x` reductions and gemv take the
+/// x87 kernels' accumulator order.
 pub fn isExtended(comptime F: type) bool {
     return @typeInfo(F).float.bits > 64;
 }
