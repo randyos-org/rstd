@@ -64,4 +64,21 @@ const patches = [_]arch.Patch{
         .find = "#endif\n\n\tRESTOREREGISTERS\n\n\tret\n",
         .replace = "#endif\n\n#ifdef WINDOWS_ABI\n\tmovq\tRESULT_ADDRESS, %rax\n\tmovsd\t%xmm0, (%rax)\n\tmovsd\t%xmm1, 8(%rax)\n#endif\n\n\tRESTOREREGISTERS\n\n\tret\n",
     },
+    // Windows: read the flag from incy's slot, 64(%rsp); the tenth argument
+    // is at 80(%rsp), so a zero alpha stored zeros where flag 1 keeps NaN
+    .{ .source = "scal_sse.S", .find = "\tmovq\t64(%rsp), %r9\n", .replace = "\tmovq\t80(%rsp), %r9\n" },
+    .{ .source = "scal_sse2.S", .find = "\tmovq\t64(%rsp), FLAG\n", .replace = "\tmovq\t80(%rsp), FLAG\n" },
+    .{ .source = "scal_atom.S", .find = "\tmovq    64(%rsp), %r9\n", .replace = "\tmovq\t80(%rsp), %r9\n" },
+    // `zscal_atom.S` never read the flag (whether a zero alpha keeps NaN), so
+    // a zero alpha always stored zeros; read and test it as `scal_atom.S` does
+    .{
+        .source = "zscal_atom.S",
+        .find = "\tmovq\t56(%rsp), INCX\n#endif\n",
+        .replace = "\tmovq\t56(%rsp), INCX\n\tmovq\t88(%rsp), %r9\n#else\n\tmovq\t24(%rsp), %r9\n#endif\n",
+    },
+    .{
+        .source = "zscal_atom.S",
+        .find = "\tjne\t.L30\t\t# Alpha_i != ZERO\n",
+        .replace = "\tjne\t.L30\t\t# Alpha_i != ZERO\n\tcmpq\t$1, %r9\n\tje\t.L30\n",
+    },
 };

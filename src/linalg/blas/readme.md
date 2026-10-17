@@ -200,6 +200,12 @@ generated files carry the fixed code.
 - `x86_64/zgemv_t_atom.S`, Windows: read the double `alpha_i`, which Windows
   passes on the stack, with a single-precision load; its sibling kernels use
   the double one.
+- `x86_64/scal_sse.S`, `scal_sse2.S`, `scal_atom.S`, Windows: read the flag
+  (whether a zero `alpha` keeps NaN) from `incy`'s stack slot, `64(%rsp)`,
+  not the tenth argument's, `80(%rsp)`, so a zero `alpha` stored zeros over
+  NaN and infinity where the interface asks for NaN.
+- `x86_64/zscal_atom.S`: never read the flag at all, so a zero `alpha`
+  always stored zeros; it now tests it as `scal_atom.S` does.
 - `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
   argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
   ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero
@@ -332,6 +338,12 @@ Where the port differs from `dynamic*.c`:
 `zig build qemu-test-<machine>` runs the kernel tests under `qemu-system-*`
 (see `build/qemutest.zig` for the machines). `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
+
+`qemu-test-x86_64-whpx` runs them on the host's own CPU under WHPX (an
+x86_64 Windows host only), with QEMU's `SapphireRapids` model plus FMA4 and
+XOP, of which WHPX keeps what the host has. TCG implements no AVX-512, FMA4
+or XOP, so the skylakex, cooperlake and sapphirerapids kernels, and the
+bulldozer family's, run only there, on a host that has them.
 
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,

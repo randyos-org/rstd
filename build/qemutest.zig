@@ -67,6 +67,9 @@ const Machine = struct {
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
+    /// Runs under WHPX (`args` has the `-accel`), so only on an x86_64
+    /// Windows host.
+    whpx: bool = false,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-filter` builds one image as usual.
@@ -219,6 +222,23 @@ const machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86_64.ld",
+            .llvm = true,
+            .semihosting = false,
+        } },
+    },
+    .{
+        // The host CPU under Windows' hypervisor: TCG has no AVX-512, FMA4 or
+        // XOP (issues.md), so their cores run only here, on a host that has
+        // them. WHPX keeps only the model's features the host has; `host`
+        // and `max` stop in SeaBIOS.
+        .name = "x86_64-whpx",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "SapphireRapids,+fma4,+xop" },
+        .whpx = true,
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -415,8 +435,10 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     // a one-time fetch of about 55 MB per kernel
     const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
 
+    const host = b.graph.host.result;
+    const whpx_host = host.os.tag == .windows and host.cpu.arch == .x86_64;
     for (machines) |m| {
-        if (m.stub != null) continue;
+        if (m.stub != null or (m.whpx and !whpx_host)) continue;
         const target = b.resolveTargetQuery(m.query);
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));

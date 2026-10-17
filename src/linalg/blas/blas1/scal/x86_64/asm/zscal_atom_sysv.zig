@@ -29,6 +29,7 @@ const Body = struct {
     pub fn zscal() callconv(.naked) void {
         asm volatile (
             \\ .balign 512
+            \\ movq 24(%rsp), %r9
             \\ salq $4, %r8
             \\ testq %rdi, %rdi
             \\ jle 20012f
@@ -38,6 +39,8 @@ const Body = struct {
             \\ jp 20007f
             \\ comisd %xmm1, %xmm15
             \\ jne 20007f # Alpha_i != 0.e0
+            \\ cmpq $1, %r9
+            \\ je 20007f
             \\ cmpq $2 * 8, %r8
             \\ jne 20003f
             \\ movq %rdi, %rax

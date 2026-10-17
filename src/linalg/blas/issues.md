@@ -352,6 +352,21 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** none: QEMU's WHPX CPUID-trapping patches (leaf 0 vendor)
   were already in review in 2026. Check their status before filing.
 
+### x86: TCG has no AVX-512, FMA4 or XOP
+
+- **Seen:** QEMU 11.0.1's TCG warns "TCG doesn't support requested
+  feature" for `avx512f`, `avx512dq`, `avx512cd`, `avx512bw` and `avx512vl`
+  (`-cpu Skylake-Server-v4`) and for `fma4` and `xop` (`-cpu Opteron_G5`),
+  and `-cpu max` has none of them. So the skylakex, cooperlake and
+  sapphirerapids kernels, and bulldozer, piledriver, steamroller and
+  excavator, never run on the TCG rigs.
+- **Workaround:** `x86_64-whpx` runs the tests on the host CPU under WHPX,
+  which runs them where the host has the extensions. This host (Ryzen 7
+  7730U, Zen 3) has neither, so they are untested here. Under WHPX, `-cpu
+  host` and `-cpu max` stop in SeaBIOS ("Unexpected VP exit code 4"); named
+  models boot, keeping only the features the host has.
+- **Issue text:** none; long-standing missing features, not bugs.
+
 ### x86: an x87 80-bit load or store across a page boundary misplaces bytes
 
 - **Seen:** QEMU 11.0.1 under TCG, 32-bit Linux userspace (Debian 12's i386
@@ -419,9 +434,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in `readme.md`: an `x86_64` pair on Windows, a POWER pair
-on ELFv2, and the
-`loongarch64` `lsx`/`lasx` kernels, mostly with strides other than 1. One
+upstream sources" in `readme.md`: `x86_64` argument and flag handling
+(mostly on Windows), a POWER pair on ELFv2, and the `loongarch64`
+`lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
 
 > **loongarch64 LSX/LASX level-1 kernels: wrong results with non-unit strides and some edge cases**
@@ -469,6 +484,21 @@ And for `x86_64`:
 > - `zgemv_t_atom.S`: reads the double `alpha_i`, passed on the stack on
 >   Windows, with a single-precision load; its sibling kernels use the
 >   double one.
+
+And the `scal` flag on `x86_64`:
+
+> **x86_64 `scal_sse.S`, `scal_sse2.S`, `scal_atom.S` (Windows) and `zscal_atom.S`: the flag argument is lost**
+>
+> `interface/scal.c` and `zscal.c` pass `dummy2 = 1` so that a zero alpha
+> multiplies, turning NaN and Inf into NaN.
+>
+> - `scal_sse.S`, `scal_sse2.S`, `scal_atom.S`: under `WINDOWS_ABI` they
+>   load the flag with `movq 64(%rsp)`, which is `inc_y` (the eighth
+>   argument); the flag, the tenth, is at `80(%rsp)`. The interface passes
+>   `inc_y = 0`, so a zero alpha always stores zeros on Windows.
+> - `zscal_atom.S` never reads the flag: a zero alpha always stores zeros.
+>   Loading it as `scal_atom.S` does (`24(%rsp)`, `88(%rsp)` on Windows) and
+>   branching to the multiply path when it is 1 fixes it.
 
 And for POWER:
 
