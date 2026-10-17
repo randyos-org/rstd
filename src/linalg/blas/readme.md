@@ -354,7 +354,9 @@ boots as the little-endian rigs do).
 
 `powerpc` is 32-bit PowerPC, a G4 under OpenBIOS on `mac99`, for the ppcg4
 core. It builds in debug, which the 64-bit POWER rigs cannot (LLVM's
-FastISel bug in issues.md needs VSX).
+FastISel bug in issues.md needs VSX). `powerpc-pseries` runs the same build
+in a POWER10's 32-bit mode under VOF, so power3 to power6, ppc970 and cell
+run as 32-bit code.
 
 `arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
 `sf` variant runs, using the VFP the CPU has.

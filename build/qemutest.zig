@@ -368,6 +368,20 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // the G4 build in a POWER10's 32-bit mode under VOF: the server cores
+        // through power6, built 32-bit
+        .name = "powerpc-pseries",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
         // Mach-O on PowerPC, the one big-endian 32-bit Mach-O target qemu can
         // boot (OpenBIOS on `mac99`); covers the object format the other rigs
         // do not.
