@@ -462,3 +462,16 @@ runs for `XDouble`, keeping NaN as the flag asks):
 > does and as the other `scal` kernels do. `kernel/x86_64/scal.S` and
 > `zscal.S` never read it: a zero alpha stores zeros, so `qscal` and `xscal`
 > turn NaN and Inf into 0.
+
+And in the x87 gemv kernels (the portable gemv takes their order but reads
+only the elements it uses):
+
+> **x87 `qgemv_n.S`, `qgemv_t.S`, `xgemv_n.S`, `xgemv_t.S`: a read past the end of `x`**
+>
+> `kernel/x86_64/` and `kernel/x86/` load the next `x` element before the
+> loop tests whether there is one. With `incx == 1`, where `x` is the
+> caller's own array, the last block reads `x[m]` (`qgemv_t`, when `n >= 4`)
+> or, for an even block length, `x[n]` (`qgemv_n`, when `m >= 4`) or
+> `x[m]`/`x[n]` (`xgemv_t`, `xgemv_n`). The value is discarded, but the read
+> faults where `x` ends at an unmapped page. Testing the count before the
+> load, or loading at the top of each trip, avoids it.
