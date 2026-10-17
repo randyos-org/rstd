@@ -141,6 +141,16 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // the soft-float ABI: floats in integer registers, the kernels' `sf` variant
+        .name = "arm-softfp",
+        .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
+        .qemu = "qemu-system-arm",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/arm.ld",
+        } },
+    },
+    .{
         .name = "riscv64",
         .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
         .qemu = "qemu-system-riscv64",

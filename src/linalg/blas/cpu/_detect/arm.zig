@@ -54,9 +54,16 @@ fn cp15(comptime reg: []const u8) u32 {
     );
 }
 
-fn vmrs(comptime reg: []const u8) u32 {
-    return asm volatile ("vmrs %[out], " ++ reg
-        : [out] "=r" (-> u32),
+/// The VFP system registers `vmrs` reads, by number.
+const VfpReg = enum(u4) { mvfr1 = 6, mvfr0 = 7, fpexc = 8 };
+
+/// `vmrs r0, <reg>` by its encoding: it assembles where the target has no
+/// VFP, as under the soft-float ABI, whose code may still use a VFP the CPU
+/// has.
+fn vmrs(comptime reg: VfpReg) u32 {
+    const inst = if (comptime sysinfo.cpu.arch.isThumb()) ".inst.w" else ".inst";
+    return asm volatile (std.fmt.comptimePrint("{s} 0x{x}", .{ inst, 0xeef00a10 | @as(u32, @backingInt(reg)) << 16 })
+        : [out] "={r0}" (-> u32),
     );
 }
 
@@ -64,10 +71,9 @@ fn vmrs(comptime reg: []const u8) u32 {
 /// `MVFR1`; none where `CPACR` or `FPEXC.EN` leave the FPU off.
 fn idRegisters() Caps {
     const part = (cp15("c0, c0, 0") >> 4) & 0xfff;
-    if (comptime !sysinfo.cpu.has(.arm, .vfp2)) return .{ .part = part };
-    if ((cp15("c1, c0, 2") >> 20) & 0x3 == 0 or vmrs("fpexc") & (1 << 30) == 0) return .{ .part = part };
-    const mvfr0 = vmrs("mvfr0");
-    const mvfr1 = vmrs("mvfr1");
+    if ((cp15("c1, c0, 2") >> 20) & 0x3 == 0 or vmrs(.fpexc) & (1 << 30) == 0) return .{ .part = part };
+    const mvfr0 = vmrs(.mvfr0);
+    const mvfr1 = vmrs(.mvfr1);
     var hw: usize = 0;
     // single or double precision; VFPv3 is level 2 in either
     if (mvfr0 & 0xff0 != 0) hw |= HWCAP_VFP;

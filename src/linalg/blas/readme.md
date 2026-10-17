@@ -250,7 +250,10 @@ One more patch works around Zig, not OpenBLAS: `power/zdot.S` and
 `zdot_cell.S` return the complex result in f1/f2 as the ELFv2 ABI says, but
 Zig reads a two-float struct from r3/r4. The sources already copy it into
 r3/r4 for the Fortran interface; the patch turns that on. It can go once Zig
-follows the ABI.
+follows the ABI. Likewise arm's `cdot_vfp.S` and `zdot_vfp.S` for the
+soft-float `sf` variant: they return through a pointer in r0, as AAPCS
+says, but Zig reads the struct from r0 to r3, so the patch drops the pointer
+and returns there.
 
 And the sparc kernels' `64` variant shifts with `sllx` where the sources say
 `sll`: they scale 64-bit strides with `sll`, which under qemu keeps only the
@@ -352,6 +355,9 @@ boots as the little-endian rigs do).
 `powerpc` is 32-bit PowerPC, a G4 under OpenBIOS on `mac99`, for the ppcg4
 core. It builds in debug, which the 64-bit POWER rigs cannot (LLVM's
 FastISel bug in issues.md needs VSX).
+
+`arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
+`sf` variant runs, using the VFP the CPU has.
 
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,

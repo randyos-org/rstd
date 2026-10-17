@@ -98,6 +98,34 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > that follows the ABI reads the wrong registers. Example: OpenBLAS's
   > `zdot` kernels for POWER return `double _Complex` in `f1`/`f2`.
 
+### arm soft-float: a struct of floats is returned in r0 to r3, not through memory
+
+- **Seen:** on `arm-freestanding-eabi` and `arm-linux-gnueabi`, a
+  `callconv(.c)` function returning `extern struct { re: f32, im: f32 }` is
+  lowered as returning in r0/r1, and one of two `f64` in r0 to r3. AAPCS
+  returns a composite over 4 bytes in memory, through a pointer in r0, as
+  clang does for the same C (`zig cc`). `src/codegen/arm/abi.zig`'s
+  `classifyType` makes any struct of up to four floats `.byval`, the VFP
+  rule, whatever the convention. OpenBLAS's arm `cdot` and `zdot` (`sf`)
+  store through r0, so on the `arm-softfp` rig they took `n` as the result's
+  address, read `incx` as `x`, and faulted.
+- **Workaround:** the generator patches the `sf` `cdot_vfp.S` and
+  `zdot_vfp.S` to take no pointer and return in r0 to r3
+  (`tools/blas_asm/arch/arm.zig`).
+- **Issue text:**
+
+  > **arm: float structs are returned in core registers under the soft-float ABI**
+  >
+  > With `callconv(.c)` on `arm-linux-gnueabi` (or `-eabi`), a function
+  > returning `extern struct { a: f32, b: f32 }` returns in r0/r1, and
+  > `extern struct { a: f64, b: f64 }` in r0 to r3. The base AAPCS returns
+  > a composite type larger than 4 bytes in memory, at an address passed in
+  > r0; clang does so for the equivalent C struct, so calls between Zig and
+  > C disagree. `classifyType` in `src/codegen/arm/abi.zig` returns
+  > `.byval` for a struct of up to four floats (the VFP variant's
+  > homogeneous aggregate rule) without checking for the soft-float
+  > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
+
 ### Self-hosted x86_64 backend leaves a value on the x87 stack converting to f80
 
 - **Seen:** with the self-hosted x86_64 backend (the debug default), converting
