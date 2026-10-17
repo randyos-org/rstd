@@ -124,7 +124,7 @@ fn checkNrm2(comptime T: type, kern: anytype) !void {
                 const v = x[i * inc];
                 acc += if (comptime complex) @as(W, v.re) * v.re + @as(W, v.im) * v.im else @as(W, v) * v;
             }
-            const want = @sqrt(acc);
+            const want = check.sqrtW(acc);
             const start = if (s < 0) (n - 1) * inc else 0;
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x[start])), s);
             check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n) * @max(1, want)) catch |e| return check.case(e, if (s < 0) "nrm2 (stride negated)" else "nrm2", T, n, .{ inc, 0 });

@@ -114,6 +114,16 @@ pub fn wide(comptime T: type, v: T) Wide(T) {
     return if (comptime isComplex(T)) .init(v.re, v.im) else v;
 }
 
+/// `@sqrt` of a `Wide` value. sparc64's compiler-rt `_Qp_sqrt` takes the root
+/// in `f64` (`issues.md`); two Newton steps there restore `f128`'s precision.
+pub fn sqrtW(x: f128) f128 {
+    var y = @sqrt(x);
+    if (comptime sysinfo.cpu.arch != .sparc64) return y;
+    if (!(x > 0) or !std.math.isFinite(x)) return y;
+    inline for (0..2) |_| y = (y + x / y) / 2;
+    return y;
+}
+
 /// `|re| + |im|` of a `Wide` value, `|v|` for a real one.
 pub fn abs1(v: anytype) f128 {
     return if (comptime isComplex(@TypeOf(v))) @abs(v.re) + @abs(v.im) else @abs(v);

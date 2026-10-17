@@ -32,13 +32,15 @@ pub const panic = std.debug.FullPanic(struct {
         // return addresses for `addr2line -e <kernel>`, by the frame pointers
         print(" at 0x");
         printHex(first orelse @returnAddress());
+        // ELFv2 keeps the saved LR two words up, the back chain at 0
+        const ra = if (sysinfo.cpu.arch == .powerpc64le) 2 else 1;
         var fp = @frameAddress();
         for (0..12) |_| {
             if (fp == 0 or fp % @alignOf(usize) != 0) break;
             const frame: [*]const usize = @ptrFromInt(fp);
-            if (frame[1] == 0) break;
+            if (frame[ra] == 0) break;
             print(" 0x");
-            printHex(frame[1]);
+            printHex(frame[ra]);
             if (frame[0] <= fp) break;
             fp = frame[0];
         }

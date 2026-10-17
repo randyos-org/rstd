@@ -8,7 +8,9 @@
 //! endian-agnostic trampoline: `tdi` is a no-op when little-endian and reads as
 //! `b .+8` when big-endian, which lands on a short big-endian sequence (given
 //! as bytes) that flips MSR.LE with `rfid`. Then it sets up the TOC (r2),
-//! enables FP/VMX/VSX in the MSR, and clears bss.
+//! enables FP/VMX/VSX and 64-bit mode (SF) in the MSR, and clears bss. The
+//! firmware enters in 32-bit mode, where the carry comes from the low 32 bits,
+//! so 64- and 128-bit carries and overflow checks went wrong.
 //!
 //! The loader shifts load addresses, see `ppc64le.ld`.
 
@@ -35,7 +37,9 @@ comptime {
         \\  addis 2, 12, .TOC.-0b@ha
         \\  addi 2, 2, .TOC.-0b@l
         \\  mfmsr 3
-        \\  lis 4, 0x0280
+        \\  li 4, 1
+        \\  sldi 4, 4, 63
+        \\  oris 4, 4, 0x0280
         \\  ori 4, 4, 0x2000
         \\  or 3, 3, 4
         \\  mtmsrd 3

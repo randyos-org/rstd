@@ -250,6 +250,8 @@ const machines = [_]Machine{
     },
     .{
         .name = "powerpc64le",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr9 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power9" },
@@ -265,6 +267,8 @@ const machines = [_]Machine{
     },
     .{
         .name = "powerpc64le-power10",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },

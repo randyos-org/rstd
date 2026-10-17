@@ -127,18 +127,56 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** not ready; needs a reduced case first. It may belong to
   LLVM rather than Zig.
 
-### sparc64: f80 complex nrm2 off by about f64 precision (unconfirmed)
+### sparc64: compiler-rt's `_Qp_sqrt` takes the square root in f64
 
-- **Seen:** on the sparc64 rig (`.fast`, software f80), "portable nrm2
-  kernels at the extended type match a plain loop" fails for
-  `Complex(f80)`: got 0.799018197057005788, want 0.799018197057005830, a
-  relative difference of about 5e-17 against an allowance of 2.8e-17, as if
-  one side were computed in f64. The same test passes on aarch64 (also
-  software f80), freestanding and under Linux, and on x86.
-- **Workaround:** none yet; the test stays failing on that rig.
-- **Next:** find which side is wrong (kernel or reference), then whether it
-  is `.fast` or the sparc backend (a smaller image that fits a debug build
-  would tell). No issue text until then.
+- **Seen:** on the sparc64 rig, `@sqrt` of a runtime `f128` (lowered to
+  `_Qp_sqrt`) gives only f64's precision: `@sqrt(2)` came back as
+  `0x3fff6a09e667f3bcd000000000000000`. "portable nrm2 kernels at the
+  extended type match a plain loop" failed for `Complex(f80)` on it: the
+  kernel was right, the `f128` reference was not. `lib/compiler_rt/sqrt.zig`
+  has `c.* = sqrt(@floatCast(a.*))`, where `sqrt` is the f64 routine; still
+  so on Zig master (added in 2c5f54c898, 2025-04-28).
+- **Workaround:** test references take the root with `check.sqrtW`, which on
+  sparc64 refines `@sqrt` with two Newton steps in `f128`. The library's own
+  `f128` square roots (the portable `nrm2` and `rotg` at `f128`) stay at f64
+  precision there until Zig is fixed.
+- **Issue text:**
+
+  > **compiler-rt: sparc64 `_Qp_sqrt` computes the square root in f64**
+  >
+  > `lib/compiler_rt/sqrt.zig` defines
+  > `fn _Qp_sqrt(c: *f128, a: *f128) callconv(.c) void { c.* = sqrt(@floatCast(a.*)); }`.
+  > `sqrt` there is the f64 routine, so `a` is narrowed to f64 and the root
+  > widened back: `@sqrt` of a runtime `f128` on sparc64 has 53 bits of
+  > precision. For example `@sqrt(@as(f128, 2))` with a runtime 2 returns
+  > `0x3fff6a09e667f3bcd000000000000000` instead of
+  > `0x3fff6a09e667f3bcc908b2fb1366ea95`. It should call `sqrt_f128`, as
+  > `sqrtq` (`_Q_sqrt` on sparc32) does.
+
+### powerpc64le: LLVM's `-O0` compares a VSX register with `fcmpu`
+
+- **Seen:** on the powerpc64le rigs (pwr9 and pwr10, Debug), every gemm test
+  failed at f64 with "padding written", though the padding held the sentinel:
+  `got != sentinel` came out true for equal values. The f64 was loaded with
+  `lxsdx 34, ...` (VSR34, which is v2) and compared with `fcmpu 0, 2, 0`,
+  which reads f2 (VSR2). The same compare in a release build is correct. It
+  looks like PowerPC FastISel's compare using `FCMPUD` on a register of the
+  VSX class `VSFRC` without constraining it to `F8RC`.
+- **Workaround:** the powerpc64le rigs build with `.safe`
+  (`build/qemutest.zig`), which does not use FastISel.
+- **Issue text:**
+
+  > **[PowerPC] FastISel emits `fcmpu` on a VSX-class register at -O0**
+  >
+  > On powerpc64le with VSX (seen with `-mcpu=pwr9` and `pwr10`) at -O0, an
+  > f64 loaded in one block and compared in another was loaded by FastISel
+  > with `lxsdx` into a `VSFRC` virtual register, which register allocation
+  > put in VSR34 (v2). The compare is `fcmpu cr0, 2, 0`: `FCMPUD` takes
+  > `F8RC` operands, so the encoded `2` reads f2 (VSR2), not v2, and the
+  > comparison uses a stale value. `PPCFastISel::PPCEmitCmp` appears to pass
+  > the source registers to `FCMPUD` without constraining their class (or
+  > using `XSCMPUDP` for VSX registers). Seen in a large Zig-generated
+  > function; the same IR at -O1 and above is correct.
 
 ### lld cannot link 32-bit SPARC
 
