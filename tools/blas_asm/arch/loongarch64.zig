@@ -146,7 +146,9 @@ fn nrm2Forwards(comptime shift: []const u8) []const u8 {
 pub const loongarch64: arch.Arch = .{
     .name = "loongarch64",
     .triple = "loongarch64-linux-gnu",
-    .config_h = "#define ARCH_LOONGARCH64 1\n#define BINARY64 1\n",
+    // getarch's `config.h` defines `__64BIT__` for a 64-bit build; without it
+    // `LDARG` is `ld.w`, which truncates a pointer passed on the stack
+    .config_h = "#define ARCH_LOONGARCH64 1\n#define BINARY64 1\n#define __64BIT__ 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_LOONGARCH64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
     .patches = &patches,

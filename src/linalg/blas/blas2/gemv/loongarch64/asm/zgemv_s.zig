@@ -29,17 +29,13 @@ const Body = struct {
     pub fn zgemv_s() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ ld.w $r6, $sp, 0
-            \\ ld.w $r17, $sp, 8
-            \\ addi.d $sp, $sp, -64
-            \\ st.w $r23, $sp, 0
-            \\ st.w $r24, $sp, 8
+            \\ ld.d $r6, $sp, 0
+            \\ ld.d $r17, $sp, 8
+            \\ addi.d $sp, $sp, -32
+            \\ st.d $r23, $sp, 0
+            \\ st.d $r24, $sp, 8
             \\ fst.d $f24, $sp, 16
             \\ fst.d $f25, $sp, 24
-            \\ fst.d $f18, $sp, 32
-            \\ fst.d $f19, $sp, 40
-            \\ fst.d $f20, $sp, 48
-            \\ fst.d $f21, $sp, 56
             \\ slli.d $r8, $r8, 4
             \\ slli.d $r10, $r10, 4
             \\ bge $r0, $r4, 20019f
@@ -518,15 +514,11 @@ const Body = struct {
             \\ blt $r0, $r14, 20018b
             \\ .align 3
             \\ 20019:
-            \\ ld.w $r23, $sp, 0
-            \\ ld.w $r24, $sp, 8
+            \\ ld.d $r23, $sp, 0
+            \\ ld.d $r24, $sp, 8
             \\ fld.d $f24, $sp, 16
             \\ fld.d $f25, $sp, 24
-            \\ fld.d $f18, $sp, 32
-            \\ fld.d $f19, $sp, 40
-            \\ fld.d $f20, $sp, 48
-            \\ fld.d $f21, $sp, 56
-            \\ addi.d $sp, $sp, 64
+            \\ addi.d $sp, $sp, 32
             \\ move $r4, $r17
             \\ fmov.d $f0, $f22
             \\ jirl $r0, $r1, 0x0
