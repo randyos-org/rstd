@@ -316,6 +316,18 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // a G4 under OpenBIOS: the ppcg4 core
+        .name = "powerpc",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "G4" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
         // Mach-O on PowerPC, the one big-endian 32-bit Mach-O target qemu can
         // boot (OpenBIOS on `mac99`); covers the object format the other rigs
         // do not.

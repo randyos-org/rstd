@@ -349,6 +349,10 @@ The big-endian rigs are `s390x` and `powerpc64` (`pseries` under VOF, a
 POWER10, so every 64-bit POWER core runs; Zig emits ELFv2 there too, so it
 boots as the little-endian rigs do).
 
+`powerpc` is 32-bit PowerPC, a G4 under OpenBIOS on `mac99`, for the ppcg4
+core. It builds in debug, which the 64-bit POWER rigs cannot (LLVM's
+FastISel bug in issues.md needs VSX).
+
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
 since WHPX on an AMD host shows macOS the AMD CPU, which it does not boot on.

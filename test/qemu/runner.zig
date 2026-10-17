@@ -20,6 +20,7 @@ const arch = switch (sysinfo.cpu.arch) {
     .sparc64 => @import("sparc64.zig"),
     .s390x => @import("s390x.zig"),
     .powerpc64le, .powerpc64 => @import("ppc64.zig"),
+    .powerpc => @import("ppc32.zig"),
     else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.cpu.arch)),
 };
 
