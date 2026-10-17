@@ -32,12 +32,13 @@ const Body = struct {
             \\ .align 5
             \\ .set noreorder
             \\ .set nomacro
-            \\ daddiu $sp, $sp, -40
-            \\ sdc1 $f20, 0($sp)
-            \\ sdc1 $f22, 8($sp)
-            \\ sdc1 $f24, 16($sp)
-            \\ sdc1 $f26, 24($sp)
+            \\ daddiu $sp, $sp, -48
+            \\ sdc1 $f24, 0($sp)
+            \\ sdc1 $f25, 8($sp)
+            \\ sdc1 $f26, 16($sp)
+            \\ sdc1 $f27, 24($sp)
             \\ sdc1 $f28, 32($sp)
+            \\ sdc1 $f29, 40($sp)
             \\ li $3, 8
             \\ blez $4, 20014f
             \\ dsll $9, $9, 3
@@ -178,12 +179,13 @@ const Body = struct {
             \\ daddiu $2, $2, -1
             \\ bgtz $2, 20005b
             \\ sdc1 $f18, -1 * 8($10)
-            \\ ldc1 $f20, 0($sp)
-            \\ ldc1 $f22, 8($sp)
-            \\ ldc1 $f24, 16($sp)
-            \\ ldc1 $f26, 24($sp)
+            \\ ldc1 $f24, 0($sp)
+            \\ ldc1 $f25, 8($sp)
+            \\ ldc1 $f26, 16($sp)
+            \\ ldc1 $f27, 24($sp)
             \\ ldc1 $f28, 32($sp)
-            \\ daddiu $sp, $sp, 40
+            \\ ldc1 $f29, 40($sp)
+            \\ daddiu $sp, $sp, 48
             \\ j $31
             \\ move $0, $0
             \\ .align 5
@@ -436,12 +438,13 @@ const Body = struct {
             \\ daddu $10, $10, $11
             \\ .align 5
             \\ 20014:
-            \\ ldc1 $f20, 0($sp)
-            \\ ldc1 $f22, 8($sp)
-            \\ ldc1 $f24, 16($sp)
-            \\ ldc1 $f26, 24($sp)
+            \\ ldc1 $f24, 0($sp)
+            \\ ldc1 $f25, 8($sp)
+            \\ ldc1 $f26, 16($sp)
+            \\ ldc1 $f27, 24($sp)
             \\ ldc1 $f28, 32($sp)
-            \\ daddiu $sp, $sp, 40
+            \\ ldc1 $f29, 40($sp)
+            \\ daddiu $sp, $sp, 48
             \\ j $31
             \\ move $0, $0
             \\ .align 3

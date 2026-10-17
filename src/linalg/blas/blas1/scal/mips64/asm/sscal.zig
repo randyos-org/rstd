@@ -37,7 +37,7 @@ const Body = struct {
             \\ blez $4, 20017f
             \\ dsll $9, $9, 2
             \\ c.eq.s $fcc0, $f15, $f0
-            \\ lw $6, 8($sp)
+            \\ ld $6, 8($sp)
             \\ bc1f $fcc0, 20007f
             \\ dsll $6, $6, 2
             \\ beq $6, $3, 20007f

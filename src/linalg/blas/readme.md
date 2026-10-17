@@ -348,9 +348,11 @@ XOP, of which WHPX keeps what the host has. TCG implements no AVX-512, FMA4
 or XOP, so the skylakex, cooperlake and sapphirerapids kernels, and the
 bulldozer family's, run only there, on a host that has them.
 
-The big-endian rigs are `s390x` and `powerpc64` (`pseries` under VOF, a
+The big-endian rigs are `s390x`, `powerpc64` (`pseries` under VOF, a
 POWER10, so every 64-bit POWER core runs; Zig emits ELFv2 there too, so it
-boots as the little-endian rigs do).
+boots as the little-endian rigs do), and `mips64r2`, `mips64r6`, `mips32r2`
+and `mips32r5`, the `malta` rigs' big-endian twins. 32-bit MIPS has no
+converted kernels, so its rigs test the portable ones.
 
 `powerpc` is 32-bit PowerPC, a G4 under OpenBIOS on `mac99`, for the ppcg4
 core. It builds in debug, which the 64-bit POWER rigs cannot (LLVM's
