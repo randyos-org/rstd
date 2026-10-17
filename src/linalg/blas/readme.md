@@ -344,8 +344,8 @@ kills a VM a build step started.
 `zig build rstd-check-macho` builds the tests for x86_64 and aarch64 macOS
 without running them, which is where Mach-O assembly errors show.
 
-`qemu-test-linux-<arch>` (aarch64, x86_64, arm, riscv64) boots a Debian
-netboot kernel with the hosted test executable as PID 1
+`qemu-test-linux-<arch>` (aarch64, x86_64, arm, riscv64, powerpc64le) boots
+a Debian netboot kernel with the hosted test executable as PID 1
 (`test/linux/init.zig`), for the tests that need an OS: auxiliary-vector
 detection, threads, files.
 

@@ -341,6 +341,18 @@ const machines = [_]Machine{
         .boot = .{ .linux = .{ .dep = "debian_netboot_riscv64", .kernel = "debian-installer/riscv64/linux", .console = "ttyS0" } },
     },
     .{
+        .name = "linux-powerpc64le",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
+        .qemu = "qemu-system-ppc64",
+        // detection sees a POWER10 (the baseline build links up to POWER9's
+        // kernels); the caps TCG lacks are off, so qemu warns of none
+        .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+    },
+    .{
         // macOS 13 and up; Zig's default minimum is 15.0
         .name = "x86_64-macos",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },
