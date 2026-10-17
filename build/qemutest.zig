@@ -324,6 +324,14 @@ const machines = [_]Machine{
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{
+        .name = "linux-arm",
+        .query = .{ .cpu_arch = .arm, .os_tag = .linux },
+        .qemu = "qemu-system-arm",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a15", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_armhf", .kernel = "debian-installer/armhf/vmlinuz", .console = "ttyAMA0" } },
+    },
+    .{
         // macOS 13 and up; Zig's default minimum is 15.0
         .name = "x86_64-macos",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },

@@ -49,6 +49,11 @@
             .hash = "N-V-__8AAHk0iAORDawnDVweOxTXYqxa6CP4pg0bt3O96Yr0",
             .lazy = true,
         },
+        .debian_netboot_armhf = .{
+            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-armhf/20250803+deb13u7/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAKhLRQRIQiqWgh8o9GAvkzj2dO5berJQbiljpYIa",
+            .lazy = true,
+        },
         // Its build.zig does not build on current Zig master (standardOptimizeOption
         // returns an optional); src/buildutils/renderdoc.zig uses the built-in
         // translate-c until it does.
