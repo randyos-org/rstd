@@ -122,7 +122,8 @@ const machines = [_]Machine{
         .name = "aarch64-sve",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
         .qemu = "qemu-system-aarch64",
-        .args = &.{ "-M", "virt", "-cpu", "neoverse-v1" },
+        // max has SVE2, SME2 and BF16, so every core but Apple's runs
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
