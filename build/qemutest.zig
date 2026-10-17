@@ -353,6 +353,16 @@ const machines = [_]Machine{
         .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
     },
     .{
+        .name = "linux-i386",
+        .query = .{ .cpu_arch = .x86, .os_tag = .linux },
+        .qemu = "qemu-system-i386",
+        .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
+        .memory = "1G",
+        // boots and runs; filtered runs pass
+        .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issues.md)",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
+    },
+    .{
         // macOS 13 and up; Zig's default minimum is 15.0
         .name = "x86_64-macos",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = .{ .semver = .{ .major = 13, .minor = 0, .patch = 0 } } },

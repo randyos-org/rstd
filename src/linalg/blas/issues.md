@@ -347,6 +347,35 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** none: QEMU's WHPX CPUID-trapping patches (leaf 0 vendor)
   were already in review in 2026. Check their status before filing.
 
+### x86: an x87 80-bit load or store across a page boundary misplaces bytes
+
+- **Seen:** QEMU 11.0.1 under TCG, 32-bit Linux userspace (Debian 12's i386
+  kernel, or Debian 13's amd64 kernel running an i386 program). When an
+  `fldt` or `fstpt` operand crosses a page, the bytes of the 8-byte
+  significand that lie on the second page are read from (or written to)
+  the wrong place: a load returns stale bytes, a store leaves the guest's
+  bytes unchanged and writes elsewhere. The 2-byte exponent, wholly on the
+  second page, is right, and so is a `movq` across the same boundary. The
+  same program under WHPX is right. i386's `f80` is 12 bytes, 4-aligned, so
+  arrays of it cross pages; the rstd suite failed its `c_longdouble`
+  checks and then crashed in `SafeAllocator` (a misplaced store). x86_64's
+  16-byte `f80` never crosses.
+- **Workaround:** `linux-i386` is a stub (`build/qemutest.zig`).
+- **Issue text:**
+
+  > **target/i386: fldt/fstpt across a page boundary access the wrong bytes under TCG**
+  >
+  > In 32-bit protected mode with paging, an `fldt` whose 10-byte operand
+  > starts at page offset 0xff9 to 0xfff loads the significand bytes past the
+  > boundary from somewhere other than the guest's next page (they come back
+  > stale), while the exponent bytes are right; `fstpt` likewise fails to
+  > write them. A `movq` of the same 8 bytes is right. It looks like the
+  > 8-byte significand access in the x87 helpers treats the range as lying
+  > in the first page (an `X86Access` pointer check on the start rather than
+  > the end). Reproduce: in an i386 Linux guest, store 10 known bytes at a
+  > stack address ending in 0xffc, `fldt` them and `fstpt` them elsewhere,
+  > and compare.
+
 ### sparc64: `sll` drops the upper 32 bits of a 64-bit register
 
 - **Seen:** under `qemu-system-sparc64` (sun4u), OpenBLAS's sparc kernels

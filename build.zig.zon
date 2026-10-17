@@ -64,6 +64,12 @@
             .hash = "N-V-__8AAJ40ZgQ-s_-r8DXsEHoApUx9VY_olOhfIADCHR63",
             .lazy = true,
         },
+        // Debian 12's: 13 has no i386 installer
+        .debian_netboot_i386 = .{
+            .url = "https://deb.debian.org/debian/dists/bookworm/main/installer-i386/20230607+deb12u15/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAPlKiQI6Ff4yPGDDl3AfuWMrf7hwQswZLDKyV9md",
+            .lazy = true,
+        },
         // Its build.zig does not build on current Zig master (standardOptimizeOption
         // returns an optional); src/buildutils/renderdoc.zig uses the built-in
         // translate-c until it does.
