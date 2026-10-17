@@ -363,6 +363,14 @@ run as 32-bit code.
 `arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
 `sf` variant runs, using the VFP the CPU has.
 
+`sparc64-debug` is `sparc64` in debug, in ten images where `sparc64` needs
+seven (OpenBIOS maps 4 MB of each), less one test that alone is 6 MB in debug.
+`sparc` (32-bit) is a stub: lld cannot link 32-bit SPARC.
+
+The kernel rigs link every core the target CPU can run, whatever the build
+mode, and `-Dblas-cores` does not change that (nor for the Linux rigs). Every
+family has a rig that builds in debug.
+
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
 since WHPX on an AMD host shows macOS the AMD CPU, which it does not boot on.

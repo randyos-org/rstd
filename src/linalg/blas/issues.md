@@ -210,9 +210,14 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 - **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
   object, then fails to link: `ld.lld: unsupported e_machine value: 2`
-  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9).
+  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9). Still so on
+  0.18.0-dev.267 (2026-10-17), for a one-function freestanding image too;
+  `-fno-lld` instead crashes Zig's own ELF linker (`invalid enum value` in
+  `link/Elf/Object.zig`'s `parseCommon`, which reads every object header as
+  `Elf64_Ehdr`), and that linker ignores linker scripts anyway.
 - **Workaround:** none; 32-bit SPARC is compile-checked only (the kernel
-  objects build) and has no rig.
+  objects build). Its rig, `sparc` (OpenBIOS on `SS-5`), is a stub in
+  `build/qemutest.zig`.
 - **Issue text:** an lld feature request rather than a Zig bug, and probably
   known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
 

@@ -5,7 +5,7 @@
 //!   * `.kernel`: a freestanding test kernel per architecture (boot code in
 //!     `test/qemu/`, runner in `test/qemu/runner.zig`, test root in
 //!     `src/_test_qemu.zig`). Where the machine has semihosting (aarch64, arm,
-//!     riscv64, mips64el) the runner exits with the number of failed tests, so a
+//!     riscv64, MIPS) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
 //!     step checks the printed summary for "0 failed". The console is also
 //!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
@@ -316,6 +316,54 @@ const machines = [_]Machine{
         .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/sparc64.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // sparc64 in debug, the mode the other rigs build in; its images are
+        // larger, so blas3 is split too, and gemm's three test files apart
+        .name = "sparc64-debug",
+        .optimize = .debug,
+        .parts = &.{
+            .{ .name = "blas1", .filters = &.{"linalg.blas.blas1."} },
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
+            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
+            .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
+            .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
+            // but "every core of every family", 6 MB alone in debug: `sparc64` runs it
+            .{ .name = "blas3-params", .filters = &.{
+                "linalg.blas.blas3.gemm.params.test.dtb entries",
+                "linalg.blas.blas3.gemm.params.test.generic follows",
+                "linalg.blas.blas3.gemm.params.test.the block factor",
+                "linalg.blas.blas3.gemm.params.test.fixed sets",
+                "linalg.blas.blas3.gemm.params.test.old x86",
+                "linalg.blas.blas3.gemm.params.test.LA464",
+                "linalg.blas.blas3.gemm.params.test.detection gives",
+            } },
+            .{ .name = "blas3-kernel", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm.kernel." } },
+            .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
+            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+        },
+        .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
+        .qemu = "qemu-system-sparc64",
+        .args = &.{ "-M", "sun4u" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/sparc64.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // OpenBIOS on sun4m, as sparc64's on sun4u
+        .name = "sparc",
+        .query = .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v8 } },
+        .qemu = "qemu-system-sparc",
+        .args = &.{ "-M", "SS-5" },
+        .memory = "256M",
+        .stub = "lld cannot link 32-bit SPARC, and Zig's own ELF linker crashes on it (issues.md)",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
             .semihosting = false,
         } },
     },
