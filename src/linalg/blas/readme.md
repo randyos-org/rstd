@@ -341,3 +341,13 @@ after the tests, pass or fail, unless `-Dmac-keep`. `qemu-kill-x86_64-macos`
 kills a VM a build step started.
 `zig build rstd-check-macho` builds the tests for x86_64 and aarch64 macOS
 without running them, which is where Mach-O assembly errors show.
+
+`qemu-test-linux-<arch>` (aarch64, x86_64) boots a Debian netboot kernel
+with the hosted test executable as PID 1 (`test/linux/init.zig`), for the
+tests that need an OS: auxiliary-vector detection, threads, files.
+
+Apple silicon runs on a real Mac: `zig build remote-test-aarch64-macos`
+copies the tests to the SSH alias `-Dremote-mac` and runs them there
+(`build/remotetest.zig`); the Mac's address and login stay in the SSH config.
+On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
+`-cpu max` cannot show.
