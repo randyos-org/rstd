@@ -98,6 +98,8 @@ pub fn build(b: *Build) !void {
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
+    // the same tests on real machines over SSH, for targets no emulator covers
+    try @import("remotetest.zig").addRemoteTests(b, optimize, test_filter);
 
     // Mach-O, which no machine here runs: building is what catches assembly
     // that other object formats accept (`.align`), so build every core's

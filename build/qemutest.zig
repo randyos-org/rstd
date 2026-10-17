@@ -420,7 +420,7 @@ fn qemuCommand(b: *Build, m: Machine) *Build.Step.Run {
 
 var watch_tool: ?*Build.Step.Compile = null;
 
-fn watchTool(b: *Build) *Build.Step.Compile {
+pub fn watchTool(b: *Build) *Build.Step.Compile {
     if (watch_tool) |t| if (t.step.owner == b) return t;
     watch_tool = b.addExecutable(.{ .name = "qemu_watch", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/qemu_watch.zig"),
