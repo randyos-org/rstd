@@ -53,14 +53,6 @@ const Quirk = enum {
     /// The extremes compare lane by lane, so what a NaN does depends on
     /// where it falls: any element's key or NaN, any index.
     nan_lanes,
-    /// `nrm2` of an infinity, and no NaN, may be NaN.
-    nrm2_inf_nan,
-    /// `nrm2` of a NaN may be 0.
-    nrm2_nan_zero,
-    /// `nrm2` of denormals may be anything but NaN: 0, infinite, or off.
-    nrm2_denormal,
-    /// `nrm2` of denormals may be NaN too (`frsqrte` of a denormal sum).
-    nrm2_denormal_nan,
 };
 
 const Quirks = std.EnumSet(Quirk);
@@ -68,33 +60,15 @@ const Quirks = std.EnumSet(Quirk);
 /// The quirks of `routine` (`isamax`, `zcopy`) on the core `check.eachCore`
 /// is running; the portable kernels have none.
 fn quirks(comptime routine: []const u8) Quirks {
-    const core = check.core orelse return .empty;
+    if (check.core == null) return .empty;
     // the routine without its index letter and precision
     const at = comptime if (routine[0] == 'i' and routine.len > 4) 1 else 0;
     const name = comptime routine[at + 1 ..];
     const extreme = comptime std.mem.endsWith(u8, name, "max") or std.mem.endsWith(u8, name, "min");
-    const is = struct {
-        fn eq(comptime a: []const u8, comptime b: []const u8) bool {
-            return comptime std.mem.eql(u8, a, b);
-        }
-    }.eq;
     var q: Quirks = .empty;
     switch (sysinfo.cpu.arch) {
-        .x86_64 => if (extreme) q.insert(.nan_lanes),
-        .aarch64, .aarch64_be => if (is(name, "amax")) q.insert(.nan_lanes),
-        .sparc, .sparc64 => if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal })),
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
-            if (extreme) q.insert(.nan_lanes);
-            if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal }));
-            if (is(name, "nrm2") and (core == .ppcg4 or core == .ppc440)) q.insert(.nrm2_denormal_nan);
-        },
-        .loongarch64 => {
-            if (extreme) q.insert(.nan_lanes);
-            if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_nan_zero, .nrm2_denormal }));
-        },
-        .mips64, .mips64el => if (core == .loongson3r3 or core == .loongson3r4) {
-            if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal }));
-        },
+        .x86_64, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64 => if (extreme) q.insert(.nan_lanes),
+        .aarch64, .aarch64_be => if (comptime std.mem.eql(u8, name, "amax")) q.insert(.nan_lanes),
         else => {},
     }
     return q;
@@ -362,7 +336,7 @@ fn dotRun(comptime T: type, ctx: anytype, c: Case) !void {
 const Reduce = enum { asum, sum, nrm2 };
 
 fn Reduction(comptime K: type) type {
-    return struct { kern: K, op: Reduce, q: Quirks };
+    return struct { kern: K, op: Reduce };
 }
 
 /// `asum` (of `|re| + |im|`), `sum` (of `re + im`) or `nrm2`.
@@ -383,11 +357,6 @@ fn reduceRun(comptime T: type, ctx: anytype, c: Case) !void {
         };
     }
     const want = if (ctx.op == .nrm2) check.sqrtW(acc) else acc;
-    if (std.math.isInf(want) and std.math.isNan(got) and ctx.q.contains(.nrm2_inf_nan)) return;
-    if (std.math.isNan(want) and got == 0 and ctx.q.contains(.nrm2_nan_zero)) return;
-    if (want > 0 and want < std.math.floatMin(Float(T)) and ctx.q.contains(.nrm2_denormal)) {
-        if (!std.math.isNan(got) or ctx.q.contains(.nrm2_denormal_nan)) return;
-    }
     const ulps: f128 = @floatFromInt(2 * (c.n + 2));
     try check.component(Float(T), want, got, ulps, if (ctx.op == .nrm2) want else mag);
     try x.unchanged();
@@ -505,7 +474,7 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     }
     inline for (comptime std.enums.values(Reduce)) |op| {
         const k = @field(vt, l ++ @tagName(op) ++ "_k").?;
-        note(sweep(T, l ++ @tagName(op), false, op == .nrm2, Reduction(@TypeOf(k)){ .kern = k, .op = op, .q = quirks(l ++ @tagName(op)) }, reduceRun));
+        note(sweep(T, l ++ @tagName(op), false, op == .nrm2, Reduction(@TypeOf(k)){ .kern = k, .op = op }, reduceRun));
     }
     inline for (.{ "amax", "amin", "max", "min" }) |name| {
         if (comptime complex and name[0] != 'a') continue;

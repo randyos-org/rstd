@@ -28,7 +28,7 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/imin/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/max/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/min/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/nrm2/sparc/asm/__root__.zig")),
+    // `nrm2` stays portable: these kernels are wrong on infinities and denormals (`readme.md`)
     registry.Kernels(Core, @import("../blas1/rot/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/sparc/asm/__root__.zig")),

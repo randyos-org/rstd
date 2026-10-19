@@ -106,13 +106,21 @@ on LA264 and LA464; arm64 `csum` is `csum.S` everywhere; MIPS64's MSA complex
 `axpy`, `rot`, `swap` and `scal` are never selected, `KERNEL` resets them to
 the `arm/` C.
 
+One routine is left portable on purpose: `nrm2` on POWER, Loongson
+(`mips64`), `loongarch64` and SPARC. Their kernels are converted but not
+wired in (`kernels/<arch>.zig`): they gave NaN for an infinity, 0 or values
+far off for denormals (NaN on ppcg4 and ppc440), and the `lsx` and `lasx`
+ones 0 for a NaN (`issues.md`). They are the same scaled one-pass loop as
+the portable kernel, so nothing is lost.
+
 ## Portable kernels
 
 The portable kernels are Zig algorithms with the reference's documented
 semantics, not copies of its C: `dsdot` accumulates in `f64` (so does `sdot`),
-`nrm2` scales against overflow and underflow, `scal`'s flag keeps NaN and
-Inf, `i?amax` returns the first of equal extremes, and a NaN first element is
-never replaced. Not required by the design, so not done: reproducing the
+`nrm2` scales against overflow and underflow and is infinite for infinities
+(LAPACK 3.10's; the scaled loop alone gives NaN for two), `scal`'s flag keeps
+NaN and Inf, `i?amax` returns the first of equal extremes, and a NaN first
+element is never replaced. Not required by the design, so not done: reproducing the
 reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial
 sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
 its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;

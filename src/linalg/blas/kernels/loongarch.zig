@@ -29,7 +29,7 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/imin/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/max/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/min/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/nrm2/loongarch64/asm/__root__.zig")),
+    // `nrm2` stays portable: these kernels are wrong on infinities and denormals (`readme.md`)
     registry.Kernels(Core, @import("../blas1/rot/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/loongarch64/asm/__root__.zig")),

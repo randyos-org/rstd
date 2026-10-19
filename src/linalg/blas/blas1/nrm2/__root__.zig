@@ -74,7 +74,17 @@ fn Nrm2(comptime F: type, comptime w: comptime_int) type {
                     }
                 }
             }
-            return @floatCast(scale * @sqrt(ssq));
+            const r: F = @floatCast(scale * @sqrt(ssq));
+            if (r == r) return r;
+            // NaN from a NaN, or from a second infinity scaled by the first
+            i = 0;
+            while (i < n) : (i += 1) {
+                inline for (0..w) |c| {
+                    const v = util.at(F, x, i * inc_x * w + c).*;
+                    if (v != v) return v;
+                }
+            }
+            return std.math.inf(F);
         }
     };
 }
@@ -154,6 +164,16 @@ test "portable nrm2 kernels at the extended type match a plain loop" {
 
 test "every linked core's nrm2 kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "portable nrm2: infinite for infinities, NaN for a NaN among them" {
+    const inf = std.math.inf(f64);
+    var x = [_]f64{ 1, -inf, 2, inf, 3 };
+    try std.testing.expect(std.math.isPositiveInf(dnrm2_generic(5, &x, 1)));
+    var z = [_]f64{ inf, 1, 0, -inf };
+    try std.testing.expect(std.math.isPositiveInf(znrm2_generic(2, &z, 1)));
+    x[2] = std.math.nan(f64);
+    try std.testing.expect(std.math.isNan(dnrm2_generic(5, &x, 1)));
 }
 
 test "nrm2 past 64 bits is the plain sum of squares, overflow included; at 64 bits or less, scaled" {
