@@ -10,9 +10,9 @@
 //! Not propagation, on purpose, as the reference has it: a zero `beta`
 //! overwrites `y`, a zero `alpha` returns once `y` is scaled, a Hermitian
 //! update stores a zero imaginary part on the diagonal, entries outside a
-//! band or triangle are never multiplied, nor a unit diagonal, and `syr` and
-//! `spr` pass over a column whose `x` is zero (OpenBLAS's other rank drivers,
-//! and ours, do not). Complex infinities may meet in another order than the
+//! band or triangle are never multiplied, nor a unit diagonal, and the rank
+//! updates but `ger` pass over a column whose `x` (and `y`, for rank 2) is
+//! zero. Complex infinities may meet in another order than the
 //! reference's, giving NaN for infinity (`check.expectWideAnyOrder`).
 //!
 //! A solve divides by the diagonal, whose magnitudes are not its cases: its
@@ -512,9 +512,9 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
         const k = s.stored(i, j) orelse continue;
         const xi = x.w(i);
         const yj = if (two) y.w(j) else x.w(j);
-        // `syr` and `spr` pass over a column whose `x` is zero, as the
-        // reference does; OpenBLAS's other drivers (and so ours) do not
-        const skip = (r == .syr or r == .spr) and zeroW(x.w(j));
+        // a column whose factors are zero is passed over, as the reference
+        // does
+        const skip = r != .ger and r != .gerc and zeroW(x.w(j)) and (!sym2 or zeroW(y.w(j)));
         var u = if (skip) check.wide(T, val(T, 0, 0)) else switch (r) {
             .ger, .syr, .spr => check.mulW(wa, check.mulW(xi, yj)),
             .gerc => check.mulW(wa, check.mulW(xi, check.conjW(yj))),
