@@ -73,23 +73,26 @@ const text =
     \\ mov 1020, %l3
     \\ .if \bp0
     \\ sll %i2, 3, %i2
-    \\ .endif
-    \\ .if \bp1
-    \\ sll %i5, 3, %i5
-    \\ .endif
     \\ sll %l3, 3, %l3
-    \\ .if \bp0
     \\ smul %i2, %i1, %g1
     \\ sll %i4, 3, %i4
+    \\ sll %l1, 3, %l1
     \\ .endif
     \\ .if \bp1
+    \\ sllx %i5, 3, %i5
+    \\ sllx %l3, 3, %l3
     \\ smul %i5, %i1, %g1
-    \\ sll %i3, 3, %i3
+    \\ sllx %i3, 3, %i3
+    \\ sllx %l1, 3, %l1
     \\ .endif
-    \\ sll %l1, 3, %l1
     \\ sub %l3, %g1, %g1
     \\ 20000:
+    \\ .if \bp0
     \\ sll %l4, 3, %l3
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %l4, 3, %l3
+    \\ .endif
     \\ sub %i0, %l4, %l6
     \\ cmp %l6, 1020
     \\ nop

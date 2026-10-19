@@ -125,7 +125,9 @@ fn logImpl(
     var buffer: [64]u8 = undefined;
     const stderr = std.debug.lockStderr(&buffer).terminal();
     defer std.debug.unlockStderr();
-    logToTerminal(stderr, level, full_scope_name, format, args, src) catch @panic("log print failed");
+    // a line that cannot be written is dropped, as std's own logFn does:
+    // logging must not end the program (a GUI app's console handle, a closed pipe)
+    logToTerminal(stderr, level, full_scope_name, format, args, src) catch return;
 }
 
 /// Formats + writes one log line (scope filter, timestamp, colored level)
@@ -163,5 +165,5 @@ pub fn logToTerminal(
 
     // flush explicitly: buffer whole line for one puts/render, but still
     // want it on screen now -- e.g. kernel panics before idle loop
-    t.writer.flush() catch @panic("log flush failed");
+    try t.writer.flush();
 }

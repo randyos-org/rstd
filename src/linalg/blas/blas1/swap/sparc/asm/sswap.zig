@@ -45,14 +45,16 @@ const text =
     \\ save %sp, -64, %sp
     \\ ld [%sp+ 128 + 28], %i1
     \\ ld [%sp+ 128 + 32], %i2
+    \\ sll %i5, 2, %i5
+    \\ sll %i2, 2, %i2
     \\ .endif
     \\ .if \bp1
     \\ save %sp, -256, %sp
     \\ ldx [%sp+ 2423 + 56], %i1
     \\ ldx [%sp+ 2423 + 64], %i2
+    \\ sllx %i5, 2, %i5
+    \\ sllx %i2, 2, %i2
     \\ .endif
-    \\ sll %i5, 2, %i5
-    \\ sll %i2, 2, %i2
     \\ cmp %i5, 4
     \\ bne 20005f
     \\ nop

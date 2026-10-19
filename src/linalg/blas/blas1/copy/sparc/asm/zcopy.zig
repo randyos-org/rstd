@@ -43,12 +43,14 @@ const text =
     \\ .proc 07
     \\ .if \bp0
     \\ save %sp, -64, %sp
+    \\ sll %i2, 4, %i2
+    \\ sll %i4, 4, %i4
     \\ .endif
     \\ .if \bp1
     \\ save %sp, -256, %sp
+    \\ sllx %i2, 4, %i2
+    \\ sllx %i4, 4, %i4
     \\ .endif
-    \\ sll %i2, 4, %i2
-    \\ sll %i4, 4, %i4
     \\ cmp %i2, 2 * 8
     \\ bne 20004f
     \\ nop

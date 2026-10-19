@@ -34,8 +34,8 @@ const Body = struct {
             \\ ldx [%sp + 2423 + 56], %i1
             \\ ldx [%sp + 2423 + 64], %i2
             \\ ldx [%sp + 2423 + 72], %i3
-            \\ sll %i1, 4, %i1
-            \\ sll %i3, 4, %i3
+            \\ sllx %i1, 4, %i1
+            \\ sllx %i3, 4, %i3
             \\ cmp %i1, 2 * 8
             \\ bne 20005f
             \\ nop

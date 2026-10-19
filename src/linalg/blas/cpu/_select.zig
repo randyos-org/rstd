@@ -88,7 +88,7 @@ pub fn Sets(comptime Core: type) type {
 /// Whether `a`'s kernels need no feature `b`'s do not.
 pub fn subsetOf(comptime Core: type, a: Core, b: Core) bool {
     const sets = Sets(Core).all;
-    return sets[@intFromEnum(b)].isSuperSetOf(sets[@intFromEnum(a)]);
+    return sets[@backingInt(b)].isSuperSetOf(sets[@backingInt(a)]);
 }
 
 /// What `closest` may stand in: only a core needing no feature the wanted one
@@ -110,7 +110,7 @@ pub fn closest(comptime Core: type, want: Core, ctx: anytype, mode: Mode) ?Core 
         if (staticOnly(c)) continue;
         const sub = subsetOf(Core, c, want);
         if (mode == .subset and !sub) continue;
-        const n: usize = sets[@intFromEnum(c)].count();
+        const n: usize = sets[@backingInt(c)].count();
         if (best == null or (sub and !best_sub) or (sub == best_sub and n > best_count)) {
             best = c;
             best_sub = sub;
@@ -298,8 +298,8 @@ test "byName is case insensitive and never names the placeholder" {
 
 test "every core type has a feature set and the sets nest along the AVX-512 line" {
     inline for (.{
-        coretypes.X86CoreType,   coretypes.Arm64CoreType,  coretypes.ArmCoreType,
-        coretypes.PowerCoreType, coretypes.RiscvCoreType,  coretypes.MipsCoreType,
+        coretypes.X86CoreType,       coretypes.Arm64CoreType, coretypes.ArmCoreType,
+        coretypes.PowerCoreType,     coretypes.RiscvCoreType, coretypes.MipsCoreType,
         coretypes.LoongarchCoreType, coretypes.S390xCoreType, coretypes.SparcCoreType,
         coretypes.WasmCoreType,
     }) |C| _ = Sets(C).all;
@@ -335,7 +335,17 @@ fn LinkedList(comptime list: []const X86) type {
 const x86d = @import("_detect/x86.zig");
 
 fn intelCaps(eax1: u32, level: u8) x86d.Caps {
-    return .{ .vendor = .intel, .eax1 = eax1, .sse3 = true, .ssse3 = true, .sse4_1 = true, .avx = level >= 1, .fma3 = level >= 2, .avx2 = level >= 2, .avx512 = level >= 3, .avx512_bf16 = level >= 4, .amx_bf16 = level >= 5 };
+    return .{ .vendor = .intel, .eax1 = eax1, .features = .init(.{
+        .sse3 = true,
+        .ssse3 = true,
+        .sse4_1 = true,
+        .avx = level >= 1,
+        .fma = level >= 2,
+        .avx2 = level >= 2,
+        .avx512 = level >= 3,
+        .avx512_bf16 = level >= 4,
+        .amx_bf16 = level >= 5,
+    }) };
 }
 
 test "choose: detection with every core linked is the detector's answer" {
@@ -444,7 +454,7 @@ fn checkServed(comptime arch: std.Target.Cpu.Arch, comptime must_have_object: bo
         const s = served(Core, c, Objects(arch){});
         if (s) |k| {
             try std.testing.expect(subsetOf(Core, k, c));
-        } else if (must_have_object and Sets(Core).all[@intFromEnum(c)].count() != 0) {
+        } else if (must_have_object and Sets(Core).all[@backingInt(c)].count() != 0) {
             std.debug.print("{s}: {t} has no core to run it\n", .{ @tagName(arch), c });
             return error.TestUnexpectedResult;
         }

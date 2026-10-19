@@ -38,8 +38,45 @@ pub fn partOf(text: []const u8) u32 {
 }
 
 pub fn probe() Caps {
+    if (comptime !sysinfo.cpu.arch.isArm()) return .{};
+    switch (comptime sysinfo.os.tag) {
+        // no OS to ask: the ID registers, readable at PL1 and up
+        .freestanding, .uefi => return idRegisters(),
+        else => {},
+    }
     var buf: [4096]u8 = undefined;
     return .{ .hwcap = auxv.hwcap(), .part = partOf(auxv.readFile("/proc/cpuinfo", &buf)) };
+}
+
+fn cp15(comptime reg: []const u8) u32 {
+    return asm volatile ("mrc p15, 0, %[out], " ++ reg
+        : [out] "=r" (-> u32),
+    );
+}
+
+fn vmrs(comptime reg: []const u8) u32 {
+    return asm volatile ("vmrs %[out], " ++ reg
+        : [out] "=r" (-> u32),
+    );
+}
+
+/// `MIDR`'s part, and the hwcaps Linux's `vfp_init` derives from `MVFR0` and
+/// `MVFR1`; none where `CPACR` or `FPEXC.EN` leave the FPU off.
+fn idRegisters() Caps {
+    const part = (cp15("c0, c0, 0") >> 4) & 0xfff;
+    if (comptime !sysinfo.cpu.has(.arm, .vfp2)) return .{ .part = part };
+    if ((cp15("c1, c0, 2") >> 20) & 0x3 == 0 or vmrs("fpexc") & (1 << 30) == 0) return .{ .part = part };
+    const mvfr0 = vmrs("mvfr0");
+    const mvfr1 = vmrs("mvfr1");
+    var hw: usize = 0;
+    // single or double precision; VFPv3 is level 2 in either
+    if (mvfr0 & 0xff0 != 0) hw |= HWCAP_VFP;
+    if (@max((mvfr0 >> 4) & 0xf, (mvfr0 >> 8) & 0xf) >= 2) {
+        hw |= HWCAP_VFPv3 | @as(usize, if (mvfr0 & 0xf == 1) HWCAP_VFPv3D16 else HWCAP_VFPD32);
+    }
+    if (mvfr1 & 0x000fff00 == 0x00011100) hw |= HWCAP_NEON;
+    if (mvfr1 & 0xf0000000 == 0x10000000) hw |= HWCAP_VFPv4;
+    return .{ .hwcap = hw, .part = part };
 }
 
 test "partOf reads the first CPU part line" {
@@ -69,6 +106,11 @@ pub fn decide(c: Caps) Decision {
     if (runnable(.armv7, c)) return .{ .core = .armv7 };
     if (runnable(.armv6, c)) return .{ .core = .armv6 };
     return .{ .core = .armv5 };
+}
+
+/// Whether the kernels of `core` run on this CPU.
+pub fn supportsCore(core: CoreType) bool {
+    return runnable(core, probe());
 }
 
 pub fn detect() CoreType {
@@ -112,5 +154,5 @@ test "no CPU is given a core it cannot run" {
 
 test "detect runs on 32-bit ARM targets" {
     if (comptime !sysinfo.cpu.arch.isArm()) return error.SkipZigTest;
-    _ = detect();
+    try std.testing.expect(supportsCore(detect()));
 }

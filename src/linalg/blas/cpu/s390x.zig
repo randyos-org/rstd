@@ -9,6 +9,7 @@ const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
 
 pub const CoreType = detector.CoreType;
+pub const canRun = detector.supportsCore;
 pub const kernel = @import("../kernels/s390x.zig");
 /// Detects the running core, under the configured `LD_HWCAP_MASK`.
 pub fn detect() CoreType {

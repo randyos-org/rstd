@@ -55,8 +55,14 @@ const text =
     \\ cmp %i0, 0
     \\ ble 20004f
     \\ nop
+    \\ .if \bp0
     \\ sll %i2, 4, %i2
     \\ sll %i4, 4, %i4
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 4, %i2
+    \\ sllx %i4, 4, %i4
+    \\ .endif
     \\ cmp %i2, 2 * 8
     \\ bne 20005f
     \\ nop

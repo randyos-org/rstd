@@ -50,6 +50,16 @@ fn serviceName(comptime s: []const u8) u64 {
     return @intFromPtr((s ++ "\x00").ptr);
 }
 
+/// The tests' heap, claimed from the firmware: mapped wherever it chooses, so
+/// none of the 4 MB it maps of the image goes to it. Empty if refused.
+pub fn heapRegion(comptime len: usize, comptime alignment: usize) []align(alignment) u8 {
+    var claim = [_]u64{ serviceName("claim"), 3, 1, 0, len, alignment, 0 };
+    call(&claim);
+    if (claim[6] == 0 or claim[6] == ~@as(u64, 0)) return &.{};
+    const p: [*]align(alignment) u8 = @ptrFromInt(claim[6]);
+    return p[0..len];
+}
+
 var stdout_handle: u32 = 0;
 
 fn openStdout() void {

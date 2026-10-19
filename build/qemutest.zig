@@ -1,17 +1,24 @@
 //! `qemu-test` step: runs rstd's tests on emulated machines with
 //! `qemu-system-*`. Needs `qemu-system-<arch>` on `PATH`. A machine boots one
-//! of two ways (`Boot`):
+//! of three ways (`Boot`):
 //!
 //!   * `.kernel`: a freestanding test kernel per architecture (boot code in
-//!     `src/_qemutest/`, runner in `src/_test_qemu_runner.zig`, test root in
+//!     `test/qemu/`, runner in `test/qemu/runner.zig`, test root in
 //!     `src/_test_qemu.zig`). Where the machine has semihosting (aarch64, arm,
 //!     riscv64, mips64el) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
-//!     step checks the printed summary for "0 failed".
+//!     step checks the printed summary for "0 failed". The console is also
+//!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
+//!   * `.linux`: rstd's full test suite as a static Linux executable, in an
+//!     initramfs whose init (`test/linux/init.zig`) mounts procfs, sysfs
+//!     and devtmpfs, runs it and reports. The kernel is a Debian netboot one,
+//!     a lazy dependency fetched only when rstd is the project being built
+//!     (`-Dlinux-vm-off` skips it). No disk, network or
+//!     setup; the console is logged live like the kernel rigs'.
 //!   * `.macos`: rstd's unit tests in an installed macOS, which the Mach-O
 //!     kernels need, copied in and run over SSH. It boots with OSX-KVM's
 //!     OpenCore and firmware, a lazy dependency fetched only when rstd is the
-//!     project being built (`-Dmacos-vm=false` skips it), so a dependent never
+//!     project being built (`-Dmacos-vm-off` skips it), so a dependent never
 //!     fetches it. The VM lives in `.macos-vm/<name>/` (gitignored).
 //!
 //! A macOS machine, once:
@@ -60,13 +67,21 @@ const Machine = struct {
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
+    /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
+    /// machine whose firmware maps too little for all the tests in one image;
+    /// `-Dqemu-test-filter` builds one image as usual.
+    parts: []const Part = &.{},
 };
+
+const Part = struct { name: []const u8, filters: []const []const u8 };
 
 /// How the tests reach a machine.
 const Boot = union(enum) {
     kernel: Kernel,
     /// An installed macOS, set up once (see the file header).
     macos,
+    /// A Linux kernel booted with an initramfs holding rstd's full test suite.
+    linux: Linux,
 
     /// A freestanding test kernel, booted bare with `-kernel`.
     const Kernel = struct {
@@ -81,6 +96,16 @@ const Boot = union(enum) {
         /// expecting it keeps a passing run quiet.
         stderr_note: ?[]const u8 = null,
     };
+
+    /// A Debian netboot kernel (a lazy dependency) and an initramfs of
+    /// `test/linux/init.zig` as PID 1 and the hosted test executable.
+    const Linux = struct {
+        /// The `build.zig.zon` dependency, and the kernel's path in it.
+        dep: []const u8,
+        kernel: []const u8,
+        /// The kernel's console, on the machine's first serial port.
+        console: []const u8,
+    };
 };
 
 const machines = [_]Machine{
@@ -90,7 +115,7 @@ const machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/aarch64.ld",
+            .linker_script = "test/qemu/aarch64.ld",
         } },
     },
     .{
@@ -99,7 +124,7 @@ const machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "neoverse-v1" },
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/aarch64.ld",
+            .linker_script = "test/qemu/aarch64.ld",
         } },
     },
     .{
@@ -108,18 +133,19 @@ const machines = [_]Machine{
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/arm.ld",
+            .linker_script = "test/qemu/arm.ld",
         } },
     },
     .{
         .name = "riscv64",
         .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
         .qemu = "qemu-system-riscv64",
-        // the vector extension, which the RVV kernels need
-        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=256", "-smp", "1", "-bios", "none" },
+        // the vector extension, which the RVV kernels need, at the VLEN of
+        // the widest linked core (x280's 512)
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=512", "-smp", "1", "-bios", "none" },
         .boot = .{
             .kernel = .{
-                .linker_script = "src/_qemutest/riscv64.ld",
+                .linker_script = "test/qemu/riscv64.ld",
                 // The kernel sits at 0x80000000, out of reach of the default `medlow`.
                 .code_model = .medany,
             },
@@ -132,7 +158,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "virt", "-cpu", "la464" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/loongarch64.ld",
+            .linker_script = "test/qemu/loongarch64.ld",
             .semihosting = false,
         } },
     },
@@ -143,7 +169,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "Loongson-3A1000" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips64.ld",
+            .linker_script = "test/qemu/mips64.ld",
         } },
     },
     .{
@@ -153,7 +179,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "I6400" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips64.ld",
+            .linker_script = "test/qemu/mips64.ld",
         } },
     },
     .{
@@ -163,7 +189,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "24Kf" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips32.ld",
+            .linker_script = "test/qemu/mips32.ld",
         } },
     },
     .{
@@ -173,7 +199,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "malta", "-cpu", "P5600" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/mips32.ld",
+            .linker_script = "test/qemu/mips32.ld",
         } },
     },
     .{
@@ -183,7 +209,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "pentium3" },
         .memory = "128M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/x86.ld",
+            .linker_script = "test/qemu/x86.ld",
             .semihosting = false,
         } },
     },
@@ -194,7 +220,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max" },
         .memory = "128M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/x86_64.ld",
+            .linker_script = "test/qemu/x86_64.ld",
             .llvm = true,
             .semihosting = false,
         } },
@@ -202,12 +228,23 @@ const machines = [_]Machine{
     .{
         .name = "sparc64",
         .optimize = .fast,
+        // OpenBIOS maps 0x400000 to 0x800000 only, and the default set's
+        // code alone is about 5 MB; blas2 by itself is 3.3 MB
+        .parts = &.{
+            .{ .name = "blas1", .filters = &.{"linalg.blas.blas1."} },
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
+            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
+            .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
+            .{ .name = "blas3", .filters = &.{"linalg.blas.blas3."} },
+            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+        },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
         .qemu = "qemu-system-sparc64",
         .args = &.{ "-M", "sun4u" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/sparc64.ld",
+            .linker_script = "test/qemu/sparc64.ld",
             .semihosting = false,
         } },
     },
@@ -219,7 +256,7 @@ const machines = [_]Machine{
         .memory = "512M",
         .boot = .{
             .kernel = .{
-                .linker_script = "src/_qemutest/ppc64le.ld",
+                .linker_script = "test/qemu/ppc64le.ld",
                 .semihosting = false,
                 // the firmware loader's 0x400000 shift, see the linker script
                 .stderr_note = "kernel_addr changed",
@@ -233,7 +270,7 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
         .memory = "512M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/ppc64le.ld",
+            .linker_script = "test/qemu/ppc64le.ld",
             .semihosting = false,
             .stderr_note = "kernel_addr changed",
         } },
@@ -260,9 +297,26 @@ const machines = [_]Machine{
         .args = &.{ "-M", "s390-ccw-virtio", "-cpu", "max" },
         .memory = "256M",
         .boot = .{ .kernel = .{
-            .linker_script = "src/_qemutest/s390x.ld",
+            .linker_script = "test/qemu/s390x.ld",
             .semihosting = false,
         } },
+    },
+    .{
+        .name = "linux-aarch64",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .linux },
+        .qemu = "qemu-system-aarch64",
+        // four CPUs, for the tests that race threads
+        .args = &.{ "-M", "virt", "-cpu", "max", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+    },
+    .{
+        .name = "linux-x86_64",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .linux },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{
         // macOS 13 and up; Zig's default minimum is 15.0
@@ -292,16 +346,16 @@ const machines = [_]Machine{
     },
 };
 
-/// Tests that need an OS (allocator, files, threads) live in files the test
-/// root also reaches, so the runnable ones are picked by name instead.
-const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.gemm.params", "simd." };
+/// Tests that need an OS (files, threads) live in files the test root also
+/// reaches, so the runnable ones are picked by name; the runner supplies a heap.
+const default_filters: []const []const u8 = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "simd." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
     // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
-    const macos_vm = b.option(bool, "macos-vm", "Add the macOS VM rigs, fetching OSX-KVM (default: when rstd is the root project)") orelse b.isRoot();
+    const macos_vm = vmOption(b, "macos-vm", "the macOS VM rigs", "OSX-KVM");
     const mac: MacOptions = if (macos_vm) .{
         .user = b.option([]const u8, "mac-user", "macOS account in the VM (default randyos)") orelse "randyos",
         .port = b.option(u16, "mac-port", "Host port forwarded to the VM's ssh") orelse 2222,
@@ -314,18 +368,114 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         .ovmf_vars = b.option([]const u8, "mac-ovmf-vars", "Empty OVMF variable store for qemu-setup (default: QEMU's edk2-i386-vars.fd)"),
         .snapshot = b.option([]const u8, "mac-snapshot", "Name of the restore point qemu-snapshot/restore make or go back to (default clean)") orelse "clean",
     } else .{};
+    // a one-time fetch of about 55 MB per kernel
+    const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
 
     for (machines) |m| {
         if (m.stub != null) continue;
         const target = b.resolveTargetQuery(m.query);
+        if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
+            const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
+            for (m.parts) |p| {
+                var part = m;
+                part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
+                const run = addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters);
+                step.dependOn(&run.step);
+                all.dependOn(&run.step);
+            }
+            continue;
+        }
         const run = switch (m.boot) {
             .kernel => |k| addKernelRun(b, m, k, target, m.optimize orelse optimize, filters),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
+            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters) orelse continue else continue,
         };
-        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}", .{m.name}));
+        const about = switch (m.boot) {
+            .kernel, .linux => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
+            .macos => b.fmt("Run rstd's tests under qemu-system on {s}", .{m.name}),
+        };
+        const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), about);
         step.dependOn(&run.step);
         all.dependOn(&run.step);
     }
+}
+
+/// Whether to add a family of VM rigs: on when rstd is the root project, so a
+/// dependent never fetches what they need; `-D<name>-off` turns them off, and
+/// `-D<name>` on in a dependent. `-off` wins.
+fn vmOption(b: *Build, comptime name: []const u8, comptime rigs: []const u8, comptime needs: []const u8) bool {
+    const on = b.option(bool, name, "Add " ++ rigs ++ ", fetching " ++ needs ++ " (default: when rstd is the root project)");
+    const off = b.option(bool, name ++ "-off", "Leave out " ++ rigs ++ " and do not fetch " ++ needs) orelse false;
+    return !off and (on orelse b.isRoot());
+}
+
+/// `m`'s qemu, under `tools/qemu_watch.zig`: a firmware halt or an hour with
+/// no output ends it and fails the step, where it would otherwise never end.
+/// The slowest test prints nothing for about 20 minutes on the x86 rigs.
+fn qemuCommand(b: *Build, m: Machine) *Build.Step.Run {
+    const run = b.addRunArtifact(watchTool(b));
+    run.addArgs(&.{ "60", "Stopping execution", "--", m.qemu });
+    return run;
+}
+
+var watch_tool: ?*Build.Step.Compile = null;
+
+fn watchTool(b: *Build) *Build.Step.Compile {
+    if (watch_tool) |t| if (t.step.owner == b) return t;
+    watch_tool = b.addExecutable(.{ .name = "qemu_watch", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/qemu_watch.zig"),
+        .target = b.graph.host,
+    }) });
+    return watch_tool.?;
+}
+
+/// Where `m`'s console is logged live, relative to the build root.
+fn liveLog(b: *Build, m: Machine) []const u8 {
+    return b.fmt(".zig-cache/qemu-test-{s}.log", .{m.name});
+}
+
+/// qemu's console on stdout and, as it is written, in `liveLog`: a run step
+/// checking stdout shows it only once qemu exits. Naming the serial port and
+/// monitor keeps `-nographic`'s firmware console.
+fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine) void {
+    run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
+    run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off,logfile={s}", .{liveLog(b, m)}), "-serial", "chardev:con", "-mon", "chardev=con" });
+}
+
+/// QEMU booting a Debian kernel with an initramfs of `test/linux/init.zig`
+/// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
+/// null until the kernel's package is fetched.
+fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8) !?*Build.Step.Run {
+    const kernel = b.lazyDependency(l.dep, .{}) orelse return null;
+    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
+    const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
+    const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
+        .root_source_file = b.path("test/linux/init.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    const tool = b.addExecutable(.{ .name = "initramfs", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/initramfs.zig"),
+        .target = b.graph.host,
+    }) });
+    const pack = b.addRunArtifact(tool);
+    const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
+    pack.addPrefixedArtifactArg("init=", init_exe);
+    pack.addPrefixedArtifactArg("test=", test_exe);
+
+    const run = qemuCommand(b, m);
+    run.addArgs(m.args);
+    addConsole(b, run, m);
+    run.addArg("-kernel");
+    run.addFileArg(kernel.path(l.kernel));
+    run.addArg("-initrd");
+    run.addFileArg(cpio);
+    // panic=-1: a dead init restarts at once, which -no-reboot makes an exit
+    run.addArgs(&.{ "-append", b.fmt("console={s} rdinit=/init panic=-1 quiet loglevel=3", .{l.console}) });
+    run.has_side_effects = true;
+    // `passed` in test/linux/init.zig
+    run.expectStdOutMatch("linuxtest: /test exited 0");
+    return run;
 }
 
 /// QEMU booting `m`'s freestanding test kernel.
@@ -335,13 +485,15 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .target = target,
         .optimize = optimize,
         .code_model = k.code_model,
+        // no threads under a test kernel
+        .single_threaded = true,
     });
     // the kernels of the architectures that have any
     blaskern.addBlasKernels(b, test_mod, target, .all);
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
-        .test_runner = .{ .path = b.path("src/_test_qemu_runner.zig"), .mode = .simple },
+        .test_runner = .{ .path = b.path("test/qemu/runner.zig"), .mode = .simple },
         .filters = if (filters.len != 0) filters else default_filters,
         .use_llvm = if (k.llvm) true else null,
         // every rig needs its linker script, which only lld honors
@@ -349,10 +501,10 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     });
     test_exe.setLinkerScript(b.path(k.linker_script));
 
-    const run = b.addSystemCommand(&.{m.qemu});
+    const run = qemuCommand(b, m);
     run.addArgs(m.args);
-    run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
-    if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native" });
+    addConsole(b, run, m);
+    if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
     run.addArg("-kernel");
     run.addArtifactArg(test_exe);
     run.has_side_effects = true;

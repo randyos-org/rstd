@@ -204,6 +204,7 @@ copy_file_range
 corth
 cosm
 cpht
+cpio
 Cplx
 cpucfg
 CPUPERF
@@ -1001,6 +1002,7 @@ mssse
 MSUB
 MSVC
 msync
+MSYS
 mtctr
 mtlr
 mtmsrd
@@ -1008,6 +1010,7 @@ mtrr
 MTRRs
 mtsdf
 mtspr
+mttcg
 mtune
 mulpd
 mulps
@@ -1271,6 +1274,7 @@ rcond
 rcurveline
 RDFSBASE
 RDGSBASE
+rdinit
 rdiv
 RDLCK
 RDMSR

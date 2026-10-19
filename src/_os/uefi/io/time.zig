@@ -101,5 +101,5 @@ pub fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.Cancelable!void {
     };
     if (ns <= 0) return;
     const bs = state.bootServices() orelse return;
-    bs.stall(@intCast(@divTrunc(ns, std.time.ns_per_us))) catch {};
+    bs.stall(@intCast(@divTrunc(ns, std.time.ns_per_us))) catch return;
 }

@@ -14,7 +14,9 @@ SECTIONS
         . = ALIGN(8);
         __bss_end = .;
         . = ALIGN(16);
-        . += 0x40000;
+        __stack_bottom = .;
+        /* 512 KiB: the heap comes from the firmware, so the image has room */
+        . += 0x80000;
         __stack_top = .;
     }
 }

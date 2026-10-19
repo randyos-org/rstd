@@ -50,13 +50,23 @@ const text =
     \\ .word ((2 << 30) | ((3) << 25) | ( 0x36 << 19) | ( 0x60 << 5))
     \\ mov %i1, %i4
     \\ mov 0x3ff, %g1
+    \\ .if \bp0
     \\ sll %g1, 20, %g1
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %g1, 20, %g1
+    \\ .endif
     \\ cmp %i0, 0
     \\ ble 20010f
     \\ fmovd %f34, %f0
     \\ cmp %i2, 0
     \\ beq 20010f
+    \\ .if \bp0
     \\ sll %i2, 4, %i2
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 4, %i2
+    \\ .endif
     \\ add %sp, -8, %sp
     \\ .if \bp0
     \\ st %g1, [%sp + 128 + 0]

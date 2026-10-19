@@ -50,6 +50,8 @@ const text =
     \\ ld [%sp+ 128 + 36], %i3
     \\ ld [%sp + 128 + 16], %f30
     \\ ld [%sp + 128 + 20], %f31
+    \\ sll %i1, 3, %i1
+    \\ sll %i3, 3, %i3
     \\ .endif
     \\ .if \bp1
     \\ save %sp, -256, %sp
@@ -58,9 +60,9 @@ const text =
     \\ ldx [%sp + 2423 + 72], %i3
     \\ fmovs %f7, %f30
     \\ fmovs %f9, %f31
+    \\ sllx %i1, 3, %i1
+    \\ sllx %i3, 3, %i3
     \\ .endif
-    \\ sll %i1, 3, %i1
-    \\ sll %i3, 3, %i3
     \\ cmp %i1, 2 * 4
     \\ bne 20005f
     \\ nop

@@ -48,7 +48,12 @@ const text =
     \\ save %sp, -256, %sp
     \\ .endif
     \\ .word ((2 << 30) | ((0) << 25) | ( 0x36 << 19) | ( 0x61 << 5))
+    \\ .if \bp0
     \\ sll %i2, 3, %i2
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i2, 3, %i2
+    \\ .endif
     \\ fmovs %f0, %f1
     \\ fmovs %f0, %f4
     \\ fmovs %f0, %f5

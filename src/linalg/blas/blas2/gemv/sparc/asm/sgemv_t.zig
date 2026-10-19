@@ -69,14 +69,31 @@ const text =
     \\ .word ((2 << 30) | ((30) << 25) | ( 0x36 << 19) | ( 0x61 << 5))
     \\ clr %l4
     \\ mov 1020, %l3
+    \\ .if \bp0
     \\ sll %i5, 2, %i5
     \\ sll %l3, 2, %l3
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i5, 2, %i5
+    \\ sllx %l3, 2, %l3
+    \\ .endif
     \\ smul %i5, %i1, %g1
+    \\ .if \bp0
     \\ sll %i3, 2, %i3
     \\ sll %l1, 2, %l1
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i3, 2, %i3
+    \\ sllx %l1, 2, %l1
+    \\ .endif
     \\ sub %l3, %g1, %g1
     \\ 20000:
+    \\ .if \bp0
     \\ sll %l4, 2, %l3
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %l4, 2, %l3
+    \\ .endif
     \\ sub %i0, %l4, %l6
     \\ cmp %l6, 1020
     \\ nop

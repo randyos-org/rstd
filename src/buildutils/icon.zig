@@ -49,7 +49,8 @@ pub const Icon = struct {
         rgba_name: []const u8,
     ) !Icon {
         const target = b.graph.host;
-        const rstd = try addRstd(b, target, null, false, .{});
+        // genicon draws with rgl and never touches BLAS
+        const rstd = try addRstd(b, target, null, false, .{ .blas_cores = .none });
 
         const mod = b.createModule(.{
             .root_source_file = rstd.dep.?.path("src/rgl/gen_icon.zig"),
@@ -66,9 +67,9 @@ pub const Icon = struct {
         run.addFileArg(in_png_path);
 
         // record the paths of the generated output files so the build graph knows about them
-        const png_build_path = run.addOutputFileArg(png_name);
-        const ico_build_path = run.addOutputFileArg(ico_name);
-        const rgba_build_path = run.addOutputFileArg(rgba_name);
+        const png_build_path = run.addOutputFileArg2(png_name, .{});
+        const ico_build_path = run.addOutputFileArg2(ico_name, .{});
+        const rgba_build_path = run.addOutputFileArg2(rgba_name, .{});
 
         // The .rc ICON directive references "icon.ico" by a bare name, resolved
         // relative to the .rc file's own directory, so the generated icon.ico

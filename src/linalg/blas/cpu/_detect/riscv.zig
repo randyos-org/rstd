@@ -63,6 +63,20 @@ fn isRvv100() bool {
     return r != 0;
 }
 
+fn csr(comptime name: []const u8) usize {
+    return asm volatile ("csrr %[out], " ++ name
+        : [out] "=r" (-> usize),
+    );
+}
+
+/// With no OS to ask, in M-mode (as the rig runs): `misa`'s V (the hwcap's
+/// letter bit) and the unit on in `mstatus.VS`, before any vector instruction.
+fn machineCaps() Caps {
+    if (csr("misa") & HWCAP_ISA_V == 0 or csr("mstatus") & 0x600 == 0) return .{};
+    if (!isRvv100()) return .{};
+    return .{ .vector = true, .vlenb = readVlenb() };
+}
+
 pub const Caps = struct {
     /// RVV 1.0 present and usable
     vector: bool = false,
@@ -72,7 +86,11 @@ pub const Caps = struct {
 
 pub fn probe() Caps {
     if (comptime !sysinfo.cpu.arch.isRISCV()) return .{};
-    if (sysinfo.os.tag != .linux) return .{};
+    switch (comptime sysinfo.os.tag) {
+        .linux => {},
+        .freestanding => return machineCaps(),
+        else => return .{},
+    }
     var pairs = [_]Pair{.{ .key = RISCV_HWPROBE_KEY_IMA_EXT_0, .value = 0 }};
     if (hwprobe(&pairs, 0)) {
         if (pairs[0].value & RISCV_HWPROBE_IMA_V == 0) return .{};
@@ -100,6 +118,11 @@ pub fn decide(c: Caps) Decision {
     if (!c.vector or c.vlenb < 16) return .{ .core = .riscv64_generic };
     if (c.vlenb >= 32) return .{ .core = .riscv64_zvl256b };
     return .{ .core = .riscv64_zvl128b };
+}
+
+/// Whether the kernels of `core` run on this CPU.
+pub fn supportsCore(core: CoreType) bool {
+    return runnable(core, probe());
 }
 
 pub fn detect() CoreType {
@@ -131,5 +154,5 @@ test "the vector cores need their VLEN" {
 
 test "detect runs on RISC-V targets" {
     if (comptime !sysinfo.cpu.arch.isRISCV()) return error.SkipZigTest;
-    _ = detect();
+    try std.testing.expect(supportsCore(detect()));
 }

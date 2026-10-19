@@ -55,7 +55,7 @@ pub const futexWait = Io.noFutexWait;
 pub fn futexWaitUncancelable(userdata: ?*anyopaque, _: *const u32, _: u32) void {
     _ = userdata;
     // std.debug parks a panicking task in `while (true)`; stall so it's not a busy spin
-    if (state.bootServices()) |bs| bs.stall(1000) catch {};
+    if (state.bootServices()) |bs| bs.stall(1000) catch return;
 }
 
 pub const futexWake = Io.noFutexWake;

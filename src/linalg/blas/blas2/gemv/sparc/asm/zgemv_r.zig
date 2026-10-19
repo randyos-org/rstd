@@ -53,6 +53,7 @@ const text =
     \\ ld [%sp + 128 + 48], %l0
     \\ ld [%sp + 128 + 52], %l1
     \\ ld [%sp + 128 + 56], %l2
+    \\ sll %i2, 4, %i2
     \\ .endif
     \\ .if \bp1
     \\ save %sp, -256, %sp
@@ -64,14 +65,24 @@ const text =
     \\ ldx [%sp + 2423 + 96], %l2
     \\ std %f6, [%sp + 2423 + 32]
     \\ std %f8, [%sp + 2423 + 40]
+    \\ sllx %i2, 4, %i2
     \\ .endif
-    \\ sll %i2, 4, %i2
     \\ cmp %i0, 0
     \\ ble %icc, 20019f
+    \\ .if \bp0
     \\ sll %i4, 4, %i4
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %i4, 4, %i4
+    \\ .endif
     \\ cmp %i1, 0
     \\ ble %icc, 20019f
+    \\ .if \bp0
     \\ sll %l1, 4, %l1
+    \\ .endif
+    \\ .if \bp1
+    \\ sllx %l1, 4, %l1
+    \\ .endif
     \\ cmp %l1, 2 * 8
     \\ be %icc, 20001f
     \\ mov %l0, %l6
