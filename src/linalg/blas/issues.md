@@ -601,10 +601,9 @@ infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
   routines), `power/amax.S` and its kin (every POWER core) and the
   `loongarch64` extremes compare in vector lanes, so what a NaN does depends
   on where it falls: a NaN first may be passed over, a later one picked.
-  With a NaN in the maximum, `iamax_sse2.S` returned `n + 1` (`interface.zig`
-  clamps the index to `n`); `power/amax.S`, with a NaN last, returned an
-  element smaller than the maximum; `loongarch64/amax_lsx.S` returned 0 for
-  a lone NaN.
+  `power/amax.S`, with a NaN last, returned an element smaller than the
+  maximum; `loongarch64/amax_lsx.S` returned 0 for a lone NaN. (The x86_64
+  index kernels also returned `n + 1` for a NaN extreme; fixed, `readme.md`.)
 - **Extremes, ties.** `mips64/iamax.S` (loongson3r3, loongson3r4) and the
   `sparc` index kernels: of equal keys (two infinities), a later one.
 - **`nrm2` of an infinity is NaN.** `power/nrm2.S` and its kin (every POWER

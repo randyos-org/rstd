@@ -215,6 +215,11 @@ generated files carry the fixed code.
 - `x86_64/zscal_atom.S`: never read the flag at all, so a zero `alpha`
   always stored zeros; it now tests it as `scal_atom.S` does. A NaN
   imaginary part beside a zero real one also counted as zero.
+- `x86_64/iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`
+  (every `i?amax`, `i?amin`, `i?max`, `i?min` on x86_64): the index search
+  takes the last element as the match unread, but counted it even when it
+  had been read, so for a NaN extreme, which no element equals, returned
+  `n + 1`. It now returns `n` there.
 - `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
   argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
   ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero

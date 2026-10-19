@@ -85,4 +85,23 @@ const patches = [_]arch.Patch{
         .find = "\tjne\t.L30\t\t# Alpha_i != ZERO\n",
         .replace = "\tjne\t.L30\t\t# Alpha_i != ZERO\n\tjp\t.L30\n\tcmpq\t$1, %r9\n\tje\t.L30\n",
     },
+    // the index search's last step counts the last element as the match
+    // unread; with an even count it was read already, so a NaN extreme
+    // (which no element equals) returned n + 1
+    inRange("iamax_sse.S", ".L27"),
+    inRange("iamax_sse.S", ".L47"),
+    inRange("iamax_sse.S", ".L97"),
+    inRange("iamax_sse2.S", ".L28"),
+    inRange("iamax_sse2.S", ".L68"),
+    inRange("iamax_sse2.S", ".L98"),
+    inRange("izamax_sse.S", ".L47"),
+    inRange("izamax_sse.S", ".L87"),
+    inRange("izamax_sse2.S", ".L36"),
+    inRange("izamax_sse2.S", ".L76"),
 };
+
+/// The index search's fallback at `label`: count the last element only when
+/// it is left over (`M` odd).
+fn inRange(comptime source: []const u8, comptime label: []const u8) arch.Patch {
+    return .{ .source = source, .find = "\n" ++ label ++ ":\n\tincq\tRET\n", .replace = "\n" ++ label ++ ":\n\ttestq\t$1, M\n\tje\t.L999\n\tincq\tRET\n" };
+}

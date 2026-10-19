@@ -55,8 +55,7 @@ const Quirk = enum {
     /// element replaces it.
     nan_replaced,
     /// The extremes compare lane by lane, so what a NaN does depends on
-    /// where it falls: any element's key or NaN, an index from 1 to `n + 1`
-    /// (the interface clamps it).
+    /// where it falls: any element's key or NaN, any index.
     nan_lanes,
     /// Of equal extremes, any may be picked.
     ties,
@@ -491,11 +490,10 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
     return error.TestUnexpectedResult;
 }
 
-/// A `nan_lanes` result: NaN or any element's key, or an index from 1 to
-/// `n + 1`.
+/// A `nan_lanes` result: NaN or any element's key, or an index from 1 to `n`.
 fn loose(comptime T: type, x: anytype, find: extremum.Find, got: anytype) !void {
     if (@TypeOf(got) == BlasLong) {
-        if (got >= 1 and got <= @as(BlasLong, @intCast(x.n)) + 1) return;
+        if (got >= 1 and got <= @as(BlasLong, @intCast(x.n))) return;
     } else {
         // or 0, where a maximum starts from
         if (std.math.isNan(got) or got == 0) return;

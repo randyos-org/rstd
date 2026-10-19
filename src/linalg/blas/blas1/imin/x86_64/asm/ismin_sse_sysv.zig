@@ -337,6 +337,8 @@ const text =
     \\ je 20038f
     \\ .balign 8
     \\ 20014:
+    \\ testq $1, %rdi
+    \\ je 20038f
     \\ incq %rax
     \\ jmp 20038f
     \\ .balign 8
@@ -582,6 +584,8 @@ const text =
     \\ je 20038f
     \\ .balign 8
     \\ 20026:
+    \\ testq $1, %rdi
+    \\ je 20038f
     \\ incq %rax
     \\ jmp 20038f
     \\ .balign 8
@@ -786,6 +790,8 @@ const text =
     \\ je 20038f
     \\ .balign 8
     \\ 20037:
+    \\ testq $1, %rdi
+    \\ je 20038f
     \\ incq %rax
     \\ .balign 8
     \\ 20038:

@@ -10,6 +10,5 @@ pub const entries = [_]Entry{
     .{ .role = "idmin", .module = @import("idmin_sse2_core2_sysv.zig") },
     .{ .role = "idmin", .module = @import("idmin_sse2_opteron_sysv.zig") },
     .{ .role = "idmin", .module = @import("idmin_sse2_atom_win.zig") },
-    .{ .role = "idmin", .module = @import("idmin_sse2_core2_win.zig") },
     .{ .role = "idmin", .module = @import("idmin_sse2_opteron_win.zig") },
 };
