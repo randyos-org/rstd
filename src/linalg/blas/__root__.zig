@@ -317,5 +317,6 @@ fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {
 test {
     _ = @import("_test_types.zig");
     _ = @import("abi.zig");
+    _ = @import("_test_openblas/__root__.zig");
     zigstd.testRefAllDecls(@This());
 }
