@@ -308,6 +308,7 @@ const machines = [_]Machine{
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{ "linalg.blas.blas2.interface.", "linalg.blas.blas2.edge." } },
             .{ .name = "blas3", .filters = &.{"linalg.blas.blas3."} },
+            .{ .name = "openblas", .filters = &.{"linalg.blas._test_openblas."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
@@ -346,6 +347,11 @@ const machines = [_]Machine{
             } },
             .{ .name = "blas3-kernel", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm.kernel." } },
             .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
+            // the OpenBLAS suites in three; not "every linked core", which
+            // holds all of them (4.7 MB in debug): `sparc64` runs it
+            .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test_openblas.blat1.", "linalg.blas._test_openblas.utest.", "linalg.blas._test_openblas.utest_ext." } },
+            .{ .name = "openblas-blat2", .filters = &.{"linalg.blas._test_openblas.blat2."} },
+            .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test_openblas.blat3."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
