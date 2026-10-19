@@ -4,6 +4,9 @@
 //! With the MMU off every data access is Device memory, which faults on the
 //! unaligned accesses compiled code makes, so `_start` builds a one-block
 //! identity map first: 0-1 GiB as device, 1-2 GiB (RAM) as normal cached.
+//!
+//! SVE and SME, where the CPU has them, get vectors of up to 512 bits
+//! (`ZCR_EL1`, `SMCR_EL1`; reset leaves 128), and SME2 gets ZT0 (`EZT0`).
 
 comptime {
     asm (
@@ -13,7 +16,25 @@ comptime {
         \\  mrs x0, cpacr_el1
         \\  orr x0, x0, #(3 << 20)
         \\  orr x0, x0, #(3 << 16)
+        \\  orr x0, x0, #(3 << 24)
         \\  msr cpacr_el1, x0
+        \\  isb
+        \\  mrs x1, id_aa64pfr0_el1
+        \\  ubfx x1, x1, #32, #4
+        \\  cbz x1, 4f
+        \\  mov x1, #3
+        \\  msr s3_0_c1_c2_0, x1
+        \\4:
+        \\  mrs x1, id_aa64pfr1_el1
+        \\  ubfx x1, x1, #24, #4
+        \\  cbz x1, 5f
+        \\  mov x2, #3
+        \\  cmp x1, #2
+        \\  b.lo 6f
+        \\  orr x2, x2, #(1 << 30)
+        \\6:
+        \\  msr s3_0_c1_c2_6, x2
+        \\5:
         \\  isb
         \\  ldr x0, =0x00ff
         \\  msr mair_el1, x0

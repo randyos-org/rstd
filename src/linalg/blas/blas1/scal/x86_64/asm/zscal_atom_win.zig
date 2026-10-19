@@ -33,6 +33,7 @@ const Body = struct {
             \\ movsd 40(%rsp), %xmm1
             \\ movq 48(%rsp), %rdx
             \\ movq 56(%rsp), %r8
+            \\ movq 88(%rsp), %r9
             \\ subq $256, %rsp
             \\ movups %xmm6, 0(%rsp)
             \\ movups %xmm7, 16(%rsp)
@@ -53,6 +54,8 @@ const Body = struct {
             \\ jp 20007f
             \\ comisd %xmm1, %xmm15
             \\ jne 20007f # Alpha_i != 0.e0
+            \\ cmpq $1, %r9
+            \\ je 20007f
             \\ cmpq $2 * 8, %r8
             \\ jne 20003f
             \\ movq %rcx, %rax

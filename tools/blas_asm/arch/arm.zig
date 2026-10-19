@@ -26,6 +26,20 @@ pub const arm: arch.Arch = .{
     .core_defines = coreDefines,
     .variants = &.{
         .{ .name = "hf", .defines = &.{"-D__ARM_PCS_VFP"} },
-        .{ .name = "sf", .defines = &.{"-U__ARM_PCS_VFP"} },
+        .{ .name = "sf", .defines = &.{"-U__ARM_PCS_VFP"}, .patches = &zig_complex_return },
     },
 };
+
+/// Not an upstream bug: under the soft-float convention Zig returns a complex
+/// value's struct in r0 to r3 where C passes a hidden pointer in r0
+/// (issues.md), so the `sf` complex dots take no pointer and return there,
+/// as the power `zdot.S` patch does.
+const zig_complex_return = [_]arch.Patch{
+    .{ .source = "cdot_vfp.S", .find = "#if !defined(__ARM_PCS_VFP)\n#define\tOLD_RETURN_ADDR", .replace = "#if 0\n#define\tOLD_RETURN_ADDR" },
+    .{ .source = "cdot_vfp.S", .find = "#if !defined(__ARM_PCS_VFP)\n\tmov\tRETURN_ADDR, OLD_RETURN_ADDR\n", .replace = "#if 0\n\tmov\tRETURN_ADDR, OLD_RETURN_ADDR\n" },
+    .{ .source = "cdot_vfp.S", .find = "\tvstm\tRETURN_ADDR, {s0 - s1}\n", .replace = "\tvmov\tr0, s0\n\tvmov\tr1, s1\n" },
+    .{ .source = "zdot_vfp.S", .find = "#if !defined(__ARM_PCS_VFP)\n#define\tOLD_RETURN_ADDR", .replace = "#if 0\n#define\tOLD_RETURN_ADDR" },
+    .{ .source = "zdot_vfp.S", .find = "#if !defined(__ARM_PCS_VFP)\n\tmov\tRETURN_ADDR, OLD_RETURN_ADDR\n", .replace = "#if 0\n\tmov\tRETURN_ADDR, OLD_RETURN_ADDR\n" },
+    .{ .source = "zdot_vfp.S", .find = "\tvstm\tRETURN_ADDR, {d0 - d1}\n", .replace = "\tvmov\tr0, r1, d0\n\tvmov\tr2, r3, d1\n" },
+};
+

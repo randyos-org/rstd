@@ -115,8 +115,10 @@ reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial
 sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
 its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
 `zrotg.c`'s scaled branches are wrong). `rotg` computes in `XDouble`, which
-is where the reference uses `long double` on x86; it is an `f64` alias until
-the x87 work lands, after which `rotg` widens with it. Tests compare against a
+is where the reference uses `long double` on x86: the x87 `f80` where
+`types.exprecision` is on, else `f64`. Wider than `f64`, the reductions and
+`gemv` do take the order of the x87 `q`/`x` kernels, so they give those
+kernels' bits (`blas1/x87.zig`, `blas2/gemv/x87.zig`). Tests compare against a
 wide-precision reference with tolerances; exact comparison is kept where a Zig
 kernel stands in for a converted kernel of the same core.
 
@@ -198,6 +200,18 @@ generated files carry the fixed code.
 - `x86_64/zgemv_t_atom.S`, Windows: read the double `alpha_i`, which Windows
   passes on the stack, with a single-precision load; its sibling kernels use
   the double one.
+- `x86_64/scal_sse.S`, `scal_sse2.S`, `scal_atom.S`, Windows: read the flag
+  (whether a zero `alpha` keeps NaN) from `incy`'s stack slot, `64(%rsp)`,
+  not the tenth argument's, `80(%rsp)`, so a zero `alpha` stored zeros over
+  NaN and infinity where the interface asks for NaN.
+- `x86_64/zscal_atom.S`: never read the flag at all, so a zero `alpha`
+  always stored zeros; it now tests it as `scal_atom.S` does.
+- `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
+  argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
+  ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero
+  `alpha` could multiply where it should store zeros: `cgbmv` with `beta`
+  zero gave NaN. The fix reads it through `FRAMESLOT`, which has each ABI's
+  offset; FreeBSD's offsets were already right.
 
 The rest are the `lsx` and `lasx` kernels under `loongarch64/`, mostly where
 a stride is not 1:
@@ -227,12 +241,19 @@ a stride is not 1:
   from an absolute value never computed; `lasx` single, with a stride on `x`,
   overwrote its index step, and its reduction over lanes 4 to 7 mistook its
   own partial minimum for lane 4's value, returning lane 4's index.
+- `snrm2_lsx.S`, `snrm2_lasx.S`, `cnrm2_lsx.S`, `cnrm2_lasx.S`: with a
+  negative stride, returned 0. They scale by `?amax_k` of the same vector,
+  which returns 0 for a stride below 1; they now walk x forwards from its
+  lowest element.
 
 One more patch works around Zig, not OpenBLAS: `power/zdot.S` and
 `zdot_cell.S` return the complex result in f1/f2 as the ELFv2 ABI says, but
 Zig reads a two-float struct from r3/r4. The sources already copy it into
 r3/r4 for the Fortran interface; the patch turns that on. It can go once Zig
-follows the ABI.
+follows the ABI. Likewise arm's `cdot_vfp.S` and `zdot_vfp.S` for the
+soft-float `sf` variant: they return through a pointer in r0, as AAPCS
+says, but Zig reads the struct from r0 to r3, so the patch drops the pointer
+and returns there.
 
 And the sparc kernels' `64` variant shifts with `sllx` where the sources say
 `sll`: they scale 64-bit strides with `sll`, which under qemu keeps only the
@@ -321,6 +342,35 @@ Where the port differs from `dynamic*.c`:
 (see `build/qemutest.zig` for the machines). `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
 
+`qemu-test-x86_64-whpx` runs them on the host's own CPU under WHPX (an
+x86_64 Windows host only), with QEMU's `SapphireRapids` model plus FMA4 and
+XOP, of which WHPX keeps what the host has. TCG implements no AVX-512, FMA4
+or XOP, so the skylakex, cooperlake and sapphirerapids kernels, and the
+bulldozer family's, run only there, on a host that has them.
+
+The big-endian rigs are `s390x`, `powerpc64` (`pseries` under VOF, a
+POWER10, so every 64-bit POWER core runs; Zig emits ELFv2 there too, so it
+boots as the little-endian rigs do), and `mips64r2`, `mips64r6`, `mips32r2`
+and `mips32r5`, the `malta` rigs' big-endian twins. 32-bit MIPS has no
+converted kernels, so its rigs test the portable ones.
+
+`powerpc` is 32-bit PowerPC, a G4 under OpenBIOS on `mac99`, for the ppcg4
+core. It builds in debug, which the 64-bit POWER rigs cannot (LLVM's
+FastISel bug in issues.md needs VSX). `powerpc-pseries` runs the same build
+in a POWER10's 32-bit mode under VOF, so power3 to power6, ppc970 and cell
+run as 32-bit code.
+
+`arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
+`sf` variant runs, using the VFP the CPU has.
+
+`sparc64-debug` is `sparc64` in debug, in ten images where `sparc64` needs
+seven (OpenBIOS maps 4 MB of each), less one test that alone is 6 MB in debug.
+`sparc` (32-bit) is a stub: lld cannot link 32-bit SPARC.
+
+The kernel rigs link every core the target CPU can run, whatever the build
+mode, and `-Dblas-cores` does not change that (nor for the Linux rigs). Every
+family has a rig that builds in debug.
+
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
 since WHPX on an AMD host shows macOS the AMD CPU, which it does not boot on.
@@ -331,3 +381,14 @@ after the tests, pass or fail, unless `-Dmac-keep`. `qemu-kill-x86_64-macos`
 kills a VM a build step started.
 `zig build rstd-check-macho` builds the tests for x86_64 and aarch64 macOS
 without running them, which is where Mach-O assembly errors show.
+
+`qemu-test-linux-<arch>` (aarch64, x86_64, arm, riscv64, powerpc64le) boots
+a Debian netboot kernel with the hosted test executable as PID 1
+(`test/linux/init.zig`), for the tests that need an OS: auxiliary-vector
+detection, threads, files.
+
+Apple silicon runs on a real Mac: `zig build remote-test-aarch64-macos`
+copies the tests to the SSH alias `-Dremote-mac` and runs them there
+(`build/remotetest.zig`); the Mac's address and login stay in the SSH config.
+On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
+`-cpu max` cannot show.

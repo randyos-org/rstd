@@ -63,7 +63,7 @@ const text =
     \\ blelr- 0
     \\ fcmpu 0, 0, 1
     \\ bne- 0, 20007f
-    \\ lwz 11, 120(1)
+    \\ lwz 11, (((0) * 4) + 8)(1)
     \\ cmpwi 0, 11, 1
     \\ beq- 0, 20007f
     \\ cmpwi 0, 7, 8

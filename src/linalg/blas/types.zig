@@ -34,7 +34,9 @@ pub const exprecision = !quad_precision and exprecisionOn(
 
 /// Whether a target gets `EXPRECISION`: x86 or x86_64 with an x87 unit, whose
 /// `long double` is the 80-bit x87 type, and not a Microsoft-ABI OS (Windows,
-/// UEFI), which the reference never builds it for.
+/// UEFI), which the reference never builds it for. Assumes the x87 control
+/// word's extended precision (0x037F), as Linux and x64 UEFI's handoff leave
+/// it; Windows sets double (0x027F). An OS without either must set it.
 pub fn exprecisionOn(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag, longdouble_bits: u16, x87: bool) bool {
     if (!arch.isX86() or !x87 or longdouble_bits != 80) return false;
     return switch (os) {
@@ -73,8 +75,8 @@ pub const HF16 = f16;
 pub const XDouble = if (quad_precision) f128 else if (exprecision) c_longdouble else f64;
 
 /// Whether float `F` is wider than `f64` (`f80`, `f128`): such types never
-/// fuse (`fma.zig`), and the portable `q`/`x` reductions take the x87
-/// kernels' accumulator order.
+/// fuse (`fma.zig`), and the portable `q`/`x` reductions and gemv take the
+/// x87 kernels' accumulator order.
 pub fn isExtended(comptime F: type) bool {
     return @typeInfo(F).float.bits > 64;
 }

@@ -122,12 +122,33 @@ const patches = [_]arch.Patch{
         .find = "    addi.w i0, i0, 1\n    ld.w t1, TEMP, 0 * SIZE\n    add.d TEMP, TEMP, INCX\n    srai.d I, N, 3\n",
         .replace = "    addi.w i0, i0, 1\n    ld.w t1, TEMP, 0 * SIZE\n    add.d TEMP, TEMP, INCX\n    xvinsgr2vr.w VM0, t1, 0\n    srai.d I, N, 3\n",
     },
+    // negative stride: `?amax_k` returns 0 for `incx <= 0`, so the scale
+    // came out 0 and so did the norm; walk x forwards from its lowest element
+    .{ .source = "snrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("BASE_SHIFT") },
+    .{ .source = "snrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("BASE_SHIFT") },
+    .{ .source = "cnrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
+    .{ .source = "cnrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
 };
+
+/// After the zero-stride exit: for `incx < 0`, X to the lowest element and
+/// `incx` negated.
+fn nrm2Forwards(comptime shift: []const u8) []const u8 {
+    return "beq $r0, INCX, .L999\n" ++
+        "   bge INCX, $r0, .L_fwd\n" ++
+        "   addi.d TEMP, N, -1\n" ++
+        "   mul.d TEMP, TEMP, INCX\n" ++
+        "   slli.d TEMP, TEMP, " ++ shift ++ "\n" ++
+        "   add.d X, X, TEMP\n" ++
+        "   sub.d INCX, $r0, INCX\n" ++
+        ".L_fwd:\n";
+}
 
 pub const loongarch64: arch.Arch = .{
     .name = "loongarch64",
     .triple = "loongarch64-linux-gnu",
-    .config_h = "#define ARCH_LOONGARCH64 1\n#define BINARY64 1\n",
+    // getarch's `config.h` defines `__64BIT__` for a 64-bit build; without it
+    // `LDARG` is `ld.w`, which truncates a pointer passed on the stack
+    .config_h = "#define ARCH_LOONGARCH64 1\n#define BINARY64 1\n#define __64BIT__ 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_LOONGARCH64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
     .patches = &patches,

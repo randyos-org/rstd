@@ -5,7 +5,7 @@
 //!   * `.kernel`: a freestanding test kernel per architecture (boot code in
 //!     `test/qemu/`, runner in `test/qemu/runner.zig`, test root in
 //!     `src/_test_qemu.zig`). Where the machine has semihosting (aarch64, arm,
-//!     riscv64, mips64el) the runner exits with the number of failed tests, so a
+//!     riscv64, MIPS) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
 //!     step checks the printed summary for "0 failed". The console is also
 //!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
@@ -67,6 +67,9 @@ const Machine = struct {
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
+    /// Runs under WHPX (`args` has the `-accel`), so only on an x86_64
+    /// Windows host.
+    whpx: bool = false,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-filter` builds one image as usual.
@@ -122,7 +125,8 @@ const machines = [_]Machine{
         .name = "aarch64-sve",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
         .qemu = "qemu-system-aarch64",
-        .args = &.{ "-M", "virt", "-cpu", "neoverse-v1" },
+        // max has SVE2, SME2 and BF16, so every core but Apple's runs
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -130,6 +134,16 @@ const machines = [_]Machine{
     .{
         .name = "arm",
         .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
+        .qemu = "qemu-system-arm",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/arm.ld",
+        } },
+    },
+    .{
+        // the soft-float ABI: floats in integer registers, the kernels' `sf` variant
+        .name = "arm-softfp",
+        .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
         .boot = .{ .kernel = .{
@@ -203,6 +217,46 @@ const machines = [_]Machine{
         } },
     },
     .{
+        .name = "mips64r2",
+        .query = .{ .cpu_arch = .mips64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips64r2 } },
+        .qemu = "qemu-system-mips64",
+        .args = &.{ "-M", "malta", "-cpu", "Loongson-3A1000" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips64.ld",
+        } },
+    },
+    .{
+        .name = "mips64r6",
+        .query = .{ .cpu_arch = .mips64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips64r6 } },
+        .qemu = "qemu-system-mips64",
+        .args = &.{ "-M", "malta", "-cpu", "I6400" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips64.ld",
+        } },
+    },
+    .{
+        .name = "mips32r2",
+        .query = .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips32r2 } },
+        .qemu = "qemu-system-mips",
+        .args = &.{ "-M", "malta", "-cpu", "24Kf" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips32.ld",
+        } },
+    },
+    .{
+        .name = "mips32r5",
+        .query = .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.p5600 } },
+        .qemu = "qemu-system-mips",
+        .args = &.{ "-M", "malta", "-cpu", "P5600" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips32.ld",
+        } },
+    },
+    .{
         .name = "i386",
         .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } },
         .qemu = "qemu-system-i386",
@@ -218,6 +272,23 @@ const machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max" },
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86_64.ld",
+            .llvm = true,
+            .semihosting = false,
+        } },
+    },
+    .{
+        // The host CPU under Windows' hypervisor: TCG has no AVX-512, FMA4 or
+        // XOP (issues.md), so their cores run only here, on a host that has
+        // them. WHPX keeps only the model's features the host has; `host`
+        // and `max` stop in SeaBIOS.
+        .name = "x86_64-whpx",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "SapphireRapids,+fma4,+xop" },
+        .whpx = true,
         .memory = "128M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/x86_64.ld",
@@ -249,14 +320,64 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // sparc64 in debug, the mode the other rigs build in; its images are
+        // larger, so blas3 is split too, and gemm's three test files apart
+        .name = "sparc64-debug",
+        .optimize = .debug,
+        .parts = &.{
+            .{ .name = "blas1", .filters = &.{"linalg.blas.blas1."} },
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
+            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
+            .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
+            .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
+            // but "every core of every family", 6 MB alone in debug: `sparc64` runs it
+            .{ .name = "blas3-params", .filters = &.{
+                "linalg.blas.blas3.gemm.params.test.dtb entries",
+                "linalg.blas.blas3.gemm.params.test.generic follows",
+                "linalg.blas.blas3.gemm.params.test.the block factor",
+                "linalg.blas.blas3.gemm.params.test.fixed sets",
+                "linalg.blas.blas3.gemm.params.test.old x86",
+                "linalg.blas.blas3.gemm.params.test.LA464",
+                "linalg.blas.blas3.gemm.params.test.detection gives",
+            } },
+            .{ .name = "blas3-kernel", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm.kernel." } },
+            .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
+            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+        },
+        .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
+        .qemu = "qemu-system-sparc64",
+        .args = &.{ "-M", "sun4u" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/sparc64.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // OpenBIOS on sun4m, as sparc64's on sun4u
+        .name = "sparc",
+        .query = .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v8 } },
+        .qemu = "qemu-system-sparc",
+        .args = &.{ "-M", "SS-5" },
+        .memory = "256M",
+        .stub = "lld cannot link 32-bit SPARC, and Zig's own ELF linker crashes on it (issues.md)",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .semihosting = false,
+        } },
+    },
+    .{
         .name = "powerpc64le",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr9 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power9" },
         .memory = "512M",
         .boot = .{
             .kernel = .{
-                .linker_script = "test/qemu/ppc64le.ld",
+                .linker_script = "test/qemu/ppc64.ld",
                 .semihosting = false,
                 // the firmware loader's 0x400000 shift, see the linker script
                 .stderr_note = "kernel_addr changed",
@@ -265,12 +386,55 @@ const machines = [_]Machine{
     },
     .{
         .name = "powerpc64le-power10",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
         .memory = "512M",
         .boot = .{ .kernel = .{
-            .linker_script = "test/qemu/ppc64le.ld",
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
+        // big-endian, ELFv2 as Zig emits it; POWER10 runs every 64-bit core
+        .name = "powerpc64",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
+        // a G4 under OpenBIOS: the ppcg4 core
+        .name = "powerpc",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "G4" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // the G4 build in a POWER10's 32-bit mode under VOF: the server cores
+        // through power6, built 32-bit
+        .name = "powerpc-pseries",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
             .semihosting = false,
             .stderr_note = "kernel_addr changed",
         } },
@@ -317,6 +481,45 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
+    },
+    .{
+        .name = "linux-arm",
+        .query = .{ .cpu_arch = .arm, .os_tag = .linux },
+        .qemu = "qemu-system-arm",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a15", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_armhf", .kernel = "debian-installer/armhf/vmlinuz", .console = "ttyAMA0" } },
+    },
+    .{
+        .name = "linux-riscv64",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .linux },
+        .qemu = "qemu-system-riscv64",
+        // the vector extension at the widest linked core's VLEN, as `riscv64`
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=512", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_riscv64", .kernel = "debian-installer/riscv64/linux", .console = "ttyS0" } },
+    },
+    .{
+        .name = "linux-powerpc64le",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
+        .qemu = "qemu-system-ppc64",
+        // detection sees a POWER10 (the baseline build links up to POWER9's
+        // kernels); the caps TCG lacks are off, so qemu warns of none
+        .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+    },
+    .{
+        .name = "linux-i386",
+        .query = .{ .cpu_arch = .x86, .os_tag = .linux },
+        .qemu = "qemu-system-i386",
+        .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
+        .memory = "1G",
+        // boots and runs; filtered runs pass
+        .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issues.md)",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
     },
     .{
         // macOS 13 and up; Zig's default minimum is 15.0
@@ -371,8 +574,10 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     // a one-time fetch of about 55 MB per kernel
     const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
 
+    const host = b.graph.host.result;
+    const whpx_host = host.os.tag == .windows and host.cpu.arch == .x86_64;
     for (machines) |m| {
-        if (m.stub != null) continue;
+        if (m.stub != null or (m.whpx and !whpx_host)) continue;
         const target = b.resolveTargetQuery(m.query);
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
@@ -420,7 +625,7 @@ fn qemuCommand(b: *Build, m: Machine) *Build.Step.Run {
 
 var watch_tool: ?*Build.Step.Compile = null;
 
-fn watchTool(b: *Build) *Build.Step.Compile {
+pub fn watchTool(b: *Build) *Build.Step.Compile {
     if (watch_tool) |t| if (t.step.owner == b) return t;
     watch_tool = b.addExecutable(.{ .name = "qemu_watch", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/qemu_watch.zig"),

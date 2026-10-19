@@ -13,13 +13,14 @@ const arch = switch (sysinfo.cpu.arch) {
     .riscv64 => @import("riscv64.zig"),
     .arm => @import("arm.zig"),
     .loongarch64 => @import("loongarch64.zig"),
-    .mips64el => @import("mips64.zig"),
-    .mipsel => @import("mips32.zig"),
+    .mips64el, .mips64 => @import("mips64.zig"),
+    .mipsel, .mips => @import("mips32.zig"),
     .x86 => @import("x86.zig"),
     .x86_64 => @import("x86_64.zig"),
     .sparc64 => @import("sparc64.zig"),
     .s390x => @import("s390x.zig"),
-    .powerpc64le => @import("ppc64le.zig"),
+    .powerpc64le, .powerpc64 => @import("ppc64.zig"),
+    .powerpc => @import("ppc32.zig"),
     else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.cpu.arch)),
 };
 
@@ -32,13 +33,15 @@ pub const panic = std.debug.FullPanic(struct {
         // return addresses for `addr2line -e <kernel>`, by the frame pointers
         print(" at 0x");
         printHex(first orelse @returnAddress());
+        // 64-bit POWER keeps the saved LR two words up, the back chain at 0
+        const ra = if (sysinfo.cpu.arch.isPowerPC64()) 2 else 1;
         var fp = @frameAddress();
         for (0..12) |_| {
             if (fp == 0 or fp % @alignOf(usize) != 0) break;
             const frame: [*]const usize = @ptrFromInt(fp);
-            if (frame[1] == 0) break;
+            if (frame[ra] == 0) break;
             print(" 0x");
-            printHex(frame[1]);
+            printHex(frame[ra]);
             if (frame[0] <= fp) break;
             fp = frame[0];
         }

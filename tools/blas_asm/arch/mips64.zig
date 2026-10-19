@@ -19,7 +19,9 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
 pub const mips64: arch.Arch = .{
     .name = "mips64",
     .triple = "mips64el-linux-gnuabi64",
-    .config_h = "#define ARCH_MIPS64 1\n#define BINARY64 1\n",
+    // getarch's `config.h` defines `__64BIT__` for a 64-bit build; without it
+    // `LDARG` is `lw`, which reads a stack argument's high half big-endian
+    .config_h = "#define ARCH_MIPS64 1\n#define BINARY64 1\n#define __64BIT__ 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_MIPS64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
 };

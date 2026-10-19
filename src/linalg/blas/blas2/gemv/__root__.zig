@@ -133,15 +133,21 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../../blas1/check.zig");
 const half = @import("half.zig");
+const x87 = @import("x87.zig");
 const sym = @import("../symmetric.zig");
 const guard = @import("../guard.zig");
 
 /// `kernel/arm/gemv_n.c` and `gemv_t.c`: `y += alpha*A*x` (`n`, `y` of `m`)
 /// or `y += alpha*A^T*x` (`t`, `y` of `n`). The interface has already scaled
-/// `y` by `beta`.
+/// `y` by `beta`. Wider than `f64`, the x87 `qgemv_n.S`/`qgemv_t.S` sums
+/// instead (`x87.zig`).
 fn Gemv(comptime F: type) type {
     return struct {
         fn n(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
+            if (comptime types.isExtended(F)) {
+                x87.gemv(F, false, x87.colBlock(false, .unknown), m, cols, alpha, a, lda, x, inc_x, y, inc_y);
+                return 0;
+            }
             var j: BlasLong = 0;
             while (j < cols) : (j += 1) {
                 const tv = alpha * util.at(F, x, j * inc_x).*;
@@ -151,6 +157,10 @@ fn Gemv(comptime F: type) type {
             return 0;
         }
         fn t(m: BlasLong, cols: BlasLong, _: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
+            if (comptime types.isExtended(F)) {
+                x87.gemv(F, true, x87.rowBlock(false), m, cols, alpha, a, lda, x, inc_x, y, inc_y);
+                return 0;
+            }
             var j: BlasLong = 0;
             while (j < cols) : (j += 1) {
                 const A = types.Acc(F);
@@ -166,7 +176,8 @@ fn Gemv(comptime F: type) type {
 
 /// `kernel/arm/zgemv_n.c` and `zgemv_t.c`: `y += alpha*op(A)*x` with `A`
 /// conjugated for `conj` (`CONJ`) and `x` for `xconj` (`XCONJ`): `r` is
-/// `conj(A)*x`, `o` is `A*conj(x)`, `c` is `A^H*x`, and so on.
+/// `conj(A)*x`, `o` is `A*conj(x)`, `c` is `A^H*x`, and so on. Wider than
+/// `f64`, the x87 `xgemv_n.S`/`xgemv_t.S` sums instead (`x87.zig`).
 fn Zgemv(comptime F: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool) type {
     const W = std.math.Complex(types.Acc(F));
     return struct {
@@ -179,6 +190,11 @@ fn Zgemv(comptime F: type, comptime trans: bool, comptime conj: bool, comptime x
             return .init(re, if (c) -im else im);
         }
         fn k(m: BlasLong, cols: BlasLong, _: BlasLong, alpha_r: F, alpha_i: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, _: [*]F) callconv(types.kernelCc(F)) i32 {
+            if (comptime types.isExtended(F)) {
+                const p = comptime if (trans) x87.rowBlock(true) else x87.colBlock(true, .unknown);
+                x87.zgemv(F, trans, conj, xconj, p, m, cols, alpha_r, alpha_i, a, lda, x, inc_x, y, inc_y);
+                return 0;
+            }
             const alpha: std.math.Complex(F) = .init(alpha_r, alpha_i);
             var j: BlasLong = 0;
             while (j < cols) : (j += 1) {
@@ -325,9 +341,10 @@ fn checkAll(vt: *const Vtable) !void {
     }
 }
 
-// the half-precision kernels and their tests
+// the half-precision and x87 kernels and their tests
 comptime {
     _ = half;
+    _ = x87;
 }
 
 test "portable gemv kernels match plain arithmetic" {

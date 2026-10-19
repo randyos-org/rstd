@@ -108,12 +108,14 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-/// `kern` against a plain loop in `f64`; `T` is the element type.
+/// `kern` against a plain loop in `f64`; `T` is the element type. A negative
+/// stride starts from the last element, as the interface passes it.
 fn checkNrm2(comptime T: type, kern: anytype) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
     for (check.sizes) |n| {
-        for ([_]usize{ 1, 2, 3 }) |inc| {
+        for ([_]isize{ 1, 2, 3, -1, -2 }) |s| {
+            const inc = @abs(s);
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
             const W = check.Wide(F);
@@ -122,9 +124,10 @@ fn checkNrm2(comptime T: type, kern: anytype) !void {
                 const v = x[i * inc];
                 acc += if (comptime complex) @as(W, v.re) * v.re + @as(W, v.im) * v.im else @as(W, v) * v;
             }
-            const want = @sqrt(acc);
-            const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
-            check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n) * @max(1, want)) catch |e| return check.case(e, "nrm2", T, n, .{ inc, 0 });
+            const want = check.sqrtW(acc);
+            const start = if (s < 0) (n - 1) * inc else 0;
+            const got = kern(@intCast(n), @as([*]F, @ptrCast(&x[start])), s);
+            check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n) * @max(1, want)) catch |e| return check.case(e, if (s < 0) "nrm2 (stride negated)" else "nrm2", T, n, .{ inc, 0 });
         }
     }
 }

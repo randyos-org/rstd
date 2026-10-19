@@ -1,16 +1,22 @@
-//! Little-endian POWER boot for QEMU's `pseries` machine with the built-in
-//! Virtual Open Firmware (`-M pseries,x-vof=on -kernel`). Console is the PAPR
-//! `H_PUT_TERM_CHAR` hypercall to the default vty; exit is the RTAS `power-off`
-//! call made through `H_RTAS`, which powers the machine off, so the run step
-//! judges the result from the printed summary rather than an exit code.
+//! 64-bit POWER boot, either endianness, for QEMU's `pseries` machine with
+//! the built-in Virtual Open Firmware (`-M pseries,x-vof=on -kernel`). Console
+//! is the PAPR `H_PUT_TERM_CHAR` hypercall to the default vty; exit is the RTAS
+//! `power-off` call made through `H_RTAS`, which powers the machine off, so the
+//! run step judges the result from the printed summary rather than an exit code.
 //!
 //! The machine enters big-endian, so `_start` opens with the usual
 //! endian-agnostic trampoline: `tdi` is a no-op when little-endian and reads as
 //! `b .+8` when big-endian, which lands on a short big-endian sequence (given
-//! as bytes) that flips MSR.LE with `rfid`. Then it sets up the TOC (r2),
-//! enables FP/VMX/VSX in the MSR, and clears bss.
+//! as bytes) that flips MSR.LE with `rfid`; a big-endian image runs `tdi` as
+//! itself, a no-op, and branches past that sequence. Then it sets up the TOC
+//! (r2), enables FP/VMX/VSX and 64-bit mode (SF) in the MSR, and clears bss.
+//! The firmware enters in 32-bit mode, where the carry comes from the low 32
+//! bits, so 64- and 128-bit carries and overflow checks went wrong. Zig emits
+//! ELFv2 for both endiannesses, so the entry needs no function descriptor.
 //!
-//! The loader shifts load addresses, see `ppc64le.ld`.
+//! The loader shifts load addresses, see `ppc64.ld`.
+
+const std = @import("std");
 
 comptime {
     asm (
@@ -35,7 +41,9 @@ comptime {
         \\  addis 2, 12, .TOC.-0b@ha
         \\  addi 2, 2, .TOC.-0b@l
         \\  mfmsr 3
-        \\  lis 4, 0x0280
+        \\  li 4, 1
+        \\  sldi 4, 4, 63
+        \\  oris 4, 4, 0x0280
         \\  ori 4, 4, 0x2000
         \\  or 3, 3, 4
         \\  mtmsrd 3
@@ -101,7 +109,8 @@ const RTAS_POWER_OFF = 0x2003;
 pub fn exit(code: usize) noreturn {
     _ = code;
     // `power-off` takes two (ignored) arguments and returns one status.
-    var args = [6]u32{ @byteSwap(@as(u32, RTAS_POWER_OFF)), @byteSwap(@as(u32, 2)), @byteSwap(@as(u32, 1)), 0, 0, 0 };
+    const be = std.mem.nativeToBig;
+    var args = [6]u32{ be(u32, RTAS_POWER_OFF), be(u32, 2), be(u32, 1), 0, 0, 0 };
     _ = hcall(H_RTAS, @intFromPtr(&args), 0, 0, 0);
     while (true) {}
 }

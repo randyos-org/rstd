@@ -98,6 +98,34 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > that follows the ABI reads the wrong registers. Example: OpenBLAS's
   > `zdot` kernels for POWER return `double _Complex` in `f1`/`f2`.
 
+### arm soft-float: a struct of floats is returned in r0 to r3, not through memory
+
+- **Seen:** on `arm-freestanding-eabi` and `arm-linux-gnueabi`, a
+  `callconv(.c)` function returning `extern struct { re: f32, im: f32 }` is
+  lowered as returning in r0/r1, and one of two `f64` in r0 to r3. AAPCS
+  returns a composite over 4 bytes in memory, through a pointer in r0, as
+  clang does for the same C (`zig cc`). `src/codegen/arm/abi.zig`'s
+  `classifyType` makes any struct of up to four floats `.byval`, the VFP
+  rule, whatever the convention. OpenBLAS's arm `cdot` and `zdot` (`sf`)
+  store through r0, so on the `arm-softfp` rig they took `n` as the result's
+  address, read `incx` as `x`, and faulted.
+- **Workaround:** the generator patches the `sf` `cdot_vfp.S` and
+  `zdot_vfp.S` to take no pointer and return in r0 to r3
+  (`tools/blas_asm/arch/arm.zig`).
+- **Issue text:**
+
+  > **arm: float structs are returned in core registers under the soft-float ABI**
+  >
+  > With `callconv(.c)` on `arm-linux-gnueabi` (or `-eabi`), a function
+  > returning `extern struct { a: f32, b: f32 }` returns in r0/r1, and
+  > `extern struct { a: f64, b: f64 }` in r0 to r3. The base AAPCS returns
+  > a composite type larger than 4 bytes in memory, at an address passed in
+  > r0; clang does so for the equivalent C struct, so calls between Zig and
+  > C disagree. `classifyType` in `src/codegen/arm/abi.zig` returns
+  > `.byval` for a struct of up to four floats (the VFP variant's
+  > homogeneous aggregate rule) without checking for the soft-float
+  > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
+
 ### Self-hosted x86_64 backend leaves a value on the x87 stack converting to f80
 
 - **Seen:** with the self-hosted x86_64 backend (the debug default), converting
@@ -127,26 +155,69 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** not ready; needs a reduced case first. It may belong to
   LLVM rather than Zig.
 
-### sparc64: f80 complex nrm2 off by about f64 precision (unconfirmed)
+### sparc64: compiler-rt's `_Qp_sqrt` takes the square root in f64
 
-- **Seen:** on the sparc64 rig (`.fast`, software f80), "portable nrm2
-  kernels at the extended type match a plain loop" fails for
-  `Complex(f80)`: got 0.799018197057005788, want 0.799018197057005830, a
-  relative difference of about 5e-17 against an allowance of 2.8e-17, as if
-  one side were computed in f64. The same test passes on aarch64 (also
-  software f80), freestanding and under Linux, and on x86.
-- **Workaround:** none yet; the test stays failing on that rig.
-- **Next:** find which side is wrong (kernel or reference), then whether it
-  is `.fast` or the sparc backend (a smaller image that fits a debug build
-  would tell). No issue text until then.
+- **Seen:** on the sparc64 rig, `@sqrt` of a runtime `f128` (lowered to
+  `_Qp_sqrt`) gives only f64's precision: `@sqrt(2)` came back as
+  `0x3fff6a09e667f3bcd000000000000000`. "portable nrm2 kernels at the
+  extended type match a plain loop" failed for `Complex(f80)` on it: the
+  kernel was right, the `f128` reference was not. `lib/compiler_rt/sqrt.zig`
+  has `c.* = sqrt(@floatCast(a.*))`, where `sqrt` is the f64 routine; still
+  so on Zig master (added in 2c5f54c898, 2025-04-28).
+- **Workaround:** test references take the root with `check.sqrtW`, which on
+  sparc64 refines `@sqrt` with two Newton steps in `f128`. The library's own
+  `f128` square roots (the portable `nrm2` and `rotg` at `f128`) stay at f64
+  precision there until Zig is fixed.
+- **Issue text:**
+
+  > **compiler-rt: sparc64 `_Qp_sqrt` computes the square root in f64**
+  >
+  > `lib/compiler_rt/sqrt.zig` defines
+  > `fn _Qp_sqrt(c: *f128, a: *f128) callconv(.c) void { c.* = sqrt(@floatCast(a.*)); }`.
+  > `sqrt` there is the f64 routine, so `a` is narrowed to f64 and the root
+  > widened back: `@sqrt` of a runtime `f128` on sparc64 has 53 bits of
+  > precision. For example `@sqrt(@as(f128, 2))` with a runtime 2 returns
+  > `0x3fff6a09e667f3bcd000000000000000` instead of
+  > `0x3fff6a09e667f3bcc908b2fb1366ea95`. It should call `sqrt_f128`, as
+  > `sqrtq` (`_Q_sqrt` on sparc32) does.
+
+### powerpc64le: LLVM's `-O0` compares a VSX register with `fcmpu`
+
+- **Seen:** on the powerpc64le rigs (pwr9 and pwr10, Debug), every gemm test
+  failed at f64 with "padding written", though the padding held the sentinel:
+  `got != sentinel` came out true for equal values. The f64 was loaded with
+  `lxsdx 34, ...` (VSR34, which is v2) and compared with `fcmpu 0, 2, 0`,
+  which reads f2 (VSR2). The same compare in a release build is correct. It
+  looks like PowerPC FastISel's compare using `FCMPUD` on a register of the
+  VSX class `VSFRC` without constraining it to `F8RC`.
+- **Workaround:** the powerpc64le rigs build with `.safe`
+  (`build/qemutest.zig`), which does not use FastISel.
+- **Issue text:**
+
+  > **[PowerPC] FastISel emits `fcmpu` on a VSX-class register at -O0**
+  >
+  > On powerpc64le with VSX (seen with `-mcpu=pwr9` and `pwr10`) at -O0, an
+  > f64 loaded in one block and compared in another was loaded by FastISel
+  > with `lxsdx` into a `VSFRC` virtual register, which register allocation
+  > put in VSR34 (v2). The compare is `fcmpu cr0, 2, 0`: `FCMPUD` takes
+  > `F8RC` operands, so the encoded `2` reads f2 (VSR2), not v2, and the
+  > comparison uses a stale value. `PPCFastISel::PPCEmitCmp` appears to pass
+  > the source registers to `FCMPUD` without constraining their class (or
+  > using `XSCMPUDP` for VSX registers). Seen in a large Zig-generated
+  > function; the same IR at -O1 and above is correct.
 
 ### lld cannot link 32-bit SPARC
 
 - **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
   object, then fails to link: `ld.lld: unsupported e_machine value: 2`
-  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9).
+  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9). Still so on
+  0.18.0-dev.267 (2026-10-17), for a one-function freestanding image too;
+  `-fno-lld` instead crashes Zig's own ELF linker (`invalid enum value` in
+  `link/Elf/Object.zig`'s `parseCommon`, which reads every object header as
+  `Elf64_Ehdr`), and that linker ignores linker scripts anyway.
 - **Workaround:** none; 32-bit SPARC is compile-checked only (the kernel
-  objects build) and has no rig.
+  objects build). Its rig, `sparc` (OpenBIOS on `SS-5`), is a stub in
+  `build/qemutest.zig`.
 - **Issue text:** an lld feature request rather than a Zig bug, and probably
   known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
 
@@ -201,7 +272,12 @@ When an issue is fixed upstream, drop the workaround and its entry.
   'Content-Type' header", although the URL ends in `.tar.gz`.
 - **Workaround:** the Linux rigs' kernels come from Debian's netboot
   `.tar.gz` on deb.debian.org (which sends `application/x-gzip`), pinned to a
-  dated installer build (`build.zig.zon`).
+  dated installer build (`build.zig.zon`). s390x and mips64el have no Linux
+  rig: Debian ships their installer kernels only as single files, sent with
+  no `Content-Type` (13's s390x `generic/kernel.debian`, 12's mips64el
+  `malta/netboot/vmlinuz-*-5kc-malta`). Both boot the rig's initramfs by
+  hand: s390x on `s390-ccw-virtio` with `console=ttysclp0`, mips64el on
+  `malta` (`-cpu MIPS64R2-generic`, 256 MB; 1 GB hangs) with `ttyS0`.
 - **Issue text:**
 
   > **`zig fetch`: fall back to the URL's extension when `Content-Type` is missing, and allow single files**
@@ -309,6 +385,50 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** none: QEMU's WHPX CPUID-trapping patches (leaf 0 vendor)
   were already in review in 2026. Check their status before filing.
 
+### x86: TCG has no AVX-512, FMA4 or XOP
+
+- **Seen:** QEMU 11.0.1's TCG warns "TCG doesn't support requested
+  feature" for `avx512f`, `avx512dq`, `avx512cd`, `avx512bw` and `avx512vl`
+  (`-cpu Skylake-Server-v4`) and for `fma4` and `xop` (`-cpu Opteron_G5`),
+  and `-cpu max` has none of them. So the skylakex, cooperlake and
+  sapphirerapids kernels, and bulldozer, piledriver, steamroller and
+  excavator, never run on the TCG rigs.
+- **Workaround:** `x86_64-whpx` runs the tests on the host CPU under WHPX,
+  which runs them where the host has the extensions. This host (Ryzen 7
+  7730U, Zen 3) has neither, so they are untested here. Under WHPX, `-cpu
+  host` and `-cpu max` stop in SeaBIOS ("Unexpected VP exit code 4"); named
+  models boot, keeping only the features the host has.
+- **Issue text:** none; long-standing missing features, not bugs.
+
+### x86: an x87 80-bit load or store across a page boundary misplaces bytes
+
+- **Seen:** QEMU 11.0.1 under TCG, 32-bit Linux userspace (Debian 12's i386
+  kernel, or Debian 13's amd64 kernel running an i386 program). When an
+  `fldt` or `fstpt` operand crosses a page, the bytes of the 8-byte
+  significand that lie on the second page are read from (or written to)
+  the wrong place: a load returns stale bytes, a store leaves the guest's
+  bytes unchanged and writes elsewhere. The 2-byte exponent, wholly on the
+  second page, is right, and so is a `movq` across the same boundary. The
+  same program under WHPX is right. i386's `f80` is 12 bytes, 4-aligned, so
+  arrays of it cross pages; the rstd suite failed its `c_longdouble`
+  checks and then crashed in `SafeAllocator` (a misplaced store). x86_64's
+  16-byte `f80` never crosses.
+- **Workaround:** `linux-i386` is a stub (`build/qemutest.zig`).
+- **Issue text:**
+
+  > **target/i386: fldt/fstpt across a page boundary access the wrong bytes under TCG**
+  >
+  > In 32-bit protected mode with paging, an `fldt` whose 10-byte operand
+  > starts at page offset 0xff9 to 0xfff loads the significand bytes past the
+  > boundary from somewhere other than the guest's next page (they come back
+  > stale), while the exponent bytes are right; `fstpt` likewise fails to
+  > write them. A `movq` of the same 8 bytes is right. It looks like the
+  > 8-byte significand access in the x87 helpers treats the range as lying
+  > in the first page (an `X86Access` pointer check on the start rather than
+  > the end). Reproduce: in an i386 Linux guest, store 10 known bytes at a
+  > stack address ending in 0xffc, `fldt` them and `fstpt` them elsewhere,
+  > and compare.
+
 ### sparc64: `sll` drops the upper 32 bits of a 64-bit register
 
 - **Seen:** under `qemu-system-sparc64` (sun4u), OpenBLAS's sparc kernels
@@ -347,8 +467,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in `readme.md`: an `x86_64` pair on Windows, and the
-`loongarch64` `lsx`/`lasx` kernels, mostly with strides other than 1. One
+upstream sources" in `readme.md`: `x86_64` argument and flag handling
+(mostly on Windows), a POWER pair on ELFv2, and the `loongarch64`
+`lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
 
 > **loongarch64 LSX/LASX level-1 kernels: wrong results with non-unit strides and some edge cases**
@@ -382,6 +503,9 @@ issue covering the `loongarch64` ones could read:
 >   value never computed; `lasx` single with `incx != 1` overwrites its index
 >   step, and its reduction over lanes 4 to 7 mistakes its own partial
 >   minimum for lane 4's value.
+> - `snrm2_lsx`, `snrm2_lasx`, `cnrm2_lsx`, `cnrm2_lasx`: with `incx < 0`
+>   (which `interface/nrm2.c` passes on), return 0: the scale comes from
+>   `?amax_k` on the same arguments, and it returns 0 for `incx <= 0`.
 
 And for `x86_64`:
 
@@ -393,3 +517,58 @@ And for `x86_64`:
 > - `zgemv_t_atom.S`: reads the double `alpha_i`, passed on the stack on
 >   Windows, with a single-precision load; its sibling kernels use the
 >   double one.
+
+And the `scal` flag on `x86_64`:
+
+> **x86_64 `scal_sse.S`, `scal_sse2.S`, `scal_atom.S` (Windows) and `zscal_atom.S`: the flag argument is lost**
+>
+> `interface/scal.c` and `zscal.c` pass `dummy2 = 1` so that a zero alpha
+> multiplies, turning NaN and Inf into NaN.
+>
+> - `scal_sse.S`, `scal_sse2.S`, `scal_atom.S`: under `WINDOWS_ABI` they
+>   load the flag with `movq 64(%rsp)`, which is `inc_y` (the eighth
+>   argument); the flag, the tenth, is at `80(%rsp)`. The interface passes
+>   `inc_y = 0`, so a zero alpha always stores zeros on Windows.
+> - `zscal_atom.S` never reads the flag: a zero alpha always stores zeros.
+>   Loading it as `scal_atom.S` does (`24(%rsp)`, `88(%rsp)` on Windows) and
+>   branching to the multiply path when it is 1 fixes it.
+
+And for POWER:
+
+> **power `scal.S` and `zscal.S`: the flag argument is read at ELFv1's offset on Linux ELFv2**
+>
+> `kernel/power/scal.S` and `zscal.S` load the last argument (`dummy2`,
+> the flag that keeps NaN for a zero alpha) with `LDLONG FLAG, 120(SP)` /
+> `128(SP)` on Linux, the ELFv1 parameter save area. Under ELFv2 (ppc64le,
+> and big-endian ELFv2 such as musl) the slots are 16 bytes lower, as the
+> FreeBSD branch already has (104/112), so the kernel reads past its
+> arguments and a zero alpha either stores zeros or multiplies depending on
+> stack contents (NaN where zeros belong, for example `cgbmv` with
+> `beta == 0` on POWER6, PPC970 and CELL). 32-bit SysV passes the flag in
+> the first stack word. `LDLONG FLAG, FRAMESLOT(1)(SP)` (`scal.S`) and
+> `FRAMESLOT(2)(SP)` (`zscal.S`) under `__64BIT__`, `FRAMESLOT(0)(SP)`
+> otherwise, give the right slot for each ABI.
+
+And for the x87 extended kernels (not converted here; the portable `scal`
+runs for `XDouble`, keeping NaN as the flag asks):
+
+> **x86_64 x87 `scal.S` and `zscal.S` (`qscal`, `xscal`): a zero alpha ignores the flag**
+>
+> `interface/scal.c` and `zscal.c` pass the flag (`dummy2 = 1`) that asks a
+> zero alpha to multiply, so NaN and Inf in `x` give NaN, as reference BLAS
+> does and as the other `scal` kernels do. `kernel/x86_64/scal.S` and
+> `zscal.S` never read it: a zero alpha stores zeros, so `qscal` and `xscal`
+> turn NaN and Inf into 0.
+
+And in the x87 gemv kernels (the portable gemv takes their order but reads
+only the elements it uses):
+
+> **x87 `qgemv_n.S`, `qgemv_t.S`, `xgemv_n.S`, `xgemv_t.S`: a read past the end of `x`**
+>
+> `kernel/x86_64/` and `kernel/x86/` load the next `x` element before the
+> loop tests whether there is one. With `incx == 1`, where `x` is the
+> caller's own array, the last block reads `x[m]` (`qgemv_t`, when `n >= 4`)
+> or, for an even block length, `x[n]` (`qgemv_n`, when `m >= 4`) or
+> `x[m]`/`x[n]` (`xgemv_t`, `xgemv_n`). The value is discarded, but the read
+> faults where `x` ends at an unmapped page. Testing the count before the
+> load, or loading at the top of each trip, avoids it.

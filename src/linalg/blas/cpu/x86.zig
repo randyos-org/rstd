@@ -6,6 +6,7 @@ const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 const blas = @import("../__root__.zig");
 const gemm_params = @import("../blas3/gemm/params.zig");
+const gemv_x87 = @import("../blas2/gemv/x87.zig");
 
 pub const CoreType = detector.CoreType;
 pub const kernel = @import("../kernels/x86.zig");
@@ -19,6 +20,8 @@ pub fn vtableFromCoreType(core_type: CoreType) Vtable {
     // blocking first: a core's level-3 kernels set their own unrolls
     gemm_params.installCore(&vt, .x86, core_type, .fromConfig(blas.config));
     kernel.install(&vt, core_type);
+    // the x87 `q`/`x` gemv_n block by the core's DTB entries
+    gemv_x87.installCore(&vt, core_type);
     portable.finish(&vt);
     return vt;
 }

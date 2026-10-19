@@ -24,6 +24,7 @@ pub const power: arch.Arch = .{
     .config_h = "#define ARCH_POWER 1\n#define BINARY64 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_POWER", "-DOS_LINUX", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k" },
     .core_defines = coreDefines,
+    .patches = &flag_slot,
     // the Blue Gene double-precision FPU instructions are not in LLVM
     .unsupported = &.{ "axpy_hummer.S", "zaxpy_hummer.S" },
     .variants = &.{
@@ -31,6 +32,22 @@ pub const power: arch.Arch = .{
         .{ .name = "32le", .defines = &.{}, .triple = "powerpcle-linux-gnu" },
         .{ .name = "64", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr },
         .{ .name = "64be", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr, .triple = "powerpc64-linux-musl" },
+    },
+};
+
+/// `scal.S` and `zscal.S` read the flag argument (keep NaN for a zero alpha)
+/// at Linux ELFv1's stack offset, so ELFv2 and 32-bit read past the caller's
+/// arguments. `FRAMESLOT` has every ABI's offset; FreeBSD's ELFv2 one matches.
+const flag_slot = [_]arch.Patch{
+    .{
+        .source = "scal.S",
+        .find = "#if defined(__FreeBSD__)\n    LDLONG  FLAG, 104(SP)\n#else\n    LDLONG  FLAG, 120(SP)\n#endif\n",
+        .replace = "#ifdef __64BIT__\n    LDLONG  FLAG, FRAMESLOT(1)(SP)\n#else\n    LDLONG  FLAG, FRAMESLOT(0)(SP)\n#endif\n",
+    },
+    .{
+        .source = "zscal.S",
+        .find = "#if defined(__FreeBSD__)\n    LDLONG  FLAG, 112(SP)\n#else\n\tLDLONG\tFLAG, 128(SP)\n#endif\n",
+        .replace = "#ifdef __64BIT__\n    LDLONG  FLAG, FRAMESLOT(2)(SP)\n#else\n    LDLONG  FLAG, FRAMESLOT(0)(SP)\n#endif\n",
     },
 };
 

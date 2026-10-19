@@ -13,7 +13,9 @@
 //! changes, from GCC's to Zig's: numbered operands `%2` become named ones
 //! `%[x]`, and the clobbers are declared as Zig spells them, at the width of
 //! the vector registers the text actually uses. The `#if !defined(CONJ)`
-//! inside the strings is resolved by the preprocessor, once for each form.
+//! inside the strings is resolved by the preprocessor, once for each form;
+//! POWER's `__BYTE_ORDER__` too, once per byte order, and where the two
+//! differ the file has a function for each, which the block's name picks.
 //!
 //! The driver around a microkernel (`daxpy.c` and its siblings) is not
 //! converted here; the index written next to the blocks (`uk/__root__.zig`)
@@ -69,9 +71,14 @@ fn patched(t: Target, source: []const u8) ![]const u8 {
     return dest;
 }
 
-fn runCpp(source: []const u8, conj: bool) ![]const u8 {
+/// POWER blocks pick register halves by `__BYTE_ORDER__`, so they are
+/// preprocessed for each endianness.
+const Endian = enum { little, big };
+
+fn runCpp(source: []const u8, conj: bool, endian: Endian) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(map.arena, &.{ "zig", "cc", "-E", "-P", "-x", "c", "-w" });
+    if (is_power) try argv.appendSlice(map.arena, &.{ "-target", if (endian == .big) "powerpc64-linux" else "powerpc64le-linux" });
     try argv.appendSlice(map.arena, cpp_extra);
     if (conj) try argv.append(map.arena, "-DCONJ");
     try argv.appendSlice(map.arena, &.{ source, "-o", "-" });
@@ -627,10 +634,22 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
     var wrote = false;
     for ([_]bool{ false, true }) |conj| {
         if (conj and !has_conj) continue;
-        const text = try runCpp(try patched(t, path), conj);
-        if (try convertFunction(text, prec, routine, conj)) |z| {
+        const source = try patched(t, path);
+        const z = try convertFunction(try runCpp(source, conj, .little), prec, routine, conj) orelse continue;
+        wrote = true;
+        const z_be = if (t.power) try convertFunction(try runCpp(source, conj, .big), prec, routine, conj) else null;
+        if (z_be == null or std.mem.eql(u8, z, z_be.?)) {
             try put(&out, "{s}\n", .{z});
-            wrote = true;
+            continue;
+        }
+        // one function per byte order, and the name picks the target's
+        const head = "pub noinline fn ";
+        const at = std.mem.indexOf(u8, z, head).? + head.len;
+        const fname = z[at..std.mem.indexOfScalarPos(u8, z, at, '(').?];
+        try put(&out, "pub const {s} = if (@import(\"builtin\").cpu.arch.endian() == .big) {s}_be else {s}_le;\n\n", .{ fname, fname, fname });
+        for ([_][]const u8{ z, z_be.? }, [_][]const u8{ "_le", "_be" }) |body, suffix| {
+            const named = try std.fmt.allocPrint(map.arena, "{s}{s}{s}", .{ head, fname, suffix });
+            try put(&out, "{s}\n", .{try std.mem.replaceOwned(u8, map.arena, body, try std.fmt.allocPrint(map.arena, "{s}{s}", .{ head, fname }), named)});
         }
     }
     if (!wrote) {
@@ -666,7 +685,6 @@ pub fn main(init: std.process.Init) !void {
         is_power = t.power;
         align_bytes = t.align_bytes;
         cpp_extra = if (t.power) &.{
-            "-target",                                                           "powerpc64le-linux",
             "-mcpu=pwr10",                                                       "-DPOWER10",
             "-D__VEC__",                                                         "-DXXSPLTD_S(T,A,z)=\"xxspltd \" #T \", \" #A \", \" #z \"\\n\\t\"",
             "-DXXSWAPD_S(T,A)=\"xxswapd \" #T \", \" #A \"\\n\\t\"",             "-DXXMRGHD_S(T,A,B)=\"xxmrghd \" #T \", \" #A \", \" #B \"\\n\\t\"",
