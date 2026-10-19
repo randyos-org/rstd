@@ -116,6 +116,12 @@ pub const Gen = struct {
     }
 };
 
+/// The Fortran's `LSE`: whether two arrays are identical.
+pub fn lse(comptime T: type, a: []const T, b: []const T) bool {
+    for (a, b) |p, q| if (!eql(p, q)) return false;
+    return true;
+}
+
 /// Fails, naming `what`, unless `ok`. Not `std.testing`: its failure message
 /// blocks forever on a freestanding rig.
 pub fn expect(ok: bool, what: []const u8) !void {
@@ -138,4 +144,5 @@ pub fn expectError(want: anyerror, got: anytype, what: []const u8) !void {
 test {
     _ = @import("blat1.zig");
     _ = @import("blat2.zig");
+    _ = @import("blat3.zig");
 }

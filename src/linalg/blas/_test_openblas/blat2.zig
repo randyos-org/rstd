@@ -99,7 +99,7 @@ fn letter(comptime T: type) u8 {
     };
 }
 
-// ---- SMAKE, LSE, LSERES -----------------------------------------------------
+// ---- SMAKE, LSERES -----------------------------------------------------
 
 const Kind = enum { ge, gb, sy, sb, sp, tr, tb, tp };
 
@@ -228,11 +228,6 @@ fn setIm(comptime T: type, p: *T, v: Float(T)) void {
 /// storage at stride `inc` with rogue gaps.
 fn makeVec(comptime T: type, n: usize, x: []T, xx: []T, inc: usize, gen: *ob.Gen, transl: f64) void {
     make(T, .ge, ' ', ' ', 1, n, x, 1, xx, inc, 0, @as(isize, @intCast(n)) - 1, gen, transl);
-}
-
-fn lse(comptime T: type, a: []const T, b: []const T) bool {
-    for (a, b) |p, q| if (!ob.eql(p, q)) return false;
-    return true;
 }
 
 /// `LSERES`: the elements of the `m` by `n` storage outside the result agree,
@@ -531,9 +526,9 @@ fn chk1(comptime T: type, comptime r: Routine, p: Params) !void {
                                 @memcpy(w.ys[0..ly], w.yy[0..ly]);
                                 const c: Call = .{ .trans = trans, .m = m, .n = n, .k = kl, .ku = ku, .lda = lda, .incx = incx, .incy = incy, .alpha = alpha, .beta = beta };
                                 try s.call(T, r, c, w);
-                                try s.same(T, r, c, "A", lse(T, w.as[0..laa], w.aa[0..laa]));
-                                try s.same(T, r, c, "X", lse(T, w.xs[0..lx], w.xx[0..lx]));
-                                try s.same(T, r, c, "Y", if (null_) lse(T, w.ys[0..ly], w.yy[0..ly]) else lseres(T, .ge, ' ', 1, ml, w.yy, w.ys, ay));
+                                try s.same(T, r, c, "A", ob.lse(T, w.as[0..laa], w.aa[0..laa]));
+                                try s.same(T, r, c, "X", ob.lse(T, w.xs[0..lx], w.xx[0..lx]));
+                                try s.same(T, r, c, "Y", if (null_) ob.lse(T, w.ys[0..ly], w.yy[0..ly]) else lseres(T, .ge, ' ', 1, ml, w.yy, w.ys, ay));
                                 if (null_) continue :next_m;
                                 try s.result(T, r, c, mvch(T, trans, m, n, ob.val(T, alpha[0], alpha[1]), w.a, nmax, w.x, incx, ob.val(T, beta[0], beta[1]), w.y, incy, w.yt, w.g, w.yy));
                             };
@@ -584,9 +579,9 @@ fn chk2(comptime T: type, comptime r: Routine, p: Params) !void {
                             @memcpy(w.ys[0..ly], w.yy[0..ly]);
                             const c: Call = .{ .uplo = uplo, .n = n, .k = k, .lda = lda, .incx = incx, .incy = incy, .alpha = alpha, .beta = beta };
                             try s.call(T, r, c, w);
-                            try s.same(T, r, c, "A", lse(T, w.as[0..laa], w.aa[0..laa]));
-                            try s.same(T, r, c, "X", lse(T, w.xs[0..lx], w.xx[0..lx]));
-                            try s.same(T, r, c, "Y", if (null_) lse(T, w.ys[0..ly], w.yy[0..ly]) else lseres(T, .ge, ' ', 1, n, w.yy, w.ys, ay));
+                            try s.same(T, r, c, "A", ob.lse(T, w.as[0..laa], w.aa[0..laa]));
+                            try s.same(T, r, c, "X", ob.lse(T, w.xs[0..lx], w.xx[0..lx]));
+                            try s.same(T, r, c, "Y", if (null_) ob.lse(T, w.ys[0..ly], w.yy[0..ly]) else lseres(T, .ge, ' ', 1, n, w.yy, w.ys, ay));
                             if (null_) continue :next_n;
                             try s.result(T, r, c, mvch(T, 'N', n, n, ob.val(T, alpha[0], alpha[1]), w.a, nmax, w.x, incx, ob.val(T, beta[0], beta[1]), w.y, incy, w.yt, w.g, w.yy));
                         };
@@ -633,8 +628,8 @@ fn chk3(comptime T: type, comptime r: Routine, p: Params) !void {
                     @memcpy(w.xs[0..lx], w.xx[0..lx]);
                     const c: Call = .{ .uplo = uplo, .trans = trans, .diag = diag, .n = n, .k = k, .lda = lda, .incx = incx };
                     try s.call(T, r, c, w);
-                    try s.same(T, r, c, "A", lse(T, w.as[0..laa], w.aa[0..laa]));
-                    try s.same(T, r, c, "X", if (null_) lse(T, w.xs[0..lx], w.xx[0..lx]) else lseres(T, .ge, ' ', 1, n, w.xx, w.xs, ax));
+                    try s.same(T, r, c, "A", ob.lse(T, w.as[0..laa], w.aa[0..laa]));
+                    try s.same(T, r, c, "X", if (null_) ob.lse(T, w.xs[0..lx], w.xx[0..lx]) else lseres(T, .ge, ' ', 1, n, w.xx, w.xs, ax));
                     if (null_) continue :next_n;
                     if (!solve) {
                         try s.result(T, r, c, mvch(T, trans, n, n, one, w.a, nmax, w.x, incx, ob.zero(T), w.z, incx, w.yt, w.g, w.xx));
@@ -693,9 +688,9 @@ fn chk4(comptime T: type, comptime r: Routine, p: Params) !void {
                         @memcpy(w.ys[0..ly], w.yy[0..ly]);
                         const c: Call = .{ .m = m, .n = n, .lda = lda, .incx = incx, .incy = incy, .alpha = alpha };
                         try s.call(T, r, c, w);
-                        try s.same(T, r, c, "X", lse(T, w.xs[0..lx], w.xx[0..lx]));
-                        try s.same(T, r, c, "Y", lse(T, w.ys[0..ly], w.yy[0..ly]));
-                        try s.same(T, r, c, "A", if (null_) lse(T, w.as[0..laa], w.aa[0..laa]) else lseres(T, .ge, ' ', m, n, w.aa, w.as, lda));
+                        try s.same(T, r, c, "X", ob.lse(T, w.xs[0..lx], w.xx[0..lx]));
+                        try s.same(T, r, c, "Y", ob.lse(T, w.ys[0..ly], w.yy[0..ly]));
+                        try s.same(T, r, c, "A", if (null_) ob.lse(T, w.as[0..laa], w.aa[0..laa]) else lseres(T, .ge, ' ', m, n, w.aa, w.as, lda));
                         if (null_) continue :next_m;
                         const z = w.z[0..m];
                         for (z, 0..) |*e, i| e.* = w.x[if (incx > 0) i else m - 1 - i];
@@ -745,8 +740,8 @@ fn chk5(comptime T: type, comptime r: Routine, p: Params) !void {
                     @memcpy(w.xs[0..lx], w.xx[0..lx]);
                     const c: Call = .{ .uplo = uplo, .n = n, .lda = lda, .incx = incx, .alpha = alpha };
                     try s.call(T, r, c, w);
-                    try s.same(T, r, c, "X", lse(T, w.xs[0..lx], w.xx[0..lx]));
-                    try s.same(T, r, c, "A", if (null_) lse(T, w.as[0..laa], w.aa[0..laa]) else pack or lseres(T, .sy, uplo, n, n, w.aa, w.as, lda));
+                    try s.same(T, r, c, "X", ob.lse(T, w.xs[0..lx], w.xx[0..lx]));
+                    try s.same(T, r, c, "A", if (null_) ob.lse(T, w.as[0..laa], w.aa[0..laa]) else pack or lseres(T, .sy, uplo, n, n, w.aa, w.as, lda));
                     if (null_) {
                         if (n == 0) continue :next_n;
                         continue;
@@ -809,9 +804,9 @@ fn chk6(comptime T: type, comptime r: Routine, p: Params) !void {
                         @memcpy(w.ys[0..ly], w.yy[0..ly]);
                         const c: Call = .{ .uplo = uplo, .n = n, .lda = lda, .incx = incx, .incy = incy, .alpha = alpha };
                         try s.call(T, r, c, w);
-                        try s.same(T, r, c, "X", lse(T, w.xs[0..lx], w.xx[0..lx]));
-                        try s.same(T, r, c, "Y", lse(T, w.ys[0..ly], w.yy[0..ly]));
-                        try s.same(T, r, c, "A", if (null_) lse(T, w.as[0..laa], w.aa[0..laa]) else pack or lseres(T, .sy, uplo, n, n, w.aa, w.as, lda));
+                        try s.same(T, r, c, "X", ob.lse(T, w.xs[0..lx], w.xx[0..lx]));
+                        try s.same(T, r, c, "Y", ob.lse(T, w.ys[0..ly], w.yy[0..ly]));
+                        try s.same(T, r, c, "A", if (null_) ob.lse(T, w.as[0..laa], w.aa[0..laa]) else pack or lseres(T, .sy, uplo, n, n, w.aa, w.as, lda));
                         if (null_) {
                             if (n == 0) continue :next_n;
                             continue;
