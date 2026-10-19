@@ -105,3 +105,24 @@ pub fn xsymm_outcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, pos
 pub fn xsymm_oltcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]XDouble) i32 {
     return blas.kernel(.xsymm_oltcopy)(m, n, a, lda, posX, posY, b);
 }
+
+pub const kernel = @import("kernel.zig");
+
+const check = @import("../check.zig");
+const blas1check = @import("../../blas1/check.zig");
+const Vtable = @import("../../Vtable.zig");
+
+fn cases(vt: *const Vtable) !void {
+    try check.routineAll(vt, .symm);
+    try check.routineAll(vt, .hemm);
+}
+
+test "portable symm and hemm match the wide reference through the driver" {
+    var vt: Vtable = .{};
+    @import("../../portable.zig").install(&vt);
+    try cases(&vt);
+}
+
+test "every linked core's symm and hemm match the wide reference, where this machine runs them" {
+    try blas1check.eachCore(cases);
+}

@@ -122,7 +122,7 @@ pub fn geometryFor(comptime T: type, comptime cpu: std.Target.Cpu) Geometry {
     const bits: u16 = if (split) 0 else raw_bits;
     const vl: u16 = if (bits == 0) 1 else bits / @bitSizeOf(F) / @as(u16, if (complex) 2 else 1);
     const regs = registers(bits, cpu);
-    @setEvalBranchQuota(10_000);
+    @setEvalBranchQuota(100_000);
     inline for (.{ true, false }) |strict| {
         var best: ?Geometry = null;
         var best_loads: usize = 0;
@@ -152,6 +152,7 @@ pub fn geometryFor(comptime T: type, comptime cpu: std.Target.Cpu) Geometry {
 
 /// The compile target's tile.
 pub fn geometry(comptime T: type) Geometry {
+    @setEvalBranchQuota(100_000);
     return comptime geometryFor(T, sysinfo.cpu);
 }
 

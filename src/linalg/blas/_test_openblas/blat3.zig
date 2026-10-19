@@ -33,9 +33,11 @@ const complex_gemm = true;
 /// The level-3 interface as the tests expect it, for the routines not ported:
 /// each skips.
 const pending = struct {
-    pub const Side = enum { l, r };
-    pub const Uplo = enum { u, l };
-    pub const Diag = enum { u, n };
+    // the interface's own, once it has them, so a routine still pending
+    // takes what the ported ones do
+    pub const Side = if (@hasDecl(iface, "Side")) iface.Side else enum { l, r };
+    pub const Uplo = if (@hasDecl(iface, "Uplo")) iface.Uplo else enum { u, l };
+    pub const Diag = if (@hasDecl(iface, "Diag")) iface.Diag else enum { u, n };
     const Trans = iface.Trans;
     const A = std.mem.Allocator;
 

@@ -228,7 +228,9 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
                 want.im = if (nothing) c0[i + j * ldc].im else 0;
             }
         }
-        compare(T, want, got, ref.terms, ref.bound, isComplex(T)) catch return fail(case, i, j, "wrong");
+        // a rank-k update of special values meets them in sums of its own order
+        const lax = isComplex(T) or (case.rank() and case.p != null);
+        compare(T, want, got, ref.terms, ref.bound, lax) catch return fail(case, i, j, "wrong");
     };
 }
 
@@ -245,7 +247,8 @@ fn compare(comptime T: type, want: Wide(T), got: T, terms: usize, bound: f128, l
 
 fn part(comptime F: type, want: anytype, got: F, ulps: f128, bound: f128, lax: bool) !void {
     const w: f128 = want;
-    if (lax and !std.math.isFinite(w)) {
+    // past `F`'s range is infinite in `F`, of a sign the order of the sum picks
+    if (lax and (!std.math.isFinite(w) or @abs(w) > std.math.floatMax(F))) {
         if (std.math.isFinite(got)) return error.TestUnexpectedResult;
         return;
     }
@@ -308,8 +311,8 @@ fn Ops(comptime T: type) type {
                     const two = c.r == .syr2k or c.r == .her2k;
                     const yy = if (two) y else x;
                     const ldyy = if (two) ldy else ldx;
-                    const t: Trans = if (c.ta.transposed()) .t else .n;
-                    break :blk .{ general(x, ldx, t, i, l), conjIf(general(yy, ldyy, t, j, l), c.herm()) };
+                    // `trans` `c` conjugates `op(X)` too
+                    break :blk .{ general(x, ldx, c.ta, i, l), conjIf(general(yy, ldyy, c.ta, j, l), c.herm()) };
                 },
                 .trmm, .trsm => if (c.left) .{ s.tri(i, l), at(s.c0, s.ldc, l, j) } else .{ at(s.c0, s.ldc, i, l), s.tri(l, j) },
             };
@@ -475,8 +478,8 @@ pub const Driver = struct {
             .herk => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc) else unreachable,
             .her2k => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
             .trmm, .trsm => if (@hasDecl(level3, "trmm")) {
-                const f = if (case.r == .trmm) level3.trmm else level3.trsm;
-                try f(al, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc);
+                const args = .{ al, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc };
+                if (case.r == .trmm) try @call(.auto, level3.trmm, args) else try @call(.auto, level3.trsm, args);
             } else return error.SkipZigTest,
         }
     }
@@ -491,8 +494,8 @@ pub fn Iface(comptime iface: type) type {
             var poison: guard.Poison = .{ .child = testing.allocator };
             const al = poison.allocator();
             const odd = (case.m + case.n + case.k) % 2 == 1;
-            const ta = trans(iface.Trans, T, case.ta, odd);
-            const tb = trans(iface.Trans, T, case.tb, !odd);
+            const ta = trans(iface.Trans, T, case.ta, odd, case.rank());
+            const tb = trans(iface.Trans, T, case.tb, !odd, false);
             const m: isize = @intCast(case.m);
             const n: isize = @intCast(case.n);
             const k: isize = @intCast(case.k);
@@ -511,8 +514,8 @@ pub fn Iface(comptime iface: type) type {
                 .her2k => if (!@hasDecl(iface, "her2k")) return error.SkipZigTest else if (comptime isComplex(T)) try iface.her2k(al, T, uplo, ta, n, k, alpha, a, ia, b, ib, beta.re, c, ic) else unreachable,
                 .trmm, .trsm => if (@hasDecl(iface, "trmm")) {
                     const diag: Diag(iface) = if (case.unit) .u else .n;
-                    const f = if (case.r == .trmm) iface.trmm else iface.trsm;
-                    try f(al, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic);
+                    const args = .{ al, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic };
+                    if (case.r == .trmm) try @call(.auto, iface.trmm, args) else try @call(.auto, iface.trsm, args);
                 } else return error.SkipZigTest,
             }
         }
@@ -529,11 +532,12 @@ pub fn Iface(comptime iface: type) type {
 
         /// `t` as the interface's `Trans`; real `r` and `c` for `n` and `t`
         /// where `alt`.
-        fn trans(comptime Tr: type, comptime T: type, t: Trans, alt: bool) Tr {
+        fn trans(comptime Tr: type, comptime T: type, t: Trans, alt: bool, rank: bool) Tr {
             if (comptime isComplex(T)) return switch (t) {
                 inline else => |v| @field(Tr, @tagName(v)),
             };
-            return if (t.transposed()) (if (alt) .c else .t) else (if (alt) .r else .n);
+            // the rank-k updates take no `r`
+            return if (t.transposed()) (if (alt) .c else .t) else (if (alt and !rank) .r else .n);
         }
     };
 }
@@ -673,8 +677,10 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, r: Routine) !void {
 
     // past each of the vtable's own blocks once (row blocks split in two)
     try one(T, sized(vs[0], own.p + um + 1, 3 * un + 2, own.q + 1, .{ 1.5, 0 }, .{ -1, 0 }), full);
-    // past `R`; natively, whole blocks of `P` and `Q` and then halves
-    try one(T, sized(vs[vs.len - 1], um + 1, own.r + 2 * un + 1, 3, .{ 1.25, 0 }, .{ 0.5, 0 }), full);
+    // past `R` (a left side, so `A` is small; a rank-k update's `C` would be
+    // `R` square, and the shrunk blocking crosses it); natively, whole blocks
+    // of `P` and `Q` and then halves
+    if (!vs[0].rank()) try one(T, sized(if (r == .gemm) vs[vs.len - 1] else vs[0], um + 1, own.r + 2 * un + 1, 3, .{ 1.25, 0 }, .{ 0.5, 0 }), full);
     if (!rig) try one(T, sized(vs[vs.len / 2], 2 * own.p + um + 3, un + 1, 2 * own.q + 3, .{ -0.5, 0 }, .{ 1, 0 }), full);
 }
 
