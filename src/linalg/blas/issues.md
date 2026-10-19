@@ -582,30 +582,29 @@ only the elements it uses):
 
 ### Special values some converted kernels treat otherwise
 
-The edge-case tests (`blas1/edge.zig`, on every rig) found these. They are
-not fixed here: `edge.zig`'s `Quirk` names each, and the tests check what
-the kernels do rather than the reference. Reference BLAS's `i?amax` replaces
-its pick only on a strict `>`, so NaN is picked only as the first element,
-and then nothing replaces it; LAPACK 3.10's `nrm2` is infinite for an
-infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
+The edge-case tests (`blas1/edge.zig` and `blas2/edge.zig`, on every rig)
+found these. Reference BLAS's `i?amax` replaces its pick only on a strict
+`>`, so NaN is picked only as the first element, and then nothing replaces
+it; LAPACK 3.10's `nrm2` is infinite for an infinity; `kernel/arm/axpby.c`
+reads no operand whose scalar is zero.
 
-- **Extremes, NaN replaced.** `arm64/amax.S` and `iamax.S` (every arm64
-  core, `amax` and `iamax`), `x86/amax.S` and `iamax.S` (`amin`, `min`,
-  `iamin`, `imin`) and `arm/amax_vfp.S` and `iamax_vfp.S` (the real minima)
-  replace their pick unless the new key is `<=` it (`>=` for a minimum): a
-  NaN is picked where it is met, and the next element replaces it, so a
-  NaN first is passed over and a NaN last is the result.
+Not fixed, so `blas1/edge.zig`'s `Quirk` names it and the tests check what
+the kernels do:
+
 - **Extremes, lane by lane.** `x86_64/amax_sse.S`, `amax_sse2.S`,
   `zamax_sse.S`, `zamax_sse2.S`, `iamax_sse.S`, `iamax_sse2.S`,
   `izamax_sse.S` and `izamax_sse2.S` (every x86_64 core, all eight
-  routines), `power/amax.S` and its kin (every POWER core) and the
-  `loongarch64` extremes compare in vector lanes, so what a NaN does depends
-  on where it falls: a NaN first may be passed over, a later one picked.
-  `power/amax.S`, with a NaN last, returned an element smaller than the
-  maximum; `loongarch64/amax_lsx.S` returned 0 for a lone NaN. (The x86_64
-  index kernels also returned `n + 1` for a NaN extreme; fixed, `readme.md`.)
-- **Extremes, ties.** `mips64/iamax.S` (loongson3r3, loongson3r4) and the
-  `sparc` index kernels: of equal keys (two infinities), a later one.
+  routines), `power/amax.S` and its kin (every POWER core), the
+  `loongarch64` extremes and `arm64/amax.S` (`amax`, every arm64 core)
+  compare in vector lanes, so what a NaN does depends on where it falls: a
+  NaN first may be passed over, a later one picked. `power/amax.S`, with a
+  NaN last, returned an element smaller than the maximum;
+  `loongarch64/amax_lsx.S` returned 0 for a lone NaN. Left as they are: the
+  reference's order needs each SIMD reduction rewritten.
+
+Not used: the `nrm2` kernels below are converted but not wired in, and the
+portable `nrm2` runs on those cores (`readme.md`):
+
 - **`nrm2` of an infinity is NaN.** `power/nrm2.S` and its kin (every POWER
   core), `mips64/dnrm2.S` and `znrm2.S` (Loongson), `loongarch64/dnrm2.S`
   and `znrm2.S` (generic), `znrm2_lsx.S` and `znrm2_lasx.S`, and
@@ -619,27 +618,85 @@ infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
   accurate; they square the denormals, or scale by a reciprocal that
   overflows. `power/dnrm2_ppc440.S` and `znrm2_ppc440.S` (ppcg4, ppc440)
   gave NaN: their square root goes through `frsqrte` of a denormal sum.
-- **`axpby` with a zero scalar.** `loongarch64/axpby_lsx.S`,
-  `axpby_lasx.S`, `caxpby_lsx.S` and `caxpby_lasx.S`: the blocked loops for a
-  zero `alpha` (`beta`) never advance `X` (`Y`), and the elements past the
-  last block are `beta*y + alpha*x` whatever the scalars, from `x` (`y`)
-  elements the blocks left behind. Zero times a finite value hides it; a NaN
-  or infinity anywhere in that operand reaches them as NaN, where
-  `kernel/arm/axpby.c` reads neither operand.
-- **`copy` and signed zero.** `x86_64/copy_sse.S`, `copy_sse2.S`,
-  `zcopy_sse.S` and `zcopy_sse2.S` built for `OPTERON` load with `xorps` and
-  `addps`/`addpd`, so -0 comes out +0 (and a signaling NaN quiet).
 
-The level-2 edge-case tests (`blas2/edge.zig`) found two more:
+Fixed in the converted sources (`readme.md`). Issues could read, for the
+x86_64 index kernels:
 
-- **`symv` and infinity.** `x86_64/symv_L_sse.S` (`ssymv_L` on atom,
-  barcelona, bobcat, core2, dunnington, nano, opteron, penryn, prescott):
-  an infinity in the last element of `x` (`n = 7`) gave NaN in `y[0]` where
-  the reference gives infinity. With finite junk in the storage it must not
-  read, the same, so it is the kernel's own arithmetic. `edge.zig`'s
-  `symvInfNan` accepts it.
+> **x86_64 `iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`: `n + 1` for a NaN extreme**
+>
+> The second pass looks for the element equal to the extreme the first
+> found. Its last step (`.L28`, `.L68`, `.L98` in `iamax_sse2.S`, and the
+> like) takes the last element as the match unread, and counts it even when
+> `M` is even and it was read already. A NaN extreme equals no element, so
+> the index returned is `n + 1`, past the end of `x`. Testing `M` odd there
+> keeps it in range.
+
+And the x86_64 copies on OPTERON:
+
+> **x86_64 `copy_sse.S`, `copy_sse2.S`, `zcopy_sse.S`, `zcopy_sse2.S`: OPTERON loses the sign of zero**
+>
+> Under `OPTERON`, `LOAD` is `xorps REG, REG; addps OFFSET(ADDR), REG`
+> (`addpd` for double): `+0 + -0` is `+0`, so `-0` is copied as `+0`, and a
+> signaling NaN comes out quiet. The plain `movaps`/`movups` the other
+> cores use copies the bits.
+
+And x86_64 `symv`:
+
+> **x86_64 `symv_L_sse.S`: an infinity in `x` gives NaN in `y`**
+>
+> The last two rows of a block (`.L17`) zero the upper half of each column
+> operand (`movlhps xtemp2, a1`) but not of `xtemp1`, which still holds the
+> next two elements of `x`; the two columns at the end (`.L20`) multiply a
+> `movsd` of the matrix by all four lanes of `atemp4`. An infinity in those
+> lanes times the zeroed half is NaN, which the horizontal sum adds into
+> `y` (`ssymv` lower, `n = 7`, `x[6]` infinite, gives NaN in `y[0]`).
+> Zeroing the upper half of `xtemp1` and of `atemp4` fixes both.
+
+And the x86 and arm minima:
+
+> **x86 `amax.S`, `iamax.S`, `zamax.S`, `izamax.S` and arm `amax_vfp.S`, `iamax_vfp.S`: the minima pick NaN**
+>
+> The x86 minima move the new element in unless `fcomi` says it is above
+> the pick (`fcmovnbe`, `cmovb`); unordered is not above, so a NaN replaces
+> the pick and the next element replaces the NaN. The arm minima move on
+> `lt`, which an unordered `vcmpe` sets too. The maxima keep NaN out. The
+> fix, for x86: compare the pick with the new element (`fxch` around
+> `fcomi`) and use the maxima's moves; for arm: `mi` in place of `lt`.
+
+And ties, on Loongson and SPARC:
+
+> **mips64 `iamax.S`, `imax.S`, `izamax.S` (and the minima) and sparc `iamax.S`, `imax.S`, `izamax.S`: of equal extremes, a later index**
+>
+> They keep a pick per lane, then reduce the lanes keeping the first
+> lane's pick on a tie, whose index may be later than another lane's.
+> Reference BLAS returns the first. Taking the smaller index of equal picks
+> at each step of the reduction fixes it.
+
+And loongarch64 `axpby`:
+
+> **loongarch64 `axpby_lsx.S`, `axpby_lasx.S`, `caxpby_lsx.S`, `caxpby_lasx.S`: a zero scalar's operand is read past the blocks**
+>
+> The tail (`.L998`) computes `alpha*x + beta*y` whatever the scalars, so a
+> NaN or infinity meets a zero scalar's 0; `kernel/arm/axpby.c` reads
+> neither operand then. The blocked loops for a zero `alpha` (`beta`) do
+> not advance `X` (`Y`) either, so the tail reads the wrong elements. A tail
+> that tests the scalars, as the blocks do, fixes both. Two more paths read
+> the operand of a zero scalar:
+>
+> - `axpby_lsx.S`, `axpby_lasx.S`, double: the zero they compare the
+>   scalars with is made by `ffint.s.l`, whose upper half is undefined (NaN
+>   under qemu), so the zero-scalar blocks are never taken; `caxpby_lsx.S`
+>   uses `ffint.d.l` for double.
+> - `caxpby_lsx.S`, `caxpby_lasx.S`, one stride 1 and the other not (`.L12`,
+>   `.L21`): no zero-scalar blocks at all; branching to `.L22`, the strided
+>   path, which has them, fixes it.
+
+Ours, not a converted kernel:
+
 - **Rank updates and a zero `x(j)`.** Reference `zher`, `zhpr`, `dsyr2` and
-  the rest skip a column whose factor is zero; OpenBLAS's
-  `driver/level2/syr_k.c` and `spr_k.c` do, but `zher_k.c`, `zhpr_k.c` and
-  the rank-2 drivers do not, so an infinity elsewhere in `x` meets the zero
-  and gives NaN in that column. `banded.zig` follows OpenBLAS's drivers.
+  the rest skip a column whose factor is zero (for rank 2, `x(j)` and `y(j)`
+  both). OpenBLAS's `driver/level2/syr_k.c`, `spr_k.c`, `zsyr_k.c` and
+  `zspr_k.c` do; `zher_k.c`, `zhpr_k.c` and the rank-2 drivers do not, so
+  an infinity elsewhere in `x` meets the zero and gives NaN in that column.
+  `banded.zig`'s drivers skip as the reference does. Left: `ger`, whose
+  reference skips a zero `y(j)`; the per-core `ger` kernels do not.
