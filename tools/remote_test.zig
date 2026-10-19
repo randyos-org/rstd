@@ -1,10 +1,11 @@
 //! Runs a test executable on another machine over SSH: copies it into the
 //! host's /tmp, runs it there with `RSTD_TEST_PROGRESS` set (so tests that
-//! run every core name each one), removes it, and exits with its status.
-//! `ssh` and `scp` come from PATH with their own config, so `host` is an SSH
-//! alias or name; nothing about the machine is stored here.
+//! run every core name each one) and any further arguments, removes it, and
+//! exits with its status. `ssh` and `scp` come from PATH with their own
+//! config, so `host` is an SSH alias or name; nothing about the machine is
+//! stored here.
 //!
-//!   remote_test <host> <test exe>
+//!   remote_test <host> <test exe> [args...]
 
 const std = @import("std");
 const Io = std.Io;
@@ -20,8 +21,8 @@ fn run(init: std.process.Init) !u8 {
     const io = init.io;
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len != 3) {
-        std.debug.print("usage: remote_test <host> <test exe>\n", .{});
+    if (args.len < 3) {
+        std.debug.print("usage: remote_test <host> <test exe> [args...]\n", .{});
         return 2;
     }
     const host = args[1];
@@ -38,7 +39,13 @@ fn run(init: std.process.Init) !u8 {
         return 1;
     }
 
-    const command = try std.fmt.allocPrint(arena, "chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}; s=$?; rm -f {0s}; exit $s", .{remote});
+    // each argument single-quoted for the remote shell
+    var extra: std.ArrayList(u8) = .empty;
+    for (args[3..]) |a| {
+        if (std.mem.indexOfScalar(u8, a, '\'') != null) return error.QuoteInArgument;
+        try extra.print(arena, " '{s}'", .{a});
+    }
+    const command = try std.fmt.allocPrint(arena, "chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -f {0s}; exit $s", .{ remote, extra.items });
     var ssh: std.ArrayList([]const u8) = .empty;
     try ssh.append(arena, "ssh");
     try ssh.appendSlice(arena, &options);
