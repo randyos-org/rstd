@@ -79,11 +79,71 @@ pub const Op = enum {
     hemv_V,
     hemv_M,
     gemm_kernel,
+    gemm_kernel_n,
+    gemm_kernel_l,
+    gemm_kernel_r,
+    gemm_kernel_b,
     gemm_beta,
     gemm_incopy,
     gemm_itcopy,
     gemm_oncopy,
     gemm_otcopy,
+    symm_iutcopy,
+    symm_iltcopy,
+    symm_outcopy,
+    symm_oltcopy,
+    hemm_iutcopy,
+    hemm_iltcopy,
+    hemm_outcopy,
+    hemm_oltcopy,
+    trmm_kernel_LN,
+    trmm_kernel_LT,
+    trmm_kernel_LR,
+    trmm_kernel_LC,
+    trmm_kernel_RN,
+    trmm_kernel_RT,
+    trmm_kernel_RR,
+    trmm_kernel_RC,
+    trmm_iunucopy,
+    trmm_iunncopy,
+    trmm_iutucopy,
+    trmm_iutncopy,
+    trmm_ilnucopy,
+    trmm_ilnncopy,
+    trmm_iltucopy,
+    trmm_iltncopy,
+    trmm_ounucopy,
+    trmm_ounncopy,
+    trmm_outucopy,
+    trmm_outncopy,
+    trmm_olnucopy,
+    trmm_olnncopy,
+    trmm_oltucopy,
+    trmm_oltncopy,
+    trsm_kernel_LN,
+    trsm_kernel_LT,
+    trsm_kernel_LR,
+    trsm_kernel_LC,
+    trsm_kernel_RN,
+    trsm_kernel_RT,
+    trsm_kernel_RR,
+    trsm_kernel_RC,
+    trsm_iunucopy,
+    trsm_iunncopy,
+    trsm_iutucopy,
+    trsm_iutncopy,
+    trsm_ilnucopy,
+    trsm_ilnncopy,
+    trsm_iltucopy,
+    trsm_iltncopy,
+    trsm_ounucopy,
+    trsm_ounncopy,
+    trsm_outucopy,
+    trsm_outncopy,
+    trsm_olnucopy,
+    trsm_olnncopy,
+    trsm_oltucopy,
+    trsm_oltncopy,
 };
 
 /// The module whose `Portable(T)` builds `op`'s kernel.
@@ -105,7 +165,7 @@ fn Module(comptime op: Op) type {
         .ger_k, .geru_k, .gerc_k, .gerv_k, .gerd_k => blas2.ger,
         .symv_U, .symv_L => blas2.symv,
         .hemv_U, .hemv_L, .hemv_V, .hemv_M => blas2.hemv,
-        .gemm_kernel, .gemm_beta, .gemm_incopy, .gemm_itcopy, .gemm_oncopy, .gemm_otcopy => blas3.gemm,
+        else => @compileError("level-3 kernels come from `blas3.gemm.kernel.find`"),
     };
 }
 
@@ -147,21 +207,38 @@ pub fn slot(comptime T: type, comptime op: Op) ?[]const u8 {
 pub fn Kernel(comptime T: type, comptime op: Op) type {
     if (@typeInfo(types.Float(T)) != .float)
         @compileError(@typeName(T) ++ " is not a float type or its Complex (bfloat16 and the mixed half routines have their own)");
+    return PortableKernel(T, op);
+}
+
+/// Whether `op` is a level-3 kernel, which serves every routine over the
+/// gemm tile (`blas3/gemm/kernel.zig`'s `sets`).
+fn level3(comptime op: Op) bool {
+    return @backingInt(op) >= @backingInt(Op.gemm_kernel);
+}
+
+fn PortableKernel(comptime T: type, comptime op: Op) type {
+    if (level3(op)) return @TypeOf(blas3.gemm.kernel.find(T, @tagName(op)));
     return @TypeOf(@field(Module(op).Portable(T), @tagName(op)));
+}
+
+/// The portable kernel of `op` over `T`.
+inline fn portableKernel(comptime T: type, comptime op: Op) PortableKernel(T, op) {
+    if (comptime level3(op)) return blas3.gemm.kernel.find(T, @tagName(op));
+    return @field(Module(op).Portable(T), @tagName(op));
 }
 
 /// `op`'s kernel for `T`: `vt`'s slot where it has one for `T`, else the
 /// portable kernel over `T`.
 pub inline fn kernel(comptime T: type, vt: *const Vtable, comptime op: Op) Kernel(T, op) {
     if (comptime slot(T, op)) |name| return @field(vt, name).?;
-    return @field(Module(op).Portable(T), @tagName(op));
+    return portableKernel(T, op);
 }
 
 /// `kernel` with the table from `getter` (`blas.vtable`, or `blas.table`
 /// under a routine that fetched it), which a type without slots never calls.
 pub inline fn fetch(comptime T: type, comptime op: Op, comptime getter: anytype) Kernel(T, op) {
     if (comptime slot(T, op)) |name| return @field(getter(), name).?;
-    return @field(Module(op).Portable(T), @tagName(op));
+    return portableKernel(T, op);
 }
 
 test "kernel takes the vtable's slot where there is one, else the portable kernel" {

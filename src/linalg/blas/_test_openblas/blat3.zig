@@ -28,7 +28,7 @@ const C64 = std.math.Complex(f64);
 const nmax = 65;
 
 /// Set once `interface.gemm` takes complex types; `gemm3m` with it.
-const complex_gemm = false;
+const complex_gemm = true;
 
 /// The level-3 interface as the tests expect it, for the routines not ported:
 /// each skips.
