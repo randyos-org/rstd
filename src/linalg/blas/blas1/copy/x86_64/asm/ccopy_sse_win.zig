@@ -151,17 +151,9 @@ const text =
     \\ prefetchw ((128 * 3) + 0) - 128(%r9)
     \\ .endif
     \\ movaps %xmm0, -32 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 0 * 4(%rdx), %xmm0
-    \\ .endif
-    \\ .if \bp1
-    \\ xorps %xmm0, %xmm0
-    \\ addps 0 * 4(%rdx), %xmm0
-    \\ .endif
     \\ movaps %xmm1, -28 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 4 * 4(%rdx), %xmm1
-    \\ .endif
     \\ .if \bp5
     \\ prefetcht0 (( 64 * 12 + 32) + 0) - 128(%rdx)
     \\ .endif
@@ -175,25 +167,15 @@ const text =
     \\ prefetcht0 ((128 * 12) + 0) - 128(%rdx)
     \\ .endif
     \\ .if \bp1
-    \\ xorps %xmm1, %xmm1
-    \\ addps 4 * 4(%rdx), %xmm1
     \\ prefetch ((128 * 3) + 0) - 128(%rdx)
     \\ .endif
     \\ .if \bp6
     \\ prefetcht0 ((128 * 10) + 0) - 128(%rdx)
     \\ .endif
     \\ movaps %xmm2, -24 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 8 * 4(%rdx), %xmm2
-    \\ .endif
-    \\ .if \bp1
-    \\ xorps %xmm2, %xmm2
-    \\ addps 8 * 4(%rdx), %xmm2
-    \\ .endif
     \\ movaps %xmm3, -20 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 12 * 4(%rdx), %xmm3
-    \\ .endif
     \\ .if \bp2
     \\ prefetchw ((128 * 5) + 64) - 128(%r9)
     \\ .endif
@@ -204,22 +186,12 @@ const text =
     \\ prefetcht0 ((128 * 12) + 64) - 128(%r9)
     \\ .endif
     \\ .if \bp1
-    \\ xorps %xmm3, %xmm3
-    \\ addps 12 * 4(%rdx), %xmm3
     \\ prefetchw ((128 * 3) + 64) - 128(%r9)
     \\ .endif
     \\ movaps %xmm4,-16 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 16 * 4(%rdx), %xmm4
-    \\ .endif
-    \\ .if \bp1
-    \\ xorps %xmm4, %xmm4
-    \\ addps 16 * 4(%rdx), %xmm4
-    \\ .endif
     \\ movaps %xmm5,-12 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 20 * 4(%rdx), %xmm5
-    \\ .endif
     \\ .if \bp5
     \\ prefetcht0 (( 64 * 12 + 32) + 64) - 128(%rdx)
     \\ .endif
@@ -233,26 +205,12 @@ const text =
     \\ prefetcht0 ((128 * 12) + 64) - 128(%rdx)
     \\ .endif
     \\ .if \bp1
-    \\ xorps %xmm5, %xmm5
-    \\ addps 20 * 4(%rdx), %xmm5
     \\ prefetch ((128 * 3) + 64) - 128(%rdx)
     \\ .endif
     \\ movaps %xmm6, -8 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 24 * 4(%rdx), %xmm6
-    \\ .endif
-    \\ .if \bp1
-    \\ xorps %xmm6, %xmm6
-    \\ addps 24 * 4(%rdx), %xmm6
-    \\ .endif
     \\ movaps %xmm7, -4 * 4(%r9)
-    \\ .if \bp0
     \\ movaps 28 * 4(%rdx), %xmm7
-    \\ .endif
-    \\ .if \bp1
-    \\ xorps %xmm7, %xmm7
-    \\ addps 28 * 4(%rdx), %xmm7
-    \\ .endif
     \\ subq $-32 * 4, %r9
     \\ subq $-32 * 4, %rdx
     \\ decq %rax

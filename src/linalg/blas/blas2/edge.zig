@@ -17,11 +17,9 @@
 //!
 //! A solve divides by the diagonal, whose magnitudes are not its cases: its
 //! patterns go in the off-diagonal entries (none huge, which overflow its
-//! sums) and the right-hand side, and the diagonal dominates. Where a core's
-//! kernel does otherwise upstream, `symvInfNan` says so (`issues.md`).
+//! sums) and the right-hand side, and the diagonal dominates.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("../blas1/check.zig");
@@ -307,16 +305,6 @@ fn isZero(comptime T: type, v: T) bool {
     return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
 }
 
-/// Whether `ssymv_L` is `x86_64/symv_L_sse.S`, which turns an infinity in
-/// `x` into NaN in `y` (`issues.md`).
-fn symvInfNan(comptime T: type) bool {
-    if (comptime sysinfo.cpu.arch != .x86_64 or T != f32) return false;
-    const core = check.core orelse return false;
-    const cores = [_][]const u8{ "atom", "barcelona", "bobcat", "core2", "dunnington", "nano", "opteron", "opteron_sse3", "penryn", "piledriver", "prescott" };
-    for (cores) |c| if (std.mem.eql(u8, @tagName(core), c)) return true;
-    return false;
-}
-
 /// `y := alpha*op(A)*x + beta*y` for the matrix-vector products.
 fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Case) !void {
     const al = std.testing.allocator;
@@ -353,7 +341,6 @@ fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: 
     }
     try a.unchanged();
     try x.unchanged();
-    const inf_nan = r == .symv and s.lower and symvInfNan(T);
     const wa = check.wide(T, alpha);
     const wb = check.wide(T, beta);
     for (0..rows) |i| {
@@ -375,7 +362,6 @@ fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: 
             want = check.addW(want, check.mulW(wb, y.w(i)));
             scale += check.mag(wb) * check.mag(y.w(i));
         }
-        if (comptime !isComplex(T)) if (inf_nan and std.math.isInf(want) and std.math.isNan(y.at(i))) continue;
         check.expectWideAnyOrder(T, want, y.at(i), @floatFromInt(4 * (cols + 2)), scale) catch |e| {
             check.say("y[{d}]: ", .{i});
             return e;

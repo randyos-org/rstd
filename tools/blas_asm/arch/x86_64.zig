@@ -98,7 +98,26 @@ const patches = [_]arch.Patch{
     inRange("izamax_sse.S", ".L87"),
     inRange("izamax_sse2.S", ".L36"),
     inRange("izamax_sse2.S", ".L76"),
+    // OPTERON loaded by adding to zero, so -0 came out +0 and a signaling
+    // NaN quiet; load as the other cores do
+    .{ .source = "copy_sse.S", .find = opteronLoad("addps"), .replace = "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\tmovaps\tOFFSET(ADDR), REG\n" },
+    .{ .source = "copy_sse2.S", .find = opteronLoad("addpd"), .replace = "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\tmovups\tOFFSET(ADDR), REG\n" },
+    .{ .source = "zcopy_sse.S", .find = opteronLoad("addps"), .replace = "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\tmovaps\tOFFSET(ADDR), REG\n" },
+    .{ .source = "zcopy_sse2.S", .find = opteronLoad("addpd"), .replace = "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\tmovaps\tOFFSET(ADDR), REG\n" },
+    // the last two rows (`.L17`) and two columns (`.L20`) zeroed the upper
+    // half of `A`'s operand but not of `x`'s, which holds the next elements,
+    // so an infinity there met a 0 and the sum got NaN
+    .{ .source = "symv_L_sse.S", .find = "\tpxor\t xtemp2, xtemp2\n", .replace = "\tpxor\t xtemp2, xtemp2\n\tmovlhps  xtemp2, xtemp1\n" },
+    .{
+        .source = "symv_L_sse.S",
+        .find = "\tmovaps\t 0 * SIZE(NEW_X, IS, SIZE), atemp4\n",
+        .replace = "\tmovaps\t 0 * SIZE(NEW_X, IS, SIZE), atemp4\n\txorps\t xt1, xt1\n\tmovlhps  xt1, atemp4\n",
+    },
 };
+
+fn opteronLoad(comptime add: []const u8) []const u8 {
+    return "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\txorps\tREG, REG; " ++ add ++ "\tOFFSET(ADDR), REG\n";
+}
 
 /// The index search's fallback at `label`: count the last element only when
 /// it is left over (`M` odd).

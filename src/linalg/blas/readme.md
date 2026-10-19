@@ -220,6 +220,15 @@ generated files carry the fixed code.
   takes the last element as the match unread, but counted it even when it
   had been read, so for a NaN extreme, which no element equals, returned
   `n + 1`. It now returns `n` there.
+- `x86_64/copy_sse.S`, `copy_sse2.S`, `zcopy_sse.S`, `zcopy_sse2.S`
+  (opteron, opteron_sse3): loaded by adding to a zeroed register, so -0
+  came out +0 and a signaling NaN quiet. They now load as on the other
+  cores, so the copy is exact.
+- `x86_64/symv_L_sse.S` (`ssymv_L` on atom, barcelona, bobcat, core2,
+  dunnington, nano, opteron, penryn, piledriver, prescott): the last two
+  rows of a block, and the last two columns, zeroed the upper half of the
+  matrix operand but not of `x`'s, which holds the next elements, so an
+  infinity there met a 0 and gave NaN in `y`.
 - `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
   argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
   ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero

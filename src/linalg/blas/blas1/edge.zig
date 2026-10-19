@@ -72,8 +72,6 @@ const Quirk = enum {
     /// NaN or infinity anywhere in that operand may reach them as NaN; the
     /// operand holds its values here, not NaN.
     axpby_reads,
-    /// `copy` may lose the sign of a zero.
-    copy_zero_sign,
 };
 
 const Quirks = std.EnumSet(Quirk);
@@ -94,10 +92,7 @@ fn quirks(comptime routine: []const u8) Quirks {
     }.eq;
     var q: Quirks = .empty;
     switch (sysinfo.cpu.arch) {
-        .x86_64 => {
-            if (extreme) q.insert(.nan_lanes);
-            if (is(name, "copy") and (core == .opteron or core == .opteron_sse3)) q.insert(.copy_zero_sign);
-        },
+        .x86_64 => if (extreme) q.insert(.nan_lanes),
         .aarch64, .aarch64_be => if (is(name, "amax")) q.insert(.nan_lanes),
         .x86 => if (is(name, "amin") or is(name, "min")) q.insert(.nan_replaced),
         // the real ones only
@@ -191,18 +186,14 @@ fn sweep(comptime T: type, routine: []const u8, two: bool, neg: bool, ctx: anyty
     };
 }
 
-fn Copy(comptime K: type) type {
-    return struct { kern: K, q: Quirks };
-}
-
-fn copyRun(comptime T: type, ctx: anytype, c: Case) !void {
+fn copyRun(comptime T: type, kern: anytype, c: Case) !void {
     var x: Vector(T) = try vec(T, c, 0);
     defer x.deinit(c.al);
     var y: Vector(T) = try vec(T, c, 1);
     defer y.deinit(c.al);
-    _ = ctx.kern(@intCast(c.n), x.first(), stride(x), y.first(), stride(y));
+    _ = kern(@intCast(c.n), x.first(), stride(x), y.first(), stride(y));
     try x.unchanged();
-    for (0..c.n) |i| if (!check.same(T, x.was[i], y.at(i), !ctx.q.contains(.copy_zero_sign))) {
+    for (0..c.n) |i| if (!check.same(T, x.was[i], y.at(i), true)) {
         check.say("element {d} not copied exactly: ", .{i});
         return error.TestUnexpectedResult;
     };
@@ -530,8 +521,7 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     const nan_b: T = if (complex) .init(0, nan) else nan;
     const zero_t: T = if (complex) .init(0, 0) else 0;
     const beta: T = if (complex) .init(-0.5, 0.25) else -0.5;
-    const copy = @field(vt, l ++ "copy_k").?;
-    note(sweep(T, l ++ "copy", false, true, Copy(@TypeOf(copy)){ .kern = copy, .q = quirks(l ++ "copy") }, copyRun));
+    note(sweep(T, l ++ "copy", false, true, @field(vt, l ++ "copy_k").?, copyRun));
     note(sweep(T, l ++ "swap", true, true, @field(vt, l ++ "swap_k").?, swapRun));
     const scal = @field(vt, l ++ "scal_k").?;
     for ([_]T{ one, inf, nan_a, nan_b }) |a| note(sweep(T, l ++ "scal", false, false, Scal(T, @TypeOf(scal)){ .kern = scal, .alpha = a }, scalRun));
