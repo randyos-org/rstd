@@ -7,6 +7,8 @@
 //!
 //! The heavy sweeps run their `.dat` tables natively; on the qemu rigs
 //! (`reduced`) they take the smaller table each program's header documents.
+//! One more test runs every suite, on that table, on each linked core the
+//! machine runs (`check.eachCore`).
 //!
 //! Not translatable, so not ported:
 //! - `xerbla` itself, and the error exits for a bad letter argument: rstd
@@ -141,10 +143,32 @@ pub fn expectError(want: anyerror, got: anytype, what: []const u8) !void {
     }
 }
 
+const blat1 = @import("blat1.zig");
+const blat2 = @import("blat2.zig");
+const blat3 = @import("blat3.zig");
+const utest = @import("utest.zig");
+const utest_ext = @import("utest_ext.zig");
+
+/// The suites on `vt`'s kernels, the sweeps on the rigs' table.
+fn onCore(vt: *const @import("../Vtable.zig")) anyerror!void {
+    const blas = @import("../__root__.zig");
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
+    try blat1.all();
+    try utest.all();
+    try utest_ext.all();
+    try blat2.all(&blat2.rig_n);
+    try blat3.all(&blat2.rig_n);
+}
+
+test "the suites on every linked core this machine runs" {
+    try check.eachCore(onCore);
+}
+
 test {
-    _ = @import("blat1.zig");
-    _ = @import("blat2.zig");
-    _ = @import("blat3.zig");
-    _ = @import("utest.zig");
-    _ = @import("utest_ext.zig");
+    _ = blat1;
+    _ = blat2;
+    _ = blat3;
+    _ = utest;
+    _ = utest_ext;
 }

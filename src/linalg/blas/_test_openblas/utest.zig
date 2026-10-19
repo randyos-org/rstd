@@ -61,7 +61,25 @@ fn eps(comptime F: type) f64 {
 
 // ---- test_amax.c, test_amin.c, test_min.c, test_ismin.c -------------------------
 
-test "utest: amax, amin" {
+/// Every case here but those that wait, for `check.eachCore`.
+pub fn all() !void {
+    try amaxAmin();
+    try minMax();
+    try isminIsmax();
+    try axpyWithZeroStrides();
+    try axpbyStrides();
+    try swapWithZeroStrides();
+    try rotAndRotm();
+    try drotmg();
+    try dnrm2Cases();
+    try zdotuDsdot();
+    try strmvLower();
+    try scalNanInf();
+    try gemvNanInf();
+    try cgemvNanInf();
+}
+
+fn amaxAmin() !void {
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 9, .{ -1.1, 2.2, -3.3, 4.4, -5.5, 6.6, -7.7, 8.8, -9.9 });
         try near(3.3, try l1.extreme(F, .amax, 3, &x, 1), eps(F), "amax");
@@ -74,7 +92,11 @@ test "utest: amax, amin" {
     }
 }
 
-test "utest: min, max" {
+test "utest: amax, amin" {
+    try amaxAmin();
+}
+
+fn minMax() !void {
     const Case = struct { []const u8, [3]f64, f64 };
     const mins = [_]Case{ .{ "smin_negative", .{ -1.1, -2.2, -3.3 }, -3.3 }, .{ "dmin_positive", .{ 1.1, 0.0, 3.3 }, 0.0 }, .{ "smin_zero", .{ 1.1, 2.2, 0.0 }, 0.0 } };
     const maxs = [_]Case{ .{ "smax_negative", .{ -1.1, -2.2, -3.3 }, -1.1 }, .{ "dmax_positive", .{ 1.1, 0.0, 3.3 }, 3.3 }, .{ "smax_zero", .{ -1.1, -2.2, 0.0 }, 0.0 } };
@@ -90,7 +112,11 @@ test "utest: min, max" {
     }
 }
 
-test "utest: ismin, ismax at stride 2" {
+test "utest: min, max" {
+    try minMax();
+}
+
+fn isminIsmax() !void {
     const n = 50;
     const inc = 2;
     var x: [n * inc]f32 = undefined;
@@ -108,12 +134,16 @@ test "utest: ismin, ismax at stride 2" {
     try ob.expect(try l1.index(f32, .max, n, &x, inc) == 9, "ismax negative_step_2");
 }
 
+test "utest: ismin, ismax at stride 2" {
+    try isminIsmax();
+}
+
 // ---- test_axpy.c, test_axpby.c, test_swap.c, test_rot.c ---------------------------
 
 const xs = [8]f64{ 1.0, 3.0, 5.0, 7.0, 1.0, 3.0, 5.0, 7.0 };
 const ys = [8]f64{ 2.0, 4.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0 };
 
-test "utest: axpy with zero strides" {
+fn axpyWithZeroStrides() !void {
     // the reference's tolerance is DOUBLE_EPS throughout
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 8, xs);
@@ -136,10 +166,14 @@ test "utest: axpy with zero strides" {
     }
 }
 
+test "utest: axpy with zero strides" {
+    try axpyWithZeroStrides();
+}
+
 const bx = [9]f64{ 1.0, 3.0, 5.0, 7.0, 1.0, 3.0, 5.0, 7.0, 9.0 };
 const by = [9]f64{ 2.0, 4.0, 6.0, 8.0, 2.0, 4.0, 6.0, 8.0, 10.0 };
 
-test "utest: axpby at strides 0, 1 and 2" {
+fn axpbyStrides() !void {
     inline for (.{ f32, f64 }) |F| {
         const e = eps(F);
         var x = arr(F, 9, bx);
@@ -182,7 +216,11 @@ test "utest: axpby at strides 0, 1 and 2" {
     }
 }
 
-test "utest: swap with zero strides" {
+test "utest: axpby at strides 0, 1 and 2" {
+    try axpbyStrides();
+}
+
+fn swapWithZeroStrides() !void {
     inline for (.{ f32, f64 }) |F| {
         var x = arr(F, 4, xs[0..4].*);
         var y = arr(F, 4, ys[0..4].*);
@@ -199,7 +237,11 @@ test "utest: swap with zero strides" {
     }
 }
 
-test "utest: rot and rotm" {
+test "utest: swap with zero strides" {
+    try swapWithZeroStrides();
+}
+
+fn rotAndRotm() !void {
     inline for (.{ f32, f64 }) |F| {
         const e = eps(F);
         var x = arr(F, 4, xs[0..4].*);
@@ -229,9 +271,13 @@ test "utest: rot and rotm" {
     }
 }
 
+test "utest: rot and rotm" {
+    try rotAndRotm();
+}
+
 // ---- test_rotmg.c, test_dnrm2.c, test_dotu.c, test_dsdot.c -------------------------
 
-test "utest: drotmg" {
+fn drotmg() !void {
     const Case = struct { name: []const u8, in: [4]f64, param: [5]f64, out: [4]f64, want: [5]f64 };
     const cases = [_]Case{
         // libGoto's bug, fixed by the 2014 rewrite; netlib's values
@@ -253,7 +299,11 @@ test "utest: drotmg" {
     }
 }
 
-test "utest: dnrm2 of infinity, of denormals, and at a negative stride" {
+test "utest: drotmg" {
+    try drotmg();
+}
+
+fn dnrm2Cases() !void {
     var x: [29]f64 = @splat(0);
     x[10] = -inf;
     try near(inf, try l1.nrm2(f64, 28, &x, 1), double_eps, "dnrm2_inf");
@@ -263,7 +313,11 @@ test "utest: dnrm2 of infinity, of denormals, and at a negative stride" {
     try near(@sqrt(500.0), try l1.nrm2(f64, 5, &y, -1), double_eps, "dnrm2_neg_incx");
 }
 
-test "utest: zdotu, dsdot" {
+test "utest: dnrm2 of infinity, of denormals, and at a negative stride" {
+    try dnrm2Cases();
+}
+
+fn zdotuDsdot() !void {
     var x1 = [_]C64{.init(1.0, 1.0)};
     var y1 = [_]C64{.init(1.0, 2.0)};
     const d1 = try l1.dot(C64, 1, &x1, 1, &y1, 1);
@@ -280,14 +334,22 @@ test "utest: zdotu, dsdot" {
     try near(-0.00239335360107, try l1.dsdot(1, &sx, 1, &sy, 1), double_eps, "dsdot_n_1");
 }
 
+test "utest: zdotu, dsdot" {
+    try zdotuDsdot();
+}
+
 // ---- test_trmv.c --------------------------------------------------------------------
 
-test "utest: strmv, a small lower triangle at unit stride" {
+fn strmvLower() !void {
     // row-major lower, not transposed: column-major upper, transposed
     var lower = [9]f32{ 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 5.0, 6.0, 7.0 };
     var v = [3]f32{ 11.0, 13.0, 17.0 };
     try tri.trmv(f32, std.testing.allocator, .upper, .t, .non_unit, 3, &lower, 3, &v, 1);
     try nears(f32, &.{ 22.0, 85.0, 252.0 }, &v, single_eps, "strmv");
+}
+
+test "utest: strmv, a small lower triangle at unit stride" {
+    try strmvLower();
 }
 
 // ---- test_zscal.c -------------------------------------------------------------------
@@ -302,7 +364,7 @@ fn is(w: Want, v: anytype) bool {
     };
 }
 
-test "utest: scal of NaN and infinity" {
+fn scalNanInf() !void {
     // alpha, the value x holds; every result NaN; at strides 1 and 2
     const real = [_][2]f64{ .{ 0, nan }, .{ nan, 0 }, .{ 0, inf }, .{ inf, 0 }, .{ nan, inf }, .{ inf, nan } };
     inline for (.{ f32, f64 }) |F| for (real) |c| for ([_]isize{ 1, 2 }) |inc| {
@@ -330,9 +392,13 @@ test "utest: scal of NaN and infinity" {
     };
 }
 
+test "utest: scal of NaN and infinity" {
+    try scalNanInf();
+}
+
 // ---- test_gemv.c --------------------------------------------------------------------
 
-test "utest: gemv, zero alpha and beta overwrite NaN and infinity" {
+fn gemvNanInf() !void {
     const al = std.testing.allocator;
     const n = 17;
     inline for (.{ f32, f64 }) |F| for ([_]isize{ 1, 2 }) |inc| {
@@ -346,7 +412,11 @@ test "utest: gemv, zero alpha and beta overwrite NaN and infinity" {
     };
 }
 
-test "utest: cgemv, zgemv, NaN and infinity through beta 0, 2i and 2" {
+test "utest: gemv, zero alpha and beta overwrite NaN and infinity" {
+    try gemvNanInf();
+}
+
+fn cgemvNanInf() !void {
     const al = std.testing.allocator;
     const n = 17;
     inline for (.{ C32, C64 }) |C| {
@@ -377,6 +447,10 @@ test "utest: cgemv, zgemv, NaN and infinity through beta 0, 2i and 2" {
             }
         };
     }
+}
+
+test "utest: cgemv, zgemv, NaN and infinity through beta 0, 2i and 2" {
+    try cgemvNanInf();
 }
 
 // ---- pending ------------------------------------------------------------------------

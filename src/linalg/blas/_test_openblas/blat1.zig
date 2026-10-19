@@ -471,6 +471,22 @@ fn ccheck2(comptime C: type) !void {
 const fortran_c1 = .{ .cv = &cv, .strue2 = &strue2, .strue4 = &strue4, .ctrue5 = &ctrue5, .ctrue6 = &ctrue6 };
 const ctest_c1 = .{ .cv = &c_cv, .strue2 = &c_strue2, .strue4 = &c_strue4, .ctrue5 = &c_ctrue5, .ctrue6 = &c_ctrue6 };
 
+/// Every case here, for `check.eachCore`.
+pub fn all() !void {
+    inline for (.{ f32, f64 }) |F| {
+        try check0(F);
+        try check1(F);
+        try check2(F);
+        try check3(F);
+        try ctestCheck3(F);
+    }
+    inline for (.{ C32, C64 }) |C| {
+        try ccheck1(C, fortran_c1, false);
+        try ccheck1(C, ctest_c1, true);
+        try ccheck2(C);
+    }
+}
+
 test "blat1: xROTG, xROTMG" {
     try check0(f32);
     try check0(f64);

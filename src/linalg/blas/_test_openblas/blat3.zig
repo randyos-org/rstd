@@ -723,6 +723,16 @@ fn sweep(comptime r: Routine, comptime types: anytype) !void {
     }
 }
 
+/// Real `gemm` on the `N` of `n`, after its error exits, for `check.eachCore`.
+pub fn all(n: []const usize) !void {
+    inline for (.{ f32, f64 }) |T| {
+        try errorExits(T, .gemm);
+        var p = dat(T);
+        p.n = n;
+        try chk(T, .gemm, p);
+    }
+}
+
 // ---- SCHKE ----------------------------------------------------------------------
 
 const E = ob.expectError;

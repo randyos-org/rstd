@@ -12,7 +12,8 @@
 //!
 //! A norm of differences counts elements that agree exactly (infinity with
 //! infinity, NaN with NaN) as equal, so overflow in both is not NaN; the C
-//! passes any NaN norm.
+//! passes any NaN norm. `trmv` and `trsv` compare relative to the result,
+//! and single `trsv` with single precision's tolerance (see `trmvTrsv`).
 
 const std = @import("std");
 const ob = @import("__root__.zig");
@@ -65,7 +66,23 @@ fn vecCases(comptime T: type, comptime what: Reduce, cases: []const VecCase) !vo
     }
 }
 
-test "utest_ext: amin, amax, sum, iamin" {
+/// Every case here but those that wait, for `check.eachCore`.
+pub fn all() !void {
+    try reductions();
+    try axpby();
+    try axpyc();
+    try complexRot();
+    try complexScal();
+    try complexRotg();
+    try rotmg();
+    try gbmv();
+    try gemvOS();
+    try gemvTCUD();
+    try sbmvSpmv();
+    try trmvTrsv();
+}
+
+fn reductions() !void {
     inline for (.{ f32, f64 }) |F| {
         try vecCases(F, .amin, &amin_real);
         try vecCases(F, .sum, &sum_real);
@@ -77,6 +94,10 @@ test "utest_ext: amin, amax, sum, iamin" {
         try vecCases(C, .sum, &sum_complex);
         try vecCases(C, .iamin, &iamin_complex);
     }
+}
+
+test "utest_ext: amin, amax, sum, iamin" {
+    try reductions();
 }
 
 // ---- the parameter cases ---------------------------------------------------------
@@ -140,6 +161,13 @@ fn diffNorm(comptime T: type, n: isize, got: []const T, want: []const T, inc: is
     return @sqrt(s);
 }
 
+/// The norm of `v`, `n` elements at stride `|inc|`.
+fn norm2(comptime T: type, n: isize, v: []const T, inc: isize) f64 {
+    var s: f64 = 0;
+    for (0..@intCast(@max(n, 0))) |i| s += @as(f64, ob.absv(v[i * @abs(inc)])) * ob.absv(v[i * @abs(inc)]);
+    return @sqrt(s);
+}
+
 fn expectNorm(name: []const u8, comptime T: type, norm: f64, t: f64) !void {
     if (norm <= t) return;
     ob.say("{s} {s}: norm of differences {e} over {e}\n", .{ @typeName(T), name, norm, t });
@@ -153,7 +181,7 @@ fn conjugate(comptime T: type, p: []T) void {
     };
 }
 
-test "utest_ext: axpby against scal and axpy" {
+fn axpby() !void {
     var prng = std.Random.DefaultPrng.init(0xA8);
     const al = testing.allocator;
     inline for (.{ f32, f64, C32, C64 }) |T| {
@@ -176,7 +204,11 @@ test "utest_ext: axpby against scal and axpy" {
     }
 }
 
-test "utest_ext: axpyc against conjugation and axpy" {
+test "utest_ext: axpby against scal and axpy" {
+    try axpby();
+}
+
+fn axpyc() !void {
     var prng = std.Random.DefaultPrng.init(0xA9);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| for (axpyc_cases) |c| {
@@ -197,7 +229,11 @@ test "utest_ext: axpyc against conjugation and axpy" {
     };
 }
 
-test "utest_ext: complex rot against axpby" {
+test "utest_ext: axpyc against conjugation and axpy" {
+    try axpyc();
+}
+
+fn complexRot() !void {
     var prng = std.Random.DefaultPrng.init(0xAA);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| for (rot_cases) |c| {
@@ -220,7 +256,11 @@ test "utest_ext: complex rot against axpby" {
     };
 }
 
-test "utest_ext: complex scal against the plain product" {
+test "utest_ext: complex rot against axpby" {
+    try complexRot();
+}
+
+fn complexScal() !void {
     var prng = std.Random.DefaultPrng.init(0xAB);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| for (scal_cases) |c| {
@@ -236,7 +276,11 @@ test "utest_ext: complex scal against the plain product" {
     };
 }
 
-test "utest_ext: complex rotg" {
+test "utest_ext: complex scal against the plain product" {
+    try complexScal();
+}
+
+fn complexRotg() !void {
     const Rotg = struct { name: []const u8, a: [2]f64, b: [2]f64, c: f64, s: [2]f64, r: [2]f64 };
     // the double cases' expected values; the single ones' are the same to 5 places
     const cases = [_]Rotg{
@@ -263,7 +307,11 @@ test "utest_ext: complex rotg" {
     };
 }
 
-test "utest_ext: rotmg" {
+test "utest_ext: complex rotg" {
+    try complexRotg();
+}
+
+fn rotmg() !void {
     const Rotmg = struct { name: []const u8, in: [4]f64, out: [4]f64, param: [5]f64 };
     const cases = [_]Rotmg{
         .{ .name = "y1_zero", .in = .{ 2, 2, 8, 0 }, .out = .{ 2, 2, 8, 0 }, .param = .{ -2, 0, 0, 0, 0 } },
@@ -286,6 +334,10 @@ test "utest_ext: rotmg" {
             return error.TestUnexpectedResult;
         };
     };
+}
+
+test "utest_ext: rotmg" {
+    try rotmg();
 }
 
 // ---- level 2 -------------------------------------------------------------------
@@ -344,7 +396,7 @@ fn gemvRef(comptime T: type, trans: u8, m: usize, n: usize, alpha: T, a: []const
     }
 }
 
-test "utest_ext: gbmv against gemv on the band" {
+fn gbmv() !void {
     var prng = std.Random.DefaultPrng.init(0xB0);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| for (gbmv_cases) |c| {
@@ -380,6 +432,10 @@ test "utest_ext: gbmv against gemv on the band" {
     };
 }
 
+test "utest_ext: gbmv against gemv on the band" {
+    try gbmv();
+}
+
 /// `gemv` against `gemvRef` for one case of `test_[cz]gemv_[nt].c`.
 fn gemvCase(comptime T: type, c: Case, r: std.Random, t: f64) !void {
     const al = testing.allocator;
@@ -407,12 +463,16 @@ fn gemvCase(comptime T: type, c: Case, r: std.Random, t: f64) !void {
     try expectNorm(c.name, T, diffNorm(T, leny, y, yv, ic), t);
 }
 
-test "utest_ext: gemv with O and S against the plain product" {
+fn gemvOS() !void {
     var prng = std.Random.DefaultPrng.init(0xB1);
     inline for (.{ C32, C64 }) |T| for (gemv_n_cases) |c| try gemvCase(T, c, prng.random(), tol(T, single_tol, double_tol));
 }
 
-test "utest_ext: gemv with T, C, U, D against the plain product, and its bad arguments" {
+test "utest_ext: gemv with O and S against the plain product" {
+    try gemvOS();
+}
+
+fn gemvTCUD() !void {
     var prng = std.Random.DefaultPrng.init(0xB2);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| for (gemv_t_cases) |c| {
@@ -434,6 +494,10 @@ test "utest_ext: gemv with T, C, U, D against the plain product, and its bad arg
         };
         try ob.expectError(want, l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
     };
+}
+
+test "utest_ext: gemv with T, C, U, D against the plain product, and its bad arguments" {
+    try gemvTCUD();
 }
 
 /// The bad-argument cases of `test_[cz]sbmv.c` and `test_[cz]spmv.c`.
@@ -459,7 +523,7 @@ fn symBad(comptime T: type, comptime pack: bool, c: Case) !void {
     try ob.expectError(want, res, c.name);
 }
 
-test "utest_ext: complex symmetric sbmv and spmv against gemv" {
+fn sbmvSpmv() !void {
     var prng = std.Random.DefaultPrng.init(0xB3);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| inline for (.{ false, true }) |pack| {
@@ -517,7 +581,11 @@ test "utest_ext: complex symmetric sbmv and spmv against gemv" {
     };
 }
 
-test "utest_ext: trmv and trsv with R against N on the conjugate" {
+test "utest_ext: complex symmetric sbmv and spmv against gemv" {
+    try sbmvSpmv();
+}
+
+fn trmvTrsv() !void {
     var prng = std.Random.DefaultPrng.init(0xB4);
     const al = testing.allocator;
     inline for (.{ C32, C64 }) |T| inline for (.{ false, true }) |solve| {
@@ -541,11 +609,18 @@ test "utest_ext: trmv and trsv with R against N on the conjugate" {
             const f = if (solve) tri.trsv else tri.trmv;
             try f(T, al, u, .n, d, c.n, av.ptr, c.lda, xv.ptr, c.incx);
             try f(T, al, u, try tri.Trans.parse(c.trans), d, c.n, a.ptr, c.lda, x.ptr, c.incx);
-            // `test_ctrsv.c` asks DOUBLE_EPS of single precision too
-            const t = if (solve) double_eps else tol(T, single_eps, double_eps);
-            try expectNorm(c.name, T, diffNorm(T, c.n, x, xv, c.incx), t);
+            // relative to the result, which a solve grows to 1e32 in single
+            // precision; there `test_ctrsv.c`'s DOUBLE_EPS is single's, as the
+            // R and N paths round differently on the older cores' kernels
+            const t = tol(T, single_eps, double_eps);
+            const scale = @max(1, norm2(T, c.n, xv, c.incx));
+            try expectNorm(c.name, T, diffNorm(T, c.n, x, xv, c.incx) / scale, t);
         }
     };
+}
+
+test "utest_ext: trmv and trsv with R against N on the conjugate" {
+    try trmvTrsv();
 }
 
 // ---- waiting -------------------------------------------------------------------

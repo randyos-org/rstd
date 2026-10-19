@@ -446,3 +446,17 @@ On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
 `-cpu max` cannot show. `zig build remote-bench-aarch64-macos
 -Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the
 results are in `tools/blasbench/results-m6.md`.
+
+## OpenBLAS's test suites
+
+`_test_openblas/` ports OpenBLAS's own tests to the Zig interfaces: the
+reference BLAS programs `test/[sdcz]blat[123].f` with their `.dat` sweeps,
+the parts of their CBLAS versions (`ctest/`) that differ, and the unit tests
+(`utest/`, `utest/test_extensions/`), from v0.3.34-317. The `.dat` tables run
+natively; the qemu rigs take the example table in each program's header
+(`N` up to 9). Every linked core the machine runs gets the suites again, on
+that small table. Bad arguments map onto the named errors, and what cannot
+be translated (bad letters, row-major CBLAS, forks) is listed in
+`_test_openblas/__root__.zig`. Tests of routines not ported yet (level 3
+beyond real `gemm`, LAPACK, the matrix copies) skip until they are; the
+level-3 ones are written against the signatures they expect.

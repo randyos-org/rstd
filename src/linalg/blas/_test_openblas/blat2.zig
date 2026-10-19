@@ -53,7 +53,7 @@ pub const complex_dat: Params = .{
 const ctest_n = [_]usize{ 0, 1, 2, 3, 5, 9, 63 };
 
 /// The rigs' `N`: the example data file in each program's header.
-const rig_n = [_]usize{ 0, 1, 2, 3, 5, 9 };
+pub const rig_n = [_]usize{ 0, 1, 2, 3, 5, 9 };
 
 fn dat(comptime T: type) Params {
     return if (comptime isComplex(T)) complex_dat else real_dat;
@@ -850,12 +850,12 @@ fn chk(comptime T: type, comptime r: Routine, p: Params) !void {
     try f(T, r, p);
 }
 
-const all = .{ f32, f64, std.math.Complex(f32), std.math.Complex(f64) };
+const all_types = .{ f32, f64, std.math.Complex(f32), std.math.Complex(f64) };
 
 /// Every type `r` exists for, with the `.dat` table natively, ctest's too,
 /// and the header's on the rigs.
 fn sweep(comptime r: Routine) !void {
-    inline for (all) |T| {
+    inline for (all_types) |T| {
         if (r == .gerc and !comptime isComplex(T)) continue;
         if (ob.reduced()) {
             try chk(T, r, withN(dat(T), &rig_n));
@@ -866,8 +866,19 @@ fn sweep(comptime r: Routine) !void {
     }
 }
 
+/// Every routine at every type on the `N` of `n`, after the error exits,
+/// for `check.eachCore`.
+pub fn all(n: []const usize) !void {
+    inline for (all_types) |T| {
+        try errorExits(T);
+        inline for (comptime std.enums.values(Routine)) |r| {
+            if (r != .gerc or comptime isComplex(T)) try chk(T, r, withN(dat(T), n));
+        }
+    }
+}
+
 test "blat2: SMVCH self-check on exact data" {
-    inline for (all) |T| {
+    inline for (all_types) |T| {
         const R = ob.Ref(T);
         const n = 32;
         var a: [n * n]T = undefined;
@@ -1082,7 +1093,7 @@ fn errorExits(comptime T: type) !void {
 }
 
 test "blat2: error exits" {
-    inline for (all) |T| errorExits(T) catch |e| {
+    inline for (all_types) |T| errorExits(T) catch |e| {
         ob.say("{c}\n", .{letter(T)});
         return e;
     };
