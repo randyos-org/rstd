@@ -29,6 +29,11 @@ const patches = [_]arch.Patch{
     .{ .source = "iamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
     .{ .source = "imax.S", .find = reduce, .replace = reduce_first, .count = 2 },
     .{ .source = "izamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
+    // with a zero stride, the strided loop loads a block before storing it,
+    // so `n` swaps of one element act as one; zero strides take the
+    // one-at-a-time loop instead (utest's `swap_inc_0`)
+    .{ .source = "swap.S", .find = zeroStrides("3"), .replace = zeroStridesFixed("3") },
+    .{ .source = "zswap.S", .find = zeroStrides("2"), .replace = zeroStridesFixed("2") },
 };
 
 const reduce =
@@ -55,6 +60,15 @@ fn wideShifts(a: std.mem.Allocator, statement: []const u8) Error![]const u8 {
     // tabs are spaces by now (`expandTabs`)
     if (!std.mem.startsWith(u8, t, "sll ")) return statement;
     return std.fmt.allocPrint(a, "{s}sllx{s}", .{ statement[0 .. statement.len - t.len], t[3..] });
+}
+
+fn zeroStrides(comptime shift: []const u8) []const u8 {
+    return "\n.LL50:\n\tsra\tN, " ++ shift ++ ", I\n";
+}
+
+fn zeroStridesFixed(comptime shift: []const u8) []const u8 {
+    return "\n.LL57:\n\tmov\tN, I\n\tb\t.LL56\n\tnop\n\n.LL50:\n\tcmp\tINCX, 0\n\tbe\t.LL57\n\tnop\n" ++
+        "\tcmp\tINCY, 0\n\tbe\t.LL57\n\tnop\n\tsra\tN, " ++ shift ++ ", I\n";
 }
 
 pub const sparc: arch.Arch = .{
