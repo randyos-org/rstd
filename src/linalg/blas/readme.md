@@ -44,35 +44,60 @@ those layers are closed by this decision, not by code.
 
 ## Level 3
 
-Only real `gemm` is ported so far (`sgemm`, `dgemm`, and `qgemm` for
-`XDouble` through the same code); complex, the other routines, the
-small-matrix kernels and threading come later.
+`gemm`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm` and `trsm`
+are ported, real and complex (`s`, `d`, `c`, `z`, and `q` and `x` for
+`XDouble`, through the same code); `gemm3m`, `symm3m`, `hemm3m`, the
+small-matrix kernels, bfloat16 level 3 and threading come later.
 
-- **Interface:** `blas3/interface.zig`'s `gemm` checks its arguments in the
+- **Interface:** `blas3/interface.zig` checks the arguments in the
   reference's `xerbla` order (leading dimensions against `max(1, rows)`, as
-  the reference BLAS does), returns for empty `C`, and calls the driver.
-  Sizes and leading dimensions are `isize`; real `r` and `c` transposes are
-  `n` and `t`. No `gemv` forwarding for one-column problems.
-- **Driver:** `blas3/level3.zig` is `driver/level3/level3.c`'s loops, with
-  `P`, `Q`, `R` from the vtable (`gemm/params.zig`). The packing space comes
-  from the caller's allocator, sized to the problem (2 KiB or less on the
-  stack). `B` is packed in chunks of `3 * unroll_n` columns and the kernel is
-  always called per chunk, so a stated unroll that does not match the
-  kernels costs speed, never correctness.
-- **Kernels:** `blas3/gemm/kernel.zig`, Zig on `@Vector`s, built into the
-  main library (the portable kernels) and into every per-core object, so
-  each core's features set the vector width and register count, and from
-  them the tile (`geometry`). They never make a core need an object of its
-  own. The objects export their unrolls as data; `cpu/<arch>.zig` sets the
-  core's blocking before its kernels, and `portable.finish` restores the
-  portable kernels' unrolls where those stayed, so the vtable's unrolls are
-  always the installed kernels' own. `gemm/notes.md` has the measurements.
-- **Tests:** `blas3/check.zig` compares with a plain gemm in twice the
-  precision, within `2 (k + 2) eps` of the sum of magnitudes, on a vtable
-  whose blocking is shrunk so every block and panel edge comes at small
-  sizes, and for every linked core this machine runs; then special values in
-  each operand, and shapes past the core's own `R` (natively, past twice its
-  `P` and `Q` too).
+  the reference BLAS does), returns for empty problems, and calls the
+  drivers. Sizes and leading dimensions are `isize`; real `r` and `c`
+  transposes are `n` and `t`. `Side`, `Uplo` and `Diag` are enums, so only
+  a transpose a routine does not take is an argument error (`InvalidTrans`:
+  `herk`'s `t`, complex `syrk`'s `c`). No `gemv` forwarding for one-column
+  problems.
+- **Drivers:** `blas3/level3.zig`. One set of `driver/level3/level3.c` loops
+  serves every product of two packed operands: `gemm`; `symm` and `hemm`,
+  which pack the symmetric operand whole from its triangle (`symm_k.c`,
+  `zhemm_k.c`); and the rank-k updates, which keep one triangle of `C`
+  (`level3_syrk.c`, `level3_syr2k.c`). Tiles across the diagonal go through
+  a scratch tile and add the triangle's part (`syrk_kernel.c`); the
+  reference's shared `sa`/`sb` path, which needs `unroll_m == unroll_n`, is
+  not taken. `trmm` and `trsm` follow `trmm_L.c`, `trmm_R.c`, `trsm_L.c` and
+  `trsm_R.c` loop for loop. `P`, `Q`, `R` come from the vtable
+  (`gemm/params.zig`). The packing space comes from the caller's allocator,
+  sized to the problem (2 KiB or less on the stack). The product drivers
+  call the kernel on the column chunks they pack, so a stated unroll that
+  does not match the kernels costs speed, never correctness; the triangular
+  drivers, as the reference's, take whole slices, and rely on the vtable's
+  unrolls being the installed kernels' own, which they always are.
+- **Kernels:** Zig on `@Vector`s, built into the main library (the portable
+  kernels) and into every per-core object, so each core's features set the
+  vector width and register count, and from them the tile (`geometry`).
+  They never make a core need an object of its own. `gemm/kernel.zig` has
+  the gemm kernels, real and complex (whole complex elements per lane, two
+  accumulators each, the parts split into scalars where a vector holds no
+  element); `symm/kernel.zig`, `trmm/kernel.zig` and `trsm/kernel.zig` have
+  the other routines' copies and kernels over the same tile, each slot a
+  function of the slot's name. The `trsm` kernels are `kernel/generic`'s
+  `trsm_kernel_*.c` on the gemm layout's panels; the `trmm` kernels sum a
+  diagonal block over its triangle only, where the reference's tiles
+  multiply the zeros it packs, so an infinity in `B` meets no zero. The
+  objects export their unrolls as data; `cpu/<arch>.zig` sets the core's
+  blocking before its kernels, and `portable.finish` restores the portable
+  kernels' unrolls where those stayed, so the vtable's unrolls are always the
+  installed kernels' own. `gemm/notes.md` has the measurements.
+- **Tests:** `blas3/check.zig` builds each routine's operators densely in
+  twice the precision and compares, within `2 (k + 2) eps` of the sum of
+  magnitudes (`trsm`: its substitution, step by step), on a vtable whose
+  blocking is shrunk so every block and panel edge comes at small sizes,
+  and for every linked core this machine runs; then special values in each
+  operand, and shapes past the core's own `R` (natively, past twice its `P`
+  and `Q` too). What a routine must not read holds NaN (the other triangle,
+  a unit diagonal, a Hermitian diagonal's imaginary parts) and what it must
+  not write a sentinel. The OpenBLAS `blat3` sweeps run through the
+  interface (`_test_openblas/blat3.zig`).
 
 ## Apple Accelerate
 

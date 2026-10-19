@@ -5,11 +5,9 @@
 //! `SCHK5`, `SMAKE`, `SMMCH`, `LSERES` and the error exits (`SCHKE`, and
 //! `CCHKE` for complex) are ported; the tables below are the `.dat` values.
 //!
-//! Only real `gemm` has an interface so far. The other routines' tests are
-//! written against the signatures in `pending`, after `gemm`'s, and skip
-//! until `blas3/interface.zig` declares each one (they wait on the kernel
-//! stubs in `blas3/<routine>/`); complex `gemm` and `gemm3m` skip until
-//! `complex_gemm` is set.
+//! Every routine runs through `blas3/interface.zig`; `pending` keeps the
+//! signatures the tests were written against, so one the interface does not
+//! declare skips. `gemm3m` runs as `gemm`, while `complex_gemm` is set.
 //!
 //! Intentional difference: `SMMCH` keeps the largest ratio over every column,
 //! where the Fortran resets it for each.
@@ -907,52 +905,52 @@ test "blat3: SGEMM, DGEMM" {
     try sweep(.gemm, .{ f32, f64 });
 }
 
-test "blat3: CGEMM, ZGEMM (waits for complex gemm)" {
+test "blat3: CGEMM, ZGEMM" {
     try needComplexGemm();
     try sweep(.gemm, .{ C32, C64 });
 }
 
-test "blat3_3m: CGEMM3M, ZGEMM3M (waits for complex gemm)" {
+test "blat3_3m: CGEMM3M, ZGEMM3M" {
     try needComplexGemm();
     try sweep(.gemm3m, .{ C32, C64 });
 }
 
-test "blat3: xSYMM (waits for symm)" {
+test "blat3: xSYMM" {
     try need("symm");
     try sweep(.symm, .{ f32, f64, C32, C64 });
 }
 
-test "blat3: CHEMM, ZHEMM (waits for hemm)" {
+test "blat3: CHEMM, ZHEMM" {
     try need("hemm");
     try sweep(.hemm, .{ C32, C64 });
 }
 
-test "blat3: xTRMM (waits for trmm)" {
+test "blat3: xTRMM" {
     try need("trmm");
     try sweep(.trmm, .{ f32, f64, C32, C64 });
 }
 
-test "blat3: xTRSM (waits for trsm)" {
+test "blat3: xTRSM" {
     try need("trsm");
     try sweep(.trsm, .{ f32, f64, C32, C64 });
 }
 
-test "blat3: xSYRK (waits for syrk)" {
+test "blat3: xSYRK" {
     try need("syrk");
     try sweep(.syrk, .{ f32, f64, C32, C64 });
 }
 
-test "blat3: CHERK, ZHERK (waits for herk)" {
+test "blat3: CHERK, ZHERK" {
     try need("herk");
     try sweep(.herk, .{ C32, C64 });
 }
 
-test "blat3: xSYR2K (waits for syr2k)" {
+test "blat3: xSYR2K" {
     try need("syr2k");
     try sweep(.syr2k, .{ f32, f64, C32, C64 });
 }
 
-test "blat3: CHER2K, ZHER2K (waits for her2k)" {
+test "blat3: CHER2K, ZHER2K" {
     try need("her2k");
     try sweep(.her2k, .{ C32, C64 });
 }

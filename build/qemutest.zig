@@ -314,7 +314,12 @@ const machines = [_]Machine{
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
             .{ .name = "blas2-edge", .filters = &.{"linalg.blas.blas2.edge."} },
-            .{ .name = "blas3", .filters = &.{"linalg.blas.blas3."} },
+            // one per routine family: together past the window
+            .{ .name = "blas3-gemm", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm." } },
+            .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
+            .{ .name = "blas3-rank", .filters = &.{ "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k." } },
+            .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm." } },
+            .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
             .{ .name = "openblas", .filters = &.{"linalg.blas._test_openblas."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
             .{ .name = "small", .filters = &small_filters },
@@ -354,6 +359,11 @@ const machines = [_]Machine{
                 "linalg.blas.blas3.gemm.params.test.detection gives",
             } },
             .{ .name = "blas3-kernel", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm.kernel." } },
+            .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
+            .{ .name = "blas3-syrk", .filters = &.{"linalg.blas.blas3.syrk."} },
+            .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
+            .{ .name = "blas3-trmm", .filters = &.{"linalg.blas.blas3.trmm."} },
+            .{ .name = "blas3-trsm", .filters = &.{"linalg.blas.blas3.trsm."} },
             .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
             // the OpenBLAS suites in three; not "every linked core", which
             // holds all of them (4.7 MB in debug): `sparc64` runs it

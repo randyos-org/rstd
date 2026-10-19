@@ -678,9 +678,10 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, r: Routine) !void {
     // past each of the vtable's own blocks once (row blocks split in two)
     try one(T, sized(vs[0], own.p + um + 1, 3 * un + 2, own.q + 1, .{ 1.5, 0 }, .{ -1, 0 }), full);
     // past `R` (a left side, so `A` is small; a rank-k update's `C` would be
-    // `R` square, and the shrunk blocking crosses it); natively, whole blocks
-    // of `P` and `Q` and then halves
-    if (!vs[0].rank()) try one(T, sized(if (r == .gemm) vs[vs.len - 1] else vs[0], um + 1, own.r + 2 * un + 1, 3, .{ 1.25, 0 }, .{ 0.5, 0 }), full);
+    // `R` square, and the shrunk blocking crosses it; `trmm` and `trsm` pack
+    // `Q x R`, the reference's whole buffer, too much beside a rig's tests);
+    // natively, whole blocks of `P` and `Q` and then halves
+    if (!vs[0].rank() and !(rig and vs[0].triangular())) try one(T, sized(if (r == .gemm) vs[vs.len - 1] else vs[0], um + 1, own.r + 2 * un + 1, 3, .{ 1.25, 0 }, .{ 0.5, 0 }), full);
     if (!rig) try one(T, sized(vs[vs.len / 2], 2 * own.p + um + 3, un + 1, 2 * own.q + 3, .{ -0.5, 0 }, .{ 1, 0 }), full);
 }
 
