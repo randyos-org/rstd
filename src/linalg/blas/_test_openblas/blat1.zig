@@ -29,11 +29,20 @@ fn stest(comptime F: type, c: Case, comp: []const F, want: []const f64, size: []
         const sd: F = got - @as(F, @floatCast(want[i]));
         const s: F = @abs(@as(F, @floatCast(size[i])));
         const d: F = @abs(@as(F, @floatCast(fac)) * sd);
-        const ok = if (old) (s + d) - s == 0 else d <= s * std.math.floatEps(F);
+        const ok = if (old) sdiff(F, s + d, s) == 0 else d <= s * std.math.floatEps(F);
         if (ok) continue;
         ob.say("{s} n={d} incx={d} incy={d} i={d}: got {e}, true {e}, size {e}\n", .{ c.name, c.n, c.incx, c.incy, i + 1, got, want[i], size[i] });
         return error.TestUnexpectedResult;
     }
+}
+
+/// `SDIFF`: `a - b` with `a` rounded to `F` first, through memory, as x87
+/// would otherwise keep it wider.
+fn sdiff(comptime F: type, a: F, b: F) F {
+    var t: F = undefined;
+    const v: *volatile F = &t;
+    v.* = a;
+    return v.* - b;
 }
 
 fn stest1(comptime F: type, c: Case, comp: F, want: f64, size: f64, fac: f64) !void {
