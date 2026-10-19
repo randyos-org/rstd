@@ -248,6 +248,15 @@ a stride is not 1:
   the leftover elements were written over the first ones.
 - `axpby_lasx.S`: double precision skipped every other block of eight, and
   with `beta` zero never stopped.
+- `axpby_lsx.S`, `axpby_lasx.S`, `caxpby_lsx.S`, `caxpby_lasx.S`, with a
+  zero scalar: the elements past the last block were `alpha*x + beta*y`
+  whatever the scalars, from `x` (`y`) elements the zero-`alpha` (`beta`)
+  blocks left their pointer at, so a NaN or infinity met the 0. The tail
+  now reads neither operand of a zero scalar, as `kernel/arm/axpby.c` does.
+  Double `axpby` also compared the scalars with a single-precision 0
+  (`ffint.s.l`, upper half undefined), so it never took the zero-scalar
+  blocks; and complex, with one stride 1 and the other not, has no such
+  blocks, so a zero scalar now goes to the strided ones, which do.
 - `caxpby_lsx.S`, `caxpby_lasx.S`: with `alpha` and `beta` zero and a
   stride on `y`, zeroed only the real parts, and `lasx` single one of them twice.
 - `caxpby_lsx.S`: double, with a stride on `x` and none on `y`, stored the

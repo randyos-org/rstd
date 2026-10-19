@@ -125,6 +125,23 @@ const patches = [_]arch.Patch{
         .find = "    addi.w i0, i0, 1\n    ld.w t1, TEMP, 0 * SIZE\n    add.d TEMP, TEMP, INCX\n    srai.d I, N, 3\n",
         .replace = "    addi.w i0, i0, 1\n    ld.w t1, TEMP, 0 * SIZE\n    add.d TEMP, TEMP, INCX\n    xvinsgr2vr.w VM0, t1, 0\n    srai.d I, N, 3\n",
     },
+    // the tail after the blocks read both operands whatever the scalars, so
+    // a NaN or infinity met a zero scalar's 0 (`kernel/arm/axpby.c` reads
+    // neither), from elements the zero-scalar blocks left their pointer at
+    .{ .source = "axpby_lsx.S", .find = axpby_tail, .replace = axpby_tail_fixed },
+    .{ .source = "axpby_lasx.S", .find = axpby_tail, .replace = axpby_tail_fixed },
+    .{ .source = "caxpby_lsx.S", .find = caxpby_lsx_tail, .replace = caxpby_tail_fixed },
+    .{ .source = "caxpby_lasx.S", .find = caxpby_lasx_tail, .replace = caxpby_tail_fixed },
+    // double compared the scalars with a single-precision 0 (`ffint.s.l`),
+    // whose upper half is undefined, so it never took the zero-scalar blocks
+    .{ .source = "axpby_lsx.S", .find = axpby_zero, .replace = axpby_zero_fixed },
+    .{ .source = "axpby_lasx.S", .find = axpby_zero, .replace = axpby_zero_fixed },
+    // with one stride 1 and the other not, there are no zero-scalar blocks:
+    // send a zero scalar to the strided ones (`.L22`), which have them
+    .{ .source = "caxpby_lsx.S", .find = caxpby_l12, .replace = caxpby_l12 ++ zeroToStrided("L12") },
+    .{ .source = "caxpby_lasx.S", .find = caxpby_l12, .replace = caxpby_l12 ++ zeroToStrided("L12") },
+    .{ .source = "caxpby_lsx.S", .find = caxpby_l21, .replace = caxpby_l21 ++ zeroToStrided("L21") },
+    .{ .source = "caxpby_lasx.S", .find = caxpby_l21, .replace = caxpby_l21 ++ zeroToStrided("L21") },
     // negative stride: `?amax_k` returns 0 for `incx <= 0`, so the scale
     // came out 0 and so did the norm; walk x forwards from its lowest element
     .{ .source = "snrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("BASE_SHIFT") },
@@ -132,6 +149,176 @@ const patches = [_]arch.Patch{
     .{ .source = "cnrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
     .{ .source = "cnrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
 };
+
+const axpby_zero = "    movgr2fr.d a1, $r0\n    ffint.s.l a1, a1\n";
+const axpby_zero_fixed = "    movgr2fr.d a1, $r0\n#ifdef DOUBLE\n    ffint.d.l a1, a1\n#else\n    ffint.s.l a1, a1\n#endif\n";
+
+const caxpby_l12 = ".L12: // INCX==1 and INCY!=1\n    bge $r0, I, .L997\n";
+const caxpby_l21 = ".L21:// INCX!=1 and INCY==1\n    bge $r0, I, .L997\n";
+
+/// To `.L22` if `alpha` or `beta` is zero.
+fn zeroToStrided(comptime tag: []const u8) []const u8 {
+    return "    CMPEQ $fcc0, BETAR, a1\n    CMPEQ $fcc1, BETAI, a1\n    CMPEQ $fcc2, ALPHAR, a1\n    CMPEQ $fcc3, ALPHAI, a1\n" ++
+        "    bceqz $fcc0, ." ++ tag ++ "_a\n    bcnez $fcc1, .L22\n." ++ tag ++ "_a:\n" ++
+        "    bceqz $fcc2, ." ++ tag ++ "_go\n    bcnez $fcc3, .L22\n." ++ tag ++ "_go:\n";
+}
+
+const axpby_tail =
+    \\.L998:
+    \\    LD   $f12, X, 0 * SIZE
+    \\    LD   $f13, Y, 0 * SIZE
+    \\    addi.d I, I, -1
+    \\    MUL  $f12, $f12, ALPHA
+    \\    MADD $f13, $f13, BETA, $f12
+    \\    ST   $f13, Y, 0 * SIZE
+    \\
+;
+
+/// Reads `x` only for a nonzero alpha and `y` for a nonzero beta; a zero
+/// alpha adds -0, keeping `beta*y` exact, and both zero store +0.
+const axpby_tail_fixed =
+    \\.L998:
+    \\    movgr2fr.d $f12, $r0
+    \\    CMPEQ $fcc0, ALPHA, $f12
+    \\    CMPEQ $fcc1, BETA, $f12
+    \\    addi.d I, I, -1
+    \\    bceqz $fcc0, .L998_ax
+    \\    bcnez $fcc1, .L998_st
+    \\    NEG  $f12, $f12
+    \\    b .L998_by
+    \\.L998_ax:
+    \\    LD   $f12, X, 0 * SIZE
+    \\    MUL  $f12, $f12, ALPHA
+    \\    bcnez $fcc1, .L998_st
+    \\.L998_by:
+    \\    LD   $f13, Y, 0 * SIZE
+    \\    MADD $f12, $f13, BETA, $f12
+    \\.L998_st:
+    \\    ST   $f12, Y, 0 * SIZE
+    \\
+;
+
+const caxpby_lsx_tail =
+    \\.L998:
+    \\#ifdef DOUBLE
+    \\    fld.d a1, X, 0 * SIZE
+    \\    fld.d a2, X, 1 * SIZE
+    \\    fld.d a3, Y, 0 * SIZE
+    \\    fld.d a4, Y, 1 * SIZE
+    \\    addi.d I, I, -1
+    \\    fmul.d s1, ALPHAI, a2
+    \\    fmul.d s2, ALPHAI, a1
+    \\    fmul.d s3, BETAI, a4
+    \\    fmul.d s4, BETAI, a3
+    \\    fmsub.d s1, ALPHAR, a1, s1
+    \\    fmadd.d s2, a2, ALPHAR, s2
+    \\    fmsub.d s3, BETAR, a3, s3
+    \\    fmadd.d s4, a4, BETAR, s4
+    \\    fadd.d s3, s3, s1
+    \\    fadd.d s4, s4, s2
+    \\    fst.d s3, Y, 0 * SIZE
+    \\    fst.d s4, Y, 1 * SIZE
+    \\    add.d X, X, INCX
+    \\    add.d Y, Y, INCY
+    \\    blt $r0, I, .L998
+    \\    .align 3
+    \\#else
+    \\    fld.s a1, X, 0 * SIZE
+    \\    fld.s a2, X, 1 * SIZE
+    \\    fld.s a3, Y, 0 * SIZE
+    \\    fld.s a4, Y, 1 * SIZE
+    \\    addi.d I, I, -1
+    \\    fmul.s s1, ALPHAI, a2
+    \\    fmul.s s2, ALPHAI, a1
+    \\    fmul.s s3, BETAI, a4
+    \\    fmul.s s4, BETAI, a3
+    \\    fmsub.s s1, ALPHAR, a1, s1
+    \\    fmadd.s s2, a2, ALPHAR, s2
+    \\    fmsub.s s3, BETAR, a3, s3
+    \\    fmadd.s s4, a4, BETAR, s4
+    \\    fadd.s s3, s3, s1
+    \\    fadd.s s4, s4, s2
+    \\    fst.s s3, Y, 0 * SIZE
+    \\    fst.s s4, Y, 1 * SIZE
+    \\    add.d X, X, INCX
+    \\    add.d Y, Y, INCY
+    \\    blt $r0, I, .L998
+    \\    .align 3
+    \\#endif
+    \\
+;
+
+const caxpby_lasx_tail =
+    \\.L998:
+    \\    LD a1, X, 0 * SIZE
+    \\    LD a2, X, 1 * SIZE
+    \\    LD a3, Y, 0 * SIZE
+    \\    LD a4, Y, 1 * SIZE
+    \\    addi.d I, I, -1
+    \\    MUL s1, ALPHAI, a2
+    \\    MUL s2, ALPHAI, a1
+    \\    MUL s3, BETAI, a4
+    \\    MUL s4, BETAI, a3
+    \\    MSUB s1, ALPHAR, a1, s1
+    \\    MADD s2, a2, ALPHAR, s2
+    \\    MSUB s3, BETAR, a3, s3
+    \\    MADD s4, a4, BETAR, s4
+    \\    ADD s3, s3, s1
+    \\    ADD s4, s4, s2
+    \\    ST s3, Y, 0 * SIZE
+    \\    ST s4, Y, 1 * SIZE
+    \\    add.d X, X, INCX
+    \\    add.d Y, Y, INCY
+    \\    blt $r0, I, .L998
+    \\    .align 3
+    \\
+;
+
+/// As `axpby_tail_fixed`, complex.
+const caxpby_tail_fixed =
+    \\.L998:
+    \\    movgr2fr.d s1, $r0
+    \\    CMPEQ $fcc0, ALPHAR, s1
+    \\    CMPEQ $fcc1, ALPHAI, s1
+    \\    CMPEQ $fcc2, BETAR, s1
+    \\    CMPEQ $fcc3, BETAI, s1
+    \\    addi.d I, I, -1
+    \\    bceqz $fcc0, .L998_ax
+    \\    bceqz $fcc1, .L998_ax
+    \\    MOV s2, s1
+    \\    bceqz $fcc2, .L998_neg
+    \\    bcnez $fcc3, .L998_st
+    \\.L998_neg:
+    \\    NEG s1, s1
+    \\    NEG s2, s2
+    \\    b .L998_by
+    \\.L998_ax:
+    \\    LD a1, X, 0 * SIZE
+    \\    LD a2, X, 1 * SIZE
+    \\    MUL s1, ALPHAI, a2
+    \\    MUL s2, ALPHAI, a1
+    \\    MSUB s1, ALPHAR, a1, s1
+    \\    MADD s2, a2, ALPHAR, s2
+    \\    bceqz $fcc2, .L998_by
+    \\    bcnez $fcc3, .L998_st
+    \\.L998_by:
+    \\    LD a3, Y, 0 * SIZE
+    \\    LD a4, Y, 1 * SIZE
+    \\    MUL s3, BETAI, a4
+    \\    MUL s4, BETAI, a3
+    \\    MSUB s3, BETAR, a3, s3
+    \\    MADD s4, a4, BETAR, s4
+    \\    ADD s1, s3, s1
+    \\    ADD s2, s4, s2
+    \\.L998_st:
+    \\    ST s1, Y, 0 * SIZE
+    \\    ST s2, Y, 1 * SIZE
+    \\    add.d X, X, INCX
+    \\    add.d Y, Y, INCY
+    \\    blt $r0, I, .L998
+    \\    .align 3
+    \\
+;
 
 /// After the zero-stride exit: for `incx < 0`, X to the lowest element and
 /// `incx` negated.

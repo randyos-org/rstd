@@ -29,7 +29,7 @@ const Body = struct {
     pub fn zaxpby() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ bge $r0, $r4, 20021f
+            \\ bge $r0, $r4, 20029f
             \\ movgr2fr.d $f12, $r0
             \\ ffint.d.l $f12, $f12
             \\ slli.d $r6, $r6, 4
@@ -45,7 +45,7 @@ const Body = struct {
             \\ xvxor.v $xr12, $xr12, $xr12
             \\ and $r13, $r6, $r8
             \\ or $r12, $r4, $r4
-            \\ beqz $r13, 20020f
+            \\ beqz $r13, 20024f
             \\ li.d $r13, 1
             \\ slli.d $r13, $r13, 4
             \\ srai.d $r12, $r4, 2
@@ -53,10 +53,10 @@ const Body = struct {
             \\ bne $r8, $r13, 20008f
             \\ b 20001f
             \\ 20000:
-            \\ bne $r8, $r13, 20012f
-            \\ b 20010f
+            \\ bne $r8, $r13, 20016f
+            \\ b 20012f
             \\ 20001:
-            \\ bge $r0, $r12, 20019f
+            \\ bge $r0, $r12, 20023f
             \\ fcmp.ceq.d $fcc0, $f2, $f12
             \\ fcmp.ceq.d $fcc1, $f3, $f12
             \\ fcmp.ceq.d $fcc2, $f0, $f12
@@ -80,7 +80,7 @@ const Body = struct {
             \\ addi.d $r7, $r7, 8 * 8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20004b
-            \\ b 20019f
+            \\ b 20023f
             \\ .align 3
             \\ 20005:
             \\ xvld $xr8, $r5, 0 * 8
@@ -99,7 +99,7 @@ const Body = struct {
             \\ addi.d $r7, $r7, 8 * 8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20005b
-            \\ b 20019f
+            \\ b 20023f
             \\ .align 3
             \\ 20006:
             \\ xvld $xr8, $r7, 0 * 8
@@ -117,7 +117,7 @@ const Body = struct {
             \\ addi.d $r7, $r7, 8 * 8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20006b
-            \\ b 20019f
+            \\ b 20023f
             \\ .align 3
             \\ 20007:
             \\ xvld $xr8, $r5, 0 * 8
@@ -146,13 +146,23 @@ const Body = struct {
             \\ addi.d $r7, $r7, 8 * 8
             \\ addi.d $r12, $r12, -1
             \\ blt $r0, $r12, 20007b
-            \\ b 20019f
+            \\ b 20023f
             \\ .align 3
             \\ 20008:
-            \\ bge $r0, $r12, 20019f
+            \\ bge $r0, $r12, 20023f
+            \\ fcmp.ceq.d $fcc0, $f2, $f12
+            \\ fcmp.ceq.d $fcc1, $f3, $f12
+            \\ fcmp.ceq.d $fcc2, $f0, $f12
+            \\ fcmp.ceq.d $fcc3, $f1, $f12
+            \\ bceqz $fcc0, 20009f
+            \\ bcnez $fcc1, 20016f
+            \\ 20009:
+            \\ bceqz $fcc2, 20010f
+            \\ bcnez $fcc3, 20016f
+            \\ 20010:
             \\ move $r19, $r7
             \\ .align 3
-            \\ 20009:
+            \\ 20011:
             \\ xvld $xr8, $r5, 0 * 8
             \\ ld.d $r14, $r7, 0 * 8
             \\ ld.d $r16, $r7, 1 * 8
@@ -201,13 +211,23 @@ const Body = struct {
             \\ xvstelm.d $xr15, $r19, 1 * 8, 3
             \\ add.d $r19, $r19, $r8
             \\ addi.d $r5, $r5, 8 * 8
-            \\ blt $r0, $r12, 20009b
-            \\ b 20019f
+            \\ blt $r0, $r12, 20011b
+            \\ b 20023f
             \\ .align 3
-            \\ 20010:
-            \\ bge $r0, $r12, 20019f
+            \\ 20012:
+            \\ bge $r0, $r12, 20023f
+            \\ fcmp.ceq.d $fcc0, $f2, $f12
+            \\ fcmp.ceq.d $fcc1, $f3, $f12
+            \\ fcmp.ceq.d $fcc2, $f0, $f12
+            \\ fcmp.ceq.d $fcc3, $f1, $f12
+            \\ bceqz $fcc0, 20013f
+            \\ bcnez $fcc1, 20016f
+            \\ 20013:
+            \\ bceqz $fcc2, 20014f
+            \\ bcnez $fcc3, 20016f
+            \\ 20014:
             \\ .align 3
-            \\ 20011:
+            \\ 20015:
             \\ xvld $xr21, $r7, 0 * 8
             \\ ld.d $r14, $r5, 0 * 8
             \\ ld.d $r16, $r5, 1 * 8
@@ -248,31 +268,31 @@ const Body = struct {
             \\ xvst $xr21, $r7, 0 * 8
             \\ xvst $xr22, $r7, 4 * 8
             \\ addi.d $r7, $r7, 8 * 8
-            \\ blt $r0, $r12, 20011b
-            \\ b 20019f
+            \\ blt $r0, $r12, 20015b
+            \\ b 20023f
             \\ .align 3
-            \\ 20012:
-            \\ bge $r0, $r12, 20019f
+            \\ 20016:
+            \\ bge $r0, $r12, 20023f
             \\ move $r19, $r7
             \\ fcmp.ceq.d $fcc0, $f2, $f12
             \\ fcmp.ceq.d $fcc1, $f3, $f12
             \\ fcmp.ceq.d $fcc2, $f0, $f12
             \\ fcmp.ceq.d $fcc3, $f1, $f12
-            \\ bceqz $fcc0, 20013f
-            \\ bceqz $fcc1, 20013f
-            \\ b 20014f
+            \\ bceqz $fcc0, 20017f
+            \\ bceqz $fcc1, 20017f
+            \\ b 20018f
             \\ .align 3
-            \\ 20013:
-            \\ bceqz $fcc2, 20018f
-            \\ bceqz $fcc3, 20018f
-            \\ b 20017f
+            \\ 20017:
+            \\ bceqz $fcc2, 20022f
+            \\ bceqz $fcc3, 20022f
+            \\ b 20021f
             \\ .align 3
-            \\ 20014:
-            \\ bceqz $fcc2, 20016f
-            \\ bceqz $fcc3, 20016f
-            \\ b 20015f
+            \\ 20018:
+            \\ bceqz $fcc2, 20020f
+            \\ bceqz $fcc3, 20020f
+            \\ b 20019f
             \\ .align 3
-            \\ 20015:
+            \\ 20019:
             \\ xvstelm.d $xr12, $r7, 0 * 8, 0
             \\ xvstelm.d $xr12, $r7, 1 * 8, 0
             \\ add.d $r7, $r7, $r8
@@ -286,10 +306,10 @@ const Body = struct {
             \\ xvstelm.d $xr12, $r7, 1 * 8, 0
             \\ add.d $r7, $r7, $r8
             \\ addi.d $r12, $r12, -1
-            \\ blt $r0, $r12, 20015b
-            \\ b 20019f
+            \\ blt $r0, $r12, 20019b
+            \\ b 20023f
             \\ .align 3
-            \\ 20016:
+            \\ 20020:
             \\ ld.d $r14, $r5, 0 * 8
             \\ ld.d $r16, $r5, 1 * 8
             \\ add.d $r5, $r5, $r6
@@ -327,11 +347,11 @@ const Body = struct {
             \\ xvstelm.d $xr16, $r19, 0 * 8, 3
             \\ xvstelm.d $xr15, $r19, 1 * 8, 3
             \\ add.d $r19, $r19, $r8
-            \\ blt $r0, $r12, 20016b
+            \\ blt $r0, $r12, 20020b
             \\ move $r7, $r19
-            \\ b 20019f
+            \\ b 20023f
             \\ .align 3
-            \\ 20017:
+            \\ 20021:
             \\ ld.d $r14, $r7, 0 * 8
             \\ ld.d $r16, $r7, 1 * 8
             \\ add.d $r7, $r7, $r8
@@ -369,10 +389,10 @@ const Body = struct {
             \\ xvstelm.d $xr16, $r19, 0 * 8, 3
             \\ xvstelm.d $xr15, $r19, 1 * 8, 3
             \\ add.d $r19, $r19, $r8
-            \\ blt $r0, $r12, 20017b
-            \\ b 20019f
+            \\ blt $r0, $r12, 20021b
+            \\ b 20023f
             \\ .align 3
-            \\ 20018:
+            \\ 20022:
             \\ ld.d $r14, $r5, 0 * 8
             \\ ld.d $r16, $r5, 1 * 8
             \\ add.d $r5, $r5, $r6
@@ -436,36 +456,55 @@ const Body = struct {
             \\ xvstelm.d $xr16, $r19, 0 * 8, 3
             \\ xvstelm.d $xr15, $r19, 1 * 8, 3
             \\ add.d $r19, $r19, $r8
-            \\ blt $r0, $r12, 20018b
-            \\ b 20019f
+            \\ blt $r0, $r12, 20022b
+            \\ b 20023f
             \\ .align 3
-            \\ 20019:
+            \\ 20023:
             \\ andi $r12, $r4, 3
-            \\ bge $r0, $r12, 20021f
+            \\ bge $r0, $r12, 20029f
             \\ .align 3
-            \\ 20020:
+            \\ 20024:
+            \\ movgr2fr.d $f16, $r0
+            \\ fcmp.ceq.d $fcc0, $f0, $f16
+            \\ fcmp.ceq.d $fcc1, $f1, $f16
+            \\ fcmp.ceq.d $fcc2, $f2, $f16
+            \\ fcmp.ceq.d $fcc3, $f3, $f16
+            \\ addi.d $r12, $r12, -1
+            \\ bceqz $fcc0, 20026f
+            \\ bceqz $fcc1, 20026f
+            \\ fmov.d $f17, $f16
+            \\ bceqz $fcc2, 20025f
+            \\ bcnez $fcc3, 20028f
+            \\ 20025:
+            \\ fneg.d $f16, $f16
+            \\ fneg.d $f17, $f17
+            \\ b 20027f
+            \\ 20026:
             \\ fld.d $f12, $r5, 0 * 8
             \\ fld.d $f13, $r5, 1 * 8
-            \\ fld.d $f14, $r7, 0 * 8
-            \\ fld.d $f15, $r7, 1 * 8
-            \\ addi.d $r12, $r12, -1
             \\ fmul.d $f16, $f1, $f13
             \\ fmul.d $f17, $f1, $f12
-            \\ fmul.d $f18, $f3, $f15
-            \\ fmul.d $f19, $f3, $f14
             \\ fmsub.d $f16, $f0, $f12, $f16
             \\ fmadd.d $f17, $f13, $f0, $f17
+            \\ bceqz $fcc2, 20027f
+            \\ bcnez $fcc3, 20028f
+            \\ 20027:
+            \\ fld.d $f14, $r7, 0 * 8
+            \\ fld.d $f15, $r7, 1 * 8
+            \\ fmul.d $f18, $f3, $f15
+            \\ fmul.d $f19, $f3, $f14
             \\ fmsub.d $f18, $f2, $f14, $f18
             \\ fmadd.d $f19, $f15, $f2, $f19
-            \\ fadd.d $f18, $f18, $f16
-            \\ fadd.d $f19, $f19, $f17
-            \\ fst.d $f18, $r7, 0 * 8
-            \\ fst.d $f19, $r7, 1 * 8
+            \\ fadd.d $f16, $f18, $f16
+            \\ fadd.d $f17, $f19, $f17
+            \\ 20028:
+            \\ fst.d $f16, $r7, 0 * 8
+            \\ fst.d $f17, $r7, 1 * 8
             \\ add.d $r5, $r5, $r6
             \\ add.d $r7, $r7, $r8
-            \\ blt $r0, $r12, 20020b
+            \\ blt $r0, $r12, 20024b
             \\ .align 3
-            \\ 20021:
+            \\ 20029:
             \\ move $r4, $r12
             \\ jirl $r0, $r1, 0x0
             \\ .align 3

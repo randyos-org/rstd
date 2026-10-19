@@ -67,11 +67,6 @@ const Quirk = enum {
     nrm2_denormal,
     /// `nrm2` of denormals may be NaN too (`frsqrte` of a denormal sum).
     nrm2_denormal_nan,
-    /// `axpby` with a zero `alpha` (`beta`) computes the elements past its
-    /// blocks in full, from `x` (`y`) elements its blocks left behind, so a
-    /// NaN or infinity anywhere in that operand may reach them as NaN; the
-    /// operand holds its values here, not NaN.
-    axpby_reads,
 };
 
 const Quirks = std.EnumSet(Quirk);
@@ -109,7 +104,6 @@ fn quirks(comptime routine: []const u8) Quirks {
         .loongarch64 => {
             if (extreme) q.insert(.nan_lanes);
             if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_nan_zero, .nrm2_denormal }));
-            if (is(name, "axpby")) q.insert(.axpby_reads);
         },
         .mips64, .mips64el => if (core == .loongson3r3 or core == .loongson3r4) {
             if (extreme) q.insert(.ties);
@@ -131,17 +125,6 @@ fn vec(comptime T: type, c: Case, which: u1) !Vector(T) {
 
 fn stride(v: anytype) BlasLong {
     return @intCast(v.inc);
-}
-
-/// Whether `v`, when `zeroed`, holds an infinity or NaN.
-fn nonFinite(comptime T: type, v: anytype, zeroed: bool) bool {
-    if (!zeroed) return false;
-    for (v.was) |e| if (!std.math.isFinite(check.abs1(check.wide(T, e)))) return true;
-    return false;
-}
-
-fn isNanW(comptime T: type, v: T) bool {
-    return if (comptime isComplex(T)) std.math.isNan(v.re) or std.math.isNan(v.im) else std.math.isNan(v);
 }
 
 fn zero(comptime T: type) Wide(T) {
@@ -276,7 +259,7 @@ fn axpyRun(comptime T: type, ctx: anytype, c: Case) !void {
 }
 
 fn Axpby(comptime T: type, comptime K: type) type {
-    return struct { kern: K, alpha: T, beta: T, q: Quirks };
+    return struct { kern: K, alpha: T, beta: T };
 }
 
 /// `y := alpha*x + beta*y`; a zero scalar's operand holds NaN, unread.
@@ -288,13 +271,8 @@ fn axpbyRun(comptime T: type, ctx: anytype, c: Case) !void {
     defer y.deinit(c.al);
     const az = isZero(T, ctx.alpha);
     const bz = isZero(T, ctx.beta);
-    // with `axpby_reads` the unread operand holds its values, and an element
-    // may be either sum
-    const reads = ctx.q.contains(.axpby_reads);
-    if (!reads) {
-        if (az) x.poison();
-        if (bz) y.poison();
-    }
+    if (az) x.poison();
+    if (bz) y.poison();
     const a = ctx.alpha;
     const b = ctx.beta;
     const n: BlasLong = @intCast(c.n);
@@ -309,8 +287,6 @@ fn axpbyRun(comptime T: type, ctx: anytype, c: Case) !void {
         const ax = if (az) zero(T) else check.mulW(wa, x.w(i));
         const by = if (bz) zero(T) else check.mulW(wb, y.w(i));
         const scale = check.mag(wa) * check.mag(x.w(i)) + check.mag(wb) * check.mag(y.w(i));
-        const full = check.addW(check.mulW(wa, x.w(i)), check.mulW(wb, y.w(i)));
-        if (reads and (check.wideOk(T, full, y.at(i), 4, scale) or (nonFinite(T, &x, az) or nonFinite(T, &y, bz)) and isNanW(T, y.at(i)))) continue;
         check.expectWide(T, check.addW(ax, by), y.at(i), 4, scale) catch |e| {
             check.say("y[{d}]: ", .{i});
             return e;
@@ -532,7 +508,7 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     }
     if (@hasField(Vtable, l ++ "axpby_k")) if (@field(vt, l ++ "axpby_k")) |k| {
         for ([_][2]T{ .{ one, beta }, .{ zero_t, beta }, .{ one, zero_t }, .{ zero_t, zero_t } }) |ab| {
-            note(sweep(T, l ++ "axpby", true, true, Axpby(T, @TypeOf(k)){ .kern = k, .alpha = ab[0], .beta = ab[1], .q = quirks(l ++ "axpby") }, axpbyRun));
+            note(sweep(T, l ++ "axpby", true, true, Axpby(T, @TypeOf(k)){ .kern = k, .alpha = ab[0], .beta = ab[1] }, axpbyRun));
         }
     };
     const rot = @field(vt, if (complex) l ++ (if (l[0] == 'c') "s" else if (l[0] == 'z') "d" else "q") ++ "rot_k" else l ++ "rot_k").?;
