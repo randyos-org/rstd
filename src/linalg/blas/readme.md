@@ -312,6 +312,11 @@ And the sparc kernels' `64` variant shifts with `sllx` where the sources say
 low 32 bits, so negative strides broke. `issues.md` has the details, and the
 open question of whether real hardware behaves the same.
 
+The ported `utest/test_swap.c` found one more, in `sparc/swap.S` and
+`zswap.S`: with a zero stride, the strided loop loads a whole block before
+storing it, so `n` swaps of one element acted as one. A zero stride now
+takes the one-at-a-time loop.
+
 ## Kernels that call another routine's kernel
 
 A handful of upstream sources branch into another routine's own kernel rather

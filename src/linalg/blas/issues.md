@@ -700,3 +700,15 @@ Ours, not a converted kernel:
   an infinity elsewhere in `x` meets the zero and gives NaN in that column.
   `banded.zig`'s drivers skip as the reference does. Left: `ger`, whose
   reference skips a zero `y(j)`; the per-core `ger` kernels do not.
+
+And SPARC `swap`, found by the ported `utest/test_swap.c`:
+
+> **sparc `swap.S`, `zswap.S`: a zero stride swaps a block as one element**
+>
+> The strided loop (`.LL51`) loads a block of elements (8 for `swap.S`, 4
+> for `zswap.S`) from `x` and `y` before storing any, so with `incx` or
+> `incy` zero the `n` swaps of one element act as one. `utest`'s
+> `zswap_inc_0` (`n` = 4, both strides 0) gets `x` and `y` exchanged where
+> four swaps leave them as they were; `sswap` and `dswap` go wrong from 8
+> elements. Sending a zero stride to the one-at-a-time tail loop (`.LL56`)
+> fixes both.
