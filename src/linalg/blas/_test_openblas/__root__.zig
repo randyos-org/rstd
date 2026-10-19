@@ -146,4 +146,5 @@ test {
     _ = @import("blat2.zig");
     _ = @import("blat3.zig");
     _ = @import("utest.zig");
+    _ = @import("utest_ext.zig");
 }
