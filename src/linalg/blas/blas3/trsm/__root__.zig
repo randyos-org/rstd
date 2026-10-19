@@ -471,3 +471,21 @@ pub fn xtrsm_oltucopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, of
 pub fn xtrsm_oltncopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, offset: BlasLong, b: [*]XDouble) i32 {
     return blas.kernel(.xtrsm_oltncopy)(m, n, a, lda, offset, b);
 }
+
+const check = @import("../check.zig");
+const blas1check = @import("../../blas1/check.zig");
+const Vtable = @import("../../Vtable.zig");
+
+fn cases(vt: *const Vtable) !void {
+    try check.routineAll(vt, .trsm);
+}
+
+test "portable trsm matches the wide reference through the driver" {
+    var vt: Vtable = .{};
+    @import("../../portable.zig").install(&vt);
+    try cases(&vt);
+}
+
+test "every linked core's trsm matches the wide reference, where this machine runs it" {
+    try blas1check.eachCore(cases);
+}

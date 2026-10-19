@@ -181,6 +181,38 @@ fn rankImpl(allocator: Allocator, comptime T: type, comptime herm: bool, uplo: U
     try level3.syrk(allocator, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
+/// `?TRMM` (`interface/trsm.c` as `TRMM`): `B := alpha*op(A)*B` (`side`
+/// `l`) or `alpha*B*op(A)`, `A` triangular (`uplo`; a `unit` diagonal is
+/// never read, nor the other triangle), `op` as `transa` says, `B` `m x n`.
+/// `B` is scaled by `alpha` first, and neither `A` nor `B` is read for a zero
+/// one.
+pub fn trmm(allocator: Allocator, comptime T: type, side: Side, uplo: Uplo, transa: Trans, diag: Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
+    comptime floatType(T, "trmm");
+    return triImpl(allocator, T, false, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb);
+}
+
+/// `?TRSM` (`interface/trsm.c`): `B := alpha*inv(op(A))*B` (`side` `l`) or
+/// `alpha*B*inv(op(A))`, taking its arguments as `trmm` does. A zero on a
+/// diagonal that is not unit divides by zero, as the reference's
+/// reciprocals do.
+pub fn trsm(allocator: Allocator, comptime T: type, side: Side, uplo: Uplo, transa: Trans, diag: Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
+    comptime floatType(T, "trsm");
+    return triImpl(allocator, T, true, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb);
+}
+
+fn triImpl(allocator: Allocator, comptime T: type, comptime solve: bool, side: Side, uplo: Uplo, transa: Trans, diag: Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
+    const ka = if (side == .l) m else n;
+    if (m < 0) return error.InvalidM;
+    if (n < 0) return error.InvalidN;
+    if (lda < @max(1, ka)) return error.InvalidLda;
+    if (ldb < @max(1, m)) return error.InvalidLdb;
+    if (m == 0 or n == 0) return;
+    if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
+    const f = if (solve) level3.trsm else level3.trmm;
+    try f(allocator, T, table(T), side == .l, uplo == .u, transposed(transa), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb));
+}
+
 const no_table: Vtable = .{};
 
 // ---- tests -----------------------------------------------------------------
@@ -291,4 +323,34 @@ test "interface: the rank-k updates report the first bad argument, and return fo
     try testing.expectEqual(Z.init(2, 5), z[0]);
     try herk(fa, Z, .u, .n, 1, 0, 1, &z, 1, 2, &z, 1);
     try testing.expectEqual(Z.init(4, 0), z[0]);
+}
+
+test "interface: trmm and trsm match the wide reference" {
+    inline for (all ++ unslotted) |T| {
+        try check.interfaceCases(T, Iface, .trmm);
+        try check.interfaceCases(T, Iface, .trsm);
+    }
+}
+
+test "interface: trmm and trsm report the first bad argument, and return for empty problems" {
+    const fa = testing.failing_allocator;
+    var a: [16]f64 = @splat(std.math.nan(f64));
+    var b: [16]f64 = @splat(std.math.nan(f64));
+    inline for (.{ trmm, trsm }) |f| {
+        try testing.expectError(error.InvalidM, f(fa, f64, .l, .u, .n, .n, -1, -1, 1, &a, 0, &b, 0));
+        try testing.expectError(error.InvalidN, f(fa, f64, .r, .l, .t, .u, 0, -1, 1, &a, 0, &b, 0));
+        // the order of `A` is `m` on the left, `n` on the right
+        try testing.expectError(error.InvalidLda, f(fa, f64, .l, .u, .n, .n, 2, 0, 1, &a, 1, &b, 2));
+        try testing.expectError(error.InvalidLda, f(fa, f64, .r, .u, .c, .n, 0, 2, 1, &a, 1, &b, 1));
+        try testing.expectError(error.InvalidLdb, f(fa, f64, .r, .l, .n, .n, 2, 1, 1, &a, 1, &b, 1));
+        try f(fa, f64, .l, .u, .n, .n, 0, 3, std.math.nan(f64), &a, 1, &b, 1);
+        try f(fa, f64, .r, .u, .n, .n, 3, 0, std.math.nan(f64), &a, 1, &b, 3);
+        try testing.expect(std.math.isNan(b[0]));
+        // a zero `alpha` zeroes `B` without reading either
+        try f(fa, f64, .l, .l, .t, .u, 2, 2, 0, &a, 2, &b, 3);
+        try testing.expectEqualSlices(f64, &.{ 0, 0 }, b[0..2]);
+        try testing.expectEqualSlices(f64, &.{ 0, 0 }, b[3..5]);
+        try testing.expect(std.math.isNan(b[2]));
+        @memset(&b, std.math.nan(f64));
+    }
 }
