@@ -21,6 +21,34 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
     return out;
 }
 
+/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
+const patches = [_]arch.Patch{
+    // the index kernels keep a pick per lane, and of equal picks the
+    // reduction kept the first lane's, which may be the later index; take
+    // the smaller index of equal picks before each step
+    .{ .source = "iamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
+    .{ .source = "imax.S", .find = reduce, .replace = reduce_first, .count = 2 },
+    .{ .source = "izamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
+};
+
+const reduce =
+    "\tFCMP\t%fcc0, c2, c1\n\tadd\tv2, 1, v2\n\tFCMP\t%fcc1, c4, c3\n\tadd\tv3, 2, v3\n\tadd\tv4, 3, v4\n\n" ++
+    "\tFCMOV\t%fcc0, c2, c1\n\tCMOV\t%fcc0, v2, v1\n\tFCMOV\t%fcc1, c4, c3\n\tCMOV\t%fcc1, v4, v3\n" ++
+    "\tFCMP\t%fcc0, c3, c1\n\tCMOV\t%fcc0, v3, v1\n";
+
+const reduce_first =
+    "\tFCMP\t%fcc0, c2, c1\n\tadd\tv2, 1, v2\n\tFCMP\t%fcc1, c4, c3\n\tadd\tv3, 2, v3\n\tadd\tv4, 3, v4\n\n" ++
+    tie("%fcc0", "v1", "v2") ++ tie("%fcc1", "v3", "v4") ++
+    "\tFCMOV\t%fcc0, c2, c1\n\tCMOV\t%fcc0, v2, v1\n\tFCMOV\t%fcc1, c4, c3\n\tCMOV\t%fcc1, v4, v3\n" ++
+    "\tFCMP\t%fcc0, c3, c1\n" ++ tie("%fcc0", "v1", "v3") ++ "\tCMOV\t%fcc0, v3, v1\n";
+
+/// `va` becomes `vb` where `fcc` says equal and `vb < va`.
+fn tie(comptime fcc: []const u8, comptime va: []const u8, comptime vb: []const u8) []const u8 {
+    return "\tmov\t" ++ va ++ ", %o5\n\tcmp\t" ++ vb ++ ", " ++ va ++ "\n" ++
+        "#ifdef __64BIT__\n\tmovl\t%xcc, " ++ vb ++ ", %o5\n#else\n\tmovl\t%icc, " ++ vb ++ ", %o5\n#endif\n" ++
+        "\tmove\t" ++ fcc ++ ", %o5, " ++ va ++ "\n";
+}
+
 /// `sll` as `sllx`, for 64-bit values.
 fn wideShifts(a: std.mem.Allocator, statement: []const u8) Error![]const u8 {
     const t = std.mem.trimStart(u8, statement, " ");
@@ -35,6 +63,7 @@ pub const sparc: arch.Arch = .{
     .config_h = "#define ARCH_SPARC 1\n#define BINARY64 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_SPARC", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
+    .patches = &patches,
     .variants = &.{
         .{ .name = "32", .defines = &.{}, .triple = "sparc-linux-gnu" },
         .{ .name = "64", .defines = &.{"-D__64BIT__"}, .rewrite = wideShifts },

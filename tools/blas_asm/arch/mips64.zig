@@ -24,4 +24,29 @@ pub const mips64: arch.Arch = .{
     .config_h = "#define ARCH_MIPS64 1\n#define BINARY64 1\n#define __64BIT__ 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_MIPS64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
+    .patches = &patches,
 };
+
+/// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
+const patches = firstOnTies("iamax.S", false) ++ firstOnTies("imax.S", false) ++ firstOnTies("izamax.S", false) ++
+    firstOnTies("iamin.S", true) ++ firstOnTies("imin.S", true) ++ firstOnTies("izamin.S", true);
+
+/// The index kernels keep a pick per lane, and of equal picks the reduction
+/// kept the first lane's, which may be the later index; before each step,
+/// take the smaller index of equal picks.
+fn firstOnTies(comptime source: []const u8, comptime min: bool) [2]arch.Patch {
+    const pairs = if (min) "\tCMPLT\t$fcc0, s2, s1\n\tCMPLT\t$fcc1, s4, s3\n" else "\tCMPLT\t$fcc0, s1, s2\n\tCMPLT\t$fcc1, s3, s4\n";
+    const last = if (min) "\tCMPLT\t$fcc0, s3, s1\n" else "\tCMPLT\t$fcc0, s1, s3\n";
+    return .{
+        .{ .source = source, .find = ".L998:\n" ++ pairs, .replace = ".L998:\n" ++ tie("s1", "s2", "x1", "x2") ++ tie("s3", "s4", "x3", "x4") ++ pairs },
+        .{ .source = source, .find = last, .replace = tie("s1", "s3", "x1", "x3") ++ last },
+    };
+}
+
+/// `xa` becomes `xb` where `sa == sb` and `xb < xa`.
+fn tie(comptime sa: []const u8, comptime sb: []const u8, comptime xa: []const u8, comptime xb: []const u8) []const u8 {
+    return "\tCMPEQ\t$fcc0, " ++ sa ++ ", " ++ sb ++ "\n" ++
+        "\tslt\tTEMP, " ++ xb ++ ", " ++ xa ++ "\n" ++
+        "\tmovf\tTEMP, $0, $fcc0\n" ++
+        "\tmovn\t" ++ xa ++ ", " ++ xb ++ ", TEMP\n";
+}

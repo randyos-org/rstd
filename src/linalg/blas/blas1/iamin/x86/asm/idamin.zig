@@ -134,58 +134,74 @@ const text =
     \\ .endif
     \\ fldl 0 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 1 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 2 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 3 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 4 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 5 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 6 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 7 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ addl $8 * 8, %ecx
@@ -200,9 +216,11 @@ const text =
     \\ 20002:
     \\ fldl 0 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ addl $1 * 8, %ecx
     \\ incl %edi
@@ -219,65 +237,81 @@ const text =
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ fldl 0 * 8(%ecx)
     \\ addl %esi, %ecx
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ decl %edx
@@ -291,9 +325,11 @@ const text =
     \\ 20006:
     \\ fldl 0 * 8(%ecx)
     \\ fabs
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
-    \\ cmovb %edi, %eax
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
+    \\ cmovnbe %edi, %eax
     \\ fstp %st(1)
     \\ incl %edi
     \\ addl %esi, %ecx

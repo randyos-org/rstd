@@ -47,8 +47,8 @@ const Body = struct {
             \\ vabs.f32 s4, s4
             \\ vcmpe.f32 s4, s0
             \\ vmrs APSR_nzcv, fpscr
-            \\ vmovlt.f32 s0, s4
-            \\ movlt r3, r4
+            \\ vmovmi.f32 s0, s4
+            \\ movmi r3, r4
             \\ .endm
             \\ .macro INIT_S
             \\ vldmia.f32 r1, { s0 }
@@ -63,8 +63,8 @@ const Body = struct {
             \\ vabs.f32 s4, s4
             \\ vcmpe.f32 s4, s0
             \\ vmrs APSR_nzcv, fpscr
-            \\ vmovlt.f32 s0, s4
-            \\ movlt r3, r4
+            \\ vmovmi.f32 s0, s4
+            \\ movmi r3, r4
             \\ add r1, r1, r2
             \\ .endm
             \\ .arm

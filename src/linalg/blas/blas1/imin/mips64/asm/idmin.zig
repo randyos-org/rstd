@@ -165,12 +165,24 @@ const Body = struct {
             \\ daddiu $7, $7, 1
             \\ .align 3
             \\ 20004:
+            \\ c.eq.d $fcc0, $f0, $f1
+            \\ slt $7, $8, $2
+            \\ movf $7, $0, $fcc0
+            \\ movn $2, $8, $7
+            \\ c.eq.d $fcc0, $f2, $f3
+            \\ slt $7, $10, $9
+            \\ movf $7, $0, $fcc0
+            \\ movn $9, $10, $7
             \\ c.lt.d $fcc0, $f1, $f0
             \\ c.lt.d $fcc1, $f3, $f2
             \\ movt.d $f0, $f1, $fcc0
             \\ movt $2, $8, $fcc0
             \\ movt.d $f2, $f3, $fcc1
             \\ movt $9, $10, $fcc1
+            \\ c.eq.d $fcc0, $f0, $f2
+            \\ slt $7, $9, $2
+            \\ movf $7, $0, $fcc0
+            \\ movn $2, $9, $7
             \\ c.lt.d $fcc0, $f2, $f0
             \\ movt.d $f0, $f2, $fcc0
             \\ movt $2, $9, $fcc0

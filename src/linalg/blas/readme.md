@@ -235,6 +235,16 @@ generated files carry the fixed code.
   `alpha` could multiply where it should store zeros: `cgbmv` with `beta`
   zero gave NaN. The fix reads it through `FRAMESLOT`, which has each ABI's
   offset; FreeBSD's offsets were already right.
+- `x86/amax.S`, `iamax.S`, `zamax.S`, `izamax.S`, the minima: took the new
+  element unless it compared above the pick, and an unordered compare does
+  not, so a NaN replaced the pick and the next element replaced the NaN.
+  They now compare the pick with the new element, as the maxima do.
+- `arm/amax_vfp.S`, `iamax_vfp.S`, the minima: moved on `lt`, which an
+  unordered compare sets too, with the same effect; `mi` is less than only.
+- `mips64/iamax.S`, `imax.S`, `izamax.S` and their minima (loongson3r3,
+  loongson3r4), and `sparc/iamax.S`, `imax.S`, `izamax.S`: keep a pick per
+  lane, and of equal picks the reduction kept the first lane's, which can
+  be the later index. They now take the smaller index of equal picks.
 
 The rest are the `lsx` and `lasx` kernels under `loongarch64/`, mostly where
 a stride is not 1:

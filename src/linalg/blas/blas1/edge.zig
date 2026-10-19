@@ -50,15 +50,9 @@ const large_sizes = [_]usize{ 2, 5 };
 /// What some cores' kernels do otherwise upstream, checked instead of the
 /// reference (`issues.md`).
 const Quirk = enum {
-    /// The extremes replace their pick unless the new key is `<=` it (`>=`
-    /// for a minimum), so a NaN is picked where it is met and the next
-    /// element replaces it.
-    nan_replaced,
     /// The extremes compare lane by lane, so what a NaN does depends on
     /// where it falls: any element's key or NaN, any index.
     nan_lanes,
-    /// Of equal extremes, any may be picked.
-    ties,
     /// `nrm2` of an infinity, and no NaN, may be NaN.
     nrm2_inf_nan,
     /// `nrm2` of a NaN may be 0.
@@ -77,7 +71,6 @@ fn quirks(comptime routine: []const u8) Quirks {
     const core = check.core orelse return .empty;
     // the routine without its index letter and precision
     const at = comptime if (routine[0] == 'i' and routine.len > 4) 1 else 0;
-    const prec = comptime routine[at];
     const name = comptime routine[at + 1 ..];
     const extreme = comptime std.mem.endsWith(u8, name, "max") or std.mem.endsWith(u8, name, "min");
     const is = struct {
@@ -89,13 +82,7 @@ fn quirks(comptime routine: []const u8) Quirks {
     switch (sysinfo.cpu.arch) {
         .x86_64 => if (extreme) q.insert(.nan_lanes),
         .aarch64, .aarch64_be => if (is(name, "amax")) q.insert(.nan_lanes),
-        .x86 => if (is(name, "amin") or is(name, "min")) q.insert(.nan_replaced),
-        // the real ones only
-        .arm, .armeb, .thumb, .thumbeb => if ((is(name, "amin") or is(name, "min")) and (prec == 's' or prec == 'd')) q.insert(.nan_replaced),
-        .sparc, .sparc64 => {
-            if (extreme) q.insert(.ties);
-            if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal }));
-        },
+        .sparc, .sparc64 => if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal })),
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
             if (extreme) q.insert(.nan_lanes);
             if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal }));
@@ -106,7 +93,6 @@ fn quirks(comptime routine: []const u8) Quirks {
             if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_nan_zero, .nrm2_denormal }));
         },
         .mips64, .mips64el => if (core == .loongson3r3 or core == .loongson3r4) {
-            if (extreme) q.insert(.ties);
             if (is(name, "nrm2")) q.setUnion(.initMany(&.{ .nrm2_inf_nan, .nrm2_denormal }));
         },
         else => {},
@@ -412,14 +398,13 @@ fn Extreme(comptime K: type) type {
 }
 
 /// The 1-based index of the extreme element by the reference's scan, which
-/// replaces only on a strict compare, or with `replaced` unless the compare
-/// the other way holds (`nan_replaced`).
-fn scan(comptime T: type, x: anytype, find: extremum.Find, replaced: bool) usize {
+/// replaces only on a strict compare.
+fn scan(comptime T: type, x: anytype, find: extremum.Find) usize {
     var best: usize = 0;
     var key: f128 = 0;
     for (0..x.n) |i| {
         const k = keyOf(T, x, find, i);
-        const better = if (replaced) !(if (find.max) k <= key else k >= key) else if (find.max) k > key else k < key;
+        const better = if (find.max) k > key else k < key;
         if (best == 0 or better) {
             best = i + 1;
             key = k;
@@ -442,13 +427,10 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
     var nan = false;
     for (0..c.n) |i| nan = nan or std.math.isNan(keyOf(T, &x, ctx.find, i));
     if (nan and ctx.q.contains(.nan_lanes)) return loose(T, &x, ctx.find, got);
-    const ref = scan(T, &x, ctx.find, ctx.q.contains(.nan_replaced));
+    const ref = scan(T, &x, ctx.find);
     const key = keyOf(T, &x, ctx.find, ref - 1);
     if (@TypeOf(got) == BlasLong) {
-        const n: BlasLong = @intCast(c.n);
         if (got == @as(BlasLong, @intCast(ref))) return;
-        // of equal keys, any
-        if (ctx.q.contains(.ties) and got >= 1 and got <= n and keyOf(T, &x, ctx.find, @intCast(got - 1)) == key) return;
     } else {
         if (std.math.isNan(key) and std.math.isNan(got) or got == key) return;
         if (@abs(@as(f128, got) - key) <= 2 * std.math.floatEps(Float(T)) * @abs(key)) return;

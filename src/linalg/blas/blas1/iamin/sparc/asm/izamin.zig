@@ -185,11 +185,38 @@ const text =
     \\ fcmpd %fcc1, %f6, %f4
     \\ add %o2, 2, %o2
     \\ add %o3, 3, %o3
+    \\ mov %o0, %o5
+    \\ cmp %o1, %o0
+    \\ .if \bp0
+    \\ movl %icc, %o1, %o5
+    \\ .endif
+    \\ .if \bp1
+    \\ movl %xcc, %o1, %o5
+    \\ .endif
+    \\ move %fcc0, %o5, %o0
+    \\ mov %o2, %o5
+    \\ cmp %o3, %o2
+    \\ .if \bp0
+    \\ movl %icc, %o3, %o5
+    \\ .endif
+    \\ .if \bp1
+    \\ movl %xcc, %o3, %o5
+    \\ .endif
+    \\ move %fcc1, %o5, %o2
     \\ fmovdl %fcc0, %f2, %f0
     \\ movl %fcc0, %o1, %o0
     \\ fmovdl %fcc1, %f6, %f4
     \\ movl %fcc1, %o3, %o2
     \\ fcmpd %fcc0, %f4, %f0
+    \\ mov %o0, %o5
+    \\ cmp %o2, %o0
+    \\ .if \bp0
+    \\ movl %icc, %o2, %o5
+    \\ .endif
+    \\ .if \bp1
+    \\ movl %xcc, %o2, %o5
+    \\ .endif
+    \\ move %fcc0, %o5, %o0
     \\ movl %fcc0, %o2, %o0
     \\ 20005:
     \\ mov %o0, %i0
@@ -307,11 +334,38 @@ const text =
     \\ fcmpd %fcc1, %f6, %f4
     \\ add %o2, 2, %o2
     \\ add %o3, 3, %o3
+    \\ mov %o0, %o5
+    \\ cmp %o1, %o0
+    \\ .if \bp0
+    \\ movl %icc, %o1, %o5
+    \\ .endif
+    \\ .if \bp1
+    \\ movl %xcc, %o1, %o5
+    \\ .endif
+    \\ move %fcc0, %o5, %o0
+    \\ mov %o2, %o5
+    \\ cmp %o3, %o2
+    \\ .if \bp0
+    \\ movl %icc, %o3, %o5
+    \\ .endif
+    \\ .if \bp1
+    \\ movl %xcc, %o3, %o5
+    \\ .endif
+    \\ move %fcc1, %o5, %o2
     \\ fmovdl %fcc0, %f2, %f0
     \\ movl %fcc0, %o1, %o0
     \\ fmovdl %fcc1, %f6, %f4
     \\ movl %fcc1, %o3, %o2
     \\ fcmpd %fcc0, %f4, %f0
+    \\ mov %o0, %o5
+    \\ cmp %o2, %o0
+    \\ .if \bp0
+    \\ movl %icc, %o2, %o5
+    \\ .endif
+    \\ .if \bp1
+    \\ movl %xcc, %o2, %o5
+    \\ .endif
+    \\ move %fcc0, %o5, %o0
     \\ movl %fcc0, %o2, %o0
     \\ mov %o0, %i0
     \\ return %i7 + 8

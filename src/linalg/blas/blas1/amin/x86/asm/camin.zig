@@ -135,32 +135,40 @@ const text =
     \\ flds 1 * 4(%ecx)
     \\ fabs
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ flds 2 * 4(%ecx)
     \\ fabs
     \\ flds 3 * 4(%ecx)
     \\ fabs
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ flds 4 * 4(%ecx)
     \\ fabs
     \\ flds 5 * 4(%ecx)
     \\ fabs
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ flds 6 * 4(%ecx)
     \\ fabs
     \\ flds 7 * 4(%ecx)
     \\ fabs
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ addl $8 * 4, %ecx
     \\ decl %edx
@@ -177,8 +185,10 @@ const text =
     \\ flds 1 * 4(%ecx)
     \\ fabs
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ addl $2 * 4, %ecx
     \\ decl %edx
@@ -197,8 +207,10 @@ const text =
     \\ fabs
     \\ addl %esi, %ecx
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ flds 0 * 4(%ecx)
     \\ fabs
@@ -206,8 +218,10 @@ const text =
     \\ fabs
     \\ addl %esi, %ecx
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ flds 0 * 4(%ecx)
     \\ fabs
@@ -215,8 +229,10 @@ const text =
     \\ fabs
     \\ addl %esi, %ecx
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ flds 0 * 4(%ecx)
     \\ fabs
@@ -224,8 +240,10 @@ const text =
     \\ fabs
     \\ addl %esi, %ecx
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ decl %edx
     \\ jg 20004b
@@ -241,8 +259,10 @@ const text =
     \\ flds 1 * 4(%ecx)
     \\ fabs
     \\ faddp %st, %st(1)
+    \\ fxch
     \\ fcomi %st(1), %st
-    \\ fcmovnbe %st(1), %st(0)
+    \\ fxch
+    \\ fcmovbe %st(1), %st(0)
     \\ fstp %st(1)
     \\ addl %esi, %ecx
     \\ decl %edx

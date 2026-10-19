@@ -56,7 +56,7 @@ const text =
     \\ vabs.f64 d4, d4
     \\ vcmpe.f64 d4, d0
     \\ vmrs APSR_nzcv, fpscr
-    \\ vmovlt.f64 d0, d4
+    \\ vmovmi.f64 d0, d4
     \\ .endm
     \\ .macro INIT_S
     \\ vldmia.f64 r1, { d0 }
@@ -68,7 +68,7 @@ const text =
     \\ vabs.f64 d4, d4
     \\ vcmpe.f64 d4, d0
     \\ vmrs APSR_nzcv, fpscr
-    \\ vmovlt.f64 d0, d4
+    \\ vmovmi.f64 d0, d4
     \\ add r1, r1, r2
     \\ .endm
     \\ .arm
