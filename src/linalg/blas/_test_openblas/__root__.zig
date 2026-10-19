@@ -136,5 +136,6 @@ pub fn expectError(want: anyerror, got: anytype, what: []const u8) !void {
 }
 
 test {
+    _ = @import("blat1.zig");
     _ = @import("blat2.zig");
 }
