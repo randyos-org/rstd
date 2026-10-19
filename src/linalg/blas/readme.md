@@ -391,4 +391,6 @@ Apple silicon runs on a real Mac: `zig build remote-test-aarch64-macos`
 copies the tests to the SSH alias `-Dremote-mac` and runs them there
 (`build/remotetest.zig`); the Mac's address and login stay in the SSH config.
 On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
-`-cpu max` cannot show.
+`-cpu max` cannot show. `zig build remote-bench-aarch64-macos
+-Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the
+results are in `tools/blasbench/results-m6.md`.
