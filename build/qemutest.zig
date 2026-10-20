@@ -311,6 +311,7 @@ const machines = [_]Machine{
             .{ .name = "blas3", .filters = &.{"linalg.blas.blas3."} },
             .{ .name = "openblas", .filters = &.{"linalg.blas._test_openblas."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+            .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
         .qemu = "qemu-system-sparc64",
@@ -354,6 +355,7 @@ const machines = [_]Machine{
             .{ .name = "openblas-blat2", .filters = &.{"linalg.blas._test_openblas.blat2."} },
             .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test_openblas.blat3."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+            .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
         .qemu = "qemu-system-sparc64",
@@ -561,7 +563,11 @@ const machines = [_]Machine{
 
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
-const default_filters: []const []const u8 = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test_openblas.", "simd." };
+/// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
+const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test_openblas.", "simd." } ++ small_filters);
+
+/// The smaller BLAS test files: types, `fma`, `portable` and `ext`.
+const small_filters = [_][]const u8{ "linalg.blas._test_types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
