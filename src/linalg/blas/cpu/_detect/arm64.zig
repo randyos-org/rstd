@@ -333,16 +333,18 @@ pub fn supportsCore(core: CoreType) bool {
 /// Whether the kernels of `core` run on a CPU with `c`'s extensions. The ISA
 /// level a core is built for (`v8_2a`...) cannot be told apart by the probes; a
 /// part table that names a core only names one the CPU's generation has. But
-/// the `v8_3a` cores' kernels hold `FCMLA` (the conjugating complex `trsm`
-/// kernels), so those cores want `fcma`; Apple's always have it.
+/// the kernels of the cores built for ARMv8.3 and up hold `FCMLA` (the
+/// conjugating complex `trsm` kernels), so those cores want `fcma`; Apple's
+/// always have it.
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
-        .a64fx, .armv8sve, .cortexa510, .cortexa710, .cortexx2 => c.has(.sve),
-        .neoversev1 => c.hasAll(&.{ .sve, .bf16 }),
-        .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16 }),
-        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme }),
-        .vortexm4 => c.has(.sme) or c.has(.apple),
-        .thunderx3t110, .vortex => c.has(.fcma) or c.has(.apple),
+        .a64fx, .armv8sve => c.has(.sve),
+        .cortexa510, .cortexa710, .cortexx2 => c.hasAll(&.{ .sve, .fcma }),
+        .neoversev1 => c.hasAll(&.{ .sve, .bf16, .fcma }),
+        .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16, .fcma }),
+        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme, .fcma }),
+        .vortexm4 => c.hasAll(&.{ .sme, .fcma }) or c.has(.apple),
+        .thunderx3t110, .vortex, .ampere1 => c.has(.fcma) or c.has(.apple),
         .unknown => false,
         else => true,
     };
@@ -379,7 +381,7 @@ fn arm(part: u32) Caps {
 }
 
 test "Arm parts" {
-    const sve: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = 0x41 };
+    const sve: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16, .fcma }), .implementer = 0x41 };
     var c = arm(0xd03);
     try std.testing.expectEqual(CoreType.cortexa53, decide(c).core);
     c.part = 0xd05;
@@ -437,7 +439,7 @@ test "other implementers" {
 }
 
 test "an unknown part takes SME, then SVE, as the reference does" {
-    var c: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2 }), .implementer = 0x99, .part = 1 };
+    var c: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .fcma }), .implementer = 0x99, .part = 1 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(c).core);
     c.features.insert(.sme);
     try std.testing.expectEqual(CoreType.armv9sme, decide(c).core);
@@ -472,7 +474,7 @@ test "a Neoverse part short of what its core needs stays in its class" {
     const v1: Caps = .{ .features = .initMany(&.{ .midr, .sve }), .implementer = 0x41, .part = 0xd40 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(v1).core);
     // with SVE2 and BF16 it is V2
-    const v2_full: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = 0x41, .part = 0xd4f };
+    const v2_full: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16, .fcma }), .implementer = 0x41, .part = 0xd4f };
     try std.testing.expectEqual(CoreType.neoversev2, decide(v2_full).core);
     for (std.enums.values(CoreType)) |c| try std.testing.expect(c == .unknown or c == .armv8 or parent(c) != null);
 }
@@ -482,14 +484,14 @@ test "no CPU is given a core it cannot run" {
     // and part the table names
     const parts = [_][2]u32{
         .{ 0x41, 0xd03 }, .{ 0x41, 0xd05 }, .{ 0x41, 0xd07 }, .{ 0x41, 0xd0c }, .{ 0x41, 0xd40 },
-        .{ 0x41, 0xd49 }, .{ 0x41, 0xd4f }, .{ 0x42, 0x516 }, .{ 0x46, 0x001 }, .{ 0x61, 0 },
-        .{ 0x99, 0 },
+        .{ 0x41, 0xd49 }, .{ 0x41, 0xd4f }, .{ 0x42, 0x516 }, .{ 0x43, 0x0b8 }, .{ 0x46, 0x001 },
+        .{ 0x61, 0 },     .{ 0xc0, 0xac3 }, .{ 0x99, 0 },
     };
     var mask: u32 = 0;
-    while (mask < 16) : (mask += 1) {
+    while (mask < 32) : (mask += 1) {
         for (parts) |p| {
             const c: Caps = .{
-                .features = .init(.{ .midr = true, .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0 }),
+                .features = .init(.{ .midr = true, .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0, .fcma = mask & 16 != 0 }),
                 .implementer = p[0],
                 .part = p[1],
             };
