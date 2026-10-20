@@ -81,9 +81,49 @@ pub const std_os_options: std.Options.OperatingSystem = .{
     },
 };
 
-/// `std.testing` failure messages go through `std.debug.print`; there is no OS
-/// to print to, and the default Io would drag in the threaded implementation.
-pub const std_options_debug_io: std.Io = std.Io.failing;
+/// `std.testing` failure messages go through `std.debug.print`: `Io.failing`
+/// (the default Io would drag in the threaded implementation) with stderr on
+/// the console. `failing` alone reaches `unreachable` there, so every failed
+/// `expectEqual` was a panic.
+pub const std_options_debug_io: std.Io = .{ .userdata = null, .vtable = &console_vtable };
+
+const console_vtable = blk: {
+    var vt = std.Io.failing.vtable.*;
+    vt.swapCancelProtection = struct {
+        fn f(_: ?*anyopaque, _: std.Io.CancelProtection) std.Io.CancelProtection {
+            return .unblocked;
+        }
+    }.f;
+    vt.lockStderr = struct {
+        fn f(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
+            return .{ .file_writer = &console_writer, .terminal_mode = .no_color };
+        }
+    }.f;
+    vt.unlockStderr = struct {
+        fn f(_: ?*anyopaque) void {
+            console_writer.interface.flush() catch {};
+        }
+    }.f;
+    break :blk vt;
+};
+
+var console_writer: std.Io.File.Writer = .{
+    .io = undefined,
+    .file = undefined,
+    .interface = .{ .vtable = &.{ .drain = consoleDrain }, .buffer = &.{} },
+};
+
+fn consoleDrain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+    print(w.buffered());
+    w.end = 0;
+    var n: usize = 0;
+    for (data[0 .. data.len - 1]) |d| {
+        print(d);
+        n += d.len;
+    }
+    for (0..splat) |_| print(data[data.len - 1]);
+    return n + data[data.len - 1].len * splat;
+}
 
 comptime {
     _ = arch;
