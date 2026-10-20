@@ -402,7 +402,8 @@ Where the port differs from `dynamic*.c`:
 ## Qemu rigs
 
 `zig build qemu-test-<machine>` runs the kernel tests under `qemu-system-*`
-(see `build/qemutest.zig` for the machines). `zig build rstd-test` runs them
+(see `build/qemutest.zig` for the machines): every BLAS test but `abi.zig`'s,
+which resolve targets through an OS. `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
 
 `qemu-test-x86_64-whpx` runs them on the host's own CPU under WHPX (an
@@ -426,8 +427,9 @@ run as 32-bit code.
 `arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
 `sf` variant runs, using the VFP the CPU has.
 
-`sparc64-debug` is `sparc64` in debug, in ten images where `sparc64` needs
-seven (OpenBIOS maps 4 MB of each), less one test that alone is 6 MB in debug.
+`sparc64-debug` is `sparc64` in debug, in sixteen images where `sparc64`
+needs ten (OpenBIOS maps 4 MB of each), less one test that alone is 6 MB in
+debug.
 `sparc` (32-bit) is a stub: lld cannot link 32-bit SPARC.
 
 The kernel rigs link every core the target CPU can run, whatever the build
