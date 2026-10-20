@@ -315,7 +315,9 @@ open question of whether real hardware behaves the same.
 The ported `utest/test_swap.c` found one more, in `sparc/swap.S` and
 `zswap.S`: with a zero stride, the strided loop loads a whole block before
 storing it, so `n` swaps of one element acted as one. A zero stride now
-takes the one-at-a-time loop.
+takes the one-at-a-time loop. `power/rot.S`, `zrot.S`, `swap.S`, `zswap.S`,
+`rot_ppc440.S` and `zrot_ppc440.S` had the same bug (`utest`'s
+`zdrot_inc_0` on cell) and take the same fix.
 
 ## Kernels that call another routine's kernel
 

@@ -712,3 +712,16 @@ And SPARC `swap`, found by the ported `utest/test_swap.c`:
 > four swaps leave them as they were; `sswap` and `dswap` go wrong from 8
 > elements. Sending a zero stride to the one-at-a-time tail loop (`.LL56`)
 > fixes both.
+
+And POWER `rot` and `swap`, the same pattern, found by `utest`'s `zdrot_inc_0`:
+
+> **power `rot.S`, `zrot.S`, `swap.S`, `zswap.S`, `rot_ppc440.S`, `zrot_ppc440.S`: a zero stride acts on one element as a block**
+>
+> The strided loop (`LL(110)`; the `ppc440` files are pipelined from the
+> start) loads a block of elements from `x` and `y` before storing any, so
+> with `incx` or `incy` zero later elements of the block are read before
+> earlier ones are written. `zdrot_inc_0` (`n` = 4, both strides 0) gets
+> `x` = 0.3125 for cell's `zrot.S` where four rotations give -0.21484375,
+> and so would ppc440fp2's `zrot_ppc440.S`; the others go wrong from 8
+> elements (`swap.S` 16). Sending a zero stride to the one-at-a-time loop
+> (`LL(160)`) fixes them.
