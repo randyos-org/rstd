@@ -466,6 +466,51 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > so the kernel steps forward by about 4 GB per element. Using `sllx`
   > under `__64BIT__` fixes it.
 
+### powerpc: `xststdcsp` matches a single-precision denormal whatever DCMX asks
+
+- **Seen:** QEMU 11.0.1 TCG, `-cpu power9` and `power10`. LLVM lowers
+  `std.math.isInf` on `f32` (ReleaseSafe, `-mcpu=pwr9`) to
+  `xststdcsp 0, 1, 48`: DCMX 48 is +Inf and -Inf, and the operand is the
+  `f32` as the FPR holds it, in double format, as the ISA wants. LLVM is
+  right. Under QEMU it is true for `f32` denormals (0x00000001, 0x007fffff,
+  0x80000001), and right for normals, zeros, infinities, NaN and every `f64`
+  (`xststdcdp`). `helper_XSTSTDCSP` in `target/ppc/fpu_helper.c` has
+  `match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381)`: a
+  normal double below 2^-126 matches whatever DCMX selects. The 2022 move of
+  `XSTSTDC[SDQ]P` to decodetree dropped the DCMX test; the old helper had
+  `match = extract32(dcmx, 0 + !sign, 1)` for that range. Unchanged on
+  master.
+- **Workaround:** the portable `nrm2` does not call `isInf`
+  (`blas1/nrm2/__root__.zig`). Other `f32` `isInf` calls are wrong for
+  denormals on the powerpc64le rigs.
+- **Issue text:**
+
+  > **target/ppc: xststdcsp matches single-precision denormals regardless of DCMX**
+  >
+  > `helper_XSTSTDCSP` computes
+  > `match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381);`,
+  > so a value that is denormal in single precision (a normal double with
+  > exponent below 0x381) sets CR[BF].EQ whatever DCMX selects. Before
+  > XSTSTDC[SDQ]P moved to decodetree the range set `match` from DCMX bit
+  > `0 + !sign`, as for double denormals. Test for infinity
+  > (`xststdcsp 0, 1, 48`) with f1 = 2^-149 (`lfs` of 0x00000001) and
+  > `beq` is taken, where the ISA matches it only for DCMX bits 5 and 6
+  > (+/- denormal). Clang emits exactly this for `__builtin_isinf` on a
+  > `float` with `-mcpu=pwr9`. Suggested fix:
+  >
+  > ```c
+  > match = float64_tstdc(b->VsrD(0), dcmx) ||
+  >         (exp > 0 && exp < 0x381 && extract32(dcmx, 0 + !sign, 1));
+  > ```
+  >
+  > Reproduce, in a powerpc64le guest built for POWER9 at -O2:
+  >
+  > ```c
+  > __attribute__((noinline)) int f(float x) { return __builtin_isinf(x); }
+  > union { unsigned u; float f; } d = { 1 };   /* 2^-149 */
+  > /* f(d.f) is 1 under qemu -cpu power9; isinf(2^-149) is 0 */
+  > ```
+
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
