@@ -187,6 +187,10 @@ fn bscalModel(flag: i64, da: u16, x: u16) u16 {
     return @backingInt(toBf16(v));
 }
 
+fn isNanBits(b: u16) bool {
+    return b & 0x7f80 == 0x7f80 and b & 0x007f != 0;
+}
+
 test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
     const das = [_]u16{ 0x0000, 0x8000, 0x0001, 0x3fc0, 0xbf00, 0x7f80, 0x7fc0 };
     const xs = [_]u16{ 0x0000, 0x8000, 0x0001, 0x3f80, 0xc040, 0x7f80, 0xff80, 0x7fc1, 0x4049 };
@@ -198,7 +202,11 @@ test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
         }
         _ = kernel.bscal_k(xs.len, 0, 0, @fromBackingInt(@intCast(da)), &pad, 2, &pad, 0, &pad, @intCast(flag));
         for (xs, 0..) |s, i| {
-            try std.testing.expectEqual(bscalModel(flag, da, s), @backingInt(pad[2 * i]));
+            // any NaN for a NaN: which operand's payload a product keeps, and
+            // the sign of a new one, vary with the target and operand order
+            const want = bscalModel(flag, da, s);
+            const got: u16 = @backingInt(pad[2 * i]);
+            if (!isNanBits(want) or !isNanBits(got)) try std.testing.expectEqual(want, got);
             try std.testing.expectEqual(@as(u16, 0x1234), @backingInt(pad[2 * i + 1]));
         }
     };
