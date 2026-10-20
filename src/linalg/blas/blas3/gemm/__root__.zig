@@ -531,6 +531,19 @@ test "every linked core's gemm kernels match the wide reference, where this mach
     try blas1check.eachCore(cases);
 }
 
+test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
+    // natively only: the rigs run their own tiles
+    if (blas1check.rig()) return error.SkipZigTest;
+    const portable = @import("../../portable.zig");
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    kernel.installTile(&vt, "s", f32, .{ .vl = 4, .mv = 4, .nr = 6 });
+    kernel.installTile(&vt, "d", f64, .{ .vl = 2, .mv = 4, .nr = 6 });
+    kernel.installTile(&vt, "c", std.math.Complex(f32), .{ .vl = 2, .mv = 4, .nr = 3 });
+    kernel.installTile(&vt, "z", std.math.Complex(f64), .{ .vl = 1, .mv = 4, .nr = 3 });
+    try check.coreCases(&vt);
+}
+
 test "the unrolls are the installed kernels' own after a core's blocking" {
     const portable = @import("../../portable.zig");
     const K = kernel.Kernels(f32, kernel.geometry(f32));

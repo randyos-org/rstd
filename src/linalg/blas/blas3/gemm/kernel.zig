@@ -710,6 +710,20 @@ pub fn installGeneric(vt: *Vtable) void {
     });
 }
 
+/// Points `vt`'s slots for `T` (prefix `pre`) at the kernels of tile `geo`,
+/// and its unrolls at the tile: for tests, which run the drivers over tiles
+/// this machine does not choose.
+pub fn installTile(vt: *Vtable, comptime pre: []const u8, comptime T: type, comptime geo: Geometry) void {
+    fill(vt, .{.{ pre, T }}, struct {
+        fn function(comptime p: []const u8, comptime U: type, comptime s: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, p ++ name)).optional.child {
+            return &@field(s.Kernels(U, geo), name);
+        }
+        fn unroll(comptime _: []const u8, comptime U: type, comptime which: []const u8) i32 {
+            return @field(Kernels(U, geo), "unroll_" ++ which);
+        }
+    });
+}
+
 /// The per-core kernels, for an architecture's registry (`kernels/<arch>.zig`):
 /// every per-core object exports them, built for its own features, with
 /// their unrolls as data (the tile depends on the object's features, which
