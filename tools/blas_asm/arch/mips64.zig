@@ -29,7 +29,16 @@ pub const mips64: arch.Arch = .{
 
 /// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
 const patches = firstOnTies("iamax.S", false) ++ firstOnTies("imax.S", false) ++ firstOnTies("izamax.S", false) ++
-    firstOnTies("iamin.S", true) ++ firstOnTies("imin.S", true) ++ firstOnTies("izamin.S", true);
+    firstOnTies("iamin.S", true) ++ firstOnTies("imin.S", true) ++ firstOnTies("izamin.S", true) ++ [_]arch.Patch{
+    // with a zero stride, the strided loop loads a block before storing it,
+    // so `n` swaps of one element act as fewer; zero strides take the
+    // one-at-a-time loop (`I` set in each delay slot)
+    .{
+        .source = "swap.S",
+        .find = ".L20:\n\tdsra\tI, N, 3\n",
+        .replace = ".L20:\n\tbeqz\tINCX, .L26\n\tmove\tI, N\n\tbeqz\tINCY, .L26\n\tmove\tI, N\n\tdsra\tI, N, 3\n",
+    },
+};
 
 /// The index kernels keep a pick per lane, and of equal picks the reduction
 /// kept the first lane's, which may be the later index; before each step,

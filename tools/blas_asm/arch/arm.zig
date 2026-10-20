@@ -37,6 +37,10 @@ const patches = [_]arch.Patch{
     // NaN replaced the pick; `mi` is less than only
     minOnMi("amax_vfp.S"),
     minOnMi("iamax_vfp.S"),
+    // zero strides: `swap_vfp.S` returned at once, and `rot_vfp.S` after one
+    // element of the tail; the strided loops take one element at a time
+    .{ .source = "swap_vfp.S", .find = "\tcmp\tINC_X, #0\n\tbeq\tswap_kernel_L999\n\n\tcmp\tINC_Y, #0\n\tbeq\tswap_kernel_L999\n\n", .replace = "" },
+    .{ .source = "rot_vfp.S", .find = "\tKERNEL_S1\n\t\n\tcmp\tINC_X, #0\n\tbeq\trot_kernel_L999\n\n\tcmp\tINC_Y, #0\n\tbeq\trot_kernel_L999\n", .replace = "\tKERNEL_S1\n" },
 };
 
 fn minOnMi(comptime source: []const u8) arch.Patch {

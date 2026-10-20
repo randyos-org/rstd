@@ -44,6 +44,9 @@ const Body = struct {
             \\ vreplgr2vr.d $vr9, $r16
             \\ movfr2gr.d $r15, $f12
             \\ vreplgr2vr.d $vr19, $r15
+            \\ move $r12, $r4
+            \\ beq $r6, $r0, 20006f
+            \\ beq $r8, $r0, 20006f
             \\ srai.d $r12, $r4, 3
             \\ bge $r0, $r12, 20005f
             \\ bne $r6, $r13, 20000f

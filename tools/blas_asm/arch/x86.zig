@@ -39,7 +39,25 @@ const patches = [_]arch.Patch{
     .{ .source = "zamax.S", .find = "#define FMOV\tfcmovnbe\n", .replace = "#define FMOV\tfcmovbe\n" },
     .{ .source = "iamax.S", .find = "#define FMOV\tfcmovnbe\n#define IMOV\tcmovb\n", .replace = "#define FMOV\tfcmovbe\n#define IMOV\tcmovnbe\n" },
     .{ .source = "izamax.S", .find = "#define FMOV\tfcmovnb\n#define IMOV\tcmovb\n", .replace = "#define FMOV\tfcmovbe\n#define IMOV\tcmovnbe\n" },
+    // with both strides zero, `swap.S` returned at once, right only for an
+    // even `n`; with either zero, both load two or four elements before
+    // storing any. Zero strides take one element at a time.
+    .{
+        .source = "swap.S",
+        .find = "\tcmpl\t$0, %ebx\n\tjne\t.L141\n\tcmpl\t$0, %ecx\n\tjne\t.L141\n/* INCX == 0 and INCY == 0 */\t\n\tjmp\t.L27\n",
+        .replace = "\tmovl\t%edx, %eax\n\tcmpl\t$0, %ebx\n\tje\t.L35\n\tcmpl\t$0, %ecx\n\tje\t.L35\n",
+    },
+    .{ .source = "zswap.S", .find = zswap_strided, .replace = zswap_one ++ zswap_strided ++ "\tcmpl\t$0, %ebx\n\tje\t.L36\n\tcmpl\t$0, %ecx\n\tje\t.L36\n" },
 };
+
+const zswap_strided = "/* INCX != 1 or INCY != 1 */\n\n.L14:\n\tmovl\t%edx, %eax\n";
+
+/// `.L35`'s swap of one element, as a loop.
+const zswap_one = ".L36:\n#if defined(DOUBLE) || defined(XDOUBLE)\n" ++
+    "\tFLD\t1 * SIZE(%esi)\n\tFLD\t0 * SIZE(%esi)\n\tFLD\t1 * SIZE(%edi)\n\tFLD\t0 * SIZE(%edi)\n" ++
+    "\tFST\t0 * SIZE(%esi)\n\tFST\t1 * SIZE(%esi)\n\tFST\t0 * SIZE(%edi)\n\tFST\t1 * SIZE(%edi)\n" ++
+    "#else\n\tfldl\t0 * SIZE(%esi)\n\tfldl\t0 * SIZE(%edi)\n\tfstpl\t0 * SIZE(%esi)\n\tfstpl\t0 * SIZE(%edi)\n#endif\n" ++
+    "\taddl\t%ebx, %esi\n\taddl\t%ecx, %edi\n\tdecl\t%eax\n\tjg\t.L36\n\tjmp\t.L27\n\n";
 
 /// For a minimum, `fcomi` with the pick in `st(0)`, so the flags say how it
 /// compares with the new element.

@@ -148,7 +148,17 @@ const patches = [_]arch.Patch{
     .{ .source = "snrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("BASE_SHIFT") },
     .{ .source = "cnrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
     .{ .source = "cnrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
+    // with a zero stride, the strided loops load a block before storing it,
+    // so `n` operations on one element act as fewer; zero strides take the
+    // one-at-a-time loop, as `crot_lsx.S` already does
+    .{ .source = "rot_lsx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
+    .{ .source = "rot_lasx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
+    .{ .source = "swap.S", .find = swap_strided, .replace = ".L20:\n   move I, N\n   beq INCX, $r0, .L26\n   beq INCY, $r0, .L26\n" ++ swap_strided[6..] },
 };
+
+const rot_blocks = "    srai.d I, N, 3\n    bge $r0, I, .L997\n    bne INCX, TEMP, .L20\n";
+const rot_zero = "    move I, N\n    beq INCX, $r0, .L998\n    beq INCY, $r0, .L998\n";
+const swap_strided = ".L20:\n   srai.d  I, N, 3\n   move    XX, X\n";
 
 const axpby_zero = "    movgr2fr.d a1, $r0\n    ffint.s.l a1, a1\n";
 const axpby_zero_fixed = "    movgr2fr.d a1, $r0\n#ifdef DOUBLE\n    ffint.d.l a1, a1\n#else\n    ffint.s.l a1, a1\n#endif\n";
