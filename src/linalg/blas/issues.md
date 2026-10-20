@@ -693,13 +693,15 @@ And loongarch64 `axpby`:
 
 Ours, not a converted kernel:
 
-- **Rank updates and a zero `x(j)`.** Reference `zher`, `zhpr`, `dsyr2` and
+- **Rank updates and a zero factor.** Reference `zher`, `zhpr`, `dsyr2` and
   the rest skip a column whose factor is zero (for rank 2, `x(j)` and `y(j)`
   both). OpenBLAS's `driver/level2/syr_k.c`, `spr_k.c`, `zsyr_k.c` and
   `zspr_k.c` do; `zher_k.c`, `zhpr_k.c` and the rank-2 drivers do not, so
   an infinity elsewhere in `x` meets the zero and gives NaN in that column.
-  `banded.zig`'s drivers skip as the reference does. Left: `ger`, whose
-  reference skips a zero `y(j)`; the per-core `ger` kernels do not.
+  `banded.zig`'s drivers skip as the reference does. So does `ger`, whose
+  reference skips a zero `y(j)` and whose per-core kernels do not:
+  `interface.zig` calls the kernel once per run of nonzero `y`, which is one
+  call when `y` has no zero.
 
 And SPARC `swap`, found by the ported `utest/test_swap.c`:
 

@@ -301,11 +301,24 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize
     const unit = incx == 1;
     const sc: Scratch(F) = if (unit) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
     defer sc.deinit(allocator);
-    // the reference threads big problems here (`ger_thread`)
-    if (comptime complex) {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), lda, sc.ptr);
-    } else {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, px, incx, py, incy, a, lda, sc.ptr);
+    const k = portable.fetch(T, op, blas.vtable);
+    // the reference passes over a column whose `y` is zero, so an infinity or
+    // NaN in `x` stays out of it; the kernels do not, so they get the runs
+    // between zeros (one run, the whole matrix, when there are none)
+    var j: isize = 0;
+    while (j < n) {
+        while (j < n and isZero(T, util.at(T, py, j * incy).*)) j += 1;
+        const j0 = j;
+        while (j < n and !isZero(T, util.at(T, py, j * incy).*)) j += 1;
+        if (j == j0) break;
+        const ys: [*]T = @ptrCast(util.at(T, py, j0 * incy));
+        const as: [*]T = @ptrCast(util.at(T, a, j0 * lda));
+        // the reference threads big problems here (`ger_thread`)
+        if (comptime complex) {
+            _ = k(m, j - j0, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, ys), incy, raw(T, as), lda, sc.ptr);
+        } else {
+            _ = k(m, j - j0, 0, alpha, px, incx, ys, incy, as, lda, sc.ptr);
+        }
     }
 }
 

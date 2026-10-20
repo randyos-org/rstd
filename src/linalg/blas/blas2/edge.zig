@@ -11,9 +11,10 @@
 //! overwrites `y`, a zero `alpha` returns once `y` is scaled, a Hermitian
 //! update stores a zero imaginary part on the diagonal, entries outside a
 //! band or triangle are never multiplied, nor a unit diagonal, and the rank
-//! updates but `ger` pass over a column whose `x` (and `y`, for rank 2) is
-//! zero. Complex infinities may meet in another order than the
-//! reference's, giving NaN for infinity (`check.expectWideAnyOrder`).
+//! updates pass over a column whose factors are zero (`y` for `ger`; `x`,
+//! and `y` for rank 2, otherwise). Complex infinities may meet in another
+//! order than the reference's, giving NaN for infinity
+//! (`check.expectWideAnyOrder`).
 //!
 //! A solve divides by the diagonal, whose magnitudes are not its cases: its
 //! patterns go in the off-diagonal entries (none huge, which overflow its
@@ -452,6 +453,11 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     defer x.deinit(al);
     var y: Vector(T) = try .init(al, s.n, c.inc[1], s.n + 5, if (c.where == .y) c.p else null);
     defer y.deinit(al);
+    // a zero `y` for `x`'s special values to skip
+    if ((r == .ger or r == .gerc) and c.where == .x and s.n > 1) {
+        y.was[1] = val(T, 0, 0);
+        y.buf[y.idx(1)] = y.was[1];
+    }
     const az = isZero(T, alpha);
     if (az) {
         x.poison();
@@ -500,7 +506,7 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
         const yj = if (two) y.w(j) else x.w(j);
         // a column whose factors are zero is passed over, as the reference
         // does
-        const skip = r != .ger and r != .gerc and zeroW(x.w(j)) and (!sym2 or zeroW(y.w(j)));
+        const skip = if (r == .ger or r == .gerc) zeroW(y.w(j)) else zeroW(x.w(j)) and (!sym2 or zeroW(y.w(j)));
         var u = if (skip) check.wide(T, val(T, 0, 0)) else switch (r) {
             .ger, .syr, .spr => check.mulW(wa, check.mulW(xi, yj)),
             .gerc => check.mulW(wa, check.mulW(xi, check.conjW(yj))),
