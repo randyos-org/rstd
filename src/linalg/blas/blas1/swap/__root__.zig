@@ -101,12 +101,16 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+/// `check.strides` and zero ones, which a kernel that loads a block before
+/// storing it gets wrong.
+const strides = check.strides ++ [_][2]usize{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 0 } };
+
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkSwap(comptime T: type, kern: anytype) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
     for (check.sizes) |n| {
-        for (check.strides) |inc| {
+        for (strides) |inc| {
             var x: [check.capacity]T = undefined;
             var y: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);

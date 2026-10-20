@@ -96,13 +96,17 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+/// `check.strides` and zero ones, which a kernel that loads a block before
+/// storing it gets wrong.
+const strides = check.strides ++ [_][2]usize{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 0 } };
+
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkRot(comptime T: type, kern: anytype) !void {
     const F = check.FloatOf(T);
     const c: F = 0.8;
     const s: F = -0.6;
     for (check.sizes) |n| {
-        for (check.strides) |inc| {
+        for (strides) |inc| {
             var x: [check.capacity]T = undefined;
             var y: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
@@ -110,8 +114,8 @@ fn checkRot(comptime T: type, kern: anytype) !void {
             var want_x = x;
             var want_y = y;
             for (0..n) |i| {
-                const a = x[i * inc[0]];
-                const b = y[i * inc[1]];
+                const a = want_x[i * inc[0]];
+                const b = want_y[i * inc[1]];
                 if (comptime check.isComplex(T)) {
                     want_x[i * inc[0]] = .init(c * a.re + s * b.re, c * a.im + s * b.im);
                     want_y[i * inc[1]] = .init(c * b.re - s * a.re, c * b.im - s * a.im);
