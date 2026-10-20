@@ -725,3 +725,30 @@ And POWER `rot` and `swap`, the same pattern, found by `utest`'s `zdrot_inc_0`:
 > and so would ppc440fp2's `zrot_ppc440.S`; the others go wrong from 8
 > elements (`swap.S` 16). Sending a zero stride to the one-at-a-time loop
 > (`LL(160)`) fixes them.
+
+And the same on other architectures, found by the per-core `rot` and `swap`
+checks once they took zero strides; OpenBLAS's `interface/rot.c` and
+`swap.c` pass a zero stride to the kernel, as rstd's interface does:
+
+> **x86 `swap.S`, `zswap.S`, arm `swap_vfp.S`, `rot_vfp.S`: zero strides skipped or cut short**
+>
+> Upstream special-cased zero strides to pass `utest`'s `n` = 4 case
+> (OpenBLAS #1469, #1575), each in a way right only for some `n`. x86
+> `swap.S` returns at once when both are zero, which is right for an even
+> `n` only (one swap, `n` = 1, does nothing); with one zero, the strided
+> loop loads four elements before storing any. x86 `zswap.S` does the same
+> with two. arm `swap_vfp.S` returns at once when either is zero; arm
+> `rot_vfp.S` stops after the first element of the tail (`n` = 2 rotates
+> once). The x86 fix sends a zero stride to a one-at-a-time loop (`.L35`;
+> a new `.L36` for `zswap.S`); the arm one drops the checks, as the
+> strided loops already take one element at a time.
+
+And loongarch64 and mips64:
+
+> **loongarch64 `swap.S`, `rot_lsx.S`, `rot_lasx.S` and mips64 `swap.S`: a zero stride acts on one element as a block**
+>
+> As on POWER: the strided loops load a block of 8 before storing it, so
+> from `n` = 8 a zero stride goes wrong (la64_generic, la264, la464,
+> loongson3r3). `crot_lsx.S` and `crot_lasx.S` already send zero strides to
+> their one-at-a-time loop (`.L996`); the fix does the same for these (the
+> mips64 one sets the count in each branch's delay slot).
