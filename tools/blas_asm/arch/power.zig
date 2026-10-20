@@ -24,7 +24,7 @@ pub const power: arch.Arch = .{
     .config_h = "#define ARCH_POWER 1\n#define BINARY64 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_POWER", "-DOS_LINUX", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k" },
     .core_defines = coreDefines,
-    .patches = &flag_slot,
+    .patches = &(flag_slot ++ zero_strides),
     // the Blue Gene double-precision FPU instructions are not in LLVM
     .unsupported = &.{ "axpy_hummer.S", "zaxpy_hummer.S" },
     .variants = &.{
@@ -50,6 +50,28 @@ const flag_slot = [_]arch.Patch{
         .replace = "#ifdef __64BIT__\n    LDLONG  FLAG, FRAMESLOT(2)(SP)\n#else\n    LDLONG  FLAG, FRAMESLOT(0)(SP)\n#endif\n",
     },
 };
+
+/// With a zero stride, the strided loop (`LL(110)`) loads a block before
+/// storing it, so `n` operations on one element act as fewer (utest's
+/// `zdrot_inc_0`); zero strides take the one-at-a-time loop, `LL(160)`.
+const zero_strides = [_]arch.Patch{
+    zeroStrides("rot.S", "3"),
+    zeroStrides("zrot.S", "2"),
+    zeroStrides("swap.S", "4"),
+    zeroStrides("zswap.S", "3"),
+    zeroStrides("rot_ppc440.S", "3"),
+    zeroStrides("zrot_ppc440.S", "2"),
+};
+
+fn zeroStrides(comptime source: []const u8, comptime shift: []const u8) arch.Patch {
+    const blocks = "\tsrawi.\tr0, N, " ++ shift ++ "\n\tmtspr\tCTR,  r0\n\tbeq-\tLL(150)\n";
+    return .{
+        .source = source,
+        .find = blocks,
+        .replace = "\tmtspr\tCTR, N\n\tcmpwi\tcr0, INCX, 0\n\tbeq-\tcr0, LL(160)\n" ++
+            "\tcmpwi\tcr0, INCY, 0\n\tbeq-\tcr0, LL(160)\n" ++ blocks,
+    };
+}
 
 /// The complex dots return in f1/f2 as ELFv2 says, but Zig (0.18.0-dev.249)
 /// reads a two-float struct from r3/r4. Each source already has the copy into

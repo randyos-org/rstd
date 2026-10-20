@@ -68,6 +68,21 @@ const text =
     \\ sub 6, 6, 12
     \\ mr 9, 4
     \\ mr 10, 6
+    \\ mtspr 9, 3
+    \\ .if \bp0
+    \\ cmpwi 0, 5, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 5, 0
+    \\ .endif
+    \\ beq- 0, 20003f
+    \\ .if \bp0
+    \\ cmpwi 0, 7, 0
+    \\ .endif
+    \\ .if \bp1
+    \\ cmpdi 0, 7, 0
+    \\ .endif
+    \\ beq- 0, 20003f
     \\ .if \bp0
     \\ srawi. 0, 3, 2
     \\ .endif
