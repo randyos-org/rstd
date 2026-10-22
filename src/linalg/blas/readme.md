@@ -74,6 +74,38 @@ small-matrix kernels and threading come later.
   each operand, and shapes past the core's own `R` (natively, past twice its
   `P` and `Q` too).
 
+## Apple Accelerate
+
+On macOS the public routines will default to Accelerate for `s`, `d`, `c`
+and `z`. `accelerate.zig` has the binding; nothing calls it yet.
+
+- **Binding:** `load()` opens the framework with `dlopen`
+  (`dll.openFramework`), never `-framework`, so cross-compiles need no SDK,
+  and fills `Table(I)` with `dll.bind`. The declarations are ours, from
+  Apple's documentation; no SDK file is copied. The handle stays open for
+  the process.
+- **Symbols:** macOS 13.3 and later have `cblas_dgemm$NEWLAPACK$ILP64`, with
+  64-bit integers (rstd's `isize`), which `load` takes; else the 32-bit
+  `cblas_dgemm$NEWLAPACK`, then the classic `cblas_dgemm`. macOS 27 binds
+  150 of the 154: there is no `cblas_i?amin`. `axpby` is `catlas_?axpby`.
+- **Threads:** threaded, Accelerate's `gemv` with `A` untransposed rounds
+  differently from one thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and
+  `gemm` gave the same bits at every thread count tried (macOS 27, M6). So
+  `load` makes Accelerate single-threaded: `VECLIB_MAXIMUM_THREADS=1`, read
+  at the process's first BLAS call, and `BLASSetThreading` (macOS 15+), per
+  thread, which `singleThreadHere` sets. One thread cost `gemm` 1.15x at
+  2000.
+
+Left to do:
+
+- route the public routines to the table (CBLAS order, 0-based `i?amax`,
+  complex scalars by pointer, `cblas_?dot?_sub`), with 32-bit range checks
+  on the LP64 table;
+- quirk entries where Accelerate's results differ from the reference's
+  (special values; argument errors, which rstd's checks must catch first);
+- an off switch, and `singleThreadHere` on each thread that calls in;
+- tying its threading into rstd's own.
+
 ## Converted assembly
 
 `tools/blas_asm/gen.zig` turns each upstream `.S` into a naked function.
