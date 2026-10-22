@@ -145,6 +145,41 @@ far off for denormals (NaN on ppcg4 and ppc440), and the `lsx` and `lasx`
 ones 0 for a NaN (`issues.md`). They are the same scaled one-pass loop as
 the portable kernel, so nothing is lost.
 
+### `@Vector` kernels on arm64
+
+`vector.zig` has plain `@Vector` kernels, four NEON registers a step, for
+`axpy` and `axpyc`, `dot`, `dotu` and `dotc`, `scal`, `nrm2`, `asum`,
+`i?amax`, `copy`, `swap`, `rot` and every `gemv`, over `s`, `d`, `c` and `z`.
+On the M6 they match or beat both the converted assembly and OpenBLAS's own
+kernels, which are tuned for ThunderX2 and Neoverse N1 (prefetches, narrow
+loops; `tools/blasbench/results-m6.md`). `i?amax` searches only the first
+block with the largest maximum; `nrm2` sums plain squares and takes the
+scaled loop only where they could have overflowed or underflowed. Where
+they go (`kernels/arm64.zig`):
+
+- `vortex`, `vortexm4`: every slot but `rot`, whose converted kernel stays
+  (in L1 the `@Vector` one is 0.83 to 0.98 of it).
+- every arm64 core: the slots no converted kernel fills, where upstream's
+  kernel is C and rstd ran the portable scalar loop (below). Their
+  converted kernels stay; nothing measured them.
+- none on Apple's systems, where Accelerate is to serve instead: those
+  builds install as before.
+
+| Cores                                              | Slots with no converted kernel                |
+|----------------------------------------------------|-----------------------------------------------|
+| all but `tsv110`                                   | `sdot`                                        |
+| all                                                | `cdotu`, `cdotc`, `zdotu`, `zdotc`            |
+| `thunderx`                                         | `ddot`                                        |
+| `thunderx2t99`, `thunderx3t110`                    | `ddot`, `?nrm2`, `?asum`, `?copy`, `i?amax`   |
+| `neoversen1`, `ampere1`, `vortex`, `vortexm4`      | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n` |
+| `neoversen2`, `neoversev2`                         | those, and `sgemv_t`, `dgemv_n`, `dgemv_t`    |
+| SVE: `neoversev1`, `armv8sve`, `a64fx`, `armv9sme` | those, and `sswap`, `dswap`, `srot`, `drot`   |
+| SVE: `cortexa510`, `cortexa710`, `cortexx2`        | the same                                      |
+
+Special values, strides and flags are the portable kernels', so no quirks;
+only `sdot` sums in `f32`, as the converted kernels do. `check.eachCore`
+runs them natively too, on a table of all of them.
+
 ## Portable kernels
 
 The portable kernels are Zig algorithms with the reference's documented

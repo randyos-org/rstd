@@ -10,6 +10,7 @@ const Vtable = @import("../Vtable.zig");
 const blas1 = @import("__root__.zig");
 const portable = @import("../portable.zig");
 const types = @import("../types.zig");
+const vector = @import("../vector.zig");
 
 /// The extended float the `q`/`x` portable kernels are tested at: `XDouble`
 /// where it is one, else `f80`, whose kernels are generic Zig ones
@@ -457,8 +458,10 @@ pub fn case(e: anyerror, routine: []const u8, comptime T: type, n: usize, inc: [
 pub var core: ?cpu.CoreType = null;
 
 /// Runs `check` on a vtable holding each linked core's kernels over the
-/// portable ones, for every core this machine runs. A failing core does not
-/// stop the rest, so one run names them all.
+/// portable ones, for every core this machine runs; natively, then on one
+/// holding every `@Vector` kernel (`vector.zig`), which arm64 cores install,
+/// on this machine's vectors. A failing core does not stop the rest, so one
+/// run names them all.
 pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
     var failed: ?anyerror = null;
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
@@ -472,7 +475,19 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
             };
         }
     }
+    if (!rig()) withVector(check) catch |e| {
+        say("the @Vector kernels\n", .{});
+        failed = e;
+    };
     if (failed) |e| return e;
+}
+
+fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    vector.installAll(&vt);
+    portable.finish(&vt);
+    return check(&vt);
 }
 
 /// Whether the tests run on a rig: the freestanding ones, and the Linux rigs

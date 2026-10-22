@@ -8,6 +8,8 @@ pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
 pub const Vtable = @import("Vtable.zig");
 pub const Config = @import("Config.zig");
+/// The `@Vector` kernels some cores install; `tools/blasbench` races them.
+pub const vector = @import("vector.zig");
 const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
