@@ -1,7 +1,7 @@
 //! rstd's BLAS kernels raced on Apple silicon, each in its vtable slot's
 //! kernel ABI (`bench.zig`): the `vortex` object's kernel (converted
 //! assembly; `armv8`'s where vortex has none of its own), the portable one,
-//! and `@Vector` candidates (`vector_kernels.zig`). gemm races the Zig kernel
+//! and `@Vector` candidates (`blas.vector`). gemm races the Zig kernel
 //! of each object against OpenBLAS's own vortex `.S`, assembled from a
 //! checkout by the build. Prints Markdown table rows (`results-m6.md`).
 //!
@@ -14,7 +14,6 @@ const sysinfo = @import("builtin");
 const Io = std.Io;
 const rstd = @import("rstd");
 const bench = @import("bench.zig");
-const vk = @import("vector_kernels.zig");
 
 const blas = rstd.linalg.blas;
 const Vtable = blas.Vtable;
@@ -218,7 +217,7 @@ fn rounded(comptime p: Prec, comptime v: comptime_float) f64 {
 }
 
 fn candidate(comptime r: L1, comptime p: Prec, comptime U: comptime_int) Fn(l1Slot(r, p)) {
-    const K = if (p.complex) vk.Complex(p.F, U, blas.types.CComplex(p.F)) else vk.Real(p.F, U);
+    const K = if (p.complex) blas.vector.Complex(p.F, U) else blas.vector.Real(p.F, U);
     return &@field(K, if (r == .dot and p.complex) "dotu" else @tagName(r));
 }
 
@@ -553,7 +552,7 @@ fn level2(io: Io, gpa: std.mem.Allocator) !void {
 }
 
 fn gemvCandidate(comptime p: Prec, comptime t: []const u8, comptime U: comptime_int) Fn(p.name ++ "gemv_" ++ t) {
-    const K = if (p.complex) vk.Complex(p.F, U, blas.types.CComplex(p.F)) else vk.Real(p.F, U);
+    const K = if (p.complex) blas.vector.Complex(p.F, U) else blas.vector.Real(p.F, U);
     return &@field(K, "gemv_" ++ t);
 }
 
