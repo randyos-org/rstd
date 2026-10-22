@@ -69,6 +69,7 @@ axpby
 axpy
 axpyc
 AXPYKERNEL
+AXPYU
 balc
 bbox
 bboxes
@@ -197,6 +198,7 @@ compr
 comptime
 comqr
 conds
+condvar
 congruential
 CONJG
 connect
@@ -1031,6 +1033,7 @@ nanosleep
 natecraddock
 ncopy
 NCPOINTERLAST
+ncpu
 NCUAHDRAWCAPTION
 NCUAHDRAWFRAME
 NDELAY
