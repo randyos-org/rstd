@@ -82,6 +82,7 @@ bdz
 beq
 beqz
 beqzc
+BFDOT
 bfloat
 bge
 bgemm
@@ -91,6 +92,7 @@ bgt
 bgtz
 bidiagonal
 bind
+blasbench
 blasint
 blaskern
 blaskernel
@@ -136,11 +138,13 @@ caxpby
 caxpy
 caxpyc
 CBDT
+CBLAS
 CBLC
 ccopy
 cdotc
 cdotu
 ceq
+cgbmv
 cgeadd
 cgemm
 cgemv
@@ -225,6 +229,7 @@ csrwr
 cstype
 csymm
 csymv
+ctest
 ctlconst
 ctmp
 ctrmm
@@ -864,6 +869,7 @@ libc
 libcpp
 libcxx
 Libghostty
+libopenblas
 libvaxis
 libxev
 lidt
@@ -1400,6 +1406,7 @@ sbsum
 sbswap
 sbsymm
 sbsymv
+sbtobf
 sbtrmm
 sbtrsm
 scal
@@ -1427,6 +1434,7 @@ sdata
 sdbbp
 sdbg
 sdc
+sdcz
 SDGT
 sdot
 sdsdot
@@ -1527,6 +1535,7 @@ slaswp
 sldi
 SLDT
 slli
+sllx
 sltu
 slwi
 smap
@@ -1545,6 +1554,7 @@ SNUMOPT
 socat
 socket
 socketpair
+softfp
 somatcopy
 sparcv
 sphimp
@@ -1730,6 +1740,7 @@ Uncancelable
 uncompr
 unconj
 unenc
+unfused
 unlink
 unlinkat
 unloop
@@ -1749,6 +1760,7 @@ userfaultfd
 userspace
 usrfun
 ustat
+utest
 utime
 utimensat
 utimes
@@ -1789,6 +1801,7 @@ vldm
 vldmia
 vldr
 VLEN
+vlenb
 vline
 vlineto
 vmetrics
@@ -1898,6 +1911,7 @@ xcopy
 xdotc
 xdotu
 xdouble
+xerbla
 xgemm
 xgemv
 xgerc
