@@ -552,16 +552,16 @@ Where the port differs from `dynamic*.c`:
 which resolve targets through an OS. `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
 
-`-Dtest-host=<ssh alias>` runs the rigs' QEMU on another machine; the
-images still build here (`tools/test_host.zig`). Each run copies its files
+The rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>`
+(`macmini-m6` by default when rstd is the root project; `-Dtest-host-off`
+runs it here); the images still build here (`tools/test_host.zig`). Each run copies its files
 to the host's /tmp, runs QEMU from the Nix flake in `tools/nix` (nixpkgs
 pinned by `flake.lock`; QEMU 11.1.2 where Windows has 11.0.1) and streams
 the console back to the watchdog and live log. At most `-Dtest-host-jobs`
 (8) rigs run there at once, across builds. On an arm64 Mac, `aarch64` and
 `linux-aarch64` run under HVF on the host's CPU (Apple, SME2, no SVE: the
 `vortexm4` kernels run too); `-Dtest-host-tcg` keeps them on TCG.
-`x86_64-whpx` and the macOS VM rig stay local. For example, `zig build
-qemu-test-riscv64 -Dtest-host=<alias>`.
+`x86_64-whpx` and the macOS VM rig stay local.
 
 `qemu-test-x86_64-whpx` runs them on the host's own CPU under WHPX (an
 x86_64 Windows host only), with QEMU's `SapphireRapids` model plus FMA4 and
@@ -613,7 +613,10 @@ Apple silicon runs on a real Mac: `zig build ssh-test-aarch64-macos`
 copies the tests to the SSH alias `-Dssh-mac` and runs them there
 (`build/sshtest.zig`); the Mac's address and login stay in the SSH config.
 On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
-`-cpu max` cannot show. `zig build ssh-bench-aarch64-macos
+`-cpu max` cannot show. `zig build ssh-test-x86_64-macos` runs the x86_64
+macOS suite there under Rosetta 2 (installed on the Mac), much faster than
+the macOS VM, which stays for checks that need macOS on an x86 CPU model.
+`zig build ssh-bench-aarch64-macos
 -Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the
 results are in `tools/blasbench/results-m6.md`.
 

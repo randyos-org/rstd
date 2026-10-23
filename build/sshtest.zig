@@ -13,16 +13,25 @@ const qemutest = @import("qemutest.zig");
 
 /// Adds the SSH steps; `filters` is `-Drstd-test-filter`.
 pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !void {
-    // Apple silicon: the cores only real hardware runs (vortex, vortexm4, SME)
-    const mac = b.option([]const u8, "ssh-mac", "SSH alias of the Apple silicon Mac for ssh-test-aarch64-macos (default macmini-m6)") orelse "macmini-m6";
-    const target = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos });
-    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
-
+    const mac = b.option([]const u8, "ssh-mac", "SSH alias of the Apple silicon Mac for the ssh-test steps (default macmini-m6)") orelse "macmini-m6";
     const tool = b.addExecutable(.{ .name = "ssh_test", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/ssh_test.zig"),
         .target = b.graph.host,
     }) });
+    // Apple silicon: the cores only real hardware runs (vortex, vortexm4, SME)
+    const arm = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos });
+    try addSshTest(b, optimize, filters, mac, tool, arm, "on the Mac");
+    // x86_64 macOS under Rosetta 2, which the Mac must have installed
+    const x86 = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .macos });
+    try addSshTest(b, optimize, filters, mac, tool, x86, "on the Mac under Rosetta 2");
+
+    try addSshBench(b, mac, arm, tool);
+}
+
+/// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`.
+fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, where: []const u8) !void {
+    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
+    const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
     // under the qemu rigs' watchdog: an hour with no output ends it
     const run = qemutest.watchCommand(b);
     run.addArg("--");
@@ -31,9 +40,8 @@ pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !
     run.addArtifactArg(test_exe);
     run.stdio = .inherit;
     run.has_side_effects = true;
-    b.step("ssh-test-aarch64-macos", b.fmt("Run rstd's tests on the Mac at SSH alias {s} (-Dssh-mac)", .{mac})).dependOn(&run.step);
-
-    try addSshBench(b, mac, target, tool);
+    const name = b.fmt("ssh-test-{t}-macos", .{target.result.cpu.arch});
+    b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-Dssh-mac)", .{ target.result.cpu.arch, where, mac })).dependOn(&run.step);
 }
 
 /// `ssh-bench-aarch64-macos`: `tools/blasbench/blas_bench.zig`, always

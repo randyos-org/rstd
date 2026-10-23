@@ -639,7 +639,11 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     } else .{};
     // a one-time fetch of about 55 MB per kernel
     const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
-    const host_alias = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix; images still build here, and x86_64-whpx and the macOS VM rigs stay local");
+    // the rigs run on the Mac when rstd is the project being built; a
+    // dependent runs them here unless it names a host
+    const host_off = b.option(bool, "test-host-off", "Run the rigs' QEMU here rather than on -Dtest-host") orelse false;
+    const host_named = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix (default macmini-m6 when rstd is the root project); images still build here, and x86_64-whpx and the macOS VM rigs stay local");
+    const host_alias: ?[]const u8 = if (host_off) null else host_named orelse if (b.isRoot()) "macmini-m6" else null;
     const host_jobs = b.option(u32, "test-host-jobs", "Rigs running at once on -Dtest-host, across builds (default 8)") orelse 8;
     const host_tcg = b.option(bool, "test-host-tcg", "Run every rig on -Dtest-host under TCG, also those HVF could run") orelse false;
     const test_host: ?TestHost = if (host_alias) |alias| .{ .alias = alias, .jobs = host_jobs, .tcg = host_tcg } else null;
