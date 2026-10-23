@@ -3,7 +3,8 @@
 # holding its files, inside the flake's shell. Waits for one of <jobs> slots
 # (flock(1) locks in /tmp/rstd-qemu-slots, so across builds too; a dead
 # holder's lock goes with it), runs QEMU, ends it when stdin closes (the
-# build's ssh is gone), and removes the directory.
+# build's ssh is gone), and removes the directory, and any older one whose run
+# died before it started.
 #
 #   run.sh <jobs> <qemu argv>...
 set -u
@@ -15,6 +16,15 @@ trap 'if [ -n "$q" ]; then kill "$q" 2>/dev/null; fi; exit 143' TERM
 trap '' PIPE
 jobs=$1
 shift
+# this run's lock, held while it lives; a run killed before getting here (in
+# the copy) leaves a directory no one holds, which a later run removes a day
+# on (older than any run, and than runs from before the lock)
+exec 5>"$d/.lock"
+flock -n 5
+# -H: /tmp is a symlink on macOS
+for x in $(find -H /tmp -maxdepth 1 -type d -name 'rstd-qemu.*' -mmin +1440); do
+  [ "${x##*/}" != "${d##*/}" ] && flock -n "$x/.lock" true 2>/dev/null && rm -rf "$x"
+done
 # fd 3: a background job's stdin would be /dev/null
 exec 3<&0 </dev/null
 { cat <&3 >/dev/null; kill -TERM $$; } >/dev/null 2>&1 &
