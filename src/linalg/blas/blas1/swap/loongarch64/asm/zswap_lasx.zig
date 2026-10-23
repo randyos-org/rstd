@@ -29,7 +29,7 @@ const Body = struct {
     pub fn zswap() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ bge $r0, $r4, 20017f
+            \\ bge $r0, $r4, 20018f
             \\ li.d $r18, 1
             \\ slli.d $r18, $r18, 4
             \\ slli.d $r8, $r8, 4
@@ -60,7 +60,7 @@ const Body = struct {
             \\ .align 3
             \\ 20003:
             \\ andi $r17, $r4, 3
-            \\ bge $r0, $r17, 20017f
+            \\ bge $r0, $r17, 20018f
             \\ .align 3
             \\ 20004:
             \\ fld.d $f12, $r7, 0 * 8
@@ -75,7 +75,7 @@ const Body = struct {
             \\ addi.d $r7, $r7, 2 * 8
             \\ addi.d $r9, $r9, 2 * 8
             \\ blt $r0, $r17, 20004b
-            \\ b 20017f
+            \\ b 20018f
             \\ .align 3
             \\ 20005:
             \\ bge $r0, $r17, 20007f
@@ -119,7 +119,7 @@ const Body = struct {
             \\ .align 3
             \\ 20007:
             \\ andi $r17, $r4, 3
-            \\ bge $r0, $r17, 20017f
+            \\ bge $r0, $r17, 20018f
             \\ .align 3
             \\ 20008:
             \\ fld.d $f12, $r7, 0 * 8
@@ -134,7 +134,7 @@ const Body = struct {
             \\ addi.d $r7, $r7, 2 * 8
             \\ add.d $r9, $r9, $r10
             \\ blt $r0, $r17, 20008b
-            \\ b 20017f
+            \\ b 20018f
             \\ .align 3
             \\ 20009:
             \\ bge $r0, $r17, 20011f
@@ -178,7 +178,7 @@ const Body = struct {
             \\ .align 3
             \\ 20011:
             \\ andi $r17, $r4, 3
-            \\ bge $r0, $r17, 20017f
+            \\ bge $r0, $r17, 20018f
             \\ .align 3
             \\ 20012:
             \\ fld.d $f12, $r7, 0 * 8
@@ -193,9 +193,11 @@ const Body = struct {
             \\ add.d $r7, $r7, $r8
             \\ addi.d $r9, $r9, 2 * 8
             \\ blt $r0, $r17, 20012b
-            \\ b 20017f
+            \\ b 20018f
             \\ .align 3
             \\ 20013:
+            \\ beq $r8, $r0, 20016f
+            \\ beq $r10, $r0, 20016f
             \\ bge $r0, $r17, 20015f
             \\ .align 3
             \\ move $r5, $r7
@@ -249,9 +251,12 @@ const Body = struct {
             \\ .align 3
             \\ 20015:
             \\ andi $r17, $r4, 3
-            \\ bge $r0, $r17, 20017f
-            \\ .align 3
+            \\ bge $r0, $r17, 20018f
+            \\ b 20017f
             \\ 20016:
+            \\ move $r17, $r4
+            \\ .align 3
+            \\ 20017:
             \\ fld.d $f12, $r7, 0 * 8
             \\ fld.d $f13, $r7, 1 * 8
             \\ fld.d $f14, $r9, 0 * 8
@@ -263,9 +268,9 @@ const Body = struct {
             \\ addi.d $r17, $r17, -1
             \\ add.d $r7, $r7, $r8
             \\ add.d $r9, $r9, $r10
-            \\ blt $r0, $r17, 20016b
+            \\ blt $r0, $r17, 20017b
             \\ .align 3
-            \\ 20017:
+            \\ 20018:
             \\ move $r4, $r12
             \\ jirl $r0, $r1, 0x0
             \\ .align 3

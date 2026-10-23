@@ -160,7 +160,29 @@ const patches = [_]arch.Patch{
     .{ .source = "rot_lsx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
     .{ .source = "rot_lasx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
     .{ .source = "swap.S", .find = swap_strided, .replace = ".L20:\n   move I, N\n   beq INCX, $r0, .L26\n   beq INCY, $r0, .L26\n" ++ swap_strided[6..] },
+    .{ .source = "cswap_lsx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
+    .{ .source = "cswap_lasx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
+    .{ .source = "cswap_lsx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
+    .{ .source = "cswap_lasx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
+    // and with a zero `incy`, `axpy` (`y` loaded a block at a time from `.L12`
+    // and `.L22`)
+    zeroIncy("axpy_lsx.S", ".L224"),
+    zeroIncy("axpy_lasx.S", ".L224"),
+    zeroIncy("caxpy_lsx.S", ".L998"),
+    zeroIncy("caxpy_lasx.S", ".L998"),
 };
+
+const cswap_strided = ".L22:\n    bge $r0, I, .L223\n";
+const cswap_zero = ".L22:\n    beq INCX, $r0, .L22_one\n    beq INCY, $r0, .L22_one\n";
+const cswap_tail = ".L223:\n    andi I, N, 3\n    bge $r0, I, .L999\n";
+const cswap_one = "    b .L224\n.L22_one:\n    move I, N\n";
+
+/// A zero `incy` takes the one-at-a-time loop `tail`, before the dispatch on
+/// unit strides.
+fn zeroIncy(comptime source: []const u8, comptime tail: []const u8) arch.Patch {
+    const dispatch = "    bne INCX, TEMP, .L20\n    bne INCY, TEMP, .L12 // INCX==1 and INCY!=1\n";
+    return .{ .source = source, .find = dispatch, .replace = "    bne INCY, $r0, .L_incy\n    move I, N\n    b " ++ tail ++ "\n.L_incy:\n" ++ dispatch };
+}
 
 const rot_blocks = "    srai.d I, N, 3\n    bge $r0, I, .L997\n    bne INCX, TEMP, .L20\n";
 const rot_zero = "    move I, N\n    beq INCX, $r0, .L998\n    beq INCY, $r0, .L998\n";
