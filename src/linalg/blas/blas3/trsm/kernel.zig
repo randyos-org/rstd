@@ -12,7 +12,8 @@
 //! solved, then `solve`s its diagonal block, writing the solution to `C` and
 //! to the packed right side the later updates read. `LT` and `RN` go
 //! forward, `LN` and `RT` backward; `LR`, `LC`, `RR` and `RC` are `LN`, `LT`,
-//! `RN` and `RT` conjugating the triangle.
+//! `RN` and `RT` conjugating the triangle. Each slot is a thin wrapper: one
+//! copy and one kernel body per precision, the options run-time values.
 
 const types = @import("../../types.zig");
 const gk = @import("../gemm/kernel.zig");
@@ -35,7 +36,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             if (comptime !complex) return x * y;
             return .{ x[0] * y[0] - x[1] * y[1], x[0] * y[1] + x[1] * y[0] };
         }
-        inline fn conjIf(x: E, c: bool) E {
+        fn conjIf(x: E, c: bool) E {
             if (comptime !complex) return x;
             return if (c) .{ x[0], -x[1] } else x;
         }
@@ -60,31 +61,37 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         // ---- copies --------------------------------------------------------
 
-        fn Source(comptime across: bool, comptime upper: bool, comptime unit: bool) type {
-            return struct {
-                a: [*]const E,
-                ld: usize,
-                offset: isize,
+        const Source = struct {
+            a: [*]const E,
+            ld: usize,
+            offset: isize,
+            across: bool,
+            upper: bool,
+            unit: bool,
 
-                pub inline fn at(s: @This(), j: usize, i: usize) ?E {
-                    const jj = s.offset + @as(isize, @intCast(j));
-                    const ii: isize = @intCast(i);
-                    if (ii == jj) return if (unit) one else inv(s.a[if (across) j + i * s.ld else i + j * s.ld]);
-                    // the element's row and column in the triangle
-                    const row = if (across) jj else ii;
-                    const col = if (across) ii else jj;
-                    if (if (upper) row > col else row < col) return null;
-                    return s.a[if (across) j + i * s.ld else i + j * s.ld];
-                }
-            };
+            pub fn at(s: Source, j: usize, i: usize) ?E {
+                const jj = s.offset + @as(isize, @intCast(j));
+                const ii: isize = @intCast(i);
+                const v = s.a[if (s.across) j + i * s.ld else i + j * s.ld];
+                if (ii == jj) return if (s.unit) one else inv(v);
+                // the element's row and column in the triangle
+                const row = if (s.across) jj else ii;
+                const col = if (s.across) ii else jj;
+                if (if (s.upper) row > col else row < col) return null;
+                return v;
+            }
+        };
+
+        fn copy(u: usize, upper: bool, across: bool, unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, offset: BlasLong, b: [*]F) i32 {
+            const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .offset = offset, .across = across, .upper = upper, .unit = unit };
+            gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
+            return 0;
         }
 
         fn Copy(comptime u: usize, comptime upper: bool, comptime across: bool, comptime unit: bool) type {
             return struct {
                 fn f(m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, offset: BlasLong, b: [*]F) callconv(cc) i32 {
-                    const src: Source(across, upper, unit) = .{ .a = @ptrCast(a), .ld = @intCast(lda), .offset = offset };
-                    gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
-                    return 0;
+                    return copy(u, upper, across, unit, m, n, a, lda, offset, b);
                 }
             };
         }
@@ -133,11 +140,11 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         /// `C -= A * B` on one panel pair, `depth` deep, conjugating the
         /// triangle's side.
-        inline fn update(comptime left: bool, comptime conj: bool, m: usize, n: usize, depth: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        fn update(left: bool, conj: bool, m: usize, n: usize, depth: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             if (depth == 0) return;
             const args = .{ @as(BlasLong, @intCast(m)), @as(BlasLong, @intCast(n)), @as(BlasLong, @intCast(depth)) };
             if (comptime complex) {
-                const f = if (!conj) G.gemm_kernel_n else if (left) G.gemm_kernel_l else G.gemm_kernel_r;
+                const f = if (!conj) &G.gemm_kernel_n else if (left) &G.gemm_kernel_l else &G.gemm_kernel_r;
                 _ = f(args[0], args[1], args[2], -1, 0, @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
             } else {
                 _ = G.gemm_kernel(args[0], args[1], args[2], -1, a, b, c, @intCast(ldc));
@@ -165,7 +172,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             return n / u + @popCount(n % u);
         }
 
-        fn run(comptime left: bool, comptime forward: bool, comptime conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, a: [*]E, b: [*]E, c: [*]E, ldc: BlasLong, offset: BlasLong) void {
+        fn run(left: bool, forward: bool, conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, a: [*]E, b: [*]E, c: [*]E, ldc: BlasLong, offset: BlasLong) void {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
@@ -244,7 +251,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// `solve` of `trsm_kernel_LT.c` (`forward`) and `_LN.c`: the `m x n`
         /// block of `C` by the diagonal block `a` (`m x m`, reciprocal
         /// diagonal), into `C` and the packed `b`.
-        fn solveLeft(comptime forward: bool, comptime conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        fn solveLeft(forward: bool, conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..m) |s| {
                 const i = if (forward) s else m - 1 - s;
                 const d = conjIf(a[i * m + i], conj);
@@ -262,7 +269,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// `solve` of `trsm_kernel_RN.c` (`forward`) and `_RT.c`: the `m x n`
         /// block of `C` by the diagonal block `b` (`n x n`), into `C` and the
         /// packed `a`.
-        fn solveRight(comptime forward: bool, comptime conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        fn solveRight(forward: bool, conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..n) |s| {
                 const i = if (forward) s else n - 1 - s;
                 const d = conjIf(b[i * n + i], conj);

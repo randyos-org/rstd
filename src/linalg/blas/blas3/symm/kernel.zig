@@ -23,27 +23,29 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// The element `(x, y)` of the matrix `upper` (or lower) stores,
         /// conjugated for `herm` when it comes from the other side, with a real
         /// diagonal.
-        fn Source(comptime upper: bool, comptime herm: bool) type {
-            return struct {
-                a: [*]const E,
-                ld: usize,
-                x: usize,
-                y: usize,
+        const Source = struct {
+            a: [*]const E,
+            ld: usize,
+            x: usize,
+            y: usize,
+            upper: bool,
+            herm: bool,
 
-                pub inline fn at(s: @This(), j: usize, l: usize) E {
-                    const x = s.x + j;
-                    const y = s.y + l;
-                    const mirrored = if (upper) x > y else x < y;
-                    const v = if (mirrored) s.a[y + x * s.ld] else s.a[x + y * s.ld];
-                    if (comptime !herm) return v;
-                    if (x == y) return .{ v[0], 0 };
-                    return if (mirrored) .{ v[0], -v[1] } else v;
-                }
-            };
-        }
+            pub fn at(s: Source, j: usize, l: usize) E {
+                const x = s.x + j;
+                const y = s.y + l;
+                const mirrored = if (s.upper) x > y else x < y;
+                const v = if (mirrored) s.a[y + x * s.ld] else s.a[x + y * s.ld];
+                if (comptime !complex) return v;
+                if (!s.herm) return v;
+                if (x == y) return .{ v[0], 0 };
+                return if (mirrored) .{ v[0], -v[1] } else v;
+            }
+        };
 
-        fn copy(comptime u: usize, comptime upper: bool, comptime herm: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
-            const src: Source(upper, herm) = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY) };
+        /// One function for every copy of a precision: the options are values.
+        fn copy(u: usize, upper: bool, herm: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
+            const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .upper = upper, .herm = herm };
             gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
             return 0;
         }

@@ -150,15 +150,15 @@ fn isOne(comptime T: type, v: T) bool {
 
 /// `C += alpha * A * B` on packed `A` (`m x k`) and `B` (`k x n`), complex
 /// conjugating as `conj` says.
-inline fn kernel(comptime T: type, vt: *const Vtable, comptime conj: Conj, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize) void {
+fn kernel(comptime T: type, vt: *const Vtable, conj: Conj, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize) void {
     if (comptime isComplex(T)) {
-        const op: Op = switch (conj) {
-            .n => .gemm_kernel_n,
-            .l => .gemm_kernel_l,
-            .r => .gemm_kernel_r,
-            .b => .gemm_kernel_b,
+        const f = switch (conj) {
+            .n => portable.kernel(T, vt, .gemm_kernel_n),
+            .l => portable.kernel(T, vt, .gemm_kernel_l),
+            .r => portable.kernel(T, vt, .gemm_kernel_r),
+            .b => portable.kernel(T, vt, .gemm_kernel_b),
         };
-        _ = portable.kernel(T, vt, op)(@intCast(m), @intCast(n), @intCast(k), alpha.re, alpha.im, raw(T, sa), raw(T, sb), raw(T, c), @intCast(ldc));
+        _ = f(@intCast(m), @intCast(n), @intCast(k), alpha.re, alpha.im, raw(T, sa), raw(T, sb), raw(T, c), @intCast(ldc));
     } else {
         _ = portable.kernel(T, vt, .gemm_kernel)(@intCast(m), @intCast(n), @intCast(k), alpha, sa, sb, c, @intCast(ldc));
     }
@@ -202,7 +202,8 @@ pub const Pack = enum { n, t, upper, lower };
 /// Which part of `C` a routine computes; a triangle includes the diagonal.
 pub const Region = enum { full, upper, lower };
 
-/// One routine's loops, all fixed at compile time.
+/// One routine's loops. Values, not compile-time choices: the loops only
+/// call kernels, and one instantiation per type keeps debug builds small.
 pub const Desc = struct {
     /// How `op(A)` (the rows) and `op(B)` (the columns) are packed.
     rows: Pack,
@@ -220,31 +221,48 @@ pub fn Matrix(comptime T: type) type {
     return struct { p: [*]T, ld: usize };
 }
 
+/// A symmetric (or `herm`, Hermitian) copy: `io` the side, `upper` the triangle.
+fn symCopy(comptime T: type, vt: *const Vtable, comptime io: []const u8, herm: bool, upper: bool, m: usize, n: usize, a: [*]T, lda: usize, x: usize, y: usize, dst: [*]T) void {
+    if (comptime isComplex(T)) {
+        if (herm) return if (upper)
+            placed(T, vt, @field(Op, "hemm_" ++ io ++ "utcopy"), m, n, a, lda, x, y, dst)
+        else
+            placed(T, vt, @field(Op, "hemm_" ++ io ++ "ltcopy"), m, n, a, lda, x, y, dst);
+    }
+    if (upper) placed(T, vt, @field(Op, "symm_" ++ io ++ "utcopy"), m, n, a, lda, x, y, dst) else placed(T, vt, @field(Op, "symm_" ++ io ++ "ltcopy"), m, n, a, lda, x, y, dst);
+}
+
+/// Rows of `op(A)` (`gemm_incopy` for `A^T`, else `gemm_itcopy`).
+fn rowsCopy(comptime T: type, vt: *const Vtable, trans: bool, m: usize, n: usize, a: [*]T, lda: usize, dst: [*]T) void {
+    if (trans) copy(T, vt, .gemm_incopy, m, n, a, lda, dst) else copy(T, vt, .gemm_itcopy, m, n, a, lda, dst);
+}
+
+/// Columns of `op(B)` (`gemm_otcopy` for `B^T`, else `gemm_oncopy`).
+fn colsCopy(comptime T: type, vt: *const Vtable, trans: bool, m: usize, n: usize, a: [*]T, lda: usize, dst: [*]T) void {
+    if (trans) copy(T, vt, .gemm_otcopy, m, n, a, lda, dst) else copy(T, vt, .gemm_oncopy, m, n, a, lda, dst);
+}
+
 /// Packs rows `is..` of `op(A)` over depth `ls..` (`ICOPY_OPERATION`).
-inline fn packRows(comptime T: type, vt: *const Vtable, comptime d: Desc, x: Matrix(T), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]T) void {
-    const pre = if (d.herm) "hemm_" else "symm_";
+fn packRows(comptime T: type, vt: *const Vtable, d: Desc, x: Matrix(T), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]T) void {
     switch (d.rows) {
-        .n => copy(T, vt, .gemm_itcopy, min_l, min_i, x.p + is + ls * x.ld, x.ld, dst),
-        .t => copy(T, vt, .gemm_incopy, min_l, min_i, x.p + ls + is * x.ld, x.ld, dst),
-        .upper => placed(T, vt, @field(Op, pre ++ "iutcopy"), min_l, min_i, x.p, x.ld, is, ls, dst),
-        .lower => placed(T, vt, @field(Op, pre ++ "iltcopy"), min_l, min_i, x.p, x.ld, is, ls, dst),
+        .n => rowsCopy(T, vt, false, min_l, min_i, x.p + is + ls * x.ld, x.ld, dst),
+        .t => rowsCopy(T, vt, true, min_l, min_i, x.p + ls + is * x.ld, x.ld, dst),
+        .upper, .lower => symCopy(T, vt, "i", d.herm, d.rows == .upper, min_l, min_i, x.p, x.ld, is, ls, dst),
     }
 }
 
 /// Packs columns `jjs..` of `op(B)` over depth `ls..` (`OCOPY_OPERATION`).
-inline fn packCols(comptime T: type, vt: *const Vtable, comptime d: Desc, y: Matrix(T), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]T) void {
-    const pre = if (d.herm) "hemm_" else "symm_";
+fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]T) void {
     switch (d.cols) {
-        .n => copy(T, vt, .gemm_oncopy, min_l, min_jj, y.p + ls + jjs * y.ld, y.ld, dst),
-        .t => copy(T, vt, .gemm_otcopy, min_l, min_jj, y.p + jjs + ls * y.ld, y.ld, dst),
-        .upper => placed(T, vt, @field(Op, pre ++ "outcopy"), min_l, min_jj, y.p, y.ld, jjs, ls, dst),
-        .lower => placed(T, vt, @field(Op, pre ++ "oltcopy"), min_l, min_jj, y.p, y.ld, jjs, ls, dst),
+        .n => colsCopy(T, vt, false, min_l, min_jj, y.p + ls + jjs * y.ld, y.ld, dst),
+        .t => colsCopy(T, vt, true, min_l, min_jj, y.p + jjs + ls * y.ld, y.ld, dst),
+        .upper, .lower => symCopy(T, vt, "o", d.herm, d.cols == .upper, min_l, min_jj, y.p, y.ld, jjs, ls, dst),
     }
 }
 
 /// `C += alpha * op(A) * op(B)` over `C`'s `m x n` (`region` of it), depth
 /// `k`, in the js / ls / is loops of `level3.c`.
-fn drive(comptime T: type, vt: *const Vtable, comptime d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), c: [*]T, ldc: usize, work: Work(T)) void {
+fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), c: [*]T, ldc: usize, work: Work(T)) void {
     var js: usize = 0;
     while (js < n) : (js += blk.r) {
         const min_j = @min(blk.r, n - js);
@@ -285,14 +303,14 @@ fn drive(comptime T: type, vt: *const Vtable, comptime d: Desc, blk: Blocking, m
 /// Whether rows `[ib, ie)` and columns `[jb, je)` lie wholly in `region`,
 /// not touching the diagonal (strictly, so every diagonal element goes
 /// through `tmp`, where `real_diag` sees it), or wholly outside it.
-fn inside(comptime region: Region, ib: usize, ie: usize, jb: usize, je: usize) bool {
+fn inside(region: Region, ib: usize, ie: usize, jb: usize, je: usize) bool {
     return switch (region) {
         .full => true,
         .upper => ie <= jb,
         .lower => ib >= je,
     };
 }
-fn outside(comptime region: Region, ib: usize, ie: usize, jb: usize, je: usize) bool {
+fn outside(region: Region, ib: usize, ie: usize, jb: usize, je: usize) bool {
     return switch (region) {
         .full => false,
         .upper => ib >= je,
@@ -304,7 +322,7 @@ fn outside(comptime region: Region, ib: usize, ie: usize, jb: usize, je: usize) 
 /// nj)` (`pb`), within `d.region`: blocks inside it at once, then panel by
 /// panel, and the tiles across the diagonal (`syrk_kernel.c`) into `tmp`,
 /// added for the elements that belong.
-fn block(comptime T: type, vt: *const Vtable, comptime d: Desc, blk: Blocking, ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, alpha: T, pa: [*]T, pb: [*]T, c: [*]T, ldc: usize, tmp: [*]T) void {
+fn block(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, alpha: T, pa: [*]T, pb: [*]T, c: [*]T, ldc: usize, tmp: [*]T) void {
     const reg = d.region;
     if (inside(reg, ib, ib + mi, jb, jb + nj)) return kernel(T, vt, d.conj, mi, nj, kl, alpha, pa, pb, c + ib + jb * ldc, ldc);
     if (outside(reg, ib, ib + mi, jb, jb + nj)) return;
@@ -349,7 +367,7 @@ fn zero(comptime T: type) T {
 
 /// Runs `d`'s loops with packing space from `allocator`; `twice` runs them
 /// again with the operands swapped and `alpha2` (`syr2k`).
-fn run(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, c: [*]T, ldc: usize) Error!void {
+fn run(allocator: Allocator, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, c: [*]T, ldc: usize) Error!void {
     const blk = Blocking.of(T, vt);
     const lens = Work(T).lens(blk, m, n, k, d.region != .full);
     const len = Work(T).total(lens);
@@ -381,13 +399,8 @@ pub fn gemm(allocator: Allocator, comptime T: type, vt: *const Vtable, ta: bool,
     if (k == 0 or isZero(T, alpha)) return;
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    switch (ta) {
-        inline else => |cta| switch (tb) {
-            inline else => |ctb| switch (if (comptime isComplex(T)) conj else .n) {
-                inline else => |cj| try run(allocator, T, vt, .{ .rows = if (cta) .t else .n, .cols = if (ctb) .t else .n, .conj = cj }, m, n, k, alpha, x, y, null, c, ldc),
-            },
-        },
-    }
+    const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };
+    try run(allocator, T, vt, d, m, n, k, alpha, x, y, null, c, ldc);
 }
 
 /// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the
@@ -398,17 +411,10 @@ pub fn symm(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime 
     if (isZero(T, alpha)) return;
     const s: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const g: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    const tri: Pack = if (upper) .upper else .lower;
-    switch (left) {
-        inline else => |l| switch (tri) {
-            inline .upper, .lower => |t| {
-                // `hemm`'s right side packs `S^T`: the kernel conjugates it (`NC`)
-                const d: Desc = if (l) .{ .rows = t, .cols = .n, .herm = herm } else .{ .rows = .n, .cols = t, .herm = herm, .conj = if (herm) .r else .n };
-                try run(allocator, T, vt, d, m, n, if (l) m else n, alpha, if (l) s else g, if (l) g else s, null, c, ldc);
-            },
-            else => unreachable,
-        },
-    }
+    const t: Pack = if (upper) .upper else .lower;
+    // `hemm`'s right side packs `S^T`: the kernel conjugates it (`NC`)
+    const d: Desc = if (left) .{ .rows = t, .cols = .n, .herm = herm } else .{ .rows = .n, .cols = t, .herm = herm, .conj = if (herm) .r else .n };
+    try run(allocator, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, c, ldc);
 }
 
 /// `C := beta*C` on the `upper` or lower triangle of the `n x n` `C`; with
@@ -441,25 +447,21 @@ pub fn syrk(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime 
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = if (b) |p| .{ .p = @constCast(p), .ld = ldb } else x;
     const alpha2: ?T = if (b == null) null else if (comptime herm) alpha.conjugate() else alpha;
-    switch (upper) {
-        inline else => |u| switch (trans) {
-            // `herk`'s `op(A)'` conjugates the columns (N) or `op(A)` the rows (C)
-            inline else => |t| try run(allocator, T, vt, .{
-                .rows = if (t) .t else .n,
-                .cols = if (t) .n else .t,
-                .conj = if (herm) (if (t) .l else .r) else .n,
-                .region = if (u) .upper else .lower,
-                .real_diag = herm,
-            }, n, n, k, alpha, x, y, alpha2, c, ldc),
-        },
-    }
+    // `herk`'s `op(A)'` conjugates the columns (N) or `op(A)` the rows (C)
+    try run(allocator, T, vt, .{
+        .rows = if (trans) .t else .n,
+        .cols = if (trans) .n else .t,
+        .conj = if (herm) (if (trans) .l else .r) else .n,
+        .region = if (upper) .upper else .lower,
+        .real_diag = herm,
+    }, n, n, k, alpha, x, y, alpha2, c, ldc);
 }
 
 // ---- trmm and trsm -------------------------------------------------------------
 
 /// A copy of the triangle (`trsm_iunucopy` and the like); `offset` places
 /// the block's lines against its depth.
-inline fn triCopy(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: usize, a: [*]T, lda: usize, offset: isize, dst: [*]T) void {
+fn triCopy(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: usize, a: [*]T, lda: usize, offset: isize, dst: [*]T) void {
     if (comptime isComplex(T)) {
         _ = portable.kernel(T, vt, op)(@intCast(m), @intCast(n), raw(T, a), @intCast(lda), offset, raw(T, dst));
     } else {
@@ -468,7 +470,7 @@ inline fn triCopy(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize
 }
 
 /// A `trmm` or `trsm` kernel: `alpha` for `trmm` (`trsm`'s is a dummy).
-inline fn triKernel(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize, offset: isize) void {
+fn triKernel(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize, offset: isize) void {
     if (comptime isComplex(T)) {
         _ = portable.kernel(T, vt, op)(@intCast(m), @intCast(n), @intCast(k), alpha.re, alpha.im, raw(T, sa), raw(T, sb), raw(T, c), @intCast(ldc), offset);
     } else {
@@ -480,7 +482,7 @@ fn one(comptime T: type, v: Float(T)) T {
     return if (comptime isComplex(T)) .init(v, 0) else v;
 }
 
-/// The options of a `trmm` or `trsm`, fixed at compile time.
+/// The options of a `trmm` or `trsm`: values, as `Desc`'s are.
 const Tri = struct {
     left: bool,
     upper: bool,
@@ -488,20 +490,45 @@ const Tri = struct {
     conj: bool,
     unit: bool,
 
-    /// `<routine>_<i|o><u|l><n|t><u|n>copy`.
-    fn copyOp(comptime t: Tri, comptime routine: []const u8, comptime io: []const u8, comptime ul: []const u8, comptime nt: []const u8) Op {
-        return @field(Op, routine ++ "_" ++ io ++ ul ++ nt ++ (if (t.unit) "u" else "n") ++ "copy");
-    }
-    /// `<routine>_kernel_<L|R><N|T>`, or `R` and `C` for `N` and `T` conjugated.
-    fn kernelOp(comptime t: Tri, comptime routine: []const u8, comptime n: bool) Op {
-        const k: []const u8 = if (t.conj) (if (n) "R" else "C") else (if (n) "N" else "T");
-        return @field(Op, routine ++ "_kernel_" ++ (if (t.left) "L" else "R") ++ k);
-    }
     /// The gemm kernel's conjugation: the triangle's side.
-    fn gemmConj(comptime t: Tri) Conj {
+    fn gemmConj(t: Tri) Conj {
         return if (!t.conj) .n else if (t.left) .l else .r;
     }
 };
+
+/// Which triangle copy a driver packs with: its triangle and whether it reads
+/// across rows (`t`) or down columns (`n`).
+const TriCopy = struct { upper: bool, across: bool };
+
+/// `trmm_<io><u|l><n|t><u|n>copy` (`posX`, `posY`) or `trsm_...` (`offset`),
+/// as `c` and `unit` say.
+fn triPack(comptime T: type, vt: *const Vtable, comptime routine: []const u8, comptime io: []const u8, c: TriCopy, unit: bool, m: usize, n: usize, a: [*]T, lda: usize, x: usize, y: usize, offset: isize, dst: [*]T) void {
+    inline for (.{ false, true }) |u| inline for (.{ false, true }) |t| inline for (.{ false, true }) |un| {
+        if (u == c.upper and t == c.across and un == unit) {
+            const op = @field(Op, routine ++ "_" ++ io ++ (if (u) "u" else "l") ++ (if (t) "t" else "n") ++ (if (un) "u" else "n") ++ "copy");
+            if (comptime std.mem.eql(u8, routine, "trmm")) return placed(T, vt, op, m, n, a, lda, x, y, dst);
+            return triCopy(T, vt, op, m, n, a, lda, offset, dst);
+        }
+    };
+    unreachable;
+}
+
+/// `<routine>_kernel_<L|R><N|T>`, or `R` and `C` for `N` and `T` conjugated.
+fn triRun(comptime T: type, vt: *const Vtable, comptime routine: []const u8, o: Tri, nk: bool, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize, offset: isize) void {
+    inline for (.{ false, true }) |l| inline for (.{ false, true }) |nn| inline for (.{ false, true }) |cj| {
+        if (comptime cj and !isComplex(T)) continue;
+        if (l == o.left and nn == nk and cj == o.conj) {
+            const kk: []const u8 = if (cj) (if (nn) "R" else "C") else (if (nn) "N" else "T");
+            return triKernel(T, vt, @field(Op, routine ++ "_kernel_" ++ (if (l) "L" else "R") ++ kk), m, n, k, alpha, sa, sb, c, ldc, offset);
+        }
+    };
+    unreachable;
+}
+
+/// `op(A)` from row `i`, column `l`, as the copies take it.
+fn opAt(comptime T: type, trans: bool, p: [*]T, ld: usize, i: usize, l: usize) [*]T {
+    return if (trans) p + l + i * ld else p + i + l * ld;
+}
 
 /// Packing space for `trmm` and `trsm`: a row block of `P` by a slice of `Q`,
 /// and that slice by `R` columns (the reference's kernels take all of it).
@@ -543,24 +570,11 @@ fn triangular(allocator: Allocator, comptime T: type, vt: *const Vtable, comptim
     defer if (heap) |h| allocator.free(h);
     const work = try triWork(allocator, T, blk, m, n, if (left) m else n, &stack, &heap);
     const ap: [*]T = @constCast(a);
-    const cj = isComplex(T) and conj;
-    switch (left) {
-        inline else => |l| switch (upper) {
-            inline else => |u| switch (trans) {
-                inline else => |t| switch (cj) {
-                    inline else => |c| switch (unit) {
-                        inline else => |un| {
-                            const opt: Tri = .{ .left = l, .upper = u, .trans = t, .conj = c and comptime isComplex(T), .unit = un };
-                            if (solve) {
-                                if (l) trsmL(T, vt, opt, blk, m, n, ap, lda, b, ldb, work) else trsmR(T, vt, opt, blk, m, n, ap, lda, b, ldb, work);
-                            } else {
-                                if (l) trmmL(T, vt, opt, blk, m, n, ap, lda, b, ldb, work) else trmmR(T, vt, opt, blk, m, n, ap, lda, b, ldb, work);
-                            }
-                        },
-                    },
-                },
-            },
-        },
+    const opt: Tri = .{ .left = left, .upper = upper, .trans = trans, .conj = isComplex(T) and conj, .unit = unit };
+    if (solve) {
+        if (left) trsmL(T, vt, opt, blk, m, n, ap, lda, b, ldb, work) else trsmR(T, vt, opt, blk, m, n, ap, lda, b, ldb, work);
+    } else {
+        if (left) trmmL(T, vt, opt, blk, m, n, ap, lda, b, ldb, work) else trmmR(T, vt, opt, blk, m, n, ap, lda, b, ldb, work);
     }
 }
 
@@ -570,104 +584,102 @@ fn trmmRows(blk: Blocking, rest: usize) usize {
     return if (v > blk.um) v / blk.um * blk.um else v;
 }
 
-fn trmmL(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
+fn trmmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
     const p1 = one(T, 1);
-    const gc = comptime o.gemmConj();
-    const icopy: Op = if (o.trans) .gemm_incopy else .gemm_itcopy;
+    const gc = o.gemmConj();
     // `op(A)` upper: the slices go down, each row taking the depths from it (`LN`)
     const down = o.upper != o.trans;
-    const tcopy = comptime if (down) o.copyOp("trmm", "i", if (o.trans) "l" else "u", if (o.trans) "n" else "t") else o.copyOp("trmm", "i", if (o.trans) "u" else "l", if (o.trans) "n" else "t");
-    const tkern = comptime o.kernelOp("trmm", down);
+    const tc: TriCopy = .{ .upper = down != o.trans, .across = !o.trans };
     var js: usize = 0;
     while (js < n) : (js += blk.r) {
         const min_j = @min(n - js, blk.r);
         if (down) {
             var min_l = @min(m, blk.q);
             var min_i = trmmRows(blk, min_l);
-            placed(T, vt, tcopy, min_l, min_i, a, lda, 0, 0, w.sa);
+            triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, 0, 0, 0, w.sa);
             var jjs = js;
             while (jjs < js + min_j) {
                 const min_jj = blk.chunk(js + min_j - jjs);
                 const pb = w.sb + min_l * (jjs - js);
-                copy(T, vt, .gemm_oncopy, min_l, min_jj, b + jjs * ldb, ldb, pb);
-                triKernel(T, vt, tkern, min_i, min_jj, min_l, p1, w.sa, pb, b + jjs * ldb, ldb, 0);
+                colsCopy(T, vt, false, min_l, min_jj, b + jjs * ldb, ldb, pb);
+                triRun(T, vt, "trmm", o, down, min_i, min_jj, min_l, p1, w.sa, pb, b + jjs * ldb, ldb, 0);
                 jjs += min_jj;
             }
             var is = min_i;
             while (is < min_l) : (is += min_i) {
                 min_i = trmmRows(blk, min_l - is);
-                placed(T, vt, tcopy, min_l, min_i, a, lda, 0, is, w.sa);
-                triKernel(T, vt, tkern, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is));
+                triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, 0, is, 0, w.sa);
+                triRun(T, vt, "trmm", o, down, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is));
             }
             var ls = min_l;
             while (ls < m) : (ls += blk.q) {
                 min_l = @min(m - ls, blk.q);
                 min_i = trmmRows(blk, ls);
-                copy(T, vt, icopy, min_l, min_i, if (o.trans) a + ls else a + ls * lda, lda, w.sa);
+                rowsCopy(T, vt, o.trans, min_l, min_i, if (o.trans) a + ls else a + ls * lda, lda, w.sa);
                 jjs = js;
                 while (jjs < js + min_j) {
                     const min_jj = blk.chunk(js + min_j - jjs);
                     const pb = w.sb + min_l * (jjs - js);
-                    copy(T, vt, .gemm_oncopy, min_l, min_jj, b + ls + jjs * ldb, ldb, pb);
+                    colsCopy(T, vt, false, min_l, min_jj, b + ls + jjs * ldb, ldb, pb);
                     kernel(T, vt, gc, min_i, min_jj, min_l, p1, w.sa, pb, b + jjs * ldb, ldb);
                     jjs += min_jj;
                 }
                 is = min_i;
                 while (is < ls) : (is += min_i) {
                     min_i = trmmRows(blk, ls - is);
-                    copy(T, vt, icopy, min_l, min_i, if (o.trans) a + ls + is * lda else a + is + ls * lda, lda, w.sa);
+                    rowsCopy(T, vt, o.trans, min_l, min_i, if (o.trans) a + ls + is * lda else a + is + ls * lda, lda, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb);
                 }
                 is = ls;
                 while (is < ls + min_l) : (is += min_i) {
                     min_i = trmmRows(blk, ls + min_l - is);
-                    placed(T, vt, tcopy, min_l, min_i, a, lda, ls, is, w.sa);
-                    triKernel(T, vt, tkern, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - ls));
+                    triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, ls, is, 0, w.sa);
+                    triRun(T, vt, "trmm", o, down, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - ls));
                 }
             }
         } else {
             // `op(A)` lower: the slices go up, each row taking the depths up to it (`LT`)
             var min_l = @min(m, blk.q);
             var min_i = trmmRows(blk, min_l);
-            placed(T, vt, tcopy, min_l, min_i, a, lda, m - min_l, m - min_l, w.sa);
+            triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, m - min_l, m - min_l, 0, w.sa);
             var jjs = js;
             while (jjs < js + min_j) {
                 const min_jj = blk.chunk(js + min_j - jjs);
                 const pb = w.sb + min_l * (jjs - js);
-                copy(T, vt, .gemm_oncopy, min_l, min_jj, b + (m - min_l) + jjs * ldb, ldb, pb);
-                triKernel(T, vt, tkern, min_i, min_jj, min_l, p1, w.sa, pb, b + (m - min_l) + jjs * ldb, ldb, 0);
+                colsCopy(T, vt, false, min_l, min_jj, b + (m - min_l) + jjs * ldb, ldb, pb);
+                triRun(T, vt, "trmm", o, down, min_i, min_jj, min_l, p1, w.sa, pb, b + (m - min_l) + jjs * ldb, ldb, 0);
                 jjs += min_jj;
             }
             var is = m - min_l + min_i;
             while (is < m) : (is += min_i) {
                 min_i = trmmRows(blk, m - is);
-                placed(T, vt, tcopy, min_l, min_i, a, lda, m - min_l, is, w.sa);
-                triKernel(T, vt, tkern, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - (m - min_l)));
+                triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, m - min_l, is, 0, w.sa);
+                triRun(T, vt, "trmm", o, down, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - (m - min_l)));
             }
             var ls = m - min_l;
             while (ls > 0) : (ls -= min_l) {
                 min_l = @min(ls, blk.q);
                 const l0 = ls - min_l;
                 min_i = trmmRows(blk, min_l);
-                placed(T, vt, tcopy, min_l, min_i, a, lda, l0, l0, w.sa);
+                triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, l0, l0, 0, w.sa);
                 jjs = js;
                 while (jjs < js + min_j) {
                     const min_jj = blk.chunk(js + min_j - jjs);
                     const pb = w.sb + min_l * (jjs - js);
-                    copy(T, vt, .gemm_oncopy, min_l, min_jj, b + l0 + jjs * ldb, ldb, pb);
-                    triKernel(T, vt, tkern, min_i, min_jj, min_l, p1, w.sa, pb, b + l0 + jjs * ldb, ldb, 0);
+                    colsCopy(T, vt, false, min_l, min_jj, b + l0 + jjs * ldb, ldb, pb);
+                    triRun(T, vt, "trmm", o, down, min_i, min_jj, min_l, p1, w.sa, pb, b + l0 + jjs * ldb, ldb, 0);
                     jjs += min_jj;
                 }
                 is = l0 + min_i;
                 while (is < ls) : (is += min_i) {
                     min_i = trmmRows(blk, ls - is);
-                    placed(T, vt, tcopy, min_l, min_i, a, lda, l0, is, w.sa);
-                    triKernel(T, vt, tkern, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - l0));
+                    triPack(T, vt, "trmm", "i", tc, o.unit, min_l, min_i, a, lda, l0, is, 0, w.sa);
+                    triRun(T, vt, "trmm", o, down, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - l0));
                 }
                 is = ls;
                 while (is < m) : (is += min_i) {
                     min_i = trmmRows(blk, m - is);
-                    copy(T, vt, icopy, min_l, min_i, if (o.trans) a + l0 + is * lda else a + is + l0 * lda, lda, w.sa);
+                    rowsCopy(T, vt, o.trans, min_l, min_i, if (o.trans) a + l0 + is * lda else a + is + l0 * lda, lda, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb);
                 }
             }
@@ -675,20 +687,12 @@ fn trmmL(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
     }
 }
 
-fn trmmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
+fn trmmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
     const p1 = one(T, 1);
-    const gc = comptime o.gemmConj();
-    const ocopy: Op = if (o.trans) .gemm_otcopy else .gemm_oncopy;
+    const gc = o.gemmConj();
     // `op(A)` lower: the columns go right, each taking the depths from it (`RT`)
     const right = o.upper == o.trans;
-    const tcopy = comptime if (right) o.copyOp("trmm", "o", if (o.trans) "u" else "l", if (o.trans) "t" else "n") else o.copyOp("trmm", "o", if (o.trans) "l" else "u", if (o.trans) "t" else "n");
-    const tkern = comptime o.kernelOp("trmm", !right);
-    // `op(A)` from row `l`, column `j`, as `ocopy` takes it
-    const at = struct {
-        inline fn f(p: [*]T, ld: usize, l: usize, j: usize) [*]T {
-            return if (o.trans) p + j + l * ld else p + l + j * ld;
-        }
-    }.f;
+    const tc: TriCopy = .{ .upper = right == o.trans, .across = o.trans };
     const min_i0 = @min(m, blk.p);
     if (right) {
         var js: usize = 0;
@@ -697,11 +701,11 @@ fn trmmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             var ls = js;
             while (ls < js + min_j) : (ls += blk.q) {
                 const min_l = @min(js + min_j - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 var jjs: usize = 0;
                 while (jjs < ls - js) {
                     const min_jj = blk.chunk(ls - js - jjs);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, js + jjs), lda, w.sb + min_l * jjs);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, js + jjs), lda, w.sb + min_l * jjs);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, p1, w.sa, w.sb + min_l * jjs, b + (js + jjs) * ldb, ldb);
                     jjs += min_jj;
                 }
@@ -709,34 +713,34 @@ fn trmmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
                 while (jjs < min_l) {
                     const min_jj = blk.chunk(min_l - jjs);
                     const pb = w.sb + min_l * (ls - js + jjs);
-                    placed(T, vt, tcopy, min_l, min_jj, a, lda, ls, ls + jjs, pb);
-                    triKernel(T, vt, tkern, min_i0, min_jj, min_l, p1, w.sa, pb, b + (ls + jjs) * ldb, ldb, -@as(isize, @intCast(jjs)));
+                    triPack(T, vt, "trmm", "o", tc, o.unit, min_l, min_jj, a, lda, ls, ls + jjs, 0, pb);
+                    triRun(T, vt, "trmm", o, !right, min_i0, min_jj, min_l, p1, w.sa, pb, b + (ls + jjs) * ldb, ldb, -@as(isize, @intCast(jjs)));
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
                     kernel(T, vt, gc, min_i, ls - js, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb);
-                    triKernel(T, vt, tkern, min_i, min_l, min_l, p1, w.sa, w.sb + (ls - js) * min_l, b + is + ls * ldb, ldb, 0);
+                    triRun(T, vt, "trmm", o, !right, min_i, min_l, min_l, p1, w.sa, w.sb + (ls - js) * min_l, b + is + ls * ldb, ldb, 0);
                 }
             }
             ls = js + min_j;
             while (ls < n) : (ls += blk.q) {
                 const min_l = @min(n - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 var jjs = js;
                 while (jjs < js + min_j) {
                     const min_jj = blk.chunk(js + min_j - jjs);
                     const pb = w.sb + min_l * (jjs - js);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, p1, w.sa, pb, b + jjs * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + js * ldb, ldb);
                 }
             }
@@ -752,27 +756,27 @@ fn trmmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             var ls = start_ls;
             while (true) {
                 const min_l = @min(js - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 var jjs: usize = 0;
                 while (jjs < min_l) {
                     const min_jj = blk.chunk(min_l - jjs);
-                    placed(T, vt, tcopy, min_l, min_jj, a, lda, ls, ls + jjs, w.sb + min_l * jjs);
-                    triKernel(T, vt, tkern, min_i0, min_jj, min_l, p1, w.sa, w.sb + min_l * jjs, b + (ls + jjs) * ldb, ldb, -@as(isize, @intCast(jjs)));
+                    triPack(T, vt, "trmm", "o", tc, o.unit, min_l, min_jj, a, lda, ls, ls + jjs, 0, w.sb + min_l * jjs);
+                    triRun(T, vt, "trmm", o, !right, min_i0, min_jj, min_l, p1, w.sa, w.sb + min_l * jjs, b + (ls + jjs) * ldb, ldb, -@as(isize, @intCast(jjs)));
                     jjs += min_jj;
                 }
                 jjs = 0;
                 while (jjs < js - ls - min_l) {
                     const min_jj = blk.chunk(js - ls - min_l - jjs);
                     const pb = w.sb + min_l * (min_l + jjs);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, ls + min_l + jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, ls + min_l + jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, p1, w.sa, pb, b + (ls + min_l + jjs) * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
-                    triKernel(T, vt, tkern, min_i, min_l, min_l, p1, w.sa, w.sb, b + is + ls * ldb, ldb, 0);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    triRun(T, vt, "trmm", o, !right, min_i, min_l, min_l, p1, w.sa, w.sb, b + is + ls * ldb, ldb, 0);
                     if (js - ls - min_l > 0) kernel(T, vt, gc, min_i, js - ls - min_l, min_l, p1, w.sa, w.sb + min_l * min_l, b + is + (ls + min_l) * ldb, ldb);
                 }
                 if (ls < j0 + blk.q) break;
@@ -781,19 +785,19 @@ fn trmmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             ls = 0;
             while (ls < j0) : (ls += blk.q) {
                 const min_l = @min(j0 - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 var jjs = j0;
                 while (jjs < js) {
                     const min_jj = blk.chunk(js - jjs);
                     const pb = w.sb + min_l * (jjs - j0);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, p1, w.sa, pb, b + jjs * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, p1, w.sa, w.sb, b + is + j0 * ldb, ldb);
                 }
             }
@@ -801,20 +805,12 @@ fn trmmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
     }
 }
 
-fn trsmL(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
+fn trsmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
     const m1 = one(T, -1);
-    const gc = comptime o.gemmConj();
-    const icopy: Op = if (o.trans) .gemm_incopy else .gemm_itcopy;
+    const gc = o.gemmConj();
     // `op(A)` lower: forward from the top (`LT`), else back from the bottom (`LN`)
     const forward = o.upper == o.trans;
-    const tcopy = comptime if (forward) o.copyOp("trsm", "i", if (o.trans) "u" else "l", if (o.trans) "n" else "t") else o.copyOp("trsm", "i", if (o.trans) "l" else "u", if (o.trans) "n" else "t");
-    const tkern = comptime o.kernelOp("trsm", !forward);
-    // `op(A)` from row `i`, column `l`, as the `i` copies take it
-    const at = struct {
-        inline fn f(p: [*]T, ld: usize, i: usize, l: usize) [*]T {
-            return if (o.trans) p + l + i * ld else p + i + l * ld;
-        }
-    }.f;
+    const tc: TriCopy = .{ .upper = forward == o.trans, .across = !o.trans };
     var js: usize = 0;
     while (js < n) : (js += blk.r) {
         const min_j = @min(n - js, blk.r);
@@ -823,25 +819,25 @@ fn trsmL(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             while (ls < m) : (ls += blk.q) {
                 const min_l = @min(m - ls, blk.q);
                 var min_i = @min(min_l, blk.p);
-                triCopy(T, vt, tcopy, min_l, min_i, at(a, lda, ls, ls), lda, 0, w.sa);
+                triPack(T, vt, "trsm", "i", tc, o.unit, min_l, min_i, opAt(T, o.trans, a, lda, ls, ls), lda, 0, 0, 0, w.sa);
                 var jjs = js;
                 while (jjs < js + min_j) {
                     const min_jj = blk.chunk(js + min_j - jjs);
                     const pb = w.sb + min_l * (jjs - js);
-                    copy(T, vt, .gemm_oncopy, min_l, min_jj, b + ls + jjs * ldb, ldb, pb);
-                    triKernel(T, vt, tkern, min_i, min_jj, min_l, m1, w.sa, pb, b + ls + jjs * ldb, ldb, 0);
+                    colsCopy(T, vt, false, min_l, min_jj, b + ls + jjs * ldb, ldb, pb);
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_jj, min_l, m1, w.sa, pb, b + ls + jjs * ldb, ldb, 0);
                     jjs += min_jj;
                 }
                 var is = ls + min_i;
                 while (is < ls + min_l) : (is += blk.p) {
                     min_i = @min(ls + min_l - is, blk.p);
-                    triCopy(T, vt, tcopy, min_l, min_i, at(a, lda, is, ls), lda, @intCast(is - ls), w.sa);
-                    triKernel(T, vt, tkern, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - ls));
+                    triPack(T, vt, "trsm", "i", tc, o.unit, min_l, min_i, opAt(T, o.trans, a, lda, is, ls), lda, 0, 0, @intCast(is - ls), w.sa);
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - ls));
                 }
                 is = ls + min_l;
                 while (is < m) : (is += blk.p) {
                     min_i = @min(m - is, blk.p);
-                    copy(T, vt, icopy, min_l, min_i, at(a, lda, is, ls), lda, w.sa);
+                    rowsCopy(T, vt, o.trans, min_l, min_i, opAt(T, o.trans, a, lda, is, ls), lda, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb);
                 }
             }
@@ -853,26 +849,26 @@ fn trsmL(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
                 var start_is = l0;
                 while (start_is + blk.p < ls) start_is += blk.p;
                 var min_i = @min(ls - start_is, blk.p);
-                triCopy(T, vt, tcopy, min_l, min_i, at(a, lda, start_is, l0), lda, @intCast(start_is - l0), w.sa);
+                triPack(T, vt, "trsm", "i", tc, o.unit, min_l, min_i, opAt(T, o.trans, a, lda, start_is, l0), lda, 0, 0, @intCast(start_is - l0), w.sa);
                 var jjs = js;
                 while (jjs < js + min_j) {
                     const min_jj = blk.chunk(js + min_j - jjs);
                     const pb = w.sb + min_l * (jjs - js);
-                    copy(T, vt, .gemm_oncopy, min_l, min_jj, b + l0 + jjs * ldb, ldb, pb);
-                    triKernel(T, vt, tkern, min_i, min_jj, min_l, m1, w.sa, pb, b + start_is + jjs * ldb, ldb, @intCast(start_is - l0));
+                    colsCopy(T, vt, false, min_l, min_jj, b + l0 + jjs * ldb, ldb, pb);
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_jj, min_l, m1, w.sa, pb, b + start_is + jjs * ldb, ldb, @intCast(start_is - l0));
                     jjs += min_jj;
                 }
                 var is = start_is;
                 while (is >= l0 + blk.p) {
                     is -= blk.p;
                     min_i = @min(ls - is, blk.p);
-                    triCopy(T, vt, tcopy, min_l, min_i, at(a, lda, is, l0), lda, @intCast(is - l0), w.sa);
-                    triKernel(T, vt, tkern, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - l0));
+                    triPack(T, vt, "trsm", "i", tc, o.unit, min_l, min_i, opAt(T, o.trans, a, lda, is, l0), lda, 0, 0, @intCast(is - l0), w.sa);
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - l0));
                 }
                 is = 0;
                 while (is < l0) : (is += blk.p) {
                     min_i = @min(l0 - is, blk.p);
-                    copy(T, vt, icopy, min_l, min_i, at(a, lda, is, l0), lda, w.sa);
+                    rowsCopy(T, vt, o.trans, min_l, min_i, opAt(T, o.trans, a, lda, is, l0), lda, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb);
                 }
             }
@@ -880,20 +876,12 @@ fn trsmL(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
     }
 }
 
-fn trsmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
+fn trsmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, b: [*]T, ldb: usize, w: Work(T)) void {
     const m1 = one(T, -1);
-    const gc = comptime o.gemmConj();
-    const ocopy: Op = if (o.trans) .gemm_otcopy else .gemm_oncopy;
+    const gc = o.gemmConj();
     // `op(A)` upper: forward from the left (`RN`), else back from the right (`RT`)
     const forward = o.upper != o.trans;
-    const tcopy = comptime if (forward) o.copyOp("trsm", "o", if (o.trans) "l" else "u", if (o.trans) "t" else "n") else o.copyOp("trsm", "o", if (o.trans) "u" else "l", if (o.trans) "t" else "n");
-    const tkern = comptime o.kernelOp("trsm", forward);
-    // `op(A)` from row `l`, column `j`, as `ocopy` takes it
-    const at = struct {
-        inline fn f(p: [*]T, ld: usize, l: usize, j: usize) [*]T {
-            return if (o.trans) p + j + l * ld else p + l + j * ld;
-        }
-    }.f;
+    const tc: TriCopy = .{ .upper = forward != o.trans, .across = o.trans };
     const min_i0 = @min(m, blk.p);
     if (forward) {
         var js: usize = 0;
@@ -902,41 +890,41 @@ fn trsmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             var ls: usize = 0;
             while (ls < js) : (ls += blk.q) {
                 const min_l = @min(js - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 var jjs = js;
                 while (jjs < js + min_j) {
                     const min_jj = blk.chunk(js + min_j - jjs);
                     const pb = w.sb + min_l * (jjs - js);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, m1, w.sa, pb, b + jjs * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb);
                 }
             }
             ls = js;
             while (ls < js + min_j) : (ls += blk.q) {
                 const min_l = @min(js + min_j - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
-                triCopy(T, vt, tcopy, min_l, min_l, at(a, lda, ls, ls), lda, 0, w.sb);
-                triKernel(T, vt, tkern, min_i0, min_l, min_l, m1, w.sa, w.sb, b + ls * ldb, ldb, 0);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                triPack(T, vt, "trsm", "o", tc, o.unit, min_l, min_l, opAt(T, o.trans, a, lda, ls, ls), lda, 0, 0, 0, w.sb);
+                triRun(T, vt, "trsm", o, forward, min_i0, min_l, min_l, m1, w.sa, w.sb, b + ls * ldb, ldb, 0);
                 var jjs: usize = 0;
                 while (jjs < js + min_j - ls - min_l) {
                     const min_jj = blk.chunk(js + min_j - ls - min_l - jjs);
                     const pb = w.sb + min_l * (min_l + jjs);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, ls + min_l + jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, ls + min_l + jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, m1, w.sa, pb, b + (ls + min_l + jjs) * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
-                    triKernel(T, vt, tkern, min_i, min_l, min_l, m1, w.sa, w.sb, b + is + ls * ldb, ldb, 0);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    triRun(T, vt, "trsm", o, forward, min_i, min_l, min_l, m1, w.sa, w.sb, b + is + ls * ldb, ldb, 0);
                     kernel(T, vt, gc, min_i, js + min_j - ls - min_l, min_l, m1, w.sa, w.sb + min_l * min_l, b + is + (ls + min_l) * ldb, ldb);
                 }
             }
@@ -949,19 +937,19 @@ fn trsmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             var ls = js;
             while (ls < n) : (ls += blk.q) {
                 const min_l = @min(n - ls, blk.q);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 var jjs = j0;
                 while (jjs < js) {
                     const min_jj = blk.chunk(js - jjs);
                     const pb = w.sb + min_l * (jjs - j0);
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, m1, w.sa, pb, b + jjs * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
                     kernel(T, vt, gc, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + j0 * ldb, ldb);
                 }
             }
@@ -971,22 +959,22 @@ fn trsmR(comptime T: type, vt: *const Vtable, comptime o: Tri, blk: Blocking, m:
             while (true) {
                 const min_l = @min(js - ls, blk.q);
                 const tb = w.sb + min_l * (ls - j0);
-                copy(T, vt, .gemm_itcopy, min_l, min_i0, b + ls * ldb, ldb, w.sa);
-                triCopy(T, vt, tcopy, min_l, min_l, at(a, lda, ls, ls), lda, 0, tb);
-                triKernel(T, vt, tkern, min_i0, min_l, min_l, m1, w.sa, tb, b + ls * ldb, ldb, 0);
+                rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
+                triPack(T, vt, "trsm", "o", tc, o.unit, min_l, min_l, opAt(T, o.trans, a, lda, ls, ls), lda, 0, 0, 0, tb);
+                triRun(T, vt, "trsm", o, forward, min_i0, min_l, min_l, m1, w.sa, tb, b + ls * ldb, ldb, 0);
                 var jjs: usize = 0;
                 while (jjs < ls - j0) {
                     const min_jj = blk.chunk(ls - j0 - jjs);
                     const pb = w.sb + min_l * jjs;
-                    copy(T, vt, ocopy, min_l, min_jj, at(a, lda, ls, j0 + jjs), lda, pb);
+                    colsCopy(T, vt, o.trans, min_l, min_jj, opAt(T, o.trans, a, lda, ls, j0 + jjs), lda, pb);
                     kernel(T, vt, gc, min_i0, min_jj, min_l, m1, w.sa, pb, b + (j0 + jjs) * ldb, ldb);
                     jjs += min_jj;
                 }
                 var is = min_i0;
                 while (is < m) : (is += blk.p) {
                     const min_i = @min(m - is, blk.p);
-                    copy(T, vt, .gemm_itcopy, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
-                    triKernel(T, vt, tkern, min_i, min_l, min_l, m1, w.sa, tb, b + is + ls * ldb, ldb, 0);
+                    rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
+                    triRun(T, vt, "trsm", o, forward, min_i, min_l, min_l, m1, w.sa, tb, b + is + ls * ldb, ldb, 0);
                     kernel(T, vt, gc, min_i, ls - j0, min_l, m1, w.sa, w.sb, b + is + j0 * ldb, ldb);
                 }
                 if (ls < j0 + blk.q) break;

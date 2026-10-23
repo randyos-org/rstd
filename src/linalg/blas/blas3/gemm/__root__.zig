@@ -532,7 +532,9 @@ test "every linked core's gemm kernels match the wide reference, where this mach
 }
 
 test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
-    // natively only: the rigs run their own tiles
+    // natively only: the rigs run their own tiles, and the freestanding ones
+    // have no room for four more sets of kernels
+    if (comptime @import("builtin").os.tag == .freestanding) return error.SkipZigTest;
     if (blas1check.rig()) return error.SkipZigTest;
     const portable = @import("../../portable.zig");
     var vt: Vtable = .{};

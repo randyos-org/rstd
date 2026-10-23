@@ -204,11 +204,20 @@ fn pack(comptime E: type, comptime u: usize, comptime across: bool, m: BlasLong,
     const ld: usize = @intCast(lda);
     var c0: usize = 0;
     while (c0 + u <= lines) : (c0 += u) panel(E, u, across, depth, a, ld, c0, b + depth * c0);
-    inline for (comptime tails(u)) |w| {
-        if ((lines - c0) & w != 0) {
-            panel(E, w, across, depth, a, ld, c0, b + depth * c0);
-            c0 += w;
-        }
+    if (c0 < lines) packRest(E, across, depth, a, ld, c0, lines, b);
+}
+
+/// The panels past the whole ones, widths as values: they are few, and one
+/// function for every width keeps debug builds small.
+fn packRest(comptime E: type, comptime across: bool, depth: usize, a: [*]const E, ld: usize, from: usize, lines: usize, b: [*]E) void {
+    var c0 = from;
+    while (c0 < lines) {
+        const w = std.math.floorPowerOfTwo(usize, lines - c0);
+        const out = b + depth * c0;
+        for (0..depth) |l| for (0..w) |c| {
+            out[l * w + c] = if (across) a[l * ld + c0 + c] else a[(c0 + c) * ld + l];
+        };
+        c0 += w;
     }
 }
 
@@ -224,28 +233,22 @@ inline fn panel(comptime E: type, comptime w: usize, comptime across: bool, dept
     }
 }
 
-/// Packs `lines` lines of `depth` as `pack` does, element `(j, l)` being
-/// `src.at(j, l)`; where that is an optional, null leaves it unwritten. For
-/// the other routines' copies, which transform what they pack.
-pub inline fn packWith(comptime E: type, comptime u: usize, depth: usize, lines: usize, dst: [*]E, src: anytype) void {
+/// Packs `lines` lines of `depth` as `pack` does, in panels of `u`, element
+/// `(j, l)` being `src.at(j, l)`; where that is an optional, null leaves it
+/// unwritten. For the other routines' copies, which transform what they pack;
+/// the widths are run-time values, so each copy is one small function.
+pub fn packWith(comptime E: type, u: usize, depth: usize, lines: usize, dst: [*]E, src: anytype) void {
     var c0: usize = 0;
-    while (c0 + u <= lines) : (c0 += u) panelWith(E, u, depth, c0, dst + depth * c0, src);
-    inline for (comptime tails(u)) |w| {
-        if ((lines - c0) & w != 0) {
-            panelWith(E, w, depth, c0, dst + depth * c0, src);
-            c0 += w;
-        }
-    }
-}
-
-inline fn panelWith(comptime E: type, comptime w: usize, depth: usize, c0: usize, dst: [*]E, src: anytype) void {
-    for (0..depth) |l| {
-        inline for (0..w) |c| {
+    while (c0 < lines) {
+        const w = panelWidth(lines - c0, u);
+        const out = dst + depth * c0;
+        for (0..depth) |l| for (0..w) |c| {
             const v = src.at(c0 + c, l);
             if (@TypeOf(v) == ?E) {
-                if (v) |x| dst[l * w + c] = x;
-            } else dst[l * w + c] = v;
-        }
+                if (v) |x| out[l * w + c] = x;
+            } else out[l * w + c] = v;
+        };
+        c0 += w;
     }
 }
 
@@ -493,11 +496,27 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
 
         /// `C += alpha * op(A) * op(B)`, `op` conjugating as `conj` says;
         /// the loops of the real kernel.
-        fn run(comptime conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
+        fn run(conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
             const ld: usize = @intCast(ldc);
+            if (geo.split) {
+                // one tile function, shaped by values: the scalar fallback's
+                // tiles would otherwise be one per width pair
+                var p0: usize = 0;
+                while (p0 < n) {
+                    const wn = panelWidth(n - p0, nr);
+                    var r0: usize = 0;
+                    while (r0 < m) {
+                        const wm = panelWidth(m - r0, mr);
+                        splitTile(conj, wm, wn, k, ar, ai, ba + 2 * r0 * k, bb + 2 * p0 * k, c + 2 * (r0 + p0 * ld), ld);
+                        r0 += wm;
+                    }
+                    p0 += wn;
+                }
+                return 0;
+            }
             var q0: usize = 0;
             while (q0 + nr <= n) : (q0 += nr) rows(conj, nr, m, k, ar, ai, ba, bb + 2 * q0 * k, c + 2 * q0 * ld, ld);
             inline for (comptime tails(nr)) |w| {
@@ -509,7 +528,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             return 0;
         }
 
-        fn rows(comptime conj: Conj, comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn rows(conj: Conj, comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             var r0: usize = 0;
             while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ conj, mr, wn, k, ar, ai, ba + 2 * r0 * k, pb, c + 2 * r0, ld });
             inline for (comptime tails(mr)) |w| {
@@ -520,8 +539,9 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             }
         }
 
-        fn tile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
-            if (geo.split) splitTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld) else vectorTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld);
+        fn tile(conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+            if (geo.split) unreachable;
+            vectorTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld);
         }
 
         /// `[1, 0, 3, 2, ...]`: each element's parts swapped.
@@ -541,7 +561,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         /// One `wm x wn` tile on vectors of whole elements: `acc1` sums A
         /// times the real parts of B, `acc2` A times the imaginary ones; the
         /// products' cross terms come from swapping `acc2`'s parts at the end.
-        fn vectorTile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn vectorTile(conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             @setEvalBranchQuota(100_000);
             const lanes: usize = 2 * @as(usize, @min(vl, wm));
             const nv = 2 * wm / lanes;
@@ -571,7 +591,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             const swap = comptime swapMask(lanes);
             // `(x + iy)(u + iv)` with x, y from A and u, v from B: acc1 holds
             // (xu, yu), the swapped acc2 (yv, xv)
-            const sb = comptime switch (conj) {
+            const sb = switch (conj) {
                 .n => alternate(lanes, -1, 1),
                 .l => alternate(lanes, 1, 1),
                 .r => alternate(lanes, 1, -1),
@@ -582,7 +602,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             const ali = alternate(lanes, -ai, ai);
             inline for (0..wn) |j| inline for (0..nv) |v| {
                 const s = @shuffle(F, acc2[j][v], undefined, swap);
-                const first = if (comptime conj.ofA()) acc1[j][v] * sa else acc1[j][v];
+                const first = if (conj.ofA()) acc1[j][v] * sa else acc1[j][v];
                 const res = madd(F, lanes, s, sb, first);
                 const p = c + 2 * j * ld + v * lanes;
                 const rs = @shuffle(F, res, undefined, swap);
@@ -594,24 +614,27 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         }
 
         /// The same with each part a scalar, summed in `A`.
-        fn splitTile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
-            @setEvalBranchQuota(100_000);
-            var re: [wn][wm]A = @splat(@splat(0));
-            var im: [wn][wm]A = @splat(@splat(0));
+        fn splitTile(conj: Conj, wm: usize, wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+            // the tile's most, of which `wm x wn` are used
+            var re: [nr][mr]A = @splat(@splat(0));
+            var im: [nr][mr]A = @splat(@splat(0));
             var a = pa;
             var b = pb;
-            // plain loops over the tile, which optimized builds unroll: a debug
-            // build of the unrolled tile overran its frame on MIPS release 6
+            // a conjugated operand's imaginary parts change sign
+            const ya: A = if (conj.ofA()) -1 else 1;
+            const yb: A = if (conj.ofB()) -1 else 1;
+            // loops over the tile, not unrolled: a debug build of the unrolled
+            // tile overran its frame on MIPS release 6
             for (0..k) |_| {
-                var x: [wm]A = undefined;
-                var y: [wm]A = undefined;
+                var x: [mr]A = undefined;
+                var y: [mr]A = undefined;
                 for (0..wm) |i| {
                     x[i] = a[2 * i];
-                    y[i] = if (comptime conj.ofA()) -@as(A, a[2 * i + 1]) else a[2 * i + 1];
+                    y[i] = @as(A, a[2 * i + 1]) * ya;
                 }
                 for (0..wn) |j| {
                     const u: A = b[2 * j];
-                    const v: A = if (comptime conj.ofB()) -@as(A, b[2 * j + 1]) else b[2 * j + 1];
+                    const v: A = @as(A, b[2 * j + 1]) * yb;
                     for (0..wm) |i| {
                         re[j][i] = madd(A, 1, -y[i], v, madd(A, 1, x[i], u, re[j][i]));
                         im[j][i] = madd(A, 1, x[i], v, madd(A, 1, y[i], u, im[j][i]));
@@ -677,6 +700,10 @@ fn Owner(comptime T: type, comptime name: []const u8) type {
 fn fill(vt: *Vtable, comptime list: anytype, comptime source: anytype) void {
     inline for (list) |p| {
         inline for (sets) |s| {
+            // `q` and `x` alias `d` and `z` where `XDouble` is `f64`, and
+            // nothing reaches their slots but gemm's (`portable.letter`)
+            const alias = XDouble == f64 and (p[0][0] == 'q' or p[0][0] == 'x');
+            if (comptime alias and s != @This()) continue;
             inline for (comptime slotNames(p[0], s.Kernels(p[1], geometry(p[1])))) |name| {
                 @field(vt, p[0] ++ name) = source.function(p[0], p[1], s, name);
             }

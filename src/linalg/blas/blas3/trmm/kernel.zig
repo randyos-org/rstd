@@ -13,6 +13,9 @@
 //! `C` conjugate the triangle. Unlike the reference, whose tiles multiply the
 //! zeros a diagonal block packs, the diagonal block sums its triangle alone,
 //! so an infinity meets no zero.
+//!
+//! Each slot is a thin wrapper: one copy and one kernel body per precision,
+//! the options run-time values, keep the code small.
 
 const types = @import("../../types.zig");
 const gk = @import("../gemm/kernel.zig");
@@ -32,27 +35,28 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
     return struct {
         // ---- copies --------------------------------------------------------
 
-        fn Source(comptime across: bool, comptime upper: bool, comptime unit: bool) type {
-            return struct {
-                a: [*]const E,
-                ld: usize,
-                x: usize,
-                y: usize,
+        const Source = struct {
+            a: [*]const E,
+            ld: usize,
+            x: usize,
+            y: usize,
+            across: bool,
+            upper: bool,
+            unit: bool,
 
-                pub inline fn at(s: @This(), j: usize, l: usize) ?E {
-                    const line = s.y + j;
-                    const depth = s.x + l;
-                    const row = if (across) line else depth;
-                    const col = if (across) depth else line;
-                    if (if (upper) row > col else row < col) return null;
-                    if (unit and row == col) return if (complex) .{ 1, 0 } else 1;
-                    return s.a[row + col * s.ld];
-                }
-            };
-        }
+            pub fn at(s: Source, j: usize, l: usize) ?E {
+                const line = s.y + j;
+                const depth = s.x + l;
+                const row = if (s.across) line else depth;
+                const col = if (s.across) depth else line;
+                if (if (s.upper) row > col else row < col) return null;
+                if (s.unit and row == col) return if (complex) .{ 1, 0 } else 1;
+                return s.a[row + col * s.ld];
+            }
+        };
 
-        fn copy(comptime u: usize, comptime across: bool, comptime upper: bool, comptime unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
-            const src: Source(across, upper, unit) = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY) };
+        fn copy(u: usize, upper: bool, across: bool, unit: bool, m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) i32 {
+            const src: Source = .{ .a = @ptrCast(a), .ld = @intCast(lda), .x = @intCast(posX), .y = @intCast(posY), .across = across, .upper = upper, .unit = unit };
             gk.packWith(E, u, @intCast(m), @intCast(n), @ptrCast(b), src);
             return 0;
         }
@@ -61,7 +65,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         fn Copy(comptime u: usize, comptime upper: bool, comptime across: bool, comptime unit: bool) type {
             return struct {
                 fn f(m: BlasLong, n: BlasLong, a: [*]F, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]F) callconv(cc) i32 {
-                    return copy(u, across, upper, unit, m, n, a, lda, posX, posY, b);
+                    return copy(u, upper, across, unit, m, n, a, lda, posX, posY, b);
                 }
             };
         }
@@ -112,20 +116,23 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         pub const trmm_kernel_RC = if (complex) Kernel(false, true, true).f else {};
 
         /// The gemm kernel conjugating the triangle's side.
-        inline fn gemm(comptime left: bool, comptime conj: bool, m: usize, n: usize, k: usize, alpha: [*]const F, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
-            const args = .{ @as(BlasLong, @intCast(m)), @as(BlasLong, @intCast(n)), @as(BlasLong, @intCast(k)) };
+        fn gemm(left: bool, conj: bool, m: usize, n: usize, k: usize, alpha: [*]const F, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+            const bm: BlasLong = @intCast(m);
+            const bn: BlasLong = @intCast(n);
+            const bk: BlasLong = @intCast(k);
             if (comptime complex) {
-                const f = if (!conj) G.gemm_kernel_n else if (left) G.gemm_kernel_l else G.gemm_kernel_r;
-                _ = f(args[0], args[1], args[2], alpha[0], alpha[1], @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
+                const f = if (!conj) &G.gemm_kernel_n else if (left) &G.gemm_kernel_l else &G.gemm_kernel_r;
+                _ = f(bm, bn, bk, alpha[0], alpha[1], @ptrCast(a), @ptrCast(b), @ptrCast(c), @intCast(ldc));
             } else {
-                _ = G.gemm_kernel(args[0], args[1], args[2], alpha[0], a, b, c, @intCast(ldc));
+                _ = G.gemm_kernel(bm, bn, bk, alpha[0], a, b, c, @intCast(ldc));
             }
         }
 
-        fn run(comptime left: bool, comptime from: bool, comptime conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha: [*]const F, ba: [*]F, bb: [*]F, bc: [*]F, ldc: BlasLong, offset: BlasLong) void {
+        fn run(left: bool, from: bool, conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha: [*]const F, ba: [*]F, bb: [*]F, bc: [*]F, ldc: BlasLong, offset: BlasLong) void {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: isize = bk;
+            const ku: usize = @intCast(k);
             const ld: usize = @intCast(ldc);
             const a: [*]E = @ptrCast(ba);
             const b: [*]E = @ptrCast(bb);
@@ -137,7 +144,6 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                 var r0: usize = 0;
                 while (r0 < m) {
                     const w = gk.panelWidth(m - r0, mr);
-                    const ku: usize = @intCast(k);
                     const pa = a + r0 * ku;
                     const pb = b + c0 * ku;
                     const pc = c + r0 + c0 * ld;
