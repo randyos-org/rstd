@@ -17,17 +17,9 @@ pub const Core = coretypes.SparcCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/sparc/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/sparc/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/sparc/asm/__root__.zig")),

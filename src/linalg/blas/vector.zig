@@ -17,8 +17,10 @@ const types = @import("types.zig");
 const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 const fma = @import("fma.zig");
+const extremum = @import("blas1/extremum.zig");
 
 const BlasLong = types.BlasLong;
+const Find = extremum.Find;
 
 /// Lanes of one native vector of `F`: a NEON register on AArch64, where
 /// `std.simd` counts SVE as 256 bits, which LLVM splits into NEON pairs.
@@ -194,61 +196,100 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return s;
         }
 
-        /// The first largest `|x|`, from 1 (`firstMax`).
-        pub fn iamax(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) BlasLong {
-            if (n <= 0 or incx <= 0) return 0;
-            return firstMax(@intCast(n), x, @intCast(incx), struct {
-                inline fn key(p: [*]const F, s: usize, i: usize) F {
-                    return @abs(p[i * s]);
-                }
-                inline fn block(p: [*]const F, s: usize, i: usize) F {
-                    var m: [4]V = undefined;
-                    if (s == 1) {
-                        inline for (0..4) |q| m[q] = @abs(ld(p + i + q * W));
-                    } else {
-                        inline for (0..4) |q| {
-                            var r: [W]F = undefined;
-                            inline for (0..W) |k| r[k] = key(p, s, i + q * W + k);
-                            m[q] = r;
-                        }
+        /// The extremes by `find`, value and 1-based index, as the portable
+        /// kernels (`extremum.zig`), to which they fall back for a NaN.
+        fn Extreme(comptime find: Find) type {
+            return struct {
+                const P = extremum.Extremum(F, 1, find);
+                const Key = struct {
+                    inline fn key(p: [*]const F, s: usize, i: usize) F {
+                        return if (find.abs) @abs(p[i * s]) else p[i * s];
                     }
-                    return @reduce(.Max, @max(@max(m[0], m[1]), @max(m[2], m[3])));
+                    inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
+                        var m: [4]V = undefined;
+                        inline for (0..4) |q| {
+                            if (s == 1) {
+                                m[q] = ld(p + i + q * W);
+                            } else {
+                                var r: [W]F = undefined;
+                                inline for (0..W) |k| r[k] = p[(i + q * W + k) * s];
+                                m[q] = r;
+                            }
+                            if (find.abs) m[q] = @abs(m[q]);
+                            chk.* += if (find.abs) m[q] else @abs(m[q]);
+                        }
+                        return pick(find, m);
+                    }
+                };
+
+                pub fn value(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
+                    if (n <= 0 or incx <= 0) return 0;
+                    const r = search(@intCast(n), x, @intCast(incx), find, Key) orelse return P.value(n, x, incx);
+                    return r[1];
                 }
-            });
+
+                pub fn index(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) BlasLong {
+                    if (n <= 0 or incx <= 0) return 0;
+                    const r = search(@intCast(n), x, @intCast(incx), find, Key) orelse return P.index(n, x, incx);
+                    return @intCast(r[0] + 1);
+                }
+            };
         }
 
-        /// The first largest `Key.key(x, s, i)`, from 1, `Key.block` giving the
-        /// largest of the `4 * W` keys from `i`. One pass keeps the first block
-        /// with the largest maximum, no index kept per element; only that block
-        /// is searched for the index. A NaN key is passed over, as by the
-        /// portable kernel's `>`, but for the first, which nothing replaces.
-        pub fn firstMax(len: usize, x: [*]const F, s: usize, comptime Key: type) BlasLong {
+        pub const amax = Extreme(.{ .abs = true, .max = true }).value;
+        pub const iamax = Extreme(.{ .abs = true, .max = true }).index;
+        pub const amin = Extreme(.{ .abs = true, .max = false }).value;
+        pub const iamin = Extreme(.{ .abs = true, .max = false }).index;
+        pub const max = Extreme(.{ .abs = false, .max = true }).value;
+        pub const imax = Extreme(.{ .abs = false, .max = true }).index;
+        pub const min = Extreme(.{ .abs = false, .max = false }).value;
+        pub const imin = Extreme(.{ .abs = false, .max = false }).index;
+
+        /// The extreme of four vectors of keys.
+        pub inline fn pick(comptime find: Find, m: [4]V) F {
+            if (find.max) return @reduce(.Max, @max(@max(m[0], m[1]), @max(m[2], m[3])));
+            return @reduce(.Min, @min(@min(m[0], m[1]), @min(m[2], m[3])));
+        }
+
+        inline fn better(comptime find: Find, k: F, best: F) bool {
+            return if (find.max) k > best else k < best;
+        }
+
+        /// `find`'s first extreme of `len` keys at a stride of `s` floats,
+        /// `Key.key` giving one and `Key.block` the extreme of the `4 * W`
+        /// from `i`, adding their magnitudes to `chk`, which only a NaN key
+        /// makes NaN. One pass keeps the first block with the extreme, no
+        /// index kept per element; only that block is searched for the
+        /// index. Its index from 0 and its key, or null for a NaN key.
+        pub fn search(len: usize, x: [*]const F, s: usize, comptime find: Find, comptime Key: type) ?struct { usize, F } {
             const B = 4 * W;
-            const k0 = Key.key(x, s, 0);
-            if (std.math.isNan(k0)) return 1;
-            var best = k0;
+            var best = Key.key(x, s, 0);
+            if (best != best) return null;
             var pos: usize = 0;
             var i: usize = 0;
             if (len >= B) {
+                var chk: V = @splat(0);
                 var blk: usize = 0;
                 while (i + B <= len) : (i += B) {
-                    const m = Key.block(x, s, i);
-                    if (m > best) {
+                    const m = Key.block(x, s, i, &chk);
+                    if (better(find, m, best)) {
                         best = m;
                         blk = i;
                     }
                 }
+                if (std.math.isNan(@reduce(.Add, chk))) return null;
                 pos = blk;
                 while (Key.key(x, s, pos) != best) pos += 1;
             }
             while (i < len) : (i += 1) {
                 const k = Key.key(x, s, i);
-                if (k > best) {
+                if (k != k) return null;
+                if (better(find, k, best)) {
                     best = k;
                     pos = i;
                 }
             }
-            return @intCast(pos + 1);
+            return .{ pos, Key.key(x, s, pos) };
         }
 
         pub fn copy(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) callconv(.c) i32 {
@@ -618,32 +659,58 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
             return @shuffle(F, a, b, mask);
         }
 
-        /// The first largest `|re| + |im|`, as `Real.iamax`.
-        pub fn iamax(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) BlasLong {
-            if (n <= 0 or incx <= 0) return 0;
-            return Real(F, W / lanes(F)).firstMax(@intCast(n), x, 2 * @as(usize, @intCast(incx)), struct {
-                inline fn key(p: [*]const F, s: usize, i: usize) F {
-                    return @abs(p[i * s]) + @abs(p[i * s + 1]);
-                }
-                inline fn block(p: [*]const F, s: usize, i: usize) F {
-                    var m: [4]V = undefined;
-                    if (s == 2) {
-                        inline for (0..4) |q| {
-                            const a = @abs(ld(p + 2 * (i + q * W)));
-                            const b = @abs(ld(p + 2 * (i + q * W) + W));
-                            m[q] = parts(a, b, false) + parts(a, b, true);
-                        }
-                    } else {
-                        inline for (0..4) |q| {
-                            var r: [W]F = undefined;
-                            inline for (0..W) |k| r[k] = key(p, s, i + q * W + k);
-                            m[q] = r;
-                        }
+        /// The extremes of `|re| + |im|`, as `Real`'s. The index falls back
+        /// to the portable kernel for an infinite key too, which may be a
+        /// finite element's that overflowed.
+        fn Extreme(comptime find: Find) type {
+            return struct {
+                const P = extremum.Extremum(F, 2, find);
+                const S = Real(F, W / lanes(F));
+                const Key = struct {
+                    inline fn key(p: [*]const F, s: usize, i: usize) F {
+                        return @abs(p[i * s]) + @abs(p[i * s + 1]);
                     }
-                    return @reduce(.Max, @max(@max(m[0], m[1]), @max(m[2], m[3])));
+                    inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
+                        var m: [4]V = undefined;
+                        inline for (0..4) |q| {
+                            if (s == 2) {
+                                const a = @abs(ld(p + 2 * (i + q * W)));
+                                const b = @abs(ld(p + 2 * (i + q * W) + W));
+                                m[q] = parts(a, b, false) + parts(a, b, true);
+                            } else {
+                                var r: [W]F = undefined;
+                                inline for (0..W) |k| r[k] = key(p, s, i + q * W + k);
+                                m[q] = r;
+                            }
+                            chk.* += m[q];
+                        }
+                        return S.pick(find, m);
+                    }
+                };
+
+                fn search(n: BlasLong, x: [*]F, incx: BlasLong) ?struct { usize, F } {
+                    return S.search(@intCast(n), x, 2 * @as(usize, @intCast(incx)), find, Key);
                 }
-            });
+
+                pub fn value(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
+                    if (n <= 0 or incx <= 0) return 0;
+                    const r = search(n, x, incx) orelse return P.value(n, x, incx);
+                    return r[1];
+                }
+
+                pub fn index(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) BlasLong {
+                    if (n <= 0 or incx <= 0) return 0;
+                    const r = search(n, x, incx) orelse return P.index(n, x, incx);
+                    if (std.math.isInf(r[1])) return P.index(n, x, incx);
+                    return @intCast(r[0] + 1);
+                }
+            };
         }
+
+        pub const amax = Extreme(.{ .abs = true, .max = true }).value;
+        pub const iamax = Extreme(.{ .abs = true, .max = true }).index;
+        pub const amin = Extreme(.{ .abs = true, .max = false }).value;
+        pub const iamin = Extreme(.{ .abs = true, .max = false }).index;
 
         pub fn copy(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) callconv(.c) i32 {
             if (n <= 0) return 0;
@@ -767,10 +834,11 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 /// Whether `role`'s converted kernels give way to the portable or these on
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
-/// is Blue's for `d` and `z`. `asm_registry.Kernels` leaves them out; an
+/// is Blue's for `d` and `z`; in the extremes the first NaN wins. `asm_registry.Kernels` leaves them out; an
 /// architecture's `Registry` puts these in where its vector unit is IEEE.
 pub fn routed(comptime role: []const u8) bool {
-    return std.mem.endsWith(u8, role, "nrm2");
+    const extreme = std.mem.endsWith(u8, role, "max") or std.mem.endsWith(u8, role, "min");
+    return extreme or std.mem.endsWith(u8, role, "nrm2");
 }
 
 /// A kernel: its role (`saxpy`, `cdotc`, `izamax`, `zgemv_r`), and the
@@ -784,16 +852,24 @@ pub const roles: []const Role = blk: {
         for (.{ "axpy", "dot", "scal", "nrm2", "asum", "copy", "swap", "rot", "gemv_n", "gemv_t" }) |f| {
             r = r ++ &[_]Role{.{ .name = p[0] ++ f, .F = p[1], .complex = false, .f = f }};
         }
-        r = r ++ &[_]Role{.{ .name = "i" ++ p[0] ++ "amax", .F = p[1], .complex = false, .f = "iamax" }};
+        for (.{ "amax", "amin", "max", "min" }) |f| {
+            r = r ++ &[_]Role{
+                .{ .name = p[0] ++ f, .F = p[1], .complex = false, .f = f },
+                .{ .name = "i" ++ p[0] ++ f, .F = p[1], .complex = false, .f = "i" ++ f },
+            };
+        }
     }
     for (.{ .{ "c", f32, "s" }, .{ "z", f64, "d" } }) |p| {
         for (.{ "axpy", "axpyc", "dotu", "dotc", "scal", "nrm2", "asum", "copy", "swap" }) |f| {
             r = r ++ &[_]Role{.{ .name = p[0] ++ f, .F = p[1], .complex = true, .f = f }};
         }
-        r = r ++ &[_]Role{
-            .{ .name = "i" ++ p[0] ++ "amax", .F = p[1], .complex = true, .f = "iamax" },
-            .{ .name = p[0] ++ p[2] ++ "rot", .F = p[1], .complex = true, .f = "rot" },
-        };
+        for (.{ "amax", "amin" }) |f| {
+            r = r ++ &[_]Role{
+                .{ .name = p[0] ++ f, .F = p[1], .complex = true, .f = f },
+                .{ .name = "i" ++ p[0] ++ f, .F = p[1], .complex = true, .f = "i" ++ f },
+            };
+        }
+        r = r ++ &[_]Role{.{ .name = p[0] ++ p[2] ++ "rot", .F = p[1], .complex = true, .f = "rot" }};
         for ("ntrcousd") |s| {
             r = r ++ &[_]Role{.{ .name = p[0] ++ "gemv_" ++ [_]u8{s}, .F = p[1], .complex = true, .f = "gemv_" ++ [_]u8{s} }};
         }

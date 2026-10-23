@@ -17,17 +17,9 @@ pub const Core = coretypes.MipsCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/mips64/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/mips64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/mips64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/mips64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/mips64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/mips64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/mips64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/mips64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/mips64/asm/__root__.zig")),

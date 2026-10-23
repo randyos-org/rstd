@@ -11,6 +11,7 @@ const blas1 = @import("__root__.zig");
 const portable = @import("../portable.zig");
 const types = @import("../types.zig");
 const vector = @import("../vector.zig");
+const extremum = @import("extremum.zig");
 
 /// The extended float the `q`/`x` portable kernels are tested at: `XDouble`
 /// where it is one, else `f80`, whose kernels are generic Zig ones
@@ -511,6 +512,51 @@ fn withCore(comptime c: cpu.CoreType, comptime check: fn (*const Vtable) anyerro
     cpu.kernel.install(&vt, c);
     portable.finish(&vt);
     return check(&vt);
+}
+
+// ---- the extremes --------------------------------------------------------------
+
+/// `kern` (a `value` or `index` kernel of the extremes, by its return type)
+/// against a plain loop; `T` is the element type, real or complex.
+pub fn checkExtreme(comptime T: type, comptime find: extremum.Find, routine: []const u8, kern: anytype) !void {
+    const F = FloatOf(T);
+    const complex = comptime isComplex(T);
+    for (sizes) |n| {
+        for ([_]usize{ 1, 2, 3 }) |inc| {
+            var x: [capacity]T = undefined;
+            fill(T, &x, n + 1);
+            const W = Wide(F);
+            var best: usize = 0;
+            var best_key: W = undefined;
+            for (0..n) |i| {
+                const v = x[i * inc];
+                const k: W = if (comptime complex) @abs(@as(W, v.re)) + @abs(@as(W, v.im)) else if (find.abs) @abs(@as(W, v)) else v;
+                if (i == 0 or (if (find.max) k > best_key else k < best_key)) {
+                    best = i;
+                    best_key = k;
+                }
+            }
+            const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
+            const ok = if (@TypeOf(got) == types.BlasLong)
+                expectClose(f64, @floatFromInt(best + 1), @floatFromInt(got), 0)
+            else
+                expectCloseRef(F, best_key, got, tolerance(F, 1));
+            ok catch |e| return case(e, routine, T, n, .{ inc, 0 });
+        }
+    }
+}
+
+test "the portable extremes at the extended type match a plain loop" {
+    const E = Ext;
+    inline for (.{ false, true }) |abs| inline for (.{ false, true }) |max| {
+        const find: extremum.Find = .{ .abs = abs, .max = max };
+        try checkExtreme(E, find, "value", &extremum.Extremum(E, 1, find).value);
+        try checkExtreme(E, find, "index", &extremum.Extremum(E, 1, find).index);
+        if (abs) {
+            try checkExtreme(std.math.Complex(E), find, "value", &extremum.Extremum(E, 2, find).value);
+            try checkExtreme(std.math.Complex(E), find, "index", &extremum.Extremum(E, 2, find).index);
+        }
+    };
 }
 
 test "tolerance goes by width, so a 64-bit c_longdouble gets f64's" {

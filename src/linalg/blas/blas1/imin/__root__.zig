@@ -52,15 +52,15 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 fn checkAll(vt: *const Vtable) !void {
-    try extremum.checkKernel(f32, find, "ismin", vt.ismin_k.?);
-    try extremum.checkKernel(f64, find, "idmin", vt.idmin_k.?);
+    try check.checkExtreme(f32, find, "ismin", vt.ismin_k.?);
+    try check.checkExtreme(f64, find, "idmin", vt.idmin_k.?);
 }
 
 test "portable imin kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkAll(&vt);
-    try extremum.checkKernel(XDouble, find, "iqmin", vt.iqmin_k.?);
+    try check.checkExtreme(XDouble, find, "iqmin", vt.iqmin_k.?);
 }
 
 test "every linked core's imin kernels match a plain loop, where this machine runs them" {

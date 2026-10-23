@@ -17,16 +17,8 @@ pub const Core = coretypes.ArmCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/arm/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/arm/asm/__root__.zig")),

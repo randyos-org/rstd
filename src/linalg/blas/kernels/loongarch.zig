@@ -18,18 +18,10 @@ pub const Core = coretypes.LoongarchCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/loongarch64/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/axpby/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/loongarch64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/loongarch64/asm/__root__.zig")),

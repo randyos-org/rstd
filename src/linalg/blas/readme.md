@@ -150,6 +150,13 @@ does not depend on the core (`threading.md`; `comparisons.md`, X1).
   Upstream has three algorithms: x86_64 sums in `f64` (`nrm2_sse.S`), x86
   and x86_64 in the x87's `f80` (`nrm2.S`), the rest scale a one-pass loop,
   several of them wrong on special values (`issues.md`).
+- The extremes (`i?amax`, `i?amin`, `i?max`, `i?min` and their values): the
+  first NaN wins, its index and NaN for the value, as in Reference-LAPACK
+  master (`50dc1bf`, `b358788`), BLIS's `amaxv` and arXiv:2207.09281; else
+  the first extreme. Complex keys are `|re| + |im|`; where one overflows for
+  a finite element, the index compares `|re|/4 + |im|/4`, as `izamax.f90`
+  does, so an infinite part still wins. The converted kernels pass NaN over,
+  or pick one by vector lane (`issues.md`).
 
 The `@Vector` kernels fill them where the vector unit is IEEE: x86_64, x86,
 arm64 (Apple's systems too), loongarch64 and POWER8 to 10. The portable ones
@@ -161,13 +168,15 @@ The converted kernels stay in the tree, unwired (`kernels/<arch>.zig`).
 
 `vector.zig` has plain `@Vector` kernels, four NEON registers a step, for
 `axpy` and `axpyc`, `dot`, `dotu` and `dotc`, `scal`, `nrm2`, `asum`,
-`i?amax`, `copy`, `swap`, `rot` and every `gemv`, over `s`, `d`, `c` and `z`.
+the extremes, `copy`, `swap`, `rot` and every `gemv`, over `s`, `d`, `c` and
+`z`.
 On the M6 they match or beat both the converted assembly and OpenBLAS's own
 kernels, which are tuned for ThunderX2 and Neoverse N1 (prefetches, narrow
-loops; `tools/blasbench/results-m6.md`). `i?amax` searches only the first
-block with the largest maximum; `nrm2` sums plain squares, in `f64` for `s`
-and `c`, and for `d` and `z` takes Blue's algorithm only where they could
-have overflowed or underflowed. They need no FMA unit: without one a
+loops; `tools/blasbench/results-m6.md`). The extremes search only the first
+block with the extreme; a sum of the keys' magnitudes, NaN only for a NaN
+key, sends them to the portable kernel. `nrm2` sums plain squares, in `f64`
+for `s` and `c`, and for `d` and `z` takes Blue's algorithm only where they
+could have overflowed or underflowed. They need no FMA unit: without one a
 multiply-add rounds twice. Where they go (`kernels/arm64.zig`):
 
 - `vortex`, `vortexm4`: every slot but `rot`, whose converted kernel stays
@@ -199,8 +208,8 @@ The portable kernels are Zig algorithms with the reference's documented
 semantics, not copies of its C: `dsdot` accumulates in `f64` (so does `sdot`),
 `nrm2` sums squares in `f64` for `s` and `c` and is Blue's for `d` and `z`,
 infinite for infinities and NaN for NaN (LAPACK 3.10's), `scal`'s flag keeps
-NaN and Inf, `i?amax` returns the first of equal extremes, and a NaN first
-element is never replaced. Not required by the design, so not done: reproducing the
+NaN and Inf, and `i?amax` returns the first NaN, else the first of equal
+extremes. Not required by the design, so not done: reproducing the
 reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial
 sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
 its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
@@ -286,7 +295,8 @@ The per-core tests in the qemu rigs found bugs in some of OpenBLAS's own
 assembly files (still there on OpenBLAS master, v0.3.34-317). The generator
 fixes each one before converting it: `patches` in `tools/blas_asm/arch/`, an
 exact text edit that must match, with a comment saying what was wrong. The
-generated files carry the fixed code.
+generated files carry the fixed code. No core takes the extremes' and
+`nrm2`'s kernels any more ("One contract on every core"), fixed or not.
 
 - `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte
   result first, shifting the arguments along; the kernel read that address

@@ -1267,11 +1267,17 @@ test "portable kernels: special values and ranges" {
     v = .{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
     _ = scalk.dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 0);
     for (v) |e| try std.testing.expectEqual(@as(f64, 0), e);
-    // iamax: first of equal maxima, 1-based; a NaN first element is never replaced
+    // iamax: first of equal maxima, 1-based; the first NaN wins
     var ties = [_]f64{ 1, -3, 3, 2 };
     try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.idamax_generic(4, &ties, 1));
-    var nan_first = [_]f64{ std.math.nan(f64), 5, 7 };
-    try std.testing.expectEqual(@as(BlasLong, 1), iamaxk.idamax_generic(3, &nan_first, 1));
+    var nans = [_]f64{ 5, std.math.inf(f64), std.math.nan(f64), 7, std.math.nan(f64) };
+    try std.testing.expectEqual(@as(BlasLong, 3), iamaxk.idamax_generic(5, &nans, 1));
+    // complex: an infinite part beats a finite element whose |re| + |im| overflows
+    const big = std.math.floatMax(f64);
+    var z = [_]f64{ big, big, 1, std.math.inf(f64), big, 0 };
+    try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.izamax_generic(3, &z, 1));
+    z[3] = 1;
+    try std.testing.expectEqual(@as(BlasLong, 1), iamaxk.izamax_generic(3, &z, 1));
     // dsdot accumulates in double: a sum f32 would lose
     var xs: [3]f32 = .{ 16777216, 1, 1 };
     try std.testing.expectEqual(@as(f64, 16777216.0 * 16777216.0 + 2), dotk.dsdot_generic(3, &xs, 1, &xs, 1));

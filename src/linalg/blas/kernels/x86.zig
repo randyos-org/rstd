@@ -18,17 +18,9 @@ pub const Core = coretypes.X86CoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/x86/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/x86/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/x86/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/x86/asm/__root__.zig")),

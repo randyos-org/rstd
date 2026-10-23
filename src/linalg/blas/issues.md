@@ -628,13 +628,13 @@ only the elements it uses):
 ### Special values some converted kernels treat otherwise
 
 The edge-case tests (`blas1/edge.zig` and `blas2/edge.zig`, on every rig)
-found these. Reference BLAS's `i?amax` replaces its pick only on a strict
-`>`, so NaN is picked only as the first element, and then nothing replaces
-it; LAPACK 3.10's `nrm2` is infinite for an infinity; `kernel/arm/axpby.c`
-reads no operand whose scalar is zero.
+found these. In rstd's extremes the first NaN wins (`readme.md`, "One
+contract on every core"); LAPACK 3.10's `nrm2` is infinite for an
+infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 
-Not fixed, so `blas1/edge.zig`'s `Quirk` names it and the tests check what
-the kernels do:
+Not used: no core takes a converted extreme kernel. Upstream's follow
+Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
+`>`, so NaN is picked only as the first element, or worse:
 
 - **Extremes, lane by lane.** `x86_64/amax_sse.S`, `amax_sse2.S`,
   `zamax_sse.S`, `zamax_sse2.S`, `iamax_sse.S`, `iamax_sse2.S`,
@@ -644,8 +644,11 @@ the kernels do:
   compare in vector lanes, so what a NaN does depends on where it falls: a
   NaN first may be passed over, a later one picked. `power/amax.S`, with a
   NaN last, returned an element smaller than the maximum;
-  `loongarch64/amax_lsx.S` returned 0 for a lone NaN. Left as they are: the
-  reference's order needs each SIMD reduction rewritten.
+  `loongarch64/amax_lsx.S` returned 0 for a lone NaN. Meeting "first NaN"
+  needs each SIMD reduction rewritten.
+- **The rest.** The x86, arm, arm64 `iamax`, mips64 and SPARC extremes keep
+  the strict compare (after the fixes below), so a NaN after the first
+  element is passed over.
 
 Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
 algorithm everywhere (`readme.md`, "One contract on every core"). x86_64's

@@ -19,11 +19,9 @@ pub const Core = coretypes.Arm64CoreType;
 /// upstream writes in C.
 const converted = .{
     @import("../blas1/axpy/arm64/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/arm64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/arm64/asm/__root__.zig")),

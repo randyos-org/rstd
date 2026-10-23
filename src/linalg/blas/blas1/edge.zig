@@ -8,19 +8,18 @@
 //! - `axpby` with a zero `beta` never reads `y`, with a zero `alpha` never
 //!   reads `x` (`kernel/arm/axpby.c`); both zero store zeros;
 //! - `rotm` with flag -2 leaves `x` and `y` alone;
-//! - the extremes replace only on a strict `>` or `<`: NaN is never picked
-//!   but as the first element, which nothing then replaces;
+//! - in the extremes the first NaN wins, its index and NaN for the value;
+//!   else they replace only on a strict `>` or `<`, so ties keep the first;
 //! - `nrm2` is Inf for an infinity and NaN for a NaN, as LAPACK 3.10's; past
 //!   `f64` it is the plain sum of squares (`nrm2/`), so tiny and huge
 //!   operands are not its cases there;
 //! - a zero `alpha` in `scal` follows its flag (`scal/`'s `checkFlag`); in
 //!   `axpy` it is the interface's quick return, never a kernel call.
 //!
-//! Where a core's kernels do otherwise upstream (`issues.md`), `Quirk` says
-//! what they do, and that is checked instead.
+//! The same on every core: where a core's converted kernels did otherwise,
+//! they are not used (`vector.routed`, `issues.md`).
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../types.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("check.zig");
@@ -46,33 +45,6 @@ const negative = [_][2]isize{ .{ -1, -1 }, .{ -3, 2 }, .{ 2, -3 } };
 /// Strides of a page and more, on fewer sizes and one pattern.
 const large = [_][2]isize{ .{ 4097, 1 }, .{ -65537, 65537 } };
 const large_sizes = [_]usize{ 2, 5 };
-
-/// What some cores' kernels do otherwise upstream, checked instead of the
-/// reference (`issues.md`).
-const Quirk = enum {
-    /// The extremes compare lane by lane, so what a NaN does depends on
-    /// where it falls: any element's key or NaN, any index.
-    nan_lanes,
-};
-
-const Quirks = std.EnumSet(Quirk);
-
-/// The quirks of `routine` (`isamax`, `zcopy`) on the core `check.eachCore`
-/// is running; the portable kernels have none.
-fn quirks(comptime routine: []const u8) Quirks {
-    if (check.core == null) return .empty;
-    // the routine without its index letter and precision
-    const at = comptime if (routine[0] == 'i' and routine.len > 4) 1 else 0;
-    const name = comptime routine[at + 1 ..];
-    const extreme = comptime std.mem.endsWith(u8, name, "max") or std.mem.endsWith(u8, name, "min");
-    var q: Quirks = .empty;
-    switch (sysinfo.cpu.arch) {
-        .x86_64, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64 => if (extreme) q.insert(.nan_lanes),
-        .aarch64, .aarch64_be => if (comptime std.mem.eql(u8, name, "amax")) q.insert(.nan_lanes),
-        else => {},
-    }
-    return q;
-}
 
 /// A case: size, strides, pattern, the operand that has it, and where the
 /// operands' storage comes from.
@@ -363,16 +335,17 @@ fn reduceRun(comptime T: type, ctx: anytype, c: Case) !void {
 }
 
 fn Extreme(comptime K: type) type {
-    return struct { kern: K, find: extremum.Find, q: Quirks };
+    return struct { kern: K, find: extremum.Find };
 }
 
-/// The 1-based index of the extreme element by the reference's scan, which
-/// replaces only on a strict compare.
+/// The 1-based index of the first NaN, else of the extreme element by a scan
+/// that replaces only on a strict compare.
 fn scan(comptime T: type, x: anytype, find: extremum.Find) usize {
     var best: usize = 0;
     var key: f128 = 0;
     for (0..x.n) |i| {
         const k = keyOf(T, x, find, i);
+        if (std.math.isNan(k)) return i + 1;
         const better = if (find.max) k > key else k < key;
         if (best == 0 or better) {
             best = i + 1;
@@ -393,9 +366,6 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
     defer x.deinit(c.al);
     const got = ctx.kern(@intCast(c.n), x.first(), stride(x));
     try x.unchanged();
-    var nan = false;
-    for (0..c.n) |i| nan = nan or std.math.isNan(keyOf(T, &x, ctx.find, i));
-    if (nan and ctx.q.contains(.nan_lanes)) return loose(T, &x, ctx.find, got);
     const ref = scan(T, &x, ctx.find);
     const key = keyOf(T, &x, ctx.find, ref - 1);
     if (@TypeOf(got) == BlasLong) {
@@ -405,23 +375,6 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
         if (@abs(@as(f128, got) - key) <= 2 * std.math.floatEps(Float(T)) * @abs(key)) return;
     }
     check.say("{any}, want {d}: ", .{ got, if (@TypeOf(got) == BlasLong) @as(f128, @floatFromInt(ref)) else keyOf(T, &x, ctx.find, ref - 1) });
-    return error.TestUnexpectedResult;
-}
-
-/// A `nan_lanes` result: NaN or any element's key, or an index from 1 to `n`.
-fn loose(comptime T: type, x: anytype, find: extremum.Find, got: anytype) !void {
-    if (@TypeOf(got) == BlasLong) {
-        if (got >= 1 and got <= @as(BlasLong, @intCast(x.n))) return;
-    } else {
-        // or 0, where a maximum starts from
-        if (std.math.isNan(got) or got == 0) return;
-        for (0..x.n) |i| {
-            const k = keyOf(T, x, find, i);
-            if (got == k) return;
-            if (@abs(@as(f128, got) - k) <= 2 * std.math.floatEps(Float(T)) * @abs(k)) return;
-        }
-    }
-    check.say("{any} is no element's: ", .{got});
     return error.TestUnexpectedResult;
 }
 
@@ -481,7 +434,7 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
         const find: extremum.Find = .{ .abs = name[0] == 'a', .max = comptime std.mem.endsWith(u8, name, "max") };
         inline for (.{ "", "i" }) |i| {
             const k = @field(vt, i ++ l ++ name ++ "_k").?;
-            note(sweep(T, i ++ l ++ name, false, false, Extreme(@TypeOf(k)){ .kern = k, .find = find, .q = quirks(i ++ l ++ name) }, extremeRun));
+            note(sweep(T, i ++ l ++ name, false, false, Extreme(@TypeOf(k)){ .kern = k, .find = find }, extremeRun));
         }
     }
 }

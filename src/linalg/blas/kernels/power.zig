@@ -18,17 +18,9 @@ pub const Core = coretypes.PowerCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/power/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/power/asm/__root__.zig")),
