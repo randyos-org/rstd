@@ -59,10 +59,10 @@ const text =
     \\ sllx %i2, 2, %i2
     \\ .endif
     \\ cmp %i5, 4
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ cmp %i2, 4
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ sra %i0, 3, %i3
     \\ cmp %i3, 0
@@ -182,9 +182,21 @@ const text =
     \\ return %i7 + 8
     \\ clr %g0
     \\ 20005:
+    \\ cmp %i0, 0
+    \\ ble 20011f
+    \\ mov %i0, %i3
+    \\ b 20010f
+    \\ nop
+    \\ 20006:
+    \\ cmp %i5, 0
+    \\ be 20005b
+    \\ nop
+    \\ cmp %i2, 0
+    \\ be 20005b
+    \\ nop
     \\ sra %i0, 3, %i3
     \\ cmp %i3, 0
-    \\ ble,pn %icc, 20008f
+    \\ ble,pn %icc, 20009f
     \\ mov %i1, %l1
     \\ ld [%i4 + 0 * 4], %f0
     \\ add %i3, -1, %i3
@@ -219,9 +231,9 @@ const text =
     \\ ld [%i4 + 0 * 4], %f7
     \\ add %i4, %i5, %i4
     \\ ld [%i1 + 0 * 4], %f15
-    \\ ble,pt %icc, 20007f
+    \\ ble,pt %icc, 20008f
     \\ add %i1, %i2, %i1
-    \\ 20006:
+    \\ 20007:
     \\ fmuls %f31, %f0, %f16
     \\ ld [%i4 + 0 * 4], %f0
     \\ add %i4, %i5, %i4
@@ -287,9 +299,9 @@ const text =
     \\ st %f22, [%l1 + 0 * 4]
     \\ add %l1, %i2, %l1
     \\ st %f23, [%l1 + 0 * 4]
-    \\ bg,pt %icc, 20006b
+    \\ bg,pt %icc, 20007b
     \\ add %l1, %i2, %l1
-    \\ 20007:
+    \\ 20008:
     \\ fmuls %f31, %f0, %f16
     \\ fmuls %f31, %f1, %f17
     \\ fmuls %f31, %f2, %f18
@@ -322,12 +334,12 @@ const text =
     \\ add %l1, %i2, %l1
     \\ st %f23, [%l1 + 0 * 4]
     \\ add %l1, %i2, %l1
-    \\ 20008:
+    \\ 20009:
     \\ and %i0, 7, %i3
     \\ cmp %i3, 0
-    \\ ble,a,pn %icc, 20010f
+    \\ ble,a,pn %icc, 20011f
     \\ nop
-    \\ 20009:
+    \\ 20010:
     \\ ld [%i4 + 0 * 4], %f0
     \\ ld [%i1 + 0 * 4], %f8
     \\ fmuls %f31, %f0, %f16
@@ -336,9 +348,9 @@ const text =
     \\ cmp %i3, 0
     \\ st %f20, [%i1 + 0 * 4]
     \\ add %i1, %i2, %i1
-    \\ bg,pt %icc, 20009b
+    \\ bg,pt %icc, 20010b
     \\ add %i4, %i5, %i4
-    \\ 20010:
+    \\ 20011:
     \\ return %i7 + 8
     \\ clr %o0
     \\ .endm

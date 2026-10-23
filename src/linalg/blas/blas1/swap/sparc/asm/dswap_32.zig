@@ -143,6 +143,8 @@ const Body = struct {
             \\ return %i7 + 8
             \\ clr %g0
             \\ 20005:
+            \\ cmp %i0, 0
+            \\ ble 20010f
             \\ mov %i0, %i4
             \\ b 20009f
             \\ nop

@@ -320,6 +320,8 @@ const text =
     \\ return %i7 + 8
     \\ nop
     \\ 20005:
+    \\ cmp %i0, 0
+    \\ ble 20010f
     \\ mov %i0, %i5
     \\ b 20009f
     \\ nop

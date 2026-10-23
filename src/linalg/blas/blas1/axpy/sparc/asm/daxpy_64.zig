@@ -38,10 +38,10 @@ const Body = struct {
             \\ sllx %i5, 3, %i5
             \\ sllx %i2, 3, %i2
             \\ cmp %i5, 8
-            \\ bne 20005f
+            \\ bne 20006f
             \\ nop
             \\ cmp %i2, 8
-            \\ bne 20005f
+            \\ bne 20006f
             \\ nop
             \\ sra %i0, 3, %i3
             \\ cmp %i3, 0
@@ -161,9 +161,21 @@ const Body = struct {
             \\ return %i7 + 8
             \\ clr %g0
             \\ 20005:
+            \\ cmp %i0, 0
+            \\ ble 20011f
+            \\ mov %i0, %i3
+            \\ b 20010f
+            \\ nop
+            \\ 20006:
+            \\ cmp %i5, 0
+            \\ be 20005b
+            \\ nop
+            \\ cmp %i2, 0
+            \\ be 20005b
+            \\ nop
             \\ sra %i0, 3, %i3
             \\ cmp %i3, 0
-            \\ ble,pn %icc, 20008f
+            \\ ble,pn %icc, 20009f
             \\ mov %i1, %l1
             \\ ldd [%i4 + 0 * 8], %f0
             \\ add %i3, -1, %i3
@@ -198,9 +210,9 @@ const Body = struct {
             \\ ldd [%i4 + 0 * 8], %f14
             \\ add %i4, %i5, %i4
             \\ ldd [%i1 + 0 * 8], %f30
-            \\ ble,pt %icc, 20007f
+            \\ ble,pt %icc, 20008f
             \\ add %i1, %i2, %i1
-            \\ 20006:
+            \\ 20007:
             \\ fmuld %f62, %f0, %f32
             \\ ldd [%i4 + 0 * 8], %f0
             \\ add %i4, %i5, %i4
@@ -266,9 +278,9 @@ const Body = struct {
             \\ std %f44, [%l1 + 0 * 8]
             \\ add %l1, %i2, %l1
             \\ std %f46, [%l1 + 0 * 8]
-            \\ bg,pt %icc, 20006b
+            \\ bg,pt %icc, 20007b
             \\ add %l1, %i2, %l1
-            \\ 20007:
+            \\ 20008:
             \\ fmuld %f62, %f0, %f32
             \\ fmuld %f62, %f2, %f34
             \\ fmuld %f62, %f4, %f36
@@ -301,12 +313,12 @@ const Body = struct {
             \\ add %l1, %i2, %l1
             \\ std %f46, [%l1 + 0 * 8]
             \\ add %l1, %i2, %l1
-            \\ 20008:
+            \\ 20009:
             \\ and %i0, 7, %i3
             \\ cmp %i3, 0
-            \\ ble,a,pn %icc, 20010f
+            \\ ble,a,pn %icc, 20011f
             \\ nop
-            \\ 20009:
+            \\ 20010:
             \\ ldd [%i4 + 0 * 8], %f0
             \\ ldd [%i1 + 0 * 8], %f16
             \\ fmuld %f62, %f0, %f32
@@ -315,9 +327,9 @@ const Body = struct {
             \\ cmp %i3, 0
             \\ std %f40, [%i1 + 0 * 8]
             \\ add %i1, %i2, %i1
-            \\ bg,pt %icc, 20009b
+            \\ bg,pt %icc, 20010b
             \\ add %i4, %i5, %i4
-            \\ 20010:
+            \\ 20011:
             \\ return %i7 + 8
             \\ clr %o0
             \\

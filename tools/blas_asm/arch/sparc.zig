@@ -36,6 +36,9 @@ const patches = [_]arch.Patch{
     zeroStrides("zswap.S", "\tsra\tN, 2, I\n"),
     zeroStrides("rot.S", "\tmov\tX, XX\n\tmov\tY, YY\n\n\tsra\tN, 3, I\n"),
     zeroStrides("zrot.S", "\tmov\tX, XX\n\tmov\tY, YY\n\n\tsra\tN, 2, I\n"),
+    // and with a zero `incy`, `axpy` (per-core `axpy` checks)
+    zeroStrides("axpy.S", "\tsra\tN, 3, I\n"),
+    zeroStrides("zaxpy.S", "\tsra\tN, 2, I\n"),
 };
 
 const reduce =
@@ -65,12 +68,13 @@ fn wideShifts(a: std.mem.Allocator, statement: []const u8) Error![]const u8 {
 }
 
 /// Zero strides branch from the strided entry `.LL50`, whose first
-/// statements are `head`, to the one-at-a-time loop `.LL56`.
+/// statements are `head`, to the one-at-a-time loop `.LL56`; it runs once
+/// before testing the count, so `n` = 0 returns (`.LL59`).
 fn zeroStrides(comptime source: []const u8, comptime head: []const u8) arch.Patch {
     return .{
         .source = source,
         .find = "\n.LL50:\n" ++ head,
-        .replace = "\n.LL57:\n\tmov\tN, I\n\tb\t.LL56\n\tnop\n\n.LL50:\n\tcmp\tINCX, 0\n\tbe\t.LL57\n\tnop\n" ++
+        .replace = "\n.LL57:\n\tcmp\tN, 0\n\tble\t.LL59\n\tmov\tN, I\n\tb\t.LL56\n\tnop\n\n.LL50:\n\tcmp\tINCX, 0\n\tbe\t.LL57\n\tnop\n" ++
             "\tcmp\tINCY, 0\n\tbe\t.LL57\n\tnop\n" ++ head,
     };
 }
