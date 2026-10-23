@@ -5,7 +5,7 @@ assembly on the Apple cores (`vortex`, `vortexm4`), per routine and
 precision. Measured 2026-10-19 with `blas_bench.zig`:
 
 ```sh
-zig build remote-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> -j3
+zig build ssh-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> -j3
 ```
 
 ## Setup

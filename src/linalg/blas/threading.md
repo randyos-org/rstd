@@ -222,7 +222,7 @@ runs it single-threaded.
 
 - **Everywhere, rigs included:** unit tests for chunking, the worker count and the ordered
   combine, and a test that the rigs resolve to one worker.
-- **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `remote-test-aarch64-macos`):
+- **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
   threaded results equal serial results bit for bit for worker counts 1 to 9 (a test hook
   overrides the cached CPU count), all transposes and odd sizes, on the shrunk-blocking
   vtable `blas3/check.zig` uses and its NaN-poisoning allocator. Each case also runs on

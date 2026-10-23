@@ -5,14 +5,14 @@
 //! config, so `host` is an SSH alias or name; nothing about the machine is
 //! stored here.
 //!
-//!   remote_test <host> <test exe> [args...]
+//!   ssh_test <host> <test exe> [args...]
 
 const std = @import("std");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) void {
     std.process.exit(run(init) catch |err| {
-        std.debug.print("remote_test: {t}\n", .{err});
+        std.debug.print("ssh_test: {t}\n", .{err});
         std.process.exit(1);
     });
 }
@@ -22,7 +22,7 @@ fn run(init: std.process.Init) !u8 {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
     if (args.len < 3) {
-        std.debug.print("usage: remote_test <host> <test exe> [args...]\n", .{});
+        std.debug.print("usage: ssh_test <host> <test exe> [args...]\n", .{});
         return 2;
     }
     const host = args[1];
@@ -35,7 +35,7 @@ fn run(init: std.process.Init) !u8 {
     try scp.appendSlice(arena, &options);
     try scp.appendSlice(arena, &.{ "-q", args[2], try std.fmt.allocPrint(arena, "{s}:{s}", .{ host, remote }) });
     if (try exec(io, scp.items) != 0) {
-        std.debug.print("remote_test: copying the tests to {s} failed\n", .{host});
+        std.debug.print("ssh_test: copying the tests to {s} failed\n", .{host});
         return 1;
     }
 
@@ -58,7 +58,7 @@ fn run(init: std.process.Init) !u8 {
 fn exec(io: Io, argv: []const []const u8) !u8 {
     var child = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .inherit, .stderr = .inherit }) catch |err| switch (err) {
         error.FileNotFound => {
-            std.debug.print("remote_test: {s} is not on PATH\n", .{argv[0]});
+            std.debug.print("ssh_test: {s} is not on PATH\n", .{argv[0]});
             return error.FileNotFound;
         },
         else => |e| return e,

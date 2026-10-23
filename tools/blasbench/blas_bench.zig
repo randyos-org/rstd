@@ -5,7 +5,7 @@
 //! of each object against OpenBLAS's own vortex `.S`, assembled from a
 //! checkout by the build. Prints Markdown table rows (`results-m6.md`).
 //!
-//!     zig build remote-bench-aarch64-macos -Dopenblas=<checkout> [-- <section>...]
+//!     zig build ssh-bench-aarch64-macos -Dopenblas=<checkout> [-- <section>...]
 //!
 //! Sections: `probe`, `l1`, `l2`, `l3`; all when none is named.
 

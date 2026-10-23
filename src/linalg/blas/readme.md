@@ -452,11 +452,11 @@ a Debian netboot kernel with the hosted test executable as PID 1
 (`test/linux/init.zig`), for the tests that need an OS: auxiliary-vector
 detection, threads, files.
 
-Apple silicon runs on a real Mac: `zig build remote-test-aarch64-macos`
-copies the tests to the SSH alias `-Dremote-mac` and runs them there
-(`build/remotetest.zig`); the Mac's address and login stay in the SSH config.
+Apple silicon runs on a real Mac: `zig build ssh-test-aarch64-macos`
+copies the tests to the SSH alias `-Dssh-mac` and runs them there
+(`build/sshtest.zig`); the Mac's address and login stay in the SSH config.
 On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
-`-cpu max` cannot show. `zig build remote-bench-aarch64-macos
+`-cpu max` cannot show. `zig build ssh-bench-aarch64-macos
 -Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the
 results are in `tools/blasbench/results-m6.md`.
 
