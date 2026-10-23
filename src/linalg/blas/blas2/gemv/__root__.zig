@@ -441,3 +441,87 @@ test "portable gemv kernels past the x87 row block and every column block" {
 test "every linked core's gemv kernels past the x87 row block and every column block" {
     try check.eachCore(checkAllBig);
 }
+
+/// Room for `shifted`'s `A`, `x` and `y` at the largest shift, 64-byte
+/// aligned so each shift is the same misalignment on every run.
+var shift_mem: [3][(100 + 3) * 13 + 4]C(f64) align(64) = undefined;
+const shift_shapes = [_][2]usize{ .{ 7, 5 }, .{ 33, 9 }, .{ 100, 13 } };
+
+/// `kern` on the same `A`, `x` and `y`, each shifted by 0 to 3 floats, any
+/// alignment a float may have: the same bits in `y` each time, as
+/// `threading.md`'s reproducibility needs.
+fn shifted(comptime T: type, comptime trans: bool, comptime conj: bool, comptime xconj: bool, kern: anytype) !void {
+    const F = check.FloatOf(T);
+    const complex = comptime check.isComplex(T);
+    const w = if (complex) 2 else 1;
+    const alpha: T = if (complex) .init(1.25, -0.5) else 1.25;
+    var vals: [3][(100 + 3) * 13]T = undefined;
+    var first: [100]T = undefined;
+    for (shift_shapes) |mn| {
+        const m = mn[0];
+        const n = mn[1];
+        const lda = m + 3;
+        const rows = if (trans) n else m;
+        const inner = if (trans) m else n;
+        const lens = [3]usize{ lda * n, inner, rows };
+        for (0..3) |k| check.fill(T, vals[k][0..lens[k]], m + 5 * k);
+        for (0..64) |o| {
+            var p: [3][*]F = undefined;
+            for (0..3) |k| {
+                p[k] = @as([*]F, @ptrCast(&shift_mem[k])) + (o >> @intCast(2 * k)) % 4;
+                @memcpy(p[k][0 .. w * lens[k]], @as([*]const F, @ptrCast(&vals[k]))[0 .. w * lens[k]]);
+            }
+            const bytes = sym.gemvLen(F, w, m, n) * @sizeOf(F);
+            const buf = guard.open(F, bytes, 32, if (complex and trans) .junk else .nan);
+            if (complex) {
+                _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, p[0], @intCast(lda), p[1], 1, p[2], 1, buf);
+            } else {
+                _ = kern(@intCast(m), @intCast(n), 0, alpha, p[0], @intCast(lda), p[1], 1, p[2], 1, buf);
+            }
+            const got = @as([*]align(1) T, @ptrCast(p[2]))[0..rows];
+            if (o == 0) {
+                @memcpy(first[0..rows], got);
+                continue;
+            }
+            for (0..rows) |r| if (!check.same(T, first[r], got[r], true)) {
+                check.say("{s} m={d} n={d} trans={} conj={} xconj={}, A, x, y shifted by {d},{d},{d}: y[{d}] {any}, unshifted {any}\n", .{ @typeName(T), m, n, trans, conj, xconj, o % 4, (o >> 2) % 4, o >> 4, r, got[r], first[r] });
+                return error.TestUnexpectedResult;
+            };
+        }
+    }
+}
+
+/// Every gemv kernel, the first failure of each named.
+fn checkShifted(vt: *const Vtable) !void {
+    var failed: ?anyerror = null;
+    shifted(f32, false, false, false, vt.sgemv_n.?) catch |e| {
+        failed = e;
+    };
+    shifted(f32, true, false, false, vt.sgemv_t.?) catch |e| {
+        failed = e;
+    };
+    shifted(f64, false, false, false, vt.dgemv_n.?) catch |e| {
+        failed = e;
+    };
+    shifted(f64, true, false, false, vt.dgemv_t.?) catch |e| {
+        failed = e;
+    };
+    inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
+        inline for (variants) |v| {
+            shifted(C(p[1]), v[1], v[2], v[3], @field(vt, p[0] ++ "gemv_" ++ v[0]).?) catch |e| {
+                failed = e;
+            };
+        }
+    }
+    if (failed) |e| return e;
+}
+
+test "portable gemv kernels: the same bits whatever the address" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkShifted(&vt);
+}
+
+test "every linked core's gemv kernels: the same bits whatever the address" {
+    try check.eachCore(checkShifted);
+}

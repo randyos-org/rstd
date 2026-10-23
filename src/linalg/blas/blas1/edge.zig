@@ -468,3 +468,61 @@ test "portable level-1 kernels: special values, poisoned gaps, and negative and 
 test "every linked core's level-1 kernels: special values, poisoned gaps, and negative and large strides" {
     try check.eachCore(checkAll);
 }
+
+// ---- the same bits at any address ----------------------------------------------
+
+/// Room for both `shifted` operands at the largest shift, 64-byte aligned so
+/// each shift is the same misalignment on every run.
+var shift_mem: [2 * (offset_n + 8)]C(f64) align(64) = undefined;
+const offset_n = 300;
+
+/// `kern` (a reduction of one or two vectors, by `two`) on the same data
+/// shifted by 0 to 7 floats in each operand, any alignment a float may have:
+/// the same bits each time, as `threading.md`'s reproducibility needs.
+fn shifted(comptime T: type, routine: []const u8, comptime two: bool, kern: anytype) !void {
+    const F = Float(T);
+    const mem: [*]F = @ptrCast(&shift_mem);
+    const w = @sizeOf(T) / @sizeOf(F);
+    var vals: [2][offset_n]T = undefined;
+    check.fill(T, &vals[0], 7);
+    check.fill(T, &vals[1], 8);
+    for ([_]usize{ 1, 3, 7, 16, 33, 67, 100, offset_n }) |n| {
+        var first: ?[2]f64 = null;
+        for (0..8) |ox| for (0..if (two) 8 else 1) |oy| {
+            const x = mem + ox;
+            const y = mem + w * (offset_n + 8) + oy;
+            @memcpy(x[0 .. w * n], @as([*]const F, @ptrCast(&vals[0]))[0 .. w * n]);
+            @memcpy(y[0 .. w * n], @as([*]const F, @ptrCast(&vals[1]))[0 .. w * n]);
+            const got = if (two) kern(@intCast(n), x, 1, y, 1) else kern(@intCast(n), x, 1);
+            const bits: [2]f64 = if (@typeInfo(@TypeOf(got)) == .@"struct") .{ got.re, got.im } else .{ got, 0 };
+            if (first) |f| {
+                if (!check.same(f64, f[0], bits[0], true) or !check.same(f64, f[1], bits[1], true)) {
+                    check.say("{s} {s} n={d}: shifted by {d},{d} gave {any}, unshifted {any}: ", .{ routine, @typeName(T), n, ox, oy, bits, f });
+                    return error.TestUnexpectedResult;
+                }
+            } else first = bits;
+        };
+    }
+}
+
+fn checkShifted(vt: *const Vtable) !void {
+    failed = null;
+    inline for (vtable_types) |p| {
+        const l = p[0];
+        const T = p[1];
+        inline for (.{ "asum", "sum", "nrm2" }) |r| note(shifted(T, l ++ r, false, @field(vt, l ++ r ++ "_k").?));
+        inline for (if (comptime isComplex(T)) .{ "dotu", "dotc" } else .{"dot"}) |r| note(shifted(T, l ++ r, true, @field(vt, l ++ r ++ "_k").?));
+    }
+    note(shifted(f32, "dsdot", true, vt.dsdot_k.?));
+    if (failed) |e| return e;
+}
+
+test "portable level-1 reductions: the same bits whatever the address" {
+    var vt: Vtable = .{};
+    @import("__root__.zig").installGeneric(&vt);
+    try checkShifted(&vt);
+}
+
+test "every linked core's level-1 reductions: the same bits whatever the address" {
+    try check.eachCore(checkShifted);
+}

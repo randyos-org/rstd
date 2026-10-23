@@ -106,6 +106,16 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             return false;
         }
 
+        /// Whether `role` has a converted kernel on `core` for this target,
+        /// `routed` or not.
+        pub fn converted(comptime core: Core, comptime role: []const u8) bool {
+            @setEvalBranchQuota(1_000_000);
+            inline for (index.entries) |e| {
+                if (comptime std.mem.eql(u8, e.role, role) and e.module.kernel(@tagName(core), variant) != null) return true;
+            }
+            return false;
+        }
+
         /// Exported symbol of `role` for `core`.
         pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
             return util.kernelSymbol(role, @tagName(core));

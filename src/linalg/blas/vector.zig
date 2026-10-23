@@ -835,11 +835,23 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
 /// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
-/// sums in `f64`. `asm_registry.Kernels` leaves them out; an
+/// sums in `f64`; and no result depends on an operand's address (`peels`). `asm_registry.Kernels` leaves them out; an
 /// architecture's `Registry` puts these in where its vector unit is IEEE.
 pub fn routed(comptime role: []const u8) bool {
     const extreme = std.mem.endsWith(u8, role, "max") or std.mem.endsWith(u8, role, "min");
-    return extreme or std.mem.endsWith(u8, role, "nrm2") or std.mem.eql(u8, role, "sdot");
+    return extreme or std.mem.endsWith(u8, role, "nrm2") or std.mem.eql(u8, role, "sdot") or peels(role);
+}
+
+/// The x86_64 reductions whose converted kernels peel elements until an
+/// operand is aligned, so their bits follow its address: `asum_sse.S`,
+/// `asum_sse2.S`, `zasum_sse*.S`, `zsum_sse*.S`, `dot_sse2.S`,
+/// `ddot_bulldozer.S`, `zdot_sse*.S`, `dgemv_n.S` and their `atom` and
+/// `bulldozer` kin. Their C kernels on other cores stay.
+pub fn peels(comptime role: []const u8) bool {
+    if (sysinfo.cpu.arch != .x86_64) return false;
+    const peeling = [_][]const u8{ "sasum", "dasum", "casum", "zasum", "csum", "zsum", "ddot", "cdotu", "cdotc", "zdotu", "zdotc", "dgemv_n" };
+    inline for (peeling) |r| if (comptime std.mem.eql(u8, r, role)) return true;
+    return false;
 }
 
 /// A kernel: its role (`saxpy`, `cdotc`, `izamax`, `zgemv_r`), and the

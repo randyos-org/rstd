@@ -23,6 +23,8 @@ OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references a
 
 Across core types, results may differ in the last bits: different cores run different
 kernels, with different fusion, accumulation order and blocking. OpenBLAS behaves the same way.
+Beyond rounding they agree (`readme.md`, "One contract on every core"), and on one core no
+result depends on where its operands lie in memory.
 Pinning the core type (`OPENBLAS_CORETYPE`) makes machines that can run that core agree.
 
 ## Background

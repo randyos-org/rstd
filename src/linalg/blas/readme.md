@@ -162,6 +162,16 @@ does not depend on the core (`threading.md`; `comparisons.md`, X1).
   POWER, loongarch64, mips64, SPARC, arm64 `dot.S` on `tsv110`) and in the
   x87's `f80` on x86 (`dot.S`), so the error of the same `sdot` differed by
   core by far more than its last bits.
+- x86_64's reductions whose converted kernels peel elements until an operand
+  is aligned (`vector.peels`): `asum_sse.S`, `asum_sse2.S`, `asum_atom.S`,
+  `zasum_*.S`, `zsum_sse*.S`, `dot_sse2.S`, `dot_atom.S`,
+  `ddot_bulldozer.S`, `zdot_*.S` and `dgemv_n*.S`, which accumulates in its
+  buffer for a misaligned `y`. The lanes, so the bits, followed the address:
+  the same data elsewhere in memory summed otherwise. Only on the cores
+  that use them; the C kernels (`ddot.c` and the like) stay. The `@Vector`
+  kernels load unaligned and never peel. `blas1/edge.zig` and `blas2/gemv/`
+  check that every reduction gives the same bits with its operands shifted
+  by any number of floats, on every core.
 
 `axpy` with a zero `alpha` multiplies on every core, so `0 * x` gives NaN
 for NaN and infinities. The interface returns first, as the reference does,

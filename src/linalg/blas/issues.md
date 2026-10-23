@@ -743,6 +743,20 @@ And loongarch64 `axpby`:
 >   `.L21`): no zero-scalar blocks at all; branching to `.L22`, the strided
 >   path, which has them, fixes it.
 
+Not used: the x86_64 reductions whose bits follow an operand's address.
+No core takes them (`readme.md`, "One contract on every core"); an issue
+could read:
+
+> **x86_64 `asum_sse.S`, `asum_sse2.S`, `zasum_sse2.S`, `dot_sse2.S`, `zdot_sse2.S`, `zsum_sse2.S`, `dgemv_n.S` and kin: the result depends on the alignment of `x` or `y`**
+>
+> They peel one to three elements until `x` (or `y`) is 16-byte aligned
+> (`testq $SIZE, X` and the like), which changes which lane each element
+> is summed in, so the same vector at another address gives other bits:
+> `dasum` of 67 elements differs in the last bit with `x` 8 bytes further
+> on, `ddot` of 7 with `y` moved. `dgemv_n.S` accumulates in its buffer
+> when `y` is misaligned, and adds that to `y` once. Unaligned loads and a
+> fixed split would make them reproducible.
+
 And the kernels rstd changed, by patch or port, to keep `axpy` one contract:
 
 > **`arm64/axpy.S`, `zaxpy.S`, `daxpy_thunderx2t99.S`, `axpy_sve.c`, `loongarch64/axpy_lsx.S`, `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`, `mips/?axpy_msa.c`, `riscv64/axpy_rvv.c`, `zaxpy_rvv.c`, `wasm/axpy.c`: a zero alpha skips `x`**
