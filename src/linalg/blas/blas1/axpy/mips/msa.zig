@@ -109,11 +109,13 @@ pub fn Real(comptime T: type) type {
                 return 0;
             }
 
-            // both strided: scalars, four at a time as the reference does
+            // both strided: scalars, four at a time as the reference does;
+            // a zero `inc_y` one at a time, as a block loads `y` before
+            // storing it
             var ix: BlasLong = 0;
             var iy: BlasLong = 0;
             var i: usize = 0;
-            while (i + 4 <= len) : (i += 4) {
+            while (inc_y != 0 and i + 4 <= len) : (i += 4) {
                 var xs: [4]T = undefined;
                 var ys: [4]T = undefined;
                 inline for (0..4) |k| {

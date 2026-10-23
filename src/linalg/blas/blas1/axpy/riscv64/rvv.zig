@@ -12,6 +12,7 @@
 //! `vsetvli` sets has to survive to the loads and stores that use it.
 
 const std = @import("std");
+const util = @import("../../../util.zig");
 
 /// Element width in bits and its log2 in bytes.
 fn sew(comptime T: type) []const u8 {
@@ -137,32 +138,10 @@ pub fn Real(comptime T: type) type {
                       [sy] "r" (sy),
                     : clobbers);
             } else if (inc_y == 0) {
-                // every lane starts at y[0]; the lanes are summed into it
-                asm volatile (std.fmt.comptimePrint(
-                        \\ fl{1s} ft0, 0(%[y])
-                        \\ vsetvli t2, %[n], e{0s}, m8, ta, ma
-                        \\ vfmv.v.f v16, ft0
-                        \\1:
-                        \\ vsetvli t0, %[n], e{0s}, m8, ta, ma
-                        \\ vlse{0s}.v v8, (%[x]), %[sx]
-                        \\ vfmacc.vf v16, %[a], v8
-                        \\ sub %[n], %[n], t0
-                        \\ mul t1, t0, %[sx]
-                        \\ add %[x], %[x], t1
-                        \\ bnez %[n], 1b
-                        \\ vsetivli zero, 1, e{0s}, m1, ta, ma
-                        \\ vmv.s.x v0, zero
-                        \\ vsetvli zero, t2, e{0s}, m8, ta, ma
-                        \\ vfredusum.vs v0, v16, v0
-                        \\ vsetivli zero, 1, e{0s}, m1, ta, ma
-                        \\ vse{0s}.v v0, (%[y])
-                    , .{ e, if (T == f64) "d" else "w" })
-                    : [n] "+r" (m),
-                      [x] "+r" (xp),
-                    : [y] "r" (yp),
-                      [a] "f" (alpha),
-                      [sx] "r" (sx),
-                    : clobbers);
+                // one at a time: the reference started every lane at y[0]
+                // and summed them, so it added y[0] once a lane
+                var i: isize = 0;
+                while (i < n) : (i += 1) y[0] = @mulAdd(T, alpha, util.at(T, x, i * inc_x).*, y[0]);
             } else {
                 asm volatile (std.fmt.comptimePrint(
                         \\1:
@@ -231,7 +210,22 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
             const sy: isize = inc_y * bytes;
             if (m == 0) return 0;
 
-            if (inc_x == 1 and inc_y == 1) {
+            if (inc_y == 0) {
+                // one at a time, each lane's operations in turn: a segment
+                // loads `y` before storing it
+                var i: isize = 0;
+                while (i < n) : (i += 1) {
+                    const xr = util.at(F, x, 2 * i * inc_x).*;
+                    const xi = util.at(F, x, 2 * i * inc_x + 1).*;
+                    if (!conj) {
+                        y[0] = @mulAdd(F, -alpha_i, xi, @mulAdd(F, alpha_r, xr, y[0]));
+                        y[1] = @mulAdd(F, alpha_i, xr, @mulAdd(F, alpha_r, xi, y[1]));
+                    } else {
+                        y[0] = @mulAdd(F, alpha_i, xi, @mulAdd(F, alpha_r, xr, y[0]));
+                        y[1] = @mulAdd(F, alpha_i, xr, @mulAdd(F, -alpha_r, xi, y[1]));
+                    }
+                }
+            } else if (inc_x == 1 and inc_y == 1) {
                 asm volatile (std.fmt.comptimePrint(
                         \\1:
                         \\ vsetvli t0, %[n], e{0s}, m4, ta, ma
