@@ -30,10 +30,12 @@ const patches = [_]arch.Patch{
     .{ .source = "imax.S", .find = reduce, .replace = reduce_first, .count = 2 },
     .{ .source = "izamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
     // with a zero stride, the strided loop loads a block before storing it,
-    // so `n` swaps of one element act as one; zero strides take the
-    // one-at-a-time loop instead (utest's `swap_inc_0`)
-    .{ .source = "swap.S", .find = zeroStrides("3"), .replace = zeroStridesFixed("3") },
-    .{ .source = "zswap.S", .find = zeroStrides("2"), .replace = zeroStridesFixed("2") },
+    // so `n` operations on one element act as fewer; zero strides take the
+    // one-at-a-time loop instead (utest's `swap_inc_0`, per-core `rot`)
+    zeroStrides("swap.S", "\tsra\tN, 3, I\n"),
+    zeroStrides("zswap.S", "\tsra\tN, 2, I\n"),
+    zeroStrides("rot.S", "\tmov\tX, XX\n\tmov\tY, YY\n\n\tsra\tN, 3, I\n"),
+    zeroStrides("zrot.S", "\tmov\tX, XX\n\tmov\tY, YY\n\n\tsra\tN, 2, I\n"),
 };
 
 const reduce =
@@ -62,13 +64,15 @@ fn wideShifts(a: std.mem.Allocator, statement: []const u8) Error![]const u8 {
     return std.fmt.allocPrint(a, "{s}sllx{s}", .{ statement[0 .. statement.len - t.len], t[3..] });
 }
 
-fn zeroStrides(comptime shift: []const u8) []const u8 {
-    return "\n.LL50:\n\tsra\tN, " ++ shift ++ ", I\n";
-}
-
-fn zeroStridesFixed(comptime shift: []const u8) []const u8 {
-    return "\n.LL57:\n\tmov\tN, I\n\tb\t.LL56\n\tnop\n\n.LL50:\n\tcmp\tINCX, 0\n\tbe\t.LL57\n\tnop\n" ++
-        "\tcmp\tINCY, 0\n\tbe\t.LL57\n\tnop\n\tsra\tN, " ++ shift ++ ", I\n";
+/// Zero strides branch from the strided entry `.LL50`, whose first
+/// statements are `head`, to the one-at-a-time loop `.LL56`.
+fn zeroStrides(comptime source: []const u8, comptime head: []const u8) arch.Patch {
+    return .{
+        .source = source,
+        .find = "\n.LL50:\n" ++ head,
+        .replace = "\n.LL57:\n\tmov\tN, I\n\tb\t.LL56\n\tnop\n\n.LL50:\n\tcmp\tINCX, 0\n\tbe\t.LL57\n\tnop\n" ++
+            "\tcmp\tINCY, 0\n\tbe\t.LL57\n\tnop\n" ++ head,
+    };
 }
 
 pub const sparc: arch.Arch = .{

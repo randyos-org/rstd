@@ -760,6 +760,18 @@ And SPARC `swap`, found by the ported `utest/test_swap.c`:
 > elements. Sending a zero stride to the one-at-a-time tail loop (`.LL56`)
 > fixes both.
 
+And SPARC `rot`, found by the per-core `rot` checks once they took zero
+strides:
+
+> **sparc `rot.S`, `zrot.S`: a zero stride acts on one element as a block**
+>
+> As in `swap.S`: the strided loop (`.LL51`) loads a block (8 for `rot.S`,
+> 4 for `zrot.S`) from `x` and `y` before storing any, so with `incx` or
+> `incy` zero later elements of the block are read before earlier ones are
+> written. `srot` with `n` = 8 and both strides 0 gives `x` = 2.0356 where
+> eight rotations give -1.0088. Sending a zero stride to the one-at-a-time
+> loop (`.LL56`) fixes both.
+
 And POWER `rot` and `swap`, the same pattern, found by `utest`'s `zdrot_inc_0`:
 
 > **power `rot.S`, `zrot.S`, `swap.S`, `zswap.S`, `rot_ppc440.S`, `zrot_ppc440.S`: a zero stride acts on one element as a block**

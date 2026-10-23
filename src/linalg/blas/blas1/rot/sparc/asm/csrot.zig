@@ -64,10 +64,10 @@ const text =
     \\ sllx %i4, 3, %i4
     \\ .endif
     \\ cmp %i2, 2 * 4
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ cmp %i4, 2 * 4
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ sra %i0, 2, %i5
     \\ cmp %i5, 0
@@ -329,118 +329,128 @@ const text =
     \\ return %i7 + 8
     \\ nop
     \\ 20005:
+    \\ mov %i0, %i5
+    \\ b 20009f
+    \\ nop
+    \\ 20006:
+    \\ cmp %i2, 0
+    \\ be 20005b
+    \\ nop
+    \\ cmp %i4, 0
+    \\ be 20005b
+    \\ nop
     \\ mov %i1, %l0
     \\ mov %i3, %l1
     \\ sra %i0, 2, %i5
     \\ cmp %i5, 0
-    \\ ble,pn %icc, 20007f
-    \\ nop
-    \\ 20006:
-    \\ ld [%i1 + 0 * 4], %f2
-    \\ ld [%i3 + 0 * 4], %f10
-    \\ ld [%i1 + 1 * 4], %f3
-    \\ ld [%i3 + 1 * 4], %f11
-    \\ fmuls %f0, %f2, %f18
-    \\ fmuls %f1, %f10, %f19
-    \\ fmuls %f0, %f10, %f20
-    \\ fmuls %f1, %f2, %f21
-    \\ fmuls %f0, %f3, %f22
-    \\ nop
-    \\ fmuls %f1, %f11, %f23
-    \\ fadds %f18, %f19, %f19
-    \\ fmuls %f0, %f11, %f24
-    \\ nop
-    \\ fmuls %f1, %f3, %f25
-    \\ fsubs %f20, %f21, %f21
-    \\ st %f19, [%i1 + 0 * 4]
-    \\ fadds %f22, %f23, %f23
-    \\ st %f21, [%i3 + 0 * 4]
-    \\ fsubs %f24, %f25, %f25
-    \\ st %f23, [%i1 + 1 * 4]
-    \\ add %i1, %i2, %i1
-    \\ st %f25, [%i3 + 1 * 4]
-    \\ add %i3, %i4, %i3
-    \\ ld [%i1 + 0 * 4], %f2
-    \\ ld [%i3 + 0 * 4], %f10
-    \\ ld [%i1 + 1 * 4], %f3
-    \\ ld [%i3 + 1 * 4], %f11
-    \\ fmuls %f0, %f2, %f18
-    \\ fmuls %f1, %f10, %f19
-    \\ fmuls %f0, %f10, %f20
-    \\ fmuls %f1, %f2, %f21
-    \\ fmuls %f0, %f3, %f22
-    \\ nop
-    \\ fmuls %f1, %f11, %f23
-    \\ fadds %f18, %f19, %f19
-    \\ fmuls %f0, %f11, %f24
-    \\ nop
-    \\ fmuls %f1, %f3, %f25
-    \\ fsubs %f20, %f21, %f21
-    \\ st %f19, [%i1 + 0 * 4]
-    \\ fadds %f22, %f23, %f23
-    \\ st %f21, [%i3 + 0 * 4]
-    \\ fsubs %f24, %f25, %f25
-    \\ st %f23, [%i1 + 1 * 4]
-    \\ add %i1, %i2, %i1
-    \\ st %f25, [%i3 + 1 * 4]
-    \\ add %i3, %i4, %i3
-    \\ ld [%i1 + 0 * 4], %f2
-    \\ ld [%i3 + 0 * 4], %f10
-    \\ ld [%i1 + 1 * 4], %f3
-    \\ ld [%i3 + 1 * 4], %f11
-    \\ fmuls %f0, %f2, %f18
-    \\ fmuls %f1, %f10, %f19
-    \\ fmuls %f0, %f10, %f20
-    \\ fmuls %f1, %f2, %f21
-    \\ fmuls %f0, %f3, %f22
-    \\ nop
-    \\ fmuls %f1, %f11, %f23
-    \\ fadds %f18, %f19, %f19
-    \\ fmuls %f0, %f11, %f24
-    \\ nop
-    \\ fmuls %f1, %f3, %f25
-    \\ fsubs %f20, %f21, %f21
-    \\ st %f19, [%i1 + 0 * 4]
-    \\ fadds %f22, %f23, %f23
-    \\ st %f21, [%i3 + 0 * 4]
-    \\ fsubs %f24, %f25, %f25
-    \\ st %f23, [%i1 + 1 * 4]
-    \\ add %i1, %i2, %i1
-    \\ st %f25, [%i3 + 1 * 4]
-    \\ add %i3, %i4, %i3
-    \\ ld [%i1 + 0 * 4], %f2
-    \\ ld [%i3 + 0 * 4], %f10
-    \\ ld [%i1 + 1 * 4], %f3
-    \\ ld [%i3 + 1 * 4], %f11
-    \\ fmuls %f0, %f2, %f18
-    \\ fmuls %f1, %f10, %f19
-    \\ fmuls %f0, %f10, %f20
-    \\ fmuls %f1, %f2, %f21
-    \\ fmuls %f0, %f3, %f22
-    \\ nop
-    \\ fmuls %f1, %f11, %f23
-    \\ fadds %f18, %f19, %f19
-    \\ fmuls %f0, %f11, %f24
-    \\ nop
-    \\ fmuls %f1, %f3, %f25
-    \\ fsubs %f20, %f21, %f21
-    \\ st %f19, [%i1 + 0 * 4]
-    \\ fadds %f22, %f23, %f23
-    \\ st %f21, [%i3 + 0 * 4]
-    \\ fsubs %f24, %f25, %f25
-    \\ st %f23, [%i1 + 1 * 4]
-    \\ add %i1, %i2, %i1
-    \\ st %f25, [%i3 + 1 * 4]
-    \\ add %i3, %i4, %i3
-    \\ addcc %i5, -1, %i5
-    \\ bg,pt %icc, 20006b
+    \\ ble,pn %icc, 20008f
     \\ nop
     \\ 20007:
-    \\ andcc %i0, 3, %i5
+    \\ ld [%i1 + 0 * 4], %f2
+    \\ ld [%i3 + 0 * 4], %f10
+    \\ ld [%i1 + 1 * 4], %f3
+    \\ ld [%i3 + 1 * 4], %f11
+    \\ fmuls %f0, %f2, %f18
+    \\ fmuls %f1, %f10, %f19
+    \\ fmuls %f0, %f10, %f20
+    \\ fmuls %f1, %f2, %f21
+    \\ fmuls %f0, %f3, %f22
     \\ nop
-    \\ ble %icc, 20009f
+    \\ fmuls %f1, %f11, %f23
+    \\ fadds %f18, %f19, %f19
+    \\ fmuls %f0, %f11, %f24
+    \\ nop
+    \\ fmuls %f1, %f3, %f25
+    \\ fsubs %f20, %f21, %f21
+    \\ st %f19, [%i1 + 0 * 4]
+    \\ fadds %f22, %f23, %f23
+    \\ st %f21, [%i3 + 0 * 4]
+    \\ fsubs %f24, %f25, %f25
+    \\ st %f23, [%i1 + 1 * 4]
+    \\ add %i1, %i2, %i1
+    \\ st %f25, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ ld [%i1 + 0 * 4], %f2
+    \\ ld [%i3 + 0 * 4], %f10
+    \\ ld [%i1 + 1 * 4], %f3
+    \\ ld [%i3 + 1 * 4], %f11
+    \\ fmuls %f0, %f2, %f18
+    \\ fmuls %f1, %f10, %f19
+    \\ fmuls %f0, %f10, %f20
+    \\ fmuls %f1, %f2, %f21
+    \\ fmuls %f0, %f3, %f22
+    \\ nop
+    \\ fmuls %f1, %f11, %f23
+    \\ fadds %f18, %f19, %f19
+    \\ fmuls %f0, %f11, %f24
+    \\ nop
+    \\ fmuls %f1, %f3, %f25
+    \\ fsubs %f20, %f21, %f21
+    \\ st %f19, [%i1 + 0 * 4]
+    \\ fadds %f22, %f23, %f23
+    \\ st %f21, [%i3 + 0 * 4]
+    \\ fsubs %f24, %f25, %f25
+    \\ st %f23, [%i1 + 1 * 4]
+    \\ add %i1, %i2, %i1
+    \\ st %f25, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ ld [%i1 + 0 * 4], %f2
+    \\ ld [%i3 + 0 * 4], %f10
+    \\ ld [%i1 + 1 * 4], %f3
+    \\ ld [%i3 + 1 * 4], %f11
+    \\ fmuls %f0, %f2, %f18
+    \\ fmuls %f1, %f10, %f19
+    \\ fmuls %f0, %f10, %f20
+    \\ fmuls %f1, %f2, %f21
+    \\ fmuls %f0, %f3, %f22
+    \\ nop
+    \\ fmuls %f1, %f11, %f23
+    \\ fadds %f18, %f19, %f19
+    \\ fmuls %f0, %f11, %f24
+    \\ nop
+    \\ fmuls %f1, %f3, %f25
+    \\ fsubs %f20, %f21, %f21
+    \\ st %f19, [%i1 + 0 * 4]
+    \\ fadds %f22, %f23, %f23
+    \\ st %f21, [%i3 + 0 * 4]
+    \\ fsubs %f24, %f25, %f25
+    \\ st %f23, [%i1 + 1 * 4]
+    \\ add %i1, %i2, %i1
+    \\ st %f25, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ ld [%i1 + 0 * 4], %f2
+    \\ ld [%i3 + 0 * 4], %f10
+    \\ ld [%i1 + 1 * 4], %f3
+    \\ ld [%i3 + 1 * 4], %f11
+    \\ fmuls %f0, %f2, %f18
+    \\ fmuls %f1, %f10, %f19
+    \\ fmuls %f0, %f10, %f20
+    \\ fmuls %f1, %f2, %f21
+    \\ fmuls %f0, %f3, %f22
+    \\ nop
+    \\ fmuls %f1, %f11, %f23
+    \\ fadds %f18, %f19, %f19
+    \\ fmuls %f0, %f11, %f24
+    \\ nop
+    \\ fmuls %f1, %f3, %f25
+    \\ fsubs %f20, %f21, %f21
+    \\ st %f19, [%i1 + 0 * 4]
+    \\ fadds %f22, %f23, %f23
+    \\ st %f21, [%i3 + 0 * 4]
+    \\ fsubs %f24, %f25, %f25
+    \\ st %f23, [%i1 + 1 * 4]
+    \\ add %i1, %i2, %i1
+    \\ st %f25, [%i3 + 1 * 4]
+    \\ add %i3, %i4, %i3
+    \\ addcc %i5, -1, %i5
+    \\ bg,pt %icc, 20007b
     \\ nop
     \\ 20008:
+    \\ andcc %i0, 3, %i5
+    \\ nop
+    \\ ble %icc, 20010f
+    \\ nop
+    \\ 20009:
     \\ ld [%i1 + 0 * 4], %f2
     \\ ld [%i3 + 0 * 4], %f10
     \\ ld [%i1 + 1 * 4], %f3
@@ -464,9 +474,9 @@ const text =
     \\ st %f23, [%i1 + 1 * 4]
     \\ add %i1, %i2, %i1
     \\ st %f25, [%i3 + 1 * 4]
-    \\ bg %icc, 20008b
+    \\ bg %icc, 20009b
     \\ add %i3, %i4, %i3
-    \\ 20009:
+    \\ 20010:
     \\ return %i7 + 8
     \\ nop
     \\ .endm

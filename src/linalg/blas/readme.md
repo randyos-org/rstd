@@ -318,7 +318,8 @@ storing it, so `n` swaps of one element acted as one. A zero stride now
 takes the one-at-a-time loop. `power/rot.S`, `zrot.S`, `swap.S`, `zswap.S`,
 `rot_ppc440.S` and `zrot_ppc440.S` had the same bug (`utest`'s
 `zdrot_inc_0` on cell) and take the same fix, as do loongarch64 `swap.S`,
-`rot_lsx.S`, `rot_lasx.S` and mips64 `swap.S`. Upstream's own zero-stride
+`rot_lsx.S`, `rot_lasx.S`, mips64 `swap.S` and `sparc/rot.S`, `zrot.S`.
+Upstream's own zero-stride
 cases in x86 `swap.S`, `zswap.S` and arm `swap_vfp.S`, `rot_vfp.S` skip the
 work or stop after one element, right only for some `n`; zero strides there
 now take one element at a time too.
