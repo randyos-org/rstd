@@ -372,16 +372,11 @@ const machines = [_]Machine{
             .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
             .{ .name = "blas3-trmm", .filters = &.{"linalg.blas.blas3.trmm."} },
             .{ .name = "blas3-trsm", .filters = &.{"linalg.blas.blas3.trsm."} },
-            .{ .name = "blas3-interface", .filters = &.{
-                "linalg.blas.blas3.interface.test.interface: gemm",
-                "linalg.blas.blas3.interface.test.interface: a matrix past",
-                "linalg.blas.blas3.interface.test.interface: symm",
-            } },
-            .{ .name = "blas3-interface-2", .filters = &.{
-                "linalg.blas.blas3.interface.test.interface: syrk",
-                "linalg.blas.blas3.interface.test.interface: the rank-k",
-                "linalg.blas.blas3.interface.test.interface: trmm",
-            } },
+            // the interface in four, as two are near the window
+            .{ .name = "blas3-interface", .filters = &.{ "linalg.blas.blas3.interface.test.interface: gemm", "linalg.blas.blas3.interface.test.interface: a matrix past" } },
+            .{ .name = "blas3-interface-symm", .filters = &.{"linalg.blas.blas3.interface.test.interface: symm"} },
+            .{ .name = "blas3-interface-rank", .filters = &.{ "linalg.blas.blas3.interface.test.interface: syrk", "linalg.blas.blas3.interface.test.interface: the rank-k" } },
+            .{ .name = "blas3-interface-tri", .filters = &.{"linalg.blas.blas3.interface.test.interface: trmm"} },
             // the OpenBLAS suites in three; not "every linked core", which
             // holds all of them (4.7 MB in debug): `sparc64` runs it
             .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test_openblas.blat1.", "linalg.blas._test_openblas.utest.", "linalg.blas._test_openblas.utest_ext." } },
