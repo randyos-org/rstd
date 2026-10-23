@@ -208,6 +208,21 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > using `XSCMPUDP` for VSX registers). Seen in a large Zig-generated
   > function; the same IR at -O1 and above is correct.
 
+### powerpc: LLVM vectorizes scalar `f32` loops into AltiVec, which flushes
+
+- **Seen:** with the level-3 tiles scalar on the AltiVec cores, complex
+  `trmm` and `trsm` still lost denormals there, in the per-core objects
+  (built for speed) and in a ReleaseFast build for the G4; a Debug build
+  and every real routine were right. LLVM's loop vectorizer had put the
+  split tile's column loop in AltiVec lanes, which flush with `VSCR[NJ]`
+  set. ARM's `isFPVectorizationPotentiallyUnsafe` keeps it off NEON's `f32`
+  lanes; PowerPC has no such check. LLVM's `pwr3` to `pwr5` models have
+  AltiVec, though those chips do not.
+- **Workaround:** the AltiVec cores' objects are built without it
+  (`cpu/_corespec.zig`'s `without`). Code built for such a CPU in an
+  optimized mode outside them can still be vectorized; `-mcpu=g4-altivec`
+  and the like avoid it.
+
 ### lld cannot link 32-bit SPARC
 
 - **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
@@ -774,8 +789,9 @@ flushing of `comparisons.md` (10): the portable `saxpy`'s `@Vector` block
 turned the denormal into 0 on the `arm`, `linux-arm`, `powerpc` and
 `powerpc-pseries` rigs. It was the only level-1 or level-2 kernel that did
 (`blas1/denormal.zig`, `blas2/edge.zig`); it now takes its scalar loop where
-`util.vectorIeee` says the lanes flush, and the `@Vector` kernels leave `s`
-and `c` there to the portable ones.
+`util.vectorIeee` says the lanes flush, the `@Vector` kernels leave `s` and
+`c` there to the portable ones, and the level-3 tiles are scalar there
+(`blas3/gemm/kernel.zig`'s `vectorBits`).
 
 Upstream's level-1 and level-2 kernels for these cores are scalar: VFP on
 arm, the FPU on POWER before POWER8, none of them AltiVec. Its ARMv7

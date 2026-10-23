@@ -44,14 +44,20 @@ pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) voi
 /// AltiVec without VSX, which flushes under `VSCR[NJ]`, as Linux and QEMU
 /// start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
 /// operations, as it does every vector under a soft-float ABI. Kernels take
-/// their scalar path where this is false (`comparisons.md`, 10).
+/// their scalar path where this is false (`comparisons.md`, 10). LLVM's
+/// auto-vectorizer keeps off NEON's `f32` but not AltiVec's, so the AltiVec
+/// cores' objects are built without it (`cpu/_corespec.zig`).
 pub fn vectorIeee(comptime F: type) bool {
+    return vectorIeeeOn(F, sysinfo.cpu);
+}
+
+/// `vectorIeee` for `cpu`, a core's of this target.
+pub fn vectorIeeeOn(comptime F: type, comptime cpu: std.Target.Cpu) bool {
     if (F != f32 or sysinfo.abi.float() == .soft) return true;
-    const features = sysinfo.cpu.features;
-    return switch (sysinfo.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => !std.Target.arm.featureSetHas(features, .neon),
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => !std.Target.powerpc.featureSetHas(features, .altivec) or
-            std.Target.powerpc.featureSetHas(features, .vsx),
+    return switch (cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => !std.Target.arm.featureSetHas(cpu.features, .neon),
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => !std.Target.powerpc.featureSetHas(cpu.features, .altivec) or
+            std.Target.powerpc.featureSetHas(cpu.features, .vsx),
         else => true,
     };
 }

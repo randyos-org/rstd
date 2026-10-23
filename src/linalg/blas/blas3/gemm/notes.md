@@ -65,7 +65,9 @@ The hot loop of the full tile, from `-femit-asm`:
   and 8 stack accesses per step; the chosen 16 x 6 single and 8 x 6 double
   are 24 `fmla`, 4 loads, no spills.
 - **SSE2 x86_64 baseline and Cortex-A15 NEON (compile only):** 8 x 6 and
-  8 x 5 single, multiply and add or `vfma`, no spills.
+  8 x 5 single, multiply and add or `vfma`, no spills. ARMv7 NEON and
+  pre-VSX AltiVec `f32` tiles are scalar since: those lanes flush
+  denormals (`util.vectorIeee`).
 
 ## Tails
 

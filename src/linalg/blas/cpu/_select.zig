@@ -50,7 +50,8 @@ fn isTuning(name: []const u8) bool {
     return false;
 }
 
-/// `spec`'s ISA features and what they imply: the model's, then the ones added.
+/// `spec`'s ISA features and what they imply: the model's, then the ones
+/// added, less the ones taken out.
 fn specSet(comptime arch: std.Target.Cpu.Arch, comptime spec: corespec.Spec) Set {
     var set: Set = .empty;
     if (spec.model) |name| {
@@ -67,6 +68,7 @@ fn specSet(comptime arch: std.Target.Cpu.Arch, comptime spec: corespec.Spec) Set
     set.populateDependencies(all);
     for (all, 0..) |f, i| {
         if (isTuning(f.name)) set.removeFeature(@intCast(i));
+        for (spec.without) |name| if (std.mem.eql(u8, f.name, name)) set.removeFeature(@intCast(i));
     }
     return set;
 }

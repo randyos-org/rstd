@@ -8,7 +8,8 @@ the value routines, the `nan_lanes` quirk gone), X1 (`sdot` in `f64`, one
 `nrm2` and the extremes' rule on every core, and no zero-`alpha` return in
 any `axpy` kernel) and pitfall 1 of 8 (x86_64's alignment-peeling
 reductions routed to `@Vector` kernels). `readme.md`, "One contract on every
-core", has the details.
+core", has the details. Also 10.2 and 10.3 (2026-10-23, `wip/denormals`):
+no `f32` vector lanes where they flush (`util.vectorIeee`).
 
 ## Sources and versions
 
@@ -514,10 +515,15 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    applies FZ to AArch32 NEON is unverified. **Investigate**: run the level-3 denormal case on the
    `arm` rig and on hardware; if confirmed, either use scalar VFP for ARMv7 `f32` tiles (as
    OpenBLAS's ARMv7 `sgemm` VFP kernels do) or document flushing as an ARMv7 property.
+   **Done**: confirmed on the `arm` and `linux-arm` rigs (the portable `saxpy`'s vectors too, not
+   `arm-softfp`, whose vectors are soft-float calls); `f32` tiles and kernels are scalar VFP there.
 3. **AltiVec.** Pre-VSX PowerPC (`ppcg4`, `ppc970`) vector float uses AltiVec, which flushes
    denormals in non-Java mode (`VSCR[NJ] = 1`); Linux starts processes with `NJ = 1` (from memory
    of `arch/powerpc/kernel/process.c`; unverified here). VSX (POWER7+) is IEEE. **Investigate**
    alongside item 2 on the `powerpc` rig.
+   **Done**: confirmed on the `powerpc` and `powerpc-pseries` rigs; scalar FPU there, as item 2.
+   Clearing `NJ` (Java mode, IEEE denormals) was not taken: it changes the caller's environment,
+   per thread, and the 970 handles such denormals by a software assist.
 
 **Policy recommendation.** Write down "rstd never changes the floating-point environment; results
 assume IEEE default modes; denormals are honored except where the hardware's vector unit cannot
@@ -611,8 +617,8 @@ Where BLIS is not better and rstd should not follow it:
 ## Uncertain points
 
 - f64 `sdot` throughput on M6 and Zen: unmeasured after `4407e5a`.
-- ARMv7 NEON and AltiVec flushing in the level-3 tiles: codegen verified for ARMv7, effect on the
-  rigs and on hardware not run; Linux's AltiVec `NJ` default from memory.
+- ARMv7 NEON and AltiVec flushing: seen on the rigs, not on hardware; Linux's AltiVec `NJ` default
+  and the 970's software assist from memory.
 - MKL's historical alignment requirement for CNR and oneTBB / ReproBLAS citations: from memory.
 - The BLAS Technical Forum standard's wording on zero increments: not located.
 - BLIS level-3 thread-count invariance: true by construction (no `k` split), not documented.

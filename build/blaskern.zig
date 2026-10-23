@@ -143,11 +143,11 @@ fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]c
 }
 
 /// The target query a group's object is built with: its model, or the
-/// baseline plus its features.
+/// baseline plus its features, less those it goes without.
 fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
     const arch = target.result.cpu.arch;
     var query = target.query;
-    query.cpu_features_sub = .empty;
+    query.cpu_features_sub = featureSet(arch, spec.without);
     if (spec.model) |name| {
         query.cpu_model = .{ .explicit = findModel(arch, name) };
         query.cpu_features_add = .empty;

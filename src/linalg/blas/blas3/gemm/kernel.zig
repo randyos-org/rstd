@@ -46,11 +46,12 @@ pub const Geometry = struct {
 };
 
 /// Bits of the widest vector of `T` the target computes on natively; 0 for
-/// none. Not `std.simd.suggestVectorLength`: that counts SVE as 256-bit
-/// fixed vectors (LLVM splits them into NEON pairs) and leaves AVX at 128.
+/// none, or for lanes that flush denormals (`util.vectorIeeeOn`). Not
+/// `std.simd.suggestVectorLength`: that counts SVE as 256-bit fixed vectors
+/// (LLVM splits them into NEON pairs) and leaves AVX at 128.
 fn vectorBits(comptime T: type, comptime cpu: std.Target.Cpu) u16 {
     const double = T == f64;
-    if (T != f32 and T != f64) return 0;
+    if ((T != f32 and T != f64) or !util.vectorIeeeOn(T, cpu)) return 0;
     return switch (cpu.arch) {
         .x86_64, .x86 => if (cpu.has(.x86, .avx512f) and sysinfo.zig_backend != .stage2_x86_64)
             512
