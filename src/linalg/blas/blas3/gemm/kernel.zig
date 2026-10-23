@@ -335,6 +335,10 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
             const ld: usize = @intCast(ldc);
+            if (vl == 1) {
+                scalarPanels(m, n, k, alpha, ba, bb, c, ld);
+                return 0;
+            }
             var q0: usize = 0;
             while (q0 + nr <= n) : (q0 += nr) rows(nr, m, k, alpha, ba, bb + q0 * k, c + q0 * ld, ld);
             inline for (comptime tails(nr)) |w| {
@@ -344,6 +348,47 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
                 }
             }
             return 0;
+        }
+
+        /// Without vectors: the whole tiles unrolled, every partial one through
+        /// one tile shaped by values, so debug builds of wide scalar tiles
+        /// (SPARC's `2 x 14`) stay small.
+        fn scalarPanels(m: usize, n: usize, k: usize, alpha: T, ba: [*]const T, bb: [*]const T, c: [*]T, ld: usize) void {
+            var q0: usize = 0;
+            while (q0 < n) {
+                const wn = panelWidth(n - q0, nr);
+                var r0: usize = 0;
+                while (r0 < m) {
+                    const wm = panelWidth(m - r0, mr);
+                    if (wm == mr and wn == nr) {
+                        tile(mr, nr, k, alpha, ba + r0 * k, bb + q0 * k, c + r0 + q0 * ld, ld);
+                    } else {
+                        partTile(wm, wn, k, alpha, ba + r0 * k, bb + q0 * k, c + r0 + q0 * ld, ld);
+                    }
+                    r0 += wm;
+                }
+                q0 += wn;
+            }
+        }
+
+        /// A partial scalar tile, `wm x wn` of the tile's most.
+        fn partTile(wm: usize, wn: usize, k: usize, alpha: T, pa: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
+            var acc: [nr][mr]A = @splat(@splat(0));
+            var a = pa;
+            var b = pb;
+            for (0..k) |_| {
+                for (0..wn) |j| {
+                    const y: A = b[j];
+                    for (0..wm) |i| acc[j][i] = madd(A, 1, @as(A, a[i]), y, acc[j][i]);
+                }
+                a += wm;
+                b += wn;
+            }
+            for (0..wn) |j| for (0..wm) |i| {
+                const p = &c[i + j * ld];
+                const r = madd(A, 1, acc[j][i], alpha, p.*);
+                p.* = if (A == T) r else @floatCast(r);
+            };
         }
 
         /// Every row panel against one B panel of width `wn`: the full tile
@@ -756,6 +801,16 @@ pub fn installTile(vt: *Vtable, comptime pre: []const u8, comptime T: type, comp
     });
 }
 
+/// Whether a core's features can change this target's tiles (`vectorBits`):
+/// where none can (SPARC), a core's object would only hold the portable
+/// kernels again, so it holds none of these.
+fn tilesVary() bool {
+    return switch (sysinfo.cpu.arch) {
+        .sparc, .sparc64 => false,
+        else => true,
+    };
+}
+
 /// The per-core kernels, for an architecture's registry (`kernels/<arch>.zig`):
 /// every per-core object exports them, built for its own features, with
 /// their unrolls as data (the tile depends on the object's features, which
@@ -775,6 +830,7 @@ pub fn Registry(comptime Core: type) type {
         }
 
         pub fn exportCore(comptime core: Core) void {
+            if (comptime !tilesVary()) return;
             inline for (core_precisions) |p| {
                 inline for (sets) |s| {
                     const K = s.Kernels(p[1], geometry(p[1]));
@@ -789,6 +845,7 @@ pub fn Registry(comptime Core: type) type {
         }
 
         pub fn install(vt: *Vtable, comptime core: Core) void {
+            if (comptime !tilesVary()) return;
             fill(vt, core_precisions, struct {
                 fn function(comptime pre: []const u8, comptime _: type, comptime _: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child {
                     const Fn = @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child;
