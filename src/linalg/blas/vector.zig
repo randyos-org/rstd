@@ -834,11 +834,12 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 /// Whether `role`'s converted kernels give way to the portable or these on
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
-/// is Blue's for `d` and `z`; in the extremes the first NaN wins. `asm_registry.Kernels` leaves them out; an
+/// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
+/// sums in `f64`. `asm_registry.Kernels` leaves them out; an
 /// architecture's `Registry` puts these in where its vector unit is IEEE.
 pub fn routed(comptime role: []const u8) bool {
     const extreme = std.mem.endsWith(u8, role, "max") or std.mem.endsWith(u8, role, "min");
-    return extreme or std.mem.endsWith(u8, role, "nrm2");
+    return extreme or std.mem.endsWith(u8, role, "nrm2") or std.mem.eql(u8, role, "sdot");
 }
 
 /// A kernel: its role (`saxpy`, `cdotc`, `izamax`, `zgemv_r`), and the

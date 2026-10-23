@@ -234,6 +234,49 @@ test "every linked core's dot kernels match a plain loop, where this machine run
     try check.eachCore(checkAll);
 }
 
+/// `sdot` sums in `f64`: within half an ulp of the exact result, and the
+/// `f64` sum's error, which an `f32` sum, in any lanes, exceeds by far.
+fn checkSdotWide(vt: *const Vtable) !void {
+    const al = std.testing.allocator;
+    const long: usize = if (check.rig()) 1 << 12 else 1 << 14;
+    const x = try al.alloc(f32, 3 * long);
+    defer al.free(x);
+    const y = try al.alloc(f32, 3 * long);
+    defer al.free(y);
+    for ([_]bool{ false, true }) |positive| for ([_]usize{ 1000, long }) |n| for ([_]usize{ 1, 3 }) |inc| {
+        check.fill(f32, x, n);
+        check.fill(f32, y, n + 1);
+        if (positive) for (x, y) |*a, *b| {
+            a.* = 1 + @abs(a.*) / 2;
+            b.* = 1 + @abs(b.*) / 2;
+        };
+        var want: f128 = 0;
+        var mag: f128 = 0;
+        for (0..n) |i| {
+            const p = @as(f128, x[i * inc]) * y[i * inc];
+            want += p;
+            mag += @abs(p);
+        }
+        const got = vt.sdot_k.?(@intCast(n), x.ptr, @intCast(inc), y.ptr, @intCast(inc));
+        const ulp = std.math.ldexp(@as(f128, 1), std.math.ilogb(@as(f32, @floatCast(want))) - 23);
+        const tol = ulp / 2 + @as(f128, @floatFromInt(n)) * 0x1p-52 * mag;
+        if (@abs(got - want) > tol) {
+            check.say("got {e}, want {e} within {e}: ", .{ @as(f64, got), @as(f64, @floatCast(want)), @as(f64, @floatCast(tol)) });
+            return check.case(error.TestUnexpectedResult, "sdot", f32, n, .{ inc, inc });
+        }
+    };
+}
+
+test "portable sdot: within half an ulp, summed in f64" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkSdotWide(&vt);
+}
+
+test "every linked core's sdot: within half an ulp, summed in f64" {
+    try check.eachCore(checkSdotWide);
+}
+
 test "the C drivers around the reference's fallback blocks match a plain loop" {
     inline for (.{ .{ "sdot", 32 }, .{ "ddot", 16 } }) |r| {
         try checkDot(uk.Float(r[0]), false, kernel.entry(r[0], r[1], null));

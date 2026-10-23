@@ -157,6 +157,11 @@ does not depend on the core (`threading.md`; `comparisons.md`, X1).
   a finite element, the index compares `|re|/4 + |im|/4`, as `izamax.f90`
   does, so an infinite part still wins. The converted kernels pass NaN over,
   or pick one by vector lane (`issues.md`).
+- `sdot`: products and sum in `f64`, rounded once, as the portable `sdot`.
+  Upstream's sum in `f32` on most cores (x86_64 `sdot.c`, arm `sdot_vfp.S`,
+  POWER, loongarch64, mips64, SPARC, arm64 `dot.S` on `tsv110`) and in the
+  x87's `f80` on x86 (`dot.S`), so the error of the same `sdot` differed by
+  core by far more than its last bits.
 
 The `@Vector` kernels fill them where the vector unit is IEEE: x86_64, x86,
 arm64 (Apple's systems too), loongarch64 and POWER8 to 10. The portable ones
