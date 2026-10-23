@@ -47,7 +47,7 @@ pub fn Real(comptime T: type) type {
             _: [*]T,
             _: BlasLong,
         ) callconv(.c) i32 {
-            if (n < 0 or da == 0.0) return 0;
+            if (n < 0) return 0;
             const len: usize = @intCast(n);
             const dv: V = @splat(da);
 
@@ -225,7 +225,6 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
             _: BlasLong,
         ) callconv(.c) i32 {
             if (n < 0) return 0;
-            if (da_r == 0.0 and da_i == 0.0) return 0;
             const len: usize = @intCast(n);
             const dar: V = @splat(da_r);
             const dai: V = @splat(da_i);

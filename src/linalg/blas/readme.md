@@ -163,6 +163,15 @@ does not depend on the core (`threading.md`; `comparisons.md`, X1).
   x87's `f80` on x86 (`dot.S`), so the error of the same `sdot` differed by
   core by far more than its last bits.
 
+`axpy` with a zero `alpha` multiplies on every core, so `0 * x` gives NaN
+for NaN and infinities. The interface returns first, as the reference does,
+but the triangular and banded drivers call the kernel with `-x(j)`, which
+may be zero. The arm64 and loongarch64 assembly (see "Fixes to upstream
+sources"), `arm64/axpy_sve.c`, `mips/?axpy_msa.c`, `riscv64/axpy_rvv.c`,
+`zaxpy_rvv.c` and `wasm/axpy.c` returned at once instead, so `trsv` and
+`tbsv` propagated NaN otherwise there; the patches and ports drop that
+return.
+
 The `@Vector` kernels fill them where the vector unit is IEEE: x86_64, x86,
 arm64 (Apple's systems too), loongarch64 and POWER8 to 10. The portable ones
 stay on arm, whose NEON flushes `f32` denormals, on the AltiVec POWER cores,
@@ -344,6 +353,12 @@ generated files carry the fixed code. No core takes the extremes' and
   They now compare the pick with the new element, as the maxima do.
 - `arm/amax_vfp.S`, `iamax_vfp.S`, the minima: moved on `lt`, which an
   unordered compare sets too, with the same effect; `mi` is less than only.
+- `arm64/axpy.S`, `zaxpy.S`, `daxpy_thunderx2t99.S` (every arm64 core but
+  the SVE ones and `vortex`, `vortexm4`) and `loongarch64/axpy_lsx.S`,
+  `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`: returned at once for a zero
+  `alpha`, so NaN and infinities in `x` never reached `y`, unlike the other
+  architectures' kernels; the level-2 triangular drivers pass `-x(j)`, which
+  may be zero. The comparisons go.
 - `mips64/iamax.S`, `imax.S`, `izamax.S` and their minima (loongson3r3,
   loongson3r4), and `sparc/iamax.S`, `imax.S`, `izamax.S`: keep a pick per
   lane, and of equal picks the reduction kept the first lane's, which can

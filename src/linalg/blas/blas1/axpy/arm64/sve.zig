@@ -48,8 +48,9 @@ pub fn Real(comptime T: type) type {
             _: [*]T,
             _: BlasLong,
         ) callconv(.c) i32 {
+            // no return for a zero `da`, unlike the C: `0 * x` reaches `y`,
+            // NaN for NaN and infinity, as on every other core
             if (n < 0) return 0;
-            if (da == 0.0) return 0;
 
             if (inc_x == 1 and inc_y == 1) {
                 var i: i64 = 0;

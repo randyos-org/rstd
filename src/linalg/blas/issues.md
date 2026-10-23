@@ -743,6 +743,23 @@ And loongarch64 `axpby`:
 >   `.L21`): no zero-scalar blocks at all; branching to `.L22`, the strided
 >   path, which has them, fixes it.
 
+And the kernels rstd changed, by patch or port, to keep `axpy` one contract:
+
+> **`arm64/axpy.S`, `zaxpy.S`, `daxpy_thunderx2t99.S`, `axpy_sve.c`, `loongarch64/axpy_lsx.S`, `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`, `mips/?axpy_msa.c`, `riscv64/axpy_rvv.c`, `zaxpy_rvv.c`, `wasm/axpy.c`: a zero alpha skips `x`**
+>
+> They return at once for `alpha == 0`, as `kernel/arm/axpy.c` does, while
+> the other cores' kernels multiply. `interface/axpy.c` returns first, but
+> `driver/level2` calls `AXPYU_K` with `-B[i]`, which may be zero, so on
+> these cores an infinity or NaN in the matrix column does not reach the
+> solution of `trsv` and `tbsv`, and on the others it does. Dropping the
+> early return makes every core multiply; reference master's `dtrsv.f`
+> (`6e7b86c`) removed its zero test for the same reason.
+
+A zero `alpha` with a denormal in `y` also shows the ARMv7 NEON and AltiVec
+flushing of `comparisons.md` (10): there the portable `axpy`'s `@Vector`
+block turns the denormal into 0. `blas1/edge.zig` keeps its zero-`alpha`
+patterns in `x` until that is decided.
+
 Ours, not a converted kernel:
 
 - **Rank updates and a zero factor.** Reference `zher`, `zhpr`, `dsyr2` and

@@ -69,7 +69,6 @@ pub fn Real(comptime T: type) type {
             _: isize,
         ) callconv(.c) i32 {
             if (n <= 0) return 0;
-            if (alpha == 0.0) return 0;
             var m: usize = @intCast(n);
             var xp = x;
             var yp = y;
@@ -225,7 +224,6 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
             _: isize,
         ) callconv(.c) i32 {
             if (n < 0) return 0;
-            if (alpha_r == 0.0 and alpha_i == 0.0) return 0;
             var m: usize = @intCast(n);
             var xp = x;
             var yp = y;

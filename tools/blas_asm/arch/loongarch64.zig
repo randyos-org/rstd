@@ -18,6 +18,12 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
 /// Fixes for bugs in the LSX/LASX sources, still in OpenBLAS v0.3.34-317;
 /// the qemu rig's per-core tests found each one.
 const patches = [_]arch.Patch{
+    // `axpy` returned at once for a zero alpha, so `0 * x` never reached `y`
+    // and NaN and infinities in `x` were lost, unlike on every other core
+    .{ .source = "axpy_lsx.S", .find = "    CMPEQ   $fcc0, ALPHA, a1\n    bcnez $fcc0, .L999\n", .replace = "" },
+    .{ .source = "axpy_lasx.S", .find = "    CMPEQ   $fcc0, ALPHA, a1\n    bcnez $fcc0, .L999\n", .replace = "" },
+    .{ .source = "caxpy_lsx.S", .find = "    bceqz $fcc0, .L10\n    bcnez $fcc1, .L999\n", .replace = "" },
+    .{ .source = "caxpy_lasx.S", .find = "    bceqz $fcc0, .L10\n    bcnez $fcc1, .L999\n", .replace = "" },
     // the double result returned through `fmov.s`, leaving its upper half
     // undefined; `MOV` is `fmov.d` for double
     .{ .source = "sum_lsx.S", .find = "fmov.s $f0, $f16", .replace = "MOV $f0, $f16" },

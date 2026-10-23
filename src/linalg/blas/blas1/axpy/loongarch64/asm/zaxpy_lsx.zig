@@ -35,8 +35,6 @@ const Body = struct {
             \\ ffint.d.l $f12, $f12
             \\ fcmp.ceq.d $fcc0, $f0, $f12
             \\ fcmp.ceq.d $fcc1, $f1, $f12
-            \\ bceqz $fcc0, 20000f
-            \\ bcnez $fcc1, 20012f
             \\ 20000:
             \\ slli.d $r13, $r13, 4
             \\ slli.d $r8, $r8, 4

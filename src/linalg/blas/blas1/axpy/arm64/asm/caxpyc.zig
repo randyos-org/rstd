@@ -107,10 +107,6 @@ const Body = struct {
             \\ cmp x0, xzr
             \\ ble 20009f
             \\ mov x7, x5
-            \\ fcmp s0, #0.0
-            \\ bne 20000f
-            \\ fcmp s1, #0.0
-            \\ beq 20009f
             \\ 20000:
             \\ INIT
             \\ cmp x4, #1
