@@ -584,7 +584,7 @@ run as 32-bit code.
 `arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
 `sf` variant runs, using the VFP the CPU has.
 
-`sparc64-debug` is `sparc64` in debug, in twenty-seven images where
+`sparc64-debug` is `sparc64` in debug, in thirty-one images where
 `sparc64` needs fourteen (OpenBIOS maps 4 MB of each), less one test that
 alone is 6 MB in debug.
 `sparc` (32-bit) is a stub: lld cannot link 32-bit SPARC.

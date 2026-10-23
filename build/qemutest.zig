@@ -342,13 +342,30 @@ const machines = [_]Machine{
             // blas1 in two, as one is past the window
             .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.amax.", "linalg.blas.blas1.amin.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas.blas1.check.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas.blas1.iamax.", "linalg.blas.blas1.iamin.", "linalg.blas.blas1.imax.", "linalg.blas.blas1.imin.", "linalg.blas.blas1.max.", "linalg.blas.blas1.min.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.blas1.uk_block.", "linalg.blas.blas1.x87." } },
             .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas.blas1.edge." } },
-            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            // the dense routines, the triangular ones, the interface and the
+            // complex edge cases each in two, as one is past the window
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv." } },
+            .{ .name = "blas2-dense-2", .filters = &.{ "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
-            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
-            .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
+            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular.test.triangular"} },
+            .{ .name = "blas2-triangular-cores", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's"} },
+            .{ .name = "blas2-interface", .filters = &.{
+                "linalg.blas.blas2.interface.test.interface: gemv",
+                "linalg.blas.blas2.interface.test.interface: ger",
+                "linalg.blas.blas2.interface.test.interface: symv",
+                "linalg.blas.blas2.interface.test.interface: problems",
+            } },
+            .{ .name = "blas2-interface-2", .filters = &.{
+                "linalg.blas.blas2.interface.test.interface: the half",
+                "linalg.blas.blas2.interface.test.interface: half",
+                "linalg.blas.blas2.interface.test.interface: level 2",
+                "linalg.blas.blas2.interface.test.every linked core's",
+                "linalg.blas.blas2.interface.test_",
+            } },
             // in two, as one is past the window
             .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas.blas2.edge.test.portable level-2 routines, real", "linalg.blas.blas2.edge.test.every linked core's level-2 routines, real" } },
-            .{ .name = "blas2-edge-complex", .filters = &.{ "linalg.blas.blas2.edge.test.portable level-2 routines, complex", "linalg.blas.blas2.edge.test.every linked core's level-2 routines, complex" } },
+            .{ .name = "blas2-edge-complex", .filters = &.{"linalg.blas.blas2.edge.test.portable level-2 routines, complex"} },
+            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas.blas2.edge.test.every linked core's level-2 routines, complex"} },
             .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
             // but "every core of every family", 6 MB alone in debug: `sparc64` runs it
             .{ .name = "blas3-params", .filters = &.{
