@@ -556,7 +556,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             var b = pb;
             for (0..k) |_| {
                 var av: [nv]V = undefined;
-                inline for (0..nv) |v| av[v] = util.load(V, a + v * lanes);
+                inline for (0..nv) |v| av[v] = a[v * lanes ..][0..lanes].*;
                 inline for (0..wn) |j| {
                     const br: V = @splat(b[2 * j]);
                     const bi: V = @splat(b[2 * j + 1]);
@@ -586,7 +586,10 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
                 const res = madd(F, lanes, s, sb, first);
                 const p = c + 2 * j * ld + v * lanes;
                 const rs = @shuffle(F, res, undefined, swap);
-                util.store(V, p, madd(F, lanes, res, alr, madd(F, lanes, rs, ali, util.load(V, p))));
+                // whole arrays, not `util.store`: the self-hosted x86_64 backend
+                // stores a two-lane `f32` vector as sixteen bytes
+                const cv: V = p[0..lanes].*;
+                p[0..lanes].* = madd(F, lanes, res, alr, madd(F, lanes, rs, ali, cv));
             };
         }
 
