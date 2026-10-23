@@ -520,36 +520,40 @@ fn fail(case: Case, i: usize, j: usize, what: []const u8) anyerror {
 
 // ---- runners --------------------------------------------------------------------
 
-/// Calls the drivers on a fixed vtable through a poisoned allocator, so a
-/// packing buffer read before it is written shows as NaN.
-pub const Driver = struct {
-    vt: *const Vtable,
+/// Calls the driver of `r` on a fixed vtable through a poisoned allocator, so
+/// a packing buffer read before it is written shows as NaN. The routine is
+/// fixed at compile time, so a test builds only its own driver.
+pub fn Driver(comptime r: Routine) type {
+    return struct {
+        vt: *const Vtable,
 
-    pub fn run(self: Driver, comptime T: type, case: Case, a: [*]T, lda: usize, b: [*]T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize) !void {
-        var poison: guard.Poison = .{ .child = testing.allocator };
-        const al = poison.allocator();
-        const vt = self.vt;
-        const herm = comptime isComplex(T);
-        switch (case.r) {
-            .gemm => try level3.gemm(al, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-            .symm => try level3.symm(al, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc),
-            .hemm => if (herm) try level3.symm(al, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
-            .syrk => try level3.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc),
-            .syr2k => try level3.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-            .herk => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc) else unreachable,
-            .her2k => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
-            .trmm, .trsm => if (@hasDecl(level3, "trmm")) {
-                const args = .{ al, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc };
-                if (case.r == .trmm) try @call(.auto, level3.trmm, args) else try @call(.auto, level3.trsm, args);
-            } else return error.SkipZigTest,
+        pub fn run(self: @This(), comptime T: type, case: Case, a: [*]T, lda: usize, b: [*]T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize) !void {
+            var poison: guard.Poison = .{ .child = testing.allocator };
+            const al = poison.allocator();
+            const vt = self.vt;
+            const herm = comptime isComplex(T);
+            switch (r) {
+                .gemm => try level3.gemm(al, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+                .symm => try level3.symm(al, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc),
+                .hemm => if (herm) try level3.symm(al, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
+                .syrk => try level3.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc),
+                .syr2k => try level3.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+                .herk => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc) else unreachable,
+                .her2k => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
+                .trmm, .trsm => if (@hasDecl(level3, "trmm")) {
+                    const args = .{ al, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc };
+                    if (r == .trmm) try @call(.auto, level3.trmm, args) else try @call(.auto, level3.trsm, args);
+                } else return error.SkipZigTest,
+            }
         }
-    }
-};
+    };
+}
 
 /// Calls the routines of an interface (`interface.zig`'s signatures, its
 /// `Trans`, `Side`, `Uplo` and `Diag`) through a poisoned allocator; real
-/// `r` and `c` stand in for `n` and `t` half the time.
-pub fn Iface(comptime iface: type) type {
+/// `r` and `c` stand in for `n` and `t` half the time. As `Driver`, for one
+/// routine `r`.
+pub fn Iface(comptime iface: type, comptime r: Routine) type {
     return struct {
         pub fn run(_: @This(), comptime T: type, case: Case, a: [*]T, lda: usize, b: [*]T, ldb: usize, alpha: T, beta: T, c: [*]T, ldc: usize) !void {
             var poison: guard.Poison = .{ .child = testing.allocator };
@@ -565,7 +569,7 @@ pub fn Iface(comptime iface: type) type {
             const ic: isize = @intCast(ldc);
             const side: Side(iface) = if (case.left) .l else .r;
             const uplo: Uplo(iface) = if (case.upper) .u else .l;
-            switch (case.r) {
+            switch (r) {
                 .gemm => try iface.gemm(al, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic),
                 .symm => if (!@hasDecl(iface, "symm")) return error.SkipZigTest else try iface.symm(al, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic),
                 .hemm => if (!@hasDecl(iface, "hemm")) return error.SkipZigTest else if (comptime isComplex(T)) try iface.hemm(al, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
@@ -576,7 +580,7 @@ pub fn Iface(comptime iface: type) type {
                 .trmm, .trsm => if (@hasDecl(iface, "trmm")) {
                     const diag: Diag(iface) = if (case.unit) .u else .n;
                     const args = .{ al, T, side, uplo, ta, diag, m, n, alpha, a, ia, c, ic };
-                    if (case.r == .trmm) try @call(.auto, iface.trmm, args) else try @call(.auto, iface.trsm, args);
+                    if (r == .trmm) try @call(.auto, iface.trmm, args) else try @call(.auto, iface.trsm, args);
                 } else return error.SkipZigTest,
             }
         }
@@ -661,7 +665,7 @@ fn scalarsOf(comptime T: type) []const [2][2]f64 {
 }
 
 /// Every case of `r` over `T` on `vt`'s kernels.
-pub fn routineCases(comptime T: type, vt: *const Vtable, r: Routine) !void {
+pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !void {
     const pre = comptime portable.letter(T).? ++ "gemm_";
     const own = level3.Blocking.of(T, vt);
     const um = own.um;
@@ -674,8 +678,8 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, r: Routine) !void {
     const p = 2 * um;
     const q = 5;
     const rr = 6 * un + 1;
-    const small: Driver = .{ .vt = &shrunk };
-    const full: Driver = .{ .vt = vt };
+    const small: Driver(r) = .{ .vt = &shrunk };
+    const full: Driver(r) = .{ .vt = vt };
     const rig = check1.rig();
     var vbuf: [32]Case = undefined;
     const vs = variants(T, r, &vbuf);
@@ -763,22 +767,22 @@ fn ported(r: Routine) bool {
 /// it is a type of its own.
 pub fn coreCases(vt: *const Vtable) !void {
     inline for (.{ f32, f64, types.Complex32, types.Complex64 } ++ check1.x_real ++ check1.x_complex) |T| {
-        for (routinesOf(T)) |r| if (ported(r)) try routineCases(T, vt, r);
+        inline for (comptime routinesOf(T)) |r| if (comptime ported(r)) try routineCases(T, vt, r);
     }
 }
 
 /// `routineCases` of one routine for every precision it has.
-pub fn routineAll(vt: *const Vtable, r: Routine) !void {
+pub fn routineAll(vt: *const Vtable, comptime r: Routine) !void {
     inline for (.{ f32, f64, types.Complex32, types.Complex64 } ++ check1.x_real ++ check1.x_complex) |T| {
-        if (std.mem.indexOfScalar(Routine, routinesOf(T), r) != null) try routineCases(T, vt, r);
+        if (comptime std.mem.indexOfScalar(Routine, routinesOf(T), r) != null) try routineCases(T, vt, r);
     }
 }
 
 /// Cases of `r` through an interface (`Iface`), at sizes small and past the
 /// generic blocking.
-pub fn interfaceCases(comptime T: type, comptime iface: type, r: Routine) !void {
+pub fn interfaceCases(comptime T: type, comptime iface: type, comptime r: Routine) !void {
     var vbuf: [32]Case = undefined;
     for (variants(T, r, &vbuf)) |v| for (scalarsOf(T)) |s| for ([_][3]usize{ .{ 1, 1, 1 }, .{ 9, 7, 5 }, .{ 37, 29, 70 } }) |d| {
-        try one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(iface){});
+        try one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(iface, r){});
     };
 }
