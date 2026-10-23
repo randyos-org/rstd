@@ -600,17 +600,19 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             var im: [wn][wm]A = @splat(@splat(0));
             var a = pa;
             var b = pb;
+            // plain loops over the tile, which optimized builds unroll: a debug
+            // build of the unrolled tile overran its frame on MIPS release 6
             for (0..k) |_| {
                 var x: [wm]A = undefined;
                 var y: [wm]A = undefined;
-                inline for (0..wm) |i| {
+                for (0..wm) |i| {
                     x[i] = a[2 * i];
                     y[i] = if (comptime conj.ofA()) -@as(A, a[2 * i + 1]) else a[2 * i + 1];
                 }
-                inline for (0..wn) |j| {
+                for (0..wn) |j| {
                     const u: A = b[2 * j];
                     const v: A = if (comptime conj.ofB()) -@as(A, b[2 * j + 1]) else b[2 * j + 1];
-                    inline for (0..wm) |i| {
+                    for (0..wm) |i| {
                         re[j][i] = madd(A, 1, -y[i], v, madd(A, 1, x[i], u, re[j][i]));
                         im[j][i] = madd(A, 1, x[i], v, madd(A, 1, y[i], u, im[j][i]));
                     }
@@ -620,7 +622,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             }
             const war: A = ar;
             const wai: A = ai;
-            inline for (0..wn) |j| inline for (0..wm) |i| {
+            for (0..wn) |j| for (0..wm) |i| {
                 const p = c + 2 * (i + j * ld);
                 const nre = madd(A, 1, war, re[j][i], madd(A, 1, -wai, im[j][i], p[0]));
                 const nim = madd(A, 1, war, im[j][i], madd(A, 1, wai, re[j][i], p[1]));
