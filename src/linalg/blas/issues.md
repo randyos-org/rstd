@@ -849,3 +849,51 @@ And loongarch64 and mips64:
 > loongson3r3). `crot_lsx.S` and `crot_lasx.S` already send zero strides to
 > their one-at-a-time loop (`.L996`); the fix does the same for these (the
 > mips64 one sets the count in each branch's delay slot).
+
+And with only the written operand's stride zero, found by the per-core checks
+once they took one zero stride beside a nonzero one. The reference is
+sequential: `axpy` with `incy` = 0 does `y[0] += alpha*x[i]` for each `i` in
+turn.
+
+> **x86_64 `zaxpy_sse2.S`, `axpy_atom.S`, `zaxpy_atom.S`: a zero `incy` updates one element as a block**
+>
+> The strided loops load several `y` elements before storing any, so with
+> `incy` = 0 later updates start from the old `y[0]`. `zaxpy_sse2.S` has a
+> one-at-a-time loop for zero strides (`.L58`), but its test sends only both
+> zero there, despite its comment, and the loop never steps `x`; `zaxpy`
+> with `n` = 3, `incy` = 0 gives -3.9665 where the sequential loop gives
+> -1.0370 (prescott, core2, nehalem, opteron and the rest). The `atom` files
+> have no such loop: `daxpy` goes wrong from `n` = 2. The fix sends a zero
+> `incy` to a stepping one-at-a-time loop.
+
+And POWER and SPARC, as in their `rot` and `swap`:
+
+> **power `axpy.S`, `zaxpy.S`, `axpy_ppc440.S`, sparc `axpy.S`, `zaxpy.S`: a zero `incy` updates one element as a block**
+>
+> The strided loop loads a block of `y` before storing it. `saxpy` with
+> `incy` = 0 goes wrong from `n` = 16 on power3 to power6, ppc970, cell and
+> ppcg4, and from `n` = 8 on sparc. Zero strides take the one-at-a-time
+> loop, as those do; on sparc it now returns for `n` = 0 first, which its
+> loop, run once before the count is tested, did not.
+
+And loongarch64:
+
+> **loongarch64 `axpy_lsx.S`, `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`, `cswap_lsx.S`, `cswap_lasx.S`: a zero stride acts on one element as a block**
+>
+> The `axpy` loops for a strided `y` (`.L12`, `.L22`) gather a block of `y`
+> before storing it; `saxpy` with `incy` = 0 goes wrong from `n` = 8 (la264,
+> la464). `cswap`'s `.L22` reads `x` a block ahead of storing it, so
+> `incx` = 0 beside a strided `y` goes wrong from `n` = 4. A zero `incy`
+> (either zero stride for `cswap`) takes the one-at-a-time loop.
+
+And C sources rstd ports to Zig:
+
+> **riscv64 `axpy_rvv.c`, `zaxpy_rvv.c` and mips `saxpy_msa.c`, `daxpy_msa.c`: a zero `incy` updates one element as a block**
+>
+> `axpy_rvv.c` has a branch for `incy` = 0 that starts every lane at
+> `y[0]` and sums the lanes into it, so it adds `y[0]` once a lane; `saxpy`
+> with `n` = 3 gives -1.2692 where the loop gives 1.6555
+> (riscv64_zvl128b, x280). `zaxpy_rvv.c`'s strided segments and the MSA
+> files' blocks of four and two load `y` before storing it (i6400, i6500,
+> p6600 from `n` = 4). rstd's ports of these (`axpy/riscv64/rvv.zig`,
+> `axpy/mips/msa.zig`) take a zero `incy` one element at a time.

@@ -469,6 +469,18 @@ cases in x86 `swap.S`, `zswap.S` and arm `swap_vfp.S`, `rot_vfp.S` skip the
 work or stop after one element, right only for some `n`; zero strides there
 now take one element at a time too.
 
+With only the written operand's stride zero (`axpy` with `incy` = 0 beside a
+nonzero `incx`), the per-core checks found the same bug in more kernels:
+x86_64 `zaxpy_sse2.S` (whose own zero-stride case fired only with both
+zero), `axpy_atom.S` and `zaxpy_atom.S`; power `axpy.S`, `zaxpy.S` and
+`axpy_ppc440.S`; sparc `axpy.S` and `zaxpy.S`; loongarch64 `axpy_lsx.S`,
+`axpy_lasx.S`, `caxpy_lsx.S` and `caxpy_lasx.S`, and `cswap_lsx.S`,
+`cswap_lasx.S` with `incx` = 0. A zero `incy` now takes a one-at-a-time loop
+there. The C sources ported to Zig had it too, fixed in the port:
+`riscv64/axpy_rvv.c` started every lane at `y[0]` and summed them, adding
+`y[0]` once a lane, and `zaxpy_rvv.c`'s segments and `mips/saxpy_msa.c`,
+`daxpy_msa.c`'s blocks load `y` before storing it.
+
 ## Kernels that call another routine's kernel
 
 A handful of upstream sources branch into another routine's own kernel rather
