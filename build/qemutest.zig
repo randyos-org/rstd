@@ -634,9 +634,28 @@ fn vmOption(b: *Build, comptime name: []const u8, comptime rigs: []const u8, com
 /// no output ends it and fails the step, where it would otherwise never end.
 /// The slowest test prints nothing for about 20 minutes on the x86 rigs.
 fn qemuCommand(b: *Build, m: Machine) *Build.Step.Run {
-    const run = b.addRunArtifact(watchTool(b));
-    run.addArgs(&.{ "60", "Stopping execution", "--", m.qemu });
+    const run = watchCommand(b);
+    run.addArgs(&.{ "Stopping execution", "--", m.qemu });
     return run;
+}
+
+/// `tools/qemu_watch.zig` with its idle limit (an hour) and `-Dfail-fast`;
+/// the caller adds halt texts, `--` and the command.
+pub fn watchCommand(b: *Build) *Build.Step.Run {
+    const run = b.addRunArtifact(watchTool(b));
+    run.addArg("60");
+    if (failFast(b)) run.addArg("--fail-fast");
+    return run;
+}
+
+var fail_fast: ?struct { owner: *Build, on: bool } = null;
+
+/// `-Dfail-fast`: end a rig at its first failing test rather than run the rest.
+fn failFast(b: *Build) bool {
+    if (fail_fast) |f| if (f.owner == b) return f.on;
+    const on = b.option(bool, "fail-fast", "End a qemu or SSH rig at its first failing test") orelse false;
+    fail_fast = .{ .owner = b, .on = on };
+    return on;
 }
 
 var watch_tool: ?*Build.Step.Compile = null;

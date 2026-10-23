@@ -24,8 +24,8 @@ pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !
         .target = b.graph.host,
     }) });
     // under the qemu rigs' watchdog: an hour with no output ends it
-    const run = b.addRunArtifact(qemutest.watchTool(b));
-    run.addArgs(&.{ "60", "--" });
+    const run = qemutest.watchCommand(b);
+    run.addArg("--");
     run.addArtifactArg(tool);
     run.addArg(mac);
     run.addArtifactArg(test_exe);
@@ -89,8 +89,8 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
     }
     const exe = b.addExecutable(.{ .name = "blas_bench", .root_module = mod });
 
-    const run = b.addRunArtifact(qemutest.watchTool(b));
-    run.addArgs(&.{ "60", "--" });
+    const run = qemutest.watchCommand(b);
+    run.addArg("--");
     run.addArtifactArg(tool);
     run.addArg(mac);
     run.addArtifactArg(exe);
