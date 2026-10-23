@@ -64,5 +64,6 @@ pub fn installGeneric(vt: *Vtable) void {
 test {
     _ = @import("x87.zig");
     _ = @import("edge.zig");
+    _ = @import("denormal.zig");
     zigstd.testRefAllDecls(@This());
 }

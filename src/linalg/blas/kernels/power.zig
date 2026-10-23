@@ -31,8 +31,8 @@ const modules = .{
 };
 
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots on the
-/// VSX cores. AltiVec flushes `f32` denormals, so elsewhere the portable
-/// kernels stay.
+/// VSX cores. AltiVec flushes `f32` denormals (`util.vectorIeee`), so
+/// elsewhere the portable kernels stay.
 fn usesVector(comptime core: Core, comptime role: []const u8) bool {
     return switch (core) {
         .power8, .power9, .power10 => vector.routed(role),

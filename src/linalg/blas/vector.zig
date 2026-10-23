@@ -858,10 +858,12 @@ pub fn peels(comptime role: []const u8) bool {
 /// function of `Real` or `Complex` over `F` that is it.
 const Role = struct { name: []const u8, F: type, complex: bool, f: []const u8 };
 
-/// Every role with a kernel here.
+/// Every role with a kernel here: none in a type whose lanes flush
+/// denormals (`util.vectorIeee`), whose slots keep the portable kernels.
 pub const roles: []const Role = blk: {
     var r: []const Role = &.{};
     for (.{ .{ "s", f32 }, .{ "d", f64 } }) |p| {
+        if (!util.vectorIeee(p[1])) continue;
         for (.{ "axpy", "dot", "scal", "nrm2", "asum", "copy", "swap", "rot", "gemv_n", "gemv_t" }) |f| {
             r = r ++ &[_]Role{.{ .name = p[0] ++ f, .F = p[1], .complex = false, .f = f }};
         }
@@ -873,6 +875,7 @@ pub const roles: []const Role = blk: {
         }
     }
     for (.{ .{ "c", f32, "s" }, .{ "z", f64, "d" } }) |p| {
+        if (!util.vectorIeee(p[1])) continue;
         for (.{ "axpy", "axpyc", "dotu", "dotc", "scal", "nrm2", "asum", "copy", "swap" }) |f| {
             r = r ++ &[_]Role{.{ .name = p[0] ++ f, .F = p[1], .complex = true, .f = f }};
         }

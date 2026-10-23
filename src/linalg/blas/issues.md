@@ -769,10 +769,20 @@ And the kernels rstd changed, by patch or port, to keep `axpy` one contract:
 > early return makes every core multiply; reference master's `dtrsv.f`
 > (`6e7b86c`) removed its zero test for the same reason.
 
-A zero `alpha` with a denormal in `y` also shows the ARMv7 NEON and AltiVec
-flushing of `comparisons.md` (10): there the portable `axpy`'s `@Vector`
-block turns the denormal into 0. `blas1/edge.zig` keeps its zero-`alpha`
-patterns in `x` until that is decided.
+A zero `alpha` with a denormal in `y` also showed the ARMv7 NEON and AltiVec
+flushing of `comparisons.md` (10): the portable `saxpy`'s `@Vector` block
+turned the denormal into 0 on the `arm`, `linux-arm`, `powerpc` and
+`powerpc-pseries` rigs. It was the only level-1 or level-2 kernel that did
+(`blas1/denormal.zig`, `blas2/edge.zig`); it now takes its scalar loop where
+`util.vectorIeee` says the lanes flush, and the `@Vector` kernels leave `s`
+and `c` there to the portable ones.
+
+Upstream's level-1 and level-2 kernels for these cores are scalar: VFP on
+arm, the FPU on POWER before POWER8, none of them AltiVec. Its ARMv7
+`sgemm_kernel_4x4_vfpv3_neon.S` and the PPC970 and CELL
+`gemm_kernel_altivec*.S` and `zgemm_kernel_altivec*.S` compute in NEON and
+AltiVec lanes and never set `VSCR`, so they flush `f32` denormals as these
+units do.
 
 Ours, not a converted kernel:
 

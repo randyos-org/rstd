@@ -407,13 +407,10 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     const scal = @field(vt, l ++ "scal_k").?;
     for ([_]T{ one, inf, nan_a, nan_b }) |a| note(sweep(T, l ++ "scal", false, false, Scal(T, @TypeOf(scal)){ .kern = scal, .alpha = a }, scalRun));
     const axpy = @field(vt, l ++ "axpy_k").?;
-    // a zero alpha too, which the triangular drivers pass (`-x(j)`): `0 * x`;
-    // the patterns in `x` only, as a denormal `y` plus 0 is where ARMv7 NEON
-    // and AltiVec flush the portable kernel's vectors (`comparisons.md`, 10)
+    // a zero alpha too, which the triangular drivers pass (`-x(j)`): `0 * x`
     for ([_]T{ one, zero_t, nan_a, nan_b }) |a| {
-        const two = !isZero(T, a);
-        note(sweep(T, l ++ "axpy", two, true, Axpy(T, @TypeOf(axpy)){ .kern = axpy, .alpha = a, .conj = false }, axpyRun));
-        if (complex) note(sweep(T, l ++ "axpyc", two, true, Axpy(T, @TypeOf(axpy)){ .kern = @field(vt, l ++ "axpyc_k").?, .alpha = a, .conj = true }, axpyRun));
+        note(sweep(T, l ++ "axpy", true, true, Axpy(T, @TypeOf(axpy)){ .kern = axpy, .alpha = a, .conj = false }, axpyRun));
+        if (complex) note(sweep(T, l ++ "axpyc", true, true, Axpy(T, @TypeOf(axpy)){ .kern = @field(vt, l ++ "axpyc_k").?, .alpha = a, .conj = true }, axpyRun));
     }
     if (@hasField(Vtable, l ++ "axpby_k")) if (@field(vt, l ++ "axpby_k")) |k| {
         for ([_][2]T{ .{ one, beta }, .{ zero_t, beta }, .{ one, zero_t }, .{ zero_t, zero_t } }) |ab| {

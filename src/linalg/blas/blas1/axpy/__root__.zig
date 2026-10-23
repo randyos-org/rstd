@@ -49,9 +49,10 @@ fn SimdBlock(comptime T: type) type {
     };
 }
 
-/// Whether `T` gets the `@Vector` block kernel in the portable path.
+/// Whether `T` gets the `@Vector` block kernel in the portable path: not
+/// where its lanes flush denormals.
 fn hasSimdBlock(comptime T: type) bool {
-    return T == f32 or T == f64;
+    return (T == f32 or T == f64) and util.vectorIeee(T);
 }
 
 fn GenericReal(comptime T: type) type {

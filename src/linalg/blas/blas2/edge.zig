@@ -201,6 +201,15 @@ const Case = struct {
     inc: [2]isize,
     p: Pattern,
     where: Where,
+    /// A second operand's pattern.
+    also: ?struct { where: Where, p: Pattern } = null,
+
+    /// The pattern operand `w` takes, if any.
+    fn on(c: Case, w: Where) ?Pattern {
+        if (c.where == w) return c.p;
+        if (c.also) |a| if (a.where == w) return a.p;
+        return null;
+    }
 };
 
 const Routine = enum {
@@ -313,11 +322,11 @@ fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: 
     const t = if (r == .gemv or r == .gbmv) trans_flags[v] else [3]bool{ false, false, false };
     const rows = if (t[0]) s.n else s.m;
     const cols = if (t[0]) s.m else s.n;
-    var a: Matrix(T) = try .init(al, s, 7 * c.m + c.n, if (c.where == .a) c.p else null);
+    var a: Matrix(T) = try .init(al, s, 7 * c.m + c.n, c.on(.a));
     defer a.deinit(al);
-    var x: Vector(T) = try .init(al, cols, c.inc[0], cols + 3, if (c.where == .x) c.p else null);
+    var x: Vector(T) = try .init(al, cols, c.inc[0], cols + 3, c.on(.x));
     defer x.deinit(al);
-    var y: Vector(T) = try .init(al, rows, c.inc[1], rows + 5, if (c.where == .y) c.p else null);
+    var y: Vector(T) = try .init(al, rows, c.inc[1], rows + 5, c.on(.y));
     defer y.deinit(al);
     if (isZero(T, beta)) y.poison();
     if (isZero(T, alpha)) {
@@ -378,9 +387,9 @@ fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
     const op: tri.Trans = @fromBackingInt(@intCast(v / 2 % 4));
     const tr = op == .t or op == .c;
     const cj = op == .r or op == .c;
-    var a: Matrix(T) = try .init(al, s, 7 * c.n + v, if (c.where == .a) c.p else null);
+    var a: Matrix(T) = try .init(al, s, 7 * c.n + v, c.on(.a));
     defer a.deinit(al);
-    var x: Vector(T) = try .init(al, s.n, c.inc[0], s.n + 3, if (c.where == .x) c.p else null);
+    var x: Vector(T) = try .init(al, s.n, c.inc[0], s.n + 3, c.on(.x));
     defer x.deinit(al);
     const pa = poison.allocator();
     const uplo: tri.Uplo = if (s.lower) .lower else .upper;
@@ -447,11 +456,11 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
         .ger, .gerc, .syr2, .her2, .spr2, .hpr2 => true,
         else => false,
     };
-    var a: Matrix(T) = try .init(al, s, 7 * c.m + c.n + v, if (c.where == .a) c.p else null);
+    var a: Matrix(T) = try .init(al, s, 7 * c.m + c.n + v, c.on(.a));
     defer a.deinit(al);
-    var x: Vector(T) = try .init(al, s.m, c.inc[0], s.m + 3, if (c.where == .x) c.p else null);
+    var x: Vector(T) = try .init(al, s.m, c.inc[0], s.m + 3, c.on(.x));
     defer x.deinit(al);
-    var y: Vector(T) = try .init(al, s.n, c.inc[1], s.n + 5, if (c.where == .y) c.p else null);
+    var y: Vector(T) = try .init(al, s.n, c.inc[1], s.n + 5, c.on(.y));
     defer y.deinit(al);
     // a zero `y` for `x`'s special values to skip
     if ((r == .ger or r == .gerc) and c.where == .x and s.n > 1) {
@@ -543,19 +552,14 @@ fn sweep(comptime T: type, comptime r: Routine) void {
     const beta = val(T, -0.75, 0.25);
     const nan = std.math.nan(Float(T));
     const zero = val(T, 0, 0);
-    // m, n, kl, ku; the rigs take one, past the unrolls
-    const all = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0 }, .{ 33, 9, 2, 2 } };
-    const shapes: []const [4]usize = if (check.rig()) all[2..3] else &all;
     const wheres: []const Where = switch (comptime r.family()) {
         .mv => &.{ .a, .x, .y },
         .tr => &.{ .a, .x },
         .rank => if (r == .syr or r == .spr or r == .her or r == .hpr) &.{ .a, .x } else &.{ .a, .x, .y },
     };
     var turn: usize = 0;
-    for (shapes) |sh| for (0..r.variants(complex)) |v| {
-        // square routines take `n` from the shape's larger side
-        const sq = @max(sh[0], sh[1]);
-        const base: Case = .{ .m = if (r == .gemv or r == .gbmv or r == .ger or r == .gerc) sh[0] else sq, .n = if (r == .gemv or r == .gbmv or r == .ger or r == .gerc) sh[1] else sq, .kl = sh[2], .ku = sh[3], .inc = .{ 1, 1 }, .p = .mixed, .where = .none };
+    for (shapes()) |sh| for (0..r.variants(complex)) |v| {
+        const base = baseCase(r, sh);
         for (wheres) |where| {
             const s = shapeOf(r, v, base);
             const t = (r == .gemv or r == .gbmv) and trans_flags[v][0];
@@ -596,6 +600,47 @@ fn sweep(comptime T: type, comptime r: Routine) void {
                 return report(e, T, r, v, c);
             };
         };
+    };
+}
+
+/// m, n, kl, ku; the rigs take one, past the unrolls.
+const all_shapes = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0 }, .{ 33, 9, 2, 2 } };
+
+fn shapes() []const [4]usize {
+    return if (check.rig()) all_shapes[2..3] else &all_shapes;
+}
+
+/// `r`'s case of shape `sh`, no pattern yet.
+fn baseCase(comptime r: Routine, sh: [4]usize) Case {
+    const general = r == .gemv or r == .gbmv or r == .ger or r == .gerc;
+    // square routines take `n` from the shape's larger side
+    const sq = @max(sh[0], sh[1]);
+    return .{ .m = if (general) sh[0] else sq, .n = if (general) sh[1] else sq, .kl = sh[2], .ku = sh[3], .inc = .{ 1, 1 }, .p = .mixed, .where = .none };
+}
+
+/// Denormal results: denormal the operands that reach them (`x` tiny where
+/// it meets itself, so its products are), the rest and the scalars near 1,
+/// so a flushed input or result shows.
+fn denormals(comptime T: type, comptime r: Routine) void {
+    const complex = comptime isComplex(T);
+    if (comptime r.complexOnly() and !complex) return;
+    const self = r == .syr or r == .spr or r == .her or r == .hpr;
+    for (shapes()) |sh| for (0..r.variants(complex)) |v| for ([_][2]isize{ .{ 1, 1 }, .{ -2, 3 } }) |inc| {
+        var c = baseCase(r, sh);
+        c.inc = inc;
+        c.p = .denormal;
+        switch (comptime r.family()) {
+            .mv => {
+                c.where = .a;
+                c.also = .{ .where = .y, .p = .denormal };
+            },
+            .tr => c.where = .x,
+            .rank => {
+                c.where = .a;
+                c.also = .{ .where = .x, .p = if (self) .tiny else .denormal };
+            },
+        }
+        run(T, r, v, val(T, 1.25, -0.5), val(T, -0.75, 0.25), c) catch |e| return report(e, T, r, v, c);
     };
 }
 
@@ -640,10 +685,19 @@ fn CheckAll(comptime types: anytype) type {
             if (failed) |e| return e;
         }
 
+        fn denormalsAll(vt: *const Vtable) !void {
+            failed = null;
+            const saved = blas.testUse(vt);
+            defer blas.testRestore(saved);
+            inline for (types) |T| inline for (comptime std.enums.values(Routine)) |r| denormals(T, r);
+            if (failed) |e| return e;
+        }
+
         fn portable() !void {
             var vt: Vtable = .{};
             @import("../portable.zig").install(&vt);
             try sweepAll(&vt);
+            try denormalsAll(&vt);
         }
     };
 }
@@ -662,4 +716,12 @@ test "every linked core's level-2 routines, real: special values, and NaN wherev
 
 test "every linked core's level-2 routines, complex: special values, and NaN wherever they must not read or write" {
     try check.eachCore(CheckAll(complex_types).sweepAll);
+}
+
+test "every linked core's level-2 routines, real: denormal results" {
+    try check.eachCore(CheckAll(real_types).denormalsAll);
+}
+
+test "every linked core's level-2 routines, complex: denormal results" {
+    try check.eachCore(CheckAll(complex_types).denormalsAll);
 }

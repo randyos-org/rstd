@@ -1,4 +1,5 @@
 const std = @import("std");
+const sysinfo = @import("builtin");
 
 /// Equivalent of C's `base[offset]` where `offset` may be negative -- BLAS
 /// routines allow negative `inc_x`/`inc_y` (iterate a vector in reverse),
@@ -36,6 +37,23 @@ pub inline fn load(comptime V: type, p: [*]const @typeInfo(V).vector.child) V {
 /// Stores `v` to `p`, unaligned; see `load`.
 pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) void {
     @as(*align(1) V, @ptrCast(p)).* = v;
+}
+
+/// Whether `@Vector` arithmetic in `F` keeps denormals on this target. Not
+/// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says, nor on
+/// AltiVec without VSX, which flushes under `VSCR[NJ]`, as Linux and QEMU
+/// start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
+/// operations, as it does every vector under a soft-float ABI. Kernels take
+/// their scalar path where this is false (`comparisons.md`, 10).
+pub fn vectorIeee(comptime F: type) bool {
+    if (F != f32 or sysinfo.abi.float() == .soft) return true;
+    const features = sysinfo.cpu.features;
+    return switch (sysinfo.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => !std.Target.arm.featureSetHas(features, .neon),
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => !std.Target.powerpc.featureSetHas(features, .altivec) or
+            std.Target.powerpc.featureSetHas(features, .vsx),
+        else => true,
+    };
 }
 
 /// Whether a vector of `n` elements of `size` bytes at stride `inc` fits in
