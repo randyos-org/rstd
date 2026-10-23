@@ -98,6 +98,18 @@ const patches = [_]arch.Patch{
     inRange("izamax_sse.S", ".L87"),
     inRange("izamax_sse2.S", ".L36"),
     inRange("izamax_sse2.S", ".L76"),
+    // with a zero `incy`, the strided loops load a block of `y` before
+    // storing it, so `n` updates of one element act as fewer;
+    // `zaxpy_sse2.S` took its one-at-a-time loop (which never stepped) only
+    // with both strides zero. Zero strides take one element at a time.
+    .{ .source = "zaxpy_sse2.S", .find = "\tcmpq\t$0, INCX\n\tjne  \t.L59\n", .replace = "\tcmpq\t$0, INCX\n\tje\t.L58\n" },
+    .{
+        .source = "zaxpy_sse2.S",
+        .find = "\tmovhpd\t%xmm8,   1 * SIZE(YY)\n\n\tdecq %rax\n\tjg\t.L58\n",
+        .replace = "\tmovhpd\t%xmm8,   1 * SIZE(YY)\n\taddq\tINCX, X\n\taddq\tINCY, Y\n\taddq\tINCY, YY\n\n\tdecq %rax\n\tjg\t.L58\n",
+    },
+    atomZeroIncy("axpy_atom.S", axpy_atom_one, "3"),
+    atomZeroIncy("zaxpy_atom.S", zaxpy_atom_one, "2"),
     // OPTERON loaded by adding to zero, so -0 came out +0 and a signaling
     // NaN quiet; load as the other cores do
     .{ .source = "copy_sse.S", .find = opteronLoad("addps"), .replace = "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\tmovaps\tOFFSET(ADDR), REG\n" },
@@ -114,6 +126,23 @@ const patches = [_]arch.Patch{
         .replace = "\tmovaps\t 0 * SIZE(NEW_X, IS, SIZE), atemp4\n\txorps\t xt1, xt1\n\tmovlhps  xt1, atemp4\n",
     },
 };
+
+/// A zero `incy` branches from the strided entry `.L20` to `one`, a loop
+/// `.L28` put before it; `shift` is the block's.
+fn atomZeroIncy(comptime source: []const u8, comptime one: []const u8, comptime shift: []const u8) arch.Patch {
+    const head = ".L20:\n\tmovq\tY, YY\n\n\tmovq\tM,  %rax\n";
+    const blocks = "\tsarq\t$" ++ shift ++ ", %rax\n";
+    return .{ .source = source, .find = head ++ blocks, .replace = one ++ head ++ "\tcmpq\t$0, INCY\n\tje\t.L28\n" ++ blocks };
+}
+
+/// `y += alpha*x` for `M` elements, one at a time, as the tails do one.
+const axpy_atom_one = ".L28:\n\tmovsd\t(X), %xmm0\n\tmulsd\tALPHA, %xmm0\n\taddsd\t(Y), %xmm0\n\tmovsd\t%xmm0, (Y)\n" ++
+    "\taddq\tINCX, X\n\taddq\tINCY, Y\n\tdecq\t%rax\n\tjg\t.L28\n\tjmp\t.L29\n\n";
+const zaxpy_atom_one = ".L28:\n\tmovsd\t 0 * SIZE(X), %xmm0\n\tmovsd\t 1 * SIZE(X), %xmm1\n\tmovsd\t 0 * SIZE(Y), %xmm8\n\tmovsd\t 1 * SIZE(Y), %xmm9\n" ++
+    "\tmovaps\t %xmm0,  %xmm2\n\tmulsd\tALPHA_R, %xmm0\n\tmovaps\t %xmm1,  %xmm3\n\tmulsd\tALPHA_R, %xmm1\n\tmulsd\tALPHA_I, %xmm3\n\tmulsd\tALPHA_I, %xmm2\n" ++
+    "\taddsd\t%xmm0, %xmm8\n\tADD2\t%xmm1, %xmm9\n\tADD1\t%xmm3, %xmm8\n\taddsd\t%xmm2, %xmm9\n" ++
+    "\tmovsd\t%xmm8,   0 * SIZE(Y)\n\tmovsd\t%xmm9,   1 * SIZE(Y)\n" ++
+    "\taddq\t INCX, X\n\taddq\t INCY, Y\n\tdecq\t%rax\n\tjg\t.L28\n\tjmp\t.L999\n\n";
 
 fn opteronLoad(comptime add: []const u8) []const u8 {
     return "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\txorps\tREG, REG; " ++ add ++ "\tOFFSET(ADDR), REG\n";
