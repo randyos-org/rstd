@@ -62,6 +62,11 @@ const text =
     \\ sub 6, 6, 7
     \\ sub 8, 8, 9
     \\ mr 5, 8
+    \\ mtspr 9, 3
+    \\ cmpwi 0, 7, 0
+    \\ beq- 0, 20003f
+    \\ cmpwi 0, 9, 0
+    \\ beq- 0, 20003f
     \\ srawi. 0, 3, 4
     \\ mtspr 9, 0
     \\ beq- 20002f

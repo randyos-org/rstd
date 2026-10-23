@@ -61,6 +61,10 @@ const zero_strides = [_]arch.Patch{
     zeroStrides("zswap.S", "3"),
     zeroStrides("rot_ppc440.S", "3"),
     zeroStrides("zrot_ppc440.S", "2"),
+    // and with a zero `incy`, `axpy` (per-core `axpy` checks)
+    zeroStrides("axpy.S", "4"),
+    zeroStrides("zaxpy.S", "3"),
+    zeroStrides("axpy_ppc440.S", "4"),
 };
 
 fn zeroStrides(comptime source: []const u8, comptime shift: []const u8) arch.Patch {
