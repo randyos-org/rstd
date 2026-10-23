@@ -177,7 +177,7 @@ they go (`kernels/arm64.zig`):
 | SVE: `cortexa510`, `cortexa710`, `cortexx2`        | the same                                      |
 
 Special values, strides and flags are the portable kernels', so no quirks;
-only `sdot` sums in `f32`, as the converted kernels do. `check.eachCore`
+`sdot` sums in `f64`, as the portable `sdot` does. `check.eachCore`
 runs them natively too, on a table of all of them.
 
 ## Portable kernels

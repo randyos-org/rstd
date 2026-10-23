@@ -65,29 +65,35 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return 0;
         }
 
+        /// `dot`'s sums: `f64` for `f32`, as the portable `sdot` (products of
+        /// `f32` are exact there), else `F`.
+        const D = if (F == f32) f64 else F;
+        const DV = @Vector(W, D);
+        const DG = @Vector(4, D);
+
         pub fn dot(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) callconv(.c) F {
             if (n <= 0) return 0;
             if (incx == 1 and incy == 1) {
                 const len: usize = @intCast(n);
-                var acc: [2]V = @splat(@splat(0));
+                var acc: [2]DV = @splat(@splat(0));
                 var i: usize = 0;
                 while (i + 2 * W <= len) : (i += 2 * W) {
-                    inline for (0..2) |q| acc[q] = @mulAdd(V, ld(x + i + q * W), ld(y + i + q * W), acc[q]);
+                    inline for (0..2) |q| acc[q] = @mulAdd(DV, ld(x + i + q * W), ld(y + i + q * W), acc[q]);
                 }
                 if (i + W <= len) {
-                    acc[0] = @mulAdd(V, ld(x + i), ld(y + i), acc[0]);
+                    acc[0] = @mulAdd(DV, ld(x + i), ld(y + i), acc[0]);
                     i += W;
                 }
                 var s = @reduce(.Add, acc[0] + acc[1]);
-                while (i < len) : (i += 1) s = @mulAdd(F, x[i], y[i], s);
-                return s;
+                while (i < len) : (i += 1) s = @mulAdd(D, x[i], y[i], s);
+                return @floatCast(s);
             }
-            var acc: G = @splat(0);
+            var acc: DG = @splat(0);
             var i: BlasLong = 0;
-            while (i + 4 <= n) : (i += 4) acc = @mulAdd(G, gather(x, incx, i), gather(y, incy, i), acc);
+            while (i + 4 <= n) : (i += 4) acc = @mulAdd(DG, gather(x, incx, i), gather(y, incy, i), acc);
             var s = @reduce(.Add, acc);
-            while (i < n) : (i += 1) s = @mulAdd(F, at(F, x, i * incx).*, at(F, y, i * incy).*, s);
-            return s;
+            while (i < n) : (i += 1) s = @mulAdd(D, at(F, x, i * incx).*, at(F, y, i * incy).*, s);
+            return @floatCast(s);
         }
 
         const Scale = enum { mul, zero, keep };
