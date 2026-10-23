@@ -14,6 +14,7 @@
 //! triangle a rank-k update leaves.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const types = @import("../types.zig");
 const Vtable = @import("../Vtable.zig");
 const level3 = @import("level3.zig");
@@ -230,27 +231,73 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
         }
         // a rank-k update of special values meets them in sums of its own order
         const lax = isComplex(T) or (case.rank() and case.p != null);
-        compare(T, want, got, ref.terms, ref.bound, lax) catch return fail(case, i, j, "wrong");
+        compare(T, want, got, ref.terms, ref.bound, lax, ref.flush) catch return fail(case, i, j, "wrong");
     };
+}
+
+/// Whether `T`'s arithmetic here may run on a vector unit that flushes
+/// subnormals to zero: ARMv7 NEON's `f32` lanes always do, and AltiVec's
+/// without VSX as it comes up (non-Java mode). Some of these targets' cores
+/// compute in scalar; for them the allowance is only wider than it needs.
+fn flushes(comptime T: type) bool {
+    if (Float(T) != f32) return false;
+    return switch (sysinfo.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb, .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
+        else => false,
+    };
+}
+
+fn subnormal(comptime F: type, v: f128) bool {
+    return v != 0 and @abs(v) < std.math.floatMin(F);
+}
+
+/// The parts of a real or complex wide value.
+fn parts(v: anytype) [if (isComplex(@TypeOf(v))) 2 else 1]f128 {
+    return if (comptime isComplex(@TypeOf(v))) .{ v.re, v.im } else .{v};
+}
+
+/// What a flushing unit may drop from `x * y`: each real partial product
+/// with a subnormal factor, or subnormal itself.
+fn flushable(comptime F: type, x: anytype, y: @TypeOf(x)) f128 {
+    var sum: f128 = 0;
+    for (parts(x)) |p| for (parts(y)) |q| {
+        const pq = @abs(p * q);
+        if (subnormal(F, p) or subnormal(F, q) or subnormal(F, pq)) sum += pq;
+    };
+    return sum;
+}
+
+/// The subnormal parts of `v`, which a flushing unit may take as zero.
+fn flushed(comptime F: type, v: anytype) f128 {
+    var sum: f128 = 0;
+    for (parts(v)) |p| {
+        if (subnormal(F, p)) sum += @abs(p);
+    }
+    return sum;
 }
 
 /// `got` against `want`; with `lax`, a part that should not be finite may
 /// come out NaN or infinite (complex products, and solves, meet infinities
-/// in an order of their own).
-fn compare(comptime T: type, want: Wide(T), got: T, terms: usize, bound: f128, lax: bool) !void {
+/// in an order of their own). `flush` is the most a flushing unit may drop
+/// (`flushes`), allowed on top of the rounding bound.
+fn compare(comptime T: type, want: Wide(T), got: T, terms: usize, bound: f128, lax: bool, flush: f128) !void {
     const ulps: f128 = @floatFromInt(2 * (terms + 2));
     if (comptime isComplex(T)) {
-        try part(Float(T), want.re, got.re, ulps, bound, lax);
-        try part(Float(T), want.im, got.im, ulps, bound, lax);
-    } else try part(T, want, got, ulps, bound, lax);
+        try part(Float(T), want.re, got.re, ulps, bound, lax, flush);
+        try part(Float(T), want.im, got.im, ulps, bound, lax, flush);
+    } else try part(T, want, got, ulps, bound, lax, flush);
 }
 
-fn part(comptime F: type, want: anytype, got: F, ulps: f128, bound: f128, lax: bool) !void {
+fn part(comptime F: type, want: anytype, got: F, ulps: f128, bound: f128, lax: bool, flush: f128) !void {
     const w: f128 = want;
     // past `F`'s range is infinite in `F`, of a sign the order of the sum picks
     if (lax and (!std.math.isFinite(w) or @abs(w) > std.math.floatMax(F))) {
         if (std.math.isFinite(got)) return error.TestUnexpectedResult;
         return;
+    }
+    if (flush > 0 and std.math.isFinite(w) and std.math.isFinite(got)) {
+        const g: f128 = got;
+        if (@abs(g - w) <= flush + ulps * (std.math.floatEps(F) * bound + std.math.floatTrueMin(F))) return;
     }
     try check1.component(F, w, got, ulps, bound);
 }
@@ -318,7 +365,8 @@ fn Ops(comptime T: type) type {
             };
         }
 
-        const Ref = struct { v: W, bound: f128, terms: usize };
+        const Ref = struct { v: W, bound: f128, terms: usize, flush: f128 };
+        const F = Float(T);
 
         /// `C(i, j)` as the routine defines it, the sum of the magnitudes in it,
         /// and how many products it sums.
@@ -332,22 +380,27 @@ fn Ops(comptime T: type) type {
             const alpha0 = c.alpha[0] == 0 and c.alpha[1] == 0;
             var sum = zeroW(W);
             var bound: f128 = 0;
+            // what a flushing unit may drop, the result itself included
+            var flush: f128 = if (comptime flushes(T)) std.math.floatMin(F) else 0;
             if (!alpha0) {
                 const passes: usize = if (c.r == .syr2k or c.r == .her2k) 2 else 1;
                 for (0..passes) |pass| {
                     var acc = zeroW(W);
                     var mags: f128 = 0;
+                    var drops: f128 = 0;
                     for (0..depth) |l| {
                         const f = s.factors(pass == 1, i, j, l);
                         const x = f[0] orelse continue;
                         const y = f[1] orelse continue;
                         acc = check1.addW(acc, check1.mulW(x, y));
                         mags += check1.mag(x) * check1.mag(y);
+                        if (comptime flushes(T)) drops += flushable(F, x, y);
                     }
                     // the second pass of `her2k` takes `conj(alpha)`
                     const al = if (pass == 1 and c.r == .her2k) check1.conjW(alpha) else alpha;
                     sum = check1.addW(sum, mulScalar(al, acc));
                     bound += magScalar(al) * mags;
+                    flush += magScalar(al) * drops;
                 }
             }
             if (!c.triangular()) {
@@ -357,9 +410,10 @@ fn Ops(comptime T: type) type {
                     // `herk`'s real `beta` scales each part
                     sum = check1.addW(sum, if (c.herm() and c.rank()) partwise(c.beta[0], cw) else mulScalar(beta, cw));
                     bound += magScalar(beta) * check1.mag(cw);
+                    if (comptime flushes(T)) flush += magScalar(beta) * flushed(F, cw) + flushable(F, beta, cw);
                 }
             }
-            return .{ .v = sum, .bound = bound, .terms = depth * if (c.r == .syr2k or c.r == .her2k) @as(usize, 2) else 1 };
+            return .{ .v = sum, .bound = bound, .terms = depth * if (c.r == .syr2k or c.r == .her2k) @as(usize, 2) else 1, .flush = flush };
         }
 
         fn partwise(f: f64, x: W) W {
@@ -390,6 +444,9 @@ fn Ops(comptime T: type) type {
             defer al.free(x);
             const scale = try al.alloc(f128, rows * n);
             defer al.free(scale);
+            // what a flushing unit may drop from each, carried along
+            const drop = try al.alloc(f128, rows * n);
+            defer al.free(drop);
             const alpha = scalar(c.alpha);
             // `op(A)` lower: forward from the first row (left) or back from
             // the last column (right)
@@ -398,8 +455,10 @@ fn Ops(comptime T: type) type {
                 // the element solved at step (ii, jj)
                 const i = if (c.left and !lower) rows - 1 - ii else ii;
                 const j = if (!c.left and lower) n - 1 - jj else jj;
-                var r = mulScalar(alpha, at(s.c0, s.ldc, i, j));
-                var mags = magScalar(alpha) * check1.mag(at(s.c0, s.ldc, i, j));
+                const bw = at(s.c0, s.ldc, i, j);
+                var r = mulScalar(alpha, bw);
+                var mags = magScalar(alpha) * check1.mag(bw);
+                var drops: f128 = if (comptime flushes(T)) magScalar(alpha) * flushed(F, bw) + flushable(F, alpha, bw) else 0;
                 for (0..ka) |l| {
                     // the solved neighbors: earlier in the order of substitution
                     const before = if (c.left) (if (lower) l < i else l > i) else (if (lower) l > j else l < j);
@@ -408,13 +467,15 @@ fn Ops(comptime T: type) type {
                     const xv = if (c.left) x[l + j * rows] else x[i + l * rows];
                     r = check1.subW(r, check1.mulW(t, xv));
                     mags += check1.mag(t) * check1.mag(xv);
+                    if (comptime flushes(T)) drops += flushable(F, t, xv) + check1.mag(t) * (if (c.left) drop[l + j * rows] else drop[i + l * rows]);
                 }
                 const dg = (if (c.left) s.tri(i, i) else s.tri(j, j)).?;
                 x[i + j * rows] = check1.divW(r, dg);
                 scale[i + j * rows] = mags / @max(check1.mag(dg), 1e-300);
+                drop[i + j * rows] = if (comptime flushes(T)) drops / @max(check1.mag(dg), 1e-300) + std.math.floatMin(F) else 0;
             };
             for (0..n) |j| for (0..rows) |i| {
-                compare(T, x[i + j * rows], got[i + j * s.ldc], 4 * ka, scale[i + j * rows], true) catch return fail(c, i, j, "wrong");
+                compare(T, x[i + j * rows], got[i + j * s.ldc], 4 * ka, scale[i + j * rows], true, drop[i + j * rows]) catch return fail(c, i, j, "wrong");
             };
         }
     };
