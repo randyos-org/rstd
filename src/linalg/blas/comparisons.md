@@ -2,6 +2,14 @@
 
 Date: 2026-10-22. Research only; nothing in rstd or OpenBLAS was changed.
 
+**Implemented** (2026-10-23, `wip/semantics`): 2 (`nrm2`: `f64` sums for
+`s`/`c`, Blue's for `d`/`z`), 3 (first NaN wins in the extremes, NaN from
+the value routines, the `nan_lanes` quirk gone), X1 (`sdot` in `f64`, one
+`nrm2` and the extremes' rule on every core, and no zero-`alpha` return in
+any `axpy` kernel) and pitfall 1 of 8 (x86_64's alignment-peeling
+reductions routed to `@Vector` kernels). `readme.md`, "One contract on every
+core", has the details.
+
 ## Sources and versions
 
 | Source | Where | Version |
