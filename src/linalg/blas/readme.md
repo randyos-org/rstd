@@ -474,6 +474,17 @@ Where the port differs from `dynamic*.c`:
 which resolve targets through an OS. `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
 
+`-Dtest-host=<ssh alias>` runs the rigs' QEMU on another machine; the
+images still build here (`tools/test_host.zig`). Each run copies its files
+to the host's /tmp, runs QEMU from the Nix flake in `tools/nix` (nixpkgs
+pinned by `flake.lock`; QEMU 11.1.2 where Windows has 11.0.1) and streams
+the console back to the watchdog and live log. At most `-Dtest-host-jobs`
+(8) rigs run there at once, across builds. On an arm64 Mac, `aarch64` and
+`linux-aarch64` run under HVF on the host's CPU (Apple, SME2, no SVE: the
+`vortexm4` kernels run too); `-Dtest-host-tcg` keeps them on TCG.
+`x86_64-whpx` and the macOS VM rig stay local. For example, `zig build
+qemu-test-riscv64 -Dtest-host=<alias>`.
+
 `qemu-test-x86_64-whpx` runs them on the host's own CPU under WHPX (an
 x86_64 Windows host only), with QEMU's `SapphireRapids` model plus FMA4 and
 XOP, of which WHPX keeps what the host has. TCG implements no AVX-512, FMA4
