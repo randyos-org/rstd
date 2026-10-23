@@ -34,6 +34,45 @@ pub const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 1 }, .{ 1, 3 }, .{ 2, 2 } };
 /// The longest operand `sizes` and `strides` need, in elements.
 pub const capacity = 257 * 3;
 
+/// `strides`, signed, and pairs with exactly one zero, some beside a negative
+/// one: element 0 of a zero-stride operand takes every update in turn, which
+/// a kernel that loads a block of it before storing gets wrong.
+pub const zero_strides = signed: {
+    var s: [strides.len][2]isize = undefined;
+    for (strides, &s) |p, *q| q.* = .{ p[0], p[1] };
+    break :signed s;
+} ++ [_][2]isize{ .{ 0, 1 }, .{ 1, 0 }, .{ 0, 2 }, .{ 3, 0 }, .{ -1, 0 }, .{ 0, -1 }, .{ -2, 0 }, .{ 0, -3 } };
+
+/// Keeps `r`'s error in `failed`, so the checks after it still run and one
+/// run names every failing kernel.
+pub fn keep(failed: *?anyerror, r: anyerror!void) void {
+    r catch |e| {
+        failed.* = e;
+    };
+}
+
+/// Where element `i` of a vector of `n` at stride `inc` sits: from the far
+/// end for a negative stride, where the interface points the kernel.
+pub fn pos(n: usize, inc: isize, i: usize) usize {
+    const s: usize = @abs(inc);
+    return if (inc < 0) ((n -| 1) - i) * s else i * s;
+}
+
+/// `expectCloseSlices` within `tol`, or where `inc` has a zero stride, within
+/// a bound for `n` updates in turn of one element, relative past `n`.
+pub fn expectStrided(comptime T: type, want: []const T, got: []const T, tol: FloatOf(T), n: usize, inc: [2]isize) !void {
+    if (inc[0] != 0 and inc[1] != 0) return expectCloseSlices(T, want, got, tol);
+    const F = FloatOf(T);
+    const k: F = @floatFromInt(n);
+    for (want, got, 0..) |w, g, i| {
+        const size: F = if (comptime isComplex(T)) @abs(w.re) + @abs(w.im) else @abs(w);
+        expectClose(T, w, g, @max(tol, 16 * k * @max(k, size) * std.math.floatEps(F))) catch |e| {
+            say("element {d}: ", .{i});
+            return e;
+        };
+    }
+}
+
 pub const isComplex = types.isComplex;
 pub const FloatOf = types.Float;
 
@@ -450,7 +489,7 @@ pub fn say(comptime f: []const u8, args: anytype) void {
 }
 
 /// Names a failed case of `routine` before passing its error on.
-pub fn case(e: anyerror, routine: []const u8, comptime T: type, n: usize, inc: [2]usize) anyerror {
+pub fn case(e: anyerror, routine: []const u8, comptime T: type, n: usize, inc: anytype) anyerror {
     say("{s} {s} n={d} inc={d},{d}: ", .{ routine, @typeName(T), n, inc[0], inc[1] });
     return e;
 }

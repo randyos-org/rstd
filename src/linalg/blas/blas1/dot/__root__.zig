@@ -170,13 +170,13 @@ fn checkDotTol(comptime T: type, comptime conj: bool, kern: anytype, comptime na
         var y: [check.capacity]T = undefined;
         check.fill(T, &x, n + 1);
         check.fill(T, &y, n + 7);
-        for (check.strides) |inc| {
+        for (check.zero_strides) |inc| {
             const W = check.Wide(F);
             var re: W = 0;
             var im: W = 0;
             for (0..n) |i| {
-                const a = x[i * inc[0]];
-                const b = y[i * inc[1]];
+                const a = x[check.pos(n, inc[0], i)];
+                const b = y[check.pos(n, inc[1], i)];
                 if (comptime complex) {
                     const ar: W = a.re;
                     const ai: W = if (conj) -a.im else a.im;
@@ -186,7 +186,8 @@ fn checkDotTol(comptime T: type, comptime conj: bool, kern: anytype, comptime na
                     re += @as(W, a) * @as(W, b);
                 }
             }
-            const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc[0]), @as([*]F, @ptrCast(&y)), @intCast(inc[1]));
+            const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
+            const got = kern(@intCast(n), px, inc[0], @as([*]F, @ptrCast(&y[check.pos(n, inc[1], 0)])), inc[1]);
             const R = @TypeOf(got);
             const tol = check.tolerance(if (complex or narrow) F else R, 4 * n);
             const ok = if (comptime complex)
@@ -204,13 +205,15 @@ fn complexRef(comptime F: type, re: check.Wide(F), im: check.Wide(F), got: anyty
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkDot(f32, false, vt.sdot_k.?);
-    try checkDot(f64, false, vt.ddot_k.?);
-    try checkDotTol(f32, false, vt.dsdot_k.?, true);
-    try checkDot(std.math.Complex(f32), false, vt.cdotu_k.?);
-    try checkDot(std.math.Complex(f32), true, vt.cdotc_k.?);
-    try checkDot(std.math.Complex(f64), false, vt.zdotu_k.?);
-    try checkDot(std.math.Complex(f64), true, vt.zdotc_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkDot(f32, false, vt.sdot_k.?));
+    check.keep(&failed, checkDot(f64, false, vt.ddot_k.?));
+    check.keep(&failed, checkDotTol(f32, false, vt.dsdot_k.?, true));
+    check.keep(&failed, checkDot(std.math.Complex(f32), false, vt.cdotu_k.?));
+    check.keep(&failed, checkDot(std.math.Complex(f32), true, vt.cdotc_k.?));
+    check.keep(&failed, checkDot(std.math.Complex(f64), false, vt.zdotu_k.?));
+    check.keep(&failed, checkDot(std.math.Complex(f64), true, vt.zdotc_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable dot kernels match a plain loop" {

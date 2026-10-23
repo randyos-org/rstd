@@ -111,28 +111,29 @@ fn checkAxpby(comptime T: type, kern: anytype) !void {
     const betas = if (complex) [_]T{ T.init(-0.5, 0.25), T.init(0, 0) } else [_]T{ -0.5, 0 };
     for (values) |alpha| for (betas) |beta| {
         for (check.sizes) |n| {
-            for (check.strides) |inc| {
+            for (check.zero_strides) |inc| {
                 var x: [check.capacity]T = undefined;
                 var y: [check.capacity]T = undefined;
                 check.fill(T, &x, n + 1);
                 check.fill(T, &y, n + 7);
                 var want = y;
                 for (0..n) |i| {
-                    const a = x[i * inc[0]];
-                    const b = y[i * inc[1]];
-                    want[i * inc[1]] = if (complex)
+                    const iy = check.pos(n, inc[1], i);
+                    const a = x[check.pos(n, inc[0], i)];
+                    const b = want[iy];
+                    want[iy] = if (complex)
                         a.mul(alpha).add(b.mul(beta))
                     else
                         alpha * a + beta * b;
                 }
-                const px: [*]F = @ptrCast(&x);
-                const py: [*]F = @ptrCast(&y);
+                const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
+                const py: [*]F = @ptrCast(&y[check.pos(n, inc[1], 0)]);
                 if (comptime complex) {
-                    _ = kern(@intCast(n), alpha.re, alpha.im, px, @intCast(inc[0]), beta.re, beta.im, py, @intCast(inc[1]));
+                    _ = kern(@intCast(n), alpha.re, alpha.im, px, inc[0], beta.re, beta.im, py, inc[1]);
                 } else {
-                    _ = kern(@intCast(n), alpha, px, @intCast(inc[0]), beta, py, @intCast(inc[1]));
+                    _ = kern(@intCast(n), alpha, px, inc[0], beta, py, inc[1]);
                 }
-                check.expectCloseSlices(T, &want, &y, check.tolerance(F, 4)) catch |e| {
+                check.expectStrided(T, &want, &y, check.tolerance(F, 4), n, inc) catch |e| {
                     check.say("alpha {any}, beta {any}: ", .{ alpha, beta });
                     return check.case(e, "axpby", T, n, inc);
                 };
@@ -142,10 +143,12 @@ fn checkAxpby(comptime T: type, kern: anytype) !void {
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkAxpby(f32, vt.saxpby_k.?);
-    try checkAxpby(f64, vt.daxpby_k.?);
-    try checkAxpby(std.math.Complex(f32), vt.caxpby_k.?);
-    try checkAxpby(std.math.Complex(f64), vt.zaxpby_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkAxpby(f32, vt.saxpby_k.?));
+    check.keep(&failed, checkAxpby(f64, vt.daxpby_k.?));
+    check.keep(&failed, checkAxpby(std.math.Complex(f32), vt.caxpby_k.?));
+    check.keep(&failed, checkAxpby(std.math.Complex(f64), vt.zaxpby_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable axpby kernels match a plain loop" {

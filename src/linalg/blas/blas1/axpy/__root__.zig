@@ -12,7 +12,6 @@ const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const rsimd = @import("../../../../simd/__root__.zig");
 const fma = @import("../../fma.zig");
-const registry = @import("../../asm_registry.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
@@ -107,6 +106,12 @@ const fill = check.fill;
 
 const FloatOf = check.FloatOf;
 
+/// `expectClose`, or with a zero stride `check.expectStrided`'s bound.
+fn expectStrided(comptime T: type, want: []const T, got: []const T, n: usize, inc: [2]isize) !void {
+    if (inc[0] != 0 and inc[1] != 0) return expectClose(T, want, got);
+    check.expectStrided(T, want, got, 0, n, inc) catch |e| return check.case(e, "axpy", T, n, inc);
+}
+
 fn expectClose(comptime T: type, want: []const T, got: []const T) !void {
     // by width: past 64 bits nothing fuses, so the kernels give the loop's bits
     const tol: FloatOf(T) = switch (@typeInfo(FloatOf(T)).float.bits) {
@@ -136,12 +141,13 @@ pub fn checkReal(comptime T: type, kern: RealKernel(T)) !void {
         var want: [800]T = undefined;
         fill(T, &xb, @intCast(n + 1));
         fill(T, &yb, @intCast(n + 7));
-        inline for (.{ [2]usize{ 1, 1 }, [2]usize{ 2, 1 }, [2]usize{ 1, 3 }, [2]usize{ 2, 2 } }) |inc| {
+        for (check.zero_strides) |inc| {
             want = yb;
             var y = yb;
-            for (0..n) |i| want[i * inc[1]] += alpha * xb[i * inc[0]];
-            _ = kern(@intCast(n), 0, 0, alpha, &xb, inc[0], &y, inc[1], &y, 0);
-            try expectClose(T, &want, &y);
+            for (0..n) |i| want[check.pos(n, inc[1], i)] += alpha * xb[check.pos(n, inc[0], i)];
+            const py: [*]T = @ptrCast(&y[check.pos(n, inc[1], 0)]);
+            _ = kern(@intCast(n), 0, 0, alpha, @ptrCast(&xb[check.pos(n, inc[0], 0)]), inc[0], py, inc[1], py, 0);
+            try expectStrided(T, &want, &y, n, inc);
         }
     }
 }
@@ -156,12 +162,12 @@ pub fn checkComplex(comptime F: type, comptime conj: bool, kern: ComplexKernel(F
         var want: [400]C = undefined;
         fill(C, &xb, @intCast(n + 1));
         fill(C, &yb, @intCast(n + 7));
-        inline for (.{ [2]usize{ 1, 1 }, [2]usize{ 2, 1 }, [2]usize{ 1, 3 } }) |inc| {
+        for (check.zero_strides) |inc| {
             want = yb;
             var y = yb;
             for (0..n) |i| {
-                const xv = xb[i * inc[0]];
-                const yp = &want[i * inc[1]];
+                const xv = xb[check.pos(n, inc[0], i)];
+                const yp = &want[check.pos(n, inc[1], i)];
                 if (conj) {
                     yp.re += alpha.re * xv.re + alpha.im * xv.im;
                     yp.im -= alpha.re * xv.im - alpha.im * xv.re;
@@ -170,8 +176,9 @@ pub fn checkComplex(comptime F: type, comptime conj: bool, kern: ComplexKernel(F
                     yp.im += alpha.re * xv.im + alpha.im * xv.re;
                 }
             }
-            _ = kern(@intCast(n), 0, 0, alpha.re, alpha.im, @ptrCast(&xb), inc[0], @ptrCast(&y), inc[1], @ptrCast(&y), 0);
-            try expectClose(C, &want, &y);
+            const py: [*]F = @ptrCast(&y[check.pos(n, inc[1], 0)]);
+            _ = kern(@intCast(n), 0, 0, alpha.re, alpha.im, @ptrCast(&xb[check.pos(n, inc[0], 0)]), inc[0], py, inc[1], py, 0);
+            try expectStrided(C, &want, &y, n, inc);
         }
     }
 }
@@ -211,21 +218,19 @@ test "a core's kernels fill every axpy slot, for the host's core type" {
     try checkComplex(f64, true, vt.zaxpyc_k.?);
 }
 
+fn checkAll(vt: *const Vtable) !void {
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkReal(f32, vt.saxpy_k.?));
+    check.keep(&failed, checkReal(f64, vt.daxpy_k.?));
+    check.keep(&failed, checkComplex(f32, false, vt.caxpy_k.?));
+    check.keep(&failed, checkComplex(f32, true, vt.caxpyc_k.?));
+    check.keep(&failed, checkComplex(f64, false, vt.zaxpy_k.?));
+    check.keep(&failed, checkComplex(f64, true, vt.zaxpyc_k.?));
+    if (failed) |e| return e;
+}
+
 test "every linked core's kernels match a scalar loop, where this machine runs them" {
-    inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
-        const core = @field(cpu.CoreType, name);
-        if (registry.isLinked(core) and (!@hasDecl(cpu.arch, "canRun") or cpu.arch.canRun(core))) {
-            var vt: Vtable = .{};
-            installGeneric(&vt);
-            cpu.kernel.install(&vt, core);
-            try checkReal(f32, vt.saxpy_k.?);
-            try checkReal(f64, vt.daxpy_k.?);
-            try checkComplex(f32, false, vt.caxpy_k.?);
-            try checkComplex(f32, true, vt.caxpyc_k.?);
-            try checkComplex(f64, false, vt.zaxpy_k.?);
-            try checkComplex(f64, true, vt.zaxpyc_k.?);
-        }
-    }
+    try check.eachCore(checkAll);
 }
 
 test {

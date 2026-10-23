@@ -96,9 +96,9 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-/// `check.strides` and zero ones, which a kernel that loads a block before
-/// storing it gets wrong.
-const strides = check.strides ++ [_][2]usize{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 0 } };
+/// `check.zero_strides` and both zero, which a kernel that loads a block
+/// before storing it gets wrong.
+const strides = check.zero_strides ++ [_][2]isize{.{ 0, 0 }};
 
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkRot(comptime T: type, kern: anytype) !void {
@@ -114,29 +114,34 @@ fn checkRot(comptime T: type, kern: anytype) !void {
             var want_x = x;
             var want_y = y;
             for (0..n) |i| {
-                const a = want_x[i * inc[0]];
-                const b = want_y[i * inc[1]];
+                const ix = check.pos(n, inc[0], i);
+                const iy = check.pos(n, inc[1], i);
+                const a = want_x[ix];
+                const b = want_y[iy];
                 if (comptime check.isComplex(T)) {
-                    want_x[i * inc[0]] = .init(c * a.re + s * b.re, c * a.im + s * b.im);
-                    want_y[i * inc[1]] = .init(c * b.re - s * a.re, c * b.im - s * a.im);
+                    want_x[ix] = .init(c * a.re + s * b.re, c * a.im + s * b.im);
+                    want_y[iy] = .init(c * b.re - s * a.re, c * b.im - s * a.im);
                 } else {
-                    want_x[i * inc[0]] = c * a + s * b;
-                    want_y[i * inc[1]] = c * b - s * a;
+                    want_x[ix] = c * a + s * b;
+                    want_y[iy] = c * b - s * a;
                 }
             }
-            _ = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc[0]), @as([*]F, @ptrCast(&y)), @intCast(inc[1]), c, s);
+            const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
+            _ = kern(@intCast(n), px, inc[0], @ptrCast(&y[check.pos(n, inc[1], 0)]), inc[1], c, s);
             const tol = check.tolerance(F, 2);
-            check.expectCloseSlices(T, &want_x, &x, tol) catch |e| return check.case(e, "rot x", T, n, inc);
-            check.expectCloseSlices(T, &want_y, &y, tol) catch |e| return check.case(e, "rot y", T, n, inc);
+            check.expectStrided(T, &want_x, &x, tol, n, inc) catch |e| return check.case(e, "rot x", T, n, inc);
+            check.expectStrided(T, &want_y, &y, tol, n, inc) catch |e| return check.case(e, "rot y", T, n, inc);
         }
     }
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkRot(f32, vt.srot_k.?);
-    try checkRot(f64, vt.drot_k.?);
-    try checkRot(std.math.Complex(f32), vt.csrot_k.?);
-    try checkRot(std.math.Complex(f64), vt.zdrot_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkRot(f32, vt.srot_k.?));
+    check.keep(&failed, checkRot(f64, vt.drot_k.?));
+    check.keep(&failed, checkRot(std.math.Complex(f32), vt.csrot_k.?));
+    check.keep(&failed, checkRot(std.math.Complex(f64), vt.zdrot_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable rot kernels match a plain loop" {
