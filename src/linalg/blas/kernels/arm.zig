@@ -27,7 +27,6 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/imin/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/max/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/min/arm/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/nrm2/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/arm/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/arm/asm/__root__.zig")),

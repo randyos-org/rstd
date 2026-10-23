@@ -9,6 +9,7 @@ const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
+const vector = @import("../vector.zig");
 
 pub const Core = coretypes.LoongarchCoreType;
 
@@ -29,7 +30,6 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/imin/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/max/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/min/loongarch64/asm/__root__.zig")),
-    // `nrm2` stays portable: these kernels are wrong on infinities and denormals (`readme.md`)
     registry.Kernels(Core, @import("../blas1/rot/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/loongarch64/asm/__root__.zig")),
@@ -37,6 +37,7 @@ const modules = .{
     registry.Kernels(Core, @import("../blas2/gemv/loongarch64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/symv/loongarch64/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
+    vector.Registry(Core, vector.usesRouted),
 };
 
 /// Whether this registry has kernels for `arch`.

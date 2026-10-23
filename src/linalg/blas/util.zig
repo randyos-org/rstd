@@ -57,3 +57,53 @@ pub fn fitsMatrix(rows: isize, cols: isize, ld: isize, size: usize) bool {
     _ = std.math.mul(isize, elems, std.math.cast(isize, size) orelse return false) catch return false;
     return true;
 }
+
+/// `nrm2`'s algorithm at 64 bits, for the portable and `@Vector` kernels:
+/// Blue's, as Reference-LAPACK 3.10's `BLAS/SRC/dnrm2.f90` has it
+/// (Anderson, "Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS
+/// 44(1), 2017): one pass summing the squares of small, medium and big
+/// magnitudes apart, each scaled by a power of two so none overflows or
+/// underflows; no division. Infinite for an infinity, NaN for a NaN.
+pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x: isize) F {
+    // Fortran's `digits`, `minexponent` and `maxexponent`
+    const digits = std.math.floatMantissaBits(F) + 1;
+    const minexp = std.math.floatExponentMin(F) + 1;
+    const maxexp = std.math.floatExponentMax(F) + 1;
+    const tsml = std.math.ldexp(@as(F, 1), @divFloor(minexp, 2));
+    const tbig = std.math.ldexp(@as(F, 1), @divFloor(maxexp - digits + 1, 2));
+    const ssml = std.math.ldexp(@as(F, 1), -@divFloor(minexp - digits, 2));
+    const sbig = std.math.ldexp(@as(F, 1), -@divFloor(maxexp + digits, 2));
+    var notbig = true;
+    var asml: F = 0;
+    var amed: F = 0;
+    var abig: F = 0;
+    var i: isize = 0;
+    while (i < n) : (i += 1) {
+        inline for (0..w) |c| {
+            const ax = @abs(at(F, x, i * inc_x * w + c).*);
+            if (ax > tbig) {
+                abig += (ax * sbig) * (ax * sbig);
+                notbig = false;
+            } else if (ax < tsml) {
+                if (notbig) asml += (ax * ssml) * (ax * ssml);
+            } else {
+                amed += ax * ax;
+            }
+        }
+    }
+    // a NaN lands in `amed`
+    const mixed = amed > 0 or amed != amed;
+    if (abig > 0) {
+        if (mixed) abig += (amed * sbig) * sbig;
+        return @sqrt(abig) / sbig;
+    }
+    if (asml > 0) {
+        if (!mixed) return @sqrt(asml) / ssml;
+        const m = @sqrt(amed);
+        const s = @sqrt(asml) / ssml;
+        const lo = if (s > m) m else s;
+        const hi = if (s > m) s else m;
+        return @sqrt(hi * hi * (1 + (lo / hi) * (lo / hi)));
+    }
+    return @sqrt(amed);
+}

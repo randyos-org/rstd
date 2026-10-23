@@ -138,12 +138,24 @@ on LA264 and LA464; arm64 `csum` is `csum.S` everywhere; MIPS64's MSA complex
 `axpy`, `rot`, `swap` and `scal` are never selected, `KERNEL` resets them to
 the `arm/` C.
 
-One routine is left portable on purpose: `nrm2` on POWER, Loongson
-(`mips64`), `loongarch64` and SPARC. Their kernels are converted but not
-wired in (`kernels/<arch>.zig`): they gave NaN for an infinity, 0 or values
-far off for denormals (NaN on ppcg4 and ppc440), and the `lsx` and `lasx`
-ones 0 for a NaN (`issues.md`). They are the same scaled one-pass loop as
-the portable kernel, so nothing is lost.
+### One contract on every core
+
+Some slots never take a converted kernel (`vector.routed`): every core runs
+the portable or `@Vector` kernels there, so what they do beyond rounding
+does not depend on the core (`threading.md`; `comparisons.md`, X1).
+
+- `nrm2`: `s` and `c` sum the squares in `f64`, where each is exact and
+  none overflows or underflows, and round the root once; `d` and `z` take
+  Blue's algorithm, as Reference-LAPACK 3.10's `dnrm2.f90` (`util.blue`).
+  Upstream has three algorithms: x86_64 sums in `f64` (`nrm2_sse.S`), x86
+  and x86_64 in the x87's `f80` (`nrm2.S`), the rest scale a one-pass loop,
+  several of them wrong on special values (`issues.md`).
+
+The `@Vector` kernels fill them where the vector unit is IEEE: x86_64, x86,
+arm64 (Apple's systems too), loongarch64 and POWER8 to 10. The portable ones
+stay on arm, whose NEON flushes `f32` denormals, on the AltiVec POWER cores,
+which flush too, and on MIPS and SPARC, which nothing measured.
+The converted kernels stay in the tree, unwired (`kernels/<arch>.zig`).
 
 ### `@Vector` kernels on arm64
 
@@ -153,17 +165,18 @@ the portable kernel, so nothing is lost.
 On the M6 they match or beat both the converted assembly and OpenBLAS's own
 kernels, which are tuned for ThunderX2 and Neoverse N1 (prefetches, narrow
 loops; `tools/blasbench/results-m6.md`). `i?amax` searches only the first
-block with the largest maximum; `nrm2` sums plain squares and takes the
-scaled loop only where they could have overflowed or underflowed. Where
-they go (`kernels/arm64.zig`):
+block with the largest maximum; `nrm2` sums plain squares, in `f64` for `s`
+and `c`, and for `d` and `z` takes Blue's algorithm only where they could
+have overflowed or underflowed. They need no FMA unit: without one a
+multiply-add rounds twice. Where they go (`kernels/arm64.zig`):
 
 - `vortex`, `vortexm4`: every slot but `rot`, whose converted kernel stays
   (in L1 the `@Vector` one is 0.83 to 0.98 of it).
 - every arm64 core: the slots no converted kernel fills, where upstream's
   kernel is C and rstd ran the portable scalar loop (below). Their
   converted kernels stay; nothing measured them.
-- none on Apple's systems, where Accelerate is to serve instead: those
-  builds install as before.
+- every core, the slots of "One contract on every core" above.
+- on Apple's systems, where Accelerate is to serve instead, only those.
 
 | Cores                                              | Slots with no converted kernel                |
 |----------------------------------------------------|-----------------------------------------------|
@@ -184,8 +197,8 @@ runs them natively too, on a table of all of them.
 
 The portable kernels are Zig algorithms with the reference's documented
 semantics, not copies of its C: `dsdot` accumulates in `f64` (so does `sdot`),
-`nrm2` scales against overflow and underflow and is infinite for infinities
-(LAPACK 3.10's; the scaled loop alone gives NaN for two), `scal`'s flag keeps
+`nrm2` sums squares in `f64` for `s` and `c` and is Blue's for `d` and `z`,
+infinite for infinities and NaN for NaN (LAPACK 3.10's), `scal`'s flag keeps
 NaN and Inf, `i?amax` returns the first of equal extremes, and a NaN first
 element is never replaced. Not required by the design, so not done: reproducing the
 reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial

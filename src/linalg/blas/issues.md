@@ -647,8 +647,12 @@ the kernels do:
   `loongarch64/amax_lsx.S` returned 0 for a lone NaN. Left as they are: the
   reference's order needs each SIMD reduction rewritten.
 
-Not used: the `nrm2` kernels below are converted but not wired in, and the
-portable `nrm2` runs on those cores (`readme.md`):
+Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
+algorithm everywhere (`readme.md`, "One contract on every core"). x86_64's
+`nrm2_sse.S` (an unscaled `f64` sum for `snrm2` and `cnrm2`) and the x87
+`nrm2.S` and `znrm2.S` of x86 and x86_64 (an unscaled `f80` sum) were right
+on special values but their own algorithms; the arm and arm64 ones scale a
+one-pass loop as those below do. Those below were wrong:
 
 - **`nrm2` of an infinity is NaN.** `power/nrm2.S` and its kin (every POWER
   core), `mips64/dnrm2.S` and `znrm2.S` (Loongson), `loongarch64/dnrm2.S`

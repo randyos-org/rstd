@@ -10,6 +10,7 @@ const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 const abi = @import("abi.zig");
 const select = @import("cpu/_select.zig");
+const vector = @import("vector.zig");
 
 /// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target's calling
 /// convention needs (`abi.zig`). The compiled target's, so `has`, which the
@@ -80,8 +81,10 @@ pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const
 
 pub fn Kernels(comptime Core: type, comptime index: type) type {
     return struct {
-        /// `e`'s function for `core` on this target, if it has one.
+        /// `e`'s function for `core` on this target, if it has one and its
+        /// role is not `routed` to the portable or `@Vector` kernels.
         fn kernel(comptime e: anytype, comptime core: Core) ?type {
+            if (comptime vector.routed(e.role)) return null;
             return e.module.kernel(@tagName(core), variant);
         }
 
@@ -125,7 +128,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             inline for (index.entries) |e| {
                 if (comptime kernel(e, core)) |K| {
                     @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
-                } else if (comptime e.module.serves(@tagName(core)) and !hasRole(core, e.role)) {
+                } else if (comptime e.module.serves(@tagName(core)) and !hasRole(core, e.role) and !vector.routed(e.role)) {
                     @compileError("no '" ++ variant ++ "' build of " ++ e.role ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
                 }
             }

@@ -4,17 +4,19 @@
 //! strides take the vectors; other strides, zero and negative ones too, a
 //! scalar loop. NaN, infinities, `scal`'s flag, `i?amax`'s first index and
 //! which strides a kernel refuses are the portable kernels'; `nrm2` sums
-//! plain squares and takes their scaled loop only where those could have
-//! overflowed or underflowed. `Registry` exports them from the per-core
-//! objects for the cores and slots an architecture's registry picks
-//! (`kernels/arm64.zig`). Imports stay inside `linalg/blas/`: the per-core
-//! objects compile this file on their own.
+//! plain squares, in `f64` for `f32`, and for `f64` takes Blue's algorithm
+//! where they could have overflowed or underflowed. `Registry` exports them
+//! from the per-core objects for the cores and slots an architecture's
+//! registry picks (`kernels/<arch>.zig`), among them every `routed` slot.
+//! Imports stay inside `linalg/blas/`: the per-core objects compile this
+//! file on their own.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("types.zig");
 const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
+const fma = @import("fma.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -27,6 +29,12 @@ pub fn lanes(comptime F: type) comptime_int {
 
 inline fn at(comptime F: type, p: [*]F, i: BlasLong) *F {
     return util.at(F, p, i);
+}
+
+/// `a*b + c`, fused where the hardware has an FMA unit; elsewhere rounded
+/// twice, as `@mulAdd` there is a software `fma` call per element.
+inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
+    return if (comptime fma.hardware) @mulAdd(T, a, b, c) else a * b + c;
 }
 
 /// The real kernels over `F`; reductions keep two vectors of sums.
@@ -53,21 +61,21 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 const len: usize = @intCast(n);
                 const av: V = @splat(a);
                 var i: usize = 0;
-                while (i + W <= len) : (i += W) st(y + i, @mulAdd(V, av, ld(x + i), ld(y + i)));
-                while (i < len) : (i += 1) y[i] = @mulAdd(F, a, x[i], y[i]);
+                while (i + W <= len) : (i += W) st(y + i, mulAdd(V, av, ld(x + i), ld(y + i)));
+                while (i < len) : (i += 1) y[i] = mulAdd(F, a, x[i], y[i]);
                 return 0;
             }
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 const yp = at(F, y, i * incy);
-                yp.* = @mulAdd(F, a, at(F, x, i * incx).*, yp.*);
+                yp.* = mulAdd(F, a, at(F, x, i * incx).*, yp.*);
             }
             return 0;
         }
 
-        /// `dot`'s sums: `f64` for `f32`, as the portable `sdot` (products of
-        /// `f32` are exact there), else `F`.
-        const D = if (F == f32) f64 else F;
+        /// `dot`'s and `nrm2`'s sums: `f64` for `f32`, as the portable kernels
+        /// (products of `f32` are exact there), else `F`.
+        pub const D = if (F == f32) f64 else F;
         const DV = @Vector(W, D);
         const DG = @Vector(4, D);
 
@@ -78,21 +86,21 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 var acc: [2]DV = @splat(@splat(0));
                 var i: usize = 0;
                 while (i + 2 * W <= len) : (i += 2 * W) {
-                    inline for (0..2) |q| acc[q] = @mulAdd(DV, ld(x + i + q * W), ld(y + i + q * W), acc[q]);
+                    inline for (0..2) |q| acc[q] = mulAdd(DV, ld(x + i + q * W), ld(y + i + q * W), acc[q]);
                 }
                 if (i + W <= len) {
-                    acc[0] = @mulAdd(DV, ld(x + i), ld(y + i), acc[0]);
+                    acc[0] = mulAdd(DV, ld(x + i), ld(y + i), acc[0]);
                     i += W;
                 }
                 var s = @reduce(.Add, acc[0] + acc[1]);
-                while (i < len) : (i += 1) s = @mulAdd(D, x[i], y[i], s);
+                while (i < len) : (i += 1) s = mulAdd(D, x[i], y[i], s);
                 return @floatCast(s);
             }
             var acc: DG = @splat(0);
             var i: BlasLong = 0;
-            while (i + 4 <= n) : (i += 4) acc = @mulAdd(DG, gather(x, incx, i), gather(y, incy, i), acc);
+            while (i + 4 <= n) : (i += 4) acc = mulAdd(DG, gather(x, incx, i), gather(y, incy, i), acc);
             var s = @reduce(.Add, acc);
-            while (i < n) : (i += 1) s = @mulAdd(D, at(F, x, i * incx).*, at(F, y, i * incy).*, s);
+            while (i < n) : (i += 1) s = mulAdd(D, at(F, x, i * incx).*, at(F, y, i * incy).*, s);
             return @floatCast(s);
         }
 
@@ -130,18 +138,18 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return 0;
         }
 
-        /// The plain sum of squares of `x[0..len]`.
-        pub fn squares(len: usize, x: [*]F) F {
-            var acc: [2]V = @splat(@splat(0));
+        /// The plain sum of squares of `x[0..len]`, in `D`.
+        pub fn squares(len: usize, x: [*]F) D {
+            var acc: [2]DV = @splat(@splat(0));
             var i: usize = 0;
             while (i + 2 * W <= len) : (i += 2 * W) {
                 inline for (0..2) |q| {
-                    const v = ld(x + i + q * W);
-                    acc[q] = @mulAdd(V, v, v, acc[q]);
+                    const v: DV = ld(x + i + q * W);
+                    acc[q] = mulAdd(DV, v, v, acc[q]);
                 }
             }
             var s = @reduce(.Add, acc[0] + acc[1]);
-            while (i < len) : (i += 1) s = @mulAdd(F, x[i], x[i], s);
+            while (i < len) : (i += 1) s = mulAdd(D, x[i], x[i], s);
             return s;
         }
 
@@ -149,16 +157,16 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             if (n <= 0 or incx == 0) return 0;
             if (n == 1) return @abs(x[0]);
             if (incx == 1) return root(F, 1, squares(@intCast(n), x), n, x, incx);
-            var acc: G = @splat(0);
+            var acc: DG = @splat(0);
             var i: BlasLong = 0;
             while (i + 4 <= n) : (i += 4) {
-                const v = gather(x, incx, i);
-                acc = @mulAdd(G, v, v, acc);
+                const v: DG = gather(x, incx, i);
+                acc = mulAdd(DG, v, v, acc);
             }
             var s = @reduce(.Add, acc);
             while (i < n) : (i += 1) {
-                const v = at(F, x, i * incx).*;
-                s = @mulAdd(F, v, v, s);
+                const v: D = at(F, x, i * incx).*;
+                s = mulAdd(D, v, v, s);
             }
             return root(F, 1, s, n, x, incx);
         }
@@ -286,8 +294,8 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 while (i + W <= len) : (i += W) {
                     const xv = ld(x + i);
                     const yv = ld(y + i);
-                    st(x + i, @mulAdd(V, cv, xv, sv * yv));
-                    st(y + i, @mulAdd(V, cv, yv, -(sv * xv)));
+                    st(x + i, mulAdd(V, cv, xv, sv * yv));
+                    st(y + i, mulAdd(V, cv, yv, -(sv * xv)));
                 }
                 while (i < len) : (i += 1) rot1(&x[i], &y[i], c, s);
                 return 0;
@@ -300,8 +308,8 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         inline fn rot1(xp: *F, yp: *F, c: F, s: F) void {
             const xv = xp.*;
             const yv = yp.*;
-            xp.* = @mulAdd(F, c, xv, s * yv);
-            yp.* = @mulAdd(F, c, yv, -(s * xv));
+            xp.* = mulAdd(F, c, xv, s * yv);
+            yp.* = mulAdd(F, c, yv, -(s * xv));
         }
 
         /// `y += alpha*A*x`, four columns a pass over a unit-stride `y`.
@@ -322,11 +330,11 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                     var i: usize = 0;
                     while (i + W <= rows) : (i += W) {
                         var yv = ld(y + i);
-                        inline for (0..4) |q| yv = @mulAdd(V, ld(c[q] + i), @splat(t[q]), yv);
+                        inline for (0..4) |q| yv = mulAdd(V, ld(c[q] + i), @splat(t[q]), yv);
                         st(y + i, yv);
                     }
                     while (i < rows) : (i += 1) {
-                        inline for (0..4) |q| y[i] = @mulAdd(F, c[q][i], t[q], y[i]);
+                        inline for (0..4) |q| y[i] = mulAdd(F, c[q][i], t[q], y[i]);
                     }
                 }
             }
@@ -335,11 +343,11 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 const c = a + j * ld_a;
                 var i: usize = 0;
                 if (incy == 1) {
-                    while (i + W <= rows) : (i += W) st(y + i, @mulAdd(V, ld(c + i), @splat(t), ld(y + i)));
+                    while (i + W <= rows) : (i += W) st(y + i, mulAdd(V, ld(c + i), @splat(t), ld(y + i)));
                 }
                 while (i < rows) : (i += 1) {
                     const yp = at(F, y, @as(BlasLong, @intCast(i)) * incy);
-                    yp.* = @mulAdd(F, c[i], t, yp.*);
+                    yp.* = mulAdd(F, c[i], t, yp.*);
                 }
             }
             return 0;
@@ -361,14 +369,14 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                     var i: usize = 0;
                     while (i + W <= rows) : (i += W) {
                         const xv = ld(x + i);
-                        inline for (0..4) |q| acc[q] = @mulAdd(V, ld(c[q] + i), xv, acc[q]);
+                        inline for (0..4) |q| acc[q] = mulAdd(V, ld(c[q] + i), xv, acc[q]);
                     }
                     inline for (0..4) |q| {
                         var s = @reduce(.Add, acc[q]);
                         var r = i;
-                        while (r < rows) : (r += 1) s = @mulAdd(F, c[q][r], x[r], s);
+                        while (r < rows) : (r += 1) s = mulAdd(F, c[q][r], x[r], s);
                         const yp = at(F, y, @as(BlasLong, @intCast(j + q)) * incy);
-                        yp.* = @mulAdd(F, alpha, s, yp.*);
+                        yp.* = mulAdd(F, alpha, s, yp.*);
                     }
                 }
             }
@@ -378,57 +386,27 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 var i: usize = 0;
                 if (incx == 1) {
                     var acc: V = @splat(0);
-                    while (i + W <= rows) : (i += W) acc = @mulAdd(V, ld(c + i), ld(x + i), acc);
+                    while (i + W <= rows) : (i += W) acc = mulAdd(V, ld(c + i), ld(x + i), acc);
                     s = @reduce(.Add, acc);
                 }
-                while (i < rows) : (i += 1) s = @mulAdd(F, c[i], at(F, x, @as(BlasLong, @intCast(i)) * incx).*, s);
+                while (i < rows) : (i += 1) s = mulAdd(F, c[i], at(F, x, @as(BlasLong, @intCast(i)) * incx).*, s);
                 const yp = at(F, y, @as(BlasLong, @intCast(j)) * incy);
-                yp.* = @mulAdd(F, alpha, s, yp.*);
+                yp.* = mulAdd(F, alpha, s, yp.*);
             }
             return 0;
         }
     };
 }
 
-/// `@sqrt(s)`, `s` the plain sum of squares of `n` elements of `w` floats,
+/// `nrm2` from `s`, the plain sum of squares of `n` elements of `w` floats.
+/// Summed in `f64` for `f32`, it is exact enough as it is. Else `@sqrt(s)`
 /// where it neither overflowed nor could have lost more than `eps^2` of
-/// itself to underflow; else the portable kernel's scaled loop.
-fn root(comptime F: type, comptime w: comptime_int, s: F, n: BlasLong, x: [*]F, incx: BlasLong) F {
+/// itself to underflow, and Blue's algorithm (`util.blue`) where it could have.
+fn root(comptime F: type, comptime w: comptime_int, s: anytype, n: BlasLong, x: [*]F, incx: BlasLong) F {
+    if (comptime @TypeOf(s) != F) return @floatCast(@sqrt(s));
     const lo = std.math.floatMin(F) / std.math.floatEps(F) * @as(F, @floatFromInt(w * n));
     if (s >= lo and s <= std.math.floatMax(F)) return @sqrt(s);
-    return scaledNrm2(F, w, n, x, incx);
-}
-
-/// `nrm2/`'s portable kernel: scaled by the largest magnitude so far;
-/// infinite for infinities, the first NaN for a NaN.
-fn scaledNrm2(comptime F: type, comptime w: comptime_int, n: BlasLong, x: [*]F, incx: BlasLong) F {
-    var scale: F = 0;
-    var ssq: F = 1;
-    var i: BlasLong = 0;
-    while (i < n) : (i += 1) {
-        inline for (0..w) |c| {
-            const v = at(F, x, i * incx * w + c).*;
-            if (v != 0) {
-                const a = @abs(v);
-                if (scale < a) {
-                    ssq = 1 + ssq * (scale / a) * (scale / a);
-                    scale = a;
-                } else {
-                    ssq += (a / scale) * (a / scale);
-                }
-            }
-        }
-    }
-    const r = scale * @sqrt(ssq);
-    if (r == r) return r;
-    i = 0;
-    while (i < n) : (i += 1) {
-        inline for (0..w) |c| {
-            const v = at(F, x, i * incx * w + c).*;
-            if (v != v) return v;
-        }
-    }
-    return std.math.inf(F);
+    return util.blue(F, w, n, x, incx);
 }
 
 /// The complex kernels over interleaved `F` pairs.
@@ -485,11 +463,11 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
                 }
                 /// `y + t*v`.
                 inline fn madd(b: @This(), v: T, y: T) T {
-                    return @mulAdd(T, b.r, v, @mulAdd(T, b.i, swapped(T, v), y));
+                    return mulAdd(T, b.r, v, mulAdd(T, b.i, swapped(T, v), y));
                 }
                 /// `t*v`.
                 inline fn mul(b: @This(), v: T) T {
-                    return @mulAdd(T, b.i, swapped(T, v), b.r * v);
+                    return mulAdd(T, b.i, swapped(T, v), b.r * v);
                 }
             };
         }
@@ -504,12 +482,12 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
                 ri2: V2 = @splat(0),
 
                 inline fn add(d: *@This(), av: V, xv: V) void {
-                    d.rr = @mulAdd(V, av, xv, d.rr);
-                    d.ri = @mulAdd(V, av, swapped(V, xv), d.ri);
+                    d.rr = mulAdd(V, av, xv, d.rr);
+                    d.ri = mulAdd(V, av, swapped(V, xv), d.ri);
                 }
                 inline fn add2(d: *@This(), av: V2, xv: V2) void {
-                    d.rr2 = @mulAdd(V2, av, xv, d.rr2);
-                    d.ri2 = @mulAdd(V2, av, swapped(V2, xv), d.ri2);
+                    d.rr2 = mulAdd(V2, av, xv, d.rr2);
+                    d.ri2 = mulAdd(V2, av, swapped(V2, xv), d.ri2);
                 }
                 /// `re = ar*xr - sa*sx*ai*xi`, `im = sx*ar*xi + sa*ai*xr`,
                 /// `sa` and `sx` the signs conjugation gives the imaginary parts.
@@ -598,17 +576,18 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
         pub fn nrm2(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
             if (n <= 0 or incx == 0) return 0;
             if (incx == 1) return root(F, 2, R.squares(@intCast(2 * n), x), n, x, incx);
-            var acc: [2]V2 = @splat(@splat(0));
+            const D2 = @Vector(2, R.D);
+            var acc: [2]D2 = @splat(@splat(0));
             var i: BlasLong = 0;
             while (i + 2 <= n) : (i += 2) {
                 inline for (0..2) |q| {
-                    const v = ld2(x, (i + q) * incx);
-                    acc[q] = @mulAdd(V2, v, v, acc[q]);
+                    const v: D2 = ld2(x, (i + q) * incx);
+                    acc[q] = mulAdd(D2, v, v, acc[q]);
                 }
             }
             if (i < n) {
-                const v = ld2(x, i * incx);
-                acc[0] = @mulAdd(V2, v, v, acc[0]);
+                const v: D2 = ld2(x, i * incx);
+                acc[0] = mulAdd(D2, v, v, acc[0]);
             }
             return root(F, 2, @reduce(.Add, acc[0] + acc[1]), n, x, incx);
         }
@@ -696,8 +675,8 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
             while (i < n) : (i += 1) {
                 const xv = ld2(x, i * incx);
                 const yv = ld2(y, i * incy);
-                st2(x, i * incx, @mulAdd(V2, cv, xv, sv * yv));
-                st2(y, i * incy, @mulAdd(V2, cv, yv, -(sv * xv)));
+                st2(x, i * incx, mulAdd(V2, cv, xv, sv * yv));
+                st2(y, i * incy, mulAdd(V2, cv, yv, -(sv * xv)));
             }
             return 0;
         }
@@ -785,6 +764,15 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 
 // ---- the slots they fill -----------------------------------------------------
 
+/// Whether `role`'s converted kernels give way to the portable or these on
+/// every core, so its results follow one contract whatever the core
+/// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
+/// is Blue's for `d` and `z`. `asm_registry.Kernels` leaves them out; an
+/// architecture's `Registry` puts these in where its vector unit is IEEE.
+pub fn routed(comptime role: []const u8) bool {
+    return std.mem.endsWith(u8, role, "nrm2");
+}
+
 /// A kernel: its role (`saxpy`, `cdotc`, `izamax`, `zgemv_r`), and the
 /// function of `Real` or `Complex` over `F` that is it.
 const Role = struct { name: []const u8, F: type, complex: bool, f: []const u8 };
@@ -831,6 +819,13 @@ fn symbol(comptime role: []const u8, comptime core: anytype) []const u8 {
 /// step, for the tests.
 pub fn installAll(vt: *Vtable) void {
     inline for (roles) |r| @field(vt, slot(r.name)) = kernel(r, 4);
+}
+
+/// `Registry`'s `uses` for an architecture whose vector unit is IEEE on
+/// every core: the `routed` slots.
+pub fn usesRouted(comptime core: anytype, comptime role: []const u8) bool {
+    _ = core;
+    return routed(role);
 }
 
 /// The kernels four vectors a step, in a per-core object for the cores and

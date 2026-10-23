@@ -9,6 +9,7 @@ const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
+const vector = @import("../vector.zig");
 
 pub const Core = coretypes.PowerCoreType;
 
@@ -28,14 +29,24 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/imin/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/max/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/min/power/asm/__root__.zig")),
-    // `nrm2` stays portable: these kernels are wrong on infinities and denormals (`readme.md`)
     registry.Kernels(Core, @import("../blas1/rot/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/gemv/power/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
+    vector.Registry(Core, usesVector),
 };
+
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots on the
+/// VSX cores. AltiVec flushes `f32` denormals, so elsewhere the portable
+/// kernels stay.
+fn usesVector(comptime core: Core, comptime role: []const u8) bool {
+    return switch (core) {
+        .power8, .power9, .power10 => vector.routed(role),
+        else => false,
+    };
+}
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {

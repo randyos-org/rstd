@@ -24,7 +24,6 @@ const converted = .{
     registry.Kernels(Core, @import("../blas1/copy/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/iamax/arm64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/nrm2/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/arm64/asm/__root__.zig")),
@@ -40,8 +39,10 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 /// `rot` on `vortex` and `vortexm4`, where they match or beat the converted
 /// kernels (`tools/blasbench/results-m6.md`), and on every core each slot no
 /// converted kernel fills, mostly C upstream, for the portable scalar loop.
-/// Not on Apple's systems, whose Accelerate is to serve them instead.
+/// On Apple's systems, whose Accelerate is to serve the rest, only the
+/// `routed` slots.
 fn usesVector(comptime core: Core, comptime role: []const u8) bool {
+    if (vector.routed(role)) return true;
     if (sysinfo.os.tag.isDarwin()) return false;
     if ((core == .vortex or core == .vortexm4) and !std.mem.endsWith(u8, role, "rot")) return true;
     inline for (converted) |m| {

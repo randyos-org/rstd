@@ -46,45 +46,28 @@ const Vtable = @import("../../Vtable.zig");
 const check = @import("../check.zig");
 const x87 = @import("../x87.zig");
 
-/// `kernel/arm/nrm2.c` and `znrm2.c`: the Euclidean norm, scaled by the
-/// largest magnitude so far so the squares cannot overflow; an element is `w`
-/// floats. Only a zero stride is refused: a negative one walks backwards.
-/// Wider than `f64`, x86_64 `nrm2.S`'s and `znrm2.S`'s plain sum of squares
-/// (`x87.zig`), unscaled: it overflows where they do.
+/// The Euclidean norm of `n` elements of `w` floats. Up to 32 bits, the
+/// plain sum of squares in `f64`, where every square is exact and none
+/// overflows or underflows; at 64 bits, Blue's algorithm (`util.blue`). Wider,
+/// x86_64 `nrm2.S`'s and `znrm2.S`'s plain sum of squares (`x87.zig`),
+/// unscaled: it overflows where they do. Only a zero stride is refused: a
+/// negative one walks backwards.
 fn Nrm2(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x == 0) return 0;
             if (comptime types.isExtended(F)) return @sqrt(x87.sum(F, w, .square, n, x, inc_x));
             if (w == 1 and n == 1) return @abs(x[0]);
-            var scale: types.Acc(F) = 0;
-            var ssq: types.Acc(F) = 1;
+            if (comptime @bitSizeOf(F) > 32) return util.blue(F, w, n, x, inc_x);
+            var s: f64 = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 inline for (0..w) |c| {
-                    const v = util.at(F, x, i * inc_x * w + c).*;
-                    if (v != 0) {
-                        const a: types.Acc(F) = @abs(v);
-                        if (scale < a) {
-                            ssq = 1 + ssq * (scale / a) * (scale / a);
-                            scale = a;
-                        } else {
-                            ssq += (a / scale) * (a / scale);
-                        }
-                    }
+                    const v: f64 = util.at(F, x, i * inc_x * w + c).*;
+                    s += v * v;
                 }
             }
-            const r: F = @floatCast(scale * @sqrt(ssq));
-            if (r == r) return r;
-            // NaN from a NaN, or from a second infinity scaled by the first
-            i = 0;
-            while (i < n) : (i += 1) {
-                inline for (0..w) |c| {
-                    const v = util.at(F, x, i * inc_x * w + c).*;
-                    if (v != v) return v;
-                }
-            }
-            return std.math.inf(F);
+            return @floatCast(@sqrt(s));
         }
     };
 }
@@ -149,6 +132,80 @@ fn checkAll(vt: *const Vtable) !void {
     try checkNrm2(std.math.Complex(f64), vt.znrm2_k.?);
 }
 
+/// Magnitudes by element, as powers of two: a cycle through `exps`.
+const Range = struct { name: []const u8, exps: []const i32 };
+
+/// The exponents of the ranges `accuracy` takes `F` through: denormal, past
+/// the square root of the smallest and largest normal, near the largest, and
+/// mixed, which take each branch of Blue's algorithm.
+fn ranges(comptime F: type) [9]Range {
+    const lo = std.math.floatExponentMin(F);
+    const hi = std.math.floatExponentMax(F);
+    const dn = lo - 4;
+    const tiny = @divFloor(lo, 2) - 4;
+    const big = @divFloor(hi, 2) + 4;
+    return .{
+        .{ .name = "medium", .exps = &.{0} },
+        .{ .name = "denormal", .exps = &.{dn} },
+        .{ .name = "tiny", .exps = &.{tiny} },
+        .{ .name = "big", .exps = &.{big} },
+        .{ .name = "near the largest", .exps = &.{hi - 3} },
+        .{ .name = "denormal and medium", .exps = &.{ dn, 0 } },
+        .{ .name = "medium and big", .exps = &.{ 0, big } },
+        .{ .name = "denormal and big", .exps = &.{ dn, big } },
+        .{ .name = "tiny, medium and big", .exps = &.{ tiny, 0, big } },
+    };
+}
+
+/// `kern` against an `f128` reference over `ranges`, at sizes up to 2^14
+/// and strides negative too: within one ulp for `s` and `c`, whose squares
+/// sum exactly in `f64`, and `n w / 2 + 2` for `d` and `z` (Blue's, or the
+/// `@Vector` plain sum where it is safe); infinite past the range.
+fn accuracy(comptime T: type, kern: anytype, al: std.mem.Allocator) !void {
+    const F = check.FloatOf(T);
+    const w = if (comptime check.isComplex(T)) 2 else 1;
+    const long: usize = if (check.rig()) 1 << 12 else 1 << 14;
+    const buf = try al.alloc(F, w * 3 * long);
+    defer al.free(buf);
+    for (ranges(F)) |r| for ([_]usize{ 1, 2, 3, 7, 16, 33, 100, long }) |n| for ([_]isize{ 1, 3, -2 }) |s| {
+        if (n == long and s != 1) continue;
+        const inc = @abs(s);
+        check.fill(F, buf[0 .. w * n * inc], n + r.exps.len);
+        var acc: f128 = 0;
+        for (0..n) |i| for (0..w) |c| {
+            const at = (i * inc) * w + c;
+            buf[at] = std.math.ldexp(buf[at], r.exps[i % r.exps.len]);
+            acc += @as(f128, buf[at]) * buf[at];
+        };
+        const want = check.sqrtW(acc);
+        const start = if (s < 0) (n - 1) * inc * w else 0;
+        const got = kern(@intCast(n), buf.ptr + start, s);
+        const ulps: f128 = if (F == f32) 1 else @floatFromInt(n * w / 2 + 2);
+        check.component(F, want, got, ulps, want) catch |e| {
+            check.say("{s}: ", .{r.name});
+            return check.case(e, "nrm2", T, n, .{ inc, 0 });
+        };
+    };
+}
+
+fn checkAccuracy(vt: *const Vtable) !void {
+    const al = std.testing.allocator;
+    try accuracy(f32, vt.snrm2_k.?, al);
+    try accuracy(f64, vt.dnrm2_k.?, al);
+    try accuracy(std.math.Complex(f32), vt.cnrm2_k.?, al);
+    try accuracy(std.math.Complex(f64), vt.znrm2_k.?, al);
+}
+
+test "portable nrm2: within an ulp for s and c, of n/2 for d and z, denormal to near the largest" {
+    var vt: Vtable = .{};
+    installGeneric(&vt);
+    try checkAccuracy(&vt);
+}
+
+test "every linked core's nrm2: within an ulp for s and c, of n/2 for d and z, denormal to near the largest" {
+    try check.eachCore(checkAccuracy);
+}
+
 test "portable nrm2 kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
@@ -176,8 +233,8 @@ test "portable nrm2: infinite for infinities, NaN for a NaN among them" {
     try std.testing.expect(std.math.isNan(dnrm2_generic(5, &x, 1)));
 }
 
-test "nrm2 past 64 bits is the plain sum of squares, overflow included; at 64 bits or less, scaled" {
-    // by width, so a 64-bit `c_longdouble` of its own takes the scaled path
+test "nrm2 past 64 bits is the plain sum of squares, overflow included; at 64 bits or less, it does not overflow" {
+    // by width, so a 64-bit `c_longdouble` of its own takes Blue's algorithm
     inline for (.{ f32, f64, c_longdouble, f80, f128 }) |F| {
         const big = if (comptime types.isExtended(F)) std.math.ldexp(@as(F, 1), 16000) else std.math.floatMax(F) / 2;
         var x = [_]F{ big, big };

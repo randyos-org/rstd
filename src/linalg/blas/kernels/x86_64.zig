@@ -9,6 +9,7 @@ const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
+const vector = @import("../vector.zig");
 
 pub const Core = coretypes.X86CoreType;
 
@@ -28,7 +29,6 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/imin/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/max/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/min/x86_64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/nrm2/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
@@ -37,6 +37,7 @@ const modules = .{
     registry.Kernels(Core, @import("../blas2/hemv/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/symv/x86_64/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
+    vector.Registry(Core, vector.usesRouted),
 };
 
 /// Whether this registry has kernels for `arch`.
