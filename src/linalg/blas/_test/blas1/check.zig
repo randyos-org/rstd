@@ -3,15 +3,17 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const zigstd = @import("../../../zigstd.zig");
-const cpu = @import("../cpu/__root__.zig");
-const registry = @import("../asm_registry.zig");
-const Vtable = @import("../Vtable.zig");
-const blas1 = @import("__root__.zig");
-const portable = @import("../portable.zig");
-const types = @import("../types.zig");
-const vector = @import("../vector.zig");
-const extremum = @import("extremum.zig");
+const zigstd = @import("../../../../zigstd.zig");
+const cpu = @import("../../cpu/__root__.zig");
+const registry = @import("../../asm_registry.zig");
+const Vtable = @import("../../Vtable.zig");
+const blas1 = @import("../../blas1/__root__.zig");
+const portable = @import("../../portable.zig");
+const types = @import("../../types.zig");
+const util = @import("../../util.zig");
+const vector = @import("../../vector.zig");
+const extremum = @import("../../blas1/extremum.zig");
+const root = @import("root");
 
 /// The extended float the `q`/`x` portable kernels are tested at: `XDouble`
 /// where it is one, else `f80`, whose kernels are generic Zig ones
@@ -477,9 +479,28 @@ pub fn patternsFor(len: usize, buf: *[13]Pattern) []const Pattern {
 /// where it may cross the C ABI.
 pub const any_floats = if (sysinfo.cpu.arch.isX86()) .{ f16, f80, f128 } else .{ f16, f128 };
 
+/// `util.extendedSum` written out plainly: accumulator by position, then
+/// folded.
+pub fn plainExtendedSum(comptime F: type, w: usize, term: util.Term, n: usize, x: []const F, ix: usize) F {
+    var a: [4]F = @splat(0);
+    const main = n / (8 / w) * (8 / w);
+    for (0..n) |i| for (0..w) |c| {
+        const v = x[i * ix * w + c];
+        a[if (i < main) (i * w + c) % 4 else c] += if (term == .abs) @abs(v) else v * v;
+    };
+    return a[3] + ((a[2] + a[0]) + a[1]);
+}
+
+/// `got` has exactly `want`'s bits.
+pub fn expectBits(comptime F: type, want: F, got: F, what: []const u8, n: usize, inc: usize) !void {
+    const U = @Int(.unsigned, @bitSizeOf(F));
+    if (@as(U, @bitCast(want)) == @as(U, @bitCast(got))) return;
+    say("{s} {s} n={d} inc={d}: got {e}, want {e}\n", .{ what, @typeName(F), n, inc, got, want });
+    return error.TestExpectedEqual;
+}
+
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {
-    const root = @import("root");
     if (comptime sysinfo.os.tag != .freestanding) {
         std.debug.print(f, args);
     } else if (comptime @hasDecl(root, "testWrite")) {

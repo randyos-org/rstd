@@ -1,6 +1,5 @@
 const types = @import("../../stream_types.zig");
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
 const GlyphIndex = types.GlyphIndex;
 
@@ -48,6 +47,8 @@ pub const Format0 = struct {
         return @fromBackingInt(self.table_data[header_end + codepoint]);
     }
 };
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "Format0 stream layout matches the OpenType stream layout (262 bytes total, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 6), @sizeOf(StreamLayout));

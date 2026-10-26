@@ -16,14 +16,12 @@ const std = @import("std");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const check = @import("check.zig");
 const portable = @import("../portable.zig");
+const bf = @import("../ext/bf16/__root__.zig");
 
 const BlasLong = types.BlasLong;
 const BF16 = types.BF16;
 const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 const isComplex = types.isComplex;
 const Float = types.Float;
@@ -312,7 +310,7 @@ pub fn sbdot(n: isize, x: [*]BF16, incx: isize, y: [*]BF16, incy: isize) ArgErro
 pub fn bscal(n: isize, alpha: BF16, x: [*]BF16, incx: isize) ArgError!void {
     if (incx <= 0 or n <= 0) return;
     try spanX(BF16, n, incx);
-    if (@import("../ext/bf16/__root__.zig").scalarToF32(alpha) == 1) return;
+    if (bf.scalarToF32(alpha) == 1) return;
     _ = blas.kernel(.bscal_k)(n, 0, 0, alpha, x, incx, x, 0, x, 1);
 }
 
@@ -597,6 +595,10 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 }
 
 // ---- tests -------------------------------------------------------------------
+
+const check = @import("../_test/blas1/check.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
 
 const reals = .{ f32, f64 } ++ check.x_real;
 const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
@@ -1146,8 +1148,6 @@ test "interface: rotmg in f16 rescales within its range" {
         try check.expectClose(f64, was, @as(f64, d1) * x1 * x1, 1e-2 * was);
     }
 }
-
-const bf = @import("../ext/bf16/__root__.zig");
 
 fn b16(v: f32) BF16 {
     return bf.toBf16(v);

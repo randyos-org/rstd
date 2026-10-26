@@ -21,17 +21,13 @@ const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const Vtable = @import("../Vtable.zig");
-const check = @import("../blas1/check.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
+const bf = @import("../ext/bf16/__root__.zig");
 const Op = portable.Op;
-const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 /// The reference's `xerbla` argument, by name.
 /// Bad arguments, shared by every level-2 interface file; there is no xerbla.
@@ -263,7 +259,7 @@ pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha
 
 /// A `gemvHalf` scalar as `f32`.
 fn halfToF32(comptime T: type, v: T) f32 {
-    return if (T == f32) v else @import("../ext/bf16/__root__.zig").scalarToF32(v);
+    return if (T == f32) v else bf.scalarToF32(v);
 }
 
 // ---- ger ---------------------------------------------------------------------
@@ -397,6 +393,14 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: i
 
 // ---- tests -------------------------------------------------------------------
 
+const Vtable = @import("../Vtable.zig");
+const check = @import("../_test/blas1/check.zig");
+const guard = @import("../_test/blas2/guard.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
+
+const tri = @import("triangular.zig");
+const band = @import("banded.zig");
 const testing = std.testing;
 /// Scratch from the heap holds NaN, so a missing clear shows.
 var poison: guard.Poison = .{ .child = testing.allocator };
@@ -694,8 +698,6 @@ test "interface: problems over the stack buffer allocate, and small gemv and ger
 
 // ---- half-precision gemv tests ----------------------------------------------
 
-const bf = @import("../ext/bf16/__root__.zig");
-
 fn halfIn(comptime E: type, v: f32) E {
     return if (E == types.BF16) bf.toBf16(v) else @floatCast(v);
 }
@@ -842,8 +844,6 @@ fn expectMv(comptime T: type, rows: usize, cols: usize, ctx: anytype, alpha: T, 
 /// `gemv`, `ger`, `symv`, `hemv`, `trmv`, `trsv` and `gbmv`.
 fn anyFloat(comptime T: type) !void {
     const W = check.Wide(T);
-    const tri = @import("triangular.zig");
-    const band = @import("banded.zig");
     const al = testing.allocator;
     const complex = comptime isComplex(T);
     const m = 7;

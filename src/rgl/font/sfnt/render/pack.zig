@@ -1,5 +1,4 @@
 const std = @import("std");
-const zigstd = @import("../../../../zigstd.zig");
 
 // A guillotine-style rectangle bin packer: starts from one free space (the
 // whole canvas) and, for each rect placed, splits the space it landed in
@@ -183,6 +182,8 @@ pub fn pack(
 fn rectsOverlap(a: Rect, b: Rect) bool {
     return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y;
 }
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "pack places non-overlapping rects that all fit within the canvas" {
     const alloc = zigstd.testAllocator;

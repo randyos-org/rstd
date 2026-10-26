@@ -40,10 +40,8 @@ pub fn xcopy_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/copy.c` and `zcopy.c`: `y := x`; an element is `w` floats.
 fn Copy(comptime F: type, comptime w: comptime_int) type {
@@ -86,6 +84,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkCopy(comptime T: type, kern: anytype) !void {

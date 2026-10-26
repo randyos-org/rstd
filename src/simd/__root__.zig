@@ -4,7 +4,6 @@
 //! keeping its own copy of the same handful of formulas.
 
 const std = @import("std");
-const zigstd = @import("../zigstd.zig");
 const sysinfo = @import("builtin");
 const blas_fma = @import("../linalg/blas/fma.zig");
 
@@ -57,6 +56,8 @@ pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
 pub fn vectorLen(comptime T: type) comptime_int {
     return comptime std.simd.suggestVectorLength(T) orelse 1;
 }
+
+const zigstd = @import("../zigstd.zig");
 
 test "mulAdd matches plain arithmetic regardless of which path it takes" {
     try zigstd.testExpectEqual(@as(f64, 14.0), mulAdd(f64, 2.0, 3.0, 8.0));

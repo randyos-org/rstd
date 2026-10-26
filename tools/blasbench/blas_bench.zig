@@ -741,7 +741,7 @@ const Blocking = struct {
     }
 };
 
-/// `C += A*B`, square `n`, through `level3.c`'s loops as `blas3/level3.zig`
+/// `C += A*B`, square `n`, through `level3.c`'s loops as `blas3/driver.zig`
 /// has them, with `im`'s kernel and copies.
 fn GemmCall(comptime p: Prec) type {
     const F = p.F;

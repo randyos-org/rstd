@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for the 'post' header, used only to compute field offsets/sizes at
 /// comptime; never instantiated.
@@ -123,6 +122,8 @@ pub const PostTable = struct {
         return @bitCast(self.table_data[indicesStart() + index]);
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "post StreamLayout matches the OpenType stream layout (32 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 32), @sizeOf(StreamLayout));

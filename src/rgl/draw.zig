@@ -8,7 +8,6 @@ const PointF32 = geometry.PointF32;
 
 const zigstd = @import("../zigstd.zig");
 const Allocator = zigstd.Allocator;
-const testExpectEqual = zigstd.testExpectEqual;
 
 /// fillRoundRect fills an axis-aligned rounded rectangle with hard edges
 /// (the downsample step provides antialiasing). Alpha of col is blended
@@ -96,6 +95,8 @@ pub fn downsample(alloc: Allocator, src: *const Image, n: u32) !Image {
     }
     return out;
 }
+
+const testExpectEqual = zigstd.testExpectEqual;
 
 test "fillRoundRect clips a box extending past the image's edges without panicking" {
     const alloc = zigstd.testAllocator;

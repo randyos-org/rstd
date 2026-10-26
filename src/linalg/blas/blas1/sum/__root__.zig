@@ -40,10 +40,8 @@ pub fn xsum_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/sum.c` and `zsum.c`: the sum of `x`, of `re + im` for complex
 /// (unlike `asum`, no absolute value); an element is `w` floats.
@@ -89,6 +87,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type.
 fn checkSum(comptime T: type, kern: anytype) !void {

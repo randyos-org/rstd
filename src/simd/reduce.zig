@@ -1,5 +1,4 @@
 const std = @import("std");
-const zigstd = @import("../zigstd.zig");
 const rsimd = @import("__root__.zig");
 
 const ReduceOp = std.builtin.ReduceOp;
@@ -167,6 +166,8 @@ fn cabs1(re: anytype, im: anytype) @TypeOf(re) {
 fn unconjRe(xr: anytype, xi: @TypeOf(xr), yr: @TypeOf(xr), yi: @TypeOf(xr)) @TypeOf(xr) {
     return xr * yr - xi * yi;
 }
+
+const zigstd = @import("../zigstd.zig");
 
 test "mapReduce(.Add, cabs1) matches a plain scalar loop, scalar-only path" {
     const xr = [_]f64{ 1.0, -2.0, 3.0 };

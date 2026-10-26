@@ -1,5 +1,4 @@
 const std = @import("std");
-const zigstd = @import("../zigstd.zig");
 const math = std.math;
 const clamp = math.clamp;
 const pow = math.pow;
@@ -541,6 +540,8 @@ const _hsl_rgb_samples = [_]_HslRgbSample{
     .{ .r = 0.211, .g = 0.149, .b = 0.597, .h_deg = 248.3, .s = 0.601, .l = 0.373 }, // #362698
     .{ .r = 0.495, .g = 0.493, .b = 0.721, .h_deg = 240.5, .s = 0.290, .l = 0.607 }, // #7E7EB8
 };
+
+const zigstd = @import("../zigstd.zig");
 
 test "RGBAf32.toHSLAf32 matches the Wikipedia HSL reference table" {
     for (_hsl_rgb_samples) |sample| {

@@ -32,6 +32,8 @@ ALFB
 alphabg
 ALPHAI
 ALPHAR
+Alti
+amaxv
 amdgpu
 amxtile
 andi
@@ -100,6 +102,7 @@ blaslong
 BLASULONG
 ble
 blez
+BLIS's
 Blits
 blitted
 Blobby
@@ -207,6 +210,7 @@ congruential
 CONJG
 connect
 copy_file_range
+cortexx
 corth
 cosm
 cpht
@@ -279,6 +283,7 @@ DIRENV
 DLAB
 dlaswp
 dlopen
+dlsym
 dneg
 dngettext
 dnrm
@@ -288,6 +293,7 @@ DOFORK
 domatcopy
 dotc
 dotenv
+dotk
 dotni
 dotu
 downscaling
@@ -316,6 +322,7 @@ DWMEXILEFRAME
 DWMTHUMBNAILSIZECHANGED
 DWMTRANSITIONSTATECHANGED
 dxpy
+dyld
 DZASUM
 DZNRM
 eabi
@@ -629,6 +636,7 @@ getuid
 getxattr
 getxattrat
 GFLOP
+GFLOPS
 GFORT
 Gfun
 gfxdev
@@ -671,6 +679,7 @@ hasc
 hcall
 hemm
 hemv
+herk
 hflex
 HFLOAT
 hhcurveto
@@ -692,8 +701,10 @@ HWPOISON
 hwprobe
 hygon
 iamax
+iamaxk
 ICACHEBSIZE
 icamin
+ICOPY
 idat
 Idents
 idmax
@@ -707,6 +718,7 @@ ihdr
 ilcopyb
 ilcopyi
 ilcopyr
+illumos
 ilnncopy
 ilnucopy
 iltcopy
@@ -869,6 +881,7 @@ libc
 libcpp
 libcxx
 Libghostty
+libm
 libopenblas
 libvaxis
 libxev
@@ -902,6 +915,7 @@ lsm_get_self_attr
 lsm_list_modules
 lsm_set_self_attr
 lstat
+ltcopy
 ltex
 LTLN
 LTUN
@@ -1049,12 +1063,14 @@ neoversen
 neoversev
 NETLINK
 newfstatat
+NEWLAPACK
 newp
 nflist
 nfsservctl
 ngettext
 ngroups
 NIDENT
+nixpkgs
 NLIMITS
 nlist
 NMSUB
@@ -1081,6 +1097,7 @@ nrtp
 NSYNC
 oabi
 objc
+OCOPY
 OETF
 ofmt
 oklab
@@ -1373,6 +1390,7 @@ rtnetlink
 RTPRIO
 RTTIME
 RXRSTOR
+Ryzen
 safmax
 safmin
 salq
@@ -1411,6 +1429,7 @@ sbtrmm
 sbtrsm
 scal
 scalarized
+scalk
 scanline
 SCASUM
 SCCB
@@ -1661,6 +1680,7 @@ SYSTIMER
 sysv
 taxpy
 taxpyc
+tbsv
 tcopy
 tee
 termio
@@ -1706,6 +1726,7 @@ TRIU
 trmm
 trmv
 trsm
+trsv
 TrueType
 TrueType-style
 truncate
@@ -1731,6 +1752,7 @@ ugetrlimit
 UIACTION
 UIDS
 uintr
+ulps
 umask
 umip
 umount2
@@ -1750,6 +1772,7 @@ unref
 unshare
 unsuffixed
 unwrite
+Uplo
 uprobe
 URAND
 urandom
@@ -1760,6 +1783,7 @@ userfaultfd
 userspace
 usrfun
 ustat
+utcopy
 utest
 utime
 utimensat
@@ -1777,10 +1801,12 @@ vcubic
 vcurve
 vdevice
 vDSO
+VECLIB
 vectorizing
 vendored
 verts
 vfadd
+vfma
 vfmadd
 vfmaddpd
 vfmaddps
@@ -2015,6 +2041,7 @@ zgerv
 ZGESL
 zhemm
 zhemv
+zherk
 zig
 zigcfg
 zigfmt
@@ -2026,6 +2053,7 @@ zlartg
 zlaswp
 zneg
 znrm
+znver
 zomatcopy
 zpart
 zparts

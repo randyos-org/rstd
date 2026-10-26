@@ -484,13 +484,14 @@ pub fn xtrmm_oltncopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, po
     return blas.kernel(.xtrmm_oltncopy)(m, n, a, lda, posX, posY, b);
 }
 
-const check = @import("../check.zig");
-const blas1check = @import("../../blas1/check.zig");
+const check = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
 
 fn cases(vt: *const Vtable) !void {
     try check.routineAll(vt, .trmm);
 }
+
+const blas1check = @import("../../_test/blas1/check.zig");
 
 test "portable trmm matches the wide reference through the driver" {
     var vt: Vtable = .{};

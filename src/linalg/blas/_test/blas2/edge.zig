@@ -21,13 +21,14 @@
 //! sums) and the right-hand side, and the diagonal dominates.
 
 const std = @import("std");
-const blas = @import("../__root__.zig");
-const Vtable = @import("../Vtable.zig");
+const blas = @import("../../__root__.zig");
+const Vtable = @import("../../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const guard = @import("guard.zig");
-const iface = @import("interface.zig");
-const tri = @import("triangular.zig");
-const band = @import("banded.zig");
+const iface = @import("../../blas2/interface.zig");
+const tri = @import("../../blas2/triangular.zig");
+const band = @import("../../blas2/banded.zig");
+const portable = @import("../../portable.zig");
 
 const Allocator = std.mem.Allocator;
 const C = std.math.Complex;
@@ -695,7 +696,7 @@ fn CheckAll(comptime types: anytype) type {
 
         fn portable() !void {
             var vt: Vtable = .{};
-            @import("../portable.zig").install(&vt);
+            portable.install(&vt);
             try sweepAll(&vt);
             try denormalsAll(&vt);
         }

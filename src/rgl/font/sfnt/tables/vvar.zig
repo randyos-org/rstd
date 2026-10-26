@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 const ivs = @import("ivs.zig");
 
 /// Schema for the VVAR header, used only to compute field offsets/sizes at
@@ -80,6 +79,8 @@ pub const VvarTable = struct {
         return .{ .table_data = self.table_data[off..] };
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "VVAR StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 24), @sizeOf(StreamLayout));

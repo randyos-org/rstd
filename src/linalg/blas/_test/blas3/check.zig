@@ -14,10 +14,10 @@
 //! triangle a rank-k update leaves.
 
 const std = @import("std");
-const types = @import("../types.zig");
-const Vtable = @import("../Vtable.zig");
-const level3 = @import("level3.zig");
-const portable = @import("../portable.zig");
+const types = @import("../../types.zig");
+const Vtable = @import("../../Vtable.zig");
+const driver = @import("../../blas3/driver.zig");
+const portable = @import("../../portable.zig");
 const check1 = @import("../blas1/check.zig");
 const guard = @import("../blas2/guard.zig");
 
@@ -472,16 +472,16 @@ pub fn Driver(comptime r: Routine) type {
             const vt = self.vt;
             const herm = comptime isComplex(T);
             switch (r) {
-                .gemm => try level3.gemm(al, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-                .symm => try level3.symm(al, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc),
-                .hemm => if (herm) try level3.symm(al, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
-                .syrk => try level3.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc),
-                .syr2k => try level3.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-                .herk => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc) else unreachable,
-                .her2k => if (herm) try level3.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
-                .trmm, .trsm => if (@hasDecl(level3, "trmm")) {
+                .gemm => try driver.gemm(al, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+                .symm => try driver.symm(al, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc),
+                .hemm => if (herm) try driver.symm(al, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
+                .syrk => try driver.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc),
+                .syr2k => try driver.syrk(al, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+                .herk => if (herm) try driver.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc) else unreachable,
+                .her2k => if (herm) try driver.syrk(al, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
+                .trmm, .trsm => if (@hasDecl(driver, "trmm")) {
                     const args = .{ al, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc };
-                    if (r == .trmm) try @call(.auto, level3.trmm, args) else try @call(.auto, level3.trsm, args);
+                    if (r == .trmm) try @call(.auto, driver.trmm, args) else try @call(.auto, driver.trsm, args);
                 } else return error.SkipZigTest,
             }
         }
@@ -606,7 +606,7 @@ fn scalarsOf(comptime T: type) []const [2][2]f64 {
 /// Every case of `r` over `T` on `vt`'s kernels.
 pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !void {
     const pre = comptime portable.letter(T).? ++ "gemm_";
-    const own = level3.Blocking.of(T, vt);
+    const own = driver.Blocking.of(T, vt);
     const um = own.um;
     const un = own.un;
 
@@ -697,7 +697,7 @@ fn routinesOf(comptime T: type) []const Routine {
 /// Whether the drivers have `r` yet.
 fn ported(r: Routine) bool {
     return switch (r) {
-        .trmm, .trsm => @hasDecl(level3, "trmm"),
+        .trmm, .trsm => @hasDecl(driver, "trmm"),
         else => true,
     };
 }

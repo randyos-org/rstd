@@ -175,7 +175,7 @@ sharing in `C`.
 ### Memory
 
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
-for `w` workers: `gemm` packing buffers (`level3.Work(T).lens`, about `(P + min(n_t, R)) * Q`
+for `w` workers: `gemm` packing buffers (`driver.Work(T).lens`, about `(P + min(n_t, R)) * Q`
 elements per worker, aligned to `Work(T).alignment`) and level 2 per-chunk vectors. Tasks are
 therefore infallible and the allocator need not be thread safe. Level 1 needs none. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
@@ -227,7 +227,7 @@ runs it single-threaded.
 - **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
   threaded results equal serial results bit for bit for worker counts 1 to 9 (a test hook
   overrides the cached CPU count), all transposes and odd sizes, on the shrunk-blocking
-  vtable `blas3/check.zig` uses and its NaN-poisoning allocator. Each case also runs on
+  vtable `_test/blas3/check.zig` uses and its NaN-poisoning allocator. Each case also runs on
   `Io.Threaded` with `async_limit` 0, 3 and 8 (oversubscribed) and on `Io.failing` as an
   inline baseline. Reductions additionally meet `check.zig`'s error bound.
 - **Races:** the hosted tests loop about 1000 times on the weak-memory rigs (aarch64,

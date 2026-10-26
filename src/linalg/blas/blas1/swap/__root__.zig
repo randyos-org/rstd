@@ -40,10 +40,8 @@ pub fn xswap_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, dummy3: XDouble,
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/swap.c` and `zswap.c`: exchanges `x` and `y`; an element is
 /// `w` floats.
@@ -100,6 +98,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `check.zero_strides` and both zero, which a kernel that loads a block
 /// before storing it gets wrong.

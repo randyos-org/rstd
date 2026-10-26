@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for the OS/2 table across every version (0-5); each version only
 /// appends fields, so one cumulative layout gives the right offset for any
@@ -274,6 +273,8 @@ pub const Os2Table = struct {
         return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_upper_optical_point_size")..]);
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "OS/2 StreamLayout matches the OpenType stream layout at every version boundary" {
     try zigstd.testExpectEqual(@as(usize, 78), v0_size);

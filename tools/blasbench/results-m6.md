@@ -73,7 +73,7 @@ zig build ssh-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> -j3
   `sgemm_kernel_16x4.S` with `sgemm_tcopy_16.S` and `sgemm_ncopy_4.S`,
   `dgemm_kernel_8x4.S` with `dgemm_tcopy_8.S` and `dgemm_ncopy_4.S`,
   assembled from the checkout for Mach-O. `C += A*B`, `NN`, through a copy
-  of `blas3/level3.zig`'s loops with vortex's `P`, `Q`, `R`.
+  of `blas3/driver.zig`'s loops with vortex's `P`, `Q`, `R`.
 
 `vortexm4` has no level-1 or level-2 kernel of its own: `KERNEL.VORTEXM4`
 includes the same `KERNEL.NEOVERSEN1`, and the converted assembly is the
@@ -393,7 +393,7 @@ What could tilt the comparison:
   the asm column is armv8's generic arm64 `.S`, not vortex's upstream kernel,
   which is C with inline assembly or intrinsics and is not ported. A
   vortex-tuned asm could do better than the column shows.
-- **gemm driver and assembly:** rstd's `level3.gemm` is not public, so the
+- **gemm driver and assembly:** rstd's `driver.gemm` is not public, so the
   bench runs a copy of its loops; the rates are kernel plus copies through
   identical loops, not rstd's gemm entry. The upstream `.S` are assembled
   directly, not through `tools/blas_asm`, which converts no arm64 level-3

@@ -6,7 +6,6 @@
 //! them across context switches -- so the hwcap bit, not the CPU model, is
 //! the thing that decides.
 
-const std = @import("std");
 const coretypes = @import("../_coretypes.zig");
 const select = @import("../_select.zig");
 const sysinfo = @import("builtin");
@@ -85,6 +84,8 @@ pub fn detectNoted() Decision {
 pub fn detectMasked(mask: u64) CoreType {
     return decide(probeMasked(mask)).core;
 }
+
+const std = @import("std");
 
 test "the vector bits pick the core" {
     try std.testing.expectEqual(CoreType.zarch_generic, decide(.{}).core);

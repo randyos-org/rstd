@@ -28,14 +28,15 @@ pub fn ssyr2k_direct_alpha_betaLT(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f3
     blas.kernel(.ssyr2k_direct_alpha_betaLT)(N, K, alpha, A, strideA, B, strideB, beta, R, strideR);
 }
 
-const check = @import("../check.zig");
-const blas1check = @import("../../blas1/check.zig");
+const check = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
 
 fn cases(vt: *const Vtable) !void {
     try check.routineAll(vt, .syr2k);
     try check.routineAll(vt, .her2k);
 }
+
+const blas1check = @import("../../_test/blas1/check.zig");
 
 test "portable syr2k and her2k match the wide reference through the driver" {
     var vt: Vtable = .{};

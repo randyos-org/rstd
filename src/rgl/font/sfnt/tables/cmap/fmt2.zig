@@ -1,10 +1,7 @@
 const types = @import("../../stream_types.zig");
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
 const GlyphIndex = types.GlyphIndex;
-const setU16BE = bytes.setU16BE;
-const setI16BE = bytes.setI16BE;
 
 /// Schema for the format-2 header, used only to compute field offsets/sizes
 /// at comptime; never instantiated.
@@ -120,6 +117,10 @@ pub const Format2 = struct {
         return @fromBackingInt(@backingInt(raw) +% delta);
     }
 };
+
+const zigstd = @import("../../../../../zigstd.zig");
+const setU16BE = bytes.setU16BE;
+const setI16BE = bytes.setI16BE;
 
 test "Format2 StreamLayout/SubHeader match the stream layout (no padding)" {
     try zigstd.testExpectEqual(@as(usize, 518), @sizeOf(StreamLayout));

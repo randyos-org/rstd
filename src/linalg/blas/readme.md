@@ -57,7 +57,7 @@ small-matrix kernels, bfloat16 level 3 and threading come later.
   a transpose a routine does not take is an argument error (`InvalidTrans`:
   `herk`'s `t`, complex `syrk`'s `c`). No `gemv` forwarding for one-column
   problems.
-- **Drivers:** `blas3/level3.zig`. One set of `driver/level3/level3.c` loops
+- **Drivers:** `blas3/driver.zig`. One set of `driver/level3/level3.c` loops
   serves every product of two packed operands: `gemm`; `symm` and `hemm`,
   which pack the symmetric operand whole from its triangle (`symm_k.c`,
   `zhemm_k.c`); and the rank-k updates, which keep one triangle of `C`
@@ -88,7 +88,7 @@ small-matrix kernels, bfloat16 level 3 and threading come later.
   blocking before its kernels, and `portable.finish` restores the portable
   kernels' unrolls where those stayed, so the vtable's unrolls are always the
   installed kernels' own. `gemm/notes.md` has the measurements.
-- **Tests:** `blas3/check.zig` builds each routine's operators densely in
+- **Tests:** `_test/blas3/check.zig` builds each routine's operators densely in
   twice the precision and compares, within `2 (k + 2) eps` of the sum of
   magnitudes (`trsm`: its substitution, step by step), on a vtable whose
   blocking is shrunk so every block and panel edge comes at small sizes,
@@ -97,15 +97,15 @@ small-matrix kernels, bfloat16 level 3 and threading come later.
   and `Q` too). What a routine must not read holds NaN (the other triangle,
   a unit diagonal, a Hermitian diagonal's imaginary parts) and what it must
   not write a sentinel. The OpenBLAS `blat3` sweeps run through the
-  interface (`_test_openblas/blat3.zig`).
+  interface (`_test/from_openblas/blat3.zig`).
 
 ## Apple Accelerate
 
 On macOS the public routines will default to Accelerate for `s`, `d`, `c`
-and `z`. `accelerate.zig` has the binding; nothing calls it yet.
+and `z`. `apple_accel.zig` has the binding; nothing calls it yet.
 
 - **Binding:** `load()` opens the framework with `dlopen`
-  (`dll.openFramework`), never `-framework`, so cross-compiles need no SDK,
+  (`dll.openDarwinFramework`), never `-framework`, so cross-compiles need no SDK,
   and fills `Table(I)` with `dll.bind`. The declarations are ours, from
   Apple's documentation; no SDK file is copied. The handle stays open for
   the process.
@@ -113,7 +113,7 @@ and `z`. `accelerate.zig` has the binding; nothing calls it yet.
   64-bit integers (rstd's `isize`), which `load` takes; else the 32-bit
   `cblas_dgemm$NEWLAPACK`, then the classic `cblas_dgemm`. macOS 27 binds
   150 of the 154: there is no `cblas_i?amin`. `axpby` is `catlas_?axpby`.
-- **Threads:** threaded, Accelerate's `gemv` with `A` untransposed rounds
+- **Threads:** threaded, Accelerate's `gemv` with `A` un-transposed rounds
   differently from one thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and
   `gemm` gave the same bits at every thread count tried (macOS 27, M6). So
   `load` makes Accelerate single-threaded: `VECLIB_MAXIMUM_THREADS=1`, read
@@ -194,7 +194,7 @@ does not depend on the core (`threading.md`; `comparisons.md`, X1).
   buffer for a misaligned `y`. The lanes, so the bits, followed the address:
   the same data elsewhere in memory summed otherwise. Only on the cores
   that use them; the C kernels (`ddot.c` and the like) stay. The `@Vector`
-  kernels load unaligned and never peel. `blas1/edge.zig` and `blas2/gemv/`
+  kernels load unaligned and never peel. `_test/blas1/edge.zig` and `blas2/gemv/`
   check that every reduction gives the same bits with its operands shifted
   by any number of floats, on every core.
 
@@ -211,7 +211,7 @@ The `@Vector` kernels fill them where the vector unit is IEEE: x86_64, x86,
 arm64 (Apple's systems too), loongarch64 and POWER8 to 10. The portable ones
 stay on arm, whose NEON flushes `f32` denormals, on the AltiVec POWER cores,
 which flush too, and on MIPS and SPARC, which nothing measured.
-The converted kernels stay in the tree, unwired (`kernels/<arch>.zig`).
+The converted kernels stay in the tree, un-wired (`kernels/<arch>.zig`).
 
 ### `@Vector` kernels on arm64
 
@@ -266,10 +266,10 @@ its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
 is where the reference uses `long double` on x86: the x87 `f80` where
 `types.exprecision` is on, else `f64`. Wider than `f64`, the reductions and
 `gemv` do take the order of the x87 `q`/`x` kernels, so they give those
-kernels' bits (`blas1/x87.zig`, `blas2/gemv/x87.zig`). Tests compare against a
+kernels' bits (`blas1/dot/`, `asum/`, `nrm2/`, `blas2/gemv/x87.zig`). Tests compare against a
 wide-precision reference with tolerances; exact comparison is kept where a Zig
-kernel stands in for a converted kernel of the same core. `blas1/edge.zig`,
-`blas2/edge.zig` and `blas3/check.zig` put NaN, infinities, signed zeros,
+kernel stands in for a converted kernel of the same core. `_test/blas1/edge.zig`,
+`_test/blas2/edge.zig` and `_test/blas3/check.zig` put NaN, infinities, signed zeros,
 denormals and huge and tiny values through every core's kernels, with NaN
 wherever a routine must not read or write; where a core's upstream kernels
 do otherwise, `issues.md` says what they do, and the tests check that.
@@ -345,7 +345,7 @@ assembly files (still there on OpenBLAS master, v0.3.34-317). The generator
 fixes each one before converting it: `patches` in `tools/blas_asm/arch/`, an
 exact text edit that must match, with a comment saying what was wrong. The
 generated files carry the fixed code. No core takes the extremes' and
-`nrm2`'s kernels any more ("One contract on every core"), fixed or not.
+`nrm2`'s kernels anymore ("One contract on every core"), fixed or not.
 
 - `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte
   result first, shifting the arguments along; the kernel read that address
@@ -447,7 +447,7 @@ One more patch works around Zig, not OpenBLAS: `power/zdot.S` and
 `zdot_cell.S` return the complex result in f1/f2 as the ELFv2 ABI says, but
 Zig reads a two-float struct from r3/r4. The sources already copy it into
 r3/r4 for the Fortran interface; the patch turns that on. It can go once Zig
-follows the ABI. Likewise arm's `cdot_vfp.S` and `zdot_vfp.S` for the
+follows the ABI. Likewise, arm's `cdot_vfp.S` and `zdot_vfp.S` for the
 soft-float `sf` variant: they return through a pointer in r0, as AAPCS
 says, but Zig reads the struct from r0 to r3, so the patch drops the pointer
 and returns there.
@@ -621,7 +621,7 @@ a Debian netboot kernel with the hosted test executable as PID 1
 (`test/linux/init.zig`), for the tests that need an OS: auxiliary-vector
 detection, threads, files.
 
-Apple silicon runs on a real Mac: `zig build ssh-test-aarch64-macos`
+Apple Silicon runs on a real Mac: `zig build ssh-test-aarch64-macos`
 copies the tests to the SSH alias `-Dssh-mac` and runs them there
 (`build/sshtest.zig`); the Mac's address and login stay in the SSH config.
 On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
@@ -634,7 +634,7 @@ results are in `tools/blasbench/results-m6.md`.
 
 ## OpenBLAS's test suites
 
-`_test_openblas/` ports OpenBLAS's own tests to the Zig interfaces: the
+`_test/from_openblas/` ports OpenBLAS's own tests to the Zig interfaces: the
 reference BLAS programs `test/[sdcz]blat[123].f` with their `.dat` sweeps,
 the parts of their CBLAS versions (`ctest/`) that differ, and the unit tests
 (`utest/`, `utest/test_extensions/`), from v0.3.34-317. The `.dat` tables run
@@ -642,6 +642,6 @@ natively; the qemu rigs take the example table in each program's header
 (`N` up to 9). Every linked core the machine runs gets the suites again, on
 that small table. Bad arguments map onto the named errors, and what cannot
 be translated (bad letters, row-major CBLAS, forks) is listed in
-`_test_openblas/__root__.zig`. Tests of routines not ported yet (level 3
+`_test/from_openblas/__root__.zig`. Tests of routines not ported yet (level 3
 beyond real `gemm`, LAPACK, the matrix copies) skip until they are; the
 level-3 ones are written against the signatures they expect.

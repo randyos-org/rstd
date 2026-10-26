@@ -41,10 +41,8 @@ pub fn xqrot_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/rot.c` and `zrot.c`: the plane rotation `x := c*x + s*y`,
 /// `y := c*y - s*x`; an element is `w` floats, each rotated alike (`csrot`
@@ -95,6 +93,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `check.zero_strides` and both zero, which a kernel that loads a block
 /// before storing it gets wrong.

@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 // Item Variation Store: the shared variation-data format used by MVAR,
 // HVAR, VVAR, BASE, GDEF and COLR. Distinct from the Tuple Variation Store
@@ -233,6 +232,8 @@ pub const EntryFormat = packed struct(u8) {
         return self.map_entry_size_minus_one;
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "ItemVariationStore/VariationRegionList/ItemVariationData headers match the stream layout" {
     try zigstd.testExpectEqual(@as(usize, 8), @sizeOf(StoreHeader));

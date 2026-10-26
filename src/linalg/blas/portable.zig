@@ -10,6 +10,7 @@ const gemm_params = @import("blas3/gemm/params.zig");
 const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
+const bf16_kernel = @import("ext/bf16/kernel.zig");
 
 const XDouble = types.XDouble;
 
@@ -27,8 +28,8 @@ pub fn install(vt: *Vtable) void {
 /// kernels (`ext/bf16/kernel.zig`), and the gemm unrolls are those of the
 /// portable kernels wherever those stayed (`blas3/gemm/kernel.zig`).
 pub fn finish(vt: *Vtable) void {
-    @import("ext/bf16/kernel.zig").alias(vt);
-    @import("blas3/gemm/kernel.zig").settle(vt);
+    bf16_kernel.alias(vt);
+    blas3.gemm.kernel.settle(vt);
 }
 
 // ---- type dispatch ---------------------------------------------------------

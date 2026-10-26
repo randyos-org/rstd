@@ -5,24 +5,24 @@
 //! The kernels are `ext/bf16/kernel.zig`'s `Gemv`, the same on every core;
 //! this file holds the portable install and the tests. See the readme.
 
-const std = @import("std");
 const types = @import("../../types.zig");
-const Vtable = @import("../../Vtable.zig");
-const check = @import("../../blas1/check.zig");
-const fma = @import("../../fma.zig");
 const kernel = @import("../../ext/bf16/kernel.zig");
 
 const BlasLong = types.BlasLong;
 const HF16 = types.HF16;
-const BF16 = types.BF16;
-
-const families = kernel.families;
-const wide = kernel.wide;
-const narrow = kernel.narrow;
 
 pub const installGeneric = kernel.installGenericGemv;
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
+const check = @import("../../_test/blas1/check.zig");
+const fma = @import("../../fma.zig");
+const BF16 = types.BF16;
+const families = kernel.families;
+const wide = kernel.wide;
+const narrow = kernel.narrow;
 
 const sizes = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 }, .{ 3, 2 }, .{ 4, 4 }, .{ 7, 5 }, .{ 8, 8 }, .{ 9, 16 }, .{ 16, 9 }, .{ 17, 17 }, .{ 33, 4 }, .{ 4, 33 } };
 const strides = [_][2]usize{ .{ 1, 1 }, .{ 2, 3 }, .{ 3, 2 } };

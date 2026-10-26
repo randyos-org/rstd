@@ -4,14 +4,11 @@
 //! wider than `f64`. At `f80` they give the assembly's bits: the same blocks
 //! and accumulators, filled and folded in its order, with nothing fused.
 
-const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../../blas1/check.zig");
 const gemm_params = @import("../../blas3/gemm/params.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
@@ -138,6 +135,10 @@ pub fn installCore(vt: *Vtable, core: CoreType) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
 /// The same sums written out plainly: by element of `y`, then by block.
 const Plain = struct {

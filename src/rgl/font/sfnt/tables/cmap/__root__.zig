@@ -1,8 +1,6 @@
 const types = @import("../../stream_types.zig");
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
-const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const Offset32 = types.Offset32;
 const Format0 = @import("fmt0.zig").Format0;
@@ -213,6 +211,9 @@ pub const CmapTable = struct {
         return CmapSubtable.init(self.cmap_bytes[record.cmap_offset..], check);
     }
 };
+
+const zigstd = @import("../../../../../zigstd.zig");
+const Allocator = zigstd.Allocator;
 
 test "cmap StreamLayout/EncRecord match the OpenType stream layout (no padding)" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));

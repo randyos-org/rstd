@@ -1,9 +1,6 @@
 //! Continued-fraction rational approximation, ported from `matlab88.f90`'s
 //! `RAT`.
 
-const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
-
 pub const Fraction = struct { numerator: f64, denominator: f64 };
 
 /// RAT: approximate `x` as `a/b` using a continued fraction of at most
@@ -41,6 +38,8 @@ pub fn rat(x: f64, max_term: f64, d: []f64) Fraction {
     return .{ .numerator = t, .denominator = s };
 }
 
+const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 
 test "rat recovers a simple exact fraction" {
     var d: [10]f64 = @splat(0.0);

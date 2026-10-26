@@ -45,6 +45,7 @@ pub fn wpofa(self: CxMat) usize {
 }
 
 const std = @import("std");
+
 const zigstd = @import("../../zigstd.zig");
 
 test "wpofa factors a known real SPD matrix" {

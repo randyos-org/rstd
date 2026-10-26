@@ -167,7 +167,7 @@ as easily as `(scale, ssq)`.
 NaN is chosen only if it is first, and then is never replaced. The arm64 `@Vector` `firstMax`
 copies that rule. The `?amax` *value* routines follow the same scan, so a NaN after the first
 element is ignored. Several converted x86_64, POWER, loongarch64 and arm64 kernels are left as
-`nan_lanes` quirks (`blas1/edge.zig`), so the rule is not uniform across cores. Complex keys
+`nan_lanes` quirks (`_test/blas1/edge.zig`), so the rule is not uniform across cores. Complex keys
 `|re| + |im|` can overflow to Inf for finite elements; nothing handles that.
 
 **Reference 3.12.1 (released).** `idamax.f` replaced on `DABS(DX(I)).GT.DMAX`: rstd's rule.
@@ -277,7 +277,7 @@ reference-3.12 parity is wanted instead, keep it but document the `ger` patholog
 ## 6. NaN/Inf propagation for alpha = 0 and beta = 0; the `scal` flag
 
 **rstd.** `gemm`/`gemv`/level 3: `beta == 0` never reads `C`/`y`; `alpha == 0` (or `k == 0`)
-returns after scaling by `beta` without touching `A`/`B` (`wip/blas-docs:blas3/level3.zig:379-381`).
+returns after scaling by `beta` without touching `A`/`B` (`wip/blas-docs:blas3/driver.zig:379-381`).
 Public `scal` passes flag 1: a zero `alpha` turns NaN and Inf into NaN, finite into 0
 (`review:blas1/interface.zig`, `scal`); internal `beta` scaling passes flag 0 (store zeros).
 `axpy` returns for `alpha == 0`.
@@ -304,14 +304,14 @@ more faithful than BLIS on `scal`.
 
 ## 7. Level 3
 
-**rstd** (`wip/blas-docs`). `blas3/level3.zig` is `driver/level3/level3.c`: `R`-wide column blocks
+**rstd** (`wip/blas-docs`). `blas3/driver.zig` is `driver/level3/level3.c`: `R`-wide column blocks
 (BLIS `NC`), `Q`-deep slices (`KC`), `P`-tall row blocks (`MC`), packed `B` once per slice,
 packed `A` once per block, register tile (`MR x NR`) from `geometryFor` in
 `blas3/gemm/kernel.zig`. One driver serves `gemm`, `symm`/`hemm` (pack the symmetric operand
 densified), `syrk`/`herk`/`syr2k`/`her2k` (diagonal tiles through a scratch tile). `trsm`/`trmm`
 follow `trsm_L.c`, `trsm_R.c`, `trmm_L.c`, `trmm_R.c` with Zig ports of the generic
 `trsm_kernel_*.c` (gemm update, then `solve` per tile, pre-inverted diagonal). `beta` is a
-separate pass over `C` before the loops (`level3.zig:380`). Complex: native `@Vector` kernel, two
+separate pass over `C` before the loops (`driver.zig:380`). Complex: native `@Vector` kernel, two
 accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned threading:
 `level3_thread.c`'s shared packed `B` protocol on `Io.Group.concurrent` (`threading.md`).
 
@@ -479,7 +479,7 @@ time; check which branch `params_data.zig` captured.
 ## 10. Special values and denormals
 
 **rstd.** The library never changes MXCSR/FPCR; tests require that denormals do not flush
-(`blas1/edge.zig`; `check.Pattern.denormal` in level 3). Level-2 `trsv` divides by the diagonal for
+(`_test/blas1/edge.zig`; `check.Pattern.denormal` in level 3). Level-2 `trsv` divides by the diagonal for
 real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153-163`); level-3
 `trsm` packs the reciprocal of the diagonal (`blas3/trsm/kernel.zig:46-72`, OpenBLAS's
 `compinv` for complex).
@@ -511,7 +511,7 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    q8` and `vfma.f32 q8, q10, q9`. `vectorBits` in `blas3/gemm/kernel.zig` returns 128 for `f32`
    with NEON on arm, so `sgemm`/`cgemm` and every level-3 routine on ARMv7 flush denormal inputs and
    outputs, unlike the scalar VFP level-1/2 kernels. The level-3 `denormal` pattern should fail
-   there under the tolerance in `blas1/check.zig:317`; I did not run the arm rig, and whether QEMU
+   there under the tolerance in `_test/blas1/check.zig:317`; I did not run the arm rig, and whether QEMU
    applies FZ to AArch32 NEON is unverified. **Investigate**: run the level-3 denormal case on the
    `arm` rig and on hardware; if confirmed, either use scalar VFP for ARMv7 `f32` tiles (as
    OpenBLAS's ARMv7 `sgemm` VFP kernels do) or document flushing as an ARMv7 property.

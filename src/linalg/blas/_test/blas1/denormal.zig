@@ -4,11 +4,11 @@
 //! flush `f32` lanes (`util.vectorIeee`).
 
 const std = @import("std");
-const types = @import("../types.zig");
-const Vtable = @import("../Vtable.zig");
+const types = @import("../../types.zig");
+const Vtable = @import("../../Vtable.zig");
 const check = @import("check.zig");
-const extremum = @import("extremum.zig");
-const util = @import("../util.zig");
+const extremum = @import("../../blas1/extremum.zig");
+const util = @import("../../util.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
@@ -260,7 +260,7 @@ fn checkAll(vt: *const Vtable) !void {
 
 test "portable level-1 kernels: denormal results" {
     var vt: Vtable = .{};
-    @import("__root__.zig").installGeneric(&vt);
+    @import("../../blas1/__root__.zig").installGeneric(&vt);
     try checkAll(&vt);
 }
 

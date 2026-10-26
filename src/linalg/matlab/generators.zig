@@ -300,6 +300,7 @@ pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
 }
 
 const std = @import("std");
+
 const zigstd = @import("../../zigstd.zig");
 
 test "hilber matches the known inverse of the 3x3 Hilbert matrix" {

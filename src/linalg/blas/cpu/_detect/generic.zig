@@ -3,7 +3,6 @@
 //! The reference has the same notion: a `<ARCH>_GENERIC` kernel set built
 //! from portable C, used whenever nothing more specific applies.
 
-const std = @import("std");
 const coretypes = @import("../_coretypes.zig");
 const select = @import("../_select.zig");
 
@@ -34,6 +33,8 @@ pub fn detect() CoreType {
 pub fn detectNoted() Decision {
     return decide(probe());
 }
+
+const std = @import("std");
 
 test "generic detect is always available" {
     try std.testing.expectEqual(CoreType.generic, detect());

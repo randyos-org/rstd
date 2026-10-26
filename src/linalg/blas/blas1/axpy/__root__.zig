@@ -7,7 +7,6 @@ const std = @import("std");
 const zigstd = @import("../../../../zigstd.zig");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
-const cpu = @import("../../cpu/__root__.zig");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const rsimd = @import("../../../../simd/__root__.zig");
@@ -102,7 +101,7 @@ const isComplex = check.isComplex;
 
 // ---- tests: portable kernels vs. a scalar reference ------------------------
 
-const check = @import("../check.zig");
+const check = @import("../../_test/blas1/check.zig");
 const fill = check.fill;
 
 const FloatOf = check.FloatOf;
@@ -183,6 +182,8 @@ pub fn checkComplex(comptime F: type, comptime conj: bool, kern: ComplexKernel(F
         }
     }
 }
+
+const cpu = @import("../../cpu/__root__.zig");
 
 test "generic kernels match a scalar loop (all types, contiguous and strided)" {
     try checkReal(f32, saxpy_generic);

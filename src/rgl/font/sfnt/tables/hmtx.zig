@@ -1,8 +1,6 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
-const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 
 // Horizontal metrics. Not self-describing: its record counts come from
@@ -62,6 +60,9 @@ pub const HmtxTable = struct {
         };
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
+const Allocator = zigstd.Allocator;
 
 test "HMetrics matches the stream layout (4 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(HmtxTable.HMetrics));

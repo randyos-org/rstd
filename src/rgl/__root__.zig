@@ -1,5 +1,3 @@
-const zigstd = @import("../zigstd.zig");
-
 pub const Image = @import("Image.zig");
 pub const Surface = @import("Surface.zig");
 pub const codecs = @import("codecs/__root__.zig");
@@ -12,6 +10,8 @@ pub const renderdoc = @import("renderdoc.zig");
 pub const font = @import("font/__root__.zig");
 pub const sw = @import("sw/__root__.zig");
 pub const vulkan = @import("vulkan/__root__.zig");
+
+const zigstd = @import("../zigstd.zig");
 
 test {
     // shaders excluded: its @embedFiles only resolve when build.zig

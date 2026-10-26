@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 const ivs = @import("ivs.zig");
 
 /// Schema for the HVAR header, used only to compute field offsets/sizes at
@@ -69,6 +68,8 @@ pub const HvarTable = struct {
         return .{ .table_data = self.table_data[off..] };
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "HVAR StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

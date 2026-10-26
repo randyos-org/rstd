@@ -290,28 +290,28 @@ pub const Blas = union(enum) {
     lp64: dll.Bound(Table(c_int)),
 };
 
-pub const Accelerate = struct {
+pub const AppleAccelerate = struct {
     blas: Blas,
     threads: ThreadApi,
 
     pub const ThreadError = error{ Unsupported, Rejected };
 
     /// The calling thread's model; null before macOS 15.
-    pub fn threading(self: *const Accelerate) ?Threading {
+    pub fn threading(self: *const AppleAccelerate) ?Threading {
         const get = self.threads.BLASGetThreading orelse return null;
         return get();
     }
 
     /// Sets the calling thread's model (`BLASSetThreading`); other threads,
     /// and threads started later, keep the default (multi-threaded).
-    pub fn setThreading(self: *const Accelerate, model: Threading) ThreadError!void {
+    pub fn setThreading(self: *const AppleAccelerate, model: Threading) ThreadError!void {
         const set = self.threads.BLASSetThreading orelse return error.Unsupported;
         if (set(model) != 0) return error.Rejected;
     }
 
     /// Makes the calling thread's calls single-threaded where macOS can
     /// (15+); a no-op before that, where only `VECLIB_MAXIMUM_THREADS` does.
-    pub fn singleThreadHere(self: *const Accelerate) void {
+    pub fn singleThreadHere(self: *const AppleAccelerate) void {
         self.setThreading(.single_threaded) catch {};
     }
 };
@@ -326,16 +326,16 @@ pub const Options = struct {
 
 /// Opens Accelerate and binds its CBLAS; null off macOS or without it. The
 /// framework handle is kept open for the process: the table points into it.
-pub fn load(options: Options) ?Accelerate {
+pub fn load(options: Options) ?AppleAccelerate {
     if (comptime !available) return null;
-    var lib = dll.openFramework("Accelerate") catch return null;
+    var lib = dll.openDarwinFramework("Accelerate") catch return null;
     const ilp = dll.bind(Table(i64), &lib, ilp64Names);
     const blas: Blas = if (ilp.count() > 0) .{ .ilp64 = ilp } else blk: {
         const lp = dll.bind(Table(c_int), &lib, lp64Names);
         if (lp.count() == 0) return null;
         break :blk .{ .lp64 = lp };
     };
-    const acc: Accelerate = .{ .blas = blas, .threads = dll.bind(ThreadApi, &lib, dll.exactName).fns };
+    const acc: AppleAccelerate = .{ .blas = blas, .threads = dll.bind(ThreadApi, &lib, dll.exactName).fns };
     if (options.single_threaded) {
         setMaxThreadsEnv(1) catch {};
         acc.singleThreadHere();
@@ -389,7 +389,7 @@ test "the 32-bit table binds the new names first, and agrees with ILP64" {
     if (comptime !available) return error.SkipZigTest;
     const acc = load(.{}) orelse return error.SkipZigTest;
     if (acc.blas != .ilp64) return error.SkipZigTest;
-    var lib = try dll.openFramework("Accelerate");
+    var lib = try dll.openDarwinFramework("Accelerate");
     const lp = dll.bind(Table(c_int), &lib, lp64Names);
     try zigstd.testExpectEqualStrings("cblas_ddot$NEWLAPACK", lp.name(lp64Names, .cblas_ddot).?);
     var x: [100]f64 = undefined;
@@ -503,7 +503,7 @@ fn digest(comptime I: type, t: *const Table(I), d: *const ReproData) Digest {
     return out;
 }
 
-fn digestOnThread(comptime I: type, acc: *const Accelerate, t: *const Table(I), d: *const ReproData, out: *Digest) void {
+fn digestOnThread(comptime I: type, acc: *const AppleAccelerate, t: *const Table(I), d: *const ReproData, out: *Digest) void {
     acc.singleThreadHere();
     out.* = digest(I, t, d);
 }

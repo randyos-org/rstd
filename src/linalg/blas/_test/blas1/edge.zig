@@ -21,10 +21,11 @@
 //! they are not used (`vector.routed`, `issues.md`).
 
 const std = @import("std");
-const types = @import("../types.zig");
-const Vtable = @import("../Vtable.zig");
+const types = @import("../../types.zig");
+const Vtable = @import("../../Vtable.zig");
 const check = @import("check.zig");
-const extremum = @import("extremum.zig");
+const extremum = @import("../../blas1/extremum.zig");
+const blas1 = @import("../../blas1/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
@@ -452,7 +453,7 @@ fn checkAll(vt: *const Vtable) !void {
 
 test "portable level-1 kernels: special values, poisoned gaps, and negative and large strides" {
     var vt: Vtable = .{};
-    @import("__root__.zig").installGeneric(&vt);
+    @import("../../blas1/__root__.zig").installGeneric(&vt);
     try checkAll(&vt);
     failed = null;
     if (XDouble != f64) {
@@ -516,7 +517,7 @@ fn checkShifted(vt: *const Vtable) !void {
 
 test "portable level-1 reductions: the same bits whatever the address" {
     var vt: Vtable = .{};
-    @import("__root__.zig").installGeneric(&vt);
+    @import("../../blas1/__root__.zig").installGeneric(&vt);
     try checkShifted(&vt);
 }
 
@@ -547,7 +548,7 @@ const Specials = struct { nan: ?usize = null, nan2: ?usize = null, inf: ?usize =
 /// one, and values within their accuracy class.
 fn contract(vt: *const Vtable) !void {
     var ref: Vtable = .{};
-    @import("__root__.zig").installGeneric(&ref);
+    blas1.installGeneric(&ref);
     failed = null;
     inline for (vtable_types) |p| note(contractOf(p[0], p[1], vt, &ref));
     if (failed) |e| return e;

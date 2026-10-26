@@ -14,7 +14,7 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const iface = @import("../blas3/interface.zig");
+const iface = @import("../../blas3/interface.zig");
 const guard = @import("../blas2/guard.zig");
 
 const Float = ob.Float;

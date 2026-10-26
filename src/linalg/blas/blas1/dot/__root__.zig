@@ -7,10 +7,6 @@
 //! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
 
 const blas = @import("../../__root__.zig");
-const sysinfo = @import("builtin");
-const zigstd = @import("../../../../zigstd.zig");
-const kernel = @import("kernel.zig");
-const uk = @import("../uk_block.zig");
 const types = @import("../../types.zig");
 
 const BlasLong = types.BlasLong;
@@ -63,18 +59,16 @@ pub fn xdotc_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
-const x87 = @import("../x87.zig");
 
 /// `x . y` after `kernel/arm/dot.c`, summed sequentially in `Acc` (`f64` for
 /// `sdot` too, so it is at least as accurate as the reference's `float` or
 /// `double` products) and returned as `R` (`dsdot` returns the `f64` sum).
 /// Not bit-identical to `generic/dot.c`'s unrolled sums; see the readme.
-/// Wider than `f64`, it is x86_64 `dot.S`'s x87 sum instead (`x87.zig`).
+/// Wider than `f64`, it is x86_64 `dot.S`'s x87 sum instead (`extendedDot`).
 fn Dot(comptime F: type, comptime Acc: type, comptime R: type) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
-            if (comptime types.isExtended(F)) return x87.dot(F, n, x, inc_x, y, inc_y);
+            if (comptime types.isExtended(F)) return extendedDot(F, n, x, inc_x, y, inc_y);
             var sum: Acc = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) sum += @as(Acc, util.at(F, x, i * inc_x).*) * @as(Acc, util.at(F, y, i * inc_y).*);
@@ -91,7 +85,7 @@ fn Zdot(comptime F: type, comptime conj: bool) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) callconv(types.kernelCc(F)) R {
             if (comptime types.isExtended(F)) {
-                const z = x87.zdot(F, conj, n, x, inc_x, y, inc_y);
+                const z = extendedZdot(F, conj, n, x, inc_x, y, inc_y);
                 return .{ .re = z[0], .im = z[1] };
             }
             var re: A = 0;
@@ -113,6 +107,40 @@ fn Zdot(comptime F: type, comptime conj: bool) type {
             return .{ .re = @floatCast(re), .im = @floatCast(im) };
         }
     };
+}
+
+/// x86_64 `dot.S`'s x87 sum, which every float wider than `f64` takes: four
+/// accumulators by `i % 4`, the tail into the first, folded
+/// `(a3 + a1) + (a2 + a0)`, nothing fused. At `f80` it gives the assembly's
+/// bits; `kernel/x86/`'s is in the same order.
+fn extendedDot(comptime F: type, n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) F {
+    var a: [4]F = @splat(0);
+    var i: BlasLong = 0;
+    const n4 = n & -4;
+    while (i < n4) : (i += 4) {
+        inline for (0..4) |c| a[c] += util.at(F, x, (i + c) * inc_x).* * util.at(F, y, (i + c) * inc_y).*;
+    }
+    while (i < n) : (i += 1) a[0] += util.at(F, x, i * inc_x).* * util.at(F, y, i * inc_y).*;
+    return (a[3] + a[1]) + (a[2] + a[0]);
+}
+
+/// `zdot.S`'s x87 sum: each of an element's four products in its own
+/// accumulator, combined at the end; `conj` conjugates `x`. Real and
+/// imaginary parts.
+fn extendedZdot(comptime F: type, comptime conj: bool, n: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong) [2]F {
+    var a: [4]F = @splat(0);
+    var i: BlasLong = 0;
+    while (i < n) : (i += 1) {
+        const xr = util.at(F, x, i * inc_x * 2).*;
+        const xi = util.at(F, x, i * inc_x * 2 + 1).*;
+        const yr = util.at(F, y, i * inc_y * 2).*;
+        const yi = util.at(F, y, i * inc_y * 2 + 1).*;
+        a[0] += xr * yr;
+        a[1] += xr * yi;
+        a[2] += xi * yr;
+        a[3] += xi * yi;
+    }
+    return if (conj) .{ a[0] + a[3], a[1] - a[2] } else .{ a[0] - a[3], a[1] + a[2] };
 }
 
 pub const sdot_generic = &Dot(f32, f64, f32).k;
@@ -154,6 +182,12 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const sysinfo = @import("builtin");
+const zigstd = @import("../../../../zigstd.zig");
+const kernel = @import("kernel.zig");
+const uk = @import("../uk_block.zig");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type, `conj`
 /// conjugates `x` (`dotc`). `narrow` allows a `dsdot` the error of summing
@@ -347,4 +381,70 @@ test "x86_64's vector blocks sum in the reference's order, bit for bit" {
             }
         };
     }
+}
+
+/// The extended sums written out plainly: accumulator by position, then folded.
+const PlainExtended = struct {
+    fn dot(comptime F: type, n: usize, x: []const F, ix: usize, y: []const F, iy: usize) F {
+        var a: [4]F = @splat(0);
+        for (0..n) |i| a[if (i < n / 4 * 4) i % 4 else 0] += x[i * ix] * y[i * iy];
+        return (a[3] + a[1]) + (a[2] + a[0]);
+    }
+
+    fn zdot(comptime F: type, conj: bool, n: usize, x: []const F, ix: usize, y: []const F, iy: usize) [2]F {
+        var a: [4]F = @splat(0);
+        for (0..n) |i| for (0..2) |p| for (0..2) |q| {
+            a[2 * p + q] += x[2 * i * ix + p] * y[2 * i * iy + q];
+        };
+        return if (conj) .{ a[0] + a[3], a[1] - a[2] } else .{ a[0] - a[3], a[1] + a[2] };
+    }
+};
+
+test "the extended dot sums fold in dot.S's and zdot.S's order, bit for bit" {
+    inline for (.{ f80, f128 }) |F| {
+        var x: [check.capacity * 2]F = undefined;
+        var y: [check.capacity * 2]F = undefined;
+        for (check.sizes) |n| for ([_]usize{ 1, 3 }) |inc| {
+            check.fill(F, &x, n + 11);
+            check.fill(F, &y, n + 12);
+            const len: BlasLong = @intCast(n);
+            const li: BlasLong = @intCast(inc);
+            try check.expectBits(F, PlainExtended.dot(F, n, &x, inc, &y, 1), extendedDot(F, len, &x, li, &y, 1), "dot", n, inc);
+            inline for (.{ false, true }) |conj| {
+                const want = PlainExtended.zdot(F, conj, n, &x, inc, &y, 2);
+                const got = extendedZdot(F, conj, len, &x, li, &y, 2);
+                try check.expectBits(F, want[0], got[0], "zdot re", n, inc);
+                try check.expectBits(F, want[1], got[1], "zdot im", n, inc);
+            }
+        };
+    }
+}
+
+test "the extended dot at f80 carries the full significand" {
+    // 1 + 2^-63 squared is 1 + 2^-62 in f80 and 1 in f64
+    var x = [_]f80{ 1 + std.math.ldexp(@as(f80, 1), -63), 0, 0, 0, 0 };
+    try zigstd.testExpectEqual(1 + std.math.ldexp(@as(f80, 1), -62), extendedDot(f80, 5, &x, 1, &x, 1));
+}
+
+test "the extended dot sums give the values traced by hand from dot.S and zdot.S" {
+    // 2^64 + 1 rounds to 2^64 in f80, so each value below depends on which
+    // accumulator a term lands in and on the fold order. Traced once from
+    // kernel/x86_64/: dot `faddp %st, %st(k)` per i % 4, tail into st(0),
+    // folded (a3 + a1) + (a2 + a0); zdot a0..a3 = xr*yr, xr*yi, xi*yr, xi*yi,
+    // re = a0 - a3 (`fsubp` is fsubr in AT&T), im = a1 + a2, conj a0 + a3 and
+    // a1 - a2.
+    const F = f80;
+    const t = std.math.ldexp(@as(F, 1), 64);
+    var ones: [8]F = @splat(1);
+    // dot: a0 = 1 + 1 + 1 (tail), a1 = t, a2 = 1, a3 = -t: (0) + (1 + 3)
+    var dx = [_]F{ 1, t, 1, -t, 1, 1 };
+    try zigstd.testExpectEqual(@as(F, 4), extendedDot(F, 6, &dx, 1, &ones, 1));
+    // zdot of (t, t), (1, -1) with (1, 1), (1, 1): a0 = t, a1 = t, a2 = t - 1, a3 = t - 1
+    var zx = [_]F{ t, t, 1, -1 };
+    const u = extendedZdot(F, false, 2, &zx, 1, &ones, 1);
+    try zigstd.testExpectEqual(@as(F, 1), u[0]);
+    try zigstd.testExpectEqual(2 * t, u[1]); // 2t - 1 rounds to even
+    const c = extendedZdot(F, true, 2, &zx, 1, &ones, 1);
+    try zigstd.testExpectEqual(2 * t, c[0]);
+    try zigstd.testExpectEqual(@as(F, 1), c[1]);
 }

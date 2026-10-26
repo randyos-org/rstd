@@ -71,8 +71,6 @@ pub fn xgerd_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alp
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../../blas1/check.zig");
-const guard = @import("../guard.zig");
 const portable = @import("../../portable.zig");
 
 /// `kernel/generic/ger.c` and `zger.c`: the rank-1 update `A += alpha*x*y^T`,
@@ -150,6 +148,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const check = @import("../../_test/blas1/check.zig");
+const guard = @import("../../_test/blas2/guard.zig");
 
 const C = std.math.Complex;
 /// Shapes across the kernels' blocks, then bigger ones (static storage:

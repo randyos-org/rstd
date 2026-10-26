@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const zigstd = @import("../../zigstd.zig");
+const portable = @import("portable.zig");
 
 pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
@@ -28,7 +28,7 @@ var _vtable: Vtable = generic_vtable;
 const generic_vtable: Vtable = blk: {
     @setEvalBranchQuota(100_000);
     var vt: Vtable = .{};
-    @import("portable.zig").install(&vt);
+    portable.install(&vt);
     break :blk vt;
 };
 
@@ -193,6 +193,8 @@ pub fn testRestore(saved: TestSaved) void {
     if (!saved.ready) phase.store(.uninit, .release);
 }
 
+const zigstd = @import("../../zigstd.zig");
+
 // lives here, not in `Vtable.zig`, so that file stays import-free for the
 // per-core kernel objects, which use its type (see `kernels/__root__.zig`)
 test "VTable default-initializes with every kernel pointer null" {
@@ -300,7 +302,6 @@ const qx_slots = blk: {
 test "no core puts a kernel of its own in a q or x slot" {
     @setEvalBranchQuota(100_000);
     const registry = @import("asm_registry.zig");
-    const portable = @import("portable.zig");
     var base: Vtable = .{};
     portable.install(&base);
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
@@ -317,9 +318,8 @@ fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {
 }
 
 test {
-    _ = @import("_test_types.zig");
     _ = @import("abi.zig");
-    _ = @import("accelerate.zig");
-    _ = @import("_test_openblas/__root__.zig");
+    _ = @import("apple_accel.zig");
+    _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());
 }

@@ -18,7 +18,6 @@
 //! did not guarantee portably) runs without tripping Zig's overflow checks.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 
 /// URAND's generator state (the original's `IY` parameter).
 pub const Urand = struct {
@@ -89,6 +88,7 @@ pub const Urand = struct {
     }
 };
 
+const zigstd = @import("../../zigstd.zig");
 
 test "Urand produces a deterministic, repeatable, bounded sequence" {
     var a = Urand.init(12345);

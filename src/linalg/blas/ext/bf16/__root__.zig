@@ -32,9 +32,7 @@ pub fn dbf16tod_k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]f64, inc_o
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const kernel = @import("kernel.zig");
-const Vtable = @import("../../Vtable.zig");
 
 pub const toBf16 = kernel.toBf16;
 pub const fromBf16 = kernel.fromBf16;
@@ -58,6 +56,9 @@ pub fn scalarToF32(v: BF16) f32 {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
 
 fn bitsOf(v: f32) u32 {
     return @bitCast(v);
@@ -116,7 +117,7 @@ test "portable conversions round-trip through strides" {
     for (0..32) |i| try std.testing.expectEqual(@as(f64, fromBf16(toBf16(f[2 * i]))), back_d[2 * i]);
 }
 
-const check = @import("../../blas1/check.zig");
+const check = @import("../../_test/blas1/check.zig");
 
 /// Every bfloat16 and half-precision slot a reachable interface calls.
 const slots = blk: {

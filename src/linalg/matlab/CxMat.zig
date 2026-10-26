@@ -17,7 +17,6 @@
 //! thin wrapper that unpacks the same fields kernels already took as loose
 //! arguments.
 
-const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const Cx = blas1.Cx;
@@ -285,6 +284,8 @@ pub fn chol(self: Self) usize {
     }
     return 0;
 }
+
+const std = @import("std");
 
 test "ctranspose conjugates and transposes a non-square matrix" {
     // A = [[1+i, 2, 3-i]] (1x3) -> A' (3x1) = [[1-i],[2],[3+i]].

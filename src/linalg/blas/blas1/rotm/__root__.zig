@@ -35,7 +35,6 @@ pub fn qrotm_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// The matrix `param` names: `param[0]` is the flag, -2 the identity, -1 the
 /// full `[h11 h12; h21 h22]` (`param[1..5]` = h11, h21, h12, h22), 0
@@ -94,6 +93,8 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop, for every flag.
 fn checkRotm(comptime F: type, kern: anytype) !void {

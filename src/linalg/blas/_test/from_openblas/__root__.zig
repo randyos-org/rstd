@@ -24,8 +24,10 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const types = @import("../types.zig");
+const types = @import("../../types.zig");
 const check = @import("../blas1/check.zig");
+const blas = @import("../../__root__.zig");
+const Vtable = @import("../../Vtable.zig");
 
 pub const Float = types.Float;
 pub const isComplex = types.isComplex;
@@ -149,20 +151,59 @@ const blat3 = @import("blat3.zig");
 const utest = @import("utest.zig");
 const utest_ext = @import("utest_ext.zig");
 
-/// The suites on `vt`'s kernels, the sweeps on the rigs' table.
-fn onCore(vt: *const @import("../Vtable.zig")) anyerror!void {
-    const blas = @import("../__root__.zig");
-    const saved = blas.testUse(vt);
-    defer blas.testRestore(saved);
+/// `suite` on `vt`'s kernels, the sweeps on the rigs' table. The suites go
+/// in pieces, so each test fits a rig image (`build/qemutest.zig`'s
+/// `sparc64-debug`).
+fn OnCore(comptime suite: fn () anyerror!void) fn (*const Vtable) anyerror!void {
+    return struct {
+        fn run(vt: *const Vtable) anyerror!void {
+            const saved = blas.testUse(vt);
+            defer blas.testRestore(saved);
+            try suite();
+        }
+    }.run;
+}
+
+fn level1() anyerror!void {
     try blat1.all();
     try utest.all();
     try utest_ext.all();
-    try blat2.all(&blat2.rig_n);
+}
+
+fn Level2(comptime T: type) type {
+    return struct {
+        fn run() anyerror!void {
+            try blat2.allOf(T, &blat2.rig_n);
+        }
+    };
+}
+
+fn level3() anyerror!void {
     try blat3.all(&blat2.rig_n);
 }
 
-test "the suites on every linked core this machine runs" {
-    try check.eachCore(onCore);
+test "the level-1 suites on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1));
+}
+
+test "the level-2 suite at f32 on every linked core this machine runs" {
+    try check.eachCore(OnCore(Level2(f32).run));
+}
+
+test "the level-2 suite at f64 on every linked core this machine runs" {
+    try check.eachCore(OnCore(Level2(f64).run));
+}
+
+test "the level-2 suite at complex f32 on every linked core this machine runs" {
+    try check.eachCore(OnCore(Level2(std.math.Complex(f32)).run));
+}
+
+test "the level-2 suite at complex f64 on every linked core this machine runs" {
+    try check.eachCore(OnCore(Level2(std.math.Complex(f64)).run));
+}
+
+test "the level-3 suite on every linked core this machine runs" {
+    try check.eachCore(OnCore(level3));
 }
 
 test {

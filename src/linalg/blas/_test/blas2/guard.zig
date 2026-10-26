@@ -5,9 +5,9 @@
 //! kernels call through.
 
 const std = @import("std");
-const blas = @import("../__root__.zig");
-const Vtable = @import("../Vtable.zig");
-const portable = @import("../portable.zig");
+const blas = @import("../../__root__.zig");
+const Vtable = @import("../../Vtable.zig");
+const portable = @import("../../portable.zig");
 const check = @import("../blas1/check.zig");
 
 const page = 4096;

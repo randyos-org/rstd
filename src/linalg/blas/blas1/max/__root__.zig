@@ -34,7 +34,6 @@ pub fn qmax_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
 const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const extremum = @import("../extremum.zig");
-const check = @import("../check.zig");
 
 const find: extremum.Find = .{ .abs = false, .max = true };
 
@@ -50,6 +49,8 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const check = @import("../../_test/blas1/check.zig");
 
 fn checkAll(vt: *const Vtable) !void {
     try check.checkExtreme(f32, find, "smax", vt.smax_k.?);

@@ -46,8 +46,6 @@ pub fn xscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: XDouble, d
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// `kernel/arm/scal.c` and `zscal.c`: `x := alpha*x`. `flag` is the last
 /// argument (`dummy2`): with 0, a zero alpha zeroes `x`; with 1, which the
@@ -111,6 +109,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const check = @import("../../_test/blas1/check.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
 /// `kern` against a plain loop, as the interface calls it (flag 1), for a
 /// general and a zero alpha; `T` is the element type, real or complex.

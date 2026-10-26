@@ -21,17 +21,14 @@
 //! of up to `stack_bytes` are copied on the stack.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const Vtable = @import("../Vtable.zig");
-const check = @import("../blas1/check.zig");
 const interface = @import("interface.zig");
 const portable = @import("../portable.zig");
 
 const BlasLong = types.BlasLong;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 pub const Error = interface.Error;
 
@@ -237,7 +234,7 @@ fn Scratch(comptime T: type) type {
                 break :blk self.heap.?;
             };
             // poisoned in tests, as `interface.zig`'s scratch is
-            if (@import("builtin").is_test) @memset(std.mem.sliceAsBytes(buf), 0xff);
+            if (sysinfo.is_test) @memset(std.mem.sliceAsBytes(buf), 0xff);
             copyK(T, n, v, inc, buf.ptr, 1);
             return buf.ptr;
         }
@@ -607,6 +604,11 @@ pub fn her2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, 
 }
 
 // ---- tests -------------------------------------------------------------------
+
+const Vtable = @import("../Vtable.zig");
+const check = @import("../_test/blas1/check.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
 
 const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 const talloc = std.testing.allocator;

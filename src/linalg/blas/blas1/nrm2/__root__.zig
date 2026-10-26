@@ -40,23 +40,20 @@ pub fn xnrm2_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
-const x87 = @import("../x87.zig");
 
 /// The Euclidean norm of `n` elements of `w` floats. Up to 32 bits, the
 /// plain sum of squares in `f64`, where every square is exact and none
 /// overflows or underflows; at 64 bits, Blue's algorithm (`util.blue`). Wider,
-/// x86_64 `nrm2.S`'s and `znrm2.S`'s plain sum of squares (`x87.zig`),
+/// x86_64 `nrm2.S`'s and `znrm2.S`'s plain sum of squares (`util.extendedSum`),
 /// unscaled: it overflows where they do. Only a zero stride is refused: a
 /// negative one walks backwards.
 fn Nrm2(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x == 0) return 0;
-            if (comptime types.isExtended(F)) return @sqrt(x87.sum(F, w, .square, n, x, inc_x));
+            if (comptime types.isExtended(F)) return @sqrt(util.extendedSum(F, w, .square, n, x, inc_x));
             if (w == 1 and n == 1) return @abs(x[0]);
             if (comptime @bitSizeOf(F) > 32) return util.blue(F, w, n, x, inc_x);
             var s: f64 = 0;
@@ -100,6 +97,10 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const zigstd = @import("../../../../zigstd.zig");
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type. A negative
 /// stride starts from the last element, as the interface passes it.
@@ -245,4 +246,37 @@ test "nrm2 past 64 bits is the plain sum of squares, overflow included; at 64 bi
             try std.testing.expectApproxEqRel(big * @sqrt(@as(F, 2)), got, 1e-6);
         }
     }
+}
+
+test "the extended nrm2 sums fold in nrm2.S's and znrm2.S's order, bit for bit" {
+    inline for (.{ f80, f128 }) |F| {
+        var x: [check.capacity * 2]F = undefined;
+        for (check.sizes) |n| for ([_]usize{ 1, 3 }) |inc| {
+            check.fill(F, &x, n + 11);
+            const len: BlasLong = @intCast(n);
+            const li: BlasLong = @intCast(inc);
+            inline for (.{ 1, 2 }) |w| {
+                try check.expectBits(F, check.plainExtendedSum(F, w, .square, n, &x, inc), util.extendedSum(F, w, .square, len, &x, li), "nrm2", n, inc);
+            }
+        };
+    }
+}
+
+test "the extended sum of squares at f80 carries the full significand" {
+    // 1 + 2^-63 squared is 1 + 2^-62 in f80 and 1 in f64
+    var x = [_]f80{ 1 + std.math.ldexp(@as(f80, 1), -63), 0, 0, 0, 0 };
+    try zigstd.testExpectEqual(1 + std.math.ldexp(@as(f80, 1), -62), util.extendedSum(f80, 1, .square, 5, &x, 1));
+}
+
+test "the extended nrm2 sums give the values traced by hand from nrm2.S and znrm2.S" {
+    // as asum's (`asum/`), with squares: 2^32 squared is 2^64, and 2^64 + 1
+    // rounds to 2^64 in f80
+    const F = f80;
+    const t = std.math.ldexp(@as(F, 1), 64);
+    const h = std.math.ldexp(@as(F, 1), 32);
+    var nx = [_]F{ 1, 1, h, 0, 0, 0, 0, 0, 1 };
+    try zigstd.testExpectEqual(t, util.extendedSum(F, 1, .square, 8, &nx, 1));
+    try zigstd.testExpectEqual(t + 4, util.extendedSum(F, 1, .square, 9, &nx, 1));
+    var znx = [_]F{ 1, 1, h, 0, 0, 0, 0, 0, 0, 1 };
+    try zigstd.testExpectEqual(t + 2, util.extendedSum(F, 2, .square, 5, &znx, 1));
 }

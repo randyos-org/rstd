@@ -2,7 +2,6 @@ const std = @import("std");
 
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 const ivs = @import("ivs.zig");
 
 /// Schema for the MVAR header, used only to compute field offsets/sizes at
@@ -93,6 +92,8 @@ pub const MvarTable = struct {
         return null;
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "MVAR StreamLayout/ValueRecord match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 12), @sizeOf(StreamLayout));

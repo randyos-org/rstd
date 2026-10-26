@@ -3,7 +3,6 @@
 //! shared matrix/vector conventions this port uses.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
@@ -459,6 +458,7 @@ pub fn wsvdc(
     return info;
 }
 
+const zigstd = @import("../../zigstd.zig");
 
 test "wsvdc reconstructs a known real 2x2 matrix via U*S*ctrans(V)" {
     // X = [[1,1],[0,1]] (the classic shear matrix; singular values

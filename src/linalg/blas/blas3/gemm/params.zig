@@ -439,14 +439,69 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
     }
 }
 
-test "every core of every family resolves to sane parameters" {
+/// Every core of `family` resolves to sane parameters; one test per family,
+/// so each fits a rig image (`build/qemutest.zig`'s `sparc64-debug`).
+fn checkFamily(comptime family: Family) !void {
     @setEvalBranchQuota(2_000_000);
-    inline for (@typeInfo(Family).@"enum".field_names) |fname| {
-        const family = @field(Family, fname);
-        inline for (@typeInfo(CoreOf(family)).@"enum".field_names) |cname| {
-            try checkCore(family, @field(CoreOf(family), cname));
-        }
+    inline for (@typeInfo(CoreOf(family)).@"enum".field_names) |cname| {
+        try checkCore(family, @field(CoreOf(family), cname));
     }
+}
+
+test "every core of the x86_64 family resolves to sane parameters" {
+    try checkFamily(.x86_64);
+}
+
+test "every core of the x86 family resolves to sane parameters" {
+    try checkFamily(.x86);
+}
+
+test "every core of the arm64 family resolves to sane parameters" {
+    try checkFamily(.arm64);
+}
+
+test "every core of the arm family resolves to sane parameters" {
+    try checkFamily(.arm);
+}
+
+test "every core of the power64 family resolves to sane parameters" {
+    try checkFamily(.power64);
+}
+
+test "every core of the power32 family resolves to sane parameters" {
+    try checkFamily(.power32);
+}
+
+test "every core of the riscv64 family resolves to sane parameters" {
+    try checkFamily(.riscv64);
+}
+
+test "every core of the s390x family resolves to sane parameters" {
+    try checkFamily(.s390x);
+}
+
+test "every core of the mips64 family resolves to sane parameters" {
+    try checkFamily(.mips64);
+}
+
+test "every core of the mips32 family resolves to sane parameters" {
+    try checkFamily(.mips32);
+}
+
+test "every core of the loongarch64 family resolves to sane parameters" {
+    try checkFamily(.loongarch64);
+}
+
+test "every core of the sparc family resolves to sane parameters" {
+    try checkFamily(.sparc);
+}
+
+test "every core of the wasm family resolves to sane parameters" {
+    try checkFamily(.wasm);
+}
+
+test "every core of the generic family resolves to sane parameters" {
+    try checkFamily(.generic);
 }
 
 test "generic follows the GENERIC rule for a 512 KB L2" {

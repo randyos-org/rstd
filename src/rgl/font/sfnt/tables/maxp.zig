@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 const HeaderLayout = extern struct {
     version: types.Version16Dot16 align(2),
@@ -105,6 +104,8 @@ pub const MaxpTable = struct {
         return bytes.getU16BE(self.table_data[ttf_start + @offsetOf(TtfLayout, "max_component_depth") ..]);
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "maxp layouts match the OpenType stream layout (32 bytes total, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 6), @sizeOf(HeaderLayout));

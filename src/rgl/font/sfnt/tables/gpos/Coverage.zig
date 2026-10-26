@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 const types = @import("../../stream_types.zig");
 
 const GlyphIndex = types.GlyphIndex;
@@ -45,6 +44,8 @@ pub fn getRangeRecord(self: Coverage, index: usize) RangeRecord {
     const pos = 2 * @sizeOf(u16) + index * @sizeOf(RangeRecord);
     return bytes.typeBEToNative(RangeRecord, self.table_data[pos..]);
 }
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "RangeRecord matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 6), @sizeOf(RangeRecord));

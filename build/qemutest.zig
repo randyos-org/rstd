@@ -308,19 +308,19 @@ const machines = [_]Machine{
         // OpenBIOS maps 0x400000 to 0x800000 only, and the default set's
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
         .parts = &.{
-            .{ .name = "blas1", .filters = &.{"linalg.blas.blas1."} },
+            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.", "linalg.blas._test.blas1." } },
             .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
-            .{ .name = "blas2-edge", .filters = &.{"linalg.blas.blas2.edge."} },
+            .{ .name = "blas2-edge", .filters = &.{"linalg.blas._test.blas2.edge."} },
             // one per routine family: together past the window
             .{ .name = "blas3-gemm", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm." } },
             .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
             .{ .name = "blas3-rank", .filters = &.{ "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k." } },
             .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm." } },
             .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
-            .{ .name = "openblas", .filters = &.{"linalg.blas._test_openblas."} },
+            .{ .name = "openblas", .filters = &.{"linalg.blas._test.from_openblas."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
             .{ .name = "small", .filters = &small_filters },
         },
@@ -340,8 +340,9 @@ const machines = [_]Machine{
         .optimize = .debug,
         .parts = &.{
             // blas1 in two, as one is past the window
-            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.amax.", "linalg.blas.blas1.amin.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas.blas1.check.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas.blas1.iamax.", "linalg.blas.blas1.iamin.", "linalg.blas.blas1.imax.", "linalg.blas.blas1.imin.", "linalg.blas.blas1.max.", "linalg.blas.blas1.min.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.blas1.uk_block.", "linalg.blas.blas1.x87." } },
-            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas.blas1.edge." } },
+            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.amax.", "linalg.blas.blas1.amin.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas._test.blas1.check.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas.blas1.iamax.", "linalg.blas.blas1.iamin.", "linalg.blas.blas1.imax.", "linalg.blas.blas1.imin.", "linalg.blas.blas1.max.", "linalg.blas.blas1.min.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.blas1.uk_block." } },
+            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.edge." } },
+            .{ .name = "blas1-denormal", .filters = &.{"linalg.blas._test.blas1.denormal."} },
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
             .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.__root__.test.portable", "linalg.blas.blas2.gemv.__root__.test_" } },
@@ -365,11 +366,11 @@ const machines = [_]Machine{
                 "linalg.blas.blas2.interface.test_",
             } },
             // in two, as one is past the window
-            .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas.blas2.edge.test.portable level-2 routines, real", "linalg.blas.blas2.edge.test.every linked core's level-2 routines, real" } },
-            .{ .name = "blas2-edge-complex", .filters = &.{"linalg.blas.blas2.edge.test.portable level-2 routines, complex"} },
-            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas.blas2.edge.test.every linked core's level-2 routines, complex"} },
+            .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas._test.blas2.edge.test.portable level-2 routines, real", "linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, real" } },
+            .{ .name = "blas2-edge-complex", .filters = &.{"linalg.blas._test.blas2.edge.test.portable level-2 routines, complex"} },
+            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex"} },
             .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
-            // but "every core of every family", 6 MB alone in debug: `sparc64` runs it
+            // but "every core of" each family: those are the blas3-params-* parts
             .{ .name = "blas3-params", .filters = &.{
                 "linalg.blas.blas3.gemm.params.test.dtb entries",
                 "linalg.blas.blas3.gemm.params.test.generic follows",
@@ -379,6 +380,11 @@ const machines = [_]Machine{
                 "linalg.blas.blas3.gemm.params.test.LA464",
                 "linalg.blas.blas3.gemm.params.test.detection gives",
             } },
+            .{ .name = "blas3-params-x86_64", .filters = &.{"linalg.blas.blas3.gemm.params.test.every core of the x86_64 family"} },
+            .{ .name = "blas3-params-x86", .filters = &.{"linalg.blas.blas3.gemm.params.test.every core of the x86 family"} },
+            .{ .name = "blas3-params-arm", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the arm64 family", "linalg.blas.blas3.gemm.params.test.every core of the arm family" } },
+            .{ .name = "blas3-params-power", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the power64 family", "linalg.blas.blas3.gemm.params.test.every core of the power32 family" } },
+            .{ .name = "blas3-params-rest", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the riscv64 family", "linalg.blas.blas3.gemm.params.test.every core of the s390x family", "linalg.blas.blas3.gemm.params.test.every core of the mips64 family", "linalg.blas.blas3.gemm.params.test.every core of the mips32 family", "linalg.blas.blas3.gemm.params.test.every core of the loongarch64 family", "linalg.blas.blas3.gemm.params.test.every core of the sparc family", "linalg.blas.blas3.gemm.params.test.every core of the wasm family", "linalg.blas.blas3.gemm.params.test.every core of the generic family" } },
             .{ .name = "blas3-kernel", .filters = &.{
                 "linalg.blas.blas3.__root__.",
                 "linalg.blas.blas3.gemm.kernel.test.packed kernels",
@@ -396,13 +402,17 @@ const machines = [_]Machine{
             .{ .name = "blas3-interface-symm", .filters = &.{"linalg.blas.blas3.interface.test.interface: symm"} },
             .{ .name = "blas3-interface-rank", .filters = &.{ "linalg.blas.blas3.interface.test.interface: syrk", "linalg.blas.blas3.interface.test.interface: the rank-k" } },
             .{ .name = "blas3-interface-tri", .filters = &.{"linalg.blas.blas3.interface.test.interface: trmm"} },
-            // the OpenBLAS suites in three; not "every linked core", which
-            // holds all of them (4.7 MB in debug): `sparc64` runs it
-            .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test_openblas.blat1.", "linalg.blas._test_openblas.utest.", "linalg.blas._test_openblas.utest_ext." } },
+            // the OpenBLAS suites in three
+            .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test.from_openblas.blat1.", "linalg.blas._test.from_openblas.utest.", "linalg.blas._test.from_openblas.utest_ext." } },
             // blat2 in two, past the window with level 3's kernels
-            .{ .name = "openblas-blat2", .filters = &.{ "linalg.blas._test_openblas.blat2.test_", "linalg.blas._test_openblas.blat2.test.blat2: SMVCH", "linalg.blas._test_openblas.blat2.test.blat2: xGEMV", "linalg.blas._test_openblas.blat2.test.blat2: xGBMV", "linalg.blas._test_openblas.blat2.test.blat2: xSYMV", "linalg.blas._test_openblas.blat2.test.blat2: xSBMV", "linalg.blas._test_openblas.blat2.test.blat2: xSPMV", "linalg.blas._test_openblas.blat2.test.blat2: xTRMV", "linalg.blas._test_openblas.blat2.test.blat2: xTBMV", "linalg.blas._test_openblas.blat2.test.blat2: xTPMV", "linalg.blas._test_openblas.blat2.test.blat2: error exits" } },
-            .{ .name = "openblas-blat2-b", .filters = &.{ "linalg.blas._test_openblas.blat2.test.blat2: xTRSV", "linalg.blas._test_openblas.blat2.test.blat2: xTBSV", "linalg.blas._test_openblas.blat2.test.blat2: xTPSV", "linalg.blas._test_openblas.blat2.test.blat2: xGER,", "linalg.blas._test_openblas.blat2.test.blat2: xGERC", "linalg.blas._test_openblas.blat2.test.blat2: xSYR,", "linalg.blas._test_openblas.blat2.test.blat2: xSPR,", "linalg.blas._test_openblas.blat2.test.blat2: xSYR2", "linalg.blas._test_openblas.blat2.test.blat2: xSPR2" } },
-            .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test_openblas.blat3."} },
+            .{ .name = "openblas-blat2", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test_", "linalg.blas._test.from_openblas.blat2.test.blat2: SMVCH", "linalg.blas._test.from_openblas.blat2.test.blat2: xGEMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTRMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: error exits" } },
+            .{ .name = "openblas-blat2-b", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test.blat2: xTRSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGER,", "linalg.blas._test.from_openblas.blat2.test.blat2: xGERC", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR2", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR2" } },
+            .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test.from_openblas.blat3."} },
+            // the suites on every linked core, by level, level 2 by type
+            .{ .name = "openblas-cores-l1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites"} },
+            .{ .name = "openblas-cores-l2-real", .filters = &.{ "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f32", "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f64" } },
+            .{ .name = "openblas-cores-l2-complex", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-2 suite at complex"} },
+            .{ .name = "openblas-cores-l3", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-3 suite"} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
             .{ .name = "small", .filters = &small_filters },
         },
@@ -614,10 +624,10 @@ const machines = [_]Machine{
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
 /// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
-const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test_openblas.", "simd." } ++ small_filters);
+const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "simd." } ++ small_filters);
 
 /// The smaller BLAS test files: types, `fma`, `portable` and `ext`.
-const small_filters = [_][]const u8{ "linalg.blas._test_types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext." };
+const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {

@@ -1,6 +1,6 @@
 //! The level-3 interface: the checks and quick returns of OpenBLAS's
 //! `interface/gemm.c`, `symm.c`, `syrk.c`, `syr2k.c` and `trsm.c` before the
-//! drivers (`level3.zig`). Each takes the element type `T` explicitly, any
+//! drivers (`driver.zig`). Each takes the element type `T` explicitly, any
 //! float type or its `Complex` (the vtable's kernels for those it has slots
 //! for, the portable ones built for `T` otherwise), and sizes and leading
 //! dimensions as `isize`; matrices are column-major.
@@ -13,7 +13,7 @@
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
-const level3 = @import("level3.zig");
+const driver = @import("driver.zig");
 const types = @import("../types.zig");
 const portable = @import("../portable.zig");
 const util = @import("../util.zig");
@@ -81,8 +81,8 @@ pub fn gemm(allocator: Allocator, comptime T: type, transa: Trans, transb: Trans
     if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    const conj: level3.Conj = .of(conjugated(T, transa), conjugated(T, transb));
-    try level3.gemm(allocator, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
+    try driver.gemm(allocator, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
 /// `SIDE`: whether the symmetric or triangular matrix multiplies from the
@@ -122,7 +122,7 @@ fn symmImpl(allocator: Allocator, comptime T: type, comptime herm: bool, side: S
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    try level3.symm(allocator, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    try driver.symm(allocator, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
 /// `?SYRK` (`interface/syrk.c`): `C := alpha*op(A)*op(A)^T + beta*C` on the
@@ -178,7 +178,7 @@ fn rankImpl(allocator: Allocator, comptime T: type, comptime herm: bool, uplo: U
     if (!util.fitsMatrix(rows, cols, lda, @sizeOf(T))) return error.InvalidLda;
     if (b != null and !util.fitsMatrix(rows, cols, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(n, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    try level3.syrk(allocator, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    try driver.syrk(allocator, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
 /// `?TRMM` (`interface/trsm.c` as `TRMM`): `B := alpha*op(A)*B` (`side`
@@ -209,7 +209,7 @@ fn triImpl(allocator: Allocator, comptime T: type, comptime solve: bool, side: S
     if (m == 0 or n == 0) return;
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
-    const f = if (solve) level3.trsm else level3.trmm;
+    const f = if (solve) driver.trsm else driver.trmm;
     try f(allocator, T, table(T), side == .l, uplo == .u, transposed(transa), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb));
 }
 
@@ -218,7 +218,7 @@ const no_table: Vtable = .{};
 // ---- tests -----------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("check.zig");
+const check = @import("../_test/blas3/check.zig");
 
 test "interface: gemm reports the first bad argument and does nothing for empty problems" {
     const fa = testing.failing_allocator;

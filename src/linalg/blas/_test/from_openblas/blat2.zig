@@ -11,9 +11,9 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const iface = @import("../blas2/interface.zig");
-const banded = @import("../blas2/banded.zig");
-const tri = @import("../blas2/triangular.zig");
+const iface = @import("../../blas2/interface.zig");
+const banded = @import("../../blas2/banded.zig");
+const tri = @import("../../blas2/triangular.zig");
 const guard = @import("../blas2/guard.zig");
 
 const Float = ob.Float;
@@ -866,14 +866,12 @@ fn sweep(comptime r: Routine) !void {
     }
 }
 
-/// Every routine at every type on the `N` of `n`, after the error exits,
-/// for `check.eachCore`.
-pub fn all(n: []const usize) !void {
-    inline for (all_types) |T| {
-        try errorExits(T);
-        inline for (comptime std.enums.values(Routine)) |r| {
-            if (r != .gerc or comptime isComplex(T)) try chk(T, r, withN(dat(T), n));
-        }
+/// Every routine at `T` on the `N` of `n`, after the error exits, for
+/// `check.eachCore`.
+pub fn allOf(comptime T: type, n: []const usize) !void {
+    try errorExits(T);
+    inline for (comptime std.enums.values(Routine)) |r| {
+        if (r != .gerc or comptime isComplex(T)) try chk(T, r, withN(dat(T), n));
     }
 }
 

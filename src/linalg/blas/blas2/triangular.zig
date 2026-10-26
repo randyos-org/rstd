@@ -26,15 +26,11 @@ const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
-const check = @import("../blas1/check.zig");
 const portable = @import("../portable.zig");
-const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const interface = @import("interface.zig");
 const BlasLong = types.BlasLong;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 pub const ArgError = interface.ArgError;
 
@@ -599,6 +595,11 @@ pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Di
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const check = @import("../_test/blas1/check.zig");
+const guard = @import("../_test/blas2/guard.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
 
 const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 const ops = [_]Trans{ .n, .t, .r, .c };

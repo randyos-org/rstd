@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 const StreamLayout = extern struct {
     version: types.Fixed,
@@ -100,6 +99,8 @@ pub const HheaTable = struct {
         return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "num_of_long_hor_metrics")..]);
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "hhea StreamLayout matches the OpenType stream layout (36 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 36), @sizeOf(StreamLayout));

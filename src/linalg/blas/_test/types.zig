@@ -3,8 +3,8 @@
 //! importable, and `zigstd` is outside that.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
-const types = @import("types.zig");
+const zigstd = @import("../../../zigstd.zig");
+const types = @import("../types.zig");
 
 const BF16 = types.BF16;
 const isBlasType = types.isBlasType;

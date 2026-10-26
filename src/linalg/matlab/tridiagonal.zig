@@ -189,6 +189,7 @@ pub fn htribk(self: CxMat, taur: []const f64, taui: []const f64, z: CxMat) void 
 }
 
 const std = @import("std");
+
 const zigstd = @import("../../zigstd.zig");
 
 test "htridi preserves trace and Frobenius norm of a real symmetric matrix" {

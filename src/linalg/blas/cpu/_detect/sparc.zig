@@ -2,7 +2,6 @@
 //! nothing at run time, so the core type follows the target: V9 (any 64-bit
 //! target, or the 32-bit one built for V9) or the generic one.
 
-const std = @import("std");
 const coretypes = @import("../_coretypes.zig");
 const select = @import("../_select.zig");
 const sysinfo = @import("builtin");
@@ -39,6 +38,8 @@ pub fn detect() CoreType {
 pub fn detectNoted() Decision {
     return decide(probe());
 }
+
+const std = @import("std");
 
 test "V9 targets get the V9 core" {
     try std.testing.expectEqual(CoreType.sparc, decide(.{ .v9 = true }).core);

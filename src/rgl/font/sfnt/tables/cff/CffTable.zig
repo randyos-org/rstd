@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 const types = @import("../../stream_types.zig");
 
 const GlyphIndex = types.GlyphIndex;
@@ -185,6 +184,8 @@ pub fn getLocalSubrIndexForGlyph(self: CffTable, glyph: GlyphIndex) ?Index {
     const font_dict: Dict = .{ .table_data = fd_array.get(fd) };
     return resolvePrivateSubrs(self.table_data, font_dict, false) catch null;
 }
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "CFF StreamLayout matches the actual spec header (4 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));

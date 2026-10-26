@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
 /// A DICT: operand(s)-then-operator tokens (Top/Font/Private DICTs all use
 /// this encoding). table_data is exactly this DICT's own byte range.
@@ -132,6 +131,8 @@ pub fn appendDictInt(buf: []u8, at: usize, value: i32) usize {
     bytes.setI32BE(buf[at + 1 ..], value);
     return at + 5;
 }
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "Dict.getInt finds a one-byte and an escaped operator, skipping a real-number operand" {
     // Encodes: [real (skipped, irrelevant)] charset=15

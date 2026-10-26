@@ -10,7 +10,6 @@
 //! `NORM(X,'FRO')` the Frobenius norm.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const svd = @import("svd.zig");
@@ -103,6 +102,8 @@ pub fn matNormFro(self: CxMat) f64 {
     const len = self.m * self.n;
     return blas1.wnrm2(len, self.r[0..len], self.i[0..len], 1);
 }
+
+const zigstd = @import("../../zigstd.zig");
 
 test "vecNorm2 matches wnrm2 and the 3-4-5 triangle" {
     const xr = [_]f64{ 3.0, 0.0 };

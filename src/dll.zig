@@ -1,8 +1,8 @@
-//! Run-time library loading: `Dll` per OS, file and framework names, and
+//! Run-time library loading: `Dll` per OS, file names, Darwin frameworks, and
 //! `bind`, which fills a table of function pointers by symbol name.
 //!
 //! Lifetime: a handle whose pointers are kept for the rest of the process
-//! (a static table, as `linalg.blas.accelerate` keeps) is never closed;
+//! (a static table, as `linalg.blas.apple_accel` keeps) is never closed;
 //! closing it could unload code those pointers still reach.
 
 const std = @import("std");
@@ -101,25 +101,28 @@ pub fn findLoaded(name: [:0]const u8) ?Dll {
     return .{ .inner = .{ .handle = handle } };
 }
 
+/// A library's file name on this OS, as a format of its base name.
+const file_name_fmt = if (is_windows) "{s}.dll" else if (is_darwin) "lib{s}.dylib" else "lib{s}.so";
+
 /// The file name of library `base` on this OS: `base.dll`, `libbase.dylib`
 /// or `libbase.so`.
 pub fn fileName(comptime base: []const u8) [:0]const u8 {
-    return if (is_windows) base ++ ".dll" else if (is_darwin) "lib" ++ base ++ ".dylib" else "lib" ++ base ++ ".so";
+    return std.fmt.comptimePrint(file_name_fmt, .{base});
 }
 
 pub fn loadDll(alloc: Allocator, lib_name: []const u8) !Dll {
-    const lib_name_fmt = if (is_windows) "{s}.dll" else if (is_darwin) "lib{s}.dylib" else "lib{s}.so";
-    const lib = try alloc.print(lib_name_fmt, .{lib_name});
+    const lib = try alloc.print(file_name_fmt, .{lib_name});
     defer alloc.free(lib);
     return try Dll.open(lib);
 }
 
-pub const FrameworkError = error{ FileNotFound, NameTooLong };
+pub const DarwinFrameworkError = error{ FileNotFound, NameTooLong };
 
 /// Opens system framework `name` (`/System/Library/Frameworks/<name>.framework/<name>`);
-/// `FileNotFound` off Darwin. Since macOS 11 the file is only in the dyld
-/// shared cache, which `dlopen` searches by that path.
-pub fn openFramework(name: []const u8) FrameworkError!Dll {
+/// `FileNotFound` off Darwin. A framework is Apple's bundle of a shared library
+/// with its headers and resources, on every Darwin OS. Since macOS 11 the file
+/// is only in the dyld shared cache, which `dlopen` searches by that path.
+pub fn openDarwinFramework(name: []const u8) DarwinFrameworkError!Dll {
     if (!has_dl or !is_darwin) return error.FileNotFound;
     var buf: [256:0]u8 = undefined;
     const path = std.mem.printSentinel(&buf, "/System/Library/Frameworks/{0s}.framework/{0s}", .{name}, 0) catch
@@ -253,9 +256,9 @@ test "exact names, file names, and frameworks only on Darwin" {
     if (!is_windows) try zigstd.testExpectTrue(bind(Exact, &lib, exactName).fns.getpid != null);
     if (is_darwin) {
         // kept open for the process, like any framework handle
-        _ = try openFramework("CoreFoundation");
+        _ = try openDarwinFramework("CoreFoundation");
     } else {
-        try zigstd.testExpectError(error.FileNotFound, openFramework("CoreFoundation"));
+        try zigstd.testExpectError(error.FileNotFound, openDarwinFramework("CoreFoundation"));
     }
     try zigstd.testExpectError(error.FileNotFound, Dll.open("rstd-no-such-library"));
 }

@@ -14,8 +14,6 @@
 // atlas.glyphs[i].{pos,size,atlas_pos} place each glyph both on screen
 // and within the texture.
 
-const zigstd = @import("../../../zigstd.zig");
-
 pub const Sfnt = @import("Sfnt.zig");
 pub const render = @import("render/__root__.zig");
 pub const types = @import("stream_types.zig");
@@ -26,6 +24,8 @@ pub const msdf = @import("msdf/__root__.zig");
 pub const Vertex = aux_types.Vertex;
 pub const BitmapBox = render.bounds.BitmapBox;
 pub const CharstringCtx = tables.CharstringCtx;
+
+const zigstd = @import("../../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());

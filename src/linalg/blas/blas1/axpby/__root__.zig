@@ -32,10 +32,8 @@ pub fn zaxpby_k(n: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasL
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/axpby.c` and `zaxpby.c`: `y := alpha*x + beta*y`. A zero
 /// alpha does not read `x`, and a zero beta does not read `y`.
@@ -101,6 +99,9 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop for each of alpha and beta zero or not; `T` is
 /// the element type, real or complex.

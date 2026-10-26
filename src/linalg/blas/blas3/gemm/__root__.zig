@@ -511,15 +511,16 @@ pub const kernel = @import("kernel.zig");
 /// Points the level-3 slots at the portable kernels (`kernel.zig`).
 pub const installGeneric = kernel.installGeneric;
 
-const std = @import("std");
-const check = @import("../check.zig");
-const level3 = @import("../level3.zig");
-const blas1check = @import("../../blas1/check.zig");
+const check = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
 
 fn cases(vt: *const Vtable) !void {
     try check.routineAll(vt, .gemm);
 }
+
+const std = @import("std");
+const driver = @import("../driver.zig");
+const blas1check = @import("../../_test/blas1/check.zig");
 
 test "portable gemm kernels match the wide reference through the driver" {
     var vt: Vtable = .{};
@@ -565,7 +566,7 @@ test "negative or zero blocking falls back to the generic sizes" {
     vt.dgemm_p = -7;
     vt.dgemm_q = 0;
     vt.dgemm_r = -100;
-    const blk = level3.Blocking.of(f64, &vt);
+    const blk = driver.Blocking.of(f64, &vt);
     try std.testing.expect(blk.p > 0 and blk.q == 128 and blk.r == 4096);
     try check.routineCases(f64, &vt, .gemm);
 }
@@ -581,7 +582,7 @@ test "a packing buffer on the stack is poisoned in tests: a copy that writes not
     vt.dgemm_itcopy = &Nop.copy;
     var a: [4]f64 = @splat(1);
     var c: [4]f64 = @splat(0);
-    try level3.gemm(std.testing.failing_allocator, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
+    try driver.gemm(std.testing.failing_allocator, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
     for (c) |v| try std.testing.expect(std.math.isNan(v));
 }
 

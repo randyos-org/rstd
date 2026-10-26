@@ -131,11 +131,8 @@ pub fn xgemv_d(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alp
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../../blas1/check.zig");
 const half = @import("half.zig");
 const x87 = @import("x87.zig");
-const sym = @import("../symmetric.zig");
-const guard = @import("../guard.zig");
 
 /// `kernel/arm/gemv_n.c` and `gemv_t.c`: `y += alpha*A*x` (`n`, `y` of `m`)
 /// or `y += alpha*A^T*x` (`t`, `y` of `n`). The interface has already scaled
@@ -265,6 +262,10 @@ pub fn installGeneric(vt: *Vtable) void {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const check = @import("../../_test/blas1/check.zig");
+const sym = @import("../symmetric.zig");
+const guard = @import("../../_test/blas2/guard.zig");
 
 const C = std.math.Complex;
 /// Shapes across the kernels' blocks, then bigger ones through their

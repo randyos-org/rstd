@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 const tv = @import("tuple_variation.zig");
 
 /// Schema for the gvar header, used only to compute field offsets/sizes at
@@ -112,6 +111,8 @@ pub const GvarTable = struct {
         return .{ .table_data = self.table_data[base + start .. base + end], .axis_count = self.axisCount() };
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "gvar StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

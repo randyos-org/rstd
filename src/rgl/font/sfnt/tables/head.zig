@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for 'head' used only to compute field offsets/sizes at comptime;
 /// never instantiated. table_data is read directly against these offsets on
@@ -113,6 +112,8 @@ pub const HeadTable = struct {
         return 0xB1B0AFBA - raw_font_checksum_adj0;
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "head StreamLayout matches the OpenType stream layout (54 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 54), @sizeOf(StreamLayout));

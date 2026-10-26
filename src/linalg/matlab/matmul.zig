@@ -10,11 +10,8 @@
 //! `blas1.wscal`/`wrscal` applied to the whole flattened matrix
 //! (`wscal(m*n, s, ar, ai, 1)`), already covered, not a matmul concern.
 
-const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
-const ix = blas1.ix;
 
 /// `C = A*B`: `A` is `m`x`n`, `B` is `n`x`p`, `C` is `m`x`p`. The shared
 /// `a.n == b.m` requirement *is* the dimension-compatibility rule (checked
@@ -52,6 +49,10 @@ pub fn matmul(a: CxMat, b: CxMat, out: CxMat, scratch_r: []f64, scratch_i: []f64
         }
     }
 }
+
+const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
+const ix = blas1.ix;
 
 test "matmul matches hand computation for a small real case" {
     // A = [[1,2],[3,4]] (2x2), B = [[5,6],[7,8]] (2x2).

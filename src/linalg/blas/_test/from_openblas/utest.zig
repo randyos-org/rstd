@@ -11,9 +11,9 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const l1 = @import("../blas1/interface.zig");
-const l2 = @import("../blas2/interface.zig");
-const tri = @import("../blas2/triangular.zig");
+const l1 = @import("../../blas1/interface.zig");
+const l2 = @import("../../blas2/interface.zig");
+const tri = @import("../../blas2/triangular.zig");
 
 const C32 = std.math.Complex(f32);
 const C64 = std.math.Complex(f64);

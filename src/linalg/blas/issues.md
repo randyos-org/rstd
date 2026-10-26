@@ -132,7 +132,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `u128` or `f128` to `f80` (a compiler-rt libcall) leaves an entry on the x87
   register stack. Later x87 arithmetic overflows the stack and produces NaN.
 - **Workaround:** the tests never convert `u128` or `f128` to `f80`:
-  `blas1/check.zig` builds random `f80` values from bits, and compares `f128`
+  `_test/blas1/check.zig` builds random `f80` values from bits, and compares `f128`
   references at `f128` (`expectCloseRef`).
 - **Issue text:**
 
@@ -642,7 +642,7 @@ only the elements it uses):
 
 ### Special values some converted kernels treat otherwise
 
-The edge-case tests (`blas1/edge.zig` and `blas2/edge.zig`, on every rig)
+The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every rig)
 found these. In rstd's extremes the first NaN wins (`readme.md`, "One
 contract on every core"); LAPACK 3.10's `nrm2` is infinite for an
 infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
@@ -788,7 +788,7 @@ A zero `alpha` with a denormal in `y` also showed the ARMv7 NEON and AltiVec
 flushing of `comparisons.md` (10): the portable `saxpy`'s `@Vector` block
 turned the denormal into 0 on the `arm`, `linux-arm`, `powerpc` and
 `powerpc-pseries` rigs. It was the only level-1 or level-2 kernel that did
-(`blas1/denormal.zig`, `blas2/edge.zig`); it now takes its scalar loop where
+(`_test/blas1/denormal.zig`, `_test/blas2/edge.zig`); it now takes its scalar loop where
 `util.vectorIeee` says the lanes flush, the `@Vector` kernels leave `s` and
 `c` there to the portable ones, and the level-3 tiles are scalar there
 (`blas3/gemm/kernel.zig`'s `vectorBits`).

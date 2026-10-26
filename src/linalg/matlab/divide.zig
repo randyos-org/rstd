@@ -3,7 +3,6 @@
 //! line-count guideline.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const lu_mod = @import("lu.zig");
@@ -70,6 +69,7 @@ pub fn mldivide(self: CxMat, b: CxMat, ipvt: []usize, zr: []f64, zi: []f64) f64 
     return rc;
 }
 
+const zigstd = @import("../../zigstd.zig");
 
 test "mldivide solves A*X=B" {
     // A = [[2,0],[1,2]], B = [[1,2],[3,4]] (both square, real).

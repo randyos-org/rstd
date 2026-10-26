@@ -131,3 +131,33 @@ pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x
     }
     return @sqrt(amed);
 }
+
+/// What `extendedSum` adds up per float.
+pub const Term = enum { abs, square };
+
+/// x86_64 `asum.S`'s and `nrm2.S`'s x87 sums and their complex forms', before
+/// `nrm2`'s square root, which every float wider than `f64` takes: eight
+/// floats a trip into accumulators by float `% 4`, then each remaining
+/// element's float `c` (of `w`) into accumulator `c`, folded
+/// `a3 + ((a2 + a0) + a1)`, nothing fused. At `f80` it gives the assembly's
+/// bits; `kernel/x86/`'s are in the same order.
+pub fn extendedSum(comptime F: type, comptime w: comptime_int, comptime term: Term, n: isize, x: [*]F, inc_x: isize) F {
+    const per = 8 / w;
+    var a: [4]F = @splat(0);
+    var i: isize = 0;
+    const main = n & -per;
+    while (i < main) : (i += per) {
+        inline for (0..8) |f| a[f % 4] += of(F, term, at(F, x, (i + f / w) * inc_x * w + f % w).*);
+    }
+    while (i < n) : (i += 1) {
+        inline for (0..w) |c| a[c] += of(F, term, at(F, x, i * inc_x * w + c).*);
+    }
+    return a[3] + ((a[2] + a[0]) + a[1]);
+}
+
+inline fn of(comptime F: type, comptime term: Term, v: F) F {
+    return switch (term) {
+        .abs => @abs(v),
+        .square => v * v,
+    };
+}

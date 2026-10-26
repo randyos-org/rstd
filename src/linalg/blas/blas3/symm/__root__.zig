@@ -108,14 +108,15 @@ pub fn xsymm_oltcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, pos
 
 pub const kernel = @import("kernel.zig");
 
-const check = @import("../check.zig");
-const blas1check = @import("../../blas1/check.zig");
+const check = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
 
 fn cases(vt: *const Vtable) !void {
     try check.routineAll(vt, .symm);
     try check.routineAll(vt, .hemm);
 }
+
+const blas1check = @import("../../_test/blas1/check.zig");
 
 test "portable symm and hemm match the wide reference through the driver" {
     var vt: Vtable = .{};

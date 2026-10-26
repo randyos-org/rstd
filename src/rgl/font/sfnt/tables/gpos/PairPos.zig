@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 const types = @import("../../stream_types.zig");
 const Coverage = @import("Coverage.zig");
 const ClassDef = @import("ClassDef.zig");
@@ -200,6 +199,8 @@ pub const PairPosFormat2 = struct {
         return @sizeOf(Format2Header) + class1 * class1_record_size + class2 * class2_record_size;
     }
 };
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "Format1Header/Format2Header match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 10), @sizeOf(Format1Header));

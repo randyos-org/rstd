@@ -4,7 +4,6 @@
 //! shared matrix/vector conventions this port uses.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const ix = blas1.ix;
 
@@ -120,6 +119,7 @@ pub fn imtql2(n: usize, d: []f64, e: []f64, z: []f64, nm: usize, job: usize) usi
     return 0;
 }
 
+const zigstd = @import("../../zigstd.zig");
 
 test "imtql2 finds eigenvalues/eigenvectors of a small tridiagonal matrix" {
     // Symmetric tridiagonal: diag [2,2,2], off-diag [1,1] -> eigenvalues
