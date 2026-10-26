@@ -266,9 +266,10 @@ its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
 is where the reference uses `long double` on x86: the x87 `f80` where
 `types.exprecision` is on, else `f64`. Wider than `f64`, the reductions and
 `gemv` do take the order of the x87 `q`/`x` kernels, so they give those
-kernels' bits (`blas1/dot/`, `asum/`, `nrm2/`, `blas2/gemv/x87.zig`). Tests compare against a
-wide-precision reference with tolerances; exact comparison is kept where a Zig
-kernel stands in for a converted kernel of the same core. `_test/blas1/edge.zig`,
+kernels' bits (`blas1/dot/`, `util.extendedSum` for `asum` and `nrm2`, and
+`blas2/gemv/`). Tests compare against a wide-precision reference with
+tolerances; exact comparison is kept where a Zig kernel stands in for a
+converted kernel of the same core. `_test/blas1/edge.zig`,
 `_test/blas2/edge.zig` and `_test/blas3/check.zig` put NaN, infinities, signed zeros,
 denormals and huge and tiny values through every core's kernels, with NaN
 wherever a routine must not read or write; where a core's upstream kernels
