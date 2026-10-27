@@ -4,13 +4,14 @@ This document specifies how rstd's BLAS routines use multiple threads: the publi
 work is divided, how results stay reproducible, and how the design degrades on targets
 without threads. It is a design, not yet an implementation. Upstream references are to the
 OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
-`lib/std`.
+`lib/std` at 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md);
+how this rule compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
 ## Requirements
 
-- **Reproducible results.** For a given core selection, every routine returns the same bits
-  for any worker count, any `Io`, any scheduling, and in threaded and single-threaded builds
-  alike. Run time and the order in which work executes may vary; results may not.
+- **Reproducible results.** For a given build and core selection, every routine returns the
+  same bits for any worker count, any `Io`, any scheduling, and in threaded and single-threaded
+  builds alike. Run time and the order in which work executes may vary; results may not.
   Reproducibility takes precedence over speed.
 - **Adaptive parallelism.** The degree of parallelism follows the machine. No caller has to
   state a thread count for good performance.
@@ -20,12 +21,14 @@ OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references a
   Targets without threads run serially with no special cases in callers.
 - **No hidden failure modes.** Allocation happens before any task starts; failures surface
   as errors, never panics, and are never silently converted into slower paths.
+- **Memory safety.** No task outlives the call that spawned it, and nothing a task touches is
+  freed or unloaded while it runs ([Guardrails](#guardrails)).
 
 Across core types, results may differ in the last bits: different cores run different
 kernels, with different fusion, accumulation order and blocking. OpenBLAS behaves the same way.
-Beyond rounding they agree (`readme.md`, "One contract on every core"), and on one core no
-result depends on where its operands lie in memory.
-Pinning the core type (`OPENBLAS_CORETYPE`) makes machines that can run that core agree.
+Beyond rounding they agree ([`readme.md`](readme.md#one-contract-on-every-core)), and on one
+core no result depends on where its operands lie in memory. Pinning the core type
+(`OPENBLAS_CORETYPE`) makes machines that can run that core agree.
 
 ## Background
 
@@ -195,7 +198,7 @@ the `Io`'s own allocator and runs the task inline if that allocation fails.
 ### Single-threaded builds and freestanding targets
 
 Threading compiles out only under `builtin.single_threaded`: such builds take a comptime
-serial path that never references `Io.Group`. Freestanding and UEFI are not forced serial, so
+serial path that never references `Io.Group`, over the same chunks. Freestanding and UEFI are not forced serial, so
 a multithreaded freestanding build (for example a RandyOS kernel with its own `Io`) can
 thread. Today's freestanding rigs build `single_threaded` and report one CPU; UEFI's `Io` runs
 tasks inline.
@@ -204,7 +207,53 @@ tasks inline.
 
 A backend that delegates to a vendor library (Apple's Accelerate on macOS) must meet the
 same reproducibility requirement. If the library's own threading changes its results, rstd
-runs it single-threaded.
+runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), so
+`apple_accel.load` makes it single-threaded for the process and the loading thread; every other
+thread that calls in sets its own model (`singleThreadHere`)
+([`design.md`](design.md#apple-accelerate)). rstd's own workers then parallelize around it.
+
+### Guardrails
+
+Reproducibility:
+
+- **Bit-identical on a core.** On a given build and core, a routine's bits depend on its
+  arguments only. A change that breaks this is a bug, whatever it gains in speed.
+- **One contract across cores.** Each routine has one numerical contract on every core; cores
+  differ in rounding only. A threaded path keeps its serial path's contract.
+- **Split inputs.** Chunk sizes, thresholds and the level-3 `Q` read the problem size and the
+  core only, never the CPU count, `OPENBLAS_NUM_THREADS` or the `Io`'s limits. Thread-count
+  blocking sets (LA464's) may change `P` and `R`, never `Q`.
+- **Same chunks everywhere.** Above a threshold, a `single_threaded` build and an `Io` that runs
+  tasks inline combine the same chunks in the same order as a threaded run.
+- **Partition edges.** Level-3 partitions round `M` ranges to `unroll_m` and `N` ranges to
+  `unroll_n`, so no element moves between a full tile and a tail path.
+- **No address dependence.** No kernel's bits follow an operand's alignment (`vector.peels`), so
+  a chunk may start anywhere.
+
+Memory safety for concurrent work:
+
+- **Await before free.** A routine waits for every task it spawned, on every exit path
+  (success, error, cancelation), before it frees or returns anything a task touches. `await`
+  may return `error.Canceled` early; `cancel` returns only once every task has run.
+- **`defer` order.** Scratch is allocated and its free deferred before the group exists, and
+  `group.cancel` is deferred after, so it runs first:
+
+  ```zig
+  const work = try allocator.alloc(T, len); // before any task starts
+  defer allocator.free(work); // runs last
+  var group: Io.Group = .init;
+  defer group.cancel(io); // runs first; every task has run
+  ```
+
+- **Caller-owned buffers.** The routine that opens the parallel region owns every buffer its
+  tasks use: operands, scratch and per-chunk partials. Tasks borrow slices of them, allocate
+  nothing and free nothing; a task's arguments point only at memory that lives until the region
+  closes.
+- **Disjoint writes.** Each output element and each partial has one writer; shared packed
+  buffers are written by their producer before the flag that publishes them and read only after
+  it.
+- **Never unload a library.** A dynamically loaded library is never closed: Accelerate's table
+  points into it, and any thread may be calling through it (`src/dll.zig`).
 
 ## Alternatives considered
 
@@ -235,7 +284,9 @@ runs it single-threaded.
   written. TSan (`sanitize_thread`) on native Linux follows once its support in this
   toolchain is confirmed.
 - **Cancelation:** canceled calls return `error.Canceled`, leave no worker running, and leave
-  memory outside the output untouched.
+  memory outside the output untouched; the allocator sees every free after the last task ends.
+- **Split inputs:** a test that `Q` and every chunk size are the same for every thread count
+  and CPU count.
 - **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
   `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling.
 
@@ -254,7 +305,7 @@ runs it single-threaded.
 
 - Behavior of the futex-based level 3 protocol on `Io.Evented` is unverified.
 - TSan support with this toolchain is unverified.
-- Whether Accelerate's results are reproducible across its thread settings is being
-  measured; the outcome decides whether it runs single-threaded.
+- BLIS-style cooperative packing with barriers may be simpler than the shared-`B` flags for
+  level 3 ([`comparisons.md`](comparisons.md) (7)); it is to be prototyped before step 2.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
