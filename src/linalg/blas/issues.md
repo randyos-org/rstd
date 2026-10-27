@@ -946,3 +946,21 @@ And C sources rstd ports to Zig:
 > files' blocks of four and two load `y` before storing it (i6400, i6500,
 > p6600 from `n` = 4). rstd's ports of these (`axpy/riscv64/rvv.zig`,
 > `axpy/mips/msa.zig`) take a zero `incy` one element at a time.
+
+### `cblas_icmax` and `cblas_icmin` scan a complex vector as reals
+
+`interface/Makefile` builds the complex `cblas_icmax`, `cblas_icmin`,
+`cblas_izmax` and `cblas_izmin` from `imax.c` without `USE_ABS`, and
+`imax.c` only picks a complex kernel under `USE_ABS`. So they call the real
+`ismax_k`/`idmax_k` (and the `min` ones) on the complex array: `n` floats at
+a stride of `incx` floats, real and imaginary parts alike, which covers only
+the first `n / 2` elements at unit stride. Reference BLAS and BLIS have no
+signed complex extreme (only `i?amax` and `amaxv`, over `|re| + |im|`).
+
+- **Workaround:** none needed; rstd's `extreme` and `index` make `.max` and
+  `.min` over a complex type a compile error that points to `.amax` and
+  `.amin`.
+- **Issue text:** "`cblas_icmax`/`cblas_icmin` (and the `z` forms) run the
+  real `?max` kernel over the complex array's floats, so the returned index
+  is not an element index and only half the vector is scanned. Either
+  define them (by `|re| + |im|`, as `icamax`) or drop them."

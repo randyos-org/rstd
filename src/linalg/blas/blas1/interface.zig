@@ -227,7 +227,7 @@ pub fn extreme(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [
 }
 
 fn realOnly(comptime T: type, comptime which: Extreme) void {
-    if (isComplex(T) and (which == .max or which == .min)) @compileError(@tagName(which) ++ ": " ++ @typeName(T) ++ " is not real");
+    if (isComplex(T) and (which == .max or which == .min)) @compileError(@tagName(which) ++ ": " ++ @typeName(T) ++ " has no ordering; use ." ++ (if (which == .max) "amax" else "amin") ++ ", which compares |re| + |im|");
 }
 
 // ---- rotations ---------------------------------------------------------------
