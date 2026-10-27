@@ -133,6 +133,39 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > homogeneous aggregate rule) without checking for the soft-float
   > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
 
+### Self-hosted x86_64 backend stores a two-lane `f32` vector as 16 bytes
+
+- **Seen:** with the self-hosted x86_64 backend, `@sizeOf(@Vector(2, f32))`
+  is 16 (8 with LLVM): `Type.abiSize` rounds every vector up to 16 bytes
+  for `stage2_x86_64`. A store through a `*align(1) @Vector(2, f32)` cast
+  from an `[*]f32`, as `util.store` does, writes 16 bytes, so the two
+  `f32` after the vector are overwritten. Still so on 0.18.0-dev.751.
+- **Workaround:** the complex gemm tile assigns whole arrays
+  (`p[0..lanes].* = ...`), not `util.store` (`blas3/gemm/kernel.zig`).
+- **Issue text:**
+
+  > **x86_64 backend: `@Vector(2, f32)` is 16 bytes, so a store through a pointer to it overwrites the next 8**
+  >
+  > With `-fno-llvm` on x86_64, `@sizeOf(@Vector(2, f32))` is 16; the LLVM
+  > backend says 8, the vector's natural size. `Type.abiSize` gives every
+  > `stage2_x86_64` vector a 16-byte minimum, so a store through
+  > `*align(4) @Vector(2, f32)` writes 16 bytes. Code that views part of an
+  > `[N]f32` as a vector (a common way to load and store lanes of an
+  > array) silently corrupts the elements after it. Reproduce:
+  >
+  > ```zig
+  > var buf: [4]f32 = .{ 9, 9, 9, 9 };
+  > const p: *align(4) @Vector(2, f32) = @ptrCast(&buf);
+  > p.* = .{ 1, 2 };
+  > // -fllvm: { 1, 2, 9, 9 }; -fno-llvm: buf[2] and buf[3] overwritten
+  > ```
+  >
+  > Coercing to an array (`buf[0..2].* = v`) stores 8 bytes. Vectors have
+  > no guaranteed memory layout, but the size differing between backends,
+  > and padding written past a vector that `[2]f32` holds exactly, are
+  > surprising; giving the vector its natural size, as LLVM does, would
+  > avoid both.
+
 ### LLVM `-Oz` miscompile on sparc64
 
 - **Seen:** since Zig 0.18.0-dev.250, the sparc64 rig built with `.small`
