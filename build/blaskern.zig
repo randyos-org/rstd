@@ -48,14 +48,14 @@ var option_read = false;
 /// for every core the target can run (`.all`), or only the core the target
 /// maps to (`.target`), or none (`.none`). It also gives `mod` the
 /// `blaskern_linked` module, which tells `asm_registry.install` what got linked.
-pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) void {
+pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) !void {
     if (!option_read) {
         option_read = true;
         force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
     }
     // the core type depends on the architecture, so it becomes compile-time here
     switch (target.result.cpu.arch) {
-        inline else => |a| addForArch(b, mod, target, cores, a),
+        inline else => |a| try addForArch(b, mod, target, cores, a),
     }
 }
 
@@ -65,7 +65,7 @@ fn addForArch(
     target: ResolvedTarget,
     cores: rstdbuild.BlasCores,
     comptime arch_tag: std.Target.Cpu.Arch,
-) void {
+) !void {
     const arch = target.result.cpu.arch;
     var groups: std.ArrayList(Group) = .empty;
 
@@ -86,10 +86,10 @@ fn addForArch(
         const g = for (groups.items) |*g| {
             if (g.spec.eql(spec)) break g;
         } else blk: {
-            groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) }) catch @panic("OOM");
+            try groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) });
             break :blk &groups.items[groups.items.len - 1];
         };
-        g.cores.append(b.allocator, @tagName(core)) catch @panic("OOM");
+        try g.cores.append(b.allocator, @tagName(core));
     }
 
     var fallback: ?[]const u8 = null;
@@ -104,7 +104,7 @@ fn addForArch(
     }
 
     var linked: std.ArrayList([]const u8) = .empty;
-    for (groups.items) |g| linked.appendSlice(b.allocator, g.cores.items) catch @panic("OOM");
+    for (groups.items) |g| try linked.appendSlice(b.allocator, g.cores.items);
     addLinked(b, mod, linked.items, fallback);
 
     for (groups.items) |g| {

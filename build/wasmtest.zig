@@ -12,7 +12,7 @@ const blaskern = @import("blaskern.zig");
 /// Same selection as the emulated machines.
 const default_filters: []const []const u8 = &.{ "linalg.blas.blas1.", "linalg.blas.blas2.", "simd." };
 
-pub fn addWasmTests(b: *Build, optimize: Optimize) void {
+pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
     const step = b.step("wasm-test", "Run rstd's hardware-independent tests as a WASI module under Node");
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
@@ -24,7 +24,7 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) void {
         .target = target,
         .optimize = optimize,
     });
-    blaskern.addBlasKernels(b, test_mod, target, .all);
+    try blaskern.addBlasKernels(b, test_mod, target, .all);
     const test_exe = b.addTest(.{
         .name = "rstd-wasm",
         .root_module = test_mod,

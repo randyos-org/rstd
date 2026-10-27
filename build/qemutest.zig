@@ -668,14 +668,14 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
             for (m.parts) |p| {
                 var part = m;
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
-                const run = addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host);
+                const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host);
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
             }
             continue;
         }
         const run = switch (m.boot) {
-            .kernel => |k| addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host),
+            .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
             .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host) orelse continue else continue,
         };
@@ -830,7 +830,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
 }
 
 /// QEMU booting `m`'s freestanding test kernel.
-fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) *Build.Step.Run {
+fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !*Build.Step.Run {
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/_test_qemu.zig"),
         .target = target,
@@ -840,7 +840,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .single_threaded = true,
     });
     // the kernels of the architectures that have any
-    blaskern.addBlasKernels(b, test_mod, target, .all);
+    try blaskern.addBlasKernels(b, test_mod, target, .all);
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
