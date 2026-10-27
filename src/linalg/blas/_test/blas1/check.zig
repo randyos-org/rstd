@@ -282,8 +282,10 @@ fn hugeScale(comptime F: type) F {
     return comptime std.math.ldexp(@as(F, 1), std.math.floatExponentMax(F) - 12);
 }
 
+/// Scalar where AltiVec flushes (`util.scalar`), so a denormal stays one.
 fn scaled(comptime T: type, v: T, f: FloatOf(T)) T {
-    return if (comptime isComplex(T)) .init(v.re * f, v.im * f) else v * f;
+    const F = FloatOf(T);
+    return if (comptime isComplex(T)) .init(util.scalar(F, v.re * f), util.scalar(F, v.im * f)) else util.scalar(T, v * f);
 }
 
 /// `f` in the real part of `v` for an even `i`, else the imaginary part.
