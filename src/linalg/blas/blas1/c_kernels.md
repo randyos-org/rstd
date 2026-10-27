@@ -156,7 +156,8 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
   (6264 cases, no differences).
 - Cores the host cannot run (FMA4 and XOP for Bulldozer and Piledriver,
   AVX-512 for the Skylake-X family) are compiled and symbol-checked natively;
-  running them needs `qemu-test-x86_64` with a matching `-cpu`.
+  running them needs `qemu-test-x86_64-whpx` on a host that has them, since
+  QEMU's TCG emulates neither.
 
 Zig exits 0 on an inline-assembly error and writes an empty object, so check
 that a new object really exports the symbols (`llvm-nm`).
