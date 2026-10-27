@@ -137,20 +137,33 @@ fn addForArch(
     }
 }
 
-/// `obj`'s object, linkable only once clang has compiled its bitcode. Zig
-/// 0.18 drops inline asm lines LLVM rejects, yet exits 0 and caches the
-/// object; clang fails on them (issues.md, "Inline assembly errors exit 0").
+/// `obj`'s object, linkable only once `asmCheck` passes.
 fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
-    // no `-mcpu`: each function in the bitcode carries its own CPU and features
+    const wf = b.addWriteFiles();
+    wf.step.dependOn(try asmCheck(b, obj, query));
+    return wf.addCopyFile(obj.getEmittedBin(), obj.out_filename);
+}
+
+/// A step that fails where `comp`'s inline asm has a line LLVM rejects: it
+/// compiles `comp`'s LLVM bitcode with clang. Zig 0.18 drops such lines, yet
+/// exits 0 and caches the output (issues.md, "Inline assembly errors exit 0").
+/// `comp` must use LLVM, and `query` name no `ofmt`, which `zig cc` ignores.
+pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step {
     const triple = try query.zigTriple(b.allocator);
     const check = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-c", "-Wno-override-module", "-target", triple });
-    check.setName(b.fmt("check inline asm of {s}", .{obj.name}));
-    check.addFileArg(obj.getEmittedLlvmBc());
+    const target = b.resolveTargetQuery(query).result;
+    // Functions carry their own CPU; module-level asm needs `-mcpu`. Not on
+    // x86, whose assembler ignores CPU features and where some of Zig 0.18's
+    // LLVM CPU names are wrong (issues.md).
+    if (!target.cpu.arch.isX86())
+        check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
+    // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm fails
+    if (target.os.tag == .freestanding) check.addArg("-fno-PIC");
+    check.setName(b.fmt("check inline asm of {s}", .{comp.name}));
+    check.addFileArg(comp.getEmittedLlvmBc());
     check.addArg("-o");
-    _ = check.addOutputFileArg(b.fmt("asmcheck-{s}", .{obj.out_filename}));
-    const wf = b.addWriteFiles();
-    wf.step.dependOn(&check.step);
-    return wf.addCopyFile(obj.getEmittedBin(), obj.out_filename);
+    _ = check.addOutputFileArg(b.fmt("asmcheck-{s}.o", .{comp.name}));
+    return &check.step;
 }
 
 /// Tells `asm_registry.install` which cores' objects are linked.

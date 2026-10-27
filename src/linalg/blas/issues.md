@@ -285,7 +285,18 @@ When an issue is fixed upstream, drop the workaround and its entry.
   step, and links the object only through a copy that depends on that
   step. Clang fails on the same lines and its run step does not cache a
   failure. Objects built without LLVM, or with an explicit `ofmt`
-  (`zig cc` ignores `-ofmt`), are not checked.
+  (`zig cc` ignores `-ofmt`), are not checked. The kernel rigs' test
+  images (boot code and all) get the same check (`asmCheck`) before QEMU
+  runs; `zig build qemu-check` builds and checks them all without QEMU.
+  `-mcpu` is passed for module-level asm, which LLVM assembles with the
+  default CPU, except on x86: its assembler ignores CPU features, and
+  0.18.0-dev.751's `std.Target.x86` has invalid LLVM names for
+  `skylake_avx512`, `icelake_client`, `icelake_server` and
+  `goldmont_plus` (underscores; LLVM's use hyphens). Zig hands
+  those to LLVM as is, so those cores build untuned; 0.17.0's are right.
+  Emitting bitcode also prints a spurious `error: <inline asm>` for
+  module-level asm that needs more than the default CPU's features; the
+  object is unaffected.
 - **Issue text:**
 
   > **LLVM inline assembly errors no longer fail the compilation**

@@ -640,6 +640,7 @@ const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fm
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
+    const check = b.step("qemu-check", "Build every kernel rig's test images and check their inline asm, without running qemu");
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
     // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
     const macos_vm = vmOption(b, "macos-vm", "the macOS VM rigs", "OSX-KVM");
@@ -676,14 +677,14 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
             for (m.parts) |p| {
                 var part = m;
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
-                const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host);
+                const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host, check);
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
             }
             continue;
         }
         const run = switch (m.boot) {
-            .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host),
+            .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, check),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
             .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host) orelse continue else continue,
         };
@@ -837,8 +838,9 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     return run;
 }
 
-/// QEMU booting `m`'s freestanding test kernel.
-fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !*Build.Step.Run {
+/// QEMU booting `m`'s freestanding test kernel, once its inline asm is checked
+/// (`blaskern.asmCheck`), which `check` also does.
+fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, check: *Build.Step) !*Build.Step.Run {
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/_test_qemu.zig"),
         .target = target,
@@ -859,8 +861,16 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .use_lld = true,
     });
     test_exe.setLinkerScript(b.path(k.linker_script));
+    check.dependOn(&test_exe.step);
 
     const run = qemuCommand(b, m, host);
+    // only x86_64 defaults to the self-hosted backend; `zig cc` ignores `ofmt`
+    const llvm = k.llvm or target.result.cpu.arch != .x86_64;
+    if (llvm and m.query.ofmt == null) {
+        const asm_check = try blaskern.asmCheck(b, test_exe, m.query);
+        check.dependOn(asm_check);
+        run.step.dependOn(asm_check);
+    }
     addConsole(b, run, m, host);
     if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
     run.addArg("-kernel");
