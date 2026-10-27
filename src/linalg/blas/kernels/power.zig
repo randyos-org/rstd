@@ -8,8 +8,11 @@
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
+const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
+
+const Slot = util.Slot;
 
 pub const Core = coretypes.PowerCoreType;
 
@@ -33,9 +36,9 @@ const modules = .{
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots on the
 /// VSX cores. AltiVec flushes `f32` denormals (`util.vectorIeee`), so
 /// elsewhere the portable kernels stay.
-fn usesVector(comptime core: Core, comptime role: []const u8) bool {
+fn usesVector(comptime core: Core, comptime slot: Slot) bool {
     return switch (core) {
-        .power8, .power9, .power10 => vector.routed(role),
+        .power8, .power9, .power10 => vector.routed(slot),
         else => false,
     };
 }

@@ -50,7 +50,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 }
 
 const Body = struct {
-    pub fn ddot() callconv(.naked) void {
+    pub fn entry() callconv(.naked) void {
         asm volatile (
             \\ .balign 16
             \\ pushl %edi

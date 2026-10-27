@@ -14,6 +14,7 @@ const util = @import("../../../util.zig");
 
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
+const Slot = util.Slot;
 
 /// A real block that takes `alpha` by value: `f(n, x, y, alpha)`.
 fn RealByValue(comptime T: type, comptime f: anytype) type {
@@ -110,57 +111,54 @@ fn RealAligned(comptime T: type, comptime mask: comptime_int, comptime Block: ty
     };
 }
 
-/// Where each role is, by core: which block, and whether it is one of the
+/// Where each slot is, by core: which block, and whether it is one of the
 /// aligned power10 drivers.
 pub const Source = enum { power8, power10 };
 
-/// The block module of `role` for `source`, by the file names of `uk/`.
-fn ukModule(comptime role: []const u8, comptime source: Source) type {
+/// The block module of `slot` for `source`, by the file names of `uk/`.
+fn ukModule(comptime slot: Slot, comptime source: Source) type {
     return switch (source) {
-        .power8 => if (role[0] == 'd')
-            @import("uk/daxpy_power8.zig")
-        else if (role[0] == 'z')
-            @import("uk/zaxpy_power8.zig")
-        else
-            struct {},
-        .power10 => if (role[0] == 'd')
-            @import("uk/daxpy_power10.zig")
-        else if (role[0] == 's')
-            @import("uk/saxpy_power10.zig")
-        else if (role[0] == 'c')
-            @import("uk/caxpy_power10.zig")
-        else
-            @import("uk/zaxpy_power10.zig"),
+        .power8 => switch (slot) {
+            .daxpy_k => @import("uk/daxpy_power8.zig"),
+            .zaxpy_k, .zaxpyc_k => @import("uk/zaxpy_power8.zig"),
+            else => struct {},
+        },
+        .power10 => switch (slot) {
+            .daxpy_k => @import("uk/daxpy_power10.zig"),
+            .saxpy_k => @import("uk/saxpy_power10.zig"),
+            .caxpy_k, .caxpyc_k => @import("uk/caxpy_power10.zig"),
+            else => @import("uk/zaxpy_power10.zig"),
+        },
     };
 }
 
-/// The kernel `role` has on the cores of `source`, in the reference's ABI.
-pub fn entry(comptime role: []const u8, comptime source: Source) kernel.Kernel(role) {
-    const conj = role.len == 6;
-    const mod = ukModule(role, source);
-    switch (role[0]) {
-        'd' => {
+/// The kernel `slot` has on the cores of `source`, in the reference's ABI.
+pub fn entry(comptime slot: Slot, comptime source: Source) kernel.Kernel(slot) {
+    const conj = kernel.form(slot).conj;
+    const mod = ukModule(slot, source);
+    switch (slot) {
+        .daxpy_k => {
             const Block = RealByValue(f64, mod.daxpy_kernel_8);
             if (source == .power10) return kernel.realEntry(f64, RealAligned(f64, 16, Block));
-            return kernel.entry(role, 16, Block);
+            return kernel.entry(slot, 16, Block);
         },
-        's' => {
+        .saxpy_k => {
             if (source == .power10) {
                 const Block = RealByValue(f32, mod.saxpy_kernel_64);
                 return kernel.realEntry(f32, RealAligned(f32, 64, Block));
             }
-            return kernel.entry(role, 64, SaxpyVec);
+            return kernel.entry(slot, 64, SaxpyVec);
         },
-        'c' => {
+        .caxpy_k, .caxpyc_k => {
             if (source == .power10) {
                 const f = if (conj) mod.caxpyc_kernel_8 else mod.caxpy_kernel_8;
-                return kernel.entry(role, 16, CplxByValue(f32, f));
+                return kernel.entry(slot, 16, CplxByValue(f32, f));
             }
-            return kernel.entry(role, 16, CaxpyVec(conj));
+            return kernel.entry(slot, 16, CaxpyVec(conj));
         },
         else => {
             const f = if (conj) mod.zaxpyc_kernel_4 else mod.zaxpy_kernel_4;
-            return kernel.entry(role, 16, CplxByValue(f64, f));
+            return kernel.entry(slot, 16, CplxByValue(f64, f));
         },
     }
 }

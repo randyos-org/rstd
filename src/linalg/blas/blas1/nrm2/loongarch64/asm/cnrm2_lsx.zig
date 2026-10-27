@@ -26,7 +26,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 }
 
 const Body = struct {
-    pub fn cnrm2() callconv(.naked) void {
+    pub fn entry() callconv(.naked) void {
         asm volatile (
             \\ .align 5
             \\ bge $r0, $r4, 20007f
@@ -43,7 +43,7 @@ const Body = struct {
             \\ st.d $r4, $sp, 8
             \\ st.d $r5, $sp, 16
             \\ st.d $r6, $sp, 24
-            \\ bl blaskern_camax_la264
+            \\ bl blaskern_camax_k_la264
             \\ ld.d $ra, $sp, 0
             \\ ld.d $r4, $sp, 8
             \\ ld.d $r5, $sp, 16

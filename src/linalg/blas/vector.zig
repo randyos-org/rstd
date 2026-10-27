@@ -21,6 +21,7 @@ const extremum = @import("blas1/extremum.zig");
 
 const BlasLong = types.BlasLong;
 const Find = extremum.Find;
+const Slot = util.Slot;
 
 /// Lanes of one native vector of `F`: a NEON register on AArch64, where
 /// `std.simd` counts SVE as 256 bits, which LLVM splits into NEON pairs.
@@ -831,15 +832,47 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 
 // ---- the slots they fill -----------------------------------------------------
 
-/// Whether `role`'s converted kernels give way to the portable or these on
+/// Whether `slot`'s converted kernels give way to the portable or these on
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
 /// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
 /// sums in `f64`; and no result depends on an operand's address (`peels`). `asm_registry.Kernels` leaves them out; an
 /// architecture's `Registry` puts these in where its vector unit is IEEE.
-pub fn routed(comptime role: []const u8) bool {
-    const extreme = std.mem.endsWith(u8, role, "max") or std.mem.endsWith(u8, role, "min");
-    return extreme or std.mem.endsWith(u8, role, "nrm2") or std.mem.eql(u8, role, "sdot") or peels(role);
+pub fn routed(comptime slot: Slot) bool {
+    return switch (slot) {
+        // the extremes, `nrm2` and `sdot`
+        .samax_k,
+        .damax_k,
+        .camax_k,
+        .zamax_k,
+        .samin_k,
+        .damin_k,
+        .camin_k,
+        .zamin_k,
+        .smax_k,
+        .dmax_k,
+        .smin_k,
+        .dmin_k,
+        .isamax_k,
+        .idamax_k,
+        .icamax_k,
+        .izamax_k,
+        .isamin_k,
+        .idamin_k,
+        .icamin_k,
+        .izamin_k,
+        .ismax_k,
+        .idmax_k,
+        .ismin_k,
+        .idmin_k,
+        .snrm2_k,
+        .dnrm2_k,
+        .cnrm2_k,
+        .znrm2_k,
+        .sdot_k,
+        => true,
+        else => peels(slot),
+    };
 }
 
 /// The x86_64 reductions whose converted kernels peel elements until an
@@ -847,81 +880,204 @@ pub fn routed(comptime role: []const u8) bool {
 /// `asum_sse2.S`, `zasum_sse*.S`, `zsum_sse*.S`, `dot_sse2.S`,
 /// `ddot_bulldozer.S`, `zdot_sse*.S`, `dgemv_n.S` and their `atom` and
 /// `bulldozer` kin. Their C kernels on other cores stay.
-pub fn peels(comptime role: []const u8) bool {
+pub fn peels(comptime slot: Slot) bool {
     if (sysinfo.target.cpu.arch != .x86_64) return false;
-    const peeling = [_][]const u8{ "sasum", "dasum", "casum", "zasum", "csum", "zsum", "ddot", "cdotu", "cdotc", "zdotu", "zdotc", "dgemv_n" };
-    inline for (peeling) |r| if (comptime std.mem.eql(u8, r, role)) return true;
-    return false;
+    return switch (slot) {
+        .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n => true,
+        else => false,
+    };
 }
 
-/// A kernel: its role (`saxpy`, `cdotc`, `izamax`, `zgemv_r`), and the
-/// function of `Real` or `Complex` over `F` that is it.
-const Role = struct { name: []const u8, F: type, complex: bool, f: []const u8 };
+/// The slot each function of `Real` fills, by its name there.
+const RealSlots = struct {
+    axpy: Slot,
+    dot: Slot,
+    scal: Slot,
+    nrm2: Slot,
+    asum: Slot,
+    copy: Slot,
+    swap: Slot,
+    rot: Slot,
+    gemv_n: Slot,
+    gemv_t: Slot,
+    amax: Slot,
+    iamax: Slot,
+    amin: Slot,
+    iamin: Slot,
+    max: Slot,
+    imax: Slot,
+    min: Slot,
+    imin: Slot,
+};
 
-/// Every role with a kernel here: none in a type whose lanes flush
-/// denormals (`util.vectorIeee`), whose slots keep the portable kernels.
-pub const roles: []const Role = blk: {
-    var r: []const Role = &.{};
-    for (.{ .{ "s", f32 }, .{ "d", f64 } }) |p| {
-        if (!util.vectorIeee(p[1])) continue;
-        for (.{ "axpy", "dot", "scal", "nrm2", "asum", "copy", "swap", "rot", "gemv_n", "gemv_t" }) |f| {
-            r = r ++ &[_]Role{.{ .name = p[0] ++ f, .F = p[1], .complex = false, .f = f }};
-        }
-        for (.{ "amax", "amin", "max", "min" }) |f| {
-            r = r ++ &[_]Role{
-                .{ .name = p[0] ++ f, .F = p[1], .complex = false, .f = f },
-                .{ .name = "i" ++ p[0] ++ f, .F = p[1], .complex = false, .f = "i" ++ f },
-            };
+/// The slot each function of `Complex` fills, by its name there.
+const ComplexSlots = struct {
+    axpy: Slot,
+    axpyc: Slot,
+    dotu: Slot,
+    dotc: Slot,
+    scal: Slot,
+    nrm2: Slot,
+    asum: Slot,
+    copy: Slot,
+    swap: Slot,
+    amax: Slot,
+    iamax: Slot,
+    amin: Slot,
+    iamin: Slot,
+    rot: Slot,
+    gemv_n: Slot,
+    gemv_t: Slot,
+    gemv_r: Slot,
+    gemv_c: Slot,
+    gemv_o: Slot,
+    gemv_u: Slot,
+    gemv_s: Slot,
+    gemv_d: Slot,
+};
+
+const real_slots = .{
+    .{ f32, RealSlots{
+        .axpy = .saxpy_k,
+        .dot = .sdot_k,
+        .scal = .sscal_k,
+        .nrm2 = .snrm2_k,
+        .asum = .sasum_k,
+        .copy = .scopy_k,
+        .swap = .sswap_k,
+        .rot = .srot_k,
+        .gemv_n = .sgemv_n,
+        .gemv_t = .sgemv_t,
+        .amax = .samax_k,
+        .iamax = .isamax_k,
+        .amin = .samin_k,
+        .iamin = .isamin_k,
+        .max = .smax_k,
+        .imax = .ismax_k,
+        .min = .smin_k,
+        .imin = .ismin_k,
+    } },
+    .{ f64, RealSlots{
+        .axpy = .daxpy_k,
+        .dot = .ddot_k,
+        .scal = .dscal_k,
+        .nrm2 = .dnrm2_k,
+        .asum = .dasum_k,
+        .copy = .dcopy_k,
+        .swap = .dswap_k,
+        .rot = .drot_k,
+        .gemv_n = .dgemv_n,
+        .gemv_t = .dgemv_t,
+        .amax = .damax_k,
+        .iamax = .idamax_k,
+        .amin = .damin_k,
+        .iamin = .idamin_k,
+        .max = .dmax_k,
+        .imax = .idmax_k,
+        .min = .dmin_k,
+        .imin = .idmin_k,
+    } },
+};
+
+const complex_slots = .{
+    .{ f32, ComplexSlots{
+        .axpy = .caxpy_k,
+        .axpyc = .caxpyc_k,
+        .dotu = .cdotu_k,
+        .dotc = .cdotc_k,
+        .scal = .cscal_k,
+        .nrm2 = .cnrm2_k,
+        .asum = .casum_k,
+        .copy = .ccopy_k,
+        .swap = .cswap_k,
+        .amax = .camax_k,
+        .iamax = .icamax_k,
+        .amin = .camin_k,
+        .iamin = .icamin_k,
+        .rot = .csrot_k,
+        .gemv_n = .cgemv_n,
+        .gemv_t = .cgemv_t,
+        .gemv_r = .cgemv_r,
+        .gemv_c = .cgemv_c,
+        .gemv_o = .cgemv_o,
+        .gemv_u = .cgemv_u,
+        .gemv_s = .cgemv_s,
+        .gemv_d = .cgemv_d,
+    } },
+    .{ f64, ComplexSlots{
+        .axpy = .zaxpy_k,
+        .axpyc = .zaxpyc_k,
+        .dotu = .zdotu_k,
+        .dotc = .zdotc_k,
+        .scal = .zscal_k,
+        .nrm2 = .znrm2_k,
+        .asum = .zasum_k,
+        .copy = .zcopy_k,
+        .swap = .zswap_k,
+        .amax = .zamax_k,
+        .iamax = .izamax_k,
+        .amin = .zamin_k,
+        .iamin = .izamin_k,
+        .rot = .zdrot_k,
+        .gemv_n = .zgemv_n,
+        .gemv_t = .zgemv_t,
+        .gemv_r = .zgemv_r,
+        .gemv_c = .zgemv_c,
+        .gemv_o = .zgemv_o,
+        .gemv_u = .zgemv_u,
+        .gemv_s = .zgemv_s,
+        .gemv_d = .zgemv_d,
+    } },
+};
+
+/// A kernel: the slot it fills, and the function of `Real` or `Complex` over
+/// `F` that is it.
+const Kernel = struct { slot: Slot, F: type, complex: bool, f: [:0]const u8 };
+
+/// Every kernel here: none in a type whose lanes flush denormals
+/// (`util.vectorIeee`), whose slots keep the portable kernels.
+pub const kernels: []const Kernel = blk: {
+    var r: []const Kernel = &.{};
+    for (real_slots) |p| {
+        if (!util.vectorIeee(p[0])) continue;
+        for (@typeInfo(RealSlots).@"struct".field_names) |name| {
+            r = r ++ &[_]Kernel{.{ .slot = @field(p[1], name), .F = p[0], .complex = false, .f = name }};
         }
     }
-    for (.{ .{ "c", f32, "s" }, .{ "z", f64, "d" } }) |p| {
-        if (!util.vectorIeee(p[1])) continue;
-        for (.{ "axpy", "axpyc", "dotu", "dotc", "scal", "nrm2", "asum", "copy", "swap" }) |f| {
-            r = r ++ &[_]Role{.{ .name = p[0] ++ f, .F = p[1], .complex = true, .f = f }};
-        }
-        for (.{ "amax", "amin" }) |f| {
-            r = r ++ &[_]Role{
-                .{ .name = p[0] ++ f, .F = p[1], .complex = true, .f = f },
-                .{ .name = "i" ++ p[0] ++ f, .F = p[1], .complex = true, .f = "i" ++ f },
-            };
-        }
-        r = r ++ &[_]Role{.{ .name = p[0] ++ p[2] ++ "rot", .F = p[1], .complex = true, .f = "rot" }};
-        for ("ntrcousd") |s| {
-            r = r ++ &[_]Role{.{ .name = p[0] ++ "gemv_" ++ [_]u8{s}, .F = p[1], .complex = true, .f = "gemv_" ++ [_]u8{s} }};
+    for (complex_slots) |p| {
+        if (!util.vectorIeee(p[0])) continue;
+        for (@typeInfo(ComplexSlots).@"struct".field_names) |name| {
+            r = r ++ &[_]Kernel{.{ .slot = @field(p[1], name), .F = p[0], .complex = true, .f = name }};
         }
     }
     break :blk r;
 };
 
-/// The kernel of `r`, `U` vectors a step.
-fn kernel(comptime r: Role, comptime U: comptime_int) @TypeOf(&@field(if (r.complex) Complex(r.F, U) else Real(r.F, U), r.f)) {
-    return &@field(if (r.complex) Complex(r.F, U) else Real(r.F, U), r.f);
+/// The kernel of `k`, `U` vectors a step.
+fn kernel(comptime k: Kernel, comptime U: comptime_int) util.SlotFn(k.slot) {
+    return &@field(if (k.complex) Complex(k.F, U) else Real(k.F, U), k.f);
 }
 
-/// The vtable slot of `role`: `<role>_k`, or the role itself (`sgemv_n`).
-fn slot(comptime role: []const u8) []const u8 {
-    return if (@hasField(Vtable, role ++ "_k")) role ++ "_k" else role;
-}
-
-fn symbol(comptime role: []const u8, comptime core: anytype) []const u8 {
-    return util.kernelSymbol(role ++ "_vec", @tagName(core));
+/// The symbol of `slot`'s kernel here for `core`, apart from a converted one's.
+fn symbol(comptime slot: Slot, comptime core: anytype) []const u8 {
+    return util.kernelSymbol(slot, core) ++ "_vec";
 }
 
 /// Points every slot these kernels fill at this build's own, four vectors a
 /// step, for the tests.
 pub fn installAll(vt: *Vtable) void {
-    inline for (roles) |r| @field(vt, slot(r.name)) = kernel(r, 4);
+    inline for (kernels) |k| @field(vt, @tagName(k.slot)) = kernel(k, 4);
 }
 
 /// `Registry`'s `uses` for an architecture whose vector unit is IEEE on
 /// every core: the `routed` slots.
-pub fn usesRouted(comptime core: anytype, comptime role: []const u8) bool {
+pub fn usesRouted(comptime core: anytype, comptime slot: Slot) bool {
     _ = core;
-    return routed(role);
+    return routed(slot);
 }
 
 /// The kernels four vectors a step, in a per-core object for the cores and
-/// roles `uses(core, role)` picks. Like the gemm kernels, they never make a
+/// slots `uses(core, slot)` picks. Like the gemm kernels, they never make a
 /// core need an object of its own.
 pub fn Registry(comptime Core: type, comptime uses: anytype) type {
     return struct {
@@ -931,16 +1087,15 @@ pub fn Registry(comptime Core: type, comptime uses: anytype) type {
         }
 
         pub fn exportCore(comptime core: Core) void {
-            inline for (roles) |r| {
-                if (comptime uses(core, r.name)) @export(kernel(r, 4), .{ .name = symbol(r.name, core), .visibility = .hidden });
+            inline for (kernels) |k| {
+                if (comptime uses(core, k.slot)) @export(kernel(k, 4), .{ .name = symbol(k.slot, core), .visibility = .hidden });
             }
         }
 
         pub fn install(vt: *Vtable, comptime core: Core) void {
-            inline for (roles) |r| {
-                if (comptime uses(core, r.name)) {
-                    const Fn = @typeInfo(@FieldType(Vtable, slot(r.name))).optional.child;
-                    @field(vt, slot(r.name)) = @extern(Fn, .{ .name = symbol(r.name, core), .visibility = .hidden });
+            inline for (kernels) |k| {
+                if (comptime uses(core, k.slot)) {
+                    @field(vt, @tagName(k.slot)) = @extern(util.SlotFn(k.slot), .{ .name = symbol(k.slot, core), .visibility = .hidden });
                 }
             }
         }

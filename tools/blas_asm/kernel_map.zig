@@ -21,22 +21,22 @@ pub const Routine = enum {
     pub fn roles(r: Routine) []const Role {
         return switch (r) {
             .axpy => &.{
-                .{ .name = "saxpy", .letter = 's', .make = "S" },
-                .{ .name = "daxpy", .letter = 'd', .make = "D" },
-                .{ .name = "caxpy", .letter = 'c', .make = "C" },
-                .{ .name = "caxpyc", .letter = 'c', .make = "C", .function = 1 },
-                .{ .name = "zaxpy", .letter = 'z', .make = "Z" },
-                .{ .name = "zaxpyc", .letter = 'z', .make = "Z", .function = 1 },
+                .{ .slot = "saxpy_k", .letter = 's', .make = "S" },
+                .{ .slot = "daxpy_k", .letter = 'd', .make = "D" },
+                .{ .slot = "caxpy_k", .letter = 'c', .make = "C" },
+                .{ .slot = "caxpyc_k", .letter = 'c', .make = "C", .function = 1 },
+                .{ .slot = "zaxpy_k", .letter = 'z', .make = "Z" },
+                .{ .slot = "zaxpyc_k", .letter = 'z', .make = "Z", .function = 1 },
             },
             // the blocks do not know conjugation, and `dsdot` runs `sdot`'s
             .dot => &.{
-                .{ .name = "sdot", .letter = 's', .make = "S" },
-                .{ .name = "dsdot", .letter = 's', .make = "DS" },
-                .{ .name = "ddot", .letter = 'd', .make = "D" },
-                .{ .name = "cdotu", .letter = 'c', .make = "C" },
-                .{ .name = "cdotc", .letter = 'c', .make = "C" },
-                .{ .name = "zdotu", .letter = 'z', .make = "Z" },
-                .{ .name = "zdotc", .letter = 'z', .make = "Z" },
+                .{ .slot = "sdot_k", .letter = 's', .make = "S" },
+                .{ .slot = "dsdot_k", .letter = 's', .make = "DS" },
+                .{ .slot = "ddot_k", .letter = 'd', .make = "D" },
+                .{ .slot = "cdotu_k", .letter = 'c', .make = "C" },
+                .{ .slot = "cdotc_k", .letter = 'c', .make = "C" },
+                .{ .slot = "zdotu_k", .letter = 'z', .make = "Z" },
+                .{ .slot = "zdotc_k", .letter = 'z', .make = "Z" },
             },
         };
     }
@@ -49,7 +49,8 @@ pub const Routine = enum {
 
 /// One kernel of a routine.
 pub const Role = struct {
-    name: []const u8,
+    /// The vtable slot it fills.
+    slot: []const u8,
     /// The precision letter, which names its driver (`<letter><routine>.c`).
     letter: u8,
     /// The make variable's precision prefix, as `Makefile.L1` has it.

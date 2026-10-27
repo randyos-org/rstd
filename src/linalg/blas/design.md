@@ -335,7 +335,7 @@ build/blaskern.zig: kernelCores(arch), runsOn(target cpu), group by Spec.eql
   |  blaskern_linked: cores linked, fallback core
   v
 _kernel.zig: kernels.ForArch(arch).exportCore(core) for each core
-  |  exports blaskern_<role>_<core>, hidden
+  |  exports blaskern_<slot>_<core>, hidden
   v
 kernels/<arch>.zig: modules = the routines with kernels on this arch
   |  install(vt, core) -> asm_registry.install -> @extern each symbol
@@ -369,12 +369,12 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   matching variant (x32, MIPS n32, a soft-float ABI anywhere but arm) stops the build unless
   `-Dblas-cores=none`. `asm_registry.Kernels.exportCore` fails to compile for a core that lacks
   the variant, so the generator and `abi.zig` cannot drift apart.
-- **Symbols.** Each kernel is exported as `blaskern_<role>_<core>` (`util.kernelSymbol`) with
+- **Symbols.** Each kernel is exported as `blaskern_<slot>_<core>` (`util.kernelSymbol`) with
   hidden visibility, so none leaves a shared library rstd is built into. COFF has no visibility;
   a DLL exports nothing without `dllexport`.
 - **Install.** `asm_registry.install` points each slot at `@extern` of the symbol. A core with no
-  object in the build is served by another (`served`, below). Roles without a vtable field
-  (`sdsdot`) are exported but not installed.
+  object in the build is served by another (`served`, below). Every kernel is keyed by its
+  `Slot`; a rule without a vtable field (`sdsdot_k`) is not converted.
 - **Isolation.** The objects compile `_kernel.zig` alone, so everything they reach imports
   nothing outside `src/linalg/blas/`: `Vtable.zig`, `types.zig`, `util.zig`, `fma.zig`,
   `vector.zig`, `cpu/_coretypes.zig`, the registries and the kernels. `kernels/__root__.zig`
@@ -762,7 +762,7 @@ assembly, unchanged in substance:
 - **Output.** Each file holds `keys` (core and variant pairs), `serves(core)`, `kernel(core,
   variant)` and the naked `Body`. File names are the role, the source's suffix, the first core
   where one source splits, and the variant: `daxpy_atom_sysv.zig`,
-  `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by role;
+  `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by slot;
   `asm_registry.Kernels` turns it into a module for `kernels/<arch>.zig`.
 
 #### Fixes to upstream sources

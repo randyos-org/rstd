@@ -857,7 +857,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
                     if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
                     const kernel = if (fns.len == 0) "" else fns[@min(role.function, fns.len - 1)];
                     const module = if (fns.len == 0) "void" else try a.print("@import(\"{s}\")", .{block_file});
-                    try put(&w, "    .{{ .role = \"{s}\", .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s} }},\n", .{ role.name, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module });
+                    try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s} }},\n", .{ role.slot, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module });
                 }
             }
             // the cores that use the driver but no link names: its own fallback block
@@ -868,15 +868,15 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
             }
             if (rest.items.len > 0) for (routine.roles()) |role| {
                 if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
-                try put(&w, "    .{{ .role = \"{s}\", .cores = &.{{{s} }}, .mask = {s}, .block = .none, .kernel = \"\", .module = void }},\n", .{ role.name, rest.items, mask });
+                try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .none, .kernel = \"\", .module = void }},\n", .{ role.slot, rest.items, mask });
             };
         }
     }
     try put(&w, "}};\n\n", .{});
     try w.appendSlice(a,
-        \\/// The entry for `role` on `core`, if its driver is C.
-        \\pub fn find(comptime role: []const u8, comptime core: []const u8) ?Entry {
-        \\    return uk.find(&entries, role, core);
+        \\/// The entry for `slot` on `core`, if its driver is C.
+        \\pub fn find(comptime slot: uk.Slot, comptime core: []const u8) ?Entry {
+        \\    return uk.find(&entries, slot, core);
         \\}
         \\
     );

@@ -19,54 +19,54 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
-const uk = @import("../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const CComplex = types.CComplex;
+const Slot = util.Slot;
 
-pub const Role = enum { sdot, dsdot, ddot, cdotu, cdotc, zdotu, zdotc };
+/// The kernels an architecture's `<arch>/kernel.zig` iterates over.
+pub const slots = [_]Slot{ .sdot_k, .dsdot_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
 
-/// The kernel names an architecture's `<arch>/kernel.zig` iterates over.
-pub const roles: []const [:0]const u8 = @typeInfo(Role).@"enum".field_names;
+/// What a kernel works on: `E` is its element type (a component for the
+/// complex ones), `R` what it returns.
+pub const Form = struct { E: type, R: type, complex: bool };
 
-fn roleOf(comptime role: []const u8) Role {
-    return std.meta.stringToEnum(Role, role).?;
+/// The form of `slot`, one of `slots`.
+pub fn form(comptime slot: Slot) Form {
+    return switch (slot) {
+        .sdot_k => .{ .E = f32, .R = f32, .complex = false },
+        .dsdot_k => .{ .E = f32, .R = f64, .complex = false },
+        .ddot_k => .{ .E = f64, .R = f64, .complex = false },
+        .cdotu_k, .cdotc_k => .{ .E = f32, .R = CComplex(f32), .complex = true },
+        .zdotu_k, .zdotc_k => .{ .E = f64, .R = CComplex(f64), .complex = true },
+        else => @compileError(@tagName(slot) ++ " is not a dot kernel"),
+    };
 }
 
 // ---- kernel ABI ------------------------------------------------------------
 
-/// What the kernel `role` returns.
-pub fn Result(comptime role: []const u8) type {
-    return switch (comptime roleOf(role)) {
-        .sdot => f32,
-        .dsdot, .ddot => f64,
-        .cdotu, .cdotc => CComplex(f32),
-        .zdotu, .zdotc => CComplex(f64),
-    };
-}
-
-/// Vtable slot type of `role`; the elements are `uk.Float(role)`s, interleaved
+/// Vtable slot type of `slot`; the elements are `form(slot).E`s, interleaved
 /// pairs for the complex ones.
-pub fn Kernel(comptime role: []const u8) type {
-    const E = uk.Float(role);
-    return *const fn (BlasLong, [*]E, BlasLong, [*]E, BlasLong) callconv(.c) Result(role);
+pub fn Kernel(comptime slot: Slot) type {
+    const E = form(slot).E;
+    return *const fn (BlasLong, [*]E, BlasLong, [*]E, BlasLong) callconv(.c) form(slot).R;
 }
 
 /// How many partial sums the complex kernels' blocks leave: `cdot` keeps two
 /// sets of four, `zdot` one.
-fn partials(comptime role: []const u8) comptime_int {
-    return if (uk.Float(role) == f32) 8 else 4;
+fn partials(comptime slot: Slot) comptime_int {
+    return if (form(slot).E == f32) 8 else 4;
 }
 
 // ---- blocks ----------------------------------------------------------------
 
-/// A block calling the reference's `f(n, x, y, d)`: for a real role `d` is one
+/// A block calling the reference's `f(n, x, y, d)`: for a real slot `d` is one
 /// element, for a complex one the array of partial sums.
-pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
-    const E = uk.Float(role);
-    if (uk.isComplex(role)) return struct {
-        pub fn run(n1: BlasLong, x: [*]E, y: [*]E) [partials(role)]E {
-            var d: [partials(role)]E = @splat(0);
+pub fn Asm(comptime slot: Slot, comptime f: anytype) type {
+    const E = form(slot).E;
+    if (form(slot).complex) return struct {
+        pub fn run(n1: BlasLong, x: [*]E, y: [*]E) [partials(slot)]E {
+            var d: [partials(slot)]E = @splat(0);
             f(n1, x, y, &d);
             return d;
         }
@@ -83,13 +83,13 @@ pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
 /// The block the reference's driver falls back on where a core has no
 /// microkernel (`ddot_kernel_8`, `sdot_kernel_16`, `cdot_kernel_16`,
 /// `zdot_kernel_8`): plain C, in its own summation order.
-pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
-    const E = uk.Float(role);
-    if (uk.isComplex(role)) {
-        const N = partials(role);
+pub fn Fallback(comptime slot: Slot, comptime fuse: bool) type {
+    const E = form(slot).E;
+    if (form(slot).complex) {
+        const N = partials(slot);
         // the slots of one complex element's four products (re*re, im*im,
         // re*im, im*re); `cdot` alternates two sets of them
-        const slots: [2][4]usize = if (N == 8) .{ .{ 0, 1, 4, 5 }, .{ 2, 3, 6, 7 } } else .{ .{ 0, 1, 2, 3 }, .{ 0, 1, 2, 3 } };
+        const places: [2][4]usize = if (N == 8) .{ .{ 0, 1, 4, 5 }, .{ 2, 3, 6, 7 } } else .{ .{ 0, 1, 2, 3 }, .{ 0, 1, 2, 3 } };
         return struct {
             pub fn run(n1: BlasLong, x: [*]E, y: [*]E) [N]E {
                 var dot: [N]E = @splat(0);
@@ -97,7 +97,7 @@ pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
                 var i: BlasLong = 0;
                 while (i < n1) : (i += 4) {
                     inline for (0..4) |k| {
-                        const s = slots[k % 2];
+                        const s = places[k % 2];
                         const xr = x[j + 2 * k];
                         const xi = x[j + 2 * k + 1];
                         const yr = y[j + 2 * k];
@@ -317,29 +317,30 @@ fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comp
     };
 }
 
-/// The driver of `role` as a struct with `call`, around `Block` (the block
+/// The driver of `slot` as a struct with `call`, around `Block` (the block
 /// the core's microkernel gives, or the reference's own fallback).
-pub fn Driver(comptime role: []const u8, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
-    return switch (comptime roleOf(role)) {
-        .sdot => Sdot(mask, Block, fuse),
-        .dsdot => Dsdot(mask, Block, fuse),
-        .ddot => Ddot(mask, Block, fuse),
-        .cdotu => Cdot(f32, false, mask, Block, fuse),
-        .cdotc => Cdot(f32, true, mask, Block, fuse),
-        .zdotu => Cdot(f64, false, mask, Block, fuse),
-        .zdotc => Cdot(f64, true, mask, Block, fuse),
+pub fn Driver(comptime slot: Slot, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
+    return switch (slot) {
+        .sdot_k => Sdot(mask, Block, fuse),
+        .dsdot_k => Dsdot(mask, Block, fuse),
+        .ddot_k => Ddot(mask, Block, fuse),
+        .cdotu_k => Cdot(f32, false, mask, Block, fuse),
+        .cdotc_k => Cdot(f32, true, mask, Block, fuse),
+        .zdotu_k => Cdot(f64, false, mask, Block, fuse),
+        .zdotc_k => Cdot(f64, true, mask, Block, fuse),
+        else => @compileError(@tagName(slot) ++ " is not a dot kernel"),
     };
 }
 
 // ---- the driver, as `uk_block.driven` takes it -----------------------------
 
-/// The kernel `role` around `Block` (null for the reference's fallback
+/// The kernel `slot` around `Block` (null for the reference's fallback
 /// block), blocks of `mask`.
-pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Block: ?type) Kernel(role) {
-    const E = uk.Float(role);
-    const Impl = Driver(role, mask, Block orelse Fallback(role, fma.fuse), fma.fuse);
+pub fn entry(comptime slot: Slot, comptime mask: comptime_int, comptime Block: ?type) Kernel(slot) {
+    const E = form(slot).E;
+    const Impl = Driver(slot, mask, Block orelse Fallback(slot, fma.fuse), fma.fuse);
     return &struct {
-        fn f(n: BlasLong, x: [*]E, incx: BlasLong, y: [*]E, incy: BlasLong) callconv(.c) Result(role) {
+        fn f(n: BlasLong, x: [*]E, incx: BlasLong, y: [*]E, incy: BlasLong) callconv(.c) form(slot).R {
             return Impl.call(n, x, incx, y, incy);
         }
     }.f;

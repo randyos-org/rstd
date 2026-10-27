@@ -7,149 +7,149 @@ const uk = @import("../../../uk_block.zig");
 pub const Entry = uk.Entry;
 
 pub const entries = [_]Entry{
-    .{ .role = "sdot", .cores = &.{
+    .{ .slot = .sdot_k, .cores = &.{
         "bulldozer",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_bulldozer.zig") },
-    .{ .role = "sdot", .cores = &.{
+    .{ .slot = .sdot_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_steamroller.zig") },
-    .{ .role = "sdot", .cores = &.{
+    .{ .slot = .sdot_k, .cores = &.{
         "nehalem",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_nehalem.zig") },
-    .{ .role = "sdot", .cores = &.{
+    .{ .slot = .sdot_k, .cores = &.{
         "haswell",
         "zen",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_haswell.zig") },
-    .{ .role = "sdot", .cores = &.{
+    .{ .slot = .sdot_k, .cores = &.{
         "cooperlake",
         "sapphirerapids",
         "skylakex",
     }, .mask = 32, .block = .vector, .kernel = "", .module = void },
-    .{ .role = "sdot", .cores = &.{
+    .{ .slot = .sdot_k, .cores = &.{
         "sandybridge",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_sandy.zig") },
-    .{ .role = "dsdot", .cores = &.{
+    .{ .slot = .dsdot_k, .cores = &.{
         "bulldozer",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_bulldozer.zig") },
-    .{ .role = "dsdot", .cores = &.{
+    .{ .slot = .dsdot_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_steamroller.zig") },
-    .{ .role = "dsdot", .cores = &.{
+    .{ .slot = .dsdot_k, .cores = &.{
         "nehalem",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_nehalem.zig") },
-    .{ .role = "dsdot", .cores = &.{
+    .{ .slot = .dsdot_k, .cores = &.{
         "haswell",
         "zen",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_haswell.zig") },
-    .{ .role = "dsdot", .cores = &.{
+    .{ .slot = .dsdot_k, .cores = &.{
         "cooperlake",
         "sapphirerapids",
         "skylakex",
     }, .mask = 32, .block = .vector, .kernel = "", .module = void },
-    .{ .role = "dsdot", .cores = &.{
+    .{ .slot = .dsdot_k, .cores = &.{
         "sandybridge",
     }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_sandy.zig") },
-    .{ .role = "ddot", .cores = &.{
+    .{ .slot = .ddot_k, .cores = &.{
         "excavator",
         "steamroller",
     }, .mask = 16, .block = .assembly, .kernel = "ddot_kernel_8", .module = @import("ddot_steamroller.zig") },
-    .{ .role = "ddot", .cores = &.{
+    .{ .slot = .ddot_k, .cores = &.{
         "piledriver",
     }, .mask = 16, .block = .assembly, .kernel = "ddot_kernel_8", .module = @import("ddot_piledriver.zig") },
-    .{ .role = "ddot", .cores = &.{
+    .{ .slot = .ddot_k, .cores = &.{
         "nehalem",
     }, .mask = 16, .block = .assembly, .kernel = "ddot_kernel_8", .module = @import("ddot_nehalem.zig") },
-    .{ .role = "ddot", .cores = &.{
+    .{ .slot = .ddot_k, .cores = &.{
         "haswell",
         "zen",
     }, .mask = 16, .block = .assembly, .kernel = "ddot_kernel_8", .module = @import("ddot_haswell.zig") },
-    .{ .role = "ddot", .cores = &.{
+    .{ .slot = .ddot_k, .cores = &.{
         "cooperlake",
         "sapphirerapids",
         "skylakex",
     }, .mask = 16, .block = .vector, .kernel = "", .module = void },
-    .{ .role = "ddot", .cores = &.{
+    .{ .slot = .ddot_k, .cores = &.{
         "sandybridge",
     }, .mask = 16, .block = .assembly, .kernel = "ddot_kernel_8", .module = @import("ddot_sandy.zig") },
-    .{ .role = "cdotu", .cores = &.{
+    .{ .slot = .cdotu_k, .cores = &.{
         "bulldozer",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_bulldozer.zig") },
-    .{ .role = "cdotc", .cores = &.{
+    .{ .slot = .cdotc_k, .cores = &.{
         "bulldozer",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_bulldozer.zig") },
-    .{ .role = "cdotu", .cores = &.{
+    .{ .slot = .cdotu_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_steamroller.zig") },
-    .{ .role = "cdotc", .cores = &.{
+    .{ .slot = .cdotc_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_steamroller.zig") },
-    .{ .role = "cdotu", .cores = &.{
+    .{ .slot = .cdotu_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_haswell.zig") },
-    .{ .role = "cdotc", .cores = &.{
+    .{ .slot = .cdotc_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_haswell.zig") },
-    .{ .role = "cdotu", .cores = &.{
+    .{ .slot = .cdotu_k, .cores = &.{
         "sandybridge",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_sandy.zig") },
-    .{ .role = "cdotc", .cores = &.{
+    .{ .slot = .cdotc_k, .cores = &.{
         "sandybridge",
     }, .mask = 16, .block = .assembly, .kernel = "cdot_kernel_16", .module = @import("cdot_sandy.zig") },
-    .{ .role = "zdotu", .cores = &.{
+    .{ .slot = .zdotu_k, .cores = &.{
         "bulldozer",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_bulldozer.zig") },
-    .{ .role = "zdotc", .cores = &.{
+    .{ .slot = .zdotc_k, .cores = &.{
         "bulldozer",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_bulldozer.zig") },
-    .{ .role = "zdotu", .cores = &.{
+    .{ .slot = .zdotu_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_steamroller.zig") },
-    .{ .role = "zdotc", .cores = &.{
+    .{ .slot = .zdotc_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_steamroller.zig") },
-    .{ .role = "zdotu", .cores = &.{
+    .{ .slot = .zdotu_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_haswell.zig") },
-    .{ .role = "zdotc", .cores = &.{
+    .{ .slot = .zdotc_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_haswell.zig") },
-    .{ .role = "zdotu", .cores = &.{
+    .{ .slot = .zdotu_k, .cores = &.{
         "sandybridge",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_sandy.zig") },
-    .{ .role = "zdotc", .cores = &.{
+    .{ .slot = .zdotc_k, .cores = &.{
         "sandybridge",
     }, .mask = 8, .block = .assembly, .kernel = "zdot_kernel_8", .module = @import("zdot_sandy.zig") },
 };
 
-/// The entry for `role` on `core`, if its driver is C.
-pub fn find(comptime role: []const u8, comptime core: []const u8) ?Entry {
-    return uk.find(&entries, role, core);
+/// The entry for `slot` on `core`, if its driver is C.
+pub fn find(comptime slot: uk.Slot, comptime core: []const u8) ?Entry {
+    return uk.find(&entries, slot, core);
 }

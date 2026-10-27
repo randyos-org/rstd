@@ -26,7 +26,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 }
 
 const Body = struct {
-    pub fn zgemv_n() callconv(.naked) void {
+    pub fn entry() callconv(.naked) void {
         asm volatile (
             \\ .align 5
             \\ ld.d $r6, $sp, 0

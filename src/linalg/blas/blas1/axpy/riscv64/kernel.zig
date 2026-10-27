@@ -17,8 +17,9 @@ const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
 const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
-const roles = kernel.roles;
 const rvv = @import("rvv.zig");
+
+const Slot = util.Slot;
 
 pub const Core = coretypes.RiscvCoreType;
 
@@ -30,9 +31,9 @@ fn usesRvv(comptime core: Core) bool {
     };
 }
 
-/// Whether `role` has a kernel of its own on `core`.
-pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    _ = role;
+/// Whether `slot` has a kernel of its own on `core`.
+pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+    _ = slot;
     return usesRvv(core);
 }
 
@@ -41,24 +42,19 @@ pub fn has(comptime core: Core) bool {
     return usesRvv(core);
 }
 
-/// Exported symbol of `role` for `core`.
-pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-    return util.kernelSymbol(role, @tagName(core));
-}
-
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
     if (comptime !usesRvv(core)) return;
-    @export(&rvv.Real(f32).call, .{ .name = symbol("saxpy", core), .visibility = .hidden });
-    @export(&rvv.Real(f64).call, .{ .name = symbol("daxpy", core), .visibility = .hidden });
-    @export(&rvv.Cplx(f32, false).call, .{ .name = symbol("caxpy", core), .visibility = .hidden });
-    @export(&rvv.Cplx(f32, true).call, .{ .name = symbol("caxpyc", core), .visibility = .hidden });
-    @export(&rvv.Cplx(f64, false).call, .{ .name = symbol("zaxpy", core), .visibility = .hidden });
-    @export(&rvv.Cplx(f64, true).call, .{ .name = symbol("zaxpyc", core), .visibility = .hidden });
+    registry.exportKernel(&rvv.Real(f32).call, .saxpy_k, core);
+    registry.exportKernel(&rvv.Real(f64).call, .daxpy_k, core);
+    registry.exportKernel(&rvv.Cplx(f32, false).call, .caxpy_k, core);
+    registry.exportKernel(&rvv.Cplx(f32, true).call, .caxpyc_k, core);
+    registry.exportKernel(&rvv.Cplx(f64, false).call, .zaxpy_k, core);
+    registry.exportKernel(&rvv.Cplx(f64, true).call, .zaxpyc_k, core);
 }
 
 /// Points the vtable at the kernels `core` has.
 pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
+    registry.installSlots(vt, core, &kernel.slots, hasSlot);
 }

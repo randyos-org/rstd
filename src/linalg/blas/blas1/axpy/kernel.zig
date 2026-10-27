@@ -14,16 +14,29 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
-const uk = @import("../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
+const Slot = util.Slot;
 
 /// The kernels: real and complex, plain and conjugated.
-pub const Role = enum { saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc };
+pub const slots = [_]Slot{ .saxpy_k, .daxpy_k, .caxpy_k, .caxpyc_k, .zaxpy_k, .zaxpyc_k };
 
-/// The kernel names an architecture's `<arch>/kernel.zig` iterates over.
-pub const roles: []const [:0]const u8 = @typeInfo(Role).@"enum".field_names;
+/// What a kernel works on: `F` is its component type.
+pub const Form = struct { F: type, complex: bool, conj: bool = false };
+
+/// The form of `slot`, one of `slots`.
+pub fn form(comptime slot: Slot) Form {
+    return switch (slot) {
+        .saxpy_k => .{ .F = f32, .complex = false },
+        .daxpy_k => .{ .F = f64, .complex = false },
+        .caxpy_k => .{ .F = f32, .complex = true },
+        .caxpyc_k => .{ .F = f32, .complex = true, .conj = true },
+        .zaxpy_k => .{ .F = f64, .complex = true },
+        .zaxpyc_k => .{ .F = f64, .complex = true, .conj = true },
+        else => @compileError(@tagName(slot) ++ " is not an axpy kernel"),
+    };
+}
 
 // ---- kernel ABI ------------------------------------------------------------
 
@@ -59,22 +72,17 @@ pub fn complexEntry(comptime F: type, comptime Impl: type) ComplexKernel(F) {
 
 // ---- the driver, as `uk_block.driven` takes it -----------------------------
 
-/// `caxpyc`, `zaxpyc`.
-fn isConj(comptime role: []const u8) bool {
-    return role.len == 6;
-}
-
-/// The kernel type of `role`.
-pub fn Kernel(comptime role: []const u8) type {
-    const F = uk.Float(role);
-    return if (uk.isComplex(role)) ComplexKernel(F) else RealKernel(F);
+/// The kernel type of `slot`.
+pub fn Kernel(comptime slot: Slot) type {
+    const k = form(slot);
+    return if (k.complex) ComplexKernel(k.F) else RealKernel(k.F);
 }
 
 /// A block calling the reference's `f(n, x, y, alpha)`, with `alpha` as an
 /// array of its components.
-pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
-    const F = uk.Float(role);
-    if (uk.isComplex(role)) return struct {
+pub fn Asm(comptime slot: Slot, comptime f: anytype) type {
+    const F = form(slot).F;
+    if (form(slot).complex) return struct {
         pub fn run(n1: BlasLong, alpha: Complex(F), x: [*]Complex(F), y: [*]Complex(F)) void {
             const a = [2]F{ alpha.re, alpha.im };
             f(n1, @ptrCast(x), @ptrCast(y), @ptrCast(&a));
@@ -88,11 +96,11 @@ pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
     };
 }
 
-/// The kernel `role` around `Block` (null for none), blocks of `mask`.
-pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Block: ?type) Kernel(role) {
-    const F = uk.Float(role);
-    if (comptime uk.isComplex(role)) return complexEntry(F, Cplx(F, isConj(role), mask, Block, fma.fuseFor(F)));
-    return realEntry(F, Real(F, mask, Block, fma.fuseFor(F)));
+/// The kernel `slot` around `Block` (null for none), blocks of `mask`.
+pub fn entry(comptime slot: Slot, comptime mask: comptime_int, comptime Block: ?type) Kernel(slot) {
+    const k = form(slot);
+    if (comptime k.complex) return complexEntry(k.F, Cplx(k.F, k.conj, mask, Block, fma.fuseFor(k.F)));
+    return realEntry(k.F, Real(k.F, mask, Block, fma.fuseFor(k.F)));
 }
 
 // ---- drivers ---------------------------------------------------------------

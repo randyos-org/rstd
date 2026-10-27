@@ -28,6 +28,7 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
+const Slot = util.Slot;
 const XDouble = types.XDouble;
 const isComplex = types.isComplex;
 
@@ -836,11 +837,11 @@ pub fn Registry(comptime Core: type) type {
                 inline for (sets) |s| {
                     const K = s.Kernels(p[1], geometry(p[1]));
                     inline for (comptime slotNames(p[0], K)) |name| {
-                        @export(&@field(K, name), .{ .name = util.kernelSymbol(p[0] ++ name, @tagName(core)), .visibility = .hidden });
+                        @export(&@field(K, name), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ name), core), .visibility = .hidden });
                     }
                 }
                 inline for (.{ "m", "n" }) |w| {
-                    @export(&@field(Unrolls(p[1]), w), .{ .name = util.kernelSymbol(p[0] ++ "gemm_unroll_" ++ w, @tagName(core)), .visibility = .hidden });
+                    @export(&@field(Unrolls(p[1]), w), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ "gemm_unroll_" ++ w), core), .visibility = .hidden });
                 }
             }
         }
@@ -850,10 +851,10 @@ pub fn Registry(comptime Core: type) type {
             fill(vt, core_precisions, struct {
                 fn function(comptime pre: []const u8, comptime _: type, comptime _: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child {
                     const Fn = @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child;
-                    return @extern(Fn, .{ .name = util.kernelSymbol(pre ++ name, @tagName(core)), .visibility = .hidden });
+                    return @extern(Fn, .{ .name = util.kernelSymbol(@field(Slot, pre ++ name), core), .visibility = .hidden });
                 }
                 fn unroll(comptime pre: []const u8, comptime _: type, comptime which: []const u8) i32 {
-                    return @extern(*const i32, .{ .name = util.kernelSymbol(pre ++ "gemm_unroll_" ++ which, @tagName(core)), .visibility = .hidden }).*;
+                    return @extern(*const i32, .{ .name = util.kernelSymbol(@field(Slot, pre ++ "gemm_unroll_" ++ which), core), .visibility = .hidden }).*;
                 }
             });
         }

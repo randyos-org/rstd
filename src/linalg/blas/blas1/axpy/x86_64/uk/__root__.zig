@@ -7,126 +7,126 @@ const uk = @import("../../../uk_block.zig");
 pub const Entry = uk.Entry;
 
 pub const entries = [_]Entry{
-    .{ .role = "saxpy", .cores = &.{
+    .{ .slot = .saxpy_k, .cores = &.{
         "nehalem",
     }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_nehalem.zig") },
-    .{ .role = "saxpy", .cores = &.{
+    .{ .slot = .saxpy_k, .cores = &.{
         "haswell",
         "zen",
     }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_haswell.zig") },
-    .{ .role = "saxpy", .cores = &.{
+    .{ .slot = .saxpy_k, .cores = &.{
         "cooperlake",
         "sapphirerapids",
         "skylakex",
     }, .mask = 32, .block = .vector, .kernel = "", .module = void },
-    .{ .role = "saxpy", .cores = &.{
+    .{ .slot = .saxpy_k, .cores = &.{
         "sandybridge",
     }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_sandy.zig") },
-    .{ .role = "saxpy", .cores = &.{
+    .{ .slot = .saxpy_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 32, .block = .assembly, .kernel = "saxpy_kernel_16", .module = @import("saxpy_piledriver.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "nehalem",
     }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_nehalem.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "bulldozer",
     }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_bulldozer.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "excavator",
         "steamroller",
     }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_steamroller.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "piledriver",
     }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_piledriver.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "haswell",
         "zen",
     }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_haswell.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "cooperlake",
         "sapphirerapids",
         "skylakex",
     }, .mask = 16, .block = .vector, .kernel = "", .module = void },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "sandybridge",
     }, .mask = 16, .block = .assembly, .kernel = "daxpy_kernel_8", .module = @import("daxpy_sandy.zig") },
-    .{ .role = "caxpy", .cores = &.{
+    .{ .slot = .caxpy_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_steamroller.zig") },
-    .{ .role = "caxpyc", .cores = &.{
+    .{ .slot = .caxpyc_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_steamroller.zig") },
-    .{ .role = "caxpy", .cores = &.{
+    .{ .slot = .caxpy_k, .cores = &.{
         "bulldozer",
     }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_bulldozer.zig") },
-    .{ .role = "caxpyc", .cores = &.{
+    .{ .slot = .caxpyc_k, .cores = &.{
         "bulldozer",
     }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_bulldozer.zig") },
-    .{ .role = "caxpy", .cores = &.{
+    .{ .slot = .caxpy_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_haswell.zig") },
-    .{ .role = "caxpyc", .cores = &.{
+    .{ .slot = .caxpyc_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_haswell.zig") },
-    .{ .role = "caxpy", .cores = &.{
+    .{ .slot = .caxpy_k, .cores = &.{
         "sandybridge",
     }, .mask = 32, .block = .assembly, .kernel = "caxpy_kernel_8", .module = @import("caxpy_sandy.zig") },
-    .{ .role = "caxpyc", .cores = &.{
+    .{ .slot = .caxpyc_k, .cores = &.{
         "sandybridge",
     }, .mask = 32, .block = .assembly, .kernel = "caxpyc_kernel_8", .module = @import("caxpy_sandy.zig") },
-    .{ .role = "zaxpy", .cores = &.{
+    .{ .slot = .zaxpy_k, .cores = &.{
         "bulldozer",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_bulldozer.zig") },
-    .{ .role = "zaxpyc", .cores = &.{
+    .{ .slot = .zaxpyc_k, .cores = &.{
         "bulldozer",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_bulldozer.zig") },
-    .{ .role = "zaxpy", .cores = &.{
+    .{ .slot = .zaxpy_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_steamroller.zig") },
-    .{ .role = "zaxpyc", .cores = &.{
+    .{ .slot = .zaxpyc_k, .cores = &.{
         "excavator",
         "piledriver",
         "steamroller",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_steamroller.zig") },
-    .{ .role = "zaxpy", .cores = &.{
+    .{ .slot = .zaxpy_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_haswell.zig") },
-    .{ .role = "zaxpyc", .cores = &.{
+    .{ .slot = .zaxpyc_k, .cores = &.{
         "cooperlake",
         "haswell",
         "sapphirerapids",
         "skylakex",
         "zen",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_haswell.zig") },
-    .{ .role = "zaxpy", .cores = &.{
+    .{ .slot = .zaxpy_k, .cores = &.{
         "sandybridge",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpy_kernel_4", .module = @import("zaxpy_sandy.zig") },
-    .{ .role = "zaxpyc", .cores = &.{
+    .{ .slot = .zaxpyc_k, .cores = &.{
         "sandybridge",
     }, .mask = 16, .block = .assembly, .kernel = "zaxpyc_kernel_4", .module = @import("zaxpy_sandy.zig") },
 };
 
-/// The entry for `role` on `core`, if its driver is C.
-pub fn find(comptime role: []const u8, comptime core: []const u8) ?Entry {
-    return uk.find(&entries, role, core);
+/// The entry for `slot` on `core`, if its driver is C.
+pub fn find(comptime slot: uk.Slot, comptime core: []const u8) ?Entry {
+    return uk.find(&entries, slot, core);
 }

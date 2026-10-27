@@ -26,7 +26,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 }
 
 const Body = struct {
-    pub fn dnrm2() callconv(.naked) void {
+    pub fn entry() callconv(.naked) void {
         asm volatile (
             \\ .align 5
             \\ vxor.v $vr19, $vr19, $vr19

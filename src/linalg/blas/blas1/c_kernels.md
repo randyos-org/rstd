@@ -22,7 +22,7 @@ is in [`design.md`](../design.md#kernel-kinds).
 
 `blas1/uk_block.zig` holds what is shared: `Entry` (a row of the index),
 `find`, the `Block` kinds, and `Kernels`, which exports the core's kernels
-(`blaskern_<role>_<core>`) and points the vtable at them. A core whose source is
+(`blaskern_<slot>_<core>`) and points the vtable at them. A core whose source is
 a whole `.S` kernel still goes through `asm/__root__.zig`; `Kernels` takes both
 and prefers the assembly.
 
@@ -61,12 +61,12 @@ Bulldozer, Piledriver and Steamroller ones are untested at run time.
 
 ### Adding a routine
 
-1. A `Routine` and its roles in `kernel_map.zig`: the role's name, precision
+1. A `Routine` and its roles in `kernel_map.zig`: the role's slot, precision
    letter, make prefix (`DS` for `DSDOTKERNEL`), and which function of a block
    it calls (the conjugated `axpyc` calls the second).
 2. The routine in a target's `routines` in `uk.zig`, then run it.
-3. The driver, `<routine>/kernel.zig` (below), with `roles`, `Kernel(role)`,
-   `Asm(role, f)` and `entry(role, mask, Block)`.
+3. The driver, `<routine>/kernel.zig` (below), with `slots`, `form(slot)`,
+   `Kernel(slot)`, `Asm(slot, f)` and `entry(slot, mask, Block)`.
 4. A `<routine>/<arch>/kernel.zig` that is a `uk.Kernels(...)` plus the
    architecture's `Vector` block, and its line in `kernels/<arch>.zig`
    (replacing the routine's plain `registry.Kernels(...)` line).
@@ -99,7 +99,7 @@ are the same C across cores.
 - **Mixed types.** `sdot` sums in `double` and returns `float`; `dsdot` is the
   same file built with `DSDOT` and calls the block in chunks of 32 whatever
   the block size. The role table carries that (`dsdot` is not `sdot`), and
-  `uk.Float` gives the element type (`f32` for `dsdot`).
+  `form` gives the element type (`f32` for `dsdot`).
 - **Complex.** Results are `types.CComplex(F)` (an `extern struct`, so the C ABI
   returns it as the reference does). `*dotc` differs from `*dotu` only in the
   last two lines.
@@ -114,7 +114,7 @@ are the same C across cores.
 
 Where an architecture's block is C intrinsics (`ddot_microk_skylakex-2.c`, AVX-512
 cores) there is nothing to convert; the index says `.vector` and the
-architecture's `kernel.zig` supplies `Vector(role)`, a block on `@Vector`.
+architecture's `kernel.zig` supplies `Vector(slot)`, a block on `@Vector`.
 
 - Keep the C's operation order, not just its value. Reductions are fixed:
   accumulators in a fixed number, folded in a fixed order, halves added, then

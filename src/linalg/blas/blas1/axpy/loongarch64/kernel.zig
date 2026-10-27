@@ -15,17 +15,15 @@ const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
-const roles = kernel.roles;
 
 const R = registry.Kernels(coretypes.LoongarchCoreType, @import("asm/__root__.zig"));
 
 pub const Core = coretypes.LoongarchCoreType;
 pub const has = R.has;
-pub const hasRole = R.hasRole;
-pub const symbol = R.symbol;
+pub const hasSlot = R.hasSlot;
 pub const exportCore = R.exportCore;
 
 /// Points the vtable at the kernels `core` has.
 pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
+    registry.installSlots(vt, core, &kernel.slots, hasSlot);
 }

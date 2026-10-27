@@ -14,6 +14,9 @@ const Error = arch.Error;
 pub const Role = struct {
     /// `cdotu`.
     name: []const u8,
+    /// The vtable slot, as the rule's object names it (`cdotu_k`, `sgemv_n`);
+    /// null for one `gotoblas_t` has none for (`no_slot`).
+    slot: ?[]const u8,
     /// `CDOTKERNEL`.
     key: []const u8,
     prec: arch.Prec,
@@ -25,6 +28,11 @@ pub const Role = struct {
     /// without it.
     extended: bool = false,
 };
+
+/// Rules whose kernel has no vtable slot, so nothing would install it:
+/// `sdsdot_k`, which OpenBLAS compiles per core as it does `dsdot_k`, though
+/// its own `gotoblas_t` has no such slot either.
+const no_slot = [_][]const u8{"sdsdot_k"};
 
 /// The roles of `text`, a Makefile; the extended-precision ones (`XDOUBLE`)
 /// are marked `extended`.
@@ -47,8 +55,12 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
         // `sdot_k$(TSUFFIX)` is role `sdot`; level 2 has `sgemv_n$(TSUFFIX)`
         const obj_start = "$(KDIR)".len;
         const obj_end = std.mem.find(u8, line[obj_start..], "$(TSUFFIX)") orelse continue;
-        var name = line[obj_start .. obj_start + obj_end];
+        const object = line[obj_start .. obj_start + obj_end];
+        var name = object;
         if (std.mem.endsWith(u8, name, "_k")) name = name[0 .. name.len - 2];
+        const slotted = for (no_slot) |n| {
+            if (std.mem.eql(u8, n, object)) break false;
+        } else true;
         for (out.items) |r| {
             if (std.mem.eql(u8, r.name, name)) continue :outer;
         }
@@ -65,7 +77,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
             if (std.mem.eql(u8, tok, "-DDOUBLE")) double = true else if (std.mem.eql(u8, tok, "-DCOMPLEX")) complex = true else if (std.mem.eql(u8, tok, "-DCONJ")) conj = true else if (std.mem.startsWith(u8, tok, "-D") and !std.mem.startsWith(u8, tok, "-DXDOUBLE")) try defines.append(a, try a.dupe(u8, tok));
         }
         const prec: arch.Prec = if (complex) (if (double) .z else .c) else (if (double) .d else .s);
-        try out.append(a, .{ .name = try a.dupe(u8, name), .key = try a.dupe(u8, key), .prec = prec, .conj = conj, .defines = defines.items, .extended = ext });
+        try out.append(a, .{ .name = try a.dupe(u8, name), .slot = if (slotted) try a.dupe(u8, object) else null, .key = try a.dupe(u8, key), .prec = prec, .conj = conj, .defines = defines.items, .extended = ext });
     }
     return out.items;
 }

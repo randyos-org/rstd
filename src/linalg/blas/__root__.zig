@@ -20,6 +20,7 @@ const tri = blas2.triangular;
 const band = blas2.banded;
 const l3 = blas3.interface;
 // pub const util = @import("util.zig");
+const util = @import("util.zig");
 
 // ---- the BLAS routines ---------------------------------------------------------
 //
@@ -123,11 +124,8 @@ const generic_vtable: Vtable = blk: {
     break :blk vt;
 };
 
-/// A vtable slot's name; too many fields for the default branch quota.
-pub const Slot = blk: {
-    @setEvalBranchQuota(10_000);
-    break :blk std.meta.FieldEnum(Vtable);
-};
+/// A vtable slot's name.
+pub const Slot = util.Slot;
 
 var phase = std.atomic.Value(InitPhase).init(.uninit);
 /// How many times a core was selected; the tests watch the handshake with it.

@@ -1,5 +1,17 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
+const Vtable = @import("Vtable.zig");
+
+/// A vtable slot's name; too many fields for the default branch quota.
+pub const Slot = blk: {
+    @setEvalBranchQuota(10_000);
+    break :blk std.meta.FieldEnum(Vtable);
+};
+
+/// The function type of a kernel slot.
+pub fn SlotFn(comptime slot: Slot) type {
+    return @typeInfo(@FieldType(Vtable, @tagName(slot))).optional.child;
+}
 
 /// Equivalent of C's `base[offset]` where `offset` may be negative -- BLAS
 /// routines allow negative `inc_x`/`inc_y` (iterate a vector in reverse),
@@ -16,12 +28,12 @@ pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
     return @ptrFromInt(new_addr);
 }
 
-/// The symbol of the kernel `role` (`daxpy`, ...) of `core`. The per-core objects
-/// (`build/blaskern.zig`) export it, with hidden visibility so it never leaves a
-/// shared library rstd is built into, and `kernels/<arch>.zig`'s `install` looks
-/// it up by the same name.
-pub fn kernelSymbol(comptime role: []const u8, comptime core: []const u8) []const u8 {
-    return "blaskern_" ++ role ++ "_" ++ core;
+/// The symbol of `core`'s kernel for `slot` (`blaskern_daxpy_k_haswell`). The
+/// per-core objects (`build/blaskern.zig`) export it, with hidden visibility so it
+/// never leaves a shared library rstd is built into, and `kernels/<arch>.zig`'s
+/// `install` looks it up by the same name.
+pub fn kernelSymbol(comptime slot: Slot, comptime core: anytype) []const u8 {
+    return "blaskern_" ++ @tagName(slot) ++ "_" ++ @tagName(core);
 }
 
 /// Loads a `V` from `p`, which is not assumed aligned to `V`'s natural

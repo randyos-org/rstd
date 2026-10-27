@@ -8,8 +8,11 @@
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
+const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
+
+const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
 
@@ -37,11 +40,11 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those
 /// routed for their alignment (`vector.peels`) only on the cores whose
 /// converted kernels they replace.
-fn usesVector(comptime core: Core, comptime role: []const u8) bool {
-    if (!vector.routed(role)) return false;
-    if (!vector.peels(role)) return true;
+fn usesVector(comptime core: Core, comptime slot: Slot) bool {
+    if (!vector.routed(slot)) return false;
+    if (!vector.peels(slot)) return true;
     inline for (converted) |m| {
-        if (@hasDecl(m, "converted") and m.converted(core, role)) return true;
+        if (@hasDecl(m, "converted") and m.converted(core, slot)) return true;
     }
     return false;
 }

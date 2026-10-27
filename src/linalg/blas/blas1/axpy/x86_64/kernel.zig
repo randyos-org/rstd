@@ -28,19 +28,21 @@ const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const fma = @import("../../../fma.zig");
+const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
 const uk = @import("../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
+const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
 
 const has_avx512f = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512f);
 
 /// `y += alpha * x` over a whole block, on vectors as wide as the core's
-/// widest: what the reference's intrinsics block does (real roles only).
-fn VectorBlock(comptime role: []const u8) type {
-    const T = uk.Float(role);
+/// widest: what the reference's intrinsics block does (real slots only).
+fn VectorBlock(comptime slot: Slot) type {
+    const T = kernel.form(slot).F;
     const width = (if (has_avx512f) 64 else 32) / @sizeOf(T);
     const V = @Vector(width, T);
     return struct {
@@ -59,8 +61,7 @@ fn VectorBlock(comptime role: []const u8) type {
 
 const K = uk.Kernels(Core, kernel, @import("asm/__root__.zig"), @import("uk/__root__.zig"), VectorBlock);
 
-pub const hasRole = K.hasRole;
+pub const hasSlot = K.hasSlot;
 pub const has = K.has;
-pub const symbol = K.symbol;
 pub const exportCore = K.exportCore;
 pub const install = K.install;

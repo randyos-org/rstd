@@ -15,15 +15,15 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
+const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
-const roles = kernel.roles;
 const c_kernels = @import("c_kernels.zig");
 
+const Slot = util.Slot;
 const R = registry.Kernels(coretypes.PowerCoreType, @import("asm/__root__.zig"));
 
 pub const Core = coretypes.PowerCoreType;
-pub const symbol = R.symbol;
 
 /// Which C kernels `core` uses (`KERNEL.POWER8`, `.POWER9`, `.POWER10`); the
 /// assembly `caxpy` alternatives of the first two are for older compilers.
@@ -37,11 +37,11 @@ fn cSource(comptime core: Core) ?c_kernels.Source {
 
 /// Exports every axpy kernel `core` has.
 pub fn exportCore(comptime core: Core) void {
-    inline for (roles) |role| {
+    inline for (kernel.slots) |slot| {
         if (comptime cSource(core)) |source| {
-            @export(c_kernels.entry(role, source), .{ .name = symbol(role, core), .visibility = .hidden });
-        } else if (comptime R.hasRole(core, role)) {
-            R.exportOne(role, core);
+            registry.exportKernel(c_kernels.entry(slot, source), slot, core);
+        } else if (comptime R.hasSlot(core, slot)) {
+            R.exportOne(slot, core);
         }
     }
 }
@@ -52,12 +52,12 @@ pub fn has(comptime core: Core) bool {
     return cSource(core) != null or R.has(core);
 }
 
-/// Whether `role` has a kernel on `core` for this target.
-pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    return cSource(core) != null or R.hasRole(core, role);
+/// Whether `slot` has a kernel on `core` for this target.
+pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+    return cSource(core) != null or R.hasSlot(core, slot);
 }
 
 /// Points the vtable at the kernels `core` has.
 pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
+    registry.installSlots(vt, core, &kernel.slots, hasSlot);
 }

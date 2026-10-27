@@ -17,34 +17,34 @@
 const sysinfo = @import("builtin");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
+const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
-const roles = kernel.roles;
 const msa = @import("../mips/msa.zig");
 
+const Slot = util.Slot;
 const R = registry.Kernels(coretypes.MipsCoreType, @import("asm/__root__.zig"));
 
 pub const Core = coretypes.MipsCoreType;
 
-/// Whether `core` uses the SIMD kernel for `role`.
-fn usesMsa(comptime core: Core, comptime role: []const u8) bool {
-    const complex = comptime role[0] == 'c' or role[0] == 'z';
-    if (complex and sysinfo.target.cpu.arch.isMips64()) return false;
+/// Whether `core` uses the SIMD kernel for `slot`.
+fn usesMsa(comptime core: Core, comptime slot: Slot) bool {
+    if (kernel.form(slot).complex and sysinfo.target.cpu.arch.isMips64()) return false;
     return switch (core) {
         .loongson3r4, .p5600, .i6400, .i6500, .p6600 => true,
         else => false,
     };
 }
 
-/// Whether `core` uses the SIMD kernel for any role.
+/// Whether `core` uses the SIMD kernel for any slot.
 fn usesAnyMsa(comptime core: Core) bool {
-    inline for (roles) |r| if (usesMsa(core, r)) return true;
+    inline for (kernel.slots) |s| if (usesMsa(core, s)) return true;
     return false;
 }
 
-/// Whether `role` has a kernel of its own on `core`.
-pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    return usesMsa(core, role) or R.hasRole(core, role);
+/// Whether `slot` has a kernel of its own on `core`.
+pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+    return usesMsa(core, slot) or R.hasSlot(core, slot);
 }
 
 /// Whether `core` has any axpy kernel of its own.
@@ -52,22 +52,19 @@ pub fn has(comptime core: Core) bool {
     return usesAnyMsa(core) or R.has(core);
 }
 
-/// Exported symbol of `role` for `core`.
-pub const symbol = R.symbol;
-
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
     if (comptime usesAnyMsa(core)) {
         inline for (.{
-            .{ "saxpy", &msa.Real(f32).call },
-            .{ "daxpy", &msa.Real(f64).call },
-            .{ "caxpy", &msa.Cplx(f32, false).call },
-            .{ "caxpyc", &msa.Cplx(f32, true).call },
-            .{ "zaxpy", &msa.Cplx(f64, false).call },
-            .{ "zaxpyc", &msa.Cplx(f64, true).call },
+            .{ Slot.saxpy_k, &msa.Real(f32).call },
+            .{ Slot.daxpy_k, &msa.Real(f64).call },
+            .{ Slot.caxpy_k, &msa.Cplx(f32, false).call },
+            .{ Slot.caxpyc_k, &msa.Cplx(f32, true).call },
+            .{ Slot.zaxpy_k, &msa.Cplx(f64, false).call },
+            .{ Slot.zaxpyc_k, &msa.Cplx(f64, true).call },
         }) |e| {
-            if (comptime usesMsa(core, e[0])) @export(e[1], .{ .name = symbol(e[0], core), .visibility = .hidden });
+            if (comptime usesMsa(core, e[0])) registry.exportKernel(e[1], e[0], core);
         }
     }
     R.exportCore(core);
@@ -75,5 +72,5 @@ pub fn exportCore(comptime core: Core) void {
 
 /// Points the vtable at the kernels `core` has.
 pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
+    registry.installSlots(vt, core, &kernel.slots, hasSlot);
 }

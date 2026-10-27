@@ -43,6 +43,8 @@ pub const Kernel = struct {
     conj: bool = false,
     /// The vtable role (`cdotu`).
     role_name: []const u8 = "",
+    /// Its vtable slot (`cdotu_k`).
+    slot: []const u8 = "",
     /// `-D` symbols the role's rule adds.
     defines: []const []const u8 = &.{},
 
@@ -69,7 +71,7 @@ fn isNameChar(c: u8) bool {
 /// call to one core's own kernel (`bl camax_k_LA264`): OpenBLAS's own name
 /// for exactly the symbol this project's per-core kernel object already
 /// builds and exports, under this project's own naming instead
-/// (`util.kernelSymbol`: `blaskern_camax_la264`). Rewrites any such call to
+/// (`util.kernelSymbol`: `blaskern_camax_k_la264`). Rewrites any such call to
 /// that name, so it resolves within the same isolated per-core object.
 fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const u8 {
     if (std.mem.find(u8, line, "_k_") == null) return line;
@@ -87,7 +89,7 @@ fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const
                 // digits are neither upper nor lower, so they pass either way
                 for (role) |c| if (std.ascii.isUpper(c)) break :rewrite;
                 for (core) |c| if (std.ascii.isLower(c)) break :rewrite;
-                try out.print(a, "blaskern_{s}_{s}", .{ role, try std.ascii.allocLowerString(a, core) });
+                try out.print(a, "blaskern_{s}_k_{s}", .{ role, try std.ascii.allocLowerString(a, core) });
                 i = e;
                 continue;
             }

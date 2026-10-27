@@ -17,6 +17,8 @@ const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const registry = @import("../asm_registry.zig");
 
+pub const Slot = util.Slot;
+
 /// What a driver calls for its contiguous part.
 pub const Block = enum {
     /// A function of `module`, called as the reference's block kernels are.
@@ -27,10 +29,10 @@ pub const Block = enum {
     none,
 };
 
-/// One row of a generated `uk/__root__.zig`: the cores whose driver for `role`
+/// One row of a generated `uk/__root__.zig`: the cores whose driver for `slot`
 /// calls this block.
 pub const Entry = struct {
-    role: []const u8,
+    slot: Slot,
     cores: []const []const u8,
     /// The driver's block size, `n & -mask`.
     mask: comptime_int,
@@ -40,11 +42,11 @@ pub const Entry = struct {
     module: type,
 };
 
-/// The row of `entries` for `role` on `core`, if its driver is C.
-pub fn find(comptime entries: []const Entry, comptime role: []const u8, comptime core: []const u8) ?Entry {
+/// The row of `entries` for `slot` on `core`, if its driver is C.
+pub fn find(comptime entries: []const Entry, comptime slot: Slot, comptime core: []const u8) ?Entry {
     @setEvalBranchQuota(1_000_000);
     inline for (entries) |e| {
-        if (comptime std.mem.eql(u8, e.role, role)) {
+        if (comptime e.slot == slot) {
             inline for (e.cores) |c| {
                 if (comptime std.mem.eql(u8, c, core)) return e;
             }
@@ -53,94 +55,77 @@ pub fn find(comptime entries: []const Entry, comptime role: []const u8, comptime
     return null;
 }
 
-/// Whether `role` (`caxpy`, `zdot`, ...) is complex.
-pub fn isComplex(comptime role: []const u8) bool {
-    return role[0] == 'c' or role[0] == 'z';
-}
-
-/// The component type of `role`: its first letter says the precision, except
-/// `dsdot`, which reads `f32`.
-pub fn Float(comptime role: []const u8) type {
-    if (std.mem.startsWith(u8, role, "ds")) return f32;
-    return if (role[0] == 'd' or role[0] == 'z') f64 else f32;
-}
-
-/// The kernel `role` of the core whose entry is `e`. `Driver` is the routine's
-/// ported driver: `Kernel(role)` is the slot type, `Asm(role, f)` a block that
-/// calls assembly function `f` as the reference does, and `entry(role, mask, B)`
-/// the kernel around block `B` (null for none). `Vector(role)` is the
+/// The kernel `slot` of the core whose entry is `e`. `Driver` is the routine's
+/// ported driver: `Kernel(slot)` is the slot type, `Asm(slot, f)` a block that
+/// calls assembly function `f` as the reference does, and `entry(slot, mask, B)`
+/// the kernel around block `B` (null for none). `Vector(slot)` is the
 /// architecture's block on vectors.
 pub fn driven(
     comptime Driver: type,
-    comptime role: []const u8,
+    comptime slot: Slot,
     comptime e: anytype,
-    comptime Vector: fn (comptime []const u8) type,
-) Driver.Kernel(role) {
+    comptime Vector: fn (comptime Slot) type,
+) Driver.Kernel(slot) {
     const B: ?type = switch (e.block) {
         .none => null,
-        .vector => Vector(role),
-        .assembly => Driver.Asm(role, @field(e.module, e.kernel)),
+        .vector => Vector(slot),
+        .assembly => Driver.Asm(slot, @field(e.module, e.kernel)),
     };
-    return Driver.entry(role, e.mask, B);
+    return Driver.entry(slot, e.mask, B);
 }
 
 /// For architectures with no block on vectors.
-pub fn NoVector(comptime role: []const u8) type {
-    _ = role;
+pub fn NoVector(comptime slot: Slot) type {
+    _ = slot;
     return struct {};
 }
 
 /// One architecture's kernels of a routine, in the shape `kernels/<arch>.zig`
 /// lists: the converted assembly (`asm_index`, an `asm/__root__.zig`) where
 /// the core's source is assembly, and the routine's `Driver` around the block
-/// `ukidx` (a `uk/__root__.zig`) names where it is C. `Driver.roles` lists the
+/// `ukidx` (a `uk/__root__.zig`) names where it is C. `Driver.slots` lists the
 /// routine's kernels.
 pub fn Kernels(
     comptime Core: type,
     comptime Driver: type,
     comptime asm_index: type,
     comptime ukidx: type,
-    comptime Vector: fn (comptime []const u8) type,
+    comptime Vector: fn (comptime Slot) type,
 ) type {
     const asm_kernels = registry.Kernels(Core, asm_index);
     return struct {
-        /// Whether `role` has a kernel of its own on `core`, either kind.
-        pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-            return asm_kernels.hasRole(core, role) or ukidx.find(role, @tagName(core)) != null;
+        /// Whether `slot` has a kernel of its own on `core`, either kind.
+        pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+            return asm_kernels.hasSlot(core, slot) or ukidx.find(slot, @tagName(core)) != null;
         }
 
-        /// Whether `role` has a converted assembly kernel on `core`, `routed`
+        /// Whether `slot` has a converted assembly kernel on `core`, `routed`
         /// or not.
         pub const converted = asm_kernels.converted;
 
         /// Whether `core` has any kernel of this routine.
         pub fn has(comptime core: Core) bool {
-            inline for (Driver.roles) |role| {
-                if (comptime hasRole(core, role)) return true;
+            inline for (Driver.slots) |slot| {
+                if (comptime hasSlot(core, slot)) return true;
             }
             return false;
-        }
-
-        /// Exported symbol of `role` for `core`.
-        pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-            return util.kernelSymbol(role, @tagName(core));
         }
 
         /// Exports every kernel `core` has. Call from a container-level
         /// `comptime` block of the object's root file.
         pub fn exportCore(comptime core: Core) void {
-            inline for (Driver.roles) |role| {
-                if (comptime asm_kernels.hasRole(core, role)) {
-                    asm_kernels.exportOne(role, core);
-                } else if (comptime ukidx.find(role, @tagName(core))) |e| {
-                    @export(driven(Driver, role, e, Vector), .{ .name = symbol(role, core), .visibility = .hidden });
+            inline for (Driver.slots) |slot| {
+                if (comptime asm_kernels.hasSlot(core, slot)) {
+                    asm_kernels.exportOne(slot, core);
+                } else if (comptime ukidx.find(slot, @tagName(core))) |e| {
+                    registry.exportKernel(driven(Driver, slot, e, Vector), slot, core);
                 }
             }
         }
 
         /// Points the vtable at the kernels `core` has.
         pub fn install(vt: *Vtable, comptime core: Core) void {
-            registry.installRoles(vt, core, Driver.roles, hasRole);
+            registry.installSlots(vt, core, &Driver.slots, hasSlot);
         }
     };
 }
