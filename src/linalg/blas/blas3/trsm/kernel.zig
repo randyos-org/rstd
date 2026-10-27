@@ -39,7 +39,9 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             if (comptime !complex) return util.scalar(E, x * y);
             return util.scalar(E, .{ x[0] * y[0] - x[1] * y[1], x[0] * y[1] + x[1] * y[0] });
         }
-        fn conjIf(x: E, c: bool) E {
+        // `c` comptime: a run-time one selects between `-x` and `x`, which
+        // LLVM cannot compile in a loop on MIPS64r6 (issues.md)
+        fn conjIf(x: E, comptime c: bool) E {
             if (comptime !complex) return x;
             return if (c) .{ x[0], -x[1] } else x;
         }
@@ -166,7 +168,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             return n / u + @popCount(n % u);
         }
 
-        fn run(left: bool, forward: bool, conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, a: [*]E, b: [*]E, c: [*]E, ldc: BlasLong, offset: BlasLong) void {
+        fn run(left: bool, forward: bool, comptime conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, a: [*]E, b: [*]E, c: [*]E, ldc: BlasLong, offset: BlasLong) void {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
@@ -245,7 +247,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// `solve` of `trsm_kernel_LT.c` (`forward`) and `_LN.c`: the `m x n`
         /// block of `C` by the diagonal block `a` (`m x m`), into `C` and the
         /// packed `b`.
-        fn solveLeft(forward: bool, conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        fn solveLeft(forward: bool, comptime conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..m) |s| {
                 const i = if (forward) s else m - 1 - s;
                 const d = conjIf(a[i * m + i], conj);
@@ -263,7 +265,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         /// `solve` of `trsm_kernel_RN.c` (`forward`) and `_RT.c`: the `m x n`
         /// block of `C` by the diagonal block `b` (`n x n`), into `C` and the
         /// packed `a`.
-        fn solveRight(forward: bool, conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        fn solveRight(forward: bool, comptime conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..n) |s| {
                 const i = if (forward) s else n - 1 - s;
                 const d = conjIf(b[i * n + i], conj);

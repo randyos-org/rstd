@@ -311,6 +311,59 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > should fail the compilation; perhaps check `DiagnosticHandler::HasErrors`
   > after emitting.
 
+### MIPS64r6: LLVM cannot select between `-x` and `x` in a loop
+
+- **Seen:** since a594fa7 (`trsm` divides by the diagonal), the
+  `mips64r6` and `mips64r6el` rigs stopped building: the i6400 kernel
+  object (`mips64r6`, no MSA) hit `Assertion failed: Opc && "Cannot copy
+  registers"` (`MipsSEInstrInfo.cpp:261`, LLVM 23.1.2). The `ztrsm`
+  `solveRight` conjugated with a run-time `conj` (`if (c) -x else x` on an
+  `f64`). R6's `sel.d` takes its condition in an FPR; MachineLICM hoisted
+  the condition's copy out of the loop as a `COPY` from a 32-bit GPR to a
+  64-bit FPR, which `copyPhysReg` has no instruction for. Before a594fa7
+  the same select compiled, by luck of the surrounding code. With MSA
+  (`-mcpu=mips64r6+msa`) da01d84's object already hit a different
+  assertion, `"Register class not handled!"` (`MipsSEInstrInfo.cpp:373`);
+  the build gives it no MSA (`blaskern.zig`'s `groupQuery` drops a
+  model's `features`), so that one is unreduced.
+- **Workaround:** `conj` is comptime in `blas3/trsm/kernel.zig`'s `run`,
+  `solveLeft`, `solveRight` and `conjIf`, so no select is left. A sign-bit
+  `xor` would also do; `x * (if (c) -1 else 1)` would not: LLVM folds it
+  back into the select.
+- **Issue text:**
+
+  > **[Mips] R6: "Cannot copy registers" for a loop-invariant `select` of
+  > `fneg x` and `x`**
+  >
+  > `llc -mtriple=mipsisa64r6el -mcpu=mips64r6 -O2` (here `zig cc -c -O2`)
+  > on
+  >
+  > ```llvm
+  > define void @f(i1 zeroext %c, i64 %n, ptr %p) {
+  > entry:
+  >   br label %loop
+  > loop:
+  >   %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  >   %a = getelementptr inbounds double, ptr %p, i64 %i
+  >   %x = load double, ptr %a, align 8
+  >   %nx = fneg double %x
+  >   %r = select i1 %c, double %nx, double %x
+  >   store double %r, ptr %a, align 8
+  >   %i.next = add i64 %i, 1
+  >   %done = icmp eq i64 %i.next, %n
+  >   br i1 %done, label %exit, label %loop
+  > exit:
+  >   ret void
+  > }
+  > ```
+  >
+  > asserts `Opc && "Cannot copy registers"` in
+  > `MipsSEInstrInfo::copyPhysReg`, from `ExpandPostRAPseudos`. Before that
+  > pass the entry block has `$d0_64 = COPY killed $at`: the `SEL_D`
+  > condition, hoisted out of the loop, copied from a GPR32 into an FGR64.
+  > Big-endian `mips64r6` too; `-O0` compiles. A select of two loaded
+  > values does not trigger it.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
