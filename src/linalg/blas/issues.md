@@ -1032,3 +1032,31 @@ signed complex extreme (only `i?amax` and `amaxv`, over `|re| + |im|`).
   real `?max` kernel over the complex array's floats, so the returned index
   is not an element index and only half the vector is scanned. Either
   define them (by `|re| + |im|`, as `icamax`) or drop them."
+
+### arm64 `znrm2.S`: `scnrm2` keeps an `f32` running sum
+
+`kernel/arm64/znrm2.S` (`CNRM2KERNEL` of `NEOVERSEN1`, which serves Apple
+M-series on macOS and Linux) adds the scaled squares (`SSQ`, `SCALE`) in
+turn into one `f32` register. Each term averages 1/3 while the sum grows to
+about 5.6M, where an `f32` ulp is 0.5, so for 16M floats the result is
+about 1% off (87,202 eps); rstd is 0.3 eps off. The real `snrm2` (`nrm2.S`)
+and the x86_64 kernels are exact to rounding.
+
+- **Workaround:** none needed; no core takes the converted `nrm2` kernels.
+- **Issue text:** "On arm64, `scnrm2` loses about 1% for 8M complex
+  elements: `znrm2.S` keeps its single-precision sum of squares in an `f32`
+  register. Accumulate in `f64`, as `snrm2` does."
+
+## BLIS
+
+### `snrm2` and `scnrm2` keep an `f32` running sum
+
+BLIS 2.1's single-precision `nrm2` (Linux x86_64, `zen3` config) differs
+from rstd by the same 87,202 eps as OpenBLAS's arm64 `scnrm2`, so it runs
+the same sequential `f32` sum: about 1% off for 16M floats. Its `sasum` is
+260 eps off there too, where rstd's converted kernel is 4.2 eps off.
+
+- **Workaround:** none needed; rstd does not call BLIS.
+- **Issue text:** "Single-precision `nrm2` (`snrm2`, `scnrm2`) loses about
+  1% for 16M floats on `zen3`, from a sequential `f32` sum of squares.
+  Accumulate in `f64`, or in several partial sums."
