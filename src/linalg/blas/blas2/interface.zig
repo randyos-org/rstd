@@ -26,6 +26,7 @@ const util = @import("../util.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
+const accel = @import("../apple_accel.zig");
 const Op = portable.Op;
 
 const Allocator = std.mem.Allocator;
@@ -153,6 +154,7 @@ pub fn gemv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
+    if (accel.gemv(T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)) return;
     if (!isOne(T, beta)) scaleY(T, leny, beta, y, incy);
     if (isZero(T, alpha)) return;
     switch (trans) {
@@ -282,6 +284,7 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
     if (!util.fits(m, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     if (isZero(T, alpha)) return;
+    if (accel.ger(T, conj, m, n, alpha, x, incx, y, incy, a, lda)) return;
     const op: Op = comptime if (complex) (if (conj) .gerc_k else .geru_k) else .ger_k;
     const px = first(T, x, m, incx);
     const py = first(T, y, n, incy);
@@ -339,6 +342,7 @@ fn mv(allocator: Allocator, io: Io, comptime T: type, comptime base: []const u8,
     if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
+    if (accel.symv(T, base[0] == 'h', uplo, n, alpha, a, lda, x, incx, beta, y, incy)) return;
     if (!isOne(T, beta)) scaleY(T, n, beta, y, incy);
     if (isZero(T, alpha)) return;
     const px = first(T, x, n, incx);

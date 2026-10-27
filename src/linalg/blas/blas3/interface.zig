@@ -19,6 +19,7 @@ const types = @import("../types.zig");
 const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
+const accel = @import("../apple_accel.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -81,6 +82,7 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, trans
     if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
+    if (accel.gemm(T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
     try driver.gemm(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
@@ -115,6 +117,7 @@ fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
+    if (accel.symm(T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     try driver.symm(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
@@ -174,6 +177,7 @@ fn rankImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (!util.fitsMatrix(rows, cols, lda, @sizeOf(T))) return error.InvalidLda;
     if (b != null and !util.fitsMatrix(rows, cols, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(n, n, ldc, @sizeOf(T))) return error.InvalidLdc;
+    if (accel.syrk(T, herm, uplo, t, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     try driver.syrk(allocator, io, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
@@ -208,6 +212,7 @@ fn triImpl(allocator: Allocator, io: Io, comptime T: type, comptime solve: bool,
     // here; rstd has no row-major layer
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
+    if (accel.trmm(T, solve, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)) return;
     const f = if (solve) driver.trsm else driver.trmm;
     try f(allocator, io, T, table(T), side == .l, uplo == .u, transa.transposed(), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb));
 }
@@ -357,4 +362,23 @@ test "interface: trmm and trsm report the first bad argument, and return for emp
         try testing.expect(std.math.isNan(b[2]));
         @memset(&b, std.math.nan(f64));
     }
+}
+
+test "the routines through Accelerate: special scalars, and special values in each operand" {
+    if (comptime !accel.covers(f64)) return error.SkipZigTest;
+    _ = blas.vtable();
+    const was = accel.routing();
+    defer _ = accel.route(was);
+    if (!accel.route(true)) return error.SkipZigTest;
+    var failed: ?anyerror = null;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| {
+        inline for (.{ .gemm, .symm, .hemm, .syrk, .herk, .syr2k, .her2k, .trmm, .trsm }) |r| {
+            if (comptime isComplex(T) or !(r == .hemm or r == .herk or r == .her2k)) {
+                check.accelerateCases(T, r) catch |e| {
+                    failed = e;
+                };
+            }
+        }
+    }
+    if (failed) |e| return e;
 }

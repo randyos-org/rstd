@@ -220,8 +220,8 @@ A backend that delegates to a vendor library (Apple's Accelerate on macOS) must 
 same reproducibility requirement. If the library's own threading changes its results, rstd
 runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
-thread that calls in sets its own model (`singleThreadHere`)
-([`design.md`](design.md#apple-accelerate)). rstd's own workers then parallelize around it.
+thread sets its own model (`singleThreadHere`) on its first routed call
+([`design.md`](design.md#apple-accelerate)). rstd's own workers are to parallelize around it.
 
 ### Guardrails
 

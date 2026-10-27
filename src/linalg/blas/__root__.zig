@@ -4,6 +4,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const portable = @import("portable.zig");
 const threading = @import("threading.zig");
+const apple_accel = @import("apple_accel.zig");
 
 pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
@@ -188,6 +189,7 @@ fn initWith(env: Config.Env) bool {
 
     _vtable = cpu.vtableFromCoreType(ct);
     if (_vtable.init) |f| f();
+    apple_accel.start(config.accelerate);
     _ = inits.fetchAdd(1, .monotonic);
     phase.store(.ready, .release);
     return true;
@@ -241,10 +243,20 @@ fn blasWarn(level: i32, comptime fmt: []const u8, args: anytype) void {
 pub fn shutdown() void {
     if (phase.cmpxchgStrong(.ready, .running, .acquire, .monotonic) != null) return;
     // if (vtable.quit) |f| f();
+    _ = apple_accel.route(false);
     _vtable = generic_vtable;
     config = .{};
     core_type = null;
     phase.store(.uninit, .release);
+}
+
+/// Turns the routines' use of Apple Accelerate on or off (macOS, `s`, `d`, `c`
+/// and `z`), after initializing if need be; true if they use it now. It is
+/// loaded at the first init where `RSTD_BLAS_ACCELERATE` is not 0 and never
+/// unloaded; before that, this cannot turn it on.
+pub fn useAccelerate(enable: bool) bool {
+    _ = vtable();
+    return apple_accel.route(enable);
 }
 
 /// The selected core, selecting it first if need be; null under a test's own
@@ -259,13 +271,14 @@ pub fn coreName() []const u8 {
 }
 
 /// What `testUse` replaced.
-pub const TestSaved = struct { vt: Vtable, ready: bool };
+pub const TestSaved = struct { vt: Vtable, ready: bool, accelerate: bool };
 
 /// Puts `vt` in place of the selected kernels, without selecting a core
-/// first, until `testRestore`.
+/// first, until `testRestore`; the routines run them, not Accelerate.
 pub fn testUse(vt: *const Vtable) TestSaved {
     if (!sysinfo.is_test) @compileError("tests only");
-    const saved: TestSaved = .{ .vt = _vtable, .ready = !claim() };
+    const saved: TestSaved = .{ .vt = _vtable, .ready = !claim(), .accelerate = apple_accel.routing() };
+    _ = apple_accel.route(false);
     _vtable = vt.*;
     phase.store(.ready, .release);
     return saved;
@@ -281,6 +294,7 @@ pub fn testTable() *Vtable {
 pub fn testRestore(saved: TestSaved) void {
     if (!sysinfo.is_test) @compileError("tests only");
     _vtable = saved.vt;
+    _ = apple_accel.route(saved.accelerate);
     if (!saved.ready) phase.store(.uninit, .release);
 }
 

@@ -38,8 +38,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3, `gemmt`,
-the matrix copies and `geadd` (their kernel slots exist), threading
-([`threading.md`](threading.md)), and [Apple Accelerate](#apple-accelerate) on macOS.
+the matrix copies and `geadd` (their kernel slots exist), and threading
+([`threading.md`](threading.md)).
 
 ### Targets
 
@@ -206,10 +206,13 @@ The kernels are portable Zig, the same on every core.
 
 ## Apple Accelerate
 
-On macOS the public routines will default to Apple's Accelerate for `s`, `d`, `c` and `z`,
-bound at run time with no SDK and run single-threaded, so its results stay reproducible
-(`apple_accel.zig`). Nothing calls it yet; the binding, what was measured and what is left are in
-[`design.md`](design.md#apple-accelerate).
+On macOS the public routines over `s`, `d`, `c` and `z` run Apple's Accelerate where it has
+the routine, bound at run time with no SDK and run single-threaded, so its results stay
+reproducible (`apple_accel.zig`). rstd's checks come first, so the errors are the same
+everywhere. Where its results differ from the reference's on special values, those calls run
+rstd's kernels instead, so [one contract](#one-contract-on-every-core) holds there too.
+`RSTD_BLAS_ACCELERATE=0` at init, or `blas.useAccelerate(false)`, turns it off. Which routines
+and quirks are in [`design.md`](design.md#apple-accelerate).
 
 ## Build options
 

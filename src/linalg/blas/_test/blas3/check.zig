@@ -452,7 +452,11 @@ fn padNan(comptime T: type, x: []T, rows: usize, ld: usize) void {
     while (j * ld < x.len) : (j += 1) @memset(x[j * ld + rows .. @min(x.len, (j + 1) * ld)], nanOf(T));
 }
 
+/// Whether `fail` describes the case (`accelerateCases` stops after a few).
+var say_fails = true;
+
 fn fail(case: Case, i: usize, j: usize, what: []const u8) anyerror {
+    if (!say_fails) return error.TestUnexpectedResult;
     if (case.p) |p| {
         p.describe();
         check1.say("in {s}, ", .{@tagName(case.where)});
@@ -716,3 +720,66 @@ pub fn interfaceCases(comptime T: type, comptime r: Routine) !void {
         try one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(r){});
     };
 }
+
+/// Through the public routine (`Iface`), as Accelerate runs it: the special
+/// scalars, the special values of `check.Pattern` in each operand and NaN
+/// scalars, at small sizes and past its small-problem paths. Carries on past
+/// a failure, saying each, up to `max_said` per routine.
+pub fn accelerateCases(comptime T: type, comptime r: Routine) !void {
+    var vbuf: [32]Case = undefined;
+    const vs = variants(T, r, &vbuf);
+    const all_t: []const Trans = if (comptime isComplex(T)) &.{ .n, .t, .r, .c } else &.{ .n, .t };
+    var bad: Bad = .{};
+    defer say_fails = true;
+    for ([_][3]usize{ .{ 19, 9, 9 }, .{ 70, 45, 40 } }) |d| {
+        for (scalarsOf(T)) |s| {
+            if (r == .gemm) {
+                for (all_t) |ta| for (all_t) |tb| bad.note(one(T, sized(.{ .r = r, .ta = ta, .tb = tb, .m = 0, .n = 0 }, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
+            } else for (vs) |v| bad.note(one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
+        }
+        for (vs) |v| for ([_]Where{ .a, .b, .c }) |where| {
+            const has_b = r == .gemm or r == .symm or r == .hemm or r == .syr2k or r == .her2k;
+            if (where == .b and !has_b) continue;
+            if (r == .trsm and where == .a) continue;
+            const c = sized(v, d[0], d[1], d[2], .{ -0.75, 0.25 }, .{ 0.5, 0 });
+            const dd = dims(c);
+            const len = switch (where) {
+                .a => dd.ra * dd.ca,
+                .b => dd.rb * dd.cb,
+                .c => c.m * c.n,
+            };
+            var buf: [13]check1.Pattern = undefined;
+            for (check1.patterns(len, &buf)) |pat| {
+                var cp = c;
+                cp.p = pat;
+                cp.where = where;
+                bad.note(one(T, cp, Iface(r){}));
+            }
+        };
+        const nan = std.math.nan(f64);
+        for (vs) |v| for ([_][2][2]f64{ .{ .{ nan, 0 }, .{ 0.5, 0 } }, .{ .{ 1.5, 0 }, .{ nan, 0 } } }) |s| {
+            if (v.triangular() and std.math.isNan(s[1][0])) continue;
+            bad.note(one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
+        };
+    }
+    if (bad.err) |e| return e;
+}
+
+/// How many failing cases `accelerateCases` describes per routine.
+const max_said = 8;
+
+const Bad = struct {
+    err: ?anyerror = null,
+    count: usize = 0,
+
+    fn note(b: *Bad, r: anyerror!void) void {
+        r catch |e| {
+            b.err = e;
+            b.count += 1;
+            if (b.count == max_said) {
+                check1.say("(more not shown)\n", .{});
+                say_fails = false;
+            }
+        };
+    }
+};

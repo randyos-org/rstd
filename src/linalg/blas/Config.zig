@@ -65,6 +65,11 @@ cpu_count: u32 = 1,
 /// values pick hex/octal the way the C source does.
 ld_hwcap_mask: ?u64 = null,
 
+/// `RSTD_BLAS_ACCELERATE` (rstd's own) -- 0 keeps the routines off Apple
+/// Accelerate on macOS, which is then never loaded; anything else, or unset,
+/// uses it (`apple_accel.zig`).
+accelerate: bool = true,
+
 /// The longest value read; longer ones read as unparseable (a NUL), so they
 /// fall back to the default (or, for a core name, to detection).
 pub const value_max = 64;
@@ -137,6 +142,7 @@ pub fn fromEnv(env: Env) Self {
         (readIntRaw(i32, env, "GOTOBLAS_MAIN_FREE", 0) orelse 0) != 0;
     c.l2_size_override = readIntRaw(i32, env, "OPENBLAS_L2_SIZE", 0) orelse 0;
     c.ld_hwcap_mask = readIntRaw(u64, env, "LD_HWCAP_MASK", null);
+    c.accelerate = (readIntRaw(i32, env, "RSTD_BLAS_ACCELERATE", 1) orelse 1) != 0;
     return c;
 }
 
@@ -308,6 +314,21 @@ test "LD_HWCAP_MASK base-0 parsing: matches strtoul for hex, diverges for bare-l
         var env = testEnv(&.{.{ "LD_HWCAP_MASK", "0o10" }});
         defer env.deinit();
         try zigstd.testExpectEqual(@as(?u64, 8), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
+    }
+}
+
+test "RSTD_BLAS_ACCELERATE=0 turns Accelerate off; unset or anything else leaves it on" {
+    for ([_]struct { v: ?[]const u8, on: bool }{
+        .{ .v = null, .on = true },
+        .{ .v = "0", .on = false },
+        .{ .v = " 0 ", .on = false },
+        .{ .v = "1", .on = true },
+        .{ .v = "no", .on = true },
+    }) |c| {
+        var env = testEnv(&.{});
+        defer env.deinit();
+        if (c.v) |v| try env.put("RSTD_BLAS_ACCELERATE", v);
+        try zigstd.testExpectEqual(c.on, Self.init(&env).accelerate);
     }
 }
 

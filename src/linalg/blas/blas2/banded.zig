@@ -27,6 +27,7 @@ const types = @import("../types.zig");
 const util = @import("../util.zig");
 const interface = @import("interface.zig");
 const portable = @import("../portable.zig");
+const accel = @import("../apple_accel.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -345,6 +346,7 @@ pub fn gbmv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     if (!util.fitsMatrix(lda, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
+    if (accel.gbmv(T, trans, m, n, kl, ku, alpha, a, lda, x, incx, beta, y, incy)) return;
     if (!isOne(T, beta)) scalK(T, leny, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, lenx, incx);
@@ -367,6 +369,8 @@ fn mvInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: Ki
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
+    // CBLAS has no `HEMVREV` triangles
+    if (kind != .hermitian_rev and accel.sbmv(T, kind == .hermitian, packed_, if (lower) .l else .u, n, k, alpha, a, lda, x, incx, beta, y, incy)) return;
     const kn = n;
     if (!isOne(T, beta)) scalK(T, kn, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
@@ -441,6 +445,7 @@ fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: 
         if (isZero(T, alpha)) return;
     } else if (alpha == 0) return;
     _ = blas.vtable();
+    if (kind != .hermitian_rev and accel.syr(T, kind == .hermitian, packed_, if (lower) .l else .u, n, alpha, x, incx, a, lda)) return;
     const small = incx == 1 and n < comptime smallN(T, kind, packed_, false);
     const px = first(T, x, n, incx);
     switch (lower) {
@@ -458,6 +463,7 @@ fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime kind:
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
+    if (kind != .hermitian_rev and accel.syr2(T, kind == .hermitian, packed_, if (lower) .l else .u, n, alpha, x, incx, y, incy, a, lda)) return;
     const small = incx == 1 and incy == 1 and n < comptime smallN(T, kind, packed_, true);
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
@@ -917,6 +923,9 @@ test "strided vectors beyond the stack buffer are copied from the allocator" {
 }
 
 test "an allocation failure comes back as OutOfMemory" {
+    // rstd's own path, which allocates
+    const was = blas.useAccelerate(false);
+    defer _ = blas.useAccelerate(was);
     var failing = std.testing.FailingAllocator.init(talloc, .{ .fail_index = 0 });
     const n = 1200;
     const a = try talloc.alloc(f32, n);

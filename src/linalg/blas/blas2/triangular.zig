@@ -28,6 +28,7 @@ const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
+const accel = @import("../apple_accel.zig");
 
 const interface = @import("interface.zig");
 
@@ -425,6 +426,38 @@ fn run(
     if (incx != 1) o.copy(n, b, 1, x, incx);
 }
 
+/// The public routines: Accelerate where it runs them (`apple_accel.zig`),
+/// after `call`'s checks, else `call` on the selected kernels.
+fn public(allocator: Allocator, io: Io, comptime T: type, comptime kind: Kind, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
+    if (comptime accel.covers(T)) {
+        if (!try checks(T, kind, uplo, trans, n, k, lda, incx)) return;
+        if (accel.tri(T, @field(accel.TriKind, @tagName(kind)), uplo, trans, diag, n, k, a, lda, x, incx)) return;
+    }
+    return call(allocator, io, T, kind, blas.vtable(), uplo, trans, diag, n, k, a, lda, x, incx);
+}
+
+/// The reference's checks, and nothing past the address space; false for
+/// nothing to do.
+fn checks(comptime T: type, comptime kind: Kind, uplo: Uplo, trans: Trans, n: isize, k: isize, lda: isize, incx: isize) interface.ArgError!bool {
+    const banded = kind == .tbmv or kind == .tbsv;
+    const packed_ = kind == .tpmv or kind == .tpsv;
+    if (uplo.isRev()) return error.InvalidUplo;
+    if (trans.conjX()) return error.InvalidTrans;
+    if (n < 0) return error.InvalidN;
+    if (banded) {
+        if (k < 0) return error.InvalidK;
+        if (lda < k + 1) return error.InvalidLda;
+    } else if (!packed_ and lda < @max(1, n)) return error.InvalidLda;
+    if (incx == 0) return error.InvalidIncx;
+    if (n == 0) return false;
+    // nothing past the address space (`util.fits`)
+    if (packed_) {
+        if (!util.fitsMatrix(n, n, n, @sizeOf(T))) return error.InvalidN;
+    } else if (!util.fitsMatrix(if (banded) lda else n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
+    return true;
+}
+
 /// The checks, work space and driver choice common to the six routines;
 /// `vt` is the kernels' vtable.
 fn call(
@@ -447,20 +480,7 @@ fn call(
     const F = Float(T);
     const banded = kind == .tbmv or kind == .tbsv;
     const packed_ = kind == .tpmv or kind == .tpsv;
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (trans.conjX()) return error.InvalidTrans;
-    if (n < 0) return error.InvalidN;
-    if (banded) {
-        if (k < 0) return error.InvalidK;
-        if (lda < k + 1) return error.InvalidLda;
-    } else if (!packed_ and lda < @max(1, n)) return error.InvalidLda;
-    if (incx == 0) return error.InvalidIncx;
-    if (n == 0) return;
-    // nothing past the address space (`util.fits`)
-    if (packed_) {
-        if (!util.fitsMatrix(n, n, n, @sizeOf(T))) return error.InvalidN;
-    } else if (!util.fitsMatrix(if (banded) lda else n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
+    if (!try checks(T, kind, uplo, trans, n, k, lda, incx)) return;
 
     const kn: BlasLong = n;
     const o: Ops(T) = .{ .vt = vt, .dtb = if (vt.dtb_entries > 0) vt.dtb_entries else default_dtb };
@@ -502,37 +522,37 @@ fn call(
 /// other triangle (and the diagonal for `unit`) is not read. A negative
 /// `incx` walks `x` from its end.
 pub fn trmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(allocator, io, T, .trmv, blas.vtable(), uplo, trans, diag, n, 0, a, lda, x, incx);
+    return public(allocator, io, T, .trmv, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TRSV` (`interface/trsv.c`, `ztrsv.c`): solves `op(A) * y = x`, `y`
 /// replacing `x`. No singularity check, as in the reference.
 pub fn trsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(allocator, io, T, .trsv, blas.vtable(), uplo, trans, diag, n, 0, a, lda, x, incx);
+    return public(allocator, io, T, .trsv, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TBMV` (`interface/tbmv.c`, `ztbmv.c`): `x := op(A) * x`, `A` triangular
 /// band with `k` off-diagonals in LAPACK band storage: `A(i,j)` is
 /// `a[k + i - j + j*lda]` (upper) or `a[i - j + j*lda]` (lower).
 pub fn tbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(allocator, io, T, .tbmv, blas.vtable(), uplo, trans, diag, n, k, a, lda, x, incx);
+    return public(allocator, io, T, .tbmv, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TBSV` (`interface/tbsv.c`, `ztbsv.c`): solves `op(A) * y = x` for band `A`.
 pub fn tbsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(allocator, io, T, .tbsv, blas.vtable(), uplo, trans, diag, n, k, a, lda, x, incx);
+    return public(allocator, io, T, .tbsv, uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TPMV` (`interface/tpmv.c`, `ztpmv.c`): `x := op(A) * x`, `A` packed by
 /// columns: `A(i,j)` is `ap[j*(j+1)/2 + i]` (upper, `i <= j`) or
 /// `ap[j*(2n-j+1)/2 + i - j]` (lower, `i >= j`).
 pub fn tpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
-    return call(allocator, io, T, .tpmv, blas.vtable(), uplo, trans, diag, n, 0, ap, 1, x, incx);
+    return public(allocator, io, T, .tpmv, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 /// `?TPSV` (`interface/tpsv.c`, `ztpsv.c`): solves `op(A) * y = x` for packed `A`.
 pub fn tpsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
-    return call(allocator, io, T, .tpsv, blas.vtable(), uplo, trans, diag, n, 0, ap, 1, x, incx);
+    return public(allocator, io, T, .tpsv, uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 // ---- tests -----------------------------------------------------------------

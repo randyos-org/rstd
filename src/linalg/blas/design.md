@@ -431,7 +431,7 @@ per-core objects; like the tiles, they never make a core need an object of its o
   where they match or beat the converted assembly on the M6
   ([`results-m6.md`](../../../tools/blasbench/results-m6.md)), so their objects there leave those
   converted kernels out (`vector.displaces`); elsewhere every slot no converted kernel fills
-  (below). On Apple's systems, where Accelerate is to serve instead, only the routed slots.
+  (below). On Apple's systems, where Accelerate serves most routines, only the routed slots.
 - **arm, mips, sparc, riscv64, s390x, wasm:** none.
 
 On arm64 these fill the slots whose upstream kernel is C, which the portable scalar loop served
@@ -592,8 +592,8 @@ Their numerical behavior is in [`readme.md`](readme.md#bfloat16-and-half-precisi
 
 ### Apple Accelerate
 
-On macOS the public routines will default to Accelerate for `s`, `d`, `c` and `z`.
-`apple_accel.zig` has the binding (`AppleAccelerate`); nothing calls it yet.
+On macOS the public routines over `s`, `d`, `c` and `z` go to Accelerate where it has the
+routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 
 - **Binding.** `load()` opens the framework with `dlopen` (`dll.openDarwinFramework`), never
   `-framework`, so cross-compiles need no SDK, and fills `Table(I)` with `dll.bind`. The
@@ -607,17 +607,41 @@ On macOS the public routines will default to Accelerate for `s`, `d`, `c` and `z
   thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and `gemm` gave the same bits at every thread
   count tried (macOS 27, M6). So `load` makes Accelerate single-threaded:
   `VECLIB_MAXIMUM_THREADS=1` (`setMaxThreadsEnv`), read at the process's first BLAS call, and
-  `BLASSetThreading` (macOS 15+), per thread, which `singleThreadHere` sets. One thread cost
-  `gemm` 1.15x at 2000.
+  `BLASSetThreading` (macOS 15+), per thread, which `singleThreadHere` sets on each thread's
+  first routed call. One thread cost `gemm` 1.15x at 2000.
+- **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
+  not thread-safe, unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
+  `blas.useAccelerate` turns routing off and on later; nothing unloads it. `testUse` turns it off,
+  so a test's own table runs its kernels.
+- **Routing.** Each public routine makes rstd's checks and quick returns, then calls its function
+  in `apple_accel.zig`, which calls the table (column-major, complex scalars by pointer,
+  `cblas_?dot?_sub`) or returns false for rstd's kernels. On the LP64 table it does so for any
+  size, stride or operand span past `c_int`, rather than truncate.
+- **Routed:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `rot`,
+  `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
+  `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
+  `hpr2`, and the six triangular routines; all of level 3. `sdot` is `cblas_dsdot` rounded, and
+  `snrm2` and `scnrm2` the root of `dsdot(x, x)`, so `s` sums in `f64` as rstd's kernels do; `d`
+  and `z` `nrm2`, `asum` take `incx > 0` only.
+- **Not routed:** what CBLAS lacks: `sum`, the extremes, `axpyc`, `rotg`, `zrotg`, `rotmg`, the
+  complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
+  `v` and `m`; `i?amax`, which does not take the first NaN.
+- **Quirks.** Where Accelerate's results differ from the reference's (macOS 27, M6), the call
+  runs rstd's kernels: complex `scal`, `axpy` and `axpby` with a scalar that has a zero part
+  (Accelerate skips that part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary
+  part); `axpby` with a zero `alpha` (it reads `x`); the triangular level 2 with NaN or an
+  infinity in `x`, and `trmm` in `B` (it multiplies them by the triangle's zeros); `ger` and
+  `gerc` with one in `x` (it does not pass over a zero `y`). The Hermitian rank updates
+  (`herk`, `her2k`, `her`, `hpr`, `her2`, `hpr2`) leave the diagonal's imaginary parts as `beta`
+  times theirs, or NaN where an infinity meets them, where the reference sets them to zero: they
+  are zeroed after the call, but `herk` and `her2k` with `beta` 1 and nothing added, which leave
+  `C` as it was, run rstd's. Past small orders `herk` and `her2k` scale `C` by the real `beta` as
+  a complex product, so with NaN or an infinity in its triangle and a nonzero `beta` they run
+  rstd's too. Each quirk was found by the Accelerate
+  special-value tests (`apple_accel.zig`, `_test/blas2/edge.zig`, `blas3/interface.zig`), which
+  compare it with rstd's kernels or the wide reference.
 
-Left to do:
-
-- route the public routines to the table (CBLAS order, 0-based `i?amax`, complex scalars by
-  pointer, `cblas_?dot?_sub`), with 32-bit range checks on the LP64 table;
-- quirk entries where Accelerate's results differ from the reference's (special values; argument
-  errors, which rstd's checks must catch first);
-- an off switch, and `singleThreadHere` on each thread that calls in;
-- tying its threading into rstd's own ([`threading.md`](threading.md#vendor-backends)).
+Left to do: tying its threading into rstd's own ([`threading.md`](threading.md#vendor-backends)).
 
 ### Core detection and selection
 
@@ -716,6 +740,7 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
 | `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
 | `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection |
+| `RSTD_BLAS_ACCELERATE` (rstd's own) | `accelerate` | macOS: 0 keeps the routines off Accelerate ([above](#apple-accelerate)) |
 
 Integers parse with Zig's base-0 rules after trimming whitespace; negative values clamp to 0
 except `GOTO_DEBUG`, `OPENBLAS_L2_SIZE` and `LD_HWCAP_MASK`. A bare leading zero is decimal, not
@@ -943,7 +968,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `fma.zig` | the contraction policy |
 | `threading.zig` | thresholds, worker count, chunks, the claim loop and ordered combine |
 | `util.zig` | negative offsets, unaligned vector loads, `kernelSymbol`, `fits`, `vectorIeee`, `blue`, `extendedSum` |
-| `apple_accel.zig` | Accelerate's CBLAS, bound at run time |
+| `apple_accel.zig` | Accelerate's CBLAS, bound at run time, and the routing to it |
 | `_kernel.zig` | root of each per-core object |
 | `cpu/__root__.zig` | `choose`, `detect`, `fromName`, the target's `CoreType` |
 | `cpu/<arch>.zig` | the family's `vtableFromCoreType`, registry and `canRun` |
@@ -1039,7 +1064,7 @@ chunks, the claim loop and the ordered combine; no routine uses it yet.
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |
-| Small files | `_test/types.zig`, `fma.zig`, `portable.zig`, `ext/`, `Config.zig`, `abi.zig`, `apple_accel.zig` | types, contraction, dispatch, bfloat16, parsing, variants, the Accelerate binding |
+| Small files | `_test/types.zig`, `fma.zig`, `portable.zig`, `ext/`, `Config.zig`, `abi.zig`, `apple_accel.zig` | types, contraction, dispatch, bfloat16, parsing, variants, the Accelerate binding and routing |
 
 Test names follow the path (`linalg.blas._test.blas1.edge.test...`), which the rigs' filters
 use.
@@ -1198,15 +1223,14 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Accelerate.** Route the public routines to it on macOS (above).
-2. **Threading.** [`threading.md`](threading.md)'s plan.
-3. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
+1. **Threading.** [`threading.md`](threading.md)'s plan.
+2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
-4. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
+3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
    half-precision level 3.
-5. **Extensions.** Interfaces for `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg` and `gemmt`,
+4. **Extensions.** Interfaces for `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg` and `gemmt`,
    which the pending `utest_ext` cases wait for.
-6. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
+5. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
    [`comparisons.md`](comparisons.md)'s recommendations, and convert assembly where `@Vector`
    cannot reach: arm64 SVE, POWER10 MMA, AMX and AVX-512 BF16 for `sbgemm`, and Skylake-X only
    if measured below 85% of its kernel ([`blas3/gemm/notes.md`](blas3/gemm/notes.md)).

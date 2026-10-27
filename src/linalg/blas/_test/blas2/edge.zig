@@ -26,6 +26,7 @@ const Vtable = @import("../../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const guard = @import("guard.zig");
 const portable = @import("../../portable.zig");
+const accel = @import("../../apple_accel.zig");
 
 const Allocator = std.mem.Allocator;
 const C = std.math.Complex;
@@ -411,7 +412,7 @@ fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
             return if (conj) check.conjW(e) else e;
         }
     };
-    var z: [33]Wide(T) = undefined;
+    var z: [max_order]Wide(T) = undefined;
     const lower = s.lower != tr;
     for (0..s.n) |q| {
         // the solve goes from the end its triangle starts at
@@ -580,7 +581,11 @@ fn sweep(comptime T: type, comptime r: Routine) void {
                 c.where = where;
                 turn += 1;
                 c.inc = if (turn % 2 == 0) .{ 1, 1 } else .{ -2, 3 };
-                run(T, r, v, gen, beta, c) catch |e| return report(e, T, r, v, c);
+                run(T, r, v, gen, beta, c) catch |e| {
+                    report(e, T, r, v, c);
+                    // Accelerate's run reports every failing case
+                    if (!accel_run) return;
+                };
             }
         }
         // the scalars that are not propagation, and NaN ones that are
@@ -604,7 +609,14 @@ fn sweep(comptime T: type, comptime r: Routine) void {
 /// m, n, kl, ku; the rigs take one, past the unrolls.
 const all_shapes = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0 }, .{ 33, 9, 2, 2 } };
 
+/// Accelerate's: every shape, and one past its small-problem paths.
+const accel_shapes = all_shapes ++ [_][4]usize{.{ 130, 67, 4, 6 }};
+/// The largest order of any shape.
+const max_order = 130;
+var accel_run = false;
+
 fn shapes() []const [4]usize {
+    if (accel_run) return &accel_shapes;
     return if (check.rig()) all_shapes[2..3] else &all_shapes;
 }
 
@@ -691,6 +703,22 @@ fn CheckAll(comptime types: anytype) type {
             if (failed) |e| return e;
         }
 
+        /// Through Apple Accelerate, where the routines go to it.
+        fn accelerate() !void {
+            if (comptime !accel.covers(f64)) return error.SkipZigTest;
+            failed = null;
+            const saved = blas.testUse(blas.vtable());
+            defer blas.testRestore(saved);
+            if (!accel.route(true)) return error.SkipZigTest;
+            accel_run = true;
+            defer accel_run = false;
+            inline for (types) |T| inline for (comptime std.enums.values(Routine)) |r| {
+                sweep(T, r);
+                denormals(T, r);
+            };
+            if (failed) |e| return e;
+        }
+
         fn portableKernels() !void {
             var vt: Vtable = .{};
             portable.install(&vt);
@@ -714,6 +742,14 @@ test "every linked core's level-2 routines, real: special values, and NaN wherev
 
 test "every linked core's level-2 routines, complex: special values, and NaN wherever they must not read or write" {
     try check.eachCore(CheckAll(complex_types).sweepAll);
+}
+
+test "the level-2 routines through Accelerate, real: special values, denormals, and NaN wherever they must not read or write" {
+    try CheckAll(real_types).accelerate();
+}
+
+test "the level-2 routines through Accelerate, complex: special values, denormals, and NaN wherever they must not read or write" {
+    try CheckAll(complex_types).accelerate();
 }
 
 test "every linked core's level-2 routines, real: denormal results" {

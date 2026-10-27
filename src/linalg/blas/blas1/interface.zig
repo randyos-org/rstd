@@ -21,6 +21,7 @@ const types = @import("../types.zig");
 const util = @import("../util.zig");
 const portable = @import("../portable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
+const accel = @import("../apple_accel.zig");
 
 const Io = std.Io;
 const BlasLong = types.BlasLong;
@@ -65,6 +66,7 @@ pub fn copy(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
     _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
+    if (accel.copy(T, n, x, incx, y, incy)) return;
     _ = portable.fetch(T, .copy_k, blas.vtable)(n, raw(T, first(T, x, n, incx)), incx, raw(T, first(T, y, n, incy)), incy);
 }
 
@@ -73,6 +75,7 @@ pub fn swap(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
     _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
+    if (accel.swap(T, n, x, incx, y, incy)) return;
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
@@ -93,9 +96,11 @@ pub fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) 
     const px = raw(T, x);
     if (comptime isComplex(T)) {
         if (alpha.re == 1 and alpha.im == 0) return;
+        if (accel.scal(T, n, alpha, x, incx)) return;
         _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, alpha.re, alpha.im, px, incx, px, 0, px, 1);
     } else {
         if (alpha == 1) return;
+        if (accel.scal(T, n, alpha, x, incx)) return;
         _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, alpha, px, incx, px, 0, px, 1);
     }
 }
@@ -123,6 +128,7 @@ fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, inc
     _ = io;
     if (n <= 0) return zero(T);
     try spanXY(T, T, n, incx, incy);
+    if (accel.dot(T, conj, n, x, incx, y, incy)) |r| return r;
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
@@ -137,6 +143,7 @@ pub fn dsdot(io: Io, n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) E
     _ = io;
     if (n <= 0) return 0;
     try spanXY(f32, f32, n, incx, incy);
+    if (accel.dsdot(n, x, incx, y, incy)) |r| return r;
     return blas.kernel(.dsdot_k)(n, first(f32, x, n, incx), incx, first(f32, y, n, incy), incy);
 }
 
@@ -172,6 +179,7 @@ pub fn nrm2(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Floa
         return @floatCast(@sqrt(fn_) * hi * @sqrt(1 + (lo / hi) * (lo / hi)));
     }
     try spanX(T, n, incx);
+    if (accel.nrm2(T, n, x, incx)) |r| return r;
     return portable.fetch(T, .nrm2_k, blas.vtable)(n, raw(T, first(T, x, n, incx)), incx);
 }
 
@@ -182,6 +190,7 @@ pub fn asum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Floa
     _ = io;
     if (n <= 0) return 0;
     try spanX(T, n, incx);
+    if (accel.asum(T, n, x, incx)) |r| return r;
     return portable.fetch(T, .asum_k, blas.vtable)(n, raw(T, x), incx);
 }
 
@@ -238,6 +247,7 @@ pub fn rot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
     _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
+    if (accel.rot(T, n, x, incx, y, incy, c, s)) return;
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     _ = portable.fetch(T, .rot_k, blas.vtable)(n, px, incx, py, incy, c, s);
@@ -251,6 +261,7 @@ pub fn rotm(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
     if (comptime isComplex(T)) @compileError("rotm: " ++ @typeName(T) ++ " is not real");
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
+    if (accel.rotm(T, n, x, incx, y, incy, param)) return;
     _ = portable.fetch(T, .rotm_k, blas.vtable)(n, x, incx, y, incy, @constCast(param));
 }
 
@@ -283,6 +294,8 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
             return;
         }
         try spanXY(T, T, n, incx, incy);
+        // CBLAS has no `axpyc`
+        if (!conj and accel.axpy(T, n, alpha, x, incx, y, incy)) return;
         const px = raw(T, first(T, x, n, incx));
         const py = raw(T, first(T, y, n, incy));
         _ = portable.fetch(T, if (conj) .axpyc_k else .axpy_k, blas.vtable)(n, 0, 0, alpha.re, alpha.im, px, incx, py, incy, py, 0);
@@ -293,6 +306,7 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
             return;
         }
         try spanXY(T, T, n, incx, incy);
+        if (accel.axpy(T, n, alpha, x, incx, y, incy)) return;
         const px = first(T, x, n, incx);
         const py = first(T, y, n, incy);
         _ = portable.fetch(T, .axpy_k, blas.vtable)(n, 0, 0, alpha, px, incx, py, incy, py, 0);
@@ -305,6 +319,7 @@ pub fn axpby(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize,
     _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
+    if (accel.axpby(T, n, alpha, x, incx, beta, y, incy)) return;
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
