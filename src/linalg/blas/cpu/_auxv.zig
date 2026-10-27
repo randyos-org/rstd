@@ -40,7 +40,8 @@ pub fn get(comptime tag: Tag) usize {
     const n = comptime number(tag);
     if (comptime n == null) return 0;
     switch (comptime sysinfo.target.os.tag) {
-        .linux => return std.os.linux.getauxval(n.?),
+        // with libc linked, std leaves `getauxval` to it
+        .linux => return if (sysinfo.link_libc) std.c.getauxval(n.?) else std.os.linux.getauxval(n.?),
         // FreeBSD fills the same vector and answers through libc
         .freebsd => {
             if (comptime !sysinfo.link_libc) return 0;
