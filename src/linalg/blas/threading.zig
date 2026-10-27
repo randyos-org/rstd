@@ -592,7 +592,7 @@ test "the worker count is the least of the CPUs, the ceiling and the size" {
 test "chunks follow the size and the core, never the CPU count or the ceiling" {
     const cfgs = [_]Config{ .{}, .{ .cpu_count = 4 }, .{ .cpu_count = 64 }, .{ .cpu_count = 64, .num_threads = 2 }, .{ .cpu_count = 3, .goto_num_threads = 5 } };
     const r = rule(.dot, f64, "haswell");
-    for ([_]u64{ 1, 10000, 10001, 123457, 1 << 30 }) |n| {
+    for ([_]usize{ 1, 10000, 10001, 123457, 1 << 30 }) |n| {
         const base = planWith(&cfgs[0], r, n, n, .even, 8);
         for (cfgs[1..]) |*cfg| {
             const p = planWith(cfg, r, n, n, .even, 8);
