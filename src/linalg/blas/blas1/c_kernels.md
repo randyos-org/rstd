@@ -5,7 +5,8 @@ around a block kernel, which is an inline-assembly microkernel
 (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all.
 `axpy` was the first routine ported this way; `dot` on x86_64 is the second.
 Both go through the same machinery, so a new routine adds a table row and its
-driver, not a new converter.
+driver, not a new converter. Where these ports sit among the other kernel kinds
+is in [`design.md`](../design.md#kernel-kinds).
 
 ## The parts
 
@@ -53,8 +54,9 @@ It does not edit what it converts, so a mistake upstream is fixed by a patch.
 
 A target's `patches` are `arch.Patch` rows, the same type `gen.zig` uses for the
 `.S` kernels, matched on the microkernel's file name. `find` must occur
-`count` times or the generator stops. List each in the readme's "Fixes to
-upstream sources". The x86_64 `dot` blocks the host can run needed none; the
+`count` times or the generator stops. List each in
+[`design.md`](../design.md#fixes-to-upstream-sources)'s "Fixes to upstream
+sources". The x86_64 `dot` blocks the host can run needed none; the
 Bulldozer, Piledriver and Steamroller ones are untested at run time.
 
 ### Adding a routine

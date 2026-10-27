@@ -60,7 +60,8 @@ zig build ssh-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> -j3
   stands in; `none` where neither has one.
 - **portable:** rstd's portable kernel (`cpu.generic`'s table): scalar
   loops.
-- **vec, vec x4:** `vector_kernels.zig`, plain `@Vector` kernels one native
+- **vec, vec x4:** the benchmark's own `@Vector` kernels, since moved to
+  `src/linalg/blas/vector.zig` and changed there; one native
   vector (`vec`) or four (`vec x4`) wide per step; reductions keep two such
   accumulators. `i?amax` keeps the first block of `4 * W` with the largest
   maximum and searches only that block. `nrm2` sums unscaled squares and

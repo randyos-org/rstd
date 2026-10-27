@@ -16,8 +16,8 @@ no `f32` vector lanes where they flush (`util.vectorIeee`).
 | Source | Where | Version |
 | --- | --- | --- |
 | rstd | this repository, branch `review` | `72b2efc` |
-| rstd design doc | `design.md`, then on branch `wip/blas-docs` | `c33fca8` |
-| rstd arm64 `@Vector` kernels | `vector.zig`, then on branch `wip/arm64-vector` | `4407e5a` |
+| rstd design doc | `design.md`, a draft then on branch `wip/blas-docs` | 2026-10-22, since rebased onto `review` |
+| rstd arm64 `@Vector` kernels | `vector.zig`, then on branch `wip/arm64-vector` | `4407e5a`, landed on `review` as `eecfe67` |
 | BLIS | <https://github.com/flame/blis> | tag `2.1`, `caf0db6be1202d9c83c79b51e75eceb96aa8b556`, 2026-06-25 |
 | OpenBLAS | the checkout `tools/blas_asm` converts | `v0.3.34-317-ga69062524` |
 | Reference BLAS (Reference-LAPACK) | <https://github.com/Reference-LAPACK/lapack> | last release v3.12.1 (2025-01-08); `master` as of 2026-10-22 |
@@ -25,12 +25,11 @@ no `f32` vector lanes where they flush (`util.vectorIeee`).
 | Intel oneMKL CNR | <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/reproducibility-conditions.html> | 2025.2 docs |
 
 BLIS and OpenBLAS paths below are relative to their source trees, rstd paths to
-`src/linalg/blas/` of the branch named.
+`src/linalg/blas/` in today's layout; rstd line numbers are those of the versions named.
 "Reference master" means unreleased commits on Reference-LAPACK `master`; they are not in 3.12.1.
 
-Note on the review branch vs `wip/blas-docs`: `review`'s readme still says only real `gemm` is
-ported; `wip/blas-docs` (`5fe7276`, `839628a`, `a6350dd`) has every level-3 routine, real and
-complex. Level-3 statements below are about `wip/blas-docs`.
+Level-3 statements below were made against `wip/blas-docs`, whose every level-3 routine, real
+and complex, has since landed on `review` (`0f0bcde`, `ada0a2e`, `078049e`).
 
 ## Summary table
 
@@ -211,7 +210,8 @@ x86_64 unmeasured) or a NaN pre-check.
 
 - `axpy`: both zero gives `y[0] += n*alpha*x[0]` (in `Acc`), as `interface/axpy.c:80-81`;
   otherwise the kernels run sequentially (the converted `swap`/`rot` kernels that batched a block
-  before storing were patched to go one element at a time; `readme.md`, "Fixes").
+  before storing were patched to go one element at a time; `design.md`, "Fixes to upstream
+  sources").
 - `scal`, `asum`, `i?amax`: nothing (or 0) for `incx <= 0`, as the reference.
 - `nrm2`: `sqrt(n) * |x[0]|`.
 - Level 2 and rank updates: `incx == 0` is `InvalidIncx`, as the reference's `xerbla`.

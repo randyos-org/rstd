@@ -3,8 +3,8 @@
 Problems found in other projects while building and testing the BLAS port.
 None is filed. For each: what we saw, how we work around it and where,
 and the text of an issue we could file later. The toolchain throughout is
-Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`) unless an entry says
-otherwise.
+Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`; 0.18.0-dev.751 at the
+last update) unless an entry says otherwise.
 
 When an issue is fixed upstream, drop the workaround and its entry.
 
@@ -86,7 +86,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `zdot_cell.S` put the result.
 - **Workaround:** those two kernels are patched to also copy the result to
   `r3`/`r4` (a path the sources already have for the Fortran interface).
-  See "Fixes to upstream sources" in `readme.md`.
+  See [`design.md`](design.md#fixes-to-upstream-sources), "Fixes to
+  upstream sources".
 - **Issue text:**
 
   > **powerpc64le: homogeneous float aggregates returned in GPRs instead of FPRs**
@@ -529,7 +530,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in `readme.md`: `x86_64` argument and flag handling
+upstream sources" in [`design.md`](design.md#fixes-to-upstream-sources): `x86_64` argument and flag handling
 (mostly on Windows), a POWER pair on ELFv2, and the `loongarch64`
 `lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
@@ -643,8 +644,7 @@ only the elements it uses):
 ### Special values some converted kernels treat otherwise
 
 The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every rig)
-found these. In rstd's extremes the first NaN wins (`readme.md`, "One
-contract on every core"); LAPACK 3.10's `nrm2` is infinite for an
+found these. In rstd's extremes the first NaN wins ([`readme.md`](readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
 infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 
 Not used: no core takes a converted extreme kernel. Upstream's follow
@@ -666,7 +666,7 @@ Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
   element is passed over.
 
 Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
-algorithm everywhere (`readme.md`, "One contract on every core"). x86_64's
+algorithm everywhere ([`readme.md`](readme.md#one-contract-on-every-core)). x86_64's
 `nrm2_sse.S` (an unscaled `f64` sum for `snrm2` and `cnrm2`) and the x87
 `nrm2.S` and `znrm2.S` of x86 and x86_64 (an unscaled `f80` sum) were right
 on special values but their own algorithms; the arm and arm64 ones scale a
@@ -686,7 +686,8 @@ one-pass loop as those below do. Those below were wrong:
   overflows. `power/dnrm2_ppc440.S` and `znrm2_ppc440.S` (ppcg4, ppc440)
   gave NaN: their square root goes through `frsqrte` of a denormal sum.
 
-Fixed in the converted sources (`readme.md`). Issues could read, for the
+Fixed in the converted sources
+([`design.md`](design.md#fixes-to-upstream-sources)). Issues could read, for the
 x86_64 index kernels:
 
 > **x86_64 `iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`: `n + 1` for a NaN extreme**
@@ -759,7 +760,7 @@ And loongarch64 `axpby`:
 >   path, which has them, fixes it.
 
 Not used: the x86_64 reductions whose bits follow an operand's address.
-No core takes them (`readme.md`, "One contract on every core"); an issue
+No core takes them ([`readme.md`](readme.md#one-contract-on-every-core)); an issue
 could read:
 
 > **x86_64 `asum_sse.S`, `asum_sse2.S`, `zasum_sse2.S`, `dot_sse2.S`, `zdot_sse2.S`, `zsum_sse2.S`, `dgemv_n.S` and kin: the result depends on the alignment of `x` or `y`**

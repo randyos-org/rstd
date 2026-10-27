@@ -1,7 +1,8 @@
 # gemm kernel notes
 
 How the Zig kernels of `kernel.zig` compare with the hardware, and where
-converted assembly would pay. Measured 2026-10-15.
+converted assembly would pay. Measured 2026-10-15. The kernels' design is in
+[`design.md`](../../design.md#level-3).
 
 ## Setup
 
