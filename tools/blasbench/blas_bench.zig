@@ -1484,8 +1484,8 @@ fn sumBound(n: usize) f64 {
 }
 
 /// A table's header: `lead` and `rule`, then each shown contestant's rate,
-/// its ratio over OpenBLAS, rstd's difference from each library, and a
-/// hash of rstd's output.
+/// its ratio over OpenBLAS, rstd's difference from each library, rstd's
+/// error, and a hash of rstd's output.
 fn printHeader(comptime lead: []const u8, comptime rule: []const u8, cols: []const Col) void {
     var n: usize = 0;
     std.debug.print("| " ++ lead ++ " |", .{});
@@ -1501,14 +1501,14 @@ fn printHeader(comptime lead: []const u8, comptime rule: []const u8, cols: []con
         std.debug.print(" rstd-{s} |", .{c.short});
         n += 1;
     };
-    std.debug.print(" rstd bits |\n| " ++ rule ++ " |", .{});
-    for (0..n) |_| std.debug.print(" -: |", .{});
+    std.debug.print(" rstd err | rstd bits |\n| " ++ rule ++ " |", .{});
+    for (0..n + 1) |_| std.debug.print(" -: |", .{});
     std.debug.print(" --- |\n", .{});
 }
 
 /// A row after its lead: `printHeader`'s columns; `-` where one is missing,
 /// `!` on a difference past its bound.
-fn printRow(cols: []const Col, rates: []const ?f64, diffs: []const ?Diff, bits: u64) void {
+fn printRow(cols: []const Col, rates: []const ?f64, diffs: []const ?Diff, mine: Rstd) void {
     for (cols, rates) |c, r| {
         if (!c.shown()) continue;
         if (r) |v| std.debug.print("{d:.1} | ", .{v}) else std.debug.print("- | ", .{});
@@ -1521,8 +1521,12 @@ fn printRow(cols: []const Col, rates: []const ?f64, diffs: []const ?Diff, bits: 
         if (c.lib == null or !c.shown()) continue;
         if (d) |v| std.debug.print("{d:.1}{s} | ", .{ v.eps, if (v.eps > v.bound) " !" else "" }) else std.debug.print("- | ", .{});
     }
-    std.debug.print("{x:0>8} |\n", .{@as(u32, @truncate(bits))});
+    std.debug.print("{d:.1} | {x:0>8} |\n", .{ mine.err, @as(u32, @truncate(mine.bits)) });
 }
+
+/// rstd's error from the f64 reference, in eps of the type relative to the
+/// size of the terms, and a hash of its output.
+const Rstd = struct { err: f64 = 0, bits: u64 = 0 };
 
 /// What rstd's own table holds in slot `name`: converted `asm`, or
 /// `portable`.
@@ -1530,7 +1534,7 @@ fn rstdRuns(comptime name: []const u8) []const u8 {
     return if (@field(blas.vtable().*, name).? == @field(tables.portable, name).?) "portable" else "asm";
 }
 
-const diff_note = "`rstd-<lib>` is rstd's largest difference from that library's result, in eps of the type relative to the size of the terms; `!` marks one past what accumulation order explains: 0 for `copy`, `swap` and `i?amax`, 8 for the other element-wise routines, 2 (n + 8) for a sum of n terms. `rstd bits` hashes rstd's output, the same on machines that run the same kernels";
+const diff_note = "`rstd-<lib>` is rstd's largest difference from that library's result, in eps of the type relative to the size of the terms; `!` marks one past what accumulation order explains: 0 for `copy`, `swap` and `i?amax`, 8 for the other element-wise routines, 2 (n + 8) for a sum of n terms. `rstd err` is rstd's own error from an f64 reference in the same units (gemm: at 256 entries), which tells whose result a difference comes from. `rstd bits` hashes rstd's output, the same on machines that run the same kernels";
 
 fn libLevel1(io: Io, gpa: std.mem.Allocator) !void {
     try clock(io, "library level 1 start");
@@ -1605,7 +1609,7 @@ fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p.F, 
         var count: usize = 0;
         var ok = true;
         var rs: [2]f64 = .{ 0, 0 };
-        var bits: u64 = 0;
+        var mine: Rstd = .{};
         for (0..lib_cols.len) |o| {
             const i = rstdFirst(o);
             const f = fns[i] orelse continue;
@@ -1625,7 +1629,7 @@ fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p.F, 
                     h.update(std.mem.sliceAsBytes(b.x[0..span]));
                     h.update(std.mem.sliceAsBytes(b.y[0..span]));
                 }
-                bits = h.final();
+                mine = .{ .err = e * @as(f64, if (comptime reduces(r)) @floatFromInt(n + 8) else 8), .bits = h.final() };
             } else if (lib_cols[i].lib != null) diffs[i] = diffL1(r, p, n, case.inc, b, kx, ky, rs, res);
             ctxs[count] = .{ .f = f, .n = @intCast(n), .inc = @intCast(case.inc), .x = b.x.ptr, .y = b.y.ptr };
             at[i] = count;
@@ -1642,7 +1646,7 @@ fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p.F, 
         for (at, &rates) |j, *rt| rt.* = if (j) |k| bytes / secs[k] / 1e9 else null;
         std.debug.print("| {s} | {s} | {d} | {d} | {s} | ", .{ @tagName(r), p.name, n, case.inc, rstdRuns(name) });
         if (arm) std.debug.print("{s} | ", .{if (asm_k) |a| a.from else "none"});
-        printRow(&lib_cols, &rates, &diffs, bits);
+        printRow(&lib_cols, &rates, &diffs, mine);
     }
 }
 
@@ -1737,7 +1741,7 @@ fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []c
         var diffs: [lib_cols.len]?Diff = @splat(null);
         var count: usize = 0;
         var ok = true;
-        var bits: u64 = 0;
+        var mine: Rstd = .{};
         for (0..lib_cols.len) |o| {
             const i = rstdFirst(o);
             const f = fns[i] orelse continue;
@@ -1752,7 +1756,7 @@ fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []c
             }
             if (i == rstd_col) {
                 @memcpy(ky, y);
-                bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(y[0..out]));
+                mine = .{ .err = e * @as(f64, @floatFromInt(n + 8)), .bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(y[0..out])) };
             } else if (lib_cols[i].lib != null) diffs[i] = .{ .eps = diffScaled(F, ky, y, scale[0..out]), .bound = sumBound(n) };
             at[i] = count;
             count += 1;
@@ -1769,7 +1773,7 @@ fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []c
         for (at, &rates) |j, *rt| rt.* = if (j) |k| flops / secs[k] / 1e9 else null;
         std.debug.print("| gemv_{s} | {s} | {d} | {s} | ", .{ t, p.name, n, rstdRuns(name) });
         if (arm) std.debug.print("{s} | ", .{if (asm_k) |k| k.from else "none"});
-        printRow(&lib_cols, &rates, &diffs, bits);
+        printRow(&lib_cols, &rates, &diffs, mine);
     }
 }
 
@@ -1921,7 +1925,7 @@ fn raceLibGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
         var at: [lib3_cols.len]?usize = @splat(null);
         var diffs: [lib3_cols.len]?Diff = @splat(null);
         var count: usize = 0;
-        var bits: u64 = 0;
+        var mine: Rstd = .{};
         for (0..lib3_cols.len) |o| {
             const i = rstdFirst(o);
             const loops: ?Loops(p) = if (comptime Loops(p) != void) (if (i == 4) .{ .im = asmGemm(p), .blk = blk, .n = n, .a = a.ptr, .b = b.ptr, .c = c.ptr, .sa = sa.ptr, .sb = sb.ptr } else null) else null;
@@ -1937,7 +1941,7 @@ fn raceLibGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
             }
             if (i == rstd_col) {
                 @memcpy(kc[0..m], c[0..m]);
-                bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(c[0..m]));
+                mine = .{ .err = e * @as(f64, @floatFromInt(n + 8)), .bits = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(c[0..m])) };
             } else if (lib3_cols[i].lib != null) diffs[i] = .{ .eps = diffScaled(F, kc, c, scale[0..m]), .bound = sumBound(n) };
             at[i] = count;
             count += 1;
@@ -1951,6 +1955,6 @@ fn raceLibGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
         var rates: [lib3_cols.len]?f64 = undefined;
         for (at, &rates) |j, *rt| rt.* = if (j) |k| flops / secs[k] / 1e9 else null;
         std.debug.print("| {s} | {d} | ", .{ p.name, n });
-        printRow(&lib3_cols, &rates, &diffs, bits);
+        printRow(&lib3_cols, &rates, &diffs, mine);
     }
 }
