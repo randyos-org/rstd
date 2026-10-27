@@ -455,7 +455,7 @@ above are not among them:
 
 | Architecture | Level 1 | Level 2 | Level 3 | `@Vector` |
 | --- | --- | --- | --- | --- |
-| x86_64 | `axpy`, `dot`, `scal` (C drivers and assembly); `asum`, `copy`, `rot`, `sum`, `swap` | `gemv`, `symv`, `hemv` | tile | routed |
+| x86_64 | `axpy`, `dot`, `rot`, `scal` (C drivers and assembly); `asum`, `copy`, `sum`, `swap` | `gemv`, `symv`, `hemv` | tile | routed |
 | x86 | `axpy`, `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
 | arm | `axpy`, `asum`, `dot`, `rot`, `sum`, `swap` | `gemv` | tile | |
 | arm64 | `axpy` (assembly, SVE, ThunderX), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed and more |

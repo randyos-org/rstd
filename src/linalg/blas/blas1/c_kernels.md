@@ -4,7 +4,7 @@ Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`)
 around a block kernel, which is an inline-assembly microkernel
 (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all.
 `axpy` was the first routine ported this way, `dot` on x86_64 the second, then
-x86_64 `scal`. All go through the same machinery, so a new routine adds a
+x86_64 `scal` and `rot`. All go through the same machinery, so a new routine adds a
 table row and its driver, not a new converter. Where these ports sit among the other kernel kinds
 is in [`design.md`](../design.md#kernel-kinds).
 
