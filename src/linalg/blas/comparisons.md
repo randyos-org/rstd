@@ -10,7 +10,8 @@ any `axpy` kernel) and pitfall 1 of 8 (x86_64's alignment-peeling
 reductions routed to `@Vector` kernels). `readme.md`, "One contract on every
 core", has the details. Also, 10.2 and 10.3 (2026-10-23, `wip/denormals`):
 no `f32` vector lanes where they flush (`util.vectorIeee`). And 10.1
-(2026-10-26, `wip/l3`): `trsm` divides by the diagonal, as `trsv` does.
+(2026-10-26, `wip/l3`): `trsm` divides by the diagonal, as `trsv` does;
+and 7's `beta` pass, folded into the first depth slice.
 
 ## Sources and versions
 
@@ -351,6 +352,14 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   pass is a larger share. **Change (performance)**: pass `beta` to the kernel for the first `Q`
   slice and 1 afterward; keep the separate pass only for `alpha == 0`/`k == 0`. This also keeps
   `beta == 0` from reading `C`.
+  **Done**, in the driver rather than the kernel (whose slot keeps OpenBLAS's signature): each
+  block of `C` is scaled just before the first slice's kernel call on it, while it is in cache,
+  and `trmm`'s and `trsm`'s `alpha` where each part of `B` is first read. The multiplies are the
+  separate pass's, so the bits are too (a test compares the two for every routine); `beta == 0`
+  still writes zeros without reading `C`. On this machine (best of three interleaved runs,
+  portable kernels), `C` of 2000 x 2000: `dgemm` 0.61x the time at `k = 8`, 0.85x at 32, 0.94x
+  at 128; `dsyrk` 0.76x, 0.85x, 0.95x; `zgemm` 0.83x at 8; `C` of 500 x 500, which stays in cache,
+  and large `k` within the noise.
 - *Threading protocol.* OpenBLAS's flag-based producer/consumer (`level3_thread.c`) has a
   history of races: `Changelog.txt:1703-1715` (0.3.9: "Fixed a race condition in the level3 blas
   code" on POWER, ARMV7, ARMV8), `:250-254` (0.3.31: reverted a 0.3.30 partitioning change "that

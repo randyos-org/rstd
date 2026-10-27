@@ -504,6 +504,11 @@ complex, for every float type, through the same code.
   a scratch tile and add the triangle's part (`syrk_kernel.c`); the reference's shared
   `sa`/`sb` path, which needs `unroll_m == unroll_n`, is not taken. `trmm` and `trsm` follow
   `trmm_L.c`, `trmm_R.c`, `trsm_L.c` and `trsm_R.c` loop for loop.
+- **`beta`.** Each block of `C` is scaled by `beta` just before the first depth slice first
+  touches it, while it is in cache, not in a pass of its own (BLIS's first-`KC` `beta`); `trmm`'s
+  and `trsm`'s `alpha` goes where each part of `B` is first read. The same multiplies as a pass
+  first, so the same bits; a zero `beta` writes zeros without reading `C`. `alpha == 0` and
+  `k == 0` keep the separate pass.
 - **Chunks.** The product drivers call the kernel on the same `3 * unroll_n` column chunks they
   pack (`Blocking.chunk`), where the reference hands the kernel a slice's whole `sb`. A stated
   unroll that does not match the kernels then costs speed, never correctness. The triangular
