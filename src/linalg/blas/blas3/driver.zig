@@ -80,7 +80,7 @@ pub const Blocking = struct {
     /// `level3.c`'s split of `rest` rows (or depth) for a block of `max`:
     /// all of it up to `max`, half of it (rounded to `unroll`) below twice
     /// `max`, else `max`.
-    fn split(rest: usize, max: usize, unroll: usize) usize {
+    pub fn split(rest: usize, max: usize, unroll: usize) usize {
         if (rest >= 2 * max) return max;
         if (rest > max) return @min(rest, (rest / 2 + unroll - 1) / unroll * unroll);
         return rest;
@@ -90,7 +90,7 @@ pub const Blocking = struct {
     /// `2 * GEMM_UNROLL_N` step is commented out upstream. Its `6 *
     /// GEMM_UNROLL_N` for the Skylake-X family serves those cores' assembly,
     /// which is not converted; the Zig kernels' `unroll_n` is already wide there.
-    fn chunk(b: Blocking, rest: usize) usize {
+    pub fn chunk(b: Blocking, rest: usize) usize {
         if (rest >= 3 * b.un) return 3 * b.un;
         if (rest > b.un) return b.un;
         return rest;
@@ -146,7 +146,7 @@ fn raw(comptime T: type, p: [*]T) [*]Float(T) {
     return @ptrCast(p);
 }
 
-fn isZero(comptime T: type, v: T) bool {
+pub fn isZero(comptime T: type, v: T) bool {
     return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
 }
 
@@ -158,7 +158,7 @@ fn isOne(comptime T: type, v: T) bool {
 
 /// `C += alpha * A * B` on packed `A` (`m x k`) and `B` (`k x n`), complex
 /// conjugating as `conj` says.
-fn kernel(comptime T: type, vt: *const Vtable, conj: Conj, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize) void {
+pub fn kernel(comptime T: type, vt: *const Vtable, conj: Conj, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize) void {
     if (comptime isComplex(T)) {
         const f = switch (conj) {
             .n => portable.kernel(T, vt, .gemm_kernel_n),
@@ -173,7 +173,7 @@ fn kernel(comptime T: type, vt: *const Vtable, conj: Conj, m: usize, n: usize, k
 }
 
 /// `C := beta*C` on `m x n`, never reading `C` for a zero `beta`.
-fn scale(comptime T: type, vt: *const Vtable, m: usize, n: usize, beta: T, c: [*]T, ldc: usize) void {
+pub fn scale(comptime T: type, vt: *const Vtable, m: usize, n: usize, beta: T, c: [*]T, ldc: usize) void {
     if (comptime isComplex(T)) {
         const f = raw(T, c);
         _ = portable.kernel(T, vt, .gemm_beta)(@intCast(m), @intCast(n), 0, beta.re, beta.im, f, 0, f, 0, f, @intCast(ldc));
@@ -251,7 +251,7 @@ fn colsCopy(comptime T: type, vt: *const Vtable, trans: bool, m: usize, n: usize
 }
 
 /// Packs rows `is..` of `op(A)` over depth `ls..` (`ICOPY_OPERATION`).
-fn packRows(comptime T: type, vt: *const Vtable, d: Desc, x: Matrix(T), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]T) void {
+pub fn packRows(comptime T: type, vt: *const Vtable, d: Desc, x: Matrix(T), min_l: usize, min_i: usize, ls: usize, is: usize, dst: [*]T) void {
     switch (d.rows) {
         .n => rowsCopy(T, vt, false, min_l, min_i, x.p + is + ls * x.ld, x.ld, dst),
         .t => rowsCopy(T, vt, true, min_l, min_i, x.p + ls + is * x.ld, x.ld, dst),
@@ -260,7 +260,7 @@ fn packRows(comptime T: type, vt: *const Vtable, d: Desc, x: Matrix(T), min_l: u
 }
 
 /// Packs columns `jjs..` of `op(B)` over depth `ls..` (`OCOPY_OPERATION`).
-fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]T) void {
+pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_l: usize, min_jj: usize, ls: usize, jjs: usize, dst: [*]T) void {
     switch (d.cols) {
         .n => colsCopy(T, vt, false, min_l, min_jj, y.p + ls + jjs * y.ld, y.ld, dst),
         .t => colsCopy(T, vt, true, min_l, min_jj, y.p + jjs + ls * y.ld, y.ld, dst),
@@ -458,7 +458,7 @@ fn scaleBlock(comptime T: type, vt: *const Vtable, region: Region, real_diag: bo
 }
 
 /// `beta` as `run` takes it: null for 1.
-fn unlessOne(comptime T: type, beta: T) ?T {
+pub fn unlessOne(comptime T: type, beta: T) ?T {
     return if (isOne(T, beta)) null else beta;
 }
 

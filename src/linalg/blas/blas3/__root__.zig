@@ -15,6 +15,8 @@ pub const symm = @import("symm/__root__.zig");
 pub const symm3m = @import("symm3m/__root__.zig");
 pub const syr2k = @import("syr2k/__root__.zig");
 pub const syrk = @import("syrk/__root__.zig");
+/// Level-3 threading prototypes (`threading.md`), internal.
+pub const thread_proto = @import("thread_proto.zig");
 pub const trmm = @import("trmm/__root__.zig");
 pub const trsm = @import("trsm/__root__.zig");
 

@@ -367,17 +367,86 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
 
 /// `io.checkCancel()`, or nothing on an `Io` without cancellation, whose
 /// `checkCancel` is unreachable (`Io.failing`, rstd's UEFI `Io`).
-fn checkCancel(io: Io) Io.Cancelable!void {
+pub fn checkCancel(io: Io) Io.Cancelable!void {
     if (io.vtable.checkCancel == &Io.unreachableCheckCancel) return;
     return io.checkCancel();
 }
+
+// ---- level 3: workers that wait on each other ------------------------------------
+
+/// Runs `job` on up to `want` workers that wait on each other, so all must run
+/// at once. The caller is worker 0; the rest start through `Group.concurrent`
+/// and wait until the caller has counted them. `job.plan(n)` then sizes the
+/// work for the `n` that started and returns how many take part, and
+/// `job.work(io, i)` runs worker `i`. With none started the caller runs alone.
+/// Returns once every task has finished.
+pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
+    if (comptime sysinfo.single_threaded) {
+        _ = job.plan(1);
+        return job.work(io, 0);
+    }
+    const Job = @TypeOf(job.*);
+    const S = struct {
+        fn worker(j: *Job, go: *std.atomic.Value(u32), i: u32, wio: Io) void {
+            const active = waitWhile(wio, go, 0) catch return wio.recancel();
+            if (i < active) j.work(wio, i) catch wio.recancel();
+        }
+    };
+    var go: std.atomic.Value(u32) = .init(0);
+    var group: Io.Group = .init;
+    // runs first, canceling workers still waiting on `go`
+    defer group.cancel(io);
+    var started: u32 = 1;
+    while (started < want) : (started += 1) group.concurrent(io, S.worker, .{ job, &go, started, io }) catch break;
+    go.store(job.plan(started), .release);
+    if (started > 1) io.futexWake(u32, &go.raw, std.math.maxInt(u32));
+    try job.work(io, 0);
+    try group.await(io);
+}
+
+/// Waits until `v` holds other than `old`; returns what it holds.
+pub fn waitWhile(io: Io, v: *const std.atomic.Value(u32), old: u32) Io.Cancelable!u32 {
+    while (true) {
+        const x = v.load(.acquire);
+        if (x != old) return x;
+        try io.futexWait(u32, &v.raw, old);
+    }
+}
+
+/// Waits until `v` holds `want`.
+pub fn waitFor(io: Io, v: *const std.atomic.Value(u32), want: u32) Io.Cancelable!void {
+    while (true) {
+        const x = v.load(.acquire);
+        if (x == want) return;
+        try io.futexWait(u32, &v.raw, x);
+    }
+}
+
+/// A reusable futex barrier of `parties` workers.
+pub const Barrier = struct {
+    parties: u32,
+    arrived: std.atomic.Value(u32) = .init(0),
+    phase: std.atomic.Value(u32) = .init(0),
+
+    pub fn wait(b: *Barrier, io: Io) Io.Cancelable!void {
+        if (b.parties <= 1) return;
+        const p = b.phase.load(.acquire);
+        if (b.arrived.fetchAdd(1, .acq_rel) + 1 == b.parties) {
+            b.arrived.store(0, .monotonic);
+            b.phase.store(p +% 1, .release);
+            io.futexWake(u32, &b.phase.raw, std.math.maxInt(u32));
+            return;
+        }
+        _ = try waitWhile(io, &b.phase, p);
+    }
+};
 
 // ---- tests -------------------------------------------------------------------------
 
 const zigstd = @import("../../zigstd.zig");
 
 /// Whether `Io.Threaded` runs here, for the threaded tests.
-const hosted = !sysinfo.single_threaded and switch (sysinfo.target.os.tag) {
+pub const hosted = !sysinfo.single_threaded and switch (sysinfo.target.os.tag) {
     .freestanding, .other, .uefi => false,
     else => true,
 };
