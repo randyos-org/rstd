@@ -1,6 +1,7 @@
 _sysctl
 AAPCS
 ABGR
+abig
 abiversion
 abssq
 accept
@@ -37,6 +38,7 @@ Alti
 altivec
 amaxv
 amdgpu
+amed
 amxtile
 andi
 andl
@@ -58,8 +60,10 @@ argv
 armeb
 ARMEB
 armhf
+asimd
 ASLR
 asmfmt
+asml
 asr
 asrs
 astgen
@@ -75,6 +79,7 @@ axpy
 axpyc
 AXPYKERNEL
 AXPYU
+axpyv
 balc
 bbox
 bboxes
@@ -105,6 +110,7 @@ blaslong
 BLASULONG
 ble
 blez
+BLIS
 BLIS's
 Blits
 blitted
@@ -146,6 +152,7 @@ caxpyc
 CBDT
 CBLAS
 CBLC
+CBWR
 ccopy
 cdotc
 cdotu
@@ -198,6 +205,7 @@ cmpwi
 CMPXCHG
 cneg
 cnrm
+cntx
 cnxt
 Codeberg
 coeffi
@@ -256,6 +264,7 @@ dasum
 daxpby
 daxpy
 DAXPYKERNEL
+dcabs
 DCACHEBSIZE
 DCBT
 dcbtst
@@ -280,6 +289,7 @@ dgeadd
 dgemm
 dgemv
 dger
+dgesvd
 dgettext
 diagonalizable
 difat
@@ -287,6 +297,7 @@ dimatcopy
 dir
 DIRENV
 DLAB
+dlassq
 dlaswp
 dlopen
 dlsym
@@ -302,6 +313,7 @@ dotenv
 dotk
 dotni
 dotu
+dotv
 downscaling
 drot
 drotm
@@ -315,9 +327,12 @@ dswap
 dsymm
 dsymv
 DSYNC
+dsyr
 dtes
 dtrmm
+dtrmv
 dtrsm
+dtrsv
 Dubrulle
 dummyi
 dup
@@ -461,6 +476,7 @@ fcmatch
 fcmatrix
 FCMOV
 fcmp
+fcmpu
 fcname
 fcntl
 fcobjs
@@ -473,6 +489,7 @@ fcrange
 fcserialize
 fcstat
 fcstr
+fcvtl
 fcweight
 fcxml
 fdarray
@@ -607,7 +624,11 @@ gdb
 gdkwayland
 gdkx
 geadd
+gemmt
+gemmtrsm
 gemv
+gerc
+gerv
 get_kernel_syms
 get_mempolicy
 get_robust_list
@@ -685,6 +706,7 @@ Harf
 Harfbuzz
 HarfBuzz
 hasc
+hbmv
 hcall
 hemm
 hemv
@@ -692,11 +714,13 @@ herk
 hflex
 HFLOAT
 hhcurveto
+Higham
 hilb
 hilber
 Hinnant
 HLAT
 hlineto
+hpmv
 hprime
 hstem
 hstemhm
@@ -714,6 +738,7 @@ iamax
 iamaxk
 ICACHEBSIZE
 icamin
+icmax
 ICOPY
 idat
 Idents
@@ -748,6 +773,7 @@ incx
 INCX
 INCXM
 INCYM
+Inf
 Inigo
 init
 init_module
@@ -780,6 +806,7 @@ ioprio_get
 ioprio_set
 ioredtbl
 iovec
+IPDPS
 ipiv
 ipvt
 iqamax
@@ -845,9 +872,12 @@ LANCHOR
 landlock_add_rule
 landlock_create_ruleset
 landlock_restrict_self
+lange
+Langou
 LAPACK
 lapic
 larl
+lassq
 laswp
 LASX
 Laxpy
@@ -929,6 +959,7 @@ ltcopy
 ltex
 LTLN
 LTUN
+Luszczek
 lwc
 lxv
 lxvd
@@ -964,6 +995,7 @@ MERG
 mflr
 mfma
 mfmsr
+mfpvr
 migrate_pages
 mincore
 MINSIGSTKSZ
@@ -1095,6 +1127,8 @@ nommu
 NOPASSWD
 noreorder
 NORESERVE
+normfv
+normiv
 nospu
 nostdinc
 nouveau
@@ -1107,10 +1141,12 @@ nrmxlr
 nrtp
 NSYNC
 oabi
+oapi
 objc
 OCOPY
 OETF
 ofmt
+Ogita
 oklab
 olcopyb
 olcopyi
@@ -1163,9 +1199,11 @@ outucopy
 outw
 OVBA
 OVMF
+packm
 paeth
 PAGESZ
 PAPR
+parallelize
 PascalCase
 PascalCased
 passthrough
@@ -1217,6 +1255,8 @@ pollfd
 pollfds
 popfq
 popl
+potrf
+potrs
 powerpc
 powerpcle
 ppc
@@ -1323,6 +1363,7 @@ readlink
 readlinkat
 readv
 realification
+rebased
 reboot
 recancel
 recompiles
@@ -1347,6 +1388,7 @@ rfont
 rgamsq
 rgbprime
 rglvk
+Riedy
 riscv
 rldicr
 rlim
@@ -1421,6 +1463,7 @@ sbdtobf
 sbgemm
 sbgemv
 sbger
+sbig
 sbix
 sblaswp
 sbmax
@@ -1442,7 +1485,9 @@ sbtrmm
 sbtrsm
 scal
 scalarized
+scalarly
 scalk
+scalv
 scanline
 SCASUM
 SCCB
@@ -1511,6 +1556,7 @@ setsid
 setsockopt
 settimeofday
 setuid
+setv
 setxattr
 setxattrat
 sfloat
@@ -1667,6 +1713,8 @@ Subrs
 subrsoff
 subs
 subsd
+sumsq
+sumsqv
 supersampling
 svdapi
 swapj
@@ -1698,6 +1746,8 @@ SYSTIMER
 sysv
 taxpy
 taxpyc
+TBB's
+tbig
 TBMV
 tbsv
 tcopy
@@ -1751,6 +1801,7 @@ trsv
 TrueType
 TrueType-style
 truncate
+tsml
 TSUFFIX
 Turbopack
 tuxcall
@@ -1783,6 +1834,7 @@ Uncancelable
 uncompr
 unconj
 unenc
+unflushed
 unfused
 unlink
 unlinkat
@@ -1792,6 +1844,7 @@ unpcklps
 unref
 unshare
 unsuffixed
+unvectorizable
 unwrite
 Uplo
 uprobe
@@ -1824,6 +1877,7 @@ vcurve
 vdevice
 vDSO
 VECLIB
+vectorizer
 vectorizing
 vendored
 verts
@@ -1867,6 +1921,8 @@ vmrghw
 vmrglw
 vmrs
 vmsplice
+vmsr
+vmul
 vmulpd
 vmxe
 vopen
@@ -2066,11 +2122,14 @@ zgerv
 ZGESL
 zhemm
 zhemv
+zher
 zherk
+zhpr
 zig
 zigcfg
 zigfmt
 ziggify
+Zigify
 zigimg
 zigvec
 zimatcopy
@@ -2094,6 +2153,7 @@ ZSVDC
 zswap
 zsymm
 zsymv
+zsyr
 ztrmm
 ztrsm
 zutil

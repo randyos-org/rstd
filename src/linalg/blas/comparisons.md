@@ -8,7 +8,7 @@ the value routines, the `nan_lanes` quirk gone), X1 (`sdot` in `f64`, one
 `nrm2` and the extremes' rule on every core, and no zero-`alpha` return in
 any `axpy` kernel) and pitfall 1 of 8 (x86_64's alignment-peeling
 reductions routed to `@Vector` kernels). `readme.md`, "One contract on every
-core", has the details. Also 10.2 and 10.3 (2026-10-23, `wip/denormals`):
+core", has the details. Also, 10.2 and 10.3 (2026-10-23, `wip/denormals`):
 no `f32` vector lanes where they flush (`util.vectorIeee`).
 
 ## Sources and versions
@@ -220,7 +220,7 @@ x86_64 unmeasured) or a NaN pre-check.
 and a zero output stride applies `n` sequential updates to one element. `dscal`, `dasum`,
 `idamax` return early for `incx <= 0`. Level 2 rejects `incx = 0`.
 
-**BLIS.** The compat layer (`frame/include/bli_blas_macro_defs.h:50-75`) only flips negative
+**BLIS.** The compatibility layer (`frame/include/bli_blas_macro_defs.h:50-75`) only flips negative
 strides; zero passes through to kernels, which loop sequentially. `frame/compat/bla_scal.c` has no
 `incx <= 0` guard, so BLIS `dscal` with a negative stride scales the vector and with zero
 scales `x(1)` `n` times: a deviation from the reference.
@@ -241,7 +241,7 @@ Do not copy BLIS's `scal` behavior.
 
 ## 5. Rank updates skipping zero columns
 
-**rstd.** `ger` splits `y` into runs of nonzeros and calls the kernel once per run
+**rstd.** `ger` splits `y` into runs of nonzeroes and calls the kernel once per run
 (`review:blas2/interface.zig`, `gerImpl`); the `syr`, `her`, `spr`, `hpr` and rank-2 drivers skip
 `x(j) == 0` (`blas2/banded.zig:350,379`), as reference BLAS does. OpenBLAS's `zher_k.c`,
 `zhpr_k.c` and rank-2 drivers do not skip (rstd `issues.md`, "Rank updates and a zero factor").
@@ -348,7 +348,7 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   rstd) read and write all of `C` once more. `gemm/notes.md` attributes 7-25% of the full-gemm
   loss to packing, the `C` update and edges; for LAPACK-style updates with small `k` the extra
   pass is a larger share. **Change (performance)**: pass `beta` to the kernel for the first `Q`
-  slice and 1 afterwards; keep the separate pass only for `alpha == 0`/`k == 0`. This also keeps
+  slice and 1 afterward; keep the separate pass only for `alpha == 0`/`k == 0`. This also keeps
   `beta == 0` from reading `C`.
 - *Threading protocol.* OpenBLAS's flag-based producer/consumer (`level3_thread.c`) has a
   history of races: `Changelog.txt:1703-1715` (0.3.9: "Fixed a race condition in the level3 blas
@@ -362,7 +362,7 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   barrier before committing to the flag protocol; rstd's start-barrier design already covers the
   "all or nothing" part.
 - *Complex.* rstd's native `@Vector` complex kernel is generated for every core, so the main
-  benefit of 1m (no hand-written complex kernels) is already had. 1m could help only where the
+  benefit of 1m (no handwritten complex kernels) is already had. 1m could help only where the
   complex tile is weak, and on the `split` (scalar) targets the real kernel is scalar too.
   **Keep native; no 1m.** For the planned `gemm3m`/`symm3m`/`hemm3m`: 3m's imaginary part is only
   normwise stable (Higham, SIAM J. Matrix Anal. Appl. 13(3), 1992), so keep it opt-in, as
@@ -392,7 +392,7 @@ problem size (at most 64), claimed dynamically, partials combined in chunk order
   says CNR "fully supports unaligned input and output data").
 - **BLIS**: level 1 and 2 are not threaded; level 3 never splits `k` (`docs/Multithreading.md:161`),
   so thread-count invariance holds by construction, though the docs never state it as a guarantee
-  (no "reproducib" in `docs/`).
+  (`docs/` never mentions reproducibility).
 - **OpenBLAS**: level-1 reductions split by thread count (`kernel/arm64/dot.c:161-199`,
   `kernel/x86_64/ddot.c:160-168`), so bits change with `OPENBLAS_NUM_THREADS`.
 - **Literature**: two families. Fixed reduction trees (MKL CNR; oneTBB's
@@ -443,7 +443,7 @@ budget (`geometryFor`); arm64 level 1/2 `@Vector` kernels with `U = 4` native ve
 two accumulators for reductions (8 independent chains on NEON); no software prefetch.
 
 **BLIS.** Reference kernels are portable C with `PRAGMA_SIMD`, compiled per sub-configuration
-(`ref_kernels/`), and are not expected to be fast; performance comes from hand-written per-arch
+(`ref_kernels/`), and are not expected to be fast; performance comes from handwritten per-arch
 inline-assembly microkernels (`kernels/<arch>/3/`). Level-1 Zen kernels unroll ten vectors with
 unaligned loads and no prefetch (`kernels/zen/1/bli_axpyv_zen_int10.c:72-101`,
 `bli_dotv_zen_int10.c`). gemm microkernels prefetch the `C` tile before the `k` loop and `A`
@@ -537,7 +537,7 @@ an error; nothing panics.
 **References.** Reference BLAS calls `XERBLA` (prints, stops). OpenBLAS calls `xerbla` and 0.3.34
 added an extension to override it (`Changelog.txt:11`). BLIS's native API checks arguments when
 the thread-local error-checking level is `BLIS_FULL_ERROR_CHECKING` (default) and then aborts
-(`frame/base/bli_error.c:134-163`); its BLAS compat `xerbla` prints and returns
+(`frame/base/bli_error.c:134-163`); its BLAS compatible `xerbla` prints and returns
 (`frame/compat/f2c/bla_xerbla.c:83`, abort commented out).
 
 **Assessment.** Returning an error union is the idiomatic Zig equivalent and safer than all three
@@ -606,7 +606,7 @@ Worth porting or emulating:
 
 Where BLIS is not better and rstd should not follow it:
 
-- `nrm2`: BLIS's `sumsqv` is a scalar scaled loop with divisions; LAPACK 3.10's Blue's algorithm
+- `nrm2`: BLIS's `sumsqv` is a scalarly scaled loop with divisions; LAPACK 3.10's Blue's algorithm
   (and wide accumulation for `s`/`c`) is better.
 - `dscal`: BLIS zeroes NaN for `alpha == 0` and scales for `incx <= 0`, both unlike the
   reference.
