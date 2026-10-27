@@ -26,6 +26,8 @@ const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
+const Compile = rstdbuild.CompileStep;
+const LazyPath = rstdbuild.LazyPath;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 
 // Only `cpu/`'s light files (`_corespec.zig` and the `_detect/<arch>.zig` detectors
@@ -130,8 +132,25 @@ fn addForArch(
             // write Mach-O, so macOS objects keep the self-hosted linker
             .use_lld = llvm and target.result.ofmt != .macho,
         });
-        mod.addObject(obj);
+        // `zig cc` ignores `-ofmt`, so an explicit object format goes unchecked
+        if (llvm and g.query.ofmt == null) mod.addObjectFile(try checkedObject(b, obj, g.query)) else mod.addObject(obj);
     }
+}
+
+/// `obj`'s object, linkable only once clang has compiled its bitcode. Zig
+/// 0.18 drops inline asm lines LLVM rejects, yet exits 0 and caches the
+/// object; clang fails on them (issues.md, "Inline assembly errors exit 0").
+fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
+    // no `-mcpu`: each function in the bitcode carries its own CPU and features
+    const triple = try query.zigTriple(b.allocator);
+    const check = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-c", "-Wno-override-module", "-target", triple });
+    check.setName(b.fmt("check inline asm of {s}", .{obj.name}));
+    check.addFileArg(obj.getEmittedLlvmBc());
+    check.addArg("-o");
+    _ = check.addOutputFileArg(b.fmt("asmcheck-{s}", .{obj.out_filename}));
+    const wf = b.addWriteFiles();
+    wf.step.dependOn(&check.step);
+    return wf.addCopyFile(obj.getEmittedBin(), obj.out_filename);
 }
 
 /// Tells `asm_registry.install` which cores' objects are linked.

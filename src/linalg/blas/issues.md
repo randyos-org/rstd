@@ -271,6 +271,35 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** an lld feature request rather than a Zig bug, and probably
   known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
 
+### Inline assembly errors exit 0
+
+- **Seen:** on 0.18.0-dev.751 (LLVM 23.1.2), an instruction LLVM rejects
+  in inline assembly (a bad mnemonic; on aarch64, also one the target's
+  features lack) prints `error: <inline asm>: ...`, yet `zig build-obj` exits 0. The
+  object is written without that line; the symbol is still there.
+  `zig build` shows the step's text as "failure", then counts the step a
+  success, and caches the object, so a rerun is silent. A per-core BLAS
+  object can come out missing instructions. Zig 0.17.0 exits 1.
+- **Workaround:** `build/blaskern.zig` (`checkedObject`) also emits each
+  kernel object's LLVM bitcode, compiles it with `zig cc -c` in a run
+  step, and links the object only through a copy that depends on that
+  step. Clang fails on the same lines and its run step does not cache a
+  failure. Objects built without LLVM, or with an explicit `ofmt`
+  (`zig cc` ignores `-ofmt`), are not checked.
+- **Issue text:**
+
+  > **LLVM inline assembly errors no longer fail the compilation**
+  >
+  > On 0.18.0-dev.751, `zig build-obj k.zig -target x86_64-linux -OReleaseFast`
+  > with `fn f() callconv(.naked) void { asm volatile ("bogusinsn %rax\n ret\n"); }`
+  > exported prints `error: <inline asm>:1:2: invalid instruction mnemonic
+  > 'bogusinsn'` but exits 0 and writes an object in which `f` is a lone
+  > `ret`. The result is cached, so the next build prints nothing. Under
+  > `zig build` the step is reported as succeeding. Zig 0.17.0 exits 1, and
+  > `zig cc -c` on the same module's bitcode fails as expected. The error
+  > should fail the compilation; perhaps check `DiagnosticHandler::HasErrors`
+  > after emitting.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
