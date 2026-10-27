@@ -3,8 +3,8 @@
 Problems found in other projects while building and testing the BLAS port.
 None is filed. For each: what we saw, how we work around it and where,
 and the text of an issue we could file later. The toolchain throughout is
-Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`; 0.18.0-dev.751 at the
-last update) unless an entry says otherwise.
+Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`) unless an entry says
+otherwise. The Zig entries were rechecked on 0.18.0-dev.751 (2026-10-26).
 
 When an issue is fixed upstream, drop the workaround and its entry.
 
@@ -41,8 +41,11 @@ When an issue is fixed upstream, drop the workaround and its entry.
   pointer to a `callconv(.naked)` function to a SysV function type, then
   called directly, corrupted the caller's callee-saved registers (it
   surfaced as a `@memcpy arguments alias` panic). Debug was fine, and so
-  was the same call through a runtime pointer. The call looks emitted with
-  the default (Win64) convention, so `rsi`/`rdi` were assumed preserved.
+  was the same call through a runtime pointer. On 0.18.0-dev.751 the LLVM
+  IR shows why: `call x86_64_sysvcc void @k(i64 ..)` against
+  `define void @k()`. LLVM treats a call whose convention differs from
+  the callee's as undefined, and now compiles the whole caller to
+  `unreachable`, so it crashes.
 - **Workaround:** the vtable only calls kernels through runtime function
   pointers on their own ABI, which is not affected. Keep it that way: do not
   turn vtable calls into comptime-known calls of the naked kernels.
@@ -52,14 +55,17 @@ When an issue is fixed upstream, drop the workaround and its entry.
   >
   > On x86_64-windows, given `fn k() callconv(.naked) void { asm volatile (...) }`
   > implementing a System V function, the call
-  > `@as(*const fn (...) callconv(.{ .x86_64_sysv = .{} }) void, @ptrCast(&k))(args)`
-  > in ReleaseFast or ReleaseSafe does not treat `rsi`/`rdi` as clobbered:
-  > the caller keeps values there across the call, as the Win64 convention
-  > allows, and they come back changed. Loading the same pointer through a
-  > `volatile` (so it is not comptime-known) produces a correct call. Debug
-  > builds are correct either way. It seems the direct call is lowered
-  > against the callee's own convention (`.naked`, so the target default)
-  > instead of the pointer type's.
+  > `@as(*const fn (usize, usize) callconv(.{ .x86_64_sysv = .{} }) void, @ptrCast(&k))(a, b)`
+  > is emitted as a direct `call x86_64_sysvcc void @k(i64, i64)` to
+  > `define void @k()`, which has the default convention. LLVM considers a
+  > call with a mismatched convention undefined behavior: in ReleaseFast
+  > or ReleaseSafe the calling function compiles to a lone `unreachable`
+  > (earlier builds instead kept values in `rsi`/`rdi` across the call).
+  > Loading the same pointer through a `volatile`, so it is not
+  > comptime-known, produces a correct indirect call; Debug with the
+  > self-hosted backend is correct either way. A direct call through a
+  > cast pointer should be emitted as an indirect call, or with the
+  > callee's own convention matching the pointer type's.
 
 ### powerpc64: `.abiversion 2` emitted where the target's convention is ELFv1
 
@@ -130,7 +136,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ### LLVM `-Oz` miscompile on sparc64
 
 - **Seen:** since Zig 0.18.0-dev.250, the sparc64 rig built with `.small`
-  jumps into unrelated code in the gemm parameter test.
+  jumps into unrelated code in the gemm parameter test. Still so on
+  0.18.0-dev.751: "every core of the x86_64 family" traps with
+  `Unhandled Exception 0x10`; the same image at `.fast` passes.
 - **Workaround:** the sparc64 rig builds with `.fast` (`build/qemutest.zig`).
 - **Issue text:** not ready; needs a reduced case first. It may belong to
   LLVM rather than Zig.
@@ -143,7 +151,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   extended type match a plain loop" failed for `Complex(f80)` on it: the
   kernel was right, the `f128` reference was not. `lib/compiler_rt/sqrt.zig`
   has `c.* = sqrt(@floatCast(a.*))`, where `sqrt` is the f64 routine; still
-  so on Zig master (added in 2c5f54c898, 2025-04-28).
+  so on 0.18.0-dev.751 (added in 2c5f54c898, 2025-04-28).
 - **Workaround:** test references take the root with `check.sqrtW`, which on
   sparc64 refines `@sqrt` with two Newton steps in `f128`, scaling by even
   powers of two into f64's range first (a denormal's square is 0 in f64, and
@@ -172,6 +180,11 @@ When an issue is fixed upstream, drop the workaround and its entry.
   which reads f2 (VSR2). The same compare in a release build is correct. It
   looks like PowerPC FastISel's compare using `FCMPUD` on a register of the
   VSX class `VSFRC` without constraining it to `F8RC`.
+- **Status:** appears fixed in 0.18.0-dev.751, workaround kept until
+  verified on the `powerpc64le`, `powerpc64le-power10`, `powerpc64` and
+  `linux-powerpc64le` rigs in Debug. The `powerpc64le` rig's gemm tests
+  pass in Debug, but its LLVM is the same 23.x build, and the check that
+  tripped (0f0bcde replaced it) is gone, so it may only be hidden.
 - **Workaround:** the powerpc64le rigs build with `.safe`
   (`build/qemutest.zig`), which does not use FastISel.
 - **Issue text:**
@@ -197,7 +210,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   split tile's column loop in AltiVec lanes, which flush with `VSCR[NJ]`
   set. ARM's `isFPVectorizationPotentiallyUnsafe` keeps it off NEON's `f32`
   lanes; PowerPC has no such check. LLVM's `pwr3` to `pwr5` models have
-  AltiVec, though those chips do not.
+  AltiVec, though those chips do not. Still so on 0.18.0-dev.751: a scalar
+  `f32` axpy loop for `-mcpu=g4` at ReleaseFast comes out as `vmaddfp`.
 - **Workaround:** the AltiVec cores' objects are built without it
   (`cpu/_corespec.zig`'s `without`). Code built for such a CPU in an
   optimized mode outside them can still be vectorized; `-mcpu=g4-altivec`
@@ -208,7 +222,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
   object, then fails to link: `ld.lld: unsupported e_machine value: 2`
   (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9). Still so on
-  0.18.0-dev.267 (2026-10-17), for a one-function freestanding image too;
+  0.18.0-dev.751 (2026-10-26), for a one-function freestanding image too;
   `-fno-lld` instead crashes Zig's own ELF linker (`invalid enum value` in
   `link/Elf/Object.zig`'s `parseCommon`, which reads every object header as
   `Elf64_Ehdr`), and that linker ignores linker scripts anyway.
@@ -337,22 +351,29 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 ## translate-c (codeberg.org/ziglang/translate-c)
 
-### `build.zig` treats `standardOptimizeOption` as non-optional
+### Its bundled Aro does not build on current Zig
 
-- **Seen:** at 9b5eb01 (its latest as of 2026-10-12), translate-c's
-  `build.zig` uses `b.standardOptimizeOption(...)` as an `Optimize`. On
-  current Zig master it returns `?Optimize` (aa8c774e0f), so the package
-  does not build.
+- **Seen:** at first (9b5eb01, 2026-10-12) translate-c's `build.zig` failed
+  because `standardOptimizeOption` returned an optional (aa8c774e0f); Zig
+  reverted that (21141cb88a). On 0.18.0-dev.751 the package still does not
+  build, now in Aro: at 9b5eb01, `build/generate_def.zig` uses the removed
+  `std.ArrayListUnmanaged`; at 6867c49 (latest, 2026-10-26),
+  `src/aro/Target.zig` and `Compilation.zig` use names Zig renamed or
+  dropped (`Os.Tag.amdpal`, s390x `transactional_execution`, spirv
+  `v1_0`).
 - **Workaround:** rstd's `translate_c` dependency is commented out and
   `src/buildutils/renderdoc.zig` uses the deprecated built-in `addTranslateC`.
 - **Issue text:**
 
-  > **build.zig does not compile on current Zig: `standardOptimizeOption` returns an optional**
+  > **translate-c does not build on Zig master: Aro uses removed std and target names**
   >
-  > Since ziglang/zig aa8c774e0f, `std.Build.standardOptimizeOption`
-  > returns `?std.builtin.OptimizeMode`. translate-c's `build.zig` passes
-  > it where an `OptimizeMode` is required, so depending on the package
-  > fails to configure. Using `orelse .Debug` (or the new default) fixes it.
+  > With Zig 0.18.0-dev.751+069480a1a, building the `translate-c` artifact
+  > at 6867c49 fails in its Aro dependency: `Target.Os.Tag` has no
+  > `amdpal`, `Target.s390x.Feature` no `transactional_execution`, and
+  > `Target.spirv.Feature` no `v1_0` (`src/aro/Target.zig`,
+  > `src/aro/Compilation.zig`). The pin before it (9b5eb01) fails on
+  > `std.ArrayListUnmanaged` in Aro's `build/generate_def.zig`. Updating
+  > the Aro pin to one that follows Zig master would fix both.
 
 ## QEMU
 
