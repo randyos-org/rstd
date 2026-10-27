@@ -85,34 +85,35 @@ are targets at all.
 
 Each routine takes its element type as a comptime parameter. Sizes, strides and leading
 dimensions are `isize`; a negative stride names the vector's last element first, as in the
-reference. Routines that need scratch space beyond a small stack buffer take an allocator.
+reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
+or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` is for the
+threading to come ([`threading.md`](threading.md)); every routine is serial for now.
 
-| Level | File | Shape |
+| Level | Shape | Errors |
 | --- | --- | --- |
-| 1 | `blas1/interface.zig` | `axpy(T, n, alpha, x, incx, y, incy)`; no allocator |
-| 2 | `blas2/interface.zig` | `gemv(allocator, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)` |
-| 2 | `blas2/triangular.zig`, `blas2/banded.zig` | `trmv(T, allocator, uplo, trans, diag, n, a, lda, x, incx)` |
-| 3 | `blas3/interface.zig` | `gemm(allocator, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)` |
+| 1 | `axpy(io, T, n, alpha, x, incx, y, incy)` | `Level1Error` |
+| 2 | `gemv(allocator, io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)` | `Level2Error` |
+| 3 | `gemm(allocator, io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)` | `Level3Error` |
+
+Transposes, triangles, diagonals and sides are the letter enums `blas.Trans`, `Uplo`, `Diag` and
+`Side`, shared by every level.
 
 ```zig
-const blas3 = @import("blas3/interface.zig");
+const blas = rstd.linalg.blas;
 
 // C := A * B, all f64, column-major
-try blas3.gemm(allocator, f64, .n, .n, m, n, k, 1.0, a.ptr, lda, b.ptr, ldb, 0.0, c.ptr, ldc);
+try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a.ptr, lda, b.ptr, ldb, 0.0, c.ptr, ldc);
 ```
 
-These files are not yet re-exported from `rstd.linalg.blas`, so today only code inside the
-module calls them. The API is being flattened to `blas.<routine>`, with an `io: Io` parameter
-after the allocator (`blas.gemm(allocator, io, T, ...)`, `blas.dot(io, T, ...)`), as
-[`threading.md`](threading.md) specifies. Outside the module, `blas.kernel(.daxpy_k)` reaches a
-kernel directly, with the reference's kernel arguments.
+`blas.kernel(.daxpy_k)` reaches a kernel directly, with the reference's kernel arguments.
 
 ### Errors
 
 Bad arguments return an error named after the reference's `xerbla` argument (`InvalidTrans`,
 `InvalidM`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the first bad
 argument wins. A vector or matrix too large for the address space returns its stride's or
-leading dimension's error. Routines that allocate also return `error.OutOfMemory`. Nothing
+leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every routine
+may return `error.Canceled` once it threads. Nothing
 panics on bad input.
 
 ### Initialization

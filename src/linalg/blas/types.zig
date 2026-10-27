@@ -174,3 +174,69 @@ pub fn assertBlasType(comptime T: type, comptime src: SrcInfo) void {
             " (expected BF16, HF16, f32, f64, XDouble, or a Complex of one)");
     }
 }
+
+// ---- argument enums ----------------------------------------------------------
+
+/// `TRANS`: `n` is `A`, `t` `A^T`, `r` `conj(A)`, `c` `A^H`; real `r` and
+/// `c` are `n` and `t`. `o`, `u`, `s`, `d` are those four with `x`
+/// conjugated too (complex `gemv` and `gbmv` only). A routine given a letter
+/// it does not take returns `error.InvalidTrans`.
+pub const Trans = enum {
+    n,
+    t,
+    r,
+    c,
+    o,
+    u,
+    s,
+    d,
+
+    pub fn transposed(t: Trans) bool {
+        return switch (t) {
+            .t, .c, .u, .d => true,
+            .n, .r, .o, .s => false,
+        };
+    }
+
+    /// Whether `A` is conjugated; only complex types have conjugates.
+    pub fn conjA(t: Trans) bool {
+        return switch (t) {
+            .r, .c, .s, .d => true,
+            .n, .t, .o, .u => false,
+        };
+    }
+
+    /// Whether `x` is conjugated (`o`, `u`, `s`, `d`).
+    pub fn conjX(t: Trans) bool {
+        return switch (t) {
+            .o, .u, .s, .d => true,
+            .n, .t, .r, .c => false,
+        };
+    }
+};
+
+/// `UPLO`: the stored triangle, upper or lower. `v` and `m` are the upper and
+/// lower triangles of the transposed Hermitian matrix (OpenBLAS's
+/// `HEMVREV`), taken by the Hermitian level-2 routines only; the others
+/// return `error.InvalidUplo` for them.
+pub const Uplo = enum {
+    u,
+    l,
+    v,
+    m,
+
+    pub fn isLower(uplo: Uplo) bool {
+        return uplo == .l or uplo == .m;
+    }
+
+    pub fn isRev(uplo: Uplo) bool {
+        return uplo == .v or uplo == .m;
+    }
+};
+
+/// `DIAG`: a unit (`u`) diagonal is taken as ones and never read.
+pub const Diag = enum { u, n };
+
+/// `SIDE`: whether the symmetric or triangular matrix multiplies from the
+/// left (`l`) or the right (`r`).
+pub const Side = enum { l, r };

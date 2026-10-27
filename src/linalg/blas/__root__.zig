@@ -14,7 +14,98 @@ const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
 const ext = @import("ext/__root__.zig");
+const l1 = blas1.interface;
+const l2 = blas2.interface;
+const tri = blas2.triangular;
+const band = blas2.banded;
+const l3 = blas3.interface;
 // pub const util = @import("util.zig");
+
+// ---- the BLAS routines ---------------------------------------------------------
+//
+// Fortran argument order, column-major, sizes and strides `isize`, the element
+// type explicit. Each takes `io` after its allocator, or first without one
+// (`threading.md`); bad arguments return named errors in `xerbla`'s order.
+
+pub const Trans = types.Trans;
+pub const Uplo = types.Uplo;
+pub const Diag = types.Diag;
+pub const Side = types.Side;
+pub const Extreme = l1.Extreme;
+pub const HalfGemv = l2.HalfGemv;
+
+/// Level 1: a stride past the address space, or `error.Canceled`.
+pub const Level1Error = l1.Error;
+/// Level 2: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const Level2Error = l2.Error;
+/// `gemvHalf`, which allocates nothing: `Level2Error` less `OutOfMemory`.
+pub const GemvHalfError = l2.HalfError;
+/// Level 3: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const Level3Error = l3.Error;
+
+pub const copy = l1.copy;
+pub const swap = l1.swap;
+pub const scal = l1.scal;
+pub const scalReal = l1.scalReal;
+pub const dot = l1.dot;
+pub const dotc = l1.dotc;
+pub const dsdot = l1.dsdot;
+pub const sdsdot = l1.sdsdot;
+pub const nrm2 = l1.nrm2;
+pub const asum = l1.asum;
+pub const sum = l1.sum;
+pub const index = l1.index;
+pub const extreme = l1.extreme;
+pub const rot = l1.rot;
+pub const rotm = l1.rotm;
+pub const axpy = l1.axpy;
+pub const axpyc = l1.axpyc;
+pub const axpby = l1.axpby;
+pub const sbdot = l1.sbdot;
+pub const bscal = l1.bscal;
+pub const sbtobf16 = l1.sbtobf16;
+pub const bf16to = l1.bf16to;
+pub const rotg = l1.rotg;
+pub const zrotg = l1.zrotg;
+pub const rotmg = l1.rotmg;
+
+pub const gemv = l2.gemv;
+pub const gemvHalf = l2.gemvHalf;
+pub const ger = l2.ger;
+pub const gerc = l2.gerc;
+pub const symv = l2.symv;
+pub const hemv = l2.hemv;
+pub const trmv = tri.trmv;
+pub const trsv = tri.trsv;
+pub const tbmv = tri.tbmv;
+pub const tbsv = tri.tbsv;
+pub const tpmv = tri.tpmv;
+pub const tpsv = tri.tpsv;
+pub const gbmv = band.gbmv;
+pub const sbmv = band.sbmv;
+pub const hbmv = band.hbmv;
+pub const spmv = band.spmv;
+pub const hpmv = band.hpmv;
+pub const syr = band.syr;
+pub const spr = band.spr;
+pub const her = band.her;
+pub const hpr = band.hpr;
+pub const syr2 = band.syr2;
+pub const spr2 = band.spr2;
+pub const her2 = band.her2;
+pub const hpr2 = band.hpr2;
+
+pub const gemm = l3.gemm;
+pub const symm = l3.symm;
+pub const hemm = l3.hemm;
+pub const syrk = l3.syrk;
+pub const herk = l3.herk;
+pub const syr2k = l3.syr2k;
+pub const her2k = l3.her2k;
+pub const trmm = l3.trmm;
+pub const trsm = l3.trsm;
+
+// ---- selection and the vtable ----------------------------------------------------
 
 const InitPhase = enum(u8) { uninit, running, ready };
 

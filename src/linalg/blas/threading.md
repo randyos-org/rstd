@@ -292,9 +292,9 @@ Memory safety for concurrent work:
 
 ## Implementation plan
 
-1. **Signatures and plumbing:** `io: Io` on every public routine (serial inside), the cached
-   CPU count and ceiling in `blas.config`, thresholds, chunking, the claim loop and ordered
-   combine, with their unit tests.
+1. **Signatures and plumbing:** `io: Io` on every public routine (serial inside; done, with
+   `error.Canceled` in every error set), the cached CPU count and ceiling in `blas.config`,
+   thresholds, chunking, the claim loop and ordered combine, with their unit tests.
 2. **Real `gemm`:** the `CNAME` grid and shared packed `B` through `Group.concurrent`, with
    the start barrier, futex waiting, per-worker packing buffers and the serial fallback.
 3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.

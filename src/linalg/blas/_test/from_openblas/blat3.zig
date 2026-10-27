@@ -5,16 +5,15 @@
 //! `SCHK5`, `SMAKE`, `SMMCH`, `LSERES` and the error exits (`SCHKE`, and
 //! `CCHKE` for complex) are ported; the tables below are the `.dat` values.
 //!
-//! Every routine runs through `blas3/interface.zig`; `pending` keeps the
-//! signatures the tests were written against, so one the interface does not
-//! declare skips. `gemm3m` runs as `gemm`, while `complex_gemm` is set.
+//! Every routine runs through the public API (`blas.gemm` and the rest);
+//! `gemm3m` runs as `gemm`.
 //!
 //! Intentional difference: `SMMCH` keeps the largest ratio over every column,
 //! where the Fortran resets it for each.
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const iface = @import("../../blas3/interface.zig");
+const blas = @import("../../__root__.zig");
 const guard = @import("../blas2/guard.zig");
 
 const Float = ob.Float;
@@ -24,73 +23,6 @@ const C32 = std.math.Complex(f32);
 const C64 = std.math.Complex(f64);
 
 const nmax = 65;
-
-/// Set once `interface.gemm` takes complex types; `gemm3m` with it.
-const complex_gemm = true;
-
-/// The level-3 interface as the tests expect it, for the routines not ported:
-/// each skips.
-const pending = struct {
-    // the interface's own, once it has them, so a routine still pending
-    // takes what the ported ones do
-    pub const Side = if (@hasDecl(iface, "Side")) iface.Side else enum { l, r };
-    pub const Uplo = if (@hasDecl(iface, "Uplo")) iface.Uplo else enum { u, l };
-    pub const Diag = if (@hasDecl(iface, "Diag")) iface.Diag else enum { u, n };
-    const Trans = iface.Trans;
-    const A = std.mem.Allocator;
-
-    pub fn gemm(_: A, comptime T: type, _: Trans, _: Trans, _: isize, _: isize, _: isize, _: T, _: [*]const T, _: isize, _: [*]const T, _: isize, _: T, _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-    pub fn symm(_: A, comptime T: type, _: Side, _: Uplo, _: isize, _: isize, _: T, _: [*]const T, _: isize, _: [*]const T, _: isize, _: T, _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-    pub const hemm = symm;
-    pub fn trmm(_: A, comptime T: type, _: Side, _: Uplo, _: Trans, _: Diag, _: isize, _: isize, _: T, _: [*]const T, _: isize, _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-    pub const trsm = trmm;
-    pub fn syrk(_: A, comptime T: type, _: Uplo, _: Trans, _: isize, _: isize, _: T, _: [*]const T, _: isize, _: T, _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-    pub fn herk(_: A, comptime T: type, _: Uplo, _: Trans, _: isize, _: isize, _: Float(T), _: [*]const T, _: isize, _: Float(T), _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-    pub fn syr2k(_: A, comptime T: type, _: Uplo, _: Trans, _: isize, _: isize, _: T, _: [*]const T, _: isize, _: [*]const T, _: isize, _: T, _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-    pub fn her2k(_: A, comptime T: type, _: Uplo, _: Trans, _: isize, _: isize, _: T, _: [*]const T, _: isize, _: [*]const T, _: isize, _: Float(T), _: [*]T, _: isize) anyerror!void {
-        return error.SkipZigTest;
-    }
-};
-
-/// `interface`'s routines where it has them, else `pending`'s.
-const api = struct {
-    const Side = pick("Side");
-    const Uplo = pick("Uplo");
-    const Diag = pick("Diag");
-    const symm = pick("symm");
-    const hemm = pick("hemm");
-    const trmm = pick("trmm");
-    const trsm = pick("trsm");
-    const syrk = pick("syrk");
-    const herk = pick("herk");
-    const syr2k = pick("syr2k");
-    const her2k = pick("her2k");
-
-    fn pick(comptime name: []const u8) if (@hasDecl(iface, name)) @TypeOf(@field(iface, name)) else @TypeOf(@field(pending, name)) {
-        return if (@hasDecl(iface, name)) @field(iface, name) else @field(pending, name);
-    }
-};
-
-/// Skips until `interface` declares `name`.
-fn need(comptime name: []const u8) !void {
-    if (!@hasDecl(iface, name)) return error.SkipZigTest;
-}
-
-fn needComplexGemm() !void {
-    if (!complex_gemm) return error.SkipZigTest;
-}
 
 // ---- parameters ----------------------------------------------------------------
 
@@ -328,7 +260,7 @@ const Call = struct {
     }
 };
 
-fn asTrans(c: u8) iface.Trans {
+fn asTrans(c: u8) blas.Trans {
     return switch (c) {
         'N' => .n,
         'T' => .t,
@@ -336,15 +268,15 @@ fn asTrans(c: u8) iface.Trans {
     };
 }
 
-fn asSide(c: u8) api.Side {
+fn asSide(c: u8) blas.Side {
     return if (c == 'L') .l else .r;
 }
 
-fn asUplo(c: u8) api.Uplo {
+fn asUplo(c: u8) blas.Uplo {
     return if (c == 'U') .u else .l;
 }
 
-fn asDiag(c: u8) api.Diag {
+fn asDiag(c: u8) blas.Diag {
     return if (c == 'U') .u else .n;
 }
 
@@ -363,16 +295,13 @@ fn run(comptime T: type, comptime r: Routine, c: Call, w: anytype) !void {
     const b = w.bb.ptr;
     const cp = w.cc.ptr;
     switch (r) {
-        .gemm, .gemm3m => {
-            const f = if (comptime isComplex(T) and !complex_gemm) pending.gemm else iface.gemm;
-            try f(al, T, asTrans(c.transa), asTrans(c.transb), m, n, k, alpha, a, lda, b, ldb, beta, cp, ldc);
-        },
-        .symm, .hemm => try @field(api, @tagName(r))(al, T, asSide(c.side), asUplo(c.uplo), m, n, alpha, a, lda, b, ldb, beta, cp, ldc),
-        .trmm, .trsm => try @field(api, @tagName(r))(al, T, asSide(c.side), asUplo(c.uplo), asTrans(c.transa), asDiag(c.diag), m, n, alpha, a, lda, b, ldb),
-        .syrk => try api.syrk(al, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, beta, cp, ldc),
-        .herk => try api.herk(al, T, asUplo(c.uplo), asTrans(c.transa), n, k, re(alpha), a, lda, re(beta), cp, ldc),
-        .syr2k => try api.syr2k(al, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
-        .her2k => try api.her2k(al, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, re(beta), cp, ldc),
+        .gemm, .gemm3m => try blas.gemm(al, ob.io, T, asTrans(c.transa), asTrans(c.transb), m, n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .symm, .hemm => try @field(blas, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), m, n, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .trmm, .trsm => try @field(blas, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), asTrans(c.transa), asDiag(c.diag), m, n, alpha, a, lda, b, ldb),
+        .syrk => try blas.syrk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, beta, cp, ldc),
+        .herk => try blas.herk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, re(alpha), a, lda, re(beta), cp, ldc),
+        .syr2k => try blas.syr2k(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .her2k => try blas.her2k(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, b, ldb, re(beta), cp, ldc),
     }
 }
 
@@ -749,8 +678,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
     const nm = @tagName(r);
     switch (r) {
         .gemm, .gemm3m => {
-            const f = if (comptime isComplex(T) and !complex_gemm) pending.gemm else iface.gemm;
-            const G = struct { ta: iface.Trans, tb: iface.Trans, m: isize, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, e: anyerror };
+            const G = struct { ta: blas.Trans, tb: blas.Trans, m: isize, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, e: anyerror };
             const cases = [_]G{
                 .{ .ta = .n, .tb = .n, .m = -1, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidM },
                 .{ .ta = .n, .tb = .t, .m = -1, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidM },
@@ -777,7 +705,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 .{ .ta = .t, .tb = .n, .m = 2, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidLdc },
                 .{ .ta = .t, .tb = .t, .m = 2, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidLdc },
             };
-            for (cases) |g| try E(g.e, f(al, T, g.ta, g.tb, g.m, g.n, g.k, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
+            for (cases) |g| try E(g.e, blas.gemm(al, ob.io, T, g.ta, g.tb, g.m, g.n, g.k, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
         },
         .symm, .hemm => {
             const S = struct { s: u8, u: u8, m: isize, n: isize, lda: isize, ldb: isize, ldc: isize, e: anyerror };
@@ -803,7 +731,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 .{ .s = 'L', .u = 'L', .m = 2, .n = 0, .lda = 2, .ldb = 2, .ldc = 1, .e = error.InvalidLdc },
                 .{ .s = 'R', .u = 'L', .m = 2, .n = 0, .lda = 1, .ldb = 2, .ldc = 1, .e = error.InvalidLdc },
             };
-            for (cases) |g| try E(g.e, @field(api, nm)(al, T, asSide(g.s), asUplo(g.u), g.m, g.n, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
+            for (cases) |g| try E(g.e, @field(blas, nm)(al, ob.io, T, asSide(g.s), asUplo(g.u), g.m, g.n, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
         },
         .trmm, .trsm => {
             const S = struct { s: u8, u: u8, t: u8, m: isize, n: isize, lda: isize, ldb: isize, e: anyerror };
@@ -821,7 +749,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 cases[i + 3] = .{ .s = s, .u = u, .t = t, .m = 2, .n = 0, .lda = if (left) 2 else 1, .ldb = 1, .e = error.InvalidLdb };
                 i += 4;
             };
-            for (cases) |g| try E(g.e, @field(api, nm)(al, T, asSide(g.s), asUplo(g.u), asTrans(g.t), .n, g.m, g.n, z, &a, g.lda, &b, g.ldb), nm);
+            for (cases) |g| try E(g.e, @field(blas, nm)(al, ob.io, T, asSide(g.s), asUplo(g.u), asTrans(g.t), .n, g.m, g.n, z, &a, g.lda, &b, g.ldb), nm);
         },
         .syrk, .herk, .syr2k, .her2k => {
             const two = r == .syr2k or r == .her2k;
@@ -859,12 +787,12 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
 }
 
 /// The rank-k updates with `alpha` and `beta` zero.
-fn call2(comptime T: type, comptime r: Routine, al: std.mem.Allocator, u: u8, t: u8, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, a: [*]T, b: [*]T, c: [*]T, z: T, rz: Float(T)) anyerror!void {
+fn call2(comptime T: type, comptime r: Routine, al: std.mem.Allocator, u: u8, t: u8, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, a: [*]T, b: [*]T, c: [*]T, z: T, rz: Float(T)) blas.Level3Error!void {
     return switch (r) {
-        .syrk => api.syrk(al, T, asUplo(u), asTrans(t), n, k, z, a, lda, z, c, ldc),
-        .herk => api.herk(al, T, asUplo(u), asTrans(t), n, k, rz, a, lda, rz, c, ldc),
-        .syr2k => api.syr2k(al, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, z, c, ldc),
-        .her2k => api.her2k(al, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, rz, c, ldc),
+        .syrk => blas.syrk(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, z, c, ldc),
+        .herk => blas.herk(al, ob.io, T, asUplo(u), asTrans(t), n, k, rz, a, lda, rz, c, ldc),
+        .syr2k => blas.syr2k(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, z, c, ldc),
+        .her2k => blas.her2k(al, ob.io, T, asUplo(u), asTrans(t), n, k, z, a, lda, b, ldb, rz, c, ldc),
         else => unreachable,
     };
 }
@@ -906,51 +834,41 @@ test "blat3: SGEMM, DGEMM" {
 }
 
 test "blat3: CGEMM, ZGEMM" {
-    try needComplexGemm();
     try sweep(.gemm, .{ C32, C64 });
 }
 
 test "blat3_3m: CGEMM3M, ZGEMM3M" {
-    try needComplexGemm();
     try sweep(.gemm3m, .{ C32, C64 });
 }
 
 test "blat3: xSYMM" {
-    try need("symm");
     try sweep(.symm, .{ f32, f64, C32, C64 });
 }
 
 test "blat3: CHEMM, ZHEMM" {
-    try need("hemm");
     try sweep(.hemm, .{ C32, C64 });
 }
 
 test "blat3: xTRMM" {
-    try need("trmm");
     try sweep(.trmm, .{ f32, f64, C32, C64 });
 }
 
 test "blat3: xTRSM" {
-    try need("trsm");
     try sweep(.trsm, .{ f32, f64, C32, C64 });
 }
 
 test "blat3: xSYRK" {
-    try need("syrk");
     try sweep(.syrk, .{ f32, f64, C32, C64 });
 }
 
 test "blat3: CHERK, ZHERK" {
-    try need("herk");
     try sweep(.herk, .{ C32, C64 });
 }
 
 test "blat3: xSYR2K" {
-    try need("syr2k");
     try sweep(.syr2k, .{ f32, f64, C32, C64 });
 }
 
 test "blat3: CHER2K, ZHER2K" {
-    try need("her2k");
     try sweep(.her2k, .{ C32, C64 });
 }

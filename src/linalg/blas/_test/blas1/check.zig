@@ -15,6 +15,10 @@ const vector = @import("../../vector.zig");
 const extremum = @import("../../blas1/extremum.zig");
 const root = @import("root");
 
+/// The `Io` the tests pass the routines: serial (`Io.failing`), which every
+/// target has, rigs included.
+pub const io = std.Io.failing;
+
 /// The extended float the `q`/`x` portable kernels are tested at: `XDouble`
 /// where it is one, else `f80`, whose kernels are generic Zig ones
 /// (`types.kernelCc`) while the vtable's `q`/`x` slots are `f64`.

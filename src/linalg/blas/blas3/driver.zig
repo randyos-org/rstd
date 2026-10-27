@@ -15,6 +15,7 @@
 //! the kernel all of a slice's `sb` at once for the later row blocks, the
 //! kernel is called on the same `3 * unroll_n` column chunks it was packed
 //! in: equal access order, and correct whatever unroll the vtable states.
+//! The routines take `io` for the threading to come (`threading.md`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -24,6 +25,7 @@ const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const BlasLong = types.BlasLong;
 const Float = types.Float;
 const isComplex = types.isComplex;
@@ -367,7 +369,8 @@ fn zero(comptime T: type) T {
 
 /// Runs `d`'s loops with packing space from `allocator`; `twice` runs them
 /// again with the operands swapped and `alpha2` (`syr2k`).
-fn run(allocator: Allocator, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, c: [*]T, ldc: usize) Error!void {
+fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, c: [*]T, ldc: usize) Error!void {
+    _ = io;
     const blk = Blocking.of(T, vt);
     const lens = Work(T).lens(blk, m, n, k, d.region != .full);
     const len = Work(T).total(lens);
@@ -394,19 +397,19 @@ fn run(allocator: Allocator, comptime T: type, vt: *const Vtable, d: Desc, m: us
 /// say whether `op` transposes, `conj` which it conjugates (complex).
 /// Arguments are checked by the caller (`interface.zig`), and `m`, `n` are
 /// positive.
-pub fn gemm(allocator: Allocator, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
     if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
     if (k == 0 or isZero(T, alpha)) return;
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };
-    try run(allocator, T, vt, d, m, n, k, alpha, x, y, null, c, ldc);
+    try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, c, ldc);
 }
 
 /// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the
 /// symmetric (`herm`: Hermitian) matrix whose `upper` or lower triangle `a`
 /// holds; `symm_k.c` and `zhemm_k.c` over `level3.c`. `m`, `n` positive.
-pub fn symm(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime herm: bool, left: bool, upper: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+pub fn symm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, left: bool, upper: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
     if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
     if (isZero(T, alpha)) return;
     const s: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
@@ -414,7 +417,7 @@ pub fn symm(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime 
     const t: Pack = if (upper) .upper else .lower;
     // `hemm`'s right side packs `S^T`: the kernel conjugates it (`NC`)
     const d: Desc = if (left) .{ .rows = t, .cols = .n, .herm = herm } else .{ .rows = .n, .cols = t, .herm = herm, .conj = if (herm) .r else .n };
-    try run(allocator, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, c, ldc);
+    try run(allocator, io, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, c, ldc);
 }
 
 /// `C := beta*C` on the `upper` or lower triangle of the `n x n` `C`; with
@@ -441,14 +444,14 @@ fn scaleTriangle(comptime T: type, vt: *const Vtable, comptime herm: bool, upper
 /// `syr2k`: `alpha*op(A)*op(B)' + alpha2*op(B)*op(A)' + beta*C`, `alpha2`
 /// being `alpha` (or its conjugate for `herm`). `level3_syrk.c` and
 /// `level3_syr2k.c`, over `syrk_k.c`'s triangle. `n` positive.
-pub fn syrk(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime herm: bool, upper: bool, trans: bool, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: ?[*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+pub fn syrk(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, upper: bool, trans: bool, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: ?[*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
     if (!isOne(T, beta)) scaleTriangle(T, vt, herm, upper, n, beta, c, ldc);
     if (k == 0 or isZero(T, alpha)) return;
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = if (b) |p| .{ .p = @constCast(p), .ld = ldb } else x;
     const alpha2: ?T = if (b == null) null else if (comptime herm) alpha.conjugate() else alpha;
     // `herk`'s `op(A)'` conjugates the columns (N) or `op(A)` the rows (C)
-    try run(allocator, T, vt, .{
+    try run(allocator, io, T, vt, .{
         .rows = if (trans) .t else .n,
         .cols = if (trans) .n else .t,
         .conj = if (herm) (if (trans) .l else .r) else .n,
@@ -550,17 +553,18 @@ fn triWork(allocator: Allocator, comptime T: type, blk: Blocking, m: usize, n: u
 /// (`upper` or lower, `unit` diagonal), `op` transposing (`trans`) and
 /// conjugating (`conj`, complex) as asked; `B` is `m x n`. `B` is scaled by
 /// `alpha` first, never read for a zero one (`trmm_L.c`, `trmm_R.c`).
-pub fn trmm(allocator: Allocator, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
-    return triangular(allocator, T, vt, false, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb);
+pub fn trmm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
+    return triangular(allocator, io, T, vt, false, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb);
 }
 
 /// `B := alpha*inv(op(A))*B` (`left`) or `alpha*B*inv(op(A))`, as `trmm`
 /// takes its options (`trsm_L.c`, `trsm_R.c`).
-pub fn trsm(allocator: Allocator, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
-    return triangular(allocator, T, vt, true, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb);
+pub fn trsm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
+    return triangular(allocator, io, T, vt, true, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb);
 }
 
-fn triangular(allocator: Allocator, comptime T: type, vt: *const Vtable, comptime solve: bool, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
+fn triangular(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime solve: bool, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
+    _ = io;
     // the reference passes `alpha` as `beta`
     if (!isOne(T, alpha)) scale(T, vt, m, n, alpha, b, ldb);
     if (isZero(T, alpha)) return;

@@ -125,27 +125,28 @@ Conventions shared by every interface:
   rejects a zero stride (`InvalidIncx`).
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
-  first bad argument wins. Routines that take an allocator return `ArgError || Allocator.Error`.
+  first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
+  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
-- **Letters.** Transposes, triangles, sides and diagonals are enums. Real `r` and `c` transposes
-  mean `n` and `t`. Level 2's `Trans` adds the complex forms `o`, `u`, `s` and `d` (conjugated
-  `x`), and its `Uplo` the `v` and `m` forms of `hemv` (`HEMVREV`). Only a letter a routine does
-  not take is an error (`InvalidTrans` for `herk`'s `t`, complex `syrk`'s `c`).
+- **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
+  level (`types.zig`). Real `r` and `c` transposes mean `n` and `t`. `Trans` has the complex
+  forms `o`, `u`, `s` and `d` (conjugated `x`), and `Uplo` the `v` and `m` forms of `hemv`
+  (`HEMVREV`). A letter a routine does not take is an error: `InvalidTrans` for `o` to `d`
+  outside complex `gemv` and `gbmv`, `herk`'s `t` and complex `syrk`'s `c`; `InvalidUplo` for
+  `v` and `m` outside the Hermitian level-2 routines.
 - **Leading dimensions.** Level 3 checks them against `max(1, rows)`, as the reference BLAS
   does; OpenBLAS lets `0` through for empty matrices.
 - **Quick returns.** Empty problems return before any kernel call; kernels assume `n >= 1`.
   Level 3 does not forward one-column problems to `gemv`.
-- **Allocator position.** `gemv`, `ger`, `symv`, `hemv` and every level-3 routine take the
-  allocator first, then `T`; the triangular and banded routines take `T` first, then the
-  allocator; level 1 takes none. [`threading.md`](threading.md) settles one order
-  (`allocator, io, T, ...`) when the routines gain their `io` parameter.
+- **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
+  an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies. `io` is
+  unused until the routines thread.
 
-The routine files are not yet re-exported from `rstd.linalg.blas` (`__root__.zig` imports
-`blas1`, `blas2`, `blas3` and `ext` privately). Its public declarations are the setup and
-dispatch API: `init`, `shutdown`, `vtable`, `table`, `kernel`, `coreType`, `coreName`,
-`config`, `Config`, `Vtable`, `Slot`, `types`, `cpu`, and `vector` for `tools/blasbench`. The
-routines become `blas.<routine>` with the `io` parameter of [`threading.md`](threading.md).
+`__root__.zig` re-exports every routine flat (`blas.dot`, `blas.gemv`, `blas.gemm`), with the
+argument enums and error sets, beside the setup and dispatch API: `init`, `shutdown`, `vtable`,
+`table`, `kernel`, `coreType`, `coreName`, `config`, `Config`, `Vtable`, `Slot`, `types`, `cpu`,
+and `vector` for `tools/blasbench`. The interface files stay where they are.
 
 ### Types
 
@@ -1043,8 +1044,7 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   in `_test/from_openblas/__root__.zig`: `xerbla` and bad letters (only the letters a type
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
-- **Pending.** `blat3` runs every level-3 routine; its `pending` declarations skip a routine the
-  interface does not declare. Still skipped: LAPACK's `potrf`/`potrs` and the `dgesvd`
+- **Pending.** `blat3` runs every level-3 routine through the flat API. Still skipped: LAPACK's `potrf`/`potrs` and the `dgesvd`
   regression (`utest.zig`), and `bgemm`, `geadd`, `imatcopy`, `omatcopy`, `gemmt` and complex
   `gemm` in `utest_ext.zig`, which wait for their interfaces.
 
@@ -1138,11 +1138,9 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Public routines.** Re-export the interfaces as `blas.<routine>` with `io: Io`, one argument
-   order, as [`threading.md`](threading.md) specifies.
-2. **Accelerate.** Route the public routines to it on macOS (above).
-3. **Threading.** [`threading.md`](threading.md)'s plan.
-4. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
+1. **Accelerate.** Route the public routines to it on macOS (above).
+2. **Threading.** [`threading.md`](threading.md)'s plan.
+3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
    half-precision level 3.
 5. **Extensions.** Interfaces for `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg` and `gemmt`,
    which the pending `utest_ext` cases wait for.
@@ -1156,8 +1154,6 @@ Rig mechanics:
 - Upstream, toolchain and emulator problems, with their workarounds, are in
   [`issues.md`](issues.md); open numerical and performance questions in
   [`comparisons.md`](comparisons.md).
-- The routines are not reachable from outside the module until they are re-exported.
-- Interface argument order differs between files (allocator before or after `T`).
 - `riscv64_zvl256b` has no object; `riscv64_zvl128b` serves it.
 - The mips `cpucfg` corrections and the sparc `sllx` rewrite are unverified on hardware; ARMv7
   NEON and AltiVec flushing was seen on the rigs, not on hardware.

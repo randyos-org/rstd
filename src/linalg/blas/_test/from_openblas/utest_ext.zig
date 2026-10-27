@@ -17,7 +17,7 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const l1 = @import("../../blas1/interface.zig");
+const blas = @import("../../__root__.zig");
 
 const Float = ob.Float;
 const C32 = std.math.Complex(f32);
@@ -49,10 +49,10 @@ fn vecCases(comptime T: type, comptime what: Reduce, cases: []const VecCase) !vo
         for (buf[0..c.x.len], c.x) |*b, v| b.* = @floatCast(v);
         const x: [*]T = @ptrCast(&buf);
         const got: f64 = switch (what) {
-            .amin => try l1.extreme(T, .amin, c.n, x, c.inc),
-            .amax => try l1.extreme(T, .amax, c.n, x, c.inc),
-            .sum => try l1.sum(T, c.n, x, c.inc),
-            .iamin => @floatFromInt(try l1.index(T, .amin, c.n, x, c.inc)),
+            .amin => try blas.extreme(ob.io, T, .amin, c.n, x, c.inc),
+            .amax => try blas.extreme(ob.io, T, .amax, c.n, x, c.inc),
+            .sum => try blas.sum(ob.io, T, c.n, x, c.inc),
+            .iamin => @floatFromInt(try blas.index(ob.io, T, .amin, c.n, x, c.inc)),
         };
         const t: f64 = if (what == .iamin) 0 else tol(T, single_eps, double_eps);
         if (@abs(got - c.want) <= t) continue;
@@ -91,9 +91,6 @@ fn reductions() !void {
     }
 }
 
-const l2 = @import("../../blas2/interface.zig");
-const banded = @import("../../blas2/banded.zig");
-const tri = @import("../../blas2/triangular.zig");
 const isComplex = ob.isComplex;
 const testing = std.testing;
 
@@ -197,9 +194,9 @@ fn axpby() !void {
             const yv = try al.dupe(T, y);
             defer al.free(yv);
             // scal takes only positive strides
-            try l1.scal(T, c.n, val(T, c.beta), yv.ptr, @intCast(@abs(c.incy)));
-            try l1.axpy(T, c.n, val(T, c.alpha), x.ptr, c.incx, yv.ptr, c.incy);
-            try l1.axpby(T, c.n, val(T, c.alpha), x.ptr, c.incx, val(T, c.beta), y.ptr, c.incy);
+            try blas.scal(ob.io, T, c.n, val(T, c.beta), yv.ptr, @intCast(@abs(c.incy)));
+            try blas.axpy(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, yv.ptr, c.incy);
+            try blas.axpby(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, val(T, c.beta), y.ptr, c.incy);
             try expectNorm(c.name, T, diffNorm(T, c.n, y, yv, c.incy), tol(T, single_eps, double_eps));
         }
     }
@@ -224,8 +221,8 @@ fn axpyc() !void {
         const yv = try al.dupe(T, y);
         defer al.free(yv);
         conjugate(T, xv);
-        try l1.axpy(T, c.n, val(T, c.alpha), xv.ptr, c.incx, yv.ptr, c.incy);
-        try l1.axpyc(T, c.n, val(T, c.alpha), x.ptr, c.incx, y.ptr, c.incy);
+        try blas.axpy(ob.io, T, c.n, val(T, c.alpha), xv.ptr, c.incx, yv.ptr, c.incy);
+        try blas.axpyc(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, y.ptr, c.incy);
         try expectNorm(c.name, T, diffNorm(T, c.n, y, yv, c.incy), tol(T, single_eps, double_eps));
     };
 }
@@ -249,9 +246,9 @@ fn complexRot() !void {
         const yv = try al.dupe(T, y);
         defer al.free(yv);
         // c*x + s*y, then -conj(s)*x + c*y
-        try l1.axpby(T, c.n, val(T, c.s), y.ptr, c.inc_y, val(T, c.c), xv.ptr, c.inc_x);
-        try l1.axpby(T, c.n, val(T, .{ -c.s[0], c.s[1] }), x.ptr, c.inc_x, val(T, c.c), yv.ptr, c.inc_y);
-        try l1.rot(T, c.n, x.ptr, c.inc_x, y.ptr, c.inc_y, @floatCast(c.c[0]), @floatCast(c.s[0]));
+        try blas.axpby(ob.io, T, c.n, val(T, c.s), y.ptr, c.inc_y, val(T, c.c), xv.ptr, c.inc_x);
+        try blas.axpby(ob.io, T, c.n, val(T, .{ -c.s[0], c.s[1] }), x.ptr, c.inc_x, val(T, c.c), yv.ptr, c.inc_y);
+        try blas.rot(ob.io, T, c.n, x.ptr, c.inc_x, y.ptr, c.inc_y, @floatCast(c.c[0]), @floatCast(c.s[0]));
         const norm = (diffNorm(T, c.n, x, xv, c.inc_x) + diffNorm(T, c.n, y, yv, c.inc_y)) / 2;
         try expectNorm(c.name, T, norm, tol(T, single_eps, double_eps));
     };
@@ -272,7 +269,7 @@ fn complexScal() !void {
         defer al.free(xv);
         const a = val(T, c.alpha);
         for (0..@intCast(c.N)) |i| xv[i * @as(usize, @intCast(c.inc))] = a.mul(xv[i * @as(usize, @intCast(c.inc))]);
-        try l1.scal(T, c.N, a, x.ptr, c.inc);
+        try blas.scal(ob.io, T, c.N, a, x.ptr, c.inc);
         try expectNorm(c.name, T, diffNorm(T, c.N, x, xv, c.inc), tol(T, single_eps, double_eps));
     };
 }
@@ -297,7 +294,7 @@ fn complexRotg() !void {
         var a = val(T, c.a);
         var cc: Float(T) = undefined;
         var s: T = undefined;
-        l1.zrotg(T, &a, val(T, c.b), &cc, &s);
+        try blas.zrotg(ob.io, T, &a, val(T, c.b), &cc, &s);
         const t = tol(T, single_eps, double_eps);
         const got = [_]f64{ cc, s.re, s.im, a.re, a.im };
         const want = [_]f64{ c.c, c.s[0], c.s[1], c.r[0], c.r[1] };
@@ -326,7 +323,7 @@ fn rotmg() !void {
         var x1: F = @floatCast(c.in[2]);
         const y1: F = @floatCast(c.in[3]);
         var param: [5]F = @splat(0);
-        l1.rotmg(F, &d1, &d2, &x1, y1, &param);
+        try blas.rotmg(ob.io, F, &d1, &d2, &x1, y1, &param);
         const t = tol(F, single_eps, double_eps);
         const got = [_]f64{ d1, d2, x1, y1, param[0], param[1], param[2], param[3], param[4] };
         const want = c.out ++ c.param;
@@ -343,30 +340,8 @@ test "utest_ext: rotmg" {
 
 // ---- level 2 -------------------------------------------------------------------
 
-fn gtrans(c: u8) l2.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        'R' => .r,
-        'C' => .c,
-        'O' => .o,
-        'U' => .u,
-        'S' => .s,
-        else => .d,
-    };
-}
-
-fn btrans(c: u8) banded.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        'R' => .r,
-        'C' => .c,
-        'O' => .o,
-        'U' => .u,
-        'S' => .s,
-        else => .d,
-    };
+fn transOf(c: u8) blas.Trans {
+    return ob.letter(blas.Trans, c) orelse .d;
 }
 
 fn transposed(c: u8) bool {
@@ -427,8 +402,8 @@ fn gbmv() !void {
         fill(T, y, prng.random());
         const yv = try al.dupe(T, y);
         defer al.free(yv);
-        try l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, c.alpha), full.ptr, c.m, b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
-        try banded.gbmv(T, al, btrans(c.trans), c.m, c.n, c.kl, c.ku, val(T, c.alpha), band.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+        try blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), full.ptr, c.m, b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
+        try blas.gbmv(al, ob.io, T, transOf(c.trans), c.m, c.n, c.kl, c.ku, val(T, c.alpha), band.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
         try expectNorm(c.name, T, diffNorm(T, lenc, y, yv, c.inc_c), tol(T, single_tol, double_tol));
     };
 }
@@ -460,7 +435,7 @@ fn gemvCase(comptime T: type, c: Case, r: std.Random, t: f64) !void {
     const yv = try al.dupe(T, y);
     defer al.free(yv);
     gemvRef(T, c.trans, m, n, val(T, c.alpha), a, lda, x, ib, val(T, c.beta), yv, ic);
-    try l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, c.alpha), a.ptr, c.lda, x.ptr, ib, val(T, c.beta), y.ptr, ic);
+    try blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), a.ptr, c.lda, x.ptr, ib, val(T, c.beta), y.ptr, ic);
     try expectNorm(c.name, T, diffNorm(T, leny, y, yv, ic), t);
 }
 
@@ -493,7 +468,7 @@ fn gemvTCUD() !void {
             8 => error.InvalidIncx,
             else => error.InvalidIncy,
         };
-        try ob.expectError(want, l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
+        try ob.expectError(want, blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
     };
 }
 
@@ -504,7 +479,7 @@ test "utest_ext: gemv with T, C, U, D against the plain product, and its bad arg
 /// The bad-argument cases of `test_[cz]sbmv.c` and `test_[cz]spmv.c`.
 fn symBad(comptime T: type, comptime pack: bool, c: Case) !void {
     const al = testing.allocator;
-    if (c.info == 1) return ob.expect(banded.Uplo.parse(c.uplo) == null, c.name);
+    if (c.info == 1) return ob.expect(ob.letter(blas.Uplo, c.uplo) == null, c.name);
     var a: [2]T = @splat(ob.zero(T));
     var x: [2]T = @splat(ob.zero(T));
     var y: [2]T = @splat(ob.zero(T));
@@ -518,9 +493,9 @@ fn symBad(comptime T: type, comptime pack: bool, c: Case) !void {
     };
     const one = val(T, .{ 1, 1 });
     const res = if (pack)
-        banded.spmv(T, al, .upper, n, one, &a, &x, c.inc_b, ob.zero(T), &y, c.inc_c)
+        blas.spmv(al, ob.io, T, .u, n, one, &a, &x, c.inc_b, ob.zero(T), &y, c.inc_c)
     else
-        banded.sbmv(T, al, .upper, n, c.k, one, &a, c.lda, &x, c.inc_b, ob.zero(T), &y, c.inc_c);
+        blas.sbmv(al, ob.io, T, .u, n, c.k, one, &a, c.lda, &x, c.inc_b, ob.zero(T), &y, c.inc_c);
     try ob.expectError(want, res, c.name);
 }
 
@@ -568,11 +543,11 @@ fn sbmvSpmv() !void {
             const yv = try al.dupe(T, y);
             defer al.free(yv);
             const in: isize = @intCast(n);
-            try l2.gemv(al, T, .n, in, in, val(T, c.alpha), full.ptr, @max(in, 1), b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
+            try blas.gemv(al, ob.io, T, .n, in, in, val(T, c.alpha), full.ptr, @max(in, 1), b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
             if (pack) {
-                try banded.spmv(T, al, if (up) .upper else .lower, in, val(T, c.alpha), store.ptr, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+                try blas.spmv(al, ob.io, T, if (up) .u else .l, in, val(T, c.alpha), store.ptr, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
             } else {
-                try banded.sbmv(T, al, if (up) .upper else .lower, in, c.k, val(T, c.alpha), store.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+                try blas.sbmv(al, ob.io, T, if (up) .u else .l, in, c.k, val(T, c.alpha), store.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
             }
             const norm = diffNorm(T, in, y, yv, c.inc_c);
             if (c.kind == .nan) {
@@ -605,11 +580,11 @@ fn trmvTrsv() !void {
             fill(T, x, prng.random());
             const xv = try al.dupe(T, x);
             defer al.free(xv);
-            const u = try tri.Uplo.parse(c.uplo);
-            const d = try tri.Diag.parse(c.diag);
-            const f = if (solve) tri.trsv else tri.trmv;
-            try f(T, al, u, .n, d, c.n, av.ptr, c.lda, xv.ptr, c.incx);
-            try f(T, al, u, try tri.Trans.parse(c.trans), d, c.n, a.ptr, c.lda, x.ptr, c.incx);
+            const u = ob.letter(blas.Uplo, c.uplo).?;
+            const d = ob.letter(blas.Diag, c.diag).?;
+            const f = if (solve) blas.trsv else blas.trmv;
+            try f(al, ob.io, T, u, .n, d, c.n, av.ptr, c.lda, xv.ptr, c.incx);
+            try f(al, ob.io, T, u, ob.letter(blas.Trans, c.trans).?, d, c.n, a.ptr, c.lda, x.ptr, c.incx);
             // relative to the result, which a solve grows to 1e32 in single
             // precision; there `test_ctrsv.c`'s DOUBLE_EPS is single's, as the
             // R and N paths round differently on the older cores' kernels

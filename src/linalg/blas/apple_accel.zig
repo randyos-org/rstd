@@ -361,8 +361,8 @@ extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int
 // ---- tests -------------------------------------------------------------------
 
 const zigstd = @import("../../zigstd.zig");
-const blas1 = @import("blas1/interface.zig");
-const blas3 = @import("blas3/interface.zig");
+const routines = @import("__root__.zig");
+const check = @import("_test/blas1/check.zig");
 const Complex64 = types.Complex64;
 
 /// The integer type of `tag`'s table.
@@ -413,7 +413,7 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             fill(f64, rng, &x);
             fill(f64, rng, &y);
             const got = t.cblas_ddot.?(300, &x, 2, &y, -1);
-            const want = try blas1.dot(f64, 300, &x, 2, &y, -1);
+            const want = try routines.dot(check.io, f64, 300, &x, 2, &y, -1);
             try zigstd.testExpectApproxEqRel(want, got, 1e-12);
 
             // zdotu_sub and zdotc_sub
@@ -423,11 +423,11 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             fill(f64, rng, @as(*[514]f64, @ptrCast(&zy)));
             var zd: Complex64 = undefined;
             t.cblas_zdotu_sub.?(zx.len, &zx, 1, &zy, 1, &zd);
-            const zw = try blas1.dot(Complex64, zx.len, &zx, 1, &zy, 1);
+            const zw = try routines.dot(check.io, Complex64, zx.len, &zx, 1, &zy, 1);
             try zigstd.testExpectApproxEqAbs(zw.re, zd.re, 1e-12);
             try zigstd.testExpectApproxEqAbs(zw.im, zd.im, 1e-12);
             t.cblas_zdotc_sub.?(zx.len, &zx, 1, &zy, 1, &zd);
-            const zc = try blas1.dotc(Complex64, zx.len, &zx, 1, &zy, 1);
+            const zc = try routines.dotc(check.io, Complex64, zx.len, &zx, 1, &zy, 1);
             try zigstd.testExpectApproxEqAbs(zc.re, zd.re, 1e-12);
             try zigstd.testExpectApproxEqAbs(zc.im, zd.im, 1e-12);
 
@@ -437,7 +437,7 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             sx[613] = -3;
             const ia: I = t.cblas_isamax.?(sx.len, &sx, 1);
             try zigstd.testExpectEqual(@as(I, 613), ia);
-            try zigstd.testExpectEqual(try blas1.index(f32, .amax, sx.len, &sx, 1), ia + 1);
+            try zigstd.testExpectEqual(try routines.index(check.io, f32, .amax, sx.len, &sx, 1), ia + 1);
 
             // dgemm, column- and row-major
             const m = 37;
@@ -459,11 +459,11 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             @memcpy(c1, c0);
             // A^T, stored k by m
             t.cblas_dgemm.?(.col_major, .trans, .no_trans, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c0.ptr, m);
-            try blas3.gemm(gpa, f64, .t, .n, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c1.ptr, m);
+            try routines.gemm(gpa, check.io, f64, .t, .n, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c1.ptr, m);
             for (c0, c1) |g, w| try zigstd.testExpectApproxEqAbs(w, g, 1e-12 * k);
             // row-major: C^T = B^T A, the same numbers transposed
             t.cblas_dgemm.?(.row_major, .no_trans, .trans, n, m, k, 1, bm.ptr, k, a.ptr, k, 0, c2.ptr, m);
-            try blas3.gemm(gpa, f64, .t, .n, m, n, k, 1, a.ptr, k, bm.ptr, k, 0, c1.ptr, m);
+            try routines.gemm(gpa, check.io, f64, .t, .n, m, n, k, 1, a.ptr, k, bm.ptr, k, 0, c1.ptr, m);
             for (c1, c2) |w, g| try zigstd.testExpectApproxEqAbs(w, g, 1e-12 * k);
         },
     }

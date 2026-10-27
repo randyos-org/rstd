@@ -13,8 +13,10 @@
 //!
 //! Invalid arguments return an `ArgError` naming the argument, where the
 //! reference calls `xerbla` with its number (checked in the same order, so
-//! the first bad argument wins). Single-threaded: the reference's threaded
-//! drivers would be chosen where marked.
+//! the first bad argument wins). Every routine takes `io` after its
+//! allocator (first without one) and may return `error.Canceled`, for the
+//! threading to come (`threading.md`); the reference's threaded drivers
+//! would be chosen where marked, and every routine is serial.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -27,10 +29,13 @@ const bf = @import("../ext/bf16/__root__.zig");
 const Op = portable.Op;
 
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const BlasLong = types.BlasLong;
+const Trans = types.Trans;
+const Uplo = types.Uplo;
 
-/// The reference's `xerbla` argument, by name.
-/// Bad arguments, shared by every level-2 interface file; there is no xerbla.
+/// Bad arguments, by the reference's `xerbla` argument names; shared by every
+/// level-2 interface file.
 pub const ArgError = error{
     InvalidUplo,
     InvalidTrans,
@@ -42,24 +47,10 @@ pub const ArgError = error{
     InvalidIncx,
     InvalidIncy,
 };
-pub const Error = ArgError || Allocator.Error;
-
-/// `gemv`'s `TRANS`: `n` is `A`, `t` is `A^T`, `r` is `conj(A)`, `c` is
-/// `A^H`; complex also has `o` (`A conj(x)`), `u` (`A^T conj(x)`), `s`
-/// (`conj(A) conj(x)`) and `d` (`A^H conj(x)`). Real `r` and `c` are `n` and
-/// `t`.
-pub const Trans = enum { n, t, r, c, o, u, s, d };
-
-/// `symv` and `hemv`'s `UPLO`: the stored triangle. `v` and `m` are
-/// `hemv`'s upper and lower triangles of the transposed matrix (`HEMVREV`).
-pub const Uplo = enum { u, l, v, m };
-
-fn transposed(t: Trans) bool {
-    return switch (t) {
-        .t, .c, .u, .d => true,
-        .n, .r, .o, .s => false,
-    };
-}
+/// What a level-2 routine returns.
+pub const Error = ArgError || Allocator.Error || Io.Cancelable;
+/// What `gemvHalf`, which allocates nothing, returns.
+pub const HalfError = ArgError || Io.Cancelable;
 
 const isComplex = types.isComplex;
 const Float = types.Float;
@@ -148,15 +139,15 @@ fn Scratch(comptime F: type) type {
 /// `?GEMV` (`interface/gemv.c`, `zgemv.c`): `y := alpha*op(A)*x + beta*y`,
 /// `A` being `m` by `n`. `y` is scaled by `beta` first (a zero `beta`
 /// overwrites NaN), and nothing more happens for a zero `alpha`.
-pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
-    if (!isComplex(T) and @backingInt(trans) > @backingInt(Trans.c)) return error.InvalidTrans;
+pub fn gemv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+    if (!isComplex(T) and trans.conjX()) return error.InvalidTrans;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, m)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
     if (m == 0 or n == 0) return;
-    const tr = transposed(trans);
+    const tr = trans.transposed();
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
     if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
@@ -167,17 +158,18 @@ pub fn gemv(allocator: Allocator, comptime T: type, trans: Trans, m: isize, n: i
     switch (trans) {
         inline else => |t| {
             // `r`..`d` have no real kernel; `gemv` returned above for those
-            if (comptime !isComplex(T) and @backingInt(t) > @backingInt(Trans.c)) unreachable;
-            try gemvRun(allocator, T, t, m, n, alpha, a, lda, first(T, x, lenx, incx), incx, first(T, y, leny, incy), incy);
+            if (comptime !isComplex(T) and t.conjX()) unreachable;
+            try gemvRun(allocator, io, T, t, m, n, alpha, a, lda, first(T, x, lenx, incx), incx, first(T, y, leny, incy), incy);
         },
     }
 }
 
-fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
+fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
+    _ = io;
     const F = Float(T);
     const complex = comptime isComplex(T);
-    if (comptime !complex and @backingInt(t) > @backingInt(Trans.c)) return;
-    const op = @field(Op, "gemv_" ++ if (complex) @tagName(t) else if (transposed(t)) "t" else "n");
+    if (comptime !complex and t.conjX()) return;
+    const op = @field(Op, "gemv_" ++ if (complex) @tagName(t) else if (t.transposed()) "t" else "n");
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
     const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, if (complex) 2 else 1, @intCast(m), @intCast(n)));
     defer sc.deinit(allocator);
@@ -218,17 +210,18 @@ pub const HalfGemv = enum {
 /// `y` (when `beta` is not 1) without reading `A` or `x`. The kernels take no
 /// scratch buffer, so there is no allocator; the reference's threaded
 /// drivers are not here.
-pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha: kind.Out(), a: [*]kind.In(), lda: isize, x: [*]kind.In(), incx: isize, beta: kind.Out(), y: [*]kind.Out(), incy: isize) ArgError!void {
+pub fn gemvHalf(io: Io, comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha: kind.Out(), a: [*]kind.In(), lda: isize, x: [*]kind.In(), incx: isize, beta: kind.Out(), y: [*]kind.Out(), incy: isize) HalfError!void {
+    _ = io;
     const In = kind.In();
     const Out = kind.Out();
-    if (@backingInt(trans) > @backingInt(Trans.c)) return error.InvalidTrans;
+    if (trans.conjX()) return error.InvalidTrans;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, m)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
     if (m == 0 or n == 0) return;
-    const tr = transposed(trans);
+    const tr = trans.transposed();
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
     if (!util.fitsMatrix(m, n, lda, @sizeOf(In))) return error.InvalidLda;
@@ -265,17 +258,18 @@ fn halfToF32(comptime T: type, v: T) f32 {
 // ---- ger ---------------------------------------------------------------------
 
 /// `?GER`, `?GERU` (`interface/ger.c`, `zger.c`): `A := alpha*x*y^T + A`.
-pub fn ger(allocator: Allocator, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    return gerImpl(allocator, T, false, m, n, alpha, x, incx, y, incy, a, lda);
+pub fn ger(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+    return gerImpl(allocator, io, T, false, m, n, alpha, x, incx, y, incy, a, lda);
 }
 
 /// `?GERC`: `A := alpha*x*y^H + A`. Complex only.
-pub fn gerc(allocator: Allocator, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+pub fn gerc(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("gerc: " ++ @typeName(T) ++ " is not complex");
-    return gerImpl(allocator, T, true, m, n, alpha, x, incx, y, incy, a, lda);
+    return gerImpl(allocator, io, T, true, m, n, alpha, x, incx, y, incy, a, lda);
 }
 
-fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+    _ = io;
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (m < 0) return error.InvalidM;
@@ -322,19 +316,19 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize
 
 /// `?SYMV` (`interface/symv.c`, `zsymv.c`): `y := alpha*S*x + beta*y` for the
 /// symmetric `S` whose `uplo` triangle (`u` or `l`) is stored in `a`.
-pub fn symv(allocator: Allocator, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+pub fn symv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (uplo == .v or uplo == .m) return error.InvalidUplo;
-    return mv(allocator, T, "symv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
+    return mv(allocator, io, T, "symv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
 /// `?HEMV` (`interface/zhemv.c`): the same for the Hermitian `S`; `v` and
 /// `m` use the upper and lower triangles for `conj(S)`. Complex only.
-pub fn hemv(allocator: Allocator, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+pub fn hemv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hemv: " ++ @typeName(T) ++ " is not complex");
-    return mv(allocator, T, "hemv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
+    return mv(allocator, io, T, "hemv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
-fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+fn mv(allocator: Allocator, io: Io, comptime T: type, comptime base: []const u8, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
@@ -348,7 +342,7 @@ fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: U
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
     switch (uplo) {
-        inline else => |u| try mvRun(allocator, T, base ++ switch (u) {
+        inline else => |u| try mvRun(allocator, io, T, base ++ switch (u) {
             .u => "U",
             .l => "L",
             .v => "V",
@@ -357,7 +351,8 @@ fn mv(allocator: Allocator, comptime T: type, comptime base: []const u8, uplo: U
     }
 }
 
-fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
+fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime name: []const u8, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
+    _ = io;
     const F = Float(T);
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
@@ -468,7 +463,7 @@ fn scalars(comptime T: type) [6][2]T {
 }
 
 fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: isize, incy: isize, alpha: T, beta: T) !void {
-    const tr = transposed(trans);
+    const tr = trans.transposed();
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
     const lda = m + 2;
@@ -496,7 +491,7 @@ fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: isize, inc
         const scaled = if (isZero(T, beta)) zeroT(T) else mulT(T, beta, y[k]);
         want[k] = if (isZero(T, alpha)) scaled else addT(T, scaled, mulT(T, alpha, acc));
     }
-    try gemv(poison.allocator(), T, trans, @intCast(m), @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+    try gemv(poison.allocator(), check.io, T, trans, @intCast(m), @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     try expectSame(T, want, y, lenx);
 }
 
@@ -522,10 +517,10 @@ test "interface: gemv beta 0 overwrites NaN in y, and alpha 0 never reads x or a
         var a = [_]T{ nan, nan, nan, nan };
         var x = [_]T{ nan, nan };
         var y = [_]T{ nan, nan };
-        try gemv(testing.allocator, T, .n, 2, 2, val(T, 0, 0), &a, 2, &x, 1, val(T, 0, 0), &y, 1);
+        try gemv(testing.allocator, check.io, T, .n, 2, 2, val(T, 0, 0), &a, 2, &x, 1, val(T, 0, 0), &y, 1);
         try expectSame(T, &[_]T{ zeroT(T), zeroT(T) }, &y, 1);
         y = .{ val(T, 1, 0), val(T, 2, 0) };
-        try gemv(testing.allocator, T, .t, 2, 2, val(T, 0, 0), &a, 2, &x, 1, val(T, 2, 0), &y, 1);
+        try gemv(testing.allocator, check.io, T, .t, 2, 2, val(T, 0, 0), &a, 2, &x, 1, val(T, 2, 0), &y, 1);
         try expectSame(T, &[_]T{ val(T, 2, 0), val(T, 4, 0) }, &y, 1);
     }
 }
@@ -537,33 +532,33 @@ test "interface: gemv, ger, symv and hemv report the first bad argument and do n
     var a = [_]f64{ 1, 2, 3, 4 };
     var x = [_]f64{ 1, 1 };
     var y = [_]f64{ 5, 6 };
-    try testing.expectError(error.InvalidTrans, gemv(al, f64, .o, 2, 2, 1, &a, 2, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidM, gemv(al, f64, .n, -1, 2, 1, &a, 2, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidN, gemv(al, f64, .n, 2, -1, 1, &a, 2, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidLda, gemv(al, f64, .n, 2, 2, 1, &a, 1, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidIncx, gemv(al, f64, .n, 2, 2, 1, &a, 2, &x, 0, 1, &y, 1));
-    try testing.expectError(error.InvalidIncy, gemv(al, f64, .n, 2, 2, 1, &a, 2, &x, 1, 1, &y, 0));
+    try testing.expectError(error.InvalidTrans, gemv(al, check.io, f64, .o, 2, 2, 1, &a, 2, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidM, gemv(al, check.io, f64, .n, -1, 2, 1, &a, 2, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidN, gemv(al, check.io, f64, .n, 2, -1, 1, &a, 2, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidLda, gemv(al, check.io, f64, .n, 2, 2, 1, &a, 1, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidIncx, gemv(al, check.io, f64, .n, 2, 2, 1, &a, 2, &x, 0, 1, &y, 1));
+    try testing.expectError(error.InvalidIncy, gemv(al, check.io, f64, .n, 2, 2, 1, &a, 2, &x, 1, 1, &y, 0));
     // m wins over a bad stride
-    try testing.expectError(error.InvalidM, gemv(al, f64, .n, -1, 2, 1, &a, 2, &x, 0, 1, &y, 0));
-    try testing.expectError(error.InvalidM, ger(al, f64, -1, 2, 1, &x, 1, &y, 1, &a, 2));
-    try testing.expectError(error.InvalidN, ger(al, f64, 2, -1, 1, &x, 1, &y, 1, &a, 2));
-    try testing.expectError(error.InvalidIncx, ger(al, f64, 2, 2, 1, &x, 0, &y, 1, &a, 2));
-    try testing.expectError(error.InvalidIncy, ger(al, f64, 2, 2, 1, &x, 1, &y, 0, &a, 2));
-    try testing.expectError(error.InvalidLda, ger(al, f64, 2, 2, 1, &x, 1, &y, 1, &a, 1));
-    try testing.expectError(error.InvalidUplo, symv(al, f64, .v, 2, 1, &a, 2, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidN, symv(al, f64, .u, -1, 1, &a, 2, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidLda, symv(al, f64, .u, 2, 1, &a, 1, &x, 1, 1, &y, 1));
-    try testing.expectError(error.InvalidIncx, symv(al, f64, .l, 2, 1, &a, 2, &x, 0, 1, &y, 1));
-    try testing.expectError(error.InvalidIncy, symv(al, f64, .l, 2, 1, &a, 2, &x, 1, 1, &y, 0));
+    try testing.expectError(error.InvalidM, gemv(al, check.io, f64, .n, -1, 2, 1, &a, 2, &x, 0, 1, &y, 0));
+    try testing.expectError(error.InvalidM, ger(al, check.io, f64, -1, 2, 1, &x, 1, &y, 1, &a, 2));
+    try testing.expectError(error.InvalidN, ger(al, check.io, f64, 2, -1, 1, &x, 1, &y, 1, &a, 2));
+    try testing.expectError(error.InvalidIncx, ger(al, check.io, f64, 2, 2, 1, &x, 0, &y, 1, &a, 2));
+    try testing.expectError(error.InvalidIncy, ger(al, check.io, f64, 2, 2, 1, &x, 1, &y, 0, &a, 2));
+    try testing.expectError(error.InvalidLda, ger(al, check.io, f64, 2, 2, 1, &x, 1, &y, 1, &a, 1));
+    try testing.expectError(error.InvalidUplo, symv(al, check.io, f64, .v, 2, 1, &a, 2, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidN, symv(al, check.io, f64, .u, -1, 1, &a, 2, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidLda, symv(al, check.io, f64, .u, 2, 1, &a, 1, &x, 1, 1, &y, 1));
+    try testing.expectError(error.InvalidIncx, symv(al, check.io, f64, .l, 2, 1, &a, 2, &x, 0, 1, &y, 1));
+    try testing.expectError(error.InvalidIncy, symv(al, check.io, f64, .l, 2, 1, &a, 2, &x, 1, 1, &y, 0));
     var za = [_]Complex64{ .init(1, 0), .init(0, 0), .init(0, 0), .init(1, 0) };
     var zx = [_]Complex64{ .init(1, 0), .init(1, 0) };
     var zy = [_]Complex64{ .init(1, 0), .init(1, 0) };
-    try testing.expectError(error.InvalidLda, hemv(al, Complex64, .m, 2, .init(1, 0), &za, 1, &zx, 1, .init(1, 0), &zy, 1));
+    try testing.expectError(error.InvalidLda, hemv(al, check.io, Complex64, .m, 2, .init(1, 0), &za, 1, &zx, 1, .init(1, 0), &zy, 1));
     // empty problems leave y alone, even with a scaling beta
-    try gemv(al, f64, .n, 0, 2, 1, &a, 1, &x, 1, 2, &y, 1);
-    try gemv(al, f64, .t, 2, 0, 1, &a, 2, &x, 1, 2, &y, 1);
-    try ger(al, f64, 0, 2, 1, &x, 1, &y, 1, &a, 1);
-    try symv(al, f64, .u, 0, 1, &a, 1, &x, 1, 2, &y, 1);
+    try gemv(al, check.io, f64, .n, 0, 2, 1, &a, 1, &x, 1, 2, &y, 1);
+    try gemv(al, check.io, f64, .t, 2, 0, 1, &a, 2, &x, 1, 2, &y, 1);
+    try ger(al, check.io, f64, 0, 2, 1, &x, 1, &y, 1, &a, 1);
+    try symv(al, check.io, f64, .u, 0, 1, &a, 1, &x, 1, 2, &y, 1);
     try testing.expectEqualSlices(f64, &.{ 5, 6 }, &y);
     try testing.expectEqualSlices(f64, &.{ 1, 2, 3, 4 }, &a);
 }
@@ -586,9 +581,9 @@ fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: isize, incy: 
     };
     if (conj) {
         if (comptime !isComplex(T)) unreachable;
-        try gerc(poison.allocator(), T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
+        try gerc(poison.allocator(), check.io, T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
     } else {
-        try ger(poison.allocator(), T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
+        try ger(poison.allocator(), check.io, T, @intCast(m), @intCast(n), alpha, x.ptr, incx, y.ptr, incy, a.ptr, @intCast(lda));
     }
     try expectSame(T, want, a, 1);
 }
@@ -640,9 +635,9 @@ fn testMv(comptime T: type, herm: bool, uplo: Uplo, n: usize, incx: isize, incy:
         want[k] = if (isZero(T, alpha)) scaled else addT(T, scaled, mulT(T, alpha, acc));
     }
     if (kind == .symmetric) {
-        try symv(poison.allocator(), T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+        try symv(poison.allocator(), check.io, T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     } else if (comptime isComplex(T)) {
-        try hemv(poison.allocator(), T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
+        try hemv(poison.allocator(), check.io, T, uplo, @intCast(n), alpha, a.ptr, @intCast(lda), x.ptr, incx, beta, y.ptr, incy);
     }
     try expectSame(T, want, y, n);
 }
@@ -682,17 +677,17 @@ test "interface: problems over the stack buffer allocate, and small gemv and ger
         var x = [_]T{ val(T, 1, 0), val(T, 1, 0) };
         var y = [_]T{ val(T, 1, 0), val(T, 1, 0) };
         const fa = testing.failing_allocator;
-        try gemv(fa, T, .n, 2, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
-        try ger(fa, T, 2, 2, val(T, 1, 0), &x, 2, &y, 1, &a, 2);
+        try gemv(fa, check.io, T, .n, 2, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
+        try ger(fa, check.io, T, 2, 2, val(T, 1, 0), &x, 2, &y, 1, &a, 2);
         // nor for symv on the portable gemv (plain loops), or a unit-stride ger
-        try symv(fa, T, .u, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
+        try symv(fa, check.io, T, .u, 2, val(T, 1, 0), &a, 2, &x, 1, val(T, 1, 0), &y, 1);
         const big = 600;
         const bx = try testing.allocator.alloc(T, 2 * big);
         defer testing.allocator.free(bx);
         check.fill(T, bx, 3);
-        try ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 1, &y, 2, bx.ptr, big);
+        try ger(fa, check.io, T, big, 1, val(T, 1, 0), bx.ptr, 1, &y, 2, bx.ptr, big);
         // and a big one that needs a buffer reports the failure
-        try testing.expectError(error.OutOfMemory, ger(fa, T, big, 1, val(T, 1, 0), bx.ptr, 2, &y, 2, bx.ptr, big));
+        try testing.expectError(error.OutOfMemory, ger(fa, check.io, T, big, 1, val(T, 1, 0), bx.ptr, 2, &y, 2, bx.ptr, big));
     }
 }
 
@@ -709,7 +704,7 @@ fn halfVal(comptime E: type, v: E) f64 {
 fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx: isize, incy: isize, alpha: f32, beta: f32) !void {
     const In = kind.In();
     const Out = kind.Out();
-    const tr = transposed(trans);
+    const tr = trans.transposed();
     const lenx = if (tr) m else n;
     const leny = if (tr) n else m;
     const lda = m + 2;
@@ -740,7 +735,7 @@ fn testGemvHalf(comptime kind: HalfGemv, trans: Trans, m: usize, n: usize, incx:
         const prior: f64 = if (bt == 0) 0 else bt * halfVal(Out, y[k]);
         want[k] = halfIn(Out, @floatCast(if (af == 0) prior else af * acc + prior));
     }
-    try gemvHalf(kind, trans, @intCast(m), @intCast(n), halfIn(Out, alpha), a.ptr, @intCast(lda), x.ptr, incx, halfIn(Out, beta), y.ptr, incy);
+    try gemvHalf(check.io, kind, trans, @intCast(m), @intCast(n), halfIn(Out, alpha), a.ptr, @intCast(lda), x.ptr, incx, halfIn(Out, beta), y.ptr, incy);
     for (want, y, 0..) |w, g, i| {
         const wv = halfVal(Out, w);
         const tol: f64 = if (Out == types.BF16) 0.012 * @abs(wv) + 1e-3 else 1e-5 * @as(f64, @floatFromInt(lenx + 2)) + 1e-6 * @abs(wv);
@@ -773,16 +768,16 @@ test "interface: half-precision gemv beta 0 overwrites NaN, alpha 0 never reads 
         var a = [_]In{ nan_in, nan_in, nan_in, nan_in };
         var x = [_]In{ nan_in, nan_in };
         var y = [_]Out{ halfIn(Out, std.math.nan(f32)), halfIn(Out, std.math.nan(f32)) };
-        try gemvHalf(kind, .n, 2, 2, halfIn(Out, 0), &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
+        try gemvHalf(check.io, kind, .n, 2, 2, halfIn(Out, 0), &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
         try testing.expectEqual(@as(f64, 0), halfVal(Out, y[0]));
         try testing.expectEqual(@as(f64, 0), halfVal(Out, y[1]));
         y = .{ halfIn(Out, 1), halfIn(Out, 2) };
-        try gemvHalf(kind, .t, 2, 2, halfIn(Out, 0), &a, 2, &x, -1, halfIn(Out, 2), &y, 1);
+        try gemvHalf(check.io, kind, .t, 2, 2, halfIn(Out, 0), &a, 2, &x, -1, halfIn(Out, 2), &y, 1);
         try testing.expectEqual(@as(f64, 2), halfVal(Out, y[0]));
         try testing.expectEqual(@as(f64, 4), halfVal(Out, y[1]));
         // beta 1 with alpha 0 touches nothing, even through a stride
         y = .{ halfIn(Out, 1), halfIn(Out, 2) };
-        try gemvHalf(kind, .n, 2, 2, halfIn(Out, 0), &a, 2, &x, 1, halfIn(Out, 1), &y, -1);
+        try gemvHalf(check.io, kind, .n, 2, 2, halfIn(Out, 0), &a, 2, &x, 1, halfIn(Out, 1), &y, -1);
         try testing.expectEqual(@as(f64, 1), halfVal(Out, y[0]));
     }
 }
@@ -797,16 +792,16 @@ test "interface: half-precision gemv reports the first bad argument and ignores 
         var x = [_]In{ halfIn(In, 1), halfIn(In, 1) };
         var y = [_]Out{ halfIn(Out, 5), halfIn(Out, 6) };
         const one = halfIn(Out, 1);
-        try testing.expectError(error.InvalidTrans, gemvHalf(kind, .o, 2, 2, one, &a, 2, &x, 1, one, &y, 1));
-        try testing.expectError(error.InvalidTrans, gemvHalf(kind, .d, -1, -1, one, &a, 0, &x, 0, one, &y, 0));
-        try testing.expectError(error.InvalidM, gemvHalf(kind, .n, -1, -1, one, &a, 0, &x, 0, one, &y, 0));
-        try testing.expectError(error.InvalidN, gemvHalf(kind, .n, 2, -1, one, &a, 0, &x, 0, one, &y, 0));
-        try testing.expectError(error.InvalidLda, gemvHalf(kind, .n, 2, 2, one, &a, 1, &x, 0, one, &y, 0));
-        try testing.expectError(error.InvalidIncx, gemvHalf(kind, .t, 2, 2, one, &a, 2, &x, 0, one, &y, 0));
-        try testing.expectError(error.InvalidIncy, gemvHalf(kind, .t, 2, 2, one, &a, 2, &x, 1, one, &y, 0));
+        try testing.expectError(error.InvalidTrans, gemvHalf(check.io, kind, .o, 2, 2, one, &a, 2, &x, 1, one, &y, 1));
+        try testing.expectError(error.InvalidTrans, gemvHalf(check.io, kind, .d, -1, -1, one, &a, 0, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidM, gemvHalf(check.io, kind, .n, -1, -1, one, &a, 0, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidN, gemvHalf(check.io, kind, .n, 2, -1, one, &a, 0, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidLda, gemvHalf(check.io, kind, .n, 2, 2, one, &a, 1, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidIncx, gemvHalf(check.io, kind, .t, 2, 2, one, &a, 2, &x, 0, one, &y, 0));
+        try testing.expectError(error.InvalidIncy, gemvHalf(check.io, kind, .t, 2, 2, one, &a, 2, &x, 1, one, &y, 0));
         // an empty problem does not even apply beta
-        try gemvHalf(kind, .n, 0, 2, one, &a, 1, &x, 1, halfIn(Out, 0), &y, 1);
-        try gemvHalf(kind, .n, 2, 0, one, &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
+        try gemvHalf(check.io, kind, .n, 0, 2, one, &a, 1, &x, 1, halfIn(Out, 0), &y, 1);
+        try gemvHalf(check.io, kind, .n, 2, 0, one, &a, 2, &x, 1, halfIn(Out, 0), &y, 1);
         try testing.expectEqual(@as(f64, 5), halfVal(Out, y[0]));
     }
 }
@@ -868,9 +863,9 @@ fn anyFloat(comptime T: type) !void {
     };
     const transes = if (complex) [_]Trans{ .n, .t, .c } else [_]Trans{ .n, .t };
     for (transes) |t| {
-        const tr = transposed(t);
+        const tr = t.transposed();
         var got = y;
-        try gemv(al, T, t, m, n, alpha, &a, lda, &x, 2, beta, &got, -1);
+        try gemv(al, check.io, T, t, m, n, alpha, &a, lda, &x, 2, beta, &got, -1);
         const ctx: OpCtx = .{ .a = &a, .tr = tr, .cj = t == .c };
         try expectMv(T, if (tr) n else m, if (tr) m else n, ctx, alpha, &x, beta, &y, &got);
     }
@@ -880,9 +875,9 @@ fn anyFloat(comptime T: type) !void {
         if (conj and !complex) continue;
         var got = a;
         if (!conj) {
-            try ger(al, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
+            try ger(al, check.io, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
         } else if (comptime complex) {
-            try gerc(al, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
+            try gerc(al, check.io, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
         }
         for (0..n) |j| for (0..m) |i| {
             const xv = check.wide(T, x[2 * i]);
@@ -908,9 +903,9 @@ fn anyFloat(comptime T: type) !void {
         for ([_]Uplo{ .u, .l }) |uplo| {
             var got = y;
             if (!herm) {
-                try symv(al, T, uplo, n, alpha, &a, lda, &x, 2, beta, &got, -1);
+                try symv(al, check.io, T, uplo, n, alpha, &a, lda, &x, 2, beta, &got, -1);
             } else if (comptime complex) {
-                try hemv(al, T, uplo, n, alpha, &a, lda, &x, 2, beta, &got, -1);
+                try hemv(al, check.io, T, uplo, n, alpha, &a, lda, &x, 2, beta, &got, -1);
             }
             const ctx: SymCtx = .{ .a = &a, .kind = if (herm) .hermitian else .symmetric, .upper = uplo == .u };
             try expectMv(T, n, n, ctx, alpha, &x, beta, &y, &got);
@@ -933,17 +928,17 @@ fn anyFloat(comptime T: type) !void {
             return opAt(T, c.a, lda, c.tr, c.cj, r, q);
         }
     };
-    for ([_]tri.Uplo{ .upper, .lower }) |uplo| for ([_]tri.Trans{ .n, .t, .c }) |t| {
-        const ctx: TriCtx = .{ .a = &d, .upper = uplo == .upper, .tr = t != .n, .cj = t == .c and complex };
+    for ([_]Uplo{ .u, .l }) |uplo| for ([_]Trans{ .n, .t, .c }) |t| {
+        const ctx: TriCtx = .{ .a = &d, .upper = uplo == .u, .tr = t != .n, .cj = t == .c and complex };
         var got = x;
-        try tri.trmv(T, al, uplo, t, .non_unit, n, &d, lda, &got, 2);
+        try tri.trmv(al, check.io, T, uplo, t, .n, n, &d, lda, &got, 2);
         // `op(A) x` is `expectMv` with `alpha` 1 and `beta` 0, read back at
         // stride -1
         var rev: [n]T = undefined;
         for (0..n) |i| rev[n - 1 - i] = got[2 * i];
         try expectMv(T, n, n, ctx, val(T, 1, 0), &x, zeroT(T), &rev, &rev);
         got = x;
-        try tri.trsv(T, al, uplo, t, .non_unit, n, &d, lda, &got, 2);
+        try tri.trsv(al, check.io, T, uplo, t, .n, n, &d, lda, &got, 2);
         // the residual of `op(A) z = x`, relative to `|op(A)| |z|`
         for (0..n) |r| {
             var acc = check.wide(T, zeroT(T));
@@ -973,10 +968,10 @@ fn anyFloat(comptime T: type) !void {
             return check.wide(T, c.ab[ku + i - j + j * ldb]);
         }
     };
-    for ([_]band.Trans{ .n, .t }) |t| {
+    for ([_]Trans{ .n, .t }) |t| {
         const tr = t == .t;
         var got = y;
-        try band.gbmv(T, al, t, m, n, kl, ku, alpha, &ab, ldb, &x, 2, beta, &got, -1);
+        try band.gbmv(al, check.io, T, t, m, n, kl, ku, alpha, &ab, ldb, &x, 2, beta, &got, -1);
         const ctx: BandCtx = .{ .ab = &ab, .tr = tr };
         try expectMv(T, if (tr) n else m, if (tr) m else n, ctx, alpha, &x, beta, &y, &got);
     }

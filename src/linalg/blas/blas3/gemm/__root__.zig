@@ -582,7 +582,7 @@ test "a packing buffer on the stack is poisoned in tests: a copy that writes not
     vt.dgemm_itcopy = &Nop.copy;
     var a: [4]f64 = @splat(1);
     var c: [4]f64 = @splat(0);
-    try driver.gemm(std.testing.failing_allocator, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
+    try driver.gemm(std.testing.failing_allocator, check.io, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
     for (c) |v| try std.testing.expect(std.math.isNan(v));
 }
 

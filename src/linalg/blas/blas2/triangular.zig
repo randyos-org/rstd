@@ -12,9 +12,10 @@
 //! (`*_thread.c`) are not ported.
 //!
 //! Invalid arguments return an error from `ArgError`; there is no `xerbla`.
-//! The reference's `info` for each: `InvalidUplo` 1, `InvalidTrans` 2,
-//! `InvalidDiag` 3, `InvalidN` 4, `InvalidK` 5, `InvalidLda` 6 (7 for band),
-//! `InvalidIncx` 7 (packed), 8 (full), 9 (band). `n == 0` returns early.
+//! The reference's `info` for each: `InvalidUplo` 1 (`v`, `m`),
+//! `InvalidTrans` 2 (`o` to `d`), `InvalidN` 4, `InvalidK` 5, `InvalidLda` 6
+//! (7 for band), `InvalidIncx` 7 (packed), 8 (full), 9 (band). `n == 0`
+//! returns early. `io` is for the threading to come; every routine is serial.
 //!
 //! Work space: a copy of `x` when `incx != 1`, and `gemv`'s buffer when `n`
 //! exceeds the vtable's `dtb_entries` (64 when unset). Up to `stack_bytes`
@@ -28,75 +29,22 @@ const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 
-const Allocator = std.mem.Allocator;
 const interface = @import("interface.zig");
+
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const BlasLong = types.BlasLong;
+const Trans = types.Trans;
+const Uplo = types.Uplo;
+const Diag = types.Diag;
 
-pub const ArgError = interface.ArgError;
-
-pub const Error = ArgError || Allocator.Error;
+pub const Error = interface.Error;
 
 /// Work space kept on the stack; bigger problems use the allocator.
 pub const stack_bytes = interface.stack_bytes;
 
 /// `dtb_entries` of a hand-built vtable that has none.
 const default_dtb = 64;
-
-pub const Uplo = enum {
-    upper,
-    lower,
-
-    /// `'U'` or `'L'`, either case.
-    pub fn parse(c: u8) ArgError!Uplo {
-        return switch (std.ascii.toUpper(c)) {
-            'U' => .upper,
-            'L' => .lower,
-            else => error.InvalidUplo,
-        };
-    }
-};
-
-/// `op(A)`: `n` is `A`, `t` is `A^T`, `r` is `conj(A)`, `c` is `A^H`. For
-/// real types `r` is `n` and `c` is `t`.
-pub const Trans = enum {
-    n,
-    t,
-    r,
-    c,
-
-    /// `'N'`, `'T'`, `'R'` or `'C'`, either case.
-    pub fn parse(c: u8) ArgError!Trans {
-        return switch (std.ascii.toUpper(c)) {
-            'N' => .n,
-            'T' => .t,
-            'R' => .r,
-            'C' => .c,
-            else => error.InvalidTrans,
-        };
-    }
-
-    fn transposed(op: Trans) bool {
-        return op == .t or op == .c;
-    }
-
-    fn conjugated(op: Trans) bool {
-        return op == .r or op == .c;
-    }
-};
-
-pub const Diag = enum {
-    unit,
-    non_unit,
-
-    /// `'U'` or `'N'`, either case.
-    pub fn parse(c: u8) ArgError!Diag {
-        return switch (std.ascii.toUpper(c)) {
-            'U' => .unit,
-            'N' => .non_unit,
-            else => error.InvalidDiag,
-        };
-    }
-};
 
 // ---- element helpers -------------------------------------------------------
 
@@ -227,7 +175,7 @@ fn Drive(comptime T: type, comptime file: File, comptime op: Trans, comptime uni
     const F = Float(T);
     const N = Num(T);
     const tr = comptime op.transposed();
-    const cj = comptime op.conjugated();
+    const cj = comptime op.conjA();
     return struct {
         /// `trmv_{U,L}.c`: `b := op(A) * b`.
         fn trmv(o: Ops(T), m: BlasLong, a: [*]T, lda: BlasLong, b: [*]T, g: [*]F) void {
@@ -492,10 +440,11 @@ fn run(
 /// The checks, work space and driver choice common to the six routines;
 /// `vt` is the kernels' vtable.
 fn call(
+    allocator: Allocator,
+    io: Io,
     comptime T: type,
     comptime kind: Kind,
     vt: *const Vtable,
-    gpa: Allocator,
     uplo: Uplo,
     trans: Trans,
     diag: Diag,
@@ -506,9 +455,12 @@ fn call(
     x: [*]T,
     incx: isize,
 ) Error!void {
+    _ = io;
     const F = Float(T);
     const banded = kind == .tbmv or kind == .tbsv;
     const packed_ = kind == .tpmv or kind == .tpsv;
+    if (uplo.isRev()) return error.InvalidUplo;
+    if (trans.conjX()) return error.InvalidTrans;
     if (n < 0) return error.InvalidN;
     if (banded) {
         if (k < 0) return error.InvalidK;
@@ -537,8 +489,8 @@ fn call(
     // keeps the stack's alignment
     var stack: [stack_bytes / @sizeOf(F)]F align(64) = undefined;
     const heap = elems > stack.len;
-    const buf: []align(64) F = if (heap) try gpa.alignedAlloc(F, .@"64", elems) else stack[0..elems];
-    defer if (heap) gpa.free(buf);
+    const buf: []align(64) F = if (heap) try allocator.alignedAlloc(F, .@"64", elems) else stack[0..elems];
+    defer if (heap) allocator.free(buf);
     // poisoned in tests, as `interface.zig`'s scratch is
     if (sysinfo.is_test and !heap) @memset(std.mem.sliceAsBytes(buf), 0xff);
     // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
@@ -546,12 +498,13 @@ fn call(
     if (comptime isComplex(T) and sysinfo.target.cpu.arch == .x86_64) @memset(buf, 0);
 
     // `_U` for upper untransposed or lower transposed
-    const fl: File = if ((uplo == .upper) != trans.transposed()) .u else .l;
+    const fl: File = if ((uplo == .u) != trans.transposed()) .u else .l;
     switch (fl) {
         inline else => |f| switch (trans) {
-            inline else => |t| switch (diag) {
-                inline else => |d| run(T, kind, f, canon(T, t), d == .unit, o, kn, k, a, lda, px, incx, buf.ptr),
+            inline .n, .t, .r, .c => |t| switch (diag) {
+                inline else => |d| run(T, kind, f, canon(T, t), d == .u, o, kn, k, a, lda, px, incx, buf.ptr),
             },
+            .o, .u, .s, .d => unreachable,
         },
     }
 }
@@ -560,38 +513,38 @@ fn call(
 /// lower triangular of `n`, column-major with leading dimension `lda`. The
 /// other triangle (and the diagonal for `unit`) is not read. A negative
 /// `incx` walks `x` from its end.
-pub fn trmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(T, .trmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
+pub fn trmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
+    return call(allocator, io, T, .trmv, blas.vtable(), uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TRSV` (`interface/trsv.c`, `ztrsv.c`): solves `op(A) * y = x`, `y`
 /// replacing `x`. No singularity check, as in the reference.
-pub fn trsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(T, .trsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, a, lda, x, incx);
+pub fn trsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
+    return call(allocator, io, T, .trsv, blas.vtable(), uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
 /// `?TBMV` (`interface/tbmv.c`, `ztbmv.c`): `x := op(A) * x`, `A` triangular
 /// band with `k` off-diagonals in LAPACK band storage: `A(i,j)` is
 /// `a[k + i - j + j*lda]` (upper) or `a[i - j + j*lda]` (lower).
-pub fn tbmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(T, .tbmv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
+pub fn tbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
+    return call(allocator, io, T, .tbmv, blas.vtable(), uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TBSV` (`interface/tbsv.c`, `ztbsv.c`): solves `op(A) * y = x` for band `A`.
-pub fn tbsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
-    return call(T, .tbsv, blas.vtable(), gpa, uplo, trans, diag, n, k, a, lda, x, incx);
+pub fn tbsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, k: isize, a: [*]T, lda: isize, x: [*]T, incx: isize) Error!void {
+    return call(allocator, io, T, .tbsv, blas.vtable(), uplo, trans, diag, n, k, a, lda, x, incx);
 }
 
 /// `?TPMV` (`interface/tpmv.c`, `ztpmv.c`): `x := op(A) * x`, `A` packed by
 /// columns: `A(i,j)` is `ap[j*(j+1)/2 + i]` (upper, `i <= j`) or
 /// `ap[j*(2n-j+1)/2 + i - j]` (lower, `i >= j`).
-pub fn tpmv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
-    return call(T, .tpmv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
+pub fn tpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
+    return call(allocator, io, T, .tpmv, blas.vtable(), uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 /// `?TPSV` (`interface/tpsv.c`, `ztpsv.c`): solves `op(A) * y = x` for packed `A`.
-pub fn tpsv(comptime T: type, gpa: Allocator, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
-    return call(T, .tpsv, blas.vtable(), gpa, uplo, trans, diag, n, 0, ap, 1, x, incx);
+pub fn tpsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, ap: [*]T, x: [*]T, incx: isize) Error!void {
+    return call(allocator, io, T, .tpsv, blas.vtable(), uplo, trans, diag, n, 0, ap, 1, x, incx);
 }
 
 // ---- tests -----------------------------------------------------------------
@@ -625,13 +578,13 @@ fn isSolve(comptime kind: Kind) bool {
 fn index(layout: Layout, uplo: Uplo, n: usize, k: usize, lda: usize, i: usize, j: usize) usize {
     return switch (layout) {
         .full => i + j * lda,
-        .band => (if (uplo == .upper) k + i - j else i - j) + j * lda,
-        .packed_ => if (uplo == .upper) j * (j + 1) / 2 + i else j * (2 * n - j + 1) / 2 + i - j,
+        .band => (if (uplo == .u) k + i - j else i - j) + j * lda,
+        .packed_ => if (uplo == .u) j * (j + 1) / 2 + i else j * (2 * n - j + 1) / 2 + i - j,
     };
 }
 
 fn inTriangle(layout: Layout, uplo: Uplo, k: usize, i: usize, j: usize) bool {
-    if (uplo == .upper) {
+    if (uplo == .u) {
         if (i > j) return false;
         return layout != .band or j - i <= k;
     }
@@ -654,7 +607,7 @@ fn dense(comptime T: type, layout: Layout, uplo: Uplo, op: Trans, unit: bool, n:
             } else {
                 v = a[index(layout, uplo, n, k, lda, r, c)];
             }
-            if (real_op.conjugated()) v = N.conj(v, true);
+            if (real_op.conjA()) v = N.conj(v, true);
         }
         out[i * n + j] = v;
     };
@@ -690,7 +643,7 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
         if (layout != .band and k_req != 0) continue;
         const k = if (layout == .band) @min(k_req, n - 1) else 0;
         const lda = if (layout == .band) k + 1 + (n % 3) else n + (n % 3);
-        for (std.enums.values(Uplo)) |uplo| for (ops) |op| for (std.enums.values(Diag)) |diag| for (incs) |inc| {
+        for ([_]Uplo{ .u, .l }) |uplo| for (ops) |op| for (std.enums.values(Diag)) |diag| for (incs) |inc| {
             // static: at max_n a complex f80 frame would be ~330 KB
             const a = guard.operand(T, .a, max_n * (max_n + 3));
             check.fill(T, a[0..storageLen(layout, n, lda)], n * 31 + k + @backingInt(op));
@@ -703,7 +656,7 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
                 dg.* = if (comptime isComplex(T)) .init(3 + @abs(dg.re), dg.im) else 3 + @abs(dg.*);
             }
             const d = guard.operand(T, .want, max_n * max_n);
-            dense(T, layout, uplo, op, diag == .unit, n, k, lda, a[0..alen], d[0 .. n * n]);
+            dense(T, layout, uplo, op, diag == .u, n, k, lda, a[0..alen], d[0 .. n * n]);
 
             const span = (n - 1) * @abs(inc) + 1;
             var x: [max_n * 3]T = undefined;
@@ -726,7 +679,7 @@ fn checkKind(comptime T: type, comptime kind: Kind, vt: *const Vtable) !void {
             const kk: isize = @intCast(k);
             const ll: isize = @intCast(lda);
             const ii: isize = @intCast(inc);
-            try call(T, kind, vt, gpa, uplo, op, diag, nn, kk, a.ptr, ll, &x, ii);
+            try call(gpa, check.io, T, kind, vt, uplo, op, diag, nn, kk, a.ptr, ll, &x, ii);
             const tol = check.tolerance(F, 4 * n + 4);
             if (!solve) {
                 expectSame(T, want[0..span], x[0..span], tol) catch |e| return report(e, T, kind, uplo, op, diag, n, k, inc, vt.dtb_entries);
@@ -792,14 +745,14 @@ test "triangular work space beyond the stack comes from the allocator" {
     check.fill(f64, x, 2);
     const b = try gpa.dupe(f64, x);
     defer gpa.free(b);
-    try call(f64, .trsv, &vt, gpa, .lower, .n, .non_unit, n, 0, a.ptr, n, x.ptr, 2);
+    try call(gpa, check.io, f64, .trsv, &vt, .l, .n, .n, n, 0, a.ptr, n, x.ptr, 2);
     for (0..n) |i| {
         var acc: f64 = 0;
         for (0..i + 1) |j| acc += a[i + j * n] * x[2 * j];
         try check.expectClose(f64, b[2 * i], acc, 1e-9);
     }
     var failing = std.testing.FailingAllocator.init(gpa, .{ .fail_index = 0 });
-    try std.testing.expectError(error.OutOfMemory, call(f64, .trmv, &vt, failing.allocator(), .upper, .n, .unit, n, 0, a.ptr, n, x.ptr, 2));
+    try std.testing.expectError(error.OutOfMemory, call(failing.allocator(), check.io, f64, .trmv, &vt, .u, .n, .u, n, 0, a.ptr, n, x.ptr, 2));
 }
 
 test "triangular argument errors, in the reference's order" {
@@ -809,15 +762,15 @@ test "triangular argument errors, in the reference's order" {
     var a: [16]f64 = @splat(1);
     var x: [4]f64 = @splat(1);
     const e = std.testing.expectError;
-    try e(error.InvalidN, call(f64, .trmv, &vt, gpa, .upper, .n, .unit, -1, 0, &a, 0, &x, 0));
-    try e(error.InvalidLda, call(f64, .trmv, &vt, gpa, .upper, .n, .unit, 4, 0, &a, 3, &x, 0));
-    try e(error.InvalidIncx, call(f64, .trsv, &vt, gpa, .upper, .n, .unit, 4, 0, &a, 4, &x, 0));
-    try e(error.InvalidK, call(f64, .tbmv, &vt, gpa, .upper, .n, .unit, 4, -1, &a, 4, &x, 1));
-    try e(error.InvalidLda, call(f64, .tbsv, &vt, gpa, .upper, .n, .unit, 4, 2, &a, 2, &x, 1));
-    try e(error.InvalidIncx, call(f64, .tpmv, &vt, gpa, .lower, .t, .unit, 4, 0, &a, 1, &x, 0));
+    try e(error.InvalidN, call(gpa, check.io, f64, .trmv, &vt, .u, .n, .u, -1, 0, &a, 0, &x, 0));
+    try e(error.InvalidLda, call(gpa, check.io, f64, .trmv, &vt, .u, .n, .u, 4, 0, &a, 3, &x, 0));
+    try e(error.InvalidIncx, call(gpa, check.io, f64, .trsv, &vt, .u, .n, .u, 4, 0, &a, 4, &x, 0));
+    try e(error.InvalidK, call(gpa, check.io, f64, .tbmv, &vt, .u, .n, .u, 4, -1, &a, 4, &x, 1));
+    try e(error.InvalidLda, call(gpa, check.io, f64, .tbsv, &vt, .u, .n, .u, 4, 2, &a, 2, &x, 1));
+    try e(error.InvalidIncx, call(gpa, check.io, f64, .tpmv, &vt, .l, .t, .u, 4, 0, &a, 1, &x, 0));
     // n == 0 returns before touching anything, even a bad lda
-    try call(f64, .trmv, &vt, gpa, .upper, .n, .unit, 0, 0, &a, 1, &x, 1);
-    try e(error.InvalidUplo, Uplo.parse('x'));
-    try std.testing.expectEqual(Trans.c, try Trans.parse('c'));
-    try std.testing.expectEqual(Diag.non_unit, try Diag.parse('n'));
+    try call(gpa, check.io, f64, .trmv, &vt, .u, .n, .u, 0, 0, &a, 1, &x, 1);
+    // `v` and `m` are Hermitian forms, `o` to `d` conjugate `x`: neither applies
+    try e(error.InvalidUplo, call(gpa, check.io, f64, .trmv, &vt, .m, .o, .u, -1, 0, &a, 0, &x, 0));
+    try e(error.InvalidTrans, call(gpa, check.io, f64, .tpsv, &vt, .l, .d, .u, -1, 0, &a, 0, &x, 0));
 }
