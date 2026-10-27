@@ -279,8 +279,15 @@ test "threads racing the first kernel call select the core once and all see it" 
     race_seen = @splat(null);
     const before = inits.load(.monotonic);
     var threads: [race_seen.len]std.Thread = undefined;
-    for (&threads, 0..) |*t, i| t.* = try std.Thread.spawn(.{}, raceKernel, .{i});
-    for (threads) |t| t.join();
+    {
+        // a failed spawn still joins the threads already running
+        var spawned: usize = 0;
+        defer for (threads[0..spawned]) |t| t.join();
+        for (&threads, 0..) |*t, i| {
+            t.* = try std.Thread.spawn(.{}, raceKernel, .{i});
+            spawned += 1;
+        }
+    }
     try zigstd.testExpectEqual(before + 1, inits.load(.monotonic));
     try zigstd.testExpectTrue(phase.load(.acquire) == .ready);
     for (race_seen) |seen| try zigstd.testExpectTrue(seen != null and seen.? == core_type.?);
