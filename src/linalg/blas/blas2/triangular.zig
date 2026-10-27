@@ -91,24 +91,12 @@ fn Num(comptime T: type) type {
         fn mul(a: T, b: T, comptime c: bool) T {
             return if (cplx) conj(a, c).mul(b) else a * b;
         }
-        /// `b / a`, with `a` conjugated for `c`. Complex multiplies by the
-        /// reciprocal the way the reference does (Smith's scaling).
+        /// `b / a`, with `a` conjugated for `c`; complex by `util.cdiv`, as
+        /// level-3 `trsm` divides.
         fn div(b: T, a: T, comptime c: bool) T {
             if (!cplx) return b / a;
-            var ar = a.re;
-            var ai = a.im;
-            if (@abs(ar) >= @abs(ai)) {
-                const ratio = ai / ar;
-                const den = 1 / (ar * (1 + ratio * ratio));
-                ar = den;
-                ai = if (c) ratio * den else -ratio * den;
-            } else {
-                const ratio = ar / ai;
-                const den = 1 / (ai * (1 + ratio * ratio));
-                ar = ratio * den;
-                ai = if (c) den else -den;
-            }
-            return T.init(ar * b.re - ai * b.im, ar * b.im + ai * b.re);
+            const q = util.cdiv(Float(T), b.re, b.im, a.re, if (c) -a.im else a.im);
+            return T.init(q[0], q[1]);
         }
     };
 }

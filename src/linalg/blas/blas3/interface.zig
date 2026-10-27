@@ -183,8 +183,7 @@ pub fn trmm(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Up
 
 /// `?TRSM` (`interface/trsm.c`): `B := alpha*inv(op(A))*B` (`side` `l`) or
 /// `alpha*B*inv(op(A))`, taking its arguments as `trmm` does. A zero on a
-/// diagonal that is not unit divides by zero, as the reference's
-/// reciprocals do.
+/// diagonal that is not unit divides by zero, as the reference does.
 pub fn trsm(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Uplo, transa: Trans, diag: Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
     comptime floatType(T, "trsm");
     return triImpl(allocator, io, T, true, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb);

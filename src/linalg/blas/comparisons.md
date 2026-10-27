@@ -9,7 +9,8 @@ the value routines, the `nan_lanes` quirk gone), X1 (`sdot` in `f64`, one
 any `axpy` kernel) and pitfall 1 of 8 (x86_64's alignment-peeling
 reductions routed to `@Vector` kernels). `readme.md`, "One contract on every
 core", has the details. Also, 10.2 and 10.3 (2026-10-23, `wip/denormals`):
-no `f32` vector lanes where they flush (`util.vectorIeee`).
+no `f32` vector lanes where they flush (`util.vectorIeee`). And 10.1
+(2026-10-26, `wip/l3`): `trsm` divides by the diagonal, as `trsv` does.
 
 ## Sources and versions
 
@@ -504,6 +505,12 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    row of each diagonal block, `O(n^2)` against `O(n^3)` work), or keep the reciprocal only when
    it is finite and normal and fall back to division for that row. Measure first; BLIS's own note
    calls the penalty a performance cost, not a prohibitive one.
+   **Done**: `solve` divides, real and complex; complex in both `trsm` and `trsv` by Smith's
+   algorithm (`util.cdiv`), so they give the same quotients (`trsv` multiplied by a reciprocal
+   for complex too). Tests: a tiny diagonal whose reciprocal overflows gives the exact solution,
+   and `trsv` and a one-column `trsm` give the same bits. Cost on this Windows x86_64 machine,
+   portable kernels at `-mcpu=native`, best of three interleaved runs, `m = n` from 16 to 1024:
+   `dtrsm` and `strsm` within the run-to-run noise (-4% to +5%), `ztrsm` +1% to +6% (+14% at 16).
 2. **ARMv7 NEON flushes denormals.** The ARMv7 Advanced SIMD unit always runs with the "standard
    FPSCR value" (flush-to-zero and default NaN), regardless of FPSCR (ARMv7-A Architecture Reference
    Manual, from memory but well established). Zig emits NEON for `@Vector(4, f32)` there: compiling

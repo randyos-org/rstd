@@ -3,8 +3,10 @@
 //! The copies (`kernel/generic/trsm_{u,l}{n,t}copy_*.c`, `ztrsm_*`) pack a
 //! block of the triangle from its corner: `m` deep, `n` lines, line `j` at
 //! `offset + j` of the depth; element `(j, i)` is `A(j, i)` (`t`) or `A(i,
-//! j)` (`n`) where `A` stores it, the reciprocal on the diagonal (one for a
-//! unit diagonal; `compinv` for complex), and left unwritten elsewhere.
+//! j)` (`n`) where `A` stores it, one on a unit diagonal, and left unwritten
+//! elsewhere. Upstream packs the diagonal's reciprocal (`compinv` for
+//! complex); here `solve` divides by it, as `trsv` does and
+//! Reference-LAPACK master's `dtrsm.f` (`comparisons.md`, 10).
 //!
 //! The kernels are `kernel/generic/trsm_kernel_{LT,LN,RN,RT}.c` on the gemm
 //! layout's panels (whole panels of `unroll_m` or `unroll_n`, then the
@@ -45,19 +47,10 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             if (comptime !complex) return util.scalar(E, x - y);
             return util.scalar(E, .{ x[0] - y[0], x[1] - y[1] });
         }
-        /// `1 / x`; complex by `common.h`'s `compinv`, the larger part divided out.
-        fn inv(x: E) E {
-            if (comptime !complex) return 1 / x;
-            const ar = x[0];
-            const ai = x[1];
-            if (@abs(ar) >= @abs(ai)) {
-                const ratio = ai / ar;
-                const den = 1 / (ar * (1 + ratio * ratio));
-                return .{ den, -ratio * den };
-            }
-            const ratio = ar / ai;
-            const den = 1 / (ai * (1 + ratio * ratio));
-            return .{ ratio * den, -den };
+        /// `x / y`; complex by `util.cdiv`, as `trsv` divides.
+        inline fn div(x: E, y: E) E {
+            if (comptime !complex) return x / y;
+            return util.cdiv(F, x[0], x[1], y[0], y[1]);
         }
 
         // ---- copies --------------------------------------------------------
@@ -74,7 +67,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                 const jj = s.offset + @as(isize, @intCast(j));
                 const ii: isize = @intCast(i);
                 const v = s.a[if (s.across) j + i * s.ld else i + j * s.ld];
-                if (ii == jj) return if (s.unit) one else inv(v);
+                if (ii == jj) return if (s.unit) one else v;
                 // the element's row and column in the triangle
                 const row = if (s.across) jj else ii;
                 const col = if (s.across) ii else jj;
@@ -250,14 +243,14 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         }
 
         /// `solve` of `trsm_kernel_LT.c` (`forward`) and `_LN.c`: the `m x n`
-        /// block of `C` by the diagonal block `a` (`m x m`, reciprocal
-        /// diagonal), into `C` and the packed `b`.
+        /// block of `C` by the diagonal block `a` (`m x m`), into `C` and the
+        /// packed `b`.
         fn solveLeft(forward: bool, conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..m) |s| {
                 const i = if (forward) s else m - 1 - s;
                 const d = conjIf(a[i * m + i], conj);
                 for (0..n) |j| {
-                    const x = mul(d, c[i + j * ldc]);
+                    const x = div(c[i + j * ldc], d);
                     b[i * n + j] = x;
                     c[i + j * ldc] = x;
                     const lo = if (forward) i + 1 else 0;
@@ -275,7 +268,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                 const i = if (forward) s else n - 1 - s;
                 const d = conjIf(b[i * n + i], conj);
                 for (0..m) |j| {
-                    const x = mul(c[j + i * ldc], d);
+                    const x = div(c[j + i * ldc], d);
                     a[i * m + j] = x;
                     c[j + i * ldc] = x;
                     const lo = if (forward) i + 1 else 0;

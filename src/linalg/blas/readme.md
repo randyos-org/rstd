@@ -144,6 +144,10 @@ back to the portable kernels, and the next call selects again; no kernel call ma
 - **Denormals.** rstd never changes the floating-point environment, and denormals are honored on
   every core: where a vector unit flushes them (ARMv7 NEON, pre-VSX AltiVec), `f32` stays out of
   its lanes ([`design.md`](design.md#denormals-and-the-floating-point-environment)).
+- **Triangular solves.** `trsv`, `tbsv`, `tpsv` and `trsm` divide by the diagonal, complex by
+  Smith's algorithm (`util.cdiv`), as Reference-LAPACK master does; OpenBLAS multiplies by a
+  reciprocal, infinite for a denormal diagonal element. Level 2 and level 3 give the same
+  quotients.
 - **Extended precision.** Wider than `f64`, the reductions and `gemv` sum in the order of
   OpenBLAS's x87 `q`/`x` kernels and give their bits.
 

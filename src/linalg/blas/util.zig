@@ -164,6 +164,21 @@ pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x
     return @sqrt(amed);
 }
 
+/// `b / a` in parts, by Smith's algorithm (the larger part of `a` divided
+/// out), as gfortran divides; for the triangular solves of levels 2 and 3.
+/// No reciprocal is formed, so a tiny `a` whose reciprocal overflows still
+/// gives a finite quotient wherever one exists.
+pub inline fn cdiv(comptime F: type, br: F, bi: F, ar: F, ai: F) [2]F {
+    if (@abs(ar) >= @abs(ai)) {
+        const r = ai / ar;
+        const d = ar + ai * r;
+        return .{ (br + bi * r) / d, (bi - br * r) / d };
+    }
+    const r = ar / ai;
+    const d = ai + ar * r;
+    return .{ (br * r + bi) / d, (bi * r - br) / d };
+}
+
 /// What `extendedSum` adds up per float.
 pub const Term = enum { abs, square };
 
