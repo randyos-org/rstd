@@ -4,7 +4,7 @@ Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`)
 around a block kernel, which is an inline-assembly microkernel
 (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all.
 `axpy` was the first routine ported this way, `dot` on x86_64 the second, then
-x86_64 `scal` and `rot`. All go through the same machinery, so a new routine adds a
+x86_64 `scal`, `rot` and the real `gemv` (level 2, in `blas2/gemv`). All go through the same machinery, so a new routine adds a
 table row and its driver, not a new converter. Where these ports sit among the other kernel kinds
 is in [`design.md`](../design.md#kernel-kinds).
 
@@ -15,6 +15,7 @@ is in [`design.md`](../design.md#kernel-kinds).
 | Inline-assembly block | `<routine>/<arch>/uk/<p><r>_<core>.zig` | generated, `uk.zig`    |
 | Driver's own assembly | `<routine>/<arch>/uk/<p><r>.zig`        | generated, `uk.zig`    |
 | Index: core to block  | `<routine>/<arch>/uk/__root__.zig`      | generated, `uk.zig`    |
+| Index for `gemv`      | `gemv/<arch>/uk/index_n.zig`, `_t`      | generated, `uk.zig`    |
 | Driver                | `<routine>/kernel.zig`                  | hand-ported            |
 | Intrinsics block      | `<routine>/<arch>/kernel.zig`           | hand-ported, `@Vector` |
 | Composition per arch  | `<routine>/<arch>/kernel.zig`           | `uk.Kernels(...)`      |
@@ -95,11 +96,13 @@ are the same C across cores.
   element, or the array of partial sums for complex (`cdot` leaves eight, `zdot`
   four). `Asm` wraps a converted function that way.
 - **Several blocks.** Where a driver calls more than one block function
-  (`scal`'s zeroing twin and strided block), it declares `entryOf(slot, e,
-  Vector)` instead of `Asm` and `entry`, and takes each function by name: the
+  (`scal`'s zeroing twin and strided block), it declares `entryOf(slot, core,
+  e, Vector)` instead of `Asm` and `entry`, and takes each function by name: the
   microkernel's, else the driver's own (`e.own`), else its C, as the C's
   `HAVE_KERNEL_*` tests pick. `Driver.slots` also lists the slots only
-  converted assembly fills, so `uk.Kernels` exports those too.
+  converted assembly fills, so `uk.Kernels` exports those too. A core whose
+  chain includes two blocks for one slot (Skylake-X's `sgemv`) is left out
+  until a driver combines them.
 - **No block.** The C falls back to a generic loop in the same file, which has
   its own order (`dot += y0*x0 + ... + y7*x7`), not the scalar tail's. That is
   `Fallback`; the index's `.none` means it.

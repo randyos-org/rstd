@@ -174,7 +174,7 @@ test "x86_64's rot drivers rotate every element as the reference's blocks do, bi
         const F = driver.Elem(slot);
         // a vector block (haswell) and the C one (cooperlake)
         inline for (.{ "haswell", "cooperlake" }) |core| {
-            const kern = driver.entryOf(slot, comptime index.find(slot, core).?, Vector);
+            const kern = driver.entryOf(slot, core, comptime index.find(slot, core).?, Vector);
             const c: F = 0.8;
             const s: F = -0.6;
             for (check.sizes) |n| for ([_]isize{ 1, 2 }) |inc| {

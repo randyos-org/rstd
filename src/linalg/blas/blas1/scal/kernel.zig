@@ -147,6 +147,7 @@ fn Driver(comptime slot: Slot, comptime B: type) type {
 }
 
 /// The kernel `slot` of the core whose index entry is `e` (`uk_block.driven`).
-pub fn entryOf(comptime slot: Slot, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
+pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
+    _ = core;
     return &Driver(slot, Blocks(slot, e, Vector)).call;
 }

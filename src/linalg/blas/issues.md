@@ -1100,6 +1100,25 @@ and the x86_64 kernels are exact to rounding.
   elements: `znrm2.S` keeps its single-precision sum of squares in an `f32`
   register. Accumulate in `f64`, as `snrm2` does."
 
+### x86_64 `dgemv_t_4.c`: SSE3 on the `OPTERON` core
+
+`kernel/x86_64/dgemv_t_4.c` defines `dgemv_kernel_4x2` and `dgemv_kernel_4x1`
+in inline assembly ending in `haddpd`, an SSE3 instruction. `KERNEL` makes it
+the `DGEMVTKERNEL` of every x86_64 core that names no other, `OPTERON`
+included, and `dynamic.c` picks `gotoblas_OPTERON` (`DYNAMIC_OLDER=1`)
+exactly when CPUID reports no SSE3. So a transposed `dgemv` with `n % 4 != 0`
+would fault there. Not seen on hardware.
+
+- **Workaround:** where the core has no SSE3, the ported driver
+  (`blas2/gemv/kernel.zig`) does those two blocks' arithmetic in SSE2
+  (`Fallback.t4x2`, `t4x1`); a test checks them against the assembly bit for
+  bit.
+- **Issue text:** "`dgemv_t_4.c`'s `dgemv_kernel_4x2` and `dgemv_kernel_4x1`
+  use `haddpd` (SSE3), yet `OPTERON`, which `dynamic.c` picks for x86_64 CPUs
+  without SSE3, builds `dgemv_t_4.c` (`KERNEL`'s default). A transposed
+  `dgemv` with `n % 4 != 0` then executes an SSE3 instruction there. Give
+  `OPTERON` an SSE2 `DGEMVTKERNEL`, or add the halves with SSE2."
+
 ## BLIS
 
 ### `snrm2` and `scnrm2` keep an `f32` running sum

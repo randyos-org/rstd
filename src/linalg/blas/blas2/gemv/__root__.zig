@@ -1105,3 +1105,49 @@ test "extended gemv: the blocks by target and core" {
         try zigstd.testExpectEqual(@as(BlasLong, 32), extendedColBlock(true, .athlon));
     }
 }
+
+test "x86_64's dgemv_n vector block and SSE2 dgemv_t blocks give the reference's arithmetic, bit for bit" {
+    if (sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    const driver = @import("kernel.zig");
+    const xk = @import("x86_64/kernel.zig");
+    const own = @import("x86_64/uk/dgemv_t_4.zig");
+    var a: [4 * 40]f64 = undefined;
+    var x: [40]f64 = undefined;
+    check.fill(f64, &a, 11);
+    check.fill(f64, &x, 12);
+    const ap = [4][*]f64{ a[0..].ptr, a[40..].ptr, a[80..].ptr, a[120..].ptr };
+    const alpha = [1]f64{1.25};
+    // Skylake-X's `dgemv_kernel_4x4` and `4x2` against a row-by-row model
+    inline for (.{ false, true }) |wide| inline for (.{ false, true }) |fuse| {
+        const B = xk.VectorBlockWith(.dgemv_n, wide, fuse);
+        var n: usize = 4;
+        while (n <= 40) : (n += 4) {
+            inline for (.{ 4, 2 }) |cols| {
+                var y: [40]f64 = undefined;
+                check.fill(f64, &y, n);
+                var want = y;
+                for (0..n) |i| {
+                    var sum = fma.madd(fuse, f64, ap[0][i], x[0], ap[1][i] * x[1]);
+                    for (2..cols) |c| sum = fma.madd(fuse, f64, ap[c][i], x[c], sum);
+                    want[i] = fma.madd(fuse, f64, sum, alpha[0], want[i]);
+                }
+                if (cols == 4) B.dgemv_kernel_4x4(@intCast(n), &ap, &x, &y, &alpha) else B.dgemv_kernel_4x2(@intCast(n), &ap, &x, &y, &alpha);
+                try std.testing.expectEqualSlices(f64, &want, &y);
+            }
+        }
+    };
+    // the SSE2 forms of `dgemv_t_4.c`'s `kernel_4x2` and `4x1` against its assembly
+    if (comptime !std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .sse3)) return;
+    const S = driver.Fallback(f64, fma.fuse);
+    var n: usize = 2;
+    while (n <= 40) : (n += 2) {
+        var want: [2]f64 = undefined;
+        var got: [2]f64 = undefined;
+        own.dgemv_kernel_4x2(@intCast(n), ap[0], ap[1], &x, &want);
+        S.t4x2(@intCast(n), ap[0], ap[1], &x, &got);
+        try std.testing.expectEqualSlices(f64, &want, &got);
+        own.dgemv_kernel_4x1(@intCast(n), ap[2], &x, &want);
+        S.t4x1(@intCast(n), ap[2], &x, &got);
+        try std.testing.expectEqual(want[0], got[0]);
+    }
+}

@@ -63,15 +63,14 @@ pub fn find(comptime entries: []const Entry, comptime slot: Slot, comptime core:
 /// calls assembly function `f` as the reference does, and `entry(slot, mask, B)`
 /// the kernel around block `B` (null for none). `Vector(slot)` is the
 /// architecture's block on vectors. A driver whose blocks are several
-/// functions (`scal`, `gemv`) takes the whole entry instead, as
-/// `entryOf(slot, e, Vector)`, and picks each by name.
+/// functions (`scal`, `gemv`) takes the whole entry and the core instead, as
+/// `entryOf(slot, core, e, Vector)`, and picks each by name.
 pub fn driven(
     comptime Driver: type,
     comptime slot: Slot,
     comptime e: anytype,
     comptime Vector: fn (comptime Slot) type,
 ) Driver.Kernel(slot) {
-    if (@hasDecl(Driver, "entryOf")) return Driver.entryOf(slot, e, Vector);
     const B: ?type = switch (e.block) {
         .none => null,
         .vector => Vector(slot),
@@ -109,9 +108,26 @@ pub fn Kernels(
         }
     }
     return struct {
+        /// The index's entry for `slot` on `core`. A core whose chain includes
+        /// two blocks for one slot (Skylake-X's `sgemv`: Haswell's microkernel
+        /// and its own intrinsics) keeps its other kernels until a driver
+        /// combines the two.
+        fn found(comptime core: Core, comptime slot: Slot) ?Entry {
+            @setEvalBranchQuota(1_000_000);
+            const e = ukidx.find(slot, @tagName(core)) orelse return null;
+            var count: usize = 0;
+            for (ukidx.entries) |x| {
+                if (x.slot != slot) continue;
+                for (x.cores) |c| {
+                    if (std.mem.eql(u8, c, @tagName(core))) count += 1;
+                }
+            }
+            return if (count == 1) e else null;
+        }
+
         /// Whether `slot` has a kernel of its own on `core`, either kind.
         pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-            return asm_kernels.hasSlot(core, slot) or ukidx.find(slot, @tagName(core)) != null;
+            return asm_kernels.hasSlot(core, slot) or found(core, slot) != null;
         }
 
         /// Whether upstream builds `slot` on `core` from assembly the
@@ -132,8 +148,9 @@ pub fn Kernels(
             inline for (Driver.slots) |slot| {
                 if (comptime asm_kernels.hasSlot(core, slot)) {
                     asm_kernels.exportOne(slot, core);
-                } else if (comptime ukidx.find(slot, @tagName(core))) |e| {
-                    registry.exportKernel(driven(Driver, slot, e, Vector), slot, core);
+                } else if (comptime found(core, slot)) |e| {
+                    const k = if (@hasDecl(Driver, "entryOf")) Driver.entryOf(slot, @tagName(core), e, Vector) else driven(Driver, slot, e, Vector);
+                    registry.exportKernel(k, slot, core);
                 }
             }
         }
