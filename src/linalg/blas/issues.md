@@ -340,23 +340,6 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > steps there is no progress at all. An option to pass the output through
   > as it arrives while still matching it afterward would help.
 
-### Build-script compile errors are hidden by a cached runner
-
-- **Seen:** after a compile error in `build.zig` or a file it imports,
-  `zig build` silently runs the previously cached build runner; `zig build -h`
-  lacks the new option and prints no error. `--cache-dir` with a fresh
-  directory shows the error.
-- **Workaround:** check build-script changes with
-  `zig build -h --cache-dir .zig-cache-fresh`.
-- **Issue text:**
-
-  > **`zig build` runs a stale cached build runner when the build script fails to compile**
-  >
-  > With the configurer/maker split, introducing a compile error in
-  > `build.zig` and running `zig build` (or `zig build -h`) reports nothing
-  > and behaves as the old script did. The error appears only with a fresh
-  > `--cache-dir`. The build should fail with the compile error.
-
 ### A link interrupted midway leaves a cache entry without its executable
 
 - **Seen:** a `zig build` killed while linking left `.zig-cache/o/<digest>/`
