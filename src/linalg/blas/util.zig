@@ -45,8 +45,9 @@ pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) voi
 /// start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
 /// operations, as it does every vector under a soft-float ABI. Kernels take
 /// their scalar path where this is false (`comparisons.md`, 10). LLVM's
-/// auto-vectorizer keeps off NEON's `f32` but not AltiVec's, so the AltiVec
-/// cores' objects are built without it (`cpu/_corespec.zig`).
+/// auto-vectorizer keeps off NEON's `f32` but not AltiVec's: the AltiVec
+/// cores' objects are built without it (`cpu/_corespec.zig`), and the loops
+/// built for the target pass their `f32` results through `scalar`.
 pub fn vectorIeee(comptime F: type) bool {
     return vectorIeeeOn(F, sysinfo.target.cpu);
 }
@@ -60,6 +61,25 @@ pub fn vectorIeeeOn(comptime F: type, comptime cpu: std.Target.Cpu) bool {
             std.Target.powerpc.featureSetHas(cpu.features, .vsx),
         else => true,
     };
+}
+
+/// `x` (a float, or an array of them), through an empty asm in a scalar
+/// register where AltiVec's `f32` lanes flush: LLVM's vectorizers cannot
+/// widen a loop or a group of operations through it, so a loop that passes
+/// what it stores or accumulates through it keeps out of those lanes. `x`
+/// itself everywhere else; ARMv7's vectorizers already keep off NEON's `f32`.
+pub inline fn scalar(comptime T: type, x: T) T {
+    if (comptime vectorIeee(f32) or !sysinfo.target.cpu.arch.isPowerpc()) return x;
+    if (@typeInfo(T) == .array) {
+        var y = x;
+        inline for (&y) |*e| e.* = scalar(@typeInfo(T).array.child, e.*);
+        return y;
+    }
+    if (T != f32) return x;
+    return asm (""
+        : [y] "=f" (-> f32),
+        : [x] "0" (x),
+    );
 }
 
 /// Whether a vector of `n` elements of `size` bytes at stride `inc` fits in

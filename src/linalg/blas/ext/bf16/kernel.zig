@@ -136,7 +136,7 @@ pub fn narrow(comptime T: type, v: f32) T {
 }
 
 inline fn fm(comptime fuse: bool, a: f32, b: f32, c: f32) f32 {
-    return if (fuse) @mulAdd(f32, a, b, c) else a * b + c;
+    return util.scalar(f32, if (fuse) @mulAdd(f32, a, b, c) else a * b + c);
 }
 
 /// `y = alpha*op(A)*x + beta*y`, `A` column-major `m` by `n`. `E` is the type
@@ -185,7 +185,7 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
         /// reads `y`.
         inline fn store(y: [*]Y, at: BlasLong, alpha_f: f32, beta_f: f32, acc: f32) void {
             const yp = util.at(Y, y, at);
-            yp.* = narrow(Y, if (beta_f == 0) alpha_f * acc else fm(fuse, alpha_f, acc, beta_f * wide(Y, yp.*)));
+            yp.* = narrow(Y, util.scalar(f32, if (beta_f == 0) alpha_f * acc else fm(fuse, alpha_f, acc, beta_f * wide(Y, yp.*))));
         }
     };
 }

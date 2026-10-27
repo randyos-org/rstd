@@ -16,6 +16,7 @@
 //! copy and one kernel body per precision, the options run-time values.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
 const gk = @import("../gemm/kernel.zig");
 
 const BlasLong = types.BlasLong;
@@ -33,16 +34,16 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
         // ---- arithmetic on elements -----------------------------------------
 
         inline fn mul(x: E, y: E) E {
-            if (comptime !complex) return x * y;
-            return .{ x[0] * y[0] - x[1] * y[1], x[0] * y[1] + x[1] * y[0] };
+            if (comptime !complex) return util.scalar(E, x * y);
+            return util.scalar(E, .{ x[0] * y[0] - x[1] * y[1], x[0] * y[1] + x[1] * y[0] });
         }
         fn conjIf(x: E, c: bool) E {
             if (comptime !complex) return x;
             return if (c) .{ x[0], -x[1] } else x;
         }
         inline fn sub(x: E, y: E) E {
-            if (comptime !complex) return x - y;
-            return .{ x[0] - y[0], x[1] - y[1] };
+            if (comptime !complex) return util.scalar(E, x - y);
+            return util.scalar(E, .{ x[0] - y[0], x[1] - y[1] });
         }
         /// `1 / x`; complex by `common.h`'s `compinv`, the larger part divided out.
         fn inv(x: E) E {

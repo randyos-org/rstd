@@ -82,7 +82,7 @@ pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
 
 /// `a*b + c`, contracted or not.
 pub inline fn fmadd(comptime fuse: bool, comptime T: type, a: T, b: T, c: T) T {
-    return if (fuse) @mulAdd(T, a, b, c) else a * b + c;
+    return util.scalar(T, if (fuse) @mulAdd(T, a, b, c) else a * b + c);
 }
 
 /// The block the reference's driver falls back on where a core has no

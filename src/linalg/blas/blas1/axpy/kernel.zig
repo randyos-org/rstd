@@ -99,7 +99,7 @@ pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Bl
 
 /// `a*b + c`, contracted or not.
 pub inline fn fmadd(comptime fuse: bool, comptime T: type, a: T, b: T, c: T) T {
-    return if (fuse) @mulAdd(T, a, b, c) else a * b + c;
+    return util.scalar(T, if (fuse) @mulAdd(T, a, b, c) else a * b + c);
 }
 
 /// Real kernel driver. `mask` is the reference's `n & -mask` block size

@@ -243,12 +243,18 @@ When an issue is fixed upstream, drop the workaround and its entry.
   split tile's column loop in AltiVec lanes, which flush with `VSCR[NJ]`
   set. ARM's `isFPVectorizationPotentiallyUnsafe` keeps it off NEON's `f32`
   lanes; PowerPC has no such check. LLVM's `pwr3` to `pwr5` models have
-  AltiVec, though those chips do not. Still so on 0.18.0-dev.751: a scalar
-  `f32` axpy loop for `-mcpu=g4` at ReleaseFast comes out as `vmaddfp`.
+  AltiVec, though those chips do not. Still so on 0.18.0-dev.751. That
+  build's assembly (`-femit-asm`) also had AltiVec in the portable `saxpy`,
+  both `gemm_beta`s and the scalar tile, real `trmm` and `trsm`, the half
+  `gemv`, the `cdot` block of `dot/kernel.zig` (SLP, in ReleaseSmall too)
+  and the tests' denormal operands, which came out zero; kept denormal,
+  `saxpy` failed on the rig.
 - **Workaround:** the AltiVec cores' objects are built without it
-  (`cpu/_corespec.zig`'s `without`). Code built for such a CPU in an
-  optimized mode outside them can still be vectorized; `-mcpu=g4-altivec`
-  and the like avoid it.
+  (`cpu/_corespec.zig`'s `without`), and those loops pass each `f32` result
+  they store or accumulate through `util.scalar`, an empty asm the
+  vectorizers cannot widen. A new loop without it can still be vectorized:
+  the `-femit-asm` of a `-mcpu=g4` build should have no `vaddfp`, `vmaddfp`
+  or `vsubfp` outside `simd`, the other targets' tiles and test models.
 
 ### lld cannot link 32-bit SPARC
 

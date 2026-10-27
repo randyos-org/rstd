@@ -193,7 +193,7 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
 /// `a*b + c` under the build's contraction policy (`fma.zig`).
 pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
     const fused = (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
-    return if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c;
+    return util.scalar(Lanes(T, n), if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c);
 }
 
 /// Packs `n` lines of depth `m` of elements `E` in panels of `u`. `across`:
@@ -301,7 +301,7 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
                 if (b == 0) {
                     @memset(col, 0);
                 } else {
-                    for (col) |*v| v.* *= b;
+                    for (col) |*v| v.* = util.scalar(T, v.* * b);
                 }
             }
             return 0;
@@ -502,8 +502,8 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
                     for (0..height) |i| {
                         const x = col[2 * i];
                         const y = col[2 * i + 1];
-                        col[2 * i] = br * x - bi * y;
-                        col[2 * i + 1] = br * y + bi * x;
+                        col[2 * i] = util.scalar(F, br * x - bi * y);
+                        col[2 * i + 1] = util.scalar(F, br * y + bi * x);
                     }
                 }
             }

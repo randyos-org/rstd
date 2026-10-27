@@ -18,6 +18,7 @@
 //! the options run-time values, keep the code small.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
 const gk = @import("../gemm/kernel.zig");
 
 const BlasLong = types.BlasLong;
@@ -177,8 +178,8 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                         if (comptime complex) {
                             const ar: A = alpha[0];
                             const ai: A = alpha[1];
-                            p.* = .{ @floatCast(p[0] + (ar * sr - ai * si)), @floatCast(p[1] + (ar * si + ai * sr)) };
-                        } else p.* = @floatCast(p.* + @as(A, alpha[0]) * sr);
+                            p.* = .{ util.scalar(F, @floatCast(p[0] + (ar * sr - ai * si))), util.scalar(F, @floatCast(p[1] + (ar * si + ai * sr))) };
+                        } else p.* = util.scalar(E, @floatCast(p.* + @as(A, alpha[0]) * sr));
                     };
                     r0 += w;
                 }

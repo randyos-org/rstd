@@ -312,9 +312,11 @@ default modes. Denormals are honored everywhere: where a vector unit flushes `f3
 
 - The portable `saxpy` takes its scalar loop there; `vector.zig` has no `s` or `c` roles there.
 - The level-3 `f32` tiles are scalar there (`blas3/gemm/kernel.zig`'s `vectorBits`).
-- LLVM's loop vectorizer would still put scalar `f32` loops in AltiVec lanes, so the AltiVec
-  cores' objects are built without AltiVec (`cpu/_corespec.zig`'s `without`;
-  [`issues.md`](issues.md)).
+- LLVM's loop and SLP vectorizers would still put scalar `f32` code in AltiVec lanes, so the
+  AltiVec cores' objects are built without AltiVec (`cpu/_corespec.zig`'s `without`), and the
+  portable loops pass each `f32` result they store or accumulate through `util.scalar`, an empty
+  asm they cannot widen, compiled out everywhere else ([`issues.md`](issues.md)). ARMv7's
+  vectorizers keep off NEON's `f32` lanes themselves.
 
 [`comparisons.md`](comparisons.md) (10) records how this was found and measured.
 
