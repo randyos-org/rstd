@@ -179,12 +179,14 @@ fn Lanes(comptime T: type, comptime n: usize) type {
     return if (n == 1) T else @Vector(n, T);
 }
 
+// whole arrays, not `util.load` and `util.store`: the self-hosted x86_64
+// backend stores a row tail's two-lane `f32` vector as sixteen bytes
 inline fn load(comptime T: type, comptime n: usize, p: [*]const T) Lanes(T, n) {
-    return if (n == 1) p[0] else util.load(@Vector(n, T), p);
+    return if (n == 1) p[0] else p[0..n].*;
 }
 
 inline fn store(comptime T: type, comptime n: usize, p: [*]T, v: Lanes(T, n)) void {
-    if (n == 1) p[0] = v else util.store(@Vector(n, T), p, v);
+    if (n == 1) p[0] = v else p[0..n].* = v;
 }
 
 inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
@@ -394,47 +396,16 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
         }
 
         /// Every row panel against one B panel of width `wn`: the full tile
-        /// inline, the row tails of whole vectors as calls of their own, and
-        /// the narrower ones one row at a time (`thin`), so the unrolled tiles
-        /// stay few.
+        /// inline, each row tail an unrolled tile of its own, as OpenBLAS's
+        /// edge tiles are.
         fn rows(comptime wn: usize, m: usize, k: usize, alpha: T, ba: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
             var r0: usize = 0;
             while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ mr, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
             inline for (comptime tails(mr)) |w| {
                 if ((m - r0) & w != 0) {
-                    if (w >= vl) {
-                        @call(.never_inline, tile, .{ w, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
-                    } else {
-                        @call(.never_inline, thin, .{ wn, w, k, alpha, ba + r0 * k, pb, c + r0, ld });
-                    }
+                    @call(.never_inline, tile, .{ w, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
                     r0 += w;
                 }
-            }
-        }
-
-        /// A row panel narrower than a vector, `w` rows: each row against
-        /// the `wn` columns as one vector, in two chains over `k`; one
-        /// function for every row tail of a column width.
-        fn thin(comptime wn: usize, w: usize, k: usize, alpha: T, pa: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
-            const V = @Vector(wn, T);
-            const fused = fma.fuse_vector and fma.fusible(T);
-            for (0..w) |r| {
-                var acc: [2]V = .{ @splat(0), @splat(0) };
-                var l: usize = 0;
-                while (l + 2 <= k) : (l += 2) {
-                    inline for (0..2) |h| {
-                        const x: V = @splat(pa[(l + h) * w + r]);
-                        const y = util.load(V, pb + (l + h) * wn);
-                        acc[h] = if (fused) @mulAdd(V, x, y, acc[h]) else x * y + acc[h];
-                    }
-                }
-                if (l < k) {
-                    const x: V = @splat(pa[l * w + r]);
-                    const y = util.load(V, pb + l * wn);
-                    acc[0] = if (fused) @mulAdd(V, x, y, acc[0]) else x * y + acc[0];
-                }
-                const sum: [wn]T = acc[0] + acc[1];
-                inline for (0..wn) |j| c[r + j * ld] = madd(T, 1, sum[j], alpha, c[r + j * ld]);
             }
         }
 

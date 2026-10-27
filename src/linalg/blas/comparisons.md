@@ -432,7 +432,7 @@ the stated goal. Pitfalls found:
    single- and multi-thread sets, and `Q` differs only by L3 size, so the rule holds. Add a test
    that `Q` is identical for every thread count, since a future set could break it silently.
 5. **Edge tiles under repartitioning.** If thread partitions move tile boundaries, an element can
-   move between the full tile and `thin`/tail paths. Rounding `M` ranges to `unroll_m` (planned)
+   move between the full tile and a tail tile. Rounding `M` ranges to `unroll_m` (planned)
    and `N` ranges to `unroll_n` avoids it; otherwise every path must do identical per-element
    operations (same `k` order, same fusion). The planned 1-9 worker bitwise tests will catch it if
    the shapes sweep remainders.

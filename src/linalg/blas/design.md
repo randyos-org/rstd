@@ -541,8 +541,7 @@ complex, for every float type, through the same code.
   LLVM multiplies by lane) and one spare register, with no more loads per step than three
   quarters of the multiply-adds. Complex lanes hold whole elements with two accumulators each,
   after `zgemm_kernel_4x2_haswell.S`; without vectors, or with `f32` lanes that flush, the parts
-  are separate scalars. Row tails narrower than a vector go through one function per column
-  width (`thin`).
+  are separate scalars. Row tails are unrolled tiles, one per pair of widths, as in OpenBLAS.
 - **One source for every core.** The tile kernels are built into the main library as the
   portable kernels (`installGeneric`) and into every per-core object (`Registry`), where the
   object's features set the tile. They never make a core need an object of its own
