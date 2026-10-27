@@ -367,24 +367,29 @@ raced.
 ## Recommendations
 
 By the design rule, tuning only where `@Vector` can't. "x4" is the 4-wide
-`@Vector` kernel, plain Zig; the ratios are over the asm.
+`@Vector` kernel, plain Zig; the ratios are over the asm unless they name
+real OpenBLAS ("ob", from [`results-m6-libraries.md`](results-m6-libraries.md)).
+
+Most urgent: where vortex's upstream kernel is C (`dot`, `asum`, `i?amax`,
+`copy`, `sgemv_n`), rstd's public routines run the portable loop today, at
+0.06 to 0.61 of OpenBLAS at unit stride.
 
 | Family | Recommendation | Evidence |
 | ------ | -------------- | -------- |
 | `axpy` | Drop the asm for `@Vector` (x4) | x4 0.99 to 1.35 real, 1.03 to 1.96 complex, unit stride; strided real Zig about 1.9 times the asm (once 0.99, see [Fairness](#fairness)), strided complex 0.96 to 0.98 |
-| `dot` | `@Vector` (x4); there is no vortex asm | vortex's `dot.c` and `zdot_thunderx2t99.c` are not ported; x4 2.0 to 3.3 times armv8's `ddot` asm, 2.3 to 13.7 times portable elsewhere |
+| `dot` | `@Vector` (x4); there is no vortex asm | vortex's `dot.c` and `zdot_thunderx2t99.c` are not ported; x4 2.0 to 3.3 times armv8's `ddot` asm, 2.3 to 13.7 times portable elsewhere; against the real kernels in ob, 1.25 to 1.34 real in L1, 1.01 to 1.02 beyond, 1.14 to 1.79 complex |
 | `scal` | Drop the asm for `@Vector` (x4) | x4 0.98 to 1.25 real, 1.42 to 1.98 complex; strided 1.04 to 1.70 |
 | `nrm2` | Drop the asm for `@Vector` | the asm is the scaled one-pass loop: x4 11 to 34 times faster at unit stride, 4.5 to 4.9 strided |
-| `asum` | `@Vector` x4; no vortex asm | armv8 asm against x4: 1.49 to 2.45; plain `vec` 0.85 to 0.96, so the unroll matters |
-| `i?amax` | Tuned `@Vector` (block maximum); no vortex asm | armv8 asm against x4: 1.07 to 1.91 real, 0.72 to 1.13 complex (below 1 only at 4 KiB); a per-lane index `@Vector` was 0.44 to 0.79 |
-| `copy` | `@Vector` x4; no vortex asm | armv8 asm against x4: 1.00 to 1.98; strided 1.00 to 1.82 |
+| `asum` | `@Vector` x4; no vortex asm | armv8 asm against x4: 1.49 to 2.45; plain `vec` 0.85 to 0.96, so the unroll matters; x4 0.96 to 1.04 of ob's `asum_thunderx2t99.c` |
+| `i?amax` | Tuned `@Vector` (block maximum); no vortex asm | armv8 asm against x4: 1.07 to 1.91 real, 0.72 to 1.13 complex (below 1 only at 4 KiB); a per-lane index `@Vector` was 0.44 to 0.79; x4 0.86 to 1.40 of ob's `iamax_thunderx2t99.c` |
+| `copy` | `@Vector` x4; no vortex asm | armv8 asm against x4: 1.00 to 1.98; strided 1.00 to 1.82; x4 1.95 to 2.05 of ob's `copy_thunderx2t99.c` in L1, 1.00 from memory |
 | `swap` | Drop the asm for `@Vector` (x4) | x4 1.06 to 1.61; strided 0.91 to 1.00 |
 | `rot` | Needs a tuned `@Vector`; keep the asm until then | in L1 x4 is 0.91 to 0.98 real and 0.83 to 0.86 complex; L2 and memory 0.99 to 1.03; strided real 3.4 times faster in Zig, complex 0.90 to 0.98 |
-| `gemv_n` | Drop the asm for `@Vector` (x4) | x4 1.39 to 1.78 real in L1 and L2, 0.99 to 1.01 from memory; complex 1.48 to 2.55 |
+| `gemv_n` | Drop the asm for `@Vector` (x4); `sgemv_n` could gain from tuning for small `n` | x4 1.39 to 1.78 real in L1 and L2, 0.99 to 1.01 from memory; complex 1.48 to 2.55; ob's real `sgemv_n_neon.c` is faster than x4 at `n` 90 (x4 0.82 of it), 0.97 beyond |
 | `gemv_t` | Drop the asm for `@Vector` (x4) | x4 1.08 to 1.77 real in L1 and L2, 0.98 to 1.04 from memory; complex 1.11 to 3.73 |
-| `gemm` (s, d) | Keep the Zig kernel; no asm | kernel alone 0.95 to 0.98 of the asm, full gemm 0.93 to 0.98 (lowest at 64 and 128); the asm kernel reaches 86% of peak, Zig 83 to 84% |
+| `gemm` (s, d) | Keep the Zig kernel; no asm | kernel alone 0.95 to 0.98 of the asm, full gemm 0.93 to 0.98 (lowest at 64 and 128); the asm kernel reaches 86% of peak, Zig 83 to 84%; rstd's public `gemm` 0.92 to 0.97 of ob |
 | `gemm` (c, z) | Not decided | no Zig complex kernel to race |
-| `vortexm4` | Nothing of its own to keep | no level-1 or level-2 kernels of its own; SME is where `@Vector` cannot reach, unmeasured |
+| `vortexm4` | Nothing of its own to keep; SME is the next big step | no level-1 or level-2 kernels of its own. Accelerate's SME runs `sgemm` at up to 1,923 GFLOP/s and `dgemm` at 511 on one thread (6 to 15 times ob), and `gemv` in L2 at 6.6 to 18 times ob |
 
 ## Fairness
 
@@ -392,13 +397,19 @@ What could tilt the comparison:
 
 - **Stand-in assembly:** for `dot`, `asum`, `i?amax`, `copy` and `sgemv_n`
   the asm column is armv8's generic arm64 `.S`, not vortex's upstream kernel,
-  which is C with inline assembly or intrinsics and is not ported. A
-  vortex-tuned asm could do better than the column shows.
+  which is C with inline assembly or intrinsics and is not ported.
+  [`results-m6-libraries.md`](results-m6-libraries.md) races the real ones
+  in OpenBLAS 0.3.33: they beat the stand-ins (`ddot` 1.7 to 2.6 times,
+  `?asum` 1.5 to 2.5), and x4 still matches them (`asum` 0.96 to 1.04,
+  `i?amax` 0.86 to 1.40) or beats them (`dot` 1.25 to 1.34 in L1, `copy`
+  1.95 to 2.05), but for `sgemv_n` (0.82 to 0.97).
 - **gemm driver and assembly:** rstd's `driver.gemm` is not public, so the
   bench runs a copy of its loops; the rates are kernel plus copies through
   identical loops, not rstd's gemm entry. The upstream `.S` are assembled
   directly, not through `tools/blas_asm`, which converts no arm64 level-3
   kernel yet. The Zig tile is 16 x 6 and 8 x 6, the asm's 16 x 4 and 8 x 4.
+  Real OpenBLAS's gemm runs at 0.99 to 1.01 of the `.S` through these
+  loops, so the copy is faithful.
 - **Codegen swings:** three cells changed by up to 2 times between builds
   whose source for them did not change: portable `sgemv_n` (8.8 GFLOP/s in
   runs 1 and 2, 4.5 in run 3), the plain `vec` `zrot` at unit stride (0.83
