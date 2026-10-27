@@ -364,6 +364,57 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > Big-endian `mips64r6` too; `-O0` compiles. A select of two loaded
   > values does not trigger it.
 
+### MIPS MSA: LLVM's vector `fma` adds the wrong operand
+
+- **Seen:** once the MSA cores got MSA (`blaskern.zig`'s `groupQuery`),
+  the `mips64r6el` rig failed 20 tests on the i6400, i6500 and p6600 cores:
+  `axpy`, `gemv`, `ger`, `trmv`, `gbmv` and `gemm` were far off.
+  `@mulAdd(V, x, alpha, y)` became `fmadd.w $w2, $w0, $w1` with `x` in
+  `$w2`, which computes `x + alpha*y`. Every `@Vector` `@mulAdd` on MSA is
+  wrong this way, `f32` and `f64`, release 5 and 6, and so are scalar ones
+  the SLP vectorizer packs (`axpy`'s strided loop and the complex gemm
+  tile on release 6, whose scalar `@mulAdd`s fuse). The Loongson 3A R4
+  object, built with MSA all along, had it too; no rig runs that core.
+- **Workaround:** `fma.compiles` is false with MSA, so `fma.madd`,
+  `fma.fusible` (and with it `fuseFor` and the gemm tile's `madd`) and
+  `vector.zig`'s `mulAdd` multiply and add separately there. The
+  reference's GCC build fuses (`fmadd.w`), so MSA cores can differ from it
+  in the last bit.
+- **Issue text:**
+
+  > **[Mips] MSA: `llvm.fma` on vectors selects `fmadd` with the addend as
+  > a multiplicand**
+  >
+  > `llc -mtriple=mipsisa64r6el -mattr=+msa -O2` (here `zig cc -S -O2
+  > -mcpu=mips64r6+msa`) on
+  >
+  > ```llvm
+  > define void @f(ptr %a, ptr %b, ptr %c, ptr %r) {
+  >   %x = load <4 x float>, ptr %a
+  >   %y = load <4 x float>, ptr %b
+  >   %z = load <4 x float>, ptr %c
+  >   %m = call <4 x float> @llvm.fma.v4f32(<4 x float> %x, <4 x float> %y, <4 x float> %z)
+  >   store <4 x float> %m, ptr %r
+  >   ret void
+  > }
+  > declare <4 x float> @llvm.fma.v4f32(<4 x float>, <4 x float>, <4 x float>)
+  > ```
+  >
+  > gives
+  >
+  > ```text
+  > ld.w    $w0, 0($6)
+  > ld.w    $w1, 0($5)
+  > ld.w    $w2, 0($4)
+  > fmadd.w $w2, $w1, $w0
+  > st.w    $w2, 0($7)
+  > ```
+  >
+  > `fmadd.w wd, ws, wt` is `wd + ws*wt` (MSA manual; QEMU agrees), so this
+  > stores `x + y*z` where `fma(x, y, z)` is `x*y + z`. `<2 x double>`
+  > (`fmadd.d`) and `-mcpu=p5600 -mattr=+msa` do the same. Separate `fmul`
+  > and `fadd` are right.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
