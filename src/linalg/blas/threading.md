@@ -301,6 +301,54 @@ Memory safety for concurrent work:
 - **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
   `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling.
 
+## Level 3 threading prototype
+
+`blas3/thread_proto.zig` (internal, `wip/l3proto`) threads real `gemm` both ways over the serial
+driver's packing, kernels and `Blocking.split`. Both start through `threading.team`: workers
+start with `Group.concurrent`, wait on a futex until the caller has counted them, and the plan
+is sized for those that started; with none, the caller runs alone. Neither waits on a worker
+that does not exist, so neither can deadlock when the `Io` admits fewer.
+
+- **(A) OpenBLAS**, a port of `level3_thread.c`: the `CNAME` grid; each worker packs two halves
+  of its share of its N group's `B`, publishes each with a step number, and its readers
+  release it through a count. Per slice a worker waits up to `2 * (tm - 1)` times for halves
+  and twice for releases. The halves need fixed offsets, since a slice can be deeper than the
+  one before (`split` rounds up to `unroll_m`). 172 lines.
+- **(B) BLIS**, from `docs/Multithreading.md`: `jc x ic` ways; the `ic` workers of a `jc` group
+  pack each slice of `B` together into one of two buffers and meet at one futex barrier
+  (`threading.Barrier`) per slice, where BLIS meets twice around one buffer. 93 lines; twice
+  the `B` buffer memory of (A).
+
+Both match `driver.gemm` bit for bit at 1 to 9 workers (`f32`, `f64`, every transpose, shapes
+around every edge of the shrunk blocking, poisoned scratch) on `Io.failing` and on
+`Io.Threaded` with `async_limit` and `concurrent_limit` 0, 3 and 8. A canceled call returns
+`error.Canceled` with no worker left running. Row ranges must start on `unroll_m`: unrounded
+ones change the last bits (row tails narrower than a vector go through `thin`).
+
+GFLOPS on this Zen 3 (8 cores, 16 threads, core `zen`, portable Zig tiles), `C = A * B`
+square, `NN`, by workers; mean of two quiet runs of medians of 9 to 25 interleaved calls:
+
+| Type | n | serial | A 2 | B 2 | A 4 | B 4 | A 8 | B 8 | A 16 | B 16 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `f64` | 256 | 36 | 63 | 62 | 90 | 88 | 94 | 91 | 79 | 76 |
+| `f64` | 512 | 36 | 70 | 71 | 124 | 113 | 143 | 141 | 147 | 156 |
+| `f64` | 1000 | 39 | 81 | 76 | 136 | 120 | 134 | 134 | 186 | 155 |
+| `f64` | 2000 | 50 | 82 | 82 | 129 | 126 | 154 | 147 | 162 | 155 |
+| `f32` | 256 | 74 | 127 | 126 | 181 | 172 | 157 | 149 | 112 | 104 |
+| `f32` | 512 | 82 | 147 | 154 | 253 | 264 | 295 | 294 | 359 | 343 |
+| `f32` | 1000 | 78 | 175 | 172 | 312 | 274 | 324 | 310 | 422 | 403 |
+| `f32` | 2000 | 101 | 191 | 186 | 319 | 294 | 384 | 349 | 414 | 373 |
+
+(A) is ahead by 0 to 5% at most points and by 10 to 17% at a few (4 or 16 workers, `n` of
+1000 and 2000); (B) leads at some 512s. Both scale alike past 4 workers, so the limit there is
+shared (blocking, kernels, memory), not the protocol.
+
+**Recommendation: (B)** for step 2, with (A)'s gap as its tuning target. Half the code, one
+synchronization point per slice instead of `2 * tm` flag waits, one primitive (a barrier) with
+a one-line deadlock argument, and room for BLIS's `jr` ways where threads share an L2 (SMT
+pairs, Apple clusters). (A)'s lead likely comes from multiplying each half as it is packed;
+(B) can do the same with each worker's own chunks before the barrier (not yet measured).
+
 ## Implementation plan
 
 1. **Signatures and plumbing** (done): `io: Io` on every public routine but the scalar
@@ -318,7 +366,7 @@ Memory safety for concurrent work:
 
 - Behavior of the futex-based level 3 protocol on `Io.Evented` is unverified.
 - TSan support with this toolchain is unverified.
-- BLIS-style cooperative packing with barriers may be simpler than the shared-`B` flags for
-  level 3 ([`comparisons.md`](comparisons.md) (7)); it is to be prototyped before step 2.
+- Level 3 protocol for step 2: OpenBLAS's flags or BLIS's barriers
+  ([Level 3 threading prototype](#level-3-threading-prototype)).
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
