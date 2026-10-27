@@ -558,6 +558,7 @@ fn sweep(comptime T: type, comptime r: Routine) void {
     };
     var turn: usize = 0;
     for (shapes()) |sh| for (0..r.variants(complex)) |v| {
+        if (thinned(sh, v)) continue;
         const base = baseCase(r, sh);
         for (wheres) |where| {
             const s = shapeOf(r, v, base);
@@ -613,6 +614,12 @@ const all_shapes = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0
 const accel_shapes = all_shapes ++ [_][4]usize{.{ 130, 67, 4, 6 }};
 /// The largest order of any shape.
 const max_order = 130;
+
+/// Accelerate's largest shape takes every third variant: its `f128`
+/// reference is slow.
+fn thinned(sh: [4]usize, v: usize) bool {
+    return sh[0] == max_order and v % 3 != 0;
+}
 var accel_run = false;
 
 fn shapes() []const [4]usize {
@@ -636,6 +643,7 @@ fn denormals(comptime T: type, comptime r: Routine) void {
     if (comptime r.complexOnly() and !complex) return;
     const self = r == .syr or r == .spr or r == .her or r == .hpr;
     for (shapes()) |sh| for (0..r.variants(complex)) |v| for ([_][2]isize{ .{ 1, 1 }, .{ -2, 3 } }) |inc| {
+        if (thinned(sh, v)) continue;
         var c = baseCase(r, sh);
         c.inc = inc;
         c.p = .denormal;

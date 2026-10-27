@@ -30,6 +30,8 @@ const Float = types.Float;
 
 /// Where `load` can find Accelerate.
 pub const available = sysinfo.target.os.tag == .macos;
+/// x86_64 macOS, whose Accelerate has quirks of its own (`quirks`).
+const x86_64 = sysinfo.target.cpu.arch == .x86_64;
 
 pub const Order = enum(c_int) { row_major = 101, col_major = 102 };
 pub const Transpose = enum(c_int) { no_trans = 111, trans = 112, conj_trans = 113 };
@@ -535,6 +537,11 @@ const col = Order.col_major;
 // - `herk`, `her2k`: NaN or an infinity in `C`'s triangle, with a nonzero
 //   `beta`. Past small orders Accelerate scales `C` by `beta` as a complex
 //   product, so a non-finite part reaches the other one.
+// x86_64 (under Rosetta 2 on the M6; no Intel Mac was at hand):
+// - `dsdot`, and `sdot`, `snrm2`, `scnrm2` built on it: always. Its
+//   `cblas_dsdot` is off by `f32`'s epsilon, not `f64`'s.
+// - `gemm`: NaN or an infinity in `A`. At an edge of `m` it gives NaN where
+//   the reference's is infinite.
 
 /// Zeroes the imaginary parts of the diagonal of the order `n` Hermitian
 /// matrix at `a`, full (`ld`) or packed (`ld` 0) on the `lower` triangle.
@@ -618,7 +625,10 @@ pub inline fn dot(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx
     if (comptime !covers(T)) return null else {
         const b = use(T) orelse return null;
         const ext = &.{ span(n, incx), span(n, incy) };
-        if (comptime T == f32) return @floatCast(call("cblas_dsdot", b, ext, .{ n, x, incx, y, incy }) orelse return null);
+        if (comptime T == f32) {
+            if (comptime x86_64) return null;
+            return @floatCast(call("cblas_dsdot", b, ext, .{ n, x, incx, y, incy }) orelse return null);
+        }
         if (comptime T == f64) return call("cblas_ddot", b, ext, .{ n, x, incx, y, incy });
         var r: T = undefined;
         _ = call("cblas_" ++ letter(T) ++ "dot" ++ (if (conj) "c" else "u") ++ "_sub", b, ext, .{ n, x, incx, y, incy, &r }) orelse return null;
@@ -628,6 +638,7 @@ pub inline fn dot(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx
 
 pub inline fn dsdot(n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) ?f64 {
     const b = use(f32) orelse return null;
+    if (comptime x86_64) return null;
     return call("cblas_dsdot", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy });
 }
 
@@ -639,6 +650,7 @@ pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
         const b = use(T) orelse return null;
         const f: [*]Float(T) = @ptrCast(x);
         if (comptime Float(T) == f32) {
+            if (comptime x86_64) return null;
             const sq = if (comptime !isComplex(T))
                 call("cblas_dsdot", b, &.{span(n, incx)}, .{ n, f, incx, f, incx }) orelse return null
             else if (incx == 1)
@@ -817,6 +829,7 @@ pub inline fn gemm(comptime T: type, transa: types.Trans, transb: types.Trans, m
         const b = use(T) orelse return false;
         const ta = transpose(T, transa) orelse return false;
         const tb = transpose(T, transb) orelse return false;
+        if (x86_64 and (if (transa.transposed()) nonFiniteMat(T, k, m, a, lda) else nonFiniteMat(T, m, k, a, lda))) return false;
         const ea = if (transa.transposed()) mat(k, m, lda) else mat(m, k, lda);
         const eb = if (transb.transposed()) mat(n, k, ldb) else mat(k, n, ldb);
         return call("cblas_" ++ letter(T) ++ "gemm", b, &.{ ea, eb, mat(m, n, ldc) }, .{ col, ta, tb, m, n, k, scalar(T, &alpha), a, lda, b_, ldb, scalar(T, &beta), c, ldc }) != null;
@@ -1134,7 +1147,7 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     try blas.scal(io, T, n, al1, &x, 1);
     try p.saw(true, "scal");
     _ = try blas.dot(io, T, n, &x, 1, &y, 1);
-    try p.saw(true, "dot");
+    try p.saw(!(x86_64 and T == f32), "dot");
     if (cx) {
         _ = try blas.dotc(io, T, n, &x, 1, &y, 1);
         try p.saw(true, "dotc");
@@ -1150,14 +1163,14 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
     }
     if (T == f32) {
         _ = try blas.dsdot(io, n, &x, 1, &y, 1);
-        try p.saw(true, "dsdot");
+        try p.saw(!x86_64, "dsdot");
         _ = try blas.sdsdot(io, n, 0.5, &x, 1, &y, 1);
-        try p.saw(true, "sdsdot");
+        try p.saw(!x86_64, "sdsdot");
     }
     _ = try blas.nrm2(io, T, n, &x, 1);
-    try p.saw(true, "nrm2");
+    try p.saw(!(x86_64 and Float(T) == f32), "nrm2");
     _ = try blas.nrm2(io, T, n, &x, -1);
-    try p.saw(Float(T) == f32, "nrm2, a negative stride");
+    try p.saw(Float(T) == f32 and !x86_64, "nrm2, a negative stride");
     _ = try blas.asum(io, T, n, &x, 1);
     try p.saw(true, "asum");
     _ = try blas.sum(io, T, n, &x, 1);
@@ -1657,6 +1670,7 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try p.saw(false, "herk, beta 1 and k 0");
     for (0..3) |i| try zigstd.testExpectEqual(@as(f64, 3), c[i * 4].im);
     // a non-finite `C` with a nonzero `beta`, through rstd; with a zero one, Accelerate
+    check.fill(Complex64, &h, 3);
     check.fill(Complex64, &c, 4);
     c[1] = .init(1, inf);
     try blas.herk(al, io, Complex64, .l, .n, 3, 4, 1.5, &h, 3, 0.5, &c, 3);

@@ -890,6 +890,9 @@ fn withCoreSmall(vt: *const Vtable) anyerror!void {
 }
 
 test "the small-n rank updates match the driver bit for bit" {
+    // rstd's own paths
+    const was = blas.useAccelerate(false);
+    defer _ = blas.useAccelerate(was);
     try runSmall();
     try check.eachCore(withCoreSmall);
 }

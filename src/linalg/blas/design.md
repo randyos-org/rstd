@@ -620,26 +620,31 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Routed:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `rot`,
   `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
   `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
-  `hpr2`, and the six triangular routines; all of level 3. `sdot` is `cblas_dsdot` rounded, and
-  `snrm2` and `scnrm2` the root of `dsdot(x, x)`, so `s` sums in `f64` as rstd's kernels do; `d`
-  and `z` `nrm2`, `asum` take `incx > 0` only.
+  `hpr2`, and the six triangular routines; all of level 3. On arm64 `sdot` is `cblas_dsdot`
+  rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`, so `s` sums in `f64` as rstd's
+  kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
 - **Not routed:** what CBLAS lacks: `sum`, the extremes, `axpyc`, `rotg`, `zrotg`, `rotmg`, the
   complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
   `v` and `m`; `i?amax`, which does not take the first NaN.
 - **Quirks.** Where Accelerate's results differ from the reference's (macOS 27, M6), the call
-  runs rstd's kernels: complex `scal`, `axpy` and `axpby` with a scalar that has a zero part
-  (Accelerate skips that part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary
-  part); `axpby` with a zero `alpha` (it reads `x`); the triangular level 2 with NaN or an
-  infinity in `x`, and `trmm` in `B` (it multiplies them by the triangle's zeros); `ger` and
-  `gerc` with one in `x` (it does not pass over a zero `y`). The Hermitian rank updates
-  (`herk`, `her2k`, `her`, `hpr`, `her2`, `hpr2`) leave the diagonal's imaginary parts as `beta`
-  times theirs, or NaN where an infinity meets them, where the reference sets them to zero: they
-  are zeroed after the call, but `herk` and `her2k` with `beta` 1 and nothing added, which leave
-  `C` as it was, run rstd's. Past small orders `herk` and `her2k` scale `C` by the real `beta` as
-  a complex product, so with NaN or an infinity in its triangle and a nonzero `beta` they run
-  rstd's too. Each quirk was found by the Accelerate
-  special-value tests (`apple_accel.zig`, `_test/blas2/edge.zig`, `blas3/interface.zig`), which
-  compare it with rstd's kernels or the wide reference.
+  runs rstd's kernels. The Accelerate special-value tests (`apple_accel.zig`,
+  `_test/blas2/edge.zig`, `blas3/interface.zig`) found each, against rstd's kernels or the wide
+  reference.
+  - Complex `scal`, `axpy`, `axpby` with a scalar that has a zero part: Accelerate skips that
+    part's products, so `(1.5, 0) * (inf, 1)` keeps a finite imaginary part.
+  - `axpby` with a zero `alpha`: it reads `x`.
+  - The triangular level 2 with NaN or an infinity in `x`, and `trmm` with one in `B`: past
+    small orders it multiplies them by the triangle's zeros.
+  - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`.
+  - `herk`, `her2k` with one in `C`'s triangle and a nonzero `beta`: past small orders it scales
+    `C` by the real `beta` as a complex product.
+  - The Hermitian rank updates leave the diagonal's imaginary parts as `beta` times theirs, or
+    NaN where an infinity meets them; the reference sets them to zero. They are zeroed after the
+    call; `herk` and `her2k` with `beta` 1 and nothing added, which leave `C` as it was, run
+    rstd's.
+  - x86_64 (under Rosetta 2; no Intel Mac was at hand): `cblas_dsdot` is off by `f32`'s epsilon,
+    so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's; `gemm` with NaN or an infinity in `A`,
+    which gives NaN at an edge of `m`.
 
 Left to do: tying its threading into rstd's own ([`threading.md`](threading.md#vendor-backends)).
 
