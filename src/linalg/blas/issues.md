@@ -1100,6 +1100,24 @@ and the x86_64 kernels are exact to rounding.
   elements: `znrm2.S` keeps its single-precision sum of squares in an `f32`
   register. Accumulate in `f64`, as `snrm2` does."
 
+### x86_64: the C kernels of Haswell and Zen round by compiler
+
+`kernel/Makefile` builds the `HASWELL` and `ZEN` kernels with `-mavx2 -mfma`
+under clang but only `-mavx2` under GCC, so the C parts of the C kernels
+(`gemv`'s row tails and `add_y`, for one) contract multiply-adds under clang
+and not under GCC. rstd follows clang (`cpu/_corespec.zig`). Against a GCC
+build (the 0.3.33 Windows release, GCC 9.3), the converted `gemv` blocks
+agree bit for bit and those C statements differ in the last bit; built
+without contraction, rstd's complex `gemv` agreed in all 17,360 cases tried.
+
+- **Workaround:** none needed; the rounding is the core's either way.
+- **Issue text:** "On x86_64, `kernel/Makefile` passes `-mfma` with
+  `AVX2OPT` for clang but not for GCC, so the C code of the `HASWELL` and
+  `ZEN` kernels (for example the tails of `?gemv_n_4.c`) is contracted into
+  FMAs by one compiler and not the other, and a GCC and a clang build give
+  different last bits. Passing `-mfma` for GCC too, or
+  `-ffp-contract=off` for both, would make them agree."
+
 ### x86_64 `dgemv_t_4.c`: SSE3 on the `OPTERON` core
 
 `kernel/x86_64/dgemv_t_4.c` defines `dgemv_kernel_4x2` and `dgemv_kernel_4x1`

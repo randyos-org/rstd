@@ -52,13 +52,30 @@ pub const Routine = enum {
                 .{ .slot = "srot_k", .letter = 's', .make = "S" },
                 .{ .slot = "drot_k", .letter = 'd', .make = "D" },
             },
+            // the complex forms are one driver built with `CONJ`, `XCONJ` or both
             .gemv_n => &.{
                 .{ .slot = "sgemv_n", .letter = 's', .make = "S" },
                 .{ .slot = "dgemv_n", .letter = 'd', .make = "D" },
+                .{ .slot = "cgemv_n", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_r", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_o", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_s", .letter = 'c', .make = "C" },
+                .{ .slot = "zgemv_n", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_r", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_o", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_s", .letter = 'z', .make = "Z" },
             },
             .gemv_t => &.{
                 .{ .slot = "sgemv_t", .letter = 's', .make = "S" },
                 .{ .slot = "dgemv_t", .letter = 'd', .make = "D" },
+                .{ .slot = "cgemv_t", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_c", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_u", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_d", .letter = 'c', .make = "C" },
+                .{ .slot = "zgemv_t", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_c", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_u", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_d", .letter = 'z', .make = "Z" },
             },
         };
     }

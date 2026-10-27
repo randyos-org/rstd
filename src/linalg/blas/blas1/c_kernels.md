@@ -4,7 +4,7 @@ Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`)
 around a block kernel, which is an inline-assembly microkernel
 (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all.
 `axpy` was the first routine ported this way, `dot` on x86_64 the second, then
-x86_64 `scal`, `rot` and the real `gemv` (level 2, in `blas2/gemv`). All go through the same machinery, so a new routine adds a
+x86_64 `scal`, `rot` and `gemv` (level 2, in `blas2/gemv`). All go through the same machinery, so a new routine adds a
 table row and its driver, not a new converter. Where these ports sit among the other kernel kinds
 is in [`design.md`](../design.md#kernel-kinds).
 
@@ -43,7 +43,10 @@ that lists it, it:
    `<p><routine>_microk_<core>-N.c` (or, for `zarch`, the function in the
    driver's own file): the `__asm__` statement as written, named operands,
    clobbers at the width of the registers used, `#if CONJ` resolved once per
-   form;
+   form. Where a file also tests `XCONJ` (complex `gemv`), each of the four
+   forms is named by a suffix (`_c`, `_x`, `_cx`), and a form whose function
+   is another's is an alias. A leading C branch that returns (`add_y`'s
+   strided loop) is the driver's; the rest is converted as `<name>_asm`;
 2. reads the `#if defined(CORE)` chain at the top of each driver for which
    block each core includes and the driver's block size (`n & -N`);
 3. converts the functions with assembly the driver itself defines

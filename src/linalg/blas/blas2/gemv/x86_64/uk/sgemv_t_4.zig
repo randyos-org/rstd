@@ -99,3 +99,29 @@ pub noinline fn sgemv_kernel_4x1(n_in: isize, ap: [*]f32, x: [*]f32, y: [*]f32) 
           [x] "r" (x),
         : .{ .cc = true, .xmm9 = true, .xmm10 = true, .xmm11 = true, .xmm12 = true, .xmm13 = true, .xmm14 = true, .memory = true });
 }
+
+/// `add_y` past its C branch `if (inc_dest != 1)`, which is the driver's.
+pub noinline fn add_y_asm(n_in: isize, da: f32, src: [*]f32, dest: [*]f32, inc_dest: isize) void {
+    _ = inc_dest;
+    var n = n_in;
+    var i: isize = undefined;
+    i = 0;
+    asm volatile (
+        \\movss    (%[op2]) , %%xmm10
+        \\        shufps  $0 , %%xmm10 , %%xmm10
+        \\        1:
+        \\        movups  (%[src],%[i],4) , %%xmm12
+        \\        movups  (%[dest],%[i],4) , %%xmm11
+        \\        mulps   %%xmm10   , %%xmm12
+        \\        addq           $4 , %[i]
+        \\        addps   %%xmm12   , %%xmm11
+        \\        subq           $4 , %[n]
+        \\        movups  %%xmm11, -16(%[dest],%[i],4)
+        \\        jnz            1b
+        : [i] "+r" (i),
+          [n] "+r" (n),
+        : [op2] "r" (&da),
+          [src] "r" (src),
+          [dest] "r" (dest),
+        : .{ .cc = true, .xmm10 = true, .xmm11 = true, .xmm12 = true, .memory = true });
+}

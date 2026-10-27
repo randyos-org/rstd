@@ -28,6 +28,8 @@ level-2 design is in [`design.md`](../design.md#level-2).
 | x86_64 `dgemv_n.S`, `dgemv_n_atom.S`, `dgemv_n_bulldozer.S` | `y` accumulated there when `incy != 1` or `y` is misaligned: `16*SIZE` head, a `SIZE` shift, then `m` | `m + 17` elements; 16-byte aligned (`movapd`) |
 | x86_64 `dgemv_t_atom.S`, `dgemv_t_bulldozer.S` | `x` copied there, `16*SIZE` head | `m + 17` elements; 16-byte aligned |
 | x86_64 `sgemv_n_4.c`, `dgemv_n_4.c` (`gemv/kernel.zig`) | `y` summed there, zeroed first, when `incy != 1`: one row block (`NB`, at most `m`) | `m` elements |
+| x86_64 `cgemv_n_4.c`, `zgemv_n_4.c` (`gemv/kernel.zig`) | `y` summed there for each row block (`NB`, at most `m`), zeroed first | `2m` floats |
+| x86_64 `cgemv_t_4.c`, `zgemv_t_4.c` (`gemv/kernel.zig`) | `x` copied there when `incx != 1` (`NB`) | `2m` floats |
 | x86_64 `sgemv_t_4.c`, `dgemv_t_4.c` (`gemv/kernel.zig`) | `x` copied there when `incx != 1` (`NB`), and from `min(m, NBMAX)` on four sums per four columns, up to `NBMAX` of them | `min(m, NBMAX) + min(n, NBMAX)` elements, at most `m + n` |
 | x86_64 `zgemv_n_atom.S`, `zgemv_n_dup.S`, `zgemv_t_atom.S`, `zgemv_t.S` (bobcat, opteron) | `y` (n) or `x` (t) of `2m`, `16*SIZE` head | `2m + 16` elements; 16-byte aligned; no NaN or infinity in it for `t` forms (the interface zeroes it) |
 | x86_64 `symv_[LU]_sse.S`, `symv_[LU]_sse2.S`, `zsymv_[LU]_sse2.S` (also `zhemv`) | `x` copied (times `alpha`), the pointer rounded up to the next 512-byte boundary, `y` copied, blocks of 4 read past each | `2*m*es + 1280` bytes (`sseBytes`), any alignment of 16; no NaN in it (they read past the copies; the interface zeroes it) |

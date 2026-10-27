@@ -79,12 +79,25 @@ fn patched(t: Target, source: []const u8) ![]const u8 {
 /// preprocessed for each endianness.
 const Endian = enum { little, big };
 
-fn runCpp(source: []const u8, conj: bool, endian: Endian) ![]const u8 {
+/// Which of the `CONJ` and `XCONJ` macros a file is preprocessed with.
+const Form = struct {
+    conj: bool = false,
+    xconj: bool = false,
+
+    /// The name suffix of a function in this form, where a file has both
+    /// macros (`zgemv_kernel_4x4_cx`).
+    fn suffix(f: Form) []const u8 {
+        return if (f.conj and f.xconj) "_cx" else if (f.conj) "_c" else if (f.xconj) "_x" else "";
+    }
+};
+
+fn runCpp(source: []const u8, form: Form, endian: Endian) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(map.arena, &.{ "zig", "cc", "-E", "-P", "-x", "c", "-w", "-I", try stubDir() });
     if (is_power) try argv.appendSlice(map.arena, &.{ "-target", if (endian == .big) "powerpc64-linux" else "powerpc64le-linux" });
     try argv.appendSlice(map.arena, cpp_extra);
-    if (conj) try argv.append(map.arena, "-DCONJ");
+    if (form.conj) try argv.append(map.arena, "-DCONJ");
+    if (form.xconj) try argv.append(map.arena, "-DXCONJ");
     try argv.appendSlice(map.arena, &.{ source, "-o", "-" });
     const r = std.process.run(map.arena, map.io, .{ .argv = argv.items }) catch |e|
         map.die("cannot run the preprocessor: {t}", .{e});
@@ -533,21 +546,75 @@ fn zigCondition(c: []const u8) ![]const u8 {
 /// kinds below; a driver's own (`add_y`) is left to the ported driver.
 const Unconvertible = error{Unconvertible};
 
+/// Whether `text` names `word` as a whole identifier.
+fn mentions(text: []const u8, word: []const u8) bool {
+    var at: usize = 0;
+    while (std.mem.findPos(u8, text, at, word)) |p| {
+        const e = p + word.len;
+        const before = p > 0 and (std.ascii.isAlphanumeric(text[p - 1]) or text[p - 1] == '_');
+        const after = e < text.len and (std.ascii.isAlphanumeric(text[e]) or text[e] == '_');
+        if (!before and !after) return true;
+        at = p + 1;
+    }
+    return false;
+}
+
+/// A leading `if (...) { ...; return; }` before a function's assembly
+/// (`add_y`'s strided C): its condition, and the body without it.
+const Guard = struct { cond: []const u8, rest: []const u8 };
+
+fn guardOf(body: []const u8, asm_at: usize) !?Guard {
+    var lines = std.mem.splitScalar(u8, body[0..asm_at], '\n');
+    while (lines.next()) |raw| {
+        const l = std.mem.trimStart(u8, raw, " \t\r");
+        if (!std.mem.startsWith(u8, l, "if")) continue;
+        const at = @intFromPtr(l.ptr) - @intFromPtr(body.ptr);
+        const po = std.mem.findScalarPos(u8, body, at, '(') orelse return null;
+        const pc = matching(body, po) orelse return null;
+        var k = pc + 1;
+        while (k < body.len and std.ascii.isWhitespace(body[k])) k += 1;
+        if (k >= body.len or body[k] != '{') return null;
+        const end = matching(body, k) orelse return null;
+        const block = body[k..end];
+        if (std.mem.find(u8, block, "return") == null or std.mem.find(u8, block, "__asm__") != null) return null;
+        const rest = try std.mem.concat(map.arena, u8, &.{ body[0..at], body[end + 1 ..] });
+        return .{ .cond = std.mem.trim(u8, body[po + 1 .. pc], " "), .rest = rest };
+    }
+    return null;
+}
+
 /// One function (`definitions`): its Zig text, or null with no assembly.
-fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj: bool) !?[]const u8 {
+/// `xnames` names every form by its suffix (`Form.suffix`); otherwise the
+/// conjugated form is `<p><routine>c...`. A leading C branch that returns
+/// (`Guard`) is left to the driver, and the rest named `<name>_asm`.
+fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, form: Form, xnames: bool) !?[]const u8 {
     const def = 0;
     const open = std.mem.findScalarPos(u8, text, def, '(').?;
     const close = std.mem.findScalarPos(u8, text, open, ')').?;
     const name = std.mem.trim(u8, text[def + "static void ".len .. open], " ");
     const body_open = std.mem.findScalarPos(u8, text, close, '{') orelse return null;
-    const asm_at = std.mem.find(u8, text[body_open..], "__asm__") orelse return null;
+    var body = text[body_open..];
+    var asm_at = std.mem.find(u8, body, "__asm__") orelse return null;
+    const guard = try guardOf(body, asm_at);
+    if (guard) |g| {
+        body = g.rest;
+        asm_at = std.mem.find(u8, body, "__asm__").?;
+    }
 
     var w: std.ArrayList(u8) = .empty;
     const stem = @tagName(routine);
-    const fname = if (conj) try map.arena.print("{c}{s}c{s}", .{ prec.letter, stem, name[1 + stem.len ..] }) else name;
+    const base = if (xnames)
+        try map.arena.print("{s}{s}", .{ name, form.suffix() })
+    else if (form.conj)
+        try map.arena.print("{c}{s}c{s}", .{ prec.letter, stem, name[1 + stem.len ..] })
+    else
+        name;
+    const fname = if (guard != null) try map.arena.print("{s}_asm", .{base}) else base;
+    if (guard) |g| try put(&w, "/// `{s}` past its C branch `if ({s})`, which is the driver's.\n", .{ name, g.cond });
     try put(&w, "pub noinline fn {s}(", .{fname});
 
     var mutable: std.ArrayList([]const u8) = .empty;
+    var unused: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, text[open + 1 .. close], ',');
     var first = true;
     while (it.next()) |p| {
@@ -560,18 +627,21 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
         if (!first) try put(&w, ", ", .{});
         first = false;
         // a parameter the assembly writes back is a local copy in Zig
-        const written = try isWritten(text[body_open..], pname);
+        const written = try isWritten(body, pname);
         if (written) try mutable.append(map.arena, pname);
+        // one only the driver's C branch read (`Guard`)
+        if (guard != null and !mentions(body, pname)) try unused.append(map.arena, pname);
         try put(&w, "{s}{s}: {s}", .{ pname, if (written) "_in" else "", try zigType(ctype_norm, prec.float, pname) });
     }
     try put(&w, ") void {{\n", .{});
+    for (unused.items) |u| try put(&w, "    _ = {s};\n", .{u});
     for (mutable.items) |m| try put(&w, "    var {s} = {s}_in;\n", .{ m, m });
 
     // the statements before the first asm: locals, and possibly the `if`
     // that picks between two blocks
     var locals: std.ArrayList([]const u8) = .empty;
     var condition: ?[]const u8 = null;
-    var lines = std.mem.splitScalar(u8, text[body_open + 1 .. body_open + asm_at], '\n');
+    var lines = std.mem.splitScalar(u8, body[1..asm_at], '\n');
     while (lines.next()) |raw| {
         const l = std.mem.trim(u8, raw, " \t\r;{");
         if (l.len == 0) continue;
@@ -583,7 +653,7 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
             const eq = std.mem.findScalar(u8, rest, '=');
             const v = std.mem.trim(u8, rest[0 .. eq orelse rest.len], " ");
             if (eq) |e| {
-                const kw = if (try isWritten(text[body_open..], v)) "var" else "const";
+                const kw = if (try isWritten(body, v)) "var" else "const";
                 try put(&w, "    {s} {s}: isize = {s};\n", .{ kw, v, std.mem.trim(u8, rest[e + 1 ..], " ") });
             } else try put(&w, "    var {s}: isize = undefined;\n", .{v});
             try locals.append(map.arena, v);
@@ -641,15 +711,15 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
 
     // every asm statement, by paren matching
     var stmts: std.ArrayList([]const u8) = .empty;
-    var pos = body_open;
-    while (std.mem.findPos(u8, text, pos, "__asm__")) |at| {
-        const po = std.mem.findScalarPos(u8, text, at, '(').?;
+    var pos: usize = 0;
+    while (std.mem.findPos(u8, body, pos, "__asm__")) |at| {
+        const po = std.mem.findScalarPos(u8, body, at, '(').?;
         var depth: usize = 0;
         var in_str = false;
         var e = po;
-        while (e < text.len) : (e += 1) {
-            const c = text[e];
-            if (c == '"' and text[e - 1] != '\\') in_str = !in_str;
+        while (e < body.len) : (e += 1) {
+            const c = body[e];
+            if (c == '"' and body[e - 1] != '\\') in_str = !in_str;
             if (in_str) continue;
             if (c == '(') depth += 1;
             if (c == ')') {
@@ -657,7 +727,7 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
                 if (depth == 0) break;
             }
         }
-        try stmts.append(map.arena, text[po + 1 .. e]);
+        try stmts.append(map.arena, body[po + 1 .. e]);
         pos = e;
     }
     if (stmts.items.len == 2 and condition == null) map.die("two asm blocks with no condition in {s}", .{name});
@@ -737,27 +807,53 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
     // the functions the file itself defines, not those of a header it includes
     const own_defs = try definitions(original);
     const has_conj = prec.complex and std.mem.find(u8, original, "CONJ") != null;
+    // `gemv`'s blocks have four forms (`CONJ`, `XCONJ`, both), each named
+    const has_xconj = prec.complex and std.mem.find(u8, original, "XCONJ") != null;
+    const forms: []const Form = if (has_xconj)
+        &.{ .{}, .{ .conj = true }, .{ .xconj = true }, .{ .conj = true, .xconj = true } }
+    else if (has_conj)
+        &.{ .{}, .{ .conj = true } }
+    else
+        &.{.{}};
+    // where a form's function is another's, an alias: (base name, Zig name, text)
+    const Seen = struct { base: []const u8, fname: []const u8, text: []const u8 };
+    var seen: std.ArrayList(Seen) = .empty;
     var body: std.ArrayList(u8) = .empty;
     var split = false;
     var count: usize = 0;
-    for ([_]bool{ false, true }) |conj| {
-        if (conj and !has_conj) continue;
+    for (forms) |form| {
         const source = try patched(t, path);
-        const le = try definitions(try runCpp(source, conj, .little));
-        const be = if (t.power) try definitions(try runCpp(source, conj, .big)) else &.{};
+        const le = try definitions(try runCpp(source, form, .little));
+        const be = if (t.power) try definitions(try runCpp(source, form, .big)) else &.{};
         for (le) |d| {
             const listed = for (own_defs) |o| {
                 if (std.mem.eql(u8, o.name, d.name)) break true;
             } else false;
             if (!listed) continue;
-            const converted = convertFunction(d.text, prec, routine, conj) catch |e| switch (e) {
+            const converted = convertFunction(d.text, prec, routine, form, has_xconj) catch |e| switch (e) {
                 error.Unconvertible => if (own) continue else map.die("cannot convert {s} in {s}", .{ d.name, base }),
                 else => return e,
             };
             const z = converted orelse continue;
             count += 1;
+            if (has_xconj) {
+                const head = "pub noinline fn ";
+                const at = std.mem.find(u8, z, head).? + head.len;
+                const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
+                const norm = try std.mem.replaceOwned(u8, map.arena, z, fname, d.name);
+                const same = for (seen.items) |o| {
+                    if (std.mem.eql(u8, o.base, d.name) and std.mem.eql(u8, o.text, norm)) break o.fname;
+                } else null;
+                if (same) |o| {
+                    try put(&body, "pub const {s} = {s};\n\n", .{ fname, o });
+                } else {
+                    try seen.append(map.arena, .{ .base = d.name, .fname = fname, .text = norm });
+                    try put(&body, "{s}\n", .{z});
+                }
+                continue;
+            }
             const z_be = for (be) |b| {
-                if (std.mem.eql(u8, b.name, d.name)) break try convertFunction(b.text, prec, routine, conj);
+                if (std.mem.eql(u8, b.name, d.name)) break try convertFunction(b.text, prec, routine, form, false);
             } else null;
             if (z_be == null or std.mem.eql(u8, z, z_be.?)) {
                 try put(&body, "{s}\n", .{z});

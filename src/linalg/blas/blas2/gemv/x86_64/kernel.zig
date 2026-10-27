@@ -1,6 +1,6 @@
 //! x86_64 gemv kernels, one set per core, built into the per-core kernel
 //! objects (`src/linalg/blas/_kernel.zig`). A core's kernel is a `.S` kernel
-//! (`asm/`) or the C driver `{s,d}gemv_{n,t}_4.c` (`../kernel.zig`) around
+//! (`asm/`) or the C driver `{s,d,c,z}gemv_{n,t}_4.c` (`../kernel.zig`) around
 //! the blocks `uk/index_n.zig` and `uk/index_t.zig` name: the reference's
 //! inline-assembly microkernels, or for the AVX-512 cores' `dgemv_n`, whose
 //! blocks are intrinsics, the same arithmetic on `@Vector`s. Skylake-X's
