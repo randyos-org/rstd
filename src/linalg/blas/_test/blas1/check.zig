@@ -98,11 +98,10 @@ pub fn fill(comptime T: type, buf: []T, seed: u64) void {
 
 fn random(comptime F: type, r: std.Random) F {
     if (comptime !types.isExtended(F)) return @floatCast(r.float(f64) * 4 - 2);
-    // [1, 2) with every fraction bit random, built from bits: converting a
-    // u128 is a libcall the self-hosted x86_64 backend leaves on the x87 stack
-    const U = @Int(.unsigned, @bitSizeOf(F));
-    const frac: U = (@as(U, 1) << std.math.floatFractionalBits(F)) - 1;
-    const v: F = @bitCast(@as(U, @bitCast(@as(F, 1))) | (@as(U, @truncate(r.int(u128))) & frac));
+    // [1, 2) with every fraction bit random
+    const bits = std.math.floatFractionalBits(F);
+    const frac = r.int(u128) & ((@as(u128, 1) << bits) - 1);
+    const v = 1 + @as(F, @floatFromInt(frac)) * comptime std.math.ldexp(@as(F, 1), -bits);
     return v * 4 - 6;
 }
 
@@ -136,11 +135,8 @@ fn close(want: anytype, got: @TypeOf(want), tol: @TypeOf(want)) !void {
     return error.TestExpectedApproxEqAbs;
 }
 
-/// `expectClose` of `got` against a reference summed in `Wide(F)`; past
-/// `f64` compared there, as narrowing `f128` to `f80` is a libcall the
-/// self-hosted x86_64 backend leaves on the x87 stack.
+/// `expectClose` of `got` against a reference summed in `Wide(F)`.
 pub fn expectCloseRef(comptime F: type, want: Wide(F), got: F, tol: Wide(F)) !void {
-    if (comptime types.isExtended(F)) return close(want, @as(Wide(F), got), tol);
     return close(@as(F, @floatCast(want)), got, @as(F, @floatCast(tol)));
 }
 

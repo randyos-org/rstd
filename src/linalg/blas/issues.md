@@ -127,27 +127,6 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > homogeneous aggregate rule) without checking for the soft-float
   > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
 
-### Self-hosted x86_64 backend leaves a value on the x87 stack converting to f80
-
-- **Seen:** with the self-hosted x86_64 backend (the debug default), converting
-  `u128` or `f128` to `f80` (a compiler-rt libcall) leaves an entry on the x87
-  register stack. Later x87 arithmetic overflows the stack and produces NaN.
-- **Workaround:** the tests never convert `u128` or `f128` to `f80`:
-  `_test/blas1/check.zig` builds random `f80` values from bits, and compares `f128`
-  references at `f128` (`expectCloseRef`).
-- **Issue text:**
-
-  > **x86_64 backend: `@floatFromInt(u128)` / `@floatCast(f128)` to `f80` unbalances the x87 stack**
-  >
-  > With the self-hosted x86_64 backend, `@as(f80, @floatFromInt(x))` for a
-  > `u128` `x`, or `@as(f80, @floatCast(y))` for an `f128` `y`, returns the
-  > right value but leaves one extra entry on the x87 register stack. After
-  > several such conversions, x87 arithmetic in the same function produces
-  > NaN (stack overflow, invalid operation). The LLVM backend is correct.
-  > Reproduce: convert a few `u128` values to `f80` in a loop, add them, and
-  > compare against the LLVM backend; `fstenv` after the call shows the tag
-  > word with a register in use.
-
 ### LLVM `-Oz` miscompile on sparc64
 
 - **Seen:** since Zig 0.18.0-dev.250, the sparc64 rig built with `.small`
