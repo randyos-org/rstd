@@ -27,7 +27,7 @@ const freeze_s = 60;
 const poll_s = 10;
 /// How often a boot that prints nothing says it is still going.
 const beat_s = 30;
-const windows = sysinfo.os.tag == .windows;
+const windows = sysinfo.target.os.tag == .windows;
 
 const Vm = struct {
     io: Io,
@@ -37,7 +37,7 @@ const Vm = struct {
     login: []const u8 = "",
 
     fn path(vm: Vm, name: []const u8) ![]const u8 {
-        return std.fmt.allocPrint(vm.arena, "{s}/{s}", .{ vm.dir, name });
+        return vm.arena.print("{s}/{s}", .{ vm.dir, name });
     }
 };
 
@@ -273,7 +273,7 @@ fn waitQemu(qemu: *std.process.Child, io: Io, exited: *std.atomic.Value(bool)) v
 
 /// Copies `exe` into the VM and runs it there, its output in this console.
 fn runTests(vm: Vm, exe: []const u8) !bool {
-    const dest = try std.fmt.allocPrint(vm.arena, "{s}:/tmp/rstd-test", .{vm.login});
+    const dest = try vm.arena.print("{s}:/tmp/rstd-test", .{vm.login});
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(vm.arena, &.{ "scp", "-q", "-P", vm.port });
     try argv.appendSlice(vm.arena, patientOptions(vm));
@@ -330,7 +330,7 @@ fn activity(vm: Vm) !?u64 {
     var hash: std.hash.Wyhash = .init(0);
     const regs = try monitor(vm, "info registers -a") orelse return null;
     var lines = std.mem.splitScalar(u8, regs, '\n');
-    while (lines.next()) |line| if (std.mem.indexOf(u8, line, "RIP=")) |at| hash.update(line[at..@min(line.len, at + 20)]);
+    while (lines.next()) |line| if (std.mem.find(u8, line, "RIP=")) |at| hash.update(line[at..@min(line.len, at + 20)]);
     const disks = try monitor(vm, "info blockstats") orelse return null;
     lines = std.mem.splitScalar(u8, disks, '\n');
     while (lines.next()) |line| {
@@ -362,7 +362,7 @@ const prompt = "(qemu) ";
 
 fn untilPrompt(vm: Vm, stream: Io.net.Stream, got: *std.ArrayList(u8)) !bool {
     var buf: [4096]u8 = undefined;
-    while (std.mem.indexOf(u8, got.items, prompt) == null) {
+    while (std.mem.find(u8, got.items, prompt) == null) {
         var bufs = [_][]u8{&buf};
         const n = stream.read(vm.io, &bufs) catch return false;
         if (n == 0) return false;
@@ -412,11 +412,11 @@ fn qemuPid(vm: Vm) !?[]const u8 {
 /// gone to something else.
 fn running(vm: Vm, pid: []const u8) !bool {
     const argv: []const []const u8 = if (windows)
-        &.{ "tasklist", "/NH", "/FO", "CSV", "/FI", try std.fmt.allocPrint(vm.arena, "PID eq {s}", .{pid}) }
+        &.{ "tasklist", "/NH", "/FO", "CSV", "/FI", try vm.arena.print("PID eq {s}", .{pid}) }
     else
         &.{ "ps", "-p", pid, "-o", "comm=" };
     const result = std.process.run(vm.arena, vm.io, .{ .argv = argv }) catch return false;
-    return std.mem.indexOf(u8, result.stdout, "qemu-system") != null;
+    return std.mem.find(u8, result.stdout, "qemu-system") != null;
 }
 
 /// Polling a VM that is still booting: a short connect timeout.

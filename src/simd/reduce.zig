@@ -1,7 +1,7 @@
 const std = @import("std");
 const rsimd = @import("__root__.zig");
 
-const ReduceOp = std.builtin.ReduceOp;
+const ReduceOp = std.lang.ReduceOp;
 const vectorLen = rsimd.vectorLen;
 
 fn Elem(comptime ArrType: type) type {

@@ -25,7 +25,7 @@ const Find = extremum.Find;
 /// Lanes of one native vector of `F`: a NEON register on AArch64, where
 /// `std.simd` counts SVE as 256 bits, which LLVM splits into NEON pairs.
 pub fn lanes(comptime F: type) comptime_int {
-    if (comptime sysinfo.cpu.arch.isAarch64()) return 16 / @sizeOf(F);
+    if (comptime sysinfo.target.cpu.arch.isAarch64()) return 16 / @sizeOf(F);
     return std.simd.suggestVectorLength(F) orelse 1;
 }
 
@@ -848,7 +848,7 @@ pub fn routed(comptime role: []const u8) bool {
 /// `ddot_bulldozer.S`, `zdot_sse*.S`, `dgemv_n.S` and their `atom` and
 /// `bulldozer` kin. Their C kernels on other cores stay.
 pub fn peels(comptime role: []const u8) bool {
-    if (sysinfo.cpu.arch != .x86_64) return false;
+    if (sysinfo.target.cpu.arch != .x86_64) return false;
     const peeling = [_][]const u8{ "sasum", "dasum", "casum", "zasum", "csum", "zsum", "ddot", "cdotu", "cdotc", "zdotu", "zdotc", "dgemv_n" };
     inline for (peeling) |r| if (comptime std.mem.eql(u8, r, role)) return true;
     return false;

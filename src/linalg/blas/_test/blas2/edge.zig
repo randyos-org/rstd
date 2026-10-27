@@ -385,7 +385,7 @@ fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: 
 fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
     const al = std.testing.allocator;
     const s = shapeOf(r, v, c);
-    const op: tri.Trans = @fromBackingInt(@intCast(v / 2 % 4));
+    const op: tri.Trans = @fromBackingInt(@intCast((v / 2) % 4));
     const tr = op == .t or op == .c;
     const cj = op == .r or op == .c;
     var a: Matrix(T) = try .init(al, s, 7 * c.n + v, c.on(.a));
@@ -694,7 +694,7 @@ fn CheckAll(comptime types: anytype) type {
             if (failed) |e| return e;
         }
 
-        fn portable() !void {
+        fn portableKernels() !void {
             var vt: Vtable = .{};
             portable.install(&vt);
             try sweepAll(&vt);
@@ -704,11 +704,11 @@ fn CheckAll(comptime types: anytype) type {
 }
 
 test "portable level-2 routines, real: special values, and NaN wherever they must not read or write" {
-    try CheckAll(real_types).portable();
+    try CheckAll(real_types).portableKernels();
 }
 
 test "portable level-2 routines, complex: special values, and NaN wherever they must not read or write" {
-    try CheckAll(complex_types).portable();
+    try CheckAll(complex_types).portableKernels();
 }
 
 test "every linked core's level-2 routines, real: special values, and NaN wherever they must not read or write" {

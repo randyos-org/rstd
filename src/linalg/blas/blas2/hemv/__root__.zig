@@ -98,6 +98,8 @@ fn checkSlots(vt: *const Vtable) !void {
     }
 }
 
+const check = @import("../../_test/blas1/check.zig");
+
 test "portable hemv kernels match plain arithmetic" {
     const vt = guard.portableVtable();
     guard.use(vt);
@@ -107,5 +109,5 @@ test "portable hemv kernels match plain arithmetic" {
 }
 
 test "every linked core's hemv kernels match plain arithmetic, where this machine runs them" {
-    try @import("../../_test/blas1/check.zig").eachCore(checkAll);
+    try check.eachCore(checkAll);
 }

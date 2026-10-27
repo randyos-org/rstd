@@ -29,7 +29,7 @@ pub const Core = coretypes.MipsCoreType;
 /// Whether `core` uses the SIMD kernel for `role`.
 fn usesMsa(comptime core: Core, comptime role: []const u8) bool {
     const complex = comptime role[0] == 'c' or role[0] == 'z';
-    if (complex and sysinfo.cpu.arch.isMIPS64()) return false;
+    if (complex and sysinfo.target.cpu.arch.isMips64()) return false;
     return switch (core) {
         .loongson3r4, .p5600, .i6400, .i6500, .p6600 => true,
         else => false,

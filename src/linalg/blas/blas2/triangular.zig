@@ -543,7 +543,7 @@ fn call(
     if (sysinfo.is_test and !heap) @memset(std.mem.sliceAsBytes(buf), 0xff);
     // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
     // infinity; cleared as `interface.gemv` does
-    if (comptime isComplex(T) and sysinfo.cpu.arch == .x86_64) @memset(buf, 0);
+    if (comptime isComplex(T) and sysinfo.target.cpu.arch == .x86_64) @memset(buf, 0);
 
     // `_U` for upper untransposed or lower transposed
     const fl: File = if ((uplo == .upper) != trans.transposed()) .u else .l;
@@ -769,7 +769,7 @@ fn checkAll(vt: *const Vtable) !void {
 
 test "triangular routines match dense arithmetic with portable kernels" {
     var vt: Vtable = .{};
-    @import("../portable.zig").install(&vt);
+    portable.install(&vt);
     try checkAll(&vt);
 }
 
@@ -779,7 +779,7 @@ test "every linked core's kernels give the same triangular results" {
 
 test "triangular work space beyond the stack comes from the allocator" {
     var vt: Vtable = .{};
-    @import("../portable.zig").install(&vt);
+    portable.install(&vt);
     const n = 300;
     const gpa = std.testing.allocator;
     const a = try gpa.alloc(f64, n * n);
@@ -804,7 +804,7 @@ test "triangular work space beyond the stack comes from the allocator" {
 
 test "triangular argument errors, in the reference's order" {
     var vt: Vtable = .{};
-    @import("../portable.zig").install(&vt);
+    portable.install(&vt);
     const gpa = std.testing.allocator;
     var a: [16]f64 = @splat(1);
     var x: [4]f64 = @splat(1);

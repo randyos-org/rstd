@@ -25,11 +25,9 @@ const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("check.zig");
 const extremum = @import("../../blas1/extremum.zig");
-const blas1 = @import("../../blas1/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
-const XDouble = types.XDouble;
 const C = std.math.Complex;
 const Float = check.FloatOf;
 const isComplex = check.isComplex;
@@ -373,7 +371,7 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
     if (@TypeOf(got) == BlasLong) {
         if (got == @as(BlasLong, @intCast(ref))) return;
     } else {
-        if (std.math.isNan(key) and std.math.isNan(got) or got == key) return;
+        if ((std.math.isNan(key) and std.math.isNan(got)) or got == key) return;
         if (@abs(@as(f128, got) - key) <= 2 * std.math.floatEps(Float(T)) * @abs(key)) return;
     }
     check.say("{any}, want {d}: ", .{ got, if (@TypeOf(got) == BlasLong) @as(f128, @floatFromInt(ref)) else keyOf(T, &x, ctx.find, ref - 1) });
@@ -451,9 +449,12 @@ fn checkAll(vt: *const Vtable) !void {
     if (failed) |e| return e;
 }
 
+const blas1 = @import("../../blas1/__root__.zig");
+const XDouble = types.XDouble;
+
 test "portable level-1 kernels: special values, poisoned gaps, and negative and large strides" {
     var vt: Vtable = .{};
-    @import("../../blas1/__root__.zig").installGeneric(&vt);
+    blas1.installGeneric(&vt);
     try checkAll(&vt);
     failed = null;
     if (XDouble != f64) {
@@ -517,7 +518,7 @@ fn checkShifted(vt: *const Vtable) !void {
 
 test "portable level-1 reductions: the same bits whatever the address" {
     var vt: Vtable = .{};
-    @import("../../blas1/__root__.zig").installGeneric(&vt);
+    blas1.installGeneric(&vt);
     try checkShifted(&vt);
 }
 
@@ -605,7 +606,7 @@ fn contractCase(comptime l: []const u8, comptime T: type, vt: *const Vtable, ref
         }
         const got = @field(vt, l ++ name ++ "_k").?(ni, x, 1);
         const want = @field(ref, l ++ name ++ "_k").?(ni, x, 1);
-        if (!(got == want or std.math.isNan(got) and std.math.isNan(want))) {
+        if (!(got == want or (std.math.isNan(got) and std.math.isNan(want)))) {
             check.say("{s}{s}: {e}, the portable kernel {e}: ", .{ l, name, got, want });
             return error.TestUnexpectedResult;
         }

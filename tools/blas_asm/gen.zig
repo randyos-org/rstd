@@ -51,14 +51,14 @@ const arches = [_]Arch{
 fn fileName(a: std.mem.Allocator, k: Kernel, width: []const u8, first: ?[]const u8) ![]const u8 {
     const stem = k.stem();
     // what follows the routine's name in the source's: `_sse2` of `dot_sse2`
-    var rest = if (std.mem.indexOfScalar(u8, stem, '_')) |at| stem[at..] else "";
+    var rest = if (std.mem.findScalar(u8, stem, '_')) |at| stem[at..] else "";
     // and its form, which the role (`zgemv_r`, `zhemv_U`) already names:
     // `_atom` of `zgemv_n_atom`, `_sse2` of `zsymv_U_sse2`
-    if (std.mem.indexOfScalar(u8, k.role_name, '_') != null and rest.len >= 2 and
-        std.mem.indexOfScalar(u8, "ntUL", rest[1]) != null and (rest.len == 2 or rest[2] == '_'))
+    if (std.mem.findScalar(u8, k.role_name, '_') != null and rest.len >= 2 and
+        std.mem.findScalar(u8, "ntUL", rest[1]) != null and (rest.len == 2 or rest[2] == '_'))
         rest = rest[2..];
-    const core = if (first) |f| try std.fmt.allocPrint(a, "_{s}", .{f}) else "";
-    return std.fmt.allocPrint(a, "{s}{s}{s}{s}.zig", .{ try k.role(a), rest, width, core });
+    const core = if (first) |f| try a.print("_{s}", .{f}) else "";
+    return a.print("{s}{s}{s}{s}.zig", .{ try k.role(a), rest, width, core });
 }
 
 /// Tabs become spaces to the next multiple of eight.
@@ -191,7 +191,7 @@ const label_base = 20000;
 /// assembler keeps numeric labels local however many functions in one object
 /// define them, so each core's function can be instantiated beside another's.
 /// The macros the source defines are purged again at the end.
-fn finish(a: std.mem.Allocator, lines: []const []const u8, names: *const std.StringArrayHashMapUnmanaged(void)) ![]const []const u8 {
+fn finish(a: std.mem.Allocator, lines: []const []const u8, names: *const std.array_hash_map.String(void)) ![]const []const u8 {
     // which `.macro` ... `.endm` each line is in (0 for none), and where each
     // label is defined
     const region = try a.alloc(usize, lines.len);
@@ -249,7 +249,7 @@ fn finish(a: std.mem.Allocator, lines: []const []const u8, names: *const std.Str
         }
         try out.append(a, buf.items);
     }
-    for (macros.items) |m| try out.append(a, try std.fmt.allocPrint(a, " .purgem {s}", .{m}));
+    for (macros.items) |m| try out.append(a, try a.print(" .purgem {s}", .{m}));
     return out.items;
 }
 
@@ -389,7 +389,7 @@ fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: [
     const all: u128 = if (texts.len == 128) std.math.maxInt(u128) else (@as(u128, 1) << @intCast(texts.len)) - 1;
 
     // the masks of the lines not every text has, each a part
-    var conds: std.AutoArrayHashMapUnmanaged(u128, void) = .empty;
+    var conds: std.array_hash_map.Auto(u128, void) = .empty;
     for (lines) |l| if (l.mask != all) try conds.put(a, l.mask, {});
     const part_count = conds.count();
 
@@ -520,11 +520,11 @@ const Entry = struct { role: []const u8, file: []const u8 };
 
 fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8, makefile: []const u8) !void {
     const io = map.io;
-    const inc = try std.fmt.allocPrint(a, ".zig-cache/blas_asm_inc_{s}", .{ar.name});
+    const inc = try a.print(".zig-cache/blas_asm_inc_{s}", .{ar.name});
     try Io.Dir.cwd().createDirPath(io, inc);
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = try map.path(&.{ inc, "config.h" }), .data = ar.config_h });
 
-    const dir = try std.fmt.allocPrint(a, "{s}/{s}/asm", .{ out_root, ar.name });
+    const dir = try a.print("{s}/{s}/asm", .{ out_root, ar.name });
 
     // which sources and precisions the cores use
     var jobs: std.ArrayList(Job) = .empty;
@@ -551,7 +551,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     for (all_cores) |core| {
         for (role_list) |r| {
             if ((try map.resolveKey(ar.name, core, r.key, makefile)).len < 2) continue;
-            try ambiguous.put(a, try std.fmt.allocPrint(a, "{s}:{s}", .{ try lowered(a, core), r.name }), {});
+            try ambiguous.put(a, try a.print("{s}:{s}", .{ try lowered(a, core), r.name }), {});
         }
     }
 
@@ -561,14 +561,14 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         // sources the toolchain cannot assemble are not converted at all
         const unsupported = for (ar.unsupported) |u| {
             if (std.mem.eql(u8, u, k.source)) break true;
-        } else std.mem.indexOf(u8, k.source, "_hummer") != null;
+        } else std.mem.find(u8, k.source, "_hummer") != null;
         if (unsupported) continue;
 
         // every core's expansion, per variant
         var texts: std.ArrayList(Text) = .empty;
         for (ar.variants) |v| for (job.cores.items) |core| {
             const lower = try lowered(a, core);
-            if (ambiguous.contains(try std.fmt.allocPrint(a, "{s}:{s}", .{ lower, try k.role(a) }))) continue;
+            if (ambiguous.contains(try a.print("{s}:{s}", .{ lower, try k.role(a) }))) continue;
             var lines = try arch.nakedLines(a, ar, try preprocess(a, ar, inc, k, core, v));
             if (v.rewrite) |rewrite| {
                 const out = try a.alloc([]const u8, lines.len);
@@ -616,7 +616,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             if (c.items.len > 128) map.die("{s}: more than 128 expansions in one file", .{k.source});
             const members = try a.alloc(Text, c.items.len);
             for (c.items, members) |i, *mbr| mbr.* = texts.items[i];
-            var names: std.StringArrayHashMapUnmanaged(void) = .empty;
+            var names: std.array_hash_map.String(void) = .empty;
             for (members) |t| for (t.lines) |l| if (definedLabel(l)) |n| if (!isOwnLabel(n)) try names.put(a, n, {});
             const bodies = try a.alloc([]const []const u8, members.len);
             for (members, bodies) |t, *b| b.* = try finish(a, t.lines, &names);
@@ -676,13 +676,13 @@ pub fn main(init: std.process.Init) !void {
 
     // every rule's role, grouped into its routine's `blas<n>/<dir>/`
     const Group = struct { level: Level, dir: []const u8, roles: std.ArrayList(roles.Role) = .empty };
-    var groups: std.StringArrayHashMapUnmanaged(Group) = .empty;
+    var groups: std.array_hash_map.String(Group) = .empty;
     for (levels) |lv| {
         const text = map.read(try map.path(&.{ map.root, "kernel", lv.makefile })).?;
         for (try roles.parse(a, text)) |r| {
             if (r.extended) continue;
             const d = try roles.dirFor(a, r.key);
-            const e = try groups.getOrPut(a, try std.fmt.allocPrint(a, "{s}/{s}", .{ lv.dir, d }));
+            const e = try groups.getOrPut(a, try a.print("{s}/{s}", .{ lv.dir, d }));
             if (!e.found_existing) e.value_ptr.* = .{ .level = lv, .dir = d };
             try e.value_ptr.roles.append(a, r);
         }
@@ -697,7 +697,7 @@ pub fn main(init: std.process.Init) !void {
     for (groups.keys(), groups.values()) |path, g| {
         if (dir_named and !wants(want.items, &.{g.dir})) continue;
         if (level_named and !wants(want.items, &.{g.level.dir})) continue;
-        const out_root = try std.fmt.allocPrint(a, "{s}/{s}", .{ base, path });
+        const out_root = try a.print("{s}/{s}", .{ base, path });
         for (arches) |ar| {
             if (arch_named and !wants(want.items, &.{ar.name})) continue;
             try convert(a, ar, g.roles.items, out_root, g.level.makefile);

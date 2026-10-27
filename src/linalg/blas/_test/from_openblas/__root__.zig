@@ -36,7 +36,7 @@ pub const say = check.say;
 /// On a qemu rig: freestanding (32 MiB heap, 1 MiB stack, emulated), or the
 /// Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
 pub fn reduced() bool {
-    return switch (sysinfo.os.tag) {
+    return switch (sysinfo.target.os.tag) {
         .linux => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         .freestanding, .other, .uefi => true,
         else => false,

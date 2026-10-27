@@ -17,8 +17,8 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
     // `OPTERON_SSE3` is `OPTERON` with SSE3; the headers know one macro
     const macro = if (std.mem.eql(u8, core, "OPTERON_SSE3")) "OPTERON" else core;
     var out: std.ArrayList([]const u8) = .empty;
-    try out.append(a, try std.fmt.allocPrint(a, "-D{s}", .{macro}));
-    try out.append(a, try std.fmt.allocPrint(a, "-DCORE_{s}", .{macro}));
+    try out.append(a, try a.print("-D{s}", .{macro}));
+    try out.append(a, try a.print("-DCORE_{s}", .{macro}));
     try out.appendSlice(a, &.{ "-DHAVE_SSE", "-DHAVE_SSE2" });
     if (!std.mem.eql(u8, core, "OPTERON")) try out.append(a, "-DHAVE_SSE3");
     return out.items;

@@ -163,7 +163,7 @@ pub fn wide(comptime T: type, v: T) Wide(T) {
 /// in `f64` (`issues.md`); two Newton steps there restore `f128`'s precision.
 pub fn sqrtW(x: f128) f128 {
     var y = @sqrt(x);
-    if (comptime sysinfo.cpu.arch != .sparc64) return y;
+    if (comptime sysinfo.target.cpu.arch != .sparc64) return y;
     if (!(x > 0) or !std.math.isFinite(x)) return y;
     // the guess is taken in f64: keep `x` in its range
     if (x < 0x1p-1000) return sqrtW(x * 0x1p1000) * 0x1p-500;
@@ -252,7 +252,7 @@ pub const Pattern = union(enum) {
 pub fn patterns(n: usize, buf: *[13]Pattern) []const Pattern {
     var len: usize = 0;
     for (std.enums.values(Special)) |kind| for ([_]usize{ 0, n / 2, n - 1 }, 0..) |at, k| {
-        if (k > 0 and at == 0 or k == 2 and at == n / 2) continue;
+        if ((k > 0 and at == 0) or (k == 2 and at == n / 2)) continue;
         buf[len] = .{ .one = .{ .kind = kind, .at = at } };
         len += 1;
     };
@@ -477,7 +477,7 @@ pub fn patternsFor(len: usize, buf: *[13]Pattern) []const Pattern {
 
 /// The float types beyond the vtable's to test the interface at: `f80` too
 /// where it may cross the C ABI.
-pub const any_floats = if (sysinfo.cpu.arch.isX86()) .{ f16, f80, f128 } else .{ f16, f128 };
+pub const any_floats = if (sysinfo.target.cpu.arch.isX86()) .{ f16, f80, f128 } else .{ f16, f128 };
 
 /// `util.extendedSum` written out plainly: accumulator by position, then
 /// folded.
@@ -501,11 +501,11 @@ pub fn expectBits(comptime F: type, want: F, got: F, what: []const u8, n: usize,
 
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {
-    if (comptime sysinfo.os.tag != .freestanding) {
+    if (comptime sysinfo.target.os.tag != .freestanding) {
         std.debug.print(f, args);
     } else if (comptime @hasDecl(root, "testWrite")) {
         var buf: [256]u8 = undefined;
-        root.testWrite(std.fmt.bufPrint(&buf, f, args) catch return);
+        root.testWrite(std.mem.print(&buf, f, args) catch return);
     }
 }
 
@@ -555,7 +555,7 @@ fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
 /// and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore` names each
 /// core as it starts there, and the biggest cases are left to native runs.
 pub fn rig() bool {
-    return switch (sysinfo.os.tag) {
+    return switch (sysinfo.target.os.tag) {
         .freestanding => true,
         .linux, .macos => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         else => false,

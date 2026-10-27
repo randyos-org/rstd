@@ -33,7 +33,7 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) void {
 
     const run = b.addSystemCommand(&.{"node"});
     run.addFileArg(b.path("tools/wasm_run.js"));
-    run.addArtifactArg(test_exe);
+    run.addArtifactArg2(test_exe, .{});
     run.has_side_effects = true;
     step.dependOn(&run.step);
 }

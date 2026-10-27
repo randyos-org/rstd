@@ -5,7 +5,6 @@
 const std = @import("std");
 const zigstd = @import("../../../zigstd.zig");
 const types = @import("../types.zig");
-
 const BF16 = types.BF16;
 const isBlasType = types.isBlasType;
 const HF16 = types.HF16;
@@ -31,16 +30,16 @@ test "isBlasType covers the full family and rejects everything else" {
 
 test "XDouble is the x87 long double exactly where the reference enables EXPRECISION" {
     const sysinfo = @import("builtin");
-    const x86 = sysinfo.cpu.arch == .x86 or sysinfo.cpu.arch == .x86_64;
+    const x86 = sysinfo.target.cpu.arch == .x86 or sysinfo.target.cpu.arch == .x86_64;
     if (types.exprecision) {
-        try zigstd.testExpectTrue(x86 and sysinfo.os.tag != .windows);
+        try zigstd.testExpectTrue(x86 and sysinfo.target.os.tag != .windows);
         try zigstd.testExpectEqual(@as(u16, 80), @typeInfo(XDouble).float.bits);
         try zigstd.testExpectEqual(@sizeOf(c_longdouble), @sizeOf(XDouble));
         try zigstd.testExpectTrue(XDouble != f64 and ComplexXD != Complex64);
     } else if (!types.quad_precision) {
         try zigstd.testExpectTrue(XDouble == f64 and ComplexXD == Complex64);
     }
-    if (sysinfo.os.tag == .windows or sysinfo.os.tag == .uefi or !x86) try zigstd.testExpectTrue(!types.exprecision);
+    if (sysinfo.target.os.tag == .windows or sysinfo.target.os.tag == .uefi or !x86) try zigstd.testExpectTrue(!types.exprecision);
     try zigstd.testExpectTrue(types.isExtended(f80) and types.isExtended(f128) and !types.isExtended(f64));
 }
 

@@ -7,7 +7,7 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const os_tag = sysinfo.os.tag;
+const os_tag = sysinfo.target.os.tag;
 const is_windows = os_tag == .windows;
 const is_darwin = os_tag.isDarwin();
 const DynLib = std.DynLib;
@@ -32,26 +32,26 @@ pub const WinDll = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!Self {
-        var buf: [std.fs.max_path_bytes:0]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
         const path_z = std.mem.printSentinel(&buf, "{s}", .{path}, 0) catch return error.FileNotFound;
         return openZ(path_z);
     }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn openZ(path_c: [*:0]const u8) Error!Self {
-        const handle = win32.system.library_loader.LoadLibraryA(path_c) orelse
+        const handle = win32.kernel32.LoadLibraryA(path_c) orelse
             return error.FileNotFound;
         return .{ .handle = handle };
     }
 
     /// Trusts the file.
     pub fn close(self: *Self) void {
-        _ = win32.system.library_loader.FreeLibrary(self.handle);
+        _ = win32.kernel32.FreeLibrary(self.handle);
         self.* = undefined;
     }
 
     pub fn lookup(self: *Self, comptime T: type, name: [:0]const u8) ?T {
-        const proc = win32.system.library_loader.GetProcAddress(self.handle, name.ptr) orelse
+        const proc = win32.kernel32.GetProcAddress(self.handle, name.ptr) orelse
             return null;
         return @as(T, @ptrCast(proc));
     }
@@ -91,7 +91,7 @@ pub const Dll = if (is_windows) WinDll else if (supported) DynLib else NoDll;
 /// for the rest of the process's lifetime.
 pub fn findLoaded(name: [:0]const u8) ?Dll {
     if (is_windows) {
-        const handle = win32.system.library_loader.GetModuleHandleA(name.ptr) orelse
+        const handle = win32.kernel32.GetModuleHandleA(name.ptr) orelse
             return null;
         return .{ .handle = handle };
     }
@@ -204,7 +204,7 @@ const test_lib = switch (os_tag) {
     .linux => "libc.so.6",
     else => "/usr/lib/libSystem.B.dylib",
 };
-const Cc = if (is_windows) std.builtin.CallingConvention.winapi else std.builtin.CallingConvention.c;
+const Cc = if (is_windows) std.lang.CallingConvention.winapi else std.lang.CallingConvention.c;
 const TestTable = struct {
     pid: ?*const fn () callconv(Cc) u32,
     first: ?*const fn () callconv(Cc) u32,
@@ -223,7 +223,7 @@ fn testNames(comptime field: []const u8) []const [:0]const u8 {
 fn testLibOk() bool {
     return switch (os_tag) {
         .windows => true,
-        .linux => has_dl and sysinfo.abi.isGnu(),
+        .linux => has_dl and sysinfo.target.abi.isGnu(),
         else => has_dl and is_darwin,
     };
 }
@@ -242,7 +242,7 @@ test "bind fills found symbols in name order and leaves missing ones null" {
     try zigstd.testExpectEqual(@as(?u8, null), b.matched.get(.missing));
     try zigstd.testExpectTrue(b.name(testNames, .missing) == null);
     try zigstd.testExpectEqual(@as(usize, 2), b.count());
-    const pid: u32 = if (is_windows) win32.system.threading.GetCurrentProcessId() else @intCast(std.c.getpid());
+    const pid: u32 = if (is_windows) win32.kernel32.GetCurrentProcessId() else @intCast(std.c.getpid());
     try zigstd.testExpectEqual(pid, b.fns.pid.?());
 }
 

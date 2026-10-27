@@ -39,8 +39,8 @@ pub const Urand = struct {
     const half_m: f64 = @floatFromInt(m2);
     // atan(1.0) == pi/4, written directly since std.math.atan won't
     // const-evaluate here.
-    const ia: i32 = 8 * @as(i32, @intFromFloat(@floor(half_m * (std.math.pi / 4.0) / 8.0))) + 5;
-    const ic: i32 = 2 * @as(i32, @intFromFloat(@floor(half_m * (0.5 - @sqrt(3.0) / 6.0)))) + 1;
+    const ia: i32 = 8 * @as(i32, @trunc(@floor(half_m * (std.math.pi / 4.0) / 8.0))) + 5;
+    const ic: i32 = 2 * @as(i32, @trunc(@floor(half_m * (0.5 - @sqrt(3.0) / 6.0)))) + 1;
     const mic: i32 = (m2 -% ic) +% m2;
     const scale: f64 = 0.5 / half_m;
 

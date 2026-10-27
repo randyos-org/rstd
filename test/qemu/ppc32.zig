@@ -17,7 +17,7 @@ const sysinfo = @import("builtin");
 export var client_interface: usize = 1;
 
 /// MSR.VEC, where the CPU has AltiVec.
-const vec = if (sysinfo.cpu.has(.powerpc, .altivec)) "  oris 3, 3, 0x0200\n" else "";
+const vec = if (sysinfo.target.cpu.has(.powerpc, .altivec)) "  oris 3, 3, 0x0200\n" else "";
 
 comptime {
     asm (

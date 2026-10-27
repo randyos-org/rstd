@@ -23,7 +23,7 @@ const dll = @import("../../dll.zig");
 const types = @import("types.zig");
 
 /// Where `load` can find Accelerate.
-pub const available = sysinfo.os.tag == .macos;
+pub const available = sysinfo.target.os.tag == .macos;
 
 pub const Order = enum(c_int) { row_major = 101, col_major = 102 };
 pub const Transpose = enum(c_int) { no_trans = 111, trans = 112, conj_trans = 113 };

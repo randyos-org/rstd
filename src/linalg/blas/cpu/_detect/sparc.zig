@@ -11,7 +11,7 @@ pub const Decision = select.Decision(CoreType);
 
 /// Nothing is probed; the build's target is the answer.
 pub const Caps = struct {
-    v9: bool = sysinfo.cpu.arch.isSPARC() and (sysinfo.cpu.arch == .sparc64 or sysinfo.cpu.has(.sparc, .v9)),
+    v9: bool = sysinfo.target.cpu.arch.isSparc() and (sysinfo.target.cpu.arch == .sparc64 or sysinfo.target.cpu.has(.sparc, .v9)),
 };
 
 pub fn probe() Caps {

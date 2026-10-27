@@ -29,7 +29,7 @@ const modules = .{
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    return arch.isSPARC();
+    return arch.isSparc();
 }
 
 /// Whether any routine has a kernel for `core`.

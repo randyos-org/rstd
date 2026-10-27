@@ -19,7 +19,7 @@ const blas = rstd.linalg.blas;
 const Vtable = blas.Vtable;
 
 comptime {
-    if (sysinfo.cpu.arch != .aarch64) @compileError("blas_bench races the arm64 cores");
+    if (sysinfo.target.cpu.arch != .aarch64) @compileError("blas_bench races the arm64 cores");
 }
 
 /// The kernel type of vtable slot `name`.
@@ -64,7 +64,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
 
-    if (comptime sysinfo.os.tag.isDarwin()) {
+    if (comptime sysinfo.target.os.tag.isDarwin()) {
         // the performance cores; a `taskpolicy` clamp still overrides it
         if (pthread_set_qos_class_self_np(qos_class_user_interactive, 0) != 0)
             std.debug.print("warning: QoS not set\n", .{});
@@ -76,7 +76,7 @@ pub fn main(init: std.process.Init) !void {
     tables.portable = blas.cpu.generic.vtableFromCoreType(.generic);
     if (tables.vortex.daxpy_k == tables.portable.daxpy_k) return error.VortexNotLinked;
 
-    std.debug.print("zig {s}, cpu model {s}, detected core {t}\n", .{ sysinfo.zig_version_string, sysinfo.cpu.model.name, blas.cpu.detect() });
+    std.debug.print("zig {s}, cpu model {s}, detected core {t}\n", .{ sysinfo.zig_version_string, sysinfo.target.cpu.model.name, blas.cpu.detect() });
 
     const all = args.len < 2;
     const want = struct {

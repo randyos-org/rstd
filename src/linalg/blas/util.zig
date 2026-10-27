@@ -48,12 +48,12 @@ pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) voi
 /// auto-vectorizer keeps off NEON's `f32` but not AltiVec's, so the AltiVec
 /// cores' objects are built without it (`cpu/_corespec.zig`).
 pub fn vectorIeee(comptime F: type) bool {
-    return vectorIeeeOn(F, sysinfo.cpu);
+    return vectorIeeeOn(F, sysinfo.target.cpu);
 }
 
 /// `vectorIeee` for `cpu`, a core's of this target.
 pub fn vectorIeeeOn(comptime F: type, comptime cpu: std.Target.Cpu) bool {
-    if (F != f32 or sysinfo.abi.float() == .soft) return true;
+    if (F != f32 or sysinfo.target.abi.float() == .soft) return true;
     return switch (cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => !std.Target.arm.featureSetHas(cpu.features, .neon),
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => !std.Target.powerpc.featureSetHas(cpu.features, .altivec) or

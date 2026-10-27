@@ -233,7 +233,7 @@ fn Zgemv(comptime F: type, comptime trans: bool, comptime conj: bool, comptime x
 
 const X86CoreType = gemm_params.CoreOf(.x86);
 
-const x86 = sysinfo.cpu.arch == .x86;
+const x86 = sysinfo.target.cpu.arch == .x86;
 
 /// Rows a block of `qgemv_t.S` (`complex`: `xgemv_t.S`): 4096 on x86_64,
 /// 1000 and 400 on x86.

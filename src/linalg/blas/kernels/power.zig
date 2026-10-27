@@ -42,7 +42,7 @@ fn usesVector(comptime core: Core, comptime role: []const u8) bool {
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    return arch.isPowerPC();
+    return arch.isPowerpc();
 }
 
 /// Whether any routine has a kernel for `core`.

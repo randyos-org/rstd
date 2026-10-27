@@ -151,11 +151,11 @@ fn mfpvr() u32 {
 }
 
 pub fn probe() Caps {
-    if (comptime !sysinfo.cpu.arch.isPowerPC()) return .{};
+    if (comptime !sysinfo.target.cpu.arch.isPowerpc()) return .{};
     // no OS to ask: the PVR, readable in supervisor state
-    if (comptime sysinfo.os.tag == .freestanding) return .{ .generation = fromPvr(mfpvr()) };
+    if (comptime sysinfo.target.os.tag == .freestanding) return .{ .generation = fromPvr(mfpvr()) };
     var c: Caps = .{ .platform = platform(), .hwcap = auxv.hwcap(), .hwcap2 = auxv.hwcap2() };
-    if (sysinfo.os.tag == .linux and c.platform == null) {
+    if (sysinfo.target.os.tag == .linux and c.platform == null) {
         c.generation = fromPvr(mfpvr());
     }
     return c;
@@ -339,7 +339,7 @@ test "runnable checks the ISA level" {
 }
 
 test "detect runs on PowerPC targets" {
-    if (comptime !sysinfo.cpu.arch.isPowerPC()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isPowerpc()) return error.SkipZigTest;
     const core = detect();
     if (core != .unknown) try std.testing.expect(supportsCore(core));
 }

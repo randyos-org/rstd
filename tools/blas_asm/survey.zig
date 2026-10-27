@@ -80,7 +80,7 @@ pub fn main(init: std.process.Init) !void {
     , .{@tagName(routine)});
 
     // every distinct (architecture, source), for the totals
-    var seen: std.StringArrayHashMapUnmanaged(bool) = .empty;
+    var seen: std.array_hash_map.String(bool) = .empty;
 
     for (arches) |arch| {
         const cores = try map.cores(arch) orelse continue;
@@ -92,8 +92,8 @@ pub fn main(init: std.process.Init) !void {
         for (cores) |core| {
             try w.print(arena, "| {s} |", .{core});
             for (funcs.items) |f| {
-                const v = try map.resolveKey(arch, core, try std.fmt.allocPrint(arena, "{s}{s}KERNEL", .{ f, try std.ascii.allocUpperString(arena, @tagName(routine)) }), "Makefile.L1");
-                for (v) |s| try seen.put(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ arch, s }), isAsm(s));
+                const v = try map.resolveKey(arch, core, try arena.print("{s}{s}KERNEL", .{ f, try std.ascii.allocUpperString(arena, @tagName(routine)) }), "Makefile.L1");
+                for (v) |s| try seen.put(arena, try arena.print("{s}/{s}", .{ arch, s }), isAsm(s));
                 try w.print(arena, " {s} |", .{try join(v)});
             }
             try w.append(arena, '\n');
@@ -107,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
     }
     try w.print(arena, "## Totals\n\n{d} distinct (architecture, source) pairs: {d} assembly, {d} C.\n", .{ seen.count(), n_asm, seen.count() - n_asm });
 
-    const dest = try std.fmt.allocPrint(arena, "src/linalg/blas/blas1/{s}/coverage.md", .{@tagName(routine)});
+    const dest = try arena.print("src/linalg/blas/blas1/{s}/coverage.md", .{@tagName(routine)});
     try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try alignTables(arena, w.items) });
     std.debug.print("wrote {s}: {d} sources ({d} asm)\n", .{ dest, seen.count(), n_asm });
 }
@@ -139,7 +139,7 @@ fn gemm(init: std.process.Init, arena: std.mem.Allocator) !void {
         \\
     );
 
-    var seen: std.StringArrayHashMapUnmanaged(bool) = .empty;
+    var seen: std.array_hash_map.String(bool) = .empty;
     const precisions = [_][]const u8{ "S", "D", "C", "Z" };
 
     for (arches) |arch| {
@@ -174,10 +174,10 @@ fn gemm(init: std.process.Init, arena: std.mem.Allocator) !void {
     std.debug.print("wrote {s}: {d} sources ({d} asm)\n", .{ dest, seen.count(), n_asm });
 }
 
-fn gemmCell(arena: std.mem.Allocator, w: *std.ArrayList(u8), seen: *std.StringArrayHashMapUnmanaged(bool), arch: []const u8, core: []const u8, p: []const u8, suffix: []const u8) !void {
-    const key = try std.fmt.allocPrint(arena, "{s}{s}", .{ p, suffix });
+fn gemmCell(arena: std.mem.Allocator, w: *std.ArrayList(u8), seen: *std.array_hash_map.String(bool), arch: []const u8, core: []const u8, p: []const u8, suffix: []const u8) !void {
+    const key = try arena.print("{s}{s}", .{ p, suffix });
     const v = try map.resolveKey(arch, core, key, "Makefile.L3");
-    for (v) |s| try seen.put(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ arch, s }), isAsm(s));
+    for (v) |s| try seen.put(arena, try arena.print("{s}/{s}", .{ arch, s }), isAsm(s));
     try w.print(arena, " {s} |", .{try join(v)});
 }
 
@@ -292,12 +292,12 @@ const CInfo = struct {
 };
 
 fn hasAsm(t: []const u8) bool {
-    for ([_][]const u8{ "__asm__", "asm volatile", "__asm ", "__asm(", " asm(" }) |n| if (std.mem.indexOf(u8, t, n) != null) return true;
+    for ([_][]const u8{ "__asm__", "asm volatile", "__asm ", "__asm(", " asm(" }) |n| if (std.mem.find(u8, t, n) != null) return true;
     return false;
 }
 
 fn hasIntrinsics(t: []const u8) bool {
-    for ([_][]const u8{ "immintrin.h", "arm_neon.h", "arm_sve.h", "arm_sme.h", "altivec.h", "riscv_vector.h", "lsxintrin.h", "lasxintrin.h", "vecintrin.h", "msa.h", "wasm_simd128.h", "__vector", "_mm256_", "_mm512_", "_mm_", "vld1q_", "svld1", "__riscv_v", "__lsx_", "__lasx_", "vec_xl", "vec_madd" }) |n| if (std.mem.indexOf(u8, t, n) != null) return true;
+    for ([_][]const u8{ "immintrin.h", "arm_neon.h", "arm_sve.h", "arm_sme.h", "altivec.h", "riscv_vector.h", "lsxintrin.h", "lasxintrin.h", "vecintrin.h", "msa.h", "wasm_simd128.h", "__vector", "_mm256_", "_mm512_", "_mm_", "vld1q_", "svld1", "__riscv_v", "__lsx_", "__lasx_", "vec_xl", "vec_madd" }) |n| if (std.mem.find(u8, t, n) != null) return true;
     return false;
 }
 
@@ -310,18 +310,18 @@ fn classifyC(arena: std.mem.Allocator, arch: []const u8, source: []const u8) !CI
     };
     info.inline_asm = hasAsm(text);
     info.intrinsics = hasIntrinsics(text);
-    const dir = std.fs.path.dirname(p) orelse ".";
+    const dir = std.Io.Dir.path.dirname(p) orelse ".";
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (!std.mem.startsWith(u8, line, "#include")) continue;
-        const q = std.mem.indexOfScalar(u8, line, '"') orelse continue;
-        const e = std.mem.indexOfScalarPos(u8, line, q + 1, '"') orelse continue;
+        const q = std.mem.findScalar(u8, line, '"') orelse continue;
+        const e = std.mem.findScalarPos(u8, line, q + 1, '"') orelse continue;
         const name = line[q + 1 .. e];
         if (!std.mem.endsWith(u8, name, ".c")) continue;
         const sub = map.read(try map.path(&.{ dir, name }));
         const kind = if (sub) |t| (if (hasAsm(t)) "asm" else if (hasIntrinsics(t)) "intrinsics" else "C") else "missing";
-        const entry = try std.fmt.allocPrint(arena, "{s} ({s})", .{ name, kind });
+        const entry = try arena.print("{s} ({s})", .{ name, kind });
         for (info.includes.items) |o| {
             if (std.mem.eql(u8, o, entry)) break;
         } else try info.includes.append(arena, entry);
@@ -330,8 +330,8 @@ fn classifyC(arena: std.mem.Allocator, arch: []const u8, source: []const u8) !CI
 }
 
 const Use = struct {
-    roles: std.StringArrayHashMapUnmanaged(void) = .empty,
-    cores: std.StringArrayHashMapUnmanaged(void) = .empty,
+    roles: std.array_hash_map.String(void) = .empty,
+    cores: std.array_hash_map.String(void) = .empty,
 };
 
 fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void {
@@ -352,7 +352,7 @@ fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void 
     );
 
     // every distinct (architecture, source): its roles and cores
-    var seen: std.StringArrayHashMapUnmanaged(Use) = .empty;
+    var seen: std.array_hash_map.String(Use) = .empty;
 
     for (arches) |arch| {
         const cores = try map.cores(arch) orelse continue;
@@ -368,7 +368,7 @@ fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void 
                 for (fam.cols) |c| {
                     const v = try map.resolveKey(arch, core, c[1], "Makefile.L2");
                     for (v) |s| {
-                        const e = try seen.getOrPut(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ arch, s }));
+                        const e = try seen.getOrPut(arena, try arena.print("{s}/{s}", .{ arch, s }));
                         if (!e.found_existing) e.value_ptr.* = .{};
                         try e.value_ptr.roles.put(arena, c[1], {});
                         try e.value_ptr.cores.put(arena, core, {});
@@ -400,7 +400,7 @@ fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void 
     var n_c_intr: usize = 0;
     var n_missing: usize = 0;
     for (seen.keys(), seen.values()) |k, u| {
-        const slash = std.mem.indexOfScalar(u8, k, '/').?;
+        const slash = std.mem.findScalar(u8, k, '/').?;
         const arch = k[0..slash];
         const source = k[slash + 1 ..];
         var kind: []const u8 = "S";

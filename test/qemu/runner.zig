@@ -8,7 +8,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 
-const arch = switch (sysinfo.cpu.arch) {
+const arch = switch (sysinfo.target.cpu.arch) {
     .aarch64 => @import("aarch64.zig"),
     .riscv64 => @import("riscv64.zig"),
     .arm => @import("arm.zig"),
@@ -21,7 +21,7 @@ const arch = switch (sysinfo.cpu.arch) {
     .s390x => @import("s390x.zig"),
     .powerpc64le, .powerpc64 => @import("ppc64.zig"),
     .powerpc => @import("ppc32.zig"),
-    else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.cpu.arch)),
+    else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.target.cpu.arch)),
 };
 
 /// The message on the console, then a failed exit; a silent trap would just
@@ -34,7 +34,7 @@ pub const panic = std.debug.FullPanic(struct {
         print(" at 0x");
         printHex(first orelse @returnAddress());
         // 64-bit POWER keeps the saved LR two words up, the back chain at 0
-        const ra = if (sysinfo.cpu.arch.isPowerPC64()) 2 else 1;
+        const ra = if (sysinfo.target.cpu.arch.isPowerpc64()) 2 else 1;
         var fp = @frameAddress();
         for (0..12) |_| {
             if (fp == 0 or fp % @alignOf(usize) != 0) break;
@@ -207,7 +207,7 @@ var static_heap: [if (@hasDecl(arch, "heapRegion")) 0 else heap.max_len]u8 align
 
 export fn qemutest_main() callconv(.c) noreturn {
     print("qemutest ");
-    print(@tagName(sysinfo.cpu.arch));
+    print(@tagName(sysinfo.target.cpu.arch));
     print("\n");
     heap.use(if (@hasDecl(arch, "heapRegion")) arch.heapRegion(heap.max_len, heap.max_align) else &static_heap);
     paintStack();

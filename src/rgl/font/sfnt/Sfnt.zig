@@ -318,7 +318,7 @@ pub fn glyphBitmap(
     /// Appended to the list.
     /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
     /// transparent, 255 is opaque.
-    pixels: *std.ArrayListUnmanaged(u8),
+    pixels: *std.ArrayList(u8),
     glyph: GlyphIndex,
     scale_x: f32,
     scale_y: f32,
@@ -333,7 +333,7 @@ pub fn glyphBitmapSubpixel(
     /// Appended to the list.
     /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
     /// transparent, 255 is opaque.
-    pixels: *std.ArrayListUnmanaged(u8),
+    pixels: *std.ArrayList(u8),
     glyph: GlyphIndex,
     scale_x: f32,
     scale_y: f32,

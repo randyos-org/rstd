@@ -713,7 +713,7 @@ pub fn coreCases(vt: *const Vtable) !void {
 /// `routineCases` of one routine for every precision it has.
 pub fn routineAll(vt: *const Vtable, comptime r: Routine) !void {
     inline for (.{ f32, f64, types.Complex32, types.Complex64 } ++ check1.x_real ++ check1.x_complex) |T| {
-        if (comptime std.mem.indexOfScalar(Routine, routinesOf(T), r) != null) try routineCases(T, vt, r);
+        if (comptime std.mem.findScalar(Routine, routinesOf(T), r) != null) try routineCases(T, vt, r);
     }
 }
 

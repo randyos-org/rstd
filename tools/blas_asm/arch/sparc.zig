@@ -16,7 +16,7 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
     // what getarch's `config.h` defines, where it knows the core
     if (try map.getarch(core)) |d| return d;
     const out = try a.alloc([]const u8, 2);
-    out[0] = try std.fmt.allocPrint(a, "-D{s}", .{core});
+    out[0] = try a.print("-D{s}", .{core});
     out[1] = "-DSPARC";
     return out;
 }
@@ -64,7 +64,7 @@ fn wideShifts(a: std.mem.Allocator, statement: []const u8) Error![]const u8 {
     const t = std.mem.trimStart(u8, statement, " ");
     // tabs are spaces by now (`expandTabs`)
     if (!std.mem.startsWith(u8, t, "sll ")) return statement;
-    return std.fmt.allocPrint(a, "{s}sllx{s}", .{ statement[0 .. statement.len - t.len], t[3..] });
+    return a.print("{s}sllx{s}", .{ statement[0 .. statement.len - t.len], t[3..] });
 }
 
 /// Zero strides branch from the strided entry `.LL50`, whose first

@@ -597,6 +597,7 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 // ---- tests -------------------------------------------------------------------
 
 const check = @import("../_test/blas1/check.zig");
+const blas2_interface = @import("../blas2/interface.zig");
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
@@ -1111,10 +1112,10 @@ test "interface: f16 reductions accumulate wide, and counts past its range stay 
     try check.expectClose(C, .init(3000, 0), try dotc(C, 3000, cones.ptr, 1, cones.ptr, 1), 0);
     // gemv's transposed sums, real and complex
     var y = [_]H{0};
-    try @import("../blas2/interface.zig").gemv(al, H, .t, n, 1, 1, ones.ptr, n, ones.ptr, 1, 0, &y, 1);
+    try blas2_interface.gemv(al, H, .t, n, 1, 1, ones.ptr, n, ones.ptr, 1, 0, &y, 1);
     try check.expectClose(H, 5000, y[0], 0);
     var cy = [_]C{.init(0, 0)};
-    try @import("../blas2/interface.zig").gemv(al, C, .c, 3000, 1, .init(1, 0), cones.ptr, 3000, cones.ptr, 1, .init(0, 0), &cy, 1);
+    try blas2_interface.gemv(al, C, .c, 3000, 1, .init(1, 0), cones.ptr, 3000, cones.ptr, 1, .init(0, 0), &cy, 1);
     try check.expectClose(C, .init(3000, 0), cy[0], 0);
     // a zero stride: sqrt(n) |x[0]| with n past f16's range
     var x = [_]H{0.01};

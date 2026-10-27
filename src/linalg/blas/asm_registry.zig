@@ -70,7 +70,7 @@ fn slot(comptime role: []const u8) []const u8 {
 /// Points the vtable slot of each of `roles` that `core` has (`hasRole`) at
 /// the kernel the per-core object exports for it, for a routine whose kernels
 /// are not all converted assembly (`Kernels.install` does this from `index`).
-pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const []const u8, comptime hasRole: anytype) void {
+pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const [:0]const u8, comptime hasRole: anytype) void {
     inline for (roles) |role| {
         if (comptime hasRole(core, role)) {
             const Fn = @typeInfo(@FieldType(Vtable, slot(role))).optional.child;

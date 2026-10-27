@@ -303,7 +303,7 @@ pub fn generateSingle(
     const h: u16 = @ceil((bound_h + px_range) * px_size);
 
     if (opts.winding == .negative or
-        opts.winding == .guess and findDistanceAt(
+        (opts.winding == .guess and findDistanceAt(
             .sdf,
             shape,
             .{
@@ -311,7 +311,7 @@ pub fn generateSingle(
                 bounds.bottom - px_range - bound_h - 1.0,
             },
             px_range,
-        ) > 0) for (shape.contours.items) |*contour| contour.reverse();
+        ) > 0)) for (shape.contours.items) |*contour| contour.reverse();
 
     return .{
         .metrics = .{

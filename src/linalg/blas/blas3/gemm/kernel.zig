@@ -154,7 +154,7 @@ pub fn geometryFor(comptime T: type, comptime cpu: std.Target.Cpu) Geometry {
 /// The compile target's tile.
 pub fn geometry(comptime T: type) Geometry {
     @setEvalBranchQuota(100_000);
-    return comptime geometryFor(T, sysinfo.cpu);
+    return comptime geometryFor(T, sysinfo.target.cpu);
 }
 
 /// The powers of two below `u`, largest first: the remainder panels' widths.
@@ -806,7 +806,7 @@ pub fn installTile(vt: *Vtable, comptime pre: []const u8, comptime T: type, comp
 /// where none can (SPARC), a core's object would only hold the portable
 /// kernels again, so it holds none of these.
 fn tilesVary() bool {
-    return switch (sysinfo.cpu.arch) {
+    return switch (sysinfo.target.cpu.arch) {
         .sparc, .sparc64 => false,
         else => true,
     };
@@ -971,7 +971,7 @@ test "complex packed kernels match plain arithmetic for every panel remainder an
 
 test "geometry: the most accumulators the registers hold" {
     const cpu = comptime blk: {
-        var c = std.Target.Cpu.baseline(.x86_64, sysinfo.os);
+        var c = std.Target.Cpu.baseline(.x86_64, sysinfo.target.os);
         c.features.addFeature(@backingInt(std.Target.x86.Feature.avx2));
         c.features.populateDependencies(&std.Target.x86.all_features);
         break :blk c;
@@ -980,7 +980,7 @@ test "geometry: the most accumulators the registers hold" {
     try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 2, .nr = 6 }, comptime geometryFor(f64, cpu));
     // the Haswell `zgemm` tile, 4 x 2
     try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 2, .nr = 2 }, comptime geometryFor(types.Complex64, cpu));
-    const arm64 = comptime std.Target.Cpu.baseline(.aarch64, sysinfo.os);
+    const arm64 = comptime std.Target.Cpu.baseline(.aarch64, sysinfo.target.os);
     try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 4, .nr = 6 }, comptime geometryFor(f32, arm64));
     try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 4, .nr = 6 }, comptime geometryFor(f64, arm64));
     try std.testing.expectEqualSlices(usize, &.{ 4, 2, 1 }, comptime tails(6));

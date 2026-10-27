@@ -18,15 +18,10 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const l1 = @import("../../blas1/interface.zig");
-const l2 = @import("../../blas2/interface.zig");
-const banded = @import("../../blas2/banded.zig");
-const tri = @import("../../blas2/triangular.zig");
 
 const Float = ob.Float;
-const isComplex = ob.isComplex;
 const C32 = std.math.Complex(f32);
 const C64 = std.math.Complex(f64);
-const testing = std.testing;
 
 const single_eps = 1e-4;
 const double_eps = 1e-13;
@@ -95,6 +90,12 @@ fn reductions() !void {
         try vecCases(C, .iamin, &iamin_complex);
     }
 }
+
+const l2 = @import("../../blas2/interface.zig");
+const banded = @import("../../blas2/banded.zig");
+const tri = @import("../../blas2/triangular.zig");
+const isComplex = ob.isComplex;
+const testing = std.testing;
 
 test "utest_ext: amin, amax, sum, iamin" {
     try reductions();

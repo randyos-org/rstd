@@ -6,7 +6,7 @@ const state = @import("state.zig");
 const console = @import("console.zig");
 const fdtable = @import("fdtable.zig");
 
-const native_os = sysinfo.os.tag;
+const native_os = sysinfo.target.os.tag;
 const is_windows = native_os == .windows;
 const have_networking = std.options.networking and native_os != .wasi;
 

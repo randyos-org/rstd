@@ -94,7 +94,7 @@ const Boot = union(enum) {
         linker_script: []const u8,
         /// Use the LLVM backend instead of the self-hosted one for code generation.
         llvm: bool = false,
-        code_model: std.builtin.CodeModel = .default,
+        code_model: std.lang.CodeModel = .default,
         /// Exit status carries the result; otherwise the printed summary does.
         semihosting: bool = true,
         /// Text qemu always prints to stderr here. The build treats any unchecked
@@ -719,9 +719,9 @@ fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
         run.addArgs(m.args);
         return run;
     };
-    run.addArtifactArg(testHostTool(b));
+    run.addArtifactArg2(testHostTool(b), .{});
     run.addArgs(&.{ h.alias, liveLog(b, m), b.fmt("{d}", .{h.jobs}) });
-    run.addDirectoryArg(b.path("tools/nix"));
+    run.addDirectoryArg2(b.path("tools/nix"), .{});
     run.addArgs(&.{ m.qemu, "--tcg" });
     run.addArgs(m.args);
     if (m.hvf) |hvf| if (!h.tcg) {
@@ -798,7 +798,7 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void
 /// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
 /// null until the kernel's package is fetched.
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
-    const kernel = b.lazyDependency(l.dep, .{}) orelse return null;
+    const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
     const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
@@ -812,8 +812,8 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     }) });
     const pack = b.addRunArtifact(tool);
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
-    pack.addPrefixedArtifactArg("init=", init_exe);
-    pack.addPrefixedArtifactArg("test=", test_exe);
+    pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
+    pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);
@@ -870,7 +870,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
 /// Null until the lazy OSX-KVM dependency is fetched. The VM's files are named
 /// relative to the build root, where its commands run, so none is hashed.
 fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize: Optimize, mac: MacOptions) !?*Build.Step.Run {
-    const kvm = b.lazyDependency("osx_kvm", .{}) orelse return null;
+    const kvm = b.dependencyLazy("osx_kvm", .{}) catch return null;
     const vm = b.fmt(".macos-vm/{s}", .{m.name});
     try b.root.createDirPath(b.graph.io, vm);
     // setup skips what is there, so a change there configures again
@@ -987,7 +987,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    run.addArtifactArg(try buildroot.addRstdTest(b, mod, target, &.{}));
+    run.addArtifactArg2(try buildroot.addRstdTest(b, mod, target, &.{}), .{});
     run.addArg(m.qemu);
     try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
     if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);
@@ -1076,7 +1076,7 @@ fn qemuArgs(b: *Build, run: *Build.Step.Run, m: Machine, kvm: *Build.Dependency,
     // A `(qemu)` prompt: `info status` says whether it runs, and `RIP` in
     // `info registers` moves while the guest executes. Without a console
     // the monitor is a socket.
-    const dir = std.fs.path.dirname(paths.disk).?;
+    const dir = std.Io.Dir.path.dirname(paths.disk).?;
     // for `qemu-kill` and test runs; QEMU removes it at a clean exit
     run.addArgs(&.{ "-pidfile", b.fmt("{s}/qemu.pid", .{dir}) });
     // COM1: macOS's console with `serial=3` in OpenCore's boot-args
@@ -1095,8 +1095,8 @@ fn qemuArgs(b: *Build, run: *Build.Step.Run, m: Machine, kvm: *Build.Dependency,
 fn smcKey(b: *Build, kvm: *Build.Dependency) ![]const u8 {
     const path = try kvm.builder.root.joinString(b.allocator, "OpenCore-Boot.sh");
     const script = try std.Io.Dir.cwd().readFileAlloc(b.graph.io, path, b.allocator, .limited(1 << 20));
-    const start = (std.mem.indexOf(u8, script, "osk=\"") orelse return error.NoSmcKey) + 5;
-    const end = std.mem.indexOfScalarPos(u8, script, start, '"') orelse return error.NoSmcKey;
+    const start = (std.mem.find(u8, script, "osk=\"") orelse return error.NoSmcKey) + 5;
+    const end = std.mem.findScalarPos(u8, script, start, '"') orelse return error.NoSmcKey;
     return script[start..end];
 }
 
@@ -1138,7 +1138,7 @@ const ovmf_vars_size = 540672;
 /// `qemu-system-x86_64`, as MSYS2 and the official builds lay it out.
 fn ovmfVarsTemplate(b: *Build) ?[]const u8 {
     const qemu = b.findProgram(.{ .names = &.{"qemu-system-x86_64"} }) orelse return null;
-    const bin = std.fs.path.dirname(qemu) orelse return null;
+    const bin = std.Io.Dir.path.dirname(qemu) orelse return null;
     for ([_][]const u8{ "../share/qemu", "share" }) |rel| {
         const path = b.pathJoin(&.{ bin, rel, "edk2-i386-vars.fd" });
         if (rstdbuild.io.fileExists(b.graph.io, path)) return path;

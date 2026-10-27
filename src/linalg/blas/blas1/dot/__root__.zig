@@ -359,7 +359,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
 }
 
 test "x86_64's vector blocks sum in the reference's order, bit for bit" {
-    if (comptime sysinfo.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const vb = @import("x86_64/kernel.zig");
     inline for (.{ .{ "ddot", f64, 16 }, .{ "sdot", f32, 32 } }) |r| {
         const T = r[1];

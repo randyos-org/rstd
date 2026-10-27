@@ -9,7 +9,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 
-const SrcInfo = std.builtin.SourceLocation;
+const SrcInfo = std.lang.SourceLocation;
 
 /// Kernel-level index/stride type: `long`, pointer-sized (LP64, and Win64's
 /// `long long`), the same as the interface's `isize`.
@@ -26,10 +26,10 @@ pub const quad_precision = false;
 /// Microsoft-ABI target (`Makefile.system`); here likewise (`exprecisionOn`).
 /// Elsewhere `q`/`x` alias `d`/`z`.
 pub const exprecision = !quad_precision and exprecisionOn(
-    sysinfo.cpu.arch,
-    sysinfo.os.tag,
+    sysinfo.target.cpu.arch,
+    sysinfo.target.os.tag,
     @typeInfo(c_longdouble).float.bits,
-    sysinfo.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.cpu.features, .x87),
+    sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .x87),
 );
 
 /// Whether a target gets `EXPRECISION`: x86 or x86_64 with an x87 unit, whose
@@ -103,7 +103,7 @@ pub fn hasSlots(comptime F: type) bool {
 
 /// Calling convention of the portable kernels over `F`: C for the vtable's
 /// types, Zig's own for the rest, which only Zig calls.
-pub fn kernelCc(comptime F: type) std.builtin.CallingConvention {
+pub fn kernelCc(comptime F: type) std.lang.CallingConvention {
     return if (hasSlots(F)) .c else .auto;
 }
 

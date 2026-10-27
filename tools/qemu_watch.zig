@@ -90,8 +90,8 @@ fn passThrough(io: Io, from: Io.File, halts: []const []const u8, fail_fast: bool
         out.writeStreamingAll(io, buf[kept..][0..n]) catch {};
         state.last.store(now(io), .release);
         const seen = buf[0 .. kept + n];
-        for (halts) |h| if (std.mem.indexOf(u8, seen, h) != null) state.halted.store(true, .release);
-        if (fail_fast and state.failed.load(.acquire) == 0 and std.mem.indexOf(u8, seen, fail_text) != null)
+        for (halts) |h| if (std.mem.find(u8, seen, h) != null) state.halted.store(true, .release);
+        if (fail_fast and state.failed.load(.acquire) == 0 and std.mem.find(u8, seen, fail_text) != null)
             state.failed.store(now(io), .release);
         kept = @min(seen.len, 256);
         std.mem.copyForwards(u8, buf[0..kept], seen[seen.len - kept ..]);

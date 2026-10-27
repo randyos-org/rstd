@@ -41,7 +41,7 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 /// `routed` slots.
 fn usesVector(comptime core: Core, comptime role: []const u8) bool {
     if (vector.routed(role)) return true;
-    if (sysinfo.os.tag.isDarwin()) return false;
+    if (sysinfo.target.os.tag.isDarwin()) return false;
     if ((core == .vortex or core == .vortexm4) and !std.mem.endsWith(u8, role, "rot")) return true;
     inline for (converted) |m| {
         if (@hasDecl(m, "hasRole") and m.hasRole(core, role)) return false;

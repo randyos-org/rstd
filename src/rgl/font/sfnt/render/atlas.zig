@@ -151,7 +151,7 @@ pub fn buildTextAtlas(
     var rastered: std.ArrayList(RasterGlyph) = .empty;
     defer rastered.deinit(gpa);
 
-    var raster_pixels: std.ArrayListUnmanaged(u8) = .empty;
+    var raster_pixels: std.ArrayList(u8) = .empty;
     defer raster_pixels.deinit(gpa);
 
     for (text) |ch| {

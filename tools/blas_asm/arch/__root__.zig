@@ -49,11 +49,11 @@ pub const Kernel = struct {
     /// `saxpy`, `zaxpyc`, ...
     pub fn role(k: Kernel, a: std.mem.Allocator) Error![]const u8 {
         if (k.role_name.len > 0) return k.role_name;
-        return try std.fmt.allocPrint(a, "{t}axpy{s}", .{ k.prec, if (k.conj) "c" else "" });
+        return try a.print("{t}axpy{s}", .{ k.prec, if (k.conj) "c" else "" });
     }
     /// The source without its extension.
     pub fn stem(k: Kernel) []const u8 {
-        return k.source[0..std.mem.lastIndexOfScalar(u8, k.source, '.').?];
+        return k.source[0..std.mem.findScalarLast(u8, k.source, '.').?];
     }
 };
 
@@ -72,7 +72,7 @@ fn isNameChar(c: u8) bool {
 /// (`util.kernelSymbol`: `blaskern_camax_la264`). Rewrites any such call to
 /// that name, so it resolves within the same isolated per-core object.
 fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const u8 {
-    if (std.mem.indexOf(u8, line, "_k_") == null) return line;
+    if (std.mem.find(u8, line, "_k_") == null) return line;
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < line.len) {
@@ -80,7 +80,7 @@ fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const
             var e = i;
             while (e < line.len and isNameChar(line[e])) e += 1;
             const tok = line[i..e];
-            if (std.mem.indexOf(u8, tok, "_k_")) |sep| rewrite: {
+            if (std.mem.find(u8, tok, "_k_")) |sep| rewrite: {
                 const role = tok[0..sep];
                 const core = tok[sep + "_k_".len ..];
                 if (role.len == 0 or core.len == 0) break :rewrite;
@@ -130,10 +130,10 @@ pub fn nakedLines(a: std.mem.Allocator, ar: Arch, lines: []const []const u8) Err
                 std.debug.panic("a naked function cannot switch sections: {s}", .{t});
             }
             if (ar.align_bytes and std.mem.startsWith(u8, t, ".align ")) {
-                try out.append(a, try std.fmt.allocPrint(a, " .b{s}", .{t[1..]}));
+                try out.append(a, try a.print(" .b{s}", .{t[1..]}));
                 continue;
             }
-            try out.append(a, try std.fmt.allocPrint(a, " {s}", .{try rewriteDynamicArchCalls(a, t)}));
+            try out.append(a, try a.print(" {s}", .{try rewriteDynamicArchCalls(a, t)}));
         }
     }
     return out.items;
@@ -193,5 +193,5 @@ pub const Arch = struct {
 };
 
 pub fn isDotS(source: []const u8) bool {
-    return std.mem.endsWith(u8, source, ".S") and std.mem.indexOf(u8, source, "/") == null;
+    return std.mem.endsWith(u8, source, ".S") and std.mem.find(u8, source, "/") == null;
 }

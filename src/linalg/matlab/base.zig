@@ -23,7 +23,7 @@ fn digitChar(d: usize) u8 {
 pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     var xa = @abs(x);
     var k: i64 = 0;
-    if (xa != 0.0) k = @intFromFloat(@floor(@log(xa) / @log(b)));
+    if (xa != 0.0) k = @trunc(@floor(@log(xa) / @log(b)));
     if (xa > 1.0) k += 1;
     xa /= std.math.pow(f64, b, @floatFromInt(k));
     if (b * xa >= b) {
@@ -32,7 +32,7 @@ pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     }
 
     const mantissa_digits: usize = if (eps != 0.0)
-        @intFromFloat(@floor(-@log(eps) / @log(b) + 4.0))
+        @trunc(@floor(-@log(eps) / @log(b) + 4.0))
     else
         54;
 
@@ -44,7 +44,7 @@ pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     var l: usize = 0;
     while (l < mantissa_digits) : (l += 1) {
         xa = b * xa;
-        const j: usize = @intFromFloat(@floor(xa));
+        const j: usize = @trunc(@floor(xa));
         try out.append(allocator, digitChar(j));
         xa -= @floatFromInt(j);
     }
@@ -58,7 +58,7 @@ pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
         try exp_digits.append(allocator, '0');
     } else {
         while (t > 0.0) {
-            const j: usize = @intFromFloat(@mod(t, b));
+            const j: usize = @trunc(@mod(t, b));
             try exp_digits.append(allocator, digitChar(j));
             t = @floor(t / b);
         }
@@ -67,7 +67,6 @@ pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     try out.appendSlice(allocator, exp_digits.items);
     return out.toOwnedSlice(allocator);
 }
-
 
 test "base renders a simple base-10 value" {
     // 3.14 = 0.314 * 10^1.

@@ -27,13 +27,7 @@ const CComplex = types.CComplex;
 pub const Role = enum { sdot, dsdot, ddot, cdotu, cdotc, zdotu, zdotc };
 
 /// The kernel names an architecture's `<arch>/kernel.zig` iterates over.
-pub const roles: []const []const u8 = blk: {
-    const names = std.meta.fieldNames(Role);
-    var out: [names.len][]const u8 = undefined;
-    for (names, 0..) |n, i| out[i] = n;
-    const done = out;
-    break :blk &done;
-};
+pub const roles: []const [:0]const u8 = @typeInfo(Role).@"enum".field_names;
 
 fn roleOf(comptime role: []const u8) Role {
     return std.meta.stringToEnum(Role, role).?;

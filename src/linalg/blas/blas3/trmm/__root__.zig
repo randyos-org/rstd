@@ -492,10 +492,11 @@ fn cases(vt: *const Vtable) !void {
 }
 
 const blas1check = @import("../../_test/blas1/check.zig");
+const portable = @import("../../portable.zig");
 
 test "portable trmm matches the wide reference through the driver" {
     var vt: Vtable = .{};
-    @import("../../portable.zig").install(&vt);
+    portable.install(&vt);
     try cases(&vt);
 }
 

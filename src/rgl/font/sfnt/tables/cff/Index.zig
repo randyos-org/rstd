@@ -111,6 +111,8 @@ pub fn buildIndex(alloc: zigstd.Allocator, entries: []const []const u8) ![]u8 {
     return buf;
 }
 
+const std = @import("std");
+
 test "Index.get/count/byteSize walk a small INDEX" {
     const alloc = zigstd.testAllocator;
     const buf = try buildIndex(alloc, &.{ "ab", "cde", "" });
@@ -119,8 +121,8 @@ test "Index.get/count/byteSize walk a small INDEX" {
     const idx = try Index.init(buf, true);
     try zigstd.testExpectEqual(@as(u16, 3), idx.count());
     try zigstd.testExpectEqual(buf.len, idx.byteSize());
-    try zigstd.testExpectEqual(true, @import("std").mem.eql(u8, "ab", idx.get(0)));
-    try zigstd.testExpectEqual(true, @import("std").mem.eql(u8, "cde", idx.get(1)));
+    try zigstd.testExpectEqual(true, std.mem.eql(u8, "ab", idx.get(0)));
+    try zigstd.testExpectEqual(true, std.mem.eql(u8, "cde", idx.get(1)));
     try zigstd.testExpectEqual(@as(usize, 0), idx.get(2).len);
 }
 

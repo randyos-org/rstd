@@ -61,8 +61,8 @@ pub fn supportLasx() bool {
 }
 
 pub fn probe() Caps {
-    if (comptime !sysinfo.cpu.arch.isLoongArch()) return .{};
-    switch (comptime sysinfo.os.tag) {
+    if (comptime !sysinfo.target.cpu.arch.isLoongarch()) return .{};
+    switch (comptime sysinfo.target.os.tag) {
         // no OS to ask: `cpucfg` word 2 says what the CPU has
         .freestanding, .uefi => {
             const cfg2 = cpucfg(2);
@@ -130,6 +130,6 @@ test "series and OS extensions pick the core" {
 }
 
 test "detect runs on LoongArch targets" {
-    if (comptime !sysinfo.cpu.arch.isLoongArch()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isLoongarch()) return error.SkipZigTest;
     try std.testing.expect(supportsCore(detect()));
 }

@@ -6,7 +6,7 @@ const zigstd = @import("zigstd.zig");
 pub const Allocator = std.mem.Allocator;
 pub const MainInit = std.process.Init;
 pub const StdIo = std.Io;
-pub const SrcInfo = std.builtin.SourceLocation;
+pub const SrcInfo = std.lang.SourceLocation;
 
 pub const equal = std.mem.eql;
 pub const sprintf = std.mem.print;

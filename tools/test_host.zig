@@ -56,7 +56,7 @@ fn run(init: std.process.Init) !u8 {
     try scp.appendSlice(arena, &options);
     try scp.appendSlice(arena, &.{ "-q", "-r", nix_dir });
     var names: std.ArrayList([]const u8) = .empty;
-    try names.append(arena, std.fs.path.basename(nix_dir));
+    try names.append(arena, std.Io.Dir.path.basename(nix_dir));
     var qemu_argv: std.ArrayList([]const u8) = .empty;
     try qemu_argv.append(arena, qemu);
     try qemu_argv.appendSlice(arena, if (use_hvf) hvf.? else tcg);
@@ -66,16 +66,16 @@ fn run(init: std.process.Init) !u8 {
             continue;
         }
         const path = a[local_prefix.len..];
-        const name = std.fs.path.basename(path);
+        const name = std.Io.Dir.path.basename(path);
         for (names.items) |n| if (std.mem.eql(u8, n, name)) return error.DuplicateFileName;
         try names.append(arena, name);
         try scp.append(arena, path);
-        try qemu_argv.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ dir, name }));
+        try qemu_argv.append(arena, try arena.print("{s}/{s}", .{ dir, name }));
     }
-    try scp.append(arena, try std.fmt.allocPrint(arena, "{s}:{s}/", .{ host, dir }));
+    try scp.append(arena, try arena.print("{s}:{s}/", .{ host, dir }));
     if (try exec(io, scp.items) != 0) {
         std.debug.print("test_host: copying the rig's files to {s} failed\n", .{host});
-        _ = exec(io, try sshArgv(arena, host, try std.fmt.allocPrint(arena, "rm -rf '{s}'", .{dir}))) catch {};
+        _ = exec(io, try sshArgv(arena, host, try arena.print("rm -rf '{s}'", .{dir}))) catch {};
         return 1;
     }
 
@@ -84,14 +84,14 @@ fn run(init: std.process.Init) !u8 {
     const nix = names.items[0];
     try command.print(arena, "cd '{0s}' && exec nix shell ./{1s}#qemu ./{1s}#flock -c bash {1s}/run.sh '{2s}'", .{ dir, nix, jobs });
     for (qemu_argv.items) |a| {
-        if (std.mem.indexOfScalar(u8, a, '\'') != null) return error.QuoteInArgument;
+        if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;
         try command.print(arena, " '{s}'", .{a});
     }
     const log = try Io.Dir.cwd().createFile(io, log_path, .{});
     defer log.close(io);
     var out: Io.File.Writer = .init(log, io, &.{});
     const stdout = Io.File.stdout();
-    const banner = try std.fmt.allocPrint(arena, "test-host: {s} ({s}, {s})\n", .{ host, kind, if (use_hvf) "hvf" else "tcg" });
+    const banner = try arena.print("test-host: {s} ({s}, {s})\n", .{ host, kind, if (use_hvf) "hvf" else "tcg" });
     stdout.writeStreamingAll(io, banner) catch {};
     try out.interface.writeAll(banner);
 

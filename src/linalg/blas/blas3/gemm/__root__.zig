@@ -519,7 +519,9 @@ fn cases(vt: *const Vtable) !void {
 }
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const driver = @import("../driver.zig");
+const portable = @import("../../portable.zig");
 const blas1check = @import("../../_test/blas1/check.zig");
 
 test "portable gemm kernels match the wide reference through the driver" {
@@ -535,9 +537,8 @@ test "every linked core's gemm kernels match the wide reference, where this mach
 test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
     // natively only: the rigs run their own tiles, and the freestanding ones
     // have no room for four more sets of kernels
-    if (comptime @import("builtin").os.tag == .freestanding) return error.SkipZigTest;
+    if (comptime sysinfo.target.os.tag == .freestanding) return error.SkipZigTest;
     if (blas1check.rig()) return error.SkipZigTest;
-    const portable = @import("../../portable.zig");
     var vt: Vtable = .{};
     portable.install(&vt);
     kernel.installTile(&vt, "s", f32, .{ .vl = 4, .mv = 4, .nr = 6 });
@@ -548,7 +549,6 @@ test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
 }
 
 test "the unrolls are the installed kernels' own after a core's blocking" {
-    const portable = @import("../../portable.zig");
     const K = kernel.Kernels(f32, kernel.geometry(f32));
     var vt: Vtable = .{};
     portable.install(&vt);

@@ -163,7 +163,7 @@ pub fn sweep(
             @memcpy(y, y0);
             const s = try timeOne(io, im.run, n, x[0..n], y[0..n], min_ns);
             var buf: [32]u8 = undefined;
-            const t = std.fmt.bufPrint(&buf, "{d:.0} ({d:.1})", .{
+            const t = std.mem.print(&buf, "{d:.0} ({d:.1})", .{
                 work.bytes(n) / s / 1e9,
                 work.flops(n) / s / 1e9,
             }) catch "?";

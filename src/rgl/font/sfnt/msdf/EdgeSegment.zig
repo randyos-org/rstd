@@ -312,7 +312,7 @@ pub fn signedDistance(self: EdgeSegment, origin: V2f64) struct { SignedDist, Poi
 pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64) u32 {
     switch (self.segment) {
         .linear => |p| {
-            if (y >= p[0][1] and y < p[1][1] or y >= p[1][1] and y < p[0][1]) {
+            if ((y >= p[0][1] and y < p[1][1]) or (y >= p[1][1] and y < p[0][1])) {
                 const param = (y - p[0][1]) / (p[1][1] - p[0][1]);
                 x[0] = mix(p[0][0], p[1][0], param);
                 dy[0] = std.math.sign(p[1][1] - p[0][1]);
@@ -325,7 +325,7 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
             var next_dy: i32 = math.boolSign(y > p[0][1]);
             x[total] = p[0][0];
             if (p[0][1] == y) {
-                if (p[0][1] < p[1][1] or p[0][1] == p[1][1] and p[0][1] < p[2][1]) {
+                if (p[0][1] < p[1][1] or (p[0][1] == p[1][1] and p[0][1] < p[2][1])) {
                     dy[total] = 1;
                     total += 1;
                 } else next_dy = 1;
@@ -361,7 +361,7 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     total -= 1;
                     next_dy = -1;
                 }
-                if ((p[2][1] < p[1][1] or p[2][1] == p[1][1] and p[2][1] < p[0][1]) and total < 2) {
+                if ((p[2][1] < p[1][1] or (p[2][1] == p[1][1] and p[2][1] < p[0][1])) and total < 2) {
                     x[total] = p[2][0];
                     if (next_dy < 0) {
                         dy[total] = -1;

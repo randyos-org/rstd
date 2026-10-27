@@ -57,7 +57,7 @@ fn initCold() void {
 
 /// The vtable, for code a routine reaches after its own `vtable()` call.
 pub inline fn table() *const Vtable {
-    if (std.debug.runtime_safety) std.debug.assert(phase.load(.monotonic) == .ready);
+    if (comptime sysinfo.optimize.runtimeSafety()) std.debug.assert(phase.load(.monotonic) == .ready);
     return &_vtable;
 }
 
@@ -90,8 +90,8 @@ fn initWith(env: Config.Env) bool {
     const ct = chosen.served orelse chosen.core;
     core_type = ct;
     blasWarn(2, "core: {s}", .{@tagName(ct)});
-    if (comptime sysinfo.cpu.arch.isPowerPC()) {
-        if (config.get_openblas_coretype and comptime sysinfo.os.tag != .freestanding)
+    if (comptime sysinfo.target.cpu.arch.isPowerpc()) {
+        if (config.get_openblas_coretype and comptime sysinfo.target.os.tag != .freestanding)
             std.debug.print("Core: {s}\n", .{@tagName(ct)});
     }
 
@@ -118,11 +118,11 @@ fn claim() bool {
 /// libc's `environ` (`_NSGetEnviron()` on Darwin, where a dylib has no
 /// `environ`). Zig hands the block to `main` only, so elsewhere there is none.
 fn processEnv() Config.Env {
-    if (comptime sysinfo.os.tag == .windows) return .windows;
+    if (comptime sysinfo.target.os.tag == .windows) return .windows;
     if (comptime !sysinfo.link_libc) return .none;
-    const envp: [*:null]const ?[*:0]const u8 = switch (sysinfo.os.tag) {
+    const envp: [*:null]const ?[*:0]const u8 = switch (sysinfo.target.os.tag) {
         .freestanding, .other, .uefi => return .none,
-        else => if (comptime sysinfo.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
+        else => if (comptime sysinfo.target.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
     };
     return .{ .posix = std.mem.span(envp) };
 }
@@ -139,7 +139,7 @@ const LogSink = struct {
 /// A diagnostic, shown when `OPENBLAS_VERBOSE` is at least `level`. Only where
 /// there is somewhere to print to.
 fn blasWarn(level: i32, comptime fmt: []const u8, args: anytype) void {
-    if (comptime sysinfo.os.tag == .freestanding) return;
+    if (comptime sysinfo.target.os.tag == .freestanding) return;
     if (config.verbose < level) return;
     std.debug.print("OpenBLAS: " ++ fmt ++ "\n", args);
 }

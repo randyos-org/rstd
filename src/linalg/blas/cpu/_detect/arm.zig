@@ -38,8 +38,8 @@ pub fn partOf(text: []const u8) u32 {
 }
 
 pub fn probe() Caps {
-    if (comptime !sysinfo.cpu.arch.isArm()) return .{};
-    switch (comptime sysinfo.os.tag) {
+    if (comptime !sysinfo.target.cpu.arch.isArm()) return .{};
+    switch (comptime sysinfo.target.os.tag) {
         // no OS to ask: the ID registers, readable at PL1 and up
         .freestanding, .uefi => return idRegisters(),
         else => {},
@@ -61,8 +61,8 @@ const VfpReg = enum(u4) { mvfr1 = 6, mvfr0 = 7, fpexc = 8 };
 /// VFP, as under the soft-float ABI, whose code may still use a VFP the CPU
 /// has.
 fn vmrs(comptime reg: VfpReg) u32 {
-    const inst = if (comptime sysinfo.cpu.arch.isThumb()) ".inst.w" else ".inst";
-    return asm volatile (std.fmt.comptimePrint("{s} 0x{x}", .{ inst, 0xeef00a10 | @as(u32, @backingInt(reg)) << 16 })
+    const inst = if (comptime sysinfo.target.cpu.arch.isThumb()) ".inst.w" else ".inst";
+    return asm volatile (std.fmt.comptimePrint("{s} 0x{x}", .{ inst, 0xeef00a10 | (@as(u32, @backingInt(reg)) << 16) })
         : [out] "={r0}" (-> u32),
     );
 }
@@ -152,13 +152,13 @@ test "no CPU is given a core it cannot run" {
     while (mask < 1 << bits.len) : (mask += 1) {
         var hw: usize = 0;
         for (bits, 0..) |b, i| {
-            if (mask >> @intCast(i) & 1 != 0) hw |= b;
+            if ((mask >> @intCast(i)) & 1 != 0) hw |= b;
         }
         try std.testing.expect(runnable(decide(.{ .hwcap = hw }).core, .{ .hwcap = hw }));
     }
 }
 
 test "detect runs on 32-bit ARM targets" {
-    if (comptime !sysinfo.cpu.arch.isArm()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isArm()) return error.SkipZigTest;
     try std.testing.expect(supportsCore(detect()));
 }

@@ -127,7 +127,7 @@ pub const Env = struct {
 /// and 512 KB on RISC-V, which reads sysfs and so needs an OS).
 pub fn detect() Env {
     var env: Env = .{};
-    switch (sysinfo.cpu.arch) {
+    switch (sysinfo.target.cpu.arch) {
         .x86_64, .x86 => {
             const id = cpuid(0x80000006, 0);
             const l2: i32 = @intCast((id.ecx >> 16) & 0xffff);
@@ -152,7 +152,7 @@ pub fn detect() Env {
 const CpuidResult = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
 
 fn cpuid(leaf: u32, sub: u32) CpuidResult {
-    switch (sysinfo.cpu.arch) {
+    switch (sysinfo.target.cpu.arch) {
         .x86_64, .x86 => {
             var a: u32 = undefined;
             var b: u32 = undefined;
@@ -173,7 +173,7 @@ fn cpuid(leaf: u32, sub: u32) CpuidResult {
 }
 
 fn cpucfg(word: u32) u64 {
-    switch (sysinfo.cpu.arch) {
+    switch (sysinfo.target.cpu.arch) {
         .loongarch64 => return asm volatile ("cpucfg %[ret], %[id]"
             : [ret] "=r" (-> u64),
             : [id] "r" (word),
@@ -233,7 +233,7 @@ fn roundUp(v: i32, to: i32) i32 {
 fn scaled(p: i32, env: Env) i32 {
     if (env.block_factor <= 0) return p;
     const factor: f64 = @floatFromInt(std.math.clamp(env.block_factor, 10, 200));
-    const v: i64 = @intFromFloat(@as(f64, @floatFromInt(p)) * factor * 1.0e-2);
+    const v: i64 = @trunc(@as(f64, @floatFromInt(p)) * factor * 1.0e-2);
     return @intCast(v & ~@as(i64, 7));
 }
 

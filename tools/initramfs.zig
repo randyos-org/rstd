@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     // c 5 1, as the kernel's own default initramfs has it
     try entry(arena, &out, &ino, "dev/console", 0o020600, 5, 1, "");
     for (args[2..]) |arg| {
-        const eq = std.mem.indexOfScalar(u8, arg, '=') orelse return error.BadArgument;
+        const eq = std.mem.findScalar(u8, arg, '=') orelse return error.BadArgument;
         const data = try Io.Dir.cwd().readFileAlloc(io, arg[eq + 1 ..], arena, .unlimited);
         try entry(arena, &out, &ino, arg[0..eq], 0o100755, 0, 0, data);
     }

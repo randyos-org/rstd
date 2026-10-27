@@ -189,7 +189,7 @@ fn midrFromSysfs() ?Part {
 
 /// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity.
 fn midrFromRegistry() ?u64 {
-    if (comptime sysinfo.os.tag != .windows) return null;
+    if (comptime sysinfo.target.os.tag != .windows) return null;
     const advapi = struct {
         extern "advapi32" fn RegGetValueW(hkey: usize, subkey: [*:0]const u16, value: [*:0]const u16, flags: u32, kind: ?*u32, data: ?*anyopaque, size: ?*u32) callconv(.winapi) i32;
     };
@@ -211,7 +211,7 @@ fn midrFromRegistry() ?u64 {
 
 pub fn probe() Caps {
     var c: Caps = .{};
-    switch (comptime sysinfo.os.tag) {
+    switch (comptime sysinfo.target.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             c.features.insert(.apple);
             c.features.setPresent(.sme, (auxv.sysctlInt("hw.optional.arm.FEAT_SME") orelse 0) != 0);
@@ -253,7 +253,7 @@ pub fn probe() Caps {
         c.features.insert(.midr);
         c.implementer = m.implementer;
         c.part = m.part;
-    } else if (sysinfo.os.tag == .linux) {
+    } else if (sysinfo.target.os.tag == .linux) {
         if (midrFromSysfs()) |m| {
             c.features.insert(.midr);
             c.implementer = m.implementer;
@@ -543,7 +543,7 @@ test "without the MIDR emulation the last CPU's identity decides, unless a big o
 }
 
 test "detect runs and returns a concrete core type" {
-    if (comptime sysinfo.cpu.arch != .aarch64 and sysinfo.cpu.arch != .aarch64_be) {
+    if (comptime sysinfo.target.cpu.arch != .aarch64 and sysinfo.target.cpu.arch != .aarch64_be) {
         return error.SkipZigTest;
     }
     try std.testing.expect(detect() != .unknown);

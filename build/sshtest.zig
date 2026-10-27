@@ -35,9 +35,9 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
     // under the qemu rigs' watchdog: an hour with no output ends it
     const run = qemutest.watchCommand(b);
     run.addArg("--");
-    run.addArtifactArg(tool);
+    run.addArtifactArg2(tool, .{});
     run.addArg(mac);
-    run.addArtifactArg(test_exe);
+    run.addArtifactArg2(test_exe, .{});
     run.stdio = .inherit;
     run.has_side_effects = true;
     const name = b.fmt("ssh-test-{t}-macos", .{target.result.cpu.arch});
@@ -99,9 +99,9 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
 
     const run = qemutest.watchCommand(b);
     run.addArg("--");
-    run.addArtifactArg(tool);
+    run.addArtifactArg2(tool, .{});
     run.addArg(mac);
-    run.addArtifactArg(exe);
+    run.addArtifactArg2(exe, .{});
     run.addPassthruArgs();
     run.stdio = .inherit;
     run.has_side_effects = true;

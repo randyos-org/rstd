@@ -118,6 +118,7 @@ test "portable conversions round-trip through strides" {
 }
 
 const check = @import("../../_test/blas1/check.zig");
+const portable = @import("../../portable.zig");
 
 /// Every bfloat16 and half-precision slot a reachable interface calls.
 const slots = blk: {
@@ -151,7 +152,7 @@ fn checkAll(vt: *const Vtable) !void {
 
 test "every bfloat16 and half-precision slot is set, on the portable kernels" {
     var vt: Vtable = .{};
-    @import("../../portable.zig").install(&vt);
+    portable.install(&vt);
     try checkAll(&vt);
 }
 

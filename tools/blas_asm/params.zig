@@ -124,16 +124,16 @@ fn probeSource(a: std.mem.Allocator) ![]const u8 {
 
 /// The enum's field names, read from `cpu/_coretypes.zig`.
 fn coreNames(a: std.mem.Allocator, text: []const u8, type_name: []const u8) ![]const []const u8 {
-    const head = try std.fmt.allocPrint(a, "pub const {s} = enum", .{type_name});
-    const start = std.mem.indexOf(u8, text, head) orelse map.die("no enum {s}", .{type_name});
-    const open = std.mem.indexOfScalarPos(u8, text, start, '{').?;
-    const close = std.mem.indexOfPos(u8, text, open, "};") orelse std.mem.indexOfScalarPos(u8, text, open, '}').?;
+    const head = try a.print("pub const {s} = enum", .{type_name});
+    const start = std.mem.find(u8, text, head) orelse map.die("no enum {s}", .{type_name});
+    const open = std.mem.findScalarPos(u8, text, start, '{').?;
+    const close = std.mem.findPos(u8, text, open, "};") orelse std.mem.findScalarPos(u8, text, open, '}').?;
     var out: std.ArrayList([]const u8) = .empty;
     var lines = std.mem.splitScalar(u8, text[open + 1 .. close], '\n');
     while (lines.next()) |raw| {
         var line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0 or std.mem.startsWith(u8, line, "//")) continue;
-        if (std.mem.indexOf(u8, line, "//")) |c| line = std.mem.trim(u8, line[0..c], " \t");
+        if (std.mem.find(u8, line, "//")) |c| line = std.mem.trim(u8, line[0..c], " \t");
         // `a, b, c,` on one line
         var it = std.mem.tokenizeAny(u8, line, ", ");
         while (it.next()) |name| {
@@ -143,13 +143,13 @@ fn coreNames(a: std.mem.Allocator, text: []const u8, type_name: []const u8) ![]c
     return out.items;
 }
 
-const Values = std.StringArrayHashMapUnmanaged(?i64);
+const Values = std.array_hash_map.String(?i64);
 
 fn parseValues(a: std.mem.Allocator, text: []const u8) !Values {
     var v: Values = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, line, '=') orelse continue;
         const key = try a.dupe(u8, std.mem.trim(u8, line[0..eq], " \r"));
         const val = std.mem.trim(u8, line[eq + 1 ..], " \r");
         try v.put(a, key, if (std.mem.eql(u8, val, "?")) null else try std.fmt.parseInt(i64, val, 10));
@@ -200,8 +200,8 @@ fn dtbEntries(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Famil
     while (parts.next()) |part| try cands.append(a, if (std.mem.startsWith(u8, part, "CORE_")) part[5..] else part);
     for (cands.items) |name| {
         const cc = try std.process.run(a, io, .{ .argv = &.{
-            "zig",                                             "cc",      "-E",       "-w", "-DDYNAMIC_ARCH",
-            try std.fmt.allocPrint(a, "-DFORCE_{s}", .{name}), "-target", fam.target, "-I", checkout,
+            "zig",                                     "cc",      "-E",       "-w", "-DDYNAMIC_ARCH",
+            try a.print("-DFORCE_{s}", .{name}),       "-target", fam.target, "-I", checkout,
             try map.path(&.{ checkout, "getarch.c" }),
         } });
         const ok = switch (cc.term) {
@@ -211,7 +211,7 @@ fn dtbEntries(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Famil
         if (!ok or cc.stderr.len > 0) map.die("preprocessing getarch.c for {s} ({s}) failed:\n{s}", .{ name, fam.name, cc.stderr });
         // the first value in the text is the core's; later ones repeat it
         const key = "-DDTB_DEFAULT_ENTRIES=";
-        const at = std.mem.indexOf(u8, cc.stdout, key) orelse continue;
+        const at = std.mem.find(u8, cc.stdout, key) orelse continue;
         var end = at + key.len;
         while (end < cc.stdout.len and std.ascii.isDigit(cc.stdout[end])) end += 1;
         return try std.fmt.parseInt(i64, cc.stdout[at + key.len .. end], 10);
@@ -262,7 +262,7 @@ pub fn main(init: std.process.Init) !void {
         for (names, macros) |name, *m| m.* = try coreMacro(a, fam, name);
         const dtb_vals = try a.alloc([]const u8, names.len);
         for (names, macros, dtb_vals) |name, macro, *v| {
-            v.* = if (try dtbEntries(a, io, checkout, fam, name, macro)) |n| try std.fmt.allocPrint(a, "{d}", .{n}) else "null";
+            v.* = if (try dtbEntries(a, io, checkout, fam, name, macro)) |n| try a.print("{d}", .{n}) else "null";
         }
         try writeProngs(a, &dtb, names, dtb_vals);
         try dtb.appendSlice(a, "    };\n}\n\n");
@@ -274,7 +274,7 @@ pub fn main(init: std.process.Init) !void {
             try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
             try argv.appendSlice(a, fam.defines);
             var defs = std.mem.tokenizeScalar(u8, macro, ',');
-            while (defs.next()) |d| try argv.append(a, try std.fmt.allocPrint(a, "-D{s}", .{d}));
+            while (defs.next()) |d| try argv.append(a, try a.print("-D{s}", .{d}));
             try argv.appendSlice(a, &.{ src_path, "-o", ".zig-cache/params_probe.exe" });
             const cc = try std.process.run(a, io, .{ .argv = argv.items });
             const built = switch (cc.term) {
@@ -299,7 +299,7 @@ pub fn main(init: std.process.Init) !void {
             for (precs) |pr| {
                 const key = struct {
                     fn k(al: std.mem.Allocator, f: []const u8, w: []const u8) ![]const u8 {
-                        return std.fmt.allocPrint(al, "{s}.{s}", .{ f, w });
+                        return al.print("{s}.{s}", .{ f, w });
                     }
                 }.k;
                 const um = (vals.get(try key(a, pr.field, "UNROLL_M")) orelse null);

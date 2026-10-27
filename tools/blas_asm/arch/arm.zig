@@ -13,7 +13,7 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
     // what getarch's `config.h` defines, where it knows the core
     if (try map.getarch(core)) |d| return d;
     var out: std.ArrayList([]const u8) = .empty;
-    try out.append(a, try std.fmt.allocPrint(a, "-D{s}", .{core}));
+    try out.append(a, try a.print("-D{s}", .{core}));
     try out.appendSlice(a, &.{ "-DARMV7", "-DHAVE_VFP", "-DHAVE_VFPV3" });
     return out.items;
 }

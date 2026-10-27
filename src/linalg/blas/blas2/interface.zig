@@ -184,7 +184,7 @@ fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: isize, 
     // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity; the
     // reference clears its stack buffer for every `trans` but `n`, here the
     // heap one too since the allocator hands out whatever it holds
-    if (comptime complex and t != .n and sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    if (comptime complex and t != .n and sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
         _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
@@ -382,7 +382,7 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: i
     defer sc.deinit(allocator);
     // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
     // and NaN there reaches `y`
-    if (sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    if (sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`symv_thread_*`)
     if (comptime complex) {
         _ = portable.fetch(T, op, blas.vtable)(n, n, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);

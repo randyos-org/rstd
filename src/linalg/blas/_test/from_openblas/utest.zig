@@ -12,8 +12,6 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const l1 = @import("../../blas1/interface.zig");
-const l2 = @import("../../blas2/interface.zig");
-const tri = @import("../../blas2/triangular.zig");
 
 const C32 = std.math.Complex(f32);
 const C64 = std.math.Complex(f64);
@@ -91,6 +89,9 @@ fn amaxAmin() !void {
         try near(3.3, try l1.extreme(C, .amin, 9, &x, 1), eps(ob.Float(C)), "camin");
     }
 }
+
+const l2 = @import("../../blas2/interface.zig");
+const tri = @import("../../blas2/triangular.zig");
 
 test "utest: amax, amin" {
     try amaxAmin();

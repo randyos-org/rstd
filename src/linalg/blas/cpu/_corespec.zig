@@ -152,13 +152,13 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
 pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         // MSA needs the revision-5 feature bit explicitly; GCC's `-mmsa` implies
-        // it, LLVM's integrated assembler does not.
-        .loongson3r4 => .{ .features = &.{ "msa", "fp64", "mips64r5" } },
+        // it, LLVM's integrated assembler does not. Zig adds `-mfp64` for MSA.
+        .loongson3r4 => .{ .features = &.{ "msa", "mips64r5" } },
         // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
         // the SIMD architecture; the 24K and 1004K have none
         .mips24k, .mips1004k => .{ .model = "mips32r2" },
-        .p5600 => .{ .model = "p5600", .features = &.{ "msa", "fp64" } },
-        .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{ "msa", "fp64" } },
+        .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
+        .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
         // `-march=mips64r2 -mtune=loongson3a`; the 4-operand `madd.s` needs it
         .loongson3r3 => .{ .features = &.{"mips64r2"} },
         .mips64_generic, .unknown => .{},
@@ -296,7 +296,7 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
         coretypes.PowerCoreType => switch (core) {
             .power8, .power9 => cpu.has(.powerpc, .vsx),
             .power10 => cpu.has(.powerpc, .vsx) and cpu.has(.powerpc, .isa_v31_instructions),
-            .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerPC64(),
+            .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerpc64(),
             else => true,
         },
         else => true,
@@ -304,7 +304,7 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
 }
 
 fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
-    const wide = cpu.arch.isMIPS64();
+    const wide = cpu.arch.isMips64();
     return switch (core) {
         .mips24k, .mips1004k, .p5600 => !wide and (core != .p5600 or cpu.has(.mips, .mips32r5)),
         .i6400, .i6500, .p6600 => wide and cpu.has(.mips, .mips64r6),

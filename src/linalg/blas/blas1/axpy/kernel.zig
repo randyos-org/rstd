@@ -19,9 +19,11 @@ const uk = @import("../uk_block.zig");
 const BlasLong = types.BlasLong;
 const Complex = std.math.Complex;
 
-/// The six kernel symbol names an architecture's `<arch>/kernel.zig` iterates
-/// over (real and complex, plain and conjugated).
-pub const roles: []const []const u8 = &.{ "saxpy", "daxpy", "caxpy", "caxpyc", "zaxpy", "zaxpyc" };
+/// The kernels: real and complex, plain and conjugated.
+pub const Role = enum { saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc };
+
+/// The kernel names an architecture's `<arch>/kernel.zig` iterates over.
+pub const roles: []const [:0]const u8 = @typeInfo(Role).@"enum".field_names;
 
 // ---- kernel ABI ------------------------------------------------------------
 

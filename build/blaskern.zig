@@ -167,7 +167,7 @@ fn pickTarget(
     comptime arch_tag: std.Target.Cpu.Arch,
     groups: []const Group,
 ) ?struct { group: usize, core: []const u8 } {
-    if (comptime arch_tag == sysinfo.cpu.arch) {
+    if (comptime arch_tag == sysinfo.target.cpu.arch) {
         if (target.query.isNativeCpu()) {
             const name = @tagName(corespec.Detector(arch_tag).detect());
             for (groups, 0..) |g, i| {

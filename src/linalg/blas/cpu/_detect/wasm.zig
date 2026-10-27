@@ -13,7 +13,7 @@ pub const Decision = select.Decision(CoreType);
 
 /// Nothing is probed; the module's features are the answer.
 pub const Caps = struct {
-    simd128: bool = sysinfo.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(sysinfo.cpu.features, .simd128),
+    simd128: bool = sysinfo.target.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(sysinfo.target.cpu.features, .simd128),
 };
 
 pub fn probe() Caps {

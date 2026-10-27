@@ -27,13 +27,13 @@ fn run(init: std.process.Init) !u8 {
     }
     const host = args[1];
     // unique, so runs from two checkouts do not collide
-    const remote = try std.fmt.allocPrint(arena, "/tmp/rstd-test-{d}", .{Io.Clock.awake.now(io).toNanoseconds()});
+    const remote = try arena.print("/tmp/rstd-test-{d}", .{Io.Clock.awake.now(io).toNanoseconds()});
     const options = [_][]const u8{ "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30" };
 
     var scp: std.ArrayList([]const u8) = .empty;
     try scp.append(arena, "scp");
     try scp.appendSlice(arena, &options);
-    try scp.appendSlice(arena, &.{ "-q", args[2], try std.fmt.allocPrint(arena, "{s}:{s}", .{ host, remote }) });
+    try scp.appendSlice(arena, &.{ "-q", args[2], try arena.print("{s}:{s}", .{ host, remote }) });
     if (try exec(io, scp.items) != 0) {
         std.debug.print("ssh_test: copying the tests to {s} failed\n", .{host});
         return 1;
@@ -42,10 +42,10 @@ fn run(init: std.process.Init) !u8 {
     // each argument single-quoted for the remote shell
     var extra: std.ArrayList(u8) = .empty;
     for (args[3..]) |a| {
-        if (std.mem.indexOfScalar(u8, a, '\'') != null) return error.QuoteInArgument;
+        if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;
         try extra.print(arena, " '{s}'", .{a});
     }
-    const command = try std.fmt.allocPrint(arena, "chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -f {0s}; exit $s", .{ remote, extra.items });
+    const command = try arena.print("chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -f {0s}; exit $s", .{ remote, extra.items });
     var ssh: std.ArrayList([]const u8) = .empty;
     try ssh.append(arena, "ssh");
     try ssh.appendSlice(arena, &options);

@@ -28,7 +28,7 @@ const modules = .{
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    return arch.isMIPS();
+    return arch.isMips();
 }
 
 /// Whether any routine has a kernel for `core`.

@@ -13,6 +13,7 @@ add_key
 adde
 addi
 addis
+addiu
 addl
 addpd
 addps
@@ -33,6 +34,7 @@ alphabg
 ALPHAI
 ALPHAR
 Alti
+altivec
 amaxv
 amdgpu
 amxtile
@@ -55,6 +57,7 @@ Args
 argv
 armeb
 ARMEB
+armhf
 ASLR
 asmfmt
 asr
@@ -147,6 +150,7 @@ ccopy
 cdotc
 cdotu
 ceq
+cfpc
 cgbmv
 cgeadd
 cgemm
@@ -188,6 +192,7 @@ cmpd
 cmpdi
 cmpl
 cmpld
+cmplw
 cmpq
 cmpwi
 CMPXCHG
@@ -224,6 +229,7 @@ create_module
 creds
 CROTG
 cscal
+csep
 csky
 csoff
 CSPRNG
@@ -494,6 +500,7 @@ flate
 fld
 fldl
 flds
+fldt
 flistxattr
 flock
 flut
@@ -542,6 +549,7 @@ fstatat
 fstatfs
 fstpl
 fstps
+fstpt
 fsub
 fsubrp
 fsubs
@@ -594,6 +602,7 @@ FXRSTOR
 fxsr
 FXWSAVE
 gamsq
+GBMV
 gdb
 gdkwayland
 gdkx
@@ -697,6 +706,7 @@ HUGETLB
 HVAR
 hvcurveto
 HWCAP
+hwcaps
 HWPOISON
 hwprobe
 hygon
@@ -1027,6 +1037,7 @@ msync
 MSYS
 mtctr
 mtlr
+mtmsr
 mtmsrd
 mtrr
 MTRRs
@@ -1403,6 +1414,7 @@ SAVLOD
 saxpby
 saxpy
 sbaxpy
+sbbc
 sbcopy
 sbdot
 sbdtobf
@@ -1413,6 +1425,7 @@ sbix
 sblaswp
 sbmax
 sbmin
+SBMV
 sbneg
 sbnrm
 sbrot
@@ -1532,6 +1545,7 @@ SIGIO
 SIGIOT
 signalfd
 signalfd4
+significand
 SIGPWR
 SIGRTMAX
 SIGRTMIN
@@ -1562,6 +1576,7 @@ smax
 SMEP
 smin
 SMSW
+SMVCH
 smxe
 sneg
 SNOPT
@@ -1581,6 +1596,7 @@ sphtext
 Spirv
 spki
 splice
+SPMV
 sqrtm
 sradi
 srai
@@ -1627,6 +1643,7 @@ STFXDUX
 STFXDX
 stfxsux
 stfxsx
+stmts
 stosl
 stp
 STPCLK
@@ -1634,6 +1651,7 @@ str
 strmm
 strsm
 stty
+stwu
 stxv
 stxvd
 stxvx
@@ -1680,6 +1698,7 @@ SYSTIMER
 sysv
 taxpy
 taxpyc
+TBMV
 tbsv
 tcopy
 tee
@@ -1717,6 +1736,8 @@ tocbss
 toks
 toolchain
 topdictidx
+TPMV
+TPSV
 transa
 transb
 TRBAK
@@ -1797,6 +1818,7 @@ vancluever
 vaxis
 vbroadcastsd
 vbroadcastss
+vclose
 vcubic
 vcurve
 vdevice
@@ -1813,6 +1835,7 @@ vfmaddps
 vfmsub
 vfmul
 vfork
+VFPD
 vfpv
 vfsub
 vhangup
@@ -1842,9 +1865,11 @@ vmovups
 vmrgew
 vmrghw
 vmrglw
+vmrs
 vmsplice
 vmulpd
 vmxe
+vopen
 VORG
 vortexm
 vperm
