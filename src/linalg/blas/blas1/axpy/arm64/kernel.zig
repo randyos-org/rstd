@@ -35,7 +35,12 @@ const thunderx_entry = .{
 };
 
 fn usesSve(comptime core: Core, comptime slot: Slot) bool {
-    return (core == .a64fx or core == .neoversev1) and !kernel.form(slot).complex;
+    if (core != .a64fx and core != .neoversev1) return false;
+    // `kernels/arm64.zig` asks about every slot, not only axpy's
+    inline for (kernel.slots) |s| {
+        if (s == slot) return !kernel.form(slot).complex;
+    }
+    return false;
 }
 
 fn usesThunderx(comptime core: Core, comptime slot: Slot) bool {
