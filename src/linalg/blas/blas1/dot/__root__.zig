@@ -186,6 +186,7 @@ pub fn installGeneric(vt: *Vtable) void {
 const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
 const kernel = @import("kernel.zig");
+const fma = @import("../../fma.zig");
 const uk = @import("../uk_block.zig");
 const check = @import("../../_test/blas1/check.zig");
 
@@ -337,7 +338,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
         const step = 4 * l512;
         while (i < n & ~@as(usize, step - 1)) : (i += step) {
             for (0..4) |g| for (0..l512) |l| {
-                w[g][l] = kernel.fmadd(fuse, T, x[i + g * l512 + l], y[i + g * l512 + l], w[g][l]);
+                w[g][l] = fma.madd(fuse, T, x[i + g * l512 + l], y[i + g * l512 + l], w[g][l]);
             };
         }
         for (0..4) |g| for (0..l256) |l| {
@@ -346,7 +347,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
     }
     while (i < n) : (i += 4 * l256) {
         for (0..4) |g| for (0..l256) |l| {
-            acc[g][l] = kernel.fmadd(fuse, T, x[i + g * l256 + l], y[i + g * l256 + l], acc[g][l]);
+            acc[g][l] = fma.madd(fuse, T, x[i + g * l256 + l], y[i + g * l256 + l], acc[g][l]);
         };
     }
     var h: [l256 / 2]T = undefined;

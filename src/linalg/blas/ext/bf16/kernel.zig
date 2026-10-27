@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const types = @import("../../types.zig");
+const fma = @import("../../fma.zig");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 
@@ -135,10 +136,6 @@ pub fn narrow(comptime T: type, v: f32) T {
     return if (T == BF16) toBf16(v) else @floatCast(v);
 }
 
-inline fn fm(comptime fuse: bool, a: f32, b: f32, c: f32) f32 {
-    return util.scalar(f32, if (fuse) @mulAdd(f32, a, b, c) else a * b + c);
-}
-
 /// `y = alpha*op(A)*x + beta*y`, `A` column-major `m` by `n`. `E` is the type
 /// of `A` and `x`, `Y` that of `y`, `alpha` and `beta`. Each result sums
 /// `a*x` in `f32` in index order and rounds once on the store; `beta == 0`
@@ -157,7 +154,7 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
                     var acc: f32 = 0;
                     var q: BlasLong = 0;
                     while (q < m) : (q += 1) {
-                        acc = fm(fuse, wide(E, util.at(E, a, q + r * lda).*), wide(E, util.at(E, x, q * inc_x).*), acc);
+                        acc = fma.madd(fuse, f32, wide(E, util.at(E, a, q + r * lda).*), wide(E, util.at(E, x, q * inc_x).*), acc);
                     }
                     store(y, r * inc_y, alpha_f, beta_f, acc);
                 }
@@ -174,7 +171,7 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
                     const xv = wide(E, util.at(E, x, q * inc_x).*);
                     const col = util.at(E, a, r0 + q * lda);
                     const c: [*]E = @ptrCast(col);
-                    for (acc[0..rows], c[0..rows]) |*s, e| s.* = fm(fuse, wide(E, e), xv, s.*);
+                    for (acc[0..rows], c[0..rows]) |*s, e| s.* = fma.madd(fuse, f32, wide(E, e), xv, s.*);
                 }
                 for (acc[0..rows], 0..) |s, i| store(y, (r0 + @as(BlasLong, @intCast(i))) * inc_y, alpha_f, beta_f, s);
             }
@@ -185,7 +182,7 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
         /// reads `y`.
         inline fn store(y: [*]Y, at: BlasLong, alpha_f: f32, beta_f: f32, acc: f32) void {
             const yp = util.at(Y, y, at);
-            yp.* = narrow(Y, util.scalar(f32, if (beta_f == 0) alpha_f * acc else fm(fuse, alpha_f, acc, beta_f * wide(Y, yp.*))));
+            yp.* = narrow(Y, util.scalar(f32, if (beta_f == 0) alpha_f * acc else fma.madd(fuse, f32, alpha_f, acc, beta_f * wide(Y, yp.*))));
         }
     };
 }

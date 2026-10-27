@@ -97,11 +97,6 @@ pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Bl
 
 // ---- drivers ---------------------------------------------------------------
 
-/// `a*b + c`, contracted or not.
-pub inline fn fmadd(comptime fuse: bool, comptime T: type, a: T, b: T, c: T) T {
-    return util.scalar(T, if (fuse) @mulAdd(T, a, b, c) else a * b + c);
-}
-
 /// Real kernel driver. `mask` is the reference's `n & -mask` block size
 /// (16 for `f64`, 32 for `f32`); `Block.run(n1, alpha, x, y)` handles that
 /// many contiguous elements, or `Block` is null for a scalar-only kernel.
@@ -118,7 +113,7 @@ pub fn Real(comptime T: type, comptime mask: comptime_int, comptime Block: ?type
                 }
                 while (i < n) : (i += 1) {
                     const idx: usize = @intCast(i);
-                    y[idx] = fmadd(fuse, T, alpha, x[idx], y[idx]);
+                    y[idx] = fma.madd(fuse, T, alpha, x[idx], y[idx]);
                 }
                 return;
             }
@@ -143,7 +138,7 @@ pub fn Real(comptime T: type, comptime mask: comptime_int, comptime Block: ?type
             }
             while (i < n) : (i += 1) {
                 const yp = util.at(T, y, iy);
-                yp.* = fmadd(fuse, T, alpha, util.at(T, x, ix).*, yp.*);
+                yp.* = fma.madd(fuse, T, alpha, util.at(T, x, ix).*, yp.*);
                 ix += incx;
                 iy += incy;
             }
@@ -162,11 +157,11 @@ pub fn Cplx(comptime F: type, comptime conj: bool, comptime mask: comptime_int, 
         // outer `y +=` alone (`fmuladd(ar, xr, -(ai*xi))`, then a plain add).
         inline fn madd(y: *C, alpha: C, x: C) void {
             if (comptime !conj) {
-                y.re += fmadd(fuse, F, alpha.re, x.re, -(alpha.im * x.im));
-                y.im += fmadd(fuse, F, alpha.re, x.im, alpha.im * x.re);
+                y.re += fma.madd(fuse, F, alpha.re, x.re, -(alpha.im * x.im));
+                y.im += fma.madd(fuse, F, alpha.re, x.im, alpha.im * x.re);
             } else {
-                y.re += fmadd(fuse, F, alpha.re, x.re, alpha.im * x.im);
-                y.im -= fmadd(fuse, F, alpha.re, x.im, -(alpha.im * x.re));
+                y.re += fma.madd(fuse, F, alpha.re, x.re, alpha.im * x.im);
+                y.im -= fma.madd(fuse, F, alpha.re, x.im, -(alpha.im * x.re));
             }
         }
 

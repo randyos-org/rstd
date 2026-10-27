@@ -28,6 +28,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const root = @import("root");
 const types = @import("types.zig");
+const util = @import("util.zig");
 
 /// Whether the target has a hardware fused multiply-add.
 pub const hardware = switch (sysinfo.target.cpu.arch) {
@@ -92,6 +93,13 @@ pub fn fusible(comptime T: type) bool {
 /// `fuse` for multiply-adds in `T`.
 pub fn fuseFor(comptime T: type) bool {
     return fuse and fusible(T);
+}
+
+/// `a*b + c`, fused if `fused`; kept out of AltiVec's flushing lanes
+/// (`util.scalar`). For kernels that pick their own fusing (`fuse`,
+/// `fuse_vector`).
+pub inline fn madd(comptime fused: bool, comptime T: type, a: T, b: T, c: T) T {
+    return util.scalar(T, if (fused) @mulAdd(T, a, b, c) else a * b + c);
 }
 
 /// `a*b + c`, fused when `fuseFor` says so (`@mulAdd` is strictly

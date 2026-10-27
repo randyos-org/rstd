@@ -95,7 +95,7 @@ fn RealAligned(comptime T: type, comptime mask: comptime_int, comptime Block: ty
                 const head = ((32 - misalign) >> shift) & (32 / @sizeOf(T) - 1);
                 while (i < head) : (i += 1) {
                     const idx: usize = @intCast(i);
-                    y[idx] = kernel.fmadd(fma.fuse, T, alpha, x[idx], y[idx]);
+                    y[idx] = fma.madd(fma.fuse, T, alpha, x[idx], y[idx]);
                 }
             }
             const n1 = (n - i) & -mask;
@@ -104,7 +104,7 @@ fn RealAligned(comptime T: type, comptime mask: comptime_int, comptime Block: ty
             i += n1;
             while (i < n) : (i += 1) {
                 const idx: usize = @intCast(i);
-                y[idx] = kernel.fmadd(fma.fuse, T, alpha, x[idx], y[idx]);
+                y[idx] = fma.madd(fma.fuse, T, alpha, x[idx], y[idx]);
             }
         }
     };

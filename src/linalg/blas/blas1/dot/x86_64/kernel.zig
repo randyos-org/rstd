@@ -61,14 +61,14 @@ pub fn VectorBlockWith(comptime role: []const u8, comptime wide: bool, comptime 
                 const nw = n & ~@as(usize, step - 1);
                 while (i < nw) : (i += step) {
                     inline for (0..4) |g| {
-                        w[g] = kernel.fmadd(fuse, W, util.load(W, x + i + g * l512), util.load(W, y + i + g * l512), w[g]);
+                        w[g] = fma.madd(fuse, W, util.load(W, x + i + g * l512), util.load(W, y + i + g * l512), w[g]);
                     }
                 }
                 inline for (0..4) |g| acc[g] = half(T, w[g], false) + half(T, w[g], true);
             }
             while (i < n) : (i += 4 * l256) {
                 inline for (0..4) |g| {
-                    acc[g] = kernel.fmadd(fuse, V, util.load(V, x + i + g * l256), util.load(V, y + i + g * l256), acc[g]);
+                    acc[g] = fma.madd(fuse, V, util.load(V, x + i + g * l256), util.load(V, y + i + g * l256), acc[g]);
                 }
             }
             const a = ((acc[0] + acc[1]) + acc[2]) + acc[3];

@@ -51,7 +51,7 @@ fn VectorBlock(comptime role: []const u8) type {
             while (i + width <= len) : (i += width) {
                 const xv: V = x[i..][0..width].*;
                 const yv: V = y[i..][0..width].*;
-                y[i..][0..width].* = kernel.fmadd(fma.fuse, V, av, xv, yv);
+                y[i..][0..width].* = fma.madd(fma.fuse, V, av, xv, yv);
             }
         }
     };

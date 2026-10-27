@@ -32,7 +32,7 @@ pub fn Real(comptime T: type) type {
         }
         /// `y + da * x`, contracted as the build's policy says.
         inline fn fmadd(x: V, da: V, y: V) V {
-            return kernel.fmadd(fma.fuse_vector, V, x, da, y);
+            return fma.madd(fma.fuse_vector, V, x, da, y);
         }
 
         pub fn call(
@@ -73,7 +73,7 @@ pub fn Real(comptime T: type) type {
                         i += vecs * W;
                     }
                 }
-                while (i < len) : (i += 1) y[i] = kernel.fmadd(fma.fuse, T, da, x[i], y[i]);
+                while (i < len) : (i += 1) y[i] = fma.madd(fma.fuse, T, da, x[i], y[i]);
                 return 0;
             }
 
@@ -103,7 +103,7 @@ pub fn Real(comptime T: type) type {
                     store(y + i, fmadd(xv, dv, load(y + i)));
                 }
                 while (i < len) : (i += 1) {
-                    y[i] = kernel.fmadd(fma.fuse, T, da, util.at(T, x, ix).*, y[i]);
+                    y[i] = fma.madd(fma.fuse, T, da, util.at(T, x, ix).*, y[i]);
                     ix += inc_x;
                 }
                 return 0;
@@ -125,14 +125,14 @@ pub fn Real(comptime T: type) type {
                 inline for (0..4) |k| {
                     ys[k] = util.at(T, y, iy + @as(BlasLong, k) * inc_y).*;
                 }
-                inline for (0..4) |k| ys[k] = kernel.fmadd(fma.fuse, T, da, xs[k], ys[k]);
+                inline for (0..4) |k| ys[k] = fma.madd(fma.fuse, T, da, xs[k], ys[k]);
                 inline for (0..4) |k| {
                     util.at(T, y, iy).* = ys[k];
                     iy += inc_y;
                 }
             }
             while (i < len) : (i += 1) {
-                util.at(T, y, iy).* = kernel.fmadd(fma.fuse, T, da, util.at(T, x, ix).*, util.at(T, y, iy).*);
+                util.at(T, y, iy).* = fma.madd(fma.fuse, T, da, util.at(T, x, ix).*, util.at(T, y, iy).*);
                 ix += inc_x;
                 iy += inc_y;
             }
@@ -199,18 +199,18 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
         /// One vector's worth of complex numbers, split into parts: the
         /// reference's four statements, in its order.
         inline fn madd(comptime fuse: bool, dar: V, dai: V, xr: V, xi: V, yr: *V, yi: *V) void {
-            yr.* = kernel.fmadd(fuse, V, xr, dar, yr.*);
-            yi.* = kernel.fmadd(fuse, V, xi, dar * @as(V, @splat(op0)), yi.*);
-            yr.* = kernel.fmadd(fuse, V, xi, dai * @as(V, @splat(op1)), yr.*);
-            yi.* = kernel.fmadd(fuse, V, xr, dai * @as(V, @splat(op2)), yi.*);
+            yr.* = fma.madd(fuse, V, xr, dar, yr.*);
+            yi.* = fma.madd(fuse, V, xi, dar * @as(V, @splat(op0)), yi.*);
+            yr.* = fma.madd(fuse, V, xi, dai * @as(V, @splat(op1)), yr.*);
+            yi.* = fma.madd(fuse, V, xr, dai * @as(V, @splat(op2)), yi.*);
         }
 
         /// The same for one number, the scalar tail.
         inline fn maddScalar(da_r: F, da_i: F, xr: F, xi: F, yr: *F, yi: *F) void {
-            yr.* = kernel.fmadd(fma.fuse, F, da_r, xr, yr.*);
-            yi.* = kernel.fmadd(fma.fuse, F, da_r * op0, xi, yi.*);
-            yr.* = kernel.fmadd(fma.fuse, F, da_i * op1, xi, yr.*);
-            yi.* = kernel.fmadd(fma.fuse, F, da_i * op2, xr, yi.*);
+            yr.* = fma.madd(fma.fuse, F, da_r, xr, yr.*);
+            yi.* = fma.madd(fma.fuse, F, da_r * op0, xi, yi.*);
+            yr.* = fma.madd(fma.fuse, F, da_i * op1, xi, yr.*);
+            yi.* = fma.madd(fma.fuse, F, da_i * op2, xr, yi.*);
         }
 
         pub fn call(

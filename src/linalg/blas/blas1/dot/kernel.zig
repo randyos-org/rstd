@@ -80,11 +80,6 @@ pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
     };
 }
 
-/// `a*b + c`, contracted or not.
-pub inline fn fmadd(comptime fuse: bool, comptime T: type, a: T, b: T, c: T) T {
-    return util.scalar(T, if (fuse) @mulAdd(T, a, b, c) else a * b + c);
-}
-
 /// The block the reference's driver falls back on where a core has no
 /// microkernel (`ddot_kernel_8`, `sdot_kernel_16`, `cdot_kernel_16`,
 /// `zdot_kernel_8`): plain C, in its own summation order.
@@ -107,10 +102,10 @@ pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
                         const xi = x[j + 2 * k + 1];
                         const yr = y[j + 2 * k];
                         const yi = y[j + 2 * k + 1];
-                        dot[s[0]] = fmadd(fuse, E, xr, yr, dot[s[0]]);
-                        dot[s[1]] = fmadd(fuse, E, xi, yi, dot[s[1]]);
-                        dot[s[2]] = fmadd(fuse, E, xr, yi, dot[s[2]]);
-                        dot[s[3]] = fmadd(fuse, E, xi, yr, dot[s[3]]);
+                        dot[s[0]] = fma.madd(fuse, E, xr, yr, dot[s[0]]);
+                        dot[s[1]] = fma.madd(fuse, E, xi, yi, dot[s[1]]);
+                        dot[s[2]] = fma.madd(fuse, E, xr, yi, dot[s[2]]);
+                        dot[s[3]] = fma.madd(fuse, E, xi, yr, dot[s[3]]);
                     }
                     j += 8;
                 }
@@ -126,8 +121,8 @@ pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
             while (i < n) : (i += 8) {
                 // `y0*x0 + y1*x1 + ...`: clang fuses the first product, then
                 // each next one into the running sum
-                var r = fmadd(fuse, E, y[i], x[i], y[i + 1] * x[i + 1]);
-                inline for (2..8) |k| r = fmadd(fuse, E, y[i + k], x[i + k], r);
+                var r = fma.madd(fuse, E, y[i], x[i], y[i + 1] * x[i + 1]);
+                inline for (2..8) |k| r = fma.madd(fuse, E, y[i + k], x[i + k], r);
                 dot += r;
             }
             return dot;
@@ -150,7 +145,7 @@ fn Ddot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
                 var i = n1;
                 while (i < n) : (i += 1) {
                     const idx: usize = @intCast(i);
-                    dot = fmadd(fuse, f64, y[idx], x[idx], dot);
+                    dot = fma.madd(fuse, f64, y[idx], x[idx], dot);
                 }
                 return dot;
             }
@@ -172,7 +167,7 @@ fn Ddot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
                 temp2 += m2 + m4;
             }
             while (i < n) : (i += 1) {
-                temp1 = fmadd(fuse, f64, util.at(f64, y, iy).*, util.at(f64, x, ix).*, temp1);
+                temp1 = fma.madd(fuse, f64, util.at(f64, y, iy).*, util.at(f64, x, ix).*, temp1);
                 ix += incx;
                 iy += incy;
             }
@@ -207,7 +202,7 @@ fn Sdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
             var ix: BlasLong = 0;
             var iy: BlasLong = 0;
             while (i < n1) : (i += 2) {
-                const s = fmadd(fuse, f32, util.at(f32, y, iy).*, util.at(f32, x, ix).*, util.at(f32, y, iy + incy).* * util.at(f32, x, ix + incx).*);
+                const s = fma.madd(fuse, f32, util.at(f32, y, iy).*, util.at(f32, x, ix).*, util.at(f32, y, iy + incy).* * util.at(f32, x, ix + incx).*);
                 dot += s;
                 ix += incx * 2;
                 iy += incy * 2;
@@ -242,7 +237,7 @@ fn Dsdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool)
                 i = n1;
                 while (i < n) : (i += 1) {
                     const idx: usize = @intCast(i);
-                    dot = fmadd(fuse, f64, y[idx], x[idx], dot);
+                    dot = fma.madd(fuse, f64, y[idx], x[idx], dot);
                 }
                 dot += mydot;
                 return dot;
@@ -253,13 +248,13 @@ fn Dsdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool)
             var ix: BlasLong = 0;
             var iy: BlasLong = 0;
             while (i < n1) : (i += 2) {
-                const s = fmadd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, @as(f64, util.at(f32, y, iy + incy).*) * util.at(f32, x, ix + incx).*);
+                const s = fma.madd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, @as(f64, util.at(f32, y, iy + incy).*) * util.at(f32, x, ix + incx).*);
                 dot += s;
                 ix += incx * 2;
                 iy += incy * 2;
             }
             while (i < n) : (i += 1) {
-                dot = fmadd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, dot);
+                dot = fma.madd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, dot);
                 ix += incx;
                 iy += incy;
             }
@@ -276,10 +271,10 @@ fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comp
     const s: [4]usize = if (F == f32) .{ 0, 1, 4, 5 } else .{ 0, 1, 2, 3 };
     return struct {
         inline fn acc(dot: *[N]F, xr: F, xi: F, yr: F, yi: F) void {
-            dot[s[0]] = fmadd(fuse, F, xr, yr, dot[s[0]]);
-            dot[s[1]] = fmadd(fuse, F, xi, yi, dot[s[1]]);
-            dot[s[2]] = fmadd(fuse, F, xr, yi, dot[s[2]]);
-            dot[s[3]] = fmadd(fuse, F, xi, yr, dot[s[3]]);
+            dot[s[0]] = fma.madd(fuse, F, xr, yr, dot[s[0]]);
+            dot[s[1]] = fma.madd(fuse, F, xi, yi, dot[s[1]]);
+            dot[s[2]] = fma.madd(fuse, F, xr, yi, dot[s[2]]);
+            dot[s[3]] = fma.madd(fuse, F, xi, yr, dot[s[3]]);
         }
 
         pub fn call(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) CComplex(F) {
