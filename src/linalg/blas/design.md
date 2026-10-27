@@ -694,6 +694,7 @@ Where the port differs from `dynamic*.c`:
 value is read one variable at a time with no allocation, from a map (`blas.init`), a POSIX
 `environ` block, or the Windows PEB (`Config.Env`). A value longer than `value_max` (64 bytes)
 reads as unparseable and falls back to the default (for a core name, to detection).
+Initialization also caches the CPU count in `cpu_count` (1 without threads).
 
 | Variable | Field | Effect here |
 | --- | --- | --- |
@@ -703,7 +704,7 @@ reads as unparseable and falls back to the default (for a core name, to detectio
 | `OPENBLAS_BLOCK_FACTOR` | `block_factor` | scales a computed gemm `p` (clamped to 10 to 200 percent) |
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
 | `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](threading.md) |
-| `GOTO_NUM_THREADS` | `goto_num_threads` | parsed; the fallback ceiling of [`threading.md`](threading.md) |
+| `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](threading.md) |
 | `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT` | `omp_num_threads`, `omp_adaptive`, `thread_timeout` | parsed, no effect |
 | `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
 | `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
@@ -921,6 +922,7 @@ cannot assemble.
 | `asm_registry.zig` | `Kernels` (export and install of converted assembly), `install`, `served`, `isLinked` |
 | `abi.zig` | the build variant for a target's calling convention |
 | `fma.zig` | the contraction policy |
+| `threading.zig` | thresholds, worker count, chunks, the claim loop and ordered combine |
 | `util.zig` | negative offsets, unaligned vector loads, `kernelSymbol`, `fits`, `vectorIeee`, `blue`, `extendedSum` |
 | `apple_accel.zig` | Accelerate's CBLAS, bound at run time |
 | `_kernel.zig` | root of each per-core object |
@@ -978,7 +980,9 @@ All routines are single-threaded. [`threading.md`](threading.md) specifies threa
 routine takes an `io: Io`; levels 1 and 2 split work into chunks fixed by the problem size and
 combine partial results in chunk order, so results do not depend on the worker count; level 3
 follows OpenBLAS's shared packed `B` protocol on `Io.Group.concurrent`; all scratch is allocated
-before any task starts. `Config` already parses the thread variables it reads.
+before any task starts. `Config` already parses the thread variables it reads. `threading.zig`
+holds the machinery of its plan's step 1: the cached CPU count and ceiling, the thresholds, the
+chunks, the claim loop and the ordered combine; no routine uses it yet.
 
 ## Alternatives considered
 

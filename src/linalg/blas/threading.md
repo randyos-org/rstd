@@ -2,7 +2,7 @@
 
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
-without threads. It is a design, not yet an implementation. Upstream references are to the
+without threads. Plan step 1 is implemented (`threading.zig`); no routine threads yet. Upstream references are to the
 OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
 `lib/std` at 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md);
 how this rule compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
@@ -117,8 +117,10 @@ admits fewer than `w` workers, the surplus run inline on the caller.
 Above a routine's threshold the problem is cut into chunks whose boundaries depend only on
 the problem size and the routine's chunk size, never on `w`:
 
-- **Chunks.** A chunk is about the least work OpenBLAS's threshold assigns one thread, with
-  at most 64 chunks per call.
+- **Chunks.** A chunk is about the most work OpenBLAS's threshold runs serially: a call of
+  `work` units above `serial_max` makes `ceil(work / serial_max)` chunks, at most 64. Bounds
+  split the range evenly, or by square roots where row costs grow or shrink (`Shape`), and
+  round to a quantum the routine picks.
 - **Claiming.** `w` workers start through `Group.async`; each claims the next chunk from an
   atomic counter until none remain. The work spreads over whatever actually runs: all
   workers when the `Io` runs them all, fewer when it admits fewer (late starters find nothing
@@ -160,7 +162,7 @@ protocol is therefore built on `Group.concurrent`:
 | --- | --- | --- |
 | real `gemm` | `MNK > 65536 * 4`; `t = min(ncpu, MNK / 262144)` | `CNAME` grid, shared packed `B` |
 | complex `gemm` | `MNK > 8192 * 4` | same |
-| `syrk`, `symm` | `(n+1)nk`, `2m^2 n` over `65536 * 4` | triangle-balanced grid |
+| `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced grid |
 | `trsm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
 | `gemv` | `m * n >= 115200 * 4` | N: row chunks; T: column chunks |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
@@ -169,8 +171,9 @@ protocol is therefore built on `Group.concurrent`:
 | `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
 
 The generic thresholds apply with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
-together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c`,
-`arm64/dot.c`). These are defaults; per-core tables derived from rstd's own benchmarks will
+together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c` and
+`gemv.c`, `a64fx` and `neoversev1` in `arm64/dot.c`). Complex routines have their own
+constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core tables derived from rstd's own benchmarks will
 replace them, and the chunk sizes, later. `switch_ratio` already lives in the vtable
 (`blas3/gemm/params.zig`). M ranges round to `unroll_m` and a cache line to avoid false
 sharing in `C`.
@@ -195,6 +198,10 @@ the `Io`'s own allocator and runs the task inline if that allocation fails.
   to finish, and returns `error.Canceled`. The output is then
   undefined (for `gemm`, `C` may be partly scaled and partly computed), and the routine docs
   say so. Level 3 wakes peers blocked on the shared `B` flags so they can exit.
+- **Inline tasks.** A task the `Io` runs inline shares the caller's cancellation, and `Group`
+  drops a task's `error.Canceled`, so a worker that takes one calls `io.recancel()`. An `Io`
+  whose `checkCancel` is `Io.unreachableCheckCancel` (`Io.failing`, UEFI's) has no
+  cancellation; workers skip the check there.
 
 ### Single-threaded builds and freestanding targets
 
@@ -293,10 +300,11 @@ Memory safety for concurrent work:
 
 ## Implementation plan
 
-1. **Signatures and plumbing:** `io: Io` on every public routine but the scalar `rotg`,
-   `zrotg` and `rotmg` (serial inside; done, with `error.Canceled` in their error sets), the
-   cached CPU count and ceiling in `blas.config`,
-   thresholds, chunking, the claim loop and ordered combine, with their unit tests.
+1. **Signatures and plumbing** (done): `io: Io` on every public routine but the scalar
+   `rotg`, `zrotg` and `rotmg`, with `error.Canceled` in their error sets; in `threading.zig`,
+   the cached CPU count (`blas.config.cpu_count`) and ceiling (`Config.threadCeiling`),
+   thresholds (`rule`), chunking (`Chunks`, `plan`), the claim loop (`forEach`) and ordered
+   combine (`reduce`), with their unit tests.
 2. **Real `gemm`:** the `CNAME` grid and shared packed `B` through `Group.concurrent`, with
    the start barrier, futex waiting, per-worker packing buffers and the serial fallback.
 3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.
