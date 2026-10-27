@@ -687,6 +687,11 @@ test "l3proto bench" {
     const io = threaded.io();
     const vt = blas.vtable();
     std.debug.print("core {s}\n", .{blas.coreName()});
+    // scratch from a buffer touched once, so no call pays for fresh pages
+    const scratch = try al.alloc(u8, 256 << 20);
+    defer al.free(scratch);
+    @memset(scratch, 0);
+    var fba: std.heap.FixedBufferAllocator = .init(scratch);
     inline for (.{ f64, f32 }) |T| for ([_]usize{ 256, 512, 1000, 2000 }) |n| {
         const a = try al.alloc(T, n * n);
         defer al.free(a);
@@ -697,18 +702,20 @@ test "l3proto bench" {
         fill(T, a, 1);
         fill(T, b, 2);
         @memset(c, 0);
-        const reps: usize = if (n >= 2000) 5 else if (n >= 1000) 9 else 15;
+        const reps: usize = if (n >= 2000) 9 else if (n >= 1000) 15 else 25;
         const counts = [_]u32{ 2, 4, 8, 16 };
         // serial, then each design at each count
-        var times: [1 + 2 * counts.len][15]f64 = undefined;
-        for (0..reps) |r| for (0..times.len) |x| {
+        var times: [1 + 2 * counts.len][25]f64 = undefined;
+        // the first round warms up and is not kept
+        for (0..reps + 1) |round| for (0..times.len) |x| {
             const design: Design = if (x == 0 or x % 2 == 1) .openblas else .blis;
             const w: u32 = if (x == 0) 1 else counts[(x - 1) / 2];
+            fba.reset();
             const t0 = Io.Clock.awake.now(io).toNanoseconds();
             switch (design) {
-                inline else => |d| try gemm(al, io, d, T, vt, false, false, n, n, n, 1, a.ptr, n, b.ptr, n, 0, c.ptr, n, w),
+                inline else => |d| try gemm(fba.allocator(), io, d, T, vt, false, false, n, n, n, 1, a.ptr, n, b.ptr, n, 0, c.ptr, n, w),
             }
-            times[x][r] = @floatFromInt(Io.Clock.awake.now(io).toNanoseconds() - t0);
+            if (round > 0) times[x][round - 1] = @floatFromInt(Io.Clock.awake.now(io).toNanoseconds() - t0);
         };
         const flops = 2.0 * @as(f64, @floatFromInt(n * n * n));
         std.debug.print("{s} n={d}: serial {d:.1}", .{ @typeName(T), n, flops / median(times[0][0..reps]) });
