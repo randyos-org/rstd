@@ -1165,9 +1165,9 @@ The freestanding machines (`build/qemutest.zig`):
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280) |
 | `loongarch64` | `la464` | |
 | `mips64r2el`, `mips64r2` | `Loongson-3A1000` | little- and big-endian |
-| `mips64r6el`, `mips64r6` | `I6400` | |
+| `mips64r6el`, `mips64r6` | `I6400` | the i6400, i6500 and p6600 cores' MSA kernels |
 | `mips32r2el`, `mips32r2` | `24Kf` | no 32-bit kernels apply: the portable ones run |
-| `mips32r5el`, `mips32r5` | `P5600` | the `p5600` core's MSA `axpy` |
+| `mips32r5el`, `mips32r5` | `P5600` | the `p5600` core's MSA kernels |
 | `i386` | `pentium3` | |
 | `x86_64` | `max` under TCG | |
 | `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
