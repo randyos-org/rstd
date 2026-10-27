@@ -139,7 +139,15 @@ const machines = [_]Machine{
     },
     .{
         .name = "arm",
-        .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
+        // the A15's FPU and divide: Zig's model has neither (LLVM adds them
+        // from its target parser), so the bare model is soft-float
+        .query = .{
+            .cpu_arch = .arm,
+            .os_tag = .freestanding,
+            .abi = .eabihf,
+            .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 },
+            .cpu_features_add = std.Target.arm.featureSet(&.{ .vfp4, .neon, .d32, .hwdiv, .hwdiv_arm }),
+        },
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
         .boot = .{ .kernel = .{

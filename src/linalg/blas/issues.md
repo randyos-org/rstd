@@ -341,6 +341,34 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `std.Thread.CpuCountError!usize`, or `std.Thread.getCpuCount` should
   > accept any error set from the override.
 
+### arm: most CPU models have no FPU
+
+- **Seen:** `std.Target.arm.cpu.cortex_a15` has no VFP or NEON on
+  0.18.0-dev.751 (0.17 gave it `vfp4`, never `neon`), so
+  `-mcpu=cortex_a15` with `eabihf` compiles every float operation to
+  `__aeabi_*` calls and passes floats in core registers. Of 100 models only
+  9 have an FPU feature; `cortex_a5` to `cortex_a17`, `cortex_r5` and
+  others lost theirs since 0.17. LLVM takes a core's default FPU from its
+  target parser (`cortex-a15`: `neon-vfpv4`), which Zig's models skip. A
+  `vmsr` in the `arm` rig's boot code then failed to assemble, though the
+  build exited 0, so the FPU stayed off and every converted kernel was
+  skipped as not runnable.
+- **Workaround:** the `arm` rig adds `vfp4`, `neon`, `d32`, `hwdiv` and
+  `hwdiv_arm` (`build/qemutest.zig`); the boot code writes its `vmsr` by
+  encoding (`test/qemu/arm.zig`).
+- **Issue text:**
+
+  > **arm: CPU models lack their default FPU, so `-mcpu=cortex_a15` is soft-float**
+  >
+  > `zig build-obj -target arm-freestanding-eabihf -mcpu=cortex_a15` of
+  > `export fn f(a: f32, b: f32) f32 { return a + b; }` calls
+  > `__aeabi_fadd` with the operands in r0 and r1; clang's
+  > `--target=armv7a-none-eabihf -mcpu=cortex-a15` emits `vadd.f32`. LLVM
+  > keeps each core's default FPU and extensions (`ARMTargetParser.def`)
+  > outside its `.td` processor definitions, and the generated
+  > `std.Target.arm` models do not include them. On 0.18.0-dev.751 only 9
+  > of 100 models have any FPU feature; 0.17 had 20.
+
 ## Zig package manager and build system
 
 ### `zig fetch` needs an archive and a `Content-Type` header
