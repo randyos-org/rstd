@@ -374,8 +374,7 @@ pub fn bf16to(io: Io, comptime F: type, n: isize, in: [*]BF16, inc_in: isize, ou
 /// Computed in `XDouble`, as the reference does in `long double` on x86 (x87
 /// where `XDouble` is), or in `T` where that is wider; a narrower input is
 /// rounded once on the way out.
-pub fn rotg(io: Io, comptime T: type, a: *T, b: *T, c: *T, s: *T) Io.Cancelable!void {
-    _ = io;
+pub fn rotg(comptime T: type, a: *T, b: *T, c: *T, s: *T) void {
     if (comptime isComplex(T)) @compileError("rotg: use zrotg for " ++ @typeName(T));
     const X = if (@bitSizeOf(T) > @bitSizeOf(XDouble)) T else XDouble;
     const da: X = a.*;
@@ -421,8 +420,7 @@ pub fn rotg(io: Io, comptime T: type, a: *T, b: *T, c: *T, s: *T) Io.Cancelable!
 /// are wrong in the last bits and sometimes worse; this is the sound
 /// algorithm, not a copy of `zrotg.c`, and is tested against a wide-precision
 /// reference over all its branches.
-pub fn zrotg(io: Io, comptime T: type, a: *T, b: T, c: *Float(T), s: *T) Io.Cancelable!void {
-    _ = io;
+pub fn zrotg(comptime T: type, a: *T, b: T, c: *Float(T), s: *T) void {
     if (comptime !isComplex(T)) @compileError("zrotg: " ++ @typeName(T) ++ " is not complex");
     const F = Float(T);
     const safmin = std.math.floatMin(F);
@@ -509,8 +507,7 @@ fn abssq(comptime T: type, z: T) Float(T) {
 /// `?ROTMG` (`interface/rotmg.c`): the modified rotation that zeroes the
 /// second component of `(sqrt(d1)*x1, sqrt(d2)*y1)`, as `param` for `rotm`.
 /// `d1`, `d2` and `x1` are updated.
-pub fn rotmg(io: Io, comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) Io.Cancelable!void {
-    _ = io;
+pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void {
     if (comptime isComplex(T)) @compileError("rotmg: " ++ @typeName(T) ++ " is not real");
     // the reference's bounds, 4096 and its square; a narrow type (`f16`)
     // keeps `d1`, `d2` within its range by 16 and 256 instead
@@ -921,7 +918,7 @@ test "interface: rotg zeroes b, and rotmg's param zeroes the second component" {
         var b: T = 4;
         var c: T = undefined;
         var s: T = undefined;
-        try rotg(check.io, T, &a, &b, &c, &s);
+        rotg(T, &a, &b, &c, &s);
         try check.expectClose(T, 5, a, check.tolerance(T, 4));
         try check.expectClose(T, 0.6, c, check.tolerance(T, 4));
         try check.expectClose(T, 0.8, s, check.tolerance(T, 4));
@@ -936,7 +933,7 @@ test "interface: rotg zeroes b, and rotmg's param zeroes the second component" {
         const d2_0 = d2;
         const x1_0 = x1;
         var param: [5]T = undefined;
-        try rotmg(check.io, T, &d1, &d2, &x1, y1, &param);
+        rotmg(T, &d1, &d2, &x1, y1, &param);
         // apply H to (x1, y1): the second component vanishes
         var hx = [1]T{x1_0};
         var hy = [1]T{y1};
@@ -977,7 +974,7 @@ test "interface: zrotg zeroes b against a over every branch" {
             var a = a0;
             var c: F = undefined;
             var s: C = undefined;
-            try zrotg(check.io, C, &a, b, &c, &s);
+            zrotg(C, &a, b, &c, &s);
             // [c s; -conj(s) c] [a0; b] = [r; 0], |r| = |(a0, b)|, c real, c^2 + |s|^2 = 1
             const norm = @max(@max(@abs(k[0]), @abs(k[1])), @max(@abs(k[2]), @abs(k[3])));
             const top = scale(C, a0, c).add(s.mul(b));
@@ -1095,7 +1092,7 @@ fn anyFloat(comptime T: type) !void {
     var gb: T = 4;
     var gc: T = undefined;
     var gs: T = undefined;
-    try rotg(check.io, T, &ga, &gb, &gc, &gs);
+    rotg(T, &ga, &gb, &gc, &gs);
     try check.expectNear(T, 5, ga, 4, 5);
     try check.expectNear(T, 0.6, gc, 4, 1);
     try check.expectNear(T, 0.8, gs, 4, 1);
@@ -1164,7 +1161,7 @@ test "interface: rotmg in f16 rescales within its range" {
         var x1 = c[2];
         const y1 = c[3];
         var param: [5]H = @splat(0);
-        try rotmg(check.io, H, &d1, &d2, &x1, y1, &param);
+        rotmg(H, &d1, &d2, &x1, y1, &param);
         for ([_]H{ d1, d2, x1 }) |v| try std.testing.expect(std.math.isFinite(v) and v != 0);
         var hx = [1]H{c[2]};
         var hy = [1]H{y1};
@@ -1246,7 +1243,7 @@ test "interface: rotg handles scaled and special inputs" {
             var b = ab[1];
             var c: T = undefined;
             var s: T = undefined;
-            try rotg(check.io, T, &a, &b, &c, &s);
+            rotg(T, &a, &b, &c, &s);
             try std.testing.expect(std.math.isFinite(a));
             const W = check.Wide(T);
             try check.expectClose(W, 1, @as(W, c) * c + @as(W, s) * s, 1e-6);
@@ -1259,12 +1256,12 @@ test "interface: rotg handles scaled and special inputs" {
         var b: T = 0;
         var c: T = undefined;
         var s: T = undefined;
-        try rotg(check.io, T, &a, &b, &c, &s);
+        rotg(T, &a, &b, &c, &s);
         try std.testing.expectEqual(@as(T, 1), c);
         try std.testing.expectEqual(@as(T, 0), s);
         a = std.math.nan(T);
         b = 1;
-        try rotg(check.io, T, &a, &b, &c, &s);
+        rotg(T, &a, &b, &c, &s);
         try std.testing.expect(std.math.isNan(a));
     }
 }

@@ -189,9 +189,10 @@ the `Io`'s own allocator and runs the task inline if that allocation fails.
 - **Out of memory.** `error.OutOfMemory` propagates to the caller with nothing started. The
   routine never retries with fewer workers or serially: the caller decides, per Zig's
   allocator convention, and memory pressure never shows up as an unexplained slowdown.
-- **Cancelation.** Every routine's error set includes `error.Canceled`. Workers check for
-  cancelation at chunk boundaries and while waiting; on cancelation the routine stops its
-  workers, waits for them to finish, and returns `error.Canceled`. The output is then
+- **Cancelation.** Every routine that takes `io` has `error.Canceled` in its error set (all
+  but the scalar `rotg`, `zrotg` and `rotmg`). Workers check for cancelation at chunk
+  boundaries and while waiting; on cancelation the routine stops its workers, waits for them
+  to finish, and returns `error.Canceled`. The output is then
   undefined (for `gemm`, `C` may be partly scaled and partly computed), and the routine docs
   say so. Level 3 wakes peers blocked on the shared `B` flags so they can exit.
 
@@ -292,8 +293,9 @@ Memory safety for concurrent work:
 
 ## Implementation plan
 
-1. **Signatures and plumbing:** `io: Io` on every public routine (serial inside; done, with
-   `error.Canceled` in every error set), the cached CPU count and ceiling in `blas.config`,
+1. **Signatures and plumbing:** `io: Io` on every public routine but the scalar `rotg`,
+   `zrotg` and `rotmg` (serial inside; done, with `error.Canceled` in their error sets), the
+   cached CPU count and ceiling in `blas.config`,
    thresholds, chunking, the claim loop and ordered combine, with their unit tests.
 2. **Real `gemm`:** the `CNAME` grid and shared packed `B` through `Group.concurrent`, with
    the start barrier, futex waiting, per-worker packing buffers and the serial fallback.

@@ -96,7 +96,7 @@ fn check0(comptime F: type) !void {
         var sb: F = @floatCast(db1[k]);
         var sc: F = undefined;
         var ss: F = undefined;
-        try blas.rotg(ob.io, F, &sa, &sb, &sc, &ss);
+        blas.rotg(F, &sa, &sb, &sc, &ss);
         try stest1(F, c, sa, datrue[k], datrue[k], sfac);
         try stest1(F, c, sb, dbt[k], dbt[k], sfac);
         try stest1(F, c, sc, dc1[k], dc1[k], sfac);
@@ -136,7 +136,7 @@ fn check0(comptime F: type) !void {
         const c: Case = .{ .name = p ++ "ROTMG", .n = @intCast(k + 1) };
         var t: [9]F = @splat(0);
         load(F, t[0..4], dab[4 * k ..][0..4]);
-        try blas.rotmg(ob.io, F, &t[0], &t[1], &t[2], t[3], t[4..9]);
+        blas.rotmg(F, &t[0], &t[1], &t[2], t[3], t[4..9]);
         var want: [9]f64 = undefined;
         for (&want, dt[9 * k ..][0..9]) |*w, v| w.* = v;
         try stest(F, c, &t, &want, &want, sfac, false);

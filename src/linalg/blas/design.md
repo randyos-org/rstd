@@ -141,7 +141,8 @@ Conventions shared by every interface:
   Level 3 does not forward one-column problems to `gemv`.
 - **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
   an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies. `io` is
-  unused until the routines thread.
+  unused until the routines thread. `rotg`, `zrotg` and `rotmg` compute from scalars, never
+  thread, and take `(T, ...)` and return `void`.
 
 `__root__.zig` re-exports every routine flat (`blas.dot`, `blas.gemv`, `blas.gemm`), with the
 argument enums and error sets, beside the setup and dispatch API: `init`, `shutdown`, `vtable`,

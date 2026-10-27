@@ -87,7 +87,8 @@ Each routine takes its element type as a comptime parameter. Sizes, strides and 
 dimensions are `isize`; a negative stride names the vector's last element first, as in the
 reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
 or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` is for the
-threading to come ([`threading.md`](threading.md)); every routine is serial for now.
+threading to come ([`threading.md`](threading.md)); every routine is serial for now. `rotg`,
+`zrotg` and `rotmg` work on scalars only and take neither.
 
 | Level | Shape | Errors |
 | --- | --- | --- |
@@ -112,9 +113,9 @@ try blas.gemm(allocator, io, f64, .n, .n, m, n, k, 1.0, a.ptr, lda, b.ptr, ldb, 
 Bad arguments return an error named after the reference's `xerbla` argument (`InvalidTrans`,
 `InvalidM`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the first bad
 argument wins. A vector or matrix too large for the address space returns its stride's or
-leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every routine
-may return `error.Canceled` once it threads. Nothing
-panics on bad input.
+leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every
+routine that takes `io` may return `error.Canceled` once it threads. Nothing panics on bad
+input.
 
 ### Initialization
 

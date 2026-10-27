@@ -291,7 +291,7 @@ fn drotmg() !void {
         var x1 = c.in[2];
         const y1 = c.in[3];
         var param = c.param;
-        try blas.rotmg(ob.io, f64, &d1, &d2, &x1, y1, &param);
+        blas.rotmg(f64, &d1, &d2, &x1, y1, &param);
         try nears(f64, &c.out, &.{ d1, d2, x1, y1 }, double_eps, c.name);
         try nears(f64, &c.want, &param, double_eps, c.name);
     }

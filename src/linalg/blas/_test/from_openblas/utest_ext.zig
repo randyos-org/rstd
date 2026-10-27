@@ -294,7 +294,7 @@ fn complexRotg() !void {
         var a = val(T, c.a);
         var cc: Float(T) = undefined;
         var s: T = undefined;
-        try blas.zrotg(ob.io, T, &a, val(T, c.b), &cc, &s);
+        blas.zrotg(T, &a, val(T, c.b), &cc, &s);
         const t = tol(T, single_eps, double_eps);
         const got = [_]f64{ cc, s.re, s.im, a.re, a.im };
         const want = [_]f64{ c.c, c.s[0], c.s[1], c.r[0], c.r[1] };
@@ -323,7 +323,7 @@ fn rotmg() !void {
         var x1: F = @floatCast(c.in[2]);
         const y1: F = @floatCast(c.in[3]);
         var param: [5]F = @splat(0);
-        try blas.rotmg(ob.io, F, &d1, &d2, &x1, y1, &param);
+        blas.rotmg(F, &d1, &d2, &x1, y1, &param);
         const t = tol(F, single_eps, double_eps);
         const got = [_]f64{ d1, d2, x1, y1, param[0], param[1], param[2], param[3], param[4] };
         const want = c.out ++ c.param;
