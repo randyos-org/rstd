@@ -180,18 +180,18 @@ sharing in `C`.
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
 for `w` workers: `gemm` packing buffers (`driver.Work(T).lens`, about `(P + min(n_t, R)) * Q`
 elements per worker, aligned to `Work(T).alignment`) and level 2 per-chunk vectors. Tasks are
-therefore infallible and the allocator need not be thread safe. Level 1 needs none. Task
+therefore infallible, and the allocator need not be thread safe. Level 1 needs none. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
 the `Io`'s own allocator and runs the task inline if that allocation fails.
 
-### Errors and cancelation
+### Errors and cancellation
 
 - **Out of memory.** `error.OutOfMemory` propagates to the caller with nothing started. The
   routine never retries with fewer workers or serially: the caller decides, per Zig's
   allocator convention, and memory pressure never shows up as an unexplained slowdown.
-- **Cancelation.** Every routine that takes `io` has `error.Canceled` in its error set (all
-  but the scalar `rotg`, `zrotg` and `rotmg`). Workers check for cancelation at chunk
-  boundaries and while waiting; on cancelation the routine stops its workers, waits for them
+- **Cancellation.** Every routine that takes `io` has `error.Canceled` in its error set (all
+  but the scalar `rotg`, `zrotg` and `rotmg`). Workers check for cancellation at chunk
+  boundaries and while waiting; on cancellation the routine stops its workers, waits for them
   to finish, and returns `error.Canceled`. The output is then
   undefined (for `gemm`, `C` may be partly scaled and partly computed), and the routine docs
   say so. Level 3 wakes peers blocked on the shared `B` flags so they can exit.
@@ -234,7 +234,7 @@ Reproducibility:
 Memory safety for concurrent work:
 
 - **Await before free.** A routine waits for every task it spawned, on every exit path
-  (success, error, cancelation), before it frees or returns anything a task touches. `await`
+  (success, error, cancellation), before it frees or returns anything a task touches. `await`
   may return `error.Canceled` early; `cancel` returns only once every task has run.
 - **`defer` order.** Scratch is allocated and its free deferred before the group exists, and
   `group.cancel` is deferred after, so it runs first:
@@ -267,7 +267,7 @@ Memory safety for concurrent work:
 | Sizing work from the `Io`'s limits | The `Io` interface does not expose them; reading `Io.Threaded` fields breaks other `Io`s |
 | Independent level 3 tiles via `Group.async` | Redundant packing; OpenBLAS's shared-`B` protocol is followed instead |
 | Retrying serially on `OutOfMemory` | Hides memory pressure and makes speed unpredictable; the serial path can fail too |
-| Blocking cancelation for the call | Long calls could not be abandoned |
+| Blocking cancellation for the call | Long calls could not be abandoned |
 | Forcing serial on freestanding and UEFI | Rules out multithreaded freestanding builds |
 
 ## Verification
@@ -275,7 +275,7 @@ Memory safety for concurrent work:
 - **Everywhere, rigs included:** unit tests for chunking, the worker count and the ordered
   combine, and a test that the rigs resolve to one worker.
 - **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
-  threaded results equal serial results bit for bit for worker counts 1 to 9 (a test hook
+  threaded results equal serial results bit-for-bit for worker counts 1 to 9 (a test hook
   overrides the cached CPU count), all transposes and odd sizes, on the shrunk-blocking
   vtable `_test/blas3/check.zig` uses and its NaN-poisoning allocator. Each case also runs on
   `Io.Threaded` with `async_limit` 0, 3 and 8 (oversubscribed) and on `Io.failing` as an
@@ -284,7 +284,7 @@ Memory safety for concurrent work:
   ppc64le, riscv64) and the M6, with guard bands asserting nothing outside the output is
   written. TSan (`sanitize_thread`) on native Linux follows once its support in this
   toolchain is confirmed.
-- **Cancelation:** canceled calls return `error.Canceled`, leave no worker running, and leave
+- **Cancellation:** canceled calls return `error.Canceled`, leave no worker running, and leave
   memory outside the output untouched; the allocator sees every free after the last task ends.
 - **Split inputs:** a test that `Q` and every chunk size are the same for every thread count
   and CPU count.
