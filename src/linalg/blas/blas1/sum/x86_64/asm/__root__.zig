@@ -5,9 +5,57 @@ const registry = @import("../../../../asm_registry.zig");
 
 pub const Entry = registry.Entry;
 
-pub const entries = [_]Entry{
-    .{ .slot = .csum_k, .module = @import("csum_sse_sysv.zig") },
-    .{ .slot = .csum_k, .module = @import("csum_sse_win.zig") },
-    .{ .slot = .zsum_k, .module = @import("zsum_sse2_sysv.zig") },
-    .{ .slot = .zsum_k, .module = @import("zsum_sse2_win.zig") },
+pub const entries = [_]Entry{};
+
+/// The kernels upstream builds here that are not converted
+/// (`tools/blas_asm/roles.zig`'s `skip`), with the cores it builds them for.
+pub const skipped = [_]registry.Skipped{
+    .{ .slot = .csum_k, .cores = &.{
+        "atom",
+        "barcelona",
+        "bobcat",
+        "bulldozer",
+        "cooperlake",
+        "core2",
+        "dunnington",
+        "excavator",
+        "generic",
+        "haswell",
+        "nano",
+        "nehalem",
+        "opteron",
+        "opteron_sse3",
+        "penryn",
+        "piledriver",
+        "prescott",
+        "sandybridge",
+        "sapphirerapids",
+        "skylakex",
+        "steamroller",
+        "zen",
+    } },
+    .{ .slot = .zsum_k, .cores = &.{
+        "atom",
+        "barcelona",
+        "bobcat",
+        "bulldozer",
+        "cooperlake",
+        "core2",
+        "dunnington",
+        "excavator",
+        "generic",
+        "haswell",
+        "nano",
+        "nehalem",
+        "opteron",
+        "opteron_sse3",
+        "penryn",
+        "piledriver",
+        "prescott",
+        "sandybridge",
+        "sapphirerapids",
+        "skylakex",
+        "steamroller",
+        "zen",
+    } },
 };

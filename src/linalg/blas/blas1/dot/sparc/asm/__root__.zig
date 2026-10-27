@@ -7,7 +7,6 @@ pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
     .{ .slot = .ddot_k, .module = @import("ddot.zig") },
-    .{ .slot = .sdot_k, .module = @import("sdot.zig") },
     .{ .slot = .zdotu_k, .module = @import("zdotu.zig") },
     .{ .slot = .zdotc_k, .module = @import("zdotc.zig") },
     .{ .slot = .cdotu_k, .module = @import("cdotu.zig") },

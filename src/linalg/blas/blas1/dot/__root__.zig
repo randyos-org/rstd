@@ -315,9 +315,7 @@ test "every linked core's sdot: within half an ulp, summed in f64" {
 }
 
 test "the C drivers around the reference's fallback blocks match a plain loop" {
-    inline for (.{ .{ .sdot_k, 32 }, .{ .ddot_k, 16 } }) |r| {
-        try checkDot(kernel.form(r[0]).E, false, kernel.entry(r[0], r[1], null));
-    }
+    try checkDot(f64, false, kernel.entry(.ddot_k, 16, null));
     try checkDotTol(f32, false, kernel.entry(.dsdot_k, 32, null), true);
     inline for (.{ .{ .cdotu_k, false, 16 }, .{ .cdotc_k, true, 16 }, .{ .zdotu_k, false, 8 }, .{ .zdotc_k, true, 8 } }) |r| {
         const F = kernel.form(r[0]).E;
@@ -361,7 +359,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
 test "x86_64's vector blocks sum in the reference's order, bit for bit" {
     if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const vb = @import("x86_64/kernel.zig");
-    inline for (.{ .{ .ddot_k, f64, 16 }, .{ .sdot_k, f32, 32 } }) |r| {
+    inline for (.{ .{ .ddot_k, f64, 16 }, .{ .dsdot_k, f32, 32 } }) |r| {
         const T = r[1];
         var x: [1024]T = undefined;
         var y: [1024]T = undefined;

@@ -17,12 +17,6 @@ const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
-pub fn sbsymv_L(m: BlasLong, offset: BlasLong, alpha: f32, a: [*]f32, lda: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, buffer: [*]f32) i32 {
-    return blas.kernel(.sbsymv_L)(m, offset, alpha, a, lda, x, inc_x, y, inc_y, buffer);
-}
-pub fn sbsymv_U(m: BlasLong, offset: BlasLong, alpha: f32, a: [*]f32, lda: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, buffer: [*]f32) i32 {
-    return blas.kernel(.sbsymv_U)(m, offset, alpha, a, lda, x, inc_x, y, inc_y, buffer);
-}
 pub fn ssymv_L(m: BlasLong, offset: BlasLong, alpha: f32, a: [*]f32, lda: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, buffer: [*]f32) i32 {
     return blas.kernel(.ssymv_L)(m, offset, alpha, a, lda, x, inc_x, y, inc_y, buffer);
 }

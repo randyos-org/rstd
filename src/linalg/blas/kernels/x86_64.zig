@@ -39,12 +39,12 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those
 /// routed for their alignment (`vector.peels`) only on the cores whose
-/// converted kernels they replace.
+/// upstream assembly they replace, which is not converted (`skips`).
 fn usesVector(comptime core: Core, comptime slot: Slot) bool {
     if (!vector.routed(slot)) return false;
     if (!vector.peels(slot)) return true;
     inline for (converted) |m| {
-        if (@hasDecl(m, "converted") and m.converted(core, slot)) return true;
+        if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
     }
     return false;
 }

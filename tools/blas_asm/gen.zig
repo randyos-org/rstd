@@ -23,7 +23,9 @@
 //! `.align` becomes `.balign` (Mach-O reads `.align` as a power of two).
 //!
 //! `asm/__root__.zig` lists which file fills which vtable slot; each file
-//! says which cores use it.
+//! says which cores use it. The kernels `roles.skip` names, which no core
+//! would install, are not converted; the index lists the cores of those it
+//! keeps them for (`skipped`).
 
 const std = @import("std");
 const Io = std.Io;
@@ -544,7 +546,6 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         }
     }
     if (jobs.items.len == 0) return;
-    try Io.Dir.cwd().createDirPath(io, dir);
 
     // a core with more than one alternative for a kernel (chosen upstream by
     // compiler version or byte order) is not converted for it
@@ -557,6 +558,8 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     }
 
     var entries: std.ArrayList(Entry) = .empty;
+    // the cores of each skipped slot that keeps them (`roles.Skip.cores`)
+    var skips: std.array_hash_map.String(std.array_hash_map.String(void)) = .empty;
     for (jobs.items) |job| {
         const k = job.kernel;
         // sources the toolchain cannot assemble are not converted at all
@@ -564,6 +567,19 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             if (std.mem.eql(u8, u, k.source)) break true;
         } else std.mem.find(u8, k.source, "_hummer") != null;
         if (unsupported) continue;
+
+        // nor are kernels no core would install (`roles.skip`)
+        if (roles.skipped(ar.name, k.slot)) |s| {
+            if (!s.cores) continue;
+            const e = try skips.getOrPut(a, k.slot);
+            if (!e.found_existing) e.value_ptr.* = .empty;
+            for (job.cores.items) |core| {
+                const lower = try lowered(a, core);
+                if (ambiguous.contains(try a.print("{s}:{s}", .{ lower, try k.role(a) }))) continue;
+                try e.value_ptr.put(a, lower, {});
+            }
+            continue;
+        }
 
         // every core's expansion, per variant
         var texts: std.ArrayList(Text) = .empty;
@@ -632,6 +648,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             try tag.appendSlice(a, variant_tag);
             const file = try fileName(a, k, "", if (tag.items.len > 0) tag.items else null);
             const dest = try map.path(&.{ dir, file });
+            try Io.Dir.cwd().createDirPath(io, dir);
             try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = try emit(a, ar, k, members, merged) });
             _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", dest } });
             try entries.append(a, .{ .slot = k.slot, .file = file });
@@ -639,7 +656,10 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         }
     }
 
-    // which file serves which kernel
+    // which file serves which kernel; none where every kernel was skipped
+    // and none keeps its cores
+    if (entries.items.len == 0 and skips.count() == 0) return;
+    try Io.Dir.cwd().createDirPath(io, dir);
     var idx: std.ArrayList(u8) = .empty;
     try put(&idx, a,
         \\//! Which converted file has which kernel; each says which cores it serves.
@@ -654,6 +674,27 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     , .{});
     for (entries.items) |e| try put(&idx, a, "    .{{ .slot = .{s}, .module = @import(\"{s}\") }},\n", .{ e.slot, e.file });
     try put(&idx, a, "}};\n", .{});
+    if (skips.count() > 0) {
+        try put(&idx, a,
+            \\
+            \\/// The kernels upstream builds here that are not converted
+            \\/// (`tools/blas_asm/roles.zig`'s `skip`), with the cores it builds them for.
+            \\pub const skipped = [_]registry.Skipped{{
+            \\
+        , .{});
+        for (skips.keys(), skips.values()) |slot, cores| {
+            const names = try a.dupe([]const u8, cores.keys());
+            std.mem.sort([]const u8, names, {}, struct {
+                fn lt(_: void, x: []const u8, y: []const u8) bool {
+                    return std.mem.lessThan(u8, x, y);
+                }
+            }.lt);
+            try put(&idx, a, "    .{{ .slot = .{s}, .cores = &.{{", .{slot});
+            for (names) |c| try put(&idx, a, " \"{s}\",", .{c});
+            try put(&idx, a, " }} }},\n", .{});
+        }
+        try put(&idx, a, "}};\n", .{});
+    }
     const idx_path = try map.path(&.{ dir, "__root__.zig" });
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = idx_path, .data = idx.items });
     _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", idx_path } });

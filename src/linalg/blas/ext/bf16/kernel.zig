@@ -215,15 +215,13 @@ pub const aliases = [_][2][]const u8{
     .{ "sbscal_k", "sscal_k" },   .{ "sbswap_k", "sswap_k" },
 };
 
-/// The same for levels 2 and 3: `sbger_k`, `sbsymv_*`, and every `sbtrsm_*`,
-/// `sbtrmm_*` and `sbsymm_*` slot, `sbneg_tcopy` and `sblaswp_ncopy`. No
-/// interface calls them; they are null wherever the `f32` slot still is.
+/// The same for levels 2 and 3: every `sbtrsm_*`, `sbtrmm_*` and `sbsymm_*`
+/// slot, `sbneg_tcopy` and `sblaswp_ncopy`. No interface calls them; they are
+/// null wherever the `f32` slot still is.
 pub const aliases_l23: []const [2][]const u8 = blk: {
     @setEvalBranchQuota(100_000);
     var out: []const [2][]const u8 = &.{
-        .{ "sbger_k", "sger_k" },             .{ "sbsymv_L", "ssymv_L" },
-        .{ "sbsymv_U", "ssymv_U" },           .{ "sbneg_tcopy", "sneg_tcopy" },
-        .{ "sblaswp_ncopy", "slaswp_ncopy" },
+        .{ "sbneg_tcopy", "sneg_tcopy" }, .{ "sblaswp_ncopy", "slaswp_ncopy" },
     };
     for (@typeInfo(Vtable).@"struct".field_names) |f| {
         for ([_][]const u8{ "sbtrsm_", "sbtrmm_", "sbsymm_" }) |p| {

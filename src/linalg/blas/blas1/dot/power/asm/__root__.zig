@@ -7,17 +7,14 @@ pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
     .{ .slot = .ddot_k, .module = @import("ddot_cell.zig") },
-    .{ .slot = .sdot_k, .module = @import("sdot_cell.zig") },
     .{ .slot = .zdotu_k, .module = @import("zdotu_cell.zig") },
     .{ .slot = .zdotc_k, .module = @import("zdotc_cell.zig") },
     .{ .slot = .cdotu_k, .module = @import("cdotu_cell.zig") },
     .{ .slot = .cdotc_k, .module = @import("cdotc_cell.zig") },
     .{ .slot = .ddot_k, .module = @import("ddot.zig") },
-    .{ .slot = .sdot_k, .module = @import("sdot.zig") },
     .{ .slot = .zdotu_k, .module = @import("zdotu.zig") },
     .{ .slot = .zdotc_k, .module = @import("zdotc.zig") },
     .{ .slot = .cdotu_k, .module = @import("cdotu.zig") },
     .{ .slot = .cdotc_k, .module = @import("cdotc.zig") },
     .{ .slot = .ddot_k, .module = @import("ddot_ppc440.zig") },
-    .{ .slot = .sdot_k, .module = @import("sdot_ppc440.zig") },
 };

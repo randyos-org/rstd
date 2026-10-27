@@ -21,11 +21,14 @@
 //! converted here; the index written next to the blocks (`uk/__root__.zig`)
 //! says which core uses which block, and the architecture's `kernel.zig`
 //! composes it with the routine's driver (`<routine>/kernel.zig`).
+//! The kernels `roles.skip` names, which no core would install (`sdot`), get
+//! no entry.
 
 const std = @import("std");
 const Io = std.Io;
 const map = @import("kernel_map.zig");
 const arch = @import("arch/__root__.zig");
+const roles = @import("roles.zig");
 
 const Precision = struct { letter: u8, float: []const u8, complex: bool };
 
@@ -805,6 +808,13 @@ fn contains(list: []const []const u8, name: []const u8) bool {
     return false;
 }
 
+/// Whether `slot` is a kernel no core would install (`roles.skip`). Those
+/// routed per core skip only their assembly; their C kernels stay.
+fn skippedHere(arch_dir: []const u8, slot: []const u8) bool {
+    const s = roles.skipped(arch_dir, slot) orelse return false;
+    return !s.cores;
+}
+
 /// Which block each core's driver uses, and at what block size.
 fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []const u8) !void {
     const arch_dir = t.ob_dir;
@@ -855,6 +865,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
                 const fns = try functionsOf(a, try map.path(&.{ out_dir, block_file }));
                 for (routine.roles()) |role| {
                     if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
+                    if (skippedHere(arch_dir, role.slot)) continue;
                     const kernel = if (fns.len == 0) "" else fns[@min(role.function, fns.len - 1)];
                     const module = if (fns.len == 0) "void" else try a.print("@import(\"{s}\")", .{block_file});
                     try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s} }},\n", .{ role.slot, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module });
@@ -868,6 +879,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
             }
             if (rest.items.len > 0) for (routine.roles()) |role| {
                 if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
+                if (skippedHere(arch_dir, role.slot)) continue;
                 try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .none, .kernel = \"\", .module = void }},\n", .{ role.slot, rest.items, mask });
             };
         }

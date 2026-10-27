@@ -25,7 +25,7 @@ const CComplex = types.CComplex;
 const Slot = util.Slot;
 
 /// The kernels an architecture's `<arch>/kernel.zig` iterates over.
-pub const slots = [_]Slot{ .sdot_k, .dsdot_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
+pub const slots = [_]Slot{ .dsdot_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
 
 /// What a kernel works on: `E` is its element type (a component for the
 /// complex ones), `R` what it returns.
@@ -34,7 +34,6 @@ pub const Form = struct { E: type, R: type, complex: bool };
 /// The form of `slot`, one of `slots`.
 pub fn form(comptime slot: Slot) Form {
     return switch (slot) {
-        .sdot_k => .{ .E = f32, .R = f32, .complex = false },
         .dsdot_k => .{ .E = f32, .R = f64, .complex = false },
         .ddot_k => .{ .E = f64, .R = f64, .complex = false },
         .cdotu_k, .cdotc_k => .{ .E = f32, .R = CComplex(f32), .complex = true },
@@ -176,48 +175,6 @@ fn Ddot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
     };
 }
 
-/// `sdot.c`: the sum is a `double`, the products `float`.
-fn Sdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
-    return struct {
-        pub fn call(n: BlasLong, x: [*]f32, incx: BlasLong, y: [*]f32, incy: BlasLong) f32 {
-            if (n <= 0) return 0;
-            var dot: f64 = 0;
-
-            if (incx == 1 and incy == 1) {
-                var mydot: f32 = 0;
-                const n1 = n & -mask;
-                if (n1 != 0) mydot = Block.run(n1, x, y);
-                var i = n1;
-                while (i < n) : (i += 1) {
-                    const idx: usize = @intCast(i);
-                    const m = y[idx] * x[idx];
-                    dot += m;
-                }
-                dot += mydot;
-                return @floatCast(dot);
-            }
-
-            const n1 = n & -2;
-            var i: BlasLong = 0;
-            var ix: BlasLong = 0;
-            var iy: BlasLong = 0;
-            while (i < n1) : (i += 2) {
-                const s = fma.madd(fuse, f32, util.at(f32, y, iy).*, util.at(f32, x, ix).*, util.at(f32, y, iy + incy).* * util.at(f32, x, ix + incx).*);
-                dot += s;
-                ix += incx * 2;
-                iy += incy * 2;
-            }
-            while (i < n) : (i += 1) {
-                const m = util.at(f32, y, iy).* * util.at(f32, x, ix).*;
-                dot += m;
-                ix += incx;
-                iy += incy;
-            }
-            return @floatCast(dot);
-        }
-    };
-}
-
 /// `sdot.c` built as `DSDOT`: `float` operands, `double` products and sum. Its
 /// block gets chunks of 32 whatever the block size is.
 fn Dsdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
@@ -321,7 +278,6 @@ fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comp
 /// the core's microkernel gives, or the reference's own fallback).
 pub fn Driver(comptime slot: Slot, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
     return switch (slot) {
-        .sdot_k => Sdot(mask, Block, fuse),
         .dsdot_k => Dsdot(mask, Block, fuse),
         .ddot_k => Ddot(mask, Block, fuse),
         .cdotu_k => Cdot(f32, false, mask, Block, fuse),

@@ -41,7 +41,7 @@ inline fn half(comptime T: type, v: anytype, comptime high: bool) @Vector(@typeI
 }
 
 /// `ddot_microk_skylakex-2.c` and `sdot_microk_skylakex-2.c`, for the slots
-/// that use them (`sdot`, `dsdot`, `ddot`): four accumulators of 256 bits, fed
+/// that use them (`dsdot`, `ddot`): four accumulators of 256 bits, fed
 /// ahead of that by four of 512 when `wide` (folded into the 256-bit ones), the
 /// accumulators added in order, then the halves, then `hadd`. `fuse` is whether
 /// `acc += a*b` contracts.

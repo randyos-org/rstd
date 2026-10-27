@@ -38,18 +38,14 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 
 /// Where the `@Vector` kernels (`vector.zig`) go: every slot of theirs but
 /// `rot` on `vortex` and `vortexm4`, where they match or beat the converted
-/// kernels (`tools/blasbench/results-m6.md`), and on every core each slot no
-/// converted kernel fills, mostly C upstream, for the portable scalar loop.
-/// On Apple's systems, whose Accelerate is to serve the rest, only the
-/// `routed` slots.
+/// kernels, which their objects then leave out (`vector.displaces`), and on
+/// every core each slot no converted kernel fills, mostly C upstream, for the
+/// portable scalar loop. On Apple's systems, whose Accelerate is to serve
+/// the rest, only the `routed` slots.
 fn usesVector(comptime core: Core, comptime slot: Slot) bool {
     if (vector.routed(slot)) return true;
     if (sysinfo.target.os.tag.isDarwin()) return false;
-    const rot = switch (slot) {
-        .srot_k, .drot_k, .csrot_k, .zdrot_k => true,
-        else => false,
-    };
-    if ((core == .vortex or core == .vortexm4) and !rot) return true;
+    if (vector.displaces(core, slot)) return true;
     inline for (converted) |m| {
         if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
     }

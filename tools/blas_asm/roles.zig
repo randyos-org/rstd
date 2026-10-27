@@ -34,6 +34,51 @@ pub const Role = struct {
 /// its own `gotoblas_t` has no such slot either.
 const no_slot = [_][]const u8{"sdsdot_k"};
 
+/// A kernel left unconverted (`skip`): its slot, and the architecture (null
+/// for every one).
+pub const Skip = struct {
+    slot: []const u8,
+    arch: ?[]const u8 = null,
+    /// Whether the slot is routed only on the cores that build this assembly
+    /// (x86_64's `usesVector`): the index lists them (`skipped`), and the C
+    /// kernels of the other cores stay (`uk.zig` converts them).
+    cores: bool = false,
+};
+
+/// Kernels not converted, since no core would install them: the library's
+/// `vector.routed` sends their slots to the portable or `@Vector` kernels
+/// (keep the two in step). The extremes, `nrm2` and `sdot` everywhere; on
+/// x86_64 the reductions whose assembly peels to an aligned operand
+/// (`vector.peels`), routed only on the cores that build it.
+pub const skip = blk: {
+    var out: []const Skip = &.{};
+    for ([_][]const u8{
+        "samax_k",  "damax_k",  "camax_k",  "zamax_k",
+        "samin_k",  "damin_k",  "camin_k",  "zamin_k",
+        "smax_k",   "dmax_k",   "smin_k",   "dmin_k",
+        "isamax_k", "idamax_k", "icamax_k", "izamax_k",
+        "isamin_k", "idamin_k", "icamin_k", "izamin_k",
+        "ismax_k",  "idmax_k",  "ismin_k",  "idmin_k",
+        "snrm2_k",  "dnrm2_k",  "cnrm2_k",  "znrm2_k",
+        "sdot_k",
+    }) |s| out = out ++ [_]Skip{.{ .slot = s }};
+    for ([_][]const u8{
+        "sasum_k", "dasum_k", "casum_k", "zasum_k", "csum_k",  "zsum_k",
+        "ddot_k",  "cdotu_k", "cdotc_k", "zdotu_k", "zdotc_k", "dgemv_n",
+    }) |s| out = out ++ [_]Skip{.{ .slot = s, .arch = "x86_64", .cores = true }};
+    break :blk out;
+};
+
+/// The `skip` entry for `slot` on `arch_name`, if any.
+pub fn skipped(arch_name: []const u8, slot: []const u8) ?Skip {
+    for (skip) |s| {
+        if (!std.mem.eql(u8, s.slot, slot)) continue;
+        if (s.arch) |sa| if (!std.mem.eql(u8, sa, arch_name)) continue;
+        return s;
+    }
+    return null;
+}
+
 /// The roles of `text`, a Makefile; the extended-precision ones (`XDOUBLE`)
 /// are marked `extended`.
 ///

@@ -15,19 +15,6 @@ const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
 
-pub fn ssyrk_direct_alpha_betaUN(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, beta: f32, C: [*]f32, strideC: BlasLong) void {
-    blas.kernel(.ssyrk_direct_alpha_betaUN)(N, K, alpha, A, strideA, beta, C, strideC);
-}
-pub fn ssyrk_direct_alpha_betaUT(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, beta: f32, C: [*]f32, strideC: BlasLong) void {
-    blas.kernel(.ssyrk_direct_alpha_betaUT)(N, K, alpha, A, strideA, beta, C, strideC);
-}
-pub fn ssyrk_direct_alpha_betaLN(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, beta: f32, C: [*]f32, strideC: BlasLong) void {
-    blas.kernel(.ssyrk_direct_alpha_betaLN)(N, K, alpha, A, strideA, beta, C, strideC);
-}
-pub fn ssyrk_direct_alpha_betaLT(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, beta: f32, C: [*]f32, strideC: BlasLong) void {
-    blas.kernel(.ssyrk_direct_alpha_betaLT)(N, K, alpha, A, strideA, beta, C, strideC);
-}
-
 const check = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
 

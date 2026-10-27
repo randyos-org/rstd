@@ -18,6 +18,7 @@ const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 const fma = @import("fma.zig");
 const extremum = @import("blas1/extremum.zig");
+const coretypes = @import("cpu/_coretypes.zig");
 
 const BlasLong = types.BlasLong;
 const Find = extremum.Find;
@@ -836,8 +837,10 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
 /// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
-/// sums in `f64`; and no result depends on an operand's address (`peels`). `asm_registry.Kernels` leaves them out; an
-/// architecture's `Registry` puts these in where its vector unit is IEEE.
+/// sums in `f64`; and no result depends on an operand's address (`peels`).
+/// `tools/blas_asm` does not convert their assembly (`roles.zig`'s `skip`,
+/// kept in step with this); an architecture's `Registry` puts these in where
+/// its vector unit is IEEE.
 pub fn routed(comptime slot: Slot) bool {
     return switch (slot) {
         // the extremes, `nrm2` and `sdot`
@@ -886,6 +889,30 @@ pub fn peels(comptime slot: Slot) bool {
         .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n => true,
         else => false,
     };
+}
+
+/// Whether these kernels take `slot` from `core`'s converted ones, beyond
+/// `routed`, so its object leaves those out: every slot of theirs but `rot`
+/// on arm64's `vortex` and `vortexm4` off Apple, where they match or beat
+/// the converted kernels (`tools/blasbench/results-m6.md`). On Apple's
+/// systems Accelerate is to serve instead, and the converted kernels stay.
+pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
+    if (sysinfo.target.os.tag.isDarwin()) return false;
+    return switch (@TypeOf(core)) {
+        coretypes.Arm64CoreType => (core == .vortex or core == .vortexm4) and switch (slot) {
+            .srot_k, .drot_k, .csrot_k, .zdrot_k => false,
+            else => fills(slot),
+        },
+        else => false,
+    };
+}
+
+/// Whether one of these kernels fills `slot` on this target.
+pub fn fills(comptime slot: Slot) bool {
+    inline for (kernels) |k| {
+        if (k.slot == slot) return true;
+    }
+    return false;
 }
 
 /// The slot each function of `Real` fills, by its name there.

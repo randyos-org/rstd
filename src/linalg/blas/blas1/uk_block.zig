@@ -99,9 +99,9 @@ pub fn Kernels(
             return asm_kernels.hasSlot(core, slot) or ukidx.find(slot, @tagName(core)) != null;
         }
 
-        /// Whether `slot` has a converted assembly kernel on `core`, `routed`
-        /// or not.
-        pub const converted = asm_kernels.converted;
+        /// Whether upstream builds `slot` on `core` from assembly the
+        /// generator left out (`asm_registry.Kernels.skips`).
+        pub const skips = asm_kernels.skips;
 
         /// Whether `core` has any kernel of this routine.
         pub fn has(comptime core: Core) bool {

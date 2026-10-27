@@ -71,8 +71,6 @@ pub const Op = enum {
     ger_k,
     geru_k,
     gerc_k,
-    gerv_k,
-    gerd_k,
     symv_U,
     symv_L,
     hemv_U,
@@ -163,7 +161,7 @@ fn Module(comptime op: Op) type {
         .axpy_k, .axpyc_k => blas1.axpy,
         .axpby_k => blas1.axpby,
         .gemv_n, .gemv_t, .gemv_r, .gemv_c, .gemv_o, .gemv_u, .gemv_s, .gemv_d => blas2.gemv,
-        .ger_k, .geru_k, .gerc_k, .gerv_k, .gerd_k => blas2.ger,
+        .ger_k, .geru_k, .gerc_k => blas2.ger,
         .symv_U, .symv_L => blas2.symv,
         .hemv_U, .hemv_L, .hemv_V, .hemv_M => blas2.hemv,
         else => @compileError("level-3 kernels come from `blas3.gemm.kernel.find`"),
@@ -272,7 +270,7 @@ test "kernel takes the vtable's slot where there is one, else the portable kerne
 test "every op has a slot for every type with slots, but the documented gaps" {
     @setEvalBranchQuota(20_000);
     const real_ops = [_]Op{ .copy_k, .swap_k, .scal_k, .dot_k, .nrm2_k, .asum_k, .sum_k, .amax_k, .amin_k, .max_k, .min_k, .iamax_k, .iamin_k, .imax_k, .imin_k, .rot_k, .rotm_k, .axpy_k, .axpby_k, .gemv_n, .gemv_t, .ger_k, .symv_U, .symv_L };
-    const complex_ops = [_]Op{ .copy_k, .swap_k, .scal_k, .dotu_k, .dotc_k, .nrm2_k, .asum_k, .sum_k, .amax_k, .amin_k, .iamax_k, .iamin_k, .rot_k, .axpy_k, .axpyc_k, .axpby_k, .gemv_n, .gemv_t, .gemv_r, .gemv_c, .gemv_o, .gemv_u, .gemv_s, .gemv_d, .geru_k, .gerc_k, .gerv_k, .gerd_k, .symv_U, .symv_L, .hemv_U, .hemv_L, .hemv_V, .hemv_M };
+    const complex_ops = [_]Op{ .copy_k, .swap_k, .scal_k, .dotu_k, .dotc_k, .nrm2_k, .asum_k, .sum_k, .amax_k, .amin_k, .iamax_k, .iamin_k, .rot_k, .axpy_k, .axpyc_k, .axpby_k, .gemv_n, .gemv_t, .gemv_r, .gemv_c, .gemv_o, .gemv_u, .gemv_s, .gemv_d, .geru_k, .gerc_k, .symv_U, .symv_L, .hemv_U, .hemv_L, .hemv_V, .hemv_M };
     inline for (.{ f32, f64, XDouble }) |F| {
         inline for (.{ .{ F, real_ops }, .{ std.math.Complex(F), complex_ops } }) |p| {
             const T = p[0];

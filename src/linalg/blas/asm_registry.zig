@@ -67,6 +67,11 @@ pub fn install(vt: *Vtable, comptime modules: anytype, core: anytype) void {
 /// its kernel fills.
 pub const Entry = struct { slot: Slot, module: type };
 
+/// A kernel upstream builds that the generator does not convert, and the
+/// cores it builds it for: a row of an `asm/__root__.zig`'s `skipped`
+/// (`tools/blas_asm/roles.zig`'s `skip`).
+pub const Skipped = struct { slot: Slot, cores: []const []const u8 };
+
 /// Exports `f` as `core`'s kernel for `slot`, under `util.kernelSymbol`.
 pub fn exportKernel(comptime f: anytype, comptime slot: Slot, comptime core: anytype) void {
     @export(f, .{ .name = util.kernelSymbol(slot, core), .visibility = .hidden });
@@ -88,10 +93,11 @@ pub fn installSlots(vt: *Vtable, comptime core: anytype, comptime slots: []const
 
 pub fn Kernels(comptime Core: type, comptime index: type) type {
     return struct {
-        /// `e`'s function for `core` on this target, if it has one and its
-        /// slot is not `routed` to the portable or `@Vector` kernels.
+        /// `e`'s function for `core` on this target, if it has one and the
+        /// `@Vector` kernels do not take its slot (`vector.displaces`).
         fn kernel(comptime e: Entry, comptime core: Core) ?type {
-            if (comptime vector.routed(e.slot)) return null;
+            if (comptime vector.routed(e.slot)) @compileError(@tagName(e.slot) ++ " is routed, yet converted; tools/blas_asm/roles.zig's skip and vector.routed disagree");
+            if (comptime vector.displaces(core, e.slot)) return null;
             return e.module.kernel(@tagName(core), variant);
         }
 
@@ -112,11 +118,15 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             return false;
         }
 
-        /// Whether `slot` has a converted kernel on `core` for this target,
-        /// `routed` or not.
-        pub fn converted(comptime core: Core, comptime slot: Slot) bool {
-            inline for (index.entries) |e| {
-                if (comptime e.slot == slot and e.module.kernel(@tagName(core), variant) != null) return true;
+        /// Whether upstream builds `slot` on `core` from assembly the
+        /// generator left out (`index.skipped`).
+        pub fn skips(comptime core: Core, comptime slot: Slot) bool {
+            if (!@hasDecl(index, "skipped")) return false;
+            inline for (index.skipped) |s| {
+                if (s.slot != slot) continue;
+                inline for (s.cores) |c| {
+                    if (comptime std.mem.eql(u8, c, @tagName(core))) return true;
+                }
             }
             return false;
         }
@@ -136,7 +146,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             inline for (index.entries) |e| {
                 if (comptime kernel(e, core)) |K| {
                     exportKernel(&K.entry, e.slot, core);
-                } else if (comptime e.module.serves(@tagName(core)) and !hasSlot(core, e.slot) and !vector.routed(e.slot)) {
+                } else if (comptime e.module.serves(@tagName(core)) and !hasSlot(core, e.slot) and !vector.displaces(core, e.slot)) {
                     @compileError("no '" ++ variant ++ "' build of " ++ @tagName(e.slot) ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
                 }
             }

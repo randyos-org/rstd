@@ -6,7 +6,6 @@ const registry = @import("../../../../asm_registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .dgemv_n, .module = @import("dgemv_n_atom.zig") },
     .{ .slot = .dgemv_t, .module = @import("dgemv_t_atom_sysv.zig") },
     .{ .slot = .dgemv_t, .module = @import("dgemv_t_atom_win.zig") },
     .{ .slot = .zgemv_n, .module = @import("zgemv_n_atom.zig") },
@@ -17,10 +16,6 @@ pub const entries = [_]Entry{
     .{ .slot = .zgemv_u, .module = @import("zgemv_u_atom.zig") },
     .{ .slot = .zgemv_s, .module = @import("zgemv_s_atom.zig") },
     .{ .slot = .zgemv_d, .module = @import("zgemv_d_atom.zig") },
-    .{ .slot = .dgemv_n, .module = @import("dgemv_n_barcelona.zig") },
-    .{ .slot = .dgemv_n, .module = @import("dgemv_n_dunnington.zig") },
-    .{ .slot = .dgemv_n, .module = @import("dgemv_n_opteron.zig") },
-    .{ .slot = .dgemv_n, .module = @import("dgemv_n_sandybridge.zig") },
     .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_bobcat_sysv.zig") },
     .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_opteron_sse3_sysv.zig") },
     .{ .slot = .zgemv_n, .module = @import("zgemv_n_dup_bobcat_win.zig") },
@@ -53,6 +48,25 @@ pub const entries = [_]Entry{
     .{ .slot = .zgemv_d, .module = @import("zgemv_d_opteron_sse3_sysv.zig") },
     .{ .slot = .zgemv_d, .module = @import("zgemv_d_bobcat_win.zig") },
     .{ .slot = .zgemv_d, .module = @import("zgemv_d_opteron_sse3_win.zig") },
-    .{ .slot = .dgemv_n, .module = @import("dgemv_n_bulldozer.zig") },
     .{ .slot = .dgemv_t, .module = @import("dgemv_t_bulldozer.zig") },
+};
+
+/// The kernels upstream builds here that are not converted
+/// (`tools/blas_asm/roles.zig`'s `skip`), with the cores it builds them for.
+pub const skipped = [_]registry.Skipped{
+    .{ .slot = .dgemv_n, .cores = &.{
+        "atom",
+        "barcelona",
+        "bobcat",
+        "bulldozer",
+        "core2",
+        "dunnington",
+        "nano",
+        "opteron",
+        "opteron_sse3",
+        "penryn",
+        "piledriver",
+        "prescott",
+        "sandybridge",
+    } },
 };

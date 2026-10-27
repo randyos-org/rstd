@@ -153,9 +153,9 @@ back to the portable kernels, and the next call selects again; no kernel call ma
 
 ### One contract on every core
 
-Some slots never take a converted kernel (`vector.routed`): every core runs the portable or
-`@Vector` kernels there, so what they do beyond rounding does not depend on the core
-([`comparisons.md`](comparisons.md), X1). Where the `@Vector` kernels go is in
+Some slots never take a converted kernel (`vector.routed`), so their assembly is not converted:
+every core runs the portable or `@Vector` kernels there, so what they do beyond rounding does not
+depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector` kernels go is in
 [`design.md`](design.md#vector-level-1-and-level-2-kernels).
 
 - **`nrm2`:** `s` and `c` sum the squares in `f64`, where each is exact and none overflows or

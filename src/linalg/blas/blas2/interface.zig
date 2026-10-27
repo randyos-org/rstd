@@ -303,7 +303,9 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
         if (j == j0) break;
         const ys: [*]T = @ptrCast(util.at(T, py, j0 * incy));
         const as: [*]T = @ptrCast(util.at(T, a, j0 * lda));
-        // the reference threads big problems here (`ger_thread`)
+        // the reference threads big problems here (`ger_thread`). Its CBLAS
+        // row-major `zgerc` swaps `m`/`n`, `x`/`y` and their strides and
+        // takes `gerv_k` (`x` conjugated); no row-major layer here.
         if (comptime complex) {
             _ = k(m, j - j0, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, ys), incy, raw(T, as), lda, sc.ptr);
         } else {

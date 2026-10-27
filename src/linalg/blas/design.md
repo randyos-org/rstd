@@ -207,8 +207,11 @@ users are not assumed to know. Part of the codebase-wide pass to make rstd more 
 
 ### The vtable
 
-`Vtable.zig` is OpenBLAS's `gotoblas_t`, mechanically derived from `common_param.h`: 904 kernel
-slots, 88 integer parameters and the `init` hook. The reference guards fields behind `BUILD_*`,
+`Vtable.zig` is OpenBLAS's `gotoblas_t`, mechanically derived from `common_param.h`: 854 kernel
+slots, 88 integer parameters and the `init` hook. It leaves out the 50 slots only row-major data
+or CBLAS reaches (`?gerv_k`, `?gerd_k`, the `*_direct*` kernels, `?omatcopy_k_r*`,
+`?imatcopy_k_r*`) and the `sbger_k`, `sbsymv_L` and `sbsymv_U` that nothing upstream fills or
+calls; its doc comment lists them (`unused/`, below). The reference guards fields behind `BUILD_*`,
 `EXPRECISION`, `ARCH_*` and `SMALL_MATRIX_OPT`; here every field is always present, kernels as
 optional pointers that stay `null` where nothing applies. Slots use the C calling convention and
 the kernel ABI of the reference (`daxpy_k(n, dummy, dummy, alpha, x, incx, y, incy, dummy,
@@ -374,7 +377,8 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   a DLL exports nothing without `dllexport`.
 - **Install.** `asm_registry.install` points each slot at `@extern` of the symbol. A core with no
   object in the build is served by another (`served`, below). Every kernel is keyed by its
-  `Slot`; a rule without a vtable field (`sdsdot_k`) is not converted.
+  `Slot`; a rule without a vtable field (`sdsdot_k`) is not converted, nor is one whose slot no
+  core would take it for (`tools/blas_asm/roles.zig`'s `skip`, below).
 - **Isolation.** The objects compile `_kernel.zig` alone, so everything they reach imports
   nothing outside `src/linalg/blas/`: `Vtable.zig`, `types.zig`, `util.zig`, `fma.zig`,
   `vector.zig`, `cpu/_coretypes.zig`, the registries and the kernels. `kernels/__root__.zig`
@@ -393,11 +397,11 @@ A slot holds one of six kinds of kernel:
 | `@Vector` level 1 and 2 | `vector.zig` | per-core object |
 | `@Vector` level-3 tile | `blas3/gemm/kernel.zig`, `blas3/symm/kernel.zig`, `blas3/trmm/kernel.zig`, `blas3/trsm/kernel.zig` | main library and every per-core object |
 
-Some converted sources call another routine's kernel (`loongarch64`'s `cnrm2`/`snrm2` in `lsx`
-and `lasx` call `camax_k`/`samax_k`). The generator preprocesses with `-DDYNAMIC_ARCH`, so the
-call names one core's kernel (`camax_k_LA264`) rather than the dispatch trampoline, and
-`arch.nakedLines` rewrites that to `blaskern_camax_la264`, which the same per-core object
-exports.
+A converted source may call another routine's kernel (upstream, `loongarch64`'s `cnrm2`/`snrm2`
+in `lsx` and `lasx` call `camax_k`/`samax_k`; those are skipped now). The generator preprocesses
+with `-DDYNAMIC_ARCH`, so the call names one core's kernel (`camax_k_LA264`) rather than the
+dispatch trampoline, and `arch.nakedLines` rewrites that to `blaskern_camax_la264`, which the
+same per-core object exports.
 
 [`blas1/c_kernels.md`](blas1/c_kernels.md) specifies the C-driver ports: the parts, what the
 generator converts, the driver rules (order, contraction, mixed types, block ABI) and how to add
@@ -414,18 +418,20 @@ overflowed or underflowed. They need no FMA unit. `vector.Registry` exports them
 per-core objects; like the tiles, they never make a core need an object of its own.
 
 - **Routed slots** (`vector.routed`): the extremes, `nrm2`, `sdot`, and on x86_64 the reductions
-  whose converted kernels peel elements until an operand is aligned (`vector.peels`). No core
-  takes a converted kernel there; `asm_registry.Kernels` leaves them out, and an architecture's
-  registry puts the `@Vector` kernels in where its vector unit is IEEE, else the portable ones
-  serve.
+  whose upstream assembly peels elements until an operand is aligned (`vector.peels`). No core
+  takes a converted kernel there, so `tools/blas_asm` does not convert one (`roles.zig`'s `skip`,
+  below; `asm_registry.Kernels` stops the build if a routed slot is converted), and an
+  architecture's registry puts the `@Vector` kernels in where its vector unit is IEEE, else the
+  portable ones serve. Where x86_64 routes a peeling slot by core, the generated index lists
+  the cores of the assembly it left out (`skipped`).
 - **x86_64, x86, loongarch64:** the routed slots (on x86_64 the peeling ones only on the cores
   whose converted kernels peel; their C kernels elsewhere stay).
 - **power:** the routed slots on POWER8 to 10; AltiVec cores keep the portable kernels.
 - **arm64:** the routed slots on every core; on `vortex` and `vortexm4` every slot but `rot`,
   where they match or beat the converted assembly on the M6
-  ([`results-m6.md`](../../../tools/blasbench/results-m6.md)); elsewhere every slot no converted
-  kernel fills (below). On Apple's systems, where Accelerate is to serve instead, only the
-  routed slots.
+  ([`results-m6.md`](../../../tools/blasbench/results-m6.md)), so their objects there leave those
+  converted kernels out (`vector.displaces`); elsewhere every slot no converted kernel fills
+  (below). On Apple's systems, where Accelerate is to serve instead, only the routed slots.
 - **arm, mips, sparc, riscv64, s390x, wasm:** none.
 
 On arm64 these fill the slots whose upstream kernel is C, which the portable scalar loop served
@@ -576,8 +582,8 @@ bits.
 
 `kernel/setparam-ref.c` fills the bfloat16-named slots that have no kernel of their own with the
 `f32` kernels: 17 level-1 ones (`sbamax_k` to `sbswap_k`) and `dsbdot_k` (with `dsdot_k`), which
-the level-1 interfaces reach, and `sbger_k`, `sbsymv_*`, `sbtrsm_*`, `sbtrmm_*`, `sbsymm_*`,
-`sbneg_tcopy` and `sblaswp_ncopy`, which nothing calls yet and which stay null while their `f32`
+the level-1 interfaces reach, and `sbtrsm_*`, `sbtrmm_*`, `sbsymm_*`, `sbneg_tcopy` and
+`sblaswp_ncopy`, which nothing calls yet and which stay null while their `f32`
 slots are. `portable.finish` sets them at the end of every vtable's build.
 
 Their numerical behavior is in [`readme.md`](readme.md#bfloat16-and-half-precision).
@@ -781,7 +787,7 @@ v0.3.34-317. The generator fixes each before converting it: a `Patch` in
 match `count` times, or the generator stops, with a comment saying what was wrong. The generated
 files carry the fixed code. [`issues.md`](issues.md#openblas) holds the issue text for each. No
 core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](readme.md#one-contract-on-every-core)),
-fixed or not.
+fixed or not, so they are no longer converted (below) and their patches no longer run.
 
 - `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte result first, shifting
   the arguments along; the kernel read that address as `n`. Fixed the way `zdot_sse2.S` already
@@ -908,6 +914,18 @@ Alpha, IA-64, C-SKY, E2K, POWER BG/P and RISC-V C910V have no converted kernels;
 in [`readme.md`](readme.md#not-supported-by-zig). `Arch.unsupported` lists sources the toolchain
 cannot assemble.
 
+#### Kernels not converted, and `unused/`
+
+`roles.zig`'s `skip` lists the kernels `gen.zig` and `uk.zig` leave out because no core would
+install them: the routed slots (`vector.routed`), everywhere, and on x86_64 the peeling
+reductions, whose cores the index keeps (`skipped`). Code that does not apply to rstd's
+column-major Zig API is not kept as dead code either: the skipped kernels' converted files, the
+vtable slots only row-major data or CBLAS reaches, and the stubs and tests of those slots live in
+the git-ignored `unused/`, mirroring their old paths (snippets cut from a file that stays get
+one file each, with a header naming the source). Nothing builds from `unused/`. Where an
+interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k`, the level-3
+`*_direct*` kernels), that branch is a short comment, never code.
+
 ### Source tree
 
 | Path | Role |
@@ -935,6 +953,7 @@ cannot assemble.
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels) and the vtable wrappers of `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg`, not yet behind an interface |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
+| `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
 | `readme.md`, `design.md`, `threading.md`, `comparisons.md`, `issues.md` | documentation |
 
 A routine directory holds its `__root__.zig` (the vtable wrappers, its portable kernels and the

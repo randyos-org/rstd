@@ -76,6 +76,8 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, trans
     if (ldb < @max(1, if (tb) n else k)) return error.InvalidLdb;
     if (ldc < @max(1, m)) return error.InvalidLdc;
     if (m == 0 or n == 0) return;
+    // upstream, CBLAS row-major `sgemm` may take `sgemm_direct` or
+    // `sgemm_direct_alpha_beta` here; rstd has no row-major layer
     if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
@@ -108,6 +110,8 @@ fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (ldb < @max(1, m)) return error.InvalidLdb;
     if (ldc < @max(1, m)) return error.InvalidLdc;
     if (m == 0 or n == 0) return;
+    // upstream, CBLAS row-major `ssymm` may take
+    // `ssymm_direct_alpha_beta*` here; rstd has no row-major layer
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
@@ -165,6 +169,8 @@ fn rankImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (b != null and ldb < @max(1, rows)) return error.InvalidLdb;
     if (ldc < @max(1, n)) return error.InvalidLdc;
     if (n == 0) return;
+    // upstream, CBLAS row-major `ssyrk` and `ssyr2k` may take their
+    // `*_direct_alpha_beta*` kernels here; rstd has no row-major layer
     if (!util.fitsMatrix(rows, cols, lda, @sizeOf(T))) return error.InvalidLda;
     if (b != null and !util.fitsMatrix(rows, cols, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(n, n, ldc, @sizeOf(T))) return error.InvalidLdc;
@@ -198,6 +204,8 @@ fn triImpl(allocator: Allocator, io: Io, comptime T: type, comptime solve: bool,
     if (lda < @max(1, ka)) return error.InvalidLda;
     if (ldb < @max(1, m)) return error.InvalidLdb;
     if (m == 0 or n == 0) return;
+    // upstream, CBLAS row-major `strmm` may take `strmm_direct_*`
+    // here; rstd has no row-major layer
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     const f = if (solve) driver.trsm else driver.trmm;
