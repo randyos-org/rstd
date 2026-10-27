@@ -54,6 +54,10 @@ main_free: bool = false,
 /// (an L2 size of 0 is never a real value to tune for).
 l2_size_override: i32 = 0,
 
+/// Not from the environment: the CPU count `blas.init` caches
+/// (`threading.cpuCount`), 1 until then.
+cpu_count: u32 = 1,
+
 /// `LD_HWCAP_MASK` -- s390x-only (`cpuid_zarch.h`). ANDed against
 /// `getauxval(AT_HWCAP)` to let the user mask *out* specific feature
 /// bits the kernel reports, even if the hardware genuinely has them.
@@ -139,6 +143,13 @@ pub fn fromEnv(env: Env) Self {
 /// `OPENBLAS_CORETYPE`, if set.
 pub fn coreType(c: *const Self) ?[]const u8 {
     return if (c.core_type_len == 0) null else c.core_type_buf[0..c.core_type_len];
+}
+
+/// The thread ceiling: `num_threads`, else `goto_num_threads`; null for none.
+pub fn threadCeiling(c: *const Self) ?u32 {
+    if (c.num_threads > 0) return @intCast(c.num_threads);
+    if (c.goto_num_threads > 0) return @intCast(c.goto_num_threads);
+    return null;
 }
 
 /// Reads `key` into `buf` (or borrows it), returning null when unset or empty.
@@ -237,6 +248,17 @@ test "neither thread-count variable set yields 0 threads" {
     defer env.deinit();
 
     try zigstd.testExpectEqual(@as(i32, 0), Self.init(&env).num_threads);
+}
+
+test "the thread ceiling is OPENBLAS_NUM_THREADS, else GOTO_NUM_THREADS" {
+    var env = testEnv(&.{.{ "GOTO_NUM_THREADS", "6" }});
+    defer env.deinit();
+    try zigstd.testExpectEqual(@as(?u32, 6), Self.init(&env).threadCeiling());
+    try env.put("OPENBLAS_NUM_THREADS", "3");
+    try zigstd.testExpectEqual(@as(?u32, 3), Self.init(&env).threadCeiling());
+    try env.put("OPENBLAS_NUM_THREADS", "-2");
+    try env.put("GOTO_NUM_THREADS", "0");
+    try zigstd.testExpectEqual(@as(?u32, null), Self.init(&env).threadCeiling());
 }
 
 test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {

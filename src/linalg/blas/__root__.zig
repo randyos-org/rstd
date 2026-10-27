@@ -3,6 +3,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const portable = @import("portable.zig");
+const threading = @import("threading.zig");
 
 pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
@@ -173,6 +174,7 @@ pub fn init(env: *const std.process.Environ.Map) bool {
 fn initWith(env: Config.Env) bool {
     if (!claim()) return false;
     config = .fromEnv(env);
+    config.cpu_count = threading.cpuCount();
 
     const chosen = cpu.choose(config.coreType(), config.ld_hwcap_mask, LogSink{});
     // the core whose kernels run, as `gotoblas_corename` names it
@@ -416,6 +418,7 @@ fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {
 test {
     _ = @import("abi.zig");
     _ = @import("apple_accel.zig");
+    _ = @import("threading.zig");
     _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());
 }
