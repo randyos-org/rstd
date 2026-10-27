@@ -8,6 +8,14 @@
 //!     zig build ssh-bench-aarch64-macos -Dopenblas=<checkout> [-- <section>...]
 //!
 //! Sections: `probe`, `l1`, `l2`, `l3`; all when none is named.
+//!
+//! `lib1`, `lib2`, `lib3` race rstd's public routines (`blas.dot`, ...)
+//! against real OpenBLAS and Accelerate, `dlopen`ed by absolute path
+//! (`results-m6-libraries.md`); with the others when none is named and
+//! `--openblas` is given. Options:
+//! `--openblas=<libopenblas.dylib>` (`-Dopenblas-lib`), `--accelerate=<path>`,
+//! `--threads=default` (else both run one thread), `--ob-core=<core>`
+//! (`OPENBLAS_CORETYPE`, which rstd reads too).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -78,17 +86,35 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("zig {s}, cpu model {s}, detected core {t}\n", .{ sysinfo.zig_version_string, sysinfo.target.cpu.model.name, blas.cpu.detect() });
 
-    const all = args.len < 2;
+    // `--name=value` options, then section names
+    var opts: LibOptions = .{};
+    var sections: std.ArrayList([]const u8) = .empty;
+    for (args[1..]) |a| {
+        if (std.mem.startsWith(u8, a, "--")) {
+            const eq = std.mem.findScalar(u8, a, '=') orelse return error.BadOption;
+            const v = a[eq + 1 ..];
+            const k = a[2..eq];
+            if (std.mem.eql(u8, k, "openblas")) opts.openblas = v else if (std.mem.eql(u8, k, "accelerate")) opts.accelerate = v else if (std.mem.eql(u8, k, "threads")) opts.threads = v else if (std.mem.eql(u8, k, "ob-core")) opts.ob_core = v else return error.BadOption;
+        } else try sections.append(init.arena.allocator(), a);
+    }
+    const all = sections.items.len == 0;
     const want = struct {
         fn f(list: []const []const u8, name: []const u8) bool {
-            for (list[1..]) |a| if (std.mem.eql(u8, a, name)) return true;
+            for (list) |a| if (std.mem.eql(u8, a, name)) return true;
             return false;
         }
     }.f;
-    if (all or want(args, "probe")) try probe(io);
-    if (all or want(args, "l1")) try level1(io, gpa);
-    if (all or want(args, "l2")) try level2(io, gpa);
-    if (all or want(args, "l3")) try level3(io, gpa);
+    if (all or want(sections.items, "probe")) try probe(io);
+    if (all or want(sections.items, "l1")) try level1(io, gpa);
+    if (all or want(sections.items, "l2")) try level2(io, gpa);
+    if (all or want(sections.items, "l3")) try level3(io, gpa);
+    const lib_sections = want(sections.items, "lib1") or want(sections.items, "lib2") or want(sections.items, "lib3");
+    if (lib_sections or (all and opts.openblas != null)) {
+        try loadLibs(opts);
+        if (all or want(sections.items, "lib1")) try libLevel1(io, gpa);
+        if (all or want(sections.items, "lib2")) try libLevel2(io, gpa);
+        if (all or want(sections.items, "lib3")) try libLevel3(io, gpa);
+    }
     try clock(io, "end");
 }
 
@@ -967,5 +993,645 @@ fn raceGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
         for (0..impls.len) |i| std.debug.print(" {d:.1} |", .{2 * nf * nf * nf / secs[i] / 1e9});
         for (1..impls.len) |i| std.debug.print(" {d:.2} |", .{secs[0] / secs[i]});
         std.debug.print("\n", .{});
+    }
+}
+
+// ---- libraries -------------------------------------------------------------
+
+const LibOptions = struct {
+    openblas: ?[]const u8 = null,
+    accelerate: []const u8 = "/System/Library/Frameworks/Accelerate.framework/Accelerate",
+    threads: []const u8 = "1",
+    ob_core: ?[]const u8 = null,
+};
+
+/// Where a library contestant comes from: rstd's public routines, or a
+/// library's `cblas_*`.
+const Src = enum { rstd, openblas, accelerate };
+
+var lib_handles: [2]?std.DynLib = .{ null, null };
+
+/// The first error an rstd routine returned inside a kernel-ABI wrapper.
+var lib_err: ?RstdError = null;
+
+/// What the raced routines return: every level-1 error is a level-2 one.
+const RstdError = blas.Level2Error || blas.Level3Error;
+
+fn fail(e: RstdError) void {
+    if (lib_err == null) lib_err = e;
+}
+
+/// rstd's routines take an allocator; a C program would hand them malloc's.
+const rstd_alloc = std.heap.c_allocator;
+/// And an `Io`: a serial one, as the libraries run one thread by default.
+const rstd_io = std.Io.failing;
+
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+/// `name` from `src`'s library: Accelerate's current LP64 entry
+/// (`ACCELERATE_NEW_LAPACK`) where it has one, else the classic one.
+fn lookup(comptime src: Src, comptime T: type, comptime name: [:0]const u8) ?T {
+    const h = &(lib_handles[@backingInt(src) - 1] orelse return null);
+    if (src == .accelerate) {
+        if (h.lookup(T, name ++ "$NEWLAPACK")) |f| return f;
+    }
+    return h.lookup(T, name);
+}
+
+/// Opens both libraries, one thread each unless `--threads=default`, and
+/// prints how each is configured.
+fn loadLibs(opts: LibOptions) !void {
+    const single = !std.mem.eql(u8, opts.threads, "default");
+    // read when the libraries load
+    if (single) {
+        _ = setenv("OPENBLAS_NUM_THREADS", "1", 1);
+        _ = setenv("VECLIB_MAXIMUM_THREADS", "1", 1);
+    }
+    var buf: [64]u8 = undefined;
+    if (opts.ob_core) |c| _ = setenv("OPENBLAS_CORETYPE", try std.mem.printSentinel(&buf, "{s}", .{c}, 0), 1);
+    const ob_path = opts.openblas orelse return error.NeedOpenblasPath;
+    for ([_][]const u8{ ob_path, opts.accelerate }, &lib_handles) |path, *h| {
+        h.* = std.DynLib.open(path) catch |e| {
+            std.debug.print("dlopen {s}: {s}\n", .{ path, if (std.c.dlerror()) |m| std.mem.span(m) else "?" });
+            return e;
+        };
+    }
+
+    const Str = *const fn () callconv(.c) [*:0]const u8;
+    const Int = *const fn () callconv(.c) c_int;
+    const config = std.mem.span(lookup(.openblas, Str, "openblas_get_config").?());
+    // `int` indices here; an ILP64 build (`USE64BITINT`) would need `long`
+    if (std.mem.find(u8, config, "USE64BITINT") != null) return error.OpenblasIsIlp64;
+    std.debug.print("openblas: {s}\nopenblas core: {s}, config: {s}, threads: {d}\n", .{
+        ob_path,
+        lookup(.openblas, Str, "openblas_get_corename").?(),
+        config,
+        lookup(.openblas, Int, "openblas_get_num_threads").?(),
+    });
+    // per thread: this one makes every call
+    const Set = *const fn (c_uint) callconv(.c) c_int;
+    const Get = *const fn () callconv(.c) c_uint;
+    if (single) {
+        if (lookup(.accelerate, Set, "BLASSetThreading")) |f| {
+            if (f(1) != 0) std.debug.print("warning: BLASSetThreading failed\n", .{});
+        }
+    }
+    const threading = if (lookup(.accelerate, Get, "BLASGetThreading")) |f| switch (f()) {
+        0 => "multi-threaded",
+        1 => "single-threaded",
+        else => "?",
+    } else "absent";
+    std.debug.print("accelerate: {s}, BLASGetThreading: {s}\nrstd core: {s}\n", .{ opts.accelerate, threading, blas.coreName() });
+}
+
+/// `p`'s element as rstd's routines take it.
+fn Num(comptime p: Prec) type {
+    return if (p.complex) std.math.Complex(p.F) else p.F;
+}
+
+fn cast(comptime p: Prec, x: [*]p.F) [*]Num(p) {
+    return @ptrCast(x);
+}
+
+/// cblas's `CBLAS_ORDER` and `CBLAS_TRANSPOSE`.
+const col_major: c_int = 102;
+const no_trans: c_int = 111;
+const trans_t: c_int = 112;
+
+/// Level-1 routine `r` over `p` from `src`, in the kernel ABI of its vtable
+/// slot, so `checkL1` and `L1Call` take it as they take a kernel: `f` the
+/// library's symbol, `k` the wrapper. `from` makes each library's struct
+/// a type of its own; without it they would share one `f`.
+fn L1Via(comptime src: Src, comptime r: L1, comptime p: Prec) type {
+    const F = p.F;
+    const T = Num(p);
+    const Cx = blas.types.CComplex(F);
+    const lib = src != .rstd;
+    const s = p.name;
+    // the real letter, for `scnrm2`, `csrot` and the like
+    const re = if (F == f32) "s" else "d";
+    const I = isize;
+    const cx = p.complex;
+    return switch (r) {
+        .axpy => if (!cx) struct {
+            const sym = "cblas_" ++ s ++ "axpy";
+            const from = src;
+            const Sig = fn (c_int, F, [*]F, c_int, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, _: I, _: I, a: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), a, x, @intCast(ix), y, @intCast(iy)) else blas.axpy(rstd_io, T, n, a, x, ix, y, iy) catch |e| fail(e);
+                return 0;
+            }
+        } else struct {
+            const sym = "cblas_" ++ s ++ "axpy";
+            const from = src;
+            const Sig = fn (c_int, *const [2]F, [*]F, c_int, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, _: I, _: I, ar: F, ai: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), &.{ ar, ai }, x, @intCast(ix), y, @intCast(iy)) else blas.axpy(rstd_io, T, n, .init(ar, ai), cast(p, x), ix, cast(p, y), iy) catch |e| fail(e);
+                return 0;
+            }
+        },
+        .dot => if (!cx) struct {
+            const sym = "cblas_" ++ s ++ "dot";
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) F;
+            var f: *const Sig = undefined;
+            fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I) callconv(.c) F {
+                if (lib) return f(@intCast(n), x, @intCast(ix), y, @intCast(iy));
+                return blas.dot(rstd_io, T, n, x, ix, y, iy) catch |e| {
+                    fail(e);
+                    return 0;
+                };
+            }
+        } else struct {
+            const sym = "cblas_" ++ s ++ "dotu_sub";
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int, [*]F, c_int, *[2]F) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I) callconv(.c) Cx {
+                if (lib) {
+                    var o: [2]F = undefined;
+                    f(@intCast(n), x, @intCast(ix), y, @intCast(iy), &o);
+                    return .{ .re = o[0], .im = o[1] };
+                }
+                const v = blas.dot(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy) catch |e| {
+                    fail(e);
+                    return .{ .re = 0, .im = 0 };
+                };
+                return .{ .re = v.re, .im = v.im };
+            }
+        },
+        .scal => if (!cx) struct {
+            const sym = "cblas_" ++ s ++ "scal";
+            const from = src;
+            const Sig = fn (c_int, F, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, _: I, _: I, a: F, x: [*]F, ix: I, _: [*]F, _: I, _: [*]F, _: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), a, x, @intCast(ix)) else blas.scal(rstd_io, T, n, a, x, ix) catch |e| fail(e);
+                return 0;
+            }
+        } else struct {
+            const sym = "cblas_" ++ s ++ "scal";
+            const from = src;
+            const Sig = fn (c_int, *const [2]F, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, _: I, _: I, ar: F, ai: F, x: [*]F, ix: I, _: [*]F, _: I, _: [*]F, _: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), &.{ ar, ai }, x, @intCast(ix)) else blas.scal(rstd_io, T, n, .init(ar, ai), cast(p, x), ix) catch |e| fail(e);
+                return 0;
+            }
+        },
+        .nrm2, .asum => struct {
+            const sym = "cblas_" ++ (if (cx) re else "") ++ s ++ @tagName(r);
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int) callconv(.c) F;
+            var f: *const Sig = undefined;
+            fn k(n: I, x: [*]F, ix: I) callconv(.c) F {
+                if (lib) return f(@intCast(n), x, @intCast(ix));
+                return @field(blas, @tagName(r))(rstd_io, T, n, cast(p, x), ix) catch |e| {
+                    fail(e);
+                    return 0;
+                };
+            }
+        },
+        .iamax => struct {
+            const sym = "cblas_i" ++ s ++ "amax";
+            const from = src;
+            // OpenBLAS returns `size_t`, Accelerate `int`: both from 0
+            const Sig = fn (c_int, [*]F, c_int) callconv(.c) c_int;
+            var f: *const Sig = undefined;
+            fn k(n: I, x: [*]F, ix: I) callconv(.c) I {
+                if (lib) return @as(I, f(@intCast(n), x, @intCast(ix))) + 1;
+                return blas.index(rstd_io, T, .amax, n, cast(p, x), ix) catch |e| {
+                    fail(e);
+                    return 0;
+                };
+            }
+        },
+        .copy => struct {
+            const sym = "cblas_" ++ s ++ "copy";
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.copy(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy) catch |e| fail(e);
+                return 0;
+            }
+        },
+        .swap => if (!cx) struct {
+            const sym = "cblas_" ++ s ++ "swap";
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, _: I, _: I, _: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.swap(rstd_io, T, n, x, ix, y, iy) catch |e| fail(e);
+                return 0;
+            }
+        } else struct {
+            const sym = "cblas_" ++ s ++ "swap";
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int, [*]F, c_int) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, _: I, _: I, _: F, _: F, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F, _: I) callconv(.c) i32 {
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy)) else blas.swap(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy) catch |e| fail(e);
+                return 0;
+            }
+        },
+        .rot => struct {
+            const sym = "cblas_" ++ s ++ (if (cx) re else "") ++ "rot";
+            const from = src;
+            const Sig = fn (c_int, [*]F, c_int, [*]F, c_int, F, F) callconv(.c) void;
+            var f: *const Sig = undefined;
+            fn k(n: I, x: [*]F, ix: I, y: [*]F, iy: I, c: F, sn: F) callconv(.c) i32 {
+                if (lib) f(@intCast(n), x, @intCast(ix), y, @intCast(iy), c, sn) else blas.rot(rstd_io, T, n, cast(p, x), ix, cast(p, y), iy, c, sn) catch |e| fail(e);
+                return 0;
+            }
+        },
+    };
+}
+
+/// `src`'s routine `r` as a kernel; null where the library lacks it.
+fn libL1(comptime src: Src, comptime r: L1, comptime p: Prec) ?Fn(l1Slot(r, p)) {
+    const W = L1Via(src, r, p);
+    if (src != .rstd) W.f = lookup(src, *const W.Sig, W.sym) orelse return null;
+    return &W.k;
+}
+
+/// `gemv` over `p` from `src` in the kernel ABI of `?gemv_n`/`?gemv_t`:
+/// `y += alpha*op(A)*x` (`beta` 1).
+fn GemvVia(comptime src: Src, comptime p: Prec, comptime t: []const u8) type {
+    const F = p.F;
+    const T = Num(p);
+    const lib = src != .rstd;
+    const I = isize;
+    const tr = if (t[0] == 't') trans_t else no_trans;
+    const rt: blas.Trans = if (t[0] == 't') .t else .n;
+    return if (!p.complex) struct {
+        const sym = "cblas_" ++ p.name ++ "gemv";
+        const from = src;
+        const Sig = fn (c_int, c_int, c_int, c_int, F, [*]F, c_int, [*]F, c_int, F, [*]F, c_int) callconv(.c) void;
+        var f: *const Sig = undefined;
+        fn k(m: I, n: I, _: I, a: F, ma: [*]F, lda: I, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F) callconv(.c) i32 {
+            if (lib) f(col_major, tr, @intCast(m), @intCast(n), a, ma, @intCast(lda), x, @intCast(ix), 1, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, m, n, a, ma, lda, x, ix, 1, y, iy) catch |e| fail(e);
+            return 0;
+        }
+    } else struct {
+        const sym = "cblas_" ++ p.name ++ "gemv";
+        const from = src;
+        const Sig = fn (c_int, c_int, c_int, c_int, *const [2]F, [*]F, c_int, [*]F, c_int, *const [2]F, [*]F, c_int) callconv(.c) void;
+        var f: *const Sig = undefined;
+        fn k(m: I, n: I, _: I, ar: F, ai: F, ma: [*]F, lda: I, x: [*]F, ix: I, y: [*]F, iy: I, _: [*]F) callconv(.c) i32 {
+            if (lib) f(col_major, tr, @intCast(m), @intCast(n), &.{ ar, ai }, ma, @intCast(lda), x, @intCast(ix), &.{ 1, 0 }, y, @intCast(iy)) else blas.gemv(rstd_alloc, rstd_io, T, rt, m, n, .init(ar, ai), cast(p, ma), lda, cast(p, x), ix, .init(1, 0), cast(p, y), iy) catch |e| fail(e);
+            return 0;
+        }
+    };
+}
+
+fn libGemv(comptime src: Src, comptime p: Prec, comptime t: []const u8) ?Fn(p.name ++ "gemv_" ++ t) {
+    const W = GemvVia(src, p, t);
+    if (src != .rstd) W.f = lookup(src, *const W.Sig, W.sym) orelse return null;
+    return &W.k;
+}
+
+/// Square `NN` gemm, `C += A*B`, column-major with leading dimension `n`.
+fn GemmFn(comptime p: Prec) type {
+    return *const fn (n: usize, a: [*]p.F, b: [*]p.F, c: [*]p.F) void;
+}
+
+fn GemmVia(comptime src: Src, comptime p: Prec) type {
+    const F = p.F;
+    const lib = src != .rstd;
+    return if (!p.complex) struct {
+        const sym = "cblas_" ++ p.name ++ "gemm";
+        const from = src;
+        const Sig = fn (c_int, c_int, c_int, c_int, c_int, c_int, F, [*]F, c_int, [*]F, c_int, F, [*]F, c_int) callconv(.c) void;
+        var f: *const Sig = undefined;
+        fn k(n: usize, a: [*]F, b: [*]F, c: [*]F) void {
+            const ni: c_int = @intCast(n);
+            if (lib) f(col_major, no_trans, no_trans, ni, ni, ni, 1, a, ni, b, ni, 1, c, ni) else blas.gemm(rstd_alloc, rstd_io, F, .n, .n, ni, ni, ni, 1, a, ni, b, ni, 1, c, ni) catch |e| fail(e);
+        }
+    } else struct {
+        const sym = "cblas_" ++ p.name ++ "gemm";
+        const from = src;
+        const Sig = fn (c_int, c_int, c_int, c_int, c_int, c_int, *const [2]F, [*]F, c_int, [*]F, c_int, *const [2]F, [*]F, c_int) callconv(.c) void;
+        var f: *const Sig = undefined;
+        fn k(n: usize, a: [*]F, b: [*]F, c: [*]F) void {
+            const ni: c_int = @intCast(n);
+            f(col_major, no_trans, no_trans, ni, ni, ni, &.{ 1, 0 }, a, ni, b, ni, &.{ 1, 0 }, c, ni);
+        }
+    };
+}
+
+/// `src`'s gemm; null where it has none (rstd's is real only).
+fn libGemm(comptime src: Src, comptime p: Prec) ?GemmFn(p) {
+    if (src == .rstd and p.complex) return null;
+    const W = GemmVia(src, p);
+    if (src != .rstd) W.f = lookup(src, *const W.Sig, W.sym) orelse return null;
+    return &W.k;
+}
+
+/// The rates, then each over the first (OpenBLAS); `-` where one is missing.
+fn printRates(rates: []const ?f64) void {
+    for (rates) |r| {
+        if (r) |v| std.debug.print("{d:.1} | ", .{v}) else std.debug.print("- | ", .{});
+    }
+    for (rates[1..]) |r| {
+        if (r != null and rates[0] != null) std.debug.print("{d:.2} | ", .{r.? / rates[0].?}) else std.debug.print("- | ", .{});
+    }
+    std.debug.print("\n", .{});
+}
+
+const lib_labels = [_][]const u8{ "openblas", "rstd", "asm", "accelerate", "vec x4" };
+
+/// What rstd's own table holds in slot `name`: converted `asm`, or
+/// `portable`.
+fn rstdRuns(comptime name: []const u8) []const u8 {
+    return if (@field(blas.vtable().*, name).? == @field(tables.portable, name).?) "portable" else "asm";
+}
+
+fn libLevel1(io: Io, gpa: std.mem.Allocator) !void {
+    try clock(io, "library level 1 start");
+    std.debug.print(
+        \\
+        \\GB/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. `rstd` is the public routine, `asm` the converted kernel alone (`from`)
+        \\
+        \\| routine | p | n | inc | rstd runs | from | openblas | rstd | asm | accelerate | vec x4 | rstd/ob | asm/ob | accel/ob | x4/ob |
+        \\| ------- | - | -: | --: | --------- | ---- | -------: | ---: | --: | ---------: | -----: | ------: | -----: | -------: | ----: |
+        \\
+    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms) });
+    inline for (precs) |p| {
+        const len = l1_cases[3].bytes / @sizeOf(p.F);
+        const b = try Bufs(p.F).init(gpa, len, 1);
+        defer b.deinit(gpa);
+        inline for (comptime std.meta.tags(L1)) |r| try raceLibL1(io, r, p, b);
+    }
+}
+
+fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F)) !void {
+    const name = comptime l1Slot(r, p);
+    const C = L1Call(r, p);
+    const asm_k = asmFor(name);
+    const fns = [lib_labels.len]?Fn(name){
+        libL1(.openblas, r, p),
+        libL1(.rstd, r, p),
+        if (asm_k) |a| a.f else null,
+        libL1(.accelerate, r, p),
+        candidate(r, p, 4),
+    };
+    for (l1_cases) |case| {
+        const n = case.bytes / p.es() / case.inc;
+        var ctxs: [lib_labels.len]C = undefined;
+        var calls: [lib_labels.len]bench.Call = undefined;
+        var at: [lib_labels.len]?usize = @splat(null);
+        var count: usize = 0;
+        var ok = true;
+        for (fns, 0..) |fo, i| {
+            const f = fo orelse continue;
+            const e = checkL1(r, p, f, n, case.inc, b);
+            if (lib_err) |err| return err;
+            if (e > 1) {
+                std.debug.print("WRONG: {s} {s} {s} n={d} inc={d}: {d:.2} of tolerance\n", .{ @tagName(r), p.name, lib_labels[i], n, case.inc, e });
+                ok = false;
+            }
+            ctxs[count] = .{ .f = f, .n = @intCast(n), .inc = @intCast(case.inc), .x = b.x.ptr, .y = b.y.ptr };
+            at[i] = count;
+            count += 1;
+        }
+        if (!ok) continue;
+        for (0..count) |i| calls[i] = .{ .ctx = &ctxs[i], .run = C.run };
+        b.reset();
+        var secs: [lib_labels.len]f64 = undefined;
+        try bench.race(io, l1_timing, calls[0..count], &secs);
+        if (lib_err) |err| return err;
+        const bytes = l1Bytes(r, n, p.es());
+        var rates: [lib_labels.len]?f64 = undefined;
+        for (at, &rates) |j, *rt| rt.* = if (j) |k| bytes / secs[k] / 1e9 else null;
+        std.debug.print("| {s} | {s} | {d} | {d} | {s} | {s} | ", .{ @tagName(r), p.name, n, case.inc, rstdRuns(name), if (asm_k) |a| a.from else "none" });
+        printRates(&rates);
+    }
+}
+
+fn libLevel2(io: Io, gpa: std.mem.Allocator) !void {
+    try clock(io, "library level 2 start");
+    std.debug.print(
+        \\
+        \\GFLOP/s, square, unit strides, `beta` 1, best of {d} batches of at least {d} ms; ratios are over OpenBLAS
+        \\
+        \\| routine | p | n | rstd runs | from | openblas | rstd | asm | accelerate | vec x4 | rstd/ob | asm/ob | accel/ob | x4/ob |
+        \\| ------- | - | -: | --------- | ---- | -------: | ---: | --: | ---------: | -----: | ------: | -----: | -------: | ----: |
+        \\
+    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms) });
+    inline for (precs) |p| {
+        inline for (.{ "n", "t" }) |t| try raceLibGemv(io, gpa, p, t);
+    }
+}
+
+fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []const u8) !void {
+    const F = p.F;
+    const name = p.name ++ "gemv_" ++ t;
+    const C = GemvCall(p, name);
+    const cs = p.cs();
+    const max_n: usize = std.math.sqrt(l2_bytes[2] / p.es());
+    const a = try gpa.alignedAlloc(F, .@"64", max_n * max_n * cs);
+    defer gpa.free(a);
+    const x = try gpa.alignedAlloc(F, .@"64", max_n * cs);
+    defer gpa.free(x);
+    const y = try gpa.alignedAlloc(F, .@"64", max_n * cs + 64);
+    defer gpa.free(y);
+    const y0 = try gpa.alloc(F, y.len);
+    defer gpa.free(y0);
+    const buf = try gpa.alignedAlloc(F, .@"64", 4096);
+    defer gpa.free(buf);
+    var rng = std.Random.DefaultPrng.init(2);
+    const rand = rng.random();
+    for (a) |*v| v.* = @floatCast(rand.float(f64) * 2 - 1);
+    for (x) |*v| v.* = @floatCast(rand.float(f64) * 2 - 1);
+    for (y0) |*v| v.* = @floatCast(rand.float(f64) * 2 - 1);
+
+    const asm_k = asmFor(name);
+    const fns = [lib_labels.len]?Fn(name){
+        libGemv(.openblas, p, t),
+        libGemv(.rstd, p, t),
+        if (asm_k) |k| k.f else null,
+        libGemv(.accelerate, p, t),
+        gemvCandidate(p, t, 4),
+    };
+    for (l2_bytes) |bytes| {
+        const n: usize = std.math.sqrt(bytes / p.es());
+        var ctxs: [lib_labels.len]C = undefined;
+        var calls: [lib_labels.len]bench.Call = undefined;
+        var at: [lib_labels.len]?usize = @splat(null);
+        var count: usize = 0;
+        var ok = true;
+        for (fns, 0..) |fo, i| {
+            const f = fo orelse continue;
+            ctxs[count] = .{ .f = f, .n = @intCast(n), .a = a.ptr, .x = x.ptr, .y = y.ptr, .buf = buf.ptr };
+            @memcpy(y, y0);
+            ctxs[count].call();
+            if (lib_err) |err| return err;
+            const e = checkGemv(p, t[0] == 't', n, a, x, y, y0);
+            if (e > 1) {
+                std.debug.print("WRONG: gemv_{s} {s} {s} n={d}: {d:.2} of tolerance\n", .{ t, p.name, lib_labels[i], n, e });
+                ok = false;
+            }
+            at[i] = count;
+            count += 1;
+        }
+        if (!ok) continue;
+        for (0..count) |i| calls[i] = .{ .ctx = &ctxs[i], .run = C.run };
+        @memcpy(y, y0);
+        var secs: [lib_labels.len]f64 = undefined;
+        try bench.race(io, l1_timing, calls[0..count], &secs);
+        if (lib_err) |err| return err;
+        const nf: f64 = @floatFromInt(n);
+        const flops = nf * nf * @as(f64, if (p.complex) 8 else 2);
+        var rates: [lib_labels.len]?f64 = undefined;
+        for (at, &rates) |j, *rt| rt.* = if (j) |k| flops / secs[k] / 1e9 else null;
+        std.debug.print("| gemv_{s} | {s} | {d} | {s} | {s} | ", .{ t, p.name, n, rstdRuns(name), if (asm_k) |k| k.from else "none" });
+        printRates(&rates);
+    }
+}
+
+/// `GemmCall`, which is real only.
+fn Loops(comptime p: Prec) type {
+    return if (p.complex) void else GemmCall(p);
+}
+
+/// One gemm contestant: a library's, or OpenBLAS's `.S` through the bench's
+/// copy of `level3.c`'s loops (`GemmCall`).
+fn LibGemmCall(comptime p: Prec) type {
+    return struct {
+        f: ?GemmFn(p),
+        loops: ?Loops(p),
+        n: usize,
+        a: [*]p.F,
+        b: [*]p.F,
+        c: [*]p.F,
+        fn call(s: *const @This()) void {
+            if (s.f) |f| return f(s.n, s.a, s.b, s.c);
+            if (comptime !p.complex) s.loops.?.call();
+        }
+        fn run(o: *anyopaque) void {
+            const s: *@This() = @ptrCast(@alignCast(o));
+            s.call();
+        }
+    };
+}
+
+/// `checkGemm` for square `n`, complex too.
+fn checkGemmP(comptime p: Prec, n: usize, a: []const p.F, b: []const p.F, c: []const p.F, c0: []const p.F, samples: usize) f64 {
+    if (!p.complex) return checkGemm(p.F, n, n, n, a, b, c, c0, samples);
+    const eps: f64 = std.math.floatEps(p.F);
+    var rng = std.Random.DefaultPrng.init(3);
+    const rand = rng.random();
+    var worst: f64 = 0;
+    for (0..samples) |_| {
+        const i = rand.uintLessThan(usize, n);
+        const j = rand.uintLessThan(usize, n);
+        const at = 2 * (i + j * n);
+        var re: f64 = c0[at];
+        var im: f64 = c0[at + 1];
+        var mag: f64 = @abs(re) + @abs(im);
+        for (0..n) |l| {
+            const ai = 2 * (i + l * n);
+            const bi = 2 * (l + j * n);
+            const ar: f64 = a[ai];
+            const aim: f64 = a[ai + 1];
+            const br: f64 = b[bi];
+            const bim: f64 = b[bi + 1];
+            re += ar * br - aim * bim;
+            im += ar * bim + aim * br;
+            mag += (@abs(ar) + @abs(aim)) * (@abs(br) + @abs(bim));
+        }
+        const tol = (@as(f64, @floatFromInt(n)) + 8) * eps * mag;
+        worst = @max(worst, @abs(c[at] - re) / tol, @abs(c[at + 1] - im) / tol);
+    }
+    if (std.math.isNan(worst)) return std.math.inf(f64);
+    return worst;
+}
+
+const lib3_labels = [_][]const u8{ "openblas", "rstd", "ob .S", "accelerate" };
+
+fn libLevel3(io: Io, gpa: std.mem.Allocator) !void {
+    try clock(io, "library level 3 start");
+    std.debug.print(
+        \\
+        \\gemm NN, square, `C += A*B`: GFLOP/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. `ob .S` is OpenBLAS's vortex `.S` through the bench's loops
+        \\
+        \\| p | n | openblas | rstd | ob .S | accelerate | rstd/ob | ob .S/ob | accel/ob |
+        \\| - | -: | -------: | ---: | ----: | ---------: | ------: | -------: | -------: |
+        \\
+    , .{ l3_timing.batches, @divTrunc(l3_timing.min_ns, std.time.ns_per_ms) });
+    inline for (precs) |p| try raceLibGemm(io, gpa, p);
+}
+
+fn raceLibGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
+    const F = p.F;
+    const cs = p.cs();
+    const max_n = gemm_sizes[gemm_sizes.len - 1];
+    const len = max_n * max_n * cs;
+    const a = try gpa.alignedAlloc(F, .@"64", len);
+    defer gpa.free(a);
+    const b = try gpa.alignedAlloc(F, .@"64", len);
+    defer gpa.free(b);
+    const c = try gpa.alignedAlloc(F, .@"64", len);
+    defer gpa.free(c);
+    const c0 = try gpa.alloc(F, len);
+    defer gpa.free(c0);
+    var rng = std.Random.DefaultPrng.init(4);
+    const rand = rng.random();
+    for (a, b, c0) |*x, *y, *z| {
+        x.* = @floatCast(rand.float(f64) * 2 - 1);
+        y.* = @floatCast(rand.float(f64) * 2 - 1);
+        z.* = @floatCast(rand.float(f64) * 2 - 1);
+    }
+
+    // the `.S` through the bench's loops, real only
+    var sa: []align(64) F = &.{};
+    var sb: []align(64) F = &.{};
+    var blk: Blocking = undefined;
+    if (!p.complex) {
+        blk = .of(p, asmGemm(p));
+        sa = try gpa.alignedAlloc(F, .@"64", blk.p * (blk.q + blk.um));
+        sb = try gpa.alignedAlloc(F, .@"64", (blk.q + blk.um) * blk.r);
+    }
+    defer if (!p.complex) {
+        gpa.free(sa);
+        gpa.free(sb);
+    };
+
+    const fns = [lib3_labels.len]?GemmFn(p){ libGemm(.openblas, p), libGemm(.rstd, p), null, libGemm(.accelerate, p) };
+    const LC = LibGemmCall(p);
+    for (gemm_sizes) |n| {
+        var ctxs: [lib3_labels.len]LC = undefined;
+        var calls: [lib3_labels.len]bench.Call = undefined;
+        var at: [lib3_labels.len]?usize = @splat(null);
+        var count: usize = 0;
+        for (0..lib3_labels.len) |i| {
+            const loops: ?Loops(p) = if (comptime p.complex) null else if (i == 2) .{ .im = asmGemm(p), .blk = blk, .n = n, .a = a.ptr, .b = b.ptr, .c = c.ptr, .sa = sa.ptr, .sb = sb.ptr } else null;
+            if (fns[i] == null and loops == null) continue;
+            ctxs[count] = .{ .f = fns[i], .loops = loops, .n = n, .a = a.ptr, .b = b.ptr, .c = c.ptr };
+            const m = n * n * cs;
+            @memcpy(c[0..m], c0[0..m]);
+            ctxs[count].call();
+            if (lib_err) |err| return err;
+            const e = checkGemmP(p, n, a[0..m], b[0..m], c[0..m], c0[0..m], 256);
+            if (e > 1) {
+                std.debug.print("WRONG: {s}gemm {s} n={d}: {d:.2} of tolerance\n", .{ p.name, lib3_labels[i], n, e });
+                return error.WrongGemm;
+            }
+            at[i] = count;
+            count += 1;
+        }
+        for (0..count) |i| calls[i] = .{ .ctx = &ctxs[i], .run = LC.run };
+        var secs: [lib3_labels.len]f64 = undefined;
+        try bench.race(io, l3_timing, calls[0..count], &secs);
+        if (lib_err) |err| return err;
+        const nf: f64 = @floatFromInt(n);
+        const flops = nf * nf * nf * @as(f64, if (p.complex) 8 else 2);
+        var rates: [lib3_labels.len]?f64 = undefined;
+        for (at, &rates) |j, *rt| rt.* = if (j) |k| flops / secs[k] / 1e9 else null;
+        std.debug.print("| {s} | {d} | ", .{ p.name, n });
+        printRates(&rates);
     }
 }

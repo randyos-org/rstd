@@ -46,7 +46,8 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
 
 /// `ssh-bench-aarch64-macos`: `tools/blasbench/blas_bench.zig`, always
 /// ReleaseFast, with OpenBLAS's vortex gemm `.S` assembled from the
-/// `-Dopenblas` checkout; arguments after `--` go to the bench.
+/// `-Dopenblas` checkout; `-Dopenblas-lib` and `-Daccelerate` name the
+/// libraries it `dlopen`s on the Mac. Arguments after `--` go to the bench.
 fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, tool: *rstdbuild.CompileStep) !void {
     const step = b.step("ssh-bench-aarch64-macos", b.fmt("Race rstd's BLAS kernels on the Mac at SSH alias {s} (needs -Dopenblas)", .{mac}));
     const openblas = b.option([]const u8, "openblas", "OpenBLAS checkout whose gemm assembly ssh-bench-aarch64-macos races") orelse {
@@ -102,6 +103,11 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
     run.addArtifactArg2(tool, .{});
     run.addArg(mac);
     run.addArtifactArg2(exe, .{});
+    // the libraries the bench's `lib*` sections race, by their paths on the Mac
+    if (b.option([]const u8, "openblas-lib", "libopenblas.dylib on the Mac for ssh-bench-aarch64-macos's lib sections")) |p|
+        run.addArg(b.fmt("--openblas={s}", .{p}));
+    if (b.option([]const u8, "accelerate", "Accelerate on the Mac for ssh-bench-aarch64-macos (default the system framework)")) |p|
+        run.addArg(b.fmt("--accelerate={s}", .{p}));
     run.addPassthruArgs();
     run.stdio = .inherit;
     run.has_side_effects = true;
