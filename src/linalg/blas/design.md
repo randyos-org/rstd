@@ -149,6 +149,31 @@ argument enums and error sets, beside the setup and dispatch API: `init`, `shutd
 `table`, `kernel`, `coreType`, `coreName`, `config`, `Config`, `Vtable`, `Slot`, `types`, `cpu`,
 and `vector` for `tools/blasbench`. The interface files stay where they are.
 
+### Planned: a Zig-idiomatic interface
+
+Decided (2026-10-26), not yet implemented; the interface above is the reference's shape, which
+users are not assumed to know. Part of the codebase-wide pass to make rstd more Zig-idiomatic.
+
+- **Slices.** Vectors and matrices are slices (`[]const T`, `[]T`), not many-pointers, so a
+  short buffer is caught instead of overrun. A size the slice already carries is not a separate
+  argument; strides and leading dimensions remain only where they describe a layout inside the
+  slice. Each routine checks that its slices cover what its sizes and strides need.
+- **Errors, not panics, for bad input.** A wrong length, size or stride, or a letter the routine
+  does not take, is an input error the caller can fix and retry: it returns an error.
+- **Panics only when unrecoverable.** A broken invariant found mid-calculation, or a state
+  where memory may be corrupt (above all from converted assembly kernels), panics. Each
+  routine's doc comment says whether it panics explicitly; callees need not be traced.
+- **Exact error sets.** A routine's error set holds only what it can return: its own argument
+  errors; `error.OutOfMemory` only if it allocates; `error.Canceled` only if it can be
+  canceled. Sets are named and per routine or routine family, built from shared pieces,
+  rather than one set per level.
+- **Plain names.** Errors say what is wrong in words, not as Fortran argument names: for
+  example `SliceTooShort`, `NegativeSize`, `ZeroStride`, `LeadingDimensionTooSmall`,
+  `UnsupportedTranspose`, instead of `InvalidM`, `InvalidLda`, `InvalidIncx`. The checks no
+  longer need to run in the reference's order.
+- **Docs.** User-facing docs explain in plain terms and do not lean on BLAS jargon (`xerbla`,
+  `LDA`, `INCX`).
+
 ### Types
 
 `types.zig` defines the element and index types:
@@ -1141,7 +1166,9 @@ Rig mechanics:
 
 1. **Accelerate.** Route the public routines to it on macOS (above).
 2. **Threading.** [`threading.md`](threading.md)'s plan.
-3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
+3. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
+   panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
+4. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
    half-precision level 3.
 5. **Extensions.** Interfaces for `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg` and `gemmt`,
    which the pending `utest_ext` cases wait for.
