@@ -77,7 +77,7 @@ fn vectorBits(comptime T: type, comptime cpu: std.Target.Cpu) u16 {
         .loongarch32, .loongarch64 => if (cpu.has(.loongarch, .lasx)) 256 else if (cpu.has(.loongarch, .lsx)) 128 else 0,
         .mips, .mipsel, .mips64, .mips64el => if (cpu.has(.mips, .msa)) 128 else 0,
         // z13 vectors hold doubles; singles need the z14 enhancements
-        .s390x => if (cpu.has(.s390x, .vector) and (double or cpu.has(.s390x, .vector_enhancements_1))) 128 else 0,
+        .s390x => if (cpu.has(.s390x, .vx) and (double or cpu.has(.s390x, .vxeh))) 128 else 0,
         .wasm32, .wasm64 => if (cpu.has(.wasm, .simd128)) 128 else 0,
         else => 0,
     };
