@@ -25,7 +25,7 @@ const converted = .{
     registry.Kernels(Core, @import("../blas1/copy/x86_64/asm/__root__.zig")),
     @import("../blas1/dot/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/rot/x86_64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/scal/x86_64/asm/__root__.zig")),
+    @import("../blas1/scal/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/gemv/x86_64/asm/__root__.zig")),

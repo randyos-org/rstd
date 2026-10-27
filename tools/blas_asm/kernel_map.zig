@@ -9,14 +9,18 @@ pub var arena: std.mem.Allocator = undefined;
 pub var io: Io = undefined;
 /// The OpenBLAS checkout.
 pub var root: []const u8 = undefined;
-/// The level-1 directory `uk.zig`'s output goes under, as
-/// `<out_root>/<routine>/<arch>/uk/`.
-pub var out_root: []const u8 = "src/linalg/blas/blas1";
+/// The BLAS directory `uk.zig`'s output goes under, as
+/// `<out_root>/<Routine.dir>/<arch>/uk/`.
+pub var out_root: []const u8 = "src/linalg/blas";
 
 /// A routine whose C kernels are converted, and what its roles are.
 pub const Routine = enum {
     axpy,
     dot,
+    scal,
+    rot,
+    gemv_n,
+    gemv_t,
 
     pub fn roles(r: Routine) []const Role {
         return switch (r) {
@@ -38,12 +42,70 @@ pub const Routine = enum {
                 .{ .slot = "zdotu_k", .letter = 'z', .make = "Z" },
                 .{ .slot = "zdotc_k", .letter = 'z', .make = "Z" },
             },
+            .scal => &.{
+                .{ .slot = "sscal_k", .letter = 's', .make = "S" },
+                .{ .slot = "dscal_k", .letter = 'd', .make = "D" },
+            },
+            .rot => &.{
+                .{ .slot = "srot_k", .letter = 's', .make = "S" },
+                .{ .slot = "drot_k", .letter = 'd', .make = "D" },
+            },
+            .gemv_n => &.{
+                .{ .slot = "sgemv_n", .letter = 's', .make = "S" },
+                .{ .slot = "dgemv_n", .letter = 'd', .make = "D" },
+            },
+            .gemv_t => &.{
+                .{ .slot = "sgemv_t", .letter = 's', .make = "S" },
+                .{ .slot = "dgemv_t", .letter = 'd', .make = "D" },
+            },
         };
     }
 
-    /// The make variable of a role's source: `SAXPYKERNEL`, `DSDOTKERNEL`.
+    /// The make variable of a role's source: `SAXPYKERNEL`, `DSDOTKERNEL`,
+    /// `SGEMVNKERNEL`.
     pub fn variable(r: Routine, role: Role) ![]const u8 {
-        return try arena.print("{s}{s}KERNEL", .{ role.make, try std.ascii.allocUpperString(arena, @tagName(r)) });
+        const upper = try std.ascii.allocUpperString(arena, @tagName(r));
+        const name = try std.mem.replaceOwned(u8, arena, upper, "_", "");
+        return try arena.print("{s}{s}KERNEL", .{ role.make, name });
+    }
+
+    /// The makefile whose defaults apply where no kernel list sets the variable.
+    pub fn defaults(r: Routine) []const u8 {
+        return switch (r) {
+            .gemv_n, .gemv_t => "Makefile.L2",
+            else => "Makefile.L1",
+        };
+    }
+
+    /// Where the routine lives under `out_root`.
+    pub fn dir(r: Routine) ![]const u8 {
+        return switch (r) {
+            .gemv_n, .gemv_t => "blas2/gemv",
+            else => try arena.print("blas1/{s}", .{@tagName(r)}),
+        };
+    }
+
+    /// The index's file name in `uk/`; the gemv forms share a directory.
+    pub fn index(r: Routine) []const u8 {
+        return switch (r) {
+            .gemv_n => "index_n.zig",
+            .gemv_t => "index_t.zig",
+            else => "__root__.zig",
+        };
+    }
+
+    /// The C driver of precision `letter`: `daxpy.c`, `dgemv_n_4.c`.
+    pub fn driver(r: Routine, letter: u8) ![]const u8 {
+        const suffix = switch (r) {
+            .gemv_n, .gemv_t => "_4",
+            else => "",
+        };
+        return try arena.print("{c}{s}{s}.c", .{ letter, @tagName(r), suffix });
+    }
+
+    /// Whether the driver hands its block one size, `n & -N`.
+    pub fn masked(r: Routine) bool {
+        return r == .axpy or r == .dot;
     }
 };
 

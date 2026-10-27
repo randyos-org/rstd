@@ -40,6 +40,9 @@ pub const Entry = struct {
     /// The block's function, when it is assembly.
     kernel: []const u8,
     module: type,
+    /// The assembly the driver defines itself (`dscal_kernel_inc_8`), for
+    /// every core; void where it has none.
+    own: type = void,
 };
 
 /// The row of `entries` for `slot` on `core`, if its driver is C.
@@ -59,13 +62,16 @@ pub fn find(comptime entries: []const Entry, comptime slot: Slot, comptime core:
 /// ported driver: `Kernel(slot)` is the slot type, `Asm(slot, f)` a block that
 /// calls assembly function `f` as the reference does, and `entry(slot, mask, B)`
 /// the kernel around block `B` (null for none). `Vector(slot)` is the
-/// architecture's block on vectors.
+/// architecture's block on vectors. A driver whose blocks are several
+/// functions (`scal`, `gemv`) takes the whole entry instead, as
+/// `entryOf(slot, e, Vector)`, and picks each by name.
 pub fn driven(
     comptime Driver: type,
     comptime slot: Slot,
     comptime e: anytype,
     comptime Vector: fn (comptime Slot) type,
 ) Driver.Kernel(slot) {
+    if (@hasDecl(Driver, "entryOf")) return Driver.entryOf(slot, e, Vector);
     const B: ?type = switch (e.block) {
         .none => null,
         .vector => Vector(slot),
@@ -93,6 +99,15 @@ pub fn Kernels(
     comptime Vector: fn (comptime Slot) type,
 ) type {
     const asm_kernels = registry.Kernels(Core, asm_index);
+    comptime {
+        // a converted kernel whose slot the driver does not list would be lost
+        @setEvalBranchQuota(100_000);
+        for (asm_index.entries) |e| {
+            for (Driver.slots) |s| {
+                if (s == e.slot) break;
+            } else @compileError(@tagName(e.slot) ++ " is converted but not in the driver's slots");
+        }
+    }
     return struct {
         /// Whether `slot` has a kernel of its own on `core`, either kind.
         pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
