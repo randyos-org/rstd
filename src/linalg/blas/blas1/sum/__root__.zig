@@ -44,12 +44,13 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 
 /// `kernel/arm/sum.c` and `zsum.c`: the sum of `x`, of `re + im` for complex
-/// (unlike `asum`, no absolute value); an element is `w` floats.
+/// (unlike `asum`, no absolute value); an element is `w` floats. Up to 32
+/// bits the sum is `f64`, as in `asum`.
 fn Sum(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x <= 0) return 0;
-            var sum: types.Acc(F) = 0;
+            var sum: if (@bitSizeOf(F) <= 32) f64 else F = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 inline for (0..w) |c| sum += util.at(F, x, i * inc_x * w + c).*;

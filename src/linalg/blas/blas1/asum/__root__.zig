@@ -44,14 +44,15 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 
 /// `kernel/arm/asum.c` and `zasum.c`: the sum of `|x|`, of `|re| + |im|` for
-/// complex; an element is `w` floats. Wider than `f64`, x86_64 `asum.S`'s
-/// and `zasum.S`'s x87 sum (`util.extendedSum`).
+/// complex; an element is `w` floats. Up to 32 bits the sum is `f64`, not
+/// one running `f32` (off by 1% at 16M floats); wider than `f64`, x86_64
+/// `asum.S`'s and `zasum.S`'s x87 sum (`util.extendedSum`).
 fn Asum(comptime F: type, comptime w: comptime_int) type {
     return struct {
         fn k(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
             if (n <= 0 or inc_x <= 0) return 0;
             if (comptime types.isExtended(F)) return util.extendedSum(F, w, .abs, n, x, inc_x);
-            var sum: types.Acc(F) = 0;
+            var sum: if (@bitSizeOf(F) <= 32) f64 else F = 0;
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 inline for (0..w) |c| sum += @abs(util.at(F, x, i * inc_x * w + c).*);
@@ -131,6 +132,13 @@ test "portable asum kernels match a plain loop" {
 test "portable asum kernels at the extended type match a plain loop" {
     try checkAsum(check.Ext, &Asum(check.Ext, 1).k);
     try checkAsum(std.math.Complex(check.Ext), &Asum(check.Ext, 2).k);
+}
+
+test "portable f32 asum rounds once: 4096 thirds sum exactly in f64" {
+    var x: [4096]f32 = @splat(1.0 / 3.0);
+    const want: f32 = @floatCast(@as(f64, x.len) * x[0]);
+    try zigstd.testExpectEqual(want, sasum_generic(x.len, &x, 1));
+    try zigstd.testExpectEqual(want, casum_generic(x.len / 2, &x, 1));
 }
 
 test "every linked core's asum kernels match a plain loop, where this machine runs them" {
