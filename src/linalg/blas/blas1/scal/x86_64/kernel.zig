@@ -1,6 +1,6 @@
-//! x86_64 real scal kernels, one set per core, built into the per-core kernel
+//! x86_64 scal kernels, one set per core, built into the per-core kernel
 //! objects (`src/linalg/blas/_kernel.zig`). A core's kernel is a `.S` kernel
-//! (`asm/`) or the C driver `sscal.c`/`dscal.c` (`../kernel.zig`) around the
+//! (`asm/`) or the C driver `{s,d,c,z}scal.c` (`../kernel.zig`) around the
 //! blocks `uk/__root__.zig` names: the reference's inline-assembly
 //! microkernels, or for the AVX-512 cores, whose blocks are intrinsics, the
 //! same loops on `@Vector`s. Tests live in `scal/__root__.zig`.
@@ -22,21 +22,43 @@ pub const Core = coretypes.X86CoreType;
 /// `__AVX512CD__` is defined, else 256-bit ones.
 const has_avx512cd = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512cd);
 
-/// `sscal_microk_skylakex-2.c` and `dscal_microk_skylakex-2.c`: `x *= alpha`
-/// and its zeroing twin over a whole block, one vector at a time.
+/// `{s,d,c,z}scal_microk_skylakex-2.c`: `x *= alpha` and its zeroing twin
+/// over a whole block, one vector at a time. A complex one multiplies each
+/// element by `alpha` as `ar*x + (-ai, ai)*swap(x)`, which is the full product.
 fn VectorBlock(comptime slot: Slot) type {
     const F = kernel.Elem(slot);
     const lanes = (if (has_avx512cd) 64 else 32) / @sizeOf(F);
     const V = @Vector(lanes, F);
+    const cs = if (kernel.complex(slot)) 2 else 1;
+    const swap: [lanes]i32 = blk: {
+        var m: [lanes]i32 = undefined;
+        for (&m, 0..) |*e, i| e.* = @intCast(i ^ 1);
+        break :blk m;
+    };
+    const sign: V = blk: {
+        var s: [lanes]F = undefined;
+        for (&s, 0..) |*e, i| e.* = if (i % 2 == 0) -1 else 1;
+        break :blk s;
+    };
     return struct {
         pub fn run(n: BlasLong, alpha: [*]const F, x: [*]F) void {
+            const len = cs * @as(usize, @intCast(n));
+            if (comptime cs == 2) {
+                const ar: V = @splat(alpha[0]);
+                const ai = @as(V, @splat(alpha[1])) * sign;
+                var i: usize = 0;
+                while (i < len) : (i += lanes) {
+                    const xv = util.load(V, x + i);
+                    util.store(V, x + i, ar * xv + ai * @shuffle(F, xv, undefined, swap));
+                }
+                return;
+            }
             const a: V = @splat(alpha[0]);
-            const len: usize = @intCast(n);
             var i: usize = 0;
             while (i < len) : (i += lanes) util.store(V, x + i, a * util.load(V, x + i));
         }
         pub fn zero(n: BlasLong, _: [*]const F, x: [*]F) void {
-            const len: usize = @intCast(n);
+            const len = cs * @as(usize, @intCast(n));
             var i: usize = 0;
             while (i < len) : (i += lanes) util.store(V, x + i, @splat(0));
         }

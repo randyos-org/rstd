@@ -1119,6 +1119,36 @@ would fault there. Not seen on hardware.
   `dgemv` with `n % 4 != 0` then executes an SSE3 instruction there. Give
   `OPTERON` an SSE2 `DGEMVTKERNEL`, or add the halves with SSE2."
 
+### x86_64 `cscal.c`, `zscal.c`: the tails treat special values otherwise than the blocks
+
+`kernel/x86_64/zscal.c` and `cscal.c` (built without contraction) multiply the
+elements their microkernel block covers by the full product,
+`(ar*xr - ai*xi, ar*xi + ai*xr)`. The scalar tail (the last `n % 8`
+elements, `n % 16` for `cscal`) and the strided loops branch instead:
+
+- in `zscal.c`, with `ai == 0` (and, strided, the interface's flag) they
+  compute `(ar*xr, ar*xi)`, so an infinite `xr` leaves a finite imaginary
+  part where the product gives NaN (`0*inf`); `cscal.c`'s tail checks for it;
+- with `alpha == 0` and the flag, the unit-stride tail tests only its first
+  element for NaN and stores that verdict, NaN or 0, in every tail element;
+  an infinity gives 0 where the block's product gives NaN;
+- `isinf(da_r)` sits inside `if (da_r == 0.0 || isnan(da_r))`, so it never
+  holds.
+
+So one element's result depends on where it falls in the vector.
+
+- **Workaround:** rstd's driver (`blas1/scal/kernel.zig`) takes the blocks'
+  full product in the tails and strided loops too, which is the portable
+  kernels' contract; the bits of finite values are the reference's.
+- **Issue text:** "In `kernel/x86_64/zscal.c` and `cscal.c` the tail after
+  the `zscal_kernel_8` block, and the strided path, special-case `alpha`:
+  in `zscal.c`, with `ai == 0` an infinite real part no longer makes the
+  imaginary part NaN as the block's product does; with `alpha == 0` and `dummy2` set, the
+  tail checks only its first element for NaN and writes that result (NaN or
+  0) to every remaining element, and an infinity becomes 0 instead of NaN.
+  Results then depend on `n % 8` (`n % 16` for `cscal`). The full product,
+  as the blocks compute it, would make every element agree."
+
 ## BLIS
 
 ### `snrm2` and `scnrm2` keep an `f32` running sum

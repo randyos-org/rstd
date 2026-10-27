@@ -45,6 +45,8 @@ pub const Routine = enum {
             .scal => &.{
                 .{ .slot = "sscal_k", .letter = 's', .make = "S" },
                 .{ .slot = "dscal_k", .letter = 'd', .make = "D" },
+                .{ .slot = "cscal_k", .letter = 'c', .make = "C" },
+                .{ .slot = "zscal_k", .letter = 'z', .make = "Z" },
             },
             .rot => &.{
                 .{ .slot = "srot_k", .letter = 's', .make = "S" },

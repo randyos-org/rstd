@@ -1,12 +1,18 @@
-//! The drivers of `kernel/x86_64/sscal.c` and `dscal.c`, around the blocks a
-//! core's `uk/` index names: the unit-stride block, its zeroing twin, and the
-//! strided one (`dscal.c`'s own assembly, `sscal.c`'s C). Every element is one
-//! product or a stored zero, so any block gives the same bits. Nothing here
-//! depends on the BLAS root, so the per-core objects (`_kernel.zig`) can use it.
+//! The drivers of `kernel/x86_64/{s,d,c,z}scal.c`, around the blocks a core's
+//! `uk/` index names: the unit-stride block, its zeroing twin, and the strided
+//! one (`dscal.c`'s own assembly, the others' C). Every element is one product
+//! or a stored zero, so any block gives the same bits. Nothing here depends on
+//! the BLAS root, so the per-core objects (`_kernel.zig`) can use it.
 //!
 //! The last argument (`dummy2`) is the flag of the portable kernels: 1, which
 //! the interface passes, multiplies even by a zero `alpha` (NaN stays NaN);
 //! otherwise a zero `alpha` stores zeros.
+//!
+//! `cscal.c` and `zscal.c` are built without contraction; their blocks take
+//! the full product, `(ar*xr - ai*xi, ar*xi + ai*xr)`. Their C tails and
+//! strided loops branch on special values and drop zero parts of `alpha`,
+//! which the blocks do not (issues.md); here those take the blocks' product,
+//! so every element keeps one contract.
 
 const std = @import("std");
 const util = @import("../../util.zig");
@@ -16,17 +22,21 @@ const uk = @import("../uk_block.zig");
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
 
-/// The kernels an architecture's `<arch>/kernel.zig` iterates over: the real
-/// ones driven here, and the complex ones only converted assembly fills.
+/// The kernels an architecture's `<arch>/kernel.zig` iterates over.
 pub const slots = [_]Slot{ .sscal_k, .dscal_k, .cscal_k, .zscal_k };
 
-/// The element type of `slot`, one of `slots`.
+/// The float type of `slot`, one of `slots` (a component for the complex ones).
 pub fn Elem(comptime slot: Slot) type {
     return switch (slot) {
-        .sscal_k => f32,
-        .dscal_k => f64,
-        else => @compileError(@tagName(slot) ++ " is not a real scal kernel"),
+        .sscal_k, .cscal_k => f32,
+        .dscal_k, .zscal_k => f64,
+        else => @compileError(@tagName(slot) ++ " is not a scal kernel"),
     };
+}
+
+/// Whether `slot` is a complex one.
+pub fn complex(comptime slot: Slot) bool {
+    return slot == .cscal_k or slot == .zscal_k;
 }
 
 /// Vtable slot type of `slot`.
@@ -34,9 +44,29 @@ pub fn Kernel(comptime slot: Slot) type {
     return util.SlotFn(slot);
 }
 
-/// The unit-stride block size: `sscal_kernel_16`, `dscal_kernel_8`.
+/// The unit-stride block size: `sscal_kernel_16`, `dscal_kernel_8`, in elements.
 pub fn width(comptime slot: Slot) comptime_int {
-    return if (slot == .sscal_k) 16 else 8;
+    return if (slot == .sscal_k or slot == .cscal_k) 16 else 8;
+}
+
+/// One complex element times `ar + ai*i`, unfused, as the blocks compute it.
+pub inline fn product(comptime F: type, ar: F, ai: F, re: *F, im: *F) void {
+    const xr = re.*;
+    const xi = im.*;
+    re.* = ar * xr - ai * xi;
+    im.* = ar * xi + ai * xr;
+}
+
+/// The C blocks of `cscal.c` and `zscal.c` (`#if !defined(HAVE_KERNEL_8)`).
+fn ComplexFallback(comptime F: type) type {
+    return struct {
+        pub fn run(n: BlasLong, alpha: [*]const F, x: [*]F) void {
+            for (0..@intCast(n)) |i| product(F, alpha[0], alpha[1], &x[2 * i], &x[2 * i + 1]);
+        }
+        pub fn zero(n: BlasLong, _: [*]const F, x: [*]F) void {
+            for (0..2 * @as(usize, @intCast(n))) |i| x[i] = 0;
+        }
+    };
 }
 
 /// The C blocks of the drivers (`#if !defined(HAVE_KERNEL_8)`), and
@@ -65,7 +95,7 @@ fn Fallback(comptime F: type) type {
 /// assembly (`e.own`) where it has it.
 fn Blocks(comptime slot: Slot, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) type {
     const F = Elem(slot);
-    const p = if (F == f32) "s" else "d";
+    const p = @tagName(slot)[0..1];
     const name = std.fmt.comptimePrint("{s}scal_kernel_{d}", .{ p, width(slot) });
     const inc_name = p ++ "scal_kernel_inc_8";
     const B = switch (e.block) {
@@ -74,7 +104,7 @@ fn Blocks(comptime slot: Slot, comptime e: uk.Entry, comptime Vector: fn (compti
             pub const zero = @field(e.module, name ++ "_zero");
         },
         .vector => Vector(slot),
-        .none => Fallback(F),
+        .none => if (complex(slot)) ComplexFallback(F) else Fallback(F),
     };
     return struct {
         pub const run = B.run;
@@ -146,8 +176,42 @@ fn Driver(comptime slot: Slot, comptime B: type) type {
     };
 }
 
-/// The kernel `slot` of the core whose index entry is `e` (`uk_block.driven`).
+/// The driver of `cscal.c` and `zscal.c` around `B`: the block over whole
+/// blocks of a unit stride, the product (or zeros) everywhere else.
+fn ComplexDriver(comptime slot: Slot, comptime B: type) type {
+    const F = Elem(slot);
+    const w = width(slot);
+    return struct {
+        pub fn call(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, dummy2: BlasLong) callconv(.c) i32 {
+            const zero = da_r == 0 and da_i == 0 and dummy2 == 0;
+            var i: BlasLong = 0;
+            var j: BlasLong = 0;
+            if (inc_x == 1) {
+                const n1 = n & -w;
+                if (n1 > 0) {
+                    const alpha = [2]F{ da_r, da_i };
+                    if (zero) B.zero(n1, &alpha, x) else B.run(n1, &alpha, x);
+                    i = 2 * n1;
+                    j = n1;
+                }
+            }
+            while (j < n) : (j += 1) {
+                const re = util.at(F, x, i);
+                const im = util.at(F, x, i + 1);
+                if (zero) {
+                    re.* = 0;
+                    im.* = 0;
+                } else product(F, da_r, da_i, re, im);
+                i += 2 * inc_x;
+            }
+            return 0;
+        }
+    };
+}
+
+/// The kernel `slot` of the core whose index entry is `e` (`uk_block.Kernels`).
 pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.Entry, comptime Vector: fn (comptime Slot) type) Kernel(slot) {
     _ = core;
-    return &Driver(slot, Blocks(slot, e, Vector)).call;
+    const B = Blocks(slot, e, Vector);
+    return if (complex(slot)) &ComplexDriver(slot, B).call else &Driver(slot, B).call;
 }

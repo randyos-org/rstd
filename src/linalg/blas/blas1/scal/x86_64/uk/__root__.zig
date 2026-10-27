@@ -34,6 +34,43 @@ pub const entries = [_]Entry{
         "sapphirerapids",
         "skylakex",
     }, .mask = 0, .block = .vector, .kernel = "", .module = void, .own = @import("dscal.zig") },
+    .{ .slot = .cscal_k, .cores = &.{
+        "cooperlake",
+        "sapphirerapids",
+        "skylakex",
+    }, .mask = 0, .block = .vector, .kernel = "", .module = void },
+    .{ .slot = .cscal_k, .cores = &.{
+        "haswell",
+        "zen",
+    }, .mask = 0, .block = .assembly, .kernel = "cscal_kernel_16", .module = @import("cscal_haswell.zig") },
+    .{ .slot = .cscal_k, .cores = &.{
+        "bulldozer",
+        "piledriver",
+    }, .mask = 0, .block = .assembly, .kernel = "cscal_kernel_16", .module = @import("cscal_bulldozer.zig") },
+    .{ .slot = .cscal_k, .cores = &.{
+        "excavator",
+        "steamroller",
+    }, .mask = 0, .block = .assembly, .kernel = "cscal_kernel_16", .module = @import("cscal_steamroller.zig") },
+    .{ .slot = .cscal_k, .cores = &.{
+        "sandybridge",
+    }, .mask = 0, .block = .assembly, .kernel = "cscal_kernel_16", .module = @import("cscal_bulldozer.zig") },
+    .{ .slot = .zscal_k, .cores = &.{
+        "cooperlake",
+        "sapphirerapids",
+        "skylakex",
+    }, .mask = 0, .block = .vector, .kernel = "", .module = void },
+    .{ .slot = .zscal_k, .cores = &.{
+        "haswell",
+        "zen",
+    }, .mask = 0, .block = .assembly, .kernel = "zscal_kernel_8", .module = @import("zscal_haswell.zig") },
+    .{ .slot = .zscal_k, .cores = &.{
+        "bulldozer",
+        "piledriver",
+    }, .mask = 0, .block = .assembly, .kernel = "zscal_kernel_8", .module = @import("zscal_bulldozer.zig") },
+    .{ .slot = .zscal_k, .cores = &.{
+        "excavator",
+        "steamroller",
+    }, .mask = 0, .block = .assembly, .kernel = "zscal_kernel_8", .module = @import("zscal_steamroller.zig") },
 };
 
 /// The entry for `slot` on `core`, if its driver is C.
