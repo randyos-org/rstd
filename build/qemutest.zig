@@ -49,6 +49,7 @@ const Optimize = rstdbuild.Optimize;
 const console = rstdbuild.console;
 const blaskern = @import("blaskern.zig");
 const buildroot = @import("__root__.zig");
+const sshtest = @import("sshtest.zig");
 
 const Machine = struct {
     /// Name for steps and executables.
@@ -696,6 +697,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         step.dependOn(&run.step);
         all.dependOn(&run.step);
     }
+    if (linux_vm) try addLinuxBenches(b, test_host, whpx_host);
 }
 
 /// Whether to add a family of VM rigs: on when rstd is the root project, so a
@@ -815,11 +817,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
         .target = target,
         .optimize = optimize,
     }) });
-    const tool = b.addExecutable(.{ .name = "initramfs", .root_module = b.createModule(.{
-        .root_source_file = b.path("tools/initramfs.zig"),
-        .target = b.graph.host,
-    }) });
-    const pack = b.addRunArtifact(tool);
+    const pack = b.addRunArtifact(initramfsTool(b));
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
     pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
     pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
@@ -836,6 +834,108 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     // `passed` in test/linux/init.zig
     run.expectStdOutMatch("linuxtest: /test exited 0");
     return run;
+}
+
+var initramfs_tool: ?*Build.Step.Compile = null;
+
+fn initramfsTool(b: *Build) *Build.Step.Compile {
+    if (initramfs_tool) |t| if (t.step.owner == b) return t;
+    initramfs_tool = b.addExecutable(.{ .name = "initramfs", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/initramfs.zig"),
+        .target = b.graph.host,
+    }) });
+    return initramfs_tool.?;
+}
+
+/// The Linux VMs of `qemu-bench-linux-<arch>`, on the host's own CPU: never
+/// emulated, so the HVF arguments stand in for TCG's too, and a host
+/// without HVF fails rather than emulates.
+const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model, nix: []const u8, blis: bool }{
+    .{
+        .m = .{
+            .name = "bench-linux-x86_64",
+            .query = .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
+            .qemu = "qemu-system-x86_64",
+            // `host` stops in SeaBIOS (x86_64-whpx); this host's own family
+            // keeps the vendor and family the libraries dispatch on
+            .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "EPYC-Milan", "-smp", "8" },
+            .whpx = true,
+            .memory = "4G",
+            .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
+        },
+        // built here, for this CPU, as bench-native is
+        .cpu = null,
+        .nix = "x86_64-linux",
+        .blis = true,
+    },
+    .{
+        .m = .{
+            .name = "bench-linux-aarch64",
+            .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
+            .qemu = "qemu-system-aarch64",
+            .args = &hvf_bench_args,
+            .hvf = &hvf_bench_args,
+            .memory = "4G",
+            .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+        },
+        // as ssh-bench-aarch64-macos builds for the Mac
+        .cpu = &std.Target.aarch64.cpu.apple_m1,
+        .nix = "aarch64-linux",
+        .blis = false,
+    },
+};
+
+const hvf_bench_args = [_][]const u8{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "6" };
+
+/// `qemu-bench-linux-<arch>`: `tools/blasbench/blas_bench.zig`'s library
+/// sections in a Linux VM, against nixpkgs' OpenBLAS and BLIS, which
+/// `tools/nix/blas.sh` packs on the Nix machine (`-Dtest-host`). The VM
+/// boots like the Linux rigs, the bench as `/test`, with `-Dvm-bench-arg`.
+fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
+    // on the kernel command line, which the build fixes before `--` is known
+    const bench_args = b.option([]const []const u8, "vm-bench-arg", "An argument for the bench in the qemu-bench-linux steps (repeatable), as `--` gives the other bench steps") orelse &.{};
+    for (bench_machines) |bm| {
+        const m = bm.m;
+        if (m.whpx and !whpx_host) continue;
+        const l = m.boot.linux;
+        const step = b.step(b.fmt("qemu-{s}", .{m.name}), b.fmt("Race rstd's BLAS against nixpkgs' libraries in a Linux VM on the host's CPU (live log: {s})", .{liveLog(b, m)}));
+        const nix = host orelse {
+            step.dependOn(&b.addFail(b.fmt("qemu-{s} gets its libraries from Nix on -Dtest-host", .{m.name})).step);
+            continue;
+        };
+        const kernel = b.dependencyLazy(l.dep, .{}) catch continue;
+        var query = m.query;
+        query.cpu_model = if (bm.cpu) |c| .{ .explicit = c } else .native;
+        const exe = try sshtest.benchExe(b, b.resolveTargetQuery(query), null);
+        const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
+            .root_source_file = b.path("test/linux/init.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = m.query.cpu_arch, .os_tag = .linux }),
+            .optimize = .fast,
+        }) });
+        // the libraries' closure, fetched once per flake.lock
+        const libs = (try sshtest.nixBlas(b, nix.alias, bm.nix)).captureStdOut(.{});
+        const pack = b.addRunArtifact(initramfsTool(b));
+        const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
+        pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
+        pack.addArtifactArg2(exe, .{ .prefix = "test=" });
+        pack.addPrefixedFileArg("+", libs);
+
+        const run = qemuCommand(b, m, host);
+        addConsole(b, run, m, host);
+        run.addArg("-kernel");
+        fileArg(run, m, host, kernel.path(l.kernel));
+        run.addArg("-initrd");
+        fileArg(run, m, host, cpio);
+        // after `--`, init's arguments, which it passes on
+        var append: std.ArrayList(u8) = .empty;
+        try append.print(b.allocator, "console={s} rdinit=/init panic=-1 quiet loglevel=3 -- --openblas=/flyoff/libopenblas.so", .{l.console});
+        if (bm.blis) try append.appendSlice(b.allocator, " --blis=/flyoff/libblis.so");
+        for (bench_args) |a| try append.print(b.allocator, " {s}", .{a});
+        run.addArgs(&.{ "-append", append.items });
+        run.has_side_effects = true;
+        run.stdio = .inherit;
+        step.dependOn(&run.step);
+    }
 }
 
 /// QEMU booting `m`'s freestanding test kernel, once its inline asm is checked

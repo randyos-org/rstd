@@ -1,6 +1,7 @@
 //! PID 1 of the Linux qemu rigs (`build/qemutest.zig`): mounts what tests
-//! read (`/proc`, `/sys`, `/dev`), runs `/test`, reports how it ended, and
-//! restarts the machine, which `-no-reboot` turns into qemu exiting.
+//! read (`/proc`, `/sys`, `/dev`), runs `/test` with its own arguments (the
+//! kernel command line's after `--`), reports how it ended, and restarts
+//! the machine, which `-no-reboot` turns into qemu exiting.
 
 const std = @import("std");
 const linux = std.os.linux;
@@ -8,7 +9,7 @@ const linux = std.os.linux;
 /// What the rig's run step looks for; anything else fails it.
 pub const passed = "linuxtest: /test exited 0";
 
-pub fn main() void {
+pub fn main(init: std.process.Init.Minimal) void {
     mount("proc", "/proc", "proc");
     mount("sysfs", "/sys", "sysfs");
     mount("devtmpfs", "/dev", "devtmpfs");
@@ -25,7 +26,10 @@ pub fn main() void {
         _ = linux.dup3(fds[1], 2, 0);
         _ = linux.close(fds[0]);
         _ = linux.close(fds[1]);
-        const argv = [_:null]?[*:0]const u8{"/test"};
+        var argv: [64:null]?[*:0]const u8 = @splat(null);
+        argv[0] = "/test";
+        const args = init.args.vector;
+        for (1..@min(args.len, argv.len)) |i| argv[i] = args[i];
         // RSTD_TEST_PROGRESS: tests that run every core name each one (`blas1/check.zig`)
         const envp = [_:null]?[*:0]const u8{ "PATH=/", "HOME=/", "TMPDIR=/tmp", "TERM=dumb", "RSTD_TEST_PROGRESS=1" };
         _ = linux.execve("/test", &argv, &envp);

@@ -2,9 +2,10 @@
 //! the directories the rig's init mounts over, `/dev/console` (so the kernel
 //! can give init its stdio), and the named executables.
 //!
-//!   initramfs <out.cpio> <name>=<file>...
+//!   initramfs <out.cpio> <name>=<file>... [+<archive>...]
 //!
-//! puts each `<file>` at `/<name>`, mode 0755.
+//! puts each `<file>` at `/<name>`, mode 0755, then each `newc` `<archive>`
+//! after the trailer as it is: the kernel unpacks archives one after another.
 
 const std = @import("std");
 const Io = std.Io;
@@ -23,11 +24,17 @@ pub fn main(init: std.process.Init) !void {
     // c 5 1, as the kernel's own default initramfs has it
     try entry(arena, &out, &ino, "dev/console", 0o020600, 5, 1, "");
     for (args[2..]) |arg| {
+        if (arg[0] == '+') continue;
         const eq = std.mem.findScalar(u8, arg, '=') orelse return error.BadArgument;
         const data = try Io.Dir.cwd().readFileAlloc(io, arg[eq + 1 ..], arena, .unlimited);
         try entry(arena, &out, &ino, arg[0..eq], 0o100755, 0, 0, data);
     }
     try entry(arena, &out, &ino, "TRAILER!!!", 0, 0, 0, "");
+    for (args[2..]) |arg| {
+        if (arg[0] != '+') continue;
+        try out.appendSlice(arena, try Io.Dir.cwd().readFileAlloc(io, arg[1..], arena, .unlimited));
+        try pad(arena, &out);
+    }
     const file = try Io.Dir.cwd().createFile(io, args[1], .{});
     defer file.close(io);
     try file.writeStreamingAll(io, out.items);
