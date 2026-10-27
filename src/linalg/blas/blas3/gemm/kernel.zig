@@ -513,8 +513,10 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         }
 
         /// `C += alpha * op(A) * op(B)`, `op` conjugating as `conj` says;
-        /// the loops of the real kernel.
-        fn run(conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
+        /// the loops of the real kernel. `conj` comptime: a run-time one
+        /// selects between vectors, which LLVM cannot compile on MIPS64r6
+        /// (issues.md).
+        fn run(comptime conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
@@ -546,7 +548,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             return 0;
         }
 
-        fn rows(conj: Conj, comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn rows(comptime conj: Conj, comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             var r0: usize = 0;
             while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ conj, mr, wn, k, ar, ai, ba + 2 * r0 * k, pb, c + 2 * r0, ld });
             inline for (comptime tails(mr)) |w| {
@@ -557,7 +559,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             }
         }
 
-        fn tile(conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn tile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             if (geo.split) unreachable;
             vectorTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld);
         }
@@ -579,7 +581,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         /// One `wm x wn` tile on vectors of whole elements: `acc1` sums A
         /// times the real parts of B, `acc2` A times the imaginary ones; the
         /// products' cross terms come from swapping `acc2`'s parts at the end.
-        fn vectorTile(conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn vectorTile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             @setEvalBranchQuota(100_000);
             const lanes: usize = 2 * @as(usize, @min(vl, wm));
             const nv = 2 * wm / lanes;

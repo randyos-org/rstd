@@ -180,13 +180,8 @@ fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
     const arch = target.result.cpu.arch;
     var query = target.query;
     query.cpu_features_sub = featureSet(arch, spec.without);
-    if (spec.model) |name| {
-        query.cpu_model = .{ .explicit = findModel(arch, name) };
-        query.cpu_features_add = .empty;
-    } else {
-        query.cpu_model = .baseline;
-        query.cpu_features_add = featureSet(arch, spec.features);
-    }
+    query.cpu_features_add = featureSet(arch, spec.features);
+    query.cpu_model = if (spec.model) |name| .{ .explicit = findModel(arch, name) } else .baseline;
     return query;
 }
 
