@@ -250,7 +250,11 @@ fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptim
 fn rankDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
     var sx: Scratch(T) = .{};
     defer sx.deinit(allocator);
-    const X = try sx.unit(allocator, n, x, incx);
+    rankColumns(T, kind, lower, packed_, n, alpha, try sx.unit(allocator, n, x, incx), a, lda);
+}
+
+/// `rankDriver`'s columns over a unit-stride `X`.
+fn rankColumns(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (kind == .symmetric) T else Float(T), X: [*]T, a: [*]T, lda: BlasLong) void {
     var col = a;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
@@ -278,6 +282,11 @@ fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comp
     defer sy.deinit(allocator);
     const X = try sx.unit(allocator, n, x, incx);
     const Y = try sy.unit(allocator, n, y, incy);
+    rank2Columns(T, kind, lower, packed_, n, alpha, X, Y, a, lda);
+}
+
+/// `rank2Driver`'s columns over unit-stride `X` and `Y`.
+fn rank2Columns(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong) void {
     var col = a;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
@@ -414,6 +423,15 @@ pub fn hpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
     }
 }
 
+/// OpenBLAS's small-`n` paths (`interface/syr.c`, `spr.c`, `syr2.c`, `spr2.c`,
+/// `zsyr.c`): below this `n`, a unit-stride update runs its columns in the
+/// interface, with no buffer; 0 where upstream has none.
+fn smallN(comptime T: type, comptime kind: Kind, comptime packed_: bool, comptime two: bool) BlasLong {
+    if (kind != .symmetric) return 0;
+    if (isComplex(T)) return if (!two and !packed_) 50 else 0;
+    return if (two and packed_) 50 else 100;
+}
+
 fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: Kind, comptime packed_: bool, lower: bool, n: isize, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     _ = io;
     if (n == 0) return;
@@ -423,9 +441,13 @@ fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: 
         if (isZero(T, alpha)) return;
     } else if (alpha == 0) return;
     _ = blas.vtable();
+    const small = incx == 1 and n < comptime smallN(T, kind, packed_, false);
     const px = first(T, x, n, incx);
     switch (lower) {
-        inline else => |lo| try rankDriver(T, kind, lo, packed_, allocator, n, alpha, px, incx, a, lda),
+        inline else => |lo| if (small)
+            rankColumns(T, kind, lo, packed_, n, alpha, x, a, lda)
+        else
+            try rankDriver(T, kind, lo, packed_, allocator, n, alpha, px, incx, a, lda),
     }
 }
 
@@ -436,10 +458,14 @@ fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime kind:
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
+    const small = incx == 1 and incy == 1 and n < comptime smallN(T, kind, packed_, true);
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
     switch (lower) {
-        inline else => |lo| try rank2Driver(T, kind, lo, packed_, allocator, n, alpha, px, incx, py, incy, a, lda),
+        inline else => |lo| if (small)
+            rank2Columns(T, kind, lo, packed_, n, alpha, x, y, a, lda)
+        else
+            try rank2Driver(T, kind, lo, packed_, allocator, n, alpha, px, incx, py, incy, a, lda),
     }
 }
 
@@ -798,6 +824,68 @@ test "banded, packed and rank updates match dense arithmetic (portable kernels)"
 
 test "banded, packed and rank updates match dense arithmetic on every core" {
     try check.eachCore(withCore);
+}
+
+/// The small-`n` path against the driver, bit for bit, for every `n` below
+/// the threshold, with zeros in `x` and `y` for the skip.
+fn checkSmall(comptime T: type, comptime packed_: bool, comptime two: bool) !void {
+    const limit = comptime smallN(T, .symmetric, packed_, two);
+    if (limit == 0) return;
+    const len: usize = @intCast(limit * limit);
+    const a = try talloc.alloc(T, len);
+    defer talloc.free(a);
+    const b = try talloc.alloc(T, len);
+    defer talloc.free(b);
+    var xs: [limit]T = undefined;
+    var ys: [limit]T = undefined;
+    check.fill(T, &xs, 7);
+    check.fill(T, &ys, 8);
+    for (0..limit) |i| {
+        if (i % 3 == 1) xs[i] = zero(T);
+        if (i % 6 == 1 or i % 5 == 3) ys[i] = zero(T);
+    }
+    const alpha = scalarOf(T, 1.25, -0.5);
+    for (1..limit) |n| for ([_]bool{ false, true }) |lower| {
+        const nn: isize = @intCast(n);
+        const lda: isize = if (packed_) 0 else nn + @as(isize, @intCast(n & 1));
+        check.fill(T, a, n);
+        @memcpy(b, a);
+        const u: Uplo = if (lower) .l else .u;
+        if (two) {
+            if (packed_) try spr2(talloc, check.io, T, u, nn, alpha, &xs, 1, &ys, 1, a.ptr) else try syr2(talloc, check.io, T, u, nn, alpha, &xs, 1, &ys, 1, a.ptr, lda);
+        } else {
+            if (packed_) try spr(talloc, check.io, T, u, nn, alpha, &xs, 1, a.ptr) else try syr(talloc, check.io, T, u, nn, alpha, &xs, 1, a.ptr, lda);
+        }
+        switch (lower) {
+            inline else => |lo| if (two)
+                try rank2Driver(T, .symmetric, lo, packed_, talloc, nn, alpha, &xs, 1, &ys, 1, b.ptr, lda)
+            else
+                try rankDriver(T, .symmetric, lo, packed_, talloc, nn, alpha, &xs, 1, b.ptr, lda),
+        }
+        for (a, b, 0..) |p, q, i| if (!check.same(T, p, q, true)) {
+            check.say("small rank{s} {s} {s} n={d} lower={} at {d}: ", .{ if (two) "2" else "1", @typeName(T), if (packed_) "packed" else "full", n, lower, i });
+            return error.TestExpectedEqual;
+        };
+    };
+}
+
+fn runSmall() !void {
+    inline for (.{ f16, f32, f64, f80, f128 }) |F| {
+        inline for (.{ F, std.math.Complex(F) }) |T| {
+            inline for (.{ false, true }) |packed_| inline for (.{ false, true }) |two| try checkSmall(T, packed_, two);
+        }
+    }
+}
+
+fn withCoreSmall(vt: *const Vtable) anyerror!void {
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
+    try runSmall();
+}
+
+test "the small-n rank updates match the driver bit for bit" {
+    try runSmall();
+    try check.eachCore(withCoreSmall);
 }
 
 test "strided vectors beyond the stack buffer are copied from the allocator" {

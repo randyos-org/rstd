@@ -167,6 +167,8 @@ protocol is therefore built on `Group.concurrent`:
 | `gemv` | `m * n >= 115200 * 4` | N: row chunks; T: column chunks |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
 | `symv`, `trmv` | `symv n >= 200`; `trmv n < 50`: 1, `< 500`: 2 | sqrt-balanced row chunks |
+| `syr`, `spr`, `syr2`, `spr2` (real and complex symmetric) | `n < 50`: 1, `< 500`: 2 | sqrt-balanced column chunks |
+| `her`, `hpr`, `her2`, `hpr2` | `n < 100`: 1 | same |
 | `axpy` / `scal` / `swap` | `n > 10000` / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
 | `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
 
@@ -176,7 +178,8 @@ together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gem
 constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core tables derived from rstd's own benchmarks will
 replace them, and the chunk sizes, later. `switch_ratio` already lives in the vtable
 (`blas3/gemm/params.zig`). M ranges round to `unroll_m` and a cache line to avoid false
-sharing in `C`.
+sharing in `C`. The rank-update cut-offs only pick the thread count; their serial small-`n`
+paths are already ported ([`design.md`](design.md), Level 2).
 
 ### Memory
 
