@@ -280,3 +280,14 @@ test "where util.vectorIeee holds, f32 lanes keep denormals" {
     const want: @Vector(4, f32) = .{ 3 * tiny, 9 * tiny, -3 * tiny, 0x3p-130 };
     if (!@reduce(.And, a * b + a == want)) return error.TestUnexpectedResult;
 }
+
+test "where util.vectorIeee fails, f32 lanes flush denormals" {
+    if (comptime util.vectorIeee(f32)) return error.SkipZigTest;
+    const tiny = std.math.floatTrueMin(f32);
+    // denormal inputs, and a denormal product of normal ones
+    var a: @Vector(4, f32) = .{ tiny, 3 * tiny, -tiny, 0x1p-126 };
+    var b: @Vector(4, f32) = .{ 2, 2, 2, 0.5 };
+    std.mem.doNotOptimizeAway(&a);
+    std.mem.doNotOptimizeAway(&b);
+    if (!@reduce(.And, a * b == @as(@Vector(4, f32), @splat(0)))) return error.TestUnexpectedResult;
+}

@@ -1031,7 +1031,7 @@ chunks, the claim loop and the ordered combine; no routine uses it yet.
 | --- | --- | --- |
 | Per-core kernels | each routine's `__root__.zig` | every linked core's kernels (`check.eachCore`) against a plain loop or a wide reference, over sizes and strides past every unroll, and zero strides, one beside a nonzero one too |
 | Edge cases | `_test/blas1/edge.zig`, `_test/blas2/edge.zig` | special values against an `f128` reference, NaN in gaps and past the end, negative and page-sized strides; the reductions give the same bits with their operands shifted by any number of floats (`gemv`'s in `blas2/gemv/__root__.zig`) |
-| Denormals | `_test/blas1/denormal.zig` | denormal operands and results through every level-1 kernel, unflushed |
+| Denormals | `_test/blas1/denormal.zig` | denormal operands and results through every level-1 kernel, unflushed; `f32` lanes flush where `util.vectorIeee` says they do |
 | Level 3 | `_test/blas3/check.zig` (used by each routine's tests) | every side, triangle, transpose and diagonal, shapes around block edges, special values |
 | Bit-exact models | `blas1/dot/__root__.zig`, `blas1/asum/__root__.zig`, `blas1/nrm2/__root__.zig`, `blas2/gemv/__root__.zig` | the Zig kernels that replace converted or C code give its bits (the x87 sums, `skylakexModel`, the half-precision `gemv`) |
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
