@@ -98,13 +98,41 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > that follows the ABI reads the wrong registers. Example: OpenBLAS's
   > `zdot` kernels for POWER return `double _Complex` in `f1`/`f2`.
 
+### arm soft-float: a struct of floats is returned in r0 to r3, not through memory
+
+- **Seen:** on `arm-freestanding-eabi` and `arm-linux-gnueabi`, a
+  `callconv(.c)` function returning `extern struct { re: f32, im: f32 }` is
+  lowered as returning in r0/r1, and one of two `f64` in r0 to r3. AAPCS
+  returns a composite over 4 bytes in memory, through a pointer in r0, as
+  clang does for the same C (`zig cc`). `src/codegen/arm/abi.zig`'s
+  `classifyType` makes any struct of up to four floats `.byval`, the VFP
+  rule, whatever the convention. OpenBLAS's arm `cdot` and `zdot` (`sf`)
+  store through r0, so on the `arm-softfp` rig they took `n` as the result's
+  address, read `incx` as `x`, and faulted.
+- **Workaround:** the generator patches the `sf` `cdot_vfp.S` and
+  `zdot_vfp.S` to take no pointer and return in r0 to r3
+  (`tools/blas_asm/arch/arm.zig`).
+- **Issue text:**
+
+  > **arm: float structs are returned in core registers under the soft-float ABI**
+  >
+  > With `callconv(.c)` on `arm-linux-gnueabi` (or `-eabi`), a function
+  > returning `extern struct { a: f32, b: f32 }` returns in r0/r1, and
+  > `extern struct { a: f64, b: f64 }` in r0 to r3. The base AAPCS returns
+  > a composite type larger than 4 bytes in memory, at an address passed in
+  > r0; clang does so for the equivalent C struct, so calls between Zig and
+  > C disagree. `classifyType` in `src/codegen/arm/abi.zig` returns
+  > `.byval` for a struct of up to four floats (the VFP variant's
+  > homogeneous aggregate rule) without checking for the soft-float
+  > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
+
 ### Self-hosted x86_64 backend leaves a value on the x87 stack converting to f80
 
 - **Seen:** with the self-hosted x86_64 backend (the debug default), converting
   `u128` or `f128` to `f80` (a compiler-rt libcall) leaves an entry on the x87
   register stack. Later x87 arithmetic overflows the stack and produces NaN.
 - **Workaround:** the tests never convert `u128` or `f128` to `f80`:
-  `blas1/check.zig` builds random `f80` values from bits, and compares `f128`
+  `_test/blas1/check.zig` builds random `f80` values from bits, and compares `f128`
   references at `f128` (`expectCloseRef`).
 - **Issue text:**
 
@@ -127,26 +155,86 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** not ready; needs a reduced case first. It may belong to
   LLVM rather than Zig.
 
-### sparc64: f80 complex nrm2 off by about f64 precision (unconfirmed)
+### sparc64: compiler-rt's `_Qp_sqrt` takes the square root in f64
 
-- **Seen:** on the sparc64 rig (`.fast`, software f80), "portable nrm2
-  kernels at the extended type match a plain loop" fails for
-  `Complex(f80)`: got 0.799018197057005788, want 0.799018197057005830, a
-  relative difference of about 5e-17 against an allowance of 2.8e-17, as if
-  one side were computed in f64. The same test passes on aarch64 (also
-  software f80), freestanding and under Linux, and on x86.
-- **Workaround:** none yet; the test stays failing on that rig.
-- **Next:** find which side is wrong (kernel or reference), then whether it
-  is `.fast` or the sparc backend (a smaller image that fits a debug build
-  would tell). No issue text until then.
+- **Seen:** on the sparc64 rig, `@sqrt` of a runtime `f128` (lowered to
+  `_Qp_sqrt`) gives only f64's precision: `@sqrt(2)` came back as
+  `0x3fff6a09e667f3bcd000000000000000`. "portable nrm2 kernels at the
+  extended type match a plain loop" failed for `Complex(f80)` on it: the
+  kernel was right, the `f128` reference was not. `lib/compiler_rt/sqrt.zig`
+  has `c.* = sqrt(@floatCast(a.*))`, where `sqrt` is the f64 routine; still
+  so on Zig master (added in 2c5f54c898, 2025-04-28).
+- **Workaround:** test references take the root with `check.sqrtW`, which on
+  sparc64 refines `@sqrt` with two Newton steps in `f128`, scaling by even
+  powers of two into f64's range first (a denormal's square is 0 in f64, and
+  the steps from 0 give infinity). The library's own
+  `f128` square roots (the portable `nrm2` and `rotg` at `f128`) stay at f64
+  precision there until Zig is fixed.
+- **Issue text:**
+
+  > **compiler-rt: sparc64 `_Qp_sqrt` computes the square root in f64**
+  >
+  > `lib/compiler_rt/sqrt.zig` defines
+  > `fn _Qp_sqrt(c: *f128, a: *f128) callconv(.c) void { c.* = sqrt(@floatCast(a.*)); }`.
+  > `sqrt` there is the f64 routine, so `a` is narrowed to f64 and the root
+  > widened back: `@sqrt` of a runtime `f128` on sparc64 has 53 bits of
+  > precision. For example `@sqrt(@as(f128, 2))` with a runtime 2 returns
+  > `0x3fff6a09e667f3bcd000000000000000` instead of
+  > `0x3fff6a09e667f3bcc908b2fb1366ea95`. It should call `sqrt_f128`, as
+  > `sqrtq` (`_Q_sqrt` on sparc32) does.
+
+### powerpc64le: LLVM's `-O0` compares a VSX register with `fcmpu`
+
+- **Seen:** on the powerpc64le rigs (pwr9 and pwr10, Debug), every gemm test
+  failed at f64 with "padding written", though the padding held the sentinel:
+  `got != sentinel` came out true for equal values. The f64 was loaded with
+  `lxsdx 34, ...` (VSR34, which is v2) and compared with `fcmpu 0, 2, 0`,
+  which reads f2 (VSR2). The same compare in a release build is correct. It
+  looks like PowerPC FastISel's compare using `FCMPUD` on a register of the
+  VSX class `VSFRC` without constraining it to `F8RC`.
+- **Workaround:** the powerpc64le rigs build with `.safe`
+  (`build/qemutest.zig`), which does not use FastISel.
+- **Issue text:**
+
+  > **[PowerPC] FastISel emits `fcmpu` on a VSX-class register at -O0**
+  >
+  > On powerpc64le with VSX (seen with `-mcpu=pwr9` and `pwr10`) at -O0, an
+  > f64 loaded in one block and compared in another was loaded by FastISel
+  > with `lxsdx` into a `VSFRC` virtual register, which register allocation
+  > put in VSR34 (v2). The compare is `fcmpu cr0, 2, 0`: `FCMPUD` takes
+  > `F8RC` operands, so the encoded `2` reads f2 (VSR2), not v2, and the
+  > comparison uses a stale value. `PPCFastISel::PPCEmitCmp` appears to pass
+  > the source registers to `FCMPUD` without constraining their class (or
+  > using `XSCMPUDP` for VSX registers). Seen in a large Zig-generated
+  > function; the same IR at -O1 and above is correct.
+
+### powerpc: LLVM vectorizes scalar `f32` loops into AltiVec, which flushes
+
+- **Seen:** with the level-3 tiles scalar on the AltiVec cores, complex
+  `trmm` and `trsm` still lost denormals there, in the per-core objects
+  (built for speed) and in a ReleaseFast build for the G4; a Debug build
+  and every real routine were right. LLVM's loop vectorizer had put the
+  split tile's column loop in AltiVec lanes, which flush with `VSCR[NJ]`
+  set. ARM's `isFPVectorizationPotentiallyUnsafe` keeps it off NEON's `f32`
+  lanes; PowerPC has no such check. LLVM's `pwr3` to `pwr5` models have
+  AltiVec, though those chips do not.
+- **Workaround:** the AltiVec cores' objects are built without it
+  (`cpu/_corespec.zig`'s `without`). Code built for such a CPU in an
+  optimized mode outside them can still be vectorized; `-mcpu=g4-altivec`
+  and the like avoid it.
 
 ### lld cannot link 32-bit SPARC
 
 - **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
   object, then fails to link: `ld.lld: unsupported e_machine value: 2`
-  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9).
+  (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9). Still so on
+  0.18.0-dev.267 (2026-10-17), for a one-function freestanding image too;
+  `-fno-lld` instead crashes Zig's own ELF linker (`invalid enum value` in
+  `link/Elf/Object.zig`'s `parseCommon`, which reads every object header as
+  `Elf64_Ehdr`), and that linker ignores linker scripts anyway.
 - **Workaround:** none; 32-bit SPARC is compile-checked only (the kernel
-  objects build) and has no rig.
+  objects build). Its rig, `sparc` (OpenBIOS on `SS-5`), is a stub in
+  `build/qemutest.zig`.
 - **Issue text:** an lld feature request rather than a Zig bug, and probably
   known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
 
@@ -201,7 +289,12 @@ When an issue is fixed upstream, drop the workaround and its entry.
   'Content-Type' header", although the URL ends in `.tar.gz`.
 - **Workaround:** the Linux rigs' kernels come from Debian's netboot
   `.tar.gz` on deb.debian.org (which sends `application/x-gzip`), pinned to a
-  dated installer build (`build.zig.zon`).
+  dated installer build (`build.zig.zon`). s390x and mips64el have no Linux
+  rig: Debian ships their installer kernels only as single files, sent with
+  no `Content-Type` (13's s390x `generic/kernel.debian`, 12's mips64el
+  `malta/netboot/vmlinuz-*-5kc-malta`). Both boot the rig's initramfs by
+  hand: s390x on `s390-ccw-virtio` with `console=ttysclp0`, mips64el on
+  `malta` (`-cpu MIPS64R2-generic`, 256 MB; 1 GB hangs) with `ttyS0`.
 - **Issue text:**
 
   > **`zig fetch`: fall back to the URL's extension when `Content-Type` is missing, and allow single files**
@@ -309,6 +402,50 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Issue text:** none: QEMU's WHPX CPUID-trapping patches (leaf 0 vendor)
   were already in review in 2026. Check their status before filing.
 
+### x86: TCG has no AVX-512, FMA4 or XOP
+
+- **Seen:** QEMU 11.0.1's TCG warns "TCG doesn't support requested
+  feature" for `avx512f`, `avx512dq`, `avx512cd`, `avx512bw` and `avx512vl`
+  (`-cpu Skylake-Server-v4`) and for `fma4` and `xop` (`-cpu Opteron_G5`),
+  and `-cpu max` has none of them. So the skylakex, cooperlake and
+  sapphirerapids kernels, and bulldozer, piledriver, steamroller and
+  excavator, never run on the TCG rigs.
+- **Workaround:** `x86_64-whpx` runs the tests on the host CPU under WHPX,
+  which runs them where the host has the extensions. This host (Ryzen 7
+  7730U, Zen 3) has neither, so they are untested here. Under WHPX, `-cpu
+  host` and `-cpu max` stop in SeaBIOS ("Unexpected VP exit code 4"); named
+  models boot, keeping only the features the host has.
+- **Issue text:** none; long-standing missing features, not bugs.
+
+### x86: an x87 80-bit load or store across a page boundary misplaces bytes
+
+- **Seen:** QEMU 11.0.1 under TCG, 32-bit Linux userspace (Debian 12's i386
+  kernel, or Debian 13's amd64 kernel running an i386 program). When an
+  `fldt` or `fstpt` operand crosses a page, the bytes of the 8-byte
+  significand that lie on the second page are read from (or written to)
+  the wrong place: a load returns stale bytes, a store leaves the guest's
+  bytes unchanged and writes elsewhere. The 2-byte exponent, wholly on the
+  second page, is right, and so is a `movq` across the same boundary. The
+  same program under WHPX is right. i386's `f80` is 12 bytes, 4-aligned, so
+  arrays of it cross pages; the rstd suite failed its `c_longdouble`
+  checks and then crashed in `SafeAllocator` (a misplaced store). x86_64's
+  16-byte `f80` never crosses.
+- **Workaround:** `linux-i386` is a stub (`build/qemutest.zig`).
+- **Issue text:**
+
+  > **target/i386: fldt/fstpt across a page boundary access the wrong bytes under TCG**
+  >
+  > In 32-bit protected mode with paging, an `fldt` whose 10-byte operand
+  > starts at page offset 0xff9 to 0xfff loads the significand bytes past the
+  > boundary from somewhere other than the guest's next page (they come back
+  > stale), while the exponent bytes are right; `fstpt` likewise fails to
+  > write them. A `movq` of the same 8 bytes is right. It looks like the
+  > 8-byte significand access in the x87 helpers treats the range as lying
+  > in the first page (an `X86Access` pointer check on the start rather than
+  > the end). Reproduce: in an i386 Linux guest, store 10 known bytes at a
+  > stack address ending in 0xffc, `fldt` them and `fstpt` them elsewhere,
+  > and compare.
+
 ### sparc64: `sll` drops the upper 32 bits of a 64-bit register
 
 - **Seen:** under `qemu-system-sparc64` (sun4u), OpenBLAS's sparc kernels
@@ -344,11 +481,57 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > so the kernel steps forward by about 4 GB per element. Using `sllx`
   > under `__64BIT__` fixes it.
 
+### powerpc: `xststdcsp` matches a single-precision denormal whatever DCMX asks
+
+- **Seen:** QEMU 11.0.1 TCG, `-cpu power9` and `power10`. LLVM lowers
+  `std.math.isInf` on `f32` (ReleaseSafe, `-mcpu=pwr9`) to
+  `xststdcsp 0, 1, 48`: DCMX 48 is +Inf and -Inf, and the operand is the
+  `f32` as the FPR holds it, in double format, as the ISA wants. LLVM is
+  right. Under QEMU it is true for `f32` denormals (0x00000001, 0x007fffff,
+  0x80000001), and right for normals, zeros, infinities, NaN and every `f64`
+  (`xststdcdp`). `helper_XSTSTDCSP` in `target/ppc/fpu_helper.c` has
+  `match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381)`: a
+  normal double below 2^-126 matches whatever DCMX selects. The 2022 move of
+  `XSTSTDC[SDQ]P` to decodetree dropped the DCMX test; the old helper had
+  `match = extract32(dcmx, 0 + !sign, 1)` for that range. Unchanged on
+  master.
+- **Workaround:** the portable `nrm2` does not call `isInf`
+  (`blas1/nrm2/__root__.zig`). Other `f32` `isInf` calls are wrong for
+  denormals on the powerpc64le rigs.
+- **Issue text:**
+
+  > **target/ppc: xststdcsp matches single-precision denormals regardless of DCMX**
+  >
+  > `helper_XSTSTDCSP` computes
+  > `match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381);`,
+  > so a value that is denormal in single precision (a normal double with
+  > exponent below 0x381) sets CR[BF].EQ whatever DCMX selects. Before
+  > XSTSTDC[SDQ]P moved to decodetree the range set `match` from DCMX bit
+  > `0 + !sign`, as for double denormals. Test for infinity
+  > (`xststdcsp 0, 1, 48`) with f1 = 2^-149 (`lfs` of 0x00000001) and
+  > `beq` is taken, where the ISA matches it only for DCMX bits 5 and 6
+  > (+/- denormal). Clang emits exactly this for `__builtin_isinf` on a
+  > `float` with `-mcpu=pwr9`. Suggested fix:
+  >
+  > ```c
+  > match = float64_tstdc(b->VsrD(0), dcmx) ||
+  >         (exp > 0 && exp < 0x381 && extract32(dcmx, 0 + !sign, 1));
+  > ```
+  >
+  > Reproduce, in a powerpc64le guest built for POWER9 at -O2:
+  >
+  > ```c
+  > __attribute__((noinline)) int f(float x) { return __builtin_isinf(x); }
+  > union { unsigned u; float f; } d = { 1 };   /* 2^-149 */
+  > /* f(d.f) is 1 under qemu -cpu power9; isinf(2^-149) is 0 */
+  > ```
+
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in `readme.md`: an `x86_64` pair on Windows, and the
-`loongarch64` `lsx`/`lasx` kernels, mostly with strides other than 1. One
+upstream sources" in `readme.md`: `x86_64` argument and flag handling
+(mostly on Windows), a POWER pair on ELFv2, and the `loongarch64`
+`lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
 
 > **loongarch64 LSX/LASX level-1 kernels: wrong results with non-unit strides and some edge cases**
@@ -382,6 +565,9 @@ issue covering the `loongarch64` ones could read:
 >   value never computed; `lasx` single with `incx != 1` overwrites its index
 >   step, and its reduction over lanes 4 to 7 mistakes its own partial
 >   minimum for lane 4's value.
+> - `snrm2_lsx`, `snrm2_lasx`, `cnrm2_lsx`, `cnrm2_lasx`: with `incx < 0`
+>   (which `interface/nrm2.c` passes on), return 0: the scale comes from
+>   `?amax_k` on the same arguments, and it returns 0 for `incx <= 0`.
 
 And for `x86_64`:
 
@@ -393,3 +579,347 @@ And for `x86_64`:
 > - `zgemv_t_atom.S`: reads the double `alpha_i`, passed on the stack on
 >   Windows, with a single-precision load; its sibling kernels use the
 >   double one.
+
+And the `scal` flag on `x86_64`:
+
+> **x86_64 `scal_sse.S`, `scal_sse2.S`, `scal_atom.S` (Windows) and `zscal_atom.S`: the flag argument is lost, and a NaN alpha counts as zero**
+>
+> `interface/scal.c` and `zscal.c` pass `dummy2 = 1` so that a zero alpha
+> multiplies, turning NaN and Inf into NaN.
+>
+> - `scal_sse.S`, `scal_sse2.S`, `scal_atom.S`: under `WINDOWS_ABI` they
+>   load the flag with `movq 64(%rsp)`, which is `inc_y` (the eighth
+>   argument); the flag, the tenth, is at `80(%rsp)`. The interface passes
+>   `inc_y = 0`, so a zero alpha always stores zeros on Windows.
+> - `zscal_atom.S` never reads the flag: a zero alpha always stores zeros.
+>   Loading it as `scal_atom.S` does (`24(%rsp)`, `88(%rsp)` on Windows) and
+>   branching to the multiply path when it is 1 fixes it.
+> - `scal_sse.S` tests `alpha == 0` with `comiss` and `jne` alone; a NaN
+>   alpha sets ZF too and takes the zero path (`scal_sse2.S` has
+>   `jp .L100`). With flag 0, as the level-2 drivers scale `y` by `beta`, a
+>   NaN `beta` gives zeros. `zscal_atom.S` likewise tests `alpha_i == 0`
+>   without `jp`, so `(0, NaN)` counts as zero.
+
+And for POWER:
+
+> **power `scal.S` and `zscal.S`: the flag argument is read at ELFv1's offset on Linux ELFv2**
+>
+> `kernel/power/scal.S` and `zscal.S` load the last argument (`dummy2`,
+> the flag that keeps NaN for a zero alpha) with `LDLONG FLAG, 120(SP)` /
+> `128(SP)` on Linux, the ELFv1 parameter save area. Under ELFv2 (ppc64le,
+> and big-endian ELFv2 such as musl) the slots are 16 bytes lower, as the
+> FreeBSD branch already has (104/112), so the kernel reads past its
+> arguments and a zero alpha either stores zeros or multiplies depending on
+> stack contents (NaN where zeros belong, for example `cgbmv` with
+> `beta == 0` on POWER6, PPC970 and CELL). 32-bit SysV passes the flag in
+> the first stack word. `LDLONG FLAG, FRAMESLOT(1)(SP)` (`scal.S`) and
+> `FRAMESLOT(2)(SP)` (`zscal.S`) under `__64BIT__`, `FRAMESLOT(0)(SP)`
+> otherwise, give the right slot for each ABI.
+
+And for the x87 extended kernels (not converted here; the portable `scal`
+runs for `XDouble`, keeping NaN as the flag asks):
+
+> **x86_64 x87 `scal.S` and `zscal.S` (`qscal`, `xscal`): a zero alpha ignores the flag**
+>
+> `interface/scal.c` and `zscal.c` pass the flag (`dummy2 = 1`) that asks a
+> zero alpha to multiply, so NaN and Inf in `x` give NaN, as reference BLAS
+> does and as the other `scal` kernels do. `kernel/x86_64/scal.S` and
+> `zscal.S` never read it: a zero alpha stores zeros, so `qscal` and `xscal`
+> turn NaN and Inf into 0.
+
+And in the x87 gemv kernels (the portable gemv takes their order but reads
+only the elements it uses):
+
+> **x87 `qgemv_n.S`, `qgemv_t.S`, `xgemv_n.S`, `xgemv_t.S`: a read past the end of `x`**
+>
+> `kernel/x86_64/` and `kernel/x86/` load the next `x` element before the
+> loop tests whether there is one. With `incx == 1`, where `x` is the
+> caller's own array, the last block reads `x[m]` (`qgemv_t`, when `n >= 4`)
+> or, for an even block length, `x[n]` (`qgemv_n`, when `m >= 4`) or
+> `x[m]`/`x[n]` (`xgemv_t`, `xgemv_n`). The value is discarded, but the read
+> faults where `x` ends at an unmapped page. Testing the count before the
+> load, or loading at the top of each trip, avoids it.
+
+### Special values some converted kernels treat otherwise
+
+The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every rig)
+found these. In rstd's extremes the first NaN wins (`readme.md`, "One
+contract on every core"); LAPACK 3.10's `nrm2` is infinite for an
+infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
+
+Not used: no core takes a converted extreme kernel. Upstream's follow
+Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
+`>`, so NaN is picked only as the first element, or worse:
+
+- **Extremes, lane by lane.** `x86_64/amax_sse.S`, `amax_sse2.S`,
+  `zamax_sse.S`, `zamax_sse2.S`, `iamax_sse.S`, `iamax_sse2.S`,
+  `izamax_sse.S` and `izamax_sse2.S` (every x86_64 core, all eight
+  routines), `power/amax.S` and its kin (every POWER core), the
+  `loongarch64` extremes and `arm64/amax.S` (`amax`, every arm64 core)
+  compare in vector lanes, so what a NaN does depends on where it falls: a
+  NaN first may be passed over, a later one picked. `power/amax.S`, with a
+  NaN last, returned an element smaller than the maximum;
+  `loongarch64/amax_lsx.S` returned 0 for a lone NaN. Meeting "first NaN"
+  needs each SIMD reduction rewritten.
+- **The rest.** The x86, arm, arm64 `iamax`, mips64 and SPARC extremes keep
+  the strict compare (after the fixes below), so a NaN after the first
+  element is passed over.
+
+Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
+algorithm everywhere (`readme.md`, "One contract on every core"). x86_64's
+`nrm2_sse.S` (an unscaled `f64` sum for `snrm2` and `cnrm2`) and the x87
+`nrm2.S` and `znrm2.S` of x86 and x86_64 (an unscaled `f80` sum) were right
+on special values but their own algorithms; the arm and arm64 ones scale a
+one-pass loop as those below do. Those below were wrong:
+
+- **`nrm2` of an infinity is NaN.** `power/nrm2.S` and its kin (every POWER
+  core), `mips64/dnrm2.S` and `znrm2.S` (Loongson), `loongarch64/dnrm2.S`
+  and `znrm2.S` (generic), `znrm2_lsx.S` and `znrm2_lasx.S`, and
+  `sparc/znrm2.S`: their scaled sums divide the infinity by itself.
+- **`nrm2` of a NaN is 0.** `loongarch64/snrm2_lsx.S`, `dnrm2_lsx.S`,
+  `cnrm2_lsx.S` and the `lasx` ones, for a lone NaN: the scale is `?amax_k`
+  of the vector, which passes NaN over.
+- **`nrm2` of denormals.** The same POWER, Loongson, `loongarch64` and
+  `sparc` kernels: `dnrm2` gave 0 or a value 15% off, `znrm2` (and
+  `loongarch64`'s `snrm2` and `cnrm2`) infinity, where LAPACK's is
+  accurate; they square the denormals, or scale by a reciprocal that
+  overflows. `power/dnrm2_ppc440.S` and `znrm2_ppc440.S` (ppcg4, ppc440)
+  gave NaN: their square root goes through `frsqrte` of a denormal sum.
+
+Fixed in the converted sources (`readme.md`). Issues could read, for the
+x86_64 index kernels:
+
+> **x86_64 `iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`: `n + 1` for a NaN extreme**
+>
+> The second pass looks for the element equal to the extreme the first
+> found. Its last step (`.L28`, `.L68`, `.L98` in `iamax_sse2.S`, and the
+> like) takes the last element as the match unread, and counts it even when
+> `M` is even and it was read already. A NaN extreme equals no element, so
+> the index returned is `n + 1`, past the end of `x`. Testing `M` odd there
+> keeps it in range.
+
+And the x86_64 copies on OPTERON:
+
+> **x86_64 `copy_sse.S`, `copy_sse2.S`, `zcopy_sse.S`, `zcopy_sse2.S`: OPTERON loses the sign of zero**
+>
+> Under `OPTERON`, `LOAD` is `xorps REG, REG; addps OFFSET(ADDR), REG`
+> (`addpd` for double): `+0 + -0` is `+0`, so `-0` is copied as `+0`, and a
+> signaling NaN comes out quiet. The plain `movaps`/`movups` the other
+> cores use copies the bits.
+
+And x86_64 `symv`:
+
+> **x86_64 `symv_L_sse.S`: an infinity in `x` gives NaN in `y`**
+>
+> The last two rows of a block (`.L17`) zero the upper half of each column
+> operand (`movlhps xtemp2, a1`) but not of `xtemp1`, which still holds the
+> next two elements of `x`; the two columns at the end (`.L20`) multiply a
+> `movsd` of the matrix by all four lanes of `atemp4`. An infinity in those
+> lanes times the zeroed half is NaN, which the horizontal sum adds into
+> `y` (`ssymv` lower, `n = 7`, `x[6]` infinite, gives NaN in `y[0]`).
+> Zeroing the upper half of `xtemp1` and of `atemp4` fixes both.
+
+And the x86 and arm minima:
+
+> **x86 `amax.S`, `iamax.S`, `zamax.S`, `izamax.S` and arm `amax_vfp.S`, `iamax_vfp.S`: the minima pick NaN**
+>
+> The x86 minima move the new element in unless `fcomi` says it is above
+> the pick (`fcmovnbe`, `cmovb`); unordered is not above, so a NaN replaces
+> the pick and the next element replaces the NaN. The arm minima move on
+> `lt`, which an unordered `vcmpe` sets too. The maxima keep NaN out. The
+> fix, for x86: compare the pick with the new element (`fxch` around
+> `fcomi`) and use the maxima's moves; for arm: `mi` in place of `lt`.
+
+And ties, on Loongson and SPARC:
+
+> **mips64 `iamax.S`, `imax.S`, `izamax.S` (and the minima) and sparc `iamax.S`, `imax.S`, `izamax.S`: of equal extremes, a later index**
+>
+> They keep a pick per lane, then reduce the lanes keeping the first
+> lane's pick on a tie, whose index may be later than another lane's.
+> Reference BLAS returns the first. Taking the smaller index of equal picks
+> at each step of the reduction fixes it.
+
+And loongarch64 `axpby`:
+
+> **loongarch64 `axpby_lsx.S`, `axpby_lasx.S`, `caxpby_lsx.S`, `caxpby_lasx.S`: a zero scalar's operand is read past the blocks**
+>
+> The tail (`.L998`) computes `alpha*x + beta*y` whatever the scalars, so a
+> NaN or infinity meets a zero scalar's 0; `kernel/arm/axpby.c` reads
+> neither operand then. The blocked loops for a zero `alpha` (`beta`) do
+> not advance `X` (`Y`) either, so the tail reads the wrong elements. A tail
+> that tests the scalars, as the blocks do, fixes both. Two more paths read
+> the operand of a zero scalar:
+>
+> - `axpby_lsx.S`, `axpby_lasx.S`, double: the zero they compare the
+>   scalars with is made by `ffint.s.l`, whose upper half is undefined (NaN
+>   under qemu), so the zero-scalar blocks are never taken; `caxpby_lsx.S`
+>   uses `ffint.d.l` for double.
+> - `caxpby_lsx.S`, `caxpby_lasx.S`, one stride 1 and the other not (`.L12`,
+>   `.L21`): no zero-scalar blocks at all; branching to `.L22`, the strided
+>   path, which has them, fixes it.
+
+Not used: the x86_64 reductions whose bits follow an operand's address.
+No core takes them (`readme.md`, "One contract on every core"); an issue
+could read:
+
+> **x86_64 `asum_sse.S`, `asum_sse2.S`, `zasum_sse2.S`, `dot_sse2.S`, `zdot_sse2.S`, `zsum_sse2.S`, `dgemv_n.S` and kin: the result depends on the alignment of `x` or `y`**
+>
+> They peel one to three elements until `x` (or `y`) is 16-byte aligned
+> (`testq $SIZE, X` and the like), which changes which lane each element
+> is summed in, so the same vector at another address gives other bits:
+> `dasum` of 67 elements differs in the last bit with `x` 8 bytes further
+> on, `ddot` of 7 with `y` moved. `dgemv_n.S` accumulates in its buffer
+> when `y` is misaligned, and adds that to `y` once. Unaligned loads and a
+> fixed split would make them reproducible.
+
+And the kernels rstd changed, by patch or port, to keep `axpy` one contract:
+
+> **`arm64/axpy.S`, `zaxpy.S`, `daxpy_thunderx2t99.S`, `axpy_sve.c`, `loongarch64/axpy_lsx.S`, `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`, `mips/?axpy_msa.c`, `riscv64/axpy_rvv.c`, `zaxpy_rvv.c`, `wasm/axpy.c`: a zero alpha skips `x`**
+>
+> They return at once for `alpha == 0`, as `kernel/arm/axpy.c` does, while
+> the other cores' kernels multiply. `interface/axpy.c` returns first, but
+> `driver/level2` calls `AXPYU_K` with `-B[i]`, which may be zero, so on
+> these cores an infinity or NaN in the matrix column does not reach the
+> solution of `trsv` and `tbsv`, and on the others it does. Dropping the
+> early return makes every core multiply; reference master's `dtrsv.f`
+> (`6e7b86c`) removed its zero test for the same reason.
+
+A zero `alpha` with a denormal in `y` also showed the ARMv7 NEON and AltiVec
+flushing of `comparisons.md` (10): the portable `saxpy`'s `@Vector` block
+turned the denormal into 0 on the `arm`, `linux-arm`, `powerpc` and
+`powerpc-pseries` rigs. It was the only level-1 or level-2 kernel that did
+(`_test/blas1/denormal.zig`, `_test/blas2/edge.zig`); it now takes its scalar loop where
+`util.vectorIeee` says the lanes flush, the `@Vector` kernels leave `s` and
+`c` there to the portable ones, and the level-3 tiles are scalar there
+(`blas3/gemm/kernel.zig`'s `vectorBits`).
+
+Upstream's level-1 and level-2 kernels for these cores are scalar: VFP on
+arm, the FPU on POWER before POWER8, none of them AltiVec. Its ARMv7
+`sgemm_kernel_4x4_vfpv3_neon.S` and the PPC970 and CELL
+`gemm_kernel_altivec*.S` and `zgemm_kernel_altivec*.S` compute in NEON and
+AltiVec lanes and never set `VSCR`, so they flush `f32` denormals as these
+units do.
+
+Ours, not a converted kernel:
+
+- **Rank updates and a zero factor.** Reference `zher`, `zhpr`, `dsyr2` and
+  the rest skip a column whose factor is zero (for rank 2, `x(j)` and `y(j)`
+  both). OpenBLAS's `driver/level2/syr_k.c`, `spr_k.c`, `zsyr_k.c` and
+  `zspr_k.c` do; `zher_k.c`, `zhpr_k.c` and the rank-2 drivers do not, so
+  an infinity elsewhere in `x` meets the zero and gives NaN in that column.
+  `banded.zig`'s drivers skip as the reference does. So does `ger`, whose
+  reference skips a zero `y(j)` and whose per-core kernels do not:
+  `interface.zig` calls the kernel once per run of nonzero `y`, which is one
+  call when `y` has no zero.
+
+And SPARC `swap`, found by the ported `utest/test_swap.c`:
+
+> **sparc `swap.S`, `zswap.S`: a zero stride swaps a block as one element**
+>
+> The strided loop (`.LL51`) loads a block of elements (8 for `swap.S`, 4
+> for `zswap.S`) from `x` and `y` before storing any, so with `incx` or
+> `incy` zero the `n` swaps of one element act as one. `utest`'s
+> `zswap_inc_0` (`n` = 4, both strides 0) gets `x` and `y` exchanged where
+> four swaps leave them as they were; `sswap` and `dswap` go wrong from 8
+> elements. Sending a zero stride to the one-at-a-time tail loop (`.LL56`)
+> fixes both.
+
+And SPARC `rot`, found by the per-core `rot` checks once they took zero
+strides:
+
+> **sparc `rot.S`, `zrot.S`: a zero stride acts on one element as a block**
+>
+> As in `swap.S`: the strided loop (`.LL51`) loads a block (8 for `rot.S`,
+> 4 for `zrot.S`) from `x` and `y` before storing any, so with `incx` or
+> `incy` zero later elements of the block are read before earlier ones are
+> written. `srot` with `n` = 8 and both strides 0 gives `x` = 2.0356 where
+> eight rotations give -1.0088. Sending a zero stride to the one-at-a-time
+> loop (`.LL56`) fixes both.
+
+And POWER `rot` and `swap`, the same pattern, found by `utest`'s `zdrot_inc_0`:
+
+> **power `rot.S`, `zrot.S`, `swap.S`, `zswap.S`, `rot_ppc440.S`, `zrot_ppc440.S`: a zero stride acts on one element as a block**
+>
+> The strided loop (`LL(110)`; the `ppc440` files are pipelined from the
+> start) loads a block of elements from `x` and `y` before storing any, so
+> with `incx` or `incy` zero later elements of the block are read before
+> earlier ones are written. `zdrot_inc_0` (`n` = 4, both strides 0) gets
+> `x` = 0.3125 for cell's `zrot.S` where four rotations give -0.21484375,
+> and so would ppc440fp2's `zrot_ppc440.S`; the others go wrong from 8
+> elements (`swap.S` 16). Sending a zero stride to the one-at-a-time loop
+> (`LL(160)`) fixes them.
+
+And the same on other architectures, found by the per-core `rot` and `swap`
+checks once they took zero strides; OpenBLAS's `interface/rot.c` and
+`swap.c` pass a zero stride to the kernel, as rstd's interface does:
+
+> **x86 `swap.S`, `zswap.S`, arm `swap_vfp.S`, `rot_vfp.S`: zero strides skipped or cut short**
+>
+> Upstream special-cased zero strides to pass `utest`'s `n` = 4 case
+> (OpenBLAS #1469, #1575), each in a way right only for some `n`. x86
+> `swap.S` returns at once when both are zero, which is right for an even
+> `n` only (one swap, `n` = 1, does nothing); with one zero, the strided
+> loop loads four elements before storing any. x86 `zswap.S` does the same
+> with two. arm `swap_vfp.S` returns at once when either is zero; arm
+> `rot_vfp.S` stops after the first element of the tail (`n` = 2 rotates
+> once). The x86 fix sends a zero stride to a one-at-a-time loop (`.L35`;
+> a new `.L36` for `zswap.S`); the arm one drops the checks, as the
+> strided loops already take one element at a time.
+
+And loongarch64 and mips64:
+
+> **loongarch64 `swap.S`, `rot_lsx.S`, `rot_lasx.S` and mips64 `swap.S`: a zero stride acts on one element as a block**
+>
+> As on POWER: the strided loops load a block of 8 before storing it, so
+> from `n` = 8 a zero stride goes wrong (la64_generic, la264, la464,
+> loongson3r3). `crot_lsx.S` and `crot_lasx.S` already send zero strides to
+> their one-at-a-time loop (`.L996`); the fix does the same for these (the
+> mips64 one sets the count in each branch's delay slot).
+
+And with only the written operand's stride zero, found by the per-core checks
+once they took one zero stride beside a nonzero one. The reference is
+sequential: `axpy` with `incy` = 0 does `y[0] += alpha*x[i]` for each `i` in
+turn.
+
+> **x86_64 `zaxpy_sse2.S`, `axpy_atom.S`, `zaxpy_atom.S`: a zero `incy` updates one element as a block**
+>
+> The strided loops load several `y` elements before storing any, so with
+> `incy` = 0 later updates start from the old `y[0]`. `zaxpy_sse2.S` has a
+> one-at-a-time loop for zero strides (`.L58`), but its test sends only both
+> zero there, despite its comment, and the loop never steps `x`; `zaxpy`
+> with `n` = 3, `incy` = 0 gives -3.9665 where the sequential loop gives
+> -1.0370 (prescott, core2, nehalem, opteron and the rest). The `atom` files
+> have no such loop: `daxpy` goes wrong from `n` = 2. The fix sends a zero
+> `incy` to a stepping one-at-a-time loop.
+
+And POWER and SPARC, as in their `rot` and `swap`:
+
+> **power `axpy.S`, `zaxpy.S`, `axpy_ppc440.S`, sparc `axpy.S`, `zaxpy.S`: a zero `incy` updates one element as a block**
+>
+> The strided loop loads a block of `y` before storing it. `saxpy` with
+> `incy` = 0 goes wrong from `n` = 16 on power3 to power6, ppc970, cell and
+> ppcg4, and from `n` = 8 on sparc. Zero strides take the one-at-a-time
+> loop, as those do; on sparc it now returns for `n` = 0 first, which its
+> loop, run once before the count is tested, did not.
+
+And loongarch64:
+
+> **loongarch64 `axpy_lsx.S`, `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`, `cswap_lsx.S`, `cswap_lasx.S`: a zero stride acts on one element as a block**
+>
+> The `axpy` loops for a strided `y` (`.L12`, `.L22`) gather a block of `y`
+> before storing it; `saxpy` with `incy` = 0 goes wrong from `n` = 8 (la264,
+> la464). `cswap`'s `.L22` reads `x` a block ahead of storing it, so
+> `incx` = 0 beside a strided `y` goes wrong from `n` = 4. A zero `incy`
+> (either zero stride for `cswap`) takes the one-at-a-time loop.
+
+And C sources rstd ports to Zig:
+
+> **riscv64 `axpy_rvv.c`, `zaxpy_rvv.c` and mips `saxpy_msa.c`, `daxpy_msa.c`: a zero `incy` updates one element as a block**
+>
+> `axpy_rvv.c` has a branch for `incy` = 0 that starts every lane at
+> `y[0]` and sums the lanes into it, so it adds `y[0]` once a lane; `saxpy`
+> with `n` = 3 gives -1.2692 where the loop gives 1.6555
+> (riscv64_zvl128b, x280). `zaxpy_rvv.c`'s strided segments and the MSA
+> files' blocks of four and two load `y` before storing it (i6400, i6500,
+> p6600 from `n` = 4). rstd's ports of these (`axpy/riscv64/rvv.zig`,
+> `axpy/mips/msa.zig`) take a zero `incy` one element at a time.

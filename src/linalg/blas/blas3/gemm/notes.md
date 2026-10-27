@@ -8,7 +8,7 @@ converted assembly would pay. Measured 2026-10-15.
 - **Host:** AMD Ryzen 7 7730U (Zen 3), a laptop, one thread, Windows. Other
   builds were running, so every figure is the median of 5 to 9 rounds with
   the configurations interleaved inside each round; ranges are min to max.
-- **Build:** a scratch benchmark over `kernel.zig` and `level3.zig`,
+- **Build:** a scratch benchmark over `kernel.zig` and `driver.zig`,
   `-OReleaseFast` with the flags the per-core object of this host gets
   (`baseline+avx+avx2+fma+sse3+sse4_1+ssse3`, the Haswell and Zen group).
 - **Blocking:** `param.h`'s for Zen: `sgemm` P 320, Q 320; `dgemm` P 512,
@@ -54,7 +54,7 @@ The hot loop of the full tile, from `-femit-asm`:
   tile fills all 16 registers, and LLVM's generic tuning then keeps one
   accumulator on the stack (a load and a store every step, plus three
   register moves), which halves its speed; with `-mcpu=znver3` the same
-  source is clean and runs at 83. Hence the spare register in `geometry`.
+  source is clean and runs at 83, hence the spare register in `geometry`.
 - **AVX-512 (Skylake-X, compile only):** `skylake_avx512` gets 512-bit
   registers (no `prefer-256-bit` split): 32 x 14 single, 16 x 14 double,
   28 FMAs, 14 broadcasts, 2 loads, no spills. The broadcasts are separate
@@ -65,7 +65,9 @@ The hot loop of the full tile, from `-femit-asm`:
   and 8 stack accesses per step; the chosen 16 x 6 single and 8 x 6 double
   are 24 `fmla`, 4 loads, no spills.
 - **SSE2 x86_64 baseline and Cortex-A15 NEON (compile only):** 8 x 6 and
-  8 x 5 single, multiply and add or `vfma`, no spills.
+  8 x 5 single, multiply and add or `vfma`, no spills. ARMv7 NEON and
+  pre-VSX AltiVec `f32` tiles are scalar since: those lanes flush
+  denormals (`util.vectorIeee`).
 
 ## Tails
 
@@ -89,7 +91,7 @@ they serve): it runs at the measured peak, so converting `sgemm`/`dgemm`
 Convert assembly first where Zig cannot express what the core's kernel uses,
 and measure there before keeping it:
 
-1. the arm64 SVE kernels (A64FX, Neoverse V1, N2, V2): `@Vector` has no
+1. The arm64 SVE kernels (A64FX, Neoverse V1, N2, V2): `@Vector` has no
    scalable vectors, so Zig falls back to NEON;
 2. POWER10's MMA kernels, and the AMX and AVX-512 BF16 ones for `sbgemm`,
    which `@Vector` cannot reach at all;

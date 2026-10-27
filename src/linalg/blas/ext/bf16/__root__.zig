@@ -32,9 +32,7 @@ pub fn dbf16tod_k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]f64, inc_o
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const kernel = @import("kernel.zig");
-const Vtable = @import("../../Vtable.zig");
 
 pub const toBf16 = kernel.toBf16;
 pub const fromBf16 = kernel.fromBf16;
@@ -58,6 +56,9 @@ pub fn scalarToF32(v: BF16) f32 {
 }
 
 // ---- tests -----------------------------------------------------------------
+
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
 
 fn bitsOf(v: f32) u32 {
     return @bitCast(v);
@@ -116,7 +117,8 @@ test "portable conversions round-trip through strides" {
     for (0..32) |i| try std.testing.expectEqual(@as(f64, fromBf16(toBf16(f[2 * i]))), back_d[2 * i]);
 }
 
-const check = @import("../../blas1/check.zig");
+const check = @import("../../_test/blas1/check.zig");
+const portable = @import("../../portable.zig");
 
 /// Every bfloat16 and half-precision slot a reachable interface calls.
 const slots = blk: {
@@ -150,7 +152,7 @@ fn checkAll(vt: *const Vtable) !void {
 
 test "every bfloat16 and half-precision slot is set, on the portable kernels" {
     var vt: Vtable = .{};
-    @import("../../portable.zig").install(&vt);
+    portable.install(&vt);
     try checkAll(&vt);
 }
 
@@ -187,6 +189,10 @@ fn bscalModel(flag: i64, da: u16, x: u16) u16 {
     return @backingInt(toBf16(v));
 }
 
+fn isNanBits(b: u16) bool {
+    return b & 0x7f80 == 0x7f80 and b & 0x007f != 0;
+}
+
 test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
     const das = [_]u16{ 0x0000, 0x8000, 0x0001, 0x3fc0, 0xbf00, 0x7f80, 0x7fc0 };
     const xs = [_]u16{ 0x0000, 0x8000, 0x0001, 0x3f80, 0xc040, 0x7f80, 0xff80, 0x7fc1, 0x4049 };
@@ -198,7 +204,11 @@ test "bscal follows generic/scal.c, with the flag, signed zeros and denormals" {
         }
         _ = kernel.bscal_k(xs.len, 0, 0, @fromBackingInt(@intCast(da)), &pad, 2, &pad, 0, &pad, @intCast(flag));
         for (xs, 0..) |s, i| {
-            try std.testing.expectEqual(bscalModel(flag, da, s), @backingInt(pad[2 * i]));
+            // any NaN for a NaN: which operand's payload a product keeps, and
+            // the sign of a new one, vary with the target and operand order
+            const want = bscalModel(flag, da, s);
+            const got: u16 = @backingInt(pad[2 * i]);
+            if (!isNanBits(want) or !isNanBits(got)) try std.testing.expectEqual(want, got);
             try std.testing.expectEqual(@as(u16, 0x1234), @backingInt(pad[2 * i + 1]));
         }
     };

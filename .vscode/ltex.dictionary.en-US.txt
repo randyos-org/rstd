@@ -13,6 +13,7 @@ add_key
 adde
 addi
 addis
+addiu
 addl
 addpd
 addps
@@ -32,6 +33,9 @@ ALFB
 alphabg
 ALPHAI
 ALPHAR
+Alti
+altivec
+amaxv
 amdgpu
 amxtile
 andi
@@ -53,6 +57,7 @@ Args
 argv
 armeb
 ARMEB
+armhf
 ASLR
 asmfmt
 asr
@@ -69,6 +74,7 @@ axpby
 axpy
 axpyc
 AXPYKERNEL
+AXPYU
 balc
 bbox
 bboxes
@@ -81,6 +87,7 @@ bdz
 beq
 beqz
 beqzc
+BFDOT
 bfloat
 bge
 bgemm
@@ -90,6 +97,7 @@ bgt
 bgtz
 bidiagonal
 bind
+blasbench
 blasint
 blaskern
 blaskernel
@@ -97,6 +105,7 @@ blaslong
 BLASULONG
 ble
 blez
+BLIS's
 Blits
 blitted
 Blobby
@@ -135,11 +144,14 @@ caxpby
 caxpy
 caxpyc
 CBDT
+CBLAS
 CBLC
 ccopy
 cdotc
 cdotu
 ceq
+cfpc
+cgbmv
 cgeadd
 cgemm
 cgemv
@@ -180,6 +192,7 @@ cmpd
 cmpdi
 cmpl
 cmpld
+cmplw
 cmpq
 cmpwi
 CMPXCHG
@@ -197,10 +210,12 @@ compr
 comptime
 comqr
 conds
+condvar
 congruential
 CONJG
 connect
 copy_file_range
+cortexx
 corth
 cosm
 cpht
@@ -214,6 +229,7 @@ create_module
 creds
 CROTG
 cscal
+csep
 csky
 csoff
 CSPRNG
@@ -223,6 +239,7 @@ csrwr
 cstype
 csymm
 csymv
+ctest
 ctlconst
 ctmp
 ctrmm
@@ -272,6 +289,7 @@ DIRENV
 DLAB
 dlaswp
 dlopen
+dlsym
 dneg
 dngettext
 dnrm
@@ -281,6 +299,7 @@ DOFORK
 domatcopy
 dotc
 dotenv
+dotk
 dotni
 dotu
 downscaling
@@ -309,6 +328,7 @@ DWMEXILEFRAME
 DWMTHUMBNAILSIZECHANGED
 DWMTRANSITIONSTATECHANGED
 dxpy
+dyld
 DZASUM
 DZNRM
 eabi
@@ -480,6 +500,7 @@ flate
 fld
 fldl
 flds
+fldt
 flistxattr
 flock
 flut
@@ -528,6 +549,7 @@ fstatat
 fstatfs
 fstpl
 fstps
+fstpt
 fsub
 fsubrp
 fsubs
@@ -580,6 +602,7 @@ FXRSTOR
 fxsr
 FXWSAVE
 gamsq
+GBMV
 gdb
 gdkwayland
 gdkx
@@ -622,6 +645,7 @@ getuid
 getxattr
 getxattrat
 GFLOP
+GFLOPS
 GFORT
 Gfun
 gfxdev
@@ -664,6 +688,7 @@ hasc
 hcall
 hemm
 hemv
+herk
 hflex
 HFLOAT
 hhcurveto
@@ -681,12 +706,15 @@ HUGETLB
 HVAR
 hvcurveto
 HWCAP
+hwcaps
 HWPOISON
 hwprobe
 hygon
 iamax
+iamaxk
 ICACHEBSIZE
 icamin
+ICOPY
 idat
 Idents
 idmax
@@ -700,6 +728,7 @@ ihdr
 ilcopyb
 ilcopyi
 ilcopyr
+illumos
 ilnncopy
 ilnucopy
 iltcopy
@@ -862,6 +891,8 @@ libc
 libcpp
 libcxx
 Libghostty
+libm
+libopenblas
 libvaxis
 libxev
 lidt
@@ -894,6 +925,7 @@ lsm_get_self_attr
 lsm_list_modules
 lsm_set_self_attr
 lstat
+ltcopy
 ltex
 LTLN
 LTUN
@@ -1005,6 +1037,7 @@ msync
 MSYS
 mtctr
 mtlr
+mtmsr
 mtmsrd
 mtrr
 MTRRs
@@ -1031,6 +1064,7 @@ nanosleep
 natecraddock
 ncopy
 NCPOINTERLAST
+ncpu
 NCUAHDRAWCAPTION
 NCUAHDRAWFRAME
 NDELAY
@@ -1040,12 +1074,14 @@ neoversen
 neoversev
 NETLINK
 newfstatat
+NEWLAPACK
 newp
 nflist
 nfsservctl
 ngettext
 ngroups
 NIDENT
+nixpkgs
 NLIMITS
 nlist
 NMSUB
@@ -1072,6 +1108,7 @@ nrtp
 NSYNC
 oabi
 objc
+OCOPY
 OETF
 ofmt
 oklab
@@ -1364,6 +1401,7 @@ rtnetlink
 RTPRIO
 RTTIME
 RXRSTOR
+Ryzen
 safmax
 safmin
 salq
@@ -1376,6 +1414,7 @@ SAVLOD
 saxpby
 saxpy
 sbaxpy
+sbbc
 sbcopy
 sbdot
 sbdtobf
@@ -1386,6 +1425,7 @@ sbix
 sblaswp
 sbmax
 sbmin
+SBMV
 sbneg
 sbnrm
 sbrot
@@ -1397,10 +1437,12 @@ sbsum
 sbswap
 sbsymm
 sbsymv
+sbtobf
 sbtrmm
 sbtrsm
 scal
 scalarized
+scalk
 scanline
 SCASUM
 SCCB
@@ -1424,6 +1466,7 @@ sdata
 sdbbp
 sdbg
 sdc
+sdcz
 SDGT
 sdot
 sdsdot
@@ -1502,6 +1545,7 @@ SIGIO
 SIGIOT
 signalfd
 signalfd4
+significand
 SIGPWR
 SIGRTMAX
 SIGRTMIN
@@ -1524,6 +1568,7 @@ slaswp
 sldi
 SLDT
 slli
+sllx
 sltu
 slwi
 smap
@@ -1531,6 +1576,7 @@ smax
 SMEP
 smin
 SMSW
+SMVCH
 smxe
 sneg
 SNOPT
@@ -1542,6 +1588,7 @@ SNUMOPT
 socat
 socket
 socketpair
+softfp
 somatcopy
 sparcv
 sphimp
@@ -1549,6 +1596,7 @@ sphtext
 Spirv
 spki
 splice
+SPMV
 sqrtm
 sradi
 srai
@@ -1595,6 +1643,7 @@ STFXDUX
 STFXDX
 stfxsux
 stfxsx
+stmts
 stosl
 stp
 STPCLK
@@ -1602,6 +1651,7 @@ str
 strmm
 strsm
 stty
+stwu
 stxv
 stxvd
 stxvx
@@ -1648,6 +1698,8 @@ SYSTIMER
 sysv
 taxpy
 taxpyc
+TBMV
+tbsv
 tcopy
 tee
 termio
@@ -1684,6 +1736,8 @@ tocbss
 toks
 toolchain
 topdictidx
+TPMV
+TPSV
 transa
 transb
 TRBAK
@@ -1693,6 +1747,7 @@ TRIU
 trmm
 trmv
 trsm
+trsv
 TrueType
 TrueType-style
 truncate
@@ -1718,6 +1773,7 @@ ugetrlimit
 UIACTION
 UIDS
 uintr
+ulps
 umask
 umip
 umount2
@@ -1727,6 +1783,7 @@ Uncancelable
 uncompr
 unconj
 unenc
+unfused
 unlink
 unlinkat
 unloop
@@ -1736,6 +1793,7 @@ unref
 unshare
 unsuffixed
 unwrite
+Uplo
 uprobe
 URAND
 urandom
@@ -1746,6 +1804,8 @@ userfaultfd
 userspace
 usrfun
 ustat
+utcopy
+utest
 utime
 utimensat
 utimes
@@ -1758,20 +1818,24 @@ vancluever
 vaxis
 vbroadcastsd
 vbroadcastss
+vclose
 vcubic
 vcurve
 vdevice
 vDSO
+VECLIB
 vectorizing
 vendored
 verts
 vfadd
+vfma
 vfmadd
 vfmaddpd
 vfmaddps
 vfmsub
 vfmul
 vfork
+VFPD
 vfpv
 vfsub
 vhangup
@@ -1786,6 +1850,7 @@ vldm
 vldmia
 vldr
 VLEN
+vlenb
 vline
 vlineto
 vmetrics
@@ -1800,9 +1865,11 @@ vmovups
 vmrgew
 vmrghw
 vmrglw
+vmrs
 vmsplice
 vmulpd
 vmxe
+vopen
 VORG
 vortexm
 vperm
@@ -1895,6 +1962,7 @@ xcopy
 xdotc
 xdotu
 xdouble
+xerbla
 xgemm
 xgemv
 xgerc
@@ -1998,6 +2066,7 @@ zgerv
 ZGESL
 zhemm
 zhemv
+zherk
 zig
 zigcfg
 zigfmt
@@ -2009,6 +2078,7 @@ zlartg
 zlaswp
 zneg
 znrm
+znver
 zomatcopy
 zpart
 zparts

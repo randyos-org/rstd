@@ -35,7 +35,6 @@ pub fn qrotm_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// The matrix `param` names: `param[0]` is the flag, -2 the identity, -1 the
 /// full `[h11 h12; h21 h22]` (`param[1..5]` = h11, h21, h12, h22), 0
@@ -95,13 +94,15 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const check = @import("../../_test/blas1/check.zig");
+
 /// `kern` against a plain loop, for every flag.
 fn checkRotm(comptime F: type, kern: anytype) !void {
     for ([_]F{ -2, -1, 0, 1 }) |flag| {
         var param = [5]F{ flag, 0.75, -0.5, 0.25, 1.25 };
         const h = matrix(F, &param);
         for (check.sizes) |n| {
-            for (check.strides) |inc| {
+            for (check.zero_strides) |inc| {
                 var x: [check.capacity]F = undefined;
                 var y: [check.capacity]F = undefined;
                 check.fill(F, &x, n + 1);
@@ -109,23 +110,28 @@ fn checkRotm(comptime F: type, kern: anytype) !void {
                 var want_x = x;
                 var want_y = y;
                 if (h) |m| for (0..n) |i| {
-                    const a = x[i * inc[0]];
-                    const b = y[i * inc[1]];
-                    want_x[i * inc[0]] = a * m[0] + b * m[1];
-                    want_y[i * inc[1]] = a * m[2] + b * m[3];
+                    const ix = check.pos(n, inc[0], i);
+                    const iy = check.pos(n, inc[1], i);
+                    const a = want_x[ix];
+                    const b = want_y[iy];
+                    want_x[ix] = a * m[0] + b * m[1];
+                    want_y[iy] = a * m[2] + b * m[3];
                 };
-                _ = kern(@intCast(n), &x, @intCast(inc[0]), &y, @intCast(inc[1]), &param);
+                // the near end, as the interface passes it
+                _ = kern(@intCast(n), &x, inc[0], &y, inc[1], &param);
                 const tol = check.tolerance(F, 2);
-                check.expectCloseSlices(F, &want_x, &x, tol) catch |e| return check.case(e, "rotm x", F, n, inc);
-                check.expectCloseSlices(F, &want_y, &y, tol) catch |e| return check.case(e, "rotm y", F, n, inc);
+                check.expectStrided(F, &want_x, &x, tol, n, inc) catch |e| return check.case(e, "rotm x", F, n, inc);
+                check.expectStrided(F, &want_y, &y, tol, n, inc) catch |e| return check.case(e, "rotm y", F, n, inc);
             }
         }
     }
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkRotm(f32, vt.srotm_k.?);
-    try checkRotm(f64, vt.drotm_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkRotm(f32, vt.srotm_k.?));
+    check.keep(&failed, checkRotm(f64, vt.drotm_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable rotm kernels match a plain loop" {

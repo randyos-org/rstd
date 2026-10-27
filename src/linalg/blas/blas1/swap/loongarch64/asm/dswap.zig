@@ -130,6 +130,9 @@ const Body = struct {
             \\ b 20009f
             \\ .align 3
             \\ 20004:
+            \\ move $r17, $r4
+            \\ beq $r8, $r0, 20008f
+            \\ beq $r10, $r0, 20008f
             \\ srai.d $r17, $r4, 3
             \\ move $r5, $r7
             \\ move $r6, $r9

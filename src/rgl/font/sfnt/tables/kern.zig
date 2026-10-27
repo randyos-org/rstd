@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 const GlyphIndex = types.GlyphIndex;
 
@@ -166,6 +165,8 @@ pub const KernSubtable = struct {
         return null;
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "kern StreamLayout/SubtableHeader/Format0Header match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));

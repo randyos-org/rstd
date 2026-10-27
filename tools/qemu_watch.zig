@@ -1,8 +1,9 @@
 //! Runs a rig's qemu with its output passed through, and ends it when the
 //! guest can no longer finish: firmware that halts rather than exits (OpenBIOS
-//! "Stopping execution"), or no output at all for too long.
+//! "Stopping execution"), or no output at all for too long. With
+//! `--fail-fast`, also at the first failing test, once its trace has printed.
 //!
-//!   qemu_watch <idle minutes> <halt text>... -- <qemu argv>
+//!   qemu_watch <idle minutes> [--fail-fast] <halt text>... -- <qemu argv>
 //!
 //! Exits with qemu's status, or 1 after ending it.
 
@@ -13,8 +14,16 @@ const State = struct {
     /// When qemu last wrote, in seconds of the awake clock.
     last: std.atomic.Value(i64),
     halted: std.atomic.Value(bool) = .init(false),
+    /// When the first test failed, in seconds of the awake clock; 0 if none has.
+    failed: std.atomic.Value(i64) = .init(0),
     done: std.atomic.Value(bool) = .init(false),
 };
+
+/// Both test runners' failure line: `FAIL <error>` and `...FAIL (<error>)`.
+const fail_text = "FAIL ";
+
+/// Seconds a failure's trace gets to print before the run is ended.
+const fail_grace = 3;
 
 pub fn main(init: std.process.Init) void {
     // exits rather than returns: returning would wait for a reader still blocked on qemu
@@ -32,16 +41,20 @@ fn run(init: std.process.Init) !u8 {
     } else return error.NoQemuCommand;
     if (dashes < 2 or dashes + 1 == args.len) return error.NoQemuCommand;
     const idle = try std.fmt.parseInt(i64, args[1], 10) * 60;
-    const halts = args[2..dashes];
+    const fail_fast = dashes > 2 and std.mem.eql(u8, args[2], "--fail-fast");
+    const halts = args[@as(usize, if (fail_fast) 3 else 2)..dashes];
 
     var qemu = try std.process.spawn(io, .{ .argv = args[dashes + 1 ..], .stdin = .ignore, .stdout = .pipe, .stderr = .inherit });
     var state: State = .{ .last = .init(now(io)) };
-    var pump = try io.concurrent(passThrough, .{ io, qemu.stdout.?, halts, &state });
+    var pump = try io.concurrent(passThrough, .{ io, qemu.stdout.?, halts, fail_fast, &state });
 
     while (!state.done.load(.acquire)) {
         try io.sleep(.fromSeconds(2), .awake);
+        const failed = state.failed.load(.acquire);
         const why: ?[]const u8 = if (state.halted.load(.acquire))
             "the firmware halted"
+        else if (failed != 0 and now(io) - failed >= fail_grace)
+            "a test failed (-Dfail-fast)"
         else if (now(io) - state.last.load(.acquire) > idle)
             "no output for too long"
         else
@@ -63,9 +76,10 @@ fn now(io: Io) i64 {
     return Io.Clock.awake.now(io).toSeconds();
 }
 
-/// Copies qemu's output to this stdout, noting when it last wrote and any halt
-/// text, which a chunk boundary may split, hence the kept tail.
-fn passThrough(io: Io, from: Io.File, halts: []const []const u8, state: *State) void {
+/// Copies qemu's output to this stdout, noting when it last wrote, any halt
+/// text and, for `fail_fast`, the first failure; a chunk boundary may split
+/// them, hence the kept tail.
+fn passThrough(io: Io, from: Io.File, halts: []const []const u8, fail_fast: bool, state: *State) void {
     defer state.done.store(true, .release);
     const out = Io.File.stdout();
     var buf: [4096 + 256]u8 = undefined;
@@ -76,7 +90,9 @@ fn passThrough(io: Io, from: Io.File, halts: []const []const u8, state: *State) 
         out.writeStreamingAll(io, buf[kept..][0..n]) catch {};
         state.last.store(now(io), .release);
         const seen = buf[0 .. kept + n];
-        for (halts) |h| if (std.mem.indexOf(u8, seen, h) != null) state.halted.store(true, .release);
+        for (halts) |h| if (std.mem.find(u8, seen, h) != null) state.halted.store(true, .release);
+        if (fail_fast and state.failed.load(.acquire) == 0 and std.mem.find(u8, seen, fail_text) != null)
+            state.failed.store(now(io), .release);
         kept = @min(seen.len, 256);
         std.mem.copyForwards(u8, buf[0..kept], seen[seen.len - kept ..]);
     }

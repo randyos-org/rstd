@@ -2,9 +2,11 @@ pub const zon = @import("../build.zig.zon");
 
 const std = @import("std");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
+const build_root = @import("../build.zig");
 const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
 const wasmtest = @import("wasmtest.zig");
+const sshtest = @import("sshtest.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const Compile = rstdbuild.CompileStep;
@@ -41,7 +43,7 @@ pub fn addRstdModule(
     rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
     if (has_renderdoc) {
         // null until its lazy dependencies are fetched; the build then reruns
-        if (rstdbuild.addRenderDoc(b, @import("../build.zig"), target, optimize)) |rd| rd.addImportToModule(mod);
+        if (rstdbuild.addRenderDoc(b, build_root, target, optimize)) |rd| rd.addImportToModule(mod);
     }
     return mod;
 }
@@ -98,6 +100,8 @@ pub fn build(b: *Build) !void {
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
+    // the same tests on real machines over SSH, for targets no emulator covers
+    try sshtest.addSshTests(b, optimize, test_filter);
 
     // Mach-O, which no machine here runs: building is what catches assembly
     // that other object formats accept (`.align`), so build every core's

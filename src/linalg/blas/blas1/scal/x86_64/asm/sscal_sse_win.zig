@@ -66,7 +66,7 @@ const text =
     \\ .balign 512
     \\ movq 40(%rsp), %rdx
     \\ movq 48(%rsp), %r8
-    \\ movq 64(%rsp), %r9
+    \\ movq 80(%rsp), %r9
     \\ movaps %xmm3, %xmm0
     \\ subq $256, %rsp
     \\ movups %xmm6, 0(%rsp)
@@ -86,6 +86,7 @@ const text =
     \\ comiss %xmm0, %xmm1
     \\ shufps $0, %xmm0, %xmm0
     \\ jne 20012f # Alpha != 0.e0f
+    \\ jp 20012f
     \\ cmpq $1, %r9
     \\ je 20012f
     \\ cmpq $4, %r8

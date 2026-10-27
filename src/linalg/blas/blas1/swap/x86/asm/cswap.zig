@@ -65,9 +65,9 @@ const Body = struct {
             \\ sall $3, %ebx
             \\ sall $3, %ecx
             \\ cmpl $2 * 4, %ebx
-            \\ jne 20003f
+            \\ jne 20004f
             \\ cmpl $2 * 4, %ecx
-            \\ jne 20003f
+            \\ jne 20004f
             \\ movl %edx, %eax
             \\ sarl $1, %eax
             \\ jle 20001f
@@ -89,21 +89,35 @@ const Body = struct {
             \\ 20001:
             \\ movl %edx, %eax
             \\ andl $1, %eax
-            \\ jle 20007f
+            \\ jle 20008f
             \\ .balign 8
             \\ 20002:
             \\ fldl 0 * 4(%esi)
             \\ fldl 0 * 4(%edi)
             \\ fstpl 0 * 4(%esi)
             \\ fstpl 0 * 4(%edi)
-            \\ jmp 20007f
+            \\ jmp 20008f
             \\ .balign 8
             \\ 20003:
-            \\ movl %edx, %eax
-            \\ sarl $1, %eax
-            \\ jle 20005f
-            \\ .balign 4
+            \\ fldl 0 * 4(%esi)
+            \\ fldl 0 * 4(%edi)
+            \\ fstpl 0 * 4(%esi)
+            \\ fstpl 0 * 4(%edi)
+            \\ addl %ebx, %esi
+            \\ addl %ecx, %edi
+            \\ decl %eax
+            \\ jg 20003b
+            \\ jmp 20008f
             \\ 20004:
+            \\ movl %edx, %eax
+            \\ cmpl $0, %ebx
+            \\ je 20003b
+            \\ cmpl $0, %ecx
+            \\ je 20003b
+            \\ sarl $1, %eax
+            \\ jle 20006f
+            \\ .balign 4
+            \\ 20005:
             \\ fldl 0 * 4(%esi)
             \\ addl %ebx, %esi
             \\ fldl 0 * 4(%esi)
@@ -119,20 +133,20 @@ const Body = struct {
             \\ fstpl 0 * 4(%edi)
             \\ leal (%edi, %ecx, 2), %edi
             \\ decl %eax
-            \\ jg 20004b
-            \\ .balign 8
-            \\ 20005:
-            \\ movl %edx, %eax
-            \\ andl $1, %eax
-            \\ jle 20007f
+            \\ jg 20005b
             \\ .balign 8
             \\ 20006:
+            \\ movl %edx, %eax
+            \\ andl $1, %eax
+            \\ jle 20008f
+            \\ .balign 8
+            \\ 20007:
             \\ fldl 0 * 4(%esi)
             \\ fldl 0 * 4(%edi)
             \\ fstpl 0 * 4(%esi)
             \\ fstpl 0 * 4(%edi)
             \\ .balign 8
-            \\ 20007:
+            \\ 20008:
             \\ xorl %eax,%eax
             \\ popl %ebx
             \\ popl %esi

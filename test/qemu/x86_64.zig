@@ -1,9 +1,10 @@
 //! x86_64 boot for QEMU's `pc` machine (`-kernel`). QEMU takes an ELF64 kernel
 //! only through the PVH entry note, which starts it in 32-bit protected mode
 //! with paging off; `_start32` builds an identity map of the first gigabyte,
-//! enters long mode and turns on SSE and AVX state. Console is COM1; exit
-//! powers the machine off through the ACPI PM control register, so the run step
-//! judges the result from the printed summary.
+//! enters long mode and turns on the SSE, AVX and AVX-512 state the CPU has
+//! (XCR0 from CPUID leaf 0xd). Console is COM1; exit powers the machine off
+//! through the ACPI PM control register, so the run step judges the result
+//! from the printed summary.
 
 comptime {
     asm (
@@ -78,9 +79,12 @@ comptime {
         \\  movq %cr4, %rax
         \\  orl $0x40000, %eax
         \\  movq %rax, %cr4
+        \\  movl $0xd, %eax
         \\  xorl %ecx, %ecx
-        \\  xgetbv
-        \\  orl $7, %eax
+        \\  cpuid
+        \\  andl $0xe7, %eax
+        \\  xorl %edx, %edx
+        \\  xorl %ecx, %ecx
         \\  xsetbv
         \\2:
         \\  fninit

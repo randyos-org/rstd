@@ -191,9 +191,9 @@ fn edgeBetweenTexels(a: *const [3]f64, b: *const [3]f64) ColorFlags {
 }
 
 fn protectExtremeChannels(stencil_point: *StencilFlags, msd: *const [3]f64, m: f64, mask: ColorFlags) void {
-    if (mask.red and msd[0] != m or
-        mask.green and msd[1] != m or
-        mask.blue and msd[2] != m)
+    if ((mask.red and msd[0] != m) or
+        (mask.green and msd[1] != m) or
+        (mask.blue and msd[2] != m))
         stencil_point.protected = true;
 }
 

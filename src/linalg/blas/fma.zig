@@ -30,28 +30,28 @@ const root = @import("root");
 const types = @import("types.zig");
 
 /// Whether the target has a hardware fused multiply-add.
-pub const hardware = switch (sysinfo.cpu.arch) {
+pub const hardware = switch (sysinfo.target.cpu.arch) {
     // x86 FMA3 is an optional extension, not baseline; must check.
-    .x86_64, .x86 => std.Target.x86.featureSetHas(sysinfo.cpu.features, .fma),
+    .x86_64, .x86 => std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .fma),
     // AArch64 scalar and NEON FMA is mandatory since ARMv8-A.
     .aarch64, .aarch64_be => true,
     // 32-bit ARM FMA needs VFPv4 or later, not guaranteed on the ARMv7 baseline.
-    .arm, .armeb, .thumb, .thumbeb => std.Target.arm.featureSetHasAny(sysinfo.cpu.features, .{
+    .arm, .armeb, .thumb, .thumbeb => std.Target.arm.featureSetHasAny(sysinfo.target.cpu.features, .{
         .vfp4, .vfp4d16, .vfp4d16sp, .vfp4sp,
     }),
     // The base PowerPC FPU has had fmadd/fmsub since POWER1.
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
     // FMA is part of the RISC-V F/D extensions themselves.
-    .riscv32, .riscv32be, .riscv64, .riscv64be => std.Target.riscv.featureSetHasAny(sysinfo.cpu.features, .{
+    .riscv32, .riscv32be, .riscv64, .riscv64be => std.Target.riscv.featureSetHasAny(sysinfo.target.cpu.features, .{
         .f, .d,
     }),
     // LoongArch has fmadd.s/fmadd.d in the base F/D ISA.
-    .loongarch32, .loongarch64 => std.Target.loongarch.featureSetHasAny(sysinfo.cpu.features, .{ .f, .d }),
+    .loongarch32, .loongarch64 => std.Target.loongarch.featureSetHasAny(sysinfo.target.cpu.features, .{ .f, .d }),
     // z/Architecture has the BFP multiply-and-add (MAEBR/MADBR) in its base.
     .s390x => true,
     // Before release 6, MADD.fmt rounds the product, so it equals a*b + c and
     // gcc's use of it never changes a result; R6 adds the fused MADDF.fmt.
-    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.cpu.features, .{
+    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.target.cpu.features, .{
         .mips32r6, .mips64r6,
     }),
     // No scalar fused multiply-add: LLVM has none for SPARC (gcc's needs
@@ -65,9 +65,9 @@ pub const hardware = switch (sysinfo.cpu.arch) {
 /// `fmadd` is fused whatever the scalar ISA), and for WebAssembly with
 /// `relaxed_simd` (`wasm_f32x4_relaxed_madd`; the spec lets an engine fuse or
 /// not, taken here as fused, as on engines with hardware FMA).
-pub const vector_madd = hardware or switch (sysinfo.cpu.arch) {
-    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHas(sysinfo.cpu.features, .msa),
-    .wasm32, .wasm64 => std.Target.wasm.featureSetHas(sysinfo.cpu.features, .relaxed_simd),
+pub const vector_madd = hardware or switch (sysinfo.target.cpu.arch) {
+    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa),
+    .wasm32, .wasm64 => std.Target.wasm.featureSetHas(sysinfo.target.cpu.features, .relaxed_simd),
     else => false,
 };
 

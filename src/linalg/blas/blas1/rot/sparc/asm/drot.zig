@@ -64,10 +64,10 @@ const text =
     \\ sllx %i4, 3, %i4
     \\ .endif
     \\ cmp %i2, 8
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ cmp %i4, 8
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ sra %i0, 3, %i5
     \\ cmp %i5, 0
@@ -320,13 +320,25 @@ const text =
     \\ return %i7 + 8
     \\ nop
     \\ 20005:
+    \\ cmp %i0, 0
+    \\ ble 20010f
+    \\ mov %i0, %i5
+    \\ b 20009f
+    \\ nop
+    \\ 20006:
+    \\ cmp %i2, 0
+    \\ be 20005b
+    \\ nop
+    \\ cmp %i4, 0
+    \\ be 20005b
+    \\ nop
     \\ mov %i1, %l0
     \\ mov %i3, %l1
     \\ sra %i0, 3, %i5
     \\ cmp %i5, 0
-    \\ ble,pn %icc, 20007f
+    \\ ble,pn %icc, 20008f
     \\ nop
-    \\ 20006:
+    \\ 20007:
     \\ ldd [%i1 + 0 * 8], %f4
     \\ add %i1, %i2, %i1
     \\ ldd [%i3 + 0 * 8], %f20
@@ -440,14 +452,14 @@ const text =
     \\ std %f58, [%l1 + 0 * 8]
     \\ add %l1, %i4, %l1
     \\ addcc %i5, -1, %i5
-    \\ bg,pt %icc, 20006b
-    \\ nop
-    \\ 20007:
-    \\ andcc %i0, 7, %i5
-    \\ nop
-    \\ ble %icc, 20009f
+    \\ bg,pt %icc, 20007b
     \\ nop
     \\ 20008:
+    \\ andcc %i0, 7, %i5
+    \\ nop
+    \\ ble %icc, 20010f
+    \\ nop
+    \\ 20009:
     \\ ldd [%i1 + 0 * 8], %f4
     \\ ldd [%i3 + 0 * 8], %f20
     \\ fmuld %f0, %f4, %f36
@@ -460,9 +472,9 @@ const text =
     \\ add %i1, %i2, %i1
     \\ std %f42, [%i3 + 0 * 8]
     \\ addcc %i5, -1, %i5
-    \\ bg %icc, 20008b
+    \\ bg %icc, 20009b
     \\ add %i3, %i4, %i3
-    \\ 20009:
+    \\ 20010:
     \\ return %i7 + 8
     \\ nop
     \\ .endm

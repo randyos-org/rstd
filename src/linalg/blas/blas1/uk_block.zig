@@ -109,6 +109,10 @@ pub fn Kernels(
             return asm_kernels.hasRole(core, role) or ukidx.find(role, @tagName(core)) != null;
         }
 
+        /// Whether `role` has a converted assembly kernel on `core`, `routed`
+        /// or not.
+        pub const converted = asm_kernels.converted;
+
         /// Whether `core` has any kernel of this routine.
         pub fn has(comptime core: Core) bool {
             inline for (Driver.roles) |role| {

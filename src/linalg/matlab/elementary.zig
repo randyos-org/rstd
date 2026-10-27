@@ -7,7 +7,6 @@
 //! and `CxMat`'s matrix-function (`sinm`, `cosm`, ...) methods.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const Cx = blas1.Cx;
 
@@ -23,6 +22,8 @@ const Cx = blas1.Cx;
 pub fn wpow(x: Cx, y: Cx) Cx {
     return std.math.complex.pow(x, y);
 }
+
+const zigstd = @import("../../zigstd.zig");
 
 test "wpow matches repeated multiplication for an integer exponent" {
     const x = Cx.init(1.5, -0.5);

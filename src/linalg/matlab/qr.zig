@@ -5,7 +5,6 @@
 //! for the shared matrix/vector conventions this port uses.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
@@ -374,6 +373,7 @@ pub fn wqrsl(
     return info;
 }
 
+const zigstd = @import("../../zigstd.zig");
 
 test "wqrdc + wqrsl reconstruct a real 3x2 matrix as Q*R with orthonormal Q" {
     // X = [[1,1],[0,1],[1,0]] (column-major, no pivoting).

@@ -77,7 +77,7 @@ pub fn getOrAdd(self: *Self, gpa: Allocator, sfnt: Sfnt, glyph: GlyphIndex, scal
         return if (rect.w == 0) null else rect;
     }
 
-    var raster_pixels: std.ArrayListUnmanaged(u8) = .empty;
+    var raster_pixels: std.ArrayList(u8) = .empty;
     defer raster_pixels.deinit(gpa);
 
     const bmp = try sfnt.glyphBitmap(gpa, &raster_pixels, glyph, scale, scale);

@@ -13,8 +13,6 @@ const bounds = render.bounds;
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const typeBEToNative = bytes.typeBEToNative;
-const setU16BE = bytes.setU16BE;
-const setU32BE = bytes.setU32BE;
 const OffsetTable = tables.general.OffsetTable;
 const TableRecord = tables.general.TableRecord;
 const TableTag = tables.general.TableTag;
@@ -320,7 +318,7 @@ pub fn glyphBitmap(
     /// Appended to the list.
     /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
     /// transparent, 255 is opaque.
-    pixels: *std.ArrayListUnmanaged(u8),
+    pixels: *std.ArrayList(u8),
     glyph: GlyphIndex,
     scale_x: f32,
     scale_y: f32,
@@ -335,7 +333,7 @@ pub fn glyphBitmapSubpixel(
     /// Appended to the list.
     /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
     /// transparent, 255 is opaque.
-    pixels: *std.ArrayListUnmanaged(u8),
+    pixels: *std.ArrayList(u8),
     glyph: GlyphIndex,
     scale_x: f32,
     scale_y: f32,
@@ -377,6 +375,9 @@ pub fn glyphBitmapSubpixel(
 pub const glyphBitmapBoxSubpixel = bounds.glyphBitmapBoxSubpixel;
 pub const glyphBitmapBox = bounds.glyphBitmapBox;
 pub const buildTextAtlas = render.atlas.buildTextAtlas;
+
+const setU16BE = bytes.setU16BE;
+const setU32BE = bytes.setU32BE;
 
 test "Sfnt.init rejects a font with a bad scaler tag" {
     var buf: [12]u8 = @splat(0);

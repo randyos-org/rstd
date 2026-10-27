@@ -13,7 +13,9 @@
 //! changes, from GCC's to Zig's: numbered operands `%2` become named ones
 //! `%[x]`, and the clobbers are declared as Zig spells them, at the width of
 //! the vector registers the text actually uses. The `#if !defined(CONJ)`
-//! inside the strings is resolved by the preprocessor, once for each form.
+//! inside the strings is resolved by the preprocessor, once for each form;
+//! POWER's `__BYTE_ORDER__` too, once per byte order, and where the two
+//! differ the file has a function for each, which the block's name picks.
 //!
 //! The driver around a microkernel (`daxpy.c` and its siblings) is not
 //! converted here; the index written next to the blocks (`uk/__root__.zig`)
@@ -52,7 +54,7 @@ var align_bytes = false;
 /// The path of `source` with the target's patches applied: a copy under the
 /// cache directory when any apply, else the upstream file.
 fn patched(t: Target, source: []const u8) ![]const u8 {
-    const base = std.fs.path.basename(source);
+    const base = std.Io.Dir.path.basename(source);
     var text: ?[]const u8 = null;
     for (t.patches) |p| {
         if (!std.mem.eql(u8, p.source, base)) continue;
@@ -69,9 +71,14 @@ fn patched(t: Target, source: []const u8) ![]const u8 {
     return dest;
 }
 
-fn runCpp(source: []const u8, conj: bool) ![]const u8 {
+/// POWER blocks pick register halves by `__BYTE_ORDER__`, so they are
+/// preprocessed for each endianness.
+const Endian = enum { little, big };
+
+fn runCpp(source: []const u8, conj: bool, endian: Endian) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(map.arena, &.{ "zig", "cc", "-E", "-P", "-x", "c", "-w" });
+    if (is_power) try argv.appendSlice(map.arena, &.{ "-target", if (endian == .big) "powerpc64-linux" else "powerpc64le-linux" });
     try argv.appendSlice(map.arena, cpp_extra);
     if (conj) try argv.append(map.arena, "-DCONJ");
     try argv.appendSlice(map.arena, &.{ source, "-o", "-" });
@@ -105,9 +112,9 @@ fn literals(s: []const u8) ![]const u8 {
 /// with a `^` in front.
 fn spellConstraint(c: []const u8) ![]const u8 {
     if (!is_power) return c;
-    const at = std.mem.indexOfScalar(u8, c, 'w') orelse return c;
+    const at = std.mem.findScalar(u8, c, 'w') orelse return c;
     if (at + 1 >= c.len) return c;
-    return try std.fmt.allocPrint(map.arena, "{s}^{s}", .{ c[0..at], c[at..] });
+    return try map.arena.print("{s}^{s}", .{ c[0..at], c[at..] });
 }
 
 /// One `"constraint" (expression)` operand.
@@ -126,10 +133,10 @@ fn parseOperands(s: []const u8, first_index: usize) ![]const Operand {
             const part = std.mem.trim(u8, s[start..i], " \t\r\n");
             start = i + 1;
             if (part.len == 0) continue;
-            const q1 = std.mem.indexOfScalar(u8, part, '"').?;
-            const q2 = std.mem.indexOfScalarPos(u8, part, q1 + 1, '"').?;
-            const open = std.mem.indexOfScalarPos(u8, part, q2, '(').?;
-            const close = std.mem.lastIndexOfScalar(u8, part, ')').?;
+            const q1 = std.mem.findScalar(u8, part, '"').?;
+            const q2 = std.mem.findScalarPos(u8, part, q1 + 1, '"').?;
+            const open = std.mem.findScalarPos(u8, part, q2, '(').?;
+            const close = std.mem.findScalarLast(u8, part, ')').?;
             const expr = std.mem.trim(u8, part[open + 1 .. close], " ");
             // a written name is the operand's; otherwise a plain variable
             // names it, and anything else is numbered
@@ -137,11 +144,11 @@ fn parseOperands(s: []const u8, first_index: usize) ![]const Operand {
                 if (!std.ascii.isAlphanumeric(ch) and ch != '_') break false;
             } else true;
             const name = if (part[0] == '[')
-                part[1..std.mem.indexOfScalar(u8, part, ']').?]
-            else if (plain) expr else try std.fmt.allocPrint(map.arena, "op{d}", .{first_index + out.items.len});
+                part[1..std.mem.findScalar(u8, part, ']').?]
+            else if (plain) expr else try map.arena.print("op{d}", .{first_index + out.items.len});
             // a memory operand the C describes by an array cast has no Zig
             // spelling; the `memory` clobber says the same
-            const drop = std.mem.indexOf(u8, expr, "*(") != null and std.mem.indexOfScalar(u8, part[q1 + 1 .. q2], 'm') != null;
+            const drop = std.mem.find(u8, expr, "*(") != null and std.mem.findScalar(u8, part[q1 + 1 .. q2], 'm') != null;
             try out.append(map.arena, .{ .constraint = try spellConstraint(part[q1 + 1 .. q2]), .expr = expr, .name = name, .dropped = drop });
         }
     }
@@ -179,18 +186,18 @@ fn zigType(c_type: []const u8, float: []const u8, name: []const u8) ![]const u8 
     if (std.mem.eql(u8, c_type, "double") or std.mem.eql(u8, c_type, "float")) return float;
     if (std.mem.eql(u8, c_type, "FLOAT *")) {
         const c = if (std.mem.eql(u8, name, "alpha")) "const " else "";
-        return try std.fmt.allocPrint(map.arena, "[*]{s}{s}", .{ c, float });
+        return try map.arena.print("[*]{s}{s}", .{ c, float });
     }
     map.die("unknown parameter type '{s}'", .{c_type});
 }
 
 /// Whether an operand `"+r" (name)` or `"+&r"(name)` writes the variable back.
 fn isWritten(text: []const u8, name: []const u8) !bool {
-    const needle = try std.fmt.allocPrint(map.arena, "({s})", .{name});
+    const needle = try map.arena.print("({s})", .{name});
     var at: usize = 0;
-    while (std.mem.indexOfPos(u8, text, at, needle)) |p| {
+    while (std.mem.findPos(u8, text, at, needle)) |p| {
         const before = text[if (p > 12) p - 12 else 0..p];
-        if (std.mem.indexOf(u8, before, "\"+") != null) return true;
+        if (std.mem.find(u8, before, "\"+") != null) return true;
         at = p + 1;
     }
     return false;
@@ -201,7 +208,7 @@ var cc_name: []const u8 = "cc";
 
 /// A C expression in Zig: `*p` is `p[0]`.
 fn zigExpr(e: []const u8) ![]const u8 {
-    if (e.len > 1 and e[0] == '*') return try std.fmt.allocPrint(map.arena, "{s}[0]", .{e[1..]});
+    if (e.len > 1 and e[0] == '*') return try map.arena.print("{s}[0]", .{e[1..]});
     return e;
 }
 
@@ -226,7 +233,7 @@ fn allDropped(ops: []const Operand) bool {
 /// One `asm volatile` statement.
 fn emitAsm(w: *std.ArrayList(u8), indent: []const u8, stmt: []const u8, locals: []const []const u8, name: []const u8) !void {
     const secs = sections(stmt);
-    const colon = std.mem.indexOf(u8, stmt, secs[0]).? - 1;
+    const colon = std.mem.find(u8, stmt, secs[0]).? - 1;
     const template = try literals(stmt[0..colon]);
     // text outside the string literals is an unexpanded macro
     {
@@ -344,7 +351,7 @@ fn emitAsm(w: *std.ArrayList(u8), indent: []const u8, stmt: []const u8, locals: 
             try moved.append(map.arena, .{ .constraint = o.constraint[1..], .expr = o.expr, .name = o.name });
             continue;
         }
-        const constraint = if (spill and o.constraint[0] == '=') try std.fmt.allocPrint(map.arena, "=&{s}", .{o.constraint[1..]}) else o.constraint;
+        const constraint = if (spill and o.constraint[0] == '=') try map.arena.print("=&{s}", .{o.constraint[1..]}) else o.constraint;
         try put(w, "{s}    {s} [{s}] \"{s}\" ({s}),\n", .{ indent, sep, o.name, constraint, try zigExpr(o.expr) });
         sep = " ";
     }
@@ -357,11 +364,11 @@ fn emitAsm(w: *std.ArrayList(u8), indent: []const u8, stmt: []const u8, locals: 
         if (o.dropped) continue;
         // an array decays to its address in C
         const is_local_array = for (locals) |l| {
-            if (std.mem.eql(u8, l, o.expr)) break std.mem.indexOf(u8, w.items, try std.fmt.allocPrint(map.arena, "const {s} = [", .{l})) != null;
+            if (std.mem.eql(u8, l, o.expr)) break std.mem.find(u8, w.items, try map.arena.print("const {s} = [", .{l})) != null;
         } else false;
-        const value = if (std.ascii.isDigit(o.expr[0])) try std.fmt.allocPrint(map.arena, "@as(isize, {s})", .{o.expr}) else try zigExpr(o.expr);
+        const value = if (std.ascii.isDigit(o.expr[0])) try map.arena.print("@as(isize, {s})", .{o.expr}) else try zigExpr(o.expr);
         const tie = tieOf(o.constraint);
-        const constraint = if (tie) |t| try std.fmt.allocPrint(map.arena, "{d}", .{position[t]}) else o.constraint;
+        const constraint = if (tie) |t| try map.arena.print("{d}", .{position[t]}) else o.constraint;
         try put(w, "{s}    {s} [{s}] \"{s}\" ({s}{s}),\n", .{ indent, sep, o.name, constraint, if (is_local_array) "&" else "", value });
         sep = " ";
     }
@@ -383,7 +390,7 @@ fn emitAsm(w: *std.ArrayList(u8), indent: []const u8, stmt: []const u8, locals: 
         }
         if (std.mem.startsWith(u8, c, "xmm")) {
             const n = c[3..];
-            const wide = if (std.mem.indexOf(u8, text_out.items, try std.fmt.allocPrint(map.arena, "%%zmm{s}", .{n})) != null) "zmm" else if (std.mem.indexOf(u8, text_out.items, try std.fmt.allocPrint(map.arena, "%%ymm{s}", .{n})) != null) "ymm" else "xmm";
+            const wide = if (std.mem.find(u8, text_out.items, try map.arena.print("%%zmm{s}", .{n})) != null) "zmm" else if (std.mem.find(u8, text_out.items, try map.arena.print("%%ymm{s}", .{n})) != null) "ymm" else "xmm";
             try put(w, "{s}.{s}{s} = true", .{ csep, wide, n });
         } else try put(w, "{s}.{s} = true", .{ csep, c });
         csep = ", ";
@@ -395,7 +402,7 @@ fn emitAsm(w: *std.ArrayList(u8), indent: []const u8, stmt: []const u8, locals: 
         var lines2 = std.mem.splitScalar(u8, text_out.items, '\n');
         while (lines2.next()) |ln| {
             const t = std.mem.trim(u8, ln, " ");
-            if (t.len == 0 or t[0] != 'x' and !std.mem.startsWith(u8, t, "lxv") and !std.mem.startsWith(u8, t, "stxv")) continue;
+            if (t.len == 0 or (t[0] != 'x' and !std.mem.startsWith(u8, t, "lxv") and !std.mem.startsWith(u8, t, "stxv"))) continue;
             var toks = std.mem.tokenizeAny(u8, t, " ,");
             _ = toks.next();
             while (toks.next()) |tok| {
@@ -420,14 +427,14 @@ fn zigCondition(c: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < c.len) {
-        const op = std.mem.indexOfScalar(u8, "<>=!&|", c[i]) != null;
+        const op = std.mem.findScalar(u8, "<>=!&|", c[i]) != null;
         if (!op) {
             try out.append(map.arena, c[i]);
             i += 1;
             continue;
         }
         var e = i;
-        while (e < c.len and std.mem.indexOfScalar(u8, "<>=!&|", c[e]) != null) e += 1;
+        while (e < c.len and std.mem.findScalar(u8, "<>=!&|", c[e]) != null) e += 1;
         const tok = c[i..e];
         const word = if (std.mem.eql(u8, tok, "&&")) "and" else if (std.mem.eql(u8, tok, "||")) "or" else tok;
         const trimmed = std.mem.trimEnd(u8, out.items, " ");
@@ -442,16 +449,16 @@ fn zigCondition(c: []const u8) ![]const u8 {
 /// One function: its Zig text.
 fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj: bool) !?[]const u8 {
     // the definition, not the prototype
-    const def = std.mem.lastIndexOf(u8, text, "static void ") orelse return null;
-    const open = std.mem.indexOfScalarPos(u8, text, def, '(').?;
-    const close = std.mem.indexOfScalarPos(u8, text, open, ')').?;
+    const def = std.mem.findLast(u8, text, "static void ") orelse return null;
+    const open = std.mem.findScalarPos(u8, text, def, '(').?;
+    const close = std.mem.findScalarPos(u8, text, open, ')').?;
     const name = std.mem.trim(u8, text[def + "static void ".len .. open], " ");
-    const body_open = std.mem.indexOfScalarPos(u8, text, close, '{') orelse return null;
-    const asm_at = std.mem.indexOf(u8, text[body_open..], "__asm__") orelse return null;
+    const body_open = std.mem.findScalarPos(u8, text, close, '{') orelse return null;
+    const asm_at = std.mem.find(u8, text[body_open..], "__asm__") orelse return null;
 
     var w: std.ArrayList(u8) = .empty;
     const stem = @tagName(routine);
-    const fname = if (conj) try std.fmt.allocPrint(map.arena, "{c}{s}c{s}", .{ prec.letter, stem, name[1 + stem.len ..] }) else name;
+    const fname = if (conj) try map.arena.print("{c}{s}c{s}", .{ prec.letter, stem, name[1 + stem.len ..] }) else name;
     try put(&w, "pub noinline fn {s}(", .{fname});
 
     var mutable: std.ArrayList([]const u8) = .empty;
@@ -459,8 +466,8 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
     var first = true;
     while (it.next()) |p| {
         const t = std.mem.trim(u8, p, " \t\r\n");
-        const star = std.mem.lastIndexOfScalar(u8, t, '*');
-        const cut = if (star) |s| s + 1 else std.mem.lastIndexOfScalar(u8, t, ' ').? + 1;
+        const star = std.mem.findScalarLast(u8, t, '*');
+        const cut = if (star) |s| s + 1 else std.mem.findScalarLast(u8, t, ' ').? + 1;
         const pname = std.mem.trim(u8, t[cut..], " ");
         const ctype = std.mem.trim(u8, t[0..cut], " ");
         const ctype_norm = if (star != null) "FLOAT *" else ctype;
@@ -484,48 +491,48 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
         if (l.len == 0) continue;
         if (std.mem.startsWith(u8, l, "BLASLONG register ")) {
             const rest = l["BLASLONG register ".len..];
-            const eq = std.mem.indexOfScalar(u8, rest, '=').?;
+            const eq = std.mem.findScalar(u8, rest, '=').?;
             try put(&w, "    var {s}: isize = {s};\n", .{ std.mem.trim(u8, rest[0..eq], " "), std.mem.trim(u8, rest[eq + 1 ..], " ") });
             try locals.append(map.arena, std.mem.trim(u8, rest[0..eq], " "));
         } else if (std.mem.startsWith(u8, l, "FLOAT ")) {
             const rest = l["FLOAT ".len..];
-            const br = std.mem.indexOfScalar(u8, rest, '[').?;
-            const rb = std.mem.indexOfScalar(u8, rest, ']').?;
-            const vopen = std.mem.indexOfScalar(u8, rest, '{').?;
-            const vclose = std.mem.lastIndexOfScalar(u8, rest, '}').?;
+            const br = std.mem.findScalar(u8, rest, '[').?;
+            const rb = std.mem.findScalar(u8, rest, ']').?;
+            const vopen = std.mem.findScalar(u8, rest, '{').?;
+            const vclose = std.mem.findScalarLast(u8, rest, '}').?;
             try put(&w, "    const {s} = [{s}]{s}{{{s}}};\n", .{ rest[0..br], rest[br + 1 .. rb], prec.float, rest[vopen + 1 .. vclose] });
             try locals.append(map.arena, rest[0..br]);
         } else if (std.mem.startsWith(u8, l, "static const ")) {
             // `static const double mvec[2] = { -1.0, 1.0 };`
             const rest = l["static const ".len..];
-            const sp = std.mem.indexOfScalar(u8, rest, ' ').?;
-            const br = std.mem.indexOfScalar(u8, rest, '[').?;
-            const rb = std.mem.indexOfScalar(u8, rest, ']').?;
-            const vopen = std.mem.indexOfScalar(u8, rest, '{').?;
-            const vclose = std.mem.lastIndexOfScalar(u8, rest, '}').?;
+            const sp = std.mem.findScalar(u8, rest, ' ').?;
+            const br = std.mem.findScalar(u8, rest, '[').?;
+            const rb = std.mem.findScalar(u8, rest, ']').?;
+            const vopen = std.mem.findScalar(u8, rest, '{').?;
+            const vclose = std.mem.findScalarLast(u8, rest, '}').?;
             try put(&w, "    const {s} = [{s}]{s}{{{s}}};\n", .{ rest[sp + 1 .. br], rest[br + 1 .. rb], prec.float, rest[vopen + 1 .. vclose] });
             try locals.append(map.arena, rest[sp + 1 .. br]);
         } else if (std.mem.startsWith(u8, l, "const double *") or std.mem.startsWith(u8, l, "const float *")) {
-            const rest = l[std.mem.indexOfScalar(u8, l, '*').? + 1 ..];
-            const eq = std.mem.indexOfScalar(u8, rest, '=').?;
+            const rest = l[std.mem.findScalar(u8, l, '*').? + 1 ..];
+            const eq = std.mem.findScalar(u8, rest, '=').?;
             try put(&w, "    const {s}: [*]const {s} = &{s};\n", .{ std.mem.trim(u8, rest[0..eq], " "), prec.float, std.mem.trim(u8, rest[eq + 1 ..], " ") });
         } else if (std.mem.startsWith(u8, l, "__vector unsigned char ")) {
             const rest = l["__vector unsigned char ".len..];
-            const eq = std.mem.indexOfScalar(u8, rest, '=').?;
+            const eq = std.mem.findScalar(u8, rest, '=').?;
             try put(&w, "    const {s}: @Vector(16, u8) = .{s};\n", .{ std.mem.trim(u8, rest[0..eq], " "), std.mem.trim(u8, rest[eq + 1 ..], " ") });
         } else if (std.mem.startsWith(u8, l, "__vector ")) {
             const rest = l["__vector ".len..];
-            const sp = std.mem.indexOfScalar(u8, rest, ' ').?;
+            const sp = std.mem.findScalar(u8, rest, ' ').?;
             const lanes: usize = if (std.mem.eql(u8, rest[0..sp], "double")) 2 else 4;
             const decl = std.mem.trim(u8, rest[sp + 1 ..], " ");
-            if (std.mem.indexOfScalar(u8, decl, '=')) |eq| {
+            if (std.mem.findScalar(u8, decl, '=')) |eq| {
                 try put(&w, "    const {s}: @Vector({d}, {s}) = .{s};\n", .{ std.mem.trim(u8, decl[0..eq], " "), lanes, prec.float, std.mem.trim(u8, decl[eq + 1 ..], " ") });
             } else try put(&w, "    var {s}: @Vector({d}, {s}) = undefined;\n", .{ decl, lanes, prec.float });
         } else if (std.mem.startsWith(u8, l, "long ")) {
             try put(&w, "    var {s}: isize = undefined;\n", .{std.mem.trim(u8, l["long ".len..], " ")});
         } else if (std.mem.startsWith(u8, l, "if")) {
-            const po = std.mem.indexOfScalar(u8, l, '(').?;
-            const pc = std.mem.lastIndexOfScalar(u8, l, ')').?;
+            const po = std.mem.findScalar(u8, l, '(').?;
+            const pc = std.mem.findScalarLast(u8, l, ')').?;
             condition = try zigCondition(std.mem.trim(u8, l[po + 1 .. pc], " "));
         } else map.die("cannot convert the statement `{s}` in {s}", .{ l, name });
     }
@@ -533,8 +540,8 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
     // every asm statement, by paren matching
     var stmts: std.ArrayList([]const u8) = .empty;
     var pos = body_open;
-    while (std.mem.indexOfPos(u8, text, pos, "__asm__")) |at| {
-        const po = std.mem.indexOfScalarPos(u8, text, at, '(').?;
+    while (std.mem.findPos(u8, text, pos, "__asm__")) |at| {
+        const po = std.mem.findScalarPos(u8, text, at, '(').?;
         var depth: usize = 0;
         var in_str = false;
         var e = po;
@@ -601,21 +608,21 @@ const targets = [_]Target{
 
 /// Converts one file of blocks into `out_dir`.
 fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []const u8) !void {
-    const base = std.fs.path.basename(path);
+    const base = std.Io.Dir.path.basename(path);
     const prec = precisionOf(base[0]);
     const stem = base[0 .. base.len - 2];
     const name = @tagName(routine);
     const file = if (t.in_file)
-        try std.fmt.allocPrint(map.arena, "{s}.zig", .{stem})
+        try map.arena.print("{s}.zig", .{stem})
     else blk: {
         // `daxpy_microk_haswell-2` is `daxpy_haswell`
-        const core = stem[std.mem.indexOf(u8, stem, "_microk_").? + "_microk_".len ..];
+        const core = stem[std.mem.find(u8, stem, "_microk_").? + "_microk_".len ..];
         const core_name = if (std.mem.endsWith(u8, core, "-2")) core[0 .. core.len - 2] else core;
-        break :blk try std.fmt.allocPrint(map.arena, "{c}{s}_{s}.zig", .{ prec.letter, name, core_name });
+        break :blk try map.arena.print("{c}{s}_{s}.zig", .{ prec.letter, name, core_name });
     };
 
     const original = map.read(path).?;
-    const has_conj = prec.complex and std.mem.indexOf(u8, original, "CONJ") != null;
+    const has_conj = prec.complex and std.mem.find(u8, original, "CONJ") != null;
     var out: std.ArrayList(u8) = .empty;
     try put(&out,
         \\//! `{c}{s}` block kernel from OpenBLAS `kernel/{s}/{s}`, the assembly
@@ -624,19 +631,41 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
         \\
         \\
     , .{ prec.letter, name, t.ob_dir, base });
+    const header_len = out.items.len;
+    var split = false;
     var wrote = false;
     for ([_]bool{ false, true }) |conj| {
         if (conj and !has_conj) continue;
-        const text = try runCpp(try patched(t, path), conj);
-        if (try convertFunction(text, prec, routine, conj)) |z| {
+        const source = try patched(t, path);
+        const z = try convertFunction(try runCpp(source, conj, .little), prec, routine, conj) orelse continue;
+        wrote = true;
+        const z_be = if (t.power) try convertFunction(try runCpp(source, conj, .big), prec, routine, conj) else null;
+        if (z_be == null or std.mem.eql(u8, z, z_be.?)) {
             try put(&out, "{s}\n", .{z});
-            wrote = true;
+            continue;
+        }
+        // one function per byte order, and the name picks the target's
+        const head = "pub noinline fn ";
+        const at = std.mem.find(u8, z, head).? + head.len;
+        const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
+        try put(&out, "pub const {s} = if (is_BE) {s}_be else {s}_le;\n\n", .{ fname, fname, fname });
+        split = true;
+        for ([_][]const u8{ z, z_be.? }, [_][]const u8{ "_le", "_be" }) |body, suffix| {
+            const named = try map.arena.print("{s}{s}{s}", .{ head, fname, suffix });
+            try put(&out, "{s}\n", .{try std.mem.replaceOwned(u8, map.arena, body, try map.arena.print("{s}{s}", .{ head, fname }), named)});
         }
     }
     if (!wrote) {
         std.debug.print("skipped {s}: no assembly\n", .{base});
         return;
     }
+    // one byte-order test for every split kernel in the file
+    if (split) try out.insertSlice(map.arena, header_len,
+        \\const sysinfo = @import("builtin");
+        \\const is_BE = sysinfo.target.cpu.arch.endian() == .big;
+        \\
+        \\
+    );
     const dest = try map.path(&.{ out_dir, file });
     try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = dest, .data = out.items });
     try map.format(dest);
@@ -660,33 +689,32 @@ pub fn main(init: std.process.Init) !void {
     if (wanted_routines.items.len == 0) try wanted_routines.appendSlice(a, std.enums.values(map.Routine));
 
     for (wanted_routines.items) |routine| for (targets) |t| {
-        if (std.mem.indexOfScalar(map.Routine, t.routines, routine) == null) continue;
+        if (std.mem.findScalar(map.Routine, t.routines, routine) == null) continue;
         const name = @tagName(routine);
         cc_name = if (std.mem.eql(u8, t.out, "s390x")) "ps" else "cc";
         is_power = t.power;
         align_bytes = t.align_bytes;
         cpp_extra = if (t.power) &.{
-            "-target",                                                           "powerpc64le-linux",
             "-mcpu=pwr10",                                                       "-DPOWER10",
             "-D__VEC__",                                                         "-DXXSPLTD_S(T,A,z)=\"xxspltd \" #T \", \" #A \", \" #z \"\\n\\t\"",
             "-DXXSWAPD_S(T,A)=\"xxswapd \" #T \", \" #A \"\\n\\t\"",             "-DXXMRGHD_S(T,A,B)=\"xxmrghd \" #T \", \" #A \", \" #B \"\\n\\t\"",
             "-DXXMRGLD_S(T,A,B)=\"xxmrgld \" #T \", \" #A \", \" #B \"\\n\\t\"",
         } else &.{};
-        const out_dir = try std.fmt.allocPrint(a, "{s}/{s}/{s}/uk", .{ map.out_root, name, t.out });
+        const out_dir = try a.print("{s}/{s}/{s}/uk", .{ map.out_root, name, t.out });
         try Io.Dir.cwd().createDirPath(init.io, out_dir);
 
         var dir = try Io.Dir.cwd().openDir(init.io, try map.path(&.{ map.root, "kernel", t.ob_dir }), .{ .iterate = true });
         defer dir.close(init.io);
-        const in_file_driver = try std.fmt.allocPrint(a, "{s}.c", .{name});
-        const microk = try std.fmt.allocPrint(a, "{s}_microk_", .{name});
+        const in_file_driver = try a.print("{s}.c", .{name});
+        const microk = try a.print("{s}_microk_", .{name});
         var names: std.ArrayList([]const u8) = .empty;
         var it = dir.iterate();
         while (try it.next(init.io)) |e| {
             if (e.kind != .file or !std.mem.endsWith(u8, e.name, ".c")) continue;
             const wanted = if (t.in_file)
-                std.mem.eql(u8, e.name[1..], in_file_driver) and std.mem.indexOfScalar(u8, "sdcz", e.name[0]) != null
+                std.mem.eql(u8, e.name[1..], in_file_driver) and std.mem.findScalar(u8, "sdcz", e.name[0]) != null
             else
-                std.mem.startsWith(u8, e.name[1..], microk) and std.mem.indexOfScalar(u8, "sdcz", e.name[0]) != null;
+                std.mem.startsWith(u8, e.name[1..], microk) and std.mem.findScalar(u8, "sdcz", e.name[0]) != null;
             if (wanted) try names.append(a, try a.dupe(u8, e.name));
         }
         std.mem.sort([]const u8, names.items, {}, struct {
@@ -722,11 +750,11 @@ fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
                 try list.append(a, name);
             }
             cores = list.items;
-        } else if (std.mem.startsWith(u8, line, "#include") and std.mem.indexOf(u8, line, "_microk_") != null) {
-            const q1 = std.mem.indexOfScalar(u8, line, '"').?;
-            const q2 = std.mem.lastIndexOfScalar(u8, line, '"').?;
+        } else if (std.mem.startsWith(u8, line, "#include") and std.mem.find(u8, line, "_microk_") != null) {
+            const q1 = std.mem.findScalar(u8, line, '"').?;
+            const q2 = std.mem.findScalarLast(u8, line, '"').?;
             const file = line[q1 + 1 .. q2];
-            const core = file[std.mem.indexOf(u8, file, "_microk_").? + "_microk_".len ..];
+            const core = file[std.mem.find(u8, file, "_microk_").? + "_microk_".len ..];
             const stem = if (std.mem.endsWith(u8, core, "-2.c")) core[0 .. core.len - 4] else core;
             try out.append(a, .{ .cores = cores, .block = stem });
         } else if (std.mem.startsWith(u8, line, "#ifndef HAVE_KERNEL")) break;
@@ -738,7 +766,7 @@ fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
 /// written `n & -N` or `n & (BLASLONG)(-N)`.
 fn readMask(text: []const u8) []const u8 {
     const key = "n & ";
-    var at = std.mem.indexOf(u8, text, key).? + key.len;
+    var at = std.mem.find(u8, text, key).? + key.len;
     if (std.mem.startsWith(u8, text[at..], "(BLASLONG)(")) at += "(BLASLONG)(".len;
     if (text[at] != '-') map.die("unreadable block size: {s}", .{text[at - key.len .. at + 20]});
     at += 1;
@@ -757,7 +785,7 @@ fn functionsOf(a: std.mem.Allocator, path: []const u8) ![]const []const u8 {
         const key = "pub noinline fn ";
         if (!std.mem.startsWith(u8, line, key)) continue;
         const rest = line[key.len..];
-        try out.append(a, rest[0..std.mem.indexOfScalar(u8, rest, '(').?]);
+        try out.append(a, rest[0..std.mem.findScalar(u8, rest, '(').?]);
     }
     return out.items;
 }
@@ -797,7 +825,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
 
     const all = (try map.cores(arch_dir)).?;
     for ("sdcz") |letter| {
-        const driver = try std.fmt.allocPrint(a, "{c}{s}.c", .{ letter, name });
+        const driver = try a.print("{c}{s}.c", .{ letter, name });
         const text = map.read(try map.path(&.{ map.root, "kernel", arch_dir, driver })) orelse continue;
         // the block is either the one function in the driver's own file, for
         // every core that uses the driver, or what the `#if` chain includes
@@ -821,14 +849,14 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
                 if (cores.items.len == 0) continue;
 
                 const block_file = if (t.in_file)
-                    try std.fmt.allocPrint(a, "{c}{s}.zig", .{ letter, name })
+                    try a.print("{c}{s}.zig", .{ letter, name })
                 else
-                    try std.fmt.allocPrint(a, "{c}{s}_{s}.zig", .{ letter, name, link.block });
+                    try a.print("{c}{s}_{s}.zig", .{ letter, name, link.block });
                 const fns = try functionsOf(a, try map.path(&.{ out_dir, block_file }));
                 for (routine.roles()) |role| {
                     if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
                     const kernel = if (fns.len == 0) "" else fns[@min(role.function, fns.len - 1)];
-                    const module = if (fns.len == 0) "void" else try std.fmt.allocPrint(a, "@import(\"{s}\")", .{block_file});
+                    const module = if (fns.len == 0) "void" else try a.print("@import(\"{s}\")", .{block_file});
                     try put(&w, "    .{{ .role = \"{s}\", .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s} }},\n", .{ role.name, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module });
                 }
             }

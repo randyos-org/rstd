@@ -34,7 +34,6 @@ pub fn qmax_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
 const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const extremum = @import("../extremum.zig");
-const check = @import("../check.zig");
 
 const find: extremum.Find = .{ .abs = false, .max = true };
 
@@ -51,16 +50,18 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const check = @import("../../_test/blas1/check.zig");
+
 fn checkAll(vt: *const Vtable) !void {
-    try extremum.checkKernel(f32, find, "smax", vt.smax_k.?);
-    try extremum.checkKernel(f64, find, "dmax", vt.dmax_k.?);
+    try check.checkExtreme(f32, find, "smax", vt.smax_k.?);
+    try check.checkExtreme(f64, find, "dmax", vt.dmax_k.?);
 }
 
 test "portable max kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkAll(&vt);
-    try extremum.checkKernel(XDouble, find, "qmax", vt.qmax_k.?);
+    try check.checkExtreme(XDouble, find, "qmax", vt.qmax_k.?);
 }
 
 test "every linked core's max kernels match a plain loop, where this machine runs them" {

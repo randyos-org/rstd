@@ -64,10 +64,10 @@ const text =
     \\ sllx %i4, 4, %i4
     \\ .endif
     \\ cmp %i2, 2 * 8
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ cmp %i4, 2 * 8
-    \\ bne 20005f
+    \\ bne 20006f
     \\ nop
     \\ sra %i0, 2, %i5
     \\ cmp %i5, 0
@@ -329,118 +329,130 @@ const text =
     \\ return %i7 + 8
     \\ nop
     \\ 20005:
+    \\ cmp %i0, 0
+    \\ ble 20010f
+    \\ mov %i0, %i5
+    \\ b 20009f
+    \\ nop
+    \\ 20006:
+    \\ cmp %i2, 0
+    \\ be 20005b
+    \\ nop
+    \\ cmp %i4, 0
+    \\ be 20005b
+    \\ nop
     \\ mov %i1, %l0
     \\ mov %i3, %l1
     \\ sra %i0, 2, %i5
     \\ cmp %i5, 0
-    \\ ble,pn %icc, 20007f
-    \\ nop
-    \\ 20006:
-    \\ ldd [%i1 + 0 * 8], %f4
-    \\ ldd [%i3 + 0 * 8], %f20
-    \\ ldd [%i1 + 1 * 8], %f6
-    \\ ldd [%i3 + 1 * 8], %f22
-    \\ fmuld %f0, %f4, %f36
-    \\ fmuld %f2, %f20, %f38
-    \\ fmuld %f0, %f20, %f40
-    \\ fmuld %f2, %f4, %f42
-    \\ fmuld %f0, %f6, %f44
-    \\ nop
-    \\ fmuld %f2, %f22, %f46
-    \\ faddd %f36, %f38, %f38
-    \\ fmuld %f0, %f22, %f48
-    \\ nop
-    \\ fmuld %f2, %f6, %f50
-    \\ fsubd %f40, %f42, %f42
-    \\ std %f38, [%i1 + 0 * 8]
-    \\ faddd %f44, %f46, %f46
-    \\ std %f42, [%i3 + 0 * 8]
-    \\ fsubd %f48, %f50, %f50
-    \\ std %f46, [%i1 + 1 * 8]
-    \\ add %i1, %i2, %i1
-    \\ std %f50, [%i3 + 1 * 8]
-    \\ add %i3, %i4, %i3
-    \\ ldd [%i1 + 0 * 8], %f4
-    \\ ldd [%i3 + 0 * 8], %f20
-    \\ ldd [%i1 + 1 * 8], %f6
-    \\ ldd [%i3 + 1 * 8], %f22
-    \\ fmuld %f0, %f4, %f36
-    \\ fmuld %f2, %f20, %f38
-    \\ fmuld %f0, %f20, %f40
-    \\ fmuld %f2, %f4, %f42
-    \\ fmuld %f0, %f6, %f44
-    \\ nop
-    \\ fmuld %f2, %f22, %f46
-    \\ faddd %f36, %f38, %f38
-    \\ fmuld %f0, %f22, %f48
-    \\ nop
-    \\ fmuld %f2, %f6, %f50
-    \\ fsubd %f40, %f42, %f42
-    \\ std %f38, [%i1 + 0 * 8]
-    \\ faddd %f44, %f46, %f46
-    \\ std %f42, [%i3 + 0 * 8]
-    \\ fsubd %f48, %f50, %f50
-    \\ std %f46, [%i1 + 1 * 8]
-    \\ add %i1, %i2, %i1
-    \\ std %f50, [%i3 + 1 * 8]
-    \\ add %i3, %i4, %i3
-    \\ ldd [%i1 + 0 * 8], %f4
-    \\ ldd [%i3 + 0 * 8], %f20
-    \\ ldd [%i1 + 1 * 8], %f6
-    \\ ldd [%i3 + 1 * 8], %f22
-    \\ fmuld %f0, %f4, %f36
-    \\ fmuld %f2, %f20, %f38
-    \\ fmuld %f0, %f20, %f40
-    \\ fmuld %f2, %f4, %f42
-    \\ fmuld %f0, %f6, %f44
-    \\ nop
-    \\ fmuld %f2, %f22, %f46
-    \\ faddd %f36, %f38, %f38
-    \\ fmuld %f0, %f22, %f48
-    \\ nop
-    \\ fmuld %f2, %f6, %f50
-    \\ fsubd %f40, %f42, %f42
-    \\ std %f38, [%i1 + 0 * 8]
-    \\ faddd %f44, %f46, %f46
-    \\ std %f42, [%i3 + 0 * 8]
-    \\ fsubd %f48, %f50, %f50
-    \\ std %f46, [%i1 + 1 * 8]
-    \\ add %i1, %i2, %i1
-    \\ std %f50, [%i3 + 1 * 8]
-    \\ add %i3, %i4, %i3
-    \\ ldd [%i1 + 0 * 8], %f4
-    \\ ldd [%i3 + 0 * 8], %f20
-    \\ ldd [%i1 + 1 * 8], %f6
-    \\ ldd [%i3 + 1 * 8], %f22
-    \\ fmuld %f0, %f4, %f36
-    \\ fmuld %f2, %f20, %f38
-    \\ fmuld %f0, %f20, %f40
-    \\ fmuld %f2, %f4, %f42
-    \\ fmuld %f0, %f6, %f44
-    \\ nop
-    \\ fmuld %f2, %f22, %f46
-    \\ faddd %f36, %f38, %f38
-    \\ fmuld %f0, %f22, %f48
-    \\ nop
-    \\ fmuld %f2, %f6, %f50
-    \\ fsubd %f40, %f42, %f42
-    \\ std %f38, [%i1 + 0 * 8]
-    \\ faddd %f44, %f46, %f46
-    \\ std %f42, [%i3 + 0 * 8]
-    \\ fsubd %f48, %f50, %f50
-    \\ std %f46, [%i1 + 1 * 8]
-    \\ add %i1, %i2, %i1
-    \\ std %f50, [%i3 + 1 * 8]
-    \\ add %i3, %i4, %i3
-    \\ addcc %i5, -1, %i5
-    \\ bg,pt %icc, 20006b
+    \\ ble,pn %icc, 20008f
     \\ nop
     \\ 20007:
-    \\ andcc %i0, 3, %i5
+    \\ ldd [%i1 + 0 * 8], %f4
+    \\ ldd [%i3 + 0 * 8], %f20
+    \\ ldd [%i1 + 1 * 8], %f6
+    \\ ldd [%i3 + 1 * 8], %f22
+    \\ fmuld %f0, %f4, %f36
+    \\ fmuld %f2, %f20, %f38
+    \\ fmuld %f0, %f20, %f40
+    \\ fmuld %f2, %f4, %f42
+    \\ fmuld %f0, %f6, %f44
     \\ nop
-    \\ ble %icc, 20009f
+    \\ fmuld %f2, %f22, %f46
+    \\ faddd %f36, %f38, %f38
+    \\ fmuld %f0, %f22, %f48
+    \\ nop
+    \\ fmuld %f2, %f6, %f50
+    \\ fsubd %f40, %f42, %f42
+    \\ std %f38, [%i1 + 0 * 8]
+    \\ faddd %f44, %f46, %f46
+    \\ std %f42, [%i3 + 0 * 8]
+    \\ fsubd %f48, %f50, %f50
+    \\ std %f46, [%i1 + 1 * 8]
+    \\ add %i1, %i2, %i1
+    \\ std %f50, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ ldd [%i1 + 0 * 8], %f4
+    \\ ldd [%i3 + 0 * 8], %f20
+    \\ ldd [%i1 + 1 * 8], %f6
+    \\ ldd [%i3 + 1 * 8], %f22
+    \\ fmuld %f0, %f4, %f36
+    \\ fmuld %f2, %f20, %f38
+    \\ fmuld %f0, %f20, %f40
+    \\ fmuld %f2, %f4, %f42
+    \\ fmuld %f0, %f6, %f44
+    \\ nop
+    \\ fmuld %f2, %f22, %f46
+    \\ faddd %f36, %f38, %f38
+    \\ fmuld %f0, %f22, %f48
+    \\ nop
+    \\ fmuld %f2, %f6, %f50
+    \\ fsubd %f40, %f42, %f42
+    \\ std %f38, [%i1 + 0 * 8]
+    \\ faddd %f44, %f46, %f46
+    \\ std %f42, [%i3 + 0 * 8]
+    \\ fsubd %f48, %f50, %f50
+    \\ std %f46, [%i1 + 1 * 8]
+    \\ add %i1, %i2, %i1
+    \\ std %f50, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ ldd [%i1 + 0 * 8], %f4
+    \\ ldd [%i3 + 0 * 8], %f20
+    \\ ldd [%i1 + 1 * 8], %f6
+    \\ ldd [%i3 + 1 * 8], %f22
+    \\ fmuld %f0, %f4, %f36
+    \\ fmuld %f2, %f20, %f38
+    \\ fmuld %f0, %f20, %f40
+    \\ fmuld %f2, %f4, %f42
+    \\ fmuld %f0, %f6, %f44
+    \\ nop
+    \\ fmuld %f2, %f22, %f46
+    \\ faddd %f36, %f38, %f38
+    \\ fmuld %f0, %f22, %f48
+    \\ nop
+    \\ fmuld %f2, %f6, %f50
+    \\ fsubd %f40, %f42, %f42
+    \\ std %f38, [%i1 + 0 * 8]
+    \\ faddd %f44, %f46, %f46
+    \\ std %f42, [%i3 + 0 * 8]
+    \\ fsubd %f48, %f50, %f50
+    \\ std %f46, [%i1 + 1 * 8]
+    \\ add %i1, %i2, %i1
+    \\ std %f50, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ ldd [%i1 + 0 * 8], %f4
+    \\ ldd [%i3 + 0 * 8], %f20
+    \\ ldd [%i1 + 1 * 8], %f6
+    \\ ldd [%i3 + 1 * 8], %f22
+    \\ fmuld %f0, %f4, %f36
+    \\ fmuld %f2, %f20, %f38
+    \\ fmuld %f0, %f20, %f40
+    \\ fmuld %f2, %f4, %f42
+    \\ fmuld %f0, %f6, %f44
+    \\ nop
+    \\ fmuld %f2, %f22, %f46
+    \\ faddd %f36, %f38, %f38
+    \\ fmuld %f0, %f22, %f48
+    \\ nop
+    \\ fmuld %f2, %f6, %f50
+    \\ fsubd %f40, %f42, %f42
+    \\ std %f38, [%i1 + 0 * 8]
+    \\ faddd %f44, %f46, %f46
+    \\ std %f42, [%i3 + 0 * 8]
+    \\ fsubd %f48, %f50, %f50
+    \\ std %f46, [%i1 + 1 * 8]
+    \\ add %i1, %i2, %i1
+    \\ std %f50, [%i3 + 1 * 8]
+    \\ add %i3, %i4, %i3
+    \\ addcc %i5, -1, %i5
+    \\ bg,pt %icc, 20007b
     \\ nop
     \\ 20008:
+    \\ andcc %i0, 3, %i5
+    \\ nop
+    \\ ble %icc, 20010f
+    \\ nop
+    \\ 20009:
     \\ ldd [%i1 + 0 * 8], %f4
     \\ ldd [%i3 + 0 * 8], %f20
     \\ ldd [%i1 + 1 * 8], %f6
@@ -464,9 +476,9 @@ const text =
     \\ std %f46, [%i1 + 1 * 8]
     \\ add %i1, %i2, %i1
     \\ std %f50, [%i3 + 1 * 8]
-    \\ bg %icc, 20008b
+    \\ bg %icc, 20009b
     \\ add %i3, %i4, %i3
-    \\ 20009:
+    \\ 20010:
     \\ return %i7 + 8
     \\ nop
     \\ .endm

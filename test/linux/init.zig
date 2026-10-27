@@ -48,9 +48,9 @@ pub fn main() void {
     const s: u32 = @bitCast(status);
     var line: [64]u8 = undefined;
     say(if (linux.W.IFEXITED(s))
-        std.fmt.bufPrint(&line, "linuxtest: /test exited {d}\n", .{linux.W.EXITSTATUS(s)}) catch unreachable
+        std.mem.print(&line, "linuxtest: /test exited {d}\n", .{linux.W.EXITSTATUS(s)}) catch unreachable
     else
-        std.fmt.bufPrint(&line, "linuxtest: /test killed by signal {d}\n", .{s & 0x7f}) catch unreachable);
+        std.mem.print(&line, "linuxtest: /test killed by signal {d}\n", .{s & 0x7f}) catch unreachable);
     linux.sync();
     _ = linux.reboot(.MAGIC1, .MAGIC2, .RESTART, null);
     while (true) {}

@@ -44,33 +44,92 @@ those layers are closed by this decision, not by code.
 
 ## Level 3
 
-Only real `gemm` is ported so far (`sgemm`, `dgemm`, and `qgemm` for
-`XDouble` through the same code); complex, the other routines, the
-small-matrix kernels and threading come later.
+`gemm`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm` and `trsm`
+are ported, real and complex (`s`, `d`, `c`, `z`, and `q` and `x` for
+`XDouble`, through the same code); `gemm3m`, `symm3m`, `hemm3m`, the
+small-matrix kernels, bfloat16 level 3 and threading come later.
 
-- **Interface:** `blas3/interface.zig`'s `gemm` checks its arguments in the
+- **Interface:** `blas3/interface.zig` checks the arguments in the
   reference's `xerbla` order (leading dimensions against `max(1, rows)`, as
-  the reference BLAS does), returns for empty `C`, and calls the driver.
-  Sizes and leading dimensions are `isize`; real `r` and `c` transposes are
-  `n` and `t`. No `gemv` forwarding for one-column problems.
-- **Driver:** `blas3/level3.zig` is `driver/level3/level3.c`'s loops, with
-  `P`, `Q`, `R` from the vtable (`gemm/params.zig`). The packing space comes
-  from the caller's allocator, sized to the problem (2 KiB or less on the
-  stack). `B` is packed in chunks of `3 * unroll_n` columns and the kernel is
-  always called per chunk, so a stated unroll that does not match the
-  kernels costs speed, never correctness.
-- **Kernels:** `blas3/gemm/kernel.zig`, Zig on `@Vector`s, built into the
-  main library (the portable kernels) and into every per-core object, so
-  each core's features set the vector width and register count, and from
-  them the tile (`geometry`). They never make a core need an object of its
-  own. The objects export their unrolls as data; `cpu/<arch>.zig` sets the
-  core's blocking before its kernels, and `portable.finish` restores the
-  portable kernels' unrolls where those stayed, so the vtable's unrolls are
-  always the installed kernels' own. `gemm/notes.md` has the measurements.
-- **Tests:** `blas3/check.zig` compares with a plain gemm in twice the
-  precision, within `2 (k + 2) eps` of the sum of magnitudes, on a vtable
-  whose blocking is shrunk so every block and panel edge comes at small
-  sizes, and for every linked core this machine runs.
+  the reference BLAS does), returns for empty problems, and calls the
+  drivers. Sizes and leading dimensions are `isize`; real `r` and `c`
+  transposes are `n` and `t`. `Side`, `Uplo` and `Diag` are enums, so only
+  a transpose a routine does not take is an argument error (`InvalidTrans`:
+  `herk`'s `t`, complex `syrk`'s `c`). No `gemv` forwarding for one-column
+  problems.
+- **Drivers:** `blas3/driver.zig`. One set of `driver/level3/level3.c` loops
+  serves every product of two packed operands: `gemm`; `symm` and `hemm`,
+  which pack the symmetric operand whole from its triangle (`symm_k.c`,
+  `zhemm_k.c`); and the rank-k updates, which keep one triangle of `C`
+  (`level3_syrk.c`, `level3_syr2k.c`). Tiles across the diagonal go through
+  a scratch tile and add the triangle's part (`syrk_kernel.c`); the
+  reference's shared `sa`/`sb` path, which needs `unroll_m == unroll_n`, is
+  not taken. `trmm` and `trsm` follow `trmm_L.c`, `trmm_R.c`, `trsm_L.c` and
+  `trsm_R.c` loop for loop. `P`, `Q`, `R` come from the vtable
+  (`gemm/params.zig`). The packing space comes from the caller's allocator,
+  sized to the problem (2 KiB or less on the stack). The product drivers
+  call the kernel on the column chunks they pack, so a stated unroll that
+  does not match the kernels costs speed, never correctness; the triangular
+  drivers, as the reference's, take whole slices, and rely on the vtable's
+  unrolls being the installed kernels' own, which they always are.
+- **Kernels:** Zig on `@Vector`s, built into the main library (the portable
+  kernels) and into every per-core object, so each core's features set the
+  vector width and register count, and from them the tile (`geometry`).
+  They never make a core need an object of its own. `gemm/kernel.zig` has
+  the gemm kernels, real and complex (whole complex elements per lane, two
+  accumulators each, the parts split into scalars where a vector holds no
+  element); `symm/kernel.zig`, `trmm/kernel.zig` and `trsm/kernel.zig` have
+  the other routines' copies and kernels over the same tile, each slot a
+  function of the slot's name. The `trsm` kernels are `kernel/generic`'s
+  `trsm_kernel_*.c` on the gemm layout's panels; the `trmm` kernels sum a
+  diagonal block over its triangle only, where the reference's tiles
+  multiply the zeros it packs, so an infinity in `B` meets no zero. The
+  objects export their unrolls as data; `cpu/<arch>.zig` sets the core's
+  blocking before its kernels, and `portable.finish` restores the portable
+  kernels' unrolls where those stayed, so the vtable's unrolls are always the
+  installed kernels' own. `gemm/notes.md` has the measurements.
+- **Tests:** `_test/blas3/check.zig` builds each routine's operators densely in
+  twice the precision and compares, within `2 (k + 2) eps` of the sum of
+  magnitudes (`trsm`: its substitution, step by step), on a vtable whose
+  blocking is shrunk so every block and panel edge comes at small sizes,
+  and for every linked core this machine runs; then special values in each
+  operand, and shapes past the core's own `R` (natively, past twice its `P`
+  and `Q` too). What a routine must not read holds NaN (the other triangle,
+  a unit diagonal, a Hermitian diagonal's imaginary parts) and what it must
+  not write a sentinel. The OpenBLAS `blat3` sweeps run through the
+  interface (`_test/from_openblas/blat3.zig`).
+
+## Apple Accelerate
+
+On macOS the public routines will default to Accelerate for `s`, `d`, `c`
+and `z`. `apple_accel.zig` has the binding; nothing calls it yet.
+
+- **Binding:** `load()` opens the framework with `dlopen`
+  (`dll.openDarwinFramework`), never `-framework`, so cross-compiles need no SDK,
+  and fills `Table(I)` with `dll.bind`. The declarations are ours, from
+  Apple's documentation; no SDK file is copied. The handle stays open for
+  the process.
+- **Symbols:** macOS 13.3 and later have `cblas_dgemm$NEWLAPACK$ILP64`, with
+  64-bit integers (rstd's `isize`), which `load` takes; else the 32-bit
+  `cblas_dgemm$NEWLAPACK`, then the classic `cblas_dgemm`. macOS 27 binds
+  150 of the 154: there is no `cblas_i?amin`. `axpby` is `catlas_?axpby`.
+- **Threads:** threaded, Accelerate's `gemv` with `A` un-transposed rounds
+  differently from one thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and
+  `gemm` gave the same bits at every thread count tried (macOS 27, M6). So
+  `load` makes Accelerate single-threaded: `VECLIB_MAXIMUM_THREADS=1`, read
+  at the process's first BLAS call, and `BLASSetThreading` (macOS 15+), per
+  thread, which `singleThreadHere` sets. One thread cost `gemm` 1.15x at
+  2000.
+
+Left to do:
+
+- route the public routines to the table (CBLAS order, 0-based `i?amax`,
+  complex scalars by pointer, `cblas_?dot?_sub`), with 32-bit range checks
+  on the LP64 table;
+- quirk entries where Accelerate's results differ from the reference's
+  (special values; argument errors, which rstd's checks must catch first);
+- an off switch, and `singleThreadHere` on each thread that calls in;
+- tying its threading into rstd's own.
 
 ## Converted assembly
 
@@ -104,21 +163,117 @@ on LA264 and LA464; arm64 `csum` is `csum.S` everywhere; MIPS64's MSA complex
 `axpy`, `rot`, `swap` and `scal` are never selected, `KERNEL` resets them to
 the `arm/` C.
 
+### One contract on every core
+
+Some slots never take a converted kernel (`vector.routed`): every core runs
+the portable or `@Vector` kernels there, so what they do beyond rounding
+does not depend on the core (`threading.md`; `comparisons.md`, X1).
+
+- `nrm2`: `s` and `c` sum the squares in `f64`, where each is exact and
+  none overflows or underflows, and round the root once; `d` and `z` take
+  Blue's algorithm, as Reference-LAPACK 3.10's `dnrm2.f90` (`util.blue`).
+  Upstream has three algorithms: x86_64 sums in `f64` (`nrm2_sse.S`), x86
+  and x86_64 in the x87's `f80` (`nrm2.S`), the rest scale a one-pass loop,
+  several of them wrong on special values (`issues.md`).
+- The extremes (`i?amax`, `i?amin`, `i?max`, `i?min` and their values): the
+  first NaN wins, its index and NaN for the value, as in Reference-LAPACK
+  master (`50dc1bf`, `b358788`), BLIS's `amaxv` and arXiv:2207.09281; else
+  the first extreme. Complex keys are `|re| + |im|`; where one overflows for
+  a finite element, the index compares `|re|/4 + |im|/4`, as `izamax.f90`
+  does, so an infinite part still wins. The converted kernels pass NaN over,
+  or pick one by vector lane (`issues.md`).
+- `sdot`: products and sum in `f64`, rounded once, as the portable `sdot`.
+  Upstream's sum in `f32` on most cores (x86_64 `sdot.c`, arm `sdot_vfp.S`,
+  POWER, loongarch64, mips64, SPARC, arm64 `dot.S` on `tsv110`) and in the
+  x87's `f80` on x86 (`dot.S`), so the error of the same `sdot` differed by
+  core by far more than its last bits.
+- x86_64's reductions whose converted kernels peel elements until an operand
+  is aligned (`vector.peels`): `asum_sse.S`, `asum_sse2.S`, `asum_atom.S`,
+  `zasum_*.S`, `zsum_sse*.S`, `dot_sse2.S`, `dot_atom.S`,
+  `ddot_bulldozer.S`, `zdot_*.S` and `dgemv_n*.S`, which accumulates in its
+  buffer for a misaligned `y`. The lanes, so the bits, followed the address:
+  the same data elsewhere in memory summed otherwise. Only on the cores
+  that use them; the C kernels (`ddot.c` and the like) stay. The `@Vector`
+  kernels load unaligned and never peel. `_test/blas1/edge.zig` and `blas2/gemv/`
+  check that every reduction gives the same bits with its operands shifted
+  by any number of floats, on every core.
+
+`axpy` with a zero `alpha` multiplies on every core, so `0 * x` gives NaN
+for NaN and infinities. The interface returns first, as the reference does,
+but the triangular and banded drivers call the kernel with `-x(j)`, which
+may be zero. The arm64 and loongarch64 assembly (see "Fixes to upstream
+sources"), `arm64/axpy_sve.c`, `mips/?axpy_msa.c`, `riscv64/axpy_rvv.c`,
+`zaxpy_rvv.c` and `wasm/axpy.c` returned at once instead, so `trsv` and
+`tbsv` propagated NaN otherwise there; the patches and ports drop that
+return.
+
+The `@Vector` kernels fill them where the vector unit is IEEE: x86_64, x86,
+arm64 (Apple's systems too), loongarch64 and POWER8 to 10. The portable ones
+stay on arm, whose NEON flushes `f32` denormals, on the AltiVec POWER cores,
+which flush too, and on MIPS and SPARC, which nothing measured.
+The converted kernels stay in the tree, un-wired (`kernels/<arch>.zig`).
+
+### `@Vector` kernels on arm64
+
+`vector.zig` has plain `@Vector` kernels, four NEON registers a step, for
+`axpy` and `axpyc`, `dot`, `dotu` and `dotc`, `scal`, `nrm2`, `asum`,
+the extremes, `copy`, `swap`, `rot` and every `gemv`, over `s`, `d`, `c` and
+`z`.
+On the M6 they match or beat both the converted assembly and OpenBLAS's own
+kernels, which are tuned for ThunderX2 and Neoverse N1 (prefetches, narrow
+loops; `tools/blasbench/results-m6.md`). The extremes search only the first
+block with the extreme; a sum of the keys' magnitudes, NaN only for a NaN
+key, sends them to the portable kernel. `nrm2` sums plain squares, in `f64`
+for `s` and `c`, and for `d` and `z` takes Blue's algorithm only where they
+could have overflowed or underflowed. They need no FMA unit: without one a
+multiply-add rounds twice. Where they go (`kernels/arm64.zig`):
+
+- `vortex`, `vortexm4`: every slot but `rot`, whose converted kernel stays
+  (in L1 the `@Vector` one is 0.83 to 0.98 of it).
+- every arm64 core: the slots no converted kernel fills, where upstream's
+  kernel is C and rstd ran the portable scalar loop (below). Their
+  converted kernels stay; nothing measured them.
+- every core, the slots of "One contract on every core" above.
+- on Apple's systems, where Accelerate is to serve instead, only those.
+
+| Cores                                              | Slots with no converted kernel                |
+|----------------------------------------------------|-----------------------------------------------|
+| all but `tsv110`                                   | `sdot`                                        |
+| all                                                | `cdotu`, `cdotc`, `zdotu`, `zdotc`            |
+| `thunderx`                                         | `ddot`                                        |
+| `thunderx2t99`, `thunderx3t110`                    | `ddot`, `?nrm2`, `?asum`, `?copy`, `i?amax`   |
+| `neoversen1`, `ampere1`, `vortex`, `vortexm4`      | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n` |
+| `neoversen2`, `neoversev2`                         | those, and `sgemv_t`, `dgemv_n`, `dgemv_t`    |
+| SVE: `neoversev1`, `armv8sve`, `a64fx`, `armv9sme` | those, and `sswap`, `dswap`, `srot`, `drot`   |
+| SVE: `cortexa510`, `cortexa710`, `cortexx2`        | the same                                      |
+
+Special values, strides and flags are the portable kernels', so no quirks;
+`sdot` sums in `f64`, as the portable `sdot` does. `check.eachCore`
+runs them natively too, on a table of all of them.
+
 ## Portable kernels
 
 The portable kernels are Zig algorithms with the reference's documented
 semantics, not copies of its C: `dsdot` accumulates in `f64` (so does `sdot`),
-`nrm2` scales against overflow and underflow, `scal`'s flag keeps NaN and
-Inf, `i?amax` returns the first of equal extremes, and a NaN first element is
-never replaced. Not required by the design, so not done: reproducing the
+`nrm2` sums squares in `f64` for `s` and `c` and is Blue's for `d` and `z`,
+infinite for infinities and NaN for NaN (LAPACK 3.10's), `scal`'s flag keeps
+NaN and Inf, and `i?amax` returns the first NaN, else the first of equal
+extremes. Not required by the design, so not done: reproducing the
 reference's accumulation order (`generic/dot.c`'s unrolled and SIMD partial
 sums, `sum.c`'s), its signed-zero handling for `axpby` with a zero `alpha`,
 its threading, and `zrotg.c`'s internals (`zrotg` follows LAPACK's `zlartg`;
 `zrotg.c`'s scaled branches are wrong). `rotg` computes in `XDouble`, which
-is where the reference uses `long double` on x86; it is an `f64` alias until
-the x87 work lands, after which `rotg` widens with it. Tests compare against a
-wide-precision reference with tolerances; exact comparison is kept where a Zig
-kernel stands in for a converted kernel of the same core.
+is where the reference uses `long double` on x86: the x87 `f80` where
+`types.exprecision` is on, else `f64`. Wider than `f64`, the reductions and
+`gemv` do take the order of the x87 `q`/`x` kernels, so they give those
+kernels' bits (`blas1/dot/`, `util.extendedSum` for `asum` and `nrm2`, and
+`blas2/gemv/`). Tests compare against a wide-precision reference with
+tolerances; exact comparison is kept where a Zig kernel stands in for a
+converted kernel of the same core. `_test/blas1/edge.zig`,
+`_test/blas2/edge.zig` and `_test/blas3/check.zig` put NaN, infinities, signed zeros,
+denormals and huge and tiny values through every core's kernels, with NaN
+wherever a routine must not read or write; where a core's upstream kernels
+do otherwise, `issues.md` says what they do, and the tests check that.
 
 Contraction (`fma.zig`) is decided per target: fused where the ISA has a
 scalar fused multiply-add (x86 with FMA, AArch64, ARM with VFPv4, PowerPC,
@@ -190,7 +345,8 @@ The per-core tests in the qemu rigs found bugs in some of OpenBLAS's own
 assembly files (still there on OpenBLAS master, v0.3.34-317). The generator
 fixes each one before converting it: `patches` in `tools/blas_asm/arch/`, an
 exact text edit that must match, with a comment saying what was wrong. The
-generated files carry the fixed code.
+generated files carry the fixed code. No core takes the extremes' and
+`nrm2`'s kernels anymore ("One contract on every core"), fixed or not.
 
 - `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte
   result first, shifting the arguments along; the kernel read that address
@@ -198,6 +354,51 @@ generated files carry the fixed code.
 - `x86_64/zgemv_t_atom.S`, Windows: read the double `alpha_i`, which Windows
   passes on the stack, with a single-precision load; its sibling kernels use
   the double one.
+- `x86_64/scal_sse.S`, `scal_sse2.S`, `scal_atom.S`, Windows: read the flag
+  (whether a zero `alpha` keeps NaN) from `incy`'s stack slot, `64(%rsp)`,
+  not the tenth argument's, `80(%rsp)`, so a zero `alpha` stored zeros over
+  NaN and infinity where the interface asks for NaN. `scal_sse.S` also took
+  a NaN `alpha` for zero (`comiss` sets ZF for NaN; `scal_sse2.S` has the
+  `jp`), so with flag 0, as for a level-2 `beta`, NaN became zeros.
+- `x86_64/zscal_atom.S`: never read the flag at all, so a zero `alpha`
+  always stored zeros; it now tests it as `scal_atom.S` does. A NaN
+  imaginary part beside a zero real one also counted as zero.
+- `x86_64/iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`
+  (every `i?amax`, `i?amin`, `i?max`, `i?min` on x86_64): the index search
+  takes the last element as the match unread, but counted it even when it
+  had been read, so for a NaN extreme, which no element equals, returned
+  `n + 1`. It now returns `n` there.
+- `x86_64/copy_sse.S`, `copy_sse2.S`, `zcopy_sse.S`, `zcopy_sse2.S`
+  (opteron, opteron_sse3): loaded by adding to a zeroed register, so -0
+  came out +0 and a signaling NaN quiet. They now load as on the other
+  cores, so the copy is exact.
+- `x86_64/symv_L_sse.S` (`ssymv_L` on atom, barcelona, bobcat, core2,
+  dunnington, nano, opteron, penryn, piledriver, prescott): the last two
+  rows of a block, and the last two columns, zeroed the upper half of the
+  matrix operand but not of `x`'s, which holds the next elements, so an
+  infinity there met a 0 and gave NaN in `y`.
+- `power/scal.S`, `zscal.S` (power6, ppc970, cell): on Linux, read the flag
+  argument (whether a zero `alpha` keeps NaN) at ELFv1's stack offset. Under
+  ELFv2, and 32-bit, that slot lies past the caller's arguments, so a zero
+  `alpha` could multiply where it should store zeros: `cgbmv` with `beta`
+  zero gave NaN. The fix reads it through `FRAMESLOT`, which has each ABI's
+  offset; FreeBSD's offsets were already right.
+- `x86/amax.S`, `iamax.S`, `zamax.S`, `izamax.S`, the minima: took the new
+  element unless it compared above the pick, and an unordered compare does
+  not, so a NaN replaced the pick and the next element replaced the NaN.
+  They now compare the pick with the new element, as the maxima do.
+- `arm/amax_vfp.S`, `iamax_vfp.S`, the minima: moved on `lt`, which an
+  unordered compare sets too, with the same effect; `mi` is less than only.
+- `arm64/axpy.S`, `zaxpy.S`, `daxpy_thunderx2t99.S` (every arm64 core but
+  the SVE ones and `vortex`, `vortexm4`) and `loongarch64/axpy_lsx.S`,
+  `axpy_lasx.S`, `caxpy_lsx.S`, `caxpy_lasx.S`: returned at once for a zero
+  `alpha`, so NaN and infinities in `x` never reached `y`, unlike the other
+  architectures' kernels; the level-2 triangular drivers pass `-x(j)`, which
+  may be zero. The comparisons go.
+- `mips64/iamax.S`, `imax.S`, `izamax.S` and their minima (loongson3r3,
+  loongson3r4), and `sparc/iamax.S`, `imax.S`, `izamax.S`: keep a pick per
+  lane, and of equal picks the reduction kept the first lane's, which can
+  be the later index. They now take the smaller index of equal picks.
 
 The rest are the `lsx` and `lasx` kernels under `loongarch64/`, mostly where
 a stride is not 1:
@@ -211,8 +412,19 @@ a stride is not 1:
   the leftover elements were written over the first ones.
 - `axpby_lasx.S`: double precision skipped every other block of eight, and
   with `beta` zero never stopped.
+- `axpby_lsx.S`, `axpby_lasx.S`, `caxpby_lsx.S`, `caxpby_lasx.S`, with a
+  zero scalar: the elements past the last block were `alpha*x + beta*y`
+  whatever the scalars, from `x` (`y`) elements the zero-`alpha` (`beta`)
+  blocks left their pointer at, so a NaN or infinity met the 0. The tail
+  now reads neither operand of a zero scalar, as `kernel/arm/axpby.c` does.
+  Double `axpby` also compared the scalars with a single-precision 0
+  (`ffint.s.l`, upper half undefined), so it never took the zero-scalar
+  blocks; and complex, with one stride 1 and the other not, has no such
+  blocks, so a zero scalar now goes to the strided ones, which do.
 - `caxpby_lsx.S`, `caxpby_lasx.S`: with `alpha` and `beta` zero and a
   stride on `y`, zeroed only the real parts, and `lasx` single one of them twice.
+- `caxpby_lsx.S`: double, with a stride on `x` and none on `y`, stored the
+  upper half of each block's second pair over both halves.
 - `max_lsx.S`, `min_lsx.S`: with a stride on `x`, compared by magnitude, as
   `amax` does.
 - `camin_lsx.S`, `camin_lasx.S`: with a stride on `x`, the minimum started from
@@ -227,17 +439,48 @@ a stride is not 1:
   from an absolute value never computed; `lasx` single, with a stride on `x`,
   overwrote its index step, and its reduction over lanes 4 to 7 mistook its
   own partial minimum for lane 4's value, returning lane 4's index.
+- `snrm2_lsx.S`, `snrm2_lasx.S`, `cnrm2_lsx.S`, `cnrm2_lasx.S`: with a
+  negative stride, returned 0. They scale by `?amax_k` of the same vector,
+  which returns 0 for a stride below 1; they now walk x forwards from its
+  lowest element.
 
 One more patch works around Zig, not OpenBLAS: `power/zdot.S` and
 `zdot_cell.S` return the complex result in f1/f2 as the ELFv2 ABI says, but
 Zig reads a two-float struct from r3/r4. The sources already copy it into
 r3/r4 for the Fortran interface; the patch turns that on. It can go once Zig
-follows the ABI.
+follows the ABI. Likewise, arm's `cdot_vfp.S` and `zdot_vfp.S` for the
+soft-float `sf` variant: they return through a pointer in r0, as AAPCS
+says, but Zig reads the struct from r0 to r3, so the patch drops the pointer
+and returns there.
 
 And the sparc kernels' `64` variant shifts with `sllx` where the sources say
 `sll`: they scale 64-bit strides with `sll`, which under qemu keeps only the
 low 32 bits, so negative strides broke. `issues.md` has the details, and the
 open question of whether real hardware behaves the same.
+
+The ported `utest/test_swap.c` found one more, in `sparc/swap.S` and
+`zswap.S`: with a zero stride, the strided loop loads a whole block before
+storing it, so `n` swaps of one element acted as one. A zero stride now
+takes the one-at-a-time loop. `power/rot.S`, `zrot.S`, `swap.S`, `zswap.S`,
+`rot_ppc440.S` and `zrot_ppc440.S` had the same bug (`utest`'s
+`zdrot_inc_0` on cell) and take the same fix, as do loongarch64 `swap.S`,
+`rot_lsx.S`, `rot_lasx.S`, mips64 `swap.S` and `sparc/rot.S`, `zrot.S`.
+Upstream's own zero-stride
+cases in x86 `swap.S`, `zswap.S` and arm `swap_vfp.S`, `rot_vfp.S` skip the
+work or stop after one element, right only for some `n`; zero strides there
+now take one element at a time too.
+
+With only the written operand's stride zero (`axpy` with `incy` = 0 beside a
+nonzero `incx`), the per-core checks found the same bug in more kernels:
+x86_64 `zaxpy_sse2.S` (whose own zero-stride case fired only with both
+zero), `axpy_atom.S` and `zaxpy_atom.S`; power `axpy.S`, `zaxpy.S` and
+`axpy_ppc440.S`; sparc `axpy.S` and `zaxpy.S`; loongarch64 `axpy_lsx.S`,
+`axpy_lasx.S`, `caxpy_lsx.S` and `caxpy_lasx.S`, and `cswap_lsx.S`,
+`cswap_lasx.S` with `incx` = 0. A zero `incy` now takes a one-at-a-time loop
+there. The C sources ported to Zig had it too, fixed in the port:
+`riscv64/axpy_rvv.c` started every lane at `y[0]` and summed them, adding
+`y[0]` once a lane, and `zaxpy_rvv.c`'s segments and `mips/saxpy_msa.c`,
+`daxpy_msa.c`'s blocks load `y` before storing it.
 
 ## Kernels that call another routine's kernel
 
@@ -318,8 +561,50 @@ Where the port differs from `dynamic*.c`:
 ## Qemu rigs
 
 `zig build qemu-test-<machine>` runs the kernel tests under `qemu-system-*`
-(see `build/qemutest.zig` for the machines). `zig build rstd-test` runs them
+(see `build/qemutest.zig` for the machines): every BLAS test but `abi.zig`'s,
+which resolve targets through an OS. `zig build rstd-test` runs them
 natively and `zig build wasm-test` under node.
+
+The rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>`
+(`macmini-m6` by default when rstd is the root project; `-Dtest-host-off`
+runs it here); the images still build here (`tools/test_host.zig`). Each run copies its files
+to the host's /tmp, runs QEMU from the Nix flake in `tools/nix` (nixpkgs
+pinned by `flake.lock`; QEMU 11.1.2 where Windows has 11.0.1) and streams
+the console back to the watchdog and live log. At most `-Dtest-host-jobs`
+(8) rigs run there at once, across builds. On an arm64 Mac, `aarch64` and
+`linux-aarch64` run under HVF on the host's CPU (Apple, SME2, no SVE: the
+`vortexm4` kernels run too); `-Dtest-host-tcg` keeps them on TCG.
+`x86_64-whpx` and the macOS VM rig stay local.
+
+`qemu-test-x86_64-whpx` runs them on the host's own CPU under WHPX (an
+x86_64 Windows host only), with QEMU's `SapphireRapids` model plus FMA4 and
+XOP, of which WHPX keeps what the host has. TCG implements no AVX-512, FMA4
+or XOP, so the skylakex, cooperlake and sapphirerapids kernels, and the
+bulldozer family's, run only there, on a host that has them.
+
+The big-endian rigs are `s390x`, `powerpc64` (`pseries` under VOF, a
+POWER10, so every 64-bit POWER core runs; Zig emits ELFv2 there too, so it
+boots as the little-endian rigs do), and `mips64r2`, `mips64r6`, `mips32r2`
+and `mips32r5`, the `malta` rigs' big-endian twins. 32-bit MIPS has no
+converted kernels, so its rigs test the portable ones.
+
+`powerpc` is 32-bit PowerPC, a G4 under OpenBIOS on `mac99`, for the ppcg4
+core. It builds in debug, which the 64-bit POWER rigs cannot (LLVM's
+FastISel bug in issues.md needs VSX). `powerpc-pseries` runs the same build
+in a POWER10's 32-bit mode under VOF, so power3 to power6, ppc970 and cell
+run as 32-bit code.
+
+`arm-softfp` builds for `eabi`, the soft-float convention, so the kernels'
+`sf` variant runs, using the VFP the CPU has.
+
+`sparc64-debug` is `sparc64` in debug, in thirty-three images where
+`sparc64` needs fourteen (OpenBIOS maps 4 MB of each), less one test that
+alone is 6 MB in debug.
+`sparc` (32-bit) is a stub: lld cannot link 32-bit SPARC.
+
+The kernel rigs link every core the target CPU can run, whatever the build
+mode, and `-Dblas-cores` does not change that (nor for the Linux rigs). Every
+family has a rig that builds in debug.
 
 Mach-O needs macOS itself: `qemu-test-x86_64-macos` runs the unit tests in an
 x86_64 macOS VM (set up once; see `build/qemutest.zig`), under emulation,
@@ -331,3 +616,33 @@ after the tests, pass or fail, unless `-Dmac-keep`. `qemu-kill-x86_64-macos`
 kills a VM a build step started.
 `zig build rstd-check-macho` builds the tests for x86_64 and aarch64 macOS
 without running them, which is where Mach-O assembly errors show.
+
+`qemu-test-linux-<arch>` (aarch64, x86_64, arm, riscv64, powerpc64le) boots
+a Debian netboot kernel with the hosted test executable as PID 1
+(`test/linux/init.zig`), for the tests that need an OS: auxiliary-vector
+detection, threads, files.
+
+Apple Silicon runs on a real Mac: `zig build ssh-test-aarch64-macos`
+copies the tests to the SSH alias `-Dssh-mac` and runs them there
+(`build/sshtest.zig`); the Mac's address and login stay in the SSH config.
+On an M6 this covers `vortex`, `vortexm4` and SME without SVE, which QEMU's
+`-cpu max` cannot show. `zig build ssh-test-x86_64-macos` runs the x86_64
+macOS suite there under Rosetta 2 (installed on the Mac), much faster than
+the macOS VM, which stays for checks that need macOS on an x86 CPU model.
+`zig build ssh-bench-aarch64-macos
+-Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the
+results are in `tools/blasbench/results-m6.md`.
+
+## OpenBLAS's test suites
+
+`_test/from_openblas/` ports OpenBLAS's own tests to the Zig interfaces: the
+reference BLAS programs `test/[sdcz]blat[123].f` with their `.dat` sweeps,
+the parts of their CBLAS versions (`ctest/`) that differ, and the unit tests
+(`utest/`, `utest/test_extensions/`), from v0.3.34-317. The `.dat` tables run
+natively; the qemu rigs take the example table in each program's header
+(`N` up to 9). Every linked core the machine runs gets the suites again, on
+that small table. Bad arguments map onto the named errors, and what cannot
+be translated (bad letters, row-major CBLAS, forks) is listed in
+`_test/from_openblas/__root__.zig`. Tests of routines not ported yet (level 3
+beyond real `gemm`, LAPACK, the matrix copies) skip until they are; the
+level-3 ones are written against the signatures they expect.

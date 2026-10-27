@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 // Tuple Variation Store: the shared format used by 'gvar' (per-glyph) and
 // 'cvar' (whole-table), grouping deltas by *region* - distinct from the
@@ -162,6 +161,8 @@ pub const GlyphVariationData = struct {
         return self.table_data[self.dataOffset()..];
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "DataHeader matches the GlyphVariationData stream layout" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(DataHeader));

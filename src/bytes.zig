@@ -3,8 +3,9 @@ const std = @import("std");
 const zigstd = @import("zigstd.zig");
 const Allocator = zigstd.Allocator;
 
-pub const Endian = std.builtin.Endian;
+pub const Endian = std.lang.Endian;
 pub const ByteArrayList = std.ArrayList(u8);
+const arch_endian = sysinfo.target.cpu.arch.endian();
 
 // casts v to int_type and appends it to list in little-endian order
 pub fn appendIntLE(alloc: Allocator, list: *ByteArrayList, int_type: type, v: anytype) !void {
@@ -119,7 +120,7 @@ pub inline fn nativeToLE(val: anytype) @TypeOf(val) {
 }
 
 pub fn swapIfNotNative(val: anytype, endian: Endian) @TypeOf(val) {
-    if (sysinfo.cpu.arch.endian() == endian) return val;
+    if (arch_endian == endian) return val;
     var ret = val;
     std.mem.byteSwap(@TypeOf(val), &ret);
     return ret;
@@ -138,7 +139,7 @@ pub inline fn leToNative(val: anytype) @TypeOf(val) {
 pub fn arraySwapIfNotNative(comptime Elem: type, dest: []Elem, src: []const u8, endian: Endian) void {
     const dest_bytes = fromSlice(dest);
     @memcpy(dest_bytes, src[0..dest_bytes.len]);
-    if (sysinfo.cpu.arch.endian() != endian) {
+    if (arch_endian != endian) {
         std.mem.byteSwapAllElements(Elem, dest);
     }
 }
@@ -162,7 +163,7 @@ pub inline fn arrayLEToNative(comptime Elem: type, dest: []Elem, src: []const u8
 }
 
 pub fn typeSwapIfNotNative(comptime T: type, val: []const u8, endian: Endian) T {
-    if (sysinfo.cpu.arch.endian() == endian) return viewAsValue(T, val).*;
+    if (arch_endian == endian) return viewAsValue(T, val).*;
     const size = @sizeOf(T);
     var ret: [size]u8 align(@alignOf(T)) = undefined;
     @memcpy(&ret, val[0..size]);

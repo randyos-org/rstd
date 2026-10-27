@@ -62,10 +62,10 @@ pub fn drawLine(surface: *SwSurface, p0: PointF32, p1: PointF32, width: f32, c: 
 
 /// Bresenham, 1px wide.
 fn drawThinLine(img: *Image, p0: PointF32, p1: PointF32, c: RGBA) void {
-    var x0: i32 = @intFromFloat(@round(p0.x));
-    var y0: i32 = @intFromFloat(@round(p0.y));
-    const x1: i32 = @intFromFloat(@round(p1.x));
-    const y1: i32 = @intFromFloat(@round(p1.y));
+    var x0: i32 = @trunc(@round(p0.x));
+    var y0: i32 = @trunc(@round(p0.y));
+    const x1: i32 = @trunc(@round(p1.x));
+    const y1: i32 = @trunc(@round(p1.y));
 
     const dx: i32 = @intCast(@abs(x1 - x0));
     const dy: i32 = -@as(i32, @intCast(@abs(y1 - y0)));
@@ -121,10 +121,10 @@ fn fillOrientedRect(img: *Image, p0: PointF32, p1: PointF32, width: f32, c: RGBA
     }
     const img_w: f32 = @floatFromInt(img.width);
     const img_h: f32 = @floatFromInt(img.height);
-    const x0: i32 = @intFromFloat(@floor(@max(min_x, 0)));
-    const y0: i32 = @intFromFloat(@floor(@max(min_y, 0)));
-    const x1: i32 = @intFromFloat(@ceil(@min(max_x, img_w)));
-    const y1: i32 = @intFromFloat(@ceil(@min(max_y, img_h)));
+    const x0: i32 = @trunc(@floor(@max(min_x, 0)));
+    const y0: i32 = @trunc(@floor(@max(min_y, 0)));
+    const x1: i32 = @trunc(@ceil(@min(max_x, img_w)));
+    const y1: i32 = @trunc(@ceil(@min(max_y, img_h)));
 
     var y = y0;
     while (y < y1) : (y += 1) {

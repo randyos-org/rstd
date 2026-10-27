@@ -14,7 +14,7 @@ pub const max_align = 1 << 16;
 pub const max_len = 32 << 20;
 
 var region: []align(max_align) u8 = &.{};
-var used: std.StaticBitSet(max_len / page) = .empty;
+var used: std.bit_set.Static(max_len / page) = .empty;
 
 /// Hands out `r` from now on; before, every allocation fails.
 pub fn use(r: []align(max_align) u8) void {

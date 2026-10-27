@@ -39,14 +39,14 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
     var lines = std.mem.splitScalar(u8, text, '\n');
     outer: while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "$(KDIR)")) continue;
-        const colon = std.mem.indexOf(u8, line, " : $(KERNELDIR)/$(") orelse continue;
+        const colon = std.mem.find(u8, line, " : $(KERNELDIR)/$(") orelse continue;
         const tail = line[colon + " : $(KERNELDIR)/$(".len ..];
-        const close = std.mem.indexOfScalar(u8, tail, ')') orelse continue;
+        const close = std.mem.findScalar(u8, tail, ')') orelse continue;
         const key = tail[0..close];
 
         // `sdot_k$(TSUFFIX)` is role `sdot`; level 2 has `sgemv_n$(TSUFFIX)`
         const obj_start = "$(KDIR)".len;
-        const obj_end = std.mem.indexOf(u8, line[obj_start..], "$(TSUFFIX)") orelse continue;
+        const obj_end = std.mem.find(u8, line[obj_start..], "$(TSUFFIX)") orelse continue;
         var name = line[obj_start .. obj_start + obj_end];
         if (std.mem.endsWith(u8, name, "_k")) name = name[0 .. name.len - 2];
         for (out.items) |r| {
@@ -55,7 +55,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
 
         // the recipe line
         const flags = lines.next() orelse break;
-        const ext = std.mem.indexOf(u8, flags, "-DXDOUBLE") != null;
+        const ext = std.mem.find(u8, flags, "-DXDOUBLE") != null;
         var double = false;
         var complex = false;
         var conj = false;
@@ -103,7 +103,7 @@ pub fn dirFor(a: std.mem.Allocator, key: []const u8) ![]const u8 {
     // `CGERUKERNEL`, `ZHEMV_V_KERNEL`) and the half-precision gemvs a
     // two-letter prefix (`SBGEMVNKERNEL`): the routine is found by name
     for (level2_dirs) |d| {
-        if (std.mem.indexOf(u8, key, d[0]) != null) return d[1];
+        if (std.mem.find(u8, key, d[0]) != null) return d[1];
     }
     var s = key;
     var prefix: []const u8 = "";
@@ -111,10 +111,10 @@ pub fn dirFor(a: std.mem.Allocator, key: []const u8) ![]const u8 {
         prefix = "i";
         s = s[1..];
     }
-    if (s.len > 0 and std.mem.indexOfScalar(u8, "SDCZQXB", s[0]) != null) s = s[1..];
+    if (s.len > 0 and std.mem.findScalar(u8, "SDCZQXB", s[0]) != null) s = s[1..];
     if (std.mem.endsWith(u8, s, "KERNEL")) s = s[0 .. s.len - "KERNEL".len];
     const lower = try std.ascii.allocLowerString(a, s);
-    return std.fmt.allocPrint(a, "{s}{s}", .{ prefix, lower });
+    return a.print("{s}{s}", .{ prefix, lower });
 }
 
 test "extended-precision rules parse, marked extended" {

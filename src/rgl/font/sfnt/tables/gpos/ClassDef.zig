@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
 /// A ClassDef table (either format). Only structural array access is
 /// provided here; resolving a specific glyph to its class (format 1: direct
@@ -47,6 +46,8 @@ pub fn getClassRangeRecord(self: ClassDef, index: usize) ClassRangeRecord {
     const pos = 2 * @sizeOf(u16) + index * @sizeOf(ClassRangeRecord);
     return bytes.typeBEToNative(ClassRangeRecord, self.table_data[pos..]);
 }
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "ClassRangeRecord matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 6), @sizeOf(ClassRangeRecord));

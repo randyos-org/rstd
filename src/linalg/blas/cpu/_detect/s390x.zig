@@ -6,7 +6,6 @@
 //! them across context switches -- so the hwcap bit, not the CPU model, is
 //! the thing that decides.
 
-const std = @import("std");
 const coretypes = @import("../_coretypes.zig");
 const select = @import("../_select.zig");
 const sysinfo = @import("builtin");
@@ -31,14 +30,14 @@ pub fn probe() Caps {
 
 /// `probe`, with the bits of `mask` (`LD_HWCAP_MASK`) only, as in the reference.
 pub fn probeMasked(mask: u64) Caps {
-    const hw = if (comptime sysinfo.os.tag == .freestanding) facilities() else auxv.hwcap();
+    const hw = if (comptime sysinfo.target.os.tag == .freestanding) facilities() else auxv.hwcap();
     return .{ .hwcap = hw & @as(usize, @truncate(mask)) };
 }
 
 /// With no OS to ask, the facility list (`STFLE`, unprivileged) as hwcap bits:
 /// facility 129 is the Vector Facility, 135 Vector-Enhancements 1.
 fn facilities() usize {
-    if (comptime sysinfo.cpu.arch != .s390x) return 0;
+    if (comptime sysinfo.target.cpu.arch != .s390x) return 0;
     var list: [3]u64 = @splat(0);
     _ = asm volatile ("stfle 0(%[p])"
         : [n] "={r0}" (-> u64),
@@ -47,7 +46,7 @@ fn facilities() usize {
         : .{ .memory = true, .ps = true });
     const has = struct {
         fn bit(l: [3]u64, n: u8) bool {
-            return l[n / 64] >> @intCast(63 - n % 64) & 1 != 0;
+            return (l[n / 64] >> @intCast(63 - n % 64)) & 1 != 0;
         }
     }.bit;
     return (if (has(list, 129)) HWCAP_S390_VX else 0) | (if (has(list, 135)) HWCAP_S390_VXE else 0);
@@ -86,6 +85,8 @@ pub fn detectMasked(mask: u64) CoreType {
     return decide(probeMasked(mask)).core;
 }
 
+const std = @import("std");
+
 test "the vector bits pick the core" {
     try std.testing.expectEqual(CoreType.zarch_generic, decide(.{}).core);
     try std.testing.expectEqual(CoreType.z13, decide(.{ .hwcap = HWCAP_S390_VX }).core);
@@ -103,7 +104,7 @@ test "LD_HWCAP_MASK hides capabilities" {
 }
 
 test "detect runs on s390x targets" {
-    if (comptime sysinfo.cpu.arch != .s390x) return error.SkipZigTest;
+    if (comptime sysinfo.target.cpu.arch != .s390x) return error.SkipZigTest;
     try std.testing.expect(supportsCore(detect()));
     _ = detectMasked(0);
 }

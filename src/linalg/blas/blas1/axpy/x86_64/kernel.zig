@@ -35,7 +35,7 @@ const BlasLong = types.BlasLong;
 
 pub const Core = coretypes.X86CoreType;
 
-const has_avx512f = std.Target.x86.featureSetHas(sysinfo.cpu.features, .avx512f);
+const has_avx512f = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512f);
 
 /// `y += alpha * x` over a whole block, on vectors as wide as the core's
 /// widest: what the reference's intrinsics block does (real roles only).

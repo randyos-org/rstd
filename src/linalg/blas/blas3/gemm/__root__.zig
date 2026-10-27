@@ -508,42 +508,47 @@ pub fn xgemm_otcopy(m: BlasLong, n: BlasLong, a: [*]XDouble, lda: BlasLong, b: [
 pub const params = @import("params.zig");
 pub const kernel = @import("kernel.zig");
 
-/// Points the real gemm slots at the portable kernels (`kernel.zig`).
+/// Points the level-3 slots at the portable kernels (`kernel.zig`).
 pub const installGeneric = kernel.installGeneric;
 
-/// The portable kernels over real `T` (`portable.kernel`'s source for a
-/// type without slots).
-pub fn Portable(comptime T: type) type {
-    if (comptime @import("../../types.zig").isComplex(T)) @compileError("complex gemm is not ported yet");
-    const K = kernel.Kernels(T, kernel.geometry(T));
-    return struct {
-        pub const gemm_kernel = &K.kernel;
-        pub const gemm_beta = &K.beta;
-        pub const gemm_incopy = &K.incopy;
-        pub const gemm_itcopy = &K.itcopy;
-        pub const gemm_oncopy = &K.oncopy;
-        pub const gemm_otcopy = &K.otcopy;
-    };
+const check = @import("../../_test/blas3/check.zig");
+const Vtable = @import("../../Vtable.zig");
+
+fn cases(vt: *const Vtable) !void {
+    try check.routineAll(vt, .gemm);
 }
 
 const std = @import("std");
-const check = @import("../check.zig");
-const level3 = @import("../level3.zig");
-const blas1check = @import("../../blas1/check.zig");
-const Vtable = @import("../../Vtable.zig");
+const sysinfo = @import("builtin");
+const driver = @import("../driver.zig");
+const portable = @import("../../portable.zig");
+const blas1check = @import("../../_test/blas1/check.zig");
 
 test "portable gemm kernels match the wide reference through the driver" {
     var vt: Vtable = .{};
     installGeneric(&vt);
-    try check.coreCases(&vt);
+    try cases(&vt);
 }
 
 test "every linked core's gemm kernels match the wide reference, where this machine runs them" {
-    try blas1check.eachCore(check.coreCases);
+    try blas1check.eachCore(cases);
+}
+
+test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
+    // natively only: the rigs run their own tiles, and the freestanding ones
+    // have no room for four more sets of kernels
+    if (comptime sysinfo.target.os.tag == .freestanding) return error.SkipZigTest;
+    if (blas1check.rig()) return error.SkipZigTest;
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    kernel.installTile(&vt, "s", f32, .{ .vl = 4, .mv = 4, .nr = 6 });
+    kernel.installTile(&vt, "d", f64, .{ .vl = 2, .mv = 4, .nr = 6 });
+    kernel.installTile(&vt, "c", std.math.Complex(f32), .{ .vl = 2, .mv = 4, .nr = 3 });
+    kernel.installTile(&vt, "z", std.math.Complex(f64), .{ .vl = 1, .mv = 4, .nr = 3 });
+    try check.coreCases(&vt);
 }
 
 test "the unrolls are the installed kernels' own after a core's blocking" {
-    const portable = @import("../../portable.zig");
     const K = kernel.Kernels(f32, kernel.geometry(f32));
     var vt: Vtable = .{};
     portable.install(&vt);
@@ -561,9 +566,9 @@ test "negative or zero blocking falls back to the generic sizes" {
     vt.dgemm_p = -7;
     vt.dgemm_q = 0;
     vt.dgemm_r = -100;
-    const blk = level3.Blocking.of(f64, &vt);
+    const blk = driver.Blocking.of(f64, &vt);
     try std.testing.expect(blk.p > 0 and blk.q == 128 and blk.r == 4096);
-    try check.gemmCases(f64, &vt);
+    try check.routineCases(f64, &vt, .gemm);
 }
 
 test "a packing buffer on the stack is poisoned in tests: a copy that writes nothing shows" {
@@ -577,7 +582,7 @@ test "a packing buffer on the stack is poisoned in tests: a copy that writes not
     vt.dgemm_itcopy = &Nop.copy;
     var a: [4]f64 = @splat(1);
     var c: [4]f64 = @splat(0);
-    try level3.gemm(std.testing.failing_allocator, f64, &vt, false, false, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
+    try driver.gemm(std.testing.failing_allocator, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
     for (c) |v| try std.testing.expect(std.math.isNan(v));
 }
 

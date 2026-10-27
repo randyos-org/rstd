@@ -114,8 +114,8 @@ pub const Oid = struct {
 /// DER body of the first PEM block labeled `label`, e.g. "CERTIFICATE".
 pub fn fromPem(arena: Allocator, pem: []const u8, comptime label: []const u8) ![]u8 {
     const begin = "-----BEGIN " ++ label ++ "-----";
-    const start = (std.mem.indexOf(u8, pem, begin) orelse return error.NoPemBlock) + begin.len;
-    const end = std.mem.indexOfPos(u8, pem, start, "-----END ") orelse return error.BadPem;
+    const start = (std.mem.find(u8, pem, begin) orelse return error.NoPemBlock) + begin.len;
+    const end = std.mem.findPos(u8, pem, start, "-----END ") orelse return error.BadPem;
     var b64: std.ArrayList(u8) = .empty;
     for (pem[start..end]) |c| {
         if (!std.ascii.isWhitespace(c)) try b64.append(arena, c);

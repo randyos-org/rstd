@@ -18,30 +18,14 @@
 //! API - see `CxMat.zig`'s "Domain-file methods" section for how its
 //! methods delegate to them.
 
-const zigstd = @import("../../zigstd.zig");
-
 const blas1 = @import("blas1.zig");
 const elementary = @import("elementary.zig");
-const lu = @import("lu.zig");
-const cholesky = @import("cholesky.zig");
 const generators = @import("generators.zig");
-const tridiagonal = @import("tridiagonal.zig");
-const eigen_symmetric = @import("eigen_symmetric.zig");
-const hessenberg = @import("hessenberg.zig");
-const eigen_general = @import("eigen_general.zig");
-const svd = @import("svd.zig");
-const qr = @import("qr.zig");
 const rat_mod = @import("rat.zig");
 const base_mod = @import("base.zig");
 const random = @import("random.zig");
-const eig = @import("eig.zig");
-const divide = @import("divide.zig");
-const svdapi = @import("svdapi.zig");
 const matrixfun = @import("matrixfun.zig");
-const matmul = @import("matmul.zig");
-const schur = @import("schur.zig");
 const norm = @import("norm.zig");
-const elementwise = @import("elementwise.zig");
 
 pub const CxMat = @import("CxMat.zig");
 pub const Cx = blas1.Cx;
@@ -102,6 +86,22 @@ pub fn prod(ar: []const f64, ai: []const f64) Cx {
     for (ar, ai) |vr, vi| acc = blas1.wmul(acc, Cx.init(vr, vi));
     return acc;
 }
+
+const zigstd = @import("../../zigstd.zig");
+const lu = @import("lu.zig");
+const cholesky = @import("cholesky.zig");
+const tridiagonal = @import("tridiagonal.zig");
+const eigen_symmetric = @import("eigen_symmetric.zig");
+const hessenberg = @import("hessenberg.zig");
+const eigen_general = @import("eigen_general.zig");
+const svd = @import("svd.zig");
+const qr = @import("qr.zig");
+const eig = @import("eig.zig");
+const divide = @import("divide.zig");
+const svdapi = @import("svdapi.zig");
+const matmul = @import("matmul.zig");
+const schur = @import("schur.zig");
+const elementwise = @import("elementwise.zig");
 
 test {
     zigstd.testRefAllDecls(CxMat);

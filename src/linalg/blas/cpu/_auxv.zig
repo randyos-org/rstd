@@ -39,7 +39,7 @@ fn number(comptime tag: Tag) ?usize {
 pub fn get(comptime tag: Tag) usize {
     const n = comptime number(tag);
     if (comptime n == null) return 0;
-    switch (comptime sysinfo.os.tag) {
+    switch (comptime sysinfo.target.os.tag) {
         .linux => return std.os.linux.getauxval(n.?),
         // FreeBSD fills the same vector and answers through libc
         .freebsd => {
@@ -76,7 +76,7 @@ pub fn platform() ?[]const u8 {
 /// syscalls rather than through `std.fs`: no allocator, no `Io` instance, and
 /// it runs at library init where neither is necessarily set up yet.
 pub fn readFile(path: [*:0]const u8, buf: []u8) []const u8 {
-    if (comptime sysinfo.os.tag != .linux) return buf[0..0];
+    if (comptime sysinfo.target.os.tag != .linux) return buf[0..0];
     const linux = std.os.linux;
     const rc = linux.open(path, .{ .ACCMODE = .RDONLY }, 0);
     if (@as(isize, @bitCast(rc)) < 0) return buf[0..0];
@@ -97,7 +97,7 @@ pub fn cpuinfoField(text: []const u8, key: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, key)) continue;
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
         return std.mem.trim(u8, line[colon + 1 ..], " \t\r");
     }
     return null;
@@ -106,7 +106,7 @@ pub fn cpuinfoField(text: []const u8, key: []const u8) ?[]const u8 {
 /// A numeric sysctl (`hw.optional.arm.FEAT_SME` on Darwin), where the OS has
 /// one and libc is linked. Null when it does not exist.
 pub fn sysctlInt(comptime name: [:0]const u8) ?u64 {
-    switch (comptime sysinfo.os.tag) {
+    switch (comptime sysinfo.target.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .dragonfly => {},
         else => return null,
     }
@@ -124,7 +124,7 @@ pub fn sysctlInt(comptime name: [:0]const u8) ?u64 {
 /// Windows `IsProcessorFeaturePresent(feature)`, for the numbers
 /// `std.os.windows.PF` stops short of (beyond 63 it is the system call).
 pub fn processorFeature(feature: u32) bool {
-    if (comptime sysinfo.os.tag != .windows) return false;
+    if (comptime sysinfo.target.os.tag != .windows) return false;
     const k32 = struct {
         extern "kernel32" fn IsProcessorFeaturePresent(f: u32) callconv(.winapi) i32;
     };

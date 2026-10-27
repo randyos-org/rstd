@@ -1,7 +1,7 @@
 const sysinfo = @import("builtin");
 const std = @import("std");
 
-const impl = switch (sysinfo.os.tag) {
+const impl = switch (sysinfo.target.os.tag) {
     .uefi => @import("_os/uefi/io/__root__.zig"),
     else => void,
 };

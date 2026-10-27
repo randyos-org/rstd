@@ -39,7 +39,7 @@ pub const Caps = struct {
 /// Whether this machine can run `core`'s kernels (for tests): the Loongson
 /// 3A R4's need the SIMD architecture, which no release 2 machine here has.
 pub fn canRun(core: CoreType) bool {
-    return core != .loongson3r4 or sysinfo.cpu.has(.mips, .msa);
+    return core != .loongson3r4 or sysinfo.target.cpu.has(.mips, .msa);
 }
 
 /// `CPUCFG`'s encoding as the Linux kernel writes it (`read_cpucfg`): the
@@ -73,7 +73,7 @@ pub fn capsFromCpuinfo(text: []const u8) Caps {
     const name = auxv.cpuinfoField(text, "model name") orelse return .{};
     const has = struct {
         fn any(n: []const u8, a: []const u8, b: []const u8) bool {
-            return std.mem.indexOf(u8, n, a) != null or std.mem.indexOf(u8, n, b) != null;
+            return std.mem.find(u8, n, a) != null or std.mem.find(u8, n, b) != null;
         }
     }.any;
     if (has(name, "Loongson-3A3000", "Loongson-3B3000")) return .{ .features = .initOne(.mmi) };
@@ -82,8 +82,8 @@ pub fn capsFromCpuinfo(text: []const u8) Caps {
 }
 
 pub fn probe() Caps {
-    if (comptime !sysinfo.cpu.arch.isMIPS()) return .{};
-    if (sysinfo.os.tag != .linux) return .{};
+    if (comptime !sysinfo.target.cpu.arch.isMips()) return .{};
+    if (sysinfo.target.os.tag != .linux) return .{};
     if (auxv.hwcap() & HWCAP_LOONGSON_CPUCFG != 0) return capsFromCfg1(cpucfg(LOONGSON_CFG1));
     var buf: [4096]u8 = undefined;
     return capsFromCpuinfo(auxv.readFile("/proc/cpuinfo", &buf));
@@ -115,8 +115,8 @@ pub fn detectNoted() Decision {
 test "the cpucfg instruction word" {
     const w = cpucfgWord(4, 2);
     try std.testing.expectEqual(@as(u32, 0xc8881118), w);
-    try std.testing.expectEqual(@as(u32, 4), w >> 21 & 0x1f);
-    try std.testing.expectEqual(@as(u32, 2), w >> 11 & 0x1f);
+    try std.testing.expectEqual(@as(u32, 4), (w >> 21) & 0x1f);
+    try std.testing.expectEqual(@as(u32, 2), (w >> 11) & 0x1f);
     try std.testing.expectEqual(@as(u32, 0xc8080118), w & ~@as(u32, (0x1f << 21) | (0x1f << 11)));
 }
 
@@ -142,6 +142,6 @@ test "the Loongson cores need their SIMD" {
 }
 
 test "detect runs on MIPS targets" {
-    if (comptime !sysinfo.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isMips()) return error.SkipZigTest;
     _ = detect();
 }

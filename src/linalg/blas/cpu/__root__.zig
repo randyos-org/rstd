@@ -37,7 +37,7 @@ pub const x86_64 = @import("x86_64.zig");
 pub fn unsupported(src: zigstd.SrcInfo) noreturn {
     std.debug.panic(
         "{s}: no implementation for {s}-{s} yet ({s}:{d})",
-        .{ src.fn_name, @tagName(sysinfo.os.tag), @tagName(sysinfo.cpu.arch), src.file, src.line },
+        .{ src.fn_name, @tagName(sysinfo.target.os.tag), @tagName(sysinfo.target.cpu.arch), src.file, src.line },
     );
 }
 
@@ -59,7 +59,7 @@ pub fn GetCpuArch(a: std.Target.Cpu.Arch) type {
 }
 
 /// The detector module for the architecture being compiled for.
-pub const arch = GetCpuArch(sysinfo.cpu.arch);
+pub const arch = GetCpuArch(sysinfo.target.cpu.arch);
 
 /// The core type enum for this target. Which variants exist depends on the
 /// architecture -- there is no cross-architecture core type, just as the
@@ -77,7 +77,7 @@ pub fn detect() CoreType {
 
 /// The architecture's detector (`_detect/<arch>.zig`): `Caps`, `probe`,
 /// `decide`, `runnable`.
-pub const detector = corespec.Detector(sysinfo.cpu.arch);
+pub const detector = corespec.Detector(sysinfo.target.cpu.arch);
 
 /// What `choose` decided: the core the CPU or the user asked for, and the core
 /// whose kernels serve it (null: the portable ones).
@@ -103,6 +103,8 @@ pub fn choose(forced: ?[]const u8, hwcap_mask: ?u64, log: anytype) Chosen {
 pub fn fromName(name: []const u8) ?CoreType {
     return select.byName(CoreType, name);
 }
+
+const kernels = @import("../kernels/__root__.zig");
 
 test "fromName round-trips every selectable core type for this architecture" {
     inline for (@typeInfo(CoreType).@"enum".field_names) |field_name| {
@@ -138,8 +140,8 @@ test "choose gives a core the CPU can run, and its server is linked or portable"
 }
 
 test "corespec.kernelCores lists the cores with kernels" {
-    const tag = sysinfo.cpu.arch;
-    const R = @import("../kernels/__root__.zig").ForArch(tag);
+    const tag = sysinfo.target.cpu.arch;
+    const R = kernels.ForArch(tag);
     const actual = comptime blk: {
         @setEvalBranchQuota(100_000_000);
         var cores: []const corespec.CoreType(tag) = &.{};

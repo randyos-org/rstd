@@ -18,6 +18,7 @@ const zigstd = @import("../../zigstd.zig");
 const L = bytes.L;
 const console = win32.system.console;
 const fs = win32.storage.file_system;
+const kernel32 = win32.kernel32;
 
 /// The EXE is built with the GUI subsystem (`exe.subsystem = .windows`), so no
 /// console is auto-allocated on launch - normal double-click/shortcut runs,
@@ -52,7 +53,7 @@ pub fn maybeAllocDebugConsole(init: zigstd.MainInit) bool {
     // backing memory `init.arena` already cleans up on process exit, so no
     // manual free is needed here.
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch return false;
-    if (sysinfo.os.tag != .windows) return false;
+    if (sysinfo.target.os.tag != .windows) return false;
     return setup(debugRequested(args));
 }
 
@@ -62,7 +63,7 @@ pub fn maybeAllocDebugConsole(init: zigstd.MainInit) bool {
 /// window; otherwise it is discarded. Returns whether output reaches a
 /// console. Call before anything prints.
 pub fn setup(want_console: bool) bool {
-    if (sysinfo.os.tag != .windows) return true;
+    if (sysinfo.target.os.tag != .windows) return true;
     if (redirected()) return false;
     if (want_console and setupDebugConsole()) return true;
     setStdHandlesToNul();
@@ -96,7 +97,7 @@ fn redirected() bool {
     const raw: *const usize = @ptrCast(&std.os.windows.peb().ProcessParameters.hStdError);
     const value = raw.*;
     if (value == 0 or value == @intFromPtr(win32.foundation.INVALID_HANDLE_VALUE)) return false;
-    const file_type = fs.GetFileType(@ptrFromInt(value));
+    const file_type = kernel32.GetFileType(@ptrFromInt(value));
     return file_type == file_type_disk or file_type == file_type_pipe;
 }
 
@@ -107,8 +108,8 @@ pub fn setupDebugConsole() bool {
     // --debug` from an existing terminal) so output lands there instead of
     // popping a separate window. Falls back to allocating our own when
     // there's no parent console to attach to (double-click/shortcut launch).
-    const attached = console.AttachConsole(console.ATTACH_PARENT_PROCESS) != 0;
-    if (!attached and console.AllocConsole() == 0) return false;
+    const attached = kernel32.AttachConsole(console.ATTACH_PARENT_PROCESS) != 0;
+    if (!attached and kernel32.AllocConsole() == 0) return false;
 
     const conout = openHandle(L("CONOUT$"), true, false);
     if (invalidHandle(conout)) return false;
@@ -135,7 +136,7 @@ fn setStdHandlesToNul() void {
 /// std.debug.print and error return traces are visible regardless of
 /// whether a console is attached.
 pub fn redirectStdioToFile(alloc: zigstd.Allocator, name: []const u8) !void {
-    if (sysinfo.os.tag != .windows) return;
+    if (sysinfo.target.os.tag != .windows) return;
     const name_w = try bytes.utf8ToWinStrAllocZ(alloc, name);
     defer alloc.free(name_w);
     const handle = openHandle(name_w, false, true);
@@ -144,8 +145,8 @@ pub fn redirectStdioToFile(alloc: zigstd.Allocator, name: []const u8) !void {
 }
 
 fn setStdHandles(handle: win32.foundation.HANDLE) void {
-    _ = console.SetStdHandle(console.STD_OUTPUT_HANDLE, handle);
-    _ = console.SetStdHandle(console.STD_ERROR_HANDLE, handle);
+    _ = kernel32.SetStdHandle(console.STD_OUTPUT_HANDLE, handle);
+    _ = kernel32.SetStdHandle(console.STD_ERROR_HANDLE, handle);
 }
 
 fn openHandle(name: [:0]const u16, read_too: bool, create: bool) win32.foundation.HANDLE {
@@ -167,5 +168,5 @@ fn openHandle(name: [:0]const u16, read_too: bool, create: bool) win32.foundatio
     }
     const share_all = fs.FILE_SHARE_MODE{ .READ = 1, .WRITE = 1 };
 
-    return fs.CreateFileW(name, access, share_all, null, if (create) fs.CREATE_ALWAYS else fs.OPEN_EXISTING, .{}, null);
+    return kernel32.CreateFileW(name, access, share_all, null, if (create) fs.CREATE_ALWAYS else fs.OPEN_EXISTING, .{}, null);
 }

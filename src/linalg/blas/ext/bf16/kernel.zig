@@ -228,7 +228,7 @@ pub const aliases_l23: []const [2][]const u8 = blk: {
         .{ "sbsymv_U", "ssymv_U" },           .{ "sbneg_tcopy", "sneg_tcopy" },
         .{ "sblaswp_ncopy", "slaswp_ncopy" },
     };
-    for (std.meta.fieldNames(Vtable)) |f| {
+    for (@typeInfo(Vtable).@"struct".field_names) |f| {
         for ([_][]const u8{ "sbtrsm_", "sbtrmm_", "sbsymm_" }) |p| {
             if (std.mem.startsWith(u8, f, p)) out = out ++ [_][2][]const u8{.{ f, "s" ++ f[2..] }};
         }

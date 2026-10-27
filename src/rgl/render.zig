@@ -102,9 +102,10 @@ pub fn drawCustom(surface: *Surface, pipeline: PipelineId, comptime Instance: ty
     }
 }
 
+const zigstd = @import("../zigstd.zig");
+
 test "the same call sequence runs on both backends" {
     const std = @import("std");
-    const zigstd = @import("../zigstd.zig");
     const alloc = zigstd.testAllocator;
 
     const options_list = [_]Surface.InitOptions{
@@ -133,7 +134,6 @@ test "the same call sequence runs on both backends" {
 }
 
 test "drawCustom works on vulkan and is rejected cleanly on sw" {
-    const zigstd = @import("../zigstd.zig");
     const alloc = zigstd.testAllocator;
     const MyInstance = extern struct { pos: [2]f32 };
 

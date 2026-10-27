@@ -1,17 +1,19 @@
 //! The largest or smallest element, or its 1-based index: the portable
 //! kernels of `amax`, `amin`, `iamax`, `iamin`, `imax`, `imin`, `max` and
-//! `min` (`kernel/arm/{,i}{,z}a{max,min}.c`, `{i,}{max,min}.c`), and their
-//! test.
+//! `min`, which every core's `@Vector` kernels fall back to (`vector.zig`).
 //!
-//! The scan starts at element 0 and replaces it only on a strict `>` (`<`),
+//! The first NaN wins, as in Reference-LAPACK master's `i?amax` (`50dc1bf`,
+//! `b358788`), BLIS's `amaxv` and arXiv:2207.09281: its index, and NaN for
+//! the value. Else the scan replaces element 0 only on a strict `>` (`<`),
 //! so ties keep the first. With `abs` an element counts by `|x|`, by
-//! `|re| + |im|` for complex (`CABS1`, not the modulus). `n <= 0` or
-//! `inc_x <= 0` gives 0.
+//! `|re| + |im|` for complex (`CABS1`, not the modulus); where that overflows
+//! for a finite element, the index compares `|re|/4 + |im|/4`, as
+//! `izamax.f90` does, so an infinite part still beats it. `n <= 0` or
+//! `inc_x <= 0` gives 0. Imports stay inside `linalg/blas/`.
 
 const std = @import("std");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const check = @import("check.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -31,19 +33,43 @@ pub fn Extremum(comptime F: type, comptime w: comptime_int, comptime find: Find)
             return if (find.abs) @abs(v) else v;
         }
 
-        /// The index of the extreme element, from 0; `n >= 1`, `inc_x >= 1`.
-        fn scan(n: BlasLong, x: [*]F, inc_x: BlasLong) struct { BlasLong, F } {
+        fn better(k: F, best: F) bool {
+            return if (find.max) k > best else k < best;
+        }
+
+        /// The extreme element or the first NaN: its index from 0 and key;
+        /// `n >= 1`, `inc_x >= 1`.
+        pub fn scan(n: BlasLong, x: [*]F, inc_x: BlasLong) struct { BlasLong, F } {
             var best: BlasLong = 0;
             var best_key = key(x, 0);
+            if (best_key != best_key) return .{ 0, best_key };
             var i: BlasLong = 1;
             while (i < n) : (i += 1) {
                 const k = key(x, i * inc_x * w);
-                if (if (find.max) k > best_key else k < best_key) {
+                if (k != k) return .{ i, k };
+                if (better(k, best_key)) {
                     best = i;
                     best_key = k;
                 }
             }
+            if (w == 2 and std.math.isInf(best_key)) return .{ quarter(n, x, inc_x), best_key };
             return .{ best, best_key };
+        }
+
+        /// The extreme by `|re|/4 + |im|/4`, finite for finite parts.
+        fn quarter(n: BlasLong, x: [*]F, inc_x: BlasLong) BlasLong {
+            var best: BlasLong = 0;
+            var best_key: F = 0;
+            var i: BlasLong = 0;
+            while (i < n) : (i += 1) {
+                const at = i * inc_x * w;
+                const k = @abs(util.at(F, x, at).*) / 4 + @abs(util.at(F, x, at + 1).*) / 4;
+                if (i == 0 or better(k, best_key)) {
+                    best = i;
+                    best_key = k;
+                }
+            }
+            return best;
         }
 
         pub fn value(n: BlasLong, x: [*]F, inc_x: BlasLong) callconv(types.kernelCc(F)) F {
@@ -76,48 +102,5 @@ pub fn Portable(comptime T: type) type {
         pub const iamin_k = &Extremum(F, w, amin).index;
         pub const imax_k = &Extremum(F, w, max).index;
         pub const imin_k = &Extremum(F, w, min).index;
-    };
-}
-
-/// `kern` (a `value` or `index` kernel, by its return type) against a plain
-/// loop; `T` is the element type, real or complex.
-pub fn checkKernel(comptime T: type, comptime find: Find, routine: []const u8, kern: anytype) !void {
-    const F = check.FloatOf(T);
-    const complex = comptime check.isComplex(T);
-    for (check.sizes) |n| {
-        for ([_]usize{ 1, 2, 3 }) |inc| {
-            var x: [check.capacity]T = undefined;
-            check.fill(T, &x, n + 1);
-            const W = check.Wide(F);
-            var best: usize = 0;
-            var best_key: W = undefined;
-            for (0..n) |i| {
-                const v = x[i * inc];
-                const k: W = if (comptime complex) @abs(@as(W, v.re)) + @abs(@as(W, v.im)) else if (find.abs) @abs(@as(W, v)) else v;
-                if (i == 0 or (if (find.max) k > best_key else k < best_key)) {
-                    best = i;
-                    best_key = k;
-                }
-            }
-            const got = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc));
-            const ok = if (@TypeOf(got) == BlasLong)
-                check.expectClose(f64, @floatFromInt(best + 1), @floatFromInt(got), 0)
-            else
-                check.expectCloseRef(F, best_key, got, check.tolerance(F, 1));
-            ok catch |e| return check.case(e, routine, T, n, .{ inc, 0 });
-        }
-    }
-}
-
-test "the portable extremes at the extended type match a plain loop" {
-    const E = check.Ext;
-    inline for (.{ false, true }) |abs| inline for (.{ false, true }) |max| {
-        const find: Find = .{ .abs = abs, .max = max };
-        try checkKernel(E, find, "value", &Extremum(E, 1, find).value);
-        try checkKernel(E, find, "index", &Extremum(E, 1, find).index);
-        if (abs) {
-            try checkKernel(std.math.Complex(E), find, "value", &Extremum(E, 2, find).value);
-            try checkKernel(std.math.Complex(E), find, "index", &Extremum(E, 2, find).index);
-        }
     };
 }

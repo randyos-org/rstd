@@ -10,8 +10,8 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
-const check = @import("../blas1/check.zig");
-const guard = @import("guard.zig");
+const check = @import("../_test/blas1/check.zig");
+const guard = @import("../_test/blas2/guard.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const gemv_kernels = @import("gemv/__root__.zig");
@@ -47,7 +47,7 @@ fn pageUp(addr: usize) usize {
 /// (`interface/gemv.c`'s `buffer_size`; `cs` is 2 for complex).
 pub fn gemvLen(comptime F: type, comptime cs: usize, m: usize, n: usize) usize {
     // the reference's pads are bytes; whole elements cover them at 12-byte f80
-    const pad_bytes = 128 + if (sysinfo.os.tag == .windows) 160 else 0;
+    const pad_bytes = 128 + if (sysinfo.target.os.tag == .windows) 160 else 0;
     const pad = (pad_bytes + @sizeOf(F) - 1) / @sizeOf(F);
     return (cs * (m + n) + pad + 3) & ~@as(usize, 3);
 }
@@ -219,7 +219,7 @@ pub fn Compose(comptime pre: []const u8, comptime T: type, comptime lower: bool,
             const gb = pageAt(gemvbuffer);
             // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN
             // or infinity; cleared as `interface.gemv` does
-            if (comptime complex and sysinfo.cpu.arch == .x86_64) @memset(gb[0..gemvLen(F, cs, @intCast(m), @intCast(p))], 0);
+            if (comptime complex and sysinfo.target.cpu.arch == .x86_64) @memset(gb[0..gemvLen(F, cs, @intCast(m), @intCast(p))], 0);
             var is: BlasLong = if (lower) 0 else m - offset;
             const end: BlasLong = if (lower) offset else m;
             while (is < end) : (is += p) {
@@ -451,7 +451,7 @@ const copy_cases = [_]struct { lower: bool, kind: Kind, complex: bool, m: usize,
 };
 
 test "gemvLen pads whole elements covering the reference's bytes" {
-    const win = sysinfo.os.tag == .windows;
+    const win = sysinfo.target.os.tag == .windows;
     // f32 and f64 as the reference has them
     try std.testing.expectEqual((2 * 7 + 128 / 8 + (if (win) 160 / 8 else 0) + 3) & ~@as(usize, 3), gemvLen(f64, 2, 3, 4));
     try std.testing.expectEqual((5 + 128 / 4 + (if (win) 160 / 4 else 0) + 3) & ~@as(usize, 3), gemvLen(f32, 1, 2, 3));

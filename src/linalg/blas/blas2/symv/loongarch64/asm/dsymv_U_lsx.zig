@@ -625,15 +625,15 @@ const Body = struct {
             \\ .endm
             \\ .align 5
             \\ addi.d $sp, $sp, -88
-            \\ st.w $r23, $sp, 0
-            \\ st.w $r24, $sp, 8
-            \\ st.w $r25, $sp, 16
-            \\ st.w $r26, $sp, 32
-            \\ st.w $r27, $sp, 40
-            \\ st.w $r28, $sp, 48
-            \\ st.w $r29, $sp, 56
-            \\ st.w $r30, $sp, 64
-            \\ st.w $r31, $sp, 72
+            \\ st.d $r23, $sp, 0
+            \\ st.d $r24, $sp, 8
+            \\ st.d $r25, $sp, 16
+            \\ st.d $r26, $sp, 32
+            \\ st.d $r27, $sp, 40
+            \\ st.d $r28, $sp, 48
+            \\ st.d $r29, $sp, 56
+            \\ st.d $r30, $sp, 64
+            \\ st.d $r31, $sp, 72
             \\ fst.d $f0, $sp, 80
             \\ vldrepl.d $vr17, $sp, 80
             \\ addi.d $r17, $r11, -1
@@ -799,15 +799,15 @@ const Body = struct {
             \\ addi.d $r15, $r15, 1
             \\ blt $r15, $r4, 20006b
             \\ 20012:
-            \\ ld.w $r23, $sp, 0
-            \\ ld.w $r24, $sp, 8
-            \\ ld.w $r25, $sp, 16
-            \\ ld.w $r26, $sp, 32
-            \\ ld.w $r27, $sp, 40
-            \\ ld.w $r28, $sp, 48
-            \\ ld.w $r29, $sp, 56
-            \\ ld.w $r30, $sp, 64
-            \\ ld.w $r31, $sp, 72
+            \\ ld.d $r23, $sp, 0
+            \\ ld.d $r24, $sp, 8
+            \\ ld.d $r25, $sp, 16
+            \\ ld.d $r26, $sp, 32
+            \\ ld.d $r27, $sp, 40
+            \\ ld.d $r28, $sp, 48
+            \\ ld.d $r29, $sp, 56
+            \\ ld.d $r30, $sp, 64
+            \\ ld.d $r31, $sp, 72
             \\ addi.d $sp, $sp, 88
             \\ jirl $r0, $r1, 0x0
             \\ .purgem push_if_used

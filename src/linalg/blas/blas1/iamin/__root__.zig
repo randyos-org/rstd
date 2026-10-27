@@ -40,10 +40,8 @@ pub fn ixamin_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) BlasLong {
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const extremum = @import("../extremum.zig");
-const check = @import("../check.zig");
 
 const find: extremum.Find = .{ .abs = true, .max = false };
 
@@ -66,19 +64,22 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
+
 fn checkAll(vt: *const Vtable) !void {
-    try extremum.checkKernel(f32, find, "isamin", vt.isamin_k.?);
-    try extremum.checkKernel(f64, find, "idamin", vt.idamin_k.?);
-    try extremum.checkKernel(std.math.Complex(f32), find, "icamin", vt.icamin_k.?);
-    try extremum.checkKernel(std.math.Complex(f64), find, "izamin", vt.izamin_k.?);
+    try check.checkExtreme(f32, find, "isamin", vt.isamin_k.?);
+    try check.checkExtreme(f64, find, "idamin", vt.idamin_k.?);
+    try check.checkExtreme(std.math.Complex(f32), find, "icamin", vt.icamin_k.?);
+    try check.checkExtreme(std.math.Complex(f64), find, "izamin", vt.izamin_k.?);
 }
 
 test "portable iamin kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkAll(&vt);
-    try extremum.checkKernel(XDouble, find, "iqamin", vt.iqamin_k.?);
-    try extremum.checkKernel(std.math.Complex(XDouble), find, "ixamin", vt.ixamin_k.?);
+    try check.checkExtreme(XDouble, find, "iqamin", vt.iqamin_k.?);
+    try check.checkExtreme(std.math.Complex(XDouble), find, "ixamin", vt.ixamin_k.?);
 }
 
 test "every linked core's iamin kernels match a plain loop, where this machine runs them" {

@@ -5,8 +5,6 @@
 //! checks and drivers in front of them (the OpenBLAS `interface/` and
 //! `driver/level2/` code).
 
-const zigstd = @import("../../../zigstd.zig");
-
 pub const banded = @import("banded.zig");
 pub const gemv = @import("gemv/__root__.zig");
 pub const ger = @import("ger/__root__.zig");
@@ -24,6 +22,8 @@ pub fn installGeneric(vt: *Vtable) void {
         if (@hasDecl(r, "installGeneric")) r.installGeneric(vt);
     }
 }
+
+const zigstd = @import("../../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());

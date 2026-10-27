@@ -14,7 +14,7 @@ const sysinfo = @import("builtin");
 const opts = @import("blaskernel_options");
 const fma = @import("fma.zig");
 
-const kernels = @import("kernels/__root__.zig").ForArch(sysinfo.cpu.arch);
+const kernels = @import("kernels/__root__.zig").ForArch(sysinfo.target.cpu.arch);
 
 /// Read by `fma.zig`.
 pub const blas_fuse_fma: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.hardware;

@@ -5,7 +5,7 @@
 //!   * `.kernel`: a freestanding test kernel per architecture (boot code in
 //!     `test/qemu/`, runner in `test/qemu/runner.zig`, test root in
 //!     `src/_test_qemu.zig`). Where the machine has semihosting (aarch64, arm,
-//!     riscv64, mips64el) the runner exits with the number of failed tests, so a
+//!     riscv64, MIPS) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
 //!     step checks the printed summary for "0 failed". The console is also
 //!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
@@ -67,6 +67,12 @@ const Machine = struct {
     boot: Boot,
     /// Why this rig is not wired up yet; a stub gets no step.
     stub: ?[]const u8 = null,
+    /// Runs under WHPX (`args` has the `-accel`), so only on an x86_64
+    /// Windows host, and never on `-Dtest-host`.
+    whpx: bool = false,
+    /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
+    /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
+    hvf: ?[]const []const u8 = null,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-filter` builds one image as usual.
@@ -88,7 +94,7 @@ const Boot = union(enum) {
         linker_script: []const u8,
         /// Use the LLVM backend instead of the self-hosted one for code generation.
         llvm: bool = false,
-        code_model: std.builtin.CodeModel = .default,
+        code_model: std.lang.CodeModel = .default,
         /// Exit status carries the result; otherwise the printed summary does.
         semihosting: bool = true,
         /// Text qemu always prints to stderr here. The build treats any unchecked
@@ -114,15 +120,19 @@ const machines = [_]Machine{
         .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.cortex_a72 } },
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
+        // no semihosting: the boot code falls back to the PL011 and PSCI
+        .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
     },
     .{
+        // TCG on a Mac too, which has no SVE
         .name = "aarch64-sve",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
         .qemu = "qemu-system-aarch64",
-        .args = &.{ "-M", "virt", "-cpu", "neoverse-v1" },
+        // max has SVE2, SME2 and BF16, so every core but Apple's runs
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on" },
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
@@ -130,6 +140,16 @@ const machines = [_]Machine{
     .{
         .name = "arm",
         .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
+        .qemu = "qemu-system-arm",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/arm.ld",
+        } },
+    },
+    .{
+        // the soft-float ABI: floats in integer registers, the kernels' `sf` variant
+        .name = "arm-softfp",
+        .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
         .boot = .{ .kernel = .{
@@ -203,6 +223,46 @@ const machines = [_]Machine{
         } },
     },
     .{
+        .name = "mips64r2",
+        .query = .{ .cpu_arch = .mips64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips64r2 } },
+        .qemu = "qemu-system-mips64",
+        .args = &.{ "-M", "malta", "-cpu", "Loongson-3A1000" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips64.ld",
+        } },
+    },
+    .{
+        .name = "mips64r6",
+        .query = .{ .cpu_arch = .mips64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips64r6 } },
+        .qemu = "qemu-system-mips64",
+        .args = &.{ "-M", "malta", "-cpu", "I6400" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips64.ld",
+        } },
+    },
+    .{
+        .name = "mips32r2",
+        .query = .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips32r2 } },
+        .qemu = "qemu-system-mips",
+        .args = &.{ "-M", "malta", "-cpu", "24Kf" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips32.ld",
+        } },
+    },
+    .{
+        .name = "mips32r5",
+        .query = .{ .cpu_arch = .mips, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.p5600 } },
+        .qemu = "qemu-system-mips",
+        .args = &.{ "-M", "malta", "-cpu", "P5600" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/mips32.ld",
+        } },
+    },
+    .{
         .name = "i386",
         .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } },
         .qemu = "qemu-system-i386",
@@ -226,18 +286,43 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // The host CPU under Windows' hypervisor: TCG has no AVX-512, FMA4 or
+        // XOP (issues.md), so their cores run only here, on a host that has
+        // them. WHPX keeps only the model's features the host has; `host`
+        // and `max` stop in SeaBIOS.
+        .name = "x86_64-whpx",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-accel", "whpx", "-M", "pc", "-cpu", "SapphireRapids,+fma4,+xop" },
+        .whpx = true,
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86_64.ld",
+            .llvm = true,
+            .semihosting = false,
+        } },
+    },
+    .{
         .name = "sparc64",
         .optimize = .fast,
         // OpenBIOS maps 0x400000 to 0x800000 only, and the default set's
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
         .parts = &.{
-            .{ .name = "blas1", .filters = &.{"linalg.blas.blas1."} },
+            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.", "linalg.blas._test.blas1." } },
             .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
-            .{ .name = "blas3", .filters = &.{"linalg.blas.blas3."} },
+            .{ .name = "blas2-edge", .filters = &.{"linalg.blas._test.blas2.edge."} },
+            // one per routine family: together past the window
+            .{ .name = "blas3-gemm", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm." } },
+            .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
+            .{ .name = "blas3-rank", .filters = &.{ "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k." } },
+            .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm." } },
+            .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
+            .{ .name = "openblas", .filters = &.{"linalg.blas._test.from_openblas."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+            .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
         .qemu = "qemu-system-sparc64",
@@ -249,14 +334,121 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // sparc64 in debug, the mode the other rigs build in; its images are
+        // larger, so blas3 is split too, and gemm's three test files apart
+        .name = "sparc64-debug",
+        .optimize = .debug,
+        .parts = &.{
+            // blas1 in two, as one is past the window
+            .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.amax.", "linalg.blas.blas1.amin.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas._test.blas1.check.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas.blas1.iamax.", "linalg.blas.blas1.iamin.", "linalg.blas.blas1.imax.", "linalg.blas.blas1.imin.", "linalg.blas.blas1.max.", "linalg.blas.blas1.min.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.blas1.uk_block." } },
+            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.edge." } },
+            .{ .name = "blas1-denormal", .filters = &.{"linalg.blas._test.blas1.denormal."} },
+            // the dense routines, the triangular ones, the interface and the
+            // complex edge cases each in two, as one is past the window
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.__root__.test.portable", "linalg.blas.blas2.gemv.__root__.test_" } },
+            .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas.blas2.gemv.__root__.test.half-precision gemv:", "linalg.blas.blas2.gemv.__root__.test.extended gemv:" } },
+            .{ .name = "blas2-gemv-cores", .filters = &.{"linalg.blas.blas2.gemv.__root__.test.every linked core's"} },
+            .{ .name = "blas2-dense-2", .filters = &.{ "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
+            .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular.test.triangular"} },
+            .{ .name = "blas2-triangular-cores", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's"} },
+            .{ .name = "blas2-interface", .filters = &.{
+                "linalg.blas.blas2.interface.test.interface: gemv",
+                "linalg.blas.blas2.interface.test.interface: ger",
+                "linalg.blas.blas2.interface.test.interface: symv",
+                "linalg.blas.blas2.interface.test.interface: problems",
+            } },
+            .{ .name = "blas2-interface-2", .filters = &.{
+                "linalg.blas.blas2.interface.test.interface: the half",
+                "linalg.blas.blas2.interface.test.interface: half",
+                "linalg.blas.blas2.interface.test.interface: level 2",
+                "linalg.blas.blas2.interface.test.every linked core's",
+                "linalg.blas.blas2.interface.test_",
+            } },
+            // in two, as one is past the window
+            .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas._test.blas2.edge.test.portable level-2 routines, real", "linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, real" } },
+            .{ .name = "blas2-edge-complex", .filters = &.{"linalg.blas._test.blas2.edge.test.portable level-2 routines, complex"} },
+            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex"} },
+            .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
+            // but "every core of" each family: those are the blas3-params-* parts
+            .{ .name = "blas3-params", .filters = &.{
+                "linalg.blas.blas3.gemm.params.test.dtb entries",
+                "linalg.blas.blas3.gemm.params.test.generic follows",
+                "linalg.blas.blas3.gemm.params.test.the block factor",
+                "linalg.blas.blas3.gemm.params.test.fixed sets",
+                "linalg.blas.blas3.gemm.params.test.old x86",
+                "linalg.blas.blas3.gemm.params.test.LA464",
+                "linalg.blas.blas3.gemm.params.test.detection gives",
+            } },
+            .{ .name = "blas3-params-x86_64", .filters = &.{"linalg.blas.blas3.gemm.params.test.every core of the x86_64 family"} },
+            .{ .name = "blas3-params-x86", .filters = &.{"linalg.blas.blas3.gemm.params.test.every core of the x86 family"} },
+            .{ .name = "blas3-params-arm", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the arm64 family", "linalg.blas.blas3.gemm.params.test.every core of the arm family" } },
+            .{ .name = "blas3-params-power", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the power64 family", "linalg.blas.blas3.gemm.params.test.every core of the power32 family" } },
+            .{ .name = "blas3-params-rest", .filters = &.{ "linalg.blas.blas3.gemm.params.test.every core of the riscv64 family", "linalg.blas.blas3.gemm.params.test.every core of the s390x family", "linalg.blas.blas3.gemm.params.test.every core of the mips64 family", "linalg.blas.blas3.gemm.params.test.every core of the mips32 family", "linalg.blas.blas3.gemm.params.test.every core of the loongarch64 family", "linalg.blas.blas3.gemm.params.test.every core of the sparc family", "linalg.blas.blas3.gemm.params.test.every core of the wasm family", "linalg.blas.blas3.gemm.params.test.every core of the generic family" } },
+            .{ .name = "blas3-kernel", .filters = &.{
+                "linalg.blas.blas3.__root__.",
+                "linalg.blas.blas3.gemm.kernel.test.packed kernels",
+                "linalg.blas.blas3.gemm.kernel.test.geometry",
+                "linalg.blas.blas3.gemm.kernel.test.beta",
+            } },
+            .{ .name = "blas3-kernel-complex", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels"} },
+            .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
+            .{ .name = "blas3-syrk", .filters = &.{"linalg.blas.blas3.syrk."} },
+            .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
+            .{ .name = "blas3-trmm", .filters = &.{"linalg.blas.blas3.trmm."} },
+            .{ .name = "blas3-trsm", .filters = &.{"linalg.blas.blas3.trsm."} },
+            // the interface in four, as two are near the window
+            .{ .name = "blas3-interface", .filters = &.{ "linalg.blas.blas3.interface.test.interface: gemm", "linalg.blas.blas3.interface.test.interface: a matrix past" } },
+            .{ .name = "blas3-interface-symm", .filters = &.{"linalg.blas.blas3.interface.test.interface: symm"} },
+            .{ .name = "blas3-interface-rank", .filters = &.{ "linalg.blas.blas3.interface.test.interface: syrk", "linalg.blas.blas3.interface.test.interface: the rank-k" } },
+            .{ .name = "blas3-interface-tri", .filters = &.{"linalg.blas.blas3.interface.test.interface: trmm"} },
+            // the OpenBLAS suites in three
+            .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test.from_openblas.blat1.", "linalg.blas._test.from_openblas.utest.", "linalg.blas._test.from_openblas.utest_ext." } },
+            // blat2 in two, past the window with level 3's kernels
+            .{ .name = "openblas-blat2", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test_", "linalg.blas._test.from_openblas.blat2.test.blat2: SMVCH", "linalg.blas._test.from_openblas.blat2.test.blat2: xGEMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTRMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: error exits" } },
+            .{ .name = "openblas-blat2-b", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test.blat2: xTRSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGER,", "linalg.blas._test.from_openblas.blat2.test.blat2: xGERC", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR2", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR2" } },
+            .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test.from_openblas.blat3."} },
+            // the suites on every linked core, by level, level 2 by type
+            .{ .name = "openblas-cores-l1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites"} },
+            .{ .name = "openblas-cores-l2-real", .filters = &.{ "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f32", "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f64" } },
+            .{ .name = "openblas-cores-l2-complex", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-2 suite at complex"} },
+            .{ .name = "openblas-cores-l3", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-3 suite"} },
+            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+            .{ .name = "small", .filters = &small_filters },
+        },
+        .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
+        .qemu = "qemu-system-sparc64",
+        .args = &.{ "-M", "sun4u" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/sparc64.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // OpenBIOS on sun4m, as sparc64's on sun4u
+        .name = "sparc",
+        .query = .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v8 } },
+        .qemu = "qemu-system-sparc",
+        .args = &.{ "-M", "SS-5" },
+        .memory = "256M",
+        .stub = "lld cannot link 32-bit SPARC, and Zig's own ELF linker crashes on it (issues.md)",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .semihosting = false,
+        } },
+    },
+    .{
         .name = "powerpc64le",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr9 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power9" },
         .memory = "512M",
         .boot = .{
             .kernel = .{
-                .linker_script = "test/qemu/ppc64le.ld",
+                .linker_script = "test/qemu/ppc64.ld",
                 .semihosting = false,
                 // the firmware loader's 0x400000 shift, see the linker script
                 .stderr_note = "kernel_addr changed",
@@ -265,12 +457,55 @@ const machines = [_]Machine{
     },
     .{
         .name = "powerpc64le-power10",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
         .memory = "512M",
         .boot = .{ .kernel = .{
-            .linker_script = "test/qemu/ppc64le.ld",
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
+        // big-endian, ELFv2 as Zig emits it; POWER10 runs every 64-bit core
+        .name = "powerpc64",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
+        // a G4 under OpenBIOS: the ppcg4 core
+        .name = "powerpc",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "G4" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // the G4 build in a POWER10's 32-bit mode under VOF: the server cores
+        // through power6, built 32-bit
+        .name = "powerpc-pseries",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
             .semihosting = false,
             .stderr_note = "kernel_addr changed",
         } },
@@ -307,6 +542,7 @@ const machines = [_]Machine{
         .qemu = "qemu-system-aarch64",
         // four CPUs, for the tests that race threads
         .args = &.{ "-M", "virt", "-cpu", "max", "-smp", "4" },
+        .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
@@ -317,6 +553,45 @@ const machines = [_]Machine{
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
+    },
+    .{
+        .name = "linux-arm",
+        .query = .{ .cpu_arch = .arm, .os_tag = .linux },
+        .qemu = "qemu-system-arm",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a15", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_armhf", .kernel = "debian-installer/armhf/vmlinuz", .console = "ttyAMA0" } },
+    },
+    .{
+        .name = "linux-riscv64",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .linux },
+        .qemu = "qemu-system-riscv64",
+        // the vector extension at the widest linked core's VLEN, as `riscv64`
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=512", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_riscv64", .kernel = "debian-installer/riscv64/linux", .console = "ttyS0" } },
+    },
+    .{
+        .name = "linux-powerpc64le",
+        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
+        .qemu = "qemu-system-ppc64",
+        // detection sees a POWER10 (the baseline build links up to POWER9's
+        // kernels); the caps TCG lacks are off, so qemu warns of none
+        .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+    },
+    .{
+        .name = "linux-i386",
+        .query = .{ .cpu_arch = .x86, .os_tag = .linux },
+        .qemu = "qemu-system-i386",
+        .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
+        .memory = "1G",
+        // boots and runs; filtered runs pass
+        .stub = "TCG's fldt/fstpt misplace the significand bytes past a page boundary, which i386's 4-aligned f80 arrays cross (issues.md)",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_i386", .kernel = "debian-installer/i386/linux", .console = "ttyS0" } },
     },
     .{
         // macOS 13 and up; Zig's default minimum is 15.0
@@ -348,7 +623,11 @@ const machines = [_]Machine{
 
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
-const default_filters: []const []const u8 = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "simd." };
+/// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
+const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "simd." } ++ small_filters);
+
+/// The smaller BLAS test files: types, `fma`, `portable` and `ext`.
+const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
@@ -370,25 +649,35 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     } else .{};
     // a one-time fetch of about 55 MB per kernel
     const linux_vm = vmOption(b, "linux-vm", "the Linux rigs", "their kernels");
+    // the rigs run on the Mac when rstd is the project being built; a
+    // dependent runs them here unless it names a host
+    const host_off = b.option(bool, "test-host-off", "Run the rigs' QEMU here rather than on -Dtest-host") orelse false;
+    const host_named = b.option([]const u8, "test-host", "SSH alias of a machine to run the rigs' QEMU on, Nix's from tools/nix (default macmini-m6 when rstd is the root project); images still build here, and x86_64-whpx and the macOS VM rigs stay local");
+    const host_alias: ?[]const u8 = if (host_off) null else host_named orelse if (b.isRoot()) "macmini-m6" else null;
+    const host_jobs = b.option(u32, "test-host-jobs", "Rigs running at once on -Dtest-host, across builds (default 8)") orelse 8;
+    const host_tcg = b.option(bool, "test-host-tcg", "Run every rig on -Dtest-host under TCG, also those HVF could run") orelse false;
+    const test_host: ?TestHost = if (host_alias) |alias| .{ .alias = alias, .jobs = host_jobs, .tcg = host_tcg } else null;
 
+    const host = b.graph.host.result;
+    const whpx_host = host.os.tag == .windows and host.cpu.arch == .x86_64;
     for (machines) |m| {
-        if (m.stub != null) continue;
+        if (m.stub != null or (m.whpx and !whpx_host)) continue;
         const target = b.resolveTargetQuery(m.query);
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
             for (m.parts) |p| {
                 var part = m;
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
-                const run = addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters);
+                const run = addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host);
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
             }
             continue;
         }
         const run = switch (m.boot) {
-            .kernel => |k| addKernelRun(b, m, k, target, m.optimize orelse optimize, filters),
+            .kernel => |k| addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
-            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters) orelse continue else continue,
+            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host) orelse continue else continue,
         };
         const about = switch (m.boot) {
             .kernel, .linux => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
@@ -409,18 +698,78 @@ fn vmOption(b: *Build, comptime name: []const u8, comptime rigs: []const u8, com
     return !off and (on orelse b.isRoot());
 }
 
-/// `m`'s qemu, under `tools/qemu_watch.zig`: a firmware halt or an hour with
-/// no output ends it and fails the step, where it would otherwise never end.
-/// The slowest test prints nothing for about 20 minutes on the x86 rigs.
-fn qemuCommand(b: *Build, m: Machine) *Build.Step.Run {
-    const run = b.addRunArtifact(watchTool(b));
-    run.addArgs(&.{ "60", "Stopping execution", "--", m.qemu });
+/// `-Dtest-host`: the machine the rigs' QEMU runs on (`tools/test_host.zig`).
+const TestHost = struct { alias: []const u8, jobs: u32, tcg: bool };
+
+/// Where `m` runs: the test host, or here (null).
+fn testHostFor(m: Machine, host: ?TestHost) ?TestHost {
+    return if (m.whpx) null else host;
+}
+
+/// `m`'s qemu and `args`, under `tools/qemu_watch.zig`: a firmware halt or
+/// an hour with no output ends it and fails the step, where it would
+/// otherwise never end. The slowest test prints nothing for about 20 minutes
+/// on the x86 rigs. On a test host, through `tools/test_host.zig`, which
+/// copies over the files `fileArg` adds.
+fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
+    const run = watchCommand(b);
+    run.addArgs(&.{ "Stopping execution", "--" });
+    const h = testHostFor(m, host) orelse {
+        run.addArg(m.qemu);
+        run.addArgs(m.args);
+        return run;
+    };
+    run.addArtifactArg2(testHostTool(b), .{});
+    run.addArgs(&.{ h.alias, liveLog(b, m), b.fmt("{d}", .{h.jobs}) });
+    run.addDirectoryArg2(b.path("tools/nix"), .{});
+    run.addArgs(&.{ m.qemu, "--tcg" });
+    run.addArgs(m.args);
+    if (m.hvf) |hvf| if (!h.tcg) {
+        run.addArg("--hvf");
+        run.addArgs(hvf);
+    };
+    run.addArg("--");
     return run;
+}
+
+/// A file `m`'s qemu reads, copied over first on a test host.
+fn fileArg(run: *Build.Step.Run, m: Machine, host: ?TestHost, file: Build.LazyPath) void {
+    if (testHostFor(m, host) != null) run.addPrefixedFileArg("local:", file) else run.addFileArg(file);
+}
+
+var test_host_tool: ?*Build.Step.Compile = null;
+
+fn testHostTool(b: *Build) *Build.Step.Compile {
+    if (test_host_tool) |t| if (t.step.owner == b) return t;
+    test_host_tool = b.addExecutable(.{ .name = "test_host", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/test_host.zig"),
+        .target = b.graph.host,
+    }) });
+    return test_host_tool.?;
+}
+
+/// `tools/qemu_watch.zig` with its idle limit (an hour) and `-Dfail-fast`;
+/// the caller adds halt texts, `--` and the command.
+pub fn watchCommand(b: *Build) *Build.Step.Run {
+    const run = b.addRunArtifact(watchTool(b));
+    run.addArg("60");
+    if (failFast(b)) run.addArg("--fail-fast");
+    return run;
+}
+
+var fail_fast: ?struct { owner: *Build, on: bool } = null;
+
+/// `-Dfail-fast`: end a rig at its first failing test rather than run the rest.
+fn failFast(b: *Build) bool {
+    if (fail_fast) |f| if (f.owner == b) return f.on;
+    const on = b.option(bool, "fail-fast", "End a qemu or SSH rig at its first failing test") orelse false;
+    fail_fast = .{ .owner = b, .on = on };
+    return on;
 }
 
 var watch_tool: ?*Build.Step.Compile = null;
 
-fn watchTool(b: *Build) *Build.Step.Compile {
+pub fn watchTool(b: *Build) *Build.Step.Compile {
     if (watch_tool) |t| if (t.step.owner == b) return t;
     watch_tool = b.addExecutable(.{ .name = "qemu_watch", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/qemu_watch.zig"),
@@ -436,17 +785,20 @@ fn liveLog(b: *Build, m: Machine) []const u8 {
 
 /// qemu's console on stdout and, as it is written, in `liveLog`: a run step
 /// checking stdout shows it only once qemu exits. Naming the serial port and
-/// monitor keeps `-nographic`'s firmware console.
-fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine) void {
+/// monitor keeps `-nographic`'s firmware console. On a test host
+/// `tools/test_host.zig` writes the log.
+fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void {
     run.addArgs(&.{ "-m", m.memory, "-nographic", "-no-reboot" });
-    run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off,logfile={s}", .{liveLog(b, m)}), "-serial", "chardev:con", "-mon", "chardev=con" });
+    const log = if (testHostFor(m, host) != null) "" else b.fmt(",logfile={s}", .{liveLog(b, m)});
+    // not `-mon`, deprecated (a warning) from QEMU 11.1
+    run.addArgs(&.{ "-chardev", b.fmt("stdio,id=con,mux=on,signal=off{s}", .{log}), "-serial", "chardev:con", "-monitor", "chardev:con" });
 }
 
 /// QEMU booting a Debian kernel with an initramfs of `test/linux/init.zig`
 /// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
 /// null until the kernel's package is fetched.
-fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8) !?*Build.Step.Run {
-    const kernel = b.lazyDependency(l.dep, .{}) orelse return null;
+fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
+    const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
     const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
@@ -460,16 +812,15 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     }) });
     const pack = b.addRunArtifact(tool);
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
-    pack.addPrefixedArtifactArg("init=", init_exe);
-    pack.addPrefixedArtifactArg("test=", test_exe);
+    pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
+    pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
 
-    const run = qemuCommand(b, m);
-    run.addArgs(m.args);
-    addConsole(b, run, m);
+    const run = qemuCommand(b, m, host);
+    addConsole(b, run, m, host);
     run.addArg("-kernel");
-    run.addFileArg(kernel.path(l.kernel));
+    fileArg(run, m, host, kernel.path(l.kernel));
     run.addArg("-initrd");
-    run.addFileArg(cpio);
+    fileArg(run, m, host, cpio);
     // panic=-1: a dead init restarts at once, which -no-reboot makes an exit
     run.addArgs(&.{ "-append", b.fmt("console={s} rdinit=/init panic=-1 quiet loglevel=3", .{l.console}) });
     run.has_side_effects = true;
@@ -479,7 +830,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
 }
 
 /// QEMU booting `m`'s freestanding test kernel.
-fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8) *Build.Step.Run {
+fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) *Build.Step.Run {
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/_test_qemu.zig"),
         .target = target,
@@ -501,14 +852,15 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     });
     test_exe.setLinkerScript(b.path(k.linker_script));
 
-    const run = qemuCommand(b, m);
-    run.addArgs(m.args);
-    addConsole(b, run, m);
+    const run = qemuCommand(b, m, host);
+    addConsole(b, run, m, host);
     if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
     run.addArg("-kernel");
-    run.addArtifactArg(test_exe);
+    fileArg(run, m, host, test_exe.getEmittedBin());
     run.has_side_effects = true;
-    if (!k.semihosting) run.expectStdOutMatch(", 0 failed");
+    // HVF has no semihosting, so no exit status
+    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
+    if (!k.semihosting or hvf) run.expectStdOutMatch(", 0 failed");
     if (k.stderr_note) |note| run.expectStdErrMatch(note);
     return run;
 }
@@ -518,7 +870,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
 /// Null until the lazy OSX-KVM dependency is fetched. The VM's files are named
 /// relative to the build root, where its commands run, so none is hashed.
 fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize: Optimize, mac: MacOptions) !?*Build.Step.Run {
-    const kvm = b.lazyDependency("osx_kvm", .{}) orelse return null;
+    const kvm = b.dependencyLazy("osx_kvm", .{}) catch return null;
     const vm = b.fmt(".macos-vm/{s}", .{m.name});
     try b.root.createDirPath(b.graph.io, vm);
     // setup skips what is there, so a change there configures again
@@ -635,7 +987,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    run.addArtifactArg(try buildroot.addRstdTest(b, mod, target, &.{}));
+    run.addArtifactArg2(try buildroot.addRstdTest(b, mod, target, &.{}), .{});
     run.addArg(m.qemu);
     try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
     if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);
@@ -724,7 +1076,7 @@ fn qemuArgs(b: *Build, run: *Build.Step.Run, m: Machine, kvm: *Build.Dependency,
     // A `(qemu)` prompt: `info status` says whether it runs, and `RIP` in
     // `info registers` moves while the guest executes. Without a console
     // the monitor is a socket.
-    const dir = std.fs.path.dirname(paths.disk).?;
+    const dir = std.Io.Dir.path.dirname(paths.disk).?;
     // for `qemu-kill` and test runs; QEMU removes it at a clean exit
     run.addArgs(&.{ "-pidfile", b.fmt("{s}/qemu.pid", .{dir}) });
     // COM1: macOS's console with `serial=3` in OpenCore's boot-args
@@ -743,8 +1095,8 @@ fn qemuArgs(b: *Build, run: *Build.Step.Run, m: Machine, kvm: *Build.Dependency,
 fn smcKey(b: *Build, kvm: *Build.Dependency) ![]const u8 {
     const path = try kvm.builder.root.joinString(b.allocator, "OpenCore-Boot.sh");
     const script = try std.Io.Dir.cwd().readFileAlloc(b.graph.io, path, b.allocator, .limited(1 << 20));
-    const start = (std.mem.indexOf(u8, script, "osk=\"") orelse return error.NoSmcKey) + 5;
-    const end = std.mem.indexOfScalarPos(u8, script, start, '"') orelse return error.NoSmcKey;
+    const start = (std.mem.find(u8, script, "osk=\"") orelse return error.NoSmcKey) + 5;
+    const end = std.mem.findScalarPos(u8, script, start, '"') orelse return error.NoSmcKey;
     return script[start..end];
 }
 
@@ -786,7 +1138,7 @@ const ovmf_vars_size = 540672;
 /// `qemu-system-x86_64`, as MSYS2 and the official builds lay it out.
 fn ovmfVarsTemplate(b: *Build) ?[]const u8 {
     const qemu = b.findProgram(.{ .names = &.{"qemu-system-x86_64"} }) orelse return null;
-    const bin = std.fs.path.dirname(qemu) orelse return null;
+    const bin = std.Io.Dir.path.dirname(qemu) orelse return null;
     for ([_][]const u8{ "../share/qemu", "share" }) |rel| {
         const path = b.pathJoin(&.{ bin, rel, "edk2-i386-vars.fd" });
         if (rstdbuild.io.fileExists(b.graph.io, path)) return path;

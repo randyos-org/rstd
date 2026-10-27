@@ -92,10 +92,6 @@ const text =
     \\ .endif
     \\ cmp r0, #0
     \\ ble 20008f
-    \\ cmp r2, #0
-    \\ beq 20008f
-    \\ cmp r4, #0
-    \\ beq 20008f
     \\ cmp r2, #1
     \\ bne 20004f
     \\ cmp r4, #1

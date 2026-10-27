@@ -26,7 +26,7 @@ pub const Core = coretypes.X86CoreType;
 
 /// The reference compiles these blocks as intrinsics when `__AVX512CD__` is
 /// defined, with a 512-bit pass ahead of the 256-bit one.
-const has_avx512cd = std.Target.x86.featureSetHas(sysinfo.cpu.features, .avx512cd);
+const has_avx512cd = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512cd);
 
 /// The lower (`high` false) or upper half of `v`.
 inline fn half(comptime T: type, v: anytype, comptime high: bool) @Vector(@typeInfo(@TypeOf(v)).vector.len / 2, T) {

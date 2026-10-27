@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 const types = @import("../../stream_types.zig");
 
 const Offset16 = types.Offset16;
@@ -311,6 +310,8 @@ fn glyphClass(table_data: []const u8, class_def_table: u32, glyph: GlyphIndex) u
     // "All glyphs not assigned to a class fall into class 0". (OpenType spec)
     return 0;
 }
+
+const zigstd = @import("../../../../../zigstd.zig");
 
 test "GPOS StreamLayout/LookupHeader match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 10), @sizeOf(StreamLayout));

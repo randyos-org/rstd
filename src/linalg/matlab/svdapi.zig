@@ -55,7 +55,7 @@ pub fn rank(allocator: zigstd.Allocator, a: CxMat, tol: ?f64) !usize {
     const s = try singularValues(allocator, a);
     defer allocator.free(s);
     const mn = @min(a.m, a.n);
-    const threshold = tol orelse @as(f64, @floatFromInt(@max(a.m, a.n))) * std.math.floatEps(f64) * s[0];
+    const threshold = tol orelse (@as(f64, @floatFromInt(@max(a.m, a.n))) * std.math.floatEps(f64) * s[0]);
     var k: usize = 0;
     for (s[0..mn]) |sv| {
         if (sv <= threshold) break;
@@ -106,7 +106,7 @@ pub fn pinv(
 
     _ = svd_mod.wsvdc(work, sr, si, er, ei, CxMat.initPacked(ur, ui, n, n), CxMat.initPacked(vr, vi, p, p), workr, worki, 11);
 
-    const threshold = tol orelse @as(f64, @floatFromInt(@max(n, p))) * std.math.floatEps(f64) * sr[0];
+    const threshold = tol orelse (@as(f64, @floatFromInt(@max(n, p))) * std.math.floatEps(f64) * sr[0]);
     var k: usize = 0;
     for (sr[0..mn]) |sv| {
         if (sv <= threshold) break;

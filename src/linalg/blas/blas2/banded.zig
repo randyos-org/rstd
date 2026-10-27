@@ -21,17 +21,14 @@
 //! of up to `stack_bytes` are copied on the stack.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const Vtable = @import("../Vtable.zig");
-const check = @import("../blas1/check.zig");
 const interface = @import("interface.zig");
 const portable = @import("../portable.zig");
 
 const BlasLong = types.BlasLong;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 pub const Error = interface.Error;
 
@@ -236,6 +233,8 @@ fn Scratch(comptime T: type) type {
                 self.heap = try gpa.alloc(T, len);
                 break :blk self.heap.?;
             };
+            // poisoned in tests, as `interface.zig`'s scratch is
+            if (sysinfo.is_test) @memset(std.mem.sliceAsBytes(buf), 0xff);
             copyK(T, n, v, inc, buf.ptr, 1);
             return buf.ptr;
         }
@@ -333,7 +332,8 @@ fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptim
 
 /// `driver/level2/{spr,syr,zspr,zsyr,zhpr,zher}_k.c`: `A += alpha*x*x^T`, or
 /// `alpha*x*x^H` for the Hermitian kinds (real `alpha`), on one triangle in
-/// full (`lda`) or packed storage.
+/// full (`lda`) or packed storage. A column whose `x` is zero is passed over,
+/// as the reference does; OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
 fn rankDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, gpa: std.mem.Allocator, n: BlasLong, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) std.mem.Allocator.Error!void {
     var sx: Scratch(T) = .{};
     defer sx.deinit(gpa);
@@ -344,11 +344,11 @@ fn rankDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, compt
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) at(T, X, i) else X;
         const xi = el(T, X, i).*;
-        switch (kind) {
-            .symmetric => if (!isZero(T, xi)) axpyK(T, false, len, mul(T, alpha, xi), xs, col),
+        if (!isZero(T, xi)) switch (kind) {
+            .symmetric => axpyK(T, false, len, mul(T, alpha, xi), xs, col),
             .hermitian => axpyK(T, false, len, scaleF(T, conj(T, xi), alpha), xs, col),
             .hermitian_rev => axpyK(T, true, len, scaleF(T, xi, alpha), xs, col),
-        }
+        };
         if (kind != .symmetric) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
@@ -356,7 +356,8 @@ fn rankDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, compt
 
 /// `driver/level2/{spr2,syr2,zspr2,zsyr2,zhpr2,zher2}_k.c`: `A += alpha*x*y^T
 /// + alpha*y*x^T`, or `alpha*x*y^H + conj(alpha)*y*x^H` for the Hermitian
-/// kinds.
+/// kinds. A column whose `x` and `y` are both zero is passed over, as the
+/// reference does; OpenBLAS's drivers do not.
 fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, gpa: std.mem.Allocator, n: BlasLong, alpha: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, a: [*]T, lda: BlasLong) std.mem.Allocator.Error!void {
     var sx: Scratch(T) = .{};
     var sy: Scratch(T) = .{};
@@ -372,7 +373,7 @@ fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comp
         const ys = if (lower) at(T, Y, i) else Y;
         const xi = el(T, X, i).*;
         const yi = el(T, Y, i).*;
-        switch (kind) {
+        if (!isZero(T, xi) or !isZero(T, yi)) switch (kind) {
             .symmetric => {
                 axpyK(T, false, len, mul(T, alpha, xi), ys, col);
                 axpyK(T, false, len, mul(T, alpha, yi), xs, col);
@@ -385,7 +386,7 @@ fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comp
                 axpyK(T, true, len, mul(T, alpha, xi), ys, col);
                 axpyK(T, true, len, mul(T, conj(T, alpha), yi), xs, col);
             },
-        }
+        };
         if (kind != .symmetric) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
@@ -603,6 +604,11 @@ pub fn her2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, 
 }
 
 // ---- tests -------------------------------------------------------------------
+
+const Vtable = @import("../Vtable.zig");
+const check = @import("../_test/blas1/check.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
 
 const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
 const talloc = std.testing.allocator;

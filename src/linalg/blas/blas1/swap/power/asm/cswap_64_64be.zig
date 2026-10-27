@@ -208,6 +208,11 @@ const text =
     \\ sub 10, 10, 12
     \\ mr 6, 8
     \\ mr 7, 10
+    \\ mtspr 9, 3
+    \\ cmpdi 0, 9, 0
+    \\ beq- 0, 20006f
+    \\ cmpdi 0, 4, 0
+    \\ beq- 0, 20006f
     \\ sradi. 0, 3, 3
     \\ mtspr 9, 0
     \\ beq- 20005f

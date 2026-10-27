@@ -1042,7 +1042,7 @@ const text =
     \\ movq %r9, %r11
     \\ movq %rcx, %rax
     \\ cmpq $0, %r8
-    \\ jne 20026f
+    \\ je 20032f
     \\ cmpq $0, %r10
     \\ je 20032f
     \\ 20026:
@@ -1414,6 +1414,9 @@ const text =
     \\ addpd %xmm1, %xmm8
     \\ movlpd %xmm8, 0 * 8(%r11)
     \\ movhpd %xmm8, 1 * 8(%r11)
+    \\ addq %r8, %rdx
+    \\ addq %r10, %r9
+    \\ addq %r10, %r11
     \\ decq %rax
     \\ jg 20032b
     \\ .balign 8

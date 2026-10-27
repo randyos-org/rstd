@@ -60,13 +60,13 @@ fn report(body: []const u8, top: usize) void {
     var at: usize = @sizeOf(H) + h.llvm_pass_timings_len;
     var files: std.ArrayList([]const u8) = .empty;
     for (0..h.files_len) |_| {
-        const end = std.mem.indexOfScalarPos(u8, body, at, 0).?;
+        const end = std.mem.findScalarPos(u8, body, at, 0).?;
         files.append(A, body[at..end]) catch @panic("OOM");
         at = end + 1;
     }
     var decls: std.ArrayList(Decl) = .empty;
     for (0..h.decls_len) |_| {
-        const end = std.mem.indexOfScalarPos(u8, body, at, 0).?;
+        const end = std.mem.findScalarPos(u8, body, at, 0).?;
         const name = body[at..end];
         at = end + 1;
         const file = std.mem.readInt(u32, body[at..][0..4], .little);

@@ -1,8 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
-
-const Allocator = zigstd.Allocator;
 
 /// Schema for the 'name' header, used only to compute field offsets/sizes at
 /// comptime; never instantiated.
@@ -110,6 +107,9 @@ pub const NameTable = struct {
         return store[start..end];
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
+const Allocator = zigstd.Allocator;
 
 test "name StreamLayout/NameRecord match the OpenType stream layout (no padding)" {
     try zigstd.testExpectEqual(@as(usize, 6), @sizeOf(StreamLayout));

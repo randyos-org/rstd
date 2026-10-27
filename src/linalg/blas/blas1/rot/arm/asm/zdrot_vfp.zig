@@ -195,10 +195,6 @@ const text =
     \\ ble 20008f
     \\ 20007:
     \\ KERNEL_S1
-    \\ cmp r2, #0
-    \\ beq 20008f
-    \\ cmp r4, #0
-    \\ beq 20008f
     \\ subs r12, r12, #1
     \\ bne 20007b
     \\ 20008:

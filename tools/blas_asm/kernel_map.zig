@@ -43,7 +43,7 @@ pub const Routine = enum {
 
     /// The make variable of a role's source: `SAXPYKERNEL`, `DSDOTKERNEL`.
     pub fn variable(r: Routine, role: Role) ![]const u8 {
-        return try std.fmt.allocPrint(arena, "{s}{s}KERNEL", .{ role.make, try std.ascii.allocUpperString(arena, @tagName(r)) });
+        return try arena.print("{s}{s}KERNEL", .{ role.make, try std.ascii.allocUpperString(arena, @tagName(r)) });
     }
 };
 
@@ -164,7 +164,7 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
         }
         if (!live) continue;
         if (std.mem.startsWith(u8, line, "include ") or std.mem.startsWith(u8, line, "-include ")) {
-            const target = std.mem.trim(u8, line[std.mem.indexOfScalar(u8, line, ' ').?..], " ");
+            const target = std.mem.trim(u8, line[std.mem.findScalar(u8, line, ' ').?..], " ");
             const marker = "$(KERNELDIR)";
             if (std.mem.startsWith(u8, target, marker)) {
                 const rest = target[marker.len..];
@@ -188,7 +188,7 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
 /// like defines `ARCHCONFIG` more than once; the last, the full core, wins.
 pub fn getarch(core: []const u8) !?[]const []const u8 {
     const text = read(try path(&.{ root, "getarch.c" })) orelse return null;
-    const tag = try std.fmt.allocPrint(arena, "FORCE_{s}", .{core});
+    const tag = try arena.print("FORCE_{s}", .{core});
     var lines = std.mem.splitScalar(u8, text, '\n');
     var depth: usize = 0; // within the block: its nested `#if`s
     var in_block = false;
@@ -198,7 +198,7 @@ pub fn getarch(core: []const u8) !?[]const []const u8 {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (!in_block) {
             if (!std.mem.startsWith(u8, line, "#if")) continue;
-            const at = std.mem.indexOf(u8, line, tag) orelse continue;
+            const at = std.mem.find(u8, line, tag) orelse continue;
             const e = at + tag.len;
             if (e < line.len and (std.ascii.isAlphanumeric(line[e]) or line[e] == '_')) continue;
             in_block = true;
@@ -211,8 +211,8 @@ pub fn getarch(core: []const u8) !?[]const []const u8 {
             depth -= 1;
         }
         if (std.mem.startsWith(u8, line, "#define CORENAME")) {
-            const q = std.mem.indexOfScalar(u8, line, '"') orelse continue;
-            const e = std.mem.indexOfScalarPos(u8, line, q + 1, '"') orelse continue;
+            const q = std.mem.findScalar(u8, line, '"') orelse continue;
+            const e = std.mem.findScalarPos(u8, line, q + 1, '"') orelse continue;
             corename = line[q + 1 .. e];
         }
         if (!std.mem.startsWith(u8, line, "#define ARCHCONFIG")) continue;
@@ -221,8 +221,8 @@ pub fn getarch(core: []const u8) !?[]const []const u8 {
         var cur = line;
         while (true) {
             var rest = cur;
-            while (std.mem.indexOfScalar(u8, rest, '"')) |q| {
-                const e = std.mem.indexOfScalarPos(u8, rest, q + 1, '"') orelse break;
+            while (std.mem.findScalar(u8, rest, '"')) |q| {
+                const e = std.mem.findScalarPos(u8, rest, q + 1, '"') orelse break;
                 try s.appendSlice(arena, rest[q + 1 .. e]);
                 try s.append(arena, ' ');
                 rest = rest[e + 1 ..];
@@ -236,7 +236,7 @@ pub fn getarch(core: []const u8) !?[]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     var it = std.mem.tokenizeAny(u8, c, " \t");
     while (it.next()) |tok| if (std.mem.startsWith(u8, tok, "-D")) try out.append(arena, tok);
-    try out.append(arena, try std.fmt.allocPrint(arena, "-DCORE_{s}", .{corename orelse core}));
+    try out.append(arena, try arena.print("-DCORE_{s}", .{corename orelse core}));
     return out.items;
 }
 
@@ -263,7 +263,7 @@ pub fn cores(arch: []const u8) !?[]const []const u8 {
 /// The sources `core` uses for precision `f` (`S`, `D`, `C`, `Z`, `Q`, `X`);
 /// several when a conditional picks between them.
 pub fn resolve(arch: []const u8, core: []const u8, f: []const u8) ![]const []const u8 {
-    const key = try std.fmt.allocPrint(arena, "{s}AXPYKERNEL", .{f});
+    const key = try arena.print("{s}AXPYKERNEL", .{f});
     return try resolveKey(arch, core, key, "Makefile.L1");
 }
 
@@ -275,7 +275,7 @@ pub fn resolveKey(arch: []const u8, core: []const u8, key: []const u8, defaults:
     const dir = try path(&.{ root, "kernel", arch });
     var a: Assigns = .{};
     if (!std.mem.eql(u8, core, "(all)")) {
-        try apply(&a, try path(&.{ dir, try std.fmt.allocPrint(arena, "KERNEL.{s}", .{core}) }), dir, key, false);
+        try apply(&a, try path(&.{ dir, try arena.print("KERNEL.{s}", .{core}) }), dir, key, false);
     }
     try apply(&a, try path(&.{ dir, "KERNEL" }), dir, key, false);
     if (a.values.items.len == 0) try apply(&a, try path(&.{ root, "kernel", defaults }), dir, key, true);

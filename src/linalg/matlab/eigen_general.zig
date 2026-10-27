@@ -7,7 +7,6 @@
 //! Hessenberg form + transformation info this one consumes.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
@@ -425,6 +424,7 @@ pub fn comqr3(
     return 0;
 }
 
+const zigstd = @import("../../zigstd.zig");
 const hessenberg = @import("hessenberg.zig");
 
 test "comqr3 finds eigenvalues of a trivial 2x2 upper-triangular Hessenberg matrix" {

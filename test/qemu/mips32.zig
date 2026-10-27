@@ -7,7 +7,7 @@
 const sysinfo = @import("builtin");
 
 comptime {
-    if (sysinfo.cpu.has(.mips, .mips32r5)) {
+    if (sysinfo.target.cpu.has(.mips, .mips32r5)) {
         asm (
             \\.set noreorder
             \\.set noat

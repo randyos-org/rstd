@@ -9,6 +9,7 @@ const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
+const vector = @import("../vector.zig");
 
 pub const Core = coretypes.PowerCoreType;
 
@@ -17,29 +18,31 @@ pub const Core = coretypes.PowerCoreType;
 /// upstream writes in C.
 const modules = .{
     @import("../blas1/axpy/power/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/amax/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/amin/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamax/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/iamin/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imax/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/imin/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/max/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/min/power/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/nrm2/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/rot/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/scal/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/gemv/power/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
+    vector.Registry(Core, usesVector),
 };
+
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots on the
+/// VSX cores. AltiVec flushes `f32` denormals (`util.vectorIeee`), so
+/// elsewhere the portable kernels stay.
+fn usesVector(comptime core: Core, comptime role: []const u8) bool {
+    return switch (core) {
+        .power8, .power9, .power10 => vector.routed(role),
+        else => false,
+    };
+}
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    return arch.isPowerPC();
+    return arch.isPowerpc();
 }
 
 /// Whether any routine has a kernel for `core`.

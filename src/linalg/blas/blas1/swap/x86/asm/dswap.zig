@@ -111,11 +111,11 @@ const Body = struct {
             \\ jmp 20008f
             \\ .balign 8
             \\ 20003:
+            \\ movl %edx, %eax
             \\ cmpl $0, %ebx
-            \\ jne 20004f
+            \\ je 20007f
             \\ cmpl $0, %ecx
-            \\ jne 20004f
-            \\ jmp 20008f
+            \\ je 20007f
             \\ 20004:
             \\ movl %edx, %eax
             \\ sarl $2, %eax

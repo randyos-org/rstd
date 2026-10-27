@@ -17,6 +17,7 @@ const auxv = @import("../_auxv.zig");
 pub const CoreType = coretypes.Arm64CoreType;
 pub const Decision = select.Decision(CoreType);
 
+pub const HWCAP_FCMA: usize = 1 << 14;
 pub const HWCAP_CPUID: usize = 1 << 11;
 pub const HWCAP_SVE: usize = 1 << 22;
 pub const HWCAP2_SVE2: usize = 1 << 1;
@@ -32,6 +33,9 @@ pub const Feature = enum {
     sve2,
     sme,
     bf16,
+    /// ARMv8.3's complex `FCMLA` and `FCADD`, which LLVM may give the
+    /// `v8_3a` cores' Zig kernels
+    fcma,
 };
 
 /// What the decisions read.
@@ -89,7 +93,8 @@ fn idRegister(comptime name: []const u8) u64 {
 }
 
 /// What the ID registers say, with no OS to ask: `ID_AA64PFR0_EL1.SVE`,
-/// `ID_AA64ZFR0_EL1.SVEver`, `ID_AA64ISAR1_EL1.BF16`, `ID_AA64PFR1_EL1.SME`.
+/// `ID_AA64ZFR0_EL1.SVEver`, `ID_AA64ISAR1_EL1.BF16` and `.FCMA`,
+/// `ID_AA64PFR1_EL1.SME`.
 fn idRegisters() Caps {
     const sve = (idRegister("s3_0_c0_c4_0") >> 32) & 0xf != 0;
     const m = readMidr();
@@ -100,6 +105,7 @@ fn idRegisters() Caps {
             // ZFR0 reads as zero without SVE
             .sve2 = sve and idRegister("s3_0_c0_c4_4") & 0xf != 0,
             .bf16 = (idRegister("s3_0_c0_c6_1") >> 44) & 0xf != 0,
+            .fcma = (idRegister("s3_0_c0_c6_1") >> 16) & 0xf != 0,
             .sme = (idRegister("s3_0_c0_c4_1") >> 24) & 0xf != 0,
         }),
         .implementer = m.implementer,
@@ -183,7 +189,7 @@ fn midrFromSysfs() ?Part {
 
 /// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity.
 fn midrFromRegistry() ?u64 {
-    if (comptime sysinfo.os.tag != .windows) return null;
+    if (comptime sysinfo.target.os.tag != .windows) return null;
     const advapi = struct {
         extern "advapi32" fn RegGetValueW(hkey: usize, subkey: [*:0]const u16, value: [*:0]const u16, flags: u32, kind: ?*u32, data: ?*anyopaque, size: ?*u32) callconv(.winapi) i32;
     };
@@ -205,7 +211,7 @@ fn midrFromRegistry() ?u64 {
 
 pub fn probe() Caps {
     var c: Caps = .{};
-    switch (comptime sysinfo.os.tag) {
+    switch (comptime sysinfo.target.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             c.features.insert(.apple);
             c.features.setPresent(.sme, (auxv.sysctlInt("hw.optional.arm.FEAT_SME") orelse 0) != 0);
@@ -218,6 +224,8 @@ pub fn probe() Caps {
                 .sve2 = auxv.processorFeature(@backingInt(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE)),
                 .sme = auxv.processorFeature(@backingInt(PF.ARM_SME_INSTRUCTIONS_AVAILABLE)),
                 .bf16 = auxv.processorFeature(@backingInt(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE)),
+                // no flag of its own: JSCVT, which ARMv8.3 makes mandatory with it
+                .fcma = auxv.processorFeature(@backingInt(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE)),
             });
             if (midrFromRegistry()) |raw| {
                 const m = Midr.fromRaw(raw);
@@ -238,13 +246,14 @@ pub fn probe() Caps {
         .sve2 = hw2 & HWCAP2_SVE2 != 0,
         .sme = hw2 & HWCAP2_SME != 0,
         .bf16 = hw2 & HWCAP2_BF16 != 0,
+        .fcma = hw & HWCAP_FCMA != 0,
     });
     if (hw & HWCAP_CPUID != 0) {
         const m = readMidr();
         c.features.insert(.midr);
         c.implementer = m.implementer;
         c.part = m.part;
-    } else if (sysinfo.os.tag == .linux) {
+    } else if (sysinfo.target.os.tag == .linux) {
         if (midrFromSysfs()) |m| {
             c.features.insert(.midr);
             c.implementer = m.implementer;
@@ -323,14 +332,19 @@ pub fn supportsCore(core: CoreType) bool {
 
 /// Whether the kernels of `core` run on a CPU with `c`'s extensions. The ISA
 /// level a core is built for (`v8_2a`...) cannot be told apart by the probes; a
-/// part table that names a core only names one the CPU's generation has.
+/// part table that names a core only names one the CPU's generation has. But
+/// the kernels of the cores built for ARMv8.3 and up hold `FCMLA` (the
+/// conjugating complex `trsm` kernels), so those cores want `fcma`; Apple's
+/// always have it.
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
-        .a64fx, .armv8sve, .cortexa510, .cortexa710, .cortexx2 => c.has(.sve),
-        .neoversev1 => c.hasAll(&.{ .sve, .bf16 }),
-        .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16 }),
-        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme }),
-        .vortexm4 => c.has(.sme) or c.has(.apple),
+        .a64fx, .armv8sve => c.has(.sve),
+        .cortexa510, .cortexa710, .cortexx2 => c.hasAll(&.{ .sve, .fcma }),
+        .neoversev1 => c.hasAll(&.{ .sve, .bf16, .fcma }),
+        .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16, .fcma }),
+        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme, .fcma }),
+        .vortexm4 => c.hasAll(&.{ .sme, .fcma }) or c.has(.apple),
+        .thunderx3t110, .vortex, .ampere1 => c.has(.fcma) or c.has(.apple),
         .unknown => false,
         else => true,
     };
@@ -367,7 +381,7 @@ fn arm(part: u32) Caps {
 }
 
 test "Arm parts" {
-    const sve: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = 0x41 };
+    const sve: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16, .fcma }), .implementer = 0x41 };
     var c = arm(0xd03);
     try std.testing.expectEqual(CoreType.cortexa53, decide(c).core);
     c.part = 0xd05;
@@ -404,7 +418,7 @@ test "an SVE part on an OS without SVE gets Neoverse N1 and a warning" {
 test "other implementers" {
     const t = struct {
         fn core(imp: u32, part: u32) CoreType {
-            return decide(.{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = imp, .part = part }).core;
+            return decide(.{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16, .fcma }), .implementer = imp, .part = part }).core;
         }
     };
     try std.testing.expectEqual(CoreType.thunderx2t99, t.core(0x42, 0x516)); // Vulcan
@@ -425,7 +439,7 @@ test "other implementers" {
 }
 
 test "an unknown part takes SME, then SVE, as the reference does" {
-    var c: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2 }), .implementer = 0x99, .part = 1 };
+    var c: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .fcma }), .implementer = 0x99, .part = 1 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(c).core);
     c.features.insert(.sme);
     try std.testing.expectEqual(CoreType.armv9sme, decide(c).core);
@@ -441,7 +455,15 @@ test "Apple silicon" {
     try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initOne(.apple) }).core);
     try std.testing.expectEqual(CoreType.vortexm4, decide(.{ .features = .initMany(&.{ .apple, .sme }) }).core);
     // Apple's own implementer code, as Linux (Asahi) reports it
-    try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initOne(.midr), .implementer = 0x61 }).core);
+    try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initMany(&.{ .midr, .fcma }), .implementer = 0x61 }).core);
+}
+
+test "an ARMv8.3 core without the complex instructions takes generic kernels" {
+    // a CPU qemu or a hypervisor names ThunderX3 while hiding FCMA
+    const c: Caps = .{ .features = .initOne(.midr), .implementer = 0x43, .part = 0x0b8 };
+    try std.testing.expectEqual(CoreType.armv8, decide(c).core);
+    try std.testing.expect(!runnable(.vortex, .{}));
+    try std.testing.expect(runnable(.vortex, .{ .features = .initOne(.apple) }));
 }
 
 test "a Neoverse part short of what its core needs stays in its class" {
@@ -452,7 +474,7 @@ test "a Neoverse part short of what its core needs stays in its class" {
     const v1: Caps = .{ .features = .initMany(&.{ .midr, .sve }), .implementer = 0x41, .part = 0xd40 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(v1).core);
     // with SVE2 and BF16 it is V2
-    const v2_full: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16 }), .implementer = 0x41, .part = 0xd4f };
+    const v2_full: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .bf16, .fcma }), .implementer = 0x41, .part = 0xd4f };
     try std.testing.expectEqual(CoreType.neoversev2, decide(v2_full).core);
     for (std.enums.values(CoreType)) |c| try std.testing.expect(c == .unknown or c == .armv8 or parent(c) != null);
 }
@@ -462,14 +484,14 @@ test "no CPU is given a core it cannot run" {
     // and part the table names
     const parts = [_][2]u32{
         .{ 0x41, 0xd03 }, .{ 0x41, 0xd05 }, .{ 0x41, 0xd07 }, .{ 0x41, 0xd0c }, .{ 0x41, 0xd40 },
-        .{ 0x41, 0xd49 }, .{ 0x41, 0xd4f }, .{ 0x42, 0x516 }, .{ 0x46, 0x001 }, .{ 0x61, 0 },
-        .{ 0x99, 0 },
+        .{ 0x41, 0xd49 }, .{ 0x41, 0xd4f }, .{ 0x42, 0x516 }, .{ 0x43, 0x0b8 }, .{ 0x46, 0x001 },
+        .{ 0x61, 0 },     .{ 0xc0, 0xac3 }, .{ 0x99, 0 },
     };
     var mask: u32 = 0;
-    while (mask < 16) : (mask += 1) {
+    while (mask < 32) : (mask += 1) {
         for (parts) |p| {
             const c: Caps = .{
-                .features = .init(.{ .midr = true, .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0 }),
+                .features = .init(.{ .midr = true, .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0, .fcma = mask & 16 != 0 }),
                 .implementer = p[0],
                 .part = p[1],
             };
@@ -521,7 +543,7 @@ test "without the MIDR emulation the last CPU's identity decides, unless a big o
 }
 
 test "detect runs and returns a concrete core type" {
-    if (comptime sysinfo.cpu.arch != .aarch64 and sysinfo.cpu.arch != .aarch64_be) {
+    if (comptime sysinfo.target.cpu.arch != .aarch64 and sysinfo.target.cpu.arch != .aarch64_be) {
         return error.SkipZigTest;
     }
     try std.testing.expect(detect() != .unknown);

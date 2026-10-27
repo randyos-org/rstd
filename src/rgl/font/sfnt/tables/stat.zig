@@ -1,8 +1,5 @@
-const std = @import("std");
-
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for the STAT header, used only to compute field offsets/sizes at
 /// comptime; never instantiated. v1.0 (deprecated) omits
@@ -206,6 +203,9 @@ pub const StatTable = struct {
         return .{ .table_data = self.table_data[array_off + rel ..] };
     }
 };
+
+const std = @import("std");
+const zigstd = @import("../../../../zigstd.zig");
 
 test "STAT StreamLayout/records match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

@@ -60,7 +60,6 @@ pub fn Real(comptime T: type) type {
             _: BlasLong,
         ) callconv(.c) i32 {
             if (n <= 0) return 0;
-            if (da == 0.0) return 0;
             const len: usize = @intCast(n);
 
             if (inc_x == 1 and inc_y == 1) {

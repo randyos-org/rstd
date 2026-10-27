@@ -20,14 +20,14 @@ const keys = [_][2][]const u8{
 
 /// Which parts each key's function has: `__bk`'s arguments.
 const parts = [_][]const u8{
-    "1, 0",
-    "1, 0",
-    "1, 0",
-    "1, 0",
-    "0, 1",
-    "0, 1",
-    "0, 1",
-    "0, 1",
+    "0",
+    "0",
+    "0",
+    "0",
+    "1",
+    "1",
+    "1",
+    "1",
 };
 
 /// Whether any build of `core` uses this file.
@@ -46,7 +46,7 @@ pub fn kernel(comptime core: []const u8, comptime variant: []const u8) ?type {
 
 /// The functions' one text, a macro whose parameters select the parts.
 const text =
-    \\ .macro __bk bp0, bp1
+    \\ .macro __bk bp0
     \\ .macro KERNEL_F4
     \\ pld [ r1, #512 ]
     \\ pld [ r6, #512 ]
@@ -140,18 +140,8 @@ const text =
     \\ vmov s1, s0
     \\ vmov s2, s0
     \\ vmov s3, s0
-    \\ .if \bp0
     \\ mov r6, r3
     \\ ldr r7, [fp, #0 ]
-    \\ .endif
-    \\ .if \bp1
-    \\ mov r8, r0
-    \\ mov r0, r1
-    \\ mov r1, r2
-    \\ mov r2, r3
-    \\ ldr r6, [fp, #0 ]
-    \\ ldr r7, [fp, #4 ]
-    \\ .endif
     \\ cmp r0, #0
     \\ ble 20008f
     \\ # cmp r2, #0
@@ -198,8 +188,9 @@ const text =
     \\ vldm r3, { s8 - s15}
     \\ vadd.f32 s0 , s0, s2
     \\ vsub.f32 s1 , s1, s3
-    \\ .if \bp1
-    \\ vstm r8, {s0 - s1}
+    \\ .if \bp0
+    \\ vmov r0, s0
+    \\ vmov r1, s1
     \\ .endif
     \\ sub sp, fp, #28
     \\ pop {r4 - r9, fp}

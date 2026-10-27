@@ -349,6 +349,8 @@ const text =
     \\ je 20020f
     \\ .balign 8
     \\ 20009:
+    \\ testq $1, %rcx
+    \\ je 20020f
     \\ incq %rax
     \\ jmp 20020f
     \\ .balign 8
@@ -612,6 +614,8 @@ const text =
     \\ je 20020f
     \\ .balign 8
     \\ 20019:
+    \\ testq $1, %rcx
+    \\ je 20020f
     \\ incq %rax
     \\ .balign 16
     \\ 20020:

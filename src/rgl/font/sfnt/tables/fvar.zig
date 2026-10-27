@@ -1,6 +1,5 @@
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for the fvar header, used only to compute field offsets/sizes at
 /// comptime; never instantiated.
@@ -126,6 +125,8 @@ pub const FvarTable = struct {
         return bytes.getU16BE(self.table_data[off..]);
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "fvar StreamLayout/VariationAxisRecord match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 16), @sizeOf(StreamLayout));

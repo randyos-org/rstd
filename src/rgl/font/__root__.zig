@@ -2,7 +2,7 @@
 // const glyph = sfnt.getGlyphIndex('A') orelse ...;
 // const scale = sfnt.scaleForPixelHeight(20.0);
 //
-// var pixels: std.ArrayListUnmanaged(u8) = .empty;
+// var pixels: std.ArrayList(u8) = .empty;
 // defer pixels.deinit(alloc);
 // const bmp = try sfnt.glyphBitmap(alloc, &pixels, glyph, scale, scale);
 // // pixels.items[0 .. bmp.width * bmp.height] is the 8-bit coverage bitmap;
@@ -14,10 +14,10 @@
 // atlas.glyphs[i].{pos,size,atlas_pos} place each glyph both on screen
 // and within the texture.
 
-const zigstd = @import("../../zigstd.zig");
-
 pub const sfnt = @import("sfnt/__root__.zig");
 pub const vga = @import("vga/__root__.zig");
+
+const zigstd = @import("../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());

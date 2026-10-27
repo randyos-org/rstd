@@ -21,17 +21,13 @@ const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const Vtable = @import("../Vtable.zig");
-const check = @import("../blas1/check.zig");
 const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
+const bf = @import("../ext/bf16/__root__.zig");
 const Op = portable.Op;
-const guard = @import("guard.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 /// The reference's `xerbla` argument, by name.
 /// Bad arguments, shared by every level-2 interface file; there is no xerbla.
@@ -121,7 +117,12 @@ fn Scratch(comptime F: type) type {
         heap: ?[]align(heap_align) F = null,
 
         fn init(allocator: Allocator, stack: *align(stack_align) [stack_bytes]u8, len: usize) Allocator.Error!Self {
-            if (len * @sizeOf(F) <= stack_bytes) return .{ .ptr = @ptrCast(stack), .len = len };
+            if (len * @sizeOf(F) <= stack_bytes) {
+                // tests poison it as their allocators do the heap: scratch
+                // read before it is written shows as NaN
+                if (sysinfo.is_test) @memset(stack, 0xff);
+                return .{ .ptr = @ptrCast(stack), .len = len };
+            }
             const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
             return .{ .ptr = h.ptr, .len = len, .heap = h };
         }
@@ -183,7 +184,7 @@ fn gemvRun(allocator: Allocator, comptime T: type, comptime t: Trans, m: isize, 
     // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity; the
     // reference clears its stack buffer for every `trans` but `n`, here the
     // heap one too since the allocator hands out whatever it holds
-    if (comptime complex and t != .n and sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    if (comptime complex and t != .n and sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
         _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
@@ -258,7 +259,7 @@ pub fn gemvHalf(comptime kind: HalfGemv, trans: Trans, m: isize, n: isize, alpha
 
 /// A `gemvHalf` scalar as `f32`.
 fn halfToF32(comptime T: type, v: T) f32 {
-    return if (T == f32) v else @import("../ext/bf16/__root__.zig").scalarToF32(v);
+    return if (T == f32) v else bf.scalarToF32(v);
 }
 
 // ---- ger ---------------------------------------------------------------------
@@ -296,11 +297,24 @@ fn gerImpl(allocator: Allocator, comptime T: type, comptime conj: bool, m: isize
     const unit = incx == 1;
     const sc: Scratch(F) = if (unit) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
     defer sc.deinit(allocator);
-    // the reference threads big problems here (`ger_thread`)
-    if (comptime complex) {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, py), incy, raw(T, a), lda, sc.ptr);
-    } else {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, px, incx, py, incy, a, lda, sc.ptr);
+    const k = portable.fetch(T, op, blas.vtable);
+    // the reference passes over a column whose `y` is zero, so an infinity or
+    // NaN in `x` stays out of it; the kernels do not, so they get the runs
+    // between zeros (one run, the whole matrix, when there are none)
+    var j: isize = 0;
+    while (j < n) {
+        while (j < n and isZero(T, util.at(T, py, j * incy).*)) j += 1;
+        const j0 = j;
+        while (j < n and !isZero(T, util.at(T, py, j * incy).*)) j += 1;
+        if (j == j0) break;
+        const ys: [*]T = @ptrCast(util.at(T, py, j0 * incy));
+        const as: [*]T = @ptrCast(util.at(T, a, j0 * lda));
+        // the reference threads big problems here (`ger_thread`)
+        if (comptime complex) {
+            _ = k(m, j - j0, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, ys), incy, raw(T, as), lda, sc.ptr);
+        } else {
+            _ = k(m, j - j0, 0, alpha, px, incx, ys, incy, as, lda, sc.ptr);
+        }
     }
 }
 
@@ -368,7 +382,7 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: i
     defer sc.deinit(allocator);
     // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
     // and NaN there reaches `y`
-    if (sysinfo.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    if (sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
     // the reference threads big problems here (`symv_thread_*`)
     if (comptime complex) {
         _ = portable.fetch(T, op, blas.vtable)(n, n, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
@@ -379,6 +393,14 @@ fn mvRun(allocator: Allocator, comptime T: type, comptime name: []const u8, n: i
 
 // ---- tests -------------------------------------------------------------------
 
+const Vtable = @import("../Vtable.zig");
+const check = @import("../_test/blas1/check.zig");
+const guard = @import("../_test/blas2/guard.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
+
+const tri = @import("triangular.zig");
+const band = @import("banded.zig");
 const testing = std.testing;
 /// Scratch from the heap holds NaN, so a missing clear shows.
 var poison: guard.Poison = .{ .child = testing.allocator };
@@ -676,8 +698,6 @@ test "interface: problems over the stack buffer allocate, and small gemv and ger
 
 // ---- half-precision gemv tests ----------------------------------------------
 
-const bf = @import("../ext/bf16/__root__.zig");
-
 fn halfIn(comptime E: type, v: f32) E {
     return if (E == types.BF16) bf.toBf16(v) else @floatCast(v);
 }
@@ -824,8 +844,6 @@ fn expectMv(comptime T: type, rows: usize, cols: usize, ctx: anytype, alpha: T, 
 /// `gemv`, `ger`, `symv`, `hemv`, `trmv`, `trsv` and `gbmv`.
 fn anyFloat(comptime T: type) !void {
     const W = check.Wide(T);
-    const tri = @import("triangular.zig");
-    const band = @import("banded.zig");
     const al = testing.allocator;
     const complex = comptime isComplex(T);
     const m = 7;

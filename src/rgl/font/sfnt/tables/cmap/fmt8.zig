@@ -1,10 +1,7 @@
 const types = @import("../../stream_types.zig");
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
 const GlyphIndex = types.GlyphIndex;
-const setU16BE = bytes.setU16BE;
-const setU32BE = bytes.setU32BE;
 
 /// Schema for the format-8 header, used only to compute field offsets/sizes
 /// at comptime; never instantiated.
@@ -96,6 +93,10 @@ pub const Format8 = struct {
         return .notdef;
     }
 };
+
+const zigstd = @import("../../../../../zigstd.zig");
+const setU16BE = bytes.setU16BE;
+const setU32BE = bytes.setU32BE;
 
 test "Format8 header and group match the stream layout (no padding)" {
     try zigstd.testExpectEqual(@as(usize, 12), @sizeOf(StreamLayout));

@@ -25,6 +25,10 @@ pub const Spec = struct {
     model: ?[]const u8 = null,
     /// Features added on top of the model or baseline.
     features: []const []const u8 = &.{},
+    /// Features taken out of the model: AltiVec on the cores without VSX,
+    /// whose lanes flush denormals and which LLVM's auto-vectorizer would
+    /// otherwise use for scalar loops (`util.vectorIeee`).
+    without: []const []const u8 = &.{},
     /// Whether the reference's flags for the core contract multiply-adds
     /// (see `fma.zig`); null follows the hardware.
     fuse_fma: ?bool = null,
@@ -34,9 +38,13 @@ pub const Spec = struct {
         if ((a.model == null) != (b.model == null)) return false;
         if (a.model) |m| if (!std.mem.eql(u8, m, b.model.?)) return false;
         if (a.fuse_fma != b.fuse_fma) return false;
-        if (a.features.len != b.features.len) return false;
-        for (a.features) |fa| {
-            for (b.features) |fb| {
+        return sameNames(a.features, b.features) and sameNames(a.without, b.without);
+    }
+
+    fn sameNames(a: []const []const u8, b: []const []const u8) bool {
+        if (a.len != b.len) return false;
+        for (a) |fa| {
+            for (b) |fb| {
                 if (std.mem.eql(u8, fa, fb)) break;
             } else return false;
         }
@@ -105,20 +113,23 @@ pub fn arm(core: coretypes.ArmCoreType) Spec {
 
 // ---- power (`Makefile.power`) -----------------------------------------------
 
+const no_altivec = [_][]const u8{"altivec"};
+
 pub fn power(core: coretypes.PowerCoreType) Spec {
     return switch (core) {
         .unknown => .{},
-        .power6 => .{ .model = "pwr6" },
+        .power6 => .{ .model = "pwr6", .without = &no_altivec },
         .power8 => .{ .model = "pwr8", .features = &.{"vsx"} },
         .power9 => .{ .model = "pwr9", .features = &.{"vsx"} },
         .power10 => .{ .model = "pwr10", .features = &.{"vsx"} },
-        // `-mcpu` of the static targets in `Makefile.power`
-        .power3 => .{ .model = "pwr3" },
-        .power4 => .{ .model = "pwr4" },
-        .power5 => .{ .model = "pwr5" },
-        .ppc970, .cell => .{ .model = "970" },
+        // `-mcpu` of the static targets in `Makefile.power`; LLVM's POWER3 to
+        // POWER5 have AltiVec too
+        .power3 => .{ .model = "pwr3", .without = &no_altivec },
+        .power4 => .{ .model = "pwr4", .without = &no_altivec },
+        .power5 => .{ .model = "pwr5", .without = &no_altivec },
+        .ppc970, .cell => .{ .model = "970", .without = &no_altivec },
         .ppc440, .ppc440fp2 => .{ .model = "440" },
-        .ppcg4 => .{ .model = "g4" },
+        .ppcg4 => .{ .model = "g4", .without = &no_altivec },
     };
 }
 
@@ -141,13 +152,13 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
 pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         // MSA needs the revision-5 feature bit explicitly; GCC's `-mmsa` implies
-        // it, LLVM's integrated assembler does not.
-        .loongson3r4 => .{ .features = &.{ "msa", "fp64", "mips64r5" } },
+        // it, LLVM's integrated assembler does not. Zig adds `-mfp64` for MSA.
+        .loongson3r4 => .{ .features = &.{ "msa", "mips64r5" } },
         // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
         // the SIMD architecture; the 24K and 1004K have none
         .mips24k, .mips1004k => .{ .model = "mips32r2" },
-        .p5600 => .{ .model = "p5600", .features = &.{ "msa", "fp64" } },
-        .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{ "msa", "fp64" } },
+        .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
+        .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
         // `-march=mips64r2 -mtune=loongson3a`; the 4-operand `madd.s` needs it
         .loongson3r3 => .{ .features = &.{"mips64r2"} },
         .mips64_generic, .unknown => .{},
@@ -285,7 +296,7 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
         coretypes.PowerCoreType => switch (core) {
             .power8, .power9 => cpu.has(.powerpc, .vsx),
             .power10 => cpu.has(.powerpc, .vsx) and cpu.has(.powerpc, .isa_v31_instructions),
-            .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerPC64(),
+            .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerpc64(),
             else => true,
         },
         else => true,
@@ -293,7 +304,7 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
 }
 
 fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
-    const wide = cpu.arch.isMIPS64();
+    const wide = cpu.arch.isMips64();
     return switch (core) {
         .mips24k, .mips1004k, .p5600 => !wide and (core != .p5600 or cpu.has(.mips, .mips32r5)),
         .i6400, .i6500, .p6600 => wide and cpu.has(.mips, .mips64r6),
@@ -310,7 +321,7 @@ fn check(comptime Target: type, comptime Core: type) !void {
     inline for (@typeInfo(Core).@"enum".field_names) |core_name| {
         const s = comptime of(@field(Core, core_name));
         if (s.model) |m| try std.testing.expect(@hasDecl(Target.cpu, m));
-        for (s.features) |name| try std.testing.expect(std.meta.stringToEnum(Target.Feature, name) != null);
+        for (s.features ++ s.without) |name| try std.testing.expect(std.meta.stringToEnum(Target.Feature, name) != null);
     }
 }
 

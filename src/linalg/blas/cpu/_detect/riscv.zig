@@ -28,7 +28,7 @@ const Pair = extern struct { key: i64, value: u64 };
 const NR_riscv_hwprobe: usize = 258;
 
 fn hwprobe(pairs: []Pair, flags: usize) bool {
-    if (sysinfo.os.tag != .linux) return false;
+    if (sysinfo.target.os.tag != .linux) return false;
     const rc = std.os.linux.syscall5(
         @fromBackingInt(@intCast(NR_riscv_hwprobe)),
         @intFromPtr(pairs.ptr),
@@ -85,8 +85,8 @@ pub const Caps = struct {
 };
 
 pub fn probe() Caps {
-    if (comptime !sysinfo.cpu.arch.isRISCV()) return .{};
-    switch (comptime sysinfo.os.tag) {
+    if (comptime !sysinfo.target.cpu.arch.isRiscv()) return .{};
+    switch (comptime sysinfo.target.os.tag) {
         .linux => {},
         .freestanding => return machineCaps(),
         else => return .{},
@@ -153,6 +153,6 @@ test "the vector cores need their VLEN" {
 }
 
 test "detect runs on RISC-V targets" {
-    if (comptime !sysinfo.cpu.arch.isRISCV()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isRiscv()) return error.SkipZigTest;
     try std.testing.expect(supportsCore(detect()));
 }

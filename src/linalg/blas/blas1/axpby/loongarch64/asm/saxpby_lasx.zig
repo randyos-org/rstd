@@ -29,7 +29,7 @@ const Body = struct {
     pub fn saxpby() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ bge $r0, $r4, 20027f
+            \\ bge $r0, $r4, 20030f
             \\ movgr2fr.d $f12, $r0
             \\ ffint.s.l $f12, $f12
             \\ slli.d $r6, $r6, 2
@@ -560,20 +560,31 @@ const Body = struct {
             \\ .align 3
             \\ 20025:
             \\ andi $r12, $r4, 7
-            \\ bge $r0, $r12, 20027f
+            \\ bge $r0, $r12, 20030f
             \\ .align 3
             \\ 20026:
-            \\ fld.s $f12, $r5, 0 * 4
-            \\ fld.s $f13, $r7, 0 * 4
+            \\ movgr2fr.d $f12, $r0
+            \\ fcmp.ceq.s $fcc0, $f0, $f12
+            \\ fcmp.ceq.s $fcc1, $f1, $f12
             \\ addi.d $r12, $r12, -1
+            \\ bceqz $fcc0, 20027f
+            \\ bcnez $fcc1, 20029f
+            \\ fneg.s $f12, $f12
+            \\ b 20028f
+            \\ 20027:
+            \\ fld.s $f12, $r5, 0 * 4
             \\ fmul.s $f12, $f12, $f0
-            \\ fmadd.s $f13, $f13, $f1, $f12
-            \\ fst.s $f13, $r7, 0 * 4
+            \\ bcnez $fcc1, 20029f
+            \\ 20028:
+            \\ fld.s $f13, $r7, 0 * 4
+            \\ fmadd.s $f12, $f13, $f1, $f12
+            \\ 20029:
+            \\ fst.s $f12, $r7, 0 * 4
             \\ add.d $r5, $r5, $r6
             \\ add.d $r7, $r7, $r8
             \\ blt $r0, $r12, 20026b
             \\ .align 3
-            \\ 20027:
+            \\ 20030:
             \\ move $r4, $r12
             \\ jirl $r0, $r1, 0x0
             \\ .align 3

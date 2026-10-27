@@ -22,7 +22,6 @@
 //! line) is dropped throughout this port; it had no effect on results.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 
 const rsimd = @import("../../simd/__root__.zig");
 const mulAdd = rsimd.mulAdd;
@@ -495,6 +494,8 @@ pub fn rrotg(da: f64, db: f64) Givens {
     }
     return .{ .r = r, .c = c, .s = s };
 }
+
+const zigstd = @import("../../zigstd.zig");
 
 test "wdiv is the inverse of wmul" {
     const a = Cx.init(3.0, -2.0);

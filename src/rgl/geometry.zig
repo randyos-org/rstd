@@ -1,9 +1,6 @@
 //! Shared, backend-agnostic geometry types -- used by both the sw and vulkan
 //! rgl backends, and by the public render.zig API.
 
-const zigstd = @import("../zigstd.zig");
-const testExpectEqual = zigstd.testExpectEqual;
-
 pub const Point = struct {
     const Self = @This();
     x: u32,
@@ -100,6 +97,9 @@ pub const Rect = struct {
         };
     }
 };
+
+const zigstd = @import("../zigstd.zig");
+const testExpectEqual = zigstd.testExpectEqual;
 
 test "Point/PointF32/PointI32 conversions and arithmetic" {
     const p: Point = .{ .x = 3, .y = 5 };

@@ -46,8 +46,6 @@ pub fn xscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: XDouble, d
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// `kernel/arm/scal.c` and `zscal.c`: `x := alpha*x`. `flag` is the last
 /// argument (`dummy2`): with 0, a zero alpha zeroes `x`; with 1, which the
@@ -112,6 +110,9 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const check = @import("../../_test/blas1/check.zig");
+const zigstd = @import("../../../../zigstd.zig");
+
 /// `kern` against a plain loop, as the interface calls it (flag 1), for a
 /// general and a zero alpha; `T` is the element type, real or complex.
 fn checkScal(comptime T: type, kern: anytype) !void {
@@ -144,11 +145,52 @@ fn checkScal(comptime T: type, kern: anytype) !void {
     }
 }
 
+/// A zero alpha on NaN and infinity: flag 0, as the level-2 drivers pass it,
+/// stores zeros; flag 1, the interface's, multiplies, giving NaN. Both, so a
+/// kernel that reads the flag from the wrong place fails one.
+fn checkFlag(comptime T: type, kern: anytype) !void {
+    const F = check.FloatOf(T);
+    const complex = comptime check.isComplex(T);
+    const n = 9;
+    for ([_]BlasLong{ 0, 1 }) |flag| for ([_]usize{ 1, 2 }) |inc| {
+        var x: [2 * n]T = undefined;
+        for (&x, 0..) |*v, i| {
+            const f: F = switch (i % 4) {
+                0 => 1,
+                1 => std.math.nan(F),
+                2 => std.math.inf(F),
+                else => -2,
+            };
+            v.* = if (comptime complex) T.init(f, f) else f;
+        }
+        const px: [*]F = @ptrCast(&x);
+        if (comptime complex) {
+            _ = kern(n, 0, 0, 0, 0, px, @intCast(inc), px, 0, px, flag);
+        } else {
+            _ = kern(n, 0, 0, 0, px, @intCast(inc), px, 0, px, flag);
+        }
+        for (0..n) |i| {
+            const v = x[i * inc];
+            const re = if (comptime complex) v.re else v;
+            const special = (i * inc) % 4 == 1 or (i * inc) % 4 == 2;
+            const ok = if (flag == 1 and special) std.math.isNan(re) else re == 0;
+            if (!ok) {
+                check.say("flag {d}, element {d} is {e}: ", .{ flag, i, re });
+                return check.case(error.TestUnexpectedResult, "scal, zero alpha", T, n, .{ inc, 0 });
+            }
+        }
+    };
+}
+
 fn checkAll(vt: *const Vtable) !void {
     try checkScal(f32, vt.sscal_k.?);
     try checkScal(f64, vt.dscal_k.?);
     try checkScal(std.math.Complex(f32), vt.cscal_k.?);
     try checkScal(std.math.Complex(f64), vt.zscal_k.?);
+    try checkFlag(f32, vt.sscal_k.?);
+    try checkFlag(f64, vt.dscal_k.?);
+    try checkFlag(std.math.Complex(f32), vt.cscal_k.?);
+    try checkFlag(std.math.Complex(f64), vt.zscal_k.?);
 }
 
 test "portable scal kernels match a plain loop" {

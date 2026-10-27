@@ -40,10 +40,8 @@ pub fn xamax_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const extremum = @import("../extremum.zig");
-const check = @import("../check.zig");
 
 const find: extremum.Find = .{ .abs = true, .max = true };
 
@@ -66,19 +64,22 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
+
 fn checkAll(vt: *const Vtable) !void {
-    try extremum.checkKernel(f32, find, "samax", vt.samax_k.?);
-    try extremum.checkKernel(f64, find, "damax", vt.damax_k.?);
-    try extremum.checkKernel(std.math.Complex(f32), find, "camax", vt.camax_k.?);
-    try extremum.checkKernel(std.math.Complex(f64), find, "zamax", vt.zamax_k.?);
+    try check.checkExtreme(f32, find, "samax", vt.samax_k.?);
+    try check.checkExtreme(f64, find, "damax", vt.damax_k.?);
+    try check.checkExtreme(std.math.Complex(f32), find, "camax", vt.camax_k.?);
+    try check.checkExtreme(std.math.Complex(f64), find, "zamax", vt.zamax_k.?);
 }
 
 test "portable amax kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkAll(&vt);
-    try extremum.checkKernel(XDouble, find, "qamax", vt.qamax_k.?);
-    try extremum.checkKernel(std.math.Complex(XDouble), find, "xamax", vt.xamax_k.?);
+    try check.checkExtreme(XDouble, find, "qamax", vt.qamax_k.?);
+    try check.checkExtreme(std.math.Complex(XDouble), find, "xamax", vt.xamax_k.?);
 }
 
 test "every linked core's amax kernels match a plain loop, where this machine runs them" {

@@ -40,10 +40,8 @@ pub fn xcopy_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/copy.c` and `zcopy.c`: `y := x`; an element is `w` floats.
 fn Copy(comptime F: type, comptime w: comptime_int) type {
@@ -87,6 +85,9 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
+
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkCopy(comptime T: type, kern: anytype) !void {
     const F = check.FloatOf(T);
@@ -95,21 +96,24 @@ fn checkCopy(comptime T: type, kern: anytype) !void {
         var y: [check.capacity]T = undefined;
         check.fill(T, &x, n + 1);
         check.fill(T, &y, n + 7);
-        for (check.strides) |inc| {
+        for (check.zero_strides) |inc| {
             var want = y;
             var got = y;
-            for (0..n) |i| want[i * inc[1]] = x[i * inc[0]];
-            _ = kern(@intCast(n), @as([*]F, @ptrCast(&x)), @intCast(inc[0]), @as([*]F, @ptrCast(&got)), @intCast(inc[1]));
+            for (0..n) |i| want[check.pos(n, inc[1], i)] = x[check.pos(n, inc[0], i)];
+            const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
+            _ = kern(@intCast(n), px, inc[0], @ptrCast(&got[check.pos(n, inc[1], 0)]), inc[1]);
             check.expectCloseSlices(T, &want, &got, 0) catch |e| return check.case(e, "copy", T, n, inc);
         }
     }
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkCopy(f32, vt.scopy_k.?);
-    try checkCopy(f64, vt.dcopy_k.?);
-    try checkCopy(std.math.Complex(f32), vt.ccopy_k.?);
-    try checkCopy(std.math.Complex(f64), vt.zcopy_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkCopy(f32, vt.scopy_k.?));
+    check.keep(&failed, checkCopy(f64, vt.dcopy_k.?));
+    check.keep(&failed, checkCopy(std.math.Complex(f32), vt.ccopy_k.?));
+    check.keep(&failed, checkCopy(std.math.Complex(f64), vt.zcopy_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable copy kernels match a plain loop" {

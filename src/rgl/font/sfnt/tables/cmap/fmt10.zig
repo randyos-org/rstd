@@ -1,10 +1,7 @@
 const types = @import("../../stream_types.zig");
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 
 const GlyphIndex = types.GlyphIndex;
-const setU16BE = bytes.setU16BE;
-const setU32BE = bytes.setU32BE;
 
 /// Schema for the format-10 header, used only to compute field offsets/sizes
 /// at comptime; never instantiated.
@@ -71,6 +68,10 @@ pub const Format10 = struct {
         return self.getRawGlyphId(idx);
     }
 };
+
+const zigstd = @import("../../../../../zigstd.zig");
+const setU16BE = bytes.setU16BE;
+const setU32BE = bytes.setU32BE;
 
 test "Format10 header matches the stream layout (20 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

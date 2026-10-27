@@ -2,7 +2,6 @@
 //!
 //! One file per routine, holding the vtable wrappers for that routine.
 
-const zigstd = @import("../../../zigstd.zig");
 const Vtable = @import("../Vtable.zig");
 
 pub const amax = @import("amax/__root__.zig");
@@ -61,7 +60,8 @@ pub fn installGeneric(vt: *Vtable) void {
     }
 }
 
+const zigstd = @import("../../../zigstd.zig");
+
 test {
-    _ = @import("x87.zig");
     zigstd.testRefAllDecls(@This());
 }

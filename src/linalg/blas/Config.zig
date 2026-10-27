@@ -84,7 +84,7 @@ pub const Env = union(enum) {
                 const entry = std.mem.span(opt orelse continue);
                 if (entry.len > key.len and entry[key.len] == '=' and std.mem.eql(u8, entry[0..key.len], key)) break entry[key.len + 1 ..];
             } else return null,
-            .windows => if (comptime sysinfo.os.tag == .windows) blk: {
+            .windows => if (comptime sysinfo.target.os.tag == .windows) blk: {
                 const w = std.process.Environ.getWindows(.{ .block = .global }, std.unicode.wtf8ToWtf16LeStringLiteral(key)) orelse return null;
                 if (w.len * 3 > buf.len) break :blk tooLong(buf);
                 break :blk buf[0..std.unicode.wtf16LeToWtf8(buf, w)];

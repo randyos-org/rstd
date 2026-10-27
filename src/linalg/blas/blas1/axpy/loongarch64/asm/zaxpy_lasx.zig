@@ -29,14 +29,12 @@ const Body = struct {
     pub fn zaxpy() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ bge $r0, $r4, 20012f
+            \\ bge $r0, $r4, 20013f
             \\ li.d $r13, 1
             \\ movgr2fr.d $f12, $r0
             \\ ffint.d.l $f12, $f12
             \\ fcmp.ceq.d $fcc0, $f0, $f12
             \\ fcmp.ceq.d $fcc1, $f1, $f12
-            \\ bceqz $fcc0, 20000f
-            \\ bcnez $fcc1, 20012f
             \\ 20000:
             \\ slli.d $r13, $r13, 4
             \\ slli.d $r8, $r8, 4
@@ -46,16 +44,20 @@ const Body = struct {
             \\ xvreplgr2vr.d $xr23, $r14
             \\ xvreplgr2vr.d $xr19, $r16
             \\ srai.d $r12, $r4, 2
-            \\ bne $r8, $r13, 20001f
-            \\ bne $r10, $r13, 20004f
-            \\ b 20002f
+            \\ bne $r10, $r0, 20001f
+            \\ move $r12, $r4
+            \\ b 20012f
             \\ 20001:
-            \\ bne $r10, $r13, 20008f
-            \\ b 20006f
+            \\ bne $r8, $r13, 20002f
+            \\ bne $r10, $r13, 20005f
+            \\ b 20003f
             \\ 20002:
-            \\ bge $r0, $r12, 20010f
-            \\ .align 3
+            \\ bne $r10, $r13, 20009f
+            \\ b 20007f
             \\ 20003:
+            \\ bge $r0, $r12, 20011f
+            \\ .align 3
+            \\ 20004:
             \\ xvld $xr8, $r7, 0 * 8
             \\ xvld $xr21, $r9, 0 * 8
             \\ xvld $xr20, $r7, 4 * 8
@@ -77,14 +79,14 @@ const Body = struct {
             \\ addi.d $r7, $r7, 8 * 8
             \\ addi.d $r9, $r9, 8 * 8
             \\ addi.d $r12, $r12, -1
-            \\ blt $r0, $r12, 20003b
-            \\ b 20010f
-            \\ .align 3
-            \\ 20004:
-            \\ bge $r0, $r12, 20010f
-            \\ move $r6, $r9
+            \\ blt $r0, $r12, 20004b
+            \\ b 20011f
             \\ .align 3
             \\ 20005:
+            \\ bge $r0, $r12, 20011f
+            \\ move $r6, $r9
+            \\ .align 3
+            \\ 20006:
             \\ xvld $xr8, $r7, 0 * 8
             \\ xvld $xr20, $r7, 4 * 8
             \\ ld.d $r14, $r9, 0 * 8
@@ -129,13 +131,13 @@ const Body = struct {
             \\ add.d $r6, $r6, $r10
             \\ addi.d $r7, $r7, 8 * 8
             \\ addi.d $r12, $r12, -1
-            \\ blt $r0, $r12, 20005b
-            \\ b 20010f
-            \\ .align 3
-            \\ 20006:
-            \\ bge $r0, $r12, 20010f
+            \\ blt $r0, $r12, 20006b
+            \\ b 20011f
             \\ .align 3
             \\ 20007:
+            \\ bge $r0, $r12, 20011f
+            \\ .align 3
+            \\ 20008:
             \\ xvld $xr21, $r9, 0 * 8
             \\ xvld $xr22, $r9, 4 * 8
             \\ ld.d $r14, $r7, 0 * 8
@@ -172,14 +174,14 @@ const Body = struct {
             \\ xvst $xr21, $r9, 0 * 8
             \\ xvst $xr22, $r9, 4 * 8
             \\ addi.d $r9, $r9, 8 * 8
-            \\ blt $r0, $r12, 20007b
-            \\ b 20010f
-            \\ .align 3
-            \\ 20008:
-            \\ bge $r0, $r12, 20010f
-            \\ move $r6, $r9
+            \\ blt $r0, $r12, 20008b
+            \\ b 20011f
             \\ .align 3
             \\ 20009:
+            \\ bge $r0, $r12, 20011f
+            \\ move $r6, $r9
+            \\ .align 3
+            \\ 20010:
             \\ ld.d $r14, $r7, 0 * 8
             \\ ld.d $r16, $r7, 1 * 8
             \\ add.d $r7, $r7, $r8
@@ -239,13 +241,13 @@ const Body = struct {
             \\ xvstelm.d $xr16, $r6, 0 * 8, 3
             \\ xvstelm.d $xr15, $r6, 1 * 8, 3
             \\ add.d $r6, $r6, $r10
-            \\ blt $r0, $r12, 20009b
-            \\ .align 3
-            \\ 20010:
-            \\ andi $r12, $r4, 3
-            \\ bge $r0, $r12, 20012f
+            \\ blt $r0, $r12, 20010b
             \\ .align 3
             \\ 20011:
+            \\ andi $r12, $r4, 3
+            \\ bge $r0, $r12, 20013f
+            \\ .align 3
+            \\ 20012:
             \\ fld.d $f12, $r7, 0 * 8
             \\ fld.d $f13, $r7, 1 * 8
             \\ fld.d $f14, $r9, 0 * 8
@@ -261,9 +263,9 @@ const Body = struct {
             \\ fst.d $f19, $r9, 1 * 8
             \\ add.d $r7, $r7, $r8
             \\ add.d $r9, $r9, $r10
-            \\ blt $r0, $r12, 20011b
+            \\ blt $r0, $r12, 20012b
             \\ .align 3
-            \\ 20012:
+            \\ 20013:
             \\ move $r4, $r12
             \\ jirl $r0, $r1, 0x0
             \\ .align 3

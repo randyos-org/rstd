@@ -205,7 +205,7 @@ pub fn probe() Caps {
     c.features.setPresent(.avx2, avx2);
     // AVX512VL and the OS saving opmask/ZMM state. macOS saves the ZMM state
     // lazily, on the first AVX-512 instruction, so XCR0 does not show it yet.
-    const zmm_saved = sysinfo.os.tag.isDarwin() or xcr0 & 0xe0 == 0xe0;
+    const zmm_saved = sysinfo.target.os.tag.isDarwin() or xcr0 & 0xe0 == 0xe0;
     if (!(avx2 and leaf7.ebx & (1 << 31) != 0 and zmm_saved)) return c;
     c.features.insert(.avx512);
     c.features.setPresent(.avx512_bf16, max >= 7 and cpuid(7, 1).eax & (1 << 5) != 0);
@@ -420,7 +420,7 @@ pub fn modelCore(c: Caps) ?Decision {
         .intel => switch (c.family()) {
             0x6 => for (intel6) |r| {
                 if (r.exmodel != c.exmodel()) continue;
-                if (std.mem.indexOfScalar(u8, r.models, @intCast(c.model())) == null) continue;
+                if (std.mem.findScalar(u8, r.models, @intCast(c.model())) == null) continue;
                 return switch (r.to) {
                     .core => |k| .{ .core = k },
                     .ladder => |l| ladder(c, l.start, l.avx2_note),
@@ -726,7 +726,7 @@ test "64-bit builds run no 32-bit-only core, and Athlon needs 3DNow!" {
 }
 
 test "feature probes execute without faulting" {
-    if (comptime !sysinfo.cpu.arch.isX86()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isX86()) return error.SkipZigTest;
     const c = probe();
     // Nothing to assert about which CPU this is -- the point is that every
     // cpuid/xgetbv path runs to completion and reports a coherent result.
@@ -736,13 +736,13 @@ test "feature probes execute without faulting" {
 }
 
 test "cachedTier matches detectTier and is stable across calls" {
-    if (comptime !sysinfo.cpu.arch.isX86()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isX86()) return error.SkipZigTest;
     try std.testing.expectEqual(detectTier(), cachedTier());
     try std.testing.expectEqual(cachedTier(), cachedTier());
 }
 
 test "detect returns a concrete core type the host can run" {
-    if (comptime !sysinfo.cpu.arch.isX86()) return error.SkipZigTest;
+    if (comptime !sysinfo.target.cpu.arch.isX86()) return error.SkipZigTest;
     try std.testing.expect(detect() != .unknown);
     try std.testing.expect(supportsCore(detect()));
     switch (detectTier()) {

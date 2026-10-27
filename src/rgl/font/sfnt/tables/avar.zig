@@ -2,7 +2,6 @@ const std = @import("std");
 
 const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
-const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for the avar header (version 1.0 - the only version this spec
 /// text defines), used only to compute field offsets/sizes at comptime;
@@ -98,6 +97,8 @@ pub const AvarTable = struct {
         return .{ .table_data = self.table_data[self.getSegmentMapOffset(index)..] };
     }
 };
+
+const zigstd = @import("../../../../zigstd.zig");
 
 test "avar StreamLayout/AxisValueMap match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 8), @sizeOf(StreamLayout));

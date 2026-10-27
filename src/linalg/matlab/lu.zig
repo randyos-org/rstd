@@ -7,7 +7,6 @@
 //! loose parameters since they're vector-shaped, not matrix-shaped.
 
 const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const Cx = blas1.Cx;
@@ -357,6 +356,7 @@ pub fn wgedi(
     }
 }
 
+const zigstd = @import("../../zigstd.zig");
 
 test "wgesl solves a known complex 2x2 system" {
     // A = [[1+i, 2], [3, 4-i]], b chosen so x = [1, 1+i].

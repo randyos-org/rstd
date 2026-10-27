@@ -143,11 +143,11 @@ fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]c
 }
 
 /// The target query a group's object is built with: its model, or the
-/// baseline plus its features.
+/// baseline plus its features, less those it goes without.
 fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
     const arch = target.result.cpu.arch;
     var query = target.query;
-    query.cpu_features_sub = .empty;
+    query.cpu_features_sub = featureSet(arch, spec.without);
     if (spec.model) |name| {
         query.cpu_model = .{ .explicit = findModel(arch, name) };
         query.cpu_features_add = .empty;
@@ -167,7 +167,7 @@ fn pickTarget(
     comptime arch_tag: std.Target.Cpu.Arch,
     groups: []const Group,
 ) ?struct { group: usize, core: []const u8 } {
-    if (comptime arch_tag == sysinfo.cpu.arch) {
+    if (comptime arch_tag == sysinfo.target.cpu.arch) {
         if (target.query.isNativeCpu()) {
             const name = @tagName(corespec.Detector(arch_tag).detect());
             for (groups, 0..) |g, i| {

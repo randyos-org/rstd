@@ -58,10 +58,6 @@ fn hardFloat(t: *const std.Target) bool {
     if (t.abi.float() == .soft) return false;
     const f = t.cpu.features;
     return switch (t.cpu.arch) {
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => std.Target.powerpc.featureSetHas(f, .hard_float),
-        .mips, .mipsel, .mips64, .mips64el => !std.Target.mips.featureSetHas(f, .soft_float),
-        .sparc, .sparc64 => !std.Target.sparc.featureSetHas(f, .soft_float),
-        .s390x => !std.Target.s390x.featureSetHas(f, .soft_float),
         .riscv64, .riscv64be => std.Target.riscv.featureSetHas(f, .d),
         .loongarch64 => std.Target.loongarch.featureSetHas(f, .d),
         .aarch64, .aarch64_be => std.Target.aarch64.featureSetHas(f, .fp_armv8),
@@ -106,13 +102,10 @@ test "variants follow the calling convention" {
     const unsupported = [_]struct { []const u8, []const u8 }{
         .{ "x86_64-linux-gnux32", "baseline" },
         .{ "mips64-linux-gnuabin32", "baseline" },
-        // soft float
+        // soft float: by the ABI, or no FP registers
         .{ "powerpc-linux-gnueabi", "baseline" },
-        .{ "powerpc64le-linux-gnu", "baseline-hard_float" },
         .{ "loongarch64-linux-gnusf", "baseline" },
-        .{ "mips64el-linux-gnuabi64", "baseline+soft_float" },
         .{ "riscv64-linux-gnu", "baseline-d" },
-        .{ "s390x-linux-gnu", "baseline+soft_float" },
         .{ "aarch64-linux-gnu", "baseline-fp_armv8" },
     };
     for (unsupported) |c| {

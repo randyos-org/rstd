@@ -242,6 +242,8 @@ const Body = struct {
             \\ je 20019f
             \\ .balign 8
             \\ 20008:
+            \\ testq $1, %rdi
+            \\ je 20019f
             \\ incq %rax
             \\ jmp 20019f
             \\ .balign 8
@@ -452,6 +454,8 @@ const Body = struct {
             \\ je 20019f
             \\ .balign 8
             \\ 20018:
+            \\ testq $1, %rdi
+            \\ je 20019f
             \\ incq %rax
             \\ .balign 16
             \\ 20019:

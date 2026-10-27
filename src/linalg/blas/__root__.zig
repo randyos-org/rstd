@@ -2,12 +2,14 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const zigstd = @import("../../zigstd.zig");
+const portable = @import("portable.zig");
 
 pub const types = @import("types.zig");
 pub const cpu = @import("cpu/__root__.zig");
 pub const Vtable = @import("Vtable.zig");
 pub const Config = @import("Config.zig");
+/// The `@Vector` kernels some cores install; `tools/blasbench` races them.
+pub const vector = @import("vector.zig");
 const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
@@ -26,7 +28,7 @@ var _vtable: Vtable = generic_vtable;
 const generic_vtable: Vtable = blk: {
     @setEvalBranchQuota(100_000);
     var vt: Vtable = .{};
-    @import("portable.zig").install(&vt);
+    portable.install(&vt);
     break :blk vt;
 };
 
@@ -55,7 +57,7 @@ fn initCold() void {
 
 /// The vtable, for code a routine reaches after its own `vtable()` call.
 pub inline fn table() *const Vtable {
-    if (std.debug.runtime_safety) std.debug.assert(phase.load(.monotonic) == .ready);
+    if (comptime sysinfo.optimize.runtimeSafety()) std.debug.assert(phase.load(.monotonic) == .ready);
     return &_vtable;
 }
 
@@ -88,8 +90,8 @@ fn initWith(env: Config.Env) bool {
     const ct = chosen.served orelse chosen.core;
     core_type = ct;
     blasWarn(2, "core: {s}", .{@tagName(ct)});
-    if (comptime sysinfo.cpu.arch.isPowerPC()) {
-        if (config.get_openblas_coretype and comptime sysinfo.os.tag != .freestanding)
+    if (comptime sysinfo.target.cpu.arch.isPowerpc()) {
+        if (config.get_openblas_coretype and comptime sysinfo.target.os.tag != .freestanding)
             std.debug.print("Core: {s}\n", .{@tagName(ct)});
     }
 
@@ -116,11 +118,11 @@ fn claim() bool {
 /// libc's `environ` (`_NSGetEnviron()` on Darwin, where a dylib has no
 /// `environ`). Zig hands the block to `main` only, so elsewhere there is none.
 fn processEnv() Config.Env {
-    if (comptime sysinfo.os.tag == .windows) return .windows;
+    if (comptime sysinfo.target.os.tag == .windows) return .windows;
     if (comptime !sysinfo.link_libc) return .none;
-    const envp: [*:null]const ?[*:0]const u8 = switch (sysinfo.os.tag) {
+    const envp: [*:null]const ?[*:0]const u8 = switch (sysinfo.target.os.tag) {
         .freestanding, .other, .uefi => return .none,
-        else => if (comptime sysinfo.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
+        else => if (comptime sysinfo.target.os.tag.isDarwin()) _NSGetEnviron().* else std.c.environ,
     };
     return .{ .posix = std.mem.span(envp) };
 }
@@ -137,7 +139,7 @@ const LogSink = struct {
 /// A diagnostic, shown when `OPENBLAS_VERBOSE` is at least `level`. Only where
 /// there is somewhere to print to.
 fn blasWarn(level: i32, comptime fmt: []const u8, args: anytype) void {
-    if (comptime sysinfo.os.tag == .freestanding) return;
+    if (comptime sysinfo.target.os.tag == .freestanding) return;
     if (config.verbose < level) return;
     std.debug.print("OpenBLAS: " ++ fmt ++ "\n", args);
 }
@@ -190,6 +192,8 @@ pub fn testRestore(saved: TestSaved) void {
     _vtable = saved.vt;
     if (!saved.ready) phase.store(.uninit, .release);
 }
+
+const zigstd = @import("../../zigstd.zig");
 
 // lives here, not in `Vtable.zig`, so that file stays import-free for the
 // per-core kernel objects, which use its type (see `kernels/__root__.zig`)
@@ -298,7 +302,6 @@ const qx_slots = blk: {
 test "no core puts a kernel of its own in a q or x slot" {
     @setEvalBranchQuota(100_000);
     const registry = @import("asm_registry.zig");
-    const portable = @import("portable.zig");
     var base: Vtable = .{};
     portable.install(&base);
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
@@ -315,7 +318,8 @@ fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {
 }
 
 test {
-    _ = @import("_test_types.zig");
     _ = @import("abi.zig");
+    _ = @import("apple_accel.zig");
+    _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());
 }

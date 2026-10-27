@@ -90,8 +90,6 @@ const Body = struct {
             \\ PROLOGUE
             \\ cmp x0, xzr
             \\ ble 20008f
-            \\ fcmp s0, #0.0
-            \\ beq 20008f
             \\ cmp x4, #1
             \\ bne 20004f
             \\ cmp x6, #1

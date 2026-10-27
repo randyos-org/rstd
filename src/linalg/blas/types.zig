@@ -9,7 +9,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 
-const SrcInfo = std.builtin.SourceLocation;
+const SrcInfo = std.lang.SourceLocation;
 
 /// Kernel-level index/stride type: `long`, pointer-sized (LP64, and Win64's
 /// `long long`), the same as the interface's `isize`.
@@ -26,15 +26,17 @@ pub const quad_precision = false;
 /// Microsoft-ABI target (`Makefile.system`); here likewise (`exprecisionOn`).
 /// Elsewhere `q`/`x` alias `d`/`z`.
 pub const exprecision = !quad_precision and exprecisionOn(
-    sysinfo.cpu.arch,
-    sysinfo.os.tag,
+    sysinfo.target.cpu.arch,
+    sysinfo.target.os.tag,
     @typeInfo(c_longdouble).float.bits,
-    sysinfo.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.cpu.features, .x87),
+    sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .x87),
 );
 
 /// Whether a target gets `EXPRECISION`: x86 or x86_64 with an x87 unit, whose
 /// `long double` is the 80-bit x87 type, and not a Microsoft-ABI OS (Windows,
-/// UEFI), which the reference never builds it for.
+/// UEFI), which the reference never builds it for. Assumes the x87 control
+/// word's extended precision (0x037F), as Linux and x64 UEFI's handoff leave
+/// it; Windows sets double (0x027F). An OS without either must set it.
 pub fn exprecisionOn(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag, longdouble_bits: u16, x87: bool) bool {
     if (!arch.isX86() or !x87 or longdouble_bits != 80) return false;
     return switch (os) {
@@ -73,8 +75,8 @@ pub const HF16 = f16;
 pub const XDouble = if (quad_precision) f128 else if (exprecision) c_longdouble else f64;
 
 /// Whether float `F` is wider than `f64` (`f80`, `f128`): such types never
-/// fuse (`fma.zig`), and the portable `q`/`x` reductions take the x87
-/// kernels' accumulator order.
+/// fuse (`fma.zig`), and the portable `q`/`x` reductions and gemv take the
+/// x87 kernels' accumulator order.
 pub fn isExtended(comptime F: type) bool {
     return @typeInfo(F).float.bits > 64;
 }
@@ -101,7 +103,7 @@ pub fn hasSlots(comptime F: type) bool {
 
 /// Calling convention of the portable kernels over `F`: C for the vtable's
 /// types, Zig's own for the rest, which only Zig calls.
-pub fn kernelCc(comptime F: type) std.builtin.CallingConvention {
+pub fn kernelCc(comptime F: type) std.lang.CallingConvention {
     return if (hasSlots(F)) .c else .auto;
 }
 

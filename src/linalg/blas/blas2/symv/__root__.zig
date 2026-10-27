@@ -65,7 +65,6 @@ pub fn xsymv_U(m: BlasLong, offset: BlasLong, alpha_r: XDouble, alpha_i: XDouble
 const std = @import("std");
 const Vtable = @import("../../Vtable.zig");
 const sym = @import("../symmetric.zig");
-const guard = @import("../guard.zig");
 
 /// The portable kernels over `T`, any float or its `Complex`, by the slot
 /// they would fill (`portable.kernel`): the direct loops, which need no
@@ -92,6 +91,8 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const guard = @import("../../_test/blas2/guard.zig");
+
 fn checkAll(vt: *const Vtable) !void {
     guard.use(vt);
     defer guard.restore();
@@ -105,6 +106,8 @@ fn checkSlots(vt: *const Vtable) !void {
     }
 }
 
+const check = @import("../../_test/blas1/check.zig");
+
 test "portable symv kernels match plain arithmetic" {
     const vt = guard.portableVtable();
     guard.use(vt);
@@ -117,5 +120,5 @@ test "portable symv kernels match plain arithmetic" {
 }
 
 test "every linked core's symv kernels match plain arithmetic, where this machine runs them" {
-    try @import("../../blas1/check.zig").eachCore(checkAll);
+    try check.eachCore(checkAll);
 }

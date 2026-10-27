@@ -10,6 +10,7 @@ const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 const abi = @import("abi.zig");
 const select = @import("cpu/_select.zig");
+const vector = @import("vector.zig");
 
 /// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target's calling
 /// convention needs (`abi.zig`). The compiled target's, so `has`, which the
@@ -69,7 +70,7 @@ fn slot(comptime role: []const u8) []const u8 {
 /// Points the vtable slot of each of `roles` that `core` has (`hasRole`) at
 /// the kernel the per-core object exports for it, for a routine whose kernels
 /// are not all converted assembly (`Kernels.install` does this from `index`).
-pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const []const u8, comptime hasRole: anytype) void {
+pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const [:0]const u8, comptime hasRole: anytype) void {
     inline for (roles) |role| {
         if (comptime hasRole(core, role)) {
             const Fn = @typeInfo(@FieldType(Vtable, slot(role))).optional.child;
@@ -80,8 +81,10 @@ pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const
 
 pub fn Kernels(comptime Core: type, comptime index: type) type {
     return struct {
-        /// `e`'s function for `core` on this target, if it has one.
+        /// `e`'s function for `core` on this target, if it has one and its
+        /// role is not `routed` to the portable or `@Vector` kernels.
         fn kernel(comptime e: anytype, comptime core: Core) ?type {
+            if (comptime vector.routed(e.role)) return null;
             return e.module.kernel(@tagName(core), variant);
         }
 
@@ -99,6 +102,16 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
                 if (comptime std.mem.eql(u8, e.role, role) and kernel(e, core) != null) return true;
+            }
+            return false;
+        }
+
+        /// Whether `role` has a converted kernel on `core` for this target,
+        /// `routed` or not.
+        pub fn converted(comptime core: Core, comptime role: []const u8) bool {
+            @setEvalBranchQuota(1_000_000);
+            inline for (index.entries) |e| {
+                if (comptime std.mem.eql(u8, e.role, role) and e.module.kernel(@tagName(core), variant) != null) return true;
             }
             return false;
         }
@@ -125,7 +138,7 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             inline for (index.entries) |e| {
                 if (comptime kernel(e, core)) |K| {
                     @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
-                } else if (comptime e.module.serves(@tagName(core)) and !hasRole(core, e.role)) {
+                } else if (comptime e.module.serves(@tagName(core)) and !hasRole(core, e.role) and !vector.routed(e.role)) {
                     @compileError("no '" ++ variant ++ "' build of " ++ e.role ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
                 }
             }

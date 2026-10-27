@@ -4,7 +4,7 @@ const std = @import("std");
 // const io = @import("io.zig");
 
 pub const std_os_options: std.Options.OperatingSystem = .{
-    .Io = switch (sysinfo.os.tag) {
+    .Io = switch (sysinfo.target.os.tag) {
         .uefi => @import("_os/uefi/io/__root__.zig"),
         else => null,
     },

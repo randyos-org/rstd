@@ -40,10 +40,8 @@ pub fn xswap_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, dummy3: XDouble,
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../check.zig");
 
 /// `kernel/arm/swap.c` and `zswap.c`: exchanges `x` and `y`; an element is
 /// `w` floats.
@@ -101,25 +99,32 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
+const std = @import("std");
+const check = @import("../../_test/blas1/check.zig");
+
+/// `check.zero_strides` and both zero, which a kernel that loads a block
+/// before storing it gets wrong.
+const strides = check.zero_strides ++ [_][2]isize{.{ 0, 0 }};
+
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkSwap(comptime T: type, kern: anytype) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
     for (check.sizes) |n| {
-        for (check.strides) |inc| {
+        for (strides) |inc| {
             var x: [check.capacity]T = undefined;
             var y: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
             check.fill(T, &y, n + 7);
             var want_x = x;
             var want_y = y;
-            for (0..n) |i| std.mem.swap(T, &want_x[i * inc[0]], &want_y[i * inc[1]]);
-            const px: [*]F = @ptrCast(&x);
-            const py: [*]F = @ptrCast(&y);
+            for (0..n) |i| std.mem.swap(T, &want_x[check.pos(n, inc[0], i)], &want_y[check.pos(n, inc[1], i)]);
+            const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
+            const py: [*]F = @ptrCast(&y[check.pos(n, inc[1], 0)]);
             if (comptime complex) {
-                _ = kern(@intCast(n), 0, 0, 0, 0, px, @intCast(inc[0]), py, @intCast(inc[1]), py, 0);
+                _ = kern(@intCast(n), 0, 0, 0, 0, px, inc[0], py, inc[1], py, 0);
             } else {
-                _ = kern(@intCast(n), 0, 0, 0, px, @intCast(inc[0]), py, @intCast(inc[1]), py, 0);
+                _ = kern(@intCast(n), 0, 0, 0, px, inc[0], py, inc[1], py, 0);
             }
             check.expectCloseSlices(T, &want_x, &x, 0) catch |e| return check.case(e, "swap x", T, n, inc);
             check.expectCloseSlices(T, &want_y, &y, 0) catch |e| return check.case(e, "swap y", T, n, inc);
@@ -128,10 +133,12 @@ fn checkSwap(comptime T: type, kern: anytype) !void {
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkSwap(f32, vt.sswap_k.?);
-    try checkSwap(f64, vt.dswap_k.?);
-    try checkSwap(std.math.Complex(f32), vt.cswap_k.?);
-    try checkSwap(std.math.Complex(f64), vt.zswap_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkSwap(f32, vt.sswap_k.?));
+    check.keep(&failed, checkSwap(f64, vt.dswap_k.?));
+    check.keep(&failed, checkSwap(std.math.Complex(f32), vt.cswap_k.?));
+    check.keep(&failed, checkSwap(std.math.Complex(f64), vt.zswap_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable swap kernels match a plain loop" {

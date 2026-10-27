@@ -137,6 +137,10 @@ const Body = struct {
             \\ move $0, $0
             \\ .align 3
             \\ 20004:
+            \\ beqz $9, 20008f
+            \\ move $2, $4
+            \\ beqz $11, 20008f
+            \\ move $2, $4
             \\ dsra $2, $4, 3
             \\ move $5, $8
             \\ move $6, $10

@@ -127,7 +127,7 @@ pub const Env = struct {
 /// and 512 KB on RISC-V, which reads sysfs and so needs an OS).
 pub fn detect() Env {
     var env: Env = .{};
-    switch (sysinfo.cpu.arch) {
+    switch (sysinfo.target.cpu.arch) {
         .x86_64, .x86 => {
             const id = cpuid(0x80000006, 0);
             const l2: i32 = @intCast((id.ecx >> 16) & 0xffff);
@@ -152,7 +152,7 @@ pub fn detect() Env {
 const CpuidResult = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
 
 fn cpuid(leaf: u32, sub: u32) CpuidResult {
-    switch (sysinfo.cpu.arch) {
+    switch (sysinfo.target.cpu.arch) {
         .x86_64, .x86 => {
             var a: u32 = undefined;
             var b: u32 = undefined;
@@ -173,7 +173,7 @@ fn cpuid(leaf: u32, sub: u32) CpuidResult {
 }
 
 fn cpucfg(word: u32) u64 {
-    switch (sysinfo.cpu.arch) {
+    switch (sysinfo.target.cpu.arch) {
         .loongarch64 => return asm volatile ("cpucfg %[ret], %[id]"
             : [ret] "=r" (-> u64),
             : [id] "r" (word),
@@ -233,7 +233,7 @@ fn roundUp(v: i32, to: i32) i32 {
 fn scaled(p: i32, env: Env) i32 {
     if (env.block_factor <= 0) return p;
     const factor: f64 = @floatFromInt(std.math.clamp(env.block_factor, 10, 200));
-    const v: i64 = @intFromFloat(@as(f64, @floatFromInt(p)) * factor * 1.0e-2);
+    const v: i64 = @trunc(@as(f64, @floatFromInt(p)) * factor * 1.0e-2);
     return @intCast(v & ~@as(i64, 7));
 }
 
@@ -439,14 +439,69 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
     }
 }
 
-test "every core of every family resolves to sane parameters" {
+/// Every core of `family` resolves to sane parameters; one test per family,
+/// so each fits a rig image (`build/qemutest.zig`'s `sparc64-debug`).
+fn checkFamily(comptime family: Family) !void {
     @setEvalBranchQuota(2_000_000);
-    inline for (@typeInfo(Family).@"enum".field_names) |fname| {
-        const family = @field(Family, fname);
-        inline for (@typeInfo(CoreOf(family)).@"enum".field_names) |cname| {
-            try checkCore(family, @field(CoreOf(family), cname));
-        }
+    inline for (@typeInfo(CoreOf(family)).@"enum".field_names) |cname| {
+        try checkCore(family, @field(CoreOf(family), cname));
     }
+}
+
+test "every core of the x86_64 family resolves to sane parameters" {
+    try checkFamily(.x86_64);
+}
+
+test "every core of the x86 family resolves to sane parameters" {
+    try checkFamily(.x86);
+}
+
+test "every core of the arm64 family resolves to sane parameters" {
+    try checkFamily(.arm64);
+}
+
+test "every core of the arm family resolves to sane parameters" {
+    try checkFamily(.arm);
+}
+
+test "every core of the power64 family resolves to sane parameters" {
+    try checkFamily(.power64);
+}
+
+test "every core of the power32 family resolves to sane parameters" {
+    try checkFamily(.power32);
+}
+
+test "every core of the riscv64 family resolves to sane parameters" {
+    try checkFamily(.riscv64);
+}
+
+test "every core of the s390x family resolves to sane parameters" {
+    try checkFamily(.s390x);
+}
+
+test "every core of the mips64 family resolves to sane parameters" {
+    try checkFamily(.mips64);
+}
+
+test "every core of the mips32 family resolves to sane parameters" {
+    try checkFamily(.mips32);
+}
+
+test "every core of the loongarch64 family resolves to sane parameters" {
+    try checkFamily(.loongarch64);
+}
+
+test "every core of the sparc family resolves to sane parameters" {
+    try checkFamily(.sparc);
+}
+
+test "every core of the wasm family resolves to sane parameters" {
+    try checkFamily(.wasm);
+}
+
+test "every core of the generic family resolves to sane parameters" {
+    try checkFamily(.generic);
 }
 
 test "generic follows the GENERIC rule for a 512 KB L2" {

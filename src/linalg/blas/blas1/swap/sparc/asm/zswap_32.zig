@@ -38,10 +38,10 @@ const Body = struct {
             \\ sll %i2, 4, %i2
             \\ sll %i4, 4, %i4
             \\ cmp %i2, 2 * 8
-            \\ bne 20005f
+            \\ bne 20006f
             \\ nop
             \\ cmp %i4, 2 * 8
-            \\ bne 20005f
+            \\ bne 20006f
             \\ nop
             \\ sra %i0, 2, %i5
             \\ cmp %i5, 0
@@ -147,12 +147,24 @@ const Body = struct {
             \\ return %i7 + 8
             \\ clr %g0
             \\ 20005:
+            \\ cmp %i0, 0
+            \\ ble 20010f
+            \\ mov %i0, %i5
+            \\ b 20009f
+            \\ nop
+            \\ 20006:
+            \\ cmp %i2, 0
+            \\ be 20005b
+            \\ nop
+            \\ cmp %i4, 0
+            \\ be 20005b
+            \\ nop
             \\ sra %i0, 2, %i5
             \\ mov %i1, %l0
             \\ cmp %i5, 0
-            \\ ble,pn %icc, 20007f
+            \\ ble,pn %icc, 20008f
             \\ mov %i3, %l1
-            \\ 20006:
+            \\ 20007:
             \\ ldd [%i1 + 0 * 8], %f0
             \\ ldd [%i3 + 0 * 8], %f16
             \\ ldd [%i1 + 1 * 8], %f2
@@ -202,14 +214,14 @@ const Body = struct {
             \\ std %f14, [%l1 + 1 * 8]
             \\ add %l1, %i4, %l1
             \\ std %f30, [%l0 + 1 * 8]
-            \\ bg,pt %icc, 20006b
+            \\ bg,pt %icc, 20007b
             \\ add %l0, %i2, %l0
-            \\ 20007:
+            \\ 20008:
             \\ and %i0, 3, %i5
             \\ cmp %i5, 0
-            \\ ble,a,pn %icc, 20009f
+            \\ ble,a,pn %icc, 20010f
             \\ nop
-            \\ 20008:
+            \\ 20009:
             \\ ldd [%i1 + 0 * 8], %f0
             \\ add %i5, -1, %i5
             \\ ldd [%i1 + 1 * 8], %f2
@@ -221,9 +233,9 @@ const Body = struct {
             \\ add %i1, %i2, %i1
             \\ std %f0, [%i3 + 0 * 8]
             \\ std %f2, [%i3 + 1 * 8]
-            \\ bg,pt %icc, 20008b
+            \\ bg,pt %icc, 20009b
             \\ add %i3, %i4, %i3
-            \\ 20009:
+            \\ 20010:
             \\ return %i7 + 8
             \\ clr %o0
             \\

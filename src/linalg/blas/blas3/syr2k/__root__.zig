@@ -27,3 +27,24 @@ pub fn ssyr2k_direct_alpha_betaLN(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f3
 pub fn ssyr2k_direct_alpha_betaLT(N: BlasLong, K: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong, beta: f32, R: [*]f32, strideR: BlasLong) void {
     blas.kernel(.ssyr2k_direct_alpha_betaLT)(N, K, alpha, A, strideA, B, strideB, beta, R, strideR);
 }
+
+const check = @import("../../_test/blas3/check.zig");
+const Vtable = @import("../../Vtable.zig");
+
+fn cases(vt: *const Vtable) !void {
+    try check.routineAll(vt, .syr2k);
+    try check.routineAll(vt, .her2k);
+}
+
+const blas1check = @import("../../_test/blas1/check.zig");
+const portable = @import("../../portable.zig");
+
+test "portable syr2k and her2k match the wide reference through the driver" {
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    try cases(&vt);
+}
+
+test "every linked core's syr2k and her2k match the wide reference, where this machine runs them" {
+    try blas1check.eachCore(cases);
+}

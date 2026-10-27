@@ -29,15 +29,12 @@ const Body = struct {
     pub fn sgemv_n() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ ld.w $r6, $sp, 0
-            \\ ld.w $r16, $sp, 8
-            \\ addi.d $sp, $sp, -48
-            \\ st.w $r23, $sp, 0
-            \\ st.w $r24, $sp, 8
+            \\ ld.d $r6, $sp, 0
+            \\ ld.d $r16, $sp, 8
+            \\ addi.d $sp, $sp, -16
+            \\ st.d $r23, $sp, 0
+            \\ st.d $r24, $sp, 8
             \\ slli.d $r8, $r8, 2
-            \\ fst.d $f18, $sp, 16
-            \\ fst.d $f19, $sp, 24
-            \\ fst.d $f20, $sp, 32
             \\ slli.d $r10, $r10, 2
             \\ bge $r0, $r4, 20022f
             \\ slli.d $r6, $r6, 2
@@ -442,12 +439,9 @@ const Body = struct {
             \\ blt $r0, $r14, 20021b
             \\ .align 3
             \\ 20022:
-            \\ ld.w $r23, $sp, 0
-            \\ ld.w $r24, $sp, 8
-            \\ fld.d $f18, $sp, 16
-            \\ fld.d $f19, $sp, 24
-            \\ fld.d $f20, $sp, 32
-            \\ addi.d $sp, $sp, 48
+            \\ ld.d $r23, $sp, 0
+            \\ ld.d $r24, $sp, 8
+            \\ addi.d $sp, $sp, 16
             \\ move $r4, $r17
             \\ fmov.d $f0, $f22
             \\ jirl $r0, $r1, 0x0

@@ -5,13 +5,14 @@
 //! kernels call through.
 
 const std = @import("std");
-const blas = @import("../__root__.zig");
-const Vtable = @import("../Vtable.zig");
-const portable = @import("../portable.zig");
+const blas = @import("../../__root__.zig");
+const Vtable = @import("../../Vtable.zig");
+const portable = @import("../../portable.zig");
 const check = @import("../blas1/check.zig");
 
 const page = 4096;
-const max_bytes = 96 * 1024;
+/// A complex `f80` gemv's buffer past the x87 4096-row block.
+const max_bytes = 136 * 1024;
 var space: [2 * page + max_bytes]u8 align(page) = undefined;
 
 /// The vtable `use` replaced; static, since a vtable is large for a rig's stack.

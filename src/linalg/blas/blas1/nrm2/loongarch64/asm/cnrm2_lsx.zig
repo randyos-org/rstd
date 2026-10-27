@@ -29,8 +29,15 @@ const Body = struct {
     pub fn cnrm2() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ bge $r0, $r4, 20006f
-            \\ beq $r0, $r6, 20006f
+            \\ bge $r0, $r4, 20007f
+            \\ beq $r0, $r6, 20007f
+            \\ bge $r6, $r0, 20000f
+            \\ addi.d $r18, $r4, -1
+            \\ mul.d $r18, $r18, $r6
+            \\ slli.d $r18, $r18, 3
+            \\ add.d $r5, $r5, $r18
+            \\ sub.d $r6, $r0, $r6
+            \\ 20000:
             \\ addi.d $sp, $sp, -32
             \\ st.d $ra, $sp, 0
             \\ st.d $r4, $sp, 8
@@ -47,15 +54,15 @@ const Body = struct {
             \\ vxor.v $vr19, $vr19, $vr19
             \\ vxor.v $vr20, $vr20, $vr20
             \\ fcmp.ceq.s $fcc0, $f0, $f19
-            \\ bcnez $fcc0, 20006f
+            \\ bcnez $fcc0, 20007f
             \\ li.d $r18, 1
             \\ slli.d $r18, $r18, 3
             \\ slli.d $r6, $r6, 3
             \\ srai.d $r17, $r4, 2
-            \\ bne $r6, $r18, 20001f
-            \\ bge $r0, $r17, 20004f
+            \\ bne $r6, $r18, 20002f
+            \\ bge $r0, $r17, 20005f
             \\ .align 3
-            \\ 20000:
+            \\ 20001:
             \\ vld $vr15, $r5, 0 * 4
             \\ addi.d $r17, $r17, -1
             \\ vld $vr15, $r5, 0 * 4
@@ -65,13 +72,13 @@ const Body = struct {
             \\ vfmadd.s $vr19, $vr15, $vr15, $vr19
             \\ vfmadd.s $vr20, $vr16, $vr16, $vr20
             \\ addi.d $r5, $r5, 8 * 4
-            \\ blt $r0, $r17, 20000b
-            \\ b 20003f
-            \\ .align 3
-            \\ 20001:
-            \\ bge $r0, $r17, 20004f
+            \\ blt $r0, $r17, 20001b
+            \\ b 20004f
             \\ .align 3
             \\ 20002:
+            \\ bge $r0, $r17, 20005f
+            \\ .align 3
+            \\ 20003:
             \\ ld.w $r12, $r5, 0 * 4
             \\ ld.w $r13, $r5, 1 * 4
             \\ add.d $r5, $r5, $r6
@@ -97,10 +104,10 @@ const Body = struct {
             \\ vfmul.s $vr15, $vr15, $vr3
             \\ vfmadd.s $vr20, $vr15, $vr15, $vr20
             \\ addi.d $r17, $r17, -1
-            \\ blt $r0, $r17, 20002b
-            \\ b 20003f
+            \\ blt $r0, $r17, 20003b
+            \\ b 20004f
             \\ .align 3
-            \\ 20003:
+            \\ 20004:
             \\ vfadd.s $vr19, $vr19, $vr20
             \\ vreplvei.w $vr16, $vr19, 1
             \\ vreplvei.w $vr17, $vr19, 2
@@ -109,11 +116,11 @@ const Body = struct {
             \\ vfadd.s $vr19, $vr17, $vr19
             \\ vfadd.s $vr19, $vr18, $vr19
             \\ .align 3
-            \\ 20004:
-            \\ andi $r17, $r4, 3
-            \\ bge $r0, $r17, 20006f
-            \\ .align 3
             \\ 20005:
+            \\ andi $r17, $r4, 3
+            \\ bge $r0, $r17, 20007f
+            \\ .align 3
+            \\ 20006:
             \\ fld.s $f15, $r5, 0 * 4
             \\ fld.s $f16, $r5, 1 * 4
             \\ addi.d $r17, $r17, -1
@@ -122,9 +129,9 @@ const Body = struct {
             \\ fmadd.s $f19, $f15, $f15, $f19
             \\ fmadd.s $f19, $f16, $f16, $f19
             \\ add.d $r5, $r5, $r6
-            \\ blt $r0, $r17, 20005b
+            \\ blt $r0, $r17, 20006b
             \\ .align 3
-            \\ 20006:
+            \\ 20007:
             \\ fsqrt.s $f19, $f19
             \\ fmul.s $f0, $f19, $f0
             \\ move $r4, $r17

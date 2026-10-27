@@ -1,5 +1,4 @@
 const bytes = @import("../../../../../bytes.zig");
-const zigstd = @import("../../../../../zigstd.zig");
 const types = @import("../../stream_types.zig");
 
 const GlyphIndex = types.GlyphIndex;
@@ -186,6 +185,10 @@ pub fn getLocalSubrIndexForGlyph(self: CffTable, glyph: GlyphIndex) ?Index {
     return resolvePrivateSubrs(self.table_data, font_dict, false) catch null;
 }
 
+const zigstd = @import("../../../../../zigstd.zig");
+
+const std = @import("std");
+
 test "CFF StreamLayout matches the actual spec header (4 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));
     try zigstd.testExpectEqual(@as(usize, 1), @offsetOf(StreamLayout, "minor_version"));
@@ -317,7 +320,7 @@ test "CffTable resolves CharStrings and (via Private -> Subrs) local Subrs for a
 
     const subrs = cff.getLocalSubrIndexForGlyph(@fromBackingInt(@intCast(0))).?;
     try zigstd.testExpectEqual(@as(u16, 1), subrs.count());
-    try zigstd.testExpectEqual(true, @import("std").mem.eql(u8, &.{ 0xAA, 0xBB, 0xCC }, subrs.get(0)));
+    try zigstd.testExpectEqual(true, std.mem.eql(u8, &.{ 0xAA, 0xBB, 0xCC }, subrs.get(0)));
 }
 
 // Builds a minimal CID-keyed CFF table: ROS+FDArray+FDSelect in the Top
@@ -461,8 +464,8 @@ test "CffTable resolves per-glyph Font DICT/Private/Subrs for a CID-keyed font" 
     try zigstd.testExpectEqual(@as(u8, 1), cff.getFdIndexForGlyph(glyph1));
 
     const subrs0 = cff.getLocalSubrIndexForGlyph(glyph0).?;
-    try zigstd.testExpectEqual(true, @import("std").mem.eql(u8, &.{0x11}, subrs0.get(0)));
+    try zigstd.testExpectEqual(true, std.mem.eql(u8, &.{0x11}, subrs0.get(0)));
 
     const subrs1 = cff.getLocalSubrIndexForGlyph(glyph1).?;
-    try zigstd.testExpectEqual(true, @import("std").mem.eql(u8, &.{ 0x22, 0x33 }, subrs1.get(0)));
+    try zigstd.testExpectEqual(true, std.mem.eql(u8, &.{ 0x22, 0x33 }, subrs1.get(0)));
 }

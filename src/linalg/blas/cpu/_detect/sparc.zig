@@ -2,7 +2,6 @@
 //! nothing at run time, so the core type follows the target: V9 (any 64-bit
 //! target, or the 32-bit one built for V9) or the generic one.
 
-const std = @import("std");
 const coretypes = @import("../_coretypes.zig");
 const select = @import("../_select.zig");
 const sysinfo = @import("builtin");
@@ -12,7 +11,7 @@ pub const Decision = select.Decision(CoreType);
 
 /// Nothing is probed; the build's target is the answer.
 pub const Caps = struct {
-    v9: bool = sysinfo.cpu.arch.isSPARC() and (sysinfo.cpu.arch == .sparc64 or sysinfo.cpu.has(.sparc, .v9)),
+    v9: bool = sysinfo.target.cpu.arch.isSparc() and (sysinfo.target.cpu.arch == .sparc64 or sysinfo.target.cpu.has(.sparc, .v9)),
 };
 
 pub fn probe() Caps {
@@ -39,6 +38,8 @@ pub fn detect() CoreType {
 pub fn detectNoted() Decision {
     return decide(probe());
 }
+
+const std = @import("std");
 
 test "V9 targets get the V9 core" {
     try std.testing.expectEqual(CoreType.sparc, decide(.{ .v9 = true }).core);

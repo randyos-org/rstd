@@ -16,14 +16,12 @@ const std = @import("std");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
-const check = @import("check.zig");
 const portable = @import("../portable.zig");
+const bf = @import("../ext/bf16/__root__.zig");
 
 const BlasLong = types.BlasLong;
 const BF16 = types.BF16;
 const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
 
 const isComplex = types.isComplex;
 const Float = types.Float;
@@ -312,7 +310,7 @@ pub fn sbdot(n: isize, x: [*]BF16, incx: isize, y: [*]BF16, incy: isize) ArgErro
 pub fn bscal(n: isize, alpha: BF16, x: [*]BF16, incx: isize) ArgError!void {
     if (incx <= 0 or n <= 0) return;
     try spanX(BF16, n, incx);
-    if (@import("../ext/bf16/__root__.zig").scalarToF32(alpha) == 1) return;
+    if (bf.scalarToF32(alpha) == 1) return;
     _ = blas.kernel(.bscal_k)(n, 0, 0, alpha, x, incx, x, 0, x, 1);
 }
 
@@ -597,6 +595,11 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 }
 
 // ---- tests -------------------------------------------------------------------
+
+const check = @import("../_test/blas1/check.zig");
+const blas2_interface = @import("../blas2/interface.zig");
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
 
 const reals = .{ f32, f64 } ++ check.x_real;
 const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
@@ -1109,10 +1112,10 @@ test "interface: f16 reductions accumulate wide, and counts past its range stay 
     try check.expectClose(C, .init(3000, 0), try dotc(C, 3000, cones.ptr, 1, cones.ptr, 1), 0);
     // gemv's transposed sums, real and complex
     var y = [_]H{0};
-    try @import("../blas2/interface.zig").gemv(al, H, .t, n, 1, 1, ones.ptr, n, ones.ptr, 1, 0, &y, 1);
+    try blas2_interface.gemv(al, H, .t, n, 1, 1, ones.ptr, n, ones.ptr, 1, 0, &y, 1);
     try check.expectClose(H, 5000, y[0], 0);
     var cy = [_]C{.init(0, 0)};
-    try @import("../blas2/interface.zig").gemv(al, C, .c, 3000, 1, .init(1, 0), cones.ptr, 3000, cones.ptr, 1, .init(0, 0), &cy, 1);
+    try blas2_interface.gemv(al, C, .c, 3000, 1, .init(1, 0), cones.ptr, 3000, cones.ptr, 1, .init(0, 0), &cy, 1);
     try check.expectClose(C, .init(3000, 0), cy[0], 0);
     // a zero stride: sqrt(n) |x[0]| with n past f16's range
     var x = [_]H{0.01};
@@ -1146,8 +1149,6 @@ test "interface: rotmg in f16 rescales within its range" {
         try check.expectClose(f64, was, @as(f64, d1) * x1 * x1, 1e-2 * was);
     }
 }
-
-const bf = @import("../ext/bf16/__root__.zig");
 
 fn b16(v: f32) BF16 {
     return bf.toBf16(v);
@@ -1267,11 +1268,17 @@ test "portable kernels: special values and ranges" {
     v = .{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
     _ = scalk.dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 0);
     for (v) |e| try std.testing.expectEqual(@as(f64, 0), e);
-    // iamax: first of equal maxima, 1-based; a NaN first element is never replaced
+    // iamax: first of equal maxima, 1-based; the first NaN wins
     var ties = [_]f64{ 1, -3, 3, 2 };
     try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.idamax_generic(4, &ties, 1));
-    var nan_first = [_]f64{ std.math.nan(f64), 5, 7 };
-    try std.testing.expectEqual(@as(BlasLong, 1), iamaxk.idamax_generic(3, &nan_first, 1));
+    var nans = [_]f64{ 5, std.math.inf(f64), std.math.nan(f64), 7, std.math.nan(f64) };
+    try std.testing.expectEqual(@as(BlasLong, 3), iamaxk.idamax_generic(5, &nans, 1));
+    // complex: an infinite part beats a finite element whose |re| + |im| overflows
+    const big = std.math.floatMax(f64);
+    var z = [_]f64{ big, big, 1, std.math.inf(f64), big, 0 };
+    try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.izamax_generic(3, &z, 1));
+    z[3] = 1;
+    try std.testing.expectEqual(@as(BlasLong, 1), iamaxk.izamax_generic(3, &z, 1));
     // dsdot accumulates in double: a sum f32 would lose
     var xs: [3]f32 = .{ 16777216, 1, 1 };
     try std.testing.expectEqual(@as(f64, 16777216.0 * 16777216.0 + 2), dotk.dsdot_generic(3, &xs, 1, &xs, 1));

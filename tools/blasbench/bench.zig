@@ -9,9 +9,54 @@
 //! small vector is shorter than the clock costs to read; the batch size grows
 //! until it is long enough to measure, and the best of several batches is
 //! reported, the run least disturbed by the rest of the machine.
+//!
+//! `race` does the same for any calls (`blas_bench.zig`), taking their
+//! batches in turn so a disturbance falls on every contestant alike.
 
 const std = @import("std");
 const Io = std.Io;
+
+/// How a race is timed: each batch runs at least `min_ns`, and the fastest
+/// of `batches` counts.
+pub const Timing = struct {
+    min_ns: i96,
+    batches: usize,
+};
+
+/// One contestant: `run(ctx)` makes one call.
+pub const Call = struct {
+    ctx: *anyopaque,
+    run: *const fn (*anyopaque) void,
+};
+
+/// The most contestants one race takes.
+pub const max_calls = 16;
+
+/// Seconds per call of each of `calls` into `out`, from each one's fastest
+/// batch; the batches go round the contestants in turn.
+pub fn race(io: Io, t: Timing, calls: []const Call, out: []f64) error{TooManyCalls}!void {
+    if (calls.len > max_calls or out.len < calls.len) return error.TooManyCalls;
+    var reps: [max_calls]usize = undefined;
+    for (calls, 0..) |c, i| {
+        c.run(c.ctx); // warm up
+        reps[i] = 1;
+        while (batch(io, c, reps[i]) < t.min_ns) reps[i] *= 2;
+        out[i] = std.math.inf(f64);
+    }
+    for (0..t.batches) |_| {
+        for (calls, 0..) |c, i| {
+            const s = @as(f64, @floatFromInt(batch(io, c, reps[i]))) / 1e9 / @as(f64, @floatFromInt(reps[i]));
+            out[i] = @min(out[i], s);
+        }
+    }
+}
+
+/// Nanoseconds for `reps` calls of `c`.
+fn batch(io: Io, c: Call, reps: usize) i96 {
+    const t0 = nanos(io);
+    for (0..reps) |_| c.run(c.ctx);
+    return nanos(io) - t0;
+}
 
 /// The reference's kernel signature: `n`, two unused, `alpha`, then the
 /// vectors and their strides, then two more the axpy kernels ignore.
@@ -49,27 +94,21 @@ fn nanos(io: Io) i96 {
 }
 
 /// Seconds for one call, from the fastest batch.
-fn timeOne(io: Io, k: Kernel, n: usize, x: []f64, y: []f64, min_ns: i96) f64 {
-    _ = k(@intCast(n), 0, 0, alpha, x.ptr, 1, y.ptr, 1, x.ptr, 0); // warm up
-
-    var reps: usize = 1;
-    while (true) {
-        const t0 = nanos(io);
-        for (0..reps) |_| _ = k(@intCast(n), 0, 0, alpha, x.ptr, 1, y.ptr, 1, x.ptr, 0);
-        const dt = nanos(io) - t0;
-        if (dt >= min_ns) break;
-        reps *= 2;
-    }
-
-    var best: f64 = std.math.inf(f64);
-    for (0..5) |_| {
-        const t0 = nanos(io);
-        for (0..reps) |_| _ = k(@intCast(n), 0, 0, alpha, x.ptr, 1, y.ptr, 1, x.ptr, 0);
-        const dt = nanos(io) - t0;
-        const s = @as(f64, @floatFromInt(dt)) / 1e9 / @as(f64, @floatFromInt(reps));
-        if (s < best) best = s;
-    }
-    return best;
+fn timeOne(io: Io, k: Kernel, n: usize, x: []f64, y: []f64, min_ns: i96) !f64 {
+    const Ctx = struct {
+        k: Kernel,
+        n: usize,
+        x: []f64,
+        y: []f64,
+        fn run(p: *anyopaque) void {
+            const c: *@This() = @ptrCast(@alignCast(p));
+            _ = c.k(@intCast(c.n), 0, 0, alpha, c.x.ptr, 1, c.y.ptr, 1, c.x.ptr, 0);
+        }
+    };
+    var ctx: Ctx = .{ .k = k, .n = n, .x = x, .y = y };
+    var out: [1]f64 = undefined;
+    try race(io, .{ .min_ns = min_ns, .batches = 5 }, &.{.{ .ctx = &ctx, .run = Ctx.run }}, &out);
+    return out[0];
 }
 
 /// The largest relative difference from `y0 + alpha * x` after one call.
@@ -122,9 +161,9 @@ pub fn sweep(
                 continue;
             }
             @memcpy(y, y0);
-            const s = timeOne(io, im.run, n, x[0..n], y[0..n], min_ns);
+            const s = try timeOne(io, im.run, n, x[0..n], y[0..n], min_ns);
             var buf: [32]u8 = undefined;
-            const t = std.fmt.bufPrint(&buf, "{d:.0} ({d:.1})", .{
+            const t = std.mem.print(&buf, "{d:.0} ({d:.1})", .{
                 work.bytes(n) / s / 1e9,
                 work.flops(n) / s / 1e9,
             }) catch "?";

@@ -38,7 +38,7 @@ pub const rgl = @import("rgl/__root__.zig");
 pub const windows = @import("_os/windows/__root__.zig");
 /// zigwin32 bindings, re-exported so consumers share rstd's pinned version
 /// without declaring it themselves. Only present when targeting Windows.
-pub const win32 = if (sysinfo.os.tag == .windows) @import("win32") else void;
+pub const win32 = if (sysinfo.target.os.tag == .windows) @import("win32") else void;
 pub const zigcfg = @import("zigcfg.zig");
 pub const zigstd = @import("zigstd.zig");
 pub const zip = @import("zip.zig");

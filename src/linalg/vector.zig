@@ -5,7 +5,6 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const zigstd = @import("../zigstd.zig");
 const rsimd = @import("../simd/__root__.zig");
 const zigvec = rsimd.zigvec;
 
@@ -15,7 +14,7 @@ const zigvec = rsimd.zigvec;
 /// normalized directions, SDF distances) never approach the extremes that
 /// fallback exists for, so `length` skips it entirely there rather than
 /// failing to compile.
-const on_spirv = switch (sysinfo.cpu.arch) {
+const on_spirv = switch (sysinfo.target.cpu.arch) {
     .spirv32, .spirv64 => true,
     else => false,
 };
@@ -88,6 +87,8 @@ pub inline fn cross3(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         a[0] * b[1] - a[1] * b[0],
     };
 }
+
+const zigstd = @import("../zigstd.zig");
 
 test "dot sanity" {
     const ret = dot(V3f32{ 1, 2, 3 }, V3f32{ 4, 5, 6 });

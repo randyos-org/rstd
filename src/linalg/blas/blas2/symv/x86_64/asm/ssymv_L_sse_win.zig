@@ -817,6 +817,7 @@ const text =
     \\ testq $2, %rcx
     \\ jle 20013f
     \\ pxor %xmm9, %xmm9
+    \\ movlhps %xmm9, %xmm8
     \\ movlhps %xmm9, %xmm12
     \\ movaps %xmm8, %xmm11
     \\ mulps %xmm12, %xmm11
@@ -934,6 +935,8 @@ const text =
     \\ movq %r9, %rbx
     \\ leaq 2 * 4(%r9, %r8, 2), %r9
     \\ movaps 0 * 4(%r12, %r15, 4), %xmm3
+    \\ xorps %xmm11, %xmm11
+    \\ movlhps %xmm11, %xmm3
     \\ .if \bp0
     \\ movsd 0 * 4(%rbx), %xmm4
     \\ .endif

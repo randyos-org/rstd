@@ -200,7 +200,7 @@ pub var stderr_writer: Io.File.Writer = .{
     .file = fdtable.stderr(),
     .mode = .streaming_simple,
     .interface = .{
-        .vtable = &@import("stderr.zig").stderr_writer_vtable,
+        .vtable = &stderr_mod.stderr_writer_vtable,
         .buffer = &.{},
     },
 };

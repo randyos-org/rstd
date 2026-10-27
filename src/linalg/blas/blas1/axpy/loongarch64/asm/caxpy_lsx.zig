@@ -29,14 +29,12 @@ const Body = struct {
     pub fn caxpy() callconv(.naked) void {
         asm volatile (
             \\ .align 5
-            \\ bge $r0, $r4, 20012f
+            \\ bge $r0, $r4, 20013f
             \\ li.d $r13, 1
             \\ movgr2fr.d $f12, $r0
             \\ ffint.s.l $f12, $f12
             \\ fcmp.ceq.s $fcc0, $f0, $f12
             \\ fcmp.ceq.s $fcc1, $f1, $f12
-            \\ bceqz $fcc0, 20000f
-            \\ bcnez $fcc1, 20012f
             \\ 20000:
             \\ slli.d $r13, $r13, 3
             \\ slli.d $r8, $r8, 3
@@ -46,45 +44,49 @@ const Body = struct {
             \\ vreplgr2vr.w $vr23, $r14
             \\ vreplgr2vr.w $vr19, $r16
             \\ srai.d $r12, $r4, 2
-            \\ bne $r8, $r13, 20001f
-            \\ bne $r10, $r13, 20004f
-            \\ b 20002f
+            \\ bne $r10, $r0, 20001f
+            \\ move $r12, $r4
+            \\ b 20012f
             \\ 20001:
-            \\ bne $r10, $r13, 20008f
-            \\ b 20006f
+            \\ bne $r8, $r13, 20002f
+            \\ bne $r10, $r13, 20005f
+            \\ b 20003f
             \\ 20002:
-            \\ bge $r0, $r12, 20010f
-            \\ .align 3
+            \\ bne $r10, $r13, 20009f
+            \\ b 20007f
             \\ 20003:
-            \\ vld $vr8, $r7, 0 * 4
-            \\ vld $vr21, $r9, 0 * 4
-            \\ vld $vr20, $r7, 4 * 4
-            \\ vld $vr22, $r9, 4 * 4
-            \\ vpickev.w $vr18, $vr20, $vr8
-            \\ vpickod.w $vr17, $vr20, $vr8
-            \\ vpickev.w $vr16, $vr22, $vr21
-            \\ vpickod.w $vr15, $vr22, $vr21
-            \\ vfmul.s $vr8, $vr19, $vr17
-            \\ vfmul.s $vr21, $vr19, $vr18
-            \\ vfmsub.s $vr20, $vr23, $vr18, $vr8
-            \\ vfmadd.s $vr22, $vr17, $vr23, $vr21
-            \\ vfadd.s $vr16, $vr16, $vr20
-            \\ vfadd.s $vr15, $vr15, $vr22
-            \\ vilvl.w $vr21, $vr15 ,$vr16
-            \\ vilvh.w $vr22, $vr15, $vr16
-            \\ vst $vr21, $r9, 0 * 4
-            \\ vst $vr22, $r9, 4 * 4
-            \\ addi.d $r7, $r7, 8 * 4
-            \\ addi.d $r9, $r9, 8 * 4
-            \\ addi.d $r12, $r12, -1
-            \\ blt $r0, $r12, 20003b
-            \\ b 20010f
+            \\ bge $r0, $r12, 20011f
             \\ .align 3
             \\ 20004:
-            \\ bge $r0, $r12, 20010f
-            \\ move $r6, $r9
+            \\ vld $vr8, $r7, 0 * 4
+            \\ vld $vr21, $r9, 0 * 4
+            \\ vld $vr20, $r7, 4 * 4
+            \\ vld $vr22, $r9, 4 * 4
+            \\ vpickev.w $vr18, $vr20, $vr8
+            \\ vpickod.w $vr17, $vr20, $vr8
+            \\ vpickev.w $vr16, $vr22, $vr21
+            \\ vpickod.w $vr15, $vr22, $vr21
+            \\ vfmul.s $vr8, $vr19, $vr17
+            \\ vfmul.s $vr21, $vr19, $vr18
+            \\ vfmsub.s $vr20, $vr23, $vr18, $vr8
+            \\ vfmadd.s $vr22, $vr17, $vr23, $vr21
+            \\ vfadd.s $vr16, $vr16, $vr20
+            \\ vfadd.s $vr15, $vr15, $vr22
+            \\ vilvl.w $vr21, $vr15 ,$vr16
+            \\ vilvh.w $vr22, $vr15, $vr16
+            \\ vst $vr21, $r9, 0 * 4
+            \\ vst $vr22, $r9, 4 * 4
+            \\ addi.d $r7, $r7, 8 * 4
+            \\ addi.d $r9, $r9, 8 * 4
+            \\ addi.d $r12, $r12, -1
+            \\ blt $r0, $r12, 20004b
+            \\ b 20011f
             \\ .align 3
             \\ 20005:
+            \\ bge $r0, $r12, 20011f
+            \\ move $r6, $r9
+            \\ .align 3
+            \\ 20006:
             \\ vld $vr8, $r7, 0 * 4
             \\ ld.w $r14, $r9, 0 * 4
             \\ ld.w $r16, $r9, 1 * 4
@@ -129,13 +131,13 @@ const Body = struct {
             \\ vstelm.w $vr15, $r6, 1 * 4, 3
             \\ add.d $r6, $r6, $r10
             \\ addi.d $r7, $r7, 8 * 4
-            \\ blt $r0, $r12, 20005b
-            \\ b 20010f
-            \\ .align 3
-            \\ 20006:
-            \\ bge $r0, $r12, 20010f
+            \\ blt $r0, $r12, 20006b
+            \\ b 20011f
             \\ .align 3
             \\ 20007:
+            \\ bge $r0, $r12, 20011f
+            \\ .align 3
+            \\ 20008:
             \\ vld $vr21, $r9, 0 * 4
             \\ ld.w $r14, $r7, 0 * 4
             \\ ld.w $r16, $r7, 1 * 4
@@ -172,14 +174,14 @@ const Body = struct {
             \\ vst $vr21, $r9, 0 * 4
             \\ vst $vr22, $r9, 4 * 4
             \\ addi.d $r9, $r9, 8 * 4
-            \\ blt $r0, $r12, 20007b
-            \\ b 20010f
-            \\ .align 3
-            \\ 20008:
-            \\ bge $r0, $r12, 20010f
-            \\ move $r6, $r9
+            \\ blt $r0, $r12, 20008b
+            \\ b 20011f
             \\ .align 3
             \\ 20009:
+            \\ bge $r0, $r12, 20011f
+            \\ move $r6, $r9
+            \\ .align 3
+            \\ 20010:
             \\ ld.w $r14, $r7, 0 * 4
             \\ ld.w $r16, $r7, 1 * 4
             \\ add.d $r7, $r7, $r8
@@ -239,13 +241,13 @@ const Body = struct {
             \\ vstelm.w $vr16, $r6, 0 * 4, 3
             \\ vstelm.w $vr15, $r6, 1 * 4, 3
             \\ add.d $r6, $r6, $r10
-            \\ blt $r0, $r12, 20009b
-            \\ .align 3
-            \\ 20010:
-            \\ andi $r12, $r4, 3
-            \\ bge $r0, $r12, 20012f
+            \\ blt $r0, $r12, 20010b
             \\ .align 3
             \\ 20011:
+            \\ andi $r12, $r4, 3
+            \\ bge $r0, $r12, 20013f
+            \\ .align 3
+            \\ 20012:
             \\ fld.s $f12, $r7, 0 * 4
             \\ fld.s $f13, $r7, 1 * 4
             \\ fld.s $f14, $r9, 0 * 4
@@ -261,9 +263,9 @@ const Body = struct {
             \\ fst.s $f19, $r9, 1 * 4
             \\ add.d $r7, $r7, $r8
             \\ add.d $r9, $r9, $r10
-            \\ blt $r0, $r12, 20011b
+            \\ blt $r0, $r12, 20012b
             \\ .align 3
-            \\ 20012:
+            \\ 20013:
             \\ move $r4, $r12
             \\ jirl $r0, $r1, 0x0
             \\ .align 3
