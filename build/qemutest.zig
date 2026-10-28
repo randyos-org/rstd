@@ -76,7 +76,8 @@ const Machine = struct {
     hvf: ?[]const []const u8 = null,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
-    /// `-Dqemu-test-filter` builds one image as usual.
+    /// `-Dqemu-test-part` picks some, and `-Dqemu-test-filter` builds one
+    /// image as usual.
     parts: []const Part = &.{},
 };
 
@@ -102,7 +103,12 @@ const Boot = union(enum) {
         /// stderr as a diagnostic (a "failed command" echo on a passing step), so
         /// expecting it keeps a passing run quiet.
         stderr_note: ?[]const u8 = null,
+        /// The addresses the firmware maps for the image, if it maps too few
+        /// for every image: one whose loaded span is past them fails the build.
+        load_window: ?Window = null,
     };
+
+    const Window = struct { base: u64, size: u64 };
 
     /// A Debian netboot kernel (a lazy dependency) and an initramfs of
     /// `test/linux/init.zig` as PID 1 and the hosted test executable.
@@ -342,6 +348,7 @@ const machines = [_]Machine{
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/sparc64.ld",
             .semihosting = false,
+            .load_window = .{ .base = 0x400000, .size = 0x400000 },
         } },
     },
     .{
@@ -404,7 +411,11 @@ const machines = [_]Machine{
                 "linalg.blas.blas3.gemm.kernel.test.geometry",
                 "linalg.blas.blas3.gemm.kernel.test.beta",
             } },
-            .{ .name = "blas3-kernel-complex", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels"} },
+            // the complex kernels in three, as the 8-lane tile's alone are
+            // past the window
+            .{ .name = "blas3-kernel-complex", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels match"} },
+            .{ .name = "blas3-kernel-complex-wide", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A plain"} },
+            .{ .name = "blas3-kernel-complex-wide-2", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated"} },
             .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
             .{ .name = "blas3-syrk", .filters = &.{"linalg.blas.blas3.syrk."} },
             .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
@@ -436,6 +447,7 @@ const machines = [_]Machine{
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/sparc64.ld",
             .semihosting = false,
+            .load_window = .{ .base = 0x400000, .size = 0x400000 },
         } },
     },
     .{
@@ -647,6 +659,8 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     const all = b.step("qemu-test", "Run rstd's hardware-independent tests under qemu-system-* (all archs)");
     const check = b.step("qemu-check", "Build every kernel rig's test images and check their inline asm, without running qemu");
     const filters = b.option([]const []const u8, "qemu-test-filter", "Only run tests whose name contains this (repeatable)") orelse &.{};
+    const only_parts = b.option([]const []const u8, "qemu-test-part", "Only build and run this part of a rig that splits its tests into images, e.g. blas3-kernel-complex (repeatable)") orelse &.{};
+    for (only_parts) |o| if (!hasPart(o)) std.debug.panic("-Dqemu-test-part: no rig has a part named {s}", .{o});
     // On when rstd is the project being built, so a dependent never fetches OSX-KVM.
     const macos_vm = vmOption(b, "macos-vm", "the macOS VM rigs", "OSX-KVM");
     const mac: MacOptions = if (macos_vm) .{
@@ -680,6 +694,10 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
             for (m.parts) |p| {
+                const picked = for (only_parts) |o| {
+                    if (std.mem.eql(u8, o, p.name)) break true;
+                } else only_parts.len == 0;
+                if (!picked) continue;
                 var part = m;
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
                 const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host, check);
@@ -702,6 +720,11 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         all.dependOn(&run.step);
     }
     if (linux_vm) try addLinuxBenches(b, test_host, whpx_host);
+}
+
+fn hasPart(name: []const u8) bool {
+    for (machines) |m| for (m.parts) |p| if (std.mem.eql(u8, p.name, name)) return true;
+    return false;
 }
 
 /// Whether to add a family of VM rigs: on when rstd is the root project, so a
@@ -840,6 +863,17 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     return run;
 }
 
+var load_window_tool: ?*Build.Step.Compile = null;
+
+fn loadWindowTool(b: *Build) *Build.Step.Compile {
+    if (load_window_tool) |t| if (t.step.owner == b) return t;
+    load_window_tool = b.addExecutable(.{ .name = "load_window", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/load_window.zig"),
+        .target = b.graph.host,
+    }) });
+    return load_window_tool.?;
+}
+
 var initramfs_tool: ?*Build.Step.Compile = null;
 
 fn initramfsTool(b: *Build) *Build.Step.Compile {
@@ -968,6 +1002,15 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     check.dependOn(&test_exe.step);
 
     const run = qemuCommand(b, m, host);
+    if (k.load_window) |w| {
+        const fit = b.addRunArtifact(loadWindowTool(b));
+        fit.setName(b.fmt("check load window of {s}", .{test_exe.name}));
+        fit.addArgs(&.{ m.name, b.fmt("0x{x}", .{w.base}), b.fmt("0x{x}", .{w.size}) });
+        fit.addFileArg(test_exe.getEmittedBin());
+        _ = fit.addOutputFileArg2("span", .{});
+        check.dependOn(&fit.step);
+        run.step.dependOn(&fit.step);
+    }
     // only x86_64 defaults to the self-hosted backend; `zig cc` ignores `ofmt`
     const llvm = k.llvm or target.result.cpu.arch != .x86_64;
     if (llvm and m.query.ofmt == null) {

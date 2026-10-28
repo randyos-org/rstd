@@ -848,6 +848,12 @@ fn fillSeq(comptime T: type, buf: []T, seed: usize) void {
 /// tile, so every size runs whatever the tile. Complex `T` runs every
 /// conjugation; its parts are `fillSeq`'s floats in pairs.
 fn checkLayout(comptime T: type, comptime geo: Geometry) !void {
+    return checkConj(T, geo, if (comptime isComplex(T)) &.{ .n, .l, .r, .b } else &.{.n});
+}
+
+/// `checkLayout` for the conjugations `conjs` only, which links only their
+/// kernels: a wide complex tile's four are past the sparc64 rig's window.
+fn checkConj(comptime T: type, comptime geo: Geometry, comptime conjs: []const Conj) !void {
     const K = Kernels(T, geo);
     const complex = comptime isComplex(T);
     const F = types.Float(T);
@@ -883,7 +889,6 @@ fn checkLayout(comptime T: type, comptime geo: Geometry) !void {
         at[cs * (l + i * kmax) + p] = a[cs * (i + l * ld) + p];
         bt[cs * (i + l * ld) + p] = b[cs * (l + i * kmax) + p];
     };
-    const conjs: []const Conj = if (complex) &.{ .n, .l, .r, .b } else &.{.n};
     for (sizes) |m| for (sizes) |n| for ([_]usize{ 1, 4, kmax }) |k| for (conjs) |cj| {
         if (m == 0 or n == 0) continue;
         @memcpy(want, c);
@@ -913,12 +918,9 @@ fn checkLayout(comptime T: type, comptime geo: Geometry) !void {
                 _ = K.gemm_oncopy(@intCast(k), @intCast(n), b.ptr, kmax, pb.ptr);
             }
             if (complex) {
-                const f = switch (cj) {
-                    .n => &K.gemm_kernel_n,
-                    .l => &K.gemm_kernel_l,
-                    .r => &K.gemm_kernel_r,
-                    .b => &K.gemm_kernel_b,
-                };
+                const f = inline for (conjs) |kc| {
+                    if (kc == cj) break &@field(K, "gemm_kernel_" ++ @tagName(kc));
+                } else unreachable;
                 _ = f(@intCast(m), @intCast(n), @intCast(k), 2, -1, pa.ptr, pb.ptr, got.ptr, lm);
             } else {
                 _ = K.gemm_kernel(@intCast(m), @intCast(n), @intCast(k), 2, pa.ptr, pb.ptr, got.ptr, lm);
@@ -943,7 +945,14 @@ test "complex packed kernels match plain arithmetic for every panel remainder an
     try checkLayout(types.Complex32, geometry(types.Complex32));
     try checkLayout(types.Complex64, .{ .vl = 1, .mv = 3, .nr = 5, .split = true });
     try checkLayout(types.Complex32, .{ .vl = 2, .mv = 3, .nr = 3 });
-    try checkLayout(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 });
+}
+
+test "complex packed kernels of an 8-lane tile match plain arithmetic, A plain" {
+    try checkConj(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 }, &.{ .n, .r });
+}
+
+test "complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated" {
+    try checkConj(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 }, &.{ .l, .b });
 }
 
 test "geometry: the most accumulators the registers hold" {

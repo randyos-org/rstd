@@ -1208,7 +1208,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `i386` | `pentium3` | |
 | `x86_64` | `max` under TCG | |
 | `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
-| `sparc64-debug` | `sun4u` | Debug, in 44 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
+| `sparc64-debug` | `sun4u` | Debug, in 46 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
 | `powerpc64le`, `powerpc64le-power10` | `power9`, `power10` | ReleaseSafe: LLVM's FastISel bug ([`issues.md`](issues.md)) |
 | `powerpc64` | `power10` on `pseries` under VOF, big-endian | every 64-bit POWER core; Zig emits ELFv2 here too, so it boots as the little-endian rigs do; ReleaseSafe |
 | `powerpc` | G4 on `mac99`, OpenBIOS | the `ppcg4` core; builds in debug |
@@ -1226,6 +1226,10 @@ Rig mechanics:
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
   at its first failing test.
+- **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only, so the sparc64 rigs split
+  their tests into images by filter (`parts` in `build/qemutest.zig`), and the build, under
+  `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
+  `tools/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
 - **Progress.** On the rigs (`check.rig()`: freestanding, or `RSTD_TEST_PROGRESS`, which the
   Linux init and the SSH runs set) `eachCore` names each core as it starts, and the biggest
   cases are left to native runs.
