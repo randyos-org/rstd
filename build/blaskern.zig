@@ -92,6 +92,7 @@ fn addForArch(
             break :blk &groups.items[groups.items.len - 1];
         };
         try g.cores.append(b.allocator, @tagName(core));
+        try checkIsa(b, target, g.query, core);
     }
 
     var fallback: ?[]const u8 = null;
@@ -192,25 +193,25 @@ fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]c
     mod.addImport("blaskern_linked", opts.createModule());
 }
 
-/// The target query a group's object is built with: its model, or the
-/// baseline plus its features, less those it goes without. An x86 target
-/// without SSE2 is the base instead of the baseline (the Pentium 4), so a
-/// Pentium III build's objects compute `f64` on the x87, as its cores and
-/// its main library do.
+/// The target query a group's object is built with (`corespec.objectQuery`).
 fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
+    return corespec.objectQuery(target.query, target.result.os, target.result.cpu, spec);
+}
+
+/// Fails the build where `query`'s object needs a feature that a CPU running
+/// `core` may lack and `target` does not promise (`corespec.excess`).
+fn checkIsa(b: *Build, target: ResolvedTarget, query: std.Target.Query, core: anytype) !void {
     const arch = target.result.cpu.arch;
-    var query = target.query;
-    query.cpu_features_sub = featureSet(arch, spec.without);
-    query.cpu_features_add = featureSet(arch, spec.features);
-    if (spec.model) |name| {
-        query.cpu_model = .{ .explicit = findModel(arch, name) };
-    } else if (arch.isX86() and !target.result.cpu.has(.x86, .sse2)) {
-        query.cpu_model = .{ .explicit = target.result.cpu.model };
-        query.cpu_features_add.addFeatureSet(target.result.cpu.features);
-    } else {
-        query.cpu_model = .baseline;
+    const object = b.resolveTargetQuery(query).result.cpu.features;
+    const ex = corespec.excess(core, arch, object, target.result.cpu.features);
+    if (ex.isEmpty()) return;
+    var names: std.ArrayList(u8) = .empty;
+    for (arch.allFeaturesList(), 0..) |f, i| {
+        if (ex.isEnabled(@intCast(i))) try names.print(b.allocator, " {s}", .{f.name});
     }
-    return query;
+    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/_corespec.zig)", .{
+        @tagName(core), target.result.cpu.model.name, names.items, @tagName(core),
+    });
 }
 
 /// The group, and the core in it, that `target` maps to. A native target asks
@@ -261,23 +262,4 @@ fn needsLlvm(arch: std.Target.Cpu.Arch, cores: []const []const u8) bool {
     _ = arch;
     _ = cores;
     return true;
-}
-
-fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.Model {
-    for (arch.allCpuModels()) |m| {
-        if (std.mem.eql(u8, m.name, name)) return m;
-    }
-    std.debug.panic("no CPU model '{s}' for {s}", .{ name, @tagName(arch) });
-}
-
-fn featureSet(arch: std.Target.Cpu.Arch, names: []const []const u8) std.Target.Cpu.Feature.Set {
-    var set: std.Target.Cpu.Feature.Set = .empty;
-    const all = arch.allFeaturesList();
-    for (names) |name| {
-        const i = for (all, 0..) |feat, k| {
-            if (std.mem.eql(u8, feat.name, name)) break k;
-        } else std.debug.panic("no CPU feature '{s}' for {s}", .{ name, @tagName(arch) });
-        set.addFeature(@intCast(i));
-    }
-    return set;
 }

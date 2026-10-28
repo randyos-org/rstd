@@ -353,9 +353,18 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   model where the reference passes `-march`/`-mcpu`, else the baseline plus features, from
   `Makefile.<arch>`, the `HAVE_*` tables of `getarch.c` and `kernel/Makefile`; `without` takes
   features out of a model. Only the ISA is described; `-mtune` has no counterpart. The build and
-  the runtime both read it, and a test checks every named model and feature exists. An x86
-  target without SSE2 replaces the baseline (Zig's is the Pentium 4): a Pentium III build's
-  objects compute `f64` on the x87, as its main library does, and run on the cores they serve.
+  the runtime both read it, and a test checks every named model and feature exists. A target
+  short of some of the baseline's ISA replaces the baseline (`objectQuery`): an x86 one without
+  SSE2 (Zig's baseline is the Pentium 4), a macOS one older than Nehalem, a SPARC V9 without
+  VIS. So a Pentium III build's objects compute `f64` on the x87, as its main library does, and
+  run on the cores they serve.
+- **ISA check.** `machine` in `_corespec.zig` is what each core's CPUs have, from the hardware
+  (the LLVM model of the CPU a core is named for, or of the weakest part it covers, plus what
+  `runnable` requires), apart from the spec. `excess` is what an object uses beyond that and
+  beyond the target; the build stops on any (`checkIsa` in `build/blaskern.zig`), and a test
+  tries every architecture with its baselines and each core's own CPU as targets. `undecided`
+  lists the spec features waiting on a decision (SME's F64F64 on `armv9sme`). The check sees
+  compiler-chosen instructions only: x86 inline assembly is not held to the target's features.
 - **Groups.** `build/blaskern.zig` takes `corespec.kernelCores(arch)` (the cores with kernels,
   derived from the registries and checked by a test in `cpu/__root__.zig`), keeps those whose
   kernels run on the target CPU (`corespec.runsOn`), and groups equal specs into one object.

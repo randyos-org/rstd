@@ -313,19 +313,274 @@ fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
     };
 }
 
+/// The query a core's kernel object is built with, for a target of `query`
+/// resolved to `cpu` and `os`: the spec's model, or the baseline plus its
+/// features, less those it goes without. A target short of some of the
+/// baseline's ISA is the base instead: an x86 one without SSE2 (the Pentium 4
+/// is the baseline), a macOS one older than Nehalem, a SPARC V9 without VIS.
+/// So a Pentium III build's objects compute `f64` on the x87, as its cores and
+/// its main library do.
+pub fn objectQuery(query: std.Target.Query, os: std.Target.Os, cpu: std.Target.Cpu, spec: Spec) std.Target.Query {
+    const arch = cpu.arch;
+    var q = query;
+    q.cpu_features_sub = featureSet(arch, spec.without);
+    q.cpu_features_add = featureSet(arch, spec.features);
+    if (spec.model) |name| {
+        q.cpu_model = .{ .explicit = findModel(arch, name) };
+    } else if (!isaOf(arch, cpu.features).isSuperSetOf(isaOf(arch, std.Target.Cpu.baseline(arch, os).features))) {
+        q.cpu_model = .{ .explicit = cpu.model };
+        q.cpu_features_add.addFeatureSet(cpu.features);
+    } else {
+        q.cpu_model = .baseline;
+    }
+    return q;
+}
+
+/// `set` without the features `notIsa` names.
+fn isaOf(arch: std.Target.Cpu.Arch, set: std.Target.Cpu.Feature.Set) std.Target.Cpu.Feature.Set {
+    var out = set;
+    for (arch.allFeaturesList(), 0..) |f, i| {
+        if (notIsa(f.name)) out.removeFeature(@intCast(i));
+    }
+    return out;
+}
+
+fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.Model {
+    for (arch.allCpuModels()) |m| {
+        if (std.mem.eql(u8, m.name, name)) return m;
+    }
+    std.debug.panic("no CPU model '{s}' for {s}", .{ name, @tagName(arch) });
+}
+
+fn featureSet(arch: std.Target.Cpu.Arch, names: []const []const u8) std.Target.Cpu.Feature.Set {
+    var set: std.Target.Cpu.Feature.Set = .empty;
+    const all = arch.allFeaturesList();
+    for (names) |name| {
+        const i = for (all, 0..) |feat, k| {
+            if (std.mem.eql(u8, feat.name, name)) break k;
+        } else std.debug.panic("no CPU feature '{s}' for {s}", .{ name, @tagName(arch) });
+        set.addFeature(@intCast(i));
+    }
+    return set;
+}
+
+// ---- what the cores' CPUs have ----------------------------------------------
+// The specs say how a core is built; `machine` says what the CPUs that run it
+// have, from the hardware rather than the reference's flags. `excess` holds
+// every kernel object to it: the build fails on a violation
+// (`build/blaskern.zig`), and a test tries each architecture's targets.
+
+/// RV64GC as features: Zig 0.17 has no such model.
+const rv64gc = [_][]const u8{ "m", "a", "f", "d", "c", "zicsr", "zifencei" };
+
+/// What every CPU of `core`'s kind has: the LLVM model of the CPU it is named
+/// for, or of the weakest part it covers (else the generic one), plus what
+/// `runnable` requires. The detectors' last resorts can still pick a core for
+/// a weaker CPU (`katmai` for any 32-bit x86 without SSE3, as the reference
+/// does); that is theirs to fix, not this.
+pub fn machine(core: anytype) Spec {
+    return switch (@TypeOf(core)) {
+        coretypes.X86CoreType => switch (core) {
+            .unknown => .{},
+            .p5 => .{ .model = "pentium" },
+            .p6 => .{ .model = "pentiumpro" },
+            .katmai, .coppermine => .{ .model = "pentium3" },
+            .northwood => .{ .model = "pentium4" },
+            .banias => .{ .model = "pentium_m" },
+            .yonah => .{ .model = "yonah" },
+            .viac3 => .{ .model = "c3" },
+            .athlon => .{ .model = "athlon" },
+            .opteron => .{ .model = "k8" },
+            .opteron_sse3 => .{ .model = "k8_sse3" },
+            // also unknown CPUs with SSE3, and AMD's without AVX (QEMU's)
+            .prescott, .barcelona => .{ .model = "prescott" },
+            // VIA's Nano has no model of its own
+            .core2, .nano => .{ .model = "core2" },
+            .atom => .{ .model = "bonnell" },
+            // Nehalem's: also VIA's and Zhaoxin's with SSE4.1 alone
+            .penryn, .dunnington, .nehalem => .{ .model = "penryn" },
+            .sandybridge => .{ .model = "sandybridge" },
+            .bobcat => .{ .model = "btver1" },
+            .bulldozer => .{ .model = "bdver1" },
+            .piledriver => .{ .model = "bdver2" },
+            .steamroller => .{ .model = "bdver3" },
+            .excavator => .{ .model = "bdver4" },
+            .haswell => .{ .model = "haswell" },
+            // also Zhaoxin's and VIA's AVX2 parts: none of AMD's own extensions
+            .zen => .{ .model = "znver1", .without = &.{ "sse4a", "clzero", "mwaitx" } },
+            .skylakex => .{ .model = "skylake_avx512" },
+            .cooperlake => .{ .model = "cooperlake" },
+            .sapphirerapids => .{ .model = "sapphirerapids" },
+        },
+        coretypes.Arm64CoreType => switch (core) {
+            .armv8, .ft2000, .unknown => .{ .features = &.{"neon"} },
+            .cortexa53 => .{ .model = "cortex_a53" },
+            .cortexa55 => .{ .model = "cortex_a55" },
+            .cortexa57 => .{ .model = "cortex_a57" },
+            .cortexa72 => .{ .model = "cortex_a72" },
+            // also the A75 and A76 parts
+            .cortexa73 => .{ .model = "cortex_a73" },
+            .cortexa76 => .{ .model = "cortex_a76" },
+            .cortexa510 => .{ .model = "cortex_a510" },
+            .cortexa710 => .{ .model = "cortex_a710" },
+            .cortexx1 => .{ .model = "cortex_x1" },
+            .cortexx2 => .{ .model = "cortex_x2" },
+            .falkor => .{ .model = "falkor" },
+            .thunderx => .{ .model = "thunderx" },
+            .thunderx2t99 => .{ .model = "thunderx2t99" },
+            .thunderx3t110 => .{ .model = "thunderx3t110" },
+            .tsv110 => .{ .model = "tsv110" },
+            .emag8180 => .{ .model = "emag" },
+            // also Ampere's first parts and the SVE cores without SVE
+            .neoversen1 => .{ .model = "neoverse_n1" },
+            .neoversev1 => .{ .model = "neoverse_v1" },
+            .neoversen2 => .{ .model = "neoverse_n2" },
+            .neoversev2 => .{ .model = "neoverse_v2" },
+            .a64fx => .{ .model = "a64fx" },
+            .ampere1 => .{ .model = "ampere1" },
+            // SVE, or SVE2 and SME (`runnable`): SME's F64F64 is optional
+            .armv8sve => .{ .features = &.{ "neon", "sve" } },
+            .armv9sme => .{ .features = &.{ "v9a", "sme" } },
+            // Apple's: macOS and Linux run on the M1 and later
+            .vortex => .{ .model = "apple_m1" },
+            .vortexm4 => .{ .model = "apple_m4" },
+        },
+        // `runnable`: VFP; VFPv3 with 32 registers; NEON (with VFPv4 on the A15)
+        coretypes.ArmCoreType => switch (core) {
+            .armv5 => .{ .features = &.{"v5te"} },
+            .armv6 => .{ .features = &.{ "v6", "vfp2" } },
+            .armv7 => .{ .features = &.{ "v7a", "vfp3" } },
+            .neon => .{ .features = &.{ "v7a", "neon" } },
+            .vfpv4 => .{ .features = &.{ "v7a", "vfp4" } },
+            .cortexa9 => .{ .model = "cortex_a9", .features = &.{"neon"} },
+            .cortexa15 => .{ .model = "cortex_a15", .features = &.{ "neon", "vfp4" } },
+        },
+        // LLVM's POWER3 to POWER5 have AltiVec, which the CPUs do not
+        coretypes.PowerCoreType => switch (core) {
+            .unknown => .{},
+            .power3 => .{ .model = "pwr3", .without = &no_altivec },
+            .power4 => .{ .model = "pwr4", .without = &no_altivec },
+            .power5 => .{ .model = "pwr5", .without = &no_altivec },
+            .power6 => .{ .model = "pwr6" },
+            .power8 => .{ .model = "pwr8" },
+            .power9 => .{ .model = "pwr9" },
+            .power10 => .{ .model = "pwr10" },
+            .ppc970, .cell => .{ .model = "970" },
+            .ppc440, .ppc440fp2 => .{ .model = "440" },
+            .ppcg4 => .{ .model = "g4" },
+        },
+        // `runnable`: by guaranteed vector length only
+        coretypes.RiscvCoreType => switch (core) {
+            .riscv64_generic, .c910v, .u74 => .{ .features = &rv64gc },
+            .riscv64_zvl128b => .{ .features = &(rv64gc ++ [_][]const u8{"v"}) },
+            .riscv64_zvl256b => .{ .features = &(rv64gc ++ [_][]const u8{ "v", "zvl256b" }) },
+            .x280 => .{ .features = &(rv64gc ++ [_][]const u8{ "v", "zvl512b" }) },
+        },
+        coretypes.MipsCoreType => switch (core) {
+            .mips64_generic, .unknown => .{ .model = "mips64" },
+            .loongson3r3 => .{ .model = "mips64r2" },
+            .loongson3r4 => .{ .model = "mips64r5", .features = &.{"msa"} },
+            .mips24k, .mips1004k => .{ .model = "mips32r2" },
+            .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
+            .i6400 => .{ .model = "i6400", .features = &.{"msa"} },
+            .i6500 => .{ .model = "i6500", .features = &.{"msa"} },
+            .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
+        },
+        coretypes.LoongarchCoreType => switch (core) {
+            .la64_generic, .loongsongeneric, .unknown => .{ .model = "la64v1_0" },
+            .la264, .loongson2k1000 => .{ .model = "la64v1_0", .features = &.{"lsx"} },
+            .la464, .loongson3r5 => .{ .model = "la464" },
+        },
+        coretypes.S390xCoreType => switch (core) {
+            .zarch_generic => .{ .model = "arch8" },
+            .z13 => .{ .model = "z13" },
+            .z14 => .{ .model = "z14" },
+        },
+        coretypes.SparcCoreType => switch (core) {
+            .sparcv7 => .{ .model = "v7" },
+            .sparc => .{ .model = "v9" },
+        },
+        coretypes.WasmCoreType => switch (core) {
+            .wasm_generic => .{ .model = "mvp" },
+            .wasm128_generic => .{ .model = "mvp", .features = &.{"simd128"} },
+        },
+        else => .{},
+    };
+}
+
+/// Features that say nothing about what code can execute: scheduling hints
+/// (`-mtune`), which models carry along, and supervisor-mode protections.
+pub fn notIsa(name: []const u8) bool {
+    const prefixes = [_][]const u8{ "false_deps", "fast", "slow", "prefer", "idiv", "lea_", "no_bypass", "macrofusion", "tuning", "use_", "fuse", "balance" };
+    for (prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
+    for ([_][]const u8{ "smap", "smep" }) |s| if (std.mem.eql(u8, name, s)) return true;
+    return false;
+}
+
+/// `spec`'s features on `arch` as Zig resolves them: its model's (else the
+/// generic one's) with what they imply, then those it adds, less those it goes
+/// without.
+pub fn specFeatures(arch: std.Target.Cpu.Arch, spec: Spec) std.Target.Cpu.Feature.Set {
+    const model = if (spec.model) |name| findModel(arch, name) else std.Target.Cpu.Model.generic(arch);
+    return resolve(arch, model, featureSet(arch, spec.features), featureSet(arch, spec.without));
+}
+
+/// A CPU's features from its model and a query's additions and removals, in
+/// `std.zig.system.resolveTargetQuery`'s order.
+fn resolve(
+    arch: std.Target.Cpu.Arch,
+    model: *const std.Target.Cpu.Model,
+    add: std.Target.Cpu.Feature.Set,
+    sub: std.Target.Cpu.Feature.Set,
+) std.Target.Cpu.Feature.Set {
+    const all = arch.allFeaturesList();
+    var set = model.toCpu(arch).features;
+    set.removeFeatureSet(sub);
+    set.addFeatureSet(add);
+    set.populateDependencies(all);
+    set.removeFeatureSet(sub);
+    return set;
+}
+
+/// A core's feature that its spec adds and some of its CPUs lack.
+pub const Waiver = struct { core: []const u8, feature: []const u8 };
+
+/// The features a spec adds that `machine` says some CPUs of the core lack,
+/// each awaiting a decision: drop it from the spec, or have `runnable` require
+/// it and add it to `machine`. `excess` passes them; keep the list empty.
+pub const undecided = [_]Waiver{
+    // the reference's `-march=armv9-a+sve2+sme+sme-f64f64`; F64F64 is optional
+    // in SME and `runnable` does not check it; no kernel uses SME yet
+    .{ .core = "armv9sme", .feature = "sme_f64f64" },
+};
+
+/// The features an object built with `object` uses that a CPU running `core`
+/// (`machine`) may lack and the target, which the whole program needs, does
+/// not promise, `undecided` aside. Empty where every such CPU runs the object.
+pub fn excess(core: anytype, arch: std.Target.Cpu.Arch, object: std.Target.Cpu.Feature.Set, target: std.Target.Cpu.Feature.Set) std.Target.Cpu.Feature.Set {
+    var set = isaOf(arch, object);
+    set.removeFeatureSet(specFeatures(arch, machine(core)));
+    set.removeFeatureSet(target);
+    for (undecided) |w| {
+        if (std.mem.eql(u8, w.core, @tagName(core))) set.removeFeatureSet(featureSet(arch, &.{w.feature}));
+    }
+    return set;
+}
+
 // ---- tests -----------------------------------------------------------------
 
 /// Every model and feature named for `Core` exists in `Target` (a
 /// `std.Target.<arch>` namespace).
 fn check(comptime Target: type, comptime Core: type) !void {
     inline for (@typeInfo(Core).@"enum".field_names) |core_name| {
-        const s = comptime of(@field(Core, core_name));
-        if (s.model) |m| try std.testing.expect(@hasDecl(Target.cpu, m));
-        for (s.features ++ s.without) |name| try std.testing.expect(std.meta.stringToEnum(Target.Feature, name) != null);
+        inline for (.{ comptime of(@field(Core, core_name)), comptime machine(@field(Core, core_name)) }) |s| {
+            if (s.model) |m| try std.testing.expect(@hasDecl(Target.cpu, m));
+            for (s.features ++ s.without) |name| try std.testing.expect(std.meta.stringToEnum(Target.Feature, name) != null);
+        }
     }
 }
 
-test "every model and feature named in a spec exists for its architecture" {
+test "every model and feature named in a spec or machine exists for its architecture" {
     try check(std.Target.x86, coretypes.X86CoreType);
     try check(std.Target.aarch64, coretypes.Arm64CoreType);
     try check(std.Target.arm, coretypes.ArmCoreType);
@@ -343,4 +598,90 @@ test "cores that share flags compare equal, others do not" {
     try std.testing.expect(x86(.piledriver).eql(x86(.excavator)));
     try std.testing.expect(!x86(.haswell).eql(x86(.sandybridge)));
     try std.testing.expect(!x86(.skylakex).eql(x86(.cooperlake)));
+}
+
+/// How many of `arch`'s kernel objects, on `os`, need a feature a CPU they
+/// serve may lack (`excess`), each printed. The targets are the baseline and
+/// every kernel core's own CPU (`machine`), the weakest a build may name.
+fn countExcess(comptime arch: std.Target.Cpu.Arch, os_tag: std.Target.Os.Tag) usize {
+    const Model = std.Target.Cpu.Model;
+    const os: std.Target.Os = .{ .tag = os_tag, .version_range = .{ .none = {} } };
+    const cores = kernelCores(arch);
+    var bad: usize = 0;
+    for (0..cores.len + 1) |t| {
+        const m: Spec = if (t == 0) .{ .model = Model.baseline(arch, os).name } else machine(cores[t - 1]);
+        const model = if (m.model) |name| findModel(arch, name) else Model.generic(arch);
+        var add = featureSet(arch, m.features);
+        // the 32-bit cores' CPUs as 64-bit targets
+        if (arch == .x86_64) add.addFeatureSet(featureSet(arch, &.{"64bit"}));
+        const query: std.Target.Query = .{
+            .cpu_arch = arch,
+            .os_tag = os_tag,
+            .cpu_model = .{ .explicit = model },
+            .cpu_features_add = add,
+            .cpu_features_sub = featureSet(arch, m.without),
+        };
+        const cpu: std.Target.Cpu = .{ .arch = arch, .model = model, .features = resolve(arch, model, add, query.cpu_features_sub) };
+        for (cores) |core| {
+            if (!runsOn(cpu, core)) continue;
+            const q = objectQuery(query, os, cpu, of(core));
+            const object_model = switch (q.cpu_model) {
+                .explicit => |e| e,
+                else => Model.baseline(arch, os),
+            };
+            const ex = excess(core, arch, resolve(arch, object_model, q.cpu_features_add, q.cpu_features_sub), cpu.features);
+            if (ex.isEmpty()) continue;
+            bad += 1;
+            std.debug.print("{t}-{t} for {s}: {t}'s object needs", .{ arch, os_tag, model.name, core });
+            for (arch.allFeaturesList(), 0..) |f, i| {
+                if (ex.isEnabled(@intCast(i))) std.debug.print(" {s}", .{f.name});
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+    return bad;
+}
+
+test "no kernel object needs a feature the CPUs of its cores may lack" {
+    const Os = std.Target.Os.Tag;
+    var bad: usize = 0;
+    inline for (.{
+        .{ .x86, &[_]Os{ .linux, .freestanding } },
+        .{ .x86_64, &[_]Os{ .linux, .macos } },
+        .{ .aarch64, &[_]Os{ .linux, .macos } },
+        .{ .arm, &[_]Os{ .linux, .freestanding } },
+        .{ .powerpc, &[_]Os{ .linux, .freestanding } },
+        .{ .powerpc64, &[_]Os{ .linux, .freestanding } },
+        .{ .powerpc64le, &[_]Os{.linux} },
+        .{ .mips, &[_]Os{.linux} },
+        .{ .mipsel, &[_]Os{.linux} },
+        .{ .mips64, &[_]Os{ .linux, .openbsd } },
+        .{ .mips64el, &[_]Os{.linux} },
+        .{ .riscv64, &[_]Os{.linux} },
+        .{ .loongarch64, &[_]Os{.linux} },
+        .{ .s390x, &[_]Os{.linux} },
+        .{ .sparc, &[_]Os{ .linux, .freestanding } },
+        .{ .sparc64, &[_]Os{.linux} },
+        .{ .wasm32, &[_]Os{.wasi} },
+    }) |a| {
+        for (a[1]) |os| bad += countExcess(a[0], os);
+    }
+    try std.testing.expectEqual(@as(usize, 0), bad);
+}
+
+test "every undecided feature is one its core's spec adds and its machine lacks" {
+    const os: std.Target.Os = .{ .tag = .freestanding, .version_range = .{ .none = {} } };
+    for (undecided) |w| {
+        var found = false;
+        inline for (.{ .x86_64, .aarch64, .arm, .powerpc64, .riscv64, .mips64, .loongarch64, .s390x, .sparc64, .wasm32 }) |arch| {
+            if (std.meta.stringToEnum(CoreType(arch), w.core)) |core| {
+                found = true;
+                const f = featureSet(arch, &.{w.feature});
+                const base = std.Target.Cpu.Model.baseline(arch, os).name;
+                try std.testing.expect(specFeatures(arch, .{ .model = of(core).model orelse base, .features = of(core).features }).isSuperSetOf(f));
+                try std.testing.expect(!specFeatures(arch, machine(core)).isSuperSetOf(f));
+            }
+        }
+        try std.testing.expect(found);
+    }
 }

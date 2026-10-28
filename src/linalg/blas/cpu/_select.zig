@@ -42,15 +42,6 @@ fn archOf(comptime Core: type) std.Target.Cpu.Arch {
     };
 }
 
-/// Features that say nothing about what a kernel can execute: scheduling hints
-/// (`-mtune`), which models carry along, and supervisor-mode protections.
-fn notIsa(name: []const u8) bool {
-    const prefixes = [_][]const u8{ "false_deps", "fast", "slow", "prefer", "idiv", "lea_", "no_bypass", "macrofusion", "tuning", "use_", "fuse", "balance" };
-    for (prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
-    for ([_][]const u8{ "smap", "smep" }) |s| if (std.mem.eql(u8, name, s)) return true;
-    return false;
-}
-
 /// `spec`'s ISA features and what they imply: the model's, then the ones
 /// added, less the ones taken out.
 fn specSet(comptime arch: std.Target.Cpu.Arch, comptime spec: corespec.Spec) Set {
@@ -68,7 +59,7 @@ fn specSet(comptime arch: std.Target.Cpu.Arch, comptime spec: corespec.Spec) Set
     }
     set.populateDependencies(all);
     for (all, 0..) |f, i| {
-        if (notIsa(f.name)) set.removeFeature(@intCast(i));
+        if (corespec.notIsa(f.name)) set.removeFeature(@intCast(i));
         for (spec.without) |name| if (std.mem.eql(u8, f.name, name)) set.removeFeature(@intCast(i));
     }
     return set;
