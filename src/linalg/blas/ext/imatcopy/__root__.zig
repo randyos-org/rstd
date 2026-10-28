@@ -1,5 +1,6 @@
 //! Vtable wrappers for the `imatcopy` kernels, column-major only: the row-major
-//! `?imatcopy_k_r*` ones (`ORDER` `R`) are left out.
+//! `?imatcopy_k_r*` ones (`ORDER` `R`) are left out. The portable kernels and
+//! their tests are in `../matcopy.zig`.
 //!
 //! Argument names are copied from the OpenBLAS kernel sources (see the
 //! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named

@@ -79,6 +79,14 @@ pub const Op = enum {
     hemv_V,
     hemv_M,
     geadd_k,
+    omatcopy_k_cn,
+    omatcopy_k_ct,
+    omatcopy_k_cnc,
+    omatcopy_k_ctc,
+    imatcopy_k_cn,
+    imatcopy_k_ct,
+    imatcopy_k_cnc,
+    imatcopy_k_ctc,
     gemm_kernel,
     gemm_kernel_n,
     gemm_kernel_l,
@@ -168,6 +176,7 @@ fn Module(comptime op: Op) type {
         .symv_U, .symv_L => blas2.symv,
         .hemv_U, .hemv_L, .hemv_V, .hemv_M => blas2.hemv,
         .geadd_k => ext.geadd,
+        .omatcopy_k_cn, .omatcopy_k_ct, .omatcopy_k_cnc, .omatcopy_k_ctc, .imatcopy_k_cn, .imatcopy_k_ct, .imatcopy_k_cnc, .imatcopy_k_ctc => ext.matcopy,
         else => @compileError("level-3 kernels come from `blas3.gemm.kernel.find`"),
     };
 }
@@ -184,9 +193,9 @@ pub fn letter(comptime T: type) ?[]const u8 {
 }
 
 /// Ops the reference has no extended-precision (`q`, `x`) slot for, which
-/// run the portable kernel there: `axpby` and `geadd` exist for `s`, `d`,
-/// `c`, `z` only.
-const no_extended_slot: std.EnumSet(Op) = .initMany(&.{ .axpby_k, .geadd_k });
+/// run the portable kernel there: `axpby`, `geadd`, `omatcopy` and
+/// `imatcopy` exist for `s`, `d`, `c`, `z` only.
+const no_extended_slot: std.EnumSet(Op) = .initMany(&.{ .axpby_k, .geadd_k, .omatcopy_k_cn, .omatcopy_k_ct, .omatcopy_k_cnc, .omatcopy_k_ctc, .imatcopy_k_cn, .imatcopy_k_ct, .imatcopy_k_cnc, .imatcopy_k_ctc });
 
 /// The vtable slot `op` fills for `T`, or null for a type with no slots. A
 /// type with slots that lacks this one is a compile error, unless

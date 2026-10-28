@@ -9,8 +9,11 @@ pub const imatcopy = @import("imatcopy/__root__.zig");
 pub const laswp = @import("laswp/__root__.zig");
 pub const neg = @import("neg/__root__.zig");
 pub const omatcopy = @import("omatcopy/__root__.zig");
+/// The portable `omatcopy` and `imatcopy` kernels, which share their scaling.
+pub const matcopy = @import("matcopy.zig");
 
-/// The extension calls themselves (`geadd`), over the kernels.
+/// The extension calls themselves (`geadd`, `omatcopy`, `imatcopy`), over
+/// the kernels.
 pub const interface = @import("interface.zig");
 
 const Vtable = @import("../Vtable.zig");
@@ -20,6 +23,7 @@ const Vtable = @import("../Vtable.zig");
 /// kernels.
 pub fn installGeneric(vt: *Vtable) void {
     geadd.installGeneric(vt);
+    matcopy.installGeneric(vt);
 }
 
 const zigstd = @import("../../../zigstd.zig");

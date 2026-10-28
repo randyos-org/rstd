@@ -1,5 +1,6 @@
 //! The interfaces of OpenBLAS's extensions: the checks and quick returns of
-//! `interface/geadd.c` and `zgeadd.c` before their kernels. Each takes the
+//! `interface/geadd.c`, `omatcopy.c`, `imatcopy.c` and their `z` forms
+//! before their kernels. Each takes the
 //! element type `T` explicitly, any float type or its `Complex` (the vtable's
 //! kernels for those it has slots for, the portable ones built for `T`
 //! otherwise), and sizes and leading dimensions as `isize`; matrices are
@@ -17,6 +18,7 @@ const util = @import("../util.zig");
 const portable = @import("../portable.zig");
 const check = @import("../_test/blas1/check.zig");
 
+const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Trans = types.Trans;
 const isComplex = types.isComplex;
@@ -27,11 +29,14 @@ pub const ArgError = error{
     InvalidTrans,
     InvalidM,
     InvalidN,
+    InvalidRows,
+    InvalidCols,
     InvalidLda,
+    InvalidLdb,
     InvalidLdc,
 };
-/// What an extension routine returns.
-pub const Error = ArgError || Io.Cancelable;
+/// What an extension routine returns; only `imatcopy` allocates.
+pub const Error = ArgError || Allocator.Error || Io.Cancelable;
 
 fn floatType(comptime T: type, comptime name: []const u8) void {
     if (@typeInfo(Float(T)) != .float) @compileError(name ++ ": " ++ @typeName(T) ++ " is not a float type or its Complex");
@@ -78,6 +83,98 @@ fn plainTrans(comptime T: type, t: Trans) bool {
         .r, .c => !isComplex(T),
         .o, .u, .s, .d => false,
     };
+}
+
+/// `?OMATCOPY` (`interface/omatcopy.c`, `zomatcopy.c`), column-major:
+/// `B := alpha*op(A)`, `A` being `rows x cols`, so `B` is `cols x rows`
+/// where `op` transposes. `trans` is `n`, `t`, or `r` and `c` conjugated (as
+/// `n` and `t` for a real type); `o` to `d` are `error.InvalidTrans`. A zero
+/// `alpha` stores zeros without reading `A`, and `alpha` 1 copies it exactly.
+/// `A` and `B` must not overlap; `imatcopy` is the in-place form.
+pub fn omatcopy(io: Io, comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
+    _ = io;
+    comptime floatType(T, "omatcopy");
+    const t = trans.transposed();
+    try matcopyArgs(trans, rows, cols, lda, ldb);
+    if (rows == 0 or cols == 0) return;
+    if (!util.fitsMatrix(rows, cols, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(if (t) cols else rows, if (t) rows else cols, ldb, @sizeOf(T))) return error.InvalidLdb;
+    outOf(T, trans, rows, cols, alpha, a, lda, b, ldb);
+}
+
+/// `?IMATCOPY` (`interface/imatcopy.c`, `zimatcopy.c`), column-major: `A :=
+/// alpha*op(A)` in place, `A` read `rows x cols` with leading dimension
+/// `lda` and written as `op(A)` with `ldb`. Where the shape and the leading
+/// dimension stay (no transpose, or a square one, and `lda == ldb`) the
+/// in-place kernels run, as the reference's `NEW_IMATCOPY` build does; else
+/// `op(A)` goes through a buffer of `rows*cols` from `allocator`, as its
+/// default build does. Both give the same bits. Arguments as `omatcopy`'s.
+pub fn imatcopy(allocator: Allocator, io: Io, comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]T, lda: isize, ldb: isize) Error!void {
+    _ = io;
+    comptime floatType(T, "imatcopy");
+    const t = trans.transposed();
+    try matcopyArgs(trans, rows, cols, lda, ldb);
+    if (rows == 0 or cols == 0) return;
+    const out_rows = if (t) cols else rows;
+    const out_cols = if (t) rows else cols;
+    if (!util.fitsMatrix(rows, cols, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(out_rows, out_cols, ldb, @sizeOf(T))) return error.InvalidLdb;
+    if (lda == ldb and (!t or rows == cols)) {
+        switch (pick(T, trans)) {
+            inline else => |p| if (comptime realConj(T, p)) unreachable else {
+                const k = portable.fetch(T, @field(portable.Op, "imatcopy_k_" ++ @tagName(p)), blas.vtable);
+                if (comptime isComplex(T)) {
+                    _ = k(rows, cols, alpha.re, alpha.im, raw(T, a), lda);
+                } else {
+                    _ = k(rows, cols, alpha, raw(T, a), lda);
+                }
+            },
+        }
+        return;
+    }
+    const buf = try allocator.alloc(T, @intCast(rows * cols));
+    defer allocator.free(buf);
+    outOf(T, trans, rows, cols, alpha, a, lda, buf.ptr, out_rows);
+    const one: T = if (comptime isComplex(T)) .init(1, 0) else 1;
+    outOf(T, .n, out_rows, out_cols, one, buf.ptr, out_rows, a, ldb);
+}
+
+/// The checks of `omatcopy` and `imatcopy`, in `xerbla`'s order (`ldb` is
+/// the 9th argument of one and the 8th of the other, last either way).
+fn matcopyArgs(trans: Trans, rows: isize, cols: isize, lda: isize, ldb: isize) ArgError!void {
+    if (trans.conjX()) return error.InvalidTrans;
+    if (rows < 0) return error.InvalidRows;
+    if (cols < 0) return error.InvalidCols;
+    if (lda < @max(1, rows)) return error.InvalidLda;
+    if (ldb < @max(1, if (trans.transposed()) cols else rows)) return error.InvalidLdb;
+}
+
+/// Which `omatcopy` or `imatcopy` kernel `trans` takes: `t` transposes, a
+/// trailing `c` conjugates (complex only).
+const Pick = enum { cn, ct, cnc, ctc };
+
+fn pick(comptime T: type, trans: Trans) Pick {
+    const c = isComplex(T) and trans.conjA();
+    return if (trans.transposed()) (if (c) .ctc else .ct) else (if (c) .cnc else .cn);
+}
+
+/// Whether `p` conjugates a real `T`, which has no such kernel.
+fn realConj(comptime T: type, comptime p: Pick) bool {
+    return !isComplex(T) and (p == .cnc or p == .ctc);
+}
+
+/// `B := alpha*op(A)` by the `omatcopy` kernel `trans` takes.
+fn outOf(comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) void {
+    switch (pick(T, trans)) {
+        inline else => |p| if (comptime realConj(T, p)) unreachable else {
+            const k = portable.fetch(T, @field(portable.Op, "omatcopy_k_" ++ @tagName(p)), blas.vtable);
+            if (comptime isComplex(T)) {
+                _ = k(rows, cols, alpha.re, alpha.im, raw(T, a), lda, raw(T, b), ldb);
+            } else {
+                _ = k(rows, cols, alpha, raw(T, a), lda, raw(T, b), ldb);
+            }
+        },
+    }
 }
 
 // ---- tests -----------------------------------------------------------------
@@ -136,5 +233,73 @@ test "geadd matches a plain loop, real letters r and c standing in for n and t" 
             try geadd(check.io, T, @intCast(m), @intCast(n), alpha, &a, @intCast(lda), beta, &c, @intCast(ldc), l[0], l[1]);
             try check.expectCloseSlices(T, &want, &c, check.tolerance(Float(T), 4));
         }
+    }
+}
+
+test "omatcopy and imatcopy report the first bad argument and return for empty problems" {
+    const fa = testing.failing_allocator;
+    const nan = std.math.nan(f64);
+    var a: [16]f64 = @splat(nan);
+    var b: [16]f64 = @splat(nan);
+    try testing.expectError(error.InvalidTrans, omatcopy(check.io, f64, .u, -1, -1, 1, &a, 0, &b, 0));
+    try testing.expectError(error.InvalidRows, omatcopy(check.io, f64, .n, -1, -1, 1, &a, 0, &b, 0));
+    try testing.expectError(error.InvalidCols, omatcopy(check.io, f64, .t, 0, -1, 1, &a, 0, &b, 0));
+    try testing.expectError(error.InvalidLda, omatcopy(check.io, f64, .t, 3, 2, 1, &a, 2, &b, 0));
+    try testing.expectError(error.InvalidLdb, omatcopy(check.io, f64, .n, 3, 2, 1, &a, 3, &b, 2));
+    try testing.expectError(error.InvalidLdb, omatcopy(check.io, f64, .c, 3, 2, 1, &a, 3, &b, 1));
+    try testing.expectError(error.InvalidLdb, imatcopy(fa, check.io, f64, .t, 3, 2, 1, &a, 3, 1));
+    try testing.expectError(error.InvalidLda, imatcopy(fa, check.io, f64, .n, 0, 2, 1, &a, 0, 1));
+    try omatcopy(check.io, f64, .n, 0, 3, nan, &a, 1, &b, 1);
+    try imatcopy(fa, check.io, f64, .t, 3, 0, nan, &a, 3, 1);
+    try testing.expect(std.math.isNan(b[0]) and std.math.isNan(a[0]));
+    // in place without a buffer where the shape and leading dimension stay
+    a[0] = 2;
+    a[1] = 3;
+    a[2] = 4;
+    a[3] = 5;
+    try imatcopy(fa, check.io, f64, .t, 2, 2, 2, &a, 2, 2);
+    try testing.expectEqualSlices(f64, &.{ 4, 8, 6, 10 }, a[0..4]);
+    try testing.expectError(error.OutOfMemory, imatcopy(fa, check.io, f64, .t, 2, 1, 2, &a, 2, 1));
+    const big = std.math.maxInt(isize) / 2;
+    try testing.expectError(error.InvalidLda, omatcopy(check.io, f64, .n, 2, 3, 1, &a, big, &b, 2));
+    try testing.expectError(error.InvalidLdb, omatcopy(check.io, f64, .n, 2, 3, 1, &a, 2, &b, big));
+}
+
+test "omatcopy and imatcopy match the definition for every letter, square and not, in place through a buffer too" {
+    const al = testing.allocator;
+    inline for (.{ f32, f64, f16, f128, types.Complex32, types.Complex64, std.math.Complex(f16) }) |T| {
+        const complex = comptime isComplex(T);
+        for ([_]Trans{ .n, .t, .r, .c }) |tr| for ([_][2]usize{ .{ 4, 4 }, .{ 5, 3 }, .{ 2, 6 } }) |s| for ([_][2]usize{ .{ 0, 0 }, .{ 1, 0 }, .{ 0, 2 } }) |pad| {
+            const rows = s[0];
+            const cols = s[1];
+            const t = tr.transposed();
+            const out_rows = if (t) cols else rows;
+            const out_cols = if (t) rows else cols;
+            // equal leading dimensions run in place where the shape allows
+            const lda = rows + pad[0];
+            const ldb = out_rows + pad[1];
+            const len = @max(lda * cols, ldb * out_cols);
+            const a = try al.alloc(T, len);
+            defer al.free(a);
+            const b = try al.alloc(T, ldb * out_cols);
+            defer al.free(b);
+            check.fill(T, a, rows + 3 * cols);
+            const alpha: T = if (complex) T.init(0.5, -2) else -0.5;
+            const want = try al.alloc(T, ldb * out_cols);
+            defer al.free(want);
+            for (0..out_cols) |j| for (0..out_rows) |i| {
+                var x = if (t) a[j + i * lda] else a[i + j * lda];
+                if (complex and tr.conjA()) x = x.conjugate();
+                want[i + j * ldb] = check.mulW(alpha, x);
+            };
+            try omatcopy(check.io, T, tr, @intCast(rows), @intCast(cols), alpha, a.ptr, @intCast(lda), b.ptr, @intCast(ldb));
+            for (0..out_cols) |j| for (0..out_rows) |i| {
+                try check.expectClose(T, want[i + j * ldb], b[i + j * ldb], check.tolerance(Float(T), 2));
+            };
+            try imatcopy(al, check.io, T, tr, @intCast(rows), @intCast(cols), alpha, a.ptr, @intCast(lda), @intCast(ldb));
+            for (0..out_cols) |j| for (0..out_rows) |i| {
+                try testing.expect(check.same(T, b[i + j * ldb], a[i + j * ldb], true));
+            };
+        };
     }
 }
