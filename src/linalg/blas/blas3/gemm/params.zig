@@ -412,6 +412,8 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
 test "dtb entries: getarch's per core, cpuid's or generic's otherwise" {
     try std.testing.expectEqual(@as(i32, 256), dtbFor(.x86_64, .core2));
     try std.testing.expectEqual(@as(i32, 40), dtbFor(.x86_64, .bobcat));
+    // `FORCE_P2`'s, whose `CORENAME` is `P5`
+    try std.testing.expectEqual(@as(i32, 64), dtbFor(.x86, .p5));
     try std.testing.expectEqual(@as(i32, 64), dtbFor(.riscv64, .x280));
     try std.testing.expectEqual(@as(i32, 128), dtbFor(.x86_64, .unknown));
     try std.testing.expectEqual(@as(i32, 128), dtbFor(.generic, .generic));

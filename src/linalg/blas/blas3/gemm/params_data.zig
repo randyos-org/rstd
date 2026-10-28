@@ -421,8 +421,8 @@ pub fn x86_64(core: coretypes.X86CoreType) ?Table {
 /// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
 pub fn x86_64_dtb(core: coretypes.X86CoreType) ?i32 {
     return switch (core) {
-        .unknown, .p5, .p6 => null,
-        .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .nehalem, .sandybridge, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids, .yonah => 64,
+        .unknown, .p6 => null,
+        .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .nehalem, .sandybridge, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids, .p5, .yonah => 64,
         .core2, .penryn, .dunnington => 256,
         .athlon, .opteron, .opteron_sse3, .bulldozer => 32,
         .barcelona => 48,
@@ -810,8 +810,8 @@ pub fn x86(core: coretypes.X86CoreType) ?Table {
 /// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.
 pub fn x86_dtb(core: coretypes.X86CoreType) ?i32 {
     return switch (core) {
-        .unknown, .p5, .p6 => null,
-        .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .nehalem, .sandybridge, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids, .yonah => 64,
+        .unknown, .p6 => null,
+        .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .nehalem, .sandybridge, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids, .p5, .yonah => 64,
         .core2, .penryn, .dunnington => 256,
         .athlon, .opteron, .opteron_sse3, .bulldozer => 32,
         .barcelona => 48,

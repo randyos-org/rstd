@@ -192,12 +192,14 @@ fn writeProngs(a: std.mem.Allocator, out: *std.ArrayList(u8), names: []const []c
 /// `DTB_DEFAULT_ENTRIES` is not in `param.h`; `getarch.c` gives it per core
 /// (`-DFORCE_<core>`, the way `Makefile.system` builds a `DYNAMIC_ARCH` kernel).
 /// Preprocessing is enough to read it, and works for any target. Tried in
-/// order: the core's own name, then `macro`'s parts, most specific (last) first.
-fn dtbEntries(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Family, core: []const u8, macro: []const u8) !?i64 {
+/// order: the core's own name, then `macro`'s parts, most specific (last) first,
+/// then the entry whose `CORENAME` is the core's (`forceOf`).
+fn dtbEntries(a: std.mem.Allocator, io: std.Io, checkout: []const u8, getarch: []const u8, fam: Family, core: []const u8, macro: []const u8) !?i64 {
     var cands: std.ArrayList([]const u8) = .empty;
     try cands.append(a, try upper(a, core));
     var parts = std.mem.splitBackwardsScalar(u8, macro, ',');
     while (parts.next()) |part| try cands.append(a, if (std.mem.startsWith(u8, part, "CORE_")) part[5..] else part);
+    if (forceOf(getarch, cands.items[0])) |f| try cands.append(a, f);
     for (cands.items) |name| {
         const cc = try std.process.run(a, io, .{ .argv = &.{
             "zig",                                     "cc",      "-E",       "-w", "-DDYNAMIC_ARCH",
@@ -219,6 +221,26 @@ fn dtbEntries(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Famil
     return null;
 }
 
+/// The `getarch.c` entry (`FORCE_<it>`) whose `CORENAME` is `corename`, where
+/// exactly one is: `P5`'s is `FORCE_P2`, the Pentium II target.
+fn forceOf(getarch: []const u8, corename: []const u8) ?[]const u8 {
+    var force: ?[]const u8 = null;
+    var found: ?[]const u8 = null;
+    var lines = std.mem.splitScalar(u8, getarch, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (std.mem.startsWith(u8, line, "#ifdef FORCE_")) {
+            force = std.mem.trim(u8, line["#ifdef FORCE_".len..], " \t");
+        } else if (std.mem.startsWith(u8, line, "#define CORENAME")) {
+            const q = std.mem.trim(u8, line["#define CORENAME".len..], " \t\"");
+            if (force == null or !std.mem.eql(u8, q, corename)) continue;
+            if (found != null) return null;
+            found = force;
+        }
+    }
+    return found;
+}
+
 /// The `param.h` macro(s) of `name`: its upper-case name unless renamed.
 fn coreMacro(a: std.mem.Allocator, fam: Family, name: []const u8) ![]const u8 {
     for (fam.renames) |r| {
@@ -235,6 +257,7 @@ pub fn main(init: std.process.Init) !void {
 
     const io = init.io;
     const types_text = try Io.Dir.cwd().readFileAlloc(io, "src/linalg/blas/cpu/_coretypes.zig", a, .limited(1 << 20));
+    const getarch = map.read(try map.path(&.{ checkout, "getarch.c" })) orelse map.die("cannot read getarch.c", .{});
     const src_path = ".zig-cache/params_probe.c";
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = src_path, .data = try probeSource(a) });
 
@@ -262,7 +285,7 @@ pub fn main(init: std.process.Init) !void {
         for (names, macros) |name, *m| m.* = try coreMacro(a, fam, name);
         const dtb_vals = try a.alloc([]const u8, names.len);
         for (names, macros, dtb_vals) |name, macro, *v| {
-            v.* = if (try dtbEntries(a, io, checkout, fam, name, macro)) |n| try a.print("{d}", .{n}) else "null";
+            v.* = if (try dtbEntries(a, io, checkout, getarch, fam, name, macro)) |n| try a.print("{d}", .{n}) else "null";
         }
         try writeProngs(a, &dtb, names, dtb_vals);
         try dtb.appendSlice(a, "    };\n}\n\n");
