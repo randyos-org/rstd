@@ -391,7 +391,7 @@ var on = std.atomic.Value(bool).init(false);
 /// Whether this thread's calls are single-threaded (`singleThreadHere`).
 threadlocal var thread_set = false;
 /// Calls made into Accelerate, counted in tests only.
-pub var calls = std.atomic.Value(u64).init(0);
+pub var calls = std.atomic.Value(usize).init(0);
 
 /// `blas.init`'s part: loads Accelerate the first time `enable` holds (it
 /// `setenv`s, so only here), then routes to it if it loaded.
@@ -1089,7 +1089,7 @@ test "single-threaded results are bit-identical across runs and threads" {
 // ---- routing tests -------------------------------------------------------------
 
 /// Fails unless Accelerate was called since `before` exactly when `want`.
-fn expectCalled(want: bool, before: u64, what: []const u8) !void {
+fn expectCalled(want: bool, before: usize, what: []const u8) !void {
     if ((calls.load(.monotonic) > before) == want) return;
     check.say("{s}: Accelerate {s}called: ", .{ what, if (want) "not " else "" });
     return error.TestUnexpectedResult;
@@ -1098,7 +1098,7 @@ fn expectCalled(want: bool, before: u64, what: []const u8) !void {
 /// Counts calls into Accelerate routine by routine.
 const Probe = struct {
     on: bool,
-    last: u64,
+    last: usize,
 
     fn init(on_: bool) Probe {
         return .{ .on = on_, .last = calls.load(.monotonic) };
@@ -1313,7 +1313,7 @@ test "the off switch runs rstd's kernels, and RSTD_BLAS_ACCELERATE=0 sets it at 
     try everyRoutine(Complex32, true);
 }
 
-fn dotOnThread(out: *?Threading, before: u64, called: *bool) void {
+fn dotOnThread(out: *?Threading, before: usize, called: *bool) void {
     var x = [_]f64{ 1, 2, 3 };
     _ = blas.dot(check.io, f64, 3, &x, 1, &x, 1) catch {};
     called.* = calls.load(.monotonic) > before;
@@ -1334,6 +1334,8 @@ test "each thread that calls in runs Accelerate single-threaded" {
 }
 
 test "on the 32-bit table, what does not fit c_int runs rstd's kernels" {
+    // sizes past `c_int` need a 64-bit `isize`, as on every macOS
+    if (comptime @bitSizeOf(isize) <= 32) return error.SkipZigTest;
     _ = blas.vtable();
     if (!routing()) return error.SkipZigTest;
     const lp = load(.{ .lp64 = true }) orelse return error.SkipZigTest;
