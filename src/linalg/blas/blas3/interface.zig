@@ -1,6 +1,6 @@
 //! The level-3 interface: the checks and quick returns of OpenBLAS's
-//! `interface/gemm.c`, `symm.c`, `syrk.c`, `syr2k.c` and `trsm.c` before the
-//! drivers (`driver.zig`). Each takes the element type `T` explicitly, any
+//! `interface/gemm.c`, `gemmt.c`, `symm.c`, `syrk.c`, `syr2k.c` and `trsm.c`
+//! before the drivers (`driver.zig`). Each takes the element type `T` explicitly, any
 //! float type or its `Complex` (the vtable's kernels for those it has slots
 //! for, the portable ones built for `T` otherwise), and sizes and leading
 //! dimensions as `isize`; matrices are column-major.
@@ -85,6 +85,31 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, trans
     if (accel.gemm(T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
     try driver.gemm(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+}
+
+/// `?GEMMT` (`interface/gemmt.c`): `C := alpha*op(A)*op(B) + beta*C` on the
+/// `uplo` triangle of the `m x m` `C`, `op(A)` being `m x k` and `op(B)`
+/// `k x m`, `op` as `gemm`'s. The other triangle is never read or written;
+/// the triangle is scaled by `beta` first (a zero `beta` never reads it), and
+/// `A` and `B` are not read for a zero `alpha` or `k`. `B` is only read,
+/// where upstream conjugates it in place for `r` and `c`.
+pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, transa: Trans, transb: Trans, m: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
+    comptime floatType(T, "gemmt");
+    if (uplo.isRev()) return error.InvalidUplo;
+    if (transa.conjX() or transb.conjX()) return error.InvalidTrans;
+    const ta = transa.transposed();
+    const tb = transb.transposed();
+    if (m < 0) return error.InvalidM;
+    if (k < 0) return error.InvalidK;
+    if (lda < @max(1, if (ta) k else m)) return error.InvalidLda;
+    if (ldb < @max(1, if (tb) m else k)) return error.InvalidLdb;
+    if (ldc < @max(1, m)) return error.InvalidLdc;
+    if (m == 0) return;
+    if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(if (tb) m else k, if (tb) k else m, ldb, @sizeOf(T))) return error.InvalidLdb;
+    if (!util.fitsMatrix(m, m, ldc, @sizeOf(T))) return error.InvalidLdc;
+    const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
+    try driver.gemmt(allocator, io, T, table(T), uplo == .u, ta, tb, conj, @intCast(m), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
 /// `?SYMM` (`interface/symm.c`): `C := alpha*S*B + beta*C` (`side` `l`) or
@@ -266,6 +291,36 @@ test "interface: a matrix past the address space is its leading dimension's erro
     try testing.expectError(error.InvalidLda, gemm(fa, check.io, f64, .n, .n, 2, 2, 3, 1, &a, big, &a, 3, 0, &a, 2));
     try testing.expectError(error.InvalidLdb, gemm(fa, check.io, f64, .n, .n, 2, 2, 3, 1, &a, 2, &a, big, 0, &a, 2));
     try testing.expectError(error.InvalidLdc, gemm(fa, check.io, f64, .n, .n, 2, 2, 3, 1, &a, 2, &a, 3, 0, &a, big));
+}
+
+test "interface: gemmt matches the wide reference" {
+    inline for (all ++ unslotted) |T| try check.interfaceCases(T, .gemmt);
+}
+
+test "interface: gemmt reports the first bad argument, and returns for empty problems" {
+    const fa = testing.failing_allocator;
+    const nan = std.math.nan(f64);
+    var a: [16]f64 = @splat(nan);
+    var c: [16]f64 = @splat(nan);
+    try testing.expectError(error.InvalidUplo, gemmt(fa, check.io, f64, .v, .o, .n, -1, -1, 1, &a, 0, &a, 0, 0, &c, 0));
+    try testing.expectError(error.InvalidTrans, gemmt(fa, check.io, f64, .u, .o, .n, -1, -1, 1, &a, 0, &a, 0, 0, &c, 0));
+    try testing.expectError(error.InvalidTrans, gemmt(fa, check.io, f64, .u, .n, .d, -1, -1, 1, &a, 0, &a, 0, 0, &c, 0));
+    try testing.expectError(error.InvalidM, gemmt(fa, check.io, f64, .u, .n, .n, -1, -1, 1, &a, 0, &a, 0, 0, &c, 0));
+    try testing.expectError(error.InvalidK, gemmt(fa, check.io, f64, .l, .n, .n, 0, -1, 1, &a, 0, &a, 0, 0, &c, 0));
+    try testing.expectError(error.InvalidLda, gemmt(fa, check.io, f64, .l, .n, .n, 3, 2, 1, &a, 2, &a, 2, 0, &c, 3));
+    try testing.expectError(error.InvalidLda, gemmt(fa, check.io, f64, .l, .t, .n, 3, 4, 1, &a, 3, &a, 4, 0, &c, 3));
+    try testing.expectError(error.InvalidLdb, gemmt(fa, check.io, f64, .u, .n, .n, 3, 4, 1, &a, 3, &a, 3, 0, &c, 3));
+    try testing.expectError(error.InvalidLdb, gemmt(fa, check.io, f64, .u, .n, .c, 3, 4, 1, &a, 3, &a, 2, 0, &c, 3));
+    try testing.expectError(error.InvalidLdc, gemmt(fa, check.io, f64, .u, .n, .n, 3, 4, 1, &a, 3, &a, 4, 0, &c, 2));
+    try testing.expectError(error.InvalidLdc, gemmt(fa, check.io, f64, .u, .n, .n, 0, 4, 1, &a, 1, &a, 4, 0, &c, 0));
+    try gemmt(fa, check.io, f64, .u, .n, .n, 0, 3, nan, &a, 1, &a, 3, nan, &c, 1);
+    try testing.expect(std.math.isNan(c[0]));
+    // `k` 0 scales the triangle alone, and allocates nothing
+    try gemmt(fa, check.io, f64, .l, .n, .n, 2, 0, nan, &a, 2, &a, 1, 0, &c, 2);
+    try testing.expectEqual(0, c[0]);
+    try testing.expectEqual(0, c[1]);
+    try testing.expect(std.math.isNan(c[2]));
+    try testing.expectEqual(0, c[3]);
 }
 
 test "interface: symm and hemm match the wide reference" {

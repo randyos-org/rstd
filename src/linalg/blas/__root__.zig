@@ -111,6 +111,7 @@ pub const syr2k = l3.syr2k;
 pub const her2k = l3.her2k;
 pub const trmm = l3.trmm;
 pub const trsm = l3.trsm;
+pub const gemmt = l3.gemmt;
 
 pub const geadd = ext.interface.geadd;
 pub const omatcopy = ext.interface.omatcopy;

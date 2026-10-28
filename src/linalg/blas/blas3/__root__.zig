@@ -7,6 +7,7 @@
 
 pub const gemm = @import("gemm/__root__.zig");
 pub const gemm3m = @import("gemm3m/__root__.zig");
+pub const gemmt = @import("gemmt/__root__.zig");
 pub const hemm = @import("hemm/__root__.zig");
 pub const hemm3m = @import("hemm3m/__root__.zig");
 pub const interface = @import("interface.zig");

@@ -40,7 +40,7 @@ pub fn Wide(comptime T: type) type {
     return if (isComplex(T)) std.math.Complex(WideFloat(T)) else WideFloat(T);
 }
 
-pub const Routine = enum { gemm, symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm };
+pub const Routine = enum { gemm, symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm, gemmt };
 
 /// An operand's `op`: as it is, transposed, conjugated (`r`) or both (`c`).
 pub const Trans = enum {
@@ -61,7 +61,7 @@ pub const Where = enum { a, b, c };
 
 pub const Case = struct {
     r: Routine = .gemm,
-    /// `op(A)`, `op(B)` of `gemm`; `ta` is the rank-k updates' `trans` and
+    /// `op(A)`, `op(B)` of `gemm` and `gemmt`; `ta` is the rank-k updates' `trans` and
     /// `trmm`'s and `trsm`'s `transa`.
     ta: Trans = .n,
     tb: Trans = .n,
@@ -84,6 +84,11 @@ pub const Case = struct {
             else => false,
         };
     }
+    /// Whether the case computes one triangle of a square `C`: the rank-k
+    /// updates and `gemmt`.
+    fn triangle(case: Case) bool {
+        return case.rank() or case.r == .gemmt;
+    }
     fn herm(case: Case) bool {
         return case.r == .hemm or case.r == .herk or case.r == .her2k;
     }
@@ -102,7 +107,7 @@ const Dims = struct { ra: usize, ca: usize, rb: usize, cb: usize };
 fn dims(case: Case) Dims {
     const t = case.ta.transposed();
     return switch (case.r) {
-        .gemm => .{
+        .gemm, .gemmt => .{
             .ra = if (t) case.k else case.m,
             .ca = if (t) case.m else case.k,
             .rb = if (case.tb.transposed()) case.n else case.k,
@@ -143,7 +148,7 @@ fn zeroW(comptime W: type) W {
 
 /// Whether `(i, j)` of `C` is one the case computes.
 fn kept(case: Case, i: usize, j: usize) bool {
-    if (!case.rank()) return true;
+    if (!case.triangle()) return true;
     return if (case.upper) i <= j else i >= j;
 }
 
@@ -158,7 +163,7 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
     const d = dims(case);
     const lda = d.ra + pad;
     const ldb = d.rb + pad;
-    const rc = if (case.rank()) case.n else case.m;
+    const rc = if (case.triangle()) case.n else case.m;
     const ldc = rc + pad;
     const a = try al.alloc(T, lda * @max(d.ca, 1));
     defer al.free(a);
@@ -233,7 +238,7 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
             }
         }
         // a rank-k update of special values meets them in sums of its own order
-        const lax = isComplex(T) or (case.rank() and case.p != null);
+        const lax = isComplex(T) or (case.triangle() and case.p != null);
         compare(T, want, got, ref.terms, ref.bound, lax) catch return fail(case, i, j, "wrong");
     };
 }
@@ -308,7 +313,7 @@ fn Ops(comptime T: type) type {
             const ldy = if (second) s.lda else s.ldb;
             const ldx = if (second) s.ldb else s.lda;
             return switch (c.r) {
-                .gemm => .{ general(s.a, s.lda, c.ta, i, l), general(s.b, s.ldb, c.tb, l, j) },
+                .gemm, .gemmt => .{ general(s.a, s.lda, c.ta, i, l), general(s.b, s.ldb, c.tb, l, j) },
                 .symm, .hemm => if (c.left) .{ s.sym(i, l), at(s.b, s.ldb, l, j) } else .{ at(s.b, s.ldb, i, l), s.sym(l, j) },
                 // `op(X)` is `n x k`; the second factor is `op(Y)'`
                 .syrk, .herk, .syr2k, .her2k => blk: {
@@ -329,7 +334,7 @@ fn Ops(comptime T: type) type {
         fn element(s: Self, i: usize, j: usize) Ref {
             const c = s.case;
             const depth = switch (c.r) {
-                .gemm, .syrk, .herk, .syr2k, .her2k => c.k,
+                .gemm, .gemmt, .syrk, .herk, .syr2k, .her2k => c.k,
                 else => c.ka(),
             };
             const alpha = scalar(c.alpha);
@@ -481,6 +486,7 @@ pub fn Driver(comptime r: Routine) type {
             const herm = comptime isComplex(T);
             switch (r) {
                 .gemm => try driver.gemm(al, io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
+                .gemmt => try driver.gemmt(al, io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
                 .symm => try driver.symm(al, io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc),
                 .hemm => if (herm) try driver.symm(al, io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
                 .syrk => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc),
@@ -519,6 +525,7 @@ pub fn Iface(comptime r: Routine) type {
             const herm = comptime isComplex(T);
             switch (r) {
                 .gemm => try blas.gemm(al, io, T, ta, tb, m, n, k, alpha, a, ia, b, ib, beta, c, ic),
+                .gemmt => try blas.gemmt(al, io, T, uplo, ta, tb, n, k, alpha, a, ia, b, ib, beta, c, ic),
                 .symm => try blas.symm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic),
                 .hemm => if (herm) try blas.hemm(al, io, T, side, uplo, m, n, alpha, a, ia, b, ib, beta, c, ic) else unreachable,
                 .syrk => try blas.syrk(al, io, T, uplo, ta, n, k, alpha, a, ia, beta, c, ic),
@@ -560,6 +567,11 @@ fn variants(comptime T: type, r: Routine, buf: []Case) []Case {
             buf[len + 1] = .{ .r = r, .ta = ta, .tb = ta, .m = 0, .n = 0 };
             len += 2;
         },
+        .gemmt => for ([_]bool{ true, false }) |upper| for (all_t, 0..) |ta, i| {
+            buf[len] = .{ .r = r, .ta = ta, .tb = all_t[(i + 1) % all_t.len], .upper = upper, .m = 0, .n = 0 };
+            buf[len + 1] = .{ .r = r, .ta = ta, .tb = ta, .upper = upper, .m = 0, .n = 0 };
+            len += 2;
+        },
         .symm, .hemm => for ([_]bool{ true, false }) |left| for ([_]bool{ true, false }) |upper| {
             buf[len] = .{ .r = r, .left = left, .upper = upper, .m = 0, .n = 0 };
             len += 1;
@@ -579,7 +591,7 @@ fn variants(comptime T: type, r: Routine, buf: []Case) []Case {
 
 fn sized(v: Case, m: usize, n: usize, k: usize, alpha: [2]f64, beta: [2]f64) Case {
     var c = v;
-    c.m = if (v.rank()) n else m;
+    c.m = if (v.triangle()) n else m;
     c.n = n;
     c.k = k;
     c.alpha = alpha;
@@ -627,10 +639,10 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !v
         const thin = rig or vi >= 4;
         if (thin and (mi + ni + ki + vi) % 4 != 0) continue;
         // the depth of the triangular and symmetric routines is `m` or `n`
-        if (ki > 0 and !(r == .gemm or v.rank())) continue;
-        // a rank-k update has one order, from either list
-        if (v.rank() and mi != 0 and ni != 0) continue;
-        try one(T, sized(v, m, if (v.rank() and ni == 0) m else n, k, .{ -0.75, 0.25 }, .{ 0.5, -0.5 }), small);
+        if (ki > 0 and !(r == .gemm or v.triangle())) continue;
+        // a triangle of `C` has one order, from either list
+        if (v.triangle() and mi != 0 and ni != 0) continue;
+        try one(T, sized(v, m, if (v.triangle() and ni == 0) m else n, k, .{ -0.75, 0.25 }, .{ 0.5, -0.5 }), small);
     };
 
     // the special scalars, on a shape with every remainder; every transpose
@@ -649,7 +661,7 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !v
     // special values in each operand, and NaN scalars
     for (vs, 0..) |v, vi| for ([_]Where{ .a, .b, .c }) |where| {
         if (rig and vi % 4 != 0) continue;
-        const has_b = r == .gemm or r == .symm or r == .hemm or r == .syr2k or r == .her2k;
+        const has_b = r == .gemm or r == .gemmt or r == .symm or r == .hemm or r == .syr2k or r == .her2k;
         if (where == .b and !has_b) continue;
         // a solve's special values go in its right side
         if (r == .trsm and where == .a) continue;
@@ -680,13 +692,13 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !v
     // `R` square, and the shrunk blocking crosses it; `trmm` and `trsm` pack
     // `Q x R`, the reference's whole buffer, too much beside a rig's tests);
     // natively, whole blocks of `P` and `Q` and then halves
-    if (!vs[0].rank() and !(rig and vs[0].triangular())) try one(T, sized(if (r == .gemm) vs[vs.len - 1] else vs[0], um + 1, own.r + 2 * un + 1, 3, .{ 1.25, 0 }, .{ 0.5, 0 }), full);
+    if (!vs[0].triangle() and !(rig and vs[0].triangular())) try one(T, sized(if (r == .gemm) vs[vs.len - 1] else vs[0], um + 1, own.r + 2 * un + 1, 3, .{ 1.25, 0 }, .{ 0.5, 0 }), full);
     if (!rig) try one(T, sized(vs[vs.len / 2], 2 * own.p + um + 3, un + 1, 2 * own.q + 3, .{ -0.5, 0 }, .{ 1, 0 }), full);
 }
 
 /// The routines over `T`.
 fn routinesOf(comptime T: type) []const Routine {
-    return if (comptime isComplex(T)) std.enums.values(Routine) else &.{ .gemm, .symm, .syrk, .syr2k, .trmm, .trsm };
+    return if (comptime isComplex(T)) std.enums.values(Routine) else &.{ .gemm, .symm, .syrk, .syr2k, .trmm, .trsm, .gemmt };
 }
 
 /// Whether the drivers have `r` yet.
@@ -738,7 +750,7 @@ pub fn accelerateCases(comptime T: type, comptime r: Routine) !void {
             } else for (vs) |v| bad.note(one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
         }
         for (vs) |v| for ([_]Where{ .a, .b, .c }) |where| {
-            const has_b = r == .gemm or r == .symm or r == .hemm or r == .syr2k or r == .her2k;
+            const has_b = r == .gemm or r == .gemmt or r == .symm or r == .hemm or r == .syr2k or r == .her2k;
             if (where == .b and !has_b) continue;
             if (r == .trsm and where == .a) continue;
             const c = sized(v, d[0], d[1], d[2], .{ -0.75, 0.25 }, .{ 0.5, 0 });

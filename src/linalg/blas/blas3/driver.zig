@@ -418,6 +418,23 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
     try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, unlessOne(T, beta), c, ldc);
 }
 
+/// `C := alpha*op(A)*op(B) + beta*C` on the `upper` or lower triangle of the
+/// `m x m` `C`, `op(A)` being `m x k`: `gemm`'s operands over `syrk`'s
+/// triangle. Upstream's `interface/gemmt.c` takes a `gemv` per column
+/// instead, conjugating `B` in place for it; this reads `B` only. `m`
+/// positive.
+pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, ta: bool, tb: bool, conj: Conj, m: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+    const region: Region = if (upper) .upper else .lower;
+    if (k == 0 or isZero(T, alpha)) {
+        if (!isOne(T, beta)) scaleBlock(T, vt, region, false, 0, m, 0, m, beta, c, ldc);
+        return;
+    }
+    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
+    const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
+    const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n, .region = region };
+    try run(allocator, io, T, vt, d, m, m, k, alpha, x, y, null, unlessOne(T, beta), c, ldc);
+}
+
 /// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the
 /// symmetric (`herm`: Hermitian) matrix whose `upper` or lower triangle `a`
 /// holds; `symm_k.c` and `zhemm_k.c` over `level3.c`. `m`, `n` positive.
