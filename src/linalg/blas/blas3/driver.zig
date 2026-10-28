@@ -500,7 +500,8 @@ fn triCopy(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: us
     }
 }
 
-/// A `trmm` or `trsm` kernel: `alpha` for `trmm` (`trsm`'s is a dummy).
+/// A `trmm` or `trsm` kernel: `alpha` for `trmm`; `trsm`'s, a dummy
+/// upstream, is `unitTag`.
 fn triKernel(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: usize, k: usize, alpha: T, sa: [*]T, sb: [*]T, c: [*]T, ldc: usize, offset: isize) void {
     if (comptime isComplex(T)) {
         _ = portable.kernel(T, vt, op)(@intCast(m), @intCast(n), @intCast(k), alpha.re, alpha.im, raw(T, sa), raw(T, sb), raw(T, c), @intCast(ldc), offset);
@@ -511,6 +512,12 @@ fn triKernel(comptime T: type, vt: *const Vtable, comptime op: Op, m: usize, n: 
 
 fn one(comptime T: type, v: Float(T)) T {
     return if (comptime isComplex(T)) .init(v, 0) else v;
+}
+
+/// The `trsm` kernels' `alpha`: 1 for a unit diagonal, which they skip
+/// dividing by, else -1 (upstream's `dm1`).
+fn unitTag(comptime T: type, unit: bool) T {
+    return one(T, if (unit) 1 else -1);
 }
 
 /// The options of a `trmm` or `trsm`: values, as `Desc`'s are.
@@ -861,6 +868,7 @@ fn trmmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
 
 fn trsmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, s: ?T, b: [*]T, ldb: usize, w: Work(T)) void {
     const m1 = one(T, -1);
+    const du = unitTag(T, o.unit);
     const gc = o.gemmConj();
     // `op(A)` lower: forward from the top (`LT`), else back from the bottom (`LN`)
     const forward = o.upper == o.trans;
@@ -882,14 +890,14 @@ fn trsmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                     const pb = w.sb + min_l * (jjs - js);
                     scaleIf(T, vt, s0, min_l, min_jj, b + ls + jjs * ldb, ldb);
                     colsCopy(T, vt, false, min_l, min_jj, b + ls + jjs * ldb, ldb, pb);
-                    triRun(T, vt, "trsm", o, !forward, min_i, min_jj, min_l, m1, w.sa, pb, b + ls + jjs * ldb, ldb, 0);
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_jj, min_l, du, w.sa, pb, b + ls + jjs * ldb, ldb, 0);
                     jjs += min_jj;
                 }
                 var is = ls + min_i;
                 while (is < ls + min_l) : (is += blk.p) {
                     min_i = @min(ls + min_l - is, blk.p);
                     triPack(T, vt, "trsm", "i", tc, o.unit, min_l, min_i, opAt(T, o.trans, a, lda, is, ls), lda, 0, 0, @intCast(is - ls), w.sa);
-                    triRun(T, vt, "trsm", o, !forward, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - ls));
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_j, min_l, du, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - ls));
                 }
                 is = ls + min_l;
                 while (is < m) : (is += blk.p) {
@@ -915,7 +923,7 @@ fn trsmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                     const pb = w.sb + min_l * (jjs - js);
                     scaleIf(T, vt, s0, min_l, min_jj, b + l0 + jjs * ldb, ldb);
                     colsCopy(T, vt, false, min_l, min_jj, b + l0 + jjs * ldb, ldb, pb);
-                    triRun(T, vt, "trsm", o, !forward, min_i, min_jj, min_l, m1, w.sa, pb, b + start_is + jjs * ldb, ldb, @intCast(start_is - l0));
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_jj, min_l, du, w.sa, pb, b + start_is + jjs * ldb, ldb, @intCast(start_is - l0));
                     jjs += min_jj;
                 }
                 var is = start_is;
@@ -923,7 +931,7 @@ fn trsmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                     is -= blk.p;
                     min_i = @min(ls - is, blk.p);
                     triPack(T, vt, "trsm", "i", tc, o.unit, min_l, min_i, opAt(T, o.trans, a, lda, is, l0), lda, 0, 0, @intCast(is - l0), w.sa);
-                    triRun(T, vt, "trsm", o, !forward, min_i, min_j, min_l, m1, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - l0));
+                    triRun(T, vt, "trsm", o, !forward, min_i, min_j, min_l, du, w.sa, w.sb, b + is + js * ldb, ldb, @intCast(is - l0));
                 }
                 is = 0;
                 while (is < l0) : (is += blk.p) {
@@ -939,6 +947,7 @@ fn trsmL(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
 
 fn trsmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, s: ?T, b: [*]T, ldb: usize, w: Work(T)) void {
     const m1 = one(T, -1);
+    const du = unitTag(T, o.unit);
     const gc = o.gemmConj();
     // `op(A)` upper: forward from the left (`RN`), else back from the right (`RT`)
     const forward = o.upper != o.trans;
@@ -978,7 +987,7 @@ fn trsmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                 scaleIf(T, vt, s0, min_i0, min_l, b + ls * ldb, ldb);
                 rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 triPack(T, vt, "trsm", "o", tc, o.unit, min_l, min_l, opAt(T, o.trans, a, lda, ls, ls), lda, 0, 0, 0, w.sb);
-                triRun(T, vt, "trsm", o, forward, min_i0, min_l, min_l, m1, w.sa, w.sb, b + ls * ldb, ldb, 0);
+                triRun(T, vt, "trsm", o, forward, min_i0, min_l, min_l, du, w.sa, w.sb, b + ls * ldb, ldb, 0);
                 var jjs: usize = 0;
                 while (jjs < js + min_j - ls - min_l) {
                     const min_jj = blk.chunk(js + min_j - ls - min_l - jjs);
@@ -993,7 +1002,7 @@ fn trsmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                     const min_i = @min(m - is, blk.p);
                     scaleIf(T, vt, s0, min_i, min_l, b + is + ls * ldb, ldb);
                     rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
-                    triRun(T, vt, "trsm", o, forward, min_i, min_l, min_l, m1, w.sa, w.sb, b + is + ls * ldb, ldb, 0);
+                    triRun(T, vt, "trsm", o, forward, min_i, min_l, min_l, du, w.sa, w.sb, b + is + ls * ldb, ldb, 0);
                     scaleIf(T, vt, s0, min_i, js + min_j - ls - min_l, b + is + (ls + min_l) * ldb, ldb);
                     kernel(T, vt, gc, min_i, js + min_j - ls - min_l, min_l, m1, w.sa, w.sb + min_l * min_l, b + is + (ls + min_l) * ldb, ldb);
                 }
@@ -1036,7 +1045,7 @@ fn trsmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                 scaleIf(T, vt, s0, min_i0, min_l, b + ls * ldb, ldb);
                 rowsCopy(T, vt, false, min_l, min_i0, b + ls * ldb, ldb, w.sa);
                 triPack(T, vt, "trsm", "o", tc, o.unit, min_l, min_l, opAt(T, o.trans, a, lda, ls, ls), lda, 0, 0, 0, tb);
-                triRun(T, vt, "trsm", o, forward, min_i0, min_l, min_l, m1, w.sa, tb, b + ls * ldb, ldb, 0);
+                triRun(T, vt, "trsm", o, forward, min_i0, min_l, min_l, du, w.sa, tb, b + ls * ldb, ldb, 0);
                 var jjs: usize = 0;
                 while (jjs < ls - j0) {
                     const min_jj = blk.chunk(ls - j0 - jjs);
@@ -1051,7 +1060,7 @@ fn trsmR(comptime T: type, vt: *const Vtable, o: Tri, blk: Blocking, m: usize, n
                     const min_i = @min(m - is, blk.p);
                     scaleIf(T, vt, s0, min_i, min_l, b + is + ls * ldb, ldb);
                     rowsCopy(T, vt, false, min_l, min_i, b + is + ls * ldb, ldb, w.sa);
-                    triRun(T, vt, "trsm", o, forward, min_i, min_l, min_l, m1, w.sa, tb, b + is + ls * ldb, ldb, 0);
+                    triRun(T, vt, "trsm", o, forward, min_i, min_l, min_l, du, w.sa, tb, b + is + ls * ldb, ldb, 0);
                     scaleIf(T, vt, s0, min_i, ls - j0, b + is + j0 * ldb, ldb);
                     kernel(T, vt, gc, min_i, ls - j0, min_l, m1, w.sa, w.sb, b + is + j0 * ldb, ldb);
                 }

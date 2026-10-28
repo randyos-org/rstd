@@ -653,3 +653,49 @@ fn sameUnit(comptime F: type) bool {
 test "trsv and trsm give the same bits on the same one-column system" {
     inline for (precisions) |T| try sameAsTrsv(T);
 }
+
+/// `trsm` with a unit diagonal, which skips the division, against the same
+/// solve dividing by a stored diagonal of ones: the same bits, every side,
+/// triangle and transpose. The unit run's diagonal is NaN, so never read.
+fn unitCases(vt: *const Vtable) !void {
+    inline for (precisions) |T| {
+        const complex = comptime types.isComplex(T);
+        const F = types.Float(T);
+        const m = 23;
+        const n = 17;
+        const nan: T = if (complex) .init(std.math.nan(F), std.math.nan(F)) else std.math.nan(F);
+        const one: T = if (complex) .init(1, 0) else 1;
+        var a: [m * m]T = undefined;
+        var rhs: [m * n]T = undefined;
+        blas1check.fill(T, &a, 7);
+        blas1check.fill(T, &rhs, 8);
+        const ts: []const check.Trans = if (complex) &.{ .n, .t, .r, .c } else &.{ .n, .t };
+        for ([_]bool{ true, false }) |left| for ([_]bool{ true, false }) |upper| for (ts) |tr| {
+            const ka: usize = if (left) m else n;
+            var au = a;
+            var an = a;
+            for (0..ka) |i| {
+                au[i + i * ka] = nan;
+                an[i + i * ka] = one;
+            }
+            var bu = rhs;
+            var bn = rhs;
+            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), true, m, n, one, &au, ka, &bu, m);
+            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &an, ka, &bn, m);
+            testing.expectEqualSlices(u8, std.mem.asBytes(&bn), std.mem.asBytes(&bu)) catch |e| {
+                std.debug.print("{s} left={} upper={} trans={t}\n", .{ @typeName(T), left, upper, tr });
+                return e;
+            };
+        };
+    }
+}
+
+test "trsm on a unit diagonal gives the bits of dividing by ones" {
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    try unitCases(&vt);
+}
+
+test "every linked core's trsm on a unit diagonal gives the bits of dividing by ones" {
+    try blas1check.eachCore(unitCases);
+}

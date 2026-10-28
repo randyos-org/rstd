@@ -6,7 +6,8 @@
 //! j)` (`n`) where `A` stores it, one on a unit diagonal, and left unwritten
 //! elsewhere. Upstream packs the diagonal's reciprocal (`compinv` for
 //! complex); here `solve` divides by it, as `trsv` does and
-//! Reference-LAPACK master's `dtrsm.f` (`comparisons.md`, 10).
+//! Reference-LAPACK master's `dtrsm.f` (`comparisons.md`, 10), and skips
+//! that on a unit diagonal, which the driver's dummy `alpha` flags as 1.
 //!
 //! The kernels are `kernel/generic/trsm_kernel_{LT,LN,RN,RT}.c` on the gemm
 //! layout's panels (whole panels of `unroll_m` or `unroll_n`, then the
@@ -113,12 +114,12 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         fn Kernel(comptime left: bool, comptime forward: bool, comptime conj: bool) type {
             return struct {
-                fn real(m: BlasLong, n: BlasLong, k: BlasLong, _: F, a: [*]F, b: [*]F, c: [*]F, ldc: BlasLong, offset: BlasLong) callconv(cc) i32 {
-                    run(left, forward, conj, m, n, k, @ptrCast(a), @ptrCast(b), @ptrCast(c), ldc, offset);
+                fn real(m: BlasLong, n: BlasLong, k: BlasLong, tag: F, a: [*]F, b: [*]F, c: [*]F, ldc: BlasLong, offset: BlasLong) callconv(cc) i32 {
+                    run(left, forward, conj, tag > 0, m, n, k, @ptrCast(a), @ptrCast(b), @ptrCast(c), ldc, offset);
                     return 0;
                 }
-                fn cplx(m: BlasLong, n: BlasLong, k: BlasLong, _: F, _: F, a: [*]F, b: [*]F, c: [*]F, ldc: BlasLong, offset: BlasLong) callconv(cc) i32 {
-                    run(left, forward, conj, m, n, k, @ptrCast(a), @ptrCast(b), @ptrCast(c), ldc, offset);
+                fn cplx(m: BlasLong, n: BlasLong, k: BlasLong, tag: F, _: F, a: [*]F, b: [*]F, c: [*]F, ldc: BlasLong, offset: BlasLong) callconv(cc) i32 {
+                    run(left, forward, conj, tag > 0, m, n, k, @ptrCast(a), @ptrCast(b), @ptrCast(c), ldc, offset);
                     return 0;
                 }
                 const f = if (complex) cplx else real;
@@ -168,7 +169,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
             return n / u + @popCount(n % u);
         }
 
-        fn run(left: bool, forward: bool, comptime conj: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, a: [*]E, b: [*]E, c: [*]E, ldc: BlasLong, offset: BlasLong) void {
+        fn run(left: bool, forward: bool, comptime conj: bool, unit: bool, bm: BlasLong, bn: BlasLong, bk: BlasLong, a: [*]E, b: [*]E, c: [*]E, ldc: BlasLong, offset: BlasLong) void {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
@@ -189,7 +190,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                             const pc = c + r0 + c0 * ld;
                             const kku: usize = @intCast(kk);
                             update(true, conj, w, wn, kku, pa, pb, pc, ld);
-                            solveLeft(true, conj, w, wn, pa + kku * w, pb + kku * wn, pc, ld);
+                            solveLeft(true, conj, unit, w, wn, pa + kku * w, pb + kku * wn, pc, ld);
                             kk += @intCast(w);
                             r0 += w;
                         }
@@ -203,7 +204,7 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                             const pc = c + rw[0] + c0 * ld;
                             const kku: usize = @intCast(kk);
                             update(true, conj, w, wn, k - kku, pa + kku * w, pb + kku * wn, pc, ld);
-                            solveLeft(false, conj, w, wn, pa + (kku - w) * w, pb + (kku - w) * wn, pc, ld);
+                            solveLeft(false, conj, unit, w, wn, pa + (kku - w) * w, pb + (kku - w) * wn, pc, ld);
                             kk -= @intCast(w);
                         }
                     }
@@ -225,11 +226,11 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
                         if (forward) {
                             // `trsm_kernel_RN.c`
                             update(false, conj, w, wn, kku, pa, pb, pc, ld);
-                            solveRight(true, conj, w, wn, pa + kku * w, pb + kku * wn, pc, ld);
+                            solveRight(true, conj, unit, w, wn, pa + kku * w, pb + kku * wn, pc, ld);
                         } else {
                             // `trsm_kernel_RT.c`
                             update(false, conj, w, wn, k - kku, pa + kku * w, pb + kku * wn, pc, ld);
-                            solveRight(false, conj, w, wn, pa + (kku - wn) * w, pb + (kku - wn) * wn, pc, ld);
+                            solveRight(false, conj, unit, w, wn, pa + (kku - wn) * w, pb + (kku - wn) * wn, pc, ld);
                         }
                         r0 += w;
                     }
@@ -246,13 +247,13 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         /// `solve` of `trsm_kernel_LT.c` (`forward`) and `_LN.c`: the `m x n`
         /// block of `C` by the diagonal block `a` (`m x m`), into `C` and the
-        /// packed `b`.
-        fn solveLeft(forward: bool, comptime conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        /// packed `b`; a `unit` diagonal is not divided by.
+        fn solveLeft(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..m) |s| {
                 const i = if (forward) s else m - 1 - s;
                 const d = conjIf(a[i * m + i], conj);
                 for (0..n) |j| {
-                    const x = div(c[i + j * ldc], d);
+                    const x = if (unit) c[i + j * ldc] else div(c[i + j * ldc], d);
                     b[i * n + j] = x;
                     c[i + j * ldc] = x;
                     const lo = if (forward) i + 1 else 0;
@@ -264,13 +265,13 @@ pub fn Kernels(comptime T: type, comptime geo: gk.Geometry) type {
 
         /// `solve` of `trsm_kernel_RN.c` (`forward`) and `_RT.c`: the `m x n`
         /// block of `C` by the diagonal block `b` (`n x n`), into `C` and the
-        /// packed `a`.
-        fn solveRight(forward: bool, comptime conj: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
+        /// packed `a`; a `unit` diagonal is not divided by.
+        fn solveRight(forward: bool, comptime conj: bool, unit: bool, m: usize, n: usize, a: [*]E, b: [*]E, c: [*]E, ldc: usize) void {
             for (0..n) |s| {
                 const i = if (forward) s else n - 1 - s;
                 const d = conjIf(b[i * n + i], conj);
                 for (0..m) |j| {
-                    const x = div(c[j + i * ldc], d);
+                    const x = if (unit) c[j + i * ldc] else div(c[j + i * ldc], d);
                     a[i * m + j] = x;
                     c[j + i * ldc] = x;
                     const lo = if (forward) i + 1 else 0;
