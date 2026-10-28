@@ -494,6 +494,41 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > (`fmadd.d`) and `-mcpu=p5600 -mattr=+msa` do the same. Separate `fmul`
   > and `fadd` are right.
 
+### MIPS R6: a scalar `fma` is a library call, not `maddf`
+
+- **Seen:** on `mips64r6` and `mips32r6`, freestanding and Linux, with or
+  without MSA, a scalar `@mulAdd` (`llvm.fma.f32`/`f64` in the IR) becomes a
+  call to `fmaf`/`fma`, though release 6 has the fused `maddf.s`/`maddf.d`.
+  Not a feature we leave out: LLVM's MIPS backend has none for it (Zig's
+  `mips` feature list has no `fma`), and `-mcpu=mips64r6` is all it takes.
+  Speed only; the call is correctly rounded, so the bits are `maddf`'s.
+- **Where:** `fma.hardware` is true on R6, so the main library of an R6
+  target (the portable kernels, `rsimd.mulAdd`) calls it per multiply-add.
+  The R6 kernel objects have MSA, where `fma.compiles` keeps them unfused.
+- **Workaround:** none taken. An inline-asm `maddf` in `fma.madd` and
+  `fma.mulAdd` for R6 scalars would do, at the cost of hiding the operation
+  from LLVM's scheduling and vectorizers.
+- **Issue text:**
+
+  > **[Mips] R6: scalar `llvm.fma` is expanded to a libcall instead of
+  > `maddf.s`/`maddf.d`**
+  >
+  > `llc -mtriple=mipsisa64r6el -O2` (here `zig build-obj -OReleaseFast
+  > -target mips64el-freestanding -mcpu=mips64r6`) on
+  >
+  > ```llvm
+  > define float @f(float %a, float %b, float %c) {
+  >   %r = call float @llvm.fma.f32(float %a, float %b, float %c)
+  >   ret float %r
+  > }
+  > declare float @llvm.fma.f32(float, float, float)
+  > ```
+  >
+  > calls `fmaf` (`jalr $25` through `%call16(fmaf)`); `double` calls `fma`.
+  > MIPS32r6 and MIPS64r6 have the fused `maddf.fmt` (`fd = fd + fs*ft`, one
+  > rounding), so `fma` could select `maddf.s`/`maddf.d` with the addend tied
+  > to the destination, as MSA's `fmadd` is used for vector `fma`.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
