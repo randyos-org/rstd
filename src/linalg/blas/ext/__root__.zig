@@ -12,8 +12,8 @@ pub const omatcopy = @import("omatcopy/__root__.zig");
 /// The portable `omatcopy` and `imatcopy` kernels, which share their scaling.
 pub const matcopy = @import("matcopy.zig");
 
-/// The extension calls themselves (`geadd`, `omatcopy`, `imatcopy`), over
-/// the kernels.
+/// The extension calls themselves (`geadd`, `omatcopy`, `imatcopy`,
+/// `laswp`), over the kernels.
 pub const interface = @import("interface.zig");
 
 const Vtable = @import("../Vtable.zig");

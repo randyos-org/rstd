@@ -1,6 +1,6 @@
 //! The interfaces of OpenBLAS's extensions: the checks and quick returns of
-//! `interface/geadd.c`, `omatcopy.c`, `imatcopy.c` and their `z` forms
-//! before their kernels. Each takes the
+//! `interface/geadd.c`, `omatcopy.c`, `imatcopy.c`, `lapack/laswp.c` and
+//! their `z` forms before their kernels. Each takes the
 //! element type `T` explicitly, any float type or its `Complex` (the vtable's
 //! kernels for those it has slots for, the portable ones built for `T`
 //! otherwise), and sizes and leading dimensions as `isize`; matrices are
@@ -16,6 +16,8 @@ const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const portable = @import("../portable.zig");
+const laswp_kernel = @import("laswp/kernel.zig");
+const ref = @import("laswp/__root__.zig");
 const check = @import("../_test/blas1/check.zig");
 
 const Allocator = std.mem.Allocator;
@@ -34,6 +36,9 @@ pub const ArgError = error{
     InvalidLda,
     InvalidLdb,
     InvalidLdc,
+    InvalidK1,
+    InvalidIncx,
+    InvalidIpiv,
 };
 /// What an extension routine returns; only `imatcopy` allocates.
 pub const Error = ArgError || Allocator.Error || Io.Cancelable;
@@ -137,6 +142,33 @@ pub fn imatcopy(allocator: Allocator, io: Io, comptime T: type, trans: Trans, ro
     outOf(T, trans, rows, cols, alpha, a, lda, buf.ptr, out_rows);
     const one: T = if (comptime isComplex(T)) .init(1, 0) else 1;
     outOf(T, .n, out_rows, out_cols, one, buf.ptr, out_rows, a, ldb);
+}
+
+/// `?LASWP` (`interface/lapack/laswp.c`, `zlaswp.c`, over
+/// `lapack/laswp/generic/laswp_k_1.c`): rows `k1` to `k2` (1-based) of the
+/// `n` columns of `A` in turn, each swapped with row `ipiv(k)`, as LAPACK's
+/// `dlaswp.f` defines it; `ipiv(k)` is `ipiv[k1 - 1 + (k - k1) * |incx|]`,
+/// and a negative `incx` takes the rows from `k2` back. Nothing for `n <= 0`,
+/// `incx == 0` or `k2 < k1`, as the reference. It checks nothing else; so the
+/// swaps stay in `A`, rstd returns `error.InvalidLda` for `lda < k2`,
+/// `error.InvalidK1` for `k1 < 1`, `error.InvalidIncx` for an `ipiv` past
+/// the address space and `error.InvalidIpiv` for a pivot outside `1..lda`,
+/// checking every pivot before it swaps.
+pub fn laswp(io: Io, comptime T: type, n: isize, a: [*]T, lda: isize, k1: isize, k2: isize, ipiv: [*]const isize, incx: isize) Error!void {
+    _ = io;
+    comptime floatType(T, "laswp");
+    if (n <= 0 or incx == 0 or k2 < k1) return;
+    if (lda < @max(1, k2)) return error.InvalidLda;
+    if (k1 < 1) return error.InvalidK1;
+    if (!util.fitsMatrix(lda, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fits(k2 - k1 + 1, incx, @sizeOf(isize))) return error.InvalidIncx;
+    const step: usize = @abs(incx);
+    const first: usize = @intCast(k1 - 1);
+    for (0..@intCast(k2 - k1 + 1)) |r| {
+        const p = ipiv[first + r * step];
+        if (p < 1 or p > lda) return error.InvalidIpiv;
+    }
+    laswp_kernel.swapRows(T, @intCast(n), a, @intCast(lda), @intCast(k1), @intCast(k2), ipiv + first, incx);
 }
 
 /// The checks of `omatcopy` and `imatcopy`, in `xerbla`'s order (`ldb` is
@@ -302,4 +334,38 @@ test "omatcopy and imatcopy match the definition for every letter, square and no
             };
         };
     }
+}
+
+test "laswp follows dlaswp.f, and reports pivots and rows outside A" {
+    const al = testing.allocator;
+    inline for (.{ f32, types.Complex64, f128 }) |T| {
+        for ([_]isize{ 1, -1, 2, -2 }) |incx| {
+            const m = 9;
+            const n = 4;
+            const lda = m + 2;
+            var ipiv: [2 * m]isize = undefined;
+            ref.pivots(&ipiv, m, @abs(incx));
+            const a = try al.alloc(T, lda * n);
+            defer al.free(a);
+            check.fill(T, a, 4);
+            const want = try al.dupe(T, a);
+            defer al.free(want);
+            ref.laswpRef(T, n, want, lda, 2, 8, &ipiv, incx);
+            try laswp(check.io, T, n, a.ptr, lda, 2, 8, &ipiv, incx);
+            for (want, a) |w, g| try testing.expect(check.same(T, w, g, true));
+        }
+    }
+    var a: [12]f64 = @splat(1);
+    var ipiv = [_]isize{ 1, 2, 3, 4 };
+    try laswp(check.io, f64, 0, &a, 0, 0, 9, &ipiv, 1);
+    try laswp(check.io, f64, 3, &a, 0, 0, 9, &ipiv, 0);
+    try laswp(check.io, f64, 3, &a, 0, 3, 2, &ipiv, 1);
+    try testing.expectError(error.InvalidLda, laswp(check.io, f64, 3, &a, 3, 1, 4, &ipiv, 1));
+    try testing.expectError(error.InvalidK1, laswp(check.io, f64, 3, &a, 4, 0, 4, &ipiv, 1));
+    try testing.expectError(error.InvalidIncx, laswp(check.io, f64, 3, &a, 4, 1, 4, &ipiv, std.math.maxInt(isize) / 2));
+    ipiv[2] = 5;
+    try testing.expectError(error.InvalidIpiv, laswp(check.io, f64, 3, &a, 4, 1, 4, &ipiv, 1));
+    ipiv[2] = 0;
+    try testing.expectError(error.InvalidIpiv, laswp(check.io, f64, 3, &a, 4, 1, 4, &ipiv, -1));
+    for (a) |v| try testing.expectEqual(1, v);
 }

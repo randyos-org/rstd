@@ -154,6 +154,7 @@ pub const Op = enum {
     trsm_oltucopy,
     trsm_oltncopy,
     neg_tcopy,
+    laswp_ncopy,
 };
 
 /// The module whose `Portable(T)` builds `op`'s kernel.

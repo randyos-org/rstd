@@ -45,7 +45,7 @@ pub const Level2Error = l2.Error;
 pub const GemvHalfError = l2.HalfError;
 /// Level 3: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const Level3Error = l3.Error;
-/// The extensions (`geadd`, `omatcopy`, `imatcopy`): bad arguments,
+/// The extensions (`geadd`, `omatcopy`, `imatcopy`, `laswp`): bad arguments,
 /// `error.OutOfMemory` (`imatcopy`) or `error.Canceled`.
 pub const ExtError = ext.interface.Error;
 
@@ -115,6 +115,7 @@ pub const trsm = l3.trsm;
 pub const geadd = ext.interface.geadd;
 pub const omatcopy = ext.interface.omatcopy;
 pub const imatcopy = ext.interface.imatcopy;
+pub const laswp = ext.interface.laswp;
 
 // ---- selection and the vtable ----------------------------------------------------
 
