@@ -449,7 +449,7 @@ const machines = [_]Machine{
     },
     .{
         .name = "powerpc64le",
-        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr9 } },
         .qemu = "qemu-system-ppc64",
@@ -466,7 +466,7 @@ const machines = [_]Machine{
     },
     .{
         .name = "powerpc64le-power10",
-        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
@@ -481,7 +481,7 @@ const machines = [_]Machine{
     .{
         // big-endian, ELFv2 as Zig emits it; POWER10 runs every 64-bit core
         .name = "powerpc64",
-        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
@@ -582,7 +582,7 @@ const machines = [_]Machine{
     },
     .{
         .name = "linux-powerpc64le",
-        // LLVM PowerPC FastISel (debug) compares f64 in the wrong register (issues.md)
+        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
         .optimize = .safe,
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
         .qemu = "qemu-system-ppc64",

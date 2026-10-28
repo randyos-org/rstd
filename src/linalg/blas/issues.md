@@ -204,35 +204,65 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `0x3fff6a09e667f3bcc908b2fb1366ea95`. It should call `sqrt_f128`, as
   > `sqrtq` (`_Q_sqrt` on sparc32) does.
 
-### powerpc64le: LLVM's `-O0` compares a VSX register with `fcmpu`
+### powerpc64: FastISel uses FPR-only instructions on VSX v-registers
 
 - **Seen:** on the powerpc64le rigs (pwr9 and pwr10, Debug), every gemm test
   failed at f64 with "padding written", though the padding held the sentinel:
   `got != sentinel` came out true for equal values. The f64 was loaded with
   `lxsdx 34, ...` (VSR34, which is v2) and compared with `fcmpu 0, 2, 0`,
-  which reads f2 (VSR2). The same compare in a release build is correct. It
-  looks like PowerPC FastISel's compare using `FCMPUD` on a register of the
-  VSX class `VSFRC` without constraining it to `F8RC`.
-- **Status:** appears fixed in 0.18.0-dev.751, workaround kept until
-  verified on the `powerpc64le`, `powerpc64le-power10`, `powerpc64` and
-  `linux-powerpc64le` rigs in Debug. The `powerpc64le` rig's gemm tests
-  pass in Debug, but its LLVM is the same 23.x build, and the check that
-  tripped (0f0bcde replaced it) is gone, so it may only be hidden.
+  which reads f2 (VSR2). The same compare in a release build is correct.
+- **Status:** still there on 0.18.0-dev.751 (LLVM 23.1.2), rechecked
+  2026-10-27. That compare is now right: FastISel compares f64 with
+  `xscmpudp` on pwr9 and later, and on pwr8 constrains `fcmpu`'s operands to
+  `F8RC`; the 0f0bcde^ check in a standalone function compiles clean. Its
+  stores are not: an f64 that another block converts to f128 (`xscvdpqp`,
+  native for freestanding pwr9 and later) gets the class `VFRC` (v0 to v31),
+  and FastISel stores it with `STFD`, which reads f0 to f31.
+  In the three freestanding rigs' Debug images, the MIR after instruction
+  selection has FPR instructions on VSX classes only in
+  `_test/blas1/edge.zig`'s two `contractCase` instances at f64 (the `say` of
+  `got` and `want`), whose asm has `lxsd 2, 184(31)` then `stfd 2, 752(31)`.
+  All four rigs pass in Debug, as that store only reaches a failure message;
+  one like it could feed a check. Clean at `-O1`, with `-fast-isel=false`,
+  and for pwr8 and `powerpc64le-linux` (f128 by library calls).
 - **Workaround:** the powerpc64le rigs build with `.safe`
   (`build/qemutest.zig`), which does not use FastISel.
 - **Issue text:**
 
-  > **[PowerPC] FastISel emits `fcmpu` on a VSX-class register at -O0**
+  > **[PowerPC] FastISel stores a `VFRC` register with `stfd` at -O0**
   >
-  > On powerpc64le with VSX (seen with `-mcpu=pwr9` and `pwr10`) at -O0, an
-  > f64 loaded in one block and compared in another was loaded by FastISel
-  > with `lxsdx` into a `VSFRC` virtual register, which register allocation
-  > put in VSR34 (v2). The compare is `fcmpu cr0, 2, 0`: `FCMPUD` takes
-  > `F8RC` operands, so the encoded `2` reads f2 (VSR2), not v2, and the
-  > comparison uses a stale value. `PPCFastISel::PPCEmitCmp` appears to pass
-  > the source registers to `FCMPUD` without constraining their class (or
-  > using `XSCMPUDP` for VSX registers). Seen in a large Zig-generated
-  > function; the same IR at -O1 and above is correct.
+  > With `-mcpu=pwr9` or `pwr10` at -O0, an f64 defined in one block and
+  > converted to f128 in another gets the register class `VFRC` (from
+  > `XSCVDPQP`'s operand). A third block's `store double` of it is selected
+  > by FastISel as `STFD`, whose operand class is `F8RC`;
+  > `-verify-machineinstrs` reports "Expected a F8RC register, but got a VFRC
+  > register". Register allocation puts it in v3 (VSR35), and the encoded
+  > `3` stores f3. `PPCFastISel::PPCEmitStore` appears to pick `STFD` for any
+  > class but exactly `VSFRC`; `PPCEmitCmp` once did the same with `FCMPUD`.
+  > Zig source, `zig build-obj -O Debug -target powerpc64le-freestanding
+  > -mcpu pwr9`:
+  >
+  > ```zig
+  > extern fn sink(p: *const [2]f64) void;
+  >
+  > export fn f(get: *const fn () callconv(.c) f64, c: bool) void {
+  >     const x = get();
+  >     const y = get();
+  >     if (c and @as(f128, x) != y) {
+  >         const args: [2]f64 = .{ x, y };
+  >         sink(&args);
+  >     }
+  > }
+  > ```
+  >
+  > gives, for the `sink` block:
+  >
+  > ```asm
+  > lxsd 2, 144(31)
+  > lxsd 3, 128(31)
+  > stfd 3, 184(31)
+  > stfd 2, 192(31)
+  > ```
 
 ### powerpc: LLVM vectorizes scalar `f32` loops into AltiVec, which flushes
 
