@@ -679,7 +679,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
 /// Every module with kernels over the gemm tile: each `Kernels(T, geo)` has
 /// a public function per vtable slot it fills, named as the slot less its
 /// precision letter.
-pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig") };
+pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig"), @import("../../ext/neg/kernel.zig") };
 
 /// The precisions these kernels serve, by vtable prefix.
 const precisions = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble }, .{ "c", types.Complex32 }, .{ "z", types.Complex64 }, .{ "x", types.ComplexXD } };
