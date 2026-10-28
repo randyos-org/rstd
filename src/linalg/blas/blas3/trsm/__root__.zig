@@ -597,7 +597,6 @@ test "every linked core's trsm divides by a tiny diagonal, where this machine ru
 fn sameAsTrsv(comptime T: type) !void {
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
-    if (!sameUnit(F)) return;
     const n = 37;
     const t = std.math.ldexp(@as(F, 1), std.math.floatExponentMin(F) - 4);
     const zero: T = if (complex) .init(0, 0) else 0;
@@ -640,8 +639,9 @@ fn sameAsTrsv(comptime T: type) !void {
 
 /// Whether the selected core's `trsm` computes `F` where `trsv` does. An
 /// x87 build's `trsv` divides on the x87, and the objects of its cores with
-/// SSE2 in SSE2 (`build/blaskern.zig`); every feature an x86 spec lists
-/// implies SSE2. An unlinked core runs the target's own object.
+/// SSE2 in SSE2 (`corespec.objectQuery`); every feature an x86 spec lists
+/// implies SSE2. An unlinked core runs the target's own object. Where both
+/// are on the x87, `util.cdiv` rounds each step, so the bits must match.
 fn sameUnit(comptime F: type) bool {
     if (comptime !util.onX87(F)) return true;
     const core = blas.coreType() orelse return true;
@@ -651,7 +651,14 @@ fn sameUnit(comptime F: type) bool {
 }
 
 test "trsv and trsm give the same bits on the same one-column system" {
-    inline for (precisions) |T| try sameAsTrsv(T);
+    var skipped = false;
+    inline for (precisions) |T| {
+        if (sameUnit(types.Float(T))) try sameAsTrsv(T) else {
+            std.debug.print("{s} skipped: the core's trsm divides in SSE2, trsv on the x87\n", .{@typeName(T)});
+            skipped = true;
+        }
+    }
+    if (skipped) return error.SkipZigTest;
 }
 
 /// `trsm` with a unit diagonal, which skips the division, against the same

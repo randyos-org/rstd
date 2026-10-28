@@ -197,16 +197,22 @@ pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x
 /// `b / a` in parts, by Smith's algorithm (the larger part of `a` divided
 /// out), as gfortran divides; for the triangular solves of levels 2 and 3.
 /// No reciprocal is formed, so a tiny `a` whose reciprocal overflows still
-/// gives a finite quotient wherever one exists.
+/// gives a finite quotient wherever one exists. On the x87 every step is
+/// `rounded`, so the bits do not hang on where the compiler spills.
 pub inline fn cdiv(comptime F: type, br: F, bi: F, ar: F, ai: F) [2]F {
+    const q = struct {
+        inline fn f(x: F) F {
+            return rounded(F, x);
+        }
+    }.f;
     if (@abs(ar) >= @abs(ai)) {
-        const r = ai / ar;
-        const d = ar + ai * r;
-        return .{ (br + bi * r) / d, (bi - br * r) / d };
+        const r = q(ai / ar);
+        const d = q(ar + q(ai * r));
+        return .{ q(q(br + q(bi * r)) / d), q(q(bi - q(br * r)) / d) };
     }
-    const r = ar / ai;
-    const d = ai + ar * r;
-    return .{ (br * r + bi) / d, (bi * r - br) / d };
+    const r = q(ar / ai);
+    const d = q(ai + q(ar * r));
+    return .{ q(q(q(br * r) + bi) / d), q(q(q(bi * r) - br) / d) };
 }
 
 /// What `extendedSum` adds up per float.
