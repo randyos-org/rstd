@@ -718,11 +718,15 @@ fn report(e: anyerror, comptime T: type, comptime kind: Kind, uplo: Uplo, op: Tr
 }
 
 fn checkAll(vt: *const Vtable) !void {
+    try checkTypes(all, vt);
+}
+
+fn checkTypes(comptime list: anytype, vt: *const Vtable) !void {
     // the vtable's block size, and a tiny one to reach the `gemv` paths
     for ([_]i32{ vt.dtb_entries, 3 }) |dtb| {
         var v = vt.*;
         v.dtb_entries = dtb;
-        inline for (all) |T| {
+        inline for (list) |T| {
             inline for (comptime std.enums.values(Kind)) |kind| try checkKind(T, kind, &v);
         }
     }
@@ -732,6 +736,13 @@ test "triangular routines match dense arithmetic with portable kernels" {
     var vt: Vtable = .{};
     portable.install(&vt);
     try checkAll(&vt);
+}
+
+test "f80 without slots: triangular routines match dense arithmetic with portable kernels" {
+    if (comptime check.f80_unslotted.len == 0) return error.SkipZigTest;
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    try checkTypes(check.f80_unslotted, &vt);
 }
 
 test "every linked core's kernels give the same triangular results" {

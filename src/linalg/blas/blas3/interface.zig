@@ -274,7 +274,7 @@ test "interface: gemm reports the first bad argument and does nothing for empty 
 }
 
 const all = .{ f32, f64, types.Complex32, types.Complex64 };
-const unslotted = .{ f16, f128, std.math.Complex(f16), std.math.Complex(f128) };
+const unslotted = .{ f16, f128, std.math.Complex(f16), std.math.Complex(f128) } ++ check.f80_unslotted;
 
 test "interface: gemm matches the wide reference through the global vtable" {
     inline for (all) |T| try check.interfaceCases(T, .gemm);
@@ -388,7 +388,14 @@ test "interface: the rank-k updates report the first bad argument, and return fo
 }
 
 test "interface: trmm and trsm match the wide reference" {
-    inline for (all ++ unslotted) |T| {
+    inline for (all) |T| {
+        try check.interfaceCases(T, .trmm);
+        try check.interfaceCases(T, .trsm);
+    }
+}
+
+test "interface: unslotted trmm and trsm match the wide reference" {
+    inline for (unslotted) |T| {
         try check.interfaceCases(T, .trmm);
         try check.interfaceCases(T, .trsm);
     }

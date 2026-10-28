@@ -30,6 +30,9 @@ const testing = std.testing;
 /// The `Io` the tests pass (`check1.io`).
 pub const io = check1.io;
 
+/// `check1.f80_unslotted`.
+pub const f80_unslotted = check1.f80_unslotted;
+
 /// The reference's float: twice the precision.
 fn WideFloat(comptime T: type) type {
     return if (@bitSizeOf(Float(T)) <= 32) f64 else f128;

@@ -29,6 +29,10 @@ pub const Ext = if (types.isExtended(types.XDouble)) types.XDouble else f80;
 pub const x_real = if (types.XDouble == f64) .{} else .{types.XDouble};
 pub const x_complex = if (types.XDouble == f64) .{} else .{types.ComplexXD};
 
+/// `f80` and its `Complex` where they have no slots, for the portable
+/// kernels' type lists: Zig's calling convention, soft-float off x86.
+pub const f80_unslotted = if (types.hasSlots(f80)) .{} else .{ f80, std.math.Complex(f80) };
+
 /// Lengths that straddle every unroll and block size of the kernels. Not 0:
 /// the interface returns before calling a kernel with `n <= 0`, and kernels
 /// rely on it (`x86_64/copy_sse2.S` copies an element before testing `n`).
@@ -477,9 +481,10 @@ pub fn patternsFor(len: usize, buf: *[13]Pattern) []const Pattern {
     return buf[0..4];
 }
 
-/// The float types beyond the vtable's to test the interface at: `f80` too
-/// where it may cross the C ABI.
-pub const any_floats = if (sysinfo.target.cpu.arch.isX86()) .{ f16, f80, f128 } else .{ f16, f128 };
+/// The float types beyond the vtable's to test the interface at. `f80` on
+/// every target: x87 on x86, soft-float elsewhere, and in slots only where it
+/// is `XDouble`.
+pub const any_floats = .{ f16, f80, f128 };
 
 /// `util.extendedSum` written out plainly: accumulator by position, then
 /// folded.

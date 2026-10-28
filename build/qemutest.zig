@@ -367,9 +367,17 @@ const machines = [_]Machine{
             .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas.blas2.gemv.__root__.test.half-precision gemv:", "linalg.blas.blas2.gemv.__root__.test.extended gemv:" } },
             .{ .name = "blas2-gemv-cores", .filters = &.{"linalg.blas.blas2.gemv.__root__.test.every linked core's"} },
             .{ .name = "blas2-dense-2", .filters = &.{ "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
-            .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
+            .{ .name = "blas2-banded", .filters = &.{
+                "linalg.blas.blas2.banded.test.banded",
+                "linalg.blas.blas2.banded.test.the small",
+                "linalg.blas.blas2.banded.test.strided",
+                "linalg.blas.blas2.banded.test.an allocation",
+                "linalg.blas.blas2.banded.test.invalid",
+                "linalg.blas.blas2.symmetric.",
+            } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular.test.triangular"} },
             .{ .name = "blas2-triangular-cores", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's"} },
+            .{ .name = "blas2-f80", .filters = &.{ "linalg.blas.blas2.banded.test.f80", "linalg.blas.blas2.triangular.test.f80" } },
             .{ .name = "blas2-interface", .filters = &.{
                 "linalg.blas.blas2.interface.test.interface: gemv",
                 "linalg.blas.blas2.interface.test.interface: ger",
@@ -379,10 +387,11 @@ const machines = [_]Machine{
             .{ .name = "blas2-interface-2", .filters = &.{
                 "linalg.blas.blas2.interface.test.interface: the half",
                 "linalg.blas.blas2.interface.test.interface: half",
-                "linalg.blas.blas2.interface.test.interface: level 2",
                 "linalg.blas.blas2.interface.test.every linked core's",
                 "linalg.blas.blas2.interface.test_",
             } },
+            // f16, f80 and f128: past the window with the rest
+            .{ .name = "blas2-interface-any", .filters = &.{"linalg.blas.blas2.interface.test.interface: level 2"} },
             // real, complex, and complex on every core in two, as one is past
             // the window
             .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas._test.blas2.edge.test.portable level-2 routines, real", "linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, real" } },
@@ -421,11 +430,12 @@ const machines = [_]Machine{
             .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
             .{ .name = "blas3-trmm", .filters = &.{"linalg.blas.blas3.trmm."} },
             .{ .name = "blas3-trsm", .filters = &.{"linalg.blas.blas3.trsm."} },
-            // the interface in four, as two are near the window
+            // the interface in five, as two are near the window
             .{ .name = "blas3-interface", .filters = &.{ "linalg.blas.blas3.interface.test.interface: gemm", "linalg.blas.blas3.interface.test.interface: a matrix past" } },
             .{ .name = "blas3-interface-symm", .filters = &.{"linalg.blas.blas3.interface.test.interface: symm"} },
             .{ .name = "blas3-interface-rank", .filters = &.{ "linalg.blas.blas3.interface.test.interface: syrk", "linalg.blas.blas3.interface.test.interface: the rank-k" } },
             .{ .name = "blas3-interface-tri", .filters = &.{"linalg.blas.blas3.interface.test.interface: trmm"} },
+            .{ .name = "blas3-interface-tri-unslotted", .filters = &.{"linalg.blas.blas3.interface.test.interface: unslotted trmm"} },
             // the OpenBLAS suites in three
             .{ .name = "openblas-l1", .filters = &.{ "linalg.blas._test.from_openblas.blat1.", "linalg.blas._test.from_openblas.utest.", "linalg.blas._test.from_openblas.utest_ext." } },
             // blat2 in two, past the window with level 3's kernels

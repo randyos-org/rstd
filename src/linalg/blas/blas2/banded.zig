@@ -805,8 +805,8 @@ fn checkGbmv(comptime T: type) !void {
     }
 }
 
-fn runAll() !void {
-    inline for (all) |T| {
+fn runAll(comptime list: anytype) !void {
+    inline for (list) |T| {
         try checkGbmv(T);
         inline for (.{ Store.band, Store.packed_ }) |st| {
             inline for (comptime kindsOf(T)) |kind| for ([_]bool{ false, true }) |lower| try checkMv(T, st, kind, lower);
@@ -821,11 +821,16 @@ fn runAll() !void {
 fn withCore(vt: *const Vtable) anyerror!void {
     const saved = blas.testUse(vt);
     defer blas.testRestore(saved);
-    try runAll();
+    try runAll(all);
 }
 
 test "banded, packed and rank updates match dense arithmetic (portable kernels)" {
-    try runAll();
+    try runAll(all);
+}
+
+test "f80 without slots: banded, packed and rank updates match dense arithmetic (portable kernels)" {
+    if (comptime check.f80_unslotted.len == 0) return error.SkipZigTest;
+    try runAll(check.f80_unslotted);
 }
 
 test "banded, packed and rank updates match dense arithmetic on every core" {
