@@ -1,8 +1,10 @@
 //! MIPS64 boot for QEMU's `malta` machine (`-kernel`) and UHI semihosting for
-//! console and exit (`-semihosting`), for release 2 (`-cpu Loongson-3A1000`,
-//! what the Loongson 3A kernels are built for) and release 6 (`-cpu I6400`).
-//! Release 6 has compact branches (no delay slots) and MSA, which `_start`
-//! turns on; both turn on the FPU (with 64-bit registers, `Status.FR`).
+//! console and exit (`-semihosting`), for release 2 (`-cpu Loongson-3A1000`
+//! or `Loongson-3A4000`, what the Loongson 3A kernels are built for) and
+//! release 6 (`-cpu I6400`). Release 6 has compact branches (no delay slots)
+//! and MSA, which `_start` turns on, as on release 2 where `Config3.MSAP`
+//! says it is there (the 3A4000); both turn on the FPU (with 64-bit
+//! registers, `Status.FR`).
 
 const sysinfo = @import("builtin");
 
@@ -55,6 +57,17 @@ comptime {
             \\  or $t0, $t0, $t1
             \\  mtc0 $t0, $12
             \\  ehb
+            \\  mfc0 $t0, $16, 3
+            \\  lui $t1, 0x1000
+            \\  and $t0, $t0, $t1
+            \\  beqz $t0, 4f
+            \\  nop
+            \\  mfc0 $t0, $16, 5
+            \\  lui $t1, 0x0800
+            \\  or $t0, $t0, $t1
+            \\  mtc0 $t0, $16, 5
+            \\  ehb
+            \\4:
             \\  dla $sp, __stack_top
             \\  dla $t0, __bss_start
             \\  dla $t1, __bss_end

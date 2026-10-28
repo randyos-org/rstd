@@ -1200,7 +1200,8 @@ The freestanding machines (`build/qemutest.zig`):
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280) |
 | `loongarch64` | `la464` | |
-| `mips64r2el`, `mips64r2` | `Loongson-3A1000` | little- and big-endian |
+| `mips64r2el` | `Loongson-3A4000` | MSA, which the boot turns on: the `loongson3r4` core's kernels |
+| `mips64r2` | `Loongson-3A1000` | big-endian, no MSA |
 | `mips64r6el`, `mips64r6` | `I6400` | the i6400, i6500 and p6600 cores' MSA kernels |
 | `mips32r2el`, `mips32r2` | `24Kf` | no 32-bit kernels apply: the portable ones run |
 | `mips32r5el`, `mips32r5` | `P5600` | the `p5600` core's MSA kernels |

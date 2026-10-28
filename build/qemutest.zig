@@ -195,7 +195,9 @@ const machines = [_]Machine{
         .name = "mips64r2el",
         .query = .{ .cpu_arch = .mips64el, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.mips.cpu.mips64r2 } },
         .qemu = "qemu-system-mips64el",
-        .args = &.{ "-M", "malta", "-cpu", "Loongson-3A1000" },
+        // with MSA, so the Loongson 3A R4 core runs; the big-endian rig keeps
+        // the 3A1000, a release 2 machine without it
+        .args = &.{ "-M", "malta", "-cpu", "Loongson-3A4000" },
         .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/mips64.ld",
