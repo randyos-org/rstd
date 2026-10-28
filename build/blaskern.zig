@@ -124,6 +124,7 @@ fn addForArch(
                 .target = b.resolveTargetQuery(g.query),
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
+                .pic = objectPic(mod, target),
                 .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
             }),
             .use_llvm = llvm,
@@ -164,6 +165,15 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     check.addArg("-o");
     _ = check.addOutputFileArg(b.fmt("asmcheck-{s}.o", .{comp.name}));
     return &check.step;
+}
+
+/// The objects' PIC where it must match the image's: MIPS marks PIC code
+/// abicalls, and `ld.lld` warns when it meets the rest; a freestanding
+/// executable is not PIC, an object is by default. Elsewhere Zig's default,
+/// which links into anything.
+fn objectPic(mod: *Module, target: ResolvedTarget) ?bool {
+    if (!target.result.cpu.arch.isMips()) return null;
+    return mod.pic orelse if (target.result.os.tag == .freestanding) false else null;
 }
 
 /// Tells `asm_registry.install` which cores' objects are linked.
