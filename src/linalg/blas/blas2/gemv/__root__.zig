@@ -404,6 +404,7 @@ const sym = @import("../symmetric.zig");
 const guard = @import("../../_test/blas2/guard.zig");
 const zigstd = @import("../../../../zigstd.zig");
 const fma = @import("../../fma.zig");
+const x86cpu = @import("../../cpu/x86.zig");
 
 const C = std.math.Complex;
 /// Shapes across the kernels' blocks, then bigger ones through their
@@ -1103,6 +1104,70 @@ test "extended gemv: the blocks by target and core" {
         try zigstd.testExpectEqual(@as(BlasLong, 4096), extendedRowBlock(true));
         try zigstd.testExpectEqual(@as(BlasLong, 32), extendedColBlock(false, .core2));
         try zigstd.testExpectEqual(@as(BlasLong, 32), extendedColBlock(true, .athlon));
+    }
+}
+
+/// x86's `qgemv_n.S` and `xgemv_n.S` columns a block (`P`) by core:
+/// `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `xgemv_n.S` halves for
+/// `PENTIUM4` (northwood, prescott) and `ATHLON`; `qgemv_n.S` takes 32 on
+/// `ATHLON` and `OPTERON`, their own anyway.
+const x87_col_blocks = [_]struct { core: X86CoreType, q: usize, x: usize }{
+    .{ .core = .katmai, .q = 64, .x = 64 },
+    .{ .core = .northwood, .q = 64, .x = 32 },
+    .{ .core = .prescott, .q = 64, .x = 32 },
+    .{ .core = .athlon, .q = 32, .x = 16 },
+    .{ .core = .opteron, .q = 32, .x = 32 },
+    .{ .core = .barcelona, .q = 48, .x = 48 },
+    .{ .core = .bobcat, .q = 40, .x = 40 },
+    .{ .core = .core2, .q = 256, .x = 256 },
+    .{ .core = .nano, .q = 128, .x = 128 },
+};
+
+/// A core's vtable, static: a vtable is large for a rig's stack.
+var x87_core_vt: Vtable = undefined;
+
+/// `y := -t + A*x` on four rows, `t` = 2^64 in column 0 and 1 in column
+/// `at`, the rest 0, `x` ones: a block ending before `at` gives 1, one
+/// holding both gives `t + 1 = t`, so 0.
+fn x87BlockProbe(comptime complex: bool, at: usize, n: usize) !XDouble {
+    const al = std.testing.allocator;
+    const F = XDouble;
+    const w = if (complex) 2 else 1;
+    const t = std.math.ldexp(@as(F, 1), 64);
+    const a = try al.alloc(F, w * 4 * n);
+    defer al.free(a);
+    const x = try al.alloc(F, w * n);
+    defer al.free(x);
+    @memset(a, 0);
+    @memset(x, 0);
+    for (0..n) |j| x[w * j] = 1;
+    for (0..4) |i| {
+        a[w * i] = t;
+        a[w * (i + 4 * at)] = 1;
+    }
+    var y: [8]F = @splat(0);
+    for (0..4) |i| y[w * i] = -t;
+    const ln: BlasLong = @intCast(n);
+    if (complex) {
+        _ = x87_core_vt.xgemv_n.?(4, ln, 0, 1, 0, a.ptr, 4, x.ptr, 1, &y, 1, undefined);
+    } else {
+        _ = x87_core_vt.qgemv_n.?(4, ln, 0, 1, a.ptr, 4, x.ptr, 1, &y, 1, undefined);
+    }
+    for (1..4) |i| try zigstd.testExpectEqual(y[0], y[w * i]);
+    return y[0];
+}
+
+test "extended gemv: each x86 core's qgemv_n and xgemv_n slots take its column block" {
+    if (comptime !x86 or !types.isExtended(XDouble)) return error.SkipZigTest;
+    for (x87_col_blocks) |c| {
+        x87_core_vt = x86cpu.vtableFromCoreType(c.core);
+        inline for (.{ false, true }) |complex| {
+            const p = if (complex) c.x else c.q;
+            errdefer check.say("{s} {s}gemv_n, block {d}: ", .{ @tagName(c.core), if (complex) "x" else "q", p });
+            // the 1 last in the first block, then first in the second
+            try zigstd.testExpectEqual(@as(XDouble, 0), try x87BlockProbe(complex, p - 1, 2 * p + 1));
+            try zigstd.testExpectEqual(@as(XDouble, 1), try x87BlockProbe(complex, p, 2 * p + 1));
+        }
     }
 }
 
