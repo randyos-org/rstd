@@ -93,7 +93,10 @@ fn registers(comptime bits: u16, comptime cpu: std.Target.Cpu) u16 {
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (cpu.has(.powerpc, .vsx)) 64 else 32,
         .s390x => if (bits == 0) 16 else 32,
         .wasm32, .wasm64 => 16,
-        .mips, .mipsel, .sparc => 16,
+        // o32's 32-bit FPU registers pair up for doubles; MSA has 32 of 128 bits
+        // (and Zig builds it with 64-bit FPU registers, `-mfp64`)
+        .mips, .mipsel => if (cpu.has(.mips, .msa)) 32 else 16,
+        .sparc => 16,
         else => 32,
     };
 }
@@ -957,6 +960,15 @@ test "geometry: the most accumulators the registers hold" {
     const arm64 = comptime std.Target.Cpu.baseline(.aarch64, sysinfo.target.os);
     try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 4, .nr = 6 }, comptime geometryFor(f32, arm64));
     try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 4, .nr = 6 }, comptime geometryFor(f64, arm64));
+    // 32-bit MIPS with MSA has the 64-bit cores' 32 vector registers
+    const p5600 = comptime blk: {
+        var c = std.Target.mips.cpu.p5600.toCpu(.mipsel);
+        c.features.addFeature(@backingInt(std.Target.mips.Feature.msa));
+        break :blk c;
+    };
+    const r6 = comptime std.Target.mips.cpu.i6400.toCpu(.mips64el);
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T|
+        try std.testing.expectEqual(comptime geometryFor(T, r6), comptime geometryFor(T, p5600));
     try std.testing.expectEqualSlices(usize, &.{ 4, 2, 1 }, comptime tails(6));
     try std.testing.expectEqualSlices(usize, &.{ 8, 4, 2, 1 }, comptime tails(9));
 }
