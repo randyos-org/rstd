@@ -10,7 +10,26 @@ const Shape = params.Shape;
 
 pub fn x86_64(core: coretypes.X86CoreType) ?Table {
     return switch (core) {
-        .unknown, .katmai, .coppermine, .banias, .p5, .p6, .yonah => null,
+        .unknown, .p6 => null,
+        .katmai, .coppermine, .banias => .{
+            .s = Shape{ .unroll_m = 8, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 4, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 4,
+        },
         .northwood => .{
             .s = Shape{ .unroll_m = 8, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 128 }, .r = .from_buffer },
             .d = Shape{ .unroll_m = 4, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 128 }, .r = .from_buffer },
@@ -40,8 +59,8 @@ pub fn x86_64(core: coretypes.X86CoreType) ?Table {
             .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
             .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
             .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
-            .offset_a = 128,
-            .offset_b = 192,
+            .offset_a = 0,
+            .offset_b = 256,
             .align_ = 65535,
             .switch_ratio = 2,
             .divide_rate = 2,
@@ -396,6 +415,25 @@ pub fn x86_64(core: coretypes.X86CoreType) ?Table {
             .preferred_size = 16,
             .symv_p = 8,
         },
+        .p5 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 4,
+        },
         .viac3 => .{
             .s = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
             .d = Shape{ .unroll_m = 1, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -415,6 +453,25 @@ pub fn x86_64(core: coretypes.X86CoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
+        .yonah => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 4,
+        },
     };
 }
 
@@ -433,7 +490,26 @@ pub fn x86_64_dtb(core: coretypes.X86CoreType) ?i32 {
 
 pub fn x86(core: coretypes.X86CoreType) ?Table {
     return switch (core) {
-        .unknown, .katmai, .coppermine, .banias, .p5, .p6, .yonah => null,
+        .unknown, .p6 => null,
+        .katmai, .coppermine, .banias => .{
+            .s = Shape{ .unroll_m = 8, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 4, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 4,
+        },
         .northwood => .{
             .s = Shape{ .unroll_m = 8, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 128 }, .r = .from_buffer },
             .d = Shape{ .unroll_m = 4, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 128 }, .r = .from_buffer },
@@ -785,6 +861,25 @@ pub fn x86(core: coretypes.X86CoreType) ?Table {
             .preferred_size = 16,
             .symv_p = 8,
         },
+        .p5 => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 4,
+        },
         .viac3 => .{
             .s = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
             .d = Shape{ .unroll_m = 1, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -803,6 +898,25 @@ pub fn x86(core: coretypes.X86CoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 16,
+        },
+        .yonah => .{
+            .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .z = Shape{ .unroll_m = 1, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 4,
         },
     };
 }
@@ -1417,11 +1531,11 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .symv_p = 8,
         },
         .power8 => .{
-            .s = Shape{ .unroll_m = 16, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 1280 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
-            .d = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 640 }, .q = .{ .fixed = 720 }, .r = .{ .fixed = 4096 } },
+            .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 1280 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
+            .d = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 640 }, .q = .{ .fixed = 720 }, .r = .{ .fixed = 4096 } },
             .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
-            .c = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 640 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
-            .z = Shape{ .unroll_m = 8, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 320 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 640 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 320 }, .q = .{ .fixed = 640 }, .r = .{ .fixed = 4096 } },
             .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
             .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
             .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
@@ -1531,10 +1645,10 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .symv_p = 8,
         },
         .ppc970 => .{
-            .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
+            .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
             .d = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
             .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
-            .c = Shape{ .unroll_m = 8, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
             .z = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 128 }, .r = .from_buffer },
             .x = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
             .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
@@ -1998,7 +2112,7 @@ pub fn mips32_dtb(core: coretypes.MipsCoreType) ?i32 {
 
 pub fn loongarch64(core: coretypes.LoongarchCoreType) ?Table {
     return switch (core) {
-        .la64_generic => .{
+        .la64_generic, .loongsongeneric => .{
             .s = Shape{ .unroll_m = 2, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 240 }, .r = .{ .fixed = 12288 } },
             .d = Shape{ .unroll_m = 2, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 8192 } },
             .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
@@ -2017,7 +2131,7 @@ pub fn loongarch64(core: coretypes.LoongarchCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
-        .la264 => .{
+        .la264, .loongson2k1000 => .{
             .s = Shape{ .unroll_m = 2, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 240 }, .r = .{ .fixed = 12288 } },
             .d = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 8192 } },
             .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
@@ -2036,7 +2150,7 @@ pub fn loongarch64(core: coretypes.LoongarchCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
-        .la464 => .{
+        .la464, .loongson3r5 => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 8, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
             .d = Shape{ .unroll_m = 16, .unroll_n = 6, .unroll_mn = 96, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
             .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
@@ -2055,7 +2169,7 @@ pub fn loongarch64(core: coretypes.LoongarchCoreType) ?Table {
             .preferred_size = 1,
             .symv_p = 16,
         },
-        .loongsongeneric, .loongson2k1000, .loongson3r5, .unknown => null,
+        .unknown => null,
     };
 }
 
