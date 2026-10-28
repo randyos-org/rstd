@@ -94,6 +94,36 @@ pub inline fn scalar(comptime T: type, x: T) T {
     );
 }
 
+/// `x` rounded to `F` through memory where `F` computes on the x87, which
+/// keeps a result wider until it is stored; `x` itself elsewhere. For a
+/// value compared with one that was stored.
+pub inline fn rounded(comptime F: type, x: F) F {
+    if (comptime !onX87(F)) return x;
+    var t: F = undefined;
+    const v: *volatile F = &t;
+    v.* = x;
+    return v.*;
+}
+
+/// Whether `F` computes on the x87 here: x86 without SSE for `f32`, or
+/// without SSE2 for `f64`.
+pub fn onX87(comptime F: type) bool {
+    return switch (F) {
+        f32 => x87_f32,
+        f64 => x87_f64,
+        else => false,
+    };
+}
+
+const x87_f32 = x87Without(.sse);
+const x87_f64 = x87Without(.sse2);
+
+fn x87Without(comptime unit: std.Target.x86.Feature) bool {
+    const cpu = sysinfo.target.cpu;
+    const has = std.Target.x86.featureSetHas;
+    return cpu.arch.isX86() and has(cpu.features, .x87) and !has(cpu.features, unit);
+}
+
 /// Whether a vector of `n` elements of `size` bytes at stride `inc` fits in
 /// the address space: `((n - 1) * |inc| + 1) * size` bytes, with no overflow.
 /// Where it does not, no such vector can exist; the interfaces refuse it so

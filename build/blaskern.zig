@@ -175,13 +175,23 @@ fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]c
 }
 
 /// The target query a group's object is built with: its model, or the
-/// baseline plus its features, less those it goes without.
+/// baseline plus its features, less those it goes without. An x86 target
+/// without SSE2 is the base instead of the baseline (the Pentium 4), so a
+/// Pentium III build's objects compute `f64` on the x87, as its cores and
+/// its main library do.
 fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
     const arch = target.result.cpu.arch;
     var query = target.query;
     query.cpu_features_sub = featureSet(arch, spec.without);
     query.cpu_features_add = featureSet(arch, spec.features);
-    query.cpu_model = if (spec.model) |name| .{ .explicit = findModel(arch, name) } else .baseline;
+    if (spec.model) |name| {
+        query.cpu_model = .{ .explicit = findModel(arch, name) };
+    } else if (arch.isX86() and !target.result.cpu.has(.x86, .sse2)) {
+        query.cpu_model = .{ .explicit = target.result.cpu.model };
+        query.cpu_features_add.addFeatureSet(target.result.cpu.features);
+    } else {
+        query.cpu_model = .baseline;
+    }
     return query;
 }
 

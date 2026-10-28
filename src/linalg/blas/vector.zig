@@ -670,8 +670,9 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
                 const P = extremum.Extremum(F, 2, find);
                 const S = Real(F, W / lanes(F));
                 const Key = struct {
+                    // rounded: `search` finds the block's stored key again
                     inline fn key(p: [*]const F, s: usize, i: usize) F {
-                        return @abs(p[i * s]) + @abs(p[i * s + 1]);
+                        return util.rounded(F, @abs(p[i * s]) + @abs(p[i * s + 1]));
                     }
                     inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
                         var m: [4]V = undefined;
@@ -687,7 +688,7 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
                             }
                             chk.* += m[q];
                         }
-                        return S.pick(find, m);
+                        return util.rounded(F, S.pick(find, m));
                     }
                 };
 

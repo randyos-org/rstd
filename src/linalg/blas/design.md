@@ -350,7 +350,9 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   model where the reference passes `-march`/`-mcpu`, else the baseline plus features, from
   `Makefile.<arch>`, the `HAVE_*` tables of `getarch.c` and `kernel/Makefile`; `without` takes
   features out of a model. Only the ISA is described; `-mtune` has no counterpart. The build and
-  the runtime both read it, and a test checks every named model and feature exists.
+  the runtime both read it, and a test checks every named model and feature exists. An x86
+  target without SSE2 replaces the baseline (Zig's is the Pentium 4): a Pentium III build's
+  objects compute `f64` on the x87, as its main library does, and run on the cores they serve.
 - **Groups.** `build/blaskern.zig` takes `corespec.kernelCores(arch)` (the cores with kernels,
   derived from the registries and checked by a test in `cpu/__root__.zig`), keeps those whose
   kernels run on the target CPU (`corespec.runsOn`), and groups equal specs into one object.
