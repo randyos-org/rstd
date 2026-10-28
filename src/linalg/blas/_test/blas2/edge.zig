@@ -19,6 +19,9 @@
 //! A solve divides by the diagonal, whose magnitudes are not its cases: its
 //! patterns go in the off-diagonal entries (none huge, which overflow its
 //! sums) and the right-hand side, and the diagonal dominates.
+//!
+//! Every variant also runs once with strides past a page and a leading
+//! dimension far past the rows, on one shape, kept within the rigs' heap.
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
@@ -52,12 +55,13 @@ const Shape = struct {
     unit: bool = false,
     /// A solve's: the diagonal dominant and left out of the pattern.
     solve: bool = false,
+    /// Rows of padding below a full or band matrix.
+    pad: usize = 1,
 
-    /// One row of padding below a full or band matrix.
     fn ld(s: Shape) usize {
         return switch (s.layout) {
-            .full => s.m + 1,
-            .band => s.kl + s.ku + 2,
+            .full => s.m + s.pad,
+            .band => s.kl + s.ku + 1 + s.pad,
             .packed_ => 1,
         };
     }
@@ -202,6 +206,8 @@ const Case = struct {
     where: Where,
     /// A second operand's pattern.
     also: ?struct { where: Where, p: Pattern } = null,
+    /// The matrix's rows of padding (`Shape.pad`).
+    pad: usize = 1,
 
     /// The pattern operand `w` takes, if any.
     fn on(c: Case, w: Where) ?Pattern {
@@ -289,13 +295,15 @@ const trans_flags = [8][3]bool{
 
 fn shapeOf(r: Routine, v: usize, c: Case) Shape {
     const herm_kind: Kind = if (v >= 2) .hermitian_rev else .hermitian;
-    return switch (r) {
+    var s: Shape = switch (r) {
         .gemv, .ger, .gerc => .{ .kind = .general, .m = c.m, .n = c.n },
         .gbmv => .{ .kind = .general, .layout = .band, .m = c.m, .n = c.n, .kl = c.kl, .ku = c.ku },
         .symv, .sbmv, .spmv, .syr, .spr, .syr2, .spr2 => .{ .kind = .symmetric, .layout = r.layout(), .m = c.n, .n = c.n, .lower = v == 1, .kl = if (v == 1) c.kl else 0, .ku = if (v == 1) 0 else c.ku },
         .hemv, .hbmv, .hpmv, .her, .hpr, .her2, .hpr2 => .{ .kind = herm_kind, .layout = r.layout(), .m = c.n, .n = c.n, .lower = v % 2 == 1, .kl = if (v % 2 == 1) c.kl else 0, .ku = if (v % 2 == 1) 0 else c.ku },
         .trmv, .tbmv, .tpmv, .trsv, .tbsv, .tpsv => .{ .kind = .triangular, .layout = r.layout(), .m = c.n, .n = c.n, .lower = v / 8 == 1, .unit = v % 2 == 1, .kl = if (v / 8 == 1) c.kl else 0, .ku = if (v / 8 == 1) 0 else c.ku, .solve = r.solve() },
     };
+    s.pad = c.pad;
+    return s;
 }
 
 /// Scratch from the heap holds NaN, so a driver that reads what it did not
@@ -498,12 +506,14 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     // `her` and `hpr` take the real part
     const wa = check.wide(T, if (r == .her or r == .hpr) val(T, ar, 0) else alpha);
     // everything but the stored entries keeps its NaN
-    for (a.buf, 0..) |e, k| {
-        var hit = false;
-        for (0..s.n) |j| for (0..s.m) |i| {
-            hit = hit or s.stored(i, j) == k;
-        };
-        if (!hit and !check.poisoned(T, e)) {
+    const hit = try al.alloc(bool, a.buf.len);
+    defer al.free(hit);
+    @memset(hit, false);
+    for (0..s.n) |j| for (0..s.m) |i| if (s.stored(i, j)) |k| {
+        hit[k] = true;
+    };
+    for (a.buf, hit, 0..) |e, h, k| {
+        if (!h and !check.poisoned(T, e)) {
             check.say("storage {d} written: ", .{k});
             return error.TestUnexpectedResult;
         }
@@ -605,10 +615,23 @@ fn sweep(comptime T: type, comptime r: Routine) void {
             };
         };
     };
+    for (0..r.variants(complex)) |v| {
+        var c = baseCase(r, large_shape);
+        c.inc = large_incs[v % 2];
+        c.pad = large_pad;
+        run(T, r, v, gen, beta, c) catch |e| return report(e, T, r, v, c);
+    }
 }
 
 /// m, n, kl, ku; the rigs take one, past the unrolls.
 const all_shapes = [_][4]usize{ .{ 1, 1, 0, 0 }, .{ 7, 4, 1, 2 }, .{ 4, 17, 3, 0 }, .{ 33, 9, 2, 2 } };
+
+/// The large strides' and leading dimension's shape (the rigs' one), strides
+/// by variant, and padding: past a page of `f32`, and within the rigs' 32 MiB
+/// heap at `Complex(f64)` (4.2 MB a vector).
+const large_shape = all_shapes[2];
+const large_incs = [_][2]isize{ .{ 4097, -4099 }, .{ -16411, 16417 } };
+const large_pad = 4099;
 
 /// Accelerate's: every shape, and one past its small-problem paths.
 const accel_shapes = all_shapes ++ [_][4]usize{.{ 130, 67, 4, 6 }};
@@ -672,7 +695,7 @@ fn run(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Ca
 
 fn report(e: anyerror, comptime T: type, comptime r: Routine, v: usize, c: Case) void {
     if (c.where != .none) c.p.describe();
-    check.say("in {s}, {s} {s} variant {d} m={d} n={d} k={d},{d} inc={d},{d}\n", .{ @tagName(c.where), @tagName(r), @typeName(T), v, c.m, c.n, c.kl, c.ku, c.inc[0], c.inc[1] });
+    check.say("in {s}, {s} {s} variant {d} m={d} n={d} k={d},{d} inc={d},{d} pad={d}\n", .{ @tagName(c.where), @tagName(r), @typeName(T), v, c.m, c.n, c.kl, c.ku, c.inc[0], c.inc[1], c.pad });
     failed = e;
 }
 
