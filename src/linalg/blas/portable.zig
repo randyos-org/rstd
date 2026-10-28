@@ -10,11 +10,12 @@ const gemm_params = @import("blas3/gemm/params.zig");
 const blas1 = @import("blas1/__root__.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
+const ext = @import("ext/__root__.zig");
 const bf16_kernel = @import("ext/bf16/kernel.zig");
 
 const XDouble = types.XDouble;
 
-const levels = .{ blas1, blas2, blas3 };
+const levels = .{ blas1, blas2, blas3, ext };
 
 pub fn install(vt: *Vtable) void {
     // the generic target's blocking; `finish` sets the portable kernels' unrolls
@@ -77,6 +78,7 @@ pub const Op = enum {
     hemv_L,
     hemv_V,
     hemv_M,
+    geadd_k,
     gemm_kernel,
     gemm_kernel_n,
     gemm_kernel_l,
@@ -165,6 +167,7 @@ fn Module(comptime op: Op) type {
         .ger_k, .geru_k, .gerc_k => blas2.ger,
         .symv_U, .symv_L => blas2.symv,
         .hemv_U, .hemv_L, .hemv_V, .hemv_M => blas2.hemv,
+        .geadd_k => ext.geadd,
         else => @compileError("level-3 kernels come from `blas3.gemm.kernel.find`"),
     };
 }
@@ -181,8 +184,9 @@ pub fn letter(comptime T: type) ?[]const u8 {
 }
 
 /// Ops the reference has no extended-precision (`q`, `x`) slot for, which
-/// run the portable kernel there: `axpby` exists for `s`, `d`, `c`, `z` only.
-const no_extended_slot: std.EnumSet(Op) = .initMany(&.{.axpby_k});
+/// run the portable kernel there: `axpby` and `geadd` exist for `s`, `d`,
+/// `c`, `z` only.
+const no_extended_slot: std.EnumSet(Op) = .initMany(&.{ .axpby_k, .geadd_k });
 
 /// The vtable slot `op` fills for `T`, or null for a type with no slots. A
 /// type with slots that lacks this one is a compile error, unless
