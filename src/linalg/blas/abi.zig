@@ -7,6 +7,7 @@
 //! Import-free, since the build script reads it too (`build/blaskern.zig`).
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 
 pub const Result = union(enum) {
     /// The variant's name (empty where the architecture has only one).
@@ -77,6 +78,8 @@ pub fn variantName(t: *const std.Target) []const u8 {
 }
 
 test "variants follow the calling convention" {
+    // resolving a query needs an `Io`, which freestanding builds lack
+    if (comptime sysinfo.target.os.tag == .freestanding) return error.SkipZigTest;
     const cases = [_]struct { []const u8, []const u8 }{
         .{ "x86_64-linux-gnu", "sysv" },
         .{ "x86_64-linux-musl", "sysv" },
