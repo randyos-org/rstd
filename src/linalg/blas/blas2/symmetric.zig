@@ -217,9 +217,6 @@ pub fn Compose(comptime pre: []const u8, comptime T: type, comptime lower: bool,
                 _ = copy(m, x, incx, xs, 1);
             }
             const gb = pageAt(gemvbuffer);
-            // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN
-            // or infinity; cleared as `interface.gemv` does
-            if (comptime complex and sysinfo.target.cpu.arch == .x86_64) @memset(gb[0..gemvLen(F, cs, @intCast(m), @intCast(p))], 0);
             var is: BlasLong = if (lower) 0 else m - offset;
             const end: BlasLong = if (lower) offset else m;
             while (is < end) : (is += p) {

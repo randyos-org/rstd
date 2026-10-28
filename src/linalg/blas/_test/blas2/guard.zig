@@ -46,7 +46,8 @@ pub fn portableVtable() *const Vtable {
 }
 
 /// What `open` puts in the buffer: finite junk, for kernels whose callers must
-/// keep NaN out of it (`zgemv_t.S`), or NaN, for the rest.
+/// keep NaN out of it (x86_64's SSE `symv`, which reads past its copies), or
+/// NaN, for the rest.
 pub const Fill = enum { junk, nan };
 
 /// A buffer of exactly `bytes`, `off` past a page boundary, filled as `fill`

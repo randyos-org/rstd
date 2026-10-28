@@ -175,10 +175,9 @@ fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m:
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
     const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, if (complex) 2 else 1, @intCast(m), @intCast(n)));
     defer sc.deinit(allocator);
-    // `cgemv_t.S` returns NaN if the buffer holds NaN or infinity; the
-    // reference clears its stack buffer for every `trans` but `n`, here the
-    // heap one too since the allocator hands out whatever it holds
-    if (comptime complex and t != .n and sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
+    // the reference clears its stack buffer for every `trans` but `n` on
+    // x86_64, for `cgemv_t.S` (OpenBLAS #746), which no core here takes; no
+    // kernel here lets what the buffer held reach `y` (`buffers.md`)
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
         _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);

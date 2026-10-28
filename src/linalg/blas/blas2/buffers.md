@@ -31,7 +31,7 @@ level-2 design is in [`design.md`](../design.md#level-2).
 | x86_64 `cgemv_n_4.c`, `zgemv_n_4.c` (`gemv/kernel.zig`) | `y` summed there for each row block (`NB`, at most `m`), zeroed first | `2m` floats |
 | x86_64 `cgemv_t_4.c`, `zgemv_t_4.c` (`gemv/kernel.zig`) | `x` copied there when `incx != 1` (`NB`) | `2m` floats |
 | x86_64 `sgemv_t_4.c`, `dgemv_t_4.c` (`gemv/kernel.zig`) | `x` copied there when `incx != 1` (`NB`), and from `min(m, NBMAX)` on four sums per four columns, up to `NBMAX` of them | `min(m, NBMAX) + min(n, NBMAX)` elements, at most `m + n` |
-| x86_64 `zgemv_n_atom.S`, `zgemv_n_dup.S`, `zgemv_t_atom.S`, `zgemv_t.S` (bobcat, opteron) | `y` (n) or `x` (t) of `2m`, `16*SIZE` head | `2m + 16` elements; 16-byte aligned; no NaN or infinity in it for `t` forms (the interface zeroes it) |
+| x86_64 `zgemv_n_atom.S`, `zgemv_n_dup.S`, `zgemv_t_atom.S`, `zgemv_t.S` (bobcat, opteron) | `y` (n) or `x` (t) of `2m`, `16*SIZE` head | `2m + 16` elements; 16-byte aligned; any contents (below) |
 | x86_64 `symv_[LU]_sse.S`, `symv_[LU]_sse2.S`, `zsymv_[LU]_sse2.S` (also `zhemv`) | `x` copied (times `alpha`), the pointer rounded up to the next 512-byte boundary, `y` copied, blocks of 4 read past each | `2*m*es + 1280` bytes (`sseBytes`), any alignment of 16; no NaN in it (they read past the copies; the interface zeroes it) |
 | x86 `gemv_*.S`, `zgemv_*.S` (x87 and SSE) | `x` or `y` copy of `m` | `cs*m` elements |
 | arm `*gemv_*_vfp*.S`, arm64 `gemv_*.S`, `zgemv_*.S`, power `zgemv_n.S` | none | nothing |
@@ -46,6 +46,14 @@ Every gemv need is inside the interface's `cs*(m+n) + 128/sizeof` elements,
 so the interface size covers every core. No ported kernel needs more than
 16-byte alignment except the generic symv layout, which rounds to pages
 itself and is sized for a page-aligned start.
+
+The x86_64 complex `t` forms (`zgemv_t.S`, `zgemv_t_atom.S`) copy `x` to the
+buffer's start and load it ahead of use, so past the last row they load what
+the buffer holds; their row tails (`.L15`, `.L17` and kin) multiply only what
+was loaded for rows that exist, so those values never reach `y`. The
+reference clears its x86_64 stack buffer for `cgemv_t.S` (OpenBLAS #746),
+which no core here takes ([`coverage.md`](coverage.md)); the interface does
+not, and the kernel tests hand every form a NaN buffer.
 
 The `ger` size is the reference's own. No ported `ger` kernel touches the
 buffer for a unit stride, which is what the small unit-stride case relies on.

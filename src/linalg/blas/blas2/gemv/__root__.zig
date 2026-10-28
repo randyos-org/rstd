@@ -471,8 +471,8 @@ fn checkGemvAt(comptime T: type, comptime trans: bool, comptime conj: bool, comp
             if (complex) want[r * inc[1]] = want[r * inc[1]].add(alpha.mul(acc)) else want[r * inc[1]] += alpha * acc;
         }
         const bytes = sym.gemvLen(F, cs, m, n) * @sizeOf(F);
-        // x86_64 `zgemv_t.S` needs a buffer free of NaN, which its callers clear
-        const buf = guard.open(F, bytes, 32, if (complex and trans) .junk else .nan);
+        // NaN: no kernel lets what the buffer held reach `y` (`buffers.md`)
+        const buf = guard.open(F, bytes, 32, .nan);
         if (complex) {
             _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, @ptrCast(a.ptr), @intCast(lda), @ptrCast(x.ptr), @intCast(inc[0]), @ptrCast(y.ptr), @intCast(inc[1]), buf);
         } else {
@@ -606,7 +606,7 @@ fn shifted(comptime T: type, comptime trans: bool, comptime conj: bool, comptime
                 @memcpy(p[k][0 .. w * lens[k]], @as([*]const F, @ptrCast(&vals[k]))[0 .. w * lens[k]]);
             }
             const bytes = sym.gemvLen(F, w, m, n) * @sizeOf(F);
-            const buf = guard.open(F, bytes, 32, if (complex and trans) .junk else .nan);
+            const buf = guard.open(F, bytes, 32, .nan);
             if (complex) {
                 _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, p[0], @intCast(lda), p[1], 1, p[2], 1, buf);
             } else {
