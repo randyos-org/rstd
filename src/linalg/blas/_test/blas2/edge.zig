@@ -699,30 +699,50 @@ fn report(e: anyerror, comptime T: type, comptime r: Routine, v: usize, c: Case)
     failed = e;
 }
 
-/// Real and complex apart: one test of both is too big an image for
+/// Real and complex apart, and the complex ones on every core in two (the
+/// products, then the rest): one test of more is too big an image for
 /// sparc64's debug rig.
 const real_types = .{ f32, f64 };
 const complex_types = .{ C(f32), C(f64) };
+const all_routines = std.enums.values(Routine);
+const products = routinesOf(true);
+const solves_and_updates = routinesOf(false);
+
+/// The routines that are products (`mv`), or the rest.
+fn routinesOf(comptime mv: bool) []const Routine {
+    comptime {
+        var n = 0;
+        for (all_routines) |r| n += @intFromBool((r.family() == .mv) == mv);
+        var out: [n]Routine = undefined;
+        var i = 0;
+        for (all_routines) |r| if ((r.family() == .mv) == mv) {
+            out[i] = r;
+            i += 1;
+        };
+        const final = out;
+        return &final;
+    }
+}
 
 /// `vt`'s kernels, with its own `dtb_entries` and with 3, which takes the
 /// triangular drivers through `gemv`; static, as a vtable is large for a
 /// rig's stack.
 var small_dtb: Vtable = undefined;
 
-fn CheckAll(comptime types: anytype) type {
+fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
     return struct {
         fn sweepAll(vt: *const Vtable) !void {
             failed = null;
             {
                 const saved = blas.testUse(vt);
                 defer blas.testRestore(saved);
-                inline for (types) |T| inline for (comptime std.enums.values(Routine)) |r| sweep(T, r);
+                inline for (types) |T| inline for (routines) |r| sweep(T, r);
             }
             small_dtb = vt.*;
             small_dtb.dtb_entries = 3;
             const saved = blas.testUse(&small_dtb);
             defer blas.testRestore(saved);
-            inline for (types) |T| inline for (.{ Routine.trmv, Routine.trsv }) |r| sweep(T, r);
+            inline for (types) |T| inline for (routines) |r| if (comptime r == .trmv or r == .trsv) sweep(T, r);
             if (failed) |e| return e;
         }
 
@@ -730,7 +750,7 @@ fn CheckAll(comptime types: anytype) type {
             failed = null;
             const saved = blas.testUse(vt);
             defer blas.testRestore(saved);
-            inline for (types) |T| inline for (comptime std.enums.values(Routine)) |r| denormals(T, r);
+            inline for (types) |T| inline for (routines) |r| denormals(T, r);
             if (failed) |e| return e;
         }
 
@@ -743,7 +763,7 @@ fn CheckAll(comptime types: anytype) type {
             if (!accel.route(true)) return error.SkipZigTest;
             accel_run = true;
             defer accel_run = false;
-            inline for (types) |T| inline for (comptime std.enums.values(Routine)) |r| {
+            inline for (types) |T| inline for (routines) |r| {
                 sweep(T, r);
                 denormals(T, r);
             };
@@ -760,33 +780,41 @@ fn CheckAll(comptime types: anytype) type {
 }
 
 test "portable level-2 routines, real: special values, and NaN wherever they must not read or write" {
-    try CheckAll(real_types).portableKernels();
+    try CheckAll(real_types, all_routines).portableKernels();
 }
 
 test "portable level-2 routines, complex: special values, and NaN wherever they must not read or write" {
-    try CheckAll(complex_types).portableKernels();
+    try CheckAll(complex_types, all_routines).portableKernels();
 }
 
 test "every linked core's level-2 routines, real: special values, and NaN wherever they must not read or write" {
-    try check.eachCore(CheckAll(real_types).sweepAll);
+    try check.eachCore(CheckAll(real_types, all_routines).sweepAll);
 }
 
-test "every linked core's level-2 routines, complex: special values, and NaN wherever they must not read or write" {
-    try check.eachCore(CheckAll(complex_types).sweepAll);
+test "every linked core's level-2 routines, complex products: special values, and NaN wherever they must not read or write" {
+    try check.eachCore(CheckAll(complex_types, products).sweepAll);
+}
+
+test "every linked core's level-2 routines, complex solves and updates: special values, and NaN wherever they must not read or write" {
+    try check.eachCore(CheckAll(complex_types, solves_and_updates).sweepAll);
 }
 
 test "the level-2 routines through Accelerate, real: special values, denormals, and NaN wherever they must not read or write" {
-    try CheckAll(real_types).accelerate();
+    try CheckAll(real_types, all_routines).accelerate();
 }
 
 test "the level-2 routines through Accelerate, complex: special values, denormals, and NaN wherever they must not read or write" {
-    try CheckAll(complex_types).accelerate();
+    try CheckAll(complex_types, all_routines).accelerate();
 }
 
 test "every linked core's level-2 routines, real: denormal results" {
-    try check.eachCore(CheckAll(real_types).denormalsAll);
+    try check.eachCore(CheckAll(real_types, all_routines).denormalsAll);
 }
 
-test "every linked core's level-2 routines, complex: denormal results" {
-    try check.eachCore(CheckAll(complex_types).denormalsAll);
+test "every linked core's level-2 routines, complex products: denormal results" {
+    try check.eachCore(CheckAll(complex_types, products).denormalsAll);
+}
+
+test "every linked core's level-2 routines, complex solves and updates: denormal results" {
+    try check.eachCore(CheckAll(complex_types, solves_and_updates).denormalsAll);
 }

@@ -374,10 +374,12 @@ const machines = [_]Machine{
                 "linalg.blas.blas2.interface.test.every linked core's",
                 "linalg.blas.blas2.interface.test_",
             } },
-            // in two, as one is past the window
+            // real, complex, and complex on every core in two, as one is past
+            // the window
             .{ .name = "blas2-edge-real", .filters = &.{ "linalg.blas._test.blas2.edge.test.portable level-2 routines, real", "linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, real" } },
             .{ .name = "blas2-edge-complex", .filters = &.{"linalg.blas._test.blas2.edge.test.portable level-2 routines, complex"} },
-            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex"} },
+            .{ .name = "blas2-edge-complex-cores", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex products"} },
+            .{ .name = "blas2-edge-complex-cores-2", .filters = &.{"linalg.blas._test.blas2.edge.test.every linked core's level-2 routines, complex solves"} },
             .{ .name = "blas3-gemm", .filters = &.{"linalg.blas.blas3.gemm.__root__."} },
             // but "every core of" each family: those are the blas3-params-* parts
             .{ .name = "blas3-params", .filters = &.{

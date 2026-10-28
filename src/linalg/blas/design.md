@@ -1174,7 +1174,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `i386` | `pentium3` | |
 | `x86_64` | `max` under TCG | |
 | `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
-| `sparc64-debug` | `sun4u` | Debug, in 43 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
+| `sparc64-debug` | `sun4u` | Debug, in 44 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
 | `powerpc64le`, `powerpc64le-power10` | `power9`, `power10` | ReleaseSafe: LLVM's FastISel bug ([`issues.md`](issues.md)) |
 | `powerpc64` | `power10` on `pseries` under VOF, big-endian | every 64-bit POWER core; Zig emits ELFv2 here too, so it boots as the little-endian rigs do; ReleaseSafe |
 | `powerpc` | G4 on `mac99`, OpenBIOS | the `ppcg4` core; builds in debug |
