@@ -147,7 +147,8 @@ back to the portable kernels, and the next call selects again; no kernel call ma
 - **Triangular solves.** `trsv`, `tbsv`, `tpsv` and `trsm` divide by the diagonal, complex by
   Smith's algorithm (`util.cdiv`), as Reference-LAPACK master does; OpenBLAS multiplies by a
   reciprocal, infinite for a denormal diagonal element. Level 2 and level 3 give the same
-  quotients.
+  quotients, except in an x86 build without SSE2 on a core with it: `trsv` divides on the
+  x87, that core's `trsm` in SSE2.
 - **Extended precision.** Wider than `f64`, the reductions and `gemv` sum in the order of
   OpenBLAS's x87 `q`/`x` kernels and give their bits.
 

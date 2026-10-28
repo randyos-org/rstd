@@ -538,7 +538,7 @@ complex, for every float type, through the same code.
   `kernel/generic`'s `trsm_kernel_*.c` on the gemm layout's panels, dividing by the diagonal
   where upstream packs its reciprocal, which overflows for a denormal one; `trsv` divides
   alike, complex by Smith's algorithm (`util.cdiv`), so both give the same quotients
-  (`comparisons.md`, 10). The `trmm` kernels sum a
+  (`comparisons.md`, 10), but for an x87 build's cores with SSE2, whose objects divide there. The `trmm` kernels sum a
   diagonal block over its triangle only, where the reference's tiles multiply the zeros it
   packs, so an infinity in `B` meets no zero.
 - **Packed layout.** `n / u` panels of width `u`, then one of each power of two below `u`

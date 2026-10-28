@@ -478,6 +478,9 @@ const Vtable = @import("../../Vtable.zig");
 const driver = @import("../driver.zig");
 const iface = @import("../interface.zig");
 const triangular = @import("../../blas2/triangular.zig");
+const corespec = @import("../../cpu/_corespec.zig");
+const registry = @import("../../asm_registry.zig");
+const util = @import("../../util.zig");
 
 fn cases(vt: *const Vtable) !void {
     try check.routineAll(vt, .trsm);
@@ -594,6 +597,7 @@ test "every linked core's trsm divides by a tiny diagonal, where this machine ru
 fn sameAsTrsv(comptime T: type) !void {
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
+    if (!sameUnit(F)) return;
     const n = 37;
     const t = std.math.ldexp(@as(F, 1), std.math.floatExponentMin(F) - 4);
     const zero: T = if (complex) .init(0, 0) else 0;
@@ -632,6 +636,18 @@ fn sameAsTrsv(comptime T: type) !void {
         }
         try testing.expectEqualSlices(u8, std.mem.asBytes(&x), std.mem.asBytes(&y));
     };
+}
+
+/// Whether the selected core's `trsm` computes `F` where `trsv` does. An
+/// x87 build's `trsv` divides on the x87, and the objects of its cores with
+/// SSE2 in SSE2 (`build/blaskern.zig`); every feature an x86 spec lists
+/// implies SSE2. An unlinked core runs the target's own object.
+fn sameUnit(comptime F: type) bool {
+    if (comptime !util.onX87(F)) return true;
+    const core = blas.coreType() orelse return true;
+    if (!registry.isLinked(core)) return true;
+    const spec = corespec.of(core);
+    return spec.model == null and spec.features.len == 0;
 }
 
 test "trsv and trsm give the same bits on the same one-column system" {
