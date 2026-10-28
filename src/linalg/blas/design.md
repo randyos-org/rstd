@@ -107,7 +107,8 @@ The routines are Zig functions over column-major data, in the Fortran argument o
 | 2 | `blas2/interface.zig` | `gemv`, `gemvHalf`, `ger`, `gerc`, `symv`, `hemv` |
 | 2 | `blas2/triangular.zig` | `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv` |
 | 2 | `blas2/banded.zig` | `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `syr`, `hpr`, `her`, `spr2`, `syr2`, `hpr2`, `her2` |
-| 3 | `blas3/interface.zig` | `gemm`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`, `trsm` |
+| 3 | `blas3/interface.zig` | `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`, `trsm` |
+| extensions | `ext/interface.zig` | `geadd`, `omatcopy`, `imatcopy`, `laswp` |
 
 Conventions shared by every interface:
 
@@ -126,7 +127,8 @@ Conventions shared by every interface:
 - **Errors.** Each file has an `ArgError` set named after the reference's `xerbla` arguments
   (`InvalidTrans`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the
   first bad argument wins. Each level's `Error` adds `Allocator.Error` where it allocates and
-  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`.
+  `Io.Cancelable` everywhere; the root exports them as `Level1Error` to `Level3Error`, and
+  the extensions' as `ExtError`.
   A vector or matrix that could not fit the address space (`util.fits`, `util.fitsMatrix`)
   returns its stride's or leading dimension's error, so no index computation overflows.
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
@@ -588,10 +590,40 @@ bits.
 `kernel/setparam-ref.c` fills the bfloat16-named slots that have no kernel of their own with the
 `f32` kernels: 17 level-1 ones (`sbamax_k` to `sbswap_k`) and `dsbdot_k` (with `dsdot_k`), which
 the level-1 interfaces reach, and `sbtrsm_*`, `sbtrmm_*`, `sbsymm_*`, `sbneg_tcopy` and
-`sblaswp_ncopy`, which nothing calls yet and which stay null while their `f32`
-slots are. `portable.finish` sets them at the end of every vtable's build.
+`sblaswp_ncopy`, which nothing calls yet. `portable.finish` sets them at the end of every
+vtable's build.
 
 Their numerical behavior is in [`readme.md`](readme.md#bfloat16-and-half-precision).
+
+### Extensions
+
+OpenBLAS's extensions, column-major only, behind `ext/interface.zig` (`geadd`, `omatcopy`,
+`imatcopy`, `laswp`) and `blas3/interface.zig` (`gemmt`). Every core runs the portable kernels:
+upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV, LASX, vector).
+
+- **`geadd`** (`kernel/generic/geadd.c`, `zgeadd.c`): `axpby` per column of `op(C)`, or `scal`
+  with flag 0 for a zero `alpha`, through the vtable, so it follows the core's `axpby` and
+  `scal`. The letters come last, as in the Fortran; `op` never conjugates, so complex `r` and
+  `c` are `InvalidTrans` where upstream takes `C` as `T`.
+- **`omatcopy`, `imatcopy`** (`ext/matcopy.zig`, after `kernel/arm/*omatcopy_c*.c` and
+  `kernel/generic/*imatcopy_c*.c`): one scaling for all, a zero `alpha` storing zeros and
+  `alpha` 1 copying, complex too (upstream's complex kernels multiply by 1, `issues.md`).
+  `imatcopy` runs the in-place kernels where the shape and leading dimension stay, as upstream's
+  `NEW_IMATCOPY` build does, and else goes through a buffer from its allocator, as its default
+  build does; both give the same bits. No `q` or `x` slots, as upstream.
+- **`laswp`** (`lapack/laswp/generic/laswp_k_1.c`): the interchanges as `dlaswp.f` defines
+  them, for any element type, not a vtable slot upstream either. rstd adds checks the reference
+  has none of: rows and pivots inside `A`, all pivots checked before the first swap.
+- **`neg_tcopy`, `laswp_ncopy`**: gemm packing copies (`neg_tcopy_*.c` is `gemm_tcopy_*.c`
+  negated; `laswp_ncopy_*.c` swaps and packs as `gemm_oncopy`), so they join the gemm kernels'
+  `sets` and take each core's tile. `laswp_ncopy` also swaps rows `k1` to `k2` in `A`, which
+  upstream leaves stale, as `getrf_single.c`'s `laswp_plus` and `gemm_oncopy` do in its place.
+  Nothing calls either until LAPACK's `getrf`.
+- **`gemmt`**: upstream takes a `gemv` per column, and for `r` and `c` conjugates the caller's
+  `B` in place and back (`issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
+  the level-3 driver (`driver.gemmt`), and `B` is only read.
+- **Accelerate**: none of these is routed; Accelerate's CBLAS has no column-major equivalent of
+  them (its `appleblas_?geadd` takes three matrices).
 
 ### Apple Accelerate
 
@@ -986,7 +1018,8 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas1/` | level-1 routines, one directory each; `interface.zig`; `extremum.zig` (portable extremes); `uk_block.zig` (C-driver ports); `c_kernels.md` |
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
-| `ext/` | `bf16/` (bfloat16 and half kernels) and the vtable wrappers of `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg`, not yet behind an interface |
+| `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
+| `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
 | `readme.md`, `design.md`, `threading.md`, `comparisons.md`, `issues.md` | documentation |
@@ -1137,9 +1170,9 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   in `_test/from_openblas/__root__.zig`: `xerbla` and bad letters (only the letters a type
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
-- **Pending.** `blat3` runs every level-3 routine through the flat API. Still skipped: LAPACK's `potrf`/`potrs` and the `dgesvd`
-  regression (`utest.zig`), and `bgemm`, `geadd`, `imatcopy`, `omatcopy`, `gemmt` and complex
-  `gemm` in `utest_ext.zig`, which wait for their interfaces.
+- **Pending.** `blat3` runs every level-3 routine through the flat API. Still skipped:
+  LAPACK's `potrf`/`potrs` and the `dgesvd` regression (`utest.zig`), and `bgemm` in
+  `utest_ext.zig`, which waits for bfloat16 level 3.
 
 ### Rigs
 
@@ -1236,8 +1269,8 @@ Rig mechanics:
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
    half-precision level 3.
-4. **Extensions.** Interfaces for `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg` and `gemmt`,
-   which the pending `utest_ext` cases wait for.
+4. **Extensions.** Landed ([below](#extensions)) but `bgemm`, which comes with bfloat16 level
+   3 (3).
 5. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
    [`comparisons.md`](comparisons.md)'s recommendations, and convert assembly where `@Vector`
    cannot reach: arm64 SVE, POWER10 MMA, AMX and AVX-512 BF16 for `sbgemm`, and Skylake-X only

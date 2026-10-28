@@ -1297,6 +1297,35 @@ So one element's result depends on where it falls in the vector.
   Results then depend on `n % 8` (`n % 16` for `cscal`). The full product,
   as the blocks compute it, would make every element agree."
 
+### Complex `omatcopy`, `imatcopy`, `gemmt`: multiplying by 1 makes NaN
+
+The real `omatcopy` and `imatcopy` kernels copy for `alpha` 1 (and store
+zeros for 0); the complex ones (`kernel/arm/zomatcopy_c*.c`,
+`kernel/generic/zimatcopy_c*.c`) always multiply, so `alpha` `(1, 0)` turns
+`(x, Inf)` into `(NaN, Inf)`: `0 * Inf` in the other part. Two interfaces
+multiply by `(1, 0)` themselves:
+
+- `interface/zimatcopy.c` without `NEW_IMATCOPY` (the default build) copies
+  `alpha*op(A)` to a buffer and back with `OMATCOPY_K_CN` at `(1, 0)`, so an
+  infinite part of the result makes the other NaN whatever `alpha` was, and
+  `zimatcopy` differs from `zomatcopy` there;
+- `interface/gemmt.c` conjugates the caller's `B` in place with
+  `IMATCOPY_K_CNC` at `(1, 0)` for `transb` `R` or `C`, and back after, so an
+  infinite part leaves `B` with NaN beside it; it also writes an input the
+  caller may share.
+
+- **Workaround:** rstd's matrix copies copy for `alpha` 1 and store zeros for
+  0, real or complex (`ext/matcopy.zig`), and its `gemmt` reads `B` only
+  (`blas3/driver.zig`).
+- **Issue text:** "The complex `?omatcopy`/`?imatcopy` kernels multiply by
+  `alpha` even when it is `(1, 0)`, so an infinite real or imaginary part
+  turns the other into NaN (`0 * Inf`). `zimatcopy`'s default path copies
+  back through `OMATCOPY_K_CN` at `(1, 0)`, so it differs from `zomatcopy`
+  for any `alpha`, and `?gemmt` with `transb` `R` or `C` conjugates `B` in
+  place the same way, leaving NaN in the caller's `B`. A copy branch for
+  `alpha == 1`, as the real kernels have, would fix all three; `gemmt` could
+  also pass the conjugation to its `gemv` instead of writing `B`."
+
 ## BLIS
 
 ### `snrm2` and `scnrm2` keep an `f32` running sum

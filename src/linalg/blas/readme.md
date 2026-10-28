@@ -33,13 +33,13 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `tpsv`, `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `spr2`, `syr`, `syr2`, `hpr`, `hpr2`,
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s transposed
   (`HEMVREV`) triangles.
-- **Level 3:** `gemm`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`, `trsm`, real
-  and complex.
+- **Level 3:** `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`,
+  `trsm`, real and complex.
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.
+- **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
 
-Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3, `gemmt`,
-the matrix copies and `geadd` (their kernel slots exist), and threading
-([`threading.md`](threading.md)).
+Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
+`sbgemm`), and threading ([`threading.md`](threading.md)).
 
 ### Targets
 
@@ -95,6 +95,7 @@ threading to come ([`threading.md`](threading.md)); every routine is serial for 
 | 1 | `axpy(io, T, n, alpha, x, incx, y, incy)` | `Level1Error` |
 | 2 | `gemv(allocator, io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)` | `Level2Error` |
 | 3 | `gemm(allocator, io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)` | `Level3Error` |
+| extensions | `omatcopy(io, T, trans, rows, cols, alpha, a, lda, b, ldb)` | `ExtError` |
 
 Transposes, triangles, diagonals and sides are the letter enums `blas.Trans`, `Uplo`, `Diag` and
 `Side`, shared by every level.
@@ -115,7 +116,8 @@ Bad arguments return an error named after the reference's `xerbla` argument (`In
 argument wins. A vector or matrix too large for the address space returns its stride's or
 leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every
 routine that takes `io` may return `error.Canceled` once it threads. Nothing panics on bad
-input.
+input. `laswp` has no `xerbla` checks upstream; rstd checks that its rows and pivots lie in `A`
+before it swaps.
 
 ### Initialization
 
@@ -132,6 +134,10 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   `alpha` never reads the other operands, and `scal` with a zero `alpha` turns NaN and
   infinities into NaN. `dsdot` accumulates in `f64`; `rotg` computes in `XDouble`; `zrotg`
   follows LAPACK's `zlartg`.
+- **Matrix copies.** `omatcopy` and `imatcopy` store zeros for a zero `alpha` without reading
+  `A`, and copy its bits for `alpha` 1, complex too, where upstream's complex kernels multiply
+  and turn an infinite part's partner into NaN; in place or through a buffer, `imatcopy` gives
+  `omatcopy`'s bits. `geadd`'s zero `alpha` and `beta` read nothing, as `axpby`'s.
 - **Zero strides.** Level 1 keeps the reference's sequential meaning: a zero input stride repeats
   `x(1)`, a zero output stride applies `n` updates to one element in turn. `axpy` with both
   strides zero is OpenBLAS's closed form, `y(1) += n*alpha*x(1)`. Level 2 rejects
