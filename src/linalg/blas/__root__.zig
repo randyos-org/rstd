@@ -71,6 +71,7 @@ pub const bf16to = l1.bf16to;
 pub const rotg = l1.rotg;
 pub const zrotg = l1.zrotg;
 pub const rotmg = l1.rotmg;
+pub const cabs1 = l1.cabs1;
 
 pub const gemv = l2.gemv;
 pub const gemvHalf = l2.gemvHalf;

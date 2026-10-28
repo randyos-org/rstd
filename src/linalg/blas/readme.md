@@ -28,7 +28,7 @@ How the code is structured, and why, is in [`design.md`](design.md).
 
 - **Level 1:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `sum`,
   the index and value extremes (`i?amax`, `i?amin`, `i?max`, `i?min`, `?amax`, `?amin`, `?max`,
-  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`.
+  `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`.
 - **Level 2:** `gemv`, `ger`, `gerc`, `symv`, `hemv`, `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`,
   `tpsv`, `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `spr2`, `syr`, `syr2`, `hpr`, `hpr2`,
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s transposed
@@ -88,7 +88,7 @@ dimensions are `isize`; a negative stride names the vector's last element first,
 reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
 or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` is for the
 threading to come ([`threading.md`](threading.md)); every routine is serial for now. `rotg`,
-`zrotg` and `rotmg` work on scalars only and take neither.
+`zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
 | Level | Shape | Errors |
 | --- | --- | --- |

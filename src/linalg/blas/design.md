@@ -103,7 +103,7 @@ The routines are Zig functions over column-major data, in the Fortran argument o
 
 | Level | File | Routines |
 | --- | --- | --- |
-| 1 | `blas1/interface.zig` | `copy`, `swap`, `scal`, `scalReal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `sum`, `index`, `extreme`, `rot`, `rotm`, `axpy`, `axpyc`, `axpby`, `rotg`, `zrotg`, `rotmg`, `sbdot`, `bscal`, `sbtobf16`, `bf16to` |
+| 1 | `blas1/interface.zig` | `copy`, `swap`, `scal`, `scalReal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `sum`, `index`, `extreme`, `rot`, `rotm`, `axpy`, `axpyc`, `axpby`, `rotg`, `zrotg`, `rotmg`, `cabs1`, `sbdot`, `bscal`, `sbtobf16`, `bf16to` |
 | 2 | `blas2/interface.zig` | `gemv`, `gemvHalf`, `ger`, `gerc`, `symv`, `hemv` |
 | 2 | `blas2/triangular.zig` | `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv` |
 | 2 | `blas2/banded.zig` | `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `syr`, `hpr`, `her`, `spr2`, `syr2`, `hpr2`, `her2` |
@@ -142,7 +142,8 @@ Conventions shared by every interface:
 - **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
   an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies. `io` is
   unused until the routines thread. `rotg`, `zrotg` and `rotmg` compute from scalars, never
-  thread, and take `(T, ...)` and return `void`.
+  thread, and take `(T, ...)` and return `void`; `cabs1` takes `(T, z)` and returns
+  `|re| + |im|`.
 
 `__root__.zig` re-exports every routine flat (`blas.dot`, `blas.gemv`, `blas.gemm`), with the
 argument enums and error sets, beside the setup and dispatch API: `init`, `shutdown`, `vtable`,

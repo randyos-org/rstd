@@ -633,6 +633,16 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
     param[0] = flag;
 }
 
+// ---- complex magnitude -------------------------------------------------------
+
+/// `SCABS1`/`DCABS1` (`kernel/generic/cabs.c`; `cabs.S` on x86, x86_64,
+/// POWER and SPARC): `|re| + |im|`, the key the complex extremes compare,
+/// not the modulus. Any complex type; infinite where the sum overflows.
+pub fn cabs1(comptime T: type, z: T) Float(T) {
+    if (comptime !isComplex(T)) @compileError("cabs1: " ++ @typeName(T) ++ " is not complex");
+    return @abs(z.re) + @abs(z.im);
+}
+
 // ---- tests -------------------------------------------------------------------
 
 const check = @import("../_test/blas1/check.zig");
@@ -1247,6 +1257,30 @@ test "interface: bscal skips alpha 1 and a non-positive stride, and scales the r
     try bscal(check.io, 3, b16(0), &x, 1);
     try std.testing.expectEqual(@as(f32, 0), bf.fromBf16(x[0]));
     try std.testing.expect(std.math.isNan(bf.fromBf16(x[2])));
+}
+
+test "interface: cabs1 is |re| + |im|, overflowing to infinity" {
+    inline for (.{ std.math.Complex(f16), Complex32, Complex64 } ++ check.x_complex) |C| {
+        const F = Float(C);
+        const inf = std.math.inf(F);
+        const max = std.math.floatMax(F);
+        const tiny = std.math.floatTrueMin(F);
+        const cases = [_][3]F{
+            .{ 3, -4, 7 },
+            .{ -0.5, 0.25, 0.75 },
+            .{ -0.0, -0.0, 0 },
+            .{ tiny, -tiny, 2 * tiny },
+            .{ max, max, inf },
+            .{ -inf, 1, inf },
+        };
+        for (cases) |k| {
+            const got = cabs1(C, .init(k[0], k[1]));
+            try std.testing.expectEqual(k[2], got);
+            try std.testing.expect(!std.math.signbit(got));
+        }
+        try std.testing.expect(std.math.isNan(cabs1(C, .init(1, std.math.nan(F)))));
+        try std.testing.expect(std.math.isNan(cabs1(C, .init(inf, -std.math.nan(F)))));
+    }
 }
 
 test "interface: rotg handles scaled and special inputs" {
