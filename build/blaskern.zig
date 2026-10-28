@@ -158,8 +158,10 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     // LLVM CPU names are wrong (issues.md).
     if (!target.cpu.arch.isX86())
         check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
-    // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm fails
-    if (target.os.tag == .freestanding) check.addArg("-fno-PIC");
+    // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm
+    // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC
+    if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding))
+        check.addArg("-fno-PIC");
     check.setName(b.fmt("check inline asm of {s}", .{comp.name}));
     check.addFileArg(comp.getEmittedLlvmBc());
     check.addArg("-o");
@@ -168,12 +170,18 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
 }
 
 /// The objects' PIC where it must match the image's: MIPS marks PIC code
-/// abicalls, and `ld.lld` warns when it meets the rest; a freestanding
-/// executable is not PIC, an object is by default. Elsewhere Zig's default,
-/// which links into anything.
+/// abicalls, and `ld.lld` warns when it meets the rest. An object is PIC by
+/// default, an executable only where it links dynamically (glibc); a shared
+/// library sets `pic` on its module. Elsewhere Zig's default, which links
+/// into anything.
 fn objectPic(mod: *Module, target: ResolvedTarget) ?bool {
-    if (!target.result.cpu.arch.isMips()) return null;
-    return mod.pic orelse if (target.result.os.tag == .freestanding) false else null;
+    const t = &target.result;
+    if (!t.cpu.arch.isMips()) return null;
+    return mod.pic orelse switch (t.os.tag) {
+        .freestanding => false,
+        .linux => mod.link_libc == true and t.isGnuLibC(),
+        else => null,
+    };
 }
 
 /// Tells `asm_registry.install` which cores' objects are linked.
