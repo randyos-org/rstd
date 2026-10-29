@@ -639,6 +639,29 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
 - **Accelerate**: none of these is routed; Accelerate's CBLAS has no column-major equivalent of
   them (its `appleblas_?geadd` takes three matrices).
 
+### LAPACK
+
+`src/linalg/lapack/` (`rstd.linalg.lapack`) holds LAPACK routines over this BLAS, with its
+conventions: `(allocator, io, T, ...)`, column-major, the letter enums, `xerbla`-named argument
+errors in the reference's order. OpenBLAS's own LAPACK (`lapack/`, `interface/lapack/`) is the
+source where it has a routine; Reference-LAPACK's (`lapack-netlib/SRC/`) where it has none, and
+for the semantics. Where they differ, the reference wins, and the file says so.
+
+- **`potrf`** (`cholesky.zig`): `potrf_U_single.c` and `potrf_L_single.c`, the recursive
+  blocked factor: blocks of `GEMM_Q` columns, or a quarter of `n` up to `4 * GEMM_Q`, each
+  factored recursively, then `trsm` on its panel and `herk` (`syrk`) on the rest through the
+  level-3 drivers, which upstream fuses per column block. Up to `dtb_entries / 2` columns it is
+  `potf2_[UL].c` and `zpotf2_[UL].c` as plain loops. Two departures, both the reference's
+  `xPOTRF2`: a NaN pivot fails, where upstream's `ajj <= 0` passes it and reports success; and
+  the base case divides by the pivot, as `trsm` does, where upstream multiplies by its
+  reciprocal. The drivers are called directly, so Accelerate never runs them.
+- **Not positive definite** (proposed, not settled): `potrf` returns
+  `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
+  an optional `minor: ?*usize`, its last argument, as Zig's diagnostics arguments do; `A` then
+  holds the factor's first `k - 1` columns and the failed pivot at `A(k, k)`, as both upstreams
+  leave it. The alternative, returning `INFO` as a value, lets a caller use an unfinished factor
+  by forgetting a check; an error cannot carry the order itself.
+
 ### Apple Accelerate
 
 On macOS the public routines over `s`, `d`, `c` and `z` go to Accelerate where it has the
@@ -1037,6 +1060,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
@@ -1158,6 +1182,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Bit-exact models | `blas1/dot/__root__.zig`, `blas1/asum/__root__.zig`, `blas1/nrm2/__root__.zig`, `blas2/gemv/__root__.zig` | the Zig kernels that replace converted or C code give its bits (the x87 sums, `skylakexModel`, the half-precision `gemv`) |
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
+| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |
