@@ -158,7 +158,8 @@ What threads, as landed:
   tail path one call gives it. A zero stride runs serially, as OpenBLAS's do.
 - **Reductions:** the dots (`dsdot` too), `asum` and `sum` at `f32` and `f64`, real and complex.
   Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, so it keeps
-  its contract (products and sum in `f64`, rounded once). Wider types do not thread their sums:
+  its contract (products and sum in `f64`, rounded once). On the x87 each step of the fold is
+  rounded to its float, so no partial keeps a register's width. Wider types do not thread their sums:
   they give the bits of OpenBLAS's x87 kernels (`readme.md`), which no fold keeps.
 - **Extremes:** values and indices, every type, folded exactly: the first NaN, else the first
   extreme, as one kernel call finds them. Where a complex key overflows, each chunk's kernel has
