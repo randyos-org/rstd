@@ -440,7 +440,8 @@ pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, 
 /// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the
 /// symmetric (`herm`: Hermitian) matrix whose `upper` or lower triangle `a`
 /// holds; `symm_k.c` and `zhemm_k.c` over `level3.c`. `m`, `n` positive.
-pub fn symm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, left: bool, upper: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+/// Up to `want` workers run it.
+pub fn symm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, left: bool, upper: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     if (isZero(T, alpha)) {
         if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
         return;
@@ -450,7 +451,7 @@ pub fn symm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, c
     const t: Pack = if (upper) .upper else .lower;
     // `hemm`'s right side packs `S^T`: the kernel conjugates it (`NC`)
     const d: Desc = if (left) .{ .rows = t, .cols = .n, .herm = herm } else .{ .rows = .n, .cols = t, .herm = herm, .conj = if (herm) .r else .n };
-    try run(allocator, io, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, unlessOne(T, beta), c, ldc, 1);
+    try run(allocator, io, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, unlessOne(T, beta), c, ldc, want);
 }
 
 /// `C := beta*C` on rows `[ib, ie)` and columns `[jb, je)` of `C`, the part
@@ -487,8 +488,9 @@ pub fn unlessOne(comptime T: type, beta: T) ?T {
 /// complex with zero imaginary parts). `trans` takes `op(A) = A'`. With `b`,
 /// `syr2k`: `alpha*op(A)*op(B)' + alpha2*op(B)*op(A)' + beta*C`, `alpha2`
 /// being `alpha` (or its conjugate for `herm`). `level3_syrk.c` and
-/// `level3_syr2k.c`, over `syrk_k.c`'s triangle. `n` positive.
-pub fn syrk(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, upper: bool, trans: bool, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: ?[*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+/// `level3_syr2k.c`, over `syrk_k.c`'s triangle. `n` positive. Up to `want`
+/// workers run it.
+pub fn syrk(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, upper: bool, trans: bool, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: ?[*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     const region: Region = if (upper) .upper else .lower;
     if (k == 0 or isZero(T, alpha)) {
         if (!isOne(T, beta)) scaleBlock(T, vt, region, herm, 0, n, 0, n, beta, c, ldc);
@@ -504,7 +506,7 @@ pub fn syrk(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, c
         .conj = if (herm) (if (trans) .l else .r) else .n,
         .region = region,
         .real_diag = herm,
-    }, n, n, k, alpha, x, y, alpha2, unlessOne(T, beta), c, ldc, 1);
+    }, n, n, k, alpha, x, y, alpha2, unlessOne(T, beta), c, ldc, want);
 }
 
 // ---- trmm and trsm -------------------------------------------------------------
@@ -1112,13 +1114,13 @@ fn callWith(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T,
     const c = o.c.ptr;
     switch (r) {
         .gemm => try gemm(al, check1.io, T, vt, opt[0], opt[1], if (opt[2] and isComplex(T)) .b else .n, m, n, k, alpha, a, ld, b, ld, s, c, ld, 1),
-        .symm => try symm(al, check1.io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld),
-        .syrk => try syrk(al, check1.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld),
-        .syr2k => try syrk(al, check1.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld),
+        .symm => try symm(al, check1.io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld, 1),
+        .syrk => try syrk(al, check1.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
+        .syr2k => try syrk(al, check1.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
         .hemm, .herk, .her2k => if (comptime isComplex(T)) switch (r) {
-            .hemm => try symm(al, check1.io, T, vt, true, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld),
-            .herk => try syrk(al, check1.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld),
-            else => try syrk(al, check1.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld),
+            .hemm => try symm(al, check1.io, T, vt, true, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld, 1),
+            .herk => try syrk(al, check1.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
+            else => try syrk(al, check1.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
         } else unreachable,
         .trmm => try trmm(al, check1.io, T, vt, opt[0], opt[1], opt[2], false, false, m, n, s, a, ld, c, ld),
         .trsm => try trsm(al, check1.io, T, vt, opt[0], opt[1], opt[2], isComplex(T), false, m, n, s, a, ld, c, ld),

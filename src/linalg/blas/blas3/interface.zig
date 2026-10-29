@@ -9,8 +9,9 @@
 //! order the reference numbers them for `xerbla`, so the first bad one wins.
 //! Leading dimensions are checked against `max(1, rows)`, as the reference
 //! BLAS does (OpenBLAS lets `0` through for empty matrices). Packing space
-//! comes from `allocator`; small problems use the stack. `gemm` threads on
-//! `io` above its threshold (`threading.md`); the others are serial.
+//! comes from `allocator`; small problems use the stack. `gemm`, `symm`,
+//! `hemm` and the rank-k updates thread on `io` above their thresholds
+//! (`threading.md`); `gemmt` is serial, as upstream.
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
@@ -146,7 +147,9 @@ fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
     if (accel.symm(T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
-    try driver.symm(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    // `symm.c` counts `2 * m * m * n` on either side
+    const w = threaded.workers(.symm, T, threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) }));
+    try driver.symm(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
 /// `?SYRK` (`interface/syrk.c`): `C := alpha*op(A)*op(A)^T + beta*C` on the
@@ -206,7 +209,11 @@ fn rankImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (b != null and !util.fitsMatrix(rows, cols, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(n, n, ldc, @sizeOf(T))) return error.InvalidLdc;
     if (accel.syrk(T, herm, uplo, t, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
-    try driver.syrk(allocator, io, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    const w = if (b == null)
+        threaded.workers(.syrk, T, threading.product(&.{ @intCast(n + 1), @intCast(n), @intCast(k) }))
+    else
+        threaded.workers(.syr2k, T, threading.product(&.{ @intCast(n), @intCast(k) }));
+    try driver.syrk(allocator, io, T, table(T), herm, uplo == .u, t, @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
 /// `?TRMM` (`interface/trsm.c` as `TRMM`): `B := alpha*op(A)*B` (`side`

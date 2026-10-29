@@ -46,8 +46,10 @@ pub const Family = enum {
     trmv,
     /// `gemm`: `m * n * k`.
     gemm,
-    /// `syrk`: `(n + 1) * n * k`.
+    /// `syrk`, `herk`: `(n + 1) * n * k`.
     syrk,
+    /// `syr2k`, `her2k`: `n * k`.
+    syr2k,
     /// `symm`: `2 * m * m * n`.
     symm,
     /// `trsm`: `m * n`.
@@ -109,6 +111,8 @@ pub fn rule(comptime family: Family, comptime T: type, core: []const u8) Rule {
         .symv => if (complex) .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} } else .{ .serial_max = 199 },
         .gemm => (if (complex) null else gemmCore(F, core)) orelse .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt, .per_unit = true },
         .syrk => .{ .serial_max = @as(u64, if (complex) 14824 else 109944) * mt },
+        // `syr2k.c`: `n * k < 1000`
+        .syr2k => .{ .serial_max = 999 },
         .symm => .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt },
         .trsm => .{ .serial_max = @as(u64, if (complex) 128 else 256) * mt - 1 },
     };
@@ -559,6 +563,8 @@ test "rules: thresholds at their edges, tiers and the chunk cap" {
     try zigstd.testExpectEqual(@as(u32, 1), rule(.trsm, f64, "haswell").sizeMax(1023));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.syrk, f64, "haswell").sizeMax(product(&.{ 101, 100, 43 })));
     try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syrk, f64, "haswell").sizeMax(product(&.{ 101, 100, 44 })));
+    try zigstd.testExpectEqual(@as(u32, 1), rule(.syr2k, f64, "haswell").sizeMax(999));
+    try zigstd.testExpectEqual(@as(u32, std.math.maxInt(u32)), rule(.syr2k, std.math.Complex(f32), "haswell").sizeMax(1000));
 }
 
 test "rules: OpenBLAS's per-core overrides apply to their core and precision only" {

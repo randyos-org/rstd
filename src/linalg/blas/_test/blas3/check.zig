@@ -490,12 +490,12 @@ pub fn Driver(comptime r: Routine) type {
             switch (r) {
                 .gemm => try driver.gemm(al, io, T, vt, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.m, case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1),
                 .gemmt => try driver.gemmt(al, io, T, vt, case.upper, case.ta.transposed(), case.tb.transposed(), .of(case.ta.conjugated(), case.tb.conjugated()), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-                .symm => try driver.symm(al, io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc),
-                .hemm => if (herm) try driver.symm(al, io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
-                .syrk => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc),
-                .syr2k => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc),
-                .herk => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc) else unreachable,
-                .her2k => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc) else unreachable,
+                .symm => try driver.symm(al, io, T, vt, false, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, 1),
+                .hemm => if (herm) try driver.symm(al, io, T, vt, true, case.left, case.upper, case.m, case.n, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
+                .syrk => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, 1),
+                .syr2k => try driver.syrk(al, io, T, vt, false, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1),
+                .herk => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, 1) else unreachable,
+                .her2k => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
                 .trmm, .trsm => if (@hasDecl(driver, "trmm")) {
                     const args = .{ al, io, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc };
                     if (r == .trmm) try @call(.auto, driver.trmm, args) else try @call(.auto, driver.trsm, args);

@@ -3,7 +3,7 @@
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
 without threads. Plan steps 1 and 2 are implemented (`threading.zig`, `blas3/threaded.zig`):
-`gemm` threads, the other routines do not yet. Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
+`gemm`, `symm`, `hemm` and the rank-k updates thread, the other routines do not yet. Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
 `lib/std` at 0.18.0-dev.751, BLIS references to its tag 2.1. The library's overall structure is in [`design.md`](design.md);
 how this rule compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
@@ -186,8 +186,14 @@ routine makes one kernel call, as in a single-threaded build, which gives the sa
   slices (`Blocking.split`) do not depend on the split, so results match the serial path bit
   for bit.
 
-`trsm`, `syrk` and `symm` use the same mechanisms, splitting as `gemm_thread_n`/
-`gemm_thread_m` and the triangle-balanced variants do.
+`symm` and `hemm` run the same loops, their symmetric operand packed whole as in the serial
+driver. The rank-k updates (`syrk`, `herk`, `syr2k`, `her2k`) keep one triangle of `C`, so
+their `jc` groups are balanced by cost (`Shape.rising`, `falling`), as OpenBLAS's
+`syrk_thread` balances its ranges. Tiles across the diagonal go through a scratch tile and
+are added, which rounds differently from the kernel's own update, so a triangle's column cuts
+fall where the serial driver's chunks start, and its rows follow the serial column block
+(`drive`'s `r_lo`, `r_hi`); a full region's columns may split anywhere. `syr2k` runs its
+second pass over the same split. `gemmt` stays serial, as upstream (`interface/gemmt.c`).
 
 ### Thresholds
 
@@ -195,7 +201,8 @@ routine makes one kernel call, as in a single-threaded build, which gives the sa
 | --- | --- | --- |
 | real `gemm` | `MNK > 65536 * 4`; `t = min(ncpu, MNK / 262144)` | `ic x jc` ways, shared packed `B` |
 | complex `gemm` | `MNK > 8192 * 4` | same |
-| `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced grid |
+| `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
+| `syr2k` | `n * k >= 1000` | triangle-balanced ways |
 | `trsm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
 | `gemv` | `m * n >= 115200 * 4` | N: row chunks; T: column chunks |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
@@ -388,7 +395,7 @@ protocol.
    public interface's threshold.
 3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.
 4. **Level 2:** `gemv`, `ger`, then `symv`/`trmv`.
-5. **Remaining level 3:** `symm`, `hemm`, `gemmt` and the rank-k updates over the same
+5. **Remaining level 3:** `symm`, `hemm` and the rank-k updates (done) over the same
    driver; `trmm` and `trsm` by panels of `B`.
 
 ## Open issues

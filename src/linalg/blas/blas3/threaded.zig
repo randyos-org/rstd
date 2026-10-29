@@ -35,8 +35,7 @@ pub fn workers(comptime family: threading.Family, comptime T: type, work: u64) u
 
 /// `driver.run`'s loops on up to `want` workers.
 pub fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
-    std.debug.assert(d.region == .full and twice == null);
-    return Team(T, true).run(allocator, io, vt, d, m, n, k, alpha, x, y, beta, c, ldc, @min(want, threading.chunks_max));
+    return Team(T, true).run(allocator, io, vt, d, m, n, k, alpha, x, y, twice, beta, c, ldc, @min(want, threading.chunks_max));
 }
 
 fn ceilDiv(a: usize, b: usize) usize {
@@ -86,6 +85,8 @@ fn Team(comptime T: type, comptime fused: bool) type {
         alpha: T,
         x: Matrix(T),
         y: Matrix(T),
+        /// `syr2k`'s second pass: its `alpha`, the operands swapped.
+        twice: ?T,
         beta: ?T,
         c: [*]T,
         ldc: usize,
@@ -97,17 +98,79 @@ fn Team(comptime T: type, comptime fused: bool) type {
         barriers: []threading.Barrier,
         ic: usize = 1,
         jc: usize = 1,
-        rows: Chunks = undefined,
         cols: Chunks = undefined,
         /// Columns of a group's slice of `B`.
         nc: usize = 0,
 
-        fn run(allocator: Allocator, io: Io, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
+        /// The groups' columns for `jc` groups; a triangle's balanced by cost
+        /// and cut where the serial driver's chunks start (`snap`).
+        fn groups(d: Desc, blk: Blocking, n: usize, jc: usize) Chunks {
+            const cost: threading.Shape = switch (d.region) {
+                .full => .even,
+                .upper => .rising,
+                .lower => .falling,
+            };
+            const c: Chunks = .init(n, jc, cost, blk.un);
+            if (d.region == .full) return c;
+            var out: Chunks = .{ .count = 0, .bounds = undefined };
+            out.bounds[0] = 0;
+            for (c.bounds[1 .. c.count + 1]) |b| {
+                const s = snap(blk, n, b);
+                if (s > out.bounds[out.count]) {
+                    out.count += 1;
+                    out.bounds[out.count] = s;
+                }
+            }
+            return out;
+        }
+
+        /// The start of the serial driver's chunk at or before column `x`:
+        /// `drive` steps `chunk` from each `R` block's start. A tile across a
+        /// triangle's diagonal goes through `tmp`, so a triangle's tiles must
+        /// be the serial ones; a full region's columns may split anywhere.
+        fn snap(blk: Blocking, n: usize, x: usize) usize {
+            const js = x / blk.r * blk.r;
+            if (x == @min(js + blk.r, n)) return x;
+            return js + (x - js) / (3 * blk.un) * (3 * blk.un);
+        }
+
+        /// The end of the slice from `j0` in a group ending at `end`.
+        fn sliceEnd(j: *const Self, j0: usize, end: usize) usize {
+            if (j.d.region == .full) return @min(j0 + j.nc, end);
+            const be = blockEnd(j.blk, j.n, j0);
+            const e = snap(j.blk, j.n, @min(j0 + j.nc, end, be));
+            return if (e > j0) e else j0 + j.blk.chunk(be - j0);
+        }
+
+        /// The end of the serial driver's column block holding `jj`.
+        fn blockEnd(blk: Blocking, n: usize, jj: usize) usize {
+            return @min(jj / blk.r * blk.r + blk.r, n);
+        }
+
+        /// The chunk at `jj` of the slice ending at `j1`: the serial one for a
+        /// triangle.
+        fn step(j: *const Self, jj: usize, j1: usize) usize {
+            return j.blk.chunk(if (j.d.region == .full) j1 - jj else blockEnd(j.blk, j.n, jj) - jj);
+        }
+
+        /// Columns of a group's slice of `B` for `jc` groups.
+        fn sliceCols(d: Desc, blk: Blocking, n: usize, jc: usize) usize {
+            const g = groups(d, blk, n, jc);
+            var widest: usize = 0;
+            for (0..g.count) |i| widest = @max(widest, g.get(i).end - g.get(i).start);
+            return @min(blk.r, widest);
+        }
+
+        fn depth(blk: Blocking, k: usize) usize {
+            return @min(k, blk.q + blk.um);
+        }
+
+        fn run(allocator: Allocator, io: Io, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
             const blk: Blocking = .of(T, vt);
-            const depth = @min(k, blk.q + blk.um);
-            const sa_len = W.up(@min(m, blk.p) * depth) + W.up(if (d.region != .full) blk.um * blk.un else 0);
-            // `plan` gives `jc` groups at most `min(r, n / jc + un + 1)` columns each
-            const sb_len = depth * @min(want * blk.r, n + want * (blk.un + 1)) + want * W.up(1);
+            const sa_len = W.up(@min(m, blk.p) * depth(blk, k)) + W.up(if (d.region != .full) blk.um * blk.un else 0);
+            // the most that any number of groups `plan` may pick takes
+            var sb_len: usize = 0;
+            for (1..want + 1) |jc| sb_len = @max(sb_len, jc * W.up(sliceCols(d, blk, n, jc) * depth(blk, k)));
             const buf = try allocator.alignedAlloc(T, .fromByteUnits(W.alignment), want * sa_len + sb_len);
             defer allocator.free(buf);
             const barriers = try allocator.alloc(threading.Barrier, want);
@@ -122,6 +185,7 @@ fn Team(comptime T: type, comptime fused: bool) type {
                 .alpha = alpha,
                 .x = x,
                 .y = y,
+                .twice = twice,
                 .beta = beta,
                 .c = c,
                 .ldc = ldc,
@@ -138,20 +202,34 @@ fn Team(comptime T: type, comptime fused: bool) type {
             const w = ways(j.m, j.n, started, blk.um, blk.un);
             j.ic = w[0];
             j.jc = w[1];
-            j.rows = .init(j.m, j.ic, .even, blk.um);
-            j.cols = .init(j.n, j.jc, .even, blk.un);
-            var widest: usize = 0;
-            for (0..j.cols.count) |i| widest = @max(widest, j.cols.get(i).end - j.cols.get(i).start);
-            j.nc = @min(blk.r, widest);
-            j.sb_len = W.up(j.nc * @min(j.k, blk.q + blk.um));
+            j.cols = groups(j.d, blk, j.n, j.jc);
+            j.nc = sliceCols(j.d, blk, j.n, j.jc);
+            j.sb_len = W.up(j.nc * depth(blk, j.k));
             for (j.barriers[0..j.jc]) |*b| b.* = .{ .parties = @intCast(j.ic) };
             return @intCast(j.ic * j.jc);
         }
 
+        /// Worker `r`'s rows for columns `[j0, j1)` of the serial driver's
+        /// column block at `js`: the rows `drive` gives that block, less the
+        /// row panels the columns' triangle misses, split on those panels.
+        fn rowsOf(j: *const Self, r: usize, js: usize, j0: usize, j1: usize) threading.Chunk {
+            const um = j.blk.um;
+            var lo: usize = 0;
+            var hi = j.m;
+            switch (j.d.region) {
+                .full => {},
+                .lower => lo = js + (j0 - js) / um * um,
+                .upper => hi = @min(j.m, js + j.blk.r, (j1 + um - 1) / um * um),
+            }
+            const parts: Chunks = .init(hi - lo, j.ic, .even, um);
+            const p = part(&parts, r, hi - lo);
+            return .{ .index = r, .start = lo + p.start, .end = lo + p.end };
+        }
+
         /// The kernel on rows `[is, is + mi)` packed at `sa` and chunk `[jj,
         /// jj + w)` of the slice at `j0` packed at `sb`; `s` scales `C` first.
-        fn tile(j: *const Self, min_l: usize, s: ?T, is: usize, mi: usize, jj: usize, w: usize, j0: usize, sa: [*]T, sb: [*]T, tmp: [*]T) void {
-            driver.block(T, j.vt, j.d, j.blk, is, mi, jj, w, min_l, j.alpha, s, sa, sb + min_l * (jj - j0), j.c, j.ldc, tmp);
+        fn tile(j: *const Self, alpha: T, min_l: usize, s: ?T, is: usize, mi: usize, jj: usize, w: usize, j0: usize, sa: [*]T, sb: [*]T, tmp: [*]T) void {
+            driver.block(T, j.vt, j.d, j.blk, is, mi, jj, w, min_l, alpha, s, sa, sb + min_l * (jj - j0), j.c, j.ldc, tmp);
         }
 
         pub fn work(j: *Self, io: Io, index: u32) Io.Cancelable!void {
@@ -159,64 +237,73 @@ fn Team(comptime T: type, comptime fused: bool) type {
             const r = index % j.ic;
             const g = index / j.ic;
             const cols = part(&j.cols, g, j.n);
-            const rows = part(&j.rows, r, j.m);
             const sa = j.sa + index * j.sa_len;
-            const tmp = sa + W.up(@min(j.m, blk.p) * @min(j.k, blk.q + blk.um));
+            const tmp = sa + W.up(@min(j.m, blk.p) * depth(blk, j.k));
             const sb = j.sb + g * j.sb_len;
             const bar = &j.barriers[g];
             var first = true;
-            var j0 = cols.start;
-            while (j0 < cols.end) : (j0 += j.nc) {
-                const j1 = @min(j0 + j.nc, cols.end);
-                var chunks: usize = 0;
-                var jj = j0;
-                while (jj < j1) : (chunks += 1) jj += blk.chunk(j1 - jj);
-                // this worker's chunks of the slice
-                const c0 = chunks * r / j.ic;
-                const c1 = chunks * (r + 1) / j.ic;
-                var ls: usize = 0;
-                var min_l: usize = 0;
-                while (ls < j.k) : (ls += min_l) {
-                    min_l = Blocking.split(j.k - ls, blk.q, blk.um);
-                    const s = if (ls == 0) j.beta else null;
-                    try threading.checkCancel(io);
-                    // the buffer is free once every peer is done with the last slice
-                    if (!first) try bar.wait(io);
-                    first = false;
-                    var min_i: usize = if (fused and rows.end > rows.start) Blocking.split(rows.end - rows.start, blk.p, blk.um) else 0;
-                    if (min_i > 0) driver.packRows(T, j.vt, j.d, j.x, min_l, min_i, ls, rows.start, sa);
-                    jj = j0;
-                    var i: usize = 0;
-                    while (jj < j1) : (i += 1) {
-                        const w = blk.chunk(j1 - jj);
-                        if (i >= c0 and i < c1) {
-                            driver.packCols(T, j.vt, j.d, j.y, min_l, w, ls, jj, sb + min_l * (jj - j0));
-                            if (min_i > 0) j.tile(min_l, s, rows.start, min_i, jj, w, j0, sa, sb, tmp);
-                        }
-                        jj += w;
-                    }
-                    // the slice is whole
-                    try bar.wait(io);
-                    var is = rows.start;
-                    if (min_i > 0) {
-                        // the first row block's other chunks
+            for (0..@as(usize, if (j.twice == null) 1 else 2)) |pass| {
+                const x = if (pass == 0) j.x else j.y;
+                const y = if (pass == 0) j.y else j.x;
+                const alpha = if (pass == 0) j.alpha else j.twice.?;
+                const beta = if (pass == 0) j.beta else null;
+                var j0 = cols.start;
+                while (j0 < cols.end) {
+                    // a triangle's rows follow the serial column block
+                    const js = j0 / blk.r * blk.r;
+                    const j1 = j.sliceEnd(j0, cols.end);
+                    defer j0 = j1;
+                    const rows = j.rowsOf(r, js, j0, j1);
+                    var chunks: usize = 0;
+                    var jj = j0;
+                    while (jj < j1) : (chunks += 1) jj += j.step(jj, j1);
+                    // this worker's chunks of the slice
+                    const c0 = chunks * r / j.ic;
+                    const c1 = chunks * (r + 1) / j.ic;
+                    var ls: usize = 0;
+                    var min_l: usize = 0;
+                    while (ls < j.k) : (ls += min_l) {
+                        min_l = Blocking.split(j.k - ls, blk.q, blk.um);
+                        const s = if (ls == 0) beta else null;
+                        try threading.checkCancel(io);
+                        // the buffer is free once every peer is done with the last slice
+                        if (!first) try bar.wait(io);
+                        first = false;
+                        var min_i: usize = if (fused and rows.end > rows.start) Blocking.split(rows.end - rows.start, blk.p, blk.um) else 0;
+                        if (min_i > 0) driver.packRows(T, j.vt, j.d, x, min_l, min_i, ls, rows.start, sa);
                         jj = j0;
-                        i = 0;
+                        var i: usize = 0;
                         while (jj < j1) : (i += 1) {
-                            const w = blk.chunk(j1 - jj);
-                            if (i < c0 or i >= c1) j.tile(min_l, s, rows.start, min_i, jj, w, j0, sa, sb, tmp);
+                            const w = j.step(jj, j1);
+                            if (i >= c0 and i < c1) {
+                                driver.packCols(T, j.vt, j.d, y, min_l, w, ls, jj, sb + min_l * (jj - j0));
+                                if (min_i > 0) j.tile(alpha, min_l, s, rows.start, min_i, jj, w, j0, sa, sb, tmp);
+                            }
                             jj += w;
                         }
-                        is += min_i;
-                    }
-                    while (is < rows.end) : (is += min_i) {
-                        min_i = Blocking.split(rows.end - is, blk.p, blk.um);
-                        driver.packRows(T, j.vt, j.d, j.x, min_l, min_i, ls, is, sa);
-                        jj = j0;
-                        while (jj < j1) {
-                            const w = blk.chunk(j1 - jj);
-                            j.tile(min_l, s, is, min_i, jj, w, j0, sa, sb, tmp);
-                            jj += w;
+                        // the slice is whole
+                        try bar.wait(io);
+                        var is = rows.start;
+                        if (min_i > 0) {
+                            // the first row block's other chunks
+                            jj = j0;
+                            i = 0;
+                            while (jj < j1) : (i += 1) {
+                                const w = j.step(jj, j1);
+                                if (i < c0 or i >= c1) j.tile(alpha, min_l, s, rows.start, min_i, jj, w, j0, sa, sb, tmp);
+                                jj += w;
+                            }
+                            is += min_i;
+                        }
+                        while (is < rows.end) : (is += min_i) {
+                            min_i = Blocking.split(rows.end - is, blk.p, blk.um);
+                            driver.packRows(T, j.vt, j.d, x, min_l, min_i, ls, is, sa);
+                            jj = j0;
+                            while (jj < j1) {
+                                const w = j.step(jj, j1);
+                                j.tile(alpha, min_l, s, is, min_i, jj, w, j0, sa, sb, tmp);
+                                jj += w;
+                            }
                         }
                     }
                 }
@@ -369,6 +456,101 @@ test "threaded gemm matches the serial driver bit for bit at 1 to 9 workers, on 
     }
 }
 
+/// The routines over the threaded loops besides `gemm`.
+const Routine = enum { symm, hemm, syrk, herk, syr2k, her2k };
+
+/// `r` on `vt` at up to `want` workers: `C` is `m x n` (`n x n` for the rank
+/// updates), the triangle or symmetric operand `lo`, the depth `k`; `opt`
+/// is the side or `trans`, then `upper`.
+fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routine, opt: [2]bool, m: usize, n: usize, k: usize, alpha: T, beta: T, a: [*]const T, b: [*]const T, ld: usize, c: [*]T, want: u32) !void {
+    const re = if (comptime types.isComplex(T)) scalar(T, alpha.re, 0) else alpha;
+    switch (r) {
+        .symm => try driver.symm(al, io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, beta, c, ld, want),
+        .syrk => try driver.syrk(al, io, T, vt, false, opt[1], opt[0], n, k, alpha, a, ld, null, 0, beta, c, ld, want),
+        .syr2k => try driver.syrk(al, io, T, vt, false, opt[1], opt[0], n, k, alpha, a, ld, b, ld, beta, c, ld, want),
+        .hemm, .herk, .her2k => if (comptime types.isComplex(T)) switch (r) {
+            .hemm => try driver.symm(al, io, T, vt, true, opt[0], opt[1], m, n, alpha, a, ld, b, ld, beta, c, ld, want),
+            .herk => try driver.syrk(al, io, T, vt, true, opt[1], opt[0], n, k, re, a, ld, null, 0, beta, c, ld, want),
+            else => try driver.syrk(al, io, T, vt, true, opt[1], opt[0], n, k, alpha, a, ld, b, ld, beta, c, ld, want),
+        } else unreachable,
+    }
+}
+
+/// `r`'s shapes around every block, panel and triangle edge, all options,
+/// against the serial loops bit for bit at 1 to 9 workers on `io`.
+fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void {
+    const al = std.testing.allocator;
+    const blk = Blocking.of(T, vt);
+    const herm = r == .herk or r == .her2k;
+    const rank = r != .symm and r != .hemm;
+    const ns = [_]usize{ 1, blk.un + 1, 2 * blk.p + blk.um + 1, blk.r + 1, 2 * blk.r + 3 };
+    const ks = [_]usize{ 1, blk.q + 1, 2 * blk.q + 3 };
+    const ld = 2 * blk.r + 2 * blk.q + 8;
+    const a = try al.alloc(T, ld * ld);
+    defer al.free(a);
+    const b = try al.alloc(T, ld * ld);
+    defer al.free(b);
+    const c0 = try al.alloc(T, ld * ld);
+    defer al.free(c0);
+    const want = try al.alloc(T, c0.len);
+    defer al.free(want);
+    const got = try al.alloc(T, c0.len);
+    defer al.free(got);
+    fill(T, a, 11);
+    fill(T, b, 12);
+    fill(T, c0, 13);
+    var poison: guard.Poison = .{ .child = al };
+    const pa = poison.allocator();
+    const alpha = scalar(T, -0.75, 0.25);
+    const beta = if (herm) scalar(T, 0.5, 0) else scalar(T, 0.5, -0.125);
+    var x: usize = 0;
+    for ([_][2]bool{ .{ false, false }, .{ true, false }, .{ false, true }, .{ true, true } }) |opt| {
+        for (ns) |m| for (ns) |n| for (ks) |k| {
+            // the rank updates' `C` is square; `symm` has no depth
+            if ((rank and m != n) or (!rank and k != 1)) continue;
+            x += 1;
+            if (x % 2 != 0) continue;
+            @memcpy(want, c0);
+            try routine(T, vt, pa, Io.failing, r, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, want.ptr, 1);
+            for (1..10) |w| {
+                @memcpy(got, c0);
+                try routine(T, vt, pa, io, r, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, got.ptr, @intCast(w));
+                if (!sameBits(T, want, got)) {
+                    std.debug.print("{s} {t} w={d} opt={any} m={d} n={d} k={d}\n", .{ @typeName(T), r, w, opt, m, n, k });
+                    return error.TestUnexpectedResult;
+                }
+            }
+        };
+    }
+}
+
+/// The global vtable with `check.zig`'s shrunk blocking: the core's own
+/// copies and kernels, every edge at small sizes.
+fn shrunkCore(comptime T: type) Vtable {
+    var vt = blas.vtable().*;
+    const blk = Blocking.of(T, &vt);
+    const pre = comptime portable.letter(T).? ++ "gemm_";
+    @field(vt, pre ++ "p") = @intCast(2 * blk.um);
+    @field(vt, pre ++ "q") = 5;
+    @field(vt, pre ++ "r") = @intCast(6 * blk.un + 1);
+    return vt;
+}
+
+test "threaded symm, hemm and rank-k updates match the serial loops bit for bit at 1 to 9 workers" {
+    inline for (precisions) |T| {
+        const vt = shrunkCore(T);
+        for (std.enums.values(Routine)) |r| {
+            if (!types.isComplex(T) and (r == .hemm or r == .herk or r == .her2k)) continue;
+            try routineShapes(T, &vt, Io.failing, r);
+            if (comptime threading.hosted) for (limits) |limit| {
+                var threaded: Io.Threaded = .init(std.testing.allocator, .{ .async_limit = limit, .concurrent_limit = limit });
+                defer threaded.deinit();
+                try routineShapes(T, &vt, threaded.io(), r);
+            };
+        }
+    }
+}
+
 test "threaded gemm keeps the serial bits on a fiber Io, peers on one thread included" {
     if (comptime !threading.hosted or Io.Evented == void) return error.SkipZigTest;
     const Options = @typeInfo(@TypeOf(Io.Evented.init)).@"fn".params[2].type.?;
@@ -433,6 +615,46 @@ test "the public gemm threads above the threshold and keeps the serial bits" {
             try zigstd.testExpectTrue(sameBits(T, want, c));
         }
     }
+}
+
+test "the public symm, herk and syr2k thread above their thresholds and keep the serial bits" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    const saved = blas.config.cpu_count;
+    defer blas.config.cpu_count = saved;
+    blas.config.cpu_count = 5;
+    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const al = std.testing.allocator;
+    const T = types.Complex64;
+    const n = 157;
+    const k = 141;
+    const a = try al.alloc(T, n * n);
+    defer al.free(a);
+    const b = try al.alloc(T, n * n);
+    defer al.free(b);
+    const want = try al.alloc(T, n * n);
+    defer al.free(want);
+    const got = try al.alloc(T, n * n);
+    defer al.free(got);
+    fill(T, a, 21);
+    fill(T, b, 22);
+    fill(T, want, 23);
+    @memcpy(got, want);
+    const vt = blas.vtable();
+    const alpha = scalar(T, 0.5, -1);
+    try zigstd.testExpectEqual(@as(u32, 5), workers(.symm, T, 2 * n * n * n));
+    try driver.symm(al, Io.failing, T, vt, false, false, true, n, n, alpha, a.ptr, n, b.ptr, n, alpha, want.ptr, n, 1);
+    try interface.symm(al, io, T, .r, .u, n, n, alpha, a.ptr, n, b.ptr, n, alpha, got.ptr, n);
+    try zigstd.testExpectTrue(sameBits(T, want, got));
+    try zigstd.testExpectEqual(@as(u32, 5), workers(.syrk, T, (n + 1) * n * k));
+    try driver.syrk(al, Io.failing, T, vt, true, false, true, n, k, scalar(T, 0.25, 0), a.ptr, k, null, 0, scalar(T, 2, 0), want.ptr, n, 1);
+    try interface.herk(al, io, T, .l, .c, n, k, 0.25, a.ptr, k, 2, got.ptr, n);
+    try zigstd.testExpectTrue(sameBits(T, want, got));
+    try zigstd.testExpectEqual(@as(u32, 5), workers(.syr2k, T, n * k));
+    try driver.syrk(al, Io.failing, T, vt, false, true, false, n, k, alpha, a.ptr, n, b.ptr, n, alpha, want.ptr, n, 1);
+    try interface.syr2k(al, io, T, .u, .n, n, k, alpha, a.ptr, n, b.ptr, n, alpha, got.ptr, n);
+    try zigstd.testExpectTrue(sameBits(T, want, got));
 }
 
 test "ways use what they may and keep a panel per part" {
@@ -559,9 +781,9 @@ test "l3thread bench" {
             if (w == 1) {
                 try driver.gemm(fba.allocator(), io, T, vt, false, false, .n, n, n, n, 1, a.ptr, n, b.ptr, n, 0, c.ptr, n, 1);
             } else if (fused) {
-                try Team(T, true).run(fba.allocator(), io, vt, .{ .rows = .n, .cols = .n }, n, n, n, 1, .{ .p = a.ptr, .ld = n }, .{ .p = b.ptr, .ld = n }, 0, c.ptr, n, w);
+                try Team(T, true).run(fba.allocator(), io, vt, .{ .rows = .n, .cols = .n }, n, n, n, 1, .{ .p = a.ptr, .ld = n }, .{ .p = b.ptr, .ld = n }, null, 0, c.ptr, n, w);
             } else {
-                try Team(T, false).run(fba.allocator(), io, vt, .{ .rows = .n, .cols = .n }, n, n, n, 1, .{ .p = a.ptr, .ld = n }, .{ .p = b.ptr, .ld = n }, 0, c.ptr, n, w);
+                try Team(T, false).run(fba.allocator(), io, vt, .{ .rows = .n, .cols = .n }, n, n, n, 1, .{ .p = a.ptr, .ld = n }, .{ .p = b.ptr, .ld = n }, null, 0, c.ptr, n, w);
             }
             if (round > 0) times[x][round - 1] = @floatFromInt(Io.Clock.awake.now(io).toNanoseconds() - t0);
         };
