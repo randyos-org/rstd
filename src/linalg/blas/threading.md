@@ -216,8 +216,8 @@ et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS
   `bli_thrcomm_barrier_atomic` on an empty loop, OpenBLAS's `level3_thread.c` with `YIELDING`
   (eight `nop`s on x86_64, arm, POWER and riscv64; `YieldProcessor` under MSVC;
   `sched_yield` or `SwitchToThread` elsewhere). Rstd spins too, checking the word around each
-  `std.atomic.spinLoopHint` (`pause`, `isb`), but at most `spin_limit` (4096) times, about
-  90 us on Zen 3, before it sleeps on `io.futexWait`; a waker calls `futexWake` only when
+  `std.atomic.spinLoopHint` (`pause`, `isb`), but at most `spin_limit` (4096) times (how
+  long that takes is unmeasured), before it sleeps on `io.futexWait`; a waker calls `futexWake` only when
   someone sleeps (`threading.Signal`). Unbounded, a wait on a fiber `Io` (`Io.Evented` with
   peers on the waiter's thread) would never yield to the peer it waits for, and a canceled
   waiter would never reach a cancelable call. The bound outlasts the usual imbalance at a
@@ -338,7 +338,10 @@ Reproducibility:
   a chunk may start anywhere.
 - **The caller's control state.** Threads do not inherit floating-point control state (x86
   Windows starts them at 53-bit x87 precision, 0x27f, where a MinGW main thread has 64-bit,
-  0x37f). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
+  0x37f; on x86, seen during T03, no test records it; x64's convention fixes 0x27f at start,
+  Microsoft, "x64 calling convention", FPCSR, <https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention>;
+  MinGW's `crtexe.c:216` runs `_fpreset`, an `fninit`, in Zig's `lib/libc/mingw/crt`, but not on
+  an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
   capture `util.FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
   caller's state is never changed ([`design.md`](design.md), Settled decisions).

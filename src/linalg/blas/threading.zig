@@ -446,8 +446,8 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     try group.await(io);
 }
 
-/// Spins of a wait before it sleeps: about 90 us on Zen 3, where a
-/// `spinLoopHint` (`pause`) takes 21 ns. BLIS and OpenBLAS spin without
+/// Spins of a wait before it sleeps; its time per spin (`pause` on Zen 3)
+/// is unmeasured, so the wait's length is too. BLIS and OpenBLAS spin without
 /// bound; the bound lets a fiber `Io` run the peer a waiter waits on, and a
 /// canceled waiter reach its futex.
 pub const spin_limit = 1 << 12;

@@ -613,7 +613,7 @@ test "AMD families" {
     try expectCore(.piledriver, cpu(.amd, 0x600f20, .avx)); // Vishera
     try expectCore(.piledriver, cpu(.amd, 0x610f01, .avx)); // Trinity (exmodel 1, model 0)
     try expectCore(.steamroller, cpu(.amd, 0x630f01, .avx)); // Kaveri
-    try expectCore(.excavator, cpu(.amd, 0x660f51, .avx)); // Carrizo (model 5)
+    try expectCore(.excavator, cpu(.amd, 0x660f51, .avx)); // family 15h model 65h: A12-9800, PRO A12-8870 (InstLatx64 dumps)
     try expectCore(.excavator, cpu(.amd, 0x660f00, .avx)); // exmodel 6, model 0
     try expectCore(.zen, cpu(.amd, 0x800f82, .avx2)); // Zen+
     try expectCore(.zen, cpu(.amd, 0x870f10, .avx2)); // Zen 2

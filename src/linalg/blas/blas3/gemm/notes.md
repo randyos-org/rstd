@@ -23,7 +23,7 @@ converted assembly would pay. Measured 2026-10-15. The kernels' design is in
 Zen 3 has two 256-bit FMA pipes (AMD, "Software Optimization Guide for
 AMD EPYC 7003 Processors", pub. 56665 rev. 3.00, section 2.11), so 32
 single or 16 double flops per cycle: 64 / 32 GFLOPS at the 2.0 GHz base clock, 144 / 72 at the
-4.5 GHz boost. An inline-assembly loop of 12 independent `vfmadd231ps` (or
+4.5 GHz boost (AMD's 7730U specifications, <https://www.amd.com/en/products/processors/laptop/ryzen/7000-series/amd-ryzen-7-7730u.html>). An inline-assembly loop of 12 independent `vfmadd231ps` (or
 `pd`) chains measures what this laptop sustains: 84 to 89 median single,
 44 to 45 double (ranges 80 to 107 and 37 to 55), about 2.7 GHz. The
 percentages below are of the measured peak.
@@ -101,5 +101,5 @@ and measure there before keeping it:
 2. POWER10's MMA kernels, and the AMX and AVX-512 BF16 ones for `sbgemm`,
    which `@Vector` cannot reach at all;
 3. Skylake-X and its successors, only if a machine with AVX-512 shows the
-   Zig tile under 85% of the converted `skylakex` kernel (the decision rule
-   of the research); its loop looks clean but is unmeasured.
+   Zig tile under 85% of the converted `skylakex` kernel (our own threshold,
+   chosen in 2cf8757, not from a source); its loop looks clean but is unmeasured.

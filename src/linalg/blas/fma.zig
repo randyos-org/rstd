@@ -58,8 +58,8 @@ pub const hardware = switch (sysinfo.target.cpu.arch) {
     .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.target.cpu.features, .{
         .mips32r6, .mips64r6,
     }),
-    // No scalar fused multiply-add: LLVM has none for SPARC (gcc's needs
-    // -mfmaf, which OpenBLAS never passes), and WebAssembly's only exists as
+    // No scalar fused multiply-add: on SPARC gcc's needs -mfmaf, which
+    // OpenBLAS never passes (LLVM emits `fmaddd` only with `ua2007`), and WebAssembly's only exists as
     // `relaxed_simd` vector madd (see `vector_madd`).
     else => false,
 };

@@ -18,7 +18,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Seen:** a function declared `callconv(.{ .x86_64_sysv = .{} })` in an
   `x86_64-windows` build returns `f80` through a hidden pointer in `rdi`;
   SysV returns it in `st(0)`. Arguments are passed correctly. A call into
-  the x87 `qdot` assembly crashed on it.
+  the x87 `qdot` assembly crashed on it. Reproduced 2026-10-29 on 0.18.0-dev.751 with the
+  issue text's declaration (`lea rdi` before the call on Windows, `fstp` of `st(0)` on Linux).
 - **Workaround:** none needed in the library: OpenBLAS never builds its x87
   kernels for Windows, and `types.exprecisionOn` keeps `XDouble` at `f64`
   there. The f80 research harness used a naked thunk.
@@ -44,7 +45,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   pointer to a `callconv(.naked)` function to a SysV function type, then
   called directly, corrupted the caller's callee-saved registers (it
   surfaced as a `@memcpy arguments alias` panic). Debug was fine, and so
-  was the same call through a runtime pointer. On 0.18.0-dev.751 the LLVM
+  was the same call through a runtime pointer (reproduced 2026-10-29 with the issue text's case:
+  `g` compiles to `unreachable`). On 0.18.0-dev.751 the LLVM
   IR shows why: `call x86_64_sysvcc void @k(i64 ..)` against
   `define void @k()`. LLVM treats a call whose convention differs from
   the callee's as undefined, and now compiles the whole caller to
@@ -362,7 +364,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   object is written without that line; the symbol is still there.
   `zig build` shows the step's text as "failure", then counts the step a
   success, and caches the object, so a rerun is silent. A per-core BLAS
-  object can come out missing instructions. Zig 0.17.0 exits 1.
+  object can come out missing instructions. Zig 0.17.0 exits 1 (both rechecked 2026-10-29 with
+  the issue text's `bogusinsn` case).
 - **Workaround:** `build/blaskern.zig` (`checkedObject`) also emits each
   kernel object's LLVM bitcode, compiles it with `zig cc -c` in a run
   step, and links the object only through a copy that depends on that
@@ -1540,7 +1543,8 @@ and the x86_64 kernels are exact to rounding.
 under clang but only `-mavx2` under GCC, so the C parts of the C kernels
 (`gemv`'s row tails and `add_y`, for one) contract multiply-adds under clang
 and not under GCC. Rstd follows clang (`cpu/_corespec.zig`). Against a GCC
-build (the 0.3.33 Windows release, GCC 9.3), the converted `gemv` blocks
+build (the 0.3.33 Windows release, GCC 9.3: its `libopenblas.dll`'s producer strings read
+`GNU C99 9.3.0`), the converted `gemv` blocks
 agree bit-for-bit and those C statements differ in the last bit; built
 without contraction, rstd's complex `gemv` agreed in all 17,360 cases tried.
 
@@ -1668,6 +1672,21 @@ below the safe minimum. The threshold came in with
   scaling, so `P*L*U != A` with `info = 0`. Reference `xGETRF2` swaps for
   any nonzero pivot and divides element by element when `|p| < sfmin`;
   doing the same in the `else` branch would fix it."
+
+### `zrotg.c`: the scaled branches take square roots where `zlartg` squares
+
+`interface/zrotg.c` transcribes Reference LAPACK's `zlartg`, but its scaled
+branches set `g2` and `f2` to `sqrt(re^2 + im^2)` (`:137`, `:143`, `:149`)
+where `SRC/zlartg.f90` (v3.12.1, `:234`, `:243`, `:251`) has `ABSSQ`, the
+squared norm, so `c`, `s` and `r` are wrong whenever an input is tiny or huge
+enough to scale. Found by reading the source; not run against OpenBLAS.
+
+- **Workaround:** rstd's `zrotg` ports `zlartg` itself
+  (`blas1/interface.zig`), tested against a wide reference over every branch.
+- **Issue text:** "`?rotg` for complex inputs (`interface/zrotg.c`) is wrong
+  on its scaled paths: `g2` and `f2` are computed as `sqrt(x_r*x_r + x_i*x_i)`
+  where LAPACK's `zlartg` uses the squared norm `ABSSQ`, so the rotation is
+  wrong when `|a|` or `|b|` is outside `[rtmin, rtmax]`."
 
 ## BLIS
 

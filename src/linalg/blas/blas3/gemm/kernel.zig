@@ -92,6 +92,7 @@ fn registers(comptime bits: u16, comptime cpu: std.Target.Cpu) u16 {
         .arm, .armeb, .thumb, .thumbeb => if (bits == 0 and cpu.has(.arm, .d32)) 32 else 16,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (cpu.has(.powerpc, .vsx)) 64 else 32,
         .s390x => if (bits == 0) 16 else 32,
+        // wasm has locals, not registers: ours, an x86_64 engine's 16 XMM
         .wasm32, .wasm64 => 16,
         // o32's 32-bit FPU registers pair up for doubles; MSA has 32 of 128 bits
         // (and Zig builds it with 64-bit FPU registers, `-mfp64`)

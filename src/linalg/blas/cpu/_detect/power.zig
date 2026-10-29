@@ -173,7 +173,8 @@ fn generationOf(c: Caps) Generation {
 }
 
 /// Server levels, each running the code of the ones below it: ISA 1 (POWER3),
-/// 2.00 (POWER4, 970 and Cell, which add AltiVec), 2.02 (POWER5), 2.05 and
+/// 2.00 (POWER4; with the 970, ISA 2.01 per IBM's 970FX User's Manual v1.7,
+/// and Cell, which add AltiVec), 2.02 (POWER5), 2.05 and
 /// 2.06 (POWER6, 7), 2.07, 3.00, 3.1.
 fn level(g: Generation) u8 {
     return switch (g) {

@@ -67,7 +67,8 @@ pub fn composeBytes(comptime F: type, comptime cs: usize, m: usize, unit_x: bool
 /// What the SSE `symv` and `hemv` assembly of x86_64 needs, whatever the
 /// buffer's alignment: `x` copied, a gap of up to 512 bytes, then `y` copied
 /// (`symv_L_sse2.S`, `zsymv_U_sse2.S` and the rest), and 4 elements of
-/// slack past each.
+/// slack past each. The 1280 bytes are ours: the 512 with room to spare,
+/// not derived.
 pub fn sseBytes(comptime F: type, comptime cs: usize, m: usize) usize {
     return 2 * cs * m * @sizeOf(F) + 1280;
 }
@@ -249,7 +250,8 @@ pub fn Compose(comptime pre: []const u8, comptime T: type, comptime lower: bool,
 
 /// Which kernels the product runs on. Measured on a core whose gemv is the
 /// portable one (haswell, a Zig loop), composing is 5 times slower than the
-/// direct loops (18 against 3.7 ns per element, n up to 1024), the block
+/// direct loops (18 against 3.7 ns per element, n up to 1024; our timing for
+/// daa7a2d, no results file), the block
 /// copies and short gemvs costing more than they save; with a native gemv the
 /// composed form is the reference's, so it is used exactly then.
 pub fn Auto(comptime pre: []const u8, comptime T: type, comptime lower: bool, comptime kind: Kind) type {

@@ -61,7 +61,7 @@ pub const Blocking = struct {
         }
         const pre = comptime portable.letter(T).? ++ "gemm_";
         // sizes no rule set, or a rule left negative (`params.derivedR` for a
-        // wide element), take the generic target's
+        // wide element), take these: `Q` the generic table's, `P` and `R` ours
         const um: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_m")));
         const un: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_n")));
         const p: usize = @intCast(positive(@field(vt, pre ++ "p"), 224));

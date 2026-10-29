@@ -82,8 +82,8 @@ are targets at all.
 | ia64 | no Zig target |
 | csky | LLVM's backend emits neither assembly nor objects (Zig's `src/target.zig`, `hasLlvmSupport`); upstream uses the generic C kernels |
 | e2k | no Zig target; upstream uses the generic C kernels |
-| POWER BG/P (double FPU) | LLVM cannot assemble the "hummer" instructions |
-| RISC-V C910V | LLVM has no `xtheadvector` |
+| POWER BG/P (double FPU) | LLVM cannot assemble the "hummer" instructions (tried: Zig 0.18.0-dev.751's clang rejects `fpmadd` and `lfpdx` at `-mcpu=440`, `450` and `a2`) |
+| RISC-V C910V | LLVM has no `xtheadvector` (none in Zig's `lib/std/Target/riscv.zig`); upstream builds it for RVV 0.7.1 (`-march=rv64imafdcv0p7_zfh_xtheadc`, <https://github.com/OpenMathLib/OpenBLAS/blob/a690625245c43ea4ea2d4c07ff5b6ada02a9d561/Makefile.riscv64#L2>) |
 
 ## Usage
 

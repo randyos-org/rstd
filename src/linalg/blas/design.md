@@ -294,7 +294,7 @@ its C. What they compute is the contract every core keeps
   (Reference master, 0234cae25ceb01807a9b84333b732756559be4aa; not in 3.12.1).
 - `rotg` computes in `XDouble`, where the reference uses `long double` on x86
   (`interface/rotg.c:26`); `zrotg` follows
-  LAPACK's `zlartg`, since `zrotg.c`'s scaled branches are wrong.
+  LAPACK's `zlartg`, since `zrotg.c`'s scaled branches are wrong ([`issues.md`](issues.md)).
 - Wider than `f64`, the reductions and `gemv` take the order of the x87 `q`/`x` kernels and give
   their bits: `extendedDot` and `extendedZdot` in `blas1/dot/__root__.zig`, `util.extendedSum`
   for `asum` and `nrm2`, and `extendedGemv` and `extendedZgemv` in `blas2/gemv/__root__.zig`
@@ -309,7 +309,7 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
 `fma.zig` decides whether a multiply-add fuses, the way the reference's compile flags decide it:
 
 - **Hardware.** Fused where the ISA has a scalar fused multiply-add: x86 with FMA, AArch64, ARM
-  with VFPv4, PowerPC, RISC-V F/D, LoongArch, s390x, MIPS release 6. Not on SPARC, WebAssembly
+  with VFPv4, PowerPC, RISC-V F/D, LoongArch, s390x, MIPS release 6. Not on SPARC (its FMA extension of SPARC64 VI and `sparc4`, Oracle Solaris Studio 12.4 Fortran guide, `-xarch`, <https://docs.oracle.com/cd/E37069_01/html/E37076/aevia.html>, is left off, as OpenBLAS's gcc builds take `-mcpu=v9` without `-mfmaf`, `Makefile.sparc:7`), WebAssembly
   or earlier MIPS, whose `madd` rounds the product (Loongson 3A's fuses, and LLVM uses it for a
   plain `a*b + c`: `issues.md`). Vector multiply-adds also fuse on MIPS with
   MSA and WebAssembly with `relaxed_simd` (`vector_madd`).
@@ -345,8 +345,8 @@ Denormals are honored everywhere: where a vector unit flushes `f32` denormals
   portable loops pass each `f32` result they store or accumulate through `util.scalar`, an empty
   asm they cannot widen, compiled out everywhere else ([`issues.md`](issues.md)). ARMv7's
   vectorizers keep off NEON's `f32` lanes themselves (LLVM 21.1.0
-  `llvm/lib/Target/ARM/ARMTargetTransformInfo.h`, `isFPVectorizationPotentiallyUnsafe`, true
-  but on Darwin and MVE).
+  `llvm/lib/Target/ARM/ARMTargetTransformInfo.h:118`, `isFPVectorizationPotentiallyUnsafe`, true
+  but on Darwin and MVE; checked by `Transforms/Vectorize/SLPVectorizer.cpp:9214` and `LoopVectorize.cpp:10042`).
 
 [`comparisons.md`](comparisons.md) (10) records how this was found and measured.
 
@@ -397,8 +397,9 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   VEX/EVEX mnemonics, the self-hosted wasm backend emits invalid SIMD, and the other
   architectures have no self-hosted backend that covers them). `-Dblas-llvm` overrides it. They
   link with LLD, except on Mach-O, which Zig's LLD driver cannot write (Zig's `src/link/Lld.zig`
-  at 069480a1a takes COFF, ELF and wasm only); the self-hosted linker misplaces
-  SPARC symbols.
+  at 069480a1a takes COFF, ELF and wasm only); the self-hosted linker misplaced
+  SPARC symbols when tried (calls landed in zeroed `.text`; our observation, b8f875b, not
+  reproduced since and not in `issues.md`).
 - **Selection of objects.** `-Dblas-cores` (`BlasCores` in `src/buildutils/rstd.zig`): `target`
   builds only the group the target maps to (the host's detected core for a native target, else
   the group with the most features the target has), `all` every group the target can run,
@@ -488,7 +489,7 @@ before; their converted kernels stay, unmeasured:
 | Cores | Slots with no converted kernel |
 | --- | --- |
 | all but `tsv110` | `sdot` |
-| all | `cdotu`, `cdotc`, `zdotu`, `zdotc` |
+| all | `cdotu`, `cdotc`, `zdotu`, `zdotc` (on `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76` and `cortexx1` upstream's non-PGI builds take `zdot.S`, but a slot a make conditional leaves two sources for is not converted, `tools/blas_asm/gen.zig:589`) |
 | `thunderx` | `ddot` |
 | `thunderx2t99`, `thunderx3t110` | `ddot`, `?nrm2`, `?asum`, `?copy`, `i?amax` |
 | `neoversen1`, `ampere1`, `vortex`, `vortexm4` | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n`, `ssum`, `dsum`, `zsum` |
@@ -544,7 +545,7 @@ only repeat the portable kernels.
 - **Buffers.** The kernels take a scratch `buffer`. The interfaces size it as the reference's
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
   reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
-  the allocator, 4096-aligned.
+  the allocator, 4096-aligned (the kernels round to 4096-byte boundaries in it, `kernel/generic/symv_k.c:51`).
   [`blas2/buffers.md`](blas2/buffers.md) lists what every kernel does with it.
 - **Threading.** The reference's `*_thread.c` drivers are not ported. `gemv`, `ger`, the rank
   updates and transposed `gbmv` split `y` or `A`'s columns into serial kernel calls; the
@@ -579,10 +580,11 @@ complex, for every float type, through the same code.
   drivers take whole slices, as the reference's do, and rely on the vtable's unrolls being the
   installed kernels' own.
 - **Blocking.** `Blocking.of` reads `P`, `Q`, `R` and the unrolls from the vtable, falling back
-  to the generic target's 224, 128 and 4096 where a rule left a value unset or negative.
+  to 224, 128 and 4096 where a rule left a value unset or negative (`Q` is the generic table's,
+  `params_data.generic`; `P` and `R` are ours, since that table leaves them to `parameter.c`).
   `Blocking.split` is `level3.c`'s split of the remaining rows or depth.
 - **Packing space.** `Work(T)` sizes `sa`, `sb` and the scratch tile for the problem, each on a
-  64-byte line; up to `driver.stack_bytes` (2048) it is on the stack, else from the caller's
+  64-byte line; up to `driver.stack_bytes` (2048, ours, as `interface.stack_bytes`) it is on the stack, else from the caller's
   allocator.
 - **Kernels.** `blas3/gemm/kernel.zig` holds the packing copies, `beta` and the register-tile
   kernel for real `T` and its `Complex` (`incopy`, `itcopy`, `oncopy`, `otcopy`, `beta`,
@@ -754,7 +756,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   classic `cblas_dgemm` (macOS 13.3 Release Notes, Accelerate: "a new ILP64 interface",
   `ACCELERATE_NEW_LAPACK`, `ACCELERATE_LAPACK_ILP64`,
   <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>).
-  macOS 27 binds 150 of the 154: there is no `cblas_i?amin`. `axpby` is
+  The spellings are ours, checked by `apple_accel.zig`'s tests on the M6 ("the 32-bit table binds
+  the new names first"). macOS 27 binds 150 of the `Table`'s 154 fields: there is no
+  `cblas_i?amin` (seen on the M6; no test checks it). `axpby` is
   `catlas_?axpby`.
 - **Threads.** Threaded, Accelerate's `gemv` with `A` un-transposed rounds differently from one
   thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and `gemm` gave the same bits at every thread
@@ -763,7 +767,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   (ACCELERATE(7), macOS 10.14: "may be cached by the library and reused"), and
   `BLASSetThreading` (macOS 15+), per thread, which `singleThreadHere` sets on each thread's
   first routed call (Apple, `BLASSetThreading`: "This setting is per thread",
-  <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000.
+  <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000 (our timing for 72b2efc; no results file kept).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
   <https://pubs.opengroup.org/onlinepubs/9799919799/functions/setenv.html>), unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
@@ -850,7 +854,7 @@ other targets cannot assemble.
 | Family | Probe |
 | --- | --- |
 | x86, x86_64 | `cpuid` and `xgetbv`, unprivileged, so the same on every OS and freestanding |
-| arm64 | Darwin: `sysctl` (Apple, `FEAT_SME`, `FEAT_SME_F64F64`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity` (Linux v6.12 `Documentation/ABI/testing/sysfs-devices-system-cpu`), plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`, 85: <https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent>); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
+| arm64 | Darwin: `sysctl` (`hw.optional.arm.FEAT_SME`, `FEAT_SME_F64F64`: XNU's `ARM_FEATURE_FLAG` list, <https://github.com/apple-oss-distributions/xnu/blob/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/osfmk/arm/arm_features.inc#L118>, xnu-12377.121.6; OpenBLAS reads only `FEAT_SME`, `driver/others/dynamic_arm64.c:612`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity` (Linux v6.12 `Documentation/ABI/testing/sysfs-devices-system-cpu`), plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`, 85: <https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent>); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
 | arm | `AT_HWCAP` VFP and NEON bits and the part in `/proc/cpuinfo`; freestanding and UEFI: CP15 and VFP ID registers |
 | power | `AT_PLATFORM`, then the PVR (`mfpvr`, emulated by Linux: v6.12 `arch/powerpc/kernel/traps.c`, `emulate_instruction`), then the ISA bits of `AT_HWCAP`/`AT_HWCAP2`; freestanding: the PVR |
 | mips | Loongson `cpucfg` where `AT_HWCAP` advertises it, else `/proc/cpuinfo` (Linux only) |
@@ -917,7 +921,7 @@ Where the port differs from `dynamic*.c`:
 `Config.zig` reads every variable the reference reads at init, once, into a value
 (`Config.fromEnv`); `blas.config` keeps it. Defaults match the reference's unset behavior. Each
 value is read one variable at a time with no allocation, from a map (`blas.init`), a POSIX
-`environ` block, or the Windows PEB (`Config.Env`). A value longer than `value_max` (64 bytes)
+`environ` block, or the Windows PEB (`Config.Env`). A value longer than `value_max` (64 bytes, ours: room for any core name)
 reads as not parsable and falls back to the default (for a core name, to detection).
 Initialization also caches the CPU count in `cpu_count` (1 without threads).
 
@@ -990,7 +994,7 @@ assembly, unchanged in substance:
   (`Variant.without`): POWER's 32-bit-only `ppc440`, `ppc440fp2` and `ppcg4` have no `64` or
   `64be` build.
 - **Merged texts.** Cores whose expansions are identical share one file; texts that differ in
-  under about a tenth of their lines (`similar`) share one too, with the differing lines under
+  under about a tenth of their lines (`similar`, our threshold: `tools/blas_asm/gen.zig:395`) share one too, with the differing lines under
   `parts`, chosen at comptime.
 - **Rewrites.** Directives that declare the function or its section go (Zig places it); tabs
   become spaces; named labels become numeric local labels, so none reach the symbol table; x86
@@ -1004,7 +1008,7 @@ assembly, unchanged in substance:
   `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by slot;
   `asm_registry.Kernels` turns it into a module for `kernels/<arch>.zig`.
 - **arm64's x18.** One build serves every OS, and x18 is the platform register on Windows (the
-  TEB) and Apple (reserved; the kernel may zero it). Sources: Microsoft, "Overview of ARM64 ABI
+  TEB) and Apple (reserved; "Don't use this register"). Sources: Microsoft, "Overview of ARM64 ABI
   conventions", <https://learn.microsoft.com/en-us/cpp/build/arm64-windows-abi-conventions>;
   Apple, "Writing ARM64 code for Apple platforms" ("The platforms reserve register `x18`"),
   <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms>.
@@ -1135,7 +1139,7 @@ stride means `n` operations on one element in turn:
 Patches that work around Zig or QEMU rather than OpenBLAS, each removable once the cause is fixed
 ([`issues.md`](issues.md)):
 
-- `power/zdot.S`, `zdot_cell.S`: they return the complex result in f1/f2 as the ELFv2 ABI says,
+- `power/zdot.S`, `zdot_cell.S`: they return the complex result in f1/f2 as the ELFv2 ABI says ("64-Bit ELF V2 ABI Specification", revision 1.5, 2.2.6, homogeneous floating-point aggregates; copy read: <https://kib.kiev.ua/x86docs/POWER/ABI/leabi-20201201.pdf>),
   but Zig reads a two-float struct from r3/r4. The sources already copy it into r3/r4 for the
   Fortran interface; the patch turns that on.
 - arm `cdot_vfp.S`, `zdot_vfp.S`, `sf` variant: they return through a pointer in r0, as AAPCS
@@ -1281,9 +1285,11 @@ Questions decided once, with the reason, so they are not reopened without new ev
   (numerics, hardware, a measured trade-off), rstd defers to them. Where they leave a combination
   out only for simplicity, because their kernels cannot serve it, and a Zig `@Vector` kernel can,
   rstd fills the gap. So 32-bit POWER builds on POWER8 to 10 keep rstd's `@Vector` kernels: both
-  upstreams run older code there only because their POWER8 to 10 kernels are 64-bit ELFv2
-  assembly (OpenBLAS's `kernel/power/KERNEL.POWER8:1`: "Big-endian 32bit (AIX) is supported
-  through the POWER6 GEMM kernels"; BLIS has no 32-bit POWER configuration).
+  upstreams run older code there only because their POWER8 to 10 kernels are 64-bit (OpenBLAS
+  sends 32-bit builds elsewhere, `kernel/power/KERNEL.POWER8:1`: "Big-endian 32bit (AIX) is supported
+  through the POWER6 GEMM kernels"; BLIS's POWER9 kernel is inline assembly loading pointers
+  with `ld`, `kernels/power9/3/bli_gemm_power9_asm_d12x6.c:66`, its POWER10 ones C on MMA
+  builtins, and it has no 32-bit POWER configuration).
 - **Hermitian diagonals are real** (2026-10-29). `herk`, `her2k`, `her`, `hpr`, `her2` and
   `hpr2` set the diagonal's imaginary parts to zero, as the reference does: `A = Aᴴ` makes them
   zero, and the stored ones are not part of the matrix. Where Accelerate leaves `beta` times the
@@ -1324,7 +1330,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   a second implementation: everything a shader calls ends in a SPIR-V instruction where one
   exists, through `linalg` or directly.
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
-  inherit it (x86 Windows starts them at 53-bit x87 precision where the main thread has 64-bit;
+  inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](threading.md);
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
   starts by applying the state captured on the caller's thread. Rstd still never changes the
   caller's own environment; its workers copy it, and threaded results match serial ones for any
@@ -1352,7 +1358,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Selecting kernels lazily per routine | Eager installation keeps a kernel call to one indirect call and the table immutable while kernels run |
 | A mutex around initialization | Brings threading support into freestanding builds; a three-state handshake suffices |
 | The reference's `gotoblas_X` fallback chains | They follow no rule and put SSSE3 code on CPUs without it; the ISA subset rule cannot |
-| Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core; the name is reported |
+| Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core (reasoned, not measured: generic runs the portable kernels; OpenBLAS's x86_64 picks by ISA there, `driver/others/dynamic.c:1157`); the name is reported |
 | Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](comparisons.md) (X1) |
 | Reproducing the reference's accumulation order in the portable kernels | Not required for correctness; kept only where a Zig kernel replaces converted code of the same core |
 | Converting the gemm assembly | The Zig tile runs at the measured peak on AVX2 and within a few percent on Apple cores (`notes.md`, `results-m6.md`); one source serves every core |
@@ -1396,7 +1402,8 @@ they run natively too.
 
 - **Wide reference.** Level 1 and 2 compare with an `f128` reference (`check.Wide`); level 3
   builds each routine's dense operator at twice the precision (`f64` for `f32`, else `f128`) and
-  accepts `2 (k + 2)` ulps of the sum of magnitudes, `trsm` its substitution step by step.
+  accepts `2 (k + 2)` ulps of the sum of magnitudes (this and the LAPACK tests' `2 (n + 2)` and
+  `8 (n + 2)` are our margins over the roundings per element, not published bounds), `trsm` its substitution step by step.
   `sqrtW` adds Newton steps where sparc64's `_Qp_sqrt` works in `f64` (Zig
   `lib/compiler_rt/sqrt.zig:493-494` at 069480a1a).
 - **Order-free comparisons.** A core may sum in any order, so plain-loop checks allow rounding
@@ -1420,7 +1427,7 @@ they run natively too.
   interfaces' stack buffers hold NaN in tests, so a kernel that reads scratch it did not write
   fails.
 - **Blocking is shrunk.** Level 3 runs on a vtable whose `P`, `Q` and `R` are shrunk to `2 *
-  unroll_m`, 5 and `6 * unroll_n + 1`, so every block and panel edge comes at small sizes, then
+  unroll_m`, 5 and `6 * unroll_n + 1` (ours, `_test/blas3/check.zig:624`), so every block and panel edge comes at small sizes, then
   once at the core's own blocking, past `R` (natively also past twice `P` and `Q`).
 - **Foreign tiles.** `blas3/gemm/__root__.zig` installs tiles other targets choose
   (`installTile`: NEON's, 8 x 3 complex) to run every routine over them on any host.
@@ -1457,7 +1464,7 @@ here can.
 
 | Rig | How | Covers |
 | --- | --- | --- |
-| `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded`, a 32 MiB heap, every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
+| `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded`, a 32 MiB heap (ours, `test/qemu/heap.zig:14`), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
 | `qemu-test-linux-<arch>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; aarch64, x86_64, arm, riscv64, powerpc64le |
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH | Mach-O at run time on an x86 CPU model |
@@ -1504,7 +1511,7 @@ Rig mechanics:
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
   at its first failing test.
-- **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only, so the sparc64 rigs split
+- **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemutest.zig:333`; OpenBIOS's source not checked), so the sparc64 rigs split
   their tests into images by filter (`parts` in `build/qemutest.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
   `tools/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
@@ -1515,7 +1522,7 @@ Rig mechanics:
   (`macmini-m6` by default when rstd is the root project; `-Dtest-host-off` runs it here); the
   images still build here (`tools/test_host.zig`). Each run copies its files to the host's
   `/tmp`, runs QEMU from the Nix flake in `tools/nix` (nixpkgs pinned by `flake.lock`) and
-  streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8) rigs run
+  streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
   there at once, across builds. On an arm64 Mac, `aarch64` and `linux-aarch64` run under HVF on
   the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
   them on TCG. `x86_64-whpx` and the macOS VM rig stay local.

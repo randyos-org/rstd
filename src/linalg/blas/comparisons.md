@@ -47,11 +47,11 @@ and complex, has since landed on `review` (`0f0bcde`, `ada0a2e`, `078049e`).
 | 8 | Reproducibility rule | **Keep**, but close the pitfalls listed | Medium |
 | 7 | Level 3: Goto/OpenBLAS driver, `level3_thread.c` protocol | **Keep driver**; BLIS-style threading and fused `beta` done; investigate a small-matrix path | Medium |
 | 9 | `@Vector` kernels, unroll, accumulators, prefetch | **Keep**; try C-tile prefetch and Apple `KC` | Low-medium |
-| 1 | `sdot` in f64 | **Keep** (more accurate than all references), measure cost | Low |
+| 1 | `sdot` in f64 | **Keep** (more accurate than all references by the error bound in 1; not measured), measure cost | Low |
 | 6 | alpha = 0 / beta = 0 semantics, `scal` flag | **Keep** | Low |
 | 4 | Zero strides | **Keep** | Low |
 | 11 | Named errors instead of `xerbla` | **Keep** | Low |
-| X2 | trmm sums only the triangle (no packed zeros) | **Keep**; rstd is ahead of BLIS and OpenBLAS | n/a |
+| X2 | trmm sums only the triangle (no packed zeros) | **Keep**; no NaN where BLIS and OpenBLAS give one (read from their source, not run) | n/a |
 
 ---
 
@@ -484,8 +484,11 @@ problem size (at most 64), claimed dynamically, partials combined in chunk order
   pinned code branch (`MKL_CBWR`); only "strict CNR" (`?gemm`, `?symm`, `?hemm`, `?trsm`, AVX2 or
   AVX-512, 64-bit) is bitwise reproducible "even when the number of threads changes", and
   "enabling strict CNR mode can reduce performance" (developer guide, reproducibility conditions,
-  URL above). Older MKL versions also required aligned data for CNR (from memory; the current page
-  says CNR "fully supports unaligned input and output data").
+  URL above). MKL 11.0 required arrays aligned on 16, 32 or 64 bytes (SSE, AVX, AVX2) for CNR
+  (Rosenquist and Story, "Using the Intel MKL and Intel Compilers to Obtain Run-to-Run Numerical
+  Reproducible Results", <https://www.sc13.supercomputing.org/sites/default/files/WorkshopsArchive/pdfs/wp143s1.pdf>);
+  MKL 11.1 dropped it (Rosenquist, "Getting Reproducible Results with Intel MKL", SC13, <https://sc13.supercomputing.org/sites/default/files/WorkshopsArchive/pdfs/wp140s1.pdf>);
+  the current page says CNR "fully supports unaligned input and output data").
 - **BLIS**: level 1 and 2 are not threaded; level 3 never splits `k` (`docs/Multithreading.md:161`),
   so thread-count invariance holds by construction, though the docs never state it as a guarantee
   (`docs/` never mentions reproducibility).
@@ -495,7 +498,8 @@ problem size (at most 64), claimed dynamically, partials combined in chunk order
   `parallel_deterministic_reduce`, deterministic with `simple_partitioner` or `static_partitioner`
   and a fixed grain size,
   <https://github.com/uxlfoundation/oneAPI-spec/blob/70993d33d4f180bb7be400b95f15cbc32bc588dc/source/elements/oneTBB/source/algorithms/functions/parallel_deterministic_reduce_func.rst#L48>)
-  are cheap but reproducible only for the same tree. Order-independent summation (ReproBLAS:
+  are cheap but reproducible only for the same tree. Order-independent summation (ReproBLAS, named in
+  Demmel, Ahrens and Nguyen, UCB/EECS-2016-121, <https://www2.eecs.berkeley.edu/Pubs/TechRpts/2016/EECS-2016-121.html>;
   Ahrens, Demmel and Nguyen, "Algorithms for Efficient Reproducible Floating Point Summation", ACM
   TOMS 46(3), 2020, <https://doi.org/10.1145/3389360>) is reproducible across trees and machines
   at a higher cost.
@@ -589,7 +593,8 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
 **References.**
 
 - Neither OpenBLAS nor BLIS sets FTZ/DAZ; MKL also leaves it to the application (from memory;
-  Intel compilers set FTZ in `main` at some optimization levels).
+  Intel's compilers set FTZ and DAZ from `main` at every `-O` level but `-O0`: oneAPI DPC++/C++
+  Compiler 2025.2, "ftz, Qftz", <https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2025-2/ftz-qftz.html>).
 - BLIS `configure:375-387`: pre-inversion is the default, and disabling it improves "numerical
   robustness ... for certain cases involving denormal numbers that would otherwise result in
   overflow in the pre-inverted values".
@@ -633,7 +638,9 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    alongside item 2 on the `powerpc` rig.
    **Done**: confirmed on the `powerpc` and `powerpc-pseries` rigs; scalar FPU there, as item 2.
    Clearing `NJ` (Java mode, IEEE denormals) was not taken: it changes the caller's environment,
-   per thread, and the 970 handles such denormals by a software assist.
+   per thread, and the 970FX traps most such denormals to software (VPU assist interrupt at
+   0x1700; IBM, "PowerPC 970FX RISC Microprocessor User's Manual", v1.7, section 12.5.1; mirror:
+   <https://marcan.st/transf/970FX_user_manual.v1.7.2008MAR14_pub.pdf>).
 
 **Policy recommendation.** Write down "rstd never changes the floating-point environment; results
 assume IEEE default modes; denormals are honored except where the hardware's vector unit cannot
@@ -690,7 +697,7 @@ these routines today.
 rstd's `trmm` kernels sum a diagonal block over its triangle only, so an Inf in `B` never meets a
 structural zero (`design.md`, Level 3). BLIS writes zeros into the unstored part of a packed
 triangular block (`frame/1m/packm/bli_packm_struc_cxk.c:180-190`) and OpenBLAS's tiles multiply
-packed zeros, so both produce NaN there; reference master's `dtrmm.f` changes (July 2026) remove
+packed zeros (`kernel/generic/trmm_lncopy_4.c:137`), so both produce NaN there; reference master's `dtrmm.f` changes (July 2026) remove
 zero *skipping*, but the reference never multiplies by the unstored triangle. **Keep.**
 
 ---
@@ -727,8 +734,6 @@ Where BLIS is not better and rstd should not follow it:
 ## Uncertain points
 
 - f64 `sdot` throughput on M6 and Zen: unmeasured after `4407e5a`.
-- ARMv7 NEON and AltiVec flushing: seen on the rigs, not on hardware; the 970's software assist
-  from memory.
-- MKL's historical alignment requirement for CNR: from memory.
+- ARMv7 NEON and AltiVec flushing: seen on the rigs, not on hardware.
 - The BLAS Technical Forum standard's wording on zero increments: not located.
 - BLIS level-3 thread-count invariance: true by construction (no `k` split), not documented.

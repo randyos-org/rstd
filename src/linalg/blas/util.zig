@@ -52,9 +52,11 @@ pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) voi
 }
 
 /// Whether `@Vector` arithmetic in `F` keeps denormals on this target. Not
-/// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says, nor on
+/// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says (Arm DDI
+/// 0601 2026-09, AArch32 `FPSCR.FZ`), nor on
 /// AltiVec without VSX, which flushes under `VSCR[NJ]`, as Linux (v6.17
-/// `arch/powerpc/kernel/process.c:1995`) and QEMU start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
+/// `arch/powerpc/kernel/process.c:1995`) and QEMU (v10.1.0
+/// `target/ppc/cpu_init.c:4157`, `vscr_init(env, 0x00010000)`) start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
 /// operations, as it does every vector under a soft-float ABI. Kernels take
 /// their scalar path where this is false (`comparisons.md`, 10). LLVM's
 /// auto-vectorizer keeps off NEON's `f32` but not AltiVec's: the AltiVec

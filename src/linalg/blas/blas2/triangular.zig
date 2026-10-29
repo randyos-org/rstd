@@ -487,7 +487,8 @@ fn call(
     const o: Ops(T) = .{ .vt = vt, .dtb = if (vt.dtb_entries > 0) vt.dtb_entries else default_dtb };
     const px = first(T, x, kn, incx);
 
-    // x's copy, then `gemv`'s buffer (the full routines, past one block)
+    // x's copy, then `gemv`'s buffer (the full routines, past one block); the
+    // 40-element pad is ours (`interface/ztrmv.c:245` pads its small case by 40)
     const un: usize = @intCast(n);
     var elems: usize = if (incx != 1) copyElems(T, un) else 0;
     if (!banded and !packed_ and kn > o.dtb) {
