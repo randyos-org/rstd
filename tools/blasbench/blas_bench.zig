@@ -20,7 +20,8 @@
 //! `--openblas` is given. Options: `--openblas=<library>`
 //! (`-Dopenblas-lib`), `--blis=<library>`, `--accelerate=<path>` (macOS'
 //! framework by default), `--threads=default` (else each library runs one
-//! thread), `--ob-core=<core>` (`OPENBLAS_CORETYPE`, which rstd reads too).
+//! thread), `--ob-core=<core>` (`OPENBLAS_CORETYPE`, which rstd reads too),
+//! `--rstd-accelerate=0` (rstd's own kernels on macOS, not Accelerate).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -111,7 +112,7 @@ pub fn main(init: std.process.Init) !void {
             const eq = std.mem.findScalar(u8, a, '=') orelse return error.BadOption;
             const v = a[eq + 1 ..];
             const k = a[2..eq];
-            if (std.mem.eql(u8, k, "openblas")) opts.openblas = v else if (std.mem.eql(u8, k, "blis")) opts.blis = v else if (std.mem.eql(u8, k, "accelerate")) opts.accelerate = v else if (std.mem.eql(u8, k, "threads")) opts.threads = v else if (std.mem.eql(u8, k, "ob-core")) opts.ob_core = v else return error.BadOption;
+            if (std.mem.eql(u8, k, "openblas")) opts.openblas = v else if (std.mem.eql(u8, k, "blis")) opts.blis = v else if (std.mem.eql(u8, k, "accelerate")) opts.accelerate = v else if (std.mem.eql(u8, k, "threads")) opts.threads = v else if (std.mem.eql(u8, k, "ob-core")) opts.ob_core = v else if (std.mem.eql(u8, k, "rstd-accelerate")) opts.rstd_accelerate = !std.mem.eql(u8, v, "0") else return error.BadOption;
         } else try sections.append(init.arena.allocator(), a);
     }
     const all = sections.items.len == 0;
@@ -1073,6 +1074,8 @@ const LibOptions = struct {
     accelerate: ?[]const u8 = if (os_tag.isDarwin()) "/System/Library/Frameworks/Accelerate.framework/Accelerate" else null,
     threads: []const u8 = "1",
     ob_core: ?[]const u8 = null,
+    /// `--rstd-accelerate=0`: rstd's routines run its own kernels, not Accelerate.
+    rstd_accelerate: bool = true,
 };
 
 /// Where a library contestant comes from: rstd's public routines, or a
@@ -1188,7 +1191,8 @@ fn loadLibs(opts: LibOptions) !void {
         } else "absent";
         std.debug.print("accelerate: {s}, BLASGetThreading: {s}\n", .{ paths[2].?, threading });
     }
-    std.debug.print("rstd core: {s}, threads: 1\n", .{blas.coreName()});
+    const routed = blas.useAccelerate(opts.rstd_accelerate);
+    std.debug.print("rstd core: {s}, accelerate: {}, threads: 1\n", .{ blas.coreName(), routed });
 }
 
 /// `p`'s element as rstd's routines take it.
