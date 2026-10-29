@@ -8,7 +8,7 @@
 //! `p` (rows of A packed at a time), `q` (the depth) and `r` (columns of B). Most
 //! are constants of `param.h`. What `setparam-ref.c` computes is here:
 //!
-//!   * `p` of the older x86 cores follows the L2 size (`Affine`);
+//!   * `p` of the older x86 cores follows the L2 size (`Affine`), over the header;
 //!   * on x86, `r` is always derived from the packing buffer;
 //!   * `p` is rounded up to the unroll;
 //!   * the 3M variants take `p` and `q` of the real ones unless the header says;
@@ -198,10 +198,12 @@ pub fn ruleFor(comptime family: Family, comptime core_name: []const u8) Rule {
     if (comptime family == .loongarch64 and (eq(u8, core_name, "la464") or eq(u8, core_name, "loongson3r5"))) return .la464;
     if (comptime family == .loongarch64 and (eq(u8, core_name, "la264") or eq(u8, core_name, "loongson2k1000"))) return .la264;
     if (comptime family != .x86 and family != .x86_64) return .none;
-    if (comptime eq(u8, core_name, "katmai") or eq(u8, core_name, "coppermine") or eq(u8, core_name, "banias"))
+    // `setparam-ref.c:1600`, over Athlon's fixed header `p`
+    if (comptime eq(u8, core_name, "katmai") or eq(u8, core_name, "coppermine") or eq(u8, core_name, "banias") or
+        eq(u8, core_name, "yonah") or eq(u8, core_name, "athlon"))
         return .{ .affine = .{ .mul = .{ 64, 32, 32, 16, 16, 8 } } };
-    // static-only targets: `parameter.c` leaves `DEFAULT_GEMM_P`
-    if (comptime eq(u8, core_name, "p5") or eq(u8, core_name, "yonah"))
+    // `setparam-ref.c` has no block for it: `parameter.c:46`'s `DEFAULT_GEMM_P`
+    if (comptime eq(u8, core_name, "p5"))
         return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 128, 128, 128, 128, 128, 128 } } };
     if (comptime eq(u8, core_name, "northwood")) return .{ .affine = .{ .mul = .{ 96, 48, 48, 24, 24, 12 } } };
     if (comptime eq(u8, core_name, "atom")) return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 256, 128, 128, 64, 64, 32 } } };
@@ -253,14 +255,15 @@ fn fixedOf(s: Size) ?i32 {
     };
 }
 
-/// `p` of one of the primary precisions (`idx`: s, d, c, z, q, x).
+/// `p` of one of the primary precisions (`idx`: s, d, c, z, q, x); a rule
+/// goes over the header, as `setparam-ref.c`'s core blocks do.
 fn primaryP(shape: Shape, rule: Rule, idx: usize, env: Env) i32 {
-    const p: i32 = if (fixedOf(shape.p)) |v| v else switch (rule) {
+    const p: i32 = switch (rule) {
         .affine => |a| blk: {
             const size = if (a.cap > 0) @min(env.l2_kb >> a.shift, a.cap) else env.l2_kb >> a.shift;
             break :blk scaled(a.mul[idx] * size + a.add[idx], env);
         },
-        else => 0,
+        else => fixedOf(shape.p) orelse 0,
     };
     return roundUp(p, shape.unroll_m);
 }
@@ -583,11 +586,15 @@ test "old x86 cores take their getarch entry's subarch blocks" {
     try std.testing.expectEqual(@as(i32, 4), vt.sgemm_unroll_m);
     try std.testing.expectEqual(@as(i32, 2), vt.cgemm_unroll_m);
     try std.testing.expectEqual(@as(i32, 128), vt.sgemm_p);
-    // `PENTIUMM` with `CORE_YONAH`
+    // `PENTIUMM` with `CORE_YONAH`, on Katmai's L2 rule; 16 * (512 >> 7)
     installCore(&vt, .x86, .yonah, .{});
     try std.testing.expectEqual(@as(i32, 4), vt.dgemm_unroll_n);
     try std.testing.expectEqual(@as(i32, 2), vt.zgemm_unroll_n);
-    try std.testing.expectEqual(@as(i32, 128), vt.zgemm_p);
+    try std.testing.expectEqual(@as(i32, 64), vt.zgemm_p);
+    // Athlon's rule goes over its header's fixed 208; 64 * (1024 >> 7)
+    installCore(&vt, .x86, .athlon, .{ .l2_kb = 1024 });
+    try std.testing.expectEqual(@as(i32, 512), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 256), vt.dgemm_p);
     // `CORE_PRESCOTT`'s offsets follow `__64BIT__`
     installCore(&vt, .x86, .prescott, .{});
     try std.testing.expectEqual(@as(i32, 128), vt.offsetA);
