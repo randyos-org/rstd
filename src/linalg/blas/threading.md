@@ -490,10 +490,6 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
   hang. With worker threads `Uring` hangs even a plain futex barrier ([`issues.md`](issues.md));
   `Dispatch` (macOS) has no thread limit and is untested. Windows has no `Evented`.
 - TSan support with this toolchain is unverified.
-- At 64-bit x87 precision (0x37f), the scalar `gemm` kernel's full tile keeps its sums in
-  registers and its partial tile in memory, so they round `f64` apart; where a partition puts
-  a column in the other one (`symm`, `pentium3`, the tests' shrunk `R`), threaded bits differ.
-  At 53-bit they agree. T04's x87 audit.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
 - `symv`, `trmv` and the banded and packed products could split `y` keeping their bits if every
