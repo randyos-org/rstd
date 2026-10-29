@@ -272,6 +272,7 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
 | `zig build wasm-test` | the OS-free tests and LAPACK under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
+| `<zig 0.17.0> build rstd-check-zig017` | build the tests for zfls's targets on Zig 0.17.0 without running them |
 
 Test names follow the file's path (`linalg.blas._test.blas1.edge.test...`), so a filter can pick
 a file. The qemu rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>` (`macmini-m6` by

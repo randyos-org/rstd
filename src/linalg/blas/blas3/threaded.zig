@@ -638,12 +638,13 @@ test "threaded gemm keeps the serial bits under the caller's rounding toward zer
 }
 
 test "threaded gemm keeps the serial bits on a fiber Io with every peer on the caller's thread" {
-    if (comptime !threading.hosted or Io.Evented == void) return error.SkipZigTest;
+    const Evented = threading.Evented;
+    if (comptime !threading.hosted or Evented == void) return error.SkipZigTest;
     // one thread, so a waiter that never yielded would hang; `Uring` with
     // worker threads hangs on a plain futex barrier too (issues.md)
-    var opts: Io.Evented.InitOptions = .{};
-    if (@hasField(Io.Evented.InitOptions, "thread_limit")) opts.thread_limit = 0 else if (@hasField(Io.Evented.InitOptions, "n_threads")) opts.n_threads = 1 else return error.SkipZigTest;
-    var ev: Io.Evented = undefined;
+    var opts: Evented.InitOptions = .{};
+    if (@hasField(Evented.InitOptions, "thread_limit")) opts.thread_limit = 0 else if (@hasField(Evented.InitOptions, "n_threads")) opts.n_threads = 1 else return error.SkipZigTest;
+    var ev: Evented = undefined;
     // fibers take large stacks; the page allocator neither fills nor checks them
     ev.init(std.heap.page_allocator, opts) catch return error.SkipZigTest;
     defer ev.deinit();

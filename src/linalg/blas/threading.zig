@@ -511,6 +511,10 @@ pub const hosted = !sysinfo.single_threaded and switch (sysinfo.target.os.tag) {
     else => true,
 };
 
+/// `Io.Evented` for the fiber tests; void where it does not build (Zig 0.17's
+/// `Uring`, issues.md). Version-gated: std exposes nothing to detect.
+pub const Evented = if (Io.Evented == Io.Uring and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else Io.Evented;
+
 /// The worker counts the tests try: 1, 2, 3, 7, this machine's, and more
 /// than there are chunks.
 fn testCounts() [6]u32 {

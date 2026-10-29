@@ -173,6 +173,49 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > surprising; giving the vector its natural size, as LLVM does, would
   > avoid both.
 
+### Self-hosted x86_64 backend: no `(%reg)` operand in inline assembly
+
+- **Seen:** `asm volatile ("stmxcsr (%[p])" :: [p] "r" (&v) : .{ .memory = true })`
+  fails with "invalid memory operand: '(%[p])'" under `-fno-llvm`; so do
+  `0(%[p])` and `(%rdx)`. Zig 0.17.0 and 0.18.0-dev.751. Found by
+  `rstd-check-zig017`: 0.17.0 builds debug x86_64-linux with this backend.
+- **Workaround:** `util.zig`'s `FpState` asm takes `m` operands on this
+  backend (`fp_mem_ops`), the `(%[p])` form elsewhere (the next entry).
+- **Issue text:**
+
+  > **x86_64 backend: inline asm rejects register-indirect memory operands**
+  >
+  > `asm volatile ("ldmxcsr (%[p])" : : [p] "r" (&v) : .{ .memory = true });`
+  > builds with `-fllvm` and fails with `-fno-llvm`: "invalid memory
+  > operand: '(%[p])'". `0(%[p])` and a fixed `(%rdx)` fail the same way;
+  > an `m` constraint (`ldmxcsr %[v]` with `[v] "m" (v)`) works.
+
+### LLVM backend: an `m` input operand reads its address, not its value
+
+- **Seen:** `asm volatile ("ldmxcsr %[v]" :: [v] "m" (v))` lowers to
+  `call void asm "ldmxcsr ${0}", "m"(ptr %1)`, `%1` a spill of `v`. A direct
+  `m` takes the pointer as the value, so LLVM spills the pointer and the
+  instruction reads the address (`ldmxcsr dword ptr [rbp - 16]`, which holds
+  `rbp - 4`); here a `#GP`. `*m` (indirect) is what the spill needs. `=m`
+  outputs work. Zig 0.17.0 and 0.18.0-dev.751, x86_64.
+- **Workaround:** `util.zig` passes a pointer in a register with LLVM
+  (`(%[p])`), and `m` only on the self-hosted backend (the previous entry).
+- **Issue text:**
+
+  > **LLVM backend: inline asm `"m"` inputs pass a pointer to the value as the value**
+  >
+  > ```zig
+  > export fn f(v: u32) void {
+  >     asm volatile ("ldmxcsr %[v]" : : [v] "m" (v) : .{ .memory = true });
+  > }
+  > ```
+  >
+  > With `-fllvm -target x86_64-linux` the IR is
+  > `asm sideeffect "ldmxcsr ${0}", "m,..."(ptr %1)`, where `%1` holds `v`.
+  > With a direct `m` constraint LLVM treats `%1` as the operand's value and
+  > spills it, so `ldmxcsr` loads the pointer, not `v`. Emitting `*m` for a
+  > spilled input would load `v`. The self-hosted backend loads `v`.
+
 ### LLVM `-Oz` miscompile on sparc64
 
 - **Seen:** since Zig 0.18.0-dev.250, the sparc64 rig built with `.small`
@@ -669,6 +712,25 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `futexWait(&phase, old)` while the phase is unchanged. Within 300 rounds the
   > program hangs. Two fibers, or `thread_limit = 0`, complete. The same code on
   > `Io.Threaded` completes.
+
+### Zig 0.17.0: `Io.Uring` does not compile
+
+- **Seen:** with the 0.17.0 release, any use of `Io.Evented` on Linux fails:
+  `lib/std/Io/Uring.zig:759:14: error: no field named 'processReplacePath'
+  in struct 'Io.VTable'`. `Uring.io()` fills a field that 0.17.0's `Io.VTable`
+  does not have. 0.18.0-dev.751 builds it (the field is gone from both).
+  Found by `rstd-check-zig017` for x86_64 and aarch64 Linux, 2026-10-29.
+- **Workaround:** `threading.Evented` is void on Zig 0.17 with `Uring`, so
+  `blas3/threaded.zig`'s fiber test skips there. Gated on the version, since
+  the field `Uring` sets is private. Drop it once rstd needs 0.18.
+- **Issue text** (0.17.0 only; check a 0.17 patch release before filing):
+
+  > **std.Io.Uring does not compile on 0.17.0: `processReplacePath` is not an `Io.VTable` field**
+  >
+  > `var ev: std.Io.Evented = undefined; ... _ = ev.io();` on
+  > `x86_64-linux` with Zig 0.17.0 fails in `lib/std/Io/Uring.zig:759`:
+  > "no field named 'processReplacePath' in struct 'Io.VTable'".
+  > `Io.VTable` has `processReplace` only.
 
 ## Zig package manager and build system
 

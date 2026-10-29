@@ -1,6 +1,7 @@
 pub const zon = @import("../build.zig.zon");
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const build_root = @import("../build.zig");
 const blaskern = @import("blaskern.zig");
@@ -55,6 +56,20 @@ pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, optimize: Op
     test_mod.optimize = optimize;
     return b.addTest(.{ .root_module = test_mod, .filters = filters });
 }
+
+/// zfls's release targets: the `Cross-compile and package` step of zfls's
+/// `.github/workflows/ci.yml` (macOS 11 and later, as there).
+const zfls_targets = blk: {
+    const macos11: std.Target.Query.OsVersion = .{ .semver = .{ .major = 11, .minor = 0, .patch = 0 } };
+    break :blk [_]std.Target.Query{
+        .{ .cpu_arch = .x86_64, .os_tag = .linux },
+        .{ .cpu_arch = .aarch64, .os_tag = .linux },
+        .{ .cpu_arch = .x86_64, .os_tag = .macos, .os_version_min = macos11 },
+        .{ .cpu_arch = .aarch64, .os_tag = .macos, .os_version_min = macos11 },
+        .{ .cpu_arch = .x86_64, .os_tag = .windows },
+        .{ .cpu_arch = .aarch64, .os_tag = .windows },
+    };
+};
 
 pub fn build(b: *Build) !void {
     // standard build setup
@@ -129,6 +144,20 @@ pub fn build(b: *Build) !void {
             .root_module = uefi_mod,
             .test_runner = .{ .path = b.path("test/uefi/runner.zig"), .mode = .simple },
         }).step);
+    }
+
+    // zfls vendors rstd and builds it with Zig 0.17.0 for these targets
+    // (design.md, Requirements); every core's kernels, built, not run
+    const zig017_step = b.step("rstd-check-zig017", "Build rstd's unit tests for zfls's targets without running them; run with Zig 0.17.0");
+    if (sysinfo.zig_version.major != 0 or sysinfo.zig_version.minor != 17)
+        zig017_step.dependOn(&b.addFail("rstd-check-zig017 checks Zig 0.17.0; run it with that zig").step);
+    for (zfls_targets) |query| {
+        const t = b.resolveTargetQuery(query);
+        const t_mod = try addRstdModule(b, null, t, optimize, .all, false, false);
+        const t_test = try addRstdTest(b, t_mod, t, optimize, test_filter);
+        // emitted, so codegen and the link run too, as in zfls's builds
+        _ = t_test.getEmittedBin();
+        zig017_step.dependOn(&t_test.step);
     }
 
     // the same tests that need no OS, on emulated machines

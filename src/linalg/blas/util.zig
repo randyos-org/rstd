@@ -325,6 +325,9 @@ const FpReg = struct {
 const fp_cpu = sysinfo.target.cpu;
 const fp_hard = sysinfo.target.abi.float() == .hard;
 const fp_x87 = fp_cpu.arch.isX86() and std.Target.x86.featureSetHas(fp_cpu.features, .x87);
+/// The self-hosted x86_64 backend takes no `(%reg)` operand; it gets `m`
+/// operands, which LLVM misreads as inputs (issues.md).
+const fp_mem_ops = sysinfo.zig_backend == .stage2_x86_64;
 
 const fp_reg: ?FpReg = switch (fp_cpu.arch) {
     .x86, .x86_64 => if (std.Target.x86.featureSetHas(fp_cpu.features, .sse)) .{ .Int = u32, .ctl = 0xffc0, .rounding = 0xe000, .toward_zero = 0xe000 } else null,
@@ -343,7 +346,9 @@ const fp_reg: ?FpReg = switch (fp_cpu.arch) {
 
 fn x87Word() u16 {
     var w: u16 = undefined;
-    asm volatile ("fnstcw (%[p])"
+    if (comptime fp_mem_ops) asm volatile ("fnstcw %[w]"
+        : [w] "=m" (w),
+    ) else asm volatile ("fnstcw (%[p])"
         :
         : [p] "r" (&w),
         : .{ .memory = true });
@@ -351,7 +356,10 @@ fn x87Word() u16 {
 }
 
 fn setX87Word(w: u16) void {
-    asm volatile ("fldcw (%[p])"
+    if (comptime fp_mem_ops) asm volatile ("fldcw %[w]"
+        :
+        : [w] "m" (w),
+        : .{ .memory = true }) else asm volatile ("fldcw (%[p])"
         :
         : [p] "r" (&w),
         : .{ .memory = true });
@@ -361,7 +369,9 @@ fn readFp() fp_reg.?.Int {
     switch (fp_cpu.arch) {
         .x86, .x86_64 => {
             var v: u32 = undefined;
-            asm volatile ("stmxcsr (%[p])"
+            if (comptime fp_mem_ops) asm volatile ("stmxcsr %[v]"
+                : [v] "=m" (v),
+            ) else asm volatile ("stmxcsr (%[p])"
                 :
                 : [p] "r" (&v),
                 : .{ .memory = true });
@@ -402,7 +412,10 @@ fn readFp() fp_reg.?.Int {
 
 fn writeFp(v: fp_reg.?.Int) void {
     switch (fp_cpu.arch) {
-        .x86, .x86_64 => asm volatile ("ldmxcsr (%[p])"
+        .x86, .x86_64 => if (comptime fp_mem_ops) asm volatile ("ldmxcsr %[v]"
+            :
+            : [v] "m" (v),
+            : .{ .memory = true }) else asm volatile ("ldmxcsr (%[p])"
             :
             : [p] "r" (&v),
             : .{ .memory = true }),
