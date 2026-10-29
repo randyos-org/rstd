@@ -77,16 +77,16 @@ pub const Table = struct {
     preferred_size: i32 = 1,
     /// `SYMV_P`: the block of the generic symv and hemv.
     symv_p: i32 = 0,
-    /// `BUFFER_SIZE`, the packing buffer `r` derives from, as the core's build
-    /// sees `common_<arch>.h`: 128 MiB on x86_64 (`common_x86_64.h:260`),
-    /// s390x (`common_zarch.h:129`) and arm64's `NEOVERSEN1`, `N2`, `V1`,
-    /// `A64FX`, `ARMV8SVE`, `ARMV9SME` (`common_arm64.h:180-181`); 32 MiB on
-    /// the other arm64 cores (`:183`), arm (`common_arm.h:141`), riscv64
-    /// (`common_riscv64.h:89`), mips32 (`common_mips.h:105`), LoongArch
-    /// (`common_loongarch64.h:315`) and SPARC (`common_sparc.h:240`); 64 MiB on
-    /// mips64 (`common_mips64.h:254`); 256 MiB on POWER6 to 10
-    /// (`common_power.h:919`), 2 MiB on PPC440 (`:915`), 16 MiB on the other
-    /// POWER cores (`:917`, `:921`), x86 (`common_x86.h:207`) and wasm
+    /// `BUFFER_SIZE`, the packing buffer `r` derives from, as the core's
+    /// `DYNAMIC_ARCH` build sees `common_<arch>.h`: 128 MiB on x86_64
+    /// (`common_x86_64.h:260`), s390x (`common_zarch.h:129`) and arm64's
+    /// `NEOVERSEN1`, `N2`, `V1`, `A64FX`, `ARMV8SVE`, `ARMV9SME`
+    /// (`common_arm64.h:180-181`); 32 MiB on the other arm64 cores (`:183`), arm
+    /// (`common_arm.h:141`), riscv64 (`common_riscv64.h:89`), mips32
+    /// (`common_mips.h:105`), LoongArch (`common_loongarch64.h:315`) and SPARC
+    /// (`common_sparc.h:240`); 64 MiB on mips64 (`common_mips64.h:254`); 256 MiB
+    /// on every POWER core (`common_power.h:923-926`, over the static 2 to 256
+    /// MiB of `:914-922`); 16 MiB on x86 (`common_x86.h:207`) and wasm
     /// (`common_wasm.h:87`).
     buffer_size: i64,
 };
@@ -566,7 +566,7 @@ test "r derives from the core's own BUFFER_SIZE, a fallback from its family's" {
     const mib: i64 = 1 << 20;
     inline for (.{
         .{ .x86_64, .haswell, 128 },    .{ .x86, .katmai, 16 },      .{ .arm64, .neoversen1, 128 },
-        .{ .arm64, .cortexa53, 32 },    .{ .power64, .power9, 256 }, .{ .power64, .ppc440, 2 },
+        .{ .arm64, .cortexa53, 32 },    .{ .power64, .power9, 256 }, .{ .power64, .ppc440, 256 },
         .{ .mips64, .loongson3r3, 64 }, .{ .s390x, .z14, 128 },      .{ .wasm, .wasm128_generic, 16 },
     }) |c| try std.testing.expectEqual(c[2] * mib, tableFor(c[0], c[1]).?.buffer_size);
     var vt: Vtable = .{};

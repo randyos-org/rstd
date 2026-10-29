@@ -1250,7 +1250,7 @@ pub fn arm_dtb(core: coretypes.ArmCoreType) ?i32 {
 }
 
 /// `BUFFER_SIZE` of a core with no table of its own.
-pub const power64_buffer_size: i64 = 16777216;
+pub const power64_buffer_size: i64 = 268435456;
 
 pub fn power64(core: coretypes.PowerCoreType) ?Table {
     return switch (core) {
@@ -1353,7 +1353,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 144 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1373,7 +1373,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power5 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 320 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1393,7 +1393,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc970 => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -1413,7 +1413,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .cell => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -1433,7 +1433,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc440 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 512 }, .q = .{ .fixed = 1024 }, .r = .{ .fixed = 512 } },
@@ -1453,7 +1453,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 2097152,
+            .buffer_size = 268435456,
         },
         .ppc440fp2 => .{
             .s = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 4096 }, .r = .from_buffer },
@@ -1473,7 +1473,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppcg4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1493,7 +1493,7 @@ pub fn power64(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
     };
 }
@@ -1509,7 +1509,7 @@ pub fn power64_dtb(core: coretypes.PowerCoreType) ?i32 {
 }
 
 /// `BUFFER_SIZE` of a core with no table of its own.
-pub const power64be_buffer_size: i64 = 16777216;
+pub const power64be_buffer_size: i64 = 268435456;
 
 pub fn power64be(core: coretypes.PowerCoreType) ?Table {
     return switch (core) {
@@ -1612,7 +1612,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 144 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1632,7 +1632,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power5 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 320 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1652,7 +1652,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc970 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -1672,7 +1672,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .cell => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -1692,7 +1692,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc440 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 512 }, .q = .{ .fixed = 1024 }, .r = .{ .fixed = 512 } },
@@ -1712,7 +1712,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 2097152,
+            .buffer_size = 268435456,
         },
         .ppc440fp2 => .{
             .s = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 4096 }, .r = .from_buffer },
@@ -1732,7 +1732,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppcg4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1752,7 +1752,7 @@ pub fn power64be(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
     };
 }
@@ -1768,7 +1768,7 @@ pub fn power64be_dtb(core: coretypes.PowerCoreType) ?i32 {
 }
 
 /// `BUFFER_SIZE` of a core with no table of its own.
-pub const power32_buffer_size: i64 = 16777216;
+pub const power32_buffer_size: i64 = 268435456;
 
 pub fn power32(core: coretypes.PowerCoreType) ?Table {
     return switch (core) {
@@ -1811,7 +1811,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 144 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1831,7 +1831,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power5 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 320 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1851,7 +1851,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc970 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -1871,7 +1871,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .cell => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -1891,7 +1891,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc440 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 512 }, .q = .{ .fixed = 1024 }, .r = .{ .fixed = 512 } },
@@ -1911,7 +1911,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 2097152,
+            .buffer_size = 268435456,
         },
         .ppc440fp2 => .{
             .s = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 4096 }, .r = .from_buffer },
@@ -1931,7 +1931,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppcg4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -1951,7 +1951,7 @@ pub fn power32(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
     };
 }
@@ -1967,7 +1967,7 @@ pub fn power32_dtb(core: coretypes.PowerCoreType) ?i32 {
 }
 
 /// `BUFFER_SIZE` of a core with no table of its own.
-pub const power32le_buffer_size: i64 = 16777216;
+pub const power32le_buffer_size: i64 = 268435456;
 
 pub fn power32le(core: coretypes.PowerCoreType) ?Table {
     return switch (core) {
@@ -2010,7 +2010,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 144 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -2030,7 +2030,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .power5 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 320 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -2050,7 +2050,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 8,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc970 => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 176 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -2070,7 +2070,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .cell => .{
             .s = Shape{ .unroll_m = 16, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 512 }, .r = .from_buffer },
@@ -2090,7 +2090,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppc440 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 512 }, .q = .{ .fixed = 1024 }, .r = .{ .fixed = 512 } },
@@ -2110,7 +2110,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 2097152,
+            .buffer_size = 268435456,
         },
         .ppc440fp2 => .{
             .s = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 4096 }, .r = .from_buffer },
@@ -2130,7 +2130,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
         .ppcg4 => .{
             .s = Shape{ .unroll_m = 4, .unroll_n = 4, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .from_buffer },
@@ -2150,7 +2150,7 @@ pub fn power32le(core: coretypes.PowerCoreType) ?Table {
             .divide_limit = 0,
             .preferred_size = 1,
             .symv_p = 4,
-            .buffer_size = 16777216,
+            .buffer_size = 268435456,
         },
     };
 }

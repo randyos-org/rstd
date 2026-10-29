@@ -631,6 +631,9 @@ complex, for every float type, through the same code.
   its pages on Windows (`:82-106`), and 47b22763f ("reduced stack usage on windows to 16K")
   halved `q` to hold it near 16 KiB; Zen took Haswell's values in 832a27278. The Zig kernels
   keep no such buffer.
+  The packing buffer each core's `r` derives from is its `BUFFER_SIZE` (`common_<arch>.h`),
+  preprocessed with `-DDYNAMIC_ARCH` like the kernels (Preprocessing, below), so every POWER
+  core takes the dynamic build's 256 MiB (`common_power.h:923-926`), not its static size.
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
   extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
   fallback entries (`Makefile.system:115-158`) (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8

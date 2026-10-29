@@ -122,15 +122,14 @@ fn commonHeader(a: std.mem.Allocator, fam: Family) ![]const u8 {
 }
 
 /// `BUFFER_SIZE` as `fam`'s `common_<arch>.h` defines it under `defines`:
-/// preprocessed for the target, then its `(<n> << <shift>)` evaluated. Not
-/// under `DYNAMIC_ARCH`: only `common_power.h:923` branches on it, to the
-/// 256 MiB its dynamic cores (POWER6 to 10) have anyway; the other POWER
-/// cores, never in a dynamic build, keep their static sizes.
+/// preprocessed for the target, then its `(<n> << <shift>)` evaluated. Under
+/// `DYNAMIC_ARCH`, as everything rstd extracts: every POWER core takes
+/// `common_power.h:923-926`'s 256 MiB.
 fn bufferSize(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Family, defines: []const []const u8) !i64 {
     const src = ".zig-cache/params_buffer.c";
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = src, .data = try a.print("#include \"{s}\"\nrstd_buffer_size BUFFER_SIZE\n", .{try commonHeader(a, fam)}) });
     var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-w", "-target", fam.target, "-I", checkout });
+    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-w", "-DDYNAMIC_ARCH", "-target", fam.target, "-I", checkout });
     try argv.appendSlice(a, fam.defines);
     try argv.appendSlice(a, defines);
     try argv.append(a, src);
