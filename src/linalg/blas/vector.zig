@@ -1,5 +1,5 @@
 //! `@Vector` kernels for level-1 and level-2 slots, in the kernel ABI: plain
-//! Zig, `U` native vectors a step. At `U = 4` they match or beat OpenBLAS's
+//! Zig, `U` native vectors a step. At `U = 4` they mostly match or beat OpenBLAS's
 //! arm64 kernels on Apple's cores (`tools/blasbench/results-m6.md`). Unit
 //! strides take the vectors; other strides, zero and negative ones too, a
 //! scalar loop. NaN, infinities, `scal`'s flag, `i?amax`'s first index and
@@ -895,7 +895,7 @@ pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .z
 
 /// Whether these kernels take `slot` from `core`'s converted ones, beyond
 /// `routed`, so its object leaves those out: every slot of theirs but `rot`
-/// on arm64's `vortex` and `vortexm4` off Apple, where they match or beat
+/// on arm64's `vortex` and `vortexm4` off Apple, where they mostly match or beat
 /// the converted kernels (`tools/blasbench/results-m6.md`). On Apple's
 /// systems Accelerate is to serve instead, and the converted kernels stay.
 pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
