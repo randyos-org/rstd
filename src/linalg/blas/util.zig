@@ -215,6 +215,17 @@ pub inline fn cdiv(comptime F: type, br: F, bi: F, ar: F, ai: F) [2]F {
     return .{ q(q(q(br * r) + bi) / d), q(q(q(bi * r) - br) / d) };
 }
 
+/// `a * b` in parts, `std.math.Complex.mul`'s order, each step `rounded` on
+/// the x87 as in `cdiv`; for products two routines promise the same bits of.
+pub inline fn cmul(comptime F: type, ar: F, ai: F, br: F, bi: F) [2]F {
+    const q = struct {
+        inline fn f(x: F) F {
+            return rounded(F, x);
+        }
+    }.f;
+    return .{ q(q(ar * br) - q(ai * bi)), q(q(ai * br) + q(ar * bi)) };
+}
+
 /// What `extendedSum` adds up per float.
 pub const Term = enum { abs, square };
 

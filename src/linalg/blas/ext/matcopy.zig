@@ -16,6 +16,7 @@
 
 const std = @import("std");
 const types = @import("../types.zig");
+const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const check = @import("../_test/blas1/check.zig");
 
@@ -24,7 +25,8 @@ const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
 /// `alpha*x`, `x` conjugated first where `conj`; `T`'s element as the kernels
-/// see it, two floats for a complex one.
+/// see it, two floats for a complex one. Complex by `util.cmul`, so every
+/// kernel's bits match on the x87 too.
 fn Scale(comptime T: type) type {
     const complex = types.isComplex(T);
     const F = types.Float(T);
@@ -38,10 +40,7 @@ fn Scale(comptime T: type) type {
             const ai = alpha[1];
             if (ar == 0 and ai == 0) return .{ 0, 0 };
             if (ar == 1 and ai == 0) return if (conj) .{ x[0], -x[1] } else x;
-            return if (conj)
-                .{ ar * x[0] + ai * x[1], -ar * x[1] + ai * x[0] }
-            else
-                .{ ar * x[0] - ai * x[1], ar * x[1] + ai * x[0] };
+            return util.cmul(F, ar, ai, x[0], if (conj) -x[1] else x[1]);
         }
 
         /// `B := alpha*op(A)`, `A` `rows x cols`; `op` transposes where
@@ -163,7 +162,8 @@ fn want(comptime T: type, op: Op, alpha: T, a: []const T, lda: usize, i: usize, 
         if (op == .cnc or op == .ctc) x = x.conjugate();
         if (alpha.re == 0 and alpha.im == 0) return .init(0, 0);
         if (alpha.re == 1 and alpha.im == 0) return x;
-        return .init(alpha.re * x.re - alpha.im * x.im, alpha.re * x.im + alpha.im * x.re);
+        const p = util.cmul(types.Float(T), alpha.re, alpha.im, x.re, x.im);
+        return .init(p[0], p[1]);
     }
     return if (alpha == 0) 0 else alpha * x;
 }
