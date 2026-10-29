@@ -1178,13 +1178,18 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **The BLAS is the one public API for SIMD-like math** (2026-10-29). Callers never choose a
   backend: per target `rstd.linalg.blas` runs the per-core kernels, `@Vector` code, Accelerate
   or native SPIR-V instructions. `rstd.simd` folds into it, its building blocks becoming the
-  BLAS's internal layer and its slice reductions BLAS routines (todo.md, M3).
+  BLAS's internal layer and its slice reductions BLAS routines (todo.md, M3). One linear
+  algebra API on CPU and GPU, so shader code reads like CPU SIMD code; under SPIR-V the BLAS
+  lowers each operation to SPIR-V's own instruction wherever one exists, since that is always
+  the fastest there.
 - **Shaders keep their own API** (2026-10-29). `src/rgl/shaders/lib/` (shaderlib) is the one API
   shader code uses: the standard library for SPIR-V, with GLSL-friendly names that alias or wrap
   BLAS calls where the BLAS has the operation (`dot`, the matrix-vector products). `cross` moves
   to `rstd.linalg.vector`, a general vector operation shaderlib re-exports; `normalize`,
   `reflect`, `refract`, `faceforward`, `smoothstep`, `fract` and `step` stay in shaderlib, as
-  shader operations lowered to SPIR-V's own instructions.
+  shader operations lowered to SPIR-V's own instructions. Shaderlib is the developer-friendly
+  face, not a second implementation: everything a shader calls ends in a SPIR-V instruction
+  where one exists, through the BLAS or directly.
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
   inherit it (x86 Windows starts them at 53-bit x87 precision where the main thread has 64-bit;
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
