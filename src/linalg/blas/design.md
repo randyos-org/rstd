@@ -826,9 +826,9 @@ other targets cannot assemble.
 | Family | Probe |
 | --- | --- |
 | x86, x86_64 | `cpuid` and `xgetbv`, unprivileged, so the same on every OS and freestanding |
-| arm64 | Darwin: `sysctl` (Apple, `FEAT_SME`, `FEAT_SME_F64F64`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity`, plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
+| arm64 | Darwin: `sysctl` (Apple, `FEAT_SME`, `FEAT_SME_F64F64`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity` (Linux v6.12 `Documentation/ABI/testing/sysfs-devices-system-cpu`), plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`, 85: <https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent>); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
 | arm | `AT_HWCAP` VFP and NEON bits and the part in `/proc/cpuinfo`; freestanding and UEFI: CP15 and VFP ID registers |
-| power | `AT_PLATFORM`, then the PVR (`mfpvr`, emulated by Linux), then the ISA bits of `AT_HWCAP`/`AT_HWCAP2`; freestanding: the PVR |
+| power | `AT_PLATFORM`, then the PVR (`mfpvr`, emulated by Linux: v6.12 `arch/powerpc/kernel/traps.c`, `emulate_instruction`), then the ISA bits of `AT_HWCAP`/`AT_HWCAP2`; freestanding: the PVR |
 | mips | Loongson `cpucfg` where `AT_HWCAP` advertises it, else `/proc/cpuinfo` (Linux only) |
 | loongarch64 | `cpucfg` word 0 and `AT_HWCAP` LSX/LASX; freestanding and UEFI: `cpucfg` word 2 |
 | riscv64 | `riscv_hwprobe`, else `AT_HWCAP`'s V bit and an RVV 1.0 check, then `vlenb`; freestanding: `misa`, `mstatus` and `vlenb` |
@@ -1371,7 +1371,8 @@ they run natively too.
 - **Wide reference.** Level 1 and 2 compare with an `f128` reference (`check.Wide`); level 3
   builds each routine's dense operator at twice the precision (`f64` for `f32`, else `f128`) and
   accepts `2 (k + 2)` ulps of the sum of magnitudes, `trsm` its substitution step by step.
-  `sqrtW` adds Newton steps where sparc64's `_Qp_sqrt` works in `f64`.
+  `sqrtW` adds Newton steps where sparc64's `_Qp_sqrt` works in `f64` (Zig
+  `lib/compiler_rt/sqrt.zig:493-494` at 069480a1a).
 - **Order-free comparisons.** A core may sum in any order, so plain-loop checks allow rounding
   error; complex infinities may meet in another order than the reference's
   (`expectWideAnyOrder`).
@@ -1446,9 +1447,9 @@ The freestanding machines (`build/qemutest.zig`):
 | `aarch64` | `cortex-a72` | |
 | `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
-| `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280) |
+| `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
 | `loongarch64` | `la464` | |
-| `mips64r2el` | `Loongson-3A4000` | MSA, which the boot turns on: the `loongson3r4` core's kernels |
+| `mips64r2el` | `Loongson-3A4000` | MSA, which the boot turns on: the `loongson3r4` core's kernels (QEMU v10.1.0 `target/mips/cpu-defs.c.inc` sets `CP0C3_MSAP` for it, `I6400` and `P5600`, not `Loongson-3A1000` or `24Kf`) |
 | `mips64r2` | `Loongson-3A1000` | big-endian, no MSA |
 | `mips64r6el`, `mips64r6` | `I6400` | the i6400, i6500 and p6600 cores' MSA kernels |
 | `mips32r2el`, `mips32r2` | `24Kf` | no 32-bit kernels apply: the portable ones run |
@@ -1463,7 +1464,8 @@ The freestanding machines (`build/qemutest.zig`):
 | `powerpc-pseries` | the G4 build on a POWER10 in 32-bit mode | power3 to power6, ppc970 and cell as 32-bit code |
 | `s390x` | `max` | |
 
-Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC), `powerpc-macho` and
+Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC: LLVM 21.1.0 `lld/ELF/Arch`
+has `SPARCV9.cpp` only), `powerpc-macho` and
 `linux-i386` (TCG's x87 page-boundary bug). The big-endian rigs are `s390x`, `powerpc64`, and
 `mips64r2`, `mips64r6`, `mips32r2` and `mips32r5`. Every family has a rig that builds in debug.
 `-Dblas-cores` does not change what the rigs link.
@@ -1490,7 +1492,8 @@ Rig mechanics:
   the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
   them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
 - **WHPX.** QEMU's model plus FMA4 and XOP, of which WHPX keeps what the host has; `host` and
-  `max` stop in SeaBIOS. TCG implements no AVX-512, FMA4 or XOP, so the `skylakex`,
+  `max` stop in SeaBIOS. TCG implements no AVX-512, FMA4 or XOP (QEMU v10.1.0
+  `target/i386/cpu.c`: neither `TCG_7_0_EBX_FEATURES` nor `TCG_EXT3_FEATURES` has them), so the `skylakex`,
   `cooperlake` and `sapphirerapids` kernels, and the Bulldozer family's, run only there, on a
   host that has them.
 - **macOS VM.** Set up once (`qemu-setup-`, `qemu-install-x86_64-macos`; the header of
