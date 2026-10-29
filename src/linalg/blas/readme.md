@@ -48,8 +48,8 @@ Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 
 ### Targets
 
 Every target compiles, with the portable kernels at least. Per-core kernels exist for these
-cores; which OpenBLAS source each core uses, and for level 1 and level 3 but `gemm` what rstd
-serves in its place, is in the generated `coverage.md` files (every `blas1/<routine>/` and
+cores; which OpenBLAS source each core uses, and for level 1 and level 3 what rstd serves in
+its place, is in the generated `coverage.md` files (every `blas1/<routine>/` and
 `blas3/<routine>/`, and `blas2/`), and which routines each architecture covers is in
 [`design.md`](design.md#coverage-by-architecture).
 

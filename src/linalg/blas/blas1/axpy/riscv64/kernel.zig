@@ -15,43 +15,25 @@
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
-const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
 const rvv = @import("rvv.zig");
 
-const Slot = util.Slot;
-
 pub const Core = coretypes.RiscvCoreType;
 
-/// Whether `core` uses the `_rvv` kernels.
-fn usesRvv(comptime core: Core) bool {
-    return switch (core) {
-        .riscv64_zvl128b, .x280 => true,
-        else => false,
-    };
-}
+/// The hand ports and where they serve.
+pub const ports = [_]registry.Port(Core){
+    .{ .module = kernel.Ported(rvv), .cores = &.{ .riscv64_zvl128b, .x280 }, .slots = &.{ .saxpy_k, .daxpy_k, .caxpy_k, .caxpyc_k, .zaxpy_k, .zaxpyc_k }, .written = .assembly },
+};
 
-/// Whether `slot` has a kernel of its own on `core`.
-pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-    _ = slot;
-    return usesRvv(core);
-}
+const P = registry.Ports(Core, "riscv64", &ports);
 
-/// Whether `core` has any axpy kernel of its own.
-pub fn has(comptime core: Core) bool {
-    return usesRvv(core);
-}
+pub const hasSlot = P.hasSlot;
+pub const has = P.has;
 
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
-    if (comptime !usesRvv(core)) return;
-    registry.exportKernel(&rvv.Real(f32).call, .saxpy_k, core);
-    registry.exportKernel(&rvv.Real(f64).call, .daxpy_k, core);
-    registry.exportKernel(&rvv.Cplx(f32, false).call, .caxpy_k, core);
-    registry.exportKernel(&rvv.Cplx(f32, true).call, .caxpyc_k, core);
-    registry.exportKernel(&rvv.Cplx(f64, false).call, .zaxpy_k, core);
-    registry.exportKernel(&rvv.Cplx(f64, true).call, .zaxpyc_k, core);
+    inline for (kernel.slots) |slot| P.exportOne(slot, core);
 }
 
 /// Points the vtable at the kernels `core` has.

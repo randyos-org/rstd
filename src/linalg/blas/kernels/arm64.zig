@@ -6,14 +6,10 @@
 //! Add a routine to `converted` to wire it in.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
-const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
-
-const Slot = util.Slot;
 
 pub const Core = coretypes.Arm64CoreType;
 
@@ -33,24 +29,14 @@ const converted = .{
     @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
 
-/// The `@Vector` kernels go over those.
-const modules = converted ++ .{vector.Registry(Core, usesVector)};
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, and
+/// off Apple each other slot of theirs no converted kernel fills or that
+/// they displace on `vortex` and `vortexm4` (`vector.displacing`), whose
+/// objects then leave the converted kernels out.
+const vector_rule: vector.Rule(Core) = .unfilled;
 
-/// Where the `@Vector` kernels (`vector.zig`) go: every slot of theirs but
-/// `rot` on `vortex` and `vortexm4`, where they match or beat the converted
-/// kernels, which their objects then leave out (`vector.displaces`), and on
-/// every core each slot no converted kernel fills, mostly C upstream, for the
-/// portable scalar loop. On Apple's systems, whose Accelerate is to serve
-/// the rest, only the `routed` slots.
-fn usesVector(comptime core: Core, comptime slot: Slot) bool {
-    if (vector.routed(slot)) return true;
-    if (sysinfo.target.os.tag.isDarwin()) return false;
-    if (vector.displaces(core, slot)) return true;
-    inline for (converted) |m| {
-        if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
-    }
-    return true;
-}
+/// The `@Vector` kernels go over those.
+const modules = converted ++ .{vector.Registry(Core, vector_rule, converted)};
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {

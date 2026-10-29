@@ -92,6 +92,57 @@ pub fn installSlots(vt: *Vtable, comptime core: anytype, comptime slots: []const
     }
 }
 
+/// What a hand port's kernel is written in: `asm` blocks, `@Vector`s, or
+/// plain Zig.
+pub const Written = enum { assembly, vector, scalar };
+
+/// A hand-written kernel module a routine's `<arch>/kernel.zig` composes
+/// beside its generated indexes: on `cores`, `module.entry(slot)` fills
+/// `slots`; with `arch`, only in that OpenBLAS architecture's build
+/// (`kernel/<arch>`). `tools/blas_asm/survey.zig` reads a `ports` table as
+/// text, so keep its fields literal.
+pub fn Port(comptime Core: type) type {
+    return struct {
+        module: type,
+        cores: []const Core,
+        slots: []const Slot,
+        written: Written,
+        arch: ?[]const u8 = null,
+    };
+}
+
+/// The kernels of `ports` in OpenBLAS architecture `arch`'s build.
+pub fn Ports(comptime Core: type, comptime arch: []const u8, comptime ports: []const Port(Core)) type {
+    return struct {
+        fn find(comptime core: Core, comptime slot: Slot) ?Port(Core) {
+            for (ports) |p| {
+                if (p.arch) |a| if (!std.mem.eql(u8, a, arch)) continue;
+                if (std.mem.indexOfScalar(Core, p.cores, core) != null and std.mem.indexOfScalar(Slot, p.slots, slot) != null) return p;
+            }
+            return null;
+        }
+
+        /// Whether a port fills `slot` on `core`.
+        pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+            return comptime find(core, slot) != null;
+        }
+
+        /// Whether a port fills any slot on `core`.
+        pub fn has(comptime core: Core) bool {
+            for (ports) |p| {
+                if (p.arch) |a| if (!std.mem.eql(u8, a, arch)) continue;
+                if (std.mem.indexOfScalar(Core, p.cores, core) != null) return true;
+            }
+            return false;
+        }
+
+        /// Exports the port's kernel for `slot` on `core`, if one fills it.
+        pub fn exportOne(comptime slot: Slot, comptime core: Core) void {
+            if (comptime find(core, slot)) |p| exportKernel(p.module.entry(slot), slot, core);
+        }
+    };
+}
+
 pub fn Kernels(comptime Core: type, comptime index: type) type {
     return struct {
         /// `e`'s function for `core` on this target, if it has one and the

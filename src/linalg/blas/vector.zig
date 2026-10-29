@@ -893,20 +893,24 @@ pub fn peels(comptime slot: Slot) bool {
 /// The slots `peels` names.
 pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n };
 
+/// Where these kernels take slots from the converted ones beyond `routed`
+/// (`displaces`): every slot of theirs but `keep` on arm64's `vortex` and
+/// `vortexm4`, where they mostly match or beat the converted kernels
+/// (`tools/blasbench/results-m6.md`). `tools/blas_asm/survey.zig` reads it
+/// as text.
+pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []const Slot } = .{
+    .cores = &.{ .vortex, .vortexm4 },
+    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k },
+};
+
 /// Whether these kernels take `slot` from `core`'s converted ones, beyond
-/// `routed`, so its object leaves those out: every slot of theirs but `rot`
-/// on arm64's `vortex` and `vortexm4` off Apple, where they mostly match or beat
-/// the converted kernels (`tools/blasbench/results-m6.md`). On Apple's
+/// `routed`, so its object leaves those out (`displacing`). On Apple's
 /// systems Accelerate is to serve instead, and the converted kernels stay.
 pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
     if (sysinfo.target.os.tag.isDarwin()) return false;
-    return switch (@TypeOf(core)) {
-        coretypes.Arm64CoreType => (core == .vortex or core == .vortexm4) and switch (slot) {
-            .srot_k, .drot_k, .csrot_k, .zdrot_k => false,
-            else => fills(slot),
-        },
-        else => false,
-    };
+    if (@TypeOf(core) != coretypes.Arm64CoreType) return false;
+    return std.mem.indexOfScalar(coretypes.Arm64CoreType, displacing.cores, core) != null and
+        std.mem.indexOfScalar(Slot, displacing.keep, slot) == null and fills(slot);
 }
 
 /// Whether one of these kernels fills `slot` on this target.
@@ -1098,18 +1102,55 @@ pub fn installAll(vt: *Vtable) void {
     inline for (kernels) |k| @field(vt, @tagName(k.slot)) = kernel(k, 4);
 }
 
-/// `Registry`'s `uses` for an architecture whose vector unit is IEEE on
-/// every core: the `routed` slots.
-pub fn usesRouted(comptime core: anytype, comptime slot: Slot) bool {
-    _ = core;
-    return routed(slot);
+/// Where a registry puts these kernels, its `vector_rule`, which
+/// `tools/blas_asm/survey.zig` reads as text.
+pub fn Rule(comptime Core: type) type {
+    return union(enum) {
+        /// The `routed` slots, on `cores` or every core when null; a `peels`
+        /// slot only where a converted module `skips` its assembly.
+        routed: ?[]const Core,
+        /// The `routed` slots; off Apple, whose Accelerate is to serve the
+        /// rest, also those they `displace` and those no converted module
+        /// fills (`hasSlot`), mostly C upstream, for the portable loop.
+        unfilled,
+    };
+}
+
+/// Whether `rule` puts these kernels in `slot` on `core`, over the
+/// registry's `converted` modules.
+pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
+    switch (rule) {
+        .routed => |cores| {
+            if (!routed(slot)) return false;
+            if (cores) |cs| if (std.mem.indexOfScalar(Core, cs, core) == null) return false;
+            if (!peels(slot)) return true;
+            inline for (converted) |m| {
+                if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
+            }
+            return false;
+        },
+        .unfilled => {
+            if (routed(slot)) return true;
+            if (sysinfo.target.os.tag.isDarwin()) return false;
+            if (displaces(core, slot)) return true;
+            inline for (converted) |m| {
+                if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
+            }
+            return true;
+        },
+    }
 }
 
 /// The kernels four vectors a step, in a per-core object for the cores and
-/// slots `uses(core, slot)` picks. Like the gemm kernels, they never make a
+/// slots `rule` picks (`takes`). Like the gemm kernels, they never make a
 /// core need an object of its own.
-pub fn Registry(comptime Core: type, comptime uses: anytype) type {
+pub fn Registry(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype) type {
     return struct {
+        /// Whether these kernels take `slot` on `core`.
+        pub fn uses(comptime core: Core, comptime slot: Slot) bool {
+            return takes(Core, rule, converted, core, slot);
+        }
+
         pub fn has(comptime core: Core) bool {
             _ = core;
             return false;
