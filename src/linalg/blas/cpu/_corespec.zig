@@ -316,6 +316,8 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
             .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerpc64(),
             else => true,
         },
+        // a module's features are fixed when it is built: no SIMD128, no SIMD core
+        coretypes.WasmCoreType => core == .wasm_generic or cpu.has(.wasm, .simd128),
         else => true,
     };
 }
