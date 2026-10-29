@@ -893,6 +893,11 @@ assembly, unchanged in substance:
   where one source splits, and the variant: `daxpy_atom_sysv.zig`,
   `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by slot;
   `asm_registry.Kernels` turns it into a module for `kernels/<arch>.zig`.
+- **arm64's x18.** One build serves every OS, and x18 is the platform register on Windows (the
+  TEB) and Apple (reserved; the kernel may zero it). Upstream stopped using it as scratch in
+  0.3.18, for Apple M1; `gemv_n.S`, `gemv_t.S`, `zgemv_n.S` and `zgemv_t.S` still save and
+  restore it with the callee-saved registers, writing back the value they found, which is
+  harmless. `arch/arm64.zig`'s `check` stops the generator on any other use.
 
 #### Fixes to upstream sources
 

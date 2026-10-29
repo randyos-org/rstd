@@ -201,6 +201,9 @@ pub const Arch = struct {
     /// ELF and COFF. Mach-O reads it as a power of two instead, so these are
     /// written as `.balign`, which means bytes on every object format.
     align_bytes: bool = false,
+    /// Stops the generator on a statement some target of this architecture
+    /// cannot take (`nakedLines`'s output, one statement each).
+    check: ?*const fn (source: []const u8, statement: []const u8) void = null,
 };
 
 pub fn isDotS(source: []const u8) bool {

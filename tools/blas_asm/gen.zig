@@ -588,6 +588,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             const lower = try lowered(a, core);
             if (ambiguous.contains(try a.print("{s}:{s}", .{ lower, try k.role(a) }))) continue;
             var lines = try arch.nakedLines(a, ar, try preprocess(a, ar, inc, k, core, v));
+            if (ar.check) |check| for (lines) |l| check(k.source, l);
             if (v.rewrite) |rewrite| {
                 const out = try a.alloc([]const u8, lines.len);
                 for (lines, out) |l, *o| o.* = try rewrite(a, l);
