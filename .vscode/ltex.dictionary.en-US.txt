@@ -229,6 +229,7 @@ congruential
 CONJG
 connect
 copy_file_range
+corespotlightd
 cortexx
 corth
 cosm
@@ -504,6 +505,7 @@ fcxml
 fdarray
 fdarrayoff
 fdatasync
+fdesetup
 fdselect
 fdselectoff
 fdselector
@@ -796,6 +798,7 @@ inotify_init1
 inotify_rm_watch
 ins
 insn
+intelligenceplatformd
 intrin
 Ints
 invtsc
@@ -862,6 +865,7 @@ jpvt
 kase
 kassert
 kcmp
+kcpassword
 KEEPONFORK
 kernings
 kexec_file_load
@@ -1000,6 +1004,7 @@ MCGA
 mcpu
 mdgen
 mdutil
+mediaanalysisd
 membarrier
 memfd_create
 memfd_secret
@@ -1027,6 +1032,8 @@ mman
 mmap
 mmory
 mmsa
+modelcatalogd
+modelmanagerd
 modify_ldt
 mount
 mount_setattr
@@ -1177,6 +1184,7 @@ oltcopy
 oltncopy
 oltucopy
 omatcopy
+omlahore
 oncopyb
 oncopyr
 ONFAULT
@@ -1245,6 +1253,7 @@ PHENT
 phentsize
 phnum
 phoff
+photoanalysisd
 pidfd_getfd
 pidfd_open
 pidfd_send_signal
@@ -1768,12 +1777,14 @@ tbig
 TBMV
 tbsv
 tcopy
+tcpkeepalive
 tee
 termio
 testl
 testq
 texel
 texels
+textunderstandingd
 tgkill
 thisreallyprobablydoesntexist
 thumbeb
@@ -1894,6 +1905,7 @@ vcurve
 vdevice
 vDSO
 VECLIB
+vecsum
 vectorizer
 vectorizers
 vectorizing
@@ -2002,6 +2014,7 @@ wmconst
 wmul
 WNOHANG
 wnrm
+womp
 workr
 wpofa
 wpow
@@ -2114,6 +2127,9 @@ ynorm
 yonah
 ypixel
 YSCALE
+ZACCOUNT
+ZACCOUNTTYPE
+ZACCOUNTTYPEDESCRIPTION
 zamax
 zamin
 zarch
@@ -2122,6 +2138,7 @@ zaxpby
 zaxpy
 zaxpyc
 zcopy
+ZDATACLASS
 zdot
 zdotc
 zdotu
@@ -2155,6 +2172,7 @@ zigvec
 zimatcopy
 zlartg
 zlaswp
+ZNAME
 zneg
 znrm
 znver
