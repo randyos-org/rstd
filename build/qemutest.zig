@@ -701,6 +701,12 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
     for (machines) |m| {
         if (m.stub != null or (m.whpx and !whpx_host)) continue;
         const target = b.resolveTargetQuery(m.query);
+        // one rig's images and asm check, for changes that touch only its arch
+        const rig_check = if (m.boot == .kernel) blk: {
+            const s = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s test images and check their inline asm, without running qemu", .{m.name}));
+            check.dependOn(s);
+            break :blk s;
+        } else check;
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
             for (m.parts) |p| {
@@ -710,14 +716,14 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
                 if (!picked) continue;
                 var part = m;
                 part.name = b.fmt("{s}-{s}", .{ m.name, p.name });
-                const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host, check);
+                const run = try addKernelRun(b, part, m.boot.kernel, target, m.optimize orelse optimize, p.filters, test_host, rig_check);
                 step.dependOn(&run.step);
                 all.dependOn(&run.step);
             }
             continue;
         }
         const run = switch (m.boot) {
-            .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, check),
+            .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
             .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host) orelse continue else continue,
         };
