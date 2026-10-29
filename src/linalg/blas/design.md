@@ -839,8 +839,9 @@ other targets cannot assemble.
 
 1. **Which core.** `OPENBLAS_CORETYPE`, matched case-insensitively, if it names a core
    (`unknown` names none) and the CPU can run it; else the detector's answer. A name no core has
-   is reported at `OPENBLAS_VERBOSE` 1 and detection decides (the reference falls back to its
-   generic core). A named core the CPU cannot run is reported and replaced by the closest one it
+   is reported at `OPENBLAS_VERBOSE` 1 and detection decides (the reference falls back to a
+   default core: the generic one on arm64, mips64 and s390x, POWER8 on power, Katmai on x86,
+   and by AVX level on x86_64, `dynamic.c:1155-1164`). A named core the CPU cannot run is reported and replaced by the closest one it
    can.
 2. **Which object.** A core with no kernel object in the build (excluded by `-Dblas-cores`, or
    with no kernels at all) is served by the closest linked core that needs no feature it lacks
@@ -854,25 +855,28 @@ other targets cannot assemble.
 feature set from its `Spec` (dependencies included, tuning-only features removed), and `closest`
 prefers a core whose set is a subset of the wanted one's, with the most features, ties to the
 earlier core. The reference's `#define gotoblas_X gotoblas_Y` chains follow no such rule
-(Barcelona to Nehalem puts SSSE3 code on a CPU without it). Tests in `_select.zig` check that
+(Barcelona to Nehalem, `dynamic.c:93`, puts SSSE3 code, `getarch.c:313`'s `HAVE_SSSE3`, on a
+CPU without it: `amdfam10` has none, Zig `lib/std/Target/x86.zig:1409`). Tests in `_select.zig` check that
 every detectable core has an object that serves it and that no core is served by one that needs
 more.
 
 Where the port differs from `dynamic*.c`:
 
 - **x86.** The OS AVX, AVX2 and AVX-512 state checks and the reference's fallbacks and warnings
-  are kept. AMD family 10h and 12h are Barcelona (the reference returns NULL); FMA3 is required
+  are kept. AMD family 10h and 12h are Barcelona (the reference returns NULL, `dynamic.c:924-925`); FMA3 is required
   for the Haswell and Zen kernels; `cpuid` leaves are range-checked; macOS's lazy ZMM state is
   not mistaken for no AVX-512.
 - **arm.** The reference has no run-time dispatch; `cpuid_arm.c`'s build-time choice is made at
   run time from the hwcap bits, requiring 32 VFP registers for the ARMv7 kernels. Cortex-A9 and
   A15 are detected by part, as `cpuid_arm.c` does.
 - **arm64.** The part table follows `dynamic_arm64.c`. Without the `MIDR_EL1` emulation the
-  per-CPU sysfs pass reads `cpu_capacity` (decimal), as `cpuid_arm64.c` does;
-  `dynamic_arm64.c` reads `cpu_capability`, which Linux does not have. Every core built for
+  per-CPU sysfs pass reads `cpu_capacity` (decimal), as `cpuid_arm64.c:267` does;
+  `dynamic_arm64.c:395` reads `cpu_capability`, which Linux does not have (Linux v6.12
+  `Documentation/ABI/testing/sysfs-devices-system-cpu` lists `cpu_capacity` only). Every core built for
   ARMv8.3 and up needs FCMA, since its `trsm` kernels hold `FCMLA`; Apple's cores always have it.
   The SME cores (`armv9sme`, `vortexm4`) are built with SME's optional F64F64, as the
-  reference's are, so they need it detected: the reference picks them on SME alone. Each probe
+  reference's are (`kernel/Makefile:30`, `:41`), so they need it detected: the reference picks
+  them on SME alone (`dynamic_arm64.c:602-616`, `support_sme1`). Each probe
   decodes it from its raw values in a pure function, and it counts only alongside SME. A
   Windows without the SME flags answers false, so it never gets an SME core.
 - **riscv.** `vlenb` picks `riscv64_zvl256b`, which has no object yet, so `riscv64_zvl128b`
@@ -880,9 +884,9 @@ Where the port differs from `dynamic*.c`:
 - **power.** POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440, static targets
   upstream, are told apart by `AT_PLATFORM`, the PVR or the ISA bits, so none runs a later
   generation's code. A CPU nothing names gets the portable kernels (the reference guesses
-  POWER8). AIX is not a Zig target.
-- **mips.** The reference tests `HWCAP_LOONGSON_CPUCFG` the wrong way round and its `cpucfg`
-  word has both registers zero; both are corrected, unverified on hardware.
+  POWER8, `dynamic_power.c:344-346`). AIX is not a Zig target.
+- **mips.** The reference tests `HWCAP_LOONGSON_CPUCFG` the wrong way round
+  (`dynamic_mips64.c:168`) and its `cpucfg` word (`0xc8080118`, `:122`) has both registers zero; both are corrected, unverified on hardware.
 
 ### Configuration
 
@@ -897,15 +901,15 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | --- | --- | --- |
 | `OPENBLAS_CORETYPE` | `core_type_buf` | forces a core (selection, above) |
 | `OPENBLAS_VERBOSE` | `verbose` | 1: fallbacks and unknown names; 2: the selected core and the serving object |
-| `GET_OPENBLAS_CORETYPE` | `get_openblas_coretype` | POWER only: set to anything, prints the core to stderr |
-| `OPENBLAS_BLOCK_FACTOR` | `block_factor` | scales a computed gemm `p` (clamped to 10 to 200 percent) |
+| `GET_OPENBLAS_CORETYPE` | `get_openblas_coretype` | POWER only (`dynamic_power.c:352`): set to anything, prints the core to stderr |
+| `OPENBLAS_BLOCK_FACTOR` | `block_factor` | scales a computed gemm `p` (clamped to 10 to 200 percent, `parameter.c:521-522`) |
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
 | `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](threading.md) |
 | `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](threading.md) |
 | `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT` | `omp_num_threads`, `omp_adaptive`, `thread_timeout` | parsed, no effect |
 | `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
 | `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
-| `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection |
+| `LD_HWCAP_MASK` | `ld_hwcap_mask` | s390x only: ANDed with `AT_HWCAP` before detection (`cpuid_zarch.h:35`) |
 | `RSTD_BLAS_ACCELERATE` (rstd's own) | `accelerate` | macOS: 0 keeps the routines off Accelerate ([above](#apple-accelerate)) |
 
 Integers parse with Zig's base-0 rules after trimming whitespace; negative values clamp to 0
