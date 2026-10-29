@@ -264,6 +264,26 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
     }
 }
 
+/// `Makefile.system`'s "fallbacks for 32bit": a `BINARY=32` build of the first
+/// `TARGET` runs `getarch.c` for the second, so it gets that core's `config.h`,
+/// `param.h` set and kernels. Its `TARGET_CORE` list sends `ZEN` to `NEHALEM`
+/// instead; `dynamic.c` and `kernel/x86/KERNEL.ZEN` follow `TARGET`'s.
+const binary32_targets = [_][2][]const u8{
+    .{ "HASWELL", "NEHALEM" },        .{ "SKYLAKEX", "NEHALEM" },      .{ "COOPERLAKE", "NEHALEM" },
+    .{ "SAPPHIRERAPIDS", "NEHALEM" }, .{ "SANDYBRIDGE", "NEHALEM" },   .{ "BULLDOZER", "BARCELONA" },
+    .{ "PILEDRIVER", "BARCELONA" },   .{ "STEAMROLLER", "BARCELONA" }, .{ "EXCAVATOR", "BARCELONA" },
+    .{ "ZEN", "BARCELONA" },          .{ "ARMV8", "ARMV7" },           .{ "POWER8", "POWER6" },
+    .{ "POWER9", "POWER6" },          .{ "POWER10", "POWER6" },
+};
+
+/// The `getarch.c` entry a 32-bit build of the upper-case target `core` takes.
+pub fn target32(core: []const u8) []const u8 {
+    for (binary32_targets) |t| {
+        if (std.mem.eql(u8, t[0], core)) return t[1];
+    }
+    return core;
+}
+
 /// The `-D` symbols getarch puts in a core's `config.h` (its `ARCHCONFIG`,
 /// then `CORE_<CORENAME>`), from its `FORCE_<core>` block in `getarch.c`;
 /// null when there is none. A block that falls back for `NO_AVX2` and the

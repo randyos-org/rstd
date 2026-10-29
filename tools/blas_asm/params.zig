@@ -39,8 +39,11 @@ const families = [_]Family{
     .{ .name = "x86", .core_type = "X86CoreType", .target = "x86-linux-gnu", .defines = &.{ "-DARCH_X86", "-DBINARY32", "-D__32BIT__" } },
     .{ .name = "arm64", .core_type = "Arm64CoreType", .target = "aarch64-linux-gnu", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-D__64BIT__", "-DARMV8" } },
     .{ .name = "arm", .core_type = "ArmCoreType", .target = "arm-linux-gnueabihf", .defines = &.{ "-DARCH_ARM", "-DBINARY32", "-D__32BIT__" }, .renames = &.{ .{ "neon", "ARMV7" }, .{ "vfpv4", "ARMV7,CORTEXA15" } } },
+    // `PPC970`'s unrolls follow the byte order
     .{ .name = "power64", .core_type = "PowerCoreType", .target = "powerpc64le-linux-gnu", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-D__64BIT__", "-DOS_LINUX" } },
+    .{ .name = "power64be", .core_type = "PowerCoreType", .target = "powerpc64-linux-musl", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-D__64BIT__", "-DOS_LINUX", "-U__BYTE_ORDER__", "-D__BYTE_ORDER__=__ORDER_BIG_ENDIAN__" } },
     .{ .name = "power32", .core_type = "PowerCoreType", .target = "powerpc-linux-musleabihf", .defines = &.{ "-DARCH_POWER", "-DBINARY32", "-D__32BIT__", "-DOS_LINUX", "-U__BYTE_ORDER__", "-D__BYTE_ORDER__=__ORDER_BIG_ENDIAN__" } },
+    .{ .name = "power32le", .core_type = "PowerCoreType", .target = "powerpc-linux-musleabihf", .defines = &.{ "-DARCH_POWER", "-DBINARY32", "-D__32BIT__", "-DOS_LINUX" } },
     .{ .name = "riscv64", .core_type = "RiscvCoreType", .target = "riscv64-linux-gnu", .defines = &.{ "-DARCH_RISCV64", "-DBINARY64", "-D__64BIT__" } },
     .{ .name = "s390x", .core_type = "S390xCoreType", .target = "s390x-linux-gnu", .defines = &.{ "-DARCH_ZARCH", "-DBINARY64", "-D__64BIT__" } },
     .{ .name = "mips64", .core_type = "MipsCoreType", .target = "mips64el-linux-gnuabi64", .defines = &.{ "-DARCH_MIPS64", "-DBINARY64", "-D__64BIT__" } },
@@ -185,23 +188,35 @@ fn writeProngs(a: std.mem.Allocator, out: *std.ArrayList(u8), names: []const []c
 /// What `getarch.c` puts in a core's `config_kernel.h` when `Makefile.system`
 /// builds its `DYNAMIC_ARCH` kernel (`-DFORCE_<core>`): `ARCHCONFIG`'s `-D`
 /// macros (subarch such as `PENTIUM3`, cache sizes, `HAVE_*`, the DTB) plus
-/// `CORE_<CORENAME>`. `param.h` keys some cores on these, not on `CORE_`.
+/// `CORE_<CORENAME>`. `param.h` keys some cores on these, not on `CORE_`. A
+/// 32-bit build takes its target's fallback entry (`map.target32`) and adds
+/// `NO_AVX`, `NO_AVX2` and `NO_AVX512`, as `Makefile.system` does.
 const Config = struct { defines: []const []const u8, dtb: ?i64 };
+
+fn binary32(fam: Family) bool {
+    for (fam.defines) |d| {
+        if (std.mem.eql(u8, d, "-DBINARY32")) return true;
+    }
+    return false;
+}
 
 /// The config of the first entry found among: the core's own name, `macro`'s
 /// parts (last first), the entry whose `CORENAME` is the core's
 /// (`forceOf`). Preprocessing is enough to read it, and works for any target.
 fn coreConfig(a: std.mem.Allocator, io: std.Io, checkout: []const u8, getarch: []const u8, fam: Family, core: []const u8, macro: []const u8) !?Config {
+    const b32 = binary32(fam);
     var cands: std.ArrayList([]const u8) = .empty;
-    try cands.append(a, try upper(a, core));
+    const own = try upper(a, core);
+    try cands.append(a, if (b32) map.target32(own) else own);
     var parts = std.mem.splitBackwardsScalar(u8, macro, ',');
     while (parts.next()) |part| try cands.append(a, part);
     if (forceOf(getarch, cands.items[0])) |f| try cands.append(a, f);
     for (cands.items) |name| {
-        const cc = try std.process.run(a, io, .{ .argv = &.{
-            "zig",                               "cc",      "-E",       "-dM", "-w",     "-DDYNAMIC_ARCH",
-            try a.print("-DFORCE_{s}", .{name}), "-target", fam.target, "-I",  checkout, try map.path(&.{ checkout, "getarch.c" }),
-        } });
+        var argv: std.ArrayList([]const u8) = .empty;
+        try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-dM", "-w", "-DDYNAMIC_ARCH", try a.print("-DFORCE_{s}", .{name}) });
+        if (b32) try argv.appendSlice(a, &.{ "-DNO_AVX", "-DNO_AVX2", "-DNO_AVX512" });
+        try argv.appendSlice(a, &.{ "-target", fam.target, "-I", checkout, try map.path(&.{ checkout, "getarch.c" }) });
+        const cc = try std.process.run(a, io, .{ .argv = argv.items });
         const ok = switch (cc.term) {
             .exited => |c| c == 0,
             else => false,

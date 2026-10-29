@@ -581,7 +581,10 @@ complex, for every float type, through the same code.
   AVX-512 parts pick their sets by cache size and thread count. `OPENBLAS_BLOCK_FACTOR` scales a
   computed `p` as `driver/others/parameter.c` does; OpenBLAS ignores it in dynamic builds.
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
-  extracts into `params_data.zig` (`dtbFor`).
+  extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
+  fallback entries (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
+  to 10 POWER6's), as do the 32-bit x86 kernels' `config.h` macros; POWER's tables also follow
+  the byte order (`PPC970`'s unrolls).
 - **Not ported.** `gemm3m`, `symm3m`, `hemm3m` (their slots and wrappers exist), the
   small-matrix kernels, bfloat16 and half-precision level 3, and threading.
 
