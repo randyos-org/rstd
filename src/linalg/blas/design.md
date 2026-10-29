@@ -548,7 +548,8 @@ complex, for every float type, through the same code.
   `sa`/`sb` path, which needs `unroll_m == unroll_n`, is not taken. `trmm` and `trsm` follow
   `trmm_L.c`, `trmm_R.c`, `trsm_L.c` and `trsm_R.c` loop for loop.
 - **`beta`.** Each block of `C` is scaled by `beta` just before the first depth slice first
-  touches it, while it is in cache, not in a pass of its own (BLIS's first-`KC` `beta`); `trmm`'s
+  touches it, while it is in cache, not in a pass of its own (BLIS's first-`KC` `beta`,
+  `frame/3/gemm/bli_gemm_blk_var3.c:92`); `trmm`'s
   and `trsm`'s `alpha` goes where each part of `B` is first read. The same multiplies as a pass
   first, so the same bits; a zero `beta` writes zeros without reading `C`. `alpha == 0` and
   `k == 0` keep the separate pass.
@@ -884,7 +885,7 @@ Where the port differs from `dynamic*.c`:
 - **power.** POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440, static targets
   upstream, are told apart by `AT_PLATFORM`, the PVR or the ISA bits, so none runs a later
   generation's code. A CPU nothing names gets the portable kernels (the reference guesses
-  POWER8, `dynamic_power.c:344-346`). AIX is not a Zig target.
+  POWER8, `dynamic_power.c:344-346`). AIX is not a Zig target (`std.Target.Os.Tag` has no `aix`).
 - **mips.** The reference tests `HWCAP_LOONGSON_CPUCFG` the wrong way round
   (`dynamic_mips64.c:168`) and its `cpucfg` word (`0xc8080118`, `:122`) has both registers zero; both are corrected, unverified on hardware.
 
