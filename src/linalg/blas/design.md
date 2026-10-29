@@ -1135,8 +1135,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   indexing stopped), but macOS 27's indexing daemons (`mediaanalysisd`, `spotlightknowledged`,
   `textunderstandingd`) cannot be stopped with SIP on: `launchctl disable` does not survive a
   reboot and `bootout` is refused. So a run starts when no QEMU runs and the one-minute load is
-  under 10, each run is made twice and a row kept only where the two agree within 10%, the load
-  before and after is recorded, and a ratio within 10% of parity is reported as within noise;
+  under 10, each run is made twice and a row kept only where the two agree within 3%, the load
+  before and after is recorded, and a ratio within 3% of parity is reported as within noise;
   multithreaded rows are indicative only.
 - **Level-3 threading follows BLIS** (2026-10-29): `jc x ic` ways sharing packed `B` through
   barriers, written from BLIS's published design (Van Zee and van de Geijn), not its code. Where
