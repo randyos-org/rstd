@@ -1459,7 +1459,9 @@ yet set `ipiv` first. For a denormal or NaN pivot, columns `0..j` keep their
 rows while the later columns and `getrf_single.c`'s interchanges take the
 swap, and `L(:, j)` stays unscaled: `P L U` is not `A`, and `info` is 0.
 Reference LAPACK's `xGETRF2` swaps for any nonzero pivot and divides by one
-below the safe minimum.
+below the safe minimum. The threshold came in with
+<https://github.com/OpenMathLib/OpenBLAS/pull/3924> (2023, against overflow in
+`1/p`; then `1e-305`, now `DBL_MIN`/`FLT_MIN`).
 
 - **Workaround:** rstd's `getrf` swaps and divides as the reference does
   (`src/linalg/lapack/lu.zig`).
