@@ -1175,21 +1175,29 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
   only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
   periodically over batches, not per change.
-- **The BLAS is the one public API for SIMD-like math** (2026-10-29). Callers never choose a
-  backend: per target `rstd.linalg.blas` runs the per-core kernels, `@Vector` code, Accelerate
-  or native SPIR-V instructions. `rstd.simd` folds into it, its building blocks becoming the
-  BLAS's internal layer and its slice reductions BLAS routines (todo.md, M3). One linear
-  algebra API on CPU and GPU, so shader code reads like CPU SIMD code; under SPIR-V the BLAS
-  lowers each operation to SPIR-V's own instruction wherever one exists, since that is always
-  the fastest there.
+- **`rstd.linalg` is the public API; the BLAS is an implementation detail** (2026-10-29). The
+  aim is a MATLAB-like library: callers pass vectors and matrices of any size and `linalg` picks
+  the implementation; callers never choose a backend. `linalg.vector` takes fixed-size vectors
+  and small matrices by value, with math names (`dot`, `length`, `cross`). Per size it runs
+  inline `@Vector` code or calls the BLAS; the crossover is measured, not guessed, and 2-, 3- and
+  4-element forms likely stay inline. The choice depends only on size and target, so a call
+  gives the same bits every time. The BLAS keeps its slice and stride routines for `linalg` to
+  call. `rstd.simd` splits between them: slice reductions become BLAS routines, element-wise
+  helpers (`mix`, `mulAdd`) move to `linalg.vector` (todo.md, M3). Under SPIR-V each operation is
+  SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`), used as is,
+  not rebuilt or tuned: the goal is one API, not GPU speed.
+- **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
+  thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
+  the driver sets its instructions' precision and may fuse `a*b + c`, so Vulkan's precision
+  rules apply there.
 - **Shaders keep their own API** (2026-10-29). `src/rgl/shaders/lib/` (shaderlib) is the one API
   shader code uses: the standard library for SPIR-V, with GLSL-friendly names that alias or wrap
-  BLAS calls where the BLAS has the operation (`dot`, the matrix-vector products). `cross` moves
-  to `rstd.linalg.vector`, a general vector operation shaderlib re-exports; `normalize`,
-  `reflect`, `refract`, `faceforward`, `smoothstep`, `fract` and `step` stay in shaderlib, as
-  shader operations lowered to SPIR-V's own instructions. Shaderlib is the developer-friendly
-  face, not a second implementation: everything a shader calls ends in a SPIR-V instruction
-  where one exists, through the BLAS or directly.
+  `linalg` calls where `linalg` has the operation (`dot`, `length`, the matrix-vector products).
+  `cross` moves to `rstd.linalg.vector`, which shaderlib re-exports; `normalize`, `reflect`,
+  `refract`, `faceforward`, `smoothstep`, `fract` and `step` stay in shaderlib, as shader
+  operations lowered to SPIR-V's own instructions. Shaderlib is the developer-friendly face, not
+  a second implementation: everything a shader calls ends in a SPIR-V instruction where one
+  exists, through `linalg` or directly.
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
   inherit it (x86 Windows starts them at 53-bit x87 precision where the main thread has 64-bit;
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
