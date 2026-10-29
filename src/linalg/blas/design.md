@@ -1253,9 +1253,10 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   in `_test/from_openblas/__root__.zig`: `xerbla` and bad letters (only the letters a type
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
-- **Pending.** `blat3` runs every level-3 routine through the flat API. Still skipped:
-  LAPACK's `potrf`/`potrs` and the `dgesvd` regression (`utest.zig`), and `bgemm` in
-  `utest_ext.zig`, which waits for bfloat16 level 3.
+- **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
+  runs through `rstd.linalg.lapack`. Still skipped: the `dgesvd` regression (`utest.zig`),
+  which waits for LAPACK's `gesvd`, and `bgemm` in `utest_ext.zig`, which waits for bfloat16
+  level 3.
 
 ### Rigs
 

@@ -189,6 +189,7 @@ fn Level2(comptime T: type) type {
 
 fn level3() anyerror!void {
     try blat3.all(&blat2.rig_n);
+    try utest.lapackAll();
 }
 
 test "the level-1 suites on every linked core this machine runs" {
