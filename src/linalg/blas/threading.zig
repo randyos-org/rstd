@@ -9,7 +9,9 @@ const sysinfo = @import("builtin");
 const blas = @import("__root__.zig");
 const types = @import("types.zig");
 const Config = @import("Config.zig");
+const util = @import("util.zig");
 
+const FpState = util.FpState;
 const Io = std.Io;
 
 /// The most chunks per call; a reduction keeps one partial each on the stack.
@@ -278,8 +280,9 @@ pub fn planWith(cfg: *const Config, r: Rule, work: u64, len: usize, shape: Shape
 
 /// `f(ctx, chunk)` for every chunk of `p`, on up to `p.workers` workers that
 /// claim chunks in turn; the caller is worker 0, and the rest start through
-/// `Group.async`, so an `Io` that admits fewer runs them inline. Returns once
-/// every task has finished. `error.Canceled` leaves chunks undone.
+/// `Group.async`, so an `Io` that admits fewer runs them inline, and adopt the
+/// caller's floating-point control state (`util.FpState`). Returns once every
+/// task has finished. `error.Canceled` leaves chunks undone.
 pub fn forEach(io: Io, p: *const Plan, ctx: anytype, comptime f: fn (@TypeOf(ctx), Chunk) void) Io.Cancelable!void {
     return forEachIn(io, p, ctx, f, null);
 }
@@ -340,6 +343,8 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
         chunks: *const Chunks,
         order: ?[]const u8,
         next: std.atomic.Value(usize) = .init(0),
+        /// The caller's, which `work` adopts.
+        fp: FpState = undefined,
 
         fn claim(r: *Self, io: Io) Io.Cancelable!void {
             while (true) {
@@ -353,12 +358,15 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
         /// A worker task. It re-arms a cancellation it took: a task run inline
         /// shares the caller's, and `Group` drops the error.
         fn work(r: *Self, io: Io) void {
+            const own = r.fp.adopt();
+            defer if (own) |s| s.apply();
             r.claim(io) catch |err| switch (err) {
                 error.Canceled => io.recancel(),
             };
         }
 
         fn parallel(r: *Self, io: Io, w: usize) Io.Cancelable!void {
+            r.fp = .capture();
             var group: Io.Group = .init;
             // runs before the caller's frame goes; every task has then run
             defer group.cancel(io);
@@ -383,6 +391,7 @@ pub fn checkCancel(io: Io) Io.Cancelable!void {
 /// and wait until the caller has counted them. `job.plan(n)` then sizes the
 /// work for the `n` that started and returns how many take part, and
 /// `job.work(io, i)` runs worker `i`. With none started the caller runs alone.
+/// Workers adopt the caller's floating-point control state, as in `forEach`.
 /// Returns once every task has finished.
 pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     if (comptime sysinfo.single_threaded) {
@@ -391,17 +400,20 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     }
     const Job = @TypeOf(job.*);
     const S = struct {
-        fn worker(j: *Job, go: *Signal, i: u32, wio: Io) void {
+        fn worker(j: *Job, go: *Signal, i: u32, fp: FpState, wio: Io) void {
+            const own = fp.adopt();
+            defer if (own) |s| s.apply();
             const active = go.waitWhile(wio, 0) catch return wio.recancel();
             if (i < active) j.work(wio, i) catch wio.recancel();
         }
     };
+    const fp: FpState = .capture();
     var go: Signal = .{};
     var group: Io.Group = .init;
     // runs first, canceling workers still waiting on `go`
     defer group.cancel(io);
     var started: u32 = 1;
-    while (started < want) : (started += 1) group.concurrent(io, S.worker, .{ job, &go, started, io }) catch break;
+    while (started < want) : (started += 1) group.concurrent(io, S.worker, .{ job, &go, started, fp, io }) catch break;
     go.set(io, job.plan(started));
     try job.work(io, 0);
     try group.await(io);
@@ -665,6 +677,16 @@ const Marks = struct {
     }
 };
 
+/// The ordered fold, without the machinery; `reverse`d, last chunk first.
+fn folded(x: []const f64, chunks: *const Chunks, reverse: bool) f64 {
+    var acc: f64 = 0;
+    for (0..chunks.count) |i| {
+        const part = Sum.partial(.{ .x = x }, chunks.get(if (reverse) chunks.count - 1 - i else i));
+        acc = if (i == 0) part else acc + part;
+    }
+    return acc;
+}
+
 /// The reduction and the element-wise loop on `io`, at every worker count and
 /// in several claim orders, against `expected`.
 fn checkRegions(io: Io, x: []const f64, marks: []u8, chunks: *const Chunks, expected: f64) !void {
@@ -701,17 +723,9 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
     const chunks: Chunks = .init(n, r.chunkCount(n), .even, 1);
     try zigstd.testExpectEqual(@as(usize, chunks_max), chunks.count);
 
-    // the ordered fold, without the machinery
-    var expected: f64 = 0;
-    var reversed: f64 = 0;
-    for (0..chunks.count) |i| {
-        const part = Sum.partial(.{ .x = x }, chunks.get(i));
-        expected = if (i == 0) part else expected + part;
-        const back = Sum.partial(.{ .x = x }, chunks.get(chunks.count - 1 - i));
-        reversed = if (i == 0) back else reversed + back;
-    }
+    const expected = folded(x, &chunks, false);
     // the data can tell the orders apart
-    try zigstd.testExpectTrue(@as(u64, @bitCast(expected)) != @as(u64, @bitCast(reversed)));
+    try zigstd.testExpectTrue(@as(u64, @bitCast(expected)) != @as(u64, @bitCast(folded(x, &chunks, true))));
 
     try checkRegions(Io.failing, x, marks, &chunks, expected);
     if (comptime hosted) {
@@ -720,6 +734,36 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
             defer threaded.deinit();
             try checkRegions(threaded.io(), x, marks, &chunks, expected);
         }
+    }
+}
+
+test "workers adopt the caller's rounding and flush to zero and leave the caller's state as it was" {
+    if (comptime !hosted or FpState.empty) return error.SkipZigTest;
+    const n = 64123;
+    const x = try zigstd.testAllocator.alloc(f64, n);
+    defer zigstd.testAllocator.free(x);
+    const marks = try zigstd.testAllocator.alloc(u8, n);
+    defer zigstd.testAllocator.free(marks);
+    testData(x);
+    const chunks: Chunks = .init(n, chunks_max, .even, 1);
+    const own: FpState = .capture();
+    defer own.apply();
+    const rz = own.towardZero();
+    const nearest = folded(x, &chunks, false);
+    rz.apply();
+    const expected = folded(x, &chunks, false);
+    // the data can tell the modes apart
+    try zigstd.testExpectTrue(@as(u64, @bitCast(nearest)) != @as(u64, @bitCast(expected)));
+    for (test_limits) |limit| {
+        var threaded: Io.Threaded = .init(zigstd.testAllocator, .{ .async_limit = limit });
+        defer threaded.deinit();
+        // workers started under the default state, which a spawned thread
+        // may inherit
+        own.apply();
+        try checkRegions(threaded.io(), x, marks, &chunks, nearest);
+        rz.apply();
+        try checkRegions(threaded.io(), x, marks, &chunks, expected);
+        try zigstd.testExpectTrue(FpState.capture().eql(rz));
     }
 }
 

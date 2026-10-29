@@ -669,8 +669,8 @@ const machines = [_]Machine{
 /// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
 const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "simd." } ++ small_filters);
 
-/// The smaller BLAS test files: types, `fma`, `portable` and `ext`.
-const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext." };
+/// The smaller BLAS test files: types, `fma`, `portable`, `ext` and `util`.
+const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext.", "linalg.blas.util." };
 
 /// Adds the `qemu-test` step and each machine's `qemu-test-<name>` step.
 pub fn addQemuTests(b: *Build, optimize: Optimize) !void {

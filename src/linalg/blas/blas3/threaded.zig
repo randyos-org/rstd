@@ -372,6 +372,7 @@ const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 const guard = @import("../_test/blas2/guard.zig");
 const interface = @import("interface.zig");
+const util = @import("../util.zig");
 
 /// Mixed magnitudes, so a sum's bits follow its order.
 fn fill(comptime T: type, x: []T, seed: u64) void {
@@ -612,6 +613,24 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops 
                 defer threaded.deinit();
                 try routineShapes(T, &vt, threaded.io(), r);
             };
+        }
+    }
+}
+
+test "threaded gemm keeps the serial bits under the caller's rounding toward zero and flush to zero" {
+    if (comptime !threading.hosted or util.FpState.empty) return error.SkipZigTest;
+    const own: util.FpState = .capture();
+    defer own.apply();
+    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    inline for (precisions) |T| {
+        const vt = shrunk(T);
+        const blk = Blocking.of(T, &vt);
+        // the workers start under the default state first
+        for ([_]util.FpState{ own, own.towardZero() }) |s| {
+            s.apply();
+            try shape(T, &vt, threaded.io(), .{ .n, .t }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, scalar(T, -0.75, 0.25), scalar(T, 0.5, -0.125));
+            try zigstd.testExpectTrue(util.FpState.capture().eql(s));
         }
     }
 }
