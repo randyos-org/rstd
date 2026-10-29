@@ -195,7 +195,7 @@ users are not assumed to know. Part of the codebase-wide pass to make rstd more 
 - **`exprecision`** is on for x86 and x86_64 with an x87 unit whose `long double` is 80 bits,
   except on Microsoft-ABI targets (Windows, UEFI), which the reference never builds it for
   (`exprecisionOn`). It assumes the x87 control word's extended precision, as Linux and x64
-  UEFI leave it. Elsewhere `q`/`x` alias `d`/`z`, as in the reference; `blas_types` is a
+  UEFI leave it. Elsewhere, `q`/`x` alias `d`/`z`, as in the reference; `blas_types` is a
   membership list for that reason, since a `switch` cannot hold one type twice.
 - **`quad_precision`** is off; turning it on makes `XDouble` Zig's `f128` (compiler-rt
   arithmetic) and is exclusive with `exprecision`.
@@ -263,7 +263,7 @@ on their own; its test lives in `__root__.zig`.
   built for `T` otherwise; `fetch(T, op, getter)` does the same with the table from
   `blas.vtable` or `blas.table`.
 - `install` fills a vtable with every level's portable kernels (`installGeneric` of `blas1`,
-  `blas2`, `blas3`) and the generic target's blocking; `finish` runs after any core's install:
+  `blas2`, `blas3`) and the generic target's blocking; `finish` runs after any core's installation task:
   it aliases the bfloat16-named slots to the `f32` kernels (`ext/bf16/kernel.zig`'s `alias`) and
   restores the portable gemm kernels' unrolls where those kernels stayed
   (`blas3/gemm/kernel.zig`'s `settle`).
@@ -301,7 +301,7 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   MSA and WebAssembly with `relaxed_simd` (`vector_madd`).
 - **Per-core policy.** A root may declare `blas_fuse_fma` and `blas_fuse_fma_vector`; the
   per-core objects do (`_kernel.zig`), from the core's `Spec.fuse_fma`. The AMD cores' FMA3/FMA4
-  features exist so the assembler accepts their microkernels; their flags leave contraction off.
+  features exist so that the assembler accepts their microkernels; their flags leave contraction off.
 - **Width.** Floats wider than `f64` never fuse (`fuseFor`): `@mulAdd(f80)` is a soft `fmal`
   call, and the x87 kernels never fuse.
 - **Expression rule.** Contraction follows a C compiler's within one expression (clang's
@@ -314,9 +314,9 @@ round a portable kernel differently; reproducibility is per build and core.
 
 ### Denormals and the floating-point environment
 
-rstd never changes the floating-point environment (MXCSR, FPCR, FPSCR, `VSCR`) and assumes IEEE
+Rstd never changes the floating-point environment (MXCSR, FPCR, FPSCR, `VSCR`) and assumes IEEE
 default modes. Denormals are honored everywhere: where a vector unit flushes `f32` denormals
-(ARMv7 NEON, pre-VSX AltiVec), `util.vectorIeee` is false and no kernel puts `f32` in its lanes.
+(ARMv7 NEON, pre-VSX AltiVec), `util.vectorIeee` is false, and no kernel puts `f32` in its lanes.
 
 - The portable `saxpy` takes its scalar loop there; `vector.zig` has no `s` or `c` roles there.
 - The level-3 `f32` tiles are scalar there (`blas3/gemm/kernel.zig`'s `vectorBits`).
@@ -330,7 +330,7 @@ default modes. Denormals are honored everywhere: where a vector unit flushes `f3
 
 ### Per-core kernel objects
 
-OpenBLAS compiles its kernel tree once per core with that core's flags. rstd does the same with
+OpenBLAS compiles its kernel tree once per core with that core's flags. Rstd does the same with
 one object per group of cores whose flags are equal:
 
 ```text
@@ -623,7 +623,7 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   `NEW_IMATCOPY` build does, and else goes through a buffer from its allocator, as its default
   build does; both give the same bits. No `q` or `x` slots, as upstream.
 - **`laswp`** (`lapack/laswp/generic/laswp_k_1.c`): the interchanges as `dlaswp.f` defines
-  them, for any element type, not a vtable slot upstream either. rstd adds checks the reference
+  them, for any element type, not a vtable slot upstream either. Rstd adds checks the reference
   has none of: rows and pivots inside `A`, all pivots checked before the first swap.
 - **`neg_tcopy`, `laswp_ncopy`**: gemm packing copies (`neg_tcopy_*.c` is `gemm_tcopy_*.c`
   negated; `laswp_ncopy_*.c` swaps and packs as `gemm_oncopy`), so they join the gemm kernels'
@@ -779,7 +779,7 @@ Where the port differs from `dynamic*.c`:
 (`Config.fromEnv`); `blas.config` keeps it. Defaults match the reference's unset behavior. Each
 value is read one variable at a time with no allocation, from a map (`blas.init`), a POSIX
 `environ` block, or the Windows PEB (`Config.Env`). A value longer than `value_max` (64 bytes)
-reads as unparseable and falls back to the default (for a core name, to detection).
+reads as not parsable and falls back to the default (for a core name, to detection).
 Initialization also caches the CPU count in `cpu_count` (1 without threads).
 
 | Variable | Field | Effect here |
@@ -932,7 +932,7 @@ The `lsx` and `lasx` kernels under `loongarch64/`, mostly where a stride is not 
 - `axpby_lsx.S`, `axpby_lasx.S`, `caxpby_lsx.S`, `caxpby_lasx.S`, with a zero scalar: the
   elements past the last block were `alpha*x + beta*y` whatever the scalars, from `x` (`y`)
   elements the zero-`alpha` (`beta`) blocks left their pointer at, so a NaN or infinity met the
-  0. The tail now reads neither operand of a zero scalar, as `kernel/arm/axpby.c` does. Double
+  zero. The tail now reads neither operand of a zero scalar, as `kernel/arm/axpby.c` does. Double
   `axpby` also compared the scalars with a single-precision 0 (`ffint.s.l`, upper half
   undefined), so it never took the zero-scalar blocks; and complex, with one stride 1 and the
   other not, has no such blocks, so a zero scalar now goes to the strided ones, which do.
@@ -1095,7 +1095,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   aligned, every such slot takes the `@Vector` kernel, `dot` included: it loads unaligned, and
   its several partial sums bound the error more tightly than one running sum
   ([`readme.md`](readme.md), "No address dependence").
-- **Column-major only** (2026-10-29). rstd has no row-major entry points, and nothing upstream
+- **Column-major only** (2026-10-29). Rstd has no row-major entry points, and nothing upstream
   reaches only from CBLAS's row-major path survives: the Hermitian `Uplo` letters `v`/`m` go
   from `hpmv`, `her`, `hpr`, `her2` and `hpr2`.
 - **`arm-softfp` is softfp** (2026-10-29). The soft-float ABI over the A15's VFPv4 and NEON,
@@ -1125,10 +1125,10 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | A drop-in `libopenblas` (CBLAS and Fortran symbols, `xerbla`) | A Zig API with named errors is the goal; an ABI layer would add the row-major mapping and callbacks for no Zig caller |
 | One function per precision (`dgemm`, `zgemm`) | Duplicates every interface; a comptime type serves every float type, including those without slots |
 | A vtable with fields compiled in or out per build | Every field present and `null` where absent keeps one layout for the main library and every object |
-| Selecting kernels lazily per routine | Eager install keeps a kernel call to one indirect call and the table immutable while kernels run |
+| Selecting kernels lazily per routine | Eager installation keeps a kernel call to one indirect call and the table immutable while kernels run |
 | A mutex around initialization | Brings threading support into freestanding builds; a three-state handshake suffices |
 | The reference's `gotoblas_X` fallback chains | They follow no rule and put SSSE3 code on CPUs without it; the ISA subset rule cannot |
-| Falling back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core; the name is reported |
+| Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core; the name is reported |
 | Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](comparisons.md) (X1) |
 | Reproducing the reference's accumulation order in the portable kernels | Not required for correctness; kept only where a Zig kernel replaces converted code of the same core |
 | Converting the gemm assembly | The Zig tile runs at the measured peak on AVX2 and within a few percent on Apple cores (`notes.md`, `results-m6.md`); one source serves every core |
@@ -1179,7 +1179,7 @@ they run natively too.
 - **No flush tolerance.** Denormals must come out as the reference has them on every core.
 - **Exactness.** Bits are compared only where a Zig kernel models converted code of the same
   core: the x87 sums, the x86_64 `dot` vector blocks (`skylakexModel`), the half-precision
-  `gemv`. The ported C drivers were also compared bit for bit against OpenBLAS's C, compiled with
+  `gemv`. The ported C drivers were also compared bit-for-bit against OpenBLAS's C, compiled with
   a stub `common.h` ([`blas1/c_kernels.md`](blas1/c_kernels.md)).
 
 ### Poisoning and guards
@@ -1233,7 +1233,7 @@ run it, or the full test suite, where no host here can.
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
 | `qemu-test-linux-<arch>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; aarch64, x86_64, arm, riscv64, powerpc64le |
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH | Mach-O at run time on an x86 CPU model |
-| `ssh-test-aarch64-macos` | the full suite on an Apple silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
+| `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
 | `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM |
 | `wasm-test` | WASI under Node with SIMD128 | `blas1`, `blas2` and `simd` on the wasm kernels |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |

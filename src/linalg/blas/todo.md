@@ -222,4 +222,4 @@ Items set aside overnight for a decision; each says what is blocked and where it
   optional SME extension `runnable` does not check; no rstd kernel uses SME yet. Drop it from the
   spec, or require it at run time (new probes for Linux, macOS, Windows, freestanding)? It sits in
   the ISA check's `undecided` list meanwhile (bd6dfe8). Decided (2026-10-29): keep it, and require
-  it at run time so no core is chosen that can fault (`wip/smef64`).
+  it at run time so that no core is chosen that can fault (`wip/smef64`).

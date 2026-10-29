@@ -479,6 +479,7 @@ fcinit
 fcitx
 fclang
 fclist
+FCMA
 fcmatch
 fcmatrix
 FCMLA
@@ -632,6 +633,7 @@ gdb
 gdkwayland
 gdkx
 geadd
+Geijn
 gemmt
 gemmtrsm
 gemv
@@ -1074,6 +1076,7 @@ msimd
 msoffice
 msse
 mssse
+mstatus
 MSUB
 MSVC
 msync
@@ -1394,6 +1397,7 @@ request_key
 restart_syscall
 ret
 retarget
+retime
 revents
 RFLAGS
 rfont
@@ -1631,6 +1635,7 @@ sltu
 slwi
 smap
 smax
+smef
 SMEP
 smin
 SMSW
@@ -1890,6 +1895,7 @@ vdevice
 vDSO
 VECLIB
 vectorizer
+vectorizers
 vectorizing
 vendored
 verts
@@ -2160,7 +2166,10 @@ ZQRDC
 ZQRSL
 zrot
 zrotg
+zsbmv
 zscal
+zspmv
+zspr
 zstr
 zsum
 ZSVDC
