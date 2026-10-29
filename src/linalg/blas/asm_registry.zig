@@ -36,6 +36,7 @@ pub fn isLinked(core: anytype) bool {
 /// the build's pick for the target as the last resort.
 pub fn LinkedCtx(comptime Core: type) type {
     return struct {
+        pub const arch = sysinfo.target.cpu.arch;
         pub const fallback: ?Core = if (linked.fallback) |f| std.meta.stringToEnum(Core, f) else null;
         pub fn ok(_: @This(), core: Core) bool {
             return isLinked(core);

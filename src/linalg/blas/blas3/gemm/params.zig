@@ -619,6 +619,7 @@ test "32-bit builds take Makefile.system's fallback entries" {
 
 /// The 32-bit x86 objects, as a `select.served` context.
 const X86Objects = struct {
+    pub const arch: std.Target.Cpu.Arch = .x86;
     pub const fallback: ?coretypes.X86CoreType = null;
     pub fn ok(_: X86Objects, c: coretypes.X86CoreType) bool {
         return std.mem.findScalar(coretypes.X86CoreType, corespec.kernelCores(.x86), c) != null;
@@ -631,6 +632,24 @@ test "a 32-bit x86 core's serving object has the core's blocking" {
         const k = select.served(coretypes.X86CoreType, c, X86Objects{}) orelse continue;
         try std.testing.expectEqual(tableFor(.x86, c), tableFor(.x86, k));
         try std.testing.expectEqual(dtbFor(.x86, c), dtbFor(.x86, k));
+    }
+}
+
+test "32-bit x86 serves the AVX cores and Zen from their fallbacks' objects" {
+    const X = coretypes.X86CoreType;
+    const pairs = [_][2]X{
+        .{ .sandybridge, .nehalem },  .{ .haswell, .nehalem },        .{ .skylakex, .nehalem },
+        .{ .cooperlake, .nehalem },   .{ .sapphirerapids, .nehalem }, .{ .bulldozer, .barcelona },
+        .{ .piledriver, .barcelona }, .{ .steamroller, .barcelona },  .{ .excavator, .barcelona },
+        .{ .zen, .barcelona },
+    };
+    for (pairs) |p| {
+        try std.testing.expect(std.mem.findScalar(X, corespec.kernelCores(.x86), p[0]) == null);
+        try std.testing.expectEqual(@as(?X, p[1]), select.served(X, p[0], X86Objects{}));
+        try std.testing.expectEqual(tableFor(.x86, p[0]), tableFor(.x86, p[1]));
+        try std.testing.expectEqual(dtbFor(.x86, p[0]), dtbFor(.x86, p[1]));
+        // 64-bit builds keep them
+        try std.testing.expect(std.mem.findScalar(X, corespec.kernelCores(.x86_64), p[0]) != null);
     }
 }
 

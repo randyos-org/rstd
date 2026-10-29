@@ -114,13 +114,15 @@ pub fn closest(comptime Core: type, want: Core, ctx: anytype, mode: Mode) ?Core 
     return best;
 }
 
-/// The core whose kernels serve `core`: itself if `linked` has its object, else the
-/// closest one it covers, else `linked.fallback` (the build's pick for the
-/// target, which the target CPU runs); null for the portable kernels. `linked`
-/// has `ok(core)` (whether the object is linked) and a `fallback` declaration.
+/// The core whose kernels serve `core`: the core whose object it takes
+/// (`corespec.objectCore`) if `linked` has that object, else the closest one
+/// that covers, else `linked.fallback` (the build's pick for the target, which
+/// the target CPU runs); null for the portable kernels. `linked` has `ok(core)`
+/// (whether the object is linked) and `fallback` and `arch` declarations.
 pub fn served(comptime Core: type, core: Core, linked: anytype) ?Core {
-    if (linked.ok(core)) return core;
-    return closest(Core, core, linked, .subset) orelse @TypeOf(linked).fallback;
+    const want = corespec.objectCore(@TypeOf(linked).arch, core);
+    if (linked.ok(want)) return want;
+    return closest(Core, want, linked, .subset) orelse @TypeOf(linked).fallback;
 }
 
 /// The reference's static-only `TARGET`s that no detector returns: only
@@ -319,6 +321,7 @@ const Log = struct {
 
 fn LinkedList(comptime list: []const X86) type {
     return struct {
+        pub const arch: std.Target.Cpu.Arch = .x86_64;
         pub const fallback: ?X86 = null;
         pub fn ok(_: @This(), c: X86) bool {
             return std.mem.findScalar(X86, list, c) != null;
@@ -428,13 +431,14 @@ test "choose: an unknown name is reported and detection decides" {
     try std.testing.expect(log2.has("Core not found"));
 }
 
-/// The cores of `arch` with objects, as a `served` context.
-fn Objects(comptime arch: std.Target.Cpu.Arch) type {
-    const Core = corespec.CoreType(arch);
+/// The cores of `of` with objects, as a `served` context.
+fn Objects(comptime of: std.Target.Cpu.Arch) type {
+    const Core = corespec.CoreType(of);
     return struct {
+        pub const arch = of;
         pub const fallback: ?Core = null;
         pub fn ok(_: @This(), c: Core) bool {
-            return std.mem.findScalar(Core, corespec.kernelCores(arch), c) != null;
+            return std.mem.findScalar(Core, corespec.kernelCores(of), c) != null;
         }
     };
 }

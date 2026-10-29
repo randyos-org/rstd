@@ -193,6 +193,7 @@ test "the SIMD cores need MSA, as their objects are built with it" {
 
 test "no CPU is given a core it cannot run" {
     const Linked = struct {
+        pub const arch: std.Target.Cpu.Arch = .mips64;
         pub const fallback: ?CoreType = null;
         pub fn ok(_: @This(), _: CoreType) bool {
             return true;

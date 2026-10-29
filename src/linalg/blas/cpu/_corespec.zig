@@ -265,7 +265,7 @@ pub fn Detector(comptime arch: std.Target.Cpu.Arch) type {
 pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
     return switch (arch) {
         .x86_64 => &.{ .prescott, .atom, .core2, .penryn, .dunnington, .nehalem, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids },
-        .x86 => &.{ .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .core2, .penryn, .dunnington, .nehalem, .athlon, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .zen, .p5, .p6, .viac3, .yonah },
+        .x86 => &.{ .katmai, .coppermine, .northwood, .prescott, .banias, .atom, .core2, .penryn, .dunnington, .nehalem, .athlon, .opteron, .opteron_sse3, .barcelona, .nano, .bobcat, .p5, .p6, .viac3, .yonah },
         .aarch64 => &.{ .armv8, .cortexa53, .cortexa57, .cortexa72, .cortexa73, .falkor, .thunderx, .thunderx2t99, .tsv110, .emag8180, .neoversen1, .neoversev1, .neoversev2, .neoversen2, .thunderx3t110, .cortexa55, .armv8sve, .a64fx, .armv9sme, .vortex, .vortexm4, .cortexa76, .cortexa510, .cortexa710, .cortexx1, .cortexx2, .ampere1, .ft2000 },
         .arm => &.{ .armv6, .armv7, .cortexa9, .cortexa15 },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => &.{ .power6, .power8, .power9, .power10, .power3, .power4, .power5, .ppc970, .cell, .ppc440, .ppc440fp2, .ppcg4 },
@@ -276,6 +276,21 @@ pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
         .sparc, .sparc64 => &.{ .sparcv7, .sparc },
         .wasm32, .wasm64 => &.{.wasm128_generic},
         else => &.{},
+    };
+}
+
+/// The core whose object serves `core` on `arch`. On 32-bit x86 the AVX cores
+/// and Zen take `Makefile.system`'s 32-bit fallbacks (Nehalem; Barcelona for
+/// the Bulldozer family and Zen), whose kernels and blocking they share there,
+/// so they get no object of their own.
+pub fn objectCore(comptime arch: std.Target.Cpu.Arch, core: CoreType(arch)) CoreType(arch) {
+    return switch (arch) {
+        .x86 => switch (core) {
+            .sandybridge, .haswell, .skylakex, .cooperlake, .sapphirerapids => .nehalem,
+            .bulldozer, .piledriver, .steamroller, .excavator, .zen => .barcelona,
+            else => core,
+        },
+        else => core,
     };
 }
 

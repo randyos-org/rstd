@@ -581,6 +581,7 @@ test "no SME core is chosen without F64F64" {
     }.f);
     // nor by name
     const Linked = struct {
+        pub const arch: std.Target.Cpu.Arch = .aarch64;
         pub const fallback: ?CoreType = null;
         pub fn ok(_: @This(), _: CoreType) bool {
             return true;

@@ -55,7 +55,7 @@ serves in its place, is in the generated `coverage.md` files (every `blas1/<rout
 | Architecture | Cores |
 | --- | --- |
 | x86_64 | `prescott`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `sandybridge`, `bobcat`, `bulldozer`, `piledriver`, `haswell`, `steamroller`, `excavator`, `zen`, `skylakex`, `cooperlake`, `sapphirerapids` |
-| x86 | `katmai`, `coppermine`, `northwood`, `prescott`, `banias`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `athlon`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `sandybridge`, `bobcat`, `bulldozer`, `piledriver`, `haswell`, `zen`, `p5`, `p6`, `viac3`, `yonah` |
+| x86 | `katmai`, `coppermine`, `northwood`, `prescott`, `banias`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `athlon`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `bobcat`, `p5`, `p6`, `viac3`, `yonah`; the AVX cores and Zen run `nehalem`'s or `barcelona`'s, as upstream's 32-bit builds do |
 | aarch64 | `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `falkor`, `thunderx`, `thunderx2t99`, `thunderx3t110`, `tsv110`, `emag8180`, `neoversen1`, `neoversen2`, `neoversev1`, `neoversev2`, `armv8sve`, `a64fx`, `armv9sme`, `vortex`, `vortexm4`, `cortexa76`, `cortexa510`, `cortexa710`, `cortexx1`, `cortexx2`, `ampere1`, `ft2000` |
 | arm | `armv6`, `armv7`, `cortexa9`, `cortexa15` |
 | powerpc, powerpc64 | `power3`, `power4`, `power5`, `power6`, `power8`, `power9`, `power10`, `ppc970`, `cell`, `ppc440`, `ppc440fp2`, `ppcg4` |

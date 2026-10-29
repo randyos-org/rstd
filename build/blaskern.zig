@@ -225,7 +225,7 @@ fn pickTarget(
 ) ?struct { group: usize, core: []const u8 } {
     if (comptime arch_tag == sysinfo.target.cpu.arch) {
         if (target.query.isNativeCpu()) {
-            const name = @tagName(corespec.Detector(arch_tag).detect());
+            const name = @tagName(corespec.objectCore(arch_tag, corespec.Detector(arch_tag).detect()));
             for (groups, 0..) |g, i| {
                 for (g.cores.items) |c| {
                     if (std.mem.eql(u8, c, name)) return .{ .group = i, .core = c };

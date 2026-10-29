@@ -765,7 +765,10 @@ other targets cannot assemble.
 2. **Which object.** A core with no kernel object in the build (excluded by `-Dblas-cores`, or
    with no kernels at all) is served by the closest linked core that needs no feature it lacks
    (`select.served`), else by the build's pick for the target, else by the portable kernels.
-   The served core's parameters are used too. The result is `Chosen{ core, served }`.
+   The served core's parameters are used too. The result is `Chosen{ core, served }`. On 32-bit
+   x86 the AVX cores and Zen have no objects: as in `Makefile.system`'s 32-bit fallbacks, they
+   take Nehalem's, the Bulldozer family and Zen Barcelona's (`corespec.objectCore`), whose
+   kernels and blocking are theirs there.
 
 "Closest" is decided by instruction set, not by a table: `select.Sets` derives each core's
 feature set from its `Spec` (dependencies included, tuning-only features removed), and `closest`
