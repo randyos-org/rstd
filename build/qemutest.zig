@@ -162,9 +162,17 @@ const machines = [_]Machine{
         } },
     },
     .{
-        // the soft-float ABI: floats in integer registers, the kernels' `sf` variant
+        // the soft-float ABI over the A15's FPU (softfp): floats in integer
+        // registers, the kernels' `sf` variant; the features pinned as in
+        // `arm`, since Zig 0.18's model has none and 0.17's had them
         .name = "arm-softfp",
-        .query = .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 } },
+        .query = .{
+            .cpu_arch = .arm,
+            .os_tag = .freestanding,
+            .abi = .eabi,
+            .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a15 },
+            .cpu_features_add = std.Target.arm.featureSet(&.{ .vfp4, .neon, .d32, .hwdiv, .hwdiv_arm }),
+        },
         .qemu = "qemu-system-arm",
         .args = &.{ "-M", "virt", "-cpu", "cortex-a15" },
         .boot = .{ .kernel = .{
