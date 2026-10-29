@@ -387,57 +387,74 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     }
     const Job = @TypeOf(job.*);
     const S = struct {
-        fn worker(j: *Job, go: *std.atomic.Value(u32), i: u32, wio: Io) void {
-            const active = waitWhile(wio, go, 0) catch return wio.recancel();
+        fn worker(j: *Job, go: *Signal, i: u32, wio: Io) void {
+            const active = go.waitWhile(wio, 0) catch return wio.recancel();
             if (i < active) j.work(wio, i) catch wio.recancel();
         }
     };
-    var go: std.atomic.Value(u32) = .init(0);
+    var go: Signal = .{};
     var group: Io.Group = .init;
     // runs first, canceling workers still waiting on `go`
     defer group.cancel(io);
     var started: u32 = 1;
     while (started < want) : (started += 1) group.concurrent(io, S.worker, .{ job, &go, started, io }) catch break;
-    go.store(job.plan(started), .release);
-    if (started > 1) io.futexWake(u32, &go.raw, std.math.maxInt(u32));
+    go.set(io, job.plan(started));
     try job.work(io, 0);
     try group.await(io);
 }
 
-/// Waits until `v` holds other than `old`; returns what it holds.
-pub fn waitWhile(io: Io, v: *const std.atomic.Value(u32), old: u32) Io.Cancelable!u32 {
-    while (true) {
-        const x = v.load(.acquire);
-        if (x != old) return x;
-        try io.futexWait(u32, &v.raw, old);
-    }
-}
+/// Spins of a wait before it sleeps: about 90 us on Zen 3, where a
+/// `spinLoopHint` (`pause`) takes 21 ns. BLIS and OpenBLAS spin without
+/// bound; the bound lets a fiber `Io` run the peer a waiter waits on, and a
+/// canceled waiter reach its futex.
+pub const spin_limit = 1 << 12;
 
-/// Waits until `v` holds `want`.
-pub fn waitFor(io: Io, v: *const std.atomic.Value(u32), want: u32) Io.Cancelable!void {
-    while (true) {
-        const x = v.load(.acquire);
-        if (x == want) return;
-        try io.futexWait(u32, &v.raw, x);
-    }
-}
+/// A word workers wait on to change. They spin first, as BLIS's
+/// `bli_thrcomm_barrier_atomic` and OpenBLAS's `level3_thread.c` do, then
+/// sleep on a futex; setters wake only when someone sleeps.
+pub const Signal = struct {
+    value: std.atomic.Value(u32) = .init(0),
+    sleepers: std.atomic.Value(u32) = .init(0),
 
-/// A reusable futex barrier of `parties` workers.
+    /// Waits until the value is other than `old`; returns it.
+    pub fn waitWhile(s: *Signal, io: Io, old: u32) Io.Cancelable!u32 {
+        for (0..spin_limit) |_| {
+            const x = s.value.load(.acquire);
+            if (x != old) return x;
+            std.atomic.spinLoopHint();
+        }
+        while (true) {
+            // with `set`'s order, either it sees this sleeper or this sees its value
+            _ = s.sleepers.fetchAdd(1, .seq_cst);
+            defer _ = s.sleepers.fetchSub(1, .monotonic);
+            const x = s.value.load(.seq_cst);
+            if (x != old) return x;
+            try io.futexWait(u32, &s.value.raw, old);
+        }
+    }
+
+    pub fn set(s: *Signal, io: Io, v: u32) void {
+        s.value.store(v, .seq_cst);
+        if (s.sleepers.load(.seq_cst) != 0) io.futexWake(u32, &s.value.raw, std.math.maxInt(u32));
+    }
+};
+
+/// A reusable sense-reversing barrier of `parties` workers
+/// (`bli_thrcomm_barrier_atomic`), waiting as `Signal` does.
 pub const Barrier = struct {
     parties: u32,
-    arrived: std.atomic.Value(u32) = .init(0),
-    phase: std.atomic.Value(u32) = .init(0),
+    arrived: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
+    phase: Signal align(std.atomic.cache_line) = .{},
 
     pub fn wait(b: *Barrier, io: Io) Io.Cancelable!void {
         if (b.parties <= 1) return;
-        const p = b.phase.load(.acquire);
+        const p = b.phase.value.load(.monotonic);
         if (b.arrived.fetchAdd(1, .acq_rel) + 1 == b.parties) {
             b.arrived.store(0, .monotonic);
-            b.phase.store(p +% 1, .release);
-            io.futexWake(u32, &b.phase.raw, std.math.maxInt(u32));
+            b.phase.set(io, p +% 1);
             return;
         }
-        _ = try waitWhile(io, &b.phase, p);
+        _ = try b.phase.waitWhile(io, p);
     }
 };
 

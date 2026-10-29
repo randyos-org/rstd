@@ -9,12 +9,14 @@
 //! order the reference numbers them for `xerbla`, so the first bad one wins.
 //! Leading dimensions are checked against `max(1, rows)`, as the reference
 //! BLAS does (OpenBLAS lets `0` through for empty matrices). Packing space
-//! comes from `allocator`; small problems use the stack. `io` is for the
-//! threading to come (`threading.md`); every routine is serial.
+//! comes from `allocator`; small problems use the stack. `gemm` threads on
+//! `io` above its threshold (`threading.md`); the others are serial.
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
 const driver = @import("driver.zig");
+const threaded = @import("threaded.zig");
+const threading = @import("../threading.zig");
 const types = @import("../types.zig");
 const portable = @import("../portable.zig");
 const util = @import("../util.zig");
@@ -84,7 +86,8 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, trans
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
     if (accel.gemm(T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
-    try driver.gemm(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
+    const w = threaded.workers(.gemm, T, threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) }));
+    try driver.gemm(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
 /// `?GEMMT` (`interface/gemmt.c`): `C := alpha*op(A)*op(B) + beta*C` on the

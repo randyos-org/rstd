@@ -2,9 +2,9 @@
 
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
-without threads. Plan step 1 is implemented (`threading.zig`); no routine threads yet. Upstream references are to the
-OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
-`lib/std` at 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md);
+without threads. Plan steps 1 and 2 are implemented (`threading.zig`, `blas3/threaded.zig`):
+`gemm` threads, the other routines do not yet. Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
+`lib/std` at 0.18.0-dev.751, BLIS references to its tag 2.1. The library's overall structure is in [`design.md`](design.md);
 how this rule compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
 ## Requirements
@@ -57,6 +57,18 @@ core no result depends on where its operands lie in memory. Pinning the core typ
 
 Because levels 1 and 2 split by thread count, OpenBLAS's reductions and per-thread-buffer
 routines change their low bits when the thread count changes.
+
+### BLIS
+
+- **Loops.** Five loops around the microkernel: `jc` (`NC` columns), `pc` (`KC` depth), `ic`
+  (`MC` rows), `jr` and `ir` (register tiles). Each `pc` step packs a `KC x NC` panel of `B`,
+  each `ic` step an `MC x KC` block of `A`.
+- **Threads.** Ways of parallelism per loop; `pc` is not split for `gemm`. Given a thread
+  count, `bli_rntm_factorize` splits it `ic x jc` by `bli_thread_partition_2x2` (`m / ic`
+  near `n / jc`), then moves up to 4 of `jc` to `jr`. Threads that share a packed buffer pack
+  it together and meet at a barrier before and after (`bli_packm_int.c`).
+- **Waiting.** `bli_thrcomm_barrier_atomic` is a sense-reversing barrier; waiters spin on an
+  empty loop without bound.
 
 ### std.Io
 
@@ -135,23 +147,44 @@ Element-wise routines (`axpy`, `scal`, `swap`, `rot`, `gemv` over rows, `ger`) c
 output in exactly one chunk, so the split cannot change their results. Below the threshold a
 routine makes one kernel call, as in a single-threaded build, which gives the same bits.
 
-### Level 3: OpenBLAS's shared packed B
+### Level 3: BLIS's shared packed B
 
-`gemm` and the other level 3 routines follow `level3_thread.c`: the `CNAME` grid, with
-threads in an N group sharing each other's packed `B`. Because producers wait for consumers,
-every worker must run concurrently, and `Group.async`'s inline fallback would deadlock. The
-protocol is therefore built on `Group.concurrent`:
+`gemm` follows BLIS's model (Van Zee and van de Geijn's papers on BLIS and its many-threaded
+`gemm`; `docs/Multithreading.md`), written from that design rather than ported
+(`blas3/threaded.zig`). Its loops, packing, kernels and depth slices are the serial driver's.
 
-- **All-or-nothing start.** The caller spawns `w - 1` workers, each of which first waits on a
-  start barrier. The caller counts the workers that actually started, builds the grid for
-  that count, then releases them. With none started it runs serially. No worker ever waits
-  for a peer that does not exist.
-- **Cap.** `concurrent_limit` defaults to unlimited, so `w` is the cap.
-- **Waiting.** Workers wait with `io.futexWait`/`futexWake` rather than spinning, so a
-  fiber-based `Io` (`Io.Evented`) is not blocked.
-- **Reproducibility.** The grid depends on the worker count, but every element of `C` is
-  computed by one worker and the `k` blocking (`Blocking.split`) does not depend on the
-  split, so results match the serial path bit for bit.
+- **Ways.** `w` workers split `C` `ic x jc` ways: the most workers that leave each part a row
+  panel and a column panel, then the least packing, `n * ic + m * jc` (as BLIS's
+  `bli_thread_partition_2x2` balances `m / ic` against `n / jc`), more `ic` on a tie. Row
+  ranges start on `unroll_m`, column ranges on `unroll_n`. BLIS's `jr` and `ir` ways pay where
+  threads share an L2, which `Io.Threaded` cannot arrange without affinity; not used.
+- **Packing.** Each `jc` group owns one buffer for a depth slice of its columns of `op(B)`, at
+  most `R` wide; its `ic` workers pack equal shares of the slice's column chunks into it. Each
+  worker packs its own `P`-row blocks of `op(A)` into a buffer of its own.
+- **Two barriers per slice**, as BLIS's `bli_packm_int.c`: one before packing (every peer is
+  done with the last slice) and one after (the slice is whole). The first slice skips the first.
+- **Fused packing.** A worker multiplies each of its own chunks with its first row block of
+  `op(A)` as it packs it, before the second barrier, while the chunk is in cache; OpenBLAS's
+  `level3_thread.c` does the same with its own share of `B`.
+- **Start.** `threading.team` spawns `w - 1` workers through `Group.concurrent`; each waits
+  until the caller has counted those that started, and the ways are sized for that count.
+  None started, the caller runs alone. No worker waits for a peer that does not exist, so the
+  call cannot deadlock when the `Io` admits fewer; `Group.async`'s inline fallback would.
+- **Waiting.** BLIS and OpenBLAS both spin without bound inside a call: BLIS's
+  `bli_thrcomm_barrier_atomic` on an empty loop, OpenBLAS's `level3_thread.c` with `YIELDING`
+  (eight `nop`s on x86_64, arm, POWER and riscv64; `YieldProcessor` under MSVC;
+  `sched_yield` or `SwitchToThread` elsewhere). rstd spins too, checking the word around each
+  `std.atomic.spinLoopHint` (`pause`, `isb`), but at most `spin_limit` (4096) times, about
+  90 us on Zen 3, before it sleeps on `io.futexWait`; a waker calls `futexWake` only when
+  someone sleeps (`threading.Signal`). Unbounded, a wait on a fiber `Io` (`Io.Evented` with
+  peers on the waiter's thread) would never yield to the peer it waits for, and a canceled
+  waiter would never reach a cancelable call. The bound outlasts the usual imbalance at a
+  barrier, so a running team rarely sleeps, and stays well under a slice's work, so a fiber
+  `Io` loses little per barrier.
+- **Reproducibility.** The ways depend on the worker count, but every element of `C` is
+  computed by one worker with the serial kernel calls in the serial order, and the depth
+  slices (`Blocking.split`) do not depend on the split, so results match the serial path bit
+  for bit.
 
 `trsm`, `syrk` and `symm` use the same mechanisms, splitting as `gemm_thread_n`/
 `gemm_thread_m` and the triangle-balanced variants do.
@@ -160,7 +193,7 @@ protocol is therefore built on `Group.concurrent`:
 
 | Routine | OpenBLAS threshold | Division |
 | --- | --- | --- |
-| real `gemm` | `MNK > 65536 * 4`; `t = min(ncpu, MNK / 262144)` | `CNAME` grid, shared packed `B` |
+| real `gemm` | `MNK > 65536 * 4`; `t = min(ncpu, MNK / 262144)` | `ic x jc` ways, shared packed `B` |
 | complex `gemm` | `MNK > 8192 * 4` | same |
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced grid |
 | `trsm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
@@ -184,8 +217,9 @@ paths are already ported ([`design.md`](design.md), Level 2).
 ### Memory
 
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
-for `w` workers: `gemm` packing buffers (`driver.Work(T).lens`, about `(P + min(n_t, R)) * Q`
-elements per worker, aligned to `Work(T).alignment`) and level 2 per-chunk vectors. Tasks are
+for `w` workers: `gemm` packing buffers (`P x Q` elements per worker, and per `jc` group a
+slice of `B`, together at most `Q * min(w * R, n + w * (unroll_n + 1))`, each on a cache line)
+and level 2 per-chunk vectors. Tasks are
 therefore infallible, and the allocator need not be thread safe. Level 1 needs none. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
 the `Io`'s own allocator and runs the task inline if that allocation fails.
@@ -200,7 +234,8 @@ the `Io`'s own allocator and runs the task inline if that allocation fails.
   boundaries and while waiting; on cancellation the routine stops its workers, waits for them
   to finish, and returns `error.Canceled`. The output is then
   undefined (for `gemm`, `C` may be partly scaled and partly computed), and the routine docs
-  say so. Level 3 wakes peers blocked on the shared `B` flags so they can exit.
+  say so. Level 3 workers waiting at a barrier are canceled with the group; the bounded spin
+brings each to its cancelable futex wait.
 - **Inline tasks.** A task the `Io` runs inline shares the caller's cancellation, and `Group`
   drops a task's `error.Canceled`, so a worker that takes one calls `io.recancel()`. An `Io`
   whose `checkCancel` is `Io.unreachableCheckCancel` (`Io.failing`, UEFI's) has no
@@ -260,9 +295,8 @@ Memory safety for concurrent work:
   tasks use: operands, scratch and per-chunk partials. Tasks borrow slices of them, allocate
   nothing and free nothing; a task's arguments point only at memory that lives until the region
   closes.
-- **Disjoint writes.** Each output element and each partial has one writer; shared packed
-  buffers are written by their producer before the flag that publishes them and read only after
-  it.
+- **Disjoint writes.** Each output element and each partial has one writer; a shared packed
+  buffer is written between two barriers and read only after the second.
 - **Never unload a library.** A dynamically loaded library is never closed: Accelerate's table
   points into it, and any thread may be calling through it (`src/dll.zig`).
 
@@ -275,7 +309,10 @@ Memory safety for concurrent work:
 | Adding `io` only as routines gain threading | Breaks signatures repeatedly; one change instead |
 | Splitting levels 1 and 2 by thread count, as OpenBLAS | Results then depend on the thread count and machine |
 | Sizing work from the `Io`'s limits | The `Io` interface does not expose them; reading `Io.Threaded` fields breaks other `Io`s |
-| Independent level 3 tiles via `Group.async` | Redundant packing; OpenBLAS's shared-`B` protocol is followed instead |
+| Independent level 3 tiles via `Group.async` | Redundant packing; BLIS's shared packed `B` is followed instead |
+| OpenBLAS's `level3_thread.c` flags for level 3 | Prototyped: within a few percent of BLIS's barriers, at twice the code and `2 * tm` waits per slice |
+| Two `B` buffers and one barrier per slice | BLIS meets twice around one buffer: half the `B` memory |
+| Unbounded spinning, as BLIS and OpenBLAS | Stalls a fiber `Io` and cancellation |
 | Retrying serially on `OutOfMemory` | Hides memory pressure and makes speed unpredictable; the serial path can fail too |
 | Blocking cancellation for the call | Long calls could not be abandoned |
 | Forcing serial on freestanding and UEFI | Rules out multithreaded freestanding builds |
@@ -301,32 +338,27 @@ Memory safety for concurrent work:
 - **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
   `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling.
 
-## Level 3 threading prototype
+## Level 3 measurements
 
-`blas3/thread_proto.zig` (internal, `wip/l3proto`) threads real `gemm` both ways over the serial
-driver's packing, kernels and `Blocking.split`. Both start through `threading.team`: workers
-start with `Group.concurrent`, wait on a futex until the caller has counted them, and the plan
-is sized for those that started; with none, the caller runs alone. Neither waits on a worker
-that does not exist, so neither can deadlock when the `Io` admits fewer.
+Two prototypes (`wip/l3proto`) threaded real `gemm` before step 2, both over the serial
+driver's packing, kernels and `Blocking.split` and both started through `threading.team`:
 
 - **(A) OpenBLAS**, a port of `level3_thread.c`: the `CNAME` grid; each worker packs two halves
   of its share of its N group's `B`, publishes each with a step number, and its readers
   release it through a count. Per slice a worker waits up to `2 * (tm - 1)` times for halves
-  and twice for releases. The halves need fixed offsets, since a slice can be deeper than the
-  one before (`split` rounds up to `unroll_m`). 172 lines.
+  and twice for releases. 172 lines.
 - **(B) BLIS**, from `docs/Multithreading.md`: `jc x ic` ways; the `ic` workers of a `jc` group
-  pack each slice of `B` together into one of two buffers and meet at one futex barrier
-  (`threading.Barrier`) per slice, where BLIS meets twice around one buffer. 93 lines; twice
-  the `B` buffer memory of (A).
+  pack each slice of `B` together into one of two buffers and meet at one barrier per slice.
+  93 lines.
 
-Both match `driver.gemm` bit for bit at 1 to 9 workers (`f32`, `f64`, every transpose, shapes
-around every edge of the shrunk blocking, poisoned scratch) on `Io.failing` and on
-`Io.Threaded` with `async_limit` and `concurrent_limit` 0, 3 and 8. A canceled call returns
-`error.Canceled` with no worker left running. Row ranges must start on `unroll_m`: unrounded
-ones change the last bits (row tails narrower than a vector go through `thin`).
+Both matched `driver.gemm` bit for bit. Row ranges must start on `unroll_m`: unrounded ones
+change the last bits (row tails narrower than a vector go through `thin`); columns may split
+anywhere. (B), reworked to BLIS's one buffer and two barriers, fused and with bounded spinning,
+is `blas3/threaded.zig`; (A) was dropped.
 
-GFLOPS on this Zen 3 (8 cores, 16 threads, core `zen`, portable Zig tiles), `C = A * B`
-square, `NN`, by workers; mean of two quiet runs of medians of 9 to 25 interleaved calls:
+GFLOPS of the prototypes on this Zen 3 (8 cores, 16 threads, core `zen`, portable Zig tiles),
+`C = A * B` square, `NN`, by workers; mean of two quiet runs of medians of 9 to 25 interleaved
+calls:
 
 | Type | n | serial | A 2 | B 2 | A 4 | B 4 | A 8 | B 8 | A 16 | B 16 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -339,15 +371,10 @@ square, `NN`, by workers; mean of two quiet runs of medians of 9 to 25 interleav
 | `f32` | 1000 | 78 | 175 | 172 | 312 | 274 | 324 | 310 | 422 | 403 |
 | `f32` | 2000 | 101 | 191 | 186 | 319 | 294 | 384 | 349 | 414 | 373 |
 
-(A) is ahead by 0 to 5% at most points and by 10 to 17% at a few (4 or 16 workers, `n` of
-1000 and 2000); (B) leads at some 512s. Both scale alike past 4 workers, so the limit there is
-shared (blocking, kernels, memory), not the protocol.
-
-**Recommendation: (B)** for step 2, with (A)'s gap as its tuning target. Half the code, one
-synchronization point per slice instead of `2 * tm` flag waits, one primitive (a barrier) with
-a one-line deadlock argument, and room for BLIS's `jr` ways where threads share an L2 (SMT
-pairs, Apple clusters). (A)'s lead likely comes from multiplying each half as it is packed;
-(B) can do the same with each worker's own chunks before the barrier (not yet measured).
+(A) led by 0 to 5% at most points and by 10 to 17% at a few (4 or 16 workers, `n` of 1000 and
+2000), likely from multiplying each half as it is packed, which (B) now does too. Both scaled
+alike past 4 workers, so the limit there is shared (blocking, kernels, memory), not the
+protocol.
 
 ## Implementation plan
 
@@ -356,17 +383,19 @@ pairs, Apple clusters). (A)'s lead likely comes from multiplying each half as it
    the cached CPU count (`blas.config.cpu_count`) and ceiling (`Config.threadCeiling`),
    thresholds (`rule`), chunking (`Chunks`, `plan`), the claim loop (`forEach`) and ordered
    combine (`reduce`), with their unit tests.
-2. **Real `gemm`:** the `CNAME` grid and shared packed `B` through `Group.concurrent`, with
-   the start barrier, futex waiting, per-worker packing buffers and the serial fallback.
+2. **`gemm`** (done), every precision: BLIS's ways and shared packed `B` through
+   `Group.concurrent`, with the start barrier, bounded spinning, the serial fallback and the
+   public interface's threshold.
 3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.
 4. **Level 2:** `gemv`, `ger`, then `symv`/`trmv`.
-5. **Remaining level 3:** `trsm`, `syrk`, `symm` and complex, as OpenBLAS divides them.
+5. **Remaining level 3:** `symm`, `hemm`, `gemmt` and the rank-k updates over the same
+   driver; `trmm` and `trsm` by panels of `B`.
 
 ## Open issues
 
-- Behavior of the futex-based level 3 protocol on `Io.Evented` is unverified.
+- Level 3 on `Io.Evented`: a test runs `gemm` on it (all fibers on one thread, and three
+  threads); it skips on Windows, which has no `Evented`, and has not yet run on a Linux or
+  macOS rig.
 - TSan support with this toolchain is unverified.
-- Level 3 protocol for step 2: OpenBLAS's flags or BLIS's barriers
-  ([Level 3 threading prototype](#level-3-threading-prototype)).
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.

@@ -15,7 +15,8 @@
 //! the kernel all of a slice's `sb` at once for the later row blocks, the
 //! kernel is called on the same `3 * unroll_n` column chunks it was packed
 //! in: equal access order, and correct whatever unroll the vtable states.
-//! The routines take `io` for the threading to come (`threading.md`).
+//! Given more than one worker, `run` hands the loops to `threaded.zig`,
+//! which gives the same bits.
 //!
 //! `beta` (`trmm`'s and `trsm`'s `alpha`, which scales `B`) is applied to
 //! each block of `C` just before the first depth slice touches it, while
@@ -29,6 +30,7 @@ const types = @import("../types.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
+const threaded = @import("threaded.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -122,7 +124,7 @@ pub fn Work(comptime T: type) type {
         /// number of cache lines (3 for a 12-byte `f80` on x86).
         const step = std.math.lcm(alignment, @sizeOf(T)) / @sizeOf(T);
 
-        fn up(n: usize) usize {
+        pub fn up(n: usize) usize {
             return (n + step - 1) / step * step;
         }
 
@@ -140,7 +142,7 @@ pub fn Work(comptime T: type) type {
 /// Bytes of packing space on the stack before the allocator is asked.
 pub const stack_bytes = 2048;
 
-pub const Error = Allocator.Error;
+pub const Error = Allocator.Error || Io.Cancelable;
 
 fn raw(comptime T: type, p: [*]T) [*]Float(T) {
     return @ptrCast(p);
@@ -332,7 +334,7 @@ fn outside(region: Region, ib: usize, ie: usize, jb: usize, je: usize) bool {
 /// nj)` (`pb`), within `d.region`: blocks inside it at once, then panel by
 /// panel, and the tiles across the diagonal (`syrk_kernel.c`) into `tmp`,
 /// added for the elements that belong; scaled by `beta` first, unless null.
-fn block(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, alpha: T, beta: ?T, pa: [*]T, pb: [*]T, c: [*]T, ldc: usize, tmp: [*]T) void {
+pub fn block(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, ib: usize, mi: usize, jb: usize, nj: usize, kl: usize, alpha: T, beta: ?T, pa: [*]T, pb: [*]T, c: [*]T, ldc: usize, tmp: [*]T) void {
     const reg = d.region;
     if (beta) |s| scaleBlock(T, vt, reg, d.real_diag, ib, ib + mi, jb, jb + nj, s, c, ldc);
     if (inside(reg, ib, ib + mi, jb, jb + nj)) return kernel(T, vt, d.conj, mi, nj, kl, alpha, pa, pb, c + ib + jb * ldc, ldc);
@@ -378,9 +380,9 @@ fn zero(comptime T: type) T {
 
 /// Runs `d`'s loops with packing space from `allocator`, `beta` (null for
 /// 1) folded into them; `twice` runs them again with the operands swapped
-/// and `alpha2` (`syr2k`).
-fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize) Error!void {
-    _ = io;
+/// and `alpha2` (`syr2k`). More than one worker `want`ed, on `io`'s threads.
+fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
+    if (want > 1) return threaded.run(allocator, io, T, vt, d, m, n, k, alpha, x, y, twice, beta, c, ldc, want);
     const blk = Blocking.of(T, vt);
     const lens = Work(T).lens(blk, m, n, k, d.region != .full);
     const len = Work(T).total(lens);
@@ -406,8 +408,8 @@ fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Des
 /// `C := alpha*op(A)*op(B) + beta*C` with the kernels of `vt`; `ta`, `tb`
 /// say whether `op` transposes, `conj` which it conjugates (complex).
 /// Arguments are checked by the caller (`interface.zig`), and `m`, `n` are
-/// positive.
-pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize) Error!void {
+/// positive. Up to `want` workers run it (`threaded.workers`).
+pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     if (k == 0 or isZero(T, alpha)) {
         if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
         return;
@@ -415,7 +417,7 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };
-    try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, unlessOne(T, beta), c, ldc);
+    try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, want);
 }
 
 /// `C := alpha*op(A)*op(B) + beta*C` on the `upper` or lower triangle of the
@@ -432,7 +434,7 @@ pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, 
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n, .region = region };
-    try run(allocator, io, T, vt, d, m, m, k, alpha, x, y, null, unlessOne(T, beta), c, ldc);
+    try run(allocator, io, T, vt, d, m, m, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, 1);
 }
 
 /// `C := alpha*S*B + beta*C` (`left`) or `alpha*B*S + beta*C`, `S` the
@@ -448,7 +450,7 @@ pub fn symm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, c
     const t: Pack = if (upper) .upper else .lower;
     // `hemm`'s right side packs `S^T`: the kernel conjugates it (`NC`)
     const d: Desc = if (left) .{ .rows = t, .cols = .n, .herm = herm } else .{ .rows = .n, .cols = t, .herm = herm, .conj = if (herm) .r else .n };
-    try run(allocator, io, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, unlessOne(T, beta), c, ldc);
+    try run(allocator, io, T, vt, d, m, n, if (left) m else n, alpha, if (left) s else g, if (left) g else s, null, unlessOne(T, beta), c, ldc, 1);
 }
 
 /// `C := beta*C` on rows `[ib, ie)` and columns `[jb, je)` of `C`, the part
@@ -502,7 +504,7 @@ pub fn syrk(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, c
         .conj = if (herm) (if (trans) .l else .r) else .n,
         .region = region,
         .real_diag = herm,
-    }, n, n, k, alpha, x, y, alpha2, unlessOne(T, beta), c, ldc);
+    }, n, n, k, alpha, x, y, alpha2, unlessOne(T, beta), c, ldc, 1);
 }
 
 // ---- trmm and trsm -------------------------------------------------------------
@@ -1109,7 +1111,7 @@ fn callWith(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T,
     const b = o.b.ptr;
     const c = o.c.ptr;
     switch (r) {
-        .gemm => try gemm(al, check1.io, T, vt, opt[0], opt[1], if (opt[2] and isComplex(T)) .b else .n, m, n, k, alpha, a, ld, b, ld, s, c, ld),
+        .gemm => try gemm(al, check1.io, T, vt, opt[0], opt[1], if (opt[2] and isComplex(T)) .b else .n, m, n, k, alpha, a, ld, b, ld, s, c, ld, 1),
         .symm => try symm(al, check1.io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, s, c, ld),
         .syrk => try syrk(al, check1.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld),
         .syr2k => try syrk(al, check1.io, T, vt, false, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld),
