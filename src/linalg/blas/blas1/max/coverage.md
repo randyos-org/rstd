@@ -14,9 +14,10 @@ assembly or intrinsics, a text search; unmarked C is plain C.
 rstd:
 
 - `asm`: the converted `.S` (`asm/`);
-- `C+asm`, `C+vec`, `C`: the Zig port of the C driver around its converted
-  inline-assembly block (`uk/`), around its intrinsics block written on
-  `@Vector`s, or with no block;
+- `C+asm`, `C+vec`, `C`: the Zig port of the C upstream: around its
+  converted inline-assembly block (`uk/`) or in `asm` written for its
+  intrinsics, on `@Vector`s for its intrinsics, or in plain Zig (a hand
+  port is in its `kernel.zig`'s `ports`);
 - `vec`: the `@Vector` kernels (`vector.zig`);
 - `routed`: the portable kernels, by design (`vector.routed`);
 - `portable`: the portable kernels, **bold** where upstream is tuned (a gap);

@@ -14,9 +14,10 @@ assembly or intrinsics, a text search; unmarked C is plain C.
 rstd:
 
 - `asm`: the converted `.S` (`asm/`);
-- `C+asm`, `C+vec`, `C`: the Zig port of the C driver around its converted
-  inline-assembly block (`uk/`), around its intrinsics block written on
-  `@Vector`s, or with no block;
+- `C+asm`, `C+vec`, `C`: the Zig port of the C upstream: around its
+  converted inline-assembly block (`uk/`) or in `asm` written for its
+  intrinsics, on `@Vector`s for its intrinsics, or in plain Zig (a hand
+  port is in its `kernel.zig`'s `ports`);
 - `vec`: the `@Vector` kernels (`vector.zig`);
 - `routed`: the portable kernels, by design (`vector.routed`);
 - `portable`: the portable kernels, **bold** where upstream is tuned (a gap);
@@ -86,39 +87,37 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm64
 
-`arm64/kernel.zig` also composes `sve.zig`, `thunderx.zig`, which this survey cannot read; `?` marks a slot one of them may take.
-
-| core          | saxpy                           | daxpy                           | caxpy/caxpyc           | zaxpy/zaxpyc           | qaxpy               | xaxpy/xaxpyc         |
-| ------------- | ------------------------------- | ------------------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
-| A64FX         | `axpy_sve.c` +intrinsics → vec? | `axpy_sve.c` +intrinsics → vec? | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| AMPERE1       | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| ARMV8         | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| ARMV8SVE      | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| ARMV9SME      | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA510    | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA53     | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA55     | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA57     | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA710    | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA72     | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA73     | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXA76     | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXX1      | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| CORTEXX2      | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| EMAG8180      | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| FALKOR        | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| FT2000        | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| generic       | `../arm/axpy.c` → n/a           | `../arm/axpy.c` → n/a           | `../arm/zaxpy.c` → n/a | `../arm/zaxpy.c` → n/a | `axpy.S` → n/a      | `zaxpy.S` → n/a      |
-| NEOVERSEN1    | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| NEOVERSEN2    | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| NEOVERSEV1    | `axpy_sve.c` +intrinsics → vec? | `axpy_sve.c` +intrinsics → vec? | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| NEOVERSEV2    | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| THUNDERX      | `axpy.S` → asm                  | `daxpy_thunderx.c` +asm → vec?  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| THUNDERX2T99  | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| THUNDERX3T110 | `axpy.S` → asm                  | `daxpy_thunderx2t99.S` → asm    | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| TSV110        | `axpy.S` → asm                  | `axpy.S` → asm                  | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
-| VORTEX        | `axpy.S` → vec                  | `daxpy_thunderx2t99.S` → vec    | `zaxpy.S` → vec        | `zaxpy.S` → vec        | `axpy.S` → portable | `zaxpy.S` → portable |
-| VORTEXM4      | `axpy.S` → vec                  | `daxpy_thunderx2t99.S` → vec    | `zaxpy.S` → vec        | `zaxpy.S` → vec        | `axpy.S` → portable | `zaxpy.S` → portable |
+| core          | saxpy                            | daxpy                            | caxpy/caxpyc           | zaxpy/zaxpyc           | qaxpy               | xaxpy/xaxpyc         |
+| ------------- | -------------------------------- | -------------------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| A64FX         | `axpy_sve.c` +intrinsics → C+asm | `axpy_sve.c` +intrinsics → C+asm | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| AMPERE1       | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| ARMV8         | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| ARMV8SVE      | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| ARMV9SME      | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA510    | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA53     | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA55     | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA57     | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA710    | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA72     | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA73     | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXA76     | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXX1      | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| CORTEXX2      | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| EMAG8180      | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| FALKOR        | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| FT2000        | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| generic       | `../arm/axpy.c` → n/a            | `../arm/axpy.c` → n/a            | `../arm/zaxpy.c` → n/a | `../arm/zaxpy.c` → n/a | `axpy.S` → n/a      | `zaxpy.S` → n/a      |
+| NEOVERSEN1    | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| NEOVERSEN2    | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| NEOVERSEV1    | `axpy_sve.c` +intrinsics → C+asm | `axpy_sve.c` +intrinsics → C+asm | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| NEOVERSEV2    | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| THUNDERX      | `axpy.S` → asm                   | `daxpy_thunderx.c` +asm → C      | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| THUNDERX2T99  | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| THUNDERX3T110 | `axpy.S` → asm                   | `daxpy_thunderx2t99.S` → asm     | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| TSV110        | `axpy.S` → asm                   | `axpy.S` → asm                   | `zaxpy.S` → asm        | `zaxpy.S` → asm        | `axpy.S` → portable | `zaxpy.S` → portable |
+| VORTEX        | `axpy.S` → vec                   | `daxpy_thunderx2t99.S` → vec     | `zaxpy.S` → vec        | `zaxpy.S` → vec        | `axpy.S` → portable | `zaxpy.S` → portable |
+| VORTEXM4      | `axpy.S` → vec                   | `daxpy_thunderx2t99.S` → vec     | `zaxpy.S` → vec        | `zaxpy.S` → vec        | `axpy.S` → portable | `zaxpy.S` → portable |
 
 ## arm
 
@@ -132,60 +131,52 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-`power/kernel.zig` also composes `c_kernels.zig`, which this survey cannot read; `?` marks a slot one of them may take.
-
-| core      | saxpy                             | daxpy                         | caxpy/caxpyc                                                                           | zaxpy/zaxpyc                                     | qaxpy               | xaxpy/xaxpyc         |
-| --------- | --------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------- | -------------------- |
-| CELL      | `axpy.S` → asm                    | `axpy.S` → asm                | `zaxpy.S` → asm                                                                        | `zaxpy.S` → asm                                  | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER10   | `saxpy_power10.c` → portable?     | `daxpy_power10.c` → portable? | `caxpy_power10.c` → portable?                                                          | `zaxpy_power10.c` → portable?                    | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER3    | `axpy.S` → asm                    | `axpy.S` → asm                | `zaxpy.S` → asm                                                                        | `zaxpy.S` → asm                                  | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER4    | `axpy.S` → asm                    | `axpy.S` → asm                | `zaxpy.S` → asm                                                                        | `zaxpy.S` → asm                                  | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER5    | `axpy.S` → asm                    | `axpy.S` → asm                | `zaxpy.S` → asm                                                                        | `zaxpy.S` → asm                                  | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER6    | `axpy.S` → asm                    | `axpy.S` → asm                | `zaxpy.S` → asm                                                                        | `zaxpy.S` → asm                                  | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER8    | `saxpy.c` +intrinsics → portable? | `daxpy.c` → portable?         | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics → portable?                     | `zaxpy.c` → portable?                            | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER9    | `saxpy.c` +intrinsics → portable? | `daxpy.c` → portable?         | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics \| `caxpy_power9.S` → portable? | `zaxpy.c` → portable?                            | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPC440    | `axpy_ppc440.S` → asm             | `axpy_ppc440.S` → asm         | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → portable?                                       | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPC440FP2 | `axpy_hummer.S` → portable?       | `axpy_hummer.S` → portable?   | `zaxpy_hummer.S` → portable?                                                           | `zaxpy_hummer.S` → portable?                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPC970    | `axpy.S` → asm                    | `axpy.S` → asm                | `zaxpy.S` → asm                                                                        | `zaxpy.S` → asm                                  | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPCG4     | `axpy_ppc440.S` → asm             | `axpy_ppc440.S` → asm         | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → portable?                                       | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
+| core      | saxpy                          | daxpy                          | caxpy/caxpyc                                                                       | zaxpy/zaxpyc                                        | qaxpy               | xaxpy/xaxpyc         |
+| --------- | ------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------- | -------------------- |
+| CELL      | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER10   | `saxpy_power10.c` → C+asm      | `daxpy_power10.c` → C+asm      | `caxpy_power10.c` → C+asm                                                          | `zaxpy_power10.c` → C+asm                           | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER3    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER4    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER5    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER6    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER8    | `saxpy.c` +intrinsics → C+vec  | `daxpy.c` → C+asm              | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics → C+vec                     | `zaxpy.c` → C+asm                                   | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER9    | `saxpy.c` +intrinsics → C+vec  | `daxpy.c` → C+asm              | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics \| `caxpy_power9.S` → C+vec | `zaxpy.c` → C+asm                                   | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPC440    | `axpy_ppc440.S` → asm          | `axpy_ppc440.S` → asm          | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable**                                | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable** | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPC440FP2 | `axpy_hummer.S` → **portable** | `axpy_hummer.S` → **portable** | `zaxpy_hummer.S` → **portable**                                                    | `zaxpy_hummer.S` → **portable**                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPC970    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPCG4     | `axpy_ppc440.S` → asm          | `axpy_ppc440.S` → asm          | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable**                                | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable** | `axpy.S` → portable | `zaxpy.S` → portable |
 
 ## mips64
 
-`mips64/kernel.zig` also composes `../mips/msa.zig`, which this survey cannot read; `?` marks a slot one of them may take.
-
-| core           | saxpy                                                                | daxpy                                                                      | caxpy/caxpyc                 | zaxpy/zaxpyc                 | qaxpy               | xaxpy/xaxpyc         |
-| -------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------- | ---------------------------- | ------------------- | -------------------- |
-| generic        | `../arm/axpy.c` → n/a                                                | `../arm/axpy.c` → n/a                                                      | `../arm/zaxpy.c` → n/a       | `../arm/zaxpy.c` → n/a       | `axpy.S` → n/a      | `zaxpy.S` → n/a      |
-| I6400          | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable?     | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable?           | `../arm/zaxpy.c` → portable? | `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
-| I6500          | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable?     | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable?           | `../arm/zaxpy.c` → portable? | `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
-| LOONGSON3R3    | `axpy_loongson3a.S` → asm                                            | `daxpy_loongson3a_simd.S` → asm                                            | `../arm/zaxpy.c` → portable? | `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
-| LOONGSON3R4    | `../mips/saxpy_msa.c` +intrinsics \| `axpy_loongson3a.S` → portable? | `../mips/daxpy_msa.c` +intrinsics \| `daxpy_loongson3a_simd.S` → portable? | `../arm/zaxpy.c` → portable? | `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
-| MIPS64_GENERIC | `../arm/axpy.c` → portable?                                          | `../arm/axpy.c` → portable?                                                | `../arm/zaxpy.c` → portable? | `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
-| P6600          | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable?     | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable?           | `../arm/zaxpy.c` → portable? | `../arm/zaxpy.c` → portable? | `axpy.S` → portable | `zaxpy.S` → portable |
+| core           | saxpy                                                            | daxpy                                                                  | caxpy/caxpyc                | zaxpy/zaxpyc                | qaxpy               | xaxpy/xaxpyc         |
+| -------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------- | --------------------------- | ------------------- | -------------------- |
+| generic        | `../arm/axpy.c` → n/a                                            | `../arm/axpy.c` → n/a                                                  | `../arm/zaxpy.c` → n/a      | `../arm/zaxpy.c` → n/a      | `axpy.S` → n/a      | `zaxpy.S` → n/a      |
+| I6400          | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec     | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec           | `../arm/zaxpy.c` → portable | `../arm/zaxpy.c` → portable | `axpy.S` → portable | `zaxpy.S` → portable |
+| I6500          | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec     | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec           | `../arm/zaxpy.c` → portable | `../arm/zaxpy.c` → portable | `axpy.S` → portable | `zaxpy.S` → portable |
+| LOONGSON3R3    | `axpy_loongson3a.S` → asm                                        | `daxpy_loongson3a_simd.S` → asm                                        | `../arm/zaxpy.c` → portable | `../arm/zaxpy.c` → portable | `axpy.S` → portable | `zaxpy.S` → portable |
+| LOONGSON3R4    | `../mips/saxpy_msa.c` +intrinsics \| `axpy_loongson3a.S` → C+vec | `../mips/daxpy_msa.c` +intrinsics \| `daxpy_loongson3a_simd.S` → C+vec | `../arm/zaxpy.c` → portable | `../arm/zaxpy.c` → portable | `axpy.S` → portable | `zaxpy.S` → portable |
+| MIPS64_GENERIC | `../arm/axpy.c` → portable                                       | `../arm/axpy.c` → portable                                             | `../arm/zaxpy.c` → portable | `../arm/zaxpy.c` → portable | `axpy.S` → portable | `zaxpy.S` → portable |
+| P6600          | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec     | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec           | `../arm/zaxpy.c` → portable | `../arm/zaxpy.c` → portable | `axpy.S` → portable | `zaxpy.S` → portable |
 
 ## mips
 
-`mips64/kernel.zig` also composes `../mips/msa.zig`, which this survey cannot read; `?` marks a slot one of them may take.
-
-| core      | saxpy                                                            | daxpy                                                            | caxpy/caxpyc                                                      | zaxpy/zaxpyc                                                      | qaxpy                         | xaxpy/xaxpyc                   |
-| --------- | ---------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/axpy.c` → n/a                                            | `../arm/axpy.c` → n/a                                            | `../arm/zaxpy.c` → n/a                                            | `../arm/zaxpy.c` → n/a                                            | `axpy.S` (missing) → n/a      | `zaxpy.S` (missing) → n/a      |
-| MIPS1004K | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable? | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable? | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → portable? | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → portable? | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| MIPS24K   | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable? | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable? | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → portable? | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → portable? | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| P5600     | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable? | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → portable? | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → portable? | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → portable? | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| core      | saxpy                                                               | daxpy                                                               | caxpy/caxpyc                                                         | zaxpy/zaxpyc                                                         | qaxpy                         | xaxpy/xaxpyc                   |
+| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/axpy.c` → n/a                                               | `../arm/axpy.c` → n/a                                               | `../arm/zaxpy.c` → n/a                                               | `../arm/zaxpy.c` → n/a                                               | `axpy.S` (missing) → n/a      | `zaxpy.S` (missing) → n/a      |
+| MIPS1004K | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| MIPS24K   | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| P5600     | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec        | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec        | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → C+vec        | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → C+vec        | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 
 ## riscv64
 
-`riscv64/kernel.zig` also composes `rvv.zig`, which this survey cannot read; `?` marks a slot one of them may take.
-
-| core            | saxpy                                   | daxpy                                   | caxpy/caxpyc                             | zaxpy/zaxpyc                             | qaxpy                         | xaxpy/xaxpyc                   |
-| --------------- | --------------------------------------- | --------------------------------------- | ---------------------------------------- | ---------------------------------------- | ----------------------------- | ------------------------------ |
-| C910V           | `axpy_vector.c` +intrinsics → portable? | `axpy_vector.c` +intrinsics → portable? | `zaxpy_vector.c` +intrinsics → portable? | `zaxpy_vector.c` +intrinsics → portable? | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| RISCV64_GENERIC | `../riscv64/axpy.c` → portable?         | `../riscv64/axpy.c` → portable?         | `../riscv64/zaxpy.c` → portable?         | `../riscv64/zaxpy.c` → portable?         | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| RISCV64_ZVL128B | `axpy_rvv.c` +intrinsics → portable?    | `axpy_rvv.c` +intrinsics → portable?    | `zaxpy_rvv.c` +intrinsics → portable?    | `zaxpy_rvv.c` +intrinsics → portable?    | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| RISCV64_ZVL256B | `axpy_vector.c` +intrinsics → portable? | `axpy_vector.c` +intrinsics → portable? | `zaxpy_vector.c` +intrinsics → portable? | `zaxpy_vector.c` +intrinsics → portable? | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| U74             | `../riscv64/axpy.c` → portable?         | `../riscv64/axpy.c` → portable?         | `../riscv64/zaxpy.c` → portable?         | `../riscv64/zaxpy.c` → portable?         | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| x280            | `axpy_rvv.c` +intrinsics → portable?    | `axpy_rvv.c` +intrinsics → portable?    | `zaxpy_rvv.c` +intrinsics → portable?    | `zaxpy_rvv.c` +intrinsics → portable?    | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| core            | saxpy                                      | daxpy                                      | caxpy/caxpyc                                | zaxpy/zaxpyc                                | qaxpy                         | xaxpy/xaxpyc                   |
+| --------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------- | ------------------------------------------- | ----------------------------- | ------------------------------ |
+| C910V           | `axpy_vector.c` +intrinsics → **portable** | `axpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| RISCV64_GENERIC | `../riscv64/axpy.c` → portable             | `../riscv64/axpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| RISCV64_ZVL128B | `axpy_rvv.c` +intrinsics → C+asm           | `axpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| RISCV64_ZVL256B | `axpy_vector.c` +intrinsics → **portable** | `axpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| U74             | `../riscv64/axpy.c` → portable             | `../riscv64/axpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| x280            | `axpy_rvv.c` +intrinsics → C+asm           | `axpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 
 ## loongarch64
 
@@ -229,16 +220,24 @@ rstd has no target here.
 
 ## wasm
 
-`wasm/kernel.zig` also composes `simd.zig`, which this survey cannot read; `?` marks a slot one of them may take.
-
-| core            | saxpy                            | daxpy                            | caxpy/caxpyc                     | zaxpy/zaxpyc                     | qaxpy                         | xaxpy/xaxpyc                   |
-| --------------- | -------------------------------- | -------------------------------- | -------------------------------- | -------------------------------- | ----------------------------- | ------------------------------ |
-| WASM128_GENERIC | `axpy.c` +intrinsics → portable? | `axpy.c` +intrinsics → portable? | `../riscv64/zaxpy.c` → portable? | `../riscv64/zaxpy.c` → portable? | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| core            | saxpy                        | daxpy                        | caxpy/caxpyc                    | zaxpy/zaxpyc                    | qaxpy                         | xaxpy/xaxpyc                   |
+| --------------- | ---------------------------- | ---------------------------- | ------------------------------- | ------------------------------- | ----------------------------- | ------------------------------ |
+| WASM128_GENERIC | `axpy.c` +intrinsics → C+vec | `axpy.c` +intrinsics → C+vec | `../riscv64/zaxpy.c` → portable | `../riscv64/zaxpy.c` → portable | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 
 ## Gaps
 
-None: no core runs the portable kernels where upstream is tuned.
+The roles a core runs portable where upstream is tuned.
+
+| architecture | core            | roles                                      |
+| ------------ | --------------- | ------------------------------------------ |
+| power        | PPC440          | caxpy, caxpyc, zaxpy, zaxpyc               |
+| power        | PPC440FP2       | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
+| power        | PPCG4           | caxpy, caxpyc, zaxpy, zaxpyc               |
+| mips         | MIPS1004K       | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
+| mips         | MIPS24K         | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
+| riscv64      | C910V           | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
+| riscv64      | RISCV64_ZVL256B | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 456, `portable` 366, `C+asm` 64, `C+vec` 6, `n/a` 72, `vec?` 5, `vec` 12, `portable?` 126. 0 gaps.
+(core, role) pairs by what rstd serves: `asm` 456, `portable` 446, `C+asm` 92, `C+vec` 28, `n/a` 72, `C` 1, `vec` 12. 38 gaps.
