@@ -39,8 +39,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
 - **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, which returns `error.NotPositiveDefinite` for a
   leading minor that is not positive definite, a NaN pivot included, and writes its order to
-  its last argument; `getrf`, which completes the factorization, then returns `error.Singular`
-  for an exactly zero `U(i, i)` and writes the first `i` to its last argument.
+  its last argument; `getrs`, and `getrf`, which completes the factorization, then returns
+  `error.Singular` for an exactly zero `U(i, i)` and writes the first `i` to its last argument.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
 `sbgemm`), and threading ([`threading.md`](threading.md)).

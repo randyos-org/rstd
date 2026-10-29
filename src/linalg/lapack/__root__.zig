@@ -10,6 +10,7 @@ const cholesky = @import("cholesky.zig");
 const lu = @import("lu.zig");
 
 pub const Uplo = @import("../blas/types.zig").Uplo;
+pub const Trans = @import("../blas/types.zig").Trans;
 
 /// `potrf`: bad arguments, `error.NotPositiveDefinite`, `error.OutOfMemory`
 /// or `error.Canceled`.
@@ -20,10 +21,14 @@ pub const PotrsError = cholesky.PotrsError;
 /// `getrf`: bad arguments, `error.Singular`, `error.OutOfMemory` or
 /// `error.Canceled`.
 pub const GetrfError = lu.GetrfError;
+/// `getrs`: bad arguments, a pivot outside `1..n` (`error.InvalidIpiv`),
+/// `error.OutOfMemory` or `error.Canceled`.
+pub const GetrsError = lu.GetrsError;
 
 pub const potrf = cholesky.potrf;
 pub const potrs = cholesky.potrs;
 pub const getrf = lu.getrf;
+pub const getrs = lu.getrs;
 
 test {
     _ = cholesky;

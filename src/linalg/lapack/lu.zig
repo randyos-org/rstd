@@ -1,4 +1,4 @@
-//! LU factorization with partial pivoting. `getrf` is OpenBLAS's
+//! LU factorization with partial pivoting, and solve. `getrf` is OpenBLAS's
 //! `interface/lapack/getrf.c` and `zgetrf.c` over
 //! `lapack/getrf/getrf_single.c`, whose base case is `lapack/getf2/getf2_k.c`
 //! and `zgetf2_k.c` (OpenBLAS v0.3.34-317). The semantics are
@@ -20,18 +20,24 @@
 //! Serial: `getrf_parallel.c` is not ported. `getf2`'s `dot`, `gemv`, `swap`
 //! and `scal` are loops, its `iamax` the core's kernel: the pivot is the
 //! first NaN, else the first largest `|re| + |im|`, as `izamax`.
+//!
+//! `getrs` is `lapack/getrs/getrs_single.c` and `zgetrs_single.c`, as
+//! Reference-LAPACK's `xGETRS`: the interchanges and two triangular solves
+//! through the drivers, `trsv` for one real right-hand side as upstream.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const portable = @import("../blas/portable.zig");
 const driver = @import("../blas/blas3/driver.zig");
+const triangular = @import("../blas/blas2/triangular.zig");
 const laswp = @import("../blas/ext/laswp/kernel.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Trans = types.Trans;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const scalar = chol.scalar;
@@ -65,8 +71,8 @@ pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 }
 
 /// `getrf_single.c`: the first zero pivot's index, or 0. Pivots are 1-based
-/// from `a`'s first row. Blocks of `min(mn / 2, Q)` columns, rounded up to
-/// `unroll_n`, each factored recursively, until they would be at most
+/// from `a`'s first row. Blocks of `mn / 2` columns rounded up to `unroll_n`,
+/// at most `Q`, each factored recursively, until they would be at most
 /// `2 * unroll_n` (upstream's POWER8 build stops at `unroll_n`).
 fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, un: usize, q: usize, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize) driver.Error!usize {
     const mn = @min(m, n);
@@ -97,6 +103,46 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, un:
         laswp.swapRows(T, jb, a + j * lda, lda, j + jb + 1, mn, ipiv + j + jb, 1);
     }
     return info;
+}
+
+/// What `getrs` returns: `InvalidIpiv` for a pivot that is not a row of `B`.
+pub const GetrsError = error{ InvalidTrans, InvalidN, InvalidNrhs, InvalidLda, InvalidLdb, InvalidIpiv } || Allocator.Error || Io.Cancelable;
+
+/// `?GETRS`: solves `op(A) X = B` for the `n x nrhs` `X`, in place of `B`,
+/// given `getrf`'s `P L U` of `A` and its `ipiv`. `trans` is `n`, `t`, `r`
+/// (`conj(A)`) or `c` (`Aᴴ`); real `r` and `c` are `n` and `t`, as in the
+/// level-3 routines, where the reference takes no `r`. No singularity check,
+/// as in the reference. Every pivot must lie in `1..n`, else
+/// `error.InvalidIpiv` before `B` is touched; the reference checks none.
+pub fn getrs(allocator: Allocator, io: Io, comptime T: type, trans: Trans, n: isize, nrhs: isize, a: [*]const T, lda: isize, ipiv: [*]const isize, b: [*]T, ldb: isize) GetrsError!void {
+    comptime chol.floatType(T, "getrs");
+    if (trans.conjX()) return error.InvalidTrans;
+    if (n < 0) return error.InvalidN;
+    if (nrhs < 0) return error.InvalidNrhs;
+    if (lda < @max(1, n)) return error.InvalidLda;
+    if (ldb < @max(1, n)) return error.InvalidLdb;
+    if (n == 0 or nrhs == 0) return;
+    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(n, nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
+    for (ipiv[0..@intCast(n)]) |p| if (p < 1 or p > n) return error.InvalidIpiv;
+    const vt = chol.table(T);
+    const m: usize = @intCast(n);
+    const r: usize = @intCast(nrhs);
+    const la: usize = @intCast(lda);
+    const lb: usize = @intCast(ldb);
+    const t = trans.transposed();
+    // `L Y = P B`, then `U X = Y`; transposed `op(U) Y = B`, then
+    // `op(L) Z = Y` and `X = Pᵀ Z`: the first solve is upper when transposed,
+    // and `L` is the unit one
+    if (!t) laswp.swapRows(T, r, b, lb, 1, m, ipiv, 1);
+    for ([_]bool{ t, !t }) |upper| {
+        if (!isComplex(T) and r == 1) {
+            try triangular.trsvTable(allocator, io, T, vt, if (upper) .u else .l, trans, if (upper) .n else .u, m, a, la, b);
+        } else {
+            try driver.trsm(allocator, io, T, vt, true, upper, t, trans.conjA(), !upper, m, r, scalar(T, 1), a, la, b, lb, 1);
+        }
+    }
+    if (t) laswp.swapRows(T, r, b, lb, 1, m, ipiv, -1);
 }
 
 /// `getf2_k.c`, `zgetf2_k.c`: left-looking, a column at a time. Column `j`
@@ -546,4 +592,146 @@ test "getrf: reports the first bad argument and touches nothing when empty" {
     try getrf(fa, check.io, f64, 2, 0, &a, 2, &ipiv, null);
     for (a) |v| try testing.expect(std.math.isNan(v));
     try testing.expectEqual([2]isize{ -1, -1 }, ipiv);
+}
+
+/// `getrs` on `p`'s factor, `nrhs` right-hand sides with `ldb = n + 1` (the
+/// padding row NaN), then the residual in `W(T)` within `8 (n + 2)` ulps of
+/// `L` and `U` times `X` in magnitude: `P (A X - B)` against
+/// `|L| |U| |X|`, or for `op` transposed `op(A) X - B` against
+/// `(|L| |U|)ᵀ P |X|`. With `nan_at`, `B(i, j)` is NaN: column `j` must come
+/// out all NaN, the others as without it, bit for bit.
+fn solveCase(comptime T: type, al: Allocator, p: *const Problem(T), trans: Trans, nrhs: usize, seed: u64, nan_at: ?[2]usize) !void {
+    const n = p.n;
+    const ldb = n + 1;
+    const b = try al.alloc(T, ldb * nrhs);
+    defer al.free(b);
+    const b0 = try al.alloc(T, n * nrhs);
+    defer al.free(b0);
+    check.fill(T, b0, seed);
+    for (0..nrhs) |j| {
+        @memcpy(b[j * ldb ..][0..n], b0[j * n ..][0..n]);
+        b[j * ldb + n] = poisoned(T);
+    }
+    var poison: guard.Poison = .{ .child = al };
+    try getrs(poison.allocator(), check.io, T, trans, @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.lda), p.ipiv.ptr, b.ptr, @intCast(ldb));
+    // `|L| |U|`
+    const mag = try al.alloc(f128, n * n);
+    defer al.free(mag);
+    for (0..n) |j| for (0..n) |i| {
+        var s: f128 = 0;
+        for (0..@min(i, j) + 1) |k| s += check.abs1(p.l(i, k)) * check.abs1(p.u(k, j));
+        mag[i + j * n] = s;
+    };
+    const t = trans.transposed();
+    const cj = isComplex(T) and trans.conjA();
+    const F = Float(T);
+    const eps: f128 = std.math.floatEps(F);
+    const ulps: f128 = @floatFromInt(8 * (n + 2));
+    const res = try al.alloc(W(T), n);
+    defer al.free(res);
+    const xm = try al.alloc(f128, n);
+    defer al.free(xm);
+    for (0..nrhs) |j| {
+        const x = b[j * ldb ..][0..n];
+        try testing.expect(isNanT(T, b[j * ldb + n]));
+        for (0..n) |i| {
+            var s: W(T) = check.wide(T, b0[i + j * n]);
+            for (0..n) |k| {
+                const v = if (t) p.aw[k + i * n] else p.aw[i + k * n];
+                s = check.subW(s, check.mulW(if (cj) check.conjW(v) else v, check.wide(T, x[k])));
+            }
+            res[i] = s;
+            xm[i] = check.abs1(check.wide(T, x[i]));
+        }
+        // `P` on the residual, or on `|X|`
+        for (0..n) |k| {
+            const q: usize = @intCast(p.ipiv[k] - 1);
+            if (t) std.mem.swap(f128, &xm[k], &xm[q]) else std.mem.swap(W(T), &res[k], &res[q]);
+        }
+        for (0..n) |i| {
+            var bound: f128 = 0;
+            for (0..n) |k| bound += (if (t) mag[k + i * n] else mag[i + k * n]) * xm[k];
+            const d = check.abs1(res[i]);
+            if (!(d <= ulps * eps * bound + std.math.floatMin(F))) {
+                check.say("getrs {s} {s} n={d} nrhs={d}: residual ({d},{d}) {e}, allowed {e}\n", .{ @typeName(T), @tagName(trans), n, nrhs, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(ulps * eps * bound)) });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+    const at = nan_at orelse return;
+    const bn = try al.alloc(T, ldb * nrhs);
+    defer al.free(bn);
+    for (0..nrhs) |j| @memcpy(bn[j * ldb ..][0..n], b0[j * n ..][0..n]);
+    bn[at[0] + at[1] * ldb] = poisoned(T);
+    try getrs(poison.allocator(), check.io, T, trans, @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.lda), p.ipiv.ptr, bn.ptr, @intCast(ldb));
+    for (0..nrhs) |j| for (0..n) |i| {
+        const got = bn[i + j * ldb];
+        const ok = if (j == at[1]) isNanT(T, got) else chol.sameBits(T, got, b[i + j * ldb]);
+        if (!ok) {
+            check.say("getrs {s} {s} n={d}: NaN at B({d},{d}), X({d},{d}) is {any}\n", .{ @typeName(T), @tagName(trans), n, at[0], at[1], i, j, got });
+            return error.TestUnexpectedResult;
+        }
+    };
+}
+
+const solve_sizes = [_]usize{ 1, 2, 3, 7, 17, 33, 50, 70, 130 };
+
+fn solveCases(vt: *const Vtable) anyerror!void {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
+        const saved = blas.testUse(v);
+        defer blas.testRestore(saved);
+        for (solve_sizes) |n| {
+            if (check.rig() and n > 70) continue;
+            var p = try Problem(T).init(al, n, n, n * 17 + vi);
+            defer p.deinit(al);
+            try p.factorIt(al, null);
+            for ([_]Trans{ .n, .t, .r, .c }) |trans| for ([_]usize{ 1, 3 }) |nrhs| {
+                const nan_at: [2]usize = .{ (n * 7 + nrhs) % n, nrhs / 2 };
+                solveCase(T, al, &p, trans, nrhs, n + nrhs, nan_at) catch |e| {
+                    check.say("{s}, blocking {s}\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
+                    return e;
+                };
+            };
+        }
+    };
+}
+
+test "getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, on every linked core" {
+    try check.eachCore(solveCases);
+}
+
+test "getrs: a known 2 x 2 solve, A and its transpose" {
+    inline for (.{ f64, types.Complex64 }) |T| {
+        // [[1, 2], [3, 4]] x = [5, 6]: x = [-4, 9/2]; transposed, [-1, 2]
+        for ([_]struct { Trans, [2]f64 }{ .{ .n, .{ -4, 4.5 } }, .{ .t, .{ -1, 2 } } }) |c| {
+            var a: [4]T = .{ scalar(T, 1), scalar(T, 3), scalar(T, 2), scalar(T, 4) };
+            var ipiv: [2]isize = undefined;
+            try getrf(testing.failing_allocator, check.io, T, 2, 2, &a, 2, &ipiv, null);
+            var b: [2]T = .{ scalar(T, 5), scalar(T, 6) };
+            try getrs(testing.allocator, check.io, T, c[0], 2, 1, &a, 2, &ipiv, &b, 2);
+            for (b, c[1]) |x, w| try check.expectClose(T, scalar(T, @floatCast(w)), x, 1e-14);
+        }
+    }
+}
+
+test "getrs: reports the first bad argument and a pivot outside A, and touches nothing when empty" {
+    const fa = testing.failing_allocator;
+    var a: [4]f64 = @splat(nan);
+    var b: [4]f64 = @splat(nan);
+    const ipiv: [2]isize = .{ 1, 2 };
+    try testing.expectError(error.InvalidTrans, getrs(fa, check.io, f64, .o, -1, -1, &a, 0, &ipiv, &b, 0));
+    try testing.expectError(error.InvalidN, getrs(fa, check.io, f64, .n, -1, -1, &a, 0, &ipiv, &b, 0));
+    try testing.expectError(error.InvalidNrhs, getrs(fa, check.io, f64, .t, 0, -1, &a, 0, &ipiv, &b, 0));
+    try testing.expectError(error.InvalidLda, getrs(fa, check.io, f64, .n, 2, 1, &a, 1, &ipiv, &b, 0));
+    try testing.expectError(error.InvalidLdb, getrs(fa, check.io, f64, .n, 2, 1, &a, 2, &ipiv, &b, 1));
+    try testing.expectError(error.InvalidLdb, getrs(fa, check.io, f64, .n, 0, 1, &a, 1, &ipiv, &b, 0));
+    try testing.expectError(error.InvalidLda, getrs(fa, check.io, f64, .n, 2, 2, &a, std.math.maxInt(isize) / 2, &ipiv, &b, 2));
+    try testing.expectError(error.InvalidLdb, getrs(fa, check.io, f64, .t, 2, 2, &a, 2, &ipiv, &b, std.math.maxInt(isize) / 2));
+    for ([_][2]isize{ .{ 0, 2 }, .{ 1, 3 }, .{ -1, 1 } }) |bad| {
+        try testing.expectError(error.InvalidIpiv, getrs(fa, check.io, f64, .t, 2, 2, &a, 2, &bad, &b, 2));
+    }
+    try getrs(fa, check.io, f64, .n, 0, 2, &a, 1, &ipiv, &b, 1);
+    try getrs(fa, check.io, f64, .n, 2, 0, &a, 2, &ipiv, &b, 2);
+    for (b) |x| try testing.expect(std.math.isNan(x));
 }

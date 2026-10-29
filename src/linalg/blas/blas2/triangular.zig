@@ -531,6 +531,16 @@ pub fn trsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: T
     return public(allocator, io, T, .trsv, uplo, trans, diag, n, 0, a, lda, x, incx);
 }
 
+/// `trsv` over `vt`'s kernels at unit stride, never routed to Accelerate:
+/// LAPACK's `getrs` with one right-hand side (`lapack/getrs/getrs_single.c`),
+/// which calls the level-3 drivers alike. The caller checks the arguments.
+pub fn trsvTable(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, uplo: Uplo, trans: Trans, diag: Diag, n: usize, a: [*]const T, lda: usize, x: [*]T) (Allocator.Error || Io.Cancelable)!void {
+    call(allocator, io, T, .trsv, vt, uplo, trans, diag, @intCast(n), 0, @constCast(a), @intCast(lda), x, 1) catch |e| switch (e) {
+        error.OutOfMemory, error.Canceled => |f| return f,
+        else => unreachable,
+    };
+}
+
 /// `?TBMV` (`interface/tbmv.c`, `ztbmv.c`): `x := op(A) * x`, `A` triangular
 /// band with `k` off-diagonals in LAPACK band storage: `A(i,j)` is
 /// `a[k + i - j + j*lda]` (upper) or `a[i - j + j*lda]` (lower).
