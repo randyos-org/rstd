@@ -20,8 +20,10 @@
 //! (`info` is the first failing argument in the reference's check order).
 //! Each routine takes an allocator, for copies of strided vectors beyond
 //! `stack_bytes`, and `io`. Above OpenBLAS's thresholds the rank updates
-//! thread on `io`, by columns, each column the serial kernel call
-//! (`threading.md`).
+//! and transposed `gbmv` thread on `io`, by columns, each column the serial
+//! kernel call (`threading.md`). The others add each element of `y` up over
+//! several kernel calls, which a split of `y` would cut elsewhere, so they
+//! stay serial.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -175,40 +177,77 @@ fn Scratch(comptime T: type) type {
 
 /// `driver/level2/gbmv_k.c`, `zgbmv_k.c`: `y += alpha*op(A)*x` for an `m` by
 /// `n` band matrix. The flags are `TRANS`, `CONJ` (of `A`) and `XCONJ` (of `x`).
-fn gbmvDriver(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: bool, allocator: Allocator, m: BlasLong, n: BlasLong, ku: BlasLong, kl: BlasLong, alpha: T, a: [*]T, lda: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) Allocator.Error!void {
+fn gbmvDriver(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: bool, allocator: Allocator, io: Io, m: BlasLong, n: BlasLong, ku: BlasLong, kl: BlasLong, alpha: T, a: [*]T, lda: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) (Allocator.Error || Io.Cancelable)!void {
     const leny = if (tr) n else m;
     const lenx = if (tr) m else n;
     var sy: Scratch(T) = .{};
     var sx: Scratch(T) = .{};
     defer sy.deinit(allocator);
     defer sx.deinit(allocator);
-    const Y = try sy.unit(allocator, leny, y, incy);
-    const X = try sx.unit(allocator, lenx, x, incx);
-    var offset_u = ku;
-    var offset_l = ku + m;
-    var col = a;
-    var i: BlasLong = 0;
-    while (i < @min(n, m + ku)) : (i += 1) {
-        const start = @max(offset_u, 0);
-        const end = @min(offset_l, ku + kl + 1);
-        const length = end - start;
-        if (length > 0) {
-            const ap = at(T, col, start);
-            const xs = at(T, X, start - offset_u);
-            if (comptime !tr) {
-                const xi = el(T, X, i).*;
-                axpyK(T, cj, length, mul(T, alpha, if (xc) conj(T, xi) else xi), ap, at(T, Y, start - offset_u));
-            } else {
-                const t = if (comptime !xc) dotK(T, cj, length, ap, xs) else dotK(T, !cj, length, xs, ap);
-                const v = mul(T, alpha, if (comptime xc and cj) conj(T, t) else t);
-                el(T, Y, i).* = add(T, el(T, Y, i).*, v);
+    const g: Gbmv(T, tr, cj, xc) = .{
+        .m = m,
+        .ku = ku,
+        .kl = kl,
+        .alpha = alpha,
+        .a = a,
+        .lda = lda,
+        .X = try sx.unit(allocator, lenx, x, incx),
+        .Y = try sy.unit(allocator, leny, y, incy),
+    };
+    const cols = @min(n, m + ku);
+    // `gbmv.c`, `zgbmv.c`: `m*n` under 250000 (125000 complex) or `kl + ku`
+    // under 15 runs serially; only with a transpose is each element of `y`
+    // one column's dot, so only then do the columns split
+    const p = threading.plan(.gbmv, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(cols), .even, 8);
+    if (tr and kl + ku >= 15 and p.workers > 1) {
+        try threading.forEach(io, &p, &g, Gbmv(T, tr, cj, xc).chunk);
+    } else g.columns(0, cols);
+    if (incy != 1) copyK(T, leny, g.Y, 1, y, incy);
+}
+
+/// `gbmvDriver`'s columns, over unit-stride `X` and `Y`.
+fn Gbmv(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: bool) type {
+    return struct {
+        m: BlasLong,
+        ku: BlasLong,
+        kl: BlasLong,
+        alpha: T,
+        a: [*]T,
+        lda: BlasLong,
+        X: [*]T,
+        Y: [*]T,
+
+        fn chunk(g: *const @This(), c: threading.Chunk) void {
+            g.columns(@intCast(c.start), @intCast(c.end));
+        }
+
+        fn columns(g: *const @This(), c0: BlasLong, c1: BlasLong) void {
+            var offset_u = g.ku - c0;
+            var offset_l = g.ku + g.m - c0;
+            var col = at(T, g.a, c0 * g.lda);
+            var i: BlasLong = c0;
+            while (i < c1) : (i += 1) {
+                const start = @max(offset_u, 0);
+                const end = @min(offset_l, g.ku + g.kl + 1);
+                const length = end - start;
+                if (length > 0) {
+                    const ap = at(T, col, start);
+                    const xs = at(T, g.X, start - offset_u);
+                    if (comptime !tr) {
+                        const xi = el(T, g.X, i).*;
+                        axpyK(T, cj, length, mul(T, g.alpha, if (xc) conj(T, xi) else xi), ap, at(T, g.Y, start - offset_u));
+                    } else {
+                        const t = if (comptime !xc) dotK(T, cj, length, ap, xs) else dotK(T, !cj, length, xs, ap);
+                        const v = mul(T, g.alpha, if (comptime xc and cj) conj(T, t) else t);
+                        el(T, g.Y, i).* = add(T, el(T, g.Y, i).*, v);
+                    }
+                }
+                offset_u -= 1;
+                offset_l -= 1;
+                col = at(T, col, g.lda);
             }
         }
-        offset_u -= 1;
-        offset_l -= 1;
-        col = at(T, col, lda);
-    }
-    if (incy != 1) copyK(T, leny, Y, 1, y, incy);
+    };
 }
 
 /// Which matrix a stored triangle stands for.
@@ -335,7 +374,6 @@ fn spans(comptime T: type, comptime packed_: bool, n: isize, lda: isize) interfa
 /// an `m` by `n` matrix with `kl` sub- and `ku` superdiagonals in band
 /// storage. `beta == 0` stores `alpha*op(A)*x` without reading `y`.
 pub fn gbmv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isize, n: isize, kl: isize, ku: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
-    _ = io;
     if (!isComplex(T) and trans.conjX()) return error.InvalidTrans;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
@@ -358,10 +396,10 @@ pub fn gbmv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     const py = first(T, y, leny, incy);
     if (comptime isComplex(T)) {
         switch (trans) {
-            inline else => |t| try gbmvDriver(T, comptime t.transposed(), comptime t.conjA(), comptime t.conjX(), allocator, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
+            inline else => |t| try gbmvDriver(T, comptime t.transposed(), comptime t.conjA(), comptime t.conjX(), allocator, io, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
         }
     } else switch (tr) {
-        inline else => |t| try gbmvDriver(T, t, false, false, allocator, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
+        inline else => |t| try gbmvDriver(T, t, false, false, allocator, io, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
     }
 }
 

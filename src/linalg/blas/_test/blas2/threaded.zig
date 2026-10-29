@@ -104,6 +104,25 @@ fn Cases(comptime T: type) type {
             };
         }
 
+        fn gbmv(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
+            const kl = 9;
+            const ku = 8;
+            const lda = kl + ku + 3;
+            const a = try filled(T, al, lda * long, 10);
+            defer al.free(a);
+            const x = try filled(T, al, 3 * long, 11);
+            defer al.free(x);
+            const y0 = try filled(T, al, 3 * long, 12);
+            defer al.free(y0);
+            const y = try al.alloc(T, y0.len);
+            defer al.free(y);
+            for (transes) |t| for ([_][2]usize{ .{ long, short }, .{ short, long } }) |s| for (incs) |inc| {
+                @memcpy(y, y0);
+                try band.gbmv(al, io, T, t, @intCast(s[0]), @intCast(s[1]), kl, ku, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                try out.appendSlice(al, std.mem.sliceAsBytes(y));
+            };
+        }
+
         /// The rank updates, full and packed, rank 1 and 2, with zeros in
         /// `x` and `y` for the columns they skip.
         fn rank(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
@@ -157,7 +176,7 @@ fn onCore(vt: *const Vtable) !void {
     inline for (all) |T| {
         const C = Cases(T);
         // a dozen chunks or so of each
-        inline for (.{ C.gemv, C.ger, C.rank }, .{ "gemv", "ger", "rank updates" }, .{ 3000, 3000, 40 }) |body, name, most| {
+        inline for (.{ C.gemv, C.ger, C.gbmv, C.rank }, .{ "gemv", "ger", "gbmv", "rank updates" }, .{ 3000, 3000, 3000, 40 }) |body, name, most| {
             threading.test_serial_max = most;
             sameBits(al, threaded.io(), body) catch |e| {
                 check.say("{s} {s}: ", .{ name, @typeName(T) });

@@ -43,6 +43,8 @@ pub const Family = enum {
     index,
     /// `gemv`: `m * n`.
     gemv,
+    /// `gbmv`: `m * n`.
+    gbmv,
     /// `ger`: `m * n`.
     ger,
     /// `symv`, `hemv`: `n`.
@@ -118,6 +120,8 @@ pub fn rule(comptime family: Family, comptime T: type, core: []const u8) Rule {
         // `kernel/arm64/iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n <= 10000`
         .index => .{ .serial_max = 10000 },
         .gemv => if (complex) .{ .serial_max = 1024 * mt - 1 } else gemvCore(F, core) orelse .{ .serial_max = 115200 * mt - 1 },
+        // `gbmv.c`, `zgbmv.c`: `m * n < 250000` (125000 complex); their `kl + ku < 15` is the interface's
+        .gbmv => .{ .serial_max = if (complex) 124999 else 249999 },
         .ger => if (complex) .{ .serial_max = 36 * s * s * mt } else .{ .serial_max = 2048 * mt, .tiers = comptime &.{upTo(20480 * mt, 3)} },
         // `ztrmv`'s `n*n > 36*s*s*4` and `n*n < 64*s*s*4`, as bounds on `n`
         .trmv => if (complex) .{ .serial_max = 12 * s, .tiers = comptime &.{.{ .below = 16 * s, .max = 2 }} } else .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
