@@ -1,6 +1,6 @@
 # BLAS
 
-rstd's BLAS is a Zig port of OpenBLAS: its interfaces, drivers, per-core kernel selection and
+Rstd's BLAS is a Zig port of OpenBLAS: its interfaces, drivers, per-core kernel selection and
 parameters, with OpenBLAS's per-core assembly converted to Zig and its generic kernels rewritten
 on `@Vector`. One build carries kernels for every core the target can run and picks one at run
 time, as OpenBLAS's `DYNAMIC_ARCH` builds do.
@@ -156,7 +156,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   they agree (below). Pinning `OPENBLAS_CORETYPE` makes machines that can run that core agree.
 - **Reproducibility.** For a given build and core, no result depends on where its operands lie in
   memory, nor on the thread count ([`threading.md`](threading.md)).
-- **Denormals.** rstd never changes the floating-point environment, and denormals are honored on
+- **Denormals.** Rstd never changes the floating-point environment, and denormals are honored on
   every core: where a vector unit flushes them (ARMv7 NEON, pre-VSX AltiVec), `f32` stays out of
   its lanes ([`design.md`](design.md#denormals-and-the-floating-point-environment)).
 - **Triangular solves.** `trsv`, `tbsv`, `tpsv` and `trsm` divide by the diagonal, complex by
@@ -224,7 +224,7 @@ The kernels are portable Zig, the same on every core.
 
 On macOS the public routines over `s`, `d`, `c` and `z` run Apple's Accelerate where it has
 the routine, bound at run time with no SDK and run single-threaded, so its results stay
-reproducible (`apple_accel.zig`). rstd's checks come first, so the errors are the same
+reproducible (`apple_accel.zig`). Rstd's checks come first, so the errors are the same
 everywhere. Where its results differ from the reference's on special values, those calls run
 rstd's kernels instead, so [one contract](#one-contract-on-every-core) holds there too.
 `RSTD_BLAS_ACCELERATE=0` at init, or `blas.useAccelerate(false)`, turns it off. Which routines
@@ -237,7 +237,7 @@ and quirks are in [`design.md`](design.md#apple-accelerate).
 | `-Dblas-cores` | `target`, `all`, `none` | which per-core kernel objects are built: only the core the target maps to (the host's own for a native target), every core the target can run, or none (portable kernels only). Default: `target` in debug, `all` otherwise |
 | `-Dblas-llvm` | `true`, `false` | forces the kernel objects on or off LLVM; unset uses LLVM where the kernels need it, which today is everywhere |
 
-A consumer using `src/buildutils`' `addRstd` passes its optimize mode (`RstdOptions.optimize`) so
+A consumer using `src/buildutils` `addRstd` passes its optimize mode (`RstdOptions.optimize`) so
 the default follows it, and may set `RstdOptions.blas_cores`. A core with no object in the build
 runs the closest linked core's kernels, or the portable ones.
 
@@ -268,7 +268,7 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | `zig build qemu-test-x86_64-whpx` | the host CPU under WHPX (x86_64 Windows hosts): the AVX-512, FMA4 and XOP cores |
 | `zig build qemu-test-linux-<arch>` | the full suite under Linux (`aarch64`, `x86_64`, `arm`, `riscv64`, `powerpc64le`) |
 | `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemutest.zig`) |
-| `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple silicon Mac |
+| `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
 | `zig build wasm-test` | level 1 and 2 under Node, with SIMD128 |

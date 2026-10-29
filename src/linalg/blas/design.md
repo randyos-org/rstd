@@ -683,7 +683,7 @@ Zig module allows.
   factored recursively, then `trsm` on its panel and `herk` (`syrk`) on the rest through the
   level-3 drivers, which upstream fuses per column block. Up to `dtb_entries / 2` columns it is
   `potf2_[UL].c` and `zpotf2_[UL].c` as plain loops. Two departures, both the reference's
-  `xPOTRF2`: a NaN pivot fails (`DISNAN`, `lapack-netlib/SRC/dpotrf2.f:168`), where upstream's `ajj <= 0`
+  `xPOTRF2`: a NaN pivot fails (`DISNAN`, `lapack-netlib/SRC/dpotrf2.f:168`), where upstream `ajj <= 0`
   (`lapack/potf2/potf2_U.c:71`) passes it and reports success; and
   the base case divides by the pivot, as `trsm` does, where upstream multiplies by its
   reciprocal (`potf2_U.c:86`). The drivers are called directly, so Accelerate never runs them.
@@ -699,7 +699,7 @@ Zig module allows.
   `getf2_k.c` and `zgetf2_k.c`, left-looking,
   as loops but for the core's `iamax`, so the pivot is the first NaN, else the first largest
   `|re| + |im|`. Two departures, both the reference's `xGETRF2`: a nonzero pivot below the
-  safe minimum (denormal, or NaN) is swapped in and divided by, where upstream's `getf2`
+  safe minimum (denormal, or NaN) is swapped in and divided by, where upstream `getf2`
   records the swap in `ipiv` but neither swaps nor scales (`issues.md`); and the complex test
   is on `|p|`, where upstream tests each part. A normal pivot's column is scaled by its
   reciprocal, as both do. `laswp_ncopy` and `neg_tcopy` stay unused ([Extensions](#extensions)).
@@ -1274,7 +1274,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **`rstd.linalg` is the public API; the BLAS is an implementation detail** (2026-10-29). The
   aim is a MATLAB-like library: callers pass vectors and matrices of any size and `linalg` picks
   the implementation; callers never choose a backend. `linalg.vector` takes fixed-size vectors
-  and small matrices by value, with math names (`dot`, `length`, `cross`). Per size it runs
+  and small matrices by value, with math names (`dot`, `length`, `cross`). Per size, it runs
   inline `@Vector` code or calls the BLAS; the crossover is measured, not guessed, and 2-, 3- and
   4-element forms likely stay inline. The choice depends only on size and target, so a call
   gives the same bits every time. The BLAS keeps its slice and stride routines for `linalg` to
@@ -1303,7 +1303,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
   inherit it (x86 Windows starts them at 53-bit x87 precision where the main thread has 64-bit;
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
-  starts by applying the state captured on the caller's thread. rstd still never changes the
+  starts by applying the state captured on the caller's thread. Rstd still never changes the
   caller's own environment; its workers copy it, and threaded results match serial ones for any
   caller ([`threading.md`](threading.md)).
 - **Rank updates keep the reference's zero skip** (2026-10-29). `ger` passes over a column whose

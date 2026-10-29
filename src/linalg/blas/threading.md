@@ -178,7 +178,7 @@ et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS
 - **Waiting.** BLIS and OpenBLAS both spin without bound inside a call: BLIS's
   `bli_thrcomm_barrier_atomic` on an empty loop, OpenBLAS's `level3_thread.c` with `YIELDING`
   (eight `nop`s on x86_64, arm, POWER and riscv64; `YieldProcessor` under MSVC;
-  `sched_yield` or `SwitchToThread` elsewhere). rstd spins too, checking the word around each
+  `sched_yield` or `SwitchToThread` elsewhere). Rstd spins too, checking the word around each
   `std.atomic.spinLoopHint` (`pause`, `isb`), but at most `spin_limit` (4096) times, about
   90 us on Zen 3, before it sleeps on `io.futexWait`; a waker calls `futexWake` only when
   someone sleeps (`threading.Signal`). Unbounded, a wait on a fiber `Io` (`Io.Evented` with
@@ -274,7 +274,7 @@ same reproducibility requirement. If the library's own threading changes its res
 runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
 thread sets its own model (`singleThreadHere`) on its first routed call
-([`design.md`](design.md#apple-accelerate)). rstd's own workers are to parallelize around it.
+([`design.md`](design.md#apple-accelerate)). Rstd's own workers are to parallelize around it.
 
 ### Guardrails
 

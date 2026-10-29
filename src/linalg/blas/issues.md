@@ -7,7 +7,7 @@ Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`) unless an entry says
 otherwise. The Zig entries were rechecked on 0.18.0-dev.751 (2026-10-26).
 That build is upstream master `cb6f0c25f1` (2026-10-26) with the open
 <https://codeberg.org/ziglang/zig/pulls/31235> merged, so its `dev` number
-is not upstream's. Zig source links below are at `cb6f0c25f1`.
+is not upstream. Zig source links below are at `cb6f0c25f1`.
 
 When an issue is fixed upstream, drop the workaround and its entry.
 
@@ -31,7 +31,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > hidden result pointer in `rdi`. The System V ABI returns `long double`
   > in `st(0)` (class X87). The same declaration on `x86_64-linux` returns
   > in `st(0)`. It looks like the Win64 rule for `long double` (by memory)
-  > is applied although the function uses the SysV convention. Arguments
+  > is applied, although the function uses the SysV convention. Arguments
   > are passed correctly; only the return differs. Calling a SysV assembly
   > routine that returns in `st(0)` then reads garbage, or crashes when the
   > callee writes through the "pointer". Reproduce: declare
@@ -635,7 +635,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   barrier passes at 2, 4 and 8 parties, as does threaded `gemm`. `Io.Threaded`
   passes everything. 0.18.0-dev.751, 2026-10-29.
 - **Workaround:** `blas3/threaded.zig`'s fiber test runs `Uring` with
-  `thread_limit = 0` only; threaded level 3 on a multi-threaded `Uring` is unverified
+  `thread_limit = 0` only; threaded level 3 on a multithreaded `Uring` is unverified
   (threading.md, Open issues).
 - **Issue text:**
 
@@ -714,7 +714,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 - **Seen:** a `zig build` killed while linking left `.zig-cache/o/<digest>/`
   with only `<name>_zcu.obj` and a manifest in `.zig-cache/h/`. Later builds
-  treat it as cached, and the run step fails with `FileNotFound` on the exe.
+  treat it as cached, and the run step fails with `FileNotFound` on the EXE.
 - **Workaround:** move that manifest and `o/` directory out of the cache.
 - **Issue text:**
 
@@ -858,7 +858,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `std.math.isInf` on `f32` (ReleaseSafe, `-mcpu=pwr9`) to
   `xststdcsp 0, 1, 48`: DCMX 48 is +Inf and -Inf, and the operand is the
   `f32` as the FPR holds it, in double format, as the ISA wants. LLVM is
-  right. Under QEMU it is true for `f32` denormals (0x00000001, 0x007fffff,
+  right. Under QEMU, it is true for `f32` denormals (0x00000001, 0x007fffff,
   0x80000001), and right for normals, zeros, infinities, NaN and every `f64`
   (`xststdcdp`). `helper_XSTSTDCSP` in `target/ppc/fpu_helper.c` has
   `match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381)`: a
@@ -1017,7 +1017,7 @@ The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every
 found these. In rstd's extremes the first NaN wins ([`readme.md`](readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
 infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 
-Not used: no core takes a converted extreme kernel. Upstream's follow
+Not used: no core takes a converted extreme kernel. Upstream follows
 Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
 `>`, so NaN is picked only as the first element, or worse:
 
@@ -1165,7 +1165,7 @@ turned the denormal into 0 on the `arm`, `linux-arm`, `powerpc` and
 `c` there to the portable ones, and the level-3 tiles are scalar there
 (`blas3/gemm/kernel.zig`'s `vectorBits`).
 
-Upstream's level-1 and level-2 kernels for these cores are scalar: VFP on
+Upstream level-1 and level-2 kernels for these cores are scalar: VFP on
 arm, the FPU on POWER before POWER8, none of them AltiVec. Its ARMv7
 `sgemm_kernel_4x4_vfpv3_neon.S` and the PPC970 and CELL
 `gemm_kernel_altivec*.S` and `zgemm_kernel_altivec*.S` compute in NEON and
@@ -1299,7 +1299,7 @@ And C sources rstd ports to Zig:
 > with `n` = 3 gives -1.2692 where the loop gives 1.6555
 > (riscv64_zvl128b, x280). `zaxpy_rvv.c`'s strided segments and the MSA
 > files' blocks of four and two load `y` before storing it (i6400, i6500,
-> p6600 from `n` = 4). rstd's ports of these (`axpy/riscv64/rvv.zig`,
+> p6600 from `n` = 4). Rstd's ports of these (`axpy/riscv64/rvv.zig`,
 > `axpy/mips/msa.zig`) take a zero `incy` one element at a time.
 
 ### `cblas_icmax` and `cblas_icmin` scan a complex vector as reals
@@ -1342,9 +1342,9 @@ and the x86_64 kernels are exact to rounding.
 `kernel/Makefile` builds the `HASWELL` and `ZEN` kernels with `-mavx2 -mfma`
 under clang but only `-mavx2` under GCC, so the C parts of the C kernels
 (`gemv`'s row tails and `add_y`, for one) contract multiply-adds under clang
-and not under GCC. rstd follows clang (`cpu/_corespec.zig`). Against a GCC
+and not under GCC. Rstd follows clang (`cpu/_corespec.zig`). Against a GCC
 build (the 0.3.33 Windows release, GCC 9.3), the converted `gemv` blocks
-agree bit for bit and those C statements differ in the last bit; built
+agree bit-for-bit and those C statements differ in the last bit; built
 without contraction, rstd's complex `gemv` agreed in all 17,360 cases tried.
 
 - **Workaround:** none needed; the rounding is the core's either way.
@@ -1399,8 +1399,8 @@ So one element's result depends on where it falls in the vector.
   the `zscal_kernel_8` block, and the strided path, special-case `alpha`:
   in `zscal.c`, with `ai == 0` an infinite real part no longer makes the
   imaginary part NaN as the block's product does; with `alpha == 0` and `dummy2` set, the
-  tail checks only its first element for NaN and writes that result (NaN or
-  0) to every remaining element, and an infinity becomes 0 instead of NaN.
+  tail checks only its first element for NaN and writes that result (NaN or 0)
+  to every remaining element, and an infinity becomes 0 instead of NaN.
   Results then depend on `n % 8` (`n % 16` for `cscal`). The full product,
   as the blocks compute it, would make every element agree."
 
@@ -1482,6 +1482,4 @@ the same sequential `f32` sum: about 1% off for 16M floats. Its `sasum` is
 260 eps off there too, where rstd's converted kernel is 4.2 eps off.
 
 - **Workaround:** none needed; rstd does not call BLIS.
-- **Issue text:** "Single-precision `nrm2` (`snrm2`, `scnrm2`) loses about
-  1% for 16M floats on `zen3`, from a sequential `f32` sum of squares.
-  Accumulate in `f64`, or in several partial sums."
+- **Issue text:** "Single-precision `nrm2` (`snrm2`, `scnrm2`) loses about 1% for 16M floats on `zen3`, from a sequential `f32` sum of squares. Accumulate in `f64`, or in several partial sums."

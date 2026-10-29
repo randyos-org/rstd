@@ -20,7 +20,7 @@ is in [`design.md`](../design.md#kernel-kinds).
 | Intrinsics block      | `<routine>/<arch>/kernel.zig`           | hand-ported, `@Vector` |
 | Composition per arch  | `<routine>/<arch>/kernel.zig`           | `uk.Kernels(...)`      |
 | Registry              | `kernels/<arch>.zig` `modules`          | one line per routine   |
-| Tests                 | `<routine>/__root__.zig`                | hand-written           |
+| Tests                 | `<routine>/__root__.zig`                | handwritten            |
 
 `blas1/uk_block.zig` holds what is shared: `Entry` (a row of the index),
 `find`, the `Block` kinds, and `Kernels`, which exports the core's kernels
@@ -39,7 +39,7 @@ OPENBLAS=<checkout> zig run tools/blas_asm/uk.zig [-- <routine>...]
 For each routine in the `Routine` table of `kernel_map.zig` and each target
 that lists it, it:
 
-1. converts every function with assembly in each
+1. Converts every function with assembly in each
    `<p><routine>_microk_<core>-N.c` (or, for `zarch`, the function in the
    driver's own file): the `__asm__` statement as written, named operands,
    clobbers at the width of the registers used, `#if CONJ` resolved once per
@@ -172,7 +172,7 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
   model of the C (`skylakexModel` in `dot/__root__.zig`), for each policy.
 - A driver can be checked against OpenBLAS's own C by compiling the original
   with a stub `common.h` (`BLASLONG`, `FLOAT`, `CNAME`, the complex struct) and
-  `-ffp-contract=on` or `off`, then comparing results bit for bit with the
+  `-ffp-contract=on` or `off`, then comparing results bit-for-bit with the
   ported driver over the same data. Done for `dot` on the cores the host runs
   (6264 cases, no differences).
 - Cores the host cannot run (FMA4 and XOP for Bulldozer and Piledriver,
