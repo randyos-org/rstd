@@ -19,6 +19,8 @@ const Vtable = @import("Vtable.zig");
 const fma = @import("fma.zig");
 const extremum = @import("blas1/extremum.zig");
 const coretypes = @import("cpu/_coretypes.zig");
+const select = @import("cpu/_select.zig");
+const corespec = @import("cpu/_corespec.zig");
 
 const BlasLong = types.BlasLong;
 const Find = extremum.Find;
@@ -34,6 +36,31 @@ pub fn lanes(comptime F: type) comptime_int {
 inline fn at(comptime F: type, p: [*]F, i: BlasLong) *F {
     return util.at(F, p, i);
 }
+
+/// `@abs(v)`; on MIPS MSA by clearing the sign bits with a mask LLVM cannot
+/// see is one: there it takes `fmax_a.df v, v, v` for a vector `@abs`, or
+/// a plain mask, or scalar ones it vectorizes, which QEMU computes as `v`
+/// (`issues.md`).
+fn abs(v: anytype) @TypeOf(v) {
+    const T = @TypeOf(v);
+    if (comptime !msa) return @abs(v);
+    const lanes_ = comptime if (@typeInfo(T) == .vector) @typeInfo(T).vector.len else 1;
+    const words = comptime @sizeOf(if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T) / 4;
+    const n = lanes_ * words;
+    const k = asm (""
+        : [k] "=r" (-> u32),
+        : [x] "0" (@as(u32, 0x7fff_ffff)),
+    );
+    // the sign's word of each float: its last, or on big-endian its first
+    const top = comptime if (sysinfo.target.cpu.arch.endian() == .little) words - 1 else 0;
+    var mask: [n]u32 = @splat(0xffff_ffff);
+    inline for (0..n) |i| {
+        if (i % words == top) mask[i] = k;
+    }
+    return @bitCast(@as(@Vector(n, u32), @bitCast(v)) & @as(@Vector(n, u32), mask));
+}
+
+const msa = sysinfo.target.cpu.arch.isMIPS() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
 
 /// `a*b + c`, fused where the hardware has an FMA unit (and `fma.compiles`);
 /// elsewhere rounded twice, as `@mulAdd` there is a software `fma` call per
@@ -116,7 +143,7 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             if (comptime @typeInfo(T) == .vector) return switch (how) {
                 .mul => @as(T, @splat(a)) * v,
                 .zero => @splat(0),
-                .keep => @select(F, @abs(v) <= @as(T, @splat(std.math.floatMax(F))), @as(T, @splat(0)), @as(T, @splat(std.math.nan(F)))),
+                .keep => @select(F, abs(v) <= @as(T, @splat(std.math.floatMax(F))), @as(T, @splat(0)), @as(T, @splat(std.math.nan(F)))),
             };
             return switch (how) {
                 .mul => a * v,
@@ -160,7 +187,7 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
 
         pub fn nrm2(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
             if (n <= 0 or incx == 0) return 0;
-            if (n == 1) return @abs(x[0]);
+            if (n == 1) return abs(x[0]);
             if (incx == 1) return root(F, 1, squares(@intCast(n), x), n, x, incx);
             var acc: DG = @splat(0);
             var i: BlasLong = 0;
@@ -181,10 +208,10 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             var acc: [2]V = @splat(@splat(0));
             var i: usize = 0;
             while (i + 2 * W <= len) : (i += 2 * W) {
-                inline for (0..2) |q| acc[q] += @abs(ld(x + i + q * W));
+                inline for (0..2) |q| acc[q] += abs(ld(x + i + q * W));
             }
             var s = @reduce(.Add, acc[0] + acc[1]);
-            while (i < len) : (i += 1) s += @abs(x[i]);
+            while (i < len) : (i += 1) s += abs(x[i]);
             return s;
         }
 
@@ -193,9 +220,9 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             if (incx == 1) return absSum(@intCast(n), x);
             var acc: G = @splat(0);
             var i: BlasLong = 0;
-            while (i + 4 <= n) : (i += 4) acc += @abs(gather(x, incx, i));
+            while (i + 4 <= n) : (i += 4) acc += abs(gather(x, incx, i));
             var s = @reduce(.Add, acc);
-            while (i < n) : (i += 1) s += @abs(at(F, x, i * incx).*);
+            while (i < n) : (i += 1) s += abs(at(F, x, i * incx).*);
             return s;
         }
 
@@ -233,7 +260,7 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 const P = extremum.Extremum(F, 1, find);
                 const Key = struct {
                     inline fn key(p: [*]const F, s: usize, i: usize) F {
-                        return if (find.abs) @abs(p[i * s]) else p[i * s];
+                        return if (find.abs) abs(p[i * s]) else p[i * s];
                     }
                     inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
                         var m: [4]V = undefined;
@@ -245,8 +272,8 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                                 inline for (0..W) |k| r[k] = p[(i + q * W + k) * s];
                                 m[q] = r;
                             }
-                            if (find.abs) m[q] = @abs(m[q]);
-                            chk.* += if (find.abs) m[q] else @abs(m[q]);
+                            if (find.abs) m[q] = abs(m[q]);
+                            chk.* += if (find.abs) m[q] else abs(m[q]);
                         }
                         return pick(find, m);
                     }
@@ -275,10 +302,25 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         pub const min = Extreme(.{ .abs = false, .max = false }).value;
         pub const imin = Extreme(.{ .abs = false, .max = false }).index;
 
-        /// The extreme of four vectors of keys.
+        /// The extreme of four vectors of keys: by `@max` or `@min` where
+        /// they are instructions (`hasMinMax`), else by compare and select,
+        /// which agrees on any keys but NaN, for which `search` gives up.
         pub inline fn pick(comptime find: Find, m: [4]V) F {
+            if (comptime !hasMinMax(F)) {
+                const a: [W]F = sel(find, sel(find, m[0], m[1]), sel(find, m[2], m[3]));
+                var r = a[0];
+                inline for (a[1..]) |k| r = sel(find, k, r);
+                return r;
+            }
             if (find.max) return @reduce(.Max, @max(@max(m[0], m[1]), @max(m[2], m[3])));
             return @reduce(.Min, @min(@min(m[0], m[1]), @min(m[2], m[3])));
+        }
+
+        /// `a` where it is `find`'s better than `b`, else `b`.
+        inline fn sel(comptime find: Find, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+            const T = @TypeOf(a);
+            const take = if (find.max) a > b else a < b;
+            return if (@typeInfo(T) == .vector) @select(F, take, a, b) else if (take) a else b;
         }
 
         inline fn better(comptime find: Find, k: F, best: F) bool {
@@ -466,6 +508,21 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             }
             return 0;
         }
+    };
+}
+
+/// Whether `@max` and `@min` of `F` are instructions here: elsewhere each
+/// is a call to libm's `fmax` or `fmin`, lane by lane (ARMv7 VFP, SPARC,
+/// pre-VSX POWER, MIPS before release 6, MSA too, the x87).
+fn hasMinMax(comptime F: type) bool {
+    const cpu = sysinfo.target.cpu;
+    return switch (cpu.arch) {
+        .x86, .x86_64 => !util.onX87(F),
+        .arm, .armeb, .thumb, .thumbeb => cpu.has(.arm, .fp_armv8),
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => cpu.has(.powerpc, .vsx),
+        .mips, .mipsel, .mips64, .mips64el => cpu.hasAny(.mips, &.{ .mips32r6, .mips64r6 }),
+        .sparc, .sparc64 => false,
+        else => true,
     };
 }
 
@@ -670,9 +727,9 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
             var acc: [2]V2 = @splat(@splat(0));
             var i: BlasLong = 0;
             while (i + 2 <= n) : (i += 2) {
-                inline for (0..2) |q| acc[q] += @abs(ld2(x, (i + q) * incx));
+                inline for (0..2) |q| acc[q] += abs(ld2(x, (i + q) * incx));
             }
-            if (i < n) acc[0] += @abs(ld2(x, i * incx));
+            if (i < n) acc[0] += abs(ld2(x, i * incx));
             return @reduce(.Add, acc[0] + acc[1]);
         }
 
@@ -715,14 +772,14 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
                 const Key = struct {
                     // rounded: `search` finds the block's stored key again
                     inline fn key(p: [*]const F, s: usize, i: usize) F {
-                        return util.rounded(F, @abs(p[i * s]) + @abs(p[i * s + 1]));
+                        return util.rounded(F, abs(p[i * s]) + abs(p[i * s + 1]));
                     }
                     inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
                         var m: [4]V = undefined;
                         inline for (0..4) |q| {
                             if (s == 2) {
-                                const a = @abs(ld(p + 2 * (i + q * W)));
-                                const b = @abs(ld(p + 2 * (i + q * W) + W));
+                                const a = abs(ld(p + 2 * (i + q * W)));
+                                const b = abs(ld(p + 2 * (i + q * W) + W));
                                 m[q] = parts(a, b, false) + parts(a, b, true);
                             } else {
                                 var r: [W]F = undefined;
@@ -946,6 +1003,35 @@ pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []c
     .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k, .ssum_k, .dsum_k, .csum_k, .zsum_k },
 };
 
+/// The cores whose vectors flush `f32` (`util.vectorIeeeOn` on their specs,
+/// as a test checks): ARMv7's NEON ones. Their objects build no `s` or `c`
+/// kernels here (`kernels`), so these take no such slot there.
+/// `tools/blas_asm/survey.zig` reads it as text.
+pub const flushing: struct { cores: []const coretypes.ArmCoreType } = .{
+    .cores = &.{ .cortexa9, .cortexa15 },
+};
+
+/// Whether `slot` is over `f32` and `core` one of `flushing`'s.
+fn flushes(comptime core: anytype, comptime slot: Slot) bool {
+    if (@TypeOf(core) != coretypes.ArmCoreType) return false;
+    if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
+    inline for (real_slots ++ complex_slots) |p| {
+        inline for (@typeInfo(@TypeOf(p[1])).@"struct".field_names) |name| {
+            if (@field(p[1], name) == slot) return p[0] == f32;
+        }
+    }
+    return false;
+}
+
+test "vector.flushing names the arm cores whose specs flush f32 lanes" {
+    // soft-float ABIs keep floats out of every vector unit
+    if (sysinfo.target.abi.float() == .soft) return error.SkipZigTest;
+    inline for (comptime corespec.kernelCores(.arm)) |core| {
+        const listed = std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) != null;
+        try std.testing.expectEqual(!util.vectorIeeeOn(f32, select.specCpu(core)), listed);
+    }
+}
+
 /// Whether these kernels take `slot` from `core`'s converted ones, beyond
 /// `routed`, so its object leaves those out (`displacing`). On Apple's
 /// systems Accelerate is to serve instead, and the converted kernels stay.
@@ -1168,6 +1254,7 @@ pub fn Rule(comptime Core: type) type {
 /// Whether `rule` puts these kernels in `slot` on `core`, over the
 /// registry's `converted` modules.
 pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
+    if (flushes(core, slot)) return false;
     switch (rule) {
         .routed => |cores| {
             if (!routed(slot)) return false;

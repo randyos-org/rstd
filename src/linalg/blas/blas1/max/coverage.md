@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | smax                    | dmax                    | qmax                         |
-| --------- | ----------------------- | ----------------------- | ---------------------------- |
-| ARMV5     | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` (missing) → portable |
-| ARMV6     | `amax_vfp.S` → routed   | `amax_vfp.S` → routed   | `max.S` (missing) → portable |
-| ARMV7     | `amax_vfp.S` → routed   | `amax_vfp.S` → routed   | `max.S` (missing) → portable |
-| CORTEXA15 | `amax_vfp.S` → routed   | `amax_vfp.S` → routed   | `max.S` (missing) → portable |
-| CORTEXA9  | `amax_vfp.S` → routed   | `amax_vfp.S` → routed   | `max.S` (missing) → portable |
+| core      | smax                  | dmax                 | qmax                         |
+| --------- | --------------------- | -------------------- | ---------------------------- |
+| ARMV5     | `../arm/max.c` → vec  | `../arm/max.c` → vec | `max.S` (missing) → portable |
+| ARMV6     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec   | `max.S` (missing) → portable |
+| ARMV7     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec   | `max.S` (missing) → portable |
+| CORTEXA15 | `amax_vfp.S` → routed | `amax_vfp.S` → vec   | `max.S` (missing) → portable |
+| CORTEXA9  | `amax_vfp.S` → routed | `amax_vfp.S` → vec   | `max.S` (missing) → portable |
 
 ## power
 
-| core      | smax                    | dmax                    | qmax               |
-| --------- | ----------------------- | ----------------------- | ------------------ |
-| CELL      | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| POWER10   | `max.S` → vec           | `max.S` → vec           | `max.S` → portable |
-| POWER3    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| POWER4    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| POWER5    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| POWER6    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| POWER8    | `max.S` → vec           | `max.S` → vec           | `max.S` → portable |
-| POWER9    | `max.S` → vec           | `max.S` → vec           | `max.S` → portable |
-| PPC440    | `max_ppc440.S` → routed | `max_ppc440.S` → routed | `max.S` → portable |
-| PPC440FP2 | `max_hummer.S` → routed | `max_hummer.S` → routed | `max.S` → portable |
-| PPC970    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| PPCG4     | `max_ppc440.S` → routed | `max_ppc440.S` → routed | `max.S` → portable |
+| core      | smax                 | dmax                 | qmax               |
+| --------- | -------------------- | -------------------- | ------------------ |
+| CELL      | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER10   | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER3    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER4    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER5    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER6    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER8    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| POWER9    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| PPC440    | `max_ppc440.S` → vec | `max_ppc440.S` → vec | `max.S` → portable |
+| PPC440FP2 | `max_hummer.S` → vec | `max_hummer.S` → vec | `max.S` → portable |
+| PPC970    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| PPCG4     | `max_ppc440.S` → vec | `max_ppc440.S` → vec | `max.S` → portable |
 
 ## mips64
 
-| core           | smax                    | dmax                    | qmax               |
-| -------------- | ----------------------- | ----------------------- | ------------------ |
-| generic        | `../arm/max.c` → n/a    | `../arm/max.c` → n/a    | `max.S` → n/a      |
-| I6400          | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` → portable |
-| I6500          | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` → portable |
-| LOONGSON3R3    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| LOONGSON3R4    | `max.S` → routed        | `max.S` → routed        | `max.S` → portable |
-| MIPS64_GENERIC | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` → portable |
-| P6600          | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` → portable |
+| core           | smax                 | dmax                 | qmax               |
+| -------------- | -------------------- | -------------------- | ------------------ |
+| generic        | `../arm/max.c` → n/a | `../arm/max.c` → n/a | `max.S` → n/a      |
+| I6400          | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` → portable |
+| I6500          | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` → portable |
+| LOONGSON3R3    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| LOONGSON3R4    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
+| MIPS64_GENERIC | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` → portable |
+| P6600          | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` → portable |
 
 ## mips
 
-| core      | smax                    | dmax                    | qmax                         |
-| --------- | ----------------------- | ----------------------- | ---------------------------- |
-| generic   | `../arm/max.c` → n/a    | `../arm/max.c` → n/a    | `max.S` (missing) → n/a      |
-| MIPS1004K | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` (missing) → portable |
-| MIPS24K   | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` (missing) → portable |
-| P5600     | `../arm/max.c` → routed | `../arm/max.c` → routed | `max.S` (missing) → portable |
+| core      | smax                 | dmax                 | qmax                         |
+| --------- | -------------------- | -------------------- | ---------------------------- |
+| generic   | `../arm/max.c` → n/a | `../arm/max.c` → n/a | `max.S` (missing) → n/a      |
+| MIPS1004K | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` (missing) → portable |
+| MIPS24K   | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` (missing) → portable |
+| P5600     | `../arm/max.c` → vec | `../arm/max.c` → vec | `max.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | smax             | dmax             | qmax               |
-| ------- | ---------------- | ---------------- | ------------------ |
-| sparc   | `max.S` → routed | `max.S` → routed | `max.S` → portable |
-| sparcv7 | `max.S` → routed | `max.S` → routed | `max.S` → portable |
+| core    | smax          | dmax          | qmax               |
+| ------- | ------------- | ------------- | ------------------ |
+| sparc   | `max.S` → vec | `max.S` → vec | `max.S` → portable |
+| sparcv7 | `max.S` → vec | `max.S` → vec | `max.S` → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 160, `portable` 115, `n/a` 24, `routed` 70. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 208, `portable` 115, `n/a` 24, `routed` 22. 0 gaps.

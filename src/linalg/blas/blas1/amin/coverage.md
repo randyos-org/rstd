@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | samin                    | damin                    | camin                     | zamin                     | qamin                         | xamin                          |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | ------------------------------ |
-| ARMV5     | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| ARMV6     | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| ARMV7     | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| CORTEXA15 | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| CORTEXA9  | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| core      | samin                 | damin                 | camin                     | zamin                  | qamin                         | xamin                          |
+| --------- | --------------------- | --------------------- | ------------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| ARMV5     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec    | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV6     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec    | `../arm/zamin.c` → vec    | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| ARMV7     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec    | `../arm/zamin.c` → vec    | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA15 | `amax_vfp.S` → routed | `amax_vfp.S` → vec    | `../arm/zamin.c` → routed | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| CORTEXA9  | `amax_vfp.S` → routed | `amax_vfp.S` → vec    | `../arm/zamin.c` → routed | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
 
 ## power
 
-| core      | samin                    | damin                    | camin                     | zamin                     | qamin               | xamin                |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ------------------- | -------------------- |
-| CELL      | `amin_cell.S` → routed   | `amin_cell.S` → routed   | `zamin_cell.S` → routed   | `zamin_cell.S` → routed   | `amin.S` → portable | `zamin.S` → portable |
-| POWER10   | `amin.S` → vec           | `amin.S` → vec           | `zamin.S` → vec           | `zamin.S` → vec           | `amin.S` → portable | `zamin.S` → portable |
-| POWER3    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| POWER4    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| POWER5    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| POWER6    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| POWER8    | `amin.S` → vec           | `amin.S` → vec           | `zamin.S` → vec           | `zamin.S` → vec           | `amin.S` → portable | `zamin.S` → portable |
-| POWER9    | `amin.S` → vec           | `amin.S` → vec           | `zamin.S` → vec           | `zamin.S` → vec           | `amin.S` → portable | `zamin.S` → portable |
-| PPC440    | `amin_ppc440.S` → routed | `amin_ppc440.S` → routed | `zamin_ppc440.S` → routed | `zamin_ppc440.S` → routed | `amin.S` → portable | `zamin.S` → portable |
-| PPC440FP2 | `amin_hummer.S` → routed | `amin_hummer.S` → routed | `zamin_hummer.S` → routed | `zamin_hummer.S` → routed | `amin.S` → portable | `zamin.S` → portable |
-| PPC970    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| PPCG4     | `amin_ppc440.S` → routed | `amin_ppc440.S` → routed | `zamin_ppc440.S` → routed | `zamin_ppc440.S` → routed | `amin.S` → portable | `zamin.S` → portable |
+| core      | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
+| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| CELL      | `amin_cell.S` → vec   | `amin_cell.S` → vec   | `zamin_cell.S` → vec   | `zamin_cell.S` → vec   | `amin.S` → portable | `zamin.S` → portable |
+| POWER10   | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| POWER3    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| POWER4    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| POWER5    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| POWER6    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| POWER8    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| POWER9    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| PPC440    | `amin_ppc440.S` → vec | `amin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `amin.S` → portable | `zamin.S` → portable |
+| PPC440FP2 | `amin_hummer.S` → vec | `amin_hummer.S` → vec | `zamin_hummer.S` → vec | `zamin_hummer.S` → vec | `amin.S` → portable | `zamin.S` → portable |
+| PPC970    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| PPCG4     | `amin_ppc440.S` → vec | `amin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `amin.S` → portable | `zamin.S` → portable |
 
 ## mips64
 
-| core           | samin                    | damin                    | camin                     | zamin                     | qamin               | xamin                |
-| -------------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ------------------- | -------------------- |
-| generic        | `../arm/amin.c` → n/a    | `../arm/amin.c` → n/a    | `../arm/zamin.c` → n/a    | `../arm/zamin.c` → n/a    | `amin.S` → n/a      | `zamin.S` → n/a      |
-| I6400          | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` → portable | `zamin.S` → portable |
-| I6500          | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` → portable | `zamin.S` → portable |
-| LOONGSON3R3    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| LOONGSON3R4    | `amin.S` → routed        | `amin.S` → routed        | `zamin.S` → routed        | `zamin.S` → routed        | `amin.S` → portable | `zamin.S` → portable |
-| MIPS64_GENERIC | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` → portable | `zamin.S` → portable |
-| P6600          | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` → portable | `zamin.S` → portable |
+| core           | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
+| -------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| generic        | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amin.S` → n/a      | `zamin.S` → n/a      |
+| I6400          | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+| I6500          | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+| LOONGSON3R3    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| LOONGSON3R4    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
+| MIPS64_GENERIC | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
+| P6600          | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` → portable | `zamin.S` → portable |
 
 ## mips
 
-| core      | samin                    | damin                    | camin                     | zamin                     | qamin                         | xamin                          |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/amin.c` → n/a    | `../arm/amin.c` → n/a    | `../arm/zamin.c` → n/a    | `../arm/zamin.c` → n/a    | `amin.S` (missing) → n/a      | `zamin.S` (missing) → n/a      |
-| MIPS1004K | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| MIPS24K   | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| P5600     | `../arm/amin.c` → routed | `../arm/amin.c` → routed | `../arm/zamin.c` → routed | `../arm/zamin.c` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| core      | samin                 | damin                 | camin                  | zamin                  | qamin                         | xamin                          |
+| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/amin.c` → n/a | `../arm/amin.c` → n/a | `../arm/zamin.c` → n/a | `../arm/zamin.c` → n/a | `amin.S` (missing) → n/a      | `zamin.S` (missing) → n/a      |
+| MIPS1004K | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| MIPS24K   | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| P5600     | `../arm/amin.c` → vec | `../arm/amin.c` → vec | `../arm/zamin.c` → vec | `../arm/zamin.c` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | samin             | damin             | camin              | zamin              | qamin                         | xamin                          |
-| ------- | ----------------- | ----------------- | ------------------ | ------------------ | ----------------------------- | ------------------------------ |
-| sparc   | `amax.S` → routed | `amax.S` → routed | `zamax.S` → routed | `zamax.S` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
-| sparcv7 | `amax.S` → routed | `amax.S` → routed | `zamax.S` → routed | `zamax.S` → routed | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| core    | samin          | damin          | camin           | zamin           | qamin                         | xamin                          |
+| ------- | -------------- | -------------- | --------------- | --------------- | ----------------------------- | ------------------------------ |
+| sparc   | `amax.S` → vec | `amax.S` → vec | `zamax.S` → vec | `zamax.S` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
+| sparcv7 | `amax.S` → vec | `amax.S` → vec | `zamax.S` → vec | `zamax.S` → vec | `amin.S` (missing) → portable | `zamin.S` (missing) → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 320, `portable` 230, `n/a` 48, `routed` 140. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.

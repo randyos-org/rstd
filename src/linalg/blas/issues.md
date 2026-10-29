@@ -667,6 +667,44 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `-mattr=+nomadd4` is the only control today, and it also rejects
   > `madd.fmt` in inline assembly.
 
+### MIPS MSA: LLVM takes `fmax_a` for `fabs`, which keeps the sign
+
+- **Seen:** once the routed `@Vector` kernels went to mips (T25), the
+  `mips64r2el` rig's `samax` on `loongson3r4` (MSA) gave 1.9792 for 1.9802
+  at a stride of 3, and its amin test hung: the scalar search never met
+  the block's key. `@abs(v)` became
+  `fmax_a.w $w0, $w0, $w0`; FMAX_A is the operand of the larger
+  magnitude, sign kept (QEMU's `msa_helper.c`, `FMAXMIN_A`; the MSA
+  manual's FMAX_A, from memory), so `|x|` came out as `x` and negative keys
+  lost. A plain sign mask (`and` with `0x7fffffff`) folds back into `fabs`
+  and the same `fmax_a`, as do scalar `@abs`es the SLP vectorizer packs
+  (the complex extremes' `|re| + |im|`). Release 5 and 6, `f32` and `f64`.
+- **Workaround:** `vector.zig`'s `abs` clears the sign bits with a mask
+  whose word passes through an empty `asm`, so LLVM cannot see it is one
+  (`and.v`); only on MSA. Code elsewhere in an MSA object that `@abs`es
+  vectors, or scalars LLVM may pack, is exposed too; the rigs show none.
+- **Issue text:**
+
+  > **[Mips] MSA: `fabs` on vectors selects `fmax_a.df`, which returns
+  > the signed operand**
+  >
+  > `zig build-obj -OReleaseFast -target mips64el-freestanding-none
+  > -mcpu=mips64r5+msa` (`llc -mattr=+msa`) on
+  >
+  > ```zig
+  > export fn absA(p: *[4]f32) void {
+  >     const v: @Vector(4, f32) = p.*;
+  >     p.* = @abs(v);
+  > }
+  > ```
+  >
+  > gives `fmax_a.w $w0, $w0, $w0`. FMAX_A.df writes whichever operand has
+  > the larger absolute value, with its sign, so this stores `v`, not
+  > `|v|`; QEMU computes it so. `and` with the sign mask is combined into
+  > the same `fabs`. Selecting `bclri.w`/`bclri.d` on bit 31/63 (as
+  > `and` with a mask the combiner cannot see already gives `and.v`)
+  > would be right.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds

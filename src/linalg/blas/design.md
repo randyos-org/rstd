@@ -463,15 +463,24 @@ per-core objects; like the tiles, they never make a core need an object of its o
   architecture's registry puts the `@Vector` kernels in where its vector unit is IEEE, else the
   portable ones serve. Where x86_64 routes a peeling slot by core, the generated index lists
   the cores of the assembly it left out (`skipped`).
-- **x86_64, x86, loongarch64:** the routed slots (on x86_64 the peeling ones only on the cores
-  whose converted kernels peel; their C kernels elsewhere stay).
-- **power:** the routed slots on POWER8 to 10; AltiVec cores keep the portable kernels.
+- **x86_64, x86, loongarch64, mips, sparc, power:** the routed slots (on x86_64 the peeling
+  ones only on the cores whose converted kernels peel; their C kernels elsewhere stay). The
+  AltiVec cores' objects are built without AltiVec, so theirs are scalar.
+- **arm:** the routed slots, but `s` and `c` on the NEON cores (`cortexa9`, `cortexa15`), whose
+  lanes flush `f32` (`vector.flushing`).
 - **arm64:** the routed slots on every core; on `vortex` and `vortexm4` every slot but `rot`
   and `sum` (unmeasured), where they match or beat the converted assembly on the M6
   ([`results-m6.md`](../../../tools/blasbench/results-m6.md)), so their objects there leave those
-  converted kernels out (`vector.displaces`); elsewhere every slot no converted kernel fills
+  converted kernels out (`vector.displacing`); elsewhere every slot no converted kernel fills
   (below). On Apple's systems, where Accelerate serves most routines, only the routed slots.
-- **arm, mips, sparc, riscv64, s390x, wasm:** none.
+- **riscv64, s390x, wasm:** none.
+
+Without a vector unit for the type (SPARC, ARMv7's `f64`, pre-VSX POWER, MIPS without MSA, the
+x87) LLVM splits the vectors into scalar operations. The reductions keep their eight independent
+sums, against the portable loop's one, and the extremes compare and select where `@max` would
+call libm's `fmax` per element (`vector.hasMinMax`, MSA included); [`comparisons.md`](comparisons.md)
+(1) has the measurements. On MSA, `@abs` clears sign bits through a mask LLVM cannot fold back
+into `fmax_a` ([`issues.md`](issues.md)).
 
 On arm64 these fill the slots whose upstream kernel is C, which the portable scalar loop served
 before; their converted kernels stay, unmeasured:
@@ -496,12 +505,12 @@ above are not among them:
 | --- | --- | --- | --- | --- |
 | x86_64 | `axpy`, `dot`, `rot`, `scal` (C drivers and assembly); `asum`, `copy`, `sum`, `swap` | `gemv` (C drivers and assembly), `symv`, `hemv` | tile | routed |
 | x86 | `axpy`, `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
-| arm | `axpy`, `asum`, `dot`, `rot`, `sum`, `swap` | `gemv` | tile | |
+| arm | `axpy`, `asum`, `dot`, `rot`, `sum`, `swap` | `gemv` | tile | routed, `d` and `z` on NEON |
 | arm64 | `axpy` (assembly, SVE, ThunderX), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed and more |
 | loongarch64 | `axpy`, `asum`, `axpby`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv`, `symv` | tile | routed |
-| mips, mips64 | `axpy` (MSA on 32- and 64-bit), `asum`, `copy`, `dot`, `scal`, `sum`, `swap` | | tile | |
-| power | `axpy` (assembly, microkernels, C), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed, POWER8 to 10 |
-| sparc | `axpy`, `asum`, `copy`, `dot`, `rot`, `sum`, `swap` | `gemv` | | |
+| mips, mips64 | `axpy` (MSA on 32- and 64-bit), `asum`, `copy`, `dot`, `scal`, `sum`, `swap` | | tile | routed |
+| power | `axpy` (assembly, microkernels, C), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
+| sparc | `axpy`, `asum`, `copy`, `dot`, `rot`, `sum`, `swap` | `gemv` | | routed |
 | riscv64 | `axpy` (RVV) | | tile | |
 | s390x | `axpy` (microkernels) | | tile | |
 | wasm | `axpy` | | tile | |

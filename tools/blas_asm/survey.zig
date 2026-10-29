@@ -291,20 +291,22 @@ fn readRule(arena: std.mem.Allocator, ar: Arch) !VectorRule {
 }
 
 /// `vector.displacing`: the cores of enum `cores_enum` where the `@Vector`
-/// kernels take every slot of theirs but `keep`.
-const Displacing = struct { cores_enum: []const u8, cores: []const []const u8, keep: []const []const u8 };
+/// kernels take every slot of theirs but `keep`; or `vector.flushing`: the
+/// cores where they take no `s` or `c` slot (no `keep`).
+const Displacing = struct { cores_enum: []const u8, cores: []const []const u8, keep: []const []const u8 = &.{} };
 
-fn readDisplacing(arena: std.mem.Allocator) !Displacing {
+/// `vector.zig`'s `pub const <name>: struct { cores: ..., keep: ... }`.
+fn readCores(arena: std.mem.Allocator, comptime name: []const u8, comptime keep: bool) !Displacing {
     const text = map.read(blas ++ "/vector.zig") orelse map.die("cannot read vector.zig", .{});
-    const tag = "pub const displacing: struct { cores: []const coretypes.";
-    const at = std.mem.find(u8, text, tag) orelse map.die("no displacing in vector.zig", .{});
+    const tag = "pub const " ++ name ++ ": struct { cores: []const coretypes.";
+    const at = std.mem.find(u8, text, tag) orelse map.die("no " ++ name ++ " in vector.zig", .{});
     const rest = text[at + tag.len ..];
     const body = rest[0 .. std.mem.find(u8, rest, "};") orelse rest.len];
-    const value = body[std.mem.find(u8, body, "} = .{") orelse map.die("cannot read vector.displacing", .{}) ..];
+    const value = body[std.mem.find(u8, body, "} = .{") orelse map.die("cannot read vector." ++ name, .{}) ..];
     return .{
-        .cores_enum = rest[0 .. std.mem.findScalar(u8, rest, ',') orelse 0],
-        .cores = try literals(arena, field(value, "cores") orelse map.die("no displacing.cores", .{})),
-        .keep = try literals(arena, field(value, "keep") orelse map.die("no displacing.keep", .{})),
+        .cores_enum = rest[0 .. std.mem.findAny(u8, rest, ", ") orelse 0],
+        .cores = try literals(arena, field(value, "cores") orelse map.die("no " ++ name ++ ".cores", .{})),
+        .keep = if (keep) try literals(arena, field(value, "keep") orelse map.die("no " ++ name ++ ".keep", .{})) else &.{},
     };
 }
 
@@ -455,7 +457,7 @@ const Rstd = enum {
 const Got = struct { r: Rstd, unsure: bool = false };
 
 /// How the registry routes the `@Vector` kernels (`vector.takes`).
-const Routing = struct { rule: VectorRule, displacing: Displacing };
+const Routing = struct { rule: VectorRule, displacing: Displacing, flushing: Displacing };
 
 /// What `core` gets for `slot`, as the registry's `install` picks it: the
 /// `@Vector` kernels where its `vector_rule` takes the slot, else a hand
@@ -472,7 +474,9 @@ fn serve(ar: Arch, s: Served, routing: Routing, core: []const u8, role: roles.Ro
     const routed = if (skip) |k| !k.cores or Served.find(s.skipped, slot, core) != null else false;
     const d = routing.displacing;
     const displaced = std.mem.eql(u8, ar.cores, d.cores_enum) and contains(d.cores, core) and !contains(d.keep, slot);
-    const vec = contains(fills, slot) and switch (routing.rule) {
+    const f = routing.flushing;
+    const flushed = std.mem.eql(u8, ar.cores, f.cores_enum) and contains(f.cores, core) and (role.prec == .s or role.prec == .c);
+    const vec = contains(fills, slot) and !flushed and switch (routing.rule) {
         .none => false,
         .routed => |cores| routed and (cores == null or contains(cores.?, core)),
         .unfilled => routed or !indexed or displaced,
@@ -512,11 +516,12 @@ fn l1(init: std.process.Init, arena: std.mem.Allocator, only: ?[]const u8) !void
     }
     if (routines.count() == 0) map.die("no level-1 routine '{s}'", .{only orelse ""});
     const fills = try vectorSlots(arena);
-    const displacing = try readDisplacing(arena);
-    for (routines.keys(), routines.values()) |name, rs| try routine1(init, arena, name, rs.items, fills, displacing);
+    const displacing = try readCores(arena, "displacing", true);
+    const flushing = try readCores(arena, "flushing", false);
+    for (routines.keys(), routines.values()) |name, rs| try routine1(init, arena, name, rs.items, fills, displacing, flushing);
 }
 
-fn routine1(init: std.process.Init, arena: std.mem.Allocator, routine: []const u8, rs: []const roles.Role, fills: []const []const u8, displacing: Displacing) !void {
+fn routine1(init: std.process.Init, arena: std.mem.Allocator, routine: []const u8, rs: []const roles.Role, fills: []const []const u8, displacing: Displacing, flushing: Displacing) !void {
     // one column per make variable, holding the roles built from it
     var columns: std.array_hash_map.String(std.ArrayList(roles.Role)) = .empty;
     const ordered = try arena.dupe(roles.Role, rs);
@@ -578,7 +583,7 @@ fn routine1(init: std.process.Init, arena: std.mem.Allocator, routine: []const u
         const cores = try map.cores(ar.name) orelse continue;
         const known = try coreNames(arena, ar.cores);
         const s = try readServed(arena, ar, "blas1", routine);
-        const routing: Routing = .{ .rule = try readRule(arena, ar), .displacing = displacing };
+        const routing: Routing = .{ .rule = try readRule(arena, ar), .displacing = displacing, .flushing = flushing };
         try w.print(arena, "## {s}\n\n", .{ar.name});
         if (ar.dir.len == 0) {
             try w.appendSlice(arena, "rstd has no target here.\n\n");

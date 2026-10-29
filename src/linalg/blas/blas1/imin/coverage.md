@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | ismin                    | idmin                    | iqmin                          |
-| --------- | ------------------------ | ------------------------ | ------------------------------ |
-| ARMV5     | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `iamin.S` (missing) → portable |
-| ARMV6     | `iamax_vfp.S` → routed   | `iamax_vfp.S` → routed   | `iamin.S` (missing) → portable |
-| ARMV7     | `iamax_vfp.S` → routed   | `iamax_vfp.S` → routed   | `iamin.S` (missing) → portable |
-| CORTEXA15 | `iamax_vfp.S` → routed   | `iamax_vfp.S` → routed   | `iamin.S` (missing) → portable |
-| CORTEXA9  | `iamax_vfp.S` → routed   | `iamax_vfp.S` → routed   | `iamin.S` (missing) → portable |
+| core      | ismin                  | idmin                 | iqmin                          |
+| --------- | ---------------------- | --------------------- | ------------------------------ |
+| ARMV5     | `../arm/imin.c` → vec  | `../arm/imin.c` → vec | `iamin.S` (missing) → portable |
+| ARMV6     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec   | `iamin.S` (missing) → portable |
+| ARMV7     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec   | `iamin.S` (missing) → portable |
+| CORTEXA15 | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec   | `iamin.S` (missing) → portable |
+| CORTEXA9  | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec   | `iamin.S` (missing) → portable |
 
 ## power
 
-| core      | ismin                    | idmin                    | iqmin               |
-| --------- | ------------------------ | ------------------------ | ------------------- |
-| CELL      | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| POWER10   | `imin.S` → vec           | `imin.S` → vec           | `imin.S` → portable |
-| POWER3    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| POWER4    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| POWER5    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| POWER6    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| POWER8    | `imin.S` → vec           | `imin.S` → vec           | `imin.S` → portable |
-| POWER9    | `imin.S` → vec           | `imin.S` → vec           | `imin.S` → portable |
-| PPC440    | `imin_ppc440.S` → routed | `imin_ppc440.S` → routed | `imin.S` → portable |
-| PPC440FP2 | `imin_hummer.S` → routed | `imin_hummer.S` → routed | `imin.S` → portable |
-| PPC970    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| PPCG4     | `imin_ppc440.S` → routed | `imin_ppc440.S` → routed | `imin.S` → portable |
+| core      | ismin                 | idmin                 | iqmin               |
+| --------- | --------------------- | --------------------- | ------------------- |
+| CELL      | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER10   | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER3    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER4    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER5    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER6    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER8    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| POWER9    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| PPC440    | `imin_ppc440.S` → vec | `imin_ppc440.S` → vec | `imin.S` → portable |
+| PPC440FP2 | `imin_hummer.S` → vec | `imin_hummer.S` → vec | `imin.S` → portable |
+| PPC970    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| PPCG4     | `imin_ppc440.S` → vec | `imin_ppc440.S` → vec | `imin.S` → portable |
 
 ## mips64
 
-| core           | ismin                    | idmin                    | iqmin               |
-| -------------- | ------------------------ | ------------------------ | ------------------- |
-| generic        | `../arm/imin.c` → n/a    | `../arm/imin.c` → n/a    | `imin.S` → n/a      |
-| I6400          | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `imin.S` → portable |
-| I6500          | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `imin.S` → portable |
-| LOONGSON3R3    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| LOONGSON3R4    | `imin.S` → routed        | `imin.S` → routed        | `imin.S` → portable |
-| MIPS64_GENERIC | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `imin.S` → portable |
-| P6600          | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `imin.S` → portable |
+| core           | ismin                 | idmin                 | iqmin               |
+| -------------- | --------------------- | --------------------- | ------------------- |
+| generic        | `../arm/imin.c` → n/a | `../arm/imin.c` → n/a | `imin.S` → n/a      |
+| I6400          | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `imin.S` → portable |
+| I6500          | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `imin.S` → portable |
+| LOONGSON3R3    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| LOONGSON3R4    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
+| MIPS64_GENERIC | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `imin.S` → portable |
+| P6600          | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `imin.S` → portable |
 
 ## mips
 
-| core      | ismin                    | idmin                    | iqmin                          |
-| --------- | ------------------------ | ------------------------ | ------------------------------ |
-| generic   | `../arm/imin.c` → n/a    | `../arm/imin.c` → n/a    | `iamin.S` (missing) → n/a      |
-| MIPS1004K | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `iamin.S` (missing) → portable |
-| MIPS24K   | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `iamin.S` (missing) → portable |
-| P5600     | `../arm/imin.c` → routed | `../arm/imin.c` → routed | `iamin.S` (missing) → portable |
+| core      | ismin                 | idmin                 | iqmin                          |
+| --------- | --------------------- | --------------------- | ------------------------------ |
+| generic   | `../arm/imin.c` → n/a | `../arm/imin.c` → n/a | `iamin.S` (missing) → n/a      |
+| MIPS1004K | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `iamin.S` (missing) → portable |
+| MIPS24K   | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `iamin.S` (missing) → portable |
+| P5600     | `../arm/imin.c` → vec | `../arm/imin.c` → vec | `iamin.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | ismin             | idmin             | iqmin                          |
-| ------- | ----------------- | ----------------- | ------------------------------ |
-| sparc   | `imax.S` → routed | `imax.S` → routed | `iamin.S` (missing) → portable |
-| sparcv7 | `imax.S` → routed | `imax.S` → routed | `iamin.S` (missing) → portable |
+| core    | ismin          | idmin          | iqmin                          |
+| ------- | -------------- | -------------- | ------------------------------ |
+| sparc   | `imax.S` → vec | `imax.S` → vec | `iamin.S` (missing) → portable |
+| sparcv7 | `imax.S` → vec | `imax.S` → vec | `iamin.S` (missing) → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 160, `portable` 115, `n/a` 24, `routed` 70. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 208, `portable` 115, `n/a` 24, `routed` 22. 0 gaps.

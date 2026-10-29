@@ -79,6 +79,16 @@ pub fn Sets(comptime Core: type) type {
     };
 }
 
+/// A CPU with `core`'s spec's features and no model's, to ask what its
+/// object's vectors compute with (`util.vectorIeeeOn`).
+pub fn specCpu(comptime core: anytype) std.Target.Cpu {
+    return comptime blk: {
+        @setEvalBranchQuota(1_000_000);
+        const arch = archOf(@TypeOf(core));
+        break :blk .{ .arch = arch, .model = std.Target.Cpu.Model.generic(arch), .features = specSet(arch, corespec.of(core)) };
+    };
+}
+
 /// Whether `a`'s kernels need no feature `b`'s do not.
 pub fn subsetOf(comptime Core: type, a: Core, b: Core) bool {
     const sets = Sets(Core).all;

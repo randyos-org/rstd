@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | isamin                    | idamin                    | icamin                     | izamin                     | iqamin                         | ixamin                          |
-| --------- | ------------------------- | ------------------------- | -------------------------- | -------------------------- | ------------------------------ | ------------------------------- |
-| ARMV5     | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| ARMV6     | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| ARMV7     | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| CORTEXA15 | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| CORTEXA9  | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| core      | isamin                 | idamin                 | icamin                     | izamin                  | iqamin                         | ixamin                          |
+| --------- | ---------------------- | ---------------------- | -------------------------- | ----------------------- | ------------------------------ | ------------------------------- |
+| ARMV5     | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec    | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| ARMV6     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec    | `../arm/izamin.c` → vec    | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| ARMV7     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec    | `../arm/izamin.c` → vec    | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| CORTEXA15 | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec    | `../arm/izamin.c` → routed | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| CORTEXA9  | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec    | `../arm/izamin.c` → routed | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
 
 ## power
 
 | core      | isamin                                                                 | idamin                                    | icamin                                                                 | izamin                                     | iqamin               | ixamin                |
 | --------- | ---------------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------ | -------------------- | --------------------- |
-| CELL      | `iamin.S` → routed                                                     | `iamin.S` → routed                        | `izamin.S` → routed                                                    | `izamin.S` → routed                        | `iamin.S` → portable | `izamin.S` → portable |
+| CELL      | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
 | POWER10   | `isamin_power9.S` \| `isamin.c` +intrinsics → vec                      | `idamin.c` +asm → vec                     | `icamin_power9.S` \| `icamin.c` +intrinsics → vec                      | `izamin.c` +asm → vec                      | `iamin.S` → portable | `izamin.S` → portable |
-| POWER3    | `iamin.S` → routed                                                     | `iamin.S` → routed                        | `izamin.S` → routed                                                    | `izamin.S` → routed                        | `iamin.S` → portable | `izamin.S` → portable |
-| POWER4    | `iamin.S` → routed                                                     | `iamin.S` → routed                        | `izamin.S` → routed                                                    | `izamin.S` → routed                        | `iamin.S` → portable | `izamin.S` → portable |
-| POWER5    | `iamin.S` → routed                                                     | `iamin.S` → routed                        | `izamin.S` → routed                                                    | `izamin.S` → routed                        | `iamin.S` → portable | `izamin.S` → portable |
-| POWER6    | `iamin.S` → routed                                                     | `iamin.S` → routed                        | `izamin.S` → routed                                                    | `izamin.S` → routed                        | `iamin.S` → portable | `izamin.S` → portable |
+| POWER3    | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
+| POWER4    | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
+| POWER5    | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
+| POWER6    | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
 | POWER8    | `isamin_power8.S` \| `isamin.c` +intrinsics → vec                      | `idamin.c` +asm \| `../arm/iamin.c` → vec | `icamin_power8.S` \| `icamin.c` +intrinsics → vec                      | `izamin.c` +asm \| `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
 | POWER9    | `isamin_power8.S` \| `isamin.c` +intrinsics \| `isamin_power9.S` → vec | `idamin.c` +asm \| `../arm/iamin.c` → vec | `icamin_power8.S` \| `icamin.c` +intrinsics \| `icamin_power9.S` → vec | `izamin.c` +asm \| `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
-| PPC440    | `iamin_ppc440.S` → routed                                              | `iamin_ppc440.S` → routed                 | `izamin_ppc440.S` → routed                                             | `izamin_ppc440.S` → routed                 | `iamin.S` → portable | `izamin.S` → portable |
-| PPC440FP2 | `iamin_hummer.S` → routed                                              | `iamin_hummer.S` → routed                 | `izamin_hummer.S` → routed                                             | `izamin_hummer.S` → routed                 | `iamin.S` → portable | `izamin.S` → portable |
-| PPC970    | `iamin.S` → routed                                                     | `iamin.S` → routed                        | `izamin.S` → routed                                                    | `izamin.S` → routed                        | `iamin.S` → portable | `izamin.S` → portable |
-| PPCG4     | `iamin_ppc440.S` → routed                                              | `iamin_ppc440.S` → routed                 | `izamin_ppc440.S` → routed                                             | `izamin_ppc440.S` → routed                 | `iamin.S` → portable | `izamin.S` → portable |
+| PPC440    | `iamin_ppc440.S` → vec                                                 | `iamin_ppc440.S` → vec                    | `izamin_ppc440.S` → vec                                                | `izamin_ppc440.S` → vec                    | `iamin.S` → portable | `izamin.S` → portable |
+| PPC440FP2 | `iamin_hummer.S` → vec                                                 | `iamin_hummer.S` → vec                    | `izamin_hummer.S` → vec                                                | `izamin_hummer.S` → vec                    | `iamin.S` → portable | `izamin.S` → portable |
+| PPC970    | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
+| PPCG4     | `iamin_ppc440.S` → vec                                                 | `iamin_ppc440.S` → vec                    | `izamin_ppc440.S` → vec                                                | `izamin_ppc440.S` → vec                    | `iamin.S` → portable | `izamin.S` → portable |
 
 ## mips64
 
-| core           | isamin                    | idamin                    | icamin                     | izamin                     | iqamin               | ixamin                |
-| -------------- | ------------------------- | ------------------------- | -------------------------- | -------------------------- | -------------------- | --------------------- |
-| generic        | `../arm/iamin.c` → n/a    | `../arm/iamin.c` → n/a    | `../arm/izamin.c` → n/a    | `../arm/izamin.c` → n/a    | `iamin.S` → n/a      | `izamin.S` → n/a      |
-| I6400          | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` → portable | `izamin.S` → portable |
-| I6500          | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` → portable | `izamin.S` → portable |
-| LOONGSON3R3    | `iamin.S` → routed        | `iamin.S` → routed        | `izamin.S` → routed        | `izamin.S` → routed        | `iamin.S` → portable | `izamin.S` → portable |
-| LOONGSON3R4    | `iamin.S` → routed        | `iamin.S` → routed        | `izamin.S` → routed        | `izamin.S` → routed        | `iamin.S` → portable | `izamin.S` → portable |
-| MIPS64_GENERIC | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` → portable | `izamin.S` → portable |
-| P6600          | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` → portable | `izamin.S` → portable |
+| core           | isamin                 | idamin                 | icamin                  | izamin                  | iqamin               | ixamin                |
+| -------------- | ---------------------- | ---------------------- | ----------------------- | ----------------------- | -------------------- | --------------------- |
+| generic        | `../arm/iamin.c` → n/a | `../arm/iamin.c` → n/a | `../arm/izamin.c` → n/a | `../arm/izamin.c` → n/a | `iamin.S` → n/a      | `izamin.S` → n/a      |
+| I6400          | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
+| I6500          | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
+| LOONGSON3R3    | `iamin.S` → vec        | `iamin.S` → vec        | `izamin.S` → vec        | `izamin.S` → vec        | `iamin.S` → portable | `izamin.S` → portable |
+| LOONGSON3R4    | `iamin.S` → vec        | `iamin.S` → vec        | `izamin.S` → vec        | `izamin.S` → vec        | `iamin.S` → portable | `izamin.S` → portable |
+| MIPS64_GENERIC | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
+| P6600          | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
 
 ## mips
 
-| core      | isamin                    | idamin                    | icamin                     | izamin                     | iqamin                         | ixamin                          |
-| --------- | ------------------------- | ------------------------- | -------------------------- | -------------------------- | ------------------------------ | ------------------------------- |
-| generic   | `../arm/iamin.c` → n/a    | `../arm/iamin.c` → n/a    | `../arm/izamin.c` → n/a    | `../arm/izamin.c` → n/a    | `iamin.S` (missing) → n/a      | `izamin.S` (missing) → n/a      |
-| MIPS1004K | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| MIPS24K   | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| P5600     | `../arm/iamin.c` → routed | `../arm/iamin.c` → routed | `../arm/izamin.c` → routed | `../arm/izamin.c` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| core      | isamin                 | idamin                 | icamin                  | izamin                  | iqamin                         | ixamin                          |
+| --------- | ---------------------- | ---------------------- | ----------------------- | ----------------------- | ------------------------------ | ------------------------------- |
+| generic   | `../arm/iamin.c` → n/a | `../arm/iamin.c` → n/a | `../arm/izamin.c` → n/a | `../arm/izamin.c` → n/a | `iamin.S` (missing) → n/a      | `izamin.S` (missing) → n/a      |
+| MIPS1004K | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| MIPS24K   | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| P5600     | `../arm/iamin.c` → vec | `../arm/iamin.c` → vec | `../arm/izamin.c` → vec | `../arm/izamin.c` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | isamin             | idamin             | icamin              | izamin              | iqamin                         | ixamin                          |
-| ------- | ------------------ | ------------------ | ------------------- | ------------------- | ------------------------------ | ------------------------------- |
-| sparc   | `iamax.S` → routed | `iamax.S` → routed | `izamax.S` → routed | `izamax.S` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| sparcv7 | `iamax.S` → routed | `iamax.S` → routed | `izamax.S` → routed | `izamax.S` → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| core    | isamin          | idamin          | icamin           | izamin           | iqamin                         | ixamin                          |
+| ------- | --------------- | --------------- | ---------------- | ---------------- | ------------------------------ | ------------------------------- |
+| sparc   | `iamax.S` → vec | `iamax.S` → vec | `izamax.S` → vec | `izamax.S` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| sparcv7 | `iamax.S` → vec | `iamax.S` → vec | `izamax.S` → vec | `izamax.S` → vec | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 320, `portable` 230, `n/a` 48, `routed` 140. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.

@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | isamax                    | idamax                    | icamax                     | izamax                     | iqamax                         | ixamax                          |
-| --------- | ------------------------- | ------------------------- | -------------------------- | -------------------------- | ------------------------------ | ------------------------------- |
-| ARMV5     | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| ARMV6     | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| ARMV7     | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| CORTEXA15 | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| CORTEXA9  | `iamax_vfp.S` → routed    | `iamax_vfp.S` → routed    | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| core      | isamax                 | idamax                 | icamax                     | izamax                  | iqamax                         | ixamax                          |
+| --------- | ---------------------- | ---------------------- | -------------------------- | ----------------------- | ------------------------------ | ------------------------------- |
+| ARMV5     | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec    | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| ARMV6     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec    | `../arm/izamax.c` → vec    | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| ARMV7     | `iamax_vfp.S` → vec    | `iamax_vfp.S` → vec    | `../arm/izamax.c` → vec    | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| CORTEXA15 | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec    | `../arm/izamax.c` → routed | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| CORTEXA9  | `iamax_vfp.S` → routed | `iamax_vfp.S` → vec    | `../arm/izamax.c` → routed | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
 
 ## power
 
 | core      | isamax                                                                 | idamax                                    | icamax                                                          | izamax                                     | iqamax               | ixamax                |
 | --------- | ---------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------- | ------------------------------------------ | -------------------- | --------------------- |
-| CELL      | `iamax.S` → routed                                                     | `iamax.S` → routed                        | `izamax.S` → routed                                             | `izamax.S` → routed                        | `iamax.S` → portable | `izamax.S` → portable |
+| CELL      | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
 | POWER10   | `isamax_power9.S` \| `isamax.c` +intrinsics → vec                      | `idamax.c` +asm → vec                     | `icamax_power9.S` \| `icamax.c` +asm → vec                      | `izamax.c` +asm → vec                      | `iamax.S` → portable | `izamax.S` → portable |
-| POWER3    | `iamax.S` → routed                                                     | `iamax.S` → routed                        | `izamax.S` → routed                                             | `izamax.S` → routed                        | `iamax.S` → portable | `izamax.S` → portable |
-| POWER4    | `iamax.S` → routed                                                     | `iamax.S` → routed                        | `izamax.S` → routed                                             | `izamax.S` → routed                        | `iamax.S` → portable | `izamax.S` → portable |
-| POWER5    | `iamax.S` → routed                                                     | `iamax.S` → routed                        | `izamax.S` → routed                                             | `izamax.S` → routed                        | `iamax.S` → portable | `izamax.S` → portable |
-| POWER6    | `iamax.S` → routed                                                     | `iamax.S` → routed                        | `izamax.S` → routed                                             | `izamax.S` → routed                        | `iamax.S` → portable | `izamax.S` → portable |
+| POWER3    | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
+| POWER4    | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
+| POWER5    | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
+| POWER6    | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
 | POWER8    | `isamax_power8.S` \| `isamax.c` +intrinsics → vec                      | `idamax.c` +asm \| `../arm/iamax.c` → vec | `icamax_power8.S` \| `icamax.c` +asm → vec                      | `izamax.c` +asm \| `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
 | POWER9    | `isamax_power8.S` \| `isamax.c` +intrinsics \| `isamax_power9.S` → vec | `idamax.c` +asm \| `../arm/iamax.c` → vec | `icamax_power8.S` \| `icamax.c` +asm \| `icamax_power9.S` → vec | `izamax.c` +asm \| `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
-| PPC440    | `iamax_ppc440.S` → routed                                              | `iamax_ppc440.S` → routed                 | `izamax_ppc440.S` → routed                                      | `izamax_ppc440.S` → routed                 | `iamax.S` → portable | `izamax.S` → portable |
-| PPC440FP2 | `iamax_hummer.S` → routed                                              | `iamax_hummer.S` → routed                 | `izamax_hummer.S` → routed                                      | `izamax_hummer.S` → routed                 | `iamax.S` → portable | `izamax.S` → portable |
-| PPC970    | `iamax.S` → routed                                                     | `iamax.S` → routed                        | `izamax.S` → routed                                             | `izamax.S` → routed                        | `iamax.S` → portable | `izamax.S` → portable |
-| PPCG4     | `iamax_ppc440.S` → routed                                              | `iamax_ppc440.S` → routed                 | `izamax_ppc440.S` → routed                                      | `izamax_ppc440.S` → routed                 | `iamax.S` → portable | `izamax.S` → portable |
+| PPC440    | `iamax_ppc440.S` → vec                                                 | `iamax_ppc440.S` → vec                    | `izamax_ppc440.S` → vec                                         | `izamax_ppc440.S` → vec                    | `iamax.S` → portable | `izamax.S` → portable |
+| PPC440FP2 | `iamax_hummer.S` → vec                                                 | `iamax_hummer.S` → vec                    | `izamax_hummer.S` → vec                                         | `izamax_hummer.S` → vec                    | `iamax.S` → portable | `izamax.S` → portable |
+| PPC970    | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
+| PPCG4     | `iamax_ppc440.S` → vec                                                 | `iamax_ppc440.S` → vec                    | `izamax_ppc440.S` → vec                                         | `izamax_ppc440.S` → vec                    | `iamax.S` → portable | `izamax.S` → portable |
 
 ## mips64
 
-| core           | isamax                    | idamax                    | icamax                     | izamax                     | iqamax               | ixamax                |
-| -------------- | ------------------------- | ------------------------- | -------------------------- | -------------------------- | -------------------- | --------------------- |
-| generic        | `../arm/iamax.c` → n/a    | `../arm/iamax.c` → n/a    | `../arm/izamax.c` → n/a    | `../arm/izamax.c` → n/a    | `iamax.S` → n/a      | `izamax.S` → n/a      |
-| I6400          | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` → portable | `izamax.S` → portable |
-| I6500          | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` → portable | `izamax.S` → portable |
-| LOONGSON3R3    | `iamax.S` → routed        | `iamax.S` → routed        | `izamax.S` → routed        | `izamax.S` → routed        | `iamax.S` → portable | `izamax.S` → portable |
-| LOONGSON3R4    | `iamax.S` → routed        | `iamax.S` → routed        | `izamax.S` → routed        | `izamax.S` → routed        | `iamax.S` → portable | `izamax.S` → portable |
-| MIPS64_GENERIC | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` → portable | `izamax.S` → portable |
-| P6600          | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` → portable | `izamax.S` → portable |
+| core           | isamax                 | idamax                 | icamax                  | izamax                  | iqamax               | ixamax                |
+| -------------- | ---------------------- | ---------------------- | ----------------------- | ----------------------- | -------------------- | --------------------- |
+| generic        | `../arm/iamax.c` → n/a | `../arm/iamax.c` → n/a | `../arm/izamax.c` → n/a | `../arm/izamax.c` → n/a | `iamax.S` → n/a      | `izamax.S` → n/a      |
+| I6400          | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
+| I6500          | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
+| LOONGSON3R3    | `iamax.S` → vec        | `iamax.S` → vec        | `izamax.S` → vec        | `izamax.S` → vec        | `iamax.S` → portable | `izamax.S` → portable |
+| LOONGSON3R4    | `iamax.S` → vec        | `iamax.S` → vec        | `izamax.S` → vec        | `izamax.S` → vec        | `iamax.S` → portable | `izamax.S` → portable |
+| MIPS64_GENERIC | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
+| P6600          | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
 
 ## mips
 
-| core      | isamax                    | idamax                    | icamax                     | izamax                     | iqamax                         | ixamax                          |
-| --------- | ------------------------- | ------------------------- | -------------------------- | -------------------------- | ------------------------------ | ------------------------------- |
-| generic   | `../arm/iamax.c` → n/a    | `../arm/iamax.c` → n/a    | `../arm/izamax.c` → n/a    | `../arm/izamax.c` → n/a    | `iamax.S` (missing) → n/a      | `izamax.S` (missing) → n/a      |
-| MIPS1004K | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| MIPS24K   | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| P5600     | `../arm/iamax.c` → routed | `../arm/iamax.c` → routed | `../arm/izamax.c` → routed | `../arm/izamax.c` → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| core      | isamax                 | idamax                 | icamax                  | izamax                  | iqamax                         | ixamax                          |
+| --------- | ---------------------- | ---------------------- | ----------------------- | ----------------------- | ------------------------------ | ------------------------------- |
+| generic   | `../arm/iamax.c` → n/a | `../arm/iamax.c` → n/a | `../arm/izamax.c` → n/a | `../arm/izamax.c` → n/a | `iamax.S` (missing) → n/a      | `izamax.S` (missing) → n/a      |
+| MIPS1004K | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| MIPS24K   | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| P5600     | `../arm/iamax.c` → vec | `../arm/iamax.c` → vec | `../arm/izamax.c` → vec | `../arm/izamax.c` → vec | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | isamax             | idamax             | icamax              | izamax              | iqamax               | ixamax                |
-| ------- | ------------------ | ------------------ | ------------------- | ------------------- | -------------------- | --------------------- |
-| sparc   | `iamax.S` → routed | `iamax.S` → routed | `izamax.S` → routed | `izamax.S` → routed | `iamax.S` → portable | `izamax.S` → portable |
-| sparcv7 | `iamax.S` → routed | `iamax.S` → routed | `izamax.S` → routed | `izamax.S` → routed | `iamax.S` → portable | `izamax.S` → portable |
+| core    | isamax          | idamax          | icamax           | izamax           | iqamax               | ixamax                |
+| ------- | --------------- | --------------- | ---------------- | ---------------- | -------------------- | --------------------- |
+| sparc   | `iamax.S` → vec | `iamax.S` → vec | `izamax.S` → vec | `izamax.S` → vec | `iamax.S` → portable | `izamax.S` → portable |
+| sparcv7 | `iamax.S` → vec | `iamax.S` → vec | `izamax.S` → vec | `izamax.S` → vec | `iamax.S` → portable | `izamax.S` → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 320, `portable` 230, `n/a` 48, `routed` 140. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.

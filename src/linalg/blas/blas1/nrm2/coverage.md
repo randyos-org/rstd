@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | snrm2                    | dnrm2                    | cnrm2                     | znrm2                     | qnrm2                         | xnrm2                          |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | ------------------------------ |
-| ARMV5     | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| ARMV6     | `nrm2_vfp.S` → routed    | `nrm2_vfp.S` → routed    | `nrm2_vfp.S` → routed     | `nrm2_vfp.S` → routed     | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| ARMV7     | `nrm2_vfpv3.S` → routed  | `nrm2_vfpv3.S` → routed  | `nrm2_vfpv3.S` → routed   | `nrm2_vfpv3.S` → routed   | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| CORTEXA15 | `nrm2_vfpv3.S` → routed  | `nrm2_vfpv3.S` → routed  | `nrm2_vfpv3.S` → routed   | `nrm2_vfpv3.S` → routed   | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| CORTEXA9  | `nrm2_vfpv3.S` → routed  | `nrm2_vfpv3.S` → routed  | `nrm2_vfpv3.S` → routed   | `nrm2_vfpv3.S` → routed   | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| core      | snrm2                   | dnrm2                 | cnrm2                   | znrm2                  | qnrm2                         | xnrm2                          |
+| --------- | ----------------------- | --------------------- | ----------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| ARMV5     | `../arm/nrm2.c` → vec   | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec  | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| ARMV6     | `nrm2_vfp.S` → vec      | `nrm2_vfp.S` → vec    | `nrm2_vfp.S` → vec      | `nrm2_vfp.S` → vec     | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| ARMV7     | `nrm2_vfpv3.S` → vec    | `nrm2_vfpv3.S` → vec  | `nrm2_vfpv3.S` → vec    | `nrm2_vfpv3.S` → vec   | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| CORTEXA15 | `nrm2_vfpv3.S` → routed | `nrm2_vfpv3.S` → vec  | `nrm2_vfpv3.S` → routed | `nrm2_vfpv3.S` → vec   | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| CORTEXA9  | `nrm2_vfpv3.S` → routed | `nrm2_vfpv3.S` → vec  | `nrm2_vfpv3.S` → routed | `nrm2_vfpv3.S` → vec   | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
 
 ## power
 
-| core      | snrm2                     | dnrm2                     | cnrm2                     | znrm2                     | qnrm2               | xnrm2                |
-| --------- | ------------------------- | ------------------------- | ------------------------- | ------------------------- | ------------------- | -------------------- |
-| CELL      | `nrm2.S` → routed         | `nrm2.S` → routed         | `znrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER10   | `../arm/nrm2.c` → vec     | `../arm/nrm2.c` → vec     | `../arm/znrm2.c` → vec    | `../arm/znrm2.c` → vec    | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER3    | `nrm2.S` → routed         | `nrm2.S` → routed         | `znrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER4    | `nrm2.S` → routed         | `nrm2.S` → routed         | `znrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER5    | `nrm2.S` → routed         | `nrm2.S` → routed         | `znrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER6    | `nrm2.S` → routed         | `nrm2.S` → routed         | `znrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER8    | `../arm/nrm2.c` → vec     | `../arm/nrm2.c` → vec     | `../arm/znrm2.c` → vec    | `../arm/znrm2.c` → vec    | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER9    | `../arm/nrm2.c` → vec     | `../arm/nrm2.c` → vec     | `../arm/znrm2.c` → vec    | `../arm/znrm2.c` → vec    | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPC440    | `snrm2_ppc440.S` → routed | `dnrm2_ppc440.S` → routed | `cnrm2_ppc440.S` → routed | `znrm2_ppc440.S` → routed | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPC440FP2 | `snrm2_hummer.S` → routed | `dnrm2_hummer.S` → routed | `cnrm2_hummer.S` → routed | `znrm2_hummer.S` → routed | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPC970    | `nrm2.S` → routed         | `nrm2.S` → routed         | `znrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPCG4     | `snrm2_ppc440.S` → routed | `dnrm2_ppc440.S` → routed | `cnrm2_ppc440.S` → routed | `znrm2_ppc440.S` → routed | `nrm2.S` → portable | `znrm2.S` → portable |
+| core      | snrm2                  | dnrm2                  | cnrm2                  | znrm2                  | qnrm2               | xnrm2                |
+| --------- | ---------------------- | ---------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| CELL      | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER10   | `../arm/nrm2.c` → vec  | `../arm/nrm2.c` → vec  | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER3    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER4    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER5    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER6    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER8    | `../arm/nrm2.c` → vec  | `../arm/nrm2.c` → vec  | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER9    | `../arm/nrm2.c` → vec  | `../arm/nrm2.c` → vec  | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPC440    | `snrm2_ppc440.S` → vec | `dnrm2_ppc440.S` → vec | `cnrm2_ppc440.S` → vec | `znrm2_ppc440.S` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPC440FP2 | `snrm2_hummer.S` → vec | `dnrm2_hummer.S` → vec | `cnrm2_hummer.S` → vec | `znrm2_hummer.S` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPC970    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPCG4     | `snrm2_ppc440.S` → vec | `dnrm2_ppc440.S` → vec | `cnrm2_ppc440.S` → vec | `znrm2_ppc440.S` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
 
 ## mips64
 
-| core           | snrm2                    | dnrm2                    | cnrm2                     | znrm2                     | qnrm2                         | xnrm2                |
-| -------------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | -------------------- |
-| generic        | `../arm/nrm2.c` → n/a    | `../arm/nrm2.c` → n/a    | `../arm/znrm2.c` → n/a    | `../arm/znrm2.c` → n/a    | `nrm2.S` (missing) → n/a      | `znrm2.S` → n/a      |
-| I6400          | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
-| I6500          | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
-| LOONGSON3R3    | `snrm2.S` → routed       | `dnrm2.S` → routed       | `cnrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
-| LOONGSON3R4    | `snrm2.S` → routed       | `dnrm2.S` → routed       | `cnrm2.S` → routed        | `znrm2.S` → routed        | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
-| MIPS64_GENERIC | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
-| P6600          | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| core           | snrm2                 | dnrm2                 | cnrm2                  | znrm2                  | qnrm2                         | xnrm2                |
+| -------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ----------------------------- | -------------------- |
+| generic        | `../arm/nrm2.c` → n/a | `../arm/nrm2.c` → n/a | `../arm/znrm2.c` → n/a | `../arm/znrm2.c` → n/a | `nrm2.S` (missing) → n/a      | `znrm2.S` → n/a      |
+| I6400          | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| I6500          | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| LOONGSON3R3    | `snrm2.S` → vec       | `dnrm2.S` → vec       | `cnrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| LOONGSON3R4    | `snrm2.S` → vec       | `dnrm2.S` → vec       | `cnrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| MIPS64_GENERIC | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| P6600          | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
 
 ## mips
 
-| core      | snrm2                    | dnrm2                    | cnrm2                     | znrm2                     | qnrm2                         | xnrm2                          |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/nrm2.c` → n/a    | `../arm/nrm2.c` → n/a    | `../arm/znrm2.c` → n/a    | `../arm/znrm2.c` → n/a    | `nrm2.S` (missing) → n/a      | `znrm2.S` (missing) → n/a      |
-| MIPS1004K | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| MIPS24K   | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| P5600     | `../arm/nrm2.c` → routed | `../arm/nrm2.c` → routed | `../arm/znrm2.c` → routed | `../arm/znrm2.c` → routed | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| core      | snrm2                 | dnrm2                 | cnrm2                  | znrm2                  | qnrm2                         | xnrm2                          |
+| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/nrm2.c` → n/a | `../arm/nrm2.c` → n/a | `../arm/znrm2.c` → n/a | `../arm/znrm2.c` → n/a | `nrm2.S` (missing) → n/a      | `znrm2.S` (missing) → n/a      |
+| MIPS1004K | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| MIPS24K   | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| P5600     | `../arm/nrm2.c` → vec | `../arm/nrm2.c` → vec | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | snrm2              | dnrm2                    | cnrm2              | znrm2              | qnrm2                         | xnrm2                |
-| ------- | ------------------ | ------------------------ | ------------------ | ------------------ | ----------------------------- | -------------------- |
-| sparc   | `snrm2.S` → routed | `../arm/nrm2.c` → routed | `cnrm2.S` → routed | `znrm2.S` → routed | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
-| sparcv7 | `snrm2.S` → routed | `../arm/nrm2.c` → routed | `cnrm2.S` → routed | `znrm2.S` → routed | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| core    | snrm2           | dnrm2                 | cnrm2           | znrm2           | qnrm2                         | xnrm2                |
+| ------- | --------------- | --------------------- | --------------- | --------------- | ----------------------------- | -------------------- |
+| sparc   | `snrm2.S` → vec | `../arm/nrm2.c` → vec | `cnrm2.S` → vec | `znrm2.S` → vec | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
+| sparcv7 | `snrm2.S` → vec | `../arm/nrm2.c` → vec | `cnrm2.S` → vec | `znrm2.S` → vec | `nrm2.S` (missing) → portable | `znrm2.S` → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 320, `portable` 230, `n/a` 48, `routed` 140. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.

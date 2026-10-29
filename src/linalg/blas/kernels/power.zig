@@ -29,10 +29,10 @@ const converted = .{
     @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
 
-/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots on the
-/// VSX cores. AltiVec flushes `f32` denormals (`util.vectorIeee`), so
-/// elsewhere the portable kernels stay.
-const vector_rule: vector.Rule(Core) = .{ .routed = &.{ .power8, .power9, .power10 } };
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots. The
+/// AltiVec cores' objects are built without it (`cpu/_corespec.zig`), whose
+/// lanes flush `f32`, so theirs are scalar.
+const vector_rule: vector.Rule(Core) = .{ .routed = null };
 
 /// The `@Vector` kernels go over those.
 const modules = converted ++ .{vector.Registry(Core, vector_rule, converted)};

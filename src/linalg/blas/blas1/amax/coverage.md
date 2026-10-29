@@ -121,51 +121,51 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm
 
-| core      | samax                    | damax                    | camax                     | zamax                     | qamax                         | xamax                          |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | ------------------------------ |
-| ARMV5     | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
-| ARMV6     | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
-| ARMV7     | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
-| CORTEXA15 | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
-| CORTEXA9  | `amax_vfp.S` → routed    | `amax_vfp.S` → routed    | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| core      | samax                 | damax                 | camax                     | zamax                  | qamax                         | xamax                          |
+| --------- | --------------------- | --------------------- | ------------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| ARMV5     | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec    | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| ARMV6     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec    | `../arm/zamax.c` → vec    | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| ARMV7     | `amax_vfp.S` → vec    | `amax_vfp.S` → vec    | `../arm/zamax.c` → vec    | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| CORTEXA15 | `amax_vfp.S` → routed | `amax_vfp.S` → vec    | `../arm/zamax.c` → routed | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| CORTEXA9  | `amax_vfp.S` → routed | `amax_vfp.S` → vec    | `../arm/zamax.c` → routed | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
 
 ## power
 
-| core      | samax                    | damax                    | camax                     | zamax                     | qamax               | xamax                |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ------------------- | -------------------- |
-| CELL      | `amax_cell.S` → routed   | `amax_cell.S` → routed   | `zamax_cell.S` → routed   | `zamax_cell.S` → routed   | `amax.S` → portable | `zamax.S` → portable |
-| POWER10   | `amax.S` → vec           | `amax.S` → vec           | `zamax.S` → vec           | `zamax.S` → vec           | `amax.S` → portable | `zamax.S` → portable |
-| POWER3    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| POWER4    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| POWER5    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| POWER6    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| POWER8    | `amax.S` → vec           | `amax.S` → vec           | `zamax.S` → vec           | `zamax.S` → vec           | `amax.S` → portable | `zamax.S` → portable |
-| POWER9    | `amax.S` → vec           | `amax.S` → vec           | `zamax.S` → vec           | `zamax.S` → vec           | `amax.S` → portable | `zamax.S` → portable |
-| PPC440    | `amax_ppc440.S` → routed | `amax_ppc440.S` → routed | `zamax_ppc440.S` → routed | `zamax_ppc440.S` → routed | `amax.S` → portable | `zamax.S` → portable |
-| PPC440FP2 | `amax_hummer.S` → routed | `amax_hummer.S` → routed | `zamax_hummer.S` → routed | `zamax_hummer.S` → routed | `amax.S` → portable | `zamax.S` → portable |
-| PPC970    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| PPCG4     | `amax_ppc440.S` → routed | `amax_ppc440.S` → routed | `zamax_ppc440.S` → routed | `zamax_ppc440.S` → routed | `amax.S` → portable | `zamax.S` → portable |
+| core      | samax                 | damax                 | camax                  | zamax                  | qamax               | xamax                |
+| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| CELL      | `amax_cell.S` → vec   | `amax_cell.S` → vec   | `zamax_cell.S` → vec   | `zamax_cell.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
+| POWER10   | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| POWER3    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| POWER4    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| POWER5    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| POWER6    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| POWER8    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| POWER9    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| PPC440    | `amax_ppc440.S` → vec | `amax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `amax.S` → portable | `zamax.S` → portable |
+| PPC440FP2 | `amax_hummer.S` → vec | `amax_hummer.S` → vec | `zamax_hummer.S` → vec | `zamax_hummer.S` → vec | `amax.S` → portable | `zamax.S` → portable |
+| PPC970    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| PPCG4     | `amax_ppc440.S` → vec | `amax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `amax.S` → portable | `zamax.S` → portable |
 
 ## mips64
 
-| core           | samax                    | damax                    | camax                     | zamax                     | qamax               | xamax                |
-| -------------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ------------------- | -------------------- |
-| generic        | `../arm/amax.c` → n/a    | `../arm/amax.c` → n/a    | `../arm/zamax.c` → n/a    | `../arm/zamax.c` → n/a    | `amax.S` → n/a      | `zamax.S` → n/a      |
-| I6400          | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` → portable | `zamax.S` → portable |
-| I6500          | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` → portable | `zamax.S` → portable |
-| LOONGSON3R3    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| LOONGSON3R4    | `amax.S` → routed        | `amax.S` → routed        | `zamax.S` → routed        | `zamax.S` → routed        | `amax.S` → portable | `zamax.S` → portable |
-| MIPS64_GENERIC | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` → portable | `zamax.S` → portable |
-| P6600          | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` → portable | `zamax.S` → portable |
+| core           | samax                 | damax                 | camax                  | zamax                  | qamax               | xamax                |
+| -------------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
+| generic        | `../arm/amax.c` → n/a | `../arm/amax.c` → n/a | `../arm/zamax.c` → n/a | `../arm/zamax.c` → n/a | `amax.S` → n/a      | `zamax.S` → n/a      |
+| I6400          | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` → portable | `zamax.S` → portable |
+| I6500          | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` → portable | `zamax.S` → portable |
+| LOONGSON3R3    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| LOONGSON3R4    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
+| MIPS64_GENERIC | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` → portable | `zamax.S` → portable |
+| P6600          | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` → portable | `zamax.S` → portable |
 
 ## mips
 
-| core      | samax                    | damax                    | camax                     | zamax                     | qamax                         | xamax                          |
-| --------- | ------------------------ | ------------------------ | ------------------------- | ------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/amax.c` → n/a    | `../arm/amax.c` → n/a    | `../arm/zamax.c` → n/a    | `../arm/zamax.c` → n/a    | `amax.S` (missing) → n/a      | `zamax.S` (missing) → n/a      |
-| MIPS1004K | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
-| MIPS24K   | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
-| P5600     | `../arm/amax.c` → routed | `../arm/amax.c` → routed | `../arm/zamax.c` → routed | `../arm/zamax.c` → routed | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| core      | samax                 | damax                 | camax                  | zamax                  | qamax                         | xamax                          |
+| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/amax.c` → n/a | `../arm/amax.c` → n/a | `../arm/zamax.c` → n/a | `../arm/zamax.c` → n/a | `amax.S` (missing) → n/a      | `zamax.S` (missing) → n/a      |
+| MIPS1004K | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| MIPS24K   | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
+| P5600     | `../arm/amax.c` → vec | `../arm/amax.c` → vec | `../arm/zamax.c` → vec | `../arm/zamax.c` → vec | `amax.S` (missing) → portable | `zamax.S` (missing) → portable |
 
 ## riscv64
 
@@ -197,10 +197,10 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## sparc
 
-| core    | samax             | damax             | camax              | zamax              | qamax               | xamax                |
-| ------- | ----------------- | ----------------- | ------------------ | ------------------ | ------------------- | -------------------- |
-| sparc   | `amax.S` → routed | `amax.S` → routed | `zamax.S` → routed | `zamax.S` → routed | `amax.S` → portable | `zamax.S` → portable |
-| sparcv7 | `amax.S` → routed | `amax.S` → routed | `zamax.S` → routed | `zamax.S` → routed | `amax.S` → portable | `zamax.S` → portable |
+| core    | samax          | damax          | camax           | zamax           | qamax               | xamax                |
+| ------- | -------------- | -------------- | --------------- | --------------- | ------------------- | -------------------- |
+| sparc   | `amax.S` → vec | `amax.S` → vec | `zamax.S` → vec | `zamax.S` → vec | `amax.S` → portable | `zamax.S` → portable |
+| sparcv7 | `amax.S` → vec | `amax.S` → vec | `zamax.S` → vec | `zamax.S` → vec | `amax.S` → portable | `zamax.S` → portable |
 
 ## alpha
 
@@ -230,4 +230,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 320, `portable` 230, `n/a` 48, `routed` 140. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.
