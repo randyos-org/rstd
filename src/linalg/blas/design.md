@@ -646,7 +646,10 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
 conventions: `(allocator, io, T, ...)`, column-major, the letter enums, `xerbla`-named argument
 errors in the reference's order. OpenBLAS's own LAPACK (`lapack/`, `interface/lapack/`) is the
 source where it has a routine; Reference-LAPACK's (`lapack-netlib/SRC/`) where it has none, and
-for the semantics. Where they differ, the reference wins, and the file says so.
+for the semantics. Where they differ, the reference wins, and the file says so. LAPACK's
+per-core kernels (`laswp_ncopy`, `neg_tcopy`) are vtable slots, so they stay in `blas/` with the
+other kernels; the routines live here and call the BLAS's drivers and table directly, which one
+Zig module allows.
 
 - **`potrf`** (`cholesky.zig`): `potrf_U_single.c` and `potrf_L_single.c`, the recursive
   blocked factor: blocks of `GEMM_Q` columns, or a quarter of `n` up to `4 * GEMM_Q`, each
@@ -1186,6 +1189,11 @@ Questions decided once, with the reason, so they are not reopened without new ev
   helpers (`mix`, `mulAdd`) move to `linalg.vector` (todo.md, M3). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
+- **The matlab port defers to modern BLAS and LAPACK** (2026-10-29). `rstd.linalg.matlab`
+  ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (OpenBLAS's, else
+  Reference-LAPACK's) has the operation, the modern routine replaces the old one; the old one
+  stays only where a test shows it better (more accurate, or right on an edge case the modern
+  one gets wrong), and that test is kept with it.
 - **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
   thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
   the driver sets its instructions' precision and may fuse `a*b + c`, so Vulkan's precision
