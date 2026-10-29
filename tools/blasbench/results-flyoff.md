@@ -215,7 +215,11 @@ zig build qemu-bench-linux-aarch64 -Dvm-bench-arg=lib1 -Dvm-bench-arg=lib2 -Dvm-
 ```
 
 `--threads=default` (in the VMs `-Dvm-bench-arg=--threads=default`) lets
-the libraries pick their thread counts. `bench-native` and
+the libraries pick their thread counts, and rstd thread up to the CPUs on
+the bench's `Io.Threaded`; `--threads=<n>` sets each library's count and
+rstd's ceiling (`OPENBLAS_NUM_THREADS`) to n, 1 by default.
+`--rstd-io=failing` runs rstd on `Io.failing`, serial, as every run above
+did; each table's notes name rstd's `Io`. `bench-native` and
 `ssh-bench-aarch64-macos` take `-Dblis-lib` as well.
 
 - **The libraries:** `tools/nix/blas.sh`, run on the Mac by

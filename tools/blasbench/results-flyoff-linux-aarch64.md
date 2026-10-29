@@ -19,6 +19,7 @@ A Linux VM on the M6's own cores under HVF. Part of the
   MAX_THREADS=64`.
 - **BLIS:** none: nixpkgs builds BLIS for x86_64-linux only.
 - **Threads:** one each; default threading: OpenBLAS 6 (the VM's CPUs).
+  rstd ran on `Io.failing` in every row, so one thread either way.
 - **When:** 2026-10-29, 02:02 to 02:35 CDT, after the macOS runs and never
   beside them, under the
   [timing rule](results-flyoff-macos-aarch64.md#timing-rule) of the macOS
@@ -298,8 +299,8 @@ GB/s; ratios are over openblas.
 
 ### Default threading
 
-OpenBLAS at its own thread count; rstd one thread. Indicative only: the
-most load-sensitive runs.
+OpenBLAS at its own thread count; rstd one thread (`Io.failing`).
+Indicative only: the most load-sensitive runs.
 
 | p | n | openblas | rstd | rstd/ob | rstd-ob | rstd err | rstd bits |
 | - | -: | -: | -: | -: | -: | -: | --- |

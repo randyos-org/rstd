@@ -25,7 +25,7 @@ Bare metal, the Apple M6 Mac mini. Part of the
 - **BLIS:** none: nixpkgs builds BLIS for x86_64-linux only
   (`meta.platforms`), so its cache has no Darwin build.
 - **Threads:** one each; default threading: OpenBLAS 12, Accelerate
-  multi-threaded; rstd one thread either way.
+  multi-threaded; rstd one thread either way, on `Io.failing`.
 - **When:** 2026-10-29, 01:35 to 02:29 CDT, under the timing rule below;
   each run's load and busiest processes are under
   [run conditions](#run-conditions).
@@ -332,8 +332,8 @@ GB/s; ratios are over openblas.
 
 ### Default threading
 
-The libraries at their own thread counts; rstd one thread (Accelerate's,
-routed). Indicative only: the most load-sensitive runs.
+The libraries at their own thread counts; rstd one thread (`Io.failing`;
+Accelerate's, routed). Indicative only: the most load-sensitive runs.
 
 | p | n | openblas | rstd | accelerate | rstd/ob | accel/ob | rstd-ob | rstd-accel | rstd err | rstd bits |
 | - | -: | -: | -: | -: | -: | -: | -: | -: | -: | --- |

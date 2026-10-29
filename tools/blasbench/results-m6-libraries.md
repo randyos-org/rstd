@@ -74,7 +74,8 @@ zig build remote-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> \
   of user time in 29.56 s, so nothing ran on a second core.
 - **Threads:** the bench sets `OPENBLAS_NUM_THREADS=1` and
   `VECLIB_MAXIMUM_THREADS=1` before it `dlopen`s the libraries, except for
-  the one labeled default-threading gemm run.
+  the one labeled default-threading gemm run. rstd's routines ran on
+  `Io.failing`, one thread, in every run.
 
 ## Method
 
@@ -383,7 +384,7 @@ gemm `NN`, square, `C += A*B`, GFLOP/s. rstd has no complex gemm yet.
 ### Default threading
 
 Both libraries as they come: OpenBLAS with 12 threads, Accelerate
-multi-threaded. rstd and `ob .S` stay single-threaded. The clock read 4.47
+multi-threaded. rstd (`Io.failing`) and `ob .S` stay single-threaded. The clock read 4.47
 GHz at the start and end of this run.
 
 | p | n | openblas | rstd | ob .S | accelerate | rstd/ob | ob .S/ob | accel/ob |
