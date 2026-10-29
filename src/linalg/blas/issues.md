@@ -1211,7 +1211,10 @@ strides:
 > eight rotations give -1.0088. Sending a zero stride to the one-at-a-time
 > loop (`.LL56`) fixes both.
 
-And POWER `rot` and `swap`, the same pattern, found by `utest`'s `zdrot_inc_0`:
+And POWER `rot` and `swap`, the same pattern, found by `utest`'s `zdrot_inc_0`
+(upstream met it in <https://github.com/OpenMathLib/OpenBLAS/issues/1469>, and
+<https://github.com/OpenMathLib/OpenBLAS/pull/1535> moved POWER6 to `arm/zrot.c`;
+CELL and the `ppc440` cores kept the assembly):
 
 > **power `rot.S`, `zrot.S`, `swap.S`, `zswap.S`, `rot_ppc440.S`, `zrot_ppc440.S`: a zero stride acts on one element as a block**
 >
@@ -1308,6 +1311,9 @@ And C sources rstd ports to Zig:
 a stride of `incx` floats, real and imaginary parts alike, which covers only
 the first `n / 2` elements at unit stride. Reference BLAS and BLIS have no
 signed complex extreme (only `i?amax` and `amaxv`, over `|re| + |im|`).
+Reported upstream as <https://github.com/OpenMathLib/OpenBLAS/issues/6107>;
+<https://github.com/OpenMathLib/OpenBLAS/pull/6129> (2026-10-15, after our
+pin) removed the four functions. Nothing to file.
 
 - **Workaround:** none needed; rstd's `extreme` and `index` make `.max` and
   `.min` over a complex type a compile error that points to `.amax` and
@@ -1355,7 +1361,7 @@ without contraction, rstd's complex `gemv` agreed in all 17,360 cases tried.
 in inline assembly ending in `haddpd`, an SSE3 instruction. `KERNEL` makes it
 the `DGEMVTKERNEL` of every x86_64 core that names no other, `OPTERON`
 included, and `dynamic.c` picks `gotoblas_OPTERON` (`DYNAMIC_OLDER=1`)
-exactly when CPUID reports no SSE3. So a transposed `dgemv` with `n % 4 != 0`
+for an AMD family 0Fh CPU whose CPUID reports no SSE3. So a transposed `dgemv` with `n % 4 != 0`
 would fault there. Not seen on hardware.
 
 - **Workaround:** where the core has no SSE3, the ported driver
@@ -1363,8 +1369,8 @@ would fault there. Not seen on hardware.
   (`Fallback.t4x2`, `t4x1`); a test checks them against the assembly bit for
   bit.
 - **Issue text:** "`dgemv_t_4.c`'s `dgemv_kernel_4x2` and `dgemv_kernel_4x1`
-  use `haddpd` (SSE3), yet `OPTERON`, which `dynamic.c` picks for x86_64 CPUs
-  without SSE3, builds `dgemv_t_4.c` (`KERNEL`'s default). A transposed
+  use `haddpd` (SSE3), yet `OPTERON`, which `dynamic.c` picks for family 0Fh
+  AMD CPUs without SSE3, builds `dgemv_t_4.c` (`KERNEL`'s default). A transposed
   `dgemv` with `n % 4 != 0` then executes an SSE3 instruction there. Give
   `OPTERON` an SSE2 `DGEMVTKERNEL`, or add the halves with SSE2."
 
@@ -1406,21 +1412,24 @@ zeros for 0); the complex ones (`kernel/arm/zomatcopy_c*.c`,
 `(x, Inf)` into `(NaN, Inf)`: `0 * Inf` in the other part. Two interfaces
 multiply by `(1, 0)` themselves:
 
-- `interface/zimatcopy.c` without `NEW_IMATCOPY` (the default build) copies
+- `interface/zimatcopy.c` with `lda != ldb` (its `NEW_IMATCOPY` in-place path,
+  defined by default, needs them equal) copies
   `alpha*op(A)` to a buffer and back with `OMATCOPY_K_CN` at `(1, 0)`, so an
   infinite part of the result makes the other NaN whatever `alpha` was, and
   `zimatcopy` differs from `zomatcopy` there;
 - `interface/gemmt.c` conjugates the caller's `B` in place with
   `IMATCOPY_K_CNC` at `(1, 0)` for `transb` `R` or `C`, and back after, so an
   infinite part leaves `B` with NaN beside it; it also writes an input the
-  caller may share.
+  caller may share. <https://github.com/OpenMathLib/OpenBLAS/pull/6060>
+  (2026-09-29, after our pin) replaced this `gemmt` with a level-3 driver;
+  recheck before filing.
 
 - **Workaround:** rstd's matrix copies copy for `alpha` 1 and store zeros for
   0, real or complex (`ext/matcopy.zig`), and its `gemmt` reads `B` only
   (`blas3/driver.zig`).
 - **Issue text:** "The complex `?omatcopy`/`?imatcopy` kernels multiply by
   `alpha` even when it is `(1, 0)`, so an infinite real or imaginary part
-  turns the other into NaN (`0 * Inf`). `zimatcopy`'s default path copies
+  turns the other into NaN (`0 * Inf`). `zimatcopy` with `lda != ldb` copies
   back through `OMATCOPY_K_CN` at `(1, 0)`, so it differs from `zomatcopy`
   for any `alpha`, and `?gemmt` with `transb` `R` or `C` conjugates `B` in
   place the same way, leaving NaN in the caller's `B`. A copy branch for
@@ -1429,7 +1438,8 @@ multiply by `(1, 0)` themselves:
 
 ### `potrf` reports success on a NaN pivot
 
-`lapack/potrf/potrf_[UL]_single.c` and `potf2_[UL].c` test each pivot with
+`lapack/potf2/potf2_[UL].c` and `zpotf2_[UL].c`, which
+`lapack/potrf/potrf_[UL]_single.c` calls for each diagonal block, test each pivot with
 `ajj <= 0`, which is false for NaN, so a NaN on the diagonal (or one that
 reaches it) passes, the factor fills with NaN, and `info` is 0. Reference
 LAPACK's `xPOTRF2` checks `DISNAN` and returns the minor.
