@@ -12,7 +12,7 @@ level-2 design is in [`design.md`](../design.md#level-2).
 | routine | reference (`interface/`) | here |
 | --- | --- | --- |
 | `gemv`, `zgemv` | `STACK_ALLOC` of `cs*(m+n) + 128/sizeof + 3 & ~3` elements, plus `160/sizeof` on Windows; 2048 bytes on the stack (`aligned(0x20)`), else a page-aligned block | the same size (`symmetric.gemvLen`); stack up to 2048 bytes (32-aligned), else the allocator, 4096-aligned |
-| `ger`, `zger` | unit strides and `m*n <= 2048*4`: NULL; else `STACK_ALLOC` of `cs*m` | unit and small: the unused stack array, no capacity promised; else `cs*m` elements, stack or heap as `gemv` |
+| `ger`, `zger` | unit strides and `m*n <= 2048*4`: NULL; else `STACK_ALLOC` of `cs*m` | unit `x`: the unused stack array, no capacity promised; strided: `cs*m` elements, stack or heap as `gemv`, where the interface copies `x` once and passes the copy, at unit stride, to every kernel call |
 | `symv`, `zsymv`, `zhemv` | `blas_memory_alloc`, page-aligned, `BUFFER_SIZE` (32 MB) | always the allocator, 4096-aligned, the larger of the two contracts below |
 | `trmv` and the other drivers | own copies of `x` and `y`, gemv's buffer after them | same, 2048 bytes on the stack, else the allocator |
 
@@ -56,6 +56,7 @@ which no core here takes ([`coverage.md`](coverage.md)); the interface does
 not, and the kernel tests hand every form a NaN buffer.
 
 The `ger` size is the reference's own. No ported `ger` kernel touches the
-buffer for a unit stride, which is what the small unit-stride case relies on.
+buffer for a unit stride, which the interface relies on: every call it makes
+takes a unit-stride `x`, the caller's or its copy in the buffer.
 No core has its own `ger` kernel yet (x86_64 `sger.c` and `dger.c` for
 Sandy Bridge, arm64 `ger_sve_v1x3.c`), so none needs a buffer flag.

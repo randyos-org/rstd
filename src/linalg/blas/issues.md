@@ -1122,7 +1122,10 @@ Ours, not a converted kernel:
   `banded.zig`'s drivers skip as the reference does. So does `ger`, whose
   reference skips a zero `y(j)` and whose per-core kernels do not:
   `interface.zig` calls the kernel once per run of nonzero `y`, which is one
-  call when `y` has no zero.
+  call when `y` has no zero, and copies a strided `x` once for all of them.
+  OpenBLAS's threaded drivers skip where its serial ones do not, and BLIS
+  skips only where an `axpyv` kernel returns for a zero scalar
+  ([`comparisons.md`](comparisons.md) (5)).
 
 And SPARC `swap`, found by the ported `utest/test_swap.c`:
 

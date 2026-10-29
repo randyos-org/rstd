@@ -499,8 +499,9 @@ only repeat the portable kernels.
   extensions and are included.
 - **Rank updates.** The rank-update drivers skip a column whose factor is zero, as reference
   BLAS does (OpenBLAS's `zher_k.c`, `zhpr_k.c` and the rank-2 drivers do not). `ger` calls the
-  kernel once per run of nonzero `y`, which is one call when `y` has no zero.
-  [`comparisons.md`](comparisons.md) (5) weighs dropping the skip. At unit stride and small
+  kernel once per run of nonzero `y`, which is one call when `y` has no zero, and copies a
+  strided `x` once for all the runs. The skip is decided above the kernels, so every core
+  gives it; [`comparisons.md`](comparisons.md) (5) has why it stays. At unit stride and small
   `n` (`syr`, `spr`, `syr2` below 100; `spr2`, `zsyr` below 50) the interface runs the driver's
   columns itself, as OpenBLAS's do, keeping the skip (OpenBLAS's `syr2`/`spr2` paths have none).
 - **symv and hemv.** `blas2/symmetric.zig` holds the portable kernels, `kernel/generic`'s

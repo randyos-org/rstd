@@ -136,7 +136,9 @@ back to the portable kernels, and the next call selects again; no kernel call ma
 
 - **Semantics.** Results follow the reference BLAS: a zero `beta` never reads `y` or `C`, a zero
   `alpha` never reads the other operands, and `scal` with a zero `alpha` turns NaN and
-  infinities into NaN. `dsdot` accumulates in `f64`; `rotg` computes in `XDouble`; `zrotg`
+  infinities into NaN. The rank updates (`ger`, `syr`, `her`, their packed and rank-2 forms)
+  pass over a column whose factor is zero (both, for rank 2), so a NaN or infinity elsewhere in
+  `x` or `y` never meets it. `dsdot` accumulates in `f64`; `rotg` computes in `XDouble`; `zrotg`
   follows LAPACK's `zlartg`.
 - **Matrix copies.** `omatcopy` and `imatcopy` store zeros for a zero `alpha` without reading
   `A`, and copy its bits for `alpha` 1, complex too, where upstream's complex kernels multiply
