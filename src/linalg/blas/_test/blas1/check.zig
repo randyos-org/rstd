@@ -538,13 +538,13 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
             // on the rigs, where a core can take minutes, so a hang shows where
             if (rig()) say("[{s}] ", .{name});
             withCore(c, check) catch |e| {
-                say("core {s}\n", .{name});
+                say("core {s}: {t}\n", .{ name, e });
                 failed = e;
             };
         }
     }
     if (!rig()) withVector(check) catch |e| {
-        say("the @Vector kernels\n", .{});
+        say("the @Vector kernels: {t}\n", .{e});
         failed = e;
     };
     if (failed) |e| return e;
