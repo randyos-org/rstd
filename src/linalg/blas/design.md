@@ -1101,8 +1101,13 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **`arm-softfp` is softfp** (2026-10-29). The soft-float ABI over the A15's VFPv4 and NEON,
   with the features pinned in `build/qemutest.zig`, so Zig 0.17 (whose model had them) and 0.18
   (whose model has none) build the same rig.
-- **Timing needs a quiet machine** (2026-10-29). When background processes hold a host's load
-  up (the M6's `audiomxd` and `configd`), restart it rather than relax the rule.
+- **Timing on a host macOS keeps busy** (2026-10-29). Quiet the host as far as it can be (the
+  M6 auto-logs in, so `audiomxd` and `configd` rest; Apple Intelligence is off and Spotlight
+  indexing stopped), but macOS 27's indexing daemons (`mediaanalysisd`, `spotlightknowledged`,
+  `textunderstandingd`) cannot be stopped with SIP on: `launchctl disable` does not survive a
+  reboot and `bootout` is refused. So a run starts with no QEMU and the one-minute load under
+  about 6, each run is made twice and a row kept only where the two agree within 3%, and the
+  load before and after is recorded; multithreaded rows are indicative only.
 - **Level-3 threading follows BLIS** (2026-10-29): `jc x ic` ways sharing packed `B` through
   barriers, written from BLIS's published design (Van Zee and van de Geijn), not its code. Where
   OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin before sleeping, as both
