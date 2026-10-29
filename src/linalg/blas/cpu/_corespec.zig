@@ -161,7 +161,8 @@ pub fn mips(core: coretypes.MipsCoreType) Spec {
         .mips24k, .mips1004k => .{ .model = "mips32r2" },
         .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
         .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
-        // `-march=mips64r2 -mtune=loongson3a`; the 4-operand `madd.s` needs it
+        // `Makefile.system`'s `-march=loongson3a`, release 2 to gcc; the
+        // 4-operand `madd.s` needs it
         .loongson3r3 => .{ .features = &.{"mips64r2"} },
         .mips64_generic, .unknown => .{},
     };

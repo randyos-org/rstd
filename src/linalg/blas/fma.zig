@@ -50,11 +50,11 @@ pub const hardware = switch (sysinfo.target.cpu.arch) {
     .loongarch32, .loongarch64 => std.Target.loongarch.featureSetHasAny(sysinfo.target.cpu.features, .{ .f, .d }),
     // z/Architecture has the BFP multiply-and-add (MAEBR/MADBR) in its base.
     .s390x => true,
-    // Before release 6, MADD.fmt rounds the product, so it equals a*b + c and
-    // gcc's use of it never changes a result; R6 adds the fused MADDF.fmt.
-    // GCC counts it fused on the R8000 and Loongson's GS464, GS464E and
-    // GS264E (gcc 15.2 `config/mips/mips.h`, `ISA_HAS_FUSED_MADD4`); not
-    // modeled here.
+    // Before release 6, MADD.fmt rounds the product; R6 adds the fused
+    // MADDF.fmt. Loongson's GS464 and GS464E fuse MADD.fmt (their manuals),
+    // as gcc models (`ISA_HAS_FUSED_MADD4`). LLVM selects it for a plain
+    // `a*b + c`, so code rounded here fuses on that silicon where LLVM chose
+    // it; QEMU never fuses it (issues.md). Not modeled here.
     .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.target.cpu.features, .{
         .mips32r6, .mips64r6,
     }),

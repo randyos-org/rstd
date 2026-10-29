@@ -618,6 +618,55 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > rounding), so `fma` could select `maddf.s`/`maddf.d` with the addend tied
   > to the destination, as MSA's `fmadd` is used for vector `fma`.
 
+### MIPS before R6: a plain `a*b + c` becomes `madd.fmt`, which Loongson 3A fuses
+
+- **Seen:** on `mips4`, `mips64`, `mips64r2` and `mips64r5` (with MSA too),
+  `a*b + c` without fast-math is `madd.d`/`madd.s` and `a*b - c` is
+  `msub.d`, even where the product has another use; `c - a*b` stays
+  `mul.d`, `sub.d`. The MIPS64 spec rounds the product, so LLVM takes them
+  as exact, but Loongson's GS464 and GS464E round once: Loongson 3A1000
+  user manual vol. 2 (GS464, V1.4) §7.3.2, and 3A2000/3B2000 vol. 2
+  (GS464E, V1.03) and 3A3000/3B3000 vol. 2 (GS464E, V1.2) §2.4.10. GCC
+  models it (gcc 15.2 `mips.h` `ISA_HAS_FUSED_MADD4`: `-march=loongson3a`,
+  `gs464`, `gs464e`, `gs264e`, `r8000`); LLVM has no Loongson CPU. The 3A4000
+  register manual (V1.5) does not say what GS464V does.
+- **Where:** every pre-R6 rstd build: the main library and the `loongson3r3`
+  and `loongson3r4` objects, modeled unfused (`fma.hardware` false). On
+  that silicon a multiply-add fuses where LLVM picked `madd.fmt` and rounds
+  elsewhere: MSA bodies (`fmul.d`, `fadd.d`) round, their scalar tails fuse.
+  Thread count still cannot change bits (chunks keep the body and tail
+  split, `threading.md`). The rigs run QEMU, which rounds all of it (below).
+  OpenBLAS's `-march=loongson3a` build fuses there: its `.S` kernels'
+  `madd.fmt`, and its C under GCC's default `-ffp-contract=fast`.
+- **Workaround:** none taken. `+nomadd4` stops the selection, but it also
+  rejects the converted `loongson3r3` kernels' `madd.fmt` (with exit 0,
+  "Inline assembly errors exit 0").
+- **Issue text:**
+
+  > **[Mips] No Loongson 3A CPU: strict `fadd(fmul)` selects `madd.fmt`,
+  > which GS464/GS464E execute fused**
+  >
+  > `llc -mtriple=mips64el -mcpu=mips64r2 -O2` (here `zig build-obj
+  > -OReleaseFast -target mips64el-linux -mcpu=mips64r2`) on
+  >
+  > ```llvm
+  > define double @f(double %a, double %b, double %c) {
+  >   %m = fmul double %a, %b
+  >   %r = fadd double %m, %c
+  >   ret double %r
+  > }
+  > ```
+  >
+  > gives `madd.d $f0, $f14, $f12, $f13`. Right by the MIPS64 spec, where
+  > MADD.fmt rounds the product, but Loongson's GS464 and GS464E cores
+  > (3A1000 to 3A3000) round once, as their manuals say and GCC models
+  > (`ISA_HAS_FUSED_MADD4`). Code built for a generic MIPS64 target thus fuses
+  > on them where `madd.fmt` is selected and rounds elsewhere (MSA vectors,
+  > `c - a*b`). A Loongson 3A CPU that treats `madd4` as fused (legal for
+  > `fma`, not for strict `fadd(fmul)`) would match GCC's `-march=loongson3a`;
+  > `-mattr=+nomadd4` is the only control today, and it also rejects
+  > `madd.fmt` in inline assembly.
+
 ## Zig standard library
 
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
@@ -980,6 +1029,32 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > union { unsigned u; float f; } d = { 1 };   /* 2^-149 */
   > /* f(d.f) is 1 under qemu -cpu power9; isinf(2^-149) is 0 */
   > ```
+
+### mips: the Loongson 3A models round `madd.fmt`'s product
+
+- **Seen:** `helper_float_madd_d` and its kin (`target/mips/tcg/fpu_helper.c`,
+  v11.0.1 and master) multiply and add with two roundings for every CPU,
+  `-cpu Loongson-3A1000` and `Loongson-3A4000` included. The GS464 and
+  GS464E manuals say one rounding ("MIPS before R6" above).
+- **Where:** the `mips64r2` (3A1000) and `mips64r2el` (3A4000) rigs: the
+  converted `loongson3r3` kernels' `madd.fmt` (`saxpy`, `daxpy`, `ddot`,
+  the complex `dot`s) and LLVM's round there and fuse on the silicon.
+- **Workaround:** none needed: the tests that reach them compare against
+  a tolerance or with themselves, which hold either way. The rigs cannot
+  check fused Loongson bits.
+- **Issue text:**
+
+  > **target/mips: MADD.fmt and kin round the product on Loongson-3A CPUs,
+  > which fuse it**
+  >
+  > `helper_float_madd_d` computes `float64_mul` then `float64_add` for all
+  > pre-R6 CPUs. Loongson's GS464 (3A1000 user manual vol. 2, §7.3.2) and
+  > GS464E (3A3000 user manual vol. 2, §2.4.10) do MADD.fmt, MSUB.fmt,
+  > NMADD.fmt and NMSUB.fmt with one rounding, as GCC's
+  > `-march=loongson3a` assumes when it emits `madd.d` for `fma()`. Under
+  > `-cpu Loongson-3A1000`, `madd.d` with `fs = ft = 1 + 2^-52` and
+  > `fr = -(1 + 2^-51)` gives 0 where a fused one gives 2^-104. These
+  > CPUs could use `float64_muladd`.
 
 ## OpenBLAS
 

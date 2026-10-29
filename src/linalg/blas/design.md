@@ -310,7 +310,8 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
 
 - **Hardware.** Fused where the ISA has a scalar fused multiply-add: x86 with FMA, AArch64, ARM
   with VFPv4, PowerPC, RISC-V F/D, LoongArch, s390x, MIPS release 6. Not on SPARC, WebAssembly
-  or earlier MIPS, whose `madd` rounds the product. Vector multiply-adds also fuse on MIPS with
+  or earlier MIPS, whose `madd` rounds the product (Loongson 3A's fuses, and LLVM uses it for a
+  plain `a*b + c`: `issues.md`). Vector multiply-adds also fuse on MIPS with
   MSA and WebAssembly with `relaxed_simd` (`vector_madd`).
 - **Per-core policy.** A root may declare `blas_fuse_fma` and `blas_fuse_fma_vector`; the
   per-core objects do (`_kernel.zig`), from the core's `Spec.fuse_fma`. The AMD cores' FMA3/FMA4
