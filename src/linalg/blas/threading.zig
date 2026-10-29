@@ -31,13 +31,16 @@ pub const Family = enum {
     scal,
     /// `swap`: `n`.
     swap,
+    /// `copy`: `n`.
+    copy,
     /// `rot`, `rotm`: `n`.
     rot,
     /// `dot`, `dotc` and the mixed dots: `n`.
     dot,
-    /// `asum`, `sum`: `n`. Also `nrm2`, `index` and `extreme`, which OpenBLAS
-    /// does not thread.
+    /// `asum`, `sum`: `n`.
     asum,
+    /// `index`, `extreme`: `n`.
+    index,
     /// `gemv`: `m * n`.
     gemv,
     /// `ger`: `m * n`.
@@ -46,6 +49,10 @@ pub const Family = enum {
     symv,
     /// `trmv`: `n`.
     trmv,
+    /// `syr`, `spr`, `syr2`, `spr2`, real and complex symmetric: `n`.
+    syr,
+    /// `her`, `hpr`, `her2`, `hpr2`: `n`.
+    her,
     /// `gemm`: `m * n * k`.
     gemm,
     /// `syrk`, `herk`: `(n + 1) * n * k`.
@@ -103,13 +110,21 @@ pub fn rule(comptime family: Family, comptime T: type, core: []const u8) Rule {
         .axpy => .{ .serial_max = 10000 },
         .scal => .{ .serial_max = 1048576 },
         .swap => .{ .serial_max = @as(u64, if (complex) 1048576 else 2097152) * mt / s - 1 },
+        // `kernel/arm64/copy_thunderx2t99.c`: `n <= 10000`
+        .copy => .{ .serial_max = 10000 },
         .rot => .{ .serial_max = 100000 },
         .dot => (if (complex) null else dotCore(F, core)) orelse .{ .serial_max = 10000 },
         .asum => .{ .serial_max = if (complex) 10000 else 100000, .per_unit = true },
+        // `kernel/arm64/iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n <= 10000`
+        .index => .{ .serial_max = 10000 },
         .gemv => if (complex) .{ .serial_max = 1024 * mt - 1 } else gemvCore(F, core) orelse .{ .serial_max = 115200 * mt - 1 },
         .ger => if (complex) .{ .serial_max = 36 * s * s * mt } else .{ .serial_max = 2048 * mt, .tiers = comptime &.{upTo(20480 * mt, 3)} },
         // `ztrmv`'s `n*n > 36*s*s*4` and `n*n < 64*s*s*4`, as bounds on `n`
         .trmv => if (complex) .{ .serial_max = 12 * s, .tiers = comptime &.{.{ .below = 16 * s, .max = 2 }} } else .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
+        // `syr.c`, `spr.c`, `syr2.c`, `spr2.c`, `zsyr.c`, `zspr.c`: `n < 50`, `n < 500`
+        .syr => .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} },
+        // `zher.c`, `zhpr.c`, `zher2.c`, `zhpr2.c`: `n < 100`
+        .her => .{ .serial_max = 99 },
         .symv => if (complex) .{ .serial_max = 49, .tiers = comptime &.{.{ .below = 500, .max = 2 }} } else .{ .serial_max = 199 },
         .gemm => (if (complex) null else gemmCore(F, core)) orelse .{ .serial_max = @as(u64, if (complex) 8192 else 65536) * mt, .per_unit = true },
         .syrk => .{ .serial_max = @as(u64, if (complex) 14824 else 109944) * mt },
@@ -267,8 +282,16 @@ pub const Plan = struct {
 pub fn plan(comptime family: Family, comptime T: type, work: u64, len: usize, shape: Shape, quantum: usize) Plan {
     // selects the core first, which fills `blas.config`
     const core = blas.coreName();
-    return planWith(&blas.config, rule(family, T, core), work, len, shape, quantum);
+    var r = rule(family, T, core);
+    if (sysinfo.is_test) if (test_serial_max) |m| {
+        r = .{ .serial_max = m };
+    };
+    return planWith(&blas.config, r, work, len, shape, quantum);
 }
+
+/// Tests set this to replace every rule of `plan` by one with this
+/// `serial_max`, so small problems make many chunks.
+pub var test_serial_max: ?u64 = null;
 
 /// `plan` from `cfg` and `r`; only `workers` reads `cfg`.
 pub fn planWith(cfg: *const Config, r: Rule, work: u64, len: usize, shape: Shape, quantum: usize) Plan {
