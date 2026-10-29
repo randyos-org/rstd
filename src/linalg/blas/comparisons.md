@@ -42,10 +42,10 @@ and complex, has since landed on `review` (`0f0bcde`, `ada0a2e`, `078049e`).
 | 2 | Portable `nrm2` algorithm (one-pass scaled loop) | **Change**: f64 sum for `s`/`c`, Blue's algorithm for `d`/`z` | High |
 | 3 | `i?amax` NaN rule (NaN only if first) | **Change**: first NaN wins (reference master, BLIS, proposal) | High |
 | X1 | Per-core differences in numerical contract (`sdot` precision, `nrm2`, SVE `axpy` zero skip) | **Change**: one contract per routine, enforced above the kernels | High |
-| 10 | trsm pre-inverted diagonal; ARMv7 NEON / AltiVec flush to zero in `@Vector` tiles | **Investigate**, likely change | Medium-high |
+| 10 | trsm pre-inverted diagonal; ARMv7 NEON / AltiVec flush to zero in `@Vector` tiles | **Changed**: `trsm` divides; ARMv7 and AltiVec `f32` tiles scalar | Done |
 | 5 | Rank updates skip zero columns (`ger`, `syr`, `her`, ...) | **Keep** the reference's skip (decided 2026-10-29); `ger`'s copies fixed | Done |
 | 8 | Reproducibility rule | **Keep**, but close the pitfalls listed | Medium |
-| 7 | Level 3: Goto/OpenBLAS driver, `level3_thread.c` protocol | **Keep driver; investigate** BLIS-style barrier packing for threading; fuse `beta` | Medium |
+| 7 | Level 3: Goto/OpenBLAS driver, `level3_thread.c` protocol | **Keep driver**; BLIS-style threading and fused `beta` done; investigate a small-matrix path | Medium |
 | 9 | `@Vector` kernels, unroll, accumulators, prefetch | **Keep**; try C-tile prefetch and Apple `KC` | Low-medium |
 | 1 | `sdot` in f64 | **Keep** (more accurate than all references), measure cost | Low |
 | 6 | alpha = 0 / beta = 0 semantics, `scal` flag | **Keep** | Low |
@@ -359,8 +359,8 @@ densified), `syrk`/`herk`/`syr2k`/`her2k` (diagonal tiles through a scratch tile
 follow `trsm_L.c`, `trsm_R.c`, `trmm_L.c`, `trmm_R.c` with Zig ports of the generic
 `trsm_kernel_*.c` (gemm update, then `solve` per tile, pre-inverted diagonal). `beta` is a
 separate pass over `C` before the loops (`driver.zig:380`). Complex: native `@Vector` kernel, two
-accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned threading:
-`level3_thread.c`'s shared packed `B` protocol on `Io.Group.concurrent` (`threading.md`).
+accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Threading (since landed):
+BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`threading.md`).
 
 **BLIS.**
 
@@ -419,6 +419,8 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   **Investigate**: prototype BLIS-style `JC x IC` ways with cooperative packing and a futex
   barrier before committing to the flag protocol; rstd's start-barrier design already covers the
   "all or nothing" part.
+  **Done**: both prototyped (`threading.md`, Level 3 measurements); BLIS's ways ship in
+  `blas3/threaded.zig`.
 - *Complex.* rstd's native `@Vector` complex kernel is generated for every core, so the main
   benefit of 1m (no handwritten complex kernels) is already had. 1m could help only where the
   complex tile is weak, and on the `split` (scalar) targets the real kernel is scalar too.
@@ -433,7 +435,7 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
 - *trmm.* See X2: rstd is better than both.
 - *Small/skinny.* rstd has no small-matrix path (OpenBLAS's `SMALL_MATRIX_OPT` kernels are not
   ported either). BLIS's sup path is its biggest practical win for small `m, n` or small `k`.
-  **Investigate later**, after threading.
+  **Investigate**; level-3 threading has landed.
 
 ## 8. Threading and reproducibility
 
@@ -480,16 +482,16 @@ the stated goal. Pitfalls found:
 2. **Single-threaded builds.** "Threading compiles out under `single_threaded`" must still chunk
    above the threshold, or single-threaded and threaded builds differ. Say so explicitly.
 3. **Inputs to chunk sizes.** Chunk sizes and thresholds must not read the CPU count,
-   `OPENBLAS_NUM_THREADS` or `Io` limits. Planned per-core tables are fine.
+   `OPENBLAS_NUM_THREADS` or `Io` limits. Per-core tables (`threading.zig`'s `rule`) are fine.
 4. **`Q` must not depend on threads.** `blas3/gemm/params.zig` picks LA464's set by
    `env.threads == 1` (`la464_sets`, lines 212-224); today only `P` and `R` differ between the
    single- and multi-thread sets, and `Q` differs only by L3 size, so the rule holds. Add a test
    that `Q` is identical for every thread count, since a future set could break it silently.
 5. **Edge tiles under repartitioning.** If thread partitions move tile boundaries, an element can
-   move between the full tile and a tail tile. Rounding `M` ranges to `unroll_m` (planned)
-   and `N` ranges to `unroll_n` avoids it; otherwise every path must do identical per-element
-   operations (same `k` order, same fusion). The planned 1-9 worker bitwise tests will catch it if
-   the shapes sweep remainders.
+   move between the full tile and a tail tile. Rounding `M` ranges to `unroll_m` and `N` ranges
+   to `unroll_n` avoids it (done); otherwise every path must do identical per-element
+   operations (same `k` order, same fusion). The 1-9 worker bitwise tests (`blas3/threaded.zig`)
+   catch it where the shapes sweep remainders.
 6. **FMA per core.** One core selection serves the whole process, so all threads run the same
    kernels; heterogeneous cores are not a problem unless dispatch ever becomes per thread.
    But `fma.zig`'s policy for the *portable* kernels follows the build target, so the same core

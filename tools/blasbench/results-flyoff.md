@@ -72,9 +72,10 @@ full tables, with each platform's machine, libraries, threads and times:
   its own kernels, without the `@Vector` ones, `asum`, `copy`, `ddot`,
   complex `dot` and `sgemv_n` fall back to the portable loop (down to
   0.05).
-- **Default threading (indicative):** rstd's routines run one thread with
-  any `Io` so far ([`threading.md`](../../src/linalg/blas/threading.md) is
-  a design), so against OpenBLAS's threads its `gemm` falls to 0.14 to
+- **Default threading (indicative):** rstd ran one thread, as these runs
+  predate its level-3 threading and the bench passes it `Io.failing`
+  ([`threading.md`](../../src/linalg/blas/threading.md)); against
+  OpenBLAS's threads its `gemm` falls to 0.14 to
   0.52 from n = 256 on x86_64 and 0.21 to 0.30 in the arm64 VM. On macOS
   rstd's one Accelerate thread still beats OpenBLAS's 12, at 1.29 to 3.2.
   BLIS stays at one thread unless told otherwise. These runs are the most

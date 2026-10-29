@@ -3,7 +3,7 @@
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
 without threads. Plan steps 1, 2 and 5 are implemented (`threading.zig`,
-`blas3/threaded.zig`): every level 3 routine but `gemmt` threads; levels 1 and 2 do not yet.
+`blas3/threaded.zig`): every level 3 routine but `gemmt` threads; levels 1 and 2 are serial.
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
 (v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule

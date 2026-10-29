@@ -1101,8 +1101,8 @@ fn fail(e: RstdError) void {
 
 /// rstd's routines take an allocator; a C program would hand them malloc's.
 const rstd_alloc = std.heap.c_allocator;
-/// And an `Io`: a serial one, as the libraries run one thread by default
-/// (rstd's routines run on one thread with any `Io` so far).
+/// And an `Io`: a serial one, as the libraries run one thread by default;
+/// so rstd's level 3 runs one thread even under `--threads=default`.
 const rstd_io = std.Io.failing;
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;

@@ -13,7 +13,8 @@
 //!
 //! The trailing updates are the level-3 drivers' `trsm` and `herk` (`syrk`
 //! for real `T`), called directly as upstream calls its kernels, so
-//! Accelerate never runs them. Serial, as is the rest of rstd's BLAS.
+//! Accelerate never runs them. Serial: the drivers get one worker, and
+//! `potrf_U_parallel.c` and `potrf_L_parallel.c` are not ported.
 //!
 //! `potrs` is Reference-LAPACK's `xPOTRS` (`lapack-netlib/SRC/zpotrs.f`),
 //! which OpenBLAS uses too: two triangular solves.

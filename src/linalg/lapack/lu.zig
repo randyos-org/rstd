@@ -17,13 +17,15 @@
 //! the interchanges, `trsm` and `gemm` per `GEMM_R` columns, the same
 //! arithmetic. Its interchanges are `laswp_plus` then `gemm_oncopy` (the
 //! `#if 1`), not `laswp_ncopy`, and nothing calls `neg_tcopy`; nor here.
-//! Serial: `getrf_parallel.c` is not ported. `getf2`'s `dot`, `gemv`, `swap`
-//! and `scal` are loops, its `iamax` the core's kernel: the pivot is the
-//! first NaN, else the first largest `|re| + |im|`, as `izamax`.
+//! Serial: the drivers get one worker, and `getrf_parallel.c` is not
+//! ported. `getf2`'s `dot`, `gemv`, `swap` and `scal` are loops, its `iamax`
+//! the core's kernel: the pivot is the first NaN, else the first largest
+//! `|re| + |im|`, as `izamax`.
 //!
 //! `getrs` is `lapack/getrs/getrs_single.c` and `zgetrs_single.c`, as
 //! Reference-LAPACK's `xGETRS`: the interchanges and two triangular solves
 //! through the drivers, `trsv` for one real right-hand side as upstream.
+//! Serial too; `getrs_parallel.c` is not ported.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");

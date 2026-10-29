@@ -144,10 +144,10 @@ Conventions shared by every interface:
 - **Quick returns.** Empty problems return before any kernel call; kernels assume `n >= 1`.
   Level 3 does not forward one-column problems to `gemv`.
 - **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
-  an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies. `io` is
-  unused until the routines thread. `rotg`, `zrotg` and `rotmg` compute from scalars, never
-  thread, and take `(T, ...)` and return `void`; `cabs1` takes `(T, z)` and returns
-  `|re| + |im|`.
+  an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies. Level 3
+  threads on `io`, all but `gemmt`; levels 1 and 2 are serial. `rotg`, `zrotg` and `rotmg`
+  compute from scalars, never thread, and take `(T, ...)` and return `void`; `cabs1` takes
+  `(T, z)` and returns `|re| + |im|`.
 
 `__root__.zig` re-exports every routine flat (`blas.dot`, `blas.gemv`, `blas.gemm`), with the
 argument enums and error sets, beside the setup and dispatch API: `init`, `shutdown`, `vtable`,
@@ -609,7 +609,8 @@ complex, for every float type, through the same code.
   to 10 POWER6's), as do the 32-bit x86 kernels' `config.h` macros; POWER's tables also follow
   the byte order (`PPC970`'s unrolls).
 - **Not ported.** `gemm3m`, `symm3m`, `hemm3m` (their slots and wrappers exist), the
-  small-matrix kernels, bfloat16 and half-precision level 3, and threading.
+  small-matrix kernels, bfloat16 and half-precision level 3, and `level3_thread.c`: level 3
+  threads by BLIS's ways instead ([`threading.md`](threading.md)).
 
 [`blas3/gemm/notes.md`](blas3/gemm/notes.md) has the tile measurements and code generation notes
 behind these choices; [`comparisons.md`](comparisons.md) (7, 9, 10) the open performance and
@@ -1214,13 +1215,14 @@ Outside `src/linalg/blas/`:
 
 ### Threading
 
-All routines are single-threaded. [`threading.md`](threading.md) specifies threading: every
-routine takes an `io: Io`; levels 1 and 2 split work into chunks fixed by the problem size and
-combine partial results in chunk order, so results do not depend on the worker count; level 3
-follows OpenBLAS's shared packed `B` protocol on `Io.Group.concurrent`; all scratch is allocated
-before any task starts. `Config` already parses the thread variables it reads. `threading.zig`
-holds the machinery of its plan's step 1: the cached CPU count and ceiling, the thresholds, the
-chunks, the claim loop and the ordered combine; no routine uses it yet.
+Level 3 threads, all but `gemmt`; levels 1 and 2 are serial. [`threading.md`](threading.md)
+specifies threading: every routine takes an `io: Io`; levels 1 and 2 split work into chunks
+fixed by the problem size and combine partial results in chunk order, so results do not depend
+on the worker count; level 3 follows BLIS's `jc x ic` ways over a shared packed `B` on
+`Io.Group.concurrent` (`blas3/threaded.zig`); all scratch is allocated before any task starts,
+and workers adopt the caller's floating-point control state. `Config` parses the thread variables it reads.
+`threading.zig` holds the machinery: the cached CPU count and ceiling, the thresholds, the
+chunks, the claim loop and the ordered combine, and level 3's team and barriers.
 
 ## Settled decisions
 
@@ -1523,7 +1525,7 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Threading.** [`threading.md`](threading.md)'s plan.
+1. **Threading** of levels 1 and 2 ([`threading.md`](threading.md)'s plan); level 3 threads.
 2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and

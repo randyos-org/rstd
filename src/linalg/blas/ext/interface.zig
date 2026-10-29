@@ -8,8 +8,8 @@
 //!
 //! Bad arguments return an `ArgError` in the order the reference numbers them
 //! for `xerbla`, so the first bad one wins; a matrix that would not fit the
-//! address space is its leading dimension's error. `io` is for the threading
-//! to come (`threading.md`); every routine is serial.
+//! address space is its leading dimension's error. `io` is unused; every
+//! routine is serial.
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
