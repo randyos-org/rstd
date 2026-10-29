@@ -723,9 +723,28 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Routed:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `rot`,
   `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
   `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
-  `hpr2`, and the six triangular routines; all of level 3. On arm64 `sdot` is `cblas_dsdot`
-  rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`, so `s` sums in `f64` as rstd's
-  kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
+  `hpr2`, and the six triangular routines; all of level 3, less what is kept for speed (below).
+  Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
+  so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
+- **Kept for speed (arm64).** Level 1 goes by routine, letter and stride, one table
+  (`apple_accel.zig`'s `sends`): Accelerate gets every call, the unit-stride ones only (every
+  stride 1), or none. A slot is kept where rstd's kernel ran faster than Accelerate past noise
+  (ratio under 0.97) in the flyoff of 2026-10-29
+  ([`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results-flyoff-macos-aarch64.md#accelerate-routing),
+  routed against `--rstd-accelerate=0`, strided at 2); a slot within noise or faster stays
+  routed. Rerun timings revise the table, not the code. Routed over rstd's own:
+  - `nrm2`, none: `dznrm2` 0.06 to 0.21, `dnrm2` 0.25 to 0.48, `snrm2` and `scnrm2` 0.53 to 0.92.
+  - `sdot`, none: 0.41 to 0.50 through `cblas_dsdot`, 0.97 strided. `dsdot` and `sdsdot`, with
+    a kernel of their own the flyoff did not time, stay routed.
+  - `scopy`, `dcopy`, unit only: 0.53 and 0.52 strided; `ccopy` and `zcopy` strided are 2.0 and
+    1.8.
+  - `swap`, unit only: 0.90, 0.90, 0.94, 0.96 strided.
+  - Complex `dot` and `axpy`, unit only: 0.77 and 0.78, 0.82 and 0.81 strided; `dotc` follows
+    `dotu`, the only one timed. Real strided `ddot` is 2.4, `axpy` 1.9 and 2.0.
+  - `csrot`, unit only: 0.88 strided; `zdrot` strided is 0.97, noise.
+
+  Left routed though slower: contiguous `zcopy` at 4M elements (0.83, where 64K is 4.2), a size
+  limit no row places. x86_64 has no such data and keeps every call.
 - **Not routed:** what CBLAS lacks: `sum`, the extremes, `axpyc`, `rotg`, `zrotg`, `rotmg`, the
   complex symmetric level 2, the conjugated-`x` letters `o` to `d`, a complex `r`, `HEMVREV`'s
   `v` and `m`; `i?amax`, which does not take the first NaN.

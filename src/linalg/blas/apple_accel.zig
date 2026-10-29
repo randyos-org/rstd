@@ -375,8 +375,9 @@ extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int
 // after their own checks and quick returns, so the errors are rstd's on every
 // platform and Accelerate never sees an argument the reference rejects. Each
 // is false (or null) where rstd's own kernels run instead: off macOS, while
-// off, for a routine, letter or quirk Accelerate does not match, and on the
-// LP64 table for a size, stride or operand extent past `c_int`.
+// off, for a routine, letter or quirk Accelerate does not match, where rstd's
+// kernels are faster (`sends`), and on the LP64 table for a size, stride or
+// operand extent past `c_int`.
 
 /// Whether the public routines over `T` can go to Accelerate.
 pub fn covers(comptime T: type) bool {
@@ -546,6 +547,38 @@ const col = Order.col_major;
 // - `gemm`: NaN or an infinity in `A`. At an edge of `m` it gives NaN where
 //   the reference's is infinite.
 
+/// The level-1 routines `sends` covers; `dot` over `f32` is `sdot`.
+const L1 = enum { copy, swap, scal, dot, dotc, dsdot, nrm2, asum, rot, rotm, axpy, axpby };
+
+/// Which calls go to Accelerate: all, those whose every stride is 1, none.
+const Strides = enum { all, unit, none };
+
+/// `Strides` by letter.
+const Letters = struct { s: Strides = .all, d: Strides = .all, c: Strides = .all, z: Strides = .all };
+
+/// Where rstd's kernels are the faster, by speed alone: the arm64 flyoff of
+/// 2026-10-29 (design.md, Apple Accelerate, has the rule and its rows);
+/// strided there is 2. x86_64 has no data and keeps every call.
+const sends: std.enums.EnumFieldStruct(L1, Letters, .{}) = if (x86_64) .{} else .{
+    .nrm2 = .{ .s = .none, .d = .none, .c = .none, .z = .none },
+    .dot = .{ .s = .none, .c = .unit, .z = .unit },
+    .dotc = .{ .c = .unit, .z = .unit },
+    .copy = .{ .s = .unit, .d = .unit },
+    .swap = .{ .s = .unit, .d = .unit, .c = .unit, .z = .unit },
+    .axpy = .{ .c = .unit, .z = .unit },
+    .rot = .{ .c = .unit },
+};
+
+/// Whether `sends` lets `r` over `T` go to Accelerate; `unit` if every
+/// stride is 1.
+inline fn sent(comptime r: L1, comptime T: type, unit: bool) bool {
+    return switch (comptime @field(@field(sends, @tagName(r)), letter(T))) {
+        .all => true,
+        .unit => unit,
+        .none => false,
+    };
+}
+
 /// Zeroes the imaginary parts of the diagonal of the order `n` Hermitian
 /// matrix at `a`, full (`ld`) or packed (`ld` 0) on the `lower` triangle.
 fn realDiagonal(comptime T: type, n: isize, a: [*]T, ld: isize, lower: bool) void {
@@ -623,6 +656,7 @@ fn nonFiniteMat(comptime T: type, rows: isize, cols: isize, b: [*]const T, ld: i
 
 pub inline fn copy(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.copy, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         return call("cblas_" ++ letter(T) ++ "copy", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy }) != null;
     }
@@ -630,6 +664,7 @@ pub inline fn copy(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
 
 pub inline fn swap(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.swap, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         return call("cblas_" ++ letter(T) ++ "swap", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy }) != null;
     }
@@ -637,6 +672,7 @@ pub inline fn swap(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
 
 pub inline fn scal(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.scal, T, incx == 1)) return false;
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha)) return false;
         return call("cblas_" ++ letter(T) ++ "scal", b, &.{span(n, incx)}, .{ n, scalar(T, &alpha), x, incx }) != null;
@@ -647,6 +683,7 @@ pub inline fn scal(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) b
 /// in `f64` (readme, One contract on every core).
 pub inline fn dot(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) ?T {
     if (comptime !covers(T)) return null else {
+        if (!sent(if (conj) .dotc else .dot, T, incx == 1 and incy == 1)) return null;
         const b = use(T) orelse return null;
         const ext = &.{ span(n, incx), span(n, incy) };
         if (comptime T == f32) {
@@ -661,6 +698,7 @@ pub inline fn dot(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx
 }
 
 pub inline fn dsdot(n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) ?f64 {
+    if (!sent(.dsdot, f32, incx == 1 and incy == 1)) return null;
     const b = use(f32) orelse return null;
     if (comptime x86_64) return null;
     return call("cblas_dsdot", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy });
@@ -671,6 +709,7 @@ pub inline fn dsdot(n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) ?f
 /// reference's only stride.
 pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
     if (comptime !covers(T)) return null else {
+        if (!sent(.nrm2, T, incx == 1)) return null;
         const b = use(T) orelse return null;
         const f: [*]Float(T) = @ptrCast(x);
         if (comptime Float(T) == f32) {
@@ -694,6 +733,7 @@ pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
 /// For `incx > 0`; rstd's kernels give 0 otherwise.
 pub inline fn asum(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
     if (comptime !covers(T)) return null else {
+        if (!sent(.asum, T, incx == 1)) return null;
         const b = use(T) orelse return null;
         if (incx <= 0) return null;
         const name = comptime switch (T) {
@@ -707,6 +747,7 @@ pub inline fn asum(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
 
 pub inline fn rot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.rot, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         const name = comptime switch (T) {
             Complex32 => "cblas_csrot",
@@ -719,6 +760,7 @@ pub inline fn rot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, inc
 
 pub inline fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, param: *const [5]T) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.rotm, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         return call("cblas_" ++ letter(T) ++ "rotm", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy, param }) != null;
     }
@@ -726,6 +768,7 @@ pub inline fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
 
 pub inline fn axpy(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.axpy, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha)) return false;
         return call("cblas_" ++ letter(T) ++ "axpy", b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, y, incy }) != null;
@@ -734,6 +777,7 @@ pub inline fn axpy(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y
 
 pub inline fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) bool {
     if (comptime !covers(T)) return false else {
+        if (!sent(.axpby, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha) or zeroPart(T, beta)) return false;
         if (comptime !isComplex(T)) if (alpha == 0) return false;
@@ -1162,12 +1206,15 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
 
     try blas.copy(io, T, n, &x, 1, &y, 1);
     try p.saw(true, "copy");
-    try blas.swap(io, T, n, &x, 1, &y, -1);
+    try blas.swap(io, T, n, &x, 1, &y, 1);
     try p.saw(true, "swap");
+    // strided calls go by `sends`; see the test of it
+    try blas.swap(io, T, n, &x, 1, &y, -1);
+    try p.saw(x86_64, "swap, a negative stride");
     try blas.scal(io, T, n, al1, &x, 1);
     try p.saw(true, "scal");
     _ = try blas.dot(io, T, n, &x, 1, &y, 1);
-    try p.saw(!(x86_64 and T == f32), "dot");
+    try p.saw(T != f32, "dot");
     if (cx) {
         _ = try blas.dotc(io, T, n, &x, 1, &y, 1);
         try p.saw(true, "dotc");
@@ -1188,9 +1235,9 @@ fn everyRoutine(comptime T: type, on_: bool) !void {
         try p.saw(!x86_64, "sdsdot");
     }
     _ = try blas.nrm2(io, T, n, &x, 1);
-    try p.saw(!(x86_64 and Float(T) == f32), "nrm2");
+    try p.saw(x86_64 and Float(T) == f64, "nrm2");
     _ = try blas.nrm2(io, T, n, &x, -1);
-    try p.saw(Float(T) == f32 and !x86_64, "nrm2, a negative stride");
+    try p.saw(false, "nrm2, a negative stride");
     _ = try blas.asum(io, T, n, &x, 1);
     try p.saw(true, "asum");
     _ = try blas.sum(io, T, n, &x, 1);
@@ -1616,6 +1663,69 @@ test "Accelerate's level-1 results match rstd's kernels on special values, strid
         inline for (comptime std.enums.values(R1)) |r| if (comptime has1(T, r)) sweep1(T, r, &seen);
     }
     if (seen.failed) return error.TestUnexpectedResult;
+}
+
+/// Whether a level-1 call at stride `inc` stays off Accelerate whatever
+/// `sends` says: the `x86_64` `cblas_dsdot`, and the strides `nrm2`, `asum`
+/// and `scal` (a quick return) leave out.
+fn kept1(comptime T: type, r: R1, inc: isize) bool {
+    return switch (r) {
+        .dot, .dsdot => x86_64 and T == f32,
+        .nrm2 => if (Float(T) == f32) x86_64 else inc <= 0,
+        .asum, .scal => inc <= 0,
+        .iamax => true,
+        else => false,
+    };
+}
+
+/// Runs `r` over `T` on 6 elements at stride `inc` in both vectors; fails
+/// unless it called Accelerate exactly when `want`.
+fn expect1(comptime T: type, comptime r: R1, inc: isize, want: bool) !void {
+    var fba: std.heap.FixedBufferAllocator = .init(&mem1);
+    const al = fba.allocator();
+    var x: check.Vector(T) = try .init(al, 6, inc, 1, null);
+    var y: check.Vector(T) = try .init(al, 6, inc, 2, null);
+    const before = calls.load(.monotonic);
+    _ = try run1(T, r, 0, 6, &x, &y);
+    expectCalled(want, before, @tagName(r)) catch |e| {
+        check.say("{s} at stride {d}\n", .{ @typeName(T), inc });
+        return e;
+    };
+}
+
+test "level-1 calls go to Accelerate by routine, letter and stride as `sends` has them" {
+    _ = blas.vtable();
+    const was = routing();
+    defer _ = route(was);
+    if (!route(true)) return error.SkipZigTest;
+    inline for (.{ f32, f64, Complex32, Complex64 }) |T| {
+        inline for (comptime std.enums.values(L1)) |l| {
+            const r = @field(R1, @tagName(l));
+            if (comptime has1(T, r)) for ([_]isize{ 1, 2, -1 }) |inc| {
+                try expect1(T, r, inc, sent(l, T, inc == 1) and !kept1(T, r, inc));
+            };
+        }
+    }
+    if (x86_64) return;
+    // the arm64 flyoff's rows behind `sends`, either way
+    try expect1(Complex64, .nrm2, 1, false);
+    try expect1(f64, .nrm2, 1, false);
+    try expect1(f32, .dot, 1, false);
+    try expect1(f32, .dsdot, 1, true);
+    try expect1(f64, .dot, 2, true);
+    try expect1(Complex64, .dot, 1, true);
+    try expect1(Complex64, .dot, 2, false);
+    try expect1(f64, .copy, 2, false);
+    try expect1(Complex32, .copy, 2, true);
+    try expect1(f32, .copy, 1, true);
+    try expect1(f32, .swap, 2, false);
+    try expect1(Complex64, .swap, 2, false);
+    try expect1(f64, .axpy, 2, true);
+    try expect1(Complex32, .axpy, 2, false);
+    try expect1(Complex32, .rot, 2, false);
+    try expect1(Complex64, .rot, 2, true);
+    try expect1(f64, .scal, 2, true);
+    try expect1(f32, .asum, 2, true);
 }
 
 test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real" {
