@@ -694,7 +694,9 @@ Zig module allows.
   columns rounded up to `unroll_n`, at most `GEMM_Q`, each factored recursively, then the
   block's interchanges (`laswp`), `trsm` on its rows and `gemm` on the rest through the level-3
   drivers, which upstream fuses per `GEMM_R` columns; the later interchanges reach each block's
-  columns last. Up to `2 * unroll_n` columns it is `getf2_k.c` and `zgetf2_k.c`, left-looking,
+  columns last. While that block is at most `2 * unroll_n` wide (`min(m, n)` up to about
+  `4 * unroll_n`; `unroll_n` on POWER8: `lapack/getrf/getrf_single.c:76-88`) it is
+  `getf2_k.c` and `zgetf2_k.c`, left-looking,
   as loops but for the core's `iamax`, so the pivot is the first NaN, else the first largest
   `|re| + |im|`. Two departures, both the reference's `xGETRF2`: a nonzero pivot below the
   safe minimum (denormal, or NaN) is swapped in and divided by, where upstream's `getf2`
@@ -704,8 +706,8 @@ Zig module allows.
 - **`getrs`** (`lu.zig`): `getrs_single.c` and `zgetrs_single.c`, which are `xGETRS`: the
   interchanges, then `trsm` with `L` and with `U` through the drivers, or for `op(A)`
   transposed the solves first and the interchanges backward; one real right-hand side takes
-  `trsv` on the vtable's kernels, as `getrs_single.c` does. It takes `trans` `r`, as
-  `zgetrs.c` does, and checks that every pivot is a row of `B` (`error.InvalidIpiv`), as
+  `trsv` on the vtable's kernels, as `getrs_single.c:47` does. It takes `trans` `r`, as
+  `interface/lapack/zgetrs.c:96` does, and checks that every pivot is a row of `B` (`error.InvalidIpiv`), as
   rstd's `laswp` does; the reference checks none.
 - **Not positive definite:** `potrf` returns
   `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
