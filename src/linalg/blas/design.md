@@ -1172,6 +1172,12 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
   only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
   periodically over batches, not per change.
+- **Rank updates keep the reference's zero skip** (2026-10-29). `ger` passes over a column whose
+  `y(j)` is zero, `syr`, `her` and their packed forms one whose `x(j)` is, the rank-2 forms one
+  where both are, as Reference-LAPACK 3.12.1 and master do, so a NaN or infinity in the other
+  vector never meets that zero. OpenBLAS and BLIS disagree with each other and give no reason, so
+  the reference decides; revisit when it drops the skip, as its PR #1323 did for the triangular
+  routines ([`comparisons.md`](comparisons.md) (5)).
 - **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
   `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
