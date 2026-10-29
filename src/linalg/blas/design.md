@@ -662,7 +662,8 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`; `issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
   the level-3 driver (`driver.gemmt`), and `B` is only read.
 - **Accelerate**: none of these is routed; Accelerate's CBLAS has no column-major equivalent of
-  them (its `appleblas_?geadd` takes three matrices).
+  them (its `appleblas_?geadd` takes three matrices, `const` `A` and `B` and a written `C`;
+  <https://developer.apple.com/documentation/accelerate/appleblas_dgeadd(_:_:_:_:_:_:_:_:_:_:_:_:_:)>).
 
 ### LAPACK
 
@@ -726,16 +727,22 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   open for the process, since the table points into it (`src/dll.zig`).
 - **Symbols.** macOS 13.3 and later have `cblas_dgemm$NEWLAPACK$ILP64`, with 64-bit integers
   (rstd's `isize`), which `load` takes; else the 32-bit `cblas_dgemm$NEWLAPACK`, then the
-  classic `cblas_dgemm`. macOS 27 binds 150 of the 154: there is no `cblas_i?amin`. `axpby` is
+  classic `cblas_dgemm` (macOS 13.3 Release Notes, Accelerate: "a new ILP64 interface",
+  `ACCELERATE_NEW_LAPACK`, `ACCELERATE_LAPACK_ILP64`,
+  <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>).
+  macOS 27 binds 150 of the 154: there is no `cblas_i?amin`. `axpby` is
   `catlas_?axpby`.
 - **Threads.** Threaded, Accelerate's `gemv` with `A` un-transposed rounds differently from one
   thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and `gemm` gave the same bits at every thread
   count tried (macOS 27, M6). So `load` makes Accelerate single-threaded:
-  `VECLIB_MAXIMUM_THREADS=1` (`setMaxThreadsEnv`), read at the process's first BLAS call, and
+  `VECLIB_MAXIMUM_THREADS=1` (`setMaxThreadsEnv`), read at the process's first BLAS call
+  (ACCELERATE(7), macOS 10.14: "may be cached by the library and reused"), and
   `BLASSetThreading` (macOS 15+), per thread, which `singleThreadHere` sets on each thread's
-  first routed call. One thread cost `gemm` 1.15x at 2000.
+  first routed call (Apple, `BLASSetThreading`: "This setting is per thread",
+  <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000.
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
-  not thread-safe, unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
+  not thread-safe ("need not be thread-safe", POSIX.1-2024,
+  <https://pubs.opengroup.org/onlinepubs/9799919799/functions/setenv.html>), unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
   `blas.useAccelerate` turns routing off and on later; nothing unloads it. `testUse` turns it off,
   so a test's own table runs its kernels.
 - **Routing.** Each public routine makes rstd's checks and quick returns, then calls its function
