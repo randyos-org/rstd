@@ -1,5 +1,6 @@
 _sysctl
 AAPCS
+AAVMF
 ABGR
 abig
 abiversion
@@ -233,6 +234,7 @@ corespotlightd
 cortexx
 corth
 cosm
+covfix
 cpht
 cpio
 Cplx
@@ -635,12 +637,17 @@ gdb
 gdkwayland
 gdkx
 geadd
+gecon
+gehrd
 Geijn
 gemmt
 gemmtrsm
 gemv
+geqp
 gerc
 gerv
+gesv
+gesvd
 get_kernel_syms
 get_mempolicy
 get_robust_list
@@ -651,6 +658,7 @@ getdents
 getdents64
 getegid
 geteuid
+getf
 GETFD
 GETFL
 getgid
@@ -668,7 +676,9 @@ getrandom
 getresgid
 getresuid
 getrf
+getri
 getrlimit
+getrs
 getrusage
 getsid
 getsockname
@@ -725,6 +735,7 @@ hemm
 hemv
 HEMVREV
 herk
+hetrd
 hflex
 HFLOAT
 hhcurveto
@@ -736,6 +747,7 @@ HLAT
 hlineto
 hpmv
 hprime
+hseqr
 hstem
 hstemhm
 htribk
@@ -884,6 +896,7 @@ kpanic
 kres
 KRON
 kwin
+laed
 LANCHOR
 landlock_add_rule
 landlock_create_ruleset
@@ -892,10 +905,14 @@ lange
 Langou
 LAPACK
 lapic
+lapy
 larl
+laset
 lassq
 laswp
 LASX
+lauu
+lauum
 Laxpy
 LBTRACKPOINT
 lchown
@@ -1278,7 +1295,9 @@ pollfd
 pollfds
 popfq
 popl
+potf
 potrf
+potri
 potrs
 powerpc
 powerpcle
@@ -1486,6 +1505,7 @@ sbcopy
 sbdot
 sbdtobf
 sbgemm
+sbgemmt
 sbgemv
 sbger
 sbig
@@ -1820,12 +1840,16 @@ transa
 transb
 TRBAK
 tred
+trevc
 TRIL
 TRIU
 trmm
 trmv
 trsm
 trsv
+trti
+trtri
+trtrs
 TrueType
 TrueType-style
 truncate
@@ -1867,6 +1891,8 @@ unfused
 unlink
 unlinkat
 unloop
+unmqr
+unmtr
 unpcklpd
 unpcklps
 unref
@@ -2088,6 +2114,7 @@ xscvdpspn
 XSDP
 xsdt
 XSETBV
+xststdcsp
 xswap
 xsymm
 xsymv
@@ -2144,6 +2171,7 @@ zdotc
 zdotu
 zdrot
 ZDSCAL
+zfls
 zgeadd
 ZGECO
 ZGEDI
