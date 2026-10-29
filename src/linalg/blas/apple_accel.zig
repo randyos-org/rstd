@@ -8,6 +8,10 @@
 //!   `cblas_dgemm$NEWLAPACK` (32-bit). `load` takes ILP64 when it has any.
 //! - older: the classic `cblas_dgemm`, 32-bit integers.
 //!
+//! Sources: <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>,
+//! <https://developer.apple.com/documentation/accelerate/blas-library>,
+//! <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>.
+//!
 //! CBLAS, unlike rstd's interfaces: an `Order` comes first in level 2 and 3;
 //! `cblas_i?amax` is 0-based; complex scalars go by pointer; complex `dot`
 //! results come back through `cblas_?dot?_sub`'s last argument.

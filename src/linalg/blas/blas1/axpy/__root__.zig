@@ -54,6 +54,7 @@ fn hasSimdBlock(comptime T: type) bool {
     return (T == f32 or T == f64) and util.vectorIeee(T);
 }
 
+/// The blocks of `kernel/x86_64/daxpy.c` and `saxpy.c` (`n & -16`, `n & -32`).
 fn GenericReal(comptime T: type) type {
     return Real(T, 128 / @sizeOf(T), if (hasSimdBlock(T)) SimdBlock(T) else null, fma.fuseFor(T));
 }

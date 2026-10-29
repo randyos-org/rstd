@@ -5,8 +5,9 @@
 //! The reference is C that is scheduled by hand around prefetches and empty
 //! `asm` statements that pin the results in vector registers so the compiler
 //! keeps the eight multiply-adds together. The prefetches (`prfm PLDL1STRM`)
-//! are `@prefetch`es here, three lines ahead of the block as they are there;
-//! the register pinning has no counterpart and the loop is otherwise the same.
+//! are `@prefetch`es here, as there: two to four 128-byte lines ahead before
+//! the loop, four inside it. The register pinning has no counterpart and the
+//! loop is otherwise the same.
 
 /// `y[0..n] += alpha * x[0..n]`, eight elements at a time.
 pub fn daxpy_kernel_8(n: isize, x_in: [*]f64, y_in: [*]f64, alpha: [*]const f64) void {

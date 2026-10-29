@@ -147,9 +147,9 @@ pub fn fitsMatrix(rows: isize, cols: isize, ld: isize, size: usize) bool {
 /// `nrm2`'s algorithm at 64 bits, for the portable and `@Vector` kernels:
 /// Blue's, as Reference-LAPACK 3.10's `BLAS/SRC/dnrm2.f90` has it
 /// (Anderson, "Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS
-/// 44(1), 2017): one pass summing the squares of small, medium and big
-/// magnitudes apart, each scaled by a power of two so none overflows or
-/// underflows; no division. Infinite for an infinity, NaN for a NaN.
+/// 44(1), 1-28, 2017, <https://doi.org/10.1145/3061665>): one pass summing
+/// the squares of small, medium and big magnitudes apart, each scaled by a
+/// power of two so none overflows or underflows; no division. Infinite for an infinity, NaN for a NaN.
 pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x: isize) F {
     // Fortran's `digits`, `minexponent` and `maxexponent`
     const digits = std.math.floatMantissaBits(F) + 1;

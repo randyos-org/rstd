@@ -7,8 +7,10 @@
 //! the pack and interleave builtins. The branches are the reference's: both
 //! strides one, `y` alone unit, and everything else scalar.
 //!
-//! The unrolling into eight vectors and the prefetch distances are kept as
-//! the reference sets them for the contiguous case.
+//! The unrolling into eight vectors is the reference's for the contiguous
+//! case. Its prefetches are not: it prefetches four 32-byte lines from 32
+//! (`d`, `z`) or 64 (`s`, `c`) floats past the next line boundary; here one
+//! prefetch per stream and block, at a fixed distance.
 
 const std = @import("std");
 const types = @import("../../../types.zig");

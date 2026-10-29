@@ -1,5 +1,7 @@
-//! Threaded level 3 in BLIS's model (Van Zee and van de Geijn; BLIS 2.1's
-//! `docs/Multithreading.md`), written from its design. Workers split `C`
+//! Threaded level 3 in BLIS's model (Smith, van de Geijn, Smelyanskiy,
+//! Hammond, Van Zee, "Anatomy of High-Performance Many-Threaded Matrix
+//! Multiplication", IPDPS 2014, 1049-1059, <https://doi.org/10.1109/IPDPS.2014.110>;
+//! BLIS 2.1's `docs/Multithreading.md`), written from its design. Workers split `C`
 //! `ic x jc` ways. The `ic` workers of a `jc` group pack each depth slice of
 //! their columns of `op(B)` together into one buffer, between a barrier that
 //! frees it and one that fills it (`bli_packm_int.c`); each packs its own

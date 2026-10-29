@@ -1,4 +1,6 @@
 //! The level-3 drivers: OpenBLAS's `driver/level3/level3.c`, Goto's loops
+//! (Goto, van de Geijn, "Anatomy of High-Performance Matrix Multiplication",
+//! ACM TOMS 34(3), 1-25, 2008, <https://doi.org/10.1145/1356052.1356053>)
 //! over the packed kernels of a vtable, single-threaded. `C` is split into
 //! `R`-wide column blocks, the depth into `Q`-deep slices and the rows into
 //! `P`-tall blocks; each slice of `op(B)` is packed once (`sb`), each block
