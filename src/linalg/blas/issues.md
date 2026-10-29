@@ -1361,6 +1361,20 @@ multiply by `(1, 0)` themselves:
   `alpha == 1`, as the real kernels have, would fix all three; `gemmt` could
   also pass the conjugation to its `gemv` instead of writing `B`."
 
+### `potrf` reports success on a NaN pivot
+
+`lapack/potrf/potrf_[UL]_single.c` and `potf2_[UL].c` test each pivot with
+`ajj <= 0`, which is false for NaN, so a NaN on the diagonal (or one that
+reaches it) passes, the factor fills with NaN, and `info` is 0. Reference
+LAPACK's `xPOTRF2` checks `DISNAN` and returns the minor.
+
+- **Workaround:** rstd's `potrf` fails a NaN pivot as the reference does
+  (`src/linalg/lapack/cholesky.zig`).
+- **Issue text:** "`?potrf` returns `info = 0` for a matrix whose pivot is
+  NaN, because `ajj <= 0` is false for NaN; the factor is all NaN. Reference
+  LAPACK's `xPOTRF2` tests `DISNAN(ajj)` and returns the minor; testing
+  `!(ajj > 0)` would match it."
+
 ## BLIS
 
 ### `snrm2` and `scnrm2` keep an `f32` running sum

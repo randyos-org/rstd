@@ -657,7 +657,7 @@ for the semantics. Where they differ, the reference wins, and the file says so.
   reciprocal. The drivers are called directly, so Accelerate never runs them.
 - **`potrs`** (`cholesky.zig`): `xPOTRS`, which OpenBLAS takes from the reference too: two
   `trsm`s on the factor, through the drivers.
-- **Not positive definite** (proposed, not settled): `potrf` returns
+- **Not positive definite:** `potrf` returns
   `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
   an optional `minor: ?*usize`, its last argument, as Zig's diagnostics arguments do; `A` then
   holds the factor's first `k - 1` columns and the failed pivot at `A(k, k)`, as both upstreams
@@ -1151,6 +1151,10 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
   only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
   periodically over batches, not per change.
+- **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
+  `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
+  caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
+  reference's `xPOTRF2`, where OpenBLAS's `ajj <= 0` passes it ([Extensions](#extensions)).
 
 ## Alternatives considered
 
