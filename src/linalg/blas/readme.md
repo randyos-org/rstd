@@ -37,7 +37,7 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `trsm`, real and complex.
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
-- **LAPACK** (`rstd.linalg.lapack`): `potrf`, which returns `error.NotPositiveDefinite` for a
+- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, which returns `error.NotPositiveDefinite` for a
   leading minor that is not positive definite, a NaN pivot included, and writes its order to
   its last argument.
 

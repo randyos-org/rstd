@@ -1,4 +1,4 @@
-//! Cholesky factorization: `potrf` is OpenBLAS's `interface/lapack/potrf.c`
+//! Cholesky factorization and solve. `potrf` is OpenBLAS's `interface/lapack/potrf.c`
 //! and `zpotrf.c` over `lapack/potrf/potrf_U_single.c` and
 //! `potrf_L_single.c`, whose base case is `lapack/potf2/potf2_U.c`,
 //! `potf2_L.c`, `zpotf2_U.c` and `zpotf2_L.c` (OpenBLAS v0.3.34-317). The
@@ -14,6 +14,9 @@
 //! The trailing updates are the level-3 drivers' `trsm` and `herk` (`syrk`
 //! for real `T`), called directly as upstream calls its kernels, so
 //! Accelerate never runs them. Serial, as is the rest of rstd's BLAS.
+//!
+//! `potrs` is Reference-LAPACK's `xPOTRS` (`lapack-netlib/SRC/zpotrs.f`),
+//! which OpenBLAS uses too: two triangular solves.
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
@@ -33,8 +36,13 @@ const isComplex = types.isComplex;
 pub const ArgError = error{
     InvalidUplo,
     InvalidN,
+    InvalidNrhs,
     InvalidLda,
+    InvalidLdb,
 };
+
+/// What `potrs` returns.
+pub const PotrsError = ArgError || Allocator.Error || Io.Cancelable;
 
 /// What `potrf` returns: `NotPositiveDefinite` when a leading minor is not
 /// positive definite.
@@ -114,6 +122,32 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
         }
     }
     return 0;
+}
+
+/// `?POTRS`: solves `A X = B` for the `n x nrhs` `X`, in place of `B`,
+/// given `potrf`'s factor of `A` in its `uplo` triangle: `Uᴴ U X = B` or
+/// `L Lᴴ X = B`, as two `trsm`s. The other triangle is never read.
+pub fn potrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, nrhs: isize, a: [*]const T, lda: isize, b: [*]T, ldb: isize) PotrsError!void {
+    comptime floatType(T, "potrs");
+    if (uplo.isRev()) return error.InvalidUplo;
+    if (n < 0) return error.InvalidN;
+    if (nrhs < 0) return error.InvalidNrhs;
+    if (lda < @max(1, n)) return error.InvalidLda;
+    if (ldb < @max(1, n)) return error.InvalidLdb;
+    if (n == 0 or nrhs == 0) return;
+    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(n, nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
+    const vt = table(T);
+    const complex = comptime isComplex(T);
+    const m: usize = @intCast(n);
+    const r: usize = @intCast(nrhs);
+    const la: usize = @intCast(lda);
+    const lb: usize = @intCast(ldb);
+    const one = scalar(T, 1);
+    const upper = uplo == .u;
+    // `u`: `Uᴴ Y = B`, then `U X = Y`; `l`: `L Y = B`, then `Lᴴ X = Y`
+    try driver.trsm(allocator, io, T, vt, true, upper, upper, upper and complex, false, m, r, one, a, la, b, lb);
+    try driver.trsm(allocator, io, T, vt, true, upper, !upper, !upper and complex, false, m, r, one, a, la, b, lb);
 }
 
 /// `potf2_U.c`, `potf2_L.c` and their `z` forms: the unblocked factor, at
@@ -219,6 +253,14 @@ fn toT(comptime T: type, v: W(T)) T {
 fn poisoned(comptime T: type) T {
     const x = std.math.nan(Float(T));
     return if (comptime isComplex(T)) .init(x, x) else x;
+}
+
+/// Equal bits, part by part (`f80`'s padding aside).
+fn sameBits(comptime T: type, x: T, y: T) bool {
+    const F = Float(T);
+    const U = @Int(.unsigned, @bitSizeOf(F));
+    if (comptime isComplex(T)) return sameBits(F, x.re, y.re) and sameBits(F, x.im, y.im);
+    return @as(U, @bitCast(x)) == @as(U, @bitCast(y));
 }
 
 fn isNanT(comptime T: type, v: T) bool {
@@ -475,4 +517,109 @@ test "potrf: reports the first bad argument and reads nothing for n = 0" {
     try testing.expectError(error.InvalidLda, potrf(fa, check.io, f64, .u, 2, &a, std.math.maxInt(isize) / 2, null));
     try potrf(fa, check.io, f64, .u, 0, &a, 1, null);
     for (a) |v| try testing.expect(std.math.isNan(v));
+}
+
+/// `potrs` on `potrf`'s factor of `p.a`, `nrhs` right-hand sides with
+/// `ldb = n + 1` (the padding row NaN), then the residual `A X - B` in `W(T)`
+/// within `8 (n + 2)` ulps of `|L| |L|ᴴ |X|`, and the padding untouched. With
+/// `nan_at`, `B(i, j)` is NaN: column `j` must come out all NaN, the others
+/// as without it, bit for bit.
+fn solveCase(comptime T: type, al: Allocator, p: *Problem(T), nrhs: usize, seed: u64, nan_at: ?[2]usize) !void {
+    const n = p.n;
+    const ldb = n + 1;
+    const b = try al.alloc(T, ldb * nrhs);
+    defer al.free(b);
+    const b0 = try al.alloc(T, n * nrhs);
+    defer al.free(b0);
+    check.fill(T, b0, seed);
+    for (0..nrhs) |j| {
+        @memcpy(b[j * ldb ..][0..n], b0[j * n ..][0..n]);
+        b[j * ldb + n] = poisoned(T);
+    }
+    var poison: guard.Poison = .{ .child = al };
+    const uplo: Uplo = if (p.upper) .u else .l;
+    try potrs(poison.allocator(), check.io, T, uplo, @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.lda), b.ptr, @intCast(ldb));
+    const F = Float(T);
+    const eps: f128 = std.math.floatEps(F);
+    const ulps: f128 = @floatFromInt(8 * (n + 2));
+    const t = try al.alloc(f128, n);
+    defer al.free(t);
+    for (0..nrhs) |j| {
+        const x = b[j * ldb ..][0..n];
+        try testing.expect(isNanT(T, b[j * ldb + n]));
+        // `|L|ᴴ |x|`, then `|L|` times it
+        for (0..n) |k| {
+            t[k] = 0;
+            for (k..n) |i| t[k] += check.abs1(check.wide(T, p.got(i, k))) * check.abs1(check.wide(T, x[i]));
+        }
+        for (0..n) |i| {
+            var s: W(T) = check.wide(T, b0[i + j * n]);
+            var mag: f128 = 0;
+            for (0..n) |k| s = check.subW(s, check.mulW(p.aw[i + k * n], check.wide(T, x[k])));
+            for (0..i + 1) |k| mag += check.abs1(check.wide(T, p.got(i, k))) * t[k];
+            const d = check.abs1(s);
+            if (!(d <= ulps * eps * mag)) {
+                check.say("potrs {s} {s} n={d} nrhs={d}: residual ({d},{d}) {e}, allowed {e}\n", .{ @typeName(T), @tagName(uplo), n, nrhs, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(ulps * eps * mag)) });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+    const at = nan_at orelse return;
+    const bn = try al.alloc(T, ldb * nrhs);
+    defer al.free(bn);
+    for (0..nrhs) |j| @memcpy(bn[j * ldb ..][0..n], b0[j * n ..][0..n]);
+    bn[at[0] + at[1] * ldb] = poisoned(T);
+    try potrs(poison.allocator(), check.io, T, uplo, @intCast(n), @intCast(nrhs), p.a.ptr, @intCast(p.lda), bn.ptr, @intCast(ldb));
+    for (0..nrhs) |j| for (0..n) |i| {
+        const got = bn[i + j * ldb];
+        const ok = if (j == at[1]) isNanT(T, got) else sameBits(T, got, b[i + j * ldb]);
+        if (!ok) {
+            check.say("potrs {s} {s} n={d}: NaN at B({d},{d}), X({d},{d}) is {any}\n", .{ @typeName(T), @tagName(uplo), n, at[0], at[1], i, j, got });
+            return error.TestUnexpectedResult;
+        }
+    };
+}
+
+fn solveCases(vt: *const Vtable) anyerror!void {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]bool{ true, false }) |upper| {
+        for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
+            const saved = blas.testUse(v);
+            defer blas.testRestore(saved);
+            const sizes: []const usize = if (vi == 0) &shrunk_sizes else &own_sizes;
+            for (sizes) |n| {
+                if (check.rig() and n > 70) continue;
+                var p = try Problem(T).init(al, n, upper, n * 17 + @as(u64, @intFromBool(upper)));
+                defer p.deinit(al);
+                try p.factorIt(al, null);
+                for ([_]usize{ 1, 3 }) |nrhs| {
+                    const nan_at: [2]usize = .{ (n * 7 + nrhs) % n, nrhs / 2 };
+                    solveCase(T, al, &p, nrhs, n + nrhs, nan_at) catch |e| {
+                        check.say("{s}, blocking {s}\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
+                        return e;
+                    };
+                }
+            }
+        }
+    };
+}
+
+test "potrs: A X = B on potrf's factor, both triangles, NaN in one column of B, on every linked core" {
+    try check.eachCore(solveCases);
+}
+
+test "potrs: reports the first bad argument and reads nothing when empty" {
+    const fa = testing.failing_allocator;
+    var a: [4]f64 = @splat(nan);
+    var b: [4]f64 = @splat(nan);
+    try testing.expectError(error.InvalidUplo, potrs(fa, check.io, f64, .v, -1, -1, &a, 0, &b, 0));
+    try testing.expectError(error.InvalidN, potrs(fa, check.io, f64, .u, -1, -1, &a, 0, &b, 0));
+    try testing.expectError(error.InvalidNrhs, potrs(fa, check.io, f64, .l, 0, -1, &a, 0, &b, 0));
+    try testing.expectError(error.InvalidLda, potrs(fa, check.io, f64, .l, 2, 1, &a, 1, &b, 0));
+    try testing.expectError(error.InvalidLdb, potrs(fa, check.io, f64, .l, 2, 1, &a, 2, &b, 1));
+    try testing.expectError(error.InvalidLdb, potrs(fa, check.io, f64, .u, 0, 1, &a, 1, &b, 0));
+    try testing.expectError(error.InvalidLdb, potrs(fa, check.io, f64, .u, 2, 2, &a, 2, &b, std.math.maxInt(isize) / 2));
+    try potrs(fa, check.io, f64, .u, 0, 2, &a, 1, &b, 1);
+    try potrs(fa, check.io, f64, .l, 2, 0, &a, 2, &b, 2);
+    for (b) |v| try testing.expect(std.math.isNan(v));
 }

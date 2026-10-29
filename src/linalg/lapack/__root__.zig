@@ -13,8 +13,11 @@ pub const Uplo = @import("../blas/types.zig").Uplo;
 /// `potrf`: bad arguments, `error.NotPositiveDefinite`, `error.OutOfMemory`
 /// or `error.Canceled`.
 pub const PotrfError = cholesky.PotrfError;
+/// `potrs`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const PotrsError = cholesky.PotrsError;
 
 pub const potrf = cholesky.potrf;
+pub const potrs = cholesky.potrs;
 
 test {
     _ = cholesky;
