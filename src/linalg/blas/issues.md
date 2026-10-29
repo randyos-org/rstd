@@ -5,6 +5,9 @@ None is filed. For each: what we saw, how we work around it and where,
 and the text of an issue we could file later. The toolchain throughout is
 Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`) unless an entry says
 otherwise. The Zig entries were rechecked on 0.18.0-dev.751 (2026-10-26).
+That build is upstream master `cb6f0c25f1` (2026-10-26) with the open
+<https://codeberg.org/ziglang/zig/pulls/31235> merged, so its `dev` number
+is not upstream's. Zig source links below are at `cb6f0c25f1`.
 
 When an issue is fixed upstream, drop the workaround and its entry.
 
@@ -71,6 +74,10 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 - **Seen:** for big-endian `powerpc64`, where `Target.cCallingConvention`
   reports ELFv1, Zig still emits `.abiversion 2` and ELFv2 code.
+  `cCallingConvention` gives ELFv1 for PS3 or a GNU ABI
+  ([`lib/std/Target.zig:3773`](https://codeberg.org/ziglang/zig/src/commit/cb6f0c25f176dbebf0c6801170c360c2c1198524/lib/std/Target.zig#L3773)),
+  but LLVM is told `elfv2` for all but PS3
+  ([`src/target.zig:692`](https://codeberg.org/ziglang/zig/src/commit/cb6f0c25f176dbebf0c6801170c360c2c1198524/src/target.zig#L692)).
 - **Workaround:** `abi.zig` picks the converted kernels' `64be` variant for
   `powerpc64` regardless of what `cc` says, matching what Zig emits.
 - **Issue text:**
@@ -100,7 +107,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   >
   > On `powerpc64le-linux`, a C-callconv function returning
   > `extern struct { a: f64, b: f64 }` is expected by Zig in `r3`/`r4`. The
-  > ELFv2 ABI (section 2.2.4.2) returns homogeneous floating-point
+  > ELFv2 ABI (revision 1.5, section 2.2.6) returns homogeneous floating-point
   > aggregates of up to eight members in `f1` to `f8`. Calling C or assembly
   > that follows the ABI reads the wrong registers. Example: OpenBLAS's
   > `zdot` kernels for POWER return `double _Complex` in `f1`/`f2`.
@@ -136,8 +143,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ### Self-hosted x86_64 backend stores a two-lane `f32` vector as 16 bytes
 
 - **Seen:** with the self-hosted x86_64 backend, `@sizeOf(@Vector(2, f32))`
-  is 16 (8 with LLVM): `Type.abiSize` rounds every vector up to 16 bytes
-  for `stage2_x86_64`. A store through a `*align(1) @Vector(2, f32)` cast
+  is 16 (8 with LLVM): `Type.abiAlignment` gives every `stage2_x86_64`
+  vector at least 16, and `Type.abiSize` rounds up to it. A store through a `*align(1) @Vector(2, f32)` cast
   from an `[*]f32`, as `util.store` does, writes 16 bytes, so the two
   `f32` after the vector are overwritten. Still so on 0.18.0-dev.751.
 - **Workaround:** the complex gemm tile assigns whole arrays
@@ -147,7 +154,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > **x86_64 backend: `@Vector(2, f32)` is 16 bytes, so a store through a pointer to it overwrites the next 8**
   >
   > With `-fno-llvm` on x86_64, `@sizeOf(@Vector(2, f32))` is 16; the LLVM
-  > backend says 8, the vector's natural size. `Type.abiSize` gives every
+  > backend says 8, the vector's natural size. `Type.abiAlignment` gives every
   > `stage2_x86_64` vector a 16-byte minimum, so a store through
   > `*align(4) @Vector(2, f32)` writes 16 bytes. Code that views part of an
   > `[N]f32` as a vector (a common way to load and store lanes of an
@@ -298,8 +305,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Workaround:** none; 32-bit SPARC is compile-checked only (the kernel
   objects build). Its rig, `sparc` (OpenBIOS on `SS-5`), is a stub in
   `build/qemutest.zig`.
-- **Issue text:** an lld feature request rather than a Zig bug, and probably
-  known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
+- **Issue text:** none; an lld feature, not a Zig bug, and pending upstream:
+  <https://github.com/llvm/llvm-project/pull/228200> (open) adds 32-bit SPARC
+  to lld.
 
 ### Inline assembly errors exit 0
 
@@ -559,7 +567,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `pub fn getCpuCount() anyerror!usize;`, but `std.Thread.getCpuCount` does
   `return try Impl.getCpuCount();` into `CpuCountError!usize`, so an override
   written from the docs fails with "global error set cannot cast into a
-  smaller set".
+  smaller set". Both come from the open
+  <https://codeberg.org/ziglang/zig/pulls/31235>, not upstream master, so
+  this belongs in that PR's review.
 - **Workaround:** our override returns `std.Thread.CpuCountError!usize`.
 - **Issue text:**
 
@@ -580,14 +590,16 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `__aeabi_*` calls and passes floats in core registers. Of 100 models only
   9 have an FPU feature; `cortex_a5` to `cortex_a17`, `cortex_r5` and
   others lost theirs since 0.17. LLVM takes a core's default FPU from its
-  target parser (`cortex-a15`: `neon-vfpv4`), which Zig's models skip. A
+  target parser (`cortex-a15`: `neon-vfpv4`), which Zig's models skip.
+  Deliberate: Zig's generator now omits features ARM's cores may lack
+  (dff54eecb0 and b0ce4f0996, 2026-10-20), so `+vfp4,+neon` must be asked for. A
   `vmsr` in the `arm` rig's boot code then failed to assemble, though the
   build exited 0, so the FPU stayed off and every converted kernel was
   skipped as not runnable.
 - **Workaround:** the `arm` rig adds `vfp4`, `neon`, `d32`, `hwdiv` and
   `hwdiv_arm` (`build/qemutest.zig`); the boot code writes its `vmsr` by
   encoding (`test/qemu/arm.zig`).
-- **Issue text:**
+- **Issue text** (likely by design, per those commits; check before filing):
 
   > **arm: CPU models lack their default FPU, so `-mcpu=cortex_a15` is soft-float**
   >
@@ -607,7 +619,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   parties started with `Group.concurrent`, waiting only through `io.futexWait` and
   `io.futexWake` (300 rounds; 2 parties pass). With `thread_limit = 0` the same
   barrier passes at 2, 4 and 8 parties, as does threaded `gemm`. `Io.Threaded`
-  passes everything. 0.18.0-dev.1864, 2026-10-29.
+  passes everything. 0.18.0-dev.751, 2026-10-29.
 - **Workaround:** `blas3/threaded.zig`'s fiber test runs `Uring` with
   `thread_limit = 0` only; threaded level 3 on a multi-threaded `Uring` is unverified
   (threading.md, Open issues).
@@ -629,7 +641,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Seen:** `zig fetch` of a single file fails with "unrecognized
   'Content-Type' header: 'text/plain'", and of a `.tar.gz` from
   snapshot.debian.org (which sends no `Content-Type`) with "missing
-  'Content-Type' header", although the URL ends in `.tar.gz`.
+  'Content-Type' header", although the URL ends in `.tar.gz`. Single files
+  are open upstream as <https://codeberg.org/ziglang/zig/issues/32041>, whose
+  first example also gets "missing 'Content-Type' header".
 - **Workaround:** the Linux rigs' kernels come from Debian's netboot
   `.tar.gz` on deb.debian.org (which sends `application/x-gzip`), pinned to a
   dated installer build (`build.zig.zon`). s390x and mips64el have no Linux
@@ -644,8 +658,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   >
   > Fetching `https://snapshot.debian.org/.../netboot.tar.gz` fails with
   > `missing 'Content-Type' header`: the server sends none, though the path
-  > says `.tar.gz`. Using the extension when the header is absent (or
-  > `application/octet-stream`) would make such mirrors usable. Separately,
+  > says `.tar.gz`. Using the extension when the header is absent, as is
+  > already done for `application/octet-stream`, would make such mirrors usable. Separately,
   > a package that is a single file (a kernel image, a firmware blob)
   > cannot be fetched at all; storing it as a one-file package would avoid
   > wrapping it in an archive.
