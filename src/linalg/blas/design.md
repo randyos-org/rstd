@@ -449,7 +449,7 @@ a routine.
 ### `@Vector` level-1 and level-2 kernels
 
 `vector.zig` holds plain `@Vector` kernels, `U` native vectors a step (four in every object),
-for `axpy`, `axpyc`, `dot`, `dotu`, `dotc`, `scal`, `nrm2`, `asum`, the extremes, `copy`,
+for `axpy`, `axpyc`, `dot`, `dotu`, `dotc`, `scal`, `nrm2`, `asum`, `sum`, the extremes, `copy`,
 `swap`, `rot` and every `gemv` form, over `s`, `d`, `c` and `z`. Unit strides take the vectors;
 other strides a scalar loop. Special values, strides and flags are the portable kernels'.
 `nrm2` sums plain squares, and for `d` and `z` takes Blue's algorithm only where they could have
@@ -466,8 +466,8 @@ per-core objects; like the tiles, they never make a core need an object of its o
 - **x86_64, x86, loongarch64:** the routed slots (on x86_64 the peeling ones only on the cores
   whose converted kernels peel; their C kernels elsewhere stay).
 - **power:** the routed slots on POWER8 to 10; AltiVec cores keep the portable kernels.
-- **arm64:** the routed slots on every core; on `vortex` and `vortexm4` every slot but `rot`,
-  where they match or beat the converted assembly on the M6
+- **arm64:** the routed slots on every core; on `vortex` and `vortexm4` every slot but `rot`
+  and `sum` (unmeasured), where they match or beat the converted assembly on the M6
   ([`results-m6.md`](../../../tools/blasbench/results-m6.md)), so their objects there leave those
   converted kernels out (`vector.displaces`); elsewhere every slot no converted kernel fills
   (below). On Apple's systems, where Accelerate serves most routines, only the routed slots.
@@ -482,9 +482,9 @@ before; their converted kernels stay, unmeasured:
 | all | `cdotu`, `cdotc`, `zdotu`, `zdotc` |
 | `thunderx` | `ddot` |
 | `thunderx2t99`, `thunderx3t110` | `ddot`, `?nrm2`, `?asum`, `?copy`, `i?amax` |
-| `neoversen1`, `ampere1`, `vortex`, `vortexm4` | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n` |
-| `neoversen2`, `neoversev2` | those, and `sgemv_t`, `dgemv_n`, `dgemv_t` |
-| SVE: `neoversev1`, `armv8sve`, `a64fx`, `armv9sme` | those, and `sswap`, `dswap`, `srot`, `drot` |
+| `neoversen1`, `ampere1`, `vortex`, `vortexm4` | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n`, `ssum`, `dsum`, `zsum` |
+| `neoversen2`, `neoversev2` | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n`, `sgemv_t`, `dgemv_n`, `dgemv_t` |
+| SVE: `neoversev1`, `armv8sve`, `a64fx`, `armv9sme` | those, and `sswap`, `dswap`, `srot`, `drot`, `zsum` |
 | SVE: `cortexa510`, `cortexa710`, `cortexx2` | the same |
 
 ### Coverage by architecture

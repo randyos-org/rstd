@@ -29,30 +29,30 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## x86_64
 
-| core           | ssum                      | dsum                      | csum                  | zsum                   | qsum               | xsum                |
-| -------------- | ------------------------- | ------------------------- | --------------------- | ---------------------- | ------------------ | ------------------- |
-| ATOM           | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| BARCELONA      | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| BOBCAT         | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| BULLDOZER      | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| COOPERLAKE     | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| CORE2          | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| DUNNINGTON     | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| EXCAVATOR      | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| generic        | `../arm/sum.c` → n/a      | `../arm/sum.c` → n/a      | `zsum_sse.S` → n/a    | `zsum_sse2.S` → n/a    | `sum.S` → n/a      | `zsum.S` → n/a      |
-| HASWELL        | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| NANO           | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| NEHALEM        | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| OPTERON        | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| OPTERON_SSE3   | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| PENRYN         | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| PILEDRIVER     | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| PRESCOTT       | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| SANDYBRIDGE    | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| SAPPHIRERAPIDS | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| SKYLAKEX       | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| STEAMROLLER    | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
-| ZEN            | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → routed | `zsum_sse2.S` → routed | `sum.S` → portable | `zsum.S` → portable |
+| core           | ssum                      | dsum                      | csum               | zsum                | qsum               | xsum                |
+| -------------- | ------------------------- | ------------------------- | ------------------ | ------------------- | ------------------ | ------------------- |
+| ATOM           | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| BARCELONA      | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| BOBCAT         | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| BULLDOZER      | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| COOPERLAKE     | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| CORE2          | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| DUNNINGTON     | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| EXCAVATOR      | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| generic        | `../arm/sum.c` → n/a      | `../arm/sum.c` → n/a      | `zsum_sse.S` → n/a | `zsum_sse2.S` → n/a | `sum.S` → n/a      | `zsum.S` → n/a      |
+| HASWELL        | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| NANO           | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| NEHALEM        | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| OPTERON        | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| OPTERON_SSE3   | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| PENRYN         | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| PILEDRIVER     | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| PRESCOTT       | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| SANDYBRIDGE    | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| SAPPHIRERAPIDS | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| SKYLAKEX       | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| STEAMROLLER    | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
+| ZEN            | `../arm/sum.c` → portable | `../arm/sum.c` → portable | `zsum_sse.S` → vec | `zsum_sse2.S` → vec | `sum.S` → portable | `zsum.S` → portable |
 
 ## x86
 
@@ -87,37 +87,37 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## arm64
 
-| core          | ssum                                      | dsum                                      | csum           | zsum                                      | qsum               | xsum                |
-| ------------- | ----------------------------------------- | ----------------------------------------- | -------------- | ----------------------------------------- | ------------------ | ------------------- |
-| A64FX         | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| AMPERE1       | `ssum_thunderx2t99.c` +asm → **portable** | `dsum_thunderx2t99.c` +asm → **portable** | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| ARMV8         | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| ARMV8SVE      | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| ARMV9SME      | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA510    | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA53     | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA55     | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA57     | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA710    | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA72     | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA73     | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXA76     | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXX1      | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| CORTEXX2      | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| EMAG8180      | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| FALKOR        | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| FT2000        | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| generic       | `../arm/sum.c` → n/a                      | `../arm/sum.c` → n/a                      | `csum.S` → n/a | `../arm/zsum.c` → n/a                     | `sum.S` → n/a      | `zsum.S` → n/a      |
-| NEOVERSEN1    | `ssum_thunderx2t99.c` +asm → **portable** | `dsum_thunderx2t99.c` +asm → **portable** | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| NEOVERSEN2    | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| NEOVERSEV1    | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| NEOVERSEV2    | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| THUNDERX      | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| THUNDERX2T99  | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| THUNDERX3T110 | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| TSV110        | `sum.S` → asm                             | `sum.S` → asm                             | `csum.S` → asm | `zsum.S` → asm                            | `sum.S` → portable | `zsum.S` → portable |
-| VORTEX        | `ssum_thunderx2t99.c` +asm → **portable** | `dsum_thunderx2t99.c` +asm → **portable** | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
-| VORTEXM4      | `ssum_thunderx2t99.c` +asm → **portable** | `dsum_thunderx2t99.c` +asm → **portable** | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → **portable** | `sum.S` → portable | `zsum.S` → portable |
+| core          | ssum                             | dsum                             | csum           | zsum                             | qsum               | xsum                |
+| ------------- | -------------------------------- | -------------------------------- | -------------- | -------------------------------- | ------------------ | ------------------- |
+| A64FX         | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| AMPERE1       | `ssum_thunderx2t99.c` +asm → vec | `dsum_thunderx2t99.c` +asm → vec | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| ARMV8         | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| ARMV8SVE      | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| ARMV9SME      | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA510    | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA53     | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA55     | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA57     | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA710    | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA72     | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA73     | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXA76     | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXX1      | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| CORTEXX2      | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| EMAG8180      | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| FALKOR        | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| FT2000        | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| generic       | `../arm/sum.c` → n/a             | `../arm/sum.c` → n/a             | `csum.S` → n/a | `../arm/zsum.c` → n/a            | `sum.S` → n/a      | `zsum.S` → n/a      |
+| NEOVERSEN1    | `ssum_thunderx2t99.c` +asm → vec | `dsum_thunderx2t99.c` +asm → vec | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| NEOVERSEN2    | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| NEOVERSEV1    | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| NEOVERSEV2    | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| THUNDERX      | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| THUNDERX2T99  | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| THUNDERX3T110 | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| TSV110        | `sum.S` → asm                    | `sum.S` → asm                    | `csum.S` → asm | `zsum.S` → asm                   | `sum.S` → portable | `zsum.S` → portable |
+| VORTEX        | `ssum_thunderx2t99.c` +asm → vec | `dsum_thunderx2t99.c` +asm → vec | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
+| VORTEXM4      | `ssum_thunderx2t99.c` +asm → vec | `dsum_thunderx2t99.c` +asm → vec | `csum.S` → asm | `zsum_thunderx2t99.c` +asm → vec | `sum.S` → portable | `zsum.S` → portable |
 
 ## arm
 
@@ -230,17 +230,6 @@ The roles a core runs portable where upstream is tuned.
 
 | architecture | core            | roles                  |
 | ------------ | --------------- | ---------------------- |
-| arm64        | A64FX           | zsum                   |
-| arm64        | AMPERE1         | ssum, dsum, zsum       |
-| arm64        | ARMV8SVE        | zsum                   |
-| arm64        | ARMV9SME        | zsum                   |
-| arm64        | CORTEXA510      | zsum                   |
-| arm64        | CORTEXA710      | zsum                   |
-| arm64        | CORTEXX2        | zsum                   |
-| arm64        | NEOVERSEN1      | ssum, dsum, zsum       |
-| arm64        | NEOVERSEV1      | zsum                   |
-| arm64        | VORTEX          | ssum, dsum, zsum       |
-| arm64        | VORTEXM4        | ssum, dsum, zsum       |
 | riscv64      | RISCV64_ZVL128B | ssum, dsum, csum, zsum |
 | riscv64      | RISCV64_ZVL256B | ssum, dsum, csum, zsum |
 | riscv64      | x280            | ssum, dsum, csum, zsum |
@@ -249,4 +238,4 @@ The roles a core runs portable where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `portable` 375, `routed` 42, `n/a` 48, `asm` 273. 37 gaps.
+(core, role) pairs by what rstd serves: `portable` 356, `vec` 61, `n/a` 48, `asm` 273. 18 gaps.

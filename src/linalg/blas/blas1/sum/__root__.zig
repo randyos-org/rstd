@@ -136,3 +136,83 @@ test "portable sum kernels at the extended type match a plain loop" {
 test "every linked core's sum kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }
+
+/// `vector.zig`'s `sum` order written out plainly over the `w * n` floats
+/// (`w` 2 for complex): unit stride, float `i` of each full `2 * W` into
+/// lane `i % W` of sum `i / W % 2`; strided, element `i` of each full group
+/// into lane `i % 4` (real), or into sum `i % 2` by parts (complex). Then the sums lane by lane, the lanes and
+/// the rest in order, in `f64` for `f32`.
+fn vectorOrder(comptime F: type, comptime w: comptime_int, n: usize, x: []const F, inc: usize) F {
+    const D = if (F == f32) f64 else F;
+    const W = blas.vector.Real(F, 4).W;
+    if (inc == 1) {
+        const len = w * n;
+        var acc: [2][W]D = @splat(@splat(0));
+        var i: usize = 0;
+        while (i + 2 * W <= len) : (i += 2 * W) for (0..2) |q| for (0..W) |k| {
+            acc[q][k] += x[i + q * W + k];
+        };
+        var s: D = acc[0][0] + acc[1][0];
+        for (1..W) |k| s += acc[0][k] + acc[1][k];
+        while (i < len) : (i += 1) s += x[i];
+        return @floatCast(s);
+    }
+    if (w == 1) {
+        var acc: [4]D = @splat(0);
+        var i: usize = 0;
+        while (i + 4 <= n) : (i += 4) for (0..4) |k| {
+            acc[k] += x[(i + k) * inc];
+        };
+        var s: D = acc[0];
+        for (1..4) |k| s += acc[k];
+        while (i < n) : (i += 1) s += x[i * inc];
+        return @floatCast(s);
+    }
+    var acc: [2][2]D = @splat(@splat(0));
+    for (0..n) |i| for (0..2) |c| {
+        acc[i % 2][c] += x[2 * i * inc + c];
+    };
+    return @floatCast((acc[0][0] + acc[1][0]) + (acc[0][1] + acc[1][1]));
+}
+
+fn checkVectorSum(comptime F: type, comptime w: comptime_int) !void {
+    const K = if (w == 2) blas.vector.Complex(F, 4) else blas.vector.Real(F, 4);
+    const nan = std.math.nan(F);
+    const inf = std.math.inf(F);
+    const tiny = std.math.floatTrueMin(F);
+    const specials = [_][2]F{ .{ nan, 1 }, .{ inf, 1 }, .{ inf, -inf }, .{ tiny, -tiny }, .{ tiny, 3 * tiny }, .{ std.math.floatMax(F), std.math.floatMax(F) } };
+    var x: [w * check.capacity]F = undefined;
+    for ([_]usize{ 0, 1, 2, 3, 7, 8, 15, 16, 17, 31, 32, 33, 65, 100, 257 }) |n| {
+        for (0..specials.len + 2) |p| for ([_]usize{ 1, 2, 3 }) |inc| {
+            var prng = std.Random.DefaultPrng.init(n * 31 + p);
+            const r = prng.random();
+            // magnitudes over many binades, so the order shows in the bits;
+            // past `specials`, all denormals, then none
+            for (&x) |*v| v.* = if (p == specials.len) tiny * @as(F, @floatFromInt(r.intRangeAtMost(i32, -99, 99))) else (r.float(F) - 0.5) * std.math.ldexp(@as(F, 1), r.intRangeAtMost(i32, -20, 20));
+            if (p < specials.len and n > 0) for (specials[p]) |v| {
+                x[w * inc * r.uintLessThan(usize, n) + r.uintLessThan(usize, w)] = v;
+            };
+            const want = vectorOrder(F, w, n, &x, inc);
+            const got = K.sum(@intCast(n), &x, @intCast(inc));
+            if (!(std.math.isNan(want) and std.math.isNan(got))) try check.expectBits(F, want, got, if (w == 2) "vector sum, complex" else "vector sum", n, inc);
+            // a negative or zero stride sums nothing, as the portable kernels
+            for ([_]BlasLong{ 0, -1, -2 }) |neg| try std.testing.expectEqual(@as(F, 0), K.sum(@intCast(n), &x, neg));
+        };
+    }
+}
+
+test "the @Vector sum kernels add in their stated order, bit for bit, special values and denormals too" {
+    // not where lanes flush, which no core's kernels use, nor on the x87,
+    // whose bits hang on spills
+    inline for (.{ f32, f64 }) |F| {
+        if (comptime util.vectorIeee(F) and !util.onX87(f64)) inline for (.{ 1, 2 }) |w| try checkVectorSum(F, w);
+    }
+}
+
+test "the @Vector f32 sum rounds once: 4096 thirds sum exactly in f64" {
+    if (comptime !util.vectorIeee(f32)) return;
+    var x: [4096]f32 = @splat(1.0 / 3.0);
+    const want: f32 = @floatCast(@as(f64, x.len) * x[0]);
+    try std.testing.expectEqual(want, blas.vector.Real(f32, 4).sum(x.len, &x, 1));
+    try std.testing.expectEqual(want, blas.vector.Complex(f32, 4).sum(x.len / 2, &x, 1));
+}

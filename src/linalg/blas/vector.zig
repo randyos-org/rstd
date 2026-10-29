@@ -78,8 +78,8 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return 0;
         }
 
-        /// `dot`'s and `nrm2`'s sums: `f64` for `f32`, as the portable kernels
-        /// (products of `f32` are exact there), else `F`.
+        /// `dot`'s, `nrm2`'s and `sum`'s sums: `f64` for `f32`, as the
+        /// portable kernels (products of `f32` are exact there), else `F`.
         pub const D = if (F == f32) f64 else F;
         const DV = @Vector(W, D);
         const DG = @Vector(4, D);
@@ -197,6 +197,33 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             var s = @reduce(.Add, acc);
             while (i < n) : (i += 1) s += @abs(at(F, x, i * incx).*);
             return s;
+        }
+
+        /// The sum of `x[0..len]` in `D`, as `dot` sums: float `i` of each
+        /// `2 * W` into lane `i % W` of sum `i / W % 2`; then the two lane by
+        /// lane, the lanes in order, and the floats left in order.
+        pub fn plainSum(len: usize, x: [*]F) D {
+            var acc: [2]DV = @splat(@splat(0));
+            var i: usize = 0;
+            while (i + 2 * W <= len) : (i += 2 * W) {
+                inline for (0..2) |q| acc[q] += @as(DV, ld(x + i + q * W));
+            }
+            var s = @reduce(.Add, acc[0] + acc[1]);
+            while (i < len) : (i += 1) s += x[i];
+            return s;
+        }
+
+        /// Summed in `D`, rounded once; strided, element `i` into lane
+        /// `i % 4` of four sums, then the lanes and the rest in order.
+        pub fn sum(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
+            if (n <= 0 or incx <= 0) return 0;
+            if (incx == 1) return @floatCast(plainSum(@intCast(n), x));
+            var acc: DG = @splat(0);
+            var i: BlasLong = 0;
+            while (i + 4 <= n) : (i += 4) acc += @as(DG, gather(x, incx, i));
+            var s = @reduce(.Add, acc);
+            while (i < n) : (i += 1) s += at(F, x, i * incx).*;
+            return @floatCast(s);
         }
 
         /// The extremes by `find`, value and 1-based index, as the portable
@@ -649,6 +676,22 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
             return @reduce(.Add, acc[0] + acc[1]);
         }
 
+        /// The sum of `re + im`: `Real.plainSum`'s over the `2n` floats;
+        /// strided, element `i` into sum `i % 2`, by parts, then those lane by
+        /// lane and the parts in order.
+        pub fn sum(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
+            if (n <= 0 or incx <= 0) return 0;
+            if (incx == 1) return @floatCast(R.plainSum(@intCast(2 * n), x));
+            const D2 = @Vector(2, R.D);
+            var acc: [2]D2 = @splat(@splat(0));
+            var i: BlasLong = 0;
+            while (i + 2 <= n) : (i += 2) {
+                inline for (0..2) |q| acc[q] += @as(D2, ld2(x, (i + q) * incx));
+            }
+            if (i < n) acc[0] += @as(D2, ld2(x, i * incx));
+            return @floatCast(@reduce(.Add, acc[0] + acc[1]));
+        }
+
         /// The even (`odd` false) or odd floats of `a`, then of `b`.
         inline fn parts(a: V, b: V, comptime odd: bool) V {
             const mask = comptime blk: {
@@ -896,11 +939,11 @@ pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .z
 /// Where these kernels take slots from the converted ones beyond `routed`
 /// (`displaces`): every slot of theirs but `keep` on arm64's `vortex` and
 /// `vortexm4`, where they mostly match or beat the converted kernels
-/// (`tools/blasbench/results-m6.md`). `tools/blas_asm/survey.zig` reads it
+/// (`tools/blasbench/results-m6.md`); `sum` is unmeasured there. `tools/blas_asm/survey.zig` reads it
 /// as text.
 pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []const Slot } = .{
     .cores = &.{ .vortex, .vortexm4 },
-    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k },
+    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k, .ssum_k, .dsum_k, .csum_k, .zsum_k },
 };
 
 /// Whether these kernels take `slot` from `core`'s converted ones, beyond
@@ -928,6 +971,7 @@ const RealSlots = struct {
     scal: Slot,
     nrm2: Slot,
     asum: Slot,
+    sum: Slot,
     copy: Slot,
     swap: Slot,
     rot: Slot,
@@ -952,6 +996,7 @@ const ComplexSlots = struct {
     scal: Slot,
     nrm2: Slot,
     asum: Slot,
+    sum: Slot,
     copy: Slot,
     swap: Slot,
     amax: Slot,
@@ -976,6 +1021,7 @@ const real_slots = .{
         .scal = .sscal_k,
         .nrm2 = .snrm2_k,
         .asum = .sasum_k,
+        .sum = .ssum_k,
         .copy = .scopy_k,
         .swap = .sswap_k,
         .rot = .srot_k,
@@ -996,6 +1042,7 @@ const real_slots = .{
         .scal = .dscal_k,
         .nrm2 = .dnrm2_k,
         .asum = .dasum_k,
+        .sum = .dsum_k,
         .copy = .dcopy_k,
         .swap = .dswap_k,
         .rot = .drot_k,
@@ -1021,6 +1068,7 @@ const complex_slots = .{
         .scal = .cscal_k,
         .nrm2 = .cnrm2_k,
         .asum = .casum_k,
+        .sum = .csum_k,
         .copy = .ccopy_k,
         .swap = .cswap_k,
         .amax = .camax_k,
@@ -1045,6 +1093,7 @@ const complex_slots = .{
         .scal = .zscal_k,
         .nrm2 = .znrm2_k,
         .asum = .zasum_k,
+        .sum = .zsum_k,
         .copy = .zcopy_k,
         .swap = .zswap_k,
         .amax = .zamax_k,
