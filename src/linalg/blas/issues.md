@@ -760,8 +760,11 @@ When an issue is fixed upstream, drop the workaround and its entry.
   right after `EXITBS:START`, whatever `-cpu ...,vendor=GenuineIntel` says.
   Under TCG it boots.
 - **Workaround:** the macOS rig uses TCG.
-- **Issue text:** none: QEMU's WHPX CPUID-trapping patches (leaf 0 vendor)
-  were already in review in 2026. Check their status before filing.
+- **Issue text:** none: QEMU 11.1.0 intercepts CPUID under WHPX, leaf 0
+  included (79b3cb1f01, "whpx: i386: introduce proper cpuid support"); our
+  QEMU is 11.0.1. Retest on 11.1 first. Possibly related:
+  <https://gitlab.com/qemu-project/qemu/-/issues/4385> (open; a macOS guest on
+  an AMD host dies in early boot under WHPX).
 
 ### x86: TCG has no AVX-512, FMA4 or XOP
 
@@ -776,7 +779,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   7730U, Zen 3) has neither, so they are untested here. Under WHPX, `-cpu
   host` and `-cpu max` stop in SeaBIOS ("Unexpected VP exit code 4"); named
   models boot, keeping only the features the host has.
-- **Issue text:** none; long-standing missing features, not bugs.
+- **Issue text:** none; long-standing missing features, not bugs. AVX-512 is
+  requested in <https://gitlab.com/qemu-project/qemu/-/issues/2878> (open).
 
 ### x86: an x87 80-bit load or store across a page boundary misplaces bytes
 
@@ -792,7 +796,12 @@ When an issue is fixed upstream, drop the workaround and its entry.
   checks and then crashed in `SafeAllocator` (a misplaced store). x86_64's
   16-byte `f80` never crosses.
 - **Workaround:** `linux-i386` is a stub (`build/qemutest.zig`).
-- **Issue text:**
+- **Upstream:** reported as <https://gitlab.com/qemu-project/qemu/-/issues/3582>
+  (open; also #4682, closed): `access_ptr` in `target/i386/tcg/access.c` tests
+  `offset <= ac->size1 - len`, which wraps when `size1 < len`, so the 8-byte
+  significand access goes through the first page's host pointer. Still so on
+  master (5624b266cd, 2026-10-28). Nothing to file.
+- **Issue text** (superseded by #3582):
 
   > **target/i386: fldt/fstpt across a page boundary access the wrong bytes under TCG**
   >
@@ -817,11 +826,12 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Workaround:** the generator writes the sparc `64` variant's `sll` as
   `sllx` (`tools/blas_asm/arch/sparc.zig`), which is right whichever reading
   of `sll` is correct.
-- **Open question:** the SPARC V9 manual describes `sll` as shifting all 64
-  bits, which would make this a qemu bug; if real UltraSPARC hardware
-  zero-extends instead, it is an OpenBLAS bug (its kernels would then fail on
-  hardware too). Check on hardware, or against the manual's exact text,
-  before filing either.
+- **Open question:** the SPARC V9 manual (SAV09R1459912, A.49 "Shift") says
+  "SLL and SLLX shift all 64 bits of the value in r[rs1]", so this is a qemu
+  bug: `do_shift_r` and `do_shift_i` in `target/sparc/translate.c` (master
+  5624b266cd) zero-extend SLL's result from 32 bits. If real UltraSPARC
+  hardware zero-extends instead, it is an OpenBLAS bug (its kernels would then
+  fail on hardware too). Check on hardware before filing either.
 - **Issue text (qemu, if hardware shifts 64 bits):**
 
   > **target/sparc: SLL on sparc64 zero-extends a 32-bit result instead of shifting all 64 bits**
@@ -836,7 +846,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
   > **kernel/sparc: strides scaled with `sll` break for negative increments on 64-bit**
   >
-  > The sparc level-1 kernels (for example `copy.S`, `nrm2.S`) scale
+  > The sparc level-1 kernels (for example `copy.S`, `snrm2.S`) scale
   > `INCX`/`INCY` with `sll INCX, BASE_SHIFT, INCX`. With 64-bit `BLASLONG`
   > and a negative increment, `sll` produces a zero-extended 32-bit value,
   > so the kernel steps forward by about 4 GB per element. Using `sllx`
@@ -853,7 +863,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   (`xststdcdp`). `helper_XSTSTDCSP` in `target/ppc/fpu_helper.c` has
   `match = float64_tstdc(b->VsrD(0), dcmx) || (exp > 0 && exp < 0x381)`: a
   normal double below 2^-126 matches whatever DCMX selects. The 2022 move of
-  `XSTSTDC[SDQ]P` to decodetree dropped the DCMX test; the old helper had
+  `XSTSTDC[SDQ]P` to decodetree (da3c53bac3) dropped the DCMX test; the old helper had
   `match = extract32(dcmx, 0 + !sign, 1)` for that range. Unchanged on
   master.
 - **Workaround:** the portable `nrm2` does not call `isInf`
