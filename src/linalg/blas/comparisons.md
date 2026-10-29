@@ -101,6 +101,40 @@ the portable kernel, two vector accumulators in `@Vector`): keep; no reference p
 order and none uses pairwise summation. `dsdot`/`sdsdot`: keep. Adding `alpha` after rather than
 before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
 
+**Follow-up (T25, 2026-10-29, `wip/vecsum`).**
+
+- **`sum`.** `vector.zig` has a `@Vector` `sum`, real and complex: `f32` widened to `f64`
+  lanes, as the portable kernel sums, and rounded once. Unit stride: float `i` of each `2 * W`
+  into lane `i % W` of sum `i / W % 2`; then the two sums lane by lane, the lanes in order,
+  and the floats left in order (`Real.plainSum`). Strided: element `i` into lane `i % 4`, or by
+  parts into sum `i % 2` for complex. A test checks those bits against that order written out
+  (`blas1/sum/`). Its error bound, `(n / 2W + 2W) * 2^-53 * sum|x|`, is below the portable
+  loop's `n * 2^-53 * sum|x|`. It serves x86_64's `csum`/`zsum` (routed for alignment
+  peeling, which had left them on the scalar loop) and arm64's C-upstream sum slots, but not
+  `vortex`'s converted ones (unmeasured).
+- **Scalar fallbacks.** arm, mips, sparc and the pre-VSX POWER cores now take the `@Vector`
+  kernels in the routed slots (the extremes, `nrm2`, `sdot`), but `s` and `c` on ARMv7's NEON
+  cores, whose lanes flush (`vector.flushing`). Where a type has no vector unit, LLVM splits
+  the vectors into scalar operations. Decided from the generated code (`-OReleaseFast`), since
+  this PC was never idle enough to time (below): on SPARC v9 the portable `sdot` adds every
+  product into one `faddd` chain, 7 instructions an element, the split `@Vector` one into eight
+  independent chains, 3.25 an element; at a 3 to 4-cycle add latency the first is latency-bound.
+  The extremes' `@max` was a call to libm's `fmax` per key on ARMv7 VFP, SPARC, pre-VSX POWER,
+  MIPS before release 6 (MSA included) and the x87, 15 a block of 16 keys; there they now
+  compare and select (`vector.hasMinMax`), with the same results (NaN blocks fall back to the
+  portable scan). MSA also needed its own `abs` ([`issues.md`](issues.md)).
+- **`f64` `sdot` cost.** The flyoff measured it against OpenBLAS's `f32` lanes, one thread: on
+  Zen 3 (Windows) 64 against 218 GB/s at `n = 1024`, 75 against 131 at 8192, 27 against 32 out
+  of cache; on the M6 (rstd's own kernels) 96 against 158 at 1024 and 98 against 123 out of cache
+  ([`results-flyoff-windows-x86_64.md`](../../../tools/blasbench/results-flyoff-windows-x86_64.md),
+  [`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results-flyoff-macos-aarch64.md)).
+  On Zen 3 the widening (`vcvtps2pd`, one a cycle) bounds it near 2 elements a cycle in cache.
+  Kept: the accuracy is the contract; `Dot2` in `f32` lanes stays the option to measure.
+- **Not measured.** `tools/blasbench`-style races of the portable against the `@Vector`
+  kernels (`sum`, `sdot` in `f64` and `f32` lanes, `nrm2`, the extremes), native and as an x87
+  build standing in for a scalar FPU, waited six hours for a window with no other build
+  running on this PC and got none. To do.
+
 ## 2. `nrm2`
 
 **rstd.**
