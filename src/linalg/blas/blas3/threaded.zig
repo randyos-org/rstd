@@ -615,20 +615,20 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops 
     }
 }
 
-test "threaded gemm keeps the serial bits on a fiber Io, peers on one thread included" {
+test "threaded gemm keeps the serial bits on a fiber Io with every peer on the caller's thread" {
     if (comptime !threading.hosted or Io.Evented == void) return error.SkipZigTest;
-    const Options = @typeInfo(@TypeOf(Io.Evented.init)).@"fn".params[2].type.?;
-    const has_limit = @hasField(Options, "thread_limit");
-    // no thread beside the caller's: a waiter that never slept would hang
-    const thread_limits: []const ?usize = if (has_limit) &.{ 0, 3 } else &.{null};
-    for (thread_limits) |tl| {
-        var opts: Options = .{};
-        if (has_limit) opts.thread_limit = tl;
-        var ev: Io.Evented = undefined;
-        ev.init(std.testing.allocator, opts) catch return error.SkipZigTest;
-        defer ev.deinit();
-        try shapes(f64, ev.io());
-    }
+    // one thread, so a waiter that never yielded would hang; `Uring` with
+    // worker threads hangs on a plain futex barrier too (issues.md)
+    var opts: Io.Evented.InitOptions = .{};
+    if (@hasField(Io.Evented.InitOptions, "thread_limit")) opts.thread_limit = 0 else if (@hasField(Io.Evented.InitOptions, "n_threads")) opts.n_threads = 1 else return error.SkipZigTest;
+    var ev: Io.Evented = undefined;
+    // fibers take large stacks; the page allocator neither fills nor checks them
+    ev.init(std.heap.page_allocator, opts) catch return error.SkipZigTest;
+    defer ev.deinit();
+    const vt = shrunk(f64);
+    const blk = Blocking.of(f64, &vt);
+    // `ic` and `jc` both past 1, several slices
+    try shape(f64, &vt, ev.io(), .{ .n, .t }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, -0.75, 0.5);
 }
 
 test "threaded gemm matches the serial driver on the selected core's own blocking" {
@@ -813,10 +813,11 @@ test "a canceled threaded gemm returns error.Canceled with no worker left runnin
     }
 }
 
-// `L3THREAD_BENCH` set, a ReleaseFast Windows build: medians of serial and
-// the threaded driver (plain and fused) at 2, 4, 8 and 16 workers.
+// `L3THREAD_BENCH` set, a fast Windows build (`rstd-test` builds the tests
+// `debug` whatever `-Doptimize` says; build with `zig test -O fast`):
+// medians of serial and the threaded driver at 2, 4, 8 and 16 workers.
 test "l3thread bench" {
-    if (comptime sysinfo.target.os.tag != .windows or sysinfo.mode != @field(@TypeOf(sysinfo.mode), "ReleaseFast")) return error.SkipZigTest;
+    if (comptime sysinfo.target.os.tag != .windows or sysinfo.mode != .fast) return error.SkipZigTest;
     if (std.process.Environ.getWindows(.{ .block = .global }, std.unicode.wtf8ToWtf16LeStringLiteral("L3THREAD_BENCH")) == null) return error.SkipZigTest;
     const al = std.heap.page_allocator;
     var threaded: Io.Threaded = .init(al, .{});

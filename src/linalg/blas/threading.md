@@ -232,9 +232,9 @@ paths are already ported ([`design.md`](design.md), Level 2).
 ### Memory
 
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
-for `w` workers: `gemm` packing buffers (`P x Q` elements per worker, and per `jc` group a
-slice of `B`, together at most `Q * min(w * R, n + w * (unroll_n + 1))`, each on a cache line)
-and level 2 per-chunk vectors. Tasks are
+for `w` workers: level 3 packing buffers (`P x Q` elements per worker, and per `jc` group a
+slice of `B` as wide as the widest group, at most `R`, each on a cache line; for `trmm` and
+`trsm`, the serial driver's space per part) and level 2 per-chunk vectors. Tasks are
 therefore infallible, and the allocator need not be thread safe. Level 1 needs none. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
 the `Io`'s own allocator and runs the task inline if that allocation fails.
@@ -408,9 +408,18 @@ protocol.
 
 ## Open issues
 
-- Level 3 on `Io.Evented`: a test runs `gemm` on it (all fibers on one thread, and three
-  threads); it skips on Windows, which has no `Evented`, and has not yet run on a Linux or
-  macOS rig.
+- Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
+  thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
+  hang. With worker threads `Uring` hangs even a plain futex barrier ([`issues.md`](issues.md));
+  `Dispatch` (macOS) has no thread limit and is untested. Windows has no `Evented`.
 - TSan support with this toolchain is unverified.
+- Floating-point control state is per thread: on x86 Windows new threads start with the x87
+  control word at 53-bit precision (0x27f) where the main thread has 64-bit (0x37f), so an
+  x87 (`pentium3`) build's workers round `f64` otherwise than the serial path; MXCSR (rounding,
+  flush to zero) and arm64's FPCR carry the same exposure if a caller changes them. Whether
+  workers adopt the caller's state is undecided ([`design.md`](design.md): rstd never changes
+  the floating-point environment). Every task enters through `threading.team`'s worker or
+  `Region.work`, so adopting it is one capture on the caller in `team` and `forEachIn`, kept
+  in the shared state, and one apply as each task's first step.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.

@@ -600,6 +600,28 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `std.Target.arm` models do not include them. On 0.18.0-dev.751 only 9
   > of 100 models have any FPU feature; 0.17 had 20.
 
+### `Io.Uring` with worker threads: a futex barrier of four fibers hangs
+
+- **Seen:** on `qemu-test-linux-x86_64` (Debian 13 kernel, TCG), an `Io.Evented`
+  (`Uring`) with `thread_limit = 3` hangs in a sense-reversing barrier of 4 or more
+  parties started with `Group.concurrent`, waiting only through `io.futexWait` and
+  `io.futexWake` (300 rounds; 2 parties pass). With `thread_limit = 0` the same
+  barrier passes at 2, 4 and 8 parties, as does threaded `gemm`. `Io.Threaded`
+  passes everything. 0.18.0-dev.1864, 2026-10-29.
+- **Workaround:** `blas3/threaded.zig`'s fiber test runs `Uring` with
+  `thread_limit = 0` only; threaded level 3 on a multi-threaded `Uring` is unverified
+  (threading.md, Open issues).
+- **Issue text:**
+
+  > **std.Io.Uring: futexWait never returns for some fibers when thread_limit > 0**
+  >
+  > Four fibers started with `Group.concurrent` on an `Io.Evented` (Uring) with
+  > `thread_limit = 3` meet repeatedly at a barrier: an arrival counter, and a phase
+  > word the last arrival bumps and `futexWake`s; the others loop on
+  > `futexWait(&phase, old)` while the phase is unchanged. Within 300 rounds the
+  > program hangs. Two fibers, or `thread_limit = 0`, complete. The same code on
+  > `Io.Threaded` completes.
+
 ## Zig package manager and build system
 
 ### `zig fetch` needs an archive and a `Content-Type` header
