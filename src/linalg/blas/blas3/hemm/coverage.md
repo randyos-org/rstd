@@ -7,7 +7,9 @@ architecture's `KERNEL`, then to the `Makefile.L3` default; `generic` where
 that default is `kernel/generic`'s file for the core's unroll, `-` where
 upstream does not build it. `|` separates alternatives chosen by a
 conditional. `+asm` and `+intrinsics` mark C with inline assembly or
-intrinsics in the file or a `.c` it includes (a text search).
+intrinsics in the file or a `.c` it includes (a text search);
+`(unsupported)` marks assembly LLVM cannot assemble, `(no <feature>)`
+intrinsics the core cannot run, neither counted as tuned.
 
 The `rstd` row says what rstd serves for every core of the architecture:
 `tile` is the Zig port of `kernel/generic` over the `@Vector` gemm tile
@@ -187,7 +189,7 @@ The copies are `generic` on every core.
 | POWER8    | `zgemm_kernel_power6.S` \| `cgemm_kernel_8x4_power8.S`                            | `zgemm_kernel_power6.S` \| `zgemm_kernel_8x2_power8.S`                            |
 | POWER9    | `zgemm_kernel_power6.S` \| `cgemm_kernel_8x4_power8.S` \| `cgemm_kernel_power9.S` | `zgemm_kernel_power6.S` \| `zgemm_kernel_8x2_power8.S` \| `zgemm_kernel_power9.S` |
 | PPC440    | `zgemm_kernel_ppc440.S`                                                           | `zgemm_kernel_ppc440.S`                                                           |
-| PPC440FP2 | `zgemm_kernel_hummer.S`                                                           | `zgemm_kernel_hummer.S`                                                           |
+| PPC440FP2 | `zgemm_kernel_hummer.S` (unsupported)                                             | `zgemm_kernel_hummer.S` (unsupported)                                             |
 | PPC970    | `zgemm_kernel.S` \| `zgemm_kernel_altivec.S`                                      | `zgemm_kernel.S`                                                                  |
 | PPCG4     | `zgemm_kernel.S`                                                                  | `zgemm_kernel_g4.S`                                                               |
 
@@ -214,13 +216,13 @@ The copies are `generic` on every core.
 
 ### mips kernels
 
-| core      | C gemm                                                                  | Z gemm                                                                  |
-| --------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| rstd      | tile                                                                    | tile                                                                    |
-| generic   | `../generic/zgemmkernel_2x2.c`                                          | `../generic/zgemmkernel_2x2.c`                                          |
-| MIPS1004K | `../mips/cgemm_kernel_8x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c` | `../mips/zgemm_kernel_4x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c` |
-| MIPS24K   | `../mips/cgemm_kernel_8x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c` | `../mips/zgemm_kernel_4x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c` |
-| P5600     | `../mips/cgemm_kernel_8x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c` | `../mips/zgemm_kernel_4x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c` |
+| core      | C gemm                                                                           | Z gemm                                                                           |
+| --------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| rstd      | tile                                                                             | tile                                                                             |
+| generic   | `../generic/zgemmkernel_2x2.c`                                                   | `../generic/zgemmkernel_2x2.c`                                                   |
+| MIPS1004K | `../mips/cgemm_kernel_8x4_msa.c` +asm (no msa) \| `../generic/zgemmkernel_2x2.c` | `../mips/zgemm_kernel_4x4_msa.c` +asm (no msa) \| `../generic/zgemmkernel_2x2.c` |
+| MIPS24K   | `../mips/cgemm_kernel_8x4_msa.c` +asm (no msa) \| `../generic/zgemmkernel_2x2.c` | `../mips/zgemm_kernel_4x4_msa.c` +asm (no msa) \| `../generic/zgemmkernel_2x2.c` |
+| P5600     | `../mips/cgemm_kernel_8x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c`          | `../mips/zgemm_kernel_4x4_msa.c` +asm \| `../generic/zgemmkernel_2x2.c`          |
 
 The copies are `generic` on every core.
 

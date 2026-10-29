@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | sdot                   | dsdot                         | ddot                          | cdotu/cdotc                                            | zdotu/zdotc                                       | sbdot                          | qdot               | xdotu/xdotc         |
-| --------- | ---------------------- | ----------------------------- | ----------------------------- | ------------------------------------------------------ | ------------------------------------------------- | ------------------------------ | ------------------ | ------------------- |
-| CELL      | `dot_cell.S` → vec     | `../generic/dot.c` → portable | `dot_cell.S` → asm            | `zdot_cell.S` → asm                                    | `zdot_cell.S` → asm                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER10   | `sdot_power10.c` → vec | `sdot_power10.c` → portable   | `ddot_power10.c` → portable   | `cdot.c` +asm → **portable**                           | `zdot.c` → portable                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER3    | `dot.S` → vec          | `../generic/dot.c` → portable | `dot.S` → asm                 | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER4    | `dot.S` → vec          | `../generic/dot.c` → portable | `dot.S` → asm                 | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER5    | `dot.S` → vec          | `../generic/dot.c` → portable | `dot.S` → asm                 | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER6    | `dot.S` → vec          | `../generic/dot.c` → portable | `dot.S` → asm                 | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER8    | `sdot.c` → vec         | `sdot.c` → portable           | `ddot.c` → portable           | `cdot.c` +intrinsics → **portable**                    | `zdot.c` → portable                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| POWER9    | `sdot.c` → vec         | `sdot.c` → portable           | `ddot.c` → portable           | `cdot.c` +intrinsics \| `cdot_power9.S` → **portable** | `zdot.c` → portable                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| PPC440    | `dot_ppc440.S` → vec   | `../generic/dot.c` → portable | `dot_ppc440.S` → asm          | `zdot_ppc440.S` \| `../arm/zdot.c` → **portable**      | `zdot_ppc440.S` \| `../arm/zdot.c` → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| PPC440FP2 | `dot_hummer.S` → vec   | `../generic/dot.c` → portable | `dot_hummer.S` → **portable** | `zdot_hummer.S` → **portable**                         | `zdot_hummer.S` → **portable**                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| PPC970    | `dot.S` → vec          | `../generic/dot.c` → portable | `dot.S` → asm                 | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
-| PPCG4     | `dot_ppc440.S` → vec   | `../generic/dot.c` → portable | `dot_ppc440.S` → asm          | `../arm/zdot.c` → portable                             | `../arm/zdot.c` → portable                        | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| core      | sdot                               | dsdot                         | ddot                                    | cdotu/cdotc                                            | zdotu/zdotc                                       | sbdot                          | qdot               | xdotu/xdotc         |
+| --------- | ---------------------------------- | ----------------------------- | --------------------------------------- | ------------------------------------------------------ | ------------------------------------------------- | ------------------------------ | ------------------ | ------------------- |
+| CELL      | `dot_cell.S` → vec                 | `../generic/dot.c` → portable | `dot_cell.S` → asm                      | `zdot_cell.S` → asm                                    | `zdot_cell.S` → asm                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER10   | `sdot_power10.c` → vec             | `sdot_power10.c` → portable   | `ddot_power10.c` → portable             | `cdot.c` +asm → **portable**                           | `zdot.c` → portable                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER3    | `dot.S` → vec                      | `../generic/dot.c` → portable | `dot.S` → asm                           | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER4    | `dot.S` → vec                      | `../generic/dot.c` → portable | `dot.S` → asm                           | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER5    | `dot.S` → vec                      | `../generic/dot.c` → portable | `dot.S` → asm                           | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER6    | `dot.S` → vec                      | `../generic/dot.c` → portable | `dot.S` → asm                           | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER8    | `sdot.c` → vec                     | `sdot.c` → portable           | `ddot.c` → portable                     | `cdot.c` +intrinsics → **portable**                    | `zdot.c` → portable                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| POWER9    | `sdot.c` → vec                     | `sdot.c` → portable           | `ddot.c` → portable                     | `cdot.c` +intrinsics \| `cdot_power9.S` → **portable** | `zdot.c` → portable                               | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| PPC440    | `dot_ppc440.S` → vec               | `../generic/dot.c` → portable | `dot_ppc440.S` → asm                    | `zdot_ppc440.S` \| `../arm/zdot.c` → **portable**      | `zdot_ppc440.S` \| `../arm/zdot.c` → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| PPC440FP2 | `dot_hummer.S` (unsupported) → vec | `../generic/dot.c` → portable | `dot_hummer.S` (unsupported) → portable | `zdot_hummer.S` (unsupported) → portable               | `zdot_hummer.S` (unsupported) → portable          | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| PPC970    | `dot.S` → vec                      | `../generic/dot.c` → portable | `dot.S` → asm                           | `zdot.S` → asm                                         | `zdot.S` → asm                                    | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
+| PPCG4     | `dot_ppc440.S` → vec               | `../generic/dot.c` → portable | `dot_ppc440.S` → asm                    | `../arm/zdot.c` → portable                             | `../arm/zdot.c` → portable                        | `../x86_64/sbdot.c` → portable | `dot.S` → portable | `zdot.S` → portable |
 
 ## mips64
 
@@ -160,12 +164,12 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## mips
 
-| core      | sdot                                                     | dsdot      | ddot                                                              | cdotu/cdotc                                                        | zdotu/zdotc                                                        | sbdot                          | qdot                         | xdotu/xdotc                   |
-| --------- | -------------------------------------------------------- | ---------- | ----------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------ | ---------------------------- | ----------------------------- |
-| generic   | `../arm/dot.c` → n/a                                     | → n/a      | `../arm/dot.c` → n/a                                              | `../arm/zdot.c` → n/a                                              | `../arm/zdot.c` → n/a                                              | `../x86_64/sbdot.c` → n/a      | `dot.S` (missing) → n/a      | `zdot.S` (missing) → n/a      |
-| MIPS1004K | `../mips/sdot_msa.c` +intrinsics \| `../arm/dot.c` → vec | → portable | `../mips/ddot_msa.c` +intrinsics \| `../arm/dot.c` → **portable** | `../mips/cdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable** | `../mips/zdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| MIPS24K   | `../mips/sdot_msa.c` +intrinsics \| `../arm/dot.c` → vec | → portable | `../mips/ddot_msa.c` +intrinsics \| `../arm/dot.c` → **portable** | `../mips/cdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable** | `../mips/zdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| P5600     | `../mips/sdot_msa.c` +intrinsics \| `../arm/dot.c` → vec | → portable | `../mips/ddot_msa.c` +intrinsics \| `../arm/dot.c` → **portable** | `../mips/cdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable** | `../mips/zdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| core      | sdot                                                              | dsdot      | ddot                                                                   | cdotu/cdotc                                                             | zdotu/zdotc                                                             | sbdot                          | qdot                         | xdotu/xdotc                   |
+| --------- | ----------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------ | ---------------------------- | ----------------------------- |
+| generic   | `../arm/dot.c` → n/a                                              | → n/a      | `../arm/dot.c` → n/a                                                   | `../arm/zdot.c` → n/a                                                   | `../arm/zdot.c` → n/a                                                   | `../x86_64/sbdot.c` → n/a      | `dot.S` (missing) → n/a      | `zdot.S` (missing) → n/a      |
+| MIPS1004K | `../mips/sdot_msa.c` +intrinsics (no msa) \| `../arm/dot.c` → vec | → portable | `../mips/ddot_msa.c` +intrinsics (no msa) \| `../arm/dot.c` → portable | `../mips/cdot_msa.c` +intrinsics (no msa) \| `../arm/zdot.c` → portable | `../mips/zdot_msa.c` +intrinsics (no msa) \| `../arm/zdot.c` → portable | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| MIPS24K   | `../mips/sdot_msa.c` +intrinsics (no msa) \| `../arm/dot.c` → vec | → portable | `../mips/ddot_msa.c` +intrinsics (no msa) \| `../arm/dot.c` → portable | `../mips/cdot_msa.c` +intrinsics (no msa) \| `../arm/zdot.c` → portable | `../mips/zdot_msa.c` +intrinsics (no msa) \| `../arm/zdot.c` → portable | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| P5600     | `../mips/sdot_msa.c` +intrinsics \| `../arm/dot.c` → vec          | → portable | `../mips/ddot_msa.c` +intrinsics \| `../arm/dot.c` → **portable**      | `../mips/cdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable**      | `../mips/zdot_msa.c` +intrinsics \| `../arm/zdot.c` → **portable**      | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
 
 ## riscv64
 
@@ -226,7 +230,7 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned.
+The roles a core runs portable where upstream is tuned. By architecture: x86_64 2, power 10, mips64 20, mips 5, riscv64 22, zarch 9.
 
 | architecture | core            | roles                                   |
 | ------------ | --------------- | --------------------------------------- |
@@ -236,13 +240,10 @@ The roles a core runs portable where upstream is tuned.
 | power        | POWER8          | cdotu, cdotc                            |
 | power        | POWER9          | cdotu, cdotc                            |
 | power        | PPC440          | cdotu, cdotc, zdotu, zdotc              |
-| power        | PPC440FP2       | ddot, cdotu, cdotc, zdotu, zdotc        |
 | mips64       | I6400           | ddot, cdotu, cdotc, zdotu, zdotc        |
 | mips64       | I6500           | ddot, cdotu, cdotc, zdotu, zdotc        |
 | mips64       | LOONGSON3R4     | ddot, cdotu, cdotc, zdotu, zdotc        |
 | mips64       | P6600           | ddot, cdotu, cdotc, zdotu, zdotc        |
-| mips         | MIPS1004K       | ddot, cdotu, cdotc, zdotu, zdotc        |
-| mips         | MIPS24K         | ddot, cdotu, cdotc, zdotu, zdotc        |
 | mips         | P5600           | ddot, cdotu, cdotc, zdotu, zdotc        |
 | riscv64      | C910V           | ddot, cdotu, cdotc, zdotu, zdotc        |
 | riscv64      | RISCV64_ZVL128B | dsdot, ddot, cdotu, cdotc, zdotu, zdotc |
@@ -253,4 +254,4 @@ The roles a core runs portable where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 286, `portable` 761, `C+asm` 55, `C+vec` 6, `n/a` 88, `asm` 145, `routed` 12. 83 gaps.
+(core, role) pairs by what rstd serves: `vec` 286, `portable` 761, `C+asm` 55, `C+vec` 6, `n/a` 88, `asm` 145, `routed` 12. 68 gaps.

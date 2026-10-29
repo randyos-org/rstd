@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -142,7 +146,7 @@ runs those of the core that serves it (`asm_registry.served`).
 | POWER8    | `isamin_power8.S` \| `isamin.c` +intrinsics → vec                      | `idamin.c` +asm \| `../arm/iamin.c` → vec | `icamin_power8.S` \| `icamin.c` +intrinsics → vec                      | `izamin.c` +asm \| `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
 | POWER9    | `isamin_power8.S` \| `isamin.c` +intrinsics \| `isamin_power9.S` → vec | `idamin.c` +asm \| `../arm/iamin.c` → vec | `icamin_power8.S` \| `icamin.c` +intrinsics \| `icamin_power9.S` → vec | `izamin.c` +asm \| `../arm/izamin.c` → vec | `iamin.S` → portable | `izamin.S` → portable |
 | PPC440    | `iamin_ppc440.S` → vec                                                 | `iamin_ppc440.S` → vec                    | `izamin_ppc440.S` → vec                                                | `izamin_ppc440.S` → vec                    | `iamin.S` → portable | `izamin.S` → portable |
-| PPC440FP2 | `iamin_hummer.S` → vec                                                 | `iamin_hummer.S` → vec                    | `izamin_hummer.S` → vec                                                | `izamin_hummer.S` → vec                    | `iamin.S` → portable | `izamin.S` → portable |
+| PPC440FP2 | `iamin_hummer.S` (unsupported) → vec                                   | `iamin_hummer.S` (unsupported) → vec      | `izamin_hummer.S` (unsupported) → vec                                  | `izamin_hummer.S` (unsupported) → vec      | `iamin.S` → portable | `izamin.S` → portable |
 | PPC970    | `iamin.S` → vec                                                        | `iamin.S` → vec                           | `izamin.S` → vec                                                       | `izamin.S` → vec                           | `iamin.S` → portable | `izamin.S` → portable |
 | PPCG4     | `iamin_ppc440.S` → vec                                                 | `iamin_ppc440.S` → vec                    | `izamin_ppc440.S` → vec                                                | `izamin_ppc440.S` → vec                    | `iamin.S` → portable | `izamin.S` → portable |
 

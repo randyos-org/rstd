@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | sasum                          | dasum                          | casum                           | zasum                           | qasum               | xasum                |
-| --------- | ------------------------------ | ------------------------------ | ------------------------------- | ------------------------------- | ------------------- | -------------------- |
-| CELL      | `asum_cell.S` → asm            | `asum_cell.S` → asm            | `zasum_cell.S` → asm            | `zasum_cell.S` → asm            | `asum.S` → portable | `zasum.S` → portable |
-| POWER10   | `sasum.c` +asm → **portable**  | `dasum.c` +asm → **portable**  | `casum.c` → portable            | `zasum.c` → portable            | `asum.S` → portable | `zasum.S` → portable |
-| POWER3    | `asum.S` → asm                 | `asum.S` → asm                 | `zasum.S` → asm                 | `zasum.S` → asm                 | `asum.S` → portable | `zasum.S` → portable |
-| POWER4    | `asum.S` → asm                 | `asum.S` → asm                 | `zasum.S` → asm                 | `zasum.S` → asm                 | `asum.S` → portable | `zasum.S` → portable |
-| POWER5    | `asum.S` → asm                 | `asum.S` → asm                 | `zasum.S` → asm                 | `zasum.S` → asm                 | `asum.S` → portable | `zasum.S` → portable |
-| POWER6    | `asum.S` → asm                 | `asum.S` → asm                 | `zasum.S` → asm                 | `zasum.S` → asm                 | `asum.S` → portable | `zasum.S` → portable |
-| POWER8    | `sasum.c` +asm → **portable**  | `dasum.c` +asm → **portable**  | `casum.c` → portable            | `zasum.c` → portable            | `asum.S` → portable | `zasum.S` → portable |
-| POWER9    | `sasum.c` +asm → **portable**  | `dasum.c` +asm → **portable**  | `casum.c` → portable            | `zasum.c` → portable            | `asum.S` → portable | `zasum.S` → portable |
-| PPC440    | `asum_ppc440.S` → asm          | `asum_ppc440.S` → asm          | `zasum_ppc440.S` → asm          | `zasum_ppc440.S` → asm          | `asum.S` → portable | `zasum.S` → portable |
-| PPC440FP2 | `asum_hummer.S` → **portable** | `asum_hummer.S` → **portable** | `zasum_hummer.S` → **portable** | `zasum_hummer.S` → **portable** | `asum.S` → portable | `zasum.S` → portable |
-| PPC970    | `asum.S` → asm                 | `asum.S` → asm                 | `zasum.S` → asm                 | `zasum.S` → asm                 | `asum.S` → portable | `zasum.S` → portable |
-| PPCG4     | `asum_ppc440.S` → asm          | `asum_ppc440.S` → asm          | `zasum_ppc440.S` → asm          | `zasum_ppc440.S` → asm          | `asum.S` → portable | `zasum.S` → portable |
+| core      | sasum                                    | dasum                                    | casum                                     | zasum                                     | qasum               | xasum                |
+| --------- | ---------------------------------------- | ---------------------------------------- | ----------------------------------------- | ----------------------------------------- | ------------------- | -------------------- |
+| CELL      | `asum_cell.S` → asm                      | `asum_cell.S` → asm                      | `zasum_cell.S` → asm                      | `zasum_cell.S` → asm                      | `asum.S` → portable | `zasum.S` → portable |
+| POWER10   | `sasum.c` +asm → **portable**            | `dasum.c` +asm → **portable**            | `casum.c` → portable                      | `zasum.c` → portable                      | `asum.S` → portable | `zasum.S` → portable |
+| POWER3    | `asum.S` → asm                           | `asum.S` → asm                           | `zasum.S` → asm                           | `zasum.S` → asm                           | `asum.S` → portable | `zasum.S` → portable |
+| POWER4    | `asum.S` → asm                           | `asum.S` → asm                           | `zasum.S` → asm                           | `zasum.S` → asm                           | `asum.S` → portable | `zasum.S` → portable |
+| POWER5    | `asum.S` → asm                           | `asum.S` → asm                           | `zasum.S` → asm                           | `zasum.S` → asm                           | `asum.S` → portable | `zasum.S` → portable |
+| POWER6    | `asum.S` → asm                           | `asum.S` → asm                           | `zasum.S` → asm                           | `zasum.S` → asm                           | `asum.S` → portable | `zasum.S` → portable |
+| POWER8    | `sasum.c` +asm → **portable**            | `dasum.c` +asm → **portable**            | `casum.c` → portable                      | `zasum.c` → portable                      | `asum.S` → portable | `zasum.S` → portable |
+| POWER9    | `sasum.c` +asm → **portable**            | `dasum.c` +asm → **portable**            | `casum.c` → portable                      | `zasum.c` → portable                      | `asum.S` → portable | `zasum.S` → portable |
+| PPC440    | `asum_ppc440.S` → asm                    | `asum_ppc440.S` → asm                    | `zasum_ppc440.S` → asm                    | `zasum_ppc440.S` → asm                    | `asum.S` → portable | `zasum.S` → portable |
+| PPC440FP2 | `asum_hummer.S` (unsupported) → portable | `asum_hummer.S` (unsupported) → portable | `zasum_hummer.S` (unsupported) → portable | `zasum_hummer.S` (unsupported) → portable | `asum.S` → portable | `zasum.S` → portable |
+| PPC970    | `asum.S` → asm                           | `asum.S` → asm                           | `zasum.S` → asm                           | `zasum.S` → asm                           | `asum.S` → portable | `zasum.S` → portable |
+| PPCG4     | `asum_ppc440.S` → asm                    | `asum_ppc440.S` → asm                    | `zasum_ppc440.S` → asm                    | `zasum_ppc440.S` → asm                    | `asum.S` → portable | `zasum.S` → portable |
 
 ## mips64
 
@@ -160,12 +164,12 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## mips
 
-| core      | sasum                                                               | dasum                                                               | casum                                                                | zasum                                                                | qasum                         | xasum                          |
-| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/asum.c` → n/a                                               | `../arm/asum.c` → n/a                                               | `../arm/zasum.c` → n/a                                               | `../arm/zasum.c` → n/a                                               | `asum.S` (missing) → n/a      | `zasum.S` (missing) → n/a      |
-| MIPS1004K | `../mips/sasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable** | `../mips/dasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable** | `../mips/casum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable** | `../mips/zasum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable** | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
-| MIPS24K   | `../mips/sasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable** | `../mips/dasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable** | `../mips/casum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable** | `../mips/zasum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable** | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
-| P5600     | `../mips/sasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable** | `../mips/dasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable** | `../mips/casum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable** | `../mips/zasum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable** | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
+| core      | sasum                                                                    | dasum                                                                    | casum                                                                     | zasum                                                                     | qasum                         | xasum                          |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/asum.c` → n/a                                                    | `../arm/asum.c` → n/a                                                    | `../arm/zasum.c` → n/a                                                    | `../arm/zasum.c` → n/a                                                    | `asum.S` (missing) → n/a      | `zasum.S` (missing) → n/a      |
+| MIPS1004K | `../mips/sasum_msa.c` +intrinsics (no msa) \| `../arm/asum.c` → portable | `../mips/dasum_msa.c` +intrinsics (no msa) \| `../arm/asum.c` → portable | `../mips/casum_msa.c` +intrinsics (no msa) \| `../arm/zasum.c` → portable | `../mips/zasum_msa.c` +intrinsics (no msa) \| `../arm/zasum.c` → portable | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
+| MIPS24K   | `../mips/sasum_msa.c` +intrinsics (no msa) \| `../arm/asum.c` → portable | `../mips/dasum_msa.c` +intrinsics (no msa) \| `../arm/asum.c` → portable | `../mips/casum_msa.c` +intrinsics (no msa) \| `../arm/zasum.c` → portable | `../mips/zasum_msa.c` +intrinsics (no msa) \| `../arm/zasum.c` → portable | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
+| P5600     | `../mips/sasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable**      | `../mips/dasum_msa.c` +intrinsics \| `../arm/asum.c` → **portable**      | `../mips/casum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable**      | `../mips/zasum_msa.c` +intrinsics \| `../arm/zasum.c` → **portable**      | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
 
 ## riscv64
 
@@ -226,7 +230,7 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned.
+The roles a core runs portable where upstream is tuned. By architecture: x86_64 14, power 6, mips64 16, mips 4, riscv64 16, zarch 6.
 
 | architecture | core            | roles                      |
 | ------------ | --------------- | -------------------------- |
@@ -237,13 +241,10 @@ The roles a core runs portable where upstream is tuned.
 | power        | POWER10         | sasum, dasum               |
 | power        | POWER8          | sasum, dasum               |
 | power        | POWER9          | sasum, dasum               |
-| power        | PPC440FP2       | sasum, dasum, casum, zasum |
 | mips64       | I6400           | sasum, dasum, casum, zasum |
 | mips64       | I6500           | sasum, dasum, casum, zasum |
 | mips64       | LOONGSON3R4     | sasum, dasum, casum, zasum |
 | mips64       | P6600           | sasum, dasum, casum, zasum |
-| mips         | MIPS1004K       | sasum, dasum, casum, zasum |
-| mips         | MIPS24K         | sasum, dasum, casum, zasum |
 | mips         | P5600           | sasum, dasum, casum, zasum |
 | riscv64      | C910V           | sasum, dasum, casum, zasum |
 | riscv64      | RISCV64_ZVL128B | sasum, dasum, casum, zasum |
@@ -254,4 +255,4 @@ The roles a core runs portable where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 130, `portable` 336, `n/a` 48, `asm` 224. 74 gaps.
+(core, role) pairs by what rstd serves: `vec` 130, `portable` 336, `n/a` 48, `asm` 224. 62 gaps.

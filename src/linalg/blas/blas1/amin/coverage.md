@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | samin                 | damin                 | camin                  | zamin                  | qamin               | xamin                |
-| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
-| CELL      | `amin_cell.S` → vec   | `amin_cell.S` → vec   | `zamin_cell.S` → vec   | `zamin_cell.S` → vec   | `amin.S` → portable | `zamin.S` → portable |
-| POWER10   | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| POWER3    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| POWER4    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| POWER5    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| POWER6    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| POWER8    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| POWER9    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| PPC440    | `amin_ppc440.S` → vec | `amin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `amin.S` → portable | `zamin.S` → portable |
-| PPC440FP2 | `amin_hummer.S` → vec | `amin_hummer.S` → vec | `zamin_hummer.S` → vec | `zamin_hummer.S` → vec | `amin.S` → portable | `zamin.S` → portable |
-| PPC970    | `amin.S` → vec        | `amin.S` → vec        | `zamin.S` → vec        | `zamin.S` → vec        | `amin.S` → portable | `zamin.S` → portable |
-| PPCG4     | `amin_ppc440.S` → vec | `amin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `zamin_ppc440.S` → vec | `amin.S` → portable | `zamin.S` → portable |
+| core      | samin                               | damin                               | camin                                | zamin                                | qamin               | xamin                |
+| --------- | ----------------------------------- | ----------------------------------- | ------------------------------------ | ------------------------------------ | ------------------- | -------------------- |
+| CELL      | `amin_cell.S` → vec                 | `amin_cell.S` → vec                 | `zamin_cell.S` → vec                 | `zamin_cell.S` → vec                 | `amin.S` → portable | `zamin.S` → portable |
+| POWER10   | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER3    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER4    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER5    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER6    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER8    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| POWER9    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| PPC440    | `amin_ppc440.S` → vec               | `amin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `amin.S` → portable | `zamin.S` → portable |
+| PPC440FP2 | `amin_hummer.S` (unsupported) → vec | `amin_hummer.S` (unsupported) → vec | `zamin_hummer.S` (unsupported) → vec | `zamin_hummer.S` (unsupported) → vec | `amin.S` → portable | `zamin.S` → portable |
+| PPC970    | `amin.S` → vec                      | `amin.S` → vec                      | `zamin.S` → vec                      | `zamin.S` → vec                      | `amin.S` → portable | `zamin.S` → portable |
+| PPCG4     | `amin_ppc440.S` → vec               | `amin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `zamin_ppc440.S` → vec               | `amin.S` → portable | `zamin.S` → portable |
 
 ## mips64
 

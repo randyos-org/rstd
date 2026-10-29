@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | saxpy                          | daxpy                          | caxpy/caxpyc                                                                       | zaxpy/zaxpyc                                        | qaxpy               | xaxpy/xaxpyc         |
-| --------- | ------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------- | -------------------- |
-| CELL      | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER10   | `saxpy_power10.c` → C+asm      | `daxpy_power10.c` → C+asm      | `caxpy_power10.c` → C+asm                                                          | `zaxpy_power10.c` → C+asm                           | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER3    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER4    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER5    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER6    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER8    | `saxpy.c` +intrinsics → C+vec  | `daxpy.c` → C+asm              | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics → C+vec                     | `zaxpy.c` → C+asm                                   | `axpy.S` → portable | `zaxpy.S` → portable |
-| POWER9    | `saxpy.c` +intrinsics → C+vec  | `daxpy.c` → C+asm              | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics \| `caxpy_power9.S` → C+vec | `zaxpy.c` → C+asm                                   | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPC440    | `axpy_ppc440.S` → asm          | `axpy_ppc440.S` → asm          | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable**                                | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable** | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPC440FP2 | `axpy_hummer.S` → **portable** | `axpy_hummer.S` → **portable** | `zaxpy_hummer.S` → **portable**                                                    | `zaxpy_hummer.S` → **portable**                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPC970    | `axpy.S` → asm                 | `axpy.S` → asm                 | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
-| PPCG4     | `axpy_ppc440.S` → asm          | `axpy_ppc440.S` → asm          | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable**                                | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable** | `axpy.S` → portable | `zaxpy.S` → portable |
+| core      | saxpy                                    | daxpy                                    | caxpy/caxpyc                                                                       | zaxpy/zaxpyc                                        | qaxpy               | xaxpy/xaxpyc         |
+| --------- | ---------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------- | -------------------- |
+| CELL      | `axpy.S` → asm                           | `axpy.S` → asm                           | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER10   | `saxpy_power10.c` → C+asm                | `daxpy_power10.c` → C+asm                | `caxpy_power10.c` → C+asm                                                          | `zaxpy_power10.c` → C+asm                           | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER3    | `axpy.S` → asm                           | `axpy.S` → asm                           | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER4    | `axpy.S` → asm                           | `axpy.S` → asm                           | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER5    | `axpy.S` → asm                           | `axpy.S` → asm                           | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER6    | `axpy.S` → asm                           | `axpy.S` → asm                           | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER8    | `saxpy.c` +intrinsics → C+vec            | `daxpy.c` → C+asm                        | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics → C+vec                     | `zaxpy.c` → C+asm                                   | `axpy.S` → portable | `zaxpy.S` → portable |
+| POWER9    | `saxpy.c` +intrinsics → C+vec            | `daxpy.c` → C+asm                        | `zaxpy.S` \| `caxpy_power8.S` \| `caxpy.c` +intrinsics \| `caxpy_power9.S` → C+vec | `zaxpy.c` → C+asm                                   | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPC440    | `axpy_ppc440.S` → asm                    | `axpy_ppc440.S` → asm                    | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable**                                | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable** | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPC440FP2 | `axpy_hummer.S` (unsupported) → portable | `axpy_hummer.S` (unsupported) → portable | `zaxpy_hummer.S` (unsupported) → portable                                          | `zaxpy_hummer.S` (unsupported) → portable           | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPC970    | `axpy.S` → asm                           | `axpy.S` → asm                           | `zaxpy.S` → asm                                                                    | `zaxpy.S` → asm                                     | `axpy.S` → portable | `zaxpy.S` → portable |
+| PPCG4     | `axpy_ppc440.S` → asm                    | `axpy_ppc440.S` → asm                    | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable**                                | `zaxpy_ppc440.S` \| `../arm/zaxpy.c` → **portable** | `axpy.S` → portable | `zaxpy.S` → portable |
 
 ## mips64
 
@@ -160,12 +164,12 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## mips
 
-| core      | saxpy                                                               | daxpy                                                               | caxpy/caxpyc                                                         | zaxpy/zaxpyc                                                         | qaxpy                         | xaxpy/xaxpyc                   |
-| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/axpy.c` → n/a                                               | `../arm/axpy.c` → n/a                                               | `../arm/zaxpy.c` → n/a                                               | `../arm/zaxpy.c` → n/a                                               | `axpy.S` (missing) → n/a      | `zaxpy.S` (missing) → n/a      |
-| MIPS1004K | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| MIPS24K   | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → **portable** | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| P5600     | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec        | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec        | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → C+vec        | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → C+vec        | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| core      | saxpy                                                                    | daxpy                                                                    | caxpy/caxpyc                                                              | zaxpy/zaxpyc                                                              | qaxpy                         | xaxpy/xaxpyc                   |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/axpy.c` → n/a                                                    | `../arm/axpy.c` → n/a                                                    | `../arm/zaxpy.c` → n/a                                                    | `../arm/zaxpy.c` → n/a                                                    | `axpy.S` (missing) → n/a      | `zaxpy.S` (missing) → n/a      |
+| MIPS1004K | `../mips/saxpy_msa.c` +intrinsics (no msa) \| `../arm/axpy.c` → portable | `../mips/daxpy_msa.c` +intrinsics (no msa) \| `../arm/axpy.c` → portable | `../mips/caxpy_msa.c` +intrinsics (no msa) \| `../arm/zaxpy.c` → portable | `../mips/zaxpy_msa.c` +intrinsics (no msa) \| `../arm/zaxpy.c` → portable | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| MIPS24K   | `../mips/saxpy_msa.c` +intrinsics (no msa) \| `../arm/axpy.c` → portable | `../mips/daxpy_msa.c` +intrinsics (no msa) \| `../arm/axpy.c` → portable | `../mips/caxpy_msa.c` +intrinsics (no msa) \| `../arm/zaxpy.c` → portable | `../mips/zaxpy_msa.c` +intrinsics (no msa) \| `../arm/zaxpy.c` → portable | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| P5600     | `../mips/saxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec             | `../mips/daxpy_msa.c` +intrinsics \| `../arm/axpy.c` → C+vec             | `../mips/caxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → C+vec             | `../mips/zaxpy_msa.c` +intrinsics \| `../arm/zaxpy.c` → C+vec             | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 
 ## riscv64
 
@@ -226,18 +230,15 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned.
+The roles a core runs portable where upstream is tuned. By architecture: power 8, riscv64 12.
 
 | architecture | core            | roles                                      |
 | ------------ | --------------- | ------------------------------------------ |
 | power        | PPC440          | caxpy, caxpyc, zaxpy, zaxpyc               |
-| power        | PPC440FP2       | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
 | power        | PPCG4           | caxpy, caxpyc, zaxpy, zaxpyc               |
-| mips         | MIPS1004K       | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
-| mips         | MIPS24K         | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
 | riscv64      | C910V           | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
 | riscv64      | RISCV64_ZVL256B | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 456, `portable` 446, `C+asm` 92, `C+vec` 28, `n/a` 72, `C` 1, `vec` 12. 38 gaps.
+(core, role) pairs by what rstd serves: `asm` 456, `portable` 446, `C+asm` 92, `C+vec` 28, `n/a` 72, `C` 1, `vec` 12. 20 gaps.

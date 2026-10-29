@@ -40,16 +40,7 @@ const Arch = arch.Arch;
 const Kernel = arch.Kernel;
 const Prec = arch.Prec;
 
-const arches = [_]Arch{
-    @import("arch/x86_64.zig").x86_64,
-    @import("arch/arm64.zig").arm64,
-    @import("arch/loongarch64.zig").loongarch64,
-    @import("arch/mips64.zig").mips64,
-    @import("arch/arm.zig").arm,
-    @import("arch/power.zig").power,
-    @import("arch/x86.zig").x86,
-    @import("arch/sparc.zig").sparc,
-};
+const arches = arch.all;
 
 /// OpenBLAS's names: `daxpy_atom` for the double kernel of `axpy_atom.S`,
 /// `zaxpyc_sse2` for the conjugated complex one of `zaxpy_sse2.S`, then the
@@ -601,10 +592,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     for (jobs.items) |job| {
         const k = job.kernel;
         // sources the toolchain cannot assemble are not converted at all
-        const unsupported = for (ar.unsupported) |u| {
-            if (std.mem.eql(u8, u, k.source)) break true;
-        } else std.mem.find(u8, k.source, "_hummer") != null;
-        if (unsupported) continue;
+        if (!ar.assembles(k.source)) continue;
 
         // nor are kernels no core would install (`roles.skip`)
         if (roles.skipped(ar.name, k.slot)) |s| {

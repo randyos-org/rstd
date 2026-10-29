@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | samax                 | damax                 | camax                  | zamax                  | qamax               | xamax                |
-| --------- | --------------------- | --------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
-| CELL      | `amax_cell.S` → vec   | `amax_cell.S` → vec   | `zamax_cell.S` → vec   | `zamax_cell.S` → vec   | `amax.S` → portable | `zamax.S` → portable |
-| POWER10   | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| POWER3    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| POWER4    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| POWER5    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| POWER6    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| POWER8    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| POWER9    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| PPC440    | `amax_ppc440.S` → vec | `amax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `amax.S` → portable | `zamax.S` → portable |
-| PPC440FP2 | `amax_hummer.S` → vec | `amax_hummer.S` → vec | `zamax_hummer.S` → vec | `zamax_hummer.S` → vec | `amax.S` → portable | `zamax.S` → portable |
-| PPC970    | `amax.S` → vec        | `amax.S` → vec        | `zamax.S` → vec        | `zamax.S` → vec        | `amax.S` → portable | `zamax.S` → portable |
-| PPCG4     | `amax_ppc440.S` → vec | `amax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `zamax_ppc440.S` → vec | `amax.S` → portable | `zamax.S` → portable |
+| core      | samax                               | damax                               | camax                                | zamax                                | qamax               | xamax                |
+| --------- | ----------------------------------- | ----------------------------------- | ------------------------------------ | ------------------------------------ | ------------------- | -------------------- |
+| CELL      | `amax_cell.S` → vec                 | `amax_cell.S` → vec                 | `zamax_cell.S` → vec                 | `zamax_cell.S` → vec                 | `amax.S` → portable | `zamax.S` → portable |
+| POWER10   | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| POWER3    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| POWER4    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| POWER5    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| POWER6    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| POWER8    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| POWER9    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| PPC440    | `amax_ppc440.S` → vec               | `amax_ppc440.S` → vec               | `zamax_ppc440.S` → vec               | `zamax_ppc440.S` → vec               | `amax.S` → portable | `zamax.S` → portable |
+| PPC440FP2 | `amax_hummer.S` (unsupported) → vec | `amax_hummer.S` (unsupported) → vec | `zamax_hummer.S` (unsupported) → vec | `zamax_hummer.S` (unsupported) → vec | `amax.S` → portable | `zamax.S` → portable |
+| PPC970    | `amax.S` → vec                      | `amax.S` → vec                      | `zamax.S` → vec                      | `zamax.S` → vec                      | `amax.S` → portable | `zamax.S` → portable |
+| PPCG4     | `amax_ppc440.S` → vec               | `amax_ppc440.S` → vec               | `zamax_ppc440.S` → vec               | `zamax_ppc440.S` → vec               | `amax.S` → portable | `zamax.S` → portable |
 
 ## mips64
 

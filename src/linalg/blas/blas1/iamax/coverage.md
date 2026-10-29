@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -142,7 +146,7 @@ runs those of the core that serves it (`asm_registry.served`).
 | POWER8    | `isamax_power8.S` \| `isamax.c` +intrinsics → vec                      | `idamax.c` +asm \| `../arm/iamax.c` → vec | `icamax_power8.S` \| `icamax.c` +asm → vec                      | `izamax.c` +asm \| `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
 | POWER9    | `isamax_power8.S` \| `isamax.c` +intrinsics \| `isamax_power9.S` → vec | `idamax.c` +asm \| `../arm/iamax.c` → vec | `icamax_power8.S` \| `icamax.c` +asm \| `icamax_power9.S` → vec | `izamax.c` +asm \| `../arm/izamax.c` → vec | `iamax.S` → portable | `izamax.S` → portable |
 | PPC440    | `iamax_ppc440.S` → vec                                                 | `iamax_ppc440.S` → vec                    | `izamax_ppc440.S` → vec                                         | `izamax_ppc440.S` → vec                    | `iamax.S` → portable | `izamax.S` → portable |
-| PPC440FP2 | `iamax_hummer.S` → vec                                                 | `iamax_hummer.S` → vec                    | `izamax_hummer.S` → vec                                         | `izamax_hummer.S` → vec                    | `iamax.S` → portable | `izamax.S` → portable |
+| PPC440FP2 | `iamax_hummer.S` (unsupported) → vec                                   | `iamax_hummer.S` (unsupported) → vec      | `izamax_hummer.S` (unsupported) → vec                           | `izamax_hummer.S` (unsupported) → vec      | `iamax.S` → portable | `izamax.S` → portable |
 | PPC970    | `iamax.S` → vec                                                        | `iamax.S` → vec                           | `izamax.S` → vec                                                | `izamax.S` → vec                           | `iamax.S` → portable | `izamax.S` → portable |
 | PPCG4     | `iamax_ppc440.S` → vec                                                 | `iamax_ppc440.S` → vec                    | `izamax_ppc440.S` → vec                                         | `izamax_ppc440.S` → vec                    | `iamax.S` → portable | `izamax.S` → portable |
 

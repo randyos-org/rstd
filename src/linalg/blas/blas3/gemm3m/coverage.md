@@ -7,7 +7,9 @@ architecture's `KERNEL`, then to the `Makefile.L3` default; `generic` where
 that default is `kernel/generic`'s file for the core's unroll, `-` where
 upstream does not build it. `|` separates alternatives chosen by a
 conditional. `+asm` and `+intrinsics` mark C with inline assembly or
-intrinsics in the file or a `.c` it includes (a text search).
+intrinsics in the file or a `.c` it includes (a text search);
+`(unsupported)` marks assembly LLVM cannot assemble, `(no <feature>)`
+intrinsics the core cannot run, neither counted as tuned.
 
 The `rstd` row says what rstd serves for every core of the architecture:
 `tile` is the Zig port of `kernel/generic` over the `@Vector` gemm tile

@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | ismin                 | idmin                 | iqmin               |
-| --------- | --------------------- | --------------------- | ------------------- |
-| CELL      | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER10   | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER3    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER4    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER5    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER6    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER8    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| POWER9    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| PPC440    | `imin_ppc440.S` → vec | `imin_ppc440.S` → vec | `imin.S` → portable |
-| PPC440FP2 | `imin_hummer.S` → vec | `imin_hummer.S` → vec | `imin.S` → portable |
-| PPC970    | `imin.S` → vec        | `imin.S` → vec        | `imin.S` → portable |
-| PPCG4     | `imin_ppc440.S` → vec | `imin_ppc440.S` → vec | `imin.S` → portable |
+| core      | ismin                               | idmin                               | iqmin               |
+| --------- | ----------------------------------- | ----------------------------------- | ------------------- |
+| CELL      | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER10   | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER3    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER4    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER5    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER6    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER8    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| POWER9    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| PPC440    | `imin_ppc440.S` → vec               | `imin_ppc440.S` → vec               | `imin.S` → portable |
+| PPC440FP2 | `imin_hummer.S` (unsupported) → vec | `imin_hummer.S` (unsupported) → vec | `imin.S` → portable |
+| PPC970    | `imin.S` → vec                      | `imin.S` → vec                      | `imin.S` → portable |
+| PPCG4     | `imin_ppc440.S` → vec               | `imin_ppc440.S` → vec               | `imin.S` → portable |
 
 ## mips64
 

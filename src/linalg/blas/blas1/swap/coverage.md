@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | sswap                          | dswap                          | cswap                           | zswap                           | qswap               | xswap                |
-| --------- | ------------------------------ | ------------------------------ | ------------------------------- | ------------------------------- | ------------------- | -------------------- |
-| CELL      | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| POWER10   | `sswap.c` +asm → **portable**  | `dswap.c` +asm → **portable**  | `cswap.c` +asm → **portable**   | `zswap.c` +asm → **portable**   | `swap.S` → portable | `zswap.S` → portable |
-| POWER3    | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| POWER4    | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| POWER5    | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| POWER6    | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| POWER8    | `sswap.c` +asm → **portable**  | `dswap.c` +asm → **portable**  | `cswap.c` +asm → **portable**   | `zswap.c` +asm → **portable**   | `swap.S` → portable | `zswap.S` → portable |
-| POWER9    | `sswap.c` +asm → **portable**  | `dswap.c` +asm → **portable**  | `cswap.c` +asm → **portable**   | `zswap.c` +asm → **portable**   | `swap.S` → portable | `zswap.S` → portable |
-| PPC440    | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| PPC440FP2 | `swap_hummer.S` → **portable** | `swap_hummer.S` → **portable** | `zswap_hummer.S` → **portable** | `zswap_hummer.S` → **portable** | `swap.S` → portable | `zswap.S` → portable |
-| PPC970    | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
-| PPCG4     | `swap.S` → asm                 | `swap.S` → asm                 | `zswap.S` → asm                 | `zswap.S` → asm                 | `swap.S` → portable | `zswap.S` → portable |
+| core      | sswap                                    | dswap                                    | cswap                                     | zswap                                     | qswap               | xswap                |
+| --------- | ---------------------------------------- | ---------------------------------------- | ----------------------------------------- | ----------------------------------------- | ------------------- | -------------------- |
+| CELL      | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER10   | `sswap.c` +asm → **portable**            | `dswap.c` +asm → **portable**            | `cswap.c` +asm → **portable**             | `zswap.c` +asm → **portable**             | `swap.S` → portable | `zswap.S` → portable |
+| POWER3    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER4    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER5    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER6    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| POWER8    | `sswap.c` +asm → **portable**            | `dswap.c` +asm → **portable**            | `cswap.c` +asm → **portable**             | `zswap.c` +asm → **portable**             | `swap.S` → portable | `zswap.S` → portable |
+| POWER9    | `sswap.c` +asm → **portable**            | `dswap.c` +asm → **portable**            | `cswap.c` +asm → **portable**             | `zswap.c` +asm → **portable**             | `swap.S` → portable | `zswap.S` → portable |
+| PPC440    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| PPC440FP2 | `swap_hummer.S` (unsupported) → portable | `swap_hummer.S` (unsupported) → portable | `zswap_hummer.S` (unsupported) → portable | `zswap_hummer.S` (unsupported) → portable | `swap.S` → portable | `zswap.S` → portable |
+| PPC970    | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
+| PPCG4     | `swap.S` → asm                           | `swap.S` → asm                           | `zswap.S` → asm                           | `zswap.S` → asm                           | `swap.S` → portable | `zswap.S` → portable |
 
 ## mips64
 
@@ -160,12 +164,12 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## mips
 
-| core      | sswap                                                               | dswap                                                               | cswap                                                                | zswap                                                                | qswap                         | xswap                          |
-| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/swap.c` → n/a                                               | `../arm/swap.c` → n/a                                               | `../arm/zswap.c` → n/a                                               | `../arm/zswap.c` → n/a                                               | `swap.S` (missing) → n/a      | `zswap.S` (missing) → n/a      |
-| MIPS1004K | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/cswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable** | `../mips/zswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
-| MIPS24K   | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/cswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable** | `../mips/zswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
-| P5600     | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable** | `../mips/cswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable** | `../mips/zswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| core      | sswap                                                                    | dswap                                                                    | cswap                                                                     | zswap                                                                     | qswap                         | xswap                          |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/swap.c` → n/a                                                    | `../arm/swap.c` → n/a                                                    | `../arm/zswap.c` → n/a                                                    | `../arm/zswap.c` → n/a                                                    | `swap.S` (missing) → n/a      | `zswap.S` (missing) → n/a      |
+| MIPS1004K | `../mips/sswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/dswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/cswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `../mips/zswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| MIPS24K   | `../mips/sswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/dswap_msa.c` +intrinsics (no msa) \| `../arm/swap.c` → portable | `../mips/cswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `../mips/zswap_msa.c` +intrinsics (no msa) \| `../arm/zswap.c` → portable | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| P5600     | `../mips/sswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable**      | `../mips/dswap_msa.c` +intrinsics \| `../arm/swap.c` → **portable**      | `../mips/cswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable**      | `../mips/zswap_msa.c` +intrinsics \| `../arm/zswap.c` → **portable**      | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
 
 ## riscv64
 
@@ -226,20 +230,17 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned.
+The roles a core runs portable where upstream is tuned. By architecture: power 12, mips64 8, mips 4, riscv64 16, zarch 6.
 
 | architecture | core            | roles                      |
 | ------------ | --------------- | -------------------------- |
 | power        | POWER10         | sswap, dswap, cswap, zswap |
 | power        | POWER8          | sswap, dswap, cswap, zswap |
 | power        | POWER9          | sswap, dswap, cswap, zswap |
-| power        | PPC440FP2       | sswap, dswap, cswap, zswap |
 | mips64       | I6400           | sswap, dswap               |
 | mips64       | I6500           | sswap, dswap               |
 | mips64       | LOONGSON3R4     | sswap, dswap               |
 | mips64       | P6600           | sswap, dswap               |
-| mips         | MIPS1004K       | sswap, dswap, cswap, zswap |
-| mips         | MIPS24K         | sswap, dswap, cswap, zswap |
 | mips         | P5600           | sswap, dswap, cswap, zswap |
 | riscv64      | C910V           | sswap, dswap, cswap, zswap |
 | riscv64      | RISCV64_ZVL128B | sswap, dswap, cswap, zswap |
@@ -250,4 +251,4 @@ The roles a core runs portable where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 340, `portable` 328, `n/a` 48, `vec` 22. 58 gaps.
+(core, role) pairs by what rstd serves: `asm` 340, `portable` 328, `n/a` 48, `vec` 22. 46 gaps.

@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | ismax                 | idmax                 | iqmax               |
-| --------- | --------------------- | --------------------- | ------------------- |
-| CELL      | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER10   | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER3    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER4    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER5    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER6    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER8    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| POWER9    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| PPC440    | `imax_ppc440.S` → vec | `imax_ppc440.S` → vec | `imax.S` → portable |
-| PPC440FP2 | `imax_hummer.S` → vec | `imax_hummer.S` → vec | `imax.S` → portable |
-| PPC970    | `imax.S` → vec        | `imax.S` → vec        | `imax.S` → portable |
-| PPCG4     | `imax_ppc440.S` → vec | `imax_ppc440.S` → vec | `imax.S` → portable |
+| core      | ismax                               | idmax                               | iqmax               |
+| --------- | ----------------------------------- | ----------------------------------- | ------------------- |
+| CELL      | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER10   | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER3    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER4    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER5    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER6    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER8    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| POWER9    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| PPC440    | `imax_ppc440.S` → vec               | `imax_ppc440.S` → vec               | `imax.S` → portable |
+| PPC440FP2 | `imax_hummer.S` (unsupported) → vec | `imax_hummer.S` (unsupported) → vec | `imax.S` → portable |
+| PPC970    | `imax.S` → vec                      | `imax.S` → vec                      | `imax.S` → portable |
+| PPCG4     | `imax_ppc440.S` → vec               | `imax_ppc440.S` → vec               | `imax.S` → portable |
 
 ## mips64
 

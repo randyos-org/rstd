@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | smax                 | dmax                 | qmax               |
-| --------- | -------------------- | -------------------- | ------------------ |
-| CELL      | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER10   | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER3    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER4    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER5    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER6    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER8    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| POWER9    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| PPC440    | `max_ppc440.S` → vec | `max_ppc440.S` → vec | `max.S` → portable |
-| PPC440FP2 | `max_hummer.S` → vec | `max_hummer.S` → vec | `max.S` → portable |
-| PPC970    | `max.S` → vec        | `max.S` → vec        | `max.S` → portable |
-| PPCG4     | `max_ppc440.S` → vec | `max_ppc440.S` → vec | `max.S` → portable |
+| core      | smax                               | dmax                               | qmax               |
+| --------- | ---------------------------------- | ---------------------------------- | ------------------ |
+| CELL      | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER10   | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER3    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER4    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER5    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER6    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER8    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| POWER9    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| PPC440    | `max_ppc440.S` → vec               | `max_ppc440.S` → vec               | `max.S` → portable |
+| PPC440FP2 | `max_hummer.S` (unsupported) → vec | `max_hummer.S` (unsupported) → vec | `max.S` → portable |
+| PPC970    | `max.S` → vec                      | `max.S` → vec                      | `max.S` → portable |
+| PPCG4     | `max_ppc440.S` → vec               | `max_ppc440.S` → vec               | `max.S` → portable |
 
 ## mips64
 

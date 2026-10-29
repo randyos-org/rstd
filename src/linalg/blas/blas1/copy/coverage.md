@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | scopy                          | dcopy                          | ccopy                           | zcopy                           | qcopy               | xcopy                |
-| --------- | ------------------------------ | ------------------------------ | ------------------------------- | ------------------------------- | ------------------- | -------------------- |
-| CELL      | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| POWER10   | `scopy_power10.c` → portable   | `dcopy_power10.c` → portable   | `ccopy_power10.c` → portable    | `zcopy_power10.c` → portable    | `copy.S` → portable | `zcopy.S` → portable |
-| POWER3    | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| POWER4    | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| POWER5    | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| POWER6    | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| POWER8    | `scopy.c` → portable           | `dcopy.c` → portable           | `ccopy.c` → portable            | `zcopy.c` → portable            | `copy.S` → portable | `zcopy.S` → portable |
-| POWER9    | `scopy.c` → portable           | `dcopy.c` → portable           | `ccopy.c` → portable            | `zcopy.c` → portable            | `copy.S` → portable | `zcopy.S` → portable |
-| PPC440    | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| PPC440FP2 | `copy_hummer.S` → **portable** | `copy_hummer.S` → **portable** | `zcopy_hummer.S` → **portable** | `zcopy_hummer.S` → **portable** | `copy.S` → portable | `zcopy.S` → portable |
-| PPC970    | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
-| PPCG4     | `copy.S` → asm                 | `copy.S` → asm                 | `zcopy.S` → asm                 | `zcopy.S` → asm                 | `copy.S` → portable | `zcopy.S` → portable |
+| core      | scopy                                    | dcopy                                    | ccopy                                     | zcopy                                     | qcopy               | xcopy                |
+| --------- | ---------------------------------------- | ---------------------------------------- | ----------------------------------------- | ----------------------------------------- | ------------------- | -------------------- |
+| CELL      | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| POWER10   | `scopy_power10.c` → portable             | `dcopy_power10.c` → portable             | `ccopy_power10.c` → portable              | `zcopy_power10.c` → portable              | `copy.S` → portable | `zcopy.S` → portable |
+| POWER3    | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| POWER4    | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| POWER5    | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| POWER6    | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| POWER8    | `scopy.c` → portable                     | `dcopy.c` → portable                     | `ccopy.c` → portable                      | `zcopy.c` → portable                      | `copy.S` → portable | `zcopy.S` → portable |
+| POWER9    | `scopy.c` → portable                     | `dcopy.c` → portable                     | `ccopy.c` → portable                      | `zcopy.c` → portable                      | `copy.S` → portable | `zcopy.S` → portable |
+| PPC440    | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| PPC440FP2 | `copy_hummer.S` (unsupported) → portable | `copy_hummer.S` (unsupported) → portable | `zcopy_hummer.S` (unsupported) → portable | `zcopy_hummer.S` (unsupported) → portable | `copy.S` → portable | `zcopy.S` → portable |
+| PPC970    | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
+| PPCG4     | `copy.S` → asm                           | `copy.S` → asm                           | `zcopy.S` → asm                           | `zcopy.S` → asm                           | `copy.S` → portable | `zcopy.S` → portable |
 
 ## mips64
 
@@ -160,12 +164,12 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## mips
 
-| core      | scopy                                                               | dcopy                                                               | ccopy                                                                | zcopy                                                                | qcopy                         | xcopy                          |
-| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
-| generic   | `../arm/copy.c` → n/a                                               | `../arm/copy.c` → n/a                                               | `../arm/zcopy.c` → n/a                                               | `../arm/zcopy.c` → n/a                                               | `copy.S` (missing) → n/a      | `zcopy.S` (missing) → n/a      |
-| MIPS1004K | `../mips/scopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable** | `../mips/dcopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable** | `../mips/ccopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable** | `../mips/zcopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable** | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
-| MIPS24K   | `../mips/scopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable** | `../mips/dcopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable** | `../mips/ccopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable** | `../mips/zcopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable** | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
-| P5600     | `../mips/scopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable** | `../mips/dcopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable** | `../mips/ccopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable** | `../mips/zcopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable** | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
+| core      | scopy                                                                    | dcopy                                                                    | ccopy                                                                     | zcopy                                                                     | qcopy                         | xcopy                          |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------- | ------------------------------ |
+| generic   | `../arm/copy.c` → n/a                                                    | `../arm/copy.c` → n/a                                                    | `../arm/zcopy.c` → n/a                                                    | `../arm/zcopy.c` → n/a                                                    | `copy.S` (missing) → n/a      | `zcopy.S` (missing) → n/a      |
+| MIPS1004K | `../mips/scopy_msa.c` +intrinsics (no msa) \| `../arm/copy.c` → portable | `../mips/dcopy_msa.c` +intrinsics (no msa) \| `../arm/copy.c` → portable | `../mips/ccopy_msa.c` +intrinsics (no msa) \| `../arm/zcopy.c` → portable | `../mips/zcopy_msa.c` +intrinsics (no msa) \| `../arm/zcopy.c` → portable | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
+| MIPS24K   | `../mips/scopy_msa.c` +intrinsics (no msa) \| `../arm/copy.c` → portable | `../mips/dcopy_msa.c` +intrinsics (no msa) \| `../arm/copy.c` → portable | `../mips/ccopy_msa.c` +intrinsics (no msa) \| `../arm/zcopy.c` → portable | `../mips/zcopy_msa.c` +intrinsics (no msa) \| `../arm/zcopy.c` → portable | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
+| P5600     | `../mips/scopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable**      | `../mips/dcopy_msa.c` +intrinsics \| `../arm/copy.c` → **portable**      | `../mips/ccopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable**      | `../mips/zcopy_msa.c` +intrinsics \| `../arm/zcopy.c` → **portable**      | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
 
 ## riscv64
 
@@ -226,17 +230,14 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned.
+The roles a core runs portable where upstream is tuned. By architecture: mips64 16, mips 4, riscv64 16, zarch 6.
 
 | architecture | core            | roles                      |
 | ------------ | --------------- | -------------------------- |
-| power        | PPC440FP2       | scopy, dcopy, ccopy, zcopy |
 | mips64       | I6400           | scopy, dcopy, ccopy, zcopy |
 | mips64       | I6500           | scopy, dcopy, ccopy, zcopy |
 | mips64       | LOONGSON3R4     | scopy, dcopy, ccopy, zcopy |
 | mips64       | P6600           | scopy, dcopy, ccopy, zcopy |
-| mips         | MIPS1004K       | scopy, dcopy, ccopy, zcopy |
-| mips         | MIPS24K         | scopy, dcopy, ccopy, zcopy |
 | mips         | P5600           | scopy, dcopy, ccopy, zcopy |
 | riscv64      | C910V           | scopy, dcopy, ccopy, zcopy |
 | riscv64      | RISCV64_ZVL128B | scopy, dcopy, ccopy, zcopy |
@@ -247,4 +248,4 @@ The roles a core runs portable where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 292, `portable` 338, `n/a` 48, `vec` 60. 54 gaps.
+(core, role) pairs by what rstd serves: `asm` 292, `portable` 338, `n/a` 48, `vec` 60. 42 gaps.

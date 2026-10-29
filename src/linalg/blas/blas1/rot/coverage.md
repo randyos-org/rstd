@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -160,12 +164,12 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## mips
 
-| core      | srot                                                              | drot                                                              | csrot                                                              | zdrot                                                              | qrot                         | xqrot                         |
-| --------- | ----------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ---------------------------- | ----------------------------- |
-| generic   | `../arm/rot.c` → n/a                                              | `../arm/rot.c` → n/a                                              | `../arm/zrot.c` → n/a                                              | `../arm/zrot.c` → n/a                                              | `rot.S` (missing) → n/a      | `zrot.S` (missing) → n/a      |
-| MIPS1004K | `../mips/srot_msa.c` +intrinsics \| `../arm/rot.c` → **portable** | `../mips/drot_msa.c` +intrinsics \| `../arm/rot.c` → **portable** | `../mips/crot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable** | `../mips/zrot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable** | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
-| MIPS24K   | `../mips/srot_msa.c` +intrinsics \| `../arm/rot.c` → **portable** | `../mips/drot_msa.c` +intrinsics \| `../arm/rot.c` → **portable** | `../mips/crot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable** | `../mips/zrot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable** | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
-| P5600     | `../mips/srot_msa.c` +intrinsics \| `../arm/rot.c` → **portable** | `../mips/drot_msa.c` +intrinsics \| `../arm/rot.c` → **portable** | `../mips/crot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable** | `../mips/zrot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable** | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
+| core      | srot                                                                   | drot                                                                   | csrot                                                                   | zdrot                                                                   | qrot                         | xqrot                         |
+| --------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------- | ----------------------------- |
+| generic   | `../arm/rot.c` → n/a                                                   | `../arm/rot.c` → n/a                                                   | `../arm/zrot.c` → n/a                                                   | `../arm/zrot.c` → n/a                                                   | `rot.S` (missing) → n/a      | `zrot.S` (missing) → n/a      |
+| MIPS1004K | `../mips/srot_msa.c` +intrinsics (no msa) \| `../arm/rot.c` → portable | `../mips/drot_msa.c` +intrinsics (no msa) \| `../arm/rot.c` → portable | `../mips/crot_msa.c` +intrinsics (no msa) \| `../arm/zrot.c` → portable | `../mips/zrot_msa.c` +intrinsics (no msa) \| `../arm/zrot.c` → portable | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
+| MIPS24K   | `../mips/srot_msa.c` +intrinsics (no msa) \| `../arm/rot.c` → portable | `../mips/drot_msa.c` +intrinsics (no msa) \| `../arm/rot.c` → portable | `../mips/crot_msa.c` +intrinsics (no msa) \| `../arm/zrot.c` → portable | `../mips/zrot_msa.c` +intrinsics (no msa) \| `../arm/zrot.c` → portable | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
+| P5600     | `../mips/srot_msa.c` +intrinsics \| `../arm/rot.c` → **portable**      | `../mips/drot_msa.c` +intrinsics \| `../arm/rot.c` → **portable**      | `../mips/crot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable**      | `../mips/zrot_msa.c` +intrinsics \| `../arm/zrot.c` → **portable**      | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
 
 ## riscv64
 
@@ -226,7 +230,7 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned.
+The roles a core runs portable where upstream is tuned. By architecture: power 14, mips 4, riscv64 16, zarch 6.
 
 | architecture | core            | roles                    |
 | ------------ | --------------- | ------------------------ |
@@ -234,8 +238,6 @@ The roles a core runs portable where upstream is tuned.
 | power        | POWER8          | srot, drot, csrot, zdrot |
 | power        | POWER9          | srot, drot, csrot, zdrot |
 | power        | PPC440          | csrot, zdrot             |
-| mips         | MIPS1004K       | srot, drot, csrot, zdrot |
-| mips         | MIPS24K         | srot, drot, csrot, zdrot |
 | mips         | P5600           | srot, drot, csrot, zdrot |
 | riscv64      | C910V           | srot, drot, csrot, zdrot |
 | riscv64      | RISCV64_ZVL128B | srot, drot, csrot, zdrot |
@@ -246,4 +248,4 @@ The roles a core runs portable where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 324, `portable` 342, `C` 4, `n/a` 48, `C+vec` 6, `vec` 14. 48 gaps.
+(core, role) pairs by what rstd serves: `asm` 324, `portable` 342, `C` 4, `n/a` 48, `C+vec` 6, `vec` 14. 40 gaps.

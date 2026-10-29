@@ -1204,7 +1204,7 @@ A routine directory holds its `__root__.zig` (the vtable wrappers, its portable 
 tests of every core's kernels), and per architecture `<arch>/asm/` (generated), `<arch>/uk/`
 (generated) and `<arch>/kernel.zig` (composition and hand ports) as the routine needs.
 Every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`, has a generated `coverage.md`:
-which OpenBLAS source each core uses, and for level 1 and level 3 what rstd serves in its place.
+which OpenBLAS source each core uses, and what rstd serves in its place.
 
 `_test/` holds the code only tests use:
 

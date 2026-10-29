@@ -7,9 +7,13 @@ architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
 alternatives chosen by a conditional), and after the arrow what rstd
 serves for that core.
 
-Upstream: a `.S` file is assembly; `+asm` and `+intrinsics` mark C whose
-block for that core (or the file, or a `.c` it includes) has inline
-assembly or intrinsics, a text search; unmarked C is plain C.
+Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
+assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
+`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
+includes) has inline assembly or intrinsics, a text search; unmarked C is
+plain C. `(no <feature>)` marks intrinsics the core cannot run
+(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
+Neither counts as tuned.
 
 rstd:
 
@@ -131,20 +135,20 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## power
 
-| core      | snrm2                  | dnrm2                  | cnrm2                  | znrm2                  | qnrm2               | xnrm2                |
-| --------- | ---------------------- | ---------------------- | ---------------------- | ---------------------- | ------------------- | -------------------- |
-| CELL      | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER10   | `../arm/nrm2.c` → vec  | `../arm/nrm2.c` → vec  | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER3    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER4    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER5    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER6    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER8    | `../arm/nrm2.c` → vec  | `../arm/nrm2.c` → vec  | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
-| POWER9    | `../arm/nrm2.c` → vec  | `../arm/nrm2.c` → vec  | `../arm/znrm2.c` → vec | `../arm/znrm2.c` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPC440    | `snrm2_ppc440.S` → vec | `dnrm2_ppc440.S` → vec | `cnrm2_ppc440.S` → vec | `znrm2_ppc440.S` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPC440FP2 | `snrm2_hummer.S` → vec | `dnrm2_hummer.S` → vec | `cnrm2_hummer.S` → vec | `znrm2_hummer.S` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPC970    | `nrm2.S` → vec         | `nrm2.S` → vec         | `znrm2.S` → vec        | `znrm2.S` → vec        | `nrm2.S` → portable | `znrm2.S` → portable |
-| PPCG4     | `snrm2_ppc440.S` → vec | `dnrm2_ppc440.S` → vec | `cnrm2_ppc440.S` → vec | `znrm2_ppc440.S` → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| core      | snrm2                                | dnrm2                                | cnrm2                                | znrm2                                | qnrm2               | xnrm2                |
+| --------- | ------------------------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | ------------------- | -------------------- |
+| CELL      | `nrm2.S` → vec                       | `nrm2.S` → vec                       | `znrm2.S` → vec                      | `znrm2.S` → vec                      | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER10   | `../arm/nrm2.c` → vec                | `../arm/nrm2.c` → vec                | `../arm/znrm2.c` → vec               | `../arm/znrm2.c` → vec               | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER3    | `nrm2.S` → vec                       | `nrm2.S` → vec                       | `znrm2.S` → vec                      | `znrm2.S` → vec                      | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER4    | `nrm2.S` → vec                       | `nrm2.S` → vec                       | `znrm2.S` → vec                      | `znrm2.S` → vec                      | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER5    | `nrm2.S` → vec                       | `nrm2.S` → vec                       | `znrm2.S` → vec                      | `znrm2.S` → vec                      | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER6    | `nrm2.S` → vec                       | `nrm2.S` → vec                       | `znrm2.S` → vec                      | `znrm2.S` → vec                      | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER8    | `../arm/nrm2.c` → vec                | `../arm/nrm2.c` → vec                | `../arm/znrm2.c` → vec               | `../arm/znrm2.c` → vec               | `nrm2.S` → portable | `znrm2.S` → portable |
+| POWER9    | `../arm/nrm2.c` → vec                | `../arm/nrm2.c` → vec                | `../arm/znrm2.c` → vec               | `../arm/znrm2.c` → vec               | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPC440    | `snrm2_ppc440.S` → vec               | `dnrm2_ppc440.S` → vec               | `cnrm2_ppc440.S` → vec               | `znrm2_ppc440.S` → vec               | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPC440FP2 | `snrm2_hummer.S` (unsupported) → vec | `dnrm2_hummer.S` (unsupported) → vec | `cnrm2_hummer.S` (unsupported) → vec | `znrm2_hummer.S` (unsupported) → vec | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPC970    | `nrm2.S` → vec                       | `nrm2.S` → vec                       | `znrm2.S` → vec                      | `znrm2.S` → vec                      | `nrm2.S` → portable | `znrm2.S` → portable |
+| PPCG4     | `snrm2_ppc440.S` → vec               | `dnrm2_ppc440.S` → vec               | `cnrm2_ppc440.S` → vec               | `znrm2_ppc440.S` → vec               | `nrm2.S` → portable | `znrm2.S` → portable |
 
 ## mips64
 
