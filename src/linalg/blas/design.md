@@ -573,7 +573,7 @@ complex, for every float type, through the same code.
   where upstream packs its reciprocal (`INV`, `kernel/generic/trsm_ltcopy_2.c:43`), which
   overflows for a denormal below about 2^-128 in `f32` or 2^-1024 in `f64` (past `1/max`); `trsv` divides
   alike, complex by Smith's algorithm (`util.cdiv`; R. L. Smith, "Algorithm 116: Complex
-  division", CACM 5(8), 435, 1962, <https://doi.org/10.1145/368637.368661>), so both give the same quotients
+  division", Communications of the ACM 5(8), 435, 1962, <https://doi.org/10.1145/368637.368661>), so both give the same quotients
   (`comparisons.md`, 10), but for an x87 build's cores with SSE2, whose objects divide there. The `trmm` kernels sum a
   diagonal block over its triangle only, where the reference's tiles multiply the zeros it
   packs, so an infinity in `B` meets no zero.
