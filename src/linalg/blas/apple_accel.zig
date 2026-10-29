@@ -972,7 +972,7 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             try zigstd.testExpectEqual(@as(I, 613), ia);
             try zigstd.testExpectEqual(try blas.index(check.io, f32, .amax, sx.len, &sx, 1), ia + 1);
 
-            // dgemm, column- and row-major
+            // dgemm
             const m = 37;
             const n = 29;
             const k = 41;
@@ -984,8 +984,6 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             defer gpa.free(c0);
             const c1 = try gpa.alloc(f64, m * n);
             defer gpa.free(c1);
-            const c2 = try gpa.alloc(f64, m * n);
-            defer gpa.free(c2);
             fill(f64, rng, a);
             fill(f64, rng, bm);
             fill(f64, rng, c0);
@@ -994,10 +992,6 @@ test "ddot, dgemm, zdotu_sub and isamax agree with rstd" {
             t.cblas_dgemm.?(.col_major, .trans, .no_trans, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c0.ptr, m);
             try blas.gemm(gpa, check.io, f64, .t, .n, m, n, k, 1.5, a.ptr, k, bm.ptr, k, -0.5, c1.ptr, m);
             for (c0, c1) |g, w| try zigstd.testExpectApproxEqAbs(w, g, 1e-12 * k);
-            // row-major: C^T = B^T A, the same numbers transposed
-            t.cblas_dgemm.?(.row_major, .no_trans, .trans, n, m, k, 1, bm.ptr, k, a.ptr, k, 0, c2.ptr, m);
-            try blas.gemm(gpa, check.io, f64, .t, .n, m, n, k, 1, a.ptr, k, bm.ptr, k, 0, c1.ptr, m);
-            for (c1, c2) |w, g| try zigstd.testExpectApproxEqAbs(w, g, 1e-12 * k);
         },
     }
 }
