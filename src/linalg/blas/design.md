@@ -945,11 +945,12 @@ assignment in `KERNEL` overrides the core's choice; only an `ifndef` leaves it.
 both sides of any other conditional as alternatives. Consequences of upstream's own selection,
 reproduced as they are:
 
-- x86_64 `csum`/`zsum` on the AVX-512 cores are `zsum_sse.S`/`zsum_sse2.S`;
-- loongarch64 `dsdot` is `dot.S` on LA264 and LA464;
-- arm64 `csum` is `csum.S` everywhere;
+- x86_64 `csum`/`zsum` on the AVX-512 cores are `zsum_sse.S`/`zsum_sse2.S`
+  (`kernel/x86_64/KERNEL:504-505`);
+- loongarch64 `dsdot` is `dot.S` on LA264 and LA464 (`kernel/loongarch64/KERNEL:238`);
+- arm64 `csum` is `csum.S` everywhere (`kernel/arm64/KERNEL:1`);
 - MIPS64's MSA complex `axpy`, `rot`, `swap` and `scal` are never selected: `KERNEL` resets
-  them to the `arm/` C.
+  them to the `arm/` C (`kernel/mips64/KERNEL:1-11`).
 
 #### Conversion of the assembly
 
@@ -961,7 +962,7 @@ assembly, unchanged in substance:
   selects code with `#ifdef <CORE>` and the ABI with `WINDOWS_ABI` and the like.
 - **Variants.** One file per build variant (`Arch.variants`): x86_64 `sysv` and `win`, arm `hf`
   and `sf`, POWER `32`, `32le`, `64` (little-endian ELFv2) and `64be` (big-endian; Zig emits
-  ELFv2 there too), SPARC `32` and `64`. A variant leaves out the cores it never runs
+  ELFv2 there too, but on PS3: Zig `src/target.zig:692` at 069480a1a), SPARC `32` and `64`. A variant leaves out the cores it never runs
   (`Variant.without`): POWER's 32-bit-only `ppc440`, `ppc440fp2` and `ppcg4` have no `64` or
   `64be` build.
 - **Merged texts.** Cores whose expansions are identical share one file; texts that differ in
@@ -969,7 +970,8 @@ assembly, unchanged in substance:
   `parts`, chosen at comptime.
 - **Rewrites.** Directives that declare the function or its section go (Zig places it); tabs
   become spaces; named labels become numeric local labels, so none reach the symbol table; x86
-  `.align N`, bytes on ELF and COFF but `2^N` on Mach-O, becomes `.balign` (`align_bytes`);
+  `.align N`, bytes on ELF and COFF but `2^N` on Mach-O (LLVM 21.1.0: `MCAsmInfo.h`'s
+  `AlignmentIsInBytes = true`, `MCAsmInfoDarwin.cpp` sets it false), becomes `.balign` (`align_bytes`);
   `uk.zig` does the same for the microkernels. A variant may rewrite every statement
   (`Variant.rewrite`; the sparc `64` variant's `sll` becomes `sllx`).
 - **Output.** Each file holds `keys` (core and variant pairs), `serves(core)`, `kernel(core,
@@ -978,8 +980,11 @@ assembly, unchanged in substance:
   `daxpy_sse2_barcelona_win.zig`. The routine's `asm/__root__.zig` lists every file by slot;
   `asm_registry.Kernels` turns it into a module for `kernels/<arch>.zig`.
 - **arm64's x18.** One build serves every OS, and x18 is the platform register on Windows (the
-  TEB) and Apple (reserved; the kernel may zero it). Upstream stopped using it as scratch in
-  0.3.18, for Apple M1; `gemv_n.S`, `gemv_t.S`, `zgemv_n.S` and `zgemv_t.S` still save and
+  TEB) and Apple (reserved; the kernel may zero it). Sources: Microsoft, "Overview of ARM64 ABI
+  conventions", <https://learn.microsoft.com/en-us/cpp/build/arm64-windows-abi-conventions>;
+  Apple, "Writing ARM64 code for Apple platforms" ("The platforms reserve register `x18`"),
+  <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms>.
+  Upstream stopped using it as scratch in 0.3.18, for Apple M1 (`Changelog.txt:1298`); `gemv_n.S`, `gemv_t.S`, `zgemv_n.S` and `zgemv_t.S` still save and
   restore it with the callee-saved registers, writing back the value they found, which is
   harmless. `arch/arm64.zig`'s `check` stops the generator on any other use.
 
@@ -1110,7 +1115,9 @@ Patches that work around Zig or QEMU rather than OpenBLAS, each removable once t
   but Zig reads a two-float struct from r3/r4. The sources already copy it into r3/r4 for the
   Fortran interface; the patch turns that on.
 - arm `cdot_vfp.S`, `zdot_vfp.S`, `sf` variant: they return through a pointer in r0, as AAPCS
-  says, but Zig reads the struct from r0 to r3, so the patch drops the pointer and returns there.
+  says (AAPCS32 2024Q3, Result Return: a Composite Type larger than 4 bytes "is stored in
+  memory at an address passed as an extra argument",
+  <https://github.com/ARM-software/abi-aa/blob/2024Q3/aapcs32/aapcs32.rst>), but Zig reads the struct from r0 to r3, so the patch drops the pointer and returns there.
 - sparc, `64` variant: the sources scale 64-bit strides with `sll`, which under qemu keeps only
   the low 32 bits, so negative strides broke; the variant writes `sllx`. Whether real hardware
   behaves as qemu does is open.
