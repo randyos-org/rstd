@@ -12,6 +12,8 @@ const abi = @import("abi.zig");
 const select = @import("cpu/_select.zig");
 const vector = @import("vector.zig");
 
+const Slot = util.Slot;
+
 /// The build variant (`tools/blas_asm/arch/<arch>.zig`) the target's calling
 /// convention needs (`abi.zig`). The compiled target's, so `has`, which the
 /// build script asks about the target it is building for, does not depend on it.
@@ -34,6 +36,7 @@ pub fn isLinked(core: anytype) bool {
 /// the build's pick for the target as the last resort.
 pub fn LinkedCtx(comptime Core: type) type {
     return struct {
+        pub const arch = sysinfo.target.cpu.arch;
         pub const fallback: ?Core = if (linked.fallback) |f| std.meta.stringToEnum(Core, f) else null;
         pub fn ok(_: @This(), core: Core) bool {
             return isLinked(core);
@@ -61,30 +64,41 @@ pub fn install(vt: *Vtable, comptime modules: anytype, core: anytype) void {
     }
 }
 
-/// The vtable slot of `role`: level 1's and `ger`'s are `<role>_k` (`sdot_k`,
-/// `cgeru_k`), the other level-2 ones the role itself (`sgemv_n`, `chemv_V`).
-fn slot(comptime role: []const u8) []const u8 {
-    return if (@hasField(Vtable, role ++ "_k")) role ++ "_k" else role;
+/// One row of a generated `asm/__root__.zig`: a converted file, and the slot
+/// its kernel fills.
+pub const Entry = struct { slot: Slot, module: type };
+
+/// A kernel upstream builds that the generator does not convert, and the
+/// cores it builds it for: a row of an `asm/__root__.zig`'s `skipped`
+/// (`tools/blas_asm/roles.zig`'s `skip`).
+pub const Skipped = struct { slot: Slot, cores: []const []const u8 };
+
+/// Exports `f` as `core`'s kernel for `slot`, under `util.kernelSymbol`.
+pub fn exportKernel(comptime f: anytype, comptime slot: Slot, comptime core: anytype) void {
+    @export(f, .{ .name = util.kernelSymbol(slot, core), .visibility = .hidden });
 }
 
-/// Points the vtable slot of each of `roles` that `core` has (`hasRole`) at
-/// the kernel the per-core object exports for it, for a routine whose kernels
-/// are not all converted assembly (`Kernels.install` does this from `index`).
-pub fn installRoles(vt: *Vtable, comptime core: anytype, comptime roles: []const [:0]const u8, comptime hasRole: anytype) void {
-    inline for (roles) |role| {
-        if (comptime hasRole(core, role)) {
-            const Fn = @typeInfo(@FieldType(Vtable, slot(role))).optional.child;
-            @field(vt, slot(role)) = @extern(Fn, .{ .name = util.kernelSymbol(role, @tagName(core)), .visibility = .hidden });
-        }
+/// The kernel `core`'s object exports for `slot` (`exportKernel`).
+pub fn externKernel(comptime slot: Slot, comptime core: anytype) util.SlotFn(slot) {
+    return @extern(util.SlotFn(slot), .{ .name = util.kernelSymbol(slot, core), .visibility = .hidden });
+}
+
+/// Points each of `slots` that `core` has (`hasSlot`) at the kernel the
+/// per-core object exports for it, for a routine whose kernels are not all
+/// converted assembly (`Kernels.install` does this from `index`).
+pub fn installSlots(vt: *Vtable, comptime core: anytype, comptime slots: []const Slot, comptime hasSlot: anytype) void {
+    inline for (slots) |slot| {
+        if (comptime hasSlot(core, slot)) @field(vt, @tagName(slot)) = externKernel(slot, core);
     }
 }
 
 pub fn Kernels(comptime Core: type, comptime index: type) type {
     return struct {
-        /// `e`'s function for `core` on this target, if it has one and its
-        /// role is not `routed` to the portable or `@Vector` kernels.
-        fn kernel(comptime e: anytype, comptime core: Core) ?type {
-            if (comptime vector.routed(e.role)) return null;
+        /// `e`'s function for `core` on this target, if it has one and the
+        /// `@Vector` kernels do not take its slot (`vector.displaces`).
+        fn kernel(comptime e: Entry, comptime core: Core) ?type {
+            if (comptime vector.routed(e.slot)) @compileError(@tagName(e.slot) ++ " is routed, yet converted; tools/blas_asm/roles.zig's skip and vector.routed disagree");
+            if (comptime vector.displaces(core, e.slot)) return null;
             return e.module.kernel(@tagName(core), variant);
         }
 
@@ -97,36 +111,32 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
             return false;
         }
 
-        /// Whether `role` has a kernel on `core` for this target.
-        pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-            @setEvalBranchQuota(1_000_000);
+        /// Whether `slot` has a kernel on `core` for this target.
+        pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
             inline for (index.entries) |e| {
-                if (comptime std.mem.eql(u8, e.role, role) and kernel(e, core) != null) return true;
+                if (comptime e.slot == slot and kernel(e, core) != null) return true;
             }
             return false;
         }
 
-        /// Whether `role` has a converted kernel on `core` for this target,
-        /// `routed` or not.
-        pub fn converted(comptime core: Core, comptime role: []const u8) bool {
-            @setEvalBranchQuota(1_000_000);
-            inline for (index.entries) |e| {
-                if (comptime std.mem.eql(u8, e.role, role) and e.module.kernel(@tagName(core), variant) != null) return true;
+        /// Whether upstream builds `slot` on `core` from assembly the
+        /// generator left out (`index.skipped`).
+        pub fn skips(comptime core: Core, comptime slot: Slot) bool {
+            if (!@hasDecl(index, "skipped")) return false;
+            inline for (index.skipped) |s| {
+                if (s.slot != slot) continue;
+                inline for (s.cores) |c| {
+                    if (comptime std.mem.eql(u8, c, @tagName(core))) return true;
+                }
             }
             return false;
         }
 
-        /// Exported symbol of `role` for `core`.
-        pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-            return util.kernelSymbol(role, @tagName(core));
-        }
-
-        /// Exports the kernel `role` has on `core`, if it has one.
-        pub fn exportOne(comptime role: []const u8, comptime core: Core) void {
-            @setEvalBranchQuota(1_000_000);
+        /// Exports the kernel `slot` has on `core`, if it has one.
+        pub fn exportOne(comptime slot: Slot, comptime core: Core) void {
             inline for (index.entries) |e| {
-                if (comptime std.mem.eql(u8, e.role, role)) {
-                    if (comptime kernel(e, core)) |K| @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
+                if (comptime e.slot == slot) {
+                    if (comptime kernel(e, core)) |K| exportKernel(&K.entry, e.slot, core);
                 }
             }
         }
@@ -134,31 +144,19 @@ pub fn Kernels(comptime Core: type, comptime index: type) type {
         /// Exports every kernel `core` has. Call from a container-level `comptime`
         /// block of the object's root file.
         pub fn exportCore(comptime core: Core) void {
-            @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
                 if (comptime kernel(e, core)) |K| {
-                    @export(&@field(K, e.role), .{ .name = symbol(e.role, core), .visibility = .hidden });
-                } else if (comptime e.module.serves(@tagName(core)) and !hasRole(core, e.role) and !vector.routed(e.role)) {
-                    @compileError("no '" ++ variant ++ "' build of " ++ e.role ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
+                    exportKernel(&K.entry, e.slot, core);
+                } else if (comptime e.module.serves(@tagName(core)) and !hasSlot(core, e.slot) and !vector.displaces(core, e.slot)) {
+                    @compileError("no '" ++ variant ++ "' build of " ++ @tagName(e.slot) ++ " for " ++ @tagName(core) ++ "; tools/blas_asm/arch and abi.zig disagree");
                 }
             }
         }
 
         /// Points the vtable at the kernels `core` has.
-        ///
-        /// A role with no matching vtable field (e.g. `sdsdot`: OpenBLAS compiles
-        /// it per-core same as `dsdot`, but its own `gotoblas_t` has no
-        /// `sdsdot_k` slot either) is still exported, just not installed here.
         pub fn install(vt: *Vtable, comptime core: Core) void {
-            @setEvalBranchQuota(1_000_000);
             inline for (index.entries) |e| {
-                if (comptime kernel(e, core) != null) {
-                    const field = comptime slot(e.role);
-                    if (comptime @hasField(Vtable, field)) {
-                        const Fn = @typeInfo(@FieldType(Vtable, field)).optional.child;
-                        @field(vt, field) = @extern(Fn, .{ .name = symbol(e.role, core), .visibility = .hidden });
-                    }
-                }
+                if (comptime kernel(e, core) != null) @field(vt, @tagName(e.slot)) = externKernel(e.slot, core);
             }
         }
     };

@@ -9,8 +9,11 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
+const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
+
+const Slot = util.Slot;
 
 pub const Core = coretypes.Arm64CoreType;
 
@@ -35,16 +38,16 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 
 /// Where the `@Vector` kernels (`vector.zig`) go: every slot of theirs but
 /// `rot` on `vortex` and `vortexm4`, where they match or beat the converted
-/// kernels (`tools/blasbench/results-m6.md`), and on every core each slot no
-/// converted kernel fills, mostly C upstream, for the portable scalar loop.
-/// On Apple's systems, whose Accelerate is to serve the rest, only the
-/// `routed` slots.
-fn usesVector(comptime core: Core, comptime role: []const u8) bool {
-    if (vector.routed(role)) return true;
+/// kernels, which their objects then leave out (`vector.displaces`), and on
+/// every core each slot no converted kernel fills, mostly C upstream, for the
+/// portable scalar loop. On Apple's systems, whose Accelerate is to serve
+/// the rest, only the `routed` slots.
+fn usesVector(comptime core: Core, comptime slot: Slot) bool {
+    if (vector.routed(slot)) return true;
     if (sysinfo.target.os.tag.isDarwin()) return false;
-    if ((core == .vortex or core == .vortexm4) and !std.mem.endsWith(u8, role, "rot")) return true;
+    if (vector.displaces(core, slot)) return true;
     inline for (converted) |m| {
-        if (@hasDecl(m, "hasRole") and m.hasRole(core, role)) return false;
+        if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
     }
     return true;
 }

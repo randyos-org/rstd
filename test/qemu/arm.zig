@@ -4,6 +4,10 @@
 //! With the MMU off every data access is strongly ordered, which faults on
 //! unaligned accesses, so `_start` first enables the MMU with a 1 MiB section
 //! identity map: 0-1 GiB as device, 1 GiB + 128 MiB (RAM) as normal cached.
+//!
+//! Before that it turns on the FPU, which the kernels use under either float
+//! ABI. Its `vmsr` is written by encoding, since a build without VFP rejects
+//! the mnemonic (and Zig still exits 0).
 
 comptime {
     asm (
@@ -15,7 +19,7 @@ comptime {
         \\  mcr p15, 0, r0, c1, c0, 2
         \\  isb
         \\  mov r0, #0x40000000
-        \\  vmsr fpexc, r0
+        \\  .inst 0xeee80a10 @ vmsr fpexc, r0
         \\  ldr r0, =qemutest_ttb
         \\  mcr p15, 0, r0, c2, c0, 0
         \\  mov r0, #0

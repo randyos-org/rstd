@@ -87,6 +87,10 @@ fn run(init: std.process.Init) !u8 {
         if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;
         try command.print(arena, " '{s}'", .{a});
     }
+    // concurrent runs contend for nix's eval cache, which nix retries and
+    // reports as "error (ignored): SQLite database ... is busy"; drop that line
+    // (zsh, the Mac's login shell, has process substitution)
+    try command.appendSlice(arena, " 2> >(grep --line-buffered -v 'eval-cache.*is busy' >&2)");
     const log = try Io.Dir.cwd().createFile(io, log_path, .{});
     defer log.close(io);
     var out: Io.File.Writer = .init(log, io, &.{});

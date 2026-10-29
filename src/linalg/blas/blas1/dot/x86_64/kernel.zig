@@ -21,6 +21,7 @@ const kernel = @import("../kernel.zig");
 const uk = @import("../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
+const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
 
@@ -39,13 +40,13 @@ inline fn half(comptime T: type, v: anytype, comptime high: bool) @Vector(@typeI
     return @shuffle(T, v, undefined, mask);
 }
 
-/// `ddot_microk_skylakex-2.c` and `sdot_microk_skylakex-2.c`, for the roles
-/// that use them (`sdot`, `dsdot`, `ddot`): four accumulators of 256 bits, fed
+/// `ddot_microk_skylakex-2.c` and `sdot_microk_skylakex-2.c`, for the slots
+/// that use them (`dsdot`, `ddot`): four accumulators of 256 bits, fed
 /// ahead of that by four of 512 when `wide` (folded into the 256-bit ones), the
 /// accumulators added in order, then the halves, then `hadd`. `fuse` is whether
 /// `acc += a*b` contracts.
-pub fn VectorBlockWith(comptime role: []const u8, comptime wide: bool, comptime fuse: bool) type {
-    const T = uk.Float(role);
+pub fn VectorBlockWith(comptime slot: Slot, comptime wide: bool, comptime fuse: bool) type {
+    const T = kernel.form(slot).E;
     const l256 = 32 / @sizeOf(T);
     const l512 = 64 / @sizeOf(T);
     const V = @Vector(l256, T);
@@ -61,14 +62,14 @@ pub fn VectorBlockWith(comptime role: []const u8, comptime wide: bool, comptime 
                 const nw = n & ~@as(usize, step - 1);
                 while (i < nw) : (i += step) {
                     inline for (0..4) |g| {
-                        w[g] = kernel.fmadd(fuse, W, util.load(W, x + i + g * l512), util.load(W, y + i + g * l512), w[g]);
+                        w[g] = fma.madd(fuse, W, util.load(W, x + i + g * l512), util.load(W, y + i + g * l512), w[g]);
                     }
                 }
                 inline for (0..4) |g| acc[g] = half(T, w[g], false) + half(T, w[g], true);
             }
             while (i < n) : (i += 4 * l256) {
                 inline for (0..4) |g| {
-                    acc[g] = kernel.fmadd(fuse, V, util.load(V, x + i + g * l256), util.load(V, y + i + g * l256), acc[g]);
+                    acc[g] = fma.madd(fuse, V, util.load(V, x + i + g * l256), util.load(V, y + i + g * l256), acc[g]);
                 }
             }
             const a = ((acc[0] + acc[1]) + acc[2]) + acc[3];
@@ -81,14 +82,14 @@ pub fn VectorBlockWith(comptime role: []const u8, comptime wide: bool, comptime 
 }
 
 /// The block for the core being built.
-fn VectorBlock(comptime role: []const u8) type {
-    return VectorBlockWith(role, has_avx512cd, fma.fuse);
+fn VectorBlock(comptime slot: Slot) type {
+    return VectorBlockWith(slot, has_avx512cd, fma.fuse);
 }
 
 const K = uk.Kernels(Core, kernel, @import("asm/__root__.zig"), @import("uk/__root__.zig"), VectorBlock);
 
-pub const hasRole = K.hasRole;
+pub const hasSlot = K.hasSlot;
+pub const skips = K.skips;
 pub const has = K.has;
-pub const symbol = K.symbol;
 pub const exportCore = K.exportCore;
 pub const install = K.install;

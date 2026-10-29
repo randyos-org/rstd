@@ -9,47 +9,129 @@ pub var arena: std.mem.Allocator = undefined;
 pub var io: Io = undefined;
 /// The OpenBLAS checkout.
 pub var root: []const u8 = undefined;
-/// The level-1 directory `uk.zig`'s output goes under, as
-/// `<out_root>/<routine>/<arch>/uk/`.
-pub var out_root: []const u8 = "src/linalg/blas/blas1";
+/// The BLAS directory `uk.zig`'s output goes under, as
+/// `<out_root>/<Routine.dir>/<arch>/uk/`.
+pub var out_root: []const u8 = "src/linalg/blas";
 
 /// A routine whose C kernels are converted, and what its roles are.
 pub const Routine = enum {
     axpy,
     dot,
+    scal,
+    rot,
+    gemv_n,
+    gemv_t,
 
     pub fn roles(r: Routine) []const Role {
         return switch (r) {
             .axpy => &.{
-                .{ .name = "saxpy", .letter = 's', .make = "S" },
-                .{ .name = "daxpy", .letter = 'd', .make = "D" },
-                .{ .name = "caxpy", .letter = 'c', .make = "C" },
-                .{ .name = "caxpyc", .letter = 'c', .make = "C", .function = 1 },
-                .{ .name = "zaxpy", .letter = 'z', .make = "Z" },
-                .{ .name = "zaxpyc", .letter = 'z', .make = "Z", .function = 1 },
+                .{ .slot = "saxpy_k", .letter = 's', .make = "S" },
+                .{ .slot = "daxpy_k", .letter = 'd', .make = "D" },
+                .{ .slot = "caxpy_k", .letter = 'c', .make = "C" },
+                .{ .slot = "caxpyc_k", .letter = 'c', .make = "C", .function = 1 },
+                .{ .slot = "zaxpy_k", .letter = 'z', .make = "Z" },
+                .{ .slot = "zaxpyc_k", .letter = 'z', .make = "Z", .function = 1 },
             },
             // the blocks do not know conjugation, and `dsdot` runs `sdot`'s
             .dot => &.{
-                .{ .name = "sdot", .letter = 's', .make = "S" },
-                .{ .name = "dsdot", .letter = 's', .make = "DS" },
-                .{ .name = "ddot", .letter = 'd', .make = "D" },
-                .{ .name = "cdotu", .letter = 'c', .make = "C" },
-                .{ .name = "cdotc", .letter = 'c', .make = "C" },
-                .{ .name = "zdotu", .letter = 'z', .make = "Z" },
-                .{ .name = "zdotc", .letter = 'z', .make = "Z" },
+                .{ .slot = "sdot_k", .letter = 's', .make = "S" },
+                .{ .slot = "dsdot_k", .letter = 's', .make = "DS" },
+                .{ .slot = "ddot_k", .letter = 'd', .make = "D" },
+                .{ .slot = "cdotu_k", .letter = 'c', .make = "C" },
+                .{ .slot = "cdotc_k", .letter = 'c', .make = "C" },
+                .{ .slot = "zdotu_k", .letter = 'z', .make = "Z" },
+                .{ .slot = "zdotc_k", .letter = 'z', .make = "Z" },
+            },
+            .scal => &.{
+                .{ .slot = "sscal_k", .letter = 's', .make = "S" },
+                .{ .slot = "dscal_k", .letter = 'd', .make = "D" },
+                .{ .slot = "cscal_k", .letter = 'c', .make = "C" },
+                .{ .slot = "zscal_k", .letter = 'z', .make = "Z" },
+            },
+            .rot => &.{
+                .{ .slot = "srot_k", .letter = 's', .make = "S" },
+                .{ .slot = "drot_k", .letter = 'd', .make = "D" },
+            },
+            // the complex forms are one driver built with `CONJ`, `XCONJ` or both
+            .gemv_n => &.{
+                .{ .slot = "sgemv_n", .letter = 's', .make = "S" },
+                .{ .slot = "dgemv_n", .letter = 'd', .make = "D" },
+                .{ .slot = "cgemv_n", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_r", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_o", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_s", .letter = 'c', .make = "C" },
+                .{ .slot = "zgemv_n", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_r", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_o", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_s", .letter = 'z', .make = "Z" },
+            },
+            .gemv_t => &.{
+                .{ .slot = "sgemv_t", .letter = 's', .make = "S" },
+                .{ .slot = "dgemv_t", .letter = 'd', .make = "D" },
+                .{ .slot = "cgemv_t", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_c", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_u", .letter = 'c', .make = "C" },
+                .{ .slot = "cgemv_d", .letter = 'c', .make = "C" },
+                .{ .slot = "zgemv_t", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_c", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_u", .letter = 'z', .make = "Z" },
+                .{ .slot = "zgemv_d", .letter = 'z', .make = "Z" },
             },
         };
     }
 
-    /// The make variable of a role's source: `SAXPYKERNEL`, `DSDOTKERNEL`.
+    /// The make variable of a role's source: `SAXPYKERNEL`, `DSDOTKERNEL`,
+    /// `SGEMVNKERNEL`.
     pub fn variable(r: Routine, role: Role) ![]const u8 {
-        return try arena.print("{s}{s}KERNEL", .{ role.make, try std.ascii.allocUpperString(arena, @tagName(r)) });
+        const upper = try std.ascii.allocUpperString(arena, @tagName(r));
+        const name = try std.mem.replaceOwned(u8, arena, upper, "_", "");
+        return try arena.print("{s}{s}KERNEL", .{ role.make, name });
+    }
+
+    /// The makefile whose defaults apply where no kernel list sets the variable.
+    pub fn defaults(r: Routine) []const u8 {
+        return switch (r) {
+            .gemv_n, .gemv_t => "Makefile.L2",
+            else => "Makefile.L1",
+        };
+    }
+
+    /// Where the routine lives under `out_root`.
+    pub fn dir(r: Routine) ![]const u8 {
+        return switch (r) {
+            .gemv_n, .gemv_t => "blas2/gemv",
+            else => try arena.print("blas1/{s}", .{@tagName(r)}),
+        };
+    }
+
+    /// The index's file name in `uk/`; the gemv forms share a directory.
+    pub fn index(r: Routine) []const u8 {
+        return switch (r) {
+            .gemv_n => "index_n.zig",
+            .gemv_t => "index_t.zig",
+            else => "__root__.zig",
+        };
+    }
+
+    /// The C driver of precision `letter`: `daxpy.c`, `dgemv_n_4.c`.
+    pub fn driver(r: Routine, letter: u8) ![]const u8 {
+        const suffix = switch (r) {
+            .gemv_n, .gemv_t => "_4",
+            else => "",
+        };
+        return try arena.print("{c}{s}{s}.c", .{ letter, @tagName(r), suffix });
+    }
+
+    /// Whether the driver hands its block one size, `n & -N`.
+    pub fn masked(r: Routine) bool {
+        return r == .axpy or r == .dot;
     }
 };
 
 /// One kernel of a routine.
 pub const Role = struct {
-    name: []const u8,
+    /// The vtable slot it fills.
+    slot: []const u8,
     /// The precision letter, which names its driver (`<letter><routine>.c`).
     letter: u8,
     /// The make variable's precision prefix, as `Makefile.L1` has it.
@@ -180,6 +262,26 @@ fn apply(a: *Assigns, file: []const u8, kernel_dir: []const u8, key: []const u8,
             if (a.values.items.len == 0) try a.set(rest, false);
         } else try a.set(rest, undecided);
     }
+}
+
+/// `Makefile.system`'s "fallbacks for 32bit": a `BINARY=32` build of the first
+/// `TARGET` runs `getarch.c` for the second, so it gets that core's `config.h`,
+/// `param.h` set and kernels. Its `TARGET_CORE` list sends `ZEN` to `NEHALEM`
+/// instead; `dynamic.c` and `kernel/x86/KERNEL.ZEN` follow `TARGET`'s.
+const binary32_targets = [_][2][]const u8{
+    .{ "HASWELL", "NEHALEM" },        .{ "SKYLAKEX", "NEHALEM" },      .{ "COOPERLAKE", "NEHALEM" },
+    .{ "SAPPHIRERAPIDS", "NEHALEM" }, .{ "SANDYBRIDGE", "NEHALEM" },   .{ "BULLDOZER", "BARCELONA" },
+    .{ "PILEDRIVER", "BARCELONA" },   .{ "STEAMROLLER", "BARCELONA" }, .{ "EXCAVATOR", "BARCELONA" },
+    .{ "ZEN", "BARCELONA" },          .{ "ARMV8", "ARMV7" },           .{ "POWER8", "POWER6" },
+    .{ "POWER9", "POWER6" },          .{ "POWER10", "POWER6" },
+};
+
+/// The `getarch.c` entry a 32-bit build of the upper-case target `core` takes.
+pub fn target32(core: []const u8) []const u8 {
+    for (binary32_targets) |t| {
+        if (std.mem.eql(u8, t[0], core)) return t[1];
+    }
+    return core;
 }
 
 /// The `-D` symbols getarch puts in a core's `config.h` (its `ARCHCONFIG`,

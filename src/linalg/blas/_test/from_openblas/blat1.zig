@@ -8,7 +8,7 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const l1 = @import("../../blas1/interface.zig");
+const blas = @import("../../__root__.zig");
 
 const Float = ob.Float;
 const isComplex = ob.isComplex;
@@ -96,7 +96,7 @@ fn check0(comptime F: type) !void {
         var sb: F = @floatCast(db1[k]);
         var sc: F = undefined;
         var ss: F = undefined;
-        l1.rotg(F, &sa, &sb, &sc, &ss);
+        blas.rotg(F, &sa, &sb, &sc, &ss);
         try stest1(F, c, sa, datrue[k], datrue[k], sfac);
         try stest1(F, c, sb, dbt[k], dbt[k], sfac);
         try stest1(F, c, sc, dc1[k], dc1[k], sfac);
@@ -136,7 +136,7 @@ fn check0(comptime F: type) !void {
         const c: Case = .{ .name = p ++ "ROTMG", .n = @intCast(k + 1) };
         var t: [9]F = @splat(0);
         load(F, t[0..4], dab[4 * k ..][0..4]);
-        l1.rotmg(F, &t[0], &t[1], &t[2], t[3], t[4..9]);
+        blas.rotmg(F, &t[0], &t[1], &t[2], t[3], t[4..9]);
         var want: [9]f64 = undefined;
         for (&want, dt[9 * k ..][0..9]) |*w, v| w.* = v;
         try stest(F, c, &t, &want, &want, sfac, false);
@@ -154,12 +154,12 @@ fn check1(comptime F: type) !void {
         const inc: isize = @intCast(incx);
         const in: isize = @intCast(n);
         load(F, sx[0..len], dv[col..]);
-        try stest1(F, .{ .name = p ++ "NRM2", .n = in, .incx = inc }, try l1.nrm2(F, in, &sx, inc), dtrue1[np1], dtrue1[np1], sfac);
-        try stest1(F, .{ .name = p ++ "ASUM", .n = in, .incx = inc }, try l1.asum(F, in, &sx, inc), dtrue3[np1], dtrue3[np1], sfac);
-        try l1.scal(F, in, @floatCast(sa1[(incx - 1) * 5 + np1]), &sx, inc);
+        try stest1(F, .{ .name = p ++ "NRM2", .n = in, .incx = inc }, try blas.nrm2(ob.io, F, in, &sx, inc), dtrue1[np1], dtrue1[np1], sfac);
+        try stest1(F, .{ .name = p ++ "ASUM", .n = in, .incx = inc }, try blas.asum(ob.io, F, in, &sx, inc), dtrue3[np1], dtrue3[np1], sfac);
+        try blas.scal(ob.io, F, in, @floatCast(sa1[(incx - 1) * 5 + np1]), &sx, inc);
         try stest(F, .{ .name = p ++ "SCAL", .n = in, .incx = inc }, sx[0..len], dtrue5[col..][0..len], dtrue5[col..][0..len], sfac, false);
         load(F, sx[0..len], dv[col..]);
-        try itest1(.{ .name = "I" ++ p ++ "AMAX", .n = in, .incx = inc }, try l1.index(F, .amax, in, &sx, inc), itrue2[np1]);
+        try itest1(.{ .name = "I" ++ p ++ "AMAX", .n = in, .incx = inc }, try blas.index(ob.io, F, .amax, in, &sx, inc), itrue2[np1]);
     };
 }
 
@@ -192,14 +192,14 @@ fn check2(comptime F: type) !void {
             var sy: [7]F = undefined;
             load(F, &sx, &dx1);
             load(F, &sy, &dy1);
-            try stest1(F, c, try l1.dot(F, n, &sx, incx, &sy, incy), dt7[kn + 4 * ki], ssize1[kn], sfac);
-            try l1.axpy(F, n, 0.3, &sx, incx, &sy, incy);
+            try stest1(F, c, try blas.dot(ob.io, F, n, &sx, incx, &sy, incy), dt7[kn + 4 * ki], ssize1[kn], sfac);
+            try blas.axpy(ob.io, F, n, 0.3, &sx, incx, &sy, incy);
             try stest(F, c, sy[0..leny], dt8[at..], ssize2[14 * (ksize - 1) ..], sfac, false);
             load(F, &sy, &dy1);
-            try l1.copy(F, n, &sx, incx, &sy, incy);
+            try blas.copy(ob.io, F, n, &sx, incx, &sy, incy);
             try stest(F, c, sy[0..leny], dt10y[at..], &zeros, 1, false);
             load(F, &sy, &dy1);
-            try l1.swap(F, n, &sx, incx, &sy, incy);
+            try blas.swap(ob.io, F, n, &sx, incx, &sy, incy);
             try stest(F, c, sx[0..lenx], dt10x[at..], &zeros, 1, false);
             try stest(F, c, sy[0..leny], dt10y[at..], &zeros, 1, false);
             const kni = kn + 4 * ki;
@@ -213,7 +213,7 @@ fn check2(comptime F: type) !void {
                 var ssize: [7]f64 = stx.*;
                 if (kpar == 1 and kni == 6) ssize[0] = 2.4;
                 if (kpar == 2 and kni == 7) ssize[4] = 1.8;
-                try l1.rotm(F, n, &sx, incx, &sy, incy, &param);
+                try blas.rotm(ob.io, F, n, &sx, incx, &sy, incy, &param);
                 try stest(F, .{ .name = p ++ "ROTM", .n = n, .incx = incx, .incy = incy }, sx[0..lenx], stx, &ssize, sfac, false);
                 try stest(F, .{ .name = p ++ "ROTM", .n = n, .incx = incx, .incy = incy }, sy[0..leny], sty, sty, sfac, false);
             }
@@ -222,10 +222,10 @@ fn check2(comptime F: type) !void {
             load(f32, &fx, &dx1);
             load(f32, &fy, &dy1);
             if (F == f32) {
-                try stest1(f32, .{ .name = "SDSDOT", .n = n, .incx = incx, .incy = incy }, try l1.sdsdot(n, 0.1, &fx, incx, &fy, incy), st7b[kn + 4 * ki], ssize3[kn], sfac);
+                try stest1(f32, .{ .name = "SDSDOT", .n = n, .incx = incx, .incy = incy }, try blas.sdsdot(ob.io, n, 0.1, &fx, incx, &fy, incy), st7b[kn + 4 * ki], ssize3[kn], sfac);
             } else {
                 // TESTDSDOT: compared in single precision, with its own factor
-                const d: f32 = @floatCast(try l1.dsdot(n, &fx, incx, &fy, incy));
+                const d: f32 = @floatCast(try blas.dsdot(ob.io, n, &fx, incx, &fy, incy));
                 try stest1(f32, .{ .name = "DSDOT", .n = n, .incx = incx, .incy = incy }, d, dt7[kn + 4 * ki], ssize1[kn], 0.3125e-1);
             }
         }
@@ -248,7 +248,7 @@ fn check3(comptime F: type) !void {
             var sy: [7]F = undefined;
             load(F, &sx, &dx1);
             load(F, &sy, &dy1);
-            try l1.rot(F, n, &sx, incx, &sy, incy, 0.8, 0.6);
+            try blas.rot(ob.io, F, n, &sx, incx, &sy, incy, 0.8, 0.6);
             const c: Case = .{ .name = p, .n = n, .incx = incx, .incy = incy };
             try stest(F, c, sx[0..lenx], dt9x[at..], ssize2[14 * (ksize - 1) ..], sfac, false);
             try stest(F, c, sy[0..leny], dt9y[at..], ssize2[14 * (ksize - 1) ..], sfac, false);
@@ -290,7 +290,7 @@ fn check3(comptime F: type) !void {
     for (0..11) |i| {
         var x = [5]F{ 1, 2, 3, 4, 5 };
         var y = [5]F{ 1, 2, 3, 4, 5 };
-        try l1.rot(F, mwpn[i], &x, mwpinx[i], &y, mwpiny[i], mwpc[i], mwps[i]);
+        try blas.rot(ob.io, F, mwpn[i], &x, mwpinx[i], &y, mwpiny[i], mwpc[i], mwps[i]);
         const c: Case = .{ .name = p, .n = mwpn[i], .incx = mwpinx[i], .incy = mwpiny[i] };
         try stest(F, c, &x, &tx[i], &tx[i], sfac, false);
         try stest(F, c, &y, &ty[i], &ty[i], sfac, false);
@@ -358,7 +358,7 @@ fn ctestCheck3(comptime F: type) !void {
         var tx = sx;
         var ty = sy;
         const c: Case = .{ .name = p ++ "ROT", .n = n, .incx = incx, .incy = incy };
-        try l1.rot(F, n, &sx, incx, &sy, incy, 0.8, 0.6);
+        try blas.rot(ob.io, F, n, &sx, incx, &sy, incy, 0.8, 0.6);
         refRot(F, n, &tx, incx, &ty, incy, 0.8, 0.6);
         try stest(F, c, &sx, &wideOf(F, len, tx), ssz, sfac, true);
         try stest(F, c, &sy, &wideOf(F, len, ty), ssz, sfac, true);
@@ -370,7 +370,7 @@ fn ctestCheck3(comptime F: type) !void {
             var param: [5]F = undefined;
             load(F, &param, c_param[5 * i ..]);
             const cm: Case = .{ .name = p ++ "ROTM", .n = n, .incx = incx, .incy = incy };
-            try l1.rotm(F, n, &sx, incx, &sy, incy, &param);
+            try blas.rotm(ob.io, F, n, &sx, incx, &sy, incy, &param);
             refRotm(F, n, &tx, incx, &ty, incy, &param);
             try stest(F, cm, &sx, &wideOf(F, len, tx), ssz, sfac, true);
             try stest(F, cm, &sy, &wideOf(F, len, ty), ssz, sfac, true);
@@ -403,14 +403,14 @@ fn ccheck1(comptime C: type, d: anytype, old: bool) !void {
             const in: isize = @intCast(n);
             const c: Case = .{ .name = p, .n = in, .incx = inc };
             loadC(C, cx[0..len], d.cv[col..]);
-            try stest(F, c, &.{try l1.nrm2(C, in, &cx, inc)}, d.strue2[np1..], d.strue2[np1..], sfac, old);
-            try stest(F, c, &.{try l1.asum(C, in, &cx, inc)}, d.strue4[np1..], d.strue4[np1..], sfac, old);
-            try itest1(c, try l1.index(C, .amax, in, &cx, inc), itrue3[np1]);
+            try stest(F, c, &.{try blas.nrm2(ob.io, C, in, &cx, inc)}, d.strue2[np1..], d.strue2[np1..], sfac, old);
+            try stest(F, c, &.{try blas.asum(ob.io, C, in, &cx, inc)}, d.strue4[np1..], d.strue4[np1..], sfac, old);
+            try itest1(c, try blas.index(ob.io, C, .amax, in, &cx, inc), itrue3[np1]);
             if (comptime std.mem.eql(u8, which, "scal")) {
-                try l1.scal(C, in, ca, &cx, inc);
+                try blas.scal(ob.io, C, in, ca, &cx, inc);
                 try ctest(C, c, cx[0..len], d.ctrue5[col..], d.ctrue5[col..], sfac, old);
             } else {
-                try l1.scalReal(C, in, sa, &cx, inc);
+                try blas.scalReal(ob.io, C, in, sa, &cx, inc);
                 try ctest(C, c, cx[0..len], d.ctrue6[col..], d.ctrue6[col..], sfac, old);
             }
         };
@@ -420,15 +420,15 @@ fn ccheck1(comptime C: type, d: anytype, old: bool) !void {
         const zeros: [5][2]f64 = @splat(.{ 0, 0 });
         const ones: [5][2]f64 = @splat(.{ 1, 1 });
         if (comptime std.mem.eql(u8, which, "scal")) {
-            try l1.scal(C, 5, .init(0, 0), &cx, 1);
+            try blas.scal(ob.io, C, 5, .init(0, 0), &cx, 1);
             try ctest(C, c, cx[0..5], &zeros, &ones, sfac, old);
         } else {
-            try l1.scalReal(C, 5, 0, &cx, 1);
+            try blas.scalReal(ob.io, C, 5, 0, &cx, 1);
             try ctest(C, c, cx[0..5], &zeros, &ones, sfac, old);
             for ([_]F{ 1, -1 }) |s| {
                 var want: [5][2]f64 = undefined;
                 for (&want, cx[0..5]) |*w, z| w.* = .{ s * z.re, s * z.im };
-                try l1.scalReal(C, 5, s, &cx, 1);
+                try blas.scalReal(ob.io, C, 5, s, &cx, 1);
                 try ctest(C, c, cx[0..5], &want, &want, sfac, old);
             }
         }
@@ -453,15 +453,15 @@ fn ccheck2(comptime C: type) !void {
             var cy: [7]C = undefined;
             loadC(C, &cx, &cx1);
             loadC(C, &cy, &cy1);
-            try ctest(C, c, &.{try l1.dotc(C, n, &cx, incx, &cy, incy)}, ct6[kn + 4 * ki ..], csize1[kn..], sfac, false);
-            try ctest(C, c, &.{try l1.dot(C, n, &cx, incx, &cy, incy)}, ct7[kn + 4 * ki ..], csize1[kn..], sfac, false);
-            try l1.axpy(C, n, ca, &cx, incx, &cy, incy);
+            try ctest(C, c, &.{try blas.dotc(ob.io, C, n, &cx, incx, &cy, incy)}, ct6[kn + 4 * ki ..], csize1[kn..], sfac, false);
+            try ctest(C, c, &.{try blas.dot(ob.io, C, n, &cx, incx, &cy, incy)}, ct7[kn + 4 * ki ..], csize1[kn..], sfac, false);
+            try blas.axpy(ob.io, C, n, ca, &cx, incx, &cy, incy);
             try ctest(C, c, cy[0..leny], ct8[at..], csize2[7 * (ksize - 1) ..], sfac, false);
             loadC(C, &cy, &cy1);
-            try l1.copy(C, n, &cx, incx, &cy, incy);
+            try blas.copy(ob.io, C, n, &cx, incx, &cy, incy);
             try ctest(C, c, cy[0..leny], ct10y[at..], &csize3, 1, false);
             loadC(C, &cy, &cy1);
-            try l1.swap(C, n, &cx, incx, &cy, incy);
+            try blas.swap(ob.io, C, n, &cx, incx, &cy, incy);
             try ctest(C, c, cx[0..lenx], ct10x[at..], &csize3, 1, false);
             try ctest(C, c, cy[0..leny], ct10y[at..], &csize3, 1, false);
         }

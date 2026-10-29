@@ -7,30 +7,30 @@ const uk = @import("../../../uk_block.zig");
 pub const Entry = uk.Entry;
 
 pub const entries = [_]Entry{
-    .{ .role = "saxpy", .cores = &.{
+    .{ .slot = .saxpy_k, .cores = &.{
         "z14",
     }, .mask = 64, .block = .assembly, .kernel = "saxpy_kernel_64", .module = @import("saxpy.zig") },
-    .{ .role = "daxpy", .cores = &.{
+    .{ .slot = .daxpy_k, .cores = &.{
         "z13",
         "z14",
     }, .mask = 32, .block = .assembly, .kernel = "daxpy_kernel_32", .module = @import("daxpy.zig") },
-    .{ .role = "caxpy", .cores = &.{
+    .{ .slot = .caxpy_k, .cores = &.{
         "z14",
     }, .mask = 16, .block = .assembly, .kernel = "caxpy_kernel_16", .module = @import("caxpy.zig") },
-    .{ .role = "caxpyc", .cores = &.{
+    .{ .slot = .caxpyc_k, .cores = &.{
         "z14",
     }, .mask = 16, .block = .assembly, .kernel = "caxpyc_kernel_16", .module = @import("caxpy.zig") },
-    .{ .role = "zaxpy", .cores = &.{
+    .{ .slot = .zaxpy_k, .cores = &.{
         "z13",
         "z14",
     }, .mask = 8, .block = .assembly, .kernel = "zaxpy_kernel_8", .module = @import("zaxpy.zig") },
-    .{ .role = "zaxpyc", .cores = &.{
+    .{ .slot = .zaxpyc_k, .cores = &.{
         "z13",
         "z14",
     }, .mask = 8, .block = .assembly, .kernel = "zaxpyc_kernel_8", .module = @import("zaxpy.zig") },
 };
 
-/// The entry for `role` on `core`, if its driver is C.
-pub fn find(comptime role: []const u8, comptime core: []const u8) ?Entry {
-    return uk.find(&entries, role, core);
+/// The entry for `slot` on `core`, if its driver is C.
+pub fn find(comptime slot: uk.Slot, comptime core: []const u8) ?Entry {
+    return uk.find(&entries, slot, core);
 }

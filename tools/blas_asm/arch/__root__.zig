@@ -43,6 +43,8 @@ pub const Kernel = struct {
     conj: bool = false,
     /// The vtable role (`cdotu`).
     role_name: []const u8 = "",
+    /// Its vtable slot (`cdotu_k`).
+    slot: []const u8 = "",
     /// `-D` symbols the role's rule adds.
     defines: []const []const u8 = &.{},
 
@@ -69,7 +71,7 @@ fn isNameChar(c: u8) bool {
 /// call to one core's own kernel (`bl camax_k_LA264`): OpenBLAS's own name
 /// for exactly the symbol this project's per-core kernel object already
 /// builds and exports, under this project's own naming instead
-/// (`util.kernelSymbol`: `blaskern_camax_la264`). Rewrites any such call to
+/// (`util.kernelSymbol`: `blaskern_camax_k_la264`). Rewrites any such call to
 /// that name, so it resolves within the same isolated per-core object.
 fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const u8 {
     if (std.mem.find(u8, line, "_k_") == null) return line;
@@ -87,7 +89,7 @@ fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const
                 // digits are neither upper nor lower, so they pass either way
                 for (role) |c| if (std.ascii.isUpper(c)) break :rewrite;
                 for (core) |c| if (std.ascii.isLower(c)) break :rewrite;
-                try out.print(a, "blaskern_{s}_{s}", .{ role, try std.ascii.allocLowerString(a, core) });
+                try out.print(a, "blaskern_{s}_k_{s}", .{ role, try std.ascii.allocLowerString(a, core) });
                 i = e;
                 continue;
             }
@@ -152,6 +154,15 @@ pub const Variant = struct {
     /// A change to every statement of every source built this way, after
     /// preprocessing (`nakedLines`'s output, one statement each).
     rewrite: ?*const fn (a: std.mem.Allocator, statement: []const u8) Error![]const u8 = null,
+    /// Cores (`KERNEL.<core>` names, any case) never built this way, such as
+    /// 32-bit-only cores in a 64-bit variant (`cpu/_corespec.zig`'s `runsOn`).
+    without: []const []const u8 = &.{},
+
+    /// Whether `core` has a build of this variant.
+    pub fn builds(v: Variant, core: []const u8) bool {
+        for (v.without) |c| if (std.ascii.eqlIgnoreCase(c, core)) return false;
+        return true;
+    }
 };
 
 /// Our fix for a bug in an upstream source, applied to its text before it is
@@ -182,6 +193,10 @@ pub const Arch = struct {
     unsupported: []const []const u8 = &.{},
     /// Fixes for upstream bugs, for every variant.
     patches: []const Patch = &.{},
+    /// Fixes to sources no longer converted (`roles.skip`), never applied:
+    /// the record of the fixes `issues.md` words for upstream. Each run of
+    /// the architecture checks they still match.
+    retired: []const Patch = &.{},
     /// The ways to build each source; empty name for just one.
     variants: []const Variant = &.{.{ .name = "", .defines = &.{} }},
     /// Whether this source is one to convert (some are C, done elsewhere).
@@ -190,6 +205,9 @@ pub const Arch = struct {
     /// ELF and COFF. Mach-O reads it as a power of two instead, so these are
     /// written as `.balign`, which means bytes on every object format.
     align_bytes: bool = false,
+    /// Stops the generator on a statement some target of this architecture
+    /// cannot take (`nakedLines`'s output, one statement each).
+    check: ?*const fn (source: []const u8, statement: []const u8) void = null,
 };
 
 pub fn isDotS(source: []const u8) bool {

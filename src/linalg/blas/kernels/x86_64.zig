@@ -8,8 +8,11 @@
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
+const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
+
+const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
 
@@ -21,11 +24,11 @@ const converted = .{
     registry.Kernels(Core, @import("../blas1/asum/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/x86_64/asm/__root__.zig")),
     @import("../blas1/dot/x86_64/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/rot/x86_64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas1/scal/x86_64/asm/__root__.zig")),
+    @import("../blas1/rot/x86_64/kernel.zig"),
+    @import("../blas1/scal/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/x86_64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas2/gemv/x86_64/asm/__root__.zig")),
+    @import("../blas2/gemv/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas2/hemv/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/symv/x86_64/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
@@ -36,12 +39,12 @@ const modules = converted ++ .{vector.Registry(Core, usesVector)};
 
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those
 /// routed for their alignment (`vector.peels`) only on the cores whose
-/// converted kernels they replace.
-fn usesVector(comptime core: Core, comptime role: []const u8) bool {
-    if (!vector.routed(role)) return false;
-    if (!vector.peels(role)) return true;
+/// upstream assembly they replace, which is not converted (`skips`).
+fn usesVector(comptime core: Core, comptime slot: Slot) bool {
+    if (!vector.routed(slot)) return false;
+    if (!vector.peels(slot)) return true;
     inline for (converted) |m| {
-        if (@hasDecl(m, "converted") and m.converted(core, role)) return true;
+        if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
     }
     return false;
 }
@@ -68,4 +71,26 @@ pub fn exportCore(comptime core: Core) void {
 /// Points the vtable at the kernels `core` has (see `asm_registry.install`).
 pub fn install(vt: *Vtable, core: Core) void {
     registry.install(vt, modules, core);
+}
+
+test "the @Vector kernels take every slot whose peeling assembly was left out" {
+    // the routines' own indexes, so a module that forgets `skips` is caught
+    const peeling_asm = .{
+        registry.Kernels(Core, @import("../blas1/asum/x86_64/asm/__root__.zig")),
+        registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
+        registry.Kernels(Core, @import("../blas1/dot/x86_64/asm/__root__.zig")),
+        registry.Kernels(Core, @import("../blas2/gemv/x86_64/asm/__root__.zig")),
+    };
+    @setEvalBranchQuota(100_000);
+    inline for (comptime std.meta.tags(Core)) |core| {
+        inline for (vector.peeling) |slot| {
+            const left_out = comptime for (peeling_asm) |a| {
+                if (a.skips(core, slot)) break true;
+            } else false;
+            if (left_out and !usesVector(core, slot)) {
+                std.debug.print("{t} {t}\n", .{ core, slot });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
 }

@@ -27,12 +27,6 @@ pub fn sbsymm_outcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: 
 pub fn sbsymm_oltcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
     return blas.kernel(.sbsymm_oltcopy)(m, n, a, lda, posX, posY, b);
 }
-pub fn ssymm_direct_alpha_betaLU(M: BlasLong, N: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong, beta: f32, R: [*]f32, strideR: BlasLong) void {
-    blas.kernel(.ssymm_direct_alpha_betaLU)(M, N, alpha, A, strideA, B, strideB, beta, R, strideR);
-}
-pub fn ssymm_direct_alpha_betaLL(M: BlasLong, N: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong, beta: f32, R: [*]f32, strideR: BlasLong) void {
-    blas.kernel(.ssymm_direct_alpha_betaLL)(M, N, alpha, A, strideA, B, strideB, beta, R, strideR);
-}
 pub fn ssymm_iutcopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
     return blas.kernel(.ssymm_iutcopy)(m, n, a, lda, posX, posY, b);
 }

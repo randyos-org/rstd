@@ -404,6 +404,7 @@ const sym = @import("../symmetric.zig");
 const guard = @import("../../_test/blas2/guard.zig");
 const zigstd = @import("../../../../zigstd.zig");
 const fma = @import("../../fma.zig");
+const x86cpu = @import("../../cpu/x86.zig");
 
 const C = std.math.Complex;
 /// Shapes across the kernels' blocks, then bigger ones through their
@@ -470,8 +471,8 @@ fn checkGemvAt(comptime T: type, comptime trans: bool, comptime conj: bool, comp
             if (complex) want[r * inc[1]] = want[r * inc[1]].add(alpha.mul(acc)) else want[r * inc[1]] += alpha * acc;
         }
         const bytes = sym.gemvLen(F, cs, m, n) * @sizeOf(F);
-        // x86_64 `zgemv_t.S` needs a buffer free of NaN, which its callers clear
-        const buf = guard.open(F, bytes, 32, if (complex and trans) .junk else .nan);
+        // NaN: no kernel lets what the buffer held reach `y` (`buffers.md`)
+        const buf = guard.open(F, bytes, 32, .nan);
         if (complex) {
             _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, @ptrCast(a.ptr), @intCast(lda), @ptrCast(x.ptr), @intCast(inc[0]), @ptrCast(y.ptr), @intCast(inc[1]), buf);
         } else {
@@ -605,7 +606,7 @@ fn shifted(comptime T: type, comptime trans: bool, comptime conj: bool, comptime
                 @memcpy(p[k][0 .. w * lens[k]], @as([*]const F, @ptrCast(&vals[k]))[0 .. w * lens[k]]);
             }
             const bytes = sym.gemvLen(F, w, m, n) * @sizeOf(F);
-            const buf = guard.open(F, bytes, 32, if (complex and trans) .junk else .nan);
+            const buf = guard.open(F, bytes, 32, .nan);
             if (complex) {
                 _ = kern(@intCast(m), @intCast(n), 0, alpha.re, alpha.im, p[0], @intCast(lda), p[1], 1, p[2], 1, buf);
             } else {
@@ -1103,5 +1104,115 @@ test "extended gemv: the blocks by target and core" {
         try zigstd.testExpectEqual(@as(BlasLong, 4096), extendedRowBlock(true));
         try zigstd.testExpectEqual(@as(BlasLong, 32), extendedColBlock(false, .core2));
         try zigstd.testExpectEqual(@as(BlasLong, 32), extendedColBlock(true, .athlon));
+    }
+}
+
+/// x86's `qgemv_n.S` and `xgemv_n.S` columns a block (`P`) by core:
+/// `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `xgemv_n.S` halves for
+/// `PENTIUM4` (northwood, prescott) and `ATHLON`; `qgemv_n.S` takes 32 on
+/// `ATHLON` and `OPTERON`, their own anyway.
+const x87_col_blocks = [_]struct { core: X86CoreType, q: usize, x: usize }{
+    .{ .core = .katmai, .q = 64, .x = 64 },
+    .{ .core = .northwood, .q = 64, .x = 32 },
+    .{ .core = .prescott, .q = 64, .x = 32 },
+    .{ .core = .athlon, .q = 32, .x = 16 },
+    .{ .core = .opteron, .q = 32, .x = 32 },
+    .{ .core = .barcelona, .q = 48, .x = 48 },
+    .{ .core = .bobcat, .q = 40, .x = 40 },
+    .{ .core = .core2, .q = 256, .x = 256 },
+    .{ .core = .nano, .q = 128, .x = 128 },
+};
+
+/// A core's vtable, static: a vtable is large for a rig's stack.
+var x87_core_vt: Vtable = undefined;
+
+/// `y := -t + A*x` on four rows, `t` = 2^64 in column 0 and 1 in column
+/// `at`, the rest 0, `x` ones: a block ending before `at` gives 1, one
+/// holding both gives `t + 1 = t`, so 0.
+fn x87BlockProbe(comptime complex: bool, at: usize, n: usize) !XDouble {
+    const al = std.testing.allocator;
+    const F = XDouble;
+    const w = if (complex) 2 else 1;
+    const t = std.math.ldexp(@as(F, 1), 64);
+    const a = try al.alloc(F, w * 4 * n);
+    defer al.free(a);
+    const x = try al.alloc(F, w * n);
+    defer al.free(x);
+    @memset(a, 0);
+    @memset(x, 0);
+    for (0..n) |j| x[w * j] = 1;
+    for (0..4) |i| {
+        a[w * i] = t;
+        a[w * (i + 4 * at)] = 1;
+    }
+    var y: [8]F = @splat(0);
+    for (0..4) |i| y[w * i] = -t;
+    const ln: BlasLong = @intCast(n);
+    if (complex) {
+        _ = x87_core_vt.xgemv_n.?(4, ln, 0, 1, 0, a.ptr, 4, x.ptr, 1, &y, 1, undefined);
+    } else {
+        _ = x87_core_vt.qgemv_n.?(4, ln, 0, 1, a.ptr, 4, x.ptr, 1, &y, 1, undefined);
+    }
+    for (1..4) |i| try zigstd.testExpectEqual(y[0], y[w * i]);
+    return y[0];
+}
+
+test "extended gemv: each x86 core's qgemv_n and xgemv_n slots take its column block" {
+    if (comptime !x86 or !types.isExtended(XDouble)) return error.SkipZigTest;
+    for (x87_col_blocks) |c| {
+        x87_core_vt = x86cpu.vtableFromCoreType(c.core);
+        inline for (.{ false, true }) |complex| {
+            const p = if (complex) c.x else c.q;
+            errdefer check.say("{s} {s}gemv_n, block {d}: ", .{ @tagName(c.core), if (complex) "x" else "q", p });
+            // the 1 last in the first block, then first in the second
+            try zigstd.testExpectEqual(@as(XDouble, 0), try x87BlockProbe(complex, p - 1, 2 * p + 1));
+            try zigstd.testExpectEqual(@as(XDouble, 1), try x87BlockProbe(complex, p, 2 * p + 1));
+        }
+    }
+}
+
+test "x86_64's dgemv_n vector block and SSE2 dgemv_t blocks give the reference's arithmetic, bit for bit" {
+    if (sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    const driver = @import("kernel.zig");
+    const xk = @import("x86_64/kernel.zig");
+    const own = @import("x86_64/uk/dgemv_t_4.zig");
+    var a: [4 * 40]f64 = undefined;
+    var x: [40]f64 = undefined;
+    check.fill(f64, &a, 11);
+    check.fill(f64, &x, 12);
+    const ap = [4][*]f64{ a[0..].ptr, a[40..].ptr, a[80..].ptr, a[120..].ptr };
+    const alpha = [1]f64{1.25};
+    // Skylake-X's `dgemv_kernel_4x4` and `4x2` against a row-by-row model
+    inline for (.{ false, true }) |wide| inline for (.{ false, true }) |fuse| {
+        const B = xk.VectorBlockWith(.dgemv_n, wide, fuse);
+        var n: usize = 4;
+        while (n <= 40) : (n += 4) {
+            inline for (.{ 4, 2 }) |cols| {
+                var y: [40]f64 = undefined;
+                check.fill(f64, &y, n);
+                var want = y;
+                for (0..n) |i| {
+                    var sum = fma.madd(fuse, f64, ap[0][i], x[0], ap[1][i] * x[1]);
+                    for (2..cols) |c| sum = fma.madd(fuse, f64, ap[c][i], x[c], sum);
+                    want[i] = fma.madd(fuse, f64, sum, alpha[0], want[i]);
+                }
+                if (cols == 4) B.dgemv_kernel_4x4(@intCast(n), &ap, &x, &y, &alpha) else B.dgemv_kernel_4x2(@intCast(n), &ap, &x, &y, &alpha);
+                try std.testing.expectEqualSlices(f64, &want, &y);
+            }
+        }
+    };
+    // the SSE2 forms of `dgemv_t_4.c`'s `kernel_4x2` and `4x1` against its assembly
+    if (comptime !std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .sse3)) return;
+    const S = driver.Fallback(f64, fma.fuse);
+    var n: usize = 2;
+    while (n <= 40) : (n += 2) {
+        var want: [2]f64 = undefined;
+        var got: [2]f64 = undefined;
+        own.dgemv_kernel_4x2(@intCast(n), ap[0], ap[1], &x, &want);
+        S.t4x2(@intCast(n), ap[0], ap[1], &x, &got);
+        try std.testing.expectEqualSlices(f64, &want, &got);
+        own.dgemv_kernel_4x1(@intCast(n), ap[2], &x, &want);
+        S.t4x1(@intCast(n), ap[2], &x, &got);
+        try std.testing.expectEqual(want[0], got[0]);
     }
 }

@@ -14,6 +14,9 @@ const Error = arch.Error;
 pub const Role = struct {
     /// `cdotu`.
     name: []const u8,
+    /// The vtable slot, as the rule's object names it (`cdotu_k`, `sgemv_n`);
+    /// null for one `gotoblas_t` has none for (`no_slot`).
+    slot: ?[]const u8,
     /// `CDOTKERNEL`.
     key: []const u8,
     prec: arch.Prec,
@@ -25,6 +28,56 @@ pub const Role = struct {
     /// without it.
     extended: bool = false,
 };
+
+/// Rules whose kernel has no vtable slot, so nothing would install it:
+/// `sdsdot_k`, which OpenBLAS compiles per core as it does `dsdot_k`, though
+/// its own `gotoblas_t` has no such slot either.
+const no_slot = [_][]const u8{"sdsdot_k"};
+
+/// A kernel left unconverted (`skip`): its slot, and the architecture (null
+/// for every one).
+pub const Skip = struct {
+    slot: []const u8,
+    arch: ?[]const u8 = null,
+    /// Whether the slot is routed only on the cores that build this assembly
+    /// (x86_64's `usesVector`): the index lists them (`skipped`), and the C
+    /// kernels of the other cores stay (`uk.zig` converts them).
+    cores: bool = false,
+};
+
+/// Kernels not converted, since no core would install them: the library's
+/// `vector.routed` sends their slots to the portable or `@Vector` kernels
+/// (keep the two in step). The extremes, `nrm2` and `sdot` everywhere; on
+/// x86_64 the reductions whose assembly peels to an aligned operand
+/// (`vector.peels`), routed only on the cores that build it.
+pub const skip = blk: {
+    var out: []const Skip = &.{};
+    for ([_][]const u8{
+        "samax_k",  "damax_k",  "camax_k",  "zamax_k",
+        "samin_k",  "damin_k",  "camin_k",  "zamin_k",
+        "smax_k",   "dmax_k",   "smin_k",   "dmin_k",
+        "isamax_k", "idamax_k", "icamax_k", "izamax_k",
+        "isamin_k", "idamin_k", "icamin_k", "izamin_k",
+        "ismax_k",  "idmax_k",  "ismin_k",  "idmin_k",
+        "snrm2_k",  "dnrm2_k",  "cnrm2_k",  "znrm2_k",
+        "sdot_k",
+    }) |s| out = out ++ [_]Skip{.{ .slot = s }};
+    for ([_][]const u8{
+        "sasum_k", "dasum_k", "casum_k", "zasum_k", "csum_k",  "zsum_k",
+        "ddot_k",  "cdotu_k", "cdotc_k", "zdotu_k", "zdotc_k", "dgemv_n",
+    }) |s| out = out ++ [_]Skip{.{ .slot = s, .arch = "x86_64", .cores = true }};
+    break :blk out;
+};
+
+/// The `skip` entry for `slot` on `arch_name`, if any.
+pub fn skipped(arch_name: []const u8, slot: []const u8) ?Skip {
+    for (skip) |s| {
+        if (!std.mem.eql(u8, s.slot, slot)) continue;
+        if (s.arch) |sa| if (!std.mem.eql(u8, sa, arch_name)) continue;
+        return s;
+    }
+    return null;
+}
 
 /// The roles of `text`, a Makefile; the extended-precision ones (`XDOUBLE`)
 /// are marked `extended`.
@@ -47,8 +100,12 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
         // `sdot_k$(TSUFFIX)` is role `sdot`; level 2 has `sgemv_n$(TSUFFIX)`
         const obj_start = "$(KDIR)".len;
         const obj_end = std.mem.find(u8, line[obj_start..], "$(TSUFFIX)") orelse continue;
-        var name = line[obj_start .. obj_start + obj_end];
+        const object = line[obj_start .. obj_start + obj_end];
+        var name = object;
         if (std.mem.endsWith(u8, name, "_k")) name = name[0 .. name.len - 2];
+        const slotted = for (no_slot) |n| {
+            if (std.mem.eql(u8, n, object)) break false;
+        } else true;
         for (out.items) |r| {
             if (std.mem.eql(u8, r.name, name)) continue :outer;
         }
@@ -65,7 +122,7 @@ pub fn parse(a: std.mem.Allocator, text: []const u8) Error![]const Role {
             if (std.mem.eql(u8, tok, "-DDOUBLE")) double = true else if (std.mem.eql(u8, tok, "-DCOMPLEX")) complex = true else if (std.mem.eql(u8, tok, "-DCONJ")) conj = true else if (std.mem.startsWith(u8, tok, "-D") and !std.mem.startsWith(u8, tok, "-DXDOUBLE")) try defines.append(a, try a.dupe(u8, tok));
         }
         const prec: arch.Prec = if (complex) (if (double) .z else .c) else (if (double) .d else .s);
-        try out.append(a, .{ .name = try a.dupe(u8, name), .key = try a.dupe(u8, key), .prec = prec, .conj = conj, .defines = defines.items, .extended = ext });
+        try out.append(a, .{ .name = try a.dupe(u8, name), .slot = if (slotted) try a.dupe(u8, object) else null, .key = try a.dupe(u8, key), .prec = prec, .conj = conj, .defines = defines.items, .extended = ext });
     }
     return out.items;
 }

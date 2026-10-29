@@ -23,8 +23,8 @@
             .lazy = true,
         },
         .vulkan = .{
-            .url = "git+https://github.com/Snektron/vulkan-zig#a6ca07453ba82e6fbdd910c2e364ae3ee77d7f81",
-            .hash = "vulkan-0.0.0-r7Ytx4mEAwA-B_7J6joJcsXYXL-wDb1CKLCrv-culpfR",
+            .url = "git+https://github.com/Snektron/vulkan-zig#91a3537868952be63763db2b0725bcf9cf7f0d93",
+            .hash = "vulkan-0.0.0-r7Ytx1eHAwDInvlQSbl5gMYemczKJa6GimvWcgnOjibX",
             .lazy = true,
         },
         // .rc = .{
@@ -72,9 +72,8 @@
             .hash = "N-V-__8AAPlKiQI6Ff4yPGDDl3AfuWMrf7hwQswZLDKyV9md",
             .lazy = true,
         },
-        // Its build.zig does not build on current Zig master (standardOptimizeOption
-        // returns an optional); src/buildutils/renderdoc.zig uses the built-in
-        // translate-c until it does.
+        // Its Aro does not build on current Zig master (issues.md);
+        // src/buildutils/renderdoc.zig uses the built-in translate-c until it does.
         // .translate_c = .{
         //     .url = "git+https://codeberg.org/ziglang/translate-c#9b5eb014df946d26b86c3d42b5d133d0fe48fe61",
         //     .hash = "translate_c-0.0.0-Q_BUWu5OBwCBUFLkC6LVoVWssXLQG5E8NZvxu9XbaZ75",

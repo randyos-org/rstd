@@ -24,6 +24,8 @@ const Vtable = @import("../../Vtable.zig");
 const Config = @import("../../Config.zig");
 const data = @import("params_data.zig");
 const coretypes = @import("../../cpu/_coretypes.zig");
+const corespec = @import("../../cpu/_corespec.zig");
+const select = @import("../../cpu/_select.zig");
 
 /// How `p`, `q` or `r` comes about.
 pub const Size = union(enum) {
@@ -189,11 +191,15 @@ fn cpucfg(word: u32) u64 {
 pub fn ruleFor(comptime family: Family, comptime core_name: []const u8) Rule {
     const eq = std.mem.eql;
     if (comptime family == .generic) return .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 }, .shift = 6, .cap = 16 } };
-    if (comptime family == .loongarch64 and eq(u8, core_name, "la464")) return .la464;
-    if (comptime family == .loongarch64 and eq(u8, core_name, "la264")) return .la264;
+    // the old names are `getarch.c` aliases of these
+    if (comptime family == .loongarch64 and (eq(u8, core_name, "la464") or eq(u8, core_name, "loongson3r5"))) return .la464;
+    if (comptime family == .loongarch64 and (eq(u8, core_name, "la264") or eq(u8, core_name, "loongson2k1000"))) return .la264;
     if (comptime family != .x86 and family != .x86_64) return .none;
     if (comptime eq(u8, core_name, "katmai") or eq(u8, core_name, "coppermine") or eq(u8, core_name, "banias"))
         return .{ .affine = .{ .mul = .{ 64, 32, 32, 16, 16, 8 } } };
+    // static-only targets: `parameter.c` leaves `DEFAULT_GEMM_P`
+    if (comptime eq(u8, core_name, "p5") or eq(u8, core_name, "yonah"))
+        return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 128, 128, 128, 128, 128, 128 } } };
     if (comptime eq(u8, core_name, "northwood")) return .{ .affine = .{ .mul = .{ 96, 48, 48, 24, 24, 12 } } };
     if (comptime eq(u8, core_name, "atom")) return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 256, 128, 128, 64, 64, 32 } } };
     if (comptime eq(u8, core_name, "prescott")) return .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 } } };
@@ -315,7 +321,7 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
         const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
         res[3] = .{ .p = roundUp(set.p, table.z.unroll_m), .q = set.q, .r = set.r };
     }
-    if (comptime x86) {
+    if (comptime family == .x86_64) {
         // AMD parts with AVX-512 run the Skylake-X kernels on other blocking
         const eq = std.mem.eql;
         const skx = comptime (eq(u8, core_name, "skylakex") or eq(u8, core_name, "cooperlake") or eq(u8, core_name, "sapphirerapids"));
@@ -352,8 +358,11 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
 
 // ---- lookup ----------------------------------------------------------------
 
-/// The architecture families the data is extracted for.
-pub const Family = enum { x86_64, x86, arm64, arm, power64, power32, riscv64, s390x, mips64, mips32, loongarch64, sparc, wasm, generic };
+/// The architecture families the data is extracted for. The 32-bit ones take
+/// `Makefile.system`'s 32-bit fallbacks (x86's AVX cores Nehalem's entry, the
+/// Bulldozer family and Zen Barcelona's, POWER8 to 10 POWER6's); POWER's
+/// follow the byte order too (`PPC970`'s unrolls).
+pub const Family = enum { x86_64, x86, arm64, arm, power64, power64be, power32, power32le, riscv64, s390x, mips64, mips32, loongarch64, sparc, wasm, generic };
 
 /// The core enum of `family`.
 pub fn CoreOf(comptime family: Family) type {
@@ -361,7 +370,7 @@ pub fn CoreOf(comptime family: Family) type {
         .x86_64, .x86 => coretypes.X86CoreType,
         .arm64 => coretypes.Arm64CoreType,
         .arm => coretypes.ArmCoreType,
-        .power64, .power32 => coretypes.PowerCoreType,
+        .power64, .power64be, .power32, .power32le => coretypes.PowerCoreType,
         .riscv64 => coretypes.RiscvCoreType,
         .s390x => coretypes.S390xCoreType,
         .mips64, .mips32 => coretypes.MipsCoreType,
@@ -412,6 +421,8 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
 test "dtb entries: getarch's per core, cpuid's or generic's otherwise" {
     try std.testing.expectEqual(@as(i32, 256), dtbFor(.x86_64, .core2));
     try std.testing.expectEqual(@as(i32, 40), dtbFor(.x86_64, .bobcat));
+    // `FORCE_P2`'s, whose `CORENAME` is `P5`
+    try std.testing.expectEqual(@as(i32, 64), dtbFor(.x86, .p5));
     try std.testing.expectEqual(@as(i32, 64), dtbFor(.riscv64, .x280));
     try std.testing.expectEqual(@as(i32, 128), dtbFor(.x86_64, .unknown));
     try std.testing.expectEqual(@as(i32, 128), dtbFor(.generic, .generic));
@@ -468,8 +479,16 @@ test "every core of the power64 family resolves to sane parameters" {
     try checkFamily(.power64);
 }
 
+test "every core of the power64be family resolves to sane parameters" {
+    try checkFamily(.power64be);
+}
+
 test "every core of the power32 family resolves to sane parameters" {
     try checkFamily(.power32);
+}
+
+test "every core of the power32le family resolves to sane parameters" {
+    try checkFamily(.power32le);
 }
 
 test "every core of the riscv64 family resolves to sane parameters" {
@@ -546,6 +565,109 @@ test "old x86 cores follow the L2 size" {
     try std.testing.expectEqual(@as(i32, 744), vt.sgemm_p);
     installCore(&vt, .x86_64, .atom, .{ .l2_kb = 4096 });
     try std.testing.expectEqual(@as(i32, 256), vt.sgemm_p);
+}
+
+test "old x86 cores take their getarch entry's subarch blocks" {
+    var vt: Vtable = .{};
+    // `PENTIUM3` with `HAVE_SSE`; 64 * (512 >> 7)
+    installCore(&vt, .x86, .katmai, .{ .l2_kb = 512 });
+    try std.testing.expectEqual(@as(i32, 8), vt.sgemm_unroll_m);
+    try std.testing.expectEqual(@as(i32, 4), vt.cgemm_unroll_m);
+    try std.testing.expectEqual(@as(i32, 256), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 256), vt.dgemm_q);
+    // `PENTIUM2` (`FORCE_P2`), no SSE; static `p` stays 128
+    installCore(&vt, .x86, .p5, .{});
+    try std.testing.expectEqual(@as(i32, 4), vt.sgemm_unroll_m);
+    try std.testing.expectEqual(@as(i32, 2), vt.cgemm_unroll_m);
+    try std.testing.expectEqual(@as(i32, 128), vt.sgemm_p);
+    // `PENTIUMM` with `CORE_YONAH`
+    installCore(&vt, .x86, .yonah, .{});
+    try std.testing.expectEqual(@as(i32, 4), vt.dgemm_unroll_n);
+    try std.testing.expectEqual(@as(i32, 2), vt.zgemm_unroll_n);
+    try std.testing.expectEqual(@as(i32, 128), vt.zgemm_p);
+    // `CORE_PRESCOTT`'s offsets follow `__64BIT__`
+    installCore(&vt, .x86, .prescott, .{});
+    try std.testing.expectEqual(@as(i32, 128), vt.offsetA);
+    installCore(&vt, .x86_64, .prescott, .{});
+    try std.testing.expectEqual(@as(i32, 256), vt.offsetB);
+}
+
+test "32-bit builds take Makefile.system's fallback entries" {
+    const pairs = .{
+        .{ .x86, .haswell, .nehalem },     .{ .x86, .skylakex, .nehalem },  .{ .x86, .sapphirerapids, .nehalem },
+        .{ .x86, .sandybridge, .nehalem }, .{ .x86, .zen, .barcelona },     .{ .x86, .bulldozer, .barcelona },
+        .{ .x86, .excavator, .barcelona }, .{ .power32, .power8, .power6 }, .{ .power32, .power10, .power6 },
+        .{ .power32le, .power9, .power6 },
+    };
+    inline for (pairs) |p| {
+        try std.testing.expectEqual(tableFor(p[0], p[2]), tableFor(p[0], p[1]));
+        try std.testing.expectEqual(dtbFor(p[0], p[2]), dtbFor(p[0], p[1]));
+    }
+    var vt: Vtable = .{};
+    installCore(&vt, .x86, .haswell, .{});
+    try std.testing.expectEqual(@as(i32, 504), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 512), vt.sgemm_q);
+    try std.testing.expectEqual(@as(i32, 256), vt.dgemm_q);
+    installCore(&vt, .x86, .zen, .{});
+    try std.testing.expectEqual(@as(i32, 448), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 224), vt.sgemm_q);
+    // 64-bit keeps the cores' own
+    installCore(&vt, .x86_64, .haswell, .{});
+    try std.testing.expectEqual(@as(i32, 320), vt.sgemm_p);
+    try std.testing.expect(!std.meta.eql(tableFor(.power64, .power8), tableFor(.power64, .power6)));
+}
+
+/// The 32-bit x86 objects, as a `select.served` context.
+const X86Objects = struct {
+    pub const arch: std.Target.Cpu.Arch = .x86;
+    pub const fallback: ?coretypes.X86CoreType = null;
+    pub fn ok(_: X86Objects, c: coretypes.X86CoreType) bool {
+        return std.mem.findScalar(coretypes.X86CoreType, corespec.kernelCores(.x86), c) != null;
+    }
+};
+
+test "a 32-bit x86 core's serving object has the core's blocking" {
+    for (std.enums.values(coretypes.X86CoreType)) |c| {
+        if (!select.selectable(c)) continue;
+        const k = select.served(coretypes.X86CoreType, c, X86Objects{}) orelse continue;
+        try std.testing.expectEqual(tableFor(.x86, c), tableFor(.x86, k));
+        try std.testing.expectEqual(dtbFor(.x86, c), dtbFor(.x86, k));
+    }
+}
+
+test "32-bit x86 serves the AVX cores and Zen from their fallbacks' objects" {
+    const X = coretypes.X86CoreType;
+    const pairs = [_][2]X{
+        .{ .sandybridge, .nehalem },  .{ .haswell, .nehalem },        .{ .skylakex, .nehalem },
+        .{ .cooperlake, .nehalem },   .{ .sapphirerapids, .nehalem }, .{ .bulldozer, .barcelona },
+        .{ .piledriver, .barcelona }, .{ .steamroller, .barcelona },  .{ .excavator, .barcelona },
+        .{ .zen, .barcelona },
+    };
+    for (pairs) |p| {
+        try std.testing.expect(std.mem.findScalar(X, corespec.kernelCores(.x86), p[0]) == null);
+        try std.testing.expectEqual(@as(?X, p[1]), select.served(X, p[0], X86Objects{}));
+        try std.testing.expectEqual(tableFor(.x86, p[0]), tableFor(.x86, p[1]));
+        try std.testing.expectEqual(dtbFor(.x86, p[0]), dtbFor(.x86, p[1]));
+        // 64-bit builds keep them
+        try std.testing.expect(std.mem.findScalar(X, corespec.kernelCores(.x86_64), p[0]) != null);
+    }
+}
+
+test "PPC970's unrolls follow the byte order" {
+    var vt: Vtable = .{};
+    inline for (.{ .{ .power64, 16, 8 }, .{ .power64be, 4, 2 }, .{ .power32, 4, 2 }, .{ .power32le, 16, 8 } }) |f| {
+        installCore(&vt, f[0], .ppc970, .{});
+        try std.testing.expectEqual(@as(i32, f[1]), vt.sgemm_unroll_m);
+        try std.testing.expectEqual(@as(i32, f[2]), vt.cgemm_unroll_m);
+        try std.testing.expectEqual(@as(i32, 4), vt.dgemm_unroll_m);
+    }
+}
+
+test "LoongArch's old names are their getarch aliases" {
+    var vt: Vtable = .{};
+    installCore(&vt, .loongarch64, .loongson3r5, .{ .threads = 1, .l3_kb = 32 * 1024 });
+    try std.testing.expectEqual(@as(i32, 8192), vt.sgemm_r);
+    try std.testing.expectEqual(@as(i32, 16), vt.sgemm_unroll_m);
 }
 
 test "LA464 picks its set by threads and L3 size" {

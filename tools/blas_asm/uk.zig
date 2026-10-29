@@ -1,10 +1,10 @@
-//! Converts the inline-assembly microkernels of OpenBLAS's C level-1 kernels
+//! Converts the inline-assembly microkernels of OpenBLAS's C kernels
 //! (`<p><routine>_microk_<core>-2.c`, or a function in the driver's own file)
 //! into Zig functions. The routines and their roles are the `map.Routine` table.
 //!
 //!     OPENBLAS=<checkout> zig run tools/blas_asm/uk.zig [-- <routine>...]
 //!
-//! `BLAS_OUT` replaces the `blas1/` directory the routines' output goes under.
+//! `BLAS_OUT` replaces the `src/linalg/blas` directory the output goes under.
 //! A target's `patches` fix upstream bugs in a microkernel first, as
 //! `gen.zig`'s do for the `.S` kernels; one that no longer matches stops it.
 //!
@@ -18,14 +18,18 @@
 //! differ the file has a function for each, which the block's name picks.
 //!
 //! The driver around a microkernel (`daxpy.c` and its siblings) is not
-//! converted here; the index written next to the blocks (`uk/__root__.zig`)
+//! converted here, only the functions with assembly it defines itself
+//! (`dscal_kernel_inc_8`); the index written next to the blocks (`uk/__root__.zig`)
 //! says which core uses which block, and the architecture's `kernel.zig`
 //! composes it with the routine's driver (`<routine>/kernel.zig`).
+//! The kernels `roles.skip` names, which no core would install (`sdot`), get
+//! no entry.
 
 const std = @import("std");
 const Io = std.Io;
 const map = @import("kernel_map.zig");
 const arch = @import("arch/__root__.zig");
+const roles = @import("roles.zig");
 
 const Precision = struct { letter: u8, float: []const u8, complex: bool };
 
@@ -75,16 +79,86 @@ fn patched(t: Target, source: []const u8) ![]const u8 {
 /// preprocessed for each endianness.
 const Endian = enum { little, big };
 
-fn runCpp(source: []const u8, conj: bool, endian: Endian) ![]const u8 {
+/// Which of the `CONJ` and `XCONJ` macros a file is preprocessed with.
+const Form = struct {
+    conj: bool = false,
+    xconj: bool = false,
+
+    /// The name suffix of a function in this form, where a file has both
+    /// macros (`zgemv_kernel_4x4_cx`).
+    fn suffix(f: Form) []const u8 {
+        return if (f.conj and f.xconj) "_cx" else if (f.conj) "_c" else if (f.xconj) "_x" else "";
+    }
+};
+
+fn runCpp(source: []const u8, form: Form, endian: Endian) ![]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(map.arena, &.{ "zig", "cc", "-E", "-P", "-x", "c", "-w" });
+    try argv.appendSlice(map.arena, &.{ "zig", "cc", "-E", "-P", "-x", "c", "-w", "-I", try stubDir() });
     if (is_power) try argv.appendSlice(map.arena, &.{ "-target", if (endian == .big) "powerpc64-linux" else "powerpc64le-linux" });
     try argv.appendSlice(map.arena, cpp_extra);
-    if (conj) try argv.append(map.arena, "-DCONJ");
+    if (form.conj) try argv.append(map.arena, "-DCONJ");
+    if (form.xconj) try argv.append(map.arena, "-DXCONJ");
     try argv.appendSlice(map.arena, &.{ source, "-o", "-" });
     const r = std.process.run(map.arena, map.io, .{ .argv = argv.items }) catch |e|
         map.die("cannot run the preprocessor: {t}", .{e});
     return r.stdout;
+}
+
+/// A directory with an empty `common.h`, so a driver preprocesses alone; no
+/// core is defined, so its chain includes no block and its own fallbacks stay.
+fn stubDir() ![]const u8 {
+    const dir = ".zig-cache/blas_asm_stub";
+    try Io.Dir.cwd().createDirPath(map.io, dir);
+    try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = dir ++ "/common.h", .data = "" });
+    return dir;
+}
+
+/// The index of the bracket closing the one at `open` (`(` or `{`), skipping
+/// string and character literals.
+fn matching(text: []const u8, open: usize) ?usize {
+    const o = text[open];
+    const c: u8 = if (o == '(') ')' else '}';
+    var depth: usize = 0;
+    var i = open;
+    while (i < text.len) : (i += 1) {
+        const ch = text[i];
+        if (ch == '"' or ch == '\'') {
+            i += 1;
+            while (i < text.len and text[i] != ch) : (i += 1) {
+                if (text[i] == '\\') i += 1;
+            }
+            continue;
+        }
+        if (ch == o) depth += 1;
+        if (ch == c) {
+            depth -= 1;
+            if (depth == 0) return i;
+        }
+    }
+    return null;
+}
+
+/// One `static void` function defined in a C text.
+const Def = struct { name: []const u8, text: []const u8 };
+
+/// The `static void` functions `text` defines (not those it only declares),
+/// in order.
+fn definitions(text: []const u8) ![]const Def {
+    var out: std.ArrayList(Def) = .empty;
+    const key = "static void ";
+    var pos: usize = 0;
+    while (std.mem.findPos(u8, text, pos, key)) |at| {
+        const open = std.mem.findScalarPos(u8, text, at, '(') orelse break;
+        const close = matching(text, open) orelse break;
+        pos = close;
+        var k = close + 1;
+        while (k < text.len and std.ascii.isWhitespace(text[k])) k += 1;
+        if (k >= text.len or text[k] != '{') continue;
+        const end = matching(text, k) orelse break;
+        try out.append(map.arena, .{ .name = std.mem.trim(u8, text[at + key.len .. open], " \t"), .text = text[at .. end + 1] });
+        pos = end;
+    }
+    return out.items;
 }
 
 /// The text of the string literals in `s`, joined, with C escapes resolved.
@@ -183,7 +257,8 @@ fn sections(s: []const u8) [3][]const u8 {
 /// The Zig type of a C parameter.
 fn zigType(c_type: []const u8, float: []const u8, name: []const u8) ![]const u8 {
     if (std.mem.eql(u8, c_type, "BLASLONG") or std.mem.eql(u8, c_type, "long")) return "isize";
-    if (std.mem.eql(u8, c_type, "double") or std.mem.eql(u8, c_type, "float")) return float;
+    if (std.mem.eql(u8, c_type, "double") or std.mem.eql(u8, c_type, "float") or std.mem.eql(u8, c_type, "FLOAT")) return float;
+    if (std.mem.eql(u8, c_type, "FLOAT **")) return try map.arena.print("[*]const [*]{s}", .{float});
     if (std.mem.eql(u8, c_type, "FLOAT *")) {
         const c = if (std.mem.eql(u8, name, "alpha")) "const " else "";
         return try map.arena.print("[*]{s}{s}", .{ c, float });
@@ -191,7 +266,8 @@ fn zigType(c_type: []const u8, float: []const u8, name: []const u8) ![]const u8 
     map.die("unknown parameter type '{s}'", .{c_type});
 }
 
-/// Whether an operand `"+r" (name)` or `"+&r"(name)` writes the variable back.
+/// Whether an operand `"+r" (name)` or `"+&r"(name)` writes the variable
+/// back, or a statement assigns it (`inc_x <<= 3;`).
 fn isWritten(text: []const u8, name: []const u8) !bool {
     const needle = try map.arena.print("({s})", .{name});
     var at: usize = 0;
@@ -200,7 +276,27 @@ fn isWritten(text: []const u8, name: []const u8) !bool {
         if (std.mem.find(u8, before, "\"+") != null) return true;
         at = p + 1;
     }
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const a = assignment(std.mem.trim(u8, raw, " \t\r;{")) orelse continue;
+        if (std.mem.eql(u8, a.lhs, name)) return true;
+    }
     return false;
+}
+
+/// A statement `lhs op= rhs` (`i=0`, `inc_x <<= 3`), whose `lhs` is a name.
+const Assignment = struct { lhs: []const u8, op: []const u8, rhs: []const u8 };
+
+fn assignment(l: []const u8) ?Assignment {
+    var e: usize = 0;
+    while (e < l.len and (std.ascii.isAlphanumeric(l[e]) or l[e] == '_')) e += 1;
+    if (e == 0 or std.ascii.isDigit(l[0])) return null;
+    const rest = std.mem.trimStart(u8, l[e..], " ");
+    var o: usize = 0;
+    while (o < rest.len and std.mem.findScalar(u8, "+-*/<>&|^", rest[o]) != null) o += 1;
+    if (o >= rest.len or rest[o] != '=' or (o + 1 < rest.len and rest[o + 1] == '=')) return null;
+    if (o == 1 and (rest[0] == '<' or rest[0] == '>')) return null;
+    return .{ .lhs = l[0..e], .op = rest[0..o], .rhs = std.mem.trim(u8, rest[o + 1 ..], " ") };
 }
 
 /// What the target calls the condition codes in a clobber list.
@@ -446,22 +542,79 @@ fn zigCondition(c: []const u8) ![]const u8 {
     return std.mem.trim(u8, out.items, " ");
 }
 
-/// One function: its Zig text.
-fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj: bool) !?[]const u8 {
-    // the definition, not the prototype
-    const def = std.mem.findLast(u8, text, "static void ") orelse return null;
+/// A function whose statements around its assembly are not the simple
+/// kinds below; a driver's own (`add_y`) is left to the ported driver.
+const Unconvertible = error{Unconvertible};
+
+/// Whether `text` names `word` as a whole identifier.
+fn mentions(text: []const u8, word: []const u8) bool {
+    var at: usize = 0;
+    while (std.mem.findPos(u8, text, at, word)) |p| {
+        const e = p + word.len;
+        const before = p > 0 and (std.ascii.isAlphanumeric(text[p - 1]) or text[p - 1] == '_');
+        const after = e < text.len and (std.ascii.isAlphanumeric(text[e]) or text[e] == '_');
+        if (!before and !after) return true;
+        at = p + 1;
+    }
+    return false;
+}
+
+/// A leading `if (...) { ...; return; }` before a function's assembly
+/// (`add_y`'s strided C): its condition, and the body without it.
+const Guard = struct { cond: []const u8, rest: []const u8 };
+
+fn guardOf(body: []const u8, asm_at: usize) !?Guard {
+    var lines = std.mem.splitScalar(u8, body[0..asm_at], '\n');
+    while (lines.next()) |raw| {
+        const l = std.mem.trimStart(u8, raw, " \t\r");
+        if (!std.mem.startsWith(u8, l, "if")) continue;
+        const at = @intFromPtr(l.ptr) - @intFromPtr(body.ptr);
+        const po = std.mem.findScalarPos(u8, body, at, '(') orelse return null;
+        const pc = matching(body, po) orelse return null;
+        var k = pc + 1;
+        while (k < body.len and std.ascii.isWhitespace(body[k])) k += 1;
+        if (k >= body.len or body[k] != '{') return null;
+        const end = matching(body, k) orelse return null;
+        const block = body[k..end];
+        if (std.mem.find(u8, block, "return") == null or std.mem.find(u8, block, "__asm__") != null) return null;
+        const rest = try std.mem.concat(map.arena, u8, &.{ body[0..at], body[end + 1 ..] });
+        return .{ .cond = std.mem.trim(u8, body[po + 1 .. pc], " "), .rest = rest };
+    }
+    return null;
+}
+
+/// One function (`definitions`): its Zig text, or null with no assembly.
+/// `xnames` names every form by its suffix (`Form.suffix`); otherwise the
+/// conjugated form is `<p><routine>c...`. A leading C branch that returns
+/// (`Guard`) is left to the driver, and the rest named `<name>_asm`.
+fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, form: Form, xnames: bool) !?[]const u8 {
+    const def = 0;
     const open = std.mem.findScalarPos(u8, text, def, '(').?;
     const close = std.mem.findScalarPos(u8, text, open, ')').?;
     const name = std.mem.trim(u8, text[def + "static void ".len .. open], " ");
     const body_open = std.mem.findScalarPos(u8, text, close, '{') orelse return null;
-    const asm_at = std.mem.find(u8, text[body_open..], "__asm__") orelse return null;
+    var body = text[body_open..];
+    var asm_at = std.mem.find(u8, body, "__asm__") orelse return null;
+    const guard = try guardOf(body, asm_at);
+    if (guard) |g| {
+        body = g.rest;
+        asm_at = std.mem.find(u8, body, "__asm__").?;
+    }
 
     var w: std.ArrayList(u8) = .empty;
     const stem = @tagName(routine);
-    const fname = if (conj) try map.arena.print("{c}{s}c{s}", .{ prec.letter, stem, name[1 + stem.len ..] }) else name;
+    const base = if (xnames)
+        try map.arena.print("{s}{s}", .{ name, form.suffix() })
+    else if (form.conj)
+        try map.arena.print("{c}{s}c{s}", .{ prec.letter, stem, name[1 + stem.len ..] })
+    else
+        name;
+    const fname = if (guard != null) try map.arena.print("{s}_asm", .{base}) else base;
+    if (guard) |g| try put(&w, "/// `{s}` past its C branch `if ({s})`, which is the driver's.\n", .{ name, g.cond });
     try put(&w, "pub noinline fn {s}(", .{fname});
 
     var mutable: std.ArrayList([]const u8) = .empty;
+    var unused: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, text[open + 1 .. close], ',');
     var first = true;
     while (it.next()) |p| {
@@ -470,33 +623,49 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
         const cut = if (star) |s| s + 1 else std.mem.findScalarLast(u8, t, ' ').? + 1;
         const pname = std.mem.trim(u8, t[cut..], " ");
         const ctype = std.mem.trim(u8, t[0..cut], " ");
-        const ctype_norm = if (star != null) "FLOAT *" else ctype;
+        const ctype_norm = if (star == null) ctype else if (std.mem.endsWith(u8, ctype, "**")) "FLOAT **" else "FLOAT *";
         if (!first) try put(&w, ", ", .{});
         first = false;
         // a parameter the assembly writes back is a local copy in Zig
-        const written = try isWritten(text[body_open..], pname);
+        const written = try isWritten(body, pname);
         if (written) try mutable.append(map.arena, pname);
+        // one only the driver's C branch read (`Guard`)
+        if (guard != null and !mentions(body, pname)) try unused.append(map.arena, pname);
         try put(&w, "{s}{s}: {s}", .{ pname, if (written) "_in" else "", try zigType(ctype_norm, prec.float, pname) });
     }
     try put(&w, ") void {{\n", .{});
+    for (unused.items) |u| try put(&w, "    _ = {s};\n", .{u});
     for (mutable.items) |m| try put(&w, "    var {s} = {s}_in;\n", .{ m, m });
 
     // the statements before the first asm: locals, and possibly the `if`
     // that picks between two blocks
     var locals: std.ArrayList([]const u8) = .empty;
     var condition: ?[]const u8 = null;
-    var lines = std.mem.splitScalar(u8, text[body_open + 1 .. body_open + asm_at], '\n');
+    var lines = std.mem.splitScalar(u8, body[1..asm_at], '\n');
     while (lines.next()) |raw| {
         const l = std.mem.trim(u8, raw, " \t\r;{");
         if (l.len == 0) continue;
-        if (std.mem.startsWith(u8, l, "BLASLONG register ")) {
-            const rest = l["BLASLONG register ".len..];
-            const eq = std.mem.findScalar(u8, rest, '=').?;
-            try put(&w, "    var {s}: isize = {s};\n", .{ std.mem.trim(u8, rest[0..eq], " "), std.mem.trim(u8, rest[eq + 1 ..], " ") });
-            try locals.append(map.arena, std.mem.trim(u8, rest[0..eq], " "));
+        if (std.mem.startsWith(u8, l, "BLASLONG ")) {
+            // `BLASLONG register i = 0`, `BLASLONG n2 = n & 8`, `BLASLONG i`
+            var rest = l["BLASLONG ".len..];
+            if (std.mem.startsWith(u8, rest, "register ")) rest = rest["register ".len..];
+            if (std.mem.findScalar(u8, rest, ',') != null) return unconvertible(l, name);
+            const eq = std.mem.findScalar(u8, rest, '=');
+            const v = std.mem.trim(u8, rest[0 .. eq orelse rest.len], " ");
+            if (eq) |e| {
+                const kw = if (try isWritten(body, v)) "var" else "const";
+                try put(&w, "    {s} {s}: isize = {s};\n", .{ kw, v, std.mem.trim(u8, rest[e + 1 ..], " ") });
+            } else try put(&w, "    var {s}: isize = undefined;\n", .{v});
+            try locals.append(map.arena, v);
+        } else if (std.mem.startsWith(u8, l, "FLOAT *")) {
+            // `FLOAT *x1=NULL`: a register the assembly sets
+            const rest = l["FLOAT *".len..];
+            const v = std.mem.trim(u8, rest[0 .. std.mem.findScalar(u8, rest, '=') orelse rest.len], " ");
+            try put(&w, "    var {s}: usize = 0;\n", .{v});
+            try locals.append(map.arena, v);
         } else if (std.mem.startsWith(u8, l, "FLOAT ")) {
             const rest = l["FLOAT ".len..];
-            const br = std.mem.findScalar(u8, rest, '[').?;
+            const br = std.mem.findScalar(u8, rest, '[') orelse return unconvertible(l, name);
             const rb = std.mem.findScalar(u8, rest, ']').?;
             const vopen = std.mem.findScalar(u8, rest, '{').?;
             const vclose = std.mem.findScalarLast(u8, rest, '}').?;
@@ -531,23 +700,26 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
         } else if (std.mem.startsWith(u8, l, "long ")) {
             try put(&w, "    var {s}: isize = undefined;\n", .{std.mem.trim(u8, l["long ".len..], " ")});
         } else if (std.mem.startsWith(u8, l, "if")) {
+            if (condition != null) return unconvertible(l, name);
             const po = std.mem.findScalar(u8, l, '(').?;
             const pc = std.mem.findScalarLast(u8, l, ')').?;
             condition = try zigCondition(std.mem.trim(u8, l[po + 1 .. pc], " "));
-        } else map.die("cannot convert the statement `{s}` in {s}", .{ l, name });
+        } else if (assignment(l)) |a| {
+            try put(&w, "    {s} {s}= {s};\n", .{ a.lhs, a.op, a.rhs });
+        } else return unconvertible(l, name);
     }
 
     // every asm statement, by paren matching
     var stmts: std.ArrayList([]const u8) = .empty;
-    var pos = body_open;
-    while (std.mem.findPos(u8, text, pos, "__asm__")) |at| {
-        const po = std.mem.findScalarPos(u8, text, at, '(').?;
+    var pos: usize = 0;
+    while (std.mem.findPos(u8, body, pos, "__asm__")) |at| {
+        const po = std.mem.findScalarPos(u8, body, at, '(').?;
         var depth: usize = 0;
         var in_str = false;
         var e = po;
-        while (e < text.len) : (e += 1) {
-            const c = text[e];
-            if (c == '"' and text[e - 1] != '\\') in_str = !in_str;
+        while (e < body.len) : (e += 1) {
+            const c = body[e];
+            if (c == '"' and body[e - 1] != '\\') in_str = !in_str;
             if (in_str) continue;
             if (c == '(') depth += 1;
             if (c == ')') {
@@ -555,10 +727,11 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
                 if (depth == 0) break;
             }
         }
-        try stmts.append(map.arena, text[po + 1 .. e]);
+        try stmts.append(map.arena, body[po + 1 .. e]);
         pos = e;
     }
     if (stmts.items.len == 2 and condition == null) map.die("two asm blocks with no condition in {s}", .{name});
+    if (stmts.items.len != 2 and condition != null) return unconvertible("if", name);
 
     for (stmts.items, 0..) |stmt, k| {
         const indent: []const u8 = if (stmts.items.len == 2) "        " else "    ";
@@ -572,7 +745,11 @@ fn convertFunction(text: []const u8, prec: Precision, routine: map.Routine, conj
     return w.items;
 }
 
-/// Converts one microkernel file into `out_dir`.
+fn unconvertible(statement: []const u8, name: []const u8) Unconvertible {
+    std.debug.print("cannot convert the statement `{s}` in {s}\n", .{ statement, name });
+    return error.Unconvertible;
+}
+
 /// An architecture's block kernels: where they are in OpenBLAS, and where
 /// they go here.
 const Target = struct {
@@ -601,75 +778,132 @@ const Target = struct {
 const arch_x86_64 = @import("arch/x86_64.zig").x86_64;
 
 const targets = [_]Target{
-    .{ .ob_dir = "x86_64", .out = "x86_64", .in_file = false, .align_bytes = true, .patches = arch_x86_64.patches, .routines = &.{ .axpy, .dot } },
+    .{ .ob_dir = "x86_64", .out = "x86_64", .in_file = false, .align_bytes = true, .patches = arch_x86_64.patches, .routines = &.{ .axpy, .dot, .scal, .rot, .gemv_n, .gemv_t } },
     .{ .ob_dir = "zarch", .out = "s390x", .in_file = true, .routines = &.{.axpy} },
     .{ .ob_dir = "power", .out = "power", .in_file = false, .power = true, .index = false, .routines = &.{.axpy} },
 };
 
-/// Converts one file of blocks into `out_dir`.
-fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []const u8) !void {
+/// Converts one file of blocks into `out_dir`: a microkernel, or with `own`
+/// a driver's own assembly functions (`dscal_kernel_inc_8`), where one the
+/// generator cannot convert is left to the ported driver. Returns whether it
+/// wrote a file.
+fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []const u8, own: bool) !bool {
     const base = std.Io.Dir.path.basename(path);
     const prec = precisionOf(base[0]);
     const stem = base[0 .. base.len - 2];
     const name = @tagName(routine);
-    const file = if (t.in_file)
+    const file = if (t.in_file or own)
         try map.arena.print("{s}.zig", .{stem})
     else blk: {
-        // `daxpy_microk_haswell-2` is `daxpy_haswell`
+        // `daxpy_microk_haswell-2` is `daxpy_haswell`, `dgemv_n_microk_haswell-4` `dgemv_n_haswell`
         const core = stem[std.mem.find(u8, stem, "_microk_").? + "_microk_".len ..];
-        const core_name = if (std.mem.endsWith(u8, core, "-2")) core[0 .. core.len - 2] else core;
+        const dash = std.mem.findScalarLast(u8, core, '-');
+        const core_name = if (dash) |d| core[0..d] else core;
         break :blk try map.arena.print("{c}{s}_{s}.zig", .{ prec.letter, name, core_name });
     };
 
     const original = map.read(path).?;
+    if (own and std.mem.find(u8, original, "__asm__") == null) return false;
+    // the functions the file itself defines, not those of a header it includes
+    const own_defs = try definitions(original);
     const has_conj = prec.complex and std.mem.find(u8, original, "CONJ") != null;
+    // `gemv`'s blocks have four forms (`CONJ`, `XCONJ`, both), each named
+    const has_xconj = prec.complex and std.mem.find(u8, original, "XCONJ") != null;
+    const forms: []const Form = if (has_xconj)
+        &.{ .{}, .{ .conj = true }, .{ .xconj = true }, .{ .conj = true, .xconj = true } }
+    else if (has_conj)
+        &.{ .{}, .{ .conj = true } }
+    else
+        &.{.{}};
+    // where a form's function is another's, an alias: (base name, Zig name, text)
+    const Seen = struct { base: []const u8, fname: []const u8, text: []const u8 };
+    var seen: std.ArrayList(Seen) = .empty;
+    var body: std.ArrayList(u8) = .empty;
+    var split = false;
+    var count: usize = 0;
+    for (forms) |form| {
+        const source = try patched(t, path);
+        const le = try definitions(try runCpp(source, form, .little));
+        const be = if (t.power) try definitions(try runCpp(source, form, .big)) else &.{};
+        for (le) |d| {
+            const listed = for (own_defs) |o| {
+                if (std.mem.eql(u8, o.name, d.name)) break true;
+            } else false;
+            if (!listed) continue;
+            const converted = convertFunction(d.text, prec, routine, form, has_xconj) catch |e| switch (e) {
+                error.Unconvertible => if (own) continue else map.die("cannot convert {s} in {s}", .{ d.name, base }),
+                else => return e,
+            };
+            const z = converted orelse continue;
+            count += 1;
+            if (has_xconj) {
+                const head = "pub noinline fn ";
+                const at = std.mem.find(u8, z, head).? + head.len;
+                const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
+                const norm = try std.mem.replaceOwned(u8, map.arena, z, fname, d.name);
+                const same = for (seen.items) |o| {
+                    if (std.mem.eql(u8, o.base, d.name) and std.mem.eql(u8, o.text, norm)) break o.fname;
+                } else null;
+                if (same) |o| {
+                    try put(&body, "pub const {s} = {s};\n\n", .{ fname, o });
+                } else {
+                    try seen.append(map.arena, .{ .base = d.name, .fname = fname, .text = norm });
+                    try put(&body, "{s}\n", .{z});
+                }
+                continue;
+            }
+            const z_be = for (be) |b| {
+                if (std.mem.eql(u8, b.name, d.name)) break try convertFunction(b.text, prec, routine, form, false);
+            } else null;
+            if (z_be == null or std.mem.eql(u8, z, z_be.?)) {
+                try put(&body, "{s}\n", .{z});
+                continue;
+            }
+            // one function per byte order, and the name picks the target's
+            const head = "pub noinline fn ";
+            const at = std.mem.find(u8, z, head).? + head.len;
+            const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
+            try put(&body, "pub const {s} = if (is_BE) {s}_be else {s}_le;\n\n", .{ fname, fname, fname });
+            split = true;
+            for ([_][]const u8{ z, z_be.? }, [_][]const u8{ "_le", "_be" }) |text, suffix| {
+                const named = try map.arena.print("{s}{s}{s}", .{ head, fname, suffix });
+                try put(&body, "{s}\n", .{try std.mem.replaceOwned(u8, map.arena, text, try map.arena.print("{s}{s}", .{ head, fname }), named)});
+            }
+        }
+    }
+    if (count == 0) {
+        std.debug.print("skipped {s}: no assembly\n", .{base});
+        return false;
+    }
     var out: std.ArrayList(u8) = .empty;
-    try put(&out,
-        \\//! `{c}{s}` block kernel from OpenBLAS `kernel/{s}/{s}`, the assembly
+    if (own) {
+        try put(&out,
+            \\//! `{c}{s}` driver kernels from OpenBLAS `kernel/{s}/{s}`: the functions
+            \\//! with assembly the driver defines itself, as written. Generated by
+            \\//! `tools/blas_asm/uk.zig`; re-derive it rather than editing it.
+            \\
+            \\
+        , .{ prec.letter, name, t.ob_dir, base });
+    } else try put(&out,
+        \\//! `{c}{s}` block kernel{s} from OpenBLAS `kernel/{s}/{s}`, the assembly
         \\//! as written. Generated by `tools/blas_asm/uk.zig`; re-derive it
         \\//! rather than editing it.
         \\
         \\
-    , .{ prec.letter, name, t.ob_dir, base });
-    const header_len = out.items.len;
-    var split = false;
-    var wrote = false;
-    for ([_]bool{ false, true }) |conj| {
-        if (conj and !has_conj) continue;
-        const source = try patched(t, path);
-        const z = try convertFunction(try runCpp(source, conj, .little), prec, routine, conj) orelse continue;
-        wrote = true;
-        const z_be = if (t.power) try convertFunction(try runCpp(source, conj, .big), prec, routine, conj) else null;
-        if (z_be == null or std.mem.eql(u8, z, z_be.?)) {
-            try put(&out, "{s}\n", .{z});
-            continue;
-        }
-        // one function per byte order, and the name picks the target's
-        const head = "pub noinline fn ";
-        const at = std.mem.find(u8, z, head).? + head.len;
-        const fname = z[at..std.mem.findScalarPos(u8, z, at, '(').?];
-        try put(&out, "pub const {s} = if (is_BE) {s}_be else {s}_le;\n\n", .{ fname, fname, fname });
-        split = true;
-        for ([_][]const u8{ z, z_be.? }, [_][]const u8{ "_le", "_be" }) |body, suffix| {
-            const named = try map.arena.print("{s}{s}{s}", .{ head, fname, suffix });
-            try put(&out, "{s}\n", .{try std.mem.replaceOwned(u8, map.arena, body, try map.arena.print("{s}{s}", .{ head, fname }), named)});
-        }
-    }
-    if (!wrote) {
-        std.debug.print("skipped {s}: no assembly\n", .{base});
-        return;
-    }
+    , .{ prec.letter, name, if (count > 1 and !has_conj) "s" else "", t.ob_dir, base });
     // one byte-order test for every split kernel in the file
-    if (split) try out.insertSlice(map.arena, header_len,
+    if (split) try out.appendSlice(map.arena,
         \\const sysinfo = @import("builtin");
         \\const is_BE = sysinfo.target.cpu.arch.endian() == .big;
         \\
         \\
     );
+    try out.appendSlice(map.arena, body.items);
     const dest = try map.path(&.{ out_dir, file });
     try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = dest, .data = out.items });
     try map.format(dest);
     std.debug.print("wrote {s}\n", .{dest});
+    return true;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -700,21 +934,21 @@ pub fn main(init: std.process.Init) !void {
             "-DXXSWAPD_S(T,A)=\"xxswapd \" #T \", \" #A \"\\n\\t\"",             "-DXXMRGHD_S(T,A,B)=\"xxmrghd \" #T \", \" #A \", \" #B \"\\n\\t\"",
             "-DXXMRGLD_S(T,A,B)=\"xxmrgld \" #T \", \" #A \", \" #B \"\\n\\t\"",
         } else &.{};
-        const out_dir = try a.print("{s}/{s}/{s}/uk", .{ map.out_root, name, t.out });
+        const out_dir = try a.print("{s}/{s}/{s}/uk", .{ map.out_root, try routine.dir(), t.out });
         try Io.Dir.cwd().createDirPath(init.io, out_dir);
 
         var dir = try Io.Dir.cwd().openDir(init.io, try map.path(&.{ map.root, "kernel", t.ob_dir }), .{ .iterate = true });
         defer dir.close(init.io);
-        const in_file_driver = try a.print("{s}.c", .{name});
+        const in_file_driver = (try routine.driver('s'))[1..];
         const microk = try a.print("{s}_microk_", .{name});
         var names: std.ArrayList([]const u8) = .empty;
         var it = dir.iterate();
         while (try it.next(init.io)) |e| {
             if (e.kind != .file or !std.mem.endsWith(u8, e.name, ".c")) continue;
             const wanted = if (t.in_file)
-                std.mem.eql(u8, e.name[1..], in_file_driver) and std.mem.findScalar(u8, "sdcz", e.name[0]) != null
+                std.mem.eql(u8, e.name[1..], in_file_driver) and hasLetter(routine, e.name[0])
             else
-                std.mem.startsWith(u8, e.name[1..], microk) and std.mem.findScalar(u8, "sdcz", e.name[0]) != null;
+                std.mem.startsWith(u8, e.name[1..], microk) and hasLetter(routine, e.name[0]);
             if (wanted) try names.append(a, try a.dupe(u8, e.name));
         }
         std.mem.sort([]const u8, names.items, {}, struct {
@@ -722,17 +956,34 @@ pub fn main(init: std.process.Init) !void {
                 return std.mem.lessThan(u8, x, y);
             }
         }.lt);
-        for (names.items) |n| try convertFile(t, routine, try map.path(&.{ map.root, "kernel", t.ob_dir, n }), out_dir);
+        for (names.items) |n| _ = try convertFile(t, routine, try map.path(&.{ map.root, "kernel", t.ob_dir, n }), out_dir, false);
+        // the assembly a driver defines itself, unless the driver is the block
+        if (!t.in_file) for ("sdcz") |letter| {
+            if (!hasLetter(routine, letter)) continue;
+            const driver = try map.path(&.{ map.root, "kernel", t.ob_dir, try routine.driver(letter) });
+            if (map.read(driver) == null) continue;
+            _ = try convertFile(t, routine, driver, out_dir, true);
+        };
         if (t.index) try writeIndex(a, t, routine, out_dir);
     };
 }
 
+/// Whether some role of `routine` is of precision `letter`.
+fn hasLetter(routine: map.Routine, letter: u8) bool {
+    for (routine.roles()) |r| {
+        if (r.letter == letter) return true;
+    }
+    return false;
+}
+
 /// One `#if`/`#elif` of a driver's chain: the cores it names, and the block
 /// it includes.
-const Link = struct { cores: []const []const u8, block: []const u8 };
+/// One link of a driver's chain: the cores it tests, the block's name and
+/// the file it includes (`survey.zig` reads the latter).
+pub const Link = struct { cores: []const []const u8, block: []const u8, file: []const u8 = "" };
 
 /// The chain at the top of a driver, in order.
-fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
+pub fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
     var out: std.ArrayList(Link) = .empty;
     var cores: []const []const u8 = &.{};
     var it = std.mem.splitScalar(u8, text, '\n');
@@ -755,8 +1006,9 @@ fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
             const q2 = std.mem.findScalarLast(u8, line, '"').?;
             const file = line[q1 + 1 .. q2];
             const core = file[std.mem.find(u8, file, "_microk_").? + "_microk_".len ..];
-            const stem = if (std.mem.endsWith(u8, core, "-2.c")) core[0 .. core.len - 4] else core;
-            try out.append(a, .{ .cores = cores, .block = stem });
+            const dot = core[0 .. core.len - 2];
+            const stem = if (std.mem.findScalarLast(u8, dot, '-')) |d| dot[0..d] else dot;
+            try out.append(a, .{ .cores = cores, .block = stem, .file = file });
         } else if (std.mem.startsWith(u8, line, "#ifndef HAVE_KERNEL")) break;
     }
     return out.items;
@@ -791,8 +1043,8 @@ fn functionsOf(a: std.mem.Allocator, path: []const u8) ![]const []const u8 {
 }
 
 /// Whether `core`'s kernel list selects `driver` for `role`.
-fn uses(arch_dir: []const u8, core: []const u8, key: []const u8, driver: []const u8) !bool {
-    for (try map.resolveKey(arch_dir, core, key, "Makefile.L1")) |s| {
+fn uses(arch_dir: []const u8, core: []const u8, key: []const u8, driver: []const u8, defaults: []const u8) !bool {
+    for (try map.resolveKey(arch_dir, core, key, defaults)) |s| {
         if (std.mem.eql(u8, s, driver)) return true;
     }
     return false;
@@ -805,32 +1057,46 @@ fn contains(list: []const []const u8, name: []const u8) bool {
     return false;
 }
 
+/// Whether `slot` is a kernel no core would install (`roles.skip`). Those
+/// routed per core skip only their assembly; their C kernels stay.
+fn skippedHere(arch_dir: []const u8, slot: []const u8) bool {
+    const s = roles.skipped(arch_dir, slot) orelse return false;
+    return !s.cores;
+}
+
 /// Which block each core's driver uses, and at what block size.
 fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []const u8) !void {
     const arch_dir = t.ob_dir;
     const name = @tagName(routine);
     var w: std.ArrayList(u8) = .empty;
+    const ukb = if (std.mem.startsWith(u8, try routine.dir(), "blas1/")) "../../../uk_block.zig" else "../../../../blas1/uk_block.zig";
     try put(&w,
         \\//! Which block kernel each core's C driver uses, read from the `#if`
-        \\//! chain at the top of `kernel/{s}/<p>{s}.c`. Generated by
+        \\//! chain at the top of `kernel/{s}/<p>{s}`. Generated by
         \\//! `tools/blas_asm/uk.zig`; re-derive it rather than editing it.
         \\
-        \\const uk = @import("../../../uk_block.zig");
+        \\const uk = @import("{s}");
         \\
         \\pub const Entry = uk.Entry;
         \\
         \\pub const entries = [_]Entry{{
         \\
-    , .{ arch_dir, name });
+    , .{ arch_dir, (try routine.driver('p'))[1..], ukb });
 
     const all = (try map.cores(arch_dir)).?;
     for ("sdcz") |letter| {
-        const driver = try a.print("{c}{s}.c", .{ letter, name });
+        const driver = try routine.driver(letter);
         const text = map.read(try map.path(&.{ map.root, "kernel", arch_dir, driver })) orelse continue;
         // the block is either the one function in the driver's own file, for
         // every core that uses the driver, or what the `#if` chain includes
         const chain: []const Link = if (t.in_file) &.{.{ .cores = all, .block = "" }} else try readChain(a, text);
-        const mask = readMask(text);
+        const mask = if (routine.masked()) readMask(text) else "0";
+        // the driver's own assembly (`convertFile`'s `own`), for every core
+        const own_file = try a.print("{s}.zig", .{driver[0 .. driver.len - 2]});
+        const own = if (!t.in_file and map.read(try map.path(&.{ out_dir, own_file })) != null)
+            try a.print(", .own = @import(\"{s}\")", .{own_file})
+        else
+            "";
         // the roles sharing a make variable share their cores
         var done_make: std.ArrayList([]const u8) = .empty;
         for (routine.roles()) |first| {
@@ -842,7 +1108,7 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
                 // the cores whose kernel list selects this driver and whose macro the link names
                 var cores: std.ArrayList(u8) = .empty;
                 for (all) |core| {
-                    if (!try uses(arch_dir, core, key, driver) or !contains(link.cores, core)) continue;
+                    if (!try uses(arch_dir, core, key, driver, routine.defaults()) or !contains(link.cores, core)) continue;
                     try cores.print(a, " \"{s}\",", .{try std.ascii.allocLowerString(a, core)});
                     try named_cores.append(a, core);
                 }
@@ -855,32 +1121,34 @@ fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []
                 const fns = try functionsOf(a, try map.path(&.{ out_dir, block_file }));
                 for (routine.roles()) |role| {
                     if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
+                    if (skippedHere(arch_dir, role.slot)) continue;
                     const kernel = if (fns.len == 0) "" else fns[@min(role.function, fns.len - 1)];
                     const module = if (fns.len == 0) "void" else try a.print("@import(\"{s}\")", .{block_file});
-                    try put(&w, "    .{{ .role = \"{s}\", .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s} }},\n", .{ role.name, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module });
+                    try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .{s}, .kernel = \"{s}\", .module = {s}{s} }},\n", .{ role.slot, cores.items, mask, if (fns.len == 0) "vector" else "assembly", kernel, module, own });
                 }
             }
             // the cores that use the driver but no link names: its own fallback block
             var rest: std.ArrayList(u8) = .empty;
             for (all) |core| {
-                if (!try uses(arch_dir, core, key, driver) or contains(named_cores.items, core)) continue;
+                if (!try uses(arch_dir, core, key, driver, routine.defaults()) or contains(named_cores.items, core)) continue;
                 try rest.print(a, " \"{s}\",", .{try std.ascii.allocLowerString(a, core)});
             }
             if (rest.items.len > 0) for (routine.roles()) |role| {
                 if (role.letter != letter or !std.mem.eql(u8, role.make, first.make)) continue;
-                try put(&w, "    .{{ .role = \"{s}\", .cores = &.{{{s} }}, .mask = {s}, .block = .none, .kernel = \"\", .module = void }},\n", .{ role.name, rest.items, mask });
+                if (skippedHere(arch_dir, role.slot)) continue;
+                try put(&w, "    .{{ .slot = .{s}, .cores = &.{{{s} }}, .mask = {s}, .block = .none, .kernel = \"\", .module = void{s} }},\n", .{ role.slot, rest.items, mask, own });
             };
         }
     }
     try put(&w, "}};\n\n", .{});
     try w.appendSlice(a,
-        \\/// The entry for `role` on `core`, if its driver is C.
-        \\pub fn find(comptime role: []const u8, comptime core: []const u8) ?Entry {
-        \\    return uk.find(&entries, role, core);
+        \\/// The entry for `slot` on `core`, if its driver is C.
+        \\pub fn find(comptime slot: uk.Slot, comptime core: []const u8) ?Entry {
+        \\    return uk.find(&entries, slot, core);
         \\}
         \\
     );
-    const dest = try map.path(&.{ out_dir, "__root__.zig" });
+    const dest = try map.path(&.{ out_dir, routine.index() });
     try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = dest, .data = w.items });
     try map.format(dest);
     std.debug.print("wrote {s}\n", .{dest});

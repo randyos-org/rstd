@@ -42,26 +42,26 @@ const parts = [_][]const u8{
     "0, 1, 0, 0, 0, 0, 0, 0",
     "0, 0, 1, 0, 0, 0, 0, 0",
     "0, 0, 0, 1, 0, 0, 0, 0",
+    "0, 0, 1, 0, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 1, 0, 0, 0",
     "0, 0, 0, 0, 1, 0, 0, 0",
     "0, 1, 0, 0, 0, 0, 0, 0",
-    "0, 0, 0, 0, 0, 1, 0, 0",
-    "0, 0, 0, 0, 0, 1, 0, 0",
     "0, 1, 0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 1, 0, 0",
     "0, 1, 0, 0, 0, 0, 0, 0",
     "0, 0, 0, 0, 0, 0, 1, 0",
-    "0, 1, 0, 0, 0, 0, 0, 0",
     "0, 0, 0, 0, 0, 0, 0, 1",
-    "0, 0, 0, 0, 1, 0, 0, 0",
-    "0, 0, 0, 0, 1, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0, 0, 1",
     "0, 1, 0, 0, 0, 0, 0, 0",
+    "0, 1, 0, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 1, 0, 0, 0",
+    "0, 0, 1, 0, 0, 0, 0, 0",
+    "0, 0, 0, 0, 0, 0, 1, 0",
     "0, 1, 0, 0, 0, 0, 0, 0",
     "0, 0, 0, 0, 0, 1, 0, 0",
     "0, 1, 0, 0, 0, 0, 0, 0",
-    "0, 0, 0, 0, 0, 0, 0, 1",
-    "0, 1, 0, 0, 0, 0, 0, 0",
-    "0, 0, 0, 0, 0, 0, 1, 0",
-    "0, 1, 0, 0, 0, 0, 0, 0",
-    "0, 1, 0, 0, 0, 0, 0, 0",
+    "0, 0, 1, 0, 0, 0, 0, 0",
 };
 
 /// Whether any build of `core` uses this file.
@@ -122,20 +122,20 @@ const text =
     \\ subl 4 + 16 + 16(%esp) ,%eax # 40 * lda - m
     \\ .endif
     \\ .if \bp4
-    \\ imull $32, %eax # 32 * lda
-    \\ subl 4 + 16 + 16(%esp) ,%eax # 32 * lda - m
-    \\ .endif
-    \\ .if \bp5
     \\ imull $256, %eax # 256 * lda
     \\ subl 4 + 16 + 16(%esp) ,%eax # 256 * lda - m
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp5
     \\ imull $128, %eax # 128 * lda
     \\ subl 4 + 16 + 16(%esp) ,%eax # 128 * lda - m
     \\ .endif
-    \\ .if \bp7
+    \\ .if \bp6
     \\ imull $((64) >> 1), %eax # ((64) >> 1) * lda
     \\ subl 4 + 16 + 16(%esp) ,%eax # ((64) >> 1) * lda - m
+    \\ .endif
+    \\ .if \bp7
+    \\ imull $32, %eax # 32 * lda
+    \\ subl 4 + 16 + 16(%esp) ,%eax # 32 * lda - m
     \\ .endif
     \\ leal (, %eax, 8), %eax
     \\ addl %eax, %eax
@@ -156,16 +156,16 @@ const text =
     \\ movl $40, %edx
     \\ .endif
     \\ .if \bp4
-    \\ movl $32, %edx
-    \\ .endif
-    \\ .if \bp5
     \\ movl $256, %edx
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp5
     \\ movl $128, %edx
     \\ .endif
-    \\ .if \bp7
+    \\ .if \bp6
     \\ movl $((64) >> 1), %edx
+    \\ .endif
+    \\ .if \bp7
+    \\ movl $32, %edx
     \\ .endif
     \\ movl 8 + 16 + 16(%esp), %eax
     \\ subl %esi,%eax # n - is
@@ -228,7 +228,7 @@ const text =
     \\ jle 20006f
     \\ .balign 8
     \\ 20005:
-    \\ .if \bp7
+    \\ .if \bp6
     \\ prefetchnta 16 * 8(%esi)
     \\ .endif
     \\ fldl 0 * 8(%edx) # at1 = *(a_offset + 0)
@@ -320,20 +320,20 @@ const text =
     \\ addl $40, 12 + 16(%esp)
     \\ .endif
     \\ .if \bp4
-    \\ addl %esi, 32 + 16 + 16(%esp) # a += 32 * lda - m
-    \\ addl $32, 12 + 16(%esp)
-    \\ .endif
-    \\ .if \bp5
     \\ addl %esi, 32 + 16 + 16(%esp) # a += 256 * lda - m
     \\ addl $256, 12 + 16(%esp)
     \\ .endif
-    \\ .if \bp6
+    \\ .if \bp5
     \\ addl %esi, 32 + 16 + 16(%esp) # a += 128 * lda - m
     \\ addl $128, 12 + 16(%esp)
     \\ .endif
-    \\ .if \bp7
+    \\ .if \bp6
     \\ addl %esi, 32 + 16 + 16(%esp) # a += ((64) >> 1) * lda - m
     \\ addl $((64) >> 1), 12 + 16(%esp)
+    \\ .endif
+    \\ .if \bp7
+    \\ addl %esi, 32 + 16 + 16(%esp) # a += 32 * lda - m
+    \\ addl $32, 12 + 16(%esp)
     \\ .endif
     \\ movl 8 + 16 + 16(%esp), %esi
     \\ cmpl %esi,12 + 16(%esp)
@@ -353,7 +353,7 @@ const text =
 
 fn Body(comptime args: []const u8) type {
     return struct {
-        pub fn zgemv_s() callconv(.naked) void {
+        pub fn entry() callconv(.naked) void {
             asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };

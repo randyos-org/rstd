@@ -42,15 +42,6 @@ fn archOf(comptime Core: type) std.Target.Cpu.Arch {
     };
 }
 
-/// Features that say nothing about what a kernel can execute: scheduling hints
-/// (`-mtune`), which models carry along, and supervisor-mode protections.
-fn notIsa(name: []const u8) bool {
-    const prefixes = [_][]const u8{ "false_deps", "fast", "slow", "prefer", "idiv", "lea_", "no_bypass", "macrofusion", "tuning", "use_", "fuse", "balance" };
-    for (prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
-    for ([_][]const u8{ "smap", "smep" }) |s| if (std.mem.eql(u8, name, s)) return true;
-    return false;
-}
-
 /// `spec`'s ISA features and what they imply: the model's, then the ones
 /// added, less the ones taken out.
 fn specSet(comptime arch: std.Target.Cpu.Arch, comptime spec: corespec.Spec) Set {
@@ -68,7 +59,7 @@ fn specSet(comptime arch: std.Target.Cpu.Arch, comptime spec: corespec.Spec) Set
     }
     set.populateDependencies(all);
     for (all, 0..) |f, i| {
-        if (notIsa(f.name)) set.removeFeature(@intCast(i));
+        if (corespec.notIsa(f.name)) set.removeFeature(@intCast(i));
         for (spec.without) |name| if (std.mem.eql(u8, f.name, name)) set.removeFeature(@intCast(i));
     }
     return set;
@@ -123,13 +114,15 @@ pub fn closest(comptime Core: type, want: Core, ctx: anytype, mode: Mode) ?Core 
     return best;
 }
 
-/// The core whose kernels serve `core`: itself if `linked` has its object, else the
-/// closest one it covers, else `linked.fallback` (the build's pick for the
-/// target, which the target CPU runs); null for the portable kernels. `linked`
-/// has `ok(core)` (whether the object is linked) and a `fallback` declaration.
+/// The core whose kernels serve `core`: the core whose object it takes
+/// (`corespec.objectCore`) if `linked` has that object, else the closest one
+/// that covers, else `linked.fallback` (the build's pick for the target, which
+/// the target CPU runs); null for the portable kernels. `linked` has `ok(core)`
+/// (whether the object is linked) and `fallback` and `arch` declarations.
 pub fn served(comptime Core: type, core: Core, linked: anytype) ?Core {
-    if (linked.ok(core)) return core;
-    return closest(Core, core, linked, .subset) orelse @TypeOf(linked).fallback;
+    const want = corespec.objectCore(@TypeOf(linked).arch, core);
+    if (linked.ok(want)) return want;
+    return closest(Core, want, linked, .subset) orelse @TypeOf(linked).fallback;
 }
 
 /// The reference's static-only `TARGET`s that no detector returns: only
@@ -328,6 +321,7 @@ const Log = struct {
 
 fn LinkedList(comptime list: []const X86) type {
     return struct {
+        pub const arch: std.Target.Cpu.Arch = .x86_64;
         pub const fallback: ?X86 = null;
         pub fn ok(_: @This(), c: X86) bool {
             return std.mem.findScalar(X86, list, c) != null;
@@ -437,13 +431,14 @@ test "choose: an unknown name is reported and detection decides" {
     try std.testing.expect(log2.has("Core not found"));
 }
 
-/// The cores of `arch` with objects, as a `served` context.
-fn Objects(comptime arch: std.Target.Cpu.Arch) type {
-    const Core = corespec.CoreType(arch);
+/// The cores of `of` with objects, as a `served` context.
+fn Objects(comptime of: std.Target.Cpu.Arch) type {
+    const Core = corespec.CoreType(of);
     return struct {
+        pub const arch = of;
         pub const fallback: ?Core = null;
         pub fn ok(_: @This(), c: Core) bool {
-            return std.mem.findScalar(Core, corespec.kernelCores(arch), c) != null;
+            return std.mem.findScalar(Core, corespec.kernelCores(of), c) != null;
         }
     };
 }

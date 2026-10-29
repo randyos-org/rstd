@@ -54,12 +54,21 @@ main_free: bool = false,
 /// (an L2 size of 0 is never a real value to tune for).
 l2_size_override: i32 = 0,
 
+/// Not from the environment: the CPU count `blas.init` caches
+/// (`threading.cpuCount`), 1 until then.
+cpu_count: u32 = 1,
+
 /// `LD_HWCAP_MASK` -- s390x-only (`cpuid_zarch.h`). ANDed against
 /// `getauxval(AT_HWCAP)` to let the user mask *out* specific feature
 /// bits the kernel reports, even if the hardware genuinely has them.
 /// Parsed with `strtoul(p, NULL, 0)` -- base-0, so `0x`/`0`-prefixed
 /// values pick hex/octal the way the C source does.
 ld_hwcap_mask: ?u64 = null,
+
+/// `RSTD_BLAS_ACCELERATE` (rstd's own) -- 0 keeps the routines off Apple
+/// Accelerate on macOS, which is then never loaded; anything else, or unset,
+/// uses it (`apple_accel.zig`).
+accelerate: bool = true,
 
 /// The longest value read; longer ones read as unparseable (a NUL), so they
 /// fall back to the default (or, for a core name, to detection).
@@ -133,12 +142,20 @@ pub fn fromEnv(env: Env) Self {
         (readIntRaw(i32, env, "GOTOBLAS_MAIN_FREE", 0) orelse 0) != 0;
     c.l2_size_override = readIntRaw(i32, env, "OPENBLAS_L2_SIZE", 0) orelse 0;
     c.ld_hwcap_mask = readIntRaw(u64, env, "LD_HWCAP_MASK", null);
+    c.accelerate = (readIntRaw(i32, env, "RSTD_BLAS_ACCELERATE", 1) orelse 1) != 0;
     return c;
 }
 
 /// `OPENBLAS_CORETYPE`, if set.
 pub fn coreType(c: *const Self) ?[]const u8 {
     return if (c.core_type_len == 0) null else c.core_type_buf[0..c.core_type_len];
+}
+
+/// The thread ceiling: `num_threads`, else `goto_num_threads`; null for none.
+pub fn threadCeiling(c: *const Self) ?u32 {
+    if (c.num_threads > 0) return @intCast(c.num_threads);
+    if (c.goto_num_threads > 0) return @intCast(c.goto_num_threads);
+    return null;
 }
 
 /// Reads `key` into `buf` (or borrows it), returning null when unset or empty.
@@ -239,6 +256,17 @@ test "neither thread-count variable set yields 0 threads" {
     try zigstd.testExpectEqual(@as(i32, 0), Self.init(&env).num_threads);
 }
 
+test "the thread ceiling is OPENBLAS_NUM_THREADS, else GOTO_NUM_THREADS" {
+    var env = testEnv(&.{.{ "GOTO_NUM_THREADS", "6" }});
+    defer env.deinit();
+    try zigstd.testExpectEqual(@as(?u32, 6), Self.init(&env).threadCeiling());
+    try env.put("OPENBLAS_NUM_THREADS", "3");
+    try zigstd.testExpectEqual(@as(?u32, 3), Self.init(&env).threadCeiling());
+    try env.put("OPENBLAS_NUM_THREADS", "-2");
+    try env.put("GOTO_NUM_THREADS", "0");
+    try zigstd.testExpectEqual(@as(?u32, null), Self.init(&env).threadCeiling());
+}
+
 test "GET_OPENBLAS_CORETYPE is a bare-presence check, even set to empty" {
     var env = testEnv(&.{.{ "GET_OPENBLAS_CORETYPE", "" }});
     defer env.deinit();
@@ -286,6 +314,21 @@ test "LD_HWCAP_MASK base-0 parsing: matches strtoul for hex, diverges for bare-l
         var env = testEnv(&.{.{ "LD_HWCAP_MASK", "0o10" }});
         defer env.deinit();
         try zigstd.testExpectEqual(@as(?u64, 8), readIntRaw(u64, &env, "LD_HWCAP_MASK", null));
+    }
+}
+
+test "RSTD_BLAS_ACCELERATE=0 turns Accelerate off; unset or anything else leaves it on" {
+    for ([_]struct { v: ?[]const u8, on: bool }{
+        .{ .v = null, .on = true },
+        .{ .v = "0", .on = false },
+        .{ .v = " 0 ", .on = false },
+        .{ .v = "1", .on = true },
+        .{ .v = "no", .on = true },
+    }) |c| {
+        var env = testEnv(&.{});
+        defer env.deinit();
+        if (c.v) |v| try env.put("RSTD_BLAS_ACCELERATE", v);
+        try zigstd.testExpectEqual(c.on, Self.init(&env).accelerate);
     }
 }
 

@@ -1,7 +1,8 @@
 # gemm kernel notes
 
 How the Zig kernels of `kernel.zig` compare with the hardware, and where
-converted assembly would pay. Measured 2026-10-15.
+converted assembly would pay. Measured 2026-10-15. The kernels' design is in
+[`design.md`](../../design.md#level-3).
 
 ## Setup
 
@@ -71,14 +72,16 @@ The hot loop of the full tile, from `-femit-asm`:
 
 ## Tails
 
-Row tails narrower than a vector go through one function per column width
-(`thin`: each row against the columns as one vector) rather than a fully
-unrolled tile per pair of widths: on Skylake-X `f32`, 10 unrolled tiles
-and 5 `thin` instead of 30 tiles. Against the earlier all-unrolled tails,
-interleaved on this host, `sgemm` and `dgemm` at n = 37, 100, 250 and 1000
-moved within the noise (for example `sgemm` n = 100: 36.8 against 36.7
-median). The objects did not shrink (Skylake-X 34 KB against 30 KB, the
-AVX2 group 22 KB against 15 KB, stripped): LLVM unrolls the `thin` loops.
+Row tails are fully unrolled tiles, one per pair of widths, as OpenBLAS's
+edge tiles are: on Skylake-X `f32`, 30 tiles. One `thin` function per column
+width for the tails narrower than a vector moved `sgemm` and `dgemm` at
+n = 37, 100, 250 and 1000 within the noise (for example `sgemm` n = 100:
+36.8 against 36.7 median), so the simpler shape stays. Stripped
+(`-OReleaseFast`, COFF), `thin` against unrolled: the `s` and `d`
+`gemm_kernel`s 30 KB against 35 KB on Skylake-X, 20 KB against 18 KB on the
+AVX2 group; the whole per-core objects 405 KB against 410 KB, and 390 KB
+against 387 KB. The tiles move `A` and `C` as arrays: the self-hosted x86_64
+backend stores a two-lane `f32` vector as sixteen bytes.
 
 ## Recommendation
 

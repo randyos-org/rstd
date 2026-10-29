@@ -75,18 +75,6 @@ pub fn sbtrmm_oltucopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX:
 pub fn sbtrmm_oltncopy(m: BlasLong, n: BlasLong, a: [*]f32, lda: BlasLong, posX: BlasLong, posY: BlasLong, b: [*]f32) i32 {
     return blas.kernel(.sbtrmm_oltncopy)(m, n, a, lda, posX, posY, b);
 }
-pub fn strmm_direct_LNUN(M: BlasLong, N: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong) void {
-    blas.kernel(.strmm_direct_LNUN)(M, N, alpha, A, strideA, B, strideB);
-}
-pub fn strmm_direct_LNLN(M: BlasLong, N: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong) void {
-    blas.kernel(.strmm_direct_LNLN)(M, N, alpha, A, strideA, B, strideB);
-}
-pub fn strmm_direct_LTUN(M: BlasLong, N: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong) void {
-    blas.kernel(.strmm_direct_LTUN)(M, N, alpha, A, strideA, B, strideB);
-}
-pub fn strmm_direct_LTLN(M: BlasLong, N: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong) void {
-    blas.kernel(.strmm_direct_LTLN)(M, N, alpha, A, strideA, B, strideB);
-}
 pub fn strmm_kernel_RN(bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha: f32, ba: [*]f32, bb: [*]f32, c: [*]f32, ldc: BlasLong, offset: BlasLong) i32 {
     return blas.kernel(.strmm_kernel_RN)(bm, bn, bk, alpha, ba, bb, c, ldc, offset);
 }

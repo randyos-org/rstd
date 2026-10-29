@@ -12,8 +12,9 @@
 //!
 //! Not translatable, so not ported:
 //! - `xerbla` itself, and the error exits for a bad letter argument: rstd
-//!   takes enums, so only the `parse` functions and the letters a type
-//!   rejects (real `gemv`'s `O`..`D`, `symv`'s `V`, `M`) stand in for them;
+//!   takes enums, so only the letters a routine rejects (`O` to `D` but in
+//!   complex `gemv` and `gbmv`, `V` and `M` but in the Hermitian level-2
+//!   routines) stand in for them;
 //! - checks that scalar arguments come back unchanged (Zig passes them by
 //!   value), and the snapshot, summary and stop-on-failure options;
 //! - CBLAS: the row-major layout and the argument numbers shifted by the
@@ -32,6 +33,14 @@ const Vtable = @import("../../Vtable.zig");
 pub const Float = types.Float;
 pub const isComplex = types.isComplex;
 pub const say = check.say;
+/// The `Io` the suites pass the routines.
+pub const io = check.io;
+
+/// The value of an argument enum (`blas.Trans` and the like) a Fortran letter
+/// names, either case; null for a letter it has none for.
+pub fn letter(comptime E: type, c: u8) ?E {
+    return std.meta.stringToEnum(E, &.{std.ascii.toLower(c)});
+}
 
 /// On a qemu rig: freestanding (32 MiB heap, 1 MiB stack, emulated), or the
 /// Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
@@ -180,6 +189,7 @@ fn Level2(comptime T: type) type {
 
 fn level3() anyerror!void {
     try blat3.all(&blat2.rig_n);
+    try utest.lapackAll();
 }
 
 test "the level-1 suites on every linked core this machine runs" {

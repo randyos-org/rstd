@@ -19,54 +19,53 @@ const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
-const uk = @import("../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const CComplex = types.CComplex;
+const Slot = util.Slot;
 
-pub const Role = enum { sdot, dsdot, ddot, cdotu, cdotc, zdotu, zdotc };
+/// The kernels an architecture's `<arch>/kernel.zig` iterates over.
+pub const slots = [_]Slot{ .dsdot_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
 
-/// The kernel names an architecture's `<arch>/kernel.zig` iterates over.
-pub const roles: []const [:0]const u8 = @typeInfo(Role).@"enum".field_names;
+/// What a kernel works on: `E` is its element type (a component for the
+/// complex ones), `R` what it returns.
+pub const Form = struct { E: type, R: type, complex: bool };
 
-fn roleOf(comptime role: []const u8) Role {
-    return std.meta.stringToEnum(Role, role).?;
+/// The form of `slot`, one of `slots`.
+pub fn form(comptime slot: Slot) Form {
+    return switch (slot) {
+        .dsdot_k => .{ .E = f32, .R = f64, .complex = false },
+        .ddot_k => .{ .E = f64, .R = f64, .complex = false },
+        .cdotu_k, .cdotc_k => .{ .E = f32, .R = CComplex(f32), .complex = true },
+        .zdotu_k, .zdotc_k => .{ .E = f64, .R = CComplex(f64), .complex = true },
+        else => @compileError(@tagName(slot) ++ " is not a dot kernel"),
+    };
 }
 
 // ---- kernel ABI ------------------------------------------------------------
 
-/// What the kernel `role` returns.
-pub fn Result(comptime role: []const u8) type {
-    return switch (comptime roleOf(role)) {
-        .sdot => f32,
-        .dsdot, .ddot => f64,
-        .cdotu, .cdotc => CComplex(f32),
-        .zdotu, .zdotc => CComplex(f64),
-    };
-}
-
-/// Vtable slot type of `role`; the elements are `uk.Float(role)`s, interleaved
+/// Vtable slot type of `slot`; the elements are `form(slot).E`s, interleaved
 /// pairs for the complex ones.
-pub fn Kernel(comptime role: []const u8) type {
-    const E = uk.Float(role);
-    return *const fn (BlasLong, [*]E, BlasLong, [*]E, BlasLong) callconv(.c) Result(role);
+pub fn Kernel(comptime slot: Slot) type {
+    const E = form(slot).E;
+    return *const fn (BlasLong, [*]E, BlasLong, [*]E, BlasLong) callconv(.c) form(slot).R;
 }
 
 /// How many partial sums the complex kernels' blocks leave: `cdot` keeps two
 /// sets of four, `zdot` one.
-fn partials(comptime role: []const u8) comptime_int {
-    return if (uk.Float(role) == f32) 8 else 4;
+fn partials(comptime slot: Slot) comptime_int {
+    return if (form(slot).E == f32) 8 else 4;
 }
 
 // ---- blocks ----------------------------------------------------------------
 
-/// A block calling the reference's `f(n, x, y, d)`: for a real role `d` is one
+/// A block calling the reference's `f(n, x, y, d)`: for a real slot `d` is one
 /// element, for a complex one the array of partial sums.
-pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
-    const E = uk.Float(role);
-    if (uk.isComplex(role)) return struct {
-        pub fn run(n1: BlasLong, x: [*]E, y: [*]E) [partials(role)]E {
-            var d: [partials(role)]E = @splat(0);
+pub fn Asm(comptime slot: Slot, comptime f: anytype) type {
+    const E = form(slot).E;
+    if (form(slot).complex) return struct {
+        pub fn run(n1: BlasLong, x: [*]E, y: [*]E) [partials(slot)]E {
+            var d: [partials(slot)]E = @splat(0);
             f(n1, x, y, &d);
             return d;
         }
@@ -80,21 +79,16 @@ pub fn Asm(comptime role: []const u8, comptime f: anytype) type {
     };
 }
 
-/// `a*b + c`, contracted or not.
-pub inline fn fmadd(comptime fuse: bool, comptime T: type, a: T, b: T, c: T) T {
-    return if (fuse) @mulAdd(T, a, b, c) else a * b + c;
-}
-
 /// The block the reference's driver falls back on where a core has no
 /// microkernel (`ddot_kernel_8`, `sdot_kernel_16`, `cdot_kernel_16`,
 /// `zdot_kernel_8`): plain C, in its own summation order.
-pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
-    const E = uk.Float(role);
-    if (uk.isComplex(role)) {
-        const N = partials(role);
+pub fn Fallback(comptime slot: Slot, comptime fuse: bool) type {
+    const E = form(slot).E;
+    if (form(slot).complex) {
+        const N = partials(slot);
         // the slots of one complex element's four products (re*re, im*im,
         // re*im, im*re); `cdot` alternates two sets of them
-        const slots: [2][4]usize = if (N == 8) .{ .{ 0, 1, 4, 5 }, .{ 2, 3, 6, 7 } } else .{ .{ 0, 1, 2, 3 }, .{ 0, 1, 2, 3 } };
+        const places: [2][4]usize = if (N == 8) .{ .{ 0, 1, 4, 5 }, .{ 2, 3, 6, 7 } } else .{ .{ 0, 1, 2, 3 }, .{ 0, 1, 2, 3 } };
         return struct {
             pub fn run(n1: BlasLong, x: [*]E, y: [*]E) [N]E {
                 var dot: [N]E = @splat(0);
@@ -102,15 +96,15 @@ pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
                 var i: BlasLong = 0;
                 while (i < n1) : (i += 4) {
                     inline for (0..4) |k| {
-                        const s = slots[k % 2];
+                        const s = places[k % 2];
                         const xr = x[j + 2 * k];
                         const xi = x[j + 2 * k + 1];
                         const yr = y[j + 2 * k];
                         const yi = y[j + 2 * k + 1];
-                        dot[s[0]] = fmadd(fuse, E, xr, yr, dot[s[0]]);
-                        dot[s[1]] = fmadd(fuse, E, xi, yi, dot[s[1]]);
-                        dot[s[2]] = fmadd(fuse, E, xr, yi, dot[s[2]]);
-                        dot[s[3]] = fmadd(fuse, E, xi, yr, dot[s[3]]);
+                        dot[s[0]] = fma.madd(fuse, E, xr, yr, dot[s[0]]);
+                        dot[s[1]] = fma.madd(fuse, E, xi, yi, dot[s[1]]);
+                        dot[s[2]] = fma.madd(fuse, E, xr, yi, dot[s[2]]);
+                        dot[s[3]] = fma.madd(fuse, E, xi, yr, dot[s[3]]);
                     }
                     j += 8;
                 }
@@ -126,8 +120,8 @@ pub fn Fallback(comptime role: []const u8, comptime fuse: bool) type {
             while (i < n) : (i += 8) {
                 // `y0*x0 + y1*x1 + ...`: clang fuses the first product, then
                 // each next one into the running sum
-                var r = fmadd(fuse, E, y[i], x[i], y[i + 1] * x[i + 1]);
-                inline for (2..8) |k| r = fmadd(fuse, E, y[i + k], x[i + k], r);
+                var r = fma.madd(fuse, E, y[i], x[i], y[i + 1] * x[i + 1]);
+                inline for (2..8) |k| r = fma.madd(fuse, E, y[i + k], x[i + k], r);
                 dot += r;
             }
             return dot;
@@ -150,7 +144,7 @@ fn Ddot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
                 var i = n1;
                 while (i < n) : (i += 1) {
                     const idx: usize = @intCast(i);
-                    dot = fmadd(fuse, f64, y[idx], x[idx], dot);
+                    dot = fma.madd(fuse, f64, y[idx], x[idx], dot);
                 }
                 return dot;
             }
@@ -172,53 +166,11 @@ fn Ddot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
                 temp2 += m2 + m4;
             }
             while (i < n) : (i += 1) {
-                temp1 = fmadd(fuse, f64, util.at(f64, y, iy).*, util.at(f64, x, ix).*, temp1);
+                temp1 = fma.madd(fuse, f64, util.at(f64, y, iy).*, util.at(f64, x, ix).*, temp1);
                 ix += incx;
                 iy += incy;
             }
             return temp1 + temp2;
-        }
-    };
-}
-
-/// `sdot.c`: the sum is a `double`, the products `float`.
-fn Sdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
-    return struct {
-        pub fn call(n: BlasLong, x: [*]f32, incx: BlasLong, y: [*]f32, incy: BlasLong) f32 {
-            if (n <= 0) return 0;
-            var dot: f64 = 0;
-
-            if (incx == 1 and incy == 1) {
-                var mydot: f32 = 0;
-                const n1 = n & -mask;
-                if (n1 != 0) mydot = Block.run(n1, x, y);
-                var i = n1;
-                while (i < n) : (i += 1) {
-                    const idx: usize = @intCast(i);
-                    const m = y[idx] * x[idx];
-                    dot += m;
-                }
-                dot += mydot;
-                return @floatCast(dot);
-            }
-
-            const n1 = n & -2;
-            var i: BlasLong = 0;
-            var ix: BlasLong = 0;
-            var iy: BlasLong = 0;
-            while (i < n1) : (i += 2) {
-                const s = fmadd(fuse, f32, util.at(f32, y, iy).*, util.at(f32, x, ix).*, util.at(f32, y, iy + incy).* * util.at(f32, x, ix + incx).*);
-                dot += s;
-                ix += incx * 2;
-                iy += incy * 2;
-            }
-            while (i < n) : (i += 1) {
-                const m = util.at(f32, y, iy).* * util.at(f32, x, ix).*;
-                dot += m;
-                ix += incx;
-                iy += incy;
-            }
-            return @floatCast(dot);
         }
     };
 }
@@ -242,7 +194,7 @@ fn Dsdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool)
                 i = n1;
                 while (i < n) : (i += 1) {
                     const idx: usize = @intCast(i);
-                    dot = fmadd(fuse, f64, y[idx], x[idx], dot);
+                    dot = fma.madd(fuse, f64, y[idx], x[idx], dot);
                 }
                 dot += mydot;
                 return dot;
@@ -253,13 +205,13 @@ fn Dsdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool)
             var ix: BlasLong = 0;
             var iy: BlasLong = 0;
             while (i < n1) : (i += 2) {
-                const s = fmadd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, @as(f64, util.at(f32, y, iy + incy).*) * util.at(f32, x, ix + incx).*);
+                const s = fma.madd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, @as(f64, util.at(f32, y, iy + incy).*) * util.at(f32, x, ix + incx).*);
                 dot += s;
                 ix += incx * 2;
                 iy += incy * 2;
             }
             while (i < n) : (i += 1) {
-                dot = fmadd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, dot);
+                dot = fma.madd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, dot);
                 ix += incx;
                 iy += incy;
             }
@@ -276,10 +228,10 @@ fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comp
     const s: [4]usize = if (F == f32) .{ 0, 1, 4, 5 } else .{ 0, 1, 2, 3 };
     return struct {
         inline fn acc(dot: *[N]F, xr: F, xi: F, yr: F, yi: F) void {
-            dot[s[0]] = fmadd(fuse, F, xr, yr, dot[s[0]]);
-            dot[s[1]] = fmadd(fuse, F, xi, yi, dot[s[1]]);
-            dot[s[2]] = fmadd(fuse, F, xr, yi, dot[s[2]]);
-            dot[s[3]] = fmadd(fuse, F, xi, yr, dot[s[3]]);
+            dot[s[0]] = fma.madd(fuse, F, xr, yr, dot[s[0]]);
+            dot[s[1]] = fma.madd(fuse, F, xi, yi, dot[s[1]]);
+            dot[s[2]] = fma.madd(fuse, F, xr, yi, dot[s[2]]);
+            dot[s[3]] = fma.madd(fuse, F, xi, yr, dot[s[3]]);
         }
 
         pub fn call(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) CComplex(F) {
@@ -322,29 +274,29 @@ fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comp
     };
 }
 
-/// The driver of `role` as a struct with `call`, around `Block` (the block
+/// The driver of `slot` as a struct with `call`, around `Block` (the block
 /// the core's microkernel gives, or the reference's own fallback).
-pub fn Driver(comptime role: []const u8, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
-    return switch (comptime roleOf(role)) {
-        .sdot => Sdot(mask, Block, fuse),
-        .dsdot => Dsdot(mask, Block, fuse),
-        .ddot => Ddot(mask, Block, fuse),
-        .cdotu => Cdot(f32, false, mask, Block, fuse),
-        .cdotc => Cdot(f32, true, mask, Block, fuse),
-        .zdotu => Cdot(f64, false, mask, Block, fuse),
-        .zdotc => Cdot(f64, true, mask, Block, fuse),
+pub fn Driver(comptime slot: Slot, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
+    return switch (slot) {
+        .dsdot_k => Dsdot(mask, Block, fuse),
+        .ddot_k => Ddot(mask, Block, fuse),
+        .cdotu_k => Cdot(f32, false, mask, Block, fuse),
+        .cdotc_k => Cdot(f32, true, mask, Block, fuse),
+        .zdotu_k => Cdot(f64, false, mask, Block, fuse),
+        .zdotc_k => Cdot(f64, true, mask, Block, fuse),
+        else => @compileError(@tagName(slot) ++ " is not a dot kernel"),
     };
 }
 
 // ---- the driver, as `uk_block.driven` takes it -----------------------------
 
-/// The kernel `role` around `Block` (null for the reference's fallback
+/// The kernel `slot` around `Block` (null for the reference's fallback
 /// block), blocks of `mask`.
-pub fn entry(comptime role: []const u8, comptime mask: comptime_int, comptime Block: ?type) Kernel(role) {
-    const E = uk.Float(role);
-    const Impl = Driver(role, mask, Block orelse Fallback(role, fma.fuse), fma.fuse);
+pub fn entry(comptime slot: Slot, comptime mask: comptime_int, comptime Block: ?type) Kernel(slot) {
+    const E = form(slot).E;
+    const Impl = Driver(slot, mask, Block orelse Fallback(slot, fma.fuse), fma.fuse);
     return &struct {
-        fn f(n: BlasLong, x: [*]E, incx: BlasLong, y: [*]E, incy: BlasLong) callconv(.c) Result(role) {
+        fn f(n: BlasLong, x: [*]E, incx: BlasLong, y: [*]E, incy: BlasLong) callconv(.c) form(slot).R {
             return Impl.call(n, x, incx, y, incy);
         }
     }.f;

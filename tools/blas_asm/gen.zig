@@ -21,8 +21,14 @@
 //! tabs become spaces (Zig's tokenizer requires it inside `\`), named labels
 //! become numeric local ones (one object holds many of these), and x86's
 //! `.align` becomes `.balign` (Mach-O reads `.align` as a power of two).
+//! Before that, `arch/<name>.zig`'s patches fix upstream bugs; its `retired`
+//! ones, for sources no longer converted, are only checked against upstream,
+//! and a full run stops on a live patch that applied to nothing.
 //!
-//! `asm/__root__.zig` lists which cores use which file.
+//! `asm/__root__.zig` lists which file fills which vtable slot; each file
+//! says which cores use it. The kernels `roles.skip` names, which no core
+//! would install, are not converted; the index lists the cores of those it
+//! keeps them for (`skipped`).
 
 const std = @import("std");
 const Io = std.Io;
@@ -109,12 +115,10 @@ fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []co
 fn patched(a: std.mem.Allocator, ar: Arch, inc: []const u8, source: []const u8, v: arch.Variant) ![]const u8 {
     const upstream = try map.path(&.{ map.root, "kernel", ar.name, source });
     var text: ?[]const u8 = null;
-    for ([_][]const arch.Patch{ ar.patches, v.patches }) |list| for (list) |p| {
+    for ([_][]const arch.Patch{ ar.patches, v.patches }) |list| for (list) |*p| {
         if (!std.mem.eql(u8, p.source, source)) continue;
-        const t = text orelse map.read(upstream) orelse map.die("cannot read {s}", .{upstream});
-        const n = std.mem.count(u8, t, p.find);
-        if (n != p.count) map.die("patch for {s} matches {d} times, not {d}:\n{s}", .{ source, n, p.count, p.find });
-        text = try std.mem.replaceOwned(u8, a, t, p.find, p.replace);
+        text = try apply(a, text orelse map.read(upstream) orelse map.die("cannot read {s}", .{upstream}), p.*);
+        try applied.put(a, p, {});
     };
     const t = text orelse return upstream;
     const dir = try map.path(&.{ inc, "patched", if (v.name.len == 0) "_" else v.name });
@@ -122,6 +126,43 @@ fn patched(a: std.mem.Allocator, ar: Arch, inc: []const u8, source: []const u8, 
     const out = try map.path(&.{ dir, source });
     try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = out, .data = t });
     return out;
+}
+
+/// `text` with `p` applied, which must match `p.count` times.
+fn apply(a: std.mem.Allocator, text: []const u8, p: arch.Patch) ![]const u8 {
+    const n = std.mem.count(u8, text, p.find);
+    if (n != p.count) map.die("patch for {s} matches {d} times, not {d}:\n{s}", .{ p.source, n, p.count, p.find });
+    return std.mem.replaceOwned(u8, a, text, p.find, p.replace);
+}
+
+/// The patches `patched` applied, by address: a full run stops on any other.
+var applied: std.array_hash_map.Auto(*const arch.Patch, void) = .empty;
+
+/// Stops on a retired patch that no longer matches upstream; each source's
+/// apply in order, as `patched` applies live ones.
+fn checkRetired(a: std.mem.Allocator, ar: Arch) !void {
+    for (ar.retired, 0..) |p, i| {
+        const first = for (ar.retired[0..i]) |q| {
+            if (std.mem.eql(u8, q.source, p.source)) break false;
+        } else true;
+        if (!first) continue;
+        const upstream = try map.path(&.{ map.root, "kernel", ar.name, p.source });
+        var t = map.read(upstream) orelse map.die("cannot read {s}", .{upstream});
+        for (ar.retired[i..]) |q| if (std.mem.eql(u8, q.source, p.source)) {
+            t = try apply(a, t, q);
+        };
+    }
+}
+
+/// After a full run: stops on a live patch no converted source took, which
+/// belongs in `retired`.
+fn checkApplied(ar: Arch) void {
+    for (ar.patches) |*p| if (!applied.contains(p)) unapplied(ar, p);
+    for (ar.variants) |v| for (v.patches) |*p| if (!applied.contains(p)) unapplied(ar, p);
+}
+
+fn unapplied(ar: Arch, p: *const arch.Patch) noreturn {
+    map.die("{s}: the patch for {s} applies to nothing converted; move it to `retired`", .{ ar.name, p.source });
 }
 
 /// The preprocessed source, tab-free and without empty lines.
@@ -461,7 +502,7 @@ fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: [
         \\
     );
     if (part_count == 0) {
-        try put(&w, a, "const Body = struct {{\npub fn {s}() callconv(.naked) void {{\nasm volatile (\n", .{role});
+        try w.appendSlice(a, "const Body = struct {\npub fn entry() callconv(.naked) void {\nasm volatile (\n");
         for (lines) |l| try put(&w, a, "\\\\{s}\n", .{l.text});
         try w.appendSlice(a, "\\\\\n);\n}\n};\n");
         return w.items;
@@ -490,16 +531,16 @@ fn emit(a: std.mem.Allocator, ar: Arch, k: Kernel, texts: []const Text, lines: [
         i = e;
     }
     try w.appendSlice(a, "\\\\ .endm\n\\\\\n;\n\n");
-    try put(&w, a,
-        \\fn Body(comptime args: []const u8) type {{
-        \\    return struct {{
-        \\        pub fn {s}() callconv(.naked) void {{
+    try w.appendSlice(a,
+        \\fn Body(comptime args: []const u8) type {
+        \\    return struct {
+        \\        pub fn entry() callconv(.naked) void {
         \\            asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
-        \\        }}
-        \\    }};
-        \\}}
+        \\        }
+        \\    };
+        \\}
         \\
-    , .{role});
+    );
     return w.items;
 }
 
@@ -516,7 +557,7 @@ fn findJob(jobs: *std.ArrayList(Job), k: Kernel) ?*Job {
     return null;
 }
 
-const Entry = struct { role: []const u8, file: []const u8 };
+const Entry = struct { slot: []const u8, file: []const u8 };
 
 fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_root: []const u8, makefile: []const u8) !void {
     const io = map.io;
@@ -533,7 +574,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         for (role_list) |r| {
             for (try map.resolveKey(ar.name, core, r.key, makefile)) |source| {
                 if (!ar.is_asm(source)) continue;
-                const k: Kernel = .{ .source = source, .prec = r.prec, .conj = r.conj, .role_name = r.name, .defines = r.defines };
+                const k: Kernel = .{ .source = source, .prec = r.prec, .conj = r.conj, .role_name = r.name, .slot = r.slot.?, .defines = r.defines };
                 const job = findJob(&jobs, k) orelse blk: {
                     try jobs.append(a, .{ .kernel = k });
                     break :blk &jobs.items[jobs.items.len - 1];
@@ -543,7 +584,6 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         }
     }
     if (jobs.items.len == 0) return;
-    try Io.Dir.cwd().createDirPath(io, dir);
 
     // a core with more than one alternative for a kernel (chosen upstream by
     // compiler version or byte order) is not converted for it
@@ -556,6 +596,8 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
     }
 
     var entries: std.ArrayList(Entry) = .empty;
+    // the cores of each skipped slot that keeps them (`roles.Skip.cores`)
+    var skips: std.array_hash_map.String(std.array_hash_map.String(void)) = .empty;
     for (jobs.items) |job| {
         const k = job.kernel;
         // sources the toolchain cannot assemble are not converted at all
@@ -564,12 +606,27 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         } else std.mem.find(u8, k.source, "_hummer") != null;
         if (unsupported) continue;
 
+        // nor are kernels no core would install (`roles.skip`)
+        if (roles.skipped(ar.name, k.slot)) |s| {
+            if (!s.cores) continue;
+            const e = try skips.getOrPut(a, k.slot);
+            if (!e.found_existing) e.value_ptr.* = .empty;
+            for (job.cores.items) |core| {
+                const lower = try lowered(a, core);
+                if (ambiguous.contains(try a.print("{s}:{s}", .{ lower, try k.role(a) }))) continue;
+                try e.value_ptr.put(a, lower, {});
+            }
+            continue;
+        }
+
         // every core's expansion, per variant
         var texts: std.ArrayList(Text) = .empty;
         for (ar.variants) |v| for (job.cores.items) |core| {
+            if (!v.builds(core)) continue;
             const lower = try lowered(a, core);
             if (ambiguous.contains(try a.print("{s}:{s}", .{ lower, try k.role(a) }))) continue;
             var lines = try arch.nakedLines(a, ar, try preprocess(a, ar, inc, k, core, v));
+            if (ar.check) |check| for (lines) |l| check(k.source, l);
             if (v.rewrite) |rewrite| {
                 const out = try a.alloc([]const u8, lines.len);
                 for (lines, out) |l, *o| o.* = try rewrite(a, l);
@@ -631,26 +688,53 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
             try tag.appendSlice(a, variant_tag);
             const file = try fileName(a, k, "", if (tag.items.len > 0) tag.items else null);
             const dest = try map.path(&.{ dir, file });
+            try Io.Dir.cwd().createDirPath(io, dir);
             try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = try emit(a, ar, k, members, merged) });
             _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", dest } });
-            try entries.append(a, .{ .role = try k.role(a), .file = file });
+            try entries.append(a, .{ .slot = k.slot, .file = file });
             std.debug.print("wrote {s} ({d} lines, {d} expansions)\n", .{ dest, merged.len, members.len });
         }
     }
 
-    // which file serves which kernel
+    // which file serves which kernel; none where every kernel was skipped
+    // and none keeps its cores
+    if (entries.items.len == 0 and skips.count() == 0) return;
+    try Io.Dir.cwd().createDirPath(io, dir);
     var idx: std.ArrayList(u8) = .empty;
     try put(&idx, a,
         \\//! Which converted file has which kernel; each says which cores it serves.
         \\//! Generated by `tools/blas_asm/gen.zig`; re-derive it rather than editing it.
         \\
-        \\pub const Entry = struct {{ role: []const u8, module: type }};
+        \\const registry = @import("../../../../asm_registry.zig");
+        \\
+        \\pub const Entry = registry.Entry;
         \\
         \\pub const entries = [_]Entry{{
         \\
     , .{});
-    for (entries.items) |e| try put(&idx, a, "    .{{ .role = \"{s}\", .module = @import(\"{s}\") }},\n", .{ e.role, e.file });
+    for (entries.items) |e| try put(&idx, a, "    .{{ .slot = .{s}, .module = @import(\"{s}\") }},\n", .{ e.slot, e.file });
     try put(&idx, a, "}};\n", .{});
+    if (skips.count() > 0) {
+        try put(&idx, a,
+            \\
+            \\/// The kernels upstream builds here that are not converted
+            \\/// (`tools/blas_asm/roles.zig`'s `skip`), with the cores it builds them for.
+            \\pub const skipped = [_]registry.Skipped{{
+            \\
+        , .{});
+        for (skips.keys(), skips.values()) |slot, cores| {
+            const names = try a.dupe([]const u8, cores.keys());
+            std.mem.sort([]const u8, names, {}, struct {
+                fn lt(_: void, x: []const u8, y: []const u8) bool {
+                    return std.mem.lessThan(u8, x, y);
+                }
+            }.lt);
+            try put(&idx, a, "    .{{ .slot = .{s}, .cores = &.{{", .{slot});
+            for (names) |c| try put(&idx, a, " \"{s}\",", .{c});
+            try put(&idx, a, " }} }},\n", .{});
+        }
+        try put(&idx, a, "}};\n", .{});
+    }
     const idx_path = try map.path(&.{ dir, "__root__.zig" });
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = idx_path, .data = idx.items });
     _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", idx_path } });
@@ -680,7 +764,7 @@ pub fn main(init: std.process.Init) !void {
     for (levels) |lv| {
         const text = map.read(try map.path(&.{ map.root, "kernel", lv.makefile })).?;
         for (try roles.parse(a, text)) |r| {
-            if (r.extended) continue;
+            if (r.extended or r.slot == null) continue;
             const d = try roles.dirFor(a, r.key);
             const e = try groups.getOrPut(a, try a.print("{s}/{s}", .{ lv.dir, d }));
             if (!e.found_existing) e.value_ptr.* = .{ .level = lv, .dir = d };
@@ -703,6 +787,8 @@ pub fn main(init: std.process.Init) !void {
             try convert(a, ar, g.roles.items, out_root, g.level.makefile);
         }
     }
+    for (arches) |ar| if (!arch_named or wants(want.items, &.{ar.name})) try checkRetired(a, ar);
+    if (want.items.len == 0) for (arches) |ar| checkApplied(ar);
 }
 
 /// A BLAS level: the rules that build its kernels, and its directory.

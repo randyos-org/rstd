@@ -186,7 +186,7 @@ pub fn installGeneric(vt: *Vtable) void {
 const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
 const kernel = @import("kernel.zig");
-const uk = @import("../uk_block.zig");
+const fma = @import("../../fma.zig");
 const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type, `conj`
@@ -315,12 +315,10 @@ test "every linked core's sdot: within half an ulp, summed in f64" {
 }
 
 test "the C drivers around the reference's fallback blocks match a plain loop" {
-    inline for (.{ .{ "sdot", 32 }, .{ "ddot", 16 } }) |r| {
-        try checkDot(uk.Float(r[0]), false, kernel.entry(r[0], r[1], null));
-    }
-    try checkDotTol(f32, false, kernel.entry("dsdot", 32, null), true);
-    inline for (.{ .{ "cdotu", false, 16 }, .{ "cdotc", true, 16 }, .{ "zdotu", false, 8 }, .{ "zdotc", true, 8 } }) |r| {
-        const F = uk.Float(r[0]);
+    try checkDot(f64, false, kernel.entry(.ddot_k, 16, null));
+    try checkDotTol(f32, false, kernel.entry(.dsdot_k, 32, null), true);
+    inline for (.{ .{ .cdotu_k, false, 16 }, .{ .cdotc_k, true, 16 }, .{ .zdotu_k, false, 8 }, .{ .zdotc_k, true, 8 } }) |r| {
+        const F = kernel.form(r[0]).E;
         try checkDot(std.math.Complex(F), r[1], kernel.entry(r[0], r[2], null));
     }
 }
@@ -337,7 +335,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
         const step = 4 * l512;
         while (i < n & ~@as(usize, step - 1)) : (i += step) {
             for (0..4) |g| for (0..l512) |l| {
-                w[g][l] = kernel.fmadd(fuse, T, x[i + g * l512 + l], y[i + g * l512 + l], w[g][l]);
+                w[g][l] = fma.madd(fuse, T, x[i + g * l512 + l], y[i + g * l512 + l], w[g][l]);
             };
         }
         for (0..4) |g| for (0..l256) |l| {
@@ -346,7 +344,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
     }
     while (i < n) : (i += 4 * l256) {
         for (0..4) |g| for (0..l256) |l| {
-            acc[g][l] = kernel.fmadd(fuse, T, x[i + g * l256 + l], y[i + g * l256 + l], acc[g][l]);
+            acc[g][l] = fma.madd(fuse, T, x[i + g * l256 + l], y[i + g * l256 + l], acc[g][l]);
         };
     }
     var h: [l256 / 2]T = undefined;
@@ -361,7 +359,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
 test "x86_64's vector blocks sum in the reference's order, bit for bit" {
     if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const vb = @import("x86_64/kernel.zig");
-    inline for (.{ .{ "ddot", f64, 16 }, .{ "sdot", f32, 32 } }) |r| {
+    inline for (.{ .{ .ddot_k, f64, 16 }, .{ .dsdot_k, f32, 32 } }) |r| {
         const T = r[1];
         var x: [1024]T = undefined;
         var y: [1024]T = undefined;
@@ -375,7 +373,7 @@ test "x86_64's vector blocks sum in the reference's order, bit for bit" {
                 const got = B.run(@intCast(n), &x, &y);
                 const U = if (T == f64) u64 else u32;
                 zigstd.testExpectEqual(@as(U, @bitCast(want)), @as(U, @bitCast(got))) catch |e| {
-                    check.say("{s} wide={} fuse={} n={d}: ", .{ r[0], wide, fuse, n });
+                    check.say("{s} wide={} fuse={} n={d}: ", .{ @tagName(r[0]), wide, fuse, n });
                     return e;
                 };
             }

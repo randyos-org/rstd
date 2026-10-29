@@ -46,7 +46,8 @@ pub fn portableVtable() *const Vtable {
 }
 
 /// What `open` puts in the buffer: finite junk, for kernels whose callers must
-/// keep NaN out of it (`zgemv_t.S`), or NaN, for the rest.
+/// keep NaN out of it (x86_64's SSE `symv`, which reads past its copies), or
+/// NaN, for the rest.
 pub const Fill = enum { junk, nan };
 
 /// A buffer of exactly `bytes`, `off` past a page boundary, filled as `fill`
@@ -107,7 +108,10 @@ pub fn operand(comptime T: type, which: Operands, n: usize) []T {
 }
 
 /// An allocator over `child` whose fresh memory is all ones bits (NaN), so a
-/// caller that must clear a buffer is caught when it does not.
+/// caller that must clear a buffer is caught when it does not, as is memory a
+/// resize adds. Freed memory is set to the same first, so a read after free
+/// gives NaN rather than the old values; a shrink's cut-off tail is left as is,
+/// since the child may already have released it.
 pub const Poison = struct {
     child: std.mem.Allocator,
 
@@ -123,14 +127,19 @@ pub const Poison = struct {
     }
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) bool {
         const self: *Poison = @ptrCast(@alignCast(ctx));
-        return self.child.rawResize(memory, alignment, new_len, ret);
+        if (!self.child.rawResize(memory, alignment, new_len, ret)) return false;
+        if (new_len > memory.len) @memset(memory.ptr[memory.len..new_len], 0xff);
+        return true;
     }
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
         const self: *Poison = @ptrCast(@alignCast(ctx));
-        return self.child.rawRemap(memory, alignment, new_len, ret);
+        const p = self.child.rawRemap(memory, alignment, new_len, ret) orelse return null;
+        if (new_len > memory.len) @memset(p[memory.len..new_len], 0xff);
+        return p;
     }
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret: usize) void {
         const self: *Poison = @ptrCast(@alignCast(ctx));
+        @memset(memory, 0xff);
         self.child.rawFree(memory, alignment, ret);
     }
 };

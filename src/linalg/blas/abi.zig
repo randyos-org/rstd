@@ -7,6 +7,7 @@
 //! Import-free, since the build script reads it too (`build/blaskern.zig`).
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 
 pub const Result = union(enum) {
     /// The variant's name (empty where the architecture has only one).
@@ -42,6 +43,8 @@ pub fn variantOf(t: *const std.Target) Result {
             .mips64_n64 => .{ .variant = "" },
             else => .{ .unsupported = "the kernels are n64; this is n32" },
         },
+        // only the `@Vector` kernels of the MSA core (p5600); no assembly
+        .mips, .mipsel => .{ .variant = "o32" },
         .sparc64 => .{ .variant = "64" },
         .sparc => .{ .variant = "32" },
         .powerpc64le => .{ .variant = "64" },
@@ -75,6 +78,8 @@ pub fn variantName(t: *const std.Target) []const u8 {
 }
 
 test "variants follow the calling convention" {
+    // resolving a query needs an `Io`, which freestanding builds lack
+    if (comptime sysinfo.target.os.tag == .freestanding) return error.SkipZigTest;
     const cases = [_]struct { []const u8, []const u8 }{
         .{ "x86_64-linux-gnu", "sysv" },
         .{ "x86_64-linux-musl", "sysv" },
@@ -93,6 +98,8 @@ test "variants follow the calling convention" {
         .{ "powerpc64-linux-musl", "64be" },
         .{ "powerpc-linux-gnu", "32" },
         .{ "mips64el-linux-gnuabi64", "" },
+        .{ "mips-linux-gnu", "o32" },
+        .{ "mipsel-linux-gnueabihf", "o32" },
     };
     for (cases) |c| {
         const q = try std.Target.Query.parse(.{ .arch_os_abi = c[0] });
@@ -105,6 +112,7 @@ test "variants follow the calling convention" {
         // soft float: by the ABI, or no FP registers
         .{ "powerpc-linux-gnueabi", "baseline" },
         .{ "loongarch64-linux-gnusf", "baseline" },
+        .{ "mipsel-linux-gnueabi", "baseline" },
         .{ "riscv64-linux-gnu", "baseline-d" },
         .{ "aarch64-linux-gnu", "baseline-fp_armv8" },
     };
@@ -113,7 +121,7 @@ test "variants follow the calling convention" {
         const t = try std.zig.system.resolveTargetQuery(std.testing.io, q);
         try std.testing.expect(variantOf(&t) == .unsupported);
     }
-    for ([_][]const u8{ "mips-linux-gnu", "riscv32-linux-gnu", "x86_16-freestanding" }) |s| {
+    for ([_][]const u8{ "riscv32-linux-gnu", "x86_16-freestanding" }) |s| {
         const t = try std.zig.system.resolveTargetQuery(std.testing.io, try std.Target.Query.parse(.{ .arch_os_abi = s }));
         try std.testing.expect(variantOf(&t) == .none);
     }

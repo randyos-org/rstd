@@ -11,9 +11,7 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const iface = @import("../../blas2/interface.zig");
-const banded = @import("../../blas2/banded.zig");
-const tri = @import("../../blas2/triangular.zig");
+const blas = @import("../../__root__.zig");
 const guard = @import("../blas2/guard.zig");
 
 const Float = ob.Float;
@@ -350,7 +348,7 @@ const Call = struct {
     }
 };
 
-fn gtrans(c: u8) iface.Trans {
+fn transOf(c: u8) blas.Trans {
     return switch (c) {
         'N' => .n,
         'T' => .t,
@@ -358,24 +356,8 @@ fn gtrans(c: u8) iface.Trans {
     };
 }
 
-fn btrans(c: u8) banded.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        else => .c,
-    };
-}
-
-fn guplo(c: u8) iface.Uplo {
+fn uploOf(c: u8) blas.Uplo {
     return if (c == 'U') .u else .l;
-}
-
-fn buplo(c: u8) banded.Uplo {
-    return if (c == 'U') .upper else .lower;
-}
-
-fn huplo(c: u8) banded.HermUplo {
-    return if (c == 'U') .upper else .lower;
 }
 
 /// Calls routine `r` on the storage in `w`.
@@ -392,52 +374,52 @@ fn run(comptime T: type, comptime r: Routine, c: Call, w: anytype) !void {
     const x = w.xx.ptr;
     const y = w.yy.ptr;
     switch (r) {
-        .gemv => try iface.gemv(al, T, gtrans(c.trans), m, n, alpha, a, lda, x, c.incx, beta, y, c.incy),
-        .gbmv => try banded.gbmv(T, al, btrans(c.trans), m, n, c.k, c.ku, alpha, a, lda, x, c.incx, beta, y, c.incy),
+        .gemv => try blas.gemv(al, ob.io, T, transOf(c.trans), m, n, alpha, a, lda, x, c.incx, beta, y, c.incy),
+        .gbmv => try blas.gbmv(al, ob.io, T, transOf(c.trans), m, n, c.k, c.ku, alpha, a, lda, x, c.incx, beta, y, c.incy),
         .symv => if (cx)
-            try iface.hemv(al, T, guplo(c.uplo), n, alpha, a, lda, x, c.incx, beta, y, c.incy)
+            try blas.hemv(al, ob.io, T, uploOf(c.uplo), n, alpha, a, lda, x, c.incx, beta, y, c.incy)
         else
-            try iface.symv(al, T, guplo(c.uplo), n, alpha, a, lda, x, c.incx, beta, y, c.incy),
+            try blas.symv(al, ob.io, T, uploOf(c.uplo), n, alpha, a, lda, x, c.incx, beta, y, c.incy),
         .sbmv => if (cx)
-            try banded.hbmv(T, al, huplo(c.uplo), n, c.k, alpha, a, lda, x, c.incx, beta, y, c.incy)
+            try blas.hbmv(al, ob.io, T, uploOf(c.uplo), n, c.k, alpha, a, lda, x, c.incx, beta, y, c.incy)
         else
-            try banded.sbmv(T, al, buplo(c.uplo), n, c.k, alpha, a, lda, x, c.incx, beta, y, c.incy),
+            try blas.sbmv(al, ob.io, T, uploOf(c.uplo), n, c.k, alpha, a, lda, x, c.incx, beta, y, c.incy),
         .spmv => if (cx)
-            try banded.hpmv(T, al, huplo(c.uplo), n, alpha, a, x, c.incx, beta, y, c.incy)
+            try blas.hpmv(al, ob.io, T, uploOf(c.uplo), n, alpha, a, x, c.incx, beta, y, c.incy)
         else
-            try banded.spmv(T, al, buplo(c.uplo), n, alpha, a, x, c.incx, beta, y, c.incy),
+            try blas.spmv(al, ob.io, T, uploOf(c.uplo), n, alpha, a, x, c.incx, beta, y, c.incy),
         .trmv, .tbmv, .tpmv, .trsv, .tbsv, .tpsv => {
-            const u = try tri.Uplo.parse(c.uplo);
-            const t = try tri.Trans.parse(c.trans);
-            const d = try tri.Diag.parse(c.diag);
+            const u = ob.letter(blas.Uplo, c.uplo).?;
+            const t = ob.letter(blas.Trans, c.trans).?;
+            const d = ob.letter(blas.Diag, c.diag).?;
             switch (r) {
-                .trmv => try tri.trmv(T, al, u, t, d, n, a, lda, x, c.incx),
-                .tbmv => try tri.tbmv(T, al, u, t, d, n, c.k, a, lda, x, c.incx),
-                .tpmv => try tri.tpmv(T, al, u, t, d, n, a, x, c.incx),
-                .trsv => try tri.trsv(T, al, u, t, d, n, a, lda, x, c.incx),
-                .tbsv => try tri.tbsv(T, al, u, t, d, n, c.k, a, lda, x, c.incx),
-                .tpsv => try tri.tpsv(T, al, u, t, d, n, a, x, c.incx),
+                .trmv => try blas.trmv(al, ob.io, T, u, t, d, n, a, lda, x, c.incx),
+                .tbmv => try blas.tbmv(al, ob.io, T, u, t, d, n, c.k, a, lda, x, c.incx),
+                .tpmv => try blas.tpmv(al, ob.io, T, u, t, d, n, a, x, c.incx),
+                .trsv => try blas.trsv(al, ob.io, T, u, t, d, n, a, lda, x, c.incx),
+                .tbsv => try blas.tbsv(al, ob.io, T, u, t, d, n, c.k, a, lda, x, c.incx),
+                .tpsv => try blas.tpsv(al, ob.io, T, u, t, d, n, a, x, c.incx),
                 else => unreachable,
             }
         },
-        .ger => try iface.ger(al, T, m, n, alpha, x, c.incx, y, c.incy, a, lda),
-        .gerc => if (cx) try iface.gerc(al, T, m, n, alpha, x, c.incx, y, c.incy, a, lda) else unreachable,
+        .ger => try blas.ger(al, ob.io, T, m, n, alpha, x, c.incx, y, c.incy, a, lda),
+        .gerc => if (cx) try blas.gerc(al, ob.io, T, m, n, alpha, x, c.incx, y, c.incy, a, lda) else unreachable,
         .syr => if (cx)
-            try banded.her(T, al, huplo(c.uplo), n, alpha.re, x, c.incx, a, lda)
+            try blas.her(al, ob.io, T, uploOf(c.uplo), n, alpha.re, x, c.incx, a, lda)
         else
-            try banded.syr(T, al, buplo(c.uplo), n, alpha, x, c.incx, a, lda),
+            try blas.syr(al, ob.io, T, uploOf(c.uplo), n, alpha, x, c.incx, a, lda),
         .spr => if (cx)
-            try banded.hpr(T, al, huplo(c.uplo), n, alpha.re, x, c.incx, a)
+            try blas.hpr(al, ob.io, T, uploOf(c.uplo), n, alpha.re, x, c.incx, a)
         else
-            try banded.spr(T, al, buplo(c.uplo), n, alpha, x, c.incx, a),
+            try blas.spr(al, ob.io, T, uploOf(c.uplo), n, alpha, x, c.incx, a),
         .syr2 => if (cx)
-            try banded.her2(T, al, huplo(c.uplo), n, alpha, x, c.incx, y, c.incy, a, lda)
+            try blas.her2(al, ob.io, T, uploOf(c.uplo), n, alpha, x, c.incx, y, c.incy, a, lda)
         else
-            try banded.syr2(T, al, buplo(c.uplo), n, alpha, x, c.incx, y, c.incy, a, lda),
+            try blas.syr2(al, ob.io, T, uploOf(c.uplo), n, alpha, x, c.incx, y, c.incy, a, lda),
         .spr2 => if (cx)
-            try banded.hpr2(T, al, huplo(c.uplo), n, alpha, x, c.incx, y, c.incy, a)
+            try blas.hpr2(al, ob.io, T, uploOf(c.uplo), n, alpha, x, c.incx, y, c.incy, a)
         else
-            try banded.spr2(T, al, buplo(c.uplo), n, alpha, x, c.incx, y, c.incy, a),
+            try blas.spr2(al, ob.io, T, uploOf(c.uplo), n, alpha, x, c.incx, y, c.incy, a),
     }
 }
 
@@ -984,109 +966,116 @@ fn errorExits(comptime T: type) !void {
     const ra: Float(T) = 0;
     const E = ob.expectError;
     // gemv: a bad letter is one real types do not take
-    if (!cx) try E(error.InvalidTrans, iface.gemv(al, T, .o, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=1");
-    try E(error.InvalidM, iface.gemv(al, T, .n, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=2");
-    try E(error.InvalidN, iface.gemv(al, T, .n, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=3");
-    try E(error.InvalidLda, iface.gemv(al, T, .n, 2, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=6");
-    try E(error.InvalidIncx, iface.gemv(al, T, .n, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "GEMV INFOT=8");
-    try E(error.InvalidIncy, iface.gemv(al, T, .n, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "GEMV INFOT=11");
+    if (!cx) try E(error.InvalidTrans, blas.gemv(al, ob.io, T, .o, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=1");
+    try E(error.InvalidM, blas.gemv(al, ob.io, T, .n, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=2");
+    try E(error.InvalidN, blas.gemv(al, ob.io, T, .n, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=3");
+    try E(error.InvalidLda, blas.gemv(al, ob.io, T, .n, 2, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GEMV INFOT=6");
+    try E(error.InvalidIncx, blas.gemv(al, ob.io, T, .n, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "GEMV INFOT=8");
+    try E(error.InvalidIncy, blas.gemv(al, ob.io, T, .n, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "GEMV INFOT=11");
     // gbmv
-    try ob.expect(banded.Trans.parse(T, '/') == null, "GBMV INFOT=1");
-    try E(error.InvalidM, banded.gbmv(T, al, .n, -1, 0, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=2");
-    try E(error.InvalidN, banded.gbmv(T, al, .n, 0, -1, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=3");
-    try E(error.InvalidK, banded.gbmv(T, al, .n, 0, 0, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=4");
-    try E(error.InvalidK, banded.gbmv(T, al, .n, 2, 0, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=5");
-    try E(error.InvalidLda, banded.gbmv(T, al, .n, 0, 0, 1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=8");
-    try E(error.InvalidIncx, banded.gbmv(T, al, .n, 0, 0, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "GBMV INFOT=10");
-    try E(error.InvalidIncy, banded.gbmv(T, al, .n, 0, 0, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "GBMV INFOT=13");
+    if (!cx) try E(error.InvalidTrans, blas.gbmv(al, ob.io, T, .o, 0, 0, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=1");
+    try E(error.InvalidM, blas.gbmv(al, ob.io, T, .n, -1, 0, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=2");
+    try E(error.InvalidN, blas.gbmv(al, ob.io, T, .n, 0, -1, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=3");
+    try E(error.InvalidK, blas.gbmv(al, ob.io, T, .n, 0, 0, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=4");
+    try E(error.InvalidK, blas.gbmv(al, ob.io, T, .n, 2, 0, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=5");
+    try E(error.InvalidLda, blas.gbmv(al, ob.io, T, .n, 0, 0, 1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "GBMV INFOT=8");
+    try E(error.InvalidIncx, blas.gbmv(al, ob.io, T, .n, 0, 0, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "GBMV INFOT=10");
+    try E(error.InvalidIncy, blas.gbmv(al, ob.io, T, .n, 0, 0, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "GBMV INFOT=13");
     // symv, hemv
     if (cx) {
-        try E(error.InvalidN, iface.hemv(al, T, .u, -1, al0, &a, 1, &x, 1, al0, &y, 1), "HEMV INFOT=2");
-        try E(error.InvalidLda, iface.hemv(al, T, .u, 2, al0, &a, 1, &x, 1, al0, &y, 1), "HEMV INFOT=5");
-        try E(error.InvalidIncx, iface.hemv(al, T, .u, 0, al0, &a, 1, &x, 0, al0, &y, 1), "HEMV INFOT=7");
-        try E(error.InvalidIncy, iface.hemv(al, T, .u, 0, al0, &a, 1, &x, 1, al0, &y, 0), "HEMV INFOT=10");
+        try E(error.InvalidN, blas.hemv(al, ob.io, T, .u, -1, al0, &a, 1, &x, 1, al0, &y, 1), "HEMV INFOT=2");
+        try E(error.InvalidLda, blas.hemv(al, ob.io, T, .u, 2, al0, &a, 1, &x, 1, al0, &y, 1), "HEMV INFOT=5");
+        try E(error.InvalidIncx, blas.hemv(al, ob.io, T, .u, 0, al0, &a, 1, &x, 0, al0, &y, 1), "HEMV INFOT=7");
+        try E(error.InvalidIncy, blas.hemv(al, ob.io, T, .u, 0, al0, &a, 1, &x, 1, al0, &y, 0), "HEMV INFOT=10");
     } else {
-        try E(error.InvalidUplo, iface.symv(al, T, .v, 0, al0, &a, 1, &x, 1, al0, &y, 1), "SYMV INFOT=1");
-        try E(error.InvalidN, iface.symv(al, T, .u, -1, al0, &a, 1, &x, 1, al0, &y, 1), "SYMV INFOT=2");
-        try E(error.InvalidLda, iface.symv(al, T, .u, 2, al0, &a, 1, &x, 1, al0, &y, 1), "SYMV INFOT=5");
-        try E(error.InvalidIncx, iface.symv(al, T, .u, 0, al0, &a, 1, &x, 0, al0, &y, 1), "SYMV INFOT=7");
-        try E(error.InvalidIncy, iface.symv(al, T, .u, 0, al0, &a, 1, &x, 1, al0, &y, 0), "SYMV INFOT=10");
+        try E(error.InvalidUplo, blas.symv(al, ob.io, T, .v, 0, al0, &a, 1, &x, 1, al0, &y, 1), "SYMV INFOT=1");
+        try E(error.InvalidN, blas.symv(al, ob.io, T, .u, -1, al0, &a, 1, &x, 1, al0, &y, 1), "SYMV INFOT=2");
+        try E(error.InvalidLda, blas.symv(al, ob.io, T, .u, 2, al0, &a, 1, &x, 1, al0, &y, 1), "SYMV INFOT=5");
+        try E(error.InvalidIncx, blas.symv(al, ob.io, T, .u, 0, al0, &a, 1, &x, 0, al0, &y, 1), "SYMV INFOT=7");
+        try E(error.InvalidIncy, blas.symv(al, ob.io, T, .u, 0, al0, &a, 1, &x, 1, al0, &y, 0), "SYMV INFOT=10");
     }
     // sbmv, hbmv
-    try ob.expect(banded.Uplo.parse('/') == null and banded.HermUplo.parse('/') == null, "SBMV INFOT=1");
+    if (!cx) try E(error.InvalidUplo, blas.sbmv(al, ob.io, T, .v, 0, 0, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=1");
     if (cx) {
-        try E(error.InvalidN, banded.hbmv(T, al, .upper, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=2");
-        try E(error.InvalidK, banded.hbmv(T, al, .upper, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=3");
-        try E(error.InvalidLda, banded.hbmv(T, al, .upper, 0, 1, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=6");
-        try E(error.InvalidIncx, banded.hbmv(T, al, .upper, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "HBMV INFOT=8");
-        try E(error.InvalidIncy, banded.hbmv(T, al, .upper, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "HBMV INFOT=11");
-        try E(error.InvalidN, banded.hpmv(T, al, .upper, -1, al0, &a, &x, 1, al0, &y, 1), "HPMV INFOT=2");
-        try E(error.InvalidIncx, banded.hpmv(T, al, .upper, 0, al0, &a, &x, 0, al0, &y, 1), "HPMV INFOT=6");
-        try E(error.InvalidIncy, banded.hpmv(T, al, .upper, 0, al0, &a, &x, 1, al0, &y, 0), "HPMV INFOT=9");
+        try E(error.InvalidN, blas.hbmv(al, ob.io, T, .u, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=2");
+        try E(error.InvalidK, blas.hbmv(al, ob.io, T, .u, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=3");
+        try E(error.InvalidLda, blas.hbmv(al, ob.io, T, .u, 0, 1, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=6");
+        try E(error.InvalidIncx, blas.hbmv(al, ob.io, T, .u, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "HBMV INFOT=8");
+        try E(error.InvalidIncy, blas.hbmv(al, ob.io, T, .u, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "HBMV INFOT=11");
+        // `HEMVREV` letters reach `hpmv` and the four below only from
+        // row-major CBLAS upstream
+        try E(error.InvalidUplo, blas.hpmv(al, ob.io, T, .v, 0, al0, &a, &x, 1, al0, &y, 1), "HPMV INFOT=1");
+        try E(error.InvalidN, blas.hpmv(al, ob.io, T, .u, -1, al0, &a, &x, 1, al0, &y, 1), "HPMV INFOT=2");
+        try E(error.InvalidIncx, blas.hpmv(al, ob.io, T, .u, 0, al0, &a, &x, 0, al0, &y, 1), "HPMV INFOT=6");
+        try E(error.InvalidIncy, blas.hpmv(al, ob.io, T, .u, 0, al0, &a, &x, 1, al0, &y, 0), "HPMV INFOT=9");
     } else {
-        try E(error.InvalidN, banded.sbmv(T, al, .upper, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=2");
-        try E(error.InvalidK, banded.sbmv(T, al, .upper, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=3");
-        try E(error.InvalidLda, banded.sbmv(T, al, .upper, 0, 1, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=6");
-        try E(error.InvalidIncx, banded.sbmv(T, al, .upper, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "SBMV INFOT=8");
-        try E(error.InvalidIncy, banded.sbmv(T, al, .upper, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "SBMV INFOT=11");
-        try E(error.InvalidN, banded.spmv(T, al, .upper, -1, al0, &a, &x, 1, al0, &y, 1), "SPMV INFOT=2");
-        try E(error.InvalidIncx, banded.spmv(T, al, .upper, 0, al0, &a, &x, 0, al0, &y, 1), "SPMV INFOT=6");
-        try E(error.InvalidIncy, banded.spmv(T, al, .upper, 0, al0, &a, &x, 1, al0, &y, 0), "SPMV INFOT=9");
+        try E(error.InvalidN, blas.sbmv(al, ob.io, T, .u, -1, 0, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=2");
+        try E(error.InvalidK, blas.sbmv(al, ob.io, T, .u, 0, -1, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=3");
+        try E(error.InvalidLda, blas.sbmv(al, ob.io, T, .u, 0, 1, al0, &a, 1, &x, 1, al0, &y, 1), "SBMV INFOT=6");
+        try E(error.InvalidIncx, blas.sbmv(al, ob.io, T, .u, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "SBMV INFOT=8");
+        try E(error.InvalidIncy, blas.sbmv(al, ob.io, T, .u, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "SBMV INFOT=11");
+        try E(error.InvalidN, blas.spmv(al, ob.io, T, .u, -1, al0, &a, &x, 1, al0, &y, 1), "SPMV INFOT=2");
+        try E(error.InvalidIncx, blas.spmv(al, ob.io, T, .u, 0, al0, &a, &x, 0, al0, &y, 1), "SPMV INFOT=6");
+        try E(error.InvalidIncy, blas.spmv(al, ob.io, T, .u, 0, al0, &a, &x, 1, al0, &y, 0), "SPMV INFOT=9");
     }
-    // the triangular six: the letters through `parse`
-    try E(error.InvalidUplo, tri.Uplo.parse('/'), "TRMV INFOT=1");
-    try E(error.InvalidTrans, tri.Trans.parse('/'), "TRMV INFOT=2");
-    try E(error.InvalidDiag, tri.Diag.parse('/'), "TRMV INFOT=3");
-    inline for (.{ tri.trmv, tri.trsv }, .{ "TRMV", "TRSV" }) |f, nm| {
-        try E(error.InvalidN, f(T, al, .upper, .n, .non_unit, -1, &a, 1, &x, 1), nm ++ " INFOT=4");
-        try E(error.InvalidLda, f(T, al, .upper, .n, .non_unit, 2, &a, 1, &x, 1), nm ++ " INFOT=6");
-        try E(error.InvalidIncx, f(T, al, .upper, .n, .non_unit, 0, &a, 1, &x, 0), nm ++ " INFOT=8");
+    // the triangular six: a Hermitian `uplo`, an `x`-conjugating `trans`;
+    // every `Diag` is valid
+    try E(error.InvalidUplo, blas.trmv(al, ob.io, T, .v, .n, .n, 0, &a, 1, &x, 1), "TRMV INFOT=1");
+    try E(error.InvalidTrans, blas.trmv(al, ob.io, T, .u, .o, .n, 0, &a, 1, &x, 1), "TRMV INFOT=2");
+    inline for (.{ blas.trmv, blas.trsv }, .{ "TRMV", "TRSV" }) |f, nm| {
+        try E(error.InvalidN, f(al, ob.io, T, .u, .n, .n, -1, &a, 1, &x, 1), nm ++ " INFOT=4");
+        try E(error.InvalidLda, f(al, ob.io, T, .u, .n, .n, 2, &a, 1, &x, 1), nm ++ " INFOT=6");
+        try E(error.InvalidIncx, f(al, ob.io, T, .u, .n, .n, 0, &a, 1, &x, 0), nm ++ " INFOT=8");
     }
-    inline for (.{ tri.tbmv, tri.tbsv }, .{ "TBMV", "TBSV" }) |f, nm| {
-        try E(error.InvalidN, f(T, al, .upper, .n, .non_unit, -1, 0, &a, 1, &x, 1), nm ++ " INFOT=4");
-        try E(error.InvalidK, f(T, al, .upper, .n, .non_unit, 0, -1, &a, 1, &x, 1), nm ++ " INFOT=5");
-        try E(error.InvalidLda, f(T, al, .upper, .n, .non_unit, 0, 1, &a, 1, &x, 1), nm ++ " INFOT=7");
-        try E(error.InvalidIncx, f(T, al, .upper, .n, .non_unit, 0, 0, &a, 1, &x, 0), nm ++ " INFOT=9");
+    inline for (.{ blas.tbmv, blas.tbsv }, .{ "TBMV", "TBSV" }) |f, nm| {
+        try E(error.InvalidN, f(al, ob.io, T, .u, .n, .n, -1, 0, &a, 1, &x, 1), nm ++ " INFOT=4");
+        try E(error.InvalidK, f(al, ob.io, T, .u, .n, .n, 0, -1, &a, 1, &x, 1), nm ++ " INFOT=5");
+        try E(error.InvalidLda, f(al, ob.io, T, .u, .n, .n, 0, 1, &a, 1, &x, 1), nm ++ " INFOT=7");
+        try E(error.InvalidIncx, f(al, ob.io, T, .u, .n, .n, 0, 0, &a, 1, &x, 0), nm ++ " INFOT=9");
     }
-    inline for (.{ tri.tpmv, tri.tpsv }, .{ "TPMV", "TPSV" }) |f, nm| {
-        try E(error.InvalidN, f(T, al, .upper, .n, .non_unit, -1, &a, &x, 1), nm ++ " INFOT=4");
-        try E(error.InvalidIncx, f(T, al, .upper, .n, .non_unit, 0, &a, &x, 0), nm ++ " INFOT=7");
+    inline for (.{ blas.tpmv, blas.tpsv }, .{ "TPMV", "TPSV" }) |f, nm| {
+        try E(error.InvalidN, f(al, ob.io, T, .u, .n, .n, -1, &a, &x, 1), nm ++ " INFOT=4");
+        try E(error.InvalidIncx, f(al, ob.io, T, .u, .n, .n, 0, &a, &x, 0), nm ++ " INFOT=7");
     }
     // ger, geru, gerc
-    inline for (if (cx) .{ iface.ger, iface.gerc } else .{iface.ger}) |f| {
-        try E(error.InvalidM, f(al, T, -1, 0, al0, &x, 1, &y, 1, &a, 1), "GER INFOT=1");
-        try E(error.InvalidN, f(al, T, 0, -1, al0, &x, 1, &y, 1, &a, 1), "GER INFOT=2");
-        try E(error.InvalidIncx, f(al, T, 0, 0, al0, &x, 0, &y, 1, &a, 1), "GER INFOT=5");
-        try E(error.InvalidIncy, f(al, T, 0, 0, al0, &x, 1, &y, 0, &a, 1), "GER INFOT=7");
-        try E(error.InvalidLda, f(al, T, 2, 0, al0, &x, 1, &y, 1, &a, 1), "GER INFOT=9");
+    inline for (if (cx) .{ blas.ger, blas.gerc } else .{blas.ger}) |f| {
+        try E(error.InvalidM, f(al, ob.io, T, -1, 0, al0, &x, 1, &y, 1, &a, 1), "GER INFOT=1");
+        try E(error.InvalidN, f(al, ob.io, T, 0, -1, al0, &x, 1, &y, 1, &a, 1), "GER INFOT=2");
+        try E(error.InvalidIncx, f(al, ob.io, T, 0, 0, al0, &x, 0, &y, 1, &a, 1), "GER INFOT=5");
+        try E(error.InvalidIncy, f(al, ob.io, T, 0, 0, al0, &x, 1, &y, 0, &a, 1), "GER INFOT=7");
+        try E(error.InvalidLda, f(al, ob.io, T, 2, 0, al0, &x, 1, &y, 1, &a, 1), "GER INFOT=9");
     }
     // syr, spr, syr2, spr2; her, hpr, her2, hpr2
     if (cx) {
-        try E(error.InvalidN, banded.her(T, al, .upper, -1, ra, &x, 1, &a, 1), "HER INFOT=2");
-        try E(error.InvalidIncx, banded.her(T, al, .upper, 0, ra, &x, 0, &a, 1), "HER INFOT=5");
-        try E(error.InvalidLda, banded.her(T, al, .upper, 2, ra, &x, 1, &a, 1), "HER INFOT=7");
-        try E(error.InvalidN, banded.hpr(T, al, .upper, -1, ra, &x, 1, &a), "HPR INFOT=2");
-        try E(error.InvalidIncx, banded.hpr(T, al, .upper, 0, ra, &x, 0, &a), "HPR INFOT=5");
-        try E(error.InvalidN, banded.her2(T, al, .upper, -1, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=2");
-        try E(error.InvalidIncx, banded.her2(T, al, .upper, 0, al0, &x, 0, &y, 1, &a, 1), "HER2 INFOT=5");
-        try E(error.InvalidIncy, banded.her2(T, al, .upper, 0, al0, &x, 1, &y, 0, &a, 1), "HER2 INFOT=7");
-        try E(error.InvalidLda, banded.her2(T, al, .upper, 2, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=9");
-        try E(error.InvalidN, banded.hpr2(T, al, .upper, -1, al0, &x, 1, &y, 1, &a), "HPR2 INFOT=2");
-        try E(error.InvalidIncx, banded.hpr2(T, al, .upper, 0, al0, &x, 0, &y, 1, &a), "HPR2 INFOT=5");
-        try E(error.InvalidIncy, banded.hpr2(T, al, .upper, 0, al0, &x, 1, &y, 0, &a), "HPR2 INFOT=7");
+        try E(error.InvalidUplo, blas.her(al, ob.io, T, .m, 0, ra, &x, 1, &a, 1), "HER INFOT=1");
+        try E(error.InvalidN, blas.her(al, ob.io, T, .u, -1, ra, &x, 1, &a, 1), "HER INFOT=2");
+        try E(error.InvalidIncx, blas.her(al, ob.io, T, .u, 0, ra, &x, 0, &a, 1), "HER INFOT=5");
+        try E(error.InvalidLda, blas.her(al, ob.io, T, .u, 2, ra, &x, 1, &a, 1), "HER INFOT=7");
+        try E(error.InvalidUplo, blas.hpr(al, ob.io, T, .v, 0, ra, &x, 1, &a), "HPR INFOT=1");
+        try E(error.InvalidN, blas.hpr(al, ob.io, T, .u, -1, ra, &x, 1, &a), "HPR INFOT=2");
+        try E(error.InvalidIncx, blas.hpr(al, ob.io, T, .u, 0, ra, &x, 0, &a), "HPR INFOT=5");
+        try E(error.InvalidUplo, blas.her2(al, ob.io, T, .m, 0, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=1");
+        try E(error.InvalidN, blas.her2(al, ob.io, T, .u, -1, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=2");
+        try E(error.InvalidIncx, blas.her2(al, ob.io, T, .u, 0, al0, &x, 0, &y, 1, &a, 1), "HER2 INFOT=5");
+        try E(error.InvalidIncy, blas.her2(al, ob.io, T, .u, 0, al0, &x, 1, &y, 0, &a, 1), "HER2 INFOT=7");
+        try E(error.InvalidLda, blas.her2(al, ob.io, T, .u, 2, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=9");
+        try E(error.InvalidUplo, blas.hpr2(al, ob.io, T, .v, 0, al0, &x, 1, &y, 1, &a), "HPR2 INFOT=1");
+        try E(error.InvalidN, blas.hpr2(al, ob.io, T, .u, -1, al0, &x, 1, &y, 1, &a), "HPR2 INFOT=2");
+        try E(error.InvalidIncx, blas.hpr2(al, ob.io, T, .u, 0, al0, &x, 0, &y, 1, &a), "HPR2 INFOT=5");
+        try E(error.InvalidIncy, blas.hpr2(al, ob.io, T, .u, 0, al0, &x, 1, &y, 0, &a), "HPR2 INFOT=7");
     } else {
-        try E(error.InvalidN, banded.syr(T, al, .upper, -1, al0, &x, 1, &a, 1), "SYR INFOT=2");
-        try E(error.InvalidIncx, banded.syr(T, al, .upper, 0, al0, &x, 0, &a, 1), "SYR INFOT=5");
-        try E(error.InvalidLda, banded.syr(T, al, .upper, 2, al0, &x, 1, &a, 1), "SYR INFOT=7");
-        try E(error.InvalidN, banded.spr(T, al, .upper, -1, al0, &x, 1, &a), "SPR INFOT=2");
-        try E(error.InvalidIncx, banded.spr(T, al, .upper, 0, al0, &x, 0, &a), "SPR INFOT=5");
-        try E(error.InvalidN, banded.syr2(T, al, .upper, -1, al0, &x, 1, &y, 1, &a, 1), "SYR2 INFOT=2");
-        try E(error.InvalidIncx, banded.syr2(T, al, .upper, 0, al0, &x, 0, &y, 1, &a, 1), "SYR2 INFOT=5");
-        try E(error.InvalidIncy, banded.syr2(T, al, .upper, 0, al0, &x, 1, &y, 0, &a, 1), "SYR2 INFOT=7");
-        try E(error.InvalidLda, banded.syr2(T, al, .upper, 2, al0, &x, 1, &y, 1, &a, 1), "SYR2 INFOT=9");
-        try E(error.InvalidN, banded.spr2(T, al, .upper, -1, al0, &x, 1, &y, 1, &a), "SPR2 INFOT=2");
-        try E(error.InvalidIncx, banded.spr2(T, al, .upper, 0, al0, &x, 0, &y, 1, &a), "SPR2 INFOT=5");
-        try E(error.InvalidIncy, banded.spr2(T, al, .upper, 0, al0, &x, 1, &y, 0, &a), "SPR2 INFOT=7");
+        try E(error.InvalidN, blas.syr(al, ob.io, T, .u, -1, al0, &x, 1, &a, 1), "SYR INFOT=2");
+        try E(error.InvalidIncx, blas.syr(al, ob.io, T, .u, 0, al0, &x, 0, &a, 1), "SYR INFOT=5");
+        try E(error.InvalidLda, blas.syr(al, ob.io, T, .u, 2, al0, &x, 1, &a, 1), "SYR INFOT=7");
+        try E(error.InvalidN, blas.spr(al, ob.io, T, .u, -1, al0, &x, 1, &a), "SPR INFOT=2");
+        try E(error.InvalidIncx, blas.spr(al, ob.io, T, .u, 0, al0, &x, 0, &a), "SPR INFOT=5");
+        try E(error.InvalidN, blas.syr2(al, ob.io, T, .u, -1, al0, &x, 1, &y, 1, &a, 1), "SYR2 INFOT=2");
+        try E(error.InvalidIncx, blas.syr2(al, ob.io, T, .u, 0, al0, &x, 0, &y, 1, &a, 1), "SYR2 INFOT=5");
+        try E(error.InvalidIncy, blas.syr2(al, ob.io, T, .u, 0, al0, &x, 1, &y, 0, &a, 1), "SYR2 INFOT=7");
+        try E(error.InvalidLda, blas.syr2(al, ob.io, T, .u, 2, al0, &x, 1, &y, 1, &a, 1), "SYR2 INFOT=9");
+        try E(error.InvalidN, blas.spr2(al, ob.io, T, .u, -1, al0, &x, 1, &y, 1, &a), "SPR2 INFOT=2");
+        try E(error.InvalidIncx, blas.spr2(al, ob.io, T, .u, 0, al0, &x, 0, &y, 1, &a), "SPR2 INFOT=5");
+        try E(error.InvalidIncy, blas.spr2(al, ob.io, T, .u, 0, al0, &x, 1, &y, 0, &a), "SPR2 INFOT=7");
     }
 }
 

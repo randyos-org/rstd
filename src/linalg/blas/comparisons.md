@@ -8,16 +8,20 @@ the value routines, the `nan_lanes` quirk gone), X1 (`sdot` in `f64`, one
 `nrm2` and the extremes' rule on every core, and no zero-`alpha` return in
 any `axpy` kernel) and pitfall 1 of 8 (x86_64's alignment-peeling
 reductions routed to `@Vector` kernels). `readme.md`, "One contract on every
-core", has the details. Also 10.2 and 10.3 (2026-10-23, `wip/denormals`):
-no `f32` vector lanes where they flush (`util.vectorIeee`).
+core", has the details. Also, 10.2 and 10.3 (2026-10-23, `wip/denormals`):
+no `f32` vector lanes where they flush (`util.vectorIeee`). And 10.1
+(2026-10-26, `wip/l3`): `trsm` divides by the diagonal, as `trsv` does;
+and 7's `beta` pass, folded into the first depth slice. And 5 (2026-10-29,
+`wip/rankskip`): the reference's zero skip kept, `ger`'s strided `x` copied
+once however many runs.
 
 ## Sources and versions
 
 | Source | Where | Version |
 | --- | --- | --- |
 | rstd | this repository, branch `review` | `72b2efc` |
-| rstd design doc | `design.md`, then on branch `wip/blas-docs` | `c33fca8` |
-| rstd arm64 `@Vector` kernels | `vector.zig`, then on branch `wip/arm64-vector` | `4407e5a` |
+| rstd design doc | `design.md`, a draft then on branch `wip/blas-docs` | 2026-10-22, since rebased onto `review` |
+| rstd arm64 `@Vector` kernels | `vector.zig`, then on branch `wip/arm64-vector` | `4407e5a`, landed on `review` as `eecfe67` |
 | BLIS | <https://github.com/flame/blis> | tag `2.1`, `caf0db6be1202d9c83c79b51e75eceb96aa8b556`, 2026-06-25 |
 | OpenBLAS | the checkout `tools/blas_asm` converts | `v0.3.34-317-ga69062524` |
 | Reference BLAS (Reference-LAPACK) | <https://github.com/Reference-LAPACK/lapack> | last release v3.12.1 (2025-01-08); `master` as of 2026-10-22 |
@@ -25,12 +29,11 @@ no `f32` vector lanes where they flush (`util.vectorIeee`).
 | Intel oneMKL CNR | <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/reproducibility-conditions.html> | 2025.2 docs |
 
 BLIS and OpenBLAS paths below are relative to their source trees, rstd paths to
-`src/linalg/blas/` of the branch named.
+`src/linalg/blas/` in today's layout; rstd line numbers are those of the versions named.
 "Reference master" means unreleased commits on Reference-LAPACK `master`; they are not in 3.12.1.
 
-Note on the review branch vs `wip/blas-docs`: `review`'s readme still says only real `gemm` is
-ported; `wip/blas-docs` (`5fe7276`, `839628a`, `a6350dd`) has every level-3 routine, real and
-complex. Level-3 statements below are about `wip/blas-docs`.
+Level-3 statements below were made against `wip/blas-docs`, whose every level-3 routine, real
+and complex, has since landed on `review` (`0f0bcde`, `ada0a2e`, `078049e`).
 
 ## Summary table
 
@@ -40,7 +43,7 @@ complex. Level-3 statements below are about `wip/blas-docs`.
 | 3 | `i?amax` NaN rule (NaN only if first) | **Change**: first NaN wins (reference master, BLIS, proposal) | High |
 | X1 | Per-core differences in numerical contract (`sdot` precision, `nrm2`, SVE `axpy` zero skip) | **Change**: one contract per routine, enforced above the kernels | High |
 | 10 | trsm pre-inverted diagonal; ARMv7 NEON / AltiVec flush to zero in `@Vector` tiles | **Investigate**, likely change | Medium-high |
-| 5 | Rank updates skip zero columns (`ger`, `syr`, `her`, ...) | **Investigate**, lean to not skipping | Medium |
+| 5 | Rank updates skip zero columns (`ger`, `syr`, `her`, ...) | **Keep** the reference's skip (decided 2026-10-29); `ger`'s copies fixed | Done |
 | 8 | Reproducibility rule | **Keep**, but close the pitfalls listed | Medium |
 | 7 | Level 3: Goto/OpenBLAS driver, `level3_thread.c` protocol | **Keep driver; investigate** BLIS-style barrier packing for threading; fuse `beta` | Medium |
 | 9 | `@Vector` kernels, unroll, accumulators, prefetch | **Keep**; try C-tile prefetch and Apple `KC` | Low-medium |
@@ -211,7 +214,8 @@ x86_64 unmeasured) or a NaN pre-check.
 
 - `axpy`: both zero gives `y[0] += n*alpha*x[0]` (in `Acc`), as `interface/axpy.c:80-81`;
   otherwise the kernels run sequentially (the converted `swap`/`rot` kernels that batched a block
-  before storing were patched to go one element at a time; `readme.md`, "Fixes").
+  before storing were patched to go one element at a time; `design.md`, "Fixes to upstream
+  sources").
 - `scal`, `asum`, `i?amax`: nothing (or 0) for `incx <= 0`, as the reference.
 - `nrm2`: `sqrt(n) * |x[0]|`.
 - Level 2 and rank updates: `incx == 0` is `InvalidIncx`, as the reference's `xerbla`.
@@ -220,7 +224,7 @@ x86_64 unmeasured) or a NaN pre-check.
 and a zero output stride applies `n` sequential updates to one element. `dscal`, `dasum`,
 `idamax` return early for `incx <= 0`. Level 2 rejects `incx = 0`.
 
-**BLIS.** The compat layer (`frame/include/bli_blas_macro_defs.h:50-75`) only flips negative
+**BLIS.** The compatibility layer (`frame/include/bli_blas_macro_defs.h:50-75`) only flips negative
 strides; zero passes through to kernels, which loop sequentially. `frame/compat/bla_scal.c` has no
 `incx <= 0` guard, so BLIS `dscal` with a negative stride scales the vector and with zero
 scales `x(1)` `n` times: a deviation from the reference.
@@ -241,38 +245,73 @@ Do not copy BLIS's `scal` behavior.
 
 ## 5. Rank updates skipping zero columns
 
-**rstd.** `ger` splits `y` into runs of nonzeros and calls the kernel once per run
-(`review:blas2/interface.zig`, `gerImpl`); the `syr`, `her`, `spr`, `hpr` and rank-2 drivers skip
-`x(j) == 0` (`blas2/banded.zig:350,379`), as reference BLAS does. OpenBLAS's `zher_k.c`,
-`zhpr_k.c` and rank-2 drivers do not skip (rstd `issues.md`, "Rank updates and a zero factor").
+**Decided** (2026-10-29, `wip/rankskip`): keep the reference's skip on every routine and core;
+the `ger` cost below is gone. Below, the evidence as of that date.
 
-**Reference.** 3.12.1 and master `dger.f`/`dsyr.f` still test `Y(JY).NE.ZERO` / `X(J).NE.ZERO`
-(no recent change to `dger.f`, `dsyr.f`). But master removed the analogous checks from the
-triangular routines in July 2026: `dtrsv.f` (`6e7b86c`, "remove the IF (X(J).NE.ZERO) THEN that
-saves FLOPS but might prevent NaN propagation"), `dtrmv.f`, `dtrmm.f`, and `dtrsm.f` (`38ccf80`,
-"remove all IF (A(K,J).NE.ZERO)"). `dgemm.f` never skips zero elements of `B`.
+**rstd.** `ger` splits `y` into runs of nonzeroes and calls the kernel once per run
+(`blas2/interface.zig`, `gerImpl`); the `syr`, `her`, `spr`, `hpr` drivers skip `x(j) == 0`, the
+rank-2 ones `x(j) == y(j) == 0` (`blas2/banded.zig`, `rankColumns`, `rank2Columns`), as reference
+BLAS does. The skip is decided above the kernels, and no core has its own `ger` kernel (every
+core runs the portable one over its `axpy`), so it is one behavior on every core; a factor that
+underflows to zero still multiplies, as the reference's `TEMP` does, since no `axpy` kernel
+returns for a zero `alpha` (X1).
+
+**Reference.** 3.12.1 and master (checked 2026-10-29) test `Y(JY).NE.ZERO` in `dger.f`/`zgeru.f`/
+`zgerc.f`, `X(J).NE.ZERO` in `dsyr.f`, `dspr.f`, `zher.f`, `zhpr.f`, and `X(J).NE.ZERO .OR.
+Y(J).NE.ZERO` in `dsyr2.f`, `dspr2.f`, `zher2.f`, `zhpr2.f`; `dger.f`'s last change is cosmetic
+(`97b0bed`, "implicit none in BLAS", 2025-08). Master dropped the analogous test from the
+triangular routines only: PR #1323 (merged 2026-07-13; `6e7b86c`, `38ccf80`) covers `trmv`,
+`trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv`, `trmm`, `trsm`, because the skip "short-circuits proper
+NaN propagations" and "is not done consistently across variants"; it does not mention the rank
+updates. `dgemm.f` never skips zero elements of `B`.
+
+**OpenBLAS** (v0.3.34-317) differs by routine and by path:
+
+| Routine | Serial | Threaded (`*_thread.c`) |
+| --- | --- | --- |
+| `ger`, `zger` | no test (`interface/ger.c`, `kernel/generic/ger.c`); skips only where the core's `axpy` returns for a zero `alpha` (`kernel/arm/axpy.c`, `riscv64/axpy*.c`, `mips/?axpy_msa.c`, `wasm/axpy.c`, `arm64/axpy_sve.c`) | as serial |
+| `syr`, `spr`, `zsyr`, `zspr` | skips `x(i) == 0` (`driver/level2/syr_k.c` and kin, and the small paths in `interface/syr.c`, `spr.c`, `zsyr.c`) | skips |
+| `zher`, `zhpr` | no test (`zher_k.c`, `zhpr_k.c`) | skips (`syr_thread.c`, `spr_thread.c`) |
+| rank 2, all | no test (`syr2_k.c` and kin, small paths in `interface/syr2.c`, `spr2.c`) | skips each product on its own factor (`syr2_thread.c`, `spr2_thread.c`) |
+
+None of it is commented; the drivers date from the GotoBLAS2 import (`342bbc3`).
+
+**BLIS** (2.1). The typed API returns for a zero `alpha` (`frame/2/bli_l2_tapi.c`), then:
+`ger`, `syr` and `her` call `axpyv` per column with `alpha*y(j)` or `alpha*x(j)`, and the
+reference `axpyv` (`ref_kernels/1/bli_axpyv_ref.c:57`), Zen's (`kernels/zen/1/bli_axpyv_zen_int*.c`)
+and SiFive's return for a zero scalar, Penryn's does not; `her`/`syr` add the diagonal term
+`alpha*chi1*conj(chi1)` as a scalar, unconditionally. `syr2` and `her2` call `axpy2v`
+(`her2_unf_var1`, `var4`), whose reference and SiFive kernels multiply always. So BLIS skips the
+rank-1 updates by composition, kernel-dependently, and never skips rank 2.
 
 **Proposal (arXiv 2207.09281).** "Would allow checking for alpha=0, but not checking for zeros
-inside" `x` or `y` for `GER`; calls the `SYR` case a worse inconsistency (upper and lower can
-differ).
+inside" `x` or `y` for `GER`; calls the `SYR` case a worse inconsistency, upper and lower can
+differ: with `x(j) = 0` and `x(i)` infinite, `i > j`, the lower triangle stores `x(i)*x(j)` in
+column `j`, which is skipped, the upper in column `i`, which is not and gets NaN.
 
-**BLIS.** `ger`/`her`/`syr` are built on `axpyv`/`axpy2v`, whose reference kernel returns
-for `alpha == 0` (`ref_kernels/1/bli_axpyv_ref.c:57`), so BLIS skips a column whose scaled factor
-is exactly zero, by accident of composition rather than by contract.
+**Assessment.** OpenBLAS and BLIS do not agree: on `ger` OpenBLAS multiplies and BLIS skips, on
+`her` OpenBLAS's serial path multiplies, on rank 2 BLIS multiplies, and where either skips it is
+by inheritance (Goto's copy of the reference) or by a kernel's `alpha == 0` return, not for a
+stated reason. So the "Filling upstream gaps" rule (`design.md`) gives no direction, and rstd
+keeps the reference's semantics (`readme.md`, "Results follow the reference BLAS"), which T13
+ties to the reference: drop the skip when it does. The arguments for dropping it (gemm
+consistency, the triangle dependence, the proposal, #1323's reasoning) stand, but the reference
+has not applied them to the rank updates.
 
-**Assessment.** rstd matches the letter of today's reference for `ger`/`syr`, but the field is
-moving the other way (reference master for the triangular family, the proposal), and skipping
-has two costs in rstd:
+**The `ger` cost.** Each run was one kernel call, and the portable kernel (`kernel/generic/ger.c`)
+copies a strided `x` into the buffer on every call. With every other `y` zero, each nonzero
+column paid a copy (`m` strided reads, `m` writes) beside its `axpy` (`2m` reads, `m` writes),
+so the traffic grew by about two thirds, and toward double or more for a long stride, where
+every element of `x` is its own cache line. Now the interface copies a strided `x` once, before
+the first run, and every run takes the copy at unit stride, so no kernel copies: one copy, as
+with no zeros, plus a kernel call per run (a few dozen instructions against `m` multiply-adds
+each) and a pass over `y` to find the runs. A `y` of all zeros copies nothing. Not measured.
+A threaded `ger` (T01) keeps this: each thread runs the runs within its columns.
 
-- Performance pathology in `ger`: a `y` with many zeros turns one kernel call into many; with a
-  strided `x` each call re-copies `x` into the scratch buffer (`blas2/buffers.md`), so the cost
-  can approach doubling.
-- It is NaN-inconsistent with `gemm` (a rank-1 `gemm` propagates the NaN that `ger` hides).
-
-**Recommendation: investigate, leaning to change**: drop interior zero skipping in `ger` and the
-rank-update drivers (keep the `alpha == 0` quick return), so that `ger` agrees with `gemm` and
-with the OpenBLAS kernels it calls, which also removes the run splitting. If strict
-reference-3.12 parity is wanted instead, keep it but document the `ger` pathology.
+**If the reference drops the skip:** remove the run loop in `gerImpl` (one kernel call),
+the `isZero` tests in `rankColumns`/`rank2Columns`, the `skip` term of the edge tests'
+reference (`_test/blas2/edge.zig`, `rankRun`), and the Accelerate `ger` route for a non-finite
+`x` (`apple_accel.zig`), which exists only for the skip.
 
 ## 6. NaN/Inf propagation for alpha = 0 and beta = 0; the `scal` flag
 
@@ -348,8 +387,16 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   rstd) read and write all of `C` once more. `gemm/notes.md` attributes 7-25% of the full-gemm
   loss to packing, the `C` update and edges; for LAPACK-style updates with small `k` the extra
   pass is a larger share. **Change (performance)**: pass `beta` to the kernel for the first `Q`
-  slice and 1 afterwards; keep the separate pass only for `alpha == 0`/`k == 0`. This also keeps
+  slice and 1 afterward; keep the separate pass only for `alpha == 0`/`k == 0`. This also keeps
   `beta == 0` from reading `C`.
+  **Done**, in the driver rather than the kernel (whose slot keeps OpenBLAS's signature): each
+  block of `C` is scaled just before the first slice's kernel call on it, while it is in cache,
+  and `trmm`'s and `trsm`'s `alpha` where each part of `B` is first read. The multiplies are the
+  separate pass's, so the bits are too (a test compares the two for every routine); `beta == 0`
+  still writes zeros without reading `C`. On this machine (best of three interleaved runs,
+  portable kernels), `C` of 2000 x 2000: `dgemm` 0.61x the time at `k = 8`, 0.85x at 32, 0.94x
+  at 128; `dsyrk` 0.76x, 0.85x, 0.95x; `zgemm` 0.83x at 8; `C` of 500 x 500, which stays in cache,
+  and large `k` within the noise.
 - *Threading protocol.* OpenBLAS's flag-based producer/consumer (`level3_thread.c`) has a
   history of races: `Changelog.txt:1703-1715` (0.3.9: "Fixed a race condition in the level3 blas
   code" on POWER, ARMV7, ARMV8), `:250-254` (0.3.31: reverted a 0.3.30 partitioning change "that
@@ -362,7 +409,7 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   barrier before committing to the flag protocol; rstd's start-barrier design already covers the
   "all or nothing" part.
 - *Complex.* rstd's native `@Vector` complex kernel is generated for every core, so the main
-  benefit of 1m (no hand-written complex kernels) is already had. 1m could help only where the
+  benefit of 1m (no handwritten complex kernels) is already had. 1m could help only where the
   complex tile is weak, and on the `split` (scalar) targets the real kernel is scalar too.
   **Keep native; no 1m.** For the planned `gemm3m`/`symm3m`/`hemm3m`: 3m's imaginary part is only
   normwise stable (Higham, SIAM J. Matrix Anal. Appl. 13(3), 1992), so keep it opt-in, as
@@ -392,7 +439,7 @@ problem size (at most 64), claimed dynamically, partials combined in chunk order
   says CNR "fully supports unaligned input and output data").
 - **BLIS**: level 1 and 2 are not threaded; level 3 never splits `k` (`docs/Multithreading.md:161`),
   so thread-count invariance holds by construction, though the docs never state it as a guarantee
-  (no "reproducib" in `docs/`).
+  (`docs/` never mentions reproducibility).
 - **OpenBLAS**: level-1 reductions split by thread count (`kernel/arm64/dot.c:161-199`,
   `kernel/x86_64/ddot.c:160-168`), so bits change with `OPENBLAS_NUM_THREADS`.
 - **Literature**: two families. Fixed reduction trees (MKL CNR; oneTBB's
@@ -422,7 +469,7 @@ the stated goal. Pitfalls found:
    single- and multi-thread sets, and `Q` differs only by L3 size, so the rule holds. Add a test
    that `Q` is identical for every thread count, since a future set could break it silently.
 5. **Edge tiles under repartitioning.** If thread partitions move tile boundaries, an element can
-   move between the full tile and `thin`/tail paths. Rounding `M` ranges to `unroll_m` (planned)
+   move between the full tile and a tail tile. Rounding `M` ranges to `unroll_m` (planned)
    and `N` ranges to `unroll_n` avoids it; otherwise every path must do identical per-element
    operations (same `k` order, same fusion). The planned 1-9 worker bitwise tests will catch it if
    the shapes sweep remainders.
@@ -443,7 +490,7 @@ budget (`geometryFor`); arm64 level 1/2 `@Vector` kernels with `U = 4` native ve
 two accumulators for reductions (8 independent chains on NEON); no software prefetch.
 
 **BLIS.** Reference kernels are portable C with `PRAGMA_SIMD`, compiled per sub-configuration
-(`ref_kernels/`), and are not expected to be fast; performance comes from hand-written per-arch
+(`ref_kernels/`), and are not expected to be fast; performance comes from handwritten per-arch
 inline-assembly microkernels (`kernels/<arch>/3/`). Level-1 Zen kernels unroll ten vectors with
 unaligned loads and no prefetch (`kernels/zen/1/bli_axpyv_zen_int10.c:72-101`,
 `bli_dotv_zen_int10.c`). gemm microkernels prefetch the `C` tile before the `k` loop and `A`
@@ -504,6 +551,12 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    row of each diagonal block, `O(n^2)` against `O(n^3)` work), or keep the reciprocal only when
    it is finite and normal and fall back to division for that row. Measure first; BLIS's own note
    calls the penalty a performance cost, not a prohibitive one.
+   **Done**: `solve` divides, real and complex; complex in both `trsm` and `trsv` by Smith's
+   algorithm (`util.cdiv`), so they give the same quotients (`trsv` multiplied by a reciprocal
+   for complex too). Tests: a tiny diagonal whose reciprocal overflows gives the exact solution,
+   and `trsv` and a one-column `trsm` give the same bits. Cost on this Windows x86_64 machine,
+   portable kernels at `-mcpu=native`, best of three interleaved runs, `m = n` from 16 to 1024:
+   `dtrsm` and `strsm` within the run-to-run noise (-4% to +5%), `ztrsm` +1% to +6% (+14% at 16).
 2. **ARMv7 NEON flushes denormals.** The ARMv7 Advanced SIMD unit always runs with the "standard
    FPSCR value" (flush-to-zero and default NaN), regardless of FPSCR (ARMv7-A Architecture Reference
    Manual, from memory but well established). Zig emits NEON for `@Vector(4, f32)` there: compiling
@@ -537,7 +590,7 @@ an error; nothing panics.
 **References.** Reference BLAS calls `XERBLA` (prints, stops). OpenBLAS calls `xerbla` and 0.3.34
 added an extension to override it (`Changelog.txt:11`). BLIS's native API checks arguments when
 the thread-local error-checking level is `BLIS_FULL_ERROR_CHECKING` (default) and then aborts
-(`frame/base/bli_error.c:134-163`); its BLAS compat `xerbla` prints and returns
+(`frame/base/bli_error.c:134-163`); its BLAS compatible `xerbla` prints and returns
 (`frame/compat/f2c/bla_xerbla.c:83`, abort commented out).
 
 **Assessment.** Returning an error union is the idiomatic Zig equivalent and safer than all three
@@ -606,7 +659,7 @@ Worth porting or emulating:
 
 Where BLIS is not better and rstd should not follow it:
 
-- `nrm2`: BLIS's `sumsqv` is a scalar scaled loop with divisions; LAPACK 3.10's Blue's algorithm
+- `nrm2`: BLIS's `sumsqv` is a scalarly scaled loop with divisions; LAPACK 3.10's Blue's algorithm
   (and wide accumulation for `s`/`c`) is better.
 - `dscal`: BLIS zeroes NaN for `alpha == 0` and scales for `incx <= 0`, both unlike the
   reference.

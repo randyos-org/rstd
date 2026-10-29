@@ -3,16 +3,19 @@
 Some OpenBLAS kernels are C, not assembly: a driver (`kernel/<arch>/ddot.c`)
 around a block kernel, which is an inline-assembly microkernel
 (`ddot_microk_haswell-2.c`) or C intrinsics, or a driver with no block at all.
-`axpy` was the first routine ported this way; `dot` on x86_64 is the second.
-Both go through the same machinery, so a new routine adds a table row and its
-driver, not a new converter.
+`axpy` was the first routine ported this way, `dot` on x86_64 the second, then
+x86_64 `scal`, `rot` and `gemv` (level 2, in `blas2/gemv`). All go through the same machinery, so a new routine adds a
+table row and its driver, not a new converter. Where these ports sit among the other kernel kinds
+is in [`design.md`](../design.md#kernel-kinds).
 
 ## The parts
 
 | Part                  | Where                                   | Made how               |
 | --------------------- | --------------------------------------- | ---------------------- |
 | Inline-assembly block | `<routine>/<arch>/uk/<p><r>_<core>.zig` | generated, `uk.zig`    |
+| Driver's own assembly | `<routine>/<arch>/uk/<p><r>.zig`        | generated, `uk.zig`    |
 | Index: core to block  | `<routine>/<arch>/uk/__root__.zig`      | generated, `uk.zig`    |
+| Index for `gemv`      | `gemv/<arch>/uk/index_n.zig`, `_t`      | generated, `uk.zig`    |
 | Driver                | `<routine>/kernel.zig`                  | hand-ported            |
 | Intrinsics block      | `<routine>/<arch>/kernel.zig`           | hand-ported, `@Vector` |
 | Composition per arch  | `<routine>/<arch>/kernel.zig`           | `uk.Kernels(...)`      |
@@ -21,7 +24,7 @@ driver, not a new converter.
 
 `blas1/uk_block.zig` holds what is shared: `Entry` (a row of the index),
 `find`, the `Block` kinds, and `Kernels`, which exports the core's kernels
-(`blaskern_<role>_<core>`) and points the vtable at them. A core whose source is
+(`blaskern_<slot>_<core>`) and points the vtable at them. A core whose source is
 a whole `.S` kernel still goes through `asm/__root__.zig`; `Kernels` takes both
 and prefers the assembly.
 
@@ -36,14 +39,23 @@ OPENBLAS=<checkout> zig run tools/blas_asm/uk.zig [-- <routine>...]
 For each routine in the `Routine` table of `kernel_map.zig` and each target
 that lists it, it:
 
-1. converts every `<p><routine>_microk_<core>-2.c` (or, for `zarch`, the
-   function in the driver's own file): the `__asm__` statement as written,
-   named operands, clobbers at the width of the registers used, `#if CONJ`
-   resolved once per form;
+1. converts every function with assembly in each
+   `<p><routine>_microk_<core>-N.c` (or, for `zarch`, the function in the
+   driver's own file): the `__asm__` statement as written, named operands,
+   clobbers at the width of the registers used, `#if CONJ` resolved once per
+   form. Where a file also tests `XCONJ` (complex `gemv`), each of the four
+   forms is named by a suffix (`_c`, `_x`, `_cx`), and a form whose function
+   is another's is an alias. A leading C branch that returns (`add_y`'s
+   strided loop) is the driver's; the rest is converted as `<name>_asm`;
 2. reads the `#if defined(CORE)` chain at the top of each driver for which
    block each core includes and the driver's block size (`n & -N`);
-3. writes the index. A core that uses the driver but no chain link gets
-   `.none`; a link whose file has no assembly gets `.vector`.
+3. converts the functions with assembly the driver itself defines
+   (`dscal.c`'s `dscal_kernel_inc_8`), preprocessed with an empty `common.h`
+   and no core defined, so its own fallbacks stay; one with statements it
+   cannot convert (a C loop before the assembly) is left to the ported driver;
+4. writes the index. A core that uses the driver but no chain link gets
+   `.none`; a link whose file has no assembly gets `.vector`; `.own` names
+   the driver's own assembly.
 
 Which cores use the driver comes from `KERNEL.<core>`, then `KERNEL`, then
 `Makefile.L1`, through the roles' make variables (`SDOTKERNEL`, `DSDOTKERNEL`).
@@ -53,18 +65,20 @@ It does not edit what it converts, so a mistake upstream is fixed by a patch.
 
 A target's `patches` are `arch.Patch` rows, the same type `gen.zig` uses for the
 `.S` kernels, matched on the microkernel's file name. `find` must occur
-`count` times or the generator stops. List each in the readme's "Fixes to
-upstream sources". The x86_64 `dot` blocks the host can run needed none; the
+`count` times or the generator stops. List each in
+[`design.md`](../design.md#fixes-to-upstream-sources)'s "Fixes to upstream
+sources". The x86_64 `dot` blocks the host can run needed none; the
 Bulldozer, Piledriver and Steamroller ones are untested at run time.
 
 ### Adding a routine
 
-1. A `Routine` and its roles in `kernel_map.zig`: the role's name, precision
+1. A `Routine` and its roles in `kernel_map.zig`: the role's slot, precision
    letter, make prefix (`DS` for `DSDOTKERNEL`), and which function of a block
-   it calls (the conjugated `axpyc` calls the second).
+   it calls (the conjugated `axpyc` calls the second); the routine's
+   directory, driver file and defaults makefile where they differ.
 2. The routine in a target's `routines` in `uk.zig`, then run it.
-3. The driver, `<routine>/kernel.zig` (below), with `roles`, `Kernel(role)`,
-   `Asm(role, f)` and `entry(role, mask, Block)`.
+3. The driver, `<routine>/kernel.zig` (below), with `slots`, `form(slot)`,
+   `Kernel(slot)`, `Asm(slot, f)` and `entry(slot, mask, Block)`.
 4. A `<routine>/<arch>/kernel.zig` that is a `uk.Kernels(...)` plus the
    architecture's `Vector` block, and its line in `kernels/<arch>.zig`
    (replacing the routine's plain `registry.Kernels(...)` line).
@@ -84,6 +98,14 @@ are the same C across cores.
   beforehand. `Block.run(n1, x, y)` returns what the block left there: one
   element, or the array of partial sums for complex (`cdot` leaves eight, `zdot`
   four). `Asm` wraps a converted function that way.
+- **Several blocks.** Where a driver calls more than one block function
+  (`scal`'s zeroing twin and strided block), it declares `entryOf(slot, core,
+  e, Vector)` instead of `Asm` and `entry`, and takes each function by name: the
+  microkernel's, else the driver's own (`e.own`), else its C, as the C's
+  `HAVE_KERNEL_*` tests pick. `Driver.slots` also lists the slots only
+  converted assembly fills, so `uk.Kernels` exports those too. A core whose
+  chain includes two blocks for one slot (Skylake-X's `sgemv`) is left out
+  until a driver combines them.
 - **No block.** The C falls back to a generic loop in the same file, which has
   its own order (`dot += y0*x0 + ... + y7*x7`), not the scalar tail's. That is
   `Fallback`; the index's `.none` means it.
@@ -97,7 +119,7 @@ are the same C across cores.
 - **Mixed types.** `sdot` sums in `double` and returns `float`; `dsdot` is the
   same file built with `DSDOT` and calls the block in chunks of 32 whatever
   the block size. The role table carries that (`dsdot` is not `sdot`), and
-  `uk.Float` gives the element type (`f32` for `dsdot`).
+  `form` gives the element type (`f32` for `dsdot`).
 - **Complex.** Results are `types.CComplex(F)` (an `extern struct`, so the C ABI
   returns it as the reference does). `*dotc` differs from `*dotu` only in the
   last two lines.
@@ -112,7 +134,7 @@ are the same C across cores.
 
 Where an architecture's block is C intrinsics (`ddot_microk_skylakex-2.c`, AVX-512
 cores) there is nothing to convert; the index says `.vector` and the
-architecture's `kernel.zig` supplies `Vector(role)`, a block on `@Vector`.
+architecture's `kernel.zig` supplies `Vector(slot)`, a block on `@Vector`.
 
 - Keep the C's operation order, not just its value. Reductions are fixed:
   accumulators in a fixed number, folded in a fixed order, halves added, then
@@ -154,7 +176,8 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
   (6264 cases, no differences).
 - Cores the host cannot run (FMA4 and XOP for Bulldozer and Piledriver,
   AVX-512 for the Skylake-X family) are compiled and symbol-checked natively;
-  running them needs `qemu-test-x86_64` with a matching `-cpu`.
+  running them needs `qemu-test-x86_64-whpx` on a host that has them, since
+  QEMU's TCG emulates neither.
 
 Zig exits 0 on an inline-assembly error and writes an empty object, so check
 that a new object really exports the symbols (`llvm-nm`).

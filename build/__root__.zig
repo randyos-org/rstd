@@ -39,7 +39,7 @@ pub fn addRstdModule(
     options.addOption(bool, "has_vulkan", vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
-    blaskern.addBlasKernels(b, mod, target, blas_cores);
+    try blaskern.addBlasKernels(b, mod, target, blas_cores);
     rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
     if (has_renderdoc) {
         // null until its lazy dependencies are fetched; the build then reruns
@@ -48,9 +48,12 @@ pub fn addRstdModule(
     return mod;
 }
 
-/// rstd's unit tests for `target`, from a module of `addRstdModule`.
-pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, filters: []const []const u8) !*Compile {
-    return b.addTest(.{ .root_module = try rstdbuild.cloneModuleWithTarget(b, mod, target), .filters = filters });
+/// rstd's unit tests for `target` and `optimize`, from a module of
+/// `addRstdModule` (the registered one has no mode; its consumers set theirs).
+pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, optimize: Optimize, filters: []const []const u8) !*Compile {
+    const test_mod = try rstdbuild.cloneModuleWithTarget(b, mod, target);
+    test_mod.optimize = optimize;
+    return b.addTest(.{ .root_module = test_mod, .filters = filters });
 }
 
 pub fn build(b: *Build) !void {
@@ -96,7 +99,7 @@ pub fn build(b: *Build) !void {
     // tests
     // -----
     const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
-    const rstd_test_exe = try addRstdTest(b, rstd_mod, target, test_filter);
+    const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, test_filter);
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
@@ -110,7 +113,7 @@ pub fn build(b: *Build) !void {
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const macho = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .macos });
         const macho_mod = try addRstdModule(b, null, macho, optimize, .all, false, false);
-        macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, &.{})).step);
+        macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, optimize, &.{})).step);
     }
 
     // UEFI, which no test runner supports: the OS-free tests (the qemu rigs'
@@ -120,7 +123,7 @@ pub fn build(b: *Build) !void {
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const uefi = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .uefi });
         const uefi_mod = b.createModule(.{ .root_source_file = b.path("src/_test_qemu.zig"), .target = uefi, .optimize = optimize });
-        blaskern.addBlasKernels(b, uefi_mod, uefi, .all);
+        try blaskern.addBlasKernels(b, uefi_mod, uefi, .all);
         uefi_step.dependOn(&b.addTest(.{
             .name = b.fmt("rstd-check-uefi-{t}", .{arch}),
             .root_module = uefi_mod,
@@ -130,5 +133,5 @@ pub fn build(b: *Build) !void {
 
     // the same tests that need no OS, on emulated machines
     try qemutest.addQemuTests(b, optimize);
-    wasmtest.addWasmTests(b, optimize);
+    try wasmtest.addWasmTests(b, optimize);
 }

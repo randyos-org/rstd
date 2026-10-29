@@ -28,6 +28,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const root = @import("root");
 const types = @import("types.zig");
+const util = @import("util.zig");
 
 /// Whether the target has a hardware fused multiply-add.
 pub const hardware = switch (sysinfo.target.cpu.arch) {
@@ -80,18 +81,31 @@ pub const fuse_vector: bool = if (@hasDecl(root, "blas_fuse_fma_vector"))
     root.blas_fuse_fma_vector
 else if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else vector_madd;
 
-/// Whether `T`, a float or a vector of them, can fuse at all: not past `f64`.
+/// Whether `T`, a float or a vector of them, can fuse at all: not past
+/// `f64`, and only where `compiles`.
 pub fn fusible(comptime T: type) bool {
     const E = switch (@typeInfo(T)) {
         .vector => |v| v.child,
         else => T,
     };
-    return !types.isExtended(E);
+    return !types.isExtended(E) and compiles;
 }
+
+/// Whether LLVM compiles `@mulAdd` right: not with MSA, where a vector `fma`,
+/// also one the vectorizers make of scalar ones, becomes `fmadd` with the
+/// addend as a multiplicand (issues.md).
+pub const compiles = !(sysinfo.target.cpu.arch.isMips() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa));
 
 /// `fuse` for multiply-adds in `T`.
 pub fn fuseFor(comptime T: type) bool {
     return fuse and fusible(T);
+}
+
+/// `a*b + c`, fused if `fused`; kept out of AltiVec's flushing lanes
+/// (`util.scalar`). For kernels that pick their own fusing (`fuse`,
+/// `fuse_vector`).
+pub inline fn madd(comptime fused: bool, comptime T: type, a: T, b: T, c: T) T {
+    return util.scalar(T, if (fused and compiles) @mulAdd(T, a, b, c) else a * b + c);
 }
 
 /// `a*b + c`, fused when `fuseFor` says so (`@mulAdd` is strictly
@@ -108,7 +122,7 @@ test "mulAdd agrees with a*b+c on exact values" {
 test "extended floats never fuse" {
     inline for (.{ f80, f128, @Vector(2, f80) }) |T| try std.testing.expect(!fuseFor(T));
     // by width, not identity: a 64-bit `c_longdouble` of its own fuses as f64 does
-    try std.testing.expectEqual(fuse and @typeInfo(c_longdouble).float.bits <= 64, fuseFor(c_longdouble));
+    try std.testing.expectEqual(fuse and compiles and @typeInfo(c_longdouble).float.bits <= 64, fuseFor(c_longdouble));
     // (1 + 2^-63)(1 - 2^-63) - 1 is -2^-126 fused, 0 rounded first
     const e: f80 = std.math.ldexp(@as(f80, 1), -63);
     try std.testing.expectEqual(@as(f80, 0), mulAdd(f80, 1 + e, 1 - e, -1));

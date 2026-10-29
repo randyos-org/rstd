@@ -17,46 +17,42 @@ const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
 const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
-const roles = kernel.roles;
 const uk = @import("../../uk_block.zig");
 const ukidx = @import("uk/__root__.zig");
 
+const Slot = util.Slot;
+
 pub const Core = coretypes.S390xCoreType;
 
-/// The entry for `role` on `core`, if it has one.
-fn entry(comptime role: []const u8, comptime core: Core) ?ukidx.Entry {
-    return ukidx.find(role, @tagName(core));
+/// The entry for `slot` on `core`, if it has one.
+fn entry(comptime slot: Slot, comptime core: Core) ?ukidx.Entry {
+    return ukidx.find(slot, @tagName(core));
 }
 
-/// Whether `role` has a kernel of its own on `core`.
-pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    return entry(role, core) != null;
+/// Whether `slot` has a kernel of its own on `core`.
+pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+    return entry(slot, core) != null;
 }
 
 /// Whether `core` has any axpy kernel of its own.
 pub fn has(comptime core: Core) bool {
-    inline for (roles) |role| {
-        if (comptime hasRole(core, role)) return true;
+    inline for (kernel.slots) |slot| {
+        if (comptime hasSlot(core, slot)) return true;
     }
     return false;
-}
-
-/// Exported symbol of `role` for `core`.
-pub fn symbol(comptime role: []const u8, comptime core: Core) []const u8 {
-    return util.kernelSymbol(role, @tagName(core));
 }
 
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
-    inline for (roles) |role| {
-        if (comptime entry(role, core)) |e| {
-            @export(uk.driven(kernel, role, e, uk.NoVector), .{ .name = symbol(role, core), .visibility = .hidden });
+    inline for (kernel.slots) |slot| {
+        if (comptime entry(slot, core)) |e| {
+            registry.exportKernel(uk.driven(kernel, slot, e, uk.NoVector), slot, core);
         }
     }
 }
 
 /// Points the vtable at the kernels `core` has.
 pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
+    registry.installSlots(vt, core, &kernel.slots, hasSlot);
 }

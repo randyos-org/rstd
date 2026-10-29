@@ -5,9 +5,10 @@
 //! time through the level-1 kernels: copy, scal, dot, axpy, axpyc).
 //!
 //! The complex symmetric forms (`ZSBMV`, `ZSPMV`, `ZSPR`, `ZSPR2`, `ZSYR`,
-//! `ZSYR2`) are OpenBLAS extensions. `V` and `M` in the Hermitian `uplo` are
-//! its `HEMVREV` forms (upper and lower, the transpose of the Hermitian
-//! matrix); the Fortran interface accepts them.
+//! `ZSYR2`) are OpenBLAS extensions. `V` and `M` in `?HBMV`'s `uplo` are its
+//! `HEMVREV` forms (upper and lower, the transpose of the Hermitian matrix),
+//! which its Fortran interface accepts; the other Hermitian routines get them
+//! only from row-major CBLAS, so they reject them.
 //!
 //! Element type `T` is any float type or its `Complex`; sizes and strides
 //! are `isize`. Vectors with a negative stride start at the
@@ -17,8 +18,8 @@
 //!
 //! There is no xerbla here: bad arguments return `interface.ArgError`
 //! (`info` is the first failing argument in the reference's check order).
-//! A routine that copies a strided vector takes the allocator first; vectors
-//! of up to `stack_bytes` are copied on the stack.
+//! Each routine takes an allocator, for copies of strided vectors beyond
+//! `stack_bytes`, and `io`, for the threading to come; every one is serial.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -27,104 +28,18 @@ const types = @import("../types.zig");
 const util = @import("../util.zig");
 const interface = @import("interface.zig");
 const portable = @import("../portable.zig");
+const accel = @import("../apple_accel.zig");
 
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const BlasLong = types.BlasLong;
+const Trans = types.Trans;
+const Uplo = types.Uplo;
 
 pub const Error = interface.Error;
 
 /// Bytes of each vector copy kept on the stack (OpenBLAS's `STACK_ALLOC`).
 pub const stack_bytes = interface.stack_bytes;
-
-pub const Uplo = enum {
-    upper,
-    lower,
-
-    /// `U` or `L`, either case.
-    pub fn parse(c: u8) ?Uplo {
-        return switch (std.ascii.toUpper(c)) {
-            'U' => .upper,
-            'L' => .lower,
-            else => null,
-        };
-    }
-};
-
-/// The Hermitian `uplo`: `V` and `M` are `U` and `L` of the transposed matrix.
-pub const HermUplo = enum {
-    upper,
-    lower,
-    upper_rev,
-    lower_rev,
-
-    pub fn parse(c: u8) ?HermUplo {
-        return switch (std.ascii.toUpper(c)) {
-            'U' => .upper,
-            'L' => .lower,
-            'V' => .upper_rev,
-            'M' => .lower_rev,
-            else => null,
-        };
-    }
-    fn isLower(self: HermUplo) bool {
-        return self == .lower or self == .lower_rev;
-    }
-    fn isRev(self: HermUplo) bool {
-        return self == .upper_rev or self == .lower_rev;
-    }
-};
-
-/// `?GBMV`'s `trans`: `A`, `A^T`, `conj(A)`, `A^H`, and the same four with `x`
-/// conjugated (`O`, `U`, `S`, `D`; complex only).
-pub const Trans = enum {
-    n,
-    t,
-    r,
-    c,
-    o,
-    u,
-    s,
-    d,
-
-    /// The reference's letters; real types take only `N`, `T`, `R` (as `N`)
-    /// and `C` (as `T`).
-    pub fn parse(comptime T: type, c: u8) ?Trans {
-        const up = std.ascii.toUpper(c);
-        if (comptime !isComplex(T)) return switch (up) {
-            'N', 'R' => .n,
-            'T', 'C' => .t,
-            else => null,
-        };
-        return switch (up) {
-            'N' => .n,
-            'T' => .t,
-            'R' => .r,
-            'C' => .c,
-            'O' => .o,
-            'U' => .u,
-            'S' => .s,
-            'D' => .d,
-            else => null,
-        };
-    }
-    fn transposed(self: Trans) bool {
-        return switch (self) {
-            .t, .c, .u, .d => true,
-            .n, .r, .o, .s => false,
-        };
-    }
-    fn conjA(self: Trans) bool {
-        return switch (self) {
-            .r, .c, .s, .d => true,
-            .n, .t, .o, .u => false,
-        };
-    }
-    fn conjX(self: Trans) bool {
-        return switch (self) {
-            .o, .u, .s, .d => true,
-            .n, .t, .r, .c => false,
-        };
-    }
-};
 
 // ---- element helpers ---------------------------------------------------------
 
@@ -156,6 +71,14 @@ fn zero(comptime T: type) T {
 
 fn mul(comptime T: type, a: T, b: T) T {
     return if (comptime isComplex(T)) a.mul(b) else a * b;
+}
+
+/// `mul`, each step rounded on the x87 (`util.cmul`): the rank updates'
+/// scalars, which the small-`n` path and the driver must agree on.
+fn mulRounded(comptime T: type, a: T, b: T) T {
+    if (comptime !isComplex(T)) return a * b;
+    const p = util.cmul(Float(T), a.re, a.im, b.re, b.im);
+    return .init(p[0], p[1]);
 }
 
 fn add(comptime T: type, a: T, b: T) T {
@@ -226,11 +149,11 @@ fn Scratch(comptime T: type) type {
 
         /// `v` (length `n`, stride `inc`) as a unit-stride vector: `v` itself
         /// at stride 1, else a copy.
-        fn unit(self: *@This(), gpa: std.mem.Allocator, n: BlasLong, v: [*]T, inc: BlasLong) std.mem.Allocator.Error![*]T {
+        fn unit(self: *@This(), allocator: Allocator, n: BlasLong, v: [*]T, inc: BlasLong) Allocator.Error![*]T {
             if (inc == 1) return v;
             const len: usize = @intCast(n);
             const buf: []T = if (len <= self.stack.len) self.stack[0..len] else blk: {
-                self.heap = try gpa.alloc(T, len);
+                self.heap = try allocator.alloc(T, len);
                 break :blk self.heap.?;
             };
             // poisoned in tests, as `interface.zig`'s scratch is
@@ -239,8 +162,8 @@ fn Scratch(comptime T: type) type {
             return buf.ptr;
         }
 
-        fn deinit(self: *@This(), gpa: std.mem.Allocator) void {
-            if (self.heap) |h| gpa.free(h);
+        fn deinit(self: *@This(), allocator: Allocator) void {
+            if (self.heap) |h| allocator.free(h);
         }
     };
 }
@@ -249,15 +172,15 @@ fn Scratch(comptime T: type) type {
 
 /// `driver/level2/gbmv_k.c`, `zgbmv_k.c`: `y += alpha*op(A)*x` for an `m` by
 /// `n` band matrix. The flags are `TRANS`, `CONJ` (of `A`) and `XCONJ` (of `x`).
-fn gbmvDriver(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: bool, gpa: std.mem.Allocator, m: BlasLong, n: BlasLong, ku: BlasLong, kl: BlasLong, alpha: T, a: [*]T, lda: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) std.mem.Allocator.Error!void {
+fn gbmvDriver(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: bool, allocator: Allocator, m: BlasLong, n: BlasLong, ku: BlasLong, kl: BlasLong, alpha: T, a: [*]T, lda: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) Allocator.Error!void {
     const leny = if (tr) n else m;
     const lenx = if (tr) m else n;
     var sy: Scratch(T) = .{};
     var sx: Scratch(T) = .{};
-    defer sy.deinit(gpa);
-    defer sx.deinit(gpa);
-    const Y = try sy.unit(gpa, leny, y, incy);
-    const X = try sx.unit(gpa, lenx, x, incx);
+    defer sy.deinit(allocator);
+    defer sx.deinit(allocator);
+    const Y = try sy.unit(allocator, leny, y, incy);
+    const X = try sx.unit(allocator, lenx, x, incx);
     var offset_u = ku;
     var offset_l = ku + m;
     var col = a;
@@ -290,13 +213,13 @@ const Kind = enum { symmetric, hermitian, hermitian_rev };
 
 /// `driver/level2/{sbmv,spmv,zsbmv,zspmv,zhbmv,zhpmv}_k.c`: `y += alpha*S*x`
 /// for `S` in band storage (`k` bands, `lda`) or packed storage.
-fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, gpa: std.mem.Allocator, n: BlasLong, k: BlasLong, alpha: T, a: [*]T, lda: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) std.mem.Allocator.Error!void {
+fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, k: BlasLong, alpha: T, a: [*]T, lda: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong) Allocator.Error!void {
     var sy: Scratch(T) = .{};
     var sx: Scratch(T) = .{};
-    defer sy.deinit(gpa);
-    defer sx.deinit(gpa);
-    const Y = try sy.unit(gpa, n, y, incy);
-    const X = try sx.unit(gpa, n, x, incx);
+    defer sy.deinit(allocator);
+    defer sx.deinit(allocator);
+    const Y = try sy.unit(allocator, n, y, incy);
+    const X = try sx.unit(allocator, n, x, incx);
     const rev = kind == .hermitian_rev;
     var cs: BlasLong = 0; // start of column i in `a`
     var i: BlasLong = 0;
@@ -331,40 +254,45 @@ fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptim
 }
 
 /// `driver/level2/{spr,syr,zspr,zsyr,zhpr,zher}_k.c`: `A += alpha*x*x^T`, or
-/// `alpha*x*x^H` for the Hermitian kinds (real `alpha`), on one triangle in
-/// full (`lda`) or packed storage. A column whose `x` is zero is passed over,
-/// as the reference does; OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
-fn rankDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, gpa: std.mem.Allocator, n: BlasLong, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) std.mem.Allocator.Error!void {
+/// `alpha*x*x^H` for `herm` (real `alpha`), on one triangle in full (`lda`)
+/// or packed storage. A column whose `x` is zero is passed over, as the
+/// reference does; OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
+fn rankDriver(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: if (herm) Float(T) else T, x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
     var sx: Scratch(T) = .{};
-    defer sx.deinit(gpa);
-    const X = try sx.unit(gpa, n, x, incx);
+    defer sx.deinit(allocator);
+    rankColumns(T, herm, lower, packed_, n, alpha, try sx.unit(allocator, n, x, incx), a, lda);
+}
+
+/// `rankDriver`'s columns over a unit-stride `X`.
+fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (herm) Float(T) else T, X: [*]T, a: [*]T, lda: BlasLong) void {
     var col = a;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) at(T, X, i) else X;
         const xi = el(T, X, i).*;
-        if (!isZero(T, xi)) switch (kind) {
-            .symmetric => axpyK(T, false, len, mul(T, alpha, xi), xs, col),
-            .hermitian => axpyK(T, false, len, scaleF(T, conj(T, xi), alpha), xs, col),
-            .hermitian_rev => axpyK(T, true, len, scaleF(T, xi, alpha), xs, col),
-        };
-        if (kind != .symmetric) el(T, col, if (lower) 0 else i).im = 0;
+        if (!isZero(T, xi)) axpyK(T, false, len, if (herm) scaleF(T, conj(T, xi), alpha) else mulRounded(T, alpha, xi), xs, col);
+        if (herm) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
 }
 
 /// `driver/level2/{spr2,syr2,zspr2,zsyr2,zhpr2,zher2}_k.c`: `A += alpha*x*y^T
-/// + alpha*y*x^T`, or `alpha*x*y^H + conj(alpha)*y*x^H` for the Hermitian
-/// kinds. A column whose `x` and `y` are both zero is passed over, as the
-/// reference does; OpenBLAS's drivers do not.
-fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, gpa: std.mem.Allocator, n: BlasLong, alpha: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, a: [*]T, lda: BlasLong) std.mem.Allocator.Error!void {
+/// + alpha*y*x^T`, or `alpha*x*y^H + conj(alpha)*y*x^H` for `herm`. A column
+/// whose `x` and `y` are both zero is passed over, as the reference does;
+/// OpenBLAS's drivers do not.
+fn rank2Driver(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
     var sx: Scratch(T) = .{};
     var sy: Scratch(T) = .{};
-    defer sx.deinit(gpa);
-    defer sy.deinit(gpa);
-    const X = try sx.unit(gpa, n, x, incx);
-    const Y = try sy.unit(gpa, n, y, incy);
+    defer sx.deinit(allocator);
+    defer sy.deinit(allocator);
+    const X = try sx.unit(allocator, n, x, incx);
+    const Y = try sy.unit(allocator, n, y, incy);
+    rank2Columns(T, herm, lower, packed_, n, alpha, X, Y, a, lda);
+}
+
+/// `rank2Driver`'s columns over unit-stride `X` and `Y`.
+fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong) void {
     var col = a;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
@@ -373,21 +301,11 @@ fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comp
         const ys = if (lower) at(T, Y, i) else Y;
         const xi = el(T, X, i).*;
         const yi = el(T, Y, i).*;
-        if (!isZero(T, xi) or !isZero(T, yi)) switch (kind) {
-            .symmetric => {
-                axpyK(T, false, len, mul(T, alpha, xi), ys, col);
-                axpyK(T, false, len, mul(T, alpha, yi), xs, col);
-            },
-            .hermitian => {
-                axpyK(T, false, len, conj(T, mul(T, alpha, xi)), ys, col);
-                axpyK(T, false, len, mul(T, alpha, conj(T, yi)), xs, col);
-            },
-            .hermitian_rev => {
-                axpyK(T, true, len, mul(T, alpha, xi), ys, col);
-                axpyK(T, true, len, mul(T, conj(T, alpha), yi), xs, col);
-            },
-        };
-        if (kind != .symmetric) el(T, col, if (lower) 0 else i).im = 0;
+        if (!isZero(T, xi) or !isZero(T, yi)) {
+            axpyK(T, false, len, if (herm) conj(T, mulRounded(T, alpha, xi)) else mulRounded(T, alpha, xi), ys, col);
+            axpyK(T, false, len, if (herm) mulRounded(T, alpha, conj(T, yi)) else mulRounded(T, alpha, yi), xs, col);
+        }
+        if (herm) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
 }
@@ -406,7 +324,9 @@ fn spans(comptime T: type, comptime packed_: bool, n: isize, lda: isize) interfa
 /// `?GBMV` (`interface/gbmv.c`, `zgbmv.c`): `y := alpha*op(A)*x + beta*y` for
 /// an `m` by `n` matrix with `kl` sub- and `ku` superdiagonals in band
 /// storage. `beta == 0` stores `alpha*op(A)*x` without reading `y`.
-pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: isize, n: isize, kl: isize, ku: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+pub fn gbmv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isize, n: isize, kl: isize, ku: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+    _ = io;
+    if (!isComplex(T) and trans.conjX()) return error.InvalidTrans;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (kl < 0 or ku < 0) return error.InvalidK;
@@ -421,51 +341,56 @@ pub fn gbmv(comptime T: type, gpa: std.mem.Allocator, trans: Trans, m: isize, n:
     if (!util.fitsMatrix(lda, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
+    if (accel.gbmv(T, trans, m, n, kl, ku, alpha, a, lda, x, incx, beta, y, incy)) return;
     if (!isOne(T, beta)) scalK(T, leny, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, lenx, incx);
     const py = first(T, y, leny, incy);
     if (comptime isComplex(T)) {
         switch (trans) {
-            inline else => |t| try gbmvDriver(T, comptime t.transposed(), comptime t.conjA(), comptime t.conjX(), gpa, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
+            inline else => |t| try gbmvDriver(T, comptime t.transposed(), comptime t.conjA(), comptime t.conjX(), allocator, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
         }
     } else switch (tr) {
-        inline else => |t| try gbmvDriver(T, t, false, false, gpa, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
+        inline else => |t| try gbmvDriver(T, t, false, false, allocator, m, n, ku, kl, alpha, a, lda, px, incx, py, incy),
     }
 }
 
 /// Shared tail of the matrix-vector products: `beta` scaling, `alpha == 0`,
 /// start-of-vector pointers, and the uplo dispatch.
-fn mvInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+fn mvInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: Kind, comptime packed_: bool, lower: bool, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+    _ = io;
     if (n == 0) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
+    // CBLAS has no `HEMVREV` triangles
+    if (kind != .hermitian_rev and accel.sbmv(T, kind == .hermitian, packed_, if (lower) .l else .u, n, k, alpha, a, lda, x, incx, beta, y, incy)) return;
     const kn = n;
     if (!isOne(T, beta)) scalK(T, kn, beta, y, @intCast(@abs(incy)));
     if (isZero(T, alpha)) return;
     const px = first(T, x, kn, incx);
     const py = first(T, y, kn, incy);
     switch (lower) {
-        inline else => |lo| try mvDriver(T, kind, lo, packed_, gpa, kn, k, alpha, a, lda, px, incx, py, incy),
+        inline else => |lo| try mvDriver(T, kind, lo, packed_, allocator, kn, k, alpha, a, lda, px, incx, py, incy),
     }
 }
 
 /// `?SBMV` (`interface/sbmv.c`, `zsbmv.c`): `y := alpha*S*x + beta*y` for the
 /// symmetric `n` by `n` matrix of `k` bands in band storage.
-pub fn sbmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+pub fn sbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (k < 0) return error.InvalidK;
     if (lda < k + 1) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    try mvInterface(T, .symmetric, false, gpa, uplo == .lower, n, k, alpha, a, lda, x, incx, beta, y, incy);
+    try mvInterface(allocator, io, T, .symmetric, false, uplo.isLower(), n, k, alpha, a, lda, x, incx, beta, y, incy);
 }
 
 /// `?HBMV` (`interface/zhbmv.c`): `sbmv` for a Hermitian matrix; the
-/// diagonal's imaginary part is not read.
-pub fn hbmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+/// diagonal's imaginary part is not read. `v` and `m` take `conj(S)`.
+pub fn hbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hbmv: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
     if (k < 0) return error.InvalidK;
@@ -473,134 +398,155 @@ pub fn hbmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, 
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
     switch (uplo.isRev()) {
-        inline else => |rev| try mvInterface(T, if (rev) .hermitian_rev else .hermitian, false, gpa, uplo.isLower(), n, k, alpha, a, lda, x, incx, beta, y, incy),
+        inline else => |rev| try mvInterface(allocator, io, T, if (rev) .hermitian_rev else .hermitian, false, uplo.isLower(), n, k, alpha, a, lda, x, incx, beta, y, incy),
     }
 }
 
 /// `?SPMV` (`interface/spmv.c`, `zspmv.c`): `sbmv` for packed storage.
-pub fn spmv(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+pub fn spmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    try mvInterface(T, .symmetric, true, gpa, uplo == .lower, n, 0, alpha, a, 0, x, incx, beta, y, incy);
+    try mvInterface(allocator, io, T, .symmetric, true, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy);
 }
 
 /// `?HPMV` (`interface/zhpmv.c`): `hbmv` for packed storage.
-pub fn hpmv(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
+pub fn hpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hpmv: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    switch (uplo.isRev()) {
-        inline else => |rev| try mvInterface(T, if (rev) .hermitian_rev else .hermitian, true, gpa, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy),
-    }
+    try mvInterface(allocator, io, T, .hermitian, true, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy);
 }
 
-fn rankInterface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
+/// OpenBLAS's small-`n` paths (`interface/syr.c`, `spr.c`, `syr2.c`, `spr2.c`,
+/// `zsyr.c`): below this `n`, a unit-stride update runs its columns in the
+/// interface, with no buffer; 0 where upstream has none.
+fn smallN(comptime T: type, comptime herm: bool, comptime packed_: bool, comptime two: bool) BlasLong {
+    if (herm) return 0;
+    if (isComplex(T)) return if (!two and !packed_) 50 else 0;
+    return if (two and packed_) 50 else 100;
+}
+
+fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: if (herm) Float(T) else T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
+    _ = io;
     if (n == 0) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
-    if (comptime kind == .symmetric) {
-        if (isZero(T, alpha)) return;
-    } else if (alpha == 0) return;
+    if (comptime herm) {
+        if (alpha == 0) return;
+    } else if (isZero(T, alpha)) return;
     _ = blas.vtable();
+    if (accel.syr(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, a, lda)) return;
+    const small = incx == 1 and n < comptime smallN(T, herm, packed_, false);
     const px = first(T, x, n, incx);
     switch (lower) {
-        inline else => |lo| try rankDriver(T, kind, lo, packed_, gpa, n, alpha, px, incx, a, lda),
+        inline else => |lo| if (small)
+            rankColumns(T, herm, lo, packed_, n, alpha, x, a, lda)
+        else
+            try rankDriver(T, herm, lo, packed_, allocator, n, alpha, px, incx, a, lda),
     }
 }
 
-fn rank2Interface(comptime T: type, comptime kind: Kind, comptime packed_: bool, gpa: std.mem.Allocator, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+    _ = io;
     if (n == 0 or isZero(T, alpha)) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
+    if (accel.syr2(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, y, incy, a, lda)) return;
+    const small = incx == 1 and incy == 1 and n < comptime smallN(T, herm, packed_, true);
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
     switch (lower) {
-        inline else => |lo| try rank2Driver(T, kind, lo, packed_, gpa, n, alpha, px, incx, py, incy, a, lda),
+        inline else => |lo| if (small)
+            rank2Columns(T, herm, lo, packed_, n, alpha, x, y, a, lda)
+        else
+            try rank2Driver(T, herm, lo, packed_, allocator, n, alpha, px, incx, py, incy, a, lda),
     }
 }
 
 /// `?SPR` (`interface/spr.c`, `zspr.c`): `A += alpha*x*x^T` on the packed
 /// triangle. Columns where `x[i]` is zero are skipped.
-pub fn spr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T) Error!void {
+pub fn spr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T) Error!void {
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
-    try rankInterface(T, .symmetric, true, gpa, uplo == .lower, n, alpha, x, incx, a, 0);
+    try rankInterface(allocator, io, T, false, true, uplo.isLower(), n, alpha, x, incx, a, 0);
 }
 
 /// `?SYR` (`interface/syr.c`, `zsyr.c`): `spr` for full storage.
-pub fn syr(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
+pub fn syr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
-    try rankInterface(T, .symmetric, false, gpa, uplo == .lower, n, alpha, x, incx, a, lda);
+    try rankInterface(allocator, io, T, false, false, uplo.isLower(), n, alpha, x, incx, a, lda);
 }
 
 /// `?HPR` (`interface/zhpr.c`): `A += alpha*x*x^H` for real `alpha`; the
 /// diagonal's imaginary part becomes zero.
-pub fn hpr(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T) Error!void {
+pub fn hpr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T) Error!void {
     if (comptime !isComplex(T)) @compileError("hpr: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rankInterface(T, if (rev) .hermitian_rev else .hermitian, true, gpa, uplo.isLower(), n, alpha, x, incx, a, 0),
-    }
+    try rankInterface(allocator, io, T, true, true, uplo.isLower(), n, alpha, x, incx, a, 0);
 }
 
 /// `?HER` (`interface/zher.c`): `hpr` for full storage.
-pub fn her(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
+pub fn her(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("her: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rankInterface(T, if (rev) .hermitian_rev else .hermitian, false, gpa, uplo.isLower(), n, alpha, x, incx, a, lda),
-    }
+    try rankInterface(allocator, io, T, true, false, uplo.isLower(), n, alpha, x, incx, a, lda);
 }
 
 /// `?SPR2` (`interface/spr2.c`, `zspr2.c`): `A += alpha*(x*y^T + y*x^T)` on
 /// the packed triangle.
-pub fn spr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
+pub fn spr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(T, .symmetric, true, gpa, uplo == .lower, n, alpha, x, incx, y, incy, a, 0);
+    try rank2Interface(allocator, io, T, false, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
 }
 
 /// `?SYR2` (`interface/syr2.c`, `zsyr2.c`): `spr2` for full storage.
-pub fn syr2(comptime T: type, gpa: std.mem.Allocator, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+pub fn syr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(T, .symmetric, false, gpa, uplo == .lower, n, alpha, x, incx, y, incy, a, lda);
+    try rank2Interface(allocator, io, T, false, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
 }
 
 /// `?HPR2` (`interface/zhpr2.c`): `A += alpha*x*y^H + conj(alpha)*y*x^H`; the
 /// diagonal's imaginary part becomes zero.
-pub fn hpr2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
+pub fn hpr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
     if (comptime !isComplex(T)) @compileError("hpr2: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rank2Interface(T, if (rev) .hermitian_rev else .hermitian, true, gpa, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0),
-    }
+    try rank2Interface(allocator, io, T, true, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
 }
 
 /// `?HER2` (`interface/zher2.c`): `hpr2` for full storage.
-pub fn her2(comptime T: type, gpa: std.mem.Allocator, uplo: HermUplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+pub fn her2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("her2: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rank2Interface(T, if (rev) .hermitian_rev else .hermitian, false, gpa, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda),
-    }
+    try rank2Interface(allocator, io, T, true, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
 }
 
 // ---- tests -------------------------------------------------------------------
@@ -689,22 +635,22 @@ fn checkMv(comptime T: type, comptime st: Store, comptime kind: Kind, lower: boo
         if (bre == 0) for (0..n) |i| {
             ys[vecAt(i, n, inc[1])] = scalarOf(T, std.math.nan(f64), std.math.nan(f64));
         };
-        const un: Uplo = if (lower) .lower else .upper;
-        const hu: HermUplo = switch (kind) {
-            .hermitian_rev => if (lower) .lower_rev else .upper_rev,
-            else => if (lower) .lower else .upper,
+        const un: Uplo = if (lower) .l else .u;
+        const hu: Uplo = switch (kind) {
+            .hermitian_rev => if (lower) .m else .v,
+            else => un,
         };
         const nn: isize = @intCast(n);
         const lda: isize = @intCast(ld);
         switch (st) {
             .band => if (kind == .symmetric)
-                try sbmv(T, talloc, un, nn, @intCast(k), alpha, &a, lda, &xs, inc[0], beta, &ys, inc[1])
+                try sbmv(talloc, check.io, T, un, nn, @intCast(k), alpha, &a, lda, &xs, inc[0], beta, &ys, inc[1])
             else
-                try hbmv(T, talloc, hu, nn, @intCast(k), alpha, &a, lda, &xs, inc[0], beta, &ys, inc[1]),
+                try hbmv(talloc, check.io, T, hu, nn, @intCast(k), alpha, &a, lda, &xs, inc[0], beta, &ys, inc[1]),
             .packed_ => if (kind == .symmetric)
-                try spmv(T, talloc, un, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1])
+                try spmv(talloc, check.io, T, un, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1])
             else
-                try hpmv(T, talloc, hu, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1]),
+                try hpmv(talloc, check.io, T, un, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1]),
             .full => unreachable,
         }
         check.expectCloseSlices(T, &want, &ys, tol(T, n)) catch |e| {
@@ -719,7 +665,7 @@ fn kindsOf(comptime T: type) []const Kind {
 }
 
 /// Checks the rank-1 and rank-2 updates against dense arithmetic.
-fn checkRank(comptime T: type, comptime st: Store, comptime kind: Kind, lower: bool) !void {
+fn checkRank(comptime T: type, comptime st: Store, comptime herm: bool, lower: bool) !void {
     var seed: u64 = 1000;
     for (cases) |c| for (inc_pairs) |inc| for ([_]bool{ false, true }) |two| {
         seed += 1;
@@ -742,59 +688,49 @@ fn checkRank(comptime T: type, comptime st: Store, comptime kind: Kind, lower: b
             const xc = xs[vecAt(c_, n, inc[0])];
             const yr = ys[vecAt(r, n, inc[1])];
             const yc = ys[vecAt(c_, n, inc[1])];
-            var v: T = undefined;
-            switch (kind) {
-                .symmetric => v = if (two)
-                    mul(T, alpha, add(T, mul(T, xr, yc), mul(T, yr, xc)))
-                else
-                    mul(T, alpha, mul(T, xr, xc)),
-                .hermitian, .hermitian_rev => {
-                    v = if (two)
-                        add(T, mul(T, alpha, mul(T, xr, conj(T, yc))), mul(T, conj(T, alpha), mul(T, yr, conj(T, xc))))
-                    else
-                        scaleF(T, mul(T, xr, conj(T, xc)), alpha_f);
-                    if (kind == .hermitian_rev) v = conj(T, v);
-                },
-            }
+            const v = if (herm and two)
+                add(T, mul(T, alpha, mul(T, xr, conj(T, yc))), mul(T, conj(T, alpha), mul(T, yr, conj(T, xc))))
+            else if (herm)
+                scaleF(T, mul(T, xr, conj(T, xc)), alpha_f)
+            else if (two)
+                mul(T, alpha, add(T, mul(T, xr, yc), mul(T, yr, xc)))
+            else
+                mul(T, alpha, mul(T, xr, xc));
             want[p] = add(T, want[p], v);
-            if (r == c_ and kind != .symmetric) {
-                if (comptime isComplex(T)) want[p].im = 0;
+            if (herm) {
+                if (r == c_) want[p].im = 0;
             }
         };
-        const un: Uplo = if (lower) .lower else .upper;
-        const hu: HermUplo = switch (kind) {
-            .hermitian_rev => if (lower) .lower_rev else .upper_rev,
-            else => if (lower) .lower else .upper,
-        };
+        const un: Uplo = if (lower) .l else .u;
         const nn: isize = @intCast(n);
         const lda: isize = @intCast(ld);
         switch (st) {
             .packed_ => if (two) {
-                if (kind == .symmetric)
-                    try spr2(T, talloc, un, nn, a0, &xs, inc[0], &ys, inc[1], &a)
+                if (!herm)
+                    try spr2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a)
                 else
-                    try hpr2(T, talloc, hu, nn, a0, &xs, inc[0], &ys, inc[1], &a);
+                    try hpr2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a);
             } else {
-                if (kind == .symmetric)
-                    try spr(T, talloc, un, nn, a0, &xs, inc[0], &a)
+                if (!herm)
+                    try spr(talloc, check.io, T, un, nn, a0, &xs, inc[0], &a)
                 else
-                    try hpr(T, talloc, hu, nn, alpha_f, &xs, inc[0], &a);
+                    try hpr(talloc, check.io, T, un, nn, alpha_f, &xs, inc[0], &a);
             },
             .full => if (two) {
-                if (kind == .symmetric)
-                    try syr2(T, talloc, un, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda)
+                if (!herm)
+                    try syr2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda)
                 else
-                    try her2(T, talloc, hu, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda);
+                    try her2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda);
             } else {
-                if (kind == .symmetric)
-                    try syr(T, talloc, un, nn, a0, &xs, inc[0], &a, lda)
+                if (!herm)
+                    try syr(talloc, check.io, T, un, nn, a0, &xs, inc[0], &a, lda)
                 else
-                    try her(T, talloc, hu, nn, alpha_f, &xs, inc[0], &a, lda);
+                    try her(talloc, check.io, T, un, nn, alpha_f, &xs, inc[0], &a, lda);
             },
             .band => unreachable,
         }
         check.expectCloseSlices(T, &want, &a, tol(T, 4)) catch |e| {
-            check.say("rank{s} {s} {s} n={d} inc={d},{d} lower={}: ", .{ if (two) "2" else "1", @tagName(st), @tagName(kind), n, inc[0], inc[1], lower });
+            check.say("rank{s} {s} herm={} n={d} inc={d},{d} lower={}: ", .{ if (two) "2" else "1", @tagName(st), herm, n, inc[0], inc[1], lower });
             return e;
         };
     };
@@ -840,7 +776,7 @@ fn checkGbmv(comptime T: type) !void {
             if (bre == 0) for (0..leny) |o| {
                 ys[vecAt(o, leny, inc[1])] = scalarOf(T, std.math.nan(f64), std.math.nan(f64));
             };
-            try gbmv(T, talloc, tr, @intCast(m), @intCast(n), @intCast(kl), @intCast(ku), alpha, &a, @intCast(ld), &xs, inc[0], beta, &ys, inc[1]);
+            try gbmv(talloc, check.io, T, tr, @intCast(m), @intCast(n), @intCast(kl), @intCast(ku), alpha, &a, @intCast(ld), &xs, inc[0], beta, &ys, inc[1]);
             check.expectCloseSlices(T, &want, &ys, tol(T, lenx)) catch |e| {
                 check.say("gbmv {s} {s} m={d} n={d} kl={d} ku={d} inc={d},{d}: ", .{ @typeName(T), @tagName(tr), m, n, kl, ku, inc[0], inc[1] });
                 return e;
@@ -849,14 +785,18 @@ fn checkGbmv(comptime T: type) !void {
     }
 }
 
-fn runAll() !void {
-    inline for (all) |T| {
+fn runAll(comptime list: anytype) !void {
+    inline for (list) |T| {
         try checkGbmv(T);
         inline for (.{ Store.band, Store.packed_ }) |st| {
-            inline for (comptime kindsOf(T)) |kind| for ([_]bool{ false, true }) |lower| try checkMv(T, st, kind, lower);
+            inline for (comptime kindsOf(T)) |kind| {
+                // `hpmv` takes no `HEMVREV` triangle
+                if (st == .packed_ and kind == .hermitian_rev) continue;
+                for ([_]bool{ false, true }) |lower| try checkMv(T, st, kind, lower);
+            }
         }
         inline for (.{ Store.full, Store.packed_ }) |st| {
-            inline for (comptime kindsOf(T)) |kind| for ([_]bool{ false, true }) |lower| try checkRank(T, st, kind, lower);
+            inline for (if (comptime isComplex(T)) .{ false, true } else .{false}) |herm| for ([_]bool{ false, true }) |lower| try checkRank(T, st, herm, lower);
         }
     }
 }
@@ -865,15 +805,85 @@ fn runAll() !void {
 fn withCore(vt: *const Vtable) anyerror!void {
     const saved = blas.testUse(vt);
     defer blas.testRestore(saved);
-    try runAll();
+    try runAll(all);
 }
 
 test "banded, packed and rank updates match dense arithmetic (portable kernels)" {
-    try runAll();
+    try runAll(all);
+}
+
+test "f80 without slots: banded, packed and rank updates match dense arithmetic (portable kernels)" {
+    if (comptime check.f80_unslotted.len == 0) return error.SkipZigTest;
+    try runAll(check.f80_unslotted);
 }
 
 test "banded, packed and rank updates match dense arithmetic on every core" {
     try check.eachCore(withCore);
+}
+
+/// The small-`n` path against the driver, bit for bit, for every `n` below
+/// the threshold, with zeros in `x` and `y` for the skip.
+fn checkSmall(comptime T: type, comptime packed_: bool, comptime two: bool) !void {
+    const limit = comptime smallN(T, false, packed_, two);
+    if (limit == 0) return;
+    const len: usize = @intCast(limit * limit);
+    const a = try talloc.alloc(T, len);
+    defer talloc.free(a);
+    const b = try talloc.alloc(T, len);
+    defer talloc.free(b);
+    var xs: [limit]T = undefined;
+    var ys: [limit]T = undefined;
+    check.fill(T, &xs, 7);
+    check.fill(T, &ys, 8);
+    for (0..limit) |i| {
+        if (i % 3 == 1) xs[i] = zero(T);
+        if (i % 6 == 1 or i % 5 == 3) ys[i] = zero(T);
+    }
+    const alpha = scalarOf(T, 1.25, -0.5);
+    for (1..limit) |n| for ([_]bool{ false, true }) |lower| {
+        const nn: isize = @intCast(n);
+        const lda: isize = if (packed_) 0 else nn + @as(isize, @intCast(n & 1));
+        check.fill(T, a, n);
+        @memcpy(b, a);
+        const u: Uplo = if (lower) .l else .u;
+        if (two) {
+            if (packed_) try spr2(talloc, check.io, T, u, nn, alpha, &xs, 1, &ys, 1, a.ptr) else try syr2(talloc, check.io, T, u, nn, alpha, &xs, 1, &ys, 1, a.ptr, lda);
+        } else {
+            if (packed_) try spr(talloc, check.io, T, u, nn, alpha, &xs, 1, a.ptr) else try syr(talloc, check.io, T, u, nn, alpha, &xs, 1, a.ptr, lda);
+        }
+        switch (lower) {
+            inline else => |lo| if (two)
+                try rank2Driver(T, false, lo, packed_, talloc, nn, alpha, &xs, 1, &ys, 1, b.ptr, lda)
+            else
+                try rankDriver(T, false, lo, packed_, talloc, nn, alpha, &xs, 1, b.ptr, lda),
+        }
+        for (a, b, 0..) |p, q, i| if (!check.same(T, p, q, true)) {
+            check.say("small rank{s} {s} {s} n={d} lower={} at {d}: ", .{ if (two) "2" else "1", @typeName(T), if (packed_) "packed" else "full", n, lower, i });
+            return error.TestExpectedEqual;
+        };
+    };
+}
+
+fn runSmall() !void {
+    inline for (.{ f16, f32, f64, f80, f128 }) |F| {
+        inline for (.{ F, std.math.Complex(F) }) |T| {
+            inline for (.{ false, true }) |packed_| inline for (.{ false, true }) |two| try checkSmall(T, packed_, two);
+        }
+    }
+}
+
+fn withCoreSmall(vt: *const Vtable) anyerror!void {
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
+    try runSmall();
+}
+
+test "the small-n rank updates match the driver bit for bit" {
+    // rstd's own paths
+    const was = blas.useAccelerate(false);
+    defer _ = blas.useAccelerate(was);
+    try runSmall();
+    try check.eachCore(withCoreSmall);
 }
 
 test "strided vectors beyond the stack buffer are copied from the allocator" {
@@ -900,11 +910,14 @@ test "strided vectors beyond the stack buffer are copied from the allocator" {
         }
         want[vecAt(i, n, 3)] += 2 * acc;
     }
-    try sbmv(f64, talloc, .upper, n, k, 2, a.ptr, ld, xs.ptr, -2, 1, ys.ptr, 3);
+    try sbmv(talloc, check.io, f64, .u, n, k, 2, a.ptr, ld, xs.ptr, -2, 1, ys.ptr, 3);
     try check.expectCloseSlices(f64, want, ys, tol(f64, k));
 }
 
 test "an allocation failure comes back as OutOfMemory" {
+    // rstd's own path, which allocates
+    const was = blas.useAccelerate(false);
+    defer _ = blas.useAccelerate(was);
     var failing = std.testing.FailingAllocator.init(talloc, .{ .fail_index = 0 });
     const n = 1200;
     const a = try talloc.alloc(f32, n);
@@ -913,29 +926,46 @@ test "an allocation failure comes back as OutOfMemory" {
     defer talloc.free(xs);
     @memset(a, 1);
     @memset(xs, 1);
-    try std.testing.expectError(error.OutOfMemory, syr(f32, failing.allocator(), .lower, n, 1, xs.ptr, 2, a.ptr, n));
+    try std.testing.expectError(error.OutOfMemory, syr(failing.allocator(), check.io, f32, .l, n, 1, xs.ptr, 2, a.ptr, n));
 }
 
-test "invalid arguments, quick returns and the letter decoders" {
+test "invalid arguments and quick returns" {
     var a = [_]f64{ 1, 2, 3, 4 };
     var x = [_]f64{ 1, 2 };
     var y = [_]f64{ 5, 6 };
-    try std.testing.expectError(error.InvalidLda, sbmv(f64, talloc, .upper, 2, 1, 1, &a, 1, &x, 1, 1, &y, 1));
-    try std.testing.expectError(error.InvalidIncx, sbmv(f64, talloc, .upper, 2, 0, 1, &a, 1, &x, 0, 1, &y, 1));
-    try std.testing.expectError(error.InvalidN, spmv(f64, talloc, .upper, -1, 1, &a, &x, 1, 1, &y, 1));
-    try std.testing.expectError(error.InvalidLda, syr(f64, talloc, .lower, 2, 1, &x, 1, &a, 1));
-    try std.testing.expectError(error.InvalidLda, gbmv(f64, talloc, .n, 2, 2, 1, 1, 1, &a, 2, &x, 1, 1, &y, 1));
+    try std.testing.expectError(error.InvalidLda, sbmv(talloc, check.io, f64, .u, 2, 1, 1, &a, 1, &x, 1, 1, &y, 1));
+    try std.testing.expectError(error.InvalidIncx, sbmv(talloc, check.io, f64, .u, 2, 0, 1, &a, 1, &x, 0, 1, &y, 1));
+    try std.testing.expectError(error.InvalidN, spmv(talloc, check.io, f64, .u, -1, 1, &a, &x, 1, 1, &y, 1));
+    try std.testing.expectError(error.InvalidLda, syr(talloc, check.io, f64, .l, 2, 1, &x, 1, &a, 1));
+    try std.testing.expectError(error.InvalidLda, gbmv(talloc, check.io, f64, .n, 2, 2, 1, 1, 1, &a, 2, &x, 1, 1, &y, 1));
     // n == 0 and alpha == 0 leave A alone; beta still scales y
-    try syr(f64, talloc, .upper, 0, 1, &x, 1, &a, 1);
-    try syr(f64, talloc, .upper, 2, 0, &x, 1, &a, 2);
+    try syr(talloc, check.io, f64, .u, 0, 1, &x, 1, &a, 1);
+    try syr(talloc, check.io, f64, .u, 2, 0, &x, 1, &a, 2);
     try std.testing.expectEqualSlices(f64, &.{ 1, 2, 3, 4 }, &a);
-    try spmv(f64, talloc, .upper, 2, 0, &a, &x, 1, 2, &y, 1);
+    try spmv(talloc, check.io, f64, .u, 2, 0, &a, &x, 1, 2, &y, 1);
     try std.testing.expectEqualSlices(f64, &.{ 10, 12 }, &y);
-    try std.testing.expectEqual(Uplo.lower, Uplo.parse('l').?);
-    try std.testing.expectEqual(HermUplo.upper_rev, HermUplo.parse('V').?);
-    try std.testing.expectEqual(@as(?HermUplo, null), HermUplo.parse('x'));
-    try std.testing.expectEqual(Trans.n, Trans.parse(f32, 'r').?);
-    try std.testing.expectEqual(Trans.t, Trans.parse(f32, 'C').?);
-    try std.testing.expectEqual(@as(?Trans, null), Trans.parse(f32, 'D'));
-    try std.testing.expectEqual(Trans.d, Trans.parse(Complex32, 'd').?);
+    // the symmetric routines take no Hermitian `uplo`, real `gbmv` no `o` to `d`
+    try std.testing.expectError(error.InvalidUplo, sbmv(talloc, check.io, f64, .v, -1, -1, 1, &a, 0, &x, 0, 1, &y, 0));
+    try std.testing.expectError(error.InvalidUplo, syr2(talloc, check.io, f64, .m, -1, 1, &x, 0, &y, 0, &a, 0));
+    // only `hbmv` of these takes `v` and `m`; upstream's others get them from
+    // row-major CBLAS alone
+    var ca: [4]Complex64 = @splat(.init(1, 0));
+    var cx: [2]Complex64 = @splat(.init(1, 0));
+    var cy = cx;
+    const c1: Complex64 = .init(1, 0);
+    for ([_]Uplo{ .v, .m }) |u| {
+        try std.testing.expectError(error.InvalidUplo, hpmv(talloc, check.io, Complex64, u, -1, c1, &ca, &cx, 0, c1, &cy, 0));
+        try std.testing.expectError(error.InvalidUplo, her(talloc, check.io, Complex64, u, -1, 1, &cx, 0, &ca, 0));
+        try std.testing.expectError(error.InvalidUplo, hpr(talloc, check.io, Complex64, u, -1, 1, &cx, 0, &ca));
+        try std.testing.expectError(error.InvalidUplo, her2(talloc, check.io, Complex64, u, -1, c1, &cx, 0, &cy, 0, &ca, 0));
+        try std.testing.expectError(error.InvalidUplo, hpr2(talloc, check.io, Complex64, u, -1, c1, &cx, 0, &cy, 0, &ca));
+        try hbmv(talloc, check.io, Complex64, u, 2, 1, c1, &ca, 2, &cx, 1, c1, &cy, 1);
+    }
+    try std.testing.expectError(error.InvalidTrans, gbmv(talloc, check.io, f64, .d, -1, 2, 1, 1, 1, &a, 2, &x, 1, 1, &y, 1));
+    // real `r` and `c` are `n` and `t`
+    var yn = [_]f64{ 0, 0 };
+    var yr = yn;
+    try gbmv(talloc, check.io, f64, .t, 2, 2, 1, 0, 1, &a, 2, &x, 1, 0, &yn, 1);
+    try gbmv(talloc, check.io, f64, .c, 2, 2, 1, 0, 1, &a, 2, &x, 1, 0, &yr, 1);
+    try std.testing.expectEqualSlices(f64, &yn, &yr);
 }

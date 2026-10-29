@@ -26,6 +26,8 @@ const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
+const Compile = rstdbuild.CompileStep;
+const LazyPath = rstdbuild.LazyPath;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 
 // Only `cpu/`'s light files (`_corespec.zig` and the `_detect/<arch>.zig` detectors
@@ -48,14 +50,14 @@ var option_read = false;
 /// for every core the target can run (`.all`), or only the core the target
 /// maps to (`.target`), or none (`.none`). It also gives `mod` the
 /// `blaskern_linked` module, which tells `asm_registry.install` what got linked.
-pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) void {
+pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) !void {
     if (!option_read) {
         option_read = true;
         force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
     }
     // the core type depends on the architecture, so it becomes compile-time here
     switch (target.result.cpu.arch) {
-        inline else => |a| addForArch(b, mod, target, cores, a),
+        inline else => |a| try addForArch(b, mod, target, cores, a),
     }
 }
 
@@ -65,7 +67,7 @@ fn addForArch(
     target: ResolvedTarget,
     cores: rstdbuild.BlasCores,
     comptime arch_tag: std.Target.Cpu.Arch,
-) void {
+) !void {
     const arch = target.result.cpu.arch;
     var groups: std.ArrayList(Group) = .empty;
 
@@ -86,10 +88,11 @@ fn addForArch(
         const g = for (groups.items) |*g| {
             if (g.spec.eql(spec)) break g;
         } else blk: {
-            groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) }) catch @panic("OOM");
+            try groups.append(b.allocator, .{ .spec = spec, .query = groupQuery(target, spec) });
             break :blk &groups.items[groups.items.len - 1];
         };
-        g.cores.append(b.allocator, @tagName(core)) catch @panic("OOM");
+        try g.cores.append(b.allocator, @tagName(core));
+        try checkIsa(b, target, g.query, core);
     }
 
     var fallback: ?[]const u8 = null;
@@ -104,7 +107,7 @@ fn addForArch(
     }
 
     var linked: std.ArrayList([]const u8) = .empty;
-    for (groups.items) |g| linked.appendSlice(b.allocator, g.cores.items) catch @panic("OOM");
+    for (groups.items) |g| try linked.appendSlice(b.allocator, g.cores.items);
     addLinked(b, mod, linked.items, fallback);
 
     for (groups.items) |g| {
@@ -122,6 +125,7 @@ fn addForArch(
                 .target = b.resolveTargetQuery(g.query),
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
+                .pic = objectPic(mod, target),
                 .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
             }),
             .use_llvm = llvm,
@@ -130,8 +134,57 @@ fn addForArch(
             // write Mach-O, so macOS objects keep the self-hosted linker
             .use_lld = llvm and target.result.ofmt != .macho,
         });
-        mod.addObject(obj);
+        // `zig cc` ignores `-ofmt`, so an explicit object format goes unchecked
+        if (llvm and g.query.ofmt == null) mod.addObjectFile(try checkedObject(b, obj, g.query)) else mod.addObject(obj);
     }
+}
+
+/// `obj`'s object, linkable only once `asmCheck` passes.
+fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
+    const wf = b.addWriteFiles();
+    wf.step.dependOn(try asmCheck(b, obj, query));
+    return wf.addCopyFile(obj.getEmittedBin(), obj.out_filename);
+}
+
+/// A step that fails where `comp`'s inline asm has a line LLVM rejects: it
+/// compiles `comp`'s LLVM bitcode with clang. Zig 0.18 drops such lines, yet
+/// exits 0 and caches the output (issues.md, "Inline assembly errors exit 0").
+/// `comp` must use LLVM, and `query` name no `ofmt`, which `zig cc` ignores.
+pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step {
+    const triple = try query.zigTriple(b.allocator);
+    const check = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-c", "-Wno-override-module", "-target", triple });
+    const target = b.resolveTargetQuery(query).result;
+    // Functions carry their own CPU; module-level asm needs `-mcpu`. Not on
+    // x86, whose assembler ignores CPU features.
+    if (!target.cpu.arch.isX86())
+        check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
+    // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm
+    // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC
+    if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding))
+        check.addArg("-fno-PIC");
+    // an `SDKROOT` for another platform (Swift's for Windows) makes `zig cc`
+    // warn for Darwin targets, and stderr fails the step; no SDK is read here
+    check.removeEnvironmentVariable("SDKROOT");
+    check.setName(b.fmt("check inline asm of {s}", .{comp.name}));
+    check.addFileArg(comp.getEmittedLlvmBc());
+    check.addArg("-o");
+    _ = check.addOutputFileArg(b.fmt("asmcheck-{s}.o", .{comp.name}));
+    return &check.step;
+}
+
+/// The objects' PIC where it must match the image's: MIPS marks PIC code
+/// abicalls, and `ld.lld` warns when it meets the rest. An object is PIC by
+/// default, an executable only where it links dynamically (glibc); a shared
+/// library sets `pic` on its module. Elsewhere Zig's default, which links
+/// into anything.
+fn objectPic(mod: *Module, target: ResolvedTarget) ?bool {
+    const t = &target.result;
+    if (!t.cpu.arch.isMips()) return null;
+    return mod.pic orelse switch (t.os.tag) {
+        .freestanding => false,
+        .linux => mod.link_libc == true and t.isGnuLibC(),
+        else => null,
+    };
 }
 
 /// Tells `asm_registry.install` which cores' objects are linked.
@@ -142,20 +195,25 @@ fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]c
     mod.addImport("blaskern_linked", opts.createModule());
 }
 
-/// The target query a group's object is built with: its model, or the
-/// baseline plus its features, less those it goes without.
+/// The target query a group's object is built with (`corespec.objectQuery`).
 fn groupQuery(target: ResolvedTarget, spec: corespec.Spec) std.Target.Query {
+    return corespec.objectQuery(target.query, target.result.os, target.result.cpu, spec);
+}
+
+/// Fails the build where `query`'s object needs a feature that a CPU running
+/// `core` may lack and `target` does not promise (`corespec.excess`).
+fn checkIsa(b: *Build, target: ResolvedTarget, query: std.Target.Query, core: anytype) !void {
     const arch = target.result.cpu.arch;
-    var query = target.query;
-    query.cpu_features_sub = featureSet(arch, spec.without);
-    if (spec.model) |name| {
-        query.cpu_model = .{ .explicit = findModel(arch, name) };
-        query.cpu_features_add = .empty;
-    } else {
-        query.cpu_model = .baseline;
-        query.cpu_features_add = featureSet(arch, spec.features);
+    const object = b.resolveTargetQuery(query).result.cpu.features;
+    const ex = corespec.excess(core, arch, object, target.result.cpu.features);
+    if (ex.isEmpty()) return;
+    var names: std.ArrayList(u8) = .empty;
+    for (arch.allFeaturesList(), 0..) |f, i| {
+        if (ex.isEnabled(@intCast(i))) try names.print(b.allocator, " {s}", .{f.name});
     }
-    return query;
+    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/_corespec.zig)", .{
+        @tagName(core), target.result.cpu.model.name, names.items, @tagName(core),
+    });
 }
 
 /// The group, and the core in it, that `target` maps to. A native target asks
@@ -169,7 +227,7 @@ fn pickTarget(
 ) ?struct { group: usize, core: []const u8 } {
     if (comptime arch_tag == sysinfo.target.cpu.arch) {
         if (target.query.isNativeCpu()) {
-            const name = @tagName(corespec.Detector(arch_tag).detect());
+            const name = @tagName(corespec.objectCore(arch_tag, corespec.Detector(arch_tag).detect()));
             for (groups, 0..) |g, i| {
                 for (g.cores.items) |c| {
                     if (std.mem.eql(u8, c, name)) return .{ .group = i, .core = c };
@@ -206,23 +264,4 @@ fn needsLlvm(arch: std.Target.Cpu.Arch, cores: []const []const u8) bool {
     _ = arch;
     _ = cores;
     return true;
-}
-
-fn findModel(arch: std.Target.Cpu.Arch, name: []const u8) *const std.Target.Cpu.Model {
-    for (arch.allCpuModels()) |m| {
-        if (std.mem.eql(u8, m.name, name)) return m;
-    }
-    std.debug.panic("no CPU model '{s}' for {s}", .{ name, @tagName(arch) });
-}
-
-fn featureSet(arch: std.Target.Cpu.Arch, names: []const []const u8) std.Target.Cpu.Feature.Set {
-    var set: std.Target.Cpu.Feature.Set = .empty;
-    const all = arch.allFeaturesList();
-    for (names) |name| {
-        const i = for (all, 0..) |feat, k| {
-            if (std.mem.eql(u8, feat.name, name)) break k;
-        } else std.debug.panic("no CPU feature '{s}' for {s}", .{ name, @tagName(arch) });
-        set.addFeature(@intCast(i));
-    }
-    return set;
 }

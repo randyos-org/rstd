@@ -4,7 +4,7 @@ Problems found in other projects while building and testing the BLAS port.
 None is filed. For each: what we saw, how we work around it and where,
 and the text of an issue we could file later. The toolchain throughout is
 Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`) unless an entry says
-otherwise.
+otherwise. The Zig entries were rechecked on 0.18.0-dev.751 (2026-10-26).
 
 When an issue is fixed upstream, drop the workaround and its entry.
 
@@ -41,8 +41,11 @@ When an issue is fixed upstream, drop the workaround and its entry.
   pointer to a `callconv(.naked)` function to a SysV function type, then
   called directly, corrupted the caller's callee-saved registers (it
   surfaced as a `@memcpy arguments alias` panic). Debug was fine, and so
-  was the same call through a runtime pointer. The call looks emitted with
-  the default (Win64) convention, so `rsi`/`rdi` were assumed preserved.
+  was the same call through a runtime pointer. On 0.18.0-dev.751 the LLVM
+  IR shows why: `call x86_64_sysvcc void @k(i64 ..)` against
+  `define void @k()`. LLVM treats a call whose convention differs from
+  the callee's as undefined, and now compiles the whole caller to
+  `unreachable`, so it crashes.
 - **Workaround:** the vtable only calls kernels through runtime function
   pointers on their own ABI, which is not affected. Keep it that way: do not
   turn vtable calls into comptime-known calls of the naked kernels.
@@ -52,14 +55,17 @@ When an issue is fixed upstream, drop the workaround and its entry.
   >
   > On x86_64-windows, given `fn k() callconv(.naked) void { asm volatile (...) }`
   > implementing a System V function, the call
-  > `@as(*const fn (...) callconv(.{ .x86_64_sysv = .{} }) void, @ptrCast(&k))(args)`
-  > in ReleaseFast or ReleaseSafe does not treat `rsi`/`rdi` as clobbered:
-  > the caller keeps values there across the call, as the Win64 convention
-  > allows, and they come back changed. Loading the same pointer through a
-  > `volatile` (so it is not comptime-known) produces a correct call. Debug
-  > builds are correct either way. It seems the direct call is lowered
-  > against the callee's own convention (`.naked`, so the target default)
-  > instead of the pointer type's.
+  > `@as(*const fn (usize, usize) callconv(.{ .x86_64_sysv = .{} }) void, @ptrCast(&k))(a, b)`
+  > is emitted as a direct `call x86_64_sysvcc void @k(i64, i64)` to
+  > `define void @k()`, which has the default convention. LLVM considers a
+  > call with a mismatched convention undefined behavior: in ReleaseFast
+  > or ReleaseSafe the calling function compiles to a lone `unreachable`
+  > (earlier builds instead kept values in `rsi`/`rdi` across the call).
+  > Loading the same pointer through a `volatile`, so it is not
+  > comptime-known, produces a correct indirect call; Debug with the
+  > self-hosted backend is correct either way. A direct call through a
+  > cast pointer should be emitted as an indirect call, or with the
+  > callee's own convention matching the pointer type's.
 
 ### powerpc64: `.abiversion 2` emitted where the target's convention is ELFv1
 
@@ -86,7 +92,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `zdot_cell.S` put the result.
 - **Workaround:** those two kernels are patched to also copy the result to
   `r3`/`r4` (a path the sources already have for the Fortran interface).
-  See "Fixes to upstream sources" in `readme.md`.
+  See [`design.md`](design.md#fixes-to-upstream-sources), "Fixes to
+  upstream sources".
 - **Issue text:**
 
   > **powerpc64le: homogeneous float aggregates returned in GPRs instead of FPRs**
@@ -126,31 +133,45 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > homogeneous aggregate rule) without checking for the soft-float
   > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
 
-### Self-hosted x86_64 backend leaves a value on the x87 stack converting to f80
+### Self-hosted x86_64 backend stores a two-lane `f32` vector as 16 bytes
 
-- **Seen:** with the self-hosted x86_64 backend (the debug default), converting
-  `u128` or `f128` to `f80` (a compiler-rt libcall) leaves an entry on the x87
-  register stack. Later x87 arithmetic overflows the stack and produces NaN.
-- **Workaround:** the tests never convert `u128` or `f128` to `f80`:
-  `_test/blas1/check.zig` builds random `f80` values from bits, and compares `f128`
-  references at `f128` (`expectCloseRef`).
+- **Seen:** with the self-hosted x86_64 backend, `@sizeOf(@Vector(2, f32))`
+  is 16 (8 with LLVM): `Type.abiSize` rounds every vector up to 16 bytes
+  for `stage2_x86_64`. A store through a `*align(1) @Vector(2, f32)` cast
+  from an `[*]f32`, as `util.store` does, writes 16 bytes, so the two
+  `f32` after the vector are overwritten. Still so on 0.18.0-dev.751.
+- **Workaround:** the complex gemm tile assigns whole arrays
+  (`p[0..lanes].* = ...`), not `util.store` (`blas3/gemm/kernel.zig`).
 - **Issue text:**
 
-  > **x86_64 backend: `@floatFromInt(u128)` / `@floatCast(f128)` to `f80` unbalances the x87 stack**
+  > **x86_64 backend: `@Vector(2, f32)` is 16 bytes, so a store through a pointer to it overwrites the next 8**
   >
-  > With the self-hosted x86_64 backend, `@as(f80, @floatFromInt(x))` for a
-  > `u128` `x`, or `@as(f80, @floatCast(y))` for an `f128` `y`, returns the
-  > right value but leaves one extra entry on the x87 register stack. After
-  > several such conversions, x87 arithmetic in the same function produces
-  > NaN (stack overflow, invalid operation). The LLVM backend is correct.
-  > Reproduce: convert a few `u128` values to `f80` in a loop, add them, and
-  > compare against the LLVM backend; `fstenv` after the call shows the tag
-  > word with a register in use.
+  > With `-fno-llvm` on x86_64, `@sizeOf(@Vector(2, f32))` is 16; the LLVM
+  > backend says 8, the vector's natural size. `Type.abiSize` gives every
+  > `stage2_x86_64` vector a 16-byte minimum, so a store through
+  > `*align(4) @Vector(2, f32)` writes 16 bytes. Code that views part of an
+  > `[N]f32` as a vector (a common way to load and store lanes of an
+  > array) silently corrupts the elements after it. Reproduce:
+  >
+  > ```zig
+  > var buf: [4]f32 = .{ 9, 9, 9, 9 };
+  > const p: *align(4) @Vector(2, f32) = @ptrCast(&buf);
+  > p.* = .{ 1, 2 };
+  > // -fllvm: { 1, 2, 9, 9 }; -fno-llvm: buf[2] and buf[3] overwritten
+  > ```
+  >
+  > Coercing to an array (`buf[0..2].* = v`) stores 8 bytes. Vectors have
+  > no guaranteed memory layout, but the size differing between backends,
+  > and padding written past a vector that `[2]f32` holds exactly, are
+  > surprising; giving the vector its natural size, as LLVM does, would
+  > avoid both.
 
 ### LLVM `-Oz` miscompile on sparc64
 
 - **Seen:** since Zig 0.18.0-dev.250, the sparc64 rig built with `.small`
-  jumps into unrelated code in the gemm parameter test.
+  jumps into unrelated code in the gemm parameter test. Still so on
+  0.18.0-dev.751: "every core of the x86_64 family" traps with
+  `Unhandled Exception 0x10`; the same image at `.fast` passes.
 - **Workaround:** the sparc64 rig builds with `.fast` (`build/qemutest.zig`).
 - **Issue text:** not ready; needs a reduced case first. It may belong to
   LLVM rather than Zig.
@@ -163,7 +184,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   extended type match a plain loop" failed for `Complex(f80)` on it: the
   kernel was right, the `f128` reference was not. `lib/compiler_rt/sqrt.zig`
   has `c.* = sqrt(@floatCast(a.*))`, where `sqrt` is the f64 routine; still
-  so on Zig master (added in 2c5f54c898, 2025-04-28).
+  so on 0.18.0-dev.751 (added in 2c5f54c898, 2025-04-28).
 - **Workaround:** test references take the root with `check.sqrtW`, which on
   sparc64 refines `@sqrt` with two Newton steps in `f128`, scaling by even
   powers of two into f64's range first (a denormal's square is 0 in f64, and
@@ -183,30 +204,65 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `0x3fff6a09e667f3bcc908b2fb1366ea95`. It should call `sqrt_f128`, as
   > `sqrtq` (`_Q_sqrt` on sparc32) does.
 
-### powerpc64le: LLVM's `-O0` compares a VSX register with `fcmpu`
+### powerpc64: FastISel uses FPR-only instructions on VSX v-registers
 
 - **Seen:** on the powerpc64le rigs (pwr9 and pwr10, Debug), every gemm test
   failed at f64 with "padding written", though the padding held the sentinel:
   `got != sentinel` came out true for equal values. The f64 was loaded with
   `lxsdx 34, ...` (VSR34, which is v2) and compared with `fcmpu 0, 2, 0`,
-  which reads f2 (VSR2). The same compare in a release build is correct. It
-  looks like PowerPC FastISel's compare using `FCMPUD` on a register of the
-  VSX class `VSFRC` without constraining it to `F8RC`.
+  which reads f2 (VSR2). The same compare in a release build is correct.
+- **Status:** still there on 0.18.0-dev.751 (LLVM 23.1.2), rechecked
+  2026-10-27. That compare is now right: FastISel compares f64 with
+  `xscmpudp` on pwr9 and later, and on pwr8 constrains `fcmpu`'s operands to
+  `F8RC`; the 0f0bcde^ check in a standalone function compiles clean. Its
+  stores are not: an f64 that another block converts to f128 (`xscvdpqp`,
+  native for freestanding pwr9 and later) gets the class `VFRC` (v0 to v31),
+  and FastISel stores it with `STFD`, which reads f0 to f31.
+  In the three freestanding rigs' Debug images, the MIR after instruction
+  selection has FPR instructions on VSX classes only in
+  `_test/blas1/edge.zig`'s two `contractCase` instances at f64 (the `say` of
+  `got` and `want`), whose asm has `lxsd 2, 184(31)` then `stfd 2, 752(31)`.
+  All four rigs pass in Debug, as that store only reaches a failure message;
+  one like it could feed a check. Clean at `-O1`, with `-fast-isel=false`,
+  and for pwr8 and `powerpc64le-linux` (f128 by library calls).
 - **Workaround:** the powerpc64le rigs build with `.safe`
   (`build/qemutest.zig`), which does not use FastISel.
 - **Issue text:**
 
-  > **[PowerPC] FastISel emits `fcmpu` on a VSX-class register at -O0**
+  > **[PowerPC] FastISel stores a `VFRC` register with `stfd` at -O0**
   >
-  > On powerpc64le with VSX (seen with `-mcpu=pwr9` and `pwr10`) at -O0, an
-  > f64 loaded in one block and compared in another was loaded by FastISel
-  > with `lxsdx` into a `VSFRC` virtual register, which register allocation
-  > put in VSR34 (v2). The compare is `fcmpu cr0, 2, 0`: `FCMPUD` takes
-  > `F8RC` operands, so the encoded `2` reads f2 (VSR2), not v2, and the
-  > comparison uses a stale value. `PPCFastISel::PPCEmitCmp` appears to pass
-  > the source registers to `FCMPUD` without constraining their class (or
-  > using `XSCMPUDP` for VSX registers). Seen in a large Zig-generated
-  > function; the same IR at -O1 and above is correct.
+  > With `-mcpu=pwr9` or `pwr10` at -O0, an f64 defined in one block and
+  > converted to f128 in another gets the register class `VFRC` (from
+  > `XSCVDPQP`'s operand). A third block's `store double` of it is selected
+  > by FastISel as `STFD`, whose operand class is `F8RC`;
+  > `-verify-machineinstrs` reports "Expected a F8RC register, but got a VFRC
+  > register". Register allocation puts it in v3 (VSR35), and the encoded
+  > `3` stores f3. `PPCFastISel::PPCEmitStore` appears to pick `STFD` for any
+  > class but exactly `VSFRC`; `PPCEmitCmp` once did the same with `FCMPUD`.
+  > Zig source, `zig build-obj -O Debug -target powerpc64le-freestanding
+  > -mcpu pwr9`:
+  >
+  > ```zig
+  > extern fn sink(p: *const [2]f64) void;
+  >
+  > export fn f(get: *const fn () callconv(.c) f64, c: bool) void {
+  >     const x = get();
+  >     const y = get();
+  >     if (c and @as(f128, x) != y) {
+  >         const args: [2]f64 = .{ x, y };
+  >         sink(&args);
+  >     }
+  > }
+  > ```
+  >
+  > gives, for the `sink` block:
+  >
+  > ```asm
+  > lxsd 2, 144(31)
+  > lxsd 3, 128(31)
+  > stfd 3, 184(31)
+  > stfd 2, 192(31)
+  > ```
 
 ### powerpc: LLVM vectorizes scalar `f32` loops into AltiVec, which flushes
 
@@ -217,18 +273,25 @@ When an issue is fixed upstream, drop the workaround and its entry.
   split tile's column loop in AltiVec lanes, which flush with `VSCR[NJ]`
   set. ARM's `isFPVectorizationPotentiallyUnsafe` keeps it off NEON's `f32`
   lanes; PowerPC has no such check. LLVM's `pwr3` to `pwr5` models have
-  AltiVec, though those chips do not.
+  AltiVec, though those chips do not. Still so on 0.18.0-dev.751. That
+  build's assembly (`-femit-asm`) also had AltiVec in the portable `saxpy`,
+  both `gemm_beta`s and the scalar tile, real `trmm` and `trsm`, the half
+  `gemv`, the `cdot` block of `dot/kernel.zig` (SLP, in ReleaseSmall too)
+  and the tests' denormal operands, which came out zero; kept denormal,
+  `saxpy` failed on the rig.
 - **Workaround:** the AltiVec cores' objects are built without it
-  (`cpu/_corespec.zig`'s `without`). Code built for such a CPU in an
-  optimized mode outside them can still be vectorized; `-mcpu=g4-altivec`
-  and the like avoid it.
+  (`cpu/_corespec.zig`'s `without`), and those loops pass each `f32` result
+  they store or accumulate through `util.scalar`, an empty asm the
+  vectorizers cannot widen. A new loop without it can still be vectorized:
+  the `-femit-asm` of a `-mcpu=g4` build should have no `vaddfp`, `vmaddfp`
+  or `vsubfp` outside `simd`, the other targets' tiles and test models.
 
 ### lld cannot link 32-bit SPARC
 
 - **Seen:** `zig build rstd-test -Dtarget=sparc-linux-gnu` compiles every
   object, then fails to link: `ld.lld: unsupported e_machine value: 2`
   (EM_SPARC). lld supports only SPARC V9 (EM_SPARCV9). Still so on
-  0.18.0-dev.267 (2026-10-17), for a one-function freestanding image too;
+  0.18.0-dev.751 (2026-10-26), for a one-function freestanding image too;
   `-fno-lld` instead crashes Zig's own ELF linker (`invalid enum value` in
   `link/Elf/Object.zig`'s `parseCommon`, which reads every object header as
   `Elf64_Ehdr`), and that linker ignores linker scripts anyway.
@@ -237,6 +300,236 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `build/qemutest.zig`.
 - **Issue text:** an lld feature request rather than a Zig bug, and probably
   known upstream: check LLVM's issue tracker for "lld sparc32" before filing.
+
+### Inline assembly errors exit 0
+
+- **Seen:** on 0.18.0-dev.751 (LLVM 23.1.2), an instruction LLVM rejects
+  in inline assembly (a bad mnemonic; on aarch64, also one the target's
+  features lack) prints `error: <inline asm>: ...`, yet `zig build-obj` exits 0. The
+  object is written without that line; the symbol is still there.
+  `zig build` shows the step's text as "failure", then counts the step a
+  success, and caches the object, so a rerun is silent. A per-core BLAS
+  object can come out missing instructions. Zig 0.17.0 exits 1.
+- **Workaround:** `build/blaskern.zig` (`checkedObject`) also emits each
+  kernel object's LLVM bitcode, compiles it with `zig cc -c` in a run
+  step, and links the object only through a copy that depends on that
+  step. Clang fails on the same lines and its run step does not cache a
+  failure. Objects built without LLVM, or with an explicit `ofmt`
+  (`zig cc` ignores `-ofmt`), are not checked. The kernel rigs' test
+  images (boot code and all) get the same check (`asmCheck`) before QEMU
+  runs; `zig build qemu-check` builds and checks them all without QEMU.
+  `-mcpu` is passed for module-level asm, which LLVM assembles with the
+  default CPU, except on x86, whose assembler ignores CPU features.
+  0.18.0-dev.751's `std.Target.x86` gives `skylake_avx512`,
+  `icelake_client`, `icelake_server` and `goldmont_plus` those LLVM names
+  (0.17.0: hyphens). Not a bug: LLVM 23 takes the underscore spellings as
+  aliases, tuning included. The same IR compiles to the same code with
+  either spelling of each, without a warning; a made-up name warns and
+  changes the code. So the `skylakex` object is tuned; nothing to file.
+  Emitting bitcode also prints a spurious `error: <inline asm>` for
+  module-level asm that needs more than the default CPU's features; the
+  object is unaffected.
+- **Issue text:**
+
+  > **LLVM inline assembly errors no longer fail the compilation**
+  >
+  > On 0.18.0-dev.751, `zig build-obj k.zig -target x86_64-linux -OReleaseFast`
+  > with `fn f() callconv(.naked) void { asm volatile ("bogusinsn %rax\n ret\n"); }`
+  > exported prints `error: <inline asm>:1:2: invalid instruction mnemonic
+  > 'bogusinsn'` but exits 0 and writes an object in which `f` is a lone
+  > `ret`. The result is cached, so the next build prints nothing. Under
+  > `zig build` the step is reported as succeeding. Zig 0.17.0 exits 1, and
+  > `zig cc -c` on the same module's bitcode fails as expected. The error
+  > should fail the compilation; perhaps check `DiagnosticHandler::HasErrors`
+  > after emitting.
+
+### MIPS64r6: LLVM cannot select between `-x` and `x` in a loop
+
+- **Seen:** since a594fa7 (`trsm` divides by the diagonal), the
+  `mips64r6` and `mips64r6el` rigs stopped building: the i6400 kernel
+  object (`mips64r6`, no MSA) hit `Assertion failed: Opc && "Cannot copy
+  registers"` (`MipsSEInstrInfo.cpp:261`, LLVM 23.1.2). The `ztrsm`
+  `solveRight` conjugated with a run-time `conj` (`if (c) -x else x` on an
+  `f64`). R6's `sel.d` takes its condition in an FPR; MachineLICM hoisted
+  the condition's copy out of the loop as a `COPY` from a 32-bit GPR to a
+  64-bit FPR, which `copyPhysReg` has no instruction for. Before a594fa7
+  the same select compiled, by luck of the surrounding code. Where the
+  copy has to be spilled instead, LLVM asserts elsewhere (next entry).
+- **Workaround:** `conj` is comptime in `blas3/trsm/kernel.zig`'s `run`,
+  `solveLeft`, `solveRight` and `conjIf`, so no select is left. A sign-bit
+  `xor` would also do; `x * (if (c) -1 else 1)` would not: LLVM folds it
+  back into the select.
+- **Issue text:**
+
+  > **[Mips] R6: "Cannot copy registers" for a loop-invariant `select` of
+  > `fneg x` and `x`**
+  >
+  > `llc -mtriple=mipsisa64r6el -mcpu=mips64r6 -O2` (here `zig cc -c -O2`)
+  > on
+  >
+  > ```llvm
+  > define void @f(i1 zeroext %c, i64 %n, ptr %p) {
+  > entry:
+  >   br label %loop
+  > loop:
+  >   %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  >   %a = getelementptr inbounds double, ptr %p, i64 %i
+  >   %x = load double, ptr %a, align 8
+  >   %nx = fneg double %x
+  >   %r = select i1 %c, double %nx, double %x
+  >   store double %r, ptr %a, align 8
+  >   %i.next = add i64 %i, 1
+  >   %done = icmp eq i64 %i.next, %n
+  >   br i1 %done, label %exit, label %loop
+  > exit:
+  >   ret void
+  > }
+  > ```
+  >
+  > asserts `Opc && "Cannot copy registers"` in
+  > `MipsSEInstrInfo::copyPhysReg`, from `ExpandPostRAPseudos`. Before that
+  > pass the entry block has `$d0_64 = COPY killed $at`: the `SEL_D`
+  > condition, hoisted out of the loop, copied from a GPR32 into an FGR64.
+  > Big-endian `mips64r6` too; `-O0` compiles. A select of two loaded
+  > values does not trigger it.
+
+### MIPS64r6: LLVM cannot spill a select's condition
+
+- **Seen:** with MSA (`-mcpu=mips64r6+msa`, once `blaskern.zig`'s
+  `groupQuery` stopped dropping a model's `features`), the i6400 kernel
+  object asserted `Opc && "Register class not handled!"`
+  (`MipsSEInstrInfo.cpp:373`, LLVM 23.1.2); da01d84's did too. The culprit
+  was the complex gemm kernel's `run` (`blas3/gemm/kernel.zig`): its
+  run-time `conj` picked `acc * sa` or `acc` per accumulator vector. The
+  condition, copied from a GPR into R6's `FGR64CC` class as in the entry
+  above, lived across the tile's loop, and the greedy allocator spilled it;
+  `storeRegToStack` has no store for `FGR64CC`. The same bug as above, met
+  on the spill path.
+- **Workaround:** `conj` is comptime in the vector path of
+  `blas3/gemm/kernel.zig`'s complex kernels (`run`, `rows`, `tile`,
+  `vectorTile`); `splitTile`, used only without vectors, keeps it at run
+  time, so its scalar tile is still one function.
+- **Issue text:**
+
+  > **[Mips] R6: "Register class not handled!" spilling a `select`
+  > condition (`FGR64CC`)**
+  >
+  > `llc -mtriple=mipsisa64r6el -mcpu=mips64r6 -O2` (here `zig cc -c -O2`)
+  > on
+  >
+  > ```llvm
+  > define void @f(i1 zeroext %c, i64 %n, ptr %p) {
+  > entry:
+  >   br label %loop
+  > loop:
+  >   %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  >   %a = getelementptr inbounds double, ptr %p, i64 %i
+  >   %x = load double, ptr %a, align 8
+  >   call void asm sideeffect "", "~{$f0},~{$f1},~{$f2},~{$f3},~{$f4},~{$f5},~{$f6},~{$f7},~{$f8},~{$f9},~{$f10},~{$f11},~{$f12},~{$f13},~{$f14},~{$f15},~{$f16},~{$f17},~{$f18},~{$f19},~{$f20},~{$f21},~{$f22},~{$f23},~{$f24},~{$f25},~{$f26},~{$f27},~{$f28},~{$f29},~{$f30},~{$f31}"()
+  >   %nx = fneg double %x
+  >   %r = select i1 %c, double %nx, double %x
+  >   store double %r, ptr %a, align 8
+  >   %i.next = add i64 %i, 1
+  >   %done = icmp eq i64 %i.next, %n
+  >   br i1 %done, label %exit, label %loop
+  > exit:
+  >   ret void
+  > }
+  > ```
+  >
+  > asserts `Opc && "Register class not handled!"` in
+  > `MipsSEInstrInfo::storeRegToStack`, from the greedy allocator's inline
+  > spiller. Before greedy the entry block has `%13:fgr64cc = COPY
+  > %9:gpr32`, the `SEL_D` condition hoisted out of the loop; it cannot
+  > stay in an FPR across the asm, and `FGR64CC` has no spill opcode. Without the asm the copy is kept in a register and
+  > `copyPhysReg` asserts "Cannot copy registers" instead. Big-endian
+  > `mips64r6`, and `<2 x double>` with `+msa`, too; `-O0` compiles.
+
+### MIPS MSA: LLVM's vector `fma` adds the wrong operand
+
+- **Seen:** once the MSA cores got MSA (`blaskern.zig`'s `groupQuery`),
+  the `mips64r6el` rig failed 20 tests on the i6400, i6500 and p6600 cores:
+  `axpy`, `gemv`, `ger`, `trmv`, `gbmv` and `gemm` were far off.
+  `@mulAdd(V, x, alpha, y)` became `fmadd.w $w2, $w0, $w1` with `x` in
+  `$w2`, which computes `x + alpha*y`. Every `@Vector` `@mulAdd` on MSA is
+  wrong this way, `f32` and `f64`, release 5 and 6, and so are scalar ones
+  the SLP vectorizer packs (`axpy`'s strided loop and the complex gemm
+  tile on release 6, whose scalar `@mulAdd`s fuse). The Loongson 3A R4
+  object, built with MSA all along, had it too; no rig runs that core.
+- **Workaround:** `fma.compiles` is false with MSA, so `fma.madd`,
+  `fma.fusible` (and with it `fuseFor` and the gemm tile's `madd`) and
+  `vector.zig`'s `mulAdd` multiply and add separately there. The
+  reference's GCC build fuses (`fmadd.w`), so MSA cores can differ from it
+  in the last bit.
+- **Issue text:**
+
+  > **[Mips] MSA: `llvm.fma` on vectors selects `fmadd` with the addend as
+  > a multiplicand**
+  >
+  > `llc -mtriple=mipsisa64r6el -mattr=+msa -O2` (here `zig cc -S -O2
+  > -mcpu=mips64r6+msa`) on
+  >
+  > ```llvm
+  > define void @f(ptr %a, ptr %b, ptr %c, ptr %r) {
+  >   %x = load <4 x float>, ptr %a
+  >   %y = load <4 x float>, ptr %b
+  >   %z = load <4 x float>, ptr %c
+  >   %m = call <4 x float> @llvm.fma.v4f32(<4 x float> %x, <4 x float> %y, <4 x float> %z)
+  >   store <4 x float> %m, ptr %r
+  >   ret void
+  > }
+  > declare <4 x float> @llvm.fma.v4f32(<4 x float>, <4 x float>, <4 x float>)
+  > ```
+  >
+  > gives
+  >
+  > ```text
+  > ld.w    $w0, 0($6)
+  > ld.w    $w1, 0($5)
+  > ld.w    $w2, 0($4)
+  > fmadd.w $w2, $w1, $w0
+  > st.w    $w2, 0($7)
+  > ```
+  >
+  > `fmadd.w wd, ws, wt` is `wd + ws*wt` (MSA manual; QEMU agrees), so this
+  > stores `x + y*z` where `fma(x, y, z)` is `x*y + z`. `<2 x double>`
+  > (`fmadd.d`) and `-mcpu=p5600 -mattr=+msa` do the same. Separate `fmul`
+  > and `fadd` are right.
+
+### MIPS R6: a scalar `fma` is a library call, not `maddf`
+
+- **Seen:** on `mips64r6` and `mips32r6`, freestanding and Linux, with or
+  without MSA, a scalar `@mulAdd` (`llvm.fma.f32`/`f64` in the IR) becomes a
+  call to `fmaf`/`fma`, though release 6 has the fused `maddf.s`/`maddf.d`.
+  Not a feature we leave out: LLVM's MIPS backend has none for it (Zig's
+  `mips` feature list has no `fma`), and `-mcpu=mips64r6` is all it takes.
+  Speed only; the call is correctly rounded, so the bits are `maddf`'s.
+- **Where:** `fma.hardware` is true on R6, so the main library of an R6
+  target (the portable kernels, `rsimd.mulAdd`) calls it per multiply-add.
+  The R6 kernel objects have MSA, where `fma.compiles` keeps them unfused.
+- **Workaround:** none taken. An inline-asm `maddf` in `fma.madd` and
+  `fma.mulAdd` for R6 scalars would do, at the cost of hiding the operation
+  from LLVM's scheduling and vectorizers.
+- **Issue text:**
+
+  > **[Mips] R6: scalar `llvm.fma` is expanded to a libcall instead of
+  > `maddf.s`/`maddf.d`**
+  >
+  > `llc -mtriple=mipsisa64r6el -O2` (here `zig build-obj -OReleaseFast
+  > -target mips64el-freestanding -mcpu=mips64r6`) on
+  >
+  > ```llvm
+  > define float @f(float %a, float %b, float %c) {
+  >   %r = call float @llvm.fma.f32(float %a, float %b, float %c)
+  >   ret float %r
+  > }
+  > declare float @llvm.fma.f32(float, float, float)
+  > ```
+  >
+  > calls `fmaf` (`jalr $25` through `%call16(fmaf)`); `double` calls `fma`.
+  > MIPS32r6 and MIPS64r6 have the fused `maddf.fmt` (`fd = fd + fs*ft`, one
+  > rounding), so `fma` could select `maddf.s`/`maddf.d` with the addend tied
+  > to the destination, as MSA's `fmadd` is used for vector `fma`.
 
 ## Zig standard library
 
@@ -278,6 +571,56 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > documented signature does not compile. Either the doc should say
   > `std.Thread.CpuCountError!usize`, or `std.Thread.getCpuCount` should
   > accept any error set from the override.
+
+### arm: most CPU models have no FPU
+
+- **Seen:** `std.Target.arm.cpu.cortex_a15` has no VFP or NEON on
+  0.18.0-dev.751 (0.17 gave it `vfp4`, never `neon`), so
+  `-mcpu=cortex_a15` with `eabihf` compiles every float operation to
+  `__aeabi_*` calls and passes floats in core registers. Of 100 models only
+  9 have an FPU feature; `cortex_a5` to `cortex_a17`, `cortex_r5` and
+  others lost theirs since 0.17. LLVM takes a core's default FPU from its
+  target parser (`cortex-a15`: `neon-vfpv4`), which Zig's models skip. A
+  `vmsr` in the `arm` rig's boot code then failed to assemble, though the
+  build exited 0, so the FPU stayed off and every converted kernel was
+  skipped as not runnable.
+- **Workaround:** the `arm` rig adds `vfp4`, `neon`, `d32`, `hwdiv` and
+  `hwdiv_arm` (`build/qemutest.zig`); the boot code writes its `vmsr` by
+  encoding (`test/qemu/arm.zig`).
+- **Issue text:**
+
+  > **arm: CPU models lack their default FPU, so `-mcpu=cortex_a15` is soft-float**
+  >
+  > `zig build-obj -target arm-freestanding-eabihf -mcpu=cortex_a15` of
+  > `export fn f(a: f32, b: f32) f32 { return a + b; }` calls
+  > `__aeabi_fadd` with the operands in r0 and r1; clang's
+  > `--target=armv7a-none-eabihf -mcpu=cortex-a15` emits `vadd.f32`. LLVM
+  > keeps each core's default FPU and extensions (`ARMTargetParser.def`)
+  > outside its `.td` processor definitions, and the generated
+  > `std.Target.arm` models do not include them. On 0.18.0-dev.751 only 9
+  > of 100 models have any FPU feature; 0.17 had 20.
+
+### `Io.Uring` with worker threads: a futex barrier of four fibers hangs
+
+- **Seen:** on `qemu-test-linux-x86_64` (Debian 13 kernel, TCG), an `Io.Evented`
+  (`Uring`) with `thread_limit = 3` hangs in a sense-reversing barrier of 4 or more
+  parties started with `Group.concurrent`, waiting only through `io.futexWait` and
+  `io.futexWake` (300 rounds; 2 parties pass). With `thread_limit = 0` the same
+  barrier passes at 2, 4 and 8 parties, as does threaded `gemm`. `Io.Threaded`
+  passes everything. 0.18.0-dev.1864, 2026-10-29.
+- **Workaround:** `blas3/threaded.zig`'s fiber test runs `Uring` with
+  `thread_limit = 0` only; threaded level 3 on a multi-threaded `Uring` is unverified
+  (threading.md, Open issues).
+- **Issue text:**
+
+  > **std.Io.Uring: futexWait never returns for some fibers when thread_limit > 0**
+  >
+  > Four fibers started with `Group.concurrent` on an `Io.Evented` (Uring) with
+  > `thread_limit = 3` meet repeatedly at a barrier: an arrival counter, and a phase
+  > word the last arrival bumps and `futexWake`s; the others loop on
+  > `futexWait(&phase, old)` while the phase is unchanged. Within 300 rounds the
+  > program hangs. Two fibers, or `thread_limit = 0`, complete. The same code on
+  > `Io.Threaded` completes.
 
 ## Zig package manager and build system
 
@@ -339,23 +682,6 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > steps there is no progress at all. An option to pass the output through
   > as it arrives while still matching it afterward would help.
 
-### Build-script compile errors are hidden by a cached runner
-
-- **Seen:** after a compile error in `build.zig` or a file it imports,
-  `zig build` silently runs the previously cached build runner; `zig build -h`
-  lacks the new option and prints no error. `--cache-dir` with a fresh
-  directory shows the error.
-- **Workaround:** check build-script changes with
-  `zig build -h --cache-dir .zig-cache-fresh`.
-- **Issue text:**
-
-  > **`zig build` runs a stale cached build runner when the build script fails to compile**
-  >
-  > With the configurer/maker split, introducing a compile error in
-  > `build.zig` and running `zig build` (or `zig build -h`) reports nothing
-  > and behaves as the old script did. The error appears only with a fresh
-  > `--cache-dir`. The build should fail with the compile error.
-
 ### A link interrupted midway leaves a cache entry without its executable
 
 - **Seen:** a `zig build` killed while linking left `.zig-cache/o/<digest>/`
@@ -374,22 +700,29 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 ## translate-c (codeberg.org/ziglang/translate-c)
 
-### `build.zig` treats `standardOptimizeOption` as non-optional
+### Its bundled Aro does not build on current Zig
 
-- **Seen:** at 9b5eb01 (its latest as of 2026-10-12), translate-c's
-  `build.zig` uses `b.standardOptimizeOption(...)` as an `Optimize`. On
-  current Zig master it returns `?Optimize` (aa8c774e0f), so the package
-  does not build.
+- **Seen:** at first (9b5eb01, 2026-10-12) translate-c's `build.zig` failed
+  because `standardOptimizeOption` returned an optional (aa8c774e0f); Zig
+  reverted that (21141cb88a). On 0.18.0-dev.751 the package still does not
+  build, now in Aro: at 9b5eb01, `build/generate_def.zig` uses the removed
+  `std.ArrayListUnmanaged`; at 6867c49 (latest, 2026-10-26),
+  `src/aro/Target.zig` and `Compilation.zig` use names Zig renamed or
+  dropped (`Os.Tag.amdpal`, s390x `transactional_execution`, spirv
+  `v1_0`).
 - **Workaround:** rstd's `translate_c` dependency is commented out and
   `src/buildutils/renderdoc.zig` uses the deprecated built-in `addTranslateC`.
 - **Issue text:**
 
-  > **build.zig does not compile on current Zig: `standardOptimizeOption` returns an optional**
+  > **translate-c does not build on Zig master: Aro uses removed std and target names**
   >
-  > Since ziglang/zig aa8c774e0f, `std.Build.standardOptimizeOption`
-  > returns `?std.builtin.OptimizeMode`. translate-c's `build.zig` passes
-  > it where an `OptimizeMode` is required, so depending on the package
-  > fails to configure. Using `orelse .Debug` (or the new default) fixes it.
+  > With Zig 0.18.0-dev.751+069480a1a, building the `translate-c` artifact
+  > at 6867c49 fails in its Aro dependency: `Target.Os.Tag` has no
+  > `amdpal`, `Target.s390x.Feature` no `transactional_execution`, and
+  > `Target.spirv.Feature` no `v1_0` (`src/aro/Target.zig`,
+  > `src/aro/Compilation.zig`). The pin before it (9b5eb01) fails on
+  > `std.ArrayListUnmanaged` in Aro's `build/generate_def.zig`. Updating
+  > the Aro pin to one that follows Zig master would fix both.
 
 ## QEMU
 
@@ -529,7 +862,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in `readme.md`: `x86_64` argument and flag handling
+upstream sources" in [`design.md`](design.md#fixes-to-upstream-sources): `x86_64` argument and flag handling
 (mostly on Windows), a POWER pair on ELFv2, and the `loongarch64`
 `lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
@@ -643,8 +976,7 @@ only the elements it uses):
 ### Special values some converted kernels treat otherwise
 
 The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every rig)
-found these. In rstd's extremes the first NaN wins (`readme.md`, "One
-contract on every core"); LAPACK 3.10's `nrm2` is infinite for an
+found these. In rstd's extremes the first NaN wins ([`readme.md`](readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
 infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 
 Not used: no core takes a converted extreme kernel. Upstream's follow
@@ -666,7 +998,7 @@ Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
   element is passed over.
 
 Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
-algorithm everywhere (`readme.md`, "One contract on every core"). x86_64's
+algorithm everywhere ([`readme.md`](readme.md#one-contract-on-every-core)). x86_64's
 `nrm2_sse.S` (an unscaled `f64` sum for `snrm2` and `cnrm2`) and the x87
 `nrm2.S` and `znrm2.S` of x86 and x86_64 (an unscaled `f80` sum) were right
 on special values but their own algorithms; the arm and arm64 ones scale a
@@ -686,7 +1018,9 @@ one-pass loop as those below do. Those below were wrong:
   overflows. `power/dnrm2_ppc440.S` and `znrm2_ppc440.S` (ppcg4, ppc440)
   gave NaN: their square root goes through `frsqrte` of a denormal sum.
 
-Fixed in the converted sources (`readme.md`). Issues could read, for the
+Fixed by the generator's patches, the extremes' kept as `retired` now that
+they are not converted
+([`design.md`](design.md#fixes-to-upstream-sources)). Issues could read, for the
 x86_64 index kernels:
 
 > **x86_64 `iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`: `n + 1` for a NaN extreme**
@@ -759,7 +1093,7 @@ And loongarch64 `axpby`:
 >   path, which has them, fixes it.
 
 Not used: the x86_64 reductions whose bits follow an operand's address.
-No core takes them (`readme.md`, "One contract on every core"); an issue
+No core takes them ([`readme.md`](readme.md#one-contract-on-every-core)); an issue
 could read:
 
 > **x86_64 `asum_sse.S`, `asum_sse2.S`, `zasum_sse2.S`, `dot_sse2.S`, `zdot_sse2.S`, `zsum_sse2.S`, `dgemv_n.S` and kin: the result depends on the alignment of `x` or `y`**
@@ -810,7 +1144,10 @@ Ours, not a converted kernel:
   `banded.zig`'s drivers skip as the reference does. So does `ger`, whose
   reference skips a zero `y(j)` and whose per-core kernels do not:
   `interface.zig` calls the kernel once per run of nonzero `y`, which is one
-  call when `y` has no zero.
+  call when `y` has no zero, and copies a strided `x` once for all of them.
+  OpenBLAS's threaded drivers skip where its serial ones do not, and BLIS
+  skips only where an `axpyv` kernel returns for a zero scalar
+  ([`comparisons.md`](comparisons.md) (5)).
 
 And SPARC `swap`, found by the ported `utest/test_swap.c`:
 
@@ -923,3 +1260,159 @@ And C sources rstd ports to Zig:
 > files' blocks of four and two load `y` before storing it (i6400, i6500,
 > p6600 from `n` = 4). rstd's ports of these (`axpy/riscv64/rvv.zig`,
 > `axpy/mips/msa.zig`) take a zero `incy` one element at a time.
+
+### `cblas_icmax` and `cblas_icmin` scan a complex vector as reals
+
+`interface/Makefile` builds the complex `cblas_icmax`, `cblas_icmin`,
+`cblas_izmax` and `cblas_izmin` from `imax.c` without `USE_ABS`, and
+`imax.c` only picks a complex kernel under `USE_ABS`. So they call the real
+`ismax_k`/`idmax_k` (and the `min` ones) on the complex array: `n` floats at
+a stride of `incx` floats, real and imaginary parts alike, which covers only
+the first `n / 2` elements at unit stride. Reference BLAS and BLIS have no
+signed complex extreme (only `i?amax` and `amaxv`, over `|re| + |im|`).
+
+- **Workaround:** none needed; rstd's `extreme` and `index` make `.max` and
+  `.min` over a complex type a compile error that points to `.amax` and
+  `.amin`.
+- **Issue text:** "`cblas_icmax`/`cblas_icmin` (and the `z` forms) run the
+  real `?max` kernel over the complex array's floats, so the returned index
+  is not an element index and only half the vector is scanned. Either
+  define them (by `|re| + |im|`, as `icamax`) or drop them."
+
+### arm64 `znrm2.S`: `scnrm2` keeps an `f32` running sum
+
+`kernel/arm64/znrm2.S` (`CNRM2KERNEL` of `NEOVERSEN1`, which serves Apple
+M-series on macOS and Linux) adds the scaled squares (`SSQ`, `SCALE`) in
+turn into one `f32` register. Each term averages 1/3 while the sum grows to
+about 5.6M, where an `f32` ulp is 0.5, so for 16M floats the result is
+about 1% off (87,202 eps); rstd is 0.3 eps off. The real `snrm2` (`nrm2.S`)
+and the x86_64 kernels are exact to rounding.
+
+- **Workaround:** none needed; no core takes the converted `nrm2` kernels.
+- **Issue text:** "On arm64, `scnrm2` loses about 1% for 8M complex
+  elements: `znrm2.S` keeps its single-precision sum of squares in an `f32`
+  register. Accumulate in `f64`, as `snrm2` does."
+
+### x86_64: the C kernels of Haswell and Zen round by compiler
+
+`kernel/Makefile` builds the `HASWELL` and `ZEN` kernels with `-mavx2 -mfma`
+under clang but only `-mavx2` under GCC, so the C parts of the C kernels
+(`gemv`'s row tails and `add_y`, for one) contract multiply-adds under clang
+and not under GCC. rstd follows clang (`cpu/_corespec.zig`). Against a GCC
+build (the 0.3.33 Windows release, GCC 9.3), the converted `gemv` blocks
+agree bit for bit and those C statements differ in the last bit; built
+without contraction, rstd's complex `gemv` agreed in all 17,360 cases tried.
+
+- **Workaround:** none needed; the rounding is the core's either way.
+- **Issue text:** "On x86_64, `kernel/Makefile` passes `-mfma` with
+  `AVX2OPT` for clang but not for GCC, so the C code of the `HASWELL` and
+  `ZEN` kernels (for example the tails of `?gemv_n_4.c`) is contracted into
+  FMAs by one compiler and not the other, and a GCC and a clang build give
+  different last bits. Passing `-mfma` for GCC too, or
+  `-ffp-contract=off` for both, would make them agree."
+
+### x86_64 `dgemv_t_4.c`: SSE3 on the `OPTERON` core
+
+`kernel/x86_64/dgemv_t_4.c` defines `dgemv_kernel_4x2` and `dgemv_kernel_4x1`
+in inline assembly ending in `haddpd`, an SSE3 instruction. `KERNEL` makes it
+the `DGEMVTKERNEL` of every x86_64 core that names no other, `OPTERON`
+included, and `dynamic.c` picks `gotoblas_OPTERON` (`DYNAMIC_OLDER=1`)
+exactly when CPUID reports no SSE3. So a transposed `dgemv` with `n % 4 != 0`
+would fault there. Not seen on hardware.
+
+- **Workaround:** where the core has no SSE3, the ported driver
+  (`blas2/gemv/kernel.zig`) does those two blocks' arithmetic in SSE2
+  (`Fallback.t4x2`, `t4x1`); a test checks them against the assembly bit for
+  bit.
+- **Issue text:** "`dgemv_t_4.c`'s `dgemv_kernel_4x2` and `dgemv_kernel_4x1`
+  use `haddpd` (SSE3), yet `OPTERON`, which `dynamic.c` picks for x86_64 CPUs
+  without SSE3, builds `dgemv_t_4.c` (`KERNEL`'s default). A transposed
+  `dgemv` with `n % 4 != 0` then executes an SSE3 instruction there. Give
+  `OPTERON` an SSE2 `DGEMVTKERNEL`, or add the halves with SSE2."
+
+### x86_64 `cscal.c`, `zscal.c`: the tails treat special values otherwise than the blocks
+
+`kernel/x86_64/zscal.c` and `cscal.c` (built without contraction) multiply the
+elements their microkernel block covers by the full product,
+`(ar*xr - ai*xi, ar*xi + ai*xr)`. The scalar tail (the last `n % 8`
+elements, `n % 16` for `cscal`) and the strided loops branch instead:
+
+- in `zscal.c`, with `ai == 0` (and, strided, the interface's flag) they
+  compute `(ar*xr, ar*xi)`, so an infinite `xr` leaves a finite imaginary
+  part where the product gives NaN (`0*inf`); `cscal.c`'s tail checks for it;
+- with `alpha == 0` and the flag, the unit-stride tail tests only its first
+  element for NaN and stores that verdict, NaN or 0, in every tail element;
+  an infinity gives 0 where the block's product gives NaN;
+- `isinf(da_r)` sits inside `if (da_r == 0.0 || isnan(da_r))`, so it never
+  holds.
+
+So one element's result depends on where it falls in the vector.
+
+- **Workaround:** rstd's driver (`blas1/scal/kernel.zig`) takes the blocks'
+  full product in the tails and strided loops too, which is the portable
+  kernels' contract; the bits of finite values are the reference's.
+- **Issue text:** "In `kernel/x86_64/zscal.c` and `cscal.c` the tail after
+  the `zscal_kernel_8` block, and the strided path, special-case `alpha`:
+  in `zscal.c`, with `ai == 0` an infinite real part no longer makes the
+  imaginary part NaN as the block's product does; with `alpha == 0` and `dummy2` set, the
+  tail checks only its first element for NaN and writes that result (NaN or
+  0) to every remaining element, and an infinity becomes 0 instead of NaN.
+  Results then depend on `n % 8` (`n % 16` for `cscal`). The full product,
+  as the blocks compute it, would make every element agree."
+
+### Complex `omatcopy`, `imatcopy`, `gemmt`: multiplying by 1 makes NaN
+
+The real `omatcopy` and `imatcopy` kernels copy for `alpha` 1 (and store
+zeros for 0); the complex ones (`kernel/arm/zomatcopy_c*.c`,
+`kernel/generic/zimatcopy_c*.c`) always multiply, so `alpha` `(1, 0)` turns
+`(x, Inf)` into `(NaN, Inf)`: `0 * Inf` in the other part. Two interfaces
+multiply by `(1, 0)` themselves:
+
+- `interface/zimatcopy.c` without `NEW_IMATCOPY` (the default build) copies
+  `alpha*op(A)` to a buffer and back with `OMATCOPY_K_CN` at `(1, 0)`, so an
+  infinite part of the result makes the other NaN whatever `alpha` was, and
+  `zimatcopy` differs from `zomatcopy` there;
+- `interface/gemmt.c` conjugates the caller's `B` in place with
+  `IMATCOPY_K_CNC` at `(1, 0)` for `transb` `R` or `C`, and back after, so an
+  infinite part leaves `B` with NaN beside it; it also writes an input the
+  caller may share.
+
+- **Workaround:** rstd's matrix copies copy for `alpha` 1 and store zeros for
+  0, real or complex (`ext/matcopy.zig`), and its `gemmt` reads `B` only
+  (`blas3/driver.zig`).
+- **Issue text:** "The complex `?omatcopy`/`?imatcopy` kernels multiply by
+  `alpha` even when it is `(1, 0)`, so an infinite real or imaginary part
+  turns the other into NaN (`0 * Inf`). `zimatcopy`'s default path copies
+  back through `OMATCOPY_K_CN` at `(1, 0)`, so it differs from `zomatcopy`
+  for any `alpha`, and `?gemmt` with `transb` `R` or `C` conjugates `B` in
+  place the same way, leaving NaN in the caller's `B`. A copy branch for
+  `alpha == 1`, as the real kernels have, would fix all three; `gemmt` could
+  also pass the conjugation to its `gemv` instead of writing `B`."
+
+### `potrf` reports success on a NaN pivot
+
+`lapack/potrf/potrf_[UL]_single.c` and `potf2_[UL].c` test each pivot with
+`ajj <= 0`, which is false for NaN, so a NaN on the diagonal (or one that
+reaches it) passes, the factor fills with NaN, and `info` is 0. Reference
+LAPACK's `xPOTRF2` checks `DISNAN` and returns the minor.
+
+- **Workaround:** rstd's `potrf` fails a NaN pivot as the reference does
+  (`src/linalg/lapack/cholesky.zig`).
+- **Issue text:** "`?potrf` returns `info = 0` for a matrix whose pivot is
+  NaN, because `ajj <= 0` is false for NaN; the factor is all NaN. Reference
+  LAPACK's `xPOTRF2` tests `DISNAN(ajj)` and returns the minor; testing
+  `!(ajj > 0)` would match it."
+
+## BLIS
+
+### `snrm2` and `scnrm2` keep an `f32` running sum
+
+BLIS 2.1's single-precision `nrm2` (Linux x86_64, `zen3` config) differs
+from rstd by the same 87,202 eps as OpenBLAS's arm64 `scnrm2`, so it runs
+the same sequential `f32` sum: about 1% off for 16M floats. Its `sasum` is
+260 eps off there too, where rstd's converted kernel is 4.2 eps off.
+
+- **Workaround:** none needed; rstd does not call BLIS.
+- **Issue text:** "Single-precision `nrm2` (`snrm2`, `scnrm2`) loses about
+  1% for 16M floats on `zen3`, from a sequential `f32` sum of squares.
+  Accumulate in `f64`, or in several partial sums."

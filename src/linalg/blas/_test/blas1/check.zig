@@ -15,6 +15,10 @@ const vector = @import("../../vector.zig");
 const extremum = @import("../../blas1/extremum.zig");
 const root = @import("root");
 
+/// The `Io` the tests pass the routines: serial (`Io.failing`), which every
+/// target has, rigs included.
+pub const io = std.Io.failing;
+
 /// The extended float the `q`/`x` portable kernels are tested at: `XDouble`
 /// where it is one, else `f80`, whose kernels are generic Zig ones
 /// (`types.kernelCc`) while the vtable's `q`/`x` slots are `f64`.
@@ -24,6 +28,10 @@ pub const Ext = if (types.isExtended(types.XDouble)) types.XDouble else f80;
 /// lists of tests that go through the vtable; empty where they alias `f64`.
 pub const x_real = if (types.XDouble == f64) .{} else .{types.XDouble};
 pub const x_complex = if (types.XDouble == f64) .{} else .{types.ComplexXD};
+
+/// `f80` and its `Complex` where they have no slots, for the portable
+/// kernels' type lists: Zig's calling convention, soft-float off x86.
+pub const f80_unslotted = if (types.hasSlots(f80)) .{} else .{ f80, std.math.Complex(f80) };
 
 /// Lengths that straddle every unroll and block size of the kernels. Not 0:
 /// the interface returns before calling a kernel with `n <= 0`, and kernels
@@ -94,11 +102,10 @@ pub fn fill(comptime T: type, buf: []T, seed: u64) void {
 
 fn random(comptime F: type, r: std.Random) F {
     if (comptime !types.isExtended(F)) return @floatCast(r.float(f64) * 4 - 2);
-    // [1, 2) with every fraction bit random, built from bits: converting a
-    // u128 is a libcall the self-hosted x86_64 backend leaves on the x87 stack
-    const U = @Int(.unsigned, @bitSizeOf(F));
-    const frac: U = (@as(U, 1) << std.math.floatFractionalBits(F)) - 1;
-    const v: F = @bitCast(@as(U, @bitCast(@as(F, 1))) | (@as(U, @truncate(r.int(u128))) & frac));
+    // [1, 2) with every fraction bit random
+    const bits = std.math.floatFractionalBits(F);
+    const frac = r.int(u128) & ((@as(u128, 1) << bits) - 1);
+    const v = 1 + @as(F, @floatFromInt(frac)) * comptime std.math.ldexp(@as(F, 1), -bits);
     return v * 4 - 6;
 }
 
@@ -132,11 +139,8 @@ fn close(want: anytype, got: @TypeOf(want), tol: @TypeOf(want)) !void {
     return error.TestExpectedApproxEqAbs;
 }
 
-/// `expectClose` of `got` against a reference summed in `Wide(F)`; past
-/// `f64` compared there, as narrowing `f128` to `f80` is a libcall the
-/// self-hosted x86_64 backend leaves on the x87 stack.
+/// `expectClose` of `got` against a reference summed in `Wide(F)`.
 pub fn expectCloseRef(comptime F: type, want: Wide(F), got: F, tol: Wide(F)) !void {
-    if (comptime types.isExtended(F)) return close(want, @as(Wide(F), got), tol);
     return close(@as(F, @floatCast(want)), got, @as(F, @floatCast(tol)));
 }
 
@@ -282,8 +286,10 @@ fn hugeScale(comptime F: type) F {
     return comptime std.math.ldexp(@as(F, 1), std.math.floatExponentMax(F) - 12);
 }
 
+/// Scalar where AltiVec flushes (`util.scalar`), so a denormal stays one.
 fn scaled(comptime T: type, v: T, f: FloatOf(T)) T {
-    return if (comptime isComplex(T)) .init(v.re * f, v.im * f) else v * f;
+    const F = FloatOf(T);
+    return if (comptime isComplex(T)) .init(util.scalar(F, v.re * f), util.scalar(F, v.im * f)) else util.scalar(T, v * f);
 }
 
 /// `f` in the real part of `v` for an even `i`, else the imaginary part.
@@ -475,9 +481,10 @@ pub fn patternsFor(len: usize, buf: *[13]Pattern) []const Pattern {
     return buf[0..4];
 }
 
-/// The float types beyond the vtable's to test the interface at: `f80` too
-/// where it may cross the C ABI.
-pub const any_floats = if (sysinfo.target.cpu.arch.isX86()) .{ f16, f80, f128 } else .{ f16, f128 };
+/// The float types beyond the vtable's to test the interface at. `f80` on
+/// every target: x87 on x86, soft-float elsewhere, and in slots only where it
+/// is `XDouble`.
+pub const any_floats = .{ f16, f80, f128 };
 
 /// `util.extendedSum` written out plainly: accumulator by position, then
 /// folded.

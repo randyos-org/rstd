@@ -23,6 +23,7 @@ pub const HWCAP_SVE: usize = 1 << 22;
 pub const HWCAP2_SVE2: usize = 1 << 1;
 pub const HWCAP2_BF16: usize = 1 << 14;
 pub const HWCAP2_SME: usize = 1 << 23;
+pub const HWCAP2_SME_F64F64: usize = 1 << 25;
 
 pub const Feature = enum {
     /// Apple silicon, which has no `MIDR_EL1` and answers by `sysctl`
@@ -32,15 +33,20 @@ pub const Feature = enum {
     sve,
     sve2,
     sme,
+    /// SME's `f64` outer products (FEAT_SME_F64F64), optional in SME; the
+    /// `armv9sme` and `vortexm4` objects are built with it
+    sme_f64f64,
     bf16,
     /// ARMv8.3's complex `FCMLA` and `FCADD`, which LLVM may give the
     /// `v8_3a` cores' Zig kernels
     fcma,
 };
 
+pub const Features = std.EnumSet(Feature);
+
 /// What the decisions read.
 pub const Caps = struct {
-    features: std.EnumSet(Feature) = .empty,
+    features: Features = .empty,
     implementer: u32 = 0,
     part: u32 = 0,
 
@@ -50,7 +56,7 @@ pub const Caps = struct {
 
     /// Every one of `fs`, the set built at compile time.
     pub fn hasAll(c: Caps, comptime fs: []const Feature) bool {
-        return c.features.supersetOf(comptime std.EnumSet(Feature).initMany(fs));
+        return c.features.supersetOf(comptime Features.initMany(fs));
     }
 };
 
@@ -92,25 +98,93 @@ fn idRegister(comptime name: []const u8) u64 {
     );
 }
 
-/// What the ID registers say, with no OS to ask: `ID_AA64PFR0_EL1.SVE`,
-/// `ID_AA64ZFR0_EL1.SVEver`, `ID_AA64ISAR1_EL1.BF16` and `.FCMA`,
-/// `ID_AA64PFR1_EL1.SME`.
-fn idRegisters() Caps {
-    const sve = (idRegister("s3_0_c0_c4_0") >> 32) & 0xf != 0;
-    const m = readMidr();
+/// The ID registers a bare-metal probe reads (EL1 and up). `ZFR0` and `SMFR0`
+/// read as zero without SVE and SME.
+pub const IdRegs = struct {
+    midr: u64 = 0,
+    /// `ID_AA64PFR0_EL1`: SVE [35:32]
+    pfr0: u64 = 0,
+    /// `ID_AA64PFR1_EL1`: SME [27:24]
+    pfr1: u64 = 0,
+    /// `ID_AA64ZFR0_EL1`: SVEver [3:0]
+    zfr0: u64 = 0,
+    /// `ID_AA64ISAR1_EL1`: BF16 [47:44], FCMA [19:16]
+    isar1: u64 = 0,
+    /// `ID_AA64SMFR0_EL1`: F64F64 [48]
+    smfr0: u64 = 0,
+};
+
+/// What the ID registers say.
+pub fn idCaps(r: IdRegs) Caps {
+    const sve = (r.pfr0 >> 32) & 0xf != 0;
+    const sme = (r.pfr1 >> 24) & 0xf != 0;
+    const m = Midr.fromRaw(r.midr);
     return .{
         .features = .init(.{
             .midr = true,
             .sve = sve,
-            // ZFR0 reads as zero without SVE
-            .sve2 = sve and idRegister("s3_0_c0_c4_4") & 0xf != 0,
-            .bf16 = (idRegister("s3_0_c0_c6_1") >> 44) & 0xf != 0,
-            .fcma = (idRegister("s3_0_c0_c6_1") >> 16) & 0xf != 0,
-            .sme = (idRegister("s3_0_c0_c4_1") >> 24) & 0xf != 0,
+            .sve2 = sve and r.zfr0 & 0xf != 0,
+            .sme = sme,
+            .sme_f64f64 = sme and (r.smfr0 >> 48) & 1 != 0,
+            .bf16 = (r.isar1 >> 44) & 0xf != 0,
+            .fcma = (r.isar1 >> 16) & 0xf != 0,
         }),
         .implementer = m.implementer,
         .part = m.part,
     };
+}
+
+/// The ID registers, with no OS to ask.
+fn idRegisters() Caps {
+    return idCaps(.{
+        .midr = idRegister("midr_el1"),
+        .pfr0 = idRegister("s3_0_c0_c4_0"),
+        .pfr1 = idRegister("s3_0_c0_c4_1"),
+        .zfr0 = idRegister("s3_0_c0_c4_4"),
+        .isar1 = idRegister("s3_0_c0_c6_1"),
+        .smfr0 = idRegister("s3_0_c0_c4_5"),
+    });
+}
+
+/// What the hwcaps say (Linux, FreeBSD).
+pub fn hwcapFeatures(hw: usize, hw2: usize) Features {
+    const sme = hw2 & HWCAP2_SME != 0;
+    return .init(.{
+        .sve = hw & HWCAP_SVE != 0,
+        .sve2 = hw2 & HWCAP2_SVE2 != 0,
+        .sme = sme,
+        .sme_f64f64 = sme and hw2 & HWCAP2_SME_F64F64 != 0,
+        .bf16 = hw2 & HWCAP2_BF16 != 0,
+        .fcma = hw & HWCAP_FCMA != 0,
+    });
+}
+
+/// What Darwin's `hw.optional.arm.FEAT_SME` and `FEAT_SME_F64F64` say (null:
+/// no such sysctl, as on macOS before SME).
+pub fn darwinFeatures(sme: ?u64, sme_f64f64: ?u64) Features {
+    const has_sme = (sme orelse 0) != 0;
+    return .init(.{ .apple = true, .sme = has_sme, .sme_f64f64 = has_sme and (sme_f64f64 orelse 0) != 0 });
+}
+
+const PF = std.os.windows.PF;
+
+/// What `IsProcessorFeaturePresent` says, `present` answering for it. Windows
+/// before the SME flags answers false, so no SME core there.
+pub fn windowsFeatures(present: *const fn (PF) bool) Features {
+    const sme = present(.ARM_SME_INSTRUCTIONS_AVAILABLE);
+    return .init(.{
+        .sve = present(.ARM_SVE_INSTRUCTIONS_AVAILABLE),
+        .sve2 = present(.ARM_SVE2_INSTRUCTIONS_AVAILABLE),
+        .sme = sme,
+        .sme_f64f64 = sme and present(.ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE),
+        .bf16 = present(.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE),
+        // no flag of its own: JSCVT, which ARMv8.3 makes mandatory with it
+        .fcma = present(.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE),
+    });
+}
+
+fn processorFeature(f: PF) bool {
+    return auxv.processorFeature(@backingInt(f));
 }
 
 /// A hex number as the sysfs files print it ("0x00000000411fd070"), the low 32
@@ -213,20 +287,11 @@ pub fn probe() Caps {
     var c: Caps = .{};
     switch (comptime sysinfo.target.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
-            c.features.insert(.apple);
-            c.features.setPresent(.sme, (auxv.sysctlInt("hw.optional.arm.FEAT_SME") orelse 0) != 0);
+            c.features = darwinFeatures(auxv.sysctlInt("hw.optional.arm.FEAT_SME"), auxv.sysctlInt("hw.optional.arm.FEAT_SME_F64F64"));
             return c;
         },
         .windows => {
-            const PF = std.os.windows.PF;
-            c.features = .init(.{
-                .sve = auxv.processorFeature(@backingInt(PF.ARM_SVE_INSTRUCTIONS_AVAILABLE)),
-                .sve2 = auxv.processorFeature(@backingInt(PF.ARM_SVE2_INSTRUCTIONS_AVAILABLE)),
-                .sme = auxv.processorFeature(@backingInt(PF.ARM_SME_INSTRUCTIONS_AVAILABLE)),
-                .bf16 = auxv.processorFeature(@backingInt(PF.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE)),
-                // no flag of its own: JSCVT, which ARMv8.3 makes mandatory with it
-                .fcma = auxv.processorFeature(@backingInt(PF.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE)),
-            });
+            c.features = windowsFeatures(&processorFeature);
             if (midrFromRegistry()) |raw| {
                 const m = Midr.fromRaw(raw);
                 c.features.insert(.midr);
@@ -240,14 +305,7 @@ pub fn probe() Caps {
         else => {},
     }
     const hw = auxv.hwcap();
-    const hw2 = auxv.hwcap2();
-    c.features = .init(.{
-        .sve = hw & HWCAP_SVE != 0,
-        .sve2 = hw2 & HWCAP2_SVE2 != 0,
-        .sme = hw2 & HWCAP2_SME != 0,
-        .bf16 = hw2 & HWCAP2_BF16 != 0,
-        .fcma = hw & HWCAP_FCMA != 0,
-    });
+    c.features = hwcapFeatures(hw, auxv.hwcap2());
     if (hw & HWCAP_CPUID != 0) {
         const m = readMidr();
         c.features.insert(.midr);
@@ -335,15 +393,16 @@ pub fn supportsCore(core: CoreType) bool {
 /// part table that names a core only names one the CPU's generation has. But
 /// the kernels of the cores built for ARMv8.3 and up hold `FCMLA` (the
 /// conjugating complex `trsm` kernels), so those cores want `fcma`; Apple's
-/// always have it.
+/// always have it. The SME cores' objects are built with SME's optional F64F64,
+/// as the reference's are, so they want it too.
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
         .a64fx, .armv8sve => c.has(.sve),
         .cortexa510, .cortexa710, .cortexx2 => c.hasAll(&.{ .sve, .fcma }),
         .neoversev1 => c.hasAll(&.{ .sve, .bf16, .fcma }),
         .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16, .fcma }),
-        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme, .fcma }),
-        .vortexm4 => c.hasAll(&.{ .sme, .fcma }) or c.has(.apple),
+        .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme, .sme_f64f64, .fcma }),
+        .vortexm4 => c.hasAll(&.{ .sme, .sme_f64f64 }) and (c.has(.fcma) or c.has(.apple)),
         .thunderx3t110, .vortex, .ampere1 => c.has(.fcma) or c.has(.apple),
         .unknown => false,
         else => true,
@@ -442,6 +501,9 @@ test "an unknown part takes SME, then SVE, as the reference does" {
     var c: Caps = .{ .features = .initMany(&.{ .midr, .sve, .sve2, .fcma }), .implementer = 0x99, .part = 1 };
     try std.testing.expectEqual(CoreType.armv8sve, decide(c).core);
     c.features.insert(.sme);
+    // SME without F64F64: the SME cores' objects would fault
+    try std.testing.expectEqual(CoreType.armv8sve, decide(c).core);
+    c.features.insert(.sme_f64f64);
     try std.testing.expectEqual(CoreType.armv9sme, decide(c).core);
     c.features.remove(.sve);
     c.features.remove(.sve2);
@@ -453,7 +515,9 @@ test "an unknown part takes SME, then SVE, as the reference does" {
 
 test "Apple silicon" {
     try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initOne(.apple) }).core);
-    try std.testing.expectEqual(CoreType.vortexm4, decide(.{ .features = .initMany(&.{ .apple, .sme }) }).core);
+    try std.testing.expectEqual(CoreType.vortexm4, decide(.{ .features = .initMany(&.{ .apple, .sme, .sme_f64f64 }) }).core);
+    try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initMany(&.{ .apple, .sme }) }).core);
+    try std.testing.expect(!runnable(.vortexm4, .{ .features = .initOne(.apple) }));
     // Apple's own implementer code, as Linux (Asahi) reports it
     try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initMany(&.{ .midr, .fcma }), .implementer = 0x61 }).core);
 }
@@ -479,25 +543,122 @@ test "a Neoverse part short of what its core needs stays in its class" {
     for (std.enums.values(CoreType)) |c| try std.testing.expect(c == .unknown or c == .armv8 or parent(c) != null);
 }
 
-test "no CPU is given a core it cannot run" {
-    // every combination of the extensions the probes see, on every implementer
-    // and part the table names
+/// Every set of the extensions the probes see, on every implementer and part
+/// the table names, then without the identity register.
+fn everyCaps(comptime body: fn (Caps) anyerror!void) !void {
     const parts = [_][2]u32{
         .{ 0x41, 0xd03 }, .{ 0x41, 0xd05 }, .{ 0x41, 0xd07 }, .{ 0x41, 0xd0c }, .{ 0x41, 0xd40 },
         .{ 0x41, 0xd49 }, .{ 0x41, 0xd4f }, .{ 0x42, 0x516 }, .{ 0x43, 0x0b8 }, .{ 0x46, 0x001 },
         .{ 0x61, 0 },     .{ 0xc0, 0xac3 }, .{ 0x99, 0 },
     };
-    var mask: u32 = 0;
-    while (mask < 32) : (mask += 1) {
-        for (parts) |p| {
-            const c: Caps = .{
-                .features = .init(.{ .midr = true, .sve = mask & 1 != 0, .sve2 = mask & 2 != 0, .sme = mask & 4 != 0, .bf16 = mask & 8 != 0, .fcma = mask & 16 != 0 }),
-                .implementer = p[0],
-                .part = p[1],
-            };
+    const n = @typeInfo(Feature).@"enum".field_names.len;
+    var mask: usize = 0;
+    while (mask < 1 << n) : (mask += 1) {
+        var fs: Features = .empty;
+        for (std.enums.values(Feature), 0..) |f, i| fs.setPresent(f, (mask >> @intCast(i)) & 1 != 0);
+        if (!fs.contains(.midr)) {
+            try body(.{ .features = fs });
+            continue;
+        }
+        for (parts) |p| try body(.{ .features = fs, .implementer = p[0], .part = p[1] });
+    }
+}
+
+test "no CPU is given a core it cannot run" {
+    try everyCaps(struct {
+        fn f(c: Caps) !void {
             try std.testing.expect(runnable(decide(c).core, c));
         }
+    }.f);
+}
+
+test "no SME core is chosen without F64F64" {
+    try everyCaps(struct {
+        fn f(c: Caps) !void {
+            const core = decide(c).core;
+            if (!c.has(.sme_f64f64)) try std.testing.expect(core != .armv9sme and core != .vortexm4);
+        }
+    }.f);
+    // nor by name
+    const Linked = struct {
+        pub const arch: std.Target.Cpu.Arch = .aarch64;
+        pub const fallback: ?CoreType = null;
+        pub fn ok(_: @This(), _: CoreType) bool {
+            return true;
+        }
+    };
+    const NoLog = struct {
+        pub fn warn(_: @This(), _: i32, comptime _: []const u8, _: anytype) void {}
+    };
+    const c: Caps = .{ .features = .initMany(&.{ .sve, .sve2, .sme, .bf16, .fcma }) };
+    for ([_][]const u8{ "armv9sme", "vortexm4" }) |name| {
+        const r = select.choose(@This(), c, name, Linked{}, NoLog{});
+        try std.testing.expect(r.core != .armv9sme and r.core != .vortexm4);
     }
+}
+
+test "the hwcaps decode" {
+    const f = hwcapFeatures(HWCAP_SVE | HWCAP_FCMA | HWCAP_CPUID, HWCAP2_SVE2 | HWCAP2_SME | HWCAP2_SME_F64F64 | HWCAP2_BF16);
+    try std.testing.expect(f.eql(.initMany(&.{ .sve, .sve2, .sme, .sme_f64f64, .bf16, .fcma })));
+    try std.testing.expect(hwcapFeatures(0, HWCAP2_SME).eql(.initOne(.sme)));
+    // F64F64 counts only with SME
+    try std.testing.expect(hwcapFeatures(0, HWCAP2_SME_F64F64).eql(.empty));
+    try std.testing.expect(hwcapFeatures(0, 0).eql(.empty));
+}
+
+test "the ID registers decode" {
+    // Neoverse V2's MIDR; SVE, SME2 and SMFR0 with FA64, I16I64 and F64F64
+    const regs: IdRegs = .{
+        .midr = 0x410fd4f0,
+        .pfr0 = 1 << 32,
+        .pfr1 = 2 << 24,
+        .zfr0 = 1,
+        .isar1 = (1 << 44) | (1 << 16),
+        .smfr0 = (1 << 63) | (0xf << 52) | (1 << 48),
+    };
+    const c = idCaps(regs);
+    try std.testing.expect(c.features.eql(.initMany(&.{ .midr, .sve, .sve2, .sme, .sme_f64f64, .bf16, .fcma })));
+    try std.testing.expectEqual(@as(u32, 0x41), c.implementer);
+    try std.testing.expectEqual(@as(u32, 0xd4f), c.part);
+    // SMFR0 without its F64F64 bit, and SMFR0's bits without SME
+    var r = regs;
+    r.smfr0 &= ~@as(u64, 1 << 48);
+    try std.testing.expect(!idCaps(r).has(.sme_f64f64));
+    try std.testing.expect(idCaps(r).has(.sme));
+    r = regs;
+    r.pfr1 = 0;
+    try std.testing.expect(!idCaps(r).has(.sme) and !idCaps(r).has(.sme_f64f64));
+    // ZFR0 counts only with SVE
+    try std.testing.expect(idCaps(.{ .zfr0 = 1 }).features.eql(.initOne(.midr)));
+}
+
+test "Darwin's sysctls decode" {
+    try std.testing.expect(darwinFeatures(1, 1).eql(.initMany(&.{ .apple, .sme, .sme_f64f64 })));
+    try std.testing.expect(darwinFeatures(1, 0).eql(.initMany(&.{ .apple, .sme })));
+    try std.testing.expect(darwinFeatures(1, null).eql(.initMany(&.{ .apple, .sme })));
+    try std.testing.expect(darwinFeatures(null, 1).eql(.initOne(.apple)));
+    try std.testing.expect(darwinFeatures(null, null).eql(.initOne(.apple)));
+}
+
+/// An `IsProcessorFeaturePresent` that answers true for `on` alone.
+fn fakePf(comptime on: []const PF) *const fn (PF) bool {
+    return &struct {
+        fn f(p: PF) bool {
+            return std.mem.findScalar(PF, on, p) != null;
+        }
+    }.f;
+}
+
+test "Windows' processor features decode" {
+    const all = windowsFeatures(fakePf(&.{
+        .ARM_SVE_INSTRUCTIONS_AVAILABLE,       .ARM_SVE2_INSTRUCTIONS_AVAILABLE,      .ARM_SME_INSTRUCTIONS_AVAILABLE,
+        .ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE, .ARM_V86_BF16_INSTRUCTIONS_AVAILABLE, .ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE,
+    }));
+    try std.testing.expect(all.eql(.initMany(&.{ .sve, .sve2, .sme, .sme_f64f64, .bf16, .fcma })));
+    try std.testing.expect(windowsFeatures(fakePf(&.{.ARM_SME_INSTRUCTIONS_AVAILABLE})).eql(.initOne(.sme)));
+    // F64F64 counts only with SME; a Windows without the flags knows neither
+    try std.testing.expect(windowsFeatures(fakePf(&.{.ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE})).eql(.empty));
+    try std.testing.expect(windowsFeatures(fakePf(&.{})).eql(.empty));
 }
 
 test "MIDR_EL1 fields" {

@@ -1386,7 +1386,7 @@ const text =
 
 fn Body(comptime args: []const u8) type {
     return struct {
-        pub fn zgemv_t() callconv(.naked) void {
+        pub fn entry() callconv(.naked) void {
             asm volatile (text ++ (" __bk " ++ args ++ "\n .purgem __bk\n"));
         }
     };

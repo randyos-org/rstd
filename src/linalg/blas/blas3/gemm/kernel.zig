@@ -28,6 +28,7 @@ const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
+const Slot = util.Slot;
 const XDouble = types.XDouble;
 const isComplex = types.isComplex;
 
@@ -77,7 +78,7 @@ fn vectorBits(comptime T: type, comptime cpu: std.Target.Cpu) u16 {
         .loongarch32, .loongarch64 => if (cpu.has(.loongarch, .lasx)) 256 else if (cpu.has(.loongarch, .lsx)) 128 else 0,
         .mips, .mipsel, .mips64, .mips64el => if (cpu.has(.mips, .msa)) 128 else 0,
         // z13 vectors hold doubles; singles need the z14 enhancements
-        .s390x => if (cpu.has(.s390x, .vector) and (double or cpu.has(.s390x, .vector_enhancements_1))) 128 else 0,
+        .s390x => if (cpu.has(.s390x, .vx) and (double or cpu.has(.s390x, .vxeh))) 128 else 0,
         .wasm32, .wasm64 => if (cpu.has(.wasm, .simd128)) 128 else 0,
         else => 0,
     };
@@ -92,7 +93,10 @@ fn registers(comptime bits: u16, comptime cpu: std.Target.Cpu) u16 {
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (cpu.has(.powerpc, .vsx)) 64 else 32,
         .s390x => if (bits == 0) 16 else 32,
         .wasm32, .wasm64 => 16,
-        .mips, .mipsel, .sparc => 16,
+        // o32's 32-bit FPU registers pair up for doubles; MSA has 32 of 128 bits
+        // (and Zig builds it with 64-bit FPU registers, `-mfp64`)
+        .mips, .mipsel => if (cpu.has(.mips, .msa)) 32 else 16,
+        .sparc => 16,
         else => 32,
     };
 }
@@ -178,12 +182,14 @@ fn Lanes(comptime T: type, comptime n: usize) type {
     return if (n == 1) T else @Vector(n, T);
 }
 
+// whole arrays, not `util.load` and `util.store`: the self-hosted x86_64
+// backend stores a row tail's two-lane `f32` vector as sixteen bytes
 inline fn load(comptime T: type, comptime n: usize, p: [*]const T) Lanes(T, n) {
-    return if (n == 1) p[0] else util.load(@Vector(n, T), p);
+    return if (n == 1) p[0] else p[0..n].*;
 }
 
 inline fn store(comptime T: type, comptime n: usize, p: [*]T, v: Lanes(T, n)) void {
-    if (n == 1) p[0] = v else util.store(@Vector(n, T), p, v);
+    if (n == 1) p[0] = v else p[0..n].* = v;
 }
 
 inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
@@ -193,7 +199,7 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
 /// `a*b + c` under the build's contraction policy (`fma.zig`).
 pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
     const fused = (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
-    return if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c;
+    return util.scalar(Lanes(T, n), if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c);
 }
 
 /// Packs `n` lines of depth `m` of elements `E` in panels of `u`. `across`:
@@ -301,7 +307,7 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
                 if (b == 0) {
                     @memset(col, 0);
                 } else {
-                    for (col) |*v| v.* *= b;
+                    for (col) |*v| v.* = util.scalar(T, v.* * b);
                 }
             }
             return 0;
@@ -393,47 +399,16 @@ fn RealKernels(comptime T: type, comptime geo: Geometry) type {
         }
 
         /// Every row panel against one B panel of width `wn`: the full tile
-        /// inline, the row tails of whole vectors as calls of their own, and
-        /// the narrower ones one row at a time (`thin`), so the unrolled tiles
-        /// stay few.
+        /// inline, each row tail an unrolled tile of its own, as OpenBLAS's
+        /// edge tiles are.
         fn rows(comptime wn: usize, m: usize, k: usize, alpha: T, ba: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
             var r0: usize = 0;
             while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ mr, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
             inline for (comptime tails(mr)) |w| {
                 if ((m - r0) & w != 0) {
-                    if (w >= vl) {
-                        @call(.never_inline, tile, .{ w, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
-                    } else {
-                        @call(.never_inline, thin, .{ wn, w, k, alpha, ba + r0 * k, pb, c + r0, ld });
-                    }
+                    @call(.never_inline, tile, .{ w, wn, k, alpha, ba + r0 * k, pb, c + r0, ld });
                     r0 += w;
                 }
-            }
-        }
-
-        /// A row panel narrower than a vector, `w` rows: each row against
-        /// the `wn` columns as one vector, in two chains over `k`; one
-        /// function for every row tail of a column width.
-        fn thin(comptime wn: usize, w: usize, k: usize, alpha: T, pa: [*]const T, pb: [*]const T, c: [*]T, ld: usize) void {
-            const V = @Vector(wn, T);
-            const fused = fma.fuse_vector and fma.fusible(T);
-            for (0..w) |r| {
-                var acc: [2]V = .{ @splat(0), @splat(0) };
-                var l: usize = 0;
-                while (l + 2 <= k) : (l += 2) {
-                    inline for (0..2) |h| {
-                        const x: V = @splat(pa[(l + h) * w + r]);
-                        const y = util.load(V, pb + (l + h) * wn);
-                        acc[h] = if (fused) @mulAdd(V, x, y, acc[h]) else x * y + acc[h];
-                    }
-                }
-                if (l < k) {
-                    const x: V = @splat(pa[l * w + r]);
-                    const y = util.load(V, pb + l * wn);
-                    acc[0] = if (fused) @mulAdd(V, x, y, acc[0]) else x * y + acc[0];
-                }
-                const sum: [wn]T = acc[0] + acc[1];
-                inline for (0..wn) |j| c[r + j * ld] = madd(T, 1, sum[j], alpha, c[r + j * ld]);
             }
         }
 
@@ -502,8 +477,8 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
                     for (0..height) |i| {
                         const x = col[2 * i];
                         const y = col[2 * i + 1];
-                        col[2 * i] = br * x - bi * y;
-                        col[2 * i + 1] = br * y + bi * x;
+                        col[2 * i] = util.scalar(F, br * x - bi * y);
+                        col[2 * i + 1] = util.scalar(F, br * y + bi * x);
                     }
                 }
             }
@@ -541,8 +516,10 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         }
 
         /// `C += alpha * op(A) * op(B)`, `op` conjugating as `conj` says;
-        /// the loops of the real kernel.
-        fn run(conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
+        /// the loops of the real kernel. `conj` comptime: a run-time one
+        /// selects between vectors, which LLVM cannot compile on MIPS64r6
+        /// (issues.md).
+        fn run(comptime conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);
             const k: usize = @intCast(bk);
@@ -574,7 +551,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             return 0;
         }
 
-        fn rows(conj: Conj, comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn rows(comptime conj: Conj, comptime wn: usize, m: usize, k: usize, ar: F, ai: F, ba: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             var r0: usize = 0;
             while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ conj, mr, wn, k, ar, ai, ba + 2 * r0 * k, pb, c + 2 * r0, ld });
             inline for (comptime tails(mr)) |w| {
@@ -585,7 +562,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
             }
         }
 
-        fn tile(conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn tile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             if (geo.split) unreachable;
             vectorTile(conj, wm, wn, k, ar, ai, pa, pb, c, ld);
         }
@@ -607,7 +584,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         /// One `wm x wn` tile on vectors of whole elements: `acc1` sums A
         /// times the real parts of B, `acc2` A times the imaginary ones; the
         /// products' cross terms come from swapping `acc2`'s parts at the end.
-        fn vectorTile(conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
+        fn vectorTile(comptime conj: Conj, comptime wm: usize, comptime wn: usize, k: usize, ar: F, ai: F, pa: [*]const F, pb: [*]const F, c: [*]F, ld: usize) void {
             @setEvalBranchQuota(100_000);
             const lanes: usize = 2 * @as(usize, @min(vl, wm));
             const nv = 2 * wm / lanes;
@@ -705,7 +682,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
 /// Every module with kernels over the gemm tile: each `Kernels(T, geo)` has
 /// a public function per vtable slot it fills, named as the slot less its
 /// precision letter.
-pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig") };
+pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig"), @import("../../ext/neg/kernel.zig"), @import("../../ext/laswp/kernel.zig") };
 
 /// The precisions these kernels serve, by vtable prefix.
 const precisions = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble }, .{ "c", types.Complex32 }, .{ "z", types.Complex64 }, .{ "x", types.ComplexXD } };
@@ -836,11 +813,11 @@ pub fn Registry(comptime Core: type) type {
                 inline for (sets) |s| {
                     const K = s.Kernels(p[1], geometry(p[1]));
                     inline for (comptime slotNames(p[0], K)) |name| {
-                        @export(&@field(K, name), .{ .name = util.kernelSymbol(p[0] ++ name, @tagName(core)), .visibility = .hidden });
+                        @export(&@field(K, name), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ name), core), .visibility = .hidden });
                     }
                 }
                 inline for (.{ "m", "n" }) |w| {
-                    @export(&@field(Unrolls(p[1]), w), .{ .name = util.kernelSymbol(p[0] ++ "gemm_unroll_" ++ w, @tagName(core)), .visibility = .hidden });
+                    @export(&@field(Unrolls(p[1]), w), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ "gemm_unroll_" ++ w), core), .visibility = .hidden });
                 }
             }
         }
@@ -850,10 +827,10 @@ pub fn Registry(comptime Core: type) type {
             fill(vt, core_precisions, struct {
                 fn function(comptime pre: []const u8, comptime _: type, comptime _: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child {
                     const Fn = @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child;
-                    return @extern(Fn, .{ .name = util.kernelSymbol(pre ++ name, @tagName(core)), .visibility = .hidden });
+                    return @extern(Fn, .{ .name = util.kernelSymbol(@field(Slot, pre ++ name), core), .visibility = .hidden });
                 }
                 fn unroll(comptime pre: []const u8, comptime _: type, comptime which: []const u8) i32 {
-                    return @extern(*const i32, .{ .name = util.kernelSymbol(pre ++ "gemm_unroll_" ++ which, @tagName(core)), .visibility = .hidden }).*;
+                    return @extern(*const i32, .{ .name = util.kernelSymbol(@field(Slot, pre ++ "gemm_unroll_" ++ which), core), .visibility = .hidden }).*;
                 }
             });
         }
@@ -871,6 +848,12 @@ fn fillSeq(comptime T: type, buf: []T, seed: usize) void {
 /// tile, so every size runs whatever the tile. Complex `T` runs every
 /// conjugation; its parts are `fillSeq`'s floats in pairs.
 fn checkLayout(comptime T: type, comptime geo: Geometry) !void {
+    return checkConj(T, geo, if (comptime isComplex(T)) &.{ .n, .l, .r, .b } else &.{.n});
+}
+
+/// `checkLayout` for the conjugations `conjs` only, which links only their
+/// kernels: a wide complex tile's four are past the sparc64 rig's window.
+fn checkConj(comptime T: type, comptime geo: Geometry, comptime conjs: []const Conj) !void {
     const K = Kernels(T, geo);
     const complex = comptime isComplex(T);
     const F = types.Float(T);
@@ -906,7 +889,6 @@ fn checkLayout(comptime T: type, comptime geo: Geometry) !void {
         at[cs * (l + i * kmax) + p] = a[cs * (i + l * ld) + p];
         bt[cs * (i + l * ld) + p] = b[cs * (l + i * kmax) + p];
     };
-    const conjs: []const Conj = if (complex) &.{ .n, .l, .r, .b } else &.{.n};
     for (sizes) |m| for (sizes) |n| for ([_]usize{ 1, 4, kmax }) |k| for (conjs) |cj| {
         if (m == 0 or n == 0) continue;
         @memcpy(want, c);
@@ -936,12 +918,9 @@ fn checkLayout(comptime T: type, comptime geo: Geometry) !void {
                 _ = K.gemm_oncopy(@intCast(k), @intCast(n), b.ptr, kmax, pb.ptr);
             }
             if (complex) {
-                const f = switch (cj) {
-                    .n => &K.gemm_kernel_n,
-                    .l => &K.gemm_kernel_l,
-                    .r => &K.gemm_kernel_r,
-                    .b => &K.gemm_kernel_b,
-                };
+                const f = inline for (conjs) |kc| {
+                    if (kc == cj) break &@field(K, "gemm_kernel_" ++ @tagName(kc));
+                } else unreachable;
                 _ = f(@intCast(m), @intCast(n), @intCast(k), 2, -1, pa.ptr, pb.ptr, got.ptr, lm);
             } else {
                 _ = K.gemm_kernel(@intCast(m), @intCast(n), @intCast(k), 2, pa.ptr, pb.ptr, got.ptr, lm);
@@ -966,7 +945,14 @@ test "complex packed kernels match plain arithmetic for every panel remainder an
     try checkLayout(types.Complex32, geometry(types.Complex32));
     try checkLayout(types.Complex64, .{ .vl = 1, .mv = 3, .nr = 5, .split = true });
     try checkLayout(types.Complex32, .{ .vl = 2, .mv = 3, .nr = 3 });
-    try checkLayout(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 });
+}
+
+test "complex packed kernels of an 8-lane tile match plain arithmetic, A plain" {
+    try checkConj(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 }, &.{ .n, .r });
+}
+
+test "complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated" {
+    try checkConj(types.Complex32, .{ .vl = 8, .mv = 2, .nr = 6 }, &.{ .l, .b });
 }
 
 test "geometry: the most accumulators the registers hold" {
@@ -983,6 +969,15 @@ test "geometry: the most accumulators the registers hold" {
     const arm64 = comptime std.Target.Cpu.baseline(.aarch64, sysinfo.target.os);
     try std.testing.expectEqual(Geometry{ .vl = 4, .mv = 4, .nr = 6 }, comptime geometryFor(f32, arm64));
     try std.testing.expectEqual(Geometry{ .vl = 2, .mv = 4, .nr = 6 }, comptime geometryFor(f64, arm64));
+    // 32-bit MIPS with MSA has the 64-bit cores' 32 vector registers
+    const p5600 = comptime blk: {
+        var c = std.Target.mips.cpu.p5600.toCpu(.mipsel);
+        c.features.addFeature(@backingInt(std.Target.mips.Feature.msa));
+        break :blk c;
+    };
+    const r6 = comptime std.Target.mips.cpu.i6400.toCpu(.mips64el);
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T|
+        try std.testing.expectEqual(comptime geometryFor(T, r6), comptime geometryFor(T, p5600));
     try std.testing.expectEqualSlices(usize, &.{ 4, 2, 1 }, comptime tails(6));
     try std.testing.expectEqualSlices(usize, &.{ 8, 4, 2, 1 }, comptime tails(9));
 }

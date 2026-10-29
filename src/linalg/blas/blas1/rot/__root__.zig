@@ -95,7 +95,10 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const check = @import("../../_test/blas1/check.zig");
+const fma = @import("../../fma.zig");
+const driver = @import("kernel.zig");
 
 /// `check.zero_strides` and both zero, which a kernel that loads a block
 /// before storing it gets wrong.
@@ -160,4 +163,35 @@ test "portable rot kernels at the extended type match a plain loop" {
 
 test "every linked core's rot kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "x86_64's rot drivers rotate every element as the reference's blocks do, bit for bit" {
+    // the cores these drivers serve fuse; so must the test's own C loops
+    if (sysinfo.target.cpu.arch != .x86_64 or !fma.fuse) return error.SkipZigTest;
+    const index = @import("x86_64/uk/__root__.zig");
+    const Vector = @import("x86_64/kernel.zig").VectorBlock;
+    inline for (.{ .srot_k, .drot_k }) |slot| {
+        const F = driver.Elem(slot);
+        // a vector block (haswell) and the C one (cooperlake)
+        inline for (.{ "haswell", "cooperlake" }) |core| {
+            const kern = driver.entryOf(slot, core, comptime index.find(slot, core).?, Vector);
+            const c: F = 0.8;
+            const s: F = -0.6;
+            for (check.sizes) |n| for ([_]isize{ 1, 2 }) |inc| {
+                var x: [check.capacity]F = undefined;
+                var y: [check.capacity]F = undefined;
+                check.fill(F, &x, n + 3);
+                check.fill(F, &y, n + 5);
+                var want_x = x;
+                var want_y = y;
+                for (0..n) |i| {
+                    const k = i * @as(usize, @intCast(inc));
+                    driver.rotate(F, true, &want_x[k], &want_y[k], c, s);
+                }
+                _ = kern(@intCast(n), &x, inc, &y, inc, c, s);
+                try std.testing.expectEqualSlices(F, &want_x, &x);
+                try std.testing.expectEqualSlices(F, &want_y, &y);
+            };
+        }
+    }
 }

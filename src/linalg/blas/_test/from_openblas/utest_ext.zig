@@ -2,13 +2,17 @@
 //! OpenBLAS v0.3.34-317: the `?amin`, `?amax`, `?sum` and `i?amin` vectors,
 //! `axpby`, `axpyc`, the complex `rot`, `rotg` and `scal`, `gbmv` and
 //! `gemv` with every `trans` letter, the complex symmetric `sbmv` and
-//! `spmv`, `trmv` and `trsv` with `R`, and `rotmg`. The tables at the end
-//! are the sources' cases (the `c` and `s` files' are the `z` and `d`
-//! ones'); the `c_api_` cases are the same calls through CBLAS, so not
-//! repeated. Random operands come from a seeded generator, not `rand()`.
+//! `spmv`, `trmv` and `trsv` with `R`, `rotmg`, the column-major `geadd`,
+//! `omatcopy`, `imatcopy` and `gemmt`, and complex `gemm` with `R`. The
+//! tables at the end are the sources' cases (the `c` and `s` files' are the
+//! `z` and `d` ones', but for the matrix extensions, whose files differ, so
+//! each has its own); the `c_api_` cases are the same calls through CBLAS,
+//! so not repeated, but for the column-major ones whose arguments differ.
+//! Random operands come from a seeded generator, not `rand()`.
 //!
-//! Waiting for an interface: `bgemm`, `geadd`, `imatcopy`, `omatcopy`,
-//! complex `gemm` and `gemmt`. Not translatable: `gemv`'s bad letter `Z`.
+//! Waiting: `bgemm`, for bfloat16 level 3. Not translatable: `gemv`'s bad
+//! letter `Z`, `gemmt`'s bad `UPLO` `O` (only checked to be no `Uplo`), and
+//! the matrix extensions' bad `ORDER`.
 //!
 //! A norm of differences counts elements that agree exactly (infinity with
 //! infinity, NaN with NaN) as equal, so overflow in both is not NaN; the C
@@ -17,7 +21,7 @@
 
 const std = @import("std");
 const ob = @import("__root__.zig");
-const l1 = @import("../../blas1/interface.zig");
+const blas = @import("../../__root__.zig");
 
 const Float = ob.Float;
 const C32 = std.math.Complex(f32);
@@ -49,10 +53,10 @@ fn vecCases(comptime T: type, comptime what: Reduce, cases: []const VecCase) !vo
         for (buf[0..c.x.len], c.x) |*b, v| b.* = @floatCast(v);
         const x: [*]T = @ptrCast(&buf);
         const got: f64 = switch (what) {
-            .amin => try l1.extreme(T, .amin, c.n, x, c.inc),
-            .amax => try l1.extreme(T, .amax, c.n, x, c.inc),
-            .sum => try l1.sum(T, c.n, x, c.inc),
-            .iamin => @floatFromInt(try l1.index(T, .amin, c.n, x, c.inc)),
+            .amin => try blas.extreme(ob.io, T, .amin, c.n, x, c.inc),
+            .amax => try blas.extreme(ob.io, T, .amax, c.n, x, c.inc),
+            .sum => try blas.sum(ob.io, T, c.n, x, c.inc),
+            .iamin => @floatFromInt(try blas.index(ob.io, T, .amin, c.n, x, c.inc)),
         };
         const t: f64 = if (what == .iamin) 0 else tol(T, single_eps, double_eps);
         if (@abs(got - c.want) <= t) continue;
@@ -75,6 +79,10 @@ pub fn all() !void {
     try gemvTCUD();
     try sbmvSpmv();
     try trmvTrsv();
+    try geadd();
+    try matcopy();
+    try complexGemm();
+    try gemmt();
 }
 
 fn reductions() !void {
@@ -91,9 +99,6 @@ fn reductions() !void {
     }
 }
 
-const l2 = @import("../../blas2/interface.zig");
-const banded = @import("../../blas2/banded.zig");
-const tri = @import("../../blas2/triangular.zig");
 const isComplex = ob.isComplex;
 const testing = std.testing;
 
@@ -114,6 +119,8 @@ const Case = struct {
     kl: isize = 0,
     ku: isize = 0,
     lda: isize = 0,
+    ldb: isize = 0,
+    ldc: isize = 0,
     ldm: isize = 0,
     incx: isize = 1,
     incy: isize = 1,
@@ -123,6 +130,8 @@ const Case = struct {
     inc_b: isize = 1,
     inc_c: isize = 1,
     trans: u8 = 'N',
+    transa: u8 = 'N',
+    transb: u8 = 'N',
     uplo: u8 = 'U',
     diag: u8 = 'N',
     order: u8 = 'C',
@@ -197,9 +206,9 @@ fn axpby() !void {
             const yv = try al.dupe(T, y);
             defer al.free(yv);
             // scal takes only positive strides
-            try l1.scal(T, c.n, val(T, c.beta), yv.ptr, @intCast(@abs(c.incy)));
-            try l1.axpy(T, c.n, val(T, c.alpha), x.ptr, c.incx, yv.ptr, c.incy);
-            try l1.axpby(T, c.n, val(T, c.alpha), x.ptr, c.incx, val(T, c.beta), y.ptr, c.incy);
+            try blas.scal(ob.io, T, c.n, val(T, c.beta), yv.ptr, @intCast(@abs(c.incy)));
+            try blas.axpy(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, yv.ptr, c.incy);
+            try blas.axpby(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, val(T, c.beta), y.ptr, c.incy);
             try expectNorm(c.name, T, diffNorm(T, c.n, y, yv, c.incy), tol(T, single_eps, double_eps));
         }
     }
@@ -224,8 +233,8 @@ fn axpyc() !void {
         const yv = try al.dupe(T, y);
         defer al.free(yv);
         conjugate(T, xv);
-        try l1.axpy(T, c.n, val(T, c.alpha), xv.ptr, c.incx, yv.ptr, c.incy);
-        try l1.axpyc(T, c.n, val(T, c.alpha), x.ptr, c.incx, y.ptr, c.incy);
+        try blas.axpy(ob.io, T, c.n, val(T, c.alpha), xv.ptr, c.incx, yv.ptr, c.incy);
+        try blas.axpyc(ob.io, T, c.n, val(T, c.alpha), x.ptr, c.incx, y.ptr, c.incy);
         try expectNorm(c.name, T, diffNorm(T, c.n, y, yv, c.incy), tol(T, single_eps, double_eps));
     };
 }
@@ -249,9 +258,9 @@ fn complexRot() !void {
         const yv = try al.dupe(T, y);
         defer al.free(yv);
         // c*x + s*y, then -conj(s)*x + c*y
-        try l1.axpby(T, c.n, val(T, c.s), y.ptr, c.inc_y, val(T, c.c), xv.ptr, c.inc_x);
-        try l1.axpby(T, c.n, val(T, .{ -c.s[0], c.s[1] }), x.ptr, c.inc_x, val(T, c.c), yv.ptr, c.inc_y);
-        try l1.rot(T, c.n, x.ptr, c.inc_x, y.ptr, c.inc_y, @floatCast(c.c[0]), @floatCast(c.s[0]));
+        try blas.axpby(ob.io, T, c.n, val(T, c.s), y.ptr, c.inc_y, val(T, c.c), xv.ptr, c.inc_x);
+        try blas.axpby(ob.io, T, c.n, val(T, .{ -c.s[0], c.s[1] }), x.ptr, c.inc_x, val(T, c.c), yv.ptr, c.inc_y);
+        try blas.rot(ob.io, T, c.n, x.ptr, c.inc_x, y.ptr, c.inc_y, @floatCast(c.c[0]), @floatCast(c.s[0]));
         const norm = (diffNorm(T, c.n, x, xv, c.inc_x) + diffNorm(T, c.n, y, yv, c.inc_y)) / 2;
         try expectNorm(c.name, T, norm, tol(T, single_eps, double_eps));
     };
@@ -272,7 +281,7 @@ fn complexScal() !void {
         defer al.free(xv);
         const a = val(T, c.alpha);
         for (0..@intCast(c.N)) |i| xv[i * @as(usize, @intCast(c.inc))] = a.mul(xv[i * @as(usize, @intCast(c.inc))]);
-        try l1.scal(T, c.N, a, x.ptr, c.inc);
+        try blas.scal(ob.io, T, c.N, a, x.ptr, c.inc);
         try expectNorm(c.name, T, diffNorm(T, c.N, x, xv, c.inc), tol(T, single_eps, double_eps));
     };
 }
@@ -297,7 +306,7 @@ fn complexRotg() !void {
         var a = val(T, c.a);
         var cc: Float(T) = undefined;
         var s: T = undefined;
-        l1.zrotg(T, &a, val(T, c.b), &cc, &s);
+        blas.zrotg(T, &a, val(T, c.b), &cc, &s);
         const t = tol(T, single_eps, double_eps);
         const got = [_]f64{ cc, s.re, s.im, a.re, a.im };
         const want = [_]f64{ c.c, c.s[0], c.s[1], c.r[0], c.r[1] };
@@ -326,7 +335,7 @@ fn rotmg() !void {
         var x1: F = @floatCast(c.in[2]);
         const y1: F = @floatCast(c.in[3]);
         var param: [5]F = @splat(0);
-        l1.rotmg(F, &d1, &d2, &x1, y1, &param);
+        blas.rotmg(F, &d1, &d2, &x1, y1, &param);
         const t = tol(F, single_eps, double_eps);
         const got = [_]f64{ d1, d2, x1, y1, param[0], param[1], param[2], param[3], param[4] };
         const want = c.out ++ c.param;
@@ -343,30 +352,8 @@ test "utest_ext: rotmg" {
 
 // ---- level 2 -------------------------------------------------------------------
 
-fn gtrans(c: u8) l2.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        'R' => .r,
-        'C' => .c,
-        'O' => .o,
-        'U' => .u,
-        'S' => .s,
-        else => .d,
-    };
-}
-
-fn btrans(c: u8) banded.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        'R' => .r,
-        'C' => .c,
-        'O' => .o,
-        'U' => .u,
-        'S' => .s,
-        else => .d,
-    };
+fn transOf(c: u8) blas.Trans {
+    return ob.letter(blas.Trans, c) orelse .d;
 }
 
 fn transposed(c: u8) bool {
@@ -427,8 +414,8 @@ fn gbmv() !void {
         fill(T, y, prng.random());
         const yv = try al.dupe(T, y);
         defer al.free(yv);
-        try l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, c.alpha), full.ptr, c.m, b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
-        try banded.gbmv(T, al, btrans(c.trans), c.m, c.n, c.kl, c.ku, val(T, c.alpha), band.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+        try blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), full.ptr, c.m, b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
+        try blas.gbmv(al, ob.io, T, transOf(c.trans), c.m, c.n, c.kl, c.ku, val(T, c.alpha), band.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
         try expectNorm(c.name, T, diffNorm(T, lenc, y, yv, c.inc_c), tol(T, single_tol, double_tol));
     };
 }
@@ -460,7 +447,7 @@ fn gemvCase(comptime T: type, c: Case, r: std.Random, t: f64) !void {
     const yv = try al.dupe(T, y);
     defer al.free(yv);
     gemvRef(T, c.trans, m, n, val(T, c.alpha), a, lda, x, ib, val(T, c.beta), yv, ic);
-    try l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, c.alpha), a.ptr, c.lda, x.ptr, ib, val(T, c.beta), y.ptr, ic);
+    try blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, c.alpha), a.ptr, c.lda, x.ptr, ib, val(T, c.beta), y.ptr, ic);
     try expectNorm(c.name, T, diffNorm(T, leny, y, yv, ic), t);
 }
 
@@ -493,7 +480,7 @@ fn gemvTCUD() !void {
             8 => error.InvalidIncx,
             else => error.InvalidIncy,
         };
-        try ob.expectError(want, l2.gemv(al, T, gtrans(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
+        try ob.expectError(want, blas.gemv(al, ob.io, T, transOf(c.trans), c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, &x, c.inc_x, val(T, .{ 1, 1 }), &y, c.inc_y), c.name);
     };
 }
 
@@ -504,7 +491,7 @@ test "utest_ext: gemv with T, C, U, D against the plain product, and its bad arg
 /// The bad-argument cases of `test_[cz]sbmv.c` and `test_[cz]spmv.c`.
 fn symBad(comptime T: type, comptime pack: bool, c: Case) !void {
     const al = testing.allocator;
-    if (c.info == 1) return ob.expect(banded.Uplo.parse(c.uplo) == null, c.name);
+    if (c.info == 1) return ob.expect(ob.letter(blas.Uplo, c.uplo) == null, c.name);
     var a: [2]T = @splat(ob.zero(T));
     var x: [2]T = @splat(ob.zero(T));
     var y: [2]T = @splat(ob.zero(T));
@@ -518,9 +505,9 @@ fn symBad(comptime T: type, comptime pack: bool, c: Case) !void {
     };
     const one = val(T, .{ 1, 1 });
     const res = if (pack)
-        banded.spmv(T, al, .upper, n, one, &a, &x, c.inc_b, ob.zero(T), &y, c.inc_c)
+        blas.spmv(al, ob.io, T, .u, n, one, &a, &x, c.inc_b, ob.zero(T), &y, c.inc_c)
     else
-        banded.sbmv(T, al, .upper, n, c.k, one, &a, c.lda, &x, c.inc_b, ob.zero(T), &y, c.inc_c);
+        blas.sbmv(al, ob.io, T, .u, n, c.k, one, &a, c.lda, &x, c.inc_b, ob.zero(T), &y, c.inc_c);
     try ob.expectError(want, res, c.name);
 }
 
@@ -568,11 +555,11 @@ fn sbmvSpmv() !void {
             const yv = try al.dupe(T, y);
             defer al.free(yv);
             const in: isize = @intCast(n);
-            try l2.gemv(al, T, .n, in, in, val(T, c.alpha), full.ptr, @max(in, 1), b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
+            try blas.gemv(al, ob.io, T, .n, in, in, val(T, c.alpha), full.ptr, @max(in, 1), b.ptr, c.inc_b, val(T, c.beta), yv.ptr, c.inc_c);
             if (pack) {
-                try banded.spmv(T, al, if (up) .upper else .lower, in, val(T, c.alpha), store.ptr, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+                try blas.spmv(al, ob.io, T, if (up) .u else .l, in, val(T, c.alpha), store.ptr, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
             } else {
-                try banded.sbmv(T, al, if (up) .upper else .lower, in, c.k, val(T, c.alpha), store.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
+                try blas.sbmv(al, ob.io, T, if (up) .u else .l, in, c.k, val(T, c.alpha), store.ptr, c.lda, b.ptr, c.inc_b, val(T, c.beta), y.ptr, c.inc_c);
             }
             const norm = diffNorm(T, in, y, yv, c.inc_c);
             if (c.kind == .nan) {
@@ -605,11 +592,11 @@ fn trmvTrsv() !void {
             fill(T, x, prng.random());
             const xv = try al.dupe(T, x);
             defer al.free(xv);
-            const u = try tri.Uplo.parse(c.uplo);
-            const d = try tri.Diag.parse(c.diag);
-            const f = if (solve) tri.trsv else tri.trmv;
-            try f(T, al, u, .n, d, c.n, av.ptr, c.lda, xv.ptr, c.incx);
-            try f(T, al, u, try tri.Trans.parse(c.trans), d, c.n, a.ptr, c.lda, x.ptr, c.incx);
+            const u = ob.letter(blas.Uplo, c.uplo).?;
+            const d = ob.letter(blas.Diag, c.diag).?;
+            const f = if (solve) blas.trsv else blas.trmv;
+            try f(al, ob.io, T, u, .n, d, c.n, av.ptr, c.lda, xv.ptr, c.incx);
+            try f(al, ob.io, T, u, ob.letter(blas.Trans, c.trans).?, d, c.n, a.ptr, c.lda, x.ptr, c.incx);
             // relative to the result, which a solve grows to 1e32 in single
             // precision; there `test_ctrsv.c`'s DOUBLE_EPS is single's, as the
             // R and N paths round differently on the older cores' kernels
@@ -624,9 +611,270 @@ test "utest_ext: trmv and trsv with R against N on the conjugate" {
     try trmvTrsv();
 }
 
+// ---- the matrix extensions -----------------------------------------------------
+
+/// The sources' `?matrix_difference`: the mean over `cols` columns of `ld`
+/// of the norm of `got - want` down `rows` of each; elements that agree
+/// exactly count as zero.
+fn matDiff(comptime T: type, rows: usize, cols: usize, got: []const T, want: []const T, ld: usize) f64 {
+    if (rows == 0 or cols == 0) return 0;
+    var sum: f64 = 0;
+    for (0..cols) |j| sum += diffNorm(T, @intCast(rows), got[j * ld ..], want[j * ld ..], 1);
+    return sum / @as(f64, @floatFromInt(cols));
+}
+
+fn transposedLetter(c: u8) bool {
+    return c == 'T' or c == 'C';
+}
+
+/// `geadd` against `geaddRef` for one case of `test_?geadd.c`, or its bad
+/// argument.
+fn geaddCase(comptime T: type, c: Case, r: std.Random) !void {
+    const al = testing.allocator;
+    const ta = transposedLetter(c.transa);
+    const tc = transposedLetter(c.transb);
+    if (c.kind == .bad) {
+        var a = [_]T{val(T, .{ 1, 1 })};
+        var x = [_]T{val(T, .{ 1, 1 })};
+        const want: anyerror = switch (c.info) {
+            1 => error.InvalidM,
+            2 => error.InvalidN,
+            5 => error.InvalidLda,
+            else => error.InvalidLdc,
+        };
+        return ob.expectError(want, blas.geadd(ob.io, T, c.m, c.n, val(T, .{ 1, 1 }), &a, c.lda, val(T, .{ 1, 1 }), &x, c.ldc, transOf(c.transa), transOf(c.transb)), c.name);
+    }
+    const m: usize = @intCast(c.m);
+    const n: usize = @intCast(c.n);
+    const lda: usize = @intCast(c.lda);
+    const ldc: usize = @intCast(c.ldc);
+    // `op(A)` and `op(C)` are `m x n`; stored transposed, `n x m`
+    const a = try al.alloc(T, lda * @max(if (ta) m else n, 1));
+    defer al.free(a);
+    const cm = try al.alloc(T, ldc * @max(if (tc) m else n, 1));
+    defer al.free(cm);
+    fill(T, a, r);
+    fill(T, cm, r);
+    const want = try al.dupe(T, cm);
+    defer al.free(want);
+    const alpha = val(T, c.alpha);
+    const beta = val(T, c.beta);
+    for (0..n) |j| for (0..m) |i| {
+        const k = if (tc) j + i * ldc else i + j * ldc;
+        const x = if (ta) a[j + i * lda] else a[i + j * lda];
+        want[k] = ob.add(ob.mul(alpha, x), ob.mul(beta, want[k]));
+    };
+    try blas.geadd(ob.io, T, c.m, c.n, alpha, a.ptr, c.lda, beta, cm.ptr, c.ldc, transOf(c.transa), transOf(c.transb));
+    try expectNorm(c.name, T, matDiff(T, if (tc) n else m, if (tc) m else n, cm, want, ldc), tol(T, single_eps, double_eps));
+}
+
+/// The two `c_api_matrix_2x2_*` cases of `test_?geadd.c`: `A^T` into `C`,
+/// and into `C^T`, which is `A` again.
+fn geaddFixed(comptime T: type) !void {
+    const complex = comptime isComplex(T);
+    var a: [4]T = undefined;
+    for (&a, 0..) |*v, i| {
+        const f: f64 = @floatFromInt(i);
+        v.* = val(T, if (complex) .{ 2 * f + 1, 2 * f + 2 } else .{ f + 1, 0 });
+    }
+    inline for (.{ .{ .n, [_]usize{ 0, 2, 1, 3 } }, .{ .t, [_]usize{ 0, 1, 2, 3 } } }) |p| {
+        var c: [4]T = @splat(ob.zero(T));
+        try blas.geadd(ob.io, T, 2, 2, val(T, .{ 1, 0 }), &a, 2, ob.zero(T), &c, 2, .t, p[0]);
+        for (c, p[1]) |got, from| try ob.expect(ob.eql(got, a[from]), "c_api_matrix_2x2_transA");
+    }
+}
+
+fn geadd() !void {
+    var prng = std.Random.DefaultPrng.init(0xC0);
+    inline for (.{ .{ f32, &geadd_s }, .{ f64, &geadd_d }, .{ C32, &geadd_c }, .{ C64, &geadd_z } }) |p| {
+        for (p[1]) |c| try geaddCase(p[0], c, prng.random());
+        try geaddFixed(p[0]);
+    }
+}
+
+test "utest_ext: geadd against the plain sum, and its bad arguments" {
+    try geadd();
+}
+
+/// `omatcopy` (or, `in_place`, `imatcopy`) against the definition for one
+/// case of `test_?omatcopy.c` or `test_?imatcopy.c`, or its bad argument.
+/// The sources' `m` and `n` are the rows and columns of `A`.
+fn matcopyCase(comptime T: type, comptime in_place: bool, c: Case, r: std.Random) !void {
+    const al = testing.allocator;
+    const tr = transOf(c.trans);
+    if (c.kind == .bad) {
+        var a: [1]T = @splat(ob.zero(T));
+        var b: [1]T = @splat(ob.zero(T));
+        const want: anyerror = switch (c.info) {
+            2 => error.InvalidTrans,
+            3 => error.InvalidRows,
+            4 => error.InvalidCols,
+            7 => error.InvalidLda,
+            else => error.InvalidLdb,
+        };
+        const one = val(T, .{ 1, 1 });
+        const res = if (in_place) blas.imatcopy(al, ob.io, T, tr, c.m, c.n, one, &a, c.lda, c.ldb) else blas.omatcopy(ob.io, T, tr, c.m, c.n, one, &a, c.lda, &b, c.ldb);
+        return ob.expectError(want, res, c.name);
+    }
+    const rows: usize = @intCast(c.m);
+    const cols: usize = @intCast(c.n);
+    const lda: usize = @intCast(c.lda);
+    const ldb: usize = @intCast(c.ldb);
+    const t = transposedLetter(c.trans);
+    const out_rows = if (t) cols else rows;
+    const out_cols = if (t) rows else cols;
+    const a = try al.alloc(T, @max(lda * cols, ldb * out_cols));
+    defer al.free(a);
+    const b = try al.alloc(T, ldb * out_cols);
+    defer al.free(b);
+    fill(T, a, r);
+    @memset(b, ob.zero(T));
+    const want = try al.dupe(T, b);
+    defer al.free(want);
+    const alpha = val(T, c.alpha);
+    for (0..out_cols) |j| for (0..out_rows) |i| {
+        const x = if (t) a[j + i * lda] else a[i + j * lda];
+        want[i + j * ldb] = ob.mul(alpha, if (c.trans == 'R' or c.trans == 'C') ob.conj(x) else x);
+    };
+    if (in_place) {
+        try blas.imatcopy(al, ob.io, T, tr, c.m, c.n, alpha, a.ptr, c.lda, c.ldb);
+        @memcpy(b, a[0..b.len]);
+    } else try blas.omatcopy(ob.io, T, tr, c.m, c.n, alpha, a.ptr, c.lda, b.ptr, c.ldb);
+    try expectNorm(c.name, T, matDiff(T, out_rows, out_cols, b, want, ldb), tol(T, single_eps, double_eps));
+}
+
+fn matcopy() !void {
+    var prng = std.Random.DefaultPrng.init(0xC1);
+    inline for (.{ .{ f32, &omatcopy_s, &imatcopy_s }, .{ f64, &omatcopy_d, &imatcopy_d }, .{ C32, &omatcopy_c, &imatcopy_c }, .{ C64, &omatcopy_z, &imatcopy_z } }) |p| {
+        for (p[1]) |c| try matcopyCase(p[0], false, c, prng.random());
+        for (p[2]) |c| try matcopyCase(p[0], true, c, prng.random());
+    }
+}
+
+test "utest_ext: omatcopy and imatcopy against the definition, and their bad arguments" {
+    try matcopy();
+}
+
+/// `test_[cz]gemm.c`: `gemm` with a conjugated operand (`R`, `C`) against
+/// `gemm` on a copy that `imatcopy` conjugated (`R` becoming `N`). Every
+/// case is 100 square; on a rig, 23.
+fn complexGemm() !void {
+    var prng = std.Random.DefaultPrng.init(0xC2);
+    const al = testing.allocator;
+    inline for (.{ .{ C32, &gemm_c }, .{ C64, &gemm_z } }) |p| for (p[1]) |case| {
+        const T = p[0];
+        var c = case;
+        if (ob.reduced()) {
+            inline for (.{ "m", "n", "k", "lda", "ldb", "ldc" }) |f| @field(c, f) = 23;
+        }
+        const r = prng.random();
+        const ta = transposedLetter(c.transa);
+        const tb = transposedLetter(c.transb);
+        const rows_a: isize = if (ta) c.k else c.m;
+        const cols_a: isize = if (ta) c.m else c.k;
+        const rows_b: isize = if (tb) c.n else c.k;
+        const cols_b: isize = if (tb) c.k else c.n;
+        const a = try al.alloc(T, @intCast(c.lda * cols_a));
+        defer al.free(a);
+        const b = try al.alloc(T, @intCast(c.ldb * cols_b));
+        defer al.free(b);
+        const cm = try al.alloc(T, @intCast(c.ldc * c.n));
+        defer al.free(cm);
+        fill(T, a, r);
+        fill(T, b, r);
+        fill(T, cm, r);
+        const av = try al.dupe(T, a);
+        defer al.free(av);
+        const bv = try al.dupe(T, b);
+        defer al.free(bv);
+        const cv = try al.dupe(T, cm);
+        defer al.free(cv);
+        const one = val(T, .{ 1, 0 });
+        var tav = transOf(c.transa);
+        var tbv = transOf(c.transb);
+        if (c.transa == 'R') {
+            try blas.imatcopy(al, ob.io, T, .r, rows_a, cols_a, one, av.ptr, c.lda, c.lda);
+            tav = .n;
+        }
+        if (c.transb == 'R') {
+            try blas.imatcopy(al, ob.io, T, .r, rows_b, cols_b, one, bv.ptr, c.ldb, c.ldb);
+            tbv = .n;
+        }
+        const alpha = val(T, c.alpha);
+        const beta = val(T, c.beta);
+        try blas.gemm(al, ob.io, T, tav, tbv, c.m, c.n, c.k, alpha, av.ptr, c.lda, bv.ptr, c.ldb, beta, cv.ptr, c.ldc);
+        try blas.gemm(al, ob.io, T, transOf(c.transa), transOf(c.transb), c.m, c.n, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cm.ptr, c.ldc);
+        try expectNorm(c.name, T, matDiff(T, @intCast(c.m), @intCast(c.n), cm, cv, @intCast(c.ldc)), tol(T, single_eps, double_eps));
+    };
+}
+
+test "utest_ext: complex gemm with R against gemm on the conjugated copy" {
+    try complexGemm();
+}
+
+/// `gemmt` against `gemm`'s triangle for one case of `test_?gemmt.c`, or its
+/// bad argument; the norm of differences over the whole of `C`, by its
+/// floats, as the sources take it.
+fn gemmtCase(comptime T: type, c: Case, r: std.Random) !void {
+    const al = testing.allocator;
+    const uplo = ob.letter(blas.Uplo, c.uplo);
+    if (c.kind == .bad) {
+        // `O` is no `Uplo`
+        if (c.info == 1) return ob.expect(uplo == null, c.name);
+        var x: [1]T = @splat(ob.zero(T));
+        const want: anyerror = switch (c.info) {
+            2, 3 => error.InvalidTrans,
+            4 => error.InvalidM,
+            5 => error.InvalidK,
+            8 => error.InvalidLda,
+            10 => error.InvalidLdb,
+            else => error.InvalidLdc,
+        };
+        const one = val(T, .{ 1, 1 });
+        return ob.expectError(want, blas.gemmt(al, ob.io, T, uplo.?, transOf(c.transa), transOf(c.transb), c.m, c.k, one, &x, c.lda, &x, c.ldb, one, &x, c.ldc), c.name);
+    }
+    const m: usize = @intCast(c.m);
+    const ldc: usize = @intCast(c.ldc);
+    const cols_a: isize = if (transposedLetter(c.transa)) c.m else c.k;
+    const cols_b: isize = if (transposedLetter(c.transb)) c.k else c.m;
+    const a = try al.alloc(T, @intCast(c.lda * cols_a));
+    defer al.free(a);
+    const b = try al.alloc(T, @intCast(c.ldb * cols_b));
+    defer al.free(b);
+    const cm = try al.alloc(T, m * ldc);
+    defer al.free(cm);
+    fill(T, a, r);
+    fill(T, b, r);
+    fill(T, cm, r);
+    const full = try al.dupe(T, cm);
+    defer al.free(full);
+    const want = try al.dupe(T, cm);
+    defer al.free(want);
+    const alpha = val(T, c.alpha);
+    const beta = val(T, c.beta);
+    try blas.gemm(al, ob.io, T, transOf(c.transa), transOf(c.transb), c.m, c.m, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, full.ptr, c.ldc);
+    for (0..m) |j| for (0..m) |i| {
+        if (if (c.uplo == 'U') i <= j else i >= j) want[i + j * ldc] = full[i + j * ldc];
+    };
+    try blas.gemmt(al, ob.io, T, uplo.?, transOf(c.transa), transOf(c.transb), c.m, c.k, alpha, a.ptr, c.lda, b.ptr, c.ldb, beta, cm.ptr, c.ldc);
+    const floats: f64 = @floatFromInt(m * ldc * @as(usize, if (comptime isComplex(T)) 2 else 1));
+    try expectNorm(c.name, T, diffNorm(T, @intCast(m * ldc), cm, want, 1) / floats, tol(T, single_eps, double_eps));
+}
+
+fn gemmt() !void {
+    var prng = std.Random.DefaultPrng.init(0xC3);
+    inline for (.{ .{ f32, &gemmt_s }, .{ f64, &gemmt_d }, .{ C32, &gemmt_c }, .{ C64, &gemmt_z } }) |p| {
+        for (p[1]) |c| try gemmtCase(p[0], c, prng.random());
+    }
+}
+
+test "utest_ext: gemmt against gemm's triangle, and its bad arguments" {
+    try gemmt();
+}
+
 // ---- waiting -------------------------------------------------------------------
 
-test "utest_ext: bgemm, geadd, imatcopy, omatcopy, complex gemm, gemmt (wait for their interfaces)" {
+test "utest_ext: bgemm (waits for bfloat16 level 3)" {
     return error.SkipZigTest;
 }
 
@@ -974,4 +1222,347 @@ const trsv_cases = [_]Case{
     .{ .name = "conj_notrans_upper_unit_triangular_incx_2", .kind = .run, .n = 300, .incx = 2, .lda = 300, .uplo = 'U', .diag = 'U', .trans = 'R' },
     .{ .name = "conj_notrans_lower_not_triangular_incx_2", .kind = .run, .n = 300, .incx = 2, .lda = 300, .uplo = 'L', .diag = 'N', .trans = 'R' },
     .{ .name = "conj_notrans_lower_unit_triangular_incx_2", .kind = .run, .n = 300, .incx = 2, .lda = 300, .uplo = 'L', .diag = 'U', .trans = 'R' },
+};
+
+/// `test_sgeadd.c`, column-major.
+const geadd_s = [_]Case{
+    .{ .name = "matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 0 }, .beta = .{ 3.0, 0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0 }, .beta = .{ 2.5, 0 } },
+    .{ .name = "matrix_n_100_m_100_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 1.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "xerbla_n_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = -1, .lda = 1, .ldc = 1, .info = 2 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = -1, .n = 1, .lda = 1, .ldc = 1, .info = 1 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = -1, .ldc = 1, .info = 5 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = 1, .ldc = -1, .info = 8 },
+    .{ .name = "n_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 1, .n = 0, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "m_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 0, .n = 1, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, 0 }, .beta = .{ 3.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_transA", .kind = .run, .transa = 'T', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, 0 }, .beta = .{ 3.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 3.0, 0 }, .beta = .{ 4.0, 0 } },
+};
+
+/// `test_dgeadd.c`, column-major.
+const geadd_d = [_]Case{
+    .{ .name = "matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 0 }, .beta = .{ 3.0, 0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0 }, .beta = .{ 2.5, 0 } },
+    .{ .name = "matrix_n_100_m_100_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 1.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "xerbla_n_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = -1, .lda = 1, .ldc = 1, .info = 2 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = -1, .n = 1, .lda = 1, .ldc = 1, .info = 1 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = -1, .ldc = 1, .info = 5 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = 1, .ldc = -1, .info = 8 },
+    .{ .name = "n_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 1, .n = 0, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "m_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 0, .n = 1, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, 0 }, .beta = .{ 3.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 3.0, 0 }, .beta = .{ 4.0, 0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_transA", .kind = .run, .transa = 'T', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, 0 }, .beta = .{ 3.0, 0 } },
+};
+
+/// `test_cgeadd.c`, column-major.
+const geadd_c = [_]Case{
+    .{ .name = "matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 2.0 }, .beta = .{ 1.0, 3.0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0.0 }, .beta = .{ 2.5, 1.0 } },
+    .{ .name = "matrix_n_100_m_100_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 1.5 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0.0 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "xerbla_n_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = -1, .lda = 1, .ldc = 1, .info = 2 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = -1, .n = 1, .lda = 1, .ldc = 1, .info = 1 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = -1, .ldc = 1, .info = 5 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = 1, .ldc = -1, .info = 8 },
+    .{ .name = "n_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 1, .n = 0, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "m_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 0, .n = 1, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "c_api_matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.0, 3.0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "c_api_matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 2.0, 3.0 }, .beta = .{ 2.0, 4.0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_transA", .kind = .run, .transa = 'T', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, -1.0 }, .beta = .{ 1.5, 3.0 } },
+};
+
+/// `test_zgeadd.c`, column-major.
+const geadd_z = [_]Case{
+    .{ .name = "matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 2.0 }, .beta = .{ 1.0, 3.0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "matrix_n_100_m_100_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 3.0, 1.5 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "matrix_n_100_m_100_alpha_beta_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 0.0, 0.0 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "xerbla_n_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = -1, .lda = 1, .ldc = 1, .info = 2 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = -1, .n = 1, .lda = 1, .ldc = 1, .info = 1 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = -1, .ldc = 1, .info = 5 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .transa = 'N', .transb = 'N', .m = 1, .n = 1, .lda = 1, .ldc = -1, .info = 8 },
+    .{ .name = "n_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 1, .n = 0, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "m_zero", .kind = .run, .transa = 'N', .transb = 'N', .m = 0, .n = 1, .lda = 1, .ldc = 1, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "c_api_matrix_n_100_m_100", .kind = .run, .transa = 'N', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.0, 3.0 } },
+    .{ .name = "c_api_matrix_n_100_m_50", .kind = .run, .transa = 'N', .transb = 'N', .m = 50, .n = 100, .lda = 50, .ldc = 50, .alpha = .{ 2.0, 3.0 }, .beta = .{ 2.0, 4.0 } },
+    .{ .name = "c_api_matrix_n_100_m_100_transA", .kind = .run, .transa = 'T', .transb = 'N', .m = 100, .n = 100, .lda = 100, .ldc = 100, .alpha = .{ 2.0, -1.0 }, .beta = .{ 1.5, 3.0 } },
+};
+
+/// `test_somatcopy.c`, column-major.
+const omatcopy_s = [_]Case{
+    .{ .name = "colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_trans_col_100_row_50", .kind = .run, .trans = 'T', .m = 50, .n = 100, .lda = 50, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_50", .kind = .run, .trans = 'N', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 0.0, 0 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+};
+
+/// `test_domatcopy.c`, column-major.
+const omatcopy_d = [_]Case{
+    .{ .name = "colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_trans_col_100_row_50", .kind = .run, .trans = 'T', .m = 50, .n = 100, .lda = 50, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_50", .kind = .run, .trans = 'N', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 0.0, 0 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+};
+
+/// `test_comatcopy.c`, column-major.
+const omatcopy_c = [_]Case{
+    .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ -1.0, 2.0 } },
+    .{ .name = "colmajor_conj_col_100_row_100", .kind = .run, .trans = 'R', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_conjtrnas_col_100_row_100", .kind = .run, .trans = 'C', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 1.0 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_conj_invalid_ldb", .kind = .bad, .trans = 'R', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_transconj_invalid_ldb", .kind = .bad, .trans = 'C', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+};
+
+/// `test_zomatcopy.c`, column-major.
+const omatcopy_z = [_]Case{
+    .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ -1.0, 2.0 } },
+    .{ .name = "colmajor_conj_col_100_row_100", .kind = .run, .trans = 'R', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_conjtrnas_col_100_row_100", .kind = .run, .trans = 'C', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 1.0 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_conj_invalid_ldb", .kind = .bad, .trans = 'R', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_transconj_invalid_ldb", .kind = .bad, .trans = 'C', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+};
+
+/// `test_simatcopy.c`, column-major.
+const imatcopy_s = [_]Case{
+    .{ .name = "colmajor_trans_col_100_row_100_alpha_one", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100_alpha_one", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_trans_col_100_row_100_alpha_zero", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100_alpha_zero", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100_alpha_one", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100_alpha_one", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100_alpha_zero", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100_alpha_zero", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 8 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 8 },
+};
+
+/// `test_dimatcopy.c`, column-major.
+const imatcopy_d = [_]Case{
+    .{ .name = "colmajor_trans_col_100_row_100_alpha_one", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100_alpha_one", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_trans_col_100_row_100_alpha_zero", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100_alpha_zero", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100_alpha_one", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100_alpha_one", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100_alpha_zero", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100_alpha_zero", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 0.0, 0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 2.0, 0 } },
+    .{ .name = "colmajor_notrans_col_50_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 0 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 8 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 8 },
+};
+
+/// `test_cimatcopy.c`, column-major.
+const imatcopy_c = [_]Case{
+    .{ .name = "colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ -3.0, 1.0 } },
+    .{ .name = "colmajor_conj_col_100_row_100", .kind = .run, .trans = 'R', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_conjtrans_col_100_row_100", .kind = .run, .trans = 'C', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 1.0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_notrans_col_100_row_50", .kind = .run, .trans = 'N', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_conjtrans_col_50_row_100", .kind = .run, .trans = 'C', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 1.0, 1.0 } },
+    .{ .name = "colmajor_conj_col_100_row_50", .kind = .run, .trans = 'R', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "c_api_colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 3.0, 2.0 } },
+    .{ .name = "c_api_colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 3.0, 1.5 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+};
+
+/// `test_zimatcopy.c`, column-major.
+const imatcopy_z = [_]Case{
+    .{ .name = "colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ -3.0, 1.0 } },
+    .{ .name = "colmajor_conj_col_100_row_100", .kind = .run, .trans = 'R', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_conjtrans_col_100_row_100", .kind = .run, .trans = 'C', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 2.0, 1.0 } },
+    .{ .name = "colmajor_trans_col_50_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_notrans_col_100_row_50", .kind = .run, .trans = 'N', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "colmajor_conjtrans_col_50_row_100", .kind = .run, .trans = 'C', .m = 100, .n = 50, .lda = 100, .ldb = 50, .alpha = .{ 1.0, 1.0 } },
+    .{ .name = "colmajor_conj_col_100_row_50", .kind = .run, .trans = 'R', .m = 50, .n = 100, .lda = 50, .ldb = 50, .alpha = .{ 1.0, 2.0 } },
+    .{ .name = "c_api_colmajor_trans_col_100_row_100", .kind = .run, .trans = 'T', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 3.0, 2.0 } },
+    .{ .name = "c_api_colmajor_notrans_col_100_row_100", .kind = .run, .trans = 'N', .m = 100, .n = 100, .lda = 100, .ldb = 100, .alpha = .{ 3.0, 1.5 } },
+    .{ .name = "xerbla_invalid_trans", .kind = .bad, .trans = 'O', .m = 100, .n = 100, .lda = 100, .ldb = 100, .info = 2 },
+    .{ .name = "xerbla_colmajor_invalid_lda", .kind = .bad, .trans = 'T', .m = 100, .n = 50, .lda = 50, .ldb = 100, .info = 7 },
+    .{ .name = "xerbla_colmajor_notrans_invalid_ldb", .kind = .bad, .trans = 'N', .m = 100, .n = 50, .lda = 100, .ldb = 50, .info = 9 },
+    .{ .name = "xerbla_colmajor_trans_invalid_ldb", .kind = .bad, .trans = 'T', .m = 50, .n = 100, .lda = 100, .ldb = 50, .info = 9 },
+};
+
+/// `test_cgemm.c`, column-major.
+const gemm_c = [_]Case{
+    .{ .name = "conjtransa_conjnotransb", .kind = .run, .transa = 'C', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "notransa_conjnotransb", .kind = .run, .transa = 'N', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_conjtransb", .kind = .run, .transa = 'R', .transb = 'C', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_notransb", .kind = .run, .transa = 'R', .transb = 'N', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_conjnotransb", .kind = .run, .transa = 'R', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_transb", .kind = .run, .transa = 'R', .transb = 'T', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "transa_conjnotransb", .kind = .run, .transa = 'T', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+};
+
+/// `test_zgemm.c`, column-major.
+const gemm_z = [_]Case{
+    .{ .name = "conjtransa_conjnotransb", .kind = .run, .transa = 'C', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "notransa_conjnotransb", .kind = .run, .transa = 'N', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_conjtransb", .kind = .run, .transa = 'R', .transb = 'C', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_notransb", .kind = .run, .transa = 'R', .transb = 'N', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_conjnotransb", .kind = .run, .transa = 'R', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "conjnotransa_transb", .kind = .run, .transa = 'R', .transb = 'T', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+    .{ .name = "transa_conjnotransb", .kind = .run, .transa = 'T', .transb = 'R', .m = 100, .n = 100, .k = 100, .lda = 100, .ldb = 100, .ldc = 100, .alpha = .{ -2.0, 1.0 }, .beta = .{ 1.0, -1.0 } },
+};
+
+/// `test_sgemmt.c`, column-major.
+const gemmt_s = [_]Case{
+    .{ .name = "upper_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_M_100_K_50_a_trans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 100, .alpha = .{ 1.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_M_50_K_100_a_notrans_b_trans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'T', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "upper_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_alpha_zero", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_beta_one", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "lower_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_M_100_K_50_a_trans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 100, .alpha = .{ 1.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_M_50_K_100_a_notrans_b_trans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'T', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "lower_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_alpha_zero", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_beta_one", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "xerbla_uplo_invalid", .kind = .bad, .uplo = 'O', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 1 },
+    .{ .name = "xerbla_transa_invalid", .kind = .bad, .uplo = 'U', .transa = 'O', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 2 },
+    .{ .name = "xerbla_transb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'O', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 3 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = -1, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 4 },
+    .{ .name = "xerbla_k_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = -1, .lda = 50, .ldb = 50, .ldc = 50, .info = 5 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 100, .ldc = 50, .info = 8 },
+    .{ .name = "xerbla_ldb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .info = 10 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 13 },
+};
+
+/// `test_dgemmt.c`, column-major.
+const gemmt_d = [_]Case{
+    .{ .name = "upper_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_M_100_K_50_a_trans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 100, .alpha = .{ 1.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_M_50_K_100_a_notrans_b_trans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'T', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "upper_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_alpha_zero", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "upper_beta_one", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "lower_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_M_100_K_50_a_trans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 100, .alpha = .{ 1.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_M_50_K_100_a_notrans_b_trans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'T', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 0 }, .beta = .{ 0.0, 0 } },
+    .{ .name = "lower_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_alpha_zero", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0 }, .beta = .{ 2.0, 0 } },
+    .{ .name = "lower_beta_one", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 0 }, .beta = .{ 1.0, 0 } },
+    .{ .name = "xerbla_uplo_invalid", .kind = .bad, .uplo = 'O', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 1 },
+    .{ .name = "xerbla_transa_invalid", .kind = .bad, .uplo = 'U', .transa = 'O', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 2 },
+    .{ .name = "xerbla_transb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'O', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 3 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = -1, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 4 },
+    .{ .name = "xerbla_k_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = -1, .lda = 50, .ldb = 50, .ldc = 50, .info = 5 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 100, .ldc = 50, .info = 8 },
+    .{ .name = "xerbla_ldb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .info = 10 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 13 },
+};
+
+/// `test_cgemmt.c`, column-major.
+const gemmt_c = [_]Case{
+    .{ .name = "upper_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ -1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_M_50_K_25_a_trans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 50, .k = 25, .lda = 25, .ldb = 25, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_M_25_K_50_a_notrans_b_trans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'T', .m = 25, .k = 50, .lda = 25, .ldb = 25, .ldc = 25, .alpha = .{ 1.0, 1.0 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "upper_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ -1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_M_25_K_50_a_conjnotrans_b_conjnotrans", .kind = .run, .uplo = 'U', .transa = 'R', .transb = 'R', .m = 25, .k = 50, .lda = 25, .ldb = 50, .ldc = 25, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "upper_M_50_K_50_a_conjtrans_b_conjnotrans", .kind = .run, .uplo = 'U', .transa = 'C', .transb = 'R', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "upper_M_50_K_50_a_conjnotrans_b_conjtrans", .kind = .run, .uplo = 'U', .transa = 'R', .transb = 'C', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "upper_M_50_K_25_a_conjtrans_b_conjtrans", .kind = .run, .uplo = 'U', .transa = 'C', .transb = 'C', .m = 50, .k = 25, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "upper_alpha_zero", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_beta_one", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 0.0 } },
+    .{ .name = "lower_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ -1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_M_50_K_25_a_trans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'N', .m = 50, .k = 25, .lda = 25, .ldb = 25, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_M_25_K_50_a_notrans_b_trans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'T', .m = 25, .k = 50, .lda = 25, .ldb = 25, .ldc = 25, .alpha = .{ 1.0, 1.0 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "lower_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ -1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_M_25_K_50_a_conjnotrans_b_conjnotrans", .kind = .run, .uplo = 'L', .transa = 'R', .transb = 'R', .m = 25, .k = 50, .lda = 25, .ldb = 50, .ldc = 25, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "lower_M_50_K_50_a_conjtrans_b_conjnotrans", .kind = .run, .uplo = 'L', .transa = 'C', .transb = 'R', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "lower_M_50_K_50_a_conjnotrans_b_conjtrans", .kind = .run, .uplo = 'L', .transa = 'R', .transb = 'C', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "lower_M_50_K_25_a_conjtrans_b_conjtrans", .kind = .run, .uplo = 'L', .transa = 'C', .transb = 'C', .m = 50, .k = 25, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "lower_alpha_zero", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_beta_one", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 0.0 } },
+    .{ .name = "c_api_colmajor_lower_M_50_K_50_a_conjtrans_b_conjnotrans", .kind = .run, .uplo = 'L', .transa = 'C', .transb = 'R', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ -1.0, 2.0 } },
+    .{ .name = "xerbla_uplo_invalid", .kind = .bad, .uplo = 'O', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 1 },
+    .{ .name = "xerbla_transa_invalid", .kind = .bad, .uplo = 'U', .transa = 'O', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 2 },
+    .{ .name = "xerbla_transb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'O', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 3 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = -1, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 4 },
+    .{ .name = "xerbla_k_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = -1, .lda = 50, .ldb = 50, .ldc = 50, .info = 5 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 100, .ldc = 50, .info = 8 },
+    .{ .name = "xerbla_ldb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .info = 10 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 13 },
+};
+
+/// `test_zgemmt.c`, column-major.
+const gemmt_z = [_]Case{
+    .{ .name = "upper_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0.5 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_M_50_K_25_a_trans_b_notrans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 50, .k = 25, .lda = 25, .ldb = 25, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_M_25_K_50_a_notrans_b_trans", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'T', .m = 25, .k = 50, .lda = 25, .ldb = 25, .ldc = 25, .alpha = .{ 1.0, 1.0 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "upper_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'U', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0.5 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_M_25_K_50_a_conjnotrans_b_conjnotrans", .kind = .run, .uplo = 'U', .transa = 'R', .transb = 'R', .m = 25, .k = 50, .lda = 25, .ldb = 50, .ldc = 25, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "upper_M_50_K_50_a_conjtrans_b_conjnotrans", .kind = .run, .uplo = 'U', .transa = 'C', .transb = 'R', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "upper_M_50_K_50_a_conjnotrans_b_conjtrans", .kind = .run, .uplo = 'U', .transa = 'R', .transb = 'C', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "upper_M_50_K_25_a_conjtrans_b_conjtrans", .kind = .run, .uplo = 'U', .transa = 'C', .transb = 'C', .m = 50, .k = 25, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "upper_alpha_zero", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "upper_beta_one", .kind = .run, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 0.0 } },
+    .{ .name = "lower_M_50_K_50_a_notrans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0.5 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_M_50_K_25_a_trans_b_notrans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'N', .m = 50, .k = 25, .lda = 25, .ldb = 25, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_M_25_K_50_a_notrans_b_trans", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'T', .m = 25, .k = 50, .lda = 25, .ldb = 25, .ldc = 25, .alpha = .{ 1.0, 1.0 }, .beta = .{ 0.0, 0.0 } },
+    .{ .name = "lower_M_50_K_50_a_trans_b_trans", .kind = .run, .uplo = 'L', .transa = 'T', .transb = 'T', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.5, 0.5 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_M_25_K_50_a_conjnotrans_b_conjnotrans", .kind = .run, .uplo = 'L', .transa = 'R', .transb = 'R', .m = 25, .k = 50, .lda = 25, .ldb = 50, .ldc = 25, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "lower_M_50_K_50_a_conjtrans_b_conjnotrans", .kind = .run, .uplo = 'L', .transa = 'C', .transb = 'R', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 1.0 } },
+    .{ .name = "lower_M_50_K_50_a_conjnotrans_b_conjtrans", .kind = .run, .uplo = 'L', .transa = 'R', .transb = 'C', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "lower_M_50_K_25_a_conjtrans_b_conjtrans", .kind = .run, .uplo = 'L', .transa = 'C', .transb = 'C', .m = 50, .k = 25, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "lower_alpha_zero", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 0.0, 0.0 }, .beta = .{ 2.0, 1.0 } },
+    .{ .name = "lower_beta_one", .kind = .run, .uplo = 'L', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 1.0, 1.0 }, .beta = .{ 1.0, 0.0 } },
+    .{ .name = "c_api_colmajor_lower_M_50_K_50_a_conjtrans_b_conjnotrans", .kind = .run, .uplo = 'L', .transa = 'C', .transb = 'R', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .alpha = .{ 2.0, 1.0 }, .beta = .{ 1.5, 2.0 } },
+    .{ .name = "xerbla_uplo_invalid", .kind = .bad, .uplo = 'O', .transa = 'N', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 1 },
+    .{ .name = "xerbla_transa_invalid", .kind = .bad, .uplo = 'U', .transa = 'O', .transb = 'N', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 2 },
+    .{ .name = "xerbla_transb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'O', .m = 50, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 3 },
+    .{ .name = "xerbla_m_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = -1, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 4 },
+    .{ .name = "xerbla_k_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = -1, .lda = 50, .ldb = 50, .ldc = 50, .info = 5 },
+    .{ .name = "xerbla_lda_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 100, .ldc = 50, .info = 8 },
+    .{ .name = "xerbla_ldb_invalid", .kind = .bad, .uplo = 'U', .transa = 'N', .transb = 'N', .m = 50, .k = 100, .lda = 50, .ldb = 50, .ldc = 50, .info = 10 },
+    .{ .name = "xerbla_ldc_invalid", .kind = .bad, .uplo = 'U', .transa = 'T', .transb = 'N', .m = 100, .k = 50, .lda = 50, .ldb = 50, .ldc = 50, .info = 13 },
 };

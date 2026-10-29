@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
+const corespec = @import("../cpu/_corespec.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
@@ -35,9 +36,10 @@ pub fn supports(arch: std.Target.Cpu.Arch) bool {
     return arch == .x86;
 }
 
-/// Whether any routine has a kernel for `core`.
+/// Whether any routine has a kernel for `core`; none for a core another's
+/// object serves (`corespec.objectCore`).
 pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool {
-    _ = arch;
+    if (corespec.objectCore(arch, core) != core) return false;
     inline for (modules) |m| {
         if (comptime m.has(core)) return true;
     }

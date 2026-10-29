@@ -96,15 +96,6 @@ pub fn sbgemm_small_kernel_b0_tn(m: BlasLong, n: BlasLong, k: BlasLong, A: [*]BF
 pub fn sbgemm_small_kernel_b0_tt(m: BlasLong, n: BlasLong, k: BlasLong, A: [*]BF16, lda: BlasLong, alpha: f32, B: [*]BF16, ldb: BlasLong, C: [*]f32, ldc: BlasLong) i32 {
     return blas.kernel(.sbgemm_small_kernel_b0_tt)(m, n, k, A, lda, alpha, B, ldb, C, ldc);
 }
-pub fn sgemm_direct(M: BlasLong, N: BlasLong, K: BlasLong, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong, R: [*]f32, strideR: BlasLong) void {
-    blas.kernel(.sgemm_direct)(M, N, K, A, strideA, B, strideB, R, strideR);
-}
-pub fn sgemm_direct_performant(M: BlasLong, N: BlasLong, K: BlasLong) i32 {
-    return blas.kernel(.sgemm_direct_performant)(M, N, K);
-}
-pub fn sgemm_direct_alpha_beta(M: BlasLong, N: BlasLong, K: BlasLong, alpha: f32, A: [*]f32, strideA: BlasLong, B: [*]f32, strideB: BlasLong, beta: f32, R: [*]f32, strideR: BlasLong) void {
-    blas.kernel(.sgemm_direct_alpha_beta)(M, N, K, alpha, A, strideA, B, strideB, beta, R, strideR);
-}
 pub fn sme_sgemm_kernel(ta: [*:0]u8, tb: [*:0]u8, m: BlasLong, n: BlasLong, k: BlasLong, alpha: [*]f32, a: [*]f32, lda: BlasLong, b: [*]f32, ldb: BlasLong, beta: [*]f32, c: [*]f32, ldc: BlasLong) void {
     blas.kernel(.sme_sgemm_kernel)(ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
 }
@@ -582,7 +573,7 @@ test "a packing buffer on the stack is poisoned in tests: a copy that writes not
     vt.dgemm_itcopy = &Nop.copy;
     var a: [4]f64 = @splat(1);
     var c: [4]f64 = @splat(0);
-    try driver.gemm(std.testing.failing_allocator, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2);
+    try driver.gemm(std.testing.failing_allocator, check.io, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2, 1);
     for (c) |v| try std.testing.expect(std.math.isNan(v));
 }
 

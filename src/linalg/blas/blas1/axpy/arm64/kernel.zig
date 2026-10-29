@@ -12,21 +12,20 @@
 //! (`sve.zig`); `THUNDERX` uses `daxpy_thunderx.c`, its block (`thunderx.zig`)
 //! under the shared driver. Other cores keep the portable kernels.
 
-const std = @import("std");
 const sysinfo = @import("builtin");
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
+const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
 const kernel = @import("../kernel.zig");
-const roles = kernel.roles;
 const uk = @import("../../uk_block.zig");
 const sve = @import("sve.zig");
 const thunderx = @import("thunderx.zig");
 
+const Slot = util.Slot;
 const R = registry.Kernels(coretypes.Arm64CoreType, @import("asm/__root__.zig"));
 
 pub const Core = coretypes.Arm64CoreType;
-pub const symbol = R.symbol;
 
 const thunderx_entry = .{
     .mask = 32,
@@ -35,23 +34,28 @@ const thunderx_entry = .{
     .module = thunderx,
 };
 
-fn usesSve(comptime core: Core, comptime role: []const u8) bool {
-    return (core == .a64fx or core == .neoversev1) and role.len == 5 and (role[0] == 's' or role[0] == 'd');
+fn usesSve(comptime core: Core, comptime slot: Slot) bool {
+    if (core != .a64fx and core != .neoversev1) return false;
+    // `kernels/arm64.zig` asks about every slot, not only axpy's
+    inline for (kernel.slots) |s| {
+        if (s == slot) return !kernel.form(slot).complex;
+    }
+    return false;
 }
 
-fn usesThunderx(comptime core: Core, comptime role: []const u8) bool {
-    return core == .thunderx and std.mem.eql(u8, role, "daxpy");
+fn usesThunderx(comptime core: Core, comptime slot: Slot) bool {
+    return core == .thunderx and slot == .daxpy_k;
 }
 
-/// Whether `role` has a kernel of its own on `core`.
-pub fn hasRole(comptime core: Core, comptime role: []const u8) bool {
-    return R.hasRole(core, role) or usesSve(core, role) or usesThunderx(core, role);
+/// Whether `slot` has a kernel of its own on `core`.
+pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
+    return R.hasSlot(core, slot) or usesSve(core, slot) or usesThunderx(core, slot);
 }
 
 /// Whether `core` has any axpy kernel of its own.
 pub fn has(comptime core: Core) bool {
-    inline for (roles) |role| {
-        if (comptime hasRole(core, role)) return true;
+    inline for (kernel.slots) |slot| {
+        if (comptime hasSlot(core, slot)) return true;
     }
     return false;
 }
@@ -59,19 +63,18 @@ pub fn has(comptime core: Core) bool {
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
-    inline for (roles) |role| {
-        if (comptime R.hasRole(core, role)) {
-            R.exportOne(role, core);
-        } else if (comptime usesSve(core, role)) {
-            const T = if (role[0] == 'd') f64 else f32;
-            @export(&sve.Real(T).call, .{ .name = symbol(role, core), .visibility = .hidden });
-        } else if (comptime usesThunderx(core, role)) {
-            @export(uk.driven(kernel, role, thunderx_entry, uk.NoVector), .{ .name = symbol(role, core), .visibility = .hidden });
+    inline for (kernel.slots) |slot| {
+        if (comptime R.hasSlot(core, slot)) {
+            R.exportOne(slot, core);
+        } else if (comptime usesSve(core, slot)) {
+            registry.exportKernel(&sve.Real(kernel.form(slot).F).call, slot, core);
+        } else if (comptime usesThunderx(core, slot)) {
+            registry.exportKernel(uk.driven(kernel, slot, thunderx_entry, uk.NoVector), slot, core);
         }
     }
 }
 
 /// Points the vtable at the kernels `core` has.
 pub fn install(vt: *Vtable, comptime core: Core) void {
-    registry.installRoles(vt, core, roles, hasRole);
+    registry.installSlots(vt, core, &kernel.slots, hasSlot);
 }

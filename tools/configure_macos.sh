@@ -100,6 +100,24 @@ step "time zone" sudo systemsetup -settimezone America/Chicago
 # Remote Login (ssh), for `qemu-test-x86_64-macos`.
 step "remote login" sudo systemsetup -setremotelogin on
 
+# Home, End and Delete in zsh over ssh: other terminals send sequences zsh
+# leaves unbound (Terminal.app maps those keys itself). Added once.
+zsh_keys() {
+    grep -qs 'Home / End / Delete over SSH' ~/.zshrc && return 0
+    cat >> ~/.zshrc <<'EOF'
+
+# Home / End / Delete over SSH from other terminals
+bindkey '^[[H'  beginning-of-line   # xterm
+bindkey '^[[F'  end-of-line
+bindkey '^[OH'  beginning-of-line   # application cursor mode
+bindkey '^[OF'  end-of-line
+bindkey '^[[1~' beginning-of-line   # VT220 / some Windows terminals
+bindkey '^[[4~' end-of-line
+bindkey '^[[3~' delete-char         # Delete
+EOF
+}
+step "zsh home and end keys" zsh_keys
+
 # `sudo shutdown` without a password, so a test run can stop the VM it
 # started cleanly over ssh; `visudo -c` refuses a broken rule.
 rule=/etc/sudoers.d/rstd-shutdown
