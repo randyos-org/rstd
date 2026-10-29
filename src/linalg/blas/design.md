@@ -1175,6 +1175,16 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
   only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
   periodically over batches, not per change.
+- **The BLAS is the one public API for SIMD-like math** (2026-10-29). Callers never choose a
+  backend: per target `rstd.linalg.blas` runs the per-core kernels, `@Vector` code, Accelerate
+  or native SPIR-V instructions. `rstd.simd` folds into it, its building blocks becoming the
+  BLAS's internal layer and its slice reductions BLAS routines (todo.md, M3).
+- **Shaders keep their own API** (2026-10-29). `src/rgl/shaders/lib/` (shaderlib) is the one API
+  shader code uses: the standard library for SPIR-V, with GLSL-friendly names that alias or wrap
+  BLAS calls where the BLAS has the operation (`dot`, the matrix-vector products). `cross` moves
+  to `rstd.linalg.vector`, a general vector operation shaderlib re-exports; `normalize`,
+  `reflect`, `refract`, `faceforward`, `smoothstep`, `fract` and `step` stay in shaderlib, as
+  shader operations lowered to SPIR-V's own instructions.
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
   inherit it (x86 Windows starts them at 53-bit x87 precision where the main thread has 64-bit;
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
