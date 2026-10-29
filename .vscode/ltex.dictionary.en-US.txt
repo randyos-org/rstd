@@ -71,6 +71,7 @@ asum
 atanm
 athlon
 audiodev
+audiomxd
 autodoc
 auxv
 auxvec
@@ -94,10 +95,12 @@ beqz
 beqzc
 BFDOT
 bfloat
+bfused
 bge
 bgemm
 bgemv
 bgeu
+bgrid
 bgt
 bgtz
 bidiagonal
@@ -154,9 +157,11 @@ CBLAS
 CBLC
 CBWR
 ccopy
+cdiv
 cdotc
 cdotu
 ceq
+cfgs
 cfpc
 cgbmv
 cgeadd
@@ -219,6 +224,7 @@ comptime
 comqr
 conds
 condvar
+configd
 congruential
 CONJG
 connect
@@ -328,6 +334,7 @@ dsymm
 dsymv
 DSYNC
 dsyr
+dsyrk
 dtes
 dtrmm
 dtrmv
@@ -474,6 +481,7 @@ fclang
 fclist
 fcmatch
 fcmatrix
+FCMLA
 FCMOV
 fcmp
 fcmpu
@@ -655,6 +663,7 @@ getpriority
 getrandom
 getresgid
 getresuid
+getrf
 getrlimit
 getrusage
 getsid
@@ -710,6 +719,7 @@ hbmv
 hcall
 hemm
 hemv
+HEMVREV
 herk
 hflex
 HFLOAT
@@ -967,6 +977,7 @@ lxvx
 Lzaxpy
 lzma
 madd
+maddf
 madt
 MADV
 madvise
@@ -1290,6 +1301,7 @@ psllq
 psnames
 Pspec
 pthread
+pthreads
 ptrace
 ptypkg
 purgem
@@ -2052,6 +2064,7 @@ XRSTOR
 XSAVES
 xscal
 xscale
+xscmpudp
 xscvdpspn
 XSDP
 xsdt
@@ -2120,6 +2133,7 @@ zgerd
 zgeru
 zgerv
 ZGESL
+zhbmv
 zhemm
 zhemv
 zher
@@ -2155,6 +2169,7 @@ zsymm
 zsymv
 zsyr
 ztrmm
+ztrmv
 ztrsm
 zutil
 zxdg

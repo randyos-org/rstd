@@ -4,34 +4,29 @@ Open BLAS work, kept here so that findings are not lost. Check items off as they
 
 ## In progress
 
-- [ ] Role strings become `blas.Slot` everywhere: 55 role-string functions and 1138 generated
-  `.role` entries (`wip/slot`).
-- [ ] Level 3: `trsm` divides by the diagonal instead of pre-inverting it, and `beta` folds into the
-  first `KC` slice (`blas3/driver.zig`, `wip/l3`); comparisons.md (7) and (10).
-- [X] Land the AltiVec fix: `util.scalar` keeps portable `f32` loops out of AltiVec lanes
-  (`wip/altivec`; issues.md, AltiVec entry).
-- [ ] Full qemu rig sweep on the Mac on the latest `review`; check every `sparc64-debug` part fits
-  OpenBIOS's 4 MB window (the largest was 0x3f15e8 of 0x400000).
-- [ ] Small-n level-2 paths from OpenBLAS (`spr.c`, `syr.c`, `syr2.c`, `zsyr.c`, `zher.c` and kin)
-  where they change the serial path; port unless measured slower (`wip/l2small`).
-- [ ] Flyoff: rstd against prebuilt OpenBLAS and BLIS (and Accelerate), speed and results, on native
-  CPUs only: Windows and Linux x86_64 (WHPX VM), macOS and Linux arm64 (HVF VM) (`wip/flyoff`).
-- [ ] Move kernels and functions that do not apply to column-major Zig data (CBLAS row-major paths,
-  dead slots) and converted kernels no core uses to `blas/unused/` (git-ignored); the generator
-  stops emitting them. After `wip/slot` lands.
-- [ ] gemm tails: go back to OpenBLAS-style unrolled edge tiles; the `thin` tails were a wash on
-  speed and grew the objects (blas3/gemm/notes.md, Tails). After `wip/l3` lands.
+- [ ] Optional: an inline-asm `maddf` for R6 scalar multiply-adds in the main library, if R6 speed
+  ever matters (LLVM calls `fmaf`).
+- [ ] Native `x86-windows-gnu -Dcpu=pentium3`: `thread_proto`'s "prototypes match the serial driver
+  bit for bit" fails (`f64 w=2 m=1 n=16 k=13`), already at 6c6def0; likely x87 excess precision
+  between the threaded and serial paths.
+- [ ] The ISA check cannot see inline assembly (x86's assembler ignores CPU features); and
+  detection, as OpenBLAS's, hands some cores to weaker CPUs: `katmai` to any 32-bit x86 without SSE3
+  (down to the 486), `vortex` to any Apple CPU (pre-A12 lacks FCMLA), `vortexm4` to non-Apple SME
+  without SVE, a forced core's fallback to `neoversen1` on ARMv8.0.
+- [ ] Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79 to 1.01)
+  trail OpenBLAS.
+- [ ] Skylake-X family `sgemv_n`/`sgemv_t`: those cores add large intrinsics kernels on top of
+  Haswell's (`sgemv_t` uses a 1,121-line template); they keep the portable `sgemv` until ported.
 
 ## Correctness and verification
 
 - [ ] `zrot_ppc440.S` (`ppc440fp2`) has a zero-stride patch no rig has run; no rig runs `ppc440` or
   `loongson3r4` either (they share code with `ppcg4` and `loongson3r3`).
-- [ ] powerpc64le `.safe` workaround for LLVM's `-O0` `fcmpu`: it looks fixed; verify Debug on
-  `powerpc64le`, `powerpc64le-power10`, `powerpc64` and `linux-powerpc64le`, then drop it.
-- [ ] The `arm` rig may test soft-float: Zig's `cortex_a15` model has no NEON or VFP features, so
-  `f32` compiles to library calls; check and add the features (`build/qemutest.zig`). Its build
-  also prints `error: <inline asm>: instruction requires: VFP2 (vmsr fpexc)` from
-  `test/qemu/arm.zig`, though the step succeeds.
+- [ ] POWER rigs stay at `.safe` (dcb4628): the `-O0` `fcmpu` compare is fixed on 0.18.0-dev.751
+  (now `xscmpudp`), but FastISel still stores an f64 held in a v-register with `stfd` (reads f2 for
+  v2); seen in `_test/blas1/edge.zig` `contractCase`, 10-line reproducer in issues.md. All four rigs
+  pass in Debug today (400/24/0, linux 431/30/0). Drop `.safe` once LLVM fixes the store;
+  `linux-powerpc64le` (pwr8, f128 by library calls) looks unaffected and could drop it now.
 - [ ] No `powerpc64` (970) AltiVec scan yet: LLVM stops with "Invalid global physical register".
   Scan once it builds; also rerun the G4 `-femit-asm` scan after LLVM upgrades, since the SLP
   vectorizer is not proven blocked by `util.scalar`.
@@ -39,31 +34,33 @@ Open BLAS work, kept here so that findings are not lost. Check items off as they
   models, `triangular.checkAll`, `blat3`'s complex type); fine for normal-range data.
 - [ ] Cores no rig runs: the Skylake-X family (AVX-512) and the Bulldozer family (FMA4, XOP). Run
   `x86_64-whpx` on a host that has them (design.md, Open issues).
+- [ ] The new x86_64 `rot`, `scal` and `gemv` paths for the Skylake-X and Bulldozer families are
+  compile-only; include them in that `x86_64-whpx` run.
 - [ ] Hardware-only paths never run: the mips `cpucfg` decode, the sparc `sllx` rewrite, Linux ppc64
   `mfpvr`, the Windows arm64 registry MIDR and feature probes, the arm64 sysfs fallback; NEON and
   AltiVec flushing was seen on rigs only.
 - [ ] Variants never run: 32-bit SPARC (lld cannot link it; includes the `%icc` index-tie fix) and
   32-bit x86 kernels on Windows and macOS, where complex dot returns a struct (verify).
 - [ ] The init race test's `single_threaded` skip has not run on a freestanding target (verify).
-- [ ] `f80` portable kernels off x86 (Zig calling convention) are untested.
-- [ ] Level 2 has no large-stride cases (`_test/blas2/edge.zig`).
-- [ ] `blas2/buffers.md` says `zgemv_t.S` needs a NaN-free buffer; the NaN-poisoned tests never
-  showed it. Confirm, or drop the interface's x86_64 clear of that buffer.
-- [ ] i386 x87 `xgemv_n` column blocks per core are checked only indirectly; add a test that calls a
-  slot built for one core (`blas2/gemv`, `cpu/x86.zig`).
+- [ ] Nothing runs `XDouble` as `f128` (`quad_precision` is hard-wired off): add a build option and
+  a rig configuration for it. The edge tests and level 3's per-routine driver tests still cover no
+  extended type off x86 (the interfaces do).
+- [ ] x87: other multistep arithmetic (the complex `mul`/`sub` updates) can change bits with where
+  LLVM spills; one code path stays self-consistent, but two routines doing the same arithmetic may
+  not. Audit where rstd promises equal bits across routines on x87 targets.
+- [ ] 32-bit builds: `Makefile.system` gives some targets another core's getarch entry (x86 haswell,
+  skylakex, cooperlake, sapphirerapids, sandybridge, zen take nehalem's; the bulldozer family
+  barcelona's; power8 to 10 power6's; armv8 armv7's); model it together with the matching kernel
+  choice. Also, the power64 family assumes little-endian, so a big-endian ppc64 build takes the
+  wrong ppc970 unrolls.
 - [ ] Linux rig gaps: `linux-powerpc64le` never runs POWER10 kernels (baseline build),
   `linux-aarch64` leaves out the SVE cores, and under HVF it also skips `vortexm4` (cause unknown).
-- [ ] Zig exits 0 on an inline-assembly error and writes an empty object. Confirm the link then
-  fails on the missing symbols, or add a symbol check to `build/blaskern.zig` (`c_kernels.md` says
-  to check by hand).
 - [ ] Rank updates skip zero columns (`ger`, `syr`, `her` and kin); follow reference if it drops the
   skip, and note `ger`'s run splitting may double the cost with strided `x` and many zero `y`
   (comparisons.md (5)).
 
 ## Performance
 
-- [ ] `trsm` with a unit diagonal now divides by 1 (exact, but a division per element); skip it
-  for `Diag.u` (`blas3/trsm/kernel.zig`).
 - [ ] Speed follow-ups: a `@Vector` `sum` (`csum`/`zsum` are scalar on the old x86_64 cores);
   measure the scalar fallbacks (extremes and `sdot` on arm, pre-VSX POWER, mips64, SPARC) and the
   f64 `sdot` (comparisons.md (1)).
@@ -90,35 +87,29 @@ Open BLAS work, kept here so that findings are not lost. Check items off as they
 
 - [ ] `gemm3m`, `symm3m`, `hemm3m` (stubs kept), a small-matrix path, bfloat16 and extended level 3
   (design.md, Implementation plan 4).
-- [ ] Extension interfaces and portable kernels: `geadd`, `imatcopy`, `omatcopy`, `laswp`, `neg`,
-  `gemmt`, `bgemm`; their slots are null and `utest_ext` cases wait on them (plan 5).
+- [ ] Once LAPACK `getrf` lands, call `laswp_ncopy` and `neg_tcopy` from it, or drop them as
+  upstream's `#if 1` does.
 - [ ] LAPACK, starting with what the OpenBLAS suites wait on: `potrf`, `potrs`, `dgesvd`.
-- [ ] `scabs1`/`dcabs1` (`cabs.S` upstream) are missing.
 - [ ] riscv `zvl256b` has no object (`zvl128b` serves it): read VLEN and port the `*_vector.c`
   kernels (design.md, Open issues).
-- [X] Complex `max`/`min` stay a compile error, now pointing to `.amax`/`.amin`: reference BLAS and
-  BLIS have no signed complex extreme, and OpenBLAS's `cblas_icmax` scans the floats as reals
-  (issues.md; d14858d).
-- [ ] `sbger_k`, `sbsymv_L`, `sbsymv_U`: dead upstream too (only `common_param.h`'s table names
-  them; no interface, driver or kernel). Move their stubs to `unused/` with the rest.
-- [ ] `gerv`/`gerd` serve only OpenBLAS's row-major CBLAS `zgerc`: move them to `unused/`; keep
-  upstream's row-major branches as comments in our interfaces, never as code.
 - [ ] `coverage.md` exists only for `axpy`, `dot`, level 2 and `gemm`; generate the rest with
   `tools/blas_asm/survey.zig`.
 - [ ] Level-2 assembly for the 32-bit-only `ppc440fp2` and `ppcg4` still carries 64-bit variant
   keys; prune (verify).
 - [ ] arm64 gemv assembly saves and restores `x18`, the Windows and Apple platform register, as
   upstream does; document or guard it.
-- [ ] Converted kernels no core uses anymore: `nrm2` and the extremes on every arch, `sdot`, and the
-  vortex assembly in non-Apple objects. Move them to `blas/unused/` (git-ignored, kept locally) and
-  stop the generator emitting them, once `wip/slot` lands.
+- [ ] `tools/blas_asm/arch` patches of sources no longer converted (the extremes', `nrm2`'s, x86_64
+  `zdot_atom.S`) never run now, so nothing checks they still match: move them to `unused/` too, or
+  keep them as the record `issues.md` points to.
 
 ## Threading
 
-- [ ] Rest of phase 1: the cached CPU count and ceiling in `blas.config`, thresholds, chunking, the
-  claim loop and ordered combine, with unit tests (threading.md, Implementation plan 1).
-- [ ] Level-3 threading prototype from BLIS (tag 2.1), close to clean room, against OpenBLAS's
-  `level3_thread.c`, before phase 2 (threading.md, Open issues).
+- [ ] Threshold overrides left out of phase 1: z13 `axpy` and Windows-on-ARM64 `gemv`
+  (`threading.zig` `rule`); add them if benchmarks agree.
+- [ ] Unmeasured: B on A's `CNAME` grid, and B multiplying its own chunks as it packs them, before
+  the barrier (passes the tests, uncommitted: `scratchpad/agents/l3proto/thread_proto_fused.zig`,
+  binaries `l3bench_bgrid.exe`, `l3bench_bfused.exe`); time them when the machine is quiet. The
+  prototypes cap at 64 workers (`chunks_max`).
 - [ ] Phases 2 onward: real `gemm`, level 1, level 2, the rest of level 3 (threading.md).
 - [ ] Thresholds: OpenBLAS's defaults and per-core overrides now; tune after benchmarks.
 - [ ] Tests: threaded against serial, bit for bit, at 1 to 9 threads; a test that `Q` never depends
@@ -128,28 +119,26 @@ Open BLAS work, kept here so that findings are not lost. Check items off as they
 
 ## Accelerate
 
-- [ ] Part 2: route the public routines to it on macOS: the order enum, 0-based `i?amax`, complex
-  arguments by pointer, the `_sub` dots, 32-bit range checks on the LP64 table, rstd's argument
-  checks before any call, quirk entries where its results differ (design.md, Apple Accelerate).
-- [ ] The off switch stops using the table and never unloads; `singleThreadHere` on every calling
-  thread; `load` during init, since `setenv` is not thread-safe; tie it into rstd's threading.
+- [ ] The Accelerate level-2 special-value sweep takes minutes per Mac run (complex, even trimmed to
+  every third variant at the largest shape); speed it up.
+- [ ] Tie Accelerate into rstd's threading (threading.md, Vendor backends).
 
 ## Tooling and tests
 
 - [ ] The AVX-512-off workaround for the self-hosted backend (`blas3/gemm/kernel.zig:56`) has no
-  issues.md entry.
-- [ ] `blas1/c_kernels.md` says the AVX-512 and FMA4 cores need `qemu-test-x86_64` with a matching
-  `-cpu`; TCG has neither, so point at `x86_64-whpx`.
+  issues.md entry. Its reason was never recorded (since 2cf8757); the self-hosted backend compiles
+  512-bit `@Vector` multiply-adds without error on 0.18.0-dev.751. Run the gemm tests with
+  `-fno-llvm` on AVX-512 hardware (this host is Zen 3; TCG has none), then drop it or record it.
+- [ ] Zig 0.18.0-dev.751 gives four x86 models LLVM names LLVM does not know (`skylake_avx512`,
+  `icelake_client`, `icelake_server`, `goldmont_plus`: underscores for hyphens), so those cores
+  likely build without CPU tuning (issues.md). Check the per-core objects' tuning, and map the names
+  in `build/blaskern.zig` if so.
 - [ ] `sparc64`: replace the image split with a real fix, mapping more memory at boot through the
   Open Firmware client interface (claim and map), so one image fits.
 - [ ] Linux rigs: `linux-i386` is a stub (QEMU x87 page-crossing bug); `s390x` and `mips64el` wait
   on `zig fetch` taking single files.
 - [ ] The `powerpc-macho` rig is a stub; finish it once the powerpc-macos Zig port lands.
-- [ ] `-Dfail-fast` has not been seen to stop a real failing rig (verify).
 - [ ] Check in the C-against-Zig differential harness (stub `common.h`) used for `dot`.
-- [ ] `build/blaskern.zig` has three `catch @panic("OOM")`; use `try`.
-- [X] `fmadd` is duplicated in `blas1/axpy/kernel.zig` and `blas1/dot/kernel.zig`; merge
-  (`fma.madd`, 3dd9d35).
 - [ ] macOS VM extras: base-image overlays (`qemu-clone`, `-Dmac-base`), a `Forgejo` self-hosted
   runner, a setup that needs no clicking, less guest load when headless (HID driver,
   `SecurityAgent`), and freeze detection that asks before killing.
@@ -184,3 +173,53 @@ Decided, not built (design.md, "Planned: a Zig-idiomatic interface").
 
 - [ ] The last item: an rstd-wide Zig-idiomatic pass (slices, exact error sets, plain error names,
   documented panics). The BLAS interface items above are part of it.
+
+## Open questions for the user
+
+Items set aside overnight for a decision; each says what is blocked and where its work sits.
+
+- [X] `arm-softfp` rig: on Zig 0.17 its `cortex_a15` had `vfp4`, so it built hardware float under
+  the soft-float ABI (true softfp); on 0.18 it is fully soft-float. Pin `vfp4`/`neon`/`d32` so it is
+  softfp on both toolchains, or keep it fully soft? Its kernels' `sf` variants run either way
+  (553c63a). Decided (2026-10-29): softfp on both toolchains; features pinned as in `arm`
+  (design.md, Settled decisions).
+- [X] x86_64 `dot`: on the old x86_64 cores the alignment-peeling `ddot`/`cdot`/`zdot` slots get the
+  portable kernel, not `@Vector`, because `blas1/dot/x86_64/kernel.zig` never exposed the converted
+  list (now `skips`). `readme.md` says `@Vector`. Adding `pub const skips = K.skips;` there matches
+  the docs but changes results on those cores. Do it, or fix the docs? Decided: `@Vector`, per the
+  2026-10-23 no-address-dependence decision; `dot` missed it by an oversight (design.md, Settled
+  decisions).
+- [X] Hermitian `Uplo` letters `v`/`m` (`HEMVREV`): upstream reaches them for `hpmv`, `her`, `hpr`,
+  `her2`, `hpr2` only from CBLAS row-major (Fortran takes V/M only for `zhemv`/`zhbmv`). Per the
+  column-major-only direction, drop them from those five (a public API change), or keep them?
+  Decided (2026-10-29): drop everything row-major-only; `v`/`m` go from those five (`wip/colmajor`).
+- [X] Testing bar for mechanical refactors: native tests plus `ast-check` let the Slot rewrite land
+  with a broken aarch64-sve build (fixed in 275c67b). Add `zig build qemu-check` (compile-only,
+  every rig image, about a minute, no QEMU) to that bar? Decided (2026-10-29): targeted only; no
+  routine full `qemu-check`; per-rig `qemu-check-<rig>` steps for the touched arches (design.md,
+  Settled decisions).
+- [X] Mac timing: `audiomxd` (~72% CPU) and `configd` (~42%) have spun for 10 days, holding the M6's
+  load near 1.6, so the flyoff relaxed the quiet rule (no `qemu-system`, all else under 5% of a
+  core; documented in `results-flyoff-macos-aarch64.md`). OK as the rule going forward, or will you
+  reboot the Mac and have its timings rerun? Decided (2026-10-29): the quiet rule stays; the Mac was
+  rebooted and its flyoff timings are being rerun (`wip/retime`).
+- [X] Level-3 threading protocol for phase 2: (B) BLIS barriers as recommended (half the code, one
+  barrier per slice, a one-line deadlock argument), or (A) OpenBLAS's flags (0 to 17% faster on Zen
+  3 today; threading.md still describes A)? If B: one barrier with double buffering (twice A's `B`
+  memory, as prototyped), or BLIS's two barriers around one buffer? Phase 2 waits on this. Decided
+  (2026-10-29): BLIS, with BLIS's two barriers around one buffer (deferring where OpenBLAS and BLIS
+  agree); phase 2 started (`wip/l3thread`).
+- [X] Allow a short bounded spin before `futexWait` in level-3 threading? The no-spin rule
+  (threading.md, Waiting) keeps fiber `Io`s unblocked; a spin might help small sizes. Decided
+  (2026-10-29): spin, as OpenBLAS and BLIS both do.
+- [X] Accelerate: for `herk`, `her2k`, `her`, `hpr`, `her2`, `hpr2`, Accelerate leaves the
+  diagonal's imaginary parts as `beta` times their old value (or NaN with an infinity), where the
+  reference zeroes them. Rstd now zeroes them after the call, giving the reference's bits, rather
+  than routing those routines to rstd. Keep the fix-up, or route them? Also, x86_64 macOS was
+  checked only under Rosetta 2. Decided (2026-10-29): the mathematically correct zero; the fix-up
+  stays.
+- [X] `armv9sme` spec adds `sme_f64f64` (OpenBLAS's `-march=armv9-a+sve2+sme+sme-f64f64`), an
+  optional SME extension `runnable` does not check; no rstd kernel uses SME yet. Drop it from the
+  spec, or require it at run time (new probes for Linux, macOS, Windows, freestanding)? It sits in
+  the ISA check's `undecided` list meanwhile (bd6dfe8). Decided (2026-10-29): keep it, and require
+  it at run time so no core is chosen that can fault (`wip/smef64`).
