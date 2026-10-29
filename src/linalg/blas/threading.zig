@@ -685,17 +685,19 @@ fn testData(x: []f64) void {
     for (x) |*v| v.* = std.math.ldexp(rand.float(f64) * 2 - 1, rand.intRangeAtMost(i32, -30, 30));
 }
 
+/// Each sum rounded to `f64` (`util.rounded`), so on the x87 the bits do not
+/// hang on what stays in a register.
 const Sum = struct {
     x: []const f64,
 
     fn partial(s: Sum, c: Chunk) f64 {
         var acc: f64 = 0;
-        for (s.x[c.start..c.end]) |v| acc += v;
+        for (s.x[c.start..c.end]) |v| acc = add(acc, v);
         return acc;
     }
 
     fn add(a: f64, b: f64) f64 {
-        return a + b;
+        return util.rounded(f64, a + b);
     }
 };
 
@@ -713,7 +715,7 @@ fn folded(x: []const f64, chunks: *const Chunks, reverse: bool) f64 {
     var acc: f64 = 0;
     for (0..chunks.count) |i| {
         const part = Sum.partial(.{ .x = x }, chunks.get(if (reverse) chunks.count - 1 - i else i));
-        acc = if (i == 0) part else acc + part;
+        acc = if (i == 0) part else Sum.add(acc, part);
     }
     return acc;
 }

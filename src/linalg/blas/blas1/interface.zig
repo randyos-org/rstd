@@ -131,10 +131,14 @@ fn Wide(comptime T: type) type {
     return if (isComplex(T)) std.math.Complex(W) else W;
 }
 
+/// The fold of the partial sums; on the x87 each sum is rounded to its
+/// float (`util.rounded`), so the bits do not hang on what stays in a register.
 fn plus(comptime W: type) fn (W, W) W {
     return struct {
         fn f(a: W, b: W) W {
-            return if (comptime isComplex(W)) a.add(b) else a + b;
+            if (comptime !isComplex(W)) return util.rounded(W, a + b);
+            const F = @TypeOf(a.re);
+            return .init(util.rounded(F, a.re + b.re), util.rounded(F, a.im + b.im));
         }
     }.f;
 }
