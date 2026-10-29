@@ -52,6 +52,9 @@ pub const hardware = switch (sysinfo.target.cpu.arch) {
     .s390x => true,
     // Before release 6, MADD.fmt rounds the product, so it equals a*b + c and
     // gcc's use of it never changes a result; R6 adds the fused MADDF.fmt.
+    // GCC counts it fused on the R8000 and Loongson's GS464, GS464E and
+    // GS264E (gcc 15.2 `config/mips/mips.h`, `ISA_HAS_FUSED_MADD4`); not
+    // modeled here.
     .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.target.cpu.features, .{
         .mips32r6, .mips64r6,
     }),

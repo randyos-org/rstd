@@ -1,7 +1,8 @@
 //! Zig translation of OpenBLAS's `gotoblas_t` (the per-core-type kernel
 //! dispatch table), mechanically derived from `common_param.h` in
 //! https://github.com/OpenMathLib/OpenBLAS at commit
-//! 9724481b599bb75fd260a9e7e991b445ef02a0bd (v0.3.34).
+//! 9724481b599bb75fd260a9e7e991b445ef02a0bd (v0.3.34-127; `common_param.h` is
+//! unchanged at v0.3.34-317).
 //! Re-derive from that source rather than hand-editing if it goes stale.
 //!
 //! The reference guards most fields behind `BUILD_SINGLE`/`BUILD_DOUBLE`/

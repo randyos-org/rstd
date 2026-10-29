@@ -81,7 +81,8 @@ pub const Table = struct {
 
 /// The packing buffer `r` is derived from (`BUFFER_SIZE`, `common_<arch>.h`).
 /// One size for all: OpenBLAS's on arm64 (but its SVE cores) and LoongArch;
-/// its x86_64 one is `32 << 22` (`common_x86_64.h:260`), x86's `16 << 20`.
+/// its x86_64 one is `32 << 22` (`common_x86_64.h:260`, v0.3.34-317), x86's
+/// `16 << 20`.
 pub const buffer_size: i64 = 32 << 20;
 
 /// `p = min(cap, l2_kb >> shift) * mul + add` for `s, d, c, z, q, x` (`cap` 0 is

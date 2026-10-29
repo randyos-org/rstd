@@ -177,7 +177,7 @@ fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m:
     defer sc.deinit(allocator);
     // the reference clears its stack buffer for every `trans` but `n` on
     // x86_64, for `cgemv_t.S` (<https://github.com/OpenMathLib/OpenBLAS/issues/746>,
-    // `interface/zgemv.c:250`), which no core here takes; no
+    // `interface/zgemv.c:250`, v0.3.34-317), which no core here takes; no
     // kernel here lets what the buffer held reach `y` (`buffers.md`)
     // the reference threads big problems here (`gemv_thread_*`)
     if (comptime complex) {
