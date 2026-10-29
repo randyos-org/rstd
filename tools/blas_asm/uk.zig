@@ -978,10 +978,12 @@ fn hasLetter(routine: map.Routine, letter: u8) bool {
 
 /// One `#if`/`#elif` of a driver's chain: the cores it names, and the block
 /// it includes.
-const Link = struct { cores: []const []const u8, block: []const u8 };
+/// One link of a driver's chain: the cores it tests, the block's name and
+/// the file it includes (`survey.zig` reads the latter).
+pub const Link = struct { cores: []const []const u8, block: []const u8, file: []const u8 = "" };
 
 /// The chain at the top of a driver, in order.
-fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
+pub fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
     var out: std.ArrayList(Link) = .empty;
     var cores: []const []const u8 = &.{};
     var it = std.mem.splitScalar(u8, text, '\n');
@@ -1006,7 +1008,7 @@ fn readChain(a: std.mem.Allocator, text: []const u8) ![]const Link {
             const core = file[std.mem.find(u8, file, "_microk_").? + "_microk_".len ..];
             const dot = core[0 .. core.len - 2];
             const stem = if (std.mem.findScalarLast(u8, dot, '-')) |d| dot[0..d] else dot;
-            try out.append(a, .{ .cores = cores, .block = stem });
+            try out.append(a, .{ .cores = cores, .block = stem, .file = file });
         } else if (std.mem.startsWith(u8, line, "#ifndef HAVE_KERNEL")) break;
     }
     return out.items;
