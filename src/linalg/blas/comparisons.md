@@ -26,7 +26,7 @@ once however many runs.
 | OpenBLAS | the checkout `tools/blas_asm` converts | `v0.3.34-317-ga69062524` |
 | Reference BLAS (Reference-LAPACK) | <https://github.com/Reference-LAPACK/lapack> | last release v3.12.1 (2025-01-08); `master` as of 2026-10-22 |
 | Exception-handling proposal | Demmel, Dongarra, Gates, Henry, Langou, Li, Luszczek, Pereira, Riedy, Rubio-Gonzalez, "Proposed Consistent Exception Handling for the BLAS and LAPACK", <https://arxiv.org/abs/2207.09281> (2022) | v1 |
-| Intel oneMKL CNR | <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/reproducibility-conditions.html> | 2025.2 docs |
+| Intel oneMKL CNR | <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/reproducibility-conditions.html>; `MKL_CBWR`: <https://www.intel.com/content/www/us/en/docs/onemkl/developer-guide-linux/2025-2/set-env-var-for-cond-numerical-reproducibility.html> | 2025.2 docs |
 
 BLIS and OpenBLAS paths below are relative to their source trees, rstd paths to
 `src/linalg/blas/` in today's layout; rstd line numbers are those of the versions named.
@@ -67,7 +67,8 @@ the f64 sum, then rounds.
 
 - `kernel/arm/dot.c` (the generic C): `double dot`, but the product `y[iy] * x[ix]` is computed in
   `FLOAT` (f32) before it is added, unless `DSDOT`.
-- `kernel/x86_64/sdot.c:51`: `FLOAT dot = 0.0` (f32 accumulation, with f32 vector microkernels).
+- `kernel/x86_64/sdot.c:87`: `FLOAT mydot` takes the block's sum (f32 accumulation, with f32 vector
+  microkernels); only the tail and the strided loop sum in `double`.
 - `kernel/arm64/dot_kernel_asimd.c:34-46`: `RETURN_TYPE` is `double` only for `DSDOT`; `sdot`
   accumulates in f32 NEON lanes.
 
@@ -93,7 +94,9 @@ f32 `sdot`, so the accuracy of `sdot` depends on the core, by far more than "the
 
 **Recommendation: keep** f64 accumulation, and measure it on M6 and Zen. If the in-cache cost
 matters, Ogita-Rump-Oishi `Dot2` (error-free `TwoProduct` with `@mulAdd`, compensated sum)
-gives similar accuracy in f32 lanes; measure before choosing. Summation order (sequential in
+gives similar accuracy in f32 lanes (Ogita, Rump and Oishi, "Accurate Sum and Dot Product", SIAM J.
+Sci. Comput. 26(6), 1955-1988, 2005, <https://doi.org/10.1137/030601818>: Algorithm 5.3 and
+`TwoProductFMA`); measure before choosing. Summation order (sequential in
 the portable kernel, two vector accumulators in `@Vector`): keep; no reference prescribes an
 order and none uses pairwise summation. `dsdot`/`sdsdot`: keep. Adding `alpha` after rather than
 before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
@@ -119,8 +122,9 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
 
 **Reference (LAPACK 3.10+).** `BLAS/SRC/dnrm2.f90`
 (<https://github.com/Reference-LAPACK/lapack/blob/master/BLAS/SRC/dnrm2.f90>, Anderson,
-"Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS 44(1), 2017, citing Blue, ACM TOMS
-4, 1978). One pass, three accumulators (`asml`, `amed`, `abig`) selected by thresholds
+"Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS 44(1), 2017,
+<https://doi.org/10.1145/3061665>, citing Blue, "A Portable Fortran Program to Find the Euclidean
+Norm of a Vector", ACM TOMS 4(1), 15-23, 1978, <https://doi.org/10.1145/355769.355771>). One pass, three accumulators (`asml`, `amed`, `abig`) selected by thresholds
 `tsml = 2^-511`, `tbig = 2^486` (double), scaled by constants `ssml = 2^537`, `sbig = 2^-538`;
 no divisions in the loop. Inf lands in `abig` and gives Inf; NaN propagates; `incx = 0`
 counts `x(1)` `n` times; `incx < 0` walks backwards.
@@ -131,7 +135,7 @@ ThunderX2 `scnrm2_thunderx2t99.c` also widens with `fcvt`. The others are scaled
 broken on special values (rstd's `issues.md`).
 
 **BLIS.** `frame/util/bli_util_unb_var1.c`: `normfv` calls `sumsqv_unb_var1` (lines
-1060-1173), a scalar one-pass scaled loop "mimicking LAPACK's `?lassq()`", with explicit NaN and
+1049-1173), a scalar one-pass scaled loop "mimicking LAPACK's `?lassq()`", with explicit NaN and
 Inf handling (NaN sticks; Inf sets `sumsq = Inf, scale = 1`). A faster variant (unscaled `dotv`,
 then fall back if `FE_OVERFLOW`/`FE_INVALID` were raised) exists but is disabled under `#if 0`
 (lines 312-400, GitHub issue #332). No optimized `normfv` kernel exists in `kernels/`. BLIS's
@@ -178,11 +182,13 @@ element is ignored. Several converted x86_64, POWER, loongarch64 and arm64 kerne
 **Reference master (unreleased).**
 
 - `izamax.f90`/`icamax.f90` rewritten for the exception-handling proposal (`50dc1bf`,
-  2025-03-27): "If the vector contains a NaN, the index of the first NaN is returned. Otherwise,
-  if it contains an Inf or -Inf, the index of the first of those is returned." Finite elements
+  2025-03-27): first NaN, else first Inf, stated in inline comments only. Finite elements
   whose `|re| + |im|` overflows switch the comparison to `0.25*|re| + 0.25*|im|`.
-- `idamax.f`/`isamax.f` (`b358788`, 2026-09-14): "make i?amax return the first NaN"; the test is
-  now `.NOT.(DABS(DX(I)).LE.DMAX)` plus `DMAX.NE.DMAX`.
+- `idamax.f`/`isamax.f` (`b358788`, 2026-09-14, merged 2026-10-18 by
+  <https://github.com/Reference-LAPACK/lapack/pull/1416>): "make i?amax return the first NaN"; the
+  test is now `.NOT.(DABS(DX(I)).LE.DMAX)` plus `DMAX.NE.DMAX`. It also states the contract in all
+  four's Purpose: "If the vector contains a NaN, the index of the first NaN is returned.
+  Otherwise, if it contains an Inf or -Inf, the index of the first of those is returned."
 
 **BLIS.** `ref_kernels/1/bli_amaxv_ref.c`: replace if `abs_chi1_max < abs_chi1 ||
 (isnan(abs_chi1) && !isnan(abs_chi1_max))`, so the first NaN wins (the comment there says
@@ -198,7 +204,8 @@ the overflow-safe version in its Appendix A.
 direction of every maintained source (reference master for all four precisions, BLIS, the
 proposal) is "first NaN". It is also cheaper to make order-independent, which matters for
 threading: "first NaN, else first max" combines exactly over chunks, as does rstd's rule, but it
-removes the position dependence that the reference itself called a bug.
+removes the position dependence that `b358788` gives as its reason ("the index they returned
+depended on where the NaN sat").
 
 **Recommendation: change** to: first NaN; else (complex) first Inf part; else first largest key,
 with `izamax.f90`'s quarter scaling when a finite key overflows. Make `?amax`/`?amin` values
@@ -260,7 +267,8 @@ returns for a zero `alpha` (X1).
 `zgerc.f`, `X(J).NE.ZERO` in `dsyr.f`, `dspr.f`, `zher.f`, `zhpr.f`, and `X(J).NE.ZERO .OR.
 Y(J).NE.ZERO` in `dsyr2.f`, `dspr2.f`, `zher2.f`, `zhpr2.f`; `dger.f`'s last change is cosmetic
 (`97b0bed`, "implicit none in BLAS", 2025-08). Master dropped the analogous test from the
-triangular routines only: PR #1323 (merged 2026-07-13; `6e7b86c`, `38ccf80`) covers `trmv`,
+triangular routines only: <https://github.com/Reference-LAPACK/lapack/pull/1323> (merged
+2026-07-13; `6e7b86c`, `38ccf80`) covers `trmv`,
 `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv`, `trmm`, `trsm`, because the skip "short-circuits proper
 NaN propagations" and "is not done consistently across variants"; it does not mention the rank
 updates. `dgemm.f` never skips zero elements of `B`.
@@ -358,7 +366,9 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
 
 - Five loops around the microkernel, the same Goto structure (`docs/Multithreading.md:29`;
   Smith et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS 2014,
-  <https://doi.org/10.1109/IPDPS.2014.110>).
+  1049-1059, <https://doi.org/10.1109/IPDPS.2014.110>; Goto and van de Geijn, "Anatomy of
+  High-Performance Matrix Multiplication", ACM TOMS 34(3), 2008,
+  <https://doi.org/10.1145/1356052.1356053>).
 - Microkernel contract: `C := beta*C + alpha*A*B` on one `MR x NR` tile with general strides,
   `beta` fused (`ref_kernels/3/bli_gemm_ref.c`); `beta` is applied on the first `KC` slice only,
   so there is no separate pass over `C`.
@@ -369,7 +379,8 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   method, which reuses the real microkernel by reorganizing packed panels (Van Zee, "Implementing
   High-Performance Complex Matrix Multiplication via the 1m Method", SIAM J. Sci. Comput. 42(5),
   C221-C244, 2020, <https://doi.org/10.1137/19M1282040>). 3m/4m were studied earlier (Van Zee and
-  Smith, ACM TOMS 44(1), 2017, <https://doi.org/10.1145/3086466>); 1m superseded them in BLIS.
+  Smith, ACM TOMS 44(1), 2017, <https://doi.org/10.1145/3086466>); 1m superseded them in BLIS,
+  which removed 3m and 4m (`CHANGELOG:4674`).
 - `trsm`: fused `gemmtrsm` microkernel per tile (`kernels/haswell/3/bli_gemmtrsm_l_haswell_asm_d6x8.c`),
   pre-inverted diagonal by default with `--disable-trsm-preinversion` to divide instead
   (`configure:375-387`); only three of the five loops can be parallelized (`docs/Multithreading.md:29`).
@@ -412,7 +423,9 @@ accumulators per element (the `zgemm_kernel_4x2_haswell.S` scheme). Planned thre
   benefit of 1m (no handwritten complex kernels) is already had. 1m could help only where the
   complex tile is weak, and on the `split` (scalar) targets the real kernel is scalar too.
   **Keep native; no 1m.** For the planned `gemm3m`/`symm3m`/`hemm3m`: 3m's imaginary part is only
-  normwise stable (Higham, SIAM J. Matrix Anal. Appl. 13(3), 1992), so keep it opt-in, as
+  normwise stable (Higham, "Stability of a Method for Multiplying Complex Matrices with Three Real
+  Matrix Multiplications", SIAM J. Matrix Anal. Appl. 13(3), 681-687, 1992,
+  <https://doi.org/10.1137/0613043>), so keep it opt-in, as
   OpenBLAS does (separate entry points), never the default.
 - *trsm.* rstd's per-tile "gemm update then solve" is the same as BLIS's fused `gemmtrsm`.
   **Keep**, except the pre-inversion (see 10).
@@ -441,12 +454,15 @@ problem size (at most 64), claimed dynamically, partials combined in chunk order
   so thread-count invariance holds by construction, though the docs never state it as a guarantee
   (`docs/` never mentions reproducibility).
 - **OpenBLAS**: level-1 reductions split by thread count (`kernel/arm64/dot.c:161-199`,
-  `kernel/x86_64/ddot.c:160-168`), so bits change with `OPENBLAS_NUM_THREADS`.
+  `kernel/x86_64/ddot.c:173-200`), so bits change with `OPENBLAS_NUM_THREADS`.
 - **Literature**: two families. Fixed reduction trees (MKL CNR; oneTBB's
-  `parallel_deterministic_reduce` with a fixed grain size, from memory) are cheap but reproducible
-  only for the same tree. Order-independent summation (ReproBLAS: Ahrens, Demmel and Nguyen,
-  "Algorithms for Efficient Reproducible Floating Point Summation", ACM TOMS 46(3), 2020, from
-  memory) is reproducible across trees and machines at a higher cost.
+  `parallel_deterministic_reduce`, deterministic with `simple_partitioner` or `static_partitioner`
+  and a fixed grain size,
+  <https://github.com/uxlfoundation/oneAPI-spec/blob/70993d33d4f180bb7be400b95f15cbc32bc588dc/source/elements/oneTBB/source/algorithms/functions/parallel_deterministic_reduce_func.rst#L48>)
+  are cheap but reproducible only for the same tree. Order-independent summation (ReproBLAS:
+  Ahrens, Demmel and Nguyen, "Algorithms for Efficient Reproducible Floating Point Summation", ACM
+  TOMS 46(3), 2020, <https://doi.org/10.1145/3389360>) is reproducible across trees and machines
+  at a higher cost.
 
 **Assessment.** rstd's rule is stronger than MKL's default CNR and equal to strict CNR's
 guarantee, without a performance mode switch, which is plausible precisely because the chunks
@@ -454,8 +470,9 @@ depend only on `n`. The approach (fixed tree) is the standard one; ReproBLAS is 
 the stated goal. Pitfalls found:
 
 1. **Alignment-dependent converted kernels.** `kernel/x86_64/asum_sse2.S:75`, `dot_sse2.S:82,93`,
-   `nrm2_sse.S:68`, `zdot_sse2.S:97-100` peel one element when `x` is 8- but not 16-byte aligned,
-   which changes lane assignment and summation order. Same data in a differently aligned buffer
+   `nrm2_sse.S:68`, `zdot_sse2.S:97-100` test an operand's alignment (`testq $SIZE`): the first
+   three peel one element when it is one element off, `zdot_sse2.S` takes another loop. That
+   changes lane assignment and summation order. Same data in a differently aligned buffer
    gives different bits on cores that use them. This does not break thread-count invariance
    (chunks inherit the base alignment) but breaks the natural reading of "reproducible". State the
    condition, or make chunk sizes multiples of 64 bytes and document "for a given alignment", or
@@ -508,7 +525,9 @@ Tile shapes agree with BLIS where comparable:
 **Assessment.** rstd's approach is BLIS's reference-kernel idea done with explicit vector types
 and a register model, and the measurements (`gemm/notes.md`: about 100% of measured peak on
 Zen 3; `results-m6.md`: level 1 at or above OpenBLAS's arm64 assembly) support it. Accumulator
-counts are adequate: 8 chains cover Zen's 2 FMA pipes x 4-cycle latency, and on Apple cores dot
+counts are adequate: 8 chains cover Zen's 2 FMA pipes x 4-cycle latency (AMD, "Software
+Optimization Guide for AMD EPYC 7003 Processors", pub. 56665 rev. 3.00, section 2.11), and on
+Apple cores dot
 is load-bound before it is FMA-bound. BLIS's lack of level-1 prefetch agrees with rstd's finding
 that OpenBLAS's prefetch-heavy arm64 kernels are slower on M6.
 
@@ -520,8 +539,8 @@ that OpenBLAS's prefetch-heavy arm64 kernels are slower on M6.
    `MC` 480/256 (`config/firestorm/bli_cntx_init_firestorm.c:96-100`), against OpenBLAS's VORTEX
    `Q` 1024/512, `P` 512/256 (`param.h`, VORTEX block). Sweep `Q` upward on M6.
 
-Also note that OpenBLAS's `param.h` VORTEX block chooses `P`/`Q` by `NUM_CORES > 8` at build
-time; check which branch `params_data.zig` captured.
+OpenBLAS's `param.h` block shared by VORTEX chooses `P`/`Q` by `NUM_CORES > 8` at build time,
+but VORTEX and VORTEXM4 always take the large set (`param.h:3574`), as `params_data.zig` has it.
 
 ## 10. Special values and denormals
 
@@ -558,8 +577,9 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    portable kernels at `-mcpu=native`, best of three interleaved runs, `m = n` from 16 to 1024:
    `dtrsm` and `strsm` within the run-to-run noise (-4% to +5%), `ztrsm` +1% to +6% (+14% at 16).
 2. **ARMv7 NEON flushes denormals.** The ARMv7 Advanced SIMD unit always runs with the "standard
-   FPSCR value" (flush-to-zero and default NaN), regardless of FPSCR (ARMv7-A Architecture Reference
-   Manual, from memory but well established). Zig emits NEON for `@Vector(4, f32)` there: compiling
+   FPSCR value" (flush-to-zero and default NaN), regardless of FPSCR (Arm A-profile system
+   registers, DDI 0601 2026-03, AArch32 `FPSCR`, FZ and DN: "Advanced SIMD arithmetic always uses
+   the Flush-to-zero setting"; the ARMv7-A manual itself not read). Zig emits NEON for `@Vector(4, f32)` there: compiling
    a two-line test for `arm-linux-gnueabihf -mcpu cortex_a15 -OReleaseFast` gives `vmul.f32 q8, q9,
    q8` and `vfma.f32 q8, q10, q9`. `vectorBits` in `blas3/gemm/kernel.zig` returns 128 for `f32`
    with NEON on arm, so `sgemm`/`cgemm` and every level-3 routine on ARMv7 flush denormal inputs and
@@ -571,8 +591,9 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    **Done**: confirmed on the `arm` and `linux-arm` rigs (the portable `saxpy`'s vectors too, not
    `arm-softfp`, whose vectors are soft-float calls); `f32` tiles and kernels are scalar VFP there.
 3. **AltiVec.** Pre-VSX PowerPC (`ppcg4`, `ppc970`) vector float uses AltiVec, which flushes
-   denormals in non-Java mode (`VSCR[NJ] = 1`); Linux starts processes with `NJ = 1` (from memory
-   of `arch/powerpc/kernel/process.c`; unverified here). VSX (POWER7+) is IEEE. **Investigate**
+   denormals in non-Java mode (`VSCR[NJ] = 1`); Linux starts processes with `NJ = 1`
+   (<https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/powerpc/kernel/process.c#L1995>,
+   v6.12). VSX (POWER7+) is IEEE. **Investigate**
    alongside item 2 on the `powerpc` rig.
    **Done**: confirmed on the `powerpc` and `powerpc-pseries` rigs; scalar FPU there, as item 2.
    Clearing `NJ` (Java mode, IEEE denormals) was not taken: it changes the caller's environment,
@@ -670,8 +691,8 @@ Where BLIS is not better and rstd should not follow it:
 ## Uncertain points
 
 - f64 `sdot` throughput on M6 and Zen: unmeasured after `4407e5a`.
-- ARMv7 NEON and AltiVec flushing: seen on the rigs, not on hardware; Linux's AltiVec `NJ` default
-  and the 970's software assist from memory.
-- MKL's historical alignment requirement for CNR and oneTBB / ReproBLAS citations: from memory.
+- ARMv7 NEON and AltiVec flushing: seen on the rigs, not on hardware; the 970's software assist
+  from memory.
+- MKL's historical alignment requirement for CNR: from memory.
 - The BLAS Technical Forum standard's wording on zero increments: not located.
 - BLIS level-3 thread-count invariance: true by construction (no `k` split), not documented.
