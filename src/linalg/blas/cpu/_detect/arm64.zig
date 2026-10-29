@@ -179,6 +179,7 @@ pub fn windowsFeatures(present: *const fn (PF) bool) Features {
         .sme_f64f64 = sme and present(.ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE),
         .bf16 = present(.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE),
         // no flag of its own: JSCVT, which ARMv8.3 makes mandatory with it
+        // (LLVM's `v8.3a` implies both `complxnum` and `jsconv`)
         .fcma = present(.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE),
     });
 }
@@ -207,15 +208,17 @@ pub fn cpuCountFromPossible(text: []const u8) usize {
     return (std.fmt.parseInt(usize, t[2..end], 10) catch 0) + 1;
 }
 
-/// The per-CPU sysfs pass for kernels without the `MIDR_EL1` emulation, one CPU
-/// at a time: the implementer of the last CPU, and the part of the last CPU
-/// whose capacity is 1000 or more (the big cores; the scale tops out at 1024),
-/// else of the last CPU. `dynamic_arm64.c` reads `cpu_capability` as hex, a
-/// file Linux does not have; `cpuid_arm64.c` reads `cpu_capacity` as decimal,
-/// which is what Linux has. Its counts of low, mid and high CPUs are unused.
 /// The implementer and part a sysfs scan settles on.
 pub const Part = struct { implementer: u32, part: u32 };
 
+/// The per-CPU sysfs pass for kernels without the `MIDR_EL1` emulation, one CPU
+/// at a time: the implementer of the last CPU, and the part of the last CPU
+/// whose capacity is 1000 or more (the big cores; Linux v6.17 prints it in
+/// decimal, the biggest core at 1024: `drivers/base/topology.c:226`,
+/// `drivers/base/arch_topology.c:254`), else of the last CPU.
+/// `dynamic_arm64.c` reads `cpu_capability` as hex, a file Linux does not
+/// have; `cpuid_arm64.c` reads `cpu_capacity` as decimal. Its counts of low,
+/// mid and high CPUs are unused.
 pub const SysfsScan = struct {
     implementer: u32 = 0,
     last_part: u32 = 0,
@@ -261,7 +264,8 @@ fn midrFromSysfs() ?Part {
     return scan.result();
 }
 
-/// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity.
+/// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity
+/// (value `CP 4000`, as Zig's `lib/std/zig/system/windows.zig` reads it).
 fn midrFromRegistry() ?u64 {
     if (comptime sysinfo.target.os.tag != .windows) return null;
     const advapi = struct {

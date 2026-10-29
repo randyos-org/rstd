@@ -49,7 +49,8 @@ pub const Caps = struct {
     eax1: u32 = 0,
     /// CPUID.1:ECX, for SSE3 (the Opteron split)
     ecx1: u32 = 0,
-    /// CPUID.80000001h:EDX when the leaf exists; bits 30 and 31 are 3DNow!
+    /// CPUID.80000001h:EDX when the leaf exists; bit 31 is 3DNow!, bit 30 its
+    /// extension (Linux v6.17 `arch/x86/include/asm/cpufeatures.h:62-63`)
     edx_ext1: u32 = 0,
     /// CPUID.80000000h:EAX, the highest extended leaf
     max_ext_leaf: u32 = 0,
@@ -140,13 +141,13 @@ fn cpuidChecked(max_leaf: u32, leaf: u32, sub: u32) CpuidResult {
 
 // ---- feature detection -----------------------------------------------------
 
-// The CPUID leaf 0 vendor strings `vendor` distinguishes; tags match the
+/// The CPUID leaf 0 vendor strings `vendor` distinguishes; tags match the
 /// strings.
 pub const VendorId = enum { GenuineIntel, AuthenticAMD, CentaurHauls, HygonGenuine, @"  Shanghai  " };
 
 /// The vendor for CPUID leaf 0's `ebx`, `edx`, `ecx` and `eax` (`get_vendor`).
 /// A string it does not know is Intel's when the highest leaf is 0 or has
-/// bits 8 and 10 set, as the reference reads it.
+/// bit 8 or 10 set (`eax & 0x500`), as the reference reads it.
 pub fn vendorOf(ebx: u32, edx: u32, ecx: u32, max_leaf: u32) Vendor {
     var name: [12]u8 = undefined;
     std.mem.writeInt(u32, name[0..4], ebx, .little);
@@ -204,7 +205,8 @@ pub fn probe() Caps {
     const avx2 = leaf7.ebx & (1 << 5) != 0;
     c.features.setPresent(.avx2, avx2);
     // AVX512VL and the OS saving opmask/ZMM state. macOS saves the ZMM state
-    // lazily, on the first AVX-512 instruction, so XCR0 does not show it yet.
+    // lazily, on the first AVX-512 instruction, so XCR0 does not show it yet
+    // (as LLVM's `llvm/lib/Support/Host.cpp` assumes: <https://github.com/llvm/llvm-project/blob/bca373f73fc82728a8335e7d6cd164e8747139ec/llvm/lib/Support/Host.cpp#L1379>).
     const zmm_saved = sysinfo.target.os.tag.isDarwin() or xcr0 & 0xe0 == 0xe0;
     if (!(avx2 and leaf7.ebx & (1 << 31) != 0 and zmm_saved)) return c;
     c.features.insert(.avx512);
@@ -291,7 +293,7 @@ const intel6 = [_]Row{
     .{ .exmodel = 1, .models = &.{13}, .to = .{ .core = .dunnington } },
     .{ .exmodel = 1, .models = &.{ 10, 11, 14, 15 }, .to = .{ .core = .nehalem } },
     .{ .exmodel = 1, .models = &.{12}, .to = .{ .core = .atom } },
-    // Clarkdale/Arrandale, Westmere
+    // Clarkdale/Arrandale, Westmere, Nehalem-EX (model 14)
     .{ .exmodel = 2, .models = &.{ 5, 12, 14, 15 }, .to = .{ .core = .nehalem } },
     // Sandy Bridge, Sandy Bridge-E
     .{ .exmodel = 2, .models = &.{ 10, 13 }, .to = .{ .ladder = .{ .start = .sandy } } },
@@ -384,10 +386,10 @@ fn amd(c: Caps) ?Decision {
         },
         // Zen (17h), Hygon Dhyana
         8, 9 => return zen(c, .haswell),
-        // Zen 4, 5 (19h, 1Ah)
+        // Zen 3, 4 (19h), Zen 5, 6 (1Ah): Linux v6.17 `arch/x86/kernel/cpu/amd.c:496-522`
         10, 11 => return zen(c, .cooper),
         // K10 (10h) and Llano (12h): the reference returns NULL and lands on
-        // Prescott; Barcelona is their core
+        // Prescott (Katmai in 32-bit builds); Barcelona is their core
         1, 3 => return .{ .core = .barcelona },
         else => return null,
     }
@@ -438,14 +440,15 @@ pub fn modelCore(c: Caps) ?Decision {
 }
 
 /// The capability ladder `gotoblas_dynamic_init` falls back on for a CPU the
-/// model tables do not know: the richest core the CPU and OS support.
+/// model tables do not know: the richest core the CPU and OS support. The
+/// reference climbs it in 64-bit builds only; 32-bit builds take Katmai.
 fn capsCore(c: Caps, is64: bool) CoreType {
     if (c.has(.avx512_bf16)) return .cooperlake;
     if (c.has(.avx512)) return .skylakex;
     if (c.has(.avx2)) return .haswell;
     if (c.has(.avx)) return .sandybridge;
-    // 32-bit builds end at Katmai, the reference's pick; 64-bit at Prescott. A
-    // CPU with no SSE3 gets the most that it can run.
+    // 32-bit builds end at Katmai, the reference's pick for them; 64-bit at
+    // Prescott. A CPU with no SSE3 gets the most that it can run.
     if (c.has(.sse3)) return .prescott;
     return if (is64) .opteron else .katmai;
 }
@@ -683,7 +686,7 @@ test "vendorOf reads the leaf 0 strings" {
     try std.testing.expectEqual(Vendor.hygon, w.v("HygonGenuine", 0xd));
     try std.testing.expectEqual(Vendor.centaur, w.v("CentaurHauls", 0x6));
     try std.testing.expectEqual(Vendor.zhaoxin, w.v("  Shanghai  ", 0xd));
-    // unknown strings: Intel when the highest leaf is 0 or has bits 8 and 10
+    // unknown strings: Intel when the highest leaf is 0 or has bit 8 or 10
     try std.testing.expectEqual(Vendor.intel, w.v("TransmetaCPU", 0));
     try std.testing.expectEqual(Vendor.intel, w.v("TransmetaCPU", 0x500));
     try std.testing.expectEqual(Vendor.unknown, w.v("TransmetaCPU", 0x10));

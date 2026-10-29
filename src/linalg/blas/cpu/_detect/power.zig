@@ -1,7 +1,8 @@
 //! PowerPC CPU detection, mirroring `driver/others/dynamic_power.c`.
 //!
 //! The reference uses GCC's `__builtin_cpu_is`, which glibc backs with
-//! `AT_PLATFORM` from the auxiliary vector, `__builtin_cpu_supports` for
+//! `AT_PLATFORM` from the auxiliary vector (glibc 2.42
+//! `sysdeps/powerpc/hwcapinfo.c:36`), `__builtin_cpu_supports` for
 //! POWER10 (ISA 3.1 and MMA), and on AIX or without the builtins the processor
 //! version register. Here: `AT_PLATFORM` first; then the PVR where the OS
 //! lets a program read it (Linux emulates `mfpvr`); then the ISA bits of
@@ -19,8 +20,9 @@ const auxv = @import("../_auxv.zig");
 pub const CoreType = coretypes.PowerCoreType;
 pub const Decision = select.Decision(CoreType);
 
-/// The `AT_PLATFORM` names Linux gives (`arch/powerpc/kernel/cputable.c`) that
-/// map to a core; tags match the strings.
+/// The `AT_PLATFORM` names Linux gives that map to a core; tags match the
+/// strings. In v6.17 they are in `arch/powerpc/kernel/cpu_specs_*.h`; `power3`
+/// and `power4` only in older kernels' `cputable.c` (v3.10, v4.4).
 pub const Platform = enum {
     power11,
     power10,
