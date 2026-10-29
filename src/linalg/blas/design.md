@@ -308,11 +308,13 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   MSA and WebAssembly with `relaxed_simd` (`vector_madd`).
 - **Per-core policy.** A root may declare `blas_fuse_fma` and `blas_fuse_fma_vector`; the
   per-core objects do (`_kernel.zig`), from the core's `Spec.fuse_fma`. The AMD cores' FMA3/FMA4
-  features exist so that the assembler accepts their microkernels; their flags leave contraction off.
+  features exist so that the assembler accepts their microkernels; their flags leave contraction off
+  (`kernel/Makefile:105` adds no `-mfma` for the Bulldozer family).
 - **Width.** Floats wider than `f64` never fuse (`fuseFor`): `@mulAdd(f80)` is a soft `fmal`
   call, and the x87 kernels never fuse.
 - **Expression rule.** Contraction follows a C compiler's within one expression (clang's
-  `-ffp-contract=on`): `a*b + c*d` is `fma(a, b, c*d)`, a longer chain fuses each product into
+  `-ffp-contract=on`, "fusion in the same statement", Clang User's Manual,
+  <https://clang.llvm.org/docs/UsersManual.html>): `a*b + c*d` is `fma(a, b, c*d)`, a longer chain fuses each product into
   the running sum from the left, and a product in its own statement, or converted before the
   add, stays rounded. `rsimd.mulAdd` delegates here.
 
@@ -326,7 +328,8 @@ assumes IEEE default modes. Its worker threads adopt the caller's control state 
 the x87 control word, MXCSR, FPCR, FPSCR, `frm`, FCSR, FPC, FSR; not `VSCR`), so a threaded call
 rounds as its serial path does under any modes ([`threading.md`](threading.md#guardrails)).
 Denormals are honored everywhere: where a vector unit flushes `f32` denormals
-(ARMv7 NEON, pre-VSX AltiVec), `util.vectorIeee` is false, and no kernel puts `f32` in its lanes.
+(ARMv7 NEON, pre-VSX AltiVec, whose `VSCR[NJ]` Linux sets: v6.12
+`arch/powerpc/kernel/process.c`, `start_thread`), `util.vectorIeee` is false, and no kernel puts `f32` in its lanes.
 
 - The portable `saxpy` takes its scalar loop there; `vector.zig` has no `s` or `c` roles there.
 - The level-3 `f32` tiles are scalar there (`blas3/gemm/kernel.zig`'s `vectorBits`).
@@ -334,7 +337,9 @@ Denormals are honored everywhere: where a vector unit flushes `f32` denormals
   AltiVec cores' objects are built without AltiVec (`cpu/_corespec.zig`'s `without`), and the
   portable loops pass each `f32` result they store or accumulate through `util.scalar`, an empty
   asm they cannot widen, compiled out everywhere else ([`issues.md`](issues.md)). ARMv7's
-  vectorizers keep off NEON's `f32` lanes themselves.
+  vectorizers keep off NEON's `f32` lanes themselves (LLVM 21.1.0
+  `llvm/lib/Target/ARM/ARMTargetTransformInfo.h`, `isFPVectorizationPotentiallyUnsafe`, true
+  but on Darwin and MVE).
 
 [`comparisons.md`](comparisons.md) (10) records how this was found and measured.
 
@@ -368,7 +373,7 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   the runtime both read it, and a test checks every named model and feature exists. A target
   short of some of the baseline's ISA replaces the baseline (`objectQuery`): an x86 one without
   SSE2 (Zig's baseline is the Pentium 4), a macOS one older than Nehalem, a SPARC V9 without
-  VIS. So a Pentium III build's objects compute `f64` on the x87, as its main library does, and
+  VIS (the baselines `pentium4`, `nehalem` and `ultrasparc`: Zig `lib/std/Target.zig:2188-2202`). So a Pentium III build's objects compute `f64` on the x87, as its main library does, and
   run on the cores they serve.
 - **ISA check.** `machine` in `_corespec.zig` is what each core's CPUs have, from the hardware
   (the LLVM model of the CPU a core is named for, or of the weakest part it covers, plus what
@@ -384,7 +389,8 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   self-hosted x86_64 assembler rejects the converted assembly's register memory operands and
   VEX/EVEX mnemonics, the self-hosted wasm backend emits invalid SIMD, and the other
   architectures have no self-hosted backend that covers them). `-Dblas-llvm` overrides it. They
-  link with LLD, except on Mach-O, which LLD cannot write; the self-hosted linker misplaces
+  link with LLD, except on Mach-O, which Zig's LLD driver cannot write (Zig's `src/link/Lld.zig`
+  at 069480a1a takes COFF, ELF and wasm only); the self-hosted linker misplaces
   SPARC symbols.
 - **Selection of objects.** `-Dblas-cores` (`BlasCores` in `src/buildutils/rstd.zig`): `target`
   builds only the group the target maps to (the host's detected core for a native target, else
