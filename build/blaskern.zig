@@ -155,8 +155,7 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     const check = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-c", "-Wno-override-module", "-target", triple });
     const target = b.resolveTargetQuery(query).result;
     // Functions carry their own CPU; module-level asm needs `-mcpu`. Not on
-    // x86, whose assembler ignores CPU features and where some of Zig 0.18's
-    // LLVM CPU names are wrong (issues.md).
+    // x86, whose assembler ignores CPU features.
     if (!target.cpu.arch.isX86())
         check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
     // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm

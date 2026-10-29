@@ -319,11 +319,13 @@ When an issue is fixed upstream, drop the workaround and its entry.
   images (boot code and all) get the same check (`asmCheck`) before QEMU
   runs; `zig build qemu-check` builds and checks them all without QEMU.
   `-mcpu` is passed for module-level asm, which LLVM assembles with the
-  default CPU, except on x86: its assembler ignores CPU features, and
-  0.18.0-dev.751's `std.Target.x86` has invalid LLVM names for
-  `skylake_avx512`, `icelake_client`, `icelake_server` and
-  `goldmont_plus` (underscores; LLVM's use hyphens). Zig hands
-  those to LLVM as is, so those cores build untuned; 0.17.0's are right.
+  default CPU, except on x86, whose assembler ignores CPU features.
+  0.18.0-dev.751's `std.Target.x86` gives `skylake_avx512`,
+  `icelake_client`, `icelake_server` and `goldmont_plus` those LLVM names
+  (0.17.0: hyphens). Not a bug: LLVM 23 takes the underscore spellings as
+  aliases, tuning included. The same IR compiles to the same code with
+  either spelling of each, without a warning; a made-up name warns and
+  changes the code. So the `skylakex` object is tuned; nothing to file.
   Emitting bitcode also prints a spurious `error: <inline asm>` for
   module-level asm that needs more than the default CPU's features; the
   object is unaffected.
