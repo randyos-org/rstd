@@ -9,6 +9,7 @@ const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const interface = @import("../../blas2/interface.zig");
+const band = @import("../../blas2/banded.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -102,6 +103,48 @@ fn Cases(comptime T: type) type {
                 }
             };
         }
+
+        /// The rank updates, full and packed, rank 1 and 2, with zeros in
+        /// `x` and `y` for the columns they skip.
+        fn rank(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
+            const n = long;
+            const lda = n + 3;
+            const a0 = try filled(T, al, lda * n, 7);
+            defer al.free(a0);
+            const a = try al.alloc(T, a0.len);
+            defer al.free(a);
+            const x = try filled(T, al, 3 * n, 8);
+            defer al.free(x);
+            const y = try filled(T, al, 3 * n, 9);
+            defer al.free(y);
+            for ([_]usize{ 5, 77, 78, 200 }) |j| x[j] = val(T, 0, 0);
+            for ([_]usize{ 77, 150 }) |j| y[j] = val(T, 0, 0);
+            const ra = Float(T);
+            for ([_]types.Uplo{ .u, .l }) |u| for (incs) |inc| {
+                const ni: isize = n;
+                const ld: isize = lda;
+                inline for (0..4) |r| {
+                    @memcpy(a, a0);
+                    switch (r) {
+                        0 => try band.syr(al, io, T, u, ni, alpha, x.ptr, inc[0], a.ptr, ld),
+                        1 => try band.spr(al, io, T, u, ni, alpha, x.ptr, inc[0], a.ptr),
+                        2 => try band.syr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
+                        else => try band.spr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
+                    }
+                    try out.appendSlice(al, std.mem.sliceAsBytes(a));
+                    if (comptime isComplex(T)) {
+                        @memcpy(a, a0);
+                        switch (r) {
+                            0 => try band.her(al, io, T, u, ni, @as(ra, 0.75), x.ptr, inc[0], a.ptr, ld),
+                            1 => try band.hpr(al, io, T, u, ni, @as(ra, 0.75), x.ptr, inc[0], a.ptr),
+                            2 => try band.her2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
+                            else => try band.hpr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
+                        }
+                        try out.appendSlice(al, std.mem.sliceAsBytes(a));
+                    }
+                }
+            };
+        }
     };
 }
 
@@ -113,10 +156,14 @@ fn onCore(vt: *const Vtable) !void {
     defer threaded.deinit();
     inline for (all) |T| {
         const C = Cases(T);
-        inline for (.{ C.gemv, C.ger }, .{ "gemv", "ger" }) |body, name| sameBits(al, threaded.io(), body) catch |e| {
-            check.say("{s} {s}: ", .{ name, @typeName(T) });
-            return e;
-        };
+        // a dozen chunks or so of each
+        inline for (.{ C.gemv, C.ger, C.rank }, .{ "gemv", "ger", "rank updates" }, .{ 3000, 3000, 40 }) |body, name, most| {
+            threading.test_serial_max = most;
+            sameBits(al, threaded.io(), body) catch |e| {
+                check.say("{s} {s}: ", .{ name, @typeName(T) });
+                return e;
+            };
+        }
     }
 }
 
@@ -125,7 +172,6 @@ test "threaded level 2 gives one worker's bits at any worker count, Io and core"
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
-    threading.test_serial_max = 3000;
     defer threading.test_serial_max = null;
     try check.eachCore(onCore);
 }

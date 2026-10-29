@@ -19,7 +19,9 @@
 //! There is no xerbla here: bad arguments return `interface.ArgError`
 //! (`info` is the first failing argument in the reference's check order).
 //! Each routine takes an allocator, for copies of strided vectors beyond
-//! `stack_bytes`, and `io`, for the threading to come; every one is serial.
+//! `stack_bytes`, and `io`. Above OpenBLAS's thresholds the rank updates
+//! thread on `io`, by columns, each column the serial kernel call
+//! (`threading.md`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -29,6 +31,7 @@ const util = @import("../util.zig");
 const interface = @import("interface.zig");
 const portable = @import("../portable.zig");
 const accel = @import("../apple_accel.zig");
+const threading = @import("../threading.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -74,7 +77,7 @@ fn mul(comptime T: type, a: T, b: T) T {
 }
 
 /// `mul`, each step rounded on the x87 (`util.cmul`): the rank updates'
-/// scalars, which the small-`n` path and the driver must agree on.
+/// scalars.
 fn mulRounded(comptime T: type, a: T, b: T) T {
     if (comptime !isComplex(T)) return a * b;
     const p = util.cmul(Float(T), a.re, a.im, b.re, b.im);
@@ -253,21 +256,38 @@ fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptim
     if (incy != 1) copyK(T, n, Y, 1, y, incy);
 }
 
-/// `driver/level2/{spr,syr,zspr,zsyr,zhpr,zher}_k.c`: `A += alpha*x*x^T`, or
-/// `alpha*x*x^H` for `herm` (real `alpha`), on one triangle in full (`lda`)
-/// or packed storage. A column whose `x` is zero is passed over, as the
-/// reference does; OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
-fn rankDriver(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: if (herm) Float(T) else T, x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
-    var sx: Scratch(T) = .{};
-    defer sx.deinit(allocator);
-    rankColumns(T, herm, lower, packed_, n, alpha, try sx.unit(allocator, n, x, incx), a, lda);
+/// Where column `i` of a triangle of order `n` starts, in full (`lda`) or
+/// packed storage.
+fn columnAt(comptime lower: bool, comptime packed_: bool, n: BlasLong, lda: BlasLong, i: BlasLong) BlasLong {
+    if (!packed_) return i * (if (lower) lda + 1 else lda);
+    return if (lower) i * n - @divExact(i * (i - 1), 2) else @divExact(i * (i + 1), 2);
 }
 
-/// `rankDriver`'s columns over a unit-stride `X`.
-fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (herm) Float(T) else T, X: [*]T, a: [*]T, lda: BlasLong) void {
-    var col = a;
-    var i: BlasLong = 0;
-    while (i < n) : (i += 1) {
+/// `run(ctx, c0, c1)` over columns `c0..c1` of a triangle of order `n`: all
+/// of them at once below `family`'s threshold, else in chunks balanced by
+/// their lengths, as `syr_thread.c` and the rest divide them.
+fn byColumns(io: Io, comptime T: type, comptime family: threading.Family, comptime lower: bool, n: BlasLong, ctx: anytype, comptime run: fn (@TypeOf(ctx), BlasLong, BlasLong) void) Io.Cancelable!void {
+    const nu: usize = @intCast(n);
+    // multiples of 8 columns, as their `mask`
+    const p = threading.plan(family, T, nu, nu, if (lower) .falling else .rising, 8);
+    if (p.workers <= 1) return run(ctx, 0, n);
+    const S = struct {
+        fn one(c: @TypeOf(ctx), ch: threading.Chunk) void {
+            run(c, @intCast(ch.start), @intCast(ch.end));
+        }
+    };
+    return threading.forEach(io, &p, ctx, S.one);
+}
+
+/// `driver/level2/{spr,syr,zspr,zsyr,zhpr,zher}_k.c`'s columns `c0..c1`:
+/// `A += alpha*x*x^T`, or `alpha*x*x^H` for `herm` (real `alpha`), on one
+/// triangle in full (`lda`) or packed storage, over a unit-stride `X`. A
+/// column whose `x` is zero is passed over, as the reference does;
+/// OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
+fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (herm) Float(T) else T, X: [*]T, a: [*]T, lda: BlasLong, c0: BlasLong, c1: BlasLong) void {
+    var col = at(T, a, columnAt(lower, packed_, n, lda, c0));
+    var i: BlasLong = c0;
+    while (i < c1) : (i += 1) {
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) at(T, X, i) else X;
         const xi = el(T, X, i).*;
@@ -277,25 +297,15 @@ fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comp
     }
 }
 
-/// `driver/level2/{spr2,syr2,zspr2,zsyr2,zhpr2,zher2}_k.c`: `A += alpha*x*y^T
-/// + alpha*y*x^T`, or `alpha*x*y^H + conj(alpha)*y*x^H` for `herm`. A column
+/// `driver/level2/{spr2,syr2,zspr2,zsyr2,zhpr2,zher2}_k.c`'s columns
+/// `c0..c1`: `A += alpha*x*y^T + alpha*y*x^T`, or `alpha*x*y^H +
+/// conj(alpha)*y*x^H` for `herm`, over unit-stride `X` and `Y`. A column
 /// whose `x` and `y` are both zero is passed over, as the reference does;
 /// OpenBLAS's drivers do not.
-fn rank2Driver(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
-    var sx: Scratch(T) = .{};
-    var sy: Scratch(T) = .{};
-    defer sx.deinit(allocator);
-    defer sy.deinit(allocator);
-    const X = try sx.unit(allocator, n, x, incx);
-    const Y = try sy.unit(allocator, n, y, incy);
-    rank2Columns(T, herm, lower, packed_, n, alpha, X, Y, a, lda);
-}
-
-/// `rank2Driver`'s columns over unit-stride `X` and `Y`.
-fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong) void {
-    var col = a;
-    var i: BlasLong = 0;
-    while (i < n) : (i += 1) {
+fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong, c0: BlasLong, c1: BlasLong) void {
+    var col = at(T, a, columnAt(lower, packed_, n, lda, c0));
+    var i: BlasLong = c0;
+    while (i < c1) : (i += 1) {
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) at(T, X, i) else X;
         const ys = if (lower) at(T, Y, i) else Y;
@@ -421,17 +431,10 @@ pub fn hpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
     try mvInterface(allocator, io, T, .hermitian, true, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy);
 }
 
-/// OpenBLAS's small-`n` paths (`interface/syr.c`, `spr.c`, `syr2.c`, `spr2.c`,
-/// `zsyr.c`): below this `n`, a unit-stride update runs its columns in the
-/// interface, with no buffer; 0 where upstream has none.
-fn smallN(comptime T: type, comptime herm: bool, comptime packed_: bool, comptime two: bool) BlasLong {
-    if (herm) return 0;
-    if (isComplex(T)) return if (!two and !packed_) 50 else 0;
-    return if (two and packed_) 50 else 100;
-}
-
+/// The rank updates' columns over unit-stride copies of strided vectors; a
+/// unit-stride vector is taken as it is, so OpenBLAS's small-`n` paths
+/// (`interface/syr.c` and the rest) are these same columns.
 fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: if (herm) Float(T) else T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
-    _ = io;
     if (n == 0) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
@@ -440,32 +443,57 @@ fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime herm: 
     } else if (isZero(T, alpha)) return;
     _ = blas.vtable();
     if (accel.syr(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, a, lda)) return;
-    const small = incx == 1 and n < comptime smallN(T, herm, packed_, false);
-    const px = first(T, x, n, incx);
+    var sx: Scratch(T) = .{};
+    defer sx.deinit(allocator);
+    const C = struct {
+        alpha: if (herm) Float(T) else T,
+        X: [*]T,
+        a: [*]T,
+        n: BlasLong,
+        lda: BlasLong,
+    };
+    const c: C = .{ .alpha = alpha, .X = try sx.unit(allocator, n, first(T, x, n, incx), incx), .a = a, .n = n, .lda = lda };
     switch (lower) {
-        inline else => |lo| if (small)
-            rankColumns(T, herm, lo, packed_, n, alpha, x, a, lda)
-        else
-            try rankDriver(T, herm, lo, packed_, allocator, n, alpha, px, incx, a, lda),
+        inline else => |lo| {
+            const S = struct {
+                fn run(q: C, c0: BlasLong, c1: BlasLong) void {
+                    rankColumns(T, herm, lo, packed_, q.n, q.alpha, q.X, q.a, q.lda, c0, c1);
+                }
+            };
+            try byColumns(io, T, if (herm) .her else .syr, lo, n, c, S.run);
+        },
     }
 }
 
 fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    _ = io;
     if (n == 0 or isZero(T, alpha)) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
     if (accel.syr2(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, y, incy, a, lda)) return;
-    const small = incx == 1 and incy == 1 and n < comptime smallN(T, herm, packed_, true);
-    const px = first(T, x, n, incx);
-    const py = first(T, y, n, incy);
+    var sx: Scratch(T) = .{};
+    var sy: Scratch(T) = .{};
+    defer sx.deinit(allocator);
+    defer sy.deinit(allocator);
+    const C = struct { alpha: T, X: [*]T, Y: [*]T, a: [*]T, n: BlasLong, lda: BlasLong };
+    const c: C = .{
+        .alpha = alpha,
+        .X = try sx.unit(allocator, n, first(T, x, n, incx), incx),
+        .Y = try sy.unit(allocator, n, first(T, y, n, incy), incy),
+        .a = a,
+        .n = n,
+        .lda = lda,
+    };
     switch (lower) {
-        inline else => |lo| if (small)
-            rank2Columns(T, herm, lo, packed_, n, alpha, x, y, a, lda)
-        else
-            try rank2Driver(T, herm, lo, packed_, allocator, n, alpha, px, incx, py, incy, a, lda),
+        inline else => |lo| {
+            const S = struct {
+                fn run(q: C, c0: BlasLong, c1: BlasLong) void {
+                    rank2Columns(T, herm, lo, packed_, q.n, q.alpha, q.X, q.Y, q.a, q.lda, c0, c1);
+                }
+            };
+            try byColumns(io, T, if (herm) .her else .syr, lo, n, c, S.run);
+        },
     }
 }
 
@@ -819,71 +847,6 @@ test "f80 without slots: banded, packed and rank updates match dense arithmetic 
 
 test "banded, packed and rank updates match dense arithmetic on every core" {
     try check.eachCore(withCore);
-}
-
-/// The small-`n` path against the driver, bit for bit, for every `n` below
-/// the threshold, with zeros in `x` and `y` for the skip.
-fn checkSmall(comptime T: type, comptime packed_: bool, comptime two: bool) !void {
-    const limit = comptime smallN(T, false, packed_, two);
-    if (limit == 0) return;
-    const len: usize = @intCast(limit * limit);
-    const a = try talloc.alloc(T, len);
-    defer talloc.free(a);
-    const b = try talloc.alloc(T, len);
-    defer talloc.free(b);
-    var xs: [limit]T = undefined;
-    var ys: [limit]T = undefined;
-    check.fill(T, &xs, 7);
-    check.fill(T, &ys, 8);
-    for (0..limit) |i| {
-        if (i % 3 == 1) xs[i] = zero(T);
-        if (i % 6 == 1 or i % 5 == 3) ys[i] = zero(T);
-    }
-    const alpha = scalarOf(T, 1.25, -0.5);
-    for (1..limit) |n| for ([_]bool{ false, true }) |lower| {
-        const nn: isize = @intCast(n);
-        const lda: isize = if (packed_) 0 else nn + @as(isize, @intCast(n & 1));
-        check.fill(T, a, n);
-        @memcpy(b, a);
-        const u: Uplo = if (lower) .l else .u;
-        if (two) {
-            if (packed_) try spr2(talloc, check.io, T, u, nn, alpha, &xs, 1, &ys, 1, a.ptr) else try syr2(talloc, check.io, T, u, nn, alpha, &xs, 1, &ys, 1, a.ptr, lda);
-        } else {
-            if (packed_) try spr(talloc, check.io, T, u, nn, alpha, &xs, 1, a.ptr) else try syr(talloc, check.io, T, u, nn, alpha, &xs, 1, a.ptr, lda);
-        }
-        switch (lower) {
-            inline else => |lo| if (two)
-                try rank2Driver(T, false, lo, packed_, talloc, nn, alpha, &xs, 1, &ys, 1, b.ptr, lda)
-            else
-                try rankDriver(T, false, lo, packed_, talloc, nn, alpha, &xs, 1, b.ptr, lda),
-        }
-        for (a, b, 0..) |p, q, i| if (!check.same(T, p, q, true)) {
-            check.say("small rank{s} {s} {s} n={d} lower={} at {d}: ", .{ if (two) "2" else "1", @typeName(T), if (packed_) "packed" else "full", n, lower, i });
-            return error.TestExpectedEqual;
-        };
-    };
-}
-
-fn runSmall() !void {
-    inline for (.{ f16, f32, f64, f80, f128 }) |F| {
-        inline for (.{ F, std.math.Complex(F) }) |T| {
-            inline for (.{ false, true }) |packed_| inline for (.{ false, true }) |two| try checkSmall(T, packed_, two);
-        }
-    }
-}
-
-fn withCoreSmall(vt: *const Vtable) anyerror!void {
-    const saved = blas.testUse(vt);
-    defer blas.testRestore(saved);
-    try runSmall();
-}
-
-test "the small-n rank updates match the driver bit for bit" {
-    // rstd's own paths
-    const was = blas.useAccelerate(false);
-    defer _ = blas.useAccelerate(was);
-    try runSmall();
-    try check.eachCore(withCoreSmall);
 }
 
 test "strided vectors beyond the stack buffer are copied from the allocator" {
