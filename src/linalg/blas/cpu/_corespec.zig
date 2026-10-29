@@ -79,6 +79,8 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
 }
 
 // ---- aarch64 (`Makefile.arm64`, `kernel/Makefile`) --------------------------
+// `kernel/Makefile`'s `-march=armv8.4-a+sve+bf16` for NEOVERSEN2, NEOVERSEV1,
+// ARMV8SVE and A64FX is not followed; each takes its `Makefile.arm64` flags.
 
 pub fn arm64(core: coretypes.Arm64CoreType) Spec {
     return switch (core) {
@@ -122,8 +124,8 @@ pub fn power(core: coretypes.PowerCoreType) Spec {
         .power8 => .{ .model = "pwr8", .features = &.{"vsx"} },
         .power9 => .{ .model = "pwr9", .features = &.{"vsx"} },
         .power10 => .{ .model = "pwr10", .features = &.{"vsx"} },
-        // `-mcpu` of the static targets in `Makefile.power`; LLVM's POWER3 to
-        // POWER5 have AltiVec too
+        // `Makefile.power` gives the static targets no `-mcpu`; these are their
+        // CPUs' LLVM models. LLVM's POWER3 to POWER5 have AltiVec too
         .power3 => .{ .model = "pwr3", .without = &no_altivec },
         .power4 => .{ .model = "pwr4", .without = &no_altivec },
         .power5 => .{ .model = "pwr5", .without = &no_altivec },
