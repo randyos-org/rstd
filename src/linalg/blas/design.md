@@ -217,8 +217,8 @@ users are not assumed to know. Part of the codebase-wide pass to make rstd more 
 `Vtable.zig` is OpenBLAS's `gotoblas_t`, mechanically derived from `common_param.h`: 854 kernel
 slots, its 87 integer parameters, rstd's `symv_p` and the `init` hook. It leaves out the 47 slots only row-major data
 or CBLAS reaches (`?gerv_k`, `?gerd_k`, the `*_direct*` kernels, `?omatcopy_k_r*`,
-`?imatcopy_k_r*`) and the `sbger_k`, `sbsymv_L` and `sbsymv_U` that nothing upstream fills or
-calls; its doc comment lists them (`unused/`, below). The reference guards fields behind `BUILD_*`,
+`?imatcopy_k_r*`) and the `sbger_k`, `sbsymv_L` and `sbsymv_U` that nothing upstream calls
+(`kernel/setparam-ref.c:112-113` fills them with `sger_k`, `ssymv_L` and `ssymv_U`); its doc comment lists them (`unused/`, below). The reference guards fields behind `BUILD_*`,
 `EXPRECISION`, `ARCH_*` and `SMALL_MATRIX_OPT`; here every field is always present, kernels as
 optional pointers that stay `null` where nothing applies. Slots use the C calling convention and
 the kernel ABI of the reference (`daxpy_k(n, dummy, dummy, alpha, x, incx, y, incy, dummy,
@@ -518,14 +518,16 @@ only repeat the portable kernels.
   kernel once per run of nonzero `y`, which is one call when `y` has no zero, and copies a
   strided `x` once for all the runs. The skip is decided above the kernels, so every core
   gives it; [`comparisons.md`](comparisons.md) (5) has why it stays. At unit stride and small
-  `n` (`syr`, `spr`, `syr2` below 100; `spr2`, `zsyr` below 50) the interface runs the driver's
+  `n` (`syr`, `spr`, `syr2` below 100; `spr2`, `zsyr` below 50: `interface/syr.c:174`,
+  `spr.c:172`, `syr2.c:175`, `spr2.c:173`, `zsyr.c:175`) the interface runs the driver's
   columns itself, as OpenBLAS's do, keeping the skip (OpenBLAS's `syr2`/`spr2` paths have none).
 - **symv and hemv.** `blas2/symmetric.zig` holds the portable kernels, `kernel/generic`'s
   `symv_k.c`, `zsymv_k.c` and `zhemv_k.c`, which compose the running core's copy and `gemv`
   kernels with the same blocking (`SYMV_P`, the vtable's `symv_p`).
 - **Buffers.** The kernels take a scratch `buffer`. The interfaces size it as the reference's
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
-  reference's `MAX_STACK_ALLOC`), else from the allocator, 4096-aligned.
+  reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
+  the allocator, 4096-aligned.
   [`blas2/buffers.md`](blas2/buffers.md) lists what every kernel does with it.
 - **Threading.** The reference's `*_thread.c` drivers are not ported.
 
@@ -567,8 +569,10 @@ complex, for every float type, through the same code.
   `trsm/kernel.zig` hold the other routines' copies and kernels over the same tile (`sets`),
   each function named as its slot less the precision letter. The `trsm` kernels are
   `kernel/generic`'s `trsm_kernel_*.c` on the gemm layout's panels, dividing by the diagonal
-  where upstream packs its reciprocal, which overflows for a denormal one; `trsv` divides
-  alike, complex by Smith's algorithm (`util.cdiv`), so both give the same quotients
+  where upstream packs its reciprocal (`INV`, `kernel/generic/trsm_ltcopy_2.c:43`), which
+  overflows for a denormal below about 2^-128 in `f32` or 2^-1024 in `f64` (past `1/max`); `trsv` divides
+  alike, complex by Smith's algorithm (`util.cdiv`; R. L. Smith, "Algorithm 116: Complex
+  division", CACM 5(8), 435, 1962, <https://doi.org/10.1145/368637.368661>), so both give the same quotients
   (`comparisons.md`, 10), but for an x87 build's cores with SSE2, whose objects divide there. The `trmm` kernels sum a
   diagonal block over its triangle only, where the reference's tiles multiply the zeros it
   packs, so an infinity in `B` meets no zero.
@@ -596,10 +600,11 @@ complex, for every float type, through the same code.
   size, x86's `r` derives from the packing buffer, `p` rounds up to the unroll, the 3M variants
   take the real ones' `p` and `q` unless the header says otherwise, and LA464 and the AMD
   AVX-512 parts pick their sets by cache size and thread count. `OPENBLAS_BLOCK_FACTOR` scales a
-  computed `p` as `driver/others/parameter.c` does; OpenBLAS ignores it in dynamic builds.
+  computed `p` as `driver/others/parameter.c:519-527` does; OpenBLAS ignores it in dynamic builds,
+  which do not link `parameter.c` (`driver/others/Makefile:44`).
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
   extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
-  fallback entries (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
+  fallback entries (`Makefile.system:115-158`) (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
   to 10 POWER6's), as do the 32-bit x86 kernels' `config.h` macros; POWER's tables also follow
   the byte order (`PPC970`'s unrolls).
 - **Not ported.** `gemm3m`, `symm3m`, `hemm3m` (their slots and wrappers exist), the
@@ -615,11 +620,12 @@ The kernels are `ext/bf16/kernel.zig`: the conversions, `bscal`, `sbdot` and the
 `bgemv`/`sbgemv`/`shgemv` family. They are portable Zig, the same on every core; no core
 installs a kernel of its own for any of them, and the per-core sources the reference selects
 (AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA, RVV) are not ported. Every bfloat16 conversion
-upstream is `kernel/x86_64/tobf16.c` and `bf16to.c`; the AVX-512 BF16 microkernels give the same
+upstream is `kernel/x86_64/tobf16.c` and `bf16to.c` (`kernel/Makefile.L1:311`, `:315`); the AVX-512 BF16 microkernels give the same
 bits.
 
 `kernel/setparam-ref.c` fills the bfloat16-named slots that have no kernel of their own with the
-`f32` kernels: 17 level-1 ones (`sbamax_k` to `sbswap_k`) and `dsbdot_k` (with `dsdot_k`), which
+`f32` kernels: 17 level-1 ones (`sbamax_k` to `sbswap_k`) and `dsbdot_k` (with `dsdot_k`;
+positionally, `setparam-ref.c:107-111` against `common_param.h:86-108`), which
 the level-1 interfaces reach, and `sbtrsm_*`, `sbtrmm_*`, `sbsymm_*`, `sbneg_tcopy` and
 `sblaswp_ncopy`, which nothing calls yet. `portable.finish` sets them at the end of every
 vtable's build.
@@ -635,13 +641,13 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
 - **`geadd`** (`kernel/generic/geadd.c`, `zgeadd.c`): `axpby` per column of `op(C)`, or `scal`
   with flag 0 for a zero `alpha`, through the vtable, so it follows the core's `axpby` and
   `scal`. The letters come last, as in the Fortran; `op` never conjugates, so complex `r` and
-  `c` are `InvalidTrans` where upstream takes `C` as `T`.
+  `c` are `InvalidTrans` where upstream takes `C` as `T` (`interface/zgeadd.c:65-66`).
 - **`omatcopy`, `imatcopy`** (`ext/matcopy.zig`, after `kernel/arm/*omatcopy_c*.c` and
   `kernel/generic/*imatcopy_c*.c`): one scaling for all, a zero `alpha` storing zeros and
   `alpha` 1 copying, complex too (upstream's complex kernels multiply by 1, `issues.md`).
-  `imatcopy` runs the in-place kernels where the shape and leading dimension stay, as upstream's
-  `NEW_IMATCOPY` build does, and else goes through a buffer from its allocator, as its default
-  build does; both give the same bits. No `q` or `x` slots, as upstream.
+  `imatcopy` runs the in-place kernels where the shape and leading dimension stay, and else goes
+  through a buffer from its allocator, as upstream does (`interface/imatcopy.c:128-164`, under
+  `NEW_IMATCOPY`, which line 55 always defines); both give the same bits. No `q` or `x` slots, as upstream.
 - **`laswp`** (`lapack/laswp/generic/laswp_k_1.c`): the interchanges as `dlaswp.f` defines
   them, for any element type, not a vtable slot upstream either. Rstd adds checks the reference
   has none of: rows and pivots inside `A`, all pivots checked before the first swap.
@@ -653,7 +659,7 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   `getrf_single.c`'s `#if 1` does; `laswp_ncopy` is `getrf_parallel.c`'s, not ported, and
   nothing upstream calls `neg_tcopy`.
 - **`gemmt`**: upstream takes a `gemv` per column, and for `r` and `c` conjugates the caller's
-  `B` in place and back (`issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
+  `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`; `issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
   the level-3 driver (`driver.gemmt`), and `B` is only read.
 - **Accelerate**: none of these is routed; Accelerate's CBLAS has no column-major equivalent of
   them (its `appleblas_?geadd` takes three matrices).
@@ -670,14 +676,17 @@ other kernels; the routines live here and call the BLAS's drivers and table dire
 Zig module allows.
 
 - **`potrf`** (`cholesky.zig`): `potrf_U_single.c` and `potrf_L_single.c`, the recursive
-  blocked factor: blocks of `GEMM_Q` columns, or a quarter of `n` up to `4 * GEMM_Q`, each
+  blocked factor: blocks of `GEMM_Q` columns, or a quarter of `n` up to `4 * GEMM_Q`
+  (`lapack/potrf/potrf_U_single.c:113-114`; `:108` for the `dtb_entries / 2` case), each
   factored recursively, then `trsm` on its panel and `herk` (`syrk`) on the rest through the
   level-3 drivers, which upstream fuses per column block. Up to `dtb_entries / 2` columns it is
   `potf2_[UL].c` and `zpotf2_[UL].c` as plain loops. Two departures, both the reference's
-  `xPOTRF2`: a NaN pivot fails, where upstream's `ajj <= 0` passes it and reports success; and
+  `xPOTRF2`: a NaN pivot fails (`DISNAN`, `lapack-netlib/SRC/dpotrf2.f:168`), where upstream's `ajj <= 0`
+  (`lapack/potf2/potf2_U.c:71`) passes it and reports success; and
   the base case divides by the pivot, as `trsm` does, where upstream multiplies by its
-  reciprocal. The drivers are called directly, so Accelerate never runs them.
-- **`potrs`** (`cholesky.zig`): `xPOTRS`, which OpenBLAS takes from the reference too: two
+  reciprocal (`potf2_U.c:86`). The drivers are called directly, so Accelerate never runs them.
+- **`potrs`** (`cholesky.zig`): `xPOTRS`, which OpenBLAS takes from the reference too
+  (`exports/gensymbol.pl:498` lists it with the netlib objects): two
   `trsm`s on the factor, through the drivers.
 - **`getrf`** (`lu.zig`): `getrf_single.c`, the recursive blocked factor: blocks of half the
   columns rounded up to `unroll_n`, at most `GEMM_Q`, each factored recursively, then the
