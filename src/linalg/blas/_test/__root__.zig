@@ -7,5 +7,6 @@ test {
     _ = @import("blas1/edge.zig");
     _ = @import("blas1/denormal.zig");
     _ = @import("blas2/edge.zig");
+    _ = @import("blas2/threaded.zig");
     _ = @import("from_openblas/__root__.zig");
 }
