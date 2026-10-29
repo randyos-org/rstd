@@ -72,3 +72,25 @@ pub fn exportCore(comptime core: Core) void {
 pub fn install(vt: *Vtable, core: Core) void {
     registry.install(vt, modules, core);
 }
+
+test "the @Vector kernels take every slot whose peeling assembly was left out" {
+    // the routines' own indexes, so a module that forgets `skips` is caught
+    const peeling_asm = .{
+        registry.Kernels(Core, @import("../blas1/asum/x86_64/asm/__root__.zig")),
+        registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
+        registry.Kernels(Core, @import("../blas1/dot/x86_64/asm/__root__.zig")),
+        registry.Kernels(Core, @import("../blas2/gemv/x86_64/asm/__root__.zig")),
+    };
+    @setEvalBranchQuota(100_000);
+    inline for (comptime std.meta.tags(Core)) |core| {
+        inline for (vector.peeling) |slot| {
+            const left_out = comptime for (peeling_asm) |a| {
+                if (a.skips(core, slot)) break true;
+            } else false;
+            if (left_out and !usesVector(core, slot)) {
+                std.debug.print("{t} {t}\n", .{ core, slot });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}

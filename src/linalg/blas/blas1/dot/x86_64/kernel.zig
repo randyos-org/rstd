@@ -89,6 +89,7 @@ fn VectorBlock(comptime slot: Slot) type {
 const K = uk.Kernels(Core, kernel, @import("asm/__root__.zig"), @import("uk/__root__.zig"), VectorBlock);
 
 pub const hasSlot = K.hasSlot;
+pub const skips = K.skips;
 pub const has = K.has;
 pub const exportCore = K.exportCore;
 pub const install = K.install;

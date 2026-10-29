@@ -887,11 +887,11 @@ pub fn routed(comptime slot: Slot) bool {
 /// `bulldozer` kin. Their C kernels on other cores stay.
 pub fn peels(comptime slot: Slot) bool {
     if (sysinfo.target.cpu.arch != .x86_64) return false;
-    return switch (slot) {
-        .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n => true,
-        else => false,
-    };
+    return std.mem.indexOfScalar(Slot, &peeling, slot) != null;
 }
+
+/// The slots `peels` names.
+pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n };
 
 /// Whether these kernels take `slot` from `core`'s converted ones, beyond
 /// `routed`, so its object leaves those out: every slot of theirs but `rot`
