@@ -529,6 +529,9 @@ const col = Order.col_major;
 // - `trmm`: NaN or an infinity in `B`, the same way.
 // - `ger`, `geru`, `gerc`: NaN or an infinity in `x`. Accelerate does not
 //   pass over a column whose `y` is zero, as the reference does.
+// - `syr`, `spr`, `her`, `hpr`: NaN or an infinity in `x` and a zero `x(j)`;
+//   `syr2`, `spr2`, `her2`, `hpr2`: one in `x` or `y` and a `j` where both
+//   are zero. Accelerate does not pass over that column, in either triangle.
 // - `herk`, `her2k`, `her`, `hpr`, `her2`, `hpr2`: the reference sets the
 //   diagonal's imaginary parts to zero; Accelerate scales them by `beta`
 //   (level 3), and gives NaN where an infinity meets them (`her2`, `herk`,
@@ -585,6 +588,27 @@ fn nonFinite(comptime T: type, n: isize, x: [*]const T, inc: isize) bool {
         for (0..w) |p| acc += f[i * step + p] * 0;
     }
     return acc != acc;
+}
+
+/// Whether some `j` has `x(j)`, and `y(j)` if given, zero: a column the
+/// reference's rank updates pass over.
+fn zeroColumn(comptime T: type, n: isize, x: [*]const T, incx: isize, y: ?[*]const T, incy: isize) bool {
+    const un: usize = @intCast(n);
+    for (0..un) |j| {
+        if (!isZero(T, x[elem(j, un, incx)])) continue;
+        const yv = y orelse return true;
+        if (isZero(T, yv[elem(j, un, incy)])) return true;
+    }
+    return false;
+}
+
+/// Element `j`'s offset from the lowest of `n` at stride `inc`.
+fn elem(j: usize, n: usize, inc: isize) usize {
+    return (if (inc > 0) j else n - 1 - j) * @abs(inc);
+}
+
+fn isZero(comptime T: type, v: T) bool {
+    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
 }
 
 /// `nonFinite` of a `rows` by `cols` matrix at leading dimension `ld`.
@@ -797,6 +821,7 @@ pub inline fn syr(comptime T: type, comptime herm: bool, comptime packed_: bool,
         const name = comptime "cblas_" ++ letter(T) ++ if (herm) (if (packed_) "hpr" else "her") else (if (packed_) "spr" else "syr");
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
+        if (zeroColumn(T, n, x, incx, null, 0) and nonFinite(T, n, x, incx)) return false;
         const ok = if (packed_)
             call(name, b, &.{ span(n, incx), @divExact(n * (n + 1), 2) }, .{ col, u, n, alpha, x, incx, a }) != null
         else
@@ -812,6 +837,7 @@ pub inline fn syr2(comptime T: type, comptime herm: bool, comptime packed_: bool
         const name = comptime "cblas_" ++ letter(T) ++ if (herm) (if (packed_) "hpr2" else "her2") else (if (packed_) "spr2" else "syr2");
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
+        if (zeroColumn(T, n, x, incx, y, incy) and (nonFinite(T, n, x, incx) or nonFinite(T, n, y, incy))) return false;
         const al = scalar(T, &alpha);
         const ok = if (packed_)
             call(name, b, &.{ span(n, incx), span(n, incy), @divExact(n * (n + 1), 2) }, .{ col, u, n, al, x, incx, y, incy, a }) != null
@@ -1622,6 +1648,19 @@ test "quirk cases run rstd's kernels, and the Hermitian diagonal comes out real"
     try p.saw(false, "trmv, x not finite");
     try blas.ger(al, io, f64, 4, 4, 1, &x, 1, &y, 1, &a, 4);
     try p.saw(false, "ger, x not finite");
+    // a zero factor beside an infinity, through rstd; without one, Accelerate
+    var sx = [_]f64{ 0, inf, -1, 2 };
+    @memset(&a, 1);
+    try blas.syr(al, io, f64, .l, 4, 1, &sx, 1, &a, 4);
+    try p.saw(false, "syr, x(0) zero and x not finite");
+    try zigstd.testExpectEqual(@as(f64, 1), a[1]);
+    // `x(3)` and `y(3)` are zero, `x` at a negative stride
+    var sy = [_]f64{ 1, 2, 3, -0.0 };
+    try blas.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
+    try p.saw(false, "syr2, x(j) and y(j) zero and x not finite");
+    sy[3] = 1;
+    try blas.syr2(al, io, f64, .u, 4, 1, &sx, -1, &sy, 1, &a, 4);
+    try p.saw(true, "syr2, no j with both zero");
     try blas.trmm(al, io, f64, .l, .l, .n, .n, 4, 4, 1, &a, 4, &b, 4);
     try p.saw(false, "trmm, B not finite");
     // the same cases, finite, call it

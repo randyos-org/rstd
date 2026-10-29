@@ -711,6 +711,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - The triangular level 2 with NaN or an infinity in `x`, and `trmm` with one in `B`: past
     small orders it multiplies them by the triangle's zeros.
   - `ger`, `gerc` with one in `x`: it does not pass over a zero `y`.
+  - `syr`, `spr`, `her`, `hpr` with one in `x` and a zero `x(j)`, and `syr2`, `spr2`, `her2`,
+    `hpr2` with one in `x` or `y` and a `j` where both are zero: it does not pass over that
+    column, in either triangle.
   - `herk`, `her2k` with one in `C`'s triangle and a nonzero `beta`: past small orders it scales
     `C` by the real `beta` as a complex product.
   - The Hermitian rank updates leave the diagonal's imaginary parts as `beta` times theirs, or

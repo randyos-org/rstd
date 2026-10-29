@@ -464,8 +464,9 @@ fn setAt(comptime T: type, v: *Vector(T), i: usize, e: T) void {
 /// Zero factors beside a vector's special values, away from a lone one:
 /// at `z1` a column the reference passes over (`y` for `ger`, `x`, both for
 /// rank 2), as `-0`; for rank 2, at `z2` only the other vector's zero, a
-/// column it does not, so the special value meets that zero.
-fn zeroFactors(comptime T: type, comptime r: Routine, c: Case, x: *Vector(T), y: *Vector(T)) void {
+/// column it does not, so the special value meets that zero. They take the
+/// first indices, or the last for an upper triangle, whose columns are full.
+fn zeroFactors(comptime T: type, comptime r: Routine, c: Case, lower: bool, x: *Vector(T), y: *Vector(T)) void {
     if (c.where != .x and c.where != .y) return;
     const general = r == .ger or r == .gerc;
     if (general and c.where == .y) return;
@@ -476,10 +477,13 @@ fn zeroFactors(comptime T: type, comptime r: Routine, c: Case, x: *Vector(T), y:
     };
     var z: [2]usize = undefined;
     var found: usize = 0;
-    for (0..n) |i| if (found < 2 and i != lone) {
-        z[found] = i;
-        found += 1;
-    };
+    for (0..n) |k| {
+        const i = if (lower or general) k else n - 1 - k;
+        if (found < 2 and i != lone) {
+            z[found] = i;
+            found += 1;
+        }
+    }
     if (found == 0) return;
     const nz = val(T, -0.0, 0);
     switch (r) {
@@ -509,7 +513,7 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     defer x.deinit(al);
     var y: Vector(T) = try .init(al, s.n, c.inc[1], s.n + 5, c.on(.y));
     defer y.deinit(al);
-    zeroFactors(T, r, c, &x, &y);
+    zeroFactors(T, r, c, s.lower, &x, &y);
     const az = isZero(T, alpha);
     if (az) {
         x.poison();
