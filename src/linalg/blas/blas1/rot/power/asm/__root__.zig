@@ -10,8 +10,8 @@ pub const entries = [_]Entry{
     .{ .slot = .drot_k, .module = @import("drot.zig") },
     .{ .slot = .csrot_k, .module = @import("csrot.zig") },
     .{ .slot = .zdrot_k, .module = @import("zdrot.zig") },
-    .{ .slot = .srot_k, .module = @import("srot_ppc440.zig") },
-    .{ .slot = .drot_k, .module = @import("drot_ppc440.zig") },
-    .{ .slot = .csrot_k, .module = @import("csrot_ppc440.zig") },
-    .{ .slot = .zdrot_k, .module = @import("zdrot_ppc440.zig") },
+    .{ .slot = .srot_k, .module = @import("srot_ppc440_32_32le.zig") },
+    .{ .slot = .drot_k, .module = @import("drot_ppc440_32_32le.zig") },
+    .{ .slot = .csrot_k, .module = @import("csrot_ppc440_32_32le.zig") },
+    .{ .slot = .zdrot_k, .module = @import("zdrot_ppc440_32_32le.zig") },
 };

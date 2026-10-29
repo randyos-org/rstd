@@ -30,10 +30,13 @@ pub const power: arch.Arch = .{
     .variants = &.{
         .{ .name = "32", .defines = &.{}, .triple = "powerpc-linux-gnu" },
         .{ .name = "32le", .defines = &.{}, .triple = "powerpcle-linux-gnu" },
-        .{ .name = "64", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr },
-        .{ .name = "64be", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr, .triple = "powerpc64-linux-musl" },
+        .{ .name = "64", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr, .without = &only32 },
+        .{ .name = "64be", .defines = &.{"-D__64BIT__"}, .patches = &zdot_gpr, .triple = "powerpc64-linux-musl", .without = &only32 },
     },
 };
+
+/// The 32-bit-only cores: no 64-bit target runs them.
+const only32 = [_][]const u8{ "ppc440", "ppc440fp2", "ppcg4" };
 
 /// `scal.S` and `zscal.S` read the flag argument (keep NaN for a zero alpha)
 /// at Linux ELFv1's stack offset, so ELFv2 and 32-bit read past the caller's

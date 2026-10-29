@@ -16,5 +16,5 @@ pub const entries = [_]Entry{
     .{ .slot = .zdotc_k, .module = @import("zdotc.zig") },
     .{ .slot = .cdotu_k, .module = @import("cdotu.zig") },
     .{ .slot = .cdotc_k, .module = @import("cdotc.zig") },
-    .{ .slot = .ddot_k, .module = @import("ddot_ppc440.zig") },
+    .{ .slot = .ddot_k, .module = @import("ddot_ppc440_32_32le.zig") },
 };

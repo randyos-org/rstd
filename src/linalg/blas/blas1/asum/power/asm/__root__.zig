@@ -14,8 +14,8 @@ pub const entries = [_]Entry{
     .{ .slot = .dasum_k, .module = @import("dasum.zig") },
     .{ .slot = .casum_k, .module = @import("casum.zig") },
     .{ .slot = .zasum_k, .module = @import("zasum.zig") },
-    .{ .slot = .sasum_k, .module = @import("sasum_ppc440.zig") },
-    .{ .slot = .dasum_k, .module = @import("dasum_ppc440.zig") },
-    .{ .slot = .casum_k, .module = @import("casum_ppc440.zig") },
-    .{ .slot = .zasum_k, .module = @import("zasum_ppc440.zig") },
+    .{ .slot = .sasum_k, .module = @import("sasum_ppc440_32_32le.zig") },
+    .{ .slot = .dasum_k, .module = @import("dasum_ppc440_32_32le.zig") },
+    .{ .slot = .casum_k, .module = @import("casum_ppc440_32_32le.zig") },
+    .{ .slot = .zasum_k, .module = @import("zasum_ppc440_32_32le.zig") },
 };

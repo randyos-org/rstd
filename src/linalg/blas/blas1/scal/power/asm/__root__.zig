@@ -15,11 +15,7 @@ pub const entries = [_]Entry{
     .{ .slot = .zscal_k, .module = @import("zscal_32_32le.zig") },
     .{ .slot = .zscal_k, .module = @import("zscal_64_64be.zig") },
     .{ .slot = .sscal_k, .module = @import("sscal_ppc440_32_32le.zig") },
-    .{ .slot = .sscal_k, .module = @import("sscal_ppc440_64_64be.zig") },
     .{ .slot = .dscal_k, .module = @import("dscal_ppc440_32_32le.zig") },
-    .{ .slot = .dscal_k, .module = @import("dscal_ppc440_64_64be.zig") },
     .{ .slot = .cscal_k, .module = @import("cscal_ppc440_32_32le.zig") },
-    .{ .slot = .cscal_k, .module = @import("cscal_ppc440_64_64be.zig") },
     .{ .slot = .zscal_k, .module = @import("zscal_ppc440_32_32le.zig") },
-    .{ .slot = .zscal_k, .module = @import("zscal_ppc440_64_64be.zig") },
 };

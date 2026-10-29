@@ -154,6 +154,15 @@ pub const Variant = struct {
     /// A change to every statement of every source built this way, after
     /// preprocessing (`nakedLines`'s output, one statement each).
     rewrite: ?*const fn (a: std.mem.Allocator, statement: []const u8) Error![]const u8 = null,
+    /// Cores (`KERNEL.<core>` names, any case) never built this way, such as
+    /// 32-bit-only cores in a 64-bit variant (`cpu/_corespec.zig`'s `runsOn`).
+    without: []const []const u8 = &.{},
+
+    /// Whether `core` has a build of this variant.
+    pub fn builds(v: Variant, core: []const u8) bool {
+        for (v.without) |c| if (std.ascii.eqlIgnoreCase(c, core)) return false;
+        return true;
+    }
 };
 
 /// Our fix for a bug in an upstream source, applied to its text before it is

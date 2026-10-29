@@ -19,7 +19,5 @@ pub const entries = [_]Entry{
     .{ .slot = .zaxpyc_k, .module = @import("zaxpyc_32_32le.zig") },
     .{ .slot = .zaxpyc_k, .module = @import("zaxpyc_64_64be.zig") },
     .{ .slot = .saxpy_k, .module = @import("saxpy_ppc440_32_32le.zig") },
-    .{ .slot = .saxpy_k, .module = @import("saxpy_ppc440_64_64be.zig") },
     .{ .slot = .daxpy_k, .module = @import("daxpy_ppc440_32_32le.zig") },
-    .{ .slot = .daxpy_k, .module = @import("daxpy_ppc440_64_64be.zig") },
 };

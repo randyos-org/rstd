@@ -877,7 +877,9 @@ assembly, unchanged in substance:
   selects code with `#ifdef <CORE>` and the ABI with `WINDOWS_ABI` and the like.
 - **Variants.** One file per build variant (`Arch.variants`): x86_64 `sysv` and `win`, arm `hf`
   and `sf`, POWER `32`, `32le`, `64` (little-endian ELFv2) and `64be` (big-endian; Zig emits
-  ELFv2 there too), SPARC `32` and `64`.
+  ELFv2 there too), SPARC `32` and `64`. A variant leaves out the cores it never runs
+  (`Variant.without`): POWER's 32-bit-only `ppc440`, `ppc440fp2` and `ppcg4` have no `64` or
+  `64be` build.
 - **Merged texts.** Cores whose expansions are identical share one file; texts that differ in
   under about a tenth of their lines (`similar`) share one too, with the differing lines under
   `parts`, chosen at comptime.

@@ -584,6 +584,7 @@ fn convert(a: std.mem.Allocator, ar: Arch, role_list: []const roles.Role, out_ro
         // every core's expansion, per variant
         var texts: std.ArrayList(Text) = .empty;
         for (ar.variants) |v| for (job.cores.items) |core| {
+            if (!v.builds(core)) continue;
             const lower = try lowered(a, core);
             if (ambiguous.contains(try a.print("{s}:{s}", .{ lower, try k.role(a) }))) continue;
             var lines = try arch.nakedLines(a, ar, try preprocess(a, ar, inc, k, core, v));
