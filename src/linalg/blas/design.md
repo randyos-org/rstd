@@ -1141,6 +1141,12 @@ Questions decided once, with the reason, so they are not reopened without new ev
   barriers, written from BLIS's published design (Van Zee and van de Geijn), not its code. Where
   OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin before sleeping, as both
   do, and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
+- **Filling upstream gaps** (2026-10-29). Where OpenBLAS and BLIS agree for a concrete reason
+  (numerics, hardware, a measured trade-off), rstd defers to them. Where they leave a combination
+  out only for simplicity, because their kernels cannot serve it, and a Zig `@Vector` kernel can,
+  rstd fills the gap. So 32-bit POWER builds on POWER8 to 10 keep rstd's `@Vector` kernels: both
+  upstreams run older code there only because their POWER8 to 10 kernels are 64-bit ELFv2
+  assembly (OpenBLAS's `KERNEL.POWER8`, "for now"; BLIS has no 32-bit POWER configuration).
 - **Hermitian diagonals are real** (2026-10-29). `herk`, `her2k`, `her`, `hpr`, `her2` and
   `hpr2` set the diagonal's imaginary parts to zero, as the reference does: `A = Aᴴ` makes them
   zero, and the stored ones are not part of the matrix. Where Accelerate leaves `beta` times the
