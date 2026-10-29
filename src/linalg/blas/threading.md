@@ -387,9 +387,32 @@ calls:
 | `f32` | 2000 | 101 | 191 | 186 | 319 | 294 | 384 | 349 | 414 | 373 |
 
 (A) led by 0 to 5% at most points and by 10 to 17% at a few (4 or 16 workers, `n` of 1000 and
-2000), likely from multiplying each half as it is packed, which (B) now does too. Both scaled
-alike past 4 workers, so the limit there is shared (blocking, kernels, memory), not the
-protocol.
+2000). Both scaled alike past 4 workers, so the limit there is shared (blocking, kernels,
+memory), not the protocol.
+
+`blas3/threaded.zig` as shipped, the same machine and bench (`l3thread bench`, built with
+`zig test -O fast`, since `rstd-test` builds the tests `debug` whatever `-Doptimize` says),
+2026-10-29; medians of four quiet runs, each a median of 9 to 25 interleaved calls:
+
+| Type | n | serial | 2 | 4 | 8 | 16 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `f64` | 256 | 36 | 65 | 91 | 96 | 74 |
+| `f64` | 512 | 36 | 69 | 107 | 136 | 165 |
+| `f64` | 1000 | 39 | 75 | 106 | 133 | 160 |
+| `f64` | 2000 | 44 | 53 | 86 | 126 | 145 |
+| `f32` | 256 | 68 | 91 | 113 | 113 | 89 |
+| `f32` | 512 | 79 | 92 | 150 | 210 | 268 |
+| `f32` | 1000 | 77 | 109 | 179 | 252 | 413 |
+| `f32` | 2000 | 94 | 109 | 174 | 259 | 357 |
+
+At 8 and 16 workers this is within 5% of (B) at most points (`f64` 1000 at 16: 160 against
+155; `f32` 2000 at 16: 357 against 373), above it at 512, and below at `f64` 2000 at 8 (126
+against 147). At 2 and 4 workers it is well below (B) here, but not in every run: two earlier
+quiet runs that day had 2 and 4 workers 40 to 80% faster (`f64` 2000: 77 and 121) and 8 and 16
+alike. The four runs agree with each other, so the difference is the machine's state, most
+likely where Windows puts two to four threads (one core's SMT pair or two cores), which
+`Io.Threaded` does not control. Fused packing against packing first, over those six runs, is a
+wash to 4% ahead (geometric mean of the 32 cells per run).
 
 ## Implementation plan
 

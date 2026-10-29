@@ -35,7 +35,7 @@ pub fn workers(comptime family: threading.Family, comptime T: type, work: u64) u
 
 /// `driver.run`'s loops on up to `want` workers.
 pub fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Desc, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), twice: ?T, beta: ?T, c: [*]T, ldc: usize, want: u32) Error!void {
-    return Team(T, true).run(allocator, io, vt, d, m, n, k, alpha, x, y, twice, beta, c, ldc, @min(want, threading.chunks_max));
+    return Team(T).run(allocator, io, vt, d, m, n, k, alpha, x, y, twice, beta, c, ldc, @min(want, threading.chunks_max));
 }
 
 /// `driver.trmm` or, with `solve`, `trsm` on up to `want` workers: column
@@ -121,9 +121,10 @@ fn ways(m: usize, n: usize, w: usize, um: usize, un: usize) [2]usize {
     return best;
 }
 
-/// One call's shared state; `fused` multiplies a worker's own chunks of `B`
-/// with its first row block as it packs them.
-fn Team(comptime T: type, comptime fused: bool) type {
+/// One call's shared state. A worker multiplies its own chunks of `B` with
+/// its first row block as it packs them, while they are in cache, as
+/// `level3_thread.c` does; measured even with packing first, or up to 4% ahead.
+fn Team(comptime T: type) type {
     return struct {
         const Self = @This();
         const W = driver.Work(T);
@@ -321,7 +322,7 @@ fn Team(comptime T: type, comptime fused: bool) type {
                         // the buffer is free once every peer is done with the last slice
                         if (!first) try bar.wait(io);
                         first = false;
-                        var min_i: usize = if (fused and rows.end > rows.start) Blocking.split(rows.end - rows.start, blk.p, blk.um) else 0;
+                        var min_i: usize = if (rows.end > rows.start) Blocking.split(rows.end - rows.start, blk.p, blk.um) else 0;
                         if (min_i > 0) driver.packRows(T, j.vt, j.d, x, min_l, min_i, ls, rows.start, sa);
                         jj = j0;
                         var i: usize = 0;
@@ -815,7 +816,7 @@ test "a canceled threaded gemm returns error.Canceled with no worker left runnin
 
 // `L3THREAD_BENCH` set, a fast Windows build (`rstd-test` builds the tests
 // `debug` whatever `-Doptimize` says; build with `zig test -O fast`):
-// medians of serial and the threaded driver at 2, 4, 8 and 16 workers.
+// medians of serial and threaded `gemm` at 2, 4, 8 and 16 workers.
 test "l3thread bench" {
     if (comptime sysinfo.target.os.tag != .windows or sysinfo.mode != .fast) return error.SkipZigTest;
     if (std.process.Environ.getWindows(.{ .block = .global }, std.unicode.wtf8ToWtf16LeStringLiteral("L3THREAD_BENCH")) == null) return error.SkipZigTest;
@@ -842,26 +843,18 @@ test "l3thread bench" {
         @memset(c, 0);
         const reps: usize = if (n >= 2000) 9 else if (n >= 1000) 15 else 25;
         const counts = [_]u32{ 2, 4, 8, 16 };
-        // serial, then plain and fused at each count
-        var times: [1 + 2 * counts.len][25]f64 = undefined;
+        // serial, then each count
+        var times: [1 + counts.len][25]f64 = undefined;
         // the first round warms up and is not kept
         for (0..reps + 1) |round| for (0..times.len) |x| {
-            const w: u32 = if (x == 0) 1 else counts[(x - 1) / 2];
-            const fused = x != 0 and x % 2 == 0;
             fba.reset();
             const t0 = Io.Clock.awake.now(io).toNanoseconds();
-            if (w == 1) {
-                try driver.gemm(fba.allocator(), io, T, vt, false, false, .n, n, n, n, 1, a.ptr, n, b.ptr, n, 0, c.ptr, n, 1);
-            } else if (fused) {
-                try Team(T, true).run(fba.allocator(), io, vt, .{ .rows = .n, .cols = .n }, n, n, n, 1, .{ .p = a.ptr, .ld = n }, .{ .p = b.ptr, .ld = n }, null, 0, c.ptr, n, w);
-            } else {
-                try Team(T, false).run(fba.allocator(), io, vt, .{ .rows = .n, .cols = .n }, n, n, n, 1, .{ .p = a.ptr, .ld = n }, .{ .p = b.ptr, .ld = n }, null, 0, c.ptr, n, w);
-            }
+            try driver.gemm(fba.allocator(), io, T, vt, false, false, .n, n, n, n, 1, a.ptr, n, b.ptr, n, 0, c.ptr, n, if (x == 0) 1 else counts[x - 1]);
             if (round > 0) times[x][round - 1] = @floatFromInt(Io.Clock.awake.now(io).toNanoseconds() - t0);
         };
         const flops = 2.0 * @as(f64, @floatFromInt(n * n * n));
         std.debug.print("{s} n={d}: serial {d:.1}", .{ @typeName(T), n, flops / median(times[0][0..reps]) });
-        for (counts, 0..) |w, i| std.debug.print(" | w={d} plain {d:.1} fused {d:.1}", .{ w, flops / median(times[1 + 2 * i][0..reps]), flops / median(times[2 + 2 * i][0..reps]) });
+        for (counts, 0..) |w, i| std.debug.print(" | w={d} {d:.1}", .{ w, flops / median(times[1 + i][0..reps]) });
         std.debug.print(" GFLOPS\n", .{});
     };
 }
