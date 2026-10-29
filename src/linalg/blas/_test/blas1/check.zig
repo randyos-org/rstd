@@ -176,6 +176,12 @@ pub fn sqrtW(x: f128) f128 {
     return y;
 }
 
+/// Ulps of `F` the library's own square roots may add: on sparc64 its `f128`
+/// roots keep `f64`'s precision (`issues.md`, `_Qp_sqrt`).
+pub fn rootUlps(comptime F: type) f128 {
+    return if (sysinfo.target.cpu.arch == .sparc64 and F == f128) 0x1p60 else 0;
+}
+
 /// `|re| + |im|` of a `Wide` value, `|v|` for a real one.
 pub fn abs1(v: anytype) f128 {
     return if (comptime isComplex(@TypeOf(v))) @abs(v.re) + @abs(v.im) else @abs(v);

@@ -1269,8 +1269,8 @@ fn anyFloat(comptime T: type) !void {
     }
     try check.expectNear(T, d, try dot(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
     if (comptime isComplex(T)) try check.expectNear(T, dc, try dotc(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
-    const norm = @sqrt(ssq);
-    try check.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps, norm);
+    const norm = check.sqrtW(ssq);
+    try check.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps + check.rootUlps(Float(T)), norm);
     try check.expectNear(Float(T), s1, try asum(check.io, T, n, &x, 2), ulps, s1);
     try check.expectNear(Float(T), check.abs1(wx[best]), try extreme(check.io, T, .amax, n, &x, 2), 4, s1);
     // the first of near-equal keys may differ; its key must be the largest

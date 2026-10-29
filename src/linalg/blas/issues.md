@@ -242,7 +242,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
   powers of two into f64's range first (a denormal's square is 0 in f64, and
   the steps from 0 give infinity). The library's own
   `f128` square roots (the portable `nrm2` and `rotg` at `f128`) stay at f64
-  precision there until Zig is fixed.
+  precision there until Zig is fixed; tests allow for them with
+  `check.rootUlps`. "level 1 at any float type" failed at `f80` there while
+  its reference took a plain `@sqrt` (T90).
 - **Issue text:**
 
   > **compiler-rt: sparc64 `_Qp_sqrt` computes the square root in f64**

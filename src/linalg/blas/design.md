@@ -1220,7 +1220,7 @@ which OpenBLAS source each core uses, and what rstd serves in its place.
 | Path | Role |
 | --- | --- |
 | `_test/types.zig` | tests of `types.zig`, which the per-core objects compile without `zigstd` |
-| `_test/blas1/check.zig` | `eachCore`, the wide reference `Wide`, `Pattern`, `rig`, `sqrtW` |
+| `_test/blas1/check.zig` | `eachCore`, the wide reference `Wide`, `Pattern`, `rig`, `sqrtW`, `rootUlps` |
 | `_test/blas1/edge.zig`, `_test/blas1/denormal.zig` | level-1 special values and denormals on every core |
 | `_test/blas2/edge.zig`, `_test/blas2/guard.zig` | level-2 special values; the buffer guards |
 | `_test/blas3/check.zig` | the level-3 harness each routine's tests call |
@@ -1414,7 +1414,8 @@ they run natively too.
   accepts `2 (k + 2)` ulps of the sum of magnitudes (this and the LAPACK tests' `2 (n + 2)` and
   `8 (n + 2)` are our margins over the roundings per element, not published bounds), `trsm` its substitution step by step.
   `sqrtW` adds Newton steps where sparc64's `_Qp_sqrt` works in `f64` (Zig
-  `lib/compiler_rt/sqrt.zig:493-494` at 069480a1a).
+  `lib/compiler_rt/sqrt.zig:493-494` at 069480a1a); `rootUlps` allows for the library's own
+  `f128` roots there.
 - **Order-free comparisons.** A core may sum in any order, so plain-loop checks allow rounding
   error; complex infinities may meet in another order than the reference's
   (`expectWideAnyOrder`).
