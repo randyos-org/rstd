@@ -738,7 +738,7 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
 }
 
 test "workers adopt the caller's rounding and flush to zero and leave the caller's state as it was" {
-    if (comptime !hosted or FpState.empty) return error.SkipZigTest;
+    if (comptime !hosted or !FpState.governs) return error.SkipZigTest;
     const n = 64123;
     const x = try zigstd.testAllocator.alloc(f64, n);
     defer zigstd.testAllocator.free(x);

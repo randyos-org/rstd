@@ -270,6 +270,9 @@ pub const FpState = struct {
 
     /// Whether there is no state to carry.
     pub const empty = !fp_x87 and fp_reg == null;
+    /// Whether Zig's own float code follows it: not under a soft-float ABI,
+    /// whose arithmetic is compiler_rt's; only asm kernels' then.
+    pub const governs = !empty and fp_hard;
 
     pub fn capture() FpState {
         var s: FpState = undefined;
@@ -458,13 +461,14 @@ test "FpState: apply sets what capture reads, the rounding follows, and the stat
     if (comptime FpState.empty) return error.SkipZigTest;
     const own: FpState = .capture();
     defer own.apply();
+    const down = [2]bool{ FpState.governs, FpState.governs };
     try std.testing.expectEqual([2]bool{ false, false }, roundsDown());
     const rz = own.towardZero();
     try std.testing.expect(!rz.eql(own));
     try std.testing.expect(rz.adopt().?.eql(own));
     try std.testing.expect(FpState.capture().eql(rz));
     try std.testing.expect(rz.adopt() == null);
-    try std.testing.expectEqual([2]bool{ true, true }, roundsDown());
+    try std.testing.expectEqual(down, roundsDown());
     own.apply();
     try std.testing.expect(FpState.capture().eql(own));
     try std.testing.expectEqual([2]bool{ false, false }, roundsDown());

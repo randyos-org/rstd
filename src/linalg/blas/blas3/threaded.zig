@@ -618,7 +618,7 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops 
 }
 
 test "threaded gemm keeps the serial bits under the caller's rounding toward zero and flush to zero" {
-    if (comptime !threading.hosted or util.FpState.empty) return error.SkipZigTest;
+    if (comptime !threading.hosted or !util.FpState.governs) return error.SkipZigTest;
     const own: util.FpState = .capture();
     defer own.apply();
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
