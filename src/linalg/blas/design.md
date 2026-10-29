@@ -365,7 +365,7 @@ cpu/<arch>.zig: vtableFromCoreType(core)
   `runnable` requires), apart from the spec. `excess` is what an object uses beyond that and
   beyond the target; the build stops on any (`checkIsa` in `build/blaskern.zig`), and a test
   tries every architecture with its baselines and each core's own CPU as targets. `undecided`
-  lists the spec features waiting on a decision (SME's F64F64 on `armv9sme`). The check sees
+  lists spec features waiting on a decision; keep it empty. The check sees
   compiler-chosen instructions only: x86 inline assembly is not held to the target's features.
 - **Groups.** `build/blaskern.zig` takes `corespec.kernelCores(arch)` (the cores with kernels,
   derived from the registries and checked by a test in `cpu/__root__.zig`), keeps those whose
@@ -718,7 +718,7 @@ other targets cannot assemble.
 | Family | Probe |
 | --- | --- |
 | x86, x86_64 | `cpuid` and `xgetbv`, unprivileged, so the same on every OS and freestanding |
-| arm64 | Darwin: `sysctl` (Apple, SME); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity`, plus the hwcaps; Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent`; freestanding and UEFI: the ID registers |
+| arm64 | Darwin: `sysctl` (Apple, `FEAT_SME`, `FEAT_SME_F64F64`); Linux and FreeBSD: `MIDR_EL1` through the kernel's emulation (`HWCAP_CPUID`), else per-CPU sysfs `midr_el1` and `cpu_capacity`, plus the hwcaps (`HWCAP2_SME_F64F64` among them); Windows: `MIDR_EL1` from the registry, features from `IsProcessorFeaturePresent` (`PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE`); freestanding and UEFI: the ID registers (`ID_AA64SMFR0_EL1.F64F64`) |
 | arm | `AT_HWCAP` VFP and NEON bits and the part in `/proc/cpuinfo`; freestanding and UEFI: CP15 and VFP ID registers |
 | power | `AT_PLATFORM`, then the PVR (`mfpvr`, emulated by Linux), then the ISA bits of `AT_HWCAP`/`AT_HWCAP2`; freestanding: the PVR |
 | mips | Loongson `cpucfg` where `AT_HWCAP` advertises it, else `/proc/cpuinfo` (Linux only) |
@@ -760,6 +760,10 @@ Where the port differs from `dynamic*.c`:
   per-CPU sysfs pass reads `cpu_capacity` (decimal), as `cpuid_arm64.c` does;
   `dynamic_arm64.c` reads `cpu_capability`, which Linux does not have. Every core built for
   ARMv8.3 and up needs FCMA, since its `trsm` kernels hold `FCMLA`; Apple's cores always have it.
+  The SME cores (`armv9sme`, `vortexm4`) are built with SME's optional F64F64, as the
+  reference's are, so they need it detected: the reference picks them on SME alone. Each probe
+  decodes it from its raw values in a pure function, and it counts only alongside SME. A
+  Windows without the SME flags answers false, so it never gets an SME core.
 - **riscv.** `vlenb` picks `riscv64_zvl256b`, which has no object yet, so `riscv64_zvl128b`
   serves it.
 - **power.** POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440, static targets
