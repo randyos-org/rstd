@@ -1243,15 +1243,21 @@ Questions decided once, with the reason, so they are not reopened without new ev
   before and after is recorded, and a ratio within 3% of parity is reported as within noise;
   multithreaded rows are indicative only.
 - **Level-3 threading follows BLIS** (2026-10-29): `jc x ic` ways sharing packed `B` through
-  barriers, written from BLIS's published design (Van Zee and van de Geijn), not its code. Where
-  OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin before sleeping, as both
-  do, and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
+  barriers, written from BLIS's published design, not its code (F. G. Van Zee, R. A. van de
+  Geijn, "BLIS: A Framework for Rapidly Instantiating BLAS Functionality", ACM TOMS 41(3), 1-33,
+  2015, <https://doi.org/10.1145/2764454>; the threading in T. M. Smith, R. van de Geijn,
+  M. Smelyanskiy, J. R. Hammond, F. G. Van Zee, "Anatomy of High-Performance Many-Threaded
+  Matrix Multiplication", IPDPS 2014, 1049-1059, <https://doi.org/10.1109/IPDPS.2014.110>). Where
+  OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin, as both do (inside a
+  call without bound: BLIS's `frame/thread/bli_thrcomm.c:264`, OpenBLAS's `driver/level3/level3_thread.c:408`;
+  rstd's spin is bounded, then sleeps, [`threading.md`](threading.md)), and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
 - **Filling upstream gaps** (2026-10-29). Where OpenBLAS and BLIS agree for a concrete reason
   (numerics, hardware, a measured trade-off), rstd defers to them. Where they leave a combination
   out only for simplicity, because their kernels cannot serve it, and a Zig `@Vector` kernel can,
   rstd fills the gap. So 32-bit POWER builds on POWER8 to 10 keep rstd's `@Vector` kernels: both
   upstreams run older code there only because their POWER8 to 10 kernels are 64-bit ELFv2
-  assembly (OpenBLAS's `KERNEL.POWER8`, "for now"; BLIS has no 32-bit POWER configuration).
+  assembly (OpenBLAS's `kernel/power/KERNEL.POWER8:1`: "Big-endian 32bit (AIX) is supported
+  through the POWER6 GEMM kernels"; BLIS has no 32-bit POWER configuration).
 - **Hermitian diagonals are real** (2026-10-29). `herk`, `her2k`, `her`, `hpr`, `her2` and
   `hpr2` set the diagonal's imaginary parts to zero, as the reference does: `A = Aᴴ` makes them
   zero, and the stored ones are not part of the matrix. Where Accelerate leaves `beta` times the
@@ -1271,7 +1277,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   gives the same bits every time. The BLAS keeps its slice and stride routines for `linalg` to
   call. `rstd.simd` splits between them: slice reductions become BLAS routines, element-wise
   helpers (`mix`, `mulAdd`) move to `linalg.vector` (todo.md, M3). Under SPIR-V each operation is
-  SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`), used as is,
+  SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
+  1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
 - **The matlab port defers to modern BLAS and LAPACK** (2026-10-29). `rstd.linalg.matlab`
   ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (OpenBLAS's, else
@@ -1301,7 +1308,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   where both are, as Reference-LAPACK 3.12.1 and master do, so a NaN or infinity in the other
   vector never meets that zero. OpenBLAS and BLIS disagree with each other and give no reason, so
   the reference decides; revisit when it drops the skip, as its PR #1323 did for the triangular
-  routines ([`comparisons.md`](comparisons.md) (5)).
+  routines (<https://github.com/Reference-LAPACK/lapack/pull/1323>, merged 2026-07-13) ([`comparisons.md`](comparisons.md) (5)).
 - **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
   `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
