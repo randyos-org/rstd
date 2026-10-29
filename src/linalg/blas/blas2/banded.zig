@@ -5,9 +5,10 @@
 //! time through the level-1 kernels: copy, scal, dot, axpy, axpyc).
 //!
 //! The complex symmetric forms (`ZSBMV`, `ZSPMV`, `ZSPR`, `ZSPR2`, `ZSYR`,
-//! `ZSYR2`) are OpenBLAS extensions. `V` and `M` in the Hermitian `uplo` are
-//! its `HEMVREV` forms (upper and lower, the transpose of the Hermitian
-//! matrix); the Fortran interface accepts them.
+//! `ZSYR2`) are OpenBLAS extensions. `V` and `M` in `?HBMV`'s `uplo` are its
+//! `HEMVREV` forms (upper and lower, the transpose of the Hermitian matrix),
+//! which its Fortran interface accepts; the other Hermitian routines get them
+//! only from row-major CBLAS, so they reject them.
 //!
 //! Element type `T` is any float type or its `Complex`; sizes and strides
 //! are `isize`. Vectors with a negative stride start at the
@@ -245,49 +246,45 @@ fn mvDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptim
 }
 
 /// `driver/level2/{spr,syr,zspr,zsyr,zhpr,zher}_k.c`: `A += alpha*x*x^T`, or
-/// `alpha*x*x^H` for the Hermitian kinds (real `alpha`), on one triangle in
-/// full (`lda`) or packed storage. A column whose `x` is zero is passed over,
-/// as the reference does; OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
-fn rankDriver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
+/// `alpha*x*x^H` for `herm` (real `alpha`), on one triangle in full (`lda`)
+/// or packed storage. A column whose `x` is zero is passed over, as the
+/// reference does; OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
+fn rankDriver(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: if (herm) Float(T) else T, x: [*]T, incx: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
     var sx: Scratch(T) = .{};
     defer sx.deinit(allocator);
-    rankColumns(T, kind, lower, packed_, n, alpha, try sx.unit(allocator, n, x, incx), a, lda);
+    rankColumns(T, herm, lower, packed_, n, alpha, try sx.unit(allocator, n, x, incx), a, lda);
 }
 
 /// `rankDriver`'s columns over a unit-stride `X`.
-fn rankColumns(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (kind == .symmetric) T else Float(T), X: [*]T, a: [*]T, lda: BlasLong) void {
+fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (herm) Float(T) else T, X: [*]T, a: [*]T, lda: BlasLong) void {
     var col = a;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) at(T, X, i) else X;
         const xi = el(T, X, i).*;
-        if (!isZero(T, xi)) switch (kind) {
-            .symmetric => axpyK(T, false, len, mul(T, alpha, xi), xs, col),
-            .hermitian => axpyK(T, false, len, scaleF(T, conj(T, xi), alpha), xs, col),
-            .hermitian_rev => axpyK(T, true, len, scaleF(T, xi, alpha), xs, col),
-        };
-        if (kind != .symmetric) el(T, col, if (lower) 0 else i).im = 0;
+        if (!isZero(T, xi)) axpyK(T, false, len, if (herm) scaleF(T, conj(T, xi), alpha) else mul(T, alpha, xi), xs, col);
+        if (herm) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
 }
 
 /// `driver/level2/{spr2,syr2,zspr2,zsyr2,zhpr2,zher2}_k.c`: `A += alpha*x*y^T
-/// + alpha*y*x^T`, or `alpha*x*y^H + conj(alpha)*y*x^H` for the Hermitian
-/// kinds. A column whose `x` and `y` are both zero is passed over, as the
-/// reference does; OpenBLAS's drivers do not.
-fn rank2Driver(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
+/// + alpha*y*x^T`, or `alpha*x*y^H + conj(alpha)*y*x^H` for `herm`. A column
+/// whose `x` and `y` are both zero is passed over, as the reference does;
+/// OpenBLAS's drivers do not.
+fn rank2Driver(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, allocator: Allocator, n: BlasLong, alpha: T, x: [*]T, incx: BlasLong, y: [*]T, incy: BlasLong, a: [*]T, lda: BlasLong) Allocator.Error!void {
     var sx: Scratch(T) = .{};
     var sy: Scratch(T) = .{};
     defer sx.deinit(allocator);
     defer sy.deinit(allocator);
     const X = try sx.unit(allocator, n, x, incx);
     const Y = try sy.unit(allocator, n, y, incy);
-    rank2Columns(T, kind, lower, packed_, n, alpha, X, Y, a, lda);
+    rank2Columns(T, herm, lower, packed_, n, alpha, X, Y, a, lda);
 }
 
 /// `rank2Driver`'s columns over unit-stride `X` and `Y`.
-fn rank2Columns(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong) void {
+fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong) void {
     var col = a;
     var i: BlasLong = 0;
     while (i < n) : (i += 1) {
@@ -296,21 +293,11 @@ fn rank2Columns(comptime T: type, comptime kind: Kind, comptime lower: bool, com
         const ys = if (lower) at(T, Y, i) else Y;
         const xi = el(T, X, i).*;
         const yi = el(T, Y, i).*;
-        if (!isZero(T, xi) or !isZero(T, yi)) switch (kind) {
-            .symmetric => {
-                axpyK(T, false, len, mul(T, alpha, xi), ys, col);
-                axpyK(T, false, len, mul(T, alpha, yi), xs, col);
-            },
-            .hermitian => {
-                axpyK(T, false, len, conj(T, mul(T, alpha, xi)), ys, col);
-                axpyK(T, false, len, mul(T, alpha, conj(T, yi)), xs, col);
-            },
-            .hermitian_rev => {
-                axpyK(T, true, len, mul(T, alpha, xi), ys, col);
-                axpyK(T, true, len, mul(T, conj(T, alpha), yi), xs, col);
-            },
-        };
-        if (kind != .symmetric) el(T, col, if (lower) 0 else i).im = 0;
+        if (!isZero(T, xi) or !isZero(T, yi)) {
+            axpyK(T, false, len, if (herm) conj(T, mul(T, alpha, xi)) else mul(T, alpha, xi), ys, col);
+            axpyK(T, false, len, if (herm) mul(T, alpha, conj(T, yi)) else mul(T, alpha, yi), xs, col);
+        }
+        if (herm) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
 }
@@ -394,7 +381,7 @@ pub fn sbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
 }
 
 /// `?HBMV` (`interface/zhbmv.c`): `sbmv` for a Hermitian matrix; the
-/// diagonal's imaginary part is not read.
+/// diagonal's imaginary part is not read. `v` and `m` take `conj(S)`.
 pub fn hbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hbmv: " ++ @typeName(T) ++ " is not complex");
     if (n < 0) return error.InvalidN;
@@ -419,59 +406,58 @@ pub fn spmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
 /// `?HPMV` (`interface/zhpmv.c`): `hbmv` for packed storage.
 pub fn hpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("hpmv: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    switch (uplo.isRev()) {
-        inline else => |rev| try mvInterface(allocator, io, T, if (rev) .hermitian_rev else .hermitian, true, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy),
-    }
+    try mvInterface(allocator, io, T, .hermitian, true, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy);
 }
 
 /// OpenBLAS's small-`n` paths (`interface/syr.c`, `spr.c`, `syr2.c`, `spr2.c`,
 /// `zsyr.c`): below this `n`, a unit-stride update runs its columns in the
 /// interface, with no buffer; 0 where upstream has none.
-fn smallN(comptime T: type, comptime kind: Kind, comptime packed_: bool, comptime two: bool) BlasLong {
-    if (kind != .symmetric) return 0;
+fn smallN(comptime T: type, comptime herm: bool, comptime packed_: bool, comptime two: bool) BlasLong {
+    if (herm) return 0;
     if (isComplex(T)) return if (!two and !packed_) 50 else 0;
     return if (two and packed_) 50 else 100;
 }
 
-fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime kind: Kind, comptime packed_: bool, lower: bool, n: isize, alpha: if (kind == .symmetric) T else Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
+fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: if (herm) Float(T) else T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     _ = io;
     if (n == 0) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
-    if (comptime kind == .symmetric) {
-        if (isZero(T, alpha)) return;
-    } else if (alpha == 0) return;
+    if (comptime herm) {
+        if (alpha == 0) return;
+    } else if (isZero(T, alpha)) return;
     _ = blas.vtable();
-    if (kind != .hermitian_rev and accel.syr(T, kind == .hermitian, packed_, if (lower) .l else .u, n, alpha, x, incx, a, lda)) return;
-    const small = incx == 1 and n < comptime smallN(T, kind, packed_, false);
+    if (accel.syr(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, a, lda)) return;
+    const small = incx == 1 and n < comptime smallN(T, herm, packed_, false);
     const px = first(T, x, n, incx);
     switch (lower) {
         inline else => |lo| if (small)
-            rankColumns(T, kind, lo, packed_, n, alpha, x, a, lda)
+            rankColumns(T, herm, lo, packed_, n, alpha, x, a, lda)
         else
-            try rankDriver(T, kind, lo, packed_, allocator, n, alpha, px, incx, a, lda),
+            try rankDriver(T, herm, lo, packed_, allocator, n, alpha, px, incx, a, lda),
     }
 }
 
-fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime kind: Kind, comptime packed_: bool, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
+fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     _ = io;
     if (n == 0 or isZero(T, alpha)) return;
     try spans(T, packed_, n, lda);
     if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     _ = blas.vtable();
-    if (kind != .hermitian_rev and accel.syr2(T, kind == .hermitian, packed_, if (lower) .l else .u, n, alpha, x, incx, y, incy, a, lda)) return;
-    const small = incx == 1 and incy == 1 and n < comptime smallN(T, kind, packed_, true);
+    if (accel.syr2(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, y, incy, a, lda)) return;
+    const small = incx == 1 and incy == 1 and n < comptime smallN(T, herm, packed_, true);
     const px = first(T, x, n, incx);
     const py = first(T, y, n, incy);
     switch (lower) {
         inline else => |lo| if (small)
-            rank2Columns(T, kind, lo, packed_, n, alpha, x, y, a, lda)
+            rank2Columns(T, herm, lo, packed_, n, alpha, x, y, a, lda)
         else
-            try rank2Driver(T, kind, lo, packed_, allocator, n, alpha, px, incx, py, incy, a, lda),
+            try rank2Driver(T, herm, lo, packed_, allocator, n, alpha, px, incx, py, incy, a, lda),
     }
 }
 
@@ -481,7 +467,7 @@ pub fn spr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize,
     if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
-    try rankInterface(allocator, io, T, .symmetric, true, uplo.isLower(), n, alpha, x, incx, a, 0);
+    try rankInterface(allocator, io, T, false, true, uplo.isLower(), n, alpha, x, incx, a, 0);
 }
 
 /// `?SYR` (`interface/syr.c`, `zsyr.c`): `spr` for full storage.
@@ -490,29 +476,27 @@ pub fn syr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize,
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
-    try rankInterface(allocator, io, T, .symmetric, false, uplo.isLower(), n, alpha, x, incx, a, lda);
+    try rankInterface(allocator, io, T, false, false, uplo.isLower(), n, alpha, x, incx, a, lda);
 }
 
 /// `?HPR` (`interface/zhpr.c`): `A += alpha*x*x^H` for real `alpha`; the
 /// diagonal's imaginary part becomes zero.
 pub fn hpr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T) Error!void {
     if (comptime !isComplex(T)) @compileError("hpr: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rankInterface(allocator, io, T, if (rev) .hermitian_rev else .hermitian, true, uplo.isLower(), n, alpha, x, incx, a, 0),
-    }
+    try rankInterface(allocator, io, T, true, true, uplo.isLower(), n, alpha, x, incx, a, 0);
 }
 
 /// `?HER` (`interface/zher.c`): `hpr` for full storage.
 pub fn her(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("her: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rankInterface(allocator, io, T, if (rev) .hermitian_rev else .hermitian, false, uplo.isLower(), n, alpha, x, incx, a, lda),
-    }
+    try rankInterface(allocator, io, T, true, false, uplo.isLower(), n, alpha, x, incx, a, lda);
 }
 
 /// `?SPR2` (`interface/spr2.c`, `zspr2.c`): `A += alpha*(x*y^T + y*x^T)` on
@@ -522,7 +506,7 @@ pub fn spr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(allocator, io, T, .symmetric, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
+    try rank2Interface(allocator, io, T, false, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
 }
 
 /// `?SYR2` (`interface/syr2.c`, `zsyr2.c`): `spr2` for full storage.
@@ -532,31 +516,29 @@ pub fn syr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(allocator, io, T, .symmetric, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
+    try rank2Interface(allocator, io, T, false, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
 }
 
 /// `?HPR2` (`interface/zhpr2.c`): `A += alpha*x*y^H + conj(alpha)*y*x^H`; the
 /// diagonal's imaginary part becomes zero.
 pub fn hpr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
     if (comptime !isComplex(T)) @compileError("hpr2: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rank2Interface(allocator, io, T, if (rev) .hermitian_rev else .hermitian, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0),
-    }
+    try rank2Interface(allocator, io, T, true, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
 }
 
 /// `?HER2` (`interface/zher2.c`): `hpr2` for full storage.
 pub fn her2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
     if (comptime !isComplex(T)) @compileError("her2: " ++ @typeName(T) ++ " is not complex");
+    if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
     if (incx == 0) return error.InvalidIncx;
     if (incy == 0) return error.InvalidIncy;
-    switch (uplo.isRev()) {
-        inline else => |rev| try rank2Interface(allocator, io, T, if (rev) .hermitian_rev else .hermitian, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda),
-    }
+    try rank2Interface(allocator, io, T, true, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
 }
 
 // ---- tests -------------------------------------------------------------------
@@ -660,7 +642,7 @@ fn checkMv(comptime T: type, comptime st: Store, comptime kind: Kind, lower: boo
             .packed_ => if (kind == .symmetric)
                 try spmv(talloc, check.io, T, un, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1])
             else
-                try hpmv(talloc, check.io, T, hu, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1]),
+                try hpmv(talloc, check.io, T, un, nn, alpha, &a, &xs, inc[0], beta, &ys, inc[1]),
             .full => unreachable,
         }
         check.expectCloseSlices(T, &want, &ys, tol(T, n)) catch |e| {
@@ -675,7 +657,7 @@ fn kindsOf(comptime T: type) []const Kind {
 }
 
 /// Checks the rank-1 and rank-2 updates against dense arithmetic.
-fn checkRank(comptime T: type, comptime st: Store, comptime kind: Kind, lower: bool) !void {
+fn checkRank(comptime T: type, comptime st: Store, comptime herm: bool, lower: bool) !void {
     var seed: u64 = 1000;
     for (cases) |c| for (inc_pairs) |inc| for ([_]bool{ false, true }) |two| {
         seed += 1;
@@ -698,59 +680,49 @@ fn checkRank(comptime T: type, comptime st: Store, comptime kind: Kind, lower: b
             const xc = xs[vecAt(c_, n, inc[0])];
             const yr = ys[vecAt(r, n, inc[1])];
             const yc = ys[vecAt(c_, n, inc[1])];
-            var v: T = undefined;
-            switch (kind) {
-                .symmetric => v = if (two)
-                    mul(T, alpha, add(T, mul(T, xr, yc), mul(T, yr, xc)))
-                else
-                    mul(T, alpha, mul(T, xr, xc)),
-                .hermitian, .hermitian_rev => {
-                    v = if (two)
-                        add(T, mul(T, alpha, mul(T, xr, conj(T, yc))), mul(T, conj(T, alpha), mul(T, yr, conj(T, xc))))
-                    else
-                        scaleF(T, mul(T, xr, conj(T, xc)), alpha_f);
-                    if (kind == .hermitian_rev) v = conj(T, v);
-                },
-            }
+            const v = if (herm and two)
+                add(T, mul(T, alpha, mul(T, xr, conj(T, yc))), mul(T, conj(T, alpha), mul(T, yr, conj(T, xc))))
+            else if (herm)
+                scaleF(T, mul(T, xr, conj(T, xc)), alpha_f)
+            else if (two)
+                mul(T, alpha, add(T, mul(T, xr, yc), mul(T, yr, xc)))
+            else
+                mul(T, alpha, mul(T, xr, xc));
             want[p] = add(T, want[p], v);
-            if (r == c_ and kind != .symmetric) {
-                if (comptime isComplex(T)) want[p].im = 0;
+            if (herm) {
+                if (r == c_) want[p].im = 0;
             }
         };
         const un: Uplo = if (lower) .l else .u;
-        const hu: Uplo = switch (kind) {
-            .hermitian_rev => if (lower) .m else .v,
-            else => un,
-        };
         const nn: isize = @intCast(n);
         const lda: isize = @intCast(ld);
         switch (st) {
             .packed_ => if (two) {
-                if (kind == .symmetric)
+                if (!herm)
                     try spr2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a)
                 else
-                    try hpr2(talloc, check.io, T, hu, nn, a0, &xs, inc[0], &ys, inc[1], &a);
+                    try hpr2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a);
             } else {
-                if (kind == .symmetric)
+                if (!herm)
                     try spr(talloc, check.io, T, un, nn, a0, &xs, inc[0], &a)
                 else
-                    try hpr(talloc, check.io, T, hu, nn, alpha_f, &xs, inc[0], &a);
+                    try hpr(talloc, check.io, T, un, nn, alpha_f, &xs, inc[0], &a);
             },
             .full => if (two) {
-                if (kind == .symmetric)
+                if (!herm)
                     try syr2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda)
                 else
-                    try her2(talloc, check.io, T, hu, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda);
+                    try her2(talloc, check.io, T, un, nn, a0, &xs, inc[0], &ys, inc[1], &a, lda);
             } else {
-                if (kind == .symmetric)
+                if (!herm)
                     try syr(talloc, check.io, T, un, nn, a0, &xs, inc[0], &a, lda)
                 else
-                    try her(talloc, check.io, T, hu, nn, alpha_f, &xs, inc[0], &a, lda);
+                    try her(talloc, check.io, T, un, nn, alpha_f, &xs, inc[0], &a, lda);
             },
             .band => unreachable,
         }
         check.expectCloseSlices(T, &want, &a, tol(T, 4)) catch |e| {
-            check.say("rank{s} {s} {s} n={d} inc={d},{d} lower={}: ", .{ if (two) "2" else "1", @tagName(st), @tagName(kind), n, inc[0], inc[1], lower });
+            check.say("rank{s} {s} herm={} n={d} inc={d},{d} lower={}: ", .{ if (two) "2" else "1", @tagName(st), herm, n, inc[0], inc[1], lower });
             return e;
         };
     };
@@ -809,10 +781,14 @@ fn runAll(comptime list: anytype) !void {
     inline for (list) |T| {
         try checkGbmv(T);
         inline for (.{ Store.band, Store.packed_ }) |st| {
-            inline for (comptime kindsOf(T)) |kind| for ([_]bool{ false, true }) |lower| try checkMv(T, st, kind, lower);
+            inline for (comptime kindsOf(T)) |kind| {
+                // `hpmv` takes no `HEMVREV` triangle
+                if (st == .packed_ and kind == .hermitian_rev) continue;
+                for ([_]bool{ false, true }) |lower| try checkMv(T, st, kind, lower);
+            }
         }
         inline for (.{ Store.full, Store.packed_ }) |st| {
-            inline for (comptime kindsOf(T)) |kind| for ([_]bool{ false, true }) |lower| try checkRank(T, st, kind, lower);
+            inline for (if (comptime isComplex(T)) .{ false, true } else .{false}) |herm| for ([_]bool{ false, true }) |lower| try checkRank(T, st, herm, lower);
         }
     }
 }
@@ -840,7 +816,7 @@ test "banded, packed and rank updates match dense arithmetic on every core" {
 /// The small-`n` path against the driver, bit for bit, for every `n` below
 /// the threshold, with zeros in `x` and `y` for the skip.
 fn checkSmall(comptime T: type, comptime packed_: bool, comptime two: bool) !void {
-    const limit = comptime smallN(T, .symmetric, packed_, two);
+    const limit = comptime smallN(T, false, packed_, two);
     if (limit == 0) return;
     const len: usize = @intCast(limit * limit);
     const a = try talloc.alloc(T, len);
@@ -869,9 +845,9 @@ fn checkSmall(comptime T: type, comptime packed_: bool, comptime two: bool) !voi
         }
         switch (lower) {
             inline else => |lo| if (two)
-                try rank2Driver(T, .symmetric, lo, packed_, talloc, nn, alpha, &xs, 1, &ys, 1, b.ptr, lda)
+                try rank2Driver(T, false, lo, packed_, talloc, nn, alpha, &xs, 1, &ys, 1, b.ptr, lda)
             else
-                try rankDriver(T, .symmetric, lo, packed_, talloc, nn, alpha, &xs, 1, b.ptr, lda),
+                try rankDriver(T, false, lo, packed_, talloc, nn, alpha, &xs, 1, b.ptr, lda),
         }
         for (a, b, 0..) |p, q, i| if (!check.same(T, p, q, true)) {
             check.say("small rank{s} {s} {s} n={d} lower={} at {d}: ", .{ if (two) "2" else "1", @typeName(T), if (packed_) "packed" else "full", n, lower, i });
@@ -963,6 +939,20 @@ test "invalid arguments and quick returns" {
     // the symmetric routines take no Hermitian `uplo`, real `gbmv` no `o` to `d`
     try std.testing.expectError(error.InvalidUplo, sbmv(talloc, check.io, f64, .v, -1, -1, 1, &a, 0, &x, 0, 1, &y, 0));
     try std.testing.expectError(error.InvalidUplo, syr2(talloc, check.io, f64, .m, -1, 1, &x, 0, &y, 0, &a, 0));
+    // only `hbmv` of these takes `v` and `m`; upstream's others get them from
+    // row-major CBLAS alone
+    var ca: [4]Complex64 = @splat(.init(1, 0));
+    var cx: [2]Complex64 = @splat(.init(1, 0));
+    var cy = cx;
+    const c1: Complex64 = .init(1, 0);
+    for ([_]Uplo{ .v, .m }) |u| {
+        try std.testing.expectError(error.InvalidUplo, hpmv(talloc, check.io, Complex64, u, -1, c1, &ca, &cx, 0, c1, &cy, 0));
+        try std.testing.expectError(error.InvalidUplo, her(talloc, check.io, Complex64, u, -1, 1, &cx, 0, &ca, 0));
+        try std.testing.expectError(error.InvalidUplo, hpr(talloc, check.io, Complex64, u, -1, 1, &cx, 0, &ca));
+        try std.testing.expectError(error.InvalidUplo, her2(talloc, check.io, Complex64, u, -1, c1, &cx, 0, &cy, 0, &ca, 0));
+        try std.testing.expectError(error.InvalidUplo, hpr2(talloc, check.io, Complex64, u, -1, c1, &cx, 0, &cy, 0, &ca));
+        try hbmv(talloc, check.io, Complex64, u, 2, 1, c1, &ca, 2, &cx, 1, c1, &cy, 1);
+    }
     try std.testing.expectError(error.InvalidTrans, gbmv(talloc, check.io, f64, .d, -1, 2, 1, 1, 1, &a, 2, &x, 1, 1, &y, 1));
     // real `r` and `c` are `n` and `t`
     var yn = [_]f64{ 0, 0 };

@@ -31,8 +31,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `?min`), `rot`, `rotm`, `rotg`, `zrotg`, `rotmg`, `axpy`, `axpyc`, `axpby`, `cabs1`.
 - **Level 2:** `gemv`, `ger`, `gerc`, `symv`, `hemv`, `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`,
   `tpsv`, `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `spr2`, `syr`, `syr2`, `hpr`, `hpr2`,
-  `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s transposed
-  (`HEMVREV`) triangles.
+  `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s and `hbmv`'s
+  transposed (`HEMVREV`) triangles.
 - **Level 3:** `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`,
   `trsm`, real and complex.
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.

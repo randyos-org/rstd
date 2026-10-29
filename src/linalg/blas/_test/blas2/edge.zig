@@ -272,13 +272,14 @@ const Routine = enum {
         return r == .trsv or r == .tbsv or r == .tpsv;
     }
 
-    /// Variants: `gemv`'s and `gbmv`'s transposes, the triangles (with the
-    /// reversed Hermitian ones), and the triangular routines' triangle,
-    /// transpose and diagonal (`v / 8`, `v / 2 % 4`, `v % 2`).
+    /// Variants: `gemv`'s and `gbmv`'s transposes, the triangles (with
+    /// `hemv`'s and `hbmv`'s reversed Hermitian ones), and the triangular
+    /// routines' triangle, transpose and diagonal (`v / 8`, `v / 2 % 4`,
+    /// `v % 2`).
     fn variants(r: Routine, complex: bool) usize {
         return switch (r) {
             .gemv, .gbmv => if (complex) 8 else 2,
-            .hemv, .hbmv, .hpmv, .her, .hpr, .her2, .hpr2 => 4,
+            .hemv, .hbmv => 4,
             .trmv, .tbmv, .tpmv, .trsv, .tbsv, .tpsv => 16,
             .ger, .gerc => 1,
             else => 2,
@@ -502,7 +503,7 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     try x.unchanged();
     try y.unchanged();
     if (az) return a.unchanged();
-    const herm = s.kind == .hermitian or s.kind == .hermitian_rev;
+    const herm = s.kind == .hermitian;
     // `her` and `hpr` take the real part
     const wa = check.wide(T, if (r == .her or r == .hpr) val(T, ar, 0) else alpha);
     // everything but the stored entries keeps its NaN
@@ -534,7 +535,6 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
             .her2, .hpr2 => check.addW(check.mulW(wa, check.mulW(xi, check.conjW(yj))), check.mulW(check.conjW(wa), check.mulW(y.w(i), check.conjW(x.w(j))))),
             else => unreachable,
         };
-        if (s.kind == .hermitian_rev) u = check.conjW(u);
         var old = check.wide(T, a.was[k]);
         if (comptime isComplex(T)) if (herm and i == j) {
             old.im = 0;

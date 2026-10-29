@@ -1002,6 +1002,9 @@ fn errorExits(comptime T: type) !void {
         try E(error.InvalidLda, blas.hbmv(al, ob.io, T, .u, 0, 1, al0, &a, 1, &x, 1, al0, &y, 1), "HBMV INFOT=6");
         try E(error.InvalidIncx, blas.hbmv(al, ob.io, T, .u, 0, 0, al0, &a, 1, &x, 0, al0, &y, 1), "HBMV INFOT=8");
         try E(error.InvalidIncy, blas.hbmv(al, ob.io, T, .u, 0, 0, al0, &a, 1, &x, 1, al0, &y, 0), "HBMV INFOT=11");
+        // `HEMVREV` letters reach `hpmv` and the four below only from
+        // row-major CBLAS upstream
+        try E(error.InvalidUplo, blas.hpmv(al, ob.io, T, .v, 0, al0, &a, &x, 1, al0, &y, 1), "HPMV INFOT=1");
         try E(error.InvalidN, blas.hpmv(al, ob.io, T, .u, -1, al0, &a, &x, 1, al0, &y, 1), "HPMV INFOT=2");
         try E(error.InvalidIncx, blas.hpmv(al, ob.io, T, .u, 0, al0, &a, &x, 0, al0, &y, 1), "HPMV INFOT=6");
         try E(error.InvalidIncy, blas.hpmv(al, ob.io, T, .u, 0, al0, &a, &x, 1, al0, &y, 0), "HPMV INFOT=9");
@@ -1044,15 +1047,19 @@ fn errorExits(comptime T: type) !void {
     }
     // syr, spr, syr2, spr2; her, hpr, her2, hpr2
     if (cx) {
+        try E(error.InvalidUplo, blas.her(al, ob.io, T, .m, 0, ra, &x, 1, &a, 1), "HER INFOT=1");
         try E(error.InvalidN, blas.her(al, ob.io, T, .u, -1, ra, &x, 1, &a, 1), "HER INFOT=2");
         try E(error.InvalidIncx, blas.her(al, ob.io, T, .u, 0, ra, &x, 0, &a, 1), "HER INFOT=5");
         try E(error.InvalidLda, blas.her(al, ob.io, T, .u, 2, ra, &x, 1, &a, 1), "HER INFOT=7");
+        try E(error.InvalidUplo, blas.hpr(al, ob.io, T, .v, 0, ra, &x, 1, &a), "HPR INFOT=1");
         try E(error.InvalidN, blas.hpr(al, ob.io, T, .u, -1, ra, &x, 1, &a), "HPR INFOT=2");
         try E(error.InvalidIncx, blas.hpr(al, ob.io, T, .u, 0, ra, &x, 0, &a), "HPR INFOT=5");
+        try E(error.InvalidUplo, blas.her2(al, ob.io, T, .m, 0, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=1");
         try E(error.InvalidN, blas.her2(al, ob.io, T, .u, -1, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=2");
         try E(error.InvalidIncx, blas.her2(al, ob.io, T, .u, 0, al0, &x, 0, &y, 1, &a, 1), "HER2 INFOT=5");
         try E(error.InvalidIncy, blas.her2(al, ob.io, T, .u, 0, al0, &x, 1, &y, 0, &a, 1), "HER2 INFOT=7");
         try E(error.InvalidLda, blas.her2(al, ob.io, T, .u, 2, al0, &x, 1, &y, 1, &a, 1), "HER2 INFOT=9");
+        try E(error.InvalidUplo, blas.hpr2(al, ob.io, T, .v, 0, al0, &x, 1, &y, 1, &a), "HPR2 INFOT=1");
         try E(error.InvalidN, blas.hpr2(al, ob.io, T, .u, -1, al0, &x, 1, &y, 1, &a), "HPR2 INFOT=2");
         try E(error.InvalidIncx, blas.hpr2(al, ob.io, T, .u, 0, al0, &x, 0, &y, 1, &a), "HPR2 INFOT=5");
         try E(error.InvalidIncy, blas.hpr2(al, ob.io, T, .u, 0, al0, &x, 1, &y, 0, &a), "HPR2 INFOT=7");

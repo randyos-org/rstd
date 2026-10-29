@@ -217,8 +217,8 @@ pub const Trans = enum {
 
 /// `UPLO`: the stored triangle, upper or lower. `v` and `m` are the upper and
 /// lower triangles of the transposed Hermitian matrix (OpenBLAS's
-/// `HEMVREV`), taken by the Hermitian level-2 routines only; the others
-/// return `error.InvalidUplo` for them.
+/// `HEMVREV`), taken by `hemv` and `hbmv` only, as upstream's Fortran
+/// interface does; the others return `error.InvalidUplo` for them.
 pub const Uplo = enum {
     u,
     l,

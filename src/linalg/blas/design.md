@@ -134,9 +134,11 @@ Conventions shared by every interface:
 - **Letters.** Transposes, triangles, sides and diagonals are one set of letter enums for every
   level (`types.zig`). Real `r` and `c` transposes mean `n` and `t`. `Trans` has the complex
   forms `o`, `u`, `s` and `d` (conjugated `x`), and `Uplo` the `v` and `m` forms of `hemv`
-  (`HEMVREV`). A letter a routine does not take is an error: `InvalidTrans` for `o` to `d`
-  outside complex `gemv` and `gbmv`, `herk`'s `t` and complex `syrk`'s `c`; `InvalidUplo` for
-  `v` and `m` outside the Hermitian level-2 routines.
+  and `hbmv` (`HEMVREV`). A letter a routine does not take is an error: `InvalidTrans` for `o`
+  to `d` outside complex `gemv` and `gbmv`, `herk`'s `t` and complex `syrk`'s `c`;
+  `InvalidUplo` for `v` and `m` outside `hemv` and `hbmv`, the only routines whose Fortran
+  interface takes them upstream (`hpmv`, `her`, `hpr`, `her2` and `hpr2` get them from
+  row-major CBLAS alone).
 - **Leading dimensions.** Level 3 checks them against `max(1, rows)`, as the reference BLAS
   does; OpenBLAS lets `0` through for empty matrices.
 - **Quick returns.** Empty problems return before any kernel call; kernels assume `n >= 1`.
