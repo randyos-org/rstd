@@ -636,7 +636,9 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
   negated; `laswp_ncopy_*.c` swaps and packs as `gemm_oncopy`), so they join the gemm kernels'
   `sets` and take each core's tile. `laswp_ncopy` also swaps rows `k1` to `k2` in `A`, which
   upstream leaves stale, as `getrf_single.c`'s `laswp_plus` and `gemm_oncopy` do in its place.
-  Nothing calls either until LAPACK's `getrf`.
+  Nothing calls either: LAPACK's `getrf` takes `laswp_plus` and `gemm_oncopy`, as
+  `getrf_single.c`'s `#if 1` does; `laswp_ncopy` is `getrf_parallel.c`'s, not ported, and
+  nothing upstream calls `neg_tcopy`.
 - **`gemmt`**: upstream takes a `gemv` per column, and for `r` and `c` conjugates the caller's
   `B` in place and back (`issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
   the level-3 driver (`driver.gemmt`), and `B` is only read.
@@ -664,12 +666,26 @@ Zig module allows.
   reciprocal. The drivers are called directly, so Accelerate never runs them.
 - **`potrs`** (`cholesky.zig`): `xPOTRS`, which OpenBLAS takes from the reference too: two
   `trsm`s on the factor, through the drivers.
+- **`getrf`** (`lu.zig`): `getrf_single.c`, the recursive blocked factor: blocks of half the
+  columns rounded up to `unroll_n`, at most `GEMM_Q`, each factored recursively, then the
+  block's interchanges (`laswp`), `trsm` on its rows and `gemm` on the rest through the level-3
+  drivers, which upstream fuses per `GEMM_R` columns; the later interchanges reach each block's
+  columns last. Up to `2 * unroll_n` columns it is `getf2_k.c` and `zgetf2_k.c`, left-looking,
+  as loops but for the core's `iamax`, so the pivot is the first NaN, else the first largest
+  `|re| + |im|`. Two departures, both the reference's `xGETRF2`: a nonzero pivot below the
+  safe minimum (denormal, or NaN) is swapped in and divided by, where upstream's `getf2`
+  records the swap in `ipiv` but neither swaps nor scales (`issues.md`); and the complex test
+  is on `|p|`, where upstream tests each part. A normal pivot's column is scaled by its
+  reciprocal, as both do. `laswp_ncopy` and `neg_tcopy` stay unused ([Extensions](#extensions)).
 - **Not positive definite:** `potrf` returns
   `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
   an optional `minor: ?*usize`, its last argument, as Zig's diagnostics arguments do; `A` then
   holds the factor's first `k - 1` columns and the failed pivot at `A(k, k)`, as both upstreams
   leave it. The alternative, returning `INFO` as a value, lets a caller use an unfinished factor
   by forgetting a check; an error cannot carry the order itself.
+- **Singular:** `getrf` completes the factorization, as both upstreams do, then returns
+  `error.Singular` with the first zero `U(i, i)`'s `i` in an optional `pivot`. A NaN pivot is
+  not zero, as in the reference's `INFO`: its column fills with NaN, and nothing fails.
 
 ### Apple Accelerate
 
@@ -1085,7 +1101,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
-| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potrs`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potrs`), `lu.zig` (`getrf`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
@@ -1225,6 +1241,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
   reference's `xPOTRF2`, where OpenBLAS's `ajj <= 0` passes it ([Extensions](#extensions)).
+  An exactly singular `U` is `error.Singular`, its first zero pivot written to `pivot`; a NaN
+  pivot is not zero, as the reference's `xGETRF2` has it.
 
 ## Alternatives considered
 
@@ -1258,7 +1276,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Bit-exact models | `blas1/dot/__root__.zig`, `blas1/asum/__root__.zig`, `blas1/nrm2/__root__.zig`, `blas2/gemv/__root__.zig` | the Zig kernels that replace converted or C code give its bits (the x87 sums, `skylakexModel`, the half-precision `gemv`) |
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
-| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone |
+| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |

@@ -51,13 +51,13 @@ pub const PotrfError = ArgError || Allocator.Error || Io.Cancelable || error{Not
 /// `dtb_entries` of a hand-built vtable that has none (`blas2/triangular.zig`).
 const default_dtb = 64;
 
-fn floatType(comptime T: type, comptime name: []const u8) void {
+pub fn floatType(comptime T: type, comptime name: []const u8) void {
     if (@typeInfo(Float(T)) != .float) @compileError(name ++ ": " ++ @typeName(T) ++ " is not a float type or its Complex");
 }
 
 /// The vtable for `T`; a type without slots runs the portable kernels and
 /// never reads it (as `blas3/interface.zig`'s `table`).
-fn table(comptime T: type) *const Vtable {
+pub fn table(comptime T: type) *const Vtable {
     return if (comptime portable.letter(T) != null) blas.vtable() else &no_table;
 }
 
@@ -194,7 +194,7 @@ fn potf2(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
 
 // ---- element arithmetic ---------------------------------------------------------
 
-fn scalar(comptime T: type, v: Float(T)) T {
+pub fn scalar(comptime T: type, v: Float(T)) T {
     return if (comptime isComplex(T)) .init(v, 0) else v;
 }
 
@@ -235,35 +235,35 @@ const nan = std.math.nan(f64);
 
 /// Every element type the tests take: the four precisions, `XDouble` where
 /// it is its own, and `f80` where it has no slots.
-const test_types = .{ f32, f64, types.Complex32, types.Complex64 } ++ check.x_real ++ check.x_complex ++ check.f80_unslotted;
+pub const test_types = .{ f32, f64, types.Complex32, types.Complex64 } ++ check.x_real ++ check.x_complex ++ check.f80_unslotted;
 
-fn W(comptime T: type) type {
+pub fn W(comptime T: type) type {
     return check.Wide(T);
 }
 
-fn fromF64(comptime T: type, v: f64) T {
+pub fn fromF64(comptime T: type, v: f64) T {
     return if (comptime isComplex(T)) .init(@floatCast(v), 0) else @floatCast(v);
 }
 
-fn toT(comptime T: type, v: W(T)) T {
+pub fn toT(comptime T: type, v: W(T)) T {
     return if (comptime isComplex(T)) .init(@floatCast(v.re), @floatCast(v.im)) else @floatCast(v);
 }
 
 /// NaN in every part.
-fn poisoned(comptime T: type) T {
+pub fn poisoned(comptime T: type) T {
     const x = std.math.nan(Float(T));
     return if (comptime isComplex(T)) .init(x, x) else x;
 }
 
 /// Equal bits, part by part (`f80`'s padding aside).
-fn sameBits(comptime T: type, x: T, y: T) bool {
+pub fn sameBits(comptime T: type, x: T, y: T) bool {
     const F = Float(T);
     const U = @Int(.unsigned, @bitSizeOf(F));
     if (comptime isComplex(T)) return sameBits(F, x.re, y.re) and sameBits(F, x.im, y.im);
     return @as(U, @bitCast(x)) == @as(U, @bitCast(y));
 }
 
-fn isNanT(comptime T: type, v: T) bool {
+pub fn isNanT(comptime T: type, v: T) bool {
     return if (comptime isComplex(T)) std.math.isNan(v.re) and std.math.isNan(v.im) else std.math.isNan(v);
 }
 

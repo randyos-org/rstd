@@ -1403,6 +1403,25 @@ LAPACK's `xPOTRF2` checks `DISNAN` and returns the minor.
   LAPACK's `xPOTRF2` tests `DISNAN(ajj)` and returns the minor; testing
   `!(ajj > 0)` would match it."
 
+### `getf2` records a swap it does not make for a tiny or NaN pivot
+
+`lapack/getf2/getf2_k.c` and `zgetf2_k.c` swap the pivot row in and scale the
+column below only when `|p| >= DBL_MIN` (`FLT_MIN`; complex: either part),
+yet set `ipiv` first. For a denormal or NaN pivot, columns `0..j` keep their
+rows while the later columns and `getrf_single.c`'s interchanges take the
+swap, and `L(:, j)` stays unscaled: `P L U` is not `A`, and `info` is 0.
+Reference LAPACK's `xGETRF2` swaps for any nonzero pivot and divides by one
+below the safe minimum.
+
+- **Workaround:** rstd's `getrf` swaps and divides as the reference does
+  (`src/linalg/lapack/lu.zig`).
+- **Issue text:** "`?getrf` returns a wrong factorization when a pivot is
+  nonzero but below `DBL_MIN` (`FLT_MIN` for single), or NaN: `getf2_k.c`
+  records the interchange in `ipiv` but skips both the row swap and the
+  scaling, so `P*L*U != A` with `info = 0`. Reference `xGETRF2` swaps for
+  any nonzero pivot and divides element by element when `|p| < sfmin`;
+  doing the same in the `else` branch would fix it."
+
 ## BLIS
 
 ### `snrm2` and `scnrm2` keep an `f32` running sum

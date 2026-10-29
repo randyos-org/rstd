@@ -7,6 +7,7 @@
 //! arguments in the reference's `xerbla` order.
 
 const cholesky = @import("cholesky.zig");
+const lu = @import("lu.zig");
 
 pub const Uplo = @import("../blas/types.zig").Uplo;
 
@@ -16,9 +17,15 @@ pub const PotrfError = cholesky.PotrfError;
 /// `potrs`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const PotrsError = cholesky.PotrsError;
 
+/// `getrf`: bad arguments, `error.Singular`, `error.OutOfMemory` or
+/// `error.Canceled`.
+pub const GetrfError = lu.GetrfError;
+
 pub const potrf = cholesky.potrf;
 pub const potrs = cholesky.potrs;
+pub const getrf = lu.getrf;
 
 test {
     _ = cholesky;
+    _ = lu;
 }
