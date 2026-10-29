@@ -288,30 +288,38 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
     const px = first(T, x, m, incx);
     const py = first(T, y, n, incy);
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
-    // the kernels use the buffer only to copy a strided `x` (`buffers.md`);
-    // for a unit one the reference may pass NULL, so no kernel reads it
-    const unit = incx == 1;
-    const sc: Scratch(F) = if (unit) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
+    // a strided `x`'s copy; no kernel reads the buffer for a unit `x`
+    // (`buffers.md`), where the reference may pass NULL
+    const sc: Scratch(F) = if (incx == 1) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
     defer sc.deinit(allocator);
     const k = portable.fetch(T, op, blas.vtable);
     // the reference passes over a column whose `y` is zero, so an infinity or
     // NaN in `x` stays out of it; the kernels do not, so they get the runs
-    // between zeros (one run, the whole matrix, when there are none)
+    // between zeros (one run, the whole matrix, when there are none). A
+    // strided `x` is copied once, before the first run, and every run takes
+    // the copy at unit stride: one copy however many runs.
+    var xs = px;
+    var ix = incx;
     var j: isize = 0;
     while (j < n) {
         while (j < n and isZero(T, util.at(T, py, j * incy).*)) j += 1;
         const j0 = j;
         while (j < n and !isZero(T, util.at(T, py, j * incy).*)) j += 1;
         if (j == j0) break;
+        if (ix != 1) {
+            _ = portable.fetch(T, .copy_k, blas.vtable)(m, raw(T, px), incx, sc.ptr, 1);
+            xs = @ptrCast(sc.ptr);
+            ix = 1;
+        }
         const ys: [*]T = @ptrCast(util.at(T, py, j0 * incy));
         const as: [*]T = @ptrCast(util.at(T, a, j0 * lda));
         // the reference threads big problems here (`ger_thread`). Its CBLAS
         // row-major `zgerc` swaps `m`/`n`, `x`/`y` and their strides and
         // takes `gerv_k` (`x` conjugated); no row-major layer here.
         if (comptime complex) {
-            _ = k(m, j - j0, 0, alpha.re, alpha.im, raw(T, px), incx, raw(T, ys), incy, raw(T, as), lda, sc.ptr);
+            _ = k(m, j - j0, 0, alpha.re, alpha.im, raw(T, xs), ix, raw(T, ys), incy, raw(T, as), lda, sc.ptr);
         } else {
-            _ = k(m, j - j0, 0, alpha, px, incx, ys, incy, as, lda, sc.ptr);
+            _ = k(m, j - j0, 0, alpha, xs, ix, ys, incy, as, lda, sc.ptr);
         }
     }
 }
@@ -568,7 +576,9 @@ test "interface: gemv, ger, symv and hemv report the first bad argument and do n
     try testing.expectEqualSlices(f64, &.{ 1, 2, 3, 4 }, &a);
 }
 
-fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: isize, incy: isize, alpha: T) !void {
+/// `ger` or `gerc` against plain arithmetic; with `holes`, every other `y` is
+/// zero, so the interface makes a run of each column between.
+fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: isize, incy: isize, alpha: T, holes: bool) !void {
     const lda = m + 2;
     const a = try testing.allocator.alloc(T, lda * n);
     defer testing.allocator.free(a);
@@ -577,6 +587,9 @@ fn testGer(comptime T: type, conj: bool, m: usize, n: usize, incx: isize, incy: 
     defer testing.allocator.free(x);
     const y = try randomVec(T, n, incy, 7);
     defer testing.allocator.free(y);
+    if (holes) for (0..n) |j| if (j % 2 == 1) {
+        y[vi(n, incy, j)] = zeroT(T);
+    };
     const want = try testing.allocator.dupe(T, a);
     defer testing.allocator.free(want);
     for (0..n) |j| for (0..m) |i| {
@@ -598,11 +611,13 @@ test "interface: ger and gerc match plain arithmetic, for every stride and an al
     defer blas.testRestore(saved);
     inline for (all) |T| {
         for (shapes) |s| for (stride_pairs) |inc| for ([_]T{ val(T, 1.25, -0.5), val(T, 0, 0), val(T, -1, 0) }) |alpha| {
-            testGer(T, false, s.m, s.n, inc[0], inc[1], alpha) catch |e| {
-                check.say("ger {s} m={d} n={d} inc={d},{d}\n", .{ @typeName(T), s.m, s.n, inc[0], inc[1] });
-                return e;
-            };
-            if (comptime isComplex(T)) try testGer(T, true, s.m, s.n, inc[0], inc[1], alpha);
+            for ([_]bool{ false, true }) |holes| {
+                testGer(T, false, s.m, s.n, inc[0], inc[1], alpha, holes) catch |e| {
+                    check.say("ger {s} m={d} n={d} inc={d},{d} holes={}\n", .{ @typeName(T), s.m, s.n, inc[0], inc[1], holes });
+                    return e;
+                };
+                if (comptime isComplex(T)) try testGer(T, true, s.m, s.n, inc[0], inc[1], alpha, holes);
+            }
         };
     }
 }
@@ -672,7 +687,7 @@ test "interface: problems over the stack buffer allocate, and small gemv and ger
     inline for (all) |T| {
         try testGemv(T, .n, 300, 300, 1, 1, val(T, 1.5, 0.5), val(T, 0.5, 0));
         try testGemv(T, if (isComplex(T)) .c else .t, 300, 300, -2, 3, val(T, 1.5, 0.5), val(T, 1, 0));
-        try testGer(T, false, 600, 3, 2, -1, val(T, 0.75, 0.25));
+        try testGer(T, false, 600, 3, 2, -1, val(T, 0.75, 0.25), true);
         try testMv(T, false, .l, 300, -1, 2, val(T, 1.5, 0.5), val(T, 0.5, 0));
         if (comptime isComplex(T)) {
             try testMv(T, true, .u, 300, 2, 1, val(T, 1.5, 0.5), val(T, 0.5, 0));
@@ -1010,9 +1025,9 @@ fn checkAll(vt: *const Vtable) !void {
         if (comptime isComplex(T)) {
             inline for (.{ Trans.r, Trans.c, Trans.o, Trans.u, Trans.s, Trans.d }) |t| try testGemv(T, t, 9, 7, 2, -1, val(T, 1.25, -0.5), val(T, 0.5, 0.25));
         }
-        try testGer(T, false, 17, 9, 1, 1, val(T, 1.25, -0.5));
-        try testGer(T, false, 9, 17, -2, 3, val(T, 1.25, -0.5));
-        if (comptime isComplex(T)) try testGer(T, true, 9, 17, 2, 1, val(T, 1.25, -0.5));
+        try testGer(T, false, 17, 9, 1, 1, val(T, 1.25, -0.5), false);
+        try testGer(T, false, 9, 17, -2, 3, val(T, 1.25, -0.5), true);
+        if (comptime isComplex(T)) try testGer(T, true, 9, 17, 2, 1, val(T, 1.25, -0.5), true);
         for ([_]bool{ false, true }) |herm| {
             if (herm and !comptime isComplex(T)) continue;
             for (if (herm) std.enums.values(Uplo) else &[_]Uplo{ .u, .l }) |uplo| {

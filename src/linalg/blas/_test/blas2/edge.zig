@@ -12,7 +12,8 @@
 //! update stores a zero imaginary part on the diagonal, entries outside a
 //! band or triangle are never multiplied, nor a unit diagonal, and the rank
 //! updates pass over a column whose factors are zero (`y` for `ger`; `x`,
-//! and `y` for rank 2, otherwise). Complex infinities may meet in another
+//! and `y` for rank 2, otherwise; `zeroFactors` puts them beside the special
+//! values, so every core is held to it). Complex infinities may meet in another
 //! order than the reference's, giving NaN for infinity
 //! (`check.expectWideAnyOrder`).
 //!
@@ -455,6 +456,44 @@ fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
     try x.gaps();
 }
 
+fn setAt(comptime T: type, v: *Vector(T), i: usize, e: T) void {
+    v.was[i] = e;
+    v.buf[v.idx(i)] = e;
+}
+
+/// Zero factors beside a vector's special values, away from a lone one:
+/// at `z1` a column the reference passes over (`y` for `ger`, `x`, both for
+/// rank 2), as `-0`; for rank 2, at `z2` only the other vector's zero, a
+/// column it does not, so the special value meets that zero.
+fn zeroFactors(comptime T: type, comptime r: Routine, c: Case, x: *Vector(T), y: *Vector(T)) void {
+    if (c.where != .x and c.where != .y) return;
+    const general = r == .ger or r == .gerc;
+    if (general and c.where == .y) return;
+    const n = if (general) y.n else x.n;
+    const lone: ?usize = switch (c.p) {
+        .one => |o| o.at,
+        else => null,
+    };
+    var z: [2]usize = undefined;
+    var found: usize = 0;
+    for (0..n) |i| if (found < 2 and i != lone) {
+        z[found] = i;
+        found += 1;
+    };
+    if (found == 0) return;
+    const nz = val(T, -0.0, 0);
+    switch (r) {
+        .ger, .gerc => setAt(T, y, z[0], nz),
+        .syr, .spr, .her, .hpr => setAt(T, x, z[0], nz),
+        .syr2, .spr2, .her2, .hpr2 => {
+            setAt(T, x, z[0], nz);
+            setAt(T, y, z[0], nz);
+            if (found == 2) setAt(T, if (c.where == .x) y else x, z[1], val(T, 0, 0));
+        },
+        else => unreachable,
+    }
+}
+
 /// The rank updates: `A += alpha*x*y'` and its symmetric and Hermitian kin.
 fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !void {
     const al = std.testing.allocator;
@@ -470,11 +509,7 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     defer x.deinit(al);
     var y: Vector(T) = try .init(al, s.n, c.inc[1], s.n + 5, c.on(.y));
     defer y.deinit(al);
-    // a zero `y` for `x`'s special values to skip
-    if ((r == .ger or r == .gerc) and c.where == .x and s.n > 1) {
-        y.was[1] = val(T, 0, 0);
-        y.buf[y.idx(1)] = y.was[1];
-    }
+    zeroFactors(T, r, c, &x, &y);
     const az = isZero(T, alpha);
     if (az) {
         x.poison();
