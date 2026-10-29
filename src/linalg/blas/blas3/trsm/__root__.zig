@@ -563,7 +563,7 @@ fn tinyDiagonal(comptime T: type, vt: *const Vtable) !void {
             b[i + j * m] = scaled(T, sum, t);
         };
         const one: T = if (complex) .init(1, 0) else 1;
-        try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &a, ka, &b, m);
+        try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &a, ka, &b, m, 1);
         for (0..n) |j| for (0..m) |i| {
             const want = scaled(T, x[i + j * m], 1);
             const got = b[i + j * m];
@@ -687,8 +687,8 @@ fn unitCases(vt: *const Vtable) !void {
             }
             var bu = rhs;
             var bn = rhs;
-            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), true, m, n, one, &au, ka, &bu, m);
-            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &an, ka, &bn, m);
+            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), true, m, n, one, &au, ka, &bu, m, 1);
+            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &an, ka, &bn, m, 1);
             testing.expectEqualSlices(u8, std.mem.asBytes(&bn), std.mem.asBytes(&bu)) catch |e| {
                 std.debug.print("{s} left={} upper={} trans={t}\n", .{ @typeName(T), left, upper, tr });
                 return e;

@@ -38,6 +38,58 @@ pub fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d:
     return Team(T, true).run(allocator, io, vt, d, m, n, k, alpha, x, y, twice, beta, c, ldc, @min(want, threading.chunks_max));
 }
 
+/// `driver.trmm` or, with `solve`, `trsm` on up to `want` workers: column
+/// panels of `B` on the left, row panels on the right, as OpenBLAS's
+/// `gemm_thread_n` and `gemm_thread_m` divide it and BLIS splits its `jc` and
+/// `ic` loops. Each part is an independent serial problem on packing space
+/// of its own, so they run through `threading.forEach`; parts start on
+/// `unroll_n` columns or `unroll_m` rows, so tiles are the serial ones.
+pub fn triangular(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime solve: bool, o: driver.Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, s: ?T, b: [*]T, ldb: usize, want: u32) Error!void {
+    const W = driver.Work(T);
+    const Parts = struct {
+        vt: *const Vtable,
+        o: driver.Tri,
+        blk: Blocking,
+        m: usize,
+        n: usize,
+        a: [*]T,
+        lda: usize,
+        s: ?T,
+        b: [*]T,
+        ldb: usize,
+        buf: [*]T,
+        /// Each part's packing space, from `buf`.
+        at: [threading.chunks_max + 1]usize,
+
+        /// Part `c`'s `m`, `n` and `B`.
+        fn of(p: *const @This(), c: threading.Chunk) struct { usize, usize, [*]T } {
+            return if (p.o.left) .{ p.m, c.end - c.start, p.b + c.start * p.ldb } else .{ c.end - c.start, p.n, p.b + c.start };
+        }
+
+        fn lens(p: *const @This(), c: threading.Chunk) [3]usize {
+            const d = p.of(c);
+            return driver.triLens(p.blk, d[0], d[1], if (p.o.left) p.m else p.n);
+        }
+
+        fn one(p: *const @This(), c: threading.Chunk) void {
+            const d = p.of(c);
+            driver.triDrive(T, p.vt, solve, p.o, p.blk, d[0], d[1], p.a, p.lda, p.s, d[2], p.ldb, W.at(p.buf + p.at[c.index], p.lens(c)));
+        }
+    };
+    const plan: threading.Plan = .{
+        .chunks = .init(if (o.left) n else m, want, .even, if (o.left) blk.un else blk.um),
+        .workers = want,
+    };
+    var parts: Parts = .{ .vt = vt, .o = o, .blk = blk, .m = m, .n = n, .a = a, .lda = lda, .s = s, .b = b, .ldb = ldb, .buf = undefined, .at = undefined };
+    parts.at[0] = 0;
+    for (0..plan.chunks.count) |i| parts.at[i + 1] = parts.at[i] + W.total(parts.lens(plan.chunks.get(i)));
+    const buf = try allocator.alignedAlloc(T, .fromByteUnits(W.alignment), parts.at[plan.chunks.count]);
+    defer allocator.free(buf);
+    parts.buf = buf.ptr;
+    const ctx: *const Parts = &parts;
+    try threading.forEach(io, &plan, ctx, Parts.one);
+}
+
 fn ceilDiv(a: usize, b: usize) usize {
     return (a + b - 1) / b;
 }
@@ -456,15 +508,18 @@ test "threaded gemm matches the serial driver bit for bit at 1 to 9 workers, on 
     }
 }
 
-/// The routines over the threaded loops besides `gemm`.
-const Routine = enum { symm, hemm, syrk, herk, syr2k, her2k };
+/// The threaded routines besides `gemm`.
+const Routine = enum { symm, hemm, syrk, herk, syr2k, her2k, trmm, trsm };
 
-/// `r` on `vt` at up to `want` workers: `C` is `m x n` (`n x n` for the rank
-/// updates), the triangle or symmetric operand `lo`, the depth `k`; `opt`
-/// is the side or `trans`, then `upper`.
-fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routine, opt: [2]bool, m: usize, n: usize, k: usize, alpha: T, beta: T, a: [*]const T, b: [*]const T, ld: usize, c: [*]T, want: u32) !void {
+/// `r` on `vt` at up to `want` workers: `C` (`trmm`'s and `trsm`'s `B`) is
+/// `m x n` (`n x n` for the rank updates), the depth `k`; `opt` is the side
+/// or `trans`, then `upper`, then for `trmm` and `trsm` `trans` (and for
+/// complex, conjugating).
+fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routine, opt: [3]bool, m: usize, n: usize, k: usize, alpha: T, beta: T, a: [*]const T, b: [*]const T, ld: usize, c: [*]T, want: u32) !void {
     const re = if (comptime types.isComplex(T)) scalar(T, alpha.re, 0) else alpha;
     switch (r) {
+        .trmm => try driver.trmm(al, io, T, vt, opt[0], opt[1], opt[2], opt[2], false, m, n, alpha, a, ld, c, ld, want),
+        .trsm => try driver.trsm(al, io, T, vt, opt[0], opt[1], opt[2], opt[2], false, m, n, alpha, a, ld, c, ld, want),
         .symm => try driver.symm(al, io, T, vt, false, opt[0], opt[1], m, n, alpha, a, ld, b, ld, beta, c, ld, want),
         .syrk => try driver.syrk(al, io, T, vt, false, opt[1], opt[0], n, k, alpha, a, ld, null, 0, beta, c, ld, want),
         .syr2k => try driver.syrk(al, io, T, vt, false, opt[1], opt[0], n, k, alpha, a, ld, b, ld, beta, c, ld, want),
@@ -482,7 +537,8 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
     const al = std.testing.allocator;
     const blk = Blocking.of(T, vt);
     const herm = r == .herk or r == .her2k;
-    const rank = r != .symm and r != .hemm;
+    const rank = r == .syrk or r == .herk or r == .syr2k or r == .her2k;
+    const tri = r == .trmm or r == .trsm;
     const ns = [_]usize{ 1, blk.un + 1, 2 * blk.p + blk.um + 1, blk.r + 1, 2 * blk.r + 3 };
     const ks = [_]usize{ 1, blk.q + 1, 2 * blk.q + 3 };
     const ld = 2 * blk.r + 2 * blk.q + 8;
@@ -499,14 +555,22 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
     fill(T, a, 11);
     fill(T, b, 12);
     fill(T, c0, 13);
+    // a tame triangle for `trsm`: small off the diagonal, at least 1 on it
+    if (tri) for (0..ld) |j| for (0..ld) |i| {
+        const v = &a[i + j * ld];
+        const f = scalar(T, if (i == j) 1.5 else 0.25 / @as(f64, @floatFromInt(ld)), 0);
+        v.* = if (comptime types.isComplex(T)) v.mul(f).add(if (i == j) scalar(T, 1, 0) else scalar(T, 0, 0)) else v.* * f + @as(T, if (i == j) 1 else 0);
+    };
     var poison: guard.Poison = .{ .child = al };
     const pa = poison.allocator();
     const alpha = scalar(T, -0.75, 0.25);
     const beta = if (herm) scalar(T, 0.5, 0) else scalar(T, 0.5, -0.125);
     var x: usize = 0;
-    for ([_][2]bool{ .{ false, false }, .{ true, false }, .{ false, true }, .{ true, true } }) |opt| {
+    for (0..8) |bits| {
+        const opt: [3]bool = .{ bits & 1 != 0, bits & 2 != 0, bits & 4 != 0 };
+        if (!tri and opt[2]) continue;
         for (ns) |m| for (ns) |n| for (ks) |k| {
-            // the rank updates' `C` is square; `symm` has no depth
+            // the rank updates' `C` is square; the others have no depth
             if ((rank and m != n) or (!rank and k != 1)) continue;
             x += 1;
             if (x % 2 != 0) continue;
@@ -536,7 +600,7 @@ fn shrunkCore(comptime T: type) Vtable {
     return vt;
 }
 
-test "threaded symm, hemm and rank-k updates match the serial loops bit for bit at 1 to 9 workers" {
+test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops bit for bit at 1 to 9 workers" {
     inline for (precisions) |T| {
         const vt = shrunkCore(T);
         for (std.enums.values(Routine)) |r| {
@@ -581,6 +645,7 @@ test "threaded gemm matches the serial driver on the selected core's own blockin
 
 test "the public gemm threads above the threshold and keeps the serial bits" {
     if (comptime !threading.hosted) return error.SkipZigTest;
+    _ = blas.coreName();
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
@@ -617,8 +682,10 @@ test "the public gemm threads above the threshold and keeps the serial bits" {
     }
 }
 
-test "the public symm, herk and syr2k thread above their thresholds and keep the serial bits" {
+test "the public symm, herk, syr2k and trmm thread above their thresholds and keep the serial bits" {
     if (comptime !threading.hosted) return error.SkipZigTest;
+    // selecting the core fills `blas.config` once; override after
+    _ = blas.coreName();
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
     blas.config.cpu_count = 5;
@@ -654,6 +721,10 @@ test "the public symm, herk and syr2k thread above their thresholds and keep the
     try zigstd.testExpectEqual(@as(u32, 5), workers(.syr2k, T, n * k));
     try driver.syrk(al, Io.failing, T, vt, false, true, false, n, k, alpha, a.ptr, n, b.ptr, n, alpha, want.ptr, n, 1);
     try interface.syr2k(al, io, T, .u, .n, n, k, alpha, a.ptr, n, b.ptr, n, alpha, got.ptr, n);
+    try zigstd.testExpectTrue(sameBits(T, want, got));
+    try zigstd.testExpectEqual(@as(u32, 5), workers(.trsm, T, n * k));
+    try driver.trmm(al, Io.failing, T, vt, false, false, true, true, true, k, n, alpha, a.ptr, n, want.ptr, n, 1);
+    try interface.trmm(al, io, T, .r, .l, .c, .u, k, n, alpha, a.ptr, n, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
 }
 

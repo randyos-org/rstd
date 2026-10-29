@@ -9,9 +9,9 @@
 //! order the reference numbers them for `xerbla`, so the first bad one wins.
 //! Leading dimensions are checked against `max(1, rows)`, as the reference
 //! BLAS does (OpenBLAS lets `0` through for empty matrices). Packing space
-//! comes from `allocator`; small problems use the stack. `gemm`, `symm`,
-//! `hemm` and the rank-k updates thread on `io` above their thresholds
-//! (`threading.md`); `gemmt` is serial, as upstream.
+//! comes from `allocator`; small problems use the stack. Every routine but
+//! `gemmt` (serial, as upstream) threads on `io` above its threshold
+//! (`threading.md`).
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
@@ -249,7 +249,8 @@ fn triImpl(allocator: Allocator, io: Io, comptime T: type, comptime solve: bool,
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (accel.trmm(T, solve, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)) return;
     const f = if (solve) driver.trsm else driver.trmm;
-    try f(allocator, io, T, table(T), side == .l, uplo == .u, transa.transposed(), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb));
+    const w = threaded.workers(.trsm, T, threading.product(&.{ @intCast(m), @intCast(n) }));
+    try f(allocator, io, T, table(T), side == .l, uplo == .u, transa.transposed(), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), w);
 }
 
 const no_table: Vtable = .{};

@@ -497,7 +497,7 @@ pub fn Driver(comptime r: Routine) type {
                 .herk => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, null, 0, beta, c, ldc, 1) else unreachable,
                 .her2k => if (herm) try driver.syrk(al, io, T, vt, true, case.upper, case.ta.transposed(), case.n, case.k, alpha, a, lda, b, ldb, beta, c, ldc, 1) else unreachable,
                 .trmm, .trsm => if (@hasDecl(driver, "trmm")) {
-                    const args = .{ al, io, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc };
+                    const args = .{ al, io, T, vt, case.left, case.upper, case.ta.transposed(), case.ta.conjugated(), case.unit, case.m, case.n, alpha, a, lda, c, ldc, @as(u32, 1) };
                     if (r == .trmm) try @call(.auto, driver.trmm, args) else try @call(.auto, driver.trsm, args);
                 } else return error.SkipZigTest,
             }

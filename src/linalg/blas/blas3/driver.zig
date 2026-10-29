@@ -542,7 +542,7 @@ fn unitTag(comptime T: type, unit: bool) T {
 }
 
 /// The options of a `trmm` or `trsm`: values, as `Desc`'s are.
-const Tri = struct {
+pub const Tri = struct {
     left: bool,
     upper: bool,
     trans: bool,
@@ -592,8 +592,7 @@ fn opAt(comptime T: type, trans: bool, p: [*]T, ld: usize, i: usize, l: usize) [
 /// Packing space for `trmm` and `trsm`: a row block of `P` by a slice of `Q`,
 /// and that slice by `R` columns (the reference's kernels take all of it).
 fn triWork(allocator: Allocator, comptime T: type, blk: Blocking, m: usize, n: usize, ka: usize, stack: *align(Work(T).alignment) [stack_bytes]u8, heap: *?[]align(Work(T).alignment) T) Error!Work(T) {
-    const depth = @min(ka, blk.q);
-    const lens: [3]usize = .{ @min(m, blk.p) * depth, depth * @min(n, blk.r), 0 };
+    const lens = triLens(blk, m, n, ka);
     const len = Work(T).total(lens);
     const base: [*]T = if (len * @sizeOf(T) <= stack_bytes) stk: {
         if (sysinfo.is_test) @memset(stack, 0xff);
@@ -605,36 +604,48 @@ fn triWork(allocator: Allocator, comptime T: type, blk: Blocking, m: usize, n: u
     return Work(T).at(base, lens);
 }
 
+/// `triWork`'s buffer lengths, as `Work(T).lens` gives them.
+pub fn triLens(blk: Blocking, m: usize, n: usize, ka: usize) [3]usize {
+    const depth = @min(ka, blk.q);
+    return .{ @min(m, blk.p) * depth, depth * @min(n, blk.r), 0 };
+}
+
 /// `B := alpha*op(A)*B` (`left`) or `alpha*B*op(A)`, `A` triangular
 /// (`upper` or lower, `unit` diagonal), `op` transposing (`trans`) and
 /// conjugating (`conj`, complex) as asked; `B` is `m x n`. `B` is scaled by
-/// `alpha` first, never read for a zero one (`trmm_L.c`, `trmm_R.c`).
-pub fn trmm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
-    return triangular(allocator, io, T, vt, false, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb);
+/// `alpha` first, never read for a zero one (`trmm_L.c`, `trmm_R.c`). Up to
+/// `want` workers run it.
+pub fn trmm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize, want: u32) Error!void {
+    return triangular(allocator, io, T, vt, false, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb, want);
 }
 
 /// `B := alpha*inv(op(A))*B` (`left`) or `alpha*B*inv(op(A))`, as `trmm`
-/// takes its options (`trsm_L.c`, `trsm_R.c`).
-pub fn trsm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
-    return triangular(allocator, io, T, vt, true, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb);
+/// takes its options (`trsm_L.c`, `trsm_R.c`). Up to `want` workers run it.
+pub fn trsm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize, want: u32) Error!void {
+    return triangular(allocator, io, T, vt, true, left, upper, trans, conj, unit, m, n, alpha, a, lda, b, ldb, want);
 }
 
-fn triangular(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime solve: bool, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize) Error!void {
-    _ = io;
+fn triangular(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime solve: bool, left: bool, upper: bool, trans: bool, conj: bool, unit: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]T, ldb: usize, want: u32) Error!void {
     // the reference passes `alpha` as `beta`; the drivers fold it in
     if (isZero(T, alpha)) return scale(T, vt, m, n, alpha, b, ldb);
     const s = unlessOne(T, alpha);
     const blk = Blocking.of(T, vt);
+    const ap: [*]T = @constCast(a);
+    const opt: Tri = .{ .left = left, .upper = upper, .trans = trans, .conj = isComplex(T) and conj, .unit = unit };
+    if (want > 1) return threaded.triangular(allocator, io, T, vt, solve, opt, blk, m, n, ap, lda, s, b, ldb, want);
     var stack: [stack_bytes]u8 align(Work(T).alignment) = undefined;
     var heap: ?[]align(Work(T).alignment) T = null;
     defer if (heap) |h| allocator.free(h);
     const work = try triWork(allocator, T, blk, m, n, if (left) m else n, &stack, &heap);
-    const ap: [*]T = @constCast(a);
-    const opt: Tri = .{ .left = left, .upper = upper, .trans = trans, .conj = isComplex(T) and conj, .unit = unit };
+    triDrive(T, vt, solve, opt, blk, m, n, ap, lda, s, b, ldb, work);
+}
+
+/// The `trmm` (or with `solve`, `trsm`) loops on `work`.
+pub fn triDrive(comptime T: type, vt: *const Vtable, comptime solve: bool, o: Tri, blk: Blocking, m: usize, n: usize, a: [*]T, lda: usize, s: ?T, b: [*]T, ldb: usize, work: Work(T)) void {
     if (solve) {
-        if (left) trsmL(T, vt, opt, blk, m, n, ap, lda, s, b, ldb, work) else trsmR(T, vt, opt, blk, m, n, ap, lda, s, b, ldb, work);
+        if (o.left) trsmL(T, vt, o, blk, m, n, a, lda, s, b, ldb, work) else trsmR(T, vt, o, blk, m, n, a, lda, s, b, ldb, work);
     } else {
-        if (left) trmmL(T, vt, opt, blk, m, n, ap, lda, s, b, ldb, work) else trmmR(T, vt, opt, blk, m, n, ap, lda, s, b, ldb, work);
+        if (o.left) trmmL(T, vt, o, blk, m, n, a, lda, s, b, ldb, work) else trmmR(T, vt, o, blk, m, n, a, lda, s, b, ldb, work);
     }
 }
 
@@ -1122,8 +1133,8 @@ fn callWith(comptime T: type, vt: *const Vtable, r: Routine, opt: [3]bool, s: T,
             .herk => try syrk(al, check1.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, null, 0, s, c, ld, 1),
             else => try syrk(al, check1.io, T, vt, true, opt[0], opt[1], n, k, alpha, a, ld, b, ld, s, c, ld, 1),
         } else unreachable,
-        .trmm => try trmm(al, check1.io, T, vt, opt[0], opt[1], opt[2], false, false, m, n, s, a, ld, c, ld),
-        .trsm => try trsm(al, check1.io, T, vt, opt[0], opt[1], opt[2], isComplex(T), false, m, n, s, a, ld, c, ld),
+        .trmm => try trmm(al, check1.io, T, vt, opt[0], opt[1], opt[2], false, false, m, n, s, a, ld, c, ld, 1),
+        .trsm => try trsm(al, check1.io, T, vt, opt[0], opt[1], opt[2], isComplex(T), false, m, n, s, a, ld, c, ld, 1),
     }
 }
 

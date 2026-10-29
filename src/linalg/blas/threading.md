@@ -2,10 +2,12 @@
 
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
-without threads. Plan steps 1 and 2 are implemented (`threading.zig`, `blas3/threaded.zig`):
-`gemm`, `symm`, `hemm` and the rank-k updates thread, the other routines do not yet. Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts (v0.3.34-317); std references are to Zig's
-`lib/std` at 0.18.0-dev.751, BLIS references to its tag 2.1. The library's overall structure is in [`design.md`](design.md);
-how this rule compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
+without threads. Plan steps 1, 2 and 5 are implemented (`threading.zig`,
+`blas3/threaded.zig`): every level 3 routine but `gemmt` threads; levels 1 and 2 do not yet.
+Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
+(v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
+0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule
+compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
 ## Requirements
 
@@ -195,6 +197,12 @@ fall where the serial driver's chunks start, and its rows follow the serial colu
 (`drive`'s `r_lo`, `r_hi`); a full region's columns may split anywhere. `syr2k` runs its
 second pass over the same split. `gemmt` stays serial, as upstream (`interface/gemmt.c`).
 
+`trmm` and `trsm` split `B` into independent parts, as OpenBLAS's `gemm_thread_n` (left side,
+column panels) and `gemm_thread_m` (right side, row panels) do, and as BLIS splits only its
+`jc` and `ic` loops there: one part per worker, starting on `unroll_n` columns or `unroll_m`
+rows, each a serial solve or product on packing space of its own. Nothing waits, so the parts
+run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
+
 ### Thresholds
 
 | Routine | OpenBLAS threshold | Division |
@@ -203,7 +211,7 @@ second pass over the same split. `gemmt` stays serial, as upstream (`interface/g
 | complex `gemm` | `MNK > 8192 * 4` | same |
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
-| `trsm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
+| `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
 | `gemv` | `m * n >= 115200 * 4` | N: row chunks; T: column chunks |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
 | `symv`, `trmv` | `symv n >= 200`; `trmv n < 50`: 1, `< 500`: 2 | sqrt-balanced row chunks |
@@ -395,7 +403,7 @@ protocol.
    public interface's threshold.
 3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.
 4. **Level 2:** `gemv`, `ger`, then `symv`/`trmv`.
-5. **Remaining level 3:** `symm`, `hemm` and the rank-k updates (done) over the same
+5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
    driver; `trmm` and `trsm` by panels of `B`.
 
 ## Open issues
