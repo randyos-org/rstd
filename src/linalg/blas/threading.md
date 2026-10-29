@@ -439,10 +439,10 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 - Floating-point control state is per thread: on x86 Windows new threads start with the x87
   control word at 53-bit precision (0x27f) where the main thread has 64-bit (0x37f), so an
   x87 (`pentium3`) build's workers round `f64` otherwise than the serial path; MXCSR (rounding,
-  flush to zero) and arm64's FPCR carry the same exposure if a caller changes them. Whether
-  workers adopt the caller's state is undecided ([`design.md`](design.md): rstd never changes
-  the floating-point environment). Every task enters through `threading.team`'s worker or
-  `Region.work`, so adopting it is one capture on the caller in `team` and `forEachIn`, kept
-  in the shared state, and one apply as each task's first step.
+  flush to zero) and arm64's FPCR carry the same exposure if a caller changes them. Decided:
+  workers adopt the caller's state ([`design.md`](design.md), Settled decisions). Every task
+  enters through `threading.team`'s worker or `Region.work`, so it is one capture on the caller
+  in `team` and `forEachIn`, kept in the shared state, and one apply as each task's first step
+  (not built yet).
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.

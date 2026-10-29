@@ -1172,6 +1172,12 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
   only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
   periodically over batches, not per change.
+- **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
+  inherit it (x86 Windows starts them at 53-bit x87 precision where the main thread has 64-bit;
+  MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
+  starts by applying the state captured on the caller's thread. rstd still never changes the
+  caller's own environment; its workers copy it, and threaded results match serial ones for any
+  caller ([`threading.md`](threading.md)).
 - **Rank updates keep the reference's zero skip** (2026-10-29). `ger` passes over a column whose
   `y(j)` is zero, `syr`, `her` and their packed forms one whose `x(j)` is, the rank-2 forms one
   where both are, as Reference-LAPACK 3.12.1 and master do, so a NaN or infinity in the other
