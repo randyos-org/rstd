@@ -110,7 +110,8 @@ are the same C across cores.
   its own order (`dot += y0*x0 + ... + y7*x7`), not the scalar tail's. That is
   `Fallback`; the index's `.none` means it.
 - **Contraction.** The build states whether the core's flags contract
-  multiply-adds (`fma.zig`, `fma.fuse`), and clang fuses within one expression:
+  multiply-adds (`fma.zig`, `fma.fuse`), and clang fuses within one expression
+  (`tryEmitFMulAdd` in `clang/lib/CodeGen/CGExprScalar.cpp` tries the left product first):
   `a*b + c` fuses; a product kept in its own statement (`m1 = y*x`) does not; in
   `a*b + c*d` the first product fuses. A `float` product added to a `double`
   is rounded as `float` first, so `sdot`'s tail is unfused where `dsdot`'s is
@@ -177,7 +178,9 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
 - Cores the host cannot run (FMA4 and XOP for Bulldozer and Piledriver,
   AVX-512 for the Skylake-X family) are compiled and symbol-checked natively;
   running them needs `qemu-test-x86_64-whpx` on a host that has them, since
-  QEMU's TCG emulates neither.
+  QEMU's TCG emulates neither (v11.1.2's `TCG_EXT3_FEATURES` and
+  `TCG_7_0_EBX_FEATURES` lack FMA4, XOP and AVX-512F:
+  <https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/target/i386/cpu.c#L955>).
 
 Zig exits 0 on an inline-assembly error and writes an empty object, so check
 that a new object really exports the symbols (`llvm-nm`).

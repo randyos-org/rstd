@@ -12,15 +12,17 @@ converted assembly would pay. Measured 2026-10-15. The kernels' design is in
 - **Build:** a scratch benchmark over `kernel.zig` and `driver.zig`,
   `-OReleaseFast` with the flags the per-core object of this host gets
   (`baseline+avx+avx2+fma+sse3+sse4_1+ssse3`, the Haswell and Zen group).
-- **Blocking:** `param.h`'s for Zen: `sgemm` P 320, Q 320; `dgemm` P 512,
-  Q 256; R as x86 derives it.
+- **Blocking:** `param.h`'s for Zen outside the Windows ABI (whose `dgemm`
+  Q is 128): `sgemm` P 320, Q 320; `dgemm` P 512, Q 256, R 13824;
+  `sgemm` R as x86 derives it.
 - **Not available:** no OpenBLAS binary on this machine, so no direct
   comparison with the reference's kernels.
 
 ## Peak
 
-Assumption: Zen 3 has two 256-bit FMA pipes, so 32 single or 16 double
-flops per cycle: 64 / 32 GFLOPS at the 2.0 GHz base clock, 144 / 72 at the
+Zen 3 has two 256-bit FMA pipes (AMD, "Software Optimization Guide for
+AMD EPYC 7003 Processors", pub. 56665 rev. 3.00, section 2.11), so 32
+single or 16 double flops per cycle: 64 / 32 GFLOPS at the 2.0 GHz base clock, 144 / 72 at the
 4.5 GHz boost. An inline-assembly loop of 12 independent `vfmadd231ps` (or
 `pd`) chains measures what this laptop sustains: 84 to 89 median single,
 44 to 45 double (ranges 80 to 107 and 37 to 55), about 2.7 GHz. The
