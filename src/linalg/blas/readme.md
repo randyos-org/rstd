@@ -92,9 +92,8 @@ are targets at all.
 Each routine takes its element type as a comptime parameter. Sizes, strides and leading
 dimensions are `isize`; a negative stride names the vector's last element first, as in the
 reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
-or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` carries the
-threading ([`threading.md`](threading.md)): level 3 threads, all but `gemmt`; levels 1 and 2 are
-serial for now. `rotg`,
+or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. Routines that
+thread run their workers on `io` ([`threading.md`](threading.md)). `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
 | Level | Shape | Errors |
@@ -122,7 +121,7 @@ Bad arguments return an error named after the reference's `xerbla` argument (`In
 `InvalidM`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the first bad
 argument wins. A vector or matrix too large for the address space returns its stride's or
 leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every
-routine that takes `io` may return `error.Canceled` once it threads. Nothing panics on bad
+routine that takes `io` may return `error.Canceled`. Nothing panics on bad
 input. `laswp` has no `xerbla` checks upstream; rstd checks that its rows and pivots lie in `A`
 before it swaps.
 

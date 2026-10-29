@@ -2,8 +2,9 @@
 
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
-without threads. Plan steps 1, 2 and 5 are implemented (`threading.zig`,
-`blas3/threaded.zig`): every level 3 routine but `gemmt` threads; levels 1 and 2 are serial.
+without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`, the level 1
+and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
+the split keeps the serial bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
 (v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule
@@ -141,14 +142,49 @@ the problem size and the routine's chunk size, never on `w`:
   workers when the `Io` runs them all, fewer when it admits fewer (late starters find nothing
   left), and the remaining workers absorb the load when a core is busy.
 - **Combining.** Each chunk's partial result is determined by its boundaries, not by the
-  worker that computed it. Reductions keep partials in a stack `[64]T` (for `nrm2`, a
-  `(scale, ssq)` pair) and fold them in chunk order on the caller; `i?amax` combines exactly
-  (first index wins). Level 2 routines with partial vectors (`gemv` with short `m`, `symv`,
-  `trmv`) keep one per chunk and combine them in chunk order.
+  worker that computed it. Reductions keep partials in a stack `[64]T` and fold them in chunk
+  order on the caller; the extremes fold exactly (first index wins). No level 2 routine keeps
+  partial vectors (below).
 
-Element-wise routines (`axpy`, `scal`, `swap`, `rot`, `gemv` over rows, `ger`) compute each
-output in exactly one chunk, so the split cannot change their results. Below the threshold a
-routine makes one kernel call, as in a single-threaded build, which gives the same bits.
+Element-wise routines compute each output in exactly one chunk, so the split cannot change
+their results; with one worker they make one kernel call, as below the threshold. A reduction
+above its threshold folds its chunks whatever the worker count, in a single-threaded build too.
+
+What threads, as landed:
+
+- **Element-wise level 1:** `copy`, `swap`, `scal`, `rot`, `axpy` and `axpyc`. Chunks start on
+  multiples of 1024 elements, so every chunk but the last is whole kernel blocks, the last ends
+  where the vector does, and each keeps the vector's alignment: an element takes the body or
+  tail path one call gives it. A zero stride runs serially, as OpenBLAS's do.
+- **Reductions:** the dots (`dsdot` too), `asum` and `sum` at `f32` and `f64`, real and complex.
+  Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, so it keeps
+  its contract (products and sum in `f64`, rounded once). Wider types do not thread their sums:
+  they give the bits of OpenBLAS's x87 kernels (`readme.md`), which no fold keeps.
+- **Extremes:** values and indices, every type, folded exactly: the first NaN, else the first
+  extreme, as one kernel call finds them. Where a complex key overflows, each chunk's kernel has
+  picked by `|re|/4 + |im|/4`, and the fold does too between two such chunks, so the index is
+  the serial one.
+- **`gemv`:** rows without a transpose, columns with one, each chunk a serial kernel call with a
+  buffer of its own. Rows split only on 4096-row blocks: x86_64's `gemv_n` kernels take rows in
+  `NBMAX` blocks and run the last block's remainder first, so a finer split moves rows between
+  paths (measured: `sgemv_n` on Sandy Bridge, Haswell and Zen). Columns start on multiples of 64.
+- **`ger`:** columns. Its runs of nonzero `y` are cut on multiples of 64 past each run's start,
+  so a run's parts make its kernel call's column blocks.
+- **Rank updates** (`syr`, `spr`, `syr2`, `spr2`, `her`, `hpr`, `her2`, `hpr2`): columns, each one
+  `axpy` call as in the serial driver, balanced by length (`Shape.rising`, `falling`).
+- **`gbmv` with a transpose:** columns, each element of `y` one column's dot.
+
+What stays serial, and why:
+
+- **`nrm2`:** chunks' norms would fold with a rounding each, where `s` and `c` round the root
+  once and `d` and `z` keep Blue's three sums inside the kernel.
+- **`symv`, `hemv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `trmv`, `tbmv`, `tpmv` and `gbmv` without a
+  transpose:** each element of `y` adds up over several kernel calls (`axpy` columns, `gemv`
+  blocks, or a core's own `symv` kernel). A split of `y` cuts those calls elsewhere, and kernels
+  round a call's body, tail and remainder apart, so the bits would follow the split. OpenBLAS's
+  per-thread partial vectors fold a sum per thread, so theirs follow the thread count.
+- **Not threaded upstream:** `axpby`, `rotm`, the triangular solves, `sbdot` and the bfloat16
+  conversions (OpenBLAS threads those two on x86_64 only, `sbdot.c`, `tobf16.c`; left for T05).
 
 ### Level 3: BLIS's shared packed B
 
@@ -215,15 +251,20 @@ run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
 | `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
-| `gemv` | `m * n >= 115200 * 4` | N: row chunks; T: column chunks |
+| `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks; T: column chunks |
+| `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N serial |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
-| `symv`, `trmv` | `symv n >= 200`; `trmv n < 50`: 1, `< 500`: 2 | sqrt-balanced row chunks |
+| `symv`, `trmv` | `symv n >= 200`; `trmv n < 50`: 1, `< 500`: 2 | serial here (above) |
 | `syr`, `spr`, `syr2`, `spr2` (real and complex symmetric) | `n < 50`: 1, `< 500`: 2 | sqrt-balanced column chunks |
 | `her`, `hpr`, `her2`, `hpr2` | `n < 100`: 1 | same |
 | `axpy` / `scal` / `swap` | `n > 10000` / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
+| `copy` | `copy_thunderx2t99.c`: `n > 10000` | range chunks |
 | `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
+| extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 
-The generic thresholds apply with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
+The `copy` and extremes rows are OpenBLAS's ThunderX2 kernels' own, taken as defaults for every
+core; the others are its generic interfaces' or x86_64 kernels'. The generic thresholds apply
+with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
 together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c` and
 `gemv.c`, `a64fx` and `neoversev1` in `arm64/dot.c`). Complex routines have their own
 constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core tables derived from rstd's own benchmarks will
@@ -237,8 +278,9 @@ paths are already ported ([`design.md`](design.md), Level 2).
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
 for `w` workers: level 3 packing buffers (`P x Q` elements per worker, and per `jc` group a
 slice of `B` as wide as the widest group, at most `R`, each on a cache line; for `trmm` and
-`trsm`, the serial driver's space per part) and level 2 per-chunk vectors. Tasks are
-therefore infallible, and the allocator need not be thread safe. Level 1 needs none. Task
+`trsm`, the serial driver's space per part) and `gemv`'s buffer per chunk. Tasks are therefore
+infallible, and the allocator need not be thread safe. Level 1, `ger`, `gbmv` and the rank
+updates need none beyond their serial copies of strided vectors, made before any task starts. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
 the `Io`'s own allocator and runs the task inline if that allocation fails.
 
@@ -433,8 +475,10 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 2. **`gemm`** (done), every precision: BLIS's ways and shared packed `B` through
    `Group.concurrent`, with the start barrier, bounded spinning, the serial fallback and the
    public interface's threshold.
-3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.
-4. **Level 2:** `gemv`, `ger`, then `symv`/`trmv`.
+3. **Level 1** (done): `copy`, `swap`, `scal`, `rot`, `axpy`, the dots, `asum`, `sum` and the
+   extremes; `nrm2` stays serial.
+4. **Level 2** (done): `gemv`, `ger`, the rank updates and transposed `gbmv`; `symv`, `trmv`
+   and the other banded and packed products stay serial.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
    driver; `trmm` and `trsm` by panels of `B`.
 
@@ -451,3 +495,8 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
   At 53-bit they agree. T04's x87 audit.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
+- `symv`, `trmv` and the banded and packed products could split `y` keeping their bits if every
+  core's `axpy` (and `gemv`) gave an element the same bits wherever it sits in a call; untested
+  across cores, so they stay serial. Folding fixed per-size partial vectors instead (OpenBLAS's
+  way, with chunks in place of threads) would keep the rule too, but change their serial bits
+  and cost `n` per chunk.

@@ -144,10 +144,10 @@ Conventions shared by every interface:
 - **Quick returns.** Empty problems return before any kernel call; kernels assume `n >= 1`.
   Level 3 does not forward one-column problems to `gemv`.
 - **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
-  an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies. Level 3
-  threads on `io`, all but `gemmt`; levels 1 and 2 are serial. `rotg`, `zrotg` and `rotmg`
-  compute from scalars, never thread, and take `(T, ...)` and return `void`; `cabs1` takes
-  `(T, z)` and returns `|re| + |im|`.
+  an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies; the routines
+  that thread run their workers on it. `rotg`, `zrotg` and `rotmg` compute from scalars, never
+  thread, and take `(T, ...)` and return `void`; `cabs1` takes `(T, z)` and returns
+  `|re| + |im|`.
 
 `__root__.zig` re-exports every routine flat (`blas.dot`, `blas.gemv`, `blas.gemm`), with the
 argument enums and error sets, beside the setup and dispatch API: `init`, `shutdown`, `vtable`,
@@ -519,8 +519,9 @@ only repeat the portable kernels.
   strided `x` once for all the runs. The skip is decided above the kernels, so every core
   gives it; [`comparisons.md`](comparisons.md) (5) has why it stays. At unit stride and small
   `n` (`syr`, `spr`, `syr2` below 100; `spr2`, `zsyr` below 50: `interface/syr.c:174`,
-  `spr.c:172`, `syr2.c:175`, `spr2.c:173`, `zsyr.c:175`) the interface runs the driver's
-  columns itself, as OpenBLAS's do, keeping the skip (OpenBLAS's `syr2`/`spr2` paths have none).
+  `spr.c:172`, `syr2.c:175`, `spr2.c:173`, `zsyr.c:175`) OpenBLAS's interfaces run the driver's
+  columns themselves; rstd's driver takes a unit-stride vector as it is, so it is that path,
+  keeping the skip (OpenBLAS's `syr2`/`spr2` paths have none).
 - **symv and hemv.** `blas2/symmetric.zig` holds the portable kernels, `kernel/generic`'s
   `symv_k.c`, `zsymv_k.c` and `zhemv_k.c`, which compose the running core's copy and `gemv`
   kernels with the same blocking (`SYMV_P`, the vtable's `symv_p`).
@@ -529,7 +530,10 @@ only repeat the portable kernels.
   reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
   the allocator, 4096-aligned.
   [`blas2/buffers.md`](blas2/buffers.md) lists what every kernel does with it.
-- **Threading.** The reference's `*_thread.c` drivers are not ported.
+- **Threading.** The reference's `*_thread.c` drivers are not ported. `gemv`, `ger`, the rank
+  updates and transposed `gbmv` split `y` or `A`'s columns into serial kernel calls; the
+  symmetric, triangular, banded and packed products stay serial
+  ([`threading.md`](threading.md#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 
 ### Level 3
 
@@ -1215,14 +1219,15 @@ Outside `src/linalg/blas/`:
 
 ### Threading
 
-Level 3 threads, all but `gemmt`; levels 1 and 2 are serial. [`threading.md`](threading.md)
-specifies threading: every routine takes an `io: Io`; levels 1 and 2 split work into chunks
-fixed by the problem size and combine partial results in chunk order, so results do not depend
-on the worker count; level 3 follows BLIS's `jc x ic` ways over a shared packed `B` on
-`Io.Group.concurrent` (`blas3/threaded.zig`); all scratch is allocated before any task starts,
-and workers adopt the caller's floating-point control state. `Config` parses the thread variables it reads.
-`threading.zig` holds the machinery: the cached CPU count and ceiling, the thresholds, the
-chunks, the claim loop and the ordered combine, and level 3's team and barriers.
+[`threading.md`](threading.md) specifies threading, and its plan is implemented: every routine
+takes an `io: Io`; levels 1 and 2 split work into chunks fixed by the problem size and combine
+partial results in chunk order, so results do not depend on the worker count; level 3 follows
+BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`blas3/threaded.zig`);
+all scratch is allocated before any task starts, and workers adopt the caller's floating-point
+control state. `Config` parses the thread variables it reads. `threading.zig` holds the
+machinery: the cached CPU count and ceiling, the thresholds, the chunks, the claim loop and the
+ordered combine, and level 3's team and barriers. `nrm2`, `gemmt` and the symmetric, triangular,
+banded and packed level 2 products stay serial, for the reasons `threading.md` gives.
 
 ## Settled decisions
 

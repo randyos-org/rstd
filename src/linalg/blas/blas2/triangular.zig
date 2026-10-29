@@ -15,7 +15,8 @@
 //! The reference's `info` for each: `InvalidUplo` 1 (`v`, `m`),
 //! `InvalidTrans` 2 (`o` to `d`), `InvalidN` 4, `InvalidK` 5, `InvalidLda` 6
 //! (7 for band), `InvalidIncx` 7 (packed), 8 (full), 9 (band). `n == 0`
-//! returns early. `io` is for the threading to come; every routine is serial.
+//! returns early. Every routine is serial: an element of `x` adds up over
+//! several kernel calls, which a split would cut elsewhere (`threading.md`).
 //!
 //! Work space: a copy of `x` when `incx != 1`, and `gemv`'s buffer when `n`
 //! exceeds the vtable's `dtb_entries` (64 when unset). Up to `stack_bytes`
