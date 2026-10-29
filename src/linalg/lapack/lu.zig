@@ -678,9 +678,11 @@ fn solveCase(comptime T: type, al: Allocator, p: *const Problem(T), trans: Trans
 
 const solve_sizes = [_]usize{ 1, 2, 3, 7, 17, 33, 50, 70, 130 };
 
-fn solveCases(vt: *const Vtable) anyerror!void {
+/// The real or the complex test types: a test each, so sparc64-debug's images
+/// fit the firmware's window.
+fn solveCases(comptime complex: bool, vt: *const Vtable) anyerror!void {
     const al = testing.allocator;
-    inline for (test_types) |T| for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
+    inline for (test_types) |T| if (comptime isComplex(T) == complex) for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
         const saved = blas.testUse(v);
         defer blas.testRestore(saved);
         for (solve_sizes) |n| {
@@ -699,8 +701,20 @@ fn solveCases(vt: *const Vtable) anyerror!void {
     };
 }
 
-test "getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, on every linked core" {
-    try check.eachCore(solveCases);
+fn solveReal(vt: *const Vtable) anyerror!void {
+    return solveCases(false, vt);
+}
+
+fn solveComplex(vt: *const Vtable) anyerror!void {
+    return solveCases(true, vt);
+}
+
+test "getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real, on every linked core" {
+    try check.eachCore(solveReal);
+}
+
+test "getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex, on every linked core" {
+    try check.eachCore(solveComplex);
 }
 
 test "getrs: a known 2 x 2 solve, A and its transpose" {

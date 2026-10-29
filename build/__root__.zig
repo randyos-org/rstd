@@ -132,9 +132,9 @@ pub fn build(b: *Build) !void {
     }
 
     // UEFI, which no test runner supports: the OS-free tests (the qemu rigs'
-    // root: simd and BLAS, every interface at every element type) built, not
-    // run, through a runner that only links them
-    const uefi_step = b.step("rstd-check-uefi", "Build rstd's OS-free tests (simd, BLAS) for UEFI (x86_64, aarch64) without running them");
+    // root: simd, BLAS, every interface at every element type, and LAPACK)
+    // built, not run, through a runner that only links them
+    const uefi_step = b.step("rstd-check-uefi", "Build rstd's OS-free tests (simd, BLAS, LAPACK) for UEFI (x86_64, aarch64) without running them");
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const uefi = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .uefi });
         const uefi_mod = b.createModule(.{ .root_source_file = b.path("src/_test_qemu.zig"), .target = uefi, .optimize = optimize });
