@@ -438,9 +438,9 @@ pub fn machine(core: anytype) Spec {
             .neoversev2 => .{ .model = "neoverse_v2" },
             .a64fx => .{ .model = "a64fx" },
             .ampere1 => .{ .model = "ampere1" },
-            // SVE, or SVE2 and SME (`runnable`): SME's F64F64 is optional
+            // SVE; SVE2, SME and SME's optional F64F64 (`runnable`)
             .armv8sve => .{ .features = &.{ "neon", "sve" } },
-            .armv9sme => .{ .features = &.{ "v9a", "sme" } },
+            .armv9sme => .{ .features = &.{ "v9a", "sme", "sme_f64f64" } },
             // Apple's: macOS and Linux run on the M1 and later
             .vortex => .{ .model = "apple_m1" },
             .vortexm4 => .{ .model = "apple_m4" },
@@ -548,11 +548,7 @@ pub const Waiver = struct { core: []const u8, feature: []const u8 };
 /// The features a spec adds that `machine` says some CPUs of the core lack,
 /// each awaiting a decision: drop it from the spec, or have `runnable` require
 /// it and add it to `machine`. `excess` passes them; keep the list empty.
-pub const undecided = [_]Waiver{
-    // the reference's `-march=armv9-a+sve2+sme+sme-f64f64`; F64F64 is optional
-    // in SME and `runnable` does not check it; no kernel uses SME yet
-    .{ .core = "armv9sme", .feature = "sme_f64f64" },
-};
+pub const undecided = [_]Waiver{};
 
 /// The features an object built with `object` uses that a CPU running `core`
 /// (`machine`) may lack and the target, which the whole program needs, does
