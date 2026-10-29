@@ -196,9 +196,12 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
     return if (n == 1) x else @splat(x);
 }
 
-/// `a*b + c` under the build's contraction policy (`fma.zig`).
+/// `a*b + c` under the build's contraction policy (`fma.zig`). On the x87
+/// each step is rounded to `T`: a full tile's sums stay in registers, wider
+/// than a partial tile's in memory, and threads move columns between them.
 pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
-    const fused = (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
+    const fused = comptime (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
+    if (comptime n == 1 and !fused and util.onX87(T)) return util.rounded(T, util.rounded(T, a * b) + c);
     return util.scalar(Lanes(T, n), if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c);
 }
 
