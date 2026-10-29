@@ -1081,6 +1081,38 @@ before any task starts. `Config` already parses the thread variables it reads. `
 holds the machinery of its plan's step 1: the cached CPU count and ceiling, the thresholds, the
 chunks, the claim loop and the ordered combine; no routine uses it yet.
 
+## Settled decisions
+
+Questions decided once, with the reason, so they are not reopened without new evidence.
+
+- **No address dependence** (2026-10-23). Results never depend on where operands sit in
+  memory. On the x86_64 cores whose converted reductions peel elements until an operand is
+  aligned, every such slot takes the `@Vector` kernel, `dot` included: it loads unaligned, and
+  its several partial sums bound the error more tightly than one running sum
+  ([`readme.md`](readme.md), "No address dependence").
+- **Column-major only** (2026-10-29). rstd has no row-major entry points, and nothing upstream
+  reaches only from CBLAS's row-major path survives: the Hermitian `Uplo` letters `v`/`m` go
+  from `hpmv`, `her`, `hpr`, `her2` and `hpr2`.
+- **`arm-softfp` is softfp** (2026-10-29). The soft-float ABI over the A15's VFPv4 and NEON,
+  with the features pinned in `build/qemutest.zig`, so Zig 0.17 (whose model had them) and 0.18
+  (whose model has none) build the same rig.
+- **Timing needs a quiet machine** (2026-10-29). When background processes hold a host's load
+  up (the M6's `audiomxd` and `configd`), restart it rather than relax the rule.
+- **Level-3 threading follows BLIS** (2026-10-29): `jc x ic` ways sharing packed `B` through
+  barriers, written from BLIS's published design (Van Zee and van de Geijn), not its code. Where
+  OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin before sleeping, as both
+  do, and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
+- **Hermitian diagonals are real** (2026-10-29). `herk`, `her2k`, `her`, `hpr`, `her2` and
+  `hpr2` set the diagonal's imaginary parts to zero, as the reference does: `A = Aᴴ` makes them
+  zero, and the stored ones are not part of the matrix. Where Accelerate leaves `beta` times the
+  old ones, rstd zeroes them after the call.
+- **Optional CPU extensions only when detected** (2026-10-29). A core's object may use an
+  extension only if detection (`runnable`) confirms it, so no core is chosen that can fault;
+  `armv9sme` takes `sme_f64f64` on that condition.
+- **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
+  only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
+  periodically over batches, not per change.
+
 ## Alternatives considered
 
 | Alternative | Reason not chosen |
