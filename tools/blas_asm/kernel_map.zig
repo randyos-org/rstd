@@ -9,6 +9,9 @@ pub var arena: std.mem.Allocator = undefined;
 pub var io: Io = undefined;
 /// The OpenBLAS checkout.
 pub var root: []const u8 = undefined;
+/// The checkout's `git describe` (`v0.3.34-317-ga69062524`, `-dirty` when
+/// modified), which the generated files name as their source.
+pub var pin: []const u8 = undefined;
 /// The BLAS directory `uk.zig`'s output goes under, as
 /// `<out_root>/<Routine.dir>/<arch>/uk/`.
 pub var out_root: []const u8 = "src/linalg/blas";
@@ -151,6 +154,13 @@ pub fn init(a: std.mem.Allocator, i: Io, checkout: []const u8) !void {
     io = i;
     root = checkout;
     if (read(try path(&.{ root, "kernel", "Makefile.L1" })) == null) die("cannot read kernel/Makefile.L1", .{});
+    const r = try std.process.run(a, i, .{ .argv = &.{ "git", "-C", root, "describe", "--tags", "--long", "--abbrev=9", "--dirty" } });
+    const ok = switch (r.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    if (!ok) die("git describe in {s} failed:\n{s}", .{ root, r.stderr });
+    pin = std.mem.trim(u8, r.stdout, " \r\n");
 }
 
 pub fn path(parts: []const []const u8) ![]const u8 {
