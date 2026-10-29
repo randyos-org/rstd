@@ -741,6 +741,12 @@ test "half-precision gemv: every linked core's kernels match plain arithmetic, w
     try check.eachCore(checkAllHalf);
 }
 
+/// `x` rounded to `f32`: each step of the models is, as on any IEEE unit, so
+/// the x87 gives the same bits wherever values spill.
+inline fn r32(x: f32) f32 {
+    return util.rounded(f32, x);
+}
+
 /// `y` after the kernel, by a loop of a different shape (columns outermost for
 /// `n`, every row's accumulator kept in an array), bit for bit.
 fn halfModel(comptime E: type, comptime Y: type, comptime trans: bool, comptime fuse: bool, m: usize, n: usize, alpha: Y, a: []const E, lda: usize, x: []const E, incx: usize, beta: Y, y: []Y, incy: usize) void {
@@ -750,13 +756,13 @@ fn halfModel(comptime E: type, comptime Y: type, comptime trans: bool, comptime 
     for (0..inner) |q| for (0..rows) |r| {
         const av = bf16_kernel.wide(E, if (trans) a[q + r * lda] else a[r + q * lda]);
         const xv = bf16_kernel.wide(E, x[q * incx]);
-        acc[r] = if (fuse) @mulAdd(f32, av, xv, acc[r]) else av * xv + acc[r];
+        acc[r] = if (fuse) @mulAdd(f32, av, xv, acc[r]) else r32(r32(av * xv) + acc[r]);
     };
     for (0..rows) |r| {
         const af = bf16_kernel.wide(Y, alpha);
         const bf = bf16_kernel.wide(Y, beta);
         const yi = r * incy;
-        y[yi] = bf16_kernel.narrow(Y, if (bf == 0) af * acc[r] else if (fuse) @mulAdd(f32, af, acc[r], bf * bf16_kernel.wide(Y, y[yi])) else af * acc[r] + bf * bf16_kernel.wide(Y, y[yi]));
+        y[yi] = bf16_kernel.narrow(Y, if (bf == 0) r32(af * acc[r]) else if (fuse) @mulAdd(f32, af, acc[r], bf * bf16_kernel.wide(Y, y[yi])) else r32(r32(af * acc[r]) + r32(bf * bf16_kernel.wide(Y, y[yi]))));
     }
 }
 
@@ -829,9 +835,9 @@ test "half-precision gemv: the row blocks of the non-transposed kernel sum each 
             const beta: f32 = 0.5;
             for (0..m) |i| {
                 var acc: f32 = 0;
-                for (0..n) |j| acc = bf16_kernel.wide(E, a[i + j * lda]) * bf16_kernel.wide(E, x[j * inc[0]]) + acc;
+                for (0..n) |j| acc = r32(r32(bf16_kernel.wide(E, a[i + j * lda]) * bf16_kernel.wide(E, x[j * inc[0]])) + acc);
                 const w = &want[i * inc[1]];
-                w.* = bf16_kernel.narrow(Y, bf16_kernel.wide(Y, bf16_kernel.narrow(Y, alpha)) * acc + bf16_kernel.wide(Y, bf16_kernel.narrow(Y, beta)) * bf16_kernel.wide(Y, w.*));
+                w.* = bf16_kernel.narrow(Y, r32(r32(bf16_kernel.wide(Y, bf16_kernel.narrow(Y, alpha)) * acc) + r32(bf16_kernel.wide(Y, bf16_kernel.narrow(Y, beta)) * bf16_kernel.wide(Y, w.*))));
             }
             _ = bf16_kernel.Gemv(E, Y, false, false).k(@intCast(m), @intCast(n), bf16_kernel.narrow(Y, alpha), a.ptr, @intCast(lda), x.ptr, @intCast(inc[0]), bf16_kernel.narrow(Y, beta), y.ptr, @intCast(inc[1]));
             try std.testing.expect(std.mem.eql(u8, std.mem.sliceAsBytes(want), std.mem.sliceAsBytes(y)));

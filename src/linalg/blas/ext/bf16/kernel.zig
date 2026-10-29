@@ -141,7 +141,8 @@ pub fn narrow(comptime T: type, v: f32) T {
 /// `a*x` in `f32` in index order and rounds once on the store; `beta == 0`
 /// never reads `y`; with `m` or `n` 0 the result is `beta*y` (the interface
 /// returns before that). `fuse` says whether `acc + a*x` and
-/// `alpha*acc + beta*y` contract; the vtable's kernels do not.
+/// `alpha*acc + beta*y` contract; the vtable's kernels do not. On the x87
+/// each step is rounded to `f32` (`madd`).
 pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime fuse: bool) type {
     return struct {
         pub fn k(m: BlasLong, n: BlasLong, alpha: Y, a: [*]E, lda: BlasLong, x: [*]E, inc_x: BlasLong, beta: Y, y: [*]Y, inc_y: BlasLong) callconv(.c) i32 {
@@ -154,7 +155,7 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
                     var acc: f32 = 0;
                     var q: BlasLong = 0;
                     while (q < m) : (q += 1) {
-                        acc = fma.madd(fuse, f32, wide(E, util.at(E, a, q + r * lda).*), wide(E, util.at(E, x, q * inc_x).*), acc);
+                        acc = madd(fuse, wide(E, util.at(E, a, q + r * lda).*), wide(E, util.at(E, x, q * inc_x).*), acc);
                     }
                     store(y, r * inc_y, alpha_f, beta_f, acc);
                 }
@@ -171,7 +172,7 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
                     const xv = wide(E, util.at(E, x, q * inc_x).*);
                     const col = util.at(E, a, r0 + q * lda);
                     const c: [*]E = @ptrCast(col);
-                    for (acc[0..rows], c[0..rows]) |*s, e| s.* = fma.madd(fuse, f32, wide(E, e), xv, s.*);
+                    for (acc[0..rows], c[0..rows]) |*s, e| s.* = madd(fuse, wide(E, e), xv, s.*);
                 }
                 for (acc[0..rows], 0..) |s, i| store(y, (r0 + @as(BlasLong, @intCast(i))) * inc_y, alpha_f, beta_f, s);
             }
@@ -182,9 +183,16 @@ pub fn Gemv(comptime E: type, comptime Y: type, comptime trans: bool, comptime f
         /// reads `y`.
         inline fn store(y: [*]Y, at: BlasLong, alpha_f: f32, beta_f: f32, acc: f32) void {
             const yp = util.at(Y, y, at);
-            yp.* = narrow(Y, util.scalar(f32, if (beta_f == 0) alpha_f * acc else fma.madd(fuse, f32, alpha_f, acc, beta_f * wide(Y, yp.*))));
+            yp.* = narrow(Y, util.scalar(f32, if (beta_f == 0) alpha_f * acc else madd(fuse, alpha_f, acc, util.rounded(f32, beta_f * wide(Y, yp.*)))));
         }
     };
+}
+
+/// `fma.madd` in `f32`; on the x87 the product and the sum are each rounded
+/// to `f32` (`util.rounded`), so the bits do not hang on where values spill.
+inline fn madd(comptime fused: bool, a: f32, b: f32, c: f32) f32 {
+    if (comptime !fused and util.onX87(f32)) return util.rounded(f32, util.rounded(f32, a * b) + c);
+    return fma.madd(fused, f32, a, b, c);
 }
 
 /// Rows of the non-transposed gemv summed together: 1 KiB of `f32`
