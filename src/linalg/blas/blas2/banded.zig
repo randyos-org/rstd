@@ -73,6 +73,14 @@ fn mul(comptime T: type, a: T, b: T) T {
     return if (comptime isComplex(T)) a.mul(b) else a * b;
 }
 
+/// `mul`, each step rounded on the x87 (`util.cmul`): the rank updates'
+/// scalars, which the small-`n` path and the driver must agree on.
+fn mulRounded(comptime T: type, a: T, b: T) T {
+    if (comptime !isComplex(T)) return a * b;
+    const p = util.cmul(Float(T), a.re, a.im, b.re, b.im);
+    return .init(p[0], p[1]);
+}
+
 fn add(comptime T: type, a: T, b: T) T {
     return if (comptime isComplex(T)) a.add(b) else a + b;
 }
@@ -263,7 +271,7 @@ fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comp
         const len = if (lower) n - i else i + 1;
         const xs = if (lower) at(T, X, i) else X;
         const xi = el(T, X, i).*;
-        if (!isZero(T, xi)) axpyK(T, false, len, if (herm) scaleF(T, conj(T, xi), alpha) else mul(T, alpha, xi), xs, col);
+        if (!isZero(T, xi)) axpyK(T, false, len, if (herm) scaleF(T, conj(T, xi), alpha) else mulRounded(T, alpha, xi), xs, col);
         if (herm) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
     }
@@ -294,8 +302,8 @@ fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, com
         const xi = el(T, X, i).*;
         const yi = el(T, Y, i).*;
         if (!isZero(T, xi) or !isZero(T, yi)) {
-            axpyK(T, false, len, if (herm) conj(T, mul(T, alpha, xi)) else mul(T, alpha, xi), ys, col);
-            axpyK(T, false, len, if (herm) mul(T, alpha, conj(T, yi)) else mul(T, alpha, yi), xs, col);
+            axpyK(T, false, len, if (herm) conj(T, mulRounded(T, alpha, xi)) else mulRounded(T, alpha, xi), ys, col);
+            axpyK(T, false, len, if (herm) mulRounded(T, alpha, conj(T, yi)) else mulRounded(T, alpha, yi), xs, col);
         }
         if (herm) el(T, col, if (lower) 0 else i).im = 0;
         col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
