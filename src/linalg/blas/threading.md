@@ -290,6 +290,12 @@ Reproducibility:
   `unroll_n`, so no element moves between a full tile and a tail path.
 - **No address dependence.** No kernel's bits follow an operand's alignment (`vector.peels`), so
   a chunk may start anywhere.
+- **The caller's control state.** Threads do not inherit floating-point control state (x86
+  Windows starts them at 53-bit x87 precision, 0x27f, where a MinGW main thread has 64-bit,
+  0x37f). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
+  capture `util.FpState` on the caller, and each task's first step adopts it, restoring its
+  thread's own when it ends. Only control bits move: exception flags stay per thread, and the
+  caller's state is never changed ([`design.md`](design.md), Settled decisions).
 
 Memory safety for concurrent work:
 
@@ -436,13 +442,9 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
   hang. With worker threads `Uring` hangs even a plain futex barrier ([`issues.md`](issues.md));
   `Dispatch` (macOS) has no thread limit and is untested. Windows has no `Evented`.
 - TSan support with this toolchain is unverified.
-- Floating-point control state is per thread: on x86 Windows new threads start with the x87
-  control word at 53-bit precision (0x27f) where the main thread has 64-bit (0x37f), so an
-  x87 (`pentium3`) build's workers round `f64` otherwise than the serial path; MXCSR (rounding,
-  flush to zero) and arm64's FPCR carry the same exposure if a caller changes them. Decided:
-  workers adopt the caller's state ([`design.md`](design.md), Settled decisions). Every task
-  enters through `threading.team`'s worker or `Region.work`, so it is one capture on the caller
-  in `team` and `forEachIn`, kept in the shared state, and one apply as each task's first step
-  (not built yet).
+- At 64-bit x87 precision (0x37f), the scalar `gemm` kernel's full tile keeps its sums in
+  registers and its partial tile in memory, so they round `f64` apart; where a partition puts
+  a column in the other one (`symm`, `pentium3`, the tests' shrunk `R`), threaded bits differ.
+  At 53-bit they agree. T04's x87 audit.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.

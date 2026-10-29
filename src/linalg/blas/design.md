@@ -314,8 +314,11 @@ round a portable kernel differently; reproducibility is per build and core.
 
 ### Denormals and the floating-point environment
 
-Rstd never changes the floating-point environment (MXCSR, FPCR, FPSCR, `VSCR`) and assumes IEEE
-default modes. Denormals are honored everywhere: where a vector unit flushes `f32` denormals
+Rstd never changes the caller's floating-point environment (MXCSR, FPCR, FPSCR, `VSCR`) and
+assumes IEEE default modes. Its worker threads adopt the caller's control state (`util.FpState`:
+the x87 control word, MXCSR, FPCR, FPSCR, `frm`, FCSR, FPC, FSR; not `VSCR`), so a threaded call
+rounds as its serial path does under any modes ([`threading.md`](threading.md#guardrails)).
+Denormals are honored everywhere: where a vector unit flushes `f32` denormals
 (ARMv7 NEON, pre-VSX AltiVec), `util.vectorIeee` is false, and no kernel puts `f32` in its lanes.
 
 - The portable `saxpy` takes its scalar loop there; `vector.zig` has no `s` or `c` roles there.
