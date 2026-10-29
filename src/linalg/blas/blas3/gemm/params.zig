@@ -77,13 +77,19 @@ pub const Table = struct {
     preferred_size: i32 = 1,
     /// `SYMV_P`: the block of the generic symv and hemv.
     symv_p: i32 = 0,
+    /// `BUFFER_SIZE`, the packing buffer `r` derives from, as the core's build
+    /// sees `common_<arch>.h`: 128 MiB on x86_64 (`common_x86_64.h:260`),
+    /// s390x (`common_zarch.h:129`) and arm64's `NEOVERSEN1`, `N2`, `V1`,
+    /// `A64FX`, `ARMV8SVE`, `ARMV9SME` (`common_arm64.h:180-181`); 32 MiB on
+    /// the other arm64 cores (`:183`), arm (`common_arm.h:141`), riscv64
+    /// (`common_riscv64.h:89`), mips32 (`common_mips.h:105`), LoongArch
+    /// (`common_loongarch64.h:315`) and SPARC (`common_sparc.h:240`); 64 MiB on
+    /// mips64 (`common_mips64.h:254`); 256 MiB on POWER6 to 10
+    /// (`common_power.h:919`), 2 MiB on PPC440 (`:915`), 16 MiB on the other
+    /// POWER cores (`:917`, `:921`), x86 (`common_x86.h:207`) and wasm
+    /// (`common_wasm.h:87`).
+    buffer_size: i64,
 };
-
-/// The packing buffer `r` is derived from (`BUFFER_SIZE`, `common_<arch>.h`).
-/// One size for all: OpenBLAS's on arm64 (but its SVE cores) and LoongArch;
-/// its x86_64 one is `32 << 22` (`common_x86_64.h:260`, v0.3.34-317), x86's
-/// `16 << 20`.
-pub const buffer_size: i64 = 32 << 20;
 
 /// `p = min(cap, l2_kb >> shift) * mul + add` for `s, d, c, z, q, x` (`cap` 0 is
 /// no cap; a zero `mul` with an `add` is a constant).
@@ -273,7 +279,7 @@ fn derivedR(p: i32, q: i32, elem: i64, table: Table) i32 {
     if (q <= 0) return 0;
     const align_: i64 = table.align_;
     const packed_a = (@as(i64, p) * q * elem + table.offset_a + align_) & ~align_;
-    const r = @divTrunc(buffer_size - packed_a, @as(i64, q) * elem) - 15;
+    const r = @divTrunc(table.buffer_size - packed_a, @as(i64, q) * elem) - 15;
     return @intCast(r & ~@as(i64, 15));
 }
 
@@ -408,7 +414,8 @@ pub fn dtbFor(comptime family: Family, core: CoreOf(family)) i32 {
 }
 
 /// Installs the parameters of `core`. A core `param.h` has no blocking for takes
-/// the generic set and its rule, as OpenBLAS's generic target does.
+/// the generic set and its rule, as OpenBLAS's generic target does, with its
+/// family's `BUFFER_SIZE`.
 pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), env: Env) void {
     switch (core) {
         inline else => |c| {
@@ -416,7 +423,9 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
             if (tableFor(family, c)) |table| {
                 install(vt, family, @tagName(c), table, env);
             } else {
-                install(vt, .generic, "generic", data.generic(.generic).?, env);
+                var table = data.generic(.generic).?;
+                table.buffer_size = @field(data, @tagName(family) ++ "_buffer_size");
+                install(vt, .generic, "generic", table, env);
             }
         },
     }
@@ -538,7 +547,7 @@ test "generic follows the GENERIC rule for a 512 KB L2" {
     try std.testing.expectEqual(@as(i32, 112), vt.zgemm_p);
     try std.testing.expectEqual(@as(i32, 128), vt.dgemm_q);
     const packed_a: i64 = (448 * 128 * 4 + 0xffff) & ~@as(i64, 0xffff);
-    const want: i64 = (@divTrunc(buffer_size - packed_a, 128 * 4) - 15) & ~@as(i64, 15);
+    const want: i64 = (@divTrunc(data.generic_buffer_size - packed_a, 128 * 4) - 15) & ~@as(i64, 15);
     try std.testing.expectEqual(@as(i32, @intCast(want)), vt.sgemm_r);
 }
 
@@ -551,6 +560,26 @@ test "the block factor scales a computed p in 8s, and the L2 size moves it" {
     try std.testing.expectEqual(@as(i32, 40), vt.sgemm_p);
     installCore(&vt, .generic, .generic, .{ .l2_kb = 128 });
     try std.testing.expectEqual(@as(i32, 112), vt.sgemm_p);
+}
+
+test "r derives from the core's own BUFFER_SIZE, a fallback from its family's" {
+    const mib: i64 = 1 << 20;
+    inline for (.{
+        .{ .x86_64, .haswell, 128 },    .{ .x86, .katmai, 16 },      .{ .arm64, .neoversen1, 128 },
+        .{ .arm64, .cortexa53, 32 },    .{ .power64, .power9, 256 }, .{ .power64, .ppc440, 2 },
+        .{ .mips64, .loongson3r3, 64 }, .{ .s390x, .z14, 128 },      .{ .wasm, .wasm128_generic, 16 },
+    }) |c| try std.testing.expectEqual(c[2] * mib, tableFor(c[0], c[1]).?.buffer_size);
+    var vt: Vtable = .{};
+    installCore(&vt, .x86_64, .haswell, .{});
+    const t = tableFor(.x86_64, .haswell).?;
+    try std.testing.expectEqual(derivedR(vt.sgemm_p, vt.sgemm_q, 4, t), vt.sgemm_r);
+    const packed_a = (@as(i64, vt.sgemm_p) * vt.sgemm_q * 4 + t.offset_a + t.align_) & ~@as(i64, t.align_);
+    try std.testing.expectEqual((@divTrunc(128 * mib - packed_a, @as(i64, vt.sgemm_q) * 4) - 15) & ~@as(i64, 15), vt.sgemm_r);
+    // `p6` has no table: the generic set on x86's 16 MiB
+    installCore(&vt, .x86, .p6, .{});
+    var g = data.generic(.generic).?;
+    g.buffer_size = 16 * mib;
+    try std.testing.expectEqual(derivedR(vt.sgemm_p, vt.sgemm_q, 4, g), vt.sgemm_r);
 }
 
 test "fixed sets are taken as they are; x86 derives r, others keep the header's" {

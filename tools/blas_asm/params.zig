@@ -11,7 +11,8 @@
 //! `P` or `R` that the header leaves to a run-time variable (`sgemm_p`,
 //! `sgemm_r`, which `driver/others/parameter.c` fills in) prints as -1 and
 //! becomes `.dynamic` / `.from_buffer`. The rules for the dynamic ones are in
-//! `params.zig`, not here.
+//! `params.zig`, not here. Each table also takes the `BUFFER_SIZE` its core's
+//! build sees in `common_<arch>.h`, preprocessed with the same macros.
 
 const std = @import("std");
 const Io = std.Io;
@@ -32,13 +33,15 @@ const Family = struct {
     /// Cores with no `getarch.c` entry of their own: the entries to take, most
     /// specific last.
     renames: []const [2][]const u8 = &.{},
+    /// What `common_<arch>.h` needs to preprocess for a core with no table.
+    base: []const []const u8 = &.{},
 };
 
 const families = [_]Family{
     .{ .name = "x86_64", .core_type = "X86CoreType", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_X86_64", "-DBINARY64", "-D__64BIT__" } },
     .{ .name = "x86", .core_type = "X86CoreType", .target = "x86-linux-gnu", .defines = &.{ "-DARCH_X86", "-DBINARY32", "-D__32BIT__" } },
     .{ .name = "arm64", .core_type = "Arm64CoreType", .target = "aarch64-linux-gnu", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-D__64BIT__", "-DARMV8" } },
-    .{ .name = "arm", .core_type = "ArmCoreType", .target = "arm-linux-gnueabihf", .defines = &.{ "-DARCH_ARM", "-DBINARY32", "-D__32BIT__" }, .renames = &.{ .{ "neon", "ARMV7" }, .{ "vfpv4", "ARMV7,CORTEXA15" } } },
+    .{ .name = "arm", .core_type = "ArmCoreType", .target = "arm-linux-gnueabihf", .defines = &.{ "-DARCH_ARM", "-DBINARY32", "-D__32BIT__" }, .renames = &.{ .{ "neon", "ARMV7" }, .{ "vfpv4", "ARMV7,CORTEXA15" } }, .base = &.{"-DARMV5"} },
     // `PPC970`'s unrolls follow the byte order
     .{ .name = "power64", .core_type = "PowerCoreType", .target = "powerpc64le-linux-gnu", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-D__64BIT__", "-DOS_LINUX" } },
     .{ .name = "power64be", .core_type = "PowerCoreType", .target = "powerpc64-linux-musl", .defines = &.{ "-DARCH_POWER", "-DBINARY64", "-D__64BIT__", "-DOS_LINUX", "-U__BYTE_ORDER__", "-D__BYTE_ORDER__=__ORDER_BIG_ENDIAN__" } },
@@ -106,6 +109,48 @@ const globals = [_][2][]const u8{
     .{ "preferred_size", "GEMM_PREFERRED_SIZE" },
     .{ "symv_p", "SYMV_P" },
 };
+
+/// `common_<arch>.h`, which `common.h` includes for `fam`'s `ARCH_<ARCH>`.
+fn commonHeader(a: std.mem.Allocator, fam: Family) ![]const u8 {
+    for (fam.defines) |d| {
+        if (!std.mem.startsWith(u8, d, "-DARCH_")) continue;
+        const name = try a.dupe(u8, d["-DARCH_".len..]);
+        for (name) |*c| c.* = std.ascii.toLower(c.*);
+        return a.print("common_{s}.h", .{name});
+    }
+    map.die("{s} has no ARCH_ macro", .{fam.name});
+}
+
+/// `BUFFER_SIZE` as `fam`'s `common_<arch>.h` defines it under `defines`:
+/// preprocessed for the target, then its `(<n> << <shift>)` evaluated. Not
+/// under `DYNAMIC_ARCH`: only `common_power.h:923` branches on it, to the
+/// 256 MiB its dynamic cores (POWER6 to 10) have anyway; the other POWER
+/// cores, never in a dynamic build, keep their static sizes.
+fn bufferSize(a: std.mem.Allocator, io: std.Io, checkout: []const u8, fam: Family, defines: []const []const u8) !i64 {
+    const src = ".zig-cache/params_buffer.c";
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = src, .data = try a.print("#include \"{s}\"\nrstd_buffer_size BUFFER_SIZE\n", .{try commonHeader(a, fam)}) });
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.appendSlice(a, &.{ "zig", "cc", "-E", "-P", "-w", "-target", fam.target, "-I", checkout });
+    try argv.appendSlice(a, fam.defines);
+    try argv.appendSlice(a, defines);
+    try argv.append(a, src);
+    const cc = try std.process.run(a, io, .{ .argv = argv.items });
+    const ok = switch (cc.term) {
+        .exited => |c| c == 0,
+        else => false,
+    };
+    if (!ok) map.die("preprocessing {s} for {s} failed:\n{s}", .{ src, fam.name, cc.stderr });
+    const key = "rstd_buffer_size ";
+    const at = std.mem.find(u8, cc.stdout, key) orelse map.die("no BUFFER_SIZE for {s}", .{fam.name});
+    const line = std.mem.sliceTo(cc.stdout[at + key.len ..], '\n');
+    var it = std.mem.tokenizeAny(u8, line, "() \t\r");
+    const n = it.next() orelse map.die("BUFFER_SIZE of {s}: {s}", .{ fam.name, line });
+    const op = it.next() orelse map.die("BUFFER_SIZE of {s}: {s}", .{ fam.name, line });
+    const shift = it.next() orelse map.die("BUFFER_SIZE of {s}: {s}", .{ fam.name, line });
+    if (!std.mem.eql(u8, op, "<<") or it.next() != null) map.die("BUFFER_SIZE of {s}: {s}", .{ fam.name, line });
+    const base = try std.fmt.parseInt(i64, std.mem.trimEnd(u8, n, "UuLl"), 10);
+    return base << try std.fmt.parseInt(u6, shift, 10);
+}
 
 fn probeSource(a: std.mem.Allocator) ![]const u8 {
     var w: std.ArrayList(u8) = .empty;
@@ -301,10 +346,11 @@ pub fn main(init: std.process.Init) !void {
 
     var out: std.ArrayList(u8) = .empty;
     try out.appendSlice(a,
-        \\//! Per-core gemm blocking parameters, extracted from OpenBLAS `param.h`.
-        \\//! Generated by `tools/blas_asm/params.zig`; re-derive it rather than
-        \\//! editing it. `.dynamic` and `.from_buffer` mark the values the header
-        \\//! leaves to `driver/others/parameter.c` (see `params.zig`).
+        \\//! Per-core gemm blocking parameters, extracted from OpenBLAS `param.h`
+        \\//! (`BUFFER_SIZE` from `common_<arch>.h`). Generated by
+        \\//! `tools/blas_asm/params.zig`; re-derive it rather than editing it.
+        \\//! `.dynamic` and `.from_buffer` mark the values the header leaves to
+        \\//! `driver/others/parameter.c` (see `params.zig`).
         \\
         \\const coretypes = @import("../../cpu/_coretypes.zig");
         \\const params = @import("params.zig");
@@ -316,6 +362,7 @@ pub fn main(init: std.process.Init) !void {
 
     for (families) |fam| {
         const names = try coreNames(a, types_text, fam.core_type);
+        try out.print(a, "/// `BUFFER_SIZE` of a core with no table of its own.\npub const {s}_buffer_size: i64 = {d};\n\n", .{ fam.name, try bufferSize(a, io, checkout, fam, fam.base) });
         var dtb: std.ArrayList(u8) = .empty;
         defer dtb.deinit(a);
         try dtb.print(a, "/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.\npub fn {s}_dtb(core: coretypes.{s}) ?i32 {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
@@ -336,10 +383,13 @@ pub fn main(init: std.process.Init) !void {
             var argv: std.ArrayList([]const u8) = .empty;
             try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
             try argv.appendSlice(a, fam.defines);
-            if (config) |c| try argv.appendSlice(a, c.defines) else {
+            const core_defines = if (config) |c| c.defines else defs: {
+                var list: std.ArrayList([]const u8) = .empty;
                 var defs = std.mem.tokenizeScalar(u8, macro, ',');
-                while (defs.next()) |d| try argv.append(a, try a.print("-D{s}", .{d}));
-            }
+                while (defs.next()) |d| try list.append(a, try a.print("-D{s}", .{d}));
+                break :defs list.items;
+            };
+            try argv.appendSlice(a, core_defines);
             try argv.appendSlice(a, &.{ src_path, "-o", ".zig-cache/params_probe.exe" });
             const cc = try std.process.run(a, io, .{ .argv = argv.items });
             const built = switch (cc.term) {
@@ -391,6 +441,7 @@ pub fn main(init: std.process.Init) !void {
                     try val.print(a, "            .{s} = {d},\n", .{ field, x });
                 }
             }
+            try val.print(a, "            .buffer_size = {d},\n", .{try bufferSize(a, io, checkout, fam, core_defines)});
             try val.appendSlice(a, "        }");
             tv.* = val.items;
         }
