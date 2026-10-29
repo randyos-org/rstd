@@ -49,7 +49,7 @@ pub fn sshTool(b: *Build) *rstdbuild.CompileStep {
 /// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`.
 fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, where: []const u8) !void {
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
+    const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
     // under the qemu rigs' watchdog: an hour with no output ends it
     const run = qemutest.watchCommand(b);
     run.addArg("--");

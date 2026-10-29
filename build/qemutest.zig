@@ -862,7 +862,7 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, target, filters);
+    const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
         .root_source_file = b.path("test/linux/init.zig"),
         .target = target,
@@ -1176,7 +1176,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    run.addArtifactArg2(try buildroot.addRstdTest(b, mod, target, &.{}), .{});
+    run.addArtifactArg2(try buildroot.addRstdTest(b, mod, target, optimize, &.{}), .{});
     run.addArg(m.qemu);
     try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
     if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);

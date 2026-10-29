@@ -814,8 +814,7 @@ test "a canceled threaded gemm returns error.Canceled with no worker left runnin
     }
 }
 
-// `L3THREAD_BENCH` set, a fast Windows build (`rstd-test` builds the tests
-// `debug` whatever `-Doptimize` says; build with `zig test -O fast`):
+// `L3THREAD_BENCH` set, a fast Windows build (`rstd-test -Doptimize=fast`):
 // medians of serial and threaded `gemm` at 2, 4, 8 and 16 workers.
 test "l3thread bench" {
     if (comptime sysinfo.target.os.tag != .windows or sysinfo.mode != .fast) return error.SkipZigTest;
