@@ -55,7 +55,8 @@ core no result depends on where its operands lie in memory. Pinning the core typ
   their own packed `A`. Producers spin until consumers clear the flags, so the protocol
   requires every thread to run concurrently. `trsm` uses the synchronization-free
   `gemm_thread_n`/`gemm_thread_m`.
-- **Nesting.** `num_cpu_avail` returns 1 inside a parallel region.
+- **Nesting.** Under OpenMP, `num_cpu_avail` (`common_thread.h:151`) returns 1 inside a parallel
+  region unless `openblas_set_num_threads_local` raised `blas_omp_threads_local` (default 1).
 
 Because levels 1 and 2 split by thread count, OpenBLAS's reductions and per-thread-buffer
 routines change their low bits when the thread count changes.
@@ -151,8 +152,10 @@ routine makes one kernel call, as in a single-threaded build, which gives the sa
 
 ### Level 3: BLIS's shared packed B
 
-`gemm` follows BLIS's model (Van Zee and van de Geijn's papers on BLIS and its many-threaded
-`gemm`; `docs/Multithreading.md`), written from that design rather than ported
+`gemm` follows BLIS's model (Van Zee and van de Geijn, "BLIS: A Framework for Rapidly
+Instantiating BLAS Functionality", ACM TOMS 41(3), 2015, <https://doi.org/10.1145/2764454>; Smith
+et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS 2014,
+<https://doi.org/10.1109/IPDPS.2014.110>; `docs/Multithreading.md`), written from that design rather than ported
 (`blas3/threaded.zig`). Its loops, packing, kernels and depth slices are the serial driver's.
 
 - **Ways.** `w` workers split `C` `ic x jc` ways: the most workers that leave each part a row
