@@ -625,6 +625,12 @@ complex, for every float type, through the same code.
   AVX-512 parts pick their sets by cache size and thread count. `OPENBLAS_BLOCK_FACTOR` scales a
   computed `p` as `driver/others/parameter.c:519-527` does; OpenBLAS ignores it in dynamic builds,
   which do not link `parameter.c` (`driver/others/Makefile:44`).
+  Haswell's and Zen's `dgemm` `q` is 128 under `WINDOWS_ABI`, 256 otherwise (`param.h:1613-1619`,
+  `:704-710`); `params_data.zig` takes 256 on every OS. The cut is for the stack, not tuning:
+  `dgemm_kernel_4x8_haswell.S:54-70` keeps a `q * 8 * 12`-byte buffer on the stack and touches
+  its pages on Windows (`:82-106`), and 47b22763f ("reduced stack usage on windows to 16K")
+  halved `q` to hold it near 16 KiB; Zen took Haswell's values in 832a27278. The Zig kernels
+  keep no such buffer.
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
   extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
   fallback entries (`Makefile.system:115-158`) (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
