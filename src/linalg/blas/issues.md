@@ -244,8 +244,10 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > by FastISel as `STFD`, whose operand class is `F8RC`;
   > `-verify-machineinstrs` reports "Expected a F8RC register, but got a VFRC
   > register". Register allocation puts it in v3 (VSR35), and the encoded
-  > `3` stores f3. `PPCFastISel::PPCEmitStore` appears to pick `STFD` for any
-  > class but exactly `VSFRC`; `PPCEmitCmp` once did the same with `FCMPUD`.
+  > `3` stores f3. `PPCFastISel::PPCEmitStore` picks `STFD` for any
+  > class but exactly `VSFRC`
+  > ([`PPCFastISel.cpp:637,651`](https://github.com/llvm/llvm-project/blob/85ac560262434c9ccfc0c183ec22d4138ed647fb/llvm/lib/Target/PowerPC/PPCFastISel.cpp#L637-L651),
+  > 23.1.2); `PPCEmitCmp` once did the same with `FCMPUD`.
   > Zig source, `zig build-obj -O Debug -target powerpc64le-freestanding
   > -mcpu pwr9`:
   >
@@ -367,6 +369,10 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `solveLeft`, `solveRight` and `conjIf`, so no select is left. A sign-bit
   `xor` would also do; `x * (if (c) -1 else 1)` would not: LLVM folds it
   back into the select.
+- **Upstream:** reported as <https://github.com/llvm/llvm-project/issues/228690>
+  (another select pair); fixed on main by
+  <https://github.com/llvm/llvm-project/pull/226838> (2026-10-12, not in 23.1.x),
+  which drops `FGR64CC`. Retest after the next LLVM before filing.
 - **Issue text:**
 
   > **[Mips] R6: "Cannot copy registers" for a loop-invariant `select` of
@@ -417,6 +423,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `blas3/gemm/kernel.zig`'s complex kernels (`run`, `rows`, `tile`,
   `vectorTile`); `splitTile`, used only without vectors, keeps it at run
   time, so its scalar tile is still one function.
+- **Upstream:** the same <https://github.com/llvm/llvm-project/pull/226838>
+  removes `FGR64CC`, so no spill of it is left.
 - **Issue text:**
 
   > **[Mips] R6: "Register class not handled!" spilling a `select`
@@ -499,8 +507,11 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > st.w    $w2, 0($7)
   > ```
   >
-  > `fmadd.w wd, ws, wt` is `wd + ws*wt` (MSA manual; QEMU agrees), so this
-  > stores `x + y*z` where `fma(x, y, z)` is `x*y + z`. `<2 x double>`
+  > `fmadd.w wd, ws, wt` is `wd + ws*wt` (MSA manual MD00866 rev. 1.12,
+  > FMADD.df; QEMU agrees), so this
+  > stores `x + y*z` where `fma(x, y, z)` is `x*y + z`. The cause:
+  > `FMADD_W_DESC` and `FMADD_D_DESC` in `MipsMSAInstrInfo.td` get the
+  > pattern `(fma $wd_in, $ws, $wt)` from `MSA_3R_4R_DESC_BASE`. `<2 x double>`
   > (`fmadd.d`) and `-mcpu=p5600 -mattr=+msa` do the same. Separate `fmul`
   > and `fadd` are right.
 
@@ -510,7 +521,10 @@ When an issue is fixed upstream, drop the workaround and its entry.
   without MSA, a scalar `@mulAdd` (`llvm.fma.f32`/`f64` in the IR) becomes a
   call to `fmaf`/`fma`, though release 6 has the fused `maddf.s`/`maddf.d`.
   Not a feature we leave out: LLVM's MIPS backend has none for it (Zig's
-  `mips` feature list has no `fma`), and `-mcpu=mips64r6` is all it takes.
+  `mips` feature list has no `fma`; `MipsISelLowering.cpp` sets `ISD::FMA` on
+  `f32` and `f64` to `Expand`), and `-mcpu=mips64r6` is all it takes.
+  Pending upstream: <https://github.com/llvm/llvm-project/pull/233171> (open)
+  selects `MADDF`/`MSUBF` for it.
   Speed only; the call is correctly rounded, so the bits are `maddf`'s.
 - **Where:** `fma.hardware` is true on R6, so the main library of an R6
   target (the portable kernels, `rsimd.mulAdd`) calls it per multiply-add.
@@ -518,7 +532,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 - **Workaround:** none taken. An inline-asm `maddf` in `fma.madd` and
   `fma.mulAdd` for R6 scalars would do, at the cost of hiding the operation
   from LLVM's scheduling and vectorizers.
-- **Issue text:**
+- **Issue text** (not needed while that PR is open):
 
   > **[Mips] R6: scalar `llvm.fma` is expanded to a libcall instead of
   > `maddf.s`/`maddf.d`**
