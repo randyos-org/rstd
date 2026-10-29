@@ -353,6 +353,28 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > should fail the compilation; perhaps check `DiagnosticHandler::HasErrors`
   > after emitting.
 
+### wasm bitcode gets its feature flags twice
+
+- **Seen:** the asm check (above) of the `wasm128_generic` object fails in
+  clang's verifier: "module flag identifiers must be unique" for each
+  `wasm-feature-*` flag, then "Broken module found". Zig writes the
+  bitcode (`-femit-llvm-bc`) after the codegen passes have run on the
+  module (`src/zig_llvm.cpp`, `ZigLLVMTargetMachineEmitToFile`), and
+  LLVM's WebAssembly codegen has added those flags by then; clang's
+  codegen adds them again.
+- **Workaround:** `build/blaskern.zig` (`asmCheck`) passes `-Xclang
+  -disable-llvm-verifier` for wasm. Inline asm errors still fail it.
+- **Issue text:**
+
+  > **`-femit-llvm-bc` with `-femit-bin` writes post-codegen bitcode**
+  >
+  > `ZigLLVMTargetMachineEmitToFile` runs `codegen_pm` before
+  > `WriteBitcodeToFile`, so the bitcode holds codegen's changes to the
+  > module. For wasm32 that includes the `wasm-feature-*` module flags;
+  > `zig cc -c` on that bitcode adds them again and fails verification
+  > ("module flag identifiers must be unique"). Writing the bitcode before
+  > `codegen_pm.run` gives the optimized IR that the object came from.
+
 ### MIPS64r6: LLVM cannot select between `-x` and `x` in a loop
 
 - **Seen:** since a594fa7 (`trsm` divides by the diagonal), the

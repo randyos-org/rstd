@@ -162,6 +162,9 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC
     if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding))
         check.addArg("-fno-PIC");
+    // wasm bitcode already has its `wasm-feature-*` flags, which clang adds again
+    // (issues.md, "wasm bitcode gets its feature flags twice")
+    if (target.cpu.arch.isWasm()) check.addArgs(&.{ "-Xclang", "-disable-llvm-verifier" });
     // an `SDKROOT` for another platform (Swift's for Windows) makes `zig cc`
     // warn for Darwin targets, and stderr fails the step; no SDK is read here
     check.removeEnvironmentVariable("SDKROOT");
