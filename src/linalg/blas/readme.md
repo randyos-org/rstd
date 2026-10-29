@@ -43,7 +43,7 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `error.Singular` for an exactly zero `U(i, i)` and writes the first `i` to its last argument.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
-`sbgemm`), and threading ([`threading.md`](threading.md)).
+`sbgemm`), and threading in levels 1 and 2 ([`threading.md`](threading.md)).
 
 ### Targets
 
@@ -80,7 +80,8 @@ are targets at all.
 | --- | --- |
 | alpha | no Zig backend |
 | ia64 | no Zig target |
-| csky, e2k | no Zig target; upstream uses the generic C kernels |
+| csky | LLVM's backend emits neither assembly nor objects (Zig's `src/target.zig`, `hasLlvmSupport`); upstream uses the generic C kernels |
+| e2k | no Zig target; upstream uses the generic C kernels |
 | POWER BG/P (double FPU) | LLVM cannot assemble the "hummer" instructions |
 | RISC-V C910V | LLVM has no `xtheadvector` |
 
@@ -91,8 +92,9 @@ are targets at all.
 Each routine takes its element type as a comptime parameter. Sizes, strides and leading
 dimensions are `isize`; a negative stride names the vector's last element first, as in the
 reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
-or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` is for the
-threading to come ([`threading.md`](threading.md)); every routine is serial for now. `rotg`,
+or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` carries the
+threading ([`threading.md`](threading.md)): level 3 threads, all but `gemmt`; levels 1 and 2 are
+serial for now. `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
 | Level | Shape | Errors |
@@ -153,7 +155,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   order and blocking, so results may differ in the last bits, as in OpenBLAS; beyond rounding
   they agree (below). Pinning `OPENBLAS_CORETYPE` makes machines that can run that core agree.
 - **Reproducibility.** For a given build and core, no result depends on where its operands lie in
-  memory, nor, once threading lands, on the thread count ([`threading.md`](threading.md)).
+  memory, nor on the thread count ([`threading.md`](threading.md)).
 - **Denormals.** rstd never changes the floating-point environment, and denormals are honored on
   every core: where a vector unit flushes them (ARMv7 NEON, pre-VSX AltiVec), `f32` stays out of
   its lanes ([`design.md`](design.md#denormals-and-the-floating-point-environment)).
@@ -248,10 +250,11 @@ runs the closest linked core's kernels, or the portable ones.
 | `GET_OPENBLAS_CORETYPE` | POWER: when set, prints the selected core |
 | `OPENBLAS_BLOCK_FACTOR` | scales the computed gemm block size, in percent (10 to 200) |
 | `OPENBLAS_L2_SIZE` | overrides the detected L2 size used by the blocking rules |
-| `OPENBLAS_NUM_THREADS`, `OPENBLAS_DEFAULT_NUM_THREADS` | LA464's blocking set today; the thread ceiling once threading lands |
+| `OPENBLAS_NUM_THREADS`, `OPENBLAS_DEFAULT_NUM_THREADS` | the thread ceiling, and LA464's blocking set |
+| `GOTO_NUM_THREADS` | the thread ceiling when neither of those is set |
 | `LD_HWCAP_MASK` | s390x: masks the hardware capabilities before detection |
 
-`GOTO_NUM_THREADS`, `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
+`OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
 `OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are read and have no effect. Values longer than 64
 bytes are ignored. Details are in [`design.md`](design.md#configuration).
 
