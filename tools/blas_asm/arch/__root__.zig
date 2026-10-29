@@ -193,6 +193,10 @@ pub const Arch = struct {
     unsupported: []const []const u8 = &.{},
     /// Fixes for upstream bugs, for every variant.
     patches: []const Patch = &.{},
+    /// Fixes to sources no longer converted (`roles.skip`), never applied:
+    /// the record of the fixes `issues.md` words for upstream. Each run of
+    /// the architecture checks they still match.
+    retired: []const Patch = &.{},
     /// The ways to build each source; empty name for just one.
     variants: []const Variant = &.{.{ .name = "", .defines = &.{} }},
     /// Whether this source is one to convert (some are C, done elsewhere).

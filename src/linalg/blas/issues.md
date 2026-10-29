@@ -996,7 +996,8 @@ one-pass loop as those below do. Those below were wrong:
   overflows. `power/dnrm2_ppc440.S` and `znrm2_ppc440.S` (ppcg4, ppc440)
   gave NaN: their square root goes through `frsqrte` of a denormal sum.
 
-Fixed in the converted sources
+Fixed by the generator's patches, the extremes' kept as `retired` now that
+they are not converted
 ([`design.md`](design.md#fixes-to-upstream-sources)). Issues could read, for the
 x86_64 index kernels:
 

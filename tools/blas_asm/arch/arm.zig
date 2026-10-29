@@ -25,6 +25,7 @@ pub const arm: arch.Arch = .{
     .defines = &.{ "-DASSEMBLER", "-DARCH_ARM", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
     .patches = &patches,
+    .retired = &retired,
     .variants = &.{
         .{ .name = "hf", .defines = &.{"-D__ARM_PCS_VFP"} },
         .{ .name = "sf", .defines = &.{"-U__ARM_PCS_VFP"}, .patches = &zig_complex_return },
@@ -33,14 +34,18 @@ pub const arm: arch.Arch = .{
 
 /// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
 const patches = [_]arch.Patch{
-    // the minima moved on `lt`, which an unordered compare also sets, so a
-    // NaN replaced the pick; `mi` is less than only
-    minOnMi("amax_vfp.S"),
-    minOnMi("iamax_vfp.S"),
     // zero strides: `swap_vfp.S` returned at once, and `rot_vfp.S` after one
     // element of the tail; the strided loops take one element at a time
     .{ .source = "swap_vfp.S", .find = "\tcmp\tINC_X, #0\n\tbeq\tswap_kernel_L999\n\n\tcmp\tINC_Y, #0\n\tbeq\tswap_kernel_L999\n\n", .replace = "" },
     .{ .source = "rot_vfp.S", .find = "\tKERNEL_S1\n\t\n\tcmp\tINC_X, #0\n\tbeq\trot_kernel_L999\n\n\tcmp\tINC_Y, #0\n\tbeq\trot_kernel_L999\n", .replace = "\tKERNEL_S1\n" },
+};
+
+/// Fixes to sources no longer converted: the extremes.
+const retired = [_]arch.Patch{
+    // the minima moved on `lt`, which an unordered compare also sets, so a
+    // NaN replaced the pick; `mi` is less than only
+    minOnMi("amax_vfp.S"),
+    minOnMi("iamax_vfp.S"),
 };
 
 fn minOnMi(comptime source: []const u8) arch.Patch {

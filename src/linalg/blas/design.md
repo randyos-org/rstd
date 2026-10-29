@@ -907,7 +907,10 @@ v0.3.34-317. The generator fixes each before converting it: a `Patch` in
 match `count` times, or the generator stops, with a comment saying what was wrong. The generated
 files carry the fixed code. [`issues.md`](issues.md#openblas) holds the issue text for each. No
 core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](readme.md#one-contract-on-every-core)),
-fixed or not, so they are no longer converted (below) and their patches no longer run.
+fixed or not, nor x86_64's peeling `zdot_atom.S`, so they are no longer converted (below). Their
+patches stay in the same files as `retired`, the record of those fixes: every run checks that
+they still match upstream, none applies them, and a full run stops on a live patch that applied
+to nothing.
 
 - `x86_64/zdot_atom.S`, Windows: Windows passes the address of a 16-byte result first, shifting
   the arguments along; the kernel read that address as `n`. Fixed the way `zdot_sse2.S` already

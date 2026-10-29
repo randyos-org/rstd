@@ -23,12 +23,6 @@ fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const 
 
 /// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
 const patches = [_]arch.Patch{
-    // the index kernels keep a pick per lane, and of equal picks the
-    // reduction kept the first lane's, which may be the later index; take
-    // the smaller index of equal picks before each step
-    .{ .source = "iamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
-    .{ .source = "imax.S", .find = reduce, .replace = reduce_first, .count = 2 },
-    .{ .source = "izamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
     // with a zero stride, the strided loop loads a block before storing it,
     // so `n` operations on one element act as fewer; zero strides take the
     // one-at-a-time loop instead (utest's `swap_inc_0`, per-core `rot`)
@@ -39,6 +33,16 @@ const patches = [_]arch.Patch{
     // and with a zero `incy`, `axpy` (per-core `axpy` checks)
     zeroStrides("axpy.S", "\tsra\tN, 3, I\n"),
     zeroStrides("zaxpy.S", "\tsra\tN, 2, I\n"),
+};
+
+/// Fixes to sources no longer converted: the extremes.
+const retired = [_]arch.Patch{
+    // the index kernels keep a pick per lane, and of equal picks the
+    // reduction kept the first lane's, which may be the later index; take
+    // the smaller index of equal picks before each step
+    .{ .source = "iamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
+    .{ .source = "imax.S", .find = reduce, .replace = reduce_first, .count = 2 },
+    .{ .source = "izamax.S", .find = reduce, .replace = reduce_first, .count = 2 },
 };
 
 const reduce =
@@ -86,6 +90,7 @@ pub const sparc: arch.Arch = .{
     .defines = &.{ "-DASSEMBLER", "-DARCH_SPARC", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
     .patches = &patches,
+    .retired = &retired,
     .variants = &.{
         .{ .name = "32", .defines = &.{}, .triple = "sparc-linux-gnu" },
         .{ .name = "64", .defines = &.{"-D__64BIT__"}, .rewrite = wideShifts },

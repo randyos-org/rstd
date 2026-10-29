@@ -25,10 +25,24 @@ pub const x86: arch.Arch = .{
     .core_defines = coreDefines,
     .align_bytes = true,
     .patches = &patches,
+    .retired = &retired,
 };
 
 /// Fixes for bugs in upstream sources (OpenBLAS v0.3.34-317).
 const patches = [_]arch.Patch{
+    // with both strides zero, `swap.S` returned at once, right only for an
+    // even `n`; with either zero, both load two or four elements before
+    // storing any. Zero strides take one element at a time.
+    .{
+        .source = "swap.S",
+        .find = "\tcmpl\t$0, %ebx\n\tjne\t.L141\n\tcmpl\t$0, %ecx\n\tjne\t.L141\n/* INCX == 0 and INCY == 0 */\t\n\tjmp\t.L27\n",
+        .replace = "\tmovl\t%edx, %eax\n\tcmpl\t$0, %ebx\n\tje\t.L35\n\tcmpl\t$0, %ecx\n\tje\t.L35\n",
+    },
+    .{ .source = "zswap.S", .find = zswap_strided, .replace = zswap_one ++ zswap_strided ++ "\tcmpl\t$0, %ebx\n\tje\t.L36\n\tcmpl\t$0, %ecx\n\tje\t.L36\n" },
+};
+
+/// Fixes to sources no longer converted: the extremes.
+const retired = [_]arch.Patch{
     // the minima took the new element unless it was `>` the pick, so a NaN
     // (unordered) replaced it; compare the pick with the new element, and
     // the maxima's `fcmovbe` and `cmovnbe` keep NaN out
@@ -40,15 +54,6 @@ const patches = [_]arch.Patch{
     .{ .source = "zamax.S", .find = "#define FMOV\tfcmovnbe\n", .replace = "#define FMOV\tfcmovbe\n" },
     .{ .source = "iamax.S", .find = "#define FMOV\tfcmovnbe\n#define IMOV\tcmovb\n", .replace = "#define FMOV\tfcmovbe\n#define IMOV\tcmovnbe\n" },
     .{ .source = "izamax.S", .find = "#define FMOV\tfcmovnb\n#define IMOV\tcmovb\n", .replace = "#define FMOV\tfcmovbe\n#define IMOV\tcmovnbe\n" },
-    // with both strides zero, `swap.S` returned at once, right only for an
-    // even `n`; with either zero, both load two or four elements before
-    // storing any. Zero strides take one element at a time.
-    .{
-        .source = "swap.S",
-        .find = "\tcmpl\t$0, %ebx\n\tjne\t.L141\n\tcmpl\t$0, %ecx\n\tjne\t.L141\n/* INCX == 0 and INCY == 0 */\t\n\tjmp\t.L27\n",
-        .replace = "\tmovl\t%edx, %eax\n\tcmpl\t$0, %ebx\n\tje\t.L35\n\tcmpl\t$0, %ecx\n\tje\t.L35\n",
-    },
-    .{ .source = "zswap.S", .find = zswap_strided, .replace = zswap_one ++ zswap_strided ++ "\tcmpl\t$0, %ebx\n\tje\t.L36\n\tcmpl\t$0, %ecx\n\tje\t.L36\n" },
 };
 
 const zswap_strided = "/* INCX != 1 or INCY != 1 */\n\n.L14:\n\tmovl\t%edx, %eax\n";

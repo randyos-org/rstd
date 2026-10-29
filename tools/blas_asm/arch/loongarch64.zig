@@ -76,6 +76,43 @@ const patches = [_]arch.Patch{
     .{ .source = "caxpby_lasx.S", .find = "    xvstelm.w VXZ, YY, 0, 0\n    xvstelm.w VXZ, YY, 0, 0\n", .replace = "    xvstelm.w VXZ, Y, 0, 0\n    xvstelm.w VXZ, Y, 0, 0\n" },
     .{ .source = "caxpby_lasx.S", .find = "    xvstelm.d VXZ, Y, 0, 0\n    xvstelm.d VXZ, Y, 0, 0\n", .replace = "    xvstelm.d VXZ, Y, 0 * SIZE, 0\n    xvstelm.d VXZ, Y, 1 * SIZE, 0\n", .count = 4 },
     .{ .source = "caxpby_lasx.S", .find = "    xvstelm.w VXZ, Y, 0, 0\n    xvstelm.w VXZ, Y, 0, 0\n", .replace = "    xvstelm.w VXZ, Y, 0 * SIZE, 0\n    xvstelm.w VXZ, Y, 1 * SIZE, 0\n", .count = 8 },
+    // the tail after the blocks read both operands whatever the scalars, so
+    // a NaN or infinity met a zero scalar's 0 (`kernel/arm/axpby.c` reads
+    // neither), from elements the zero-scalar blocks left their pointer at
+    .{ .source = "axpby_lsx.S", .find = axpby_tail, .replace = axpby_tail_fixed },
+    .{ .source = "axpby_lasx.S", .find = axpby_tail, .replace = axpby_tail_fixed },
+    .{ .source = "caxpby_lsx.S", .find = caxpby_lsx_tail, .replace = caxpby_tail_fixed },
+    .{ .source = "caxpby_lasx.S", .find = caxpby_lasx_tail, .replace = caxpby_tail_fixed },
+    // double compared the scalars with a single-precision 0 (`ffint.s.l`),
+    // whose upper half is undefined, so it never took the zero-scalar blocks
+    .{ .source = "axpby_lsx.S", .find = axpby_zero, .replace = axpby_zero_fixed },
+    .{ .source = "axpby_lasx.S", .find = axpby_zero, .replace = axpby_zero_fixed },
+    // with one stride 1 and the other not, there are no zero-scalar blocks:
+    // send a zero scalar to the strided ones (`.L22`), which have them
+    .{ .source = "caxpby_lsx.S", .find = caxpby_l12, .replace = caxpby_l12 ++ zeroToStrided("L12") },
+    .{ .source = "caxpby_lasx.S", .find = caxpby_l12, .replace = caxpby_l12 ++ zeroToStrided("L12") },
+    .{ .source = "caxpby_lsx.S", .find = caxpby_l21, .replace = caxpby_l21 ++ zeroToStrided("L21") },
+    .{ .source = "caxpby_lasx.S", .find = caxpby_l21, .replace = caxpby_l21 ++ zeroToStrided("L21") },
+    // with a zero stride, the strided loops load a block before storing it,
+    // so `n` operations on one element act as fewer; zero strides take the
+    // one-at-a-time loop, as `crot_lsx.S` already does
+    .{ .source = "rot_lsx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
+    .{ .source = "rot_lasx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
+    .{ .source = "swap.S", .find = swap_strided, .replace = ".L20:\n   move I, N\n   beq INCX, $r0, .L26\n   beq INCY, $r0, .L26\n" ++ swap_strided[6..] },
+    .{ .source = "cswap_lsx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
+    .{ .source = "cswap_lasx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
+    .{ .source = "cswap_lsx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
+    .{ .source = "cswap_lasx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
+    // and with a zero `incy`, `axpy` (`y` loaded a block at a time from `.L12`
+    // and `.L22`)
+    zeroIncy("axpy_lsx.S", ".L224"),
+    zeroIncy("axpy_lasx.S", ".L224"),
+    zeroIncy("caxpy_lsx.S", ".L998"),
+    zeroIncy("caxpy_lasx.S", ".L998"),
+};
+
+/// Fixes to sources no longer converted: the extremes and `nrm2`.
+const retired = [_]arch.Patch{
     // strided x reduced with `vfmaxa`, by magnitude
     .{ .source = "max_lsx.S", .find = "vfmaxa.", .replace = "vfmax.", .count = 6 },
     .{ .source = "min_lsx.S", .find = "vfmaxa.", .replace = "vfmin.", .count = 6 },
@@ -131,45 +168,12 @@ const patches = [_]arch.Patch{
         .find = "    addi.w i0, i0, 1\n    ld.w t1, TEMP, 0 * SIZE\n    add.d TEMP, TEMP, INCX\n    srai.d I, N, 3\n",
         .replace = "    addi.w i0, i0, 1\n    ld.w t1, TEMP, 0 * SIZE\n    add.d TEMP, TEMP, INCX\n    xvinsgr2vr.w VM0, t1, 0\n    srai.d I, N, 3\n",
     },
-    // the tail after the blocks read both operands whatever the scalars, so
-    // a NaN or infinity met a zero scalar's 0 (`kernel/arm/axpby.c` reads
-    // neither), from elements the zero-scalar blocks left their pointer at
-    .{ .source = "axpby_lsx.S", .find = axpby_tail, .replace = axpby_tail_fixed },
-    .{ .source = "axpby_lasx.S", .find = axpby_tail, .replace = axpby_tail_fixed },
-    .{ .source = "caxpby_lsx.S", .find = caxpby_lsx_tail, .replace = caxpby_tail_fixed },
-    .{ .source = "caxpby_lasx.S", .find = caxpby_lasx_tail, .replace = caxpby_tail_fixed },
-    // double compared the scalars with a single-precision 0 (`ffint.s.l`),
-    // whose upper half is undefined, so it never took the zero-scalar blocks
-    .{ .source = "axpby_lsx.S", .find = axpby_zero, .replace = axpby_zero_fixed },
-    .{ .source = "axpby_lasx.S", .find = axpby_zero, .replace = axpby_zero_fixed },
-    // with one stride 1 and the other not, there are no zero-scalar blocks:
-    // send a zero scalar to the strided ones (`.L22`), which have them
-    .{ .source = "caxpby_lsx.S", .find = caxpby_l12, .replace = caxpby_l12 ++ zeroToStrided("L12") },
-    .{ .source = "caxpby_lasx.S", .find = caxpby_l12, .replace = caxpby_l12 ++ zeroToStrided("L12") },
-    .{ .source = "caxpby_lsx.S", .find = caxpby_l21, .replace = caxpby_l21 ++ zeroToStrided("L21") },
-    .{ .source = "caxpby_lasx.S", .find = caxpby_l21, .replace = caxpby_l21 ++ zeroToStrided("L21") },
     // negative stride: `?amax_k` returns 0 for `incx <= 0`, so the scale
     // came out 0 and so did the norm; walk x forwards from its lowest element
     .{ .source = "snrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("BASE_SHIFT") },
     .{ .source = "snrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("BASE_SHIFT") },
     .{ .source = "cnrm2_lsx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
     .{ .source = "cnrm2_lasx.S", .find = "beq $r0, INCX, .L999\n", .replace = nrm2Forwards("ZBASE_SHIFT") },
-    // with a zero stride, the strided loops load a block before storing it,
-    // so `n` operations on one element act as fewer; zero strides take the
-    // one-at-a-time loop, as `crot_lsx.S` already does
-    .{ .source = "rot_lsx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
-    .{ .source = "rot_lasx.S", .find = rot_blocks, .replace = rot_zero ++ rot_blocks },
-    .{ .source = "swap.S", .find = swap_strided, .replace = ".L20:\n   move I, N\n   beq INCX, $r0, .L26\n   beq INCY, $r0, .L26\n" ++ swap_strided[6..] },
-    .{ .source = "cswap_lsx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
-    .{ .source = "cswap_lasx.S", .find = cswap_strided, .replace = cswap_zero ++ cswap_strided[6..] },
-    .{ .source = "cswap_lsx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
-    .{ .source = "cswap_lasx.S", .find = cswap_tail, .replace = cswap_tail ++ cswap_one },
-    // and with a zero `incy`, `axpy` (`y` loaded a block at a time from `.L12`
-    // and `.L22`)
-    zeroIncy("axpy_lsx.S", ".L224"),
-    zeroIncy("axpy_lasx.S", ".L224"),
-    zeroIncy("caxpy_lsx.S", ".L998"),
-    zeroIncy("caxpy_lasx.S", ".L998"),
 };
 
 const cswap_strided = ".L22:\n    bge $r0, I, .L223\n";
@@ -380,4 +384,5 @@ pub const loongarch64: arch.Arch = .{
     .defines = &.{ "-DASSEMBLER", "-DARCH_LOONGARCH64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
     .core_defines = coreDefines,
     .patches = &patches,
+    .retired = &retired,
 };

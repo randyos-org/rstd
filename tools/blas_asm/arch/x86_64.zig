@@ -35,6 +35,7 @@ pub const x86_64: arch.Arch = .{
     .core_defines = coreDefines,
     .align_bytes = true,
     .patches = &patches,
+    .retired = &retired,
     .variants = &.{
         .{ .name = "sysv", .defines = &.{"-DOS_LINUX"} },
         .{ .name = "win", .defines = &.{"-DOS_WINNT"} },
@@ -46,24 +47,6 @@ const patches = [_]arch.Patch{
     // Windows passes the double `alpha_i` on the stack; this read it with a
     // single-precision load, as every sibling `zgemv` kernel does not
     .{ .source = "zgemv_t_atom.S", .find = "\tmovss\tOLD_ALPHA_I, %xmm1\n", .replace = "\tmovsd\tOLD_ALPHA_I, %xmm1\n" },
-    // Windows passes the address of a 16-byte result first and shifts the
-    // arguments along; `zdot_atom.S` read that address as `n`. Taken from
-    // `zdot_sse2.S`, which gets it right.
-    .{
-        .source = "zdot_atom.S",
-        .find = "#define N\tARG1\t/* rdi */\n#define X\tARG2\t/* rsi */\n#define INCX\tARG3\t/* rdx */\n#define Y\tARG4\t/* rcx */\n#ifndef WINDOWS_ABI\n#define INCY\tARG5\t/* r8  */\n#else\n#define INCY\t%r10\n#endif\n",
-        .replace = "#ifndef WINDOWS_ABI\n#define N\tARG1\n#define X\tARG2\n#define INCX\tARG3\n#define Y\tARG4\n#define INCY\tARG5\n#else\n#define RESULT_ADDRESS\tARG1\n#define N\tARG2\n#define X\tARG3\n#define INCX\tARG4\n#define Y\t%r10\n#define INCY\t%r11\n#endif\n",
-    },
-    .{
-        .source = "zdot_atom.S",
-        .find = "#ifdef WINDOWS_ABI\n\tmovq\t40(%rsp), INCY\n#endif\n",
-        .replace = "#ifdef WINDOWS_ABI\n\tmovq\t40(%rsp), Y\n\tmovq\t48(%rsp), INCY\n#endif\n",
-    },
-    .{
-        .source = "zdot_atom.S",
-        .find = "#endif\n\n\tRESTOREREGISTERS\n\n\tret\n",
-        .replace = "#endif\n\n#ifdef WINDOWS_ABI\n\tmovq\tRESULT_ADDRESS, %rax\n\tmovsd\t%xmm0, (%rax)\n\tmovsd\t%xmm1, 8(%rax)\n#endif\n\n\tRESTOREREGISTERS\n\n\tret\n",
-    },
     // Windows: read the flag from incy's slot, 64(%rsp); the tenth argument
     // is at 80(%rsp), so a zero alpha stored zeros where flag 1 keeps NaN
     .{ .source = "scal_sse.S", .find = "\tmovq\t64(%rsp), %r9\n", .replace = "\tmovq\t80(%rsp), %r9\n" },
@@ -85,19 +68,6 @@ const patches = [_]arch.Patch{
         .find = "\tjne\t.L30\t\t# Alpha_i != ZERO\n",
         .replace = "\tjne\t.L30\t\t# Alpha_i != ZERO\n\tjp\t.L30\n\tcmpq\t$1, %r9\n\tje\t.L30\n",
     },
-    // the index search's last step counts the last element as the match
-    // unread; with an even count it was read already, so a NaN extreme
-    // (which no element equals) returned n + 1
-    inRange("iamax_sse.S", ".L27"),
-    inRange("iamax_sse.S", ".L47"),
-    inRange("iamax_sse.S", ".L97"),
-    inRange("iamax_sse2.S", ".L28"),
-    inRange("iamax_sse2.S", ".L68"),
-    inRange("iamax_sse2.S", ".L98"),
-    inRange("izamax_sse.S", ".L47"),
-    inRange("izamax_sse.S", ".L87"),
-    inRange("izamax_sse2.S", ".L36"),
-    inRange("izamax_sse2.S", ".L76"),
     // with a zero `incy`, the strided loops load a block of `y` before
     // storing it, so `n` updates of one element act as fewer;
     // `zaxpy_sse2.S` took its one-at-a-time loop (which never stepped) only
@@ -125,6 +95,41 @@ const patches = [_]arch.Patch{
         .find = "\tmovaps\t 0 * SIZE(NEW_X, IS, SIZE), atemp4\n",
         .replace = "\tmovaps\t 0 * SIZE(NEW_X, IS, SIZE), atemp4\n\txorps\t xt1, xt1\n\tmovlhps  xt1, atemp4\n",
     },
+};
+
+/// Fixes to sources no longer converted: the extremes and the peeling `zdot`.
+const retired = [_]arch.Patch{
+    // Windows passes the address of a 16-byte result first and shifts the
+    // arguments along; `zdot_atom.S` read that address as `n`. Taken from
+    // `zdot_sse2.S`, which gets it right.
+    .{
+        .source = "zdot_atom.S",
+        .find = "#define N\tARG1\t/* rdi */\n#define X\tARG2\t/* rsi */\n#define INCX\tARG3\t/* rdx */\n#define Y\tARG4\t/* rcx */\n#ifndef WINDOWS_ABI\n#define INCY\tARG5\t/* r8  */\n#else\n#define INCY\t%r10\n#endif\n",
+        .replace = "#ifndef WINDOWS_ABI\n#define N\tARG1\n#define X\tARG2\n#define INCX\tARG3\n#define Y\tARG4\n#define INCY\tARG5\n#else\n#define RESULT_ADDRESS\tARG1\n#define N\tARG2\n#define X\tARG3\n#define INCX\tARG4\n#define Y\t%r10\n#define INCY\t%r11\n#endif\n",
+    },
+    .{
+        .source = "zdot_atom.S",
+        .find = "#ifdef WINDOWS_ABI\n\tmovq\t40(%rsp), INCY\n#endif\n",
+        .replace = "#ifdef WINDOWS_ABI\n\tmovq\t40(%rsp), Y\n\tmovq\t48(%rsp), INCY\n#endif\n",
+    },
+    .{
+        .source = "zdot_atom.S",
+        .find = "#endif\n\n\tRESTOREREGISTERS\n\n\tret\n",
+        .replace = "#endif\n\n#ifdef WINDOWS_ABI\n\tmovq\tRESULT_ADDRESS, %rax\n\tmovsd\t%xmm0, (%rax)\n\tmovsd\t%xmm1, 8(%rax)\n#endif\n\n\tRESTOREREGISTERS\n\n\tret\n",
+    },
+    // the index search's last step counts the last element as the match
+    // unread; with an even count it was read already, so a NaN extreme
+    // (which no element equals) returned n + 1
+    inRange("iamax_sse.S", ".L27"),
+    inRange("iamax_sse.S", ".L47"),
+    inRange("iamax_sse.S", ".L97"),
+    inRange("iamax_sse2.S", ".L28"),
+    inRange("iamax_sse2.S", ".L68"),
+    inRange("iamax_sse2.S", ".L98"),
+    inRange("izamax_sse.S", ".L47"),
+    inRange("izamax_sse.S", ".L87"),
+    inRange("izamax_sse2.S", ".L36"),
+    inRange("izamax_sse2.S", ".L76"),
 };
 
 /// A zero `incy` branches from the strided entry `.L20` to `one`, a loop

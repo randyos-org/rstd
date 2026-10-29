@@ -21,6 +21,9 @@
 //! tabs become spaces (Zig's tokenizer requires it inside `\`), named labels
 //! become numeric local ones (one object holds many of these), and x86's
 //! `.align` becomes `.balign` (Mach-O reads `.align` as a power of two).
+//! Before that, `arch/<name>.zig`'s patches fix upstream bugs; its `retired`
+//! ones, for sources no longer converted, are only checked against upstream,
+//! and a full run stops on a live patch that applied to nothing.
 //!
 //! `asm/__root__.zig` lists which file fills which vtable slot; each file
 //! says which cores use it. The kernels `roles.skip` names, which no core
@@ -112,12 +115,10 @@ fn runCpp(a: std.mem.Allocator, ar: Arch, inc: []const u8, k: Kernel, core: []co
 fn patched(a: std.mem.Allocator, ar: Arch, inc: []const u8, source: []const u8, v: arch.Variant) ![]const u8 {
     const upstream = try map.path(&.{ map.root, "kernel", ar.name, source });
     var text: ?[]const u8 = null;
-    for ([_][]const arch.Patch{ ar.patches, v.patches }) |list| for (list) |p| {
+    for ([_][]const arch.Patch{ ar.patches, v.patches }) |list| for (list) |*p| {
         if (!std.mem.eql(u8, p.source, source)) continue;
-        const t = text orelse map.read(upstream) orelse map.die("cannot read {s}", .{upstream});
-        const n = std.mem.count(u8, t, p.find);
-        if (n != p.count) map.die("patch for {s} matches {d} times, not {d}:\n{s}", .{ source, n, p.count, p.find });
-        text = try std.mem.replaceOwned(u8, a, t, p.find, p.replace);
+        text = try apply(a, text orelse map.read(upstream) orelse map.die("cannot read {s}", .{upstream}), p.*);
+        try applied.put(a, p, {});
     };
     const t = text orelse return upstream;
     const dir = try map.path(&.{ inc, "patched", if (v.name.len == 0) "_" else v.name });
@@ -125,6 +126,43 @@ fn patched(a: std.mem.Allocator, ar: Arch, inc: []const u8, source: []const u8, 
     const out = try map.path(&.{ dir, source });
     try Io.Dir.cwd().writeFile(map.io, .{ .sub_path = out, .data = t });
     return out;
+}
+
+/// `text` with `p` applied, which must match `p.count` times.
+fn apply(a: std.mem.Allocator, text: []const u8, p: arch.Patch) ![]const u8 {
+    const n = std.mem.count(u8, text, p.find);
+    if (n != p.count) map.die("patch for {s} matches {d} times, not {d}:\n{s}", .{ p.source, n, p.count, p.find });
+    return std.mem.replaceOwned(u8, a, text, p.find, p.replace);
+}
+
+/// The patches `patched` applied, by address: a full run stops on any other.
+var applied: std.array_hash_map.Auto(*const arch.Patch, void) = .empty;
+
+/// Stops on a retired patch that no longer matches upstream; each source's
+/// apply in order, as `patched` applies live ones.
+fn checkRetired(a: std.mem.Allocator, ar: Arch) !void {
+    for (ar.retired, 0..) |p, i| {
+        const first = for (ar.retired[0..i]) |q| {
+            if (std.mem.eql(u8, q.source, p.source)) break false;
+        } else true;
+        if (!first) continue;
+        const upstream = try map.path(&.{ map.root, "kernel", ar.name, p.source });
+        var t = map.read(upstream) orelse map.die("cannot read {s}", .{upstream});
+        for (ar.retired[i..]) |q| if (std.mem.eql(u8, q.source, p.source)) {
+            t = try apply(a, t, q);
+        };
+    }
+}
+
+/// After a full run: stops on a live patch no converted source took, which
+/// belongs in `retired`.
+fn checkApplied(ar: Arch) void {
+    for (ar.patches) |*p| if (!applied.contains(p)) unapplied(ar, p);
+    for (ar.variants) |v| for (v.patches) |*p| if (!applied.contains(p)) unapplied(ar, p);
+}
+
+fn unapplied(ar: Arch, p: *const arch.Patch) noreturn {
+    map.die("{s}: the patch for {s} applies to nothing converted; move it to `retired`", .{ ar.name, p.source });
 }
 
 /// The preprocessed source, tab-free and without empty lines.
@@ -749,6 +787,8 @@ pub fn main(init: std.process.Init) !void {
             try convert(a, ar, g.roles.items, out_root, g.level.makefile);
         }
     }
+    for (arches) |ar| if (!arch_named or wants(want.items, &.{ar.name})) try checkRetired(a, ar);
+    if (want.items.len == 0) for (arches) |ar| checkApplied(ar);
 }
 
 /// A BLAS level: the rules that build its kernels, and its directory.
