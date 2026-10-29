@@ -94,7 +94,7 @@ pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isiz
 /// that is not positive definite, or 0. Upstream fuses the panel's `trsm`
 /// with the update's `herk` column block by column block; here each is one
 /// driver call, the same arithmetic.
-fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, dtb: usize, q: usize, n: usize, a: [*]T, lda: usize) Allocator.Error!usize {
+fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, dtb: usize, q: usize, n: usize, a: [*]T, lda: usize) driver.Error!usize {
     if (n <= dtb / 2) return potf2(T, upper, n, a, lda);
     // `(n + 3) / 4` and `n / 4` as upstream has them
     const blocking = if (n > 4 * q) q else if (upper) (n + 3) / 4 else @max(1, n / 4);
@@ -112,13 +112,13 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
         if (upper) {
             // A12 := U11^-H A12; A22 -= A12^H A12
             const p = d + bk * lda;
-            try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda);
-            try driver.syrk(allocator, io, T, vt, complex, true, true, rest, bk, minus, p, lda, null, 0, one, p + bk, lda);
+            try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda, 1);
+            try driver.syrk(allocator, io, T, vt, complex, true, true, rest, bk, minus, p, lda, null, 0, one, p + bk, lda, 1);
         } else {
             // A21 := A21 L11^-H; A22 -= A21 A21^H
             const p = d + bk;
-            try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda);
-            try driver.syrk(allocator, io, T, vt, complex, false, false, rest, bk, minus, p, lda, null, 0, one, p + bk * lda, lda);
+            try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda, 1);
+            try driver.syrk(allocator, io, T, vt, complex, false, false, rest, bk, minus, p, lda, null, 0, one, p + bk * lda, lda, 1);
         }
     }
     return 0;
@@ -146,8 +146,8 @@ pub fn potrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isiz
     const one = scalar(T, 1);
     const upper = uplo == .u;
     // `u`: `Uᴴ Y = B`, then `U X = Y`; `l`: `L Y = B`, then `Lᴴ X = Y`
-    try driver.trsm(allocator, io, T, vt, true, upper, upper, upper and complex, false, m, r, one, a, la, b, lb);
-    try driver.trsm(allocator, io, T, vt, true, upper, !upper, !upper and complex, false, m, r, one, a, la, b, lb);
+    try driver.trsm(allocator, io, T, vt, true, upper, upper, upper and complex, false, m, r, one, a, la, b, lb, 1);
+    try driver.trsm(allocator, io, T, vt, true, upper, !upper, !upper and complex, false, m, r, one, a, la, b, lb, 1);
 }
 
 /// `potf2_U.c`, `potf2_L.c` and their `z` forms: the unblocked factor, at
