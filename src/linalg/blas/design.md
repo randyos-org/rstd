@@ -8,7 +8,7 @@ projects in [`issues.md`](issues.md), and the numerical decisions measured again
 reference in [`comparisons.md`](comparisons.md).
 
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-317
-(commit a69062524), unless a file names another; `Vtable.zig` is derived from v0.3.34 (commit
+(commit a69062524), unless a file names another; `Vtable.zig` is derived from v0.3.34-127 (commit
 9724481b). Paths are relative to `src/linalg/blas/` unless they start with `build/`, `tools/`,
 `test/` or `src/`. The toolchain is Zig 0.18.0-dev.751.
 
@@ -194,13 +194,15 @@ users are not assumed to know. Part of the codebase-wide pass to make rstd more 
 
 - **`exprecision`** is on for x86 and x86_64 with an x87 unit whose `long double` is 80 bits,
   except on Microsoft-ABI targets (Windows, UEFI), which the reference never builds it for
-  (`exprecisionOn`). It assumes the x87 control word's extended precision, as Linux and x64
-  UEFI leave it. Elsewhere, `q`/`x` alias `d`/`z`, as in the reference; `blas_types` is a
+  (`exprecisionOn`; `Makefile.system:487` sets `NO_EXPRECISION` on `WINNT`). It assumes the x87 control word's extended precision, as Linux and x64
+  UEFI leave it (0x037F: Linux v6.12 `arch/x86/kernel/fpu/core.c`, `fpstate_init_fxstate`;
+  UEFI Specification 2.10, section 2.3.4,
+  <https://uefi.org/specs/UEFI/2.10/02_Overview.html>). Elsewhere, `q`/`x` alias `d`/`z`, as in the reference; `blas_types` is a
   membership list for that reason, since a `switch` cannot hold one type twice.
 - **`quad_precision`** is off; turning it on makes `XDouble` Zig's `f128` (compiler-rt
   arithmetic) and is exclusive with `exprecision`.
 - **`f80` size.** `f80` keeps Zig's native size (16 bytes on x86_64, 12 on x86), where the
-  reference builds with `-m128bit-long-double`. Buffer formulas count bytes and round up to
+  reference's GCC builds pass `-m128bit-long-double` (`Makefile.system:602`, `:627`). Buffer formulas count bytes and round up to
   whole elements; the gemm blocking keeps the reference's 16-byte figures.
 - **Complex results.** Kernels that return a complex value use `CComplex(F)`, an
   `extern struct`, since `std.math.Complex` has automatic layout. At `f80` that struct returns
@@ -213,7 +215,7 @@ users are not assumed to know. Part of the codebase-wide pass to make rstd more 
 ### The vtable
 
 `Vtable.zig` is OpenBLAS's `gotoblas_t`, mechanically derived from `common_param.h`: 854 kernel
-slots, 88 integer parameters and the `init` hook. It leaves out the 50 slots only row-major data
+slots, its 87 integer parameters, rstd's `symv_p` and the `init` hook. It leaves out the 47 slots only row-major data
 or CBLAS reaches (`?gerv_k`, `?gerd_k`, the `*_direct*` kernels, `?omatcopy_k_r*`,
 `?imatcopy_k_r*`) and the `sbger_k`, `sbsymv_L` and `sbsymv_U` that nothing upstream fills or
 calls; its doc comment lists them (`unused/`, below). The reference guards fields behind `BUILD_*`,
@@ -276,11 +278,16 @@ its C. What they compute is the contract every core keeps
   `generic/dot.c`'s unrolled order.
 - `nrm2` sums the squares in `f64` for `s` and `c`, and takes Blue's algorithm for `d` and `z`
   (`util.blue`, after Reference-LAPACK 3.10's `dnrm2.f90`); its results on special values are
-  LAPACK 3.10's.
+  LAPACK 3.10's. Sources: J. L. Blue, "A Portable Fortran Program to Find the Euclidean Norm of
+  a Vector", ACM TOMS 4(1), 15-23, 1978, <https://doi.org/10.1145/355769.355771>; E. Anderson,
+  "Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS 44(1), 1-28, 2017,
+  <https://doi.org/10.1145/3061665>, as `dnrm2.f90`'s header cites them.
 - `scal`'s flag argument keeps NaN and infinity for a zero `alpha` when set.
 - In the extremes (`i?amax`, `i?amin`, `i?max`, `i?min` and their values) the first NaN wins,
-  else the first extreme; complex keys that overflow compare at a quarter, as `izamax.f90` does.
-- `rotg` computes in `XDouble`, where the reference uses `long double` on x86; `zrotg` follows
+  else the first extreme; complex keys that overflow compare at a quarter, as `izamax.f90` does
+  (Reference master, 0234cae25ceb01807a9b84333b732756559be4aa; not in 3.12.1).
+- `rotg` computes in `XDouble`, where the reference uses `long double` on x86
+  (`interface/rotg.c:26`); `zrotg` follows
   LAPACK's `zlartg`, since `zrotg.c`'s scaled branches are wrong.
 - Wider than `f64`, the reductions and `gemv` take the order of the x87 `q`/`x` kernels and give
   their bits: `extendedDot` and `extendedZdot` in `blas1/dot/__root__.zig`, `util.extendedSum`
