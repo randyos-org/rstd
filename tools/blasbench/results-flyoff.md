@@ -166,6 +166,9 @@ reference, tell whose result is off. The largest, all inside the bound:
   its slot holds a converted kernel (`asm`) or the portable loop. On arm64
   `asm` and `vec x4` are the converted and `@Vector` kernels alone, as in
   [`results-m6-libraries.md`](results-m6-libraries.md).
+- **Timing:** a rate is the fastest of 15 batches of at least 10 ms (`gemm`:
+  7 of 20 ms), the contestants' batches interleaved (`blas_bench.zig`'s
+  `l1_timing`, `l3_timing`; as [`results-m6.md`](results-m6.md#method)).
 - **`rstd-<lib>`:** rstd's largest difference from that library's result,
   over every output float, in eps of the type relative to the size of the
   terms behind it (the sum of the products' magnitudes; for `gemm`,
