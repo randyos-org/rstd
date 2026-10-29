@@ -813,7 +813,7 @@ edited.
 | `gen.zig` | the `.S` kernels of level 1 and level 2 | `blas<n>/<routine>/<arch>/asm/*.zig` and their `__root__.zig` index |
 | `uk.zig` | the inline-assembly microkernels of the C drivers (`<p><routine>_microk_<core>-2.c`) | `blas1/<routine>/<arch>/uk/*.zig` and their index |
 | `params.zig` | `param.h`, through a C program per core | `blas3/gemm/params_data.zig` |
-| `survey.zig` | the `KERNEL` files and `Makefile.L1`, `L2`, `L3` | the `coverage.md` tables (`blas1/axpy/`, `blas1/dot/`, `blas2/`, `blas3/gemm/`) |
+| `survey.zig` | the `KERNEL` files and `Makefile.L1`, `L2`, `L3`; rstd's `asm/` and `uk/` indexes and registries | the `coverage.md` tables (every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`) |
 | `kernel_map.zig` | `kernel/<arch>/KERNEL.<core>`, `KERNEL`, `Makefile.L1` | (library) which source each core uses |
 | `roles.zig` | the `kernel/Makefile.L*` rules | (library) each role's make variable and flags |
 | `arch/<arch>.zig` | | (data) per-architecture defines, variants and patches |
@@ -1042,8 +1042,9 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 A routine directory holds its `__root__.zig` (the vtable wrappers, its portable kernels and the
 tests of every core's kernels), and per architecture `<arch>/asm/` (generated), `<arch>/uk/`
 (generated) and `<arch>/kernel.zig` (composition and hand ports) as the routine needs.
-`blas1/axpy/`, `blas1/dot/`, `blas2/` and `blas3/gemm/` have a generated `coverage.md`: which
-OpenBLAS source each core uses.
+Every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`, has a generated `coverage.md`:
+which OpenBLAS source each core uses, and for level 1 and level 3 but `gemm` what rstd serves in
+its place.
 
 `_test/` holds the code only tests use:
 
