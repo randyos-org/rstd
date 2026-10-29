@@ -270,7 +270,7 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
-| `zig build wasm-test` | level 1 and 2 under Node, with SIMD128 |
+| `zig build wasm-test` | the OS-free tests and LAPACK under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
 
 Test names follow the file's path (`linalg.blas._test.blas1.edge.test...`), so a filter can pick

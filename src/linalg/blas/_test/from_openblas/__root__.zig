@@ -5,7 +5,7 @@
 //! sweep tables, data and expected values are transcribed mechanically; if
 //! they go stale, re-derive them from those files rather than edit them.
 //!
-//! The heavy sweeps run their `.dat` tables natively; on the qemu rigs
+//! The heavy sweeps run their `.dat` tables natively; on the rigs and WASI
 //! (`reduced`) they take the smaller table each program's header documents.
 //! One more test runs every suite, on that table, on each linked core the
 //! machine runs (`check.eachCore`).
@@ -42,12 +42,12 @@ pub fn letter(comptime E: type, c: u8) ?E {
     return std.meta.stringToEnum(E, &.{std.ascii.toLower(c)});
 }
 
-/// On a qemu rig: freestanding (32 MiB heap, 1 MiB stack, emulated), or the
+/// On a rig: freestanding (32 MiB heap, 1 MiB stack, emulated), WASI, or the
 /// Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
 pub fn reduced() bool {
     return switch (sysinfo.target.os.tag) {
         .linux => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
-        .freestanding, .other, .uefi => true,
+        .freestanding, .other, .uefi, .wasi => true,
         else => false,
     };
 }

@@ -1209,6 +1209,7 @@ Outside `src/linalg/blas/`:
 | `build/__root__.zig` | `-Dblas-cores`, `rstd-test`, `rstd-check-macho`, `rstd-check-uefi` |
 | `src/dll.zig` | run-time library loading, for Accelerate |
 | `src/_test_qemu.zig` | test root of the OS-free rigs |
+| `src/_test_wasm.zig` | the WASI test root: `_test_qemu.zig` and LAPACK |
 | `test/qemu/` | boot code, linker scripts and runner of the freestanding rigs |
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
 | `test/uefi/runner.zig` | the link-only UEFI test runner |
@@ -1435,7 +1436,8 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
 
 ### Rigs
 
-`src/_test_qemu.zig` is the root of the OS-free tests: `simd` and the whole BLAS tree. The rigs
+`src/_test_qemu.zig` is the root of the OS-free tests: `simd` and the whole BLAS tree;
+`src/_test_wasm.zig` adds LAPACK for WASI. The rigs
 run it, or the full test suite, where no host here can.
 
 | Rig | How | Covers |
@@ -1446,7 +1448,7 @@ run it, or the full test suite, where no host here can.
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH | Mach-O at run time on an x86 CPU model |
 | `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
 | `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM |
-| `wasm-test` | WASI under Node with SIMD128 | `blas1`, `blas2` and `simd` on the wasm kernels |
+| `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig`, `threading.zig` and LAPACK, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, link-only runner | the OS-free tests compile for UEFI |
 
@@ -1521,12 +1523,14 @@ Rig mechanics:
 
 | Check | Native (`rstd-test`) | Freestanding rigs | Linux rigs | SSH Mac | wasm |
 | --- | --- | --- | --- | --- | --- |
-| Cores linked | target core in debug, `-Dblas-cores` | all the CPU runs | all the CPU runs | all | the SIMD core |
-| `.dat` sweeps | full | header tables | header tables | full | not run |
+| Cores linked | target core in debug, `-Dblas-cores` | all the CPU runs | all the CPU runs | all | the SIMD core; none without SIMD128 |
+| `.dat` sweeps | full | header tables | header tables | full | header tables |
 | Detection probes | host | ID registers or instructions | auxv, sysfs, `/proc` | `sysctl` | none |
 | Threads | yes | no (`single_threaded`) | yes | yes | no |
-| `abi.zig`, `apple_accel.zig` | yes | no | yes | yes | no |
-| Level 3 | yes | yes | yes | yes | no |
+| `abi.zig` | yes | no | yes | yes | yes |
+| `apple_accel.zig` | yes | no | yes | yes | no |
+| Level 3 | yes | yes | yes | yes | yes |
+| LAPACK | yes | no | yes | yes | yes |
 
 ## Implementation plan
 

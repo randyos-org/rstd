@@ -558,12 +558,12 @@ fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
     return check(&vt);
 }
 
-/// Whether the tests run on a rig: the freestanding ones, and the Linux rigs
-/// and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore` names each
+/// Whether the tests run on a rig: the freestanding ones, WASI, and the Linux
+/// rigs and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore` names each
 /// core as it starts there, and the biggest cases are left to native runs.
 pub fn rig() bool {
     return switch (sysinfo.target.os.tag) {
-        .freestanding => true,
+        .freestanding, .wasi => true,
         .linux, .macos => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         else => false,
     };
