@@ -1001,8 +1001,10 @@ test "strided vectors beyond the stack buffer are copied from the allocator" {
 
 test "an allocation failure comes back as OutOfMemory" {
     // rstd's own path, which allocates
-    const was = blas.useAccelerate(false);
-    defer _ = blas.useAccelerate(was);
+    _ = blas.vtable();
+    const was = accel.routing();
+    _ = accel.route(false);
+    defer _ = accel.route(was);
     var failing = std.testing.FailingAllocator.init(talloc, .{ .fail_index = 0 });
     const n = 1200;
     const a = try talloc.alloc(f32, n);
