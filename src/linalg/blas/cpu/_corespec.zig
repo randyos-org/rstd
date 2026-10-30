@@ -155,7 +155,9 @@ pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         // MSA needs the revision-5 feature bit explicitly; GCC's `-mmsa` implies
         // it, LLVM's integrated assembler does not. Zig adds `-mfp64` for MSA.
-        .loongson3r4 => .{ .features = &.{ "msa", "mips64r5" } },
+        // `-march=loongson3a`: GCC fuses `madd.fmt` there, as GS464 and GS464E
+        // do (`fma.fused_madd`)
+        .loongson3r4 => .{ .features = &.{ "msa", "mips64r5" }, .fuse_fma = true },
         // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
         // the SIMD architecture; the 24K and 1004K have none
         .mips24k, .mips1004k => .{ .model = "mips32r2" },
@@ -163,7 +165,7 @@ pub fn mips(core: coretypes.MipsCoreType) Spec {
         .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
         // `Makefile.system`'s `-march=loongson3a`, release 2 to gcc; the
         // 4-operand `madd.s` needs it
-        .loongson3r3 => .{ .features = &.{"mips64r2"} },
+        .loongson3r3 => .{ .features = &.{"mips64r2"}, .fuse_fma = true },
         .mips64_generic, .unknown => .{},
     };
 }

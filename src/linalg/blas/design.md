@@ -313,6 +313,11 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   or earlier MIPS, whose `madd` rounds the product (Loongson 3A's fuses, and LLVM uses it for a
   plain `a*b + c`: `issues.md`). Vector multiply-adds also fuse on MIPS with
   MSA and WebAssembly with `relaxed_simd` (`vector_madd`).
+- **Loongson 3A.** The `loongson3r3` and `loongson3r4` objects fuse (`Spec.fuse_fma`), and on MIPS
+  before release 6 that means `madd.fmt` fuses (`fused_madd`): their multiply-adds are inline
+  `madd.s`/`madd.d`, `@mulAdd` being a libm `fma` call there, and `loongson3r4`'s vectors MSA
+  `fmadd` by inline asm, past LLVM's swapped operands. LLVM's own `madd.fmt` for a plain `a*b + c`
+  fuses there too. Other MIPS objects and the main library never take the asm.
 - **Per-core policy.** A root may declare `blas_fuse_fma` and `blas_fuse_fma_vector`; the
   per-core objects do (`_kernel.zig`), from the core's `Spec.fuse_fma`. The AMD cores' FMA3/FMA4
   features exist so that the assembler accepts their microkernels; their flags leave contraction off
@@ -1378,6 +1383,11 @@ Questions decided once, with the reason, so they are not reopened without new ev
   reference's `xPOTRF2`, where OpenBLAS's `ajj <= 0` passes it ([Extensions](#extensions)).
   An exactly singular `U` is `error.Singular`, its first zero pivot written to `pivot`; a NaN
   pivot is not zero, as the reference's `xGETRF2` has it.
+- **Loongson 3A fuses, as the reference does** (2026-10-29). `loongson3r3` and `loongson3r4`
+  are modeled fused: OpenBLAS builds them with `-march=loongson3a` (`Makefile.system:1002`), where
+  GCC contracts to `madd.fmt`, which GS464 and GS464E round once (their manuals, `issues.md`).
+  QEMU rounds `madd.fmt`, so no rig can check the fused bits (the axpy fused-bit test skips on
+  rigs); correctness rests on the manuals and on reading the objects' assembly.
 
 ## Alternatives considered
 

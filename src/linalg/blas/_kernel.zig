@@ -19,6 +19,10 @@ const kernels = @import("kernels/__root__.zig").ForArch(sysinfo.target.cpu.arch)
 /// Read by `fma.zig`.
 pub const blas_fuse_fma: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.hardware;
 
+/// Read by `fma.zig`: a group that fuses on MIPS before release 6 can only
+/// mean `madd.fmt` does (the Loongson 3A cores).
+pub const blas_fused_madd: bool = opts.fuse_fma_set and opts.fuse_fma;
+
 /// The vector multiply-adds'; the group's policy is for the scalar flags.
 pub const blas_fuse_fma_vector: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.vector_madd;
 

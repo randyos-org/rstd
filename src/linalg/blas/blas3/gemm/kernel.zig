@@ -203,7 +203,7 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
 pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
     const fused = comptime (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
     if (comptime n == 1 and !fused and util.onX87(T)) return util.rounded(T, util.rounded(T, a * b) + c);
-    return util.scalar(Lanes(T, n), if (fused) @mulAdd(Lanes(T, n), a, b, c) else a * b + c);
+    return fma.madd(fused, Lanes(T, n), a, b, c);
 }
 
 /// Packs `n` lines of depth `m` of elements `E` in panels of `u`. `across`:

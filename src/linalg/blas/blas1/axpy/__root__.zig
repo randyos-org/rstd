@@ -4,6 +4,7 @@
 //! interleaved floats in the kernels, as in the reference.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
@@ -11,6 +12,7 @@ const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const rsimd = @import("../../../../simd/__root__.zig");
 const fma = @import("../../fma.zig");
+const corespec = @import("../../cpu/_corespec.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
@@ -234,6 +236,34 @@ fn checkAll(vt: *const Vtable) !void {
 
 test "every linked core's kernels match a scalar loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+/// `(1+e)(1+e) - (1+2e)` is `e*e` fused, 0 rounded: scalar (`n` 1) and
+/// vector (`n` 64) paths.
+fn checkFusedReal(comptime T: type, kern: RealKernel(T)) !void {
+    const e = std.math.floatEps(T);
+    for ([_]usize{ 1, 64 }) |n| {
+        var x: [64]T = @splat(1 + e);
+        var y: [64]T = @splat(-(1 + 2 * e));
+        _ = kern(@intCast(n), 0, 0, 1 + e, &x, 1, &y, 1, &y, 0);
+        for (y[0..n]) |v| try zigstd.testExpectEqual(e * e, v);
+    }
+}
+
+fn checkFused(vt: *const Vtable) !void {
+    if (comptime sysinfo.target.cpu.arch.isMips()) {
+        const c = check.core orelse return;
+        if (!(corespec.mips(c).fuse_fma orelse false)) return;
+        try checkFusedReal(f32, vt.saxpy_k.?);
+        try checkFusedReal(f64, vt.daxpy_k.?);
+    }
+}
+
+test "the Loongson 3A cores fuse axpy, as their flags do" {
+    if (comptime !sysinfo.target.cpu.arch.isMips()) return error.SkipZigTest;
+    // every mips rig is QEMU, which rounds `madd.fmt` (issues.md)
+    if (check.rig()) return error.SkipZigTest;
+    try check.eachCore(checkFused);
 }
 
 test {

@@ -568,7 +568,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `fma.fusible` (and with it `fuseFor` and the gemm tile's `madd`) and
   `vector.zig`'s `mulAdd` multiply and add separately there. The
   reference's GCC build fuses (`fmadd.w`), so MSA cores can differ from it
-  in the last bit.
+  in the last bit. The `loongson3r4` object, modeled fused (T86), takes
+  `fmadd` as inline asm with the operands right (`fma.fusedMadd`).
 - **Issue text:**
 
   > **[Mips] MSA: `llvm.fma` on vectors selects `fmadd` with the addend as
@@ -657,17 +658,18 @@ When an issue is fixed upstream, drop the workaround and its entry.
   models it (gcc 15.2 `mips.h` `ISA_HAS_FUSED_MADD4`: `-march=loongson3a`,
   `gs464`, `gs464e`, `gs264e`, `r8000`); LLVM has no Loongson CPU. The 3A4000
   register manual (V1.5) does not say what GS464V does.
-- **Where:** every pre-R6 rstd build: the main library and the `loongson3r3`
-  and `loongson3r4` objects, modeled unfused (`fma.hardware` false). On
-  that silicon a multiply-add fuses where LLVM picked `madd.fmt` and rounds
-  elsewhere: MSA bodies (`fmul.d`, `fadd.d`) round, their scalar tails fuse.
-  Thread count still cannot change bits (chunks keep the body and tail
-  split, `threading.md`). The rigs run QEMU, which rounds all of it (below).
-  OpenBLAS's `-march=loongson3a` build fuses there: its `.S` kernels'
-  `madd.fmt`, and its C under GCC's default `-ffp-contract=fast`.
-- **Workaround:** none taken. `+nomadd4` stops the selection, but it also
-  rejects the converted `loongson3r3` kernels' `madd.fmt` (with exit 0,
-  "Inline assembly errors exit 0").
+- **Where:** every pre-R6 rstd build's main library, modeled unfused
+  (`fma.hardware` false): on that silicon it fuses where LLVM picked
+  `madd.fmt` and rounds elsewhere. The `loongson3r3` and `loongson3r4`
+  objects are modeled fused (T86, design.md's Settled decisions), as
+  OpenBLAS's `-march=loongson3a` build is (its `.S` kernels' `madd.fmt`,
+  its C under GCC's default `-ffp-contract=fast`), so LLVM's picks there
+  fuse as modeled; a `c - a*b` it leaves as `mul.d`, `sub.d` still rounds.
+  The rigs run QEMU, which rounds all of it (below).
+- **Workaround:** for the Loongson objects, `fma.fused_madd` emits fused
+  multiply-adds as inline `madd.fmt`. `+nomadd4` stops the selection, but
+  it also rejects inline `madd.fmt` (with exit 0, "Inline assembly errors
+  exit 0").
 - **Issue text:**
 
   > **[Mips] No Loongson 3A CPU: strict `fadd(fmul)` selects `madd.fmt`,
@@ -1194,10 +1196,12 @@ When an issue is fixed upstream, drop the workaround and its entry.
   GS464E manuals say one rounding ("MIPS before R6" above).
 - **Where:** the `mips64r2` (3A1000) and `mips64r2el` (3A4000) rigs: the
   converted `loongson3r3` kernels' `madd.fmt` (`saxpy`, `daxpy`, `ddot`,
-  the complex `dot`s) and LLVM's round there and fuse on the silicon.
+  the complex `dot`s), the Loongson objects' inline ones and LLVM's round
+  there and fuse on the silicon.
 - **Workaround:** none needed: the tests that reach them compare against
   a tolerance or with themselves, which hold either way. The rigs cannot
-  check fused Loongson bits.
+  check fused Loongson bits, so axpy's fused-bit test for these cores
+  skips on rigs. `loongson3r4`'s MSA `fmadd` is fused under QEMU too.
 - **Issue text:**
 
   > **target/mips: MADD.fmt and kin round the product on Loongson-3A CPUs,

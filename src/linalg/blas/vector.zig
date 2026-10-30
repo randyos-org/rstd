@@ -39,11 +39,11 @@ inline fn at(comptime F: type, p: [*]F, i: BlasLong) *F {
 
 const abs = util.abs;
 
-/// `a*b + c`, fused where the hardware has an FMA unit (and `fma.compiles`);
-/// elsewhere rounded twice, as `@mulAdd` there is a software `fma` call per
-/// element.
+/// `a*b + c`, fused where the hardware has an FMA unit (and `fma.compiles`)
+/// or `fma.fused_madd`; elsewhere rounded twice, as `@mulAdd`
+/// there is a software `fma` call per element.
 inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    return if (comptime fma.hardware and fma.compiles) @mulAdd(T, a, b, c) else a * b + c;
+    return if (comptime (fma.hardware and fma.compiles) or fma.fused_madd) fma.fusedMadd(T, a, b, c) else a * b + c;
 }
 
 /// The real kernels over `F`; reductions keep two vectors of sums.
