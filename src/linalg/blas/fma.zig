@@ -33,8 +33,14 @@ const root = @import("root");
 const types = @import("types.zig");
 const util = @import("util.zig");
 
+/// Whether floats are computed in hardware: Zig builds a soft-float ABI
+/// (`eabi`, `gnueabi`, ...) all in software, where `@mulAdd` is compiler-rt's
+/// `fma`, several soft operations, and a C compiler's `-msoft-float` has no
+/// fused instruction to contract to.
+const hard_float = sysinfo.target.abi.float() == .hard;
+
 /// Whether the target has a hardware fused multiply-add.
-pub const hardware = switch (sysinfo.target.cpu.arch) {
+pub const hardware = hard_float and switch (sysinfo.target.cpu.arch) {
     // x86 FMA3 is an optional extension, not baseline; must check.
     .x86_64, .x86 => std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .fma),
     // AArch64 scalar and NEON FMA is mandatory since ARMv8-A.
@@ -69,11 +75,11 @@ pub const hardware = switch (sysinfo.target.cpu.arch) {
 /// `fmadd` is fused whatever the scalar ISA), and for WebAssembly with
 /// `relaxed_simd` (`wasm_f32x4_relaxed_madd`; the spec lets an engine fuse or
 /// not, taken here as fused, as on engines with hardware FMA).
-pub const vector_madd = hardware or switch (sysinfo.target.cpu.arch) {
+pub const vector_madd = hardware or (hard_float and switch (sysinfo.target.cpu.arch) {
     .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa),
     .wasm32, .wasm64 => std.Target.wasm.featureSetHas(sysinfo.target.cpu.features, .relaxed_simd),
     else => false,
-};
+});
 
 /// The build's policy: the root's `blas_fuse_fma` if it declares one.
 pub const fuse: bool = if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else hardware;

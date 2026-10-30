@@ -1262,7 +1262,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 ### powerpc: OpenBIOS hangs before its banner on `-cpu 750fx`
 
-- **Seen:** QEMU 11.0.1 (OpenBIOS 1.1, Sep 2024), `-M mac99` or `g3beige`
+- **Seen:** QEMU 11.0.1 (OpenBIOS 1.1, Sep 2024) here and 11.1.2
+  (OpenBIOS built Jun 2026) on the Mac, `-M mac99` or `g3beige`
   with `-cpu 750fx` or `750gx` prints nothing; `-cpu 750`, `750cxe` and `G4`
   boot the same image. `-d int` shows an ISI at 0xfff08b50 (in the ROM),
   then `rfid` (0x4c000024, not in 32-bit CPUs) at 0x251c, then nothing.

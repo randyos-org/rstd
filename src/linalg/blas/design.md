@@ -318,6 +318,11 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   `madd.s`/`madd.d`, `@mulAdd` being a libm `fma` call there, and `loongson3r4`'s vectors MSA
   `fmadd` by inline asm, past LLVM's swapped operands. LLVM's own `madd.fmt` for a plain `a*b + c`
   fuses there too. Other MIPS objects and the main library never take the asm.
+- **Soft float.** A soft-float ABI (Zig's `eabi`, `gnueabi` and the like, which compute every
+  float in software) never fuses: `@mulAdd` there is compiler-rt's `fma`, several soft
+  operations, and a C compiler's `-msoft-float` has no fused instruction to contract to. On the
+  `powerpc-750` rig the driver's beta-folding test took 754 s fused and 188 s not (build
+  included), and the full Debug run outran the watchdog's hour in one test.
 - **Per-core policy.** A root may declare `blas_fuse_fma` and `blas_fuse_fma_vector`; the
   per-core objects do (`_kernel.zig`), from the core's `Spec.fuse_fma`. The AMD cores' FMA3/FMA4
   features exist so that the assembler accepts their microkernels; their flags leave contraction off
