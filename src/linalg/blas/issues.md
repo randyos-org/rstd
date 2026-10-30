@@ -2139,7 +2139,10 @@ the SVD then reports `NoConvergence`. A rank-1 `f32` matrix (all ones,
 
 - **Workaround:** below the safe minimum, rstd divides instead
   (`bidiag.zig`, `bidiag_svd.zig`'s `scaleDown`, `svd.zig`'s `normalized`);
-  the bits elsewhere are faer's.
+  the bits elsewhere are faer's. The eigensolver has the same two:
+  `tridiag_evd.rs`'s `qr_algorithm` scales by `max.recip()` and
+  `evd/mod.rs`'s `normalized` closure by `x.abs().recip()`; rstd divides
+  there too (`tridiag_evd.zig`'s `scaleDown`, `evd.zig`'s `normalized`).
 - **Issue text:** "The SVD of a rank-deficient `f32` matrix (e.g. `15 x 10`
   all ones) returns `NoConvergence`: the bidiagonal decays into denormals,
   and `bidiag_in_place` and the bidiagonal solvers multiply by the
@@ -2173,3 +2176,56 @@ pass zeroed matrices, so it only shows on a caller's own buffer.
   does not initialize `U[0..n, n..m]` before applying the Householder
   sequence, so a caller passing an uninitialized `U` gets garbage in those
   columns."
+
+### The staircase QR skips a NaN column
+
+`qr_in_place_unblocked` (`qr/no_pivoting/factor.rs`) applies a column's
+reflection only when `norm > threshold`. A NaN in the column makes that
+false, so the column takes no reflection and the row does not advance: a
+NaN matrix factors as rank 0 with finite pieces, and a least-squares solve
+over it reports a zero pivot instead of returning NaN, as the reference's
+`xGEQRF` does.
+
+- **Workaround:** rstd tests `!(norm <= threshold)` (`qr.zig`), so NaN
+  takes the reflection and propagates.
+- **Issue text:** "`qr_in_place_unblocked` decides whether to reflect a
+  column with `norm > threshold`, which is false when the column holds a
+  NaN; the column is then skipped as if dependent, and the factorization of
+  a NaN matrix comes out rank 0 and finite. `!(norm <= threshold)` keeps the
+  NaN visible."
+
+### Complex `rotg` returns `r = 1` for a zero second entry
+
+`JacobiRotation::rotg` (`jacobi.rs`), complex branch, returns
+`(c = 1, s = 0, r = 1)` when `q = 0`; the rotation leaves `p` unchanged, so
+`r` must be `p` (the reference's `xLARTG` returns `r = f`). The complex
+`lahqr` (`evd/schur/complex_schur.rs`) stores that `r` in the bulge
+chase's `A(i, i - 1)`, so a bulge that is exactly zero (an underflowed
+product) would replace a subdiagonal entry with 1. The real branch returns
+`p`.
+
+- **Workaround:** rstd returns `p` (`householder.zig`, `ComplexRotation`).
+- **Issue text:** "The complex branch of `JacobiRotation::rotg` returns
+  `r = one()` when `q == 0`, but the identity rotation it returns maps `p`
+  to `p`; `r` should be `p`, as LAPACK's `zlartg` has it. `lahqr` writes
+  this `r` into the Hessenberg matrix during the bulge chase."
+
+### The eigenvector solve guards a determinant with a linear bound
+
+`solve_cplx_shifted_upper_quasi_triangular_system` (`evd/mod.rs`) solves
+each 2 x 2 block of the real Schur form shifted by a complex eigenvalue
+through its determinant `z = (a - p - i q)² - b c`, quadratic in `A`, and
+replaces it by `eps ‖A‖₁` whenever `|z| < eps ‖A‖₁`, a linear bound. At
+unit scale that is rare, but a matrix scaled small (as `dgeev.f`'s scaling
+to `SMLNUM` leaves one) always has `|z| < eps ‖A‖₁`, so the vector of every
+complex pair whose solve meets another 2 x 2 block comes out wrong; scaled
+large, the guard never acts. A 12 x 12 random `f64` scaled by `2^-958` gave
+a left eigenvector with residual 1.15.
+
+- **Workaround:** rstd guards with `(eps ‖A‖₁)²` (`evd.zig`,
+  `solveQuasiComplex`), so the test is scale invariant.
+- **Issue text:** "In `solve_cplx_shifted_upper_quasi_triangular_system`'s
+  2 x 2 branch, `z` is the shifted block's determinant (quadratic in the
+  matrix) but is compared with `eps * norm` (linear), so the guard depends on
+  the matrix's scale: a small-scaled matrix always clamps and gets wrong
+  eigenvectors. Comparing with `(eps * norm)²` fixes it."

@@ -99,12 +99,12 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `geqrf` | T111 (and inside T34) | - | - (QR is "not covered: extra FLOPs", `relapack/coverage.md`) | own, `qr/no_pivoting/factor.rs` | FLAME `FLA_QR_UT` | AMD: `fla_[sdcz]geqrf_small` (AVX2), OpenMP (`dgeqrf.c:224`) | faer | T111; ported on `wip/faer` for T34 | not yet raced |
-| `orgqr`, `ungqr` | T111 | - | - | own, `householder.rs` (the block sequence on `I`) | FLAME `FLA_QR_UT_form_Q` | FLAME | faer | T111 | not yet raced |
-| `ormqr`, `unmqr` | T111; M (`wqrsl`) | - | - | own, `householder.rs` | FLAME `FLA_Apply_Q_UT` | AMD: OpenMP (`dormqr.c`) | faer | T111 | not yet raced |
+| `geqrf` | has (T111) | - | - (QR is "not covered: extra FLOPs", `relapack/coverage.md`) | own, `qr/no_pivoting/factor.rs` | FLAME `FLA_QR_UT` | AMD: `fla_[sdcz]geqrf_small` (AVX2), OpenMP (`dgeqrf.c:224`) | faer (`faer/qr.zig`) | T111 | `Q R = A`, orthogonality, rank deficient; not raced |
+| `orgqr`, `ungqr` | has (T111) | - | - | own, `householder.rs` (the block sequence on `I`) | FLAME `FLA_QR_UT_form_Q` | FLAME | faer (`faer/qr.zig`) | T111 | against one reflection at a time; not raced |
+| `ormqr`, `unmqr` | has (T111); M (`wqrsl`) | - | - | own, `householder.rs` | FLAME `FLA_Apply_Q_UT` | AMD: OpenMP (`dormqr.c`) | faer (`faer/qr.zig`) | T111 | against one reflection at a time, every side and `op`; not raced |
 | `geqp3` | M (`wqrdc`, pivoted `qr`, `rank`) | - | - | own, `qr/col_pivoting/factor.rs` | FLAME `FLA_QR_UT_piv` (`FLA_geqpf.c`) | AMD: `dlaqp2`'s norms (AVX2) | faer | the anthology rule | not yet raced |
-| `gelqf`, `orglq`, `ormlq` | M (wide minimum-norm solves) | - | - | - | FLAME `FLA_LQ_UT` | AMD: `fla_dgelqf_small` | open | FLAME is the only non-reference source; faer's QR of `Aᴴ` is the alternative | none |
-| `gels` | T111; M (rectangular `mldivide`) | - | - | own, `qr/no_pivoting/solve.rs` (`solve_lstsq_in_place`) | ref | ref | faer | T111 | not yet raced |
+| `gelqf`, `orglq`, `ormlq` | M (wide minimum-norm solves) | - | - | - | FLAME `FLA_LQ_UT` | AMD: `fla_dgelqf_small` | open | FLAME is the only non-reference source; faer's QR of `Aᴴ` is the alternative, as `gels` already does it | none |
+| `gels` | has (T111); M (rectangular `mldivide`) | - | - | own, `qr/no_pivoting/solve.rs` (`solve_lstsq_in_place`), tall only | ref | ref | faer (`faer/qr_solve.zig`); wide by faer's QR of `Aᴴ` | T111 | known answers, `dqrt17.f`'s residual ratio; not raced |
 | `gelsd`, `gelss`, `gelsy` | M (`pinv`, `lsqminnorm`, rank-deficient `mldivide`) | - | - | SVD pseudoinverse, `svd/mod.rs` | `gelsd` is `gelss` (ref) | ref | open | faer's SVD covers `gelss`; `gelsy`'s complete orthogonal factorization has no non-reference source | none |
 
 ### SVD
@@ -120,17 +120,17 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrd`, `hetrd` | T111 | - | - (not covered) | own, `evd/tridiag.rs` | FLAME `FLA_Tridiag_UT` | AMD: OpenMP (`dsytrd.c:255`) | faer | T111 | not yet raced |
-| `orgtr`, `ormtr`, `unmtr` | T111; M (`htribk`) | - | - | own, `householder.rs` | FLAME | FLAME | faer | T111 | not yet raced |
-| `syevd`, `heevd` (and `syev`, `steqr`, `stedc`) | T111; M (symmetric `eig`) | - | - | own, `evd/mod.rs`: QR iteration below 128, divide and conquer above (`tridiag_evd.rs`) | ref; `FLA_Hevd` and `FLA_Tevd` exist but no LAPACK name maps to them | ref | faer | T111 | not yet raced |
-| `laed3` (with `laed4`) | T70 (not ported) | own, `lapack/laed3/` | - | faer's own merge, `tridiag_evd.rs` (`secular_eq`, `divide_and_conquer`) | ref | ref | faer's, inside `syevd` | OpenBLAS's serves only the reference's `stedc`, which rstd does not port | not yet raced |
-| `gehrd`, `orghr`, `ormhr` | T111 (`geev`); M (`corth`, `hess`) | - | - (not covered) | own, `evd/hessenberg.rs` | FLAME `FLA_Hess_UT`, off | ref | faer | T111 | not yet raced |
-| `hseqr` | T111; M (`comqr3`) | - | - | own, multishift QR with aggressive early deflation, `evd/schur/` | ref | ref | faer | T111 | not yet raced |
-| `trevc` | T111; M (`comqr3`) | - | - | own, `evd/mod.rs` (`evd_from_real_schur_imp`, `_cplx_`) | ref | ref | faer | T111 | not yet raced |
-| `geev` | T111; M (`eig`) | - | - | own, `evd/mod.rs` (`evd_real`, `evd_cplx`) | ref | ref | faer | T111 | not yet raced |
+| `sytrd`, `hetrd` | inside T111 (`syevd`; lower only, not public) | - | - (not covered) | own, `evd/tridiag.rs` | FLAME `FLA_Tridiag_UT` | AMD: OpenMP (`dsytrd.c:255`) | faer (`faer/tridiag.zig`) | T111 | `Qᴴ A Q` tridiagonal; not raced |
+| `orgtr`, `ormtr`, `unmtr` | inside T111; M (`htribk`) | - | - | own, `householder.rs` | FLAME | FLAME | faer | T111 | with `syevd` |
+| `syevd`, `heevd` (and `syev`, `steqr`, `stedc`) | has (T111); M (symmetric `eig`) | - | - | own, `evd/mod.rs`: QR iteration below 128, divide and conquer above (`tridiag_evd.rs`) | ref; `FLA_Hevd` and `FLA_Tevd` exist but no LAPACK name maps to them | ref | faer (`faer/evd.zig`, `tridiag_evd.zig`); `syev` and `heev` by QR iteration | T111 | `A V - V Λ`, orthogonality, special, clustered, graded matrices, OpenBLAS's `test_laed3_nan.c`; not raced |
+| `laed3` (with `laed4`) | not ported | own, `lapack/laed3/` | - | faer's own merge, `tridiag_evd.rs` (`secular_eq`, `divide_and_conquer`) | ref | ref | faer's, inside `syevd` | OpenBLAS's serves only the reference's `stedc`, which rstd does not port; its test (`test/test_laed3_nan.c`) runs against `syevd` | `test_laed3_nan.c` |
+| `gehrd`, `orghr`, `ormhr` | inside T111 (`geev`); M (`corth`, `hess`) | - | - (not covered) | own, `evd/hessenberg.rs` (unblocked, and blocked from 256) | FLAME `FLA_Hess_UT`, off | ref | faer (`faer/hessenberg.zig`, unblocked only so far) | T111 | `Qᴴ A Q` Hessenberg; not raced |
+| `hseqr` | inside T111; M (`comqr3`) | - | - | own, multishift QR with aggressive early deflation, `evd/schur/`; `lahqr` below 75 | ref | ref | faer (`faer/real_schur.zig`, `complex_schur.zig`: `lahqr` only so far) | T111 | `Z T Zᴴ = H`, standardized blocks; not raced |
+| `trevc` | inside T111; M (`comqr3`) | - | - | own, `evd/mod.rs` (`evd_from_real_schur_imp`, `_cplx_`) | ref | ref | faer (`faer/evd.zig`) | T111 | with `geev` |
+| `geev` | has (T111); M (`eig`) | - | - | own, `evd/mod.rs` (`evd_real`, `evd_cplx`) | ref | ref | faer (`faer/evd.zig`) | T111 | right and left residuals, special matrices; not raced |
 | `gees` | M (`schur`) | - | - | own, `evd/schur/` | ref | ref | faer | the anthology rule | not yet raced |
 | `trexc`, `trsen` | M (`ordschur`) | - | - | swaps only, `real_schur.rs` (`schur_swap`), crate-internal | ref | ref | open | no reordering driver outside the reference | none |
-| `gebal`, `gebak` | M (`eig`'s balancing, `balance`) | - | - | - | ref | ref | open | only the reference; needs a decision | none |
+| `gebal`, `gebak` | inside T111 (`geev`); M (`eig`'s balancing, `balance`) | - | - | - | ref | ref | Reference-LAPACK (`faer/balance.zig`, job `B`) | faer has none; the reference is the fallback where faer lacks a routine (user, 2026-10-30) | `D⁻¹ Pᵀ A P D`; `geev` on `D M D⁻¹` |
 | `ggev`, `gges` (`gghrd`, `hgeqz`, `tgevc`) | M (`eig(A, B)`, `qz`) | - | - | own, `gevd/` (`gen_hessenberg`, `qz_real`, `qz_cplx`) | ref | AMD: `dhgeqz` rotations, `fla_dhrot3` (AVX2, AVX-512) | faer | the anthology rule | not yet raced |
 
 ### Auxiliary

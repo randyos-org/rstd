@@ -22,6 +22,10 @@ const faer_qr_solve = @import("faer/qr_solve.zig");
 const faer_tridiag = @import("faer/tridiag.zig");
 const faer_tridiag_evd = @import("faer/tridiag_evd.zig");
 const evd = @import("faer/evd.zig");
+const faer_hessenberg = @import("faer/hessenberg.zig");
+const faer_real_schur = @import("faer/real_schur.zig");
+const faer_complex_schur = @import("faer/complex_schur.zig");
+const faer_balance = @import("faer/balance.zig");
 const faer_bidiag = @import("faer/bidiag.zig");
 const faer_bidiag_svd = @import("faer/bidiag_svd.zig");
 const relapack = @import("relapack.zig");
@@ -86,6 +90,12 @@ pub const GelsError = faer_qr_solve.GelsError;
 pub const SyevError = evd.SyevError;
 /// The eigensolvers' `jobz`, `jobvl`, `jobvr`.
 pub const Jobz = evd.Jobz;
+/// `geev`: bad arguments (a NaN in `A` is `error.InvalidA`),
+/// `error.NoConvergence` (also for an infinity in `A`), `error.OutOfMemory`
+/// or `error.Canceled`.
+pub const GeevError = evd.GeevError;
+/// `geev`'s eigenvalues: `.{ .re = wr, .im = wi }` real, `w` complex.
+pub const Eigenvalues = evd.Eigenvalues;
 
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
 pub const potf2 = cholesky.potf2;
@@ -111,6 +121,7 @@ pub const syevd = evd.syevd;
 pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
+pub const geev = evd.geev;
 
 test {
     _ = cholesky;
@@ -123,6 +134,10 @@ test {
     _ = faer_tridiag;
     _ = faer_tridiag_evd;
     _ = evd;
+    _ = faer_hessenberg;
+    _ = faer_real_schur;
+    _ = faer_complex_schur;
+    _ = faer_balance;
     _ = faer_bidiag;
     _ = faer_bidiag_svd;
     _ = svd;

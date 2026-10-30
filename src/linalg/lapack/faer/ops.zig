@@ -124,6 +124,11 @@ pub fn abs(comptime T: type, x: T) Float(T) {
     return if (comptime isComplex(T)) std.math.hypot(x.re, x.im) else @abs(x);
 }
 
+/// `|re| + |im|` (faer's `abs1`, the reference's `CABS1`); `|x|` for real.
+pub fn abs1(comptime T: type, x: T) Float(T) {
+    return if (comptime isComplex(T)) @abs(x.re) + @abs(x.im) else @abs(x);
+}
+
 pub fn abs2(comptime T: type, x: T) Float(T) {
     return if (comptime isComplex(T)) x.re * x.re + x.im * x.im else x * x;
 }

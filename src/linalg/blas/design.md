@@ -890,13 +890,20 @@ allows.
   3 through the drivers on the interface's worker rule, level 1 and 2 through the public
   routines), `householder.zig` (`householder.rs` and `jacobi.rs`: reflections, their block
   factors `T = diag(tau) + striu(Vᴴ V)` and block application, real Givens rotations),
-  `qr.zig` (`qr/no_pivoting/factor.rs`, faer's staircase QR), `bidiag.zig`
-  (`svd/bidiag.rs`), `bidiag_svd.zig` (`svd/bidiag_svd.rs`: QR iteration, divide and conquer)
-  and `svd.zig` (`svd/mod.rs`, with `gesvd` and `gesdd`). T111's QR, least squares and
-  eigensolvers add files beside these and reuse them. Faer's `rayon` parallelism becomes
-  rstd's: the fused bidiagonalization pass splits by column chunks (independent columns, so
-  the same bits at any worker count), the products thread inside the BLAS, and divide and
-  conquer's two halves run in turn, as rstd's threading splits flat ranges, not task trees.
+  `qr.zig` (`qr/no_pivoting/factor.rs`, faer's staircase QR, with `geqrf`, `orgqr`,
+  `ormqr`), `qr_solve.zig` (`qr/no_pivoting/solve.rs`, with `gels`), `bidiag.zig`
+  (`svd/bidiag.rs`), `bidiag_svd.zig` (`svd/bidiag_svd.rs`: QR iteration, divide and
+  conquer, and the secular root finder the eigensolver shares), `svd.zig` (`svd/mod.rs`, with
+  `gesvd` and `gesdd`), `tridiag.zig` (`evd/tridiag.rs`), `tridiag_evd.zig`
+  (`evd/tridiag_evd.rs`), `hessenberg.zig` (`evd/hessenberg.rs`), `real_schur.zig` and
+  `complex_schur.zig` (`evd/schur/`), `balance.zig` (Reference-LAPACK's `dgebal.f`,
+  `dgebak.f`, which faer lacks), and `evd.zig` (`evd/mod.rs`, with `syevd`, `syev`
+  and `geev`). Faer's `rayon` parallelism becomes rstd's: the fused bidiagonalization pass
+  splits by column chunks (independent columns, so the same bits at any worker count); the
+  fused tridiagonalization and Hessenberg passes, whose threads each sum a partial
+  product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
+  the products thread inside the BLAS; and divide and conquer's two halves run in turn, as
+  rstd's threading splits flat ranges, not task trees.
 - **`gesvd`, `gesdd`** (`faer/svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
   `a`, `s`, `o`, `n`), `xerbla` order and scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
   over faer's SVD: QR first past an aspect ratio of `11 / 6`, then bidiagonalization, then the
@@ -921,6 +928,45 @@ allows.
   Where ReLAPACK is wrong ([`issues.md`](issues.md#relapack-openblass-relapack)), the reference
   wins: `sytrf`, `hetrf` and their `_rook` forms run the reference's blocked `xSYTRF` loop over
   ReLAPACK's `rec2` panels (`indefinite.zig`), and `gbtrf` is `xGBTF2`.
+- **`geqrf`, `orgqr`, `ormqr`** (`faer/qr.zig`; `ungqr`, `unmqr` the same functions):
+  `dgeqrf.f`'s, `dorgqr.f`'s and `dormqr.f`'s arguments and `xerbla` order over faer's
+  staircase QR. `tau` is LAPACK's (`H = I - tau v vᴴ`), the reciprocal of faer's, so an
+  identity reflection is `tau = 0` with its `v` zeroed. Two departures, both faer's: a
+  complex `R`'s diagonal is not made real (`tau` is real instead), and a column within
+  `16 (m - j) eps` of the span of those before it takes no reflection (`Q R = A` holds to that
+  tolerance). `orgqr` and `ormqr` rebuild the block factors from `V` and `1 / tau`, so the
+  reference's complex `tau` works too; `ormqr` takes `trans` `t` and `c` alike for real
+  (complex: `c` only, as `zunmqr`). A fix to faer ([`issues.md`](issues.md)): its staircase
+  skips a column whose norm is NaN, here reflected, so NaN propagates as in the reference.
+- **`gels`** (`faer/qr_solve.zig`): `dgels.f`'s arguments, scaling of `A` and `B`, its four
+  cases and where the answer and the residual land, over faer's `solve_lstsq_in_place`
+  (`Qᴴ B`, then `trtrs`). The reference factors a wide `A` as `L Q` (`xGELQF`); faer has no
+  LQ, so `Aᴴ = Q R`, written back conjugate transposed, which is `xGELQF`'s layout. A zero on
+  the factor's diagonal is `error.Singular` with its index in `pivot`, the reference's
+  `INFO > 0`.
+- **`syevd`, `heevd`, `syev`, `heev`** (`faer/evd.zig`): `dsyevd.f`'s and `dsyev.f`'s
+  arguments, `xerbla` order and scaling into `[sqrt(SMLNUM), sqrt(BIGNUM)]`, over faer's
+  `self_adjoint_evd`: tridiagonalize, take the real tridiagonal (a complex subdiagonal's
+  phases moved into the vectors), decompose it by divide and conquer from 128 up (`syevd`, as
+  the reference's `xSTEDC`) or by QR iteration (`syev`, as `xSTEQR`; and for values alone),
+  apply the reflections. `NoConvergence` also for a NaN or infinity in `A`, which faer's
+  solvers cannot take; with `jobz` `n`, `A` is left as it was.
+- **`geev`** (`faer/evd.zig`): `dgeev.f`'s arguments, `xerbla` order, NaN check
+  (`InvalidA`, the reference's `INFO = -4`), scaling and normalization (unit 2-norm, largest
+  entry real; a real pair turned by `DLARTG`), over faer's `evd_real` and `evd_cplx`:
+  Hessenberg reduction, Schur form by `lahqr` (`xLAHQR`'s double-shift and single-shift QR),
+  eigenvectors of the triangular factor by back substitution (the left ones from its reversed
+  conjugate transpose), times the Schur vectors. Faer has no balancing, so `dgebal.f`'s and
+  `dgebak.f`'s (job `B`) come from Reference-LAPACK (`faer/balance.zig`); faer's solvers then
+  run over the whole balanced matrix. Departures: back substitution guards small pivots (`eps ‖T‖₁`) but does not scale against
+  overflow, as `xTREVC3` does; the eigenvalues are undefined after `NoConvergence`, where the
+  reference keeps those it found. Fixes to faer ([`issues.md`](issues.md)): the complex
+  `rotg` returns `r = 1` for a zero second entry, here `p`; the tridiagonal QR's and
+  `self_adjoint_evd`'s reciprocals of denormals overflow, here divided by; the eigenvector
+  solve guards a 2 x 2 block's determinant with a linear bound, here squared. Not ported yet: faer's multishift QR with
+  aggressive early deflation (`multishift_qr`, from 75 up) and its blocked Hessenberg
+  reduction (from 256 up); the unblocked forms serve every size, as `xLAHQR` and `xGEHD2`
+  can.
 - **Not positive definite:** `potrf` returns
   `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
   an optional `minor: ?*usize`, its last argument, as Zig's diagnostics arguments do; `A` then
@@ -931,10 +977,15 @@ allows.
   returns `error.Singular` with the first zero `U(i, i)`'s `i` in an optional `pivot`. A NaN
   pivot is not zero, as in the reference's `INFO`: its column fills with NaN, and nothing
   fails. `trtri`, `trtrs` and `potri` return it for a zero on the diagonal, the same way.
-- **`laed3`:** OpenBLAS's `lapack/laed3/` and `test/test_laed3_nan.c` call reference LAPACK's
-  `xLAED4` (with `xLAED5`, `xLAED6`), `xLAMC3`, `xLACPY` and `xLASET`, which OpenBLAS does not
-  reimplement, and the test drives `dsyevd`, the whole divide-and-conquer eigensolver; it comes
-  with faer's eigensolver (todo.md, T111), reference LAPACK filling what faer lacks.
+- **`laed3`:** OpenBLAS's own (`lapack/laed3/`) serves only the reference's `xSTEDC`, which
+  rstd does not port: `syevd`'s merge is faer's (`tridiag_evd.zig`), whose `z` from the roots
+  takes `sqrt(|prod|)` where `xLAED3` takes `sqrt(-W)` (NaN for a spuriously positive `W`,
+  which OpenBLAS's 71f22601 clamps to 0). `test/test_laed3_nan.c` is ported against `syevd`
+  (`evd.zig`), at its `n = 8`, through divide and conquer at thresholds 4 and 8, and at
+  `n = 200`. The reference routines `dsyevd` reaches that faer has no counterpart for:
+  `xSTERF` (root-free QR for values alone; faer runs its QR iteration without vectors),
+  `xLAMC3` (an addition forced through memory against extended registers) and `xLAMRG`
+  (faer merges inline).
 - **Sources.** [`sources.md`](../lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
   ReLAPACK, faer, libflame, AOCL-libFLAME), which implement it, the choice and its evidence.
 
@@ -1404,7 +1455,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
-| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`, the thread rules), `lu.zig` (`getrf`, `getrs`, `gesv`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` (ReLAPACK's `sytrf`, `hetrf` and `_rook` forms, `sygst`, `hegst`, `pbtrf`, `gbtrf`, `trsyl`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `indefinite.zig` (their Bunch-Kaufman kernels), `sylvester.zig` (`trsyl`'s); `faer/`, faer's ports: `ops.zig`, `householder.zig`, `qr.zig`, `bidiag.zig`, `bidiag_svd.zig`, `svd.zig` (`gesvd`, `gesdd`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`, the thread rules), `lu.zig` (`getrf`, `getrs`, `gesv`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` (ReLAPACK's `sytrf`, `hetrf` and `_rook` forms, `sygst`, `hegst`, `pbtrf`, `gbtrf`, `trsyl`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `indefinite.zig` (their Bunch-Kaufman kernels), `sylvester.zig` (`trsyl`'s); `faer/`, faer's ports: `ops.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig`, `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig`, `real_schur.zig`, `complex_schur.zig`, `balance.zig`, `evd.zig` (`syevd`, `syev`, `geev`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
@@ -1657,7 +1708,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
 | LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS; ReLAPACK's routines (`relapack.zig`): `sytrf`, `hetrf` and the `_rook` forms, random and zero-diagonal, rebuilt as `L D Lᵀ` from LAPACK's format within `32 (n + 2)` ulps of `A` and the factors multiplied in magnitude, singular at a zero `D` block; `sygst`, `hegst` for every `itype` against `M X Mᴴ` within `32 (n + 2)` ulps; `pbtrf` within `2 (n + 2)` ulps of the factor and its transpose multiplied in magnitude, the minor for a negative or NaN pivot; `gbtrf`'s `P L U` within `2 (min(m, n) + 2)` ulps; `trsyl`'s residual within `32 (m + n + 2)` ulps for every `op` and sign on quasi-triangular input; ReLAPACK's `potrf`, `getrf`, `trtri`, `lauum` by `cholesky.zig`'s and the rest's checks, and with `-Drelapack` against OpenBLAS's within `64 n` ulps; the bits inline and on `Io.Threaded` |
-| LAPACK, faer | `../lapack/faer/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases) |
+| LAPACK, faer | `../lapack/faer/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases). QR: `Q R = A` and `Qᴴ Q - I` within `4 (m + n) eps` of `‖A‖`, square, tall, wide, rank deficient and a zero column; `ormqr` for both sides and `op`s and `orgqr` against one reflection at a time, with geqrf's `tau` and the reference's complex form; `gels` against a known least-squares or minimum-norm answer for `A` and `Aᴴ`, tall and wide, the residual in `B`'s trailing rows, an inconsistent system's `Aᴴ r` (`dqrt17.f`, Reference-LAPACK's threshold 30), rank deficient, zero, scaled, NaN. Eigen: `syevd` and `syev` for both triangles at faer's sizes and past 128, `A V - V Λ` and `Vᴴ V - I` within faer's `128 eps sqrt(8 n)`, values alone the same; faer's `test_special`, clustered, graded and Wilkinson matrices; OpenBLAS's `test_laed3_nan.c`; faer's tridiagonal tests (`test_evd_2_0` to `test_gh_82_mini`) through QR iteration and divide and conquer, and random, clustered, graded and zero tridiagonals; `Qᴴ A Q` tridiagonal and Hessenberg; `lahqr`'s `Z T Zᴴ = H` with standardized blocks; `geev`'s right and left residuals, unit vectors with a real largest entry, pairs positive first, on random, zero, identity, Jordan, rotation, companion and triangular matrices; balancing (`D⁻¹ Pᵀ A P D`, and `D M D⁻¹`'s eigenvalues to `M`'s scale); NaN, infinity, scaling and the argument errors; and one worker's bits at 3 and 8 for `geqrf` with `ormqr`, `syevd` and `geev` |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |

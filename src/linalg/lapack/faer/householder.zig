@@ -260,6 +260,111 @@ pub fn Rotation(comptime F: type) type {
     };
 }
 
+/// `[c -conj(s); s c]`, `c` real, for a complex `T` (`jacobi.rs`'s
+/// `JacobiRotation` over complex fields).
+pub fn ComplexRotation(comptime T: type) type {
+    return struct {
+        c: Float(T),
+        s: T,
+
+        const Self = @This();
+        const F = Float(T);
+
+        /// `rotg` (`xLARTG`): the rotation with `c p - conj(s) q = r`,
+        /// `s p + c q = 0`, and `r`. Faer returns `r = 1` for `q = 0`; the
+        /// reference's (and the rotation's) `r` is `p` (issues.md).
+        pub fn rotg(a: T, b: T) struct { Self, T } {
+            if (ops.isZero(T, b)) return .{ .{ .c = 1, .s = ops.zero(T) }, a };
+            const eps = std.math.floatEps(F);
+            const sml = std.math.floatMin(F);
+            const big = std.math.floatMax(F);
+            const rtmin = @sqrt(sml / eps);
+            const rtmax = 1 / rtmin;
+            var c: F = undefined;
+            var s: T = undefined;
+            var r: T = undefined;
+            if (ops.isZero(T, a)) {
+                c = 0;
+                const g1 = @max(@abs(b.re), @abs(b.im));
+                if (g1 > rtmin and g1 < rtmax) {
+                    const d = @sqrt(ops.abs2(T, b));
+                    s = ops.mulReal(T, ops.conj(T, b), 1 / d);
+                    r = ops.scalar(T, d);
+                } else {
+                    const u = @min(@max(g1, sml), big);
+                    const gs = ops.mulReal(T, b, 1 / u);
+                    const d = @sqrt(ops.abs2(T, gs));
+                    s = ops.mulReal(T, ops.conj(T, gs), 1 / d);
+                    r = ops.scalar(T, d * u);
+                }
+            } else {
+                const f1 = @max(@abs(a.re), @abs(a.im));
+                const g1 = @max(@abs(b.re), @abs(b.im));
+                if (f1 > rtmin and f1 < rtmax and g1 > rtmin and g1 < rtmax) {
+                    const f2 = ops.abs2(T, a);
+                    const g2 = ops.abs2(T, b);
+                    const h2 = f2 + g2;
+                    const d = if (f2 > rtmin and h2 < rtmax) @sqrt(f2 * h2) else @sqrt(f2) * @sqrt(h2);
+                    const p = 1 / d;
+                    c = f2 * p;
+                    s = ops.mul(T, ops.conj(T, b), ops.mulReal(T, a, p));
+                    r = ops.mulReal(T, a, h2 * p);
+                } else {
+                    const u = @min(@max(@max(f1, g1), sml), big);
+                    const uu = 1 / u;
+                    const gs = ops.mulReal(T, b, uu);
+                    const g2 = ops.abs2(T, gs);
+                    var f2: F = undefined;
+                    var h2: F = undefined;
+                    var w: F = undefined;
+                    var fs: T = undefined;
+                    if (f1 * uu < rtmin) {
+                        const v = @min(@max(f1, sml), big);
+                        w = v * uu;
+                        fs = ops.mulReal(T, a, 1 / v);
+                        f2 = ops.abs2(T, fs);
+                        h2 = (f2 * w) * w + g2;
+                    } else {
+                        w = 1;
+                        fs = ops.mulReal(T, a, uu);
+                        f2 = ops.abs2(T, fs);
+                        h2 = f2 + g2;
+                    }
+                    const d = if (f2 > rtmin and h2 < rtmax) @sqrt(f2 * h2) else @sqrt(f2) * @sqrt(h2);
+                    const p = 1 / d;
+                    c = (f2 * p) * w;
+                    s = ops.mul(T, ops.conj(T, gs), ops.mulReal(T, fs, p));
+                    r = ops.mulReal(T, ops.mulReal(T, fs, h2 * p), u);
+                }
+            }
+            return .{ .{ .c = c, .s = ops.neg(T, ops.conj(T, s)) }, r };
+        }
+
+        pub fn adjoint(r: Self) Self {
+            return .{ .c = r.c, .s = ops.neg(T, r.s) };
+        }
+
+        /// `apply_on_the_left_in_place`: `x := c x - conj(s) y`,
+        /// `y := c y + s x`.
+        pub fn left(r: Self, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usize) void {
+            const sc = ops.conj(T, r.s);
+            for (0..n) |i| {
+                const a = x[i * incx];
+                const b = y[i * incy];
+                x[i * incx] = ops.sub(T, ops.mulReal(T, a, r.c), ops.mul(T, sc, b));
+                y[i * incy] = ops.add(T, ops.mulReal(T, b, r.c), ops.mul(T, r.s, a));
+            }
+        }
+
+        /// `apply_on_the_right_in_place`: columns `[x y] := [x y] J`, the
+        /// transposed rotation from the left (faer's portable path).
+        pub fn right(r: Self, n: usize, x: [*]T, y: [*]T) void {
+            const t: Self = .{ .c = r.c, .s = ops.neg(T, ops.conj(T, r.s)) };
+            t.left(n, x, 1, y, 1);
+        }
+    };
+}
+
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
