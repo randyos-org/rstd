@@ -25,6 +25,7 @@ pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !
     // x86_64 macOS under Rosetta 2, which the Mac must have installed
     const x86 = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .macos });
     try addSshTest(b, optimize, filters, mac, tool, x86, "on the Mac under Rosetta 2");
+    addGroupRepro(b, optimize, mac, tool, arm);
 
     const libs: BenchLibs = .{
         .openblas = b.option([]const u8, "openblas-lib", "OpenBLAS library for bench-native and ssh-bench-aarch64-macos, as a path where the bench runs (the Mac's default: nixpkgs' through Nix)"),
@@ -60,6 +61,32 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
     run.has_side_effects = true;
     const name = b.fmt("ssh-test-{t}-macos", .{target.result.cpu.arch});
     b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-Dssh-mac)", .{ target.result.cpu.arch, where, mac })).dependOn(&run.step);
+}
+
+/// `ssh-repro-group-aarch64-macos`: `tools/evented_group_repro.zig` on the
+/// Mac, `futures` then `group`; fails while std's `Group` still crashes on
+/// `Dispatch` (`src/linalg/blas/issues.md`). Rerun on each toolchain bump.
+fn addGroupRepro(b: *Build, optimize: Optimize, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget) void {
+    const exe = b.addExecutable(.{ .name = "evented_group_repro", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/evented_group_repro.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    const step = b.step("ssh-repro-group-aarch64-macos", b.fmt("Run std's Io.Group crash repro on Io.Dispatch at SSH alias {s}; passing means rstd can drop its futures fallback", .{mac}));
+    var prev: ?*Build.Step = null;
+    for ([_][]const u8{ "futures", "group" }) |mode| {
+        const run = qemutest.watchCommand(b);
+        run.addArg("--");
+        run.addArtifactArg2(tool, .{});
+        run.addArg(mac);
+        run.addArtifactArg2(exe, .{});
+        run.addArg(mode);
+        run.stdio = .inherit;
+        run.has_side_effects = true;
+        if (prev) |p| run.step.dependOn(p);
+        prev = &run.step;
+    }
+    step.dependOn(prev.?);
 }
 
 /// The libraries the bench's `lib*` sections race, by their paths where it
