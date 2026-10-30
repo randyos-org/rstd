@@ -172,8 +172,10 @@ fn stackWords() []usize {
     return p[0 .. (@intFromPtr(&__stack_top) - lo) / @sizeOf(usize)];
 }
 
-/// Paints the stack below this frame, less a page of margin.
-fn paintStack() void {
+/// Paints the stack below this frame, less a page of margin. Never inlined:
+/// inlined, the frame address is the caller's top, and a caller's frame past
+/// the margin (`qemutest_main`'s in release builds) gets painted.
+noinline fn paintStack() void {
     const words = stackWords();
     const below = (@frameAddress() -| 4096 -| @intFromPtr(words.ptr)) / @sizeOf(usize);
     @memset(words[0..@min(below, words.len)], paint);
