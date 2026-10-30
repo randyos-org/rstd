@@ -2763,3 +2763,57 @@ pub const alpha_buffer_size: i64 = 33554432;
 
 /// `BUFFER_SIZE` on csky, which takes the generic family.
 pub const csky_buffer_size: i64 = 33554432;
+
+/// The generic table as a static `TARGET=GENERIC` build off x86 has it,
+/// header variables at `parameter.c`'s initializers; null on x86 (`generic`).
+pub fn generic_off_x86(branch: params.GenericBranch) ?Table {
+    return switch (branch) {
+        .x86 => null,
+        .mips, .loongarch64 => .{
+            .s = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 240 }, .r = .{ .fixed = 12288 } },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 8192 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 96 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 64 }, .q = .{ .fixed = 120 }, .r = .{ .fixed = 4096 } },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .dynamic, .q = .dynamic, .r = .from_buffer },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .c3m = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 448 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 12288 } },
+            .z3m = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 224 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 12288 } },
+            .x3m = Shape{ .unroll_m = 0, .unroll_n = 0, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 112 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 12288 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+            .buffer_size = 33554432,
+        },
+        .other => .{
+            .s = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 128 } },
+            .d = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 128 } },
+            .q = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 128 } },
+            .c = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 128 } },
+            .z = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 128 } },
+            .x = Shape{ .unroll_m = 1, .unroll_n = 1, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 128 }, .r = .{ .fixed = 128 } },
+            .sh = Shape{ .unroll_m = 8, .unroll_n = 8, .unroll_mn = 32, .align_k = 0, .p_base = 0, .p = .{ .fixed = 128 }, .q = .{ .fixed = 12288 }, .r = .{ .fixed = 240 } },
+            .b = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .sb = Shape{ .unroll_m = 8, .unroll_n = 4, .unroll_mn = 32, .align_k = 1, .p_base = 0, .p = .{ .fixed = 256 }, .q = .{ .fixed = 256 }, .r = .{ .fixed = 256 } },
+            .c3m = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 448 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 12288 } },
+            .z3m = Shape{ .unroll_m = 2, .unroll_n = 2, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 224 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 12288 } },
+            .x3m = Shape{ .unroll_m = 0, .unroll_n = 0, .unroll_mn = 0, .align_k = 0, .p_base = 0, .p = .{ .fixed = 112 }, .q = .{ .fixed = 224 }, .r = .{ .fixed = 12288 } },
+            .offset_a = 0,
+            .offset_b = 0,
+            .align_ = 65535,
+            .switch_ratio = 2,
+            .divide_rate = 2,
+            .divide_limit = 0,
+            .preferred_size = 1,
+            .symv_p = 16,
+            .buffer_size = 33554432,
+        },
+    };
+}

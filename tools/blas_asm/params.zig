@@ -14,6 +14,11 @@
 //! `params.zig`, not here. Each table also takes the `BUFFER_SIZE` its core's
 //! build sees in `common_<arch>.h`, preprocessed with the same macros; the
 //! generic table's is replaced by the target's own (`params.native_buffer_size`).
+//!
+//! The generic table above is `param.h`'s `GENERIC` block as x86 reads it. Off
+//! x86 a static `TARGET=GENERIC` build reads other branches
+//! (`generic_off_x86`): there a header variable keeps `parameter.c`'s
+//! initializer, since only x86's `blas_set_parameter` sets it.
 
 const std = @import("std");
 const Io = std.Io;
@@ -66,6 +71,36 @@ const generic_archs = [_]Family{
     .{ .name = "alpha", .core_type = "", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_ALPHA", "-DBINARY64", "-D__64BIT__" } },
     .{ .name = "csky", .core_type = "", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_CSKY", "-DBINARY32", "-D__32BIT__" } },
 };
+
+/// `param.h`'s `GENERIC` branches off x86 (`params.GenericBranch`):
+/// `ARCH_MIPS`'s and `ARCH_LOONGARCH64`'s fixed sets (`param.h:4388-4415`),
+/// and every other architecture's variables (`:4416-4438`), which arm64
+/// stands for. `ARCH_MIPS` is 32-bit MIPS: `c_check` takes `ARCH_MIPS64`
+/// first.
+const generic_branches = [_]Family{
+    .{ .name = "mips", .core_type = "", .target = "mips-linux-gnueabihf", .defines = &.{ "-DARCH_MIPS", "-DBINARY32", "-D__32BIT__" } },
+    .{ .name = "loongarch64", .core_type = "", .target = "loongarch64-linux-gnu", .defines = &.{ "-DARCH_LOONGARCH64", "-DBINARY64", "-D__64BIT__" } },
+    .{ .name = "other", .core_type = "", .target = "aarch64-linux-gnu", .defines = &.{ "-DARCH_ARM64", "-DBINARY64", "-D__64BIT__" } },
+};
+
+/// `parameter.c`'s `DEFAULT_GEMM_P`, `_Q` and `_R` (`:46-48`): what a header
+/// variable (`sgemm_p`) holds in a static build whose `blas_set_parameter`
+/// leaves it, as every one off x86 does for `GENERIC` (`:760-954`).
+fn parameterDefaults(text: []const u8) [3]i64 {
+    var out: [3]?i64 = .{ null, null, null };
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        var it = std.mem.tokenizeAny(u8, raw, " \t\r");
+        if (!std.mem.eql(u8, it.next() orelse continue, "#define")) continue;
+        const name = it.next() orelse continue;
+        for ([_][]const u8{ "DEFAULT_GEMM_P", "DEFAULT_GEMM_Q", "DEFAULT_GEMM_R" }, &out) |want, *o| {
+            if (std.mem.eql(u8, name, want)) o.* = std.fmt.parseInt(i64, it.next() orelse map.die("{s} has no value", .{want}), 10) catch map.die("{s}: not a number", .{want});
+        }
+    }
+    var vals: [3]i64 = undefined;
+    for (out, &vals) |o, *v| v.* = o orelse map.die("parameter.c lost DEFAULT_GEMM_P, _Q or _R", .{});
+    return vals;
+}
 
 const probe_head =
     \\#include <stdio.h>
@@ -213,10 +248,14 @@ fn upper(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     return out;
 }
 
-fn size(a: std.mem.Allocator, w: *std.ArrayList(u8), v: ?i64, dynamic: []const u8) !void {
+/// A size; a header variable (-1) is `variable`'s value where given, else
+/// `dynamic`.
+fn size(a: std.mem.Allocator, w: *std.ArrayList(u8), v: ?i64, dynamic: []const u8, variable: ?i64) !void {
     if (v) |x| {
-        if (x < 0) try w.appendSlice(a, dynamic) else try w.print(a, ".{{ .fixed = {d} }}", .{x});
-    } else try w.appendSlice(a, dynamic);
+        if (x >= 0) return w.print(a, ".{{ .fixed = {d} }}", .{x});
+        if (variable) |d| return w.print(a, ".{{ .fixed = {d} }}", .{d});
+    }
+    try w.appendSlice(a, dynamic);
 }
 
 /// Writes a switch's prongs, one per distinct value, with every core that has
@@ -341,6 +380,70 @@ fn coreMacro(a: std.mem.Allocator, fam: Family, name: []const u8) ![]const u8 {
     return upper(a, name);
 }
 
+/// One core's table as a Zig literal, or "null" where its header has no
+/// blocking. `variables`, where given, is what a header variable holds
+/// (`parameterDefaults`).
+fn probeTable(a: std.mem.Allocator, io: std.Io, checkout: []const u8, src_path: []const u8, fam: Family, name: []const u8, core_defines: []const []const u8, variables: ?[3]i64) ![]const u8 {
+    var val: std.ArrayList(u8) = .empty;
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
+    try argv.appendSlice(a, fam.defines);
+    try argv.appendSlice(a, core_defines);
+    try argv.appendSlice(a, &.{ src_path, "-o", ".zig-cache/params_probe.exe" });
+    const cc = try std.process.run(a, io, .{ .argv = argv.items });
+    const built = switch (cc.term) {
+        .exited => |c| c == 0,
+        else => false,
+    };
+    if (!built) {
+        std.debug.print("{s}/{s}: header does not build\n", .{ fam.name, name });
+        return "null";
+    }
+    const run = try std.process.run(a, io, .{ .argv = &.{".zig-cache/params_probe.exe"} });
+    const vals = try parseValues(a, run.stdout);
+    const have_p = vals.get("s.P") orelse null;
+    const have_q = vals.get("s.Q") orelse null;
+    if (have_p == null or have_q == null) {
+        std.debug.print("{s}/{s}: header defines no blocking\n", .{ fam.name, name });
+        return "null";
+    }
+    const v: [3]?i64 = if (variables) |d| .{ d[0], d[1], d[2] } else .{ null, null, null };
+    try val.appendSlice(a, ".{\n");
+    for (precs) |pr| {
+        const key = struct {
+            fn k(al: std.mem.Allocator, f: []const u8, w: []const u8) ![]const u8 {
+                return al.print("{s}.{s}", .{ f, w });
+            }
+        }.k;
+        const um = (vals.get(try key(a, pr.field, "UNROLL_M")) orelse null);
+        const pp = (vals.get(try key(a, pr.field, "P")) orelse null);
+        if (um == null and pp == null) continue;
+        try val.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
+            pr.field,
+            um orelse 0,
+            (vals.get(try key(a, pr.field, "UNROLL_N")) orelse null) orelse 0,
+            (vals.get(try key(a, pr.field, "UNROLL_MN")) orelse null) orelse 0,
+            (vals.get(try key(a, pr.field, "ALIGN_K")) orelse null) orelse 0,
+            (vals.get(try key(a, pr.field, "P_BASE")) orelse null) orelse 0,
+        });
+        try size(a, &val, pp, ".dynamic", v[0]);
+        try val.appendSlice(a, ", .q = ");
+        try size(a, &val, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic", v[1]);
+        try val.appendSlice(a, ", .r = ");
+        try size(a, &val, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer", v[2]);
+        try val.appendSlice(a, " },\n");
+    }
+    for (globals) |g| {
+        if ((vals.get(g[0]) orelse null)) |x| {
+            const field = if (std.mem.eql(u8, g[0], "align")) "align_" else g[0];
+            try val.print(a, "            .{s} = {d},\n", .{ field, x });
+        }
+    }
+    try val.print(a, "            .buffer_size = {d},\n", .{try bufferSize(a, io, checkout, fam, core_defines)});
+    try val.appendSlice(a, "        }");
+    return val.items;
+}
+
 pub fn main(init: std.process.Init) !void {
     const a = init.arena.allocator();
     const checkout = init.environ_map.get("OPENBLAS") orelse
@@ -388,71 +491,13 @@ pub fn main(init: std.process.Init) !void {
         try out.print(a, "pub fn {s}(core: coretypes.{s}) ?Table {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
         const table_vals = try a.alloc([]const u8, names.len);
         for (names, macros, configs, table_vals) |name, macro, config, *tv| {
-            var val: std.ArrayList(u8) = .empty;
-            var argv: std.ArrayList([]const u8) = .empty;
-            try argv.appendSlice(a, &.{ "zig", "cc", "-w", "-DDYNAMIC_ARCH", "-I", try map.path(&.{checkout}), "-I", ".zig-cache" });
-            try argv.appendSlice(a, fam.defines);
             const core_defines = if (config) |c| c.defines else defs: {
                 var list: std.ArrayList([]const u8) = .empty;
                 var defs = std.mem.tokenizeScalar(u8, macro, ',');
                 while (defs.next()) |d| try list.append(a, try a.print("-D{s}", .{d}));
                 break :defs list.items;
             };
-            try argv.appendSlice(a, core_defines);
-            try argv.appendSlice(a, &.{ src_path, "-o", ".zig-cache/params_probe.exe" });
-            const cc = try std.process.run(a, io, .{ .argv = argv.items });
-            const built = switch (cc.term) {
-                .exited => |c| c == 0,
-                else => false,
-            };
-            if (!built) {
-                tv.* = "null";
-                std.debug.print("{s}/{s}: header does not build\n", .{ fam.name, name });
-                continue;
-            }
-            const run = try std.process.run(a, io, .{ .argv = &.{".zig-cache/params_probe.exe"} });
-            const vals = try parseValues(a, run.stdout);
-            const have_p = vals.get("s.P") orelse null;
-            const have_q = vals.get("s.Q") orelse null;
-            if (have_p == null or have_q == null) {
-                tv.* = "null";
-                std.debug.print("{s}/{s}: header defines no blocking\n", .{ fam.name, name });
-                continue;
-            }
-            try val.appendSlice(a, ".{\n");
-            for (precs) |pr| {
-                const key = struct {
-                    fn k(al: std.mem.Allocator, f: []const u8, w: []const u8) ![]const u8 {
-                        return al.print("{s}.{s}", .{ f, w });
-                    }
-                }.k;
-                const um = (vals.get(try key(a, pr.field, "UNROLL_M")) orelse null);
-                const pp = (vals.get(try key(a, pr.field, "P")) orelse null);
-                if (um == null and pp == null) continue;
-                try val.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
-                    pr.field,
-                    um orelse 0,
-                    (vals.get(try key(a, pr.field, "UNROLL_N")) orelse null) orelse 0,
-                    (vals.get(try key(a, pr.field, "UNROLL_MN")) orelse null) orelse 0,
-                    (vals.get(try key(a, pr.field, "ALIGN_K")) orelse null) orelse 0,
-                    (vals.get(try key(a, pr.field, "P_BASE")) orelse null) orelse 0,
-                });
-                try size(a, &val, pp, ".dynamic");
-                try val.appendSlice(a, ", .q = ");
-                try size(a, &val, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic");
-                try val.appendSlice(a, ", .r = ");
-                try size(a, &val, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer");
-                try val.appendSlice(a, " },\n");
-            }
-            for (globals) |g| {
-                if ((vals.get(g[0]) orelse null)) |x| {
-                    const field = if (std.mem.eql(u8, g[0], "align")) "align_" else g[0];
-                    try val.print(a, "            .{s} = {d},\n", .{ field, x });
-                }
-            }
-            try val.print(a, "            .buffer_size = {d},\n", .{try bufferSize(a, io, checkout, fam, core_defines)});
-            try val.appendSlice(a, "        }");
-            tv.* = val.items;
+            tv.* = try probeTable(a, io, checkout, src_path, fam, name, core_defines, null);
         }
         try writeProngs(a, &out, names, table_vals);
         try out.appendSlice(a, "    };\n}\n\n");
@@ -462,6 +507,28 @@ pub fn main(init: std.process.Init) !void {
     for (generic_archs) |fam| {
         try out.print(a, "/// `BUFFER_SIZE` on {s}, which takes the generic family.\npub const {s}_buffer_size: i64 = {d};\n\n", .{ fam.name, fam.name, try bufferSize(a, io, checkout, fam, &.{}) });
     }
+
+    // `GENERIC` as static builds off x86 read it; x86's is `generic` above
+    const parameter_c = map.read(try map.path(&.{ checkout, "driver", "others", "parameter.c" })) orelse map.die("cannot read parameter.c", .{});
+    const defaults = parameterDefaults(parameter_c);
+    var branch_names: std.ArrayList([]const u8) = .empty;
+    var branch_vals: std.ArrayList([]const u8) = .empty;
+    try branch_names.append(a, "x86");
+    try branch_vals.append(a, "null");
+    for (generic_branches) |fam| {
+        const config = try coreConfig(a, io, checkout, getarch, fam, "generic", "GENERIC") orelse map.die("no GENERIC entry for {s}", .{fam.name});
+        try branch_names.append(a, fam.name);
+        try branch_vals.append(a, try probeTable(a, io, checkout, src_path, fam, "generic", config.defines, defaults));
+    }
+    try out.appendSlice(a,
+        \\/// The generic table as a static `TARGET=GENERIC` build off x86 has it,
+        \\/// header variables at `parameter.c`'s initializers; null on x86 (`generic`).
+        \\pub fn generic_off_x86(branch: params.GenericBranch) ?Table {
+        \\    return switch (branch) {
+        \\
+    );
+    try writeProngs(a, &out, branch_names.items, branch_vals.items);
+    try out.appendSlice(a, "    };\n}\n\n");
 
     const dest = "src/linalg/blas/blas3/gemm/params_data.zig";
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = out.items });
