@@ -406,7 +406,11 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
             r.fp = .capture();
             var tasks: Tasks = .init(io);
             // runs before the caller's frame goes; every task has then run
-            defer tasks.cancel(io);
+            defer {
+                tasks.cancel(io);
+                // the caller's state where a fiber `Io` resumed it (`Lent`)
+                _ = r.fp.adopt();
+            }
             for (1..w) |_| tasks.async(io, Self.work, .{ r, io });
             try r.claim(io);
             try tasks.await(io);
@@ -478,7 +482,7 @@ const Futures = struct {
         return struct {
             fn run(fs: *Futures, io: Io, args: std.meta.ArgsTuple(@TypeOf(function))) void {
                 @call(.auto, function, args);
-                if (fs.left.fetchSub(1, .acq_rel) == 1) fs.done.set(io, 1);
+                if (fs.left.fetchSub(1, .acq_rel) == 1) fs.done.set(io, 1, null);
             }
         };
     }
@@ -614,10 +618,10 @@ pub fn Partials(comptime T: type) type {
 /// at once. The caller is worker 0; the rest start through `Group.concurrent`
 /// (`Tasks`) and wait until the caller has counted them. `job.plan(n)` then
 /// sizes the work for the `n` that started and returns how many take part, and
-/// `job.work(io, i, lent)` runs worker `i`, passing `lent` (null for the
-/// caller) to its waits. With none started the caller runs alone. Workers
-/// adopt the caller's floating-point control state while they run (`Lent`).
-/// Returns once every task has finished.
+/// `job.work(io, i, lent)` runs worker `i`, passing `lent` to its waits.
+/// With none started the caller runs alone. Workers adopt the caller's
+/// floating-point control state while they run (`Lent`). Returns once every
+/// task has finished.
 pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     if (comptime sysinfo.single_threaded) {
         _ = job.plan(1);
@@ -634,20 +638,27 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
         }
     };
     const fp: FpState = .capture();
+    // the caller's own: a fiber `Io` may resume it on another thread too
+    var mine: Lent = .{ .want = fp };
     var go: Signal = .{};
     var tasks: Tasks = .init(io);
-    // runs first, canceling workers still waiting on `go`
-    defer tasks.cancel(io);
+    defer {
+        // first, canceling workers still waiting on `go`
+        tasks.cancel(io);
+        // the caller keeps its state where it resumed
+        mine.take();
+    }
     var started: u32 = 1;
     while (started < want) : (started += 1) tasks.concurrent(io, S.worker, .{ job, &go, started, fp, io }) catch break;
-    go.set(io, job.plan(started));
-    try job.work(io, 0, null);
+    go.set(io, job.plan(started), &mine);
+    try job.work(io, 0, &mine);
     try tasks.await(io);
 }
 
 /// A worker's hold on the caller's control state (`FpState`), in force on
 /// its thread only while it runs: a fiber `Io` (`Dispatch`) may resume a
 /// waiter on another thread, which must not keep it, nor the first its own.
+/// The caller's starts given (its thread's own is `want`).
 pub const Lent = struct {
     want: FpState,
     /// The thread's own state while `want` replaces it.
@@ -674,7 +685,7 @@ pub const spin_limit = 1 << 12;
 /// A word workers wait on to change. They spin first, as BLIS's
 /// `bli_thrcomm_barrier_atomic` and OpenBLAS's `level3_thread.c` do, then
 /// sleep on a futex; setters wake only when someone sleeps. A worker sleeps
-/// without its `Lent` state, and takes it again where it wakes.
+/// and wakes others without its `Lent` state, and takes it again after.
 pub const Signal = struct {
     value: std.atomic.Value(u32) = .init(0),
     sleepers: std.atomic.Value(u32) = .init(0),
@@ -698,11 +709,15 @@ pub const Signal = struct {
         }
     }
 
-    pub fn set(s: *Signal, io: Io, v: u32) void {
+    /// Sets the value; a wake may move the setter too (`Dispatch`).
+    pub fn set(s: *Signal, io: Io, v: u32, lent: ?*Lent) void {
         s.value.store(v, .seq_cst);
+        if (s.sleepers.load(.seq_cst) == 0) return;
+        if (lent) |l| l.give();
+        defer if (lent) |l| l.take();
         // all: `Uring` passes the count on as a C `int`, where `maxInt(u32)`
         // wakes one (issues.md)
-        if (s.sleepers.load(.seq_cst) != 0) io.futexWake(u32, &s.value.raw, std.math.maxInt(i32));
+        io.futexWake(u32, &s.value.raw, std.math.maxInt(i32));
     }
 };
 
@@ -718,7 +733,7 @@ pub const Barrier = struct {
         const p = b.phase.value.load(.monotonic);
         if (b.arrived.fetchAdd(1, .acq_rel) + 1 == b.parties) {
             b.arrived.store(0, .monotonic);
-            b.phase.set(io, p +% 1);
+            b.phase.set(io, p +% 1, lent);
             return;
         }
         _ = try b.phase.waitWhile(io, p, lent);
@@ -1154,7 +1169,7 @@ test "a signal wakes every sleeper on an Io.Evented with worker threads" {
     // all past their spins and on the futex
     while (started == n and s.sleepers.load(.acquire) < n) try io.sleep(.fromMilliseconds(1), .awake);
     try io.sleep(.fromMilliseconds(50), .awake);
-    s.set(io, 1);
+    s.set(io, 1, null);
     var waited: u32 = 0;
     while (woken.load(.acquire) < started and waited < 5000) : (waited += 1) try io.sleep(.fromMilliseconds(1), .awake);
     const got = woken.load(.acquire);
