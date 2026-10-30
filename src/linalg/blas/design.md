@@ -824,6 +824,8 @@ Zig module allows.
   Reference-LAPACK's `xLAED4` (with `xLAED5`, `xLAED6`), `xLAMC3`, `xLACPY` and `xLASET`, which
   OpenBLAS does not reimplement, and its test drives `dsyevd`, the whole divide-and-conquer
   eigensolver; Reference-LAPACK's license is not yet cleared for rstd.
+- **Sources.** [`sources.md`](../lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
+  ReLAPACK, faer, libflame, AOCL-libFLAME), which implement it, the choice and its evidence.
 
 ### Apple Accelerate
 
@@ -1449,7 +1451,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   test favors another source. Licenses must be MIT or BSD-style; any other is asked about first.
   Eigen (MPL 2.0, which would keep any port under MPL) is not a source: it appears only in
   benchmarks, built from upstream as a reference binary, never ported (user, 2026-10-30).
-  The candidates and the choice for each routine are tracked per routine (todo.md, T113).
+  The candidates and the choice for each routine and kernel family are in
+  [`../lapack/sources.md`](../lapack/sources.md) (T113).
 - **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
   thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
   the driver sets its instructions' precision and may fuse `a*b + c`, so Vulkan's precision
