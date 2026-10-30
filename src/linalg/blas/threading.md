@@ -263,6 +263,12 @@ per-core tables). Their kernels do the same arithmetic for an element wherever i
 and the depth slices are the serial ones, so the bits match the serial path. `gemmtHalf` stays
 serial, as the half `gemv`s are.
 
+`gemm3m`, `symm3m` and `hemm3m` split `C` the same way (`blas3/gemm3m/driver.zig`), on the side
+with more panels, where OpenBLAS's `level3_gemm3m_thread.c` is `level3_thread.c`'s flag
+protocol over three passes: each part a serial 3M product on `gemm3m_level3.c`'s ranges, its
+row parts starting on `unroll_m`, so every element meets the serial kernel calls. Their
+thresholds are `gemm`'s and `symm`'s, as upstream builds them from the same interfaces.
+
 ### LAPACK
 
 The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface

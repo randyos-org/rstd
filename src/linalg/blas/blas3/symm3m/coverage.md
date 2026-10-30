@@ -18,71 +18,71 @@ runs the portable build of the same source); `none` is nothing yet; `n/a`,
 no rstd target. A cell is **bold** where upstream is tuned and rstd has
 nothing (a gap); cores rstd does not know are left out of the gaps.
 
-`symm3m` runs the `gemm3m` kernel; rstd keeps the slots as stubs.
+`symm3m` runs the `gemm3m` kernel. rstd's 3M kernel is the real gemm tile writing both parts of `C` (`gemm3m/kernel.zig`), and its copies `kernel/generic`'s 3M copies; upstream exports `gemm3m` on x86, x86_64, ia64 and MIPS only (`interface/Makefile`), and `symm3m` and `hemm3m` on none.
 
 ## x86_64
 
 ### x86_64 kernels
 
-| core           | C                                       | Z                                       |
-| -------------- | --------------------------------------- | --------------------------------------- |
-| rstd           | none                                    | none                                    |
-| ATOM           | **`zgemm3m_kernel_8x4_core2.S`**        | **`zgemm3m_kernel_4x2_atom.S`**         |
-| BARCELONA      | **`zgemm3m_kernel_8x4_barcelona.S`**    | **`zgemm3m_kernel_4x4_barcelona.S`**    |
-| BOBCAT         | **`zgemm3m_kernel_8x4_barcelona.S`**    | **`zgemm3m_kernel_4x4_barcelona.S`**    |
-| BULLDOZER      | **`zgemm3m_kernel_8x4_barcelona.S`**    | **`zgemm3m_kernel_4x4_barcelona.S`**    |
-| COOPERLAKE     | **`cgemm3m_kernel_8x4_haswell.c` +asm** | **`zgemm3m_kernel_4x4_haswell.c` +asm** |
-| CORE2          | **`zgemm3m_kernel_8x4_core2.S`**        | **`zgemm3m_kernel_4x4_core2.S`**        |
-| DUNNINGTON     | **`zgemm3m_kernel_8x4_penryn.S`**       | **`zgemm3m_kernel_4x4_penryn.S`**       |
-| EXCAVATOR      | **`zgemm3m_kernel_8x4_barcelona.S`**    | **`zgemm3m_kernel_4x4_barcelona.S`**    |
-| generic        | `../generic/zgemm3mkernel_dump.c`       | `../generic/zgemm3mkernel_dump.c`       |
-| HASWELL        | **`cgemm3m_kernel_8x4_haswell.c` +asm** | **`zgemm3m_kernel_4x4_haswell.c` +asm** |
-| NANO           | **`zgemm3m_kernel_8x4_core2.S`**        | **`zgemm3m_kernel_4x4_core2.S`**        |
-| NEHALEM        | **`zgemm3m_kernel_4x8_nehalem.S`**      | **`zgemm3m_kernel_2x8_nehalem.S`**      |
-| OPTERON        | **`zgemm3m_kernel_8x4_sse.S`**          | **`zgemm3m_kernel_4x4_sse2.S`**         |
-| OPTERON_SSE3   | **`zgemm3m_kernel_8x4_sse.S`**          | **`zgemm3m_kernel_4x4_sse2.S`**         |
-| PENRYN         | **`zgemm3m_kernel_8x4_penryn.S`**       | **`zgemm3m_kernel_4x4_penryn.S`**       |
-| PILEDRIVER     | **`zgemm3m_kernel_8x4_barcelona.S`**    | **`zgemm3m_kernel_4x4_barcelona.S`**    |
-| PRESCOTT       | **`zgemm3m_kernel_8x4_sse3.S`**         | **`zgemm3m_kernel_4x4_sse3.S`**         |
-| SANDYBRIDGE    | **`zgemm3m_kernel_4x8_nehalem.S`**      | **`zgemm3m_kernel_2x8_nehalem.S`**      |
-| SAPPHIRERAPIDS | **`cgemm3m_kernel_8x4_haswell.c` +asm** | **`zgemm3m_kernel_4x4_haswell.c` +asm** |
-| SKYLAKEX       | **`cgemm3m_kernel_8x4_haswell.c` +asm** | **`zgemm3m_kernel_4x4_haswell.c` +asm** |
-| STEAMROLLER    | **`zgemm3m_kernel_8x4_barcelona.S`**    | **`zgemm3m_kernel_4x4_barcelona.S`**    |
-| ZEN            | **`cgemm3m_kernel_8x4_haswell.c` +asm** | **`zgemm3m_kernel_4x4_haswell.c` +asm** |
+| core           | C                                   | Z                                   |
+| -------------- | ----------------------------------- | ----------------------------------- |
+| rstd           | tile                                | tile                                |
+| ATOM           | `zgemm3m_kernel_8x4_core2.S`        | `zgemm3m_kernel_4x2_atom.S`         |
+| BARCELONA      | `zgemm3m_kernel_8x4_barcelona.S`    | `zgemm3m_kernel_4x4_barcelona.S`    |
+| BOBCAT         | `zgemm3m_kernel_8x4_barcelona.S`    | `zgemm3m_kernel_4x4_barcelona.S`    |
+| BULLDOZER      | `zgemm3m_kernel_8x4_barcelona.S`    | `zgemm3m_kernel_4x4_barcelona.S`    |
+| COOPERLAKE     | `cgemm3m_kernel_8x4_haswell.c` +asm | `zgemm3m_kernel_4x4_haswell.c` +asm |
+| CORE2          | `zgemm3m_kernel_8x4_core2.S`        | `zgemm3m_kernel_4x4_core2.S`        |
+| DUNNINGTON     | `zgemm3m_kernel_8x4_penryn.S`       | `zgemm3m_kernel_4x4_penryn.S`       |
+| EXCAVATOR      | `zgemm3m_kernel_8x4_barcelona.S`    | `zgemm3m_kernel_4x4_barcelona.S`    |
+| generic        | `../generic/zgemm3mkernel_dump.c`   | `../generic/zgemm3mkernel_dump.c`   |
+| HASWELL        | `cgemm3m_kernel_8x4_haswell.c` +asm | `zgemm3m_kernel_4x4_haswell.c` +asm |
+| NANO           | `zgemm3m_kernel_8x4_core2.S`        | `zgemm3m_kernel_4x4_core2.S`        |
+| NEHALEM        | `zgemm3m_kernel_4x8_nehalem.S`      | `zgemm3m_kernel_2x8_nehalem.S`      |
+| OPTERON        | `zgemm3m_kernel_8x4_sse.S`          | `zgemm3m_kernel_4x4_sse2.S`         |
+| OPTERON_SSE3   | `zgemm3m_kernel_8x4_sse.S`          | `zgemm3m_kernel_4x4_sse2.S`         |
+| PENRYN         | `zgemm3m_kernel_8x4_penryn.S`       | `zgemm3m_kernel_4x4_penryn.S`       |
+| PILEDRIVER     | `zgemm3m_kernel_8x4_barcelona.S`    | `zgemm3m_kernel_4x4_barcelona.S`    |
+| PRESCOTT       | `zgemm3m_kernel_8x4_sse3.S`         | `zgemm3m_kernel_4x4_sse3.S`         |
+| SANDYBRIDGE    | `zgemm3m_kernel_4x8_nehalem.S`      | `zgemm3m_kernel_2x8_nehalem.S`      |
+| SAPPHIRERAPIDS | `cgemm3m_kernel_8x4_haswell.c` +asm | `zgemm3m_kernel_4x4_haswell.c` +asm |
+| SKYLAKEX       | `cgemm3m_kernel_8x4_haswell.c` +asm | `zgemm3m_kernel_4x4_haswell.c` +asm |
+| STEAMROLLER    | `zgemm3m_kernel_8x4_barcelona.S`    | `zgemm3m_kernel_4x4_barcelona.S`    |
+| ZEN            | `cgemm3m_kernel_8x4_haswell.c` +asm | `zgemm3m_kernel_4x4_haswell.c` +asm |
 
 ## x86
 
 ### x86 kernels
 
-| core         | C                                                               | Z                                     |
-| ------------ | --------------------------------------------------------------- | ------------------------------------- |
-| rstd         | none                                                            | none                                  |
-| ATHLON       | **`zgemm3m_kernel_8x2_sse.S` \| `zgemm3m_kernel_1x4_athlon.S`** | **`zgemm3m_kernel_1x4_athlon.S`**     |
-| ATOM         | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x2_atom.S`**       |
-| BANIAS       | **`zgemm3m_kernel_8x2_sse.S`**                                  | **`zgemm3m_kernel_2x2_coppermine.S`** |
-| BARCELONA    | **`zgemm3m_kernel_4x4_barcelona.S`**                            | **`zgemm3m_kernel_2x4_barcelona.S`**  |
-| BOBCAT       | **`zgemm3m_kernel_4x4_barcelona.S`**                            | **`zgemm3m_kernel_2x4_barcelona.S`**  |
-| BULLDOZER    | **`zgemm3m_kernel_4x4_barcelona.S`**                            | **`zgemm3m_kernel_2x4_barcelona.S`**  |
-| COPPERMINE   | **`zgemm3m_kernel_8x2_sse.S`**                                  | **`zgemm3m_kernel_2x2_coppermine.S`** |
-| CORE2        | **`zgemm3m_kernel_8x2_core2.S`**                                | **`zgemm3m_kernel_4x2_core2.S`**      |
-| DUNNINGTON   | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x4_penryn.S`**     |
-| generic      | `../generic/zgemm3mkernel_dump.c`                               | `../generic/zgemm3mkernel_dump.c`     |
-| HASWELL      | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x4_penryn.S`**     |
-| KATMAI       | **`zgemm3m_kernel_8x2_sse.S`**                                  | **`zgemm3m_kernel_2x2_coppermine.S`** |
-| NANO         | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x4_penryn.S`**     |
-| NEHALEM      | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x4_penryn.S`**     |
-| NORTHWOOD    | **`zgemm3m_kernel_8x2_sse.S`**                                  | **`zgemm3m_kernel_4x2_northwood.S`**  |
-| OPTERON      | **`zgemm3m_kernel_4x4_opteron.S`**                              | **`zgemm3m_kernel_2x4_opteron.S`**    |
-| OPTERON_SSE3 | **`zgemm3m_kernel_4x4_opteron.S`**                              | **`zgemm3m_kernel_2x4_opteron.S`**    |
-| P5           | **`zgemm3m_kernel_2x2_coppermine.S`**                           | **`zgemm3m_kernel_2x2_coppermine.S`** |
-| P6           | **`zgemm3m_kernel_2x2_coppermine.S`**                           | **`zgemm3m_kernel_2x2_coppermine.S`** |
-| PENRYN       | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x4_penryn.S`**     |
-| PILEDRIVER   | **`zgemm3m_kernel_4x4_barcelona.S`**                            | **`zgemm3m_kernel_2x4_barcelona.S`**  |
-| PRESCOTT     | **`zgemm3m_kernel_4x4_prescott.S`**                             | **`zgemm3m_kernel_2x4_prescott.S`**   |
-| SANDYBRIDGE  | **`zgemm3m_kernel_4x4_penryn.S`**                               | **`zgemm3m_kernel_2x4_penryn.S`**     |
-| VIAC3        | **`zgemm3m_kernel_8x2_sse.S` \| `zgemm3m_kernel_1x4_athlon.S`** | **`zgemm3m_kernel_1x4_athlon.S`**     |
-| YONAH        | **`zgemm3m_kernel_4x4_prescott.S`**                             | **`zgemm3m_kernel_2x4_prescott.S`**   |
-| ZEN          | **`zgemm3m_kernel_4x4_barcelona.S`**                            | **`zgemm3m_kernel_2x4_barcelona.S`**  |
+| core         | C                                                           | Z                                 |
+| ------------ | ----------------------------------------------------------- | --------------------------------- |
+| rstd         | tile                                                        | tile                              |
+| ATHLON       | `zgemm3m_kernel_8x2_sse.S` \| `zgemm3m_kernel_1x4_athlon.S` | `zgemm3m_kernel_1x4_athlon.S`     |
+| ATOM         | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x2_atom.S`       |
+| BANIAS       | `zgemm3m_kernel_8x2_sse.S`                                  | `zgemm3m_kernel_2x2_coppermine.S` |
+| BARCELONA    | `zgemm3m_kernel_4x4_barcelona.S`                            | `zgemm3m_kernel_2x4_barcelona.S`  |
+| BOBCAT       | `zgemm3m_kernel_4x4_barcelona.S`                            | `zgemm3m_kernel_2x4_barcelona.S`  |
+| BULLDOZER    | `zgemm3m_kernel_4x4_barcelona.S`                            | `zgemm3m_kernel_2x4_barcelona.S`  |
+| COPPERMINE   | `zgemm3m_kernel_8x2_sse.S`                                  | `zgemm3m_kernel_2x2_coppermine.S` |
+| CORE2        | `zgemm3m_kernel_8x2_core2.S`                                | `zgemm3m_kernel_4x2_core2.S`      |
+| DUNNINGTON   | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x4_penryn.S`     |
+| generic      | `../generic/zgemm3mkernel_dump.c`                           | `../generic/zgemm3mkernel_dump.c` |
+| HASWELL      | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x4_penryn.S`     |
+| KATMAI       | `zgemm3m_kernel_8x2_sse.S`                                  | `zgemm3m_kernel_2x2_coppermine.S` |
+| NANO         | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x4_penryn.S`     |
+| NEHALEM      | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x4_penryn.S`     |
+| NORTHWOOD    | `zgemm3m_kernel_8x2_sse.S`                                  | `zgemm3m_kernel_4x2_northwood.S`  |
+| OPTERON      | `zgemm3m_kernel_4x4_opteron.S`                              | `zgemm3m_kernel_2x4_opteron.S`    |
+| OPTERON_SSE3 | `zgemm3m_kernel_4x4_opteron.S`                              | `zgemm3m_kernel_2x4_opteron.S`    |
+| P5           | `zgemm3m_kernel_2x2_coppermine.S`                           | `zgemm3m_kernel_2x2_coppermine.S` |
+| P6           | `zgemm3m_kernel_2x2_coppermine.S`                           | `zgemm3m_kernel_2x2_coppermine.S` |
+| PENRYN       | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x4_penryn.S`     |
+| PILEDRIVER   | `zgemm3m_kernel_4x4_barcelona.S`                            | `zgemm3m_kernel_2x4_barcelona.S`  |
+| PRESCOTT     | `zgemm3m_kernel_4x4_prescott.S`                             | `zgemm3m_kernel_2x4_prescott.S`   |
+| SANDYBRIDGE  | `zgemm3m_kernel_4x4_penryn.S`                               | `zgemm3m_kernel_2x4_penryn.S`     |
+| VIAC3        | `zgemm3m_kernel_8x2_sse.S` \| `zgemm3m_kernel_1x4_athlon.S` | `zgemm3m_kernel_1x4_athlon.S`     |
+| YONAH        | `zgemm3m_kernel_4x4_prescott.S`                             | `zgemm3m_kernel_2x4_prescott.S`   |
+| ZEN          | `zgemm3m_kernel_4x4_barcelona.S`                            | `zgemm3m_kernel_2x4_barcelona.S`  |
 
 ## arm64
 
@@ -139,11 +139,4 @@ The kernels are `generic` on every core.
 
 ## Gaps
 
-92 (core, column) cells where upstream is tuned and rstd is not.
-
-| architecture | column | cores                                                                                                                                                                                                                     |
-| ------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| x86_64       | C      | ATOM, BARCELONA, BOBCAT, BULLDOZER, COOPERLAKE, CORE2, DUNNINGTON, EXCAVATOR, HASWELL, NANO, NEHALEM, OPTERON, OPTERON_SSE3, PENRYN, PILEDRIVER, PRESCOTT, SANDYBRIDGE, SAPPHIRERAPIDS, SKYLAKEX, STEAMROLLER, ZEN        |
-| x86_64       | Z      | ATOM, BARCELONA, BOBCAT, BULLDOZER, COOPERLAKE, CORE2, DUNNINGTON, EXCAVATOR, HASWELL, NANO, NEHALEM, OPTERON, OPTERON_SSE3, PENRYN, PILEDRIVER, PRESCOTT, SANDYBRIDGE, SAPPHIRERAPIDS, SKYLAKEX, STEAMROLLER, ZEN        |
-| x86          | C      | ATHLON, ATOM, BANIAS, BARCELONA, BOBCAT, BULLDOZER, COPPERMINE, CORE2, DUNNINGTON, HASWELL, KATMAI, NANO, NEHALEM, NORTHWOOD, OPTERON, OPTERON_SSE3, P5, P6, PENRYN, PILEDRIVER, PRESCOTT, SANDYBRIDGE, VIAC3, YONAH, ZEN |
-| x86          | Z      | ATHLON, ATOM, BANIAS, BARCELONA, BOBCAT, BULLDOZER, COPPERMINE, CORE2, DUNNINGTON, HASWELL, KATMAI, NANO, NEHALEM, NORTHWOOD, OPTERON, OPTERON_SSE3, P5, P6, PENRYN, PILEDRIVER, PRESCOTT, SANDYBRIDGE, VIAC3, YONAH, ZEN |
+None: the tile serves every tuned upstream kernel here.

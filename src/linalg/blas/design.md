@@ -672,9 +672,35 @@ complex, for every float type, through the same code.
   fallback entries (`Makefile.system:115-158`) (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
   to 10 POWER6's), as do the 32-bit x86 kernels' `config.h` macros; POWER's tables also follow
   the byte order (`PPC970`'s unrolls).
-- **Not ported.** `gemm3m`, `symm3m`, `hemm3m` (their slots and wrappers exist), the
-  small-matrix kernels (`sbgemm`'s included), and `level3_thread.c`: level 3 threads by BLIS's
-  ways instead ([`threading.md`](threading.md)).
+- **3M.** `gemm3m`, `symm3m` and `hemm3m` (`blas3/gemm3m/`) port `gemm3m_level3.c`,
+  `symm3m_k.c` and `hemm3m_k.c`: per depth slice three passes, each packing a real form of
+  `op(A)` (both parts summed, the real part, the imaginary part) and of `alpha * op(B)`, then a
+  real kernel adding the product to both parts of `C` with a sign each (`ALPHA5` to
+  `ALPHA18`). The kernel is the real tile of the parts' type, writing complex `C` (the Haswell
+  kernel's lane doubling); the copies are `kernel/generic`'s 3M copies over the gemm layout.
+  Both join the gemm tile's `sets`, so every core's object builds them, with their unrolls
+  (`<p>gemm3m_unroll_m`, `_n`) exported as the gemm ones are. `P`, `Q`, `R` are the 3M
+  parameters where x86's rule sets them, else the real precision's; depth slices split as
+  `gemm3m_level3.c` does (halves, not rounded to the unroll). Threads take parts of `C` on whole
+  panels, each a serial problem, so the bits are the serial ones. Opt-in, as upstream: one part
+  of each element comes from a difference of products and is only normwise stable
+  ([`comparisons.md`](comparisons.md), 7); never routed to Accelerate, which has no 3M. Upstream
+  exports only `gemm3m`, and only on x86, x86_64, ia64 and MIPS (`interface/Makefile`); here all
+  three serve every target.
+- **Small matrices.** `gemm` takes OpenBLAS's `SMALL_MATRIX_OPT` path (`blas3/gemm/small.zig`)
+  where the core's `gemm_small_matrix_permit` allows: no packing, each element summed over the
+  depth in order, then `beta*C + alpha*sum` (`gemm_small_kernel_b0_*` for a zero `beta`, which
+  never reads `C`). The kernels are `kernel/generic`'s, the real ones on `@Vector`s of the gemm
+  tile, in every core's object; the per-core assembly and intrinsics (Skylake-X, SVE, POWER10,
+  LoongArch) are not converted. The permits are upstream's per core (`permitFor`, installed with
+  the blocking): Skylake-X and its successors, the `ARMV8SVE` family, POWER10, LA264 and LA464;
+  every other core and all complex take the generic permit, which allows nothing. POWER10's
+  `sgemm` permit follows the thread count upstream (64^3 with more than one, 100^3 with one);
+  here it is 64^3 always, so the path never does. Taken after `driver.gemm`'s quick returns,
+  where upstream takes it before them, so a zero `alpha` or `k` still reads neither operand.
+  The thresholds are tuned for upstream's kernels, not these (T05).
+- **Not ported.** `sbgemm`'s small-matrix kernels, and `level3_thread.c`: level 3 threads by
+  BLIS's ways instead ([`threading.md`](threading.md)).
 
 [`blas3/gemm/notes.md`](blas3/gemm/notes.md) has the tile measurements and code generation notes
 behind these choices; [`comparisons.md`](comparisons.md) (7, 9, 10) the open performance and
@@ -1811,8 +1837,8 @@ Rig mechanics:
 1. **Threading** of levels 1 and 2 ([`threading.md`](threading.md)'s plan); level 3 threads.
 2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
-3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels; bfloat16 and
-   half-precision level 3 landed (`blas3/half.zig`).
+3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
+   level 3 (`blas3/half.zig`); `sbgemm`'s small-matrix kernels are not ported.
 4. **Extensions.** Landed ([below](#extensions)), `bgemm` with the half gemms.
 5. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
    [`comparisons.md`](comparisons.md)'s recommendations, and convert assembly where `@Vector`

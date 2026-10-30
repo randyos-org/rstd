@@ -834,7 +834,11 @@ fn gemmCopies(comptime p: []const u8) []const L3Col {
     };
 }
 
-const gemm3m = [_]L3Table{.{ .name = "kernels", .cols = cols(cz, one, "#", .{ .key = "#GEMM3MKERNEL", .gate = "USE_GEMM3M", .rstd = .none }) }};
+const gemm3m = [_]L3Table{.{ .name = "kernels", .cols = cols(cz, one, "#", .{ .key = "#GEMM3MKERNEL", .gate = "USE_GEMM3M" }) }};
+
+/// The 3M routines' note: their tile, and what upstream builds.
+const three_m = "rstd's 3M kernel is the real gemm tile writing both parts of `C` (`gemm3m/kernel.zig`), and its copies `kernel/generic`'s 3M copies; " ++
+    "upstream exports `gemm3m` on x86, x86_64, ia64 and MIPS only (`interface/Makefile`), and `symm3m` and `hemm3m` on none.";
 
 /// The level-3 routines and the variables their kernels come from.
 const l3_families = [_]L3Family{
@@ -864,9 +868,9 @@ const l3_families = [_]L3Family{
         .{ .name = "copies", .cols = cols(&.{"real"}, &.{ "UN", "LN", "UT", "LT" }, "# @", .{ .key = "TRSMCOPY@_M" }) ++
             cols(&.{"complex"}, &.{ "UN", "LN", "UT", "LT" }, "# @", .{ .key = "ZTRSMCOPY@_M" }) },
     } },
-    .{ .dir = "gemm3m", .tables = &gemm3m, .note = "rstd keeps the slots as stubs." },
-    .{ .dir = "symm3m", .tables = &gemm3m, .note = "`symm3m` runs the `gemm3m` kernel; rstd keeps the slots as stubs." },
-    .{ .dir = "hemm3m", .tables = &gemm3m, .note = "`hemm3m` runs the `gemm3m` kernel; rstd keeps the slots as stubs." },
+    .{ .dir = "gemm3m", .tables = &gemm3m, .note = three_m },
+    .{ .dir = "symm3m", .tables = &gemm3m, .note = "`symm3m` runs the `gemm3m` kernel. " ++ three_m },
+    .{ .dir = "hemm3m", .tables = &gemm3m, .note = "`hemm3m` runs the `gemm3m` kernel. " ++ three_m },
 };
 
 /// Whether `Makefile.L3` sets `flag` to 1 for `core` of `arch`. Its `ifeq`

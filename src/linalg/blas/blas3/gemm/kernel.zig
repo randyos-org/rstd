@@ -686,7 +686,11 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
 /// Every module with kernels over the gemm tile: each `Kernels(T, geo)` has
 /// a public function per vtable slot it fills, named as the slot less its
 /// precision letter.
-pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig"), @import("../../ext/neg/kernel.zig"), @import("../../ext/laswp/kernel.zig") };
+pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig"), @import("../../ext/neg/kernel.zig"), @import("../../ext/laswp/kernel.zig"), three_m, @import("small_kernel.zig") };
+
+/// The 3M kernels, whose tile is the real one of the complex type's parts:
+/// their unrolls are their own (`<p>gemm3m_unroll_m`, `_n`).
+const three_m = @import("../gemm3m/kernel.zig");
 
 /// The precisions these kernels serve, by vtable prefix.
 const precisions = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble }, .{ "c", types.Complex32 }, .{ "z", types.Complex64 }, .{ "x", types.ComplexXD } };
@@ -740,7 +744,16 @@ fn fill(vt: *Vtable, comptime list: anytype, comptime source: anytype) void {
         @field(vt, p[0] ++ "gemm_unroll_m") = um;
         @field(vt, p[0] ++ "gemm_unroll_n") = un;
         @field(vt, p[0] ++ "gemm_unroll_mn") = @max(um, un);
+        if (comptime isComplex(p[1]) and !(XDouble == f64 and p[0][0] == 'x')) {
+            setUnrolls3m(vt, p[0], source.unroll3m(p[0], p[1], "m"), source.unroll3m(p[0], p[1], "n"));
+        }
     }
+}
+
+fn setUnrolls3m(vt: *Vtable, comptime pre: []const u8, um: i32, un: i32) void {
+    @field(vt, pre ++ "gemm3m_unroll_m") = um;
+    @field(vt, pre ++ "gemm3m_unroll_n") = un;
+    @field(vt, pre ++ "gemm3m_unroll_mn") = @max(um, un);
 }
 
 /// Puts back the portable kernels' unrolls where `vt`'s slots still hold
@@ -754,6 +767,10 @@ pub fn settle(vt: *Vtable) void {
             @field(vt, p[0] ++ "gemm_unroll_n") = K.unroll_n;
             @field(vt, p[0] ++ "gemm_unroll_mn") = @max(K.unroll_m, K.unroll_n);
         }
+        if (comptime isComplex(p[1])) {
+            const K3 = three_m.Kernels(p[1], geometry(p[1]));
+            if (@field(vt, p[0] ++ "gemm3m_kernel") == &K3.gemm3m_kernel) setUnrolls3m(vt, p[0], K3.unroll_m, K3.unroll_n);
+        }
     }
 }
 
@@ -765,6 +782,9 @@ pub fn installGeneric(vt: *Vtable) void {
         }
         fn unroll(comptime _: []const u8, comptime T: type, comptime which: []const u8) i32 {
             return @field(Kernels(T, geometry(T)), "unroll_" ++ which);
+        }
+        fn unroll3m(comptime _: []const u8, comptime T: type, comptime which: []const u8) i32 {
+            return @field(three_m.Kernels(T, geometry(T)), "unroll_" ++ which);
         }
     });
 }
@@ -779,6 +799,9 @@ pub fn installTile(vt: *Vtable, comptime pre: []const u8, comptime T: type, comp
         }
         fn unroll(comptime _: []const u8, comptime U: type, comptime which: []const u8) i32 {
             return @field(Kernels(U, geo), "unroll_" ++ which);
+        }
+        fn unroll3m(comptime _: []const u8, comptime U: type, comptime which: []const u8) i32 {
+            return @field(three_m.Kernels(U, geo), "unroll_" ++ which);
         }
     });
 }
@@ -811,6 +834,13 @@ pub fn Registry(comptime Core: type) type {
             };
         }
 
+        fn Unrolls3m(comptime T: type) type {
+            return struct {
+                const m: i32 = three_m.Kernels(T, geometry(T)).unroll_m;
+                const n: i32 = three_m.Kernels(T, geometry(T)).unroll_n;
+            };
+        }
+
         pub fn exportCore(comptime core: Core) void {
             if (comptime !tilesVary()) return;
             inline for (core_precisions) |p| {
@@ -822,6 +852,7 @@ pub fn Registry(comptime Core: type) type {
                 }
                 inline for (.{ "m", "n" }) |w| {
                     @export(&@field(Unrolls(p[1]), w), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ "gemm_unroll_" ++ w), core), .visibility = .hidden });
+                    if (comptime isComplex(p[1])) @export(&@field(Unrolls3m(p[1]), w), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ "gemm3m_unroll_" ++ w), core), .visibility = .hidden });
                 }
             }
         }
@@ -835,6 +866,9 @@ pub fn Registry(comptime Core: type) type {
                 }
                 fn unroll(comptime pre: []const u8, comptime _: type, comptime which: []const u8) i32 {
                     return @extern(*const i32, .{ .name = util.kernelSymbol(@field(Slot, pre ++ "gemm_unroll_" ++ which), core), .visibility = .hidden }).*;
+                }
+                fn unroll3m(comptime pre: []const u8, comptime _: type, comptime which: []const u8) i32 {
+                    return @extern(*const i32, .{ .name = util.kernelSymbol(@field(Slot, pre ++ "gemm3m_unroll_" ++ which), core), .visibility = .hidden }).*;
                 }
             });
         }

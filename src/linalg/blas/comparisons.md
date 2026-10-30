@@ -458,7 +458,7 @@ BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`thread
 - *Complex.* rstd's native `@Vector` complex kernel is generated for every core, so the main
   benefit of 1m (no handwritten complex kernels) is already had. 1m could help only where the
   complex tile is weak, and on the `split` (scalar) targets the real kernel is scalar too.
-  **Keep native; no 1m.** For the planned `gemm3m`/`symm3m`/`hemm3m`: 3m's imaginary part is only
+  **Keep native; no 1m.** For `gemm3m`/`symm3m`/`hemm3m` (landed, `design.md`): 3m's imaginary part is only
   normwise stable (Higham, "Stability of a Method for Multiplying Complex Matrices with Three Real
   Matrix Multiplications", SIAM J. Matrix Anal. Appl. 13(3), 681-687, 1992,
   <https://doi.org/10.1137/0613043>), so keep it opt-in, as
@@ -467,9 +467,10 @@ BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`thread
   **Keep**, except the pre-inversion (see 10).
 - *herk/syrk.* Scratch tile for diagonal tiles equals BLIS `gemmt`'s approach. **Keep.**
 - *trmm.* See X2: rstd is better than both.
-- *Small/skinny.* rstd has no small-matrix path (OpenBLAS's `SMALL_MATRIX_OPT` kernels are not
-  ported either). BLIS's sup path is its biggest practical win for small `m, n` or small `k`.
-  **Investigate**; level-3 threading has landed.
+- *Small/skinny.* OpenBLAS's `SMALL_MATRIX_OPT` path is ported (`blas3/gemm/small.zig`,
+  `design.md`), its generic kernels on `@Vector`s under upstream's per-core permits; its
+  per-core kernels are not. BLIS's sup path is its biggest practical win for small `m, n` or
+  small `k`. **Investigate**; level-3 threading has landed.
 
 ## 8. Threading and reproducibility
 

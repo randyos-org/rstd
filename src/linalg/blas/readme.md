@@ -34,7 +34,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s and `hbmv`'s
   transposed (`HEMVREV`) triangles.
 - **Level 3:** `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`,
-  `trsm`, real and complex.
+  `trsm`, real and complex; `gemm3m`, `symm3m` and `hemm3m`, complex, by three real products
+  (opt-in: one part of each element is only normwise accurate).
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, `bgemv`, `sbgemv`, `shgemv`
   (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), LAPACK's `laswp`, and the
@@ -53,8 +54,7 @@ How the code is structured, and why, is in [`design.md`](design.md).
   are wrong ([`issues.md`](issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.
 
-Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, and threading in levels 1 and 2
-([`threading.md`](threading.md)).
+Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
 
 ### Targets
 

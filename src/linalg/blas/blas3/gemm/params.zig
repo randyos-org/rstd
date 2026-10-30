@@ -30,6 +30,7 @@ const coretypes = @import("../../cpu/_coretypes.zig");
 const corespec = @import("../../cpu/_corespec.zig");
 const select = @import("../../cpu/_select.zig");
 const driver = @import("../driver.zig");
+const small = @import("small.zig");
 
 /// How `p`, `q` or `r` comes about.
 pub const Size = union(enum) {
@@ -501,6 +502,7 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
     switch (core) {
         inline else => |c| {
             defer vt.dtb_entries = dtbFor(family, c);
+            defer small.installPermits(vt, small.permitFor(family, c));
             if (comptime family == .generic) {
                 var table = data.generic(c).?;
                 table.buffer_size = native_buffer_size;

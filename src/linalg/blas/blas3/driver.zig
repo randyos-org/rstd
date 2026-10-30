@@ -32,6 +32,7 @@ const types = @import("../types.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
+const small = @import("gemm/small.zig");
 const threaded = @import("threaded.zig");
 
 const Allocator = std.mem.Allocator;
@@ -416,6 +417,8 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
         if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
         return;
     }
+    const cj = comptime isComplex(T);
+    if (small.gemm(T, vt, ta, tb, cj and conj.ofA(), cj and conj.ofB(), m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };

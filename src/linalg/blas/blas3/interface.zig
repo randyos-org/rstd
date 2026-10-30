@@ -16,6 +16,7 @@
 const std = @import("std");
 const blas = @import("../__root__.zig");
 const driver = @import("driver.zig");
+const driver3m = @import("gemm3m/driver.zig");
 const threaded = @import("threaded.zig");
 const threading = @import("../threading.zig");
 const types = @import("../types.zig");
@@ -70,6 +71,20 @@ fn table(comptime T: type) *const Vtable {
 /// it), and `A` and `B` are not read for a zero `alpha` or `k`.
 pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
     comptime floatType(T, "gemm");
+    return gemmImpl(allocator, io, T, false, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+}
+
+/// `?GEMM3M` (`interface/gemm.c` with `GEMM3M`): `gemm` by three real
+/// products where `gemm` takes four (`gemm3m/driver.zig`), taking its
+/// arguments as `gemm` does. One part of each element comes from a
+/// difference of products, accurate only against the operands' norms
+/// (`comparisons.md`, 7). Not routed to Accelerate. Complex only.
+pub fn gemm3m(allocator: Allocator, io: Io, comptime T: type, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
+    comptime complexType(T, "gemm3m");
+    return gemmImpl(allocator, io, T, true, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+}
+
+fn gemmImpl(allocator: Allocator, io: Io, comptime T: type, comptime three: bool, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
     if (transa.conjX() or transb.conjX()) return error.InvalidTrans;
     const ta = transa.transposed();
     const tb = transb.transposed();
@@ -85,10 +100,11 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, trans
     if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    if (try accel.gemm(io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
+    if (!three and try accel.gemm(io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
     const w = threaded.workers(.gemm, T, threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) }));
-    try driver.gemm(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
+    const f = if (three) driver3m.gemm3m else driver.gemm;
+    try f(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
 /// `?GEMMT` (`interface/gemmt.c`): `C := alpha*op(A)*op(B) + beta*C` on the
@@ -122,17 +138,31 @@ pub fn gemmt(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, transa:
 /// never reads it), and nothing is read for a zero `alpha`.
 pub fn symm(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
     comptime floatType(T, "symm");
-    return symmImpl(allocator, io, T, false, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc);
+    return symmImpl(allocator, io, T, false, false, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc);
+}
+
+/// `?SYMM3M` (`interface/symm.c` with `GEMM3M`, `driver/level3/symm3m_k.c`):
+/// `symm` by three real products, as `gemm3m`. Complex only.
+pub fn symm3m(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
+    comptime complexType(T, "symm3m");
+    return symmImpl(allocator, io, T, false, true, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc);
 }
 
 /// `?HEMM` (`interface/symm.c` as `HEMM`): the same for the Hermitian `S`,
 /// whose diagonal's imaginary parts are never read. Complex only.
 pub fn hemm(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
     comptime complexType(T, "hemm");
-    return symmImpl(allocator, io, T, true, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc);
+    return symmImpl(allocator, io, T, true, false, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc);
 }
 
-fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, side: Side, uplo: Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
+/// `?HEMM3M` (`driver/level3/hemm3m_k.c`): `hemm` by three real products,
+/// as `gemm3m`. Complex only.
+pub fn hemm3m(allocator: Allocator, io: Io, comptime T: type, side: Side, uplo: Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
+    comptime complexType(T, "hemm3m");
+    return symmImpl(allocator, io, T, true, true, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc);
+}
+
+fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime three: bool, side: Side, uplo: Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Error!void {
     const ka = if (side == .l) m else n;
     if (uplo.isRev()) return error.InvalidUplo;
     if (m < 0) return error.InvalidM;
@@ -146,10 +176,11 @@ fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    if (try accel.symm(io, T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
+    if (!three and try accel.symm(io, T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     // `symm.c` counts `2 * m * m * n` on either side
     const w = threaded.workers(.symm, T, threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) }));
-    try driver.symm(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
+    const f = if (three) driver3m.symm3m else driver.symm;
+    try f(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
 }
 
 /// `?SYRK` (`interface/syrk.c`): `C := alpha*op(A)*op(A)^T + beta*C` on the
@@ -358,6 +389,35 @@ test "interface: symm and hemm report the first bad argument, and return for emp
     try testing.expect(std.math.isNan(c[0]));
     var z: [4]types.Complex64 = @splat(.init(0, 0));
     try testing.expectError(error.InvalidLda, hemm(fa, check.io, types.Complex64, .r, .u, 1, 2, .init(1, 0), &z, 1, &z, 1, .init(0, 0), &z, 1));
+}
+
+test "interface: gemm3m, symm3m and hemm3m match the wide reference" {
+    inline for (all ++ unslotted) |T| {
+        if (comptime isComplex(T)) {
+            try check.interfaceCases(T, .gemm3m);
+            try check.interfaceCases(T, .symm3m);
+            try check.interfaceCases(T, .hemm3m);
+        }
+    }
+}
+
+test "interface: the 3M routines check their arguments as gemm, symm and hemm" {
+    const fa = testing.failing_allocator;
+    const Z = types.Complex64;
+    const one: Z = .init(1, 0);
+    var z: [16]Z = @splat(.init(std.math.nan(f64), 0));
+    try testing.expectError(error.InvalidTrans, gemm3m(fa, check.io, Z, .n, .o, -1, -1, -1, one, &z, 0, &z, 0, one, &z, 0));
+    try testing.expectError(error.InvalidK, gemm3m(fa, check.io, Z, .c, .r, 0, 0, -1, one, &z, 0, &z, 0, one, &z, 0));
+    try testing.expectError(error.InvalidLdb, gemm3m(fa, check.io, Z, .n, .t, 3, 2, 4, one, &z, 3, &z, 1, one, &z, 3));
+    try testing.expectError(error.InvalidLda, symm3m(fa, check.io, Z, .r, .l, 1, 3, one, &z, 2, &z, 1, one, &z, 1));
+    try testing.expectError(error.InvalidUplo, hemm3m(fa, check.io, Z, .l, .v, 1, 1, one, &z, 1, &z, 1, one, &z, 1));
+    // empty: nothing read, written or allocated
+    try gemm3m(fa, check.io, Z, .n, .n, 0, 3, 2, one, &z, 1, &z, 2, one, &z, 1);
+    try hemm3m(fa, check.io, Z, .r, .u, 3, 0, one, &z, 3, &z, 3, one, &z, 3);
+    try testing.expect(std.math.isNan(z[0].re));
+    // `k` 0 only scales `C`, and allocates nothing
+    try gemm3m(fa, check.io, Z, .n, .n, 2, 2, 0, one, &z, 2, &z, 1, .init(0, 0), &z, 2);
+    try testing.expectEqual(Z.init(0, 0), z[0]);
 }
 
 test "interface: syrk, herk, syr2k and her2k match the wide reference" {
