@@ -309,6 +309,7 @@ test "the PVR table" {
     try std.testing.expectEqual(Generation.g4, fromPvr(0x80040202)); // 7448
     try std.testing.expectEqual(Generation.unknown, fromPvr(0x80050000));
     try std.testing.expectEqual(Generation.unknown, fromPvr(0x00080200)); // 750
+    try std.testing.expectEqual(Generation.unknown, fromPvr(0x70000203)); // 750FX (iBook G3)
     try std.testing.expectEqual(CoreType.power6, decide(.{ .generation = .power6 }).core);
     try std.testing.expectEqual(CoreType.ppc970, decide(.{ .generation = .ppc970 }).core);
     try std.testing.expectEqual(CoreType.ppcg4, decide(.{ .generation = .g4 }).core);

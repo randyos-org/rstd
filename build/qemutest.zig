@@ -74,6 +74,9 @@ const Machine = struct {
     /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
     /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// Kernel objects linked: `.none` for a soft-float ABI, which no
+    /// converted kernel serves (`abi.zig`).
+    blas_cores: rstdbuild.BlasCores = .all,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-part` picks some, and `-Dqemu-test-filter` builds one
@@ -574,6 +577,32 @@ const machines = [_]Machine{
         .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
         .qemu = "qemu-system-ppc",
         .args = &.{ "-M", "mac99", "-cpu", "G4" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // RandyOS's iBook G3 target: a 750FX (no AltiVec) on `mac99`, soft
+        // float, so no kernel objects; the portable kernels run
+        .name = "powerpc-750",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "750fx" },
+        .memory = "256M",
+        .blas_cores = .none,
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // the 750FX with hard float: every 32-bit core linked, none runnable
+        .name = "powerpc-750-hf",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "750fx" },
         .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/ppc32.ld",
@@ -1085,7 +1114,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .single_threaded = true,
     });
     // the kernels of the architectures that have any
-    try blaskern.addBlasKernels(b, test_mod, target, .all);
+    try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores);
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
