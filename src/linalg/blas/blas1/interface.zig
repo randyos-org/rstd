@@ -74,6 +74,7 @@ const quantum = 1024;
 /// `family`'s plan for `n` elements, if it has more than one chunk.
 fn chunked(comptime family: threading.Family, comptime T: type, n: isize) ?threading.Plan {
     const len: usize = @intCast(n);
+    if (threading.serial(family, T, len)) return null;
     const p = threading.plan(family, T, len, len, .even, quantum);
     return if (p.chunks.count > 1) p else null;
 }

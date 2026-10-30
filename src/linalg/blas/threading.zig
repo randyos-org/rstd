@@ -10,6 +10,7 @@ const blas = @import("__root__.zig");
 const types = @import("types.zig");
 const Config = @import("Config.zig");
 const util = @import("util.zig");
+const coretypes = @import("cpu/_coretypes.zig");
 
 const Allocator = std.mem.Allocator;
 const FpState = util.FpState;
@@ -291,9 +292,37 @@ pub const Plan = struct {
     workers: u32,
 };
 
+/// Every family's core types, whose names `rule` may be given.
+const core_types = .{
+    coretypes.X86CoreType,       coretypes.Arm64CoreType,   coretypes.ArmCoreType,
+    coretypes.PowerCoreType,     coretypes.RiscvCoreType,   coretypes.MipsCoreType,
+    coretypes.LoongarchCoreType, coretypes.S390xCoreType,   coretypes.SparcCoreType,
+    coretypes.WasmCoreType,      coretypes.GenericCoreType,
+};
+
+/// The least `serial_max` of `family`'s rule for `T` on any core.
+fn serialFloor(comptime family: Family, comptime T: type) u64 {
+    comptime {
+        @setEvalBranchQuota(1_000_000);
+        var m = rule(family, T, "").serial_max;
+        for (core_types) |C| {
+            for (std.meta.fieldNames(C)) |name| m = @min(m, rule(family, T, name).serial_max);
+        }
+        return m;
+    }
+}
+
+/// Whether `work` is one chunk on one worker on every core: `plan` then needs
+/// neither the core nor the config, which small calls would pay for (T100).
+pub fn serial(comptime family: Family, comptime T: type, work: u64) bool {
+    if (sysinfo.is_test and test_serial_max != null) return false;
+    return work <= comptime serialFloor(family, T);
+}
+
 /// `family`'s plan for `work` over `len` units, from `blas.config` and the
 /// selected core.
 pub fn plan(comptime family: Family, comptime T: type, work: u64, len: usize, shape: Shape, quantum: usize) Plan {
+    if (serial(family, T, work)) return .{ .chunks = .init(len, 1, shape, quantum), .workers = 1 };
     // selects the core first, which fills `blas.config`
     const core = blas.coreName();
     var r = rule(family, T, core);
@@ -898,6 +927,25 @@ test "rules: OpenBLAS's per-core overrides apply to their core and precision onl
     try zigstd.testExpectEqual(@as(u32, 4), rule(.gemv, f32, "neoversev1").sizeMax(25600));
     try zigstd.testExpectEqual(@as(u32, 8), rule(.gemv, f64, "neoversev2").sizeMax(24964));
     try zigstd.testExpectEqual(@as(u32, 1), rule(.gemv, f64, "haswell").sizeMax(460799));
+}
+
+test "serial is exact: its floor is one chunk and one worker on every core" {
+    inline for (comptime std.meta.tags(Family)) |f| {
+        inline for (.{ f32, f64, std.math.Complex(f32), std.math.Complex(f64) }) |T| {
+            const floor = comptime serialFloor(f, T);
+            try zigstd.testExpectTrue(serial(f, T, floor));
+            try zigstd.testExpectTrue(!serial(f, T, floor + 1));
+            inline for (core_types) |C| {
+                for (std.meta.fieldNames(C)) |name| {
+                    const r = rule(f, T, name);
+                    try zigstd.testExpectEqual(@as(usize, 1), r.chunkCount(floor));
+                    try zigstd.testExpectEqual(@as(u32, 1), r.sizeMax(floor));
+                }
+            }
+        }
+    }
+    // the per-core overrides lower the floor below a default
+    try zigstd.testExpectEqual(@as(u64, 8099), comptime serialFloor(.gemv, f64));
 }
 
 test "the worker count is the least of the CPUs, the ceiling and the size" {

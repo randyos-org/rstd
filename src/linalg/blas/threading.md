@@ -150,6 +150,8 @@ the problem size and the routine's chunk size, never on `w`:
 Element-wise routines compute each output in exactly one chunk, so the split cannot change
 their results; with one worker they make one kernel call, as below the threshold. A reduction
 above its threshold folds its chunks whatever the worker count, in a single-threaded build too.
+Work at or below every core's `serial_max` (`threading.serial`) skips the plan: no core lookup
+or rule, so a small call costs what its kernel does.
 
 What threads, as landed:
 
