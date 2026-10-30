@@ -1311,6 +1311,13 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **Targeted testing** (2026-10-29). A change is tested where it reaches: filtered tests, and
   only the touched arches' rigs and compile checks (`qemu-check-<rig>`); the all-rig steps run
   periodically over batches, not per change.
+- **Target platforms come first; the rest is best effort** (2026-10-29). The platforms that must
+  work and be tested are RandyOS's target machines (its `readme.md`: x86_64 PC and Intel Mac,
+  aarch64 Raspberry Pi 3 to 5 and Apple silicon, 32-bit arm Raspberry Pi 3, the 32-bit PowerPC
+  750FX iBook G3) and the hosts that consume rstd (zfls: Windows, Linux and macOS on x86_64 and
+  aarch64). Every other architecture is ported for completeness: where a choice cannot be tested
+  there but OpenBLAS and BLIS agree on it, rstd follows them and documents why, rather than
+  blocking on a rig; failures or gaps on those architectures are recorded, not release blockers.
 - **`rstd.linalg` is the public API; the BLAS is an implementation detail** (2026-10-29). The
   aim is a MATLAB-like library: callers pass vectors and matrices of any size and `linalg` picks
   the implementation; callers never choose a backend. `linalg.vector` takes fixed-size vectors
