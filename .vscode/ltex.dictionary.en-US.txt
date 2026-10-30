@@ -31,6 +31,7 @@ AESNI
 afs_syscall
 aghi
 ahci
+airportd
 alarm
 ALFB
 alphabg
@@ -555,6 +556,7 @@ fmacd
 FMACROS
 fmacs
 fmadd
+fmaddd
 fmadds
 fmla
 fmls
@@ -1001,6 +1003,7 @@ LNUN
 LOADIWKEY
 logm
 lookup_dcookie
+loongfuse
 loongsongeneric
 loup-os
 LoupOS
@@ -1827,6 +1830,7 @@ SYSEXIT
 sysfs
 sysinfo
 syslog
+sysmond
 sysroot
 systemd
 Systemd
@@ -1852,6 +1856,7 @@ textunderstandingd
 tgkill
 thisreallyprobablydoesntexist
 thrcomm
+thrtests
 thumbeb
 thunderx
 Tiano
@@ -1945,6 +1950,7 @@ unpcklps
 unref
 unshare
 unsuffixed
+untransposed
 unvectorizable
 unwrite
 Uplo

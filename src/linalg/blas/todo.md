@@ -33,142 +33,75 @@ The port and its optimization are done, and other rstd work can start, when all 
 
 ## Running now
 
-- [ ] **T77** At 64-bit x87 precision (the MinGW main thread's 0x37f) the scalar gemm kernel's full
-  tile keeps its sums in registers and the partial tile in memory (`blas3/gemm/kernel.zig`, `tile`
-  against `partTile`), so they round `f64` differently; a threaded split moves columns between them,
-  and the pentium3 threaded `symm` test (`f64 symm w=2 m=6 n=65 k=1`, katmai) is 1 to 3 ulp off; on
-  the i386 rig the threaded `f64 trmm w=2 opt={ true, false, false } m=6 n=65 k=1` too. Round each
-  step on the x87 (`util.rounded`), whatever it costs: answers may not vary with threads. Running
-  (`wip/x87tile`).
-- [ ] **T01** Threading levels 1 and 2 (threading.md, plan), on T03's `util.FpState`; level 3 landed
-  (3b2caec to 05d9c59), all but `gemmt`, which stays serial as upstream. Running (`wip/thread12`).
-- [ ] **T25** Speed follow-ups: a `@Vector` `sum` (`csum`/`zsum` are scalar on the old x86_64 cores;
-  it also fills arm64's `sum` cells); measure the scalar fallbacks (extremes and `sdot` on arm,
-  pre-VSX POWER, mips64, SPARC) and the `f64` `sdot` (comparisons.md (1)). Running (`wip/vecsum`).
-- [X] **T55** The full i386 rig (the trimmed 32-bit objects, 886324d; the x87 audit's checks) stalls
-  in "interface: symm and hemm match the wide reference" and the watchdog kills it, after the
-  level-3 threading landed; investigating (`wip/i386stall`). Done: no stall; the Mac rebooted
-  mid-run (07:22, the host setup). The full rig at 27cec4c: 456 passed, 24 skipped, 1 failed, the
-  threaded `f64 trmm w=2 m=6 n=65 k=1` mismatch, which is T77.
-- [ ] **T37** Coverage follow-ups: let `survey.zig` read `axpy`'s hand ports (its `?` cells), give
-  the `gemm` table the rstd column, keep its `arches` table in step with each registry's
-  `usesVector`. Running (`wip/covfix`).
-
-- [X] **T57** Accelerate routing on arm64 loses in 37 of 228 flyoff rows (`results-flyoff.md`):
-  every `nrm2` (`dznrm2` 0.06 to 0.21 of rstd's own), contiguous `sdot` through `cblas_dsdot` (0.41
-  to 0.50), strided `copy` (0.52), strided complex `dot`, `axpy`, `rot`, `swap` (0.77 to 0.96): stop
-  routing those to Accelerate. Running (`wip/acceltrim`). Done: one routing table, `sends` in
-  `apple_accel.zig` (8eed93b); `zcopy` stays routed (0.83 at 4M but 4.2x at 64K). For R4 or a later
-  retime: time `dotc`, `dsdot`, negative and mixed strides, and the size where contiguous `zcopy`
-  stops winning.
-- [ ] **R4** Mac timing rerun under the strict quiet rule, started automatically when the Mac is
-  idle; other Mac runs wait while `scratchpad/MAC_TIMING_LOCK` exists (`wip/retime2`).
-- [X] **R5** Fact-check every external claim in the BLAS and LAPACK docs and comments: papers,
-  upstream code, issue numbers, hardware facts and untraced numbers each get a real, durable
-  citation, a correction from a source read, or a listing as unverified (scratchpad
-  `factcheck_brief.md`). Landed: design.md (15 corrections, about 60 citations; 794574d to 06c6e24),
-  issues.md (7 corrections, 5 existing upstream issues linked; 0b5ae00 to 2614179), the other docs
-  (readme, threading, comparisons, notes, matlab README, results prose; 23 corrections, 15
-  citations; 88487b1 to 81920b4). Comments and constants: 17 corrections, about 25 citations
-  (df04e95 to 0005b0b). Open items are T78 to T83.
-- [ ] **T78** Fact-check follow-ups (R5), each to source, measure, or drop. Unverified: `notes.md`
-  7730U clocks (2.0 base, 4.5 boost); comparisons.md (4) MKL's zero increment, (8) older MKL CNR
-  needing aligned data and the ReproBLAS name, (10.1) Intel compilers setting FTZ in `main`, (10.3)
-  the 970's denormal software assist; `results-m6-libraries.md` SME as "AMX's successor"; readme.md
-  "LLVM cannot assemble the hummer instructions" (test it), C910V partly checked. Untraced:
-  threading.md's `spin_limit` 4096 "about 90 us on Zen 3" (measure); `notes.md`'s "under 85%" rule
-  for keeping assembly (state where it comes from, or call it ours); comparisons.md's "ahead of BLIS
-  and OpenBLAS" (X2) and "more accurate than all references" (row 1), reasoned, not measured;
-  threading.md's 0x27f against 0x37f, observed by T03's test (cite it). From design.md: the arm64
-  table (469-480) says the complex `dot` slots' upstream kernel is C, but non-PGI armv8 and Cortex
-  builds use `zdot.S`, which rstd does not convert (why?); x18 "the kernel may zero it"; no SPARC
-  FMA beyond base V9; the self-hosted linker misplacing SPARC symbols (no issues.md entry); ELFv2
-  complex returns in f1/f2; x86 Windows main thread at 64-bit x87 precision (no source; T03 observed
-  it); the Darwin sysctl `FEAT_SME_F64F64` (OpenBLAS reads `hw.optional.arm.FEAT_SME`); the ARMv7
-  SLP vectorizer; `zrotg.c`'s wrong branches (our test, no issues.md entry); the
-  `cblas_dgemm$NEWLAPACK$ILP64` spelling; BLIS's POWER kernels called ELFv2 assembly. Untraced in
-  design.md: the fallback blocking's 4096; "1.15x at 2000"; "150 of the 154"; the test tolerances `2
-  (k + 2)`, `2 (n + 2)`, `8 (n + 2)` ulps; the shrunk blocking; `value_max` 64; `stack_bytes` 2048;
-  "under about a tenth"; 4096-aligned buffers; `-Dtest-host-jobs` 8, the 32 MiB heap, the OpenBIOS
-  window; "Detection gives a faster correct core". From issues.md: the f80 SysV, naked-function and
-  sparc64 `-Oz` entries not reproduced; "Zig 0.17.0 exits 1" on inline-asm errors not rerun; the
-  0.3.33 Windows release's GCC 9.3 attribution. `Vtable.zig`'s doc comment still says "nothing
-  upstream fills or calls" the `sbger`/`sbsymv` slots (`setparam-ref.c` fills them). From the code
-  comments: the x86 test's "Carrizo (model 5)" for 0x660f51 (model 0x65 may be Bristol Ridge);
-  `threading.zig`'s "`pause` takes 21 ns on Zen 3" (no measurement on file); `util.zig`'s ARMv7 NEON
-  flushing "whatever FPSCR says" and QEMU starting AltiVec with VSCR[NJ] set; `power.zig`'s ISA
-  level 2.00 for the 970 and Cell (commonly 2.01, 2.02); `fma.zig`'s "LLVM has no scalar FMA for
-  SPARC"; `arm.zig`'s Tegra 2 as VFPv3-D16 without NEON and the `vmrs` register numbers. Untraced:
-  `driver.zig`'s fallback `r` 4096; `triangular.zig`'s `+ 40` pad; `symmetric.zig`'s 1280-byte
-  `sseBytes` slack and "18 against 3.7 ns" (commit daa7a2d only); `gemm/kernel.zig`'s wasm 16
-  registers.
-- [ ] **T79** `params_data.zig` takes `param.h`'s non-Windows-ABI branch for Zen, so Windows builds
-  block `dgemm` with OpenBLAS's System V values where OpenBLAS itself uses Q 128 under the Windows
-  ABI (fc-docs). Check whether the branch is about the ABI's callee-saved registers (then it may not
-  apply to Zig kernels) or measured tuning, and follow it or record why not. Running (`wip/params`).
-- [ ] **T80** `params.zig`'s `buffer_size` is 32 MiB everywhere, which matches OpenBLAS only on
-  arm64 without SVE and LoongArch: x86_64 and the arm64 SVE cores use 128 MiB
-  (`common_x86_64.h:260`, since a33d17743), 32-bit x86 16 MiB, so rstd's derived `r` blocking
-  differs there (fc-code). Follow the reference per architecture. Running (`wip/params`).
-- [ ] **T81** `params.zig` `ruleFor`: `setparam-ref.c` gives Athlon and Yonah the Katmai L2 rule
-  (`64*(l2>>7)`); rstd gives Athlon `param.h`'s fixed `p` 208 and Yonah 128 from `parameter.c`,
-  which only static builds use (fc-code). Follow `setparam-ref.c`. Running (`wip/params`).
-- [ ] **T82** `fma.zig` says MIPS before release 6 has no fused multiply-add, but GCC counts
-  `madd.fmt` as fused on the Loongson 3A cores (`loongson3r3`, `loongson3r4`) and the R8000 (gcc
-  15.2 `ISA_HAS_FUSED_MADD4`). Check what LLVM emits there and whether rstd's fusion model and the
-  edge tests' expected bits hold on those cores.
-- [ ] **T83** Generated files name their OpenBLAS source file but not its commit or tag, which
-  AGENTS.md requires: `params_data.zig` and the 806 `blas_asm` outputs (`asm/`, `uk/`). Add the pin
-  in the generators (`tools/blas_asm/gen.zig`, `uk.zig`, `params.zig`) and regenerate. Running
-  (`wip/params`).
-
-## Queue
-
-- [ ] **T62** Main-merge gate: once T55 lands and R4 has run, one full rig sweep on review; report
-  whether dev is clean to merge to main. **Needs:** T55, R4.
 - [ ] **T65** The 32-bit x86 cores from SSE2 up (`northwood` to `bobcat`, readme.md, and 886324d's
   fallback objects) never run: the `i386` rig is `pentium3`. Add a freestanding `i386-max` rig
   (`-cpu max`; the TCG `fldt` bug is a paging case, issues.md), or a native `-Dtarget=x86-windows`
   run under WoW64 with `-Dblas-cores=all`, which also tests T03's x87 case. Part of T62's sweep.
-- [ ] **T63** Docs still describe the routines as serial after the level-3 threading: design.md
-  (`io` "unused until the routines thread", level 3 "Not ported: ... threading", "All routines are
-  single-threaded"), readme.md ("Not yet: ... threading", "every routine is serial for now", and
-  `GOTO_NUM_THREADS` "has no effect", against threading.md and design.md's fallback ceiling),
-  comparisons.md's summary rows (7) and (10) still "Investigate", (9)'s open `params_data.zig`
-  question (OpenBLAS `param.h:3574` gives VORTEX the 512/1024 set, which it holds), and
-  `results-flyoff.md` ("rstd's routines run one thread"). Before T62.
-- [ ] **T64** wasm runs levels 1 and 2 only (`build/wasmtest.zig` filters `blas1.`, `blas2.`,
-  `simd.`): widen it to every OS-free test (level 3's tile, `ext/`, `_test/`, `from_openblas/`,
-  `lapack/`), and add a build without `simd128` for the portable path.
-- [ ] **T66** Zig 0.17.0 is a requirement nobody checks: zfls vendors rstd at `minimum_zig_version =
-  "0.17.0"`, and rstd keeps 0.17 shims (`threading.zig`, `cpu/_corespec.zig`, the arm-softfp pin).
-  State it in design.md's Requirements and add a compile check with the 0.17.0 toolchain (the VS
-  Code extension's) for zfls's targets, linux-aarch64 at least, with `-Dblas-cores=all`.
-- [ ] **T61** Uring (`Io.Evented`) hangs a plain futex-only barrier of four fibers once it has
-  worker threads (`thread_limit = 3`; issues.md); the fiber test runs single-threaded Uring only.
-  T02's `Io.Evented` tests start here.
+  Running (`wip/i386max`).
 - [ ] **T02** Threading tests beyond phase 2: a test that `Q` never depends on the thread count;
   race stress on aarch64, ppc64le and riscv64; `Io.Evented` past T61's hang, and its macOS
   `Dispatch`, which has no thread limit and is untested (threading.md); a multithreaded freestanding
   build with its own `Io` (the rigs are `single_threaded`); TSan with this toolchain. **Needs:** T61
-  for the Uring part.
-- [ ] **T56** Builds where `f32` runs on the x87 (no SSE, e.g. `-Dcpu=pentium2`) are untested; the
-  half-precision `gemv` model test and the other `f32` bit promises are at risk there.
-- [ ] **T05** Thresholds: OpenBLAS's defaults and per-core overrides, tuned by benchmark; then the
-  overrides left out of phase 1 (z13 `axpy`, Windows-on-ARM64 `gemv`) if the numbers agree.
-  **Needs:** T01, T73.
-- [ ] **T06** `tools/blasbench` runs rstd with `Io.failing`; give it a threaded `Io`.
-- [ ] **T07** Tie Accelerate into rstd's threading (threading.md, Vendor backends).
-- [ ] **T08** LAPACK's own tests (`potrf`, `getrf`, `getrs`) on the rigs: add `linalg/lapack` to
-  `src/_test_qemu.zig`, with a sparc64 part.
+  for the Uring part. threading.md's Verification describes the race loops (about 1000 iterations on
+  the weak-memory rigs) as existing, and comparisons.md (8) pitfall 4 asks for the `Q` test; neither
+  exists yet (docs63): write them, or mark the text planned. Running (`wip/thrtests`).
+- [ ] **T61** Uring (`Io.Evented`) hangs a plain futex-only barrier of four fibers once it has
+  worker threads (`thread_limit = 3`; issues.md); the fiber test runs single-threaded Uring only.
+  T02's `Io.Evented` tests start here. Running (`wip/uring`).
 - [ ] **T09** `linux-powerpc64le` (pwr8, `f128` by library calls) is not hit by the FastISel `stfd`
-  bug: drop its `.safe`; the other POWER rigs keep it (T45).
+  bug: drop its `.safe`; the other POWER rigs keep it (T45). Running (`wip/rigs2`).
 - [ ] **T11** A rig for 32-bit POWER on a VSX CPU (QEMU's POWER8 or POWER9 model running a 32-bit
   image), so the power8 to 10 objects a 32-bit build links are tested (design.md, Settled decisions:
-  filling upstream gaps).
+  filling upstream gaps). Running (`wip/rigs2`).
 - [ ] **T68** RVV runs at one VLEN: `riscv64` and `linux-riscv64` are `vlen=512`, so `zvl128b`'s
   VLEN-agnostic kernels (the `axpy` ports, the level-3 tile) never run at 128 or 256, the hardware
-  they are named for. Add rig variants at both.
+  they are named for. Add rig variants at both. Running (`wip/rigs2`).
+- [ ] **R4** Mac timing rerun under the strict quiet rule, started automatically when the Mac is
+  idle; other Mac runs wait while `scratchpad/MAC_TIMING_LOCK` exists (`wip/retime2`). Stopped 16:07
+  without timing: in 8 h (97 polls) the Mac never met the rule; on 65 polls only the load blocked
+  it, reading 1.1 to 2.3 while 99.2 to 99.7% idle with no runnable threads
+  (`retime2/phantom-load.txt`). Ready to run (`wip/retime2` on 28171adc, benches prebuilt) once Q7
+  sets the rule. The Mac now runs macOS 27.2 (26B123). Rerunning under the Q7 rule (load under 2),
+  the Mac drained for it (`wip/retime2`).
+- [ ] **T84** Thread `symv`, `hemv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `trmv`, `tbmv`, `tpmv` and
+  untransposed `gbmv`, left serial by T01: each output element sums over several kernel calls, so
+  splitting the output moves the bits with the split. Also, `sbdot` and the bfloat16 conversions,
+  not threaded (T05). Fixed chunks (Q6). Running (`wip/thread2b`).
+- [ ] **T86** Model Loongson 3A's fused `madd.fmt` (T82): on `loongson3r3` and `loongson3r4`
+  hardware, rstd's Zig code fuses wherever LLVM picked `madd` and rounds elsewhere (`loongson3r4`'s
+  vector bodies round, scalar tails fuse), and `loongson3r3`'s converted kernels fuse; no rig can
+  see it, since QEMU rounds `madd`. Thread-count independence holds either way. Model both as fused
+  (Q8). Running (`wip/loongfuse`).
+- [ ] **T98** The iBook G3 (PowerPC 750FX, no AltiVec) is a RandyOS target, but no rig runs it:
+  a 750 gets the `unknown` core (the portable kernels), and the only 32-bit PowerPC rig is a G4. Add a
+  `powerpc-750` rig (QEMU `-cpu 750`, target CPU `750`) and run it in Debug and ReleaseSafe
+  (design.md, Settled decisions: target platforms come first). Running (`wip/ppc750`).
+
+## Queue
+
+- [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
+  plus `wasm-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017` (Zig 0.17.0,
+  `-j4`); report whether dev is clean to merge to main. **Needs:** R4 (T55, T77 and T91 done).
+- [ ] **T08** LAPACK's own tests (`potrf`, `getrf`, `getrs`) on the rigs: add `linalg/lapack` to
+  `src/_test_qemu.zig`, with a sparc64 part. Landed (8c574827): `linalg.lapack.` in the rigs'
+  default filters and `_test_qemu.zig` (so `rstd-check-uefi` links it), sparc64's LAPACK in the
+  `blas3-tri` part, sparc64-debug in four `lapack-*` parts (`getrs`'s every-core test split into
+  real and complex to fit the load window; `getrf` and `cholesky` have about 140 and 240 KiB left);
+  every listed `qemu-check` passes. Check off once T62's sweep runs them; the 32 MiB rig heap is
+  unproven.
+- [ ] **T87** Debug builds round-trip every value through memory, which hides x87 width problems;
+  T56's reduction failures showed only in ReleaseSafe. Run the x87 rigs (`i386`, and T65's) and
+  native x87 runs in ReleaseSafe as well as the default mode, at least in each full sweep.
+- [ ] **T05** Thresholds: OpenBLAS's defaults and per-core overrides, tuned by benchmark; then the
+  overrides left out of phase 1 (z13 `axpy`, Windows-on-ARM64 `gemv`) if the numbers agree.
+  **Needs:** T01, T73. T06's smoke run (busy Zen 3, `--threads=4`): threaded level-1 calls were
+  slower than serial at the sizes it ran, so the thresholds need this tuning.
+- [ ] **T07** Tie Accelerate into rstd's threading (threading.md, Vendor backends). Found by T06:
+  rstd's init makes Accelerate single-threaded for the process (`VECLIB_MAXIMUM_THREADS=1`) and the
+  calling thread, so the bench's macOS "Accelerate multithreaded" rows (`--threads=default`) likely
+  ran one thread, and `results-m6-libraries.md`'s "gains at most 1.2 times from more threads" may
+  rest on that. The bench now prints Accelerate's state after rstd's init; a fair multithreaded
+  Accelerate column needs it on its own thread, or this item.
 - [ ] **T18** The ISA check cannot see inline assembly (x86's assembler ignores CPU features).
   Detection, as OpenBLAS's, hands some cores to weaker CPUs: `katmai` to any 32-bit x86 without SSE3
   (down to the 486), `vortex` to any Apple CPU (pre-A12 lacks FCMLA), `vortexm4` to non-Apple SME
@@ -187,23 +120,31 @@ The port and its optimization are done, and other rstd work can start, when all 
   banded routine, `symm`, `syrk`, `trmm` and `trsm`, which T05 and the speed claims need. Rerun the
   Zen 3 flyoff (Windows and Linux), which predates T43's x86_64 `rot`, `scal`, `gemv` paths and the
   level-3 threading, under a timing rule for that host. **Needs:** T06 for threaded rows.
+- [ ] **T88** Time T25's races on an idle machine: portable against `@Vector` for `sum`, `sdot` in
+  `f64` and in `f32` lanes, `nrm2` and the extremes, natively and as an x87 build (a scalar-FPU
+  stand-in); bench and runner in the scratchpad (`vecsum/_vecsum_bench.zig`, `timeit.ps1`). Also
+  race `vortex`'s converted `sum` against `@Vector` on the M6 (kept in `vector.displacing.keep`
+  until then).
+- [ ] **T94** Fact-check items still open after T78: the sparc64 `-Oz` miscompile (needs a reduced
+  case on the sparc64 rig); the OpenBIOS 0x400000 to 0x800000 window (our observation; check
+  OpenBIOS's source); 32-bit x86 Windows threads starting at x87 0x27f (T03's observation; no
+  source, no test records it: add a test); "MKL leaves FTZ to the application" (from memory); Tegra
+  2 as VFPv3-D16 (a forum post only); `symmetric.zig`'s "4 elements of slack past each".
 - [ ] **T20** Kernel strategy: race `@Vector` against the converted assembly per core on a quiet
   machine (only vortex is done, `tools/blasbench/results-m6.md`); keep per-core code only where Zig
   loses.
 - [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
   to 1.01) trail OpenBLAS.
-- [ ] **T67** Level 2's `coverage.md` has no rstd column, so T22's level-2 gaps are invisible: make
-  `survey.zig l2` print what rstd serves, as levels 1 and 3 do. `survey.zig` also marks the BG/P
-  `*_hummer.S` sources as gaps, though LLVM cannot assemble them; list them as unsupported, as
-  `tools/blas_asm/arch/power.zig` does `axpy_hummer.S`. **Needs:** T37.
 - [ ] **T22** C and intrinsics kernels not yet ported, levels 1 and 2, by T20's strategy, `@Vector`
   first as arm64 did (`vector.zig`); the coverage.md gaps, the largest first. Level 1: riscv64
   outside `axpy`; POWER8 to 10 `asum`, `scal`, `rot`, `swap`, `cdot`; MIPS MSA and zarch; x86_64
-  `asum` on Haswell and AVX-512; wasm SIMD128. Level 2: x86_64 `*_4.c` gemv, symv, `sger.c`,
-  `dger.c`; riscv64 `gemv_[nt]_rvv.c`, `symv_[UL]_rvv.c`, `zsymv`, `zhemv`; MIPS MSA
-  `?gemv_[nt]_msa.c` and `gemv_[nt]_loongson3a.c`; zarch z13/z14 `?gemv_[nt]_4.c`; arm64
-  `symv_[UL]_asimd_4x4.c`, SVE `symv_[UL]_sve_v1x4.c` and `ger_sve_v1x3.c`; wasm `gemv_[nt].c`.
-  **Needs:** T20, T67.
+  `asum` on Haswell and AVX-512; wasm SIMD128. Level 2 (464 gaps, `blas2/coverage.md`): riscv64 140
+  (gemv 82, hemv 32, symv 24, `sbgemv` and `shgemv` on zvl256b); mips64 100 (gemv on I6400, I6500,
+  P6600, Loongson 3R3, 3R4); arm64 60 (symv on 11 cores, `sger`/`dger` on A64FX and Neoverse V1,
+  `sbgemv`/`bgemv` on N2, V1, V2); POWER 60 (gemv on POWER8 to 10, `sbgemv` on POWER10); x86_64 50
+  (symv on 10 cores, `sgemv` on the Skylake-X family (T24), `sger`/`dger` on Sandy Bridge,
+  `sbgemv_n` on Cooper Lake and Sapphire Rapids); zarch 30 (gemv on z13, z14); mips 20 (gemv on
+  P5600); wasm 4 (gemv). **Needs:** T20.
 - [ ] **T23** riscv `zvl256b` has no object (`zvl128b` serves it): read VLEN and port the
   `*_vector.c` kernels (design.md, Open issues). **Needs:** T20.
 - [ ] **T24** Skylake-X family `sgemv_n`/`sgemv_t`: those cores add large intrinsics kernels on top
@@ -235,7 +176,12 @@ The port and its optimization are done, and other rstd work can start, when all 
   trimmed to every third variant at the largest shape); speed it up.
 - [ ] **T38** Check in the C-against-Zig differential harness (stub `common.h`) used for `dot`.
 - [ ] **T39** `sparc64`: replace the image split with a real fix, mapping more memory at boot
-  through the Open Firmware client interface (claim and map), so one image fits.
+  through the Open Firmware client interface (claim and map), so one image fits. Until then, ten
+  sparc64-debug parts sit inside the window but above 0x3c0000 headroom: `openblas-l1` 0x3f3800,
+  `blas2-edge-complex-cores-2` 0x3f2300, `lapack-getrf` 0x3f1cc0, `openblas-cores-l2-complex`
+  0x3d99c0, `lapack-cholesky` 0x3d9000, `blas2-edge-complex` 0x3d4880, `blas3-kernel` 0x3c7000,
+  `blas2-gemv-cores` 0x3c3000, `openblas-blat2` 0x3c04c0, `blas2-edge-real` 0x3bca80 (T95's agent;
+  `scratchpad/sparcsplit/spans.py` reads them); split them before code growth pushes them over.
 - [ ] **T40** Linux rig gaps: `linux-powerpc64le` never runs POWER10 kernels (baseline build),
   `linux-aarch64` leaves out the SVE cores, and under HVF it also skips `vortexm4` (cause unknown).
 - [ ] **T71** Linux rigs with no item: loongarch64 (the `AT_HWCAP` LSX/LASX probe), big-endian
@@ -243,8 +189,8 @@ The port and its optimization are done, and other rstd work can start, when all 
 - [ ] **T72** UEFI never runs the tests: `rstd-check-uefi` only links. Add a run rig for the OS-free
   suite under OVMF and AAVMF (UEFI's inline `Io`; RandyOS boots through it).
 - [ ] **T74** No CI runs a BLAS test: rstd's `.gitlab-ci.yml` is rgui's copy (`EXE_NAME: "rgui"`,
-  Zig 0.16.0). A job for `rstd-test`, `rstd-check-macho`, `rstd-check-uefi` and T66's 0.17 check
-  would catch drift between rig sweeps; optional if testing stays manual.
+  Zig 0.16.0). A job for `rstd-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017`
+  (on Zig 0.17.0) would catch drift between rig sweeps; optional if testing stays manual.
 - [ ] **T41** `zrot_ppc440.S` (`ppc440fp2`) has a zero-stride patch no rig has run; no rig runs
   `ppc440` (it shares code with `ppcg4`). The 32-bit `ppc440` and `ppc440fp2` kernels rebuilt in
   719a41b are compile-checked only.
@@ -285,7 +231,12 @@ The port and its optimization are done, and other rstd work can start, when all 
   (`checkedObject`), the MIPS64r6 select copy and spill (comptime `conj`), MIPS MSA vector `fma`
   (MSA cores differ from the reference's fused bits until fixed), arm CPU models without an FPU (rig
   pins), WHPX passing AMD CPUID (macOS rig on TCG), QEMU `xststdcsp` (portable `nrm2` avoids
-  `isInf`). The Zig entries were last checked on dev.751.
+  `isInf`). Also, wasm bitcode getting its feature flags twice (`asmCheck`'s
+  `-disable-llvm-verifier`). The Zig entries were last checked on dev.751. Also: building the
+  library for an R6+MSA target CPU (`i6400`) trips LLVM's `Cannot copy registers` assertion
+  (`MipsSEInstrInfo.cpp:261`) in `blas2.interface`, `blas3` and `_test`, likely the R6 select bug
+  already recorded (fixed upstream after 23.1.x); the rigs' main CPU has no MSA, so it never shows
+  there (T89).
 - [ ] **T53** macOS VM extras: base-image overlays (`qemu-clone`, `-Dmac-base`), a `Forgejo`
   self-hosted runner, a setup that needs no clicking, less guest load when headless (HID driver,
   `SecurityAgent`), and freeze detection that asks before killing.
@@ -300,33 +251,37 @@ The port and its optimization are done, and other rstd work can start, when all 
 
 ## Done
 
-- [X] **T33** LAPACK `getrf` and `getrs` (`lapack/lu.zig`), reference semantics for tiny and NaN
-  pivots; `laswp_ncopy` and `neg_tcopy` stay unused, as in OpenBLAS's serial `getrf` (b4b9c4a,
-  6a7c83f).
-- [X] **T03** Workers adopt the caller's floating-point control state, `util.FpState` on every arch
-  with an FPU (f1ee6ef, 281980a, 3b970fe). The one pentium3 failure left is T77.
-- [X] **T58** Accelerate's rank updates with a zero factor beside NaN or infinity run rstd's
-  kernels; the edge tests cover upper triangles (665c625).
-- [X] **R1** Level-3 threading on the BLIS model: `gemm`, then `symm`, `hemm`, the rank-k updates,
-  `trmm` and `trsm`; the Uring fiber test; fused packing kept (3b2caec, a409d0a, 1f32eb6, dacb21a,
-  05d9c59).
-- [X] **R2** The Mac flyoff rerun under the busy-Mac rule, with and without Accelerate (a089518,
-  60ed05c, 740892e).
-- [X] **R3** `arm-softfp` pinned to softfp, VFPv4 and NEON, on Zig 0.17 and 0.18 (18b46a7).
-- [X] **T04** x87 audit: complex products round each step (`util.cmul`) in the rank updates and
-  `matcopy` (da7295b, da3efb1); T77 is a case it missed.
-- [X] **T10** 32-bit x86 AVX and Zen cores run their `Makefile.system` fallbacks' objects (886324d).
-- [X] **T12** Zig 0.18's underscore x86 CPU names are LLVM aliases, so those cores keep their tuning
-  (ba57d93).
-- [X] **T13** Rank updates keep the reference's zero skip, settled; `ger` copies a strided `x` once
-  (2ebde93, 683e64f, 8c67eb5).
-- [X] **T14** The init race test's `single_threaded` skip and 32-bit x86 struct returns: removed
-  2026-10-29 with no commit recorded; recheck.
-- [X] **T15** No 64-bit builds of the 32-bit-only POWER cores (719a41b).
-- [X] **T16** arm64 `x18` use: `blas_asm` stops on any beyond the save and restore, documented as
-  harmless (49f95c2).
-- [X] **T17** Patches of unconverted sources kept as checked, unapplied retired lists (3159638).
-- [X] **Q1** 32-bit POWER on VSX CPUs keeps rstd's `@Vector` kernels (d148022).
+- [X] **Q7** R4 still cannot start, and the load average looks like the wrong test. Since about
+  11:50 the Mac has been idle by every other measure (no QEMU, no process over 5%, top processes
+  Activity Monitor 4%, `airportd` 2.4%, `sysmond` 1.6%), yet the one-minute load sits at 1.4 to 1.7
+  against a limit of about 1.05. From 11:15 to 11:25, with one QEMU core at 99% and Activity Monitor
+  open, the load was 1.01 to 1.07: busier, but lower. So load here seems to count short wake-ups
+  (Wi-Fi, Activity Monitor's sampling), not CPU use. Proposal: replace "load under 1" with "all
+  processes but Activity Monitor and `sysmond` together under 10% of one core over the 10 s sample",
+  keeping no QEMU, no process over 5%, two runs agreeing within 3%, and the load before and after
+  recorded. Or keep load and raise it to under 2. R4 polls until you choose; T62 waits on R4.
+  Details: scratchpad `retime2/poll.log`. R4's agent, after 8 h: on 65 polls only the load blocked
+  it, median 1.53 at 99.2 to 99.7% idle with no runnable threads, so the load is a counting
+  artifact; it suggests a load limit near 2.0 as the smallest change. Answered 2026-10-29: keep the
+  load test with a limit of 2 (Activity Monitor and `sysmond` still excluded, their share added); R4
+  restarted, the Mac held for it.
+- [X] **Q6** How should T84's level 2 products thread? (a) Per-chunk partial vectors with chunks
+  fixed by size, summed in chunk order: keeps the bit rule for any core, as threading.md's plan had
+  it, but changes these routines' serial results in every build (large `n` now sums in chunks) and
+  costs `n` elements per chunk. (b) Split the output, as for `gemv`: keeps today's serial bits, but
+  only if every core's `axpy` gives an element the same bits wherever it sits in a call, which is
+  untested across cores; it would need that test on every rig first. Recommended: (a), since the bit
+  rule then holds by construction; OpenBLAS's threaded `symv` also gives each thread its own buffer
+  and sums them into `y` with `AXPYU_K` (`driver/level2/symv_thread.c:197`, `:259-291`), though in
+  an order that follows the thread count. Answered 2026-10-29: (a), fixed chunks; T84 running.
+- [X] **Q8** Loongson 3A model (T86)? (A) Match the reference: model `loongson3r3` and `loongson3r4`
+  as fused and emit scalar multiply-adds as inline `madd.fmt` (`@mulAdd` is a slow library call
+  there); no rig can check the fused bits, since QEMU rounds `madd`. (B) Stay unfused and
+  deterministic: add LLVM's `nomadd4` to `loongson3r4` (no `madd` asm in it) and document that
+  Loongson users build with it; `loongson3r3` cannot take it (its converted kernels use `madd`), so
+  its assembly keeps fusing. Recommended (the agent's): B for `loongson3r4`, accepting
+  `loongson3r3`'s fused assembly, since without hardware neither choice can be tested. Answered
+  2026-10-29: (A), model `loongson3r3` and `loongson3r4` as fused, as the reference; T86 running.
 
 ## After the BLAS is feature complete
 
