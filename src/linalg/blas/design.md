@@ -1275,14 +1275,18 @@ Questions decided once, with the reason, so they are not reopened without new ev
 - **`arm-softfp` is softfp** (2026-10-29). The soft-float ABI over the A15's VFPv4 and NEON,
   with the features pinned in `build/qemutest.zig`, so Zig 0.17 (whose model had them) and 0.18
   (whose model has none) build the same rig.
-- **Timing on a host macOS keeps busy** (2026-10-29). Quiet the host as far as it can be (the
-  M6 auto-logs in, so `audiomxd` and `configd` rest; Apple Intelligence is off and Spotlight
-  indexing stopped), but macOS 27's indexing daemons (`mediaanalysisd`, `spotlightknowledged`,
-  `textunderstandingd`) cannot be stopped with SIP on: `launchctl disable` does not survive a
-  reboot and `bootout` is refused. So a run starts when no QEMU runs and the one-minute load is
-  under 10, each run is made twice and a row kept only where the two agree within 3%, the load
-  before and after is recorded, and a ratio within 3% of parity is reported as within noise;
-  multithreaded rows are indicative only.
+- **Timing on a host macOS keeps busy** (2026-10-29). Quiet the host first: the M6 auto-logs
+  in, so `audiomxd` and `configd` rest, and with SIP off its indexing and model daemons are
+  disabled (`tools/configure_mac_host.sh`). It runs macOS 27.2 (26B123). A run starts when no
+  QEMU runs, the one-minute load is under 2, and no process passes 5% of a core in a
+  `top -l 2 -s 5` sample; Activity Monitor and `sysmond`, which the user keeps open, are left out
+  of the 5% test and their share is added to the limit. The limit is 2, not 1, because idle this
+  macOS reads 1.1 to 2.3 with its CPUs 99% idle and no thread runnable (1.0 to 1.1 with one QEMU
+  core busy), so under 1 never came in 8 hours. A watch every 20 s repeats any run another
+  process disturbs; each run is made twice and a row kept only where the two agree within 3%; the
+  load before and after is recorded, and a ratio within 3% of parity is reported as within noise;
+  multithreaded rows are indicative only. Against the earlier busy-Mac runs (load 2.6 to 9.1) the
+  one-thread library rates moved by a median of 0.0%.
 - **Level-3 threading follows BLIS** (2026-10-29): `jc x ic` ways sharing packed `B` through
   barriers, written from BLIS's published design, not its code (F. G. Van Zee, R. A. van de
   Geijn, "BLIS: A Framework for Rapidly Instantiating BLAS Functionality", ACM TOMS 41(3), 1-33,
