@@ -143,6 +143,64 @@ pub fn isFinite(comptime T: type, x: T) bool {
     return if (comptime isComplex(T)) std.math.isFinite(x.re) and std.math.isFinite(x.im) else std.math.isFinite(x);
 }
 
+/// `DLASCL` type `G`: `A := A * (to / from)`, in steps that neither
+/// overflow nor underflow (`lapack-netlib/SRC/dlascl.f`). `from` is finite
+/// and nonzero.
+pub fn lascl(comptime T: type, from: Float(T), to: Float(T), a: Mat(T)) void {
+    const F = Float(T);
+    const smlnum = std.math.floatMin(F);
+    const bignum = 1 / smlnum;
+    var cfromc = from;
+    var ctoc = to;
+    while (true) {
+        const cfrom1 = cfromc * smlnum;
+        var f: F = undefined;
+        var done = true;
+        if (cfrom1 == cfromc) {
+            f = ctoc / cfromc;
+        } else {
+            const cto1 = ctoc / bignum;
+            if (cto1 == ctoc) {
+                f = ctoc;
+                cfromc = 1;
+            } else if (@abs(cfrom1) > @abs(ctoc) and ctoc != 0) {
+                f = smlnum;
+                done = false;
+                cfromc = cfrom1;
+            } else if (@abs(cto1) > @abs(cfromc)) {
+                f = bignum;
+                done = false;
+                ctoc = cto1;
+            } else {
+                f = ctoc / cfromc;
+                if (f == 1) return;
+            }
+        }
+        for (0..a.cols) |j| for (a.col(j)[0..a.rows]) |*x| {
+            x.* = mulReal(T, x.*, f);
+        };
+        if (done) return;
+    }
+}
+
+/// `xLANGE('M')`: the largest `|a(i, j)|`, NaN if any is NaN.
+pub fn normMax(comptime T: type, a: Mat(T)) Float(T) {
+    var x: Float(T) = 0;
+    for (0..a.cols) |j| for (0..a.rows) |i| {
+        const v = abs(T, a.get(i, j));
+        if (std.math.isNan(v)) return v;
+        x = @max(x, v);
+    };
+    return x;
+}
+
+/// The scale `dgesvd.f`, `dgeev.f` and `dgels.f` bring a matrix of
+/// max-norm `anrm` to: `SMLNUM` below it, `BIGNUM` above, else none.
+pub fn scaleTo(comptime F: type, anrm: F, smlnum: F) ?F {
+    const bignum = 1 / smlnum;
+    return if (anrm > 0 and anrm < smlnum) smlnum else if (anrm > bignum) bignum else null;
+}
+
 // ---- BLAS ------------------------------------------------------------------------
 
 /// How a level-3 operand enters: as is, transposed, conjugated, or
@@ -183,6 +241,15 @@ pub fn tri(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper:
     const w = threaded.workers(.trsm, T, threading.product(&.{ b.rows, b.cols }));
     const f = if (solve) driver.trsm else driver.trmm;
     try f(al, io, T, chol.table(T), true, upper, op.transposed(), op.conjugated(T), unit, b.rows, b.cols, alpha, a.ptr, a.ld, b.ptr, b.ld, w);
+}
+
+/// `B := alpha B op(A)` (`solve`: `alpha B op(A)⁻¹`) from the right, `A`
+/// triangular.
+pub fn triRight(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper: bool, op: Op, unit: bool, alpha: T, a: Mat(T), b: Mat(T)) Error!void {
+    if (b.rows == 0 or b.cols == 0) return;
+    const w = threaded.workers(.trsm, T, threading.product(&.{ b.rows, b.cols }));
+    const f = if (solve) driver.trsm else driver.trmm;
+    try f(al, io, T, chol.table(T), false, upper, op.transposed(), op.conjugated(T), unit, b.rows, b.cols, alpha, a.ptr, a.ld, b.ptr, b.ld, w);
 }
 
 /// The upper triangle of `C := alpha Aᴴ A + beta C` (real: `Aᵀ A`), `A`

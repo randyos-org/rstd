@@ -18,6 +18,10 @@ const svd = @import("faer/svd.zig");
 const faer_ops = @import("faer/ops.zig");
 const faer_householder = @import("faer/householder.zig");
 const faer_qr = @import("faer/qr.zig");
+const faer_qr_solve = @import("faer/qr_solve.zig");
+const faer_tridiag = @import("faer/tridiag.zig");
+const faer_tridiag_evd = @import("faer/tridiag_evd.zig");
+const evd = @import("faer/evd.zig");
 const faer_bidiag = @import("faer/bidiag.zig");
 const faer_bidiag_svd = @import("faer/bidiag_svd.zig");
 const relapack = @import("relapack.zig");
@@ -26,6 +30,7 @@ const options = @import("lapack_options");
 pub const Uplo = @import("../blas/types.zig").Uplo;
 pub const Trans = @import("../blas/types.zig").Trans;
 pub const Diag = @import("../blas/types.zig").Diag;
+pub const Side = @import("../blas/types.zig").Side;
 
 /// `potrf`, `potf2`: bad arguments, `error.NotPositiveDefinite`,
 /// `error.OutOfMemory` or `error.Canceled`.
@@ -65,6 +70,23 @@ pub const GesddError = svd.GesddError;
 /// `gesvd`'s and `gesdd`'s jobs.
 pub const Job = svd.Job;
 
+/// `geqrf`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const GeqrfError = faer_qr.GeqrfError;
+/// `orgqr`, `ungqr`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const OrgqrError = faer_qr.OrgqrError;
+/// `ormqr`, `unmqr`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const OrmqrError = faer_qr.OrmqrError;
+/// `gels`: bad arguments, `error.Singular` (rank deficient),
+/// `error.OutOfMemory` or `error.Canceled`.
+pub const GelsError = faer_qr_solve.GelsError;
+
+/// `syevd`, `heevd`, `syev`, `heev`: bad arguments, `error.NoConvergence`
+/// (also for a NaN or infinity in `A`), `error.OutOfMemory` or
+/// `error.Canceled`.
+pub const SyevError = evd.SyevError;
+/// The eigensolvers' `jobz`, `jobvl`, `jobvr`.
+pub const Jobz = evd.Jobz;
+
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
 pub const potf2 = cholesky.potf2;
 pub const potrs = cholesky.potrs;
@@ -79,6 +101,16 @@ pub const lauu2 = triangular.lauu2;
 pub const trtrs = triangular.trtrs;
 pub const gesvd = svd.gesvd;
 pub const gesdd = svd.gesdd;
+pub const geqrf = faer_qr.geqrf;
+pub const orgqr = faer_qr.orgqr;
+pub const ungqr = faer_qr.orgqr;
+pub const ormqr = faer_qr.ormqr;
+pub const unmqr = faer_qr.ormqr;
+pub const gels = faer_qr_solve.gels;
+pub const syevd = evd.syevd;
+pub const heevd = evd.syevd;
+pub const syev = evd.syev;
+pub const heev = evd.syev;
 
 test {
     _ = cholesky;
@@ -87,6 +119,10 @@ test {
     _ = faer_ops;
     _ = faer_householder;
     _ = faer_qr;
+    _ = faer_qr_solve;
+    _ = faer_tridiag;
+    _ = faer_tridiag_evd;
+    _ = evd;
     _ = faer_bidiag;
     _ = faer_bidiag_svd;
     _ = svd;

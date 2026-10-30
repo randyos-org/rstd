@@ -140,6 +140,73 @@ pub fn applySequenceTransposed(al: Allocator, io: Io, comptime T: type, basis: M
     }
 }
 
+/// `apply_block_householder_on_the_right_in_place_with_conj` (faer: the
+/// transposed left form on `Mᵀ`): `M := M H`, or with `adjoint`
+/// `M := M Hᴴ`, `H = I - V T⁻¹ Vᴴ` conjugated with `conj`. `m` has `v.rows`
+/// columns.
+pub fn applyBlockRight(al: Allocator, io: Io, comptime T: type, v: Mat(T), t: Mat(T), conj: bool, adjoint: bool, m: Mat(T)) Error!void {
+    const b = v.cols;
+    const k = m.rows;
+    if (b == 0 or k == 0) return;
+    const tmp = try ops.alloc(T, al, k, b);
+    defer ops.free(T, al, tmp);
+    const top = v.sub(0, 0, b, b);
+    const mtop = m.sub(0, 0, k, b);
+    const rest = v.rows - b;
+    const one = ops.one(T);
+    // tmp := M V
+    tmp.copyFrom(mtop);
+    try ops.triRight(al, io, T, false, false, .of(false, conj), true, one, top, tmp);
+    if (rest > 0) try ops.gemm(al, io, T, .n, .of(false, conj), one, m.sub(0, b, k, rest), v.sub(b, 0, rest, b), one, tmp);
+    // tmp := tmp T⁻¹, or tmp T⁻ᴴ
+    try ops.triRight(al, io, T, true, true, if (adjoint) .of(true, !conj) else .of(false, conj), false, one, t, tmp);
+    // M -= tmp Vᴴ
+    if (rest > 0) try ops.gemm(al, io, T, .n, .of(true, !conj), ops.neg(T, one), tmp, v.sub(b, 0, rest, b), one, m.sub(0, b, k, rest));
+    try ops.triRight(al, io, T, false, false, .of(true, !conj), true, one, top, tmp);
+    for (0..b) |j| for (0..k) |i| {
+        mtop.at(i, j).* = ops.sub(T, mtop.get(i, j), tmp.get(i, j));
+    };
+}
+
+/// `apply_block_householder_sequence_on_the_right_in_place_with_conj`:
+/// `M := M H(0) H(1) ...`, or with `adjoint` `M := M ... H(1)ᴴ H(0)ᴴ`, all
+/// conjugated with `conj`.
+pub fn applySequenceRight(al: Allocator, io: Io, comptime T: type, basis: Mat(T), factor: Mat(T), conj: bool, adjoint: bool, m: Mat(T)) Error!void {
+    const size = factor.cols;
+    const bs = factor.rows;
+    if (!adjoint) {
+        var j: usize = 0;
+        while (j < size) {
+            const b = @min(bs, size - j);
+            try applyBlockRight(al, io, T, basis.sub(j, j, basis.rows - j, b), factor.sub(0, j, b, b), conj, false, m.sub(0, j, m.rows, m.cols - j));
+            j += b;
+        }
+        return;
+    }
+    var j = size;
+    var b = size % bs;
+    if (b == 0) b = bs;
+    while (j > 0) {
+        const j0 = j - b;
+        b = bs;
+        try applyBlockRight(al, io, T, basis.sub(j0, j0, basis.rows - j0, j - j0), factor.sub(0, j0, j - j0, j - j0), conj, true, m.sub(0, j0, m.rows, m.cols - j0));
+        j = j0;
+    }
+}
+
+/// The block factors of the reflections in `basis`'s first `factor.cols`
+/// columns, `factor`'s diagonal already holding their `tau`s (faer's
+/// convention), in blocks of `factor.rows`.
+pub fn sequenceFactor(al: Allocator, io: Io, comptime T: type, basis: Mat(T), factor: Mat(T)) Error!void {
+    const size = factor.cols;
+    const bs = factor.rows;
+    var j: usize = 0;
+    while (j < size) : (j += bs) {
+        const b = @min(bs, size - j);
+        try blockFactor(al, io, T, basis.sub(j, j, basis.rows - j, b), factor.sub(0, j, b, b));
+    }
+}
+
 // ---- Givens rotations (`jacobi.rs`), real -------------------------------------------
 
 /// `[c -s; s c]`, real.

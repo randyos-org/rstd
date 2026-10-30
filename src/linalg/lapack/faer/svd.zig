@@ -146,7 +146,7 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     const smlnum = @sqrt(std.math.floatMin(F)) / std.math.floatEps(F);
     const bignum = 1 / smlnum;
     const to: ?F = if (anrm > 0 and anrm < smlnum) smlnum else if (anrm > bignum) bignum else null;
-    if (to) |t| lascl(T, anrm, t, am);
+    if (to) |t| ops.lascl(T, anrm, t, am);
     // U: into `u`, or for `o` into a copy that goes to `A`
     const ucols: usize = switch (jobu) {
         .a => m,
@@ -165,7 +165,7 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     try svd(al, io, T, am, sv, um, vm, threshold);
     if (to) |t| {
         // `DLASCL` on S, back
-        lascl(F, t, anrm, .{ .ptr = sv.ptr, .rows = minmn, .cols = 1, .ld = @max(minmn, 1) });
+        ops.lascl(F, t, anrm, .{ .ptr = sv.ptr, .rows = minmn, .cols = 1, .ld = @max(minmn, 1) });
     }
     if (uo) |x| am.sub(0, 0, m, minmn).copyFrom(x);
     if (vm) |x| {
@@ -174,46 +174,6 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
         for (0..n) |j| for (0..vcols) |i| {
             dst.at(i, j).* = ops.conj(T, x.get(j, i));
         };
-    }
-}
-
-/// `DLASCL` type `G`: `A := A * (to / from)`, in steps that neither
-/// overflow nor underflow (`lapack-netlib/SRC/dlascl.f`). `from` is finite
-/// and nonzero.
-fn lascl(comptime T: type, from: Float(T), to: Float(T), a: Mat(T)) void {
-    const F = Float(T);
-    const smlnum = std.math.floatMin(F);
-    const bignum = 1 / smlnum;
-    var cfromc = from;
-    var ctoc = to;
-    while (true) {
-        const cfrom1 = cfromc * smlnum;
-        var mul: F = undefined;
-        var done = true;
-        if (cfrom1 == cfromc) {
-            mul = ctoc / cfromc;
-        } else {
-            const cto1 = ctoc / bignum;
-            if (cto1 == ctoc) {
-                mul = ctoc;
-                cfromc = 1;
-            } else if (@abs(cfrom1) > @abs(ctoc) and ctoc != 0) {
-                mul = smlnum;
-                done = false;
-                cfromc = cfrom1;
-            } else if (@abs(cto1) > @abs(cfromc)) {
-                mul = bignum;
-                done = false;
-                ctoc = cto1;
-            } else {
-                mul = ctoc / cfromc;
-                if (mul == 1) return;
-            }
-        }
-        for (0..a.cols) |j| for (a.col(j)[0..a.rows]) |*x| {
-            x.* = ops.mulReal(T, x.*, mul);
-        };
-        if (done) return;
     }
 }
 

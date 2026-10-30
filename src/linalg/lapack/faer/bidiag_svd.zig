@@ -569,10 +569,11 @@ fn singularValues(io: Io, comptime F: type, shifts: []F, mus: []F, s: []F, diag:
 }
 
 /// `secular_eq_root_finder`: the root in `(left, right)` of the increasing
-/// secular function, as `.{ shift, mu }`: bracketing and bisection at
-/// geometric midpoints, then the secant method, then bisection if it leaves
-/// the bracket.
-fn rootFinder(comptime F: type, sec: Secular(F), left: F, right: F, last: bool) [2]F {
+/// secular function `sec` (its `eval(shift, mu)` and four at once,
+/// `batch`), as `.{ shift, mu }`: bracketing and bisection at geometric
+/// midpoints, then the secant method, then bisection if it leaves the
+/// bracket. The tridiagonal eigensolver shares it (`tridiag_evd.zig`).
+pub fn rootFinder(comptime F: type, sec: anytype, left: F, right: F, last: bool) [2]F {
     const two: F = 2;
     const eight: F = 8;
     const half: F = 0.5;
@@ -699,7 +700,7 @@ fn SecantResult(comptime F: type) type {
 }
 
 /// `rootFinder`'s `secant` closure.
-fn secant(comptime F: type, sec: Secular(F), shift: F, left: F, right: F, mu_cur_in: F, mu_prev_in: F, f_cur_in: F, f_prev_in: F) SecantResult(F) {
+fn secant(comptime F: type, sec: anytype, shift: F, left: F, right: F, mu_cur_in: F, mu_prev_in: F, f_cur_in: F, f_prev_in: F) SecantResult(F) {
     const epsilon = std.math.floatEps(F);
     var mu_cur = mu_cur_in;
     var mu_prev = mu_prev_in;
