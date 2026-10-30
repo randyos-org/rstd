@@ -809,27 +809,114 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `std.Target.arm` models do not include them. On 0.18.0-dev.751 only 9
   > of 100 models have any FPU feature; 0.17 had 20.
 
-### `Io.Uring` with worker threads: a futex barrier of four fibers hangs
+### `Io.Uring`: `futexWake` of `maxInt(u32)` wakes one waiter
 
-- **Seen:** on `qemu-test-linux-x86_64` (Debian 13 kernel, TCG), an `Io.Evented`
-  (`Uring`) with `thread_limit = 3` hangs in a sense-reversing barrier of 4 or more
-  parties started with `Group.concurrent`, waiting only through `io.futexWait` and
-  `io.futexWake` (300 rounds; 2 parties pass). With `thread_limit = 0` the same
-  barrier passes at 2, 4 and 8 parties, as does threaded `gemm`. `Io.Threaded`
-  passes everything. 0.18.0-dev.751, 2026-10-29.
-- **Workaround:** `blas3/threaded.zig`'s fiber test runs `Uring` with
-  `thread_limit = 0` only; threaded level 3 on a multithreaded `Uring` is unverified
-  (threading.md, Open issues).
+- **Seen:** `Uring.futexWake` (`lib/std/Io/Uring.zig:2052`) puts `max_waiters`
+  in an `IORING_OP_FUTEX_WAKE` as is. The kernel's `futex_wake` takes the count
+  as an `int`, so `maxInt(u32)` is -1 and wakes one waiter. `Io.Threaded`
+  clamps it to `maxInt(i32)` (`Threaded.zig:1162`). std's own
+  `Io.Event.set` passes `maxInt(u32)`. On `qemu-test-linux-x86_64` (Debian 13
+  kernel, TCG), with `thread_limit = 3`, `Event.set` woke 1 of 3 waiters, and
+  rstd's level-3 barriers hung. With `thread_limit = 0` it passes by luck: the
+  fibers' `FUTEX_WAIT`s reach the kernel only after the word changed. 0.18.0-dev.751,
+  2026-10-29.
+- **Workaround:** `threading.Signal.set` wakes `maxInt(i32)`; its test
+  "a signal wakes every sleeper" fails without it.
 - **Issue text:**
 
-  > **std.Io.Uring: futexWait never returns for some fibers when thread_limit > 0**
+  > **std.Io.Uring: futexWake(maxInt(u32)) wakes only one waiter, so Event.set hangs**
   >
-  > Four fibers started with `Group.concurrent` on an `Io.Evented` (Uring) with
-  > `thread_limit = 3` meet repeatedly at a barrier: an arrival counter, and a phase
-  > word the last arrival bumps and `futexWake`s; the others loop on
-  > `futexWait(&phase, old)` while the phase is unchanged. Within 300 rounds the
-  > program hangs. Two fibers, or `thread_limit = 0`, complete. The same code on
-  > `Io.Threaded` completes.
+  > `Uring.futexWake` passes `max_waiters` unchanged as the count of an
+  > `IORING_OP_FUTEX_WAKE`. The kernel's `futex_wake` takes it as an `int`, so
+  > `std.math.maxInt(u32)`, which `Io.Event.set` passes, becomes -1 and wakes
+  > one waiter. `Io.Threaded` clamps to `maxInt(i32)`. With worker threads,
+  > waiters on an `Event` past the first stay asleep:
+  >
+  > ```zig
+  > test "Event.set wakes every waiter" {
+  >     var ev: std.Io.Evented = undefined;
+  >     try ev.init(std.heap.page_allocator, .{ .thread_limit = 3 });
+  >     defer ev.deinit();
+  >     const io = ev.io();
+  >     const W = struct {
+  >         fn wait(e: *std.Io.Event, wio: std.Io, n: *std.atomic.Value(u32)) void {
+  >             e.waitUncancelable(wio);
+  >             _ = n.fetchAdd(1, .acq_rel);
+  >         }
+  >     };
+  >     var event: std.Io.Event = .unset;
+  >     var woken: std.atomic.Value(u32) = .init(0);
+  >     var group: std.Io.Group = .init;
+  >     for (0..3) |_| try group.concurrent(io, W.wait, .{ &event, io, &woken });
+  >     try io.sleep(.fromMilliseconds(500), .awake);
+  >     event.set(io);
+  >     try io.sleep(.fromMilliseconds(500), .awake);
+  >     const got = woken.load(.acquire);
+  >     io.futexWake(std.Io.Event, &event, std.math.maxInt(i32)); // let the rest go
+  >     try group.await(io);
+  >     try std.testing.expectEqual(@as(u32, 3), got); // found 1
+  > }
+  > ```
+  >
+  > Clamping as `Threaded` does fixes it.
+
+### `Io.Uring` and `Io.Dispatch`: `Group.await` blocks inside a context switch
+
+- **Seen:** with worker threads, `Group.concurrent` then `Group.await`, repeated,
+  crashes within 2000 rounds on both `Evented`s. The awaiter's pending
+  `.group_await` runs in `SwitchMessage.handle`, on the context switched to,
+  and takes the group's futex mutex there. When a task ending on another thread
+  holds it, `Uring` futex-waits from the idle context and trips
+  `assert` in `currentFiber` (`Uring.zig:124`, from `:1305`, `:1676`, `:1587`
+  or `:1603`); `Dispatch` wakes from `Group.unlock` there and faults in
+  libdispatch (`Sleeper.init`). `Dispatch.Fiber.destroy` does the same on the
+  backing allocator's mutex. Level 3's threaded tests hit it at once on
+  `qemu-test-linux-x86_64` and on the M6. 0.18.0-dev.751, 2026-10-30.
+- **Workaround:** rstd's level-3 tests run `Evented` with no worker threads;
+  threaded BLAS on a multithreaded `Evented` is unsupported (threading.md).
+  `threading.initEvented` tells `Evented` its page allocator needs no mutex.
+- **Issue text:**
+
+  > **std.Io (Uring, Dispatch): Group.await crashes with worker threads**
+  >
+  > `SwitchMessage.handle` runs `.group_await` and `.group_cancel` after the
+  > switch, and `Group.lock`/`unlock` may then futex-wait or wake there. On
+  > `Uring` that trips the `currentFiber` assert (no fiber: the idle context);
+  > on `Dispatch` it faults in libdispatch. Repeating this crashes within a
+  > few thousand rounds on `x86_64-linux` and `aarch64-macos`:
+  >
+  > ```zig
+  > var ev: std.Io.Evented = undefined;
+  > try ev.init(std.heap.page_allocator, .{}); // Uring: .thread_limit = 3
+  > defer ev.deinit();
+  > const io = ev.io();
+  > for (0..20000) |_| {
+  >     var group: std.Io.Group = .init;
+  >     for (0..3) |_| try group.concurrent(io, task, .{&counter});
+  >     try group.await(io);
+  > }
+  > ```
+
+### `Io.Uring`: an awaited fiber is reused before it has switched away
+
+- **Seen:** with worker threads, `io.concurrent` then `Future.await`, repeated,
+  panics within 2000 rounds at `Uring.zig:1424` ("switched to dead fiber").
+  A finishing task marks itself `finished` (`:1423`) and then switches away on
+  its own stack; an awaiter on another thread sees `finished`, `destroy`s the
+  fiber to its free list, and a new task takes it while the old one is still
+  switching. `Dispatch` passes the same 20000 rounds. 0.18.0-dev.751,
+  2026-10-30.
+- **Workaround:** as above: no worker threads on `Uring`.
+- **Issue text:**
+
+  > **std.Io.Uring: Future.await frees a fiber that is still switching away**
+  >
+  > `AsyncClosure.call` publishes `Fiber.finished` before its final `yield`
+  > leaves the fiber's stack. An awaiter on another thread can then `destroy`
+  > it and `concurrent` can reuse it, so the old `yield` writes into the new
+  > task's fiber. Repeating `io.concurrent` of three trivial tasks and
+  > awaiting them, with `thread_limit = 3`, panics "switched to dead fiber"
+  > within a few thousand rounds.
 
 ### Zig 0.17.0: `Io.Uring` does not compile
 

@@ -507,8 +507,10 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 
 - Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
-  hang. With worker threads `Uring` hangs even a plain futex barrier ([`issues.md`](issues.md));
-  `Dispatch` (macOS) has no thread limit and is untested. Windows has no `Evented`.
+  hang. With worker threads std's `Group` crashes on `Uring` and `Dispatch` (macOS), and
+  `Uring` reuses fibers too early ([`issues.md`](issues.md)), so threaded BLAS on a
+  multithreaded `Evented` is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes
+  one for `maxInt(u32)`. Windows has no `Evented`.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
 - The partial vectors cost up to one `y` per chunk (64) and a fold of them; `spmv`, `zspmv`,

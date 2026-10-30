@@ -576,7 +576,9 @@ pub const Signal = struct {
 
     pub fn set(s: *Signal, io: Io, v: u32) void {
         s.value.store(v, .seq_cst);
-        if (s.sleepers.load(.seq_cst) != 0) io.futexWake(u32, &s.value.raw, std.math.maxInt(u32));
+        // all: `Uring` passes the count on as a C `int`, where `maxInt(u32)`
+        // wakes one (issues.md)
+        if (s.sleepers.load(.seq_cst) != 0) io.futexWake(u32, &s.value.raw, std.math.maxInt(i32));
     }
 };
 
@@ -612,6 +614,22 @@ pub const hosted = !sysinfo.single_threaded and switch (sysinfo.target.os.tag) {
 /// `Io.Evented` for the fiber tests; void where it does not build (Zig 0.17's
 /// `Uring`, issues.md). Version-gated: std exposes nothing to detect.
 pub const Evented = if (Io.Evented == Io.Uring and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else Io.Evented;
+
+/// Starts `ev` with `extra` threads besides the caller's; false where it
+/// cannot be sized so (`Dispatch` sizes its own pool) or does not start.
+/// Fibers take large stacks: the page allocator neither fills nor checks them.
+pub fn initEvented(ev: *Evented, extra: u32) bool {
+    var opts: Evented.InitOptions = .{};
+    // the page allocator is thread-safe
+    if (@hasField(Evented.InitOptions, "backing_allocator_needs_mutex")) opts.backing_allocator_needs_mutex = false;
+    if (@hasField(Evented.InitOptions, "thread_limit")) {
+        opts.thread_limit = extra;
+    } else if (@hasField(Evented.InitOptions, "n_threads")) {
+        opts.n_threads = extra + 1;
+    } else if (extra == 0) return false;
+    ev.init(std.heap.page_allocator, opts) catch return false;
+    return true;
+}
 
 /// The worker counts the tests try: 1, 2, 3, 7, this machine's, and more
 /// than there are chunks.
@@ -939,6 +957,40 @@ test "a canceled region returns error.Canceled after its workers stop" {
         try zigstd.testExpectEqual(b.entered.load(.acquire), b.left.load(.acquire));
         try zigstd.testExpectTrue(b.left.load(.acquire) < chunks_max);
     }
+}
+
+/// Sleeps on `s` until it leaves 0, then counts itself in `woken`.
+fn sleeper(s: *Signal, io: Io, woken: *std.atomic.Value(u32)) void {
+    _ = s.waitWhile(io, 0) catch return io.recancel();
+    _ = woken.fetchAdd(1, .acq_rel);
+}
+
+test "a signal wakes every sleeper on an Io.Evented with worker threads" {
+    if (comptime !hosted or Evented == void) return error.SkipZigTest;
+    var ev: Evented = undefined;
+    if (!initEvented(&ev, 3)) return error.SkipZigTest;
+    defer ev.deinit();
+    const io = ev.io();
+    const n = 3;
+    var s: Signal = .{};
+    var woken: std.atomic.Value(u32) = .init(0);
+    var group: Io.Group = .init;
+    var started: u32 = 0;
+    while (started < n) : (started += 1) group.concurrent(io, sleeper, .{ &s, io, &woken }) catch break;
+    // all past their spins and on the futex
+    while (started == n and s.sleepers.load(.acquire) < n) try io.sleep(.fromMilliseconds(1), .awake);
+    try io.sleep(.fromMilliseconds(50), .awake);
+    s.set(io, 1);
+    var waited: u32 = 0;
+    while (woken.load(.acquire) < started and waited < 5000) : (waited += 1) try io.sleep(.fromMilliseconds(1), .awake);
+    const got = woken.load(.acquire);
+    // free any left asleep, so a failure does not hang
+    io.futexWake(u32, &s.value.raw, std.math.maxInt(i32));
+    // let the tasks end first: an await racing a task's end crashes `Group` (issues.md)
+    try io.sleep(.fromMilliseconds(50), .awake);
+    try group.await(io);
+    if (started < n) return error.SkipZigTest;
+    try zigstd.testExpectEqual(@as(u32, n), got);
 }
 
 test "product saturates" {
