@@ -1026,7 +1026,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
     pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
     pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
-    if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system)).captureStdOut(.{}));
+    if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system, false)).captureStdOut(.{}));
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);
@@ -1067,7 +1067,7 @@ fn initramfsTool(b: *Build) *Build.Step.Compile {
 /// The Linux VMs of `qemu-bench-linux-<arch>`, on the host's own CPU: never
 /// emulated, so the HVF arguments stand in for TCG's too, and a host
 /// without HVF fails rather than emulates.
-const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model, nix: []const u8, blis: bool }{
+const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model, nix: []const u8, blis: bool, aocl: bool }{
     .{
         .m = .{
             .name = "bench-linux-x86_64",
@@ -1084,6 +1084,8 @@ const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model
         .cpu = null,
         .nix = "x86_64-linux",
         .blis = true,
+        // AOCL-libFLAME: nixpkgs builds it for x86_64-linux only
+        .aocl = true,
     },
     .{
         .m = .{
@@ -1099,6 +1101,7 @@ const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model
         .cpu = &std.Target.aarch64.cpu.apple_m1,
         .nix = "aarch64-linux",
         .blis = false,
+        .aocl = false,
     },
 };
 
@@ -1116,10 +1119,6 @@ fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         if (m.whpx and !whpx_host) continue;
         const l = m.boot.linux;
         const step = b.step(b.fmt("qemu-{s}", .{m.name}), b.fmt("Race rstd's BLAS against nixpkgs' libraries in a Linux VM on the host's CPU (live log: {s})", .{liveLog(b, m)}));
-        const nix = host orelse {
-            step.dependOn(&b.addFail(b.fmt("qemu-{s} gets its libraries from Nix on -Dtest-host", .{m.name})).step);
-            continue;
-        };
         const kernel = b.dependencyLazy(l.dep, .{}) catch continue;
         var query = m.query;
         query.cpu_model = if (bm.cpu) |c| .{ .explicit = c } else .native;
@@ -1129,13 +1128,38 @@ fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
             .target = b.resolveTargetQuery(.{ .cpu_arch = m.query.cpu_arch, .os_tag = .linux }),
             .optimize = .fast,
         }) });
-        // the libraries' closure, fetched once per flake.lock
-        const libs = (try sshtest.nixBlas(b, nix.alias, bm.nix)).captureStdOut(.{});
         const pack = b.addRunArtifact(initramfsTool(b));
         const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
         pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
         pack.addArtifactArg2(exe, .{ .prefix = "test=" });
+        // after `--`, init's arguments, which it passes on
+        var append: std.ArrayList(u8) = .empty;
+        try append.print(b.allocator, "console={s} rdinit=/init panic=-1 quiet loglevel=3 -- --openblas=/flyoff/libopenblas.so", .{l.console});
+        if (bm.blis) try append.appendSlice(b.allocator, " --blis=/flyoff/libblis.so");
+        // the reference binaries (`tools/nix/blas.sh`); one it skipped is skipped here
+        try append.appendSlice(b.allocator, " --reference=/flyoff/liblapack.so --eigen=/flyoff/libeigen.so");
+        if (bm.aocl) try append.appendSlice(b.allocator, " --aocl-libflame=/flyoff/libflame.so");
+        const vm_append = try append.clone(b.allocator);
+
+        // the Mac's flyoff packs the libraries there: the initramfs without them
+        const host_mac = m.hvf != null;
+        if (host_mac) {
+            const base = b.addRunArtifact(initramfsTool(b));
+            const base_cpio = base.addOutputFileArg2("base.cpio", .{});
+            base.addArtifactArg2(init_exe, .{ .prefix = "init=" });
+            base.addArtifactArg2(exe, .{ .prefix = "test=" });
+            try addFlyoffStage(b, m, kernel.path(l.kernel), base_cpio, "base.cpio", vm_append.items);
+        }
+
+        const nix = host orelse {
+            step.dependOn(&b.addFail(b.fmt("qemu-{s} gets its libraries from Nix on -Dtest-host", .{m.name})).step);
+            if (!host_mac) b.step("flyoff-stage-zen3", "Stage the Zen 3 flyoff's files in zig-out/flyoff-zen3 (tools/blasbench/flyoff.sh)").dependOn(&b.addFail("flyoff-stage-zen3 gets the VM's libraries from Nix on -Dtest-host").step);
+            continue;
+        };
+        // the libraries' closure, fetched once per flake.lock
+        const libs = (try sshtest.nixBlas(b, nix.alias, bm.nix, true)).captureStdOut(.{});
         pack.addPrefixedFileArg("+", libs);
+        if (!host_mac) try addFlyoffStage(b, m, kernel.path(l.kernel), cpio, "initramfs.cpio", vm_append.items);
 
         const run = qemuCommand(b, m, host);
         addConsole(b, run, m, host);
@@ -1143,15 +1167,43 @@ fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         fileArg(run, m, host, kernel.path(l.kernel));
         run.addArg("-initrd");
         fileArg(run, m, host, cpio);
-        // after `--`, init's arguments, which it passes on
-        var append: std.ArrayList(u8) = .empty;
-        try append.print(b.allocator, "console={s} rdinit=/init panic=-1 quiet loglevel=3 -- --openblas=/flyoff/libopenblas.so", .{l.console});
-        if (bm.blis) try append.appendSlice(b.allocator, " --blis=/flyoff/libblis.so");
         for (bench_args) |a| try append.print(b.allocator, " {s}", .{a});
         run.addArgs(&.{ "-append", append.items });
         run.has_side_effects = true;
         run.stdio = .inherit;
         step.dependOn(&run.step);
+    }
+}
+
+/// `flyoff-stage-<host>`: `tools/blasbench/flyoff.sh`'s files for the host
+/// whose CPU `m` runs on, in `zig-out/flyoff-<host>`: the host's own bench
+/// (`blas_bench`), the VM's kernel (`linux`) and initramfs (`cpio`, as
+/// `cpio_name`), its QEMU arguments (`vm.args`, one a line) and kernel
+/// command line up to the bench's own arguments (`vm.append`). The Mac's
+/// also gets `tools/nix` (`nix`), `tools/blasbench/nix` (`bench-nix`) and
+/// `flyoff.sh`, since it runs there.
+fn addFlyoffStage(b: *Build, m: Machine, kernel: Build.LazyPath, cpio: Build.LazyPath, cpio_name: []const u8, vm_append: []const u8) !void {
+    const mac = m.hvf != null;
+    const name = if (mac) "m6" else "zen3";
+    const dir: Build.InstallDir = .{ .custom = b.fmt("flyoff-{s}", .{name}) };
+    const step = b.step(b.fmt("flyoff-stage-{s}", .{name}), b.fmt("Stage the {s} flyoff's files in zig-out/flyoff-{s} (tools/blasbench/flyoff.sh)", .{ if (mac) "M6" else "Zen 3", name }));
+    const target = if (mac) b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }) else b.graph.host;
+    const exe = try sshtest.benchExe(b, target, null);
+    step.dependOn(&b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = dir } }).step);
+    step.dependOn(&b.addInstallFileWithDir(kernel, dir, "linux").step);
+    step.dependOn(&b.addInstallFileWithDir(cpio, dir, cpio_name).step);
+    var args: std.ArrayList(u8) = .empty;
+    const console_args = [_][]const u8{ "-m", m.memory, "-nographic", "-no-reboot", "-chardev", "stdio,id=con,mux=on,signal=off", "-serial", "chardev:con", "-monitor", "chardev:con" };
+    for ([_][]const []const u8{ &.{m.qemu}, m.hvf orelse m.args, &console_args }) |part| {
+        for (part) |a| try args.print(b.allocator, "{s}\n", .{a});
+    }
+    const files = b.addWriteFiles();
+    step.dependOn(&b.addInstallFileWithDir(files.add("vm.args", args.items), dir, "vm.args").step);
+    step.dependOn(&b.addInstallFileWithDir(files.add("vm.append", vm_append), dir, "vm.append").step);
+    step.dependOn(&b.addInstallFileWithDir(b.path("tools/blasbench/flyoff.sh"), dir, "flyoff.sh").step);
+    if (mac) {
+        step.dependOn(&b.addInstallDirectory(.{ .source_dir = b.path("tools/nix"), .install_dir = dir, .install_subdir = "nix" }).step);
+        step.dependOn(&b.addInstallDirectory(.{ .source_dir = b.path("tools/blasbench/nix"), .install_dir = dir, .install_subdir = "bench-nix" }).step);
     }
 }
 

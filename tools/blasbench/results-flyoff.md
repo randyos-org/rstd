@@ -201,8 +201,10 @@ reference, tell whose result is off. The largest, all inside the bound:
 
 ## Rerunning
 
-From the rstd root, with MSYS2's `ssh` and `scp` first on `PATH` (the Mac
-is SSH alias `macmini-m6`: `-Dssh-mac`, `-Dtest-host`):
+Under the timing rule, one command per host: `tools/blasbench/flyoff.sh`
+([`readme.md`](readme.md#rerunning-the-flyoff)). One run of each, from
+the rstd root, with MSYS2's `ssh` and `scp` first on `PATH` (the Mac is
+SSH alias `macmini-m6`: `-Dssh-mac`, `-Dtest-host`):
 
 ```sh
 # Windows x86_64, here: OpenBLAS's official x64 zip, unpacked

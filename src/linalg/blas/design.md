@@ -1424,7 +1424,7 @@ Outside `src/linalg/blas/`:
 | `test/qemu/` | boot code, linker scripts and runner of the freestanding and UEFI rigs |
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
 | `tools/blas_asm/` | the converters |
-| `tools/blasbench/` | the kernel benchmarks |
+| `tools/blasbench/` | the benchmarks: kernels, rstd against the libraries and reference binaries, the flyoff ([`readme.md`](../../../tools/blasbench/readme.md)) |
 | `tools/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
 | `tools/ssh_test.zig`, `tools/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
 

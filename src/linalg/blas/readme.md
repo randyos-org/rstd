@@ -293,6 +293,7 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
+| `tools/blasbench/flyoff.sh zen3 <OpenBLAS dll>`, `flyoff.sh m6` | the flyoff under the timing rule, one command per host ([`readme.md`](../../../tools/blasbench/readme.md#rerunning-the-flyoff)); `zig build bench-check` compiles the bench for each host |
 | `zig build wasm-test` | the OS-free tests under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
 | `<zig 0.17.0> build rstd-check-zig017` | build the tests for zfls's targets on Zig 0.17.0 without running them |

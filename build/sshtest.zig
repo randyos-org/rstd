@@ -30,9 +30,13 @@ pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !
     const libs: BenchLibs = .{
         .openblas = b.option([]const u8, "openblas-lib", "OpenBLAS library for bench-native and ssh-bench-aarch64-macos, as a path where the bench runs (the Mac's default: nixpkgs' through Nix)"),
         .blis = b.option([]const u8, "blis-lib", "BLIS library for bench-native and ssh-bench-aarch64-macos, as a path where the bench runs"),
+        .reference = b.option([]const u8, "reference-lib", "Reference-LAPACK's liblapack for bench-native, as a path where the bench runs"),
+        .eigen = b.option([]const u8, "eigen-lib", "The bench's Eigen shim (tools/blasbench/nix) for bench-native, as a path where the bench runs"),
+        .aocl_libflame = b.option([]const u8, "aocl-libflame-lib", "AOCL-libFLAME for bench-native, as a path where the bench runs"),
     };
     try addSshBench(b, mac, arm, tool, libs);
     try addNativeBench(b, libs);
+    addBenchCheck(b);
 }
 
 var ssh_tool: ?*rstdbuild.CompileStep = null;
@@ -89,9 +93,44 @@ fn addGroupRepro(b: *Build, optimize: Optimize, mac: []const u8, tool: *rstdbuil
     step.dependOn(prev.?);
 }
 
-/// The libraries the bench's `lib*` sections race, by their paths where it
-/// runs.
-const BenchLibs = struct { openblas: ?[]const u8, blis: ?[]const u8 };
+/// The libraries the bench's `lib*` and `lapack` sections race, by their
+/// paths where it runs.
+const BenchLibs = struct {
+    openblas: ?[]const u8,
+    blis: ?[]const u8,
+    reference: ?[]const u8 = null,
+    eigen: ?[]const u8 = null,
+    aocl_libflame: ?[]const u8 = null,
+
+    /// `--<option>=<path>` for each library given but OpenBLAS.
+    fn addArgs(libs: BenchLibs, b: *Build, run: *Build.Step.Run) void {
+        inline for (.{ .{ "blis", "blis" }, .{ "reference", "reference" }, .{ "eigen", "eigen" }, .{ "aocl_libflame", "aocl-libflame" } }) |f|
+            if (@field(libs, f[0])) |p| run.addArg(b.fmt("--" ++ f[1] ++ "={s}", .{p}));
+    }
+};
+
+/// `bench-check`: the bench compiled for each host it races on, run nowhere.
+fn addBenchCheck(b: *Build) void {
+    const step = b.step("bench-check", "Compile tools/blasbench/blas_bench.zig for Windows and Linux x86_64, Linux and macOS arm64");
+    const queries = [_]std.Target.Query{
+        .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu },
+        .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
+        .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_m1 } },
+        .{ .cpu_arch = .aarch64, .os_tag = .macos },
+    };
+    for (queries) |q| {
+        const exe = benchExe(b, b.resolveTargetQuery(q), null) catch |e| {
+            step.dependOn(&b.addFail(b.fmt("bench-check: {t}", .{e})).step);
+            return;
+        };
+        step.dependOn(&exe.step);
+    }
+    const merge_test = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/blasbench/merge.zig"),
+        .target = b.graph.host,
+    }) });
+    step.dependOn(&b.addRunArtifact(merge_test).step);
+}
 
 /// `tools/blasbench/blas_bench.zig` for `target`, always ReleaseFast, with
 /// OpenBLAS's vortex gemm `.S` assembled from the `openblas` checkout when
@@ -114,8 +153,9 @@ pub fn benchExe(b: *Build, target: rstdbuild.ResolvedTarget, openblas: ?[]const 
 }
 
 /// `tools/nix/blas.sh <system>` on `host` (`ssh_test`), at the nixpkgs of
-/// `tools/nix/flake.lock`: nixpkgs' OpenBLAS and BLIS for `system`.
-pub fn nixBlas(b: *Build, host: []const u8, system: []const u8) !*Build.Step.Run {
+/// `tools/nix/flake.lock`: nixpkgs' OpenBLAS and BLIS for `system`, and with
+/// `reference` the bench's reference binaries (`tools/blasbench/nix`).
+pub fn nixBlas(b: *Build, host: []const u8, system: []const u8, reference: bool) !*Build.Step.Run {
     const lock = try std.Io.Dir.cwd().readFileAlloc(b.graph.io, try b.root.joinString(b.allocator, "tools/nix/flake.lock"), b.allocator, .limited(1 << 16));
     const Lock = struct { nodes: struct { nixpkgs: struct { locked: struct { rev: []const u8 } } } };
     const parsed = try std.json.parseFromSliceLeaky(Lock, b.allocator, lock, .{ .ignore_unknown_fields = true });
@@ -123,8 +163,16 @@ pub fn nixBlas(b: *Build, host: []const u8, system: []const u8) !*Build.Step.Run
     run.addArg(host);
     run.addFileArg(b.path("tools/nix/blas.sh"));
     run.addArgs(&.{ system, parsed.nodes.nixpkgs.locked.rev });
+    if (reference) {
+        run.addPrefixedDirectoryArg("local:", b.path("tools/blasbench/nix"));
+        // a directory argument's contents are not hashed
+        for ([_][]const u8{ "eigen.nix", "eigen_shim.cpp" }) |f| run.addFileInput(b.path(b.fmt("tools/blasbench/nix/{s}", .{f})));
+    }
     return run;
 }
+
+/// Where `tools/nix/blas.sh` links the Mac's libraries.
+const mac_libs = "/tmp/rstd-blas/aarch64-darwin/";
 
 /// `ssh-bench-aarch64-macos`: `tools/blasbench/blas_bench.zig` on the Mac,
 /// with OpenBLAS's vortex gemm `.S` from the `-Dopenblas` checkout when
@@ -142,13 +190,15 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
     run.addArg(mac);
     run.addArtifactArg2(exe, .{});
     if (libs.openblas) |p| run.addArg(b.fmt("--openblas={s}", .{p})) else {
-        const fetch = try nixBlas(b, mac, "aarch64-darwin");
+        const fetch = try nixBlas(b, mac, "aarch64-darwin", true);
         fetch.has_side_effects = true;
         fetch.stdio = .inherit;
         run.step.dependOn(&fetch.step);
-        run.addArg("--openblas=/tmp/rstd-blas/aarch64-darwin/openblasCompat/lib/libopenblas.dylib");
+        run.addArg("--openblas=" ++ mac_libs ++ "openblasCompat/lib/libopenblas.dylib");
+        run.addArg("--reference=" ++ mac_libs ++ "lapack-reference/lib/liblapack.dylib");
+        run.addArg("--eigen=" ++ mac_libs ++ "eigen/lib/libeigen_shim.dylib");
     }
-    if (libs.blis) |p| run.addArg(b.fmt("--blis={s}", .{p}));
+    libs.addArgs(b, run);
     if (b.option([]const u8, "accelerate", "Accelerate on the Mac for ssh-bench-aarch64-macos (default the system framework)")) |p|
         run.addArg(b.fmt("--accelerate={s}", .{p}));
     run.addPassthruArgs();
@@ -168,7 +218,7 @@ fn addNativeBench(b: *Build, libs: BenchLibs) !void {
     };
     const run = b.addRunArtifact(try benchExe(b, b.graph.host, null));
     run.addArg(b.fmt("--openblas={s}", .{openblas}));
-    if (libs.blis) |p| run.addArg(b.fmt("--blis={s}", .{p}));
+    libs.addArgs(b, run);
     run.addPassthruArgs();
     run.stdio = .inherit;
     run.has_side_effects = true;
