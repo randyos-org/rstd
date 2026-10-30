@@ -12,7 +12,8 @@
 //!   * on x86, `r` is always derived from the packing buffer;
 //!   * on mips64, `dgemm`'s `r` is 640 for every core;
 //!   * `p` is rounded up to the unroll;
-//!   * the 3M variants take `p` and `q` of the real ones unless the header says;
+//!   * on x86 only, the 3M variants take `p` and `q` of the real ones unless
+//!     the header says;
 //!   * LA464 and the AMD AVX-512 parts override sets by cache size and threads.
 //!
 //! `OPENBLAS_BLOCK_FACTOR` (`Config.block_factor`) scales a computed `p` as
@@ -32,13 +33,15 @@ const select = @import("../../cpu/_select.zig");
 pub const Size = union(enum) {
     /// A constant of `param.h`.
     fixed: i32,
-    /// The header names a run-time variable; see `Rule`.
+    /// The header names a run-time variable, or has no macro; see `Rule`.
     dynamic,
-    /// `r` derived from the packing buffer once `p` and `q` are known.
+    /// `r` derived from the packing buffer once `p` and `q` are known; also
+    /// an `r` the header has no macro for.
     from_buffer,
 };
 
-/// One precision's parameters.
+/// One precision's parameters. A shape the generator leaves out (no `P` or
+/// unroll macro) defaults to what it writes for a missing macro.
 pub const Shape = struct {
     unroll_m: i32 = 0,
     unroll_n: i32 = 0,
@@ -48,9 +51,9 @@ pub const Shape = struct {
     align_k: i32 = 0,
     /// `<P>GEMM_DEFAULT_P_BASE`, where the header has one.
     p_base: i32 = 0,
-    p: Size = .{ .fixed = 0 },
-    q: Size = .{ .fixed = 0 },
-    r: Size = .{ .fixed = 0 },
+    p: Size = .dynamic,
+    q: Size = .dynamic,
+    r: Size = .from_buffer,
 };
 
 /// A core's whole table, one shape per precision: the four the BLAS names, the
@@ -262,17 +265,16 @@ fn fixedOf(s: Size) ?i32 {
     };
 }
 
-/// `p` of one of the primary precisions (`idx`: s, d, c, z, q, x); a rule
-/// goes over the header, as `setparam-ref.c`'s core blocks do.
+/// `p` of one of the primary precisions (`idx`: s, d, c, z, q, x), not yet
+/// rounded; a rule goes over the header, as `setparam-ref.c`'s core blocks do.
 fn primaryP(shape: Shape, rule: Rule, idx: usize, env: Env) i32 {
-    const p: i32 = switch (rule) {
+    return switch (rule) {
         .affine => |a| blk: {
             const size = if (a.cap > 0) @min(env.l2_kb >> a.shift, a.cap) else env.l2_kb >> a.shift;
             break :blk scaled(a.mul[idx] * size + a.add[idx], env);
         },
         else => fixedOf(shape.p) orelse 0,
     };
-    return roundUp(p, shape.unroll_m);
 }
 
 /// `r` from the buffer: `setparam-ref.c`'s formula.
@@ -310,17 +312,59 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
     vt.preferred_size = table.preferred_size;
     vt.symv_p = table.symv_p;
 
-    // the primaries, whose `p` the rules and overrides decide; x86 always
-    // derives `r`, the other families take the header's constant
+    // the primaries, whose `p` the rules and overrides decide
     const names = .{ "s", "d", "c", "z", "q", "x" };
     const elems = [6]i64{ 4, 8, 8, 16, 16, 32 };
     var res: [6]Resolved = undefined;
     inline for (names, 0..) |name, i| {
         const sh = @field(table, name);
-        const p = primaryP(sh, rule, i, env);
-        const q = fixedOf(sh.q) orelse 0;
-        const r = if (x86) derivedR(p, q, elems[i], table) else (fixedOf(sh.r) orelse derivedR(p, q, elems[i], table));
-        res[i] = .{ .p = p, .q = q, .r = r };
+        res[i] = .{ .p = primaryP(sh, rule, i, env), .q = fixedOf(sh.q) orelse 0, .r = 0 };
+    }
+
+    // 3M, which only x86 sets (`setparam-ref.c:1578-1597, 2093-2110`): the
+    // header's `p` and `q`, else the real precision's `p` before the AMD
+    // override and rounding, and its header `q`; `x3m` always `q`'s. The
+    // arm64 and mips64 blocks set it under `USE_GEMM3M`, which no
+    // `DYNAMIC_ARCH` build defines there (`kernel/Makefile.L3:28-45`;
+    // `cmake/arch.cmake:132-135` drops mips64's), so 3M stays 0 elsewhere.
+    const names3m = .{ "c3m", "z3m", "x3m" };
+    var res3m: [3]Resolved = @splat(.{ .p = 0, .q = 0, .r = 0 });
+    if (x86) {
+        inline for (.{ "c3m", "z3m" }, 0..) |name, i| {
+            const sh = @field(table, name);
+            res3m[i] = .{ .p = fixedOf(sh.p) orelse res[i].p, .q = fixedOf(sh.q) orelse res[i].q, .r = 0 };
+        }
+        res3m[2] = .{ .p = res[4].p, .q = res[4].q, .r = 0 };
+    }
+
+    if (comptime family == .x86_64) {
+        // AMD parts with AVX-512 run the Skylake-X kernels on other blocking
+        const eq = std.mem.eql;
+        const skx = comptime (eq(u8, core_name, "skylakex") or eq(u8, core_name, "cooperlake") or eq(u8, core_name, "sapphirerapids"));
+        if (skx and env.amd_avx512 and env.l3_kb > 0 and @rem(env.l3_kb, 32768) == 0 and env.l2_kb == 1024) {
+            const pq = [4][2]i32{ .{ 384, 512 }, .{ 512, 512 }, .{ 160, 480 }, .{ 176, 256 } };
+            inline for (0..4) |i| res[i] = .{ .p = pq[i][0], .q = pq[i][1], .r = 0 };
+        }
+    }
+
+    inline for (names, 0..) |name, i| res[i].p = roundUp(res[i].p, @field(table, name).unroll_m);
+    if (x86) {
+        // 3M rounds to its own unroll, else the real one's (`:2163-2183`)
+        const unroll_of = [3]i32{ table.s.unroll_m, table.d.unroll_m, table.q.unroll_m };
+        inline for (names3m, 0..) |name, i| {
+            const um = @field(table, name).unroll_m;
+            res3m[i].p = roundUp(res3m[i].p, if (um > 0) um else unroll_of[i]);
+        }
+    }
+
+    // x86 always derives `r`, the other families take the header's constant
+    inline for (names, 0..) |name, i| {
+        const fixed = if (x86) null else fixedOf(@field(table, name).r);
+        res[i].r = fixed orelse derivedR(res[i].p, res[i].q, elems[i], table);
+    }
+    if (x86) {
+        const elems3m = [3]i64{ 8, 16, 32 };
+        inline for (0..3) |i| res3m[i].r = derivedR(res3m[i].p, res3m[i].q, elems3m[i], table);
     }
 
     // `setparam-ref.c:1099` (`ARCH_MIPS64`), over the header's 8192 or the
@@ -338,20 +382,8 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
         const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
         res[3] = .{ .p = roundUp(set.p, table.z.unroll_m), .q = set.q, .r = set.r };
     }
-    if (comptime family == .x86_64) {
-        // AMD parts with AVX-512 run the Skylake-X kernels on other blocking
-        const eq = std.mem.eql;
-        const skx = comptime (eq(u8, core_name, "skylakex") or eq(u8, core_name, "cooperlake") or eq(u8, core_name, "sapphirerapids"));
-        if (skx and env.amd_avx512 and env.l3_kb > 0 and @rem(env.l3_kb, 32768) == 0 and env.l2_kb == 1024) {
-            const pq = [4][2]i32{ .{ 384, 512 }, .{ 512, 512 }, .{ 160, 480 }, .{ 176, 256 } };
-            inline for (0..4) |i| {
-                res[i].p = pq[i][0];
-                res[i].q = pq[i][1];
-                res[i].r = derivedR(res[i].p, res[i].q, elems[i], table);
-            }
-        }
-    }
     inline for (names, 0..) |name, i| setPrec(vt, name, @field(table, name), res[i]);
+    inline for (names3m, 0..) |name, i| setPrec(vt, name, @field(table, name), res3m[i]);
 
     // half and bfloat16: their headers' `p` and `q`, `r` from the buffer
     inline for (.{ "sh", "b", "sb" }) |name| {
@@ -359,17 +391,6 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
         const p = roundUp(fixedOf(sh.p) orelse 0, sh.unroll_m);
         const q = fixedOf(sh.q) orelse 0;
         setPrec(vt, name, sh, .{ .p = p, .q = q, .r = derivedR(p, q, 4, table) });
-    }
-
-    // 3M: the header's `p` and `q`, else those of the real precision
-    const from = [3]usize{ 0, 1, 4 };
-    const elem_of = [3]usize{ 2, 3, 5 };
-    const unroll_of = [3]i32{ table.s.unroll_m, table.d.unroll_m, table.q.unroll_m };
-    inline for (.{ "c3m", "z3m", "x3m" }, 0..) |name, i| {
-        const sh = @field(table, name);
-        const p = roundUp(fixedOf(sh.p) orelse res[from[i]].p, if (sh.unroll_m > 0) sh.unroll_m else unroll_of[i]);
-        const q = fixedOf(sh.q) orelse res[from[i]].q;
-        setPrec(vt, name, sh, .{ .p = p, .q = q, .r = derivedR(p, q, elems[elem_of[i]], table) });
     }
 }
 
@@ -613,6 +634,46 @@ test "mips64 takes setparam-ref.c's dgemm r of 640 on every core; mips32 keeps i
     // `ARCH_MIPS` has no such block: `r` from the buffer
     installCore(&vt, .mips32, .loongson3r3, .{});
     try std.testing.expectEqual(derivedR(44, 92, 8, tableFor(.mips32, .loongson3r3).?), vt.dgemm_r);
+}
+
+test "x86 3M takes the real precision's p and q where the header has none; xgemm3m always q's" {
+    var vt: Vtable = .{};
+    // no 3M macros: `setparam-ref.c:1582, 1590, 2097, 2105`
+    inline for (.{ .core2, .nehalem }) |c| {
+        installCore(&vt, .x86_64, c, .{ .l2_kb = 4096 });
+        const t = tableFor(.x86_64, c).?;
+        try std.testing.expect(vt.cgemm3m_p > 0);
+        try std.testing.expectEqual(vt.sgemm_p, vt.cgemm3m_p);
+        try std.testing.expectEqual(vt.sgemm_q, vt.cgemm3m_q);
+        try std.testing.expectEqual(derivedR(vt.cgemm3m_p, vt.cgemm3m_q, 8, t), vt.cgemm3m_r);
+        try std.testing.expectEqual(vt.dgemm_p, vt.zgemm3m_p);
+        try std.testing.expectEqual(vt.dgemm_q, vt.zgemm3m_q);
+        try std.testing.expectEqual(derivedR(vt.zgemm3m_p, vt.zgemm3m_q, 16, t), vt.zgemm3m_r);
+    }
+    // the header's 320 and 320 stand; `x3m` takes `q`'s 504 and 128 over the
+    // header's 112 and 224 (`:1597, 2110`)
+    installCore(&vt, .x86_64, .haswell, .{});
+    try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_p);
+    try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_q);
+    try std.testing.expectEqual(@as(i32, 504), vt.xgemm3m_p);
+    try std.testing.expectEqual(@as(i32, 128), vt.xgemm3m_q);
+    // the AMD override moves `s`, not the header's 3M
+    installCore(&vt, .x86_64, .skylakex, .{ .amd_avx512 = true, .l2_kb = 1024, .l3_kb = 32768 });
+    try std.testing.expectEqual(@as(i32, 384), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_p);
+}
+
+test "3M stays 0 outside x86, as no DYNAMIC_ARCH build there defines USE_GEMM3M" {
+    var vt: Vtable = .{};
+    inline for (.{
+        .{ .arm64, .neoversen1 }, .{ .mips64, .loongson3r4 }, .{ .riscv64, .riscv64_generic },
+        .{ .power64, .power9 },   .{ .s390x, .z14 },          .{ .loongarch64, .la464 },
+    }) |c| {
+        installCore(&vt, c[0], c[1], .{});
+        inline for (.{ "c", "z", "x" }) |pre| {
+            inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, pre ++ "gemm3m" ++ f));
+        }
+    }
 }
 
 test "old x86 cores follow the L2 size" {
