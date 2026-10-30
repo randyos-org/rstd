@@ -93,7 +93,9 @@ pub const Table = struct {
     /// (`common_sparc.h:240`); 64 MiB on mips64 (`common_mips64.h:254`); 256 MiB
     /// on every POWER core (`common_power.h:923-926`, over the static 2 to 256
     /// MiB of `:914-922`); 16 MiB on x86 (`common_x86.h:207`) and wasm
-    /// (`common_wasm.h:87`).
+    /// (`common_wasm.h:87`). The generic table takes the target's
+    /// (`native_buffer_size`): 32 MiB on Alpha (`common_alpha.h:128`) and C-SKY
+    /// (`common_csky.h:53`).
     buffer_size: i64,
 };
 
@@ -454,14 +456,56 @@ pub fn dtbFor(comptime family: Family, core: CoreOf(family)) i32 {
     };
 }
 
+/// The family a target's `cpu/<arch>.zig` installs.
+fn familyOf(arch: std.Target.Cpu.Arch, ptr_bits: u16) Family {
+    return switch (arch) {
+        .x86_64 => .x86_64,
+        .x86 => .x86,
+        .aarch64, .aarch64_be => .arm64,
+        .arm, .armeb, .thumb, .thumbeb => .arm,
+        .powerpc64le => .power64,
+        .powerpc64 => .power64be,
+        .powerpcle => .power32le,
+        .powerpc => .power32,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => .riscv64,
+        .s390x => .s390x,
+        .mips, .mipsel, .mips64, .mips64el => if (ptr_bits == 64) .mips64 else .mips32,
+        .loongarch32, .loongarch64 => .loongarch64,
+        .sparc, .sparc64 => .sparc,
+        .wasm32, .wasm64 => .wasm,
+        else => .generic,
+    };
+}
+
+/// `BUFFER_SIZE` of the generic table on a target: its own, since OpenBLAS's
+/// generic target sees its architecture's `common_<arch>.h` like any build.
+/// Alpha and C-SKY have a header but no family; other architectures have no
+/// OpenBLAS port and keep the generic family's x86_64 stand-in.
+fn genericBufferSize(arch: std.Target.Cpu.Arch, ptr_bits: u16) i64 {
+    return switch (arch) {
+        .alpha => data.alpha_buffer_size,
+        .csky => data.csky_buffer_size,
+        else => switch (familyOf(arch, ptr_bits)) {
+            inline else => |f| @field(data, @tagName(f) ++ "_buffer_size"),
+        },
+    };
+}
+
+/// The generic table's `BUFFER_SIZE` in this build.
+pub const native_buffer_size = genericBufferSize(sysinfo.target.cpu.arch, sysinfo.target.ptrBitWidth());
+
 /// Installs the parameters of `core`. A core `param.h` has no blocking for takes
 /// the generic set and its rule, as OpenBLAS's generic target does, with its
-/// family's `BUFFER_SIZE`.
+/// family's `BUFFER_SIZE`; the generic family takes the target's.
 pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), env: Env) void {
     switch (core) {
         inline else => |c| {
             defer vt.dtb_entries = dtbFor(family, c);
-            if (tableFor(family, c)) |table| {
+            if (comptime family == .generic) {
+                var table = data.generic(c).?;
+                table.buffer_size = native_buffer_size;
+                install(vt, .generic, @tagName(c), table, env);
+            } else if (tableFor(family, c)) |table| {
                 install(vt, family, @tagName(c), table, env);
             } else {
                 var table = data.generic(.generic).?;
@@ -612,7 +656,7 @@ test "generic follows the GENERIC rule for a 512 KB L2" {
     try std.testing.expectEqual(@as(i32, 112), vt.zgemm_p);
     try std.testing.expectEqual(@as(i32, 128), vt.dgemm_q);
     const packed_a: i64 = (448 * 128 * 4 + 0xffff) & ~@as(i64, 0xffff);
-    const want: i64 = (@divTrunc(data.generic_buffer_size - packed_a, 128 * 4) - 15) & ~@as(i64, 15);
+    const want: i64 = (@divTrunc(native_buffer_size - packed_a, 128 * 4) - 15) & ~@as(i64, 15);
     try std.testing.expectEqual(@as(i32, @intCast(want)), vt.sgemm_r);
 }
 
@@ -645,6 +689,15 @@ test "r derives from the core's own BUFFER_SIZE, a fallback from its family's" {
     var g = data.generic(.generic).?;
     g.buffer_size = 16 * mib;
     try std.testing.expectEqual(derivedR(vt.sgemm_p, vt.sgemm_q, 4, g), vt.sgemm_r);
+}
+
+test "the generic table takes the target's BUFFER_SIZE" {
+    const mib: i64 = 1 << 20;
+    inline for (.{
+        .{ .x86_64, 64, 128 }, .{ .x86, 32, 16 },     .{ .aarch64, 64, 32 }, .{ .arm, 32, 32 },
+        .{ .powerpc, 32, 256 }, .{ .sparc64, 64, 32 }, .{ .mips64el, 64, 64 }, .{ .mips64el, 32, 32 },
+        .{ .wasm32, 32, 16 },   .{ .alpha, 64, 32 },   .{ .csky, 32, 32 },    .{ .m68k, 32, 128 },
+    }) |c| try std.testing.expectEqual(c[2] * mib, genericBufferSize(c[0], c[1]));
 }
 
 test "fixed sets are taken as they are; x86 derives r, others keep the header's" {

@@ -2757,3 +2757,9 @@ pub fn generic_dtb(core: coretypes.GenericCoreType) ?i32 {
         .generic => 128,
     };
 }
+
+/// `BUFFER_SIZE` on alpha, which takes the generic family.
+pub const alpha_buffer_size: i64 = 33554432;
+
+/// `BUFFER_SIZE` on csky, which takes the generic family.
+pub const csky_buffer_size: i64 = 33554432;

@@ -12,7 +12,8 @@
 //! `sgemm_r`, which `driver/others/parameter.c` fills in) prints as -1 and
 //! becomes `.dynamic` / `.from_buffer`. The rules for the dynamic ones are in
 //! `params.zig`, not here. Each table also takes the `BUFFER_SIZE` its core's
-//! build sees in `common_<arch>.h`, preprocessed with the same macros.
+//! build sees in `common_<arch>.h`, preprocessed with the same macros; the
+//! generic table's is replaced by the target's own (`params.native_buffer_size`).
 
 const std = @import("std");
 const Io = std.Io;
@@ -55,6 +56,15 @@ const families = [_]Family{
     .{ .name = "sparc", .core_type = "SparcCoreType", .target = "sparc-linux-gnu", .defines = &.{ "-DARCH_SPARC", "-DBINARY32", "-D__32BIT__" } },
     .{ .name = "wasm", .core_type = "WasmCoreType", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_WASM", "-DBINARY32", "-D__32BIT__" } },
     .{ .name = "generic", .core_type = "GenericCoreType", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_X86_64", "-DBINARY64", "-D__64BIT__" } },
+};
+
+/// Architectures with a `common_<arch>.h` but no family here: Zig's targets
+/// take the generic family on them, and only `BUFFER_SIZE` is extracted.
+/// Preprocessed for x86_64, which Zig's C frontend has; neither header's
+/// `BUFFER_SIZE` depends on a target macro.
+const generic_archs = [_]Family{
+    .{ .name = "alpha", .core_type = "", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_ALPHA", "-DBINARY64", "-D__64BIT__" } },
+    .{ .name = "csky", .core_type = "", .target = "x86_64-linux-gnu", .defines = &.{ "-DARCH_CSKY", "-DBINARY32", "-D__32BIT__" } },
 };
 
 const probe_head =
@@ -447,6 +457,10 @@ pub fn main(init: std.process.Init) !void {
         try writeProngs(a, &out, names, table_vals);
         try out.appendSlice(a, "    };\n}\n\n");
         try out.appendSlice(a, dtb.items);
+    }
+
+    for (generic_archs) |fam| {
+        try out.print(a, "/// `BUFFER_SIZE` on {s}, which takes the generic family.\npub const {s}_buffer_size: i64 = {d};\n\n", .{ fam.name, fam.name, try bufferSize(a, io, checkout, fam, &.{}) });
     }
 
     const dest = "src/linalg/blas/blas3/gemm/params_data.zig";

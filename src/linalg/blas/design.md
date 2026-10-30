@@ -647,6 +647,14 @@ complex, for every float type, through the same code.
   The packing buffer each core's `r` derives from is its `BUFFER_SIZE` (`common_<arch>.h`),
   preprocessed with `-DDYNAMIC_ARCH` like the kernels (Preprocessing, below), so every POWER
   core takes the dynamic build's 256 MiB (`common_power.h:923-926`), not its static size.
+  The generic table (the portable vtable on every target, and the generic family, Zig's
+  architectures with no detector) takes the target's own `BUFFER_SIZE`, as OpenBLAS's generic
+  target sees its architecture's header: 16 MiB on x86 (`common_x86.h:207`), 32 MiB on arm and
+  arm64 (`common_arm.h:141`, `common_arm64.h:183`), 256 MiB on POWER, and so on (T112). Its
+  extracted 128 MiB (`common_x86_64.h:260`) was right on x86_64 only. Alpha and C-SKY have
+  headers but no family (32 MiB, `common_alpha.h:128`, `common_csky.h:53`); architectures
+  OpenBLAS has no port for keep the x86_64 stand-in, whose `parameter.c:451` rule the generic
+  family follows.
   `dtb_entries` per core is `getarch.c`'s `DTB_DEFAULT_ENTRIES`, which `params.zig` also
   extracts into `params_data.zig` (`dtbFor`). A 32-bit family takes `Makefile.system`'s 32-bit
   fallback entries (`Makefile.system:115-158`) (x86's AVX cores Nehalem's, the Bulldozer family and Zen Barcelona's, POWER8
