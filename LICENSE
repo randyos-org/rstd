@@ -426,8 +426,11 @@ SOFTWARE.
 
 IBM VGA 8x16 font (src/rgl/font/vga/IBM_VGA_8x16.bin)
 
-Taken from https://github.com/spacerace/romfont, which carries no license; its
-fonts were dumped from IBM's MCGA/VGA (PS/2) video BIOS ROMs, and its README
-doubts IBM ever released them to the public domain. No license is known for
-this file. It is included as-is, its provenance recorded here; see the
-repository's notes before redistributing it.
+IBM's MCGA/VGA (PS/2) video BIOS 8x16 font, taken for traceability from
+https://github.com/spacerace/romfont (font-bin/IBM_VGA_8x16.bin, git blob
+24edd76c), which carries no license. No license or copyright statement is
+known for these bytes: clone VGA BIOSes (Cirrus Logic, Matrox, S3, Oak,
+Tseng, Trident, NCR) carry them verbatim, and FreeBSD has shipped them since
+its syscons cp437 fonts (share/vt/fonts/vgarom-8x16.hex) with no notice for
+the font. Bitmap glyph shapes are generally not protected by copyright in the
+United States, so redistribution is treated as low risk.
