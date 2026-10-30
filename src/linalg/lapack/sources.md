@@ -111,8 +111,8 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`wip/faer`) | T34 | accuracy tests on `wip/faer` (faer's `test_svd` tolerance); not raced |
-| `gesdd` | T34 | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`wip/faer`) | T34 | accuracy tests on `wip/faer`; not raced |
+| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`faer/svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes (`../blas/issues.md`); not raced |
+| `gesdd` | T34 | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`faer/svd.zig`) | T34 | as `gesvd`; not raced |
 | `gebrd`, `orgbr`, `ormbr` | inside T34 | - | - (not covered) | own, `svd/bidiag.rs` | FLAME `FLA_Bidiag_UT` | FLAME | faer | T34 | with `gesvd` |
 | `bdsqr`, `bdsdc` | inside T34 | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | faer | T34 | with `gesvd` |
 

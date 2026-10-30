@@ -749,11 +749,12 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
 `src/linalg/lapack/` (`rstd.linalg.lapack`) holds LAPACK routines over this BLAS, with its
 conventions: `(allocator, io, T, ...)`, column-major, the letter enums, `xerbla`-named argument
 errors in the reference's order. OpenBLAS's own LAPACK (`lapack/`, `interface/lapack/`) is the
-source where it has a routine; Reference-LAPACK's (`lapack-netlib/SRC/`) where it has none, and
-for the semantics. Where they differ, the reference wins, and the file says so. LAPACK's
-per-core kernels (`laswp_ncopy`, `neg_tcopy`) are vtable slots, so they stay in `blas/` with the
-other kernels; the routines live here and call the BLAS's drivers and table directly, which one
-Zig module allows.
+source where it has a routine; past it, faer's (`faer/`), as the anthology decision (Settled
+decisions) chooses. Reference-LAPACK (`lapack-netlib/SRC/`) gives the semantics: where a
+source differs, the reference wins, and the file says so. LAPACK's per-core kernels
+(`laswp_ncopy`, `neg_tcopy`) are vtable slots, so they stay in `blas/` with the other kernels;
+the routines live here and call the BLAS's drivers and table directly, which one Zig module
+allows.
 
 - **`potrf`** (`cholesky.zig`): `potrf_U_single.c` and `potrf_L_single.c`, the recursive
   blocked factor: blocks of `GEMM_Q` columns, or a quarter of `n` up to `4 * GEMM_Q`
@@ -835,6 +836,33 @@ Zig module allows.
   `getrs_parallel.c` gives each thread a column block.
 - **`gesv`** (`lu.zig`, `interface/lapack/gesv.c`): `getrf`, then `getrs` unless `U` is
   singular, as `xGESV`, both on `gesv`'s thread rule.
+- **faer's routines** (`faer/`): faer v0.24.4 (MIT,
+  <https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), behind Reference-LAPACK's
+  interfaces. Each file
+  ports one faer source and names it: `ops.zig` (a column-major `Mat` view, element
+  arithmetic, and the BLAS calls that replace faer's own `matmul` and triangular kernels: level
+  3 through the drivers on the interface's worker rule, level 1 and 2 through the public
+  routines), `householder.zig` (`householder.rs` and `jacobi.rs`: reflections, their block
+  factors `T = diag(tau) + striu(Vᴴ V)` and block application, real Givens rotations),
+  `qr.zig` (`qr/no_pivoting/factor.rs`, faer's staircase QR), `bidiag.zig`
+  (`svd/bidiag.rs`), `bidiag_svd.zig` (`svd/bidiag_svd.rs`: QR iteration, divide and conquer)
+  and `svd.zig` (`svd/mod.rs`, with `gesvd` and `gesdd`). T111's QR, least squares and
+  eigensolvers add files beside these and reuse them. Faer's `rayon` parallelism becomes
+  rstd's: the fused bidiagonalization pass splits by column chunks (independent columns, so
+  the same bits at any worker count), the products thread inside the BLAS, and divide and
+  conquer's two halves run in turn, as rstd's threading splits flat ranges, not task trees.
+- **`gesvd`, `gesdd`** (`faer/svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
+  `a`, `s`, `o`, `n`), `xerbla` order and scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
+  over faer's SVD: QR first past an aspect ratio of `11 / 6`, then bidiagonalization, then the
+  bidiagonal's SVD by QR iteration (`gesvd`, as the reference's `xBDSQR`) or divide and conquer
+  from 128 up (`gesdd`, as its `xBDSDC`). No `WORK` arguments: the allocator gives workspace.
+  Failure is an error: `NoConvergence` for the reference's `INFO > 0` (without its count, which
+  faer does not keep) and for an infinite `A`, or a NaN for `gesvd`, since faer refuses a
+  bidiagonal that is not finite; `gesdd` returns `InvalidA` for a NaN, the reference's
+  `INFO = -4` (`dgesdd.f:595`). Four fixes to faer, each in [`issues.md`](issues.md): its
+  secular solver can stop far from a root next to a pole, here bisected; reciprocals of
+  denormal norms overflow, here divided by; a zero subproblem's two rows of `U` lack the
+  identity's last 1; and its tall path leaves `U`'s top right block as found, here zeroed.
 - **Not positive definite:** `potrf` returns
   `error.NotPositiveDefinite` and writes the failing minor's order (the reference's `INFO`) to
   an optional `minor: ?*usize`, its last argument, as Zig's diagnostics arguments do; `A` then
@@ -1312,7 +1340,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
-| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`, the thread rules), `lu.zig` (`getrf`, `getrs`, `gesv`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`, the thread rules), `lu.zig` (`getrf`, `getrs`, `gesv`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`); `faer/`, faer's ports: `ops.zig`, `householder.zig`, `qr.zig`, `bidiag.zig`, `bidiag_svd.zig`, `svd.zig` (`gesvd`, `gesdd`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
@@ -1562,6 +1590,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
 | LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS |
+| LAPACK, faer | `../lapack/faer/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases) |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |
@@ -1634,8 +1663,8 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   rejects remain), checks that scalars come back unchanged, row-major CBLAS, `test_fork.c`,
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
 - **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
-  runs through `rstd.linalg.lapack`. Still skipped: the `dgesvd` regression (`utest.zig`),
-  which waits for LAPACK's `gesvd`. `compare.zig` ports `test/compare_sgemv_*.c` and
+  and `test_kernel_regress.c`'s `dgesvd` run through `rstd.linalg.lapack`, the latter's
+  matrix from glibc's `rand` as on OpenBLAS's Linux CI. `compare.zig` ports `test/compare_sgemv_*.c` and
   `compare_sgemm_*.c`: the half routines against `sgemv` and `sgemm` and a plain loop, to order
   256 natively, 24 on the rigs and per core.
 

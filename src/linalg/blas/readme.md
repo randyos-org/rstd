@@ -44,8 +44,9 @@ How the code is structured, and why, is in [`design.md`](design.md).
   included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which
   complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
   write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
-  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Past
-  upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
+  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`; `gesvd` and
+  `gesdd`, ported from faer, which return `error.NoConvergence` for the reference's `INFO > 0`.
+  Past upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
   Accelerate.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, and threading in levels 1 and 2
