@@ -37,7 +37,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `trsm`, real and complex.
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, `bgemv`, `sbgemv`, `shgemv`
   (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
-- **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
+- **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), LAPACK's `laswp`, and the
+  batched gemms (`gemmBatch`, `gemmBatchStrided`, and `gemmHalfBatch`, `gemmHalfBatchStrided`).
 - **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
   `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
   included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which

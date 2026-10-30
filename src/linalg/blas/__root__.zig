@@ -48,6 +48,10 @@ pub const GemvHalfError = l2.HalfError;
 pub const Level3Error = l3.Error;
 /// `gemmtHalf`, which allocates nothing: `Level3Error` less `OutOfMemory`.
 pub const GemmtHalfError = blas3.half.HalfError;
+/// The batched gemms: `Level3Error` and `error.InvalidCount`.
+pub const BatchError = blas3.batch.Error;
+/// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
+pub const GemmGroup = blas3.batch.Group;
 /// The extensions (`geadd`, `omatcopy`, `imatcopy`, `laswp`): bad arguments,
 /// `error.OutOfMemory` (`imatcopy`) or `error.Canceled`.
 pub const ExtError = ext.interface.Error;
@@ -123,6 +127,10 @@ pub const laswp = ext.interface.laswp;
 
 pub const gemmHalf = blas3.half.gemmHalf;
 pub const gemmtHalf = blas3.half.gemmtHalf;
+pub const gemmBatch = blas3.batch.gemmBatch;
+pub const gemmBatchStrided = blas3.batch.gemmBatchStrided;
+pub const gemmHalfBatch = blas3.batch.gemmHalfBatch;
+pub const gemmHalfBatchStrided = blas3.batch.gemmHalfBatchStrided;
 
 // ---- selection and the vtable ----------------------------------------------------
 

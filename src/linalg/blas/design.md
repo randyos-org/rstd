@@ -115,6 +115,7 @@ The routines are Zig functions over column-major data, in the Fortran argument o
 | 2 | `blas2/banded.zig` | `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `syr`, `hpr`, `her`, `spr2`, `syr2`, `hpr2`, `her2` |
 | 3 | `blas3/interface.zig` | `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`, `trsm` |
 | 3 | `blas3/half.zig` | `gemmHalf`, `gemmtHalf` |
+| 3 | `blas3/batch.zig` | `gemmBatch`, `gemmBatchStrided`, `gemmHalfBatch`, `gemmHalfBatchStrided` |
 | extensions | `ext/interface.zig` | `geadd`, `omatcopy`, `imatcopy`, `laswp` |
 
 Conventions shared by every interface:
@@ -732,6 +733,13 @@ upstream converts no assembly for these slots, only C and intrinsics (NEON, RVV,
 - **`gemmt`**: upstream takes a `gemv` per column, and for `r` and `c` conjugates the caller's
   `B` in place and back (`interface/gemmt.c:495`, `:697`, the `gemv` at `:569`; `issues.md`). Here it is `gemm`'s operands over `syrk`'s triangle in
   the level-3 driver (`driver.gemmt`), and `B` is only read.
+- **Batched `gemm`** (`blas3/batch.zig`; `interface/gemm_batch.c`, `gemm_batch_strided.c`):
+  groups of problems sharing sizes and scalars (a `GemmGroup` holds slices of operand pointers;
+  unequal lengths are `InvalidCount`), or one problem at fixed strides. Every group is checked
+  before any runs, as upstream. Upstream hands whole problems to threads and takes its
+  small-matrix kernels up to `100^3`; here they run in order through `gemm` or `gemmHalf`, each
+  threading as usual, with the same bits. Upstream has `sbgemm`'s batches; `bgemm`'s and
+  `shgemm`'s come with the same code.
 - **Accelerate**: none of these is routed; Accelerate's CBLAS has no column-major equivalent of
   them (its `appleblas_?geadd` takes three matrices, `const` `A` and `B` and a written `C`;
   <https://developer.apple.com/documentation/accelerate/appleblas_dgeadd(_:_:_:_:_:_:_:_:_:_:_:_:_:)>).

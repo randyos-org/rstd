@@ -12,6 +12,8 @@ pub const hemm = @import("hemm/__root__.zig");
 pub const hemm3m = @import("hemm3m/__root__.zig");
 /// `sbgemm`, `bgemm`, `shgemm` and `sbgemmt`.
 pub const half = @import("half.zig");
+/// `?gemm_batch` and `?gemm_batch_strided`, the half gemms' too.
+pub const batch = @import("batch.zig");
 pub const interface = @import("interface.zig");
 pub const driver = @import("driver.zig");
 pub const symm = @import("symm/__root__.zig");
