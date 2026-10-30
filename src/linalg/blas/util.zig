@@ -28,6 +28,33 @@ pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
     return @ptrFromInt(new_addr);
 }
 
+/// `@abs(v)` of a float or float vector; on MIPS MSA by clearing the sign
+/// bits with a mask LLVM cannot see is one: there it takes `fmax_a.df v, v, v`
+/// for a vector `@abs`, a plain mask, or scalar ones it packs, which keeps
+/// the sign (`issues.md`); MSA has no other float lanes than `f32`, `f64`.
+/// Use it wherever an MSA build may vectorize `|x|`.
+pub fn abs(v: anytype) @TypeOf(v) {
+    const T = @TypeOf(v);
+    const F = if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T;
+    if (comptime !msa or (F != f32 and F != f64)) return @abs(v);
+    const lanes = comptime if (@typeInfo(T) == .vector) @typeInfo(T).vector.len else 1;
+    const words = @sizeOf(F) / 4;
+    const n = lanes * words;
+    const k = asm (""
+        : [k] "=r" (-> u32),
+        : [x] "0" (@as(u32, 0x7fff_ffff)),
+    );
+    // the sign's word of each float: its last, or on big-endian its first
+    const top = comptime if (sysinfo.target.cpu.arch.endian() == .little) words - 1 else 0;
+    var mask: [n]u32 = @splat(0xffff_ffff);
+    inline for (0..n) |i| {
+        if (i % words == top) mask[i] = k;
+    }
+    return @bitCast(@as(@Vector(n, u32), @bitCast(v)) & @as(@Vector(n, u32), mask));
+}
+
+const msa = sysinfo.target.cpu.arch.isMIPS() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
+
 /// The symbol of `core`'s kernel for `slot` (`blaskern_daxpy_k_haswell`). The
 /// per-core objects (`build/blaskern.zig`) export it, with hidden visibility so it
 /// never leaves a shared library rstd is built into, and `kernels/<arch>.zig`'s

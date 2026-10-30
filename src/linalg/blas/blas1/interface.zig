@@ -387,7 +387,7 @@ pub fn extreme(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [
     if (n <= 0) return 0;
     try spanX(T, n, incx);
     if (incx == 0) {
-        if (comptime isComplex(T)) return @abs(x[0].re) + @abs(x[0].im);
+        if (comptime isComplex(T)) return util.abs(x[0].re) + util.abs(x[0].im);
         return if (which == .amax or which == .amin) @abs(x[0]) else x[0];
     }
     const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
@@ -424,7 +424,7 @@ fn Best(comptime T: type, comptime which: Extreme) type {
         }
 
         fn of(v: T, at: isize) Pick {
-            if (comptime isComplex(T)) return .{ .at = at, .key = @abs(v.re) + @abs(v.im), .q = @abs(v.re) / 4 + @abs(v.im) / 4 };
+            if (comptime isComplex(T)) return .{ .at = at, .key = util.abs(v.re) + util.abs(v.im), .q = util.abs(v.re) / 4 + util.abs(v.im) / 4 };
             const k = if (which == .amax or which == .amin) @abs(v) else v;
             return .{ .at = at, .key = k, .q = k };
         }
@@ -854,7 +854,7 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 /// not the modulus. Any complex type; infinite where the sum overflows.
 pub fn cabs1(comptime T: type, z: T) Float(T) {
     if (comptime !isComplex(T)) @compileError("cabs1: " ++ @typeName(T) ++ " is not complex");
-    return @abs(z.re) + @abs(z.im);
+    return util.abs(z.re) + util.abs(z.im);
 }
 
 // ---- tests -------------------------------------------------------------------

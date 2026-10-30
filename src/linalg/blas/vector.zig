@@ -37,30 +37,7 @@ inline fn at(comptime F: type, p: [*]F, i: BlasLong) *F {
     return util.at(F, p, i);
 }
 
-/// `@abs(v)`; on MIPS MSA by clearing the sign bits with a mask LLVM cannot
-/// see is one: there it takes `fmax_a.df v, v, v` for a vector `@abs`, or
-/// a plain mask, or scalar ones it vectorizes, which QEMU computes as `v`
-/// (`issues.md`).
-fn abs(v: anytype) @TypeOf(v) {
-    const T = @TypeOf(v);
-    if (comptime !msa) return @abs(v);
-    const lanes_ = comptime if (@typeInfo(T) == .vector) @typeInfo(T).vector.len else 1;
-    const words = comptime @sizeOf(if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T) / 4;
-    const n = lanes_ * words;
-    const k = asm (""
-        : [k] "=r" (-> u32),
-        : [x] "0" (@as(u32, 0x7fff_ffff)),
-    );
-    // the sign's word of each float: its last, or on big-endian its first
-    const top = comptime if (sysinfo.target.cpu.arch.endian() == .little) words - 1 else 0;
-    var mask: [n]u32 = @splat(0xffff_ffff);
-    inline for (0..n) |i| {
-        if (i % words == top) mask[i] = k;
-    }
-    return @bitCast(@as(@Vector(n, u32), @bitCast(v)) & @as(@Vector(n, u32), mask));
-}
-
-const msa = sysinfo.target.cpu.arch.isMIPS() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
+const abs = util.abs;
 
 /// `a*b + c`, fused where the hardware has an FMA unit (and `fma.compiles`);
 /// elsewhere rounded twice, as `@mulAdd` there is a software `fma` call per

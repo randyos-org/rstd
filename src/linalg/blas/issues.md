@@ -684,10 +684,14 @@ When an issue is fixed upstream, drop the workaround and its entry.
   lost. A plain sign mask (`and` with `0x7fffffff`) folds back into `fabs`
   and the same `fmax_a`, as do scalar `@abs`es the SLP vectorizer packs
   (the complex extremes' `|re| + |im|`). Release 5 and 6, `f32` and `f64`.
-- **Workaround:** `vector.zig`'s `abs` clears the sign bits with a mask
-  whose word passes through an empty `asm`, so LLVM cannot see it is one
-  (`and.v`); only on MSA. Code elsewhere in an MSA object that `@abs`es
-  vectors, or scalars LLVM may pack, is exposed too; the rigs show none.
+- **Workaround:** `util.abs` clears the sign bits with a mask whose word
+  passes through an empty `asm`, so LLVM cannot see it is one (`and.v`);
+  only on MSA. `vector.zig` takes it, as do the complex extremes' keys
+  (`extremum.zig`, `interface.zig`'s `extreme` and `cabs1`) and the
+  from-OpenBLAS tests' `abs1`. T89 compiled the kernel objects of every
+  MSA core and the BLAS tests for an MSA target CPU (`i6400`,
+  `mips64r5+msa`, `p5600+msa`): the only other `fmax_a` were
+  `extreme`'s `incx == 0` complex key (R6) and `abs1` (packed by SLP).
 - **Issue text:**
 
   > **[Mips] MSA: `fabs` on vectors selects `fmax_a.df`, which returns

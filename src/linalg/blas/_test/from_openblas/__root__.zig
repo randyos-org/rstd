@@ -29,6 +29,7 @@ const types = @import("../../types.zig");
 const check = @import("../blas1/check.zig");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
+const util = @import("../../util.zig");
 
 pub const Float = types.Float;
 pub const isComplex = types.isComplex;
@@ -93,7 +94,7 @@ pub fn conj(a: anytype) @TypeOf(a) {
 
 /// `|re| + |im|`, the Fortran's `ABS1`; `|v|` for a real `v`.
 pub fn abs1(v: anytype) Float(@TypeOf(v)) {
-    return if (comptime isComplex(@TypeOf(v))) @abs(v.re) + @abs(v.im) else @abs(v);
+    return if (comptime isComplex(@TypeOf(v))) util.abs(v.re) + util.abs(v.im) else util.abs(v);
 }
 
 /// The modulus, the Fortran's `ABS`.
