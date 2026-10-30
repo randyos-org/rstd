@@ -425,21 +425,22 @@ fn transPairs(comptime T: type) []const [2]types.Trans {
 /// `Q`'s slices, which must not follow the worker count (threading.md,
 /// Guardrails).
 const Depths = struct {
-    var seen: [4]std.atomic.Value(u64) = @splat(.init(0));
+    // 32-bit words: 32-bit targets may lack 64-bit atomics (powerpc-power9)
+    var seen: [8]std.atomic.Value(u32) = @splat(.init(0));
 
     fn note(k: types.BlasLong) void {
         const d: usize = @intCast(std.math.clamp(k, 0, 255));
-        _ = seen[d / 64].fetchOr(@as(u64, 1) << @intCast(d % 64), .monotonic);
+        _ = seen[d / 32].fetchOr(@as(u32, 1) << @intCast(d % 32), .monotonic);
     }
 
     /// Whether the depths seen since the last `take` are `want`; clears them.
-    fn same(want: [4]u64) bool {
-        return std.mem.eql(u64, &want, &take());
+    fn same(want: [8]u32) bool {
+        return std.mem.eql(u32, &want, &take());
     }
 
     /// The depths seen since the last `take`.
-    fn take() [4]u64 {
-        var out: [4]u64 = undefined;
+    fn take() [8]u32 {
+        var out: [8]u32 = undefined;
         for (&seen, &out) |*s, *o| o.* = s.swap(0, .monotonic);
         return out;
     }
