@@ -195,6 +195,22 @@ const machines = [_]Machine{
         },
     },
     .{
+        // `riscv64` at VLEN 128 and 256: `zvl128b`'s VLEN-agnostic kernels on
+        // the hardware they are named for
+        .name = "riscv64-vlen128",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
+        .qemu = "qemu-system-riscv64",
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=128", "-smp", "1", "-bios", "none" },
+        .boot = .{ .kernel = .{ .linker_script = "test/qemu/riscv64.ld", .code_model = .medany } },
+    },
+    .{
+        .name = "riscv64-vlen256",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
+        .qemu = "qemu-system-riscv64",
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=256", "-smp", "1", "-bios", "none" },
+        .boot = .{ .kernel = .{ .linker_script = "test/qemu/riscv64.ld", .code_model = .medany } },
+    },
+    .{
         .name = "loongarch64",
         .query = .{ .cpu_arch = .loongarch64, .os_tag = .freestanding, .cpu_model = .baseline },
         .qemu = "qemu-system-loongarch64",

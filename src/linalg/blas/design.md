@@ -1525,6 +1525,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
+| `riscv64-vlen128`, `riscv64-vlen256` | `rv64,v=true,vlen=128`, `256` | `zvl128b`'s VLEN-agnostic kernels at the VLENs it serves (`zvl256b` has no object of its own) |
 | `loongarch64` | `la464` | |
 | `mips64r2el` | `Loongson-3A4000` | MSA, which the boot turns on: the `loongson3r4` core's kernels (QEMU v10.1.0 `target/mips/cpu-defs.c.inc` sets `CP0C3_MSAP` for it, `I6400` and `P5600`, not `Loongson-3A1000` or `24Kf`) |
 | `mips64r2` | `Loongson-3A1000` | big-endian, no MSA |
