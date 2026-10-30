@@ -256,6 +256,13 @@ column panels) and `gemm_thread_m` (right side, row panels) do, and as BLIS spli
 rows, each a serial solve or product on packing space of its own. Nothing waits, so the parts
 run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
 
+The half gemms (`sbgemm`, `bgemm`, `shgemm`, `blas3/half.zig`) split `C` the same way: column
+ranges (row ranges for a tall `C`) starting on a panel, each a serial problem on its own packing
+space, through `forEach`, at `gemm`'s default rule (upstream keeps the half types off its
+per-core tables). Their kernels do the same arithmetic for an element wherever its tile falls,
+and the depth slices are the serial ones, so the bits match the serial path. `gemmtHalf` stays
+serial, as the half `gemv`s are.
+
 ### LAPACK
 
 The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface

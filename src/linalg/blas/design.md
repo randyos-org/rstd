@@ -114,13 +114,14 @@ The routines are Zig functions over column-major data, in the Fortran argument o
 | 2 | `blas2/triangular.zig` | `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv` |
 | 2 | `blas2/banded.zig` | `gbmv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `spr`, `syr`, `hpr`, `her`, `spr2`, `syr2`, `hpr2`, `her2` |
 | 3 | `blas3/interface.zig` | `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`, `trsm` |
+| 3 | `blas3/half.zig` | `gemmHalf`, `gemmtHalf` |
 | extensions | `ext/interface.zig` | `geadd`, `omatcopy`, `imatcopy`, `laswp` |
 
 Conventions shared by every interface:
 
 - **Element type.** `T` is a comptime parameter: any float type or its `std.math.Complex`
   (`types.Float(T)` must be a float). `BF16` and the mixed half routines have their own entry
-  points (`sbdot`, `bscal`, `gemvHalf`).
+  points (`sbdot`, `bscal`, `gemvHalf`, `gemmHalf`, `gemmtHalf`).
 - **Sizes.** Sizes, strides and leading dimensions are `isize`, not the reference's Fortran
   `INTEGER` (`blasint`), since there is no Fortran ABI; `types.BlasLong`, the kernels' index
   type, is `isize` too.
@@ -661,8 +662,8 @@ complex, for every float type, through the same code.
   to 10 POWER6's), as do the 32-bit x86 kernels' `config.h` macros; POWER's tables also follow
   the byte order (`PPC970`'s unrolls).
 - **Not ported.** `gemm3m`, `symm3m`, `hemm3m` (their slots and wrappers exist), the
-  small-matrix kernels, bfloat16 and half-precision level 3, and `level3_thread.c`: level 3
-  threads by BLIS's ways instead ([`threading.md`](threading.md)).
+  small-matrix kernels (`sbgemm`'s included), and `level3_thread.c`: level 3 threads by BLIS's
+  ways instead ([`threading.md`](threading.md)).
 
 [`blas3/gemm/notes.md`](blas3/gemm/notes.md) has the tile measurements and code generation notes
 behind these choices; [`comparisons.md`](comparisons.md) (7, 9, 10) the open performance and
@@ -670,8 +671,9 @@ robustness questions (fusing `beta`, `trsm`'s inverted diagonal, prefetch).
 
 ### bfloat16 and half precision
 
-The kernels are `ext/bf16/kernel.zig`: the conversions, `bscal`, `sbdot` and the
-`bgemv`/`sbgemv`/`shgemv` family. They are portable Zig, the same on every core; no core
+The kernels are `ext/bf16/kernel.zig`: the conversions, `bscal`, `sbdot`, the
+`bgemv`/`sbgemv`/`shgemv` family and the `bgemm`/`sbgemm`/`shgemm` one. They are portable Zig,
+the same on every core; no core
 installs a kernel of its own for any of them, and the per-core sources the reference selects
 (AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA, RVV) are not ported. Every bfloat16 conversion
 upstream is `kernel/x86_64/tobf16.c` and `bf16to.c` (`kernel/Makefile.L1:311`, `:315`); the AVX-512 BF16 microkernels give the same
@@ -683,6 +685,21 @@ positionally, `setparam-ref.c:107-111` against `common_param.h:86-108`), which
 the level-1 interfaces reach, and `sbtrsm_*`, `sbtrmm_*`, `sbsymm_*`, `sbneg_tcopy` and
 `sblaswp_ncopy`, which nothing calls yet. `portable.finish` sets them at the end of every
 vtable's build.
+
+The half gemms (`blas3/half.zig`) are `interface/gemm.c` built `BFLOAT16`, `BGEMM` and
+`HFLOAT16` over `level3.c`'s loops, for one type of `A` and `B` and another of `C`; the
+`driver.zig` loops take one type, so `half.zig` has its own copy of them, which uses `driver.zig`'s
+`Blocking` and `Work`. The kernels port `kernel/generic/gemmkernel_2x2.c`, `gemm_beta.c` and the
+`ncopy`/`tcopy` packing (`Makefile.L3:190-243`) over the `f32` gemm tile; each element's
+arithmetic is the same in every lane and tile, so threads split `C` by columns (rows for a tall
+one) into problems of their own, each on its own packing space, and get the serial bits. Blocking
+is the core's `sb`, `b` and `sh` sizes (`params.zig`), with `Blocking.of`'s fallbacks where its
+family sets none; the unrolls are the portable kernels' (`settleGemm`), and `align_k` is unused,
+since the portable packing needs no padding. `gemmtHalf` is `interface/sbgemmt.c`: a half `gemv`
+per column of the triangle, serial, for all three types (upstream exports `sbgemmt` only).
+Upstream compares the bfloat16 scalars by their bits; rstd by value ([`issues.md`](issues.md)).
+The `sbgemm` small-matrix slots stay null (T30's small-matrix path), and the AVX-512 BF16, AMX,
+NEON, SVE and MMA kernels are T29 and T31.
 
 Their numerical behavior is in [`readme.md`](readme.md#bfloat16-and-half-precision).
 
@@ -1610,8 +1627,7 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
 - **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
   runs through `rstd.linalg.lapack`. Still skipped: the `dgesvd` regression (`utest.zig`),
-  which waits for LAPACK's `gesvd`, and `bgemm` in `utest_ext.zig`, which waits for bfloat16
-  level 3.
+  which waits for LAPACK's `gesvd`.
 
 ### Rigs
 
@@ -1724,10 +1740,9 @@ Rig mechanics:
 1. **Threading** of levels 1 and 2 ([`threading.md`](threading.md)'s plan); level 3 threads.
 2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
-3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 and
-   half-precision level 3.
-4. **Extensions.** Landed ([below](#extensions)) but `bgemm`, which comes with bfloat16 level
-   3 (3).
+3. **Remaining level 3.** `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels; bfloat16 and
+   half-precision level 3 landed (`blas3/half.zig`).
+4. **Extensions.** Landed ([below](#extensions)), `bgemm` with the half gemms.
 5. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
    [`comparisons.md`](comparisons.md)'s recommendations, and convert assembly where `@Vector`
    cannot reach: arm64 SVE, POWER10 MMA, AMX and AVX-512 BF16 for `sbgemm`, and Skylake-X only

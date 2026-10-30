@@ -35,7 +35,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
   transposed (`HEMVREV`) triangles.
 - **Level 3:** `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`,
   `trsm`, real and complex.
-- **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.
+- **bfloat16 and half:** `sbdot`, `bscal`, the conversions, `bgemv`, `sbgemv`, `shgemv`
+  (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
 - **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
   `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
@@ -46,8 +47,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
   upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
   Accelerate.
 
-Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
-`sbgemm`), and threading in levels 1 and 2 ([`threading.md`](threading.md)).
+Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, and threading in levels 1 and 2
+([`threading.md`](threading.md)).
 
 ### Targets
 
@@ -221,6 +222,16 @@ The kernels are portable Zig, the same on every core.
   is read down its columns. For `bgemv` the scalars and `y` are bfloat16. Arguments are checked
   as `interface/sbgemv.c` does; `alpha == 0` only scales `y` by `beta`. With `m` or `n` zero the
   kernel yields `beta*y`; the interface returns first.
+- **Half `gemm`** (`gemmHalf`: `sbgemm`, `bgemm`, `shgemm`): each element sums `a*b` in `f32` in
+  depth order, unfused, over each depth slice of the blocking, and adds `alpha` times that sum to
+  `C`, rounded once per slice; for `bgemm`, whose `C` and scalars are bfloat16, `C` is rounded to
+  bfloat16 after every slice, as upstream's kernel stores it, so its bits follow the core's `Q`.
+  `C` is scaled by `beta` first (a zero `beta` never reads it); a zero `alpha` or `k` reads neither
+  `A` nor `B`. The scalars count by value, where upstream compares bfloat16 bits
+  ([`issues.md`](issues.md)). The bits do not depend on the thread count.
+- **`gemmtHalf`** (`sbgemmt`, and the same for the other two types): a half `gemv` per column of
+  the triangle, so each element rounds as `gemvHalf`'s; a zero `alpha` or `k` only scales the
+  triangle by `beta`.
 - `sbdot` and the others return at once for `n <= 0`.
 
 ## Apple Accelerate

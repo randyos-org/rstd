@@ -1859,6 +1859,27 @@ multiply by `(1, 0)` themselves:
   `alpha == 1`, as the real kernels have, would fix all three; `gemmt` could
   also pass the conjugation to its `gemv` instead of writing `B`."
 
+### `bgemm`: bfloat16 scalars compared by their bits, and `beta` truncated
+
+Built `BGEMM`, `FLOAT` is `bfloat16`, a `uint16_t` (`common.h:285, 340-341`),
+so the float tests on the scalars compare bits: `driver/level3/level3.c`'s
+`alpha[0] == ZERO` holds only for +0 and `beta[0] != ONE` always holds, and
+`kernel/generic/gemm_beta.c`'s `beta == ZERO` only for +0. A `-0` `alpha`
+reads `A` and `B` (a NaN there reaches `C`), a `-0` `beta` multiplies (an
+infinite `C` turns NaN), and `beta` 1 multiplies every element. That beta
+kernel also narrows by taking the high half of the `f32` bits
+(`f32tobfloat16`), a truncation, where the gemm kernel and every other
+bfloat16 store round to nearest (`sbstobf16_`).
+
+- **Workaround:** rstd tests the scalars by value, as its `gemvHalf` does, and
+  its beta kernel rounds (`blas3/half.zig`, `ext/bf16/kernel.zig`).
+- **Issue text:** "`bgemm` compares its bfloat16 `alpha` and `beta` as integers
+  (`FLOAT` is `uint16_t`): `alpha == 0` and `beta == 0` miss `-0`, and `beta
+  != 1` is always true, so `beta` 1 still rewrites `C`. `gemm_beta.c`'s
+  bfloat16 path also truncates `beta*C` to bfloat16 instead of rounding as
+  `sbstobf16` and the kernels do. Widening the scalars with `sbf16tos` before
+  the tests, and rounding the product, would fix both."
+
 ### `potrf` reports success on a NaN pivot
 
 `lapack/potf2/potf2_[UL].c` and `zpotf2_[UL].c`, which

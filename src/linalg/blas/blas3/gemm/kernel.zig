@@ -209,7 +209,7 @@ pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes
 /// Packs `n` lines of depth `m` of elements `E` in panels of `u`. `across`:
 /// line `j` is element `j` of each of `m` rows `lda` apart (`tcopy`); else it
 /// is column `j`, `lda` apart (`ncopy`).
-fn pack(comptime E: type, comptime u: usize, comptime across: bool, m: BlasLong, n: BlasLong, a: [*]const E, lda: BlasLong, b: [*]E) void {
+pub fn pack(comptime E: type, comptime u: usize, comptime across: bool, m: BlasLong, n: BlasLong, a: [*]const E, lda: BlasLong, b: [*]E) void {
     const depth: usize = @intCast(m);
     const lines: usize = @intCast(n);
     const ld: usize = @intCast(lda);

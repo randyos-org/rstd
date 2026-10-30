@@ -1,6 +1,7 @@
-//! The bfloat16 and half-precision kernels: the conversions, `bscal`, `sbdot`
-//! and the `bgemv`/`sbgemv`/`shgemv` family. Nothing here depends on the BLAS
-//! root, so the per-core kernel objects (`_kernel.zig`) can use it too.
+//! The bfloat16 and half-precision kernels: the conversions, `bscal`, `sbdot`,
+//! the `bgemv`/`sbgemv`/`shgemv` family and the `bgemm`/`sbgemm`/`shgemm`
+//! one. Nothing here depends on the BLAS root, so the per-core kernel
+//! objects (`_kernel.zig`) can use it too.
 //!
 //! Every bfloat16 conversion, on every core, is `kernel/x86_64/{tobf16,bf16to}.c`
 //! (`Makefile.L1` selects them for all architectures; only the AVX-512 BF16
@@ -17,6 +18,7 @@ const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
+const gemm_kernels = @import("../../blas3/gemm/kernel.zig");
 
 const BlasLong = types.BlasLong;
 const HF16 = types.HF16;
@@ -206,6 +208,203 @@ pub const families = .{
     .{ "sbgemv", BF16, f32 },
 };
 
+// ---- half-precision gemm ---------------------------------------------------
+
+/// The gemm slot prefix of a `families` entry: `sbgemv` is `sbgemm`.
+pub fn gemmPrefix(comptime gemv: []const u8) []const u8 {
+    return gemv[0 .. gemv.len - 1] ++ "m";
+}
+
+/// `kernel/generic/gemmkernel_2x2.c`, `gemm_beta.c`, `gemm_ncopy_2.c` and
+/// `gemm_tcopy_2.c` as `Makefile.L3:190-243` builds them for `SHGEMM`,
+/// `SBGEMM` and `BGEMM` (bfloat16 through `conversion_macros.h`), over the
+/// `f32` gemm tile (`blas3/gemm/kernel.zig`'s layout and `pack`). `I` is the
+/// type of `A` and `B`, `O` that of `C` and the scalars. Each element sums
+/// `a*b` in `f32` in depth order, unfused, then `C := C + alpha*sum`
+/// rounded once into `O`: the same operations in every lane and tile shape,
+/// so where a tile falls never changes the bits. On the x87 each step is
+/// rounded to `f32` (`madd`).
+pub fn GemmKernels(comptime I: type, comptime O: type) type {
+    const geo = gemm_kernels.geometry(f32);
+    const vl: usize = geo.vl;
+    const mr: usize = geo.mr();
+    const nr: usize = geo.nr;
+    return struct {
+        pub const unroll_m: i32 = mr;
+        pub const unroll_n: i32 = nr;
+
+        /// `C := beta*C`; a zero `beta` writes zeros without reading `C`.
+        /// Upstream's bfloat16 test is on `beta`'s bits (only +0), and its
+        /// bfloat16 product truncates; here the value counts, and the
+        /// product rounds as `toBf16` does (`issues.md`).
+        pub fn beta(m: BlasLong, n: BlasLong, _: BlasLong, b: O, _: [*]I, _: BlasLong, _: [*]I, _: BlasLong, c: [*]O, ldc: BlasLong) callconv(.c) i32 {
+            const bf = wide(O, b);
+            const h: usize = @intCast(m);
+            const ld: usize = @intCast(ldc);
+            for (0..@intCast(n)) |j| {
+                const col = c[j * ld ..][0..h];
+                if (bf == 0) {
+                    @memset(col, narrow(O, 0));
+                } else {
+                    for (col) |*v| v.* = narrow(O, util.scalar(f32, bf * wide(O, v.*)));
+                }
+            }
+            return 0;
+        }
+
+        /// Rows of `op(A) = A^T`, `mr` a panel.
+        pub fn incopy(m: BlasLong, n: BlasLong, a: [*]I, lda: BlasLong, b: [*]I) callconv(.c) i32 {
+            gemm_kernels.pack(I, mr, false, m, n, a, lda, b);
+            return 0;
+        }
+        /// Rows of `op(A) = A`.
+        pub fn itcopy(m: BlasLong, n: BlasLong, a: [*]I, lda: BlasLong, b: [*]I) callconv(.c) i32 {
+            gemm_kernels.pack(I, mr, true, m, n, a, lda, b);
+            return 0;
+        }
+        /// Columns of `op(B) = B`, `nr` a panel.
+        pub fn oncopy(m: BlasLong, n: BlasLong, a: [*]I, lda: BlasLong, b: [*]I) callconv(.c) i32 {
+            gemm_kernels.pack(I, nr, false, m, n, a, lda, b);
+            return 0;
+        }
+        /// Columns of `op(B) = B^T`.
+        pub fn otcopy(m: BlasLong, n: BlasLong, a: [*]I, lda: BlasLong, b: [*]I) callconv(.c) i32 {
+            gemm_kernels.pack(I, nr, true, m, n, a, lda, b);
+            return 0;
+        }
+
+        /// `C += alpha * A * B` on packed `A` (`bm x bk`) and `B` (`bk x bn`).
+        pub fn kernel(bm: BlasLong, bn: BlasLong, bk: BlasLong, alpha: O, ba: [*]I, bb: [*]I, c: [*]O, ldc: BlasLong) callconv(.c) i32 {
+            const m: usize = @intCast(bm);
+            const n: usize = @intCast(bn);
+            const k: usize = @intCast(bk);
+            const ld: usize = @intCast(ldc);
+            const al = wide(O, alpha);
+            if (vl == 1) {
+                scalarPanels(m, n, k, al, ba, bb, c, ld);
+                return 0;
+            }
+            var q0: usize = 0;
+            while (q0 + nr <= n) : (q0 += nr) rows(nr, m, k, al, ba, bb + q0 * k, c + q0 * ld, ld);
+            inline for (comptime gemm_kernels.tails(nr)) |w| {
+                if ((n - q0) & w != 0) {
+                    rows(w, m, k, al, ba, bb + q0 * k, c + q0 * ld, ld);
+                    q0 += w;
+                }
+            }
+            return 0;
+        }
+
+        /// Without vectors: whole tiles unrolled, partial ones shaped by
+        /// values, so debug builds of wide scalar tiles stay small.
+        fn scalarPanels(m: usize, n: usize, k: usize, al: f32, ba: [*]const I, bb: [*]const I, c: [*]O, ld: usize) void {
+            var q0: usize = 0;
+            while (q0 < n) {
+                const wn = gemm_kernels.panelWidth(n - q0, nr);
+                var r0: usize = 0;
+                while (r0 < m) {
+                    const wm = gemm_kernels.panelWidth(m - r0, mr);
+                    if (wm == mr and wn == nr) {
+                        tile(mr, nr, k, al, ba + r0 * k, bb + q0 * k, c + r0 + q0 * ld, ld);
+                    } else {
+                        partTile(wm, wn, k, al, ba + r0 * k, bb + q0 * k, c + r0 + q0 * ld, ld);
+                    }
+                    r0 += wm;
+                }
+                q0 += wn;
+            }
+        }
+
+        fn partTile(wm: usize, wn: usize, k: usize, al: f32, pa: [*]const I, pb: [*]const I, c: [*]O, ld: usize) void {
+            var acc: [nr][mr]f32 = @splat(@splat(0));
+            var a = pa;
+            var b = pb;
+            for (0..k) |_| {
+                for (0..wn) |j| {
+                    const y = wide(I, b[j]);
+                    for (0..wm) |i| acc[j][i] = madd(false, wide(I, a[i]), y, acc[j][i]);
+                }
+                a += wm;
+                b += wn;
+            }
+            for (0..wn) |j| for (0..wm) |i| put(c + i + j * ld, acc[j][i], al);
+        }
+
+        fn rows(comptime wn: usize, m: usize, k: usize, al: f32, ba: [*]const I, pb: [*]const I, c: [*]O, ld: usize) void {
+            var r0: usize = 0;
+            while (r0 + mr <= m) : (r0 += mr) @call(.always_inline, tile, .{ mr, wn, k, al, ba + r0 * k, pb, c + r0, ld });
+            inline for (comptime gemm_kernels.tails(mr)) |w| {
+                if ((m - r0) & w != 0) {
+                    @call(.never_inline, tile, .{ w, wn, k, al, ba + r0 * k, pb, c + r0, ld });
+                    r0 += w;
+                }
+            }
+        }
+
+        /// One `wm x wn` tile: `wm / lanes` vectors per column over all of `k`.
+        fn tile(comptime wm: usize, comptime wn: usize, k: usize, al: f32, pa: [*]const I, pb: [*]const I, c: [*]O, ld: usize) void {
+            @setEvalBranchQuota(100_000);
+            const lanes = @min(vl, wm);
+            const nv = wm / lanes;
+            const V = Lanes(lanes);
+            var acc: [wn][nv]V = undefined;
+            inline for (0..wn) |j| inline for (0..nv) |v| {
+                acc[j][v] = splat(lanes, 0);
+            };
+            var a = pa;
+            var b = pb;
+            for (0..k) |_| {
+                var av: [nv]V = undefined;
+                inline for (0..nv) |v| av[v] = widen(I, lanes, a + v * lanes);
+                inline for (0..wn) |j| {
+                    const bv = splat(lanes, wide(I, b[j]));
+                    inline for (0..nv) |v| acc[j][v] = if (lanes == 1) madd(false, av[v], bv, acc[j][v]) else fma.madd(false, V, av[v], bv, acc[j][v]);
+                }
+                a += wm;
+                b += wn;
+            }
+            inline for (0..wn) |j| inline for (0..nv) |v| {
+                const p = c + j * ld + v * lanes;
+                if (lanes == 1) {
+                    put(p, acc[j][v], al);
+                } else {
+                    const s: [lanes]f32 = acc[j][v];
+                    inline for (0..lanes) |l| put(p + l, s[l], al);
+                }
+            };
+        }
+
+        /// `C := C + alpha*sum` (`res = res*ALPHA; C = TO_OUTPUT(C + res)`).
+        inline fn put(p: [*]O, sum: f32, al: f32) void {
+            p[0] = narrow(O, madd(false, sum, al, wide(O, p[0])));
+        }
+    };
+}
+
+fn Lanes(comptime n: usize) type {
+    return if (n == 1) f32 else @Vector(n, f32);
+}
+
+inline fn splat(comptime n: usize, x: f32) Lanes(n) {
+    return if (n == 1) x else @splat(x);
+}
+
+/// `n` elements at `p` as `f32`, converted as `wide` does each.
+pub inline fn widen(comptime T: type, comptime n: usize, p: [*]const T) Lanes(n) {
+    if (n == 1) return wide(T, p[0]);
+    if (T != BF16) return @floatCast(@as(@Vector(n, T), p[0..n].*));
+    const U = @Vector(n, u16);
+    const q: [*]const u16 = @ptrCast(p);
+    const h: U = q[0..n].*;
+    // `fromBf16` by lanes: a zero exponent keeps the sign alone, a NaN quiets
+    const e = h & @as(U, @splat(0x7f80));
+    const signed = @select(u16, e == @as(U, @splat(0)), h & @as(U, @splat(0x8000)), h);
+    const nan = @select(bool, e == @as(U, @splat(0x7f80)), (h & @as(U, @splat(0x007f))) != @as(U, @splat(0)), @as(@Vector(n, bool), @splat(false)));
+    const top = @select(u16, nan, signed | @as(U, @splat(0x0040)), signed);
+    const w: @Vector(n, u32) = top;
+    return @bitCast(w << @as(@Vector(n, u5), @splat(16)));
+}
+
 // ---- installing ------------------------------------------------------------
 
 /// `kernel/setparam-ref.c` fills the bfloat16-named slots of `gotoblas_t`
@@ -261,5 +460,34 @@ pub fn installGenericGemv(vt: *Vtable) void {
     inline for (families) |f| {
         @field(vt, f[0] ++ "_n") = &Gemv(f[1], f[2], false, false).k;
         @field(vt, f[0] ++ "_t") = &Gemv(f[1], f[2], true, false).k;
+    }
+}
+
+/// The half-precision gemm slots a kernel set fills, less their prefix.
+pub const gemm_slots = [_][]const u8{ "_kernel", "_beta", "_incopy", "_itcopy", "_oncopy", "_otcopy" };
+
+/// Points the half-precision gemm slots at the portable kernels, and their
+/// unrolls at the tile.
+pub fn installGenericGemm(vt: *Vtable) void {
+    inline for (families) |f| {
+        const pre = comptime gemmPrefix(f[0]);
+        const K = GemmKernels(f[1], f[2]);
+        inline for (gemm_slots) |s| @field(vt, pre ++ s) = &@field(K, s[1..]);
+    }
+    settleGemm(vt);
+}
+
+/// Puts back the portable kernels' unrolls where `vt` still holds them: a
+/// core's blocking (`params.installCore`) writes `param.h`'s, which describe
+/// that core's own kernels, not ported (`blas3/gemm/kernel.zig`'s `settle`).
+pub fn settleGemm(vt: *Vtable) void {
+    inline for (families) |f| {
+        const pre = comptime gemmPrefix(f[0]);
+        const K = GemmKernels(f[1], f[2]);
+        if (@field(vt, pre ++ "_kernel") == &K.kernel) {
+            @field(vt, pre ++ "_unroll_m") = K.unroll_m;
+            @field(vt, pre ++ "_unroll_n") = K.unroll_n;
+            @field(vt, pre ++ "_unroll_mn") = @max(K.unroll_m, K.unroll_n);
+        }
     }
 }

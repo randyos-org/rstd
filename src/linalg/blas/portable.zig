@@ -27,10 +27,12 @@ pub fn install(vt: *Vtable) void {
 /// What follows from the kernels `vt` ends with; again after a core's:
 /// the bfloat16-named slots with no kernel of their own point at the `f32`
 /// kernels (`ext/bf16/kernel.zig`), and the gemm unrolls are those of the
-/// portable kernels wherever those stayed (`blas3/gemm/kernel.zig`).
+/// portable kernels wherever those stayed (`blas3/gemm/kernel.zig`, and the
+/// half-precision ones).
 pub fn finish(vt: *Vtable) void {
     bf16_kernel.alias(vt);
     blas3.gemm.kernel.settle(vt);
+    bf16_kernel.settleGemm(vt);
 }
 
 // ---- type dispatch ---------------------------------------------------------
