@@ -1827,6 +1827,36 @@ So one element's result depends on where it falls in the vector.
   Results then depend on `n % 8` (`n % 16` for `cscal`). The full product,
   as the blocks compute it, would make every element agree."
 
+### x86_64 Haswell `sasum`, `dasum`: the blocks peel to an aligned address
+
+`kernel/x86_64/sasum_microk_haswell-2.c` and `dasum_microk_haswell-2.c` sum
+up to seven elements alone until `x` is 32-byte aligned, then group the rest
+into their four vector sums, so the same data sums with other roundings
+elsewhere in memory. Upstream's Skylake-X blocks dropped the peel for this
+reason (their comment: "Deliberately no peeling").
+
+- **Workaround:** rstd's port (`blas1/asum/x86_64/kernel.zig`) loads
+  unaligned from the first element, as the Skylake-X blocks do.
+- **Issue text:** "`sasum_microk_haswell-2.c` and `dasum_microk_haswell-2.c`
+  peel to a 32-byte boundary before their AVX2 loop, so `sasum` and `dasum`
+  on Haswell and Zen give results that depend on the buffer's address. The
+  Skylake-X kernels removed their peel for this; the same change (unaligned
+  loads from `x1[0]`) would make the Haswell ones a function of the data
+  alone."
+
+### x86_64 `ssymv_U_microk_sandy-2.c`, `ssymv_U_microk_haswell-2.c`: floats added as a double
+
+Both blocks end with `vaddsd` (double) where their sums are floats: the low
+64 bits of each reduced vector, two copies of the sum, plus `temp2` read with
+`vmovss`. `temp2` is 0 whenever the drivers call them, so the low float, the
+one stored, is the sum unchanged.
+
+- **Workaround:** none needed; the port stores the sum (`Shape.store`).
+- **Issue text:** "`ssymv_U_microk_sandy-2.c` and `ssymv_U_microk_haswell-2.c`
+  add `temp2` with `vaddsd`, a double add, to single-precision sums. It is
+  harmless because `temp2` is always 0 on entry, but `vaddss` is what the
+  other `ssymv` blocks use."
+
 ### Complex `omatcopy`, `imatcopy`, `gemmt`: multiplying by 1 makes NaN
 
 The real `omatcopy` and `imatcopy` kernels copy for `alpha` 1 (and store

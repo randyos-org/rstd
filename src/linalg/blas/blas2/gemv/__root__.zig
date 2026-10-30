@@ -1234,3 +1234,42 @@ test "x86_64's dgemv_n vector block and SSE2 dgemv_t blocks give the reference's
         try std.testing.expectEqual(want[0], got[0]);
     }
 }
+
+test "x86_64's Skylake-X sgemv (Haswell's blocks and its own) matches plain arithmetic, where this build has AVX2 and FMA" {
+    if (sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    const f = sysinfo.target.cpu.features;
+    if (comptime !std.Target.x86.featureSetHasAll(f, .{ .avx2, .fma })) return error.SkipZigTest;
+    const S = @import("x86_64/kernel.zig").Skylake;
+    // `n`: the few-column path, the column-block path with its 2- and
+    // 1-column tails (`n` past 48), and 4 columns, which takes the second
+    try checkGemv(f32, false, false, false, S.entry(.sgemv_n));
+    try checkGemvAt(f32, false, false, false, S.entry(.sgemv_n), &.{ .{ 37, 51 }, .{ 70, 55 }, .{ 20, 4 }, .{ 129, 49 } }, &strides, std.testing.allocator);
+    // `t`: `checkGemv`'s `lda = m + 1` takes the column-block path, and
+    // `lda == m` every shape of up to 8 rows across its blocks
+    try checkGemv(f32, true, false, false, S.entry(.sgemv_t));
+    try checkSkylakeT(S.entry(.sgemv_t));
+}
+
+/// `kern` with `lda == m` against plain arithmetic, for `m` up to 8.
+fn checkSkylakeT(kern: anytype) !void {
+    var a: [8 * 70]f32 = undefined;
+    var x: [16]f32 = undefined;
+    var y: [210]f32 = undefined;
+    for (1..9) |m| for ([_]usize{ 1, 2, 3, 5, 7, 9, 15, 16, 17, 31, 33, 35, 47, 64, 69 }) |n| for (strides) |inc| {
+        check.fill(f32, &a, m * 3 + n);
+        check.fill(f32, &x, m);
+        check.fill(f32, &y, n + 1);
+        var want = y;
+        for (0..n) |j| {
+            var acc: f64 = 0;
+            for (0..m) |i| acc += @as(f64, a[j * m + i]) * x[i * inc[0]];
+            want[j * inc[1]] = @floatCast(@as(f64, want[j * inc[1]]) + 1.25 * acc);
+        }
+        var buf: [160]f32 = @splat(std.math.nan(f32));
+        _ = kern(@intCast(m), @intCast(n), 0, 1.25, &a, @intCast(m), &x, @intCast(inc[0]), &y, @intCast(inc[1]), &buf);
+        check.expectCloseSlices(f32, &want, &y, check.tolerance(f32, 4 * m + 4)) catch |e| {
+            check.say("sgemv_t m={d} n={d}: ", .{ m, n });
+            return e;
+        };
+    };
+}

@@ -204,7 +204,7 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
   `zsum_sse*.S`, `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S` and `dgemv_n*.S`)
   summed the same data otherwise elsewhere in memory. On the cores that use them the `@Vector`
   kernels, which load unaligned and never peel, take their place; the C kernels (`ddot.c` and the
-  like) stay.
+  like) stay. Haswell's `sasum.c` and `dasum.c` blocks peel too; their `@Vector` port does not.
 - **`axpy` with a zero `alpha`** multiplies on every core, so `0 * x` gives NaN for NaN and
   infinities. The interface returns first, as the reference does, but the triangular and banded
   drivers call the kernel with `-x(j)`, which may be zero; kernels that returned at once made
@@ -213,8 +213,8 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
 
 ### bfloat16 and half precision
 
-The kernels are portable Zig, the same on every core; `riscv64_zvl256b`'s own `sbgemv` and
-`shgemv` (`@Vector`) give the same bits.
+The kernels are portable Zig, the same on every core; the `@Vector` half `gemv` kernels of
+`riscv64_zvl256b`, Cooper Lake and Sapphire Rapids give the same bits.
 
 - **Conversions** (`sbtobf16`, `bf16to`): round to nearest even; denormals flush to a signed zero
   and NaNs come out quiet, in both directions.

@@ -445,7 +445,7 @@ A slot holds one of six kinds of kernel:
 | Portable | each routine's `__root__.zig` (`Portable(T)`), `blas1/extremum.zig`, `blas2/symmetric.zig`, `ext/bf16/kernel.zig`, `blas3/gemm/kernel.zig` | main library |
 | Converted assembly | `<routine>/<arch>/asm/*.zig`, generated | per-core object |
 | Ported C driver around a converted microkernel | `<routine>/kernel.zig` (driver), `<routine>/<arch>/uk/*.zig` (generated blocks), `blas1/uk_block.zig` | per-core object |
-| Ported intrinsics or vector C | `<routine>/<arch>/kernel.zig` and siblings (`axpy/arm64/sve.zig`, `axpy/riscv64/rvv.zig`, `axpy/mips/msa.zig`) | per-core object |
+| Ported intrinsics or vector C | `<routine>/<arch>/kernel.zig` and siblings (`axpy/arm64/sve.zig`, `axpy/riscv64/rvv.zig`, `axpy/mips/msa.zig`), shared drivers (`blas2/symv/kernel.zig`), `vector.ported` | per-core object |
 | `@Vector` level 1 and 2 | `vector.zig` | per-core object |
 | `@Vector` level-3 tile | `blas3/gemm/kernel.zig`, `blas3/symm/kernel.zig`, `blas3/trmm/kernel.zig`, `blas3/trsm/kernel.zig` | main library and every per-core object |
 
@@ -526,7 +526,7 @@ above are not among them:
 
 | Architecture | Level 1 | Level 2 | Level 3 | `@Vector` |
 | --- | --- | --- | --- | --- |
-| x86_64 | `axpy`, `dot`, `rot`, `scal` (C drivers and assembly); `asum`, `copy`, `sum`, `swap` | `gemv` (C drivers and assembly), `symv`, `hemv` | tile | routed |
+| x86_64 | `axpy`, `dot`, `rot`, `scal` (C drivers and assembly); `asum` (`@Vector` ports), `copy`, `sum`, `swap` | `gemv` (C drivers, assembly, Skylake-X's `sgemv_n`), `symv` (assembly, `@Vector` ports), `hemv`, `ger`, `sbgemv` (`@Vector` ports) | tile | routed |
 | x86 | `axpy`, `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
 | arm | `axpy`, `asum`, `dot`, `rot`, `sum`, `swap` | `gemv` | tile | routed, `d` and `z` on NEON |
 | arm64 | `axpy` (assembly, SVE, ThunderX), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed and more |
@@ -540,7 +540,7 @@ above are not among them:
 
 Everywhere else, and for every routine not listed, the portable kernels serve: `ger`, the
 triangular, banded and packed level-2 routines (drivers over level-1 kernels), the bfloat16 and
-half-precision kernels (but `riscv64_zvl256b`'s `sbgemv` and `shgemv`), and the `q`/`x` slots,
+half-precision kernels (but the half `gemv` ports above), and the `q`/`x` slots,
 which no core replaces (a test in `__root__.zig` checks this). SPARC exports no level-3 tiles: no SPARC feature changes them, so an object would
 only repeat the portable kernels.
 
@@ -563,7 +563,9 @@ only repeat the portable kernels.
   keeping the skip (OpenBLAS's `syr2`/`spr2` paths have none).
 - **symv and hemv.** `blas2/symmetric.zig` holds the portable kernels, `kernel/generic`'s
   `symv_k.c`, `zsymv_k.c` and `zhemv_k.c`, which compose the running core's copy and `gemv`
-  kernels with the same blocking (`SYMV_P`, the vtable's `symv_p`).
+  kernels with the same blocking (`SYMV_P`, the vtable's `symv_p`). `blas2/symv/kernel.zig`
+  ports x86_64's real C drivers (`?symv_[LU].c`), their 4x4 blocks on `@Vector`s in each
+  core's widths, fusing and reductions (`Shape`).
 - **Buffers.** The kernels take a scratch `buffer`. The interfaces size it as the reference's
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
   reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
@@ -710,9 +712,12 @@ robustness questions (fusing `beta`, `trsm`'s inverted diagonal, prefetch).
 
 The kernels are `ext/bf16/kernel.zig`: the conversions, `bscal`, `sbdot`, the
 `bgemv`/`sbgemv`/`shgemv` family and the `bgemm`/`sbgemm`/`shgemm` one. They are portable Zig,
-the same on every core; only `riscv64_zvl256b` installs kernels of its own, `vector.Half`'s
-`sbgemv` and `shgemv`, which give the portable kernels' bits. The other per-core sources the
-reference selects (AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA) are not ported. Every bfloat16 conversion
+the same on every core in their bits. The cores whose reference has a half `gemv` of its own
+install `vector.Half`'s, the portable kernels' bits on vectors: `riscv64_zvl256b` (`sbgemv`,
+`shgemv`), Cooper Lake and Sapphire Rapids (`sbgemv_n`). Upstream's AVX-512 BF16 sums pairs of
+products in an instruction with its own rounding, which `@Vector` cannot express and the
+contract does not want, so only its shape carries over; NEON, SVE, BFDOT, VSX and MMA are not
+ported. Every bfloat16 conversion
 upstream is `kernel/x86_64/tobf16.c` and `bf16to.c` (`kernel/Makefile.L1:311`, `:315`); the AVX-512 BF16 microkernels give the same
 bits.
 
@@ -1327,6 +1332,12 @@ stride means `n` operations on one element in turn:
   lane at `y[0]` and summed them, adding `y[0]` once a lane, and `zaxpy_rvv.c`'s segments and
   `mips/saxpy_msa.c`, `daxpy_msa.c`'s blocks load `y` before storing it
   (`axpy/riscv64/rvv.zig`, `axpy/mips/msa.zig`).
+
+The `@Vector` ports of C kernels fix one more ([`issues.md`](issues.md#openblas)):
+
+- `x86_64/sasum_microk_haswell-2.c`, `dasum_microk_haswell-2.c`: peeled to a 32-byte boundary,
+  so the sums followed the address; the port loads unaligned from the first element, as
+  upstream's Skylake-X blocks do (`blas1/asum/x86_64/kernel.zig`).
 
 Patches that work around Zig or QEMU rather than OpenBLAS, each removable once the cause is fixed
 ([`issues.md`](issues.md)):

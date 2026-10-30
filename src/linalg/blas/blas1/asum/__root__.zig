@@ -93,6 +93,8 @@ pub fn installGeneric(vt: *Vtable) void {
 
 const zigstd = @import("../../../../zigstd.zig");
 const std = @import("std");
+const sysinfo = @import("builtin");
+const x86_64 = @import("x86_64/kernel.zig");
 const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type.
@@ -175,4 +177,18 @@ test "the extended asum sums give the values traced by hand from asum.S and zasu
     var zax = [_]F{ 1, 1, t, 0, 0, 0, 0, 0, 0, 1 };
     try zigstd.testExpectEqual(t, util.extendedSum(F, 2, .abs, 4, &zax, 1));
     try zigstd.testExpectEqual(t + 2, util.extendedSum(F, 2, .abs, 5, &zax, 1));
+}
+
+test "x86_64's Haswell and AVX-512 asum ports match a plain loop, as @Vector code on this machine" {
+    if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    const P = x86_64;
+    inline for (.{ false, true }) |avx512| {
+        const E = P.Ported(avx512);
+        try checkAsum(f32, E.entry(.sasum_k));
+        try checkAsum(f64, E.entry(.dasum_k));
+        if (avx512) {
+            try checkAsum(std.math.Complex(f32), E.entry(.casum_k));
+            try checkAsum(std.math.Complex(f64), E.entry(.zasum_k));
+        }
+    }
 }

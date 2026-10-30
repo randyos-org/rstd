@@ -78,6 +78,38 @@ pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) voi
     @as(*align(1) V, @ptrCast(p)).* = v;
 }
 
+/// The lanes of `v` summed as the vector kernels' reductions do: halves added
+/// down to 128 bits (`vextractf128`, `vaddps`), then neighbors (`haddps`,
+/// `haddpd`, NEON's `faddp`, SVE's `faddv`), so 4 lanes give `(v0+v1)+(v2+v3)`.
+pub fn hsum(v: anytype) @typeInfo(@TypeOf(v)).vector.child {
+    const F = @typeInfo(@TypeOf(v)).vector.child;
+    const n = @typeInfo(@TypeOf(v)).vector.len;
+    if (n == 1) return v[0];
+    const h = n / 2;
+    if (n * @sizeOf(F) > 16) {
+        const lo = @shuffle(F, v, undefined, std.simd.iota(i32, h));
+        const hi = @shuffle(F, v, undefined, std.simd.iota(i32, h) + @as(@Vector(h, i32), @splat(h)));
+        return hsum(lo + hi);
+    }
+    const two: @Vector(h, i32) = @splat(2);
+    const even = @shuffle(F, v, undefined, std.simd.iota(i32, h) * two);
+    const odd = @shuffle(F, v, undefined, std.simd.iota(i32, h) * two + @as(@Vector(h, i32), @splat(1)));
+    return hsum(even + odd);
+}
+
+/// The lanes of `v` summed by halves to the last lane, as AVX-512's
+/// `_mm512_reduce_add_ps` and `_pd` do (gcc's and clang's), so 4 lanes give
+/// `(v0+v2)+(v1+v3)`.
+pub fn hsumFold(v: anytype) @typeInfo(@TypeOf(v)).vector.child {
+    const F = @typeInfo(@TypeOf(v)).vector.child;
+    const n = @typeInfo(@TypeOf(v)).vector.len;
+    if (n == 1) return v[0];
+    const h = n / 2;
+    const lo = @shuffle(F, v, undefined, std.simd.iota(i32, h));
+    const hi = @shuffle(F, v, undefined, std.simd.iota(i32, h) + @as(@Vector(h, i32), @splat(h)));
+    return hsumFold(lo + hi);
+}
+
 /// Whether `@Vector` arithmetic in `F` keeps denormals on this target. Not
 /// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says (Arm DDI
 /// 0601 2026-09, AArch32 `FPSCR.FZ`), nor on

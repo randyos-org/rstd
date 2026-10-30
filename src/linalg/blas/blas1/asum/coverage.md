@@ -33,30 +33,30 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## x86_64
 
-| core           | sasum                                | dasum                                | casum                                | zasum                                | qasum               | xasum                |
-| -------------- | ------------------------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | ------------------- | -------------------- |
-| ATOM           | `asum_sse.S` → vec                   | `asum_atom.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_atom.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| BARCELONA      | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| BOBCAT         | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| BULLDOZER      | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| COOPERLAKE     | `sasum.c` +intrinsics → **portable** | `dasum.c` +intrinsics → **portable** | `casum.c` +intrinsics → **portable** | `zasum.c` +intrinsics → **portable** | `asum.S` → portable | `zasum.S` → portable |
-| CORE2          | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| DUNNINGTON     | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| EXCAVATOR      | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| generic        | `../arm/asum.c` → n/a                | `../arm/asum.c` → n/a                | `../arm/zasum.c` → n/a               | `../arm/zasum.c` → n/a               | `asum.S` → n/a      | `zasum.S` → n/a      |
-| HASWELL        | `sasum.c` +intrinsics → **portable** | `dasum.c` +intrinsics → **portable** | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| NANO           | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| NEHALEM        | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| OPTERON        | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| OPTERON_SSE3   | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| PENRYN         | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| PILEDRIVER     | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| PRESCOTT       | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| SANDYBRIDGE    | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| SAPPHIRERAPIDS | `sasum.c` +intrinsics → **portable** | `dasum.c` +intrinsics → **portable** | `casum.c` +intrinsics → **portable** | `zasum.c` +intrinsics → **portable** | `asum.S` → portable | `zasum.S` → portable |
-| SKYLAKEX       | `sasum.c` +intrinsics → **portable** | `dasum.c` +intrinsics → **portable** | `casum.c` +intrinsics → **portable** | `zasum.c` +intrinsics → **portable** | `asum.S` → portable | `zasum.S` → portable |
-| STEAMROLLER    | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
-| ZEN            | `asum_sse.S` → vec                   | `asum_sse2.S` → vec                  | `zasum_sse.S` → vec                  | `zasum_sse2.S` → vec                 | `asum.S` → portable | `zasum.S` → portable |
+| core           | sasum                         | dasum                         | casum                         | zasum                         | qasum               | xasum                |
+| -------------- | ----------------------------- | ----------------------------- | ----------------------------- | ----------------------------- | ------------------- | -------------------- |
+| ATOM           | `asum_sse.S` → vec            | `asum_atom.S` → vec           | `zasum_sse.S` → vec           | `zasum_atom.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| BARCELONA      | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| BOBCAT         | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| BULLDOZER      | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| COOPERLAKE     | `sasum.c` +intrinsics → C+vec | `dasum.c` +intrinsics → C+vec | `casum.c` +intrinsics → C+vec | `zasum.c` +intrinsics → C+vec | `asum.S` → portable | `zasum.S` → portable |
+| CORE2          | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| DUNNINGTON     | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| EXCAVATOR      | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| generic        | `../arm/asum.c` → n/a         | `../arm/asum.c` → n/a         | `../arm/zasum.c` → n/a        | `../arm/zasum.c` → n/a        | `asum.S` → n/a      | `zasum.S` → n/a      |
+| HASWELL        | `sasum.c` +intrinsics → C+vec | `dasum.c` +intrinsics → C+vec | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| NANO           | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| NEHALEM        | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| OPTERON        | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| OPTERON_SSE3   | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| PENRYN         | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| PILEDRIVER     | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| PRESCOTT       | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| SANDYBRIDGE    | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| SAPPHIRERAPIDS | `sasum.c` +intrinsics → C+vec | `dasum.c` +intrinsics → C+vec | `casum.c` +intrinsics → C+vec | `zasum.c` +intrinsics → C+vec | `asum.S` → portable | `zasum.S` → portable |
+| SKYLAKEX       | `sasum.c` +intrinsics → C+vec | `dasum.c` +intrinsics → C+vec | `casum.c` +intrinsics → C+vec | `zasum.c` +intrinsics → C+vec | `asum.S` → portable | `zasum.S` → portable |
+| STEAMROLLER    | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
+| ZEN            | `asum_sse.S` → vec            | `asum_sse2.S` → vec           | `zasum_sse.S` → vec           | `zasum_sse2.S` → vec          | `asum.S` → portable | `zasum.S` → portable |
 
 ## x86
 
@@ -230,26 +230,22 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: x86_64 14, power 6, mips64 16, mips 4, riscv64 4, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: power 6, mips64 16, mips 4, riscv64 4, zarch 6.
 
-| architecture | core           | roles                      |
-| ------------ | -------------- | -------------------------- |
-| x86_64       | COOPERLAKE     | sasum, dasum, casum, zasum |
-| x86_64       | HASWELL        | sasum, dasum               |
-| x86_64       | SAPPHIRERAPIDS | sasum, dasum, casum, zasum |
-| x86_64       | SKYLAKEX       | sasum, dasum, casum, zasum |
-| power        | POWER10        | sasum, dasum               |
-| power        | POWER8         | sasum, dasum               |
-| power        | POWER9         | sasum, dasum               |
-| mips64       | I6400          | sasum, dasum, casum, zasum |
-| mips64       | I6500          | sasum, dasum, casum, zasum |
-| mips64       | LOONGSON3R4    | sasum, dasum, casum, zasum |
-| mips64       | P6600          | sasum, dasum, casum, zasum |
-| mips         | P5600          | sasum, dasum, casum, zasum |
-| riscv64      | C910V          | sasum, dasum, casum, zasum |
-| zarch        | Z13            | dasum, zasum               |
-| zarch        | Z14            | sasum, dasum, casum, zasum |
+| architecture | core        | roles                      |
+| ------------ | ----------- | -------------------------- |
+| power        | POWER10     | sasum, dasum               |
+| power        | POWER8      | sasum, dasum               |
+| power        | POWER9      | sasum, dasum               |
+| mips64       | I6400       | sasum, dasum, casum, zasum |
+| mips64       | I6500       | sasum, dasum, casum, zasum |
+| mips64       | LOONGSON3R4 | sasum, dasum, casum, zasum |
+| mips64       | P6600       | sasum, dasum, casum, zasum |
+| mips         | P5600       | sasum, dasum, casum, zasum |
+| riscv64      | C910V       | sasum, dasum, casum, zasum |
+| zarch        | Z13         | dasum, zasum               |
+| zarch        | Z14         | sasum, dasum, casum, zasum |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 142, `portable` 324, `n/a` 48, `asm` 224. 50 gaps.
+(core, role) pairs by what rstd serves: `vec` 142, `portable` 310, `C+vec` 14, `n/a` 48, `asm` 224. 36 gaps.
