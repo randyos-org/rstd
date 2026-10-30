@@ -124,7 +124,23 @@ const Boot = union(enum) {
     };
 };
 
-const machines = [_]Machine{
+const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" });
+
+/// `names` again as `<name>-safe`, in ReleaseSafe (T87): Debug stores every
+/// value to memory, which hides x87 width bugs (T56's showed in ReleaseSafe only).
+fn x87Safe(comptime names: []const []const u8) [names.len]Machine {
+    var out: [names.len]Machine = undefined;
+    for (names, &out) |name, *o| {
+        o.* = for (base_machines) |m| {
+            if (std.mem.eql(u8, m.name, name)) break m;
+        } else @compileError("no rig " ++ name);
+        o.name = name ++ "-safe";
+        o.optimize = .safe;
+    }
+    return out;
+}
+
+const base_machines = [_]Machine{
     .{
         .name = "aarch64",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.cortex_a72 } },

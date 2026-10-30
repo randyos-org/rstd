@@ -1618,6 +1618,7 @@ here can.
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, link-only runner | the OS-free tests compile for UEFI |
 | `rstd-check-zig017` | build and link only, with Zig 0.17.0, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
+| `rstd-test-x87` | the native suite as `pentium3` code (`x86-windows-gnu` or `x86-linux-musl`), Debug and ReleaseSafe; x86 hosts | x87 widths with threads and an OS; run in each full sweep, with the `-safe` rigs |
 
 The freestanding machines (`build/qemutest.zig`):
 
@@ -1636,6 +1637,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `mips32r5el`, `mips32r5` | `P5600` | the `p5600` core's MSA kernels |
 | `i386` | `pentium3` | |
 | `i386-max` | `max` under TCG | built for `nehalem`: the SSE2-and-up cores, each object for its own ISA |
+| `i386-safe`, `i386-max-safe` | as `i386`, `i386-max` | ReleaseSafe: Debug stores every value to memory, which hides x87 width bugs (T56's reductions failed only optimized) |
 | `x86_64` | `max` under TCG | |
 | `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
 | `sparc64-debug` | `sun4u` | Debug, in 46 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
