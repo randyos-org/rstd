@@ -628,8 +628,8 @@ const machines = [_]Machine{
     },
     .{
         .name = "linux-powerpc64le",
-        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
-        .optimize = .safe,
+        // pwr8, `f128` by library calls: clear of the FastISel bug the other
+        // POWER rigs build `.safe` for (issues.md)
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
         .qemu = "qemu-system-ppc64",
         // detection sees a POWER10 (the baseline build links up to POWER9's

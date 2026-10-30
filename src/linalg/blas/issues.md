@@ -301,8 +301,9 @@ When an issue is fixed upstream, drop the workaround and its entry.
   All four rigs pass in Debug, as that store only reaches a failure message;
   one like it could feed a check. Clean at `-O1`, with `-fast-isel=false`,
   and for pwr8 and `powerpc64le-linux` (f128 by library calls).
-- **Workaround:** the powerpc64le rigs build with `.safe`
-  (`build/qemutest.zig`), which does not use FastISel.
+- **Workaround:** the freestanding pwr9 and pwr10 rigs build with `.safe`
+  (`build/qemutest.zig`), which does not use FastISel; `linux-powerpc64le`
+  (pwr8) builds in Debug.
 - **Issue text:**
 
   > **[PowerPC] FastISel stores a `VFRC` register with `stfd` at -O0**
