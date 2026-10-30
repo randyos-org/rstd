@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------ | ------------------------------------ | ------------------------------ |
 | C910V           | `imax_vector.c` +intrinsics → routed | `imax_vector.c` +intrinsics → routed | `iamax.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/imax.c` → routed         | `../riscv64/imax.c` → routed         | `iamax.S` (missing) → portable |
-| RISCV64_ZVL128B | `imax_rvv.c` +intrinsics → routed    | `imax_rvv.c` +intrinsics → routed    | `iamax.S` (missing) → portable |
-| RISCV64_ZVL256B | `imax_vector.c` +intrinsics → routed | `imax_vector.c` +intrinsics → routed | `iamax.S` (missing) → portable |
+| RISCV64_ZVL128B | `imax_rvv.c` +intrinsics → vec       | `imax_rvv.c` +intrinsics → vec       | `iamax.S` (missing) → portable |
+| RISCV64_ZVL256B | `imax_vector.c` +intrinsics → vec    | `imax_vector.c` +intrinsics → vec    | `iamax.S` (missing) → portable |
 | U74             | `../riscv64/imax.c` → routed         | `../riscv64/imax.c` → routed         | `iamax.S` (missing) → portable |
-| x280            | `imax_rvv.c` +intrinsics → routed    | `imax_rvv.c` +intrinsics → routed    | `iamax.S` (missing) → portable |
+| x280            | `imax_rvv.c` +intrinsics → vec       | `imax_rvv.c` +intrinsics → vec       | `iamax.S` (missing) → portable |
 
 ## loongarch64
 
@@ -234,4 +234,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 208, `portable` 115, `n/a` 24, `routed` 22. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 214, `portable` 115, `n/a` 24, `routed` 16. 0 gaps.

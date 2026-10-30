@@ -173,14 +173,14 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## riscv64
 
-| core            | ssum                                      | dsum                                      | csum                                       | zsum                                       | qsum                         | xsum                          |
-| --------------- | ----------------------------------------- | ----------------------------------------- | ------------------------------------------ | ------------------------------------------ | ---------------------------- | ----------------------------- |
-| C910V           | `../arm/sum.c` → portable                 | `../arm/sum.c` → portable                 | `../arm/zsum.c` → portable                 | `../arm/zsum.c` → portable                 | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
-| RISCV64_GENERIC | `../arm/sum.c` → portable                 | `../arm/sum.c` → portable                 | `../arm/zsum.c` → portable                 | `../arm/zsum.c` → portable                 | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
-| RISCV64_ZVL128B | `sum_rvv.c` +intrinsics → **portable**    | `sum_rvv.c` +intrinsics → **portable**    | `zsum_rvv.c` +intrinsics → **portable**    | `zsum_rvv.c` +intrinsics → **portable**    | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
-| RISCV64_ZVL256B | `sum_vector.c` +intrinsics → **portable** | `sum_vector.c` +intrinsics → **portable** | `zsum_vector.c` +intrinsics → **portable** | `zsum_vector.c` +intrinsics → **portable** | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
-| U74             | `../arm/sum.c` → portable                 | `../arm/sum.c` → portable                 | `../arm/zsum.c` → portable                 | `../arm/zsum.c` → portable                 | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
-| x280            | `sum_rvv.c` +intrinsics → **portable**    | `sum_rvv.c` +intrinsics → **portable**    | `zsum_rvv.c` +intrinsics → **portable**    | `zsum_rvv.c` +intrinsics → **portable**    | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
+| core            | ssum                             | dsum                             | csum                              | zsum                              | qsum                         | xsum                          |
+| --------------- | -------------------------------- | -------------------------------- | --------------------------------- | --------------------------------- | ---------------------------- | ----------------------------- |
+| C910V           | `../arm/sum.c` → portable        | `../arm/sum.c` → portable        | `../arm/zsum.c` → portable        | `../arm/zsum.c` → portable        | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
+| RISCV64_GENERIC | `../arm/sum.c` → portable        | `../arm/sum.c` → portable        | `../arm/zsum.c` → portable        | `../arm/zsum.c` → portable        | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
+| RISCV64_ZVL128B | `sum_rvv.c` +intrinsics → vec    | `sum_rvv.c` +intrinsics → vec    | `zsum_rvv.c` +intrinsics → vec    | `zsum_rvv.c` +intrinsics → vec    | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
+| RISCV64_ZVL256B | `sum_vector.c` +intrinsics → vec | `sum_vector.c` +intrinsics → vec | `zsum_vector.c` +intrinsics → vec | `zsum_vector.c` +intrinsics → vec | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
+| U74             | `../arm/sum.c` → portable        | `../arm/sum.c` → portable        | `../arm/zsum.c` → portable        | `../arm/zsum.c` → portable        | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
+| x280            | `sum_rvv.c` +intrinsics → vec    | `sum_rvv.c` +intrinsics → vec    | `zsum_rvv.c` +intrinsics → vec    | `zsum_rvv.c` +intrinsics → vec    | `sum.S` (missing) → portable | `zsum.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,16 +230,13 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: riscv64 12, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: zarch 6.
 
-| architecture | core            | roles                  |
-| ------------ | --------------- | ---------------------- |
-| riscv64      | RISCV64_ZVL128B | ssum, dsum, csum, zsum |
-| riscv64      | RISCV64_ZVL256B | ssum, dsum, csum, zsum |
-| riscv64      | x280            | ssum, dsum, csum, zsum |
-| zarch        | Z13             | dsum, zsum             |
-| zarch        | Z14             | ssum, dsum, csum, zsum |
+| architecture | core | roles                  |
+| ------------ | ---- | ---------------------- |
+| zarch        | Z13  | dsum, zsum             |
+| zarch        | Z14  | ssum, dsum, csum, zsum |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `portable` 356, `vec` 61, `n/a` 48, `asm` 273. 18 gaps.
+(core, role) pairs by what rstd serves: `portable` 344, `vec` 73, `n/a` 48, `asm` 273. 6 gaps.

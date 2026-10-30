@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------ | ------------------------------------ | ------------------------------ |
 | C910V           | `imin_vector.c` +intrinsics → routed | `imin_vector.c` +intrinsics → routed | `iamin.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/imin.c` → routed         | `../riscv64/imin.c` → routed         | `iamin.S` (missing) → portable |
-| RISCV64_ZVL128B | `imin_rvv.c` +intrinsics → routed    | `imin_rvv.c` +intrinsics → routed    | `iamin.S` (missing) → portable |
-| RISCV64_ZVL256B | `imin_vector.c` +intrinsics → routed | `imin_vector.c` +intrinsics → routed | `iamin.S` (missing) → portable |
+| RISCV64_ZVL128B | `imin_rvv.c` +intrinsics → vec       | `imin_rvv.c` +intrinsics → vec       | `iamin.S` (missing) → portable |
+| RISCV64_ZVL256B | `imin_vector.c` +intrinsics → vec    | `imin_vector.c` +intrinsics → vec    | `iamin.S` (missing) → portable |
 | U74             | `../riscv64/imin.c` → routed         | `../riscv64/imin.c` → routed         | `iamin.S` (missing) → portable |
-| x280            | `imin_rvv.c` +intrinsics → routed    | `imin_rvv.c` +intrinsics → routed    | `iamin.S` (missing) → portable |
+| x280            | `imin_rvv.c` +intrinsics → vec       | `imin_rvv.c` +intrinsics → vec       | `iamin.S` (missing) → portable |
 
 ## loongarch64
 
@@ -234,4 +234,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 208, `portable` 115, `n/a` 24, `routed` 22. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 214, `portable` 115, `n/a` 24, `routed` 16. 0 gaps.

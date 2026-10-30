@@ -486,7 +486,17 @@ per-core objects; like the tiles, they never make a core need an object of its o
   ([`results-m6.md`](../../../tools/blasbench/results-m6.md)), so their objects there leave those
   converted kernels out (`vector.displacing`); elsewhere every slot no converted kernel fills
   (below). On Apple's systems, where Accelerate serves most routines, only the routed slots.
-- **riscv64, s390x, wasm:** none.
+- **riscv64:** on the vector cores (`riscv64_zvl128b`, `riscv64_zvl256b`, `x280`) every slot of
+  theirs no port fills (`Rule.unfilled_on`); `axpy` keeps its `asm` port. Each core's object
+  builds them at its own guaranteed VLEN (`zvl128b`, `zvl256b`, `zvl512b`), where upstream's
+  `vsetvl` loops read VLEN at run time; on a wider machine they use part of each register, which
+  T20's race weighs. The cores without the ratified vector extension have no object.
+- **s390x, wasm:** none.
+
+`vector.ported` holds `@Vector` kernels no `Registry` routes, which an architecture's hand ports
+(`.written = .vector`) name where upstream has intrinsics for them: `axpby`, `rotm`, `dsdot`,
+`symv`, `hemv`, and the half-precision `gemv`s in the portable kernels' bits (`vector.Half`).
+riscv64 uses them; `installAll` puts them in the native tests' table too.
 
 Without a vector unit for the type (SPARC, ARMv7's `f64`, pre-VSX POWER, MIPS without MSA, the
 x87) LLVM splits the vectors into scalar operations. The reductions keep their eight independent
@@ -524,14 +534,14 @@ above are not among them:
 | mips, mips64 | `axpy` (MSA on 32- and 64-bit), `asum`, `copy`, `dot`, `scal`, `sum`, `swap` | | tile | routed |
 | power | `axpy` (assembly, microkernels, C), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
 | sparc | `axpy`, `asum`, `copy`, `dot`, `rot`, `sum`, `swap` | `gemv` | | routed |
-| riscv64 | `axpy` (RVV) | | tile | |
+| riscv64 | `axpy` (RVV), `axpby`, `dsdot`, `rotm` (`@Vector` ports) | `symv`, `hemv`, `sbgemv`, `shgemv` (`@Vector` ports) | tile | vector cores |
 | s390x | `axpy` (microkernels) | | tile | |
 | wasm | `axpy` | | tile | |
 
 Everywhere else, and for every routine not listed, the portable kernels serve: `ger`, the
 triangular, banded and packed level-2 routines (drivers over level-1 kernels), the bfloat16 and
-half-precision kernels, and the `q`/`x` slots, which no core replaces (a test in `__root__.zig`
-checks this). SPARC exports no level-3 tiles: no SPARC feature changes them, so an object would
+half-precision kernels (but `riscv64_zvl256b`'s `sbgemv` and `shgemv`), and the `q`/`x` slots,
+which no core replaces (a test in `__root__.zig` checks this). SPARC exports no level-3 tiles: no SPARC feature changes them, so an object would
 only repeat the portable kernels.
 
 ### Level 2
@@ -674,9 +684,9 @@ robustness questions (fusing `beta`, `trsm`'s inverted diagonal, prefetch).
 
 The kernels are `ext/bf16/kernel.zig`: the conversions, `bscal`, `sbdot`, the
 `bgemv`/`sbgemv`/`shgemv` family and the `bgemm`/`sbgemm`/`shgemm` one. They are portable Zig,
-the same on every core; no core
-installs a kernel of its own for any of them, and the per-core sources the reference selects
-(AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA, RVV) are not ported. Every bfloat16 conversion
+the same on every core; only `riscv64_zvl256b` installs kernels of its own, `vector.Half`'s
+`sbgemv` and `shgemv`, which give the portable kernels' bits. The other per-core sources the
+reference selects (AVX-512 BF16, NEON, SVE, BFDOT, VSX, MMA) are not ported. Every bfloat16 conversion
 upstream is `kernel/x86_64/tobf16.c` and `bf16to.c` (`kernel/Makefile.L1:311`, `:315`); the AVX-512 BF16 microkernels give the same
 bits.
 
@@ -1065,8 +1075,6 @@ Where the port differs from `dynamic*.c`:
   them on SME alone (`dynamic_arm64.c:602-616`, `support_sme1`). Each probe
   decodes it from its raw values in a pure function, and it counts only alongside SME. A
   Windows without the SME flags answers false, so it never gets an SME core.
-- **riscv.** `vlenb` picks `riscv64_zvl256b`, which has no object yet, so `riscv64_zvl128b`
-  serves it.
 - **power.** POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440, static targets
   upstream, are told apart by `AT_PLATFORM`, the PVR or the ISA bits, so none runs a later
   generation's code. A CPU nothing names gets the portable kernels (the reference guesses
@@ -1708,7 +1716,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
-| `riscv64-vlen128`, `riscv64-vlen256` | `rv64,v=true,vlen=128`, `256` | `zvl128b`'s VLEN-agnostic kernels at the VLENs it serves (`zvl256b` has no object of its own) |
+| `riscv64-vlen128`, `riscv64-vlen256` | `rv64,v=true,vlen=128`, `256` | `zvl128b`'s and `zvl256b`'s objects on the VLEN they are named for, the VLEN-agnostic `axpy` at both |
 | `loongarch64` | `la464` | |
 | `mips64r2el` | `Loongson-3A4000` | MSA, which the boot turns on: the `loongson3r4` core's kernels (QEMU v10.1.0 `target/mips/cpu-defs.c.inc` sets `CP0C3_MSAP` for it, `I6400` and `P5600`, not `Loongson-3A1000` or `24Kf`) |
 | `mips64r2` | `Loongson-3A1000` | big-endian, no MSA |
@@ -1804,7 +1812,6 @@ Rig mechanics:
 - Upstream, toolchain and emulator problems, with their workarounds, are in
   [`issues.md`](issues.md); open numerical and performance questions in
   [`comparisons.md`](comparisons.md).
-- `riscv64_zvl256b` has no object; `riscv64_zvl128b` serves it.
 - The mips `cpucfg` corrections and the sparc `sllx` rewrite are unverified on hardware; ARMv7
   NEON and AltiVec flushing was seen on the rigs, not on hardware.
 - Cores the rigs cannot run (Bulldozer, Piledriver and Steamroller microkernels on a host

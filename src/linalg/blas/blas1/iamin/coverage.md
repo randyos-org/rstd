@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------- | ------------------------------------- | -------------------------------------- | -------------------------------------- | ------------------------------ | ------------------------------- |
 | C910V           | `iamin_vector.c` +intrinsics → routed | `iamin_vector.c` +intrinsics → routed | `izamin_vector.c` +intrinsics → routed | `izamin_vector.c` +intrinsics → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/iamin.c` → routed         | `../riscv64/iamin.c` → routed         | `../riscv64/izamin.c` → routed         | `../riscv64/izamin.c` → routed         | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| RISCV64_ZVL128B | `iamin_rvv.c` +intrinsics → routed    | `iamin_rvv.c` +intrinsics → routed    | `izamin_rvv.c` +intrinsics → routed    | `izamin_rvv.c` +intrinsics → routed    | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| RISCV64_ZVL256B | `iamin_vector.c` +intrinsics → routed | `iamin_vector.c` +intrinsics → routed | `izamin_vector.c` +intrinsics → routed | `izamin_vector.c` +intrinsics → routed | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| RISCV64_ZVL128B | `iamin_rvv.c` +intrinsics → vec       | `iamin_rvv.c` +intrinsics → vec       | `izamin_rvv.c` +intrinsics → vec       | `izamin_rvv.c` +intrinsics → vec       | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| RISCV64_ZVL256B | `iamin_vector.c` +intrinsics → vec    | `iamin_vector.c` +intrinsics → vec    | `izamin_vector.c` +intrinsics → vec    | `izamin_vector.c` +intrinsics → vec    | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
 | U74             | `../riscv64/iamin.c` → routed         | `../riscv64/iamin.c` → routed         | `../riscv64/izamin.c` → routed         | `../riscv64/izamin.c` → routed         | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
-| x280            | `iamin_rvv.c` +intrinsics → routed    | `iamin_rvv.c` +intrinsics → routed    | `izamin_rvv.c` +intrinsics → routed    | `izamin_rvv.c` +intrinsics → routed    | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
+| x280            | `iamin_rvv.c` +intrinsics → vec       | `iamin_rvv.c` +intrinsics → vec       | `izamin_rvv.c` +intrinsics → vec       | `izamin_rvv.c` +intrinsics → vec       | `iamin.S` (missing) → portable | `izamin.S` (missing) → portable |
 
 ## loongarch64
 
@@ -234,4 +234,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 428, `portable` 230, `n/a` 48, `routed` 32. 0 gaps.

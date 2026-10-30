@@ -173,14 +173,14 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## riscv64
 
-| core            | sdot                                | dsdot                                  | ddot                                      | cdotu/cdotc                                | zdotu/zdotc                                | sbdot                          | qdot                         | xdotu/xdotc                   |
-| --------------- | ----------------------------------- | -------------------------------------- | ----------------------------------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------ | ---------------------------- | ----------------------------- |
-| C910V           | `dot_vector.c` +intrinsics → routed | `dsdot_vector.c` → portable            | `dot_vector.c` +intrinsics → **portable** | `zdot_vector.c` +intrinsics → **portable** | `zdot_vector.c` +intrinsics → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| RISCV64_GENERIC | `../riscv64/dot.c` → routed         | `../generic/dot.c` → portable          | `../riscv64/dot.c` → portable             | `../riscv64/zdot.c` → portable             | `../riscv64/zdot.c` → portable             | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| RISCV64_ZVL128B | `dot_rvv.c` +intrinsics → routed    | `dot_rvv.c` +intrinsics → **portable** | `dot_rvv.c` +intrinsics → **portable**    | `zdot_rvv.c` +intrinsics → **portable**    | `zdot_rvv.c` +intrinsics → **portable**    | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| RISCV64_ZVL256B | `dot_vector.c` +intrinsics → routed | `../generic/dot.c` → portable          | `dot_vector.c` +intrinsics → **portable** | `zdot_vector.c` +intrinsics → **portable** | `zdot_vector.c` +intrinsics → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| U74             | `../riscv64/dot.c` → routed         | `../generic/dot.c` → portable          | `../riscv64/dot.c` → portable             | `../riscv64/zdot.c` → portable             | `../riscv64/zdot.c` → portable             | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
-| x280            | `dot_rvv.c` +intrinsics → routed    | `dot_rvv.c` +intrinsics → **portable** | `dot_rvv.c` +intrinsics → **portable**    | `zdot_rvv.c` +intrinsics → **portable**    | `zdot_rvv.c` +intrinsics → **portable**    | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| core            | sdot                                | dsdot                           | ddot                                      | cdotu/cdotc                                | zdotu/zdotc                                | sbdot                          | qdot                         | xdotu/xdotc                   |
+| --------------- | ----------------------------------- | ------------------------------- | ----------------------------------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------ | ---------------------------- | ----------------------------- |
+| C910V           | `dot_vector.c` +intrinsics → routed | `dsdot_vector.c` → portable     | `dot_vector.c` +intrinsics → **portable** | `zdot_vector.c` +intrinsics → **portable** | `zdot_vector.c` +intrinsics → **portable** | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| RISCV64_GENERIC | `../riscv64/dot.c` → routed         | `../generic/dot.c` → portable   | `../riscv64/dot.c` → portable             | `../riscv64/zdot.c` → portable             | `../riscv64/zdot.c` → portable             | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| RISCV64_ZVL128B | `dot_rvv.c` +intrinsics → vec       | `dot_rvv.c` +intrinsics → C+vec | `dot_rvv.c` +intrinsics → vec             | `zdot_rvv.c` +intrinsics → vec             | `zdot_rvv.c` +intrinsics → vec             | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| RISCV64_ZVL256B | `dot_vector.c` +intrinsics → vec    | `../generic/dot.c` → portable   | `dot_vector.c` +intrinsics → vec          | `zdot_vector.c` +intrinsics → vec          | `zdot_vector.c` +intrinsics → vec          | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| U74             | `../riscv64/dot.c` → routed         | `../generic/dot.c` → portable   | `../riscv64/dot.c` → portable             | `../riscv64/zdot.c` → portable             | `../riscv64/zdot.c` → portable             | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
+| x280            | `dot_rvv.c` +intrinsics → vec       | `dot_rvv.c` +intrinsics → C+vec | `dot_rvv.c` +intrinsics → vec             | `zdot_rvv.c` +intrinsics → vec             | `zdot_rvv.c` +intrinsics → vec             | `../x86_64/sbdot.c` → portable | `dot.S` (missing) → portable | `zdot.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,28 +230,25 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: x86_64 2, power 10, mips64 20, mips 5, riscv64 22, zarch 9.
+The roles a core runs portable where upstream is tuned. By architecture: x86_64 2, power 10, mips64 20, mips 5, riscv64 5, zarch 9.
 
-| architecture | core            | roles                                   |
-| ------------ | --------------- | --------------------------------------- |
-| x86_64       | COOPERLAKE      | sbdot                                   |
-| x86_64       | SAPPHIRERAPIDS  | sbdot                                   |
-| power        | POWER10         | cdotu, cdotc                            |
-| power        | POWER8          | cdotu, cdotc                            |
-| power        | POWER9          | cdotu, cdotc                            |
-| power        | PPC440          | cdotu, cdotc, zdotu, zdotc              |
-| mips64       | I6400           | ddot, cdotu, cdotc, zdotu, zdotc        |
-| mips64       | I6500           | ddot, cdotu, cdotc, zdotu, zdotc        |
-| mips64       | LOONGSON3R4     | ddot, cdotu, cdotc, zdotu, zdotc        |
-| mips64       | P6600           | ddot, cdotu, cdotc, zdotu, zdotc        |
-| mips         | P5600           | ddot, cdotu, cdotc, zdotu, zdotc        |
-| riscv64      | C910V           | ddot, cdotu, cdotc, zdotu, zdotc        |
-| riscv64      | RISCV64_ZVL128B | dsdot, ddot, cdotu, cdotc, zdotu, zdotc |
-| riscv64      | RISCV64_ZVL256B | ddot, cdotu, cdotc, zdotu, zdotc        |
-| riscv64      | x280            | dsdot, ddot, cdotu, cdotc, zdotu, zdotc |
-| zarch        | Z13             | ddot, zdotu, zdotc                      |
-| zarch        | Z14             | dsdot, ddot, cdotu, cdotc, zdotu, zdotc |
+| architecture | core           | roles                                   |
+| ------------ | -------------- | --------------------------------------- |
+| x86_64       | COOPERLAKE     | sbdot                                   |
+| x86_64       | SAPPHIRERAPIDS | sbdot                                   |
+| power        | POWER10        | cdotu, cdotc                            |
+| power        | POWER8         | cdotu, cdotc                            |
+| power        | POWER9         | cdotu, cdotc                            |
+| power        | PPC440         | cdotu, cdotc, zdotu, zdotc              |
+| mips64       | I6400          | ddot, cdotu, cdotc, zdotu, zdotc        |
+| mips64       | I6500          | ddot, cdotu, cdotc, zdotu, zdotc        |
+| mips64       | LOONGSON3R4    | ddot, cdotu, cdotc, zdotu, zdotc        |
+| mips64       | P6600          | ddot, cdotu, cdotc, zdotu, zdotc        |
+| mips         | P5600          | ddot, cdotu, cdotc, zdotu, zdotc        |
+| riscv64      | C910V          | ddot, cdotu, cdotc, zdotu, zdotc        |
+| zarch        | Z13            | ddot, zdotu, zdotc                      |
+| zarch        | Z14            | dsdot, ddot, cdotu, cdotc, zdotu, zdotc |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 286, `portable` 761, `C+asm` 55, `C+vec` 6, `n/a` 88, `asm` 145, `routed` 12. 68 gaps.
+(core, role) pairs by what rstd serves: `vec` 304, `portable` 744, `C+asm` 55, `C+vec` 8, `n/a` 88, `asm` 145, `routed` 9. 51 gaps.

@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------ | ------------------------------------ | ------------------------------------- | ------------------------------------- | ----------------------------- | ------------------------------ |
 | C910V           | `nrm2_vector.c` +intrinsics → routed | `nrm2_vector.c` +intrinsics → routed | `znrm2_vector.c` +intrinsics → routed | `znrm2_vector.c` +intrinsics → routed | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/nrm2.c` → routed         | `../riscv64/nrm2.c` → routed         | `../riscv64/znrm2.c` → routed         | `../riscv64/znrm2.c` → routed         | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| RISCV64_ZVL128B | `nrm2_rvv.c` +intrinsics → routed    | `nrm2_rvv.c` +intrinsics → routed    | `znrm2_rvv.c` +intrinsics → routed    | `znrm2_rvv.c` +intrinsics → routed    | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| RISCV64_ZVL256B | `nrm2_vector.c` +intrinsics → routed | `nrm2_vector.c` +intrinsics → routed | `znrm2_vector.c` +intrinsics → routed | `znrm2_vector.c` +intrinsics → routed | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| RISCV64_ZVL128B | `nrm2_rvv.c` +intrinsics → vec       | `nrm2_rvv.c` +intrinsics → vec       | `znrm2_rvv.c` +intrinsics → vec       | `znrm2_rvv.c` +intrinsics → vec       | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| RISCV64_ZVL256B | `nrm2_vector.c` +intrinsics → vec    | `nrm2_vector.c` +intrinsics → vec    | `znrm2_vector.c` +intrinsics → vec    | `znrm2_vector.c` +intrinsics → vec    | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
 | U74             | `../riscv64/nrm2.c` → routed         | `../riscv64/nrm2.c` → routed         | `../riscv64/znrm2.c` → routed         | `../riscv64/znrm2.c` → routed         | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
-| x280            | `nrm2_rvv.c` +intrinsics → routed    | `nrm2_rvv.c` +intrinsics → routed    | `znrm2_rvv.c` +intrinsics → routed    | `znrm2_rvv.c` +intrinsics → routed    | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
+| x280            | `nrm2_rvv.c` +intrinsics → vec       | `nrm2_rvv.c` +intrinsics → vec       | `znrm2_rvv.c` +intrinsics → vec       | `znrm2_rvv.c` +intrinsics → vec       | `nrm2.S` (missing) → portable | `znrm2.S` (missing) → portable |
 
 ## loongarch64
 
@@ -234,4 +234,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 428, `portable` 230, `n/a` 48, `routed` 32. 0 gaps.

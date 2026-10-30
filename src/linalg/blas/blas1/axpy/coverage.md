@@ -178,7 +178,7 @@ runs those of the core that serves it (`asm_registry.served`).
 | C910V           | `axpy_vector.c` +intrinsics → **portable** | `axpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/axpy.c` → portable             | `../riscv64/axpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 | RISCV64_ZVL128B | `axpy_rvv.c` +intrinsics → C+asm           | `axpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
-| RISCV64_ZVL256B | `axpy_vector.c` +intrinsics → **portable** | `axpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `zaxpy_vector.c` +intrinsics → **portable** | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
+| RISCV64_ZVL256B | `axpy_vector.c` +intrinsics → vec          | `axpy_vector.c` +intrinsics → vec          | `zaxpy_vector.c` +intrinsics → vec          | `zaxpy_vector.c` +intrinsics → vec          | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 | U74             | `../riscv64/axpy.c` → portable             | `../riscv64/axpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `../riscv64/zaxpy.c` → portable             | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 | x280            | `axpy_rvv.c` +intrinsics → C+asm           | `axpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `zaxpy_rvv.c` +intrinsics → C+asm           | `axpy.S` (missing) → portable | `zaxpy.S` (missing) → portable |
 
@@ -230,15 +230,14 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: power 8, riscv64 12.
+The roles a core runs portable where upstream is tuned. By architecture: power 8, riscv64 6.
 
-| architecture | core            | roles                                      |
-| ------------ | --------------- | ------------------------------------------ |
-| power        | PPC440          | caxpy, caxpyc, zaxpy, zaxpyc               |
-| power        | PPCG4           | caxpy, caxpyc, zaxpy, zaxpyc               |
-| riscv64      | C910V           | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
-| riscv64      | RISCV64_ZVL256B | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
+| architecture | core   | roles                                      |
+| ------------ | ------ | ------------------------------------------ |
+| power        | PPC440 | caxpy, caxpyc, zaxpy, zaxpyc               |
+| power        | PPCG4  | caxpy, caxpyc, zaxpy, zaxpyc               |
+| riscv64      | C910V  | saxpy, daxpy, caxpy, caxpyc, zaxpy, zaxpyc |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 456, `portable` 446, `C+asm` 92, `C+vec` 28, `n/a` 72, `C` 1, `vec` 12. 20 gaps.
+(core, role) pairs by what rstd serves: `asm` 456, `portable` 440, `C+asm` 92, `C+vec` 28, `n/a` 72, `C` 1, `vec` 18. 14 gaps.

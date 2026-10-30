@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------- | ------------------------------------------- | ----------------------------- | ------------------------------ |
 | C910V           | `swap_vector.c` +intrinsics → **portable** | `swap_vector.c` +intrinsics → **portable** | `zswap_vector.c` +intrinsics → **portable** | `zswap_vector.c` +intrinsics → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/swap.c` → portable             | `../riscv64/swap.c` → portable             | `../riscv64/zswap.c` → portable             | `../riscv64/zswap.c` → portable             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
-| RISCV64_ZVL128B | `swap_rvv.c` +intrinsics → **portable**    | `swap_rvv.c` +intrinsics → **portable**    | `zswap_rvv.c` +intrinsics → **portable**    | `zswap_rvv.c` +intrinsics → **portable**    | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
-| RISCV64_ZVL256B | `swap_vector.c` +intrinsics → **portable** | `swap_vector.c` +intrinsics → **portable** | `zswap_vector.c` +intrinsics → **portable** | `zswap_vector.c` +intrinsics → **portable** | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| RISCV64_ZVL128B | `swap_rvv.c` +intrinsics → vec             | `swap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| RISCV64_ZVL256B | `swap_vector.c` +intrinsics → vec          | `swap_vector.c` +intrinsics → vec          | `zswap_vector.c` +intrinsics → vec          | `zswap_vector.c` +intrinsics → vec          | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
 | U74             | `../riscv64/swap.c` → portable             | `../riscv64/swap.c` → portable             | `../riscv64/zswap.c` → portable             | `../riscv64/zswap.c` → portable             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
-| x280            | `swap_rvv.c` +intrinsics → **portable**    | `swap_rvv.c` +intrinsics → **portable**    | `zswap_rvv.c` +intrinsics → **portable**    | `zswap_rvv.c` +intrinsics → **portable**    | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
+| x280            | `swap_rvv.c` +intrinsics → vec             | `swap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `zswap_rvv.c` +intrinsics → vec             | `swap.S` (missing) → portable | `zswap.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,25 +230,22 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: power 12, mips64 8, mips 4, riscv64 16, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: power 12, mips64 8, mips 4, riscv64 4, zarch 6.
 
-| architecture | core            | roles                      |
-| ------------ | --------------- | -------------------------- |
-| power        | POWER10         | sswap, dswap, cswap, zswap |
-| power        | POWER8          | sswap, dswap, cswap, zswap |
-| power        | POWER9          | sswap, dswap, cswap, zswap |
-| mips64       | I6400           | sswap, dswap               |
-| mips64       | I6500           | sswap, dswap               |
-| mips64       | LOONGSON3R4     | sswap, dswap               |
-| mips64       | P6600           | sswap, dswap               |
-| mips         | P5600           | sswap, dswap, cswap, zswap |
-| riscv64      | C910V           | sswap, dswap, cswap, zswap |
-| riscv64      | RISCV64_ZVL128B | sswap, dswap, cswap, zswap |
-| riscv64      | RISCV64_ZVL256B | sswap, dswap, cswap, zswap |
-| riscv64      | x280            | sswap, dswap, cswap, zswap |
-| zarch        | Z13             | dswap, zswap               |
-| zarch        | Z14             | sswap, dswap, cswap, zswap |
+| architecture | core        | roles                      |
+| ------------ | ----------- | -------------------------- |
+| power        | POWER10     | sswap, dswap, cswap, zswap |
+| power        | POWER8      | sswap, dswap, cswap, zswap |
+| power        | POWER9      | sswap, dswap, cswap, zswap |
+| mips64       | I6400       | sswap, dswap               |
+| mips64       | I6500       | sswap, dswap               |
+| mips64       | LOONGSON3R4 | sswap, dswap               |
+| mips64       | P6600       | sswap, dswap               |
+| mips         | P5600       | sswap, dswap, cswap, zswap |
+| riscv64      | C910V       | sswap, dswap, cswap, zswap |
+| zarch        | Z13         | dswap, zswap               |
+| zarch        | Z14         | sswap, dswap, cswap, zswap |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 340, `portable` 328, `n/a` 48, `vec` 22. 46 gaps.
+(core, role) pairs by what rstd serves: `asm` 340, `portable` 316, `n/a` 48, `vec` 34. 34 gaps.

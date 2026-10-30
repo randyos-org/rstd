@@ -139,6 +139,7 @@ const Vtable = @import("../../Vtable.zig");
 const sysinfo = @import("builtin");
 const gemm_params = @import("../../blas3/gemm/params.zig");
 const bf16_kernel = @import("../../ext/bf16/kernel.zig");
+const vector = @import("../../vector.zig");
 
 /// `kernel/arm/gemv_n.c` and `gemv_t.c`: `y += alpha*A*x` (`n`, `y` of `m`)
 /// or `y += alpha*A^T*x` (`t`, `y` of `n`). The interface has already scaled
@@ -767,7 +768,10 @@ fn halfModel(comptime E: type, comptime Y: type, comptime trans: bool, comptime 
 }
 
 fn checkHalfBits(comptime E: type, comptime Y: type, comptime trans: bool, comptime fuse: bool) !void {
-    const kern = bf16_kernel.Gemv(E, Y, trans, fuse).k;
+    return checkHalfBitsOf(E, Y, trans, fuse, bf16_kernel.Gemv(E, Y, trans, fuse).k);
+}
+
+fn checkHalfBitsOf(comptime E: type, comptime Y: type, comptime trans: bool, comptime fuse: bool, kern: anytype) !void {
     for (half_sizes) |mn| for (half_strides) |inc| for ([_]f32{ 1.25, -0.5, 0 }) |alpha| for (half_betas) |beta| {
         const m = mn[0];
         const n = mn[1];
@@ -793,6 +797,14 @@ test "half-precision gemv: the kernels are the model, bit for bit, fused or not"
         try checkHalfBits(f[1], f[2], trans, false);
         if (comptime fma.hardware) try checkHalfBits(f[1], f[2], trans, true);
     };
+}
+
+test "half-precision gemv: the @Vector kernels are the model, bit for bit" {
+    if (comptime !vector.ported.builds(.sbgemv_n)) return error.SkipZigTest;
+    inline for (.{ .{ BF16, "sbgemv" }, .{ types.HF16, "shgemv" } }) |f| {
+        try checkHalfBitsOf(f[0], f32, false, false, vector.ported.entry(@field(blas.Slot, f[1] ++ "_n")));
+        try checkHalfBitsOf(f[0], f32, true, false, vector.ported.entry(@field(blas.Slot, f[1] ++ "_t")));
+    }
 }
 
 test "half-precision gemv: an empty operand leaves beta*y" {

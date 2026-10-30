@@ -336,6 +336,7 @@ const VectorRule = union(enum) {
     none,
     routed: ?[]const []const u8,
     unfilled,
+    unfilled_on: []const []const u8,
 };
 
 fn readRule(arena: std.mem.Allocator, ar: Arch) !VectorRule {
@@ -350,6 +351,7 @@ fn readRule(arena: std.mem.Allocator, ar: Arch) !VectorRule {
     if (std.mem.eql(u8, v, ".unfilled")) return .unfilled;
     if (std.mem.eql(u8, v, ".{ .routed = null }")) return .{ .routed = null };
     if (field(v, "routed")) |r| return .{ .routed = try literals(arena, r) };
+    if (field(v, "unfilled_on")) |r| return .{ .unfilled_on = try literals(arena, r) };
     map.die("kernels/{s}.zig: cannot read vector_rule = {s}", .{ ar.registry, v });
 }
 
@@ -549,6 +551,7 @@ fn serve(ar: Arch, s: Served, routing: Routing, core: []const u8, role: roles.Ro
         .none => false,
         .routed => |cores| routed and (cores == null or contains(cores.?, core)),
         .unfilled => routed or !indexed or displaced,
+        .unfilled_on => |cores| contains(cores, core) and (routed or !indexed or displaced),
     };
     const unsure = s.hand.len > 0 and s.ports == null and !indexed;
     if (vec) return .{ .r = .vector, .unsure = unsure };

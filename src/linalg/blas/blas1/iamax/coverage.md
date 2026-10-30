@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------- | ------------------------------------- | -------------------------------------- | -------------------------------------- | ------------------------------ | ------------------------------- |
 | C910V           | `iamax_vector.c` +intrinsics → routed | `iamax_vector.c` +intrinsics → routed | `izamax_vector.c` +intrinsics → routed | `izamax_vector.c` +intrinsics → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/iamax.c` → routed         | `../riscv64/iamax.c` → routed         | `../riscv64/izamax.c` → routed         | `../riscv64/izamax.c` → routed         | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| RISCV64_ZVL128B | `iamax_rvv.c` +intrinsics → routed    | `iamax_rvv.c` +intrinsics → routed    | `izamax_rvv.c` +intrinsics → routed    | `izamax_rvv.c` +intrinsics → routed    | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| RISCV64_ZVL256B | `iamax_vector.c` +intrinsics → routed | `iamax_vector.c` +intrinsics → routed | `izamax_vector.c` +intrinsics → routed | `izamax_vector.c` +intrinsics → routed | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| RISCV64_ZVL128B | `iamax_rvv.c` +intrinsics → vec       | `iamax_rvv.c` +intrinsics → vec       | `izamax_rvv.c` +intrinsics → vec       | `izamax_rvv.c` +intrinsics → vec       | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| RISCV64_ZVL256B | `iamax_vector.c` +intrinsics → vec    | `iamax_vector.c` +intrinsics → vec    | `izamax_vector.c` +intrinsics → vec    | `izamax_vector.c` +intrinsics → vec    | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
 | U74             | `../riscv64/iamax.c` → routed         | `../riscv64/iamax.c` → routed         | `../riscv64/izamax.c` → routed         | `../riscv64/izamax.c` → routed         | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
-| x280            | `iamax_rvv.c` +intrinsics → routed    | `iamax_rvv.c` +intrinsics → routed    | `izamax_rvv.c` +intrinsics → routed    | `izamax_rvv.c` +intrinsics → routed    | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
+| x280            | `iamax_rvv.c` +intrinsics → vec       | `iamax_rvv.c` +intrinsics → vec       | `izamax_rvv.c` +intrinsics → vec       | `izamax_rvv.c` +intrinsics → vec       | `iamax.S` (missing) → portable | `izamax.S` (missing) → portable |
 
 ## loongarch64
 
@@ -234,4 +234,4 @@ None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 416, `portable` 230, `n/a` 48, `routed` 44. 0 gaps.
+(core, role) pairs by what rstd serves: `vec` 428, `portable` 230, `n/a` 48, `routed` 32. 0 gaps.

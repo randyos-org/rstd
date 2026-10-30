@@ -73,7 +73,7 @@ and which routines each architecture covers is in
 | powerpc, powerpc64 | `power3`, `power4`, `power5`, `power6`, `power8`, `power9`, `power10`, `ppc970`, `cell`, `ppc440`, `ppc440fp2`, `ppcg4` |
 | mips, mips64 | `loongson3r3`, `loongson3r4`, `p5600`, `i6400`, `i6500`, `p6600` |
 | loongarch64 | `la64_generic`, `la264`, `la464` |
-| riscv64 | `riscv64_zvl128b`, `x280` |
+| riscv64 | `riscv64_zvl128b`, `riscv64_zvl256b`, `x280` |
 | s390x | `z13`, `z14` |
 | sparc, sparc64 | `sparcv7`, `sparc` |
 | wasm32, wasm64 | `wasm128_generic` |
@@ -213,7 +213,8 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
 
 ### bfloat16 and half precision
 
-The kernels are portable Zig, the same on every core.
+The kernels are portable Zig, the same on every core; `riscv64_zvl256b`'s own `sbgemv` and
+`shgemv` (`@Vector`) give the same bits.
 
 - **Conversions** (`sbtobf16`, `bf16to`): round to nearest even; denormals flush to a signed zero
   and NaNs come out quiet, in both directions.

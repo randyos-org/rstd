@@ -276,7 +276,7 @@ pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => &.{ .power6, .power8, .power9, .power10, .power3, .power4, .power5, .ppc970, .cell, .ppc440, .ppc440fp2, .ppcg4 },
         .mips, .mipsel, .mips64, .mips64el => &.{ .loongson3r3, .loongson3r4, .p5600, .i6400, .i6500, .p6600 },
         .loongarch64 => &.{ .la64_generic, .la264, .la464 },
-        .riscv64 => &.{ .riscv64_zvl128b, .x280 },
+        .riscv64 => &.{ .riscv64_zvl128b, .riscv64_zvl256b, .x280 },
         .s390x => &.{ .z13, .z14 },
         .sparc, .sparc64 => &.{ .sparcv7, .sparc },
         .wasm32, .wasm64 => &.{.wasm128_generic},

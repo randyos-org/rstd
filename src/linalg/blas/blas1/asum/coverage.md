@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------- | ------------------------------------------- | ----------------------------- | ------------------------------ |
 | C910V           | `asum_vector.c` +intrinsics → **portable** | `asum_vector.c` +intrinsics → **portable** | `zasum_vector.c` +intrinsics → **portable** | `zasum_vector.c` +intrinsics → **portable** | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/asum.c` → portable             | `../riscv64/asum.c` → portable             | `../riscv64/zasum.c` → portable             | `../riscv64/zasum.c` → portable             | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
-| RISCV64_ZVL128B | `asum_rvv.c` +intrinsics → **portable**    | `asum_rvv.c` +intrinsics → **portable**    | `zasum_rvv.c` +intrinsics → **portable**    | `zasum_rvv.c` +intrinsics → **portable**    | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
-| RISCV64_ZVL256B | `asum_vector.c` +intrinsics → **portable** | `asum_vector.c` +intrinsics → **portable** | `zasum_vector.c` +intrinsics → **portable** | `zasum_vector.c` +intrinsics → **portable** | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
+| RISCV64_ZVL128B | `asum_rvv.c` +intrinsics → vec             | `asum_rvv.c` +intrinsics → vec             | `zasum_rvv.c` +intrinsics → vec             | `zasum_rvv.c` +intrinsics → vec             | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
+| RISCV64_ZVL256B | `asum_vector.c` +intrinsics → vec          | `asum_vector.c` +intrinsics → vec          | `zasum_vector.c` +intrinsics → vec          | `zasum_vector.c` +intrinsics → vec          | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
 | U74             | `../riscv64/asum.c` → portable             | `../riscv64/asum.c` → portable             | `../riscv64/zasum.c` → portable             | `../riscv64/zasum.c` → portable             | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
-| x280            | `asum_rvv.c` +intrinsics → **portable**    | `asum_rvv.c` +intrinsics → **portable**    | `zasum_rvv.c` +intrinsics → **portable**    | `zasum_rvv.c` +intrinsics → **portable**    | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
+| x280            | `asum_rvv.c` +intrinsics → vec             | `asum_rvv.c` +intrinsics → vec             | `zasum_rvv.c` +intrinsics → vec             | `zasum_rvv.c` +intrinsics → vec             | `asum.S` (missing) → portable | `zasum.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,29 +230,26 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: x86_64 14, power 6, mips64 16, mips 4, riscv64 16, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: x86_64 14, power 6, mips64 16, mips 4, riscv64 4, zarch 6.
 
-| architecture | core            | roles                      |
-| ------------ | --------------- | -------------------------- |
-| x86_64       | COOPERLAKE      | sasum, dasum, casum, zasum |
-| x86_64       | HASWELL         | sasum, dasum               |
-| x86_64       | SAPPHIRERAPIDS  | sasum, dasum, casum, zasum |
-| x86_64       | SKYLAKEX        | sasum, dasum, casum, zasum |
-| power        | POWER10         | sasum, dasum               |
-| power        | POWER8          | sasum, dasum               |
-| power        | POWER9          | sasum, dasum               |
-| mips64       | I6400           | sasum, dasum, casum, zasum |
-| mips64       | I6500           | sasum, dasum, casum, zasum |
-| mips64       | LOONGSON3R4     | sasum, dasum, casum, zasum |
-| mips64       | P6600           | sasum, dasum, casum, zasum |
-| mips         | P5600           | sasum, dasum, casum, zasum |
-| riscv64      | C910V           | sasum, dasum, casum, zasum |
-| riscv64      | RISCV64_ZVL128B | sasum, dasum, casum, zasum |
-| riscv64      | RISCV64_ZVL256B | sasum, dasum, casum, zasum |
-| riscv64      | x280            | sasum, dasum, casum, zasum |
-| zarch        | Z13             | dasum, zasum               |
-| zarch        | Z14             | sasum, dasum, casum, zasum |
+| architecture | core           | roles                      |
+| ------------ | -------------- | -------------------------- |
+| x86_64       | COOPERLAKE     | sasum, dasum, casum, zasum |
+| x86_64       | HASWELL        | sasum, dasum               |
+| x86_64       | SAPPHIRERAPIDS | sasum, dasum, casum, zasum |
+| x86_64       | SKYLAKEX       | sasum, dasum, casum, zasum |
+| power        | POWER10        | sasum, dasum               |
+| power        | POWER8         | sasum, dasum               |
+| power        | POWER9         | sasum, dasum               |
+| mips64       | I6400          | sasum, dasum, casum, zasum |
+| mips64       | I6500          | sasum, dasum, casum, zasum |
+| mips64       | LOONGSON3R4    | sasum, dasum, casum, zasum |
+| mips64       | P6600          | sasum, dasum, casum, zasum |
+| mips         | P5600          | sasum, dasum, casum, zasum |
+| riscv64      | C910V          | sasum, dasum, casum, zasum |
+| zarch        | Z13            | dasum, zasum               |
+| zarch        | Z14            | sasum, dasum, casum, zasum |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `vec` 130, `portable` 336, `n/a` 48, `asm` 224. 62 gaps.
+(core, role) pairs by what rstd serves: `vec` 142, `portable` 324, `n/a` 48, `asm` 224. 50 gaps.

@@ -173,14 +173,14 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## riscv64
 
-| core            | srotm                                   | drotm                                   | qrotm                          |
-| --------------- | --------------------------------------- | --------------------------------------- | ------------------------------ |
-| C910V           | `../generic/rotm.c` → portable          | `../generic/rotm.c` → portable          | `../generic/rotm.c` → portable |
-| RISCV64_GENERIC | `../generic/rotm.c` → portable          | `../generic/rotm.c` → portable          | `../generic/rotm.c` → portable |
-| RISCV64_ZVL128B | `rotm_rvv.c` +intrinsics → **portable** | `rotm_rvv.c` +intrinsics → **portable** | `../generic/rotm.c` → portable |
-| RISCV64_ZVL256B | `rotm_rvv.c` +intrinsics → **portable** | `rotm_rvv.c` +intrinsics → **portable** | `../generic/rotm.c` → portable |
-| U74             | `../generic/rotm.c` → portable          | `../generic/rotm.c` → portable          | `../generic/rotm.c` → portable |
-| x280            | `rotm_rvv.c` +intrinsics → **portable** | `rotm_rvv.c` +intrinsics → **portable** | `../generic/rotm.c` → portable |
+| core            | srotm                            | drotm                            | qrotm                          |
+| --------------- | -------------------------------- | -------------------------------- | ------------------------------ |
+| C910V           | `../generic/rotm.c` → portable   | `../generic/rotm.c` → portable   | `../generic/rotm.c` → portable |
+| RISCV64_GENERIC | `../generic/rotm.c` → portable   | `../generic/rotm.c` → portable   | `../generic/rotm.c` → portable |
+| RISCV64_ZVL128B | `rotm_rvv.c` +intrinsics → C+vec | `rotm_rvv.c` +intrinsics → C+vec | `../generic/rotm.c` → portable |
+| RISCV64_ZVL256B | `rotm_rvv.c` +intrinsics → C+vec | `rotm_rvv.c` +intrinsics → C+vec | `../generic/rotm.c` → portable |
+| U74             | `../generic/rotm.c` → portable   | `../generic/rotm.c` → portable   | `../generic/rotm.c` → portable |
+| x280            | `rotm_rvv.c` +intrinsics → C+vec | `rotm_rvv.c` +intrinsics → C+vec | `../generic/rotm.c` → portable |
 
 ## loongarch64
 
@@ -230,14 +230,8 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: riscv64 6.
-
-| architecture | core            | roles        |
-| ------------ | --------------- | ------------ |
-| riscv64      | RISCV64_ZVL128B | srotm, drotm |
-| riscv64      | RISCV64_ZVL256B | srotm, drotm |
-| riscv64      | x280            | srotm, drotm |
+None: no core runs the portable kernels where upstream is tuned.
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `portable` 345, `n/a` 24. 6 gaps.
+(core, role) pairs by what rstd serves: `portable` 339, `n/a` 24, `C+vec` 6. 0 gaps.

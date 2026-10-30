@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ----------------------------------------- | ----------------------------------------- | ------------------------------------------ | ------------------------------------------ | ---------------------------- | ----------------------------- |
 | C910V           | `rot_vector.c` +intrinsics → **portable** | `rot_vector.c` +intrinsics → **portable** | `zrot_vector.c` +intrinsics → **portable** | `zrot_vector.c` +intrinsics → **portable** | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/rot.c` → portable             | `../riscv64/rot.c` → portable             | `../riscv64/zrot.c` → portable             | `../riscv64/zrot.c` → portable             | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
-| RISCV64_ZVL128B | `rot_rvv.c` +intrinsics → **portable**    | `rot_rvv.c` +intrinsics → **portable**    | `zrot_rvv.c` +intrinsics → **portable**    | `zrot_rvv.c` +intrinsics → **portable**    | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
-| RISCV64_ZVL256B | `rot_vector.c` +intrinsics → **portable** | `rot_vector.c` +intrinsics → **portable** | `zrot_vector.c` +intrinsics → **portable** | `zrot_vector.c` +intrinsics → **portable** | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
+| RISCV64_ZVL128B | `rot_rvv.c` +intrinsics → vec             | `rot_rvv.c` +intrinsics → vec             | `zrot_rvv.c` +intrinsics → vec             | `zrot_rvv.c` +intrinsics → vec             | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
+| RISCV64_ZVL256B | `rot_vector.c` +intrinsics → vec          | `rot_vector.c` +intrinsics → vec          | `zrot_vector.c` +intrinsics → vec          | `zrot_vector.c` +intrinsics → vec          | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
 | U74             | `../riscv64/rot.c` → portable             | `../riscv64/rot.c` → portable             | `../riscv64/zrot.c` → portable             | `../riscv64/zrot.c` → portable             | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
-| x280            | `rot_rvv.c` +intrinsics → **portable**    | `rot_rvv.c` +intrinsics → **portable**    | `zrot_rvv.c` +intrinsics → **portable**    | `zrot_rvv.c` +intrinsics → **portable**    | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
+| x280            | `rot_rvv.c` +intrinsics → vec             | `rot_rvv.c` +intrinsics → vec             | `zrot_rvv.c` +intrinsics → vec             | `zrot_rvv.c` +intrinsics → vec             | `rot.S` (missing) → portable | `zrot.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,22 +230,19 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: power 14, mips 4, riscv64 16, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: power 14, mips 4, riscv64 4, zarch 6.
 
-| architecture | core            | roles                    |
-| ------------ | --------------- | ------------------------ |
-| power        | POWER10         | srot, drot, csrot, zdrot |
-| power        | POWER8          | srot, drot, csrot, zdrot |
-| power        | POWER9          | srot, drot, csrot, zdrot |
-| power        | PPC440          | csrot, zdrot             |
-| mips         | P5600           | srot, drot, csrot, zdrot |
-| riscv64      | C910V           | srot, drot, csrot, zdrot |
-| riscv64      | RISCV64_ZVL128B | srot, drot, csrot, zdrot |
-| riscv64      | RISCV64_ZVL256B | srot, drot, csrot, zdrot |
-| riscv64      | x280            | srot, drot, csrot, zdrot |
-| zarch        | Z13             | drot, zdrot              |
-| zarch        | Z14             | srot, drot, csrot, zdrot |
+| architecture | core    | roles                    |
+| ------------ | ------- | ------------------------ |
+| power        | POWER10 | srot, drot, csrot, zdrot |
+| power        | POWER8  | srot, drot, csrot, zdrot |
+| power        | POWER9  | srot, drot, csrot, zdrot |
+| power        | PPC440  | csrot, zdrot             |
+| mips         | P5600   | srot, drot, csrot, zdrot |
+| riscv64      | C910V   | srot, drot, csrot, zdrot |
+| zarch        | Z13     | drot, zdrot              |
+| zarch        | Z14     | srot, drot, csrot, zdrot |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 324, `portable` 342, `C` 4, `n/a` 48, `C+vec` 6, `vec` 14. 40 gaps.
+(core, role) pairs by what rstd serves: `asm` 324, `portable` 330, `C` 4, `n/a` 48, `C+vec` 6, `vec` 26. 28 gaps.

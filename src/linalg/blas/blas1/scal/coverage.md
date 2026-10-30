@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------- | ------------------------------------------- | ------------------------------ | ----------------------------- | ------------------------------ |
 | C910V           | `scal_vector.c` +intrinsics → **portable** | `scal_vector.c` +intrinsics → **portable** | `zscal_vector.c` +intrinsics → **portable** | `zscal_vector.c` +intrinsics → **portable** | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/scal.c` → portable             | `../riscv64/scal.c` → portable             | `../riscv64/zscal.c` → portable             | `../riscv64/zscal.c` → portable             | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
-| RISCV64_ZVL128B | `scal_rvv.c` +intrinsics → **portable**    | `scal_rvv.c` +intrinsics → **portable**    | `zscal_rvv.c` +intrinsics → **portable**    | `zscal_rvv.c` +intrinsics → **portable**    | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
-| RISCV64_ZVL256B | `scal_vector.c` +intrinsics → **portable** | `scal_vector.c` +intrinsics → **portable** | `zscal_vector.c` +intrinsics → **portable** | `zscal_vector.c` +intrinsics → **portable** | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
+| RISCV64_ZVL128B | `scal_rvv.c` +intrinsics → vec             | `scal_rvv.c` +intrinsics → vec             | `zscal_rvv.c` +intrinsics → vec             | `zscal_rvv.c` +intrinsics → vec             | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
+| RISCV64_ZVL256B | `scal_vector.c` +intrinsics → vec          | `scal_vector.c` +intrinsics → vec          | `zscal_vector.c` +intrinsics → vec          | `zscal_vector.c` +intrinsics → vec          | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
 | U74             | `../riscv64/scal.c` → portable             | `../riscv64/scal.c` → portable             | `../riscv64/zscal.c` → portable             | `../riscv64/zscal.c` → portable             | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
-| x280            | `scal_rvv.c` +intrinsics → **portable**    | `scal_rvv.c` +intrinsics → **portable**    | `zscal_rvv.c` +intrinsics → **portable**    | `zscal_rvv.c` +intrinsics → **portable**    | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
+| x280            | `scal_rvv.c` +intrinsics → vec             | `scal_rvv.c` +intrinsics → vec             | `zscal_rvv.c` +intrinsics → vec             | `zscal_rvv.c` +intrinsics → vec             | `../generic/scal.c` → portable | `scal.S` (missing) → portable | `zscal.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,25 +230,22 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: power 6, mips64 8, mips 2, riscv64 16, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: power 6, mips64 8, mips 2, riscv64 4, zarch 6.
 
-| architecture | core            | roles                      |
-| ------------ | --------------- | -------------------------- |
-| power        | POWER10         | sscal, dscal               |
-| power        | POWER8          | sscal, dscal               |
-| power        | POWER9          | sscal, dscal               |
-| mips64       | I6400           | sscal, dscal               |
-| mips64       | I6500           | sscal, dscal               |
-| mips64       | LOONGSON3R4     | sscal, dscal               |
-| mips64       | P6600           | sscal, dscal               |
-| mips         | P5600           | sscal, dscal               |
-| riscv64      | C910V           | sscal, dscal, cscal, zscal |
-| riscv64      | RISCV64_ZVL128B | sscal, dscal, cscal, zscal |
-| riscv64      | RISCV64_ZVL256B | sscal, dscal, cscal, zscal |
-| riscv64      | x280            | sscal, dscal, cscal, zscal |
-| zarch        | Z13             | dscal, zscal               |
-| zarch        | Z14             | sscal, dscal, cscal, zscal |
+| architecture | core        | roles                      |
+| ------------ | ----------- | -------------------------- |
+| power        | POWER10     | sscal, dscal               |
+| power        | POWER8      | sscal, dscal               |
+| power        | POWER9      | sscal, dscal               |
+| mips64       | I6400       | sscal, dscal               |
+| mips64       | I6500       | sscal, dscal               |
+| mips64       | LOONGSON3R4 | sscal, dscal               |
+| mips64       | P6600       | sscal, dscal               |
+| mips         | P5600       | sscal, dscal               |
+| riscv64      | C910V       | sscal, dscal, cscal, zscal |
+| zarch        | Z13         | dscal, zscal               |
+| zarch        | Z14         | sscal, dscal, cscal, zscal |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 216, `portable` 547, `C+asm` 22, `C+vec` 12, `n/a` 56, `vec` 8. 38 gaps.
+(core, role) pairs by what rstd serves: `asm` 216, `portable` 535, `C+asm` 22, `C+vec` 12, `n/a` 56, `vec` 20. 26 gaps.

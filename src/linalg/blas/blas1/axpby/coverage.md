@@ -173,14 +173,14 @@ runs those of the core that serves it (`asm_registry.served`).
 
 ## riscv64
 
-| core            | saxpby                                         | daxpby                                         | caxpby                                       | zaxpby                                       |
-| --------------- | ---------------------------------------------- | ---------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
-| C910V           | `axpby_vector.c` +intrinsics → **portable**    | `axpby_vector.c` +intrinsics → **portable**    | `zaxpby_vector.c` +intrinsics → **portable** | `zaxpby_vector.c` +intrinsics → **portable** |
-| RISCV64_GENERIC | `../riscv64/axpby.c` → portable                | `../riscv64/axpby.c` → portable                | `../riscv64/zaxpby.c` → portable             | `../riscv64/zaxpby.c` → portable             |
-| RISCV64_ZVL128B | `axpby_rvv.c` +intrinsics → **portable**       | `axpby_rvv.c` +intrinsics → **portable**       | `zaxpby_rvv.c` +intrinsics → **portable**    | `zaxpby_rvv.c` +intrinsics → **portable**    |
-| RISCV64_ZVL256B | `axpby_vector_v2.c` +intrinsics → **portable** | `axpby_vector_v2.c` +intrinsics → **portable** | `../arm/zaxpby.c` → portable                 | `../arm/zaxpby.c` → portable                 |
-| U74             | `../riscv64/axpby.c` → portable                | `../riscv64/axpby.c` → portable                | `../riscv64/zaxpby.c` → portable             | `../riscv64/zaxpby.c` → portable             |
-| x280            | `axpby_rvv.c` +intrinsics → **portable**       | `axpby_rvv.c` +intrinsics → **portable**       | `zaxpby_rvv.c` +intrinsics → **portable**    | `zaxpby_rvv.c` +intrinsics → **portable**    |
+| core            | saxpby                                      | daxpby                                      | caxpby                                       | zaxpby                                       |
+| --------------- | ------------------------------------------- | ------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| C910V           | `axpby_vector.c` +intrinsics → **portable** | `axpby_vector.c` +intrinsics → **portable** | `zaxpby_vector.c` +intrinsics → **portable** | `zaxpby_vector.c` +intrinsics → **portable** |
+| RISCV64_GENERIC | `../riscv64/axpby.c` → portable             | `../riscv64/axpby.c` → portable             | `../riscv64/zaxpby.c` → portable             | `../riscv64/zaxpby.c` → portable             |
+| RISCV64_ZVL128B | `axpby_rvv.c` +intrinsics → C+vec           | `axpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           |
+| RISCV64_ZVL256B | `axpby_vector_v2.c` +intrinsics → C+vec     | `axpby_vector_v2.c` +intrinsics → C+vec     | `../arm/zaxpby.c` → portable                 | `../arm/zaxpby.c` → portable                 |
+| U74             | `../riscv64/axpby.c` → portable             | `../riscv64/axpby.c` → portable             | `../riscv64/zaxpby.c` → portable             | `../riscv64/zaxpby.c` → portable             |
+| x280            | `axpby_rvv.c` +intrinsics → C+vec           | `axpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           | `zaxpby_rvv.c` +intrinsics → C+vec           |
 
 ## loongarch64
 
@@ -230,15 +230,12 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: riscv64 14.
+The roles a core runs portable where upstream is tuned. By architecture: riscv64 4.
 
-| architecture | core            | roles                          |
-| ------------ | --------------- | ------------------------------ |
-| riscv64      | C910V           | saxpby, daxpby, caxpby, zaxpby |
-| riscv64      | RISCV64_ZVL128B | saxpby, daxpby, caxpby, zaxpby |
-| riscv64      | RISCV64_ZVL256B | saxpby, daxpby                 |
-| riscv64      | x280            | saxpby, daxpby, caxpby, zaxpby |
+| architecture | core  | roles                          |
+| ------------ | ----- | ------------------------------ |
+| riscv64      | C910V | saxpby, daxpby, caxpby, zaxpby |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `portable` 452, `n/a` 32, `asm` 8. 14 gaps.
+(core, role) pairs by what rstd serves: `portable` 442, `n/a` 32, `C+vec` 10, `asm` 8. 4 gaps.

@@ -214,8 +214,8 @@ const base_machines = [_]Machine{
         },
     },
     .{
-        // `riscv64` at VLEN 128 and 256: `zvl128b`'s VLEN-agnostic kernels on
-        // the hardware they are named for
+        // `riscv64` at VLEN 128 and 256: `zvl128b`'s and `zvl256b`'s objects
+        // on the hardware they are named for, the VLEN-agnostic `axpy` at both
         .name = "riscv64-vlen128",
         .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
         .qemu = "qemu-system-riscv64",

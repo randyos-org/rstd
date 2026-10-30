@@ -140,6 +140,27 @@ pub fn Ports(comptime Core: type, comptime arch: []const u8, comptime ports: []c
         pub fn exportOne(comptime slot: Slot, comptime core: Core) void {
             if (comptime find(core, slot)) |p| exportKernel(p.module.entry(slot), slot, core);
         }
+
+        /// Exports every kernel the ports have on `core`, for a routine
+        /// whose kernels are all ports.
+        pub fn exportCore(comptime core: Core) void {
+            inline for (ports, 0..) |p, i| inline for (p.slots) |slot| {
+                // once a slot, from the first port that lists it
+                if (comptime firstWith(slot) == i) exportOne(slot, core);
+            };
+        }
+
+        fn firstWith(comptime slot: Slot) usize {
+            for (ports, 0..) |p, i| {
+                if (std.mem.indexOfScalar(Slot, p.slots, slot) != null) return i;
+            }
+            unreachable;
+        }
+
+        /// Points the vtable at every kernel the ports have on `core`.
+        pub fn install(vt: *Vtable, comptime core: Core) void {
+            inline for (ports) |p| installSlots(vt, core, p.slots, hasSlot);
+        }
     };
 }
 

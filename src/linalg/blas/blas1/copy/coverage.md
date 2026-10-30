@@ -177,10 +177,10 @@ runs those of the core that serves it (`asm_registry.served`).
 | --------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------- | ------------------------------------------- | ----------------------------- | ------------------------------ |
 | C910V           | `copy_vector.c` +intrinsics → **portable** | `copy_vector.c` +intrinsics → **portable** | `zcopy_vector.c` +intrinsics → **portable** | `zcopy_vector.c` +intrinsics → **portable** | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
 | RISCV64_GENERIC | `../riscv64/copy.c` → portable             | `../riscv64/copy.c` → portable             | `../riscv64/zcopy.c` → portable             | `../riscv64/zcopy.c` → portable             | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
-| RISCV64_ZVL128B | `copy_rvv.c` +intrinsics → **portable**    | `copy_rvv.c` +intrinsics → **portable**    | `zcopy_rvv.c` +intrinsics → **portable**    | `zcopy_rvv.c` +intrinsics → **portable**    | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
-| RISCV64_ZVL256B | `copy_vector.c` +intrinsics → **portable** | `copy_vector.c` +intrinsics → **portable** | `zcopy_vector.c` +intrinsics → **portable** | `zcopy_vector.c` +intrinsics → **portable** | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
+| RISCV64_ZVL128B | `copy_rvv.c` +intrinsics → vec             | `copy_rvv.c` +intrinsics → vec             | `zcopy_rvv.c` +intrinsics → vec             | `zcopy_rvv.c` +intrinsics → vec             | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
+| RISCV64_ZVL256B | `copy_vector.c` +intrinsics → vec          | `copy_vector.c` +intrinsics → vec          | `zcopy_vector.c` +intrinsics → vec          | `zcopy_vector.c` +intrinsics → vec          | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
 | U74             | `../riscv64/copy.c` → portable             | `../riscv64/copy.c` → portable             | `../riscv64/zcopy.c` → portable             | `../riscv64/zcopy.c` → portable             | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
-| x280            | `copy_rvv.c` +intrinsics → **portable**    | `copy_rvv.c` +intrinsics → **portable**    | `zcopy_rvv.c` +intrinsics → **portable**    | `zcopy_rvv.c` +intrinsics → **portable**    | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
+| x280            | `copy_rvv.c` +intrinsics → vec             | `copy_rvv.c` +intrinsics → vec             | `zcopy_rvv.c` +intrinsics → vec             | `zcopy_rvv.c` +intrinsics → vec             | `copy.S` (missing) → portable | `zcopy.S` (missing) → portable |
 
 ## loongarch64
 
@@ -230,22 +230,19 @@ rstd has no target here.
 
 ## Gaps
 
-The roles a core runs portable where upstream is tuned. By architecture: mips64 16, mips 4, riscv64 16, zarch 6.
+The roles a core runs portable where upstream is tuned. By architecture: mips64 16, mips 4, riscv64 4, zarch 6.
 
-| architecture | core            | roles                      |
-| ------------ | --------------- | -------------------------- |
-| mips64       | I6400           | scopy, dcopy, ccopy, zcopy |
-| mips64       | I6500           | scopy, dcopy, ccopy, zcopy |
-| mips64       | LOONGSON3R4     | scopy, dcopy, ccopy, zcopy |
-| mips64       | P6600           | scopy, dcopy, ccopy, zcopy |
-| mips         | P5600           | scopy, dcopy, ccopy, zcopy |
-| riscv64      | C910V           | scopy, dcopy, ccopy, zcopy |
-| riscv64      | RISCV64_ZVL128B | scopy, dcopy, ccopy, zcopy |
-| riscv64      | RISCV64_ZVL256B | scopy, dcopy, ccopy, zcopy |
-| riscv64      | x280            | scopy, dcopy, ccopy, zcopy |
-| zarch        | Z13             | dcopy, zcopy               |
-| zarch        | Z14             | scopy, dcopy, ccopy, zcopy |
+| architecture | core        | roles                      |
+| ------------ | ----------- | -------------------------- |
+| mips64       | I6400       | scopy, dcopy, ccopy, zcopy |
+| mips64       | I6500       | scopy, dcopy, ccopy, zcopy |
+| mips64       | LOONGSON3R4 | scopy, dcopy, ccopy, zcopy |
+| mips64       | P6600       | scopy, dcopy, ccopy, zcopy |
+| mips         | P5600       | scopy, dcopy, ccopy, zcopy |
+| riscv64      | C910V       | scopy, dcopy, ccopy, zcopy |
+| zarch        | Z13         | dcopy, zcopy               |
+| zarch        | Z14         | scopy, dcopy, ccopy, zcopy |
 
 ## Totals
 
-(core, role) pairs by what rstd serves: `asm` 292, `portable` 338, `n/a` 48, `vec` 60. 42 gaps.
+(core, role) pairs by what rstd serves: `asm` 292, `portable` 326, `n/a` 48, `vec` 72. 30 gaps.
