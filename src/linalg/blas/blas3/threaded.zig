@@ -596,6 +596,12 @@ test "threaded gemm matches the serial driver's bits and kernel depths at 1 to 9
             defer threaded.deinit();
             try shapes(T, threaded.io());
         };
+        if (comptime threading.evented_workers) {
+            var ev: threading.Evented = undefined;
+            try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+            defer ev.deinit();
+            try shapes(T, ev.io());
+        }
     }
 }
 
@@ -709,6 +715,12 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops'
                 defer threaded.deinit();
                 try routineShapes(T, &vt, threaded.io(), r);
             };
+            if (comptime threading.evented_workers) {
+                var ev: threading.Evented = undefined;
+                try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+                defer ev.deinit();
+                try routineShapes(T, &vt, ev.io(), r);
+            }
         }
     }
 }
@@ -719,13 +731,24 @@ test "threaded gemm keeps the serial bits under the caller's rounding toward zer
     defer own.apply();
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
+    try fpShapes(own, threaded.io());
+    if (comptime threading.evented_workers) {
+        var ev: threading.Evented = undefined;
+        try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+        defer ev.deinit();
+        try fpShapes(own, ev.io());
+    }
+}
+
+/// `gemm` on `io` under `own`, then rounding toward zero.
+fn fpShapes(own: util.FpState, io: Io) !void {
     inline for (precisions) |T| {
         const vt = shrunk(T);
         const blk = Blocking.of(T, &vt);
         // the workers start under the default state first
         for ([_]util.FpState{ own, own.towardZero() }) |s| {
             s.apply();
-            try shape(T, &vt, threaded.io(), .{ .n, .t }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, scalar(T, -0.75, 0.25), scalar(T, 0.5, -0.125));
+            try shape(T, &vt, io, .{ .n, .t }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, scalar(T, -0.75, 0.25), scalar(T, 0.5, -0.125));
             try zigstd.testExpectTrue(util.FpState.capture().eql(s));
         }
     }
@@ -889,7 +912,17 @@ test "race stress: threaded level 3 keeps one worker's bits and its guard bands,
     if (comptime !threading.hosted) return error.SkipZigTest;
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
-    const io = threaded.io();
+    try stresses(threaded.io());
+    if (comptime threading.evented_workers) {
+        var ev: threading.Evented = undefined;
+        try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+        defer ev.deinit();
+        try stresses(ev.io());
+    }
+}
+
+/// The race stress test's routines on `io`.
+fn stresses(io: Io) !void {
     const rounds = threading.stress_rounds;
     // shared packed `B` behind its barriers: `ic` and `jc` past 1, several slices
     {
@@ -972,25 +1005,35 @@ test "a canceled threaded gemm returns error.Canceled with no worker left runnin
     for ([_]Io.Limit{ .limited(3), .limited(8) }) |limit| {
         var threaded: Io.Threaded = .init(al, .{ .async_limit = limit, .concurrent_limit = limit });
         defer threaded.deinit();
-        const io = threaded.io();
-        Hold.calls.store(0, .release);
-        Hold.held.store(true, .release);
-        Hold.first.store(0, .release);
-        Hold.others.store(0, .release);
-        const releaser = try std.Thread.spawn(.{}, Hold.release, .{io});
-        var future = io.concurrent(canceledGemm, .{ io, &vt, a, b, c, n, k }) catch return error.SkipZigTest;
-        while (Hold.calls.load(.acquire) == 0) std.Thread.yield() catch {};
-        const result = future.cancel(io);
-        releaser.join();
-        try zigstd.testExpectError(error.Canceled, result);
-        // workers did run beside the caller
-        try zigstd.testExpectTrue(Hold.others.load(.acquire) > 0);
-        // nothing calls the kernel once the call has returned
-        const after = Hold.calls.load(.acquire);
-        try zigstd.testExpectEqual(@as(u32, 0), Hold.inside.load(.acquire));
-        io.sleep(.fromMilliseconds(20), .awake) catch {};
-        try zigstd.testExpectEqual(after, Hold.calls.load(.acquire));
+        try cancelGemm(threaded.io(), &vt, a, b, c, n, k);
     }
+    if (comptime threading.evented_workers) {
+        var ev: threading.Evented = undefined;
+        try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+        defer ev.deinit();
+        try cancelGemm(ev.io(), &vt, a, b, c, n, k);
+    }
+}
+
+/// Cancels a held `gemm` on `io` once a kernel call has started.
+fn cancelGemm(io: Io, vt: *const Vtable, a: []f64, b: []f64, c: []f64, n: usize, k: usize) !void {
+    Hold.calls.store(0, .release);
+    Hold.held.store(true, .release);
+    Hold.first.store(0, .release);
+    Hold.others.store(0, .release);
+    const releaser = try std.Thread.spawn(.{}, Hold.release, .{io});
+    var future = io.concurrent(canceledGemm, .{ io, vt, a, b, c, n, k }) catch return error.SkipZigTest;
+    while (Hold.calls.load(.acquire) == 0) std.Thread.yield() catch {};
+    const result = future.cancel(io);
+    releaser.join();
+    try zigstd.testExpectError(error.Canceled, result);
+    // workers did run beside the caller
+    try zigstd.testExpectTrue(Hold.others.load(.acquire) > 0);
+    // nothing calls the kernel once the call has returned
+    const after = Hold.calls.load(.acquire);
+    try zigstd.testExpectEqual(@as(u32, 0), Hold.inside.load(.acquire));
+    io.sleep(.fromMilliseconds(20), .awake) catch {};
+    try zigstd.testExpectEqual(after, Hold.calls.load(.acquire));
 }
 
 // `L3THREAD_BENCH` set, a fast Windows build (`rstd-test -Doptimize=fast`):

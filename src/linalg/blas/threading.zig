@@ -317,9 +317,9 @@ pub fn planWith(cfg: *const Config, r: Rule, work: u64, len: usize, shape: Shape
 
 /// `f(ctx, chunk)` for every chunk of `p`, on up to `p.workers` workers that
 /// claim chunks in turn; the caller is worker 0, and the rest start through
-/// `Group.async`, so an `Io` that admits fewer runs them inline, and adopt the
-/// caller's floating-point control state (`util.FpState`). Returns once every
-/// task has finished. `error.Canceled` leaves chunks undone.
+/// `Group.async` (`Tasks`), so an `Io` that admits fewer runs them inline,
+/// and adopt the caller's floating-point control state (`util.FpState`).
+/// Returns once every task has finished. `error.Canceled` leaves chunks undone.
 pub fn forEach(io: Io, p: *const Plan, ctx: anytype, comptime f: fn (@TypeOf(ctx), Chunk) void) Io.Cancelable!void {
     return forEachIn(io, p, ctx, f, null);
 }
@@ -404,15 +404,114 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
 
         fn parallel(r: *Self, io: Io, w: usize) Io.Cancelable!void {
             r.fp = .capture();
-            var group: Io.Group = .init;
+            var tasks: Tasks = .init(io);
             // runs before the caller's frame goes; every task has then run
-            defer group.cancel(io);
-            for (1..w) |_| group.async(io, Self.work, .{ r, io });
+            defer tasks.cancel(io);
+            for (1..w) |_| tasks.async(io, Self.work, .{ r, io });
             try r.claim(io);
-            try group.await(io);
+            try tasks.await(io);
         }
     };
 }
+
+// ---- worker tasks ------------------------------------------------------------------
+
+/// Plain futures instead of `Io.Group` on `Io.Dispatch`, whose `Group` crashes
+/// with worker threads (issues.md). Once `ssh-repro-group-aarch64-macos`
+/// passes, set this false and delete `Futures`.
+pub const dispatch_futures = true;
+
+/// Whether `io`'s worker tasks run on `Futures`.
+pub fn usesFutures(io: Io) bool {
+    if (comptime !dispatch_futures or Io.Evented != Io.Dispatch) return false;
+    const S = struct {
+        var ev: Io.Dispatch = undefined;
+    };
+    // `Dispatch.io` returns one constant vtable
+    return io.vtable == S.ev.io().vtable;
+}
+
+/// A region's worker tasks: an `Io.Group`, or `Futures` (`usesFutures`).
+const Tasks = struct {
+    group: Io.Group = .init,
+    futures: Futures = .{},
+    on_futures: bool,
+
+    fn init(io: Io) Tasks {
+        return .{ .on_futures = usesFutures(io) };
+    }
+
+    fn async(t: *Tasks, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
+        if (t.on_futures) return t.futures.async(io, function, args);
+        t.group.async(io, function, args);
+    }
+
+    fn concurrent(t: *Tasks, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
+        if (t.on_futures) return t.futures.concurrent(io, function, args);
+        return t.group.concurrent(io, function, args);
+    }
+
+    fn await(t: *Tasks, io: Io) Io.Cancelable!void {
+        if (t.on_futures) return t.futures.await(io);
+        return t.group.await(io);
+    }
+
+    fn cancel(t: *Tasks, io: Io) void {
+        if (t.on_futures) return t.futures.cancel(io);
+        t.group.cancel(io);
+    }
+};
+
+/// Tasks as plain futures, awaited and canceled as `Io.Group`'s are: `await`
+/// waits cancelably for them all, then `cancel` (the caller's `defer`)
+/// cancels and awaits each.
+const Futures = struct {
+    list: [cap]Io.Future(void) = undefined,
+    len: usize = 0,
+    /// Tasks not yet finished, plus one the caller holds until `await`.
+    left: std.atomic.Value(u32) = .init(1),
+    done: Signal = .{},
+
+    const cap = if (dispatch_futures and Io.Evented == Io.Dispatch) chunks_max else 0;
+
+    fn Task(comptime function: anytype) type {
+        return struct {
+            fn run(fs: *Futures, io: Io, args: std.meta.ArgsTuple(@TypeOf(function))) void {
+                @call(.auto, function, args);
+                if (fs.left.fetchSub(1, .acq_rel) == 1) fs.done.set(io, 1);
+            }
+        };
+    }
+
+    /// Past `cap`, inline, as `Group.async` may run it.
+    fn async(fs: *Futures, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
+        if (cap == 0 or fs.len == cap) return @call(.auto, function, args);
+        _ = fs.left.fetchAdd(1, .monotonic);
+        fs.list[fs.len] = io.async(Task(function).run, .{ fs, io, args });
+        fs.len += 1;
+    }
+
+    fn concurrent(fs: *Futures, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
+        if (cap == 0 or fs.len == cap) return error.ConcurrencyUnavailable;
+        _ = fs.left.fetchAdd(1, .monotonic);
+        fs.list[fs.len] = io.concurrent(Task(function).run, .{ fs, io, args }) catch |err| {
+            _ = fs.left.fetchSub(1, .monotonic);
+            return err;
+        };
+        fs.len += 1;
+    }
+
+    fn await(fs: *Futures, io: Io) Io.Cancelable!void {
+        if (fs.left.fetchSub(1, .acq_rel) != 1) _ = try fs.done.waitWhile(io, 0);
+        for (fs.list[0..fs.len]) |*f| f.await(io);
+        fs.len = 0;
+    }
+
+    fn cancel(fs: *Futures, io: Io) void {
+        for (fs.list[0..fs.len]) |*f| f.cancel(io);
+        fs.len = 0;
+    }
+};
 
 /// `io.checkCancel()`, or nothing on an `Io` without cancellation, whose
 /// `checkCancel` is unreachable (`Io.failing`, rstd's UEFI `Io`).
@@ -513,8 +612,8 @@ pub fn Partials(comptime T: type) type {
 
 /// Runs `job` on up to `want` workers that wait on each other, so all must run
 /// at once. The caller is worker 0; the rest start through `Group.concurrent`
-/// and wait until the caller has counted them. `job.plan(n)` then sizes the
-/// work for the `n` that started and returns how many take part, and
+/// (`Tasks`) and wait until the caller has counted them. `job.plan(n)` then
+/// sizes the work for the `n` that started and returns how many take part, and
 /// `job.work(io, i)` runs worker `i`. With none started the caller runs alone.
 /// Workers adopt the caller's floating-point control state, as in `forEach`.
 /// Returns once every task has finished.
@@ -534,14 +633,14 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     };
     const fp: FpState = .capture();
     var go: Signal = .{};
-    var group: Io.Group = .init;
+    var tasks: Tasks = .init(io);
     // runs first, canceling workers still waiting on `go`
-    defer group.cancel(io);
+    defer tasks.cancel(io);
     var started: u32 = 1;
-    while (started < want) : (started += 1) group.concurrent(io, S.worker, .{ job, &go, started, fp, io }) catch break;
+    while (started < want) : (started += 1) tasks.concurrent(io, S.worker, .{ job, &go, started, fp, io }) catch break;
     go.set(io, job.plan(started));
     try job.work(io, 0);
-    try group.await(io);
+    try tasks.await(io);
 }
 
 /// Spins of a wait before it sleeps; its time per spin (`pause` on Zen 3)
@@ -630,6 +729,11 @@ pub fn initEvented(ev: *Evented, extra: u32) bool {
     ev.init(std.heap.page_allocator, opts) catch return false;
     return true;
 }
+
+/// Whether the threaded tests also run on `Io.Evented` with worker threads:
+/// on `Dispatch` through `Futures` only. `Group` crashes there and on `Uring`,
+/// whose futures are reused early (issues.md).
+pub const evented_workers = hosted and dispatch_futures and Evented == Io.Dispatch;
 
 /// Rounds of the race stress tests (`race stress`, levels 1 to 3): enough for
 /// a weak-memory rig to reorder something, few enough to stay quick.
@@ -892,6 +996,12 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
             try checkRegions(threaded.io(), x, marks, &chunks, expected);
         }
     }
+    if (comptime evented_workers) {
+        var ev: Evented = undefined;
+        try zigstd.testExpectTrue(initEvented(&ev, 3));
+        defer ev.deinit();
+        try checkRegions(ev.io(), x, marks, &chunks, expected);
+    }
 }
 
 test "workers adopt the caller's rounding and flush to zero and leave the caller's state as it was" {
@@ -922,6 +1032,16 @@ test "workers adopt the caller's rounding and flush to zero and leave the caller
         try checkRegions(threaded.io(), x, marks, &chunks, expected);
         try zigstd.testExpectTrue(FpState.capture().eql(rz));
     }
+    if (comptime evented_workers) {
+        var ev: Evented = undefined;
+        try zigstd.testExpectTrue(initEvented(&ev, 3));
+        defer ev.deinit();
+        own.apply();
+        try checkRegions(ev.io(), x, marks, &chunks, nearest);
+        rz.apply();
+        try checkRegions(ev.io(), x, marks, &chunks, expected);
+        try zigstd.testExpectTrue(FpState.capture().eql(rz));
+    }
 }
 
 /// Chunks that block until their task is canceled.
@@ -947,19 +1067,44 @@ const Blocking = struct {
     }
 };
 
+/// Cancels a region of blocking chunks on `io`.
+fn cancelRegion(io: Io) !void {
+    var b: Blocking = .{ .io = io };
+    const p: Plan = .{ .chunks = .init(chunks_max, chunks_max, .even, 1), .workers = 4 };
+    var future = io.concurrent(Blocking.region, .{ io, &p, &b }) catch return error.SkipZigTest;
+    while (b.entered.load(.acquire) == 0) std.Thread.yield() catch {};
+    try zigstd.testExpectError(error.Canceled, future.cancel(io));
+    try zigstd.testExpectEqual(b.entered.load(.acquire), b.left.load(.acquire));
+    try zigstd.testExpectTrue(b.left.load(.acquire) < chunks_max);
+}
+
 test "a canceled region returns error.Canceled after its workers stop" {
     if (comptime !hosted) return error.SkipZigTest;
     for (test_limits) |limit| {
         var threaded: Io.Threaded = .init(zigstd.testAllocator, .{ .async_limit = limit });
         defer threaded.deinit();
-        const io = threaded.io();
-        var b: Blocking = .{ .io = io };
-        const p: Plan = .{ .chunks = .init(chunks_max, chunks_max, .even, 1), .workers = 4 };
-        var future = io.concurrent(Blocking.region, .{ io, &p, &b }) catch return error.SkipZigTest;
-        while (b.entered.load(.acquire) == 0) std.Thread.yield() catch {};
-        try zigstd.testExpectError(error.Canceled, future.cancel(io));
-        try zigstd.testExpectEqual(b.entered.load(.acquire), b.left.load(.acquire));
-        try zigstd.testExpectTrue(b.left.load(.acquire) < chunks_max);
+        try cancelRegion(threaded.io());
+    }
+    if (comptime evented_workers) {
+        var ev: Evented = undefined;
+        try zigstd.testExpectTrue(initEvented(&ev, 3));
+        defer ev.deinit();
+        try cancelRegion(ev.io());
+    }
+}
+
+test "worker tasks run on plain futures on Io.Dispatch only" {
+    try zigstd.testExpectTrue(!usesFutures(Io.failing));
+    if (comptime hosted) {
+        var threaded: Io.Threaded = .init(zigstd.testAllocator, .{});
+        defer threaded.deinit();
+        try zigstd.testExpectTrue(!usesFutures(threaded.io()));
+    }
+    if (comptime hosted and Evented != void) {
+        var ev: Evented = undefined;
+        if (!initEvented(&ev, if (Evented == Io.Dispatch) 3 else 0)) return error.SkipZigTest;
+        defer ev.deinit();
+        try zigstd.testExpectEqual(evented_workers, usesFutures(ev.io()));
     }
 }
 
