@@ -510,11 +510,12 @@ const base_machines = [_]Machine{
             .{ .name = "openblas-cores-l2-real", .filters = &.{ "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f32", "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f64" } },
             .{ .name = "openblas-cores-l2-complex", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-2 suite at complex"} },
             .{ .name = "openblas-cores-l3", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-3 suite"} },
-            // LAPACK in four, as one is past the window
+            // LAPACK in five, as one is past the window
             .{ .name = "lapack-cholesky", .filters = &.{"linalg.lapack.cholesky."} },
             .{ .name = "lapack-getrf", .filters = &.{"linalg.lapack.lu.test.getrf"} },
             .{ .name = "lapack-getrs-real", .filters = &.{ "linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real", "linalg.lapack.lu.test.getrs: a known", "linalg.lapack.lu.test.getrs: reports" } },
             .{ .name = "lapack-getrs-complex", .filters = &.{"linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex"} },
+            .{ .name = "lapack-faer", .filters = &.{"linalg.lapack.faer."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
             .{ .name = "small", .filters = &small_filters },
         },

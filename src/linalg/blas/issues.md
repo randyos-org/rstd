@@ -1969,3 +1969,81 @@ the same sequential `f32` sum: about 1% off for 16M floats. Its `sasum` is
 
 - **Workaround:** none needed; rstd does not call BLIS.
 - **Issue text:** "Single-precision `nrm2` (`snrm2`, `scnrm2`) loses about 1% for 16M floats on `zen3`, from a sequential `f32` sum of squares. Accumulate in `f64`, or in several partial sums."
+
+## faer
+
+faer v0.24.4 (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), as
+`src/linalg/lapack/faer/` ports it. Found by rstd's tests of the port, then
+reproduced in a standalone copy of it; not run against faer, whose crates
+are not fetched here.
+
+### The divide-and-conquer SVD loses a root next to a pole
+
+`secular_eq_root_finder` (`faer/src/linalg/svd/bidiag_svd.rs`) ends its
+secant loop once `|f_cur - f_prev| <= eps` and returns the last iterate as
+`mu`. For a root within rounding of a pole (a `col0` entry just above the
+deflation threshold, so `mu` is about `z² / 2d`), `f` is 1 to rounding
+everywhere the bracketing reached, so the loop stops at once, far from the
+root; `perturb_col0` then makes `zhat` from that `mu`, and the vectors
+reconstruct the bidiagonal with an error of `1e-4` (f64) where
+`8 eps` was expected. Random bidiagonals graded over four decades hit it at
+`n = 100` (f64) and `n = 64` (f32), threshold 4 or 8.
+
+- **Workaround:** when the secant stops that way, unconverged, the bracket's
+  bisection runs, as it does for faer's other exits
+  (`bidiag_svd.zig`, `secant`). Graded, clustered and tiny-entry bidiagonals
+  up to `n = 257` then reconstruct within 13 eps.
+- **Issue text:** "The bidiagonal divide and conquer (`secular_eq_root_finder`)
+  can return a root far from the true one when it lies within rounding of a
+  pole: the secant loop exits on `|f_cur - f_prev| <= eps` without
+  converging and without setting `use_bisection`, so `perturb_col0` builds
+  `zhat` from a wrong `mu` and `U S Vᵀ` misses the bidiagonal by `1e-4`
+  (f64). Falling back to bisection on that exit fixes it."
+
+### Reciprocals of tiny norms overflow
+
+`bidiag_in_place` (`svd/bidiag.rs`) scales the row `A12` by `norm.recip()`
+whenever `norm != 0`, `qr_algorithm` and `divide_and_conquer`
+(`svd/bidiag_svd.rs`) scale the bidiagonal by `max.recip()`, and
+`compute_bidiag_cplx_svd`'s `normalized` (`svd/mod.rs`) scales an entry by
+the reciprocal of its larger part. Below the safe
+minimum the reciprocal is infinite, and the row or bidiagonal fills with NaN;
+the SVD then reports `NoConvergence`. A rank-1 `f32` matrix (all ones,
+`15 x 10`) gets there: its bidiagonal decays by `eps` per step to denormals.
+
+- **Workaround:** below the safe minimum, rstd divides instead
+  (`bidiag.zig`, `bidiag_svd.zig`'s `scaleDown`, `svd.zig`'s `normalized`);
+  the bits elsewhere are faer's.
+- **Issue text:** "The SVD of a rank-deficient `f32` matrix (e.g. `15 x 10`
+  all ones) returns `NoConvergence`: the bidiagonal decays into denormals,
+  and `bidiag_in_place` and the bidiagonal solvers multiply by the
+  reciprocal of a denormal norm or maximum, which is infinite. Dividing when
+  the value is below `min_positive` avoids it."
+
+### `divide_and_conquer`'s zero case leaves the last row's 1 out
+
+For a subproblem whose bidiagonal is all zero, `divide_and_conquer` sets
+`MatU::TwoRows` to the identity's first and last rows but stores
+`u[(1, n)] = 0` where the identity has 1. When that subproblem is the second
+half of a first half, the 0 becomes the parent's coupling `lambda`, and the
+values-only path (`TwoRowsStorage`) drifts from the full one (1.5e-13 at
+`n = 24`, zero block at 7..12).
+
+- **Workaround:** rstd stores 1 (`bidiag_svd.zig`); both paths then agree.
+- **Issue text:** "In `divide_and_conquer`'s `max == 0` branch,
+  `MatU::TwoRows` stores `u[(1, n)] = zero()`; the last row of the identity
+  has `one()` there. The values-only SVD then differs from the full one when
+  a zero block ends a left half."
+
+### The tall path leaves part of `U` as found
+
+`svd` (`svd/mod.rs`) on a matrix taller than `11 / 6` of its width zeroes
+`U`'s rows past `n` and sets the trailing diagonal, but never writes rows
+`0..n` of columns `n..m` of a full `U` before applying `Q`. Faer's tests
+pass zeroed matrices, so it only shows on a caller's own buffer.
+
+- **Workaround:** rstd zeroes that block (`svd.zig`).
+- **Issue text:** "`linalg::svd::svd` with a full `U` and `nrows > 11/6 ncols`
+  does not initialize `U[0..n, n..m]` before applying the Householder
+  sequence, so a caller passing an uninitialized `U` gets garbage in those
+  columns."

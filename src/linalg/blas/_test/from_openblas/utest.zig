@@ -2,8 +2,8 @@
 //! `test_min.c`, `test_axpy.c`, `test_axpby.c`, `test_dnrm2.c`,
 //! `test_dotu.c`, `test_dsdot.c`, `test_rot.c`, `test_rotmg.c`,
 //! `test_swap.c`, `test_trmv.c`, `test_zscal.c`, `test_gemv.c`,
-//! `test_potrs.c` (through `rstd.linalg.lapack`), and the pending
-//! `test_kernel_regress.c`, OpenBLAS v0.3.34-317. Inputs and expected values
+//! `test_potrs.c` and `test_kernel_regress.c` (through
+//! `rstd.linalg.lapack`), OpenBLAS v0.3.34-317. Inputs and expected values
 //! are the sources' own.
 //!
 //! `test_trmv.c`'s row-major call is its column-major equivalent. An
@@ -510,10 +510,80 @@ test "utest: potrf smoketest, 2 x 2 in each precision" {
     try potrfSmoke();
 }
 
-// ---- pending ------------------------------------------------------------------------
+// ---- test_kernel_regress.c ----------------------------------------------------------
 
-test "utest: kernel_regress skx_avx (waits for LAPACK's dgesvd)" {
-    return error.SkipZigTest;
+/// glibc's `rand` after `srand(seed)` (its `TYPE_3` additive generator,
+/// `stdlib/random_r.c`), which `test_kernel_regress.c` fills its matrix
+/// from on OpenBLAS's Linux CI; `RAND_MAX` is `2^31 - 1`.
+const GlibcRand = struct {
+    r: [34]u32,
+    i: usize = 0,
+
+    fn init(seed: u32) GlibcRand {
+        var g: GlibcRand = .{ .r = undefined };
+        var w: [344]u32 = undefined;
+        w[0] = if (seed == 0) 1 else seed;
+        for (1..31) |i| {
+            // `16807 * r mod (2^31 - 1)`, by Schrage's method as glibc does
+            const r: i64 = @as(i32, @bitCast(w[i - 1]));
+            var word = 16807 * @rem(r, 127773) - 2836 * @divTrunc(r, 127773);
+            if (word < 0) word += 2147483647;
+            w[i] = @intCast(word);
+        }
+        for (31..34) |i| w[i] = w[i - 31];
+        for (34..344) |i| w[i] = w[i - 31] +% w[i - 3];
+        @memcpy(&g.r, w[344 - 34 ..]);
+        return g;
+    }
+
+    fn next(g: *GlibcRand) u32 {
+        // the last 34 values, a ring: r[k] = r[k - 31] + r[k - 3]
+        const k = g.i % 34;
+        const v = g.r[(k + 34 - 31) % 34] +% g.r[(k + 34 - 3) % 34];
+        g.r[k] = v;
+        g.i += 1;
+        return v >> 1;
+    }
+};
+
+/// `kernel_regress.skx_avx`: `dgesvd` with jobs `A` of a random 100 x 100
+/// in [0, 10] (`srand(0)`), then `‖U Σ Vᵀ - A‖₂` (Frobenius) within 1e-10.
+/// The row-major buffer read column-major is `Aᵀ`, whose decomposition the
+/// same check covers: the residual's norm is the transpose's.
+fn kernelRegress() !void {
+    const al = std.testing.allocator;
+    const n = 100;
+    const m = try al.alloc(f64, n * n);
+    defer al.free(m);
+    const tmp = try al.alloc(f64, n * n);
+    defer al.free(tmp);
+    const u = try al.alloc(f64, n * n);
+    defer al.free(u);
+    const vt = try al.alloc(f64, n * n);
+    defer al.free(vt);
+    const x = try al.alloc(f64, n * n);
+    defer al.free(x);
+    var s: [n]f64 = undefined;
+    var g: GlibcRand = .init(0);
+    // glibc's first two values after `srand(0)`, which is `srand(1)`
+    var g2 = g;
+    try ob.expect(g2.next() == 1804289383 and g2.next() == 846930886, "kernel_regress: glibc rand");
+    for (m, tmp) |*a, *t| {
+        a.* = (@as(f64, @floatFromInt(g.next())) + 0.0) / 2147483647.0 * 10;
+        t.* = a.*;
+    }
+    try lapack.gesvd(al, ob.io, f64, .a, .a, n, n, m.ptr, n, &s, u.ptr, n, vt.ptr, n);
+    for (0..n) |j| for (0..n) |i| {
+        u[i + j * n] *= s[j];
+    };
+    try blas.gemm(al, ob.io, f64, .n, .n, n, n, n, 1, u.ptr, n, vt.ptr, n, 0, x.ptr, n);
+    for (x, tmp) |*a, t| a.* -= t;
+    const norm = try blas.nrm2(ob.io, f64, n * n, x.ptr, 1);
+    try near(0, norm, 1e-10, "kernel_regress skx_avx: |U S Vt - A|");
+}
+
+test "utest: kernel_regress skx_avx, dgesvd" {
+    try kernelRegress();
 }
 
 // ---- test_potrs.c's data -------------------------------------------------------------
