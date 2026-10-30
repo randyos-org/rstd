@@ -23,6 +23,9 @@
 //!
 //! Every variant also runs once with strides past a page and a leading
 //! dimension far past the rows, on one shape, kept within the rigs' heap.
+//!
+//! Through Accelerate the routines run on threads of their own, as many as
+//! the CPUs: each case's `f128` reference takes far longer than the call.
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
@@ -31,6 +34,7 @@ const check = @import("../blas1/check.zig");
 const guard = @import("guard.zig");
 const portable = @import("../../portable.zig");
 const accel = @import("../../apple_accel.zig");
+const threading = @import("../../threading.zig");
 
 const Allocator = std.mem.Allocator;
 const C = std.math.Complex;
@@ -587,8 +591,20 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     };
 }
 
-/// The first failure of each routine, so one run names every one.
-var failed: ?anyerror = null;
+/// A failure of the sweep, so one run names every failing routine; 0 for
+/// none, else `@intFromError`. Atomic: the Accelerate sweep runs routines on
+/// threads of their own.
+var failed = std.atomic.Value(@Int(.unsigned, @bitSizeOf(anyerror))).init(0);
+
+fn fail(e: anyerror) void {
+    failed.store(@intFromError(e), .monotonic);
+}
+
+/// The failure since `failed` was cleared, if any.
+fn failure() ?anyerror {
+    const v = failed.load(.monotonic);
+    return if (v == 0) null else @errorFromInt(v);
+}
 
 /// Runs `r` over its shapes, variants, operands and patterns, then its
 /// special scalars, for `T`; names a failing case and goes on with the next
@@ -735,7 +751,36 @@ fn run(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Ca
 fn report(e: anyerror, comptime T: type, comptime r: Routine, v: usize, c: Case) void {
     if (c.where != .none) c.p.describe();
     check.say("in {s}, {s} {s} variant {d} m={d} n={d} k={d},{d} inc={d},{d} pad={d}\n", .{ @tagName(c.where), @tagName(r), @typeName(T), v, c.m, c.n, c.kl, c.ku, c.inc[0], c.inc[1], c.pad });
-    failed = e;
+    fail(e);
+}
+
+/// Runs `jobs` on up to a thread per CPU, each taking the next until none
+/// remain; in turn on this thread where there are no threads.
+fn onThreads(comptime jobs: []const *const fn () void) void {
+    const Queue = struct {
+        next: std.atomic.Value(usize) = .init(0),
+
+        fn work(q: *@This()) void {
+            while (true) {
+                const i = q.next.fetchAdd(1, .monotonic);
+                if (i >= jobs.len) return;
+                jobs[i]();
+            }
+        }
+    };
+    var q: Queue = .{};
+    if (comptime !threading.hosted) {
+        q.work();
+    } else {
+        var threads: [jobs.len]std.Thread = undefined;
+        const cpus = std.Thread.getCpuCount() catch 1;
+        var started: usize = 0;
+        defer for (threads[0..started]) |t| t.join();
+        while (started + 1 < @min(cpus, jobs.len)) : (started += 1) {
+            threads[started] = std.Thread.spawn(.{}, Queue.work, .{&q}) catch break;
+        }
+        q.work();
+    }
 }
 
 /// Real and complex apart, and the complex ones on every core in two (the
@@ -771,7 +816,7 @@ var small_dtb: Vtable = undefined;
 fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
     return struct {
         fn sweepAll(vt: *const Vtable) !void {
-            failed = null;
+            failed.store(0, .monotonic);
             {
                 const saved = blas.testUse(vt);
                 defer blas.testRestore(saved);
@@ -782,31 +827,48 @@ fn CheckAll(comptime types: anytype, comptime routines: []const Routine) type {
             const saved = blas.testUse(&small_dtb);
             defer blas.testRestore(saved);
             inline for (types) |T| inline for (routines) |r| if (comptime r == .trmv or r == .trsv) sweep(T, r);
-            if (failed) |e| return e;
+            if (failure()) |e| return e;
         }
 
         fn denormalsAll(vt: *const Vtable) !void {
-            failed = null;
+            failed.store(0, .monotonic);
             const saved = blas.testUse(vt);
             defer blas.testRestore(saved);
             inline for (types) |T| inline for (routines) |r| denormals(T, r);
-            if (failed) |e| return e;
+            if (failure()) |e| return e;
         }
+
+        /// Each type's routine, swept and with denormals.
+        const jobs = blk: {
+            var j: []const *const fn () void = &.{};
+            for (types) |T| for (routines) |r| {
+                if (r.complexOnly() and !isComplex(T)) continue;
+                j = j ++ .{&struct {
+                    fn run() void {
+                        sweep(T, r);
+                        denormals(T, r);
+                    }
+                }.run};
+            };
+            break :blk j;
+        };
 
         /// Through Apple Accelerate, where the routines go to it.
         fn accelerate() !void {
             if (comptime !accel.covers(f64)) return error.SkipZigTest;
-            failed = null;
             const saved = blas.testUse(blas.vtable());
             defer blas.testRestore(saved);
             if (!accel.route(true)) return error.SkipZigTest;
+            return accelSweep();
+        }
+
+        /// `accelerate`'s sweep, on whatever the table routes to.
+        fn accelSweep() !void {
+            failed.store(0, .monotonic);
             accel_run = true;
             defer accel_run = false;
-            inline for (types) |T| inline for (routines) |r| {
-                sweep(T, r);
-                denormals(T, r);
-            };
-            if (failed) |e| return e;
+            onThreads(jobs);
+            if (failure()) |e| return e;
         }
 
         fn portableKernels() !void {
