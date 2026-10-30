@@ -1844,6 +1844,24 @@ reason (their comment: "Deliberately no peeling").
   loads from `x1[0]`) would make the Haswell ones a function of the data
   alone."
 
+### arm64 `symv_U_asimd_4x4.c`: rows dropped when the first column is not a multiple of 4
+
+The driver calls its block on rows `0..j1` with `j1 = (j/4)*4`, then takes
+rows `j..j+3`; where `m - offset` is not a multiple of 4, rows `j1..j-1` of
+those four columns are never added. `interface/symv.c` passes
+`offset = m` and `symv_thread.c` splits on multiples of 4, so OpenBLAS never
+reaches it; a direct kernel call can. `symv_U_sve_v1x4.c` calls its block on
+`0..j`.
+
+- **Workaround:** rstd's port (`blas2/symv/kernel.zig`, `ArmU`) adds those
+  rows after the block, as the x86_64 driver's `kernel_1x4` does.
+- **Issue text:** "In `kernel/arm64/symv_U_asimd_4x4.c`, `j1 = (j / 4) * 4`
+  rounds the column start down and `symv_kernel_4x4(0, j1, ...)` is followed
+  directly by the diagonal block at `j`, so for `m - offset` not a multiple of
+  4 the rows `j1..j-1` miss the contribution of columns `j..j+3`. Unreachable
+  through the interface today; a loop over `j1..j`, as `dsymv_U.c` on x86_64
+  has, would make the kernel correct for any `offset`."
+
 ### x86_64 `ssymv_U_microk_sandy-2.c`, `ssymv_U_microk_haswell-2.c`: floats added as a double
 
 Both blocks end with `vaddsd` (double) where their sums are floats: the low

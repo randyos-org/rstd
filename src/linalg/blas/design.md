@@ -529,7 +529,7 @@ above are not among them:
 | x86_64 | `axpy`, `dot`, `rot`, `scal` (C drivers and assembly); `asum` (`@Vector` ports), `copy`, `sum`, `swap` | `gemv` (C drivers, assembly, Skylake-X's `sgemv_n`), `symv` (assembly, `@Vector` ports), `hemv`, `ger`, `sbgemv` (`@Vector` ports) | tile | routed |
 | x86 | `axpy`, `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
 | arm | `axpy`, `asum`, `dot`, `rot`, `sum`, `swap` | `gemv` | tile | routed, `d` and `z` on NEON |
-| arm64 | `axpy` (assembly, SVE, ThunderX), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed and more |
+| arm64 | `axpy` (assembly, SVE, ThunderX), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv`; `symv`, `sbgemv`, `bgemv` (`@Vector` ports) | tile | routed and more |
 | loongarch64 | `axpy`, `asum`, `axpby`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv`, `symv` | tile | routed |
 | mips, mips64 | `axpy` (MSA on 32- and 64-bit), `asum`, `copy`, `dot`, `scal`, `sum`, `swap` | | tile | routed |
 | power | `axpy` (assembly, microkernels, C), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
@@ -564,8 +564,9 @@ only repeat the portable kernels.
 - **symv and hemv.** `blas2/symmetric.zig` holds the portable kernels, `kernel/generic`'s
   `symv_k.c`, `zsymv_k.c` and `zhemv_k.c`, which compose the running core's copy and `gemv`
   kernels with the same blocking (`SYMV_P`, the vtable's `symv_p`). `blas2/symv/kernel.zig`
-  ports x86_64's real C drivers (`?symv_[LU].c`), their 4x4 blocks on `@Vector`s in each
-  core's widths, fusing and reductions (`Shape`).
+  ports the real C drivers of x86_64 (`?symv_[LU].c`) and arm64 (`symv_[LU]_asimd_4x4.c`),
+  their 4x4 blocks on `@Vector`s in each core's widths, fusing and reductions (`Shape`).
+  arm64's SVE drivers (`symv_[LU]_sve_v1x4.c`) are not ported.
 - **Buffers.** The kernels take a scratch `buffer`. The interfaces size it as the reference's
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
   reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
@@ -714,10 +715,10 @@ The kernels are `ext/bf16/kernel.zig`: the conversions, `bscal`, `sbdot`, the
 `bgemv`/`sbgemv`/`shgemv` family and the `bgemm`/`sbgemm`/`shgemm` one. They are portable Zig,
 the same on every core in their bits. The cores whose reference has a half `gemv` of its own
 install `vector.Half`'s, the portable kernels' bits on vectors: `riscv64_zvl256b` (`sbgemv`,
-`shgemv`), Cooper Lake and Sapphire Rapids (`sbgemv_n`). Upstream's AVX-512 BF16 sums pairs of
-products in an instruction with its own rounding, which `@Vector` cannot express and the
-contract does not want, so only its shape carries over; NEON, SVE, BFDOT, VSX and MMA are not
-ported. Every bfloat16 conversion
+`shgemv`), Cooper Lake and Sapphire Rapids (`sbgemv_n`), Neoverse N2, V1 and V2 (`sbgemv`,
+`bgemv`). Upstream's AVX-512 BF16, BFDOT and BFMLAL sum pairs of products in instructions with
+their own rounding, which `@Vector` cannot express and the contract does not want, so only
+their shapes carry over; VSX and MMA are not ported. Every bfloat16 conversion
 upstream is `kernel/x86_64/tobf16.c` and `bf16to.c` (`kernel/Makefile.L1:311`, `:315`); the AVX-512 BF16 microkernels give the same
 bits.
 
@@ -1333,11 +1334,13 @@ stride means `n` operations on one element in turn:
   `mips/saxpy_msa.c`, `daxpy_msa.c`'s blocks load `y` before storing it
   (`axpy/riscv64/rvv.zig`, `axpy/mips/msa.zig`).
 
-The `@Vector` ports of C kernels fix one more ([`issues.md`](issues.md#openblas)):
+The `@Vector` ports of C kernels fix two more ([`issues.md`](issues.md#openblas)):
 
 - `x86_64/sasum_microk_haswell-2.c`, `dasum_microk_haswell-2.c`: peeled to a 32-byte boundary,
   so the sums followed the address; the port loads unaligned from the first element, as
   upstream's Skylake-X blocks do (`blas1/asum/x86_64/kernel.zig`).
+- `arm64/symv_U_asimd_4x4.c`: with `m - offset` not a multiple of 4 dropped the rows between
+  the last multiple of 4 and the first column; the port adds them (`blas2/symv/kernel.zig`).
 
 Patches that work around Zig or QEMU rather than OpenBLAS, each removable once the cause is fixed
 ([`issues.md`](issues.md)):

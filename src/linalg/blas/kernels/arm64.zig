@@ -14,8 +14,8 @@ const vector = @import("../vector.zig");
 pub const Core = coretypes.Arm64CoreType;
 
 /// Every routine with kernels here: each routine's converted assembly (its
-/// `asm/__root__.zig`), and `axpy`'s own module, which adds the kernels
-/// upstream writes in C.
+/// `asm/__root__.zig`), and a routine's own module (`kernel.zig`) where it
+/// adds the kernels upstream writes in C or intrinsics.
 const converted = .{
     @import("../blas1/axpy/arm64/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/asum/arm64/asm/__root__.zig")),
@@ -25,7 +25,8 @@ const converted = .{
     registry.Kernels(Core, @import("../blas1/scal/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/sum/arm64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/arm64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas2/gemv/arm64/asm/__root__.zig")),
+    @import("../blas2/gemv/arm64/kernel.zig"),
+    @import("../blas2/symv/arm64/kernel.zig"),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
 

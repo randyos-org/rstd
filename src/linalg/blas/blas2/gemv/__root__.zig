@@ -801,9 +801,9 @@ test "half-precision gemv: the kernels are the model, bit for bit, fused or not"
 
 test "half-precision gemv: the @Vector kernels are the model, bit for bit" {
     if (comptime !vector.ported.builds(.sbgemv_n)) return error.SkipZigTest;
-    inline for (.{ .{ BF16, "sbgemv" }, .{ types.HF16, "shgemv" } }) |f| {
-        try checkHalfBitsOf(f[0], f32, false, false, vector.ported.entry(@field(blas.Slot, f[1] ++ "_n")));
-        try checkHalfBitsOf(f[0], f32, true, false, vector.ported.entry(@field(blas.Slot, f[1] ++ "_t")));
+    inline for (bf16_kernel.families) |f| {
+        try checkHalfBitsOf(f[1], f[2], false, false, vector.ported.entry(@field(blas.Slot, f[0] ++ "_n")));
+        try checkHalfBitsOf(f[1], f[2], true, false, vector.ported.entry(@field(blas.Slot, f[0] ++ "_t")));
     }
 }
 

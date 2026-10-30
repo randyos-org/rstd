@@ -1,6 +1,7 @@
 //! The drivers of OpenBLAS's per-core real `symv` kernels, around their 4x4
 //! blocks written on `@Vector`s: x86_64's `ssymv_L.c`, `ssymv_U.c`,
-//! `dsymv_L.c` and `dsymv_U.c` with their `*_microk_*-2.c` blocks.
+//! `dsymv_L.c` and `dsymv_U.c` with their `*_microk_*-2.c` blocks, and
+//! arm64's `symv_L_asimd_4x4.c` and `symv_U_asimd_4x4.c` (`symv_microk_asimd_4x4.c`).
 //! A block's `Shape` says how its microkernel computes; the drivers' C
 //! contracts as the core's flags say (`fma.fuse`). The arches' `kernel.zig`
 //! name the shapes per core. Nothing here depends on the BLAS root, so the
@@ -34,37 +35,18 @@ pub const Shape = struct {
     /// Half the lanes for the whole range when its length has bit
     /// `lanes / 2` set (`ssymv_L_microk_sandy-2.c`).
     narrow_odd: bool = false,
-    /// SVE's predicated loop: the last vector takes the rows left, the
-    /// other lanes keep their values (`svmla_m`).
-    predicated: bool = false,
 };
 
 /// `symv_kernel_4x4(from, to, ...)` of shape `s`: rows `from..to` of four
 /// columns `a` into `y` (times `t`) and their dots with `x` into `t2`.
 pub fn Block(comptime F: type, comptime s: Shape) type {
     return struct {
-        fn pass(comptime L: comptime_int, i: usize, a: *const [4][*]F, x: [*]F, y: [*]F, t: [4]F, acc: *[4]@Vector(L, F), live: ?usize) void {
+        fn pass(comptime L: comptime_int, i: usize, a: *const [4][*]F, x: [*]F, y: [*]F, t: [4]F, acc: *[4]@Vector(L, F)) void {
             const V = @Vector(L, F);
-            var xv: V = @splat(0);
-            var yv: V = @splat(0);
-            var av: [4]V = @splat(@splat(0));
-            if (live) |n| {
-                var xs: [L]F = @splat(0);
-                var ys: [L]F = @splat(0);
-                var as: [4][L]F = @splat(@splat(0));
-                for (0..n) |l| {
-                    xs[l] = x[i + l];
-                    ys[l] = y[i + l];
-                    inline for (0..4) |c| as[c][l] = a[c][i + l];
-                }
-                xv = xs;
-                yv = ys;
-                inline for (0..4) |c| av[c] = as[c];
-            } else {
-                xv = util.load(V, x + i);
-                yv = util.load(V, y + i);
-                inline for (0..4) |c| av[c] = util.load(V, a[c] + i);
-            }
+            const xv = util.load(V, x + i);
+            var yv = util.load(V, y + i);
+            var av: [4]V = undefined;
+            inline for (0..4) |c| av[c] = util.load(V, a[c] + i);
             if (s.sum_y) {
                 var sum = fma.madd(s.fused, V, @splat(t[0]), av[0], @as(V, @splat(t[1])) * av[1]);
                 inline for (2..4) |c| sum = fma.madd(s.fused, V, @splat(t[c]), av[c], sum);
@@ -72,21 +54,13 @@ pub fn Block(comptime F: type, comptime s: Shape) type {
             } else inline for (0..4) |c| {
                 yv = fma.madd(s.fused, V, @splat(t[c]), av[c], yv);
             }
-            if (live) |n| {
-                const on = std.simd.iota(usize, L) < @as(@Vector(L, usize), @splat(n));
-                inline for (0..4) |c| acc[c] = @select(F, on, fma.madd(s.fused, V, xv, av[c], acc[c]), acc[c]);
-                const ys: [L]F = yv;
-                for (0..n) |l| y[i + l] = ys[l];
-                return;
-            }
             inline for (0..4) |c| acc[c] = fma.madd(s.fused, V, xv, av[c], acc[c]);
             util.store(V, y + i, yv);
         }
 
         fn sweep(comptime L: comptime_int, from: usize, to: usize, a: *const [4][*]F, x: [*]F, y: [*]F, t: [4]F, acc: *[4]@Vector(L, F)) void {
             var i = from;
-            while (i + L <= to) : (i += L) pass(L, i, a, x, y, t, acc, null);
-            if (s.predicated and i < to) pass(L, i, a, x, y, t, acc, to - i);
+            while (i + L <= to) : (i += L) pass(L, i, a, x, y, t, acc);
         }
 
         fn finish(comptime L: comptime_int, acc: [4]@Vector(L, F), t2: *[4]F) void {
@@ -322,6 +296,146 @@ pub fn X86U(comptime F: type, comptime B: type) type {
     };
 }
 
+/// `COPY_K(n, src, inc, dst, 1)`.
+fn gather(comptime F: type, n: usize, src: [*]F, inc: BlasLong, dst: [*]F) void {
+    for (0..n) |i| dst[i] = util.at(F, src, @as(BlasLong, @intCast(i)) * inc).*;
+}
+
+/// `COPY_K(n, src, 1, dst, inc)`.
+fn scatter(comptime F: type, n: usize, src: [*]F, dst: [*]F, inc: BlasLong) void {
+    for (0..n) |i| util.at(F, dst, @as(BlasLong, @intCast(i)) * inc).* = src[i];
+}
+
+/// arm64's drivers copy a strided `y`, then a strided `x`, to the buffer
+/// (`2m` elements at most) and work at unit stride.
+const Unit = struct {
+    fn of(comptime F: type, m: usize, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) [2][*]F {
+        var yy = y;
+        var xx = x;
+        if (inc_y != 1) {
+            yy = buffer;
+            gather(F, m, y, inc_y, yy);
+        }
+        if (inc_x != 1) {
+            xx = if (inc_y != 1) yy + m else buffer;
+            gather(F, m, x, inc_x, xx);
+        }
+        return .{ xx, yy };
+    }
+};
+
+/// arm64 `symv_L_asimd_4x4.c` around block `B`.
+pub fn ArmL(comptime F: type, comptime B: type) type {
+    return struct {
+        pub fn k(m: BlasLong, offset: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {
+            if (m <= 0) return 0;
+            const mu: usize = @intCast(m);
+            const off: usize = @intCast(@max(offset, 0));
+            const ld: usize = @intCast(lda);
+            const xx, const yy = Unit.of(F, mu, x, inc_x, y, inc_y, buffer);
+            const offset1 = off / 4 * 4;
+            var j: usize = 0;
+            while (j < offset1) : (j += 4) {
+                var ap: [4][*]F = undefined;
+                var xs: [4]F = undefined;
+                inline for (0..4) |c| {
+                    ap[c] = col(F, a, ld, j + c);
+                    xs[c] = xx[j + c];
+                }
+                // the diagonal block's rows, from the stored triangle
+                var tmp2: [4]F = undefined;
+                inline for (0..4) |r| {
+                    var row: [4]F = undefined;
+                    inline for (0..4) |c| row[c] = if (c <= r) ap[c][j + r] else ap[r][j + c];
+                    tmp2[r] = chain(F, row, xs);
+                }
+                var tmp1: [4]F = undefined;
+                inline for (0..4) |c| tmp1[c] = alpha * xs[c];
+                const m2 = mu / 4 * 4;
+                if (m2 > j + 4) B.run(j + 4, m2, &ap, xx, yy, tmp1, &tmp2);
+                var i = @max(m2, j + 4);
+                while (i < mu) : (i += 1) {
+                    inline for (0..4) |c| {
+                        yy[i] = md(F, tmp1[c], ap[c][i], yy[i]);
+                        tmp2[c] = md(F, ap[c][i], xx[i], tmp2[c]);
+                    }
+                }
+                inline for (0..4) |c| yy[j + c] = md(F, alpha, tmp2[c], yy[j + c]);
+            }
+            while (j < off) : (j += 1) {
+                const c = col(F, a, ld, j);
+                const temp1 = alpha * xx[j];
+                var temp2: F = 0;
+                yy[j] = md(F, temp1, c[j], yy[j]);
+                for (j + 1..mu) |i| {
+                    yy[i] = md(F, temp1, c[i], yy[i]);
+                    temp2 = md(F, c[i], xx[i], temp2);
+                }
+                yy[j] = md(F, alpha, temp2, yy[j]);
+            }
+            if (inc_y != 1) scatter(F, mu, yy, y, inc_y);
+            return 0;
+        }
+    };
+}
+
+/// arm64 `symv_U_asimd_4x4.c` around block `B`. Where the first column is
+/// not a multiple of 4 it drops the rows from the last multiple of 4 up to
+/// it (`j1 = (j/4)*4`); they are taken here, as `symv_U_sve_v1x4.c`'s block
+/// on `0..j` takes them (`issues.md`).
+pub fn ArmU(comptime F: type, comptime B: type) type {
+    return struct {
+        pub fn k(m: BlasLong, offset: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {
+            if (m <= 0) return 0;
+            const mu: usize = @intCast(m);
+            const ld: usize = @intCast(lda);
+            const m1: usize = @intCast(@max(m - offset, 0));
+            const off = mu - m1;
+            const xx, const yy = Unit.of(F, mu, x, inc_x, y, inc_y, buffer);
+            const m2 = mu - off % 4;
+            var j = m1;
+            while (j < m2) : (j += 4) {
+                var tmp1: [4]F = undefined;
+                var tmp2: [4]F = @splat(0);
+                var ap: [4][*]F = undefined;
+                inline for (0..4) |c| {
+                    tmp1[c] = alpha * xx[j + c];
+                    ap[c] = col(F, a, ld, j + c);
+                }
+                const j1 = j / 4 * 4;
+                if (j1 != 0) B.run(0, j1, &ap, xx, yy, tmp1, &tmp2);
+                for (j1..j) |i| {
+                    inline for (0..4) |c| {
+                        yy[i] = md(F, tmp1[c], ap[c][i], yy[i]);
+                        tmp2[c] = md(F, ap[c][i], xx[i], tmp2[c]);
+                    }
+                }
+                inline for (0..4) |c| {
+                    const temp1 = tmp1[c];
+                    var temp2 = tmp2[c];
+                    for (j..j + c) |i| {
+                        yy[i] = md(F, temp1, ap[c][i], yy[i]);
+                        temp2 = md(F, ap[c][i], xx[i], temp2);
+                    }
+                    yy[j + c] += md(F, temp1, ap[c][j + c], alpha * temp2);
+                }
+            }
+            while (j < mu) : (j += 1) {
+                const c = col(F, a, ld, j);
+                const temp1 = alpha * xx[j];
+                var temp2: F = 0;
+                for (0..j) |i| {
+                    yy[i] = md(F, temp1, c[i], yy[i]);
+                    temp2 = md(F, c[i], xx[i], temp2);
+                }
+                yy[j] += md(F, temp1, c[j], alpha * temp2);
+            }
+            if (inc_y != 1) scatter(F, mu, yy, y, inc_y);
+            return 0;
+        }
+    };
+}
+
 /// The element type of a real `symv` slot, and whether it is the lower one.
 pub fn form(comptime slot: Slot) struct { F: type, lower: bool } {
     return switch (slot) {
@@ -341,4 +455,11 @@ pub fn x86(comptime slot: Slot, comptime s: Shape) *const Kernel(form(slot).F) {
     const f = form(slot);
     const B = Block(f.F, s);
     return if (f.lower) &X86L(f.F, B).k else &X86U(f.F, B).k;
+}
+
+/// The arm64 kernel of `slot`: the asimd driver and block, NEON-wide and fused.
+pub fn arm64(comptime slot: Slot) *const Kernel(form(slot).F) {
+    const f = form(slot);
+    const B = Block(f.F, .{ .lanes = 16 / @sizeOf(f.F), .fused = true });
+    return if (f.lower) &ArmL(f.F, B).k else &ArmU(f.F, B).k;
 }

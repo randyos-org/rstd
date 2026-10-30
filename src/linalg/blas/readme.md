@@ -214,7 +214,7 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
 ### bfloat16 and half precision
 
 The kernels are portable Zig, the same on every core; the `@Vector` half `gemv` kernels of
-`riscv64_zvl256b`, Cooper Lake and Sapphire Rapids give the same bits.
+`riscv64_zvl256b`, Cooper Lake, Sapphire Rapids and Neoverse N2, V1 and V2 give the same bits.
 
 - **Conversions** (`sbtobf16`, `bf16to`): round to nearest even; denormals flush to a signed zero
   and NaNs come out quiet, in both directions.

@@ -43,6 +43,7 @@ level-2 design is in [`design.md`](../design.md#level-2).
 | x86_64 `sgemv_n_4.c` on Skylake-X, its few-column path (`m <= 16384`, `n <= 48`, `n != 4`; `gemv/kernel.zig`) | `x` copied to the start when `incx != 1`, `y` after `n` elements when `incy != 1` | `m + n` elements |
 | x86_64 `sgemv_t_4.c` on Skylake-X, its path for `lda == m <= 8`, `n <= 16384` (`gemv/kernel.zig`) | `x` copied to the start when `incx != 1`, `y` after `m` elements when `incy != 1` | `m + n` elements |
 | x86_64 `?symv_[LU].c` (`symv/kernel.zig`) | none | nothing |
+| arm64 `symv_[LU]_asimd_4x4.c` (`symv/kernel.zig`) | `y` copied there when `incy != 1`, then `x` when `incx != 1` (after `y`'s copy, else at the start) | `2m` elements at most |
 | x86_64 `sger.c`, `dger.c` (Sandy Bridge; `ger/x86_64/kernel.zig`) | `x` copied there when `incx != 1` | `m` elements for a strided `x`, nothing otherwise |
 | generic `symv_k.c`, `zsymv_k.c`, `zhemv_k.c` (`symmetric.Compose`) | a `SYMV_P` square block, then `y` and `x` copies (strided only) and gemv's buffer, each from a page boundary | from a page-aligned buffer, `composeBytes` |
 

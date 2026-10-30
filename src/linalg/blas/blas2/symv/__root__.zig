@@ -59,6 +59,7 @@ pub fn xsymv_U(m: BlasLong, offset: BlasLong, alpha_r: XDouble, alpha_i: XDouble
 const std = @import("std");
 const sysinfo = @import("builtin");
 const x86_64 = @import("x86_64/kernel.zig");
+const ported = @import("kernel.zig");
 const Vtable = @import("../../Vtable.zig");
 const sym = @import("../symmetric.zig");
 
@@ -127,4 +128,11 @@ test "x86_64's symv ports, every core's block shape, match plain arithmetic as @
         inline for (.{ .ssymv_U, .ssymv_L, .dsymv_U, .dsymv_L }) |s| @field(vt, @tagName(s)) = P.Ported(micro).entry(s);
         try checkAll(&vt);
     }
+}
+
+test "arm64's asimd symv port matches plain arithmetic, as @Vector code on this machine" {
+    if (comptime sysinfo.target.cpu.arch != .aarch64) return error.SkipZigTest;
+    var vt = guard.portableVtable().*;
+    inline for (.{ .ssymv_U, .ssymv_L, .dsymv_U, .dsymv_L }) |s| @field(vt, @tagName(s)) = ported.arm64(s);
+    try checkAll(&vt);
 }
