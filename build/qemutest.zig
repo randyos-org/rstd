@@ -315,6 +315,19 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // the SSE2-and-up cores, which a `pentium3` cannot run; a CPU past the
+        // baseline (`pentium4`) also builds each core's object for its own ISA
+        .name = "i386-max",
+        .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.nehalem } },
+        .qemu = "qemu-system-i386",
+        .args = &.{ "-M", "pc", "-cpu", "max" },
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
         .name = "x86_64",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",

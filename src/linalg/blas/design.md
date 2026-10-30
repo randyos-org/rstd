@@ -1533,6 +1533,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `mips32r2el`, `mips32r2` | `24Kf` | no 32-bit kernels apply: the portable ones run |
 | `mips32r5el`, `mips32r5` | `P5600` | the `p5600` core's MSA kernels |
 | `i386` | `pentium3` | |
+| `i386-max` | `max` under TCG | built for `nehalem`: the SSE2-and-up cores, each object for its own ISA |
 | `x86_64` | `max` under TCG | |
 | `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
 | `sparc64-debug` | `sun4u` | Debug, in 46 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
