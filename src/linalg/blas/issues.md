@@ -974,6 +974,33 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > awaiting them, with `thread_limit = 3`, panics "switched to dead fiber"
   > within a few thousand rounds.
 
+### `Io.Dispatch`: a fiber's floating-point control state stays with the thread
+
+- **Seen:** `Dispatch` resumes a fiber that waited, or woke a waiter
+  (`futexWake` yields too), on whichever queue thread runs it next, the
+  process's main fiber included. The context switch (`lib/std/Io/fiber.zig`)
+  lists `fpcr` (x86_64: `mxcsr`) as clobbered rather than saving it, so the
+  control state stays with the thread. A worker that adopted the caller's
+  rounding toward zero then ran under another thread's, and left its first
+  thread rounding toward zero: level 3's rounding test lost its bits on the
+  M6. 0.18.0-dev.751, 2026-10-30.
+- **Workaround:** `threading.Lent`: a level 3 worker gives its thread's own
+  state back around each futex wait and wake and takes the caller's again
+  after; the caller re-adopts its own after them (threading.md, Futures on
+  `Dispatch`).
+- **Issue text:**
+
+  > **std.Io.Dispatch: floating-point control state does not follow a fiber**
+  >
+  > The fiber context switch (`Io/fiber.zig`) marks the floating-point
+  > control register clobbered (`fpcr` on aarch64, `mxcsr` on x86_64)
+  > instead of saving it. A fiber that sets rounding toward zero, then
+  > waits on a futex, can resume on another `Dispatch` thread under that
+  > thread's rounding, while the thread it left keeps toward zero for
+  > whatever runs there next. The process's main fiber migrates too. Either
+  > carry the control state in the fiber's context, or document that it is
+  > per thread and undefined across a yield.
+
 ### Zig 0.17.0: `Io.Uring` does not compile
 
 - **Seen:** with the 0.17.0 release, any use of `Io.Evented` on Linux fails:

@@ -328,9 +328,17 @@ plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Gr
 `usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
 futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
 `await` waits cancelably on a count of unfinished tasks, and a cancel there reaches each task
-through the caller's deferred `cancel`. Tasks adopt `FpState` and re-arm cancellation as
-before, and the chunks and their fold are unchanged, so the bits are too. `Uring`'s futures
-are reused too early (issues.md), so a multithreaded `Uring` stays unsupported.
+through the caller's deferred `cancel`. Tasks re-arm cancellation as before, and the chunks
+and their fold are unchanged, so the bits are too. `Uring`'s futures are reused too early
+(issues.md), so a multithreaded `Uring` stays unsupported.
+
+A fiber that sleeps or wakes others may resume on another thread, and the control state
+stays with the thread ([`issues.md`](issues.md)); `Dispatch` moves even the caller. On the M6,
+level 3 under rounding toward zero lost its bits that way. So a level 3 worker holds the
+caller's `FpState` only while it runs (`threading.Lent`): around each futex wait and wake it
+gives its thread's own state back, and takes the caller's again after. The caller re-adopts
+its own state after each of those and after its tasks end, so it keeps it wherever it
+resumes. Level 1 and 2 workers neither wait nor wake inside a task.
 
 **Revert:** once `zig build ssh-repro-group-aarch64-macos` (std only,
 `tools/evented_group_repro.zig`) passes on a new toolchain, set `dispatch_futures` false and
@@ -434,13 +442,15 @@ What the tests check today, and where they run:
     for bit, at 1 to 9 workers. The shapes cross every block, panel and triangle edge, with
     every transpose and option, on `check.zig`'s shrunk blocking and a NaN-poisoning
     allocator. `C` carries guard bands that must keep their sentinel. Each case runs on
-    `Io.failing` and on `Io.Threaded` with limits 0, 3 and 8 (oversubscribed). The public
+    `Io.failing` and on `Io.Threaded` with limits 0, 3 and 8 (oversubscribed), and on macOS
+    also on `Io.Dispatch` with its own pool (`threading.evented_workers`). The public
     routines thread above their thresholds and keep those bits.
   - Levels 1 and 2 (`blas1/interface.zig`, `_test/blas2/threaded.zig`): every threaded
     routine at 3 and 8 CPUs, on a threaded `Io` and on an inline one, against one worker,
     on every linked core. `test_serial_max` makes small problems take many chunks. The
     products that fold partial vectors also stay within rounding of one chunk's order.
-  - Control state: workers adopt the caller's rounding and flush to zero.
+  - Control state: workers adopt the caller's rounding and flush to zero, on `Dispatch`
+    too, where fibers change threads.
   - Cancellation: a canceled region and a canceled `gemm` return `error.Canceled` only
     once no worker runs. `std.testing.allocator` checks every free.
 - **Split inputs:** each core's `Q`, at every precision, is the same at 0, 1, 2, 3 and 64
@@ -471,8 +481,10 @@ What the tests check today, and where they run:
   - an `Io` that hands `Group.concurrent` and `Group.async` tasks to those cores, with
     futex waits, wakes and cancellation;
   - rigs at `-smp` above 1.
-- **Not yet:** `Io.Evented` beyond the single-threaded `Uring` test; a multithreaded
-  `Evented`, `Dispatch` included, is unsupported (Open issues) and left for T61.
+- **`Dispatch` with its pool** (`ssh-test-aarch64-macos`): the `threading` and level 3
+  tests above, race stress and cancellation included, on the futures path
+  (2026-10-30).
+- **Not yet:** a multithreaded `Uring`, unsupported (Open issues).
 
 ## Level 3 measurements
 
@@ -557,9 +569,10 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 - Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
   hang. With worker threads std's `Group` crashes on `Uring` and `Dispatch` (macOS), and
-  `Uring` reuses fibers too early ([`issues.md`](issues.md)), so threaded BLAS on a
-  multithreaded `Evented` is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes
-  one for `maxInt(u32)`. Windows has no `Evented`.
+  `Uring` reuses fibers too early ([`issues.md`](issues.md)): `Dispatch` runs on futures
+  until `Group` is fixed (Futures on `Dispatch`), and threaded BLAS on a multithreaded `Uring`
+  is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes one for `maxInt(u32)`.
+  Windows has no `Evented`.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
 - The partial vectors cost up to one `y` per chunk (64) and a fold of them; `spmv`, `zspmv`,
