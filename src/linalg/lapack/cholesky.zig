@@ -284,7 +284,7 @@ pub fn potrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isiz
 /// `potf2_U.c`, `potf2_L.c` and their `z` forms: the unblocked factor, with
 /// upstream's `dot`, `gemv` and `scal` as loops. A pivot that is not
 /// positive is stored, and its order returned.
-fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
+pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
     const F = Float(T);
     for (0..n) |j| {
         const djj = &a[j * (lda + 1)];
@@ -476,7 +476,7 @@ pub fn expectSameBits(comptime T: type, ctx: anytype, comptime run: fn (@TypeOf(
 /// it in `W(T)`, stored in `uplo`'s triangle of `n x n` with `lda = n + 2`.
 /// The other triangle, the padding rows and a complex diagonal's imaginary
 /// parts hold NaN.
-fn Problem(comptime T: type) type {
+pub fn Problem(comptime T: type) type {
     return struct {
         n: usize,
         lda: usize,
@@ -487,7 +487,7 @@ fn Problem(comptime T: type) type {
 
         const Self = @This();
 
-        fn init(al: Allocator, n: usize, upper: bool, seed: u64) !Self {
+        pub fn init(al: Allocator, n: usize, upper: bool, seed: u64) !Self {
             const lda = n + 2;
             const l = try al.alloc(T, n * n);
             errdefer al.free(l);
@@ -519,7 +519,7 @@ fn Problem(comptime T: type) type {
         }
 
         /// `A` into `a`, poisoned where `potrf` must not read.
-        fn store(self: *Self) void {
+        pub fn store(self: *Self) void {
             @memset(self.a, poisoned(T));
             for (0..self.n) |j| for (0..self.n) |i| {
                 if (if (self.upper) i > j else i < j) continue;
@@ -528,7 +528,7 @@ fn Problem(comptime T: type) type {
             };
         }
 
-        fn deinit(self: *Self, al: Allocator) void {
+        pub fn deinit(self: *Self, al: Allocator) void {
             al.free(self.l);
             al.free(self.a);
             al.free(self.aw);
@@ -536,20 +536,20 @@ fn Problem(comptime T: type) type {
 
         /// The computed factor's `(i, j)` as lower, `i >= j`: `L(i, j)`, or
         /// `conj(U(j, i))`.
-        fn got(self: *const Self, i: usize, j: usize) T {
+        pub fn got(self: *const Self, i: usize, j: usize) T {
             if (!self.upper) return self.a[i + j * self.lda];
             const v = self.a[j + i * self.lda];
             return if (comptime isComplex(T)) v.conjugate() else v;
         }
 
-        fn factorIt(self: *Self, al: Allocator, minor: ?*usize) PotrfError!void {
+        pub fn factorIt(self: *Self, al: Allocator, minor: ?*usize) PotrfError!void {
             return potrf(al, check.io, T, if (self.upper) .u else .l, @intCast(self.n), self.a.ptr, @intCast(self.lda), minor);
         }
 
         /// The factor against `A` (backward, within `2 (n + 2)` ulps of
         /// `|L| |L|ᴴ`) and against the known `L` (forward, loosely), with
         /// the poisoned elements untouched.
-        fn expectFactor(self: *const Self) !void {
+        pub fn expectFactor(self: *const Self) !void {
             const n = self.n;
             const F = Float(T);
             const eps: f128 = std.math.floatEps(F);
@@ -870,14 +870,14 @@ fn Threaded(comptime T: type) type {
     return struct {
         p: *const Problem(T),
 
-        fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             const vt = table(T);
             @memcpy(out, c.p.a);
             _ = try factorParallel(testing.allocator, io, T, vt, c.p.upper, driver.Blocking.of(T, vt), c.p.n, out.ptr, c.p.lda, want);
         }
 
         /// The public `potri`, threading by `blas.config`'s workers.
-        fn inverse(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn inverse(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             const saved = blas.config.cpu_count;
             defer blas.config.cpu_count = saved;
             blas.config.cpu_count = want;

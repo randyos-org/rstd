@@ -5,6 +5,11 @@
 //! the Fortran argument order, the element type explicit, sizes `isize`,
 //! `(allocator, io, T, ...)`, the BLAS letter enums, and named errors for bad
 //! arguments in the reference's `xerbla` order.
+//!
+//! ReLAPACK's recursive algorithms (`relapack.zig`) serve the routines
+//! OpenBLAS takes from the reference, and with `-Drelapack` also `potrf`,
+//! `getrf`, `trtri` and `lauum`, as OpenBLAS's `BUILD_RELAPACK` with
+//! `RELAPACK_REPLACE`; OpenBLAS's own stay the default.
 
 const cholesky = @import("cholesky.zig");
 const lu = @import("lu.zig");
@@ -15,6 +20,8 @@ const faer_householder = @import("faer/householder.zig");
 const faer_qr = @import("faer/qr.zig");
 const faer_bidiag = @import("faer/bidiag.zig");
 const faer_bidiag_svd = @import("faer/bidiag_svd.zig");
+const relapack = @import("relapack.zig");
+const options = @import("lapack_options");
 
 pub const Uplo = @import("../blas/types.zig").Uplo;
 pub const Trans = @import("../blas/types.zig").Trans;
@@ -58,16 +65,16 @@ pub const GesddError = svd.GesddError;
 /// `gesvd`'s and `gesdd`'s jobs.
 pub const Job = svd.Job;
 
-pub const potrf = cholesky.potrf;
+pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
 pub const potf2 = cholesky.potf2;
 pub const potrs = cholesky.potrs;
 pub const potri = cholesky.potri;
-pub const getrf = lu.getrf;
+pub const getrf = if (options.relapack) relapack.getrf else lu.getrf;
 pub const getrs = lu.getrs;
 pub const gesv = lu.gesv;
-pub const trtri = triangular.trtri;
+pub const trtri = if (options.relapack) relapack.trtri else triangular.trtri;
 pub const trti2 = triangular.trti2;
-pub const lauum = triangular.lauum;
+pub const lauum = if (options.relapack) relapack.lauum else triangular.lauum;
 pub const lauu2 = triangular.lauu2;
 pub const trtrs = triangular.trtrs;
 pub const gesvd = svd.gesvd;
@@ -83,4 +90,5 @@ test {
     _ = faer_bidiag;
     _ = faer_bidiag_svd;
     _ = svd;
+    _ = relapack;
 }

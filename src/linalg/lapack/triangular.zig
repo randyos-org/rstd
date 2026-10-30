@@ -182,7 +182,7 @@ fn inverseParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vt
 /// (upper left to right, lower right to left), the diagonal element
 /// inverted, then the column below (upper: above) it multiplied by the
 /// inverse already made (`TRMV_N*`) and by `-1 / A(j, j)` (`SCAL_K`).
-fn unblockedInverse(comptime T: type, upper: bool, unit: bool, n: usize, a: [*]T, lda: usize) void {
+pub fn unblockedInverse(comptime T: type, upper: bool, unit: bool, n: usize, a: [*]T, lda: usize) void {
     for (0..n) |jj| {
         const j = if (upper) jj else n - 1 - jj;
         const dj = &a[j * (lda + 1)];
@@ -313,7 +313,7 @@ fn offDiagonal(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable
 /// real) and the column (`l`: row) above (left of) it plus the block right
 /// of (below) it times that row conjugated (`GEMV_N`, `GEMV_O`; `GEMV_T`,
 /// `GEMV_U`).
-fn unblockedProduct(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) void {
+pub fn unblockedProduct(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) void {
     const F = Float(T);
     for (0..n) |i| {
         const d = &a[i * (lda + 1)];
@@ -403,7 +403,7 @@ const nan = std.math.nan(f64);
 /// inverse are well conditioned; `w` keeps it whole in `W(T)`, a unit
 /// diagonal as ones. The other triangle, the padding and a unit diagonal
 /// hold NaN.
-fn Tri(comptime T: type) type {
+pub fn Tri(comptime T: type) type {
     return struct {
         n: usize,
         lda: usize,
@@ -414,7 +414,7 @@ fn Tri(comptime T: type) type {
 
         const Self = @This();
 
-        fn init(al: Allocator, n: usize, upper: bool, unit: bool, seed: u64) !Self {
+        pub fn init(al: Allocator, n: usize, upper: bool, unit: bool, seed: u64) !Self {
             const lda = n + 2;
             const a = try al.alloc(T, @max(1, lda * n));
             errdefer al.free(a);
@@ -439,19 +439,19 @@ fn Tri(comptime T: type) type {
             return self;
         }
 
-        fn deinit(self: *Self, al: Allocator) void {
+        pub fn deinit(self: *Self, al: Allocator) void {
             al.free(self.a);
             al.free(self.w);
         }
 
         /// Whether the routines read and write `(i, j)` of `a`.
-        fn stored(self: *const Self, i: usize, j: usize) bool {
+        pub fn stored(self: *const Self, i: usize, j: usize) bool {
             if (i >= self.n) return false;
             if (i == j) return !self.unit;
             return if (self.upper) i < j else i > j;
         }
 
-        fn store(self: *Self) void {
+        pub fn store(self: *Self) void {
             @memset(self.a, poisoned(T));
             for (0..self.n) |j| for (0..self.n) |i| if (self.stored(i, j)) {
                 self.a[i + j * self.lda] = chol.toT(T, self.w[i + j * self.n]);
@@ -460,13 +460,13 @@ fn Tri(comptime T: type) type {
 
         /// The computed matrix's `(i, j)`: ones on a unit diagonal, zeros
         /// outside the triangle.
-        fn got(self: *const Self, i: usize, j: usize) W(T) {
+        pub fn got(self: *const Self, i: usize, j: usize) W(T) {
             if (i == j and self.unit) return check.wide(T, scalar(T, 1));
             if (!self.stored(i, j)) return check.wide(T, scalar(T, 0));
             return check.wide(T, self.a[i + j * self.lda]);
         }
 
-        fn expectUntouched(self: *const Self, what: []const u8) !void {
+        pub fn expectUntouched(self: *const Self, what: []const u8) !void {
             for (0..self.n) |j| for (0..self.lda) |i| if (!self.stored(i, j) and !isNanT(T, self.a[i + j * self.lda])) {
                 check.say("{s} {s} {s} n={d}: wrote ({d},{d}), outside its triangle\n", .{ what, @typeName(T), if (self.upper) "u" else "l", self.n, i, j });
                 return error.TestUnexpectedResult;
@@ -475,7 +475,7 @@ fn Tri(comptime T: type) type {
 
         /// `A X = I` within `8 (n + 2)` ulps of `|A| |X|`, `X` the computed
         /// inverse, nothing outside the triangle written.
-        fn expectInverse(self: *const Self) !void {
+        pub fn expectInverse(self: *const Self) !void {
             const n = self.n;
             const eps: f128 = std.math.floatEps(Float(T));
             const ulps: f128 = @floatFromInt(8 * (n + 2));
@@ -501,7 +501,7 @@ fn Tri(comptime T: type) type {
         /// The stored triangle against `U Uᴴ` or `Lᴴ L` of `w` within
         /// `2 (n + 2)` ulps of the product in magnitude, a complex diagonal
         /// exactly real, nothing outside the triangle written.
-        fn expectProduct(self: *const Self) !void {
+        pub fn expectProduct(self: *const Self) !void {
             const n = self.n;
             const eps: f128 = std.math.floatEps(Float(T));
             const ulps: f128 = @floatFromInt(2 * (n + 2));
@@ -749,17 +749,17 @@ fn Threaded(comptime T: type) type {
     return struct {
         t: *const Tri(T),
 
-        fn inv(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn inv(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             @memcpy(out, c.t.a);
             try inverse(testing.allocator, io, T, c.t.upper, c.t.unit, c.t.n, out.ptr, c.t.lda, want);
         }
 
-        fn prod(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn prod(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             @memcpy(out, c.t.a);
             try product(testing.allocator, io, T, c.t.upper, c.t.n, out.ptr, c.t.lda, want);
         }
 
-        fn solve(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn solve(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             // `trtrs` threads by `blas.config`'s workers
             const saved = blas.config.cpu_count;
             defer blas.config.cpu_count = saved;

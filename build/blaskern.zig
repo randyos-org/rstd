@@ -44,6 +44,7 @@ const Group = struct {
 };
 
 var force_llvm: ?bool = null;
+var relapack = false;
 var option_read = false;
 
 /// The kernel objects built when `-Dblas-cores` is not given: the target's
@@ -58,12 +59,18 @@ pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbu
 /// Builds the per-core kernel objects for `target` and links them into `mod`:
 /// for every core the target can run (`.all`), or only the core the target
 /// maps to (`.target`), or none (`.none`). It also gives `mod` the
-/// `blaskern_linked` module, which tells `asm_registry.install` what got linked.
+/// `blaskern_linked` module, which tells `asm_registry.install` what got linked,
+/// and `lapack_options` (`-Drelapack`), since every module with the BLAS has
+/// LAPACK too.
 pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) !void {
     if (!option_read) {
         option_read = true;
         force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
+        relapack = b.option(bool, "relapack", "LAPACK's potrf, getrf, trtri and lauum from ReLAPACK's recursive algorithms instead of OpenBLAS's, as OpenBLAS's BUILD_RELAPACK with RELAPACK_REPLACE") orelse false;
     }
+    const lapack_opts = b.addOptions();
+    lapack_opts.addOption(bool, "relapack", relapack);
+    mod.addImport("lapack_options", lapack_opts.createModule());
     // the core type depends on the architecture, so it becomes compile-time here
     switch (target.result.cpu.arch) {
         inline else => |a| try addForArch(b, mod, target, cores, a),

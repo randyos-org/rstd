@@ -86,7 +86,7 @@ pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 }
 
 /// `error.Singular` for a nonzero `k`, written to `pivot`.
-fn singular(k: usize, pivot: ?*usize) error{Singular}!void {
+pub fn singular(k: usize, pivot: ?*usize) error{Singular}!void {
     if (k == 0) return;
     if (pivot) |p| p.* = k;
     return error.Singular;
@@ -203,7 +203,7 @@ fn Step(comptime T: type) type {
         info: usize = 0,
         failed: bool = false,
 
-        fn run(s: *Self, io: Io, rest: usize, want: u32) driver.Error!usize {
+        pub fn run(s: *Self, io: Io, rest: usize, want: u32) driver.Error!usize {
             const un = s.blk.un;
             s.w0 = @min(rest, (s.next + un - 1) / un * un);
             s.chunks = .init(rest - s.w0, want - 1, .even, un);
@@ -227,11 +227,11 @@ fn Step(comptime T: type) type {
 
         /// Part `i`'s first column and width, from the first column right of
         /// block `j`.
-        fn first(s: *const Self, i: usize) usize {
+        pub fn first(s: *const Self, i: usize) usize {
             return if (i == 0) 0 else s.w0 + s.chunks.get(i - 1).start;
         }
 
-        fn width(s: *const Self, i: usize) usize {
+        pub fn width(s: *const Self, i: usize) usize {
             if (i == 0) return s.w0;
             const c = s.chunks.get(i - 1);
             return c.end - c.start;
@@ -239,7 +239,7 @@ fn Step(comptime T: type) type {
 
         /// Elements of packing space for `cols` columns: the `trsm`'s, then
         /// the `gemm`'s, one after the other.
-        fn space(s: *const Self, cols: usize) usize {
+        pub fn space(s: *const Self, cols: usize) usize {
             if (cols == 0) return 0;
             const t = Work(T).total(driver.triLens(s.blk, s.jb, cols, s.jb));
             const g = if (s.m > s.j + s.jb) Work(T).total(Work(T).lens(s.blk, s.m - s.j - s.jb, cols, s.jb, false)) else 0;
@@ -281,7 +281,7 @@ fn Step(comptime T: type) type {
         /// `inner_basic_thread` on part `i`: block `j`'s interchanges, then
         /// `A12 := L11^-1 A12` and `A22 -= A21 A12` on its columns, with
         /// `factor`'s driver loops on the part's own packing space.
-        fn update(s: *const Self, i: usize) void {
+        pub fn update(s: *const Self, i: usize) void {
             const cols = s.width(i);
             if (cols == 0) return;
             const j = s.j;
@@ -372,7 +372,7 @@ pub fn gesv(allocator: Allocator, io: Io, comptime T: type, n: isize, nrhs: isiz
 /// `getf2_k.c`, `zgetf2_k.c`: left-looking, a column at a time. Column `j`
 /// takes the earlier interchanges, then `U(:j, j)` by forward substitution,
 /// then `A(j:, j) -= L(j:, :j) U(:j, j)`, its pivot, and `L(j + 1:, j)`.
-fn getf2(comptime T: type, vt: *const Vtable, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize) usize {
+pub fn getf2(comptime T: type, vt: *const Vtable, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize) usize {
     const iamax = portable.kernel(T, vt, .iamax_k);
     var info: usize = 0;
     for (0..n) |j| {
@@ -449,7 +449,7 @@ const inf = std.math.inf(f64);
 
 /// A random `m x n` `A` in [-2, 2), stored with `lda = m + 2`, the padding
 /// rows NaN; `aw` keeps it in `W(T)`.
-fn Problem(comptime T: type) type {
+pub fn Problem(comptime T: type) type {
     return struct {
         m: usize,
         n: usize,
@@ -460,7 +460,7 @@ fn Problem(comptime T: type) type {
 
         const Self = @This();
 
-        fn init(al: Allocator, m: usize, n: usize, seed: u64) !Self {
+        pub fn init(al: Allocator, m: usize, n: usize, seed: u64) !Self {
             const lda = m + 2;
             const a = try al.alloc(T, @max(1, lda * n));
             errdefer al.free(a);
@@ -477,7 +477,7 @@ fn Problem(comptime T: type) type {
         }
 
         /// `aw` into `a`, the padding poisoned; `ipiv` poisoned too.
-        fn store(self: *Self) void {
+        pub fn store(self: *Self) void {
             @memset(self.a, poisoned(T));
             for (0..self.n) |j| for (0..self.m) |i| {
                 self.a[i + j * self.lda] = chol.toT(T, self.aw[i + j * self.m]);
@@ -485,26 +485,26 @@ fn Problem(comptime T: type) type {
             @memset(self.ipiv, -1);
         }
 
-        fn deinit(self: *Self, al: Allocator) void {
+        pub fn deinit(self: *Self, al: Allocator) void {
             al.free(self.a);
             al.free(self.aw);
             al.free(self.ipiv);
         }
 
-        fn factorIt(self: *Self, al: Allocator, pivot: ?*usize) GetrfError!void {
+        pub fn factorIt(self: *Self, al: Allocator, pivot: ?*usize) GetrfError!void {
             return getrf(al, check.io, T, @intCast(self.m), @intCast(self.n), self.a.ptr, @intCast(self.lda), self.ipiv.ptr, pivot);
         }
 
-        fn l(self: *const Self, i: usize, k: usize) W(T) {
+        pub fn l(self: *const Self, i: usize, k: usize) W(T) {
             return if (i == k) check.wide(T, scalar(T, 1)) else check.wide(T, self.a[i + k * self.lda]);
         }
 
-        fn u(self: *const Self, k: usize, j: usize) W(T) {
+        pub fn u(self: *const Self, k: usize, j: usize) W(T) {
             return check.wide(T, self.a[k + j * self.lda]);
         }
 
         /// `A` with `ipiv`'s interchanges applied, in `W(T)`.
-        fn permuted(self: *const Self, al: Allocator) ![]W(T) {
+        pub fn permuted(self: *const Self, al: Allocator) ![]W(T) {
             const pa = try al.dupe(W(T), self.aw);
             for (0..@min(self.m, self.n)) |k| {
                 const p: usize = @intCast(self.ipiv[k] - 1);
@@ -516,7 +516,7 @@ fn Problem(comptime T: type) type {
         /// Pivots inside their rows, `|L|` at most 1 (complex: `sqrt 2`, the
         /// pivot being largest in `|re| + |im|`), `L U` against `P A` within
         /// `2 (mn + 2)` ulps of `|L| |U|`, and the padding untouched.
-        fn expectFactor(self: *const Self, al: Allocator) !void {
+        pub fn expectFactor(self: *const Self, al: Allocator) !void {
             const m = self.m;
             const n = self.n;
             const mn = @min(m, n);
@@ -961,12 +961,12 @@ fn Threaded(comptime T: type) type {
     return struct {
         p: *const Problem(T),
 
-        fn len(c: @This()) usize {
+        pub fn len(c: @This()) usize {
             return c.p.a.len + @min(c.p.m, c.p.n) + 1;
         }
 
         /// `factor` at one worker, else `factorAhead`.
-        fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             const p = c.p;
             const al = testing.allocator;
             const ipiv = try al.alloc(isize, @min(p.m, p.n));
@@ -984,7 +984,7 @@ fn Threaded(comptime T: type) type {
 
         /// The public `getrs` and `gesv` (their solutions after their
         /// factors), threading by `blas.config`'s workers.
-        fn solve(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+        pub fn solve(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             const saved = blas.config.cpu_count;
             defer blas.config.cpu_count = saved;
             blas.config.cpu_count = want;
