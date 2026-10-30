@@ -502,7 +502,7 @@ const Futures = struct {
     }
 
     fn await(fs: *Futures, io: Io) Io.Cancelable!void {
-        if (fs.left.fetchSub(1, .acq_rel) != 1) _ = try fs.done.waitWhile(io, 0);
+        if (fs.left.fetchSub(1, .acq_rel) != 1) _ = try fs.done.waitWhile(io, 0, null);
         for (fs.list[0..fs.len]) |*f| f.await(io);
         fs.len = 0;
     }
@@ -614,21 +614,23 @@ pub fn Partials(comptime T: type) type {
 /// at once. The caller is worker 0; the rest start through `Group.concurrent`
 /// (`Tasks`) and wait until the caller has counted them. `job.plan(n)` then
 /// sizes the work for the `n` that started and returns how many take part, and
-/// `job.work(io, i)` runs worker `i`. With none started the caller runs alone.
-/// Workers adopt the caller's floating-point control state, as in `forEach`.
+/// `job.work(io, i, lent)` runs worker `i`, passing `lent` (null for the
+/// caller) to its waits. With none started the caller runs alone. Workers
+/// adopt the caller's floating-point control state while they run (`Lent`).
 /// Returns once every task has finished.
 pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     if (comptime sysinfo.single_threaded) {
         _ = job.plan(1);
-        return job.work(io, 0);
+        return job.work(io, 0, null);
     }
     const Job = @TypeOf(job.*);
     const S = struct {
         fn worker(j: *Job, go: *Signal, i: u32, fp: FpState, wio: Io) void {
-            const own = fp.adopt();
-            defer if (own) |s| s.apply();
-            const active = go.waitWhile(wio, 0) catch return wio.recancel();
-            if (i < active) j.work(wio, i) catch wio.recancel();
+            var lent: Lent = .{ .want = fp };
+            lent.take();
+            defer lent.give();
+            const active = go.waitWhile(wio, 0, &lent) catch return wio.recancel();
+            if (i < active) j.work(wio, i, &lent) catch wio.recancel();
         }
     };
     const fp: FpState = .capture();
@@ -639,9 +641,29 @@ pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     var started: u32 = 1;
     while (started < want) : (started += 1) tasks.concurrent(io, S.worker, .{ job, &go, started, fp, io }) catch break;
     go.set(io, job.plan(started));
-    try job.work(io, 0);
+    try job.work(io, 0, null);
     try tasks.await(io);
 }
+
+/// A worker's hold on the caller's control state (`FpState`), in force on
+/// its thread only while it runs: a fiber `Io` (`Dispatch`) may resume a
+/// waiter on another thread, which must not keep it, nor the first its own.
+pub const Lent = struct {
+    want: FpState,
+    /// The thread's own state while `want` replaces it.
+    prior: ?FpState = null,
+
+    /// `want` in force on this thread.
+    pub fn take(l: *Lent) void {
+        l.prior = l.want.adopt();
+    }
+
+    /// The thread's own state back, before a wait that may move the worker.
+    pub fn give(l: *Lent) void {
+        if (l.prior) |p| p.apply();
+        l.prior = null;
+    }
+};
 
 /// Spins of a wait before it sleeps; its time per spin (`pause` on Zen 3)
 /// is unmeasured, so the wait's length is too. BLIS and OpenBLAS spin without
@@ -651,13 +673,14 @@ pub const spin_limit = 1 << 12;
 
 /// A word workers wait on to change. They spin first, as BLIS's
 /// `bli_thrcomm_barrier_atomic` and OpenBLAS's `level3_thread.c` do, then
-/// sleep on a futex; setters wake only when someone sleeps.
+/// sleep on a futex; setters wake only when someone sleeps. A worker sleeps
+/// without its `Lent` state, and takes it again where it wakes.
 pub const Signal = struct {
     value: std.atomic.Value(u32) = .init(0),
     sleepers: std.atomic.Value(u32) = .init(0),
 
     /// Waits until the value is other than `old`; returns it.
-    pub fn waitWhile(s: *Signal, io: Io, old: u32) Io.Cancelable!u32 {
+    pub fn waitWhile(s: *Signal, io: Io, old: u32, lent: ?*Lent) Io.Cancelable!u32 {
         for (0..spin_limit) |_| {
             const x = s.value.load(.acquire);
             if (x != old) return x;
@@ -669,6 +692,8 @@ pub const Signal = struct {
             defer _ = s.sleepers.fetchSub(1, .monotonic);
             const x = s.value.load(.seq_cst);
             if (x != old) return x;
+            if (lent) |l| l.give();
+            defer if (lent) |l| l.take();
             try io.futexWait(u32, &s.value.raw, old);
         }
     }
@@ -688,7 +713,7 @@ pub const Barrier = struct {
     arrived: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
     phase: Signal align(std.atomic.cache_line) = .{},
 
-    pub fn wait(b: *Barrier, io: Io) Io.Cancelable!void {
+    pub fn wait(b: *Barrier, io: Io, lent: ?*Lent) Io.Cancelable!void {
         if (b.parties <= 1) return;
         const p = b.phase.value.load(.monotonic);
         if (b.arrived.fetchAdd(1, .acq_rel) + 1 == b.parties) {
@@ -696,7 +721,7 @@ pub const Barrier = struct {
             b.phase.set(io, p +% 1);
             return;
         }
-        _ = try b.phase.waitWhile(io, p);
+        _ = try b.phase.waitWhile(io, p, lent);
     }
 };
 
@@ -1110,7 +1135,7 @@ test "worker tasks run on plain futures on Io.Dispatch only" {
 
 /// Sleeps on `s` until it leaves 0, then counts itself in `woken`.
 fn sleeper(s: *Signal, io: Io, woken: *std.atomic.Value(u32)) void {
-    _ = s.waitWhile(io, 0) catch return io.recancel();
+    _ = s.waitWhile(io, 0, null) catch return io.recancel();
     _ = woken.fetchAdd(1, .acq_rel);
 }
 

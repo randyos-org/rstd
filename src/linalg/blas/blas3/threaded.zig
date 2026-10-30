@@ -287,7 +287,7 @@ fn Team(comptime T: type) type {
             driver.block(T, j.vt, j.d, j.blk, is, mi, jj, w, min_l, alpha, s, sa, sb + min_l * (jj - j0), j.c, j.ldc, tmp);
         }
 
-        pub fn work(j: *Self, io: Io, index: u32) Io.Cancelable!void {
+        pub fn work(j: *Self, io: Io, index: u32, lent: ?*threading.Lent) Io.Cancelable!void {
             const blk = j.blk;
             const r = index % j.ic;
             const g = index / j.ic;
@@ -322,7 +322,7 @@ fn Team(comptime T: type) type {
                         const s = if (ls == 0) beta else null;
                         try threading.checkCancel(io);
                         // the buffer is free once every peer is done with the last slice
-                        if (!first) try bar.wait(io);
+                        if (!first) try bar.wait(io, lent);
                         first = false;
                         var min_i: usize = if (rows.end > rows.start) Blocking.split(rows.end - rows.start, blk.p, blk.um) else 0;
                         if (min_i > 0) driver.packRows(T, j.vt, j.d, x, min_l, min_i, ls, rows.start, sa);
@@ -337,7 +337,7 @@ fn Team(comptime T: type) type {
                             jj += w;
                         }
                         // the slice is whole
-                        try bar.wait(io);
+                        try bar.wait(io, lent);
                         var is = rows.start;
                         if (min_i > 0) {
                             // the first row block's other chunks
@@ -1021,7 +1021,8 @@ fn cancelGemm(io: Io, vt: *const Vtable, a: []f64, b: []f64, c: []f64, n: usize,
     Hold.held.store(true, .release);
     Hold.first.store(0, .release);
     Hold.others.store(0, .release);
-    const releaser = try std.Thread.spawn(.{}, Hold.release, .{io});
+    // a thread of its own sleeps on a blocking `Io`; a fiber `Io` needs a fiber
+    const releaser = try std.Thread.spawn(.{}, Hold.release, .{Io.Threaded.global_single_threaded.io()});
     var future = io.concurrent(canceledGemm, .{ io, vt, a, b, c, n, k }) catch return error.SkipZigTest;
     while (Hold.calls.load(.acquire) == 0) std.Thread.yield() catch {};
     const result = future.cancel(io);
