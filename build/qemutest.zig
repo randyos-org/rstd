@@ -873,8 +873,17 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void
 /// null until the kernel's package is fetched.
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
-    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
+    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
+    const nix: ?[]const u8 = if (!buildroot.tsan or host == null) null else switch (target.result.cpu.arch) {
+        .x86_64 => "x86_64-linux",
+        .aarch64 => "aarch64-linux",
+        else => null,
+    };
+    var query = target.query;
+    if (nix != null) query.abi = .gnu;
+    const t = if (nix != null) b.resolveTargetQuery(query) else target;
+    const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, false, false);
+    const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
         .root_source_file = b.path("test/linux/init.zig"),
         .target = target,
@@ -884,6 +893,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
     pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
     pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
+    if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system)).captureStdOut(.{}));
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);

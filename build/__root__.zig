@@ -49,11 +49,15 @@ pub fn addRstdModule(
     return mod;
 }
 
+/// `-Drstd-tsan`, which `build` reads before any test is added.
+pub var tsan = false;
+
 /// rstd's unit tests for `target` and `optimize`, from a module of
 /// `addRstdModule` (the registered one has no mode; its consumers set theirs).
 pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, optimize: Optimize, filters: []const []const u8) !*Compile {
     const test_mod = try rstdbuild.cloneModuleWithTarget(b, mod, target);
     test_mod.optimize = optimize;
+    if (tsan and target.result.os.tag == .linux and target.result.abi.isGnu()) test_mod.sanitize_thread = true;
     return b.addTest(.{ .root_module = test_mod, .filters = filters });
 }
 
@@ -113,6 +117,9 @@ pub fn build(b: *Build) !void {
 
     // tests
     // -----
+    // glibc only: static on musl it faults at start; macOS needs SDK headers
+    // the toolchain lacks (issues.md)
+    tsan = b.option(bool, "rstd-tsan", "Build rstd's linux-gnu tests with ThreadSanitizer; the x86_64 and aarch64 Linux rigs then take glibc from Nix on -Dtest-host") orelse false;
     const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
     const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, test_filter);
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);

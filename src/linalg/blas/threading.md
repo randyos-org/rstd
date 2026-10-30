@@ -416,8 +416,8 @@ Memory safety for concurrent work:
   inline baseline. Reductions additionally meet `check.zig`'s error bound.
 - **Races:** the hosted tests loop about 1000 times on the weak-memory rigs (aarch64,
   ppc64le, riscv64) and the M6, with guard bands asserting nothing outside the output is
-  written. TSan (`sanitize_thread`) on native Linux follows once its support in this
-  toolchain is confirmed.
+  written. `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64 Linux
+  rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or macOS).
 - **Cancellation:** canceled calls return `error.Canceled`, leave no worker running, and leave
   memory outside the output untouched; the allocator sees every free after the last task ends.
 - **Split inputs:** a test that `Q` and every chunk size are the same for every thread count
@@ -509,7 +509,6 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
   hang. With worker threads `Uring` hangs even a plain futex barrier ([`issues.md`](issues.md));
   `Dispatch` (macOS) has no thread limit and is untested. Windows has no `Evented`.
-- TSan support with this toolchain is unverified.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
 - The partial vectors cost up to one `y` per chunk (64) and a fold of them; `spmv`, `zspmv`,

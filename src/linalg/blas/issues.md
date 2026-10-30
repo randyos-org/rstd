@@ -142,6 +142,28 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > homogeneous aggregate rule) without checking for the soft-float
   > convention (`arm_aapcs` rather than `arm_aapcs_vfp`).
 
+### ThreadSanitizer: faults at start on static musl; macOS needs an SDK
+
+- **Seen:** `-fsanitize-thread` for `x86_64-linux-musl` (static, PIE) links,
+  but rstd's test binary dies of `SIGSEGV` before its first test on
+  `qemu-test-linux-x86_64`. For `x86_64-linux-gnu` it runs and reports races.
+  For `aarch64-macos`, cross-compiled from Windows, libtsan does not build:
+  `sys/timeb.h`, `util.h`, `asl.h`, `sys/syscall.h`,
+  `CoreFoundation/CFBase.h` and `objc/objc-sync.h` are not found. 0.18.0-dev.751,
+  2026-10-29.
+- **Workaround:** `-Drstd-tsan` sanitizes `linux-gnu` tests only; the x86_64 and
+  aarch64 Linux rigs then build for glibc and take it, with its loader, from Nix
+  (`tools/nix/blas.sh`).
+- **Issue text:**
+
+  > **-fsanitize-thread: static musl executables crash at startup**
+  >
+  > A test binary built with `-fsanitize-thread` for `x86_64-linux-musl` links
+  > as a static PIE and dies of SIGSEGV before its first test; built for
+  > `x86_64-linux-gnu` it runs under TSan. If static TSan is unsupported, the
+  > compiler should reject it rather than link it. (Not yet reduced: check a
+  > two-thread race program first.)
+
 ### Self-hosted x86_64 backend stores a two-lane `f32` vector as 16 bytes
 
 - **Seen:** with the self-hosted x86_64 backend, `@sizeOf(@Vector(2, f32))`
