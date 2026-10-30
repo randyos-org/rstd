@@ -406,26 +406,56 @@ Memory safety for concurrent work:
 
 ## Verification
 
-- **Everywhere, rigs included:** unit tests for chunking, the worker count and the ordered
-  combine, and a test that the rigs resolve to one worker.
+What the tests check today, and where they run:
+
+- **Everywhere, rigs included** (`threading.zig`): chunking, rules and their per-core
+  overrides, the worker count, chunks that ignore the CPU count and the ceiling, and the
+  ordered combine in several claim orders. The freestanding rigs check that they resolve to
+  one worker over the same chunks.
 - **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
-  threaded results equal serial results bit-for-bit for worker counts 1 to 9 (a test hook
-  overrides the cached CPU count), all transposes and odd sizes, on the shrunk-blocking
-  vtable `_test/blas3/check.zig` uses and its NaN-poisoning allocator. Each case also runs on
-  `Io.Threaded` with `async_limit` 0, 3 and 8 (oversubscribed) and on `Io.failing` as an
-  inline baseline. Reductions additionally meet `check.zig`'s error bound.
-- **Races:** the hosted tests loop about 1000 times on the weak-memory rigs (aarch64,
-  ppc64le, riscv64) and the M6, with guard bands asserting nothing outside the output is
-  written. `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64 Linux
-  rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or macOS).
-  On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests report no race
-  (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it is left out.
-- **Cancellation:** canceled calls return `error.Canceled`, leave no worker running, and leave
-  memory outside the output untouched; the allocator sees every free after the last task ends.
-- **Split inputs:** a test that `Q` and every chunk size are the same for every thread count
-  and CPU count.
+  - Level 3 (`blas3/threaded.zig`): every threaded routine against the serial driver, bit
+    for bit, at 1 to 9 workers. The shapes cross every block, panel and triangle edge, with
+    every transpose and option, on `check.zig`'s shrunk blocking and a NaN-poisoning
+    allocator. `C` carries guard bands that must keep their sentinel. Each case runs on
+    `Io.failing` and on `Io.Threaded` with limits 0, 3 and 8 (oversubscribed). The public
+    routines thread above their thresholds and keep those bits.
+  - Levels 1 and 2 (`blas1/interface.zig`, `_test/blas2/threaded.zig`): every threaded
+    routine at 3 and 8 CPUs, on a threaded `Io` and on an inline one, against one worker,
+    on every linked core. `test_serial_max` makes small problems take many chunks. The
+    products that fold partial vectors also stay within rounding of one chunk's order.
+  - Control state: workers adopt the caller's rounding and flush to zero.
+  - Cancellation: a canceled region and a canceled `gemm` return `error.Canceled` only
+    once no worker runs. `std.testing.allocator` checks every free.
+- **Split inputs:** each core's `Q`, at every precision, is the same at 0, 1, 2, 3 and 64
+  threads (`params.zig`, `checkCore`); only LA464's `P` and `R` move. The level 3 tests
+  record the depth of every `gemm`, `trsm` and `trmm` kernel call, so each packed slice's
+  `Q`. A threaded run must see the depths the serial driver sees, at every worker count.
+  Level 1 and 2 chunks ignore the CPU count and the ceiling (above).
+- **Races** (`race stress` in the test names): `threading.stress_rounds` (1000) rounds per
+  level at 2 to 8 workers, on `Io.Threaded`, each checked bit for bit against one worker.
+  Strided vectors' gaps and `A`'s and `C`'s leading-dimension padding are guard bands, and
+  scratch comes NaN-poisoned. Level 1 runs `axpy`, `dot` and `iamax`. Level 2 runs `gemv`
+  by columns, `ger`, `syr2` and `symv`, whose partial vectors fold. Level 3 runs `gemm`
+  with shared packed `B`, `syr2k` and `trsm`. They are meant for the weak-memory rigs
+  (`qemu-test-linux-aarch64`, `-powerpc64le`, `-riscv64`, all `-smp 4`) and the M6. A
+  filter of `race stress` runs them alone.
+- **TSan:** `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64
+  Linux rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or
+  macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
+  report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
+  is left out.
 - **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
-  `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling.
+  `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling. No test builds a
+  multithreaded freestanding target, which would need four things:
+  - secondary cores started in the test kernels (PSCI `CPU_ON` on aarch64 `virt`, for
+    example) with a stack each;
+  - TLS set up per core, since std's `debug.zig` keeps `panic_stage` thread-local once
+    a build is not `single_threaded`;
+  - an `Io` that hands `Group.concurrent` and `Group.async` tasks to those cores, with
+    futex waits, wakes and cancellation;
+  - rigs at `-smp` above 1.
+- **Not yet:** `Io.Evented` beyond the single-threaded `Uring` test; a multithreaded
+  `Evented`, `Dispatch` included, is unsupported (Open issues) and left for T61.
 
 ## Level 3 measurements
 
