@@ -399,7 +399,7 @@ const rv64gc = [_][]const u8{ "m", "a", "f", "d", "c", "zicsr", "zifencei" };
 /// for, or of the weakest part it covers (else the generic one), plus what
 /// `runnable` requires. The detectors' last resorts can still pick a core for
 /// a weaker CPU (`katmai` for any 32-bit x86 without SSE3, as the reference
-/// does); that is theirs to fix, not this.
+/// does; design.md, Core detection and selection); that is theirs, not this.
 pub fn machine(core: anytype) Spec {
     return switch (@TypeOf(core)) {
         coretypes.X86CoreType => switch (core) {

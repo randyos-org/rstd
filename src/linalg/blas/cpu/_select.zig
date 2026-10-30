@@ -209,10 +209,25 @@ fn RunnableCtx(comptime D: type) type {
     };
 }
 
+/// `RunnableCtx`, within what the detected core `within` needs where `D.runnable`
+/// cannot see the ISA level (`level_unseen`): there `runnable` passes an ARMv8.2
+/// core on an ARMv8.0 CPU, but the detector's part table does not (T18).
+fn ForcedCtx(comptime D: type) type {
+    return struct {
+        caps: D.Caps,
+        within: D.CoreType,
+        pub fn ok(ctx: @This(), c: D.CoreType) bool {
+            if (!(RunnableCtx(D){ .caps = ctx.caps }).ok(c)) return false;
+            if (comptime !@hasDecl(D, "level_unseen")) return true;
+            return subsetOf(D.CoreType, c, ctx.within);
+        }
+    };
+}
+
 /// The whole choice, as `gotoblas_dynamic_init` makes it, for a detector `D`
 /// (`_detect/<arch>.zig`: `CoreType`, `Caps`, `decide`, `runnable`). `forced` is
 /// `OPENBLAS_CORETYPE`. A name no core has is reported and detection decides, a
-/// forced core the CPU cannot run is replaced by the closest one it can, and a
+/// forced core the CPU cannot run is replaced by the closest one it can (`ForcedCtx`), and a
 /// core with no kernels in the build is served by the closest one that has
 /// (`served`). `log` has `warn(level, fmt, args)`.
 pub fn choose(comptime D: type, caps: D.Caps, forced: ?[]const u8, linked: anytype, log: anytype) Chosen(D.CoreType) {
@@ -225,7 +240,8 @@ pub fn choose(comptime D: type, caps: D.Caps, forced: ?[]const u8, linked: anyty
             if (D.runnable(c, caps)) {
                 d = .{ .core = c };
             } else {
-                const alt = closest(Core, c, RunnableCtx(D){ .caps = caps }, .any) orelse D.decide(caps).core;
+                const det = D.decide(caps).core;
+                const alt = closest(Core, c, ForcedCtx(D){ .caps = caps, .within = det }, .any) orelse det;
                 log.warn(1, "core {s} cannot run on this CPU, using {s}", .{ @tagName(c), @tagName(alt) });
                 d = .{ .core = alt };
             }

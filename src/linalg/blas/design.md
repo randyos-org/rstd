@@ -949,7 +949,8 @@ other targets cannot assemble.
    is reported at `OPENBLAS_VERBOSE` 1 and detection decides (the reference falls back to a
    default core: the generic one on arm64, mips64 and s390x, POWER8 on power, Katmai on x86,
    and by AVX level on x86_64, `dynamic.c:1155-1164`). A named core the CPU cannot run is reported and replaced by the closest one it
-   can.
+   can; on arm64, whose `runnable` cannot see the ISA level, only by one the detected core
+   covers (`level_unseen`).
 2. **Which object.** A core with no kernel object in the build (excluded by `-Dblas-cores`, or
    with no kernels at all) is served by the closest linked core that needs no feature it lacks
    (`select.served`), else by the build's pick for the target, else by the portable kernels.
@@ -980,7 +981,8 @@ Where the port differs from `dynamic*.c`:
   per-CPU sysfs pass reads `cpu_capacity` (decimal), as `cpuid_arm64.c:267` does;
   `dynamic_arm64.c:395` reads `cpu_capability`, which Linux does not have (Linux v6.12
   `Documentation/ABI/testing/sysfs-devices-system-cpu` lists `cpu_capacity` only). Every core built for
-  ARMv8.3 and up needs FCMA, since its `trsm` kernels hold `FCMLA`; Apple's cores always have it.
+  ARMv8.3 and up needs FCMA, since its `trsm` kernels hold `FCMLA`; the Apple CPUs macOS and
+  Linux run on (M1 and later) have it.
   The SME cores (`armv9sme`, `vortexm4`) are built with SME's optional F64F64, as the
   reference's are (`kernel/Makefile:30`, `:41`), so they need it detected: the reference picks
   them on SME alone (`dynamic_arm64.c:602-616`, `support_sme1`). Each probe
@@ -1315,6 +1317,26 @@ Outside `src/linalg/blas/`:
 | `tools/blasbench/` | the kernel benchmarks |
 | `tools/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
 | `tools/ssh_test.zig`, `tools/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
+
+**Cores handed to weaker CPUs** (T18). Where detection, as the reference's, can give a CPU a
+core whose object it cannot run, each case is decided by the [settled
+decision](#settled-decisions) that target platforms come first: fixed where a RandyOS target or a
+zfls host could meet it, else the reference's choice kept and documented.
+
+- **`katmai` on 32-bit x86 without SSE3, down to the 486:** kept. A 32-bit build's last resort
+  is Katmai, whose kernels need SSE (`dynamic.c:1156`); 32-bit x86 is neither a RandyOS target
+  nor a zfls host.
+- **`vortex` on any Apple CPU:** kept for Darwin, which the reference also gives `vortex`
+  (`dynamic_arm64.c:352-359`). The A7 to A11 lack FCMA, but run iOS only; every Apple CPU macOS,
+  Linux and RandyOS run on is an M1 or later. Elsewhere `vortex` and `vortexm4` now need Apple's
+  implementer code, since their objects are built for the M1 and M4.
+- **`vortexm4` on a non-Apple CPU with SME and no SVE:** fixed. The reference picks it
+  (`dynamic_arm64.c:543-547`), but such a CPU could be a Linux or Windows arm64 zfls host; it
+  now takes the SVE test, then generic ARMv8.
+- **A forced core's fallback to `neoversen1` on ARMv8.0:** fixed. The reference runs a named
+  core unchecked (`force_coretype`); rstd replaces one the CPU cannot run, but arm64's `runnable`
+  cannot tell ARMv8.0 from 8.2, so `OPENBLAS_CORETYPE=neoversev1` on a Raspberry Pi 3 or 4 fell
+  back to Neoverse N1. A stand-in now must need nothing the detected core does not.
 
 ### Threading
 
