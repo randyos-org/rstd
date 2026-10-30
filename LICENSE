@@ -270,3 +270,18 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+matlab88 (src/linalg/matlab/: Cleve Moler's Fortran MATLAB, "Version of 05/25/82",
+with the LINPACK and EISPACK routines it is built on)
+
+Public domain. The ported source, src/linalg/matlab/ref/matlab88.f90, carries
+no copyright notice, nor do the LINPACK and EISPACK routines in it; its
+distributor's note, src/linalg/matlab/ref/readme.txt, states: "The package is
+public domain, but of course postage and reproduction cost money. [...] Please
+feel free to distribute the package."
+
+MATLAB is a registered trademark of The MathWorks, Inc. rstd's matlab module
+is a port of the 1982 public-domain program and is not affiliated with or
+endorsed by The MathWorks.
