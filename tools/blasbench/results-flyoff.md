@@ -11,9 +11,9 @@ of rstd's output, which must match on two machines that run the same
 kernels.
 
 Measured with `blas_bench.zig`'s `lib1`, `lib2` and `lib3` sections:
-x86_64 on 2026-10-27, arm64 again on 2026-10-29 under the
-[timing rule](#timing-rule) below, after Accelerate routing landed. The
-full tables, with each platform's machine, libraries, threads and times:
+x86_64 on 2026-10-27, arm64 again late on 2026-10-29, on a quiet Mac under
+the [timing rule](#timing-rule) below, at `review` `28171adc`. The full
+tables, with each platform's machine, libraries, threads and times:
 
 - [Windows x86_64](results-flyoff-windows-x86_64.md): bare metal, Ryzen 7
   7730U; official OpenBLAS 0.3.33.
@@ -31,11 +31,11 @@ full tables, with each platform's machine, libraries, threads and times:
   same Zen 3, with different OS, ABI, libc and loader, select the same
   `zen` kernels and agree on all 228 outputs, bit for bit. On the M6,
   macOS on rstd's own kernels (`--rstd-accelerate=0`) and Linux agree on
-  163 of 228; the 65 others all lie in the slots where rstd deliberately
+  166 of 228; the 62 others all lie in the slots where rstd deliberately
   differs by OS (`kernels/arm64.zig`'s `usesVector`: on Apple's systems the
   `@Vector` kernels fill only the routed slots, leaving the rest for
   Accelerate): `dot`, `asum`, complex `scal`, `gemv` and two large complex
-  `axpy`s. Routed to Accelerate, macOS's default, 108 agree: the rest are
+  `axpy`s. Routed to Accelerate, macOS's default, 121 agree: the rest are
   Accelerate's bits. Across architectures,
   `gemm`, one `@Vector` source for every core, gives the same bits on
   arm64 and x86_64 for every precision at n = 64 and 128, and for all but
@@ -61,25 +61,28 @@ full tables, with each platform's machine, libraries, threads and times:
   `asum` 0.07 to 0.45.
 - **Speed, one thread, M6:** on Linux rstd runs vortex's converted and
   `@Vector` kernels and is at or above OpenBLAS almost everywhere: `dot`
-  0.57 to 4.3 (short real ones the low end), `gemv` 0.91 to 3.2, `nrm2`
-  4.3 to 17, `gemm` 0.93 to 1.13. On macOS rstd now runs Accelerate where
-  it routes, so its `gemm` is 6.1 to 17 times OpenBLAS's (Accelerate's
-  SME) and its `gemv` up to 18. Routing loses where Accelerate is the
-  slower one: every `nrm2` (`dznrm2` at 0.06 to 0.21 of rstd's own
-  kernel), contiguous `sdot` (0.41 to 0.50, through `cblas_dsdot`) and
-  strided `copy` (0.52); see
+  0.37 to 4.2 (`sdot` from 256K floats the low end: rstd's routine runs at
+  about half its kernel's rate), `gemv` 0.87 to 3.2, `nrm2` 4.3 to 17,
+  `gemm` 0.94 to 1.13. On macOS rstd runs Accelerate where it routes, so
+  its `gemm` is 6.2 to 17 times OpenBLAS's (Accelerate's SME) and its
+  `gemv` up to 18. `nrm2`, `sdot` and `i?amax` now stay on rstd's kernels;
+  routing loses only in `zcopy` of 4M elements (0.83) and strided `zrot`
+  (0.97); see
   [macOS arm64](results-flyoff-macos-aarch64.md#accelerate-routing). On
   its own kernels, without the `@Vector` ones, `asum`, `copy`, `ddot`,
   complex `dot` and `sgemv_n` fall back to the portable loop (down to
-  0.05).
-- **Default threading (indicative):** rstd ran one thread, as these runs
-  predate its level-3 threading and the bench passes it `Io.failing`
-  ([`threading.md`](../../src/linalg/blas/threading.md)); against
-  OpenBLAS's threads its `gemm` falls to 0.14 to
-  0.52 from n = 256 on x86_64 and 0.21 to 0.30 in the arm64 VM. On macOS
-  rstd's one Accelerate thread still beats OpenBLAS's 12, at 1.29 to 3.2.
-  BLIS stays at one thread unless told otherwise. These runs are the most
-  sensitive to the Mac's load.
+  0.05). At the smallest n, rstd's public routines now run 7 to 30% behind
+  the kernels they call, on both OSes.
+- **Default threading (indicative):** on x86_64 (2026-10-27) rstd ran one
+  thread, so against OpenBLAS's threads its `gemm` fell to 0.14 to 0.52
+  from n = 256. In the arm64 VM rstd now threads on its own `Io.Threaded`
+  ([`threading.md`](../../src/linalg/blas/threading.md)): its `gemm` is
+  0.21 to 1.15 of OpenBLAS's 6 threads, below 1 at n = 64 and 128 and in
+  real, above from n = 256 in complex. On macOS rstd routes `gemm` to
+  Accelerate, which rstd's init leaves single-threaded, so its 1.28 to 8.7
+  times OpenBLAS's 12 threads is one Accelerate thread: not a
+  multithreaded comparison. BLIS stays at one thread unless told
+  otherwise.
 
 ## At a glance
 
@@ -90,18 +93,18 @@ routed to Accelerate, its default, `Mac own` rstd on its own kernels
 
 | routine | p | n | Win ob | Win rstd | Lx ob | Lx rstd | Lx blis | Mac ob | Mac rstd | Mac own | Mac accel | La ob | La rstd |
 | ------- | - | -: | -: | -: | -: | -: | -: | -: | -: | -: | -: | -: | -: |
-| dot | d | 4096 | 134.7 | 134.3 | 124.4 | 125.8 | 117.7 | 170.0 | 505.1 | 34.1 | 508.4 | 169.4 | 216.0 |
-| dot | d | 8388608 | 30.0 | 30.1 | 28.6 | 28.6 | 28.6 | 123.5 | 157.0 | 32.3 | 157.9 | 123.6 | 124.2 |
-| axpy | d | 4096 | 198.6 | 196.4 | 170.5 | 171.3 | 162.5 | 254.1 | 745.5 | 250.1 | 745.5 | 249.8 | 288.2 |
-| axpy | d | 8388608 | 26.8 | 26.8 | 25.1 | 25.6 | 24.9 | 146.0 | 148.7 | 150.5 | 148.8 | 147.1 | 146.4 |
-| gemv_n | d | 724 | 22.4 | 6.8 | 20.4 | 6.5 | 19.5 | 19.0 | 199.4 | 19.0 | 199.7 | 18.9 | 29.0 |
-| gemv_t | d | 724 | 23.9 | 2.9 | 22.3 | 2.6 | 20.4 | 20.1 | 173.2 | 20.1 | 173.6 | 20.1 | 29.7 |
-| gemv_n | d | 2896 | 7.2 | 4.1 | 6.9 | 4.0 | 8.2 | 19.0 | 38.1 | 19.0 | 38.1 | 18.9 | 19.4 |
-| gemm | s | 2048 | 114.5 | 113.8 | 107.4 | 105.8 | 105.5 | 127.4 | 1805.6 | 121.6 | 1835.7 | 127.6 | 127.3 |
-| gemm | d | 256 | 54.0 | 57.2 | 49.6 | 52.6 | 49.1 | 61.0 | 460.8 | 59.6 | 460.9 | 62.1 | 62.0 |
-| gemm | d | 2048 | 49.1 | 54.7 | 48.7 | 49.9 | 50.7 | 64.0 | 456.3 | 60.9 | 460.7 | 64.0 | 63.5 |
-| gemm | z | 1024 | 56.7 | 46.2 | 53.1 | 42.9 | 51.8 | 56.6 | 461.8 | 60.8 | 461.0 | 56.7 | 63.9 |
-| gemm, default threads (indicative) | d | 2048 | 170.6 | 52.4 | 163.3 | 48.9 | 45.7 | 355.3 | 458.9 | - | 441.8 | 303.5 | 63.4 |
+| dot | d | 4096 | 134.7 | 134.3 | 124.4 | 125.8 | 117.7 | 169.4 | 504.3 | 33.9 | 507.4 | 169.8 | 210.1 |
+| dot | d | 8388608 | 30.0 | 30.1 | 28.6 | 28.6 | 28.6 | 123.4 | 158.9 | 32.4 | 159.9 | 124.3 | 124.5 |
+| axpy | d | 4096 | 198.6 | 196.4 | 170.5 | 171.3 | 162.5 | 255.4 | 742.1 | 245.4 | 742.1 | 249.8 | 282.3 |
+| axpy | d | 8388608 | 26.8 | 26.8 | 25.1 | 25.6 | 24.9 | 145.6 | 148.4 | 151.3 | 148.5 | 147.7 | 147.0 |
+| gemv_n | d | 724 | 22.4 | 6.8 | 20.4 | 6.5 | 19.5 | 19.0 | 199.7 | 19.0 | 199.1 | 19.0 | 28.9 |
+| gemv_t | d | 724 | 23.9 | 2.9 | 22.3 | 2.6 | 20.4 | 20.0 | 173.7 | 20.1 | 173.3 | 20.1 | 29.7 |
+| gemv_n | d | 2896 | 7.2 | 4.1 | 6.9 | 4.0 | 8.2 | 19.0 | 38.4 | 19.0 | 38.1 | 18.9 | 19.5 |
+| gemm | s | 2048 | 114.5 | 113.8 | 107.4 | 105.8 | 105.5 | 127.7 | 1846.0 | 121.8 | 1839.7 | 127.6 | 127.7 |
+| gemm | d | 256 | 54.0 | 57.2 | 49.6 | 52.6 | 49.1 | 61.5 | 472.7 | 59.7 | 469.2 | 62.1 | 61.9 |
+| gemm | d | 2048 | 49.1 | 54.7 | 48.7 | 49.9 | 50.7 | 64.1 | 437.4 | 60.9 | 437.4 | 64.0 | 63.6 |
+| gemm | z | 1024 | 56.7 | 46.2 | 53.1 | 42.9 | 51.8 | 56.6 | 459.2 | 61.0 | 458.6 | 56.7 | 63.9 |
+| gemm, default threads (indicative) | d | 2048 | 170.6 | 52.4 | 163.3 | 48.9 | 45.7 | 356.3 | 457.7 | - | 457.2 | 303.1 | 260.8 |
 
 `Win` is Windows x86_64, `Lx` Linux x86_64, `Mac` macOS arm64 and `La`
 Linux arm64. The two x86_64 platforms share a CPU, as do the two arm64
@@ -113,18 +116,18 @@ within noise, too close to name a winner.
 
 | routine | p | n | Win | Lx | Mac | Mac own | La |
 | ------- | - | -: | --- | --- | --- | --- | --- |
-| dot | d | 4096 | within noise | within noise | 2.97 | 0.20 | 1.28 |
-| dot | d | 8388608 | within noise | within noise | 1.27 | 0.26 | within noise |
-| axpy | d | 4096 | within noise | within noise | 2.93 | within noise | 1.15 |
+| dot | d | 4096 | within noise | within noise | 2.98 | 0.20 | 1.24 |
+| dot | d | 8388608 | within noise | within noise | 1.29 | 0.26 | within noise |
+| axpy | d | 4096 | within noise | within noise | 2.91 | 0.96 | 1.13 |
 | axpy | d | 8388608 | within noise | within noise | within noise | within noise | within noise |
-| gemv_n | d | 724 | 0.30 | 0.32 | 10.49 | within noise | 1.53 |
-| gemv_t | d | 724 | 0.12 | 0.12 | 8.62 | within noise | 1.48 |
-| gemv_n | d | 2896 | 0.57 | 0.58 | 2.01 | within noise | within noise |
-| gemm | s | 2048 | within noise | within noise | 14.17 | 0.95 | within noise |
-| gemm | d | 256 | 1.06 | 1.06 | 7.55 | within noise | within noise |
-| gemm | d | 2048 | 1.11 | within noise | 7.13 | 0.95 | within noise |
-| gemm | z | 1024 | 0.81 | 0.81 | 8.16 | 1.07 | 1.13 |
-| gemm, default threads (indicative) | d | 2048 | 0.31 | 0.30 | 1.29 | - | 0.21 |
+| gemv_n | d | 724 | 0.30 | 0.32 | 10.51 | within noise | 1.52 |
+| gemv_t | d | 724 | 0.12 | 0.12 | 8.68 | within noise | 1.48 |
+| gemv_n | d | 2896 | 0.57 | 0.58 | 2.02 | within noise | 1.03 |
+| gemm | s | 2048 | within noise | within noise | 14.46 | 0.95 | within noise |
+| gemm | d | 256 | 1.06 | 1.06 | 7.69 | within noise | within noise |
+| gemm | d | 2048 | 1.11 | within noise | 6.82 | 0.95 | within noise |
+| gemm | z | 1024 | 0.81 | 0.81 | 8.11 | 1.08 | 1.13 |
+| gemm, default threads (indicative) | d | 2048 | 0.31 | 0.30 | 1.28 (one thread) | - | 0.86 |
 
 ## Results that disagree
 
@@ -218,8 +221,8 @@ zig build qemu-bench-linux-aarch64 -Dvm-bench-arg=lib1 -Dvm-bench-arg=lib2 -Dvm-
 the libraries pick their thread counts, and rstd thread up to the CPUs on
 the bench's `Io.Threaded`; `--threads=<n>` sets each library's count and
 rstd's ceiling (`OPENBLAS_NUM_THREADS`) to n, 1 by default.
-`--rstd-io=failing` runs rstd on `Io.failing`, serial, as every run above
-did; each table's notes name rstd's `Io`. `bench-native` and
+`--rstd-io=failing` runs rstd on `Io.failing`, serial, as the x86_64 runs
+above did; each table's notes name rstd's `Io`. `bench-native` and
 `ssh-bench-aarch64-macos` take `-Dblis-lib` as well.
 
 - **The libraries:** `tools/nix/blas.sh`, run on the Mac by
@@ -243,26 +246,39 @@ did; each table's notes name rstd's `Io`. `bench-native` and
 
 ## Timing rule
 
-The user's rule of 2026-10-29, for the Mac, whose indexing daemons
-(`mediaanalysisd` at about two cores, `textunderstandingd`,
-`corespotlightd`, `modelcatalogd`, `spotlightknowledged`) are
-SIP-protected and cannot be stopped:
+The user's rule of 2026-10-29 for the Mac, its indexing daemons
+(`mediaanalysisd`, `photoanalysisd`, `textunderstandingd`,
+`spotlightknowledged`, `corespotlightd`, Siri's models) disabled with SIP
+off (`tools/configure_mac_host.sh`), on macOS 27.2 (26B123):
 
-- A run starts when no `qemu-system` process (by name) runs on the Mac and
-  the 1-minute load is under 10, rechecked before each run; `uptime` and
-  the top 8 processes are recorded before and after it. Runs go strictly
-  one after another, the Linux VM never beside a macOS run.
+- A run starts when no `qemu-system` process (by name) runs on the Mac,
+  the 1-minute load is under 2, and no process passes 5% of a core in a
+  `top -l 2 -s 5` sample. Activity Monitor and its `sysmond`, which the
+  user keeps open, are left out of the 5% test and their share is added to
+  the load limit. The limit is 2, not 1: idle, this macOS reads a load of
+  1.1 to 2.3 with its CPUs 99% idle and no thread runnable, and 1.0 to 1.1
+  with one QEMU core busy. `uptime` and the top 8 processes are recorded
+  before and after each run. Runs go strictly one after another, the Linux
+  VM never beside a macOS run.
+- A watch every 20 s notes any other process over 5%; such a run is set
+  aside and repeated, 3 times at most (12 were, for `XProtect` scans,
+  `mds`, `WindowServer` and other daemons waking).
 - Each invocation runs twice. A row counts when two runs agree within 3%
   on every rate; otherwise its section runs again, up to 3 more times, and
   a row still apart is marked noisy. A row shows the better rate of its
-  agreeing pair. Every arm64 row agreed within 4 runs; none is noisy.
-- `taskpolicy -b` put the logged-in user's busy daemons in the background
-  before each run; it was accepted every time.
+  agreeing pair. One arm64 row is noisy: Linux's threaded `cgemm` at
+  n = 128, where rstd's threads gave 198 to 249 GFLOP/s over five runs.
 - A ratio from 0.97 to 1.03 is within noise. The `--threads=default` runs
-  are indicative only: they are the most load-sensitive.
+  are indicative only.
+- The benches ran from a script on the Mac itself (2026-10-29, 21:52 to
+  23:56 CDT), with the binaries `zig build` makes for
+  `ssh-bench-aarch64-macos` and `qemu-bench-linux-aarch64`.
 
-The 1-minute load was 2.6 to 9.1 as the runs started. Against the
-2026-10-27 runs, taken while `audiomxd` and `configd` spun (load near
-1.6), the median rate is unchanged. On the Mac a handful of rows moved by
-over 5%, `sasum`'s from a code change (above); in the VM 19 OpenBLAS and
-30 rstd rows, mostly large-n level 1, were 5 to 15% slower then.
+Against the first 2026-10-29 runs (01:35 to 02:35 CDT), taken with the
+daemons at about three cores and a load of 2.6 to 9.1, the background load
+had not skewed the one-thread rates: OpenBLAS's median ratio is 1.000 on
+both OSes (0.97 to 1.06), the converted and `@Vector` kernels' 1.000 to
+1.001. Threaded OpenBLAS gained up to 9% on macOS at n = 128 and 256. The
+rows that moved are code and OS changes, which the platform pages list:
+rstd's call overhead at the smallest n and its `sdot` (both OSes),
+Accelerate's `icamax` on macOS 27.2, and the routing trimmed since.
