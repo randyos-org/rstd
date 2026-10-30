@@ -173,8 +173,9 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
 - A driver can be checked against OpenBLAS's own C by compiling the original
   with a stub `common.h` (`BLASLONG`, `FLOAT`, `CNAME`, the complex struct) and
   `-ffp-contract=on` or `off`, then comparing results bit-for-bit with the
-  ported driver over the same data. Done for `dot` on the cores the host runs
-  (6264 cases, no differences).
+  ported driver over the same data. For `dot`, `tools/dotverify/run.sh
+  <OpenBLAS checkout> [zig]` does this (`src/linalg/blas/_verify_dot.zig`) on
+  the x86_64 cores the host runs.
 - Cores the host cannot run (FMA4 and XOP for Bulldozer and Piledriver,
   AVX-512 for the Skylake-X family) are compiled and symbol-checked natively;
   running them needs `qemu-test-x86_64-whpx` on a host that has them, since
