@@ -3,12 +3,15 @@
 //! (0 = all passed), which the run step maps to the process exit code.
 //!
 //! Use with `zig test -target <arch>-freestanding --test-runner runner.zig`
-//! and the matching `<arch>.ld`; `<arch>.zig` supplies the boot code.
+//! and the matching `<arch>.ld`; `<arch>.zig` supplies the boot code. For a
+//! `<arch>-uefi` target, `uefi.zig` does, and no linker script is used.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 
-const arch = switch (sysinfo.target.cpu.arch) {
+const is_uefi = sysinfo.target.os.tag == .uefi;
+
+const arch = if (is_uefi) @import("uefi.zig") else switch (sysinfo.target.cpu.arch) {
     .aarch64 => @import("aarch64.zig"),
     .riscv64 => @import("riscv64.zig"),
     .arm => @import("arm.zig"),
@@ -23,6 +26,10 @@ const arch = switch (sysinfo.target.cpu.arch) {
     .powerpc => @import("ppc32.zig"),
     else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.target.cpu.arch)),
 };
+
+/// UEFI's entry, which std's `EfiMain` calls; the bare rigs' boot code calls
+/// `qemutest_main` itself.
+pub const main = if (is_uefi) arch.main else {};
 
 /// The message on the console, then a failed exit; a silent trap would just
 /// end the log mid-test.
@@ -79,26 +86,37 @@ pub const std_os_options: std.Options.OperatingSystem = .{
         pub fn detach(_: @This()) void {}
         pub fn join(_: @This()) void {}
     },
+    // UEFI: rstd's `std.Io`, as RandyOS's loader has it, for the tests too
+    .Io = if (is_uefi) arch.Io else null,
+    .testing = if (is_uefi) struct {
+        pub const allocator = std.testing.allocator_instance.allocator();
+        pub const io = std_options_debug_io;
+    } else null,
 };
 
 /// `std.testing` failure messages go through `std.debug.print`: `Io.failing`
-/// (the default Io would drag in the threaded implementation) with stderr on
-/// the console. `failing` alone reaches `unreachable` there, so every failed
-/// `expectEqual` was a panic.
+/// (the default Io would drag in the threaded implementation), or UEFI's, with
+/// stderr on the console. `failing` alone reaches `unreachable` there, so
+/// every failed `expectEqual` was a panic.
 pub const std_options_debug_io: std.Io = .{ .userdata = null, .vtable = &console_vtable };
 
 const console_vtable = blk: {
-    var vt = std.Io.failing.vtable.*;
+    var vt = (if (is_uefi) arch.Io.io_inst else std.Io.failing).vtable.*;
     vt.swapCancelProtection = struct {
         fn f(_: ?*anyopaque, _: std.Io.CancelProtection) std.Io.CancelProtection {
             return .unblocked;
         }
     }.f;
-    vt.lockStderr = struct {
-        fn f(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
+    const stderr = struct {
+        fn lock(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
             return .{ .file_writer = &console_writer, .terminal_mode = .no_color };
         }
-    }.f;
+        fn tryLock(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!?std.Io.LockedStderr {
+            return .{ .file_writer = &console_writer, .terminal_mode = .no_color };
+        }
+    };
+    vt.lockStderr = stderr.lock;
+    vt.tryLockStderr = stderr.tryLock;
     vt.unlockStderr = struct {
         fn f(_: ?*anyopaque) void {
             console_writer.interface.flush() catch {};
@@ -157,7 +175,8 @@ fn printHex(v: usize) void {
     print(&buf);
 }
 
-// The stack, from each linker script; it grows down from `__stack_top`.
+// The stack, from each linker script or UEFI's boot code; it grows down
+// from the top.
 extern const __stack_bottom: u8;
 extern const __stack_top: u8;
 
@@ -167,13 +186,16 @@ const paint: usize = @truncate(@as(u64, 0x5a5a_c3c3_5a5a_c3c3));
 const canary_words = 64;
 
 fn stackWords() []usize {
+    if (@hasDecl(arch, "stack")) return @ptrCast(arch.stack);
     const lo = std.mem.alignForward(usize, @intFromPtr(&__stack_bottom), @alignOf(usize));
     const p: [*]usize = @ptrFromInt(lo);
     return p[0 .. (@intFromPtr(&__stack_top) - lo) / @sizeOf(usize)];
 }
 
-/// Paints the stack below this frame, less a page of margin.
-fn paintStack() void {
+/// Paints the stack below this frame, less a page of margin. Never inlined:
+/// inlined, the frame address is the caller's top, and a caller's frame past
+/// the margin (`qemutest_main`'s in release builds) gets painted.
+noinline fn paintStack() void {
     const words = stackWords();
     const below = (@frameAddress() -| 4096 -| @intFromPtr(words.ptr)) / @sizeOf(usize);
     @memset(words[0..@min(below, words.len)], paint);
@@ -199,10 +221,30 @@ fn printStack(used: usize) void {
     print(")");
 }
 
+/// A test's heap use, when it is a good part of the heap.
+fn printHeap(used: usize) void {
+    if (used < heap.max_len / 4) return;
+    print(" (heap ");
+    printInt(used);
+    print(")");
+}
+
+/// The request that ran the heap out, where one did.
+fn printHeapFailure(failed: @TypeOf(heap.failed)) void {
+    const f = failed orelse return;
+    print(" (heap: ");
+    printInt(f.len);
+    print(" bytes wanted, ");
+    printInt(f.in_use);
+    print(" in use, largest free ");
+    printInt(f.largest);
+    print(")");
+}
+
 const heap = @import("heap.zig");
 
 /// The heap, where the boot code cannot get one from the firmware
-/// (`heapRegion`): sparc64's maps only 4 MB of the image.
+/// (`heapRegion`): sparc64's maps only 4 MB of the image; UEFI's.
 var static_heap: [if (@hasDecl(arch, "heapRegion")) 0 else heap.max_len]u8 align(heap.max_align) = undefined;
 
 export fn qemutest_main() callconv(.c) noreturn {
@@ -215,7 +257,9 @@ export fn qemutest_main() callconv(.c) noreturn {
     var fail: usize = 0;
     var skip: usize = 0;
     var peak: usize = 0;
+    var heap_peak: usize = 0;
     for (sysinfo.test_functions) |t| {
+        _ = heap.resetPeak();
         // as std's runner does: a fresh testing allocator, leaks fail the test
         std.testing.allocator_instance = .init(std.heap.page_allocator, .{});
         print(t.name);
@@ -232,6 +276,9 @@ export fn qemutest_main() callconv(.c) noreturn {
         peak = @max(peak, used);
         paintStack();
         const leaks = std.testing.allocator_instance.deinit();
+        const heap_failed = heap.failed;
+        const heap_used = heap.resetPeak();
+        heap_peak = @max(heap_peak, heap_used);
         if (result) |_| {
             if (leaks != 0) {
                 fail += 1;
@@ -242,6 +289,7 @@ export fn qemutest_main() callconv(.c) noreturn {
                 pass += 1;
                 print("ok");
                 printStack(used);
+                printHeap(heap_used);
                 print("\n");
             }
         } else |err| switch (err) {
@@ -253,6 +301,7 @@ export fn qemutest_main() callconv(.c) noreturn {
                 fail += 1;
                 print("FAIL ");
                 print(@errorName(err));
+                printHeapFailure(heap_failed);
                 print("\n");
             },
         }
@@ -267,6 +316,11 @@ export fn qemutest_main() callconv(.c) noreturn {
     printInt(peak);
     print(" of ");
     printInt(stackWords().len * @sizeOf(usize));
+    print(" bytes\n");
+    print("heap high water ");
+    printInt(heap_peak);
+    print(" of ");
+    printInt(heap.len());
     print(" bytes\n");
     arch.exit(if (fail == 0) 0 else 1);
 }

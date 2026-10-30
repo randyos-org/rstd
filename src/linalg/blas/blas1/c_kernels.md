@@ -20,7 +20,7 @@ is in [`design.md`](../design.md#kernel-kinds).
 | Intrinsics block      | `<routine>/<arch>/kernel.zig`           | hand-ported, `@Vector` |
 | Composition per arch  | `<routine>/<arch>/kernel.zig`           | `uk.Kernels(...)`      |
 | Registry              | `kernels/<arch>.zig` `modules`          | one line per routine   |
-| Tests                 | `<routine>/__root__.zig`                | hand-written           |
+| Tests                 | `<routine>/__root__.zig`                | handwritten            |
 
 `blas1/uk_block.zig` holds what is shared: `Entry` (a row of the index),
 `find`, the `Block` kinds, and `Kernels`, which exports the core's kernels
@@ -39,7 +39,7 @@ OPENBLAS=<checkout> zig run tools/blas_asm/uk.zig [-- <routine>...]
 For each routine in the `Routine` table of `kernel_map.zig` and each target
 that lists it, it:
 
-1. converts every function with assembly in each
+1. Converts every function with assembly in each
    `<p><routine>_microk_<core>-N.c` (or, for `zarch`, the function in the
    driver's own file): the `__asm__` statement as written, named operands,
    clobbers at the width of the registers used, `#if CONJ` resolved once per
@@ -110,7 +110,8 @@ are the same C across cores.
   its own order (`dot += y0*x0 + ... + y7*x7`), not the scalar tail's. That is
   `Fallback`; the index's `.none` means it.
 - **Contraction.** The build states whether the core's flags contract
-  multiply-adds (`fma.zig`, `fma.fuse`), and clang fuses within one expression:
+  multiply-adds (`fma.zig`, `fma.fuse`), and clang fuses within one expression
+  (`tryEmitFMulAdd` in `clang/lib/CodeGen/CGExprScalar.cpp` tries the left product first):
   `a*b + c` fuses; a product kept in its own statement (`m1 = y*x`) does not; in
   `a*b + c*d` the first product fuses. A `float` product added to a `double`
   is rounded as `float` first, so `sdot`'s tail is unfused where `dsdot`'s is
@@ -171,13 +172,16 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
   model of the C (`skylakexModel` in `dot/__root__.zig`), for each policy.
 - A driver can be checked against OpenBLAS's own C by compiling the original
   with a stub `common.h` (`BLASLONG`, `FLOAT`, `CNAME`, the complex struct) and
-  `-ffp-contract=on` or `off`, then comparing results bit for bit with the
-  ported driver over the same data. Done for `dot` on the cores the host runs
-  (6264 cases, no differences).
+  `-ffp-contract=on` or `off`, then comparing results bit-for-bit with the
+  ported driver over the same data. For `dot`, `tools/dotverify/run.sh
+  <OpenBLAS checkout> [zig]` does this (`src/linalg/blas/_verify_dot.zig`) on
+  the x86_64 cores the host runs.
 - Cores the host cannot run (FMA4 and XOP for Bulldozer and Piledriver,
   AVX-512 for the Skylake-X family) are compiled and symbol-checked natively;
   running them needs `qemu-test-x86_64-whpx` on a host that has them, since
-  QEMU's TCG emulates neither.
+  QEMU's TCG emulates neither (v11.1.2's `TCG_EXT3_FEATURES` and
+  `TCG_7_0_EBX_FEATURES` lack FMA4, XOP and AVX-512F:
+  <https://github.com/qemu/qemu/blob/4fc49f46dc95d4a27de2509e7fceb2931e91faeb/target/i386/cpu.c#L955>).
 
 Zig exits 0 on an inline-assembly error and writes an empty object, so check
 that a new object really exports the symbols (`llvm-nm`).

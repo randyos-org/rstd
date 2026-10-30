@@ -38,6 +38,21 @@ pub fn form(comptime slot: Slot) Form {
     };
 }
 
+/// A hand port with `Real(T)` and `Cplx(F, conj)` kernels (`call`) as an
+/// `asm_registry.Port` module.
+pub fn Ported(comptime module: type) type {
+    return struct {
+        fn K(comptime slot: Slot) type {
+            const f = form(slot);
+            return if (f.complex) module.Cplx(f.F, f.conj) else module.Real(f.F);
+        }
+
+        pub fn entry(comptime slot: Slot) *const @TypeOf(K(slot).call) {
+            return &K(slot).call;
+        }
+    };
+}
+
 // ---- kernel ABI ------------------------------------------------------------
 
 /// Vtable slot type for the real kernels (`saxpy_k`, `daxpy_k`, `qaxpy_k`).

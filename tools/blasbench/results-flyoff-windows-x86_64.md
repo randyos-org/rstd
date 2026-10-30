@@ -19,7 +19,7 @@ Bare metal, this PC. Part of the [BLAS flyoff](results-flyoff.md).
   EULA page, and `amd/blis` and `flame/blis` publish no Windows binaries.
 - **Threads:** one each (`openblas_set_num_threads(1)`, as well as the
   environment); default threading: OpenBLAS reports 16. rstd always runs
-  one thread.
+  one thread, on `Io.failing`.
 - **When:** 2026-10-27, 06:29 to 06:33 (one thread) and 06:32 to 06:33
   (default) CDT, with no other `zig` or `qemu-system` process running.
 
@@ -295,7 +295,7 @@ GB/s; ratios are over openblas.
 
 ### Default threading
 
-The libraries at their own thread counts; rstd one thread.
+The libraries at their own thread counts; rstd one thread (`Io.failing`).
 
 | p | n | openblas | rstd | rstd/ob | rstd-ob | rstd err | rstd bits |
 | - | -: | -: | -: | -: | -: | -: | --- |

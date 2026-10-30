@@ -1,7 +1,8 @@
 //! PowerPC CPU detection, mirroring `driver/others/dynamic_power.c`.
 //!
 //! The reference uses GCC's `__builtin_cpu_is`, which glibc backs with
-//! `AT_PLATFORM` from the auxiliary vector, `__builtin_cpu_supports` for
+//! `AT_PLATFORM` from the auxiliary vector (glibc 2.42
+//! `sysdeps/powerpc/hwcapinfo.c:36`), `__builtin_cpu_supports` for
 //! POWER10 (ISA 3.1 and MMA), and on AIX or without the builtins the processor
 //! version register. Here: `AT_PLATFORM` first; then the PVR where the OS
 //! lets a program read it (Linux emulates `mfpvr`); then the ISA bits of
@@ -19,8 +20,9 @@ const auxv = @import("../_auxv.zig");
 pub const CoreType = coretypes.PowerCoreType;
 pub const Decision = select.Decision(CoreType);
 
-/// The `AT_PLATFORM` names Linux gives (`arch/powerpc/kernel/cputable.c`) that
-/// map to a core; tags match the strings.
+/// The `AT_PLATFORM` names Linux gives that map to a core; tags match the
+/// strings. In v6.17 they are in `arch/powerpc/kernel/cpu_specs_*.h`; `power3`
+/// and `power4` only in older kernels' `cputable.c` (v3.10, v4.4).
 pub const Platform = enum {
     power11,
     power10,
@@ -171,7 +173,8 @@ fn generationOf(c: Caps) Generation {
 }
 
 /// Server levels, each running the code of the ones below it: ISA 1 (POWER3),
-/// 2.00 (POWER4, 970 and Cell, which add AltiVec), 2.02 (POWER5), 2.05 and
+/// 2.00 (POWER4; with the 970, ISA 2.01 per IBM's 970FX User's Manual v1.7,
+/// and Cell, which add AltiVec), 2.02 (POWER5), 2.05 and
 /// 2.06 (POWER6, 7), 2.07, 3.00, 3.1.
 fn level(g: Generation) u8 {
     return switch (g) {
@@ -306,6 +309,7 @@ test "the PVR table" {
     try std.testing.expectEqual(Generation.g4, fromPvr(0x80040202)); // 7448
     try std.testing.expectEqual(Generation.unknown, fromPvr(0x80050000));
     try std.testing.expectEqual(Generation.unknown, fromPvr(0x00080200)); // 750
+    try std.testing.expectEqual(Generation.unknown, fromPvr(0x70000203)); // 750FX (iBook G3)
     try std.testing.expectEqual(CoreType.power6, decide(.{ .generation = .power6 }).core);
     try std.testing.expectEqual(CoreType.ppc970, decide(.{ .generation = .ppc970 }).core);
     try std.testing.expectEqual(CoreType.ppcg4, decide(.{ .generation = .g4 }).core);

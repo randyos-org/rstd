@@ -79,6 +79,8 @@ pub fn x86(core: coretypes.X86CoreType) Spec {
 }
 
 // ---- aarch64 (`Makefile.arm64`, `kernel/Makefile`) --------------------------
+// `kernel/Makefile`'s `-march=armv8.4-a+sve+bf16` for NEOVERSEN2, NEOVERSEV1,
+// ARMV8SVE and A64FX is not followed; each takes its `Makefile.arm64` flags.
 
 pub fn arm64(core: coretypes.Arm64CoreType) Spec {
     return switch (core) {
@@ -122,8 +124,8 @@ pub fn power(core: coretypes.PowerCoreType) Spec {
         .power8 => .{ .model = "pwr8", .features = &.{"vsx"} },
         .power9 => .{ .model = "pwr9", .features = &.{"vsx"} },
         .power10 => .{ .model = "pwr10", .features = &.{"vsx"} },
-        // `-mcpu` of the static targets in `Makefile.power`; LLVM's POWER3 to
-        // POWER5 have AltiVec too
+        // `Makefile.power` gives the static targets no `-mcpu`; these are their
+        // CPUs' LLVM models. LLVM's POWER3 to POWER5 have AltiVec too
         .power3 => .{ .model = "pwr3", .without = &no_altivec },
         .power4 => .{ .model = "pwr4", .without = &no_altivec },
         .power5 => .{ .model = "pwr5", .without = &no_altivec },
@@ -153,14 +155,17 @@ pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         // MSA needs the revision-5 feature bit explicitly; GCC's `-mmsa` implies
         // it, LLVM's integrated assembler does not. Zig adds `-mfp64` for MSA.
-        .loongson3r4 => .{ .features = &.{ "msa", "mips64r5" } },
+        // `-march=loongson3a`: GCC fuses `madd.fmt` there, as GS464 and GS464E
+        // do (`fma.fused_madd`)
+        .loongson3r4 => .{ .features = &.{ "msa", "mips64r5" }, .fuse_fma = true },
         // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
         // the SIMD architecture; the 24K and 1004K have none
         .mips24k, .mips1004k => .{ .model = "mips32r2" },
         .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
         .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
-        // `-march=mips64r2 -mtune=loongson3a`; the 4-operand `madd.s` needs it
-        .loongson3r3 => .{ .features = &.{"mips64r2"} },
+        // `Makefile.system`'s `-march=loongson3a`, release 2 to gcc; the
+        // 4-operand `madd.s` needs it
+        .loongson3r3 => .{ .features = &.{"mips64r2"}, .fuse_fma = true },
         .mips64_generic, .unknown => .{},
     };
 }
@@ -271,7 +276,7 @@ pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => &.{ .power6, .power8, .power9, .power10, .power3, .power4, .power5, .ppc970, .cell, .ppc440, .ppc440fp2, .ppcg4 },
         .mips, .mipsel, .mips64, .mips64el => &.{ .loongson3r3, .loongson3r4, .p5600, .i6400, .i6500, .p6600 },
         .loongarch64 => &.{ .la64_generic, .la264, .la464 },
-        .riscv64 => &.{ .riscv64_zvl128b, .x280 },
+        .riscv64 => &.{ .riscv64_zvl128b, .riscv64_zvl256b, .x280 },
         .s390x => &.{ .z13, .z14 },
         .sparc, .sparc64 => &.{ .sparcv7, .sparc },
         .wasm32, .wasm64 => &.{.wasm128_generic},
@@ -314,6 +319,8 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
             .ppc440, .ppc440fp2, .ppcg4 => !cpu.arch.isPowerpc64(),
             else => true,
         },
+        // a module's features are fixed when it is built: no SIMD128, no SIMD core
+        coretypes.WasmCoreType => core == .wasm_generic or cpu.has(.wasm, .simd128),
         else => true,
     };
 }
@@ -392,7 +399,7 @@ const rv64gc = [_][]const u8{ "m", "a", "f", "d", "c", "zicsr", "zifencei" };
 /// for, or of the weakest part it covers (else the generic one), plus what
 /// `runnable` requires. The detectors' last resorts can still pick a core for
 /// a weaker CPU (`katmai` for any 32-bit x86 without SSE3, as the reference
-/// does); that is theirs to fix, not this.
+/// does; design.md, Core detection and selection); that is theirs, not this.
 pub fn machine(core: anytype) Spec {
     return switch (@TypeOf(core)) {
         coretypes.X86CoreType => switch (core) {

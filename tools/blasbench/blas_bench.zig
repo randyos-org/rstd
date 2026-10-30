@@ -19,9 +19,12 @@
 //! Windows, Linux and macOS. With the others when none is named and
 //! `--openblas` is given. Options: `--openblas=<library>`
 //! (`-Dopenblas-lib`), `--blis=<library>`, `--accelerate=<path>` (macOS'
-//! framework by default), `--threads=default` (else each library runs one
-//! thread), `--ob-core=<core>` (`OPENBLAS_CORETYPE`, which rstd reads too),
-//! `--rstd-accelerate=0` (rstd's own kernels on macOS, not Accelerate).
+//! framework by default), `--threads=<n>` or `--threads=default` (each
+//! library and rstd's ceiling; 1 by default), `--rstd-io=failing` (rstd on
+//! `Io.failing`, serial, rather than its own `Io.Threaded`), `--max-n=<n>`
+//! (library rows of `n` up to that only), `--ob-core=<core>` (`OPENBLAS_CORETYPE`,
+//! which rstd reads too), `--rstd-accelerate=0` (rstd's own kernels on
+//! macOS, not Accelerate).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -112,9 +115,21 @@ pub fn main(init: std.process.Init) !void {
             const eq = std.mem.findScalar(u8, a, '=') orelse return error.BadOption;
             const v = a[eq + 1 ..];
             const k = a[2..eq];
-            if (std.mem.eql(u8, k, "openblas")) opts.openblas = v else if (std.mem.eql(u8, k, "blis")) opts.blis = v else if (std.mem.eql(u8, k, "accelerate")) opts.accelerate = v else if (std.mem.eql(u8, k, "threads")) opts.threads = v else if (std.mem.eql(u8, k, "ob-core")) opts.ob_core = v else if (std.mem.eql(u8, k, "rstd-accelerate")) opts.rstd_accelerate = !std.mem.eql(u8, v, "0") else return error.BadOption;
+            if (std.mem.eql(u8, k, "openblas")) opts.openblas = v else if (std.mem.eql(u8, k, "blis")) opts.blis = v else if (std.mem.eql(u8, k, "accelerate")) opts.accelerate = v else if (std.mem.eql(u8, k, "threads")) {
+                opts.threads = if (std.mem.eql(u8, v, "default")) null else std.fmt.parseInt(u31, v, 10) catch return error.BadOption;
+                if (opts.threads == 0) return error.BadOption;
+            } else if (std.mem.eql(u8, k, "rstd-io")) {
+                opts.rstd_io = std.meta.stringToEnum(RstdIo, v) orelse return error.BadOption;
+            } else if (std.mem.eql(u8, k, "max-n")) {
+                n_max = std.fmt.parseInt(usize, v, 10) catch return error.BadOption;
+            } else if (std.mem.eql(u8, k, "ob-core")) opts.ob_core = v else if (std.mem.eql(u8, k, "rstd-accelerate")) opts.rstd_accelerate = !std.mem.eql(u8, v, "0") else return error.BadOption;
         } else try sections.append(init.arena.allocator(), a);
     }
+    // before anything selects rstd's core, which reads its ceiling then
+    try setThreadEnv(opts.threads);
+    var threaded: Io.Threaded = .init(std.heap.c_allocator, if (opts.threads) |t| .{ .async_limit = .limited(t - 1), .concurrent_limit = .limited(t - 1) } else .{});
+    defer threaded.deinit();
+    if (opts.rstd_io == .threaded) rstd_io = threaded.io();
     const all = sections.items.len == 0;
     const want = struct {
         fn f(list: []const []const u8, name: []const u8) bool {
@@ -1072,7 +1087,9 @@ const LibOptions = struct {
     openblas: ?[]const u8 = null,
     blis: ?[]const u8 = null,
     accelerate: ?[]const u8 = if (os_tag.isDarwin()) "/System/Library/Frameworks/Accelerate.framework/Accelerate" else null,
-    threads: []const u8 = "1",
+    /// Each library's thread count and rstd's ceiling; null for their own.
+    threads: ?u31 = 1,
+    rstd_io: RstdIo = .threaded,
     ob_core: ?[]const u8 = null,
     /// `--rstd-accelerate=0`: rstd's routines run its own kernels, not Accelerate.
     rstd_accelerate: bool = true,
@@ -1101,9 +1118,32 @@ fn fail(e: RstdError) void {
 
 /// rstd's routines take an allocator; a C program would hand them malloc's.
 const rstd_alloc = std.heap.c_allocator;
-/// And an `Io`: a serial one, as the libraries run one thread by default
-/// (rstd's routines run on one thread with any `Io` so far).
-const rstd_io = std.Io.failing;
+/// The `Io` rstd's routines thread on.
+const RstdIo = enum {
+    /// The bench's `Io.Threaded`, limited to `--threads` less the caller.
+    threaded,
+    /// Serial: `Io.failing` runs every task inline.
+    failing,
+};
+
+/// And an `Io`: `main` sets it.
+var rstd_io: Io = .failing;
+
+/// Which `Io` rstd ran on, for each library table's notes.
+var io_note: []const u8 = "";
+var io_note_buf: [96]u8 = undefined;
+
+/// `--max-n`: rows of a larger `n` are skipped.
+var n_max: usize = std.math.maxInt(usize);
+
+/// The libraries' thread counts by environment, read when each loads, and
+/// rstd's ceiling (`OPENBLAS_NUM_THREADS`), read when it selects its core.
+fn setThreadEnv(threads: ?u31) !void {
+    const t = threads orelse return;
+    var buf: [16]u8 = undefined;
+    const v = try std.mem.printSentinel(&buf, "{d}", .{t}, 0);
+    for ([_][*:0]const u8{ "OPENBLAS_NUM_THREADS", "BLIS_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS" }) |name| setEnv(name, v);
+}
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "kernel32" fn SetEnvironmentVariableA(name: [*:0]const u8, value: [*:0]const u8) callconv(.winapi) c_int;
@@ -1128,15 +1168,9 @@ fn lookup(comptime src: Src, comptime T: type, comptime name: [:0]const u8) ?T {
     return h.lookup(T, name);
 }
 
-/// Opens the libraries given, one thread each unless `--threads=default`,
-/// and prints how each is configured.
+/// Opens the libraries given, at `--threads` each (`setThreadEnv`), and
+/// prints how each is configured, and rstd.
 fn loadLibs(opts: LibOptions) !void {
-    const single = !std.mem.eql(u8, opts.threads, "default");
-    // read when the libraries load; Windows' CRT may have copied the
-    // environment already, so the thread counts are set by call too
-    if (single) {
-        for ([_][*:0]const u8{ "OPENBLAS_NUM_THREADS", "BLIS_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS" }) |v| setEnv(v, "1");
-    }
     var buf: [64]u8 = undefined;
     if (opts.ob_core) |c| setEnv("OPENBLAS_CORETYPE", try std.mem.printSentinel(&buf, "{s}", .{c}, 0));
     const paths = [lib_handles.len]?[]const u8{ opts.openblas orelse return error.NeedOpenblasPath, opts.blis, opts.accelerate };
@@ -1153,7 +1187,8 @@ fn loadLibs(opts: LibOptions) !void {
     const config = std.mem.span(lookup(.openblas, Str, "openblas_get_config").?());
     // `int` indices here; an ILP64 build (`USE64BITINT`) would need `long`
     if (std.mem.find(u8, config, "USE64BITINT") != null) return error.OpenblasIsIlp64;
-    if (single) lookup(.openblas, *const fn (c_int) callconv(.c) void, "openblas_set_num_threads").?(1);
+    // Windows' CRT may have copied the environment already: by call too
+    if (opts.threads) |t| lookup(.openblas, *const fn (c_int) callconv(.c) void, "openblas_set_num_threads").?(t);
     std.debug.print("openblas: {s}\nopenblas core: {s}, config: {s}, threads: {d}\n", .{
         paths[0].?,
         lookup(.openblas, Str, "openblas_get_corename").?(),
@@ -1164,7 +1199,7 @@ fn loadLibs(opts: LibOptions) !void {
     if (loaded(.blis)) {
         // `dim_t` is 64 bits, `arch_t` an enum
         const Dim = *const fn () callconv(.c) i64;
-        if (single) lookup(.blis, *const fn (i64) callconv(.c) void, "bli_thread_set_num_threads").?(1);
+        if (opts.threads) |t| lookup(.blis, *const fn (i64) callconv(.c) void, "bli_thread_set_num_threads").?(t);
         const arch = lookup(.blis, *const fn () callconv(.c) c_int, "bli_arch_query_id").?();
         std.debug.print("blis: {s}\nblis version: {s}, config: {s}, threads: {d}, cblas: {s}\n", .{
             paths[1].?,
@@ -1176,23 +1211,38 @@ fn loadLibs(opts: LibOptions) !void {
     }
 
     if (loaded(.accelerate)) {
-        // per thread: this one makes every call
-        const Set = *const fn (c_uint) callconv(.c) c_int;
-        const Get = *const fn () callconv(.c) c_uint;
-        if (single) {
-            if (lookup(.accelerate, Set, "BLASSetThreading")) |f| {
+        // per thread: this one makes every call; more than one thread is
+        // `VECLIB_MAXIMUM_THREADS`'s
+        if (opts.threads == 1) {
+            if (lookup(.accelerate, *const fn (c_uint) callconv(.c) c_int, "BLASSetThreading")) |f| {
                 if (f(1) != 0) std.debug.print("warning: BLASSetThreading failed\n", .{});
             }
         }
-        const threading = if (lookup(.accelerate, Get, "BLASGetThreading")) |f| switch (f()) {
-            0 => "multi-threaded",
-            1 => "single-threaded",
-            else => "?",
-        } else "absent";
-        std.debug.print("accelerate: {s}, BLASGetThreading: {s}\n", .{ paths[2].?, threading });
+        std.debug.print("accelerate: {s}, BLASGetThreading: {s}\n", .{ paths[2].?, accelThreading() });
     }
     const routed = blas.useAccelerate(opts.rstd_accelerate);
-    std.debug.print("rstd core: {s}, accelerate: {}, threads: 1\n", .{ blas.coreName(), routed });
+    const io_name = switch (opts.rstd_io) {
+        .threaded => "Io.Threaded",
+        .failing => "Io.failing",
+    };
+    const ceiling = blas.config.threadCeiling();
+    std.debug.print("rstd core: {s}, accelerate: {}, io: {s}, ceiling: {?d}, cpus: {d}\n", .{ blas.coreName(), routed, io_name, ceiling, blas.config.cpu_count });
+    io_note = if (ceiling) |c|
+        try std.fmt.bufPrint(&io_note_buf, "rstd runs on `{s}`, thread ceiling {d}.", .{ io_name, c })
+    else
+        try std.fmt.bufPrint(&io_note_buf, "rstd runs on `{s}`, threads up to the CPUs.", .{io_name});
+    // rstd's own load of Accelerate makes this thread single-threaded
+    if (loaded(.accelerate)) std.debug.print("accelerate after rstd's init: BLASGetThreading: {s}\n", .{accelThreading()});
+}
+
+/// The calling thread's `BLASGetThreading`, as words.
+fn accelThreading() []const u8 {
+    const f = lookup(.accelerate, *const fn () callconv(.c) c_uint, "BLASGetThreading") orelse return "absent";
+    return switch (f()) {
+        0 => "multi-threaded",
+        1 => "single-threaded",
+        else => "?",
+    };
 }
 
 /// `p`'s element as rstd's routines take it.
@@ -1544,10 +1594,10 @@ fn libLevel1(io: Io, gpa: std.mem.Allocator) !void {
     try clock(io, "library level 1 start");
     std.debug.print(
         \\
-        \\GB/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. `rstd` is the public routine{s}. {s}
+        \\GB/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. `rstd` is the public routine{s}. {s} {s}
         \\
         \\
-    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms), if (arm) ", `asm` the converted kernel alone (`from`)" else "", diff_note });
+    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms), if (arm) ", `asm` the converted kernel alone (`from`)" else "", io_note, diff_note });
     if (arm)
         printHeader("routine | p | n | inc | rstd runs | from", "------- | - | -: | --: | --------- | ----", &lib_cols)
     else
@@ -1605,6 +1655,7 @@ fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p.F, 
     };
     for (l1_cases) |case| {
         const n = case.bytes / p.es() / case.inc;
+        if (n > n_max) continue;
         const span = n * case.inc * p.cs();
         var ctxs: [lib_cols.len]C = undefined;
         var calls: [lib_cols.len]bench.Call = undefined;
@@ -1658,10 +1709,10 @@ fn libLevel2(io: Io, gpa: std.mem.Allocator) !void {
     try clock(io, "library level 2 start");
     std.debug.print(
         \\
-        \\GFLOP/s, square, unit strides, `beta` 1, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. {s}
+        \\GFLOP/s, square, unit strides, `beta` 1, best of {d} batches of at least {d} ms; ratios are over OpenBLAS. {s} {s}
         \\
         \\
-    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms), diff_note });
+    , .{ l1_timing.batches, @divTrunc(l1_timing.min_ns, std.time.ns_per_ms), io_note, diff_note });
     if (arm)
         printHeader("routine | p | n | rstd runs | from", "------- | - | -: | --------- | ----", &lib_cols)
     else
@@ -1737,6 +1788,7 @@ fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []c
     };
     for (l2_bytes) |bytes| {
         const n: usize = std.math.sqrt(bytes / p.es());
+        if (n > n_max) continue;
         const out = n * cs;
         gemvScale(p, t[0] == 't', n, a, x, y0, scale[0..out]);
         var ctxs: [lib_cols.len]C = undefined;
@@ -1867,10 +1919,10 @@ fn libLevel3(io: Io, gpa: std.mem.Allocator) !void {
     try clock(io, "library level 3 start");
     std.debug.print(
         \\
-        \\gemm NN, square, `C += A*B`: GFLOP/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS{s}. {s}
+        \\gemm NN, square, `C += A*B`: GFLOP/s, best of {d} batches of at least {d} ms; ratios are over OpenBLAS{s}. {s} {s}
         \\
         \\
-    , .{ l3_timing.batches, @divTrunc(l3_timing.min_ns, std.time.ns_per_ms), if (ob_asm) ". `ob .S` is OpenBLAS's vortex `.S` through the bench's loops" else "", diff_note });
+    , .{ l3_timing.batches, @divTrunc(l3_timing.min_ns, std.time.ns_per_ms), if (ob_asm) ". `ob .S` is OpenBLAS's vortex `.S` through the bench's loops" else "", io_note, diff_note });
     printHeader("p | n", "- | -:", &lib3_cols);
     inline for (precs) |p| try raceLibGemm(io, gpa, p);
 }
@@ -1922,6 +1974,7 @@ fn raceLibGemm(io: Io, gpa: std.mem.Allocator, comptime p: Prec) !void {
     const fns = [lib3_cols.len]?GemmFn(p){ libGemm(.openblas, p), libGemm(.rstd, p), libGemm(.blis, p), libGemm(.accelerate, p), null };
     const LC = LibGemmCall(p);
     for (gemm_sizes) |n| {
+        if (n > n_max) continue;
         const m = n * n * cs;
         try gemmScale(p, n, a[0..m], b[0..m], c0[0..m], abs_a, abs_b, scale[0..m]);
         var ctxs: [lib3_cols.len]LC = undefined;

@@ -27,46 +27,29 @@ const R = registry.Kernels(coretypes.MipsCoreType, @import("asm/__root__.zig"));
 
 pub const Core = coretypes.MipsCoreType;
 
-/// Whether `core` uses the SIMD kernel for `slot`.
-fn usesMsa(comptime core: Core, comptime slot: Slot) bool {
-    if (kernel.form(slot).complex and sysinfo.target.cpu.arch.isMips64()) return false;
-    return switch (core) {
-        .loongson3r4, .p5600, .i6400, .i6500, .p6600 => true,
-        else => false,
-    };
-}
+/// The hand ports and where they serve: the SIMD kernels, but for the
+/// complex ones on MIPS64.
+pub const ports = [_]registry.Port(Core){
+    .{ .module = kernel.Ported(msa), .cores = &.{ .loongson3r4, .p5600, .i6400, .i6500, .p6600 }, .slots = &.{ .saxpy_k, .daxpy_k }, .written = .vector },
+    .{ .module = kernel.Ported(msa), .cores = &.{ .loongson3r4, .p5600, .i6400, .i6500, .p6600 }, .slots = &.{ .caxpy_k, .caxpyc_k, .zaxpy_k, .zaxpyc_k }, .written = .vector, .arch = "mips" },
+};
 
-/// Whether `core` uses the SIMD kernel for any slot.
-fn usesAnyMsa(comptime core: Core) bool {
-    inline for (kernel.slots) |s| if (usesMsa(core, s)) return true;
-    return false;
-}
+const P = registry.Ports(Core, if (sysinfo.target.cpu.arch.isMips64()) "mips64" else "mips", &ports);
 
 /// Whether `slot` has a kernel of its own on `core`.
 pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-    return usesMsa(core, slot) or R.hasSlot(core, slot);
+    return P.hasSlot(core, slot) or R.hasSlot(core, slot);
 }
 
 /// Whether `core` has any axpy kernel of its own.
 pub fn has(comptime core: Core) bool {
-    return usesAnyMsa(core) or R.has(core);
+    return P.has(core) or R.has(core);
 }
 
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
-    if (comptime usesAnyMsa(core)) {
-        inline for (.{
-            .{ Slot.saxpy_k, &msa.Real(f32).call },
-            .{ Slot.daxpy_k, &msa.Real(f64).call },
-            .{ Slot.caxpy_k, &msa.Cplx(f32, false).call },
-            .{ Slot.caxpyc_k, &msa.Cplx(f32, true).call },
-            .{ Slot.zaxpy_k, &msa.Cplx(f64, false).call },
-            .{ Slot.zaxpyc_k, &msa.Cplx(f64, true).call },
-        }) |e| {
-            if (comptime usesMsa(core, e[0])) registry.exportKernel(e[1], e[0], core);
-        }
-    }
+    inline for (kernel.slots) |slot| P.exportOne(slot, core);
     R.exportCore(core);
 }
 

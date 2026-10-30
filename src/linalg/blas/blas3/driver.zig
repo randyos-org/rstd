@@ -1,5 +1,7 @@
 //! The level-3 drivers: OpenBLAS's `driver/level3/level3.c`, Goto's loops
-//! over the packed kernels of a vtable, single-threaded. `C` is split into
+//! (Goto, van de Geijn, "Anatomy of High-Performance Matrix Multiplication",
+//! ACM TOMS 34(3), 1-25, 2008, <https://doi.org/10.1145/1356052.1356053>)
+//! over the packed kernels of a vtable. `C` is split into
 //! `R`-wide column blocks, the depth into `Q`-deep slices and the rows into
 //! `P`-tall blocks; each slice of `op(B)` is packed once (`sb`), each block
 //! of `op(A)` once per slice (`sa`), and the kernel runs on the pair.
@@ -30,6 +32,7 @@ const types = @import("../types.zig");
 const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
+const small = @import("gemm/small.zig");
 const threaded = @import("threaded.zig");
 
 const Allocator = std.mem.Allocator;
@@ -59,7 +62,7 @@ pub const Blocking = struct {
         }
         const pre = comptime portable.letter(T).? ++ "gemm_";
         // sizes no rule set, or a rule left negative (`params.derivedR` for a
-        // wide element), take the generic target's
+        // wide element), take these: `Q` the generic table's, `P` and `R` ours
         const um: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_m")));
         const un: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_n")));
         const p: usize = @intCast(positive(@field(vt, pre ++ "p"), 224));
@@ -273,7 +276,7 @@ pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_
 /// `C := beta*C + alpha * op(A) * op(B)` over `C`'s `m x n` (`region` of
 /// it), depth `k`, in the js / ls / is loops of `level3.c`; a null `beta`
 /// is 1.
-fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: Work(T)) void {
+pub fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: Work(T)) void {
     var js: usize = 0;
     while (js < n) : (js += blk.r) {
         const min_j = @min(blk.r, n - js);
@@ -414,6 +417,8 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
         if (!isOne(T, beta)) scale(T, vt, m, n, beta, c, ldc);
         return;
     }
+    const cj = comptime isComplex(T);
+    if (small.gemm(T, vt, ta, tb, cj and conj.ofA(), cj and conj.ofB(), m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
     const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = if (comptime isComplex(T)) conj else .n };

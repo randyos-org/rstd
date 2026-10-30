@@ -28,7 +28,7 @@ pub const Find = struct {
 pub fn Extremum(comptime F: type, comptime w: comptime_int, comptime find: Find) type {
     return struct {
         fn key(x: [*]F, at: BlasLong) F {
-            if (w == 2) return @abs(util.at(F, x, at).*) + @abs(util.at(F, x, at + 1).*);
+            if (w == 2) return util.abs(util.at(F, x, at).*) + util.abs(util.at(F, x, at + 1).*);
             const v = util.at(F, x, at).*;
             return if (find.abs) @abs(v) else v;
         }
@@ -63,7 +63,7 @@ pub fn Extremum(comptime F: type, comptime w: comptime_int, comptime find: Find)
             var i: BlasLong = 0;
             while (i < n) : (i += 1) {
                 const at = i * inc_x * w;
-                const k = @abs(util.at(F, x, at).*) / 4 + @abs(util.at(F, x, at + 1).*) / 4;
+                const k = util.abs(util.at(F, x, at).*) / 4 + util.abs(util.at(F, x, at + 1).*) / 4;
                 if (i == 0 or better(k, best_key)) {
                     best = i;
                     best_key = k;

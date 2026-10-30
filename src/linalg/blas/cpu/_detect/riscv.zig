@@ -24,7 +24,8 @@ const RISCV_HWPROBE_IMA_V: u64 = 1 << 2;
 const Pair = extern struct { key: i64, value: u64 };
 
 /// The syscall number is stable across RISC-V Linux; the reference
-/// hardcodes it for the same reason we do.
+/// hardcodes it for the same reason we do: `__NR_arch_specific_syscall` (244,
+/// `include/uapi/asm-generic/unistd.h`) + 14.
 const NR_riscv_hwprobe: usize = 258;
 
 fn hwprobe(pairs: []Pair, flags: usize) bool {

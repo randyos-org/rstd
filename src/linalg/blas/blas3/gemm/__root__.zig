@@ -580,4 +580,5 @@ test "a packing buffer on the stack is poisoned in tests: a copy that writes not
 test {
     _ = kernel;
     _ = params;
+    _ = @import("small.zig");
 }

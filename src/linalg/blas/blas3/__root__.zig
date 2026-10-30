@@ -10,8 +10,14 @@ pub const gemm3m = @import("gemm3m/__root__.zig");
 pub const gemmt = @import("gemmt/__root__.zig");
 pub const hemm = @import("hemm/__root__.zig");
 pub const hemm3m = @import("hemm3m/__root__.zig");
+/// `sbgemm`, `bgemm`, `shgemm` and `sbgemmt`.
+pub const half = @import("half.zig");
+/// `?gemm_batch` and `?gemm_batch_strided`, the half gemms' too.
+pub const batch = @import("batch.zig");
 pub const interface = @import("interface.zig");
 pub const driver = @import("driver.zig");
+/// The 3M drivers (`gemm3m`, `symm3m`, `hemm3m`).
+pub const driver3m = @import("gemm3m/driver.zig");
 pub const symm = @import("symm/__root__.zig");
 pub const symm3m = @import("symm3m/__root__.zig");
 pub const syr2k = @import("syr2k/__root__.zig");
@@ -27,6 +33,7 @@ const Vtable = @import("../Vtable.zig");
 /// has them.
 pub fn installGeneric(vt: *Vtable) void {
     gemm.installGeneric(vt);
+    half.installGeneric(vt);
 }
 
 const zigstd = @import("../../../zigstd.zig");

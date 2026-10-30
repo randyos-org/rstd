@@ -13,7 +13,10 @@
 //!   * otherwise the answer follows the target: fused where the hardware has
 //!     an FMA unit, so `@mulAdd` never degrades into a libm `fma()` call;
 //!   * never for floats wider than `f64` (`fuseFor`): `@mulAdd(f80)` is a
-//!     soft `fmal` call, and the reference's x87 `q`/`x` kernels never fuse.
+//!     soft `fmal` call, and the reference's x87 `q`/`x` kernels never fuse;
+//!   * on MIPS before release 6 only `madd.fmt` can fuse, which Loongson 3A's
+//!     cores do (`fused_madd`); their objects say so, and take it as inline
+//!     asm, where `@mulAdd` would be a libm `fma` call.
 //!
 //! Contraction is taken the way a C compiler does it within one expression
 //! (clang's `-ffp-contract=on`, and gcc's `fast` for the single-expression
@@ -30,8 +33,14 @@ const root = @import("root");
 const types = @import("types.zig");
 const util = @import("util.zig");
 
+/// Whether floats are computed in hardware: Zig builds a soft-float ABI
+/// (`eabi`, `gnueabi`, ...) all in software, where `@mulAdd` is compiler-rt's
+/// `fma`, several soft operations, and a C compiler's `-msoft-float` has no
+/// fused instruction to contract to.
+const hard_float = sysinfo.target.abi.float() == .hard;
+
 /// Whether the target has a hardware fused multiply-add.
-pub const hardware = switch (sysinfo.target.cpu.arch) {
+pub const hardware = hard_float and switch (sysinfo.target.cpu.arch) {
     // x86 FMA3 is an optional extension, not baseline; must check.
     .x86_64, .x86 => std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .fma),
     // AArch64 scalar and NEON FMA is mandatory since ARMv8-A.
@@ -50,13 +59,13 @@ pub const hardware = switch (sysinfo.target.cpu.arch) {
     .loongarch32, .loongarch64 => std.Target.loongarch.featureSetHasAny(sysinfo.target.cpu.features, .{ .f, .d }),
     // z/Architecture has the BFP multiply-and-add (MAEBR/MADBR) in its base.
     .s390x => true,
-    // Before release 6, MADD.fmt rounds the product, so it equals a*b + c and
-    // gcc's use of it never changes a result; R6 adds the fused MADDF.fmt.
+    // Before release 6, MADD.fmt rounds the product; R6 adds the fused
+    // MADDF.fmt. Loongson 3A's fused MADD.fmt is the objects' (`fused_madd`).
     .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.target.cpu.features, .{
         .mips32r6, .mips64r6,
     }),
-    // No scalar fused multiply-add: LLVM has none for SPARC (gcc's needs
-    // -mfmaf, which OpenBLAS never passes), and WebAssembly's only exists as
+    // No scalar fused multiply-add: on SPARC gcc's needs -mfmaf, which
+    // OpenBLAS never passes (LLVM emits `fmaddd` only with `ua2007`), and WebAssembly's only exists as
     // `relaxed_simd` vector madd (see `vector_madd`).
     else => false,
 };
@@ -66,11 +75,11 @@ pub const hardware = switch (sysinfo.target.cpu.arch) {
 /// `fmadd` is fused whatever the scalar ISA), and for WebAssembly with
 /// `relaxed_simd` (`wasm_f32x4_relaxed_madd`; the spec lets an engine fuse or
 /// not, taken here as fused, as on engines with hardware FMA).
-pub const vector_madd = hardware or switch (sysinfo.target.cpu.arch) {
+pub const vector_madd = hardware or (hard_float and switch (sysinfo.target.cpu.arch) {
     .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa),
     .wasm32, .wasm64 => std.Target.wasm.featureSetHas(sysinfo.target.cpu.features, .relaxed_simd),
     else => false,
-};
+});
 
 /// The build's policy: the root's `blas_fuse_fma` if it declares one.
 pub const fuse: bool = if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else hardware;
@@ -81,14 +90,22 @@ pub const fuse_vector: bool = if (@hasDecl(root, "blas_fuse_fma_vector"))
     root.blas_fuse_fma_vector
 else if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else vector_madd;
 
+/// Whether `madd.fmt` rounds once, as on Loongson's GS464 and GS464E (their
+/// manuals; gcc's `ISA_HAS_FUSED_MADD4`): MIPS before release 6, where the
+/// root's `blas_fused_madd` says so. Only the `loongson3r3` and `loongson3r4`
+/// objects' does (`cpu/_corespec.zig`). LLVM also picks `madd.fmt` for a
+/// plain `a*b + c` there, which then fuses too; QEMU rounds it (issues.md).
+pub const fused_madd = sysinfo.target.cpu.arch.isMips() and !hardware and
+    @hasDecl(root, "blas_fused_madd") and root.blas_fused_madd;
+
 /// Whether `T`, a float or a vector of them, can fuse at all: not past
-/// `f64`, and only where `compiles`.
+/// `f64`, and only where `compiles` or `fused_madd`.
 pub fn fusible(comptime T: type) bool {
     const E = switch (@typeInfo(T)) {
         .vector => |v| v.child,
         else => T,
     };
-    return !types.isExtended(E) and compiles;
+    return !types.isExtended(E) and (compiles or fused_madd);
 }
 
 /// Whether LLVM compiles `@mulAdd` right: not with MSA, where a vector `fma`,
@@ -105,13 +122,51 @@ pub fn fuseFor(comptime T: type) bool {
 /// (`util.scalar`). For kernels that pick their own fusing (`fuse`,
 /// `fuse_vector`).
 pub inline fn madd(comptime fused: bool, comptime T: type, a: T, b: T, c: T) T {
-    return util.scalar(T, if (fused and compiles) @mulAdd(T, a, b, c) else a * b + c);
+    return util.scalar(T, if (fused and fusible(T)) fusedMadd(T, a, b, c) else if (fused and compiles) @mulAdd(T, a, b, c) else a * b + c);
 }
 
 /// `a*b + c`, fused when `fuseFor` says so (`@mulAdd` is strictly
 /// single-rounded, so it must not be used on targets without an FMA unit).
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    return if (comptime fuseFor(T)) @mulAdd(T, a, b, c) else a * b + c;
+    return if (comptime fuseFor(T)) fusedMadd(T, a, b, c) else a * b + c;
+}
+
+/// `a*b + c` rounded once, for a `fusible` `T`: `@mulAdd`, or with
+/// `fused_madd` `madd.fmt` per scalar and MSA's `fmadd` per 128 bits (its
+/// `wd + ws*wt`; LLVM's own `fmadd` swaps operands, issues.md).
+pub inline fn fusedMadd(comptime T: type, a: T, b: T, c: T) T {
+    if (comptime !fused_madd) return @mulAdd(T, a, b, c);
+    const v = switch (@typeInfo(T)) {
+        .vector => |v| v,
+        else => return asm ((if (T == f32) "madd.s" else "madd.d") ++ " %[d], %[c], %[a], %[b]"
+            : [d] "=f" (-> T),
+            : [c] "f" (c),
+              [a] "f" (a),
+              [b] "f" (b),
+        ),
+    };
+    const E = v.child;
+    const w = 16 / @sizeOf(E);
+    const msa = comptime std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
+    if (msa and v.len == w) return asm ((if (E == f32) "fmadd.w" else "fmadd.d") ++ " %[d], %[a], %[b]"
+        : [d] "=f" (-> T),
+        : [c] "0" (c),
+          [a] "f" (a),
+          [b] "f" (b),
+    );
+    var r: T = undefined;
+    if (msa and v.len % w == 0) {
+        // whole registers, taken out and put back lane by lane
+        inline for (0..v.len / w) |k| {
+            const lanes = comptime std.simd.iota(i32, w) + @as(@Vector(w, i32), @splat(k * w));
+            const W = @Vector(w, E);
+            const part = fusedMadd(W, @shuffle(E, a, undefined, lanes), @shuffle(E, b, undefined, lanes), @shuffle(E, c, undefined, lanes));
+            inline for (0..w) |j| r[k * w + j] = part[j];
+        }
+    } else inline for (0..v.len) |i| {
+        r[i] = fusedMadd(E, a[i], b[i], c[i]);
+    }
+    return r;
 }
 
 test "mulAdd agrees with a*b+c on exact values" {

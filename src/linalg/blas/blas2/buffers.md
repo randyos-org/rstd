@@ -13,7 +13,7 @@ level-2 design is in [`design.md`](../design.md#level-2).
 | --- | --- | --- |
 | `gemv`, `zgemv` | `STACK_ALLOC` of `cs*(m+n) + 128/sizeof + 3 & ~3` elements, plus `160/sizeof` on Windows; 2048 bytes on the stack (`aligned(0x20)`), else a page-aligned block | the same size (`symmetric.gemvLen`); stack up to 2048 bytes (32-aligned), else the allocator, 4096-aligned |
 | `ger`, `zger` | unit strides and `m*n <= 2048*4`: NULL; else `STACK_ALLOC` of `cs*m` | unit `x`: the unused stack array, no capacity promised; strided: `cs*m` elements, stack or heap as `gemv`, where the interface copies `x` once and passes the copy, at unit stride, to every kernel call |
-| `symv`, `zsymv`, `zhemv` | `blas_memory_alloc`, page-aligned, `BUFFER_SIZE` (32 MB) | always the allocator, 4096-aligned, the larger of the two contracts below |
+| `symv`, `zsymv`, `zhemv` | `blas_memory_alloc`, page-aligned, `BUFFER_SIZE` (16 to 128 MB by arch; 128 MB at `common_x86_64.h:260`) | always the allocator, 4096-aligned, the larger of the two contracts below |
 | `trmv` and the other drivers | own copies of `x` and `y`, gemv's buffer after them | same, 2048 bytes on the stack, else the allocator |
 
 `interface.stack_bytes` (`MAX_STACK_ALLOC`) is the one stack limit for
@@ -51,7 +51,8 @@ The x86_64 complex `t` forms (`zgemv_t.S`, `zgemv_t_atom.S`) copy `x` to the
 buffer's start and load it ahead of use, so past the last row they load what
 the buffer holds; their row tails (`.L15`, `.L17` and kin) multiply only what
 was loaded for rows that exist, so those values never reach `y`. The
-reference clears its x86_64 stack buffer for `cgemv_t.S` (OpenBLAS #746),
+reference clears its x86_64 stack buffer for `cgemv_t.S` (`interface/zgemv.c:250`,
+<https://github.com/OpenMathLib/OpenBLAS/issues/746>),
 which no core here takes ([`coverage.md`](coverage.md)); the interface does
 not, and the kernel tests hand every form a NaN buffer.
 

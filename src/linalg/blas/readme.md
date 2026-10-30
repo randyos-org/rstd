@@ -1,6 +1,6 @@
 # BLAS
 
-rstd's BLAS is a Zig port of OpenBLAS: its interfaces, drivers, per-core kernel selection and
+Rstd's BLAS is a Zig port of OpenBLAS: its interfaces, drivers, per-core kernel selection and
 parameters, with OpenBLAS's per-core assembly converted to Zig and its generic kernels rewritten
 on `@Vector`. One build carries kernels for every core the target can run and picks one at run
 time, as OpenBLAS's `DYNAMIC_ARCH` builds do.
@@ -34,22 +34,34 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `her`, `her2`, including OpenBLAS's complex symmetric forms and `hemv`'s and `hbmv`'s
   transposed (`HEMVREV`) triangles.
 - **Level 3:** `gemm`, `gemmt`, `symm`, `hemm`, `syrk`, `herk`, `syr2k`, `her2k`, `trmm`,
-  `trsm`, real and complex.
-- **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.
-- **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
-- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, which returns `error.NotPositiveDefinite` for a
-  leading minor that is not positive definite, a NaN pivot included, and writes its order to
-  its last argument.
+  `trsm`, real and complex; `gemm3m`, `symm3m` and `hemm3m`, complex, by three real products
+  (opt-in: one part of each element is only normwise accurate).
+- **bfloat16 and half:** `sbdot`, `bscal`, the conversions, `bgemv`, `sbgemv`, `shgemv`
+  (`gemvHalf`), `sbgemm`, `bgemm`, `shgemm` (`gemmHalf`) and `sbgemmt` (`gemmtHalf`).
+- **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), LAPACK's `laswp`, and the
+  batched gemms (`gemmBatch`, `gemmBatchStrided`, and `gemmHalfBatch`, `gemmHalfBatchStrided`).
+- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
+  `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
+  included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which
+  complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
+  write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
+  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`; `gesvd` and
+  `gesdd`, ported from faer, which return `error.NoConvergence` for the reference's `INFO > 0`.
+  Past upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
+  Accelerate.
+  From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf` and `trsyl`; `sytrf`,
+  `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
+  are wrong ([`issues.md`](issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
+  `lauum` in place of OpenBLAS's.
 
-Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
-`sbgemm`), and threading ([`threading.md`](threading.md)).
+Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
 
 ### Targets
 
 Every target compiles, with the portable kernels at least. Per-core kernels exist for these
-cores; which OpenBLAS source each core uses, and for level 1 and level 3 but `gemm` what rstd
-serves in its place, is in the generated `coverage.md` files (every `blas1/<routine>/` and
-`blas3/<routine>/`, and `blas2/`), and which routines each architecture covers is in
+cores; which OpenBLAS source each core uses, and what rstd serves in its place, is in the
+generated `coverage.md` files (every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`),
+and which routines each architecture covers is in
 [`design.md`](design.md#coverage-by-architecture).
 
 | Architecture | Cores |
@@ -61,7 +73,7 @@ serves in its place, is in the generated `coverage.md` files (every `blas1/<rout
 | powerpc, powerpc64 | `power3`, `power4`, `power5`, `power6`, `power8`, `power9`, `power10`, `ppc970`, `cell`, `ppc440`, `ppc440fp2`, `ppcg4` |
 | mips, mips64 | `loongson3r3`, `loongson3r4`, `p5600`, `i6400`, `i6500`, `p6600` |
 | loongarch64 | `la64_generic`, `la264`, `la464` |
-| riscv64 | `riscv64_zvl128b`, `x280` |
+| riscv64 | `riscv64_zvl128b`, `riscv64_zvl256b`, `x280` |
 | s390x | `z13`, `z14` |
 | sparc, sparc64 | `sparcv7`, `sparc` |
 | wasm32, wasm64 | `wasm128_generic` |
@@ -79,9 +91,10 @@ are targets at all.
 | --- | --- |
 | alpha | no Zig backend |
 | ia64 | no Zig target |
-| csky, e2k | no Zig target; upstream uses the generic C kernels |
-| POWER BG/P (double FPU) | LLVM cannot assemble the "hummer" instructions |
-| RISC-V C910V | LLVM has no `xtheadvector` |
+| csky | LLVM's backend emits neither assembly nor objects (Zig's `src/target.zig`, `hasLlvmSupport`); upstream uses the generic C kernels |
+| e2k | no Zig target; upstream uses the generic C kernels |
+| POWER BG/P (double FPU) | LLVM cannot assemble the "hummer" instructions (tried: Zig 0.18.0-dev.751's clang rejects `fpmadd` and `lfpdx` at `-mcpu=440`, `450` and `a2`) |
+| RISC-V C910V | LLVM has no `xtheadvector` (none in Zig's `lib/std/Target/riscv.zig`); upstream builds it for RVV 0.7.1 (`-march=rv64imafdcv0p7_zfh_xtheadc`, <https://github.com/OpenMathLib/OpenBLAS/blob/a690625245c43ea4ea2d4c07ff5b6ada02a9d561/Makefile.riscv64#L2>) |
 
 ## Usage
 
@@ -90,8 +103,8 @@ are targets at all.
 Each routine takes its element type as a comptime parameter. Sizes, strides and leading
 dimensions are `isize`; a negative stride names the vector's last element first, as in the
 reference. Every routine is `rstd.linalg.blas.<routine>` and takes `(allocator, io, T, ...)`,
-or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. `io` is for the
-threading to come ([`threading.md`](threading.md)); every routine is serial for now. `rotg`,
+or `(io, T, ...)` when it needs no scratch space beyond a small stack buffer. Routines that
+thread run their workers on `io` ([`threading.md`](threading.md)). `rotg`,
 `zrotg`, `rotmg` and `cabs1` work on scalars only and take neither.
 
 | Level | Shape | Errors |
@@ -119,7 +132,7 @@ Bad arguments return an error named after the reference's `xerbla` argument (`In
 `InvalidM`, `InvalidLda`, `InvalidIncx`, ...), checked in the reference's order, so the first bad
 argument wins. A vector or matrix too large for the address space returns its stride's or
 leading dimension's error. Routines that allocate also return `error.OutOfMemory`, and every
-routine that takes `io` may return `error.Canceled` once it threads. Nothing panics on bad
+routine that takes `io` may return `error.Canceled`. Nothing panics on bad
 input. `laswp` has no `xerbla` checks upstream; rstd checks that its rows and pivots lie in `A`
 before it swaps.
 
@@ -152,8 +165,8 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   order and blocking, so results may differ in the last bits, as in OpenBLAS; beyond rounding
   they agree (below). Pinning `OPENBLAS_CORETYPE` makes machines that can run that core agree.
 - **Reproducibility.** For a given build and core, no result depends on where its operands lie in
-  memory, nor, once threading lands, on the thread count ([`threading.md`](threading.md)).
-- **Denormals.** rstd never changes the floating-point environment, and denormals are honored on
+  memory, nor on the thread count ([`threading.md`](threading.md)).
+- **Denormals.** Rstd never changes the floating-point environment, and denormals are honored on
   every core: where a vector unit flushes them (ARMv7 NEON, pre-VSX AltiVec), `f32` stays out of
   its lanes ([`design.md`](design.md#denormals-and-the-floating-point-environment)).
 - **Triangular solves.** `trsv`, `tbsv`, `tpsv` and `trsm` divide by the diagonal, complex by
@@ -200,7 +213,8 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
 
 ### bfloat16 and half precision
 
-The kernels are portable Zig, the same on every core.
+The kernels are portable Zig, the same on every core; `riscv64_zvl256b`'s own `sbgemv` and
+`shgemv` (`@Vector`) give the same bits.
 
 - **Conversions** (`sbtobf16`, `bf16to`): round to nearest even; denormals flush to a signed zero
   and NaNs come out quiet, in both directions.
@@ -215,13 +229,24 @@ The kernels are portable Zig, the same on every core.
   is read down its columns. For `bgemv` the scalars and `y` are bfloat16. Arguments are checked
   as `interface/sbgemv.c` does; `alpha == 0` only scales `y` by `beta`. With `m` or `n` zero the
   kernel yields `beta*y`; the interface returns first.
+- **Half `gemm`** (`gemmHalf`: `sbgemm`, `bgemm`, `shgemm`): each element sums `a*b` in `f32` in
+  depth order, unfused, over each depth slice of the blocking, and adds `alpha` times that sum to
+  `C`, rounded once per slice; for `bgemm`, whose `C` and scalars are bfloat16, `C` is rounded to
+  bfloat16 after every slice, as upstream's kernel stores it, so its bits follow the core's `Q`.
+  `C` is scaled by `beta` first (a zero `beta` never reads it); a zero `alpha` or `k` reads neither
+  `A` nor `B`. The scalars count by value, where upstream compares bfloat16 bits
+  ([`issues.md`](issues.md)). The bits do not depend on the thread count.
+- **`gemmtHalf`** (`sbgemmt`, and the same for the other two types): a half `gemv` per column of
+  the triangle, so each element rounds as `gemvHalf`'s; a zero `alpha` or `k` only scales the
+  triangle by `beta`.
 - `sbdot` and the others return at once for `n <= 0`.
 
 ## Apple Accelerate
 
 On macOS the public routines over `s`, `d`, `c` and `z` run Apple's Accelerate where it has
 the routine, bound at run time with no SDK and run single-threaded, so its results stay
-reproducible (`apple_accel.zig`). rstd's checks come first, so the errors are the same
+reproducible (`apple_accel.zig`); large calls split into parts by size on rstd's workers
+instead ([`threading.md`](threading.md#vendor-backends)). Rstd's checks come first, so the errors are the same
 everywhere. Where its results differ from the reference's on special values, those calls run
 rstd's kernels instead, so [one contract](#one-contract-on-every-core) holds there too.
 `RSTD_BLAS_ACCELERATE=0` at init, or `blas.useAccelerate(false)`, turns it off. Which routines
@@ -234,7 +259,7 @@ and quirks are in [`design.md`](design.md#apple-accelerate).
 | `-Dblas-cores` | `target`, `all`, `none` | which per-core kernel objects are built: only the core the target maps to (the host's own for a native target), every core the target can run, or none (portable kernels only). Default: `target` in debug, `all` otherwise |
 | `-Dblas-llvm` | `true`, `false` | forces the kernel objects on or off LLVM; unset uses LLVM where the kernels need it, which today is everywhere |
 
-A consumer using `src/buildutils`' `addRstd` passes its optimize mode (`RstdOptions.optimize`) so
+A consumer using `src/buildutils` `addRstd` passes its optimize mode (`RstdOptions.optimize`) so
 the default follows it, and may set `RstdOptions.blas_cores`. A core with no object in the build
 runs the closest linked core's kernels, or the portable ones.
 
@@ -247,10 +272,11 @@ runs the closest linked core's kernels, or the portable ones.
 | `GET_OPENBLAS_CORETYPE` | POWER: when set, prints the selected core |
 | `OPENBLAS_BLOCK_FACTOR` | scales the computed gemm block size, in percent (10 to 200) |
 | `OPENBLAS_L2_SIZE` | overrides the detected L2 size used by the blocking rules |
-| `OPENBLAS_NUM_THREADS`, `OPENBLAS_DEFAULT_NUM_THREADS` | LA464's blocking set today; the thread ceiling once threading lands |
+| `OPENBLAS_NUM_THREADS`, `OPENBLAS_DEFAULT_NUM_THREADS` | the thread ceiling, and LA464's blocking set |
+| `GOTO_NUM_THREADS` | the thread ceiling when neither of those is set |
 | `LD_HWCAP_MASK` | s390x: masks the hardware capabilities before detection |
 
-`GOTO_NUM_THREADS`, `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
+`OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
 `OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are read and have no effect. Values longer than 64
 bytes are ignored. Details are in [`design.md`](design.md#configuration).
 
@@ -260,15 +286,16 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | --- | --- |
 | `zig build rstd-test` | every test natively; add `-Dblas-cores=all` to test every core the host runs, `-Drstd-test-filter=<name>` to pick tests |
 | `zig build qemu-test` | every emulated machine |
-| `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
+| `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
 | `zig build qemu-test-x86_64-whpx` | the host CPU under WHPX (x86_64 Windows hosts): the AVX-512, FMA4 and XOP cores |
 | `zig build qemu-test-linux-<arch>` | the full suite under Linux (`aarch64`, `x86_64`, `arm`, `riscv64`, `powerpc64le`) |
 | `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemutest.zig`) |
-| `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple silicon Mac |
+| `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
-| `zig build wasm-test` | level 1 and 2 under Node, with SIMD128 |
+| `zig build wasm-test` | the OS-free tests under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
+| `<zig 0.17.0> build rstd-check-zig017` | build the tests for zfls's targets on Zig 0.17.0 without running them |
 
 Test names follow the file's path (`linalg.blas._test.blas1.edge.test...`), so a filter can pick
 a file. The qemu rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>` (`macmini-m6` by

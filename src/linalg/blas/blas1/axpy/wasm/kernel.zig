@@ -13,30 +13,25 @@
 const coretypes = @import("../../../cpu/_coretypes.zig");
 const registry = @import("../../../asm_registry.zig");
 const Vtable = @import("../../../Vtable.zig");
-const util = @import("../../../util.zig");
 const kernel = @import("../kernel.zig");
 const simd = @import("simd.zig");
 
-const Slot = util.Slot;
-
 pub const Core = coretypes.WasmCoreType;
 
-/// Whether `slot` has a kernel of its own on `core`.
-pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-    return core == .wasm128_generic and !kernel.form(slot).complex;
-}
+/// The hand ports and where they serve.
+pub const ports = [_]registry.Port(Core){
+    .{ .module = kernel.Ported(simd), .cores = &.{.wasm128_generic}, .slots = &.{ .saxpy_k, .daxpy_k }, .written = .vector },
+};
 
-/// Whether `core` has any axpy kernel of its own.
-pub fn has(comptime core: Core) bool {
-    return core == .wasm128_generic;
-}
+const P = registry.Ports(Core, "wasm", &ports);
+
+pub const hasSlot = P.hasSlot;
+pub const has = P.has;
 
 /// Exports every axpy kernel `core` has. Call from a container-level `comptime`
 /// block of the object's root file.
 pub fn exportCore(comptime core: Core) void {
-    if (comptime core != .wasm128_generic) return;
-    registry.exportKernel(&simd.Real(f32).call, .saxpy_k, core);
-    registry.exportKernel(&simd.Real(f64).call, .daxpy_k, core);
+    inline for (kernel.slots) |slot| P.exportOne(slot, core);
 }
 
 /// Points the vtable at the kernels `core` has.

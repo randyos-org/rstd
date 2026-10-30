@@ -32,7 +32,7 @@ zig build remote-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> \
 - **Accelerate is in another class wherever SME can work.** Single-threaded
   `sgemm` runs at up to 1,923 GFLOP/s, 15 times OpenBLAS and 13 times the
   NEON peak of 149.5; `dgemm` reaches 511, 8 times. No core's NEON pipes do
-  that: this is the SME unit (`FEAT_SME`, `FEAT_SME2`), AMX's successor.
+  that: this is the SME unit (`FEAT_SME`, `FEAT_SME2`), similar in design to the undocumented AMX of M1 to M3 (Remke and Breuer, "Hello SME! Generating Fast Matrix Multiplication Kernels Using the Scalable Matrix Extension", 2024, <https://arxiv.org/abs/2409.18779>).
   With 1 MiB vectors, level 1 runs at 2.6 to 8.3 times OpenBLAS (all but
   `asum`, `i?amax`, complex `dot` and `dznrm2`), and `gemv` in L2
   at 6.6 to 18 times (`sgemv_n` 476 GFLOP/s): rates past a NEON core's,
@@ -74,7 +74,8 @@ zig build remote-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> \
   of user time in 29.56 s, so nothing ran on a second core.
 - **Threads:** the bench sets `OPENBLAS_NUM_THREADS=1` and
   `VECLIB_MAXIMUM_THREADS=1` before it `dlopen`s the libraries, except for
-  the one labeled default-threading gemm run.
+  the one labeled default-threading gemm run. rstd's routines ran on
+  `Io.failing`, one thread, in every run.
 
 ## Method
 
@@ -383,7 +384,7 @@ gemm `NN`, square, `C += A*B`, GFLOP/s. rstd has no complex gemm yet.
 ### Default threading
 
 Both libraries as they come: OpenBLAS with 12 threads, Accelerate
-multi-threaded. rstd and `ob .S` stay single-threaded. The clock read 4.47
+multi-threaded. rstd (`Io.failing`) and `ob .S` stay single-threaded. The clock read 4.47
 GHz at the start and end of this run.
 
 | p | n | openblas | rstd | ob .S | accelerate | rstd/ob | ob .S/ob | accel/ob |

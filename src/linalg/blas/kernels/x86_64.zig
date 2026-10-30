@@ -8,11 +8,8 @@
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
-const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
-
-const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
 
@@ -34,20 +31,15 @@ const converted = .{
     @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
 
-/// The `@Vector` kernels go over those.
-const modules = converted ++ .{vector.Registry(Core, usesVector)};
-
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those
 /// routed for their alignment (`vector.peels`) only on the cores whose
 /// upstream assembly they replace, which is not converted (`skips`).
-fn usesVector(comptime core: Core, comptime slot: Slot) bool {
-    if (!vector.routed(slot)) return false;
-    if (!vector.peels(slot)) return true;
-    inline for (converted) |m| {
-        if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
-    }
-    return false;
-}
+const vector_rule: vector.Rule(Core) = .{ .routed = null };
+
+const Vector = vector.Registry(Core, vector_rule, converted);
+
+/// The `@Vector` kernels go over those.
+const modules = converted ++ .{Vector};
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {
@@ -87,7 +79,7 @@ test "the @Vector kernels take every slot whose peeling assembly was left out" {
             const left_out = comptime for (peeling_asm) |a| {
                 if (a.skips(core, slot)) break true;
             } else false;
-            if (left_out and !usesVector(core, slot)) {
+            if (left_out and !Vector.uses(core, slot)) {
                 std.debug.print("{t} {t}\n", .{ core, slot });
                 return error.TestUnexpectedResult;
             }

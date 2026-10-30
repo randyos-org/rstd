@@ -27,10 +27,12 @@ pub fn install(vt: *Vtable) void {
 /// What follows from the kernels `vt` ends with; again after a core's:
 /// the bfloat16-named slots with no kernel of their own point at the `f32`
 /// kernels (`ext/bf16/kernel.zig`), and the gemm unrolls are those of the
-/// portable kernels wherever those stayed (`blas3/gemm/kernel.zig`).
+/// portable kernels wherever those stayed (`blas3/gemm/kernel.zig`, and the
+/// half-precision ones).
 pub fn finish(vt: *Vtable) void {
     bf16_kernel.alias(vt);
     blas3.gemm.kernel.settle(vt);
+    bf16_kernel.settleGemm(vt);
 }
 
 // ---- type dispatch ---------------------------------------------------------
@@ -155,6 +157,43 @@ pub const Op = enum {
     trsm_oltncopy,
     neg_tcopy,
     laswp_ncopy,
+    gemm3m_kernel,
+    gemm3m_incopyb,
+    gemm3m_incopyr,
+    gemm3m_incopyi,
+    gemm3m_itcopyb,
+    gemm3m_itcopyr,
+    gemm3m_itcopyi,
+    gemm3m_oncopyb,
+    gemm3m_oncopyr,
+    gemm3m_oncopyi,
+    gemm3m_otcopyb,
+    gemm3m_otcopyr,
+    gemm3m_otcopyi,
+    symm3m_iucopyb,
+    symm3m_iucopyr,
+    symm3m_iucopyi,
+    symm3m_ilcopyb,
+    symm3m_ilcopyr,
+    symm3m_ilcopyi,
+    symm3m_oucopyb,
+    symm3m_oucopyr,
+    symm3m_oucopyi,
+    symm3m_olcopyb,
+    symm3m_olcopyr,
+    symm3m_olcopyi,
+    hemm3m_iucopyb,
+    hemm3m_iucopyr,
+    hemm3m_iucopyi,
+    hemm3m_ilcopyb,
+    hemm3m_ilcopyr,
+    hemm3m_ilcopyi,
+    hemm3m_oucopyb,
+    hemm3m_oucopyr,
+    hemm3m_oucopyi,
+    hemm3m_olcopyb,
+    hemm3m_olcopyr,
+    hemm3m_olcopyi,
 };
 
 /// The module whose `Portable(T)` builds `op`'s kernel.

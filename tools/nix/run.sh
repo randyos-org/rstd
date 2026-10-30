@@ -7,6 +7,8 @@
 # died before it started.
 #
 #   run.sh <jobs> <qemu argv>...
+#
+# `@qemu-data@` in an argument becomes QEMU's data directory.
 set -u
 d=$PWD
 q=
@@ -16,6 +18,10 @@ trap 'if [ -n "$q" ]; then kill "$q" 2>/dev/null; fi; exit 143' TERM
 trap '' PIPE
 jobs=$1
 shift
+# `@qemu-data@` in an argument: QEMU's data directory (its firmware)
+q_data=$(dirname "$(dirname "$(command -v "$1")")")/share/qemu
+q_tag=@qemu-data@
+set -- "${@//"$q_tag"/$q_data}"
 # this run's lock, held while it lives; a run killed before getting here (in
 # the copy) leaves a directory no one holds, which a later run removes a day
 # on (older than any run, and than runs from before the lock)

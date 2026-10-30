@@ -26,7 +26,8 @@ A Linux VM on this PC's own CPU under WHPX. Part of the
 - **Threads:** one each (`OPENBLAS_NUM_THREADS`, `BLIS_NUM_THREADS`,
   `OMP_NUM_THREADS` and the set-threads calls); default threading:
   OpenBLAS 8 (the VM's CPUs), BLIS still 1 (its own default without an
-  environment variable).
+  environment variable). rstd ran on `Io.failing` in every row, so one
+  thread either way.
 - **When:** 2026-10-27, 06:33 to 06:38 and 06:38 to 06:40 CDT, with no
   other `zig` or `qemu-system` process running on the PC.
 
@@ -302,7 +303,7 @@ GB/s; ratios are over openblas.
 
 ### Default threading
 
-The libraries at their own thread counts; rstd one thread.
+The libraries at their own thread counts; rstd one thread (`Io.failing`).
 
 | p | n | openblas | rstd | blis | rstd/ob | blis/ob | rstd-ob | rstd-blis | rstd err | rstd bits |
 | - | -: | -: | -: | -: | -: | -: | -: | -: | -: | --- |

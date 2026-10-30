@@ -28,6 +28,33 @@ pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
     return @ptrFromInt(new_addr);
 }
 
+/// `@abs(v)` of a float or float vector; on MIPS MSA by clearing the sign
+/// bits with a mask LLVM cannot see is one: there it takes `fmax_a.df v, v, v`
+/// for a vector `@abs`, a plain mask, or scalar ones it packs, which keeps
+/// the sign (`issues.md`); MSA has no other float lanes than `f32`, `f64`.
+/// Use it wherever an MSA build may vectorize `|x|`.
+pub fn abs(v: anytype) @TypeOf(v) {
+    const T = @TypeOf(v);
+    const F = if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T;
+    if (comptime !msa or (F != f32 and F != f64)) return @abs(v);
+    const lanes = comptime if (@typeInfo(T) == .vector) @typeInfo(T).vector.len else 1;
+    const words = @sizeOf(F) / 4;
+    const n = lanes * words;
+    const k = asm (""
+        : [k] "=r" (-> u32),
+        : [x] "0" (@as(u32, 0x7fff_ffff)),
+    );
+    // the sign's word of each float: its last, or on big-endian its first
+    const top = comptime if (sysinfo.target.cpu.arch.endian() == .little) words - 1 else 0;
+    var mask: [n]u32 = @splat(0xffff_ffff);
+    inline for (0..n) |i| {
+        if (i % words == top) mask[i] = k;
+    }
+    return @bitCast(@as(@Vector(n, u32), @bitCast(v)) & @as(@Vector(n, u32), mask));
+}
+
+const msa = sysinfo.target.cpu.arch.isMIPS() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
+
 /// The symbol of `core`'s kernel for `slot` (`blaskern_daxpy_k_haswell`). The
 /// per-core objects (`build/blaskern.zig`) export it, with hidden visibility so it
 /// never leaves a shared library rstd is built into, and `kernels/<arch>.zig`'s
@@ -52,9 +79,11 @@ pub inline fn store(comptime V: type, p: [*]@typeInfo(V).vector.child, v: V) voi
 }
 
 /// Whether `@Vector` arithmetic in `F` keeps denormals on this target. Not
-/// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says, nor on
-/// AltiVec without VSX, which flushes under `VSCR[NJ]`, as Linux and QEMU
-/// start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
+/// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says (Arm DDI
+/// 0601 2026-09, AArch32 `FPSCR.FZ`), nor on
+/// AltiVec without VSX, which flushes under `VSCR[NJ]`, as Linux (v6.17
+/// `arch/powerpc/kernel/process.c:1995`) and QEMU (v10.1.0
+/// `target/ppc/cpu_init.c:4157`, `vscr_init(env, 0x00010000)`) start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
 /// operations, as it does every vector under a soft-float ABI. Kernels take
 /// their scalar path where this is false (`comparisons.md`, 10). LLVM's
 /// auto-vectorizer keeps off NEON's `f32` but not AltiVec's: the AltiVec
@@ -147,9 +176,9 @@ pub fn fitsMatrix(rows: isize, cols: isize, ld: isize, size: usize) bool {
 /// `nrm2`'s algorithm at 64 bits, for the portable and `@Vector` kernels:
 /// Blue's, as Reference-LAPACK 3.10's `BLAS/SRC/dnrm2.f90` has it
 /// (Anderson, "Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS
-/// 44(1), 2017): one pass summing the squares of small, medium and big
-/// magnitudes apart, each scaled by a power of two so none overflows or
-/// underflows; no division. Infinite for an infinity, NaN for a NaN.
+/// 44(1), 1-28, 2017, <https://doi.org/10.1145/3061665>): one pass summing
+/// the squares of small, medium and big magnitudes apart, each scaled by a
+/// power of two so none overflows or underflows; no division. Infinite for an infinity, NaN for a NaN.
 pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x: isize) F {
     // Fortran's `digits`, `minexponent` and `maxexponent`
     const digits = std.math.floatMantissaBits(F) + 1;
@@ -325,6 +354,9 @@ const FpReg = struct {
 const fp_cpu = sysinfo.target.cpu;
 const fp_hard = sysinfo.target.abi.float() == .hard;
 const fp_x87 = fp_cpu.arch.isX86() and std.Target.x86.featureSetHas(fp_cpu.features, .x87);
+/// The self-hosted x86_64 backend takes no `(%reg)` operand; it gets `m`
+/// operands, which LLVM misreads as inputs (issues.md).
+const fp_mem_ops = sysinfo.zig_backend == .stage2_x86_64;
 
 const fp_reg: ?FpReg = switch (fp_cpu.arch) {
     .x86, .x86_64 => if (std.Target.x86.featureSetHas(fp_cpu.features, .sse)) .{ .Int = u32, .ctl = 0xffc0, .rounding = 0xe000, .toward_zero = 0xe000 } else null,
@@ -343,7 +375,9 @@ const fp_reg: ?FpReg = switch (fp_cpu.arch) {
 
 fn x87Word() u16 {
     var w: u16 = undefined;
-    asm volatile ("fnstcw (%[p])"
+    if (comptime fp_mem_ops) asm volatile ("fnstcw %[w]"
+        : [w] "=m" (w),
+    ) else asm volatile ("fnstcw (%[p])"
         :
         : [p] "r" (&w),
         : .{ .memory = true });
@@ -351,7 +385,10 @@ fn x87Word() u16 {
 }
 
 fn setX87Word(w: u16) void {
-    asm volatile ("fldcw (%[p])"
+    if (comptime fp_mem_ops) asm volatile ("fldcw %[w]"
+        :
+        : [w] "m" (w),
+        : .{ .memory = true }) else asm volatile ("fldcw (%[p])"
         :
         : [p] "r" (&w),
         : .{ .memory = true });
@@ -361,7 +398,9 @@ fn readFp() fp_reg.?.Int {
     switch (fp_cpu.arch) {
         .x86, .x86_64 => {
             var v: u32 = undefined;
-            asm volatile ("stmxcsr (%[p])"
+            if (comptime fp_mem_ops) asm volatile ("stmxcsr %[v]"
+                : [v] "=m" (v),
+            ) else asm volatile ("stmxcsr (%[p])"
                 :
                 : [p] "r" (&v),
                 : .{ .memory = true });
@@ -402,7 +441,10 @@ fn readFp() fp_reg.?.Int {
 
 fn writeFp(v: fp_reg.?.Int) void {
     switch (fp_cpu.arch) {
-        .x86, .x86_64 => asm volatile ("ldmxcsr (%[p])"
+        .x86, .x86_64 => if (comptime fp_mem_ops) asm volatile ("ldmxcsr %[v]"
+            :
+            : [v] "m" (v),
+            : .{ .memory = true }) else asm volatile ("ldmxcsr (%[p])"
             :
             : [p] "r" (&v),
             : .{ .memory = true }),

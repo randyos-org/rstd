@@ -36,6 +36,7 @@ pub const Diag = types.Diag;
 pub const Side = types.Side;
 pub const Extreme = l1.Extreme;
 pub const HalfGemv = l2.HalfGemv;
+pub const HalfGemm = blas3.half.HalfGemm;
 
 /// Level 1: a stride past the address space, or `error.Canceled`.
 pub const Level1Error = l1.Error;
@@ -45,6 +46,12 @@ pub const Level2Error = l2.Error;
 pub const GemvHalfError = l2.HalfError;
 /// Level 3: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const Level3Error = l3.Error;
+/// `gemmtHalf`, which allocates nothing: `Level3Error` less `OutOfMemory`.
+pub const GemmtHalfError = blas3.half.HalfError;
+/// The batched gemms: `Level3Error` and `error.InvalidCount`.
+pub const BatchError = blas3.batch.Error;
+/// One group of `gemmBatch` or `gemmHalfBatch`, by input and output type.
+pub const GemmGroup = blas3.batch.Group;
 /// The extensions (`geadd`, `omatcopy`, `imatcopy`, `laswp`): bad arguments,
 /// `error.OutOfMemory` (`imatcopy`) or `error.Canceled`.
 pub const ExtError = ext.interface.Error;
@@ -112,11 +119,21 @@ pub const her2k = l3.her2k;
 pub const trmm = l3.trmm;
 pub const trsm = l3.trsm;
 pub const gemmt = l3.gemmt;
+pub const gemm3m = l3.gemm3m;
+pub const symm3m = l3.symm3m;
+pub const hemm3m = l3.hemm3m;
 
 pub const geadd = ext.interface.geadd;
 pub const omatcopy = ext.interface.omatcopy;
 pub const imatcopy = ext.interface.imatcopy;
 pub const laswp = ext.interface.laswp;
+
+pub const gemmHalf = blas3.half.gemmHalf;
+pub const gemmtHalf = blas3.half.gemmtHalf;
+pub const gemmBatch = blas3.batch.gemmBatch;
+pub const gemmBatchStrided = blas3.batch.gemmBatchStrided;
+pub const gemmHalfBatch = blas3.batch.gemmHalfBatch;
+pub const gemmHalfBatchStrided = blas3.batch.gemmHalfBatchStrided;
 
 // ---- selection and the vtable ----------------------------------------------------
 
@@ -130,7 +147,7 @@ var _vtable: Vtable = generic_vtable;
 /// The vtable before `init` and after `shutdown`: the portable kernels, where
 /// there are any.
 const generic_vtable: Vtable = blk: {
-    @setEvalBranchQuota(100_000);
+    @setEvalBranchQuota(1_000_000);
     var vt: Vtable = .{};
     portable.install(&vt);
     break :blk vt;

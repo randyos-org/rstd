@@ -208,6 +208,27 @@ pub const Arch = struct {
     /// Stops the generator on a statement some target of this architecture
     /// cannot take (`nakedLines`'s output, one statement each).
     check: ?*const fn (source: []const u8, statement: []const u8) void = null,
+
+    /// Whether the toolchain can assemble `source`: not `unsupported`, nor a
+    /// Blue Gene `*_hummer.S`, whose double-FPU instructions LLVM lacks.
+    pub fn assembles(ar: Arch, source: []const u8) bool {
+        for (ar.unsupported) |u| {
+            if (std.mem.eql(u8, u, source)) return false;
+        }
+        return std.mem.find(u8, source, "_hummer") == null;
+    }
+};
+
+/// Every architecture the generator converts.
+pub const all = [_]Arch{
+    @import("x86_64.zig").x86_64,
+    @import("arm64.zig").arm64,
+    @import("loongarch64.zig").loongarch64,
+    @import("mips64.zig").mips64,
+    @import("arm.zig").arm,
+    @import("power.zig").power,
+    @import("x86.zig").x86,
+    @import("sparc.zig").sparc,
 };
 
 pub fn isDotS(source: []const u8) bool {

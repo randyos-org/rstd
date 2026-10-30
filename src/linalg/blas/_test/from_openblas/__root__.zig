@@ -1,11 +1,12 @@
 //! OpenBLAS's own test suites, ported to rstd's interfaces: the reference
 //! BLAS test programs (`test/[sdcz]blat[123].f` and their `.dat` inputs),
-//! their CBLAS versions (`ctest/`) and the unit tests (`utest/`), all from
+//! their CBLAS versions (`ctest/`), the unit tests (`utest/`) and the half
+//! precision comparisons (`test/compare_*.c`), all from
 //! OpenBLAS v0.3.34-317 (commit a69062524). Each file names its sources. The
 //! sweep tables, data and expected values are transcribed mechanically; if
 //! they go stale, re-derive them from those files rather than edit them.
 //!
-//! The heavy sweeps run their `.dat` tables natively; on the qemu rigs
+//! The heavy sweeps run their `.dat` tables natively; on the rigs and WASI
 //! (`reduced`) they take the smaller table each program's header documents.
 //! One more test runs every suite, on that table, on each linked core the
 //! machine runs (`check.eachCore`).
@@ -29,6 +30,7 @@ const types = @import("../../types.zig");
 const check = @import("../blas1/check.zig");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
+const util = @import("../../util.zig");
 
 pub const Float = types.Float;
 pub const isComplex = types.isComplex;
@@ -42,12 +44,12 @@ pub fn letter(comptime E: type, c: u8) ?E {
     return std.meta.stringToEnum(E, &.{std.ascii.toLower(c)});
 }
 
-/// On a qemu rig: freestanding (32 MiB heap, 1 MiB stack, emulated), or the
+/// On a rig: freestanding (32 MiB heap, 1 MiB stack, emulated), WASI, or the
 /// Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
 pub fn reduced() bool {
     return switch (sysinfo.target.os.tag) {
         .linux => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
-        .freestanding, .other, .uefi => true,
+        .freestanding, .other, .uefi, .wasi => true,
         else => false,
     };
 }
@@ -93,7 +95,7 @@ pub fn conj(a: anytype) @TypeOf(a) {
 
 /// `|re| + |im|`, the Fortran's `ABS1`; `|v|` for a real `v`.
 pub fn abs1(v: anytype) Float(@TypeOf(v)) {
-    return if (comptime isComplex(@TypeOf(v))) @abs(v.re) + @abs(v.im) else @abs(v);
+    return if (comptime isComplex(@TypeOf(v))) util.abs(v.re) + util.abs(v.im) else util.abs(v);
 }
 
 /// The modulus, the Fortran's `ABS`.
@@ -159,6 +161,7 @@ const blat2 = @import("blat2.zig");
 const blat3 = @import("blat3.zig");
 const utest = @import("utest.zig");
 const utest_ext = @import("utest_ext.zig");
+const compare = @import("compare.zig");
 
 /// `suite` on `vt`'s kernels, the sweeps on the rigs' table. The suites go
 /// in pieces, so each test fits a rig image (`build/qemutest.zig`'s
@@ -173,10 +176,17 @@ fn OnCore(comptime suite: fn () anyerror!void) fn (*const Vtable) anyerror!void 
     }.run;
 }
 
-fn level1() anyerror!void {
+fn level1Blat1() anyerror!void {
     try blat1.all();
+}
+
+fn level1Utest() anyerror!void {
     try utest.all();
     try utest_ext.all();
+}
+
+fn level1UtestExt2() anyerror!void {
+    try utest_ext.level2All();
 }
 
 fn Level2(comptime T: type) type {
@@ -190,10 +200,20 @@ fn Level2(comptime T: type) type {
 fn level3() anyerror!void {
     try blat3.all(&blat2.rig_n);
     try utest.lapackAll();
+    try utest_ext.level3All();
+    try compare.all(true);
 }
 
-test "the level-1 suites on every linked core this machine runs" {
-    try check.eachCore(OnCore(level1));
+test "the level-1 suites, blat1, on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1Blat1));
+}
+
+test "the level-1 suites, utest, on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1Utest));
+}
+
+test "the level-1 suites, utest_ext's level-2 cases, on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1UtestExt2));
 }
 
 test "the level-2 suite at f32 on every linked core this machine runs" {
@@ -222,4 +242,5 @@ test {
     _ = blat3;
     _ = utest;
     _ = utest_ext;
+    _ = compare;
 }

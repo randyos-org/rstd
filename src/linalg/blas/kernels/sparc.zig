@@ -3,19 +3,20 @@
 //! `cpu/sparc.zig` points the vtable at them. The build (`build/blaskern.zig`)
 //! asks it which cores need an object at all.
 //!
-//! Add a routine to `modules` to wire it in.
+//! Add a routine to `converted` to wire it in.
 
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
 const Vtable = @import("../Vtable.zig");
+const vector = @import("../vector.zig");
 
 pub const Core = coretypes.SparcCoreType;
 
 /// Every routine with kernels here: each routine's converted assembly (its
 /// `asm/__root__.zig`), and `axpy`'s own module, which adds the kernels
 /// upstream writes in C.
-const modules = .{
+const converted = .{
     @import("../blas1/axpy/sparc/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/asum/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/sparc/asm/__root__.zig")),
@@ -26,6 +27,12 @@ const modules = .{
     registry.Kernels(Core, @import("../blas2/gemv/sparc/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
 };
+
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots.
+const vector_rule: vector.Rule(Core) = .{ .routed = null };
+
+/// The `@Vector` kernels go over those.
+const modules = converted ++ .{vector.Registry(Core, vector_rule, converted)};
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {

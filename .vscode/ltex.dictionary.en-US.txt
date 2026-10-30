@@ -25,11 +25,13 @@ addss
 adjtimex
 adrp
 Adwaita
+aeabi
 AESKLE
 AESNI
 afs_syscall
 aghi
 ahci
+airportd
 alarm
 ALFB
 alphabg
@@ -49,6 +51,7 @@ andq
 ands
 andx
 anorm
+AOCL
 APFS
 apos
 applesmc
@@ -70,6 +73,7 @@ asrs
 astgen
 asum
 atanm
+atemp
 athlon
 audiodev
 audiomxd
@@ -122,6 +126,7 @@ Blobby
 blr
 blt
 bne
+bogusinsn
 bootdbg
 bootefi
 bootfs
@@ -142,6 +147,7 @@ buildah
 buildutils
 bvec
 bytecode
+byval
 cachestat
 callgsubr
 callsubr
@@ -149,6 +155,7 @@ camax
 camin
 capget
 capset
+Carrizo
 Cavium
 caxpby
 caxpy
@@ -200,6 +207,7 @@ close
 close_range
 clzg
 CMOV
+cmovb
 cmp
 cmpd
 cmpdi
@@ -209,6 +217,7 @@ cmplw
 cmpq
 cmpwi
 CMPXCHG
+cmul
 cneg
 cnrm
 cntx
@@ -244,6 +253,7 @@ cqty
 creat
 create_module
 creds
+crot
 CROTG
 cscal
 csep
@@ -281,6 +291,7 @@ dcbz
 dcgettext
 dcigettext
 dcimgui
+DCMX
 dcngettext
 ddot
 decl
@@ -297,6 +308,7 @@ devtmpfs
 dgeadd
 dgemm
 dgemv
+DGEMVTKERNEL
 dger
 dgesvd
 dgettext
@@ -324,12 +336,15 @@ dotni
 dotu
 dotv
 downscaling
+dpotrf
 drot
 drotm
 dsbdot
 dscal
 dsdot
+DSDOTKERNEL
 dsll
+dspr
 dsra
 dsum
 dswap
@@ -394,6 +409,7 @@ ELIBEXEC
 ELIBMAX
 ELIBSCN
 elidable
+Elmar
 ELNRNG
 emag
 embedders
@@ -444,6 +460,7 @@ exit_group
 EXITBS
 EXLCK
 EXPRECISION
+extractf
 faccessat
 faccessat2
 fadd
@@ -452,6 +469,7 @@ faddp
 fadds
 FADT
 fadvise64
+faer
 falkor
 fallocate
 fanotify_init
@@ -487,8 +505,10 @@ fcmatch
 fcmatrix
 FCMLA
 FCMOV
+fcmovnbe
 fcmp
 fcmpu
+FCMPUD
 fcname
 fcntl
 fcobjs
@@ -499,6 +519,7 @@ fcprivate
 fcptrlist
 fcrange
 fcserialize
+FCSR
 fcstat
 fcstr
 fcvtl
@@ -538,6 +559,7 @@ fmacd
 FMACROS
 fmacs
 fmadd
+fmaddd
 fmadds
 fmla
 fmls
@@ -555,6 +577,7 @@ FNMSUB
 fnmsubs
 fontdicts
 fork
+fpcvt
 fpgm
 fpmadd
 fpmr
@@ -562,6 +585,7 @@ FreeType
 fremovexattr
 frob
 Frobenius
+frsqrte
 fsconfig
 fsetxattr
 FSGSBASE
@@ -623,6 +647,7 @@ futimesat
 fvar
 FWAIT
 fwidth
+fxch
 fxcpmadd
 fxcpnsma
 fxcxma
@@ -630,22 +655,27 @@ fxcxnpma
 FXMADD
 FXRSTOR
 fxsr
+fxstate
 FXWSAVE
 gamsq
 GBMV
+gbtrf
 gdb
 gdkwayland
 gdkx
 geadd
 gecon
+geev
 gehrd
 Geijn
 gemmt
 gemmtrsm
 gemv
 geqp
+geqrf
 gerc
 gerv
+gesdd
 gesv
 gesvd
 get_kernel_syms
@@ -657,6 +687,7 @@ getcwd
 getdents
 getdents64
 getegid
+getelementptr
 geteuid
 getf
 GETFD
@@ -731,11 +762,14 @@ HarfBuzz
 hasc
 hbmv
 hcall
+heevd
+hegst
 hemm
 hemv
 HEMVREV
 herk
 hetrd
+hetrf
 hflex
 HFLOAT
 hhcurveto
@@ -757,6 +791,7 @@ HVAR
 hvcurveto
 HWCAP
 hwcaps
+hwdiv
 HWPOISON
 hwprobe
 hygon
@@ -765,6 +800,7 @@ iamaxk
 ICACHEBSIZE
 icamin
 icmax
+icmin
 ICOPY
 idat
 Idents
@@ -867,6 +903,9 @@ iutucopy
 ivalue
 ixamin
 izamin
+izmax
+izmin
+jalr
 jirl
 jle
 jmp
@@ -922,6 +961,7 @@ ld
 LDARG
 Ldaxpy
 ldc
+LDLONG
 ldp
 ldr
 leal
@@ -958,6 +998,7 @@ libm
 libopenblas
 libvaxis
 libxev
+LICM
 lidt
 link
 linkat
@@ -973,6 +1014,7 @@ LNUN
 LOADIWKEY
 logm
 lookup_dcookie
+loongfuse
 loongsongeneric
 loup-os
 LoupOS
@@ -994,11 +1036,14 @@ LTLN
 LTUN
 Luszczek
 lwc
+lxsd
+lxsdx
 lxv
 lxvd
 lxvx
 Lzaxpy
 lzma
+machineinstrs
 madd
 maddf
 madt
@@ -1009,6 +1054,7 @@ map_shadow_stack
 markdownlint
 MATFN
 matmul
+mattr
 mavx
 MAXIOV
 maxit
@@ -1035,6 +1081,7 @@ migrate_pages
 mincore
 MINSIGSTKSZ
 mipsel
+mipsisa
 miscompile
 mitchellh
 mkdir
@@ -1067,6 +1114,7 @@ movhlps
 movhpd
 movhps
 movl
+movlhps
 movlpd
 movlps
 MOVNTI
@@ -1088,6 +1136,7 @@ mq_unlink
 mrdivide
 mremap
 Mroot
+MSAP
 MSDF
 MSDF-based
 msdfgen
@@ -1102,6 +1151,7 @@ msse
 mssse
 mstatus
 MSUB
+MSUBF
 MSVC
 msync
 MSYS
@@ -1109,6 +1159,7 @@ mtctr
 mtlr
 mtmsr
 mtmsrd
+mtriple
 mtrr
 MTRRs
 mtsdf
@@ -1127,6 +1178,7 @@ MVAR
 mvec
 mvghi
 MWAIT
+mydot
 mzvector
 name_to_handle_at
 nanoftp
@@ -1214,6 +1266,8 @@ openat2
 openblas
 opteron
 Opto
+orgqr
+ormqr
 ortr
 os
 osascript
@@ -1243,6 +1297,7 @@ paeth
 PAGESZ
 PAPR
 parallelize
+partitioner
 PascalCase
 PascalCased
 passthrough
@@ -1257,6 +1312,7 @@ PCLT
 pcmpeqb
 pdcm
 pdict
+Peise
 penryn
 perf_event_open
 personality
@@ -1295,6 +1351,7 @@ pollfd
 pollfds
 popfq
 popl
+portrv
 potf
 potrf
 potri
@@ -1413,6 +1470,7 @@ recompiles
 recvfrom
 recvmmsg
 recvmsg
+relapack
 relaxng
 remap_file_pages
 removexattr
@@ -1446,6 +1504,7 @@ rmod
 rmove
 rmoveto
 rnglists
+rntm
 rodata
 rootsi
 rootsr
@@ -1605,6 +1664,7 @@ setv
 setxattr
 setxattrat
 sfloat
+sfmin
 sfnm
 sfnt
 sgeadd
@@ -1665,6 +1725,7 @@ slwi
 smap
 smax
 smef
+Smelyanskiy
 SMEP
 smin
 SMSW
@@ -1690,6 +1751,7 @@ spki
 splice
 SPMV
 sqrtm
+sqrtq
 sradi
 srai
 srawi
@@ -1767,6 +1829,8 @@ swapj
 swapoff
 swapon
 swc
+syevd
+sygst
 symlink
 symlinkat
 symv
@@ -1784,12 +1848,15 @@ SYSEXIT
 sysfs
 sysinfo
 syslog
+sysmond
 sysroot
 systemd
 Systemd
 systemd-udevd
 SYSTIMER
 sysv
+sysvcc
+sytrf
 taxpy
 taxpyc
 TBB's
@@ -1807,6 +1874,8 @@ texels
 textunderstandingd
 tgkill
 thisreallyprobablydoesntexist
+thrcomm
+thrtests
 thumbeb
 thunderx
 Tiano
@@ -1847,6 +1916,7 @@ trmm
 trmv
 trsm
 trsv
+trsyl
 trti
 trtri
 trtrs
@@ -1854,7 +1924,9 @@ TrueType
 TrueType-style
 truncate
 tsml
+tstdc
 TSUFFIX
+ttysclp
 Turbopack
 tuxcall
 tvec
@@ -1888,6 +1960,7 @@ unconj
 unenc
 unflushed
 unfused
+ungqr
 unlink
 unlinkat
 unloop
@@ -1898,6 +1971,7 @@ unpcklps
 unref
 unshare
 unsuffixed
+untransposed
 unvectorizable
 unwrite
 Uplo
@@ -1918,6 +1992,7 @@ utimensat
 utimes
 utsname
 uucode
+vadd
 vaddpd
 vaddr
 valpha
@@ -1926,6 +2001,7 @@ vaxis
 vbroadcastsd
 vbroadcastss
 vclose
+vcmpe
 vcubic
 vcurve
 vdevice
@@ -1942,11 +2018,13 @@ vfma
 vfmadd
 vfmaddpd
 vfmaddps
+vfmaq
 vfmsub
 vfmul
 vfork
 VFPD
 vfpv
+VFRC
 vfsub
 vhangup
 vhcurveto
@@ -1993,12 +2071,14 @@ vpickod
 vreplgr
 vscale
 vserver
+VSFRC
 vst
 vstelm
 vstem
 vstemhm
 vstm
 vstmia
+vsubfp
 vsyscall
 VVAR
 vvcurveto
@@ -2071,6 +2151,7 @@ xcframework
 xcframeworks
 xcfw
 xcodeproject
+XCONJ
 xcopy
 xdotc
 xdotu
@@ -2110,14 +2191,18 @@ XSAVES
 xscal
 xscale
 xscmpudp
+xscvdpqp
 xscvdpspn
 XSDP
 xsdt
 XSETBV
+XSTSTDC
+xststdcdp
 xststdcsp
 xswap
 xsymm
 xsymv
+xtemp
 xtheadvector
 xtpr
 xtrmm
@@ -2184,6 +2269,8 @@ zgerd
 zgeru
 zgerv
 ZGESL
+zgetf
+zgetrs
 zhbmv
 zhemm
 zhemv
@@ -2208,6 +2295,7 @@ zomatcopy
 zpart
 zparts
 ZPOFA
+zpotf
 ZQRDC
 ZQRSL
 zrot

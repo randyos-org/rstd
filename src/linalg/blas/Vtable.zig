@@ -1,7 +1,8 @@
 //! Zig translation of OpenBLAS's `gotoblas_t` (the per-core-type kernel
 //! dispatch table), mechanically derived from `common_param.h` in
 //! https://github.com/OpenMathLib/OpenBLAS at commit
-//! 9724481b599bb75fd260a9e7e991b445ef02a0bd (v0.3.34).
+//! 9724481b599bb75fd260a9e7e991b445ef02a0bd (v0.3.34-127; `common_param.h` is
+//! unchanged at v0.3.34-317).
 //! Re-derive from that source rather than hand-editing if it goes stale.
 //!
 //! The reference guards most fields behind `BUILD_SINGLE`/`BUILD_DOUBLE`/
@@ -17,7 +18,9 @@
 //! `?gerd_k` (row-major `zgerc`), the `*_direct*` kernels (row-major
 //! `gemm`, `symm`, `syrk`, `syr2k`, `trmm`) and `?omatcopy_k_r*`,
 //! `?imatcopy_k_r*`. Also `sbger_k`, `sbsymv_L` and `sbsymv_U`, which
-//! nothing upstream fills or calls. They are in the git-ignored `unused/`.
+//! nothing upstream calls (v0.3.34-317's `kernel/setparam-ref.c:112-113`
+//! fills them with `sger_k` and `ssymv_L`/`_U`). They are in the git-ignored
+//! `unused/`.
 //!
 //! Import nothing outside `src/linalg/blas/`: the per-core kernel objects
 //! take `*Vtable` too (see `kernels/__root__.zig`). Its test is in

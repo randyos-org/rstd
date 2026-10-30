@@ -14,9 +14,11 @@
 //! Invalid arguments return an `ArgError` naming the argument, where the
 //! reference calls `xerbla` with its number (checked in the same order, so
 //! the first bad argument wins). Every routine takes `io` after its
-//! allocator (first without one) and may return `error.Canceled`, for the
-//! threading to come (`threading.md`); the reference's threaded drivers
-//! would be chosen where marked, and every routine is serial.
+//! allocator (first without one) and may return `error.Canceled`. Above
+//! OpenBLAS's thresholds `gemv` and `ger` thread on `io` (`threading.md`),
+//! each chunk of `y` or of `A`'s columns a serial kernel call of its own;
+//! `symv` and `hemv` add their chunks of columns into partial vectors folded
+//! in chunk order. No result depends on the worker count.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -27,6 +29,7 @@ const sym = @import("symmetric.zig");
 const portable = @import("../portable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
 const accel = @import("../apple_accel.zig");
+const threading = @import("../threading.zig");
 const Op = portable.Op;
 
 const Allocator = std.mem.Allocator;
@@ -154,7 +157,7 @@ pub fn gemv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fits(lenx, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(leny, incy, @sizeOf(T))) return error.InvalidIncy;
-    if (accel.gemv(T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)) return;
+    if (try accel.gemv(io, T, trans, m, n, alpha, a, lda, x, incx, beta, y, incy)) return;
     if (!isOne(T, beta)) scaleY(T, leny, beta, y, incy);
     if (isZero(T, alpha)) return;
     switch (trans) {
@@ -166,24 +169,83 @@ pub fn gemv(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isi
     }
 }
 
-fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
-    _ = io;
+/// Chunks of a threaded level-2 routine start on multiples of this many rows
+/// or columns, so a kernel's row or column tail falls where one call puts
+/// it, and chunks of `y` or `A` stay off each other's cache lines.
+const quantum = 64;
+
+/// `gemv`'s row chunks without a transpose start on multiples of this:
+/// x86_64's kernels take rows in blocks of up to 4096 (`NBMAX`), the last
+/// block's remainder first (`gemv/kernel.zig`), so only whole blocks split.
+const gemv_rows = 4096;
+
+/// The `op` kernel of `T` on `m` by `n`.
+fn gemvCall(comptime T: type, comptime op: Op, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, buf: [*]Float(T)) void {
+    if (comptime isComplex(T)) {
+        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf);
+    } else {
+        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, a, lda, x, incx, y, incy, buf);
+    }
+}
+
+fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (comptime !complex and t.conjX()) return;
     const op = @field(Op, "gemv_" ++ if (complex) @tagName(t) else if (t.transposed()) "t" else "n");
+    const cs = if (complex) 2 else 1;
+    // `gemv_thread.c` splits `y`: rows without a transpose, columns with one
+    const tr = comptime t.transposed();
+    const mu: usize = @intCast(m);
+    const nu: usize = @intCast(n);
+    const p = threading.plan(.gemv, T, threading.product(&.{ mu, nu }), if (tr) nu else mu, .even, if (tr) quantum else gemv_rows);
+    if (p.workers > 1) {
+        const G = struct {
+            m: isize,
+            n: isize,
+            alpha: T,
+            a: [*]T,
+            lda: isize,
+            x: [*]T,
+            incx: isize,
+            y: [*]T,
+            incy: isize,
+            buf: [*]F,
+            at: [threading.chunks_max + 1]usize,
+
+            fn dims(g: *const @This(), c: threading.Chunk) [2]usize {
+                const k = c.end - c.start;
+                return if (tr) .{ @intCast(g.m), k } else .{ k, @intCast(g.n) };
+            }
+
+            fn one(g: *const @This(), c: threading.Chunk) void {
+                const d = g.dims(c);
+                const s: isize = @intCast(c.start);
+                const pa: [*]T = @ptrCast(util.at(T, g.a, if (tr) s * g.lda else s));
+                const py: [*]T = @ptrCast(util.at(T, g.y, s * g.incy));
+                gemvCall(T, op, @intCast(d[0]), @intCast(d[1]), g.alpha, pa, g.lda, g.x, g.incx, py, g.incy, g.buf + g.at[c.index]);
+            }
+        };
+        var g: G = .{ .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .y = y, .incy = incy, .buf = undefined, .at = undefined };
+        // each chunk's buffer on a cache line of its own
+        g.at[0] = 0;
+        for (0..p.chunks.count) |i| {
+            const d = g.dims(p.chunks.get(i));
+            g.at[i + 1] = g.at[i] + std.mem.alignForward(usize, sym.gemvLen(F, cs, d[0], d[1]), 64);
+        }
+        const buf = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), g.at[p.chunks.count]);
+        defer allocator.free(buf);
+        g.buf = buf.ptr;
+        return threading.forEach(io, &p, @as(*const G, &g), G.one);
+    }
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
-    const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, if (complex) 2 else 1, @intCast(m), @intCast(n)));
+    const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, cs, mu, nu));
     defer sc.deinit(allocator);
     // the reference clears its stack buffer for every `trans` but `n` on
-    // x86_64, for `cgemv_t.S` (OpenBLAS #746), which no core here takes; no
+    // x86_64, for `cgemv_t.S` (<https://github.com/OpenMathLib/OpenBLAS/issues/746>,
+    // `interface/zgemv.c:250`, v0.3.34-317), which no core here takes; no
     // kernel here lets what the buffer held reach `y` (`buffers.md`)
-    // the reference threads big problems here (`gemv_thread_*`)
-    if (comptime complex) {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
-    } else {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, a, lda, x, incx, y, incy, sc.ptr);
-    }
+    gemvCall(T, op, m, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
 }
 
 // ---- half-precision gemv -----------------------------------------------------
@@ -270,7 +332,6 @@ pub fn gerc(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, 
 }
 
 fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    _ = io;
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (m < 0) return error.InvalidM;
@@ -283,7 +344,7 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
     if (!util.fits(m, incx, @sizeOf(T))) return error.InvalidIncx;
     if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
     if (isZero(T, alpha)) return;
-    if (accel.ger(T, conj, m, n, alpha, x, incx, y, incy, a, lda)) return;
+    if (try accel.ger(io, T, conj, m, n, alpha, x, incx, y, incy, a, lda)) return;
     const op: Op = comptime if (complex) (if (conj) .gerc_k else .geru_k) else .ger_k;
     const px = first(T, x, m, incx);
     const py = first(T, y, n, incy);
@@ -292,36 +353,91 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
     // (`buffers.md`), where the reference may pass NULL
     const sc: Scratch(F) = if (incx == 1) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
     defer sc.deinit(allocator);
-    const k = portable.fetch(T, op, blas.vtable);
     // the reference passes over a column whose `y` is zero, so an infinity or
     // NaN in `x` stays out of it; the kernels do not, so they get the runs
     // between zeros (one run, the whole matrix, when there are none). A
     // strided `x` is copied once, before the first run, and every run takes
-    // the copy at unit stride: one copy however many runs.
-    var xs = px;
-    var ix = incx;
-    var j: isize = 0;
-    while (j < n) {
-        while (j < n and isZero(T, util.at(T, py, j * incy).*)) j += 1;
-        const j0 = j;
-        while (j < n and !isZero(T, util.at(T, py, j * incy).*)) j += 1;
-        if (j == j0) break;
-        if (ix != 1) {
-            _ = portable.fetch(T, .copy_k, blas.vtable)(m, raw(T, px), incx, sc.ptr, 1);
-            xs = @ptrCast(sc.ptr);
-            ix = 1;
-        }
-        const ys: [*]T = @ptrCast(util.at(T, py, j0 * incy));
-        const as: [*]T = @ptrCast(util.at(T, a, j0 * lda));
-        // the reference threads big problems here (`ger_thread`). Its CBLAS
-        // row-major `zgerc` swaps `m`/`n`, `x`/`y` and their strides and
-        // takes `gerv_k` (`x` conjugated); no row-major layer here.
-        if (comptime complex) {
-            _ = k(m, j - j0, 0, alpha.re, alpha.im, raw(T, xs), ix, raw(T, ys), incy, raw(T, as), lda, sc.ptr);
-        } else {
-            _ = k(m, j - j0, 0, alpha, xs, ix, ys, incy, as, lda, sc.ptr);
-        }
+    // the copy at unit stride: one copy however many runs. The reference's
+    // CBLAS row-major `zgerc` swaps `m`/`n`, `x`/`y` and their strides and
+    // takes `gerv_k` (`x` conjugated); no row-major layer here.
+    var g: Ger(T, op) = .{ .m = m, .n = n, .alpha = alpha, .x = px, .incx = incx, .y = py, .incy = incy, .a = a, .lda = lda, .buf = sc.ptr };
+    // `ger_thread.c` splits the columns
+    const p = threading.plan(.ger, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(n), .even, quantum);
+    if (p.workers > 1) {
+        if (incx != 1) g.copyX();
+        return threading.forEach(io, &p, @as(*const Ger(T, op), &g), Ger(T, op).chunk);
     }
+    g.columns(0, n);
+}
+
+/// `ger`'s runs of columns, whole or in chunks.
+fn Ger(comptime T: type, comptime op: Op) type {
+    return struct {
+        const Self = @This();
+
+        m: isize,
+        n: isize,
+        alpha: T,
+        x: [*]T,
+        incx: isize,
+        y: [*]T,
+        incy: isize,
+        a: [*]T,
+        lda: isize,
+        buf: [*]Float(T),
+
+        fn nonzero(g: *const Self, j: isize) bool {
+            return !isZero(T, util.at(T, g.y, j * g.incy).*);
+        }
+
+        /// `x` copied to the buffer, taken at unit stride from then on.
+        fn copyX(g: *Self) void {
+            _ = portable.fetch(T, .copy_k, blas.vtable)(g.m, raw(T, g.x), g.incx, g.buf, 1);
+            g.x = @ptrCast(g.buf);
+            g.incx = 1;
+        }
+
+        /// Where the part of the run from `r0` that starts at or past `c`
+        /// begins: a multiple of `quantum` past `r0`, so a run's parts make
+        /// its kernel call's column blocks.
+        fn cut(c: isize, r0: isize) isize {
+            if (c <= r0) return r0;
+            return r0 + @divFloor(c - r0 + quantum - 1, quantum) * quantum;
+        }
+
+        fn chunk(g: *const Self, c: threading.Chunk) void {
+            var h = g.*;
+            h.columns(@intCast(c.start), @intCast(c.end));
+        }
+
+        /// The parts of every run that `cut` puts in columns `c0..c1`; `copyX`
+        /// first when they are chunks of a call.
+        fn columns(g: *Self, c0: isize, c1: isize) void {
+            var j = c0;
+            // the run `c0` is in starts before it
+            if (j < g.n and g.nonzero(j)) {
+                while (j > 0 and g.nonzero(j - 1)) j -= 1;
+            }
+            while (j < c1) {
+                while (j < g.n and !g.nonzero(j)) j += 1;
+                const r0 = j;
+                while (j < g.n and g.nonzero(j)) j += 1;
+                if (j == r0) break;
+                const lo = @max(cut(c0, r0), r0);
+                const hi = @min(cut(c1, r0), j);
+                if (lo >= hi) continue;
+                if (g.incx != 1) g.copyX();
+                const ys: [*]T = @ptrCast(util.at(T, g.y, lo * g.incy));
+                const as: [*]T = @ptrCast(util.at(T, g.a, lo * g.lda));
+                const k = portable.fetch(T, op, blas.vtable);
+                if (comptime isComplex(T)) {
+                    _ = k(g.m, hi - lo, 0, g.alpha.re, g.alpha.im, raw(T, g.x), g.incx, raw(T, ys), g.incy, raw(T, as), g.lda, g.buf);
+                } else {
+                    _ = k(g.m, hi - lo, 0, g.alpha, g.x, g.incx, ys, g.incy, as, g.lda, g.buf);
+                }
+            }
+        }
+    };
 }
 
 // ---- symv, hemv --------------------------------------------------------------
@@ -364,39 +480,103 @@ fn mv(allocator: Allocator, io: Io, comptime T: type, comptime base: []const u8,
     }
 }
 
-fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime name: []const u8, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Allocator.Error!void {
-    _ = io;
+fn mvRun(allocator: Allocator, io: Io, comptime T: type, comptime name: []const u8, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     // symv has no `V` and `M` kernels; `symv` returned above for those
     if (comptime !@hasField(Op, name)) unreachable;
     const op = @field(Op, name);
+    const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
     // the portable kernel on a core without its own gemv runs plain loops,
     // which need no buffer (`symmetric.Auto`), as does any type without slots
     const direct = if (comptime portable.slot(T, op)) |s| blk: {
-        const lower = comptime name[name.len - 1] == 'L' or name[name.len - 1] == 'M';
         const kind: sym.Kind = comptime if (name[0] == 's') .symmetric else if (name[name.len - 1] == 'V' or name[name.len - 1] == 'M') .hermitian_rev else .hermitian;
         const auto = sym.Auto(portable.letter(T).?, T, lower, kind);
         break :blk @field(blas.table().*, s) == (if (complex) &auto.cplx else &auto.real) and !auto.native();
     } else true;
+    const nu: usize = @intCast(n);
+    // `symv_thread.c` splits the columns on multiples of 4, balanced by area
+    const p = threading.plan(if (name[0] == 'h') .hemv else .symv, T, nu, nu, if (lower) .falling else .rising, 4);
+    if (p.chunks.count > 1) return mvChunks(allocator, io, T, op, lower, direct, &p, n, alpha, a, lda, x, incx, y, incy);
     var none: [1]F = undefined;
     const sc: Scratch(F) = if (direct) .{ .ptr = &none, .len = 0 } else blk: {
-        // what the core's kernel needs, whichever it is (`buffers.md`)
-        const cs = if (complex) 2 else 1;
-        const un: usize = @intCast(n);
-        const bytes = @max(sym.composeBytes(F, cs, un, incx == 1, incy == 1), sym.sseBytes(F, cs, un));
+        const bytes = mvBytes(F, complex, nu, incx == 1, incy == 1);
         break :blk try Scratch(F).heapOnly(allocator, (bytes + @sizeOf(F) - 1) / @sizeOf(F));
     };
     defer sc.deinit(allocator);
     // x86_64's SSE `symv` and `hemv` read past their copies of `x` and `y`,
     // and NaN there reaches `y`
     if (sysinfo.target.cpu.arch == .x86_64) @memset(sc.slice(), 0);
-    // the reference threads big problems here (`symv_thread_*`)
-    if (comptime complex) {
-        _ = portable.fetch(T, op, blas.vtable)(n, n, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, sc.ptr);
+    mvCall(T, op, n, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
+}
+
+/// Bytes of buffer the core's `symv` or `hemv` kernel of `m` needs, whichever
+/// it is (`buffers.md`).
+fn mvBytes(comptime F: type, comptime complex: bool, m: usize, unit_x: bool, unit_y: bool) usize {
+    const cs = if (complex) 2 else 1;
+    return @max(sym.composeBytes(F, cs, m, unit_x, unit_y), sym.sseBytes(F, cs, m));
+}
+
+/// The `op` kernel on the columns `offset` selects of an `m` by `m` triangle.
+fn mvCall(comptime T: type, comptime op: Op, m: isize, offset: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, buf: [*]Float(T)) void {
+    if (comptime isComplex(T)) {
+        _ = portable.fetch(T, op, blas.vtable)(m, offset, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf);
     } else {
-        _ = portable.fetch(T, op, blas.vtable)(n, n, alpha, a, lda, x, incx, y, incy, sc.ptr);
+        _ = portable.fetch(T, op, blas.vtable)(m, offset, alpha, a, lda, x, incx, y, incy, buf);
     }
+}
+
+/// `symv_thread.c`'s split over `p`'s column chunks: each chunk's columns
+/// through the kernel into a partial vector of its own (rows `0..end` of the
+/// upper triangle, `start..n` of the lower), with a page-aligned buffer of its
+/// own, then the partials added to `y` in chunk order (`threading.Partials`).
+fn mvChunks(allocator: Allocator, io: Io, comptime T: type, comptime op: Op, comptime lower: bool, direct: bool, p: *const threading.Plan, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
+    const F = Float(T);
+    const nu: usize = @intCast(n);
+    const G = struct {
+        n: usize,
+        alpha: T,
+        a: [*]T,
+        lda: isize,
+        x: [*]T,
+        incx: isize,
+        buf: [*]u8,
+        /// Chunk `i`'s buffer: bytes `at[i]..at[i + 1]`.
+        at: [threading.chunks_max + 1]usize,
+        parts: *const threading.Partials(T),
+
+        fn rows(g: *const @This(), c: threading.Chunk) threading.Rows {
+            return if (lower) .{ .lo = c.start, .hi = g.n } else .{ .lo = 0, .hi = c.end };
+        }
+
+        /// Kernel rows of the chunk: its partial's length.
+        fn m(g: *const @This(), c: threading.Chunk) usize {
+            return if (lower) g.n - c.start else c.end;
+        }
+
+        fn one(g: *const @This(), c: threading.Chunk) void {
+            const part = g.parts.take(c.index);
+            const b = g.buf[g.at[c.index]..g.at[c.index + 1]];
+            if (sysinfo.target.cpu.arch == .x86_64) @memset(b, 0);
+            const c0: isize = @intCast(c.start);
+            const off: isize = if (lower) c0 else 0;
+            mvCall(T, op, @intCast(g.m(c)), @intCast(c.end - c.start), g.alpha, @ptrCast(util.at(T, g.a, off * (g.lda + 1))), g.lda, @ptrCast(util.at(T, g.x, off * g.incx)), g.incx, part.ptr, 1, @ptrCast(@alignCast(b.ptr)));
+        }
+    };
+    var g: G = .{ .n = nu, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .buf = undefined, .at = undefined, .parts = undefined };
+    g.at[0] = 0;
+    for (0..p.chunks.count) |i| {
+        const bytes = if (direct) 0 else mvBytes(F, comptime isComplex(T), g.m(p.chunks.get(i)), incx == 1, true);
+        g.at[i + 1] = g.at[i] + std.mem.alignForward(usize, bytes, heap_align);
+    }
+    const buf = try allocator.alignedAlloc(u8, .fromByteUnits(heap_align), g.at[p.chunks.count]);
+    defer allocator.free(buf);
+    g.buf = buf.ptr;
+    const parts: threading.Partials(T) = try .init(allocator, p, @as(*const G, &g), G.rows);
+    defer parts.deinit(allocator);
+    g.parts = &parts;
+    try threading.forEach(io, p, @as(*const G, &g), G.one);
+    try parts.fold(io, y, incy);
 }
 
 // ---- tests -------------------------------------------------------------------

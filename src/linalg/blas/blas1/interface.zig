@@ -12,11 +12,15 @@
 //! A vector that could not fit the address space returns an `ArgError`
 //! naming its stride, `x`'s checked first; there is no xerbla.
 //!
-//! Every routine takes `io` first and may return `error.Canceled`; both are
-//! for the threading to come (`threading.md`), and every routine is serial.
+//! Every routine takes `io` first and may return `error.Canceled`. Above
+//! OpenBLAS's thresholds, `copy`, `swap`, `scal`, `rot`, `axpy`, the dots,
+//! `asum`, `sum` and the extremes thread on `io` (`threading.md`): the
+//! element-wise ones over any split, the reductions over chunks fixed by `n`
+//! and folded in chunk order, so no result depends on the worker count.
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
+const threading = @import("../threading.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const portable = @import("../portable.zig");
@@ -59,30 +63,135 @@ fn spanXY(comptime X: type, comptime Y: type, n: isize, incx: isize, incy: isize
     if (!util.fits(n, incy, @sizeOf(Y))) return error.InvalidIncy;
 }
 
+// ---- threading ---------------------------------------------------------------
+
+/// Chunks start on multiples of this many elements: every chunk but the last
+/// is whole kernel blocks, the last ends where the vector does, and each
+/// starts at the vector's alignment, so every element takes the path, and
+/// gets the bits, one call would give it.
+const quantum = 1024;
+
+/// `family`'s plan for `n` elements, if it has more than one chunk.
+fn chunked(comptime family: threading.Family, comptime T: type, n: isize) ?threading.Plan {
+    const len: usize = @intCast(n);
+    if (threading.serial(family, T, len)) return null;
+    const p = threading.plan(family, T, len, len, .even, quantum);
+    return if (p.chunks.count > 1) p else null;
+}
+
+/// `family`'s plan for `n` elements, if it takes more than one worker; an
+/// element-wise routine otherwise makes one kernel call, with the same bits.
+fn spread(comptime family: threading.Family, comptime T: type, n: isize) ?threading.Plan {
+    const p = chunked(family, T, n) orelse return null;
+    return if (p.workers > 1) p else null;
+}
+
+/// `call(ctx, len, at)` for each chunk of `p`, `at` its first element.
+fn each(io: Io, p: *const threading.Plan, ctx: anytype, comptime call: fn (@TypeOf(ctx), isize, isize) void) Io.Cancelable!void {
+    const S = struct {
+        fn one(c: @TypeOf(ctx), ch: threading.Chunk) void {
+            call(c, @intCast(ch.end - ch.start), @intCast(ch.start));
+        }
+    };
+    return threading.forEach(io, p, ctx, S.one);
+}
+
+/// `part(ctx, len, at)` for each chunk of `p`, folded in chunk order.
+fn fold(io: Io, p: *const threading.Plan, comptime R: type, ctx: anytype, comptime part: fn (@TypeOf(ctx), isize, isize) R, comptime combine: fn (R, R) R) Io.Cancelable!R {
+    const S = struct {
+        fn one(c: @TypeOf(ctx), ch: threading.Chunk) R {
+            return part(c, @intCast(ch.end - ch.start), @intCast(ch.start));
+        }
+    };
+    return threading.reduce(io, p, R, ctx, S.one, combine);
+}
+
+/// Element `at` of a vector whose element 0 is at `p` (as `first` gives
+/// it), at stride `inc`.
+fn shift(comptime T: type, p: [*]T, at: isize, inc: isize) [*]T {
+    return @ptrCast(util.at(T, p, at * inc));
+}
+
+/// Two vectors from their element 0, and the routine's scalars.
+fn Pair(comptime T: type, comptime Extra: type) type {
+    return struct { x: [*]T, incx: isize, y: [*]T, incy: isize, e: Extra };
+}
+
+/// Whether the sums thread for `T`: `f32` and `f64` and their `Complex`.
+/// Wider, they give the bits of OpenBLAS's x87 kernels (`readme.md`), which
+/// no fold keeps; the other widths run portable kernels only.
+fn sums(comptime T: type) bool {
+    const F = Float(T);
+    return (F == f32 or F == f64) and !types.isExtended(F);
+}
+
+/// What the partial sums of `T` fold in: `f64` for `f32`, so the result
+/// rounds to `f32` once.
+fn Wide(comptime T: type) type {
+    const W = if (Float(T) == f32) f64 else Float(T);
+    return if (isComplex(T)) std.math.Complex(W) else W;
+}
+
+/// The fold of the partial sums; on the x87 each sum is rounded to its
+/// float (`util.rounded`), so the bits do not hang on what stays in a register.
+fn plus(comptime W: type) fn (W, W) W {
+    return struct {
+        fn f(a: W, b: W) W {
+            if (comptime !isComplex(W)) return util.rounded(W, a + b);
+            const F = @TypeOf(a.re);
+            return .init(util.rounded(F, a.re + b.re), util.rounded(F, a.im + b.im));
+        }
+    }.f;
+}
+
+/// `W` (`Wide(T)`) rounded to `T`.
+fn rounded(comptime T: type, w: Wide(T)) T {
+    if (comptime isComplex(T)) return .init(@floatCast(w.re), @floatCast(w.im));
+    return @floatCast(w);
+}
+
+/// A chunk's `dsdot`: `f32` products summed in `f64`.
+fn dsdotPart(q: Pair(f32, void), len: isize, at: isize) f64 {
+    return blas.kernel(.dsdot_k)(len, shift(f32, q.x, at, q.incx), q.incx, shift(f32, q.y, at, q.incy), q.incy);
+}
+
 // ---- copy, swap, scal --------------------------------------------------------
 
 /// `?COPY` (`interface/copy.c`): `y := x`.
 pub fn copy(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!void {
-    _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
-    if (accel.copy(T, n, x, incx, y, incy)) return;
-    _ = portable.fetch(T, .copy_k, blas.vtable)(n, raw(T, first(T, x, n, incx)), incx, raw(T, first(T, y, n, incy)), incy);
+    if (try accel.copy(io, T, n, x, incx, y, incy)) return;
+    const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
+    const S = struct {
+        fn run(q: @TypeOf(c), len: isize, at: isize) void {
+            _ = portable.fetch(T, .copy_k, blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx, raw(T, shift(T, q.y, at, q.incy)), q.incy);
+        }
+    };
+    // a zero stride runs serially, as OpenBLAS's do: the elements depend on each other
+    if (incx != 0 and incy != 0) if (spread(.copy, T, n)) |p| return each(io, &p, c, S.run);
+    S.run(c, n, 0);
 }
 
 /// `?SWAP` (`interface/swap.c`, `zswap.c`): `x <-> y`.
 pub fn swap(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!void {
-    _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
-    if (accel.swap(T, n, x, incx, y, incy)) return;
-    const px = raw(T, first(T, x, n, incx));
-    const py = raw(T, first(T, y, n, incy));
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, .swap_k, blas.vtable)(n, 0, 0, 0, 0, px, incx, py, incy, py, 0);
-    } else {
-        _ = portable.fetch(T, .swap_k, blas.vtable)(n, 0, 0, 0, px, incx, py, incy, py, 0);
-    }
+    if (try accel.swap(io, T, n, x, incx, y, incy)) return;
+    const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
+    const S = struct {
+        fn run(q: @TypeOf(c), len: isize, at: isize) void {
+            const px = raw(T, shift(T, q.x, at, q.incx));
+            const py = raw(T, shift(T, q.y, at, q.incy));
+            if (comptime isComplex(T)) {
+                _ = portable.fetch(T, .swap_k, blas.vtable)(len, 0, 0, 0, 0, px, q.incx, py, q.incy, py, 0);
+            } else {
+                _ = portable.fetch(T, .swap_k, blas.vtable)(len, 0, 0, 0, px, q.incx, py, q.incy, py, 0);
+            }
+        }
+    };
+    if (incx != 0 and incy != 0) if (spread(.swap, T, n)) |p| return each(io, &p, c, S.run);
+    S.run(c, n, 0);
 }
 
 /// `?SCAL` (`interface/scal.c`, `zscal.c`): `x := alpha*x`. Nothing for
@@ -90,19 +199,25 @@ pub fn swap(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
 /// interface passes (1), a zero `alpha` leaves NaN and infinity as NaN, as
 /// `alpha*x` would, and finite elements 0.
 pub fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) Error!void {
-    _ = io;
     if (n <= 0 or incx <= 0) return;
     try spanX(T, n, incx);
-    const px = raw(T, x);
     if (comptime isComplex(T)) {
         if (alpha.re == 1 and alpha.im == 0) return;
-        if (accel.scal(T, n, alpha, x, incx)) return;
-        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, alpha.re, alpha.im, px, incx, px, 0, px, 1);
-    } else {
-        if (alpha == 1) return;
-        if (accel.scal(T, n, alpha, x, incx)) return;
-        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, alpha, px, incx, px, 0, px, 1);
-    }
+    } else if (alpha == 1) return;
+    if (try accel.scal(io, T, n, alpha, x, incx)) return;
+    const c: Pair(T, T) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = alpha };
+    const S = struct {
+        fn run(q: @TypeOf(c), len: isize, at: isize) void {
+            const px = raw(T, shift(T, q.x, at, q.incx));
+            if (comptime isComplex(T)) {
+                _ = portable.fetch(T, .scal_k, blas.vtable)(len, 0, 0, q.e.re, q.e.im, px, q.incx, px, 0, px, 1);
+            } else {
+                _ = portable.fetch(T, .scal_k, blas.vtable)(len, 0, 0, q.e, px, q.incx, px, 0, px, 1);
+            }
+        }
+    };
+    if (spread(.scal, T, n)) |p| return each(io, &p, c, S.run);
+    S.run(c, n, 0);
 }
 
 /// `CSSCAL`/`ZDSCAL`: complex `x` scaled by a real `alpha`.
@@ -125,10 +240,27 @@ pub fn dotc(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
 }
 
 fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
-    _ = io;
     if (n <= 0) return zero(T);
     try spanXY(T, T, n, incx, incy);
-    if (accel.dot(T, conj, n, x, incx, y, incy)) |r| return r;
+    if (try accel.dot(io, T, conj, n, x, incx, y, incy)) |r| return r;
+    // `kernel/x86_64/ddot.c`, `zdot.c`: a zero stride runs serially
+    if (comptime sums(T)) if (incx != 0 and incy != 0) if (chunked(.dot, T, n)) |p| {
+        const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
+        const S = struct {
+            fn part(q: @TypeOf(c), len: isize, at: isize) Wide(T) {
+                // `sdot` sums in `f64` and rounds once (`readme.md`)
+                if (comptime T == f32) return dsdotPart(q, len, at);
+                const a = raw(T, shift(T, q.x, at, q.incx));
+                const b = raw(T, shift(T, q.y, at, q.incy));
+                if (comptime isComplex(T)) {
+                    const r = types.complexOf(portable.fetch(T, if (conj) .dotc_k else .dotu_k, blas.vtable)(len, a, q.incx, b, q.incy));
+                    return .init(r.re, r.im);
+                }
+                return portable.fetch(T, .dot_k, blas.vtable)(len, a, q.incx, b, q.incy);
+            }
+        };
+        return rounded(T, try fold(io, &p, Wide(T), c, S.part, plus(Wide(T))));
+    };
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
     if (comptime isComplex(T)) {
@@ -140,11 +272,12 @@ fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, inc
 /// `DSDOT` (`interface/dsdot.c`): the dot of two `f32` vectors, summed and
 /// returned in `f64`.
 pub fn dsdot(io: Io, n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) Error!f64 {
-    _ = io;
     if (n <= 0) return 0;
     try spanXY(f32, f32, n, incx, incy);
-    if (accel.dsdot(n, x, incx, y, incy)) |r| return r;
-    return blas.kernel(.dsdot_k)(n, first(f32, x, n, incx), incx, first(f32, y, n, incy), incy);
+    if (try accel.dsdot(io, n, x, incx, y, incy)) |r| return r;
+    const c: Pair(f32, void) = .{ .x = first(f32, x, n, incx), .incx = incx, .y = first(f32, y, n, incy), .incy = incy, .e = {} };
+    if (incx != 0 and incy != 0) if (chunked(.dot, f32, n)) |p| return fold(io, &p, f64, c, dsdotPart, plus(f64));
+    return dsdotPart(c, n, 0);
 }
 
 /// `SDSDOT` (`interface/sdsdot.c`): `alpha + x . y`, summed in `f64` and
@@ -158,7 +291,9 @@ pub fn sdsdot(io: Io, n: isize, alpha: f32, x: [*]f32, incx: isize, y: [*]f32, i
 
 /// `?NRM2`/`SCNRM2`/`DZNRM2` (`interface/nrm2.c`): the Euclidean norm. For
 /// `incx == 0` it is `sqrt(n) * |x[0]|`, worked out here as the reference
-/// does; a negative stride is the same vector backwards.
+/// does; a negative stride is the same vector backwards. Serial: chunks'
+/// norms would fold with a rounding each, where `s` and `c` round once and
+/// `d` and `z` keep Blue's three sums (`threading.md`).
 pub fn nrm2(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
     _ = io;
     const F = Float(T);
@@ -187,20 +322,34 @@ pub fn nrm2(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Floa
 /// `|re| + |im|` for complex. 0 for `n <= 0`; the kernel gives 0 for
 /// `incx <= 0`.
 pub fn asum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
-    _ = io;
     if (n <= 0) return 0;
     try spanX(T, n, incx);
-    if (accel.asum(T, n, x, incx)) |r| return r;
-    return portable.fetch(T, .asum_k, blas.vtable)(n, raw(T, x), incx);
+    if (try accel.asum(io, T, n, x, incx)) |r| return r;
+    return summed(io, T, .asum_k, n, x, incx);
+}
+
+/// `asum` or `sum` (`op`) over chunks of `n`, folded in chunk order.
+fn summed(io: Io, comptime T: type, comptime op: portable.Op, n: isize, x: [*]T, incx: isize) Io.Cancelable!Float(T) {
+    const F = Float(T);
+    // `kernel/x86_64/dasum.c` and the rest: a stride `<= 0` runs serially
+    if (comptime sums(T)) if (incx > 0) if (chunked(.asum, T, n)) |p| {
+        const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
+        const S = struct {
+            fn part(q: @TypeOf(c), len: isize, at: isize) Wide(F) {
+                return portable.fetch(T, op, blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
+            }
+        };
+        return rounded(F, try fold(io, &p, Wide(F), c, S.part, plus(Wide(F))));
+    };
+    return portable.fetch(T, op, blas.vtable)(n, raw(T, x), incx);
 }
 
 /// `?SUM` (`interface/sum.c`, an OpenBLAS extension): the sum of `x`, of
 /// `re + im` for complex.
 pub fn sum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
-    _ = io;
     if (n <= 0) return 0;
     try spanX(T, n, incx);
-    return portable.fetch(T, .sum_k, blas.vtable)(n, raw(T, x), incx);
+    return summed(io, T, .sum_k, n, x, incx);
 }
 
 // ---- extremes ----------------------------------------------------------------
@@ -212,10 +361,21 @@ pub const Extreme = enum { amax, amin, max, min };
 /// index of the first extreme element; 0 for `n <= 0` (and, from the
 /// kernel, for `incx <= 0`). `max` and `min` are real only.
 pub fn index(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [*]T, incx: isize) Error!isize {
-    _ = io;
     comptime realOnly(T, which);
     if (n <= 0) return 0;
     try spanX(T, n, incx);
+    const B = Best(T, which);
+    if (incx > 0) if (chunked(.index, T, n)) |p| {
+        const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
+        const S = struct {
+            fn part(q: @TypeOf(c), len: isize, at: isize) B.Pick {
+                const ret = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(which) ++ "_k"), blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
+                const i = at + @as(isize, @intCast(ret)) - 1;
+                return B.of(shift(T, q.x, i, q.incx)[0], i);
+            }
+        };
+        return (try fold(io, &p, B.Pick, c, S.part, B.pick)).at + 1;
+    };
     const ret: BlasLong = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(which) ++ "_k"), blas.vtable)(n, raw(T, x), incx);
     return @intCast(@min(ret, n));
 }
@@ -224,15 +384,59 @@ pub fn index(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [*]
 /// the extreme value itself, `|x|` for `amax`/`amin`. 0 for `n <= 0`; for
 /// `incx == 0`, `x[0]` (by magnitude for `amax`/`amin`).
 pub fn extreme(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [*]T, incx: isize) Error!Float(T) {
-    _ = io;
     comptime realOnly(T, which);
     if (n <= 0) return 0;
     try spanX(T, n, incx);
     if (incx == 0) {
-        if (comptime isComplex(T)) return @abs(x[0].re) + @abs(x[0].im);
+        if (comptime isComplex(T)) return util.abs(x[0].re) + util.abs(x[0].im);
         return if (which == .amax or which == .amin) @abs(x[0]) else x[0];
     }
-    return portable.fetch(T, @field(portable.Op, @tagName(which) ++ "_k"), blas.vtable)(n, raw(T, x), incx);
+    const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
+    const S = struct {
+        fn part(q: @TypeOf(c), len: isize, at: isize) Float(T) {
+            return portable.fetch(T, @field(portable.Op, @tagName(which) ++ "_k"), blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
+        }
+    };
+    if (incx > 0) if (chunked(.index, T, n)) |p| return fold(io, &p, Float(T), c, S.part, Best(T, which).value);
+    return S.part(c, n, 0);
+}
+
+/// The extremes' fold, exact: the first NaN, else the first extreme, as one
+/// kernel call over all of `x` finds them (`extremum.zig`). Where complex
+/// keys overflow, a chunk's kernel has picked by `|re|/4 + |im|/4`, and so
+/// does the fold between two such chunks.
+fn Best(comptime T: type, comptime which: Extreme) type {
+    const F = Float(T);
+    return struct {
+        /// An element's index from 0, its key and its quarter key.
+        const Pick = struct { at: isize, key: F, q: F };
+
+        fn better(k: F, best: F) bool {
+            return switch (which) {
+                .amax, .max => k > best,
+                .amin, .min => k < best,
+            };
+        }
+
+        fn value(a: F, b: F) F {
+            if (a != a) return a;
+            if (b != b) return b;
+            return if (better(b, a)) b else a;
+        }
+
+        fn of(v: T, at: isize) Pick {
+            if (comptime isComplex(T)) return .{ .at = at, .key = util.abs(v.re) + util.abs(v.im), .q = util.abs(v.re) / 4 + util.abs(v.im) / 4 };
+            const k = if (which == .amax or which == .amin) @abs(v) else v;
+            return .{ .at = at, .key = k, .q = k };
+        }
+
+        fn pick(a: Pick, b: Pick) Pick {
+            if (a.key != a.key) return a;
+            if (b.key != b.key) return b;
+            if (std.math.isInf(a.key) and std.math.isInf(b.key)) return if (better(b.q, a.q)) b else a;
+            return if (better(b.key, a.key)) b else a;
+        }
+    };
 }
 
 fn realOnly(comptime T: type, comptime which: Extreme) void {
@@ -244,13 +448,17 @@ fn realOnly(comptime T: type, comptime which: Extreme) void {
 /// `?ROT`, `CSROT`/`ZDROT` (`interface/rot.c`, `zrot.c`): the plane rotation
 /// `x := c*x + s*y`, `y := c*y - s*x`, with real `c` and `s`.
 pub fn rot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) Error!void {
-    _ = io;
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
-    if (accel.rot(T, n, x, incx, y, incy, c, s)) return;
-    const px = raw(T, first(T, x, n, incx));
-    const py = raw(T, first(T, y, n, incy));
-    _ = portable.fetch(T, .rot_k, blas.vtable)(n, px, incx, py, incy, c, s);
+    if (try accel.rot(io, T, n, x, incx, y, incy, c, s)) return;
+    const v: Pair(T, [2]Float(T)) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = .{ c, s } };
+    const S = struct {
+        fn run(q: @TypeOf(v), len: isize, at: isize) void {
+            _ = portable.fetch(T, .rot_k, blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx, raw(T, shift(T, q.y, at, q.incy)), q.incy, q.e[0], q.e[1]);
+        }
+    };
+    if (incx != 0 and incy != 0) if (spread(.rot, T, n)) |p| return each(io, &p, v, S.run);
+    S.run(v, n, 0);
 }
 
 /// `?ROTM` (`interface/rotm.c`): the modified rotation `param` describes
@@ -280,7 +488,6 @@ pub fn axpyc(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize,
 }
 
 fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!void {
-    _ = io;
     if (n <= 0) return;
     if (comptime isComplex(T)) {
         if (alpha.re == 0 and alpha.im == 0) return;
@@ -295,10 +502,7 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
         }
         try spanXY(T, T, n, incx, incy);
         // CBLAS has no `axpyc`
-        if (!conj and accel.axpy(T, n, alpha, x, incx, y, incy)) return;
-        const px = raw(T, first(T, x, n, incx));
-        const py = raw(T, first(T, y, n, incy));
-        _ = portable.fetch(T, if (conj) .axpyc_k else .axpy_k, blas.vtable)(n, 0, 0, alpha.re, alpha.im, px, incx, py, incy, py, 0);
+        if (!conj and try accel.axpy(io, T, n, alpha, x, incx, y, incy)) return;
     } else {
         if (alpha == 0) return;
         if (incx == 0 and incy == 0) {
@@ -306,11 +510,22 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
             return;
         }
         try spanXY(T, T, n, incx, incy);
-        if (accel.axpy(T, n, alpha, x, incx, y, incy)) return;
-        const px = first(T, x, n, incx);
-        const py = first(T, y, n, incy);
-        _ = portable.fetch(T, .axpy_k, blas.vtable)(n, 0, 0, alpha, px, incx, py, incy, py, 0);
+        if (try accel.axpy(io, T, n, alpha, x, incx, y, incy)) return;
     }
+    const c: Pair(T, T) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = alpha };
+    const S = struct {
+        fn run(q: @TypeOf(c), len: isize, at: isize) void {
+            const px = shift(T, q.x, at, q.incx);
+            const py = shift(T, q.y, at, q.incy);
+            if (comptime isComplex(T)) {
+                _ = portable.fetch(T, if (conj) .axpyc_k else .axpy_k, blas.vtable)(len, 0, 0, q.e.re, q.e.im, raw(T, px), q.incx, raw(T, py), q.incy, raw(T, py), 0);
+            } else {
+                _ = portable.fetch(T, .axpy_k, blas.vtable)(len, 0, 0, q.e, px, q.incx, py, q.incy, py, 0);
+            }
+        }
+    };
+    if (incx != 0 and incy != 0) if (spread(.axpy, T, n)) |p| return each(io, &p, c, S.run);
+    S.run(c, n, 0);
 }
 
 /// `?AXPBY` (`interface/axpby.c`, `zaxpby.c`, an OpenBLAS extension):
@@ -640,7 +855,7 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 /// not the modulus. Any complex type; infinite where the sum overflows.
 pub fn cabs1(comptime T: type, z: T) Float(T) {
     if (comptime !isComplex(T)) @compileError("cabs1: " ++ @typeName(T) ++ " is not complex");
-    return @abs(z.re) + @abs(z.im);
+    return util.abs(z.re) + util.abs(z.im);
 }
 
 // ---- tests -------------------------------------------------------------------
@@ -1055,8 +1270,8 @@ fn anyFloat(comptime T: type) !void {
     }
     try check.expectNear(T, d, try dot(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
     if (comptime isComplex(T)) try check.expectNear(T, dc, try dotc(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
-    const norm = @sqrt(ssq);
-    try check.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps, norm);
+    const norm = check.sqrtW(ssq);
+    try check.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps + check.rootUlps(Float(T)), norm);
     try check.expectNear(Float(T), s1, try asum(check.io, T, n, &x, 2), ulps, s1);
     try check.expectNear(Float(T), check.abs1(wx[best]), try extreme(check.io, T, .amax, n, &x, 2), 4, s1);
     // the first of near-equal keys may differ; its key must be the largest
@@ -1355,4 +1570,185 @@ test "portable kernels: special values and ranges" {
     // dsdot accumulates in double: a sum f32 would lose
     var xs: [3]f32 = .{ 16777216, 1, 1 };
     try std.testing.expectEqual(@as(f64, 16777216.0 * 16777216.0 + 2), dotk.dsdot_generic(3, &xs, 1, &xs, 1));
+}
+
+// ---- threading ---------------------------------------------------------------
+
+const Vtable = @import("../Vtable.zig");
+
+fn scalarOf(comptime T: type, re: f64, im: f64) T {
+    if (comptime isComplex(T)) return .init(@floatCast(re), @floatCast(im));
+    return @floatCast(re);
+}
+
+fn bytes(v: anytype) []const u8 {
+    return std.mem.asBytes(v);
+}
+
+/// A threaded test's length: `test_serial_max` makes it a dozen chunks.
+const threaded_n = 17 * quantum + 517;
+
+/// Every threaded routine's results and outputs for `x0` and `y0`, as bytes.
+fn level1Bits(comptime T: type, al: std.mem.Allocator, io: Io, inc: [2]isize, x0: []const T, y0: []const T, out: *std.ArrayList(u8)) !void {
+    const n: isize = threaded_n;
+    const x = try al.dupe(T, x0);
+    defer al.free(x);
+    const y = try al.dupe(T, y0);
+    defer al.free(y);
+    const xs = std.mem.sliceAsBytes(x);
+    const ys = std.mem.sliceAsBytes(y);
+    const a = scalarOf(T, 1.25, -0.75);
+    const pos: isize = @intCast(@abs(inc[0]));
+    try copy(io, T, n, x.ptr, inc[0], y.ptr, inc[1]);
+    try out.appendSlice(al, ys);
+    try swap(io, T, n, x.ptr, inc[0], y.ptr, inc[1]);
+    try out.appendSlice(al, xs);
+    try scal(io, T, n, a, x.ptr, pos);
+    try out.appendSlice(al, xs);
+    try rot(io, T, n, x.ptr, inc[0], y.ptr, inc[1], 0.6, -0.8);
+    try out.appendSlice(al, xs);
+    try out.appendSlice(al, ys);
+    try axpy(io, T, n, a, x.ptr, inc[0], y.ptr, inc[1]);
+    try out.appendSlice(al, ys);
+    try out.appendSlice(al, bytes(&try dot(io, T, n, x.ptr, inc[0], y.ptr, inc[1])));
+    if (comptime isComplex(T)) {
+        try axpyc(io, T, n, a, x.ptr, inc[0], y.ptr, inc[1]);
+        try out.appendSlice(al, ys);
+        try out.appendSlice(al, bytes(&try dotc(io, T, n, x.ptr, inc[0], y.ptr, inc[1])));
+    }
+    if (comptime T == f32) try out.appendSlice(al, bytes(&try dsdot(io, n, x.ptr, inc[0], y.ptr, inc[1])));
+    try out.appendSlice(al, bytes(&try asum(io, T, n, x.ptr, pos)));
+    try out.appendSlice(al, bytes(&try sum(io, T, n, x.ptr, pos)));
+    try extremeBits(T, io, x.ptr, pos, out, al);
+}
+
+fn extremeBits(comptime T: type, io: Io, x: [*]T, inc: isize, out: *std.ArrayList(u8), al: std.mem.Allocator) !void {
+    const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
+    inline for (whiches) |w| {
+        try out.appendSlice(al, bytes(&try extreme(io, T, w, threaded_n, x, inc)));
+        try out.appendSlice(al, bytes(&try index(io, T, w, threaded_n, x, inc)));
+    }
+}
+
+/// The extremes over chunks against one kernel call: the fold is exact.
+fn expectExtremesExact(comptime T: type, io: Io, x: [*]T, inc: isize) !void {
+    const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
+    inline for (whiches) |w| {
+        const v = portable.fetch(T, @field(portable.Op, @tagName(w) ++ "_k"), blas.vtable)(threaded_n, raw(T, x), inc);
+        const i = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(w) ++ "_k"), blas.vtable)(threaded_n, raw(T, x), inc);
+        try std.testing.expectEqualSlices(u8, bytes(&v), bytes(&try extreme(io, T, w, threaded_n, x, inc)));
+        try std.testing.expectEqual(@as(isize, @intCast(i)), try index(io, T, w, threaded_n, x, inc));
+    }
+}
+
+/// `x` with NaNs, infinities and, for complex, finite elements whose keys
+/// overflow, spread over several chunks (`variant` 1 and 2).
+fn specials(comptime T: type, x: []T, inc: usize, variant: usize) void {
+    const F = Float(T);
+    const at = [_]usize{ 2 * quantum + 3, 7 * quantum + 11, 11 * quantum + 1, 16 * quantum + 9 };
+    for (at, 0..) |i, k| {
+        const v: F = switch (variant) {
+            1 => if (k % 2 == 0) std.math.nan(F) else std.math.inf(F),
+            else => std.math.floatMax(F) * (0.5 + @as(F, @floatFromInt(k % 3)) / 8),
+        };
+        x[i * inc] = if (comptime isComplex(T)) .init(v, if (k == 3) -v else v) else if (k == 1) -v else v;
+    }
+}
+
+fn threadedType(comptime T: type, al: std.mem.Allocator, tio: Io) !void {
+    const cases = [_][2]isize{ .{ 1, 1 }, .{ 2, -1 }, .{ -3, 2 } };
+    for (cases) |inc| for (0..3) |variant| {
+        if (variant == 2 and !isComplex(T)) continue;
+        const x0 = try al.alloc(T, threaded_n * @abs(inc[0]));
+        defer al.free(x0);
+        const y0 = try al.alloc(T, threaded_n * @abs(inc[1]));
+        defer al.free(y0);
+        check.fill(T, x0, 11 + @as(u64, @abs(inc[0])));
+        check.fill(T, y0, 12 + @as(u64, @abs(inc[1])));
+        if (variant > 0) specials(T, x0, @abs(inc[0]), variant);
+        var want: std.ArrayList(u8) = .empty;
+        defer want.deinit(al);
+        blas.config.cpu_count = 1;
+        try level1Bits(T, al, Io.failing, inc, x0, y0, &want);
+        for ([_]u32{ 3, 8 }) |cpus| for ([_]Io{ tio, Io.failing }) |io| {
+            blas.config.cpu_count = cpus;
+            var got: std.ArrayList(u8) = .empty;
+            defer got.deinit(al);
+            try level1Bits(T, al, io, inc, x0, y0, &got);
+            try std.testing.expectEqualSlices(u8, want.items, got.items);
+            try expectExtremesExact(T, io, x0.ptr, @intCast(@abs(inc[0])));
+        };
+    };
+}
+
+fn threadedCore(vt: *const Vtable) !void {
+    const saved = blas.testUse(vt);
+    defer blas.testRestore(saved);
+    const al = std.testing.allocator;
+    var threaded: Io.Threaded = .init(al, .{});
+    defer threaded.deinit();
+    inline for (all) |T| threadedType(T, al, threaded.io()) catch |e| {
+        check.say("{s}: ", .{@typeName(T)});
+        return e;
+    };
+}
+
+test "interface: threaded level 1 gives one worker's bits at any worker count, Io and core" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    _ = blas.coreName();
+    const cpus = blas.config.cpu_count;
+    defer blas.config.cpu_count = cpus;
+    // a dozen chunks of `threaded_n`
+    threading.test_serial_max = 3 * quantum / 2;
+    defer threading.test_serial_max = null;
+    try check.eachCore(threadedCore);
+}
+
+/// The race stress test's length: eight chunks under `test_serial_max`.
+const stress_n = 8 * quantum + 517;
+
+/// One round of the race stress test: an element-wise routine, a reduction
+/// and an exact fold, strided, so the gaps between elements are guard bands.
+fn stressBits(comptime T: type, al: std.mem.Allocator, io: Io, x: []T, y0: []const T, out: *std.ArrayList(u8)) !void {
+    const y = try al.dupe(T, y0);
+    defer al.free(y);
+    try axpy(io, T, stress_n, scalarOf(T, 1.25, -0.75), x.ptr, 2, y.ptr, -3);
+    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+    try out.appendSlice(al, bytes(&try dot(io, T, stress_n, x.ptr, 2, y.ptr, -3)));
+    try out.appendSlice(al, bytes(&try index(io, T, .amax, stress_n, x.ptr, 2)));
+}
+
+test "interface: race stress: threaded level 1 keeps one worker's bits and its guard bands, round after round" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    _ = blas.coreName();
+    const cpus = blas.config.cpu_count;
+    defer blas.config.cpu_count = cpus;
+    threading.test_serial_max = quantum;
+    defer threading.test_serial_max = null;
+    const al = std.testing.allocator;
+    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
+    defer threaded.deinit();
+    inline for (.{ f64, Complex32 }) |T| {
+        const x = try al.alloc(T, stress_n * 2);
+        defer al.free(x);
+        const y0 = try al.alloc(T, stress_n * 3);
+        defer al.free(y0);
+        check.fill(T, x, 21);
+        check.fill(T, y0, 22);
+        var want: std.ArrayList(u8) = .empty;
+        defer want.deinit(al);
+        blas.config.cpu_count = 1;
+        try stressBits(T, al, Io.failing, x, y0, &want);
+        var got: std.ArrayList(u8) = .empty;
+        defer got.deinit(al);
+        for (0..threading.stress_rounds) |round| {
+            blas.config.cpu_count = @intCast(2 + round % 7);
+            got.clearRetainingCapacity();
+            try stressBits(T, al, threaded.io(), x, y0, &got);
+            if (!check.sameBytes(want.items, got.items)) std.testing.expectEqualSlices(u8, want.items, got.items) catch |e| {
+                check.say("{s} round {d}: ", .{ @typeName(T), round });
+                return e;
+            };
+        }
+    }
 }

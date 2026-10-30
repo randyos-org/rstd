@@ -2,8 +2,9 @@
 
 This document specifies how rstd's BLAS routines use multiple threads: the public API, how
 work is divided, how results stay reproducible, and how the design degrades on targets
-without threads. Plan steps 1, 2 and 5 are implemented (`threading.zig`,
-`blas3/threaded.zig`): every level 3 routine but `gemmt` threads; levels 1 and 2 do not yet.
+without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`, the level 1
+and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
+the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
 (v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule
@@ -55,7 +56,8 @@ core no result depends on where its operands lie in memory. Pinning the core typ
   their own packed `A`. Producers spin until consumers clear the flags, so the protocol
   requires every thread to run concurrently. `trsm` uses the synchronization-free
   `gemm_thread_n`/`gemm_thread_m`.
-- **Nesting.** `num_cpu_avail` returns 1 inside a parallel region.
+- **Nesting.** Under OpenMP, `num_cpu_avail` (`common_thread.h:151`) returns 1 inside a parallel
+  region unless `openblas_set_num_threads_local` raised `blas_omp_threads_local` (default 1).
 
 Because levels 1 and 2 split by thread count, OpenBLAS's reductions and per-thread-buffer
 routines change their low bits when the thread count changes.
@@ -135,24 +137,75 @@ the problem size and the routine's chunk size, never on `w`:
   `work` units above `serial_max` makes `ceil(work / serial_max)` chunks, at most 64. Bounds
   split the range evenly, or by square roots where row costs grow or shrink (`Shape`), and
   round to a quantum the routine picks.
-- **Claiming.** `w` workers start through `Group.async`; each claims the next chunk from an
-  atomic counter until none remain. The work spreads over whatever actually runs: all
-  workers when the `Io` runs them all, fewer when it admits fewer (late starters find nothing
-  left), and the remaining workers absorb the load when a core is busy.
+- **Claiming.** `w` workers start through `Group.async` (futures on `Dispatch`, below); each
+  claims the next chunk from an atomic counter until none remain. The work spreads over
+  whatever actually runs: all workers when the `Io` runs them all, fewer when it admits fewer
+  (late starters find nothing left), and the remaining workers absorb the load when a core is
+  busy.
 - **Combining.** Each chunk's partial result is determined by its boundaries, not by the
-  worker that computed it. Reductions keep partials in a stack `[64]T` (for `nrm2`, a
-  `(scale, ssq)` pair) and fold them in chunk order on the caller; `i?amax` combines exactly
-  (first index wins). Level 2 routines with partial vectors (`gemv` with short `m`, `symv`,
-  `trmv`) keep one per chunk and combine them in chunk order.
+  worker that computed it. Reductions keep partials in a stack `[64]T` and fold them in chunk
+  order on the caller; the extremes fold exactly (first index wins). The level-2 products that
+  add an element of `y` up over several chunks keep a partial vector per chunk (below).
 
-Element-wise routines (`axpy`, `scal`, `swap`, `rot`, `gemv` over rows, `ger`) compute each
-output in exactly one chunk, so the split cannot change their results. Below the threshold a
-routine makes one kernel call, as in a single-threaded build, which gives the same bits.
+Element-wise routines compute each output in exactly one chunk, so the split cannot change
+their results; with one worker they make one kernel call, as below the threshold. A reduction
+above its threshold folds its chunks whatever the worker count, in a single-threaded build too.
+Work at or below every core's `serial_max` (`threading.serial`) skips the plan: no core lookup
+or rule, so a small call costs what its kernel does.
+
+What threads, as landed:
+
+- **Element-wise level 1:** `copy`, `swap`, `scal`, `rot`, `axpy` and `axpyc`. Chunks start on
+  multiples of 1024 elements, so every chunk but the last is whole kernel blocks, the last ends
+  where the vector does, and each keeps the vector's alignment: an element takes the body or
+  tail path one call gives it. A zero stride runs serially, as OpenBLAS's do.
+- **Reductions:** the dots (`dsdot` too), `asum` and `sum` at `f32` and `f64`, real and complex.
+  Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, so it keeps
+  its contract (products and sum in `f64`, rounded once). On the x87 each step of the fold is
+  rounded to its float, so no partial keeps a register's width. Wider types do not thread their sums:
+  they give the bits of OpenBLAS's x87 kernels (`readme.md`), which no fold keeps.
+- **Extremes:** values and indices, every type, folded exactly: the first NaN, else the first
+  extreme, as one kernel call finds them. Where a complex key overflows, each chunk's kernel has
+  picked by `|re|/4 + |im|/4`, and the fold does too between two such chunks, so the index is
+  the serial one.
+- **`gemv`:** rows without a transpose, columns with one, each chunk a serial kernel call with a
+  buffer of its own. Rows split only on 4096-row blocks: x86_64's `gemv_n` kernels take rows in
+  `NBMAX` blocks and run the last block's remainder first, so a finer split moves rows between
+  paths (measured: `sgemv_n` on Sandy Bridge, Haswell and Zen). Columns start on multiples of 64.
+- **`ger`:** columns. Its runs of nonzero `y` are cut on multiples of 64 past each run's start,
+  so a run's parts make its kernel call's column blocks.
+- **Rank updates** (`syr`, `spr`, `syr2`, `spr2`, `her`, `hpr`, `her2`, `hpr2`): columns, each one
+  `axpy` call as in the serial driver, balanced by length (`Shape.rising`, `falling`).
+- **`gbmv` with a transpose:** columns, each element of `y` one column's dot.
+- **Products that fold partial vectors** (`symv`, `hemv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `trmv`,
+  `tbmv`, `tpmv` and `gbmv` without a transpose): each element of `y` adds up over several
+  columns' kernel calls, so a split of `y` would move the calls' cuts. The columns split instead,
+  each chunk into a zeroed partial vector of its own over the rows its columns reach
+  (`threading.Partials`), and the partials are added to `y` in chunk order, each sum rounded to
+  its type; that fold splits `y`'s rows over the workers, which cannot change a bit. A call past
+  one chunk folds whatever the worker count, so its bits differ from the one-pass order a call
+  under one chunk keeps, and match across worker counts by construction. OpenBLAS's
+  `symv_thread.c` (`:197`, `:259-291`) does the same with one buffer per thread, summed by
+  `AXPYU_K`, so its bits follow the thread count. `symv` and `hemv` call the core's kernel on
+  their columns (its `offset` argument, as `symv_thread.c`); the banded and packed ones and
+  `gbmv` run the serial drivers' columns; `trmv`, `tbmv` and `tpmv` port the out-of-place
+  kernels of `trmv_thread.c`, `tbmv_thread.c` and `tpmv_thread.c`, whose transposed forms write
+  only their own rows. Chunks start on multiples of 8 columns (`symv`: 4), the `mask` of the
+  `*_thread.c` drivers, balanced by area for the triangles (`Shape.rising`, `falling`).
+
+What stays serial, and why:
+
+- **`nrm2`:** chunks' norms would fold with a rounding each, where `s` and `c` round the root
+  once and `d` and `z` keep Blue's three sums inside the kernel.
+- **Not threaded upstream:** `axpby`, `rotm`, the triangular solves, `sbdot` and the bfloat16
+  conversions (OpenBLAS threads those two on x86_64 only, `sbdot.c`, `tobf16.c`; left for T05).
 
 ### Level 3: BLIS's shared packed B
 
-`gemm` follows BLIS's model (Van Zee and van de Geijn's papers on BLIS and its many-threaded
-`gemm`; `docs/Multithreading.md`), written from that design rather than ported
+`gemm` follows BLIS's model (Van Zee and van de Geijn, "BLIS: A Framework for Rapidly
+Instantiating BLAS Functionality", ACM TOMS 41(3), 2015, <https://doi.org/10.1145/2764454>; Smith
+et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS 2014,
+<https://doi.org/10.1109/IPDPS.2014.110>; `docs/Multithreading.md`), written from that design rather than ported
 (`blas3/threaded.zig`). Its loops, packing, kernels and depth slices are the serial driver's.
 
 - **Ways.** `w` workers split `C` `ic x jc` ways: the most workers that leave each part a row
@@ -168,16 +221,16 @@ routine makes one kernel call, as in a single-threaded build, which gives the sa
 - **Fused packing.** A worker multiplies each of its own chunks with its first row block of
   `op(A)` as it packs it, before the second barrier, while the chunk is in cache; OpenBLAS's
   `level3_thread.c` does the same with its own share of `B`.
-- **Start.** `threading.team` spawns `w - 1` workers through `Group.concurrent`; each waits
-  until the caller has counted those that started, and the ways are sized for that count.
-  None started, the caller runs alone. No worker waits for a peer that does not exist, so the
+- **Start.** `threading.team` spawns `w - 1` workers through `Group.concurrent` (futures on
+  `Dispatch`, below); each waits until the caller has counted those that started, and the
+  ways are sized for that count. None started, the caller runs alone. No worker waits for a peer that does not exist, so the
   call cannot deadlock when the `Io` admits fewer; `Group.async`'s inline fallback would.
 - **Waiting.** BLIS and OpenBLAS both spin without bound inside a call: BLIS's
   `bli_thrcomm_barrier_atomic` on an empty loop, OpenBLAS's `level3_thread.c` with `YIELDING`
   (eight `nop`s on x86_64, arm, POWER and riscv64; `YieldProcessor` under MSVC;
-  `sched_yield` or `SwitchToThread` elsewhere). rstd spins too, checking the word around each
-  `std.atomic.spinLoopHint` (`pause`, `isb`), but at most `spin_limit` (4096) times, about
-  90 us on Zen 3, before it sleeps on `io.futexWait`; a waker calls `futexWake` only when
+  `sched_yield` or `SwitchToThread` elsewhere). Rstd spins too, checking the word around each
+  `std.atomic.spinLoopHint` (`pause`, `isb`), but at most `spin_limit` (4096) times (how
+  long that takes is unmeasured), before it sleeps on `io.futexWait`; a waker calls `futexWake` only when
   someone sleeps (`threading.Signal`). Unbounded, a wait on a fiber `Io` (`Io.Evented` with
   peers on the waiter's thread) would never yield to the peer it waits for, and a canceled
   waiter would never reach a cancelable call. The bound outlasts the usual imbalance at a
@@ -203,6 +256,29 @@ column panels) and `gemm_thread_m` (right side, row panels) do, and as BLIS spli
 rows, each a serial solve or product on packing space of its own. Nothing waits, so the parts
 run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
 
+The half gemms (`sbgemm`, `bgemm`, `shgemm`, `blas3/half.zig`) split `C` the same way: column
+ranges (row ranges for a tall `C`) starting on a panel, each a serial problem on its own packing
+space, through `forEach`, at `gemm`'s default rule (upstream keeps the half types off its
+per-core tables). Their kernels do the same arithmetic for an element wherever its tile falls,
+and the depth slices are the serial ones, so the bits match the serial path. `gemmtHalf` stays
+serial, as the half `gemv`s are.
+
+`gemm3m`, `symm3m` and `hemm3m` split `C` the same way (`blas3/gemm3m/driver.zig`), on the side
+with more panels, where OpenBLAS's `level3_gemm3m_thread.c` is `level3_thread.c`'s flag
+protocol over three passes: each part a serial 3M product on `gemm3m_level3.c`'s ranges, its
+row parts starting on `unroll_m`, so every element meets the serial kernel calls. Their
+thresholds are `gemm`'s and `symm`'s, as upstream builds them from the same interfaces.
+
+### LAPACK
+
+The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface
+thresholds (`cholesky.zig`'s `threads`; [`design.md`](design.md#lapack)). Upstream switches to
+its `_parallel.c` algorithms, with other blocks, whenever it has more than one thread; here
+the problem size alone picks the algorithm, so its bits never depend on the worker count.
+`getrf`'s lookahead runs on `team`: the caller factors the next block while the other workers
+update the columns past it, every part on packing space allocated before the tasks start, and
+with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
+
 ### Thresholds
 
 | Routine | OpenBLAS threshold | Division |
@@ -212,15 +288,24 @@ run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
 | `syrk`, `symm` | `(n+1)nk` over `109944 * 4`; `2m^2 n` over `65536 * 4` | triangle-balanced ways; `gemm`'s |
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
 | `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
-| `gemv` | `m * n >= 115200 * 4` | N: row chunks; T: column chunks |
+| `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks; T: column chunks |
+| `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
-| `symv`, `trmv` | `symv n >= 200`; `trmv n < 50`: 1, `< 500`: 2 | sqrt-balanced row chunks |
+| `symv`, `spmv` | `n >= 200`; complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
+| `hemv` | `zhemv.c`: `n >= 362` | same |
+| `sbmv`, `hbmv` | none upstream; `gbmv`'s for `kl = ku = k` | same |
+| `trmv` | `n < 50`: 1, `< 500`: 2; complex `n*n > 36*s*s*4`, `< 64*s*s*4`: 2 | same |
+| `tbmv`, `tpmv` | `n < 50`: 1, `< 500`: 2 | same |
 | `syr`, `spr`, `syr2`, `spr2` (real and complex symmetric) | `n < 50`: 1, `< 500`: 2 | sqrt-balanced column chunks |
 | `her`, `hpr`, `her2`, `hpr2` | `n < 100`: 1 | same |
 | `axpy` / `scal` / `swap` | `n > 10000` / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
+| `copy` | `copy_thunderx2t99.c`: `n > 10000` | range chunks |
 | `dot`, `asum`, `sum`, `rot` | x86_64 kernels: `n > 10000` (dot), `> 100000` | range chunks, ordered combine |
+| extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 
-The generic thresholds apply with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
+The `copy` and extremes rows are OpenBLAS's ThunderX2 kernels' own, taken as defaults for every
+core; the others are its generic interfaces' or x86_64 kernels'. The generic thresholds apply
+with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
 together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c` and
 `gemv.c`, `a64fx` and `neoversev1` in `arm64/dot.c`). Complex routines have their own
 constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core tables derived from rstd's own benchmarks will
@@ -234,8 +319,12 @@ paths are already ported ([`design.md`](design.md), Level 2).
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
 for `w` workers: level 3 packing buffers (`P x Q` elements per worker, and per `jc` group a
 slice of `B` as wide as the widest group, at most `R`, each on a cache line; for `trmm` and
-`trsm`, the serial driver's space per part) and level 2 per-chunk vectors. Tasks are
-therefore infallible, and the allocator need not be thread safe. Level 1 needs none. Task
+`trsm`, the serial driver's space per part) and `gemv`'s buffer per chunk. The level-2 products
+that fold take one allocation for every chunk's partial vector and another for every chunk's
+kernel buffer (`symv`, `hemv`, `trmv`); a chunk zeroes its own vector when it starts. Tasks are
+therefore infallible, and the allocator need not be thread safe. Level 1, `ger`, transposed
+`gbmv` and the rank updates need none beyond their serial copies of strided vectors, made before
+any task starts. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
 the `Io`'s own allocator and runs the task inline if that allocation fails.
 
@@ -256,6 +345,30 @@ brings each to its cancelable futex wait.
   whose `checkCancel` is `Io.unreachableCheckCancel` (`Io.failing`, UEFI's) has no
   cancellation; workers skip the check there.
 
+### Futures on `Dispatch`
+
+With worker threads std's `Group` crashes on `Io.Evented`, `Uring` and `Dispatch` alike
+([`issues.md`](issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
+plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Group`.
+`usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
+futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
+`await` waits cancelably on a count of unfinished tasks, and a cancel there reaches each task
+through the caller's deferred `cancel`. Tasks re-arm cancellation as before, and the chunks
+and their fold are unchanged, so the bits are too. `Uring`'s futures are reused too early
+(issues.md), so a multithreaded `Uring` stays unsupported.
+
+A fiber that sleeps or wakes others may resume on another thread, and the control state
+stays with the thread ([`issues.md`](issues.md)); `Dispatch` moves even the caller. On the M6,
+level 3 under rounding toward zero lost its bits that way. So a level 3 worker holds the
+caller's `FpState` only while it runs (`threading.Lent`): around each futex wait and wake it
+gives its thread's own state back, and takes the caller's again after. The caller re-adopts
+its own state after each of those and after its tasks end, so it keeps it wherever it
+resumes. Level 1 and 2 workers neither wait nor wake inside a task.
+
+**Revert:** once `zig build ssh-repro-group-aarch64-macos` (std only,
+`tools/evented_group_repro.zig`) passes on a new toolchain, set `dispatch_futures` false and
+delete `Tasks`' futures path.
+
 ### Single-threaded builds and freestanding targets
 
 Threading compiles out only under `builtin.single_threaded`: such builds take a comptime
@@ -268,10 +381,33 @@ tasks inline.
 
 A backend that delegates to a vendor library (Apple's Accelerate on macOS) must meet the
 same reproducibility requirement. If the library's own threading changes its results, rstd
-runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), so
+runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), and Apple
+documents no mode that keeps its bits across thread counts (MKL has one, CNR), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
-thread sets its own model (`singleThreadHere`) on its first routed call
-([`design.md`](design.md#apple-accelerate)). rstd's own workers are to parallelize around it.
+thread sets its own model (`singleThreadHere`) on its first call into it
+([`design.md`](design.md#apple-accelerate)).
+
+Rstd's workers parallelize around it (`apple_accel.split`), under the rules above:
+
+- **Parts by size.** Above the routine's threshold (`threading.rule`, as for rstd's kernels) a
+  routed call splits into chunks of its output (`threading.plan`), each one Accelerate call on
+  the worker that claims it. Accelerate's single-threaded calls gave the same bits on every
+  thread (`apple_accel.zig`'s tests), so no result depends on the worker count.
+- **Split at one worker too.** Unlike rstd's element-wise kernels, whose paths rstd knows, a
+  split call is split whatever the worker count: Accelerate's paths at a part's edges are its
+  own. So a call past one chunk differs in its low bits from one Accelerate call, and matches
+  across worker counts by construction.
+- **What splits.** `copy`, `swap`, `scal`, `rot`, `axpy` (1024-element parts, rstd's level-1
+  quantum); `dot`, `dotc`, `dsdot` and `asum`, their partials folded in chunk order (`f32` in
+  `f64`, rounded once, as rstd's own); `gemv` (rows of `y`, or columns with a transpose), `ger`
+  (columns); `gemm` (columns of `C` if it has as many as rows, else rows), `symm` and `hemm`
+  (columns of `C` with `S` on the left, else rows), `trmm` and `trsm` (`B`'s columns on the
+  left, rows on the right), on 64-row or column parts, rstd's level-2 quantum.
+- **What does not.** Each part must be a call of the same routine. The partial-vector products
+  (`symv`, `trmv` and the rest), the rank updates and the rank-k updates keep one triangle, so
+  their parts would be other routines or a fold rstd does not have for them; `gbmv`, `nrm2`
+  (as rstd's own), `rotm` and `axpby` (not threaded upstream) make one call too. A zero stride
+  makes one call, as rstd's own.
 
 ### Guardrails
 
@@ -292,7 +428,10 @@ Reproducibility:
   a chunk may start anywhere.
 - **The caller's control state.** Threads do not inherit floating-point control state (x86
   Windows starts them at 53-bit x87 precision, 0x27f, where a MinGW main thread has 64-bit,
-  0x37f). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
+  0x37f; on x86, seen during T03, no test records it; x64's convention fixes 0x27f at start,
+  Microsoft, "x64 calling convention", FPCSR, <https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention>;
+  MinGW's `crtexe.c:216` runs `_fpreset`, an `fninit`, in Zig's `lib/libc/mingw/crt`, but not on
+  an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
   capture `util.FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
   caller's state is never changed ([`design.md`](design.md), Settled decisions).
@@ -340,24 +479,61 @@ Memory safety for concurrent work:
 
 ## Verification
 
-- **Everywhere, rigs included:** unit tests for chunking, the worker count and the ordered
-  combine, and a test that the rigs resolve to one worker.
+What the tests check today, and where they run:
+
+- **Everywhere, rigs included** (`threading.zig`): chunking, rules and their per-core
+  overrides, the worker count, chunks that ignore the CPU count and the ceiling, and the
+  ordered combine in several claim orders. The freestanding rigs check that they resolve to
+  one worker over the same chunks.
 - **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
-  threaded results equal serial results bit-for-bit for worker counts 1 to 9 (a test hook
-  overrides the cached CPU count), all transposes and odd sizes, on the shrunk-blocking
-  vtable `_test/blas3/check.zig` uses and its NaN-poisoning allocator. Each case also runs on
-  `Io.Threaded` with `async_limit` 0, 3 and 8 (oversubscribed) and on `Io.failing` as an
-  inline baseline. Reductions additionally meet `check.zig`'s error bound.
-- **Races:** the hosted tests loop about 1000 times on the weak-memory rigs (aarch64,
-  ppc64le, riscv64) and the M6, with guard bands asserting nothing outside the output is
-  written. TSan (`sanitize_thread`) on native Linux follows once its support in this
-  toolchain is confirmed.
-- **Cancellation:** canceled calls return `error.Canceled`, leave no worker running, and leave
-  memory outside the output untouched; the allocator sees every free after the last task ends.
-- **Split inputs:** a test that `Q` and every chunk size are the same for every thread count
-  and CPU count.
+  - Level 3 (`blas3/threaded.zig`): every threaded routine against the serial driver, bit
+    for bit, at 1 to 9 workers. The shapes cross every block, panel and triangle edge, with
+    every transpose and option, on `check.zig`'s shrunk blocking and a NaN-poisoning
+    allocator. `C` carries guard bands that must keep their sentinel. Each case runs on
+    `Io.failing` and on `Io.Threaded` with limits 0, 3 and 8 (oversubscribed), and on macOS
+    also on `Io.Dispatch` with its own pool (`threading.evented_workers`). The public
+    routines thread above their thresholds and keep those bits; on macOS with Accelerate
+    routing off, so rstd's threading runs.
+  - Levels 1 and 2 (`blas1/interface.zig`, `_test/blas2/threaded.zig`): every threaded
+    routine at 3 and 8 CPUs, on a threaded `Io` and on an inline one, against one worker,
+    on every linked core. `test_serial_max` makes small problems take many chunks. The
+    products that fold partial vectors also stay within rounding of one chunk's order.
+  - Control state: workers adopt the caller's rounding and flush to zero, on `Dispatch`
+    too, where fibers change threads.
+  - Cancellation: a canceled region and a canceled `gemm` return `error.Canceled` only
+    once no worker runs. `std.testing.allocator` checks every free.
+- **Split inputs:** each core's `Q`, at every precision, is the same at 0, 1, 2, 3 and 64
+  threads (`params.zig`, `checkCore`); only LA464's `P` and `R` move. The level 3 tests
+  record the depth of every `gemm`, `trsm` and `trmm` kernel call, so each packed slice's
+  `Q`. A threaded run must see the depths the serial driver sees, at every worker count.
+  Level 1 and 2 chunks ignore the CPU count and the ceiling (above).
+- **Races** (`race stress` in the test names): `threading.stress_rounds` (1000) rounds per
+  level at 2 to 8 workers, on `Io.Threaded`, each checked bit for bit against one worker.
+  Strided vectors' gaps and `A`'s and `C`'s leading-dimension padding are guard bands, and
+  scratch comes NaN-poisoned. Level 1 runs `axpy`, `dot` and `iamax`. Level 2 runs `gemv`
+  by columns, `ger`, `syr2` and `symv`, whose partial vectors fold. Level 3 runs `gemm`
+  with shared packed `B`, `syr2k` and `trsm`. They are meant for the weak-memory rigs
+  (`qemu-test-linux-aarch64`, `-powerpc64le`, `-riscv64`, all `-smp 4`) and the M6. A
+  filter of `race stress` runs them alone.
+- **TSan:** `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64
+  Linux rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or
+  macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
+  report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
+  is left out.
 - **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
-  `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling.
+  `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling. No test builds a
+  multithreaded freestanding target, which would need four things:
+  - secondary cores started in the test kernels (PSCI `CPU_ON` on aarch64 `virt`, for
+    example) with a stack each;
+  - TLS set up per core, since std's `debug.zig` keeps `panic_stage` thread-local once
+    a build is not `single_threaded`;
+  - an `Io` that hands `Group.concurrent` and `Group.async` tasks to those cores, with
+    futex waits, wakes and cancellation;
+  - rigs at `-smp` above 1.
+- **`Dispatch` with its pool** (`ssh-test-aarch64-macos`): the `threading` and level 3
+  tests above, race stress and cancellation included, on the futures path
+  (2026-10-30).
+- **Not yet:** a multithreaded `Uring`, unsupported (Open issues).
 
 ## Level 3 measurements
 
@@ -430,21 +606,26 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 2. **`gemm`** (done), every precision: BLIS's ways and shared packed `B` through
    `Group.concurrent`, with the start barrier, bounded spinning, the serial fallback and the
    public interface's threshold.
-3. **Level 1:** `axpy`, `scal`, `swap`, `rot` and the chunked reductions.
-4. **Level 2:** `gemv`, `ger`, then `symv`/`trmv`.
+3. **Level 1** (done): `copy`, `swap`, `scal`, `rot`, `axpy`, the dots, `asum`, `sum` and the
+   extremes; `nrm2` stays serial.
+4. **Level 2** (done): `gemv`, `ger`, the rank updates and transposed `gbmv`; the symmetric,
+   triangular, banded and packed products and untransposed `gbmv` by partial vectors.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
    driver; `trmm` and `trsm` by panels of `B`.
+6. **LAPACK** (done): `potrf`, `potri`, `trtri`, `lauum` by size-picked parallel algorithms,
+   `getrf`'s lookahead, and `getrs`, `gesv`, `trtrs` through the drivers.
 
 ## Open issues
 
 - Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
-  hang. With worker threads `Uring` hangs even a plain futex barrier ([`issues.md`](issues.md));
-  `Dispatch` (macOS) has no thread limit and is untested. Windows has no `Evented`.
-- TSan support with this toolchain is unverified.
-- At 64-bit x87 precision (0x37f), the scalar `gemm` kernel's full tile keeps its sums in
-  registers and its partial tile in memory, so they round `f64` apart; where a partition puts
-  a column in the other one (`symm`, `pentium3`, the tests' shrunk `R`), threaded bits differ.
-  At 53-bit they agree. T04's x87 audit.
+  hang. With worker threads std's `Group` crashes on `Uring` and `Dispatch` (macOS), and
+  `Uring` reuses fibers too early ([`issues.md`](issues.md)): `Dispatch` runs on futures
+  until `Group` is fixed (Futures on `Dispatch`), and threaded BLAS on a multithreaded `Uring`
+  is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes one for `maxInt(u32)`.
+  Windows has no `Evented`.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
+- The partial vectors cost up to one `y` per chunk (64) and a fold of them; `spmv`, `zspmv`,
+  `sbmv`, `zsbmv` and `zhbmv` take their thresholds from their siblings' (OpenBLAS threads them
+  at any size). Both await rstd's own benchmarks.

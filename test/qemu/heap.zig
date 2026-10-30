@@ -5,6 +5,7 @@
 //! code gets from the firmware.
 
 const std = @import("std");
+
 /// The page size the rigs use, on every target.
 pub const page_size = 4096;
 const page = page_size;
@@ -15,6 +16,44 @@ pub const max_len = 32 << 20;
 
 var region: []align(max_align) u8 = &.{};
 var used: std.bit_set.Static(max_len / page) = .empty;
+
+/// Pages in use, and the most since `resetPeak`.
+var in_use: usize = 0;
+var peak: usize = 0;
+/// The first request that failed since `resetPeak`: its bytes, the bytes in
+/// use and the largest free run then.
+pub var failed: ?struct { len: usize, in_use: usize, largest: usize } = null;
+
+/// Bytes of the region.
+pub fn len() usize {
+    return pages() * page;
+}
+
+/// The most bytes in use since the last call, which starts a new count.
+pub fn resetPeak() usize {
+    defer {
+        peak = in_use;
+        failed = null;
+    }
+    return peak * page;
+}
+
+fn take(i: usize, n: usize, v: bool) void {
+    used.setRangeValue(.{ .start = i, .end = i + n }, v);
+    in_use = if (v) in_use + n else in_use - n;
+    peak = @max(peak, in_use);
+}
+
+/// The longest run of free pages, in bytes.
+fn largest() usize {
+    var best: usize = 0;
+    var run: usize = 0;
+    for (0..pages()) |j| {
+        run = if (used.isSet(j)) 0 else run + 1;
+        best = @max(best, run);
+    }
+    return best * page;
+}
 
 /// Hands out `r` from now on; before, every allocation fails.
 pub fn use(r: []align(max_align) u8) void {
@@ -32,8 +71,8 @@ fn pages() usize {
     return region.len / page;
 }
 
-fn count(len: usize) usize {
-    return (len + page - 1) / page;
+fn count(bytes: usize) usize {
+    return (bytes + page - 1) / page;
 }
 
 fn first(p: [*]u8) usize {
@@ -53,11 +92,14 @@ fn findRun(n: usize, step: usize) ?usize {
     return null;
 }
 
-fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
+fn alloc(_: *anyopaque, bytes: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
     if (alignment.toByteUnits() > max_align) return null;
-    const n = count(len);
-    const i = findRun(n, @max(1, alignment.toByteUnits() / page)) orelse return null;
-    used.setRangeValue(.{ .start = i, .end = i + n }, true);
+    const n = count(bytes);
+    const i = findRun(n, @max(1, alignment.toByteUnits() / page)) orelse {
+        if (failed == null) failed = .{ .len = bytes, .in_use = in_use * page, .largest = largest() };
+        return null;
+    };
+    take(i, n, true);
     return region[i * page ..].ptr;
 }
 
@@ -66,12 +108,12 @@ fn resize(_: *anyopaque, memory: []u8, _: std.mem.Alignment, new_len: usize, _: 
     const old = count(memory.len);
     const new = count(new_len);
     if (new <= old) {
-        used.setRangeValue(.{ .start = i + new, .end = i + old }, false);
+        take(i + new, old - new, false);
         return true;
     }
     if (i + new > pages()) return false;
     for (i + old..i + new) |j| if (used.isSet(j)) return false;
-    used.setRangeValue(.{ .start = i + old, .end = i + new }, true);
+    take(i + old, new - old, true);
     return true;
 }
 
@@ -81,5 +123,5 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
 
 fn free(_: *anyopaque, memory: []u8, _: std.mem.Alignment, _: usize) void {
     const i = first(memory.ptr);
-    used.setRangeValue(.{ .start = i, .end = i + count(memory.len) }, false);
+    take(i, count(memory.len), false);
 }

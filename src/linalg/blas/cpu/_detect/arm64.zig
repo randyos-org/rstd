@@ -179,6 +179,7 @@ pub fn windowsFeatures(present: *const fn (PF) bool) Features {
         .sme_f64f64 = sme and present(.ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE),
         .bf16 = present(.ARM_V86_BF16_INSTRUCTIONS_AVAILABLE),
         // no flag of its own: JSCVT, which ARMv8.3 makes mandatory with it
+        // (LLVM's `v8.3a` implies both `complxnum` and `jsconv`)
         .fcma = present(.ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE),
     });
 }
@@ -207,15 +208,17 @@ pub fn cpuCountFromPossible(text: []const u8) usize {
     return (std.fmt.parseInt(usize, t[2..end], 10) catch 0) + 1;
 }
 
-/// The per-CPU sysfs pass for kernels without the `MIDR_EL1` emulation, one CPU
-/// at a time: the implementer of the last CPU, and the part of the last CPU
-/// whose capacity is 1000 or more (the big cores; the scale tops out at 1024),
-/// else of the last CPU. `dynamic_arm64.c` reads `cpu_capability` as hex, a
-/// file Linux does not have; `cpuid_arm64.c` reads `cpu_capacity` as decimal,
-/// which is what Linux has. Its counts of low, mid and high CPUs are unused.
 /// The implementer and part a sysfs scan settles on.
 pub const Part = struct { implementer: u32, part: u32 };
 
+/// The per-CPU sysfs pass for kernels without the `MIDR_EL1` emulation, one CPU
+/// at a time: the implementer of the last CPU, and the part of the last CPU
+/// whose capacity is 1000 or more (the big cores; Linux v6.17 prints it in
+/// decimal, the biggest core at 1024: `drivers/base/topology.c:226`,
+/// `drivers/base/arch_topology.c:254`), else of the last CPU.
+/// `dynamic_arm64.c` reads `cpu_capability` as hex, a file Linux does not
+/// have; `cpuid_arm64.c` reads `cpu_capacity` as decimal. Its counts of low,
+/// mid and high CPUs are unused.
 pub const SysfsScan = struct {
     implementer: u32 = 0,
     last_part: u32 = 0,
@@ -261,7 +264,8 @@ fn midrFromSysfs() ?Part {
     return scan.result();
 }
 
-/// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity.
+/// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity
+/// (value `CP 4000`, as Zig's `lib/std/zig/system/windows.zig` reads it).
 fn midrFromRegistry() ?u64 {
     if (comptime sysinfo.target.os.tag != .windows) return null;
     const advapi = struct {
@@ -378,7 +382,9 @@ pub fn decide(c: Caps) Decision {
 fn pick(c: Caps) Decision {
     if (c.has(.apple)) return .{ .core = if (c.has(.sme)) .vortexm4 else .vortex };
     if (modelCore(c)) |d| return d;
-    if (c.has(.sme)) return .{ .core = if (c.has(.sve)) .armv9sme else .vortexm4 };
+    // the reference gives SME without SVE `vortexm4` (`dynamic_arm64.c:543-547`);
+    // its object is built for the M4, so other CPUs take the SVE test (T18)
+    if (c.has(.sme) and c.has(.sve)) return .{ .core = .armv9sme };
     if (c.has(.sve)) return .{ .core = .armv8sve };
     return .{ .core = .armv8 };
 }
@@ -392,9 +398,10 @@ pub fn supportsCore(core: CoreType) bool {
 /// level a core is built for (`v8_2a`...) cannot be told apart by the probes; a
 /// part table that names a core only names one the CPU's generation has. But
 /// the kernels of the cores built for ARMv8.3 and up hold `FCMLA` (the
-/// conjugating complex `trsm` kernels), so those cores want `fcma`; Apple's
-/// always have it. The SME cores' objects are built with SME's optional F64F64,
-/// as the reference's are, so they want it too.
+/// conjugating complex `trsm` kernels), so those cores want `fcma`; the M1
+/// and later have it. The SME cores' objects are built with SME's optional F64F64,
+/// as the reference's are, so they want it too. Apple's cores are built for
+/// Apple's CPUs (`apple_m1`, `apple_m4`), so they want one.
 pub fn runnable(core: CoreType, c: Caps) bool {
     return switch (core) {
         .a64fx, .armv8sve => c.has(.sve),
@@ -402,12 +409,22 @@ pub fn runnable(core: CoreType, c: Caps) bool {
         .neoversev1 => c.hasAll(&.{ .sve, .bf16, .fcma }),
         .neoversen2, .neoversev2 => c.hasAll(&.{ .sve, .sve2, .bf16, .fcma }),
         .armv9sme => c.hasAll(&.{ .sve, .sve2, .sme, .sme_f64f64, .fcma }),
-        .vortexm4 => c.hasAll(&.{ .sme, .sme_f64f64 }) and (c.has(.fcma) or c.has(.apple)),
-        .thunderx3t110, .vortex, .ampere1 => c.has(.fcma) or c.has(.apple),
+        .vortexm4 => isApple(c) and c.hasAll(&.{ .sme, .sme_f64f64 }) and (c.has(.fcma) or c.has(.apple)),
+        .vortex => isApple(c) and (c.has(.fcma) or c.has(.apple)),
+        .thunderx3t110, .ampere1 => c.has(.fcma) or c.has(.apple),
         .unknown => false,
         else => true,
     };
 }
+
+/// Apple silicon: Darwin's answer, or Apple's implementer code (Linux, bare metal).
+fn isApple(c: Caps) bool {
+    return c.has(.apple) or (c.has(.midr) and c.implementer == 0x61);
+}
+
+/// `runnable` cannot see the ISA level a core is built for, so a forced core's
+/// stand-in must need nothing the detected core does not (`select.choose`).
+pub const level_unseen = true;
 
 /// The core to fall back to when the CPU or OS lacks what `core` needs: its own
 /// class first (Neoverse to Neoverse N1, as the reference does without SVE),
@@ -507,7 +524,10 @@ test "an unknown part takes SME, then SVE, as the reference does" {
     try std.testing.expectEqual(CoreType.armv9sme, decide(c).core);
     c.features.remove(.sve);
     c.features.remove(.sve2);
-    try std.testing.expectEqual(CoreType.vortexm4, decide(c).core);
+    // SME without SVE: the reference's `vortexm4` is Apple's alone (T18)
+    try std.testing.expectEqual(CoreType.armv8, decide(c).core);
+    try std.testing.expect(!runnable(.vortexm4, c));
+    try std.testing.expect(!runnable(.vortex, c));
     // without the identity register the same tests apply
     try std.testing.expectEqual(CoreType.armv8sve, decide(.{ .features = .initOne(.sve) }).core);
     try std.testing.expectEqual(CoreType.armv8, decide(.{}).core);
@@ -520,6 +540,7 @@ test "Apple silicon" {
     try std.testing.expect(!runnable(.vortexm4, .{ .features = .initOne(.apple) }));
     // Apple's own implementer code, as Linux (Asahi) reports it
     try std.testing.expectEqual(CoreType.vortex, decide(.{ .features = .initMany(&.{ .midr, .fcma }), .implementer = 0x61 }).core);
+    try std.testing.expectEqual(CoreType.vortexm4, decide(.{ .features = .initMany(&.{ .midr, .fcma, .sme, .sme_f64f64 }), .implementer = 0x61 }).core);
 }
 
 test "an ARMv8.3 core without the complex instructions takes generic kernels" {
@@ -595,6 +616,35 @@ test "no SME core is chosen without F64F64" {
         const r = select.choose(@This(), c, name, Linked{}, NoLog{});
         try std.testing.expect(r.core != .armv9sme and r.core != .vortexm4);
     }
+}
+
+test "a forced core the CPU cannot run falls back within what detection found" {
+    const Linked = struct {
+        pub const arch: std.Target.Cpu.Arch = .aarch64;
+        pub const fallback: ?CoreType = null;
+        pub fn ok(_: @This(), _: CoreType) bool {
+            return true;
+        }
+    };
+    const NoLog = struct {
+        pub fn warn(_: @This(), _: i32, comptime _: []const u8, _: anytype) void {}
+    };
+    const D = @This();
+    // a Cortex-A72 (Raspberry Pi 4) told it is a V1: no ARMv8.2 Neoverse N1
+    const a72: Caps = .{ .features = .initOne(.midr), .implementer = 0x41, .part = 0xd08 };
+    const r = select.choose(D, a72, "neoversev1", Linked{}, NoLog{});
+    try std.testing.expect(select.subsetOf(CoreType, r.core, .cortexa72));
+    try everyCaps(struct {
+        fn f(c: Caps) !void {
+            const det = decide(c).core;
+            for (std.enums.values(CoreType)) |want| {
+                if (want == .unknown) continue;
+                const got = select.choose(D, c, @tagName(want), Linked{}, NoLog{}).core;
+                try std.testing.expect(runnable(got, c));
+                if (got != want) try std.testing.expect(select.subsetOf(CoreType, got, det));
+            }
+        }
+    }.f);
 }
 
 test "the hwcaps decode" {

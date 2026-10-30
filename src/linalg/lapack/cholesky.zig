@@ -1,9 +1,11 @@
-//! Cholesky factorization and solve. `potrf` is OpenBLAS's `interface/lapack/potrf.c`
-//! and `zpotrf.c` over `lapack/potrf/potrf_U_single.c` and
-//! `potrf_L_single.c`, whose base case is `lapack/potf2/potf2_U.c`,
-//! `potf2_L.c`, `zpotf2_U.c` and `zpotf2_L.c` (OpenBLAS v0.3.34-317). The
-//! semantics are Reference-LAPACK's `xPOTRF2` (`lapack-netlib/SRC/zpotrf2.f`
-//! in that checkout).
+//! Cholesky factorization, solve and inverse. `potrf` is OpenBLAS's
+//! `interface/lapack/potrf.c` and `zpotrf.c` over `lapack/potrf/potrf_U_single.c`
+//! and `potrf_L_single.c`, or past upstream's size threshold
+//! `potrf_U_parallel.c` and `potrf_L_parallel.c`; the base case is
+//! `lapack/potf2/potf2_U.c`, `potf2_L.c`, `zpotf2_U.c` and `zpotf2_L.c`
+//! (OpenBLAS v0.3.34-317), public as `potf2` (`interface/lapack/potf2.c`,
+//! `zpotf2.c`). The semantics are Reference-LAPACK's `xPOTRF2`
+//! (`lapack-netlib/SRC/zpotrf2.f` in that checkout).
 //!
 //! Where they differ, the reference wins:
 //! - a NaN pivot stops the factorization (`DISNAN` in `xPOTRF2`), where
@@ -13,18 +15,28 @@
 //!
 //! The trailing updates are the level-3 drivers' `trsm` and `herk` (`syrk`
 //! for real `T`), called directly as upstream calls its kernels, so
-//! Accelerate never runs them. Serial, as is the rest of rstd's BLAS.
+//! Accelerate never runs them. Upstream takes the parallel algorithm (other
+//! blocks) when it has more than one thread; here the size alone picks it
+//! (`threads`), and the drivers' workers keep the bits, so no result depends
+//! on the worker count. On macOS `potrf` goes to Accelerate's `?potrf_` when
+//! routing is on (`apple_accel.potrf`).
 //!
 //! `potrs` is Reference-LAPACK's `xPOTRS` (`lapack-netlib/SRC/zpotrs.f`),
-//! which OpenBLAS uses too: two triangular solves.
+//! which OpenBLAS uses too: two triangular solves. `potri` is
+//! `interface/lapack/potri.c` and `zpotri.c`: `trtri`, then `lauum`
+//! (`triangular.zig`), as `xPOTRI`.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const portable = @import("../blas/portable.zig");
+const threading = @import("../blas/threading.zig");
 const driver = @import("../blas/blas3/driver.zig");
+const accel = @import("../blas/apple_accel.zig");
 const Vtable = @import("../blas/Vtable.zig");
+const tri = @import("triangular.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -41,27 +53,94 @@ pub const ArgError = error{
     InvalidLdb,
 };
 
+/// The arguments of a routine on one square matrix (`checkSquare`).
+pub const SquareError = error{ InvalidUplo, InvalidN, InvalidLda };
+
 /// What `potrs` returns.
 pub const PotrsError = ArgError || Allocator.Error || Io.Cancelable;
 
-/// What `potrf` returns: `NotPositiveDefinite` when a leading minor is not
-/// positive definite.
+/// What `potrf` and `potf2` return: `NotPositiveDefinite` when a leading
+/// minor is not positive definite.
 pub const PotrfError = ArgError || Allocator.Error || Io.Cancelable || error{NotPositiveDefinite};
 
-/// `dtb_entries` of a hand-built vtable that has none (`blas2/triangular.zig`).
-const default_dtb = 64;
+/// What `potri` returns: `Singular` when the factor has a zero on its
+/// diagonal.
+pub const PotriError = ArgError || Allocator.Error || Io.Cancelable || error{Singular};
 
-fn floatType(comptime T: type, comptime name: []const u8) void {
+/// `dtb_entries` of a hand-built vtable that has none (`blas2/triangular.zig`).
+pub const default_dtb = 64;
+
+pub fn floatType(comptime T: type, comptime name: []const u8) void {
     if (@typeInfo(Float(T)) != .float) @compileError(name ++ ": " ++ @typeName(T) ++ " is not a float type or its Complex");
 }
 
 /// The vtable for `T`; a type without slots runs the portable kernels and
 /// never reads it (as `blas3/interface.zig`'s `table`).
-fn table(comptime T: type) *const Vtable {
+pub fn table(comptime T: type) *const Vtable {
     return if (comptime portable.letter(T) != null) blas.vtable() else &no_table;
 }
 
 const no_table: Vtable = .{};
+
+/// `dtb_entries` of `vt`, or `default_dtb`.
+pub fn dtbOf(vt: *const Vtable) usize {
+    return if (vt.dtb_entries > 0) @intCast(vt.dtb_entries) else default_dtb;
+}
+
+// ---- threads -------------------------------------------------------------------
+
+/// The routines whose upstream interface picks a thread count by size.
+pub const Routine = enum { getrf, gesv, getrs, potrf, potri, lauum, trtri, trtrs };
+
+/// Upstream's interface rule for `r` over `T` at `size` (`m * n` for
+/// `getrf`, `n * n` for `gesv`, else `n`): null below its threshold, where
+/// upstream runs one thread and its single algorithm, else the workers it
+/// allows (`num_cpu_avail`, capped as it caps them; `threading.workers`). The
+/// size alone picks the algorithm, so one worker past the threshold still
+/// runs the parallel one, and the bits never depend on the worker count.
+pub fn threads(comptime r: Routine, comptime T: type, size: u64) ?u32 {
+    const double = Float(T) == f64;
+    const complex = comptime isComplex(T);
+    const any = std.math.maxInt(u32);
+    const cap: u64 = switch (r) {
+        // `getrf.c`: below `nmax` one thread, else at most `m * n / nmax`;
+        // `zgetrf.c`: below 10000
+        .getrf => if (complex) (if (size < 10000) return null else any) else blk: {
+            const nmax: u64 = if (double) 10000 else 40000;
+            if (size < nmax) return null;
+            break :blk size / nmax;
+        },
+        // `gesv.c`: `m * m` below 40000 (`DOUBLE` 10000); MSVC arm64 builds
+        // up to 500 (complex 300), then 4 up to 1000
+        .gesv => if (sysinfo.os.tag == .windows and sysinfo.cpu.arch == .aarch64)
+            (if (size <= @as(u64, if (complex) 300 else 500)) return null else if (size <= 1000) 4 else any)
+        else if (size < @as(u64, if (double) 10000 else 40000)) return null else any,
+        // `getrs.c`, `trtrs.c`, `lauum.c` and their `z` forms: `n < 64`
+        .getrs, .trtrs, .lauum => if (size < 64) return null else any,
+        // `potrf.c`: below `nmax` one thread, else at most `n / nmax`;
+        // `zpotrf.c`: below 64
+        .potrf => if (complex) (if (size < 64) return null else any) else blk: {
+            const nmax: u64 = if (double) 64 else 128;
+            if (size < nmax) return null;
+            break :blk size / nmax;
+        },
+        // `potri.c`: below 180; `zpotri.c`: below 200 (`DOUBLE` 150)
+        .potri => if (size < @as(u64, if (!complex) 180 else if (double) 150 else 200)) return null else any,
+        // `trtri.c`: up to 150; `ztrtri.c`: below 64
+        .trtri => if (if (complex) size < 64 else size <= 150) return null else any,
+    };
+    return workers(cap);
+}
+
+/// `threading.workers` for a size cap, at most `threading.chunks_max`.
+pub fn workers(size_max: u64) u32 {
+    // selects the core first, which fills `blas.config`
+    _ = blas.coreName();
+    const w = threading.workers(&blas.config, std.math.cast(u32, size_max) orelse std.math.maxInt(u32));
+    return @min(w, threading.chunks_max);
+}
+
+// ---- potrf, potf2 ---------------------------------------------------------------
 
 /// `?POTRF`: the Cholesky factor of the Hermitian (real: symmetric)
 /// positive-definite `n x n` `A`, from and into its `uplo` triangle:
@@ -74,17 +153,47 @@ const no_table: Vtable = .{};
 /// `minor.*` to `k` (the reference's `INFO`). `A` then holds the factor's
 /// first `k - 1` columns (`u`: rows), the failed pivot at `A(k, k)`, and
 /// partial updates elsewhere. `minor` is written only then.
+///
+/// Routed to Accelerate (macOS), a failure leaves its partial factor in `A`.
 pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, minor: ?*usize) PotrfError!void {
     comptime floatType(T, "potrf");
+    if (!try checkSquare(T, uplo, n, lda)) return;
+    if (accel.potrf(T, uplo, n, a, lda)) |info| return failed(@intCast(info), minor);
+    const vt = table(T);
+    const blk = driver.Blocking.of(T, vt);
+    const upper = uplo == .u;
+    const un: usize = @intCast(n);
+    const la: usize = @intCast(lda);
+    const k = if (threads(.potrf, T, un)) |w|
+        try factorParallel(allocator, io, T, vt, upper, blk, un, a, la, w)
+    else
+        try factor(allocator, io, T, vt, upper, dtbOf(vt), blk.q, un, a, la);
+    return failed(k, minor);
+}
+
+/// `?POTF2`: `potrf` unblocked (`potf2_U.c` and the rest, as loops), with
+/// its errors and its `minor`.
+pub fn potf2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, minor: ?*usize) PotrfError!void {
+    comptime floatType(T, "potf2");
+    _ = allocator;
+    _ = io;
+    if (!try checkSquare(T, uplo, n, lda)) return;
+    return failed(unblocked(T, uplo == .u, @intCast(n), a, @intCast(lda)), minor);
+}
+
+/// The reference's checks of `uplo`, `n` and `lda` in its order; false for
+/// `n = 0`, where nothing is read.
+pub fn checkSquare(comptime T: type, uplo: Uplo, n: isize, lda: isize) SquareError!bool {
     if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
-    if (n == 0) return;
+    if (n == 0) return false;
     if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const vt = table(T);
-    const dtb: usize = if (vt.dtb_entries > 0) @intCast(vt.dtb_entries) else default_dtb;
-    const q = driver.Blocking.of(T, vt).q;
-    const k = try factor(allocator, io, T, vt, uplo == .u, dtb, q, @intCast(n), a, @intCast(lda));
+    return true;
+}
+
+/// `error.NotPositiveDefinite` for a nonzero `k`, written to `minor`.
+fn failed(k: usize, minor: ?*usize) error{NotPositiveDefinite}!void {
     if (k == 0) return;
     if (minor) |m| m.* = k;
     return error.NotPositiveDefinite;
@@ -95,33 +204,55 @@ pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isiz
 /// with the update's `herk` column block by column block; here each is one
 /// driver call, the same arithmetic.
 fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, dtb: usize, q: usize, n: usize, a: [*]T, lda: usize) driver.Error!usize {
-    if (n <= dtb / 2) return potf2(T, upper, n, a, lda);
+    if (n <= dtb / 2) return unblocked(T, upper, n, a, lda);
     // `(n + 3) / 4` and `n / 4` as upstream has them
     const blocking = if (n > 4 * q) q else if (upper) (n + 3) / 4 else @max(1, n / 4);
-    const complex = comptime isComplex(T);
-    const one = scalar(T, 1);
-    const minus = scalar(T, -1);
     var j: usize = 0;
     while (j < n) : (j += blocking) {
         const bk = @min(n - j, blocking);
         const d = a + j * (lda + 1);
         const k = try factor(allocator, io, T, vt, upper, dtb, q, bk, d, lda);
         if (k != 0) return k + j;
-        const rest = n - j - bk;
-        if (rest == 0) continue;
-        if (upper) {
-            // A12 := U11^-H A12; A22 -= A12^H A12
-            const p = d + bk * lda;
-            try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda, 1);
-            try driver.syrk(allocator, io, T, vt, complex, true, true, rest, bk, minus, p, lda, null, 0, one, p + bk, lda, 1);
-        } else {
-            // A21 := A21 L11^-H; A22 -= A21 A21^H
-            const p = d + bk;
-            try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda, 1);
-            try driver.syrk(allocator, io, T, vt, complex, false, false, rest, bk, minus, p, lda, null, 0, one, p + bk * lda, lda, 1);
-        }
+        try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1);
     }
     return 0;
+}
+
+/// `potrf_U_parallel.c` and `potrf_L_parallel.c`: blocks of half the order
+/// rounded up to `unroll_n`, at most `Q`, each factored recursively, until
+/// `4 * unroll_n` is left for `factor`; the drivers take up to `want`
+/// workers. Upstream drops to `factor` for one thread too; here only the
+/// size does (`threads`).
+fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32) driver.Error!usize {
+    if (n <= 4 * blk.un) return factor(allocator, io, T, vt, upper, dtbOf(vt), blk.q, n, a, lda);
+    const blocking = @min((n / 2 + blk.un - 1) / blk.un * blk.un, blk.q);
+    var i: usize = 0;
+    while (i < n) : (i += blocking) {
+        const bk = @min(n - i, blocking);
+        const d = a + i * (lda + 1);
+        const k = try factorParallel(allocator, io, T, vt, upper, blk, bk, d, lda, want);
+        if (k != 0) return k + i;
+        try trailing(allocator, io, T, vt, upper, n - i - bk, bk, d, lda, want);
+    }
+    return 0;
+}
+
+/// The `rest` columns (`u`: rows) past the `bk` just factored at `d`:
+/// `A12 := U11^-H A12; A22 -= A12^H A12`, or `A21 := A21 L11^-H;
+/// A22 -= A21 A21^H` (`TRSM_LCUN`, `HERK_UC`; `TRSM_RCLN`, `HERK_LN`).
+fn trailing(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, rest: usize, bk: usize, d: [*]T, lda: usize, want: u32) driver.Error!void {
+    if (rest == 0) return;
+    const complex = comptime isComplex(T);
+    const one = scalar(T, 1);
+    const minus = scalar(T, -1);
+    const p = if (upper) d + bk * lda else d + bk;
+    const c = d + bk * (lda + 1);
+    if (upper) {
+        try driver.trsm(allocator, io, T, vt, true, true, true, complex, false, bk, rest, one, d, lda, p, lda, want);
+    } else {
+        try driver.trsm(allocator, io, T, vt, false, false, true, complex, false, rest, bk, one, d, lda, p, lda, want);
+    }
+    try driver.syrk(allocator, io, T, vt, complex, upper, upper, rest, bk, minus, p, lda, null, 0, one, c, lda, want);
 }
 
 /// `?POTRS`: solves `A X = B` for the `n x nrhs` `X`, in place of `B`,
@@ -150,10 +281,10 @@ pub fn potrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isiz
     try driver.trsm(allocator, io, T, vt, true, upper, !upper, !upper and complex, false, m, r, one, a, la, b, lb, 1);
 }
 
-/// `potf2_U.c`, `potf2_L.c` and their `z` forms: the unblocked factor, at
-/// most `dtb_entries / 2` wide, with upstream's `dot`, `gemv` and `scal` as
-/// loops. A pivot that is not positive is stored, and its order returned.
-fn potf2(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
+/// `potf2_U.c`, `potf2_L.c` and their `z` forms: the unblocked factor, with
+/// upstream's `dot`, `gemv` and `scal` as loops. A pivot that is not
+/// positive is stored, and its order returned.
+pub fn unblocked(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
     const F = Float(T);
     for (0..n) |j| {
         const djj = &a[j * (lda + 1)];
@@ -192,37 +323,85 @@ fn potf2(comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize) usize {
     return 0;
 }
 
+// ---- potri ---------------------------------------------------------------------
+
+/// `?POTRI`: `A^-1` of the Hermitian (real: symmetric) positive-definite
+/// `A` from `potrf`'s factor in its `uplo` triangle, into that triangle:
+/// `U^-1 U^-H` or `L^-H L^-1`, as `trtri` (non-unit) then `lauum`. The other
+/// triangle is never read.
+///
+/// A zero on the factor's diagonal returns `error.Singular` before `A` is
+/// touched, its index (1-based) in `pivot`, as the reference's `xTRTRI`
+/// reports it; upstream's `potri.c` calls `trtri`'s algorithm without that
+/// check and divides by the zero.
+pub fn potri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, pivot: ?*usize) PotriError!void {
+    comptime floatType(T, "potri");
+    if (!try checkSquare(T, uplo, n, lda)) return;
+    const un: usize = @intCast(n);
+    const la: usize = @intCast(lda);
+    if (tri.firstZero(T, un, a, la)) |k| {
+        if (pivot) |p| p.* = k;
+        return error.Singular;
+    }
+    // upstream runs both parallel algorithms, or both single ones
+    const w = threads(.potri, T, un);
+    try tri.inverse(allocator, io, T, uplo == .u, false, un, a, la, w);
+    try tri.product(allocator, io, T, uplo == .u, un, a, la, w);
+}
+
 // ---- element arithmetic ---------------------------------------------------------
 
-fn scalar(comptime T: type, v: Float(T)) T {
+pub fn scalar(comptime T: type, v: Float(T)) T {
     return if (comptime isComplex(T)) .init(v, 0) else v;
 }
 
-fn re(comptime T: type, v: T) Float(T) {
+pub fn re(comptime T: type, v: T) Float(T) {
     return if (comptime isComplex(T)) v.re else v;
 }
 
-fn abs2(comptime T: type, v: T) Float(T) {
+pub fn abs2(comptime T: type, v: T) Float(T) {
     return if (comptime isComplex(T)) v.re * v.re + v.im * v.im else v * v;
 }
 
-fn add(comptime T: type, x: T, y: T) T {
+pub fn add(comptime T: type, x: T, y: T) T {
     return if (comptime isComplex(T)) .init(x.re + y.re, x.im + y.im) else x + y;
 }
 
-fn sub(comptime T: type, x: T, y: T) T {
+pub fn sub(comptime T: type, x: T, y: T) T {
     return if (comptime isComplex(T)) .init(x.re - y.re, x.im - y.im) else x - y;
 }
 
+pub fn mul(comptime T: type, x: T, y: T) T {
+    if (comptime !isComplex(T)) return x * y;
+    return .init(x.re * y.re - x.im * y.im, x.re * y.im + x.im * y.re);
+}
+
+pub fn conj(comptime T: type, v: T) T {
+    return if (comptime isComplex(T)) .init(v.re, -v.im) else v;
+}
+
+pub fn neg(comptime T: type, v: T) T {
+    return if (comptime isComplex(T)) .init(-v.re, -v.im) else -v;
+}
+
 /// `conj(x) * y`.
-fn mulConj(comptime T: type, x: T, y: T) T {
+pub fn mulConj(comptime T: type, x: T, y: T) T {
     if (comptime !isComplex(T)) return x * y;
     return .init(x.re * y.re + x.im * y.im, x.re * y.im - x.im * y.re);
 }
 
 /// `x / d`, part by part: a real `d`, so each part's quotient is exact.
-fn divReal(comptime T: type, x: T, d: Float(T)) T {
+pub fn divReal(comptime T: type, x: T, d: Float(T)) T {
     return if (comptime isComplex(T)) .init(x.re / d, x.im / d) else x / d;
+}
+
+/// `x * d`, part by part, `d` real (`?dscal`).
+pub fn mulReal(comptime T: type, x: T, d: Float(T)) T {
+    return if (comptime isComplex(T)) .init(x.re * d, x.im * d) else x * d;
+}
+
+pub fn isZero(comptime T: type, v: T) bool {
+    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
 }
 
 // ---- tests ---------------------------------------------------------------------
@@ -235,36 +414,61 @@ const nan = std.math.nan(f64);
 
 /// Every element type the tests take: the four precisions, `XDouble` where
 /// it is its own, and `f80` where it has no slots.
-const test_types = .{ f32, f64, types.Complex32, types.Complex64 } ++ check.x_real ++ check.x_complex ++ check.f80_unslotted;
+pub const test_types = .{ f32, f64, types.Complex32, types.Complex64 } ++ check.x_real ++ check.x_complex ++ check.f80_unslotted;
 
-fn W(comptime T: type) type {
+pub fn W(comptime T: type) type {
     return check.Wide(T);
 }
 
-fn fromF64(comptime T: type, v: f64) T {
+pub fn fromF64(comptime T: type, v: f64) T {
     return if (comptime isComplex(T)) .init(@floatCast(v), 0) else @floatCast(v);
 }
 
-fn toT(comptime T: type, v: W(T)) T {
+pub fn toT(comptime T: type, v: W(T)) T {
     return if (comptime isComplex(T)) .init(@floatCast(v.re), @floatCast(v.im)) else @floatCast(v);
 }
 
 /// NaN in every part.
-fn poisoned(comptime T: type) T {
+pub fn poisoned(comptime T: type) T {
     const x = std.math.nan(Float(T));
     return if (comptime isComplex(T)) .init(x, x) else x;
 }
 
 /// Equal bits, part by part (`f80`'s padding aside).
-fn sameBits(comptime T: type, x: T, y: T) bool {
+pub fn sameBits(comptime T: type, x: T, y: T) bool {
     const F = Float(T);
     const U = @Int(.unsigned, @bitSizeOf(F));
     if (comptime isComplex(T)) return sameBits(F, x.re, y.re) and sameBits(F, x.im, y.im);
     return @as(U, @bitCast(x)) == @as(U, @bitCast(y));
 }
 
-fn isNanT(comptime T: type, v: T) bool {
+pub fn isNanT(comptime T: type, v: T) bool {
     return if (comptime isComplex(T)) std.math.isNan(v.re) and std.math.isNan(v.im) else std.math.isNan(v);
+}
+
+/// The worker counts the threaded tests take past one.
+pub const test_workers = [_]u32{ 2, 3, 8 };
+
+/// `run(ctx, io, want, out)` at one worker on `Io.failing` against
+/// `test_workers`, on `Io.failing` (tasks inline) and on a threaded `Io`,
+/// bit for bit over the `len` elements it writes.
+pub fn expectSameBits(comptime T: type, ctx: anytype, comptime run: fn (@TypeOf(ctx), Io, u32, []T) anyerror!void, len: usize, what: []const u8) !void {
+    const al = testing.allocator;
+    const want = try al.alloc(T, len);
+    defer al.free(want);
+    const got = try al.alloc(T, len);
+    defer al.free(got);
+    try run(ctx, Io.failing, 1, want);
+    var th: if (threading.hosted) Io.Threaded else void = if (comptime threading.hosted) .init(al, .{}) else {};
+    defer if (comptime threading.hosted) th.deinit();
+    for (test_workers) |w| for (0..if (threading.hosted) 2 else 1) |k| {
+        const io = if (comptime threading.hosted) (if (k == 0) Io.failing else th.io()) else Io.failing;
+        try run(ctx, io, w, got);
+        for (want, got, 0..) |x, y, i| if (!sameBits(T, x, y)) {
+            check.say("{s} {s}: {d} workers ({s}) differ from one at element {d}: {any} against {any}\n", .{ what, @typeName(T), w, if (k == 0) "inline" else "threaded", i, y, x });
+            return error.TestUnexpectedResult;
+        };
+    };
 }
 
 /// A test matrix: `L`, lower with a diagonal in [2, 4) and the rest within
@@ -272,7 +476,7 @@ fn isNanT(comptime T: type, v: T) bool {
 /// it in `W(T)`, stored in `uplo`'s triangle of `n x n` with `lda = n + 2`.
 /// The other triangle, the padding rows and a complex diagonal's imaginary
 /// parts hold NaN.
-fn Problem(comptime T: type) type {
+pub fn Problem(comptime T: type) type {
     return struct {
         n: usize,
         lda: usize,
@@ -283,7 +487,7 @@ fn Problem(comptime T: type) type {
 
         const Self = @This();
 
-        fn init(al: Allocator, n: usize, upper: bool, seed: u64) !Self {
+        pub fn init(al: Allocator, n: usize, upper: bool, seed: u64) !Self {
             const lda = n + 2;
             const l = try al.alloc(T, n * n);
             errdefer al.free(l);
@@ -315,7 +519,7 @@ fn Problem(comptime T: type) type {
         }
 
         /// `A` into `a`, poisoned where `potrf` must not read.
-        fn store(self: *Self) void {
+        pub fn store(self: *Self) void {
             @memset(self.a, poisoned(T));
             for (0..self.n) |j| for (0..self.n) |i| {
                 if (if (self.upper) i > j else i < j) continue;
@@ -324,7 +528,7 @@ fn Problem(comptime T: type) type {
             };
         }
 
-        fn deinit(self: *Self, al: Allocator) void {
+        pub fn deinit(self: *Self, al: Allocator) void {
             al.free(self.l);
             al.free(self.a);
             al.free(self.aw);
@@ -332,20 +536,20 @@ fn Problem(comptime T: type) type {
 
         /// The computed factor's `(i, j)` as lower, `i >= j`: `L(i, j)`, or
         /// `conj(U(j, i))`.
-        fn got(self: *const Self, i: usize, j: usize) T {
+        pub fn got(self: *const Self, i: usize, j: usize) T {
             if (!self.upper) return self.a[i + j * self.lda];
             const v = self.a[j + i * self.lda];
             return if (comptime isComplex(T)) v.conjugate() else v;
         }
 
-        fn factorIt(self: *Self, al: Allocator, minor: ?*usize) PotrfError!void {
+        pub fn factorIt(self: *Self, al: Allocator, minor: ?*usize) PotrfError!void {
             return potrf(al, check.io, T, if (self.upper) .u else .l, @intCast(self.n), self.a.ptr, @intCast(self.lda), minor);
         }
 
         /// The factor against `A` (backward, within `2 (n + 2)` ulps of
         /// `|L| |L|ᴴ`) and against the known `L` (forward, loosely), with
         /// the poisoned elements untouched.
-        fn expectFactor(self: *const Self) !void {
+        pub fn expectFactor(self: *const Self) !void {
             const n = self.n;
             const F = Float(T);
             const eps: f128 = std.math.floatEps(F);
@@ -390,7 +594,7 @@ fn Problem(comptime T: type) type {
 /// a vtable is large for a rig's stack.
 var shrunk: Vtable = undefined;
 
-fn shrink(vt: *const Vtable) *const Vtable {
+pub fn shrink(vt: *const Vtable) *const Vtable {
     shrunk = vt.*;
     shrunk.dtb_entries = 4;
     inline for (.{ "s", "d", "q", "c", "z", "x" }) |p| @field(shrunk, p ++ "gemm_q") = 3;
@@ -484,6 +688,10 @@ test "potrf: the first minor that is not positive definite, by a pivot, NaN or i
 }
 
 test "potrf: a failed pivot is stored, real; minor is written only on failure" {
+    // rstd's own (Accelerate's keeps a complex pivot's imaginary part)
+    const was = accel.routing();
+    _ = accel.route(false);
+    defer _ = accel.route(was);
     inline for (.{ f64, types.Complex64 }) |T| for ([_]Uplo{ .u, .l }) |uplo| {
         // the identity with -3 at (2, 2): exact pivots
         var a: [16]T = @splat(scalar(T, 0));
@@ -622,4 +830,205 @@ test "potrs: reports the first bad argument and reads nothing when empty" {
     try potrs(fa, check.io, f64, .u, 0, 2, &a, 1, &b, 1);
     try potrs(fa, check.io, f64, .l, 2, 0, &a, 2, &b, 2);
     for (b) |v| try testing.expect(std.math.isNan(v));
+}
+
+fn parallelCases(vt: *const Vtable) anyerror!void {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]bool{ true, false }) |upper| {
+        for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
+            const saved = blas.testUse(v);
+            defer blas.testRestore(saved);
+            const blk = driver.Blocking.of(T, v);
+            const sizes: []const usize = if (vi == 0) &shrunk_sizes else &own_sizes;
+            for (sizes) |n| {
+                if (check.rig() and n > 70) continue;
+                var p = try Problem(T).init(al, n, upper, n * 29 + @as(u64, @intFromBool(upper)));
+                defer p.deinit(al);
+                var poison: guard.Poison = .{ .child = al };
+                const k = try factorParallel(poison.allocator(), check.io, T, table(T), upper, blk, n, p.a.ptr, p.lda, 1);
+                try testing.expectEqual(@as(usize, 0), k);
+                p.expectFactor() catch |e| {
+                    check.say("{s}, blocking {s}, parallel algorithm\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
+                    return e;
+                };
+                if (n < 13) continue;
+                // a failure past the first block
+                p.store();
+                p.a[(n - 2) * (p.lda + 1)] = fromF64(T, -100);
+                try testing.expectEqual(n - 1, try factorParallel(al, check.io, T, table(T), upper, blk, n, p.a.ptr, p.lda, 1));
+            }
+        }
+    };
+}
+
+test "potrf's parallel algorithm: A = L Lᴴ, and the failing minor, on every linked core" {
+    try check.eachCore(parallelCases);
+}
+
+/// Inputs of a threaded-bits case: `A`, copied into each run's `out`.
+fn Threaded(comptime T: type) type {
+    return struct {
+        p: *const Problem(T),
+
+        pub fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+            const vt = table(T);
+            @memcpy(out, c.p.a);
+            _ = try factorParallel(testing.allocator, io, T, vt, c.p.upper, driver.Blocking.of(T, vt), c.p.n, out.ptr, c.p.lda, want);
+        }
+
+        /// The public `potri`, threading by `blas.config`'s workers.
+        pub fn inverse(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+            const saved = blas.config.cpu_count;
+            defer blas.config.cpu_count = saved;
+            blas.config.cpu_count = want;
+            @memcpy(out, c.p.a);
+            try potri(testing.allocator, io, T, if (c.p.upper) .u else .l, @intCast(c.p.n), out.ptr, @intCast(c.p.lda), null);
+        }
+    };
+}
+
+test "potrf's parallel algorithm and potri give one worker's bits at any worker count" {
+    _ = blas.coreName();
+    const was = accel.routing();
+    _ = accel.route(false);
+    defer _ = accel.route(was);
+    const al = testing.allocator;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| {
+        // past every type's `potri` threshold
+        const n: usize = if (check.rig()) 70 else 210;
+        var p = try Problem(T).init(al, n, upper, 41);
+        defer p.deinit(al);
+        const c: Threaded(T) = .{ .p = &p };
+        try expectSameBits(T, c, Threaded(T).run, p.a.len, "potrf");
+        try p.factorIt(al, null);
+        try expectSameBits(T, c, Threaded(T).inverse, p.a.len, "potri");
+    };
+}
+
+test "potf2: the unblocked factor, its failing minor, its first bad argument" {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]bool{ true, false }) |upper| {
+        const n = 26;
+        var p = try Problem(T).init(al, n, upper, 5);
+        defer p.deinit(al);
+        try potf2(al, check.io, T, if (upper) .u else .l, n, p.a.ptr, @intCast(p.lda), null);
+        try p.expectFactor();
+        p.store();
+        p.a[7 * (p.lda + 1)] = fromF64(T, nan);
+        try expectMinorWith(T, &p, 8, potf2);
+    };
+    const fa = testing.failing_allocator;
+    var a: [4]f64 = @splat(nan);
+    try testing.expectError(error.InvalidUplo, potf2(fa, check.io, f64, .v, -1, &a, 0, null));
+    try testing.expectError(error.InvalidN, potf2(fa, check.io, f64, .u, -1, &a, 0, null));
+    try testing.expectError(error.InvalidLda, potf2(fa, check.io, f64, .l, 2, &a, 1, null));
+    try potf2(fa, check.io, f64, .u, 0, &a, 1, null);
+    for (a) |v| try testing.expect(std.math.isNan(v));
+}
+
+fn expectMinorWith(comptime T: type, p: *Problem(T), want: usize, comptime f: anytype) !void {
+    var minor: usize = 0;
+    const r = f(testing.allocator, check.io, T, if (p.upper) .u else .l, @intCast(p.n), p.a.ptr, @intCast(p.lda), &minor);
+    try testing.expectError(error.NotPositiveDefinite, r);
+    try testing.expectEqual(want, minor);
+}
+
+/// `potri` on `potrf`'s factor of `p`: `A X = I` within `32 (n + 2)` ulps
+/// of `|A| |X|`, `X` Hermitian from its stored triangle, nothing outside
+/// it written.
+fn inverseCase(comptime T: type, al: Allocator, p: *Problem(T)) !void {
+    const n = p.n;
+    try p.factorIt(al, null);
+    var poison: guard.Poison = .{ .child = al };
+    try potri(poison.allocator(), check.io, T, if (p.upper) .u else .l, @intCast(n), p.a.ptr, @intCast(p.lda), null);
+    const eps: f128 = std.math.floatEps(Float(T));
+    const ulps: f128 = @floatFromInt(32 * (n + 2));
+    for (0..n) |j| for (0..n) |i| {
+        var s: W(T) = check.wide(T, scalar(T, if (i == j) -1 else 0));
+        var mag: f128 = 0;
+        for (0..n) |k| {
+            const inside = if (p.upper) k <= j else k >= j;
+            const x = check.wide(T, if (inside) p.a[k + j * p.lda] else conj(T, p.a[j + k * p.lda]));
+            s = check.addW(s, check.mulW(p.aw[i + k * n], x));
+            mag += check.abs1(p.aw[i + k * n]) * check.abs1(x);
+        }
+        const d = check.abs1(s);
+        if (!(d <= ulps * eps * mag)) {
+            check.say("potri {s} {s} n={d}: (A X - I)({d},{d}) = {e}, allowed {e}\n", .{ @typeName(T), if (p.upper) "u" else "l", n, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(ulps * eps * mag)) });
+            return error.TestUnexpectedResult;
+        }
+    };
+    for (0..n) |j| for (0..p.lda) |i| {
+        const stored = i < n and (if (p.upper) i <= j else i >= j);
+        if (!stored and !isNanT(T, p.a[i + j * p.lda])) {
+            check.say("potri {s} n={d}: wrote ({d},{d}), outside its triangle\n", .{ @typeName(T), n, i, j });
+            return error.TestUnexpectedResult;
+        }
+    };
+}
+
+fn inverseCases(vt: *const Vtable) anyerror!void {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]bool{ true, false }) |upper| {
+        for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
+            const saved = blas.testUse(v);
+            defer blas.testRestore(saved);
+            const sizes: []const usize = if (vi == 0) &shrunk_sizes else &own_sizes;
+            for (sizes) |n| {
+                if (check.rig() and n > 70) continue;
+                var p = try Problem(T).init(al, n, upper, n * 11 + @as(u64, @intFromBool(upper)));
+                defer p.deinit(al);
+                inverseCase(T, al, &p) catch |e| {
+                    check.say("{s}, blocking {s}\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
+                    return e;
+                };
+            }
+        }
+    };
+}
+
+test "potri: A X = I on potrf's factor, both triangles, on every linked core" {
+    try check.eachCore(inverseCases);
+}
+
+test "potri: a zero on the factor's diagonal before A is touched; the first bad argument" {
+    const fa = testing.failing_allocator;
+    inline for (.{ f64, types.Complex64 }) |T| for ([_]Uplo{ .u, .l }) |uplo| {
+        var a: [9]T = @splat(scalar(T, 1));
+        a[8] = scalar(T, 0);
+        const before = a;
+        var pivot: usize = 99;
+        try testing.expectError(error.Singular, potri(fa, check.io, T, uplo, 3, &a, 3, &pivot));
+        try testing.expectEqual(@as(usize, 3), pivot);
+        try testing.expectEqualSlices(T, &before, &a);
+    };
+    var a: [4]f64 = @splat(nan);
+    try testing.expectError(error.InvalidUplo, potri(fa, check.io, f64, .m, -1, &a, 0, null));
+    try testing.expectError(error.InvalidN, potri(fa, check.io, f64, .u, -1, &a, 0, null));
+    try testing.expectError(error.InvalidLda, potri(fa, check.io, f64, .l, 2, &a, 1, null));
+    try potri(fa, check.io, f64, .u, 0, &a, 1, null);
+    for (a) |v| try testing.expect(std.math.isNan(v));
+}
+
+test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
+    _ = blas.coreName();
+    if (!accel.routing()) return error.SkipZigTest;
+    const al = testing.allocator;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| {
+        for ([_]usize{ 1, 7, 70, 130 }) |n| {
+            var p = try Problem(T).init(al, n, upper, n * 3 + @as(u64, @intFromBool(upper)));
+            defer p.deinit(al);
+            const before = accel.calls.load(.monotonic);
+            try p.factorIt(al, null);
+            try testing.expect(accel.calls.load(.monotonic) > before);
+            p.expectFactor() catch |e| {
+                check.say("Accelerate's {s}potrf_\n", .{@typeName(T)});
+                return e;
+            };
+            if (n < 7) continue;
+            p.store();
+            p.a[(n / 2) * (p.lda + 1)] = fromF64(T, nan);
+            try expectMinor(T, &p, n / 2 + 1, "Accelerate's NaN pivot");
+        }
+    };
 }

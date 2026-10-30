@@ -8,7 +8,9 @@
 //!     riscv64, MIPS) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
 //!     step checks the printed summary for "0 failed". The console is also
-//!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
+//!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`. A UEFI target
+//!     builds the same tests as an application (`test/qemu/uefi.zig`), which
+//!     QEMU's own OVMF or AAVMF boots from a FAT drive.
 //!   * `.linux`: rstd's full test suite as a static Linux executable, in an
 //!     initramfs whose init (`test/linux/init.zig`) mounts procfs, sysfs
 //!     and devtmpfs, runs it and reports. The kernel is a Debian netboot one,
@@ -74,6 +76,9 @@ const Machine = struct {
     /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
     /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// Kernel objects linked: `.none` for a soft-float ABI, which no
+    /// converted kernel serves (`abi.zig`).
+    blas_cores: rstdbuild.BlasCores = .all,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-part` picks some, and `-Dqemu-test-filter` builds one
@@ -106,6 +111,10 @@ const Boot = union(enum) {
         /// The addresses the firmware maps for the image, if it maps too few
         /// for every image: one whose loaded span is past them fails the build.
         load_window: ?Window = null,
+        /// A UEFI target's firmware, by its name in QEMU's data directory,
+        /// where Nix's QEMU ships it; no linker script then. Test host only:
+        /// `tools/nix/run.sh` finds that directory.
+        firmware: ?[]const u8 = null,
     };
 
     const Window = struct { base: u64, size: u64 };
@@ -121,7 +130,23 @@ const Boot = union(enum) {
     };
 };
 
-const machines = [_]Machine{
+const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" });
+
+/// `names` again as `<name>-safe`, in ReleaseSafe (T87): Debug stores every
+/// value to memory, which hides x87 width bugs (T56's showed in ReleaseSafe only).
+fn x87Safe(comptime names: []const []const u8) [names.len]Machine {
+    var out: [names.len]Machine = undefined;
+    for (names, &out) |name, *o| {
+        o.* = for (base_machines) |m| {
+            if (std.mem.eql(u8, m.name, name)) break m;
+        } else @compileError("no rig " ++ name);
+        o.name = name ++ "-safe";
+        o.optimize = .safe;
+    }
+    return out;
+}
+
+const base_machines = [_]Machine{
     .{
         .name = "aarch64",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.cortex_a72 } },
@@ -193,6 +218,22 @@ const machines = [_]Machine{
                 .code_model = .medany,
             },
         },
+    },
+    .{
+        // `riscv64` at VLEN 128 and 256: `zvl128b`'s and `zvl256b`'s objects
+        // on the hardware they are named for, the VLEN-agnostic `axpy` at both
+        .name = "riscv64-vlen128",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
+        .qemu = "qemu-system-riscv64",
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=128", "-smp", "1", "-bios", "none" },
+        .boot = .{ .kernel = .{ .linker_script = "test/qemu/riscv64.ld", .code_model = .medany } },
+    },
+    .{
+        .name = "riscv64-vlen256",
+        .query = .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .cpu_model = .baseline },
+        .qemu = "qemu-system-riscv64",
+        .args = &.{ "-M", "virt", "-cpu", "rv64,v=true,vlen=256", "-smp", "1", "-bios", "none" },
+        .boot = .{ .kernel = .{ .linker_script = "test/qemu/riscv64.ld", .code_model = .medany } },
     },
     .{
         .name = "loongarch64",
@@ -299,6 +340,19 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // the SSE2-and-up cores, which a `pentium3` cannot run; a CPU past the
+        // baseline (`pentium4`) also builds each core's object for its own ISA
+        .name = "i386-max",
+        .query = .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.nehalem } },
+        .qemu = "qemu-system-i386",
+        .args = &.{ "-M", "pc", "-cpu", "max" },
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
         .name = "x86_64",
         .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
         .qemu = "qemu-system-x86_64",
@@ -343,7 +397,7 @@ const machines = [_]Machine{
             .{ .name = "blas3-gemm", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm." } },
             .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
             .{ .name = "blas3-rank", .filters = &.{ "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k." } },
-            .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm." } },
+            .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm.", "linalg.lapack." } },
             .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
             .{ .name = "openblas", .filters = &.{"linalg.blas._test.from_openblas."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
@@ -365,9 +419,10 @@ const machines = [_]Machine{
         .name = "sparc64-debug",
         .optimize = .debug,
         .parts = &.{
-            // blas1 in two, as one is past the window
+            // blas1 in three, as two are past the window
             .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.amax.", "linalg.blas.blas1.amin.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas._test.blas1.check.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas.blas1.iamax.", "linalg.blas.blas1.iamin.", "linalg.blas.blas1.imax.", "linalg.blas.blas1.imin.", "linalg.blas.blas1.max.", "linalg.blas.blas1.min.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.blas1.uk_block." } },
-            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.edge." } },
+            .{ .name = "blas1-interface", .filters = &.{"linalg.blas.blas1.interface."} },
+            .{ .name = "blas1-edge", .filters = &.{"linalg.blas._test.blas1.edge."} },
             .{ .name = "blas1-denormal", .filters = &.{"linalg.blas._test.blas1.denormal."} },
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
@@ -384,7 +439,10 @@ const machines = [_]Machine{
                 "linalg.blas.blas2.symmetric.",
             } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular.test.triangular"} },
-            .{ .name = "blas2-triangular-cores", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's"} },
+            // every core's triangular results in three, as one is past the window
+            .{ .name = "blas2-triangular-cores-real", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, real"} },
+            .{ .name = "blas2-triangular-cores-complex", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, complex products"} },
+            .{ .name = "blas2-triangular-cores-complex-2", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, complex solves"} },
             .{ .name = "blas2-f80", .filters = &.{ "linalg.blas.blas2.banded.test.f80", "linalg.blas.blas2.triangular.test.f80" } },
             .{ .name = "blas2-interface", .filters = &.{
                 "linalg.blas.blas2.interface.test.interface: gemv",
@@ -450,11 +508,20 @@ const machines = [_]Machine{
             .{ .name = "openblas-blat2", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test_", "linalg.blas._test.from_openblas.blat2.test.blat2: SMVCH", "linalg.blas._test.from_openblas.blat2.test.blat2: xGEMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTRMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: error exits" } },
             .{ .name = "openblas-blat2-b", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test.blat2: xTRSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGER,", "linalg.blas._test.from_openblas.blat2.test.blat2: xGERC", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR2", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR2" } },
             .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test.from_openblas.blat3."} },
-            // the suites on every linked core, by level, level 2 by type
-            .{ .name = "openblas-cores-l1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites"} },
+            // the suites on every linked core, by level, level 1 by suite
+            // (utest_ext's level 3 runs with level 3), level 2 by type
+            .{ .name = "openblas-cores-l1-blat1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites, blat1"} },
+            .{ .name = "openblas-cores-l1-utest", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites, utest,"} },
+            .{ .name = "openblas-cores-l1-utest-2", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites, utest_ext's"} },
             .{ .name = "openblas-cores-l2-real", .filters = &.{ "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f32", "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f64" } },
             .{ .name = "openblas-cores-l2-complex", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-2 suite at complex"} },
             .{ .name = "openblas-cores-l3", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-3 suite"} },
+            // LAPACK in five, as one is past the window
+            .{ .name = "lapack-cholesky", .filters = &.{"linalg.lapack.cholesky."} },
+            .{ .name = "lapack-getrf", .filters = &.{"linalg.lapack.lu.test.getrf"} },
+            .{ .name = "lapack-getrs-real", .filters = &.{ "linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real", "linalg.lapack.lu.test.getrs: a known", "linalg.lapack.lu.test.getrs: reports" } },
+            .{ .name = "lapack-getrs-complex", .filters = &.{"linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex"} },
+            .{ .name = "lapack-faer", .filters = &.{"linalg.lapack.faer."} },
             .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
             .{ .name = "small", .filters = &small_filters },
         },
@@ -540,12 +607,61 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // RandyOS's iBook G3 target (a 750FX, no AltiVec) on `mac99`: soft
+        // float, so no kernel objects; the portable kernels run. A 750, as
+        // OpenBIOS hangs on QEMU's `750fx` (issues.md); the same ISA
+        .name = "powerpc-750",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "750" },
+        .memory = "256M",
+        .blas_cores = .none,
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
+        // the 750 with hard float: every 32-bit core linked, none runnable
+        .name = "powerpc-750-hf",
+        .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
+        .qemu = "qemu-system-ppc",
+        .args = &.{ "-M", "mac99", "-cpu", "750" },
+        .memory = "256M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc32.ld",
+            .semihosting = false,
+        } },
+    },
+    .{
         // the G4 build in a POWER10's 32-bit mode under VOF: the server cores
         // through power6, built 32-bit
         .name = "powerpc-pseries",
         .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.g4 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power10" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
+        // a 32-bit VSX build on a POWER9 under VOF: the power8 and power9
+        // cores' `@Vector` kernels as 32-bit code. The build drops `64bit`
+        // and `fpcvt`, with which LLVM fails on compiler-rt in 32-bit mode;
+        // ISA 3.0 fails it too, so power10's kernels cannot link (issues.md).
+        .name = "powerpc-power9",
+        .query = .{
+            .cpu_arch = .powerpc,
+            .os_tag = .freestanding,
+            .abi = .none,
+            .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr8 },
+            .cpu_features_sub = std.Target.powerpc.featureSet(&.{ .@"64bit", .fpcvt }),
+        },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power9" },
         .memory = "512M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/ppc64.ld",
@@ -577,6 +693,34 @@ const machines = [_]Machine{
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/s390x.ld",
             .semihosting = false,
+        } },
+    },
+    .{
+        // RandyOS's loader's platforms: the tests as a UEFI application under
+        // QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`
+        .name = "x86_64-uefi",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .uefi },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-M", "q35", "-cpu", "max" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .llvm = true,
+            .semihosting = false,
+            .firmware = "edk2-x86_64-code.fd",
+        } },
+    },
+    .{
+        .name = "aarch64-uefi",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .uefi },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
+        .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .semihosting = false,
+            .firmware = "edk2-aarch64-code.fd",
         } },
     },
     .{
@@ -616,8 +760,8 @@ const machines = [_]Machine{
     },
     .{
         .name = "linux-powerpc64le",
-        // LLVM PowerPC FastISel (debug) uses FPR instructions on VSX registers (issues.md)
-        .optimize = .safe,
+        // pwr8, `f128` by library calls: clear of the FastISel bug the other
+        // POWER rigs build `.safe` for (issues.md)
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
         .qemu = "qemu-system-ppc64",
         // detection sees a POWER10 (the baseline build links up to POWER9's
@@ -667,7 +811,7 @@ const machines = [_]Machine{
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
 /// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
-const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "simd." } ++ small_filters);
+pub const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "linalg.lapack.", "simd." } ++ small_filters);
 
 /// The smaller BLAS test files: types, `fma`, `portable`, `ext` and `util`.
 const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext.", "linalg.blas.util." };
@@ -775,7 +919,8 @@ fn testHostFor(m: Machine, host: ?TestHost) ?TestHost {
 /// copies over the files `fileArg` adds.
 fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     const run = watchCommand(b);
-    run.addArgs(&.{ "Stopping execution", "--" });
+    // OpenBIOS's halt, and OVMF's and AAVMF's CPU exceptions
+    run.addArgs(&.{ "Stopping execution", "!!!! X64 Exception", "Synchronous Exception at", "--" });
     const h = testHostFor(m, host) orelse {
         run.addArg(m.qemu);
         run.addArgs(m.args);
@@ -861,8 +1006,17 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void
 /// null until the kernel's package is fetched.
 fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
-    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
+    // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
+    const nix: ?[]const u8 = if (!buildroot.tsan or host == null) null else switch (target.result.cpu.arch) {
+        .x86_64 => "x86_64-linux",
+        .aarch64 => "aarch64-linux",
+        else => null,
+    };
+    var query = target.query;
+    if (nix != null) query.abi = .gnu;
+    const t = if (nix != null) b.resolveTargetQuery(query) else target;
+    const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, false, false);
+    const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
         .root_source_file = b.path("test/linux/init.zig"),
         .target = target,
@@ -872,6 +1026,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
     pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
     pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
+    if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system)).captureStdOut(.{}));
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);
@@ -1011,8 +1166,9 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         // no threads under a test kernel
         .single_threaded = true,
     });
+    if (k.firmware != null) try addUefiImports(b, test_mod);
     // the kernels of the architectures that have any
-    try blaskern.addBlasKernels(b, test_mod, target, .all);
+    try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores);
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
@@ -1022,7 +1178,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         // every rig needs its linker script, which only lld honors
         .use_lld = true,
     });
-    test_exe.setLinkerScript(b.path(k.linker_script));
+    if (k.firmware == null) test_exe.setLinkerScript(b.path(k.linker_script));
     check.dependOn(&test_exe.step);
 
     const run = qemuCommand(b, m, host);
@@ -1044,14 +1200,44 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     }
     addConsole(b, run, m, host);
     if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
-    run.addArg("-kernel");
-    fileArg(run, m, host, test_exe.getEmittedBin());
+    if (k.firmware) |fw| {
+        // the app at the removable-media boot path of a read-only FAT drive
+        // (vvfat), booted first; no NIC, whose network boot would come first
+        const esp = b.addWriteFiles();
+        const boot = switch (target.result.cpu.arch) {
+            .x86_64 => "BOOTX64.EFI",
+            .aarch64 => "BOOTAA64.EFI",
+            else => unreachable,
+        };
+        _ = esp.addCopyFile(test_exe.getEmittedBin(), b.fmt("EFI/BOOT/{s}", .{boot}));
+        // read-only pflash, without a variable store: OVMF's code is no
+        // multiple of 64 KiB, which `-bios` wants
+        if (testHostFor(m, host) == null) run.step.dependOn(&b.addFail(b.fmt("{s} runs on -Dtest-host, whose tools/nix/run.sh finds QEMU's firmware", .{m.name})).step);
+        run.addArgs(&.{ "-drive", b.fmt("if=pflash,unit=0,format=raw,readonly=on,file=@qemu-data@/{s}", .{fw}), "-nic", "none", "-drive" });
+        const drive = "if=none,id=esp,format=raw,readonly=on,file=fat:";
+        run.addPrefixedDirectoryArg(if (testHostFor(m, host) != null) drive ++ "local:" else drive, esp.getDirectory());
+        run.addArgs(&.{ "-device", "virtio-blk-pci,drive=esp,bootindex=0" });
+    } else {
+        run.addArg("-kernel");
+        fileArg(run, m, host, test_exe.getEmittedBin());
+    }
     run.has_side_effects = true;
     // HVF has no semihosting, so no exit status
     const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
     if (!k.semihosting or hvf) run.expectStdOutMatch(", 0 failed");
     if (k.stderr_note) |note| run.expectStdErrMatch(note);
     return run;
+}
+
+/// What the UEFI boot code (`test/qemu/uefi.zig`) needs of the test module:
+/// the module itself as `qemutest_root`, for rstd's UEFI `std.Io`, and the
+/// `build_options` that Io's logger reads, with no scope levels.
+pub fn addUefiImports(b: *Build, mod: *Build.Module) !void {
+    mod.addImport("qemutest_root", mod);
+    const options = b.addOptions();
+    options.addOption([]const []const u8, "logger_scope_names", &.{});
+    options.addOption([]const @typeInfo(std.log.Level).@"enum".tag_type, "logger_scope_name_levels", &.{});
+    mod.addImport("build_options", try rstdbuild.optionsModule(options));
 }
 
 /// `m`'s `qemu-setup-`, `qemu-install-` and `qemu-start-<name>` steps, and the

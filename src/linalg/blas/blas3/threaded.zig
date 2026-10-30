@@ -1,5 +1,7 @@
-//! Threaded level 3 in BLIS's model (Van Zee and van de Geijn; BLIS 2.1's
-//! `docs/Multithreading.md`), written from its design. Workers split `C`
+//! Threaded level 3 in BLIS's model (Smith, van de Geijn, Smelyanskiy,
+//! Hammond, Van Zee, "Anatomy of High-Performance Many-Threaded Matrix
+//! Multiplication", IPDPS 2014, 1049-1059, <https://doi.org/10.1109/IPDPS.2014.110>;
+//! BLIS 2.1's `docs/Multithreading.md`), written from its design. Workers split `C`
 //! `ic x jc` ways. The `ic` workers of a `jc` group pack each depth slice of
 //! their columns of `op(B)` together into one buffer, between a barrier that
 //! frees it and one that fills it (`bli_packm_int.c`); each packs its own
@@ -285,7 +287,7 @@ fn Team(comptime T: type) type {
             driver.block(T, j.vt, j.d, j.blk, is, mi, jj, w, min_l, alpha, s, sa, sb + min_l * (jj - j0), j.c, j.ldc, tmp);
         }
 
-        pub fn work(j: *Self, io: Io, index: u32) Io.Cancelable!void {
+        pub fn work(j: *Self, io: Io, index: u32, lent: ?*threading.Lent) Io.Cancelable!void {
             const blk = j.blk;
             const r = index % j.ic;
             const g = index / j.ic;
@@ -320,7 +322,7 @@ fn Team(comptime T: type) type {
                         const s = if (ls == 0) beta else null;
                         try threading.checkCancel(io);
                         // the buffer is free once every peer is done with the last slice
-                        if (!first) try bar.wait(io);
+                        if (!first) try bar.wait(io, lent);
                         first = false;
                         var min_i: usize = if (rows.end > rows.start) Blocking.split(rows.end - rows.start, blk.p, blk.um) else 0;
                         if (min_i > 0) driver.packRows(T, j.vt, j.d, x, min_l, min_i, ls, rows.start, sa);
@@ -335,7 +337,7 @@ fn Team(comptime T: type) type {
                             jj += w;
                         }
                         // the slice is whole
-                        try bar.wait(io);
+                        try bar.wait(io, lent);
                         var is = rows.start;
                         if (min_i > 0) {
                             // the first row block's other chunks
@@ -368,6 +370,7 @@ fn Team(comptime T: type) type {
 // ---- tests -------------------------------------------------------------------------
 
 const zigstd = @import("../../../zigstd.zig");
+const apple_accel = @import("../apple_accel.zig");
 const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 const guard = @import("../_test/blas2/guard.zig");
@@ -419,9 +422,95 @@ fn transPairs(comptime T: type) []const [2]types.Trans {
     };
 }
 
-/// One shape against `driver.gemm`, bit for bit, at 1 to 9 workers on `io`.
-/// Operand padding holds NaN; `C`'s, a sentinel that must survive; scratch
-/// comes poisoned.
+/// The depths the level 3 kernels see, a bit each (past 255 in the last):
+/// `Q`'s slices, which must not follow the worker count (threading.md,
+/// Guardrails).
+const Depths = struct {
+    // 32-bit words: 32-bit targets may lack 64-bit atomics (powerpc-power9)
+    var seen: [8]std.atomic.Value(u32) = @splat(.init(0));
+
+    fn note(k: types.BlasLong) void {
+        const d: usize = @intCast(std.math.clamp(k, 0, 255));
+        _ = seen[d / 32].fetchOr(@as(u32, 1) << @intCast(d % 32), .monotonic);
+    }
+
+    /// Whether the depths seen since the last `take` are `want`; clears them.
+    fn same(want: [8]u32) bool {
+        return std.mem.eql(u32, &want, &take());
+    }
+
+    /// The depths seen since the last `take`.
+    fn take() [8]u32 {
+        var out: [8]u32 = undefined;
+        for (&seen, &out) |*s, *o| o.* = s.swap(0, .monotonic);
+        return out;
+    }
+
+    /// Kernel `name` noting its depth, its third argument, then calling `real`.
+    fn Spy(comptime name: []const u8) type {
+        const F = @typeInfo(@FieldType(Vtable, name)).optional.child;
+        const Fn = @typeInfo(F).pointer.child;
+        const A = std.meta.ArgsTuple(Fn);
+        const R = @typeInfo(Fn).@"fn".return_type.?;
+        const cc = types.kernelCc(f64);
+        // Zig 0.17 names it `fields`
+        const info = @typeInfo(A).@"struct";
+        const n = if (@hasField(@TypeOf(info), "field_names")) info.field_names.len else info.fields.len;
+        return struct {
+            var real: F = undefined;
+            fn t(comptime i: usize) type {
+                return @FieldType(A, std.fmt.comptimePrint("{d}", .{i}));
+            }
+            const wrap: F = switch (n) {
+                8 => &struct {
+                    fn f(a0: t(0), a1: t(1), k: t(2), a3: t(3), a4: t(4), a5: t(5), a6: t(6), a7: t(7)) callconv(cc) R {
+                        note(k);
+                        return real(a0, a1, k, a3, a4, a5, a6, a7);
+                    }
+                }.f,
+                9 => &struct {
+                    fn f(a0: t(0), a1: t(1), k: t(2), a3: t(3), a4: t(4), a5: t(5), a6: t(6), a7: t(7), a8: t(8)) callconv(cc) R {
+                        note(k);
+                        return real(a0, a1, k, a3, a4, a5, a6, a7, a8);
+                    }
+                }.f,
+                10 => &struct {
+                    fn f(a0: t(0), a1: t(1), k: t(2), a3: t(3), a4: t(4), a5: t(5), a6: t(6), a7: t(7), a8: t(8), a9: t(9)) callconv(cc) R {
+                        note(k);
+                        return real(a0, a1, k, a3, a4, a5, a6, a7, a8, a9);
+                    }
+                }.f,
+                else => @compileError(name),
+            };
+        };
+    }
+
+    /// `vt` with `T`'s `gemm`, `trsm` and `trmm` kernels noting their depths.
+    fn spied(comptime T: type, vt: Vtable) Vtable {
+        const l = comptime portable.letter(T).?;
+        const complex = comptime types.isComplex(T);
+        const sides = .{ "LN", "LT", "RN", "RT" } ++ if (complex) .{ "LR", "LC", "RR", "RC" } else .{};
+        const gemms = if (complex) .{ "gemm_kernel_n", "gemm_kernel_l", "gemm_kernel_r", "gemm_kernel_b" } else .{"gemm_kernel"};
+        var out = vt;
+        inline for (gemms) |s| patch(&out, l ++ s);
+        inline for (sides) |s| {
+            patch(&out, l ++ "trsm_kernel_" ++ s);
+            patch(&out, l ++ "trmm_kernel_" ++ s);
+        }
+        return out;
+    }
+
+    fn patch(vt: *Vtable, comptime name: []const u8) void {
+        if (@field(vt, name)) |real| {
+            Spy(name).real = real;
+            @field(vt, name) = Spy(name).wrap;
+        }
+    }
+};
+
+/// One shape against `driver.gemm`, bit for bit, at 1 to 9 workers on `io`,
+/// and with the kernels' depths if `vt` is `Depths.spied`. Operand padding
+/// holds NaN; `C`'s, a sentinel that must survive; scratch comes poisoned.
 fn shape(comptime T: type, vt: *const Vtable, io: Io, tr: [2]types.Trans, m: usize, n: usize, k: usize, alpha: T, beta: T) !void {
     const al = std.testing.allocator;
     const ta = tr[0].transposed();
@@ -456,10 +545,11 @@ fn shape(comptime T: type, vt: *const Vtable, io: Io, tr: [2]types.Trans, m: usi
     const pa = poison.allocator();
     @memcpy(want, c0);
     try driver.gemm(pa, Io.failing, T, vt, ta, tb, conj, m, n, k, alpha, a.ptr, ra + pad, b.ptr, rb + pad, beta, want.ptr, m + pad, 1);
+    const depths = Depths.take();
     for (1..10) |w| {
         @memcpy(got, c0);
         try driver.gemm(pa, io, T, vt, ta, tb, conj, m, n, k, alpha, a.ptr, ra + pad, b.ptr, rb + pad, beta, got.ptr, m + pad, @intCast(w));
-        if (!sameBits(T, want, got)) {
+        if (!sameBits(T, want, got) or !Depths.same(depths)) {
             std.debug.print("{s} w={d} {t}{t} m={d} n={d} k={d}\n", .{ @typeName(T), w, tr[0], tr[1], m, n, k });
             return error.TestUnexpectedResult;
         }
@@ -469,7 +559,7 @@ fn shape(comptime T: type, vt: *const Vtable, io: Io, tr: [2]types.Trans, m: usi
 /// Every `op` pair over shapes around every block and panel edge (complex,
 /// fewer shapes over its sixteen pairs).
 fn shapes(comptime T: type, io: Io) !void {
-    const vt = shrunk(T);
+    const vt = Depths.spied(T, shrunk(T));
     const blk = Blocking.of(T, &vt);
     const um = blk.um;
     const un = blk.un;
@@ -499,7 +589,7 @@ const limits = [_]Io.Limit{ .nothing, .limited(3), .limited(8) };
 
 const precisions = .{ f32, f64, types.Complex32, types.Complex64 };
 
-test "threaded gemm matches the serial driver bit for bit at 1 to 9 workers, on every Io" {
+test "threaded gemm matches the serial driver's bits and kernel depths at 1 to 9 workers, on every Io" {
     inline for (precisions) |T| {
         try shapes(T, Io.failing);
         if (comptime threading.hosted) for (limits) |limit| {
@@ -507,6 +597,12 @@ test "threaded gemm matches the serial driver bit for bit at 1 to 9 workers, on 
             defer threaded.deinit();
             try shapes(T, threaded.io());
         };
+        if (comptime threading.evented_workers) {
+            var ev: threading.Evented = undefined;
+            try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+            defer ev.deinit();
+            try shapes(T, ev.io());
+        }
     }
 }
 
@@ -533,8 +629,19 @@ fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routin
     }
 }
 
+/// A tame triangle for `trsm` in `a` at `ld`: small off the diagonal, at
+/// least 1 on it.
+fn tame(comptime T: type, a: []T, ld: usize) void {
+    for (0..ld) |j| for (0..ld) |i| {
+        const v = &a[i + j * ld];
+        const f = scalar(T, if (i == j) 1.5 else 0.25 / @as(f64, @floatFromInt(ld)), 0);
+        v.* = if (comptime types.isComplex(T)) v.mul(f).add(if (i == j) scalar(T, 1, 0) else scalar(T, 0, 0)) else v.* * f + @as(T, if (i == j) 1 else 0);
+    };
+}
+
 /// `r`'s shapes around every block, panel and triangle edge, all options,
-/// against the serial loops bit for bit at 1 to 9 workers on `io`.
+/// against the serial loops bit for bit at 1 to 9 workers on `io`, and with
+/// the kernels' depths if `vt` is `Depths.spied`.
 fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void {
     const al = std.testing.allocator;
     const blk = Blocking.of(T, vt);
@@ -557,12 +664,7 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
     fill(T, a, 11);
     fill(T, b, 12);
     fill(T, c0, 13);
-    // a tame triangle for `trsm`: small off the diagonal, at least 1 on it
-    if (tri) for (0..ld) |j| for (0..ld) |i| {
-        const v = &a[i + j * ld];
-        const f = scalar(T, if (i == j) 1.5 else 0.25 / @as(f64, @floatFromInt(ld)), 0);
-        v.* = if (comptime types.isComplex(T)) v.mul(f).add(if (i == j) scalar(T, 1, 0) else scalar(T, 0, 0)) else v.* * f + @as(T, if (i == j) 1 else 0);
-    };
+    if (tri) tame(T, a, ld);
     var poison: guard.Poison = .{ .child = al };
     const pa = poison.allocator();
     const alpha = scalar(T, -0.75, 0.25);
@@ -578,10 +680,11 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
             if (x % 2 != 0) continue;
             @memcpy(want, c0);
             try routine(T, vt, pa, Io.failing, r, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, want.ptr, 1);
+            const depths = Depths.take();
             for (1..10) |w| {
                 @memcpy(got, c0);
                 try routine(T, vt, pa, io, r, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, got.ptr, @intCast(w));
-                if (!sameBits(T, want, got)) {
+                if (!sameBits(T, want, got) or !Depths.same(depths)) {
                     std.debug.print("{s} {t} w={d} opt={any} m={d} n={d} k={d}\n", .{ @typeName(T), r, w, opt, m, n, k });
                     return error.TestUnexpectedResult;
                 }
@@ -602,9 +705,9 @@ fn shrunkCore(comptime T: type) Vtable {
     return vt;
 }
 
-test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops bit for bit at 1 to 9 workers" {
+test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops' bits and kernel depths at 1 to 9 workers" {
     inline for (precisions) |T| {
-        const vt = shrunkCore(T);
+        const vt = Depths.spied(T, shrunkCore(T));
         for (std.enums.values(Routine)) |r| {
             if (!types.isComplex(T) and (r == .hemm or r == .herk or r == .her2k)) continue;
             try routineShapes(T, &vt, Io.failing, r);
@@ -613,6 +716,12 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops 
                 defer threaded.deinit();
                 try routineShapes(T, &vt, threaded.io(), r);
             };
+            if (comptime threading.evented_workers) {
+                var ev: threading.Evented = undefined;
+                try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+                defer ev.deinit();
+                try routineShapes(T, &vt, ev.io(), r);
+            }
         }
     }
 }
@@ -623,27 +732,36 @@ test "threaded gemm keeps the serial bits under the caller's rounding toward zer
     defer own.apply();
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
+    try fpShapes(own, threaded.io());
+    if (comptime threading.evented_workers) {
+        var ev: threading.Evented = undefined;
+        try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+        defer ev.deinit();
+        try fpShapes(own, ev.io());
+    }
+}
+
+/// `gemm` on `io` under `own`, then rounding toward zero.
+fn fpShapes(own: util.FpState, io: Io) !void {
     inline for (precisions) |T| {
         const vt = shrunk(T);
         const blk = Blocking.of(T, &vt);
         // the workers start under the default state first
         for ([_]util.FpState{ own, own.towardZero() }) |s| {
             s.apply();
-            try shape(T, &vt, threaded.io(), .{ .n, .t }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, scalar(T, -0.75, 0.25), scalar(T, 0.5, -0.125));
+            try shape(T, &vt, io, .{ .n, .t }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, scalar(T, -0.75, 0.25), scalar(T, 0.5, -0.125));
             try zigstd.testExpectTrue(util.FpState.capture().eql(s));
         }
     }
 }
 
 test "threaded gemm keeps the serial bits on a fiber Io with every peer on the caller's thread" {
-    if (comptime !threading.hosted or Io.Evented == void) return error.SkipZigTest;
-    // one thread, so a waiter that never yielded would hang; `Uring` with
-    // worker threads hangs on a plain futex barrier too (issues.md)
-    var opts: Io.Evented.InitOptions = .{};
-    if (@hasField(Io.Evented.InitOptions, "thread_limit")) opts.thread_limit = 0 else if (@hasField(Io.Evented.InitOptions, "n_threads")) opts.n_threads = 1 else return error.SkipZigTest;
-    var ev: Io.Evented = undefined;
-    // fibers take large stacks; the page allocator neither fills nor checks them
-    ev.init(std.heap.page_allocator, opts) catch return error.SkipZigTest;
+    const Evented = threading.Evented;
+    if (comptime !threading.hosted or Evented == void) return error.SkipZigTest;
+    // one thread, so a waiter that never yielded would hang; with worker
+    // threads std's `Uring` and `Dispatch` crash in `Group` (issues.md)
+    var ev: Evented = undefined;
+    if (!threading.initEvented(&ev, 0)) return error.SkipZigTest;
     defer ev.deinit();
     const vt = shrunk(f64);
     const blk = Blocking.of(f64, &vt);
@@ -663,11 +781,21 @@ test "threaded gemm matches the serial driver on the selected core's own blockin
     }
 }
 
+/// Takes the public routines off Accelerate (macOS), so they run rstd's
+/// threading; returns whether it was routing, for `apple_accel.route`.
+fn rstdOnly() bool {
+    const was = apple_accel.routing();
+    _ = apple_accel.route(false);
+    return was;
+}
+
 test "the public gemm threads above the threshold and keeps the serial bits" {
     if (comptime !threading.hosted) return error.SkipZigTest;
     _ = blas.coreName();
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
+    const accel = rstdOnly();
+    defer _ = apple_accel.route(accel);
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const al = std.testing.allocator;
@@ -709,6 +837,8 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
     blas.config.cpu_count = 5;
+    const accel = rstdOnly();
+    defer _ = apple_accel.route(accel);
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -746,6 +876,82 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     try driver.trmm(al, Io.failing, T, vt, false, false, true, true, true, k, n, alpha, a.ptr, n, want.ptr, n, 1);
     try interface.trmm(al, io, T, .r, .l, .c, .u, k, n, alpha, a.ptr, n, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
+}
+
+/// `r` (`gemm` if null) on `io` at 2 to 8 workers, round after round,
+/// against one worker's bits on `Io.failing`. `C` (`B`) is `m x n` at
+/// `ld`; every element past it is a guard band that must keep its value.
+/// Scratch comes NaN-poisoned, so a read before its packing shows.
+fn stress(comptime T: type, io: Io, r: ?Routine, opt: [3]bool, m: usize, n: usize, k: usize, rounds: usize) !void {
+    const al = std.testing.allocator;
+    const vt = shrunkCore(T);
+    const ld = @max(m, n, k) + 3;
+    const a = try al.alloc(T, ld * ld);
+    defer al.free(a);
+    const b = try al.alloc(T, ld * ld);
+    defer al.free(b);
+    const c0 = try al.alloc(T, ld * ld);
+    defer al.free(c0);
+    const want = try al.alloc(T, c0.len);
+    defer al.free(want);
+    const got = try al.alloc(T, c0.len);
+    defer al.free(got);
+    fill(T, a, 41);
+    fill(T, b, 42);
+    fill(T, c0, 43);
+    if (r == .trsm) tame(T, a, ld);
+    var poison: guard.Poison = .{ .child = al };
+    const pa = poison.allocator();
+    const alpha = scalar(T, -0.75, 0.25);
+    const beta = scalar(T, 0.5, 0);
+    for (0..rounds + 1) |round| {
+        const w: u32 = if (round == 0) 1 else @intCast(2 + round % 7);
+        const out = if (round == 0) want else got;
+        @memcpy(out, c0);
+        const rio = if (round == 0) Io.failing else io;
+        if (r) |rr| {
+            try routine(T, &vt, pa, rio, rr, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, out.ptr, w);
+        } else {
+            try driver.gemm(pa, rio, T, &vt, opt[0], opt[1], .n, m, n, k, alpha, a.ptr, ld, b.ptr, ld, beta, out.ptr, ld, w);
+        }
+        if (round > 0 and !sameBits(T, want, got)) {
+            std.debug.print("{s} {?t} round {d} w={d}\n", .{ @typeName(T), r, round, w });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "race stress: threaded level 3 keeps one worker's bits and its guard bands, round after round" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    try stresses(threaded.io());
+    if (comptime threading.evented_workers) {
+        var ev: threading.Evented = undefined;
+        try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+        defer ev.deinit();
+        try stresses(ev.io());
+    }
+}
+
+/// The race stress test's routines on `io`.
+fn stresses(io: Io) !void {
+    const rounds = threading.stress_rounds;
+    // shared packed `B` behind its barriers: `ic` and `jc` past 1, several slices
+    {
+        const blk = Blocking.of(f64, &shrunkCore(f64));
+        try stress(f64, io, null, .{ false, true, false }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, rounds);
+    }
+    // a triangle's balanced groups, both passes
+    {
+        const blk = Blocking.of(types.Complex32, &shrunkCore(types.Complex32));
+        try stress(types.Complex32, io, .syr2k, .{ false, true, false }, 2 * blk.r + 3, 2 * blk.r + 3, 2 * blk.q + 3, rounds / 2);
+    }
+    // independent panels through `forEach`
+    {
+        const blk = Blocking.of(f32, &shrunkCore(f32));
+        try stress(f32, io, .trsm, .{ true, false, false }, 2 * blk.r + 3, 2 * blk.r + 3, 1, rounds / 2);
+    }
 }
 
 test "ways use what they may and keep a panel per part" {
@@ -812,25 +1018,36 @@ test "a canceled threaded gemm returns error.Canceled with no worker left runnin
     for ([_]Io.Limit{ .limited(3), .limited(8) }) |limit| {
         var threaded: Io.Threaded = .init(al, .{ .async_limit = limit, .concurrent_limit = limit });
         defer threaded.deinit();
-        const io = threaded.io();
-        Hold.calls.store(0, .release);
-        Hold.held.store(true, .release);
-        Hold.first.store(0, .release);
-        Hold.others.store(0, .release);
-        const releaser = try std.Thread.spawn(.{}, Hold.release, .{io});
-        var future = io.concurrent(canceledGemm, .{ io, &vt, a, b, c, n, k }) catch return error.SkipZigTest;
-        while (Hold.calls.load(.acquire) == 0) std.Thread.yield() catch {};
-        const result = future.cancel(io);
-        releaser.join();
-        try zigstd.testExpectError(error.Canceled, result);
-        // workers did run beside the caller
-        try zigstd.testExpectTrue(Hold.others.load(.acquire) > 0);
-        // nothing calls the kernel once the call has returned
-        const after = Hold.calls.load(.acquire);
-        try zigstd.testExpectEqual(@as(u32, 0), Hold.inside.load(.acquire));
-        io.sleep(.fromMilliseconds(20), .awake) catch {};
-        try zigstd.testExpectEqual(after, Hold.calls.load(.acquire));
+        try cancelGemm(threaded.io(), &vt, a, b, c, n, k);
     }
+    if (comptime threading.evented_workers) {
+        var ev: threading.Evented = undefined;
+        try zigstd.testExpectTrue(threading.initEvented(&ev, 3));
+        defer ev.deinit();
+        try cancelGemm(ev.io(), &vt, a, b, c, n, k);
+    }
+}
+
+/// Cancels a held `gemm` on `io` once a kernel call has started.
+fn cancelGemm(io: Io, vt: *const Vtable, a: []f64, b: []f64, c: []f64, n: usize, k: usize) !void {
+    Hold.calls.store(0, .release);
+    Hold.held.store(true, .release);
+    Hold.first.store(0, .release);
+    Hold.others.store(0, .release);
+    // a thread of its own sleeps on a blocking `Io`; a fiber `Io` needs a fiber
+    const releaser = try std.Thread.spawn(.{}, Hold.release, .{Io.Threaded.global_single_threaded.io()});
+    var future = io.concurrent(canceledGemm, .{ io, vt, a, b, c, n, k }) catch return error.SkipZigTest;
+    while (Hold.calls.load(.acquire) == 0) std.Thread.yield() catch {};
+    const result = future.cancel(io);
+    releaser.join();
+    try zigstd.testExpectError(error.Canceled, result);
+    // workers did run beside the caller
+    try zigstd.testExpectTrue(Hold.others.load(.acquire) > 0);
+    // nothing calls the kernel once the call has returned
+    const after = Hold.calls.load(.acquire);
+    try zigstd.testExpectEqual(@as(u32, 0), Hold.inside.load(.acquire));
+    io.sleep(.fromMilliseconds(20), .awake) catch {};
+    try zigstd.testExpectEqual(after, Hold.calls.load(.acquire));
 }
 
 // `L3THREAD_BENCH` set, a fast Windows build (`rstd-test -Doptimize=fast`):

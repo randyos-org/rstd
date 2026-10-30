@@ -8,10 +8,13 @@
 //! `p` (rows of A packed at a time), `q` (the depth) and `r` (columns of B). Most
 //! are constants of `param.h`. What `setparam-ref.c` computes is here:
 //!
-//!   * `p` of the older x86 cores follows the L2 size (`Affine`);
+//!   * `p` of the older x86 cores follows the L2 size (`Affine`), over the header;
 //!   * on x86, `r` is always derived from the packing buffer;
-//!   * `p` is rounded up to the unroll;
-//!   * the 3M variants take `p` and `q` of the real ones unless the header says;
+//!   * on mips64, `dgemm`'s `r` is 640 for every core;
+//!   * half and bfloat16 are set per family, `r` the header's outside x86;
+//!   * on x86, `p` of `s`, `d`, `c`, `z` and 3M is rounded up to the unroll;
+//!   * on x86 only, the 3M variants take `p` and `q` of the real ones unless
+//!     the header says;
 //!   * LA464 and the AMD AVX-512 parts override sets by cache size and threads.
 //!
 //! `OPENBLAS_BLOCK_FACTOR` (`Config.block_factor`) scales a computed `p` as
@@ -26,18 +29,22 @@ const data = @import("params_data.zig");
 const coretypes = @import("../../cpu/_coretypes.zig");
 const corespec = @import("../../cpu/_corespec.zig");
 const select = @import("../../cpu/_select.zig");
+const driver = @import("../driver.zig");
+const small = @import("small.zig");
 
 /// How `p`, `q` or `r` comes about.
 pub const Size = union(enum) {
     /// A constant of `param.h`.
     fixed: i32,
-    /// The header names a run-time variable; see `Rule`.
+    /// The header names a run-time variable, or has no macro; see `Rule`.
     dynamic,
-    /// `r` derived from the packing buffer once `p` and `q` are known.
+    /// `r` derived from the packing buffer once `p` and `q` are known; also
+    /// an `r` the header has no macro for.
     from_buffer,
 };
 
-/// One precision's parameters.
+/// One precision's parameters. A shape the generator leaves out (no `P` or
+/// unroll macro) defaults to what it writes for a missing macro.
 pub const Shape = struct {
     unroll_m: i32 = 0,
     unroll_n: i32 = 0,
@@ -47,9 +54,9 @@ pub const Shape = struct {
     align_k: i32 = 0,
     /// `<P>GEMM_DEFAULT_P_BASE`, where the header has one.
     p_base: i32 = 0,
-    p: Size = .{ .fixed = 0 },
-    q: Size = .{ .fixed = 0 },
-    r: Size = .{ .fixed = 0 },
+    p: Size = .dynamic,
+    q: Size = .dynamic,
+    r: Size = .from_buffer,
 };
 
 /// A core's whole table, one shape per precision: the four the BLAS names, the
@@ -77,10 +84,21 @@ pub const Table = struct {
     preferred_size: i32 = 1,
     /// `SYMV_P`: the block of the generic symv and hemv.
     symv_p: i32 = 0,
+    /// `BUFFER_SIZE`, the packing buffer `r` derives from, as the core's
+    /// `DYNAMIC_ARCH` build sees `common_<arch>.h`: 128 MiB on x86_64
+    /// (`common_x86_64.h:260`), s390x (`common_zarch.h:129`) and arm64's
+    /// `NEOVERSEN1`, `N2`, `V1`, `A64FX`, `ARMV8SVE`, `ARMV9SME`
+    /// (`common_arm64.h:180-181`); 32 MiB on the other arm64 cores (`:183`), arm
+    /// (`common_arm.h:141`), riscv64 (`common_riscv64.h:89`), mips32
+    /// (`common_mips.h:105`), LoongArch (`common_loongarch64.h:315`) and SPARC
+    /// (`common_sparc.h:240`); 64 MiB on mips64 (`common_mips64.h:254`); 256 MiB
+    /// on every POWER core (`common_power.h:923-926`, over the static 2 to 256
+    /// MiB of `:914-922`); 16 MiB on x86 (`common_x86.h:207`) and wasm
+    /// (`common_wasm.h:87`). The generic table takes the target's
+    /// (`native_buffer_size`): 32 MiB on Alpha (`common_alpha.h:128`) and C-SKY
+    /// (`common_csky.h:53`).
+    buffer_size: i64,
 };
-
-/// The packing buffer `r` is derived from (`BUFFER_SIZE`, `common_<arch>.h`).
-pub const buffer_size: i64 = 32 << 20;
 
 /// `p = min(cap, l2_kb >> shift) * mul + add` for `s, d, c, z, q, x` (`cap` 0 is
 /// no cap; a zero `mul` with an `add` is a constant).
@@ -195,10 +213,12 @@ pub fn ruleFor(comptime family: Family, comptime core_name: []const u8) Rule {
     if (comptime family == .loongarch64 and (eq(u8, core_name, "la464") or eq(u8, core_name, "loongson3r5"))) return .la464;
     if (comptime family == .loongarch64 and (eq(u8, core_name, "la264") or eq(u8, core_name, "loongson2k1000"))) return .la264;
     if (comptime family != .x86 and family != .x86_64) return .none;
-    if (comptime eq(u8, core_name, "katmai") or eq(u8, core_name, "coppermine") or eq(u8, core_name, "banias"))
+    // `setparam-ref.c:1600`, over Athlon's fixed header `p`
+    if (comptime eq(u8, core_name, "katmai") or eq(u8, core_name, "coppermine") or eq(u8, core_name, "banias") or
+        eq(u8, core_name, "yonah") or eq(u8, core_name, "athlon"))
         return .{ .affine = .{ .mul = .{ 64, 32, 32, 16, 16, 8 } } };
-    // static-only targets: `parameter.c` leaves `DEFAULT_GEMM_P`
-    if (comptime eq(u8, core_name, "p5") or eq(u8, core_name, "yonah"))
+    // `setparam-ref.c` has no block for it: `parameter.c:46`'s `DEFAULT_GEMM_P`
+    if (comptime eq(u8, core_name, "p5"))
         return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 128, 128, 128, 128, 128, 128 } } };
     if (comptime eq(u8, core_name, "northwood")) return .{ .affine = .{ .mul = .{ 96, 48, 48, 24, 24, 12 } } };
     if (comptime eq(u8, core_name, "atom")) return .{ .affine = .{ .mul = .{ 0, 0, 0, 0, 0, 0 }, .add = .{ 256, 128, 128, 64, 64, 32 } } };
@@ -250,16 +270,16 @@ fn fixedOf(s: Size) ?i32 {
     };
 }
 
-/// `p` of one of the primary precisions (`idx`: s, d, c, z, q, x).
+/// `p` of one of the primary precisions (`idx`: s, d, c, z, q, x), not yet
+/// rounded; a rule goes over the header, as `setparam-ref.c`'s core blocks do.
 fn primaryP(shape: Shape, rule: Rule, idx: usize, env: Env) i32 {
-    const p: i32 = if (fixedOf(shape.p)) |v| v else switch (rule) {
+    return switch (rule) {
         .affine => |a| blk: {
             const size = if (a.cap > 0) @min(env.l2_kb >> a.shift, a.cap) else env.l2_kb >> a.shift;
             break :blk scaled(a.mul[idx] * size + a.add[idx], env);
         },
-        else => 0,
+        else => fixedOf(shape.p) orelse 0,
     };
-    return roundUp(p, shape.unroll_m);
 }
 
 /// `r` from the buffer: `setparam-ref.c`'s formula.
@@ -267,7 +287,7 @@ fn derivedR(p: i32, q: i32, elem: i64, table: Table) i32 {
     if (q <= 0) return 0;
     const align_: i64 = table.align_;
     const packed_a = (@as(i64, p) * q * elem + table.offset_a + align_) & ~align_;
-    const r = @divTrunc(buffer_size - packed_a, @as(i64, q) * elem) - 15;
+    const r = @divTrunc(table.buffer_size - packed_a, @as(i64, q) * elem) - 15;
     return @intCast(r & ~@as(i64, 15));
 }
 
@@ -297,62 +317,98 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
     vt.preferred_size = table.preferred_size;
     vt.symv_p = table.symv_p;
 
-    // the primaries, whose `p` the rules and overrides decide; x86 always
-    // derives `r`, the other families take the header's constant
+    // the primaries, whose `p` the rules and overrides decide
     const names = .{ "s", "d", "c", "z", "q", "x" };
     const elems = [6]i64{ 4, 8, 8, 16, 16, 32 };
     var res: [6]Resolved = undefined;
     inline for (names, 0..) |name, i| {
         const sh = @field(table, name);
-        const p = primaryP(sh, rule, i, env);
-        const q = fixedOf(sh.q) orelse 0;
-        const r = if (x86) derivedR(p, q, elems[i], table) else (fixedOf(sh.r) orelse derivedR(p, q, elems[i], table));
-        res[i] = .{ .p = p, .q = q, .r = r };
+        res[i] = .{ .p = primaryP(sh, rule, i, env), .q = fixedOf(sh.q) orelse 0, .r = 0 };
     }
 
-    if (comptime std.meta.activeTag(rule) == .la464) {
-        const set = la464_sets[@intFromBool(env.threads == 1)][@intFromBool(@divTrunc(env.l3_kb, 1024) == 32)];
-        inline for (.{ "s", "d", "c", "z" }, 0..) |name, i| {
-            res[i] = .{ .p = roundUp(set[i].p, @field(table, name).unroll_m), .q = set[i].q, .r = set[i].r };
+    // 3M, which only x86 sets (`setparam-ref.c:1578-1597, 2093-2110`): the
+    // header's `p` and `q`, else the real precision's `p` before the AMD
+    // override and rounding, and its header `q`; `x3m` always `q`'s. The
+    // arm64 and mips64 blocks set it under `USE_GEMM3M`, which no
+    // `DYNAMIC_ARCH` build defines there (`kernel/Makefile.L3:28-45`;
+    // `cmake/arch.cmake:132-135` drops mips64's), so 3M stays 0 elsewhere.
+    const names3m = .{ "c3m", "z3m", "x3m" };
+    var res3m: [3]Resolved = @splat(.{ .p = 0, .q = 0, .r = 0 });
+    if (x86) {
+        inline for (.{ "c3m", "z3m" }, 0..) |name, i| {
+            const sh = @field(table, name);
+            res3m[i] = .{ .p = fixedOf(sh.p) orelse res[i].p, .q = fixedOf(sh.q) orelse res[i].q, .r = 0 };
         }
+        res3m[2] = .{ .p = res[4].p, .q = res[4].q, .r = 0 };
     }
-    if (comptime std.meta.activeTag(rule) == .la264) {
-        // the 2K3000 (processor id 0x0014b020) has its own `z` set
-        const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
-        res[3] = .{ .p = roundUp(set.p, table.z.unroll_m), .q = set.q, .r = set.r };
-    }
+
     if (comptime family == .x86_64) {
         // AMD parts with AVX-512 run the Skylake-X kernels on other blocking
         const eq = std.mem.eql;
         const skx = comptime (eq(u8, core_name, "skylakex") or eq(u8, core_name, "cooperlake") or eq(u8, core_name, "sapphirerapids"));
         if (skx and env.amd_avx512 and env.l3_kb > 0 and @rem(env.l3_kb, 32768) == 0 and env.l2_kb == 1024) {
             const pq = [4][2]i32{ .{ 384, 512 }, .{ 512, 512 }, .{ 160, 480 }, .{ 176, 256 } };
-            inline for (0..4) |i| {
-                res[i].p = pq[i][0];
-                res[i].q = pq[i][1];
-                res[i].r = derivedR(res[i].p, res[i].q, elems[i], table);
-            }
+            inline for (0..4) |i| res[i] = .{ .p = pq[i][0], .q = pq[i][1], .r = 0 };
         }
     }
-    inline for (names, 0..) |name, i| setPrec(vt, name, @field(table, name), res[i]);
 
-    // half and bfloat16: their headers' `p` and `q`, `r` from the buffer
-    inline for (.{ "sh", "b", "sb" }) |name| {
-        const sh = @field(table, name);
-        const p = roundUp(fixedOf(sh.p) orelse 0, sh.unroll_m);
-        const q = fixedOf(sh.q) orelse 0;
-        setPrec(vt, name, sh, .{ .p = p, .q = q, .r = derivedR(p, q, 4, table) });
+    // only x86 rounds `p` up to the unroll (`setparam-ref.c:2150-2175`): `s`,
+    // `d`, `c`, `z`, and 3M to its own unroll, else the real one's; `q`, `x`
+    // and `x3m` only under `QUAD_PRECISION` (`:2179-2183`), off by default
+    // (`Makefile.rule:214`)
+    if (x86) {
+        inline for (.{ "s", "d", "c", "z" }, 0..) |name, i| res[i].p = roundUp(res[i].p, @field(table, name).unroll_m);
+        const unroll_of = [2]i32{ table.s.unroll_m, table.d.unroll_m };
+        inline for (.{ "c3m", "z3m" }, 0..) |name, i| {
+            const um = @field(table, name).unroll_m;
+            res3m[i].p = roundUp(res3m[i].p, if (um > 0) um else unroll_of[i]);
+        }
     }
 
-    // 3M: the header's `p` and `q`, else those of the real precision
-    const from = [3]usize{ 0, 1, 4 };
-    const elem_of = [3]usize{ 2, 3, 5 };
-    const unroll_of = [3]i32{ table.s.unroll_m, table.d.unroll_m, table.q.unroll_m };
-    inline for (.{ "c3m", "z3m", "x3m" }, 0..) |name, i| {
+    // x86 always derives `r`, the other families take the header's constant
+    inline for (names, 0..) |name, i| {
+        const fixed = if (x86) null else fixedOf(@field(table, name).r);
+        res[i].r = fixed orelse derivedR(res[i].p, res[i].q, elems[i], table);
+    }
+    if (x86) {
+        const elems3m = [3]i64{ 8, 16, 32 };
+        inline for (0..3) |i| res3m[i].r = derivedR(res3m[i].p, res3m[i].q, elems3m[i], table);
+    }
+
+    // `setparam-ref.c:1099` (`ARCH_MIPS64`), over the header's 8192 or the
+    // Loongsons' `dgemm_r`; `s`, `c` and `z` keep the header's
+    if (comptime family == .mips64) res[1].r = 640;
+
+    if (comptime std.meta.activeTag(rule) == .la464) {
+        const set = la464_sets[@intFromBool(env.threads == 1)][@intFromBool(@divTrunc(env.l3_kb, 1024) == 32)];
+        res[0..4].* = set;
+    }
+    if (comptime std.meta.activeTag(rule) == .la264) {
+        // the 2K3000 (processor id 0x0014b020) has its own `z` set
+        const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
+        res[3] = set;
+    }
+    inline for (names, 0..) |name, i| setPrec(vt, name, @field(table, name), res[i]);
+    inline for (names3m, 0..) |name, i| setPrec(vt, name, @field(table, name), res3m[i]);
+
+    // half and bfloat16: the headers' `p` and `q`; x86 derives `r`
+    // (`setparam-ref.c:1556-1563, 2190-2205`), the others take the header's.
+    // arm64, LoongArch, POWER and zarch set only `b` and `sb` (`:981-1015,
+    // 1181-1186, 1307, 1316-1335, 1348-1367`), riscv64 also `sh`
+    // (`:1381-1410`), mips64 none; the static families' are the header's
+    // (`common_param.h:1441-1465`). Nothing reads these until their level 3 is
+    // ported.
+    inline for (.{ "sh", "b", "sb" }) |name| {
+        const set = comptime switch (family) {
+            .mips64 => false,
+            .arm64, .loongarch64, .power64, .power64be, .power32, .power32le, .s390x => !std.mem.eql(u8, name, "sh"),
+            .x86_64, .x86, .riscv64, .arm, .mips32, .sparc, .wasm, .generic => true,
+        };
         const sh = @field(table, name);
-        const p = roundUp(fixedOf(sh.p) orelse res[from[i]].p, if (sh.unroll_m > 0) sh.unroll_m else unroll_of[i]);
-        const q = fixedOf(sh.q) orelse res[from[i]].q;
-        setPrec(vt, name, sh, .{ .p = p, .q = q, .r = derivedR(p, q, elems[elem_of[i]], table) });
+        const p = fixedOf(sh.p) orelse 0;
+        const q = fixedOf(sh.q) orelse 0;
+        const fixed = if (x86) null else fixedOf(sh.r);
+        setPrec(vt, name, sh, if (set) .{ .p = p, .q = q, .r = fixed orelse derivedR(p, q, 4, table) } else .{ .p = 0, .q = 0, .r = 0 });
     }
 }
 
@@ -401,16 +457,62 @@ pub fn dtbFor(comptime family: Family, core: CoreOf(family)) i32 {
     };
 }
 
+/// The family a target's `cpu/<arch>.zig` installs.
+fn familyOf(arch: std.Target.Cpu.Arch, ptr_bits: u16) Family {
+    return switch (arch) {
+        .x86_64 => .x86_64,
+        .x86 => .x86,
+        .aarch64, .aarch64_be => .arm64,
+        .arm, .armeb, .thumb, .thumbeb => .arm,
+        .powerpc64le => .power64,
+        .powerpc64 => .power64be,
+        .powerpcle => .power32le,
+        .powerpc => .power32,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => .riscv64,
+        .s390x => .s390x,
+        .mips, .mipsel, .mips64, .mips64el => if (ptr_bits == 64) .mips64 else .mips32,
+        .loongarch32, .loongarch64 => .loongarch64,
+        .sparc, .sparc64 => .sparc,
+        .wasm32, .wasm64 => .wasm,
+        else => .generic,
+    };
+}
+
+/// `BUFFER_SIZE` of the generic table on a target: its own, since OpenBLAS's
+/// generic target sees its architecture's `common_<arch>.h` like any build.
+/// Alpha and C-SKY have a header but no family; other architectures have no
+/// OpenBLAS port and keep the generic family's x86_64 stand-in.
+fn genericBufferSize(arch: std.Target.Cpu.Arch, ptr_bits: u16) i64 {
+    return switch (arch) {
+        .alpha => data.alpha_buffer_size,
+        .csky => data.csky_buffer_size,
+        else => switch (familyOf(arch, ptr_bits)) {
+            inline else => |f| @field(data, @tagName(f) ++ "_buffer_size"),
+        },
+    };
+}
+
+/// The generic table's `BUFFER_SIZE` in this build.
+pub const native_buffer_size = genericBufferSize(sysinfo.target.cpu.arch, sysinfo.target.ptrBitWidth());
+
 /// Installs the parameters of `core`. A core `param.h` has no blocking for takes
-/// the generic set and its rule, as OpenBLAS's generic target does.
+/// the generic set and its rule, as OpenBLAS's generic target does, with its
+/// family's `BUFFER_SIZE`; the generic family takes the target's.
 pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), env: Env) void {
     switch (core) {
         inline else => |c| {
             defer vt.dtb_entries = dtbFor(family, c);
-            if (tableFor(family, c)) |table| {
+            defer small.installPermits(vt, small.permitFor(family, c));
+            if (comptime family == .generic) {
+                var table = data.generic(c).?;
+                table.buffer_size = native_buffer_size;
+                install(vt, .generic, @tagName(c), table, env);
+            } else if (tableFor(family, c)) |table| {
                 install(vt, family, @tagName(c), table, env);
             } else {
-                install(vt, .generic, "generic", data.generic(.generic).?, env);
+                var table = data.generic(.generic).?;
+                table.buffer_size = @field(data, @tagName(family) ++ "_buffer_size");
+                install(vt, .generic, "generic", table, env);
             }
         },
     }
@@ -442,12 +544,36 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
         const q = @field(vt, pre ++ "gemm_q");
         const r = @field(vt, pre ++ "gemm_r");
         const um = @field(vt, pre ++ "gemm_unroll_m");
-        // a precision the core has no header set for stays zero
-        if (um != 0 and (p <= 0 or q <= 0 or r <= 0 or @rem(p, um) != 0)) {
+        // a precision the core has no header set for stays zero; only x86
+        // rounds `p` to the unroll
+        const x86 = family == .x86 or family == .x86_64;
+        if (um != 0 and (p <= 0 or q <= 0 or r <= 0 or (x86 and @rem(p, um) != 0))) {
             std.debug.print("{s}/{s}/{s}: p={d} q={d} r={d} unroll_m={d}\n", .{ @tagName(family), @tagName(core), pre, p, q, r, um });
             return error.TestUnexpectedResult;
         }
     }
+    // `Q` follows the core and caches, never the thread count (LA464's sets
+    // may change `P` and `R`; threading.md, Guardrails)
+    for ([_]i32{ 8192, 32 * 1024 }) |l3| {
+        installCore(&vt, family, core, .{ .l2_kb = 512, .l3_kb = l3, .threads = 1 });
+        const qs = qOf(&vt);
+        for ([_]i32{ 0, 2, 3, 64 }) |threads| {
+            installCore(&vt, family, core, .{ .l2_kb = 512, .l3_kb = l3, .threads = threads });
+            if (!std.mem.eql(i32, &qs, &qOf(&vt))) {
+                std.debug.print("{s}/{s}: q {any} at 1 thread, {any} at {d}\n", .{ @tagName(family), @tagName(core), qs, qOf(&vt), threads });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}
+
+const q_fields = .{ "sgemm_q", "dgemm_q", "cgemm_q", "zgemm_q", "qgemm_q", "xgemm_q", "cgemm3m_q", "zgemm3m_q", "xgemm3m_q", "shgemm_q", "bgemm_q", "sbgemm_q" };
+
+/// Every precision's `q`.
+fn qOf(vt: *const Vtable) [q_fields.len]i32 {
+    var out: [q_fields.len]i32 = undefined;
+    inline for (q_fields, 0..) |f, i| out[i] = @field(vt, f);
+    return out;
 }
 
 /// Every core of `family` resolves to sane parameters; one test per family,
@@ -532,7 +658,7 @@ test "generic follows the GENERIC rule for a 512 KB L2" {
     try std.testing.expectEqual(@as(i32, 112), vt.zgemm_p);
     try std.testing.expectEqual(@as(i32, 128), vt.dgemm_q);
     const packed_a: i64 = (448 * 128 * 4 + 0xffff) & ~@as(i64, 0xffff);
-    const want: i64 = (@divTrunc(buffer_size - packed_a, 128 * 4) - 15) & ~@as(i64, 15);
+    const want: i64 = (@divTrunc(native_buffer_size - packed_a, 128 * 4) - 15) & ~@as(i64, 15);
     try std.testing.expectEqual(@as(i32, @intCast(want)), vt.sgemm_r);
 }
 
@@ -547,6 +673,35 @@ test "the block factor scales a computed p in 8s, and the L2 size moves it" {
     try std.testing.expectEqual(@as(i32, 112), vt.sgemm_p);
 }
 
+test "r derives from the core's own BUFFER_SIZE, a fallback from its family's" {
+    const mib: i64 = 1 << 20;
+    inline for (.{
+        .{ .x86_64, .haswell, 128 },    .{ .x86, .katmai, 16 },      .{ .arm64, .neoversen1, 128 },
+        .{ .arm64, .cortexa53, 32 },    .{ .power64, .power9, 256 }, .{ .power64, .ppc440, 256 },
+        .{ .mips64, .loongson3r3, 64 }, .{ .s390x, .z14, 128 },      .{ .wasm, .wasm128_generic, 16 },
+    }) |c| try std.testing.expectEqual(c[2] * mib, tableFor(c[0], c[1]).?.buffer_size);
+    var vt: Vtable = .{};
+    installCore(&vt, .x86_64, .haswell, .{});
+    const t = tableFor(.x86_64, .haswell).?;
+    try std.testing.expectEqual(derivedR(vt.sgemm_p, vt.sgemm_q, 4, t), vt.sgemm_r);
+    const packed_a = (@as(i64, vt.sgemm_p) * vt.sgemm_q * 4 + t.offset_a + t.align_) & ~@as(i64, t.align_);
+    try std.testing.expectEqual((@divTrunc(128 * mib - packed_a, @as(i64, vt.sgemm_q) * 4) - 15) & ~@as(i64, 15), vt.sgemm_r);
+    // `p6` has no table: the generic set on x86's 16 MiB
+    installCore(&vt, .x86, .p6, .{});
+    var g = data.generic(.generic).?;
+    g.buffer_size = 16 * mib;
+    try std.testing.expectEqual(derivedR(vt.sgemm_p, vt.sgemm_q, 4, g), vt.sgemm_r);
+}
+
+test "the generic table takes the target's BUFFER_SIZE" {
+    const mib: i64 = 1 << 20;
+    inline for (.{
+        .{ .x86_64, 64, 128 }, .{ .x86, 32, 16 },     .{ .aarch64, 64, 32 }, .{ .arm, 32, 32 },
+        .{ .powerpc, 32, 256 }, .{ .sparc64, 64, 32 }, .{ .mips64el, 64, 64 }, .{ .mips64el, 32, 32 },
+        .{ .wasm32, 32, 16 },   .{ .alpha, 64, 32 },   .{ .csky, 32, 32 },    .{ .m68k, 32, 128 },
+    }) |c| try std.testing.expectEqual(c[2] * mib, genericBufferSize(c[0], c[1]));
+}
+
 test "fixed sets are taken as they are; x86 derives r, others keep the header's" {
     var vt: Vtable = .{};
     installCore(&vt, .x86_64, .haswell, .{});
@@ -556,6 +711,109 @@ test "fixed sets are taken as they are; x86 derives r, others keep the header's"
     installCore(&vt, .mips64, .mips64_generic, .{});
     try std.testing.expectEqual(@as(i32, 128), vt.sgemm_p);
     try std.testing.expectEqual(@as(i32, 12288), vt.sgemm_r);
+}
+
+test "mips64 takes setparam-ref.c's dgemm r of 640 on every core; mips32 keeps its own" {
+    var vt: Vtable = .{};
+    inline for (.{ .mips64_generic, .loongson3r3, .loongson3r4, .i6400, .p6600 }) |c| {
+        installCore(&vt, .mips64, c, .{});
+        try std.testing.expectEqual(@as(i32, 640), vt.dgemm_r);
+    }
+    // the header's 8192 and 12288 before; only `d` moves
+    installCore(&vt, .mips64, .mips64_generic, .{});
+    try std.testing.expectEqual(@as(i32, 12288), vt.sgemm_r);
+    try std.testing.expectEqual(@as(i32, 4096), vt.zgemm_r);
+    try std.testing.expectEqual(@as(i32, 128), vt.dgemm_p);
+    try std.testing.expectEqual(@as(i32, 120), vt.dgemm_q);
+    // `ARCH_MIPS` has no such block: `r` from the buffer
+    installCore(&vt, .mips32, .loongson3r3, .{});
+    try std.testing.expectEqual(derivedR(44, 92, 8, tableFor(.mips32, .loongson3r3).?), vt.dgemm_r);
+}
+
+test "x86 3M takes the real precision's p and q where the header has none; xgemm3m always q's" {
+    var vt: Vtable = .{};
+    // no 3M macros: `setparam-ref.c:1582, 1590, 2097, 2105`
+    inline for (.{ .core2, .nehalem }) |c| {
+        installCore(&vt, .x86_64, c, .{ .l2_kb = 4096 });
+        const t = tableFor(.x86_64, c).?;
+        try std.testing.expect(vt.cgemm3m_p > 0);
+        try std.testing.expectEqual(vt.sgemm_p, vt.cgemm3m_p);
+        try std.testing.expectEqual(vt.sgemm_q, vt.cgemm3m_q);
+        try std.testing.expectEqual(derivedR(vt.cgemm3m_p, vt.cgemm3m_q, 8, t), vt.cgemm3m_r);
+        try std.testing.expectEqual(vt.dgemm_p, vt.zgemm3m_p);
+        try std.testing.expectEqual(vt.dgemm_q, vt.zgemm3m_q);
+        try std.testing.expectEqual(derivedR(vt.zgemm3m_p, vt.zgemm3m_q, 16, t), vt.zgemm3m_r);
+    }
+    // the header's 320 and 320 stand; `x3m` takes `q`'s 504 and 128 over the
+    // header's 112 and 224 (`:1597, 2110`)
+    installCore(&vt, .x86_64, .haswell, .{});
+    try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_p);
+    try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_q);
+    try std.testing.expectEqual(@as(i32, 504), vt.xgemm3m_p);
+    try std.testing.expectEqual(@as(i32, 128), vt.xgemm3m_q);
+    // the AMD override moves `s`, not the header's 3M
+    installCore(&vt, .x86_64, .skylakex, .{ .amd_avx512 = true, .l2_kb = 1024, .l3_kb = 32768 });
+    try std.testing.expectEqual(@as(i32, 384), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 320), vt.cgemm3m_p);
+}
+
+test "3M stays 0 outside x86, as no DYNAMIC_ARCH build there defines USE_GEMM3M" {
+    var vt: Vtable = .{};
+    inline for (.{
+        .{ .arm64, .neoversen1 }, .{ .mips64, .loongson3r4 }, .{ .riscv64, .riscv64_generic },
+        .{ .power64, .power9 },   .{ .s390x, .z14 },          .{ .loongarch64, .la464 },
+    }) |c| {
+        installCore(&vt, c[0], c[1], .{});
+        inline for (.{ "c", "z", "x" }) |pre| {
+            inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, pre ++ "gemm3m" ++ f));
+        }
+    }
+}
+
+test "only x86 rounds p up to the unroll; Blocking takes whole panels of an unrounded one" {
+    var vt: Vtable = .{};
+    // the header's 44 on an unroll of 8, which OpenBLAS keeps (`setparam-ref.c:1089`;
+    // static mips32 builds take the header's)
+    inline for (.{ .mips64, .mips32 }) |f| {
+        installCore(&vt, f, .loongson3r4, .{});
+        try std.testing.expectEqual(@as(i32, 8), vt.dgemm_unroll_m);
+        try std.testing.expectEqual(@as(i32, 44), vt.dgemm_p);
+        try std.testing.expectEqual(@as(usize, 40), driver.Blocking.of(f64, &vt).p);
+    }
+    // core2's rule: 92 * (512 >> 9) + 8 = 100, rounded to 104; `q`'s
+    // 23 + 4 = 27 stays (`:2179-2183`)
+    installCore(&vt, .x86_64, .core2, .{ .l2_kb = 512 });
+    try std.testing.expectEqual(@as(i32, 104), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 104), vt.cgemm3m_p);
+    try std.testing.expectEqual(@as(i32, 27), vt.qgemm_p);
+}
+
+test "half and bfloat16 take the header's r outside x86, and only what each family's block sets" {
+    var vt: Vtable = .{};
+    // `b` and `sb` only: `setparam-ref.c:1015, 1186, 1325, 1357`
+    inline for (.{ .{ .arm64, .neoversen1 }, .{ .loongarch64, .la464 }, .{ .power64, .power10 }, .{ .s390x, .z14 } }) |c| {
+        installCore(&vt, c[0], c[1], .{});
+        const t = tableFor(c[0], c[1]).?;
+        try std.testing.expectEqual(t.sb.r.fixed, vt.sbgemm_r);
+        try std.testing.expectEqual(t.b.r.fixed, vt.bgemm_r);
+        try std.testing.expectEqual(t.sb.p.fixed, vt.sbgemm_p);
+        inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, "shgemm" ++ f));
+    }
+    installCore(&vt, .arm64, .neoversen1, .{});
+    try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
+    // riscv64 also `sh`, whose header `r` is 240 (`:1397`)
+    installCore(&vt, .riscv64, .riscv64_generic, .{});
+    try std.testing.expectEqual(@as(i32, 240), vt.shgemm_r);
+    try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
+    try std.testing.expectEqual(@as(i32, 256), vt.bgemm_r);
+    // mips64 none
+    installCore(&vt, .mips64, .loongson3r4, .{});
+    inline for (.{ "sh", "b", "sb" }) |pre| {
+        inline for (.{ "gemm_p", "gemm_q", "gemm_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, pre ++ f));
+    }
+    // x86 derives it (`:2190-2205`)
+    installCore(&vt, .x86_64, .haswell, .{});
+    try std.testing.expectEqual(derivedR(256, 256, 4, tableFor(.x86_64, .haswell).?), vt.sbgemm_r);
 }
 
 test "old x86 cores follow the L2 size" {
@@ -580,11 +838,15 @@ test "old x86 cores take their getarch entry's subarch blocks" {
     try std.testing.expectEqual(@as(i32, 4), vt.sgemm_unroll_m);
     try std.testing.expectEqual(@as(i32, 2), vt.cgemm_unroll_m);
     try std.testing.expectEqual(@as(i32, 128), vt.sgemm_p);
-    // `PENTIUMM` with `CORE_YONAH`
+    // `PENTIUMM` with `CORE_YONAH`, on Katmai's L2 rule; 16 * (512 >> 7)
     installCore(&vt, .x86, .yonah, .{});
     try std.testing.expectEqual(@as(i32, 4), vt.dgemm_unroll_n);
     try std.testing.expectEqual(@as(i32, 2), vt.zgemm_unroll_n);
-    try std.testing.expectEqual(@as(i32, 128), vt.zgemm_p);
+    try std.testing.expectEqual(@as(i32, 64), vt.zgemm_p);
+    // Athlon's rule goes over its header's fixed 208; 64 * (1024 >> 7)
+    installCore(&vt, .x86, .athlon, .{ .l2_kb = 1024 });
+    try std.testing.expectEqual(@as(i32, 512), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 256), vt.dgemm_p);
     // `CORE_PRESCOTT`'s offsets follow `__64BIT__`
     installCore(&vt, .x86, .prescott, .{});
     try std.testing.expectEqual(@as(i32, 128), vt.offsetA);

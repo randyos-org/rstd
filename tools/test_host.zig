@@ -8,8 +8,9 @@
 //!   test_host <host> <live log> <jobs> <nix dir> <qemu> --tcg <args>...
 //!     [--hvf <args>...] -- <args>...
 //!
-//! An argument `local:<path>` is a file copied over, passed as its copy's
-//! path. A macOS arm64 host takes the `--hvf` arguments when given, any
+//! An argument `local:<path>` is a file or directory copied over, passed as
+//! its copy's path; `<text>local:<path>` (`file=fat:local:<dir>`) keeps the
+//! text before. A macOS arm64 host takes the `--hvf` arguments when given, any
 //! other the `--tcg` ones. `ssh` and `scp` come from PATH with their own
 //! config; nothing about the machine is stored here.
 
@@ -61,16 +62,16 @@ fn run(init: std.process.Init) !u8 {
     try qemu_argv.append(arena, qemu);
     try qemu_argv.appendSlice(arena, if (use_hvf) hvf.? else tcg);
     for (rest) |a| {
-        if (!std.mem.startsWith(u8, a, local_prefix)) {
+        const at = std.mem.find(u8, a, local_prefix) orelse {
             try qemu_argv.append(arena, a);
             continue;
-        }
-        const path = a[local_prefix.len..];
+        };
+        const path = a[at + local_prefix.len ..];
         const name = std.Io.Dir.path.basename(path);
         for (names.items) |n| if (std.mem.eql(u8, n, name)) return error.DuplicateFileName;
         try names.append(arena, name);
         try scp.append(arena, path);
-        try qemu_argv.append(arena, try arena.print("{s}/{s}", .{ dir, name }));
+        try qemu_argv.append(arena, try arena.print("{s}{s}/{s}", .{ a[0..at], dir, name }));
     }
     try scp.append(arena, try arena.print("{s}:{s}/", .{ host, dir }));
     if (try exec(io, scp.items) != 0) {

@@ -3,23 +3,20 @@
 //! `cpu/power.zig` points the vtable at them. The build (`build/blaskern.zig`)
 //! asks it which cores need an object at all.
 //!
-//! Add a routine to `modules` to wire it in.
+//! Add a routine to `converted` to wire it in.
 
 const std = @import("std");
 const coretypes = @import("../cpu/_coretypes.zig");
 const registry = @import("../asm_registry.zig");
-const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const vector = @import("../vector.zig");
-
-const Slot = util.Slot;
 
 pub const Core = coretypes.PowerCoreType;
 
 /// Every routine with kernels here: each routine's converted assembly (its
 /// `asm/__root__.zig`), and `axpy`'s own module, which adds the kernels
 /// upstream writes in C.
-const modules = .{
+const converted = .{
     @import("../blas1/axpy/power/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/asum/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/power/asm/__root__.zig")),
@@ -30,18 +27,15 @@ const modules = .{
     registry.Kernels(Core, @import("../blas1/swap/power/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas2/gemv/power/asm/__root__.zig")),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
-    vector.Registry(Core, usesVector),
 };
 
-/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots on the
-/// VSX cores. AltiVec flushes `f32` denormals (`util.vectorIeee`), so
-/// elsewhere the portable kernels stay.
-fn usesVector(comptime core: Core, comptime slot: Slot) bool {
-    return switch (core) {
-        .power8, .power9, .power10 => vector.routed(slot),
-        else => false,
-    };
-}
+/// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots. The
+/// AltiVec cores' objects are built without it (`cpu/_corespec.zig`), whose
+/// lanes flush `f32`, so theirs are scalar.
+const vector_rule: vector.Rule(Core) = .{ .routed = null };
+
+/// The `@Vector` kernels go over those.
+const modules = converted ++ .{vector.Registry(Core, vector_rule, converted)};
 
 /// Whether this registry has kernels for `arch`.
 pub fn supports(arch: std.Target.Cpu.Arch) bool {

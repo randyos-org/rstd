@@ -1,5 +1,5 @@
 //! `@Vector` kernels for level-1 and level-2 slots, in the kernel ABI: plain
-//! Zig, `U` native vectors a step. At `U = 4` they match or beat OpenBLAS's
+//! Zig, `U` native vectors a step. At `U = 4` they mostly match or beat OpenBLAS's
 //! arm64 kernels on Apple's cores (`tools/blasbench/results-m6.md`). Unit
 //! strides take the vectors; other strides, zero and negative ones too, a
 //! scalar loop. NaN, infinities, `scal`'s flag, `i?amax`'s first index and
@@ -19,6 +19,9 @@ const Vtable = @import("Vtable.zig");
 const fma = @import("fma.zig");
 const extremum = @import("blas1/extremum.zig");
 const coretypes = @import("cpu/_coretypes.zig");
+const select = @import("cpu/_select.zig");
+const corespec = @import("cpu/_corespec.zig");
+const bf16 = @import("ext/bf16/kernel.zig");
 
 const BlasLong = types.BlasLong;
 const Find = extremum.Find;
@@ -35,11 +38,13 @@ inline fn at(comptime F: type, p: [*]F, i: BlasLong) *F {
     return util.at(F, p, i);
 }
 
-/// `a*b + c`, fused where the hardware has an FMA unit (and `fma.compiles`);
-/// elsewhere rounded twice, as `@mulAdd` there is a software `fma` call per
-/// element.
+const abs = util.abs;
+
+/// `a*b + c`, fused where the hardware has an FMA unit (and `fma.compiles`)
+/// or `fma.fused_madd`; elsewhere rounded twice, as `@mulAdd`
+/// there is a software `fma` call per element.
 inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    return if (comptime fma.hardware and fma.compiles) @mulAdd(T, a, b, c) else a * b + c;
+    return if (comptime (fma.hardware and fma.compiles) or fma.fused_madd) fma.fusedMadd(T, a, b, c) else a * b + c;
 }
 
 /// The real kernels over `F`; reductions keep two vectors of sums.
@@ -78,14 +83,25 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             return 0;
         }
 
-        /// `dot`'s and `nrm2`'s sums: `f64` for `f32`, as the portable kernels
-        /// (products of `f32` are exact there), else `F`.
+        /// `dot`'s, `nrm2`'s and `sum`'s sums: `f64` for `f32`, as the
+        /// portable kernels (products of `f32` are exact there), else `F`.
         pub const D = if (F == f32) f64 else F;
         const DV = @Vector(W, D);
         const DG = @Vector(4, D);
 
         pub fn dot(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) callconv(.c) F {
             if (n <= 0) return 0;
+            return @floatCast(dotSum(n, x, incx, y, incy));
+        }
+
+        /// `dsdot`: `dot`'s sum, unrounded (`kernel/riscv64/dot_rvv.c` with
+        /// `DSDOT`); for `f32` only.
+        pub fn dsdot(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) callconv(.c) D {
+            if (n <= 0) return 0;
+            return dotSum(n, x, incx, y, incy);
+        }
+
+        fn dotSum(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong) D {
             if (incx == 1 and incy == 1) {
                 const len: usize = @intCast(n);
                 var acc: [2]DV = @splat(@splat(0));
@@ -99,14 +115,14 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 }
                 var s = @reduce(.Add, acc[0] + acc[1]);
                 while (i < len) : (i += 1) s = mulAdd(D, x[i], y[i], s);
-                return @floatCast(s);
+                return s;
             }
             var acc: DG = @splat(0);
             var i: BlasLong = 0;
             while (i + 4 <= n) : (i += 4) acc = mulAdd(DG, gather(x, incx, i), gather(y, incy, i), acc);
             var s = @reduce(.Add, acc);
             while (i < n) : (i += 1) s = mulAdd(D, at(F, x, i * incx).*, at(F, y, i * incy).*, s);
-            return @floatCast(s);
+            return s;
         }
 
         const Scale = enum { mul, zero, keep };
@@ -116,7 +132,7 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             if (comptime @typeInfo(T) == .vector) return switch (how) {
                 .mul => @as(T, @splat(a)) * v,
                 .zero => @splat(0),
-                .keep => @select(F, @abs(v) <= @as(T, @splat(std.math.floatMax(F))), @as(T, @splat(0)), @as(T, @splat(std.math.nan(F)))),
+                .keep => @select(F, abs(v) <= @as(T, @splat(std.math.floatMax(F))), @as(T, @splat(0)), @as(T, @splat(std.math.nan(F)))),
             };
             return switch (how) {
                 .mul => a * v,
@@ -160,7 +176,7 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
 
         pub fn nrm2(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
             if (n <= 0 or incx == 0) return 0;
-            if (n == 1) return @abs(x[0]);
+            if (n == 1) return abs(x[0]);
             if (incx == 1) return root(F, 1, squares(@intCast(n), x), n, x, incx);
             var acc: DG = @splat(0);
             var i: BlasLong = 0;
@@ -181,10 +197,10 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             var acc: [2]V = @splat(@splat(0));
             var i: usize = 0;
             while (i + 2 * W <= len) : (i += 2 * W) {
-                inline for (0..2) |q| acc[q] += @abs(ld(x + i + q * W));
+                inline for (0..2) |q| acc[q] += abs(ld(x + i + q * W));
             }
             var s = @reduce(.Add, acc[0] + acc[1]);
-            while (i < len) : (i += 1) s += @abs(x[i]);
+            while (i < len) : (i += 1) s += abs(x[i]);
             return s;
         }
 
@@ -193,10 +209,37 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             if (incx == 1) return absSum(@intCast(n), x);
             var acc: G = @splat(0);
             var i: BlasLong = 0;
-            while (i + 4 <= n) : (i += 4) acc += @abs(gather(x, incx, i));
+            while (i + 4 <= n) : (i += 4) acc += abs(gather(x, incx, i));
             var s = @reduce(.Add, acc);
-            while (i < n) : (i += 1) s += @abs(at(F, x, i * incx).*);
+            while (i < n) : (i += 1) s += abs(at(F, x, i * incx).*);
             return s;
+        }
+
+        /// The sum of `x[0..len]` in `D`, as `dot` sums: float `i` of each
+        /// `2 * W` into lane `i % W` of sum `i / W % 2`; then the two lane by
+        /// lane, the lanes in order, and the floats left in order.
+        pub fn plainSum(len: usize, x: [*]F) D {
+            var acc: [2]DV = @splat(@splat(0));
+            var i: usize = 0;
+            while (i + 2 * W <= len) : (i += 2 * W) {
+                inline for (0..2) |q| acc[q] += @as(DV, ld(x + i + q * W));
+            }
+            var s = @reduce(.Add, acc[0] + acc[1]);
+            while (i < len) : (i += 1) s += x[i];
+            return s;
+        }
+
+        /// Summed in `D`, rounded once; strided, element `i` into lane
+        /// `i % 4` of four sums, then the lanes and the rest in order.
+        pub fn sum(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
+            if (n <= 0 or incx <= 0) return 0;
+            if (incx == 1) return @floatCast(plainSum(@intCast(n), x));
+            var acc: DG = @splat(0);
+            var i: BlasLong = 0;
+            while (i + 4 <= n) : (i += 4) acc += @as(DG, gather(x, incx, i));
+            var s = @reduce(.Add, acc);
+            while (i < n) : (i += 1) s += at(F, x, i * incx).*;
+            return @floatCast(s);
         }
 
         /// The extremes by `find`, value and 1-based index, as the portable
@@ -206,7 +249,7 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                 const P = extremum.Extremum(F, 1, find);
                 const Key = struct {
                     inline fn key(p: [*]const F, s: usize, i: usize) F {
-                        return if (find.abs) @abs(p[i * s]) else p[i * s];
+                        return if (find.abs) abs(p[i * s]) else p[i * s];
                     }
                     inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
                         var m: [4]V = undefined;
@@ -218,8 +261,8 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
                                 inline for (0..W) |k| r[k] = p[(i + q * W + k) * s];
                                 m[q] = r;
                             }
-                            if (find.abs) m[q] = @abs(m[q]);
-                            chk.* += if (find.abs) m[q] else @abs(m[q]);
+                            if (find.abs) m[q] = abs(m[q]);
+                            chk.* += if (find.abs) m[q] else abs(m[q]);
                         }
                         return pick(find, m);
                     }
@@ -248,10 +291,25 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         pub const min = Extreme(.{ .abs = false, .max = false }).value;
         pub const imin = Extreme(.{ .abs = false, .max = false }).index;
 
-        /// The extreme of four vectors of keys.
+        /// The extreme of four vectors of keys: by `@max` or `@min` where
+        /// they are instructions (`hasMinMax`), else by compare and select,
+        /// which agrees on any keys but NaN, for which `search` gives up.
         pub inline fn pick(comptime find: Find, m: [4]V) F {
+            if (comptime !hasMinMax(F)) {
+                const a: [W]F = sel(find, sel(find, m[0], m[1]), sel(find, m[2], m[3]));
+                var r = a[0];
+                inline for (a[1..]) |k| r = sel(find, k, r);
+                return r;
+            }
             if (find.max) return @reduce(.Max, @max(@max(m[0], m[1]), @max(m[2], m[3])));
             return @reduce(.Min, @min(@min(m[0], m[1]), @min(m[2], m[3])));
+        }
+
+        /// `a` where it is `find`'s better than `b`, else `b`.
+        inline fn sel(comptime find: Find, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+            const T = @TypeOf(a);
+            const take = if (find.max) a > b else a < b;
+            return if (@typeInfo(T) == .vector) @select(F, take, a, b) else if (take) a else b;
         }
 
         inline fn better(comptime find: Find, k: F, best: F) bool {
@@ -439,6 +497,180 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
             }
             return 0;
         }
+
+        /// `y := alpha*x + beta*y`, `kernel/riscv64/axpby_rvv.c` and
+        /// `axpby_vector_v2.c`: `beta*y`, then `alpha*x` fused in. A zero
+        /// `alpha` does not read `x`, a zero `beta` not `y`.
+        pub fn axpby(n: BlasLong, alpha: F, x: [*]F, incx: BlasLong, beta: F, y: [*]F, incy: BlasLong) callconv(.c) i32 {
+            if (n <= 0) return 0;
+            switch (Pick.of(alpha != 0, beta != 0)) {
+                inline else => |p| axpbyBy(p, @intCast(n), alpha, x, incx, beta, y, incy),
+            }
+            return 0;
+        }
+
+        fn axpbyBy(comptime p: Pick, len: usize, a: F, x: [*]F, incx: BlasLong, b: F, y: [*]F, incy: BlasLong) void {
+            var i: usize = 0;
+            if (incx == 1 and incy == 1) {
+                while (i + W <= len) : (i += W) st(y + i, Pick.apply(p, V, a, b, x + i, y + i));
+            }
+            while (i < len) : (i += 1) {
+                const k: BlasLong = @intCast(i);
+                const yp = at(F, y, k * incy);
+                yp.* = Pick.apply(p, F, a, b, at(F, x, k * incx), yp);
+            }
+        }
+
+        /// `x := h11*x + h12*y`, `y := h21*x + h22*y`, `kernel/riscv64/rotm_rvv.c`:
+        /// `param[0]` -2 the identity, -1 the full matrix (`param[1..5]` =
+        /// h11, h21, h12, h22), 0 a unit diagonal, 1 `[h11 1; -1 h22]`, fused
+        /// as its `vfmacc` and `vfmsac`. A negative stride starts from the
+        /// far end.
+        pub fn rotm(n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, param: [*]F) callconv(.c) i32 {
+            const flag = param[0];
+            if (n <= 0 or flag == -2) return 0;
+            const h = [4]F{ param[1], param[3], param[2], param[4] };
+            const form: Rotm = if (flag < 0) .full else if (flag == 0) .unit else .off;
+            switch (form) {
+                inline else => |f| rotmBy(f, n, x, incx, y, incy, h),
+            }
+            return 0;
+        }
+
+        const Rotm = enum { full, unit, off };
+
+        inline fn rotm1(comptime f: Rotm, comptime T: type, h: [4]F, w: T, z: T) [2]T {
+            const s = struct {
+                inline fn v(e: F) T {
+                    return if (T == F) e else @splat(e);
+                }
+            };
+            return switch (f) {
+                .full => .{ mulAdd(T, s.v(h[1]), z, s.v(h[0]) * w), mulAdd(T, s.v(h[3]), z, s.v(h[2]) * w) },
+                .unit => .{ mulAdd(T, s.v(h[1]), z, w), mulAdd(T, s.v(h[2]), w, z) },
+                .off => .{ mulAdd(T, s.v(h[0]), w, z), mulAdd(T, s.v(h[3]), z, -w) },
+            };
+        }
+
+        fn rotmBy(comptime f: Rotm, n: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, h: [4]F) void {
+            var i: BlasLong = 0;
+            if (incx == 1 and incy == 1) {
+                const len: usize = @intCast(n);
+                var e: usize = 0;
+                while (e + W <= len) : (e += W) {
+                    const r = rotm1(f, V, h, ld(x + e), ld(y + e));
+                    st(x + e, r[0]);
+                    st(y + e, r[1]);
+                }
+                i = @intCast(e);
+            }
+            const ix: BlasLong = if (incx < 0) (1 - n) * incx else 0;
+            const iy: BlasLong = if (incy < 0) (1 - n) * incy else 0;
+            while (i < n) : (i += 1) {
+                const px = at(F, x, ix + i * incx);
+                const py = at(F, y, iy + i * incy);
+                const r = rotm1(f, F, h, px.*, py.*);
+                px.* = r[0];
+                py.* = r[1];
+            }
+        }
+
+        /// `y += alpha*S*x`, `S` symmetric from one stored triangle, over the
+        /// columns `offset` selects: the last `offset` for the upper
+        /// triangle, the first for the lower. `kernel/riscv64/symv_L_rvv.c`,
+        /// `symv_U_rvv.c`, `symv_L_vector.c`, `symv_U_vector.c`: per column
+        /// `j`, `alpha*x[j]` times the column into `y`, its dot with `x`
+        /// times `alpha` into `y[j]`; the diagonal first.
+        fn Symv(comptime lower: bool) type {
+            return struct {
+                fn k(m: BlasLong, offset: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, _: [*]F) callconv(.c) i32 {
+                    if (m <= 0 or offset <= 0) return 0;
+                    const ld_a: usize = @intCast(lda);
+                    const unit = incx == 1 and incy == 1;
+                    var j: BlasLong = if (lower) 0 else m - offset;
+                    const end: BlasLong = if (lower) offset else m;
+                    while (j < end) : (j += 1) {
+                        const col = a + @as(usize, @intCast(j)) * ld_a;
+                        const t = alpha * at(F, x, j * incx).*;
+                        const yj = at(F, y, j * incy);
+                        yj.* = mulAdd(F, t, col[@intCast(j)], yj.*);
+                        var i: BlasLong = if (lower) j + 1 else 0;
+                        const hi: BlasLong = if (lower) m else j;
+                        var s: F = 0;
+                        if (unit) {
+                            var acc: V = @splat(0);
+                            var e: usize = @intCast(i);
+                            const stop: usize = @intCast(hi);
+                            while (e + W <= stop) : (e += W) {
+                                const av = ld(col + e);
+                                st(y + e, mulAdd(V, @splat(t), av, ld(y + e)));
+                                acc = mulAdd(V, ld(x + e), av, acc);
+                            }
+                            s = @reduce(.Add, acc);
+                            i = @intCast(e);
+                        }
+                        while (i < hi) : (i += 1) {
+                            const av = col[@intCast(i)];
+                            const yp = at(F, y, i * incy);
+                            yp.* = mulAdd(F, t, av, yp.*);
+                            s = mulAdd(F, at(F, x, i * incx).*, av, s);
+                        }
+                        yj.* = mulAdd(F, alpha, s, yj.*);
+                    }
+                    return 0;
+                }
+            };
+        }
+
+        pub const symv_U = Symv(false).k;
+        pub const symv_L = Symv(true).k;
+    };
+}
+
+/// Which operands `axpby` reads: a zero scalar's is not.
+const Pick = enum {
+    zero,
+    ax,
+    by,
+    both,
+
+    fn of(a: bool, b: bool) Pick {
+        return if (a) (if (b) .both else .ax) else if (b) .by else .zero;
+    }
+
+    /// `alpha*x + beta*y` from `x` and `y` at `xp` and `yp` as `T`s, a
+    /// vector or one float; `beta*y` first, `alpha*x` fused in.
+    inline fn apply(comptime p: Pick, comptime T: type, a: anytype, b: @TypeOf(a), xp: anytype, yp: anytype) T {
+        const F = @TypeOf(a);
+        const s = struct {
+            inline fn v(e: F) T {
+                return if (T == F) e else @splat(e);
+            }
+            inline fn get(q: anytype) T {
+                return if (T == F) q.* else q[0..@typeInfo(T).vector.len].*;
+            }
+        };
+        return switch (p) {
+            .zero => s.v(0),
+            .ax => s.v(a) * s.get(xp),
+            .by => s.v(b) * s.get(yp),
+            .both => mulAdd(T, s.v(a), s.get(xp), s.v(b) * s.get(yp)),
+        };
+    }
+};
+
+/// Whether `@max` and `@min` of `F` are instructions here: elsewhere each
+/// is a call to libm's `fmax` or `fmin`, lane by lane (ARMv7 VFP, SPARC,
+/// pre-VSX POWER, MIPS before release 6, MSA too, the x87).
+fn hasMinMax(comptime F: type) bool {
+    const cpu = sysinfo.target.cpu;
+    return switch (cpu.arch) {
+        .x86, .x86_64 => !util.onX87(F),
+        .arm, .armeb, .thumb, .thumbeb => cpu.has(.arm, .fp_armv8),
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => cpu.has(.powerpc, .vsx),
+        .mips, .mipsel, .mips64, .mips64el => cpu.hasAny(.mips, &.{ .mips32r6, .mips64r6 }),
+        .sparc, .sparc64 => false,
+        else => true,
     };
 }
 
@@ -643,10 +875,26 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
             var acc: [2]V2 = @splat(@splat(0));
             var i: BlasLong = 0;
             while (i + 2 <= n) : (i += 2) {
-                inline for (0..2) |q| acc[q] += @abs(ld2(x, (i + q) * incx));
+                inline for (0..2) |q| acc[q] += abs(ld2(x, (i + q) * incx));
             }
-            if (i < n) acc[0] += @abs(ld2(x, i * incx));
+            if (i < n) acc[0] += abs(ld2(x, i * incx));
             return @reduce(.Add, acc[0] + acc[1]);
+        }
+
+        /// The sum of `re + im`: `Real.plainSum`'s over the `2n` floats;
+        /// strided, element `i` into sum `i % 2`, by parts, then those lane by
+        /// lane and the parts in order.
+        pub fn sum(n: BlasLong, x: [*]F, incx: BlasLong) callconv(.c) F {
+            if (n <= 0 or incx <= 0) return 0;
+            if (incx == 1) return @floatCast(R.plainSum(@intCast(2 * n), x));
+            const D2 = @Vector(2, R.D);
+            var acc: [2]D2 = @splat(@splat(0));
+            var i: BlasLong = 0;
+            while (i + 2 <= n) : (i += 2) {
+                inline for (0..2) |q| acc[q] += @as(D2, ld2(x, (i + q) * incx));
+            }
+            if (i < n) acc[0] += @as(D2, ld2(x, i * incx));
+            return @floatCast(@reduce(.Add, acc[0] + acc[1]));
         }
 
         /// The even (`odd` false) or odd floats of `a`, then of `b`.
@@ -672,14 +920,16 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
                 const Key = struct {
                     // rounded: `search` finds the block's stored key again
                     inline fn key(p: [*]const F, s: usize, i: usize) F {
-                        return util.rounded(F, @abs(p[i * s]) + @abs(p[i * s + 1]));
+                        return util.rounded(F, abs(p[i * s]) + abs(p[i * s + 1]));
                     }
                     inline fn block(p: [*]const F, s: usize, i: usize, chk: *V) F {
+                        // `4 * W` inlined keys: 256 at x280's 512 bits
+                        @setEvalBranchQuota(100_000);
                         var m: [4]V = undefined;
                         inline for (0..4) |q| {
                             if (s == 2) {
-                                const a = @abs(ld(p + 2 * (i + q * W)));
-                                const b = @abs(ld(p + 2 * (i + q * W) + W));
+                                const a = abs(ld(p + 2 * (i + q * W)));
+                                const b = abs(ld(p + 2 * (i + q * W) + W));
                                 m[q] = parts(a, b, false) + parts(a, b, true);
                             } else {
                                 var r: [W]F = undefined;
@@ -830,6 +1080,262 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
         pub const gemv_u = Gemv(true, false, true).k;
         pub const gemv_s = Gemv(false, true, true).k;
         pub const gemv_d = Gemv(true, true, true).k;
+
+        /// `y := alpha*x + beta*y`, `kernel/riscv64/zaxpby_rvv.c`: `beta*y`,
+        /// then `alpha*x` fused in. A zero `alpha` does not read `x`, a zero
+        /// `beta` not `y`.
+        pub fn axpby(n: BlasLong, ar: F, ai: F, x: [*]F, incx: BlasLong, br: F, bi: F, y: [*]F, incy: BlasLong) callconv(.c) i32 {
+            if (n <= 0) return 0;
+            switch (Pick.of(ar != 0 or ai != 0, br != 0 or bi != 0)) {
+                inline else => |p| axpbyBy(p, n, ar, ai, x, incx, br, bi, y, incy),
+            }
+            return 0;
+        }
+
+        inline fn axpby1(comptime p: Pick, comptime T: type, a: By(T), b: By(T), xv: anytype, yv: anytype) T {
+            return switch (p) {
+                .zero => @splat(0),
+                .ax => a.mul(xv.*),
+                .by => b.mul(yv.*),
+                .both => a.madd(xv.*, b.mul(yv.*)),
+            };
+        }
+
+        fn axpbyBy(comptime p: Pick, n: BlasLong, ar: F, ai: F, x: [*]F, incx: BlasLong, br: F, bi: F, y: [*]F, incy: BlasLong) void {
+            var i: BlasLong = 0;
+            if (incx == 1 and incy == 1) {
+                const a = By(V).init(ar, ai, false);
+                const b = By(V).init(br, bi, false);
+                const len: usize = @intCast(2 * n);
+                var f: usize = 0;
+                while (f + W <= len) : (f += W) st(y + f, axpby1(p, V, a, b, x[f..][0..W], y[f..][0..W]));
+                i = @intCast(f / 2);
+            }
+            const a = By(V2).init(ar, ai, false);
+            const b = By(V2).init(br, bi, false);
+            while (i < n) : (i += 1) {
+                const yp: *[2]F = @ptrCast(at(F, y, 2 * i * incy));
+                yp.* = axpby1(p, V2, a, b, @as(*[2]F, @ptrCast(at(F, x, 2 * i * incx))), yp);
+            }
+        }
+
+        /// `y += alpha*S*x` over the columns `offset` selects (the last
+        /// `offset` for the upper triangle, the first for the lower), `S`
+        /// symmetric or Hermitian from one stored triangle by `kind`:
+        /// `kernel/riscv64/zsymv_L_rvv.c`, `zsymv_U_rvv.c`, `zhemv_LM_rvv.c`,
+        /// `zhemv_UV_rvv.c`, `zhemv_LM_vector.c`, `zhemv_UV_vector.c`. Per
+        /// column `j`, `alpha*x[j]` times the column into `y`, its dot with
+        /// `x` times `alpha` into `y[j]`; the diagonal first, a Hermitian
+        /// one's imaginary part unread.
+        fn Symv(comptime lower: bool, comptime kind: SymKind) type {
+            // `y` takes the column conjugated for `HEMVREV` (`V`, `M`), the
+            // dot for the plain Hermitian (`U`, `L`)
+            const cy = kind == .hermitian_rev;
+            const cd = kind == .hermitian;
+            return struct {
+                fn k(m: BlasLong, offset: BlasLong, ar: F, ai: F, a: [*]F, lda: BlasLong, x: [*]F, incx: BlasLong, y: [*]F, incy: BlasLong, _: [*]F) callconv(.c) i32 {
+                    if (m <= 0 or offset <= 0) return 0;
+                    const alpha = By(V2).init(ar, ai, false);
+                    const ld_a: usize = 2 * @as(usize, @intCast(lda));
+                    const unit = incx == 1 and incy == 1;
+                    var j: BlasLong = if (lower) 0 else m - offset;
+                    const end: BlasLong = if (lower) offset else m;
+                    while (j < end) : (j += 1) {
+                        const col = a + @as(usize, @intCast(j)) * ld_a;
+                        const t = alpha.mul(ld2(x, j * incx));
+                        const dy: V2 = if (kind == .symmetric)
+                            By(V2).init(t[0], t[1], false).mul(ld2(col, j))
+                        else
+                            t * @as(V2, @splat(col[2 * @as(usize, @intCast(j))]));
+                        st2(y, j * incy, ld2(y, j * incy) + dy);
+                        var i: BlasLong = if (lower) j + 1 else 0;
+                        const hi: BlasLong = if (lower) m else j;
+                        var d: Dots(cd, false) = .{};
+                        if (unit) {
+                            const by = By(V).init(t[0], t[1], cy);
+                            var f: usize = 2 * @as(usize, @intCast(i));
+                            const stop: usize = 2 * @as(usize, @intCast(hi));
+                            while (f + W <= stop) : (f += W) {
+                                const av = ld(col + f);
+                                st(y + f, by.madd(av, ld(y + f)));
+                                d.add(av, ld(x + f));
+                            }
+                            i = @intCast(f / 2);
+                        }
+                        const by = By(V2).init(t[0], t[1], cy);
+                        while (i < hi) : (i += 1) {
+                            const av = ld2(col, i);
+                            st2(y, i * incy, by.madd(av, ld2(y, i * incy)));
+                            d.add2(av, ld2(x, i * incx));
+                        }
+                        st2(y, j * incy, alpha.madd(d.finish(), ld2(y, j * incy)));
+                    }
+                    return 0;
+                }
+            };
+        }
+
+        pub const symv_U = Symv(false, .symmetric).k;
+        pub const symv_L = Symv(true, .symmetric).k;
+        pub const hemv_U = Symv(false, .hermitian).k;
+        pub const hemv_L = Symv(true, .hermitian).k;
+        pub const hemv_V = Symv(false, .hermitian_rev).k;
+        pub const hemv_M = Symv(true, .hermitian_rev).k;
+    };
+}
+
+/// How `S` comes from its stored triangle (`blas2/symmetric.zig`'s `Kind`):
+/// symmetric, Hermitian, or the Hermitian one's transpose (`HEMVREV`).
+const SymKind = enum { symmetric, hermitian, hermitian_rev };
+
+/// The half-precision gemvs, `sbgemv` (`E` bfloat16) and `shgemv` (`f16`),
+/// in `ext/bf16/kernel.zig`'s bits: each result sums `a*x` in `f32` in
+/// index order, unfused, and rounds once on the store (`readme.md`,
+/// "bfloat16 and half precision"). Upstream's `kernel/riscv64/sbgemv_n_vector.c`
+/// and `sbgemv_t_vector.c` (zvl256b) round `alpha*x[j]` to `E` and fuse,
+/// and the transposed one sums across lanes, so only their shape is kept:
+/// without a transpose a lane per row, with one a lane per column, `A`
+/// transposed a tile at a time in registers.
+pub fn Half(comptime E: type) type {
+    return struct {
+        const N = lanes(f32);
+        const V = @Vector(N, f32);
+        const U16 = @Vector(N, u16);
+
+        inline fn wide(e: E) f32 {
+            return bf16.wide(E, e);
+        }
+
+        /// `N` elements from `p`, widened as `bf16.wide` does: a bfloat16
+        /// denormal flushes to a signed zero and a NaN comes out quiet.
+        inline fn widen(p: [*]const E) V {
+            if (E == f16) return @floatCast(@as(@Vector(N, f16), p[0..N].*));
+            const h: U16 = @as(*const [N]u16, @ptrCast(p)).*;
+            const e = h & @as(U16, @splat(0x7f80));
+            const quiet = @select(u16, (h & @as(U16, @splat(0x7f))) != @as(U16, @splat(0)), h | @as(U16, @splat(0x40)), h);
+            var r = @select(u16, e == @as(U16, @splat(0x7f80)), quiet, h);
+            r = @select(u16, e == @as(U16, @splat(0)), h & @as(U16, @splat(0x8000)), r);
+            return @bitCast(@as(@Vector(N, u32), r) << @splat(16));
+        }
+
+        /// `alpha*acc + beta*y`, rounded once each; `beta == 0` does not read `y`.
+        inline fn result(comptime T: type, alpha: f32, beta: f32, acc: T, yv: anytype) T {
+            const s = struct {
+                inline fn v(e: f32) T {
+                    return if (T == f32) e else @splat(e);
+                }
+            };
+            if (beta == 0) return s.v(alpha) * acc;
+            return s.v(alpha) * acc + s.v(beta) * @as(T, yv.*);
+        }
+
+        /// Rows `r` to `r + B` from column 0 on, `B / N` vectors.
+        fn rowBlock(comptime B: usize, r: usize, cols: usize, alpha: f32, a: [*]E, ld_a: usize, x: [*]E, incx: BlasLong, beta: f32, y: [*]f32, incy: BlasLong) void {
+            var acc: [B / N]V = @splat(@splat(0));
+            for (0..cols) |q| {
+                const xv: V = @splat(wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*));
+                inline for (&acc, 0..) |*s, v| s.* = s.* + widen(a + r + v * N + q * ld_a) * xv;
+            }
+            inline for (acc, 0..) |s, v| {
+                const r0 = r + v * N;
+                if (incy == 1) {
+                    const yp: *[N]f32 = (y + r0)[0..N];
+                    yp.* = result(V, alpha, beta, s, yp);
+                } else {
+                    const sa: [N]f32 = s;
+                    inline for (sa, 0..) |e, l| {
+                        const yp = util.at(f32, y, @as(BlasLong, @intCast(r0 + l)) * incy);
+                        yp.* = result(f32, alpha, beta, e, yp);
+                    }
+                }
+            }
+        }
+
+        /// `y = alpha*A*x + beta*y`, a lane per row of `A`.
+        pub fn gemv_n(m: BlasLong, n: BlasLong, alpha: f32, a: [*]E, lda: BlasLong, x: [*]E, incx: BlasLong, beta: f32, y: [*]f32, incy: BlasLong) callconv(.c) i32 {
+            const rows: usize = @intCast(@max(m, 0));
+            const cols: usize = @intCast(@max(n, 0));
+            const ld_a: usize = @intCast(lda);
+            var r: usize = 0;
+            while (r + 4 * N <= rows) : (r += 4 * N) rowBlock(4 * N, r, cols, alpha, a, ld_a, x, incx, beta, y, incy);
+            while (r + N <= rows) : (r += N) rowBlock(N, r, cols, alpha, a, ld_a, x, incx, beta, y, incy);
+            while (r < rows) : (r += 1) {
+                var acc: f32 = 0;
+                for (0..cols) |q| acc = acc + wide(a[r + q * ld_a]) * wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*);
+                const yp = util.at(f32, y, @as(BlasLong, @intCast(r)) * incy);
+                yp.* = result(f32, alpha, beta, acc, yp);
+            }
+            return 0;
+        }
+
+        /// `y = alpha*A'*x + beta*y`, a lane per column of `A`: `N` columns'
+        /// `N` rows at a time, transposed, so each column sums in row order.
+        pub fn gemv_t(m: BlasLong, n: BlasLong, alpha: f32, a: [*]E, lda: BlasLong, x: [*]E, incx: BlasLong, beta: f32, y: [*]f32, incy: BlasLong) callconv(.c) i32 {
+            const rows: usize = @intCast(@max(m, 0));
+            const cols: usize = @intCast(@max(n, 0));
+            const ld_a: usize = @intCast(lda);
+            var c: usize = 0;
+            while (c + N <= cols) : (c += N) {
+                var acc: V = @splat(0);
+                var q: usize = 0;
+                while (q + N <= rows) : (q += N) {
+                    var t: [N]V = undefined;
+                    inline for (&t, 0..) |*v, l| v.* = widen(a + q + (c + l) * ld_a);
+                    t = transpose(t);
+                    inline for (t, 0..) |v, l| acc = acc + v * @as(V, @splat(wide(util.at(E, x, @as(BlasLong, @intCast(q + l)) * incx).*)));
+                }
+                while (q < rows) : (q += 1) {
+                    var row: [N]f32 = undefined;
+                    inline for (&row, 0..) |*e, l| e.* = wide(a[q + (c + l) * ld_a]);
+                    acc = acc + @as(V, row) * @as(V, @splat(wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*)));
+                }
+                const sa: [N]f32 = acc;
+                inline for (sa, 0..) |e, l| {
+                    const yp = util.at(f32, y, @as(BlasLong, @intCast(c + l)) * incy);
+                    yp.* = result(f32, alpha, beta, e, yp);
+                }
+            }
+            while (c < cols) : (c += 1) {
+                var acc: f32 = 0;
+                for (0..rows) |q| acc = acc + wide(a[q + c * ld_a]) * wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*);
+                const yp = util.at(f32, y, @as(BlasLong, @intCast(c)) * incy);
+                yp.* = result(f32, alpha, beta, acc, yp);
+            }
+            return 0;
+        }
+
+        /// `t` transposed: halves of rows trade their off-diagonal halves,
+        /// then quarters, down to single lanes.
+        inline fn transpose(t: [N]V) [N]V {
+            var v = t;
+            comptime var h = N / 2;
+            inline while (h >= 1) : (h /= 2) {
+                const lo = comptime mask(h, false);
+                const hi = comptime mask(h, true);
+                inline for (0..N) |r| {
+                    if (r & h != 0) continue;
+                    const p = v[r];
+                    const q = v[r + h];
+                    v[r] = @shuffle(f32, p, q, lo);
+                    v[r + h] = @shuffle(f32, p, q, hi);
+                }
+            }
+            return v;
+        }
+
+        /// The upper (`second`) or lower row of a pair after trading the
+        /// lanes with bit `h` set in the first for those clear in the second.
+        fn mask(comptime h: usize, comptime second: bool) [N]i32 {
+            var m: [N]i32 = undefined;
+            for (0..N) |l| {
+                const own = l & h == 0;
+                m[l] = if (!second)
+                    (if (own) @intCast(l) else ~@as(i32, @intCast(l - h)))
+                else
+                    (if (own) @intCast(l + h) else ~@as(i32, @intCast(l)));
+            }
+            return m;
+        }
     };
 }
 
@@ -893,20 +1399,53 @@ pub fn peels(comptime slot: Slot) bool {
 /// The slots `peels` names.
 pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n };
 
+/// Where these kernels take slots from the converted ones beyond `routed`
+/// (`displaces`): every slot of theirs but `keep` on arm64's `vortex` and
+/// `vortexm4`, where they mostly match or beat the converted kernels
+/// (`tools/blasbench/results-m6.md`); `sum` is unmeasured there. `tools/blas_asm/survey.zig` reads it
+/// as text.
+pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []const Slot } = .{
+    .cores = &.{ .vortex, .vortexm4 },
+    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k, .ssum_k, .dsum_k, .csum_k, .zsum_k },
+};
+
+/// The cores whose vectors flush `f32` (`util.vectorIeeeOn` on their specs,
+/// as a test checks): ARMv7's NEON ones. Their objects build no `s` or `c`
+/// kernels here (`kernels`), so these take no such slot there.
+/// `tools/blas_asm/survey.zig` reads it as text.
+pub const flushing: struct { cores: []const coretypes.ArmCoreType } = .{
+    .cores = &.{ .cortexa9, .cortexa15 },
+};
+
+/// Whether `slot` is over `f32` and `core` one of `flushing`'s.
+fn flushes(comptime core: anytype, comptime slot: Slot) bool {
+    if (@TypeOf(core) != coretypes.ArmCoreType) return false;
+    if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
+    inline for (real_slots ++ complex_slots) |p| {
+        inline for (@typeInfo(@TypeOf(p[1])).@"struct".field_names) |name| {
+            if (@field(p[1], name) == slot) return p[0] == f32;
+        }
+    }
+    return false;
+}
+
+test "vector.flushing names the arm cores whose specs flush f32 lanes" {
+    // soft-float ABIs keep floats out of every vector unit
+    if (sysinfo.target.abi.float() == .soft) return error.SkipZigTest;
+    inline for (comptime corespec.kernelCores(.arm)) |core| {
+        const listed = std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) != null;
+        try std.testing.expectEqual(!util.vectorIeeeOn(f32, select.specCpu(core)), listed);
+    }
+}
+
 /// Whether these kernels take `slot` from `core`'s converted ones, beyond
-/// `routed`, so its object leaves those out: every slot of theirs but `rot`
-/// on arm64's `vortex` and `vortexm4` off Apple, where they match or beat
-/// the converted kernels (`tools/blasbench/results-m6.md`). On Apple's
+/// `routed`, so its object leaves those out (`displacing`). On Apple's
 /// systems Accelerate is to serve instead, and the converted kernels stay.
 pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
     if (sysinfo.target.os.tag.isDarwin()) return false;
-    return switch (@TypeOf(core)) {
-        coretypes.Arm64CoreType => (core == .vortex or core == .vortexm4) and switch (slot) {
-            .srot_k, .drot_k, .csrot_k, .zdrot_k => false,
-            else => fills(slot),
-        },
-        else => false,
-    };
+    if (@TypeOf(core) != coretypes.Arm64CoreType) return false;
+    return std.mem.indexOfScalar(coretypes.Arm64CoreType, displacing.cores, core) != null and
+        std.mem.indexOfScalar(Slot, displacing.keep, slot) == null and fills(slot);
 }
 
 /// Whether one of these kernels fills `slot` on this target.
@@ -924,6 +1463,7 @@ const RealSlots = struct {
     scal: Slot,
     nrm2: Slot,
     asum: Slot,
+    sum: Slot,
     copy: Slot,
     swap: Slot,
     rot: Slot,
@@ -948,6 +1488,7 @@ const ComplexSlots = struct {
     scal: Slot,
     nrm2: Slot,
     asum: Slot,
+    sum: Slot,
     copy: Slot,
     swap: Slot,
     amax: Slot,
@@ -972,6 +1513,7 @@ const real_slots = .{
         .scal = .sscal_k,
         .nrm2 = .snrm2_k,
         .asum = .sasum_k,
+        .sum = .ssum_k,
         .copy = .scopy_k,
         .swap = .sswap_k,
         .rot = .srot_k,
@@ -992,6 +1534,7 @@ const real_slots = .{
         .scal = .dscal_k,
         .nrm2 = .dnrm2_k,
         .asum = .dasum_k,
+        .sum = .dsum_k,
         .copy = .dcopy_k,
         .swap = .dswap_k,
         .rot = .drot_k,
@@ -1017,6 +1560,7 @@ const complex_slots = .{
         .scal = .cscal_k,
         .nrm2 = .cnrm2_k,
         .asum = .casum_k,
+        .sum = .csum_k,
         .copy = .ccopy_k,
         .swap = .cswap_k,
         .amax = .camax_k,
@@ -1041,6 +1585,7 @@ const complex_slots = .{
         .scal = .zscal_k,
         .nrm2 = .znrm2_k,
         .asum = .zasum_k,
+        .sum = .zsum_k,
         .copy = .zcopy_k,
         .swap = .zswap_k,
         .amax = .zamax_k,
@@ -1093,23 +1638,138 @@ fn symbol(comptime slot: Slot, comptime core: anytype) []const u8 {
 }
 
 /// Points every slot these kernels fill at this build's own, four vectors a
-/// step, for the tests.
+/// step, `ported`'s too, for the tests.
 pub fn installAll(vt: *Vtable) void {
     inline for (kernels) |k| @field(vt, @tagName(k.slot)) = kernel(k, 4);
+    inline for (ported.slots) |s| {
+        if (comptime ported.builds(s)) @field(vt, @tagName(s)) = ported.entry(s);
+    }
 }
 
-/// `Registry`'s `uses` for an architecture whose vector unit is IEEE on
-/// every core: the `routed` slots.
-pub fn usesRouted(comptime core: anytype, comptime slot: Slot) bool {
-    _ = core;
-    return routed(slot);
+/// The kernels here no `Registry` routes, outside `real_slots` and
+/// `complex_slots`: an architecture's hand ports name them (`entry`, as a
+/// port's module) where upstream has intrinsics for them.
+pub const ported = struct {
+    pub const slots = [_]Slot{
+        .saxpby_k, .daxpby_k, .caxpby_k, .zaxpby_k,
+        .srotm_k,  .drotm_k,  .dsdot_k,  .ssymv_U,
+        .ssymv_L,  .dsymv_U,  .dsymv_L,  .csymv_U,
+        .csymv_L,  .zsymv_U,  .zsymv_L,  .chemv_U,
+        .chemv_L,  .chemv_V,  .chemv_M,  .zhemv_U,
+        .zhemv_L,  .zhemv_V,  .zhemv_M,  .sbgemv_n,
+        .sbgemv_t, .shgemv_n, .shgemv_t,
+    };
+
+    /// `slot`'s kernel, four vectors a step.
+    pub fn entry(comptime slot: Slot) util.SlotFn(slot) {
+        const R = Real(f32, 4);
+        const D = Real(f64, 4);
+        const C = Complex(f32, 4);
+        const Z = Complex(f64, 4);
+        return switch (slot) {
+            .saxpby_k => &R.axpby,
+            .daxpby_k => &D.axpby,
+            .caxpby_k => &C.axpby,
+            .zaxpby_k => &Z.axpby,
+            .srotm_k => &R.rotm,
+            .drotm_k => &D.rotm,
+            .dsdot_k => &R.dsdot,
+            .ssymv_U => &R.symv_U,
+            .ssymv_L => &R.symv_L,
+            .dsymv_U => &D.symv_U,
+            .dsymv_L => &D.symv_L,
+            .csymv_U => &C.symv_U,
+            .csymv_L => &C.symv_L,
+            .zsymv_U => &Z.symv_U,
+            .zsymv_L => &Z.symv_L,
+            .chemv_U => &C.hemv_U,
+            .chemv_L => &C.hemv_L,
+            .chemv_V => &C.hemv_V,
+            .chemv_M => &C.hemv_M,
+            .zhemv_U => &Z.hemv_U,
+            .zhemv_L => &Z.hemv_L,
+            .zhemv_V => &Z.hemv_V,
+            .zhemv_M => &Z.hemv_M,
+            .sbgemv_n => &Half(types.BF16).gemv_n,
+            .sbgemv_t => &Half(types.BF16).gemv_t,
+            .shgemv_n => &Half(types.HF16).gemv_n,
+            .shgemv_t => &Half(types.HF16).gemv_t,
+            else => @compileError(@tagName(slot) ++ " has no kernel in vector.ported"),
+        };
+    }
+
+    /// Whether this build makes `slot`'s kernel for `installAll`: none over
+    /// `f32` whose lanes flush (`util.vectorIeee`), and the half-precision
+    /// ones only where a port uses them or the native tests run, since
+    /// `f16` vectors stop LLVM on some targets.
+    pub fn builds(comptime slot: Slot) bool {
+        const name = @tagName(slot);
+        if (std.mem.startsWith(u8, name, "sbgemv") or std.mem.startsWith(u8, name, "shgemv")) return switch (sysinfo.target.cpu.arch) {
+            .x86_64, .aarch64, .riscv64 => true,
+            else => false,
+        };
+        const single = name[0] == 's' or name[0] == 'c' or std.mem.eql(u8, name, "dsdot_k");
+        return !single or util.vectorIeee(f32);
+    }
+};
+
+/// Where a registry puts these kernels, its `vector_rule`, which
+/// `tools/blas_asm/survey.zig` reads as text.
+pub fn Rule(comptime Core: type) type {
+    return union(enum) {
+        /// The `routed` slots, on `cores` or every core when null; a `peels`
+        /// slot only where a converted module `skips` its assembly.
+        routed: ?[]const Core,
+        /// The `routed` slots; off Apple, whose Accelerate is to serve the
+        /// rest, also those they `displace` and those no converted module
+        /// fills (`hasSlot`), mostly C upstream, for the portable loop.
+        unfilled,
+        /// `unfilled` on `cores` only: those with a vector unit where others
+        /// have none (riscv64). The rest take none of these kernels.
+        unfilled_on: []const Core,
+    };
+}
+
+/// Whether `rule` puts these kernels in `slot` on `core`, over the
+/// registry's `converted` modules.
+pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
+    if (flushes(core, slot)) return false;
+    switch (rule) {
+        .routed => |cores| {
+            if (!routed(slot)) return false;
+            if (cores) |cs| if (std.mem.indexOfScalar(Core, cs, core) == null) return false;
+            if (!peels(slot)) return true;
+            inline for (converted) |m| {
+                if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
+            }
+            return false;
+        },
+        .unfilled => return unfilled(Core, converted, core, slot),
+        .unfilled_on => |cores| return std.mem.indexOfScalar(Core, cores, core) != null and unfilled(Core, converted, core, slot),
+    }
+}
+
+/// `Rule.unfilled`'s choice for `slot` on `core`.
+fn unfilled(comptime Core: type, comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
+    if (routed(slot)) return true;
+    if (sysinfo.target.os.tag.isDarwin()) return false;
+    if (displaces(core, slot)) return true;
+    inline for (converted) |m| {
+        if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
+    }
+    return true;
 }
 
 /// The kernels four vectors a step, in a per-core object for the cores and
-/// slots `uses(core, slot)` picks. Like the gemm kernels, they never make a
+/// slots `rule` picks (`takes`). Like the gemm kernels, they never make a
 /// core need an object of its own.
-pub fn Registry(comptime Core: type, comptime uses: anytype) type {
+pub fn Registry(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype) type {
     return struct {
+        /// Whether these kernels take `slot` on `core`.
+        pub fn uses(comptime core: Core, comptime slot: Slot) bool {
+            return takes(Core, rule, converted, core, slot);
+        }
+
         pub fn has(comptime core: Core) bool {
             _ = core;
             return false;

@@ -176,6 +176,12 @@ pub fn sqrtW(x: f128) f128 {
     return y;
 }
 
+/// Ulps of `F` the library's own square roots may add: on sparc64 its `f128`
+/// roots keep `f64`'s precision (`issues.md`, `_Qp_sqrt`).
+pub fn rootUlps(comptime F: type) f128 {
+    return if (sysinfo.target.cpu.arch == .sparc64 and F == f128) 0x1p60 else 0;
+}
+
 /// `|re| + |im|` of a `Wide` value, `|v|` for a real one.
 pub fn abs1(v: anytype) f128 {
     return if (comptime isComplex(@TypeOf(v))) @abs(v.re) + @abs(v.im) else @abs(v);
@@ -506,6 +512,18 @@ pub fn expectBits(comptime F: type, want: F, got: F, what: []const u8, n: usize,
     return error.TestExpectedEqual;
 }
 
+/// `std.mem.eql` on bytes a word at a time: its vector path is slow in debug
+/// builds, and the race stress tests compare megabytes per round.
+pub fn sameBytes(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    const words = a.len / 8 * 8;
+    const x = std.mem.bytesAsSlice(u64, a[0..words]);
+    const y = std.mem.bytesAsSlice(u64, b[0..words]);
+    for (x, y) |p, q| if (p != q) return false;
+    for (a[words..], b[words..]) |p, q| if (p != q) return false;
+    return true;
+}
+
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {
     if (comptime sysinfo.target.os.tag != .freestanding) {
@@ -538,13 +556,13 @@ pub fn eachCore(comptime check: fn (*const Vtable) anyerror!void) !void {
             // on the rigs, where a core can take minutes, so a hang shows where
             if (rig()) say("[{s}] ", .{name});
             withCore(c, check) catch |e| {
-                say("core {s}\n", .{name});
+                say("core {s}: {t}\n", .{ name, e });
                 failed = e;
             };
         }
     }
     if (!rig()) withVector(check) catch |e| {
-        say("the @Vector kernels\n", .{});
+        say("the @Vector kernels: {t}\n", .{e});
         failed = e;
     };
     if (failed) |e| return e;
@@ -558,12 +576,12 @@ fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
     return check(&vt);
 }
 
-/// Whether the tests run on a rig: the freestanding ones, and the Linux rigs
-/// and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore` names each
+/// Whether the tests run on a rig: the freestanding ones, WASI, and the Linux
+/// rigs and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore` names each
 /// core as it starts there, and the biggest cases are left to native runs.
 pub fn rig() bool {
     return switch (sysinfo.target.os.tag) {
-        .freestanding => true,
+        .freestanding, .wasi => true,
         .linux, .macos => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         else => false,
     };

@@ -1,8 +1,11 @@
 # matlab88 linalg port
 
-A Zig port of `matlab88.f90`'s function library - the 1988 Argonne National Laboratory
-"MATLAB" Fortran source (see `ref/matlab88_doc.txt`, `ref/matlab88_help.txt`, and
-`ref/readme.txt` for the original documentation). The goal is every function a MATLAB88
+A Zig port of `matlab88.f90`'s function library - Cleve Moler's Fortran MATLAB, written mostly at
+the University of New Mexico on LINPACK and EISPACK routines (`ref/matlab88_doc.txt`: the
+MATLAB Users' Guide of May 1981, its acknowledgement and references [1]-[3]; the source
+prints "Version of 05/25/82", `ref/matlab88.f90:2902`). `ref/readme.txt` is a later bulletin
+board note; its "developed by Argonne National Laboratories" is the distributor's, not
+Moler's. See those files and `ref/matlab88_help.txt` for the original documentation. The goal is every function a MATLAB88
 user could call, minus the REPL itself: the parser, tokenizer, `<>` stack machine,
 `FOR`/`WHILE`/`IF`, `SAVE`/`LOAD`/`DIARY`/`PLOT`/`PRINT` file and terminal I/O, and
 `HELP` text are all left out, since none of that has meaning outside an interactive
@@ -59,7 +62,8 @@ other based on the argument's shape. This port keeps the elementwise versions un
 those top-level names (`matlab.sin`, `matlab.cos`, ...) and gives the matrix-valued
 versions their own names on `CxMat` (`mat.sinm(allocator, out)`, `mat.cosm(...)`,
 `mat.expm(...)`, `mat.logm(...)`, `mat.sqrtm(...)`, `mat.atanm(...)`) - matching the
-distinction real MATLAB itself later adopted (`expm` vs. `exp`), and avoiding a
+distinction real MATLAB itself later adopted (`expm` vs. `exp`,
+<https://www.mathworks.com/help/matlab/ref/expm.html>), and avoiding a
 shape-dependent meaning change that's easy to trip over in a typed language.
 
 ## Operators (no operator overloading in Zig)
@@ -250,7 +254,7 @@ here for anyone reading the source or wanting the exact original Fortran routine
 | `qr` | `wqrsl` | `WQRSL` | Apply `wqrdc`'s output: `Q*y`, `ctrans(Q)*y`, least squares, residual, projection. |
 | `rat` | `rat` | `RAT` | Continued-fraction rational approximation. |
 | `base` | `base` | `BASE` | Format a number in an arbitrary base (ASCII output; see the module doc comment). |
-| `random` | `Urand` | `URAND` + `MATFN6`'s `RAND` body | Legacy 1970s LCG (`.next()`) plus a Marsaglia-polar normal draw (`.nextNormal()`) and matrix fills. Kept for REPL-command parity and reproducible sequences, not statistical quality - reach for `std.Random` elsewhere. |
+| `random` | `Urand` | `URAND` + `MATFN6`'s `RAND` body | Legacy LCG after Knuth (1969), as `URAND`'s comment says (`.next()`), plus `RAND`'s polar (rejection on the unit disk) normal draw (`.nextNormal()`) and matrix fills. Kept for REPL-command parity and reproducible sequences, not statistical quality - reach for `std.Random` elsewhere. |
 
 See each function's doc comment for the full parameter contract (buffer sizes, `job`
 flag encodings, what's destroyed vs. read-only) - the table above is a map of what

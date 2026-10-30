@@ -2,7 +2,7 @@ ENTRY(_start)
 SECTIONS
 {
     . = 0x100000;
-    .text : { *(.multiboot) *(.text.boot) *(.text .text.*) }
+    .text : { KEEP(*(.multiboot)) *(.text.boot) *(.text .text.*) }
     .rodata : { *(.rodata .rodata.*) }
     .data : { *(.data .data.*) }
     . = ALIGN(4);
