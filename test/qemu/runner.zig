@@ -199,6 +199,26 @@ fn printStack(used: usize) void {
     print(")");
 }
 
+/// A test's heap use, when it is a good part of the heap.
+fn printHeap(used: usize) void {
+    if (used < heap.max_len / 4) return;
+    print(" (heap ");
+    printInt(used);
+    print(")");
+}
+
+/// The request that ran the heap out, where one did.
+fn printHeapFailure(failed: @TypeOf(heap.failed)) void {
+    const f = failed orelse return;
+    print(" (heap: ");
+    printInt(f.len);
+    print(" bytes wanted, ");
+    printInt(f.in_use);
+    print(" in use, largest free ");
+    printInt(f.largest);
+    print(")");
+}
+
 const heap = @import("heap.zig");
 
 /// The heap, where the boot code cannot get one from the firmware
@@ -215,7 +235,9 @@ export fn qemutest_main() callconv(.c) noreturn {
     var fail: usize = 0;
     var skip: usize = 0;
     var peak: usize = 0;
+    var heap_peak: usize = 0;
     for (sysinfo.test_functions) |t| {
+        _ = heap.resetPeak();
         // as std's runner does: a fresh testing allocator, leaks fail the test
         std.testing.allocator_instance = .init(std.heap.page_allocator, .{});
         print(t.name);
@@ -232,6 +254,9 @@ export fn qemutest_main() callconv(.c) noreturn {
         peak = @max(peak, used);
         paintStack();
         const leaks = std.testing.allocator_instance.deinit();
+        const heap_failed = heap.failed;
+        const heap_used = heap.resetPeak();
+        heap_peak = @max(heap_peak, heap_used);
         if (result) |_| {
             if (leaks != 0) {
                 fail += 1;
@@ -242,6 +267,7 @@ export fn qemutest_main() callconv(.c) noreturn {
                 pass += 1;
                 print("ok");
                 printStack(used);
+                printHeap(heap_used);
                 print("\n");
             }
         } else |err| switch (err) {
@@ -253,6 +279,7 @@ export fn qemutest_main() callconv(.c) noreturn {
                 fail += 1;
                 print("FAIL ");
                 print(@errorName(err));
+                printHeapFailure(heap_failed);
                 print("\n");
             },
         }
@@ -267,6 +294,11 @@ export fn qemutest_main() callconv(.c) noreturn {
     printInt(peak);
     print(" of ");
     printInt(stackWords().len * @sizeOf(usize));
+    print(" bytes\n");
+    print("heap high water ");
+    printInt(heap_peak);
+    print(" of ");
+    printInt(heap.len());
     print(" bytes\n");
     arch.exit(if (fail == 0) 0 else 1);
 }
