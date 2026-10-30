@@ -1346,10 +1346,19 @@ Questions decided once, with the reason, so they are not reopened without new ev
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
 - **The matlab port defers to modern BLAS and LAPACK** (2026-10-29). `rstd.linalg.matlab`
-  ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (OpenBLAS's, else
-  Reference-LAPACK's) has the operation, the modern routine replaces the old one; the old one
+  ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (chosen per routine,
+  as the next decision says) has the operation, the modern routine replaces the old one; the old one
   stays only where a test shows it better (more accurate, or right on an edge case the modern
   one gets wrong), and that test is kept with it.
+- **`rstd.linalg` is an anthology of the best open-source methods** (2026-10-30). Each routine
+  or kernel takes the best open-source implementation of its method, chosen one at a time, as
+  OpenBLAS's and BLIS's kernels are mixed today; nothing is all or nothing. For LAPACK the
+  candidates are OpenBLAS's own LAPACK, ReLAPACK's recursive factorizations (MIT), faer (MIT,
+  <https://codeberg.org/sarah-quinones/faer>), libflame and AOCL-libFLAME (BSD-3). Where only
+  reference LAPACK had the routine, faer's port comes first, for speed out of the box; reference
+  LAPACK is a benchmark baseline, not a default. A choice changes when a benchmark or an accuracy
+  test favors another source. Licenses must be MIT or BSD-style; any other is asked about first.
+  The candidates and the choice for each routine are tracked per routine (todo.md, T113).
 - **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
   thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
   the driver sets its instructions' precision and may fuse `a*b + c`, so Vulkan's precision
