@@ -37,10 +37,13 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `trsm`, real and complex.
 - **bfloat16 and half:** `sbdot`, `bscal`, the conversions, and `bgemv`, `sbgemv`, `shgemv`.
 - **Extensions:** `geadd`, `omatcopy` and `imatcopy` (column-major), and LAPACK's `laswp`.
-- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf`, which returns `error.NotPositiveDefinite` for a
-  leading minor that is not positive definite, a NaN pivot included, and writes its order to
-  its last argument; `getrs`, and `getrf`, which completes the factorization, then returns
-  `error.Singular` for an exactly zero `U(i, i)` and writes the first `i` to its last argument.
+- **LAPACK** (`rstd.linalg.lapack`): `potrs`, and `potrf` and `potf2`, which return
+  `error.NotPositiveDefinite` for a leading minor that is not positive definite, a NaN pivot
+  included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which
+  complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
+  write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
+  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Past
+  upstream's size thresholds they thread with the same bits; `potrf` stays serial.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
 `sbgemm`), and threading in levels 1 and 2 ([`threading.md`](threading.md)).

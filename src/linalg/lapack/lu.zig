@@ -17,20 +17,31 @@
 //! the interchanges, `trsm` and `gemm` per `GEMM_R` columns, the same
 //! arithmetic. Its interchanges are `laswp_plus` then `gemm_oncopy` (the
 //! `#if 1`), not `laswp_ncopy`, and nothing calls `neg_tcopy`; nor here.
-//! Serial: the drivers get one worker, and `getrf_parallel.c` is not
-//! ported. `getf2`'s `dot`, `gemv`, `swap` and `scal` are loops, its `iamax`
-//! the core's kernel: the pivot is the first NaN, else the first largest
+//! `getf2`'s `dot`, `gemv`, `swap` and `scal` are loops, its `iamax` the
+//! core's kernel: the pivot is the first NaN, else the first largest
 //! `|re| + |im|`, as `izamax`.
+//!
+//! Threaded, `getrf` is `getrf_parallel.c`'s lookahead: the caller updates
+//! and factors the next block while the other workers update the columns
+//! past it. Upstream sizes its blocks by its thread count (`FORMULA1`,
+//! `FORMULA2`); here they are `getrf_single.c`'s, so the bits are the serial
+//! ones at any worker count. `getrf_parallel.c`'s `laswp_ncopy` path is
+//! dead (`if (0 && ...)`); its closing interchanges, threaded there
+//! (`blas_level1_thread`), are serial here.
 //!
 //! `getrs` is `lapack/getrs/getrs_single.c` and `zgetrs_single.c`, as
 //! Reference-LAPACK's `xGETRS`: the interchanges and two triangular solves
 //! through the drivers, `trsv` for one real right-hand side as upstream.
-//! Serial too; `getrs_parallel.c` is not ported.
+//! `getrs_parallel.c` runs that per column block on each thread; here the
+//! drivers' `trsm` splits the columns alike. `gesv` is
+//! `interface/lapack/gesv.c`: `getrf`, then `getrs` unless `U` is singular,
+//! as `xGESV`.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const portable = @import("../blas/portable.zig");
+const threading = @import("../blas/threading.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const triangular = @import("../blas/blas2/triangular.zig");
 const laswp = @import("../blas/ext/laswp/kernel.zig");
@@ -43,6 +54,11 @@ const Trans = types.Trans;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const scalar = chol.scalar;
+const isZero = chol.isZero;
+const add = chol.add;
+const sub = chol.sub;
+const mul = chol.mul;
+const Work = driver.Work;
 
 /// What `getrf` returns: `Singular` when `U` has a zero on its diagonal.
 pub const GetrfError = error{ InvalidM, InvalidN, InvalidLda, Singular } || Allocator.Error || Io.Cancelable;
@@ -64,22 +80,39 @@ pub fn getrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     if (lda < @max(1, m)) return error.InvalidLda;
     if (m == 0 or n == 0) return;
     if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const vt = chol.table(T);
-    const blk = driver.Blocking.of(T, vt);
-    const k = try factor(allocator, io, T, vt, blk.un, blk.q, @intCast(m), @intCast(n), a, @intCast(lda), ipiv);
+    const want = chol.threads(.getrf, T, @as(u64, @intCast(m)) * @as(u64, @intCast(n))) orelse 1;
+    const k = try factorWith(allocator, io, T, @intCast(m), @intCast(n), a, @intCast(lda), ipiv, want);
+    return singular(k, pivot);
+}
+
+/// `error.Singular` for a nonzero `k`, written to `pivot`.
+fn singular(k: usize, pivot: ?*usize) error{Singular}!void {
     if (k == 0) return;
     if (pivot) |p| p.* = k;
     return error.Singular;
 }
 
+/// The factorization on up to `want` workers: the first zero pivot, or 0.
+fn factorWith(allocator: Allocator, io: Io, comptime T: type, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize, want: u32) driver.Error!usize {
+    const vt = chol.table(T);
+    const blk = driver.Blocking.of(T, vt);
+    if (want > 1) return factorAhead(allocator, io, T, vt, blk, m, n, a, lda, ipiv, want);
+    return factor(allocator, io, T, vt, blk.un, blk.q, m, n, a, lda, ipiv);
+}
+
+/// `getrf_single.c`'s block width for `min(m, n) = mn`: half of it rounded up
+/// to `unroll_n`, at most `Q`; at most `2 * unroll_n` is `getf2`'s
+/// (upstream's POWER8 build stops at `unroll_n`).
+fn blockWidth(mn: usize, un: usize, q: usize) ?usize {
+    const blocking = @min((mn / 2 + un - 1) / un * un, q);
+    return if (blocking <= 2 * un) null else blocking;
+}
+
 /// `getrf_single.c`: the first zero pivot's index, or 0. Pivots are 1-based
-/// from `a`'s first row. Blocks of `mn / 2` columns rounded up to `unroll_n`,
-/// at most `Q`, each factored recursively, until they would be at most
-/// `2 * unroll_n` (upstream's POWER8 build stops at `unroll_n`).
+/// from `a`'s first row. Blocks of `blockWidth`, each factored recursively.
 fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, un: usize, q: usize, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize) driver.Error!usize {
     const mn = @min(m, n);
-    const blocking = @min((mn / 2 + un - 1) / un * un, q);
-    if (blocking <= 2 * un) return getf2(T, vt, m, n, a, lda, ipiv);
+    const blocking = blockWidth(mn, un, q) orelse return getf2(T, vt, m, n, a, lda, ipiv);
     const one = scalar(T, 1);
     const minus = scalar(T, -1);
     var info: usize = 0;
@@ -98,13 +131,174 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, un:
         try driver.trsm(allocator, io, T, vt, true, false, false, false, true, jb, rest, one, d, lda, c + j, lda, 1);
         if (m > j + jb) try driver.gemm(allocator, io, T, vt, false, false, .n, m - j - jb, rest, jb, minus, d + jb, lda, c + j, lda, one, c + j + jb, lda, 1);
     }
-    // the later interchanges, into each block's columns
-    j = 0;
+    swapBack(T, mn, blocking, a, lda, ipiv);
+    return info;
+}
+
+/// The later interchanges, into each block's columns.
+fn swapBack(comptime T: type, mn: usize, blocking: usize, a: [*]T, lda: usize, ipiv: [*]const isize) void {
+    var j: usize = 0;
     while (j < mn) : (j += blocking) {
         const jb = @min(mn - j, blocking);
         laswp.swapRows(T, jb, a + j * lda, lda, j + jb + 1, mn, ipiv + j + jb, 1);
     }
+}
+
+/// `getrf_parallel.c` over `factor`'s blocks: the first block recursively,
+/// then for each block its interchanges, `trsm` and `gemm` on the columns
+/// right of it, which the caller does for the next block's columns and then
+/// factors that block (`GETRF_SINGLE`), while the other workers do the rest
+/// (`inner_basic_thread`). Every column gets `factor`'s kernel calls, cut at
+/// whole `unroll_n` panels, so the bits are `factor`'s.
+fn factorAhead(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, blk: driver.Blocking, m: usize, n: usize, a: [*]T, lda: usize, ipiv: [*]isize, want: u32) driver.Error!usize {
+    const mn = @min(m, n);
+    const blocking = blockWidth(mn, blk.un, blk.q) orelse return getf2(T, vt, m, n, a, lda, ipiv);
+    var jb = @min(mn, blocking);
+    var info = try factorAhead(allocator, io, T, vt, blk, m, jb, a, lda, ipiv, want);
+    var j: usize = 0;
+    while (j < mn) {
+        for (ipiv[j..][0..jb]) |*p| p.* += @intCast(j);
+        const next = @min(mn - j - jb, blocking);
+        if (n > j + jb) {
+            var step: Step(T) = .{ .vt = vt, .blk = blk, .m = m, .a = a, .lda = lda, .ipiv = ipiv, .j = j, .jb = jb, .next = next, .allocator = allocator };
+            const k = try step.run(io, n - j - jb, want);
+            if (k != 0 and info == 0) info = k + j + jb;
+        }
+        j += jb;
+        jb = next;
+    }
+    swapBack(T, mn, blocking, a, lda, ipiv);
     return info;
+}
+
+/// One step of `factorAhead`: block `j` (`jb` wide) applied to the columns
+/// right of it, and the next block (`next` wide) factored. Part 0 is the
+/// caller's: the next block's columns, rounded up to whole `unroll_n`
+/// panels; the rest is cut into chunks at panel edges, which the other
+/// workers claim, and the caller too once its block is done. Each part has
+/// packing space of its own, allocated before any task starts.
+fn Step(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        vt: *const Vtable,
+        blk: driver.Blocking,
+        m: usize,
+        a: [*]T,
+        lda: usize,
+        ipiv: [*]isize,
+        j: usize,
+        jb: usize,
+        next: usize,
+        allocator: Allocator,
+        /// Part 0's width, the chunks of the rest, and where each part's
+        /// packing space starts in `buf` (part `i + 1` is chunk `i`).
+        w0: usize = 0,
+        chunks: threading.Chunks = undefined,
+        at: [threading.chunks_max + 2]usize = undefined,
+        buf: [*]T = undefined,
+        claimed: std.atomic.Value(usize) = .init(0),
+        /// The next block's first zero pivot (relative), and the caller's
+        /// allocation failure there.
+        info: usize = 0,
+        failed: bool = false,
+
+        fn run(s: *Self, io: Io, rest: usize, want: u32) driver.Error!usize {
+            const un = s.blk.un;
+            s.w0 = @min(rest, (s.next + un - 1) / un * un);
+            s.chunks = .init(rest - s.w0, want - 1, .even, un);
+            const parts = 1 + if (rest > s.w0) s.chunks.count else 0;
+            var total: usize = 0;
+            for (0..parts) |i| {
+                s.at[i] = total;
+                total += Work(T).up(s.space(s.width(i)));
+            }
+            const buf = try s.allocator.alignedAlloc(T, .fromByteUnits(Work(T).alignment), @max(total, 1));
+            defer s.allocator.free(buf);
+            s.buf = buf.ptr;
+            if (parts == 1) {
+                try s.work(io, 0, null);
+            } else {
+                try threading.team(io, s, want);
+            }
+            if (s.failed) return error.OutOfMemory;
+            return s.info;
+        }
+
+        /// Part `i`'s first column and width, from the first column right of
+        /// block `j`.
+        fn first(s: *const Self, i: usize) usize {
+            return if (i == 0) 0 else s.w0 + s.chunks.get(i - 1).start;
+        }
+
+        fn width(s: *const Self, i: usize) usize {
+            if (i == 0) return s.w0;
+            const c = s.chunks.get(i - 1);
+            return c.end - c.start;
+        }
+
+        /// Elements of packing space for `cols` columns: the `trsm`'s, then
+        /// the `gemm`'s, one after the other.
+        fn space(s: *const Self, cols: usize) usize {
+            if (cols == 0) return 0;
+            const t = Work(T).total(driver.triLens(s.blk, s.jb, cols, s.jb));
+            const g = if (s.m > s.j + s.jb) Work(T).total(Work(T).lens(s.blk, s.m - s.j - s.jb, cols, s.jb, false)) else 0;
+            return @max(t, g);
+        }
+
+        /// `team`'s plan: every worker that started takes part.
+        pub fn plan(_: *Self, started: u32) u32 {
+            return started;
+        }
+
+        /// Worker 0, the caller, does part 0 and the next block, then claims
+        /// chunks as the others do.
+        pub fn work(s: *Self, io: Io, i: u32, lent: ?*threading.Lent) Io.Cancelable!void {
+            _ = lent;
+            if (i == 0) {
+                s.update(0);
+                if (s.next > 0) {
+                    const off = s.j + s.jb;
+                    const d = s.a + off * (s.lda + 1);
+                    s.info = factor(s.allocator, io, T, s.vt, s.blk.un, s.blk.q, s.m - off, s.next, d, s.lda, s.ipiv + off) catch |e| switch (e) {
+                        error.Canceled => return error.Canceled,
+                        error.OutOfMemory => {
+                            s.failed = true;
+                            return;
+                        },
+                    };
+                }
+            }
+            const count = if (s.chunks.bounds[s.chunks.count] > 0) s.chunks.count else 0;
+            while (true) {
+                try threading.checkCancel(io);
+                const c = s.claimed.fetchAdd(1, .monotonic);
+                if (c >= count) return;
+                s.update(c + 1);
+            }
+        }
+
+        /// `inner_basic_thread` on part `i`: block `j`'s interchanges, then
+        /// `A12 := L11^-1 A12` and `A22 -= A21 A12` on its columns, with
+        /// `factor`'s driver loops on the part's own packing space.
+        fn update(s: *const Self, i: usize) void {
+            const cols = s.width(i);
+            if (cols == 0) return;
+            const j = s.j;
+            const jb = s.jb;
+            const lda = s.lda;
+            const d = s.a + j * (lda + 1);
+            const b = s.a + (j + jb + s.first(i)) * lda;
+            const base = s.buf + s.at[i];
+            laswp.swapRows(T, cols, b, lda, j + 1, j + jb, s.ipiv + j, 1);
+            const o: driver.Tri = .{ .left = true, .upper = false, .trans = false, .conj = false, .unit = true };
+            driver.triDrive(T, s.vt, true, o, s.blk, jb, cols, d, lda, null, b + j, lda, Work(T).at(base, driver.triLens(s.blk, jb, cols, jb)));
+            if (s.m <= j + jb) return;
+            const rows = s.m - j - jb;
+            const work_g = Work(T).at(base, Work(T).lens(s.blk, rows, cols, jb, false));
+            driver.drive(T, s.vt, .{ .rows = .n, .cols = .n }, s.blk, rows, cols, jb, scalar(T, -1), .{ .p = d + jb, .ld = lda }, .{ .p = b + j, .ld = lda }, null, b + j + jb, lda, work_g);
+        }
+    };
 }
 
 /// What `getrs` returns: `InvalidIpiv` for a pivot that is not a row of `B`.
@@ -127,11 +321,15 @@ pub fn getrs(allocator: Allocator, io: Io, comptime T: type, trans: Trans, n: is
     if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(n, nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
     for (ipiv[0..@intCast(n)]) |p| if (p < 1 or p > n) return error.InvalidIpiv;
-    const vt = chol.table(T);
     const m: usize = @intCast(n);
-    const r: usize = @intCast(nrhs);
-    const la: usize = @intCast(lda);
-    const lb: usize = @intCast(ldb);
+    const want = chol.threads(.getrs, T, m) orelse 1;
+    try solve(allocator, io, T, trans, m, @intCast(nrhs), a, @intCast(lda), ipiv, b, @intCast(ldb), want);
+}
+
+/// `getrs_single.c`, `zgetrs_single.c`, the `trsm`s on up to `want` workers
+/// (`getrs_parallel.c`).
+fn solve(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: usize, r: usize, a: [*]const T, la: usize, ipiv: [*]const isize, b: [*]T, lb: usize, want: u32) driver.Error!void {
+    const vt = chol.table(T);
     const t = trans.transposed();
     // `L Y = P B`, then `U X = Y`; transposed `op(U) Y = B`, then
     // `op(L) Z = Y` and `X = Pᵀ Z`: the first solve is upper when transposed,
@@ -141,10 +339,34 @@ pub fn getrs(allocator: Allocator, io: Io, comptime T: type, trans: Trans, n: is
         if (!isComplex(T) and r == 1) {
             try triangular.trsvTable(allocator, io, T, vt, if (upper) .u else .l, trans, if (upper) .n else .u, m, a, la, b);
         } else {
-            try driver.trsm(allocator, io, T, vt, true, upper, t, trans.conjA(), !upper, m, r, scalar(T, 1), a, la, b, lb, 1);
+            try driver.trsm(allocator, io, T, vt, true, upper, t, trans.conjA(), !upper, m, r, scalar(T, 1), a, la, b, lb, want);
         }
     }
     if (t) laswp.swapRows(T, r, b, lb, 1, m, ipiv, -1);
+}
+
+/// What `gesv` returns: `Singular` when `U` has a zero on its diagonal.
+pub const GesvError = error{ InvalidN, InvalidNrhs, InvalidLda, InvalidLdb, Singular } || Allocator.Error || Io.Cancelable;
+
+/// `?GESV`: solves `A X = B` for the `n x nrhs` `X`, in place of `B`, by
+/// `getrf` (into `A` and `ipiv`) and `getrs`. When `U(i, i)` is exactly
+/// zero, returns `error.Singular` with `i` in `pivot`, the factorization
+/// complete and `B` untouched, as the reference's `INFO`.
+pub fn gesv(allocator: Allocator, io: Io, comptime T: type, n: isize, nrhs: isize, a: [*]T, lda: isize, ipiv: [*]isize, b: [*]T, ldb: isize, pivot: ?*usize) GesvError!void {
+    comptime chol.floatType(T, "gesv");
+    if (n < 0) return error.InvalidN;
+    if (nrhs < 0) return error.InvalidNrhs;
+    if (lda < @max(1, n)) return error.InvalidLda;
+    if (ldb < @max(1, n)) return error.InvalidLdb;
+    if (n == 0) return;
+    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (!util.fitsMatrix(n, nrhs, ldb, @sizeOf(T))) return error.InvalidLdb;
+    const m: usize = @intCast(n);
+    const la: usize = @intCast(lda);
+    const want = chol.threads(.gesv, T, @as(u64, m) * m) orelse 1;
+    try singular(try factorWith(allocator, io, T, m, m, a, la, ipiv, want), pivot);
+    if (nrhs == 0) return;
+    try solve(allocator, io, T, .n, m, @intCast(nrhs), a, la, ipiv, b, @intCast(ldb), want);
 }
 
 /// `getf2_k.c`, `zgetf2_k.c`: left-looking, a column at a time. Column `j`
@@ -207,25 +429,6 @@ fn scaleBelow(comptime T: type, x: []T, p: T) void {
     } else for (x) |*v| {
         v.* /= p;
     }
-}
-
-// ---- element arithmetic ---------------------------------------------------------
-
-fn isZero(comptime T: type, v: T) bool {
-    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
-}
-
-fn add(comptime T: type, x: T, y: T) T {
-    return if (comptime isComplex(T)) .init(x.re + y.re, x.im + y.im) else x + y;
-}
-
-fn sub(comptime T: type, x: T, y: T) T {
-    return if (comptime isComplex(T)) .init(x.re - y.re, x.im - y.im) else x - y;
-}
-
-fn mul(comptime T: type, x: T, y: T) T {
-    if (comptime !isComplex(T)) return x * y;
-    return .init(x.re * y.re - x.im * y.im, x.re * y.im + x.im * y.re);
 }
 
 // ---- tests ---------------------------------------------------------------------
@@ -750,4 +953,141 @@ test "getrs: reports the first bad argument and a pivot outside A, and touches n
     try getrs(fa, check.io, f64, .n, 0, 2, &a, 1, &ipiv, &b, 1);
     try getrs(fa, check.io, f64, .n, 2, 0, &a, 2, &ipiv, &b, 2);
     for (b) |x| try testing.expect(std.math.isNan(x));
+}
+
+/// Inputs of a threaded-bits case: `A`, copied into each run's `out`, then
+/// `ipiv` and the first zero pivot after it.
+fn Threaded(comptime T: type) type {
+    return struct {
+        p: *const Problem(T),
+
+        fn len(c: @This()) usize {
+            return c.p.a.len + @min(c.p.m, c.p.n) + 1;
+        }
+
+        /// `factor` at one worker, else `factorAhead`.
+        fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+            const p = c.p;
+            const al = testing.allocator;
+            const ipiv = try al.alloc(isize, @min(p.m, p.n));
+            defer al.free(ipiv);
+            @memcpy(out[0..p.a.len], p.a);
+            const vt = chol.table(T);
+            const blk = driver.Blocking.of(T, vt);
+            const k = if (want == 1)
+                try factor(al, io, T, vt, blk.un, blk.q, p.m, p.n, out.ptr, p.lda, ipiv.ptr)
+            else
+                try factorAhead(al, io, T, vt, blk, p.m, p.n, out.ptr, p.lda, ipiv.ptr, want);
+            for (ipiv, out[p.a.len..][0..ipiv.len]) |v, *o| o.* = fromF64(T, @floatFromInt(v));
+            out[out.len - 1] = fromF64(T, @floatFromInt(k));
+        }
+
+        /// The public `getrs` and `gesv` (their solutions after their
+        /// factors), threading by `blas.config`'s workers.
+        fn solve(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+            const saved = blas.config.cpu_count;
+            defer blas.config.cpu_count = saved;
+            blas.config.cpu_count = want;
+            const p = c.p;
+            const n = p.n;
+            const al = testing.allocator;
+            const ipiv = try al.alloc(isize, n);
+            defer al.free(ipiv);
+            const b = out[p.a.len..];
+            const nrhs = b.len / (2 * n);
+            check.fill(T, b, 4);
+            @memcpy(out[0..p.a.len], p.a);
+            try gesv(al, io, T, @intCast(n), @intCast(nrhs), out.ptr, @intCast(p.lda), ipiv.ptr, b.ptr, @intCast(n), null);
+            try getrs(al, io, T, .c, @intCast(n), @intCast(nrhs), out.ptr, @intCast(p.lda), ipiv.ptr, b.ptr + n * nrhs, @intCast(n));
+        }
+    };
+}
+
+fn aheadCases(vt: *const Vtable) anyerror!void {
+    _ = blas.coreName();
+    const al = testing.allocator;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]*const Vtable{ shrink(vt), vt }) |v| {
+        const saved = blas.testUse(v);
+        defer blas.testRestore(saved);
+        for ([_][2]usize{ .{ 130, 130 }, .{ 150, 90 }, .{ 90, 150 }, .{ 41, 41 } }) |s| {
+            if (check.rig() and s[0] * s[1] > 70 * 70) continue;
+            var p = try Problem(T).init(al, s[0], s[1], s[0] + 7 * s[1]);
+            defer p.deinit(al);
+            try chol.expectSameBits(T, Threaded(T){ .p = &p }, Threaded(T).run, (Threaded(T){ .p = &p }).len(), "getrf");
+            // two zero columns: the first one's pivot, the factorization completed
+            for (0..s[0]) |i| for ([_]usize{ 17, 30 }) |j| {
+                p.a[i + j * p.lda] = scalar(T, 0);
+            };
+            try chol.expectSameBits(T, Threaded(T){ .p = &p }, Threaded(T).run, (Threaded(T){ .p = &p }).len(), "getrf, singular");
+        }
+    };
+}
+
+test "getrf's lookahead gives the serial bits at any worker count, singular too, on every linked core" {
+    try check.eachCore(aheadCases);
+}
+
+test "gesv and getrs give one worker's bits at any worker count" {
+    _ = blas.coreName();
+    const al = testing.allocator;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| {
+        // past every type's `gesv` threshold
+        const n: usize = if (check.rig()) 70 else 210;
+        var p = try Problem(T).init(al, n, n, 77);
+        defer p.deinit(al);
+        try chol.expectSameBits(T, Threaded(T){ .p = &p }, Threaded(T).solve, p.a.len + 2 * n * 5, "gesv, getrs");
+    }
+}
+
+test "gesv: getrf then getrs, bit for bit; a singular U before B is touched; the first bad argument" {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]usize{ 1, 7, 33, 70, 130 }) |n| {
+        if (check.rig() and n > 70) continue;
+        var p = try Problem(T).init(al, n, n, n + 3);
+        defer p.deinit(al);
+        const nrhs = 3;
+        const b = try al.alloc(T, n * nrhs);
+        defer al.free(b);
+        check.fill(T, b, n);
+        const b2 = try al.dupe(T, b);
+        defer al.free(b2);
+        const a2 = try al.dupe(T, p.a);
+        defer al.free(a2);
+        const ipiv2 = try al.alloc(isize, n);
+        defer al.free(ipiv2);
+        try p.factorIt(al, null);
+        try getrs(al, check.io, T, .n, @intCast(n), nrhs, p.a.ptr, @intCast(p.lda), p.ipiv.ptr, b.ptr, @intCast(n));
+        var poison: guard.Poison = .{ .child = al };
+        try gesv(poison.allocator(), check.io, T, @intCast(n), nrhs, a2.ptr, @intCast(p.lda), ipiv2.ptr, b2.ptr, @intCast(n), null);
+        try testing.expectEqualSlices(isize, p.ipiv, ipiv2);
+        for (p.a, a2) |x, y| try testing.expect(chol.sameBits(T, x, y));
+        for (b, b2) |x, y| try testing.expect(chol.sameBits(T, x, y));
+    };
+    inline for (.{ f64, types.Complex64 }) |T| {
+        // [[1, 2], [2, 4]]: rows swapped, then U(2, 2) = 0
+        var a: [4]T = .{ scalar(T, 1), scalar(T, 2), scalar(T, 2), scalar(T, 4) };
+        var b: [2]T = .{ scalar(T, 5), scalar(T, 6) };
+        var ipiv: [2]isize = @splat(-1);
+        var pivot: usize = 99;
+        try testing.expectError(error.Singular, gesv(al, check.io, T, 2, 1, &a, 2, &ipiv, &b, 2, &pivot));
+        try testing.expectEqual(@as(usize, 2), pivot);
+        try testing.expectEqual([4]T{ scalar(T, 2), scalar(T, 0.5), scalar(T, 4), scalar(T, 0) }, a);
+        try testing.expectEqual([2]T{ scalar(T, 5), scalar(T, 6) }, b);
+        // no right-hand side: factored all the same
+        a = .{ scalar(T, 1), scalar(T, 3), scalar(T, 2), scalar(T, 4) };
+        try gesv(al, check.io, T, 2, 0, &a, 2, &ipiv, &b, 2, null);
+        try testing.expectEqual([2]isize{ 2, 2 }, ipiv);
+    }
+    const fa = testing.failing_allocator;
+    var a: [4]f64 = @splat(nan);
+    var b: [4]f64 = @splat(nan);
+    var ipiv: [2]isize = @splat(-1);
+    try testing.expectError(error.InvalidN, gesv(fa, check.io, f64, -1, -1, &a, 0, &ipiv, &b, 0, null));
+    try testing.expectError(error.InvalidNrhs, gesv(fa, check.io, f64, 2, -1, &a, 0, &ipiv, &b, 0, null));
+    try testing.expectError(error.InvalidLda, gesv(fa, check.io, f64, 2, 1, &a, 1, &ipiv, &b, 0, null));
+    try testing.expectError(error.InvalidLdb, gesv(fa, check.io, f64, 2, 1, &a, 2, &ipiv, &b, 1, null));
+    try testing.expectError(error.InvalidLdb, gesv(fa, check.io, f64, 2, 2, &a, 2, &ipiv, &b, std.math.maxInt(isize) / 2, null));
+    try gesv(fa, check.io, f64, 0, 2, &a, 1, &ipiv, &b, 1, null);
+    for (a) |v| try testing.expect(std.math.isNan(v));
+    try testing.expectEqual([2]isize{ -1, -1 }, ipiv);
 }

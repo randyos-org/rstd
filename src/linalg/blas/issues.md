@@ -1888,6 +1888,33 @@ below the safe minimum. The threshold came in with
   any nonzero pivot and divides element by element when `|p| < sfmin`;
   doing the same in the `else` branch would fix it."
 
+### `potri` divides by a zero on the factor's diagonal
+
+`interface/lapack/potri.c` and `zpotri.c` call `TRTRI_[UL]N_SINGLE` (or
+`_PARALLEL`) directly (`potri.c:133`), skipping the zero-diagonal check that
+`trtri.c` makes first (`:113`), so a singular factor gives infinities and NaN
+with `info = 0`. Reference LAPACK's `xPOTRI` calls `xTRTRI`, which returns `INFO = i` for the
+first zero `A(i, i)` before touching `A`. Found by reading the source.
+
+- **Workaround:** rstd's `potri` checks the diagonal first and returns
+  `error.Singular` (`src/linalg/lapack/cholesky.zig`).
+- **Issue text:** "`?potri` returns `info = 0` and a matrix of infinities and
+  NaN when the Cholesky factor has a zero on its diagonal: `potri.c` calls the
+  `trtri` kernels without `trtri.c`'s `AMIN_K == 0` check. Reference `xPOTRI`
+  returns `INFO = i` for the first zero `A(i, i)`."
+
+### `trtrs` reports a bad `diag` before a bad `uplo` or `trans`
+
+`interface/lapack/trtrs.c` and `ztrtrs.c` set `info = 3` for `diag` last
+(`:115`), so a call with bad `uplo` and `diag` reports argument 3 where
+Reference LAPACK's `xTRTRS` reports argument 1. Found by reading the source.
+
+- **Workaround:** rstd's `trtrs` checks in the reference's order
+  (`src/linalg/lapack/triangular.zig`).
+- **Issue text:** "`?trtrs` checks `diag` after `uplo` and `trans`, so its
+  `xerbla` names argument 3 where Reference LAPACK's `xTRTRS` names 1 or 2;
+  moving the `diag` check above the `trans` one would match it."
+
 ### `zrotg.c`: the scaled branches take square roots where `zlartg` squares
 
 `interface/zrotg.c` transcribes Reference LAPACK's `zlartg`, but its scaled

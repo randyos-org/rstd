@@ -254,6 +254,16 @@ column panels) and `gemm_thread_m` (right side, row panels) do, and as BLIS spli
 rows, each a serial solve or product on packing space of its own. Nothing waits, so the parts
 run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
 
+### LAPACK
+
+The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface
+thresholds (`cholesky.zig`'s `threads`; [`design.md`](design.md#lapack)). Upstream switches to
+its `_parallel.c` algorithms, with other blocks, whenever it has more than one thread; here
+the problem size alone picks the algorithm, so its bits never depend on the worker count.
+`getrf`'s lookahead runs on `team`: the caller factors the next block while the other workers
+update the columns past it, every part on packing space allocated before the tasks start, and
+with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
+
 ### Thresholds
 
 | Routine | OpenBLAS threshold | Division |
@@ -564,6 +574,8 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
    triangular, banded and packed products and untransposed `gbmv` by partial vectors.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
    driver; `trmm` and `trsm` by panels of `B`.
+6. **LAPACK** (done): `potri`, `trtri`, `lauum` by size-picked parallel algorithms,
+   `getrf`'s lookahead, and `getrs`, `gesv`, `trtrs` through the drivers.
 
 ## Open issues
 

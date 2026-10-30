@@ -275,7 +275,7 @@ pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_
 /// `C := beta*C + alpha * op(A) * op(B)` over `C`'s `m x n` (`region` of
 /// it), depth `k`, in the js / ls / is loops of `level3.c`; a null `beta`
 /// is 1.
-fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: Work(T)) void {
+pub fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m: usize, n: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: Work(T)) void {
     var js: usize = 0;
     while (js < n) : (js += blk.r) {
         const min_j = @min(blk.r, n - js);
