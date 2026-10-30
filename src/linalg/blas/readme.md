@@ -48,6 +48,10 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `gesdd`, ported from faer, which return `error.NoConvergence` for the reference's `INFO > 0`.
   Past upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
   Accelerate.
+  From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf` and `trsyl`; `sytrf`,
+  `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
+  are wrong ([`issues.md`](issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
+  `lauum` in place of OpenBLAS's.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, and threading in levels 1 and 2
 ([`threading.md`](threading.md)).

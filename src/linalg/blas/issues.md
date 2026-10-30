@@ -1958,6 +1958,84 @@ enough to scale. Found by reading the source; not run against OpenBLAS.
   where LAPACK's `zlartg` uses the squared norm `ABSSQ`, so the rotation is
   wrong when `|a|` or `|b|` is outside `[rtmin, rtmax]`."
 
+## ReLAPACK (OpenBLAS's `relapack/`)
+
+At OpenBLAS `v0.3.34-317`, the same as upstream <https://github.com/HPAC/ReLAPACK> `master`
+where the entry says so. The ground truth is a C harness that links ReLAPACK's sources with
+naive BLAS loops and Reference-LAPACK's unblocked kernels (`lapack-netlib/SRC/*.c`), and checks
+each result against the reference's routine or a residual (2026-10-30). The reference's own
+`dsytrf` passes the same check.
+
+### `?sytrf`, `?hetrf`: the factor is wrong past one level of recursion
+
+`RELAPACK_dsytrf_rec2` (`relapack/src/dsytrf_rec2.c`, `xLASYF` less its update) ends by
+putting its panel in LAPACK's form, undoing the panel's interchanges in its columns. The caller
+(`dsytrf.c`, `RELAPACK_dsytrf_rec`) then updates the rest with those columns, which `xLASYF`
+does before the undo, so the update reads rows in the wrong order. Deeper, the recursion defers
+each half's update of the columns past its block, yet the pivot search and interchanges of the
+next block read and move those columns. `n = 30` (two levels) already fails: `L D Lᵀ` is off by
+up to 8 for entries of size 2; at `n = 100`, by 60. Every precision and both triangles, and the
+same in upstream ReLAPACK.
+
+- **Workaround:** rstd's `sytrf` and `hetrf` run Reference-LAPACK's blocked `xSYTRF` loop
+  (`ILAENV`'s 64 columns) over ReLAPACK's `rec2` panel, its update ahead of the undo
+  (`src/linalg/lapack/relapack.zig`, `indefinite.zig`).
+- **Issue text:** "`RELAPACK_?sytrf` and `?hetrf` (and the `_rook` forms) return a wrong
+  factorization for `n` past the crossover: `?sytrf_rec2` undoes the panel's interchanges
+  before the recursion uses the panel to update `A_BR`, where `xLASYF` updates first; and the
+  deferred updates of the columns right of each block are read stale by the next block's pivot
+  search. `A - L*D*L**T` is O(1) at `n = 30`."
+
+### `?sytrf_rook`, `?hetrf_rook`: the non-rook kernel below the crossover
+
+`dsytrf_rook.c` and the other `_rook` forms call `LAPACK(dsytf2)` (`zhetf2`) for a small whole
+matrix, not `dsytf2_rook`, so `ipiv` comes back in the non-rook format, which the rook solvers
+read otherwise: at `n = 20`, `A - L D Lᵀ` read as rook is off by 6.
+
+- **Workaround:** rstd's `sytrfRook` and `hetrfRook` call the rook kernel (`indefinite.tf2`).
+- **Issue text:** "`RELAPACK_?sytrf_rook` and `?hetrf_rook` call `?sytf2` (`?hetf2`) instead
+  of `?sytf2_rook` (`?hetf2_rook`) for `n <= CROSSOVER`, so `ipiv` is not in the rook format."
+
+### `?gbtrf`: the recursion gives a wrong factor
+
+OpenBLAS's `dgbtrf.c` takes `xGBTF2` unless `n <= kl` (`1036299da`, "due to crashes in LAPACK
+tests"); where its recursion runs (`m = 50, n = 40, kl = 45, ku = 3`), 8 pivots and the factor
+differ from `dgbtf2`'s, by up to 8. Upstream's full recursion differs on six of seven shapes
+tried. The recursion also swaps `A_Rr` from its first column (`A_Rrj[i] = A_Rr[ip]`), and the
+second half's `dgbtf2` overwrites the first half's `info`.
+
+- **Workaround:** rstd's `gbtrf` is `xGBTF2` throughout (`relapack.zig`).
+- **Issue text:** "`RELAPACK_?gbtrf` returns a wrong factorization whenever its recursion runs
+  (`n <= kl` in OpenBLAS; most shapes upstream); compare with `?gbtf2` at `m = 50, n = 40,
+  kl = 45, ku = 3`."
+
+### `?pbtrf`: the rest factored as dense reads outside the band
+
+`dpbtrf.c` factors the rest with `RELAPACK_dpotrf` whenever `kd > n1`, through the band's
+storage taken as a dense matrix of leading dimension `ldAb - 1`; once the rest is wider than
+`kd + 1` (`n = 100, kd = 50`), `potrf` reads and writes places of other columns. `zpbtrf.c`
+also bounds `n22` by `kd` where `dpbtrf.c` takes `n1`. Found by reading the source.
+
+- **Workaround:** rstd's `pbtrf` recurses on the band there (`relapack.zig`).
+- **Issue text:** "`RELAPACK_?pbtrf` calls `?potrf` on `A_BR` as a dense matrix whenever
+  `kd > n1`, which is outside the band storage once `n - n1 > kd + 1`."
+
+### Smaller ones
+
+- `?trtri` sets `INFO = i - 1` for a zero `A(i, i)` (`ztrtri.c`), so a zero first diagonal
+  element reports success. rstd's `trtri` reports `i`.
+- `?getrf` returns as soon as the left half finds a zero pivot (`if (*info) return`), leaving
+  the factorization unfinished, where `xGETRF` completes it. rstd's completes it.
+- `?sytrf` reports `INFO` as `info1 || info2`, 0 or 1, not the zero block's index. rstd's
+  reports the index.
+- `?trsyl`, `op(A)` transposed: the second solve's `scale` rescales `C_B` (`dlascl` on `&m1`
+  rows of `C_B`), the half solved second, not `C_T`. rstd's rescales `C_T`.
+- `?sygst`: `dsygst.c`, `ssygst.c` and `chegst.c` use their workspace only if `lWork > n2 * n1`,
+  `zhegst.c` if `>=`; the top level's buffer is exactly `n1 * n2`, so three of four never use
+  it there. rstd's takes `>=` for all.
+
+These need no issue of their own beyond a line each in a ReLAPACK report.
+
 ## BLIS
 
 ### `snrm2` and `scnrm2` keep an `f32` running sum
