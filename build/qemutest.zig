@@ -365,9 +365,10 @@ const machines = [_]Machine{
         .name = "sparc64-debug",
         .optimize = .debug,
         .parts = &.{
-            // blas1 in two, as one is past the window
+            // blas1 in three, as two are past the window
             .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.__root__.", "linalg.blas.blas1.amax.", "linalg.blas.blas1.amin.", "linalg.blas.blas1.asum.", "linalg.blas.blas1.axpby.", "linalg.blas.blas1.axpy.", "linalg.blas._test.blas1.check.", "linalg.blas.blas1.copy.", "linalg.blas.blas1.dot.", "linalg.blas.blas1.extremum.", "linalg.blas.blas1.iamax.", "linalg.blas.blas1.iamin.", "linalg.blas.blas1.imax.", "linalg.blas.blas1.imin.", "linalg.blas.blas1.max.", "linalg.blas.blas1.min.", "linalg.blas.blas1.nrm2.", "linalg.blas.blas1.rot.", "linalg.blas.blas1.rotm.", "linalg.blas.blas1.scal.", "linalg.blas.blas1.sum.", "linalg.blas.blas1.swap.", "linalg.blas.blas1.uk_block." } },
-            .{ .name = "blas1-interface", .filters = &.{ "linalg.blas.blas1.interface.", "linalg.blas._test.blas1.edge." } },
+            .{ .name = "blas1-interface", .filters = &.{"linalg.blas.blas1.interface."} },
+            .{ .name = "blas1-edge", .filters = &.{"linalg.blas._test.blas1.edge."} },
             .{ .name = "blas1-denormal", .filters = &.{"linalg.blas._test.blas1.denormal."} },
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
@@ -384,7 +385,10 @@ const machines = [_]Machine{
                 "linalg.blas.blas2.symmetric.",
             } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular.test.triangular"} },
-            .{ .name = "blas2-triangular-cores", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's"} },
+            // every core's triangular results in three, as one is past the window
+            .{ .name = "blas2-triangular-cores-real", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, real"} },
+            .{ .name = "blas2-triangular-cores-complex", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, complex products"} },
+            .{ .name = "blas2-triangular-cores-complex-2", .filters = &.{"linalg.blas.blas2.triangular.test.every linked core's kernels give the same triangular results, complex solves"} },
             .{ .name = "blas2-f80", .filters = &.{ "linalg.blas.blas2.banded.test.f80", "linalg.blas.blas2.triangular.test.f80" } },
             .{ .name = "blas2-interface", .filters = &.{
                 "linalg.blas.blas2.interface.test.interface: gemv",
@@ -450,8 +454,11 @@ const machines = [_]Machine{
             .{ .name = "openblas-blat2", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test_", "linalg.blas._test.from_openblas.blat2.test.blat2: SMVCH", "linalg.blas._test.from_openblas.blat2.test.blat2: xGEMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTRMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBMV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPMV", "linalg.blas._test.from_openblas.blat2.test.blat2: error exits" } },
             .{ .name = "openblas-blat2-b", .filters = &.{ "linalg.blas._test.from_openblas.blat2.test.blat2: xTRSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTBSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xTPSV", "linalg.blas._test.from_openblas.blat2.test.blat2: xGER,", "linalg.blas._test.from_openblas.blat2.test.blat2: xGERC", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR,", "linalg.blas._test.from_openblas.blat2.test.blat2: xSYR2", "linalg.blas._test.from_openblas.blat2.test.blat2: xSPR2" } },
             .{ .name = "openblas-blat3", .filters = &.{"linalg.blas._test.from_openblas.blat3."} },
-            // the suites on every linked core, by level, level 2 by type
-            .{ .name = "openblas-cores-l1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites"} },
+            // the suites on every linked core, by level, level 1 by suite
+            // (utest_ext's level 3 runs with level 3), level 2 by type
+            .{ .name = "openblas-cores-l1-blat1", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites, blat1"} },
+            .{ .name = "openblas-cores-l1-utest", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites, utest,"} },
+            .{ .name = "openblas-cores-l1-utest-2", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-1 suites, utest_ext's"} },
             .{ .name = "openblas-cores-l2-real", .filters = &.{ "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f32", "linalg.blas._test.from_openblas.__root__.test.the level-2 suite at f64" } },
             .{ .name = "openblas-cores-l2-complex", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-2 suite at complex"} },
             .{ .name = "openblas-cores-l3", .filters = &.{"linalg.blas._test.from_openblas.__root__.test.the level-3 suite"} },

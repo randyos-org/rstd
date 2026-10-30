@@ -65,7 +65,8 @@ fn vecCases(comptime T: type, comptime what: Reduce, cases: []const VecCase) !vo
     }
 }
 
-/// Every case here but those that wait, for `check.eachCore`.
+/// The vector cases, for `check.eachCore`; with `level2All` and `level3All`,
+/// every case here but those that wait. Apart, so each fits a rig image.
 pub fn all() !void {
     try reductions();
     try axpby();
@@ -74,11 +75,20 @@ pub fn all() !void {
     try complexScal();
     try complexRotg();
     try rotmg();
+}
+
+/// The level-2 cases, for `check.eachCore`.
+pub fn level2All() !void {
     try gbmv();
     try gemvOS();
     try gemvTCUD();
     try sbmvSpmv();
     try trmvTrsv();
+}
+
+/// The matrix extensions and `gemm`, for `check.eachCore`; they run with the
+/// level-3 suite, whose drivers they reach.
+pub fn level3All() !void {
     try geadd();
     try matcopy();
     try complexGemm();

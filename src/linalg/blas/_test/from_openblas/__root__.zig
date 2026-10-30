@@ -173,10 +173,17 @@ fn OnCore(comptime suite: fn () anyerror!void) fn (*const Vtable) anyerror!void 
     }.run;
 }
 
-fn level1() anyerror!void {
+fn level1Blat1() anyerror!void {
     try blat1.all();
+}
+
+fn level1Utest() anyerror!void {
     try utest.all();
     try utest_ext.all();
+}
+
+fn level1UtestExt2() anyerror!void {
+    try utest_ext.level2All();
 }
 
 fn Level2(comptime T: type) type {
@@ -190,10 +197,19 @@ fn Level2(comptime T: type) type {
 fn level3() anyerror!void {
     try blat3.all(&blat2.rig_n);
     try utest.lapackAll();
+    try utest_ext.level3All();
 }
 
-test "the level-1 suites on every linked core this machine runs" {
-    try check.eachCore(OnCore(level1));
+test "the level-1 suites, blat1, on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1Blat1));
+}
+
+test "the level-1 suites, utest, on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1Utest));
+}
+
+test "the level-1 suites, utest_ext's level-2 cases, on every linked core this machine runs" {
+    try check.eachCore(OnCore(level1UtestExt2));
 }
 
 test "the level-2 suite at f32 on every linked core this machine runs" {

@@ -574,7 +574,8 @@ const guard = @import("../_test/blas2/guard.zig");
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
-const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
+const real = .{ f32, f64 } ++ check.x_real;
+const complex = .{ Complex32, Complex64 } ++ check.x_complex;
 const ops = [_]Trans{ .n, .t, .r, .c };
 const sizes = [_]usize{ 1, 2, 3, 5, 8, 17, 70 };
 const incs = [_]isize{ 1, 2, -1, -3 };
@@ -729,36 +730,48 @@ fn report(e: anyerror, comptime T: type, comptime kind: Kind, uplo: Uplo, op: Tr
     return e;
 }
 
-fn checkAll(vt: *const Vtable) !void {
-    try checkTypes(all, vt);
-}
+const every_kind = std.enums.values(Kind);
 
-fn checkTypes(comptime list: anytype, vt: *const Vtable) !void {
-    // the vtable's block size, and a tiny one to reach the `gemv` paths
-    for ([_]i32{ vt.dtb_entries, 3 }) |dtb| {
-        var v = vt.*;
-        v.dtb_entries = dtb;
-        inline for (list) |T| {
-            inline for (comptime std.enums.values(Kind)) |kind| try checkKind(T, kind, &v);
+/// `list`'s types through `kinds`, at the vtable's block size and a tiny one
+/// that reaches the `gemv` paths.
+fn Check(comptime list: anytype, comptime kinds: []const Kind) fn (*const Vtable) anyerror!void {
+    return struct {
+        fn run(vt: *const Vtable) anyerror!void {
+            for ([_]i32{ vt.dtb_entries, 3 }) |dtb| {
+                var v = vt.*;
+                v.dtb_entries = dtb;
+                inline for (list) |T| {
+                    inline for (kinds) |kind| try checkKind(T, kind, &v);
+                }
+            }
         }
-    }
+    }.run;
 }
 
 test "triangular routines match dense arithmetic with portable kernels" {
     var vt: Vtable = .{};
     portable.install(&vt);
-    try checkAll(&vt);
+    try Check(real ++ complex, every_kind)(&vt);
 }
 
 test "f80 without slots: triangular routines match dense arithmetic with portable kernels" {
     if (comptime check.f80_unslotted.len == 0) return error.SkipZigTest;
     var vt: Vtable = .{};
     portable.install(&vt);
-    try checkTypes(check.f80_unslotted, &vt);
+    try Check(check.f80_unslotted, every_kind)(&vt);
 }
 
-test "every linked core's kernels give the same triangular results" {
-    try check.eachCore(checkAll);
+// in three, so each fits a rig image (`build/qemutest.zig`'s `sparc64-debug`)
+test "every linked core's kernels give the same triangular results, real" {
+    try check.eachCore(Check(real, every_kind));
+}
+
+test "every linked core's kernels give the same triangular results, complex products" {
+    try check.eachCore(Check(complex, &.{ .trmv, .tbmv, .tpmv }));
+}
+
+test "every linked core's kernels give the same triangular results, complex solves" {
+    try check.eachCore(Check(complex, &.{ .trsv, .tbsv, .tpsv }));
 }
 
 test "triangular work space beyond the stack comes from the allocator" {
