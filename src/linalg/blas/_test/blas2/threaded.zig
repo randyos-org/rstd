@@ -174,6 +174,56 @@ fn Cases(comptime T: type) type {
             };
         }
 
+        /// `sbmv`, and `hbmv` over every triangle; `2k` past `gbmv`'s 15.
+        fn sbmv(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
+            const n = long;
+            const k = 9;
+            const lda = k + 2;
+            const a = try filled(T, al, lda * n, 16);
+            defer al.free(a);
+            const x = try filled(T, al, 3 * n, 17);
+            defer al.free(x);
+            const y0 = try filled(T, al, 3 * n, 18);
+            defer al.free(y0);
+            const y = try al.alloc(T, y0.len);
+            defer al.free(y);
+            for (std.enums.values(types.Uplo)) |u| for (incs) |inc| {
+                if (!u.isRev()) {
+                    @memcpy(y, y0);
+                    try band.sbmv(al, io, T, u, n, k, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                }
+                if (comptime isComplex(T)) {
+                    @memcpy(y, y0);
+                    try band.hbmv(al, io, T, u, n, k, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                }
+            };
+        }
+
+        /// `spmv`, and `hpmv`.
+        fn spmv(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
+            const n = long;
+            const a = try filled(T, al, n * (n + 1) / 2, 19);
+            defer al.free(a);
+            const x = try filled(T, al, 3 * n, 20);
+            defer al.free(x);
+            const y0 = try filled(T, al, 3 * n, 21);
+            defer al.free(y0);
+            const y = try al.alloc(T, y0.len);
+            defer al.free(y);
+            for ([_]types.Uplo{ .u, .l }) |u| for (incs) |inc| {
+                @memcpy(y, y0);
+                try band.spmv(al, io, T, u, n, alpha, a.ptr, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                if (comptime isComplex(T)) {
+                    @memcpy(y, y0);
+                    try band.hpmv(al, io, T, u, n, alpha, a.ptr, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                }
+            };
+        }
+
         /// The rank updates, full and packed, rank 1 and 2, with zeros in
         /// `x` and `y` for the columns they skip.
         fn rank(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
@@ -227,15 +277,15 @@ fn onCore(vt: *const Vtable) !void {
     inline for (all) |T| {
         const C = Cases(T);
         // a dozen chunks or so of each; the last fold partial vectors
-        const bodies = .{ C.gemv, C.ger, C.rank, C.gbmv, C.symv };
-        const names = .{ "gemv", "ger", "rank updates", "gbmv", "symv and hemv" };
-        inline for (bodies, names, .{ 3000, 3000, 40, 3000, 40 }, 0..) |body, name, most, i| {
+        const bodies = .{ C.gemv, C.ger, C.rank, C.gbmv, C.symv, C.sbmv, C.spmv };
+        const names = .{ "gemv", "ger", "rank updates", "gbmv", "symv and hemv", "sbmv and hbmv", "spmv and hpmv" };
+        inline for (bodies, names, .{ 3000, 3000, 40, 3000, 40, 12000, 40 }, 0..) |body, name, most, i| {
             threading.test_serial_max = most;
             sameBits(al, threaded.io(), body) catch |e| {
                 check.say("{s} {s}: ", .{ name, @typeName(T) });
                 return e;
             };
-            if (i >= 4) nearSerial(T, al, body, most) catch |e| {
+            if (i >= 3) nearSerial(T, al, body, most) catch |e| {
                 check.say("{s} {s} against one chunk: ", .{ name, @typeName(T) });
                 return e;
             };
