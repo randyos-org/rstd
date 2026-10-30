@@ -620,11 +620,13 @@ complex, for every float type, through the same code.
   and `x` slots keep the portable kernels (`core_precisions`).
 - **Parameters.** `blas3/gemm/params.zig` fills the blocking as `kernel/setparam-ref.c` does,
   from `params_data.zig` (generated from `param.h`): `p` of the older x86 cores follows the L2
-  size, x86's `r` derives from the packing buffer, `p` rounds up to the unroll, x86's 3M variants
+  size, x86's `r` derives from the packing buffer and its `p` rounds up to the unroll (elsewhere
+  `Blocking.of` takes whole panels: loongson3r4's `dgemm` `p` of 44 runs as 40), x86's 3M variants
   take the real ones' `p` and `q` unless the header says otherwise (no other `DYNAMIC_ARCH` build
-  sets 3M), and LA464 and the AMD AVX-512 parts pick their sets by cache size and thread count. `OPENBLAS_BLOCK_FACTOR` scales a
-  computed `p` as `driver/others/parameter.c:519-527` does; OpenBLAS ignores it in dynamic builds,
-  which do not link `parameter.c` (`driver/others/Makefile:44`).
+  sets 3M), and LA464 and the AMD AVX-512 parts pick their sets by cache size and thread count.
+  `OPENBLAS_BLOCK_FACTOR` scales a computed `p` as `driver/others/parameter.c:519-527` does;
+  OpenBLAS ignores it in dynamic builds, which do not link `parameter.c`
+  (`driver/others/Makefile:44`).
   Haswell's and Zen's `dgemm` `q` is 128 under `WINDOWS_ABI`, 256 otherwise (`param.h:1613-1619`,
   `:704-710`); `params_data.zig` takes 256 on every OS. The cut is for the stack, not tuning:
   `dgemm_kernel_4x8_haswell.S:54-70` keeps a `q * 8 * 12`-byte buffer on the stack and touches

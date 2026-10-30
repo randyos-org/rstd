@@ -11,7 +11,7 @@
 //!   * `p` of the older x86 cores follows the L2 size (`Affine`), over the header;
 //!   * on x86, `r` is always derived from the packing buffer;
 //!   * on mips64, `dgemm`'s `r` is 640 for every core;
-//!   * `p` is rounded up to the unroll;
+//!   * on x86, `p` of `s`, `d`, `c`, `z` and 3M is rounded up to the unroll;
 //!   * on x86 only, the 3M variants take `p` and `q` of the real ones unless
 //!     the header says;
 //!   * LA464 and the AMD AVX-512 parts override sets by cache size and threads.
@@ -28,6 +28,7 @@ const data = @import("params_data.zig");
 const coretypes = @import("../../cpu/_coretypes.zig");
 const corespec = @import("../../cpu/_corespec.zig");
 const select = @import("../../cpu/_select.zig");
+const driver = @import("../driver.zig");
 
 /// How `p`, `q` or `r` comes about.
 pub const Size = union(enum) {
@@ -347,11 +348,14 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
         }
     }
 
-    inline for (names, 0..) |name, i| res[i].p = roundUp(res[i].p, @field(table, name).unroll_m);
+    // only x86 rounds `p` up to the unroll (`setparam-ref.c:2150-2175`): `s`,
+    // `d`, `c`, `z`, and 3M to its own unroll, else the real one's; `q`, `x`
+    // and `x3m` only under `QUAD_PRECISION` (`:2179-2183`), off by default
+    // (`Makefile.rule:214`)
     if (x86) {
-        // 3M rounds to its own unroll, else the real one's (`:2163-2183`)
-        const unroll_of = [3]i32{ table.s.unroll_m, table.d.unroll_m, table.q.unroll_m };
-        inline for (names3m, 0..) |name, i| {
+        inline for (.{ "s", "d", "c", "z" }, 0..) |name, i| res[i].p = roundUp(res[i].p, @field(table, name).unroll_m);
+        const unroll_of = [2]i32{ table.s.unroll_m, table.d.unroll_m };
+        inline for (.{ "c3m", "z3m" }, 0..) |name, i| {
             const um = @field(table, name).unroll_m;
             res3m[i].p = roundUp(res3m[i].p, if (um > 0) um else unroll_of[i]);
         }
@@ -373,14 +377,12 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
 
     if (comptime std.meta.activeTag(rule) == .la464) {
         const set = la464_sets[@intFromBool(env.threads == 1)][@intFromBool(@divTrunc(env.l3_kb, 1024) == 32)];
-        inline for (.{ "s", "d", "c", "z" }, 0..) |name, i| {
-            res[i] = .{ .p = roundUp(set[i].p, @field(table, name).unroll_m), .q = set[i].q, .r = set[i].r };
-        }
+        res[0..4].* = set;
     }
     if (comptime std.meta.activeTag(rule) == .la264) {
         // the 2K3000 (processor id 0x0014b020) has its own `z` set
         const set: Resolved = if (env.prid == 0x0014b020) .{ .p = 128, .q = 176, .r = 360 } else .{ .p = 64, .q = 120, .r = 4096 };
-        res[3] = .{ .p = roundUp(set.p, table.z.unroll_m), .q = set.q, .r = set.r };
+        res[3] = set;
     }
     inline for (names, 0..) |name, i| setPrec(vt, name, @field(table, name), res[i]);
     inline for (names3m, 0..) |name, i| setPrec(vt, name, @field(table, name), res3m[i]);
@@ -388,7 +390,7 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
     // half and bfloat16: their headers' `p` and `q`, `r` from the buffer
     inline for (.{ "sh", "b", "sb" }) |name| {
         const sh = @field(table, name);
-        const p = roundUp(fixedOf(sh.p) orelse 0, sh.unroll_m);
+        const p = fixedOf(sh.p) orelse 0;
         const q = fixedOf(sh.q) orelse 0;
         setPrec(vt, name, sh, .{ .p = p, .q = q, .r = derivedR(p, q, 4, table) });
     }
@@ -483,8 +485,10 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
         const q = @field(vt, pre ++ "gemm_q");
         const r = @field(vt, pre ++ "gemm_r");
         const um = @field(vt, pre ++ "gemm_unroll_m");
-        // a precision the core has no header set for stays zero
-        if (um != 0 and (p <= 0 or q <= 0 or r <= 0 or @rem(p, um) != 0)) {
+        // a precision the core has no header set for stays zero; only x86
+        // rounds `p` to the unroll
+        const x86 = family == .x86 or family == .x86_64;
+        if (um != 0 and (p <= 0 or q <= 0 or r <= 0 or (x86 and @rem(p, um) != 0))) {
             std.debug.print("{s}/{s}/{s}: p={d} q={d} r={d} unroll_m={d}\n", .{ @tagName(family), @tagName(core), pre, p, q, r, um });
             return error.TestUnexpectedResult;
         }
@@ -674,6 +678,24 @@ test "3M stays 0 outside x86, as no DYNAMIC_ARCH build there defines USE_GEMM3M"
             inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, pre ++ "gemm3m" ++ f));
         }
     }
+}
+
+test "only x86 rounds p up to the unroll; Blocking takes whole panels of an unrounded one" {
+    var vt: Vtable = .{};
+    // the header's 44 on an unroll of 8, which OpenBLAS keeps (`setparam-ref.c:1089`;
+    // static mips32 builds take the header's)
+    inline for (.{ .mips64, .mips32 }) |f| {
+        installCore(&vt, f, .loongson3r4, .{});
+        try std.testing.expectEqual(@as(i32, 8), vt.dgemm_unroll_m);
+        try std.testing.expectEqual(@as(i32, 44), vt.dgemm_p);
+        try std.testing.expectEqual(@as(usize, 40), driver.Blocking.of(f64, &vt).p);
+    }
+    // core2's rule: 92 * (512 >> 9) + 8 = 100, rounded to 104; `q`'s
+    // 23 + 4 = 27 stays (`:2179-2183`)
+    installCore(&vt, .x86_64, .core2, .{ .l2_kb = 512 });
+    try std.testing.expectEqual(@as(i32, 104), vt.sgemm_p);
+    try std.testing.expectEqual(@as(i32, 104), vt.cgemm3m_p);
+    try std.testing.expectEqual(@as(i32, 27), vt.qgemm_p);
 }
 
 test "old x86 cores follow the L2 size" {
