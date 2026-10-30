@@ -566,6 +566,28 @@ const machines = [_]Machine{
         } },
     },
     .{
+        // a 32-bit VSX build on a POWER9 under VOF: the power8 and power9
+        // cores' `@Vector` kernels as 32-bit code. The build drops `64bit`
+        // and `fpcvt`, with which LLVM fails on compiler-rt in 32-bit mode;
+        // ISA 3.0 fails it too, so power10's kernels cannot link (issues.md).
+        .name = "powerpc-power9",
+        .query = .{
+            .cpu_arch = .powerpc,
+            .os_tag = .freestanding,
+            .abi = .none,
+            .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr8 },
+            .cpu_features_sub = std.Target.powerpc.featureSet(&.{ .@"64bit", .fpcvt }),
+        },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,x-vof=on", "-cpu", "power9" },
+        .memory = "512M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/ppc64.ld",
+            .semihosting = false,
+            .stderr_note = "kernel_addr changed",
+        } },
+    },
+    .{
         // Mach-O on PowerPC, the one big-endian 32-bit Mach-O target qemu can
         // boot (OpenBIOS on `mac99`); covers the object format the other rigs
         // do not.

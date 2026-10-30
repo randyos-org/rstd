@@ -3,7 +3,7 @@
 //! whose 64-bit CPUs start in 32-bit mode. Both firmwares jump to the image
 //! with an Open Firmware client interface's entry point in r5; OpenBIOS's
 //! MMU maps RAM one to one, and VOF runs with it off. `_start` keeps r5, sets
-//! up the stack, turns on FP and AltiVec (where the CPU has it) in the MSR,
+//! up the stack, turns on FP, AltiVec and VSX (where the CPU has them) in the MSR,
 //! and clears bss. Under OpenBIOS the console is the interface's `write`, and
 //! exit resets the machine (`reset-all`), which `-no-reboot` turns into qemu
 //! exiting; on pseries they are ppc64.zig's hypercalls. The run step judges
@@ -16,8 +16,13 @@ const sysinfo = @import("builtin");
 // non-zero so it lives in .data, out of the bss `_start` clears after storing it
 export var client_interface: usize = 1;
 
-/// MSR.VEC, where the CPU has AltiVec.
-const vec = if (sysinfo.target.cpu.has(.powerpc, .altivec)) "  oris 3, 3, 0x0200\n" else "";
+/// MSR.VEC, where the CPU has AltiVec, and MSR.VSX, where it has VSX.
+const vec = if (sysinfo.target.cpu.has(.powerpc, .vsx))
+    "  oris 3, 3, 0x0280\n"
+else if (sysinfo.target.cpu.has(.powerpc, .altivec))
+    "  oris 3, 3, 0x0200\n"
+else
+    "";
 
 comptime {
     asm (

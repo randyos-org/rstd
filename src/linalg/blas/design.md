@@ -1539,6 +1539,7 @@ The freestanding machines (`build/qemutest.zig`):
 | `powerpc64` | `power10` on `pseries` under VOF, big-endian | every 64-bit POWER core; Zig emits ELFv2 here too, so it boots as the little-endian rigs do; ReleaseSafe |
 | `powerpc` | G4 on `mac99`, OpenBIOS | the `ppcg4` core; builds in debug |
 | `powerpc-pseries` | the G4 build on a POWER10 in 32-bit mode | power3 to power6, ppc970 and cell as 32-bit code |
+| `powerpc-power9` | a 32-bit POWER8 build, less `64bit` and `fpcvt`, on a POWER9 in 32-bit mode | power8 and power9 as 32-bit code (Settled decisions: filling upstream gaps); power10 cannot link, as LLVM fails on 32-bit ISA 3.0 builds ([`issues.md`](issues.md)) |
 | `s390x` | `max` | |
 
 Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC: LLVM 21.1.0 `lld/ELF/Arch`

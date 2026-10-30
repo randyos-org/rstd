@@ -343,6 +343,49 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > stfd 2, 192(31)
   > ```
 
+### powerpc (32-bit): compiler-rt does not build for POWER4 and later
+
+- **Seen:** building a 32-bit POWER10 rig (T11), on 0.18.0-dev.751
+  (2026-10-29). Any `powerpc` build that bundles compiler-rt fails in LLVM
+  for a server CPU, three ways by feature: with `64bit` (pwr4 to pwr6, g5,
+  `pwr8-vsx`; g4 plus `64bit` too) the compiler segfaults in codegen;
+  with VSX and `fpcvt` (pwr7, pwr8) `@intFromFloat` of an `f128` into an
+  `i32` that goes back to float becomes `PPCISD::FCTIWZ` on the `f128` (an
+  "invalid node" error, or "Cannot select" without `stfiwx`; compiler-rt's
+  `rem_pio2l.zig:141`); with POWER9's vector features (native `f128`)
+  "Cannot select" on `f128` `fcopysign` (`log_f128.zig:79`) or `v1i128`
+  bitcasts (`fmod.zig:168`), or a "Potential legalization loop" assertion.
+  Without those vector features but with ISA 3.0 (needed for ISA 3.1, which
+  the power10 core needs), the tests' own code stops at "Invalid D-Form
+  Pseudo-ops on Pre-P9 target" (`PPCInstrInfo.cpp:3252`, an assertion). The
+  per-core kernel objects, which do not bundle compiler-rt, build.
+  Zig 0.17.0 builds all of these, so it is new with the dev toolchain's LLVM.
+- **Workaround:** `powerpc-power9` builds for POWER8 less `64bit` and
+  `fpcvt`, on a POWER9: the power8 and power9 objects link and run, power10's
+  cannot (T11). A 32-bit build has no workaround that keeps a POWER4 to 10
+  model.
+- **Issue text:**
+
+  > **[PowerPC] 32-bit compiler-rt fails to compile for pwr4 and later**
+  >
+  > `zig build-exe -O Debug -target powerpc-freestanding-none -mcpu pwr6
+  > e.zig -fcompiler-rt`, with `e.zig` an exported `_start` that loops,
+  > segfaults in `ZigLLVMTargetMachineEmitToFile`; so do pwr4, pwr5, g5,
+  > and `g4+64bit`; `pwr6-64bit` builds. With `-mcpu pwr8`, `pwr7` or
+  > `pwr8-64bit`:
+  >
+  > ```zig
+  > export fn g(x: f128) f64 {
+  >     return @floatFromInt(@as(i32, @intFromFloat(x)));
+  > }
+  > ```
+  >
+  > fails in ReleaseFast with `LLVM ERROR: invalid node: operand #1 must
+  > have type f64, but has type f128` on `PPCISD::STFIWX` of
+  > `f128 = PPCISD::FCTIWZ`; `pwr8-vsx` builds it. With `pwr9-64bit` or
+  > `pwr10-64bit-fpcvt`, compiler-rt fails with `Cannot select: f128 =
+  > fcopysign` (`log_f128.zig:79`). Zig 0.17.0 builds every case.
+
 ### powerpc: LLVM vectorizes scalar `f32` loops into AltiVec, which flushes
 
 - **Seen:** with the level-3 tiles scalar on the AltiVec cores, complex
