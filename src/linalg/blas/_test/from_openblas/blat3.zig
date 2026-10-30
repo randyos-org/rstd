@@ -5,11 +5,13 @@
 //! `SCHK5`, `SMAKE`, `SMMCH`, `LSERES` and the error exits (`SCHKE`, and
 //! `CCHKE` for complex) are ported; the tables below are the `.dat` values.
 //!
-//! Every routine runs through the public API (`blas.gemm` and the rest);
-//! `gemm3m` runs as `gemm`.
+//! Every routine runs through the public API (`blas.gemm` and the rest).
 //!
-//! Intentional difference: `SMMCH` keeps the largest ratio over every column,
-//! where the Fortran resets it for each.
+//! Intentional differences: `SMMCH` keeps the largest ratio over every
+//! column, where the Fortran resets it for each; and for `gemm3m` it gauges
+//! the part 3M forms from three products at three times the bound
+//! (`mmch3m`), as only normwise stable (`comparisons.md`, 7), where
+//! `cblat3_3m.f` keeps `CMMCH` as it is.
 
 const std = @import("std");
 const ob = @import("__root__.zig");
@@ -161,6 +163,34 @@ const Result = struct { err: f64, fatal: bool };
 /// `SMMCH`/`CMMCH`: `alpha*op(A)*op(B) + beta*C` for `m` by `n` and `kk`
 /// from the dense `a`, `b`, `c`, against `cc`; gauges are sums of `ABS1`.
 fn mmch(comptime T: type, transa: u8, transb: u8, m: usize, n: usize, kk: usize, alpha: T, a: []const T, lda: usize, b: []const T, ldb: usize, beta: T, c: []const T, ldc: usize, ct: []ob.Ref(T), g: []Float(ob.Ref(T)), cc: []const T, ldcc: usize) Result {
+    return mmchLoose(T, .none, transa, transb, m, n, kk, alpha, a, lda, b, ldb, beta, c, ldc, ct, g, cc, ldcc);
+}
+
+/// Which part of a result is held to three times the bound.
+const Loose = enum { none, re, im };
+
+/// `mmch` for `gemm3m`: the part it forms from three products, a difference
+/// of them, gauged at three times the bound (Higham, SIAM J. Matrix Anal.
+/// Appl. 13(3), 1992): the imaginary one, or the real one where exactly one
+/// operand is conjugated.
+fn mmch3m(comptime T: type, transa: u8, transb: u8, m: usize, n: usize, kk: usize, alpha: T, a: []const T, lda: usize, b: []const T, ldb: usize, beta: T, c: []const T, ldc: usize, ct: []ob.Ref(T), g: []Float(ob.Ref(T)), cc: []const T, ldcc: usize) Result {
+    const loose: Loose = if ((transa == 'C') == (transb == 'C')) .im else .re;
+    return mmchLoose(T, loose, transa, transb, m, n, kk, alpha, a, lda, b, ldb, beta, c, ldc, ct, g, cc, ldcc);
+}
+
+/// An error `d` with its `loose` part a third.
+fn loosen(d: anytype, loose: Loose) @TypeOf(d) {
+    if (comptime !isComplex(@TypeOf(d))) return d;
+    var v = d;
+    switch (loose) {
+        .none => {},
+        .re => v.re /= 3,
+        .im => v.im /= 3,
+    }
+    return v;
+}
+
+fn mmchLoose(comptime T: type, loose: Loose, transa: u8, transb: u8, m: usize, n: usize, kk: usize, alpha: T, a: []const T, lda: usize, b: []const T, ldb: usize, beta: T, c: []const T, ldc: usize, ct: []ob.Ref(T), g: []Float(ob.Ref(T)), cc: []const T, ldcc: usize) Result {
     const R = ob.Ref(T);
     const RF = Float(R);
     const tra = transa == 'T' or transa == 'C';
@@ -186,7 +216,7 @@ fn mmch(comptime T: type, transa: u8, transb: u8, m: usize, n: usize, kk: usize,
             g[i] = ob.abs1(ra) * gauge + ob.abs1(rb) * ob.abs1(cv);
         }
         for (0..m) |i| {
-            var erri = ob.abs1(ob.sub(ct[i], ob.cast(R, cc[i + j * ldcc]))) / eps;
+            var erri = ob.abs1(loosen(ob.sub(ct[i], ob.cast(R, cc[i + j * ldcc])), loose)) / eps;
             if (g[i] != 0) erri /= g[i];
             err = @max(err, erri);
             if (err * @sqrt(eps) >= 1) {
@@ -295,7 +325,7 @@ fn run(comptime T: type, comptime r: Routine, c: Call, w: anytype) !void {
     const b = w.bb.ptr;
     const cp = w.cc.ptr;
     switch (r) {
-        .gemm, .gemm3m => try blas.gemm(al, ob.io, T, asTrans(c.transa), asTrans(c.transb), m, n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
+        .gemm, .gemm3m => try @field(blas, @tagName(r))(al, ob.io, T, asTrans(c.transa), asTrans(c.transb), m, n, k, alpha, a, lda, b, ldb, beta, cp, ldc),
         .symm, .hemm => try @field(blas, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), m, n, alpha, a, lda, b, ldb, beta, cp, ldc),
         .trmm, .trsm => try @field(blas, @tagName(r))(al, ob.io, T, asSide(c.side), asUplo(c.uplo), asTrans(c.transa), asDiag(c.diag), m, n, alpha, a, lda, b, ldb),
         .syrk => try blas.syrk(al, ob.io, T, asUplo(c.uplo), asTrans(c.transa), n, k, alpha, a, lda, beta, cp, ldc),
@@ -389,7 +419,8 @@ fn chk1(comptime T: type, comptime r: Routine, p: Params) !void {
                     try s.same(T, r, c, "B", ob.lse(T, w.bs[0..lbb], w.bb[0..lbb]));
                     try s.same(T, r, c, "C", if (null_) ob.lse(T, w.cs[0..lcc], w.cc[0..lcc]) else lseres(T, .ge, ' ', m, n, w.cc, w.cs, ldc));
                     if (null_) continue;
-                    try s.result(T, r, c, mmch(T, ta, tb, m, n, k, val(T, alpha), w.a, nmax, w.b, nmax, val(T, beta), w.c, nmax, w.ct, w.g, w.cc, ldc));
+                    const check = if (r == .gemm3m) mmch3m else mmch;
+                    try s.result(T, r, c, check(T, ta, tb, m, n, k, val(T, alpha), w.a, nmax, w.b, nmax, val(T, beta), w.c, nmax, w.ct, w.g, w.cc, ldc));
                 };
             }
         };
@@ -705,7 +736,7 @@ fn errorExits(comptime T: type, comptime r: Routine) !void {
                 .{ .ta = .t, .tb = .n, .m = 2, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidLdc },
                 .{ .ta = .t, .tb = .t, .m = 2, .n = 0, .k = 0, .lda = 1, .ldb = 1, .ldc = 1, .e = error.InvalidLdc },
             };
-            for (cases) |g| try E(g.e, blas.gemm(al, ob.io, T, g.ta, g.tb, g.m, g.n, g.k, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
+            for (cases) |g| try E(g.e, @field(blas, nm)(al, ob.io, T, g.ta, g.tb, g.m, g.n, g.k, z, &a, g.lda, &b, g.ldb, z, &c, g.ldc), nm);
         },
         .symm, .hemm => {
             const S = struct { s: u8, u: u8, m: isize, n: isize, lda: isize, ldb: isize, ldc: isize, e: anyerror };
