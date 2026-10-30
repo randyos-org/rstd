@@ -62,7 +62,7 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | `potf2` | has | own, `lapack/potf2/` | - | inside `llt/factor.rs` | FLAME | ref | OpenBLAS | `potrf`'s base case | accuracy tests; not raced |
 | `potrs` | has | ref (`exports/gensymbol.pl:498`) | - | own, `llt/solve.rs` | ref | ref | the reference's two `trsm`s over rstd's drivers | the method is two solves; the drivers are rstd's | accuracy tests; not raced |
 | `potri` | has | own, `interface/lapack/potri.c` | (`trtri`, `lauum`) | own, `llt/inverse.rs` | FLAME `FLA_Trinv`, `FLA_Ttmm` | AMD: `fla_dpotri_small_avx2` (`FLA_potri.c:177`) | OpenBLAS | Q10 | accuracy tests; not raced |
-| `pbtrf` | T110 (ReLAPACK covers it; T110 does not name it) | - | own, `dpbtrf.c` | - | ref | ref | ReLAPACK | only non-reference source | not yet raced |
+| `pbtrf` | T110 (ReLAPACK covers it; T110 does not name it) | - | own, `dpbtrf.c` | - | ref | ref | ReLAPACK | only non-reference source | accuracy tests; not raced |
 | `trtri`, `trti2` | has | own, `lapack/trtri/`, `trti2/` | own (`trtri`) | own, `triangular_inverse.rs` | FLAME `FLA_Trinv` | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `lauum`, `lauu2` | has | own, `lapack/lauum/`, `lauu2/` | own (`lauum`) | inside `llt/inverse.rs` (`matmul::triangular`) | FLAME `FLA_Ttmm` | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `trtrs` | has | own, `lapack/trtrs/` | - | own, `triangular_solve.rs` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
@@ -77,22 +77,22 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | `laswp` | has (`blas/ext/`) | own, `lapack/laswp/` | - | permutations inside `lu/` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `getri` | M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer | the anthology rule: faer before the reference | not yet raced |
 | `gecon` | M (`wgeco`, `rcond`, `cond`) | - | - | - | ref | ref | open | only the reference's estimator (`xLACN2`) exists; needs a decision | none |
-| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | ReLAPACK | T110 | not yet raced |
+| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([issues](../blas/issues.md#relapack-openblass-relapack)) | accuracy tests; not raced |
 
 ### Symmetric indefinite and generalized definite
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | ReLAPACK | T110 | not yet raced; faer is the other candidate |
+| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([issues](../blas/issues.md#relapack-openblass-relapack)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
 | `sytrs`, `sytri` (`hetrs`, `hetri`) | M | - | - | own, `bunch_kaufman/solve.rs`, `inverse.rs` | ref | ref | open | faer's solve reads faer's factor, so it follows the `sytrf` choice | none |
-| `sygst`, `hegst` | T110; M (`eig(A, B)`) | - | own, `dsygst.c` | - | FLAME `FLA_Eig_gest` | FLAME | ReLAPACK | T110 | not yet raced; FLAME is the other candidate |
+| `sygst`, `hegst` | T110; M (`eig(A, B)`) | - | own, `dsygst.c` | - | FLAME `FLA_Eig_gest` | FLAME | ReLAPACK | T110 | accuracy tests; not raced; FLAME is the other candidate |
 | `sygv`, `hegv`, `sygvd` | M (`eig(A, B)`) | - | - | - | ref | ref | `potrf`, `sygst`, then `syevd` as chosen | a driver over the rows above | none |
 
 ### Sylvester
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `trsyl` | T110; M (`sylvester`, `lyap`, `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | not yet raced |
+| `trsyl` | T110; M (`sylvester`, `lyap`, `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
 | `tgsyl` | T110 (covered; not named) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK | only non-reference source | not yet raced |
 
 ### QR, LQ and least squares
