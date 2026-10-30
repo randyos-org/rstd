@@ -68,17 +68,20 @@ pub const std_os_options: std.Options.OperatingSystem = .{
             return heap.page_size;
         }
     },
-    // one CPU and no threads; `std.heap.SafeAllocator` asks for the count
+    // the cores `qemutest_smp` started, or one, and no threads to spawn;
+    // `std.heap.SafeAllocator` asks for the count
     .Thread = struct {
         pub const Id = usize;
         pub const ThreadHandle = void;
         pub fn getCurrentId() Id {
-            return 0;
+            return if (qemutest_smp) |smp| smp.coreIndex() else 0;
         }
         pub fn getCpuCount() std.Thread.CpuCountError!usize {
-            return 1;
+            return if (qemutest_smp) |smp| smp.count() else 1;
         }
-        pub fn yield() std.Thread.YieldError!void {}
+        pub fn yield() std.Thread.YieldError!void {
+            std.atomic.spinLoopHint();
+        }
         pub fn spawn(_: std.Thread.SpawnConfig, comptime _: anytype, _: anytype) std.Thread.SpawnError!@This() {
             return error.SystemResources;
         }
@@ -146,6 +149,10 @@ fn consoleDrain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.I
 comptime {
     _ = arch;
 }
+
+/// A multithreaded kernel's other cores and their `Io` (`smp.zig`), which
+/// the threaded tests use.
+pub const qemutest_smp: ?type = if (sysinfo.single_threaded) null else @import("smp.zig");
 
 fn print(s: []const u8) void {
     for (s) |c| arch.writeByte(c);
@@ -251,6 +258,7 @@ export fn qemutest_main() callconv(.c) noreturn {
     print("qemutest ");
     print(@tagName(sysinfo.target.cpu.arch));
     print("\n");
+    if (qemutest_smp) |smp| smp.start();
     heap.use(if (@hasDecl(arch, "heapRegion")) arch.heapRegion(heap.max_len, heap.max_align) else &static_heap);
     paintStack();
     var pass: usize = 0;

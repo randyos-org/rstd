@@ -14,6 +14,11 @@ comptime {
         \\.section .text.boot
         \\.globl _start
         \\_start:
+        \\  bl qemutest_cpu_init
+        \\  b 8f
+        \\// what every core sets up (`smp.zig`); uses x0 to x2 only
+        \\.globl qemutest_cpu_init
+        \\qemutest_cpu_init:
         \\  adr x0, qemutest_vectors
         \\  msr vbar_el1, x0
         \\  mrs x0, cpacr_el1
@@ -53,6 +58,8 @@ comptime {
         \\  bic x0, x0, #(1 << 1)
         \\  msr sctlr_el1, x0
         \\  isb
+        \\  ret
+        \\8:
         \\  ldr x0, =__stack_top
         \\  mov sp, x0
         \\  ldr x0, =__bss_start

@@ -592,8 +592,8 @@ const precisions = .{ f32, f64, types.Complex32, types.Complex64 };
 test "threaded gemm matches the serial driver's bits and kernel depths at 1 to 9 workers, on every Io" {
     inline for (precisions) |T| {
         try shapes(T, Io.failing);
-        if (comptime threading.hosted) for (limits) |limit| {
-            var threaded: Io.Threaded = .init(std.testing.allocator, .{ .async_limit = limit, .concurrent_limit = limit });
+        if (comptime threading.threaded_tests) for (limits) |limit| {
+            var threaded: threading.TestIo = .init(std.testing.allocator, .{ .async_limit = limit, .concurrent_limit = limit });
             defer threaded.deinit();
             try shapes(T, threaded.io());
         };
@@ -711,8 +711,8 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops'
         for (std.enums.values(Routine)) |r| {
             if (!types.isComplex(T) and (r == .hemm or r == .herk or r == .her2k)) continue;
             try routineShapes(T, &vt, Io.failing, r);
-            if (comptime threading.hosted) for (limits) |limit| {
-                var threaded: Io.Threaded = .init(std.testing.allocator, .{ .async_limit = limit, .concurrent_limit = limit });
+            if (comptime threading.threaded_tests) for (limits) |limit| {
+                var threaded: threading.TestIo = .init(std.testing.allocator, .{ .async_limit = limit, .concurrent_limit = limit });
                 defer threaded.deinit();
                 try routineShapes(T, &vt, threaded.io(), r);
             };
@@ -727,10 +727,10 @@ test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops'
 }
 
 test "threaded gemm keeps the serial bits under the caller's rounding toward zero and flush to zero" {
-    if (comptime !threading.hosted or !util.FpState.governs) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests or !util.FpState.governs) return error.SkipZigTest;
     const own: util.FpState = .capture();
     defer own.apply();
-    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    var threaded: threading.TestIo = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     try fpShapes(own, threaded.io());
     if (comptime threading.evented_workers) {
@@ -770,8 +770,8 @@ test "threaded gemm keeps the serial bits on a fiber Io with every peer on the c
 }
 
 test "threaded gemm matches the serial driver on the selected core's own blocking" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
-    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
+    var threaded: threading.TestIo = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const vt = blas.vtable();
     inline for (precisions) |T| {
@@ -790,13 +790,13 @@ fn rstdOnly() bool {
 }
 
 test "the public gemm threads above the threshold and keeps the serial bits" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
     const accel = rstdOnly();
     defer _ = apple_accel.route(accel);
-    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    var threaded: threading.TestIo = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const al = std.testing.allocator;
     inline for (precisions) |T| {
@@ -831,7 +831,7 @@ test "the public gemm threads above the threshold and keeps the serial bits" {
 }
 
 test "the public symm, herk, syr2k and trmm thread above their thresholds and keep the serial bits" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
     // selecting the core fills `blas.config` once; override after
     _ = blas.coreName();
     const saved = blas.config.cpu_count;
@@ -839,7 +839,7 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     blas.config.cpu_count = 5;
     const accel = rstdOnly();
     defer _ = apple_accel.route(accel);
-    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    var threaded: threading.TestIo = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
     const al = std.testing.allocator;
@@ -922,8 +922,8 @@ fn stress(comptime T: type, io: Io, r: ?Routine, opt: [3]bool, m: usize, n: usiz
 }
 
 test "race stress: threaded level 3 keeps one worker's bits and its guard bands, round after round" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
-    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
+    var threaded: threading.TestIo = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     try stresses(threaded.io());
     if (comptime threading.evented_workers) {

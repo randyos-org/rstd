@@ -299,7 +299,7 @@ fn onCore(vt: *const Vtable) !void {
     const saved = blas.testUse(vt);
     defer blas.testRestore(saved);
     const al = std.testing.allocator;
-    var threaded: Io.Threaded = .init(al, .{});
+    var threaded: threading.TestIo = .init(al, .{});
     defer threaded.deinit();
     inline for (all) |T| {
         const C = Cases(T);
@@ -321,7 +321,7 @@ fn onCore(vt: *const Vtable) !void {
 }
 
 test "threaded level 2 gives one worker's bits at any worker count, Io and core" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
@@ -385,13 +385,13 @@ fn Stress(comptime T: type) type {
 }
 
 test "race stress: threaded level 2 keeps one worker's bits and its guard bands, round after round" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
     defer threading.test_serial_max = null;
     const al = std.testing.allocator;
-    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
+    var threaded: threading.TestIo = .init(al, .{ .async_limit = .limited(8) });
     defer threaded.deinit();
     inline for (.{ f64, types.Complex32 }) |T| {
         var s: Stress(T) = try .init(al);

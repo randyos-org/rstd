@@ -125,7 +125,7 @@ and `size_max` is the most workers the routine's threshold justifies for the pro
 effect, since there is no spinning server. The calling thread is worker 0.
 
 The worker count affects only speed. Targets that report one CPU (freestanding builds, the
-qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
+single-core qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
 admits fewer than `w` workers, the surplus run inline on the caller.
 
 ### Levels 1 and 2: fixed chunks, dynamic claiming, ordered combine
@@ -374,8 +374,8 @@ delete `Tasks`' futures path.
 Threading compiles out only under `builtin.single_threaded`: such builds take a comptime
 serial path that never references `Io.Group`, over the same chunks. Freestanding and UEFI are not forced serial, so
 a multithreaded freestanding build (for example a RandyOS kernel with its own `Io`) can
-thread. Today's freestanding rigs build `single_threaded` and report one CPU; UEFI's `Io` runs
-tasks inline.
+thread. The freestanding rigs build `single_threaded` and report one CPU but for the multicore
+ones (Verification); UEFI's `Io` runs tasks inline.
 
 ### Vendor backends
 
@@ -483,9 +483,11 @@ What the tests check today, and where they run:
 
 - **Everywhere, rigs included** (`threading.zig`): chunking, rules and their per-core
   overrides, the worker count, chunks that ignore the CPU count and the ceiling, and the
-  ordered combine in several claim orders. The freestanding rigs check that they resolve to
-  one worker over the same chunks.
-- **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
+  ordered combine in several claim orders. The single-threaded builds check that they resolve
+  to one worker over the same chunks.
+- **Hosted and multicore kernels** (native Windows; `qemu-test-linux-*` at `-smp 4`;
+  `ssh-test-aarch64-macos`; `qemu-test-x86_64-smp`, `-aarch64-smp`), on `threading.TestIo`:
+  `Io.Threaded`, or the kernel's cores (Freestanding, below):
   - Level 3 (`blas3/threaded.zig`): every threaded routine against the serial driver, bit
     for bit, at 1 to 9 workers. The shapes cross every block, panel and triangle edge, with
     every transpose and option, on `check.zig`'s shrunk blocking and a NaN-poisoning
@@ -501,35 +503,41 @@ What the tests check today, and where they run:
   - Control state: workers adopt the caller's rounding and flush to zero, on `Dispatch`
     too, where fibers change threads.
   - Cancellation: a canceled region and a canceled `gemm` return `error.Canceled` only
-    once no worker runs. `std.testing.allocator` checks every free.
+    once no worker runs; the `gemm` hosted only, since a thread of its own releases the
+    kernel it holds. `std.testing.allocator` checks every free.
+  - A concurrent task runs on a thread of its own, with a fresh copy of the thread-locals.
 - **Split inputs:** each core's `Q`, at every precision, is the same at 0, 1, 2, 3 and 64
   threads (`params.zig`, `checkCore`); only LA464's `P` and `R` move. The level 3 tests
   record the depth of every `gemm`, `trsm` and `trmm` kernel call, so each packed slice's
   `Q`. A threaded run must see the depths the serial driver sees, at every worker count.
   Level 1 and 2 chunks ignore the CPU count and the ceiling (above).
 - **Races** (`race stress` in the test names): `threading.stress_rounds` (1000) rounds per
-  level at 2 to 8 workers, on `Io.Threaded`, each checked bit for bit against one worker.
+  level at 2 to 8 workers, on `TestIo`, each checked bit for bit against one worker.
   Strided vectors' gaps and `A`'s and `C`'s leading-dimension padding are guard bands, and
   scratch comes NaN-poisoned. Level 1 runs `axpy`, `dot` and `iamax`. Level 2 runs `gemv`
   by columns, `ger`, `syr2` and `symv`, whose partial vectors fold. Level 3 runs `gemm`
   with shared packed `B`, `syr2k` and `trsm`. They are meant for the weak-memory rigs
-  (`qemu-test-linux-aarch64`, `-powerpc64le`, `-riscv64`, all `-smp 4`) and the M6. A
+  (`qemu-test-linux-aarch64`, `-powerpc64le`, `-riscv64`, all `-smp 4`; `aarch64-smp`) and
+  the M6. A
   filter of `race stress` runs them alone.
 - **TSan:** `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64
   Linux rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or
   macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
   report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
   is left out.
-- **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
-  `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling. No test builds a
-  multithreaded freestanding target, which would need four things:
-  - secondary cores started in the test kernels (PSCI `CPU_ON` on aarch64 `virt`, for
-    example) with a stack each;
-  - TLS set up per core, since std's `debug.zig` keeps `panic_stage` thread-local once
-    a build is not `single_threaded`;
-  - an `Io` that hands `Group.concurrent` and `Group.async` tasks to those cores, with
-    futex waits, wakes and cancellation;
-  - rigs at `-smp` above 1.
+- **Freestanding:** the kernel rigs build `single_threaded` but for `x86_64-smp` and
+  `aarch64-smp` (`cpus` in `build/qemutest.zig`), which run the threaded tests above
+  (`smp_filters`) on four cores; `rstd-check-uefi` keeps UEFI compiling. In those kernels
+  (`test/qemu/smp.zig`):
+  - the boot core starts the others by INIT-SIPI-SIPI (x86_64, the count from QEMU's
+    fw_cfg) or PSCI `CPU_ON` (aarch64), each on a stack of its own;
+  - each core gets a copy of the TLS image the linker script bounds, since std's
+    `debug.zig` keeps `panic_stage` thread-local once a build is not `single_threaded`;
+  - `Pool`, an `Io`, hands a future or group task to an idle core, or to none: past its
+    limits or with every core busy, `async` runs inline and `concurrent` fails, as on
+    `Io.Threaded`;
+  - futex waits poll the word and the task's cancel, sleeping in `wfe` or `mwait` until a
+    wake or a cancel rings the core.
 - **`Dispatch` with its pool** (`ssh-test-aarch64-macos`): the `threading` and level 3
   tests above, race stress and cancellation included, on the futures path
   (2026-10-30).

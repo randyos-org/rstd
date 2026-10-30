@@ -72,6 +72,11 @@ comptime {
         \\  movw %ax, %fs
         \\  movw %ax, %gs
         \\  movq $__stack_top, %rsp
+        \\  call qemutest_cpu_init
+        \\  jmp 8f
+        \\// what every core sets up (`smp.zig`); keeps %rdi
+        \\.globl qemutest_cpu_init
+        \\qemutest_cpu_init:
         \\  movl $1, %eax
         \\  cpuid
         \\  btl $26, %ecx
@@ -88,6 +93,8 @@ comptime {
         \\  xsetbv
         \\2:
         \\  fninit
+        \\  ret
+        \\8:
         \\  movq $__bss_start, %rdi
         \\  movq $__bss_end, %rcx
         \\  subq %rdi, %rcx

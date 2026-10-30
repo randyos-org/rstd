@@ -84,6 +84,9 @@ const Machine = struct {
     /// `-Dqemu-test-part` picks some, and `-Dqemu-test-filter` builds one
     /// image as usual.
     parts: []const Part = &.{},
+    /// CPUs: past 1 the kernel builds multithreaded, starts them all
+    /// (`test/qemu/smp.zig`) and runs `smp_filters` unless filtered.
+    cpus: u8 = 1,
 };
 
 const Part = struct { name: []const u8, filters: []const []const u8 };
@@ -157,6 +160,18 @@ const base_machines = [_]Machine{
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
+    },
+    .{
+        // the threaded tests on four cores, started by PSCI
+        .name = "aarch64-smp",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.cortex_a72 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
+        .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/aarch64.ld",
+        } },
+        .cpus = 4,
     },
     .{
         // TCG on a Mac too, which has no SVE
@@ -363,6 +378,20 @@ const base_machines = [_]Machine{
             .llvm = true,
             .semihosting = false,
         } },
+    },
+    .{
+        // the threaded tests on four cores, started by INIT-SIPI-SIPI
+        .name = "x86_64-smp",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-M", "pc", "-cpu", "max" },
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86_64.ld",
+            .llvm = true,
+            .semihosting = false,
+        } },
+        .cpus = 4,
     },
     .{
         // The host CPU under Windows' hypervisor: TCG has no AVX-512, FMA4 or
@@ -813,6 +842,9 @@ const base_machines = [_]Machine{
 /// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
 pub const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "linalg.lapack.", "simd." } ++ small_filters);
 
+/// The multicore rigs' tests: those that thread.
+const smp_filters: []const []const u8 = &.{ "linalg.blas.threading.", "linalg.blas.blas3.threaded.", "linalg.blas._test.blas2.threaded.", "threaded level 1", "at any worker count" };
+
 /// The smaller BLAS test files: types, `fma`, `portable`, `ext` and `util`.
 const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext.", "linalg.blas.util." };
 
@@ -1215,8 +1247,8 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .target = target,
         .optimize = optimize,
         .code_model = k.code_model,
-        // no threads under a test kernel
-        .single_threaded = true,
+        // threads only where the kernel starts more cores
+        .single_threaded = m.cpus == 1,
     });
     if (k.firmware != null) try addUefiImports(b, test_mod);
     // the kernels of the architectures that have any
@@ -1225,7 +1257,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
         .test_runner = .{ .path = b.path("test/qemu/runner.zig"), .mode = .simple },
-        .filters = if (filters.len != 0) filters else default_filters,
+        .filters = if (filters.len != 0) filters else if (m.cpus > 1) smp_filters else default_filters,
         .use_llvm = if (k.llvm) true else null,
         // every rig needs its linker script, which only lld honors
         .use_lld = true,
@@ -1251,6 +1283,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         run.step.dependOn(asm_check);
     }
     addConsole(b, run, m, host);
+    if (m.cpus > 1) run.addArgs(&.{ "-smp", b.fmt("{d}", .{m.cpus}) });
     if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
     if (k.firmware) |fw| {
         // the app at the removable-media boot path of a read-only FAT drive

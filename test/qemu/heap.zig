@@ -5,6 +5,7 @@
 //! code gets from the firmware.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 
 /// The page size the rigs use, on every target.
 pub const page_size = 4096;
@@ -60,6 +61,17 @@ pub fn use(r: []align(max_align) u8) void {
     region = r[0..@min(r.len, max_len)];
 }
 
+/// Held through each call where cores share the heap (`smp.zig`).
+var lock: std.atomic.Mutex = .unlocked;
+
+fn acquire() void {
+    if (!sysinfo.single_threaded) while (!lock.tryLock()) std.atomic.spinLoopHint();
+}
+
+fn release() void {
+    if (!sysinfo.single_threaded) lock.unlock();
+}
+
 pub const allocator: std.mem.Allocator = .{ .ptr = undefined, .vtable = &.{
     .alloc = alloc,
     .resize = resize,
@@ -93,6 +105,8 @@ fn findRun(n: usize, step: usize) ?usize {
 }
 
 fn alloc(_: *anyopaque, bytes: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
+    acquire();
+    defer release();
     if (alignment.toByteUnits() > max_align) return null;
     const n = count(bytes);
     const i = findRun(n, @max(1, alignment.toByteUnits() / page)) orelse {
@@ -104,6 +118,8 @@ fn alloc(_: *anyopaque, bytes: usize, alignment: std.mem.Alignment, _: usize) ?[
 }
 
 fn resize(_: *anyopaque, memory: []u8, _: std.mem.Alignment, new_len: usize, _: usize) bool {
+    acquire();
+    defer release();
     const i = first(memory.ptr);
     const old = count(memory.len);
     const new = count(new_len);
@@ -122,6 +138,8 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
 }
 
 fn free(_: *anyopaque, memory: []u8, _: std.mem.Alignment, _: usize) void {
+    acquire();
+    defer release();
     const i = first(memory.ptr);
     take(i, count(memory.len), false);
 }

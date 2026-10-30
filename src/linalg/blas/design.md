@@ -1725,7 +1725,7 @@ here can.
 
 | Rig | How | Covers |
 | --- | --- | --- |
-| `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded`, a 32 MiB heap (ours, `test/qemu/heap.zig:14`), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
+| `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded` but on the `-smp` machines, a 32 MiB heap (ours, `test/qemu/heap.zig:14`), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
 | `qemu-test-<arch>-uefi` | the freestanding rigs' tests and runner as a UEFI application (`test/qemu/uefi.zig`) under QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`; x86_64 and aarch64 | RandyOS's loader's platforms: PE/COFF, the Microsoft ABI on x86_64, UEFI's CPU state |
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
 | `qemu-test-linux-<arch>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; aarch64, x86_64, arm, riscv64, powerpc64le |
@@ -1744,6 +1744,7 @@ The freestanding and UEFI machines (`build/qemutest.zig`):
 | --- | --- | --- |
 | `aarch64` | `cortex-a72` | |
 | `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's |
+| `aarch64-smp`, `x86_64-smp` | as `aarch64`, `x86_64`; four cores | multithreaded kernels: the threaded tests on their cores (`test/qemu/smp.zig`, [`threading.md`](threading.md) Verification) |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
 | `riscv64-vlen128`, `riscv64-vlen256` | `rv64,v=true,vlen=128`, `256` | `zvl128b`'s and `zvl256b`'s objects on the VLEN they are named for, the VLEN-agnostic `axpy` at both |

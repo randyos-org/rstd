@@ -1685,7 +1685,7 @@ fn threadedCore(vt: *const Vtable) !void {
     const saved = blas.testUse(vt);
     defer blas.testRestore(saved);
     const al = std.testing.allocator;
-    var threaded: Io.Threaded = .init(al, .{});
+    var threaded: threading.TestIo = .init(al, .{});
     defer threaded.deinit();
     inline for (all) |T| threadedType(T, al, threaded.io()) catch |e| {
         check.say("{s}: ", .{@typeName(T)});
@@ -1694,7 +1694,7 @@ fn threadedCore(vt: *const Vtable) !void {
 }
 
 test "interface: threaded level 1 gives one worker's bits at any worker count, Io and core" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
@@ -1719,14 +1719,14 @@ fn stressBits(comptime T: type, al: std.mem.Allocator, io: Io, x: []T, y0: []con
 }
 
 test "interface: race stress: threaded level 1 keeps one worker's bits and its guard bands, round after round" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !threading.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
     threading.test_serial_max = quantum;
     defer threading.test_serial_max = null;
     const al = std.testing.allocator;
-    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
+    var threaded: threading.TestIo = .init(al, .{ .async_limit = .limited(8) });
     defer threaded.deinit();
     inline for (.{ f64, Complex32 }) |T| {
         const x = try al.alloc(T, stress_n * 2);
