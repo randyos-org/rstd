@@ -84,7 +84,7 @@ pub fn build(b: *Build) !void {
     // Debug builds link only the target's BLAS kernels, which is far faster
     // to compile; `-Dblas-cores=all` builds every core to test dispatch.
     const blas_cores = b.option(rstdbuild.BlasCores, "blas-cores", "BLAS kernel objects to build: the target's core only (debug default), all, or none") orelse
-        @as(rstdbuild.BlasCores, if (optimize == .debug) .target else .all);
+        blaskern.defaultCores(target, optimize);
     // rgl's Vulkan/SPIR-V shaders pull in no extra dependency (the
     // spirv32-vulkan target ships in the compiler), but rstd is a
     // general std lib supplement used by headless/CLI code too, so

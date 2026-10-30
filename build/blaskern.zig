@@ -46,6 +46,15 @@ const Group = struct {
 var force_llvm: ?bool = null;
 var option_read = false;
 
+/// The kernel objects built when `-Dblas-cores` is not given: the target's
+/// core in debug, else all; none where no kernel takes the target's calling
+/// convention (`abi.zig`), so a consumer's build links the portable kernels
+/// instead of stopping. Asking for kernels there still stops the build.
+pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbuild.BlasCores {
+    if (abi.variantOf(&target.result) == .unsupported) return .none;
+    return if (optimize == .debug) .target else .all;
+}
+
 /// Builds the per-core kernel objects for `target` and links them into `mod`:
 /// for every core the target can run (`.all`), or only the core the target
 /// maps to (`.target`), or none (`.none`). It also gives `mod` the
