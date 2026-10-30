@@ -10,6 +10,7 @@
 //!
 //!   * `p` of the older x86 cores follows the L2 size (`Affine`), over the header;
 //!   * on x86, `r` is always derived from the packing buffer;
+//!   * on mips64, `dgemm`'s `r` is 640 for every core;
 //!   * `p` is rounded up to the unroll;
 //!   * the 3M variants take `p` and `q` of the real ones unless the header says;
 //!   * LA464 and the AMD AVX-512 parts override sets by cache size and threads.
@@ -322,6 +323,10 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
         res[i] = .{ .p = p, .q = q, .r = r };
     }
 
+    // `setparam-ref.c:1099` (`ARCH_MIPS64`), over the header's 8192 or the
+    // Loongsons' `dgemm_r`; `s`, `c` and `z` keep the header's
+    if (comptime family == .mips64) res[1].r = 640;
+
     if (comptime std.meta.activeTag(rule) == .la464) {
         const set = la464_sets[@intFromBool(env.threads == 1)][@intFromBool(@divTrunc(env.l3_kb, 1024) == 32)];
         inline for (.{ "s", "d", "c", "z" }, 0..) |name, i| {
@@ -591,6 +596,23 @@ test "fixed sets are taken as they are; x86 derives r, others keep the header's"
     installCore(&vt, .mips64, .mips64_generic, .{});
     try std.testing.expectEqual(@as(i32, 128), vt.sgemm_p);
     try std.testing.expectEqual(@as(i32, 12288), vt.sgemm_r);
+}
+
+test "mips64 takes setparam-ref.c's dgemm r of 640 on every core; mips32 keeps its own" {
+    var vt: Vtable = .{};
+    inline for (.{ .mips64_generic, .loongson3r3, .loongson3r4, .i6400, .p6600 }) |c| {
+        installCore(&vt, .mips64, c, .{});
+        try std.testing.expectEqual(@as(i32, 640), vt.dgemm_r);
+    }
+    // the header's 8192 and 12288 before; only `d` moves
+    installCore(&vt, .mips64, .mips64_generic, .{});
+    try std.testing.expectEqual(@as(i32, 12288), vt.sgemm_r);
+    try std.testing.expectEqual(@as(i32, 4096), vt.zgemm_r);
+    try std.testing.expectEqual(@as(i32, 128), vt.dgemm_p);
+    try std.testing.expectEqual(@as(i32, 120), vt.dgemm_q);
+    // `ARCH_MIPS` has no such block: `r` from the buffer
+    installCore(&vt, .mips32, .loongson3r3, .{});
+    try std.testing.expectEqual(derivedR(44, 92, 8, tableFor(.mips32, .loongson3r3).?), vt.dgemm_r);
 }
 
 test "old x86 cores follow the L2 size" {
