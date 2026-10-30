@@ -1,6 +1,7 @@
 //! Threaded level 2 against one worker, bit for bit, on every linked core:
 //! each routine at one worker, then at several on a threaded `Io` and on an
-//! inline one, over chunks made small (`threading.test_serial_max`).
+//! inline one, over chunks made small (`threading.test_serial_max`). The
+//! routines that fold partial vectors are also checked against one chunk.
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
@@ -44,6 +45,30 @@ fn sameBits(al: Allocator, tio: Io, comptime body: Body) !void {
         try body(al, io, &got);
         try std.testing.expectEqualSlices(u8, want.items, got.items);
     };
+}
+
+/// `body`'s output over chunks of `most` against one chunk, within rounding:
+/// partial vectors change the order of the sums only.
+fn nearSerial(comptime T: type, al: Allocator, comptime body: Body, most: u64) !void {
+    blas.config.cpu_count = 1;
+    var want: std.ArrayList(u8) = .empty;
+    defer want.deinit(al);
+    threading.test_serial_max = std.math.maxInt(u64);
+    try body(al, Io.failing, &want);
+    var got: std.ArrayList(u8) = .empty;
+    defer got.deinit(al);
+    threading.test_serial_max = most;
+    try body(al, Io.failing, &got);
+    try std.testing.expectEqual(want.items.len, got.items.len);
+    const z = @sizeOf(T);
+    for (0..want.items.len / z) |i| {
+        const w = std.mem.bytesToValue(T, want.items[i * z ..][0..z]);
+        const g = std.mem.bytesToValue(T, got.items[i * z ..][0..z]);
+        check.expectClose(T, w, g, check.tolerance(Float(T), 8 * long)) catch |e| {
+            check.say("element {d}: ", .{i});
+            return e;
+        };
+    }
 }
 
 /// A filled buffer of `len`.
@@ -123,6 +148,32 @@ fn Cases(comptime T: type) type {
             };
         }
 
+        /// `symv`, and `hemv` over every triangle.
+        fn symv(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
+            const n = long;
+            const lda = n + 3;
+            const a = try filled(T, al, lda * n, 13);
+            defer al.free(a);
+            const x = try filled(T, al, 3 * n, 14);
+            defer al.free(x);
+            const y0 = try filled(T, al, 3 * n, 15);
+            defer al.free(y0);
+            const y = try al.alloc(T, y0.len);
+            defer al.free(y);
+            for (std.enums.values(types.Uplo)) |u| for (incs) |inc| {
+                if (!u.isRev()) {
+                    @memcpy(y, y0);
+                    try interface.symv(al, io, T, u, n, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                }
+                if (comptime isComplex(T)) {
+                    @memcpy(y, y0);
+                    try interface.hemv(al, io, T, u, n, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
+                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                }
+            };
+        }
+
         /// The rank updates, full and packed, rank 1 and 2, with zeros in
         /// `x` and `y` for the columns they skip.
         fn rank(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
@@ -175,11 +226,17 @@ fn onCore(vt: *const Vtable) !void {
     defer threaded.deinit();
     inline for (all) |T| {
         const C = Cases(T);
-        // a dozen chunks or so of each
-        inline for (.{ C.gemv, C.ger, C.gbmv, C.rank }, .{ "gemv", "ger", "gbmv", "rank updates" }, .{ 3000, 3000, 3000, 40 }) |body, name, most| {
+        // a dozen chunks or so of each; the last fold partial vectors
+        const bodies = .{ C.gemv, C.ger, C.rank, C.gbmv, C.symv };
+        const names = .{ "gemv", "ger", "rank updates", "gbmv", "symv and hemv" };
+        inline for (bodies, names, .{ 3000, 3000, 40, 3000, 40 }, 0..) |body, name, most, i| {
             threading.test_serial_max = most;
             sameBits(al, threaded.io(), body) catch |e| {
                 check.say("{s} {s}: ", .{ name, @typeName(T) });
+                return e;
+            };
+            if (i >= 4) nearSerial(T, al, body, most) catch |e| {
+                check.say("{s} {s} against one chunk: ", .{ name, @typeName(T) });
                 return e;
             };
         }
