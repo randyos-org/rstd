@@ -1768,7 +1768,7 @@ fn diffL1(comptime r: L1, comptime p: Prec, n: usize, inc: usize, b: Bufs(p.F), 
 fn raceLibL1(io: Io, comptime r: L1, comptime p: Prec, b: Bufs(p.F), kx: []p.F, ky: []p.F) !void {
     const name = comptime l1Slot(r, p);
     const C = L1Call(r, p);
-    const asm_k = if (arm) asmFor(name) else null;
+    const asm_k = if (arm and !alone) asmFor(name) else null;
     const fns = [lib_cols.len]?Fn(name){
         libL1(.openblas, r, p),
         libL1(.rstd, r, p),
@@ -1904,7 +1904,7 @@ fn raceLibGemv(io: Io, gpa: std.mem.Allocator, comptime p: Prec, comptime t: []c
     for (x) |*v| v.* = @floatCast(rand.float(f64) * 2 - 1);
     for (y0) |*v| v.* = @floatCast(rand.float(f64) * 2 - 1);
 
-    const asm_k = if (arm) asmFor(name) else null;
+    const asm_k = if (arm and !alone) asmFor(name) else null;
     const fns = [lib_cols.len]?Fn(name){
         libGemv(.openblas, p, t),
         libGemv(.rstd, p, t),
