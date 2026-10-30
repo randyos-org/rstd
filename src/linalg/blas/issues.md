@@ -407,6 +407,13 @@ When an issue is fixed upstream, drop the workaround and its entry.
   vectorizers cannot widen. A new loop without it can still be vectorized:
   the `-femit-asm` of a `-mcpu=g4` build should have no `vaddfp`, `vmaddfp`
   or `vsubfp` outside `simd`, the other targets' tiles and test models.
+  A ReleaseSafe G4 scan (2026-10-30, T42) found test code in AltiVec lanes
+  only where the data is normal-range (`check.fill`'s [-2, 2), `blat3`'s
+  tables, `threaded.zig`'s 2^±12): the `scal`, half-`gemv`, triangular,
+  `geadd`, `matcopy`, level-3 driver and threaded models and
+  `std.math.Complex`. Loops fed subnormals (`denormal.zig`'s `scaled`, the
+  edge tests) stayed scalar, but for `denormal.zig`'s test that the lanes
+  flush; a new one needs `util.scalar`.
 
 ### lld cannot link 32-bit SPARC
 
