@@ -1260,6 +1260,20 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `fr = -(1 + 2^-51)` gives 0 where a fused one gives 2^-104. These
   > CPUs could use `float64_muladd`.
 
+### powerpc: OpenBIOS hangs before its banner on `-cpu 750fx`
+
+- **Seen:** QEMU 11.0.1 (OpenBIOS 1.1, Sep 2024), `-M mac99` or `g3beige`
+  with `-cpu 750fx` or `750gx` prints nothing; `-cpu 750`, `750cxe` and `G4`
+  boot the same image. `-d int` shows an ISI at 0xfff08b50 (in the ROM),
+  then `rfid` (0x4c000024, not in 32-bit CPUs) at 0x251c, then nothing.
+  OpenBIOS knows both PVRs (`arch/ppc/qemu/init.c`, `ppc_defs`, 0x7000 and
+  0x7002, e5ac46dd2), so the fault is elsewhere; cause not found.
+- **Where:** the `powerpc-750` rigs, for RandyOS's iBook G3 (a 750FX).
+- **Workaround:** the rigs run `-cpu 750`. The 750FX adds HID2, four more
+  BAT pairs and L2 controls, none of which user code reaches; Zig's `750`
+  model is the same for both.
+- **Issue text:** none yet: not narrowed to QEMU or OpenBIOS.
+
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to

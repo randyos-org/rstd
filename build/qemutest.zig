@@ -584,12 +584,13 @@ const machines = [_]Machine{
         } },
     },
     .{
-        // RandyOS's iBook G3 target: a 750FX (no AltiVec) on `mac99`, soft
-        // float, so no kernel objects; the portable kernels run
+        // RandyOS's iBook G3 target (a 750FX, no AltiVec) on `mac99`: soft
+        // float, so no kernel objects; the portable kernels run. A 750, as
+        // OpenBIOS hangs on QEMU's `750fx` (issues.md); the same ISA
         .name = "powerpc-750",
         .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
         .qemu = "qemu-system-ppc",
-        .args = &.{ "-M", "mac99", "-cpu", "750fx" },
+        .args = &.{ "-M", "mac99", "-cpu", "750" },
         .memory = "256M",
         .blas_cores = .none,
         .boot = .{ .kernel = .{
@@ -598,11 +599,11 @@ const machines = [_]Machine{
         } },
     },
     .{
-        // the 750FX with hard float: every 32-bit core linked, none runnable
+        // the 750 with hard float: every 32-bit core linked, none runnable
         .name = "powerpc-750-hf",
         .query = .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" } },
         .qemu = "qemu-system-ppc",
-        .args = &.{ "-M", "mac99", "-cpu", "750fx" },
+        .args = &.{ "-M", "mac99", "-cpu", "750" },
         .memory = "256M",
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/ppc32.ld",
