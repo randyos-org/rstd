@@ -26,6 +26,7 @@ adjtimex
 adrp
 Adwaita
 aeabi
+AERE
 AESKLE
 AESNI
 afs_syscall
@@ -108,6 +109,7 @@ bgeu
 bgrid
 bgt
 bgtz
+bidiag
 bidiagonal
 bind
 blasbench
@@ -184,6 +186,7 @@ charstrings
 chdir
 chemm
 chemv
+Chlumsky
 chmod
 chown
 chroot
@@ -192,6 +195,7 @@ cimatcopy
 cimgui
 clampf
 claswp
+Cleve
 clfsh
 clgr
 CLKTCK
@@ -255,6 +259,7 @@ create_module
 creds
 crot
 CROTG
+Croz
 cscal
 csep
 csky
@@ -305,6 +310,7 @@ delete_module
 Denormals
 Deque
 devtmpfs
+dgbtrf
 dgeadd
 dgemm
 dgemv
@@ -318,6 +324,7 @@ dimatcopy
 dir
 DIRENV
 DLAB
+dlaed
 dlassq
 dlaswp
 dlopen
@@ -348,6 +355,7 @@ dspr
 dsra
 dsum
 dswap
+dsyevd
 dsymm
 dsymv
 DSYNC
@@ -659,15 +667,20 @@ fxstate
 FXWSAVE
 gamsq
 GBMV
+GBTF
 gbtrf
 gdb
 gdkwayland
 gdkx
 geadd
+gebak
+gebal
 gecon
 geev
 gehrd
 Geijn
+gelqf
+gelsy
 gemmt
 gemmtrsm
 gemv
@@ -675,6 +688,7 @@ geqp
 geqrf
 gerc
 gerv
+GESC
 gesdd
 gesv
 gesvd
@@ -759,6 +773,7 @@ halvable
 Harf
 Harfbuzz
 HarfBuzz
+Harwell
 hasc
 hbmv
 hcall
@@ -770,6 +785,7 @@ HEMVREV
 herk
 hetrd
 hetrf
+Hevd
 hflex
 HFLOAT
 hhcurveto
@@ -795,6 +811,7 @@ hwdiv
 HWPOISON
 hwprobe
 hygon
+Iain
 iamax
 iamaxk
 ICACHEBSIZE
@@ -915,9 +932,11 @@ journald
 jpvt
 kase
 kassert
+kazdadi
 kcmp
 kcpassword
 KEEPONFORK
+Keita
 kernings
 kexec_file_load
 kexec_load
@@ -950,6 +969,7 @@ laset
 lassq
 laswp
 LASX
+LATDF
 lauu
 lauum
 Laxpy
@@ -1352,7 +1372,9 @@ pollfds
 popfq
 popl
 portrv
+portxa
 potf
+potr
 potrf
 potri
 potrs
@@ -1438,7 +1460,9 @@ qtrsm
 qtyi
 qtyr
 query_module
+Quilez
 Quilez's
+quiñones
 quotactl
 quotactl_fd
 randyos
@@ -1831,6 +1855,7 @@ swapon
 swc
 syevd
 sygst
+Sylv
 symlink
 symlinkat
 symv
@@ -1842,6 +1867,7 @@ syscall
 syscall-ABI
 syscall-count
 syscalls
+syscons
 sysctlbyname
 SYSENTER
 SYSEXIT
@@ -1866,13 +1892,17 @@ tbsv
 tcopy
 tcpkeepalive
 tee
+Teranishi
 termio
 testl
 testq
+Tevd
 texel
 texels
 textunderstandingd
 tgkill
+TGSY
+tgsyl
 thisreallyprobablydoesntexist
 thrcomm
 thrtests
@@ -1910,10 +1940,12 @@ transb
 TRBAK
 tred
 trevc
+trexc
 TRIL
 TRIU
 trmm
 trmv
+trsen
 trsm
 trsv
 trsyl
@@ -2028,6 +2060,7 @@ VFRC
 vfsub
 vhangup
 vhcurveto
+Viktor
 vilvh
 vilvl
 vinsgr

@@ -103,8 +103,8 @@ The port and its optimization are done, and other rstd work can start, when all 
   exports (`load` tries `dpotrf$NEWLAPACK$ILP64` and `dpotrf_$NEWLAPACK$ILP64`), whether its special
   values match the reference (a quirk entry if not), and in the timing session whether routing beats
   rstd's threaded `potrf`. Sweep filters: `potrf goes to Accelerate`, `potr`.
-- [ ] **T117** faer follow-ups (T34): `@Vector` the fused bidiagonalization pass (scalar now, faer's
-  four partial sums); keep `gesvd`'s `INFO > 0` count (faer doesn't); run divide and conquer's two
+- [ ] **T117** faer follow-ups (T34): `@Vector` the fused bi-diagonalization pass (scalar now, faer's
+  four partial sums); keep `gesvd`'s `INFO > 0` count (faer doesn't); run divide-and-conquer's two
   halves in parallel if rstd's threading gains task trees; race `gesvd`/`gesdd` against OpenBLAS's
   LAPACK, reference LAPACK and Eigen in the timing session (T73's bench). Sweep: watch
   sparc64-debug's `openblas-l1` part (0x3f3800), which now also pulls in `gesvd` (T39).
@@ -115,7 +115,7 @@ The port and its optimization are done, and other rstd work can start, when all 
   with `-Drelapack=true` on one or two.
 - [ ] **T119** Level-3 small-matrix follow-ups (T30): `sbgemm`'s small-matrix kernels are not
   ported; the per-core small kernels upstream has (AVX-512, SVE, POWER10, LASX) are not converted;
-  the small-path thresholds are upstream's, tuned for its kernels, so time them under T05. Sweep:
+  the small-path thresholds are upstream, tuned for its kernels, so time them under T05. Sweep:
   `3m`, `small`, `interface: gemm` on every rig, `aarch64-sve`, `powerpc64le-power10` and
   loongarch64 first (their permits allow the small path), `blat3_3m` on `x86_64` and `i386-max`.
 - [ ] **T94** Fact-check items still open after T78: the sparc64 `-Oz` miscompile (needs a reduced
