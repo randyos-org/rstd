@@ -418,6 +418,8 @@ Memory safety for concurrent work:
   ppc64le, riscv64) and the M6, with guard bands asserting nothing outside the output is
   written. `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64 Linux
   rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or macOS).
+  On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests report no race
+  (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it is left out.
 - **Cancellation:** canceled calls return `error.Canceled`, leave no worker running, and leave
   memory outside the output untouched; the allocator sees every free after the last task ends.
 - **Split inputs:** a test that `Q` and every chunk size are the same for every thread count
