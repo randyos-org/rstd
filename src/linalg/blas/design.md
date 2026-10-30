@@ -731,15 +731,19 @@ Zig module allows.
   `xPOTRF2`: a NaN pivot fails (`DISNAN`, `lapack-netlib/SRC/dpotrf2.f:168`), where upstream `ajj <= 0`
   (`lapack/potf2/potf2_U.c:71`) passes it and reports success; and
   the base case divides by the pivot, as `trsm` does, where upstream multiplies by its
-  reciprocal (`potf2_U.c:86`). The drivers are called directly, so Accelerate never runs them.
-  `potf2` is the base case, public.
+  reciprocal (`potf2_U.c:86`). The drivers are called directly, so Accelerate never runs them;
+  on macOS the whole `potrf` goes to Accelerate's `?potrf_` while routing is on
+  ([Apple Accelerate](#apple-accelerate)). `potf2` is the base case, public.
 - **Threads.** Each interface's thread rule is upstream's (`cholesky.zig`'s `threads`):
   `getrf` from `m * n` 40000 (`DOUBLE` 10000; complex 10000), `gesv` from `n * n` alike,
-  `lauum`, `getrs` and `trtrs` from 64,
+  `potrf` from `n` 128 (`DOUBLE` and complex 64), `lauum`, `getrs` and `trtrs` from 64,
   `trtri` past 150 (complex from 64), `potri` from 180 (complex 200, `DOUBLE` 150). Upstream
   runs its `_parallel.c` algorithm when it has more than one thread; here the size alone
   picks it, so one worker past the threshold runs it too, and the drivers' workers keep the
   bits ([`threading.md`](threading.md)). No result depends on the worker count.
+- **`potrf` threaded** (`potrf_U_parallel.c`, `potrf_L_parallel.c`): blocks of half `n` rounded
+  up to `unroll_n`, at most `GEMM_Q` (`:92`), each factored recursively until `4 * unroll_n`
+  is left for the single form; the panel's `trsm` and the update's `herk` take the workers.
 - **`potri`** (`cholesky.zig`, `interface/lapack/potri.c`): `trtri` (non-unit), then `lauum`,
   both single or both parallel by `potri`'s rule. A zero on the factor's diagonal is
   `error.Singular` before `A` is touched, as `xPOTRI` has it through `xTRTRI`; upstream skips
@@ -830,7 +834,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   The spellings are ours, checked by `apple_accel.zig`'s tests on the M6 ("the 32-bit table binds
   the new names first"). macOS 27 binds 150 of the `Table`'s 154 CBLAS fields: there is no
   `cblas_i?amin` (seen on the M6; no test checks it). `axpby` is
-  `catlas_?axpby`.
+  `catlas_?axpby`. LAPACK's `?potrf_` is bound as `dpotrf$NEWLAPACK$ILP64` or
+  `dpotrf_$NEWLAPACK$ILP64` (and the 32-bit forms, then the classic `dpotrf_`): which the new
+  interface spells is unchecked until a Mac run.
 - **Threads.** Threaded, Accelerate's `gemv` with `A` un-transposed rounds differently from one
   thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and `gemm` gave the same bits at every thread
   count tried (macOS 27, M6). So `load` makes Accelerate single-threaded:
@@ -851,7 +857,9 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
 - **Routed:** `copy`, `swap`, `scal`, `dot`, `dotc`, `dsdot`, `sdsdot`, `nrm2`, `asum`, `rot`,
   `rotm`, `axpy`, `axpby`; `gemv`, `gbmv`, `ger`, `gerc`, the real `symv`, `sbmv`, `spmv`,
   `syr`, `spr`, `syr2`, `spr2`, the Hermitian `hemv`, `hbmv`, `hpmv`, `her`, `hpr`, `her2`,
-  `hpr2`, and the six triangular routines; all of level 3, less what is kept for speed (below).
+  `hpr2`, and the six triangular routines; all of level 3, less what is kept for speed (below);
+  LAPACK's `potrf` (its `INFO` becomes rstd's error and `minor`; after a failure `A` holds
+  Accelerate's partial factor).
   Routed, `sdot` is `cblas_dsdot` rounded, and `snrm2` and `scnrm2` the root of `dsdot(x, x)`,
   so `s` sums in `f64` as rstd's kernels do. `d` and `z` `nrm2`, and `asum`, take `incx > 0` only.
 - **Kept for speed (arm64).** Level 1 goes by routine, letter and stride, one table
@@ -1493,7 +1501,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Bit-exact models | `blas1/dot/__root__.zig`, `blas1/asum/__root__.zig`, `blas1/nrm2/__root__.zig`, `blas2/gemv/__root__.zig` | the Zig kernels that replace converted or C code give its bits (the x87 sums, `skylakexModel`, the half-precision `gemv`) |
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
-| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded` |
+| LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |

@@ -1,6 +1,7 @@
 //! Cholesky factorization, solve and inverse. `potrf` is OpenBLAS's
 //! `interface/lapack/potrf.c` and `zpotrf.c` over `lapack/potrf/potrf_U_single.c`
-//! and `potrf_L_single.c`; the base case is
+//! and `potrf_L_single.c`, or past upstream's size threshold
+//! `potrf_U_parallel.c` and `potrf_L_parallel.c`; the base case is
 //! `lapack/potf2/potf2_U.c`, `potf2_L.c`, `zpotf2_U.c` and `zpotf2_L.c`
 //! (OpenBLAS v0.3.34-317), public as `potf2` (`interface/lapack/potf2.c`,
 //! `zpotf2.c`). The semantics are Reference-LAPACK's `xPOTRF2`
@@ -14,8 +15,11 @@
 //!
 //! The trailing updates are the level-3 drivers' `trsm` and `herk` (`syrk`
 //! for real `T`), called directly as upstream calls its kernels, so
-//! Accelerate never runs them. Serial: the drivers get one worker, and
-//! `potrf_U_parallel.c` and `potrf_L_parallel.c` are not ported.
+//! Accelerate never runs them. Upstream takes the parallel algorithm (other
+//! blocks) when it has more than one thread; here the size alone picks it
+//! (`threads`), and the drivers' workers keep the bits, so no result depends
+//! on the worker count. On macOS `potrf` goes to Accelerate's `?potrf_` when
+//! routing is on (`apple_accel.potrf`).
 //!
 //! `potrs` is Reference-LAPACK's `xPOTRS` (`lapack-netlib/SRC/zpotrs.f`),
 //! which OpenBLAS uses too: two triangular solves. `potri` is
@@ -30,6 +34,7 @@ const util = @import("../blas/util.zig");
 const portable = @import("../blas/portable.zig");
 const threading = @import("../blas/threading.zig");
 const driver = @import("../blas/blas3/driver.zig");
+const accel = @import("../blas/apple_accel.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const tri = @import("triangular.zig");
 
@@ -85,7 +90,7 @@ pub fn dtbOf(vt: *const Vtable) usize {
 // ---- threads -------------------------------------------------------------------
 
 /// The routines whose upstream interface picks a thread count by size.
-pub const Routine = enum { getrf, gesv, getrs, potri, lauum, trtri, trtrs };
+pub const Routine = enum { getrf, gesv, getrs, potrf, potri, lauum, trtri, trtrs };
 
 /// Upstream's interface rule for `r` over `T` at `size` (`m * n` for
 /// `getrf`, `n * n` for `gesv`, else `n`): null below its threshold, where
@@ -112,6 +117,13 @@ pub fn threads(comptime r: Routine, comptime T: type, size: u64) ?u32 {
         else if (size < @as(u64, if (double) 10000 else 40000)) return null else any,
         // `getrs.c`, `trtrs.c`, `lauum.c` and their `z` forms: `n < 64`
         .getrs, .trtrs, .lauum => if (size < 64) return null else any,
+        // `potrf.c`: below `nmax` one thread, else at most `n / nmax`;
+        // `zpotrf.c`: below 64
+        .potrf => if (complex) (if (size < 64) return null else any) else blk: {
+            const nmax: u64 = if (double) 64 else 128;
+            if (size < nmax) return null;
+            break :blk size / nmax;
+        },
         // `potri.c`: below 180; `zpotri.c`: below 200 (`DOUBLE` 150)
         .potri => if (size < @as(u64, if (!complex) 180 else if (double) 150 else 200)) return null else any,
         // `trtri.c`: up to 150; `ztrtri.c`: below 64
@@ -142,12 +154,21 @@ pub fn workers(size_max: u64) u32 {
 /// first `k - 1` columns (`u`: rows), the failed pivot at `A(k, k)`, and
 /// partial updates elsewhere. `minor` is written only then.
 ///
+/// Routed to Accelerate (macOS), a failure leaves its partial factor in `A`.
 pub fn potrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, minor: ?*usize) PotrfError!void {
     comptime floatType(T, "potrf");
     if (!try checkSquare(T, uplo, n, lda)) return;
+    if (accel.potrf(T, uplo, n, a, lda)) |info| return failed(@intCast(info), minor);
     const vt = table(T);
-    const q = driver.Blocking.of(T, vt).q;
-    return failed(try factor(allocator, io, T, vt, uplo == .u, dtbOf(vt), q, @intCast(n), a, @intCast(lda)), minor);
+    const blk = driver.Blocking.of(T, vt);
+    const upper = uplo == .u;
+    const un: usize = @intCast(n);
+    const la: usize = @intCast(lda);
+    const k = if (threads(.potrf, T, un)) |w|
+        try factorParallel(allocator, io, T, vt, upper, blk, un, a, la, w)
+    else
+        try factor(allocator, io, T, vt, upper, dtbOf(vt), blk.q, un, a, la);
+    return failed(k, minor);
 }
 
 /// `?POTF2`: `potrf` unblocked (`potf2_U.c` and the rest, as loops), with
@@ -193,6 +214,25 @@ fn factor(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upp
         const k = try factor(allocator, io, T, vt, upper, dtb, q, bk, d, lda);
         if (k != 0) return k + j;
         try trailing(allocator, io, T, vt, upper, n - j - bk, bk, d, lda, 1);
+    }
+    return 0;
+}
+
+/// `potrf_U_parallel.c` and `potrf_L_parallel.c`: blocks of half the order
+/// rounded up to `unroll_n`, at most `Q`, each factored recursively, until
+/// `4 * unroll_n` is left for `factor`; the drivers take up to `want`
+/// workers. Upstream drops to `factor` for one thread too; here only the
+/// size does (`threads`).
+fn factorParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32) driver.Error!usize {
+    if (n <= 4 * blk.un) return factor(allocator, io, T, vt, upper, dtbOf(vt), blk.q, n, a, lda);
+    const blocking = @min((n / 2 + blk.un - 1) / blk.un * blk.un, blk.q);
+    var i: usize = 0;
+    while (i < n) : (i += blocking) {
+        const bk = @min(n - i, blocking);
+        const d = a + i * (lda + 1);
+        const k = try factorParallel(allocator, io, T, vt, upper, blk, bk, d, lda, want);
+        if (k != 0) return k + i;
+        try trailing(allocator, io, T, vt, upper, n - i - bk, bk, d, lda, want);
     }
     return 0;
 }
@@ -648,6 +688,10 @@ test "potrf: the first minor that is not positive definite, by a pivot, NaN or i
 }
 
 test "potrf: a failed pivot is stored, real; minor is written only on failure" {
+    // rstd's own (Accelerate's keeps a complex pivot's imaginary part)
+    const was = accel.routing();
+    _ = accel.route(false);
+    defer _ = accel.route(was);
     inline for (.{ f64, types.Complex64 }) |T| for ([_]Uplo{ .u, .l }) |uplo| {
         // the identity with -3 at (2, 2): exact pivots
         var a: [16]T = @splat(scalar(T, 0));
@@ -788,10 +832,49 @@ test "potrs: reports the first bad argument and reads nothing when empty" {
     for (b) |v| try testing.expect(std.math.isNan(v));
 }
 
+fn parallelCases(vt: *const Vtable) anyerror!void {
+    const al = testing.allocator;
+    inline for (test_types) |T| for ([_]bool{ true, false }) |upper| {
+        for ([_]*const Vtable{ shrink(vt), vt }, 0..) |v, vi| {
+            const saved = blas.testUse(v);
+            defer blas.testRestore(saved);
+            const blk = driver.Blocking.of(T, v);
+            const sizes: []const usize = if (vi == 0) &shrunk_sizes else &own_sizes;
+            for (sizes) |n| {
+                if (check.rig() and n > 70) continue;
+                var p = try Problem(T).init(al, n, upper, n * 29 + @as(u64, @intFromBool(upper)));
+                defer p.deinit(al);
+                var poison: guard.Poison = .{ .child = al };
+                const k = try factorParallel(poison.allocator(), check.io, T, table(T), upper, blk, n, p.a.ptr, p.lda, 1);
+                try testing.expectEqual(@as(usize, 0), k);
+                p.expectFactor() catch |e| {
+                    check.say("{s}, blocking {s}, parallel algorithm\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own" });
+                    return e;
+                };
+                if (n < 13) continue;
+                // a failure past the first block
+                p.store();
+                p.a[(n - 2) * (p.lda + 1)] = fromF64(T, -100);
+                try testing.expectEqual(n - 1, try factorParallel(al, check.io, T, table(T), upper, blk, n, p.a.ptr, p.lda, 1));
+            }
+        }
+    };
+}
+
+test "potrf's parallel algorithm: A = L Lᴴ, and the failing minor, on every linked core" {
+    try check.eachCore(parallelCases);
+}
+
 /// Inputs of a threaded-bits case: `A`, copied into each run's `out`.
 fn Threaded(comptime T: type) type {
     return struct {
         p: *const Problem(T),
+
+        fn run(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
+            const vt = table(T);
+            @memcpy(out, c.p.a);
+            _ = try factorParallel(testing.allocator, io, T, vt, c.p.upper, driver.Blocking.of(T, vt), c.p.n, out.ptr, c.p.lda, want);
+        }
 
         /// The public `potri`, threading by `blas.config`'s workers.
         fn inverse(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
@@ -804,8 +887,11 @@ fn Threaded(comptime T: type) type {
     };
 }
 
-test "potri gives one worker's bits at any worker count" {
+test "potrf's parallel algorithm and potri give one worker's bits at any worker count" {
     _ = blas.coreName();
+    const was = accel.routing();
+    _ = accel.route(false);
+    defer _ = accel.route(was);
     const al = testing.allocator;
     inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| {
         // past every type's `potri` threshold
@@ -813,6 +899,7 @@ test "potri gives one worker's bits at any worker count" {
         var p = try Problem(T).init(al, n, upper, 41);
         defer p.deinit(al);
         const c: Threaded(T) = .{ .p = &p };
+        try expectSameBits(T, c, Threaded(T).run, p.a.len, "potrf");
         try p.factorIt(al, null);
         try expectSameBits(T, c, Threaded(T).inverse, p.a.len, "potri");
     };
@@ -921,4 +1008,27 @@ test "potri: a zero on the factor's diagonal before A is touched; the first bad 
     try testing.expectError(error.InvalidLda, potri(fa, check.io, f64, .l, 2, &a, 1, null));
     try potri(fa, check.io, f64, .u, 0, &a, 1, null);
     for (a) |v| try testing.expect(std.math.isNan(v));
+}
+
+test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
+    _ = blas.coreName();
+    if (!accel.routing()) return error.SkipZigTest;
+    const al = testing.allocator;
+    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| {
+        for ([_]usize{ 1, 7, 70, 130 }) |n| {
+            var p = try Problem(T).init(al, n, upper, n * 3 + @as(u64, @intFromBool(upper)));
+            defer p.deinit(al);
+            const before = accel.calls.load(.monotonic);
+            try p.factorIt(al, null);
+            try testing.expect(accel.calls.load(.monotonic) > before);
+            p.expectFactor() catch |e| {
+                check.say("Accelerate's {s}potrf_\n", .{@typeName(T)});
+                return e;
+            };
+            if (n < 7) continue;
+            p.store();
+            p.a[(n / 2) * (p.lda + 1)] = fromF64(T, nan);
+            try expectMinor(T, &p, n / 2 + 1, "Accelerate's NaN pivot");
+        }
+    };
 }

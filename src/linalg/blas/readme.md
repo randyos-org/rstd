@@ -43,7 +43,8 @@ How the code is structured, and why, is in [`design.md`](design.md).
   complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
   write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
   `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Past
-  upstream's size thresholds they thread with the same bits; `potrf` stays serial.
+  upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
+  Accelerate.
 
 Not yet: `gemm3m`, `symm3m`, `hemm3m`, the small-matrix kernels, bfloat16 level 3 (`bgemm`,
 `sbgemm`), and threading in levels 1 and 2 ([`threading.md`](threading.md)).

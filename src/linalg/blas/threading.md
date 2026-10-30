@@ -574,7 +574,7 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
    triangular, banded and packed products and untransposed `gbmv` by partial vectors.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
    driver; `trmm` and `trsm` by panels of `B`.
-6. **LAPACK** (done): `potri`, `trtri`, `lauum` by size-picked parallel algorithms,
+6. **LAPACK** (done): `potrf`, `potri`, `trtri`, `lauum` by size-picked parallel algorithms,
    `getrf`'s lookahead, and `getrs`, `gesv`, `trtrs` through the drivers.
 
 ## Open issues

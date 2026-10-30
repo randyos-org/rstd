@@ -107,10 +107,14 @@ fn Sig(comptime I: type, comptime T: type) type {
         /// `her2k`: `beta` is real.
         const Her2k = *const fn (O, U, Tr, I, I, S, X, I, X, I, R, Y, I) callconv(.c) void;
         const Trmm = *const fn (O, Sd, U, Tr, Dg, I, I, S, X, I, Y, I) callconv(.c) void;
+
+        // LAPACK: Fortran's, every argument by pointer
+        const Potrf = *const fn (*const u8, *const I, Y, *const I, *I) callconv(.c) void;
     };
 }
 
-/// The CBLAS routines rstd has, with `I` its integer (`i64` for ILP64,
+/// The CBLAS routines rstd has, and the LAPACK ones it routes (`?potrf_`),
+/// with `I` its integer (`i64` for ILP64,
 /// `c_int` otherwise). `catlas_?axpby` is Apple's `axpby`. A field is null
 /// where this Accelerate has no such symbol.
 pub fn Table(comptime I: type) type {
@@ -278,17 +282,32 @@ pub fn Table(comptime I: type) type {
         cblas_dtrsm: ?d.Trmm,
         cblas_ctrsm: ?c.Trmm,
         cblas_ztrsm: ?z.Trmm,
+
+        // LAPACK
+        spotrf_: ?s.Potrf,
+        dpotrf_: ?d.Potrf,
+        cpotrf_: ?c.Potrf,
+        zpotrf_: ?z.Potrf,
     };
 }
 
 /// ILP64 names: the new interface only.
 pub fn ilp64Names(comptime field: []const u8) []const [:0]const u8 {
+    if (comptime fortran(field)) |base| return &.{ base ++ "$NEWLAPACK$ILP64", field ++ "$NEWLAPACK$ILP64" };
     return &.{field ++ "$NEWLAPACK$ILP64"};
 }
 
 /// 32-bit names: the new interface, then the classic one.
 pub fn lp64Names(comptime field: []const u8) []const [:0]const u8 {
+    if (comptime fortran(field)) |base| return &.{ base ++ "$NEWLAPACK", field ++ "$NEWLAPACK", field ++ "" };
     return &.{ field ++ "$NEWLAPACK", field ++ "" };
+}
+
+/// A LAPACK field's name without Fortran's trailing underscore: the new
+/// interface's spelling is unchecked (no test has run on a Mac yet), so
+/// `load` tries both.
+fn fortran(comptime field: []const u8) ?[]const u8 {
+    return if (field[field.len - 1] == '_') field[0 .. field.len - 1] else null;
 }
 
 /// `BLASSetThreading` and `BLASGetThreading`, macOS 15+.
@@ -959,6 +978,34 @@ pub inline fn trmm(comptime T: type, comptime solve: bool, sd: types.Side, ul: t
         if (!solve and nonFiniteMat(T, m, n, b_, ldb)) return false;
         const name = comptime "cblas_" ++ letter(T) ++ if (solve) "trsm" else "trmm";
         return call(name, b, &.{ mat(ka, ka, lda), mat(m, n, ldb) }, .{ col, side(sd), u, t, diag(dg), m, n, scalar(T, &alpha), a, lda, b_, ldb }) != null;
+    }
+}
+
+// LAPACK
+
+/// `?potrf_`'s `INFO`, or null where rstd runs it. Accelerate's LAPACK runs
+/// on its BLAS, single-threaded as `load` sets it.
+pub inline fn potrf(comptime T: type, ul: types.Uplo, n: isize, a: [*]T, lda: isize) ?isize {
+    if (comptime !covers(T)) return null else {
+        const b = use(T) orelse return null;
+        const u: u8 = switch (ul) {
+            .u => 'U',
+            .l => 'L',
+            .v, .m => return null,
+        };
+        switch (b.*) {
+            inline else => |*bound, tag| {
+                const f = @field(bound.fns, letter(T) ++ "potrf_") orelse return null;
+                const I = if (tag == .ilp64) i64 else c_int;
+                if (I != i64 and mat(n, n, lda) > std.math.maxInt(I)) return null;
+                const nn = std.math.cast(I, n) orelse return null;
+                const ld = std.math.cast(I, lda) orelse return null;
+                var info: I = 0;
+                if (sysinfo.is_test) _ = calls.fetchAdd(1, .monotonic);
+                f(&u, &nn, @ptrCast(a), &ld, &info);
+                return info;
+            },
+        }
     }
 }
 
