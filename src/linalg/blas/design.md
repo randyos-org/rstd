@@ -1393,6 +1393,13 @@ Questions decided once, with the reason, so they are not reopened without new ev
   GCC contracts to `madd.fmt`, which GS464 and GS464E round once (their manuals, `issues.md`).
   QEMU rounds `madd.fmt`, so no rig can check the fused bits (the axpy fused-bit test skips on
   rigs); correctness rests on the manuals and on reading the objects' assembly.
+- **Q9: futures on `Dispatch` as a fallback until std's `Group` is fixed, then revert**
+  (2026-10-30). On `Io.Evented` with worker threads std's `Group` crashes on `Uring` and
+  `Dispatch` ([`issues.md`](issues.md)). On `Dispatch` (macOS) rstd's worker tasks are plain
+  futures, chosen by the comptime `threading.dispatch_futures`; every other `Io` keeps `Group`.
+  `Uring`'s futures have their own bug, so it stays unsupported with worker threads. Once
+  `ssh-repro-group-aarch64-macos` passes on a new toolchain, the switch goes back to `Group` and
+  the futures path is deleted ([`threading.md`](threading.md)).
 
 ## Alternatives considered
 

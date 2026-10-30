@@ -918,9 +918,18 @@ When an issue is fixed upstream, drop the workaround and its entry.
   libdispatch (`Sleeper.init`). `Dispatch.Fiber.destroy` does the same on the
   backing allocator's mutex. Level 3's threaded tests hit it at once on
   `qemu-test-linux-x86_64` and on the M6. 0.18.0-dev.751, 2026-10-30.
-- **Workaround:** rstd's level-3 tests run `Evented` with no worker threads;
-  threaded BLAS on a multithreaded `Evented` is unsupported (threading.md).
-  `threading.initEvented` tells `Evented` its page allocator needs no mutex.
+- **Workaround:** on `Dispatch`, rstd's worker tasks are plain futures
+  (`threading.Futures`, chosen by the comptime `threading.dispatch_futures`),
+  which pass the same loop; the threaded tests run there with worker threads.
+  `Uring` keeps `Group` and no worker threads in the tests (its futures hit the
+  entry below), so threaded BLAS on a multithreaded `Uring` is unsupported
+  (threading.md). `threading.initEvented` tells `Evented` its page allocator
+  needs no mutex.
+- **Revert check:** `zig build ssh-repro-group-aarch64-macos` runs
+  `tools/evented_group_repro.zig` (std only) on the Mac, `futures` then
+  `group`, 20000 rounds each; rerun it on each toolchain bump. Once `group`
+  passes, set `dispatch_futures` false and delete the futures path. The file
+  checks `Uring` too on a Linux host; no step runs it there.
 - **Issue text:**
 
   > **std.Io (Uring, Dispatch): Group.await crashes with worker threads**
@@ -952,7 +961,8 @@ When an issue is fixed upstream, drop the workaround and its entry.
   fiber to its free list, and a new task takes it while the old one is still
   switching. `Dispatch` passes the same 20000 rounds. 0.18.0-dev.751,
   2026-10-30.
-- **Workaround:** as above: no worker threads on `Uring`.
+- **Workaround:** as above: no worker threads on `Uring`, so the futures
+  fallback is for `Dispatch` only.
 - **Issue text:**
 
   > **std.Io.Uring: Future.await frees a fiber that is still switching away**

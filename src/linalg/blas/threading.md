@@ -137,10 +137,11 @@ the problem size and the routine's chunk size, never on `w`:
   `work` units above `serial_max` makes `ceil(work / serial_max)` chunks, at most 64. Bounds
   split the range evenly, or by square roots where row costs grow or shrink (`Shape`), and
   round to a quantum the routine picks.
-- **Claiming.** `w` workers start through `Group.async`; each claims the next chunk from an
-  atomic counter until none remain. The work spreads over whatever actually runs: all
-  workers when the `Io` runs them all, fewer when it admits fewer (late starters find nothing
-  left), and the remaining workers absorb the load when a core is busy.
+- **Claiming.** `w` workers start through `Group.async` (futures on `Dispatch`, below); each
+  claims the next chunk from an atomic counter until none remain. The work spreads over
+  whatever actually runs: all workers when the `Io` runs them all, fewer when it admits fewer
+  (late starters find nothing left), and the remaining workers absorb the load when a core is
+  busy.
 - **Combining.** Each chunk's partial result is determined by its boundaries, not by the
   worker that computed it. Reductions keep partials in a stack `[64]T` and fold them in chunk
   order on the caller; the extremes fold exactly (first index wins). The level-2 products that
@@ -218,9 +219,9 @@ et al., "Anatomy of High-Performance Many-Threaded Matrix Multiplication", IPDPS
 - **Fused packing.** A worker multiplies each of its own chunks with its first row block of
   `op(A)` as it packs it, before the second barrier, while the chunk is in cache; OpenBLAS's
   `level3_thread.c` does the same with its own share of `B`.
-- **Start.** `threading.team` spawns `w - 1` workers through `Group.concurrent`; each waits
-  until the caller has counted those that started, and the ways are sized for that count.
-  None started, the caller runs alone. No worker waits for a peer that does not exist, so the
+- **Start.** `threading.team` spawns `w - 1` workers through `Group.concurrent` (futures on
+  `Dispatch`, below); each waits until the caller has counted those that started, and the
+  ways are sized for that count. None started, the caller runs alone. No worker waits for a peer that does not exist, so the
   call cannot deadlock when the `Io` admits fewer; `Group.async`'s inline fallback would.
 - **Waiting.** BLIS and OpenBLAS both spin without bound inside a call: BLIS's
   `bli_thrcomm_barrier_atomic` on an empty loop, OpenBLAS's `level3_thread.c` with `YIELDING`
@@ -318,6 +319,22 @@ brings each to its cancelable futex wait.
   drops a task's `error.Canceled`, so a worker that takes one calls `io.recancel()`. An `Io`
   whose `checkCancel` is `Io.unreachableCheckCancel` (`Io.failing`, UEFI's) has no
   cancellation; workers skip the check there.
+
+### Futures on `Dispatch`
+
+With worker threads std's `Group` crashes on `Io.Evented`, `Uring` and `Dispatch` alike
+([`issues.md`](issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
+plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Group`.
+`usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
+futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
+`await` waits cancelably on a count of unfinished tasks, and a cancel there reaches each task
+through the caller's deferred `cancel`. Tasks adopt `FpState` and re-arm cancellation as
+before, and the chunks and their fold are unchanged, so the bits are too. `Uring`'s futures
+are reused too early (issues.md), so a multithreaded `Uring` stays unsupported.
+
+**Revert:** once `zig build ssh-repro-group-aarch64-macos` (std only,
+`tools/evented_group_repro.zig`) passes on a new toolchain, set `dispatch_futures` false and
+delete `Tasks`' futures path.
 
 ### Single-threaded builds and freestanding targets
 
