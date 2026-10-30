@@ -147,7 +147,7 @@ var _vtable: Vtable = generic_vtable;
 /// The vtable before `init` and after `shutdown`: the portable kernels, where
 /// there are any.
 const generic_vtable: Vtable = blk: {
-    @setEvalBranchQuota(100_000);
+    @setEvalBranchQuota(1_000_000);
     var vt: Vtable = .{};
     portable.install(&vt);
     break :blk vt;

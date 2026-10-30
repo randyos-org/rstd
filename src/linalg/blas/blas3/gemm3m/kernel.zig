@@ -26,6 +26,8 @@ pub const Part = enum { b, r, i };
 /// own complex one (every build but the tests' `installTile`), else `geo`'s
 /// lanes as real ones.
 pub fn realTile(comptime T: type, comptime geo: gk.Geometry) gk.Geometry {
+    // two tile searches, past the default quota where nothing meets the strict rule (x86)
+    @setEvalBranchQuota(400_000);
     if (comptime std.meta.eql(geo, gk.geometry(T))) return gk.geometry(types.Float(T));
     return .{ .vl = if (geo.split) 1 else 2 * geo.vl, .mv = geo.mv, .nr = geo.nr };
 }
