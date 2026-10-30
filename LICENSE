@@ -367,3 +367,67 @@ feel free to distribute the package."
 MATLAB is a registered trademark of The MathWorks, Inc. rstd's matlab module
 is a port of the 1982 public-domain program and is not affiliated with or
 endorsed by The MathWorks.
+
+---
+
+msdfgen (https://github.com/Chlumsky/msdfgen; src/rgl/font/sfnt/msdf/, by way of mist)
+
+MIT License
+
+Copyright (c) 2014 - 2025 Viktor Chlumsky
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Inigo Quilez's distance functions (https://iquilezles.org/articles/distfunctions2d/;
+src/rgl/shaders/lib/sdf.zig)
+
+The MIT License, as Inigo Quilez publishes his distance-function shaders on
+Shadertoy (the article page itself was not reachable to confirm its terms).
+
+Copyright (c) Inigo Quilez
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+IBM VGA 8x16 font (src/rgl/font/vga/IBM_VGA_8x16.bin)
+
+Taken from https://github.com/spacerace/romfont, which carries no license; its
+fonts were dumped from IBM's MCGA/VGA (PS/2) video BIOS ROMs, and its README
+doubts IBM ever released them to the public domain. No license is known for
+this file. It is included as-is, its provenance recorded here; see the
+repository's notes before redistributing it.
