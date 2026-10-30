@@ -370,6 +370,7 @@ fn Team(comptime T: type) type {
 // ---- tests -------------------------------------------------------------------------
 
 const zigstd = @import("../../../zigstd.zig");
+const apple_accel = @import("../apple_accel.zig");
 const portable = @import("../portable.zig");
 const gemm_kernels = @import("gemm/kernel.zig");
 const guard = @import("../_test/blas2/guard.zig");
@@ -780,11 +781,21 @@ test "threaded gemm matches the serial driver on the selected core's own blockin
     }
 }
 
+/// Takes the public routines off Accelerate (macOS), so they run rstd's
+/// threading; returns whether it was routing, for `apple_accel.route`.
+fn rstdOnly() bool {
+    const was = apple_accel.routing();
+    _ = apple_accel.route(false);
+    return was;
+}
+
 test "the public gemm threads above the threshold and keeps the serial bits" {
     if (comptime !threading.hosted) return error.SkipZigTest;
     _ = blas.coreName();
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
+    const accel = rstdOnly();
+    defer _ = apple_accel.route(accel);
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const al = std.testing.allocator;
@@ -826,6 +837,8 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     const saved = blas.config.cpu_count;
     defer blas.config.cpu_count = saved;
     blas.config.cpu_count = 5;
+    const accel = rstdOnly();
+    defer _ = apple_accel.route(accel);
     var threaded: Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();

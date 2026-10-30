@@ -444,7 +444,8 @@ What the tests check today, and where they run:
     allocator. `C` carries guard bands that must keep their sentinel. Each case runs on
     `Io.failing` and on `Io.Threaded` with limits 0, 3 and 8 (oversubscribed), and on macOS
     also on `Io.Dispatch` with its own pool (`threading.evented_workers`). The public
-    routines thread above their thresholds and keep those bits.
+    routines thread above their thresholds and keep those bits; on macOS with Accelerate
+    routing off, so rstd's threading runs.
   - Levels 1 and 2 (`blas1/interface.zig`, `_test/blas2/threaded.zig`): every threaded
     routine at 3 and 8 CPUs, on a threaded `Io` and on an inline one, against one worker,
     on every linked core. `test_serial_max` makes small problems take many chunks. The
