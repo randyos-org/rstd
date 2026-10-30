@@ -1522,6 +1522,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   aarch64). Every other architecture is ported for completeness: where a choice cannot be tested
   there but OpenBLAS and BLIS agree on it, rstd follows them and documents why, rather than
   blocking on a rig; failures or gaps on those architectures are recorded, not release blockers.
+  The tiers, platform by platform and core by core, are in [`support.md`](../../../support.md).
 - **`rstd.linalg` is the public API; the BLAS is an implementation detail** (2026-10-29). The
   aim is a MATLAB-like library: callers pass vectors and matrices of any size and `linalg` picks
   the implementation; callers never choose a backend. `linalg.vector` takes fixed-size vectors
