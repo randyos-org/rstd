@@ -368,10 +368,33 @@ tasks inline.
 
 A backend that delegates to a vendor library (Apple's Accelerate on macOS) must meet the
 same reproducibility requirement. If the library's own threading changes its results, rstd
-runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), so
+runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise), and Apple
+documents no mode that keeps its bits across thread counts (MKL has one, CNR), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
-thread sets its own model (`singleThreadHere`) on its first routed call
-([`design.md`](design.md#apple-accelerate)). Rstd's own workers are to parallelize around it.
+thread sets its own model (`singleThreadHere`) on its first call into it
+([`design.md`](design.md#apple-accelerate)).
+
+Rstd's workers parallelize around it (`apple_accel.split`), under the rules above:
+
+- **Parts by size.** Above the routine's threshold (`threading.rule`, as for rstd's kernels) a
+  routed call splits into chunks of its output (`threading.plan`), each one Accelerate call on
+  the worker that claims it. Accelerate's single-threaded calls gave the same bits on every
+  thread (`apple_accel.zig`'s tests), so no result depends on the worker count.
+- **Split at one worker too.** Unlike rstd's element-wise kernels, whose paths rstd knows, a
+  split call is split whatever the worker count: Accelerate's paths at a part's edges are its
+  own. So a call past one chunk differs in its low bits from one Accelerate call, and matches
+  across worker counts by construction.
+- **What splits.** `copy`, `swap`, `scal`, `rot`, `axpy` (1024-element parts, rstd's level-1
+  quantum); `dot`, `dotc`, `dsdot` and `asum`, their partials folded in chunk order (`f32` in
+  `f64`, rounded once, as rstd's own); `gemv` (rows of `y`, or columns with a transpose), `ger`
+  (columns); `gemm` (columns of `C` if it has as many as rows, else rows), `symm` and `hemm`
+  (columns of `C` with `S` on the left, else rows), `trmm` and `trsm` (`B`'s columns on the
+  left, rows on the right), on 64-row or column parts, rstd's level-2 quantum.
+- **What does not.** Each part must be a call of the same routine. The partial-vector products
+  (`symv`, `trmv` and the rest), the rank updates and the rank-k updates keep one triangle, so
+  their parts would be other routines or a fold rstd does not have for them; `gbmv`, `nrm2`
+  (as rstd's own), `rotm` and `axpby` (not threaded upstream) make one call too. A zero stride
+  makes one call, as rstd's own.
 
 ### Guardrails
 

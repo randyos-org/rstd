@@ -19,13 +19,17 @@
 //! Threads: Accelerate runs its own. `VECLIB_MAXIMUM_THREADS` caps them for
 //! the process, read at its first BLAS call (`setMaxThreadsEnv`); macOS 15+
 //! also has `BLASSetThreading`, per calling thread (`setThreading`). Either
-//! one alone makes a call single-threaded; `load` sets both by default.
+//! one alone makes a call single-threaded; `load` sets both by default, and
+//! the routed calls thread on rstd's workers instead (`split`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const dll = @import("../../dll.zig");
 const types = @import("types.zig");
 const blas = @import("__root__.zig");
+const threading = @import("threading.zig");
+
+const Io = std.Io;
 
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
@@ -416,6 +420,8 @@ var on = std.atomic.Value(bool).init(false);
 threadlocal var thread_set = false;
 /// Calls made into Accelerate, counted in tests only.
 pub var calls = std.atomic.Value(usize).init(0);
+/// Calls on a thread not single-threaded (macOS 15+), counted in tests only.
+var unpinned = std.atomic.Value(usize).init(0);
 
 /// `blas.init`'s part: loads Accelerate the first time `enable` holds (it
 /// `setenv`s, so only here), then routes to it if it loaded.
@@ -441,18 +447,19 @@ pub fn routing() bool {
     return on.load(.acquire);
 }
 
-/// The table for `T`'s routines, or null where rstd runs them. Sets the
-/// calling thread single-threaded on its first call.
+/// The table for `T`'s routines, or null where rstd runs them.
 inline fn use(comptime T: type) ?*const Blas {
     if (comptime !covers(T)) return null;
     _ = blas.vtable();
     if (!on.load(.acquire)) return null;
-    const acc = &loaded.?;
-    if (!thread_set) {
-        thread_set = true;
-        acc.singleThreadHere();
-    }
-    return &acc.blas;
+    return &loaded.?.blas;
+}
+
+/// Makes the calling thread's calls single-threaded, on its first.
+fn pin() void {
+    if (thread_set) return;
+    thread_set = true;
+    if (loaded) |*acc| acc.singleThreadHere();
 }
 
 /// The CBLAS letter of `T`.
@@ -474,7 +481,8 @@ fn Ret(comptime name: []const u8) type {
 
 /// Calls `name` with `args`, every `isize` narrowed to the table's integer;
 /// null if the table lacks it or, on LP64, any argument or `extents` entry
-/// (an operand's span in elements) is past `c_int`.
+/// (an operand's span in elements) is past `c_int`. Pins the calling thread
+/// (`pin`).
 fn call(comptime name: []const u8, b: *const Blas, extents: []const isize, args: anytype) ?Ret(name) {
     switch (b.*) {
         inline else => |*bound, tag| {
@@ -485,7 +493,13 @@ fn call(comptime name: []const u8, b: *const Blas, extents: []const isize, args:
             inline for (0..args.len) |i| {
                 conv[i] = if (@TypeOf(args[i]) == isize) std.math.cast(I, args[i]) orelse return null else args[i];
             }
-            if (sysinfo.is_test) _ = calls.fetchAdd(1, .monotonic);
+            pin();
+            if (sysinfo.is_test) {
+                _ = calls.fetchAdd(1, .monotonic);
+                if (loaded) |*acc| if (acc.threading()) |t| if (t != .single_threaded) {
+                    _ = unpinned.fetchAdd(1, .monotonic);
+                };
+            }
             const r = @call(.auto, f, conv);
             return if (@TypeOf(r) == I) @intCast(r) else r;
         },
@@ -500,6 +514,97 @@ fn span(n: isize, inc: isize) isize {
 /// The span of a `rows` by `cols` matrix at leading dimension `ld`.
 fn mat(rows: isize, cols: isize, ld: isize) isize {
     return ld * (cols - 1) + rows;
+}
+
+// ---- threads -----------------------------------------------------------------
+//
+// Accelerate's own threads stay off: threaded, its `gemv` rounds differently
+// from one thread (design.md, Apple Accelerate), and Apple documents no way
+// to keep its bits across thread counts. Rstd's workers run it instead
+// (threading.md, Vendor backends): above the routine's threshold a call splits
+// into parts of its output by the problem size alone (`threading.plan`), each
+// one Accelerate call, single-threaded on the worker that claims it (`pin`).
+// No result depends on the worker count; reductions fold in chunk order. A
+// call splits at one worker too: Accelerate's paths at a part's edges are its
+// own, where rstd's element-wise kernels keep their bits unsplit.
+
+/// Level 1's parts start on multiples of this many elements, as rstd's own
+/// do (`blas1/interface.zig`).
+const vector_quantum = 1024;
+/// Level 2's and 3's on multiples of this many rows or columns, as rstd's
+/// level 2 (`blas2/interface.zig`): parts stay off each other's cache lines.
+const matrix_quantum = 64;
+
+/// `part(ctx, chunk)` for each of `family`'s chunks of `len` units, `work`
+/// being its rule's measure: inline for one, else on `io`'s workers.
+fn split(io: Io, comptime family: threading.Family, comptime T: type, work: u64, len: usize, quantum: usize, ctx: anytype, comptime part: fn (@TypeOf(ctx), threading.Chunk) void) Io.Cancelable!void {
+    const p = threading.plan(family, T, work, len, .even, quantum);
+    if (p.chunks.count == 1) return part(ctx, p.chunks.get(0));
+    return threading.forEach(io, &p, ctx, part);
+}
+
+/// `split` for a reduction over `len` elements: the parts' sums, added in
+/// chunk order.
+fn fold(io: Io, comptime family: threading.Family, comptime T: type, comptime W: type, len: usize, ctx: anytype, comptime part: fn (@TypeOf(ctx), threading.Chunk) W) Io.Cancelable!W {
+    const p = threading.plan(family, T, len, len, .even, vector_quantum);
+    if (p.chunks.count == 1) return part(ctx, p.chunks.get(0));
+    const S = struct {
+        fn add(a: W, b: W) W {
+            return if (comptime isComplex(W)) a.add(b) else a + b;
+        }
+    };
+    return threading.reduce(io, &p, W, ctx, part, S.add);
+}
+
+/// What a reduction over `T` sums its parts in: `f64` for `f32`, so the
+/// result rounds once, as rstd's own fold (`blas1/interface.zig`).
+fn Sum(comptime T: type) type {
+    const W = if (Float(T) == f32) f64 else Float(T);
+    return if (isComplex(T)) std.math.Complex(W) else W;
+}
+
+fn rounded(comptime T: type, w: Sum(T)) T {
+    if (comptime isComplex(T)) return .init(@floatCast(w.re), @floatCast(w.im));
+    return @floatCast(w);
+}
+
+/// Whether the table has `name` and, on LP64, every entry of `ints` (each
+/// integer argument's magnitude and each operand's span) fits `c_int`; then
+/// so does any call over a part of the operands.
+fn fits(comptime name: []const u8, b: *const Blas, ints: []const isize) bool {
+    switch (b.*) {
+        inline else => |*bound, tag| {
+            if (@field(bound.fns, name) == null) return false;
+            if (tag == .lp64) for (ints) |e| if (e > std.math.maxInt(c_int)) return false;
+            return true;
+        },
+    }
+}
+
+/// `|v|`, as `fits` takes a stride.
+fn mag(v: isize) isize {
+    return @intCast(@abs(v));
+}
+
+/// The whole of `len` units, as one chunk.
+fn whole(len: isize) threading.Chunk {
+    return .{ .index = 0, .start = 0, .end = @intCast(len) };
+}
+
+/// Elements `c.start..c.end` of the `n` at `p`, stride `inc`, as CBLAS takes
+/// a vector: from its lowest address, which is the last one for `inc < 0`.
+fn sub(p: anytype, n: isize, inc: isize, c: threading.Chunk) @TypeOf(p) {
+    const at = if (inc >= 0) c.start else @as(usize, @intCast(n)) - c.end;
+    return p + at * @abs(inc);
+}
+
+/// Column `j` of a matrix at `p`, leading dimension `ld`.
+fn column(p: anytype, j: usize, ld: isize) @TypeOf(p) {
+    return p + j * @as(usize, @intCast(ld));
+}
+
+fn units(c: threading.Chunk) isize {
+    return @intCast(c.end - c.start);
 }
 
 /// A scalar as CBLAS takes it: by value if real, by pointer if complex.
@@ -677,54 +782,153 @@ fn nonFiniteMat(comptime T: type, rows: isize, cols: isize, b: [*]const T, ld: i
 
 // level 1
 
-pub inline fn copy(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) bool {
+/// The element-wise level-1 routines `split` takes.
+const Elem = enum { copy, swap, scal, rot, axpy };
+
+/// One element-wise call: `x` and, but for `scal`, `y`, with its scalars.
+fn Elementwise(comptime T: type, comptime r: Elem) type {
+    return struct {
+        const Self = @This();
+        const name = "cblas_" ++ switch (r) {
+            .rot => switch (T) {
+                Complex32 => "csrot",
+                Complex64 => "zdrot",
+                else => letter(T) ++ "rot",
+            },
+            else => letter(T) ++ @tagName(r),
+        };
+
+        b: *const Blas,
+        n: isize,
+        x: [*]T,
+        incx: isize,
+        y: [*]T = undefined,
+        incy: isize = 1,
+        alpha: T = undefined,
+        c: Float(T) = 0,
+        s: Float(T) = 0,
+
+        fn part(e: *const Self, ch: threading.Chunk) void {
+            const len = units(ch);
+            const x = sub(e.x, e.n, e.incx, ch);
+            const y = if (r == .scal) e.y else sub(e.y, e.n, e.incy, ch);
+            _ = switch (r) {
+                .copy, .swap => call(name, e.b, &.{}, .{ len, x, e.incx, y, e.incy }),
+                .scal => call(name, e.b, &.{}, .{ len, scalar(T, &e.alpha), x, e.incx }),
+                .rot => call(name, e.b, &.{}, .{ len, x, e.incx, y, e.incy, e.c, e.s }),
+                .axpy => call(name, e.b, &.{}, .{ len, scalar(T, &e.alpha), x, e.incx, y, e.incy }),
+            } orelse unreachable;
+        }
+
+        /// The call over its parts; false where rstd runs it.
+        fn run(e: *const Self, io: Io) Io.Cancelable!bool {
+            if (!fits(name, e.b, &.{ e.n, mag(e.incx), mag(e.incy), span(e.n, e.incx), span(e.n, e.incy) })) return false;
+            // a zero stride's elements depend on each other, as for rstd's own
+            if (e.incx == 0 or e.incy == 0) {
+                e.part(whole(e.n));
+                return true;
+            }
+            const len: usize = @intCast(e.n);
+            try split(io, @field(threading.Family, @tagName(r)), T, len, len, vector_quantum, e, part);
+            return true;
+        }
+    };
+}
+
+pub inline fn copy(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         if (!sent(.copy, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
-        return call("cblas_" ++ letter(T) ++ "copy", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy }) != null;
+        const e: Elementwise(T, .copy) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy };
+        return e.run(io);
     }
 }
 
-pub inline fn swap(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) bool {
+pub inline fn swap(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         if (!sent(.swap, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
-        return call("cblas_" ++ letter(T) ++ "swap", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy }) != null;
+        const e: Elementwise(T, .swap) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy };
+        return e.run(io);
     }
 }
 
-pub inline fn scal(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) bool {
+pub inline fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         if (!sent(.scal, T, incx == 1)) return false;
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha)) return false;
-        return call("cblas_" ++ letter(T) ++ "scal", b, &.{span(n, incx)}, .{ n, scalar(T, &alpha), x, incx }) != null;
+        const e: Elementwise(T, .scal) = .{ .b = b, .n = n, .x = x, .incx = incx, .alpha = alpha };
+        return e.run(io);
     }
 }
 
-/// `x . y`, or `conj(x) . y`. `sdot` is `dsdot` rounded: rstd's contract sums
-/// in `f64` (readme, One contract on every core).
-pub inline fn dot(comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) ?T {
+/// The reductions `fold` takes: `dot`, `dotc`, `dsdot` (`f32` only) and
+/// `asum` (`x` only, `incx > 0`).
+const Red = enum { dot, dotc, dsdot, asum };
+
+/// One reduction, its parts summed in `Sum(T)`.
+fn Reduction(comptime T: type, comptime r: Red) type {
+    return struct {
+        const Self = @This();
+        /// `sdot` is `dsdot`: rstd's contract sums in `f64` (readme, One
+        /// contract on every core).
+        const name = if (r == .asum) switch (T) {
+            Complex32 => "cblas_scasum",
+            Complex64 => "cblas_dzasum",
+            else => "cblas_" ++ letter(T) ++ "asum",
+        } else switch (T) {
+            f32 => "cblas_dsdot",
+            f64 => "cblas_ddot",
+            else => "cblas_" ++ letter(T) ++ (if (r == .dotc) "dotc" else "dotu") ++ "_sub",
+        };
+        const W = if (r == .asum) Sum(Float(T)) else Sum(T);
+
+        b: *const Blas,
+        n: isize,
+        x: [*]T,
+        incx: isize,
+        y: [*]T = undefined,
+        incy: isize = 1,
+
+        fn part(e: *const Self, ch: threading.Chunk) W {
+            const len = units(ch);
+            const x = sub(e.x, e.n, e.incx, ch);
+            if (r == .asum) return call(name, e.b, &.{}, .{ len, x, e.incx }).?;
+            const y = sub(e.y, e.n, e.incy, ch);
+            if (comptime !isComplex(T)) return call(name, e.b, &.{}, .{ len, x, e.incx, y, e.incy }).?;
+            var v: T = undefined;
+            _ = call(name, e.b, &.{}, .{ len, x, e.incx, y, e.incy, &v }).?;
+            return .init(v.re, v.im);
+        }
+
+        /// The sum over its parts; null where rstd runs it.
+        fn run(e: *const Self, io: Io) Io.Cancelable!?W {
+            if (!fits(name, e.b, &.{ e.n, mag(e.incx), mag(e.incy), span(e.n, e.incx), span(e.n, e.incy) })) return null;
+            // a zero stride runs serially, as rstd's own
+            if (e.incx == 0 or e.incy == 0) return e.part(whole(e.n));
+            return try fold(io, if (r == .asum) .asum else .dot, T, W, @intCast(e.n), e, part);
+        }
+    };
+}
+
+/// `x . y`, or `conj(x) . y`.
+pub inline fn dot(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Io.Cancelable!?T {
     if (comptime !covers(T)) return null else {
         if (!sent(if (conj) .dotc else .dot, T, incx == 1 and incy == 1)) return null;
         const b = use(T) orelse return null;
-        const ext = &.{ span(n, incx), span(n, incy) };
-        if (comptime T == f32) {
-            if (comptime x86_64) return null;
-            return @floatCast(call("cblas_dsdot", b, ext, .{ n, x, incx, y, incy }) orelse return null);
-        }
-        if (comptime T == f64) return call("cblas_ddot", b, ext, .{ n, x, incx, y, incy });
-        var r: T = undefined;
-        _ = call("cblas_" ++ letter(T) ++ "dot" ++ (if (conj) "c" else "u") ++ "_sub", b, ext, .{ n, x, incx, y, incy, &r }) orelse return null;
-        return r;
+        if (comptime T == f32 and x86_64) return null;
+        const e: Reduction(T, if (conj) .dotc else .dot) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy };
+        return rounded(T, try e.run(io) orelse return null);
     }
 }
 
-pub inline fn dsdot(n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) ?f64 {
+pub inline fn dsdot(io: Io, n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) Io.Cancelable!?f64 {
     if (!sent(.dsdot, f32, incx == 1 and incy == 1)) return null;
     const b = use(f32) orelse return null;
     if (comptime x86_64) return null;
-    return call("cblas_dsdot", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy });
+    const e: Reduction(f32, .dsdot) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy };
+    return e.run(io);
 }
 
 /// `s` and `c` as rstd's contract has them, the squares summed in `f64` by
@@ -754,30 +958,22 @@ pub inline fn nrm2(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
 }
 
 /// For `incx > 0`; rstd's kernels give 0 otherwise.
-pub inline fn asum(comptime T: type, n: isize, x: [*]T, incx: isize) ?Float(T) {
+pub inline fn asum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Io.Cancelable!?Float(T) {
     if (comptime !covers(T)) return null else {
         if (!sent(.asum, T, incx == 1)) return null;
         const b = use(T) orelse return null;
         if (incx <= 0) return null;
-        const name = comptime switch (T) {
-            Complex32 => "cblas_scasum",
-            Complex64 => "cblas_dzasum",
-            else => "cblas_" ++ letter(T) ++ "asum",
-        };
-        return call(name, b, &.{span(n, incx)}, .{ n, x, incx });
+        const e: Reduction(T, .asum) = .{ .b = b, .n = n, .x = x, .incx = incx };
+        return rounded(Float(T), try e.run(io) orelse return null);
     }
 }
 
-pub inline fn rot(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) bool {
+pub inline fn rot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         if (!sent(.rot, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
-        const name = comptime switch (T) {
-            Complex32 => "cblas_csrot",
-            Complex64 => "cblas_zdrot",
-            else => "cblas_" ++ letter(T) ++ "rot",
-        };
-        return call(name, b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy, c, s }) != null;
+        const e: Elementwise(T, .rot) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy, .c = c, .s = s };
+        return e.run(io);
     }
 }
 
@@ -789,12 +985,13 @@ pub inline fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
     }
 }
 
-pub inline fn axpy(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) bool {
+pub inline fn axpy(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         if (!sent(.axpy, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha)) return false;
-        return call("cblas_" ++ letter(T) ++ "axpy", b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, y, incy }) != null;
+        const e: Elementwise(T, .axpy) = .{ .b = b, .n = n, .x = x, .incx = incx, .y = y, .incy = incy, .alpha = alpha };
+        return e.run(io);
     }
 }
 
@@ -810,14 +1007,48 @@ pub inline fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, 
 
 // level 2
 
-pub inline fn gemv(comptime T: type, trans: types.Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) bool {
+/// `gemv`'s parts: rows of `y` without a transpose, columns with one, as
+/// `gemv_thread.c` splits them.
+fn Gemv(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        const name = "cblas_" ++ letter(T) ++ "gemv";
+
+        b: *const Blas,
+        t: Transpose,
+        m: isize,
+        n: isize,
+        alpha: T,
+        a: [*]T,
+        lda: isize,
+        x: [*]T,
+        incx: isize,
+        beta: T,
+        y: [*]T,
+        incy: isize,
+
+        fn part(g: *const Self, ch: threading.Chunk) void {
+            const tr = g.t != .no_trans;
+            const m = if (tr) g.m else units(ch);
+            const n = if (tr) units(ch) else g.n;
+            const a = if (tr) column(g.a, ch.start, g.lda) else g.a + ch.start;
+            const y = sub(g.y, if (tr) g.n else g.m, g.incy, ch);
+            _ = call(name, g.b, &.{}, .{ col, g.t, m, n, scalar(T, &g.alpha), a, g.lda, g.x, g.incx, scalar(T, &g.beta), y, g.incy }).?;
+        }
+    };
+}
+
+pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         const b = use(T) orelse return false;
         const t = transpose(T, trans) orelse return false;
         const lenx = if (trans.transposed()) m else n;
         const leny = if (trans.transposed()) n else m;
-        const ext = &.{ mat(m, n, lda), span(lenx, incx), span(leny, incy) };
-        return call("cblas_" ++ letter(T) ++ "gemv", b, ext, .{ col, t, m, n, scalar(T, &alpha), a, lda, x, incx, scalar(T, &beta), y, incy }) != null;
+        const G = Gemv(T);
+        if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), mat(m, n, lda), span(lenx, incx), span(leny, incy) })) return false;
+        const g: G = .{ .b = b, .t = t, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .beta = beta, .y = y, .incy = incy };
+        try split(io, .gemv, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(leny), matrix_quantum, &g, G.part);
+        return true;
     }
 }
 
@@ -832,13 +1063,39 @@ pub inline fn gbmv(comptime T: type, trans: types.Trans, m: isize, n: isize, kl:
     }
 }
 
+/// `ger`'s parts: columns of `A`, as `ger_thread.c` splits them.
+fn Ger(comptime T: type, comptime conj: bool) type {
+    return struct {
+        const Self = @This();
+        const name = "cblas_" ++ letter(T) ++ "ger" ++ if (!isComplex(T)) "" else if (conj) "c" else "u";
+
+        b: *const Blas,
+        m: isize,
+        n: isize,
+        alpha: T,
+        x: [*]T,
+        incx: isize,
+        y: [*]T,
+        incy: isize,
+        a: [*]T,
+        lda: isize,
+
+        fn part(g: *const Self, ch: threading.Chunk) void {
+            _ = call(name, g.b, &.{}, .{ col, g.m, units(ch), scalar(T, &g.alpha), g.x, g.incx, sub(g.y, g.n, g.incy, ch), g.incy, column(g.a, ch.start, g.lda), g.lda }).?;
+        }
+    };
+}
+
 /// `ger`, `geru`, and `gerc` for `conj`.
-pub inline fn ger(comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) bool {
+pub inline fn ger(io: Io, comptime T: type, comptime conj: bool, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         const b = use(T) orelse return false;
         if (nonFinite(T, m, x, incx)) return false;
-        const name = comptime "cblas_" ++ letter(T) ++ "ger" ++ if (!isComplex(T)) "" else if (conj) "c" else "u";
-        return call(name, b, &.{ span(m, incx), span(n, incy), mat(m, n, lda) }, .{ col, m, n, scalar(T, &alpha), x, incx, y, incy, a, lda }) != null;
+        const G = Ger(T, conj);
+        if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), span(m, incx), span(n, incy), mat(m, n, lda) })) return false;
+        const g: G = .{ .b = b, .m = m, .n = n, .alpha = alpha, .x = x, .incx = incx, .y = y, .incy = incy, .a = a, .lda = lda };
+        try split(io, .ger, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(n), matrix_quantum, &g, G.part);
+        return true;
     }
 }
 
@@ -917,7 +1174,50 @@ pub inline fn syr2(comptime T: type, comptime herm: bool, comptime packed_: bool
 
 // level 3
 
-pub inline fn gemm(comptime T: type, transa: types.Trans, transb: types.Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) bool {
+/// `gemm`'s parts: columns of `C` if it has as many as rows, else rows;
+/// each takes the matching part of `op(B)` or `op(A)` and all of the other.
+fn Gemm(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        const name = "cblas_" ++ letter(T) ++ "gemm";
+
+        b: *const Blas,
+        ta: Transpose,
+        tb: Transpose,
+        by_columns: bool,
+        m: isize,
+        n: isize,
+        k: isize,
+        alpha: T,
+        a: [*]const T,
+        lda: isize,
+        b_: [*]const T,
+        ldb: isize,
+        beta: T,
+        c: [*]T,
+        ldc: isize,
+
+        fn part(g: *const Self, ch: threading.Chunk) void {
+            var m = g.m;
+            var n = g.n;
+            var a = g.a;
+            var b_ = g.b_;
+            var c = g.c;
+            if (g.by_columns) {
+                n = units(ch);
+                b_ = if (g.tb == .no_trans) column(b_, ch.start, g.ldb) else b_ + ch.start;
+                c = column(c, ch.start, g.ldc);
+            } else {
+                m = units(ch);
+                a = if (g.ta == .no_trans) a + ch.start else column(a, ch.start, g.lda);
+                c += ch.start;
+            }
+            _ = call(name, g.b, &.{}, .{ col, g.ta, g.tb, m, n, g.k, scalar(T, &g.alpha), a, g.lda, b_, g.ldb, scalar(T, &g.beta), c, g.ldc }).?;
+        }
+    };
+}
+
+pub inline fn gemm(io: Io, comptime T: type, transa: types.Trans, transb: types.Trans, m: isize, n: isize, k: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         const b = use(T) orelse return false;
         const ta = transpose(T, transa) orelse return false;
@@ -925,18 +1225,60 @@ pub inline fn gemm(comptime T: type, transa: types.Trans, transb: types.Trans, m
         if (x86_64 and (if (transa.transposed()) nonFiniteMat(T, k, m, a, lda) else nonFiniteMat(T, m, k, a, lda))) return false;
         const ea = if (transa.transposed()) mat(k, m, lda) else mat(m, k, lda);
         const eb = if (transb.transposed()) mat(n, k, ldb) else mat(k, n, ldb);
-        return call("cblas_" ++ letter(T) ++ "gemm", b, &.{ ea, eb, mat(m, n, ldc) }, .{ col, ta, tb, m, n, k, scalar(T, &alpha), a, lda, b_, ldb, scalar(T, &beta), c, ldc }) != null;
+        const G = Gemm(T);
+        if (!fits(G.name, b, &.{ m, n, k, lda, ldb, ldc, ea, eb, mat(m, n, ldc) })) return false;
+        const g: G = .{ .b = b, .ta = ta, .tb = tb, .by_columns = n >= m, .m = m, .n = n, .k = k, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb, .beta = beta, .c = c, .ldc = ldc };
+        const work = threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) });
+        try split(io, .gemm, T, work, @intCast(@max(m, n)), matrix_quantum, &g, G.part);
+        return true;
     }
 }
 
+/// `symm`'s parts: columns of `B` and `C` for `S` on the left, rows on the
+/// right, each with all of `S`.
+fn Symm(comptime T: type, comptime herm: bool) type {
+    return struct {
+        const Self = @This();
+        const name = "cblas_" ++ letter(T) ++ if (herm) "hemm" else "symm";
+
+        b: *const Blas,
+        sd: Side,
+        u: Uplo,
+        m: isize,
+        n: isize,
+        alpha: T,
+        a: [*]const T,
+        lda: isize,
+        b_: [*]const T,
+        ldb: isize,
+        beta: T,
+        c: [*]T,
+        ldc: isize,
+
+        fn part(g: *const Self, ch: threading.Chunk) void {
+            const left = g.sd == .left;
+            const m = if (left) g.m else units(ch);
+            const n = if (left) units(ch) else g.n;
+            const b_ = if (left) column(g.b_, ch.start, g.ldb) else g.b_ + ch.start;
+            const c = if (left) column(g.c, ch.start, g.ldc) else g.c + ch.start;
+            _ = call(name, g.b, &.{}, .{ col, g.sd, g.u, m, n, scalar(T, &g.alpha), g.a, g.lda, b_, g.ldb, scalar(T, &g.beta), c, g.ldc }).?;
+        }
+    };
+}
+
 /// `symm`, or `hemm` for `herm`.
-pub inline fn symm(comptime T: type, comptime herm: bool, sd: types.Side, ul: types.Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) bool {
+pub inline fn symm(io: Io, comptime T: type, comptime herm: bool, sd: types.Side, ul: types.Uplo, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]const T, ldb: isize, beta: T, c: [*]T, ldc: isize) Io.Cancelable!bool {
     if (comptime !covers(T) or (herm and !isComplex(T))) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const ka = if (sd == .l) m else n;
-        const name = comptime "cblas_" ++ letter(T) ++ if (herm) "hemm" else "symm";
-        return call(name, b, &.{ mat(ka, ka, lda), mat(m, n, ldb), mat(m, n, ldc) }, .{ col, side(sd), u, m, n, scalar(T, &alpha), a, lda, b_, ldb, scalar(T, &beta), c, ldc }) != null;
+        const S = Symm(T, herm);
+        if (!fits(S.name, b, &.{ m, n, lda, ldb, ldc, mat(ka, ka, lda), mat(m, n, ldb), mat(m, n, ldc) })) return false;
+        const g: S = .{ .b = b, .sd = side(sd), .u = u, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb, .beta = beta, .c = c, .ldc = ldc };
+        // the work `blas3/interface.zig` thresholds
+        const work = threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) });
+        try split(io, .symm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, S.part);
+        return true;
     }
 }
 
@@ -968,16 +1310,50 @@ pub inline fn syrk(comptime T: type, comptime herm: bool, ul: types.Uplo, t: boo
     }
 }
 
+/// `trmm`'s parts: columns of `B` for `A` on the left, rows on the right,
+/// as `gemm_thread_n` and `gemm_thread_m` split them.
+fn Trmm(comptime T: type, comptime solve: bool) type {
+    return struct {
+        const Self = @This();
+        const name = "cblas_" ++ letter(T) ++ if (solve) "trsm" else "trmm";
+
+        b: *const Blas,
+        sd: Side,
+        u: Uplo,
+        t: Transpose,
+        dg: Diag,
+        m: isize,
+        n: isize,
+        alpha: T,
+        a: [*]const T,
+        lda: isize,
+        b_: [*]T,
+        ldb: isize,
+
+        fn part(g: *const Self, ch: threading.Chunk) void {
+            const left = g.sd == .left;
+            const m = if (left) g.m else units(ch);
+            const n = if (left) units(ch) else g.n;
+            const b_ = if (left) column(g.b_, ch.start, g.ldb) else g.b_ + ch.start;
+            _ = call(name, g.b, &.{}, .{ col, g.sd, g.u, g.t, g.dg, m, n, scalar(T, &g.alpha), g.a, g.lda, b_, g.ldb }).?;
+        }
+    };
+}
+
 /// `trmm`, or `trsm` for `solve`.
-pub inline fn trmm(comptime T: type, comptime solve: bool, sd: types.Side, ul: types.Uplo, transa: types.Trans, dg: types.Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]T, ldb: isize) bool {
+pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Side, ul: types.Uplo, transa: types.Trans, dg: types.Diag, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, b_: [*]T, ldb: isize) Io.Cancelable!bool {
     if (comptime !covers(T)) return false else {
         const b = use(T) orelse return false;
         const u = uplo(ul) orelse return false;
         const t = transpose(T, transa) orelse return false;
         const ka = if (sd == .l) m else n;
         if (!solve and nonFiniteMat(T, m, n, b_, ldb)) return false;
-        const name = comptime "cblas_" ++ letter(T) ++ if (solve) "trsm" else "trmm";
-        return call(name, b, &.{ mat(ka, ka, lda), mat(m, n, ldb) }, .{ col, side(sd), u, t, diag(dg), m, n, scalar(T, &alpha), a, lda, b_, ldb }) != null;
+        const R = Trmm(T, solve);
+        if (!fits(R.name, b, &.{ m, n, lda, ldb, mat(ka, ka, lda), mat(m, n, ldb) })) return false;
+        const g: R = .{ .b = b, .sd = side(sd), .u = u, .t = t, .dg = diag(dg), .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb };
+        const work = threading.product(&.{ @intCast(m), @intCast(n) });
+        try split(io, .trsm, T, work, @intCast(if (sd == .l) n else m), matrix_quantum, &g, R.part);
+        return true;
     }
 }
 
@@ -1449,6 +1825,176 @@ test "each thread that calls in runs Accelerate single-threaded" {
     try zigstd.testExpectTrue(called);
     // null before macOS 15, where only `VECLIB_MAXIMUM_THREADS` does it
     if (model) |m| try zigstd.testExpectEqual(Threading.single_threaded, m);
+}
+
+// ---- rstd's workers around Accelerate --------------------------------------------
+
+/// A split test's sizes: under a `test_serial_max` of `split_unit`, several
+/// parts each, every one with a tail.
+const split_unit = vector_quantum;
+const split_n = 5 * vector_quantum + 37;
+const split_m = 3 * matrix_quantum + 11;
+const split_k = 2 * matrix_quantum + 5;
+
+/// A split test's outputs: their bits, and their values as `T`.
+fn Outputs(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        bits: std.ArrayList(u8) = .empty,
+        vals: std.ArrayList(T) = .empty,
+
+        fn deinit(o: *Self, al: std.mem.Allocator) void {
+            o.bits.deinit(al);
+            o.vals.deinit(al);
+        }
+
+        fn add(o: *Self, al: std.mem.Allocator, v: []const T) !void {
+            try o.bits.appendSlice(al, std.mem.sliceAsBytes(v));
+            try o.vals.appendSlice(al, v);
+        }
+
+        /// A scalar result: `T`, or a real one of any float type.
+        fn one(o: *Self, al: std.mem.Allocator, v: anytype) !void {
+            try o.bits.appendSlice(al, std.mem.asBytes(&v));
+            const V = @TypeOf(v);
+            try o.vals.append(al, if (V == T) v else val(T, @floatCast(v), 0));
+        }
+    };
+}
+
+/// Every routine that splits, routed, over `T`, on `io`.
+fn splitRun(comptime T: type, al: std.mem.Allocator, io: Io, o: *Outputs(T)) !void {
+    const cx = comptime isComplex(T);
+    const al1 = val(T, 1.25, -0.5);
+    const be1 = val(T, 0.5, 0.25);
+    const nl: isize = split_n;
+    const x = try al.alloc(T, 2 * split_n);
+    defer al.free(x);
+    const y = try al.alloc(T, 3 * split_n);
+    defer al.free(y);
+    for ([_][2]isize{ .{ 1, 1 }, .{ -2, 3 } }) |inc| {
+        check.fill(T, x, 1);
+        check.fill(T, y, 2);
+        const px: isize = @intCast(@abs(inc[0]));
+        try blas.copy(io, T, nl, x.ptr, inc[0], y.ptr, inc[1]);
+        try o.add(al, y);
+        try blas.swap(io, T, nl, x.ptr, inc[0], y.ptr, inc[1]);
+        try o.add(al, x);
+        try blas.scal(io, T, nl, al1, x.ptr, px);
+        try o.add(al, x);
+        try blas.rot(io, T, nl, x.ptr, inc[0], y.ptr, inc[1], 0.6, -0.8);
+        try o.add(al, x);
+        try o.add(al, y);
+        try blas.axpy(io, T, nl, al1, x.ptr, inc[0], y.ptr, inc[1]);
+        try o.add(al, y);
+        try o.one(al, try blas.dot(io, T, nl, x.ptr, inc[0], y.ptr, inc[1]));
+        if (cx) try o.one(al, try blas.dotc(io, T, nl, x.ptr, inc[0], y.ptr, inc[1]));
+        if (T == f32) try o.one(al, try blas.dsdot(io, nl, x.ptr, inc[0], y.ptr, inc[1]));
+        try o.one(al, try blas.asum(io, T, nl, x.ptr, px));
+    }
+
+    const ld = split_m + 1;
+    const len = ld * split_m;
+    const a = try al.alloc(T, len);
+    defer al.free(a);
+    const b0 = try al.alloc(T, len);
+    defer al.free(b0);
+    const c = try al.alloc(T, len);
+    defer al.free(c);
+    check.fill(T, a, 3);
+    check.fill(T, b0, 4);
+    // a dominant diagonal, for the solves
+    for (0..split_m) |i| a[i * (ld + 1)] = val(T, 2 * split_m, 0);
+    const l: isize = ld;
+    const big: isize = split_m;
+    const small: isize = split_k;
+    // the long side first, then the other way about: each side splits
+    for ([_][2]isize{ .{ big, small }, .{ small, big } }) |mn| {
+        const m = mn[0];
+        const n = mn[1];
+        for ([_]types.Trans{ .n, if (cx) .c else .t }) |t| {
+            check.fill(T, y, 5);
+            try blas.gemv(al, io, T, t, m, n, al1, a.ptr, l, x.ptr, -2, be1, y.ptr, 3);
+            try o.add(al, y);
+        }
+        @memcpy(c, b0);
+        try blas.ger(al, io, T, m, n, al1, x.ptr, 1, y.ptr, -3, c.ptr, l);
+        try o.add(al, c);
+        for ([_][2]types.Trans{ .{ .n, .n }, .{ .t, if (cx) .c else .t } }) |tt| {
+            @memcpy(c, b0);
+            try blas.gemm(al, io, T, tt[0], tt[1], m, n, small, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
+            try o.add(al, c);
+        }
+        for ([_]types.Side{ .l, .r }) |sd| {
+            @memcpy(c, b0);
+            try blas.symm(al, io, T, sd, .u, m, n, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
+            try o.add(al, c);
+            if (cx) {
+                @memcpy(c, b0);
+                try blas.hemm(al, io, T, sd, .l, m, n, al1, a.ptr, l, a.ptr + 1, l, be1, c.ptr, l);
+                try o.add(al, c);
+            }
+            @memcpy(c, b0);
+            try blas.trmm(al, io, T, sd, .u, .t, .n, m, n, al1, a.ptr, l, c.ptr, l);
+            try o.add(al, c);
+            @memcpy(c, b0);
+            try blas.trsm(al, io, T, sd, .l, .n, .n, m, n, al1, a.ptr, l, c.ptr, l);
+            try o.add(al, c);
+        }
+    }
+}
+
+/// `splitRun`'s outputs at one worker against 3 and 8, on a threaded `Io`
+/// and an inline one; then against unsplit calls, within rounding.
+fn splitType(comptime T: type, al: std.mem.Allocator, tio: Io) !void {
+    var want: Outputs(T) = .{};
+    defer want.deinit(al);
+    blas.config.cpu_count = 1;
+    threading.test_serial_max = split_unit;
+    const before = calls.load(.monotonic);
+    try splitRun(T, al, Io.failing, &want);
+    const split_calls = calls.load(.monotonic) - before;
+    for ([_]u32{ 3, 8 }) |cpus| for ([_]Io{ tio, Io.failing }) |io| {
+        blas.config.cpu_count = cpus;
+        var got: Outputs(T) = .{};
+        defer got.deinit(al);
+        try splitRun(T, al, io, &got);
+        try zigstd.testExpectEqualSlices(u8, want.bits.items, got.bits.items);
+    };
+    var whole_: Outputs(T) = .{};
+    defer whole_.deinit(al);
+    threading.test_serial_max = std.math.maxInt(u64);
+    const before_whole = calls.load(.monotonic);
+    try splitRun(T, al, Io.failing, &whole_);
+    // the parts were Accelerate calls of their own
+    try zigstd.testExpectTrue(split_calls > 2 * (calls.load(.monotonic) - before_whole));
+    const tol = check.tolerance(Float(T), split_k);
+    for (whole_.vals.items, want.vals.items, 0..) |w, g, i| {
+        const scale = @max(1, @abs(if (comptime isComplex(T)) w.re else w) + @abs(if (comptime isComplex(T)) w.im else 0));
+        check.expectClose(T, w, g, tol * scale) catch |e| {
+            check.say("{s} output {d}: ", .{ @typeName(T), i });
+            return e;
+        };
+    }
+}
+
+test "routed calls split by size on rstd's workers: one worker's bits at any worker count and Io" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    _ = blas.vtable();
+    if (!routing()) return error.SkipZigTest;
+    const cpus = blas.config.cpu_count;
+    defer blas.config.cpu_count = cpus;
+    defer threading.test_serial_max = null;
+    const al = zigstd.testAllocator;
+    var threaded: Io.Threaded = .init(al, .{});
+    defer threaded.deinit();
+    const before = unpinned.load(.monotonic);
+    inline for (.{ f32, f64, Complex32, Complex64 }) |T| splitType(T, al, threaded.io()) catch |e| {
+        check.say("{s}: ", .{@typeName(T)});
+        return e;
+    };
+    // every worker ran its parts single-threaded (macOS 15+)
+    try zigstd.testExpectEqual(before, unpinned.load(.monotonic));
 }
 
 test "on the 32-bit table, what does not fit c_int runs rstd's kernels" {

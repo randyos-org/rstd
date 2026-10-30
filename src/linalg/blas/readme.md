@@ -227,7 +227,8 @@ The kernels are portable Zig, the same on every core.
 
 On macOS the public routines over `s`, `d`, `c` and `z` run Apple's Accelerate where it has
 the routine, bound at run time with no SDK and run single-threaded, so its results stay
-reproducible (`apple_accel.zig`). Rstd's checks come first, so the errors are the same
+reproducible (`apple_accel.zig`); large calls split into parts by size on rstd's workers
+instead ([`threading.md`](threading.md#vendor-backends)). Rstd's checks come first, so the errors are the same
 everywhere. Where its results differ from the reference's on special values, those calls run
 rstd's kernels instead, so [one contract](#one-contract-on-every-core) holds there too.
 `RSTD_BLAS_ACCELERATE=0` at init, or `blas.useAccelerate(false)`, turns it off. Which routines

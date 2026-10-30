@@ -845,6 +845,10 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   `BLASSetThreading` (macOS 15+), per thread, which `singleThreadHere` sets on each thread's
   first routed call (Apple, `BLASSetThreading`: "This setting is per thread",
   <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000 (our timing for 72b2efc; no results file kept).
+  Rstd's workers thread it instead: above a routine's threshold a routed call splits into parts
+  of its output fixed by the problem size, one single-threaded Accelerate call each
+  ([`threading.md`](threading.md#vendor-backends) has which routines and why). The split's
+  speed against one Accelerate call is untimed (T05).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
   <https://pubs.opengroup.org/onlinepubs/9799919799/functions/setenv.html>), unless `RSTD_BLAS_ACCELERATE` is 0 (`Config.accelerate`).
@@ -906,8 +910,6 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - x86_64 (under Rosetta 2; no Intel Mac was at hand): `cblas_dsdot` is off by `f32`'s epsilon,
     so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's; `gemm` with NaN or an infinity in `A`,
     which gives NaN at an edge of `m`.
-
-Left to do: tying its threading into rstd's own ([`threading.md`](threading.md#vendor-backends)).
 
 ### Core detection and selection
 

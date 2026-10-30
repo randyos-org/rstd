@@ -85,7 +85,7 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, transa: Trans, trans
     if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    if (accel.gemm(T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
+    if (try accel.gemm(io, T, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     const conj: driver.Conj = .of(conjugated(T, transa), conjugated(T, transb));
     const w = threaded.workers(.gemm, T, threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) }));
     try driver.gemm(allocator, io, T, table(T), ta, tb, conj, @intCast(m), @intCast(n), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
@@ -146,7 +146,7 @@ fn symmImpl(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool,
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
     if (!util.fitsMatrix(m, n, ldc, @sizeOf(T))) return error.InvalidLdc;
-    if (accel.symm(T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
+    if (try accel.symm(io, T, herm, side, uplo, m, n, alpha, a, lda, b, ldb, beta, c, ldc)) return;
     // `symm.c` counts `2 * m * m * n` on either side
     const w = threaded.workers(.symm, T, threading.product(&.{ 2, @intCast(m), @intCast(m), @intCast(n) }));
     try driver.symm(allocator, io, T, table(T), herm, side == .l, uplo == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc), w);
@@ -247,7 +247,7 @@ fn triImpl(allocator: Allocator, io: Io, comptime T: type, comptime solve: bool,
     // here; rstd has no row-major layer
     if (!util.fitsMatrix(ka, ka, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, n, ldb, @sizeOf(T))) return error.InvalidLdb;
-    if (accel.trmm(T, solve, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)) return;
+    if (try accel.trmm(io, T, solve, side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)) return;
     const f = if (solve) driver.trsm else driver.trmm;
     const w = threaded.workers(.trsm, T, threading.product(&.{ @intCast(m), @intCast(n) }));
     try f(allocator, io, T, table(T), side == .l, uplo == .u, transa.transposed(), conjugated(T, transa), diag == .u, @intCast(m), @intCast(n), alpha, a, @intCast(lda), b, @intCast(ldb), w);

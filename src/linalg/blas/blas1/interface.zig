@@ -161,7 +161,7 @@ fn dsdotPart(q: Pair(f32, void), len: isize, at: isize) f64 {
 pub fn copy(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!void {
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
-    if (accel.copy(T, n, x, incx, y, incy)) return;
+    if (try accel.copy(io, T, n, x, incx, y, incy)) return;
     const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
     const S = struct {
         fn run(q: @TypeOf(c), len: isize, at: isize) void {
@@ -177,7 +177,7 @@ pub fn copy(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
 pub fn swap(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!void {
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
-    if (accel.swap(T, n, x, incx, y, incy)) return;
+    if (try accel.swap(io, T, n, x, incx, y, incy)) return;
     const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
     const S = struct {
         fn run(q: @TypeOf(c), len: isize, at: isize) void {
@@ -204,7 +204,7 @@ pub fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) 
     if (comptime isComplex(T)) {
         if (alpha.re == 1 and alpha.im == 0) return;
     } else if (alpha == 1) return;
-    if (accel.scal(T, n, alpha, x, incx)) return;
+    if (try accel.scal(io, T, n, alpha, x, incx)) return;
     const c: Pair(T, T) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = alpha };
     const S = struct {
         fn run(q: @TypeOf(c), len: isize, at: isize) void {
@@ -242,7 +242,7 @@ pub fn dotc(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, i
 fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
     if (n <= 0) return zero(T);
     try spanXY(T, T, n, incx, incy);
-    if (accel.dot(T, conj, n, x, incx, y, incy)) |r| return r;
+    if (try accel.dot(io, T, conj, n, x, incx, y, incy)) |r| return r;
     // `kernel/x86_64/ddot.c`, `zdot.c`: a zero stride runs serially
     if (comptime sums(T)) if (incx != 0 and incy != 0) if (chunked(.dot, T, n)) |p| {
         const c: Pair(T, void) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = {} };
@@ -274,7 +274,7 @@ fn dotImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, x: [*]T, inc
 pub fn dsdot(io: Io, n: isize, x: [*]f32, incx: isize, y: [*]f32, incy: isize) Error!f64 {
     if (n <= 0) return 0;
     try spanXY(f32, f32, n, incx, incy);
-    if (accel.dsdot(n, x, incx, y, incy)) |r| return r;
+    if (try accel.dsdot(io, n, x, incx, y, incy)) |r| return r;
     const c: Pair(f32, void) = .{ .x = first(f32, x, n, incx), .incx = incx, .y = first(f32, y, n, incy), .incy = incy, .e = {} };
     if (incx != 0 and incy != 0) if (chunked(.dot, f32, n)) |p| return fold(io, &p, f64, c, dsdotPart, plus(f64));
     return dsdotPart(c, n, 0);
@@ -324,7 +324,7 @@ pub fn nrm2(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Floa
 pub fn asum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float(T) {
     if (n <= 0) return 0;
     try spanX(T, n, incx);
-    if (accel.asum(T, n, x, incx)) |r| return r;
+    if (try accel.asum(io, T, n, x, incx)) |r| return r;
     return summed(io, T, .asum_k, n, x, incx);
 }
 
@@ -450,7 +450,7 @@ fn realOnly(comptime T: type, comptime which: Extreme) void {
 pub fn rot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, c: Float(T), s: Float(T)) Error!void {
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
-    if (accel.rot(T, n, x, incx, y, incy, c, s)) return;
+    if (try accel.rot(io, T, n, x, incx, y, incy, c, s)) return;
     const v: Pair(T, [2]Float(T)) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = .{ c, s } };
     const S = struct {
         fn run(q: @TypeOf(v), len: isize, at: isize) void {
@@ -502,7 +502,7 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
         }
         try spanXY(T, T, n, incx, incy);
         // CBLAS has no `axpyc`
-        if (!conj and accel.axpy(T, n, alpha, x, incx, y, incy)) return;
+        if (!conj and try accel.axpy(io, T, n, alpha, x, incx, y, incy)) return;
     } else {
         if (alpha == 0) return;
         if (incx == 0 and incy == 0) {
@@ -510,7 +510,7 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
             return;
         }
         try spanXY(T, T, n, incx, incy);
-        if (accel.axpy(T, n, alpha, x, incx, y, incy)) return;
+        if (try accel.axpy(io, T, n, alpha, x, incx, y, incy)) return;
     }
     const c: Pair(T, T) = .{ .x = first(T, x, n, incx), .incx = incx, .y = first(T, y, n, incy), .incy = incy, .e = alpha };
     const S = struct {
