@@ -11,6 +11,7 @@
 //!   * `p` of the older x86 cores follows the L2 size (`Affine`), over the header;
 //!   * on x86, `r` is always derived from the packing buffer;
 //!   * on mips64, `dgemm`'s `r` is 640 for every core;
+//!   * half and bfloat16 are set per family, `r` the header's outside x86;
 //!   * on x86, `p` of `s`, `d`, `c`, `z` and 3M is rounded up to the unroll;
 //!   * on x86 only, the 3M variants take `p` and `q` of the real ones unless
 //!     the header says;
@@ -387,12 +388,24 @@ pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const
     inline for (names, 0..) |name, i| setPrec(vt, name, @field(table, name), res[i]);
     inline for (names3m, 0..) |name, i| setPrec(vt, name, @field(table, name), res3m[i]);
 
-    // half and bfloat16: their headers' `p` and `q`, `r` from the buffer
+    // half and bfloat16: the headers' `p` and `q`; x86 derives `r`
+    // (`setparam-ref.c:1556-1563, 2190-2205`), the others take the header's.
+    // arm64, LoongArch, POWER and zarch set only `b` and `sb` (`:981-1015,
+    // 1181-1186, 1307, 1316-1335, 1348-1367`), riscv64 also `sh`
+    // (`:1381-1410`), mips64 none; the static families' are the header's
+    // (`common_param.h:1441-1465`). Nothing reads these until their level 3 is
+    // ported.
     inline for (.{ "sh", "b", "sb" }) |name| {
+        const set = comptime switch (family) {
+            .mips64 => false,
+            .arm64, .loongarch64, .power64, .power64be, .power32, .power32le, .s390x => !std.mem.eql(u8, name, "sh"),
+            .x86_64, .x86, .riscv64, .arm, .mips32, .sparc, .wasm, .generic => true,
+        };
         const sh = @field(table, name);
         const p = fixedOf(sh.p) orelse 0;
         const q = fixedOf(sh.q) orelse 0;
-        setPrec(vt, name, sh, .{ .p = p, .q = q, .r = derivedR(p, q, 4, table) });
+        const fixed = if (x86) null else fixedOf(sh.r);
+        setPrec(vt, name, sh, if (set) .{ .p = p, .q = q, .r = fixed orelse derivedR(p, q, 4, table) } else .{ .p = 0, .q = 0, .r = 0 });
     }
 }
 
@@ -696,6 +709,34 @@ test "only x86 rounds p up to the unroll; Blocking takes whole panels of an unro
     try std.testing.expectEqual(@as(i32, 104), vt.sgemm_p);
     try std.testing.expectEqual(@as(i32, 104), vt.cgemm3m_p);
     try std.testing.expectEqual(@as(i32, 27), vt.qgemm_p);
+}
+
+test "half and bfloat16 take the header's r outside x86, and only what each family's block sets" {
+    var vt: Vtable = .{};
+    // `b` and `sb` only: `setparam-ref.c:1015, 1186, 1325, 1357`
+    inline for (.{ .{ .arm64, .neoversen1 }, .{ .loongarch64, .la464 }, .{ .power64, .power10 }, .{ .s390x, .z14 } }) |c| {
+        installCore(&vt, c[0], c[1], .{});
+        const t = tableFor(c[0], c[1]).?;
+        try std.testing.expectEqual(t.sb.r.fixed, vt.sbgemm_r);
+        try std.testing.expectEqual(t.b.r.fixed, vt.bgemm_r);
+        try std.testing.expectEqual(t.sb.p.fixed, vt.sbgemm_p);
+        inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, "shgemm" ++ f));
+    }
+    installCore(&vt, .arm64, .neoversen1, .{});
+    try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
+    // riscv64 also `sh`, whose header `r` is 240 (`:1397`)
+    installCore(&vt, .riscv64, .riscv64_generic, .{});
+    try std.testing.expectEqual(@as(i32, 240), vt.shgemm_r);
+    try std.testing.expectEqual(@as(i32, 256), vt.sbgemm_r);
+    try std.testing.expectEqual(@as(i32, 256), vt.bgemm_r);
+    // mips64 none
+    installCore(&vt, .mips64, .loongson3r4, .{});
+    inline for (.{ "sh", "b", "sb" }) |pre| {
+        inline for (.{ "gemm_p", "gemm_q", "gemm_r" }) |f| try std.testing.expectEqual(@as(i32, 0), @field(vt, pre ++ f));
+    }
+    // x86 derives it (`:2190-2205`)
+    installCore(&vt, .x86_64, .haswell, .{});
+    try std.testing.expectEqual(derivedR(256, 256, 4, tableFor(.x86_64, .haswell).?), vt.sbgemm_r);
 }
 
 test "old x86 cores follow the L2 size" {
