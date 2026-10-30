@@ -421,9 +421,94 @@ fn transPairs(comptime T: type) []const [2]types.Trans {
     };
 }
 
-/// One shape against `driver.gemm`, bit for bit, at 1 to 9 workers on `io`.
-/// Operand padding holds NaN; `C`'s, a sentinel that must survive; scratch
-/// comes poisoned.
+/// The depths the level 3 kernels see, a bit each (past 255 in the last):
+/// `Q`'s slices, which must not follow the worker count (threading.md,
+/// Guardrails).
+const Depths = struct {
+    var seen: [4]std.atomic.Value(u64) = @splat(.init(0));
+
+    fn note(k: types.BlasLong) void {
+        const d: usize = @intCast(std.math.clamp(k, 0, 255));
+        _ = seen[d / 64].fetchOr(@as(u64, 1) << @intCast(d % 64), .monotonic);
+    }
+
+    /// Whether the depths seen since the last `take` are `want`; clears them.
+    fn same(want: [4]u64) bool {
+        return std.mem.eql(u64, &want, &take());
+    }
+
+    /// The depths seen since the last `take`.
+    fn take() [4]u64 {
+        var out: [4]u64 = undefined;
+        for (&seen, &out) |*s, *o| o.* = s.swap(0, .monotonic);
+        return out;
+    }
+
+    /// Kernel `name` noting its depth, its third argument, then calling `real`.
+    fn Spy(comptime name: []const u8) type {
+        const F = @typeInfo(@FieldType(Vtable, name)).optional.child;
+        const Fn = @typeInfo(F).pointer.child;
+        const A = std.meta.ArgsTuple(Fn);
+        const R = @typeInfo(Fn).@"fn".return_type.?;
+        const cc = types.kernelCc(f64);
+        // Zig 0.17 names it `fields`
+        const info = @typeInfo(A).@"struct";
+        const n = if (@hasField(@TypeOf(info), "field_names")) info.field_names.len else info.fields.len;
+        return struct {
+            var real: F = undefined;
+            fn t(comptime i: usize) type {
+                return @FieldType(A, std.fmt.comptimePrint("{d}", .{i}));
+            }
+            const wrap: F = switch (n) {
+                8 => &struct {
+                    fn f(a0: t(0), a1: t(1), k: t(2), a3: t(3), a4: t(4), a5: t(5), a6: t(6), a7: t(7)) callconv(cc) R {
+                        note(k);
+                        return real(a0, a1, k, a3, a4, a5, a6, a7);
+                    }
+                }.f,
+                9 => &struct {
+                    fn f(a0: t(0), a1: t(1), k: t(2), a3: t(3), a4: t(4), a5: t(5), a6: t(6), a7: t(7), a8: t(8)) callconv(cc) R {
+                        note(k);
+                        return real(a0, a1, k, a3, a4, a5, a6, a7, a8);
+                    }
+                }.f,
+                10 => &struct {
+                    fn f(a0: t(0), a1: t(1), k: t(2), a3: t(3), a4: t(4), a5: t(5), a6: t(6), a7: t(7), a8: t(8), a9: t(9)) callconv(cc) R {
+                        note(k);
+                        return real(a0, a1, k, a3, a4, a5, a6, a7, a8, a9);
+                    }
+                }.f,
+                else => @compileError(name),
+            };
+        };
+    }
+
+    /// `vt` with `T`'s `gemm`, `trsm` and `trmm` kernels noting their depths.
+    fn spied(comptime T: type, vt: Vtable) Vtable {
+        const l = comptime portable.letter(T).?;
+        const complex = comptime types.isComplex(T);
+        const sides = .{ "LN", "LT", "RN", "RT" } ++ if (complex) .{ "LR", "LC", "RR", "RC" } else .{};
+        const gemms = if (complex) .{ "gemm_kernel_n", "gemm_kernel_l", "gemm_kernel_r", "gemm_kernel_b" } else .{"gemm_kernel"};
+        var out = vt;
+        inline for (gemms) |s| patch(&out, l ++ s);
+        inline for (sides) |s| {
+            patch(&out, l ++ "trsm_kernel_" ++ s);
+            patch(&out, l ++ "trmm_kernel_" ++ s);
+        }
+        return out;
+    }
+
+    fn patch(vt: *Vtable, comptime name: []const u8) void {
+        if (@field(vt, name)) |real| {
+            Spy(name).real = real;
+            @field(vt, name) = Spy(name).wrap;
+        }
+    }
+};
+
+/// One shape against `driver.gemm`, bit for bit, at 1 to 9 workers on `io`,
+/// and with the kernels' depths if `vt` is `Depths.spied`. Operand padding
+/// holds NaN; `C`'s, a sentinel that must survive; scratch comes poisoned.
 fn shape(comptime T: type, vt: *const Vtable, io: Io, tr: [2]types.Trans, m: usize, n: usize, k: usize, alpha: T, beta: T) !void {
     const al = std.testing.allocator;
     const ta = tr[0].transposed();
@@ -458,10 +543,11 @@ fn shape(comptime T: type, vt: *const Vtable, io: Io, tr: [2]types.Trans, m: usi
     const pa = poison.allocator();
     @memcpy(want, c0);
     try driver.gemm(pa, Io.failing, T, vt, ta, tb, conj, m, n, k, alpha, a.ptr, ra + pad, b.ptr, rb + pad, beta, want.ptr, m + pad, 1);
+    const depths = Depths.take();
     for (1..10) |w| {
         @memcpy(got, c0);
         try driver.gemm(pa, io, T, vt, ta, tb, conj, m, n, k, alpha, a.ptr, ra + pad, b.ptr, rb + pad, beta, got.ptr, m + pad, @intCast(w));
-        if (!sameBits(T, want, got)) {
+        if (!sameBits(T, want, got) or !Depths.same(depths)) {
             std.debug.print("{s} w={d} {t}{t} m={d} n={d} k={d}\n", .{ @typeName(T), w, tr[0], tr[1], m, n, k });
             return error.TestUnexpectedResult;
         }
@@ -471,7 +557,7 @@ fn shape(comptime T: type, vt: *const Vtable, io: Io, tr: [2]types.Trans, m: usi
 /// Every `op` pair over shapes around every block and panel edge (complex,
 /// fewer shapes over its sixteen pairs).
 fn shapes(comptime T: type, io: Io) !void {
-    const vt = shrunk(T);
+    const vt = Depths.spied(T, shrunk(T));
     const blk = Blocking.of(T, &vt);
     const um = blk.um;
     const un = blk.un;
@@ -501,7 +587,7 @@ const limits = [_]Io.Limit{ .nothing, .limited(3), .limited(8) };
 
 const precisions = .{ f32, f64, types.Complex32, types.Complex64 };
 
-test "threaded gemm matches the serial driver bit for bit at 1 to 9 workers, on every Io" {
+test "threaded gemm matches the serial driver's bits and kernel depths at 1 to 9 workers, on every Io" {
     inline for (precisions) |T| {
         try shapes(T, Io.failing);
         if (comptime threading.hosted) for (limits) |limit| {
@@ -535,8 +621,19 @@ fn routine(comptime T: type, vt: *const Vtable, al: Allocator, io: Io, r: Routin
     }
 }
 
+/// A tame triangle for `trsm` in `a` at `ld`: small off the diagonal, at
+/// least 1 on it.
+fn tame(comptime T: type, a: []T, ld: usize) void {
+    for (0..ld) |j| for (0..ld) |i| {
+        const v = &a[i + j * ld];
+        const f = scalar(T, if (i == j) 1.5 else 0.25 / @as(f64, @floatFromInt(ld)), 0);
+        v.* = if (comptime types.isComplex(T)) v.mul(f).add(if (i == j) scalar(T, 1, 0) else scalar(T, 0, 0)) else v.* * f + @as(T, if (i == j) 1 else 0);
+    };
+}
+
 /// `r`'s shapes around every block, panel and triangle edge, all options,
-/// against the serial loops bit for bit at 1 to 9 workers on `io`.
+/// against the serial loops bit for bit at 1 to 9 workers on `io`, and with
+/// the kernels' depths if `vt` is `Depths.spied`.
 fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void {
     const al = std.testing.allocator;
     const blk = Blocking.of(T, vt);
@@ -559,12 +656,7 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
     fill(T, a, 11);
     fill(T, b, 12);
     fill(T, c0, 13);
-    // a tame triangle for `trsm`: small off the diagonal, at least 1 on it
-    if (tri) for (0..ld) |j| for (0..ld) |i| {
-        const v = &a[i + j * ld];
-        const f = scalar(T, if (i == j) 1.5 else 0.25 / @as(f64, @floatFromInt(ld)), 0);
-        v.* = if (comptime types.isComplex(T)) v.mul(f).add(if (i == j) scalar(T, 1, 0) else scalar(T, 0, 0)) else v.* * f + @as(T, if (i == j) 1 else 0);
-    };
+    if (tri) tame(T, a, ld);
     var poison: guard.Poison = .{ .child = al };
     const pa = poison.allocator();
     const alpha = scalar(T, -0.75, 0.25);
@@ -580,10 +672,11 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
             if (x % 2 != 0) continue;
             @memcpy(want, c0);
             try routine(T, vt, pa, Io.failing, r, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, want.ptr, 1);
+            const depths = Depths.take();
             for (1..10) |w| {
                 @memcpy(got, c0);
                 try routine(T, vt, pa, io, r, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, got.ptr, @intCast(w));
-                if (!sameBits(T, want, got)) {
+                if (!sameBits(T, want, got) or !Depths.same(depths)) {
                     std.debug.print("{s} {t} w={d} opt={any} m={d} n={d} k={d}\n", .{ @typeName(T), r, w, opt, m, n, k });
                     return error.TestUnexpectedResult;
                 }
@@ -604,9 +697,9 @@ fn shrunkCore(comptime T: type) Vtable {
     return vt;
 }
 
-test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops bit for bit at 1 to 9 workers" {
+test "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops' bits and kernel depths at 1 to 9 workers" {
     inline for (precisions) |T| {
-        const vt = shrunkCore(T);
+        const vt = Depths.spied(T, shrunkCore(T));
         for (std.enums.values(Routine)) |r| {
             if (!types.isComplex(T) and (r == .hemm or r == .herk or r == .her2k)) continue;
             try routineShapes(T, &vt, Io.failing, r);
@@ -746,6 +839,72 @@ test "the public symm, herk, syr2k and trmm thread above their thresholds and ke
     try driver.trmm(al, Io.failing, T, vt, false, false, true, true, true, k, n, alpha, a.ptr, n, want.ptr, n, 1);
     try interface.trmm(al, io, T, .r, .l, .c, .u, k, n, alpha, a.ptr, n, got.ptr, n);
     try zigstd.testExpectTrue(sameBits(T, want, got));
+}
+
+/// `r` (`gemm` if null) on `io` at 2 to 8 workers, round after round,
+/// against one worker's bits on `Io.failing`. `C` (`B`) is `m x n` at
+/// `ld`; every element past it is a guard band that must keep its value.
+/// Scratch comes NaN-poisoned, so a read before its packing shows.
+fn stress(comptime T: type, io: Io, r: ?Routine, opt: [3]bool, m: usize, n: usize, k: usize, rounds: usize) !void {
+    const al = std.testing.allocator;
+    const vt = shrunkCore(T);
+    const ld = @max(m, n, k) + 3;
+    const a = try al.alloc(T, ld * ld);
+    defer al.free(a);
+    const b = try al.alloc(T, ld * ld);
+    defer al.free(b);
+    const c0 = try al.alloc(T, ld * ld);
+    defer al.free(c0);
+    const want = try al.alloc(T, c0.len);
+    defer al.free(want);
+    const got = try al.alloc(T, c0.len);
+    defer al.free(got);
+    fill(T, a, 41);
+    fill(T, b, 42);
+    fill(T, c0, 43);
+    if (r == .trsm) tame(T, a, ld);
+    var poison: guard.Poison = .{ .child = al };
+    const pa = poison.allocator();
+    const alpha = scalar(T, -0.75, 0.25);
+    const beta = scalar(T, 0.5, 0);
+    for (0..rounds + 1) |round| {
+        const w: u32 = if (round == 0) 1 else @intCast(2 + round % 7);
+        const out = if (round == 0) want else got;
+        @memcpy(out, c0);
+        const rio = if (round == 0) Io.failing else io;
+        if (r) |rr| {
+            try routine(T, &vt, pa, rio, rr, opt, m, n, k, alpha, beta, a.ptr, b.ptr, ld, out.ptr, w);
+        } else {
+            try driver.gemm(pa, rio, T, &vt, opt[0], opt[1], .n, m, n, k, alpha, a.ptr, ld, b.ptr, ld, beta, out.ptr, ld, w);
+        }
+        if (round > 0 and !sameBits(T, want, got)) {
+            std.debug.print("{s} {?t} round {d} w={d}\n", .{ @typeName(T), r, round, w });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "race stress: threaded level 3 keeps one worker's bits and its guard bands, round after round" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    var threaded: Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const rounds = threading.stress_rounds;
+    // shared packed `B` behind its barriers: `ic` and `jc` past 1, several slices
+    {
+        const blk = Blocking.of(f64, &shrunkCore(f64));
+        try stress(f64, io, null, .{ false, true, false }, 9 * blk.um + 5, 2 * blk.r + 3, 2 * blk.q + 3, rounds);
+    }
+    // a triangle's balanced groups, both passes
+    {
+        const blk = Blocking.of(types.Complex32, &shrunkCore(types.Complex32));
+        try stress(types.Complex32, io, .syr2k, .{ false, true, false }, 2 * blk.r + 3, 2 * blk.r + 3, 2 * blk.q + 3, rounds / 2);
+    }
+    // independent panels through `forEach`
+    {
+        const blk = Blocking.of(f32, &shrunkCore(f32));
+        try stress(f32, io, .trsm, .{ true, false, false }, 2 * blk.r + 3, 2 * blk.r + 3, 1, rounds / 2);
+    }
 }
 
 test "ways use what they may and keep a panel per part" {

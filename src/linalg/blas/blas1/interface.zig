@@ -1702,3 +1702,52 @@ test "interface: threaded level 1 gives one worker's bits at any worker count, I
     defer threading.test_serial_max = null;
     try check.eachCore(threadedCore);
 }
+
+/// The race stress test's length: eight chunks under `test_serial_max`.
+const stress_n = 8 * quantum + 517;
+
+/// One round of the race stress test: an element-wise routine, a reduction
+/// and an exact fold, strided, so the gaps between elements are guard bands.
+fn stressBits(comptime T: type, al: std.mem.Allocator, io: Io, x: []T, y0: []const T, out: *std.ArrayList(u8)) !void {
+    const y = try al.dupe(T, y0);
+    defer al.free(y);
+    try axpy(io, T, stress_n, scalarOf(T, 1.25, -0.75), x.ptr, 2, y.ptr, -3);
+    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+    try out.appendSlice(al, bytes(&try dot(io, T, stress_n, x.ptr, 2, y.ptr, -3)));
+    try out.appendSlice(al, bytes(&try index(io, T, .amax, stress_n, x.ptr, 2)));
+}
+
+test "interface: race stress: threaded level 1 keeps one worker's bits and its guard bands, round after round" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    _ = blas.coreName();
+    const cpus = blas.config.cpu_count;
+    defer blas.config.cpu_count = cpus;
+    threading.test_serial_max = quantum;
+    defer threading.test_serial_max = null;
+    const al = std.testing.allocator;
+    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
+    defer threaded.deinit();
+    inline for (.{ f64, Complex32 }) |T| {
+        const x = try al.alloc(T, stress_n * 2);
+        defer al.free(x);
+        const y0 = try al.alloc(T, stress_n * 3);
+        defer al.free(y0);
+        check.fill(T, x, 21);
+        check.fill(T, y0, 22);
+        var want: std.ArrayList(u8) = .empty;
+        defer want.deinit(al);
+        blas.config.cpu_count = 1;
+        try stressBits(T, al, Io.failing, x, y0, &want);
+        var got: std.ArrayList(u8) = .empty;
+        defer got.deinit(al);
+        for (0..threading.stress_rounds) |round| {
+            blas.config.cpu_count = @intCast(2 + round % 7);
+            got.clearRetainingCapacity();
+            try stressBits(T, al, threaded.io(), x, y0, &got);
+            if (!check.sameBytes(want.items, got.items)) std.testing.expectEqualSlices(u8, want.items, got.items) catch |e| {
+                check.say("{s} round {d}: ", .{ @typeName(T), round });
+                return e;
+            };
+        }
+    }
+}

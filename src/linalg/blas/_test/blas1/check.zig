@@ -512,6 +512,18 @@ pub fn expectBits(comptime F: type, want: F, got: F, what: []const u8, n: usize,
     return error.TestExpectedEqual;
 }
 
+/// `std.mem.eql` on bytes a word at a time: its vector path is slow in debug
+/// builds, and the race stress tests compare megabytes per round.
+pub fn sameBytes(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    const words = a.len / 8 * 8;
+    const x = std.mem.bytesAsSlice(u64, a[0..words]);
+    const y = std.mem.bytesAsSlice(u64, b[0..words]);
+    for (x, y) |p, q| if (p != q) return false;
+    for (a[words..], b[words..]) |p, q| if (p != q) return false;
+    return true;
+}
+
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {
     if (comptime sysinfo.target.os.tag != .freestanding) {

@@ -328,3 +328,88 @@ test "threaded level 2 gives one worker's bits at any worker count, Io and core"
     defer threading.test_serial_max = null;
     try check.eachCore(onCore);
 }
+
+/// One round of the race stress test: `gemv` by columns, `ger`, `syr2` and
+/// `symv`, whose partial vectors fold, with the inputs filled once.
+fn Stress(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        const alpha = val(T, 1.25, -0.5);
+        const beta = val(T, 0.5, 0.25);
+        /// `gemv`'s and `ger`'s rows and columns: 64-column chunks and a tail.
+        const rows = 13;
+        const cols = 3 * 64 + 37;
+        /// `syr2`'s and `symv`'s order.
+        const order = 96;
+        const lda = order + 3;
+
+        a: []T,
+        x: []T,
+        y: []T,
+        /// Outputs; `lda` leaves guard bands below each column of `A`.
+        out_a: []T,
+        out_y: []T,
+
+        fn init(al: Allocator) !Self {
+            return .{
+                .a = try filled(T, al, lda * cols, 31),
+                .x = try filled(T, al, 2 * cols, 32),
+                .y = try filled(T, al, 2 * cols, 33),
+                .out_a = try al.alloc(T, lda * cols),
+                .out_y = try al.alloc(T, 2 * cols),
+            };
+        }
+
+        fn deinit(s: *Self, al: Allocator) void {
+            inline for (.{ s.a, s.x, s.y, s.out_a, s.out_y }) |v| al.free(v);
+        }
+
+        fn round(s: *Self, al: Allocator, io: Io, out: *std.ArrayList(u8)) !void {
+            // four chunks of `gemv` and `ger`, eight of `syr2` and `symv`
+            threading.test_serial_max = 32 * rows;
+            @memcpy(s.out_y, s.y);
+            try interface.gemv(al, io, T, .t, rows, cols, alpha, s.a.ptr, lda, s.x.ptr, 1, beta, s.out_y.ptr, 2);
+            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_y));
+            @memcpy(s.out_a, s.a);
+            try interface.ger(al, io, T, rows, cols, alpha, s.x.ptr, 2, s.y.ptr, 1, s.out_a.ptr, lda);
+            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_a));
+            threading.test_serial_max = order / 8 + 1;
+            @memcpy(s.out_a, s.a);
+            try band.syr2(al, io, T, .l, order, alpha, s.x.ptr, 1, s.y.ptr, 2, s.out_a.ptr, lda);
+            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_a));
+            @memcpy(s.out_y, s.y);
+            try interface.symv(al, io, T, .u, order, alpha, s.a.ptr, lda, s.x.ptr, 1, beta, s.out_y.ptr, 2);
+            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_y));
+        }
+    };
+}
+
+test "race stress: threaded level 2 keeps one worker's bits and its guard bands, round after round" {
+    if (comptime !threading.hosted) return error.SkipZigTest;
+    _ = blas.coreName();
+    const cpus = blas.config.cpu_count;
+    defer blas.config.cpu_count = cpus;
+    defer threading.test_serial_max = null;
+    const al = std.testing.allocator;
+    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
+    defer threaded.deinit();
+    inline for (.{ f64, types.Complex32 }) |T| {
+        var s: Stress(T) = try .init(al);
+        defer s.deinit(al);
+        var want: std.ArrayList(u8) = .empty;
+        defer want.deinit(al);
+        blas.config.cpu_count = 1;
+        try s.round(al, Io.failing, &want);
+        var got: std.ArrayList(u8) = .empty;
+        defer got.deinit(al);
+        for (0..threading.stress_rounds) |i| {
+            blas.config.cpu_count = @intCast(2 + i % 7);
+            got.clearRetainingCapacity();
+            try s.round(al, threaded.io(), &got);
+            if (!check.sameBytes(want.items, got.items)) std.testing.expectEqualSlices(u8, want.items, got.items) catch |e| {
+                check.say("{s} round {d}: ", .{ @typeName(T), i });
+                return e;
+            };
+        }
+    }
+}

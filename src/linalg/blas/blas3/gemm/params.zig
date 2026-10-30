@@ -506,6 +506,28 @@ noinline fn checkCore(comptime family: Family, comptime core: CoreOf(family)) !v
             return error.TestUnexpectedResult;
         }
     }
+    // `Q` follows the core and caches, never the thread count (LA464's sets
+    // may change `P` and `R`; threading.md, Guardrails)
+    for ([_]i32{ 8192, 32 * 1024 }) |l3| {
+        installCore(&vt, family, core, .{ .l2_kb = 512, .l3_kb = l3, .threads = 1 });
+        const qs = qOf(&vt);
+        for ([_]i32{ 0, 2, 3, 64 }) |threads| {
+            installCore(&vt, family, core, .{ .l2_kb = 512, .l3_kb = l3, .threads = threads });
+            if (!std.mem.eql(i32, &qs, &qOf(&vt))) {
+                std.debug.print("{s}/{s}: q {any} at 1 thread, {any} at {d}\n", .{ @tagName(family), @tagName(core), qs, qOf(&vt), threads });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}
+
+const q_fields = .{ "sgemm_q", "dgemm_q", "cgemm_q", "zgemm_q", "qgemm_q", "xgemm_q", "cgemm3m_q", "zgemm3m_q", "xgemm3m_q", "shgemm_q", "bgemm_q", "sbgemm_q" };
+
+/// Every precision's `q`.
+fn qOf(vt: *const Vtable) [q_fields.len]i32 {
+    var out: [q_fields.len]i32 = undefined;
+    inline for (q_fields, 0..) |f, i| out[i] = @field(vt, f);
+    return out;
 }
 
 /// Every core of `family` resolves to sane parameters; one test per family,

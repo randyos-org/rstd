@@ -631,6 +631,10 @@ pub fn initEvented(ev: *Evented, extra: u32) bool {
     return true;
 }
 
+/// Rounds of the race stress tests (`race stress`, levels 1 to 3): enough for
+/// a weak-memory rig to reorder something, few enough to stay quick.
+pub const stress_rounds = 1000;
+
 /// The worker counts the tests try: 1, 2, 3, 7, this machine's, and more
 /// than there are chunks.
 fn testCounts() [6]u32 {
