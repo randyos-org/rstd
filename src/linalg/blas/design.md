@@ -895,10 +895,10 @@ allows.
   returns `error.Singular` with the first zero `U(i, i)`'s `i` in an optional `pivot`. A NaN
   pivot is not zero, as in the reference's `INFO`: its column fills with NaN, and nothing
   fails. `trtri`, `trtrs` and `potri` return it for a zero on the diagonal, the same way.
-- **Not ported:** `laed3` (`lapack/laed3/`, and `test/test_laed3_nan.c`) calls
-  Reference-LAPACK's `xLAED4` (with `xLAED5`, `xLAED6`), `xLAMC3`, `xLACPY` and `xLASET`, which
-  OpenBLAS does not reimplement, and its test drives `dsyevd`, the whole divide-and-conquer
-  eigensolver; Reference-LAPACK's license is not yet cleared for rstd.
+- **`laed3`:** OpenBLAS's `lapack/laed3/` and `test/test_laed3_nan.c` call reference LAPACK's
+  `xLAED4` (with `xLAED5`, `xLAED6`), `xLAMC3`, `xLACPY` and `xLASET`, which OpenBLAS does not
+  reimplement, and the test drives `dsyevd`, the whole divide-and-conquer eigensolver; it comes
+  with faer's eigensolver (todo.md, T111), reference LAPACK filling what faer lacks.
 - **Sources.** [`sources.md`](../lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
   ReLAPACK, faer, libflame, AOCL-libFLAME), which implement it, the choice and its evidence.
 
@@ -1518,9 +1518,12 @@ Questions decided once, with the reason, so they are not reopened without new ev
   OpenBLAS's and BLIS's kernels are mixed today; nothing is all or nothing. For LAPACK the
   candidates are OpenBLAS's own LAPACK, ReLAPACK's recursive factorizations (MIT), faer (MIT,
   <https://codeberg.org/sarah-quinones/faer>), libflame and AOCL-libFLAME (BSD-3). Where only
-  reference LAPACK had the routine, faer's port comes first, for speed out of the box; reference
-  LAPACK is a benchmark baseline, not a default. A choice changes when a benchmark or an accuracy
-  test favors another source. Licenses must be MIT or BSD-style; any other is asked about first.
+  reference LAPACK had the routine, faer's port comes first, for speed out of the box. Reference
+  LAPACK (modified BSD: permissive, no copyleft) is always available as the fallback where no
+  other candidate has a routine or a base case (Q11, user, 2026-10-30), and a benchmark baseline
+  otherwise. A choice changes when a benchmark or an accuracy test favors another source.
+  Licenses must be MIT or BSD-style, permissive and free for commercial reuse; anything with
+  copyleft, or any other license, is asked about first.
   Eigen (MPL 2.0, which would keep any port under MPL) is not a source: it appears only in
   benchmarks, built from upstream as a reference binary, never ported (user, 2026-10-30).
   The candidates and the choice for each routine and kernel family are in
