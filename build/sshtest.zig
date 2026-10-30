@@ -111,12 +111,13 @@ const BenchLibs = struct {
 
 /// `bench-check`: the bench compiled for each host it races on, run nowhere.
 fn addBenchCheck(b: *Build) void {
-    const step = b.step("bench-check", "Compile tools/blasbench/blas_bench.zig for Windows and Linux x86_64, Linux and macOS arm64");
+    const step = b.step("bench-check", "Compile tools/blasbench/blas_bench.zig for Windows x86_64, Linux and macOS on x86_64 and arm64");
     const queries = [_]std.Target.Query{
         .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu },
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
         .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_m1 } },
         .{ .cpu_arch = .aarch64, .os_tag = .macos },
+        .{ .cpu_arch = .x86_64, .os_tag = .macos },
     };
     for (queries) |q| {
         const exe = benchExe(b, b.resolveTargetQuery(q), null) catch |e| {

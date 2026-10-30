@@ -68,7 +68,7 @@ Accelerate on its own threads. Its tables follow the first process's, without rs
 | `bench-native -Dopenblas-lib=<library>` | here; `-Dblis-lib`, `-Dreference-lib`, `-Deigen-lib`, `-Daocl-libflame-lib` add the others |
 | `ssh-bench-aarch64-macos` | on the Mac, nixpkgs' libraries and the reference binaries through its Nix |
 | `qemu-bench-linux-<arch>` | in a Linux VM on the host's CPU (`-Dvm-bench-arg` for the bench) |
-| `bench-check` | compiles the bench for Windows and Linux x86_64, Linux and macOS arm64, and tests `merge.zig` |
+| `bench-check` | compiles the bench for Windows x86_64, Linux and macOS on x86_64 and arm64, and tests `merge.zig` |
 | `flyoff-stage-<host>` | `flyoff.sh`'s files in `zig-out/flyoff-<host>` |
 
 Arguments after `--` go to the bench. A section runs alone when named, as in
