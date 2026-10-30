@@ -547,9 +547,10 @@ only repeat the portable kernels.
   reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
   the allocator, 4096-aligned (the kernels round to 4096-byte boundaries in it, `kernel/generic/symv_k.c:51`).
   [`blas2/buffers.md`](blas2/buffers.md) lists what every kernel does with it.
-- **Threading.** The reference's `*_thread.c` drivers are not ported. `gemv`, `ger`, the rank
-  updates and transposed `gbmv` split `y` or `A`'s columns into serial kernel calls; the
-  symmetric, triangular, banded and packed products stay serial
+- **Threading.** `gemv`, `ger`, the rank updates and transposed `gbmv` split `y` or `A`'s
+  columns into serial kernel calls. The symmetric, triangular, banded and packed products and
+  untransposed `gbmv` split their columns into chunks fixed by the size, each into a partial
+  vector of its own, folded in chunk order; the triangular ones port the `*_thread.c` kernels
   ([`threading.md`](threading.md#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 
 ### Level 3
@@ -1256,9 +1257,9 @@ partial results in chunk order, so results do not depend on the worker count; le
 BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`blas3/threaded.zig`);
 all scratch is allocated before any task starts, and workers adopt the caller's floating-point
 control state. `Config` parses the thread variables it reads. `threading.zig` holds the
-machinery: the cached CPU count and ceiling, the thresholds, the chunks, the claim loop and the
-ordered combine, and level 3's team and barriers. `nrm2`, `gemmt` and the symmetric, triangular,
-banded and packed level 2 products stay serial, for the reasons `threading.md` gives.
+machinery: the cached CPU count and ceiling, the thresholds, the chunks, the claim loop, the
+ordered combine and the partial vectors, and level 3's team and barriers. `nrm2` and `gemmt` stay
+serial, for the reasons `threading.md` gives.
 
 ## Settled decisions
 
@@ -1363,6 +1364,14 @@ Questions decided once, with the reason, so they are not reopened without new ev
   vector never meets that zero. OpenBLAS and BLIS disagree with each other and give no reason, so
   the reference decides; revisit when it drops the skip, as its PR #1323 did for the triangular
   routines (<https://github.com/Reference-LAPACK/lapack/pull/1323>, merged 2026-07-13) ([`comparisons.md`](comparisons.md) (5)).
+- **Level-2 products fold fixed partial vectors** (2026-10-29). `symv`, `hemv`, `sbmv`, `hbmv`,
+  `spmv`, `hpmv`, `trmv`, `tbmv`, `tpmv` and untransposed `gbmv` sum each element of `y` over
+  several columns' kernel calls. Above their thresholds the columns split into chunks fixed by
+  the size, never the worker count; each chunk adds into a zeroed partial vector of its own and
+  the partials are added to `y` in chunk order, as OpenBLAS's `symv_thread.c` sums per-thread
+  buffers with `AXPYU_K`. The bit rule then holds by construction on every core, at the cost of
+  changing these routines' results from the one-pass serial order for sizes past one chunk,
+  which a one-worker call shares; below one chunk they run as before ([`threading.md`](threading.md)).
 - **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
   `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the

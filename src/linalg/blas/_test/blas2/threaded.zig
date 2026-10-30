@@ -11,6 +11,7 @@ const Vtable = @import("../../Vtable.zig");
 const check = @import("../blas1/check.zig");
 const interface = @import("../../blas2/interface.zig");
 const band = @import("../../blas2/banded.zig");
+const tri = @import("../../blas2/triangular.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -224,6 +225,32 @@ fn Cases(comptime T: type) type {
             };
         }
 
+        /// `trmv`, `tbmv` and `tpmv` over every triangle, `trans` and
+        /// diagonal.
+        fn trmv(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
+            const n = long;
+            const k = 9;
+            const lda = n + 3;
+            const a = try filled(T, al, lda * n, 22);
+            defer al.free(a);
+            const x0 = try filled(T, al, 3 * n, 23);
+            defer al.free(x0);
+            const x = try al.alloc(T, x0.len);
+            defer al.free(x);
+            const ops: []const Trans = if (isComplex(T)) &.{ .n, .t, .r, .c } else &.{ .n, .t };
+            for ([_]types.Uplo{ .u, .l }) |u| for (ops) |t| for (std.enums.values(types.Diag)) |d| for (incs) |inc| {
+                inline for (0..3) |r| {
+                    @memcpy(x, x0);
+                    switch (r) {
+                        0 => try tri.trmv(al, io, T, u, t, d, n, a.ptr, lda, x.ptr, inc[0]),
+                        1 => try tri.tbmv(al, io, T, u, t, d, n, k, a.ptr, k + 1, x.ptr, inc[0]),
+                        else => try tri.tpmv(al, io, T, u, t, d, n, a.ptr, x.ptr, inc[0]),
+                    }
+                    try out.appendSlice(al, std.mem.sliceAsBytes(x));
+                }
+            };
+        }
+
         /// The rank updates, full and packed, rank 1 and 2, with zeros in
         /// `x` and `y` for the columns they skip.
         fn rank(al: Allocator, io: Io, out: *std.ArrayList(u8)) anyerror!void {
@@ -277,9 +304,9 @@ fn onCore(vt: *const Vtable) !void {
     inline for (all) |T| {
         const C = Cases(T);
         // a dozen chunks or so of each; the last fold partial vectors
-        const bodies = .{ C.gemv, C.ger, C.rank, C.gbmv, C.symv, C.sbmv, C.spmv };
-        const names = .{ "gemv", "ger", "rank updates", "gbmv", "symv and hemv", "sbmv and hbmv", "spmv and hpmv" };
-        inline for (bodies, names, .{ 3000, 3000, 40, 3000, 40, 12000, 40 }, 0..) |body, name, most, i| {
+        const bodies = .{ C.gemv, C.ger, C.rank, C.gbmv, C.symv, C.sbmv, C.spmv, C.trmv };
+        const names = .{ "gemv", "ger", "rank updates", "gbmv", "symv and hemv", "sbmv and hbmv", "spmv and hpmv", "trmv, tbmv and tpmv" };
+        inline for (bodies, names, .{ 3000, 3000, 40, 3000, 40, 12000, 40, 40 }, 0..) |body, name, most, i| {
             threading.test_serial_max = most;
             sameBits(al, threaded.io(), body) catch |e| {
                 check.say("{s} {s}: ", .{ name, @typeName(T) });

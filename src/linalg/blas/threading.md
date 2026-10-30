@@ -4,7 +4,7 @@ This document specifies how rstd's BLAS routines use multiple threads: the publi
 work is divided, how results stay reproducible, and how the design degrades on targets
 without threads. The plan is implemented (`threading.zig`, `blas3/threaded.zig`, the level 1
 and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2 thread where
-the split keeps the serial bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
+the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
 (v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
 0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule
@@ -143,8 +143,8 @@ the problem size and the routine's chunk size, never on `w`:
   left), and the remaining workers absorb the load when a core is busy.
 - **Combining.** Each chunk's partial result is determined by its boundaries, not by the
   worker that computed it. Reductions keep partials in a stack `[64]T` and fold them in chunk
-  order on the caller; the extremes fold exactly (first index wins). No level 2 routine keeps
-  partial vectors (below).
+  order on the caller; the extremes fold exactly (first index wins). The level-2 products that
+  add an element of `y` up over several chunks keep a partial vector per chunk (below).
 
 Element-wise routines compute each output in exactly one chunk, so the split cannot change
 their results; with one worker they make one kernel call, as below the threshold. A reduction
@@ -174,16 +174,26 @@ What threads, as landed:
 - **Rank updates** (`syr`, `spr`, `syr2`, `spr2`, `her`, `hpr`, `her2`, `hpr2`): columns, each one
   `axpy` call as in the serial driver, balanced by length (`Shape.rising`, `falling`).
 - **`gbmv` with a transpose:** columns, each element of `y` one column's dot.
+- **Products that fold partial vectors** (`symv`, `hemv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `trmv`,
+  `tbmv`, `tpmv` and `gbmv` without a transpose): each element of `y` adds up over several
+  columns' kernel calls, so a split of `y` would move the calls' cuts. The columns split instead,
+  each chunk into a zeroed partial vector of its own over the rows its columns reach
+  (`threading.Partials`), and the partials are added to `y` in chunk order, each sum rounded to
+  its type; that fold splits `y`'s rows over the workers, which cannot change a bit. A call past
+  one chunk folds whatever the worker count, so its bits differ from the one-pass order a call
+  under one chunk keeps, and match across worker counts by construction. OpenBLAS's
+  `symv_thread.c` (`:197`, `:259-291`) does the same with one buffer per thread, summed by
+  `AXPYU_K`, so its bits follow the thread count. `symv` and `hemv` call the core's kernel on
+  their columns (its `offset` argument, as `symv_thread.c`); the banded and packed ones and
+  `gbmv` run the serial drivers' columns; `trmv`, `tbmv` and `tpmv` port the out-of-place
+  kernels of `trmv_thread.c`, `tbmv_thread.c` and `tpmv_thread.c`, whose transposed forms write
+  only their own rows. Chunks start on multiples of 8 columns (`symv`: 4), the `mask` of the
+  `*_thread.c` drivers, balanced by area for the triangles (`Shape.rising`, `falling`).
 
 What stays serial, and why:
 
 - **`nrm2`:** chunks' norms would fold with a rounding each, where `s` and `c` round the root
   once and `d` and `z` keep Blue's three sums inside the kernel.
-- **`symv`, `hemv`, `sbmv`, `hbmv`, `spmv`, `hpmv`, `trmv`, `tbmv`, `tpmv` and `gbmv` without a
-  transpose:** each element of `y` adds up over several kernel calls (`axpy` columns, `gemv`
-  blocks, or a core's own `symv` kernel). A split of `y` cuts those calls elsewhere, and kernels
-  round a call's body, tail and remainder apart, so the bits would follow the split. OpenBLAS's
-  per-thread partial vectors fold a sum per thread, so theirs follow the thread count.
 - **Not threaded upstream:** `axpby`, `rotm`, the triangular solves, `sbdot` and the bfloat16
   conversions (OpenBLAS threads those two on x86_64 only, `sbdot.c`, `tobf16.c`; left for T05).
 
@@ -253,9 +263,13 @@ run through `forEach` (`Group.async`, inline when the `Io` admits fewer).
 | `syr2k` | `n * k >= 1000` | triangle-balanced ways |
 | `trsm`, `trmm` | `m * n >= SMP_FACTOR (256 real, 128 cplx) * 4` | left: N panels; right: M panels |
 | `gemv` | `m * n >= 115200 * 4` | N: 4096-row chunks; T: column chunks |
-| `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N serial |
+| `gbmv` | `m * n >= 250000` (125000 complex), `kl + ku >= 15` | T: column chunks; N: partials |
 | `ger` | `m*n > 2048*4`: up to 3; `> 20480*4`: all | column chunks |
-| `symv`, `trmv` | `symv n >= 200`; `trmv n < 50`: 1, `< 500`: 2 | serial here (above) |
+| `symv`, `spmv` | `n >= 200`; complex (`zsymv.c`, `zhpmv.c` for `hpmv`): `n < 50`: 1, `< 500`: 2 | column chunks, partials |
+| `hemv` | `zhemv.c`: `n >= 362` | same |
+| `sbmv`, `hbmv` | none upstream; `gbmv`'s for `kl = ku = k` | same |
+| `trmv` | `n < 50`: 1, `< 500`: 2; complex `n*n > 36*s*s*4`, `< 64*s*s*4`: 2 | same |
+| `tbmv`, `tpmv` | `n < 50`: 1, `< 500`: 2 | same |
 | `syr`, `spr`, `syr2`, `spr2` (real and complex symmetric) | `n < 50`: 1, `< 500`: 2 | sqrt-balanced column chunks |
 | `her`, `hpr`, `her2`, `hpr2` | `n < 100`: 1 | same |
 | `axpy` / `scal` / `swap` | `n > 10000` / `n > 1048576` / `n >= 8 MiB / sizeof(T)` | range chunks |
@@ -279,9 +293,12 @@ paths are already ported ([`design.md`](design.md), Level 2).
 All scratch is allocated by the caller before any task starts, in one `alignedAlloc` sized
 for `w` workers: level 3 packing buffers (`P x Q` elements per worker, and per `jc` group a
 slice of `B` as wide as the widest group, at most `R`, each on a cache line; for `trmm` and
-`trsm`, the serial driver's space per part) and `gemv`'s buffer per chunk. Tasks are therefore
-infallible, and the allocator need not be thread safe. Level 1, `ger`, `gbmv` and the rank
-updates need none beyond their serial copies of strided vectors, made before any task starts. Task
+`trsm`, the serial driver's space per part) and `gemv`'s buffer per chunk. The level-2 products
+that fold take one allocation for every chunk's partial vector and another for every chunk's
+kernel buffer (`symv`, `hemv`, `trmv`); a chunk zeroes its own vector when it starts. Tasks are
+therefore infallible, and the allocator need not be thread safe. Level 1, `ger`, transposed
+`gbmv` and the rank updates need none beyond their serial copies of strided vectors, made before
+any task starts. Task
 arguments are a pointer to the shared job plus a worker index; `Group.async` copies them with
 the `Io`'s own allocator and runs the task inline if that allocation fails.
 
@@ -481,8 +498,8 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
    public interface's threshold.
 3. **Level 1** (done): `copy`, `swap`, `scal`, `rot`, `axpy`, the dots, `asum`, `sum` and the
    extremes; `nrm2` stays serial.
-4. **Level 2** (done): `gemv`, `ger`, the rank updates and transposed `gbmv`; `symv`, `trmv`
-   and the other banded and packed products stay serial.
+4. **Level 2** (done): `gemv`, `ger`, the rank updates and transposed `gbmv`; the symmetric,
+   triangular, banded and packed products and untransposed `gbmv` by partial vectors.
 5. **Remaining level 3** (done): `symm`, `hemm` and the rank-k updates over the same
    driver; `trmm` and `trsm` by panels of `B`.
 
@@ -495,8 +512,6 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 - TSan support with this toolchain is unverified.
 - Thresholds and chunk sizes are OpenBLAS's defaults until rstd's own per-core benchmarks
   exist.
-- `symv`, `trmv` and the banded and packed products could split `y` keeping their bits if every
-  core's `axpy` (and `gemv`) gave an element the same bits wherever it sits in a call; untested
-  across cores, so they stay serial. Folding fixed per-size partial vectors instead (OpenBLAS's
-  way, with chunks in place of threads) would keep the rule too, but change their serial bits
-  and cost `n` per chunk.
+- The partial vectors cost up to one `y` per chunk (64) and a fold of them; `spmv`, `zspmv`,
+  `sbmv`, `zsbmv` and `zhbmv` take their thresholds from their siblings' (OpenBLAS threads them
+  at any size). Both await rstd's own benchmarks.
