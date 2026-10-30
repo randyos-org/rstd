@@ -1358,6 +1358,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   reference LAPACK had the routine, faer's port comes first, for speed out of the box; reference
   LAPACK is a benchmark baseline, not a default. A choice changes when a benchmark or an accuracy
   test favors another source. Licenses must be MIT or BSD-style; any other is asked about first.
+  Eigen (MPL 2.0, which would keep any port under MPL) is not a source: it appears only in
+  benchmarks, built from upstream as a reference binary, never ported (user, 2026-10-30).
   The candidates and the choice for each routine are tracked per routine (todo.md, T113).
 - **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
   thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
