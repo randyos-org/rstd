@@ -1,6 +1,7 @@
 //! OpenBLAS's own test suites, ported to rstd's interfaces: the reference
 //! BLAS test programs (`test/[sdcz]blat[123].f` and their `.dat` inputs),
-//! their CBLAS versions (`ctest/`) and the unit tests (`utest/`), all from
+//! their CBLAS versions (`ctest/`), the unit tests (`utest/`) and the half
+//! precision comparisons (`test/compare_*.c`), all from
 //! OpenBLAS v0.3.34-317 (commit a69062524). Each file names its sources. The
 //! sweep tables, data and expected values are transcribed mechanically; if
 //! they go stale, re-derive them from those files rather than edit them.
@@ -160,6 +161,7 @@ const blat2 = @import("blat2.zig");
 const blat3 = @import("blat3.zig");
 const utest = @import("utest.zig");
 const utest_ext = @import("utest_ext.zig");
+const compare = @import("compare.zig");
 
 /// `suite` on `vt`'s kernels, the sweeps on the rigs' table. The suites go
 /// in pieces, so each test fits a rig image (`build/qemutest.zig`'s
@@ -199,6 +201,7 @@ fn level3() anyerror!void {
     try blat3.all(&blat2.rig_n);
     try utest.lapackAll();
     try utest_ext.level3All();
+    try compare.all(true);
 }
 
 test "the level-1 suites, blat1, on every linked core this machine runs" {
@@ -239,4 +242,5 @@ test {
     _ = blat3;
     _ = utest;
     _ = utest_ext;
+    _ = compare;
 }

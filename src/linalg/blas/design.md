@@ -1627,7 +1627,9 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
   `test_post_fork*.c`, and the `ARMV8` `sdot`/`ddot` cases that preload a vector register.
 - **Pending.** `blat3` runs every level-3 routine through the flat API, and `test_potrs.c`
   runs through `rstd.linalg.lapack`. Still skipped: the `dgesvd` regression (`utest.zig`),
-  which waits for LAPACK's `gesvd`.
+  which waits for LAPACK's `gesvd`. `compare.zig` ports `test/compare_sgemv_*.c` and
+  `compare_sgemm_*.c`: the half routines against `sgemv` and `sgemm` and a plain loop, to order
+  256 natively, 24 on the rigs and per core.
 
 ### Rigs
 
