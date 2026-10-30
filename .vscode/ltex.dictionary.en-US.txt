@@ -51,6 +51,7 @@ andq
 ands
 andx
 anorm
+AOCL
 APFS
 apos
 applesmc
@@ -408,6 +409,7 @@ ELIBEXEC
 ELIBMAX
 ELIBSCN
 elidable
+Elmar
 ELNRNG
 emag
 embedders
@@ -467,6 +469,7 @@ faddp
 fadds
 FADT
 fadvise64
+faer
 falkor
 fallocate
 fanotify_init
@@ -574,6 +577,7 @@ FNMSUB
 fnmsubs
 fontdicts
 fork
+fpcvt
 fpgm
 fpmadd
 fpmr
@@ -655,19 +659,23 @@ fxstate
 FXWSAVE
 gamsq
 GBMV
+gbtrf
 gdb
 gdkwayland
 gdkx
 geadd
 gecon
+geev
 gehrd
 Geijn
 gemmt
 gemmtrsm
 gemv
 geqp
+geqrf
 gerc
 gerv
+gesdd
 gesv
 gesvd
 get_kernel_syms
@@ -754,11 +762,14 @@ HarfBuzz
 hasc
 hbmv
 hcall
+heevd
+hegst
 hemm
 hemv
 HEMVREV
 herk
 hetrd
+hetrf
 hflex
 HFLOAT
 hhcurveto
@@ -1255,6 +1266,8 @@ openat2
 openblas
 opteron
 Opto
+orgqr
+ormqr
 ortr
 os
 osascript
@@ -1299,6 +1312,7 @@ PCLT
 pcmpeqb
 pdcm
 pdict
+Peise
 penryn
 perf_event_open
 personality
@@ -1337,6 +1351,7 @@ pollfd
 pollfds
 popfq
 popl
+portrv
 potf
 potrf
 potri
@@ -1455,6 +1470,7 @@ recompiles
 recvfrom
 recvmmsg
 recvmsg
+relapack
 relaxng
 remap_file_pages
 removexattr
@@ -1813,6 +1829,8 @@ swapj
 swapoff
 swapon
 swc
+syevd
+sygst
 symlink
 symlinkat
 symv
@@ -1838,6 +1856,7 @@ systemd-udevd
 SYSTIMER
 sysv
 sysvcc
+sytrf
 taxpy
 taxpyc
 TBB's
@@ -1897,6 +1916,7 @@ trmm
 trmv
 trsm
 trsv
+trsyl
 trti
 trtri
 trtrs
@@ -1940,6 +1960,7 @@ unconj
 unenc
 unflushed
 unfused
+ungqr
 unlink
 unlinkat
 unloop
