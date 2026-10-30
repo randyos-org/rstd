@@ -6,6 +6,12 @@
 //! its own files reach, and it cannot import past its directory. The rest is
 //! under `test/`.
 
+const sysinfo = @import("builtin");
+
+/// The UEFI rigs' `std.Io` (`test/qemu/uefi.zig`), which this module imports
+/// as `qemutest_root`; the runner's files cannot reach `src/`.
+pub const uefi_io = if (sysinfo.target.os.tag == .uefi) @import("_os/uefi/io/__root__.zig") else struct {};
+
 test {
     _ = @import("simd/__root__.zig");
     // the whole BLAS tree; `-Dqemu-test-filter` picks what runs

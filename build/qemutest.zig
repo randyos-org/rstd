@@ -8,7 +8,9 @@
 //!     riscv64, MIPS) the runner exits with the number of failed tests, so a
 //!     failing test fails the step. Elsewhere the machine just powers off and the
 //!     step checks the printed summary for "0 failed". The console is also
-//!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`.
+//!     logged as it runs, to `.zig-cache/qemu-test-<name>.log`. A UEFI target
+//!     builds the same tests as an application (`test/qemu/uefi.zig`), which
+//!     QEMU's own OVMF or AAVMF boots from a FAT drive.
 //!   * `.linux`: rstd's full test suite as a static Linux executable, in an
 //!     initramfs whose init (`test/linux/init.zig`) mounts procfs, sysfs
 //!     and devtmpfs, runs it and reports. The kernel is a Debian netboot one,
@@ -109,6 +111,10 @@ const Boot = union(enum) {
         /// The addresses the firmware maps for the image, if it maps too few
         /// for every image: one whose loaded span is past them fails the build.
         load_window: ?Window = null,
+        /// A UEFI target's firmware, by its name in QEMU's data directory,
+        /// where Nix's QEMU ships it; no linker script then. Test host only:
+        /// `tools/nix/run.sh` finds that directory.
+        firmware: ?[]const u8 = null,
     };
 
     const Window = struct { base: u64, size: u64 };
@@ -690,6 +696,34 @@ const base_machines = [_]Machine{
         } },
     },
     .{
+        // RandyOS's loader's platforms: the tests as a UEFI application under
+        // QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`
+        .name = "x86_64-uefi",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .uefi },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-M", "q35", "-cpu", "max" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .llvm = true,
+            .semihosting = false,
+            .firmware = "edk2-x86_64-code.fd",
+        } },
+    },
+    .{
+        .name = "aarch64-uefi",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .uefi },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
+        .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .memory = "1G",
+        .boot = .{ .kernel = .{
+            .linker_script = "",
+            .semihosting = false,
+            .firmware = "edk2-aarch64-code.fd",
+        } },
+    },
+    .{
         .name = "linux-aarch64",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .linux },
         .qemu = "qemu-system-aarch64",
@@ -885,7 +919,8 @@ fn testHostFor(m: Machine, host: ?TestHost) ?TestHost {
 /// copies over the files `fileArg` adds.
 fn qemuCommand(b: *Build, m: Machine, host: ?TestHost) *Build.Step.Run {
     const run = watchCommand(b);
-    run.addArgs(&.{ "Stopping execution", "--" });
+    // OpenBIOS's halt, and OVMF's and AAVMF's CPU exceptions
+    run.addArgs(&.{ "Stopping execution", "!!!! X64 Exception", "Synchronous Exception at", "--" });
     const h = testHostFor(m, host) orelse {
         run.addArg(m.qemu);
         run.addArgs(m.args);
@@ -1131,6 +1166,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         // no threads under a test kernel
         .single_threaded = true,
     });
+    if (k.firmware != null) try addUefiImports(b, test_mod);
     // the kernels of the architectures that have any
     try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores);
     const test_exe = b.addTest(.{
@@ -1142,7 +1178,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         // every rig needs its linker script, which only lld honors
         .use_lld = true,
     });
-    test_exe.setLinkerScript(b.path(k.linker_script));
+    if (k.firmware == null) test_exe.setLinkerScript(b.path(k.linker_script));
     check.dependOn(&test_exe.step);
 
     const run = qemuCommand(b, m, host);
@@ -1164,14 +1200,44 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     }
     addConsole(b, run, m, host);
     if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
-    run.addArg("-kernel");
-    fileArg(run, m, host, test_exe.getEmittedBin());
+    if (k.firmware) |fw| {
+        // the app at the removable-media boot path of a read-only FAT drive
+        // (vvfat), booted first; no NIC, whose network boot would come first
+        const esp = b.addWriteFiles();
+        const boot = switch (target.result.cpu.arch) {
+            .x86_64 => "BOOTX64.EFI",
+            .aarch64 => "BOOTAA64.EFI",
+            else => unreachable,
+        };
+        _ = esp.addCopyFile(test_exe.getEmittedBin(), b.fmt("EFI/BOOT/{s}", .{boot}));
+        // read-only pflash, without a variable store: OVMF's code is no
+        // multiple of 64 KiB, which `-bios` wants
+        if (testHostFor(m, host) == null) run.step.dependOn(&b.addFail(b.fmt("{s} runs on -Dtest-host, whose tools/nix/run.sh finds QEMU's firmware", .{m.name})).step);
+        run.addArgs(&.{ "-drive", b.fmt("if=pflash,unit=0,format=raw,readonly=on,file=@qemu-data@/{s}", .{fw}), "-nic", "none", "-drive" });
+        const drive = "if=none,id=esp,format=raw,readonly=on,file=fat:";
+        run.addPrefixedDirectoryArg(if (testHostFor(m, host) != null) drive ++ "local:" else drive, esp.getDirectory());
+        run.addArgs(&.{ "-device", "virtio-blk-pci,drive=esp,bootindex=0" });
+    } else {
+        run.addArg("-kernel");
+        fileArg(run, m, host, test_exe.getEmittedBin());
+    }
     run.has_side_effects = true;
     // HVF has no semihosting, so no exit status
     const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
     if (!k.semihosting or hvf) run.expectStdOutMatch(", 0 failed");
     if (k.stderr_note) |note| run.expectStdErrMatch(note);
     return run;
+}
+
+/// What the UEFI boot code (`test/qemu/uefi.zig`) needs of the test module:
+/// the module itself as `qemutest_root`, for rstd's UEFI `std.Io`, and the
+/// `build_options` that Io's logger reads, with no scope levels.
+pub fn addUefiImports(b: *Build, mod: *Build.Module) !void {
+    mod.addImport("qemutest_root", mod);
+    const options = b.addOptions();
+    options.addOption([]const []const u8, "logger_scope_names", &.{});
+    options.addOption([]const @typeInfo(std.log.Level).@"enum".tag_type, "logger_scope_name_levels", &.{});
+    mod.addImport("build_options", try rstdbuild.optionsModule(options));
 }
 
 /// `m`'s `qemu-setup-`, `qemu-install-` and `qemu-start-<name>` steps, and the

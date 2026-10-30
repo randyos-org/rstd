@@ -3,12 +3,15 @@
 //! (0 = all passed), which the run step maps to the process exit code.
 //!
 //! Use with `zig test -target <arch>-freestanding --test-runner runner.zig`
-//! and the matching `<arch>.ld`; `<arch>.zig` supplies the boot code.
+//! and the matching `<arch>.ld`; `<arch>.zig` supplies the boot code. For a
+//! `<arch>-uefi` target, `uefi.zig` does, and no linker script is used.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 
-const arch = switch (sysinfo.target.cpu.arch) {
+const is_uefi = sysinfo.target.os.tag == .uefi;
+
+const arch = if (is_uefi) @import("uefi.zig") else switch (sysinfo.target.cpu.arch) {
     .aarch64 => @import("aarch64.zig"),
     .riscv64 => @import("riscv64.zig"),
     .arm => @import("arm.zig"),
@@ -23,6 +26,10 @@ const arch = switch (sysinfo.target.cpu.arch) {
     .powerpc => @import("ppc32.zig"),
     else => @compileError("qemutest: no boot code for " ++ @tagName(sysinfo.target.cpu.arch)),
 };
+
+/// UEFI's entry, which std's `EfiMain` calls; the bare rigs' boot code calls
+/// `qemutest_main` itself.
+pub const main = if (is_uefi) arch.main else {};
 
 /// The message on the console, then a failed exit; a silent trap would just
 /// end the log mid-test.
@@ -79,26 +86,37 @@ pub const std_os_options: std.Options.OperatingSystem = .{
         pub fn detach(_: @This()) void {}
         pub fn join(_: @This()) void {}
     },
+    // UEFI: rstd's `std.Io`, as RandyOS's loader has it, for the tests too
+    .Io = if (is_uefi) arch.Io else null,
+    .testing = if (is_uefi) struct {
+        pub const allocator = std.testing.allocator_instance.allocator();
+        pub const io = std_options_debug_io;
+    } else null,
 };
 
 /// `std.testing` failure messages go through `std.debug.print`: `Io.failing`
-/// (the default Io would drag in the threaded implementation) with stderr on
-/// the console. `failing` alone reaches `unreachable` there, so every failed
-/// `expectEqual` was a panic.
+/// (the default Io would drag in the threaded implementation), or UEFI's, with
+/// stderr on the console. `failing` alone reaches `unreachable` there, so
+/// every failed `expectEqual` was a panic.
 pub const std_options_debug_io: std.Io = .{ .userdata = null, .vtable = &console_vtable };
 
 const console_vtable = blk: {
-    var vt = std.Io.failing.vtable.*;
+    var vt = (if (is_uefi) arch.Io.io_inst else std.Io.failing).vtable.*;
     vt.swapCancelProtection = struct {
         fn f(_: ?*anyopaque, _: std.Io.CancelProtection) std.Io.CancelProtection {
             return .unblocked;
         }
     }.f;
-    vt.lockStderr = struct {
-        fn f(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
+    const stderr = struct {
+        fn lock(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
             return .{ .file_writer = &console_writer, .terminal_mode = .no_color };
         }
-    }.f;
+        fn tryLock(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!?std.Io.LockedStderr {
+            return .{ .file_writer = &console_writer, .terminal_mode = .no_color };
+        }
+    };
+    vt.lockStderr = stderr.lock;
+    vt.tryLockStderr = stderr.tryLock;
     vt.unlockStderr = struct {
         fn f(_: ?*anyopaque) void {
             console_writer.interface.flush() catch {};
@@ -157,7 +175,8 @@ fn printHex(v: usize) void {
     print(&buf);
 }
 
-// The stack, from each linker script; it grows down from `__stack_top`.
+// The stack, from each linker script or UEFI's boot code; it grows down
+// from the top.
 extern const __stack_bottom: u8;
 extern const __stack_top: u8;
 
@@ -167,6 +186,7 @@ const paint: usize = @truncate(@as(u64, 0x5a5a_c3c3_5a5a_c3c3));
 const canary_words = 64;
 
 fn stackWords() []usize {
+    if (@hasDecl(arch, "stack")) return @ptrCast(arch.stack);
     const lo = std.mem.alignForward(usize, @intFromPtr(&__stack_bottom), @alignOf(usize));
     const p: [*]usize = @ptrFromInt(lo);
     return p[0 .. (@intFromPtr(&__stack_top) - lo) / @sizeOf(usize)];
@@ -224,7 +244,7 @@ fn printHeapFailure(failed: @TypeOf(heap.failed)) void {
 const heap = @import("heap.zig");
 
 /// The heap, where the boot code cannot get one from the firmware
-/// (`heapRegion`): sparc64's maps only 4 MB of the image.
+/// (`heapRegion`): sparc64's maps only 4 MB of the image; UEFI's.
 var static_heap: [if (@hasDecl(arch, "heapRegion")) 0 else heap.max_len]u8 align(heap.max_align) = undefined;
 
 export fn qemutest_main() callconv(.c) noreturn {

@@ -149,18 +149,19 @@ pub fn build(b: *Build) !void {
         macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, optimize, &.{})).step);
     }
 
-    // UEFI, which no test runner supports: the OS-free tests (the qemu rigs'
-    // root: simd, BLAS, every interface at every element type, and LAPACK)
-    // built, not run, through a runner that only links them
+    // UEFI: every OS-free test (the qemu rigs' root: simd, BLAS, every
+    // interface at every element type, and LAPACK), also those the UEFI rigs
+    // (`qemu-test-<arch>-uefi`) filter out, built with their runner, not run
     const uefi_step = b.step("rstd-check-uefi", "Build rstd's OS-free tests (simd, BLAS, LAPACK) for UEFI (x86_64, aarch64) without running them");
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const uefi = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .uefi });
         const uefi_mod = b.createModule(.{ .root_source_file = b.path("src/_test_qemu.zig"), .target = uefi, .optimize = optimize });
         try blaskern.addBlasKernels(b, uefi_mod, uefi, .all);
+        try qemutest.addUefiImports(b, uefi_mod);
         uefi_step.dependOn(&b.addTest(.{
             .name = b.fmt("rstd-check-uefi-{t}", .{arch}),
             .root_module = uefi_mod,
-            .test_runner = .{ .path = b.path("test/uefi/runner.zig"), .mode = .simple },
+            .test_runner = .{ .path = b.path("test/qemu/runner.zig"), .mode = .simple },
         }).step);
     }
 

@@ -1395,9 +1395,8 @@ Outside `src/linalg/blas/`:
 | `src/dll.zig` | run-time library loading, for Accelerate |
 | `src/_test_qemu.zig` | test root of the OS-free rigs |
 | `src/_test_wasm.zig` | the WASI test root: `_test_qemu.zig` |
-| `test/qemu/` | boot code, linker scripts and runner of the freestanding rigs |
+| `test/qemu/` | boot code, linker scripts and runner of the freestanding and UEFI rigs |
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
-| `test/uefi/runner.zig` | the link-only UEFI test runner |
 | `tools/blas_asm/` | the converters |
 | `tools/blasbench/` | the kernel benchmarks |
 | `tools/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
@@ -1697,6 +1696,7 @@ here can.
 | Rig | How | Covers |
 | --- | --- | --- |
 | `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded`, a 32 MiB heap (ours, `test/qemu/heap.zig:14`), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
+| `qemu-test-<arch>-uefi` | the freestanding rigs' tests and runner as a UEFI application (`test/qemu/uefi.zig`) under QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`; x86_64 and aarch64 | RandyOS's loader's platforms: PE/COFF, the Microsoft ABI on x86_64, UEFI's CPU state |
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
 | `qemu-test-linux-<arch>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; aarch64, x86_64, arm, riscv64, powerpc64le |
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH | Mach-O at run time on an x86 CPU model |
@@ -1704,11 +1704,11 @@ here can.
 | `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM |
 | `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
-| `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, link-only runner | the OS-free tests compile for UEFI |
+| `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |
 | `rstd-check-zig017` | build and link only, with Zig 0.17.0, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
 | `rstd-test-x87` | the native suite as `pentium3` code (`x86-windows-gnu` or `x86-linux-musl`), Debug and ReleaseSafe; x86 hosts | x87 widths with threads and an OS; run in each full sweep, with the `-safe` rigs |
 
-The freestanding machines (`build/qemutest.zig`):
+The freestanding and UEFI machines (`build/qemutest.zig`):
 
 | Machine | CPU | Notes |
 | --- | --- | --- |
@@ -1737,6 +1737,8 @@ The freestanding machines (`build/qemutest.zig`):
 | `powerpc-pseries` | the G4 build on a POWER10 in 32-bit mode | power3 to power6, ppc970 and cell as 32-bit code |
 | `powerpc-power9` | a 32-bit POWER8 build, less `64bit` and `fpcvt`, on a POWER9 in 32-bit mode | power8 and power9 as 32-bit code (Settled decisions: filling upstream gaps); power10 cannot link, as LLVM fails on 32-bit ISA 3.0 builds ([`issues.md`](issues.md)) |
 | `s390x` | `max` | |
+| `x86_64-uefi` | `max` on `q35`, OVMF | baseline `x86_64-uefi` build; the app turns on the AVX and AVX-512 state |
+| `aarch64-uefi` | `cortex-a72` on `virt`, AAVMF | baseline `aarch64-uefi` build; HVF on an arm64 Mac, SME there |
 
 Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC: LLVM 21.1.0 `lld/ELF/Arch`
 has `SPARCV9.cpp` only), `powerpc-macho` and
@@ -1754,6 +1756,13 @@ Rig mechanics:
   their tests into images by filter (`parts` in `build/qemutest.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
   `tools/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
+- **UEFI.** The app boots from a read-only FAT drive (QEMU's vvfat) with the edk2 firmware
+  Nix's QEMU ships, as read-only pflash (`tools/nix/run.sh` finds it, so only on the test
+  host). It takes its heap and a 1 MiB stack from boot services, turns off the watchdog,
+  turns on the vector state, masks interrupts and then calls no firmware: the handlers save
+  only 128-bit SIMD registers, which clobbers SVE and SME state, and a boot service unmasks
+  interrupts again. So the console is the UART and exit is `ResetSystem`; the summary carries
+  the result. It prints its load address for `addr2line`.
 - **Progress.** On the rigs (`check.rig()`: freestanding, or `RSTD_TEST_PROGRESS`, which the
   Linux init and the SSH runs set) `eachCore` names each core as it starts, and the biggest
   cases are left to native runs.
@@ -1762,7 +1771,7 @@ Rig mechanics:
   images still build here (`tools/test_host.zig`). Each run copies its files to the host's
   `/tmp`, runs QEMU from the Nix flake in `tools/nix` (nixpkgs pinned by `flake.lock`) and
   streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
-  there at once, across builds. On an arm64 Mac, `aarch64` and `linux-aarch64` run under HVF on
+  there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on
   the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
   them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
 - **WHPX.** QEMU's model plus FMA4 and XOP, of which WHPX keeps what the host has; `host` and
