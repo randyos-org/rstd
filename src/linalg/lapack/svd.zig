@@ -756,3 +756,55 @@ test "faer svd: gesdd gives one worker's bits at any worker count" {
         }
     }
 }
+
+test "gesvd, gesdd: a graded bidiagonal keeps its small singular values to relative accuracy (T126, M1's E4)" {
+    const al = testing.allocator;
+    inline for (.{ f64, f32 }) |T| {
+        const F = Float(T);
+        const n = 6;
+        for (0..3) |kind| {
+            // E4's: d(i) = 1e-4^i, e(i) = d(i) / 2 (f32: 1e-2^i); reversed; random grading
+            var a: [n * n]T = @splat(0);
+            var a128: [n * n]f128 = @splat(0);
+            var prng = std.Random.DefaultPrng.init(kind + 1);
+            const r = prng.random();
+            const ratio: f64 = if (F == f64) 1e-4 else 1e-2;
+            var g: f64 = 1;
+            for (0..n) |i| {
+                const k: f64 = @floatFromInt(if (kind == 1) n - 1 - i else i);
+                const scale = if (kind == 2) g else std.math.pow(f64, ratio, k);
+                const dv = scale * (if (kind == 2) 0.5 + r.float(f64) else 1);
+                const ev = scale * (if (kind == 2) r.float(f64) else 0.5);
+                a[i + i * n] = @floatCast(dv);
+                a128[i + i * n] = @floatCast(@as(F, @floatCast(dv)));
+                if (i + 1 < n) {
+                    a[i + (i + 1) * n] = @floatCast(ev);
+                    a128[i + (i + 1) * n] = @floatCast(@as(F, @floatCast(ev)));
+                }
+                if (kind == 2) g *= ratio * (0.5 + r.float(f64));
+            }
+            var s128: [n]f128 = undefined;
+            var w128: [n * n]f128 = undefined;
+            try gesvd(al, check.io, f128, .n, .n, n, n, &a128, n, &s128, &w128, 1, &w128, 1, null);
+            for ([_]Routine{ .gesvd, .gesdd }) |rt| for ([_]bool{ false, true }) |vectors| {
+                var b = a;
+                var s: [n]F = undefined;
+                var u: [n * n]T = undefined;
+                var vt: [n * n]T = undefined;
+                const job: Job = if (vectors) .a else .n;
+                const ldv: isize = if (vectors) n else 1;
+                switch (rt) {
+                    .gesvd => try gesvd(al, check.io, T, job, job, n, n, &b, n, &s, &u, ldv, &vt, ldv, null),
+                    .gesdd => try gesdd(al, check.io, T, job, n, n, &b, n, &s, &u, ldv, &vt, ldv),
+                }
+                for (s, s128, 0..) |x, ref, i| {
+                    const err: f128 = @abs(@as(f128, x) - ref) / ref;
+                    if (!(err <= 256 * @as(f128, n) * std.math.floatEps(F))) {
+                        check.say("{s} {s} kind {d} vectors {}: s[{d}] = {e} against {e}, relative error {e}\n", .{ @tagName(rt), @typeName(T), kind, vectors, i, x, @as(f64, @floatCast(ref)), @as(f64, @floatCast(err)) });
+                        return error.TestUnexpectedResult;
+                    }
+                }
+            };
+        }
+    }
+}

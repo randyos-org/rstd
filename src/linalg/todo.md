@@ -42,15 +42,14 @@ or a scratchpad.
 
 ### Working on
 
-Nothing yet: next is the top of the Queue (T123).
+Nothing yet: next is M2, after a check-in with the user (2026-10-31).
 
 ### In the background
 
 Sweeps by `.agent/sweep.sh` (gitignored), results in `.agent/sweeps/<UTC>-<tier>/summary.md`;
 started 2026-10-30 22:20 on `review` faeea2aa: tier 1, and tier 2 then tier 3. These two ran from
 the trunk, so steps after their first compile what has landed since (T124, M1, kern3, T127); from
-tier 3 on, each tier runs from its own worktree, `C:\scratch\git
-std-wt\sweep-<tier>`, pinned
+tier 3 on, each tier runs from its own worktree, `C:\scratch\gitstd-wt\sweep-<tier>`, pinned
 at review's tip when it starts (user, 2026-10-30).
 
 - [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
@@ -86,7 +85,7 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | T62 tier 2 | `x86_64`: `qemu-test-x86_64`'s parts under QEMU (5 running) | 22:38 |
+| Mac | T62 tier 2 | step 2 of 26, `x86_64-uefi` (step 1, `x86_64`: 640 passed, 1 failed, T130) | 01:18 |
 
 ## Queue
 
@@ -113,26 +112,6 @@ Each moves to In progress when the sweep step that runs it starts.
 
 ### Code and design
 
-- [ ] **T123** LAPACK routines the matlab port (M2) needs, from faer where it has them, else
-  reference LAPACK (split from T120, user 2026-10-30): `getri` (MATLAB `inv`); `gees` (Schur form,
-  `schur`; faer's Schur reordering is crate-internal, so reference `dgees`/`zgees` over the existing
-  `hseqr`); make `gehrd` (`hess`), `hseqr` and `trevc` public with LAPACK's arguments; `laset` and
-  `lapy2` (matlab88's `wset`/`rset`, `pythag`). Already public: `getrf`, `getrs`, `potrf`, `geqrf`,
-  `ormqr`/`unmqr`, `gesvd`, `geev`, `syevd`/`heevd`, `gecon`, `geqp3`, `trtrs`. `pinv`, `rank` and
-  `det` are compositions in the MATLAB layer, not LAPACK. Starts once T117/T118 (`wip/lapackfix`)
-  land, since it makes `trevc` public where T117 edits it.
-- [ ] **T125** Hermitian and symmetric eigenvalues of graded matrices (from M1's E2, user
-  2026-10-30): faer's tridiagonal reduction (`tridiag.zig`) runs one way whichever triangle
-  `syevd`/`heevd`/`syev`/`heev` are given, so a matrix graded large at the bottom right loses its
-  small eigenvalues' relative accuracy (errors 0.3 to 3e8 against matlab88's 1e-15). Reduce from
-  the bottom for `.u`, as reference LAPACK's `xSYTRD` (`dsytrd.f`, `zhetrd.f`), and from the top for
-  `.l`; a test on E2's matrices both ways (graded either way, given as the triangle that suits it).
-- [ ] **T126** Singular values of graded bidiagonals (from M1's E4, user 2026-10-30): faer's
-  bidiagonal SVD (`bidiag_svd.zig`) loses the small singular values' relative accuracy (6e3
-  against `wsvdc`'s 2e-16 at `smin` 9e-21), which reference LAPACK's `xBDSQR` keeps (Demmel and
-  Kahan's zero-shift QR; `xLASQ1` to `xLASQ6`'s dqds for values alone). Port them from reference
-  LAPACK (the anthology's fallback) for `gesvd` and `gesdd`'s bidiagonal step, or wherever faer's
-  loses it; a test on E4's graded bidiagonal and on Demmel and Kahan's examples.
 - [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
   `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
   real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
@@ -178,6 +157,10 @@ Each moves to In progress when the sweep step that runs it starts.
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
 
+- [ ] **T131** dqds for a bidiagonal's values alone (from T126): Reference-LAPACK's `xLASQ1` to
+  `xLASQ6` (`dlasq1.f` to `dlasq6.f`, about 1,070 lines of code), which `xBDSQR` calls when no
+  vectors are wanted: faster than the QR iteration and accurate to a few eps relatively. Now
+  `gesvd` and `gesdd` with `.n` run `xBDSQR`'s QR sweeps, already accurate (T126's test).
 - [ ] **T120** faer follow-ups (split from T117, 2026-10-30): `@Vector` the fused bidiagonalization
   pass (scalar now, faer's four partial sums); run divide-and-conquer's two halves in parallel if
   rstd's threading gains task trees; port faer's multishift QR with aggressive early deflation
@@ -544,6 +527,32 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   and the links into it rewritten (none broken), the plain mentions in `relapack.zig`,
   `sources.md`, `tools/evented_group_repro.zig`, `build/sshtest.zig`, `.agent` and the memory notes
   updated. `blas/readme.md` stays (the BLAS's user guide); M3 adds `src/linalg/readme.md`.
+- [X] **T123** LAPACK routines the matlab port (M2) needs. Done 2026-10-31: pieces 1 and 2 landed
+  4b5d9c4a (`getri` from faer's LU inverse; `laset`; `lapy2`; `gehrd` and `orghr`/`unghr` over
+  faer's Hessenberg reduction with LAPACK's `tau` and `ilo`/`ihi`); pieces 3 to 5 staged by the
+  user for review (`hseqr` over the `lahqr`s; `trevc3`/`trevc`, every `SIDE` and `HOWMNY`;
+  `gees` as `dgees.f`/`zgees.f`, sorting by `trsen`), with `sources.md`, design.md and the BLAS
+  readme. Native: every LAPACK test 166/168 (2 skipped); `qemu-check-x86_64`, `-arm-softfp`,
+  `-powerpc-750` 74/74 on the M6 after each piece. Sweep: `getri`, `laset`, `gehrd`, `hseqr`,
+  `trevc3`, `gees` on every tier-1/2 rig.
+- [X] **T125** Hermitian and symmetric eigenvalues of graded matrices (M1's E2). Done 2026-10-31,
+  unstaged for the user's review (`evd.zig`): `.u` reduces `J A J` (the reversal) as its lower
+  triangle, so faer's top-down reduction runs from the bottom, as `xSYTRD`; the vectors' rows are
+  reversed after. Tested against `f128` both ways, `syevd` and `syev`, real and complex (without
+  the fix `2.8e5` off); every LAPACK and matlab test 236/238 (2 skipped); rig compile checks 74/74.
+- [X] **T130** `gesdd`'s singular values out of order on the `x86_64` rig. Done 2026-10-31,
+  unstaged for the user's review (`bidiag_svd.zig`, issues.md): faer's `compute_svd_of_m` sorts a
+  merge's values with one bubble pass, and heavy deflation left several out of place on
+  `haswell`'s rounding (reproduced natively with `-Dcpu=haswell`); a stable insertion sort
+  (`sortAscending`) with its own test. `haswell`'s SVD tests 39/39, `zen`'s every LAPACK test
+  167/169, `qemu-test-x86_64`'s SVD tests on the rig 53/53, rig compile checks 74/74.
+- [X] **T126** Singular values of graded bidiagonals (M1's E4). Done 2026-10-31, unstaged for the
+  user's review (`bidiag_svd.zig`, `svd.zig`, issues.md, `sources.md`, design.md):
+  `qrAlgorithm` is now `dbdsqr.f` (with `dlasv2.f`, `dlas2.f`), faer's scaling kept around it,
+  the rotations applied as made, so `gesvd`, `gesdd`'s small sizes and the divide-and-conquer
+  leaves all keep a graded bidiagonal's small values. E4's graded bidiagonal, reversed and random,
+  to `256 n eps` against `f128` (faer's QR: 13% off); every LAPACK and matlab test 237/239 (2
+  skipped); rig compile checks 74/74. Follow-up: T131 (dqds for values alone).
 
 ## After the BLAS is feature complete
 

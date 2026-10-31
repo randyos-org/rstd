@@ -15,6 +15,7 @@ const std = @import("std");
 const ops = @import("ops.zig");
 const norm = @import("norm.zig");
 const util = @import("../blas/util.zig");
+const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -534,4 +535,127 @@ pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), 
         const remax = 1 / big;
         for (v[from..to]) |*e| e.* = ops.mulReal(T, e.*, remax);
     }
+}
+
+// ---- trevc3, every SIDE and HOWMNY ---------------------------------------------------
+
+/// `trevc3`'s vectors: right (`r`), left (`l`) or both (`b`).
+pub const Side = enum { r, l, b };
+/// `trevc3`'s `HOWMNY`: every vector of `T` (`a`), every one times the
+/// `Q` given in `vl`/`vr` (`b`), or those `select` picks (`s`).
+pub const Howmny = enum { a, b, s };
+
+/// What `trevc3` returns: `InvalidSelect` for `s` without `select`,
+/// `InvalidMm` when `mm` is short of the `m` columns needed.
+pub const Trevc3Error = error{ InvalidN, InvalidSelect, InvalidLdt, InvalidLdvl, InvalidLdvr, InvalidMm } || Allocator.Error || Io.Cancelable;
+
+/// `?TREVC3` (`dtrevc3.f`, `ztrevc3.f`): eigenvectors of the `n x n` Schur
+/// form `T` (real: upper quasi-triangular with standardized 2 x 2 blocks, as
+/// `hseqr` leaves it), right (`T x = λ x`) into `vr`, left (`uᴴ T = λ uᴴ`)
+/// into `vl`, each `n x mm`. A real complex pair takes two columns, its
+/// real and imaginary parts, the positive-imaginary `λ` first. Each vector
+/// is scaled so its largest entry (`|re| + |im|`) is 1, and with `b` after
+/// the multiplication by the `Q` given in `vl`/`vr` (from `orghr` and
+/// `hseqr`, so the vectors are `A`'s). With `s`, only the vectors `select`
+/// picks, in order; a real pair picked by either entry takes both columns,
+/// `select` then marking its first only, as the reference does. `m` gets
+/// the columns used. `T` is restored on return (the complex solves scale
+/// its diagonal in place).
+pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny: Howmny, select: ?[*]bool, n: isize, t: [*]T, ldt: isize, vl: [*]T, ldvl: isize, vr: [*]T, ldvr: isize, mm: isize, m: *isize) Trevc3Error!void {
+    comptime chol.floatType(T, "trevc3");
+    const left = side != .r;
+    const right = side != .l;
+    if (n < 0) return error.InvalidN;
+    if (howmny == .s and select == null) return error.InvalidSelect;
+    if (ldt < @max(1, n)) return error.InvalidLdt;
+    if (ldvl < 1 or (left and ldvl < n)) return error.InvalidLdvl;
+    if (ldvr < 1 or (right and ldvr < n)) return error.InvalidLdvr;
+    const un: usize = @intCast(n);
+    if (un > 0 and !util.fitsMatrix(n, n, ldt, @sizeOf(T))) return error.InvalidLdt;
+    const tm: Mat(T) = .{ .ptr = t, .rows = un, .cols = un, .ld = if (un > 0) @intCast(ldt) else 1 };
+    var count = un;
+    if (howmny == .s) {
+        const sel = select.?;
+        count = 0;
+        var j: usize = 0;
+        while (j < un) : (j += 1) {
+            if (pairAt(T, tm, j)) {
+                if (sel[j] or sel[j + 1]) {
+                    sel[j] = true;
+                    sel[j + 1] = false;
+                    count += 2;
+                }
+                j += 1;
+            } else if (sel[j]) count += 1;
+        }
+    }
+    m.* = @intCast(count);
+    if (mm < count) return error.InvalidMm;
+    if (un == 0 or count == 0) return;
+    if (left and !util.fitsMatrix(n, mm, ldvl, @sizeOf(T))) return error.InvalidLdvl;
+    if (right and !util.fitsMatrix(n, mm, ldvr, @sizeOf(T))) return error.InvalidLdvr;
+    const x = try ops.alloc(T, allocator, un, un);
+    defer ops.free(T, allocator, x);
+    const cn = try allocator.alloc(Float(T), un);
+    defer allocator.free(cn);
+    const diag = try allocator.alloc(T, if (comptime ops.isComplex(T)) un else 0);
+    defer allocator.free(diag);
+    for ([_]bool{ true, false }) |r| {
+        if ((r and !right) or (!r and !left)) continue;
+        const dst: Mat(T) = if (r)
+            .{ .ptr = vr, .rows = un, .cols = @intCast(mm), .ld = @intCast(ldvr) }
+        else
+            .{ .ptr = vl, .rows = un, .cols = @intCast(mm), .ld = @intCast(ldvl) };
+        if (comptime ops.isComplex(T)) try complex(allocator, io, T, r, tm, x, cn, diag) else real(T, r, tm, x, cn);
+        switch (howmny) {
+            .a => dst.sub(0, 0, un, un).copyFrom(x),
+            .b => {
+                const q = try ops.alloc(T, allocator, un, un);
+                defer ops.free(T, allocator, q);
+                q.copyFrom(dst.sub(0, 0, un, un));
+                try ops.gemm(allocator, io, T, .n, .n, ops.one(T), q, x, ops.zero(T), dst.sub(0, 0, un, un));
+                var j: usize = 0;
+                while (j < un) : (j += 1) {
+                    if (comptime ops.isComplex(T)) {
+                        normalizeColumn(T, dst.col(j)[0..un]);
+                    } else if (pairAt(T, tm, j)) {
+                        normalize(T, dst.col(j), dst.col(j + 1), 0, un);
+                        j += 1;
+                    } else normalizeColumn(T, dst.col(j)[0..un]);
+                }
+            },
+            .s => {
+                const sel = select.?;
+                var c: usize = 0;
+                var j: usize = 0;
+                while (j < un) : (j += 1) {
+                    const two = pairAt(T, tm, j);
+                    if (sel[j]) {
+                        @memcpy(dst.col(c)[0..un], x.col(j)[0..un]);
+                        c += 1;
+                        if (two) {
+                            @memcpy(dst.col(c)[0..un], x.col(j + 1)[0..un]);
+                            c += 1;
+                        }
+                    }
+                    if (two) j += 1;
+                }
+            },
+        }
+    }
+}
+
+/// A real 2 x 2 block (a complex pair) starts at `j`.
+fn pairAt(comptime T: type, t: Mat(T), j: usize) bool {
+    if (comptime ops.isComplex(T)) return false;
+    return j + 1 < t.rows and t.get(j + 1, j) != 0;
+}
+
+/// Largest `|re| + |im|` (`|x|` for real) to 1.
+fn normalizeColumn(comptime T: type, v: []T) void {
+    var big: Float(T) = 0;
+    for (v) |e| big = @max(big, ops.abs1(T, e));
+    if (big == 0) return;
+    const remax = 1 / big;
+    for (v) |*e| e.* = ops.mulReal(T, e.*, remax);
 }

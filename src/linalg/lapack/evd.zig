@@ -38,6 +38,7 @@ const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
 const complex_schur = @import("complex_schur.zig");
 const balance = @import("balance.zig");
+const schur = @import("schur.zig");
 const trevc = @import("trevc.zig");
 const util = @import("../blas/util.zig");
 const chol = @import("cholesky.zig");
@@ -90,12 +91,16 @@ fn driver(al: Allocator, io: Io, comptime T: type, jobz: Jobz, uplo: Uplo, n: is
 pub fn symmetric(al: Allocator, io: Io, comptime T: type, vectors: bool, lower: bool, a: Mat(T), w: []Float(T), threshold: usize) (ops.Error || error{NoConvergence})!void {
     const F = Float(T);
     const n = a.rows;
-    // the triangle, as the lower one (`dlansy('M')` on the way)
+    // the triangle as a lower one (`dlansy('M')` on the way); the upper as
+    // `J A J`'s lower (`J` the reversal), so faer's top-down reduction runs
+    // from the bottom, as `xSYTRD` reduces `.u`, and a matrix graded large
+    // at the bottom right keeps its small eigenvalues (T125); the vectors'
+    // rows are reversed after
     const trid = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, trid);
     var anrm: F = 0;
     for (0..n) |j| for (j..n) |i| {
-        const x = if (lower) a.get(i, j) else ops.conj(T, a.get(j, i));
+        const x = if (lower) a.get(i, j) else a.get(n - 1 - i, n - 1 - j);
         trid.at(i, j).* = x;
         const v = ops.abs(T, x);
         if (!std.math.isFinite(v)) return error.NoConvergence;
@@ -107,6 +112,10 @@ pub fn symmetric(al: Allocator, io: Io, comptime T: type, vectors: bool, lower: 
     const sigma: ?F = if (anrm > 0 and anrm < rmin) rmin / anrm else if (anrm > rmax) rmax / anrm else null;
     if (sigma) |s| ops.lascl(T, 1, s, trid);
     try selfAdjointEvd(al, io, T, trid, w, if (vectors) a else null, threshold);
+    if (vectors and !lower) for (0..n) |j| {
+        const c = a.col(j);
+        std.mem.reverse(T, c[0..n]);
+    };
     if (sigma) |s| for (w) |*x| {
         x.* *= 1 / s;
     };
@@ -242,6 +251,181 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
         try balance.back(io, T, bal, scale, false, x);
         normalizeVectors(io, T, x, if (comptime isComplex(T)) null else w.im);
     }
+}
+
+/// `hseqr`'s job: the eigenvalues alone (`e`), or the Schur form too (`s`).
+pub const HseqrJob = enum { e, s };
+/// `hseqr`'s `Z`: none (`n`), from the identity (`i`), or accumulated into
+/// the given one (`v`).
+pub const Compz = enum { n, i, v };
+
+/// What `hseqr` returns: `InvalidIlo` unless `1 <= ilo <= max(1, n)`,
+/// `InvalidIhi` unless `min(ilo, n) <= ihi <= n`, `NoConvergence` for the
+/// reference's `INFO > 0`.
+pub const HseqrError = error{ InvalidN, InvalidIlo, InvalidIhi, InvalidLdh, InvalidLdz, NoConvergence };
+
+/// `?HSEQR` (`dhseqr.f`, `zhseqr.f`): the eigenvalues of the upper
+/// Hessenberg `n x n` `H` into `w`, as `geev`'s, by faer's `lahqr`
+/// (`real_schur.zig`, `complex_schur.zig`; faer's multishift QR for large
+/// sizes is not ported yet) on rows and columns `ilo..ihi` (1-based; the
+/// rest triangular already, its eigenvalues read off the diagonal). With
+/// `job` `s`, `H` becomes the Schur form `T` (real: quasi-triangular, its
+/// 2 x 2 blocks standardized), else its contents are unspecified; entries
+/// below the subdiagonal are zeroed first, as the reference clears them
+/// after. With `compz` `i` or `v`, `Z` (`n x n`) is the identity or the
+/// caller's, times the Schur vectors. `NoConvergence` writes the
+/// reference's `INFO` to `unconverged`: `w[0..ilo - 1]` and
+/// `w[INFO..n]` (0-based) converged.
+pub fn hseqr(io: Io, comptime T: type, job: HseqrJob, compz: Compz, n: isize, ilo: isize, ihi: isize, h: [*]T, ldh: isize, w: Eigenvalues(T), z: [*]T, ldz: isize, unconverged: ?*usize) HseqrError!void {
+    comptime chol.floatType(T, "hseqr");
+    if (n < 0) return error.InvalidN;
+    if (ilo < 1 or ilo > @max(1, n)) return error.InvalidIlo;
+    if (ihi < @min(ilo, n) or ihi > n) return error.InvalidIhi;
+    if (ldh < @max(1, n)) return error.InvalidLdh;
+    if (ldz < 1 or (compz != .n and ldz < n)) return error.InvalidLdz;
+    if (n == 0) return;
+    if (!util.fitsMatrix(n, n, ldh, @sizeOf(T))) return error.InvalidLdh;
+    if (compz != .n and !util.fitsMatrix(n, n, ldz, @sizeOf(T))) return error.InvalidLdz;
+    const un: usize = @intCast(n);
+    const lo: usize = @intCast(ilo - 1);
+    const hi: usize = @intCast(ihi);
+    const hm: Mat(T) = .{ .ptr = h, .rows = un, .cols = un, .ld = @intCast(ldh) };
+    const zm: ?Mat(T) = if (compz == .n) null else .{ .ptr = z, .rows = un, .cols = un, .ld = @intCast(ldz) };
+    if (compz == .i) zm.?.identity();
+    for (0..un) |j| for (@min(j + 2, un)..un) |i| {
+        hm.at(i, j).* = ops.zero(T);
+    };
+    // outside the block the matrix is triangular already
+    for (0..un) |i| if (i < lo or i >= hi) {
+        if (comptime isComplex(T)) w[i] = hm.get(i, i) else {
+            w.re[i] = hm.get(i, i);
+            w.im[i] = 0;
+        }
+    };
+    const want = job == .s;
+    const info = if (comptime isComplex(T))
+        complex_schur.lahqr(T, want, hm, zm, w[0..un], lo, hi)
+    else
+        real_schur.lahqr(io, T, want, hm, zm, w.re[0..un], w.im[0..un], lo, hi);
+    if (info != 0) {
+        if (unconverged) |u| u.* = info;
+        return error.NoConvergence;
+    }
+}
+
+/// `gees`'s sort: which eigenvalues go first; real `(re, im)`, complex `λ`.
+pub fn GeesSelect(comptime T: type) type {
+    return if (isComplex(T)) *const fn (T) bool else *const fn (Float(T), Float(T)) bool;
+}
+
+/// What `gees` returns: `InvalidA` for a NaN in `A`, `NoConvergence` for the
+/// reference's `INFO` 1 to `n`, `SelectChanged` for its `n + 1` (rounding
+/// in the reordering changed which eigenvalues `select` picks),
+/// `SwapRejected` for its `n + 2` (a swap too ill-conditioned to make).
+pub const GeesError = error{ InvalidN, InvalidLda, InvalidLdvs, InvalidA, NoConvergence, SelectChanged, SwapRejected } || Allocator.Error || Io.Cancelable;
+
+/// `?GEES` (`dgees.f`, `zgees.f`): the Schur factorization `A = Z T Zᴴ` of
+/// the `n x n` `A`: `T` in place of `A` (real: quasi-triangular, its 2 x 2
+/// blocks standardized), its eigenvalues in `w` (as `geev`'s), and with
+/// `jobvs` `v` the Schur vectors `Z` in `vs`. As the reference: scaled into
+/// `[SMLNUM, BIGNUM]`, balanced by permutation only (`gebal` job `p`),
+/// `gehrd`, `orghr`, `hseqr`; with `select`, `trsen` then moves the
+/// eigenvalues it picks to the top-left, `sdim` getting their count (a real
+/// pair counts 2, and moves if either is picked); `Z` takes `gebak` back.
+/// `NoConvergence` writes the reference's `INFO` to `unconverged`.
+pub fn gees(allocator: Allocator, io: Io, comptime T: type, jobvs: Jobz, select: ?GeesSelect(T), n: isize, a: [*]T, lda: isize, sdim: *isize, w: Eigenvalues(T), vs: [*]T, ldvs: isize, unconverged: ?*usize) GeesError!void {
+    comptime chol.floatType(T, "gees");
+    const F = Float(T);
+    if (n < 0) return error.InvalidN;
+    if (lda < @max(1, n)) return error.InvalidLda;
+    if (ldvs < 1 or (jobvs == .v and ldvs < n)) return error.InvalidLdvs;
+    sdim.* = 0;
+    if (n == 0) return;
+    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    if (jobvs == .v and !util.fitsMatrix(n, n, ldvs, @sizeOf(T))) return error.InvalidLdvs;
+    const un: usize = @intCast(n);
+    const am: Mat(T) = .{ .ptr = a, .rows = un, .cols = un, .ld = @intCast(lda) };
+    // `dgees.f`: NaN, then the scale into [SMLNUM, BIGNUM], as `geev`
+    const anrm = ops.normMax(T, am);
+    if (std.math.isNan(anrm)) return error.InvalidA;
+    if (std.math.isInf(anrm)) {
+        if (unconverged) |c| c.* = un;
+        return error.NoConvergence;
+    }
+    const smlnum = @sqrt(std.math.floatMin(F)) / std.math.floatEps(F);
+    const to = ops.scaleTo(F, anrm, smlnum);
+    if (to) |t| ops.lascl(T, anrm, t, am);
+    const scale = try allocator.alloc(F, un);
+    defer allocator.free(scale);
+    var ilo: isize = 1;
+    var ihi: isize = n;
+    balance.gebal(allocator, io, T, .p, n, a, lda, &ilo, &ihi, scale.ptr) catch |e| switch (e) {
+        error.Canceled => |x| return x,
+        // checked above: no NaN, and the arguments
+        else => unreachable,
+    };
+    const tau = try allocator.alloc(T, un);
+    defer allocator.free(tau);
+    hessenberg.gehrd(allocator, io, T, n, ilo, ihi, a, lda, tau.ptr) catch |e| return narrow(e);
+    if (jobvs == .v) {
+        const vm: Mat(T) = .{ .ptr = vs, .rows = un, .cols = un, .ld = @intCast(ldvs) };
+        vm.copyFrom(am);
+        hessenberg.orghr(allocator, io, T, n, ilo, ihi, vs, ldvs, tau.ptr) catch |e| return narrow(e);
+    }
+    const compz: Compz = if (jobvs == .v) .v else .n;
+    hseqr(io, T, .s, compz, n, ilo, ihi, a, lda, w, vs, if (jobvs == .v) ldvs else 1, unconverged) catch |e| switch (e) {
+        error.NoConvergence => |x| return x,
+        else => unreachable,
+    };
+    if (select) |pick| {
+        const bwork = try allocator.alloc(bool, un);
+        defer allocator.free(bwork);
+        for (bwork, 0..) |*b, i| b.* = picked(T, pick, w, i);
+        var m: isize = 0;
+        var s: F = 0;
+        var sep: F = 0;
+        schur.trsen(allocator, io, T, .n, if (jobvs == .v) .v else .n, bwork.ptr, n, a, lda, vs, if (jobvs == .v) ldvs else 1, w, &m, &s, &sep) catch |e| switch (e) {
+            error.SwapRejected, error.OutOfMemory, error.Canceled => |x| return x,
+            else => unreachable,
+        };
+        sdim.* = m;
+        // `dgees.f`'s `INFO = N + 1`: the reordered eigenvalues, re-picked,
+        // a real pair picked if either is
+        const sm: usize = @intCast(m);
+        var i: usize = 0;
+        while (i < un) : (i += 1) {
+            const pair = !isComplex(T) and i + 1 < un and (if (comptime isComplex(T)) false else w.im[i] > 0);
+            const p = picked(T, pick, w, i) or (pair and picked(T, pick, w, i + 1));
+            if (p != (i < sm)) return error.SelectChanged;
+            if (pair) {
+                if (p != (i + 1 < sm)) return error.SelectChanged;
+                i += 1;
+            }
+        }
+    }
+    if (jobvs == .v) balance.gebak(allocator, io, T, .p, .r, n, ilo, ihi, scale.ptr, n, vs, ldvs) catch |e| switch (e) {
+        error.Canceled => |x| return x,
+        else => unreachable,
+    };
+    if (to) |t| {
+        ops.lascl(T, t, anrm, am);
+        const ws = if (comptime isComplex(T)) [_][*]T{w} else [_][*]T{ w.re, w.im };
+        for (ws) |x| ops.lascl(T, t, anrm, .{ .ptr = x, .rows = un, .cols = 1, .ld = un });
+    }
+}
+
+/// Whether `select` picks eigenvalue `i`, by its own `(re, im)` for real,
+/// as `dgees.f` asks each.
+fn picked(comptime T: type, pick: GeesSelect(T), w: Eigenvalues(T), i: usize) bool {
+    return if (comptime isComplex(T)) pick(w[i]) else pick(w.re[i], w.im[i]);
+}
+
+/// `gehrd`'s and `orghr`'s errors here: their arguments are `gees`'s, checked.
+fn narrow(e: hessenberg.GehrdError) GeesError {
+    return switch (e) {
+        error.OutOfMemory, error.Canceled => |x| x,
+        else => unreachable,
+    };
 }
 
 /// `evd_imp`: `a` (overwritten) to its eigenvalues (`s`, with `s_im` for
@@ -1031,5 +1215,318 @@ test "faer evd: geev balances, so D M D⁻¹ keeps M's eigenvalues to M's scale 
             }
             try testing.expect(best <= tol);
         }
+    }
+}
+
+test "hseqr: Zᴴ A Z = T after gehrd and orghr, the ilo..ihi block, both jobs, real and complex" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
+        const F = Float(T);
+        for ([_][3]usize{ .{ 1, 1, 1 }, .{ 2, 1, 2 }, .{ 6, 1, 6 }, .{ 9, 3, 7 }, .{ 30, 4, 27 } }) |c| {
+            const n = c[0];
+            const lo = c[1] - 1;
+            const hi = c[2];
+            const a0 = try al.alloc(T, n * n);
+            defer al.free(a0);
+            check.fill(T, a0, 11 * n + lo);
+            for (0..n) |j| for (j + 1..n) |i| {
+                if (j < lo or i >= hi) a0[i + j * n] = ops.zero(T);
+            };
+            const t = try al.dupe(T, a0);
+            defer al.free(t);
+            const tau = try al.alloc(T, @max(n, 2) - 1);
+            defer al.free(tau);
+            const ni: isize = @intCast(n);
+            try hessenberg.gehrd(al, check.io, T, ni, @intCast(lo + 1), @intCast(hi), t.ptr, ni, tau.ptr);
+            const z = try al.dupe(T, t);
+            defer al.free(z);
+            try hessenberg.orghr(al, check.io, T, ni, @intCast(lo + 1), @intCast(hi), z.ptr, ni, tau.ptr);
+            const h2 = try al.dupe(T, t);
+            defer al.free(h2);
+            const ev = try al.alloc(F, 4 * n);
+            defer al.free(ev);
+            const cw = try al.alloc(T, 2 * n);
+            defer al.free(cw);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
+            const w2: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr + n else .{ .re = ev.ptr + 2 * n, .im = ev.ptr + 3 * n };
+            try hseqr(check.io, T, .s, .v, ni, @intCast(lo + 1), @intCast(hi), t.ptr, ni, w, z.ptr, ni, null);
+            var dummy: [1]T = undefined;
+            try hseqr(check.io, T, .e, .n, ni, @intCast(lo + 1), @intCast(hi), h2.ptr, ni, w2, &dummy, 1, null);
+            const nrm = @max(ops.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
+            const tol = 128 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
+            for (0..n) |j| for (0..n) |i| {
+                var s = ops.zero(T);
+                for (0..n) |k| for (0..n) |l| {
+                    s = ops.add(T, s, ops.mul(T, ops.mul(T, ops.conj(T, z[k + i * n]), a0[k + l * n]), z[l + j * n]));
+                };
+                // T upper triangular; real: a subdiagonal entry only inside a complex pair's block
+                const pair = !isComplex(T) and i == j + 1 and (if (comptime isComplex(T)) false else ev[n + j] > 0);
+                const want = if (i <= j or pair) t[i + j * n] else ops.zero(T);
+                if (i > j and !pair and !ops.isZero(T, t[i + j * n])) return error.TestUnexpectedResult;
+                var g = ops.zero(T);
+                for (0..n) |k| g = ops.add(T, g, ops.mul(T, ops.conj(T, z[k + i * n]), z[k + j * n]));
+                const err = ops.abs(T, ops.sub(T, s, want));
+                const gerr = ops.abs(T, ops.sub(T, g, if (i == j) ops.one(T) else ops.zero(T)));
+                if (!(err <= tol) or !(gerr <= tol / nrm)) {
+                    check.say("hseqr {s} n={d} ilo={d} ihi={d}: ({d},{d}) T off by {e}, ZᴴZ by {e}\n", .{ @typeName(T), n, lo + 1, hi, i, j, err, gerr });
+                    return error.TestUnexpectedResult;
+                }
+            };
+            // the eigenvalues alone agree with the Schur form's
+            if (comptime isComplex(T)) {
+                for (cw[0..n], cw[n..]) |x, y| try testing.expect(ops.abs(T, ops.sub(T, x, y)) <= tol);
+            } else for (0..n) |i| {
+                try testing.expect(@abs(ev[i] - ev[2 * n + i]) <= tol and @abs(ev[n + i] - ev[3 * n + i]) <= tol);
+            }
+        }
+    }
+    var a: [4]f64 = @splat(0);
+    var wr: [2]f64 = undefined;
+    var wi: [2]f64 = undefined;
+    const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
+    try testing.expectError(error.InvalidN, hseqr(check.io, f64, .e, .n, -1, 1, 0, &a, 1, w, &a, 1, null));
+    try testing.expectError(error.InvalidIlo, hseqr(check.io, f64, .e, .n, 2, 3, 2, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.InvalidIhi, hseqr(check.io, f64, .e, .n, 2, 2, 1, &a, 2, w, &a, 1, null));
+    try testing.expectError(error.InvalidLdh, hseqr(check.io, f64, .e, .n, 2, 1, 2, &a, 1, w, &a, 1, null));
+    try testing.expectError(error.InvalidLdz, hseqr(check.io, f64, .s, .i, 2, 1, 2, &a, 2, w, &a, 1, null));
+    try hseqr(check.io, f64, .e, .n, 0, 1, 0, &a, 1, w, &a, 1, null);
+}
+
+/// `‖A v - λ v‖` (right) or `‖vᴴ A - λ vᴴ‖` (left) for column `j` of `v`
+/// (a real pair's two columns as one complex vector), and its largest
+/// `|re| + |im|`.
+fn eigResidual(comptime T: type, n: usize, a: []const T, v: []const T, j: usize, pair: bool, lam: std.math.Complex(Float(T)), right: bool) [2]Float(T) {
+    const F = Float(T);
+    const C = std.math.Complex(F);
+    var worst: F = 0;
+    var big: F = 0;
+    for (0..n) |k| {
+        const x: C = if (comptime isComplex(T)) v[k + j * n] else .init(v[k + j * n], if (pair) v[k + (j + 1) * n] else 0);
+        big = @max(big, @abs(x.re) + @abs(x.im));
+    }
+    for (0..n) |i| {
+        var s: C = .init(0, 0);
+        for (0..n) |k| {
+            const e = if (right) a[i + k * n] else a[k + i * n];
+            const aik: C = if (comptime isComplex(T)) e else .init(e, 0);
+            const xk_: C = if (comptime isComplex(T)) v[k + j * n] else .init(v[k + j * n], if (pair) v[k + (j + 1) * n] else 0);
+            s = s.add(aik.mul(if (right) xk_ else xk_.conjugate()));
+        }
+        const xi_: C = if (comptime isComplex(T)) v[i + j * n] else .init(v[i + j * n], if (pair) v[i + (j + 1) * n] else 0);
+        const r = s.sub(if (right) lam.mul(xi_) else lam.mul(xi_.conjugate()));
+        worst = @max(worst, @sqrt(r.re * r.re + r.im * r.im));
+    }
+    return .{ worst, big };
+}
+
+test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed and selected, real and complex" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
+        const F = Float(T);
+        const C = std.math.Complex(F);
+        for ([_]usize{ 1, 2, 5, 12, 31 }) |n| {
+            const ni: isize = @intCast(n);
+            const a0 = try al.alloc(T, n * n);
+            defer al.free(a0);
+            check.fill(T, a0, 13 * n + 1);
+            const t = try al.dupe(T, a0);
+            defer al.free(t);
+            const tau = try al.alloc(T, @max(n, 2) - 1);
+            defer al.free(tau);
+            try hessenberg.gehrd(al, check.io, T, ni, 1, ni, t.ptr, ni, tau.ptr);
+            const z = try al.dupe(T, t);
+            defer al.free(z);
+            try hessenberg.orghr(al, check.io, T, ni, 1, ni, z.ptr, ni, tau.ptr);
+            const ev = try al.alloc(F, 2 * n);
+            defer al.free(ev);
+            const cw = try al.alloc(T, n);
+            defer al.free(cw);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
+            try hseqr(check.io, T, .s, .v, ni, 1, ni, t.ptr, ni, w, z.ptr, ni, null);
+            const vl = try al.dupe(T, z);
+            defer al.free(vl);
+            const vr = try al.dupe(T, z);
+            defer al.free(vr);
+            var m: isize = 0;
+            try trevc.trevc3(al, check.io, T, .b, .b, null, ni, t.ptr, ni, vl.ptr, ni, vr.ptr, ni, ni, &m);
+            try testing.expectEqual(ni, m);
+            const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(ops.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
+            var j: usize = 0;
+            while (j < n) : (j += 1) {
+                const pair = !isComplex(T) and ev[n + j] > 0;
+                const lam: C = if (comptime isComplex(T)) cw[j] else .init(ev[j], ev[n + j]);
+                for ([_]bool{ true, false }) |right| {
+                    const r = eigResidual(T, n, a0, if (right) vr else vl, j, pair, lam, right);
+                    if (!(r[0] <= tol) or !(@abs(r[1] - 1) <= tol)) {
+                        check.say("trevc3 {s} n={d} vector {d} {s}: residual {e}, largest {e}\n", .{ @typeName(T), n, j, if (right) "right" else "left", r[0], r[1] });
+                        return error.TestUnexpectedResult;
+                    }
+                }
+                if (pair) j += 1;
+            }
+            // selected: every other eigenvalue, a pair picked by its second entry
+            const sel = try al.alloc(bool, n);
+            defer al.free(sel);
+            for (sel, 0..) |*s, i| s.* = i % 2 == 1;
+            const all = try al.alloc(T, n * n);
+            defer al.free(all);
+            const some = try al.alloc(T, n * n);
+            defer al.free(some);
+            try trevc.trevc3(al, check.io, T, .r, .a, null, ni, t.ptr, ni, vl.ptr, ni, all.ptr, ni, ni, &m);
+            try trevc.trevc3(al, check.io, T, .r, .s, sel.ptr, ni, t.ptr, ni, vl.ptr, ni, some.ptr, ni, ni, &m);
+            var c: usize = 0;
+            j = 0;
+            while (j < n) : (j += 1) {
+                const pair = !isComplex(T) and ev[n + j] > 0;
+                if (sel[j]) {
+                    for (0..if (pair) 2 else 1) |o| {
+                        try testing.expectEqualSlices(T, all[(j + o) * n ..][0..n], some[(c + o) * n ..][0..n]);
+                    }
+                    c += if (pair) 2 else 1;
+                }
+                if (pair) {
+                    try testing.expect(!sel[j + 1]);
+                    j += 1;
+                }
+            }
+            try testing.expectEqual(@as(isize, @intCast(c)), m);
+        }
+    }
+    var a: [4]f64 = @splat(0);
+    var m: isize = 0;
+    try testing.expectError(error.InvalidN, trevc.trevc3(al, check.io, f64, .r, .a, null, -1, &a, 1, &a, 1, &a, 1, 0, &m));
+    try testing.expectError(error.InvalidSelect, trevc.trevc3(al, check.io, f64, .r, .s, null, 2, &a, 2, &a, 1, &a, 2, 2, &m));
+    try testing.expectError(error.InvalidLdvr, trevc.trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 1, 2, &m));
+    try testing.expectError(error.InvalidMm, trevc.trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 2, 1, &m));
+}
+
+/// `gees`'s test sort: the left half plane first.
+fn LeftHalf(comptime T: type) type {
+    return struct {
+        fn real(re: Float(T), im: Float(T)) bool {
+            _ = im;
+            return re < 0;
+        }
+        fn cplx(x: T) bool {
+            return x.re < 0;
+        }
+    };
+}
+
+test "gees: A = Z T Zᴴ, unsorted and the left half plane first, tiny scale, NaN; real and complex" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
+        const F = Float(T);
+        const pick: GeesSelect(T) = if (comptime isComplex(T)) &LeftHalf(T).cplx else &LeftHalf(T).real;
+        for ([_]usize{ 1, 2, 6, 17 }) |n| for ([_]bool{ false, true }) |sort| for ([_]F{ 1, 1e-30 }) |sc| {
+            const ni: isize = @intCast(n);
+            const a0 = try al.alloc(T, n * n);
+            defer al.free(a0);
+            check.fill(T, a0, 17 * n + @intFromBool(sort));
+            for (a0) |*e| e.* = ops.mulReal(T, e.*, sc);
+            const t = try al.dupe(T, a0);
+            defer al.free(t);
+            const z = try al.alloc(T, n * n);
+            defer al.free(z);
+            const ev = try al.alloc(F, 2 * n);
+            defer al.free(ev);
+            const cw = try al.alloc(T, n);
+            defer al.free(cw);
+            const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
+            var sdim: isize = -1;
+            try gees(al, check.io, T, .v, if (sort) pick else null, ni, t.ptr, ni, &sdim, w, z.ptr, ni, null);
+            const nrm = @max(ops.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), std.math.floatMin(F));
+            const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
+            for (0..n) |j| for (0..n) |i| {
+                var s = ops.zero(T);
+                for (0..n) |k| for (0..n) |l| {
+                    s = ops.add(T, s, ops.mul(T, ops.mul(T, z[i + k * n], t[k + l * n]), ops.conj(T, z[j + l * n])));
+                };
+                const pair = !isComplex(T) and i == j + 1 and (if (comptime isComplex(T)) false else ev[n + j] > 0);
+                if (i > j and !pair and !ops.isZero(T, t[i + j * n])) return error.TestUnexpectedResult;
+                const err = ops.abs(T, ops.sub(T, s, a0[i + j * n]));
+                if (!(err <= tol)) {
+                    check.say("gees {s} n={d} sort={} scale={e}: ({d},{d}) Z T Zᴴ off by {e}\n", .{ @typeName(T), n, sort, sc, i, j, err });
+                    return error.TestUnexpectedResult;
+                }
+            };
+            if (!sort) {
+                try testing.expectEqual(@as(isize, 0), sdim);
+                continue;
+            }
+            var neg: isize = 0;
+            for (0..n) |i| {
+                const re = if (comptime isComplex(T)) cw[i].re else ev[i];
+                if (re < 0) neg += 1;
+                try testing.expectEqual(re < 0, @as(isize, @intCast(i)) < sdim);
+            }
+            try testing.expectEqual(neg, sdim);
+        };
+    }
+    var a: [4]f64 = .{ 1, std.math.nan(f64), 0, 1 };
+    var z: [4]f64 = undefined;
+    var wr: [2]f64 = undefined;
+    var wi: [2]f64 = undefined;
+    var sdim: isize = 0;
+    const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
+    try testing.expectError(error.InvalidA, gees(al, check.io, f64, .v, null, 2, &a, 2, &sdim, w, &z, 2, null));
+    try testing.expectError(error.InvalidN, gees(al, check.io, f64, .v, null, -1, &a, 1, &sdim, w, &z, 1, null));
+    try testing.expectError(error.InvalidLda, gees(al, check.io, f64, .n, null, 2, &a, 1, &sdim, w, &z, 1, null));
+    try testing.expectError(error.InvalidLdvs, gees(al, check.io, f64, .v, null, 2, &a, 2, &sdim, w, &z, 1, null));
+    try gees(al, check.io, f64, .n, null, 0, &a, 1, &sdim, w, &z, 1, null);
+}
+
+test "syevd, syev: graded large at the bottom right given as .u, and at the top left as .l, keep the small eigenvalues (T125)" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64 }) |T| {
+        const F = Float(T);
+        const W = if (comptime isComplex(T)) std.math.Complex(f128) else f128;
+        for ([_]usize{ 4, 6, 10 }) |n| for ([_]bool{ true, false }) |increasing| for ([_]bool{ false, true }) |use_qr| {
+            // M1's E2: D B D, B Hermitian with a dominant diagonal, D geometric
+            const ratio: f64 = if (n == 4) 1e-4 else 1e-2;
+            var prng = std.Random.DefaultPrng.init(n * 7 + @intFromBool(increasing));
+            const r = prng.random();
+            const a = try al.alloc(T, n * n);
+            defer al.free(a);
+            const a128 = try al.alloc(W, n * n);
+            defer al.free(a128);
+            for (0..n) |j| for (0..j + 1) |i| {
+                const di = std.math.pow(f64, ratio, @floatFromInt(if (increasing) n - 1 - i else i));
+                const dj = std.math.pow(f64, ratio, @floatFromInt(if (increasing) n - 1 - j else j));
+                const br = if (i == j) 2 * @as(f64, @floatFromInt(n)) + r.float(f64) else r.float(f64) - 0.5;
+                const bi = if (i == j or !isComplex(T)) 0 else r.float(f64) - 0.5;
+                const re = di * br * dj;
+                const im = di * bi * dj;
+                if (comptime isComplex(T)) {
+                    a[i + j * n] = .init(re, im);
+                    a[j + i * n] = .init(re, -im);
+                    a128[i + j * n] = .init(re, im);
+                    a128[j + i * n] = .init(re, -im);
+                } else {
+                    a[i + j * n] = re;
+                    a[j + i * n] = re;
+                    a128[i + j * n] = re;
+                    a128[j + i * n] = re;
+                }
+            };
+            const uplo: Uplo = if (increasing) .u else .l;
+            const w = try al.alloc(F, n);
+            defer al.free(w);
+            const w128 = try al.alloc(f128, n);
+            defer al.free(w128);
+            const ni: isize = @intCast(n);
+            if (use_qr) try syev(al, check.io, T, .n, uplo, ni, a.ptr, ni, w.ptr) else try syevd(al, check.io, T, .n, uplo, ni, a.ptr, ni, w.ptr);
+            try syevd(al, check.io, W, .n, uplo, ni, a128.ptr, ni, w128.ptr);
+            // graded small eigenvalues hold to a few hundred eps (matlab88's
+            // bottom-up reduction reaches 1.7e-13 here, M1's E2); reduced
+            // from the wrong end they were off by 0.3 to 3e8
+            for (w, w128, 0..) |x, ref, i| {
+                const err: f128 = @abs(@as(f128, x) - ref) / @abs(ref);
+                if (!(err <= 1024 * @as(f128, @floatFromInt(n)) * std.math.floatEps(F))) {
+                    check.say("{s} {s} n={d} increasing={}: eigenvalue {d} relative error {e}\n", .{ if (use_qr) "syev" else "syevd", @typeName(T), n, increasing, i, @as(f64, @floatCast(err)) });
+                    return error.TestUnexpectedResult;
+                }
+            }
+        };
     }
 }

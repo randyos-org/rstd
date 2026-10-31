@@ -62,6 +62,10 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   `error.EstimateFailed` for the reference's `INFO = 1`), `gebal`, `gebak`, `trexc` and `trsen`
   (`error.SwapRejected` for a swap too ill-conditioned to make) and `gelsy` over faer's `geqp3`;
   and `gelqf`, `orglq`, `ormlq` by libflame's method over faer's reflections.
+  And for the matlab port's `inv`, `hess` and `schur` (T123): `getri` (faer's LU inverse);
+  `gehrd`, `orghr`/`unghr` and `hseqr` (LAPACK's interfaces over faer's Hessenberg reduction
+  and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
+  `trsen`); `laset` and `lapy2`.
 
 Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
 
@@ -76,7 +80,7 @@ and which routines each architecture covers is in
 | Architecture | Cores |
 | --- | --- |
 | x86_64 | `prescott`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `sandybridge`, `bobcat`, `bulldozer`, `piledriver`, `haswell`, `steamroller`, `excavator`, `zen`, `skylakex`, `cooperlake`, `sapphirerapids` |
-| x86 | `katmai`, `coppermine`, `northwood`, `prescott`, `banias`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `athlon`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `bobcat`, `p5`, `p6`, `viac3`, `yonah`; the AVX cores and Zen run `nehalem`'s or `barcelona`'s, as upstream's 32-bit builds do |
+| x86 | `katmai`, `coppermine`, `northwood`, `prescott`, `banias`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `athlon`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `bobcat`, `p5`, `p6`, `viac3`, `yonah`; the AVX cores and Zen run `nehalem`'s or `barcelona`'s, as upstream 32-bit builds do |
 | aarch64 | `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `falkor`, `thunderx`, `thunderx2t99`, `thunderx3t110`, `tsv110`, `emag8180`, `neoversen1`, `neoversen2`, `neoversev1`, `neoversev2`, `armv8sve`, `a64fx`, `armv9sme`, `vortex`, `vortexm4`, `cortexa76`, `cortexa510`, `cortexa710`, `cortexx1`, `cortexx2`, `ampere1`, `ft2000` |
 | arm | `armv6`, `armv7`, `cortexa9`, `cortexa15` |
 | powerpc, powerpc64 | `power3`, `power4`, `power5`, `power6`, `power8`, `power9`, `power10`, `ppc970`, `cell`, `ppc440`, `ppc440fp2`, `ppcg4` |
@@ -242,9 +246,9 @@ The kernels are portable Zig, the same on every core; the `@Vector` half `gemv` 
 - **Half `gemm`** (`gemmHalf`: `sbgemm`, `bgemm`, `shgemm`): each element sums `a*b` in `f32` in
   depth order, unfused, over each depth slice of the blocking, and adds `alpha` times that sum to
   `C`, rounded once per slice; for `bgemm`, whose `C` and scalars are bfloat16, `C` is rounded to
-  bfloat16 after every slice, as upstream's kernel stores it, so its bits follow the core's `Q`.
+  bfloat16 after every slice, as upstream kernel stores it, so its bits follow the core's `Q`.
   Cooper Lake's `sbgemm` small-matrix path (8, 16 or 32 columns, up to `256^3`) slices the depth
-  by 1024 instead, as upstream's kernel does; its `vdpbf16ps` rounding is not reproduced.
+  by 1024 instead, as upstream kernel does; its `vdpbf16ps` rounding is not reproduced.
   `C` is scaled by `beta` first (a zero `beta` never reads it); a zero `alpha` or `k` reads neither
   `A` nor `B`. The scalars count by value, where upstream compares bfloat16 bits
   ([`issues.md`](../issues.md)). The bits do not depend on the thread count.

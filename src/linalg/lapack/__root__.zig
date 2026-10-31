@@ -26,6 +26,7 @@ const faer_hessenberg = @import("hessenberg.zig");
 const faer_real_schur = @import("real_schur.zig");
 const faer_complex_schur = @import("complex_schur.zig");
 const faer_balance = @import("balance.zig");
+const trevc_vectors = @import("trevc.zig");
 const faer_bidiag = @import("bidiag.zig");
 const faer_bidiag_svd = @import("bidiag_svd.zig");
 const relapack = @import("relapack.zig");
@@ -106,6 +107,19 @@ pub const Jobz = evd.Jobz;
 pub const GeevError = evd.GeevError;
 /// `geev`'s eigenvalues: `.{ .re = wr, .im = wi }` real, `w` complex.
 pub const Eigenvalues = evd.Eigenvalues;
+/// `hseqr`: bad arguments or `error.NoConvergence`.
+pub const HseqrError = evd.HseqrError;
+pub const HseqrJob = evd.HseqrJob;
+pub const Compz = evd.Compz;
+/// `gees`: bad arguments, `error.InvalidA` (a NaN), `error.NoConvergence`,
+/// `error.SelectChanged`, `error.SwapRejected`, `error.OutOfMemory` or
+/// `error.Canceled`.
+pub const GeesError = evd.GeesError;
+pub const GeesSelect = evd.GeesSelect;
+/// `trevc3`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const Trevc3Error = trevc_vectors.Trevc3Error;
+pub const TrevcSide = trevc_vectors.Side;
+pub const Howmny = trevc_vectors.Howmny;
 /// `lange`'s and `gecon`'s `NORM`.
 pub const Norm = norm.Norm;
 /// `lange`: a negative size or short `lda`, or `error.OutOfMemory`.
@@ -192,6 +206,10 @@ pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
 pub const geev = evd.geev;
+pub const hseqr = evd.hseqr;
+pub const gees = evd.gees;
+pub const trevc3 = trevc_vectors.trevc3;
+pub const trevc = trevc_vectors.trevc3;
 pub const lange = norm.lange;
 pub const gecon = norm.gecon;
 pub const laset = norm.laset;

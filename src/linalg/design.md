@@ -50,7 +50,7 @@ Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts,
   `std.mem.Allocator`; nothing uses a global allocator.
 - **Every target.** The same source serves hosted, freestanding, UEFI and WebAssembly targets.
   A target with no per-core kernels runs the portable ones, with no special cases in callers.
-- **Zig 0.17.0 as well as 0.18.** zfls vendors rstd with `minimum_zig_version = "0.17.0"`
+- **Zig 0.17.0 as well as 0.18.** Zfls vendors rstd with `minimum_zig_version = "0.17.0"`
   (its `build.zig.zon`) and builds it on Zig 0.17.0 for x86_64 and aarch64 Linux, macOS 11 and
   Windows (its `.github/workflows/ci.yml`). A shim for a 0.17 difference detects the API
   (`@hasDecl`, `@hasField`, `zig_backend`), and checks the version only for a std bug with
@@ -494,7 +494,7 @@ per-core objects; like the tiles, they never make a core need an object of its o
   (below). On Apple's systems, where Accelerate serves most routines, only the routed slots.
 - **riscv64:** on the vector cores (`riscv64_zvl128b`, `riscv64_zvl256b`, `x280`) every slot of
   theirs no port fills (`Rule.unfilled_on`); `axpy` keeps its `asm` port. Each core's object
-  builds them at its own guaranteed VLEN (`zvl128b`, `zvl256b`, `zvl512b`), where upstream's
+  builds them at its own guaranteed VLEN (`zvl128b`, `zvl256b`, `zvl512b`), where upstream
   `vsetvl` loops read VLEN at run time; on a wider machine they use part of each register, which
   T20's race weighs. The cores without the ratified vector extension have no object.
 - **s390x, wasm:** none.
@@ -517,7 +517,7 @@ before; their converted kernels stay, unmeasured:
 | Cores | Slots with no converted kernel |
 | --- | --- |
 | all but `tsv110` | `sdot` |
-| all | `cdotu`, `cdotc`, `zdotu`, `zdotc` (on `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76` and `cortexx1` upstream's non-PGI builds take `zdot.S`, but a slot a make conditional leaves two sources for is not converted, `tools/blas_asm/gen.zig:589`) |
+| all | `cdotu`, `cdotc`, `zdotu`, `zdotc` (on `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `cortexa76` and `cortexx1` upstream non-PGI builds take `zdot.S`, but a slot a make conditional leaves two sources for is not converted, `tools/blas_asm/gen.zig:589`) |
 | `thunderx` | `ddot` |
 | `thunderx2t99`, `thunderx3t110` | `ddot`, `?nrm2`, `?asum`, `?copy`, `i?amax` |
 | `neoversen1`, `ampere1`, `vortex`, `vortexm4` | `ddot`, `?asum`, `?copy`, `i?amax`, `sgemv_n`, `ssum`, `dsum`, `zsum` |
@@ -709,9 +709,9 @@ complex, for every float type, through the same code.
   512-bit `@Vector`s. Those keep the generic bits (each element fused over the depth in order,
   then `alpha*sum` and `beta*C` fused) except in their dot blocks (`tn`, and `nn`'s last rows when
   at most half a vector of them is left over a depth of two vectors or more): each lane sums
-  every 16th (`d`: 8th) product and the lanes reduce as upstream's `REDUCE_4` or
+  every 16th (`d`: 8th) product and the lanes reduce as upstream `REDUCE_4` or
   `_mm512_reduce_add`. The SVE, POWER10 and LoongArch kernels are not converted. The permits are
-  upstream's per core (`permitFor`, installed with the blocking): Skylake-X and its successors,
+  upstream per core (`permitFor`, installed with the blocking): Skylake-X and its successors,
   the `ARMV8SVE` family, POWER10, LA264 and LA464; every other core and all complex take the
   generic permit, which allows nothing. POWER10's
   `sgemm` permit follows the thread count upstream (64^3 with more than one, 100^3 with one);
@@ -721,7 +721,7 @@ complex, for every float type, through the same code.
 - **`sbgemm`'s small path.** Only Cooper Lake has one upstream (`KERNEL.SAPPHIRERAPIDS` empties
   it): its permit (8, 16 or 32 columns, up to `256^3`) and its kernels' shape, `C` scaled by
   `beta` first and the depth in slices of 1024, each slice summed as the portable half gemm sums
-  (unfused, in order), where upstream's `vdpbf16ps` rounds pairs of products its own way
+  (unfused, in order), where upstream `vdpbf16ps` rounds pairs of products its own way
   ([bfloat16 and half precision](#bfloat16-and-half-precision)). `half.gemm` takes it after its
   quick returns, as `gemm` does.
 - **Not ported.** `level3_thread.c`: level 3 threads by BLIS's ways instead
@@ -739,7 +739,7 @@ the same on every core in their bits. The cores whose reference has a half `gemv
 install `vector.Half`'s, the portable kernels' bits on vectors: `riscv64_zvl256b` (`sbgemv`,
 `shgemv`), Cooper Lake and Sapphire Rapids (`sbgemv_n`), Neoverse N2, V1 and V2 (`sbgemv`,
 `bgemv`). Upstream's AVX-512 BF16, BFDOT and BFMLAL sum pairs of products in instructions with
-their own rounding, which `@Vector` cannot express and the contract does not want, so only
+their own rounding, which `@Vector` cannot express, and the contract does not want, so only
 their shapes carry over; VSX and MMA are not ported. Every bfloat16 conversion
 upstream is `kernel/x86_64/tobf16.c` and `bf16to.c` (`kernel/Makefile.L1:311`, `:315`); the AVX-512 BF16 microkernels give the same
 bits.
@@ -833,7 +833,7 @@ allows.
   reciprocal (`potf2_U.c:86`). The drivers are called directly, so Accelerate never runs them;
   on macOS the whole `potrf` goes to Accelerate's `?potrf_` while routing is on
   ([Apple Accelerate](#apple-accelerate)). `potf2` is the base case, public.
-- **Threads.** Each interface's thread rule is upstream's (`cholesky.zig`'s `threads`):
+- **Threads.** Each interface's thread rule is upstream (`cholesky.zig`'s `threads`):
   `getrf` from `m * n` 40000 (`DOUBLE` 10000; complex 10000), `gesv` from `n * n` alike,
   `potrf` from `n` 128 (`DOUBLE` and complex 64), `lauum`, `getrs` and `trtrs` from 64,
   `trtri` past 150 (complex from 64), `potri` from 180 (complex 200, `DOUBLE` 150). Upstream
@@ -860,7 +860,7 @@ allows.
   `GEMM_Q` or a quarter of `n` up to `4 * GEMM_Q`, `lauu2` up to `dtb_entries`; each block adds
   its off-diagonal part's `herk` (`syrk`) into the part already made, multiplies that part by
   its diagonal block (`trmm`), then recurses, which upstream fuses per column block.
-  `lauu2_[UL].c` and `zlauu2_[UL].c` are loops in upstream's order (`scal`, then `dot` and
+  `lauu2_[UL].c` and `zlauu2_[UL].c` are loops in upstream order (`scal`, then `dot` and
   `gemv`), not the reference's (`dot` and `gemv` with `beta`). Threaded, `lauum_[UL]_parallel.c`:
   blocks of half `n` rounded up to `unroll_n`, at most `GEMM_Q` (`:91`), down to `2 * unroll_n`.
 - **`trtrs`** (`triangular.zig`): `trtrs_single.c` and `ztrtrs_single.c`, `trsm` through the
@@ -922,7 +922,7 @@ allows.
   splits by column chunks (independent columns, so the same bits at any worker count); the
   fused tridiagonalization and Hessenberg passes, whose threads each sum a partial
   product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
-  the products thread inside the BLAS; and divide and conquer's two halves run in turn, as
+  the products thread inside the BLAS; and divide-and-conquer's two halves run in turn, as
   rstd's threading splits flat ranges, not task trees.
 - **`gesvd`, `gesdd`** (`svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
   `a`, `s`, `o`, `n`), `xerbla` order and scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
@@ -1012,6 +1012,14 @@ allows.
   sources differ only in a few steps, which the code marks. faer's `schur_swap` and `schur_move`
   are crate-internal translations of `dlaexc.f` and `dtrexc.f`, so `trexc` is the reference
   either way.
+- **The matlab port's routines** (T123): `getri` from faer's LU inverse (`lu.zig`: `trtri` on
+  `U` and `L`, `U⁻¹ L⁻¹` by `trmm`, the columns swapped back); `gehrd` and `orghr`/`unghr`
+  (`hessenberg.zig`) over faer's reduction with LAPACK's `tau` (faer's reciprocal) and
+  `ilo`/`ihi`, `Q` applied to the block's other rows and columns, `orghr` by `dorghr.f`'s shift
+  over `orgqr`; `hseqr` (`evd.zig`) over the `lahqr`s; `trevc3` (`trevc.zig`) over `xTREVC3`'s
+  solves, back-transformed or selected; `gees` (`evd.zig`) as `dgees.f` and `zgees.f`: the scale,
+  `gebal` job `P`, `gehrd`, `orghr`, `hseqr`, `trsen` to sort, `gebak`; `laset` (`norm.zig`) and
+  `lapy2` (`schur.zig`).
 - **`gelqf`, `orglq`, `ormlq`** (`lq.zig`): libflame's `FLA_LQ_UT` method, the only LQ of its
   own: Householder blocks with the UT transform, which faer's `householder.zig` already
   implements, run on `Aᴴ` (LQ of `A` is QR of `Aᴴ`), with the reference's storage (`conj(v)` in
@@ -1262,7 +1270,7 @@ skipped must filter first. No caller outside `src/simd/` uses them today.
 | `src/rgl/shaders/lib/coords.zig`, `sdf.zig`, `shaders/rgl.zig` | `types.splatVec` | `types`' re-export of `splat` |
 | `src/_test_qemu.zig`, `__root__.zig` | `simd` root | unchanged |
 
-Not moved: glyf's `transformPoint` (`tables/glyf/shape.zig`): hand-written 2x2 rows with
+Not moved: glyf's `transformPoint` (`tables/glyf/shape.zig`): handwritten 2x2 rows with
 `@reduce`, not a `simd` caller, and `mul` could fuse differently and move truncated glyph
 coordinates. Nothing in RandyOS or rgui outside rstd imports `rstd.simd` or `linalg.vector`;
 zfls is not checked here.
@@ -1354,8 +1362,8 @@ the modern LAPACK fixes (todo.md's T125 and T126) rather than M2 keeping the old
 | `wpofa` | `chol` | `potrf(.u)` | replace: `wpofa` passes a NaN diagonal and rejects a complex diagonal entry (E9) |
 | `wqrdc` unpivoted, pivoted | `orth`, `qr` | `geqrf`, `geqp3` | replace: faer's `geqp3` recomputes column norms, so LINPACK's norm downdating cannot fail there |
 | `wqrsl` | least squares, `orth` | `ormqr`/`unmqr` and `trtrs`, or `gels` | replace (E7) |
-| `wsvdc` | `cond`, `rank`, `pinv`, `matNorm2` | `gesvd`, `gesdd` | replace once T126 keeps graded bidiagonals' small values (E4) |
-| `htridi`, `imtql2`, `htribk` | Hermitian `eig` | `heevd`/`heev` (`syevd`/`syev` for real) | replace once T125 reduces from the given triangle's end (E2); the old ones also overflow (`sqrt(g*g + 1)`) and index `[n-1]` for `n == 0` |
+| `wsvdc` | `cond`, `rank`, `pinv`, `matNorm2` | `gesvd`, `gesdd` | replace: T126's `xBDSQR` keeps graded bidiagonals' small values (E4) |
+| `htridi`, `imtql2`, `htribk` | Hermitian `eig` | `heevd`/`heev` (`syevd`/`syev` for real) | replace: T125 reduces `.u` from the bottom, so a matrix graded large there keeps its small eigenvalues (E2); the old ones also overflow (`sqrt(g*g + 1)`) and index `[n-1]` for `n == 0` |
 | `corth` | `hess`, `schur`, `eig` | `gehrd` (T123) | replace |
 | `comqr3` (Schur; eigenvectors) | `schur`, `roots`; `eig` | `hseqr`, `gees` (T123); `geev` | replace: balancing helps (E3); `roots` should balance, as MATLAB's |
 
@@ -1370,10 +1378,11 @@ the modern LAPACK fixes (todo.md's T125 and T126) rather than M2 keeping the old
 | E8 | `nrm2` at 1e-160; `iamax([1, NaN, 5])`; `rotg`, `dotc`, `asum` | 6e-6; 3; the same | 4e-18; 2 (LAPACK's rule); the same |
 | E9 | Cholesky accuracy; a NaN diagonal; a diagonal `4+i` | the same order; success; rejected | the same order; `NotPositiveDefinite`; accepted |
 
-Errors are relative to the `f128` reference. E2: faer's tridiagonal reduction runs one way
-whichever triangle it is given, where reference LAPACK's `xSYTRD` reduces from the bottom for
-`.u`. E4: reference LAPACK's `xBDSQR` keeps a bidiagonal's small singular values to high relative
-accuracy (Demmel and Kahan's zero-shift QR), as LINPACK's `wsvdc` does; faer's does not.
+Errors are relative to the `f128` reference. E2: faer's tridiagonal reduction ran one way
+whichever triangle it was given, where reference LAPACK's `xSYTRD` reduces from the bottom for
+`.u`; since T125, `.u` reduces `J A J` (the reversal), so from the bottom too. E4: reference LAPACK's `xBDSQR` keeps a bidiagonal's small singular values to high relative
+accuracy (Demmel and Kahan's zero-shift QR), as LINPACK's `wsvdc` does; faer's did not, and since
+T126 the QR iteration is `xBDSQR`'s.
 
 - **M2's layout.** Convert at the boundary: a real input (`i` all zero) goes zero-copy to the `d`
   routines, which also gives `dgeev`'s exact conjugate pairs; a complex input is copied once into
@@ -1800,7 +1809,7 @@ The `@Vector` ports of C kernels fix two more ([`issues.md`](issues.md#openblas)
 
 - `x86_64/sasum_microk_haswell-2.c`, `dasum_microk_haswell-2.c`: peeled to a 32-byte boundary,
   so the sums followed the address; the port loads unaligned from the first element, as
-  upstream's Skylake-X blocks do (`blas1/asum/x86_64/kernel.zig`).
+  upstream Skylake-X blocks do (`blas1/asum/x86_64/kernel.zig`).
 - `arm64/symv_U_asimd_4x4.c`: with `m - offset` not a multiple of 4 dropped the rows between
   the last multiple of 4 and the first column; the port adds them (`blas2/symv/kernel.zig`).
 
@@ -1862,7 +1871,7 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `blas2/` | `gemv`, `ger`, `symv`, `hemv` directories; `interface.zig`, `triangular.zig`, `banded.zig`, `symmetric.zig`; `buffers.md`, `coverage.md` |
 | `blas3/` | one directory per routine; `interface.zig`, `driver.zig`; `gemm/` holds the tile kernels, `params.zig`, `params_data.zig`, `notes.md`, `coverage.md` |
 | `ext/` | `bf16/` (bfloat16 and half kernels); `interface.zig`; `geadd/`, `matcopy.zig` (the `omatcopy` and `imatcopy` kernels), `laswp/` and `neg/` (their kernels over the gemm tile, in `kernel.zig`) |
-| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`, the thread rules), `lu.zig` (`getrf`, `getrs`, `gesv`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` (ReLAPACK's `sytrf`, `hetrf` and `_rook` forms, `sygst`, `hegst`, `pbtrf`, `gbtrf`, `trsyl`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `indefinite.zig` (their Bunch-Kaufman kernels), `sylvester.zig` (`trsyl`'s); Reference-LAPACK's own: `norm.zig` (`lange`, `gecon`), `schur.zig` (`trexc`, `trsen`), `lsq.zig` (`gelsy`); `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method); `faer/`, faer's ports: `ops.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig`, `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig`, `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`) |
+| `../lapack/` | LAPACK over these routines: `cholesky.zig` (`potrf`, `potf2`, `potrs`, `potri`, the thread rules), `lu.zig` (`getrf`, `getrs`, `gesv`, `getri`), `triangular.zig` (`trtri`, `trti2`, `lauum`, `lauu2`, `trtrs`), `relapack.zig` (ReLAPACK's `sytrf`, `hetrf` and `_rook` forms, `sygst`, `hegst`, `pbtrf`, `gbtrf`, `trsyl`, and under `-Drelapack` `potrf`, `getrf`, `trtri`, `lauum`), `indefinite.zig` (their Bunch-Kaufman kernels), `sylvester.zig` (`trsyl`'s); Reference-LAPACK's own: `norm.zig` (`lange`, `gecon`, `laset`), `schur.zig` (`trexc`, `trsen`), `lsq.zig` (`gelsy`); `lq.zig` (`gelqf`, `orglq`, `ormlq`, libflame's method), `trevc.zig` (`trevc3`); faer's ports: `ops.zig`, `householder.zig`, `qr.zig` (`geqrf`, `orgqr`, `ormqr`), `qr_pivot.zig` (`geqp3`), `qr_solve.zig` (`gels`), `bidiag.zig`, `bidiag_svd.zig`, `svd.zig` (`gesvd`, `gesdd`), `tridiag.zig`, `tridiag_evd.zig`, `hessenberg.zig` (`gehrd`, `orghr`), `real_schur.zig`, `complex_schur.zig`, `balance.zig` (`gebal`, `gebak`), `evd.zig` (`syevd`, `syev`, `geev`, `hseqr`, `gees`) |
 | `blas3/gemmt/` | `gemmt`'s tests; it runs the driver |
 | `_test/` | test-only code, wired by `_test/__root__.zig` (below) |
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
@@ -1914,7 +1923,7 @@ zfls host could meet it, else the reference's choice kept and documented.
   nor a zfls host.
 - **`vortex` on any Apple CPU:** kept for Darwin, which the reference also gives `vortex`
   (`dynamic_arm64.c:352-359`). The A7 to A11 lack FCMA, but run iOS only; every Apple CPU macOS,
-  Linux and RandyOS run on is an M1 or later. Elsewhere `vortex` and `vortexm4` now need Apple's
+  Linux and RandyOS run on is an M1 or later. Elsewhere, `vortex` and `vortexm4` now need Apple's
   implementer code, since their objects are built for the M1 and M4.
 - **`vortexm4` on a non-Apple CPU with SME and no SVE:** fixed. The reference picks it
   (`dynamic_arm64.c:543-547`), but such a CPU could be a Linux or Windows arm64 zfls host; it
@@ -1959,7 +1968,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   of the 5% test and their share is added to the limit. The limit is 2, not 1, because idle this
   macOS reads 1.1 to 2.3 with its CPUs 99% idle and no thread runnable (1.0 to 1.1 with one QEMU
   core busy), so under 1 never came in 8 hours. A watch every 20 s repeats any run another
-  process disturbs; each run is made twice and a row kept only where the two agree within 3%; the
+  process disturbs; each run is made twice, and a row kept only where the two agree within 3%; the
   load before and after is recorded, and a ratio within 3% of parity is reported as within noise;
   multithreaded rows are indicative only. Against the earlier busy-Mac runs (load 2.6 to 9.1) the
   one-thread library rates moved by a median of 0.0%.
@@ -1993,7 +2002,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   periodically over batches, not per change.
 - **Target platforms come first; the rest is best effort** (2026-10-29). The platforms that must
   work and be tested are RandyOS's target machines (its `readme.md`: x86_64 PC and Intel Mac,
-  aarch64 Raspberry Pi 3 to 5 and Apple silicon, 32-bit arm Raspberry Pi 3, the 32-bit PowerPC
+  aarch64 Raspberry Pi 3 to 5 and Apple Silicon, 32-bit arm Raspberry Pi 3, the 32-bit PowerPC
   750FX iBook G3) and the hosts that consume rstd (zfls: Windows, Linux and macOS on x86_64 and
   aarch64). Every other architecture is ported for completeness: where a choice cannot be tested
   there but OpenBLAS and BLIS agree on it, rstd follows them and documents why, rather than

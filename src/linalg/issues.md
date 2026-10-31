@@ -2197,16 +2197,16 @@ square root of the number of base cases too small. `ztgsyl.c` takes `m * n`, as 
 ### Smaller ones
 
 - `?trtri` sets `INFO = i - 1` for a zero `A(i, i)` (`ztrtri.c`), so a zero first diagonal
-  element reports success. rstd's `trtri` reports `i`.
+  element reports success. Rstd's `trtri` reports `i`.
 - `?getrf` returns as soon as the left half finds a zero pivot (`if (*info) return`), leaving
-  the factorization unfinished, where `xGETRF` completes it. rstd's completes it.
-- `?sytrf` reports `INFO` as `info1 || info2`, 0 or 1, not the zero block's index. rstd's
+  the factorization unfinished, where `xGETRF` completes it. Rstd's completes it.
+- `?sytrf` reports `INFO` as `info1 || info2`, 0 or 1, not the zero block's index. Rstd's
   reports the index.
 - `?trsyl`, `op(A)` transposed: the second solve's `scale` rescales `C_B` (`dlascl` on `&m1`
-  rows of `C_B`), the half solved second, not `C_T`. rstd's rescales `C_T`.
+  rows of `C_B`), the half solved second, not `C_T`. Rstd's rescales `C_T`.
 - `?sygst`: `dsygst.c`, `ssygst.c` and `chegst.c` use their workspace only if `lWork > n2 * n1`,
   `zhegst.c` if `>=`; the top level's buffer is exactly `n1 * n2`, so three of four never use
-  it there. rstd's takes `>=` for all.
+  it there. Rstd's takes `>=` for all.
 
 These need no issue of their own beyond a line each in a ReLAPACK report.
 
@@ -2252,6 +2252,24 @@ reconstruct the bidiagonal with an error of `1e-4` (f64) where
   `zhat` from a wrong `mu` and `U S Vᵀ` misses the bidiagonal by `1e-4`
   (f64). Falling back to bisection on that exit fixes it."
 
+### `qr_algorithm` loses a graded bidiagonal's small singular values
+
+`qr_algorithm` (`faer/src/linalg/svd/bidiag_svd.rs`), after scaling to the
+largest entry, takes a diagonal entry as zero when `|d| <= eps`, an
+absolute test, and always shifts. A graded bidiagonal (M1's E4: `d(i) =
+1e-4^i`, `e(i) = d(i) / 2`, its smallest value near `1e-21`) loses its small
+values' relative accuracy: 13% off at `s[4]` (f64), where LINPACK's and
+reference LAPACK's (`xBDSQR`, Demmel and Kahan's zero-shift QR with relative
+convergence tests) keep them to a few eps.
+
+- **Workaround:** rstd's `qrAlgorithm` is `xBDSQR` (`bidiag_svd.zig`, T126);
+  faer's divide and conquer runs over it.
+- **Issue text:** "`qr_algorithm` treats `|diag[i]| <= eps` (after scaling to
+  the largest entry) as a zero diagonal and always shifts, so a graded
+  bidiagonal's small singular values lose their relative accuracy (13% at
+  `d = 1e-4^i`, `e = d / 2`, n = 6); LAPACK's `dbdsqr` keeps them with
+  zero-shift sweeps and relative thresholds."
+
 ### Reciprocals of tiny norms overflow
 
 `bidiag_in_place` (`svd/bidiag.rs`) scales the row `A12` by `norm.recip()`
@@ -2289,6 +2307,24 @@ values-only path (`TwoRowsStorage`) drifts from the full one (1.5e-13 at
   `MatU::TwoRows` stores `u[(1, n)] = zero()`; the last row of the identity
   has `one()` there. The values-only SVD then differs from the full one when
   a zero block ends a left half."
+
+### `compute_svd_of_m` sorts the merged values with one bubble pass
+
+`compute_svd_of_m` (`faer/src/linalg/svd/bidiag_svd.rs`) puts a merge's
+singular values in order with a single adjacent-swap pass, its comment
+assuming deflation leaves at most the last value out of place, and nothing
+sorts them after. Heavy deflation breaks that: a rank-3 `f32` 130 x 130
+matrix (`gesdd`) comes back with `s[122] < s[123]` among its noise-level
+values on rstd's `haswell` kernels, while `zen`'s rounding happens to leave
+them in order (T130, found by the `x86_64` rig).
+
+- **Workaround:** a stable insertion sort in its place (`bidiag_svd.zig`'s
+  `sortAscending`), the same order wherever one pass was enough.
+- **Issue text:** "`compute_svd_of_m` orders `s` with one bubble pass,
+  assuming only the last value can be out of place after deflation. A
+  heavily deflated merge (a rank-3 130 x 130 `f32` matrix) leaves several
+  out of place, so the divide-and-conquer SVD returns singular values that
+  are not nonincreasing; a full (insertion) sort fixes it."
 
 ### The tall path leaves part of `U` as found
 
