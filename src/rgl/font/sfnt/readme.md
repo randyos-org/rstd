@@ -8,7 +8,7 @@ A font library formed by the merger of [sphtext from sphimp](https://github.com/
 
 Turning a font file into a renderable glyph atlas goes through several stages. A handful of terms come straight from the OpenType/TrueType file format specification, or from the distance-field literature.  They're also the actual names used in the code (table names, tags, etc.), so it's worth knowing what they mean rather than avoiding them.
 
-1. **Load** (`Sfnt.zig`): every `.ttf`/`.otf` file is wrapped in the same container format, called *sfnt*: a short header followed by a directory of *tables*.  Each table is identified by a 4-byte *tag* (`cmap`, `glyf`, `hhea`, `hmtx`, `maxp`, `kern`, `GPOS`, and `"CFF "` [sic] are all such tags). `init()` reads that directory and records where each table lives in the file.
+1. **Load** (`Sfnt.zig`): every `.ttf`/`.otf` file is wrapped in the same container format, called *sfnt*: a short header followed by a directory of *tables*.  Each table is identified by a 4-byte *tag* (`cmap`, `glyf`, `hhea`, `hmtx`, `maxp`, `kern`, `GPOS`, and `"CFF "` [sic] are all such tags). `init()` reads that directory and records where each table lives in the file. A collection (`.ttc`/`.otc`) prefixes several such directories with a `ttcf` header; `numberOfFonts()` counts them and `init()`'s `font_index` option picks one.
 
    It also checks which of two mutually exclusive ways the font stores its glyph outlines:
 
@@ -107,6 +107,7 @@ defer atlas.deinit(alloc);
 - Codepoint to glyph lookup, kerning, and both direct coverage-bitmap rendering and MSDF/SDF atlas
   generation.
 - Both TrueType (`glyf`) and CFF/Type2 outline formats are supported.
+- Font collections (`.ttc`/`.otc`) load one font at a time by index.
 - Font shaping and ligatures are not supported: a run of text is drawn glyph-by-glyph via `cmap`
   lookups and kerning pairs, not through the more elaborate substitution/positioning rules (as used
   by, say, Arabic script shaping or ligature substitution like "fi" merging into a single glyph)

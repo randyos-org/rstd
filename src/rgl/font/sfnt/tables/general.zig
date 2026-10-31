@@ -235,6 +235,18 @@ pub const OffsetTable = extern struct {
     range_shift: u16,
 };
 
+/// TrueType/OpenType Collection header (.ttc/.otc), versions 1 and 2. An
+/// Offset32 per font's OffsetTable follows; v2's DSIG fields after those
+/// aren't needed.
+pub const TtcHeader = extern struct {
+    pub const tag = readIntBE(u32, "ttcf");
+
+    ttc_tag: u32,
+    major_version: u16,
+    minor_version: u16,
+    num_fonts: u32,
+};
+
 pub const TableRecord = extern struct {
     const Self = @This();
 
@@ -258,6 +270,12 @@ test "OffsetTable matches the sfnt stream layout (12 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 6), @offsetOf(OffsetTable, "search_range"));
     try zigstd.testExpectEqual(@as(usize, 8), @offsetOf(OffsetTable, "entry_selector"));
     try zigstd.testExpectEqual(@as(usize, 10), @offsetOf(OffsetTable, "range_shift"));
+}
+
+test "TtcHeader matches the collection header layout (12 bytes, no padding)" {
+    try zigstd.testExpectEqual(@as(usize, 12), @sizeOf(TtcHeader));
+    try zigstd.testExpectEqual(@as(usize, 4), @offsetOf(TtcHeader, "major_version"));
+    try zigstd.testExpectEqual(@as(usize, 8), @offsetOf(TtcHeader, "num_fonts"));
 }
 
 test "TableRecord matches the sfnt stream layout (16 bytes, no padding)" {
