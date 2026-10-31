@@ -75,7 +75,7 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | `getrs` | has | own, `lapack/getrs/` | - | own, `partial_pivoting/solve.rs` | ref | AMD: `fla_dgetrs_small_notrans` (`dgetrs.c`) | OpenBLAS | Q10 | accuracy tests; not raced |
 | `gesv` | has | own, `interface/lapack/gesv.c` | - | own (`solvers.rs`) | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `laswp` | has (`blas/ext/`) | own, `lapack/laswp/` | - | permutations inside `lu/` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
-| `getri` | M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer | the anthology rule: faer before the reference | not yet raced |
+| `getri` | has (T123); M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer (`lu.zig`: `trtri` on `U` and `L`, `inv(U) inv(L)` by `trmm`, the columns swapped back) | the anthology rule: faer before the reference | `A A⁻¹ = I` every type, sizes 1 to 33; a zero pivot leaves `A` as `getrf` left it; not raced |
 | `gecon` | has (T115); M (`wgeco`, `rcond`, `cond`) | - | - | - | ref | ref | Reference-LAPACK (`norm.zig`, with `xLACN2`, `xLATRS`) | neither faer nor libflame has its own; the reference is the fallback (Q11, 2026-10-30) | within `dtest.in`'s threshold (30) of `1 / (‖A‖ ‖A⁻¹‖)` by `dget06.f`'s ratio, both norms, graded matrices; special values; not raced |
 | `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([issues](../issues.md#relapack-openblass-relapack)) | accuracy tests; not raced |
 
@@ -138,7 +138,7 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `lange`, `lansy`, `lanhe` | `lange` has (T115); M (`norm`) | - | - | `reductions/` (`norm_max`, `norm_l2` Frobenius, `norm_l1` entrywise; no operator 1- or infinity-norm) | ref | AMD: `lange` kernels (AVX2, AVX-512) | `lange`: Reference-LAPACK (`norm.zig`, Blue's `xLASSQ`); `lansy`, `lanhe`: open | faer has no operator norms; the reference's NaN rule and scaling | known values, NaN, extreme scales; not raced |
-| `laset`, `lacpy`, `lascl`, `lapy2` | M2 (`wset`, `rset`, `pythag`) | - | - | element loops | ref | ref (AMD `dlacpy`) | rstd's own, the reference's semantics | too small to source | none |
+| `laset`, `lacpy`, `lascl`, `lapy2` | `laset`, `lapy2` have (T123); M2 (`wset`, `rset`, `pythag`) | - | - | element loops | ref | ref (AMD `dlacpy`) | rstd's own, the reference's semantics (`laset` in `norm.zig`, `lapy2` in `schur.zig`) | too small to source | `laset`: every `uplo`, wide and tall |
 
 faer also has what no item asks for yet: pivoted Cholesky (`llt_pivoting`, LAPACK's `pstrf`),
 `LDLᴴ` without pivoting, and full-pivoting LU.

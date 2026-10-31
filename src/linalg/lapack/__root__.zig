@@ -59,6 +59,9 @@ pub const GetrsError = lu.GetrsError;
 /// `gesv`: bad arguments, `error.Singular`, `error.OutOfMemory` or
 /// `error.Canceled`.
 pub const GesvError = lu.GesvError;
+/// `getri`: bad arguments, `error.Singular`, `error.OutOfMemory` or
+/// `error.Canceled`.
+pub const GetriError = lu.GetriError;
 
 /// `trtri`: bad arguments, `error.Singular`, `error.OutOfMemory` or
 /// `error.Canceled`.
@@ -111,7 +114,12 @@ pub const LangeError = norm.LangeError;
 /// `error.InvalidAnorm`), `error.EstimateFailed`, `error.OutOfMemory` or
 /// `error.Canceled`.
 pub const GeconError = norm.GeconError;
+/// `laset`: bad arguments.
+pub const LasetError = norm.LasetError;
 /// `gebal`'s and `gebak`'s `JOB`.
+/// `gehrd`, `orghr`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const GehrdError = faer_hessenberg.GehrdError;
+pub const OrghrError = faer_hessenberg.OrghrError;
 pub const BalanceJob = faer_balance.BalanceJob;
 /// `gebal`: bad arguments, a NaN in `A` (`error.InvalidA`) or
 /// `error.Canceled`.
@@ -165,6 +173,7 @@ pub const potri = cholesky.potri;
 pub const getrf = if (options.relapack) relapack.getrf else lu.getrf;
 pub const getrs = lu.getrs;
 pub const gesv = lu.gesv;
+pub const getri = lu.getri;
 pub const trtri = if (options.relapack) relapack.trtri else triangular.trtri;
 pub const trti2 = triangular.trti2;
 pub const lauum = if (options.relapack) relapack.lauum else triangular.lauum;
@@ -185,6 +194,11 @@ pub const heev = evd.syev;
 pub const geev = evd.geev;
 pub const lange = norm.lange;
 pub const gecon = norm.gecon;
+pub const laset = norm.laset;
+pub const lapy2 = schur.lapy2;
+pub const gehrd = faer_hessenberg.gehrd;
+pub const orghr = faer_hessenberg.orghr;
+pub const unghr = faer_hessenberg.orghr;
 pub const gebal = faer_balance.gebal;
 pub const gebak = faer_balance.gebak;
 pub const trexc = schur.trexc;

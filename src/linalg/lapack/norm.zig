@@ -95,6 +95,30 @@ pub fn iamax(comptime T: type, n: usize, x: [*]const T, inc: usize) usize {
     return best;
 }
 
+// ---- xLASET -----------------------------------------------------------------------
+
+/// What `laset` returns.
+pub const LasetError = error{ InvalidM, InvalidN, InvalidLda };
+
+/// `?LASET` (`dlaset.f`, `zlaset.f`): the `m x n` `A`'s off-diagonal
+/// entries set to `alpha` and its diagonal to `beta`; with `uplo`, only that
+/// strict triangle and the diagonal, the rest untouched (null: all of it).
+pub fn laset(comptime T: type, uplo: ?types.Uplo, m: isize, n: isize, alpha: T, beta: T, a: [*]T, lda: isize) LasetError!void {
+    comptime chol.floatType(T, "laset");
+    if (m < 0) return error.InvalidM;
+    if (n < 0) return error.InvalidN;
+    if (lda < @max(1, m)) return error.InvalidLda;
+    if (m == 0 or n == 0) return;
+    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
+    const rows: usize = @intCast(m);
+    const la: usize = @intCast(lda);
+    for (0..@intCast(n)) |j| {
+        const from = if (uplo == .l) @min(j, rows) else 0;
+        const to = if (uplo == .u) @min(j + 1, rows) else rows;
+        for (from..to) |i| a[i + j * la] = if (i == j) beta else alpha;
+    }
+}
+
 // ---- xLANGE, xLASSQ ----------------------------------------------------------------
 
 /// What `lange` returns.
@@ -990,4 +1014,27 @@ test "lapack norm: latrs solves with scaling, ordinary and near-overflow triangl
             }
         };
     }
+}
+
+test "lapack norm: laset fills the diagonal and the chosen strict triangle, wide and tall" {
+    inline for (.{ f64, types.Complex64 }) |T| {
+        const x = chol.scalar(T, -1);
+        const al_ = chol.scalar(T, 2);
+        const be = chol.scalar(T, 5);
+        for ([_][2]usize{ .{ 3, 3 }, .{ 2, 4 }, .{ 4, 2 } }) |mn| for ([_]?types.Uplo{ null, .u, .l }) |uplo| {
+            const m = mn[0];
+            const n = mn[1];
+            var a: [16]T = @splat(x);
+            try laset(T, uplo, @intCast(m), @intCast(n), al_, be, &a, @intCast(m));
+            for (0..n) |j| for (0..m) |i| {
+                const inside = uplo == null or (uplo == .u and i <= j) or (uplo == .l and i >= j);
+                const want = if (!inside) x else if (i == j) be else al_;
+                try testing.expectEqual(want, a[i + j * m]);
+            };
+        };
+    }
+    var a: [4]f64 = @splat(0);
+    try testing.expectError(error.InvalidM, laset(f64, null, -1, 1, 0, 0, &a, 1));
+    try testing.expectError(error.InvalidN, laset(f64, null, 1, -1, 0, 0, &a, 1));
+    try testing.expectError(error.InvalidLda, laset(f64, null, 2, 2, 0, 0, &a, 1));
 }
