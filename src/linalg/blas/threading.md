@@ -7,7 +7,7 @@ and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
 (v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
-0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule
+0.18.0-dev.751. The library's overall structure is in [`design.md`](../design.md); how this rule
 compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
 ## Requirements
@@ -274,7 +274,7 @@ thresholds are `gemm`'s and `symm`'s, as upstream builds them from the same inte
 ### LAPACK
 
 The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface
-thresholds (`cholesky.zig`'s `threads`; [`design.md`](design.md#lapack)). Upstream switches to
+thresholds (`cholesky.zig`'s `threads`; [`design.md`](../design.md#lapack)). Upstream switches to
 its `_parallel.c` algorithms, with other blocks, whenever it has more than one thread; here
 the problem size alone picks the algorithm, so its bits never depend on the worker count.
 `getrf`'s lookahead runs on `team`: the caller factors the next block while the other workers
@@ -317,7 +317,7 @@ constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core
 replace them, and the chunk sizes, later. `switch_ratio` already lives in the vtable
 (`blas3/gemm/params.zig`). M ranges round to `unroll_m` and a cache line to avoid false
 sharing in `C`. The rank-update cut-offs only pick the thread count; their serial small-`n`
-paths are already ported ([`design.md`](design.md), Level 2).
+paths are already ported ([`design.md`](../design.md), Level 2).
 
 ### Memory
 
@@ -353,7 +353,7 @@ brings each to its cancelable futex wait.
 ### Futures on `Dispatch`
 
 With worker threads std's `Group` crashes on `Io.Evented`, `Uring` and `Dispatch` alike
-([`issues.md`](issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
+([`issues.md`](../issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
 plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Group`.
 `usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
 futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
@@ -363,7 +363,7 @@ and their fold are unchanged, so the bits are too. `Uring`'s futures are reused 
 (issues.md), so a multithreaded `Uring` stays unsupported.
 
 A fiber that sleeps or wakes others may resume on another thread, and the control state
-stays with the thread ([`issues.md`](issues.md)); `Dispatch` moves even the caller. On the M6,
+stays with the thread ([`issues.md`](../issues.md)); `Dispatch` moves even the caller. On the M6,
 level 3 under rounding toward zero lost its bits that way. So a level 3 worker holds the
 caller's `FpState` only while it runs (`threading.Lent`): around each futex wait and wake it
 gives its thread's own state back, and takes the caller's again after. The caller re-adopts
@@ -390,7 +390,7 @@ runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise
 documents no mode that keeps its bits across thread counts (MKL has one, CNR), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
 thread sets its own model (`singleThreadHere`) on its first call into it
-([`design.md`](design.md#apple-accelerate)).
+([`design.md`](../design.md#apple-accelerate)).
 
 Rstd's workers parallelize around it (`apple_accel.split`), under the rules above:
 
@@ -439,7 +439,7 @@ Reproducibility:
   an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
   capture `util.FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
-  caller's state is never changed ([`design.md`](design.md), Settled decisions).
+  caller's state is never changed ([`design.md`](../design.md), Settled decisions).
 
 Memory safety for concurrent work:
 
@@ -526,7 +526,7 @@ What the tests check today, and where they run:
   the M6. A
   filter of `race stress` runs them alone.
 - **TSan:** `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64
-  Linux rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or
+  Linux rigs then run them on glibc from Nix ([`issues.md`](../issues.md) has why not musl or
   macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
   report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
   is left out.
@@ -633,7 +633,7 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 - Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
   hang. With worker threads std's `Group` crashes on `Uring` and `Dispatch` (macOS), and
-  `Uring` reuses fibers too early ([`issues.md`](issues.md)): `Dispatch` runs on futures
+  `Uring` reuses fibers too early ([`issues.md`](../issues.md)): `Dispatch` runs on futures
   until `Group` is fixed (Futures on `Dispatch`), and threaded BLAS on a multithreaded `Uring`
   is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes one for `maxInt(u32)`.
   Windows has no `Evented`.

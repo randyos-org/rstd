@@ -1082,7 +1082,7 @@ pub const TgsylError = error{ InvalidTrans, InvalidIjob, InvalidM, InvalidN, Inv
 /// The larger side splits in two (never inside a 2 x 2 block), the halves
 /// joined by `gemm`; the base case is `sylvester.tgsy2`, the reference's
 /// `xTGSY2`. Where ReLAPACK differs from the reference, the reference wins
-/// ([issues](../blas/issues.md#relapack-openblass-relapack)): the
+/// ([issues](../issues.md#relapack-openblass-relapack)): the
 /// transposed updates read `F` and `E` with their own leading dimensions,
 /// and the real `dif` from `ijob` 2 and 4 counts every base case's block
 /// pairs, not the last one's.

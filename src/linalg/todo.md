@@ -1,13 +1,14 @@
-# BLAS to-do
+# Linear algebra to-do
 
-The BLAS backlog in priority order: work goes top to bottom. IDs stay fixed when items move.
+The backlog of `rstd.linalg` (the BLAS, LAPACK, the public layer, the matlab port, shaderlib's
+vector math) in priority order: work goes top to bottom. IDs stay fixed when items move.
 **Needs:** names items that must land first; **Blocked:** names an outside cause (hardware, an
 upstream fix, a decision). Upstream problems go to issues.md as they are found; the user
 triages them after the BLAS work.
 
 ## Feature complete means
 
-**MVP first (user, 2026-10-30):** support tiers as Zig's ([`support.md`](../../../support.md)): **tier 1** is `x86_64-windows`, fully working with everything implemented so far, as soon as possible, and SPIR-V (`spirv32-vulkan`), whose work (S1, S2) waits until that CPU BLAS works; **tier 2** is every other RandyOS and zfls platform (RandyOS's x86_64, aarch64, 32-bit arm and PowerPC 750 freestanding targets and its UEFI build chain; zfls's x86_64 and aarch64 Linux, aarch64 Windows and x86_64 and aarch64 macOS 11+, with rstd's Accelerate backend on macOS), whose bugs are also required, after tier 1; **tier 3** is every other platform, best effort; **tier 4** is unsupported or blocked. Tier 3 and 4 bugs, follow-ups, tuning, optional work and Blocked items live in Known issues and enhancements, after the MVP, and the Queue gets no new items.
+**MVP first (user, 2026-10-30):** support tiers as Zig's ([`support.md`](../../support.md)): **tier 1** is `x86_64-windows`, fully working with everything implemented so far, as soon as possible, and SPIR-V (`spirv32-vulkan`), whose work (S1, S2) waits until that CPU BLAS works; **tier 2** is every other RandyOS and zfls platform (RandyOS's x86_64, aarch64, 32-bit arm and PowerPC 750 freestanding targets and its UEFI build chain; zfls's x86_64 and aarch64 Linux, aarch64 Windows and x86_64 and aarch64 macOS 11+, with rstd's Accelerate backend on macOS), whose bugs are also required, after tier 1; **tier 3** is every other platform, best effort; **tier 4** is unsupported or blocked. Tier 3 and 4 bugs, follow-ups, tuning, optional work and Blocked items live in Known issues and enhancements, after the MVP, and the Queue gets no new items.
 
 The port and its optimization are done, and other rstd work can start, when all of these items hold:
 
@@ -39,11 +40,18 @@ One task at a time, worked with the user in the trunk on `review` (user, 2026-10
 work stays there as unstaged edits, and the item says what is left, so nothing lives only in a chat
 or a scratchpad.
 
-Nothing yet: the next item comes off the top of the Queue.
+### Working on
 
-## Queue
+Nothing yet: next is the top of the Queue (T123).
 
-### Testing: sweeps and checks of landed code
+### In the background
+
+Sweeps by `.agent/sweep.sh` (gitignored), results in `.agent/sweeps/<UTC>-<tier>/summary.md`;
+started 2026-10-30 22:20 on `review` faeea2aa: tier 1, and tier 2 then tier 3. These two ran from
+the trunk, so steps after their first compile what has landed since (T124, M1, kern3, T127); from
+tier 3 on, each tier runs from its own worktree, `C:\scratch\git
+std-wt\sweep-<tier>`, pinned
+at review's tip when it starts (user, 2026-10-30).
 
 - [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
   plus `wasm-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017` (Zig 0.17.0,
@@ -56,21 +64,52 @@ Nothing yet: the next item comes off the top of the Queue.
   `rstd-check-zig017` (zfls's Zig 0.17.0 targets, `aarch64-windows` included; its tests run only in
   zfls's CI), fixing every failure. Then tier 3 (`i386` and `rstd-test-x87` with their ReleaseSafe
   forms, `wasm-test`, every other rig) once for the record; its failures go to Known issues and
-  enhancements.
+  enhancements. Tier 1 passed 2026-10-31
+  (`.agent/sweeps/20261031T032046Z-tier1`): `native` (`-Dblas-cores=all`, faeea2aa) 963 passed, 32
+  skipped, 0 failed; `x86_64-whpx` (after T124, M1, `kern3` and T127 landed) 643 passed, 42
+  skipped, 0 failed; no inline-asm errors.
+
+#### Build slots
+
+Compiling, one row per slot; a native test compiled on the Mac and run here shows in both tables.
+
+| Slot | Item | Job | Since |
+| --- | --- | --- | --- |
+| Local 1 | free | | |
+| Local 2 | free | | |
+| Mac 0.18 | free | | |
+| Mac 0.17 | free | | |
+
+#### Running tests
+
+Test executables and QEMU rigs, outside the slots.
+
+| Where | Item | Run | Since |
+| --- | --- | --- | --- |
+| Mac | T62 tier 2 | `x86_64`: `qemu-test-x86_64`'s parts under QEMU (5 running) | 22:38 |
+
+## Queue
+
+### Testing: sweeps and checks of landed code
+
+Each moves to In progress when the sweep step that runs it starts.
+
 - [ ] **T08** LAPACK's own tests (`potrf`, `getrf`, `getrs`) on the rigs: add `linalg/lapack` to
   `src/_test_qemu.zig`, with a sparc64 part. Landed (8c574827): `linalg.lapack.` in the rigs'
   default filters and `_test_qemu.zig` (so `rstd-check-uefi` links it), sparc64's LAPACK in the
   `blas3-tri` part, sparc64-debug in four `lapack-*` parts (`getrs`'s every-core test split into
   real and complex to fit the load window; `getrf` and `cholesky` have about 140 and 240 KiB left);
   every listed `qemu-check` passes. Check off once T62's sweep runs them; the 32 MiB rig heap is
-  unproven.
+  unproven. Scheduled: tier 2 sweep steps 18 to 21
+  (`T08-<rig>`), started by the sweep itself.
 - [ ] **T114** Accelerate's `potrf` (T35) is untested on the Mac: which symbol spelling Apple
   exports (`load` tries `dpotrf$NEWLAPACK$ILP64` and `dpotrf_$NEWLAPACK$ILP64`), whether its special
   values match the reference (a quirk entry if not), and in the timing session whether routing beats
   rstd's threaded `potrf`. Sweep filters: `potrf goes to Accelerate`, `potr`. Tier 2 (Accelerate on
   macOS, user 2026-10-30): the correctness part is required; the timing part waits for the timing
   session. The 13.3 SDK answers the spelling: `dpotrf$NEWLAPACK$ILP64`, no underscore (T47); the
-  special values are left.
+  special values are left. Scheduled: tier 2 sweep
+  steps 22 and 23 (`T114-<host>`), started by the sweep itself.
 
 ### Code and design
 
@@ -82,29 +121,18 @@ Nothing yet: the next item comes off the top of the Queue.
   `ormqr`/`unmqr`, `gesvd`, `geev`, `syevd`/`heevd`, `gecon`, `geqp3`, `trtrs`. `pinv`, `rank` and
   `det` are compositions in the MATLAB layer, not LAPACK. Starts once T117/T118 (`wip/lapackfix`)
   land, since it makes `trevc` public where T117 edits it.
-- [ ] **T124** `lapack.geev` on `Complex(f128)` doesn't compile (found by M1, 2026-10-30): faer's
-  complex Schur (`faer/complex_schur.zig:33`, `eig22`) calls `std.math.complex.sqrt`, which has no
-  `f128` case (`@compileError`). Give the complex Schur path (and any other `std.math.complex` call
-  in `lapack/`) a square root that takes every float type; a test that builds and runs complex
-  `geev` in `f128`; the std gap to issues.md. M1's E3 needs it.
-- [ ] **M1** Audit `rstd.linalg.matlab` (the matlab88 port of 1980s LINPACK and EISPACK,
-  `src/linalg/matlab/`) against the modern BLAS and LAPACK (design.md, Settled decisions: the matlab
-  port defers): `blas1.zig`'s level-1 kernels and `@Vector` stride-1 paths, `matmul.zig`, and what
-  LU, QR, Cholesky, SVD and the eigen routines call. The default is the modern routine; list only
-  where the old one is more accurate or right on an edge case the modern one gets wrong, each with a
-  test that shows it. Started 2026-10-30, unstaged: `src/linalg/matlab/audit.md` (draft: each
-  routine's modern counterpart and provisional verdict, five findings from reading code, M2's layout
-  recommendation), `audit_explore.zig` (experiments E1 to E9 against an `f128` LAPACK reference,
-  hooked into `matlab/__root__.zig`'s `test` block). Likely keeps: `wgedi`'s scaled determinant
-  (`getrf`'s diagonal product overflows); maybe an unbalanced `eig` (then a no-balance option on
-  the modern routines, after T123, not `comqr3`). First build: E3's `Complex(f128)` reference
-  `geev` doesn't compile (T124); E4's `gesdd` call fixed; the hook is commented out until E3 builds,
-  so the file stays out of every test build. Left: T124 (or E3's reference through real `f128` for
-  real inputs), then run E1 to E9 (`-Drstd-test-filter=matlab audit explore`, the hook back on); a
-  committed test per old-is-better case, run on
-  `arm-softfp` and `powerpc-750` too; final verdicts in audit.md; delete `audit_explore.zig` and
-  its hook. Not examined: `expm`, `svdapi.zig`'s `rank`/`pinv` tolerances, pivot-order ties between
-  `wqrdc` and `geqp3`, `corth`/`comqr3` against `gehrd`/`hseqr` (needs T123).
+- [ ] **T125** Hermitian and symmetric eigenvalues of graded matrices (from M1's E2, user
+  2026-10-30): faer's tridiagonal reduction (`tridiag.zig`) runs one way whichever triangle
+  `syevd`/`heevd`/`syev`/`heev` are given, so a matrix graded large at the bottom right loses its
+  small eigenvalues' relative accuracy (errors 0.3 to 3e8 against matlab88's 1e-15). Reduce from
+  the bottom for `.u`, as reference LAPACK's `xSYTRD` (`dsytrd.f`, `zhetrd.f`), and from the top for
+  `.l`; a test on E2's matrices both ways (graded either way, given as the triangle that suits it).
+- [ ] **T126** Singular values of graded bidiagonals (from M1's E4, user 2026-10-30): faer's
+  bidiagonal SVD (`bidiag_svd.zig`) loses the small singular values' relative accuracy (6e3
+  against `wsvdc`'s 2e-16 at `smin` 9e-21), which reference LAPACK's `xBDSQR` keeps (Demmel and
+  Kahan's zero-shift QR; `xLASQ1` to `xLASQ6`'s dqds for values alone). Port them from reference
+  LAPACK (the anthology's fallback) for `gesvd` and `gesdd`'s bidiagonal step, or wherever faer's
+  loses it; a test on E4's graded bidiagonal and on Demmel and Kahan's examples.
 - [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
   `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
   real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
@@ -114,21 +142,15 @@ Nothing yet: the next item comes off the top of the Queue.
   `trevc` (`comqr3`), `hetrd` and `unmtr` (`htridi`, `htribk`); rstd has `potrf`, `getrf` and
   `getrs`; T70 adds OpenBLAS's own, and the rest come from Reference-LAPACK (BSD-3, as OpenBLAS
   ships it in `lapack-netlib/`). Its fills (`wset`, `rset`) are LAPACK `laset`, `pythag` is `lapy2`.
-  Its own tests must still pass. **Needs:** M1.
-- [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS behind it as an implementation detail
-  (design.md, Settled decisions): `linalg.vector` takes fixed-size vectors and small matrices by
-  value, with math names, and per size runs inline `@Vector` code or calls the BLAS (crossover from
-  M4); under SPIR-V each operation is SPIR-V's own instruction (`OpDot`, `OpMatrixTimesVector`,
-  GLSL.std.450). Split `rstd.simd` between them: slice reductions become BLAS routines, element-wise
-  helpers (`mix`, `mulAdd`) move to `linalg.vector`; move its callers (the matlab port, the rgl font
-  code, shaderlib's `mix` and `sum`, `rgl/shaders/types.zig`'s `zigvec` types).
-  `arrayMax`/`arrayMin` use `@reduce`'s NaN rule, not the BLAS's first-NaN one, so moving them
-  changes their special-value results; `arrayProduct`, the bitwise reductions and general
-  `mapReduce` have no BLAS counterpart. Then grow it toward any-size vectors and matrices, as MATLAB
-  takes them. **Needs:** M1, S1. Design proposal first, for the user's review; code after sign-off.
-  Proposal landed 2026-10-30 (9274e27c, `src/linalg/design-linalg.md`): its 11 open questions are
-  in Waiting on the user; its question 10 would narrow this item's Needs (only step 4 needs S1, only
-  step 7 needs M1).
+  Its own tests must still pass. **Needs:** M1 (done), T123, T125, T126.
+- [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS and LAPACK behind it, as designed in
+  design.md's "Planned: the public `rstd.linalg` layer" (settled in M5, 2026-10-30):
+  `StaticMatrix(R, C, T)` (comptime shape, a value) and unmanaged `Matrix(T)` (run-time shape),
+  real and complex, one operation set over views, inline `@Vector` code up to 8 per dimension and
+  the BLAS and LAPACK above by size alone, SPIR-V's own instructions in shaders; the `rstd.simd`
+  split and its callers; its migration plan's seven steps, each a commit;
+  `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`. **Needs:** nothing
+  (M1, S1, M5 done); M4 confirms the inline limit after step 4.
 - [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
   to 1.01) trail OpenBLAS. Tier 1 (user, 2026-10-30): re-measure after T100, then fix what's left;
   the timing session verifies. Diagnosed 2026-10-30, no code yet: Zen's `sdot` kernel
@@ -137,9 +159,11 @@ Nothing yet: the next item comes off the top of the Queue.
   16 ymm registers (about 25 moves and 3 spills per iteration): halve them. `cgemm`/`zgemm`: tiles,
   `P`/`Q` and the inner loop match OpenBLAS's, but `cgemm_kernel_8x2_haswell.c` reads two or three
   B panels at once (m8n4/m8n6) with 12 accumulators where ours has 8, exactly FMA latency times
-  throughput: port that shape. The scratch bench (kernel alone against the whole call, at
-  OpenBLAS's `P`/`Q`, against base b5d33fef) is in `tools/blasbench/wip/` (untracked) for the
-  timing session; `flyoff.sh zen3`'s `win-1t`/`lx-1t` `dot s` rows and the level-3 `c`/`z` rows.
+  throughput: port that shape. `blas_bench`'s `kern3` section (59faab6c, any host) times the
+  kernel alone against rstd's whole `gemm` on one worker; its first run (busy Zen 3, 2026-10-30)
+  has the driver keeping 0.89 to 0.98 of the kernel for `s`, `d` and `z`, and `cgemm`'s whole call
+  at 1.04 to 1.08 of its kernel block: the `cgemm` gap is the kernel's. For the timing session:
+  `kern3`, `flyoff.sh zen3`'s `win-1t`/`lx-1t` `dot s` rows and the level-3 `c`/`z` rows.
 - [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and
   28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4,
   results-flyoff.md). Read 2026-10-30, not measured: nothing on rstd's path changed (one kernel call
@@ -171,9 +195,9 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   share it or fix the docs; `tgsyl` not timed yet. Sweep: `relapack` on every rig, and with
   `-Drelapack=true` on one or two.
 - [ ] **T122** Small-matrix follow-ups (split from T119, 2026-10-30): the per-core small kernels for
-  SVE, POWER10 and LASX (tier 3 or untestable here); the small-path thresholds are upstream's, tuned
+  SVE, POWER10 and LASX (tier 3 or untestable here); the small-path thresholds are upstream, tuned
   for its kernels, so time them under T05; `sbgemm` small kernels off x86_64; from T119's port:
-  `nn`'s dot rows are read in place, not through upstream's row-major copy (same bits, likely
+  `nn`'s dot rows are read in place, not through upstream row-major copy (same bits, likely
   slower on AVX-512 hardware), and Cooper Lake's `sbgemm` small path keeps the portable bits, not
   `vdpbf16ps`'s pair rounding (by design, documented). Sweep: `3m`, `small`, `interface: gemm` on
   every rig, `aarch64-sve`, `powerpc64le-power10` and loongarch64 first (their permits allow the
@@ -375,10 +399,10 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   `test_laed3_nan.c` (T70 left them: they need reference LAPACK's `dlaed4`, `dlaed5`, `dlaed6` and
   the test drives `dsyevd`; take faer's divide-and-conquer tridiagonal solver), and whatever else
   rstd.linalg's MATLAB-like API needs. Reference LAPACK comes later only as a benchmark baseline.
-  Reuse T34's `lapack/faer/*.zig` (`householder`, `qr`, `bidiag`, `ops`) and add files beside them;
+  Reuse T34's `lapack/*.zig` (`householder`, `qr`, `bidiag`, `ops`) and add files beside them;
   `qr.zig` already has faer's QR for `geqrf`. Running (`wip/faer2`). Done 2026-10-30, landed
   8ee93919, cd01f0a5: `geqrf`, `orgqr`/`ungqr`, `ormqr`/`unmqr`, `gels`, `syevd`/`heevd`,
-  `syev`/`heev` and `geev` from faer v0.24.4 (`faer/qr_solve.zig`, `tridiag*.zig`, `hessenberg.zig`,
+  `syev`/`heev` and `geev` from faer v0.24.4 (`qr_solve.zig`, `tridiag*.zig`, `hessenberg.zig`,
   `real_schur.zig`, `complex_schur.zig`, `evd.zig`), `gebal`/`gebak` from reference LAPACK
   (`balance.zig`; faer has none), OpenBLAS's `test_laed3_nan.c` against `syevd`. Five more faer bugs
   fixed (issues.md: a NaN column in staircase QR, complex `rotg`'s `r`, a 2x2 determinant guard that
@@ -391,9 +415,9 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   in the accepted BSD class) unless faer turns out to have an equivalent, and record each in the
   table. Running (`wip/refonly`). Done 2026-10-30, landed 82ce5804, 9a9d4f95: `lange`, `gecon` (with
   `lacn2`, `latrs`, `rscl`, Blue's `lassq`), `trexc`, `trsen` (Sylvester solves through ReLAPACK's
-  `trsyl`) and `gelsy` from reference LAPACK; `gebal`/`gebak` folded into T111's `faer/balance.zig`
+  `trsyl`) and `gelsy` from reference LAPACK; `gebal`/`gebak` folded into T111's `balance.zig`
   (every job); `gelqf`/`orglq`/`ormlq` as libflame's UT-transform method on faer's kernels (no
-  libflame code); `geqp3` from faer's pivoted QR (`faer/qr_pivot.zig`). Native 96 of 97, 1 skipped;
+  libflame code); `geqp3` from faer's pivoted QR (`qr_pivot.zig`). Native 96 of 97, 1 skipped;
   `arm-softfp`, `powerpc-750` compile. Known issues: extended-type `nrm2` underflows near the
   threshold (the extreme `gelsy` test skips there); a faer pivoted-QR `1/0` on an all-zero matrix,
   guarded (issues.md). ReLAPACK's `sygst`, `hegst`, `pbtrf`, `trsyl`, `gbtrf` are not exported from
@@ -434,7 +458,7 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   `-powerpc-750`; filters `dot` and `level 1` on `aarch64`, `linux-aarch64`, `arm-softfp` and
   `powerpc-750`. The `cgemm` n = 128 variance went to T05.
 - [X] **T40** Linux rig gaps: `linux-powerpc64le` never ran POWER10 kernels (baseline build),
-  `linux-aarch64` left out the SVE cores, and neither Linux arm64 rig ran `vortexm4` or `armv9sme`
+  `linux-aarch64` left out the SVE cores, and neither Linux arm64 rig ran `vortexm4` nor `armv9sme`
   (Debian's 6.12 netboot kernel builds without `CONFIG_ARM64_SME`). Done 2026-10-30, landed
   d6aadaf3, 0d257b04, 408246a2, d44510df: rigs `linux-aarch64-sve` (TCG, `neoverse_v1` build, no
   fiber `Io` tests on SVE: std's fiber switch clobbers `ffr`, issues.md) and
@@ -450,8 +474,8 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   `gesvd`'s `INFO > 0`. Done 2026-10-30, landed 64f5de92, cf5f88e2: `gesvd` and `geev` take an
   optional last `unconverged: ?*usize` (LAPACK's `INFO > 0`: `gesvd`'s unconverged
   superdiagonals, `min(m, n) - 1` for an infinity or NaN; `geev`'s `i`, with `w[i..n]` the
-  converged eigenvalues and no vectors, as `dgeev.f`), reached in tests through `faer/ops.zig`'s
-  `test_iter_limit`; `faer/trevc.zig` ports `dtrevc3.f`, `ztrevc3.f` and `dlaln2.f` (overflow test:
+  converged eigenvalues and no vectors, as `dgeev.f`), reached in tests through `ops.zig`'s
+  `test_iter_limit`; `trevc.zig` ports `dtrevc3.f`, `ztrevc3.f` and `dlaln2.f` (overflow test:
   a 20 x 20 triangular matrix whose unscaled vectors pass the largest float); `ztrevc3`'s left
   solve passes `ZLATRS` the wrong columns' norms (issues.md; rstd passes the right ones). Native
   `lapack`, `faer`, `relapack` and `utest: kernel_regress` 158 of 160 (2 skipped);
@@ -479,13 +503,54 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   issues.md); every inlined call keeps its structured blocks even in ReleaseFast. Fixed on the
   way: shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for vectors. Follow-up:
   S2 (the probes are its fixture).
+- [X] **T124** `lapack.geev` on `Complex(f128)` didn't compile (found by M1): faer's complex Schur
+  (`eig22`) called `std.math.complex.sqrt`, which has only `f32` and `f64`. Done 2026-10-30, landed
+  ff132aa4: `ops.zig`'s `sqrt` keeps std's for `f32`/`f64` (same bits) and runs musl's `csqrt`
+  over any other float type; tests: `geev` in `XDouble`, unslotted `f80` and `f128`, real and
+  complex, and the square root against `f64`'s; the std gap in issues.md. Native `faer evd` 42/42;
+  `qemu-check-arm-softfp`, `-powerpc-750` 24/24 on the M6. Sweep: `faer evd` on every tier-1/2 rig.
+- [X] **M1** Audit `rstd.linalg.matlab` (the matlab88 port) against the modern BLAS and LAPACK. Done
+  2026-10-30, landed (the audit, now in design.md's "The matlab port
+  against the modern BLAS and LAPACK"; `lu.zig`'s test): every routine's modern
+  counterpart and verdict, checked by experiments E1 to E9 against an `f128` LAPACK reference. The
+  modern routine wins or ties everywhere (balancing helps, E3; `gecon`'s rcond is tighter; `nrm2`
+  at underflow; Cholesky's NaN and complex diagonals) except E1 (`wgedi`'s scaled determinant,
+  which M2 keeps over `getrf`; the test), E2 (graded Hermitian, T125) and E4 (graded bidiagonal,
+  T126), which the modern LAPACK fixes (user, 2026-10-30). M2's layout: convert at the boundary.
+  The matlab tests run natively and in the macOS sweeps, not on the rigs (`_test_qemu.zig` takes
+  the BLAS and LAPACK only).
+- [X] **T127** Flatten `src/linalg/lapack/faer/` into `src/linalg/lapack/` (user, 2026-10-30): the
+  folder sorted by source, which no longer held, and provenance lives in each file's doc comment
+  and `sources.md`. Done 2026-10-30, landed 9f823ac3: the 16 files moved, imports and paths fixed
+  (upstream faer's `faer/src/...` paths and the `faer ...` test names kept). Native LAPACK,
+  faer, ReLAPACK and `wgedi` tests 161/163 (2 skipped); `qemu-check-x86_64`, `-arm-softfp`,
+  `-powerpc-750` and `bench-check` 319/319 on the M6. Merging related files is Z6's.
+- [X] **M5** Review M3's proposal with the user. Done 2026-10-30: all 11 questions settled
+  (storage packed column-major; `StaticMatrix(R, C, T)` and unmanaged `Matrix(T)` over one
+  operation set on views; inline up to 8 and the BLAS above, by size alone; a root declaration
+  for the limit; `norm(v)` with `error.ZeroVector`; `lu` factors with `zero_pivot`; `eig` adapting
+  to its input; `linalg.blas`/`lapack` public; complex fixed sizes now; `error.Singular` in
+  shaders), folded with M1's audit into design.md ("Planned: the public `rstd.linalg` layer", "The
+  matlab port against the modern BLAS and LAPACK"); `design-linalg.md` and `matlab/audit.md`
+  dropped (user, 2026-10-31). Unstaged for the user's review.
+- [X] **T128** Move `design.md` and `todo.md` from `src/linalg/blas/` to `src/linalg/` (user,
+  2026-10-31): they cover LAPACK, the public layer and the matlab port, not only the BLAS. Done
+  2026-10-31, unstaged for the user's review: both moved and retitled ("Linear algebra design",
+  "Linear algebra to-do"), every relative Markdown link they broke rewritten (in them and in 8
+  other files; a check finds none broken), `lu.zig`'s mention, `.agent`'s tooling and the memory
+  notes updated. design.md's backticked paths keep their stated `src/linalg/blas/` base.
+- [X] **T129** Move `issues.md` from `src/linalg/blas/` to `src/linalg/` (user, 2026-10-31). Done
+  2026-10-31, unstaged for the user's review: moved, its intro widened to `rstd.linalg`, its links
+  and the links into it rewritten (none broken), the plain mentions in `relapack.zig`,
+  `sources.md`, `tools/evented_group_repro.zig`, `build/sshtest.zig`, `.agent` and the memory notes
+  updated. `blas/readme.md` stays (the BLAS's user guide); M3 adds `src/linalg/readme.md`.
 
 ## After the BLAS is feature complete
 
-- [ ] **M4** Time `linalg.vector`'s inline `@Vector` forms against the BLAS calls per size (2, 3, 4,
-  then up through sizes such as 28 where either could win) and operation (`dot`, `nrm2`-style
-  `length`, `axpy`-style updates, matrix-vector), on the M6 and Zen 3 under their timing rules; set
-  M3's crossover from the numbers. **Needs:** M3's first forms.
+- [ ] **M4** Time `linalg.vector`'s inline `@Vector` forms against the BLAS and LAPACK at sizes 4
+  to 16 per operation and type (`dot`, `length`, `mul` matrix by vector and by matrix, `solve`), on
+  the M6 and Zen 3 under their timing rules: confirm the inline limit of 8 (design.md, the public
+  layer's Dispatch) or move it. **Needs:** M3's step 4.
 
 ## SPIR-V: vector math in shaders
 
@@ -516,13 +581,10 @@ Decided, not built (design.md, "Planned: a Zig-idiomatic interface").
   all possible memory corruption from assembly).
 - [ ] **Z5** User docs without BLAS jargon (`xerbla`, `LDA`, `INCX`).
 - [ ] **Z6** The last item: an rstd-wide Zig-idiomatic pass (slices, exact error sets, plain error
-  names, documented panics). **Needs:** Z1 to Z5.
+  names, documented panics), and the file layout: fewer, bigger files where pieces belong together
+  (`lapack/`'s `schur.zig`, `real_schur.zig` and `complex_schur.zig`, after T127 flattened it).
+  **Needs:** Z1 to Z5.
 
 ## Waiting on the user
 
-- **M3's proposal** (`src/linalg/design-linalg.md`, Open questions), each with a recommendation:
-  matrix storage (`[C]Vec(R, T)` against packed); fixed-size calls routed to the BLAS above the
-  crossover taking that core's bits; the crossover override (root declaration or build option);
-  plain `normalize` staying in shaderlib; `lu` of a singular matrix; `eig`'s result types (`eigh`);
-  `linalg.blas`/`linalg.lapack` staying public; complex fixed-size vectors deferred; `inv` under
-  SPIR-V; starting steps 1 to 3 and 5 before M1 and S1 finish; the missing SPIR-V matrix type.
+Nothing waiting.

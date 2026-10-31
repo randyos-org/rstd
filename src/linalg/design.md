@@ -1,11 +1,13 @@
-# BLAS design
+# Linear algebra design
 
-This document specifies how rstd's BLAS is structured: its requirements, the layers from the
-public interface down to the per-core kernels, how a core is detected and selected, where every
-kernel comes from, and how all of it is tested. It describes the code as it is. Usage is in
-[`readme.md`](readme.md), threading in [`threading.md`](threading.md), problems in other
+This document specifies how rstd's linear algebra is structured. Most of it is the BLAS: its
+requirements, the layers from the public interface down to the per-core kernels, how a core is
+detected and selected, where every kernel comes from, and how all of it is tested. Then LAPACK,
+the matlab port's audit and the planned public `rstd.linalg` layer, and the decisions behind all
+of them. It describes the code as it is, and says "Planned" where it is not. BLAS usage is in
+[`readme.md`](blas/readme.md), threading in [`threading.md`](blas/threading.md), problems in other
 projects in [`issues.md`](issues.md), and the numerical decisions measured against BLIS and the
-reference in [`comparisons.md`](comparisons.md).
+reference in [`comparisons.md`](blas/comparisons.md).
 
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts, v0.3.34-317
 (commit a69062524), unless a file names another; `Vtable.zig` is derived from v0.3.34-127 (commit
@@ -29,19 +31,19 @@ Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts,
 - **Per-core code only where `@Vector` cannot match it.** A kernel of its own for one core
   exists where a generic `@Vector` kernel is measurably slower or cannot express the
   instructions (SVE, MMA, AMX, SME). The level-3 kernels are one `@Vector` source for every core
-  ([`blas3/gemm/notes.md`](blas3/gemm/notes.md),
-  [`results-m6.md`](../../../tools/blasbench/results-m6.md)).
+  ([`blas3/gemm/notes.md`](blas/blas3/gemm/notes.md),
+  [`results-m6.md`](../../tools/blasbench/results-m6.md)).
 - **No CBLAS or Fortran ABI.** There are no `cblas_*` or `dgemv_` symbols, no row-major layer
   and no `xerbla` callback. Bad arguments return named errors. This is a decision, so the audit
   gaps for those layers are closed by it, not by code.
 - **One numerical contract per routine.** Every core gives a routine's results the same meaning;
-  cores differ in rounding only ([`readme.md`](readme.md#one-contract-on-every-core)).
+  cores differ in rounding only ([`readme.md`](blas/readme.md#one-contract-on-every-core)).
 - **Bit-exactness only against converted code.** A Zig kernel standing in for a converted kernel
   of the same core (an x87 `q`/`x` reduction, a C driver around a microkernel, an intrinsics
   block) gives that kernel's bits. Everything else is held to the reference semantics within a
   stated tolerance, not to OpenBLAS's accumulation order.
 - **Reproducibility.** For a given build and core, results depend neither on scheduling, the
-  number of threads, nor where the operands lie in memory ([`threading.md`](threading.md)).
+  number of threads, nor where the operands lie in memory ([`threading.md`](blas/threading.md)).
 - **Errors, never panics.** Argument errors and `error.OutOfMemory` return to the caller.
   Nothing allocates behind the caller's back or retries on failure.
 - **Allocator conventions.** A routine that needs scratch beyond a small stack buffer takes a
@@ -152,7 +154,7 @@ Conventions shared by every interface:
 - **Quick returns.** Empty problems return before any kernel call; kernels assume `n >= 1`.
   Level 3 does not forward one-column problems to `gemv`.
 - **Argument order.** Every routine takes `(allocator, io, T, ...)`, or `(io, T, ...)` without
-  an allocator (level 1, `gemvHalf`), as [`threading.md`](threading.md) specifies; the routines
+  an allocator (level 1, `gemvHalf`), as [`threading.md`](blas/threading.md) specifies; the routines
   that thread run their workers on it. `rotg`, `zrotg` and `rotmg` compute from scalars, never
   thread, and take `(T, ...)` and return `void`; `cabs1` takes `(T, z)` and returns
   `|re| + |im|`.
@@ -283,7 +285,7 @@ on their own; its test lives in `__root__.zig`.
 
 The portable kernels are Zig algorithms with the reference's documented semantics, not copies of
 its C. What they compute is the contract every core keeps
-([`readme.md`](readme.md#one-contract-on-every-core)):
+([`readme.md`](blas/readme.md#one-contract-on-every-core)):
 
 - `sdot` and `dsdot` multiply and sum in `f64`; the portable `dot` sums sequentially, not in
   `generic/dot.c`'s unrolled order.
@@ -348,7 +350,7 @@ round a portable kernel differently; reproducibility is per build and core.
 Rstd never changes the caller's floating-point environment (MXCSR, FPCR, FPSCR, `VSCR`) and
 assumes IEEE default modes. Its worker threads adopt the caller's control state (`util.FpState`:
 the x87 control word, MXCSR, FPCR, FPSCR, `frm`, FCSR, FPC, FSR; not `VSCR`), so a threaded call
-rounds as its serial path does under any modes ([`threading.md`](threading.md#guardrails)).
+rounds as its serial path does under any modes ([`threading.md`](blas/threading.md#guardrails)).
 Denormals are honored everywhere: where a vector unit flushes `f32` denormals
 (ARMv7 NEON, pre-VSX AltiVec, whose `VSCR[NJ]` Linux sets: v6.12
 `arch/powerpc/kernel/process.c`, `start_thread`), `util.vectorIeee` is false, and no kernel puts `f32` in its lanes.
@@ -363,7 +365,7 @@ Denormals are honored everywhere: where a vector unit flushes `f32` denormals
   `llvm/lib/Target/ARM/ARMTargetTransformInfo.h:118`, `isFPVectorizationPotentiallyUnsafe`, true
   but on Darwin and MVE; checked by `Transforms/Vectorize/SLPVectorizer.cpp:9214` and `LoopVectorize.cpp:10042`).
 
-[`comparisons.md`](comparisons.md) (10) records how this was found and measured.
+[`comparisons.md`](blas/comparisons.md) (10) records how this was found and measured.
 
 ### Per-core kernel objects
 
@@ -458,7 +460,7 @@ with `-DDYNAMIC_ARCH`, so the call names one core's kernel (`camax_k_LA264`) rat
 dispatch trampoline, and `arch.nakedLines` rewrites that to `blaskern_camax_la264`, which the
 same per-core object exports.
 
-[`blas1/c_kernels.md`](blas1/c_kernels.md) specifies the C-driver ports: the parts, what the
+[`blas1/c_kernels.md`](blas/blas1/c_kernels.md) specifies the C-driver ports: the parts, what the
 generator converts, the driver rules (order, contraction, mixed types, block ABI) and how to add
 a routine.
 
@@ -487,7 +489,7 @@ per-core objects; like the tiles, they never make a core need an object of its o
   lanes flush `f32` (`vector.flushing`).
 - **arm64:** the routed slots on every core; on `vortex` and `vortexm4` every slot but `rot`
   and `sum` (unmeasured), where they match or beat the converted assembly on the M6
-  ([`results-m6.md`](../../../tools/blasbench/results-m6.md)), so their objects there leave those
+  ([`results-m6.md`](../../tools/blasbench/results-m6.md)), so their objects there leave those
   converted kernels out (`vector.displacing`); elsewhere every slot no converted kernel fills
   (below). On Apple's systems, where Accelerate serves most routines, only the routed slots.
 - **riscv64:** on the vector cores (`riscv64_zvl128b`, `riscv64_zvl256b`, `x280`) every slot of
@@ -505,7 +507,7 @@ riscv64 uses them; `installAll` puts them in the native tests' table too.
 Without a vector unit for the type (SPARC, ARMv7's `f64`, pre-VSX POWER, MIPS without MSA, the
 x87) LLVM splits the vectors into scalar operations. The reductions keep their eight independent
 sums, against the portable loop's one, and the extremes compare and select where `@max` would
-call libm's `fmax` per element (`vector.hasMinMax`, MSA included); [`comparisons.md`](comparisons.md)
+call libm's `fmax` per element (`vector.hasMinMax`, MSA included); [`comparisons.md`](blas/comparisons.md)
 (1) has the measurements. On MSA, `@abs` clears sign bits through a mask LLVM cannot fold back
 into `fmax_a` ([`issues.md`](issues.md)).
 
@@ -560,7 +562,7 @@ only repeat the portable kernels.
   BLAS does (OpenBLAS's `zher_k.c`, `zhpr_k.c` and the rank-2 drivers do not). `ger` calls the
   kernel once per run of nonzero `y`, which is one call when `y` has no zero, and copies a
   strided `x` once for all the runs. The skip is decided above the kernels, so every core
-  gives it; [`comparisons.md`](comparisons.md) (5) has why it stays. At unit stride and small
+  gives it; [`comparisons.md`](blas/comparisons.md) (5) has why it stays. At unit stride and small
   `n` (`syr`, `spr`, `syr2` below 100; `spr2`, `zsyr` below 50: `interface/syr.c:174`,
   `spr.c:172`, `syr2.c:175`, `spr2.c:173`, `zsyr.c:175`) OpenBLAS's interfaces run the driver's
   columns themselves; rstd's driver takes a unit-stride vector as it is, so it is that path,
@@ -575,12 +577,12 @@ only repeat the portable kernels.
   `STACK_ALLOC` does, on the stack up to `interface.stack_bytes` (2048, 32-aligned, the
   reference's `MAX_STACK_ALLOC`: `Makefile.system:573`, `common_stackalloc.h:58`), else from
   the allocator, 4096-aligned (the kernels round to 4096-byte boundaries in it, `kernel/generic/symv_k.c:51`).
-  [`blas2/buffers.md`](blas2/buffers.md) lists what every kernel does with it.
+  [`blas2/buffers.md`](blas/blas2/buffers.md) lists what every kernel does with it.
 - **Threading.** `gemv`, `ger`, the rank updates and transposed `gbmv` split `y` or `A`'s
   columns into serial kernel calls. The symmetric, triangular, banded and packed products and
   untransposed `gbmv` split their columns into chunks fixed by the size, each into a partial
   vector of its own, folded in chunk order; the triangular ones port the `*_thread.c` kernels
-  ([`threading.md`](threading.md#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
+  ([`threading.md`](blas/threading.md#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 
 ### Level 3
 
@@ -695,7 +697,7 @@ complex, for every float type, through the same code.
   `gemm3m_level3.c` does (halves, not rounded to the unroll). Threads take parts of `C` on whole
   panels, each a serial problem, so the bits are the serial ones. Opt-in, as upstream: one part
   of each element comes from a difference of products and is only normwise stable
-  ([`comparisons.md`](comparisons.md), 7); never routed to Accelerate, which has no 3M. Upstream
+  ([`comparisons.md`](blas/comparisons.md), 7); never routed to Accelerate, which has no 3M. Upstream
   exports only `gemm3m`, and only on x86, x86_64, ia64 and MIPS (`interface/Makefile`); here all
   three serve every target.
 - **Small matrices.** `gemm` takes OpenBLAS's `SMALL_MATRIX_OPT` path (`blas3/gemm/small.zig`)
@@ -723,10 +725,10 @@ complex, for every float type, through the same code.
   ([bfloat16 and half precision](#bfloat16-and-half-precision)). `half.gemm` takes it after its
   quick returns, as `gemm` does.
 - **Not ported.** `level3_thread.c`: level 3 threads by BLIS's ways instead
-  ([`threading.md`](threading.md)).
+  ([`threading.md`](blas/threading.md)).
 
-[`blas3/gemm/notes.md`](blas3/gemm/notes.md) has the tile measurements and code generation notes
-behind these choices; [`comparisons.md`](comparisons.md) (7, 9, 10) the open performance and
+[`blas3/gemm/notes.md`](blas/blas3/gemm/notes.md) has the tile measurements and code generation notes
+behind these choices; [`comparisons.md`](blas/comparisons.md) (7, 9, 10) the open performance and
 robustness questions (fusing `beta`, `trsm`'s inverted diagonal, prefetch).
 
 ### bfloat16 and half precision
@@ -765,7 +767,7 @@ The `sbgemm` small-matrix slots stay null but on Cooper Lake, whose kernels keep
 their own 1024-deep slices (the level-3 small path above); the AVX-512 BF16, AMX, NEON, SVE and
 MMA kernels are T29 and T31.
 
-Their numerical behavior is in [`readme.md`](readme.md#bfloat16-and-half-precision).
+Their numerical behavior is in [`readme.md`](blas/readme.md#bfloat16-and-half-precision).
 
 ### Extensions
 
@@ -837,7 +839,7 @@ allows.
   `trtri` past 150 (complex from 64), `potri` from 180 (complex 200, `DOUBLE` 150). Upstream
   runs its `_parallel.c` algorithm when it has more than one thread; here the size alone
   picks it, so one worker past the threshold runs it too, and the drivers' workers keep the
-  bits ([`threading.md`](threading.md)). No result depends on the worker count.
+  bits ([`threading.md`](blas/threading.md)). No result depends on the worker count.
 - **`potrf` threaded** (`potrf_U_parallel.c`, `potrf_L_parallel.c`): blocks of half `n` rounded
   up to `unroll_n`, at most `GEMM_Q` (`:92`), each factored recursively until `4 * unroll_n`
   is left for the single form; the panel's `trsm` and the update's `herk` take the workers.
@@ -1034,8 +1036,354 @@ allows.
   `xSTERF` (root-free QR for values alone; faer runs its QR iteration without vectors),
   `xLAMC3` (an addition forced through memory against extended registers) and `xLAMRG`
   (faer merges inline).
-- **Sources.** [`sources.md`](../lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
+- **Sources.** [`sources.md`](lapack/sources.md) lists, per routine, the candidates (OpenBLAS,
   ReLAPACK, faer, libflame, AOCL-libFLAME), which implement it, the choice and its evidence.
+
+### Planned: the public `rstd.linalg` layer
+
+Decided, not built (todo.md, M3; settled in M5's review with the user, 2026-10-30, of M3's
+proposal): the MATLAB-like layer above the BLAS and LAPACK (Settled decisions: `rstd.linalg`
+is the public API). M4 confirms the inline limit; S1's results for SPIR-V are in
+`src/rgl/shaders/lib/readme.md`.
+
+#### Its types
+
+Two matrix types, by when the shape is known; both column-major and packed (`ld = rows`), as the
+BLAS, LAPACK and MATLAB (decision 1).
+
+| Type | Definition | Memory |
+| --- | --- | --- |
+| `Vec(N, T)` | `@Vector(N, T)`, real `T` | a value; `+ - * /`, `@splat`, `@reduce` and indexing keep working |
+| `StaticMatrix(R, C, T)` | `struct { data: [C][R]T }`, `R` rows, `C` columns, `data[j]` column `j` | a value: on the stack, in a global, or on the heap through `allocator.create`, as the caller picks |
+| `Matrix(T)` | `struct { data: []T, rows, cols }` | owned heap storage, unmanaged as `std.ArrayList`: `init(allocator, rows, cols)`, `deinit(allocator)`, no stored allocator |
+| `View(T)`, `ConstView(T)` | `data`, `rows`, `cols`, `ld` | borrowed: `init(slice, rows, cols, ld)` checks the slice covers it; `sub`, `col` |
+| aliases | `V2f32` to `V4f64` (from `zigvec`); `M2f32` to `M4f64` (square `StaticMatrix`) | |
+
+`T` is any float type or its `std.math.Complex` (interleaved), for `StaticMatrix` and `Matrix`
+alike (decision 8); `Vec` is real only, since `@Vector` cannot hold a struct, so a complex
+fixed-size vector is `[N]Complex(T)`. The pair follows std's `StaticBitSet`/`DynamicBitSet`.
+
+- **Shape errors.** `StaticMatrix`: compile errors. `Matrix` and views: `error.DimensionMismatch`.
+- **Views.** `StaticMatrix` and `Matrix` both give `view()`/`constView()`, and every operation's
+  core takes views, so any mix works (section 4).
+- **Shaderlib.** `Vec2` to `Vec4` stay aliases of `V2f32` to `V4f32`; `Mat2` to `Mat4` become
+  `StaticMatrix(N, N, f32)`. Packed, a `mat3`'s columns are 12 bytes where std140 and std430 want
+  16, so a `mat3` uniform is repacked on upload; `OpTypeMatrix` waits on Zig anyway (decision 11).
+- **Z6** revisits the layout (`@Vector` columns, cache lines) once the code is Zig-idiomatic.
+
+#### Names
+
+`src/linalg/vector.zig` holds the fixed-size forms, free functions over `anytype` inferring `N`, `R`,
+`C` and `T`; MATLAB names where natural, re-exported by shaderlib under GLSL names.
+
+##### Vectors
+
+| Name | Meaning | MATLAB / GLSL | SPIR-V |
+| --- | --- | --- | --- |
+| `splat(V, x)`, `zero(V)` | every element `x`, or 0 | `repmat` / `vec3(x)` | `OpCompositeConstruct` |
+| `dot(a, b)` | `Σ conj(a[i]) b[i]` (`aᴴ b` for complex, as MATLAB) | `dot` / `dot` | `OpDot` |
+| `dot2(v)` | `dot(v, v)` | | `OpDot` |
+| `length(v)` | the 2-norm, overflow- and underflow-safe | `norm` / `length` | `Length` |
+| `distance(a, b)` | `length(b - a)` | `norm(b - a)` / `distance` | `Distance` |
+| `norm(v)` | `v / length(v)`; `error{ZeroVector}` for 0 (decision 4) | / `normalize` | `Normalize`, a zero test |
+| `cross(a, b)` | 3D cross product | `cross` / `cross` | `Cross` |
+| `cross2(a, b)` | 2D perp-dot, a scalar | | none |
+| `outer(a, b)` | `a bᴴ`, a `StaticMatrix` | `a * b'` / `outerProduct` | `OpOuterProduct` (†) |
+| `mix(a, b, t)` | `a (1 - t) + b t` | / `mix` | `FMix` |
+| `mulAdd(T, a, b, c)` | `a b + c`, fused per policy | / `fma` | `Fma` |
+| `sum(v)`, `prod(v)` | reductions | `sum`, `prod` | adds, multiplies |
+| `max(v)`, `min(v)` | reductions; first NaN wins | `max`, `min` | `FMax`/`FMin` chain |
+
+`norm` means normalize, not MATLAB's 2-norm (that is `length`); its doc comment says so. A
+fallback is the caller's: `lv.norm(v) catch fallback`. Shaderlib keeps GLSL's `normalize`, NaN for
+0, for shaders.
+
+##### Matrices
+
+| Name | Meaning | MATLAB / GLSL | SPIR-V |
+| --- | --- | --- | --- |
+| `identity(M)`, `fromCols`, `fromRows`, `row(m, i)`, `col(m, j)` | construction, access | `eye` / `mat3(1)` | |
+| `transpose(m)`, `ctranspose(m)` | `mᵀ`, `mᴴ` | `m.'`, `m'` / `transpose` | `OpTranspose` (†) |
+| `mul(a, b)` | matrix by matrix, matrix by vector, vector (as a row) by matrix | `a * b` / `a * b` | `OpMatrixTimesMatrix`, `OpMatrixTimesVector`, `OpVectorTimesMatrix` (†) |
+| `scale(m, s)`, `add(a, b)`, `sub(a, b)` | per element | `s * m`, `a + b` | `OpMatrixTimesScalar` (†), `OpFAdd` per column |
+| `trace(m)` | `Σ m[i][i]` | `trace` | none |
+| `det(m)` | determinant | `det` / `determinant` | `Determinant` (†) |
+| `inv(m)` | `error{Singular}!StaticMatrix`, also under SPIR-V (decision 9) | `inv` / `inverse` | `MatrixInverse` (†), a determinant test |
+| `solve(a, b)` | `a \ b`, `error{Singular}` | `mldivide` | none |
+
+(†) Needs `OpTypeMatrix`; column code until Zig can declare one.
+
+- **`...Into` forms.** Each value-returning form has one writing caller storage
+  (`lv.mulInto(&out, a, b)`); past the inline limit (section 3) only these exist, and they take
+  `allocator` and `io` as the dynamic layer's do.
+- **Renames.** `cross3` becomes `cross` (shaderlib's alias already is); today's `norm(v, fallback)`
+  becomes `norm(v)` with the error, so an old call fails to compile rather than changing meaning.
+- **Shaderlib's GLSL names:** `inverse = inv`, `determinant = det`, `outerProduct = outer`,
+  `matrixCompMult` (element-wise per column), `normalize` (its own, NaN for 0), plus the ones it
+  already has.
+
+#### Dispatch
+
+By size alone, never by type (decision 2): the same numbers take the same path, and give the same
+bits, whether a `StaticMatrix` or a `Matrix` holds them.
+
+1. **SPIR-V:** the native instruction where one exists (table below), else inline code.
+2. **CPU, every dimension at or below the inline limit `L` (8):** inline `@Vector` code, blocked
+   internally (a 6x6 as 3x3 blocks, register-sized tiles); no allocator, no `Io`, no BLAS call. A
+   `StaticMatrix` picks it at comptime; a `Matrix` by a run-time test of its shape, into inline
+   kernels with the same operation order, so a run-time 3x3 skips the BLAS's overhead too.
+3. **CPU, above `L`:** the BLAS and LAPACK routines, with their workspace and threading, so the
+   call takes `allocator` and `io`: for a `StaticMatrix`, only the `...Into` forms (a
+   value-returning call past `L` is a compile error naming its `...Into` form). The bits are the
+   selected core's.
+
+Element-wise operations (`+`, `mix`, `mulAdd`, `splat`, `cross`, `outer`, `transpose`, `scale`,
+`add`) are inline at every size: a BLAS call would only store and reload the data.
+
+- **The limit.** `L = 8` per dimension covers the 6-DOF work (6x6) with room, keeps an inline
+  product near 512 multiply-adds, and keeps operands far inside L1 (an 8x8 `f64` is 512 bytes); a
+  4x4 `f64` product fits AVX2's 16 vector registers, and spills start around 6 to 8, where the
+  blocking takes over. Practice agrees: Eigen keeps fixed sizes inline "typically up to 4x4,
+  sometimes up to 16x16"; LIBXSMM's small kernels reach `(M N K)^(1/3) <= 64`, which rstd's BLAS
+  serves with its own small-matrix kernels (T119) behind the `...Into` forms.
+- **Override.** A root declaration, read at comptime as `blas_fuse_fma` is (decision 3):
+
+  ```zig
+  pub const rstd_linalg_options: rstd.linalg.Options = .{ .inline_limit = 12 };
+  ```
+
+- **M4** times inline against the BLAS at 4 to 16 per operation and type on the M6 and Zen 3, to
+  confirm `L` (or move it).
+- **Tests** call each path directly (`mulWith(.inline_, ...)`, `.blas`) at every size 1 to 16
+  against the wide reference, and check a run-time and a comptime shape give the same bits.
+
+##### Dispatch under SPIR-V
+
+No BLAS and no limit; each operation is its native instruction, used as is.
+
+| Operation | Instruction | How |
+| --- | --- | --- |
+| `dot`, `dot2` | `OpDot` | inline assembly |
+| `length`, `norm`, `distance`, `cross`, `mix` | `Length`, `Normalize`, `Distance`, `Cross`, `FMix` | inline assembly, `OpExtInst` on `GLSL.std.450` (S1, `src/rgl/shaders/lib/readme.md`) |
+| `mulAdd` | `Fma` | `@mulAdd` (the backend's lowering) |
+| `@sqrt`, `@abs`, `@min`/`@max` and the rest | GLSL.std.450 | already, through the backend |
+| matrix operations (†) | `OpMatrixTimesVector` and the rest | once Zig has `OpTypeMatrix` ([`issues.md`](issues.md)); column code meanwhile (`Σ cols[j] * splat(v[j])`) |
+
+- `N` outside 2 to 4 is not an `OpTypeVector`, so those sizes take the inline code.
+- `mulAdd` changes: today `fma.zig` says unfused on SPIR-V; the Settled decision lists `Fma`,
+  so `linalg.vector.mulAdd` takes `@mulAdd` there, and the CPU keeps `fma.zig`'s policy.
+- `inv` tests the determinant for 0 and returns `error.Singular`, as on the CPU.
+- S2's build test keeps each form native (`zig build shader-probes`).
+
+#### Operations over views
+
+##### Conventions
+
+- `(allocator, io, ...)` where a function allocates (a result or workspace), `(io, ...)`
+  otherwise; allocator first. No type stores an allocator.
+- A new matrix comes back owned (`Matrix(T)`), freed with `deinit(allocator)` on the same
+  allocator; each such function has an `...Into` form that writes caller storage (a view, so a
+  `StaticMatrix` too).
+- Inputs are const; nothing is overwritten unless the name says `InPlace`.
+- Exact, named error sets per function, plain names; `OutOfMemory` only where it allocates,
+  `Canceled` from `io`. Shared names: `DimensionMismatch`, `NotSquare`, `SliceTooShort`,
+  `Singular`, `NotPositiveDefinite`, `NoConvergence` (LAPACK's `INFO > 0` in SVD and eigen),
+  `ZeroVector`.
+- LAPACK's argument errors (`InvalidLda`) cannot arise, since `linalg` forms the arguments; one
+  would be a bug, so it is `unreachable`.
+
+##### Functions
+
+Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`Matrix.zig` holds the types). Each takes
+views (any mix of `StaticMatrix`, `Matrix` and borrowed storage); errors listed are beyond
+`OutOfMemory` and `Canceled`.
+
+| Function | Result | Backed by | Errors |
+| --- | --- | --- | --- |
+| `dot(io, x, y)` | `T` (`xᴴ y` for complex) | `dot`, `dotc` | `DimensionMismatch` |
+| `norm(io, x)`, `sum`, `max`, `min` | `norm` the 2-norm of a dynamic vector; scalars | `nrm2`, `sum`, `extreme` | |
+| `axpy(io, a, x, y)`, `scale(io, a, x)` | in place | `axpy`, `scal` | `DimensionMismatch` |
+| `mul(allocator, io, a, b)`, `mulInto(allocator, io, out, a, b)` | `Matrix`, or into `out` | `gemm`; `gemv` for a vector; inline up to `L` | `DimensionMismatch` |
+| `transpose`, `ctranspose` | `Matrix` | `omatcopy` | |
+| `solve(allocator, io, a, b)` | `Matrix`: `A \ B` | triangular: `trtrs`; Hermitian with a positive real diagonal: `potrf`, `potrs`, LU if not positive definite; square: `gesv`; rectangular: `gelsy` (QR with column pivoting, as MATLAB) | `DimensionMismatch`, `Singular` |
+| `lu` | `Lu` (factors, `ipiv`, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its `error.Singular` becomes `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
+| `chol` | `Matrix` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
+| `qr(..., .economy or .full)` | `Qr` (`q`, `r`) | `geqrf`, `orgqr` | |
+| `svd(..., .values, .economy or .full)` | `Svd` (`s`, `u`, `v`) | `gesdd` or `gesvd`, per `src/linalg/lapack/sources.md` | `NoConvergence` |
+| `eig(..., want_vectors)` | `Eig`: a union of real values and vectors for Hermitian input (`syevd`/`heevd`), complex otherwise (`geev`) (decision 6) | `syevd`, `heevd`, `geev` | `NotSquare`, `NoConvergence` |
+| `inv` | `Matrix` | `getrf`, `getri` | `NotSquare`, `Singular` |
+| `pinv(..., tol: ?F)` | `Matrix` | SVD; default `tol` `max(m, n) eps(σ₁)`, as MATLAB | `NoConvergence` |
+| `rank(..., tol: ?F)` | `usize` | SVD values | `NoConvergence` |
+| `det` | `T`; 0 when singular | `getrf` (the matlab port's scaled form, M1's E1, past `getrf`'s range) | `NotSquare` |
+| `cond` | `σ₁ / σₙ` | SVD values | `NoConvergence` |
+| `matrixNorm(..., .one, .inf, .fro or .two)` | `F` | `lange`; `.two` by SVD | |
+
+`solve`'s structure tests read only the values, so the same input always takes the same route.
+`solve` and `inv` return `error.Singular` with no partial result: a singular matrix has neither.
+The 1980s port, `linalg.matlab`, keeps its own API (split complex) until M2; this layer does not
+depend on it. `linalg.blas` and `linalg.lapack` stay public for tools, tests and experts, the docs
+pointing everyone else here (decision 7).
+
+#### The `rstd.simd` split
+
+| Function | Goes to | Note |
+| --- | --- | --- |
+| `mix` | `linalg.vector.mix` | |
+| `mulAdd` | `linalg.vector.mulAdd` | the BLAS's own use imports `fma.zig`, so the BLAS never imports `linalg.vector` |
+| `vectorLen` | stays | SIMD width, not math |
+| `zigvec.V2f32` to `V4f64` | `linalg.vector` | |
+| `zigvec.SimdVecF32`, `SimdVecF64`, `f32_simd_lanes`, `f64_simd_lanes` | stay | width types |
+| `zigvec`'s 14 splat and zero helpers | `linalg.vector.splat`, `zero`, or plain `@splat` | deleted |
+| `reduce.reduce` | stays | |
+| `arraySum` | float slice: `linalg.sum` (BLAS `sum`); vector: `linalg.vector.sum` | ints and arrays stay |
+| `arrayMax`, `arrayMin` | float slice: `linalg.max`, `min` (BLAS `extreme`); vector: `linalg.vector.max`, `min` | NaN rule changes (below); ints stay |
+| `arrayProduct` | stays | no BLAS counterpart; `linalg.vector.prod` is inline |
+| `arrayAnd`, `arrayOr`, `arrayXor` | stay | |
+| `mapReduce` | stays | its matlab callers become BLAS calls in M2 |
+
+**NaN rule.** `@reduce(.Max)` follows `@max`, which returns "the biggest non-NaN value included"
+(langref, `@max`). The BLAS's extremes and `linalg`'s `max`/`min` on both paths return NaN when
+any element is NaN, the first one (`comparisons.md`, (3)). A caller that relied on NaN being
+skipped must filter first. No caller outside `src/simd/` uses them today.
+
+##### Callers that move
+
+| File | Uses | Becomes |
+| --- | --- | --- |
+| `src/linalg/vector.zig` | `zigvec` types, `splatAs`, `zeroAs`, `mulAdd` | defines them |
+| `src/linalg/matlab/blas1.zig` | `mulAdd`; `f64_simd_lanes`, `SimdVecF64`; `mapReduce` (`wnrm2`, `wasum`, `wdot*`) | `linalg.vector.mulAdd`; width types stay; M2 makes the reductions BLAS `nrm2`, `asum`, `dot`, `dotc` (after its split-complex decision) |
+| `src/linalg/matlab/hessenberg.zig` | `mapReduce(cabs1)` | M2: BLAS `asum` (complex `asum` is `Σ abs(re) + abs(im)`) |
+| `blas1/axpy/__root__.zig` | `vectorLen`, `mulAdd` | `vectorLen` stays; `fma.mulAdd` |
+| `src/rgl/font/sfnt/aux_types.zig` | `zigvec.V2f32`, `V2f64` | `linalg.vector` |
+| `src/rgl/font/sfnt/msdf/math.zig` | `zigvec.V2f64`, `splatV2f64`, `rsimd.mix` | `linalg.vector.V2f64`, `splat`, `mix` |
+| `src/rgl/font/sfnt/msdf/` `EdgeSegment`, `Shape`, `ErrorCorrection`, `coloring`, `__root__` | `math.splatV2f64`, `math.mix` | through `msdf/math.zig`; `splatV2f64` becomes `splat` |
+| `src/rgl/shaders/types.zig` | `zigvec.V2f32` to `V4f32`, `splatVecF32`; `Mat2` to `Mat4` | `linalg.vector`; `StaticMatrix(N, N, f32)` |
+| `src/rgl/shaders/lib/math.zig` | `rsimd.mix`, `reduce.arraySum`; `vec.norm`, `vec.cross3` | `linalg.vector.mix`, `sum`; `norm`, `cross` |
+| `src/rgl/shaders/lib/coords.zig`, `sdf.zig`, `shaders/rgl.zig` | `types.splatVec` | `types`' re-export of `splat` |
+| `src/_test_qemu.zig`, `__root__.zig` | `simd` root | unchanged |
+
+Not moved: glyf's `transformPoint` (`tables/glyf/shape.zig`): hand-written 2x2 rows with
+`@reduce`, not a `simd` caller, and `mul` could fuse differently and move truncated glyph
+coordinates. Nothing in RandyOS or rgui outside rstd imports `rstd.simd` or `linalg.vector`;
+zfls is not checked here.
+
+#### Bit guarantees
+
+##### Bits on the CPU
+
+| Path | Promise |
+| --- | --- |
+| inline (up to `L`) | a function of the inputs, operation, type, size and build target (`fma.zig`'s policy): the same bits every call, thread and run-time core |
+| BLAS (past `L`) | the BLAS's: the same bits for any thread count and schedule, for a given build and core; one contract on every core; bits may differ between cores |
+| both | one contract: first NaN wins in `max`/`min`; `length` overflow- and underflow-safe; element-wise operations IEEE per element; the caller's floating-point environment untouched; no address dependence; for `N <= 4` the same operation order as today, so font and SDF bits do not change |
+
+Crossing the inline limit may change rounding (summation order), never meaning. The dynamic layer
+carries the BLAS's and LAPACK's promises.
+
+##### Bits under SPIR-V
+
+No bit promise. Vulkan's precision rules apply
+(<https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#spirvenv-precision-operation>):
+the driver sets `OpDot`'s, `Length`'s and the rest's precision, may fuse `a*b + c` and may flush
+denormals; `FMin`/`FMax` with a NaN operand are undefined, so the first-NaN rule does not hold.
+The promise there is the same API and meaning, compiled to the native instruction.
+
+#### Migration plan
+
+Each step is its own commit; tests per step as the tiers ask (native `x86_64-windows`, compile
+checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
+
+1. **`linalg.vector`, inline:** `Vec`, the vector names, `splat`/`zero`, `mix`, `mulAdd`, `norm`'s
+   new form; every caller of the `rstd.simd` split moves in the same commit, with no shims left in
+   `rstd.simd`. Tests: today's, plus bit-for-bit for `N` 2 to 4 against today's formulas.
+2. **`StaticMatrix`, inline up to `L`:** real and complex, `mul`, `transpose`, `outer`, `det`,
+   `inv`, `solve` and their `...Into` forms; shaderlib's `Mat2` to `Mat4`.
+3. **Views and `Matrix`:** `View`, `ConstView`, `Matrix`; the dynamic functions over views, with
+   the run-time switch into the inline kernels up to `L`.
+4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's
+   `Options`; both paths tested. M4 then times them and confirms `L`.
+5. **SPIR-V forms;** shaderlib's aliases (S2).
+6. **Float-slice reductions** to `linalg` (the NaN change), and `rstd.simd` trimmed.
+7. **M2** moves the matlab port onto this layer.
+
+#### Decisions
+
+M5's review with the user (2026-10-30), of M3's proposal (9274e27c):
+
+1. **Storage:** packed column-major (`[C][R]T`), consistent with the BLAS, LAPACK and MATLAB; the
+   padded `[C]Vec(R, T)` would only work around Zig's missing SPIR-V matrix type (no upstream pull
+   request as of 2026-10-30; the proposals are GitHub #4960, a matrix type, and #35240, SPIR-V
+   types as builtins). Z6 revisits it.
+2. **Fixed sizes and the BLAS:** two types by when the shape is known, one operation set over
+   views, dispatch by size alone: inline up to 8, the BLAS and LAPACK above with that core's bits.
+3. **Override:** a root declaration (`rstd_linalg_options.inline_limit`).
+4. **Normalize:** one function, `norm(v)`, `error.ZeroVector` for 0; shaderlib keeps GLSL's.
+5. **`lu`:** a singular matrix factors completely, `zero_pivot` set; `solve` and `inv` fail.
+6. **`eig`:** adapts to its input (real for Hermitian, complex otherwise), no `eigh`.
+7. **`linalg.blas`, `linalg.lapack`:** stay public.
+8. **Complex fixed sizes:** in the first set, interleaved.
+9. **`inv` under SPIR-V:** `error.Singular` too, by a determinant test.
+10. **Order:** moot once M1 and S1 landed.
+11. **SPIR-V's matrix type:** in issues.md; column code meanwhile.
+
+### The matlab port against the modern BLAS and LAPACK
+
+M1's audit (2026-10-30) of `rstd.linalg.matlab` (`src/linalg/matlab/`, about 6,200 lines:
+matlab88.f90's LINPACK and EISPACK routines over its own level-1 kernels, split complex storage,
+`CxMat`; nothing outside the directory uses it). Verdicts came from reading the code, then
+experiments E1 to E9 against an `f128` LAPACK reference (native, Zen 3; the scratch experiments
+are not kept). The default is the modern routine (Settled decisions: the matlab port defers). The
+old one wins on E1, which M2 keeps (`src/linalg/matlab/lu.zig`'s test), and on E2 and E4, which
+the modern LAPACK fixes (todo.md's T125 and T126) rather than M2 keeping the old routines (user,
+2026-10-30).
+
+| matlab88 | Called by | Modern counterpart | Verdict |
+| --- | --- | --- | --- |
+| `wnrm2` | `wqrdc`, norms | `blas.nrm2` (`Complex64`) | replace: the old fast path squares unscaled and loses digits at partial underflow (E8) |
+| `wasum`, `wdotur/ui/cr/ci`, `waxpy`, `wscal`, `wrscal`, `wcopy`, `wswap`, `rswap`, `rrot` | everywhere | `asum`, `dot`, `dotc`, `axpy`, `scal`, `scalReal`, `copy`, `swap`, `rot` | replace: rounding noise only (E8) |
+| `iwamax` | `wgefa` | `blas.index(.amax)` | replace: `iwamax` skips NaN, `izamax` returns the first (E8) |
+| `rrotg` | `wsvdc` | `blas.rotg` | replace: the modern one scales safely |
+| `wset`, `rset` | fills | LAPACK `laset` (T123) | replace; `@memset` until then |
+| `pythag` | everywhere | `std.math.hypot`; `lapy2` (T123) | already modern |
+| `wmul`, `wdiv`, `wsign`, `wlog`, `watan`, `cabs1` | scalars | none (`blas.cabs1` exists) | keep as scalar helpers |
+| `matmul` (STACK2's `*`) | `CxMat.matmul`, `matrixfun` | `blas.gemm` | replace: the old one is an unblocked dot-per-entry loop |
+| `wgefa`, `wgesl` | `det`, `inv`, `mldivide`, `mrdivide` | `getrf`, `getrs` (`.n`, `.c`) | replace: the same partial pivoting by `cabs1` |
+| `wgeco` | `inv`, divisions | `lange(.o)`, `getrf`, `gecon(.o)` | replace: `gecon`'s estimate is tighter (E6) |
+| `wgedi` inverse | `inv` | `getri` (T123) | replace |
+| `wgedi` determinant | `det` | none (a composition) | **keep** the mantissa-times-`10^exponent` scaling over `getrf`'s diagonal (E1) |
+| `wpofa` | `chol` | `potrf(.u)` | replace: `wpofa` passes a NaN diagonal and rejects a complex diagonal entry (E9) |
+| `wqrdc` unpivoted, pivoted | `orth`, `qr` | `geqrf`, `geqp3` | replace: faer's `geqp3` recomputes column norms, so LINPACK's norm downdating cannot fail there |
+| `wqrsl` | least squares, `orth` | `ormqr`/`unmqr` and `trtrs`, or `gels` | replace (E7) |
+| `wsvdc` | `cond`, `rank`, `pinv`, `matNorm2` | `gesvd`, `gesdd` | replace once T126 keeps graded bidiagonals' small values (E4) |
+| `htridi`, `imtql2`, `htribk` | Hermitian `eig` | `heevd`/`heev` (`syevd`/`syev` for real) | replace once T125 reduces from the given triangle's end (E2); the old ones also overflow (`sqrt(g*g + 1)`) and index `[n-1]` for `n == 0` |
+| `corth` | `hess`, `schur`, `eig` | `gehrd` (T123) | replace |
+| `comqr3` (Schur; eigenvectors) | `schur`, `roots`; `eig` | `hseqr`, `gees` (T123); `geev` | replace: balancing helps (E3); `roots` should balance, as MATLAB's |
+
+| Exp. | Case | Old | Modern |
+| --- | --- | --- | --- |
+| E1 | `det(diag(1e200, 1e200, -3e-100))` | `-3 * 10^300` | `getrf`'s diagonal product `-inf` |
+| E2 | Hermitian graded large at the top left; at the bottom right | 1e2 to 1e8; 1e-15 to 1e-13 | 1e-15; 0.3 to 3, 3e8 at ratio 1e-4 |
+| E3 | Watkins' balancing example, random; `D B D^-1` | 1e-16 to 1e-15; 2e1 | the same; 2e-15 |
+| E4 | random, column- and row-graded; graded bidiagonal (`smin` 9e-21) | 1e-16 to 1e-15; 2e-16 | the same; 6e3 |
+| E5, E6 | rcond (random, Hilbert, Kahan, lower minus ones); solve error | 1.4x to 2.7x the true value; the same order | 1.0x to 1.8x; the same order |
+| E7 | least squares, random and column-graded | 1e-16 to 1e-15 | the same |
+| E8 | `nrm2` at 1e-160; `iamax([1, NaN, 5])`; `rotg`, `dotc`, `asum` | 6e-6; 3; the same | 4e-18; 2 (LAPACK's rule); the same |
+| E9 | Cholesky accuracy; a NaN diagonal; a diagonal `4+i` | the same order; success; rejected | the same order; `NotPositiveDefinite`; accepted |
+
+Errors are relative to the `f128` reference. E2: faer's tridiagonal reduction runs one way
+whichever triangle it is given, where reference LAPACK's `xSYTRD` reduces from the bottom for
+`.u`. E4: reference LAPACK's `xBDSQR` keeps a bidiagonal's small singular values to high relative
+accuracy (Demmel and Kahan's zero-shift QR), as LINPACK's `wsvdc` does; faer's does not.
+
+- **M2's layout.** Convert at the boundary: a real input (`i` all zero) goes zero-copy to the `d`
+  routines, which also gives `dgeev`'s exact conjugate pairs; a complex input is copied once into
+  interleaved scratch (`16 m n` bytes), run through the `z` routine and copied back. The split
+  layout's only reason (`blas1.zig`'s `@Vector` stride-1 paths) goes away with M2.
+- **M2's calls.** `getrs` takes `.n`, `.t` and `.c` but no conjugate-no-transpose, and `ormqr`
+  rejects `.t` for complex types: `.c` serves the `ctrans(A)` solves of `wgesl`'s `job != 0`.
+- **Not examined:** `matrixfun.zig` (`expm` goes through `eig`); `svdapi.zig`'s `rank`/`pinv`
+  tolerances; pivot-order ties between `wqrdc` and `geqp3`; `corth`/`comqr3` against
+  `gehrd`/`hseqr` (needs T123).
 
 ### Apple Accelerate
 
@@ -1070,7 +1418,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   <https://developer.apple.com/documentation/accelerate/blassetthreading(_:)>). One thread cost `gemm` 1.15x at 2000 (our timing for 72b2efc; no results file kept).
   Rstd's workers thread it instead: above a routine's threshold a routed call splits into parts
   of its output fixed by the problem size, one single-threaded Accelerate call each
-  ([`threading.md`](threading.md#vendor-backends) has which routines and why). The split's
+  ([`threading.md`](blas/threading.md#vendor-backends) has which routines and why). The split's
   speed against one Accelerate call is untimed (T05).
 - **Loading and the off switch.** `blas.init` loads it (`apple_accel.start`), since `setenv` is
   not thread-safe ("need not be thread-safe", POSIX.1-2024,
@@ -1093,7 +1441,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   (`apple_accel.zig`'s `sends`): Accelerate gets every call, the unit-stride ones only (every
   stride 1), or none. A slot is kept where rstd's kernel ran faster than Accelerate past noise
   (ratio under 0.97) in the flyoff of 2026-10-29
-  ([`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results-flyoff-macos-aarch64.md#accelerate-routing),
+  ([`results-flyoff-macos-aarch64.md`](../../tools/blasbench/results-flyoff-macos-aarch64.md#accelerate-routing),
   routed against `--rstd-accelerate=0`, strided at 2); a slot within noise or faster stays
   routed. Rerun timings revise the table, not the code. Routed over rstd's own:
   - `nrm2`, none: `dznrm2` 0.06 to 0.21, `dnrm2` 0.25 to 0.48, `snrm2` and `scnrm2` 0.53 to 0.92.
@@ -1244,8 +1592,8 @@ Initialization also caches the CPU count in `cpu_count` (1 without threads).
 | `GET_OPENBLAS_CORETYPE` | `get_openblas_coretype` | POWER only (`dynamic_power.c:352`): set to anything, prints the core to stderr |
 | `OPENBLAS_BLOCK_FACTOR` | `block_factor` | scales a computed gemm `p` (clamped to 10 to 200 percent, `parameter.c:521-522`) |
 | `OPENBLAS_L2_SIZE` | `l2_size_override` | replaces the detected L2 size (KiB) in the blocking rules |
-| `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](threading.md) |
-| `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](threading.md) |
+| `OPENBLAS_NUM_THREADS`, else `OPENBLAS_DEFAULT_NUM_THREADS` | `num_threads` | LA464's blocking set; the thread ceiling of [`threading.md`](blas/threading.md) |
+| `GOTO_NUM_THREADS` | `goto_num_threads` | the fallback ceiling of [`threading.md`](blas/threading.md) |
 | `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT` | `omp_num_threads`, `omp_adaptive`, `thread_timeout` | parsed, no effect |
 | `GOTO_DEBUG` | `goto_debug` | parsed, no effect |
 | `OPENBLAS_MAIN_FREE`, `GOTOBLAS_MAIN_FREE` | `main_free` | parsed, no effect |
@@ -1335,7 +1683,7 @@ v0.3.34-317. The generator fixes each before converting it: a `Patch` in
 `tools/blas_asm/arch/<arch>.zig` is an exact find and replace on the upstream text that must
 match `count` times, or the generator stops, with a comment saying what was wrong. The generated
 files carry the fixed code. [`issues.md`](issues.md#openblas) holds the issue text for each. No
-core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](readme.md#one-contract-on-every-core)),
+core takes the extremes' and `nrm2`'s kernels anymore ([`readme.md`](blas/readme.md#one-contract-on-every-core)),
 fixed or not, nor x86_64's peeling `zdot_atom.S`, so they are no longer converted (below). Their
 patches stay in the same files as `retired`, the record of those fixes: every run checks that
 they still match upstream, none applies them, and a full run stops on a live patch that applied
@@ -1473,7 +1821,7 @@ Patches that work around Zig or QEMU rather than OpenBLAS, each removable once t
 #### Platforms not converted
 
 Alpha, IA-64, C-SKY, E2K, POWER BG/P and RISC-V C910V have no converted kernels; the reasons are
-in [`readme.md`](readme.md#not-supported-by-zig). `Arch.unsupported` lists sources the toolchain
+in [`readme.md`](blas/readme.md#not-supported-by-zig). `Arch.unsupported` lists sources the toolchain
 cannot assemble.
 
 #### Kernels not converted, and `unused/`
@@ -1552,7 +1900,7 @@ Outside `src/linalg/blas/`:
 | `test/qemu/` | boot code, linker scripts and runner of the freestanding and UEFI rigs |
 | `test/linux/init.zig` | PID 1 of the Linux rigs |
 | `tools/blas_asm/` | the converters |
-| `tools/blasbench/` | the benchmarks: kernels, rstd against the libraries and reference binaries, the flyoff ([`readme.md`](../../../tools/blasbench/readme.md)) |
+| `tools/blasbench/` | the benchmarks: kernels, rstd against the libraries and reference binaries, the flyoff ([`readme.md`](../../tools/blasbench/readme.md)) |
 | `tools/test_host.zig`, `tools/nix/` | running the rigs' QEMU on another machine |
 | `tools/ssh_test.zig`, `tools/qemu_watch.zig` | the SSH test runner; the rigs' watchdog |
 
@@ -1578,7 +1926,7 @@ zfls host could meet it, else the reference's choice kept and documented.
 
 ### Threading
 
-[`threading.md`](threading.md) specifies threading, and its plan is implemented: every routine
+[`threading.md`](blas/threading.md) specifies threading, and its plan is implemented: every routine
 takes an `io: Io`; levels 1 and 2 split work into chunks fixed by the problem size and combine
 partial results in chunk order, so results do not depend on the worker count; level 3 follows
 BLIS's `jc x ic` ways over a shared packed `B` on `Io.Group.concurrent` (`blas3/threaded.zig`);
@@ -1596,7 +1944,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   memory. On the x86_64 cores whose converted reductions peel elements until an operand is
   aligned, every such slot takes the `@Vector` kernel, `dot` included: it loads unaligned, and
   its several partial sums bound the error more tightly than one running sum
-  ([`readme.md`](readme.md), "No address dependence").
+  ([`readme.md`](blas/readme.md), "No address dependence").
 - **Column-major only** (2026-10-29). Rstd has no row-major entry points, and nothing upstream
   reaches only from CBLAS's row-major path survives: the Hermitian `Uplo` letters `v`/`m` go
   from `hpmv`, `her`, `hpr`, `her2` and `hpr2`.
@@ -1623,7 +1971,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   Matrix Multiplication", IPDPS 2014, 1049-1059, <https://doi.org/10.1109/IPDPS.2014.110>). Where
   OpenBLAS and BLIS both make a choice, rstd defers to it: workers spin, as both do (inside a
   call without bound: BLIS's `frame/thread/bli_thrcomm.c:264`, OpenBLAS's `driver/level3/level3_thread.c:408`;
-  rstd's spin is bounded, then sleeps, [`threading.md`](threading.md)), and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
+  rstd's spin is bounded, then sleeps, [`threading.md`](blas/threading.md)), and BLIS's two barriers guard one `B` buffer rather than the prototype's double buffer.
 - **Filling upstream gaps** (2026-10-29). Where OpenBLAS and BLIS agree for a concrete reason
   (numerics, hardware, a measured trade-off), rstd defers to them. Where they leave a combination
   out only for simplicity, because their kernels cannot serve it, and a Zig `@Vector` kernel can,
@@ -1650,14 +1998,14 @@ Questions decided once, with the reason, so they are not reopened without new ev
   aarch64). Every other architecture is ported for completeness: where a choice cannot be tested
   there but OpenBLAS and BLIS agree on it, rstd follows them and documents why, rather than
   blocking on a rig; failures or gaps on those architectures are recorded, not release blockers.
-  The tiers, platform by platform and core by core, are in [`support.md`](../../../support.md).
+  The tiers, platform by platform and core by core, are in [`support.md`](../../support.md).
 - **`rstd.linalg` is the public API; the BLAS is an implementation detail** (2026-10-29). The
   aim is a MATLAB-like library: callers pass vectors and matrices of any size and `linalg` picks
   the implementation; callers never choose a backend. `linalg.vector` takes fixed-size vectors
   and small matrices by value, with math names (`dot`, `length`, `cross`). Per size, it runs
-  inline `@Vector` code or calls the BLAS; the crossover is measured, not guessed, and 2-, 3- and
-  4-element forms likely stay inline. The choice depends only on size and target, so a call
-  gives the same bits every time. The BLAS keeps its slice and stride routines for `linalg` to
+  inline `@Vector` code (up to 8 per dimension) or calls the BLAS and LAPACK; the choice depends
+  only on size and target, not on the type holding the data, so a call gives the same bits every
+  time ("Planned: the public `rstd.linalg` layer", above). The BLAS keeps its slice and stride routines for `linalg` to
   call. `rstd.simd` splits between them: slice reductions become BLAS routines, element-wise
   helpers (`mix`, `mulAdd`) move to `linalg.vector` (todo.md, M3). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
@@ -1667,7 +2015,9 @@ Questions decided once, with the reason, so they are not reopened without new ev
   ports 1980s LINPACK and EISPACK algorithms. Where rstd's BLAS or LAPACK (chosen per routine,
   as the next decision says) has the operation, the modern routine replaces the old one; the old one
   stays only where a test shows it better (more accurate, or right on an edge case the modern
-  one gets wrong), and that test is kept with it.
+  one gets wrong), and that test is kept with it. M1's audit ("The matlab port against the
+  modern BLAS and LAPACK", above) kept one (E1, the scaled determinant); E2 and E4 are fixed in
+  the modern LAPACK instead (todo.md, T125, T126; user, 2026-10-30).
 - **`rstd.linalg` is an anthology of the best open-source methods** (2026-10-30). Each routine
   or kernel takes the best open-source implementation of its method, chosen one at a time, as
   OpenBLAS's and BLIS's kernels are mixed today; nothing is all or nothing. For LAPACK the
@@ -1682,7 +2032,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   Eigen (MPL 2.0, which would keep any port under MPL) is not a source: it appears only in
   benchmarks, built from upstream as a reference binary, never ported (user, 2026-10-30).
   The candidates and the choice for each routine and kernel family are in
-  [`../lapack/sources.md`](../lapack/sources.md) (T113).
+  [`../lapack/sources.md`](lapack/sources.md) (T113).
 - **Bit guarantees are the CPU's** (2026-10-29). The BLAS's promises (the same bits for any
   thread count, one contract on every core, the first-NaN rule) hold on the CPU. Under SPIR-V
   the driver sets its instructions' precision and may fuse `a*b + c`, so Vulkan's precision
@@ -1695,20 +2045,20 @@ Questions decided once, with the reason, so they are not reopened without new ev
   operations lowered to SPIR-V's own instructions. Shaderlib is the developer-friendly face, not
   a second implementation: everything a shader calls ends in a SPIR-V instruction where one
   exists, through `linalg` or directly. What the backend emits today, per operation (S1):
-  [`shaders/lib/readme.md`](../../rgl/shaders/lib/readme.md); only the builtins lower natively,
+  [`shaders/lib/readme.md`](../rgl/shaders/lib/readme.md); only the builtins lower natively,
   and the matrix instructions wait on Zig's SPIR-V assembler (issues.md).
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
-  inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](threading.md);
+  inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](blas/threading.md);
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task
   starts by applying the state captured on the caller's thread. Rstd still never changes the
   caller's own environment; its workers copy it, and threaded results match serial ones for any
-  caller ([`threading.md`](threading.md)).
+  caller ([`threading.md`](blas/threading.md)).
 - **Rank updates keep the reference's zero skip** (2026-10-29). `ger` passes over a column whose
   `y(j)` is zero, `syr`, `her` and their packed forms one whose `x(j)` is, the rank-2 forms one
   where both are, as Reference-LAPACK 3.12.1 and master do, so a NaN or infinity in the other
   vector never meets that zero. OpenBLAS and BLIS disagree with each other and give no reason, so
   the reference decides; revisit when it drops the skip, as its PR #1323 did for the triangular
-  routines (<https://github.com/Reference-LAPACK/lapack/pull/1323>, merged 2026-07-13) ([`comparisons.md`](comparisons.md) (5)).
+  routines (<https://github.com/Reference-LAPACK/lapack/pull/1323>, merged 2026-07-13) ([`comparisons.md`](blas/comparisons.md) (5)).
 - **Level-2 products fold fixed partial vectors** (2026-10-29). `symv`, `hemv`, `sbmv`, `hbmv`,
   `spmv`, `hpmv`, `trmv`, `tbmv`, `tpmv` and untransposed `gbmv` sum each element of `y` over
   several columns' kernel calls. Above their thresholds the columns split into chunks fixed by
@@ -1716,7 +2066,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   the partials are added to `y` in chunk order, as OpenBLAS's `symv_thread.c` sums per-thread
   buffers with `AXPYU_K`. The bit rule then holds by construction on every core, at the cost of
   changing these routines' results from the one-pass serial order for sizes past one chunk,
-  which a one-worker call shares; below one chunk they run as before ([`threading.md`](threading.md)).
+  which a one-worker call shares; below one chunk they run as before ([`threading.md`](blas/threading.md)).
 - **LAPACK failures are errors** (2026-10-29). A matrix that is not positive definite is
   `error.NotPositiveDefinite`, its failing minor written to an optional `minor` argument, so a
   caller cannot go on with half a factor by forgetting a check; a NaN pivot fails, as in the
@@ -1734,7 +2084,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   futures, chosen by the comptime `threading.dispatch_futures`; every other `Io` keeps `Group`.
   `Uring`'s futures have their own bug, so it stays unsupported with worker threads. Once
   `ssh-repro-group-aarch64-macos` passes on a new toolchain, the switch goes back to `Group` and
-  the futures path is deleted ([`threading.md`](threading.md)).
+  the futures path is deleted ([`threading.md`](blas/threading.md)).
 
 ## Alternatives considered
 
@@ -1747,7 +2097,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | A mutex around initialization | Brings threading support into freestanding builds; a three-state handshake suffices |
 | The reference's `gotoblas_X` fallback chains | They follow no rule and put SSSE3 code on CPUs without it; the ISA subset rule cannot |
 | Fall back to the generic core for an unknown `OPENBLAS_CORETYPE` | Detection gives a faster correct core (reasoned, not measured: generic runs the portable kernels; OpenBLAS's x86_64 picks by ISA there, `driver/others/dynamic.c:1157`); the name is reported |
-| Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](comparisons.md) (X1) |
+| Each core's converted kernel in every slot, with quirks listed | Results then mean different things per core (`sdot` precision, NaN in the extremes, `nrm2`); [`comparisons.md`](blas/comparisons.md) (X1) |
 | Reproducing the reference's accumulation order in the portable kernels | Not required for correctness; kept only where a Zig kernel replaces converted code of the same core |
 | Converting the gemm assembly | The Zig tile runs at the measured peak on AVX2 and within a few percent on Apple cores (`notes.md`, `results-m6.md`); one source serves every core |
 | Setting FTZ or Java mode to make vector lanes IEEE | Changes the caller's environment, per thread; scalar code is used where lanes flush |
@@ -1804,7 +2154,7 @@ they run natively too.
 - **Exactness.** Bits are compared only where a Zig kernel models converted code of the same
   core: the x87 sums, the x86_64 `dot` vector blocks (`skylakexModel`), the half-precision
   `gemv`. The ported C drivers were also compared bit-for-bit against OpenBLAS's C, compiled with
-  a stub `common.h` ([`blas1/c_kernels.md`](blas1/c_kernels.md)).
+  a stub `common.h` ([`blas1/c_kernels.md`](blas/blas1/c_kernels.md)).
 
 ### Poisoning and guards
 
@@ -1875,7 +2225,7 @@ The freestanding and UEFI machines (`build/qemutest.zig`):
 | --- | --- | --- |
 | `aarch64` | `cortex-a72` | |
 | `aarch64-sve` | `max` | SVE2, SME2, BF16: every arm64 core but Apple's |
-| `aarch64-smp`, `x86_64-smp` | as `aarch64`, `x86_64`; four cores | multithreaded kernels: the threaded tests on their cores (`test/qemu/smp.zig`, [`threading.md`](threading.md) Verification) |
+| `aarch64-smp`, `x86_64-smp` | as `aarch64`, `x86_64`; four cores | multithreaded kernels: the threaded tests on their cores (`test/qemu/smp.zig`, [`threading.md`](blas/threading.md) Verification) |
 | `arm`, `arm-softfp` | `cortex-a15` | `eabihf`, and `eabi` for the kernels' `sf` variant on the VFP the CPU has |
 | `riscv64` | `rv64,v=true,vlen=512` | the VLEN of the widest linked core (x280; `zvl512b` in `Makefile.riscv64:6`) |
 | `riscv64-vlen128`, `riscv64-vlen256` | `rv64,v=true,vlen=128`, `256` | `zvl128b`'s and `zvl256b`'s objects on the VLEN they are named for, the VLEN-agnostic `axpy` at both |
@@ -1964,7 +2314,7 @@ Rig mechanics:
 - **SSH Mac.** `build/sshtest.zig` cross-compiles and copies the tests to the SSH alias; the
   Mac's address and login stay in the SSH config. `ssh-bench-aarch64-macos
   -Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the results are in
-  [`results-m6.md`](../../../tools/blasbench/results-m6.md).
+  [`results-m6.md`](../../tools/blasbench/results-m6.md).
 
 ### What runs where
 
@@ -1981,22 +2331,22 @@ Rig mechanics:
 
 ## Implementation plan
 
-1. **Threading** of levels 1 and 2 ([`threading.md`](threading.md)'s plan); level 3 threads.
+1. **Threading** of levels 1 and 2 ([`threading.md`](blas/threading.md)'s plan); level 3 threads.
 2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
    level 3 (`blas3/half.zig`); Cooper Lake's `sbgemm` small-matrix kernels, in the portable bits.
 4. **Extensions.** Landed ([below](#extensions)), `bgemm` with the half gemms.
-5. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
-   [`comparisons.md`](comparisons.md)'s recommendations, and convert assembly where `@Vector`
+5. **Per-core tuning.** Act on [`results-m6.md`](../../tools/blasbench/results-m6.md)'s and
+   [`comparisons.md`](blas/comparisons.md)'s recommendations, and convert assembly where `@Vector`
    cannot reach: arm64 SVE, POWER10 MMA, AMX and AVX-512 BF16 for `sbgemm`, and Skylake-X only
-   if measured below 85% of its kernel ([`blas3/gemm/notes.md`](blas3/gemm/notes.md)).
+   if measured below 85% of its kernel ([`blas3/gemm/notes.md`](blas/blas3/gemm/notes.md)).
 
 ## Open issues
 
 - Upstream, toolchain and emulator problems, with their workarounds, are in
   [`issues.md`](issues.md); open numerical and performance questions in
-  [`comparisons.md`](comparisons.md).
+  [`comparisons.md`](blas/comparisons.md).
 - The mips `cpucfg` corrections and the sparc `sllx` rewrite are unverified on hardware; ARMv7
   NEON and AltiVec flushing was seen on the rigs, not on hardware.
 - Cores the rigs cannot run (Bulldozer, Piledriver and Steamroller microkernels on a host

@@ -94,6 +94,7 @@ bceqz
 bcnez
 bdflush
 bdnz
+BDSQR
 bdver
 bdz
 beq
@@ -112,6 +113,7 @@ bgtz
 bidiag
 bidiagonal
 bidiagonalization
+bidiagonals
 bind
 blasbench
 blasint
@@ -313,6 +315,7 @@ Deque
 devtmpfs
 dgbtrf
 dgeadd
+dgeev
 dgemm
 dgemv
 DGEMVTKERNEL
@@ -326,6 +329,7 @@ dir
 DIRENV
 DLAB
 dlaed
+dlaln
 dlassq
 dlaswp
 dlopen
@@ -345,6 +349,7 @@ dotu
 dotv
 downscaling
 dpotrf
+dqds
 drot
 drotm
 dsbdot
@@ -362,6 +367,7 @@ dsymv
 DSYNC
 dsyr
 dsyrk
+dsytrd
 dtes
 dtrevc
 dtrmm
@@ -405,6 +411,7 @@ Ehdr
 EHWPOISON
 eigendecomposition
 eigenpairs
+eigh
 EISNAM
 EISPACK
 eist
@@ -834,6 +841,7 @@ ifndef
 ifreund
 IGNOREPPC
 ihdr
+ijob
 ilcopyb
 ilcopyi
 ilcopyr
@@ -935,6 +943,7 @@ jne
 jobu
 journald
 jpvt
+Kahan's
 kase
 kassert
 kazdadi
@@ -973,6 +982,7 @@ lapic
 lapy
 larl
 laset
+LASQ
 lassq
 laswp
 LASX
@@ -2007,6 +2017,7 @@ uname
 Uncancelable
 uncompr
 unconj
+unconverged
 unenc
 unflushed
 unfused
@@ -2020,6 +2031,7 @@ unpcklpd
 unpcklps
 unref
 unshare
+unslotted
 unsuffixed
 untransposed
 unvectorizable
@@ -2054,7 +2066,9 @@ vclose
 vcmpe
 vcubic
 vcurve
+vcvtps
 vdevice
+vdpbf
 vDSO
 VECLIB
 vecsum
@@ -2327,6 +2341,7 @@ zhemm
 zhemv
 zher
 zherk
+zhetrd
 zhpr
 zig
 zigcfg
@@ -2338,6 +2353,7 @@ zigvec
 zimatcopy
 zlartg
 zlaswp
+ZLATRS
 ZNAME
 zneg
 znrm

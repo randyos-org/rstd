@@ -4,7 +4,7 @@ Which platforms rstd supports, and how far, in the style of Zig's support table
 (<https://ziglang.org/download/0.14.0/release-notes.html#Support-Table>). The tiers follow rstd's
 consumers, RandyOS and zfls (user, 2026-10-30). Each tier includes the guarantees of the tiers
 after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in full
-([`design.md`](src/linalg/blas/design.md#rigs) has the rigs and their machines).
+([`design.md`](src/linalg/design.md#rigs) has the rigs and their machines).
 
 ## Tiers
 
@@ -15,9 +15,9 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
   fixes, also for the MVP. Tested on a rig or machine where one exists; untested cores and paths
   are listed with their items.
 - **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the
-  record; failures go to [`todo.md`](src/linalg/blas/todo.md)'s Known issues and enhancements.
+  record; failures go to [`todo.md`](src/linalg/todo.md)'s Known issues and enhancements.
   Choices no rig can check follow OpenBLAS and BLIS where they agree
-  ([`design.md`](src/linalg/blas/design.md#settled-decisions), "Target platforms come first").
+  ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
 - **Tier 4: unsupported or blocked.** No rig, or blocked upstream. Every target compiles with
   the portable kernels at least; nothing more is promised. Each entry cites its item.
 

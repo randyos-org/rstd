@@ -1,6 +1,7 @@
 # Known upstream issues
 
-Problems found in other projects while building and testing the BLAS port.
+Problems found in other projects while building and testing `rstd.linalg`: the BLAS port,
+LAPACK and shaderlib.
 None is filed. For each: what we saw, how we work around it and where,
 and the text of an issue we could file later. The toolchain throughout is
 Zig 0.18.0-dev (self-built, `C:\scratch\git\zig-build`) unless an entry says
@@ -1534,7 +1535,7 @@ only the elements it uses):
 ### Special values some converted kernels treat otherwise
 
 The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every rig)
-found these. In rstd's extremes the first NaN wins ([`readme.md`](readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
+found these. In rstd's extremes the first NaN wins ([`readme.md`](blas/readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
 infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 
 Not used: no core takes a converted extreme kernel. Upstream follows
@@ -1556,7 +1557,7 @@ Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
   element is passed over.
 
 Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
-algorithm everywhere ([`readme.md`](readme.md#one-contract-on-every-core)). x86_64's
+algorithm everywhere ([`readme.md`](blas/readme.md#one-contract-on-every-core)). x86_64's
 `nrm2_sse.S` (an unscaled `f64` sum for `snrm2` and `cnrm2`) and the x87
 `nrm2.S` and `znrm2.S` of x86 and x86_64 (an unscaled `f80` sum) were right
 on special values but their own algorithms; the arm and arm64 ones scale a
@@ -1651,7 +1652,7 @@ And loongarch64 `axpby`:
 >   path, which has them, fixes it.
 
 Not used: the x86_64 reductions whose bits follow an operand's address.
-No core takes them ([`readme.md`](readme.md#one-contract-on-every-core)); an issue
+No core takes them ([`readme.md`](blas/readme.md#one-contract-on-every-core)); an issue
 could read:
 
 > **x86_64 `asum_sse.S`, `asum_sse2.S`, `zasum_sse2.S`, `dot_sse2.S`, `zdot_sse2.S`, `zsum_sse2.S`, `dgemv_n.S` and kin: the result depends on the alignment of `x` or `y`**
@@ -1705,7 +1706,7 @@ Ours, not a converted kernel:
   call when `y` has no zero, and copies a strided `x` once for all of them.
   OpenBLAS's threaded drivers skip where its serial ones do not, and BLIS
   skips only where an `axpyv` kernel returns for a zero scalar
-  ([`comparisons.md`](comparisons.md) (5)).
+  ([`comparisons.md`](blas/comparisons.md) (5)).
 
 And SPARC `swap`, found by the ported `utest/test_swap.c`:
 

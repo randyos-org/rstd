@@ -405,7 +405,7 @@ test "wgedi inverts and finds the determinant of a diagonal matrix" {
 
 test "wgedi's determinant keeps its range where the pivots' product overflows (M1's E1)" {
     // det = -3e300 exactly representable, but 1e200 * 1e200 overflows on the way;
-    // M2 keeps this scaling over `getrf` (audit.md)
+    // M2 keeps this scaling over `getrf` (linalg/design.md, the matlab port's audit)
     var ar = [_]f64{ 1e200, 0, 0, 0, 1e200, 0, 0, 0, -3e-100 };
     var ai: [9]f64 = @splat(0.0);
     var ipvt = [_]usize{ 0, 0, 0 };

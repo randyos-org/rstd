@@ -122,7 +122,7 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
   The extremes' `@max` was a call to libm's `fmax` per key on ARMv7 VFP, SPARC, pre-VSX POWER,
   MIPS before release 6 (MSA included) and the x87, 15 a block of 16 keys; there they now
   compare and select (`vector.hasMinMax`), with the same results (NaN blocks fall back to the
-  portable scan). MSA also needed its own `abs` ([`issues.md`](issues.md)).
+  portable scan). MSA also needed its own `abs` ([`issues.md`](../issues.md)).
 - **`f64` `sdot` cost.** The flyoff measured it against OpenBLAS's `f32` lanes, one thread: on
   Zen 3 (Windows) 64 against 218 GB/s at `n = 1024`, 75 against 131 at 8192, 27 against 32 out
   of cache; on the M6 (rstd's own kernels) 96 against 158 at 1024 and 98 against 123 out of cache
