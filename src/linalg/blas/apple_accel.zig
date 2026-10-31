@@ -657,6 +657,8 @@ const col = Order.col_major;
 //   imaginary part, where the reference's is NaN.
 // - `axpby`: a zero `alpha`. Accelerate reads `x`, so NaN or an infinity
 //   there reaches `y`.
+// - `axpby`: `incy` 0. Accelerate rejects it as an invalid parameter and
+//   exits (x86_64; arm64 untested).
 // - `i?amax`: always (not routed). Accelerate does not take the first NaN.
 // - `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv`: NaN or an infinity in
 //   `x`. Past small orders Accelerate multiplies it by the triangle's zeros
@@ -1007,6 +1009,7 @@ pub inline fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, 
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha) or zeroPart(T, beta)) return false;
         if (comptime !isComplex(T)) if (alpha == 0) return false;
+        if (incy == 0) return false;
         return call("catlas_" ++ letter(T) ++ "axpby", b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, scalar(T, &beta), y, incy }) != null;
     }
 }
