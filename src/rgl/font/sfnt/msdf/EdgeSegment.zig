@@ -247,7 +247,8 @@ pub fn signedDistance(self: EdgeSegment, origin: V2f64) struct { SignedDist, Poi
                 point_pos = .fromNormalized(dot(d1 - qd, d1) / dot(d1, d1));
             }
 
-            for (0..cubic_starts) |i| {
+            // cubic_starts + 1 seeds, t = 0..1 inclusive, as msdfgen
+            for (0..cubic_starts + 1) |i| {
                 const fi: f64 = @floatFromInt(i);
                 var t = fi / cubic_starts;
 
@@ -342,7 +343,7 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
             });
             std.sort.pdq(f64, roots, {}, struct {
                 pub fn lessThan(_: void, a: f64, b: f64) bool {
-                    return a > b;
+                    return a < b;
                 }
             }.lessThan);
 
@@ -407,7 +408,7 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
             });
             std.sort.pdq(f64, roots, {}, struct {
                 pub fn lessThan(_: void, a: f64, b: f64) bool {
-                    return a > b;
+                    return a < b;
                 }
             }.lessThan);
 
@@ -610,4 +611,24 @@ pub fn deconverge(self: *EdgeSegment, param: u32, vector: V2f64) void {
         1 => self.segment.cubic_bezier[2] = p[2] + splatV2f64(math.length(p[2] - p[3])) * vector,
         else => @panic("Unsupported operation"),
     }
+}
+
+const zigstd = @import("../../../../zigstd.zig");
+
+test "cubic signedDistance searches from the curve's end too" {
+    // Nearest point is near t = 0.95: seeds stopping at t = 0.75 settle on
+    // a farther stretch (0.715 away) instead of the true 0.0260.
+    const edge: EdgeSegment = .create(.{ 0, 0 }, .{ 1, 2 }, .{ 2, -2 }, .{ 3, 1 }, .all);
+    const dist, _ = edge.signedDistance(.{ 2.7, 0.35 });
+    try zigstd.testExpectApproxEqAbs(@as(f64, 0.026032), @abs(dist.distance), 1e-4);
+}
+
+test "cubic scanlineIntersections reports three crossings in curve order" {
+    // x = 3t, so curve order is ascending x; y crosses 0 up, down, up
+    const edge: EdgeSegment = .create(.{ 0, -1 }, .{ 1, 3 }, .{ 2, -3 }, .{ 3, 1 }, .all);
+    var x: [3]f64 = undefined;
+    var dy: [3]i32 = undefined;
+    try zigstd.testExpectEqual(@as(u32, 3), edge.scanlineIntersections(&x, &dy, 0));
+    try zigstd.testExpectEqualSlices(i32, &.{ 1, -1, 1 }, &dy);
+    try zigstd.testExpectTrue(x[0] < x[1] and x[1] < x[2]);
 }
