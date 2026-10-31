@@ -402,3 +402,24 @@ test "wgedi inverts and finds the determinant of a diagonal matrix" {
     try zigstd.testExpectApproxEqAbs(1.0 / 3.0, ar[ix(3, 2, 2)], 1e-10);
     try zigstd.testExpectApproxEqAbs(-0.25, ar[ix(3, 3, 3)], 1e-10);
 }
+
+test "wgedi's determinant keeps its range where the pivots' product overflows (M1's E1)" {
+    // det = -3e300 exactly representable, but 1e200 * 1e200 overflows on the way;
+    // M2 keeps this scaling over `getrf` (audit.md)
+    var ar = [_]f64{ 1e200, 0, 0, 0, 1e200, 0, 0, 0, -3e-100 };
+    var ai: [9]f64 = @splat(0.0);
+    var ipvt = [_]usize{ 0, 0, 0 };
+    const mat = CxMat.initPacked(&ar, &ai, 3, 3);
+    try zigstd.testExpectEqual(@as(usize, 0), wgefa(mat, &ipvt));
+    var product: f64 = 1;
+    for (1..4) |k| product *= ar[ix(3, k, k)];
+    try zigstd.testExpectTrue(std.math.isInf(product));
+
+    var det: Determinant = undefined;
+    var workr: [3]f64 = @splat(0.0);
+    var worki: [3]f64 = @splat(0.0);
+    wgedi(mat, &ipvt, &workr, &worki, 10, &det);
+    try zigstd.testExpectApproxEqAbs(-3.0, det.mantissa.re, 1e-12);
+    try zigstd.testExpectEqual(@as(f64, 0), det.mantissa.im);
+    try zigstd.testExpectEqual(@as(f64, 300), det.exponent10);
+}
