@@ -2095,6 +2095,33 @@ also bounds `n22` by `kd` where `dpbtrf.c` takes `n1`. Found by reading the sour
 - **Issue text:** "`RELAPACK_?pbtrf` calls `?potrf` on `A_BR` as a dense matrix whenever
   `kd > n1`, which is outside the band storage once `n - n1 > kd + 1`."
 
+### `?tgsyl`: the transposed updates read `F` and `E` at the wrong leading dimension
+
+`dtgsyl.c` and the other three, `trans` `T` (`C`): splitting the rows, the update of `C_B` by
+`D_TRᴴ F_T` passes `F_T` with `ldC`; splitting the columns, the update of `F_L` by `F_R E_TRᴴ`
+passes `E_TR` with `ldB`. Both are right only when the two arrays share a leading dimension.
+Found by reading the source.
+
+- **Workaround:** rstd's `tgsyl` passes `ldF` and `ldE` (`relapack.zig`); its tests give all
+  six arrays different leading dimensions.
+- **Issue text:** "`RELAPACK_?tgsyl_rec` with `trans` `T`/`C` calls `?gemm` with `F_T, ldC` and
+  `E_TR, ldB`; they should be `ldF` and `ldE`. The result is wrong whenever `ldF != ldC` or
+  `ldE != ldB` and the problem is past the crossover."
+
+### `?tgsyl`: `dif` for `ijob` 2 and 4 counts the last base case's blocks only
+
+`dtgsyl.c` divides `sqrt(pq)` by the sums of squares, `pq` the number of diagonal block pairs
+solved, as `dtgsyl.f` does; but each `dtgsy2` call sets `pq` (`PQ = P*(Q-P-1)`) and the
+recursion passes the same `pq` down, so only the last base case's count survives, where
+`dtgsyl.f` adds every block's `PPQQ`. Past the crossover the estimate comes out about the
+square root of the number of base cases too small. `ztgsyl.c` takes `m * n`, as `ztgsyl.f`.
+
+- **Workaround:** rstd adds each base case's count (`relapack.zig`, `sylvester.Dif`), tested
+  against one `xTGSY2` over the whole problem.
+- **Issue text:** "`RELAPACK_dtgsyl` and `RELAPACK_stgsyl` with `ijob` 2 or 4 compute `dif`
+  from the `pq` of the last `?tgsy2` call only, since `?tgsy2` overwrites it; LAPACK's
+  `?tgsyl` sums it over all blocks."
+
 ### Smaller ones
 
 - `?trtri` sets `INFO = i - 1` for a zero `A(i, i)` (`ztrtri.c`), so a zero first diagonal

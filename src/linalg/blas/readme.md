@@ -48,9 +48,13 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
   `geqrf`, `orgqr` (`ungqr`), `ormqr` (`unmqr`), `gels` (`error.Singular` for a rank-deficient
   `A`), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
-  `error.NoConvergence` for the reference's `INFO > 0`. Past upstream's size thresholds they
-  thread with the same bits; on macOS `potrf` goes to Accelerate.
-  From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf` and `trsyl`; `sytrf`,
+  `error.NoConvergence` for the reference's `INFO > 0` (`gesvd` and `geev` write that `INFO` to
+  their last argument: the unconverged superdiagonals, or the eigenvalues not found). `geev`'s
+  eigenvectors come from Reference-LAPACK's `xTREVC3`, which scales against overflow. Past
+  upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
+  Accelerate.
+  From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf`, `trsyl` and `tgsyl` (with
+  its `dif` estimates); `sytrf`,
   `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
   are wrong ([`issues.md`](issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.

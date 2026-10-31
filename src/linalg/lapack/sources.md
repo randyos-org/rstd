@@ -93,7 +93,7 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `trsyl` | T110; M (`sylvester`, `lyap`, `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
-| `tgsyl` | T110 (covered; not named) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK | only non-reference source | not yet raced |
+| `tgsyl` | has (T118) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK (`relapack.zig`), the reference's `xTGSY2` below the crossover | only non-reference source; two ReLAPACK bugs fixed ([issues](../blas/issues.md#relapack-openblass-relapack)) | both equations' residuals, every `trans` and type; `dif` against `σ_min` of the Kronecker form and against one `xTGSY2`; not raced |
 
 ### QR, LQ and least squares
 

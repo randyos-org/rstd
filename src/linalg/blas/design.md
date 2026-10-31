@@ -944,12 +944,18 @@ allows.
   drivers on the interface's worker rules, so the bits are the same at any worker count.
   `potrf`, `getrf`, `trtri` and `lauum` replace OpenBLAS's only under `-Drelapack`
   (`build/blaskern.zig`'s `lapack_options`), as OpenBLAS's `BUILD_RELAPACK` with
-  `RELAPACK_REPLACE`; the default stays OpenBLAS's. ReLAPACK serves `sygst`, `hegst`, `pbtrf`
-  and `trsyl` by default; their unblocked kernels are Reference-LAPACK's (`xSYGS2`, `xHEGS2`,
-  `xPBTF2`, `xTRSYL` with `xLALN2` and `xLASY2`), since faer has none in LAPACK's storage.
-  Where ReLAPACK is wrong ([`issues.md`](issues.md#relapack-openblass-relapack)), the reference
-  wins: `sytrf`, `hetrf` and their `_rook` forms run the reference's blocked `xSYTRF` loop over
-  ReLAPACK's `rec2` panels (`indefinite.zig`), and `gbtrf` is `xGBTF2`.
+  `RELAPACK_REPLACE`; the default stays OpenBLAS's. ReLAPACK serves `sygst`, `hegst`, `pbtrf`,
+  `trsyl` and `tgsyl` by default; their unblocked kernels are Reference-LAPACK's (`xSYGS2`,
+  `xHEGS2`, `xPBTF2`, `xTRSYL` with `xLALN2` and `xLASY2`, `xTGSY2` with `xGETC2`, `xGESC2`
+  and `xLATDF`, whose `xGECON` is `norm.zig`'s `lacn2` over `latrs`), since faer has none in
+  LAPACK's storage. Where ReLAPACK is wrong
+  ([`issues.md`](issues.md#relapack-openblass-relapack)), the reference wins: `sytrf`, `hetrf`
+  and their `_rook` forms run the reference's blocked `xSYTRF` loop over ReLAPACK's `rec2`
+  panels (`indefinite.zig`); `gbtrf` is `xGBTF2`; `tgsyl`'s transposed updates read `F` and
+  `E` at their own leading dimensions, and its `dif` counts every base case's block pairs.
+  `tgsyl` takes `trans` `t` (real) or `c` (complex) only and rejects `m` or `n` below 1, as
+  `dtgsyl.f` and `ztgsyl.f` do; `dif` is `ijob`'s estimate of `Dif[(A, D), (B, E)]` (1 and 3
+  by look-ahead, 2 and 4 by `xGECON`'s null vectors), unwritten for `ijob` 0 or `trans`.
 - **`geqrf`, `orgqr`, `ormqr`** (`faer/qr.zig`; `ungqr`, `unmqr` the same functions):
   `dgeqrf.f`'s, `dorgqr.f`'s and `dormqr.f`'s arguments and `xerbla` order over faer's
   staircase QR. `tau` is LAPACK's (`H = I - tau v vᴴ`), the reciprocal of faer's, so an
