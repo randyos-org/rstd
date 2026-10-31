@@ -36,21 +36,21 @@ pub fn overlap(a: Scanline, b: Scanline, x_from: f64, x_to: f64, fill_rule: Fill
     var total: f64 = 0.0;
     var a_inside = false;
     var b_inside = false;
-    var ai: i32 = 0;
-    var bi: i32 = 0;
-    var ax = if (!a.intersections.empty()) a.intersections[ai].x else x_to;
-    var bx = if (!b.intersections.empty()) b.intersections[bi].x else x_to;
+    var ai: usize = 0;
+    var bi: usize = 0;
+    var ax = if (a.intersections.items.len != 0) a.intersections.items[ai].x else x_to;
+    var bx = if (b.intersections.items.len != 0) b.intersections.items[bi].x else x_to;
     while (ax < x_from or bx < x_from) {
         const x_next = @min(ax, bx);
         if (ax == x_next and ai < a.intersections.items.len) {
             a_inside = interpretFillRule(a.intersections.items[ai].dir, fill_rule);
             ai += 1;
-            ax = if (ai < a.intersections.items.len) a.intersections[ai].x else x_to;
+            ax = if (ai < a.intersections.items.len) a.intersections.items[ai].x else x_to;
         }
         if (bx == x_next and bi < b.intersections.items.len) {
-            b_inside = interpretFillRule(b.intersections[bi].dir, fill_rule);
+            b_inside = interpretFillRule(b.intersections.items[bi].dir, fill_rule);
             bi += 1;
-            bx = if (bi < b.intersections.items.len) b.intersections[bi].x else x_to;
+            bx = if (bi < b.intersections.items.len) b.intersections.items[bi].x else x_to;
         }
     }
     var x = x_from;
@@ -58,14 +58,14 @@ pub fn overlap(a: Scanline, b: Scanline, x_from: f64, x_to: f64, fill_rule: Fill
         const x_next = @min(ax, bx);
         if (a_inside == b_inside) total += x_next - x;
         if (ax == x_next and ai < a.intersections.items.len) {
-            a_inside = interpretFillRule(a.intersections[ai].dir, fill_rule);
+            a_inside = interpretFillRule(a.intersections.items[ai].dir, fill_rule);
             ai += 1;
-            ax = if (ai < a.intersections.items.len) a.intersections[ai].x else x_to;
+            ax = if (ai < a.intersections.items.len) a.intersections.items[ai].x else x_to;
         }
         if (bx == x_next and bi < b.intersections.items.len) {
-            b_inside = interpretFillRule(b.intersections[bi].dir, fill_rule);
+            b_inside = interpretFillRule(b.intersections.items[bi].dir, fill_rule);
             bi += 1;
-            bx = if (bi < b.intersections.items.len) b.intersections[bi].x else x_to;
+            bx = if (bi < b.intersections.items.len) b.intersections.items[bi].x else x_to;
         }
         x = x_next;
     }
@@ -74,7 +74,8 @@ pub fn overlap(a: Scanline, b: Scanline, x_from: f64, x_to: f64, fill_rule: Fill
 }
 
 pub fn countIntersections(self: *Scanline, x: f64) i32 {
-    return (self.moveTo(x) orelse return 0) + 1;
+    const index = self.moveTo(x) orelse return 0;
+    return @intCast(index + 1);
 }
 
 pub fn sumIntersections(self: *Scanline, x: f64) i32 {
@@ -121,4 +122,24 @@ pub fn moveTo(self: *Scanline, x: f64) ?u32 {
 
     self.last_index = index;
     return index;
+}
+
+const zigstd = @import("../../../../zigstd.zig");
+
+test "Scanline.overlap and countIntersections over two spans" {
+    const alloc = zigstd.testAllocator;
+    var a: Scanline = .{};
+    defer a.intersections.deinit(alloc);
+    try a.intersections.appendSlice(alloc, &.{ .{ .x = 1, .dir = 1 }, .{ .x = 3, .dir = -1 } });
+    a.preprocess();
+    var b: Scanline = .{};
+    defer b.intersections.deinit(alloc);
+    try b.intersections.appendSlice(alloc, &.{ .{ .x = 2, .dir = 1 }, .{ .x = 4, .dir = -1 } });
+    b.preprocess();
+
+    // Agree outside both on [0, 1) and [4, 5), inside both on [2, 3).
+    try zigstd.testExpectEqual(@as(f64, 3), overlap(a, b, 0, 5, .non_zero));
+    try zigstd.testExpectEqual(@as(i32, 0), a.countIntersections(0.5));
+    try zigstd.testExpectEqual(@as(i32, 1), a.countIntersections(2));
+    try zigstd.testExpectEqual(@as(i32, 2), a.countIntersections(3.5));
 }
