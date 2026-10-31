@@ -842,6 +842,26 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 ## Zig standard library
 
+### `std.math.complex.sqrt` has only `f32` and `f64`
+
+- **Seen:** T124 (2026-10-30). `lapack.geev` on `Complex(f128)` (and on
+  `f80` or `XDouble` where it is `f80`) does not compile: faer's complex
+  Schur (`eig22`) calls `std.math.complex.sqrt`, whose `switch` on the
+  float type ends in `@compileError("sqrt not implemented for ...")`. The
+  other `std.math.complex` functions (`exp`, `log`, ...) are the same musl
+  ports and likely the same.
+- **Workaround:** `lapack/faer/ops.zig`'s `sqrt` takes std's for `f32` and
+  `f64` and the same musl `csqrt` algorithm, written over any float type,
+  for the rest. Drop it once std's takes every float type.
+- **Issue text:**
+
+  > **`std.math.complex.sqrt` does not support `f80` or `f128`**
+  >
+  > `std.math.complex.sqrt(std.math.Complex(f128).init(1, 1))` fails with
+  > "sqrt not implemented for f128"; so does `f80`. `sqrt64` (musl's
+  > `csqrt`) works for any float type given the overflow threshold
+  > `floatMax(T) / (1 + sqrt(2))`, so a generic body would cover them.
+
 ### Zig 0.17.0's `Io.Dispatch` does not compile
 
 - **Seen:** on `aarch64-macos` and `x86_64-macos`, Zig 0.17.0's

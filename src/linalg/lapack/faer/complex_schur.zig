@@ -30,7 +30,7 @@ pub fn eig22(comptime T: type, a00_: T, a01_: T, a10_: T, a11_: T) [2]T {
     const tr = ops.mulReal(T, ops.add(T, a00, a11), 0.5);
     const d = ops.sub(T, a00, tr);
     const det = ops.add(T, ops.mul(T, d, d), ops.mul(T, a01, a10));
-    const rtdisc = std.math.complex.sqrt(det);
+    const rtdisc = ops.sqrt(T, det);
     return .{ ops.mulReal(T, ops.add(T, tr, rtdisc), s), ops.mulReal(T, ops.sub(T, tr, rtdisc), s) };
 }
 

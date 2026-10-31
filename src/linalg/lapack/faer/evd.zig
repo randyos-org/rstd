@@ -742,6 +742,39 @@ test "faer evd: geev, A v = λ v and uᴴ A = λ uᴴ, unit vectors, faer's size
     }
 }
 
+test "faer evd: geev in the extended types, real and complex (T124)" {
+    const al = testing.allocator;
+    inline for (check.x_real ++ check.x_complex ++ check.f80_unslotted ++ .{ f128, std.math.Complex(f128) }) |T| {
+        for ([_]usize{ 1, 2, 3, 10 }) |n| {
+            const a0 = try ops.alloc(T, al, n, n);
+            defer ops.free(T, al, a0);
+            check.fill(T, a0.ptr[0 .. n * n], 3 * n + 2);
+            geevCase(T, al, check.io, a0) catch |e| {
+                check.say("geev {s} n={d}\n", .{ @typeName(T), n });
+                return e;
+            };
+        }
+    }
+}
+
+test "faer evd: the complex square root in every float type agrees with f64's (T124)" {
+    const C64 = std.math.Complex(f64);
+    const cases = [_]C64{ .init(5, 3), .init(-5, 3), .init(-5, -3), .init(0, 2), .init(-4, 0), .init(1e300, 1e300), .init(-1e-300, 1e-310) };
+    inline for (.{ f80, f128 }) |F| {
+        const C = std.math.Complex(F);
+        for (cases) |z| {
+            const want = std.math.complex.sqrt(z);
+            const got = ops.sqrt(C, .init(z.re, z.im));
+            try testing.expectApproxEqRel(want.re, @as(f64, @floatCast(got.re)), 4 * std.math.floatEps(f64));
+            try testing.expectApproxEqRel(want.im, @as(f64, @floatCast(got.im)), 4 * std.math.floatEps(f64));
+        }
+        const inf = std.math.inf(F);
+        const r = ops.sqrt(C, .init(-inf, 1));
+        try testing.expect(r.re == 0 and r.im == inf);
+        try testing.expect(std.math.isNan(ops.sqrt(C, .init(std.math.nan(F), 1)).re));
+    }
+}
+
 test "faer evd: geev on special matrices: zero, identity, Jordan, rotation pairs, companion, triangular" {
     const al = testing.allocator;
     inline for (test_types) |T| {

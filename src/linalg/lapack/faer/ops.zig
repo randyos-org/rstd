@@ -133,6 +133,38 @@ pub fn abs(comptime T: type, x: T) Float(T) {
     return if (comptime isComplex(T)) std.math.hypot(x.re, x.im) else @abs(x);
 }
 
+/// The principal square root. Complex: std's for `f32` and `f64`, which has
+/// no other type (issues.md), and the same musl `csqrt` for the rest (T124).
+pub fn sqrt(comptime T: type, x: T) T {
+    if (comptime !isComplex(T)) return @sqrt(x);
+    const F = Float(T);
+    if (F == f32 or F == f64) return std.math.complex.sqrt(x);
+    // past this, x + hypot(x, y) may overflow
+    const threshold = comptime std.math.floatMax(F) / (1 + std.math.sqrt2);
+    var xr = x.re;
+    var xi = x.im;
+    if (xr == 0 and xi == 0) return .init(0, xi);
+    if (std.math.isInf(xi)) return .init(std.math.inf(F), xi);
+    if (std.math.isNan(xr)) return .init(xr, (xi - xi) / (xi - xi));
+    if (std.math.isInf(xr)) {
+        return if (std.math.signbit(xr)) .init(@abs(xi - xi), std.math.copysign(xr, xi)) else .init(xr, std.math.copysign(xi - xi, xi));
+    }
+    const scale = @abs(xr) >= threshold or @abs(xi) >= threshold;
+    if (scale) {
+        xr *= 0.25;
+        xi *= 0.25;
+    }
+    var r: T = undefined;
+    if (xr >= 0) {
+        const t = @sqrt((xr + std.math.hypot(xr, xi)) * 0.5);
+        r = .init(t, xi / (2 * t));
+    } else {
+        const t = @sqrt((-xr + std.math.hypot(xr, xi)) * 0.5);
+        r = .init(@abs(xi) / (2 * t), std.math.copysign(t, xi));
+    }
+    return if (scale) .init(2 * r.re, 2 * r.im) else r;
+}
+
 /// `|re| + |im|` (faer's `abs1`, the reference's `CABS1`); `|x|` for real.
 pub fn abs1(comptime T: type, x: T) Float(T) {
     return if (comptime isComplex(T)) @abs(x.re) + @abs(x.im) else @abs(x);
