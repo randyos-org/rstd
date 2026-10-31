@@ -772,9 +772,20 @@ const base_machines = [_]Machine{
         .name = "linux-aarch64",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .linux },
         .qemu = "qemu-system-aarch64",
-        // four CPUs, for the tests that race threads
+        // four CPUs, for the tests that race threads; no SME under HVF either,
+        // so no `vortexm4` (Debian's kernel, issues.md)
         .args = &.{ "-M", "virt", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+    },
+    .{
+        // the SVE cores, linked only for an SVE target; TCG, as `aarch64-sve`.
+        // No SME cores: Debian's 6.12 kernel builds without SME (issues.md)
+        .name = "linux-aarch64-sve",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on", "-smp", "4" },
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
@@ -811,6 +822,17 @@ const base_machines = [_]Machine{
         .qemu = "qemu-system-ppc64",
         // detection sees a POWER10 (the baseline build links up to POWER9's
         // kernels); the caps TCG lacks are off, so qemu warns of none
+        .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+    },
+    .{
+        // a POWER10 build, so power10's kernels link and run
+        .name = "linux-powerpc64le-power10",
+        // native `f128` from pwr9: FastISel's bug, as the freestanding rigs (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
+        .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
@@ -902,11 +924,16 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         if (m.stub != null or (m.whpx and !whpx_host)) continue;
         const target = b.resolveTargetQuery(m.query);
         // one rig's images and asm check, for changes that touch only its arch
-        const rig_check = if (m.boot == .kernel) blk: {
-            const s = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s test images and check their inline asm, without running qemu", .{m.name}));
-            check.dependOn(s);
-            break :blk s;
-        } else check;
+        const rig_check = switch (m.boot) {
+            .kernel => blk: {
+                const s = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s test images and check their inline asm, without running qemu", .{m.name}));
+                check.dependOn(s);
+                break :blk s;
+            },
+            // not in `qemu-check`, which builds the kernel rigs
+            .linux => b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s initramfs and check its inline asm, without running qemu", .{m.name})),
+            .macos => check,
+        };
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
             for (m.parts) |p| {
@@ -925,7 +952,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         const run = switch (m.boot) {
             .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
-            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host) orelse continue else continue,
+            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) orelse continue else continue,
         };
         const about = switch (m.boot) {
             .kernel, .linux => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
@@ -1052,7 +1079,7 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void
 /// QEMU booting a Debian kernel with an initramfs of `test/linux/init.zig`
 /// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
 /// null until the kernel's package is fetched.
-fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
+fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, rig_check: *Build.Step) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
     // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
     const nix: ?[]const u8 = if (!buildroot.tsan or host == null) null else switch (target.result.cpu.arch) {
@@ -1075,6 +1102,7 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
     pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
     if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system, false)).captureStdOut(.{}));
+    rig_check.dependOn(&pack.step);
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);

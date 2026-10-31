@@ -1828,7 +1828,7 @@ here can.
 | `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded` but on the `-smp` machines, a 32 MiB heap (ours, `test/qemu/heap.zig:14`), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
 | `qemu-test-<arch>-uefi` | the freestanding rigs' tests and runner as a UEFI application (`test/qemu/uefi.zig`) under QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`; x86_64 and aarch64 | RandyOS's loader's platforms: PE/COFF, the Microsoft ABI on x86_64, UEFI's CPU state |
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
-| `qemu-test-linux-<arch>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; aarch64, x86_64, arm, riscv64, powerpc64le |
+| `qemu-test-linux-<machine>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; the machines below |
 | `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH | Mach-O at run time on an x86 CPU model |
 | `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
 | `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM |
@@ -1872,6 +1872,19 @@ The freestanding and UEFI machines (`build/qemutest.zig`):
 | `x86_64-uefi` | `max` on `q35`, OVMF | baseline `x86_64-uefi` build; the app turns on the AVX and AVX-512 state |
 | `aarch64-uefi` | `cortex-a72` on `virt`, AAVMF | baseline `aarch64-uefi` build; HVF on an arm64 Mac, SME there |
 
+The Linux machines (`build/qemutest.zig`; `qemu-check-<machine>` builds one's initramfs, outside
+`qemu-check`):
+
+| Machine | CPU | Notes |
+| --- | --- | --- |
+| `linux-aarch64` | `max` under TCG, the host's under HVF | baseline build: no SVE cores. No SME either: Debian's 6.12 kernel lacks it, so no `armv9sme` or `vortexm4` ([`issues.md`](issues.md)) |
+| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores |
+| `linux-x86_64` | `max` under TCG | |
+| `linux-arm` | `cortex-a15` | |
+| `linux-riscv64` | `rv64,v=true,vlen=512` | |
+| `linux-powerpc64le` | `power10` | baseline (pwr8) build in debug: up to power9's kernels; detection sees a POWER10 |
+| `linux-powerpc64le-power10` | `power10` | built for `pwr10`: power10's kernels; ReleaseSafe, as the freestanding POWER rigs |
+
 Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC: LLVM 21.1.0 `lld/ELF/Arch`
 has `SPARCV9.cpp` only), `powerpc-macho` and
 `linux-i386` (TCG's x87 page-boundary bug). The big-endian rigs are `s390x`, `powerpc64`, and
@@ -1904,8 +1917,8 @@ Rig mechanics:
   `/tmp`, runs QEMU from the Nix flake in `tools/nix` (nixpkgs pinned by `flake.lock`) and
   streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
   there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on
-  the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
-  them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
+  the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too, but not on `linux-aarch64`,
+  whose kernel hides SME); `-Dtest-host-tcg` keeps them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
 - **WHPX.** QEMU's model plus FMA4 and XOP, of which WHPX keeps what the host has; `host` and
   `max` stop in SeaBIOS. TCG implements no AVX-512, FMA4 or XOP (QEMU v10.1.0
   `target/i386/cpu.c`: neither `TCG_7_0_EBX_FEATURES` nor `TCG_EXT3_FEATURES` has them), so the `skylakex`,
