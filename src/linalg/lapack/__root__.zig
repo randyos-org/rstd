@@ -97,8 +97,9 @@ pub const SyevError = evd.SyevError;
 /// The eigensolvers' `jobz`, `jobvl`, `jobvr`.
 pub const Jobz = evd.Jobz;
 /// `geev`: bad arguments (a NaN in `A` is `error.InvalidA`),
-/// `error.NoConvergence` (also for an infinity in `A`), `error.OutOfMemory`
-/// or `error.Canceled`.
+/// `error.NoConvergence` (also for an infinity in `A`; the count of
+/// eigenvalues not found in the last argument), `error.OutOfMemory` or
+/// `error.Canceled`.
 pub const GeevError = evd.GeevError;
 /// `geev`'s eigenvalues: `.{ .re = wr, .im = wi }` real, `w` complex.
 pub const Eigenvalues = evd.Eigenvalues;

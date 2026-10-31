@@ -914,8 +914,9 @@ allows.
   `gesvd` and `gesdd`), `tridiag.zig` (`evd/tridiag.rs`), `tridiag_evd.zig`
   (`evd/tridiag_evd.rs`), `hessenberg.zig` (`evd/hessenberg.rs`), `real_schur.zig` and
   `complex_schur.zig` (`evd/schur/`), `balance.zig` (Reference-LAPACK's `dgebal.f`,
-  `dgebak.f`, which faer lacks), and `evd.zig` (`evd/mod.rs`, with `syevd`, `syev`
-  and `geev`). Faer's `rayon` parallelism becomes rstd's: the fused bidiagonalization pass
+  `dgebak.f`, which faer lacks), `trevc.zig` (Reference-LAPACK's `dtrevc3.f`, `ztrevc3.f`
+  and `dlaln2.f`, whose scaling faer lacks), and `evd.zig` (`evd/mod.rs`, with `syevd`,
+  `syev` and `geev`). Faer's `rayon` parallelism becomes rstd's: the fused bidiagonalization pass
   splits by column chunks (independent columns, so the same bits at any worker count); the
   fused tridiagonalization and Hessenberg passes, whose threads each sum a partial
   product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
@@ -976,15 +977,19 @@ allows.
   (`InvalidA`, the reference's `INFO = -4`), scaling and normalization (unit 2-norm, largest
   entry real; a real pair turned by `DLARTG`), over faer's `evd_real` and `evd_cplx`:
   Hessenberg reduction, Schur form by `lahqr` (`xLAHQR`'s double-shift and single-shift QR),
-  eigenvectors of the triangular factor by back substitution (the left ones from its reversed
-  conjugate transpose), times the Schur vectors. Faer has no balancing, so `dgebal.f`'s and
-  `dgebak.f`'s (job `B`) come from Reference-LAPACK (`faer/balance.zig`); faer's solvers then
-  run over the whole balanced matrix. Departures: back substitution guards small pivots (`eps ‖T‖₁`) but does not scale against
-  overflow, as `xTREVC3` does; the eigenvalues are undefined after `NoConvergence`, where the
-  reference keeps those it found. Fixes to faer ([`issues.md`](issues.md)): the complex
-  `rotg` returns `r = 1` for a zero second entry, here `p`; the tridiagonal QR's and
-  `self_adjoint_evd`'s reciprocals of denormals overflow, here divided by; the eigenvector
-  solve guards a 2 x 2 block's determinant with a linear bound, here squared. Not ported yet: faer's multishift QR with
+  then the triangular factor's right and left eigenvectors times the Schur vectors. Two
+  parts come from Reference-LAPACK, which faer lacks: balancing, `dgebal.f`'s and
+  `dgebak.f`'s (job `B`, `faer/balance.zig`; faer's solvers then run over the whole balanced
+  matrix), and the eigenvectors, `xTREVC3`'s (`faer/trevc.zig`, `HOWMNY = 'A'`, then one
+  `gemm` by the Schur vectors as its blocked back-transform), since faer's back substitution
+  (`evd_from_real_schur_imp`) does not scale against overflow: each solve step (`xLALN2`, or
+  `xLATRS` for complex) scales the vector down where it would overflow. `NoConvergence` from
+  the QR iteration is the reference's `INFO = i > 0`, written to an optional
+  `unconverged: ?*usize`, the last argument (`n` for an infinity in `A`): `w[i..n]` hold the
+  eigenvalues that converged, scaled back, and no vectors are computed, as `dgeev.f`
+  documents. Fixes to faer ([`issues.md`](issues.md)): the complex `rotg` returns `r = 1` for
+  a zero second entry, here `p`; the tridiagonal QR's and `self_adjoint_evd`'s reciprocals of
+  denormals overflow, here divided by. Not ported yet: faer's multishift QR with
   aggressive early deflation (`multishift_qr`, from 75 up) and its blocked Hessenberg
   reduction (from 256 up); the unblocked forms serve every size, as `xLAHQR` and `xGEHD2`
   can.

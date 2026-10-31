@@ -14,13 +14,14 @@
 //!
 //! General (`geev`): reduce to Hessenberg form (`hessenberg.zig`), then to
 //! Schur form by QR iteration (`real_schur.zig`, `complex_schur.zig`),
-//! take the triangular factor's eigenvectors by back substitution
-//! (`evd_from_real_schur_imp`, `evd_from_cplx_schur_imp`; the left ones
-//! from the reversed conjugate transpose, as faer does) and multiply by the
-//! Schur vectors; then `dgeev.f`'s normalization. Faer has no balancing:
-//! `dgeev.f`'s `xGEBAL` and `xGEBAK` come from Reference-LAPACK
-//! (`balance.zig`), and faer's solvers run over the whole balanced matrix,
-//! its isolated parts already triangular.
+//! take the triangular factor's eigenvectors and multiply by the Schur
+//! vectors; then `dgeev.f`'s normalization. Two parts come from
+//! Reference-LAPACK, where faer has none: balancing (`dgeev.f`'s `xGEBAL`
+//! and `xGEBAK`, `balance.zig`; faer's solvers then run over the whole
+//! balanced matrix, its isolated parts already triangular), and the
+//! triangular factor's eigenvectors (`xTREVC3`, `trevc.zig`), whose solves
+//! scale against overflow where faer's back substitution
+//! (`evd_from_real_schur_imp`) does not.
 //!
 //! Departures, all in design.md's LAPACK section: no `WORK`, `RWORK` or
 //! `IWORK` (the allocator gives workspace); `NoConvergence` for the
@@ -37,6 +38,7 @@ const hessenberg = @import("hessenberg.zig");
 const real_schur = @import("real_schur.zig");
 const complex_schur = @import("complex_schur.zig");
 const balance = @import("balance.zig");
+const trevc = @import("trevc.zig");
 const util = @import("../../blas/util.zig");
 const chol = @import("../cholesky.zig");
 const types = @import("../../blas/types.zig");
@@ -182,7 +184,13 @@ pub fn Eigenvalues(comptime T: type) type {
 /// Balanced (`dgebal.f`, `balance.zig`), then the Hessenberg form's Schur
 /// form by QR iteration and its eigenvectors by back substitution (faer's
 /// `evd_real`, `evd_cplx`, over the whole balanced matrix).
-pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: Jobz, n: isize, a: [*]T, lda: isize, w: Eigenvalues(T), vl: [*]T, ldvl: isize, vr: [*]T, ldvr: isize) GeevError!void {
+///
+/// On `error.NoConvergence` from the QR iteration, `unconverged` (when
+/// given) gets the reference's `INFO = i > 0`: the first `i` eigenvalues
+/// did not converge, `w[i..n]` hold those that did, and no eigenvectors are
+/// computed (`vl`, `vr` undefined), as `dgeev.f` documents. For an infinity
+/// in `A` it gets `n`.
+pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: Jobz, n: isize, a: [*]T, lda: isize, w: Eigenvalues(T), vl: [*]T, ldvl: isize, vr: [*]T, ldvr: isize, unconverged: ?*usize) GeevError!void {
     comptime chol.floatType(T, "geev");
     const F = Float(T);
     if (n < 0) return error.InvalidN;
@@ -198,7 +206,10 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
     // `dgeev.f:341-359`: NaN, then the scale into [SMLNUM, BIGNUM]
     const anrm = ops.normMax(T, am);
     if (std.math.isNan(anrm)) return error.InvalidA;
-    if (std.math.isInf(anrm)) return error.NoConvergence;
+    if (std.math.isInf(anrm)) {
+        if (unconverged) |c| c.* = un;
+        return error.NoConvergence;
+    }
     const smlnum = @sqrt(std.math.floatMin(F)) / std.math.floatEps(F);
     const to = ops.scaleTo(F, anrm, smlnum);
     if (to) |t| ops.lascl(T, anrm, t, am);
@@ -208,13 +219,21 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
     const bal = try balance.balance(io, T, am, scale);
     const ul: ?Mat(T) = if (jobvl == .v) Mat(T){ .ptr = vl, .rows = un, .cols = un, .ld = @intCast(ldvl) } else null;
     const ur: ?Mat(T) = if (jobvr == .v) Mat(T){ .ptr = vr, .rows = un, .cols = un, .ld = @intCast(ldvr) } else null;
-    if (comptime isComplex(T)) {
-        try general(allocator, io, T, am, w[0..un], null, ul, ur);
-        if (to) |t| ops.lascl(T, t, anrm, .{ .ptr = w, .rows = un, .cols = 1, .ld = un });
-    } else {
-        try general(allocator, io, T, am, w.re[0..un], w.im[0..un], ul, ur);
-        if (to) |t| for ([_][*]T{ w.re, w.im }) |x| ops.lascl(T, t, anrm, .{ .ptr = x, .rows = un, .cols = 1, .ld = un });
+    // `dgeev.f:398-404`: after a failure only `w[info..n]` is scaled back
+    var info: usize = 0;
+    const res = if (comptime isComplex(T))
+        general(allocator, io, T, am, w[0..un], null, ul, ur, &info)
+    else
+        general(allocator, io, T, am, w.re[0..un], w.im[0..un], ul, ur, &info);
+    res catch |e| if (e != error.NoConvergence) return e;
+    if (to) |t| {
+        const ws = if (comptime isComplex(T)) [_][*]T{w} else [_][*]T{ w.re, w.im };
+        for (ws) |x| ops.lascl(T, t, anrm, .{ .ptr = x + info, .rows = un - info, .cols = 1, .ld = un });
     }
+    res catch |e| {
+        if (unconverged) |c| c.* = info;
+        return e;
+    };
     if (ul) |x| {
         try balance.back(io, T, bal, scale, true, x);
         normalizeVectors(io, T, x, if (comptime isComplex(T)) null else w.im);
@@ -228,7 +247,9 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
 /// `evd_imp`: `a` (overwritten) to its eigenvalues (`s`, with `s_im` for
 /// real), left vectors into `ul`, right into `ur` (unnormalized, real ones
 /// packed as `geev`'s).
-pub fn general(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []T, s_im: ?[]T, ul: ?Mat(T), ur: ?Mat(T)) (ops.Error || error{NoConvergence})!void {
+/// On `NoConvergence`, `info` gets the QR iteration's `INFO`: `s[info..]`
+/// converged.
+pub fn general(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []T, s_im: ?[]T, ul: ?Mat(T), ur: ?Mat(T), info: *usize) (ops.Error || error{NoConvergence})!void {
     const n = a.rows;
     const want = ul != null or ur != null;
     const bs = qr.blockSize(n - 1, n - 1);
@@ -245,224 +266,23 @@ pub fn general(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []T, s_im:
     for (0..n) |j| for (@min(j + 2, n)..n) |i| {
         a.at(i, j).* = ops.zero(T);
     };
-    const info = if (comptime isComplex(T)) complex_schur.lahqr(T, want, a, z, s, 0, n) else real_schur.lahqr(io, T, want, a, z, s, s_im.?, 0, n);
-    if (info != 0) return error.NoConvergence;
+    info.* = if (comptime isComplex(T)) complex_schur.lahqr(T, want, a, z, s, 0, n) else real_schur.lahqr(io, T, want, a, z, s, s_im.?, 0, n);
+    if (info.* != 0) return error.NoConvergence;
     const zm = z orelse return;
+    // `xTREVC3`'s vectors of the Schur form, then `Z X` (its blocked
+    // back-transform)
     const x = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, x);
-    if (ur) |u| {
-        fromSchur(T, a, x);
+    const rwork = try al.alloc(Float(T), n);
+    defer al.free(rwork);
+    const diag = try al.alloc(T, if (comptime isComplex(T)) n else 0);
+    defer al.free(diag);
+    for ([_]?Mat(T){ ur, ul }, [_]bool{ true, false }) |dst, right| if (dst) |u| {
+        if (comptime isComplex(T)) {
+            try trevc.complex(al, io, T, right, a, x, rwork, diag);
+        } else trevc.real(T, right, a, x, rwork);
         try ops.gemm(al, io, T, .n, .n, ops.one(T), zm, x, ops.zero(T), u);
-    }
-    if (ul) |u| {
-        // B = J Tᴴ J (upper), its right vectors Y, then W = J Y J: Tᴴ's
-        // vectors in T's order, lower triangular
-        const b = try ops.alloc(T, al, n, n);
-        defer ops.free(T, al, b);
-        for (0..n) |j| for (0..n) |i| {
-            b.at(i, j).* = ops.conj(T, a.get(n - 1 - j, n - 1 - i));
-        };
-        fromSchur(T, b, x);
-        for (0..n) |j| for (0..n) |i| {
-            b.at(i, j).* = x.get(n - 1 - i, n - 1 - j);
-        };
-        if (comptime !isComplex(T)) {
-            // W's pair (q, q + 1) holds J y_im, J y_re (faer's vector is i
-            // times `dgeev`'s); turned to J y_re, -J y_im
-            var k: usize = 0;
-            while (k < n) {
-                if (k + 1 < n and a.get(k + 1, k) != 0) {
-                    for (0..n) |i| {
-                        const t = b.get(i, k);
-                        b.at(i, k).* = b.get(i, k + 1);
-                        b.at(i, k + 1).* = -t;
-                    }
-                    k += 2;
-                } else k += 1;
-            }
-        }
-        try ops.gemm(al, io, T, .n, .n, ops.one(T), zm, b, ops.zero(T), u);
-    }
-}
-
-/// `evd_from_real_schur_imp`, `evd_from_cplx_schur_imp`: the right
-/// eigenvectors of the (quasi-)upper triangular `a` into `v` (upper
-/// triangular, zeroed here), by back substitution with faer's guard
-/// against small pivots (`eps ‖A‖₁`, no scaling against overflow as the
-/// reference's `xTREVC3` has).
-fn fromSchur(comptime T: type, a: Mat(T), v: Mat(T)) void {
-    const F = Float(T);
-    const n = a.rows;
-    v.fill(ops.zero(T));
-    var norm: F = 0;
-    for (0..n) |j| for (0..@min(j + 2, n)) |i| {
-        if (comptime isComplex(T)) {
-            if (i <= j) norm += ops.abs1(T, a.get(i, j));
-        } else norm += @abs(a.get(i, j));
     };
-    var k = n;
-    while (k > 0) {
-        k -= 1;
-        if (comptime isComplex(T)) {
-            const p = a.get(k, k);
-            v.at(k, k).* = ops.one(T);
-            for (0..k) |i| v.at(i, k).* = ops.neg(T, a.get(i, k));
-            solveTriangular(T, a.sub(0, 0, k, k), p, v.col(k), norm);
-        } else if (k == 0 or a.get(k, k - 1) == 0) {
-            const p = a.get(k, k);
-            v.at(k, k).* = 1;
-            for (0..k) |i| v.at(i, k).* = -a.get(i, k);
-            solveQuasi(F, a.sub(0, 0, k, k), p, v.col(k), norm);
-        } else {
-            const p = a.get(k, k);
-            const q = @sqrt(@abs(a.get(k, k - 1))) * @sqrt(@abs(a.get(k - 1, k)));
-            if (@abs(a.get(k - 1, k)) >= @abs(a.get(k, k - 1))) {
-                v.at(k - 1, k - 1).* = 1;
-                v.at(k, k).* = q / a.get(k - 1, k);
-            } else {
-                v.at(k - 1, k - 1).* = -q / a.get(k, k - 1);
-                v.at(k, k).* = 1;
-            }
-            v.at(k - 1, k).* = 0;
-            v.at(k, k - 1).* = 0;
-            for (0..k - 1) |i| {
-                v.at(i, k - 1).* = -v.get(k - 1, k - 1) * a.get(i, k - 1);
-                v.at(i, k).* = -v.get(k, k) * a.get(i, k);
-            }
-            solveQuasiComplex(F, a.sub(0, 0, k - 1, k - 1), p, q, v.col(k - 1), v.col(k), norm);
-            k -= 1;
-        }
-    }
-}
-
-/// `solve_real_shifted_upper_quasi_triangular_system`: `(A - p) x = x`.
-fn solveQuasi(comptime F: type, a: Mat(F), p: F, x: [*]F, norm: F) void {
-    const eps = std.math.floatEps(F);
-    var i = a.rows;
-    while (i > 0) {
-        i -= 1;
-        if (i == 0 or a.get(i, i - 1) == 0) {
-            var dot: F = 0;
-            for (i + 1..a.rows) |j| dot += a.get(i, j) * x[j];
-            x[i] -= dot;
-            var zz = a.get(i, i) - p;
-            if (@abs(zz) < eps * norm) zz = eps * norm;
-            if (x[i] != 0) x[i] /= zz;
-        } else {
-            var dot0: F = 0;
-            var dot1: F = 0;
-            for (i + 1..a.rows) |j| {
-                dot0 += a.get(i - 1, j) * x[j];
-                dot1 += a.get(i, j) * x[j];
-            }
-            x[i - 1] -= dot0;
-            x[i] -= dot1;
-            const aa = a.get(i, i) - p;
-            const b = a.get(i - 1, i);
-            const c = a.get(i, i - 1);
-            const r0 = x[i - 1];
-            const r1 = x[i];
-            const inv_det = 1 / (aa * aa - b * c);
-            x[i - 1] = (aa * r0 - b * r1) * inv_det;
-            x[i] = (aa * r1 - c * r0) * inv_det;
-            i -= 1;
-        }
-    }
-}
-
-/// `solve_cplx_shifted_upper_quasi_triangular_system`: `(A - (p + i q)) x
-/// = x`, `x` as its real and imaginary parts.
-fn solveQuasiComplex(comptime F: type, a: Mat(F), p: F, q: F, xr: [*]F, xi: [*]F, norm: F) void {
-    const eps = std.math.floatEps(F);
-    var i = a.rows;
-    while (i > 0) {
-        i -= 1;
-        if (i == 0 or a.get(i, i - 1) == 0) {
-            var re: F = 0;
-            var im: F = 0;
-            for (i + 1..a.rows) |j| {
-                re += xr[j] * a.get(i, j);
-                im += xi[j] * a.get(i, j);
-            }
-            xr[i] -= re;
-            xi[i] -= im;
-            var z_re = a.get(i, i) - p;
-            var z_im = -q;
-            var zz = std.math.hypot(z_re, z_im);
-            if (zz < eps * norm) {
-                z_re = eps * norm;
-                z_im = 0;
-                zz = z_re;
-            }
-            const zr = (z_re / zz) / zz;
-            const zi = (-z_im / zz) / zz;
-            const x_re = xr[i];
-            const x_im = xi[i];
-            xr[i] = x_re * zr - x_im * zi;
-            xi[i] = x_re * zi + x_im * zr;
-        } else {
-            var re0: F = 0;
-            var re1: F = 0;
-            var im0: F = 0;
-            var im1: F = 0;
-            for (i + 1..a.rows) |j| {
-                re0 += a.get(i - 1, j) * xr[j];
-                re1 += a.get(i, j) * xr[j];
-                im0 += a.get(i - 1, j) * xi[j];
-                im1 += a.get(i, j) * xi[j];
-            }
-            xr[i - 1] -= re0;
-            xi[i - 1] -= im0;
-            xr[i] -= re1;
-            xi[i] -= im1;
-            const a_re = a.get(i, i) - p;
-            const a_im = -q;
-            const b = a.get(i - 1, i);
-            const c = a.get(i, i - 1);
-            const r0_re = xr[i - 1];
-            const r0_im = xi[i - 1];
-            const r1_re = xr[i];
-            const r1_im = xi[i];
-            var z_re = a_re * a_re - a_im * a_im - b * c;
-            var z_im = (a_re * a_im) * 2;
-            var zz = std.math.hypot(z_re, z_im);
-            // `z` is the shifted block's determinant, quadratic in `A`; faer
-            // guards it with the linear `eps ‖A‖`, so a matrix scaled small
-            // always clamps and a large one never does (issues.md)
-            const guard = @max((eps * norm) * (eps * norm), std.math.floatMin(F));
-            if (zz < guard) {
-                z_re = guard;
-                z_im = 0;
-                zz = z_re;
-            }
-            const zr = (z_re / zz) / zz;
-            const zi = (-z_im / zz) / zz;
-            const x0_re = (a_re * r0_re - a_im * r0_im) - b * r1_re;
-            const x0_im = (a_re * r0_im + a_im * r0_re) - b * r1_im;
-            const x1_re = (a_re * r1_re - a_im * r1_im) - c * r0_re;
-            const x1_im = (a_re * r1_im + a_im * r1_re) - c * r0_im;
-            xr[i - 1] = x0_re * zr - x0_im * zi;
-            xi[i - 1] = x0_re * zi + x0_im * zr;
-            xr[i] = x1_re * zr - x1_im * zi;
-            xi[i] = x1_re * zi + x1_im * zr;
-            i -= 1;
-        }
-    }
-}
-
-/// `solve_shifted_upper_triangular_system`: `(A - p) x = x`, complex.
-fn solveTriangular(comptime T: type, a: Mat(T), p: T, x: [*]T, norm: Float(T)) void {
-    const eps = std.math.floatEps(Float(T));
-    var i = a.rows;
-    while (i > 0) {
-        i -= 1;
-        var dot = ops.zero(T);
-        for (i + 1..a.rows) |j| dot = ops.add(T, dot, ops.mul(T, a.get(i, j), x[j]));
-        x[i] = ops.sub(T, x[i], dot);
-        var zz = ops.sub(T, a.get(i, i), p);
-        if (ops.abs(T, zz) < eps * norm) zz = ops.scalar(T, eps * norm);
-        if (!ops.isZero(T, x[i])) x[i] = ops.mul(T, x[i], ops.recip(T, zz));
-    }
 }
 
 /// `dgeev.f:430-487`, `zgeev.f:420-460`: each vector (a real pair as one)
@@ -888,7 +708,7 @@ fn geevCase(comptime T: type, al: Allocator, io: Io, a0: Mat(T)) !void {
         const jv: Jobz = if (pass == 0) .v else .n;
         const off = pass * 2 * n;
         const w: Eigenvalues(T) = if (comptime isComplex(T)) cw.ptr + pass * n else .{ .re = ev.ptr + off, .im = ev.ptr + off + n };
-        try geev(al, io, T, jv, jv, @intCast(n), a.ptr, @intCast(n + 1), w, vl.ptr, @intCast(n), vr.ptr, @intCast(n));
+        try geev(al, io, T, jv, jv, @intCast(n), a.ptr, @intCast(n + 1), w, vl.ptr, @intCast(n), vr.ptr, @intCast(n), null);
         for (0..n) |j| try testing.expect(chol.isNanT(T, a.get(n, j)));
     }
     const etol = tolerance(F, n, ops.normMax(T, a0));
@@ -975,6 +795,31 @@ test "faer evd: geev on special matrices: zero, identity, Jordan, rotation pairs
     }
 }
 
+test "faer evd: geev's eigenvectors that overflow unscaled (xTREVC3's scaling)" {
+    // upper triangular, T(i, i) = i h, ones above: back substitution for
+    // the last (first, for left vectors) eigenvalue grows like
+    // 1 / (k! h^k), past the largest float by about 2^500 for f64 (2^60
+    // for f32), so only a scaled solve stays finite
+    const al = testing.allocator;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        const n = 20;
+        const e = (3 * std.math.floatExponentMax(F)) / (2 * (n - 1)) + 1;
+        const h = std.math.ldexp(@as(F, 1), -e);
+        const a0 = try ops.alloc(T, al, n, n);
+        defer ops.free(T, al, a0);
+        a0.fill(ops.zero(T));
+        for (0..n) |i| {
+            a0.at(i, i).* = ops.scalar(T, @as(F, @floatFromInt(i)) * h);
+            if (i + 1 < n) a0.at(i, i + 1).* = ops.one(T);
+        }
+        geevCase(T, al, check.io, a0) catch |err| {
+            check.say("geev overflow {s}\n", .{@typeName(T)});
+            return err;
+        };
+    }
+}
+
 test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the bounds; arguments" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| {
@@ -986,9 +831,9 @@ test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the 
         const w: Eigenvalues(T) = if (comptime isComplex(T)) &ce else .{ .re = &e, .im = e[3..].ptr };
         var v: [9]T = undefined;
         a[4] = ops.scalar(T, std.math.nan(F));
-        try testing.expectError(error.InvalidA, geev(al, check.io, T, .v, .n, 3, &a, 3, w, &v, 3, &v, 1));
+        try testing.expectError(error.InvalidA, geev(al, check.io, T, .v, .n, 3, &a, 3, w, &v, 3, &v, 1, null));
         a[4] = ops.scalar(T, std.math.inf(F));
-        try testing.expectError(error.NoConvergence, geev(al, check.io, T, .n, .n, 3, &a, 3, w, &v, 1, &v, 1));
+        try testing.expectError(error.NoConvergence, geev(al, check.io, T, .n, .n, 3, &a, 3, w, &v, 1, &v, 1, null));
         // scaled past SMLNUM and BIGNUM: the unscaled matrix's vectors
         // (residuals on it, as they would overflow on the scaled one) and
         // its values times the scale
@@ -1013,7 +858,7 @@ test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the 
             var ev: [2 * n]F = undefined;
             var cw: [n]T = undefined;
             const ws: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = &ev, .im = ev[n..].ptr };
-            try geev(al, check.io, T, .v, .v, n, as.ptr, n, ws, vl.ptr, n, vr.ptr, n);
+            try geev(al, check.io, T, .v, .v, n, as.ptr, n, ws, vl.ptr, n, vr.ptr, n, null);
             for (&ev) |*x| x.* /= sc / 8;
             for (&cw) |*x| x.* = ops.mulReal(T, x.*, 1 / (sc / 8));
             if (comptime isComplex(T)) {
@@ -1028,13 +873,58 @@ test "faer evd: geev's NaN is InvalidA, infinity NoConvergence; scaled past the 
     var wr: [2]f64 = @splat(std.math.nan(f64));
     var wi: [2]f64 = @splat(std.math.nan(f64));
     const w: Eigenvalues(f64) = .{ .re = &wr, .im = &wi };
-    try testing.expectError(error.InvalidN, geev(fa, check.io, f64, .v, .v, -1, &a, 0, w, &a, 0, &a, 0));
-    try testing.expectError(error.InvalidLda, geev(fa, check.io, f64, .v, .v, 2, &a, 1, w, &a, 0, &a, 0));
-    try testing.expectError(error.InvalidLdvl, geev(fa, check.io, f64, .v, .v, 2, &a, 2, w, &a, 1, &a, 0));
-    try testing.expectError(error.InvalidLdvl, geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, &a, 0, &a, 2));
-    try testing.expectError(error.InvalidLdvr, geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, &a, 1, &a, 1));
-    try geev(fa, check.io, f64, .v, .v, 0, &a, 1, w, &a, 1, &a, 1);
+    try testing.expectError(error.InvalidN, geev(fa, check.io, f64, .v, .v, -1, &a, 0, w, &a, 0, &a, 0, null));
+    try testing.expectError(error.InvalidLda, geev(fa, check.io, f64, .v, .v, 2, &a, 1, w, &a, 0, &a, 0, null));
+    try testing.expectError(error.InvalidLdvl, geev(fa, check.io, f64, .v, .v, 2, &a, 2, w, &a, 1, &a, 0, null));
+    try testing.expectError(error.InvalidLdvl, geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, &a, 0, &a, 2, null));
+    try testing.expectError(error.InvalidLdvr, geev(fa, check.io, f64, .n, .v, 2, &a, 2, w, &a, 1, &a, 1, null));
+    try geev(fa, check.io, f64, .v, .v, 0, &a, 1, w, &a, 1, &a, 1, null);
     for (a ++ wr ++ wi) |x| try testing.expect(std.math.isNan(x));
+}
+
+test "faer evd: geev's INFO > 0: w[i..n] converged and scaled back, the count in unconverged" {
+    const al = testing.allocator;
+    defer ops.test_iter_limit = null;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        const n = 12;
+        var a0: [n * n]T = undefined;
+        check.fill(T, &a0, 31);
+        var v: [1]T = undefined;
+        // the true eigenvalues, then capped runs: unscaled and past SMLNUM
+        var ev: [2 * n]F = undefined;
+        var cw: [n]T = undefined;
+        var a = a0;
+        const w0: Eigenvalues(T) = if (comptime isComplex(T)) &cw else .{ .re = &ev, .im = ev[n..].ptr };
+        try geev(al, check.io, T, .n, .n, n, &a, n, w0, &v, 1, &v, 1, null);
+        for ([_]F{ 1, std.math.ldexp(@as(F, 1), std.math.floatExponentMin(F) + 8) }) |sc| {
+            ops.test_iter_limit = 10;
+            defer ops.test_iter_limit = null;
+            for (&a, a0) |*x, y| x.* = ops.mulReal(T, y, sc);
+            var ev1: [2 * n]F = undefined;
+            var cw1: [n]T = undefined;
+            const w1: Eigenvalues(T) = if (comptime isComplex(T)) &cw1 else .{ .re = &ev1, .im = ev1[n..].ptr };
+            var info: usize = 0;
+            var vr: [n * n]T = undefined;
+            try testing.expectError(error.NoConvergence, geev(al, check.io, T, .n, .v, n, &a, n, w1, &v, 1, &vr, n, &info));
+            try testing.expect(info > 0 and info < n);
+            const tol = tolerance(F, n, ops.normMax(T, .{ .ptr = &a0, .rows = n, .cols = n, .ld = n }));
+            for (info..n) |i| {
+                var best = std.math.inf(F);
+                for (0..n) |j| {
+                    const d = if (comptime isComplex(T)) ops.abs(T, ops.sub(T, ops.mulReal(T, cw1[i], 1 / sc), cw[j])) else std.math.hypot(ev1[i] / sc - ev[j], ev1[n + i] / sc - ev[n + j]);
+                    best = @min(best, d);
+                }
+                try testing.expect(best <= tol);
+            }
+        }
+        // an infinity: none converged
+        a = a0;
+        a[5] = ops.scalar(T, std.math.inf(F));
+        var info: usize = 0;
+        try testing.expectError(error.NoConvergence, geev(al, check.io, T, .n, .n, n, &a, n, w0, &v, 1, &v, 1, &info));
+        try testing.expectEqual(n, info);
+    }
 }
 
 test "faer evd: geev gives one worker's bits at any worker count" {
@@ -1067,7 +957,7 @@ test "faer evd: geev gives one worker's bits at any worker count" {
             const o = outs[c];
             @memcpy(o[0 .. n * n], a0.ptr[0 .. n * n]);
             const w: Eigenvalues(T) = if (comptime isComplex(T)) evs[c].ptr else .{ .re = evs[c].ptr, .im = evs[c].ptr + n };
-            try geev(al, if (wk == 1) Io.failing else threaded.io(), T, .v, .v, n, o.ptr, n, w, o.ptr + n * n, n, o.ptr + 2 * n * n, n);
+            try geev(al, if (wk == 1) Io.failing else threaded.io(), T, .v, .v, n, o.ptr, n, w, o.ptr + n * n, n, o.ptr + 2 * n * n, n, null);
         }
         for (1..3) |c| {
             try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(outs[0]), std.mem.sliceAsBytes(outs[c]));
@@ -1096,7 +986,7 @@ test "faer evd: geev balances, so D M D⁻¹ keeps M's eigenvalues to M's scale 
         var v: [1]T = undefined;
         for ([_]Mat(T){ m, a }, 0..) |x, p| {
             const w: Eigenvalues(T) = if (comptime isComplex(T)) cw[p * n ..].ptr else .{ .re = ev[2 * p * n ..].ptr, .im = ev[2 * p * n + n ..].ptr };
-            try geev(al, check.io, T, .n, .n, n, x.ptr, n, w, &v, 1, &v, 1);
+            try geev(al, check.io, T, .n, .n, n, x.ptr, n, w, &v, 1, &v, 1, null);
         }
         // each of A's within tolerance of one of M's
         const tol = tolerance(F, n, 4);
@@ -1110,4 +1000,3 @@ test "faer evd: geev balances, so D M D⁻¹ keeps M's eigenvalues to M's scale 
         }
     }
 }
-

@@ -2249,8 +2249,8 @@ complex pair whose solve meets another 2 x 2 block comes out wrong; scaled
 large, the guard never acts. A 12 x 12 random `f64` scaled by `2^-958` gave
 a left eigenvector with residual 1.15.
 
-- **Workaround:** rstd guards with `(eps ‖A‖₁)²` (`evd.zig`,
-  `solveQuasiComplex`), so the test is scale invariant.
+- **Workaround:** rstd guarded with `(eps ‖A‖₁)²`; since T117 its `geev`
+  takes Reference-LAPACK's `xTREVC3` instead (`trevc.zig`, next entry).
 - **Issue text:** "In `solve_cplx_shifted_upper_quasi_triangular_system`'s
   2 x 2 branch, `z` is the shifted block's determinant (quadratic in the
   matrix) but is compared with `eps * norm` (linear), so the guard depends on
@@ -2269,3 +2269,40 @@ reading the source while porting `geqp3`.
 - **Issue text:** "Column-pivoted `qr_in_place` on an all-zero matrix scales
   it by `1 / 0` and returns NaN in `R` and the Householder factors; skipping
   the scaling when the largest column norm is zero fixes it."
+
+### The eigenvector back substitution does not scale against overflow
+
+`evd_from_real_schur_imp` and `evd_from_cplx_schur_imp` (`evd/mod.rs`) solve
+each shifted triangular system by plain back substitution, guarding only
+small pivots. An eigenvector whose entries grow past the largest float (an
+upper triangular matrix with eigenvalues `h` apart and ones above them grows
+like `1 / (k! h^k)`) overflows to infinity, then NaN once normalized, where
+LAPACK's `xTREVC3` scales the vector down as it grows.
+
+- **Workaround:** rstd's `geev` takes `xTREVC3`'s solves (`trevc.zig`); its
+  test is such a matrix, 20 x 20.
+- **Issue text:** "The eigenvectors from `evd_real` and `evd_cplx` overflow
+  to inf/NaN when the back substitution grows past the float range (e.g.
+  triangular `T` with `T[i][i] = i * 2^-81`, ones on the superdiagonal,
+  `n = 20`, f64). LAPACK's `xTREVC3` rescales each vector during the solve
+  (`SCALE`, `BIGNUM`); the vector is defined only up to a scale, so that
+  costs nothing."
+
+## Reference-LAPACK
+
+As OpenBLAS `v0.3.34-317` ships it in `lapack-netlib/SRC/`.
+
+### `ztrevc3`, `ctrevc3`: the left solve gets other columns' norms
+
+For the left eigenvectors, `ztrevc3.f` calls `ZLATRS` on the trailing
+submatrix `T(KI+1:N, KI+1:N)` with `CNORM = RWORK`, the off-diagonal norms of
+`T`'s columns `1..N-KI`, not of columns `KI+1..N`. `ZLATRS` bounds the
+solution's growth with those norms, so a column much larger than the one
+read in its place can overflow the unscaled `ZTRSV` path. The right solve
+passes the right norms. Found by reading the source.
+
+- **Workaround:** rstd passes `RWORK(KI+1:N)`, the full columns' norms,
+  which bound the submatrix's (`trevc.zig`).
+- **Issue text:** "In `ztrevc3` (and `ctrevc3`, `ztrevc`, `ctrevc`), the
+  left-eigenvector `ZLATRS` call on `T(KI+1, KI+1)` passes `RWORK` as
+  `CNORM`, the norms of columns `1..N-KI`; it should pass `RWORK(KI+1)`."

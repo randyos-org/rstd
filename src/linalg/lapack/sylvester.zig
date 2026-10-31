@@ -5,18 +5,19 @@
 //! `trsy2` is ReLAPACK's `RELAPACK_?trsyl_rec2` (`relapack/src/dtrsyl_rec2.c`,
 //! `ztrsyl_rec2.c` and the rest; OpenBLAS v0.3.34-317), Reference-LAPACK's
 //! `xTRSYL` (`lapack-netlib/SRC/dtrsyl.f`, `ztrsyl.f` in that checkout)
-//! through f2c. Its 2 x 2 blocks call `xLALN2` (`laln2`, the real `NW = 1`
-//! paths of `dlaln2.f`) and `xLASY2` (`lasy2`, the 2 x 2 by 2 x 2 path of
-//! `dlasy2.f`, the only one `xTRSYL` takes). The four transposition cases
-//! are one loop: the order, the sums' ranges and which side transposes
-//! follow `op`, as the reference's four copies do. The sums are `?DOT` in
-//! order; complex division is Smith's (`util.cdiv`) where the reference
-//! takes `ZLADIV`.
+//! through f2c. Its 2 x 2 blocks call `xLALN2` (`faer/trevc.zig`'s, the
+//! real `NW = 1` paths of `dlaln2.f`) and `xLASY2` (`lasy2`, the 2 x 2 by
+//! 2 x 2 path of `dlasy2.f`, the only one `xTRSYL` takes). The four
+//! transposition cases are one loop: the order, the sums' ranges and which
+//! side transposes follow `op`, as the reference's four copies do. The sums
+//! are `?DOT` in order; complex division is Smith's (`util.cdiv`) where the
+//! reference takes `ZLADIV`.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const chol = @import("cholesky.zig");
+const trevc = @import("faer/trevc.zig");
 
 const Float = types.Float;
 const isComplex = types.isComplex;
@@ -214,72 +215,11 @@ pub fn Small(comptime F: type) type {
     return struct { x: [4]F, scale: F, perturbed: bool };
 }
 
-/// `DLALN2` with `NA = 2`, `NW = 1`, `CA`, `D1`, `D2` 1: `(A' - wr I) x = s v`
-/// for the 2 x 2 `A` at `a` (`A'` its transpose with `ltrans`), by complete
-/// pivoting; `s <= 1` keeps `x` from overflowing.
+/// `DLALN2` with `NA = 2`, `NW = 1` (`trevc.laln2`): `(A' - wr I) x = s v`
+/// for the 2 x 2 `A` at `a` (`A'` its transpose with `ltrans`).
 fn laln2(comptime F: type, ltrans: bool, smin: F, a: [*]const F, lda: usize, v: [2]F, wr: F) Small(F) {
-    // `IPIVOT`, `RSWAP`, `ZSWAP` (`dlaln2.f`)
-    const ipivot = [4][4]usize{ .{ 0, 1, 2, 3 }, .{ 1, 0, 3, 2 }, .{ 2, 3, 0, 1 }, .{ 3, 2, 1, 0 } };
-    const rswap = [4]bool{ false, true, false, true };
-    const zswap = [4]bool{ false, false, true, true };
-    const smlnum = 2 * std.math.floatMin(F);
-    const bignum = 1 / smlnum;
-    const smini = @max(smin, smlnum);
-    var out: Small(F) = .{ .x = @splat(0), .scale = 1, .perturbed = false };
-    // `CR`, column-major
-    var cr: [4]F = undefined;
-    cr[0] = a[0] - wr;
-    cr[3] = a[1 + lda] - wr;
-    if (ltrans) {
-        cr[2] = a[1];
-        cr[1] = a[lda];
-    } else {
-        cr[1] = a[1];
-        cr[2] = a[lda];
-    }
-    var cmax: F = 0;
-    var icmax: usize = 0;
-    for (cr, 0..) |x, j| if (@abs(x) > cmax) {
-        cmax = @abs(x);
-        icmax = j;
-    };
-    if (cmax < smini) {
-        const bnorm = @max(@abs(v[0]), @abs(v[1]));
-        if (smini < 1 and bnorm > 1 and bnorm > bignum * smini) out.scale = 1 / bnorm;
-        const temp = out.scale / smini;
-        out.x[0] = temp * v[0];
-        out.x[1] = temp * v[1];
-        out.perturbed = true;
-        return out;
-    }
-    const ur11 = cr[icmax];
-    const cr21 = cr[ipivot[icmax][1]];
-    const ur12 = cr[ipivot[icmax][2]];
-    const cr22 = cr[ipivot[icmax][3]];
-    const ur11r = 1 / ur11;
-    const lr21 = ur11r * cr21;
-    var ur22 = cr22 - ur12 * lr21;
-    if (@abs(ur22) < smini) {
-        ur22 = smini;
-        out.perturbed = true;
-    }
-    const br1 = if (rswap[icmax]) v[1] else v[0];
-    var br2 = if (rswap[icmax]) v[0] else v[1];
-    br2 = br2 - lr21 * br1;
-    const bbnd = @max(@abs(br1 * (ur22 * ur11r)), @abs(br2));
-    if (bbnd > 1 and @abs(ur22) < 1 and bbnd >= bignum * @abs(ur22)) out.scale = 1 / bbnd;
-    const xr2 = (br2 * out.scale) / ur22;
-    const xr1 = (out.scale * br1) * ur11r - xr2 * (ur11r * ur12);
-    out.x[0] = if (zswap[icmax]) xr2 else xr1;
-    out.x[1] = if (zswap[icmax]) xr1 else xr2;
-    const xnorm = @max(@abs(xr1), @abs(xr2));
-    if (xnorm > 1 and cmax > 1 and xnorm > bignum / cmax) {
-        const temp = cmax / bignum;
-        out.x[0] *= temp;
-        out.x[1] *= temp;
-        out.scale *= temp;
-    }
-    return out;
+    const r = trevc.laln2(F, ltrans, 2, 1, smin, a, lda, .{ .{ v[0], 0 }, .{ v[1], 0 } }, wr, 0);
+    return .{ .x = .{ r.x[0][0], r.x[1][0], 0, 0 }, .scale = r.scale, .perturbed = r.perturbed };
 }
 
 /// `DLASY2` with `N1 = N2 = 2`: `op(TL) X + sgn X op(TR) = s V` for 2 x 2

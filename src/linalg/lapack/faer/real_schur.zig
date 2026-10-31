@@ -196,7 +196,7 @@ pub fn lahqr(io: Io, comptime F: type, want_t: bool, a: Mat(F), z: ?Mat(F), w_re
         w_re[ilo] = a.get(ilo, ilo);
         w_im[ilo] = 0;
     }
-    const itmax = 30 * @max(10, nh);
+    const itmax = ops.iterLimit(30 * @max(10, nh));
     var k_defl: usize = 0;
     var istop = ihi;
     var istart = ilo;

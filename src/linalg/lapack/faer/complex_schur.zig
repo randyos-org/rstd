@@ -51,7 +51,7 @@ pub fn lahqr(comptime T: type, want_t: bool, a: Mat(T), z: ?Mat(T), w: []T, ilo:
     const dat2: F = -0.4375;
     if (nh == 0) return 0;
     if (nh == 1) w[ilo] = a.get(ilo, ilo);
-    const itmax = @max(30, (std.math.floatMantissaBits(F) + 1) / 2) *| @max(10, nh) *| nh;
+    const itmax = ops.iterLimit(@max(30, (std.math.floatMantissaBits(F) + 1) / 2) *| @max(10, nh) *| nh);
     var k_defl: usize = 0;
     var istop = ihi;
     var istart = ilo;
