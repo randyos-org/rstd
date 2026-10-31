@@ -207,8 +207,11 @@ users are not assumed to know. Part of the codebase-wide pass to make rstd more 
   UEFI Specification 2.10, section 2.3.4,
   <https://uefi.org/specs/UEFI/2.10/02_Overview.html>). Elsewhere, `q`/`x` alias `d`/`z`, as in the reference; `blas_types` is a
   membership list for that reason, since a `switch` cannot hold one type twice.
-- **`quad_precision`** is off; turning it on makes `XDouble` Zig's `f128` (compiler-rt
-  arithmetic) and is exclusive with `exprecision`.
+- **`quad_precision`** (`-Dquad-precision`, OpenBLAS's `QUAD_PRECISION`, off by default
+  as in `Makefile.rule:214`) makes `XDouble` Zig's `f128` (compiler-rt arithmetic) on every
+  target, kernel objects included (the `blas_options` module), and turns `exprecision` off.
+  The `aarch64-quad` rig runs with it, the only place the edge and level-3 driver tests meet
+  an extended type off x86 (T19).
 - **`f80` size.** `f80` keeps Zig's native size (16 bytes on x86_64, 12 on x86), where the
   reference's GCC builds pass `-m128bit-long-double` (`Makefile.system:602`, `:627`). Buffer formulas count bytes and round up to
   whole elements; the gemm blocking keeps the reference's 16-byte figures.
@@ -1854,6 +1857,7 @@ The freestanding and UEFI machines (`build/qemutest.zig`):
 | `i386` | `pentium3` | |
 | `i386-max` | `max` under TCG | built for `nehalem`: the SSE2-and-up cores, each object for its own ISA |
 | `i386-safe`, `i386-max-safe` | as `i386`, `i386-max` | ReleaseSafe: Debug stores every value to memory, which hides x87 width bugs (T56's reductions failed only optimized) |
+| `aarch64-quad` | as `aarch64` | `quad_precision`: `XDouble` is `f128`, so the vtable's `q` and `x` slots get tested off x86 |
 | `x86_64` | `max` under TCG | |
 | `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
 | `sparc64-debug` | `sun4u` | Debug, in 46 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |

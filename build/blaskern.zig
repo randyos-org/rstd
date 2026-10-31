@@ -45,6 +45,7 @@ const Group = struct {
 
 var force_llvm: ?bool = null;
 var relapack = false;
+var quad_precision = false;
 var option_read = false;
 
 /// The kernel objects built when `-Dblas-cores` is not given: the target's
@@ -60,20 +61,26 @@ pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbu
 /// for every core the target can run (`.all`), or only the core the target
 /// maps to (`.target`), or none (`.none`). It also gives `mod` the
 /// `blaskern_linked` module, which tells `asm_registry.install` what got linked,
-/// and `lapack_options` (`-Drelapack`), since every module with the BLAS has
-/// LAPACK too.
-pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores) !void {
+/// `blas_options` (`quad_precision`), which the kernel objects get too, and
+/// `lapack_options` (`-Drelapack`), since every module with the BLAS has
+/// LAPACK too. `quad` null takes `-Dquad-precision`.
+pub fn addBlasKernels(b: *Build, mod: *Module, target: ResolvedTarget, cores: rstdbuild.BlasCores, quad: ?bool) !void {
     if (!option_read) {
         option_read = true;
         force_llvm = b.option(bool, "blas-llvm", "Force the BLAS kernel objects on (true) or off (false) LLVM; unset uses it only where the kernels need it");
         relapack = b.option(bool, "relapack", "LAPACK's potrf, getrf, trtri and lauum from ReLAPACK's recursive algorithms instead of OpenBLAS's, as OpenBLAS's BUILD_RELAPACK with RELAPACK_REPLACE") orelse false;
+        quad_precision = b.option(bool, "quad-precision", "The BLAS's extended type (q and x routines) as f128 in software, as OpenBLAS's QUAD_PRECISION; turns x87 EXPRECISION off") orelse false;
     }
     const lapack_opts = b.addOptions();
     lapack_opts.addOption(bool, "relapack", relapack);
     mod.addImport("lapack_options", lapack_opts.createModule());
+    const blas_opts = b.addOptions();
+    blas_opts.addOption(bool, "quad_precision", quad orelse quad_precision);
+    const blas_mod = blas_opts.createModule();
+    mod.addImport("blas_options", blas_mod);
     // the core type depends on the architecture, so it becomes compile-time here
     switch (target.result.cpu.arch) {
-        inline else => |a| try addForArch(b, mod, target, cores, a),
+        inline else => |a| try addForArch(b, mod, target, cores, blas_mod, a),
     }
 }
 
@@ -82,6 +89,7 @@ fn addForArch(
     mod: *Module,
     target: ResolvedTarget,
     cores: rstdbuild.BlasCores,
+    blas_mod: *Module,
     comptime arch_tag: std.Target.Cpu.Arch,
 ) !void {
     const arch = target.result.cpu.arch;
@@ -142,7 +150,10 @@ fn addForArch(
                 // Kernels are always built for speed, whatever the consumer uses.
                 .optimize = .fast,
                 .pic = objectPic(mod, target),
-                .imports = &.{.{ .name = "blaskernel_options", .module = opts.createModule() }},
+                .imports = &.{
+                    .{ .name = "blaskernel_options", .module = opts.createModule() },
+                    .{ .name = "blas_options", .module = blas_mod },
+                },
             }),
             .use_llvm = llvm,
             // the self-hosted linker writes the object otherwise, and pads and

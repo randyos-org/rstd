@@ -79,6 +79,8 @@ const Machine = struct {
     /// Kernel objects linked: `.none` for a soft-float ABI, which no
     /// converted kernel serves (`abi.zig`).
     blas_cores: rstdbuild.BlasCores = .all,
+    /// `XDouble` as `f128` (`-Dquad-precision` for this rig alone).
+    quad_precision: bool = false,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-part` picks some, and `-Dqemu-test-filter` builds one
@@ -133,7 +135,7 @@ const Boot = union(enum) {
     };
 };
 
-const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" });
+const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" }) ++ quad(&.{"aarch64"});
 
 /// `names` again as `<name>-safe`, in ReleaseSafe (T87): Debug stores every
 /// value to memory, which hides x87 width bugs (T56's showed in ReleaseSafe only).
@@ -145,6 +147,20 @@ fn x87Safe(comptime names: []const []const u8) [names.len]Machine {
         } else @compileError("no rig " ++ name);
         o.name = name ++ "-safe";
         o.optimize = .safe;
+    }
+    return out;
+}
+
+/// `names` again as `<name>-quad`, with `XDouble` as `f128` (T19): the edge
+/// and level-3 driver tests' only extended type off x86.
+fn quad(comptime names: []const []const u8) [names.len]Machine {
+    var out: [names.len]Machine = undefined;
+    for (names, &out) |name, *o| {
+        o.* = for (base_machines) |m| {
+            if (std.mem.eql(u8, m.name, name)) break m;
+        } else @compileError("no rig " ++ name);
+        o.name = name ++ "-quad";
+        o.quad_precision = true;
     }
     return out;
 }
@@ -1252,7 +1268,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
     });
     if (k.firmware != null) try addUefiImports(b, test_mod);
     // the kernels of the architectures that have any
-    try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores);
+    try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores, if (m.quad_precision) true else null);
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,

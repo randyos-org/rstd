@@ -19,7 +19,7 @@ How the code is structured, and why, is in [`design.md`](design.md).
 | Type | Letters | Notes |
 | --- | --- | --- |
 | `f32`, `f64` | `s`, `d` | |
-| `types.XDouble` | `q` | x87 `f80` on x86 and x86_64 outside Windows and UEFI, else `f64` |
+| `types.XDouble` | `q` | `f128` with `-Dquad-precision`; else x87 `f80` on x86 and x86_64 outside Windows and UEFI, else `f64` |
 | `std.math.Complex` of those | `c`, `z`, `x` | |
 | any other float type (`f16`, `f80`, `f128`) and its `Complex` | | portable kernels built for the type |
 | `types.BF16`, `types.HF16` | `sb`, `b`, `sh` | the routines under [bfloat16 and half precision](#bfloat16-and-half-precision) |
@@ -291,7 +291,7 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | --- | --- |
 | `zig build rstd-test` | every test natively; add `-Dblas-cores=all` to test every core the host runs, `-Drstd-test-filter=<name>` to pick tests |
 | `zig build qemu-test` | every emulated machine |
-| `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `aarch64-smp`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `x86_64-smp`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
+| `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `aarch64-smp`, `aarch64-quad`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `x86_64-smp`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
 | `zig build qemu-test-x86_64-whpx` | the host CPU under WHPX (x86_64 Windows hosts): the AVX-512, FMA4 and XOP cores |
 | `zig build qemu-test-linux-<arch>` | the full suite under Linux (`aarch64`, `x86_64`, `arm`, `riscv64`, `powerpc64le`) |
 | `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemutest.zig`) |

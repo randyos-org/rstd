@@ -40,7 +40,7 @@ pub fn addRstdModule(
     options.addOption(bool, "has_vulkan", vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
-    try blaskern.addBlasKernels(b, mod, target, blas_cores);
+    try blaskern.addBlasKernels(b, mod, target, blas_cores, null);
     rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
     if (has_renderdoc) {
         // null until its lazy dependencies are fetched; the build then reruns
@@ -159,7 +159,7 @@ pub fn build(b: *Build) !void {
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const uefi = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .uefi });
         const uefi_mod = b.createModule(.{ .root_source_file = b.path("src/_test_qemu.zig"), .target = uefi, .optimize = optimize });
-        try blaskern.addBlasKernels(b, uefi_mod, uefi, .all);
+        try blaskern.addBlasKernels(b, uefi_mod, uefi, .all, null);
         try qemutest.addUefiImports(b, uefi_mod);
         uefi_step.dependOn(&b.addTest(.{
             .name = b.fmt("rstd-check-uefi-{t}", .{arch}),
