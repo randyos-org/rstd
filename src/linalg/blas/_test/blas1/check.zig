@@ -398,8 +398,8 @@ pub fn appendBits(al: std.mem.Allocator, out: *std.ArrayList(u8), v: anytype) st
             for (v) |e| try appendBits(al, out, e);
         },
         .float => {
-            var b: [@divExact(@bitSizeOf(V), 8)]u8 = undefined;
-            std.mem.writeInt(Bits(V), &b, @bitCast(v), .little);
+            var b: [bitsLen(V)]u8 = undefined;
+            std.mem.writeInt(Bits(V), &b, @bitCast(v), sysinfo.target.cpu.arch.endian());
             try out.appendSlice(al, &b);
         },
         .@"struct" => if (comptime isComplex(V)) {
@@ -408,6 +408,23 @@ pub fn appendBits(al: std.mem.Allocator, out: *std.ArrayList(u8), v: anytype) st
         } else try out.appendSlice(al, std.mem.asBytes(&v)),
         else => try out.appendSlice(al, std.mem.asBytes(&v)),
     }
+}
+
+/// The bytes `appendBits` gives an element of `T`.
+pub fn bitsLen(comptime T: type) usize {
+    if (comptime !padded(T)) return @sizeOf(T);
+    const n = @divExact(@bitSizeOf(FloatOf(T)), 8);
+    return if (isComplex(T)) 2 * n else n;
+}
+
+/// An element of `T` back from `appendBits`' bytes `b` (`bitsLen(T)` of them).
+pub fn fromBits(comptime T: type, b: []const u8) T {
+    if (comptime !padded(T)) return std.mem.bytesToValue(T, b[0..@sizeOf(T)]);
+    if (comptime isComplex(T)) {
+        const n = bitsLen(FloatOf(T));
+        return .init(fromBits(FloatOf(T), b[0..n]), fromBits(FloatOf(T), b[n..][0..n]));
+    }
+    return @bitCast(std.mem.readInt(Bits(T), b[0..comptime bitsLen(T)], sysinfo.target.cpu.arch.endian()));
 }
 
 /// A float, or a complex of one, whose storage has bytes past its value.
@@ -615,12 +632,13 @@ fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
     return check(&vt);
 }
 
-/// Whether the tests run on a rig: the freestanding ones, WASI, and the Linux
-/// rigs and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore` names each
-/// core as it starts there, and the biggest cases are left to native runs.
+/// Whether the tests run on a rig: the freestanding and UEFI ones, WASI, and
+/// the Linux rigs and remote Macs, which set `RSTD_TEST_PROGRESS`. `eachCore`
+/// names each core as it starts there, and the biggest cases are left to
+/// native runs.
 pub fn rig() bool {
     return switch (sysinfo.target.os.tag) {
-        .freestanding, .wasi => true,
+        .freestanding, .uefi, .wasi => true,
         .linux, .macos => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         else => false,
     };
@@ -681,6 +699,23 @@ test "the portable extremes at the extended type match a plain loop" {
             try checkExtreme(std.math.Complex(E), find, "index", &extremum.Extremum(E, 2, find).index);
         }
     };
+}
+
+test "appendBits leaves out an f80's padding, and fromBits reads it back" {
+    const al = std.testing.allocator;
+    inline for (.{ f64, f80, std.math.Complex(f80) }) |T| {
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(al);
+        var v: [2]T = undefined;
+        // padding bytes of 0xAA, as Debug leaves them, must not reach `out`
+        @memset(std.mem.asBytes(&v), 0xaa);
+        for (&v, [_]f80{ 1.5, -2.25 }) |*e, x| e.* = if (comptime isComplex(T)) .init(x, -x) else @floatCast(x);
+        try appendBits(al, &out, @as([]const T, &v));
+        const z = bitsLen(T);
+        try zigstd.testExpectEqual(2 * z, out.items.len);
+        try zigstd.testExpectEqual(@as(usize, if (T == f64) 8 else if (T == f80) 10 else 20), z);
+        for (v, 0..) |e, i| try zigstd.testExpectTrue(same(T, e, fromBits(T, out.items[i * z ..][0..z]), true));
+    }
 }
 
 test "tolerance goes by width, so a 64-bit c_longdouble gets f64's" {

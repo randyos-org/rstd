@@ -61,10 +61,10 @@ fn nearSerial(comptime T: type, al: Allocator, comptime body: Body, most: u64) !
     threading.test_serial_max = most;
     try body(al, Io.failing, &got);
     try std.testing.expectEqual(want.items.len, got.items.len);
-    const z = @sizeOf(T);
+    const z = check.bitsLen(T);
     for (0..want.items.len / z) |i| {
-        const w = std.mem.bytesToValue(T, want.items[i * z ..][0..z]);
-        const g = std.mem.bytesToValue(T, got.items[i * z ..][0..z]);
+        const w = check.fromBits(T, want.items[i * z ..][0..z]);
+        const g = check.fromBits(T, got.items[i * z ..][0..z]);
         check.expectClose(T, w, g, check.tolerance(Float(T), 8 * long)) catch |e| {
             check.say("element {d}: ", .{i});
             return e;
@@ -101,7 +101,7 @@ fn Cases(comptime T: type) type {
             for (transes) |t| for (shapes) |s| for (incs) |inc| {
                 @memcpy(y, y0);
                 try interface.gemv(al, io, T, t, @intCast(s[0]), @intCast(s[1]), alpha, a.ptr, @intCast(s[0] + 3), x.ptr, inc[0], beta, y.ptr, inc[1]);
-                try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                try check.appendDigest(al, out, y);
             };
         }
 
@@ -145,7 +145,7 @@ fn Cases(comptime T: type) type {
             for (transes) |t| for ([_][2]usize{ .{ long, short }, .{ short, long } }) |s| for (incs) |inc| {
                 @memcpy(y, y0);
                 try band.gbmv(al, io, T, t, @intCast(s[0]), @intCast(s[1]), kl, ku, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                try check.appendBits(al, out, y);
             };
         }
 
@@ -165,12 +165,12 @@ fn Cases(comptime T: type) type {
                 if (!u.isRev()) {
                     @memcpy(y, y0);
                     try interface.symv(al, io, T, u, n, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                    try check.appendBits(al, out, y);
                 }
                 if (comptime isComplex(T)) {
                     @memcpy(y, y0);
                     try interface.hemv(al, io, T, u, n, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                    try check.appendBits(al, out, y);
                 }
             };
         }
@@ -192,12 +192,12 @@ fn Cases(comptime T: type) type {
                 if (!u.isRev()) {
                     @memcpy(y, y0);
                     try band.sbmv(al, io, T, u, n, k, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                    try check.appendBits(al, out, y);
                 }
                 if (comptime isComplex(T)) {
                     @memcpy(y, y0);
                     try band.hbmv(al, io, T, u, n, k, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                    try check.appendBits(al, out, y);
                 }
             };
         }
@@ -216,11 +216,11 @@ fn Cases(comptime T: type) type {
             for ([_]types.Uplo{ .u, .l }) |u| for (incs) |inc| {
                 @memcpy(y, y0);
                 try band.spmv(al, io, T, u, n, alpha, a.ptr, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                try check.appendBits(al, out, y);
                 if (comptime isComplex(T)) {
                     @memcpy(y, y0);
                     try band.hpmv(al, io, T, u, n, alpha, a.ptr, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try out.appendSlice(al, std.mem.sliceAsBytes(y));
+                    try check.appendBits(al, out, y);
                 }
             };
         }
@@ -246,7 +246,7 @@ fn Cases(comptime T: type) type {
                         1 => try tri.tbmv(al, io, T, u, t, d, n, k, a.ptr, k + 1, x.ptr, inc[0]),
                         else => try tri.tpmv(al, io, T, u, t, d, n, a.ptr, x.ptr, inc[0]),
                     }
-                    try out.appendSlice(al, std.mem.sliceAsBytes(x));
+                    try check.appendBits(al, out, x);
                 }
             };
         }
@@ -369,17 +369,17 @@ fn Stress(comptime T: type) type {
             threading.test_serial_max = 32 * rows;
             @memcpy(s.out_y, s.y);
             try interface.gemv(al, io, T, .t, rows, cols, alpha, s.a.ptr, lda, s.x.ptr, 1, beta, s.out_y.ptr, 2);
-            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_y));
+            try check.appendBits(al, out, s.out_y);
             @memcpy(s.out_a, s.a);
             try interface.ger(al, io, T, rows, cols, alpha, s.x.ptr, 2, s.y.ptr, 1, s.out_a.ptr, lda);
-            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_a));
+            try check.appendBits(al, out, s.out_a);
             threading.test_serial_max = order / 8 + 1;
             @memcpy(s.out_a, s.a);
             try band.syr2(al, io, T, .l, order, alpha, s.x.ptr, 1, s.y.ptr, 2, s.out_a.ptr, lda);
-            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_a));
+            try check.appendBits(al, out, s.out_a);
             @memcpy(s.out_y, s.y);
             try interface.symv(al, io, T, .u, order, alpha, s.a.ptr, lda, s.x.ptr, 1, beta, s.out_y.ptr, 2);
-            try out.appendSlice(al, std.mem.sliceAsBytes(s.out_y));
+            try check.appendBits(al, out, s.out_y);
         }
     };
 }
