@@ -125,6 +125,9 @@ pub fn build(b: *Build) !void {
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
+    // compiles exactly what `rstd-test` runs, without running it, so a build
+    // queue can hold its slot for compiling only and run the tests after
+    b.step("rstd-test-build", "Build rstd's unit tests as `rstd-test` would, without running them").dependOn(&rstd_test_exe.step);
     // as 32-bit x87 code, in Debug and ReleaseSafe: Debug's stores hide x87
     // width bugs (T87); Windows and Linux on x86 hosts
     const x87_step = b.step("rstd-test-x87", "Run rstd's unit tests as pentium3 code on this x86 host, in Debug and ReleaseSafe");
