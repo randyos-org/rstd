@@ -35,19 +35,44 @@ The port and its optimization are done, and other rstd work can start, when all 
 
 ## Running now
 
+Each item sits under its current stage and moves when its agent reports, so this can lag by minutes; the coordinator's status script shows the live build slots and runs.
+
+### Writing code
+
+- [ ] **T101** rstd's `sdot` from 256K floats runs 51 to 53 GB/s on arm64 where its kernel alone
+  runs 98 (R4, results-flyoff.md); bits unchanged. Level-1 threading or `Io.Threaded` (both landed
+  since 6d66239) are the suspects; also look at threaded `cgemm` n = 128 in the VM, whose rate
+  varies 198 to 249 GFLOP/s run to run. Next after the sweeps (user, 2026-10-30): a tier-2
+  regression from rstd's level-1 threading; with T102. Code side started (user, 2026-10-30): find
+  the cause and fix it; the timing session verifies. Running (`wip/perffix`).
+- [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and
+  28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4,
+  results-flyoff.md). Find whether it is code or the guest. Code side started (user, 2026-10-30):
+  find the cause and fix it; the timing session verifies. Running (`wip/perffix`).
+- [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
+  to 1.01) trail OpenBLAS. Next after the sweeps (user, 2026-10-30): tier 1; re-measure after T100,
+  then fix what's left. Code side started (user, 2026-10-30): find the cause and fix it; the timing
+  session verifies. Running (`wip/perffix`).
+
+### Waiting for a build slot
+
+Nothing yet.
+
+### Building (in a slot)
+
 - [ ] **T115** Routines only reference LAPACK has (T113, `lapack/sources.md`): `gecon`,
   `gebal`/`gebak`, `trexc`/`trsen`, `gelsy`, plus `lange` (no source chosen) and `gelqf` (only
   libflame's FLAME code besides the reference). The anthology rule picks the best open-source
   implementation, and here that is the reference: port these from reference LAPACK (its license is
   in the accepted BSD class) unless faer turns out to have an equivalent, and record each in the
   table. Running (`wip/refonly`).
-- [ ] **T19** `XDouble` as `f128`: `quad_precision` is hard-wired off; add a build option and a rig
-  configuration for it. The edge tests and level 3's per-routine driver tests still cover no
-  extended type off x86 (the interfaces do). Parked 2026-10-30 for the MVP (tier 3 work off x86):
-  wip d2ea5703 on `wip/quad` (worktree removed) has `-Dquad-precision`, a `blas_options` module and
-  an `aarch64-quad` rig; only `zig build -h` (0.18) and the native types test (31/31) ran; left:
-  0.17 `-h`, wider native tests with quad on and off, `qemu-check-aarch64-quad`. Finishing the
-  started work (user, 2026-10-30). Running (`wip/quad`).
+- [ ] **T119** Level-3 small-matrix follow-ups (T30): `sbgemm`'s small-matrix kernels are not
+  ported; the per-core small kernels upstream has (AVX-512, SVE, POWER10, LASX) are not converted;
+  the small-path thresholds are upstream, tuned for its kernels, so time them under T05. Sweep:
+  `3m`, `small`, `interface: gemm` on every rig, `aarch64-sve`, `powerpc64le-power10` and
+  loongarch64 first (their permits allow the small path), `blat3_3m` on `x86_64` and `i386-max`.
+  AVX-512 part pulled into the MVP (user, 2026-10-30): the Skylake-X `sgemm`/`dgemm` and Cooper
+  Lake/Sapphire Rapids `sbgemm` small kernels. Running (`wip/small512`).
 - [ ] **T40** Linux rig gaps: `linux-powerpc64le` never runs POWER10 kernels (baseline build),
   `linux-aarch64` leaves out the SVE cores, and under HVF it also skips `vortexm4` (cause unknown).
   Parked 2026-10-30 for the MVP as wip e3c1d759 on `wip/riggaps` (not rebased, not compile-checked):
@@ -62,13 +87,6 @@ The port and its optimization are done, and other rstd work can start, when all 
   an SVE target ("inline asm clobber list contains reserved registers: FFR"; the build still exits
   0); hosted SVE builds only, baseline aarch64 is unaffected (issues.md, wip 9af2e523). Finishing
   the started work (user, 2026-10-30). Running (`wip/riggaps`).
-- [ ] **T119** Level-3 small-matrix follow-ups (T30): `sbgemm`'s small-matrix kernels are not
-  ported; the per-core small kernels upstream has (AVX-512, SVE, POWER10, LASX) are not converted;
-  the small-path thresholds are upstream, tuned for its kernels, so time them under T05. Sweep:
-  `3m`, `small`, `interface: gemm` on every rig, `aarch64-sve`, `powerpc64le-power10` and
-  loongarch64 first (their permits allow the small path), `blat3_3m` on `x86_64` and `i386-max`.
-  AVX-512 part pulled into the MVP (user, 2026-10-30): the Skylake-X `sgemm`/`dgemm` and Cooper
-  Lake/Sapphire Rapids `sbgemm` small kernels. Running (`wip/small512`).
 - [ ] **T117** faer follow-ups (T34): `@Vector` the fused bi-diagonalization pass (scalar now,
   faer's four partial sums); keep `gesvd`'s `INFO > 0` count (faer doesn't); run
   divide-and-conquer's two halves in parallel if rstd's threading gains task trees; race
@@ -88,6 +106,16 @@ The port and its optimization are done, and other rstd work can start, when all 
   race faer's Bunch-Kaufman (different storage) against `sytrf`. Sweep: `relapack` on every rig, and
   with `-Drelapack=true` on one or two. `tgsyl` pulled into the MVP (user, 2026-10-30). Running
   (`wip/lapackfix`).
+
+### Testing (native runs and rigs, outside the slots once zb.sh splits them)
+
+- [ ] **T19** `XDouble` as `f128`: `quad_precision` is hard-wired off; add a build option and a rig
+  configuration for it. The edge tests and level 3's per-routine driver tests still cover no
+  extended type off x86 (the interfaces do). Parked 2026-10-30 for the MVP (tier 3 work off x86):
+  wip d2ea5703 on `wip/quad` (worktree removed) has `-Dquad-precision`, a `blas_options` module and
+  an `aarch64-quad` rig; only `zig build -h` (0.18) and the native types test (31/31) ran; left:
+  0.17 `-h`, wider native tests with quad on and off, `qemu-check-aarch64-quad`. Finishing the
+  started work (user, 2026-10-30). Running (`wip/quad`).
 - [ ] **T47** Hardware-only paths never run: the mips `cpucfg` decode, the sparc `sllx` rewrite,
   Linux ppc64 `mfpvr`, the Windows arm64 registry MIDR and feature probes, the arm64 sysfs fallback,
   the FreeBSD arm64 probe, Accelerate's pre-13.3 symbol fallbacks (`$NEWLAPACK`, classic `cblas_*`);
@@ -96,6 +124,10 @@ The port and its optimization are done, and other rstd work can start, when all 
   Tier-2 parts pulled into the MVP (user, 2026-10-30): Windows arm64 registry probes, arm64 Linux
   sysfs fallback, Accelerate's pre-13.3 fallbacks, tested with recorded inputs. Running
   (`wip/probes`).
+
+### Ready to land
+
+Nothing yet.
 
 ## Queue
 
@@ -172,17 +204,6 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   OpenBIOS's source); 32-bit x86 Windows threads starting at x87 0x27f (T03's observation; no
   source, no test records it: add a test); "MKL leaves FTZ to the application" (from memory); Tegra
   2 as VFPv3-D16 (a forum post only); `symmetric.zig`'s "4 elements of slack past each".
-- [ ] **T101** rstd's `sdot` from 256K floats runs 51 to 53 GB/s on arm64 where its kernel alone
-  runs 98 (R4, results-flyoff.md); bits unchanged. Level-1 threading or `Io.Threaded` (both landed
-  since 6d66239) are the suspects; also look at threaded `cgemm` n = 128 in the VM, whose rate
-  varies 198 to 249 GFLOP/s run to run. Next after the sweeps (user, 2026-10-30): a tier-2
-  regression from rstd's level-1 threading; with T102.
-- [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and
-  28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4,
-  results-flyoff.md). Find whether it is code or the guest.
-- [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
-  to 1.01) trail OpenBLAS. Next after the sweeps (user, 2026-10-30): tier 1; re-measure after T100,
-  then fix what's left.
 - [ ] **T20** Kernel strategy: race `@Vector` against the converted assembly per core on a quiet
   machine (only vortex is done, `tools/blasbench/results-m6.md`); keep per-core code only where Zig
   loses. riscv64 races (from T22): `@Vector` against the `asm` `axpy` on zvl128b and x280, and
