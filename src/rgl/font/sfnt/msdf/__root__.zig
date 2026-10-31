@@ -671,7 +671,6 @@ fn msdfSignCorrection(
 
     if (!ambiguous) return;
 
-    const iw: i32 = @intCast(w);
     match_idx = 0;
     for (0..h) |y| {
         const row: u32 = @intCast(h - y - 1);
@@ -679,10 +678,10 @@ fn msdfSignCorrection(
             const match = match_map[match_idx];
             if (match == 0) {
                 var neighbor_match: i32 = 0;
-                if (x > 0) neighbor_match += match - 1;
-                if (x < w - 1) neighbor_match += match + 1;
-                if (y > 0) neighbor_match += match - iw;
-                if (y < h - 1) neighbor_match += match + iw;
+                if (x > 0) neighbor_match += match_map[match_idx - 1];
+                if (x < w - 1) neighbor_match += match_map[match_idx + 1];
+                if (y > 0) neighbor_match += match_map[match_idx - w];
+                if (y < h - 1) neighbor_match += match_map[match_idx + w];
                 if (neighbor_match < 0) {
                     for (px[0..3]) |*v| v.* = 1.0 - v.*;
                 }
