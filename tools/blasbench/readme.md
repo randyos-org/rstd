@@ -9,6 +9,9 @@ Eigen shim. Results: [`results-flyoff.md`](results-flyoff.md) (every OS and CPU 
 ## Sections
 
 - `probe`, `l1`, `l2`, `l3`: arm64 kernels in their vtable slots' ABI (`l3` needs `-Dopenblas`).
+- `kern3` (only when named, any host): the selected core's gemm kernel alone, on a `P` by 64 block
+  of depth `Q` its own copies packed, against rstd's whole `gemm` at n = 128 to 1024 on one worker,
+  every type: how much of the kernel's rate the driver keeps (T21).
 - `lib1`, `lib2`, `lib3`: rstd's public routines against the libraries through CBLAS (level 1,
   `gemv`, `gemm`), then the table-driven races through each library's Fortran-ABI routines:
   `ger`, `symv`, `trsv`, `gbmv` in `lib2`; `gemm`, `symm`, `syrk`, `trmm`, `trsm` in `lib3`.
