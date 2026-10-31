@@ -53,9 +53,11 @@ const DistanceEvaluationInfo = struct {
     sdf: ?*const [3]f64 = null,
 };
 
-/// Flattens MSDF/MTSDF texels whose channel median would draw an artifact.
-/// Only the first three channels of each texel are read or corrected.
-/// `scanline_pass` disables the distance check, which it would invalidate.
+/// Flattens MSDF/MTSDF texels whose channel median would draw an artifact,
+/// per msdfgen's MSDFErrorCorrection. Only the first three channels of each
+/// texel are read or corrected. `scale` is px per em and `px_range` the
+/// distance range in em. `scanline_pass` disables the distance check, which
+/// it would invalidate.
 pub fn correct(
     comptime N: usize,
     allocator: std.mem.Allocator,
@@ -86,7 +88,7 @@ pub fn correct(
     switch (opts.mode) {
         .edge_priority => {
             self.protectCorners(shape, scale, tfm);
-            self.protectEdges(px_range / scale * protection_radius_tolerance);
+            self.protectEdges(protection_radius_tolerance * texelDelta(scale, px_range));
         },
         .edge_only => {
             for (stencil.data) |*mask| mask.protected = true;
@@ -111,14 +113,18 @@ fn Corrector(comptime N: usize) type {
         stencil: Image(StencilFlags),
         sdf: Image([N]f64),
 
+        /// Texel (x, y) with y up, as msdfgen indexes: `generate` stores
+        /// shape row y at image row h - 1 - y.
         fn texel(self: *const Self, x: anytype, y: anytype) *const [3]f64 {
-            return self.sdf.at(@intCast(x), @intCast(y))[0..3];
+            return self.sdf.at(@intCast(x), self.sdf.height - 1 - @as(u32, @intCast(y)))[0..3];
         }
 
         fn mask(self: *const Self, x: anytype, y: anytype) *StencilFlags {
-            return self.stencil.at(@intCast(x), @intCast(y));
+            return self.stencil.at(@intCast(x), self.stencil.height - 1 - @as(u32, @intCast(y)));
         }
 
+        /// Protects the four texels around each corner, where the edge
+        /// color changes.
         fn protectCorners(self: *Self, shape: *const Shape, scale: f64, tfm: V2f64) void {
             const w = self.stencil.width;
             const h = self.stencil.height;
@@ -129,10 +135,10 @@ fn Corrector(comptime N: usize) type {
                 for (contour.edges.items) |edge| {
                     const common_color = @backingInt(prev_edge.color) & @backingInt(edge.color);
                     prev_edge = edge;
-                    if ((common_color & (common_color - 1)) == 0) continue;
-                    const base_point = edge.point(0) * math.splatV2f64(scale) + tfm;
-                    const left: i32 = @trunc(base_point[0] - 0.5);
-                    const bottom: i32 = @trunc(f64i(h) - @floor(base_point[1] - 0.5) - 2.0);
+                    if ((common_color & (common_color -% 1)) != 0) continue;
+                    const p = (edge.point(0) - tfm) * math.splatV2f64(scale);
+                    const left: i32 = @intFromFloat(@floor(p[0] - 0.5));
+                    const bottom: i32 = @intFromFloat(@floor(p[1] - 0.5));
                     const right = left + 1;
                     const top = bottom + 1;
                     if (left < w and bottom < h and right >= 0 and top >= 0) {
@@ -148,59 +154,76 @@ fn Corrector(comptime N: usize) type {
         fn protectEdges(self: *Self, radius: f64) void {
             const sdf_w = self.sdf.width;
             const sdf_h = self.sdf.height;
-            for (0..sdf_h) |y| {
-                const left = self.texel(0, y);
-                const right = self.texel(1, y);
+            for (0..sdf_h) |y| for (0..sdf_w - 1) |x| {
+                const left = self.texel(x, y);
+                const right = self.texel(x + 1, y);
                 const median_left = median(left);
                 const median_right = median(right);
-                for (0..sdf_w - 1) |x| if (@abs(median_left - 0.5) + @abs(median_right - 0.5) < radius) {
+                if (@abs(median_left - 0.5) + @abs(median_right - 0.5) < radius) {
                     const m = edgeBetweenTexels(left, right);
                     protectExtremeChannels(self.mask(x, y), left, median_left, m);
                     protectExtremeChannels(self.mask(x + 1, y), right, median_right, m);
-                };
-            }
+                }
+            };
 
-            for (0..sdf_h - 1) |y| {
-                const bottom = self.texel(0, y);
-                const top = self.texel(0, y + 1);
+            for (0..sdf_h - 1) |y| for (0..sdf_w) |x| {
+                const bottom = self.texel(x, y);
+                const top = self.texel(x, y + 1);
                 const median_bottom = median(bottom);
                 const median_top = median(top);
-                for (0..sdf_w) |x| if (@abs(median_bottom - 0.5) + @abs(median_top - 0.5) < radius) {
+                if (@abs(median_bottom - 0.5) + @abs(median_top - 0.5) < radius) {
                     const m = edgeBetweenTexels(bottom, top);
                     protectExtremeChannels(self.mask(x, y), bottom, median_bottom, m);
                     protectExtremeChannels(self.mask(x, y + 1), top, median_top, m);
-                };
-            }
+                }
+            };
 
             const diag_radius = radius * @sqrt(2.0);
-            for (0..sdf_h - 1) |y| {
-                const bottom_left = self.texel(0, y);
-                const bottom_right = self.texel(1, y);
-                const top_left = self.texel(0, y + 1);
-                const top_right = self.texel(1, y + 1);
+            for (0..sdf_h - 1) |y| for (0..sdf_w - 1) |x| {
+                const bottom_left = self.texel(x, y);
+                const bottom_right = self.texel(x + 1, y);
+                const top_left = self.texel(x, y + 1);
+                const top_right = self.texel(x + 1, y + 1);
                 const median_bottom_left = median(bottom_left);
                 const median_bottom_right = median(bottom_right);
                 const median_top_left = median(top_left);
                 const median_top_right = median(top_right);
-                for (0..sdf_w - 1) |x| {
-                    if (@abs(median_bottom_left - 0.5) + @abs(median_top_right - 0.5) < diag_radius) {
-                        const m = edgeBetweenTexels(bottom_left, top_right);
-                        protectExtremeChannels(self.mask(x, y), bottom_left, median_bottom_left, m);
-                        protectExtremeChannels(self.mask(x + 1, y + 1), top_right, median_top_right, m);
-                    }
-                    if (@abs(median_bottom_right - 0.5) + @abs(median_top_left - 0.5) < diag_radius) {
-                        const m = edgeBetweenTexels(bottom_right, top_left);
-                        protectExtremeChannels(self.mask(x + 1, y), bottom_right, median_bottom_right, m);
-                        protectExtremeChannels(self.mask(x, y + 1), top_left, median_top_left, m);
-                    }
+                if (@abs(median_bottom_left - 0.5) + @abs(median_top_right - 0.5) < diag_radius) {
+                    const m = edgeBetweenTexels(bottom_left, top_right);
+                    protectExtremeChannels(self.mask(x, y), bottom_left, median_bottom_left, m);
+                    protectExtremeChannels(self.mask(x + 1, y + 1), top_right, median_top_right, m);
                 }
-            }
+                if (@abs(median_bottom_right - 0.5) + @abs(median_top_left - 0.5) < diag_radius) {
+                    const m = edgeBetweenTexels(bottom_right, top_left);
+                    protectExtremeChannels(self.mask(x + 1, y), bottom_right, median_bottom_right, m);
+                    protectExtremeChannels(self.mask(x, y + 1), top_left, median_top_left, m);
+                }
+            };
         }
 
-        /// mist's clamps here swap w and h, and `lr_px` reads (left, right):
-        /// either can step past a row's end, so keep flat indexing until fixed.
-        fn texelFlat(self: *const Self, x: u32, y: u32) *const [3]f64 {
-            return self.sdf.data[@as(usize, y) * self.sdf.width + x][0..3];
+        /// Bilinear sample at `pos` in texel coordinates, clamped to the
+        /// edge texels (msdfgen's bitmap-interpolation `interpolate`).
+        fn interpolate(self: *const Self, pos: V2f64) [3]f64 {
+            const w = self.sdf.width;
+            const h = self.sdf.height;
+            const x = std.math.clamp(pos[0], 0, f64i(w)) - 0.5;
+            const y = std.math.clamp(pos[1], 0, f64i(h)) - 0.5;
+            const floor_x = @floor(x);
+            const floor_y = @floor(y);
+            const lr = x - floor_x;
+            const bt = y - floor_y;
+            const left = clampIndex(floor_x, w - 1);
+            const right = clampIndex(floor_x + 1, w - 1);
+            const bottom = clampIndex(floor_y, h - 1);
+            const top = clampIndex(floor_y + 1, h - 1);
+            const lb = self.texel(left, bottom);
+            const rb = self.texel(right, bottom);
+            const lt = self.texel(left, top);
+            const rt = self.texel(right, top);
+            var out: [3]f64 = undefined;
+            for (&out, 0..) |*c, i|
+                c.* = math.mix(math.mix(lb[i], rb[i], lr), math.mix(lt[i], rt[i], lr), bt);
+            return out;
         }
 
         fn evaluateArtifact(self: *const Self, flags: ClassifierFlags, t: f64) bool {
@@ -209,30 +232,7 @@ fn Corrector(comptime N: usize) type {
 
             const t_vec = math.splatV2f64(t) * self.dist_eval.dir;
 
-            const tx_sdf_coord = self.dist_eval.sdf_coord + t_vec;
-            const tx_x = tx_sdf_coord[0] - 0.5;
-            const tx_y = tx_sdf_coord[1] - 0.5;
-            const floor_x = @floor(tx_x);
-            const floor_y = @floor(tx_y);
-            const lr = tx_x - floor_x;
-            const bt = tx_y - floor_y;
-            const sdf_w = self.sdf.width;
-            const sdf_h = self.sdf.height;
-            const left = @min(@as(u32, @trunc(floor_x)), sdf_w - 1);
-            const bottom = @min(@as(u32, @trunc(floor_y)), sdf_w - 1);
-            const right = @min(left + 1, sdf_h - 1);
-            const top = @min(bottom + 1, sdf_h - 1);
-            const lb_px = self.texelFlat(left, bottom);
-            const rb_px = self.texelFlat(right, bottom);
-            const lt_px = self.texelFlat(left, top);
-            const lr_px = self.texelFlat(left, right);
-            var old_sdf: [3]f64 = undefined;
-            for (&old_sdf, 0..) |*c, i|
-                c.* = math.mix(
-                    math.mix(lb_px[i], rb_px[i], lr),
-                    math.mix(lt_px[i], lr_px[i], lr),
-                    bt,
-                );
+            const old_sdf = self.interpolate(self.dist_eval.sdf_coord + t_vec);
 
             const wt = (1 - @abs(t_vec[0])) * (1 - @abs(t_vec[1]));
             const sdf = self.dist_eval.sdf.?;
@@ -368,7 +368,7 @@ fn Corrector(comptime N: usize) type {
         fn findErrors(self: *Self, scale: f64, px_range: f64, tfm: V2f64) void {
             const min_deviation_ratio = self.options.min_deviation_ratio;
             const vscale = math.splatV2f64(scale);
-            const span = px_range / scale * min_deviation_ratio;
+            const span = min_deviation_ratio * texelDelta(scale, px_range);
             const diag_span = span * @sqrt(2.0);
             const sdf_w = self.sdf.width;
             const sdf_h = self.sdf.height;
@@ -397,20 +397,20 @@ fn Corrector(comptime N: usize) type {
                     }
 
                     if (y > 0) {
-                        const top = self.texel(x, y - 1);
-                        const top_left = self.texel(x - 1, y - 1);
+                        const bottom = self.texel(x, y - 1);
+                        const bottom_left = self.texel(x - 1, y - 1);
                         self.dist_eval.dir = .{ -1, -1 };
-                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, top, top_left)) {
+                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, bottom, bottom_left)) {
                             current_stencil.err = true;
                             continue;
                         }
                     }
 
                     if (y < sdf_h - 1) {
-                        const bottom = self.texel(x, y + 1);
-                        const bottom_left = self.texel(x - 1, y + 1);
+                        const top = self.texel(x, y + 1);
+                        const top_left = self.texel(x - 1, y + 1);
                         self.dist_eval.dir = .{ -1, 1 };
-                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, bottom, bottom_left)) {
+                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, top, top_left)) {
                             current_stencil.err = true;
                             continue;
                         }
@@ -418,9 +418,9 @@ fn Corrector(comptime N: usize) type {
                 }
 
                 if (y > 0) {
-                    const top = self.texel(x, y - 1);
+                    const bottom = self.texel(x, y - 1);
                     self.dist_eval.dir = .{ 0, -1 };
-                    if (self.hasLinearArtifact(span, is_protected, median_current, current, top)) {
+                    if (self.hasLinearArtifact(span, is_protected, median_current, current, bottom)) {
                         current_stencil.err = true;
                         continue;
                     }
@@ -435,20 +435,20 @@ fn Corrector(comptime N: usize) type {
                     }
 
                     if (y > 0) {
-                        const top = self.texel(x, y - 1);
-                        const top_right = self.texel(x + 1, y - 1);
+                        const bottom = self.texel(x, y - 1);
+                        const bottom_right = self.texel(x + 1, y - 1);
                         self.dist_eval.dir = .{ 1, -1 };
-                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, top, top_right)) {
+                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, bottom, bottom_right)) {
                             current_stencil.err = true;
                             continue;
                         }
                     }
 
                     if (y < sdf_h - 1) {
-                        const bottom = self.texel(x, y + 1);
-                        const bottom_right = self.texel(x + 1, y + 1);
+                        const top = self.texel(x, y + 1);
+                        const top_right = self.texel(x + 1, y + 1);
                         self.dist_eval.dir = .{ 1, 1 };
-                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, bottom, bottom_right)) {
+                        if (self.hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, top, top_right)) {
                             current_stencil.err = true;
                             continue;
                         }
@@ -456,9 +456,9 @@ fn Corrector(comptime N: usize) type {
                 }
 
                 if (y < sdf_h - 1) {
-                    const bottom = self.texel(x, y + 1);
+                    const top = self.texel(x, y + 1);
                     self.dist_eval.dir = .{ 0, 1 };
-                    if (self.hasLinearArtifact(span, is_protected, median_current, current, bottom)) {
+                    if (self.hasLinearArtifact(span, is_protected, median_current, current, top)) {
                         current_stencil.err = true;
                         continue;
                     }
@@ -466,6 +466,16 @@ fn Corrector(comptime N: usize) type {
             };
         }
     };
+}
+
+/// How much a normalized distance changes across one texel.
+fn texelDelta(scale: f64, px_range: f64) f64 {
+    return 1.0 / (px_range * scale);
+}
+
+fn clampIndex(v: f64, max: u32) u32 {
+    if (v <= 0) return 0;
+    return @min(@as(u32, @intFromFloat(v)), max);
 }
 
 fn edgeBetweenTexels(a: *const [3]f64, b: *const [3]f64) ColorFlags {
