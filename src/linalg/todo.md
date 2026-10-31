@@ -93,7 +93,14 @@ trunk with M2 half done.
   generating `bidiag_svd.lasv2` for `prescott` (T126's code); `ssh-x86_64-macos` a failed
   `expectEqualSlices`, ssh exit 255; `x86_64-macos` names `qemu-test-x86_64-macos`, which no longer
   exists (only setup, install, start, snapshot); `aarch64` passed (644, 51 skipped). Steps 3 to 7
-  rerun in the resume; `x86_64` and `x86_64-uefi` need `--only` reruns after.
+  rerun in the resume; `x86_64` and `x86_64-uefi` need `--only` reruns after. Paused 2026-10-31
+  ~07:50 for a reboot, the resume having redone `x86_64-smp` (the same 2 failed) and
+  `linux-x86_64` (the same crash). Plan: fix the known failures on top of 7511eef3, then a fresh
+  full tier 2 at the fixed tip, then tier 3. The `linux-x86_64` crash is the self-hosted x86_64
+  backend on `lasv2`'s f80 instance (Debug, `-fno-llvm`; f16 to f128 else build), triggered by
+  the `t = if (l == 0) ... else ...` line in its `mm == 0` branch: a standalone copy builds with
+  that line alone removed. Next: rewrite that line as an `if` statement, confirm, and record the
+  backend bug in issues.md.
 
 #### Build slots
 
@@ -101,7 +108,7 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | M2 | `qemu-check-x86_64`, `-arm-softfp`, `-powerpc-750` | 07:31 |
+| Local 1 | free (M2's compile checks stopped for the reboot; rerun) | | |
 | Local 2 | free | | |
 | Mac 0.18 | free | | |
 | Mac 0.17 | free | | |
@@ -112,7 +119,7 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | T62 tier 2 | resumed at step 3 of 26, `x86_64-smp`, from `sweep-tier2` (1650346b) | 07:23 |
+| Mac | free (tier 2 paused for the reboot) | | |
 
 ## Queue
 
