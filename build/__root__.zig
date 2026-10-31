@@ -128,6 +128,10 @@ pub fn build(b: *Build) !void {
     // compiles exactly what `rstd-test` runs, without running it, so a build
     // queue can hold its slot for compiling only and run the tests after
     b.step("rstd-test-build", "Build rstd's unit tests as `rstd-test` would, without running them").dependOn(&rstd_test_exe.step);
+    // the same executable and its debug info in <prefix>/rstd-test, so one
+    // cross-built elsewhere can be fetched and run here
+    const install_test = b.addInstallArtifact(rstd_test_exe, .{ .dest_dir = .{ .override = .{ .custom = "rstd-test" } } });
+    b.step("rstd-test-install", "Install the executable `rstd-test` runs, with its debug info, to <prefix>/rstd-test").dependOn(&install_test.step);
     // as 32-bit x87 code, in Debug and ReleaseSafe: Debug's stores hide x87
     // width bugs (T87); Windows and Linux on x86 hosts
     const x87_step = b.step("rstd-test-x87", "Run rstd's unit tests as pentium3 code on this x86 host, in Debug and ReleaseSafe");
