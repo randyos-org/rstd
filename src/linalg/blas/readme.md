@@ -54,6 +54,10 @@ How the code is structured, and why, is in [`design.md`](design.md).
   `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
   are wrong ([`issues.md`](issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.
+  From Reference-LAPACK, where no other source has its own: `lange`, `gecon` (which returns
+  `error.EstimateFailed` for the reference's `INFO = 1`), `gebal`, `gebak`, `trexc` and `trsen`
+  (`error.SwapRejected` for a swap too ill-conditioned to make) and `gelsy` over faer's `geqp3`;
+  and `gelqf`, `orglq`, `ormlq` by libflame's method over faer's reflections.
 
 Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
 
