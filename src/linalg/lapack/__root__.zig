@@ -139,6 +139,25 @@ pub const Geqp3Error = qr_pivot.Geqp3Error;
 /// `gelsy`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
 pub const GelsyError = lsq.GelsyError;
 
+/// `sytrf`, `hetrf`, `sytrfRook`, `hetrfRook`: bad arguments,
+/// `error.Singular` (a zero block of `D`, its index in the last argument),
+/// `error.OutOfMemory` or `error.Canceled`.
+pub const SytrfError = relapack.SytrfError;
+/// `sygst`, `hegst`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const SygstError = relapack.SygstError;
+/// `pbtrf`: bad arguments, `error.NotPositiveDefinite` (the minor's order in
+/// the last argument), `error.OutOfMemory` or `error.Canceled`.
+pub const PbtrfError = relapack.PbtrfError;
+/// `gbtrf`: bad arguments, `error.Singular` (the first zero `U(i, i)` in the
+/// last argument), `error.OutOfMemory` or `error.Canceled`.
+pub const GbtrfError = relapack.GbtrfError;
+/// `trsyl`: bad arguments, `error.Perturbed` (close eigenvalues; `C` and
+/// `scale` written), `error.OutOfMemory` or `error.Canceled`.
+pub const TrsylError = relapack.TrsylError;
+/// `tgsyl`: bad arguments, `error.Perturbed` (close eigenvalues; `C`, `F`,
+/// `scale` and `dif` written), `error.OutOfMemory` or `error.Canceled`.
+pub const TgsylError = relapack.TgsylError;
+
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
 pub const potf2 = cholesky.potf2;
 pub const potrs = cholesky.potrs;
@@ -178,6 +197,17 @@ pub const unmlq = lq.ormlq;
 pub const geqp3 = qr_pivot.geqp3;
 pub const gelsy = lsq.gelsy;
 
+pub const sytrf = relapack.sytrf;
+pub const hetrf = relapack.hetrf;
+pub const sytrfRook = relapack.sytrfRook;
+pub const hetrfRook = relapack.hetrfRook;
+pub const sygst = relapack.sygst;
+pub const hegst = relapack.hegst;
+pub const pbtrf = relapack.pbtrf;
+pub const gbtrf = relapack.gbtrf;
+pub const trsyl = relapack.trsyl;
+pub const tgsyl = relapack.tgsyl;
+
 test {
     _ = cholesky;
     _ = lu;
@@ -202,4 +232,64 @@ test {
     _ = lq;
     _ = qr_pivot;
     _ = lsq;
+}
+
+const std = @import("std");
+const testing = std.testing;
+const types = @import("../blas/types.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+
+test "lapack: ReLAPACK's routines through their public names, 2 x 2 smoke tests" {
+    const al = testing.allocator;
+    const io = check.io;
+    const near = struct {
+        fn f(want: []const f64, got: []const f64) !void {
+            for (want, got) |w, g| try testing.expectApproxEqAbs(w, g, 1e-14);
+        }
+    }.f;
+    // sytrf: A = [4 1; 1 3] is positive definite, so 1 x 1 pivots, no swap
+    var s = [_]f64{ 4, 1, 1, 3 };
+    var ipiv: [2]isize = undefined;
+    try sytrf(al, io, f64, .l, 2, &s, 2, &ipiv, null);
+    try near(&.{ 4, 0.25, 1, 3 - 0.25 }, &s);
+    try testing.expectEqualSlices(isize, &.{ 1, 2 }, &ipiv);
+    var h = [_]types.Complex64{ .init(4, 0), .init(1, 1), .init(1, -1), .init(3, 0) };
+    try hetrf(al, io, types.Complex64, .l, 2, &h, 2, &ipiv, null);
+    try testing.expectApproxEqAbs(@as(f64, 2.5), h[3].re, 1e-14);
+    s = .{ 4, 1, 1, 3 };
+    try sytrfRook(al, io, f64, .u, 2, &s, 2, &ipiv, null);
+    try testing.expectApproxEqAbs(@as(f64, 3), s[3], 1e-14);
+    h = .{ .init(4, 0), .init(1, 1), .init(1, -1), .init(3, 0) };
+    try hetrfRook(al, io, types.Complex64, .u, 2, &h, 2, &ipiv, null);
+    try testing.expectApproxEqAbs(@as(f64, 3), h[3].re, 1e-14);
+    // sygst, itype 1: B = 2 I factored is L = sqrt(2) I, so C = A / 2
+    var a = [_]f64{ 4, 2, 2, 6 };
+    const l = [_]f64{ @sqrt(2.0), 0, 0, @sqrt(2.0) };
+    try sygst(al, io, f64, 1, .l, 2, &a, 2, &l, 2);
+    try near(&.{ 2, 1 }, &.{ a[0], a[1] });
+    try testing.expectApproxEqAbs(@as(f64, 3), a[3], 1e-14);
+    var ha = [_]types.Complex64{ .init(4, 0), .init(2, 0), .init(2, 0), .init(6, 0) };
+    const hl = [_]types.Complex64{ .init(@sqrt(2.0), 0), .init(0, 0), .init(0, 0), .init(@sqrt(2.0), 0) };
+    try hegst(al, io, types.Complex64, 1, .u, 2, &ha, 2, &hl, 2);
+    try testing.expectApproxEqAbs(@as(f64, 3), ha[3].re, 1e-14);
+    // pbtrf: [4 2; 2 5] in upper band storage (kd 1) is U = [2 1; 0 2]
+    var ab = [_]f64{ 0, 4, 2, 5 };
+    try pbtrf(al, io, f64, .u, 2, 1, &ab, 2, null);
+    try near(&.{ 2, 1, 2 }, &.{ ab[1], ab[2], ab[3] });
+    // gbtrf: [1 2; 3 4] (kl = ku = 1, ldab 4) swaps its rows: U = [3 4; 0 2/3]
+    var gb = [_]f64{ 0, 0, 1, 3, 0, 2, 4, 0 };
+    try gbtrf(al, io, f64, 2, 2, 1, 1, &gb, 4, &ipiv, null);
+    try testing.expectEqualSlices(isize, &.{ 2, 2 }, &ipiv);
+    try near(&.{ 3, 1.0 / 3.0, 4, 2.0 / 3.0 }, &.{ gb[2], gb[3], gb[5], gb[6] });
+    // trsyl: 2 x + x 3 = 10
+    var scale: f64 = 0;
+    var x = [_]f64{10};
+    try trsyl(al, io, f64, .n, .n, 1, 1, 1, &[_]f64{2}, 1, &[_]f64{3}, 1, &x, 1, &scale);
+    try near(&.{ 1, 2 }, &.{ scale, x[0] });
+    // tgsyl: 2 r + l = 3, r - l = 0 (B = -1, E = 1)
+    var c = [_]f64{3};
+    var f = [_]f64{0};
+    var dif: f64 = 0;
+    try tgsyl(al, io, f64, .n, 0, 1, 1, &[_]f64{2}, 1, &[_]f64{-1}, 1, &c, 1, &[_]f64{1}, 1, &[_]f64{1}, 1, &f, 1, &scale, &dif);
+    try near(&.{ 1, 1, 1 }, &.{ scale, c[0], f[0] });
 }
