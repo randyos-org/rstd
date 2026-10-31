@@ -29,6 +29,11 @@ const faer_balance = @import("faer/balance.zig");
 const faer_bidiag = @import("faer/bidiag.zig");
 const faer_bidiag_svd = @import("faer/bidiag_svd.zig");
 const relapack = @import("relapack.zig");
+const norm = @import("norm.zig");
+const schur = @import("schur.zig");
+const lq = @import("lq.zig");
+const qr_pivot = @import("faer/qr_pivot.zig");
+const lsq = @import("lsq.zig");
 const options = @import("lapack_options");
 
 pub const Uplo = @import("../blas/types.zig").Uplo;
@@ -96,6 +101,41 @@ pub const Jobz = evd.Jobz;
 pub const GeevError = evd.GeevError;
 /// `geev`'s eigenvalues: `.{ .re = wr, .im = wi }` real, `w` complex.
 pub const Eigenvalues = evd.Eigenvalues;
+/// `lange`'s and `gecon`'s `NORM`.
+pub const Norm = norm.Norm;
+/// `lange`: a negative size or short `lda`, or `error.OutOfMemory`.
+pub const LangeError = norm.LangeError;
+/// `gecon`: bad arguments (a NaN or infinite `anorm` is
+/// `error.InvalidAnorm`), `error.EstimateFailed`, `error.OutOfMemory` or
+/// `error.Canceled`.
+pub const GeconError = norm.GeconError;
+/// `gebal`'s and `gebak`'s `JOB`.
+pub const BalanceJob = faer_balance.BalanceJob;
+/// `gebal`: bad arguments, a NaN in `A` (`error.InvalidA`) or
+/// `error.Canceled`.
+pub const GebalError = faer_balance.GebalError;
+/// `gebak`: bad arguments or `error.Canceled`.
+pub const GebakError = faer_balance.GebakError;
+/// `trexc`'s and `trsen`'s `COMPQ`.
+pub const Compq = schur.Compq;
+/// `trsen`'s `JOB`.
+pub const TrsenJob = schur.TrsenJob;
+/// `trexc`: bad arguments, `error.SwapRejected` (real: a swap too
+/// ill-conditioned to make) or `error.Canceled`.
+pub const TrexcError = schur.TrexcError;
+/// `trsen`: bad arguments, `error.SwapRejected`, `error.OutOfMemory` or
+/// `error.Canceled`.
+pub const TrsenError = schur.TrsenError;
+/// `gelqf`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const GelqfError = lq.GelqfError;
+/// `orglq`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const OrglqError = lq.OrglqError;
+/// `ormlq`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const OrmlqError = lq.OrmlqError;
+/// `geqp3`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const Geqp3Error = qr_pivot.Geqp3Error;
+/// `gelsy`: bad arguments, `error.OutOfMemory` or `error.Canceled`.
+pub const GelsyError = lsq.GelsyError;
 
 pub const potrf = if (options.relapack) relapack.potrf else cholesky.potrf;
 pub const potf2 = cholesky.potf2;
@@ -122,6 +162,19 @@ pub const heevd = evd.syevd;
 pub const syev = evd.syev;
 pub const heev = evd.syev;
 pub const geev = evd.geev;
+pub const lange = norm.lange;
+pub const gecon = norm.gecon;
+pub const gebal = faer_balance.gebal;
+pub const gebak = faer_balance.gebak;
+pub const trexc = schur.trexc;
+pub const trsen = schur.trsen;
+pub const gelqf = lq.gelqf;
+pub const orglq = lq.orglq;
+pub const unglq = lq.orglq;
+pub const ormlq = lq.ormlq;
+pub const unmlq = lq.ormlq;
+pub const geqp3 = qr_pivot.geqp3;
+pub const gelsy = lsq.gelsy;
 
 test {
     _ = cholesky;
@@ -142,4 +195,9 @@ test {
     _ = faer_bidiag_svd;
     _ = svd;
     _ = relapack;
+    _ = norm;
+    _ = schur;
+    _ = lq;
+    _ = qr_pivot;
+    _ = lsq;
 }

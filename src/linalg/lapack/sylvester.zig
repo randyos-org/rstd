@@ -210,7 +210,7 @@ fn divide(comptime T: type, x: T, d: T) T {
 
 /// A small solve's result: `x` (column-major), its scale, and whether a
 /// pivot was perturbed.
-fn Small(comptime F: type) type {
+pub fn Small(comptime F: type) type {
     return struct { x: [4]F, scale: F, perturbed: bool };
 }
 
@@ -284,7 +284,7 @@ fn laln2(comptime F: type, ltrans: bool, smin: F, a: [*]const F, lda: usize, v: 
 
 /// `DLASY2` with `N1 = N2 = 2`: `op(TL) X + sgn X op(TR) = s V` for 2 x 2
 /// blocks, as a 4 x 4 system by complete pivoting.
-fn lasy2(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, tl: [*]const F, ldtl: usize, tr: [*]const F, ldtr: usize, v: [4]F) Small(F) {
+pub fn lasy2(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, tl: [*]const F, ldtl: usize, tr: [*]const F, ldtr: usize, v: [4]F) Small(F) {
     const eps = std.math.floatEps(F);
     const smlnum = std.math.floatMin(F) / eps;
     var out: Small(F) = .{ .x = @splat(0), .scale = 1, .perturbed = false };

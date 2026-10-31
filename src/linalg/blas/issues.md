@@ -2229,3 +2229,16 @@ a left eigenvector with residual 1.15.
   matrix) but is compared with `eps * norm` (linear), so the guard depends on
   the matrix's scale: a small-scaled matrix always clamps and gets wrong
   eigenvectors. Comparing with `(eps * norm)²` fixes it."
+
+### The pivoted QR scales a zero matrix by an infinite reciprocal
+
+`qr_in_place_unblocked` (`faer/src/linalg/qr/col_pivoting/factor.rs`) scales
+`A` by `best.recip()`, `best` its largest column norm, with no check for zero:
+a zero matrix becomes NaN (`0 * inf`), and so do its `R` and `tau`s. Found
+reading the source while porting `geqp3`.
+
+- **Workaround:** a zero largest norm leaves `A` unscaled (`qr_pivot.zig`);
+  the zero-matrix case in its tests covers it.
+- **Issue text:** "Column-pivoted `qr_in_place` on an all-zero matrix scales
+  it by `1 / 0` and returns NaN in `R` and the Householder factors; skipping
+  the scaling when the largest column norm is zero fixes it."

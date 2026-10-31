@@ -206,7 +206,7 @@ fn factorOf(comptime T: type, tau: T) T {
 
 /// The block factors (`bs x k`, allocated) of the `k` reflections in `v`'s
 /// columns with LAPACK `tau`s.
-fn factorsOf(al: Allocator, io: Io, comptime T: type, v: Mat(T), tau: [*]const T) Error!Mat(T) {
+pub fn factorsOf(al: Allocator, io: Io, comptime T: type, v: Mat(T), tau: [*]const T) Error!Mat(T) {
     const k = v.cols;
     const bs = blockSize(v.rows, k);
     const h = try ops.alloc(T, al, bs, k);

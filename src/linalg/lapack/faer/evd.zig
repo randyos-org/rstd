@@ -205,9 +205,7 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
     // `xGEBAL` (`balance.zig`), job `B`
     const scale = try allocator.alloc(F, un);
     defer allocator.free(scale);
-    const perm = try allocator.alloc(usize, un);
-    defer allocator.free(perm);
-    const bal = balance.balance(io, T, am, scale, perm);
+    const bal = try balance.balance(io, T, am, scale);
     const ul: ?Mat(T) = if (jobvl == .v) Mat(T){ .ptr = vl, .rows = un, .cols = un, .ld = @intCast(ldvl) } else null;
     const ur: ?Mat(T) = if (jobvr == .v) Mat(T){ .ptr = vr, .rows = un, .cols = un, .ld = @intCast(ldvr) } else null;
     if (comptime isComplex(T)) {
@@ -218,11 +216,11 @@ pub fn geev(allocator: Allocator, io: Io, comptime T: type, jobvl: Jobz, jobvr: 
         if (to) |t| for ([_][*]T{ w.re, w.im }) |x| ops.lascl(T, t, anrm, .{ .ptr = x, .rows = un, .cols = 1, .ld = un });
     }
     if (ul) |x| {
-        balance.back(T, bal, scale, perm, true, x);
+        try balance.back(io, T, bal, scale, true, x);
         normalizeVectors(io, T, x, if (comptime isComplex(T)) null else w.im);
     }
     if (ur) |x| {
-        balance.back(T, bal, scale, perm, false, x);
+        try balance.back(io, T, bal, scale, false, x);
         normalizeVectors(io, T, x, if (comptime isComplex(T)) null else w.im);
     }
 }
