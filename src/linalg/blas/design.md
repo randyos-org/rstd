@@ -701,16 +701,28 @@ complex, for every float type, through the same code.
   where the core's `gemm_small_matrix_permit` allows: no packing, each element summed over the
   depth in order, then `beta*C + alpha*sum` (`gemm_small_kernel_b0_*` for a zero `beta`, which
   never reads `C`). The kernels are `kernel/generic`'s, the real ones on `@Vector`s of the gemm
-  tile, in every core's object; the per-core assembly and intrinsics (Skylake-X, SVE, POWER10,
-  LoongArch) are not converted. The permits are upstream's per core (`permitFor`, installed with
-  the blocking): Skylake-X and its successors, the `ARMV8SVE` family, POWER10, LA264 and LA464;
-  every other core and all complex take the generic permit, which allows nothing. POWER10's
+  tile, in every core's object; Skylake-X, Cooper Lake and Sapphire Rapids export Skylake-X's
+  intrinsics kernels instead (`blas3/gemm/x86_64/kernel.zig`, through `small_kernel.forCore`), on
+  512-bit `@Vector`s. Those keep the generic bits (each element fused over the depth in order,
+  then `alpha*sum` and `beta*C` fused) except in their dot blocks (`tn`, and `nn`'s last rows when
+  at most half a vector of them is left over a depth of two vectors or more): each lane sums
+  every 16th (`d`: 8th) product and the lanes reduce as upstream's `REDUCE_4` or
+  `_mm512_reduce_add`. The SVE, POWER10 and LoongArch kernels are not converted. The permits are
+  upstream's per core (`permitFor`, installed with the blocking): Skylake-X and its successors,
+  the `ARMV8SVE` family, POWER10, LA264 and LA464; every other core and all complex take the
+  generic permit, which allows nothing. POWER10's
   `sgemm` permit follows the thread count upstream (64^3 with more than one, 100^3 with one);
   here it is 64^3 always, so the path never does. Taken after `driver.gemm`'s quick returns,
   where upstream takes it before them, so a zero `alpha` or `k` still reads neither operand.
   The thresholds are tuned for upstream's kernels, not these (T05).
-- **Not ported.** `sbgemm`'s small-matrix kernels, and `level3_thread.c`: level 3 threads by
-  BLIS's ways instead ([`threading.md`](threading.md)).
+- **`sbgemm`'s small path.** Only Cooper Lake has one upstream (`KERNEL.SAPPHIRERAPIDS` empties
+  it): its permit (8, 16 or 32 columns, up to `256^3`) and its kernels' shape, `C` scaled by
+  `beta` first and the depth in slices of 1024, each slice summed as the portable half gemm sums
+  (unfused, in order), where upstream's `vdpbf16ps` rounds pairs of products its own way
+  ([bfloat16 and half precision](#bfloat16-and-half-precision)). `half.gemm` takes it after its
+  quick returns, as `gemm` does.
+- **Not ported.** `level3_thread.c`: level 3 threads by BLIS's ways instead
+  ([`threading.md`](threading.md)).
 
 [`blas3/gemm/notes.md`](blas3/gemm/notes.md) has the tile measurements and code generation notes
 behind these choices; [`comparisons.md`](comparisons.md) (7, 9, 10) the open performance and
@@ -748,8 +760,9 @@ family sets none; the unrolls are the portable kernels' (`settleGemm`), and `ali
 since the portable packing needs no padding. `gemmtHalf` is `interface/sbgemmt.c`: a half `gemv`
 per column of the triangle, serial, for all three types (upstream exports `sbgemmt` only).
 Upstream compares the bfloat16 scalars by their bits; rstd by value ([`issues.md`](issues.md)).
-The `sbgemm` small-matrix slots stay null (T30's small-matrix path), and the AVX-512 BF16, AMX,
-NEON, SVE and MMA kernels are T29 and T31.
+The `sbgemm` small-matrix slots stay null but on Cooper Lake, whose kernels keep these bits in
+their own 1024-deep slices (the level-3 small path above); the AVX-512 BF16, AMX, NEON, SVE and
+MMA kernels are T29 and T31.
 
 Their numerical behavior is in [`readme.md`](readme.md#bfloat16-and-half-precision).
 
@@ -1954,7 +1967,7 @@ Rig mechanics:
 2. **Zig-idiomatic interface.** Slices, exact error sets with plain names, and documented
    panics ([above](#planned-a-zig-idiomatic-interface)), with the codebase-wide pass.
 3. **Remaining level 3.** Landed: 3M, the small-matrix path, and bfloat16 and half-precision
-   level 3 (`blas3/half.zig`); `sbgemm`'s small-matrix kernels are not ported.
+   level 3 (`blas3/half.zig`); Cooper Lake's `sbgemm` small-matrix kernels, in the portable bits.
 4. **Extensions.** Landed ([below](#extensions)), `bgemm` with the half gemms.
 5. **Per-core tuning.** Act on [`results-m6.md`](../../../tools/blasbench/results-m6.md)'s and
    [`comparisons.md`](comparisons.md)'s recommendations, and convert assembly where `@Vector`

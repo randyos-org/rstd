@@ -238,6 +238,8 @@ The kernels are portable Zig, the same on every core; the `@Vector` half `gemv` 
   depth order, unfused, over each depth slice of the blocking, and adds `alpha` times that sum to
   `C`, rounded once per slice; for `bgemm`, whose `C` and scalars are bfloat16, `C` is rounded to
   bfloat16 after every slice, as upstream's kernel stores it, so its bits follow the core's `Q`.
+  Cooper Lake's `sbgemm` small-matrix path (8, 16 or 32 columns, up to `256^3`) slices the depth
+  by 1024 instead, as upstream's kernel does; its `vdpbf16ps` rounding is not reproduced.
   `C` is scaled by `beta` first (a zero `beta` never reads it); a zero `alpha` or `k` reads neither
   `A` nor `B`. The scalars count by value, where upstream compares bfloat16 bits
   ([`issues.md`](issues.md)). The bits do not depend on the thread count.

@@ -777,6 +777,9 @@ const L3Col = struct {
     gate: ?[]const u8 = null,
     /// What rstd has for it: the gemm tile's Zig port, or nothing yet.
     rstd: enum { tile, none } = .tile,
+    /// Where set, the upstream sources rstd ports for it: any other tuned
+    /// source is a gap, whatever `rstd` says.
+    ported: ?[]const []const u8 = null,
 };
 
 const L3Table = struct { name: []const u8, cols: []const L3Col };
@@ -834,6 +837,18 @@ fn gemmCopies(comptime p: []const u8) []const L3Col {
     };
 }
 
+/// The small-matrix kernels (`SMALL_MATRIX_OPT`): the `B0` forms name the
+/// same files on every core. rstd ports Skylake-X's (`gemm/x86_64/kernel.zig`)
+/// and Cooper Lake's `sbgemm` ones; the others run `kernel/generic`'s, and
+/// `sbgemm` nothing.
+const small_forms = &[_][]const u8{ "NN", "NT", "TN", "TT" };
+const small_kernels = cols(&.{ "S", "D" }, small_forms, "# small @", .{ .key = "#GEMM_SMALL_K_@", .ported = &.{
+    "sgemm_small_kernel_nn_skylakex.c", "sgemm_small_kernel_nt_skylakex.c", "sgemm_small_kernel_tn_skylakex.c", "sgemm_small_kernel_tt_skylakex.c",
+    "dgemm_small_kernel_nn_skylakex.c", "dgemm_small_kernel_nt_skylakex.c", "dgemm_small_kernel_tn_skylakex.c", "dgemm_small_kernel_tt_skylakex.c",
+} }) ++ cols(&.{"SB"}, small_forms, "# small @", .{ .key = "#GEMM_SMALL_K_@", .rstd = .none, .ported = &.{
+    "sbgemm_small_kernel_nn_cooperlake.c", "sbgemm_small_kernel_nt_cooperlake.c", "sbgemm_small_kernel_tn_cooperlake.c", "sbgemm_small_kernel_tt_cooperlake.c",
+} });
+
 const gemm3m = [_]L3Table{.{ .name = "kernels", .cols = cols(cz, one, "#", .{ .key = "#GEMM3MKERNEL", .gate = "USE_GEMM3M" }) }};
 
 /// The 3M routines' note: their tile, and what upstream builds.
@@ -846,7 +861,10 @@ const l3_families = [_]L3Family{
         .{ .name = "kernels", .cols = gemm_kernels },
         .{ .name = "beta", .cols = cols(sdcz, one, "# beta", .{ .key = "#GEMM_BETA" }) },
         .{ .name = "copies", .cols = gemmCopies("S") ++ gemmCopies("Z") },
-    }, .note = "Only the `S` and `Z` copies are shown; `D` and `C` name the same layouts in nearly every source." },
+        .{ .name = "small-matrix kernels", .cols = small_kernels },
+    }, .note = "Only the `S` and `Z` copies are shown; `D` and `C` name the same layouts in nearly every source. " ++
+        "The small-matrix kernels' `B0` forms name the same files; rstd ports Skylake-X's and Cooper Lake's (`gemm/x86_64/kernel.zig`), " ++
+        "the latter in the portable half gemm's bits, and runs `kernel/generic`'s elsewhere (`gemm/small_kernel.zig`), where `sbgemm` has none." },
     .{ .dir = "symm", .note = sme, .tables = &.{
         .{ .name = "kernels", .cols = gemm_kernels ++ direct("SYMM") },
         .{ .name = "copies", .cols = cols(sdcz, &.{ "U", "L" }, "# @", .{ .key = "#SYMM@COPY_M" }) },
@@ -984,7 +1002,11 @@ fn family3(init: std.process.Init, arena: std.mem.Allocator, fam: L3Family) !voi
                         try rows.appendSlice(arena, " - |");
                         continue;
                     };
-                    if (v.len == 0) {
+                    // the small-matrix kernels' default is `kernel/generic`'s own file
+                    const defaults = c.ported != null and for (v) |x| {
+                        if (!std.mem.startsWith(u8, x, "../generic/")) break false;
+                    } else true;
+                    if (v.len == 0 or defaults) {
                         try rows.appendSlice(arena, " generic |");
                         continue;
                     }
@@ -995,10 +1017,18 @@ fn family3(init: std.process.Init, arena: std.mem.Allocator, fam: L3Family) !voi
                         continue;
                     }
                     all_generic = false;
-                    const up = try upstreamCell(arena, ar, core, v);
-                    const gap = up.tuned and ar.dir.len > 0 and c.rstd == .none and
+                    // an emptied variable is the default under `ifndef`
+                    // (`KERNEL.SAPPHIRERAPIDS`'s `SBGEMM_SMALL_K_*`)
+                    var named: std.ArrayList([]const u8) = .empty;
+                    for (v) |x| if (x.len > 0 or c.ported == null) try named.append(arena, x);
+                    const up = try upstreamCell(arena, ar, core, named.items);
+                    const text = if (named.items.len < v.len) try arena.print("{s} \\| generic", .{up.text}) else up.text;
+                    const served = if (c.ported) |p| for (v) |x| {
+                        if (x.len > 0 and !contains(p, std.Io.Dir.path.basename(x))) break false;
+                    } else true else c.rstd != .none;
+                    const gap = up.tuned and ar.dir.len > 0 and !served and
                         contains(known, try std.ascii.allocLowerString(arena, core));
-                    try rows.print(arena, " {s}{s}{s} |", .{ if (gap) "**" else "", up.text, if (gap) "**" else "" });
+                    try rows.print(arena, " {s}{s}{s} |", .{ if (gap) "**" else "", text, if (gap) "**" else "" });
                     if (gap) {
                         n_gaps += 1;
                         const e = try gap_cols.getOrPut(arena, c.label);
