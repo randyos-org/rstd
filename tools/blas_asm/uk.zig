@@ -22,7 +22,7 @@
 //! (`dscal_kernel_inc_8`); the index written next to the blocks (`uk/__root__.zig`)
 //! says which core uses which block, and the architecture's `kernel.zig`
 //! composes it with the routine's driver (`<routine>/kernel.zig`).
-//! The kernels `roles.skip` names, which no core would install (`sdot`), get
+//! The kernels `roles.skip` names, which no core would install (`sdot`, `dsdot`), get
 //! no entry.
 
 const std = @import("std");

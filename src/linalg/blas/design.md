@@ -472,7 +472,8 @@ other strides a scalar loop. Special values, strides and flags are the portable 
 overflowed or underflowed. They need no FMA unit. `vector.Registry` exports them from the
 per-core objects; like the tiles, they never make a core need an object of its own.
 
-- **Routed slots** (`vector.routed`): the extremes, `nrm2`, `sdot`, and on x86_64 the reductions
+- **Routed slots** (`vector.routed`): the extremes, `nrm2`, `sdot`, `dsdot` (`sdot`'s sum unrounded,
+  so a threaded `sdot`'s chunks are its own kernel's, T101), and on x86_64 the reductions
   whose upstream assembly peels elements until an operand is aligned (`vector.peels`). No core
   takes a converted kernel there, so `tools/blas_asm` does not convert one (`roles.zig`'s `skip`,
   below; `asm_registry.Kernels` stops the build if a routed slot is converted), and an
@@ -497,7 +498,7 @@ per-core objects; like the tiles, they never make a core need an object of its o
 - **s390x, wasm:** none.
 
 `vector.ported` holds `@Vector` kernels no `Registry` routes, which an architecture's hand ports
-(`.written = .vector`) name where upstream has intrinsics for them: `axpby`, `rotm`, `dsdot`,
+(`.written = .vector`) name where upstream has intrinsics for them: `axpby`, `rotm`,
 `symv`, `hemv`, and the half-precision `gemv`s in the portable kernels' bits (`vector.Half`).
 riscv64 uses them; `installAll` puts them in the native tests' table too.
 
@@ -537,7 +538,7 @@ above are not among them:
 | mips, mips64 | `axpy` (MSA on 32- and 64-bit), `asum`, `copy`, `dot`, `scal`, `sum`, `swap` | | tile | routed |
 | power | `axpy` (assembly, microkernels, C), `asum`, `copy`, `dot`, `rot`, `scal`, `sum`, `swap` | `gemv` | tile | routed |
 | sparc | `axpy`, `asum`, `copy`, `dot`, `rot`, `sum`, `swap` | `gemv` | | routed |
-| riscv64 | `axpy` (RVV), `axpby`, `dsdot`, `rotm` (`@Vector` ports) | `symv`, `hemv`, `sbgemv`, `shgemv` (`@Vector` ports) | tile | vector cores |
+| riscv64 | `axpy` (RVV), `axpby`, `rotm` (`@Vector` ports) | `symv`, `hemv`, `sbgemv`, `shgemv` (`@Vector` ports) | tile | vector cores |
 | s390x | `axpy` (microkernels) | | tile | |
 | wasm | `axpy` | | tile | |
 

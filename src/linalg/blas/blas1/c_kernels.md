@@ -119,8 +119,8 @@ are the same C across cores.
   statement would contract.
 - **Mixed types.** `sdot` sums in `double` and returns `float`; `dsdot` is the
   same file built with `DSDOT` and calls the block in chunks of 32 whatever
-  the block size. The role table carries that (`dsdot` is not `sdot`), and
-  `form` gives the element type (`f32` for `dsdot`).
+  the block size. Neither is ported: both slots are routed (`vector.routed`),
+  since that block sums 32 `float` products in `float`.
 - **Complex.** Results are `types.CComplex(F)` (an `extern struct`, so the C ABI
   returns it as the reference does). `*dotc` differs from `*dotu` only in the
   last two lines.
@@ -166,8 +166,7 @@ map to `@Vector` and `@shuffle`; where the C uses a fused instruction by name
   and unroll boundary is hit. A failing core is named and the rest still run.
   Build with `-Dblas-cores=all`, or only the host's core is linked.
 - Tolerances: a core may sum in any order, so the plain-loop check allows rounding
-  error. `dsdot` through an upstream block sums 32 `f32` products in `f32`, so
-  it is checked at `f32` precision; the portable one stays strict.
+  error.
 - Where the order is fixed, check the bits: the vector block against a scalar
   model of the C (`skylakexModel` in `dot/__root__.zig`), for each policy.
 - A driver can be checked against OpenBLAS's own C by compiling the original

@@ -113,7 +113,7 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
   peeling, which had left them on the scalar loop) and arm64's C-upstream sum slots, but not
   `vortex`'s converted ones (unmeasured).
 - **Scalar fallbacks.** arm, mips, sparc and the pre-VSX POWER cores now take the `@Vector`
-  kernels in the routed slots (the extremes, `nrm2`, `sdot`), but `s` and `c` on ARMv7's NEON
+  kernels in the routed slots (the extremes, `nrm2`, `sdot`, `dsdot`), but `s` and `c` on ARMv7's NEON
   cores, whose lanes flush (`vector.flushing`). Where a type has no vector unit, LLVM splits
   the vectors into scalar operations. Decided from the generated code (`-OReleaseFast`), since
   this PC was never idle enough to time (below): on SPARC v9 the portable `sdot` adds every

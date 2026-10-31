@@ -201,9 +201,10 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
   overflows for a finite element, the index compares `|re|/4 + |im|/4`, as `izamax.f90` does,
   so an infinite part still wins. The converted kernels pass NaN over, or pick one by vector
   lane.
-- **`sdot`:** products and sum in `f64`, rounded once. Upstream's sum in `f32` on most cores and
-  in the x87's `f80` on x86, so the error of the same `sdot` differed by core by far more than
-  its last bits.
+- **`sdot`:** products and sum in `f64`, rounded once; `dsdot` is the same sum, unrounded.
+  Upstream's sum in `f32` on most cores and in the x87's `f80` on x86, so the error of the same
+  `sdot` differed by core by far more than its last bits; its x86_64 `dsdot` sums 32 products at
+  a time in `f32`.
 - **No address dependence.** x86_64's reductions whose converted kernels peel elements until an
   operand is aligned (`vector.peels`: `asum_sse.S`, `asum_sse2.S`, `asum_atom.S`, `zasum_*.S`,
   `zsum_sse*.S`, `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S` and `dgemv_n*.S`)

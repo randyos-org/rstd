@@ -1354,13 +1354,15 @@ pub fn Half(comptime E: type, comptime Y: type) type {
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
 /// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
-/// sums in `f64`; and no result depends on an operand's address (`peels`).
+/// and `dsdot` sum in `f64`, one sum, so a threaded `sdot`'s chunks are its
+/// kernel's (`threading.md`); and no result depends on an operand's address
+/// (`peels`).
 /// `tools/blas_asm` does not convert their assembly (`roles.zig`'s `skip`,
 /// kept in step with this); an architecture's `Registry` puts these in where
 /// its vector unit is IEEE.
 pub fn routed(comptime slot: Slot) bool {
     return switch (slot) {
-        // the extremes, `nrm2` and `sdot`
+        // the extremes, `nrm2`, `sdot` and `dsdot`
         .samax_k,
         .damax_k,
         .camax_k,
@@ -1390,6 +1392,7 @@ pub fn routed(comptime slot: Slot) bool {
         .cnrm2_k,
         .znrm2_k,
         .sdot_k,
+        .dsdot_k,
         => true,
         else => peels(slot),
     };
@@ -1432,7 +1435,8 @@ fn flushes(comptime core: anytype, comptime slot: Slot) bool {
     if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
     inline for (real_slots ++ complex_slots) |p| {
         inline for (@typeInfo(@TypeOf(p[1])).@"struct".field_names) |name| {
-            if (@field(p[1], name) == slot) return p[0] == f32;
+            const s: ?Slot = @field(p[1], name);
+            if (s == slot) return p[0] == f32;
         }
     }
     return false;
@@ -1465,10 +1469,12 @@ pub fn fills(comptime slot: Slot) bool {
     return false;
 }
 
-/// The slot each function of `Real` fills, by its name there.
+/// The slot each function of `Real` fills, by its name there; `dsdot` over
+/// `f32` only.
 const RealSlots = struct {
     axpy: Slot,
     dot: Slot,
+    dsdot: ?Slot = null,
     scal: Slot,
     nrm2: Slot,
     asum: Slot,
@@ -1519,6 +1525,7 @@ const real_slots = .{
     .{ f32, RealSlots{
         .axpy = .saxpy_k,
         .dot = .sdot_k,
+        .dsdot = .dsdot_k,
         .scal = .sscal_k,
         .nrm2 = .snrm2_k,
         .asum = .sasum_k,
@@ -1624,7 +1631,8 @@ pub const kernels: []const Kernel = blk: {
     for (real_slots) |p| {
         if (!util.vectorIeee(p[0])) continue;
         for (@typeInfo(RealSlots).@"struct".field_names) |name| {
-            r = r ++ &[_]Kernel{.{ .slot = @field(p[1], name), .F = p[0], .complex = false, .f = name }};
+            const slot: ?Slot = @field(p[1], name);
+            if (slot) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = p[0], .complex = false, .f = name }};
         }
     }
     for (complex_slots) |p| {
@@ -1661,13 +1669,12 @@ pub fn installAll(vt: *Vtable) void {
 pub const ported = struct {
     pub const slots = [_]Slot{
         .saxpby_k, .daxpby_k, .caxpby_k, .zaxpby_k,
-        .srotm_k,  .drotm_k,  .dsdot_k,  .ssymv_U,
-        .ssymv_L,  .dsymv_U,  .dsymv_L,  .csymv_U,
-        .csymv_L,  .zsymv_U,  .zsymv_L,  .chemv_U,
-        .chemv_L,  .chemv_V,  .chemv_M,  .zhemv_U,
-        .zhemv_L,  .zhemv_V,  .zhemv_M,  .sbgemv_n,
-        .sbgemv_t, .shgemv_n, .shgemv_t, .bgemv_n,
-        .bgemv_t,
+        .srotm_k,  .drotm_k,  .ssymv_U,  .ssymv_L,
+        .dsymv_U,  .dsymv_L,  .csymv_U,  .csymv_L,
+        .zsymv_U,  .zsymv_L,  .chemv_U,  .chemv_L,
+        .chemv_V,  .chemv_M,  .zhemv_U,  .zhemv_L,
+        .zhemv_V,  .zhemv_M,  .sbgemv_n, .sbgemv_t,
+        .shgemv_n, .shgemv_t, .bgemv_n,  .bgemv_t,
     };
 
     /// `slot`'s kernel, four vectors a step.
@@ -1683,7 +1690,6 @@ pub const ported = struct {
             .zaxpby_k => &Z.axpby,
             .srotm_k => &R.rotm,
             .drotm_k => &D.rotm,
-            .dsdot_k => &R.dsdot,
             .ssymv_U => &R.symv_U,
             .ssymv_L => &R.symv_L,
             .dsymv_U => &D.symv_U,
@@ -1723,7 +1729,7 @@ pub const ported = struct {
             .x86_64, .aarch64, .riscv64 => true,
             else => false,
         };
-        const single = name[0] == 's' or name[0] == 'c' or std.mem.eql(u8, name, "dsdot_k");
+        const single = name[0] == 's' or name[0] == 'c';
         return !single or util.vectorIeee(f32);
     }
 };

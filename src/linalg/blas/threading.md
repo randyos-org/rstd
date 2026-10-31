@@ -160,8 +160,10 @@ What threads, as landed:
   where the vector does, and each keeps the vector's alignment: an element takes the body or
   tail path one call gives it. A zero stride runs serially, as OpenBLAS's do.
 - **Reductions:** the dots (`dsdot` too), `asum` and `sum` at `f32` and `f64`, real and complex.
-  Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, so it keeps
-  its contract (products and sum in `f64`, rounded once). On the x87 each step of the fold is
+  Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, `sdot`'s own
+  kernel's sum unrounded on every core (both routed, `vector.routed`), so it keeps its contract
+  (products and sum in `f64`, rounded once) and its kernel's speed (T101: arm64's converted
+  `dsdot`, one two-lane sum, ran at half of it). On the x87 each step of the fold is
   rounded to its float, so no partial keeps a register's width. Wider types do not thread their sums:
   they give the bits of OpenBLAS's x87 kernels (`readme.md`), which no fold keeps.
 - **Extremes:** values and indices, every type, folded exactly: the first NaN, else the first
@@ -304,7 +306,10 @@ with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
 | extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 
 The `copy` and extremes rows are OpenBLAS's ThunderX2 kernels' own, taken as defaults for every
-core; the others are its generic interfaces' or x86_64 kernels'. The generic thresholds apply
+core; the others are its generic interfaces' or x86_64 kernels'. Upstream threads `dot` only in
+those kernels: x86_64's `ddot.c` and `zdot.c` and arm64's `dot.c` (`s` and `d`, where a core
+builds it) above 10000; x86_64's `sdot.c` and `cdot.c`, arm64's `dot.S` and every `dsdot` stay
+serial. Rstd's `dot` row holds for every precision and core. The generic thresholds apply
 with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
 together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c` and
 `gemv.c`, `a64fx` and `neoversev1` in `arm64/dot.c`). Complex routines have their own

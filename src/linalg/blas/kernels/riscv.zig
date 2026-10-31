@@ -18,7 +18,6 @@ pub const Core = coretypes.RiscvCoreType;
 const converted = .{
     @import("../blas1/axpy/riscv64/kernel.zig"),
     @import("../blas1/axpby/riscv64/kernel.zig"),
-    @import("../blas1/dot/riscv64/kernel.zig"),
     @import("../blas1/rotm/riscv64/kernel.zig"),
     @import("../blas2/gemv/riscv64/kernel.zig"),
     @import("../blas2/hemv/riscv64/kernel.zig"),

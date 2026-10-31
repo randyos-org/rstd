@@ -7,6 +7,5 @@ const registry = @import("../../../../asm_registry.zig");
 pub const Entry = registry.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .dsdot_k, .module = @import("dsdot.zig") },
     .{ .slot = .ddot_k, .module = @import("ddot.zig") },
 };
