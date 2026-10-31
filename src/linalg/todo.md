@@ -42,24 +42,7 @@ or a scratchpad.
 
 ### Working on
 
-- [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
-  `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
-  real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
-  boundary or change the port's layout. Its LINPACK and EISPACK routines map to LAPACK's `getrf`,
-  `getrs`, `getri`, `gecon` (`wgefa`, `wgesl`, `wgedi`, `wgeco`), `potrf` (`wpofa`), `geqp3`,
-  `unmqr`, `trtrs` (`wqrdc`, `wqrsl`), `gesvd` (`wsvdc`, T34), `gehrd` (`corth`), `hseqr` with
-  `trevc` (`comqr3`), `hetrd` and `unmtr` (`htridi`, `htribk`); rstd has `potrf`, `getrf` and
-  `getrs`; T70 adds OpenBLAS's own, and the rest come from Reference-LAPACK (BSD-3, as OpenBLAS
-  ships it in `lapack-netlib/`). Its fills (`wset`, `rset`) are LAPACK `laset`, `pythag` is `lapy2`.
-  Its own tests must still pass. **Needs:** M1 (done), T123, T125, T126. Progress (2026-10-31): every group done as trunk edits (part staged by the user): LU
-  (`lu.zig` over `getrf`, `gecon`, `getri`; `divide.zig` over `getrs`), Cholesky (`potrf`), SVD
-  and QR (`svdapi.zig` over `gesvd`, `geqrf`, `orgqr`), eigen (`eig.zig` over `syevd`, `geev`;
-  `schur.zig` over `gehrd`, `orghr`, `zgees`; `roots` by `eig`), `matmul` (`gemm`) and BLAS 1
-  (user: all of it; `rref` over a packed copy, the norms by `dasum` and `dnrm2`, `scale` by
-  `drot`, `magic` by `dswap`, each now taking an `Io`). `svd.zig`, `qr.zig` and the four EISPACK
-  files are gone, `blas1.zig` is down to scalars; `CxMat` bridges by `isReal`, `toPacked`,
-  `fromPacked`; README updated. 83 matlab tests pass natively. Left: the rig compile checks, then
-  the user's review.
+T62's tier 2 failures, fixed one at a time on `review` as the sweep finds them (In the background).
 
 ### In the background
 
@@ -69,8 +52,15 @@ the trunk, so steps after their first compile what has landed since (T124, M1, k
 tier 3 on, each tier runs from its own worktree, `C:\scratch\git\rstd-wt\sweep-<tier>`, pinned
 at review's tip when it starts (user, 2026-10-30). M2's trunk edits moved tier 2 there too: it
 resumed `--from x86_64-smp` at 1650346b (2026-10-31 07:23), after steps 3 to 7 had compiled the
-trunk with M2 half done. With the fixes landed (2d48532d, 4962dbf2, a54e0240), a fresh full tier 2 is next, then
-tier 3.
+trunk with M2 half done. With the fixes landed (2d48532d, 4962dbf2, a54e0240, ec15b11c), a fresh full tier 2
+started at da2ae06a (2026-10-31 14:05), then tier 3. Split 14:44 (user): the main sweep stops
+after `x86_64`; `--tree t2b` (the other x86_64 rigs, `T08-x86_64`), `t2c` (aarch64 rigs,
+`T08-aarch64`), `t2d` (arm and PowerPC, their T08 steps) run on the Mac side by side, `t2e`
+(`x86_64-macos`, T114, the compile checks) here, each its own worktree and `-<tree>` folder.
+The Accelerate fixes landed as b18d7dae; `t2f` runs `ssh-x86_64-macos` and `ssh-aarch64-macos`
+there (14:46). Local builds
+use the user's experimental Zig 0.18.0-dev.856: a compiler problem there is reported, not worked
+around.
 
 - [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
   plus `wasm-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017` (Zig 0.17.0,
@@ -109,8 +99,15 @@ tier 3.
   `.macos-vm` into the worktree. `x86_64-smp`'s threaded tests then passed (23, 0 failed; level 2 reads elements back through
   `check.fromBits`; heap high water 19.8 of 64 MB). `ssh-x86_64-macos` rerun: 906 of 997 passed, then
   utest's `axpby` at stride 0 sent `incy` 0 to Accelerate's `catlas_saxpby`, which rejects it and
-  exits (255); `apple_accel.axpby` now keeps `incy` 0 on rstd (unstaged). Tier 2 waits for the
-  user's rgl edits (c5f95d46 renamed `Image.zig`, its importers not yet updated).
+  exits (255); `apple_accel.axpby` now keeps `incy` 0 on rstd (ec15b11c). Its check (utest and
+  `apple_accel`, both Macs) found two more: x86_64's `cblas_sswap` rejects a zero `incx` the same
+  way, so every zero stride on a written vector now stays on rstd (`copy`, `swap`, `scal`, `rot`,
+  `rotm`, `axpy`, `axpby`); arm64's complex `gemv` with `beta` `(2, 0)` and an infinite `y` skips
+  the zero part's products (`(inf, 1)` gives no NaN), so such calls now stay on rstd too. The
+  recheck: arm64 78 passed; x86_64 failed utest_ext's complex `gemm` with `R` (2.46e-4 over 1e-4),
+  its two calls on different backends (Accelerate has no `R`), now both on rstd; then 78 of 78
+  on both (b18d7dae). The tier 2 sweep, pinned at da2ae06a, lacks these: its
+  `ssh-*-macos` steps need `--only` reruns once they land.
 
 #### Build slots
 
@@ -118,9 +115,9 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | free | | |
-| Local 2 | free | | |
-| Mac 0.18 | T62 | `ssh-test-x86_64-macos`, then `-aarch64-macos`: utest and `apple_accel` (axpby `incy` 0 fix) | 13:05 |
+| Local 1 | T62 | `t2e`: `x86_64-macos`, T114, compile checks | 14:46 |
+| Local 2 | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos` at b18d7dae | 14:46 |
+| Mac 0.18 | T62 | shared by the sweeps' compiles, one at a time | 14:44 |
 | Mac 0.17 | free | | |
 
 #### Running tests
@@ -129,7 +126,10 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | free | | |
+| Mac | T62 | main sweep: `x86_64` (stops after it) | 14:05 |
+| Mac | T62 | `t2b`: `x86_64-uefi`, `-smp`, `linux-x86_64`, `T08-x86_64` | 14:44 |
+| Mac | T62 | `t2c`: `aarch64`, `-sve`, `-smp`, `-uefi`, `linux-aarch64`, `T08-aarch64` | 14:44 |
+| Mac | T62 | `t2d`: `arm`, `arm-softfp`, `linux-arm`, `powerpc-750`, `-hf`, their T08 steps | 14:44 |
 
 ## Queue
 
@@ -391,6 +391,9 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
 ## Done
 
 Cleared 2026-10-31; landed work is in `review`'s log.
+
+- [X] **M2** The matlab port over `rstd.linalg.blas` and `rstd.linalg.lapack` (7511eef3), reviewed
+  by the user 2026-10-31; its rig tests run in T62's tier 2.
 
 ## After the BLAS is feature complete
 
