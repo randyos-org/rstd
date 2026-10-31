@@ -504,6 +504,48 @@ fn shifted(comptime T: type, routine: []const u8, comptime two: bool, kern: anyt
     }
 }
 
+/// The element-wise kernels `shiftedWise` runs.
+const Wise = enum { scal, axpy, axpby, rot };
+
+/// `kern` (an element-wise kernel, by `op`, with `alpha` `a`) on `shifted`'s
+/// data and shifts: the same bits in `x` and `y` each time.
+fn shiftedWise(comptime T: type, routine: []const u8, comptime op: Wise, kern: anytype, a: T) !void {
+    const F = Float(T);
+    const complex = comptime isComplex(T);
+    const mem: [*]F = @ptrCast(&shift_mem);
+    const w = @sizeOf(T) / @sizeOf(F);
+    var vals: [2][offset_n]T = undefined;
+    check.fill(T, &vals[0], 7);
+    check.fill(T, &vals[1], 8);
+    const b: T = if (complex) .init(-0.5, 0.25) else -0.5;
+    var first: [2][w * offset_n]F = undefined;
+    for ([_]usize{ 1, 3, 7, 16, 33, 67, 100, offset_n }) |n| {
+        const m = w * n;
+        for (0..8) |ox| for (0..8) |oy| {
+            const x = mem + ox;
+            const y = mem + w * (offset_n + 8) + oy;
+            @memcpy(x[0..m], @as([*]const F, @ptrCast(&vals[0]))[0..m]);
+            @memcpy(y[0..m], @as([*]const F, @ptrCast(&vals[1]))[0..m]);
+            const ni: BlasLong = @intCast(n);
+            _ = switch (op) {
+                .scal => if (complex) kern(ni, 0, 0, a.re, a.im, x, 1, x, 0, x, 1) else kern(ni, 0, 0, a, x, 1, x, 0, x, 1),
+                .axpy => if (complex) kern(ni, 0, 0, a.re, a.im, x, 1, y, 1, y, 0) else kern(ni, 0, 0, a, x, 1, y, 1, y, 0),
+                .axpby => if (complex) kern(ni, a.re, a.im, x, 1, b.re, b.im, y, 1) else kern(ni, a, x, 1, b, y, 1),
+                .rot => kern(ni, x, 1, y, 1, @as(F, 0.6), @as(F, 0.8)),
+            };
+            if (ox == 0 and oy == 0) {
+                @memcpy(first[0][0..m], x[0..m]);
+                @memcpy(first[1][0..m], y[0..m]);
+            } else if (!std.mem.eql(u8, std.mem.sliceAsBytes(first[0][0..m]), std.mem.sliceAsBytes(x[0..m])) or
+                !std.mem.eql(u8, std.mem.sliceAsBytes(first[1][0..m]), std.mem.sliceAsBytes(y[0..m])))
+            {
+                check.say("{s} {s} n={d} alpha {any}: shifted by {d},{d} gave other bits than unshifted: ", .{ routine, @typeName(T), n, a, ox, oy });
+                return error.TestUnexpectedResult;
+            }
+        };
+    }
+}
+
 fn checkShifted(vt: *const Vtable) !void {
     failed = null;
     inline for (vtable_types) |p| {
@@ -511,18 +553,26 @@ fn checkShifted(vt: *const Vtable) !void {
         const T = p[1];
         inline for (.{ "asum", "sum", "nrm2" }) |r| note(shifted(T, l ++ r, false, @field(vt, l ++ r ++ "_k").?));
         inline for (if (comptime isComplex(T)) .{ "dotu", "dotc" } else .{"dot"}) |r| note(shifted(T, l ++ r, true, @field(vt, l ++ r ++ "_k").?));
+        const a: T = if (comptime isComplex(T)) .init(1.5, -0.75) else 1.5;
+        // complex kernels branch on a zero part (`scalReal` passes one)
+        const scals: []const T = if (comptime isComplex(T)) &.{ a, .init(1.5, 0), .init(0, -0.75) } else &.{a};
+        for (scals) |s| note(shiftedWise(T, l ++ "scal", .scal, @field(vt, l ++ "scal_k").?, s));
+        inline for (if (comptime isComplex(T)) .{ "axpy", "axpyc" } else .{"axpy"}) |r| note(shiftedWise(T, l ++ r, .axpy, @field(vt, l ++ r ++ "_k").?, a));
+        if (@hasField(Vtable, l ++ "axpby_k")) if (@field(vt, l ++ "axpby_k")) |k| note(shiftedWise(T, l ++ "axpby", .axpby, k, a));
+        const rot = if (comptime isComplex(T)) l ++ (if (l[0] == 'c') "s" else "d") ++ "rot_k" else l ++ "rot_k";
+        note(shiftedWise(T, l ++ "rot", .rot, @field(vt, rot).?, a));
     }
     note(shifted(f32, "dsdot", true, vt.dsdot_k.?));
     if (failed) |e| return e;
 }
 
-test "portable level-1 reductions: the same bits whatever the address" {
+test "portable level-1 reductions and element-wise kernels: the same bits whatever the address" {
     var vt: Vtable = .{};
     blas1.installGeneric(&vt);
     try checkShifted(&vt);
 }
 
-test "every linked core's level-1 reductions: the same bits whatever the address" {
+test "every linked core's level-1 reductions and element-wise kernels: the same bits whatever the address" {
     try check.eachCore(checkShifted);
 }
 

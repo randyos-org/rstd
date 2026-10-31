@@ -1698,6 +1698,22 @@ And the kernels rstd changed, by patch or port, to keep `axpy` one contract:
 > early return makes every core multiply; reference master's `dtrsv.f`
 > (`6e7b86c`) removed its zero test for the same reason.
 
+And those rstd patched to keep one result at any address:
+
+> **x86_64 `zaxpy_sse.S`, `zaxpy_sse2.S`: the result depends on the alignment of `x` and `y`**
+>
+> Where `y` is 16-byte aligned they add `y` to `alpha_r * x` and then
+> `alpha_i` times the swapped `x`; where it is not, they add `y` to the
+> whole of `alpha * x`. Three one-element tails of `zaxpy_sse.S` (`.L18`,
+> `.L28`, `.L38`) add `y` early too. So `caxpy` and `zaxpy` (and their
+> conjugated forms) of one element give other bits with `y`, or `x`, one
+> float further on. Adding `y` last everywhere makes them reproducible.
+
+Patched (`tools/blas_asm/arch/x86_64.zig`, `yLast` and three tail patches) on 2026-10-31, keeping
+the kernels: `trevc3`'s selected vectors differed in the last bits from all of them on the
+`x86_64` rig (`prescott`), the same solve run in buffers at other addresses. The address test
+(`_test/blas1/edge.zig`) now covers the element-wise kernels too.
+
 A zero `alpha` with a denormal in `y` also showed the ARMv7 NEON and AltiVec
 flushing of `comparisons.md` (10): the portable `saxpy`'s `@Vector` block
 turned the denormal into 0 on the `arm`, `linux-arm`, `powerpc` and

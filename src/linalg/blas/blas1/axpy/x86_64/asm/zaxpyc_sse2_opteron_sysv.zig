@@ -80,14 +80,14 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ movaps -4 * 8(%rcx), %xmm6
     \\ movaps -2 * 8(%rcx), %xmm7
@@ -95,14 +95,14 @@ const text =
     \\ pshufd $0x4e, %xmm2, %xmm8
     \\ mulpd %xmm14, %xmm2
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -12 * 8(%r9), %xmm2
     \\ addpd %xmm8, %xmm2
+    \\ addpd -12 * 8(%r9), %xmm2
     \\ movaps %xmm2, -12 * 8(%r9)
     \\ pshufd $0x4e, %xmm3, %xmm8
     \\ mulpd %xmm14, %xmm3
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -10 * 8(%r9), %xmm3
     \\ addpd %xmm8, %xmm3
+    \\ addpd -10 * 8(%r9), %xmm3
     \\ movaps %xmm3, -10 * 8(%r9)
     \\ movaps 0 * 8(%rcx), %xmm0
     \\ movaps 2 * 8(%rcx), %xmm1
@@ -110,14 +110,14 @@ const text =
     \\ pshufd $0x4e, %xmm4, %xmm8
     \\ mulpd %xmm14, %xmm4
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -8 * 8(%r9), %xmm4
     \\ addpd %xmm8, %xmm4
+    \\ addpd -8 * 8(%r9), %xmm4
     \\ movaps %xmm4, -8 * 8(%r9)
     \\ pshufd $0x4e, %xmm5, %xmm8
     \\ mulpd %xmm14, %xmm5
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -6 * 8(%r9), %xmm5
     \\ addpd %xmm8, %xmm5
+    \\ addpd -6 * 8(%r9), %xmm5
     \\ movaps %xmm5, -6 * 8(%r9)
     \\ movaps 4 * 8(%rcx), %xmm2
     \\ movaps 6 * 8(%rcx), %xmm3
@@ -125,14 +125,14 @@ const text =
     \\ pshufd $0x4e, %xmm6, %xmm8
     \\ mulpd %xmm14, %xmm6
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -4 * 8(%r9), %xmm6
     \\ addpd %xmm8, %xmm6
+    \\ addpd -4 * 8(%r9), %xmm6
     \\ movaps %xmm6, -4 * 8(%r9)
     \\ pshufd $0x4e, %xmm7, %xmm8
     \\ mulpd %xmm14, %xmm7
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -2 * 8(%r9), %xmm7
     \\ addpd %xmm8, %xmm7
+    \\ addpd -2 * 8(%r9), %xmm7
     \\ movaps %xmm7, -2 * 8(%r9)
     \\ subq $-16 * 8, %rcx
     \\ subq $-16 * 8, %r9
@@ -145,52 +145,52 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ movaps -4 * 8(%rcx), %xmm6
     \\ movaps -2 * 8(%rcx), %xmm7
     \\ pshufd $0x4e, %xmm2, %xmm8
     \\ mulpd %xmm14, %xmm2
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -12 * 8(%r9), %xmm2
     \\ addpd %xmm8, %xmm2
+    \\ addpd -12 * 8(%r9), %xmm2
     \\ movaps %xmm2, -12 * 8(%r9)
     \\ pshufd $0x4e, %xmm3, %xmm8
     \\ mulpd %xmm14, %xmm3
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -10 * 8(%r9), %xmm3
     \\ addpd %xmm8, %xmm3
+    \\ addpd -10 * 8(%r9), %xmm3
     \\ movaps %xmm3, -10 * 8(%r9)
     \\ pshufd $0x4e, %xmm4, %xmm8
     \\ mulpd %xmm14, %xmm4
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -8 * 8(%r9), %xmm4
     \\ addpd %xmm8, %xmm4
+    \\ addpd -8 * 8(%r9), %xmm4
     \\ movaps %xmm4, -8 * 8(%r9)
     \\ pshufd $0x4e, %xmm5, %xmm8
     \\ mulpd %xmm14, %xmm5
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -6 * 8(%r9), %xmm5
     \\ addpd %xmm8, %xmm5
+    \\ addpd -6 * 8(%r9), %xmm5
     \\ movaps %xmm5, -6 * 8(%r9)
     \\ pshufd $0x4e, %xmm6, %xmm8
     \\ mulpd %xmm14, %xmm6
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -4 * 8(%r9), %xmm6
     \\ addpd %xmm8, %xmm6
+    \\ addpd -4 * 8(%r9), %xmm6
     \\ movaps %xmm6, -4 * 8(%r9)
     \\ pshufd $0x4e, %xmm7, %xmm8
     \\ mulpd %xmm14, %xmm7
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -2 * 8(%r9), %xmm7
     \\ addpd %xmm8, %xmm7
+    \\ addpd -2 * 8(%r9), %xmm7
     \\ movaps %xmm7, -2 * 8(%r9)
     \\ subq $-16 * 8, %rcx
     \\ subq $-16 * 8, %r9
@@ -206,26 +206,26 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ pshufd $0x4e, %xmm2, %xmm8
     \\ mulpd %xmm14, %xmm2
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -12 * 8(%r9), %xmm2
     \\ addpd %xmm8, %xmm2
+    \\ addpd -12 * 8(%r9), %xmm2
     \\ movaps %xmm2, -12 * 8(%r9)
     \\ pshufd $0x4e, %xmm3, %xmm8
     \\ mulpd %xmm14, %xmm3
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -10 * 8(%r9), %xmm3
     \\ addpd %xmm8, %xmm3
+    \\ addpd -10 * 8(%r9), %xmm3
     \\ movaps %xmm3, -10 * 8(%r9)
     \\ addq $8 * 8, %rcx
     \\ addq $8 * 8, %r9
@@ -239,14 +239,14 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ addq $4 * 8, %rcx
     \\ addq $4 * 8, %r9
@@ -259,8 +259,8 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ jmp 20033f
     \\ .balign 8
@@ -286,16 +286,16 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ movlps -6 * 8(%rcx), %xmm5
     \\ movhps -5 * 8(%rcx), %xmm5
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ movlps -4 * 8(%rcx), %xmm6
     \\ movhps -3 * 8(%rcx), %xmm6
@@ -303,16 +303,16 @@ const text =
     \\ pshufd $0x4e, %xmm2, %xmm8
     \\ mulpd %xmm14, %xmm2
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -12 * 8(%r9), %xmm2
     \\ addpd %xmm8, %xmm2
+    \\ addpd -12 * 8(%r9), %xmm2
     \\ movaps %xmm2, -12 * 8(%r9)
     \\ movlps -2 * 8(%rcx), %xmm7
     \\ movhps -1 * 8(%rcx), %xmm7
     \\ pshufd $0x4e, %xmm3, %xmm8
     \\ mulpd %xmm14, %xmm3
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -10 * 8(%r9), %xmm3
     \\ addpd %xmm8, %xmm3
+    \\ addpd -10 * 8(%r9), %xmm3
     \\ movaps %xmm3, -10 * 8(%r9)
     \\ movlps 0 * 8(%rcx), %xmm0
     \\ movhps 1 * 8(%rcx), %xmm0
@@ -320,16 +320,16 @@ const text =
     \\ pshufd $0x4e, %xmm4, %xmm8
     \\ mulpd %xmm14, %xmm4
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -8 * 8(%r9), %xmm4
     \\ addpd %xmm8, %xmm4
+    \\ addpd -8 * 8(%r9), %xmm4
     \\ movaps %xmm4, -8 * 8(%r9)
     \\ movlps 2 * 8(%rcx), %xmm1
     \\ movhps 3 * 8(%rcx), %xmm1
     \\ pshufd $0x4e, %xmm5, %xmm8
     \\ mulpd %xmm14, %xmm5
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -6 * 8(%r9), %xmm5
     \\ addpd %xmm8, %xmm5
+    \\ addpd -6 * 8(%r9), %xmm5
     \\ movaps %xmm5, -6 * 8(%r9)
     \\ movlps 4 * 8(%rcx), %xmm2
     \\ movhps 5 * 8(%rcx), %xmm2
@@ -337,16 +337,16 @@ const text =
     \\ pshufd $0x4e, %xmm6, %xmm8
     \\ mulpd %xmm14, %xmm6
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -4 * 8(%r9), %xmm6
     \\ addpd %xmm8, %xmm6
+    \\ addpd -4 * 8(%r9), %xmm6
     \\ movaps %xmm6, -4 * 8(%r9)
     \\ movlps 6 * 8(%rcx), %xmm3
     \\ movhps 7 * 8(%rcx), %xmm3
     \\ pshufd $0x4e, %xmm7, %xmm8
     \\ mulpd %xmm14, %xmm7
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -2 * 8(%r9), %xmm7
     \\ addpd %xmm8, %xmm7
+    \\ addpd -2 * 8(%r9), %xmm7
     \\ movaps %xmm7, -2 * 8(%r9)
     \\ subq $-16 * 8, %rcx
     \\ subq $-16 * 8, %r9
@@ -359,56 +359,56 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ movlps -6 * 8(%rcx), %xmm5
     \\ movhps -5 * 8(%rcx), %xmm5
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ movlps -4 * 8(%rcx), %xmm6
     \\ movhps -3 * 8(%rcx), %xmm6
     \\ pshufd $0x4e, %xmm2, %xmm8
     \\ mulpd %xmm14, %xmm2
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -12 * 8(%r9), %xmm2
     \\ addpd %xmm8, %xmm2
+    \\ addpd -12 * 8(%r9), %xmm2
     \\ movaps %xmm2, -12 * 8(%r9)
     \\ movlps -2 * 8(%rcx), %xmm7
     \\ movhps -1 * 8(%rcx), %xmm7
     \\ pshufd $0x4e, %xmm3, %xmm8
     \\ mulpd %xmm14, %xmm3
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -10 * 8(%r9), %xmm3
     \\ addpd %xmm8, %xmm3
+    \\ addpd -10 * 8(%r9), %xmm3
     \\ movaps %xmm3, -10 * 8(%r9)
     \\ pshufd $0x4e, %xmm4, %xmm8
     \\ mulpd %xmm14, %xmm4
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -8 * 8(%r9), %xmm4
     \\ addpd %xmm8, %xmm4
+    \\ addpd -8 * 8(%r9), %xmm4
     \\ movaps %xmm4, -8 * 8(%r9)
     \\ pshufd $0x4e, %xmm5, %xmm8
     \\ mulpd %xmm14, %xmm5
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -6 * 8(%r9), %xmm5
     \\ addpd %xmm8, %xmm5
+    \\ addpd -6 * 8(%r9), %xmm5
     \\ movaps %xmm5, -6 * 8(%r9)
     \\ pshufd $0x4e, %xmm6, %xmm8
     \\ mulpd %xmm14, %xmm6
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -4 * 8(%r9), %xmm6
     \\ addpd %xmm8, %xmm6
+    \\ addpd -4 * 8(%r9), %xmm6
     \\ movaps %xmm6, -4 * 8(%r9)
     \\ pshufd $0x4e, %xmm7, %xmm8
     \\ mulpd %xmm14, %xmm7
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -2 * 8(%r9), %xmm7
     \\ addpd %xmm8, %xmm7
+    \\ addpd -2 * 8(%r9), %xmm7
     \\ movaps %xmm7, -2 * 8(%r9)
     \\ subq $-16 * 8, %rcx
     \\ subq $-16 * 8, %r9
@@ -424,14 +424,14 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ movlps -12 * 8(%rcx), %xmm2
     \\ movhps -11 * 8(%rcx), %xmm2
@@ -440,14 +440,14 @@ const text =
     \\ pshufd $0x4e, %xmm2, %xmm8
     \\ mulpd %xmm14, %xmm2
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -12 * 8(%r9), %xmm2
     \\ addpd %xmm8, %xmm2
+    \\ addpd -12 * 8(%r9), %xmm2
     \\ movaps %xmm2, -12 * 8(%r9)
     \\ pshufd $0x4e, %xmm3, %xmm8
     \\ mulpd %xmm14, %xmm3
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -10 * 8(%r9), %xmm3
     \\ addpd %xmm8, %xmm3
+    \\ addpd -10 * 8(%r9), %xmm3
     \\ movaps %xmm3, -10 * 8(%r9)
     \\ addq $8 * 8, %rcx
     \\ addq $8 * 8, %r9
@@ -461,16 +461,16 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ movlps -14 * 8(%rcx), %xmm1
     \\ movhps -13 * 8(%rcx), %xmm1
     \\ pshufd $0x4e, %xmm1, %xmm8
     \\ mulpd %xmm14, %xmm1
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -14 * 8(%r9), %xmm1
     \\ addpd %xmm8, %xmm1
+    \\ addpd -14 * 8(%r9), %xmm1
     \\ movaps %xmm1, -14 * 8(%r9)
     \\ addq $4 * 8, %rcx
     \\ addq $4 * 8, %r9
@@ -484,8 +484,8 @@ const text =
     \\ pshufd $0x4e, %xmm0, %xmm8
     \\ mulpd %xmm14, %xmm0
     \\ mulpd %xmm15, %xmm8
-    \\ addpd -16 * 8(%r9), %xmm0
     \\ addpd %xmm8, %xmm0
+    \\ addpd -16 * 8(%r9), %xmm0
     \\ movaps %xmm0, -16 * 8(%r9)
     \\ jmp 20033f
     \\ .balign 8

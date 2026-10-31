@@ -1,13 +1,17 @@
-//! Probes `@Matrix` (zig-build's zig-src randy-matrix, phase 1) through
-//! the SPIR-V backend: one fragment entry point per supported use.
+//! Probes `@Matrix` (zig-build's zig-src randy-matrix) through the SPIR-V
+//! backend: one fragment entry point per supported use.
 //!
 //!   zig build-obj tools/spirv_matrix_probe.zig -target spirv32-vulkan \
 //!       -mcpu vulkan_v1_2 -fno-llvm -ofmt=spirv -femit-bin=matrix.spv
 //!   spirv-val --target-env vulkan1.2 matrix.spv
 //!
-//! Phase 1 lowers a matrix as an array of column vectors, not
-//! OpTypeMatrix, and has no `.{ col, col }` init syntax, indexing or
-//! operators; those are later phases, so this probe should grow with them.
+//! Phase 1 is the type, its layout and its array coercions; phase 2a adds
+//! `.{ col, col }` init, `m[c]` indexing, `.len`, `for` and destructuring.
+//! On shader targets a matrix of 2 to 4 columns of 2 to 4 floats lowers to
+//! OpTypeMatrix, with ColMajor and MatrixStride on the block members holding
+//! one; other matrices lower to an array of columns. On OpTypeMatrix, `*` and
+//! `@transpose` lower to SPIR-V's matrix instructions, and `+`, `-` and
+//! negation work column by column, as SPIR-V has no matrix forms of those.
 //!
 //! `M` is deliberately not square, so a rows/cols mix-up anywhere changes
 //! a type, and its 3-row columns are padded to 16 bytes, so the column
@@ -32,6 +36,8 @@ comptime {
 const Globals = extern struct {
     xform: M,
     bias: Column,
+    /// An array of matrices takes its stride decorations on this member.
+    views: [2]@Matrix(4, 4, f32),
 };
 
 const out_color = @extern(*addrspace(.output) @Vector(4, f32), .{
@@ -111,10 +117,65 @@ fn roundTrip() callconv(.{ .spirv_fragment = .{} }) void {
 fn pushConstant() callconv(.{ .spirv_fragment = .{} }) void {
     const cols: Columns = globals.xform;
     const bias: [3]f32 = globals.bias;
-    out_color.* = .{ cols[0][0] + bias[0], cols[0][2], cols[1][0], cols[1][2] + bias[2] };
+    const view = globals.views[1];
+    out_color.* = .{ cols[0][0] + bias[0], cols[0][2], cols[1][0], cols[1][2] + bias[2] + view[3][3] };
+}
+
+/// Init syntax from runtime columns, then a runtime-indexed column read.
+fn initAndIndex() callconv(.{ .spirv_fragment = .{} }) void {
+    const m: M = .{ in_a.*, in_b.* };
+    var c: usize = @intFromFloat(in_a.*[0]);
+    c &= 1;
+    const col = m[c];
+    out_color.* = .{ col[0], col[2], m[1][0], @floatFromInt(m.len) };
+}
+
+/// Element and column stores through a matrix pointer, then a `for` over
+/// the columns and a destructure.
+fn storeAndLoop() callconv(.{ .spirv_fragment = .{} }) void {
+    var m: M = in_m.*;
+    m[0][1] = in_a.*[0];
+    m[1] = in_b.*;
+    var sum: Column = @splat(0);
+    for (m) |col| sum += col;
+    const c0, _ = m;
+    out_color.* = .{ sum[0], sum[1], sum[2], c0[1] };
+}
+
+/// Every product form lowers to SPIR-V's own instruction: OpMatrixTimesVector,
+/// OpVectorTimesMatrix, OpMatrixTimesMatrix and OpMatrixTimesScalar.
+fn products() callconv(.{ .spirv_fragment = .{} }) void {
+    const view = globals.views[0];
+    const m: M = in_m.*;
+    const p: @Vector(4, f32) = .{ in_a.*[0], in_a.*[1], in_a.*[2], 1 };
+    const mv = view * p;
+    const vm = in_b.* * m;
+    const mm = view * globals.views[1];
+    const ms = m * in_a.*[0];
+    out_color.* = mv + mm[3] + @Vector(4, f32){ vm[0], vm[1], ms[1][2], 0 };
+}
+
+/// OpTranspose, and `+`, `-` and negation column by column.
+fn transposeAndSums() callconv(.{ .spirv_fragment = .{} }) void {
+    const m: M = in_m.*;
+    const t: @Matrix(2, 3, f32) = @transpose(m);
+    const s = m + m - -m;
+    out_color.* = .{ t[2][1], s[1][2], 0, 1 };
+}
+
+/// A product outside SPIR-V's matrix sizes falls back to column arithmetic.
+fn wideProduct() callconv(.{ .spirv_fragment = .{} }) void {
+    const w: @Matrix(4, 5, f32) = .{ globals.views[0][0], globals.views[0][1], globals.views[0][2], globals.views[0][3], globals.views[1][0] };
+    const v: @Vector(5, f32) = @splat(in_a.*[0]);
+    out_color.* = w * v;
 }
 
 comptime {
+    @export(&products, .{ .name = "matrix_products" });
+    @export(&transposeAndSums, .{ .name = "matrix_transpose_and_sums" });
+    @export(&wideProduct, .{ .name = "matrix_wide_product" });
+    @export(&initAndIndex, .{ .name = "matrix_init_and_index" });
+    @export(&storeAndLoop, .{ .name = "matrix_store_and_loop" });
     @export(&fromArray, .{ .name = "matrix_from_array" });
     @export(&fromTuple, .{ .name = "matrix_from_tuple" });
     @export(&externInput, .{ .name = "matrix_extern_input" });

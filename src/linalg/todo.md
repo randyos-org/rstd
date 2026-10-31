@@ -56,9 +56,22 @@ trunk with M2 half done. With the fixes landed (2d48532d, 4962dbf2, a54e0240, ec
 started at da2ae06a (2026-10-31 14:05), then tier 3. Split 14:44 (user): the main sweep stops
 after `x86_64`; `--tree t2b` (the other x86_64 rigs, `T08-x86_64`), `t2c` (aarch64 rigs,
 `T08-aarch64`), `t2d` (arm and PowerPC, their T08 steps) run on the Mac side by side, `t2e`
-(`x86_64-macos`, T114, the compile checks) here, each its own worktree and `-<tree>` folder.
+(`x86_64-macos`, T114, the compile checks) here, each in its own worktree and `-<tree>` folder.
 The Accelerate fixes landed as b18d7dae; `t2f` runs `ssh-x86_64-macos` and `ssh-aarch64-macos`
-there (14:46). Local builds
+there (14:46).
+Stopped 15:40 (user: fail fast, fix, retest only the failure, then resume): `sweep.sh` now passes
+`-Dfail-fast` and stops at a failing step (`--keep-going` for the old way), with
+`sweeps/STOP-<commit>` stopping the other sweeps of that commit. `aarch64` had passed (645, 51
+skipped). `x86_64` failed `trevc3` (selected vectors differ in the last bits from all of them):
+on `prescott` and 10 other SSE-era cores, the converted complex `axpy`/`axpyc` assembly (`c`, `z`)
+gives other bits when `y` is misaligned (8 mod 16, even at `n` 1), breaking threading.md's "no
+address dependence". The address test now covers the element-wise kernels (`edge.zig`) and finds
+them. Upstream's own: its aligned-`y` paths add `y` before `alpha_i` times the swapped `x`, the
+misaligned ones after `alpha * x`, as do three of `zaxpy_sse.S`'s one-element tails. Fixed by
+generator patches (`yLast` and three tail patches, `arch/x86_64.zig`) that add `y` last on every
+path, keeping the kernels; the address test (complex `scal` with a zero part too) and `trevc3`
+pass natively on every core and on the `x86_64` rig (user: no dropping OpenBLAS kernels without a
+very high bar; T133 to T136 evaluate the earlier such choices). Local builds
 use the user's experimental Zig 0.18.0-dev.856: a compiler problem there is reported, not worked
 around.
 
@@ -115,9 +128,9 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | T62 | `t2e`: `x86_64-macos`, T114, compile checks | 14:46 |
-| Local 2 | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos` at b18d7dae | 14:46 |
-| Mac 0.18 | T62 | shared by the sweeps' compiles, one at a time | 14:44 |
+| Local 1 | free | | |
+| Local 2 | free | | |
+| Mac 0.18 | free | | |
 | Mac 0.17 | free | | |
 
 #### Running tests
@@ -126,10 +139,7 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | T62 | main sweep: `x86_64` (stops after it) | 14:05 |
-| Mac | T62 | `t2b`: `x86_64-uefi`, `-smp`, `linux-x86_64`, `T08-x86_64` | 14:44 |
-| Mac | T62 | `t2c`: `aarch64`, `-sve`, `-smp`, `-uefi`, `linux-aarch64`, `T08-aarch64` | 14:44 |
-| Mac | T62 | `t2d`: `arm`, `arm-softfp`, `linux-arm`, `powerpc-750`, `-hf`, their T08 steps | 14:44 |
+| Mac | free (sweeps stopped 15:40) | | |
 
 ## Queue
 
@@ -191,6 +201,26 @@ Each moves to In progress when the sweep step that runs it starts.
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
 
+- [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
+  `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,
+  `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S`, `dgemv_n*.S`) rstd skips for
+  `@Vector` kernels on the cores that build it, because its bits follow an operand's address.
+  Never benchmarked on those cores. Deviating from OpenBLAS needs a very high bar (user,
+  2026-10-31): confirm the dependence upstream, look for a generator patch that keeps the kernel
+  (as `zaxpy_sse2.S`'s add order, T62), time both on each core (forced on this host, indicative),
+  then decide with the user.
+- [ ] **T135** Evaluate the routed extremes (`i?amax`, `i?amin`, `i?max`, `i?min` and values; the
+  first NaN wins, `readme.md`, One contract): every architecture runs rstd's kernels, not
+  upstream's. On `zen` `isamax` is 0.24 to 0.41 of OpenBLAS below 16M floats (flyoff,
+  2026-10-27). Weigh the contract against upstream's NaN behavior and speed per architecture;
+  patch upstream where it is wrong, if that keeps it; decide with the user.
+- [ ] **T134** Evaluate routed `nrm2` (exact `f64` sum for `s`, `c`; Blue's for `d`, `z`): rstd's is
+  faster on `zen` (1.2 to 11.7) and the M6 (4.3 to 17), unmeasured elsewhere. issues.md lists
+  upstream kernels wrong on special values: confirm which are wrong rather than only different,
+  patch those that can be, time the rest per architecture; decide with the user.
+- [ ] **T133** Evaluate routed `sdot` and `dsdot` (one `f64` sum): short `sdot` is 0.30 to 0.65 of
+  OpenBLAS on `zen`, 0.37 at 256K floats on the M6. Weigh the accuracy contract against
+  upstream's `f32` sums per architecture; decide with the user.
 - [ ] **T132** The gemm driver allocates the whole `BUFFER_SIZE` packing buffer (20 MB on the AVX
   x86_64 cores) per call, however small the problem; allocating only what the blocking uses for
   `m`, `n`, `k` would keep the bits and save the memory (found by T62: the x86_64 rigs' heap is 64
