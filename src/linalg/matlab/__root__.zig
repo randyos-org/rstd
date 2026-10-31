@@ -4,7 +4,7 @@
 //! documentation) - everything callable as a MATLAB function, minus the
 //! REPL itself (parser, tokenizer, `<>` stack machine, `FOR`/`WHILE`/`IF`,
 //! `SAVE`/`LOAD`/`DIARY`/`PLOT` I/O, `HELP` text) since those have no
-//! meaning outside an interactive session. See `README.md` for a usage
+//! meaning outside an interactive session. See `readme.md` for a usage
 //! guide and a full function table.
 //!
 //! The public surface is `CxMat` (bundles a complex matrix and carries
