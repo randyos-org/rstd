@@ -69,7 +69,8 @@ the trunk, so steps after their first compile what has landed since (T124, M1, k
 tier 3 on, each tier runs from its own worktree, `C:\scratch\git\rstd-wt\sweep-<tier>`, pinned
 at review's tip when it starts (user, 2026-10-30). M2's trunk edits moved tier 2 there too: it
 resumed `--from x86_64-smp` at 1650346b (2026-10-31 07:23), after steps 3 to 7 had compiled the
-trunk with M2 half done.
+trunk with M2 half done. With the fixes landed (2d48532d, 4962dbf2, a54e0240), a fresh full tier 2 is next, then
+tier 3.
 
 - [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
   plus `wasm-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017` (Zig 0.17.0,
@@ -96,11 +97,20 @@ trunk with M2 half done.
   rerun in the resume; `x86_64` and `x86_64-uefi` need `--only` reruns after. Paused 2026-10-31
   ~07:50 for a reboot, the resume having redone `x86_64-smp` (the same 2 failed) and
   `linux-x86_64` (the same crash). Plan: fix the known failures on top of 7511eef3, then a fresh
-  full tier 2 at the fixed tip, then tier 3. The `linux-x86_64` crash is the self-hosted x86_64
-  backend on `lasv2`'s f80 instance (Debug, `-fno-llvm`; f16 to f128 else build), triggered by
-  the `t = if (l == 0) ... else ...` line in its `mm == 0` branch: a standalone copy builds with
-  that line alone removed. Next: rewrite that line as an `if` statement, confirm, and record the
-  backend bug in issues.md.
+  full tier 2 at the fixed tip, then tier 3. Fixes so far (unstaged): `linux-x86_64`'s crash is
+  the self-hosted x86_64 backend on `lasv2`'s f80 instance, its `if` expression now a statement
+  (issues.md); `x86_64-smp`'s level 1 compared an f80's undefined padding bytes, now value bits
+  (`check.appendBits`); its level 2 rank updates kept 16 MB of bytes twice, now digests
+  (`check.appendDigest`, `ger` too); `x86_64-uefi` ran the native-only cases (biggest sizes, other
+  targets' tiles) because `check.rig()` missed `.uefi`, hence its out-of-memory failures; now a
+  rig, so the tile test skips; its AVX cores' gemm tests still need 24 MB plus a 20 MB packing
+  buffer, so the x86_64 rigs' heap is 64 MB (T132); its triangular test passed on rerun; `x86_64-macos`:
+  `zb.sh` no longer pre-builds a `qemu-check` it lacks, and `sweep.sh` links the trunk's
+  `.macos-vm` into the worktree. `x86_64-smp`'s threaded tests then passed (23, 0 failed; level 2 reads elements back through
+  `check.fromBits`; heap high water 19.8 of 64 MB). `ssh-x86_64-macos` rerun: 906 of 997 passed, then
+  utest's `axpby` at stride 0 sent `incy` 0 to Accelerate's `catlas_saxpby`, which rejects it and
+  exits (255); `apple_accel.axpby` now keeps `incy` 0 on rstd (unstaged). Tier 2 waits for the
+  user's rgl edits (c5f95d46 renamed `Image.zig`, its importers not yet updated).
 
 #### Build slots
 
@@ -108,9 +118,9 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | free (M2's compile checks stopped for the reboot; rerun) | | |
+| Local 1 | free | | |
 | Local 2 | free | | |
-| Mac 0.18 | free | | |
+| Mac 0.18 | T62 | `ssh-test-x86_64-macos`, then `-aarch64-macos`: utest and `apple_accel` (axpby `incy` 0 fix) | 13:05 |
 | Mac 0.17 | free | | |
 
 #### Running tests
@@ -119,7 +129,7 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | free (tier 2 paused for the reboot) | | |
+| Mac | free | | |
 
 ## Queue
 
@@ -181,6 +191,10 @@ Each moves to In progress when the sweep step that runs it starts.
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
 
+- [ ] **T132** The gemm driver allocates the whole `BUFFER_SIZE` packing buffer (20 MB on the AVX
+  x86_64 cores) per call, however small the problem; allocating only what the blocking uses for
+  `m`, `n`, `k` would keep the bits and save the memory (found by T62: the x86_64 rigs' heap is 64
+  MB for it).
 - [ ] **T131** dqds for a bidiagonal's values alone (from T126): Reference-LAPACK's `xLASQ1` to
   `xLASQ6` (`dlasq1.f` to `dlasq6.f`, about 1,070 lines of code), which `xBDSQR` calls when no
   vectors are wanted: faster than the QR iteration and accurate to a few eps relatively. Now

@@ -205,6 +205,7 @@ chemm
 chemv
 Chlumsky
 chmod
+CHOLMOD
 chown
 chroot
 chvalid
@@ -361,6 +362,7 @@ difat
 dimatcopy
 dir
 DIRENV
+djbfft
 DLAB
 dlacpy
 DLADIV
@@ -411,6 +413,7 @@ dscal
 dsdot
 DSDOTKERNEL
 dsll
+DSP's
 dspr
 dsra
 dsum
@@ -621,7 +624,11 @@ fdtable
 FERR
 FFINT
 ffreep
+FFT's
+fftiny
 FFTM
+FFTPACK
+FFTW
 fgetxattr
 fheight
 fhmn
@@ -772,6 +779,7 @@ gemms
 gemmt
 gemmtrsm
 gemv
+genfft
 geqp
 geqpf
 geqrf
@@ -871,8 +879,10 @@ Harfbuzz
 HarfBuzz
 Harwell
 hasc
+hazen
 hbmv
 hcall
+hdronly
 heev
 heevd
 HEGS
@@ -916,6 +926,7 @@ hwdiv
 HWPOISON
 hwprobe
 hygon
+Hyndman
 Iain
 iamax
 iamaxk
@@ -1173,6 +1184,7 @@ libxev
 LIBXSMM's
 LICM
 lidt
+lifft
 link
 linkat
 listen
@@ -1245,6 +1257,7 @@ MBCS
 mbind
 MCGA
 mcpu
+MDCT
 mdgen
 mdutil
 mediaanalysisd
@@ -1459,6 +1472,7 @@ openat
 openat2
 openblas
 opteron
+optim
 Opto
 ordschur
 orgbr
@@ -1525,6 +1539,7 @@ penryn
 perf_event_open
 perffix
 personality
+pffft
 pflash
 pftf
 pgid
@@ -1556,6 +1571,7 @@ pmax
 PMLNE
 PMLNT
 pmset
+pocketfft
 poll
 pollfd
 pollfds
@@ -1704,6 +1720,7 @@ ret
 retarget
 retime
 revents
+rfft
 RFLAGS
 rfont
 rgamsq
@@ -2216,6 +2233,7 @@ UIDS
 uintr
 ulps
 umask
+UMFPACK
 umip
 umount2
 unalign
@@ -2391,6 +2409,7 @@ wdotcr
 wdotui
 wdotur
 wdth
+Welford's
 wexp
 wgeco
 wgedi
@@ -2547,6 +2566,7 @@ zdotc
 zdotu
 zdrot
 ZDSCAL
+zfft
 zfls
 zgeadd
 ZGECO
