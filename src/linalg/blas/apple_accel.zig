@@ -657,8 +657,11 @@ const col = Order.col_major;
 //   imaginary part, where the reference's is NaN.
 // - `axpby`: a zero `alpha`. Accelerate reads `x`, so NaN or an infinity
 //   there reaches `y`.
-// - `axpby`: `incy` 0. Accelerate rejects it as an invalid parameter and
-//   exits (x86_64; arm64 untested).
+// - a zero stride on a vector the routine writes (`swap`, `axpby`).
+//   Accelerate rejects it as an invalid parameter and exits (x86_64; arm64
+//   untested). Zero strides on read vectors go to Accelerate.
+// - complex `gemv`: `beta` with one zero part and NaN or an infinity in
+//   `y`. Accelerate skips that part's products, as for `scal`.
 // - `i?amax`: always (not routed). Accelerate does not take the first NaN.
 // - `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv`: NaN or an infinity in
 //   `x`. Past small orders Accelerate multiplies it by the triangle's zeros
@@ -831,8 +834,9 @@ fn Elementwise(comptime T: type, comptime r: Elem) type {
         /// The call over its parts; false where rstd runs it.
         fn run(e: *const Self, io: Io) Io.Cancelable!bool {
             if (!fits(name, e.b, &.{ e.n, mag(e.incx), mag(e.incy), span(e.n, e.incx), span(e.n, e.incy) })) return false;
+            if (e.incy == 0 or (e.incx == 0 and (r == .swap or r == .scal or r == .rot))) return false;
             // a zero stride's elements depend on each other, as for rstd's own
-            if (e.incx == 0 or e.incy == 0) {
+            if (e.incx == 0) {
                 e.part(whole(e.n));
                 return true;
             }
@@ -989,6 +993,7 @@ pub inline fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
     if (comptime !covers(T)) return false else {
         if (!sent(.rotm, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
+        if (incx == 0 or incy == 0) return false;
         return call("cblas_" ++ letter(T) ++ "rotm", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy, param }) != null;
     }
 }
@@ -1053,6 +1058,7 @@ pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: is
         const t = transpose(T, trans) orelse return false;
         const lenx = if (trans.transposed()) m else n;
         const leny = if (trans.transposed()) n else m;
+        if (zeroPart(T, beta) and !isZero(T, beta) and nonFinite(T, leny, y, incy)) return false;
         const G = Gemv(T);
         if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), mat(m, n, lda), span(lenx, incx), span(leny, incy) })) return false;
         const g: G = .{ .b = b, .t = t, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .beta = beta, .y = y, .incy = incy };
