@@ -6,6 +6,7 @@ const math = @import("math.zig");
 const Shape = @import("Shape.zig");
 
 const aux_types = @import("../aux_types.zig");
+const zigstd = @import("../../../../zigstd.zig");
 const V2f64 = aux_types.V2f64;
 
 const max_distance_recolors = 32;
@@ -123,8 +124,10 @@ fn findCorners(allocator: std.mem.Allocator, contour: *const Shape.Contour, corn
     }
 }
 
+/// -1, 0 or 1 as `pos` falls in the first, middle or last third of `n`,
+/// balanced so the results sum to zero (msdfgen 1c106ed).
 fn symmetricalTrichotomy(pos: usize, n: usize) i32 {
-    return @as(i32, @trunc(3.0 + 2.875 * f64i(pos) / f64i(n - 1) - 1.4375 + 0.5)) - 3;
+    return @as(i32, @intCast((3 * pos + 1) / n)) - 1;
 }
 
 fn estimateEdgeLength(edge: *const EdgeSegment) f64 {
@@ -691,5 +694,19 @@ pub fn colorDistance(
 
         const new_color = front_buf[spline];
         if (new_color != .none) edge_segments.items[i].color = new_color;
+    }
+}
+
+test "symmetricalTrichotomy stays in -1..1, never decreases and balances" {
+    for (1..33) |n| {
+        var sum: i32 = 0;
+        var prev: i32 = -1;
+        for (0..n) |pos| {
+            const t = symmetricalTrichotomy(pos, n);
+            try zigstd.testExpectTrue(t >= prev and t <= 1);
+            prev = t;
+            sum += t;
+        }
+        try zigstd.testExpectEqual(@as(i32, 0), sum);
     }
 }
