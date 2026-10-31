@@ -1581,10 +1581,6 @@ fn scalarOf(comptime T: type, re: f64, im: f64) T {
     return @floatCast(re);
 }
 
-fn bytes(v: anytype) []const u8 {
-    return std.mem.asBytes(v);
-}
-
 /// A threaded test's length: `test_serial_max` makes it a dozen chunks.
 const threaded_n = 17 * quantum + 517;
 
@@ -1595,38 +1591,36 @@ fn level1Bits(comptime T: type, al: std.mem.Allocator, io: Io, inc: [2]isize, x0
     defer al.free(x);
     const y = try al.dupe(T, y0);
     defer al.free(y);
-    const xs = std.mem.sliceAsBytes(x);
-    const ys = std.mem.sliceAsBytes(y);
     const a = scalarOf(T, 1.25, -0.75);
     const pos: isize = @intCast(@abs(inc[0]));
     try copy(io, T, n, x.ptr, inc[0], y.ptr, inc[1]);
-    try out.appendSlice(al, ys);
+    try check.appendBits(al, out, y);
     try swap(io, T, n, x.ptr, inc[0], y.ptr, inc[1]);
-    try out.appendSlice(al, xs);
+    try check.appendBits(al, out, x);
     try scal(io, T, n, a, x.ptr, pos);
-    try out.appendSlice(al, xs);
+    try check.appendBits(al, out, x);
     try rot(io, T, n, x.ptr, inc[0], y.ptr, inc[1], 0.6, -0.8);
-    try out.appendSlice(al, xs);
-    try out.appendSlice(al, ys);
+    try check.appendBits(al, out, x);
+    try check.appendBits(al, out, y);
     try axpy(io, T, n, a, x.ptr, inc[0], y.ptr, inc[1]);
-    try out.appendSlice(al, ys);
-    try out.appendSlice(al, bytes(&try dot(io, T, n, x.ptr, inc[0], y.ptr, inc[1])));
+    try check.appendBits(al, out, y);
+    try check.appendBits(al, out, try dot(io, T, n, x.ptr, inc[0], y.ptr, inc[1]));
     if (comptime isComplex(T)) {
         try axpyc(io, T, n, a, x.ptr, inc[0], y.ptr, inc[1]);
-        try out.appendSlice(al, ys);
-        try out.appendSlice(al, bytes(&try dotc(io, T, n, x.ptr, inc[0], y.ptr, inc[1])));
+        try check.appendBits(al, out, y);
+        try check.appendBits(al, out, try dotc(io, T, n, x.ptr, inc[0], y.ptr, inc[1]));
     }
-    if (comptime T == f32) try out.appendSlice(al, bytes(&try dsdot(io, n, x.ptr, inc[0], y.ptr, inc[1])));
-    try out.appendSlice(al, bytes(&try asum(io, T, n, x.ptr, pos)));
-    try out.appendSlice(al, bytes(&try sum(io, T, n, x.ptr, pos)));
+    if (comptime T == f32) try check.appendBits(al, out, try dsdot(io, n, x.ptr, inc[0], y.ptr, inc[1]));
+    try check.appendBits(al, out, try asum(io, T, n, x.ptr, pos));
+    try check.appendBits(al, out, try sum(io, T, n, x.ptr, pos));
     try extremeBits(T, io, x.ptr, pos, out, al);
 }
 
 fn extremeBits(comptime T: type, io: Io, x: [*]T, inc: isize, out: *std.ArrayList(u8), al: std.mem.Allocator) !void {
     const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
     inline for (whiches) |w| {
-        try out.appendSlice(al, bytes(&try extreme(io, T, w, threaded_n, x, inc)));
-        try out.appendSlice(al, bytes(&try index(io, T, w, threaded_n, x, inc)));
+        try check.appendBits(al, out, try extreme(io, T, w, threaded_n, x, inc));
+        try check.appendBits(al, out, try index(io, T, w, threaded_n, x, inc));
     }
 }
 
@@ -1636,7 +1630,7 @@ fn expectExtremesExact(comptime T: type, io: Io, x: [*]T, inc: isize) !void {
     inline for (whiches) |w| {
         const v = portable.fetch(T, @field(portable.Op, @tagName(w) ++ "_k"), blas.vtable)(threaded_n, raw(T, x), inc);
         const i = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(w) ++ "_k"), blas.vtable)(threaded_n, raw(T, x), inc);
-        try std.testing.expectEqualSlices(u8, bytes(&v), bytes(&try extreme(io, T, w, threaded_n, x, inc)));
+        try std.testing.expect(check.same(@TypeOf(v), v, try extreme(io, T, w, threaded_n, x, inc), true));
         try std.testing.expectEqual(@as(isize, @intCast(i)), try index(io, T, w, threaded_n, x, inc));
     }
 }
@@ -1713,9 +1707,9 @@ fn stressBits(comptime T: type, al: std.mem.Allocator, io: Io, x: []T, y0: []con
     const y = try al.dupe(T, y0);
     defer al.free(y);
     try axpy(io, T, stress_n, scalarOf(T, 1.25, -0.75), x.ptr, 2, y.ptr, -3);
-    try out.appendSlice(al, std.mem.sliceAsBytes(y));
-    try out.appendSlice(al, bytes(&try dot(io, T, stress_n, x.ptr, 2, y.ptr, -3)));
-    try out.appendSlice(al, bytes(&try index(io, T, .amax, stress_n, x.ptr, 2)));
+    try check.appendBits(al, out, y);
+    try check.appendBits(al, out, try dot(io, T, stress_n, x.ptr, 2, y.ptr, -3));
+    try check.appendBits(al, out, try index(io, T, .amax, stress_n, x.ptr, 2));
 }
 
 test "interface: race stress: threaded level 1 keeps one worker's bits and its guard bands, round after round" {

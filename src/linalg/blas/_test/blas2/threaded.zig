@@ -121,11 +121,11 @@ fn Cases(comptime T: type) type {
                 };
                 @memcpy(a, a0);
                 try interface.ger(al, io, T, @intCast(s[0]), @intCast(s[1]), alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, @intCast(s[0] + 3));
-                try out.appendSlice(al, std.mem.sliceAsBytes(a[0 .. (s[0] + 3) * s[1]]));
+                try check.appendDigest(al, out, a[0 .. (s[0] + 3) * s[1]]);
                 if (comptime isComplex(T)) {
                     @memcpy(a, a0);
                     try interface.gerc(al, io, T, @intCast(s[0]), @intCast(s[1]), alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, @intCast(s[0] + 3));
-                    try out.appendSlice(al, std.mem.sliceAsBytes(a[0 .. (s[0] + 3) * s[1]]));
+                    try check.appendDigest(al, out, a[0 .. (s[0] + 3) * s[1]]);
                 }
             };
         }
@@ -278,7 +278,7 @@ fn Cases(comptime T: type) type {
                         2 => try band.syr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
                         else => try band.spr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
                     }
-                    try out.appendSlice(al, std.mem.sliceAsBytes(a));
+                    try check.appendDigest(al, out, a);
                     if (comptime isComplex(T)) {
                         @memcpy(a, a0);
                         switch (r) {
@@ -287,7 +287,7 @@ fn Cases(comptime T: type) type {
                             2 => try band.her2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
                             else => try band.hpr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
                         }
-                        try out.appendSlice(al, std.mem.sliceAsBytes(a));
+                        try check.appendDigest(al, out, a);
                     }
                 }
             };

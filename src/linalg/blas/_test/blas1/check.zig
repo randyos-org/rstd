@@ -387,6 +387,45 @@ pub fn same(comptime T: type, a: T, b: T, signed_zero: bool) bool {
     return @as(Bits(T), @bitCast(a)) == @as(Bits(T), @bitCast(b));
 }
 
+/// Appends the value bits of `v` (a scalar, a complex, or a slice of them)
+/// to `out`, not an `f80`'s padding, which Debug leaves undefined.
+pub fn appendBits(al: std.mem.Allocator, out: *std.ArrayList(u8), v: anytype) std.mem.Allocator.Error!void {
+    const V = @TypeOf(v);
+    switch (@typeInfo(V)) {
+        .pointer => |p| {
+            if (comptime p.size != .slice) return appendBits(al, out, v.*);
+            if (comptime !padded(p.child)) return out.appendSlice(al, std.mem.sliceAsBytes(v));
+            for (v) |e| try appendBits(al, out, e);
+        },
+        .float => {
+            var b: [@divExact(@bitSizeOf(V), 8)]u8 = undefined;
+            std.mem.writeInt(Bits(V), &b, @bitCast(v), .little);
+            try out.appendSlice(al, &b);
+        },
+        .@"struct" => if (comptime isComplex(V)) {
+            try appendBits(al, out, v.re);
+            try appendBits(al, out, v.im);
+        } else try out.appendSlice(al, std.mem.asBytes(&v)),
+        else => try out.appendSlice(al, std.mem.asBytes(&v)),
+    }
+}
+
+/// A float, or a complex of one, whose storage has bytes past its value.
+fn padded(comptime T: type) bool {
+    const F = if (isComplex(T)) FloatOf(T) else T;
+    return @typeInfo(F) == .float and @bitSizeOf(F) != 8 * @sizeOf(F);
+}
+
+/// Appends an 8-byte digest of `appendBits`' bytes of `v`: for outputs too
+/// large for a rig's heap to keep twice.
+pub fn appendDigest(al: std.mem.Allocator, out: *std.ArrayList(u8), v: anytype) std.mem.Allocator.Error!void {
+    var bits: std.ArrayList(u8) = .empty;
+    defer bits.deinit(al);
+    try appendBits(al, &bits, v);
+    const d = std.hash.Wyhash.hash(0, bits.items);
+    try out.appendSlice(al, std.mem.asBytes(&d));
+}
+
 /// All ones: what `Vector` and `Matrix` fill unread storage with.
 pub fn poisoned(comptime T: type, a: T) bool {
     if (comptime isComplex(T)) return poisoned(FloatOf(T), a.re) and poisoned(FloatOf(T), a.im);
