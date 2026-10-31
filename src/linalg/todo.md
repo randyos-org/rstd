@@ -128,9 +128,9 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | free | | |
-| Local 2 | free | | |
-| Mac 0.18 | free | | |
+| Local 1 | T62 | `t2e`: `x86_64-macos`, T114, compile checks (b165b084) | 17:22 |
+| Local 2 | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos` (b165b084) | 17:22 |
+| Mac 0.18 | T62 | shared by the sweeps' compiles | 17:22 |
 | Mac 0.17 | free | | |
 
 #### Running tests
@@ -139,7 +139,10 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | free (sweeps stopped 15:40) | | |
+| Mac | T62 | `t2a`: `x86_64` (b165b084, fail-fast) | 17:22 |
+| Mac | T62 | `t2b`: `x86_64-uefi`, `-smp`, `linux-x86_64`, `T08-x86_64` | 17:22 |
+| Mac | T62 | `t2c`: `aarch64-sve`, `-smp`, `-uefi`, `linux-aarch64`, `T08-aarch64` (`aarch64` passed at da2ae06a) | 17:22 |
+| Mac | T62 | `t2d`: `arm`, `arm-softfp`, `linux-arm`, `powerpc-750`, `-hf`, their T08 steps | 17:22 |
 
 ## Queue
 
@@ -201,6 +204,10 @@ Each moves to In progress when the sweep step that runs it starts.
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
 
+- [ ] **T137** `tools/macos_vm.zig` copies the tests in as soon as port 2222 answers; on
+  2026-10-31 (T62, `t2e`) the VM came up after 527 s and the first `scp` got "Connection reset by
+  peer", so the step ran no test and stopped its sweep. Wait for a working SSH login, or retry the
+  copy a few times, before giving up.
 - [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
   `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,
   `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S`, `dgemv_n*.S`) rstd skips for
