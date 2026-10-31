@@ -67,8 +67,9 @@ Notes:
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).
 - **macOS 11 and 12** never run: the VM builds for 13.0 and runs Sonoma, the M6 runs 27.2.
 - **Rosetta 2** stands in for an Intel Mac; no Intel Mac is at hand.
-- **Hardware-only paths** (T47): the Windows arm64 registry MIDR and feature probes, the arm64
-  sysfs fallback, Linux ppc64 `mfpvr`, the mips `cpucfg` decode, the sparc `sllx` rewrite.
+- **Hardware-only paths** (T47): Linux ppc64 `mfpvr`, the mips `cpucfg` decode, the sparc `sllx`
+  rewrite. The Windows arm64 registry MIDR and feature probes and the arm64 sysfs fallback are
+  tested with recorded inputs (design.md, Core detection and selection), not on hardware.
 
 ## Accelerate (tier 2)
 
@@ -80,7 +81,7 @@ tier-2 component of both macOS platforms.
 | arm64, macOS 13.3+ ILP64 symbols | `ssh-test-aarch64-macos` |
 | x86_64, macOS 13.3+ symbols | `ssh-test-x86_64-macos` (Rosetta 2), `x86_64-macos` (macOS VM) |
 | both, Mach-O build | `rstd-check-macho` |
-| the pre-13.3 fallbacks (`$NEWLAPACK` 32-bit, classic `cblas_*`) | none: zfls supports macOS 11.0, and no macOS 11 or 12 machine is at hand (T47) |
+| the pre-13.3 fallbacks (`$NEWLAPACK` 32-bit, classic `cblas_*`) | recorded inputs: the binding against the 11.3, 12.3 and 13.3 SDKs' export lists (native tests); no macOS 11 or 12 machine is at hand |
 | LAPACK `potrf`'s symbol spelling and special values | none yet (T114) |
 
 ## BLAS cores
@@ -101,7 +102,7 @@ Compiled and symbol-checked, never run:
 | `a64fx`, `armv8sve`, `neoversev1`, `neoversen2`, `neoversev2`, `cortexa510`, `cortexa710`, `cortexx2` | `aarch64-linux` | the rig's baseline build links no SVE core | T40 |
 | `armv9sme`, `vortexm4` | `aarch64-linux` | the Debian 6.12 kernel has no SME, so no hwcap | T40 |
 | every SVE and SME core | `aarch64-uefi-msvc` | the UEFI rig has no SVE (`cortex-a72`, or the M6 under HVF) | |
-| every aarch64 core | `aarch64-windows` | no Windows arm64 machine; zfls's CI runs zfls, not rstd's tests | T47 |
+| every aarch64 core | `aarch64-windows` | no Windows arm64 machine; zfls's CI runs zfls, not rstd's tests; detection is tested with recorded inputs | T47 |
 
 ### x86_64 (tier 1)
 

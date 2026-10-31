@@ -168,8 +168,9 @@ pub fn exactName(comptime field: []const u8) []const [:0]const u8 {
 }
 
 /// Fills each optional function-pointer field of `T` with the first of
-/// `names(field)` that `lib` has; fields none resolve stay null.
-pub fn bind(comptime T: type, lib: *Dll, comptime names: Names) Bound(T) {
+/// `names(field)` that `lib` has; fields none resolve stay null. `lib` is a
+/// `*Dll`, or anything with its `lookup` (a test's symbol table).
+pub fn bind(comptime T: type, lib: anytype, comptime names: Names) Bound(T) {
     @setEvalBranchQuota(100_000);
     const info = @typeInfo(T).@"struct";
     var out: Bound(T) = .{ .fns = undefined, .matched = .initFill(null) };

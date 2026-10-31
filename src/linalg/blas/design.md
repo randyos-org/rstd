@@ -1021,10 +1021,13 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   <https://developer.apple.com/documentation/macos-release-notes/macos-13_3-release-notes>).
   The spellings are ours, checked by `apple_accel.zig`'s tests on the M6 ("the 32-bit table binds
   the new names first"). macOS 27 binds 150 of the `Table`'s 154 CBLAS fields: there is no
-  `cblas_i?amin` (seen on the M6; no test checks it). `axpby` is
+  `cblas_i?amin` (seen on the M6; no SDK since 11.3 lists it). `axpby` is
   `catlas_?axpby`. LAPACK's `?potrf_` is bound as `dpotrf$NEWLAPACK$ILP64` or
-  `dpotrf_$NEWLAPACK$ILP64` (and the 32-bit forms, then the classic `dpotrf_`): which the new
-  interface spells is unchecked until a Mac run.
+  `dpotrf_$NEWLAPACK$ILP64` (and the 32-bit forms, then the classic `dpotrf_`); the 13.3 SDK
+  lists the first. The fallbacks for macOS before 13.3 (zfls supports 11.0), which no Mac here
+  runs, are tested with recorded inputs: `bindBlas` against the MacOSX11.3, 12.3 and 13.3 SDKs'
+  `libBLAS.tbd` and `libLAPACK.tbd` export lists (<https://github.com/alexey-lysiuk/macos-sdk>
+  at 896cd40d) through a mock lookup. 11 and 12 bind the classic 32-bit names, 13.3 ILP64.
 - **Threads.** Threaded, Accelerate's `gemv` with `A` un-transposed rounds differently from one
   thread; `ddot`, `dnrm2`, `dasum`, `A^T` `gemv` and `gemm` gave the same bits at every thread
   count tried (macOS 27, M6). So `load` makes Accelerate single-threaded:
@@ -1178,6 +1181,14 @@ Where the port differs from `dynamic*.c`:
   them on SME alone (`dynamic_arm64.c:602-616`, `support_sme1`). Each probe
   decodes it from its raw values in a pure function, and it counts only alongside SME. A
   Windows without the SME flags answers false, so it never gets an SME core.
+  The Windows path (registry `CP 4000`, `IsProcessorFeaturePresent`) and the sysfs pass, which no
+  machine here runs, are tested with recorded inputs (`windowsCaps`, `hwcapCaps` over a fake
+  sysfs): Snapdragon X Elite, Microsoft SQ1 and SQ2, Azure Cobalt 100; Raspberry Pi 3, 4 and 5,
+  Neoverse N1 and N2, and the M1 under Asahi, from published `/proc/cpuinfo` dumps, QEMU's TRM
+  models and Linux's `cputype.h`. Each gets the reference's core; on Windows the reference has
+  no run-time detection (ARMV8, `dynamic_arm64.c:361`), so the part table and SVE test apply as
+  on Linux. Cobalt 100 is implementer 0x6d, unknown to the reference: `armv8sve` with Windows'
+  SVE flags, else `armv8`.
 - **power.** POWER10 needs ISA 3.1 and MMA. POWER3 to 5, 970, Cell, G4 and 440, static targets
   upstream, are told apart by `AT_PLATFORM`, the PVR or the ISA bits, so none runs a later
   generation's code. A CPU nothing names gets the portable kernels (the reference guesses

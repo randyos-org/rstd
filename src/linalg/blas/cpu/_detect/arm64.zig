@@ -245,28 +245,77 @@ pub const SysfsScan = struct {
     }
 };
 
-/// All CPUs' MIDR from sysfs; null if a CPU's file is missing.
-fn midrFromSysfs() ?Part {
+/// All CPUs' MIDR from sysfs, `os.read(path, buf)` reading each file (empty
+/// if absent); null if a CPU's file is missing.
+pub fn midrFromSysfs(os: anytype) ?Part {
     var buf: [64]u8 = undefined;
     var cap: [16]u8 = undefined;
-    const possible = auxv.readFile("/sys/devices/system/cpu/possible", &buf);
+    const possible = os.read("/sys/devices/system/cpu/possible", &buf);
     // without `possible`, every CPU until the first without a MIDR file
     const n = if (possible.len != 0) cpuCountFromPossible(possible) else 4096;
     var scan: SysfsScan = .{};
     for (0..n) |i| {
         var path: [96]u8 = undefined;
         const midr_path = std.mem.printSentinel(&path, "/sys/devices/system/cpu/cpu{d}/regs/identification/midr_el1", .{i}, 0) catch return null;
-        const midr = auxv.readFile(midr_path, &buf);
+        const midr = os.read(midr_path, &buf);
         if (midr.len == 0 and possible.len == 0) break;
         const cap_path = std.mem.printSentinel(&path, "/sys/devices/system/cpu/cpu{d}/cpu_capacity", .{i}, 0) catch return null;
-        if (!scan.add(midr, auxv.readFile(cap_path, &cap))) return null;
+        if (!scan.add(midr, os.read(cap_path, &cap))) return null;
     }
     return scan.result();
 }
 
-/// `MIDR_EL1`'s copy in the registry, Windows' only way to the CPU's identity
-/// (value `CP 4000`, as Zig's `lib/std/zig/system/windows.zig` reads it).
-fn midrFromRegistry() ?u64 {
+/// What the hwcap OSes (Linux, FreeBSD) say: `hw` and `hw2`, then the
+/// identity from `os.midr()` (`readMidr`, legal only under `HWCAP_CPUID`) or,
+/// where `os.sysfs` holds, `midrFromSysfs(os)`.
+pub fn hwcapCaps(hw: usize, hw2: usize, os: anytype) Caps {
+    var c: Caps = .{ .features = hwcapFeatures(hw, hw2) };
+    const part: ?Part = if (hw & HWCAP_CPUID != 0) blk: {
+        const m: Midr = os.midr();
+        break :blk .{ .implementer = m.implementer, .part = m.part };
+    } else if (@TypeOf(os).sysfs) midrFromSysfs(os) else null;
+    if (part) |p| {
+        c.features.insert(.midr);
+        c.implementer = p.implementer;
+        c.part = p.part;
+    }
+    return c;
+}
+
+/// This process's OS, for `hwcapCaps`.
+const LiveOs = struct {
+    const sysfs = sysinfo.target.os.tag == .linux;
+
+    fn midr(_: LiveOs) Midr {
+        return readMidr();
+    }
+
+    fn read(_: LiveOs, path: [*:0]const u8, buf: []u8) []const u8 {
+        return auxv.readFile(path, buf);
+    }
+};
+
+/// What Windows says: `present` for `IsProcessorFeaturePresent`, `midr` the
+/// registry's `CP 4000` (null if unread).
+pub fn windowsCaps(present: *const fn (PF) bool, midr: ?u64) Caps {
+    var c: Caps = .{ .features = windowsFeatures(present) };
+    if (midr) |raw| {
+        const m = Midr.fromRaw(raw);
+        c.features.insert(.midr);
+        c.implementer = m.implementer;
+        c.part = m.part;
+    }
+    return c;
+}
+
+/// The key holding the first CPU's cached ID registers, as `CP <encoding>`
+/// values; `CP 4000` is `MIDR_EL1` (`ARM64_SYSREG(3, 0, 0, 0, 0)` in
+/// `winnt.h`; Zig's `lib/std/zig/system/windows.zig` and LLVM's
+/// `lib/TargetParser/Host.cpp` read it so).
+const cpu0_key = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
+
+/// A `REG_QWORD` under `HKEY_LOCAL_MACHINE`; null if absent or another type.
+fn registryQword(comptime subkey: []const u8, comptime value: []const u8) ?u64 {
     if (comptime sysinfo.target.os.tag != .windows) return null;
     const advapi = struct {
         extern "advapi32" fn RegGetValueW(hkey: usize, subkey: [*:0]const u16, value: [*:0]const u16, flags: u32, kind: ?*u32, data: ?*anyopaque, size: ?*u32) callconv(.winapi) i32;
@@ -277,8 +326,8 @@ fn midrFromRegistry() ?u64 {
     var size: u32 = @sizeOf(u64);
     const rc = advapi.RegGetValueW(
         HKEY_LOCAL_MACHINE,
-        std.unicode.utf8ToUtf16LeStringLiteral("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"),
-        std.unicode.utf8ToUtf16LeStringLiteral("CP 4000"),
+        std.unicode.utf8ToUtf16LeStringLiteral(subkey),
+        std.unicode.utf8ToUtf16LeStringLiteral(value),
         RRF_RT_REG_QWORD,
         null,
         &raw,
@@ -288,41 +337,15 @@ fn midrFromRegistry() ?u64 {
 }
 
 pub fn probe() Caps {
-    var c: Caps = .{};
     switch (comptime sysinfo.target.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
-            c.features = darwinFeatures(auxv.sysctlInt("hw.optional.arm.FEAT_SME"), auxv.sysctlInt("hw.optional.arm.FEAT_SME_F64F64"));
-            return c;
+            return .{ .features = darwinFeatures(auxv.sysctlInt("hw.optional.arm.FEAT_SME"), auxv.sysctlInt("hw.optional.arm.FEAT_SME_F64F64")) };
         },
-        .windows => {
-            c.features = windowsFeatures(&processorFeature);
-            if (midrFromRegistry()) |raw| {
-                const m = Midr.fromRaw(raw);
-                c.features.insert(.midr);
-                c.implementer = m.implementer;
-                c.part = m.part;
-            }
-            return c;
-        },
+        .windows => return windowsCaps(&processorFeature, registryQword(cpu0_key, "CP 4000")),
         // no OS to ask: the ID registers, readable at EL1 and up
         .freestanding, .uefi => return idRegisters(),
-        else => {},
+        else => return hwcapCaps(auxv.hwcap(), auxv.hwcap2(), LiveOs{}),
     }
-    const hw = auxv.hwcap();
-    c.features = hwcapFeatures(hw, auxv.hwcap2());
-    if (hw & HWCAP_CPUID != 0) {
-        const m = readMidr();
-        c.features.insert(.midr);
-        c.implementer = m.implementer;
-        c.part = m.part;
-    } else if (sysinfo.target.os.tag == .linux) {
-        if (midrFromSysfs()) |m| {
-            c.features.insert(.midr);
-            c.implementer = m.implementer;
-            c.part = m.part;
-        }
-    }
-    return c;
 }
 
 // ---- core type selection ---------------------------------------------------
@@ -712,7 +735,7 @@ test "Windows' processor features decode" {
 }
 
 test "MIDR_EL1 fields" {
-    const m = Midr.fromRaw(0x414fd0c1); // Neoverse N1 r3p1
+    const m = Midr.fromRaw(0x414fd0c1); // Neoverse N1 r4p1
     try std.testing.expectEqual(@as(u32, 0x41), m.implementer);
     try std.testing.expectEqual(@as(u32, 0xd0c), m.part);
     try std.testing.expectEqual(@as(u32, 4), m.variant);
@@ -751,6 +774,244 @@ test "without the MIDR emulation the last CPU's identity decides, unless a big o
     var bad: SysfsScan = .{};
     try std.testing.expect(!bad.add("", ""));
     try std.testing.expect(bad.result() == null);
+}
+
+// ---- recorded machines -------------------------------------------------------
+//
+// The OS paths no machine here runs (T47), fed what real machines report.
+// MIDR values and ID registers are QEMU v10.1.0's models of Arm's TRMs
+// (`target/arm/cpu64.c`, `target/arm/tcg/cpu64.c`); implementer and part
+// codes are Linux v7.3's `arch/arm64/include/asm/cputype.h`.
+
+/// `MIDR_CPU_MODEL(imp, part)` (Linux v7.3 `cputype.h`): r0p0, for parts with
+/// no recorded revision; detection reads only the implementer and part.
+fn cpuModel(imp: u64, part: u64) u64 {
+    return (imp << 24) | (0xf << 16) | (part << 4);
+}
+
+/// Each feature's hwcap word and bit, and its `/proc/cpuinfo` name (Linux
+/// v7.3 `arch/arm64/kernel/cpuinfo.c`, `hwcap_str`).
+const hwcap_names = .{
+    .{ Feature.sve, "sve", 0, HWCAP_SVE },
+    .{ Feature.sve2, "sve2", 1, HWCAP2_SVE2 },
+    .{ Feature.sme, "sme", 1, HWCAP2_SME },
+    .{ Feature.sme_f64f64, "smef64f64", 1, HWCAP2_SME_F64F64 },
+    .{ Feature.bf16, "bf16", 1, HWCAP2_BF16 },
+    .{ Feature.fcma, "fcma", 0, HWCAP_FCMA },
+};
+
+/// The hwcaps a kernel reports for `fs`, with `HWCAP_CPUID` if `cpuid`.
+fn hwcapsOf(fs: Features, cpuid: bool) [2]usize {
+    var hw: [2]usize = .{ if (cpuid) HWCAP_CPUID else 0, 0 };
+    inline for (hwcap_names) |n| {
+        if (fs.contains(n[0])) hw[n[2]] |= n[3];
+    }
+    return hw;
+}
+
+/// The features a `/proc/cpuinfo` block's `Features` line names.
+fn cpuinfoFeatures(text: []const u8) !Features {
+    var fs: Features = .empty;
+    var words = std.mem.tokenizeScalar(u8, auxv.cpuinfoField(text, "Features") orelse return error.TestUnexpectedResult, ' ');
+    while (words.next()) |w| {
+        inline for (hwcap_names) |n| {
+            if (std.mem.eql(u8, w, n[1])) fs.insert(n[0]);
+        }
+    }
+    return fs;
+}
+
+/// `MIDR_EL1` from a `/proc/cpuinfo` block; arm64 prints `CPU architecture:
+/// 8` for the register's 0xf (`cpuinfo.c:277-282`).
+fn cpuinfoMidr(text: []const u8) !u64 {
+    const get = struct {
+        fn f(s: []const u8, key: []const u8) !u64 {
+            return std.fmt.parseInt(u64, auxv.cpuinfoField(s, key) orelse return error.TestUnexpectedResult, 0);
+        }
+    }.f;
+    const imp = try get(text, "CPU implementer");
+    const variant = try get(text, "CPU variant");
+    const part = try get(text, "CPU part");
+    const rev = try get(text, "CPU revision");
+    return (imp << 24) | (variant << 20) | (0xf << 16) | (part << 4) | rev;
+}
+
+/// A Linux whose sysfs holds `midrs` (one per CPU) and, if any, `capacity`;
+/// `midr` answers for CPU `cpu`, as the kernel's emulated `mrs` does for the
+/// CPU it runs on. Files print as the kernel prints them: `possible` as a
+/// list ("0-3"), `midr_el1` as `0x%016llx` (`cpuinfo.c:334`), `cpu_capacity`
+/// in decimal (`drivers/base/arch_topology.c`).
+const FakeLinux = struct {
+    const sysfs = true;
+    const dir = "/sys/devices/system/cpu/";
+
+    midrs: []const u64,
+    capacity: []const u32 = &.{},
+    cpu: usize = 0,
+
+    fn midr(f: FakeLinux) Midr {
+        return .fromRaw(f.midrs[f.cpu]);
+    }
+
+    fn read(f: FakeLinux, path: []const u8, buf: []u8) []const u8 {
+        const out = struct {
+            fn print(b: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
+                return std.fmt.bufPrint(b, fmt, args) catch b[0..0];
+            }
+        }.print;
+        if (std.mem.eql(u8, path, dir ++ "possible")) {
+            if (f.midrs.len == 1) return out(buf, "0\n", .{});
+            return out(buf, "0-{d}\n", .{f.midrs.len - 1});
+        }
+        if (!std.mem.startsWith(u8, path, dir ++ "cpu")) return buf[0..0];
+        const rest = path[dir.len + 3 ..];
+        const slash = std.mem.findScalar(u8, rest, '/') orelse return buf[0..0];
+        const i = std.fmt.parseInt(usize, rest[0..slash], 10) catch return buf[0..0];
+        if (i >= f.midrs.len) return buf[0..0];
+        const file = rest[slash + 1 ..];
+        if (std.mem.eql(u8, file, "regs/identification/midr_el1")) return out(buf, "0x{x:0>16}\n", .{f.midrs[i]});
+        if (std.mem.eql(u8, file, "cpu_capacity") and f.capacity.len != 0) return out(buf, "{d}\n", .{f.capacity[i]});
+        return buf[0..0];
+    }
+};
+
+/// `want` on both identity paths: the emulated `mrs` (on each CPU) and,
+/// without `HWCAP_CPUID`, the sysfs pass.
+fn expectLinux(want: CoreType, midrs: []const u64, capacity: []const u32, fs: Features) !void {
+    for ([_]bool{ true, false }) |cpuid| {
+        const hw = hwcapsOf(fs, cpuid);
+        for (0..midrs.len) |cpu| {
+            const c = hwcapCaps(hw[0], hw[1], FakeLinux{ .midrs = midrs, .capacity = capacity, .cpu = cpu });
+            try std.testing.expect(c.has(.midr));
+            try std.testing.expectEqual(want, decide(c).core);
+            // the sysfs pass reads every CPU itself
+            if (!cpuid) break;
+        }
+    }
+}
+
+test "recorded Raspberry Pis pick OpenBLAS's core with and without the MIDR emulation" {
+    // Pi 3 (Cortex-A53 r0p4): Arch Linux ARM forum, 2018-02-21,
+    // <https://archlinuxarm.org/forum/viewtopic.php?p=57811>
+    const pi3 = "processor\t: 0\nFeatures\t: fp asimd evtstrm crc32 cpuid\nCPU implementer\t: 0x41\n" ++
+        "CPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd03\nCPU revision\t: 4\n";
+    // Pi 4 (Cortex-A72 r0p3), Linux 6.12.75+rpt-rpi-v8:
+    // <https://www.t2linux.com/hardware/board/Raspberry/Pi4/>
+    const pi4 = "processor\t: 0\nFeatures\t: fp asimd evtstrm crc32 cpuid\nCPU implementer\t: 0x41\n" ++
+        "CPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd08\nCPU revision\t: 3\n";
+    // Pi 5 (Cortex-A76 r4p1): CNX Software's review, 2023-11-05,
+    // <https://www.cnx-software.com/2023/11/05/raspberry-pi-5-review-raspberry-pi-os-bookworm-benchmarks-power-consumption/>
+    const pi5 = "processor\t: 0\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp " ++
+        "cpuid asimdrdm lrcpc dcpop asimddp\nCPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x4\n" ++
+        "CPU part\t: 0xd0b\nCPU revision\t: 1\n";
+    try std.testing.expectEqual(@as(u64, 0x410fd034), try cpuinfoMidr(pi3));
+    try std.testing.expectEqual(@as(u64, 0x410fd083), try cpuinfoMidr(pi4));
+    try std.testing.expectEqual(@as(u64, 0x414fd0b1), try cpuinfoMidr(pi5));
+    // four identical CPUs each; identical CPUs all rate 1024
+    const none: []const u32 = &.{};
+    const equal: [4]u32 = @splat(1024);
+    for ([_][]const u32{ none, &equal }) |cap| {
+        try expectLinux(.cortexa53, &@as([4]u64, @splat(try cpuinfoMidr(pi3))), cap, try cpuinfoFeatures(pi3));
+        try expectLinux(.cortexa72, &@as([4]u64, @splat(try cpuinfoMidr(pi4))), cap, try cpuinfoFeatures(pi4));
+        // the reference gives A76 the A73 kernels (`dynamic_arm64.c:444`)
+        try expectLinux(.cortexa73, &@as([4]u64, @splat(try cpuinfoMidr(pi5))), cap, try cpuinfoFeatures(pi5));
+    }
+}
+
+test "recorded Neoverse N1 and N2 pick OpenBLAS's core" {
+    // QEMU's `neoverse-n1` (r4p1) and `neoverse-n2` (r0p3); the kernel's
+    // hwcaps are these ID register fields
+    const n1 = idCaps(.{ .midr = 0x414fd0c1, .pfr0 = 0x1100000010111112, .pfr1 = 0x20, .isar1 = 0x100001 });
+    const n2 = idCaps(.{ .midr = 0x410fd493, .pfr0 = 0x1201111120111112, .pfr1 = 0x221, .zfr0 = 0x0000110100110021, .isar1 = 0x0011111101211052 });
+    try std.testing.expect(n1.features.eql(.initOne(.midr)));
+    try std.testing.expect(n2.features.eql(.initMany(&.{ .midr, .sve, .sve2, .bf16, .fcma })));
+    try expectLinux(.neoversen1, &.{0x414fd0c1}, &.{}, n1.features);
+    try expectLinux(.neoversen2, &.{0x410fd493}, &.{}, n2.features);
+    // a kernel without SVE: N1's kernels and the reference's warning
+    var no_sve = n2.features;
+    no_sve.remove(.sve);
+    no_sve.remove(.sve2);
+    try expectLinux(.neoversen1, &.{0x410fd493}, &.{}, no_sve);
+    const hw = hwcapsOf(no_sve, true);
+    try std.testing.expect(decide(hwcapCaps(hw[0], hw[1], FakeLinux{ .midrs = &.{0x410fd493} })).note != null);
+}
+
+test "a recorded Apple M1 under Asahi picks vortex" {
+    // `apple,icestorm` CPUs 0-3 then `apple,firestorm` 4-7 (Linux v7.3
+    // `arch/arm64/boot/dts/apple/t8103.dtsi`); FCMA is ARMv8.3's, and LLVM's
+    // `apple-m1` is ARMv8.4-A
+    const m1 = [_]u64{
+        cpuModel(0x61, 0x022), cpuModel(0x61, 0x022), cpuModel(0x61, 0x022), cpuModel(0x61, 0x022),
+        cpuModel(0x61, 0x023), cpuModel(0x61, 0x023), cpuModel(0x61, 0x023), cpuModel(0x61, 0x023),
+    };
+    try expectLinux(.vortex, &m1, &.{}, .initOne(.fcma));
+    // the sysfs pass settles on the last CPU, a Firestorm
+    try std.testing.expectEqual(@as(u32, 0x023), midrFromSysfs(FakeLinux{ .midrs = &m1 }).?.part);
+}
+
+test "a sysfs without the files gives no identity" {
+    const hw = hwcapsOf(.empty, false);
+    const Empty = struct {
+        const sysfs = true;
+        fn midr(_: @This()) Midr {
+            unreachable;
+        }
+        fn read(_: @This(), _: []const u8, buf: []u8) []const u8 {
+            return buf[0..0];
+        }
+    };
+    const c = hwcapCaps(hw[0], hw[1], Empty{});
+    try std.testing.expect(!c.has(.midr));
+    try std.testing.expectEqual(CoreType.armv8, decide(c).core);
+    // FreeBSD and the rest have no sysfs pass
+    const NoSysfs = struct {
+        const sysfs = false;
+        fn midr(_: @This()) Midr {
+            unreachable;
+        }
+        fn read(_: @This(), _: []const u8, _: []u8) []const u8 {
+            unreachable;
+        }
+    };
+    try std.testing.expect(!hwcapCaps(hw[0], hw[1], NoSysfs{}).has(.midr));
+}
+
+test "recorded Windows arm64 machines pick OpenBLAS's core" {
+    // OpenBLAS's run-time detection gives Windows ARMV8 (`dynamic_arm64.c:361`);
+    // with the registry's MIDR, the part table and SVE test apply as on Linux.
+    // Snapdragon X Elite: Oryon (0x51, 0x001), ARMv8.7-A, so JSCVT and BF16
+    const elite = windowsCaps(fakePf(&.{ .ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE, .ARM_V86_BF16_INSTRUCTIONS_AVAILABLE }), cpuModel(0x51, 0x001));
+    try std.testing.expectEqual(@as(u32, 0x001), elite.part);
+    try std.testing.expectEqual(CoreType.armv8, decide(elite).core);
+    // Microsoft SQ1 and SQ2: Kryo 495, ARMv8.2-A Gold (0x804) and Silver (0x805)
+    for ([_]u64{ 0x804, 0x805 }) |p| {
+        try std.testing.expectEqual(CoreType.armv8, decide(windowsCaps(fakePf(&.{}), cpuModel(0x51, p))).core);
+    }
+    // Azure Cobalt 100 (GitHub's `windows-11-arm`): Microsoft's (0x6d) N2
+    // r0p0; the reference has no 0x6d, so its SVE test decides
+    const cobalt = cpuModel(0x6d, 0xd49);
+    const sve = windowsCaps(fakePf(&.{
+        .ARM_SVE_INSTRUCTIONS_AVAILABLE,      .ARM_SVE2_INSTRUCTIONS_AVAILABLE,
+        .ARM_V86_BF16_INSTRUCTIONS_AVAILABLE, .ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE,
+    }), cobalt);
+    try std.testing.expectEqual(@as(u32, 0x6d), sve.implementer);
+    try std.testing.expectEqual(CoreType.armv8sve, decide(sve).core);
+    // a Windows without the SVE flags
+    const no_sve = windowsCaps(fakePf(&.{ .ARM_V86_BF16_INSTRUCTIONS_AVAILABLE, .ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE }), cobalt);
+    try std.testing.expectEqual(CoreType.armv8, decide(no_sve).core);
+    // the registry unread
+    const unread = windowsCaps(fakePf(&.{}), null);
+    try std.testing.expect(!unread.has(.midr));
+    try std.testing.expectEqual(CoreType.armv8, decide(unread).core);
+}
+
+test "the registry read works on Windows" {
+    if (comptime sysinfo.target.os.tag != .windows) return error.SkipZigTest;
+    // a `REG_QWORD` every Windows 10 and 11 has
+    try std.testing.expect(registryQword("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "InstallTime") != null);
+    // `CP 4000` on arm64 alone; x86's key has none
+    const midr = registryQword(cpu0_key, "CP 4000");
+    try std.testing.expect((midr != null) == (sysinfo.target.cpu.arch == .aarch64));
 }
 
 test "detect runs and returns a concrete core type" {
