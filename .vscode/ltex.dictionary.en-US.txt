@@ -1570,6 +1570,7 @@ potri
 potrs
 powerpc
 powerpcle
+powm
 ppc
 ppcg
 PPCISD
@@ -2401,6 +2402,7 @@ winfnt
 winprotopkg
 WIPEONFORK
 wlog
+WMATMUL
 wmconst
 wmul
 WNOHANG

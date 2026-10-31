@@ -19,6 +19,7 @@
 
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
+const blas = @import("../blas/__root__.zig");
 const Cx = blas1.Cx;
 
 r: []f64,
@@ -74,13 +75,8 @@ pub inline fn col(self: Self, c: usize) ColView {
 pub const RowView = struct { r: []f64, i: []f64, stride: isize };
 
 /// Row `row` (1-based) as a `RowView`, strided by `lda` - matching every
-/// existing row-wise access in this port (see e.g. `norm.matNormInf`).
-/// Deliberately not materialized into a contiguous buffer: for a one-off,
-/// non-reused row access this is consistently faster than gather-then-
-/// vectorize (see `matmul.zig`'s doc comment for the benchmarked
-/// reasoning) - only algorithms that actually reuse a gathered row across
-/// many operations (like `matmul`) should pay that cost, not row access in
-/// general.
+/// existing row-wise access in this port (see e.g. `norm.matNormInf`),
+/// not gathered into a contiguous buffer.
 pub inline fn rowView(self: Self, row: usize) RowView {
     const start = self.idx(row, 1);
     return .{ .r = self.r[start..], .i = self.i[start..], .stride = @intCast(self.lda) };
@@ -107,6 +103,47 @@ pub fn clone(self: Self, allocator: zigstd.Allocator) !Self {
 pub fn deinit(self: Self, allocator: zigstd.Allocator) void {
     allocator.free(self.r);
     allocator.free(self.i);
+}
+
+/// The interleaved element of the LAPACK boundary (M2).
+pub const Complex = Cx;
+
+/// Whether every imaginary part is zero: the real LAPACK routines then run
+/// in place on `r`.
+pub fn isReal(self: Self) bool {
+    for (1..self.n + 1) |j| {
+        for (self.col(j).i) |x| if (x != 0) return false;
+    }
+    return true;
+}
+
+/// `self` as a packed (`m` leading dimension) copy for LAPACK: interleaved
+/// for `Complex`, `r` alone for `f64`. Caller frees.
+pub fn toPacked(self: Self, comptime T: type, allocator: zigstd.Allocator) ![]T {
+    const z = try allocator.alloc(T, self.m * self.n);
+    for (1..self.n + 1) |j| {
+        const c = self.col(j);
+        const d = z[(j - 1) * self.m ..][0..self.m];
+        if (T == f64) {
+            @memcpy(d, c.r);
+        } else for (d, c.r, c.i) |*e, re, im| e.* = Cx.init(re, im);
+    }
+    return z;
+}
+
+/// Writes `toPacked`'s layout `z` back into `self`; `f64` zeros `i`.
+pub fn fromPacked(self: Self, comptime T: type, z: []const T) void {
+    for (1..self.n + 1) |j| {
+        const c = self.col(j);
+        const s = z[(j - 1) * self.m ..][0..self.m];
+        if (T == f64) {
+            @memcpy(c.r, s);
+            @memset(c.i, 0);
+        } else for (s, c.r, c.i) |e, *re, *im| {
+            re.* = e.re;
+            im.* = e.im;
+        }
+    }
 }
 
 /// `X'`: conjugate transpose - REPL semantics for the `'` operator
@@ -140,56 +177,41 @@ pub fn transpose(self: Self, out: Self) void {
 
 /// Scales every entry of `self` in place by the scalar `s` - REPL
 /// semantics for `s*X`/`X*s` when `s` is a 1x1 matrix (e.g. `3*EYE`).
-/// Loops per column rather than treating storage as one flat run, since
-/// `self` may be a submatrix view (`self.lda > self.m`).
-pub fn scale(self: Self, s: Cx) void {
-    var j: usize = 1;
-    while (j <= self.n) : (j += 1) {
+/// Per column, `drot` of its real and imaginary parts by `(re s, -im s)`:
+/// `zscal`'s arithmetic over the split layout.
+pub fn scale(self: Self, io: std.Io, s: Cx) std.Io.Cancelable!void {
+    for (1..self.n + 1) |j| {
         const c = self.col(j);
-        blas1.wscal(self.m, s, c.r, c.i, 1);
+        try blas1.level1(blas.rot(io, f64, @intCast(self.m), c.r.ptr, 1, c.i.ptr, 1, s.re, -s.im));
     }
 }
 
 // --- Domain-file methods --------------------------------------------------
-// Each alias below just gives dot-call syntax (`mat.wgefa(...)`) to a
-// function that already takes `self: Self` as its first parameter but
-// lives in a sibling file (kept there to stay under this project's
-// line-count guideline, and because e.g. `eigen_general.zig`'s `comqr3` is
-// a large, numerically-sensitive algorithm body not worth relocating).
+// Each alias below gives dot-call syntax (`mat.det(...)`) to a function
+// that takes `self: Self` first but lives in a sibling file (kept there to
+// stay under this project's line-count guideline); those taking an
+// allocator first (`eig`, `cond`, ...) are reached as `CxMat.eig(...)`.
 // `a.foo(b, ...)`-shaped multi-matrix operations (`matmul`, `mrdivide`,
 // `kron`) alias here too - Zig's method sugar only requires the first
 // parameter be `Self`, not that every parameter be.
 
 const cholesky = @import("cholesky.zig");
 const lu = @import("lu.zig");
-const hessenberg = @import("hessenberg.zig");
-const tridiagonal = @import("tridiagonal.zig");
-const eigen_general = @import("eigen_general.zig");
 const generators = @import("generators.zig");
 const divide = @import("divide.zig");
 const matmul_mod = @import("matmul.zig");
 const eig_mod = @import("eig.zig");
 const schur_mod = @import("schur.zig");
 const matrixfun = @import("matrixfun.zig");
-const svd_mod = @import("svd.zig");
-const qr_mod = @import("qr.zig");
 const svdapi = @import("svdapi.zig");
 const norm_mod = @import("norm.zig");
 const elementwise = @import("elementwise.zig");
 
-pub const wpofa = cholesky.wpofa;
+pub const chol = cholesky.chol;
 
-pub const wgefa = lu.wgefa;
-pub const wgesl = lu.wgesl;
-pub const wgeco = lu.wgeco;
-pub const wgedi = lu.wgedi;
-
-pub const corth = hessenberg.corth;
-
-pub const htridi = tridiagonal.htridi;
-pub const htribk = tridiagonal.htribk;
-
-pub const comqr3 = eigen_general.comqr3;
+pub const det = lu.det;
+pub const inv = lu.inv;
+pub const Determinant = lu.Determinant;
 
 pub const rref = generators.rref;
 pub const eye = generators.eye;
@@ -199,11 +221,6 @@ pub const triu = generators.triu;
 pub const diagFromVector = generators.diagFromVector;
 pub const diagToVector = generators.diagToVector;
 pub const kron = generators.kron;
-
-pub const wsvdc = svd_mod.wsvdc;
-
-pub const wqrdc = qr_mod.wqrdc;
-pub const wqrsl = qr_mod.wqrsl;
 
 pub const cond = svdapi.cond;
 pub const rank = svdapi.rank;
@@ -243,48 +260,6 @@ pub const cosm = matrixfun.cosm;
 pub const atanm = matrixfun.atanm;
 pub const powm = matrixfun.powm;
 
-const lu_Determinant = lu.Determinant;
-
-/// DET: determinant of `self`, via LU factorization. `self` is destroyed;
-/// `ipvt` (length `self.n`) is scratch.
-pub fn det(self: Self, ipvt: []usize) lu_Determinant {
-    _ = lu.wgefa(self, ipvt);
-    var result: lu_Determinant = undefined;
-    var no_workspace: [0]f64 = .{};
-    lu.wgedi(self, ipvt, &no_workspace, &no_workspace, 10, &result);
-    return result;
-}
-
-/// INV: invert `self` in place, via LU factorization with condition
-/// estimation. `ipvt` (length `self.n`) and `zr`/`zi` (length `self.n`)
-/// are scratch. Returns the reciprocal condition number (`wgeco`'s
-/// `rcond`) so callers can judge accuracy - a value so small that
-/// `1.0 + rcond == 1.0` means `A` is numerically singular and the
-/// "inverse" is not to be trusted.
-pub fn inv(self: Self, ipvt: []usize, zr: []f64, zi: []f64) f64 {
-    const rc = lu.wgeco(self, ipvt, zr, zi);
-    // wgeco's own use of zr/zi (an approximate null vector) is done by the
-    // time we get here, so it doubles as wgedi's scratch workspace.
-    lu.wgedi(self, ipvt, zr, zi, 1, null);
-    return rc;
-}
-
-/// CHOL: Cholesky-factor the Hermitian positive-definite matrix `self` in
-/// place into upper-triangular `R` (`ctrans(R)*R == A`), zeroing the
-/// strict lower triangle so the result is a clean triangular matrix
-/// (unlike raw `wpofa`, which leaves it untouched). Returns 0 on success,
-/// or the 1-based order of the leading minor that failed to be positive
-/// definite (the matrix is left only partially factored in that case).
-pub fn chol(self: Self) usize {
-    const info = cholesky.wpofa(self);
-    if (info != 0) return info;
-    var j: usize = 1;
-    while (j <= self.n) : (j += 1) {
-        blas1.wset(self.n - j, Cx.init(0.0, 0.0), self.r[self.idx(j + 1, j)..], self.i[self.idx(j + 1, j)..], 1);
-    }
-    return 0;
-}
-
 const std = @import("std");
 
 test "ctranspose conjugates and transposes a non-square matrix" {
@@ -319,7 +294,7 @@ test "scale multiplies every entry by a complex scalar" {
     var ai: [4]f64 = @splat(0.0);
     const a = Self.initPacked(&ar, &ai, 2, 2);
 
-    a.scale(Cx.init(0.0, 1.0)); // multiply by i
+    try a.scale(std.testing.io, Cx.init(0.0, 1.0)); // multiply by i
     try zigstd.testExpectEqualSlices(f64, &[_]f64{ 0.0, 0.0, 0.0, 0.0 }, &ar);
     try zigstd.testExpectEqualSlices(f64, &[_]f64{ 1.0, 2.0, 3.0, 4.0 }, &ai);
 }
@@ -327,26 +302,22 @@ test "scale multiplies every entry by a complex scalar" {
 test "det, inv and chol agree on a small real matrix" {
     var ar = [_]f64{ 4.0, 2.0, 2.0, 3.0 }; // [[4,2],[2,3]], det=8, SPD
     var ai: [4]f64 = @splat(0.0);
-    var ipvt: [2]usize = @splat(0);
 
     var ar_for_det = ar;
     var ai_for_det = ai;
-    const d = Self.initPacked(&ar_for_det, &ai_for_det, 2, 2).det(&ipvt);
+    const d = try Self.initPacked(&ar_for_det, &ai_for_det, 2, 2).det(zigstd.testAllocator, std.testing.io);
     try zigstd.testExpectApproxEqAbs(8.0, d.mantissa.re * std.math.pow(f64, 10.0, d.exponent10), 1e-9);
 
     var ar_for_inv = ar;
     var ai_for_inv = ai;
-    var zr: [2]f64 = @splat(0.0);
-    var zi: [2]f64 = @splat(0.0);
-    const rc = Self.initPacked(&ar_for_inv, &ai_for_inv, 2, 2).inv(&ipvt, &zr, &zi);
+    const rc = try Self.initPacked(&ar_for_inv, &ai_for_inv, 2, 2).inv(zigstd.testAllocator, std.testing.io);
     try zigstd.testExpectTrue(rc > 0.0);
     // inv([[4,2],[2,3]]) = [[3,-2],[-2,4]] / 8.
     try zigstd.testExpectApproxEqAbs(3.0 / 8.0, ar_for_inv[blas1.ix(2, 1, 1)], 1e-9);
     try zigstd.testExpectApproxEqAbs(-2.0 / 8.0, ar_for_inv[blas1.ix(2, 1, 2)], 1e-9);
     try zigstd.testExpectApproxEqAbs(4.0 / 8.0, ar_for_inv[blas1.ix(2, 2, 2)], 1e-9);
 
-    const info = Self.initPacked(&ar, &ai, 2, 2).chol();
-    try zigstd.testExpectEqual(@as(usize, 0), info);
+    try Self.initPacked(&ar, &ai, 2, 2).chol(zigstd.testAllocator, std.testing.io, null);
     try zigstd.testExpectApproxEqAbs(0.0, ar[blas1.ix(2, 2, 1)], 1e-12); // lower triangle zeroed
 }
 

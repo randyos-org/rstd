@@ -118,9 +118,8 @@ fn mapVecAt(comptime T: type, comptime N: usize, comptime mapFn: anytype, slices
 }
 
 /// Generalizes `sliceReduce` to slices that need a per-index transform before
-/// folding, e.g. `sum(|re[i]| + |im[i]|)` or `sum(xr[i]*yr[i] - xi[i]*yi[i])`
-/// - the shape of `blas1.wasum`/`wdot`'s hand-rolled SIMD loops. `slices` is
-/// a tuple of equal-length `[]const T` slices (e.g. `.{ xr, xi }`); `mapFn`
+/// folding, e.g. `sum(|re[i]| + |im[i]|)` or `sum(xr[i]*yr[i] - xi[i]*yi[i])`.
+/// `slices` is a tuple of equal-length `[]const T` slices (e.g. `.{ xr, xi }`); `mapFn`
 /// combines one element from each into a single `T`.
 ///
 /// `mapFn` must be written with `anytype` parameters, e.g.:

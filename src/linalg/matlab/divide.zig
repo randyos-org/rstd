@@ -1,75 +1,53 @@
-//! Matrix left/right division (REPL `\`/`/`), kept as its own file rather
-//! than folded into `CxMat.zig` to keep files under this project's
-//! line-count guideline.
+//! Matrix left/right division (REPL `\`/`/`) over `lu.zig`'s `getrf` and
+//! `getrs` (M2), in place of WGECO and WGESL.
 
 const std = @import("std");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
 const lu_mod = @import("lu.zig");
+const Trans = @import("../lapack/__root__.zig").Trans;
 
-const Cx = blas1.Cx;
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const ix = blas1.ix;
 
-/// Right matrix division for a square divisor: solve `X*B = A` for `X`,
-/// via `B`'s LU factorization and a conjugate-transpose solve applied to
-/// each row of `A` (`X*B=A` iff `ctrans(B)*ctrans(X) = ctrans(A)`, solved
-/// one row/column at a time so no explicit transpose is ever materialized)
-/// - REPL semantics for `A/B`. Takes two co-equal matrices rather than
-/// mutating a single `self` the way single-matrix operations do: `a`
-/// (`m`x`n`) is overwritten with `X`; `b` (`n`x`n`) is destroyed by
-/// factorization. `ipvt`, `zr`/`zi`, and `rowr`/`rowi` are length-`n`
-/// scratch. Returns `B`'s `rcond` so callers can judge accuracy.
-pub fn mrdivide(
-    a: CxMat,
-    b: CxMat,
-    ipvt: []usize,
-    zr: []f64,
-    zi: []f64,
-    rowr: []f64,
-    rowi: []f64,
-) f64 {
-    const ar = a.r;
-    const ai = a.i;
-    const lda = a.lda;
-    const m = a.m;
-    const n = a.n;
-
-    const rc = lu_mod.wgeco(b, ipvt, zr, zi);
-    var i: usize = 1;
-    while (i <= m) : (i += 1) {
-        var j: usize = 1;
-        while (j <= n) : (j += 1) {
-            rowr[j - 1] = ar[ix(lda, i, j)];
-            rowi[j - 1] = -ai[ix(lda, i, j)];
-        }
-        lu_mod.wgesl(b, ipvt, rowr, rowi, 1);
-        j = 1;
-        while (j <= n) : (j += 1) {
-            ar[ix(lda, i, j)] = rowr[j - 1];
-            ai[ix(lda, i, j)] = -rowi[j - 1];
-        }
-    }
+/// Right matrix division for a square divisor: solve `X*B = A` for `X` -
+/// REPL semantics for `A/B` - as `Bᵀ Xᵀ = Aᵀ`. `a` (`m`x`n`) is
+/// overwritten with `X`; `b` (`n`x`n`) is destroyed by factorization.
+/// Returns `B`'s `rcond`; an exact zero pivot is `error.Singular`.
+pub fn mrdivide(a: CxMat, b: CxMat, allocator: Allocator, io: Io) lu_mod.Error!f64 {
+    const tr = try allocator.alloc(f64, a.m * a.n);
+    defer allocator.free(tr);
+    const ti = try allocator.alloc(f64, a.m * a.n);
+    defer allocator.free(ti);
+    const t = CxMat.initPacked(tr, ti, a.n, a.m);
+    a.transpose(t);
+    const rc = try mldivideWith(b, t, .t, allocator, io);
+    t.transpose(a);
     return rc;
 }
 
 /// Left matrix division for a square `self`: solve `self*X = b` for `X` -
 /// REPL semantics for `A\B` (square `A` only; a non-square least-squares
-/// solve can be built directly from `wqrdc`/`wqrsl`, matching `\`'s own
-/// documented fallback). `self` is destroyed by factorization; `b`
-/// (`self.n`x`p`) is overwritten with `X`. `ipvt`, `zr`/`zi` (length
-/// `self.n`) are scratch. Returns `self`'s `rcond` so callers can judge
-/// accuracy.
-pub fn mldivide(self: CxMat, b: CxMat, ipvt: []usize, zr: []f64, zi: []f64) f64 {
-    const rc = lu_mod.wgeco(self, ipvt, zr, zi);
-    var j: usize = 1;
-    while (j <= b.n) : (j += 1) {
-        const c = b.col(j);
-        lu_mod.wgesl(self, ipvt, c.r, c.i, 0);
-    }
+/// solve is `gels`'s, M2's QR group). `self` is destroyed by factorization;
+/// `b` (`self.n`x`p`) is overwritten with `X`. Returns `self`'s `rcond`; an
+/// exact zero pivot is `error.Singular`.
+pub fn mldivide(self: CxMat, b: CxMat, allocator: Allocator, io: Io) lu_mod.Error!f64 {
+    return mldivideWith(self, b, .n, allocator, io);
+}
+
+fn mldivideWith(a: CxMat, b: CxMat, trans: Trans, allocator: Allocator, io: Io) lu_mod.Error!f64 {
+    const anorm = try lu_mod.norm1(a, allocator, io);
+    const f = try lu_mod.Lu.init(a, !b.isReal(), allocator, io);
+    defer f.deinit(allocator);
+    if (f.singular) return error.Singular;
+    const rc = try lu_mod.rcond(f, allocator, io, anorm);
+    try f.solve(trans, b, allocator, io);
     return rc;
 }
 
 const zigstd = @import("../../zigstd.zig");
+const testing = std.testing;
 
 test "mldivide solves A*X=B" {
     // A = [[2,0],[1,2]], B = [[1,2],[3,4]] (both square, real).
@@ -77,15 +55,12 @@ test "mldivide solves A*X=B" {
     var ai: [4]f64 = @splat(0.0);
     var br = [_]f64{ 1.0, 3.0, 2.0, 4.0 };
     var bi: [4]f64 = @splat(0.0);
-    var ipvt: [2]usize = @splat(0);
-    var zr: [2]f64 = @splat(0.0);
-    var zi: [2]f64 = @splat(0.0);
 
     const b_orig = br;
     const a_mat = CxMat.initPacked(&ar, &ai, 2, 2);
     const b_mat = CxMat.initPacked(&br, &bi, 2, 2);
     const a_for_check = [_]f64{ 2.0, 1.0, 0.0, 2.0 };
-    const rc = mldivide(a_mat, b_mat, &ipvt, &zr, &zi);
+    const rc = try mldivide(a_mat, b_mat, testing.allocator, testing.io);
     try zigstd.testExpectTrue(rc > 0.0);
 
     // Check A*X == original B.
@@ -104,16 +79,11 @@ test "mrdivide solves X*B=A" {
     var ai: [4]f64 = @splat(0.0);
     var br = [_]f64{ 2.0, 1.0, 0.0, 2.0 };
     var bi: [4]f64 = @splat(0.0);
-    var ipvt: [2]usize = @splat(0);
-    var zr: [2]f64 = @splat(0.0);
-    var zi: [2]f64 = @splat(0.0);
-    var rowr: [2]f64 = @splat(0.0);
-    var rowi: [2]f64 = @splat(0.0);
 
     const b_for_check = br;
     const a_mat = CxMat.initPacked(&ar, &ai, 2, 2);
     const b_mat = CxMat.initPacked(&br, &bi, 2, 2);
-    const rc = mrdivide(a_mat, b_mat, &ipvt, &zr, &zi, &rowr, &rowi);
+    const rc = try mrdivide(a_mat, b_mat, testing.allocator, testing.io);
     try zigstd.testExpectTrue(rc > 0.0);
 
     // Check X*B == original A.
@@ -125,4 +95,39 @@ test "mrdivide solves X*B=A" {
             try zigstd.testExpectApproxEqAbs(a_orig[ix(2, row + 1, col + 1)], s, 1e-9);
         }
     }
+}
+
+test "divisions mix real and complex operands; a singular divisor fails" {
+    // A = [[1,i],[0,2]] (2x2 complex), B = [[2,1],[0,1]] real: A\B and B/A, A*X = B
+    const a0r = [_]f64{ 1, 0, 0, 2 };
+    const a0i = [_]f64{ 0, 0, 1, 0 };
+    const b0r = [_]f64{ 2, 0, 1, 1 };
+    const b0i: [4]f64 = @splat(0.0);
+    for ([_]bool{ false, true }) |right| {
+        var ar = a0r;
+        var ai = a0i;
+        var br = b0r;
+        var bi = b0i;
+        const a = CxMat.initPacked(&ar, &ai, 2, 2);
+        const b = CxMat.initPacked(&br, &bi, 2, 2);
+        // left: X = A \ B; right: X = B / A, so X A = B
+        _ = try if (right) mrdivide(b, a, testing.allocator, testing.io) else mldivide(a, b, testing.allocator, testing.io);
+        const x = b;
+        var cr = a0r;
+        var ci = a0i;
+        const a_orig = CxMat.initPacked(&cr, &ci, 2, 2);
+        for (1..3) |i| {
+            for (1..3) |j| {
+                var s = blas1.Cx.init(0, 0);
+                for (1..3) |k| s = s.add(if (right) x.get(i, k).mul(a_orig.get(k, j)) else a_orig.get(i, k).mul(x.get(k, j)));
+                try zigstd.testExpectApproxEqAbs(b0r[ix(2, i, j)], s.re, 1e-12);
+                try zigstd.testExpectApproxEqAbs(0.0, s.im, 1e-12);
+            }
+        }
+    }
+    var sr = [_]f64{ 1, 2, 2, 4 };
+    var si: [4]f64 = @splat(0.0);
+    var tr = [_]f64{ 1, 0, 0, 1 };
+    var ti: [4]f64 = @splat(0.0);
+    try testing.expectError(error.Singular, mldivide(CxMat.initPacked(&sr, &si, 2, 2), CxMat.initPacked(&tr, &ti, 2, 2), testing.allocator, testing.io));
 }

@@ -42,15 +42,34 @@ or a scratchpad.
 
 ### Working on
 
-Nothing yet: next is M2, after a check-in with the user (2026-10-31).
+- [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
+  `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
+  real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
+  boundary or change the port's layout. Its LINPACK and EISPACK routines map to LAPACK's `getrf`,
+  `getrs`, `getri`, `gecon` (`wgefa`, `wgesl`, `wgedi`, `wgeco`), `potrf` (`wpofa`), `geqp3`,
+  `unmqr`, `trtrs` (`wqrdc`, `wqrsl`), `gesvd` (`wsvdc`, T34), `gehrd` (`corth`), `hseqr` with
+  `trevc` (`comqr3`), `hetrd` and `unmtr` (`htridi`, `htribk`); rstd has `potrf`, `getrf` and
+  `getrs`; T70 adds OpenBLAS's own, and the rest come from Reference-LAPACK (BSD-3, as OpenBLAS
+  ships it in `lapack-netlib/`). Its fills (`wset`, `rset`) are LAPACK `laset`, `pythag` is `lapy2`.
+  Its own tests must still pass. **Needs:** M1 (done), T123, T125, T126. Progress (2026-10-31): every group done as trunk edits (part staged by the user): LU
+  (`lu.zig` over `getrf`, `gecon`, `getri`; `divide.zig` over `getrs`), Cholesky (`potrf`), SVD
+  and QR (`svdapi.zig` over `gesvd`, `geqrf`, `orgqr`), eigen (`eig.zig` over `syevd`, `geev`;
+  `schur.zig` over `gehrd`, `orghr`, `zgees`; `roots` by `eig`), `matmul` (`gemm`) and BLAS 1
+  (user: all of it; `rref` over a packed copy, the norms by `dasum` and `dnrm2`, `scale` by
+  `drot`, `magic` by `dswap`, each now taking an `Io`). `svd.zig`, `qr.zig` and the four EISPACK
+  files are gone, `blas1.zig` is down to scalars; `CxMat` bridges by `isReal`, `toPacked`,
+  `fromPacked`; README updated. 83 matlab tests pass natively. Left: the rig compile checks, then
+  the user's review.
 
 ### In the background
 
 Sweeps by `.agent/sweep.sh` (gitignored), results in `.agent/sweeps/<UTC>-<tier>/summary.md`;
 started 2026-10-30 22:20 on `review` faeea2aa: tier 1, and tier 2 then tier 3. These two ran from
 the trunk, so steps after their first compile what has landed since (T124, M1, kern3, T127); from
-tier 3 on, each tier runs from its own worktree, `C:\scratch\gitstd-wt\sweep-<tier>`, pinned
-at review's tip when it starts (user, 2026-10-30).
+tier 3 on, each tier runs from its own worktree, `C:\scratch\git\rstd-wt\sweep-<tier>`, pinned
+at review's tip when it starts (user, 2026-10-30). M2's trunk edits moved tier 2 there too: it
+resumed `--from x86_64-smp` at 1650346b (2026-10-31 07:23), after steps 3 to 7 had compiled the
+trunk with M2 half done.
 
 - [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
   plus `wasm-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017` (Zig 0.17.0,
@@ -66,7 +85,15 @@ at review's tip when it starts (user, 2026-10-30).
   enhancements. Tier 1 passed 2026-10-31
   (`.agent/sweeps/20261031T032046Z-tier1`): `native` (`-Dblas-cores=all`, faeea2aa) 963 passed, 32
   skipped, 0 failed; `x86_64-whpx` (after T124, M1, `kern3` and T127 landed) 643 passed, 42
-  skipped, 0 failed; no inline-asm errors.
+  skipped, 0 failed; no inline-asm errors. Tier 2 so far
+  (`.agent/sweeps/20261031T032047Z-tier2`), to fix: `x86_64` 1 failed (faer SVD special matrices,
+  T130, compiled before it landed); `x86_64-uefi` 16 failed (BLAS gemm tests out of the 32 MB heap,
+  the linked-core triangular test crashed or hung); `x86_64-smp` 2 failed (threaded level 2 out of
+  heap; threaded level 1 bits differ by worker count); `linux-x86_64` a compiler crash (`unreachable`)
+  generating `bidiag_svd.lasv2` for `prescott` (T126's code); `ssh-x86_64-macos` a failed
+  `expectEqualSlices`, ssh exit 255; `x86_64-macos` names `qemu-test-x86_64-macos`, which no longer
+  exists (only setup, install, start, snapshot); `aarch64` passed (644, 51 skipped). Steps 3 to 7
+  rerun in the resume; `x86_64` and `x86_64-uefi` need `--only` reruns after.
 
 #### Build slots
 
@@ -74,7 +101,7 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | free | | |
+| Local 1 | M2 | `qemu-check-x86_64`, `-arm-softfp`, `-powerpc-750` | 07:31 |
 | Local 2 | free | | |
 | Mac 0.18 | free | | |
 | Mac 0.17 | free | | |
@@ -85,7 +112,7 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | T62 tier 2 | step 2 of 26, `x86_64-uefi` (step 1, `x86_64`: 640 passed, 1 failed, T130) | 01:18 |
+| Mac | T62 tier 2 | resumed at step 3 of 26, `x86_64-smp`, from `sweep-tier2` (1650346b) | 07:23 |
 
 ## Queue
 
@@ -112,16 +139,6 @@ Each moves to In progress when the sweep step that runs it starts.
 
 ### Code and design
 
-- [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
-  `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
-  real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
-  boundary or change the port's layout. Its LINPACK and EISPACK routines map to LAPACK's `getrf`,
-  `getrs`, `getri`, `gecon` (`wgefa`, `wgesl`, `wgedi`, `wgeco`), `potrf` (`wpofa`), `geqp3`,
-  `unmqr`, `trtrs` (`wqrdc`, `wqrsl`), `gesvd` (`wsvdc`, T34), `gehrd` (`corth`), `hseqr` with
-  `trevc` (`comqr3`), `hetrd` and `unmtr` (`htridi`, `htribk`); rstd has `potrf`, `getrf` and
-  `getrs`; T70 adds OpenBLAS's own, and the rest come from Reference-LAPACK (BSD-3, as OpenBLAS
-  ships it in `lapack-netlib/`). Its fills (`wset`, `rset`) are LAPACK `laset`, `pythag` is `lapy2`.
-  Its own tests must still pass. **Needs:** M1 (done), T123, T125, T126.
 - [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS and LAPACK behind it, as designed in
   design.md's "Planned: the public `rstd.linalg` layer" (settled in M5, 2026-10-30):
   `StaticMatrix(R, C, T)` (comptime shape, a value) and unmanaged `Matrix(T)` (run-time shape),
@@ -352,207 +369,7 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
 
 ## Done
 
-- [X] **T99** Multithreaded freestanding tests (from T02, see threading.md): start secondary cores
-  in the test kernels with their own stacks, give each core thread-local storage (std's `debug.zig`
-  makes `panic_stage` thread-local once a build is not `single_threaded`), an `Io` that hands group
-  tasks to those cores with futex waits, wakes and cancellation, and start the rigs with more than
-  one CPU. Done 2026-10-30, landed 7cab01a9: rigs `x86_64-smp` (fw_cfg core count, real-mode stub,
-  INIT-SIPI-SIPI) and `aarch64-smp` (PSCI `CPU_ON`) start four cores with their own stacks and
-  thread-local storage, and `test/qemu/smp.zig`'s `Pool` `Io` hands futures and group tasks to idle
-  cores (waits in `mwait`/`wfe`); `threading.TestIo` puts the threaded tests on it. Smoke runs:
-  x86_64-smp 30 passed, aarch64-smp 27 passed, 0 failed, 4 of 4 cores up. Left for Known issues: the
-  canceled-gemm test is hosted-only, and timed waits return after one check (no clock on the rigs).
-- [X] **T24** Skylake-X family `sgemv_n`/`sgemv_t`: those cores add large intrinsics kernels on top
-  of Haswell's (`sgemv_t` uses a 1,121-line template); they keep the portable `sgemv` until ported.
-  Testable only on AVX-512 hardware (T43). Done 2026-10-30, landed c1f9f988: Skylake-X `sgemv_n`
-  (n_128 and n_64 blocks) and `sgemv_t` (the template's 8 shapes) as `@Vector` around Haswell's
-  blocks in `gemv/kernel.zig`; their exact code runs natively on Zen 3 (LLVM splits the wide
-  vectors), AVX-512 hardware still untested (T43).
-- [X] **T116** The generic family follows `parameter.c:451`, an x86-only rule: a static
-  `TARGET=GENERIC` OpenBLAS elsewhere gets `p = q = r = 128` (`parameter.c:46-48`), or fixed sets on
-  MIPS and LoongArch (`param.h:4386-4415`). Make rstd's generic `p`/`q`/`r` follow the non-x86 rule
-  off x86 (from T112). Running (`wip/quad`). Done 2026-10-30, landed d253ea5f: off x86 the generic
-  table takes `parameter.c:46-48`'s `p = q = r = 128`, or 32-bit MIPS's and LoongArch's fixed sets
-  (`param.h:4388-4415`); x86 keeps its L2 rule (`parameter.c:451`); the generator
-  (`tools/blas_asm/params.zig`) emits `generic_off_x86`, every other table unchanged. Native 65/65,
-  `qemu-check-powerpc-750` passed. Sweep: `params` and `blas3` on `arm-softfp` and `powerpc-750`.
-- [X] **T111** The rest of LAPACK that would otherwise come from reference LAPACK, ported from faer
-  (Q10): QR (`geqrf`, `orgqr`/`ungqr`, `ormqr`), least squares (`gels`), the symmetric and Hermitian
-  eigensolvers (`syevd`/`heevd`), the general eigensolver (`geev`), `laed3` and OpenBLAS's
-  `test_laed3_nan.c` (T70 left them: they need reference LAPACK's `dlaed4`, `dlaed5`, `dlaed6` and
-  the test drives `dsyevd`; take faer's divide-and-conquer tridiagonal solver), and whatever else
-  rstd.linalg's MATLAB-like API needs. Reference LAPACK comes later only as a benchmark baseline.
-  Reuse T34's `lapack/*.zig` (`householder`, `qr`, `bidiag`, `ops`) and add files beside them;
-  `qr.zig` already has faer's QR for `geqrf`. Running (`wip/faer2`). Done 2026-10-30, landed
-  8ee93919, cd01f0a5: `geqrf`, `orgqr`/`ungqr`, `ormqr`/`unmqr`, `gels`, `syevd`/`heevd`,
-  `syev`/`heev` and `geev` from faer v0.24.4 (`qr_solve.zig`, `tridiag*.zig`, `hessenberg.zig`,
-  `real_schur.zig`, `complex_schur.zig`, `evd.zig`), `gebal`/`gebak` from reference LAPACK
-  (`balance.zig`; faer has none), OpenBLAS's `test_laed3_nan.c` against `syevd`. Five more faer bugs
-  fixed (issues.md: a NaN column in staircase QR, complex `rotg`'s `r`, a 2x2 determinant guard that
-  broke left eigenvectors at `SMLNUM`, more denormal reciprocals). Native 99 of 100, 1 skipped.
-  Follow-ups: T117.
-- [X] **T115** Routines only reference LAPACK has (T113, `lapack/sources.md`): `gecon`,
-  `gebal`/`gebak`, `trexc`/`trsen`, `gelsy`, plus `lange` (no source chosen) and `gelqf` (only
-  libflame's FLAME code besides the reference). The anthology rule picks the best open-source
-  implementation, and here that is the reference: port these from reference LAPACK (its license is
-  in the accepted BSD class) unless faer turns out to have an equivalent, and record each in the
-  table. Running (`wip/refonly`). Done 2026-10-30, landed 82ce5804, 9a9d4f95: `lange`, `gecon` (with
-  `lacn2`, `latrs`, `rscl`, Blue's `lassq`), `trexc`, `trsen` (Sylvester solves through ReLAPACK's
-  `trsyl`) and `gelsy` from reference LAPACK; `gebal`/`gebak` folded into T111's `balance.zig`
-  (every job); `gelqf`/`orglq`/`ormlq` as libflame's UT-transform method on faer's kernels (no
-  libflame code); `geqp3` from faer's pivoted QR (`qr_pivot.zig`). Native 96 of 97, 1 skipped;
-  `arm-softfp`, `powerpc-750` compile. Known issues: extended-type `nrm2` underflows near the
-  threshold (the extreme `gelsy` test skips there); a faer pivoted-QR `1/0` on an all-zero matrix,
-  guarded (issues.md). ReLAPACK's `sygst`, `hegst`, `pbtrf`, `trsyl`, `gbtrf` are not exported from
-  `lapack/__root__.zig`.
-- [X] **T19** `XDouble` as `f128`: `quad_precision` is hard-wired off; add a build option and a rig
-  configuration for it. The edge tests and level 3's per-routine driver tests still cover no
-  extended type off x86 (the interfaces do). Parked 2026-10-30 for the MVP (tier 3 work off x86):
-  wip d2ea5703 on `wip/quad` (worktree removed) has `-Dquad-precision`, a `blas_options` module and
-  an `aarch64-quad` rig; only `zig build -h` (0.18) and the native types test (31/31) ran; left:
-  0.17 `-h`, wider native tests with quad on and off, `qemu-check-aarch64-quad`. Finishing the
-  started work (user, 2026-10-30). Running (`wip/quad`). Done 2026-10-30, landed: `-Dquad-precision`
-  makes `XDouble` `f128` through a `blas_options` module, with an `aarch64-quad` rig; native edge
-  and level-3 driver tests pass with quad off (72/75) and on (73/75), `qemu-check-aarch64-quad` and
-  `arm-softfp` with quad on 64/64, smoke run 23/23 on the Mac. Sweep: `qemu-test-aarch64-quad` in
-  full (tier 3).
-- [X] **T119** AVX-512 small-matrix kernels (user, 2026-10-30, tier 1): OpenBLAS's Skylake-X
-  `sgemm`/`dgemm` small kernels (`nn`/`nt`/`tn`/`tt` and their `b0` forms) and Cooper Lake and
-  Sapphire Rapids `sbgemm` small kernels as `@Vector`, tested natively on Zen 3 (no AVX-512 here).
-  Done 2026-10-30, landed cb5d5a00, 58f9ae29: `blas3/gemm/x86_64/kernel.zig` ports the Skylake-X
-  small kernels (512-bit vectors; the generic kernels' bits except `tn` and `nn`'s last rows, whose
-  lanes sum every 16th or 8th product and reduce in upstream's two orders) for Skylake-X, Cooper
-  Lake and Sapphire Rapids through a `small_kernel.forCore` hook; Cooper Lake's `sbgemm` small path
-  with upstream's permit and portable bits (Sapphire Rapids has none, as upstream); `survey.zig`'s
-  small-matrix table in `gemm/coverage.md`. Native 43/43 (small-kernel filters), `-Dblas-cores=all`
-  134/136 (2 skipped); `qemu-check-x86_64`, `-arm-softfp`, `-powerpc-750` 71/71 on the M6. The
-  AVX-512 code runs only as Zen 3 splits it (T43). Follow-ups: T122. Sweep: `small`, `half gemm`
-  and `interface: gemm` on `x86_64` and `linux-x86_64`; `small permits` everywhere.
-- [X] **T101** rstd's `sdot` from 256K floats runs 51 to 53 GB/s on arm64 where its kernel alone
-  runs 98 (R4, results-flyoff.md). Done 2026-10-30, landed f2b453bc: above n = 10000 a threaded
-  `sdot` summed its chunks with `dsdot_k`, which was arm64's `dot.S` as DSDOT (one dependent `fadd`
-  chain, about 50 GB/s) and x86_64's `sdot.c` as DSDOT (blocks multiplied and summed in `f32`,
-  against the `f64` rule readme.md and threading.md state: a correctness bug too). `dsdot_k` is
-  now routed as `sdot_k` (`vector.routed`): on every core exactly `sdot_k`'s `f64` sum before
-  rounding; bits identical for any worker count; a per-core test checks `sdot_k` against `dsdot_k`
-  rounded. The arm64, loongarch64, riscv64 and x86_64 `dsdot` ports are gone (regenerated). Native
-  `-Dblas-cores=all` 129/132 (3 skipped); no rig compiled it yet, and the speed is unmeasured
-  (timing session, `flyoff.sh m6` `dot s` rows). Sweep: `qemu-check-aarch64`, `-arm-softfp`,
-  `-powerpc-750`; filters `dot` and `level 1` on `aarch64`, `linux-aarch64`, `arm-softfp` and
-  `powerpc-750`. The `cgemm` n = 128 variance went to T05.
-- [X] **T40** Linux rig gaps: `linux-powerpc64le` never ran POWER10 kernels (baseline build),
-  `linux-aarch64` left out the SVE cores, and neither Linux arm64 rig ran `vortexm4` nor `armv9sme`
-  (Debian's 6.12 netboot kernel builds without `CONFIG_ARM64_SME`). Done 2026-10-30, landed
-  d6aadaf3, 0d257b04, 408246a2, d44510df: rigs `linux-aarch64-sve` (TCG, `neoverse_v1` build, no
-  fiber `Io` tests on SVE: std's fiber switch clobbers `ffr`, issues.md) and
-  `linux-powerpc64le-power10` (`pwr10`, ReleaseSafe), `qemu-check-<rig>` for the Linux rigs,
-  Debian 14's 7.0.13 arm64 netboot kernel (built with SME) for every Linux arm64 rig, and a check
-  that each rig selects its core (`the core in use` prints it; `core`/`hvf_core` in
-  `qemutest.zig`). Smoke runs on the M6 (`linalg.blas.cpu.`): `power10`, `armv9sme` (TCG) and
-  `vortexm4` (HVF) selected, 119 passed, 0 failed each. Sweep: tier 1 compiles the merged
-  `threading.zig` `Evented` line natively (built only for SVE so far); `linux-aarch64` (tier 2) in
-  full on the new kernel.
-- [X] **T117** `geev` and `gesvd` correctness (from T111 and T34): `xTREVC3`-style overflow scaling
-  in `geev`'s eigenvector back substitution, what `geev` returns after `NoConvergence`, and
-  `gesvd`'s `INFO > 0`. Done 2026-10-30, landed 64f5de92, cf5f88e2: `gesvd` and `geev` take an
-  optional last `unconverged: ?*usize` (LAPACK's `INFO > 0`: `gesvd`'s unconverged
-  superdiagonals, `min(m, n) - 1` for an infinity or NaN; `geev`'s `i`, with `w[i..n]` the
-  converged eigenvalues and no vectors, as `dgeev.f`), reached in tests through `ops.zig`'s
-  `test_iter_limit`; `trevc.zig` ports `dtrevc3.f`, `ztrevc3.f` and `dlaln2.f` (overflow test:
-  a 20 x 20 triangular matrix whose unscaled vectors pass the largest float); `ztrevc3`'s left
-  solve passes `ZLATRS` the wrong columns' norms (issues.md; rstd passes the right ones). Native
-  `lapack`, `faer`, `relapack` and `utest: kernel_regress` 158 of 160 (2 skipped);
-  `qemu-check-x86_64`, `-arm-softfp`, `-powerpc-750` 74 of 74 on the M6. Follow-ups: T120. Sweep:
-  `faer svd`, `faer evd` on every tier-1/2 rig.
-- [X] **T118** ReLAPACK's `tgsyl` and the missing exports. Done 2026-10-30, landed 8cd41249,
-  b79d8486: `tgsyl` by ReLAPACK's recursion over reference LAPACK's `xTGSY2`, `xGETC2`, `xGESC2`
-  and `xLATDF`, every precision, `dif` for `ijob` 0 to 4; two ReLAPACK bugs fixed (issues.md: the
-  transposed updates' leading dimension for `F` and `E`; real `dif` for `ijob` 2 and 4 counting
-  only the last base case); exported from `lapack/__root__.zig`: `sygst`, `hegst`, `pbtrf`,
-  `gbtrf`, `trsyl`, `tgsyl`, `sytrf`, `hetrf`, `sytrfRook`, `hetrfRook`, each with a smoke test.
-  Checks as T117's. Follow-ups: T121. Sweep: `relapack tgsyl`, `relapack trsyl`, `lapack:
-  ReLAPACK` on every tier-1/2 rig, `x86_64`, `aarch64`, `arm-softfp` and `powerpc-750` first
-  (extended types).
-- [X] **S1** Audit what the SPIR-V backend emits for shaderlib's math, operation by operation.
-  Done 2026-10-30, landed 27981ef4, 3352bb51: `src/rgl/shaders/probe.zig` is one fragment shader
-  per operation (`zig build shader-probes -Dvulkan`, one probe with `-Dshader-probe=<op>`; the
-  build reads its `Op` enum), disassembled and `spirv-val`-clean in Debug and ReleaseFast; the
-  results table is in `src/rgl/shaders/lib/readme.md`. Only the math builtins, `@min`/`@max` and
-  `@mulAdd` lower natively; `@Vector` arithmetic stays vector; `dot`, `length`, `distance`,
-  `normalize`, `cross`, `reflect`, `refract`, `faceforward`, `inversesqrt`, rstd's `mulAdd` and
-  `mix`, `step`, `smoothstep`, `fract` and `clamp` are scalar or hand-built; inline `asm` reaches
-  `OpDot` and GLSL.std.450 (`dotAsm`, `crossAsm`); inline asm cannot declare `OpTypeMatrix`
-  (confirmed by compiling one) and `comptimePrint` as an `asm` template crashes the backend (both
-  issues.md); every inlined call keeps its structured blocks even in ReleaseFast. Fixed on the
-  way: shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for vectors. Follow-up:
-  S2 (the probes are its fixture).
-- [X] **T124** `lapack.geev` on `Complex(f128)` didn't compile (found by M1): faer's complex Schur
-  (`eig22`) called `std.math.complex.sqrt`, which has only `f32` and `f64`. Done 2026-10-30, landed
-  ff132aa4: `ops.zig`'s `sqrt` keeps std's for `f32`/`f64` (same bits) and runs musl's `csqrt`
-  over any other float type; tests: `geev` in `XDouble`, unslotted `f80` and `f128`, real and
-  complex, and the square root against `f64`'s; the std gap in issues.md. Native `faer evd` 42/42;
-  `qemu-check-arm-softfp`, `-powerpc-750` 24/24 on the M6. Sweep: `faer evd` on every tier-1/2 rig.
-- [X] **M1** Audit `rstd.linalg.matlab` (the matlab88 port) against the modern BLAS and LAPACK. Done
-  2026-10-30, landed (the audit, now in design.md's "The matlab port
-  against the modern BLAS and LAPACK"; `lu.zig`'s test): every routine's modern
-  counterpart and verdict, checked by experiments E1 to E9 against an `f128` LAPACK reference. The
-  modern routine wins or ties everywhere (balancing helps, E3; `gecon`'s rcond is tighter; `nrm2`
-  at underflow; Cholesky's NaN and complex diagonals) except E1 (`wgedi`'s scaled determinant,
-  which M2 keeps over `getrf`; the test), E2 (graded Hermitian, T125) and E4 (graded bidiagonal,
-  T126), which the modern LAPACK fixes (user, 2026-10-30). M2's layout: convert at the boundary.
-  The matlab tests run natively and in the macOS sweeps, not on the rigs (`_test_qemu.zig` takes
-  the BLAS and LAPACK only).
-- [X] **T127** Flatten `src/linalg/lapack/faer/` into `src/linalg/lapack/` (user, 2026-10-30): the
-  folder sorted by source, which no longer held, and provenance lives in each file's doc comment
-  and `sources.md`. Done 2026-10-30, landed 9f823ac3: the 16 files moved, imports and paths fixed
-  (upstream faer's `faer/src/...` paths and the `faer ...` test names kept). Native LAPACK,
-  faer, ReLAPACK and `wgedi` tests 161/163 (2 skipped); `qemu-check-x86_64`, `-arm-softfp`,
-  `-powerpc-750` and `bench-check` 319/319 on the M6. Merging related files is Z6's.
-- [X] **M5** Review M3's proposal with the user. Done 2026-10-30: all 11 questions settled
-  (storage packed column-major; `StaticMatrix(R, C, T)` and unmanaged `Matrix(T)` over one
-  operation set on views; inline up to 8 and the BLAS above, by size alone; a root declaration
-  for the limit; `norm(v)` with `error.ZeroVector`; `lu` factors with `zero_pivot`; `eig` adapting
-  to its input; `linalg.blas`/`lapack` public; complex fixed sizes now; `error.Singular` in
-  shaders), folded with M1's audit into design.md ("Planned: the public `rstd.linalg` layer", "The
-  matlab port against the modern BLAS and LAPACK"); `design-linalg.md` and `matlab/audit.md`
-  dropped (user, 2026-10-31). Unstaged for the user's review.
-- [X] **T128** Move `design.md` and `todo.md` from `src/linalg/blas/` to `src/linalg/` (user,
-  2026-10-31): they cover LAPACK, the public layer and the matlab port, not only the BLAS. Done
-  2026-10-31, unstaged for the user's review: both moved and retitled ("Linear algebra design",
-  "Linear algebra to-do"), every relative Markdown link they broke rewritten (in them and in 8
-  other files; a check finds none broken), `lu.zig`'s mention, `.agent`'s tooling and the memory
-  notes updated. design.md's backticked paths keep their stated `src/linalg/blas/` base.
-- [X] **T129** Move `issues.md` from `src/linalg/blas/` to `src/linalg/` (user, 2026-10-31). Done
-  2026-10-31, unstaged for the user's review: moved, its intro widened to `rstd.linalg`, its links
-  and the links into it rewritten (none broken), the plain mentions in `relapack.zig`,
-  `sources.md`, `tools/evented_group_repro.zig`, `build/sshtest.zig`, `.agent` and the memory notes
-  updated. `blas/readme.md` stays (the BLAS's user guide); M3 adds `src/linalg/readme.md`.
-- [X] **T123** LAPACK routines the matlab port (M2) needs. Done 2026-10-31: pieces 1 and 2 landed
-  4b5d9c4a (`getri` from faer's LU inverse; `laset`; `lapy2`; `gehrd` and `orghr`/`unghr` over
-  faer's Hessenberg reduction with LAPACK's `tau` and `ilo`/`ihi`); pieces 3 to 5 staged by the
-  user for review (`hseqr` over the `lahqr`s; `trevc3`/`trevc`, every `SIDE` and `HOWMNY`;
-  `gees` as `dgees.f`/`zgees.f`, sorting by `trsen`), with `sources.md`, design.md and the BLAS
-  readme. Native: every LAPACK test 166/168 (2 skipped); `qemu-check-x86_64`, `-arm-softfp`,
-  `-powerpc-750` 74/74 on the M6 after each piece. Sweep: `getri`, `laset`, `gehrd`, `hseqr`,
-  `trevc3`, `gees` on every tier-1/2 rig.
-- [X] **T125** Hermitian and symmetric eigenvalues of graded matrices (M1's E2). Done 2026-10-31,
-  unstaged for the user's review (`evd.zig`): `.u` reduces `J A J` (the reversal) as its lower
-  triangle, so faer's top-down reduction runs from the bottom, as `xSYTRD`; the vectors' rows are
-  reversed after. Tested against `f128` both ways, `syevd` and `syev`, real and complex (without
-  the fix `2.8e5` off); every LAPACK and matlab test 236/238 (2 skipped); rig compile checks 74/74.
-- [X] **T130** `gesdd`'s singular values out of order on the `x86_64` rig. Done 2026-10-31,
-  unstaged for the user's review (`bidiag_svd.zig`, issues.md): faer's `compute_svd_of_m` sorts a
-  merge's values with one bubble pass, and heavy deflation left several out of place on
-  `haswell`'s rounding (reproduced natively with `-Dcpu=haswell`); a stable insertion sort
-  (`sortAscending`) with its own test. `haswell`'s SVD tests 39/39, `zen`'s every LAPACK test
-  167/169, `qemu-test-x86_64`'s SVD tests on the rig 53/53, rig compile checks 74/74.
-- [X] **T126** Singular values of graded bidiagonals (M1's E4). Done 2026-10-31, unstaged for the
-  user's review (`bidiag_svd.zig`, `svd.zig`, issues.md, `sources.md`, design.md):
-  `qrAlgorithm` is now `dbdsqr.f` (with `dlasv2.f`, `dlas2.f`), faer's scaling kept around it,
-  the rotations applied as made, so `gesvd`, `gesdd`'s small sizes and the divide-and-conquer
-  leaves all keep a graded bidiagonal's small values. E4's graded bidiagonal, reversed and random,
-  to `256 n eps` against `f128` (faer's QR: 13% off); every LAPACK and matlab test 237/239 (2
-  skipped); rig compile checks 74/74. Follow-up: T131 (dqds for values alone).
+Cleared 2026-10-31; landed work is in `review`'s log.
 
 ## After the BLAS is feature complete
 
