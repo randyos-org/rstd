@@ -13,8 +13,8 @@
 
 const std = @import("std");
 const ops = @import("ops.zig");
-const norm = @import("../norm.zig");
-const util = @import("../../blas/util.zig");
+const norm = @import("norm.zig");
+const util = @import("../blas/util.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;

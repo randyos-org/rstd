@@ -922,7 +922,7 @@ allows.
   product, run serially (faer's `Par::Seq` path), so no sum depends on the worker count;
   the products thread inside the BLAS; and divide and conquer's two halves run in turn, as
   rstd's threading splits flat ranges, not task trees.
-- **`gesvd`, `gesdd`** (`faer/svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
+- **`gesvd`, `gesdd`** (`svd.zig`): `dgesvd.f`'s and `dgesdd.f`'s arguments, jobs (`Job`:
   `a`, `s`, `o`, `n`), `xerbla` order and scaling of `A` into `[SMLNUM, BIGNUM]` (`dlascl.f`),
   over faer's SVD: QR first past an aspect ratio of `11 / 6`, then bidiagonalization, then the
   bidiagonal's SVD by QR iteration (`gesvd`, as the reference's `xBDSQR`) or divide and conquer
@@ -956,7 +956,7 @@ allows.
   `tgsyl` takes `trans` `t` (real) or `c` (complex) only and rejects `m` or `n` below 1, as
   `dtgsyl.f` and `ztgsyl.f` do; `dif` is `ijob`'s estimate of `Dif[(A, D), (B, E)]` (1 and 3
   by look-ahead, 2 and 4 by `xGECON`'s null vectors), unwritten for `ijob` 0 or `trans`.
-- **`geqrf`, `orgqr`, `ormqr`** (`faer/qr.zig`; `ungqr`, `unmqr` the same functions):
+- **`geqrf`, `orgqr`, `ormqr`** (`qr.zig`; `ungqr`, `unmqr` the same functions):
   `dgeqrf.f`'s, `dorgqr.f`'s and `dormqr.f`'s arguments and `xerbla` order over faer's
   staircase QR. `tau` is LAPACK's (`H = I - tau v vᴴ`), the reciprocal of faer's, so an
   identity reflection is `tau = 0` with its `v` zeroed. Two departures, both faer's: a
@@ -966,27 +966,27 @@ allows.
   reference's complex `tau` works too; `ormqr` takes `trans` `t` and `c` alike for real
   (complex: `c` only, as `zunmqr`). A fix to faer ([`issues.md`](issues.md)): its staircase
   skips a column whose norm is NaN, here reflected, so NaN propagates as in the reference.
-- **`gels`** (`faer/qr_solve.zig`): `dgels.f`'s arguments, scaling of `A` and `B`, its four
+- **`gels`** (`qr_solve.zig`): `dgels.f`'s arguments, scaling of `A` and `B`, its four
   cases and where the answer and the residual land, over faer's `solve_lstsq_in_place`
   (`Qᴴ B`, then `trtrs`). The reference factors a wide `A` as `L Q` (`xGELQF`); faer has no
   LQ, so `Aᴴ = Q R`, written back conjugate transposed, which is `xGELQF`'s layout. A zero on
   the factor's diagonal is `error.Singular` with its index in `pivot`, the reference's
   `INFO > 0`.
-- **`syevd`, `heevd`, `syev`, `heev`** (`faer/evd.zig`): `dsyevd.f`'s and `dsyev.f`'s
+- **`syevd`, `heevd`, `syev`, `heev`** (`evd.zig`): `dsyevd.f`'s and `dsyev.f`'s
   arguments, `xerbla` order and scaling into `[sqrt(SMLNUM), sqrt(BIGNUM)]`, over faer's
   `self_adjoint_evd`: tridiagonalize, take the real tridiagonal (a complex subdiagonal's
   phases moved into the vectors), decompose it by divide and conquer from 128 up (`syevd`, as
   the reference's `xSTEDC`) or by QR iteration (`syev`, as `xSTEQR`; and for values alone),
   apply the reflections. `NoConvergence` also for a NaN or infinity in `A`, which faer's
   solvers cannot take; with `jobz` `n`, `A` is left as it was.
-- **`geev`** (`faer/evd.zig`): `dgeev.f`'s arguments, `xerbla` order, NaN check
+- **`geev`** (`evd.zig`): `dgeev.f`'s arguments, `xerbla` order, NaN check
   (`InvalidA`, the reference's `INFO = -4`), scaling and normalization (unit 2-norm, largest
   entry real; a real pair turned by `DLARTG`), over faer's `evd_real` and `evd_cplx`:
   Hessenberg reduction, Schur form by `lahqr` (`xLAHQR`'s double-shift and single-shift QR),
   then the triangular factor's right and left eigenvectors times the Schur vectors. Two
   parts come from Reference-LAPACK, which faer lacks: balancing, `dgebal.f`'s and
-  `dgebak.f`'s (job `B`, `faer/balance.zig`; faer's solvers then run over the whole balanced
-  matrix), and the eigenvectors, `xTREVC3`'s (`faer/trevc.zig`, `HOWMNY = 'A'`, then one
+  `dgebak.f`'s (job `B`, `balance.zig`; faer's solvers then run over the whole balanced
+  matrix), and the eigenvectors, `xTREVC3`'s (`trevc.zig`, `HOWMNY = 'A'`, then one
   `gemm` by the Schur vectors as its blocked back-transform), since faer's back substitution
   (`evd_from_real_schur_imp`) does not scale against overflow: each solve step (`xLALN2`, or
   `xLATRS` for complex) scales the vector down where it would overflow. `NoConvergence` from
@@ -1002,10 +1002,10 @@ allows.
 - **Reference-LAPACK's own** (T115; 3.12.0 as OpenBLAS ships it in `lapack-netlib/SRC/`, the
   fallback where neither faer nor libflame has a method of its own): `lange` with Blue's `xLASSQ`
   and `gecon` with `xLACN2` (its reverse communication a callback) and `xLATRS` (`norm.zig`);
-  `gebal` and `gebak`, every job (`faer/balance.zig`, which `geev` calls with job `B`); `trexc` and `trsen` (`schur.zig`: `xLAEXC`
+  `gebal` and `gebak`, every job (`balance.zig`, which `geev` calls with job `B`); `trexc` and `trsen` (`schur.zig`: `xLAEXC`
   with `xLASY2`, `xLARFG`, `xLARFX`, `xLANV2`, `xLARTG`; `trsen`'s solves are ReLAPACK's `trsyl`);
   `gelsy` (`lsq.zig`: `xLAIC1`, and `xTZRZF`, `xORMRZ` by their unblocked `xLATRZ`, `xORMR3`) over
-  faer's pivoted QR (`faer/qr_pivot.zig`, `geqp3`, which recomputes every norm where the
+  faer's pivoted QR (`qr_pivot.zig`, `geqp3`, which recomputes every norm where the
   reference's `xLAQPS` downdates them). Real and complex share one loop where the `d` and `z`
   sources differ only in a few steps, which the code marks. faer's `schur_swap` and `schur_move`
   are crate-internal translations of `dlaexc.f` and `dtrexc.f`, so `trexc` is the reference
@@ -1769,8 +1769,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | Buffers | `_test/blas2/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
 | Interfaces | `blas1/interface.zig`, `blas2/interface.zig`, `blas3/interface.zig` | argument errors and their order, quick returns |
 | LAPACK | `../lapack/cholesky.zig` | on every core, shrunk and own blocking: `potrf` of `A = L Lᴴ` from a known `L` (backward within `2 (n + 2)` ulps, forward loosely), the exact failing minor for a negative, NaN or infinite element, nothing outside the triangle read or written; `potrs`'s residual within `8 (n + 2)` ulps of `L`, `Lᴴ` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `getrf` on square, tall and wide shapes (`P A` within `2 (min(m, n) + 2)` ulps of `L` and `U` multiplied in magnitude, `L` at most 1 in magnitude, `sqrt 2` complex), the first zero pivot with the factorization completed, NaN never singular, pivoting ties, NaN and infinite pivots, denormal pivots divided by; `getrs` for every `op`, its residual within `8 (n + 2)` ulps of `L`, `U` and `X` multiplied in magnitude, a NaN in `B` filling its column alone; `gesv` bit for bit `getrf` then `getrs`, singular before `B` is touched; `potri`'s `A X = I` within `32 (n + 2)` ulps of `A` and `X` multiplied in magnitude; `trtri`'s `A X = I` within `8 (n + 2)` ulps, both triangles and diagonals, a unit diagonal never read; `lauum`'s products within `2 (n + 2)` ulps, the complex diagonal exactly real; `trtrs` for every `op`, within `8 (n + 2)` ulps; each blocked routine's single and parallel algorithms, and the threaded ones (`potrf`, `potri`, `trtri`, `lauum`, `trtrs`, `getrf`'s lookahead, `getrs`, `gesv`) bit for bit one worker's at 2, 3 and 8, inline and on `Io.Threaded`; `potrf` through Accelerate on macOS; ReLAPACK's routines (`relapack.zig`): `sytrf`, `hetrf` and the `_rook` forms, random and zero-diagonal, rebuilt as `L D Lᵀ` from LAPACK's format within `32 (n + 2)` ulps of `A` and the factors multiplied in magnitude, singular at a zero `D` block; `sygst`, `hegst` for every `itype` against `M X Mᴴ` within `32 (n + 2)` ulps; `pbtrf` within `2 (n + 2)` ulps of the factor and its transpose multiplied in magnitude, the minor for a negative or NaN pivot; `gbtrf`'s `P L U` within `2 (min(m, n) + 2)` ulps; `trsyl`'s residual within `32 (m + n + 2)` ulps for every `op` and sign on quasi-triangular input; ReLAPACK's `potrf`, `getrf`, `trtri`, `lauum` by `cholesky.zig`'s and the rest's checks, and with `-Drelapack` against OpenBLAS's within `64 n` ulps; the bits inline and on `Io.Threaded` |
-| LAPACK, faer | `../lapack/faer/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases). QR: `Q R = A` and `Qᴴ Q - I` within `4 (m + n) eps` of `‖A‖`, square, tall, wide, rank deficient and a zero column; `ormqr` for both sides and `op`s and `orgqr` against one reflection at a time, with geqrf's `tau` and the reference's complex form; `gels` against a known least-squares or minimum-norm answer for `A` and `Aᴴ`, tall and wide, the residual in `B`'s trailing rows, an inconsistent system's `Aᴴ r` (`dqrt17.f`, Reference-LAPACK's threshold 30), rank deficient, zero, scaled, NaN. Eigen: `syevd` and `syev` for both triangles at faer's sizes and past 128, `A V - V Λ` and `Vᴴ V - I` within faer's `128 eps sqrt(8 n)`, values alone the same; faer's `test_special`, clustered, graded and Wilkinson matrices; OpenBLAS's `test_laed3_nan.c`; faer's tridiagonal tests (`test_evd_2_0` to `test_gh_82_mini`) through QR iteration and divide and conquer, and random, clustered, graded and zero tridiagonals; `Qᴴ A Q` tridiagonal and Hessenberg; `lahqr`'s `Z T Zᴴ = H` with standardized blocks; `geev`'s right and left residuals, unit vectors with a real largest entry, pairs positive first, on random, zero, identity, Jordan, rotation, companion and triangular matrices; balancing (`D⁻¹ Pᵀ A P D`, and `D M D⁻¹`'s eigenvalues to `M`'s scale); NaN, infinity, scaling and the argument errors; and one worker's bits at 3 and 8 for `geqrf` with `ormqr`, `syevd` and `geev` |
-| LAPACK, reference | `../lapack/norm.zig`, `faer/balance.zig`, `schur.zig`, `lq.zig`, `lsq.zig`, `faer/qr_pivot.zig` | on the selected core, the reference's own test ratios and thresholds (`TESTING/dtest.in`'s 30, `dec.in`'s 20): `gecon` within `dget06.f`'s ratio of `1 / (‖A‖ ‖A⁻¹‖)`, `latrs`'s scaled residual near overflow, `lange`'s norms at the range's ends; `gebal` on `dbal.in`'s cases and `gebak` back; `trexc` every move with `dget36.f`'s residuals, `trsen`'s `s` and `sep` against the Kronecker operator; `gelqf`, `orglq`, `ormlq` by `dlqt01.f`, `dlqt03.f`; `geqp3` by `dqpt01.f`, `dqrt11.f`; `gelsy`'s rank and the SVD's minimum-norm solution; `gelqf` and `gelsy` give the same bits at 1, 3 and 8 workers |
+| LAPACK, faer | `../lapack/*.zig` | on the selected core: `gesvd` and `gesdd` in the four precisions, every job, square, tall and wide (past `11 / 6`, and past 128 for divide and conquer), `A - U Σ Vᴴ`, `Uᴴ U - I` and `V Vᴴ - I` within faer's `test_svd` tolerance (`128 eps sqrt(8 max(m, n))`), `Σ` nonincreasing and the same for every job; faer's `test_special` (zero, ones, identity), rank deficient, scaled past `SMLNUM` and `BIGNUM`, a lone denormal; NaN and infinity; the argument errors; one worker's bits at 3 and 8; and the parts: `Q R = A`, `Uᴴ A V = B`, block reflections against single ones, Givens, faer's bidiagonal tests (`test_qr_algorithm`, `test_divide_and_conquer` at thresholds 4 and 8, `test_zink`, the deflation cases). QR: `Q R = A` and `Qᴴ Q - I` within `4 (m + n) eps` of `‖A‖`, square, tall, wide, rank deficient and a zero column; `ormqr` for both sides and `op`s and `orgqr` against one reflection at a time, with geqrf's `tau` and the reference's complex form; `gels` against a known least-squares or minimum-norm answer for `A` and `Aᴴ`, tall and wide, the residual in `B`'s trailing rows, an inconsistent system's `Aᴴ r` (`dqrt17.f`, Reference-LAPACK's threshold 30), rank deficient, zero, scaled, NaN. Eigen: `syevd` and `syev` for both triangles at faer's sizes and past 128, `A V - V Λ` and `Vᴴ V - I` within faer's `128 eps sqrt(8 n)`, values alone the same; faer's `test_special`, clustered, graded and Wilkinson matrices; OpenBLAS's `test_laed3_nan.c`; faer's tridiagonal tests (`test_evd_2_0` to `test_gh_82_mini`) through QR iteration and divide and conquer, and random, clustered, graded and zero tridiagonals; `Qᴴ A Q` tridiagonal and Hessenberg; `lahqr`'s `Z T Zᴴ = H` with standardized blocks; `geev`'s right and left residuals, unit vectors with a real largest entry, pairs positive first, on random, zero, identity, Jordan, rotation, companion and triangular matrices; balancing (`D⁻¹ Pᵀ A P D`, and `D M D⁻¹`'s eigenvalues to `M`'s scale); NaN, infinity, scaling and the argument errors; and one worker's bits at 3 and 8 for `geqrf` with `ormqr`, `syevd` and `geev` |
+| LAPACK, reference | `../lapack/norm.zig`, `balance.zig`, `schur.zig`, `lq.zig`, `lsq.zig`, `qr_pivot.zig` | on the selected core, the reference's own test ratios and thresholds (`TESTING/dtest.in`'s 30, `dec.in`'s 20): `gecon` within `dget06.f`'s ratio of `1 / (‖A‖ ‖A⁻¹‖)`, `latrs`'s scaled residual near overflow, `lange`'s norms at the range's ends; `gebal` on `dbal.in`'s cases and `gebak` back; `trexc` every move with `dget36.f`'s residuals, `trsen`'s `s` and `sep` against the Kronecker operator; `gelqf`, `orglq`, `ormlq` by `dlqt01.f`, `dlqt03.f`; `geqp3` by `dqpt01.f`, `dqrt11.f`; `gelsy`'s rank and the SVD's minimum-norm solution; `gelqf` and `gelsy` give the same bits at 1, 3 and 8 workers |
 | Ported suites | `_test/from_openblas/` | OpenBLAS's `blat1`, `blat2`, `blat3`, `utest`, `utest/test_extensions` |
 | Selection | `cpu/`, `cpu/_select.zig`, `cpu/_detect/*.zig` | decisions on synthetic `Caps`, served objects, names |
 | Initialization | `__root__.zig` | the handshake, `shutdown`, environment copies, racing threads |

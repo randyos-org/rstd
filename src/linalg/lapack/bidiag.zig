@@ -16,7 +16,7 @@
 const std = @import("std");
 const ops = @import("ops.zig");
 const hh = @import("householder.zig");
-const threading = @import("../../blas/threading.zig");
+const threading = @import("../blas/threading.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -164,8 +164,8 @@ fn column(comptime T: type, m: usize, a: [*]T, u: [*]const T, up: [*]const T, z:
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
-const types = @import("../../blas/types.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+const types = @import("../blas/types.zig");
 
 test "faer bidiag: Uᴴ A V = B, real and complex, square and tall" {
     // faer's `test_bidiag_real`, `test_bidiag_cplx`: (8, 4) and (8, 8),

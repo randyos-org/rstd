@@ -38,8 +38,8 @@ const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const bidiag = @import("bidiag.zig");
 const bsvd = @import("bidiag_svd.zig");
-const util = @import("../../blas/util.zig");
-const chol = @import("../cholesky.zig");
+const util = @import("../blas/util.zig");
+const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -374,10 +374,10 @@ fn realBidiagSvd(al: Allocator, io: Io, comptime F: type, diag: []F, subdiag: []
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
-const types = @import("../../blas/types.zig");
-const blas = @import("../../blas/__root__.zig");
-const threading = @import("../../blas/threading.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+const types = @import("../blas/types.zig");
+const blas = @import("../blas/__root__.zig");
+const threading = @import("../blas/threading.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 

@@ -121,8 +121,8 @@ fn fused(comptime T: type, a: Mat(T), y: [*]T, z: [*]T, w: ?[*]const T, u: ?[*]c
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
-const types = @import("../../blas/types.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+const types = @import("../blas/types.zig");
 
 test "faer tridiag: Qᴴ A Q = T, real and complex (test_tridiag_real, test_tridiag_cplx)" {
     // faer's sizes 2, 3, 4, 8, 16 with block size 3, and larger

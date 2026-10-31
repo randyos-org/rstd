@@ -26,9 +26,9 @@
 const std = @import("std");
 const ops = @import("ops.zig");
 const hh = @import("householder.zig");
-const util = @import("../../blas/util.zig");
-const chol = @import("../cholesky.zig");
-const types = @import("../../blas/types.zig");
+const util = @import("../blas/util.zig");
+const chol = @import("cholesky.zig");
+const types = @import("../blas/types.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -281,7 +281,7 @@ pub fn multiply(al: Allocator, io: Io, comptime T: type, side: Side, adjoint: bo
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 
 /// `Q R` against `A`, within `n eps ‖A‖` per element (faer's `test_qr` takes
 /// `1e-10` at `c64`).
@@ -341,8 +341,8 @@ test "faer qr: Q R = A, square, tall, wide, blocked and rank deficient" {
     }
 }
 
-const blas = @import("../../blas/__root__.zig");
-const threading = @import("../../blas/threading.zig");
+const blas = @import("../blas/__root__.zig");
+const threading = @import("../blas/threading.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 

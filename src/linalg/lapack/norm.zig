@@ -15,7 +15,7 @@ const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
-const ops = @import("faer/ops.zig");
+const ops = @import("ops.zig");
 const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;

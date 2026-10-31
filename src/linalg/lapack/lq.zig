@@ -6,7 +6,7 @@
 //! libflame 5.2.0), the only non-reference LQ: blocked Householder with the
 //! UT transform (Joffrain, Low, Quintana-Ortí, van de Geijn and Van Zee,
 //! "Accumulating Householder transformations, revisited", ACM TOMS 32(2),
-//! 2006), applied to the rows. Its kernels are faer's (`faer/householder.zig`,
+//! 2006), applied to the rows. Its kernels are faer's (`householder.zig`,
 //! MIT), which use that same transform, run on `Aᴴ`: LQ of `A` is QR of
 //! `Aᴴ`, `A = L Q` with `L = Rᴴ` and `Q = H(k-1)ᴴ ... H(0)ᴴ`, each row of
 //! `A` past the diagonal holding `conj(v)`, as the reference stores it. No
@@ -24,9 +24,9 @@
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
-const ops = @import("faer/ops.zig");
-const hh = @import("faer/householder.zig");
-const qr = @import("faer/qr.zig");
+const ops = @import("ops.zig");
+const hh = @import("householder.zig");
+const qr = @import("qr.zig");
 const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;

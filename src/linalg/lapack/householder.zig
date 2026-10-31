@@ -368,8 +368,8 @@ pub fn ComplexRotation(comptime T: type) type {
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
-const types = @import("../../blas/types.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+const types = @import("../blas/types.zig");
 
 test "faer householder: H x = beta e0, and blocks of reflections match one at a time" {
     const al = testing.allocator;

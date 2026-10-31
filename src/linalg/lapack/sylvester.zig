@@ -5,7 +5,7 @@
 //! `trsy2` is ReLAPACK's `RELAPACK_?trsyl_rec2` (`relapack/src/dtrsyl_rec2.c`,
 //! `ztrsyl_rec2.c` and the rest; OpenBLAS v0.3.34-317), Reference-LAPACK's
 //! `xTRSYL` (`lapack-netlib/SRC/dtrsyl.f`, `ztrsyl.f` in that checkout)
-//! through f2c. Its 2 x 2 blocks call `xLALN2` (`faer/trevc.zig`'s, the
+//! through f2c. Its 2 x 2 blocks call `xLALN2` (`trevc.zig`'s, the
 //! real `NW = 1` paths of `dlaln2.f`) and `xLASY2` (`lasy2`, the 2 x 2 by
 //! 2 x 2 path of `dlasy2.f`, the only one `xTRSYL` takes). The four
 //! transposition cases are one loop: the order, the sums' ranges and which
@@ -21,7 +21,7 @@ const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const chol = @import("cholesky.zig");
-const trevc = @import("faer/trevc.zig");
+const trevc = @import("trevc.zig");
 const norm = @import("norm.zig");
 
 const Allocator = std.mem.Allocator;

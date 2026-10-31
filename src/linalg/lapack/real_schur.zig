@@ -373,7 +373,7 @@ pub fn lahqr(io: Io, comptime F: type, want_t: bool, a: Mat(F), z: ?Mat(F), w_re
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 
 test "faer real schur: lahqr, Z T Zᵀ = H with T standardized quasi-triangular" {
     const al = testing.allocator;

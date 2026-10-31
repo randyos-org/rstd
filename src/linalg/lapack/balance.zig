@@ -11,12 +11,12 @@
 //! swaps and scalings go through its BLAS.
 
 const std = @import("std");
-const blas = @import("../../blas/__root__.zig");
-const types = @import("../../blas/types.zig");
-const util = @import("../../blas/util.zig");
+const blas = @import("../blas/__root__.zig");
+const types = @import("../blas/types.zig");
+const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
-const norm = @import("../norm.zig");
-const chol = @import("../cholesky.zig");
+const norm = @import("norm.zig");
+const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -251,7 +251,7 @@ pub fn back(io: Io, comptime T: type, info: Info, scale: []const Float(T), left:
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 
 const test_types = chol.test_types;
 

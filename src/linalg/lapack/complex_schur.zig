@@ -154,8 +154,8 @@ pub fn lahqr(comptime T: type, want_t: bool, a: Mat(T), z: ?Mat(T), w: []T, ilo:
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
-const types = @import("../../blas/types.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+const types = @import("../blas/types.zig");
 
 test "faer complex schur: lahqr, Z T Zᴴ = H with T upper triangular" {
     const al = testing.allocator;

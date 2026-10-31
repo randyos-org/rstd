@@ -18,11 +18,11 @@
 //! threshold reads as zero.
 
 const std = @import("std");
-const types = @import("../../blas/types.zig");
-const util = @import("../../blas/util.zig");
+const types = @import("../blas/types.zig");
+const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
 const hh = @import("householder.zig");
-const chol = @import("../cholesky.zig");
+const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -152,7 +152,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 const qr = @import("qr.zig");
 
 const test_types = chol.test_types;

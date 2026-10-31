@@ -19,12 +19,12 @@ const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
-const ops = @import("faer/ops.zig");
+const ops = @import("ops.zig");
 const norm = @import("norm.zig");
 const sylvester = @import("sylvester.zig");
 const relapack = @import("relapack.zig");
 const chol = @import("cholesky.zig");
-const evd = @import("faer/evd.zig");
+const evd = @import("evd.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -811,7 +811,7 @@ fn eigenvalues(comptime T: type, n: usize, t: [*]const T, ldt: usize, w: Eigenva
 const testing = std.testing;
 const check = @import("../blas/_test/blas1/check.zig");
 const lu = @import("lu.zig");
-const svd = @import("faer/svd.zig");
+const svd = @import("svd.zig");
 
 const test_types = chol.test_types;
 

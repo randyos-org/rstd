@@ -58,7 +58,7 @@ today. Verdicts are provisional.
    for MATLAB's `'nobalance'`). `roots` should balance, as MATLAB's does.
 3. **`wnrm2` loses digits at partial underflow (replace).** Its fast path squares unscaled and keeps
    any finite nonzero sum, so entries near 1e-160 give denormal squares and the fallback never runs.
-   `blas.nrm2` is scaled. Caveat (`faer/qr_pivot.zig`): on cores whose `nrm2` kernel is an unscaled
+   `blas.nrm2` is scaled. Caveat (`qr_pivot.zig`): on cores whose `nrm2` kernel is an unscaled
    extended sum, a matrix near that type's underflow reads as zero; a per-core BLAS matter.
 4. **Cholesky (replace; M2 picks the behavior).** `wpofa` takes a NaN diagonal as success (`s <= 0`
    is false for NaN); `potrf` reports it as not positive definite. `wpofa` rejects a nonzero

@@ -7,13 +7,13 @@
 //! worker count.
 
 const std = @import("std");
-const blas = @import("../../blas/__root__.zig");
-const types = @import("../../blas/types.zig");
-const util = @import("../../blas/util.zig");
-const driver = @import("../../blas/blas3/driver.zig");
-const threaded = @import("../../blas/blas3/threaded.zig");
-const threading = @import("../../blas/threading.zig");
-const chol = @import("../cholesky.zig");
+const blas = @import("../blas/__root__.zig");
+const types = @import("../blas/types.zig");
+const util = @import("../blas/util.zig");
+const driver = @import("../blas/blas3/driver.zig");
+const threaded = @import("../blas/blas3/threaded.zig");
+const threading = @import("../blas/threading.zig");
+const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;

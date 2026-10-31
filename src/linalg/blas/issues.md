@@ -850,7 +850,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   float type ends in `@compileError("sqrt not implemented for ...")`. The
   other `std.math.complex` functions (`exp`, `log`, ...) are the same musl
   ports and likely the same.
-- **Workaround:** `lapack/faer/ops.zig`'s `sqrt` takes std's for `f32` and
+- **Workaround:** `lapack/ops.zig`'s `sqrt` takes std's for `f32` and
   `f64` and the same musl `csqrt` algorithm, written over any float type,
   for the rest. Drop it once std's takes every float type.
 - **Issue text:**
@@ -2224,7 +2224,7 @@ the same sequential `f32` sum: about 1% off for 16M floats. Its `sasum` is
 ## faer
 
 faer v0.24.4 (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), as
-`src/linalg/lapack/faer/` ports it. Found by rstd's tests of the port, then
+`src/linalg/lapack/` ports it. Found by rstd's tests of the port, then
 reproduced in a standalone copy of it; not run against faer, whose crates
 are not fetched here.
 

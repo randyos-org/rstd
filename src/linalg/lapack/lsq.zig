@@ -6,7 +6,7 @@
 //! (whose SVD serves `gelss`) nor libflame (the reference through f2c) has
 //! its own.
 //!
-//! The pivoted QR is faer's (`faer/qr_pivot.zig`, as the source table picks
+//! The pivoted QR is faer's (`qr_pivot.zig`, as the source table picks
 //! for `geqp3`) and `Qᴴ B` faer's `ormqr` (`qr.zig`'s `multiply`).
 //! `xTZRZF` and `xORMRZ` run their unblocked kernels (`xLATRZ`, `xORMR3`):
 //! the reference's blocked forms (`xLARZT`, `xLARZB`) give other roundings
@@ -16,11 +16,11 @@ const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
-const ops = @import("faer/ops.zig");
-const qr_pivot = @import("faer/qr_pivot.zig");
+const ops = @import("ops.zig");
+const qr_pivot = @import("qr_pivot.zig");
 const norm = @import("norm.zig");
 const schur = @import("schur.zig");
-const qr = @import("faer/qr.zig");
+const qr = @import("qr.zig");
 const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
@@ -403,7 +403,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 const testing = std.testing;
 const check = @import("../blas/_test/blas1/check.zig");
 const threading = @import("../blas/threading.zig");
-const svd = @import("faer/svd.zig");
+const svd = @import("svd.zig");
 
 const test_types = chol.test_types;
 
@@ -434,7 +434,7 @@ fn problem(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs: 
     return .{ .a = a, .b = b };
 }
 
-/// `gelsy` against the SVD's minimum-norm solution (`faer/svd.zig`) cut at
+/// `gelsy` against the SVD's minimum-norm solution (`svd.zig`) cut at
 /// rank `r`: the rank exactly, `X` within `thresh n eps cond(A) ‖X‖`.
 fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs: usize, s: Float(T), seed: u64) !void {
     const F = Float(T);

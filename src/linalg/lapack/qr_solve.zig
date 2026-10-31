@@ -17,10 +17,10 @@ const std = @import("std");
 const ops = @import("ops.zig");
 const hh = @import("householder.zig");
 const qr = @import("qr.zig");
-const util = @import("../../blas/util.zig");
-const chol = @import("../cholesky.zig");
-const tri = @import("../triangular.zig");
-const types = @import("../../blas/types.zig");
+const util = @import("../blas/util.zig");
+const chol = @import("cholesky.zig");
+const tri = @import("triangular.zig");
+const types = @import("../blas/types.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -136,7 +136,7 @@ fn trtrs(al: Allocator, io: Io, comptime T: type, trans: Trans, r: Mat(T), b: Ma
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 

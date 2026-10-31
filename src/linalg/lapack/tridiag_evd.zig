@@ -463,7 +463,7 @@ fn lessNanLast(comptime F: type) fn ([]const F, usize, usize) bool {
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 
 const Solver = enum { qr, dc4, dc8 };
 

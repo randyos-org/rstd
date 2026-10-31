@@ -39,9 +39,9 @@ const real_schur = @import("real_schur.zig");
 const complex_schur = @import("complex_schur.zig");
 const balance = @import("balance.zig");
 const trevc = @import("trevc.zig");
-const util = @import("../../blas/util.zig");
-const chol = @import("../cholesky.zig");
-const types = @import("../../blas/types.zig");
+const util = @import("../blas/util.zig");
+const chol = @import("cholesky.zig");
+const types = @import("../blas/types.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -353,9 +353,9 @@ fn argmaxAbs2(comptime T: type, x: [*]const T, y: ?[*]const T, n: usize) usize {
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
-const blas = @import("../../blas/__root__.zig");
-const threading = @import("../../blas/threading.zig");
+const check = @import("../blas/_test/blas1/check.zig");
+const blas = @import("../blas/__root__.zig");
+const threading = @import("../blas/threading.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 

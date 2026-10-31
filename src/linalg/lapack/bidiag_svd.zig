@@ -909,7 +909,7 @@ fn deflation44(comptime F: type, diag: []F, col0: []F, i: usize, j: usize) ?hh.R
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/blas1/check.zig");
 
 /// `U [S; 0] Vᵀ` against the `(n + 1) x n` (or with `square`, `n x n`)
 /// lower bidiagonal matrix, within faer's `test_divide_and_conquer` (and

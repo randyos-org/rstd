@@ -1282,7 +1282,7 @@ const blas = @import("../blas/__root__.zig");
 const check = @import("../blas/_test/blas1/check.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const options = @import("lapack_options");
-const faer_svd = @import("faer/svd.zig");
+const faer_svd = @import("svd.zig");
 
 pub const test_types = chol.test_types;
 const isNanT = chol.isNanT;
