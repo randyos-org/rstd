@@ -198,6 +198,27 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > surprising; giving the vector its natural size, as LLVM does, would
   > avoid both.
 
+### Self-hosted x86_64 backend crashes on an f80 `if` expression in `lasv2`
+
+- **Seen:** `zig build qemu-test-linux-x86_64` (Debug, so this backend) panics with
+  "reached unreachable code" in `CodeGen.zig`'s `genSetReg` (from `genCopy`,
+  `materializeUnsafe`, `airBr`) generating `bidiag_svd.lasv2` for `f80`; f16, f32, f64 and f128
+  build. The trigger is `t = if (l == 0) a else b;` in its `mm == 0` branch, both arms f80
+  arithmetic. It depends on the surrounding code: a standalone copy of `lasv2` reproduces it, but
+  small functions with the same shape do not, and removing other blocks sometimes keeps the
+  crash. 0.18.0-dev.751, found by T62's tier 2 sweep (2026-10-31).
+- **Workaround:** the line is an `if` statement assigning `t` in each arm (`bidiag_svd.zig`).
+- **Issue text:**
+
+  > **x86_64 backend: `unreachable` in `genSetReg` for an f80 `if` expression**
+  >
+  > With `-fno-llvm -target x86_64-linux -O Debug`, a function of about 80 lines of f80
+  > arithmetic (LAPACK's `dlasv2`, ported) panics in `genSetReg`'s `else => unreachable`
+  > (`genCopy` ← `InstTracking.materializeUnsafe` ← `airBr`) at the `br` of
+  > `t = if (l == 0) x else y;`. The same code for f16, f32, f64 and f128 builds, and so does
+  > the f80 code with the expression written as an `if` statement. The whole function is the
+  > reproduction; smaller cuts of it stop crashing.
+
 ### Self-hosted x86_64 backend: no `(%reg)` operand in inline assembly
 
 - **Seen:** `asm volatile ("stmxcsr (%[p])" :: [p] "r" (&v) : .{ .memory = true })`

@@ -417,7 +417,12 @@ fn lasv2(comptime F: type, f: F, g: F, h: F) struct { ssmin: F, ssmax: F, snr: F
             ssmin = ha / a;
             ssmax = fa * a;
             if (mm == 0) {
-                t = if (l == 0) sign(F, 2, ft) * sign(F, 1, gt) else gt / sign(F, dd, ft) + mm_ / t;
+                // a statement: as an `if` expression, f80 crashes the self-hosted x86_64 backend (issues.md)
+                if (l == 0) {
+                    t = sign(F, 2, ft) * sign(F, 1, gt);
+                } else {
+                    t = gt / sign(F, dd, ft) + mm_ / t;
+                }
             } else {
                 t = (mm_ / (s + t) + mm_ / (r + l)) * (1 + a);
             }
