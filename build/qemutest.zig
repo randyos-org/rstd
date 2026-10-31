@@ -772,16 +772,14 @@ const base_machines = [_]Machine{
         .name = "linux-aarch64",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .linux },
         .qemu = "qemu-system-aarch64",
-        // four CPUs, for the tests that race threads; no SME under HVF either,
-        // so no `vortexm4` (Debian's kernel, issues.md)
+        // four CPUs, for the tests that race threads
         .args = &.{ "-M", "virt", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
     .{
-        // the SVE cores, linked only for an SVE target; TCG, as `aarch64-sve`.
-        // No SME cores: Debian's 6.12 kernel builds without SME (issues.md)
+        // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
         .name = "linux-aarch64-sve",
         .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
         .qemu = "qemu-system-aarch64",

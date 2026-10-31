@@ -41,9 +41,11 @@
         // Debian 13 netboot kernels for the Linux rigs (build/qemutest.zig: when
         // rstd is the root project, unless -Dlinux-vm-off); a dated installer
         // build, so the archive stays put
+        // arm64's is Debian 14's (forky, kernel 7.0.13): 13's 6.12 has no SME,
+        // which Linux allows from 6.16
         .debian_netboot_arm64 = .{
-            .url = "https://deb.debian.org/debian/dists/trixie/main/installer-arm64/20250803+deb13u7/images/netboot/netboot.tar.gz",
-            .hash = "N-V-__8AAGUaHwUjNvYZqYXy5pBbz2FaPUoGI7YIIJHI2s3t",
+            .url = "https://deb.debian.org/debian/dists/sid/main/installer-arm64/20260628/images/netboot/netboot.tar.gz",
+            .hash = "N-V-__8AAEMW7AW3mrKJsjEmKEDbWifDL_TdYW5m06zBqmb7",
             .lazy = true,
         },
         .debian_netboot_amd64 = .{

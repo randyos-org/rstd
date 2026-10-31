@@ -1346,22 +1346,6 @@ When an issue is fixed upstream, drop the workaround and its entry.
   model is the same for both.
 - **Issue text:** none yet: not narrowed to QEMU or OpenBIOS.
 
-## Linux kernel
-
-### arm64: Debian's 6.12 kernel has no SME
-
-- **Seen:** `qemu-test-linux-aarch64` under HVF on the M6 never runs `vortexm4`, and the TCG
-  rigs (`-cpu max`) never run `armv9sme`: `AT_HWCAP2` has no `HWCAP2_SME`. QEMU 11.1.2 (our
-  Nix pin) does pass SME2 to an HVF guest (QEMU's "hvf/arm: expose FEAT_SME2 to guest if
-  available", 2026-03-06). The kernel is Debian's 6.12.107 (netboot 20250803+deb13u7), and 6.12 to 6.15
-  have `ARM64_SME` `depends on BROKEN` (`arch/arm64/Kconfig`), so it is built without SME: the
-  image has SVE's strings and none of SME's. SME instructions trap there too.
-- **Where:** the `linux-aarch64` rigs; SME's Linux detection and kernels go untested there.
-- **Workaround:** none; `ssh-test-aarch64-macos` runs `vortexm4` on the M6, and the
-  freestanding `aarch64-sve` rig runs `armv9sme`.
-- **Issue text:** none: fixed upstream in 6.16 (33c4618d0ac0, "arm64/fpsimd: Allow
-  CONFIG_ARM64_SME to be selected"). A netboot kernel of 6.16 or later would run them.
-
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to

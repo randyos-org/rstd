@@ -1877,8 +1877,8 @@ The Linux machines (`build/qemutest.zig`; `qemu-check-<machine>` builds one's in
 
 | Machine | CPU | Notes |
 | --- | --- | --- |
-| `linux-aarch64` | `max` under TCG, the host's under HVF | baseline build: no SVE cores. No SME either: Debian's 6.12 kernel lacks it, so no `armv9sme` or `vortexm4` ([`issues.md`](issues.md)) |
-| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores. No fiber `Io` tests: std's switch does not build for SVE ([`issues.md`](issues.md)) |
+| `linux-aarch64` | `max` under TCG, the host's under HVF | baseline build: no SVE cores; `vortexm4` under HVF. Debian 14's kernel (7.0): 13's 6.12 is built without SME, which Linux allows from 6.16 |
+| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores and `armv9sme`. No fiber `Io` tests: std's switch does not build for SVE ([`issues.md`](issues.md)) |
 | `linux-x86_64` | `max` under TCG | |
 | `linux-arm` | `cortex-a15` | |
 | `linux-riscv64` | `rv64,v=true,vlen=512` | |
@@ -1917,8 +1917,8 @@ Rig mechanics:
   `/tmp`, runs QEMU from the Nix flake in `tools/nix` (nixpkgs pinned by `flake.lock`) and
   streams the console back to the watchdog and live log. At most `-Dtest-host-jobs` (8, our default) rigs run
   there at once, across builds. On an arm64 Mac, `aarch64`, `aarch64-uefi` and `linux-aarch64` run under HVF on
-  the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too, but not on `linux-aarch64`,
-  whose kernel hides SME); `-Dtest-host-tcg` keeps them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
+  the host's CPU (Apple, SME2, no SVE: the `vortexm4` kernels run too); `-Dtest-host-tcg` keeps
+  them on TCG. `x86_64-whpx` and the macOS VM rig stay local.
 - **WHPX.** QEMU's model plus FMA4 and XOP, of which WHPX keeps what the host has; `host` and
   `max` stop in SeaBIOS. TCG implements no AVX-512, FMA4 or XOP (QEMU v10.1.0
   `target/i386/cpu.c`: neither `TCG_7_0_EBX_FEATURES` nor `TCG_EXT3_FEATURES` has them), so the `skylakex`,
