@@ -15,7 +15,7 @@ pub const PointI32 = geometry.PointI32;
 pub const Rect = geometry.Rect;
 const color = @import("color.zig");
 const RGBA = color.RGBA;
-const Image = @import("Image.zig");
+const RgbaImage = @import("image.zig").RgbaImage;
 const sw = @import("sw/__root__.zig");
 const vulkan = @import("vulkan/__root__.zig");
 pub const PipelineId = vulkan.PipelineId;
@@ -82,7 +82,7 @@ pub fn drawText(surface: *Surface, pos: Point, text: []const u8, c: RGBA) !void 
     }
 }
 
-pub fn drawImage(surface: *Surface, pos: Point, img: *const Image) !void {
+pub fn drawImage(surface: *Surface, pos: Point, img: *const RgbaImage) !void {
     switch (surface.impl) {
         .sw => |*s| sw.drawImage(s, pos, img),
         .vulkan => |*v| try vulkan.drawImage(v, pos, img),
@@ -124,7 +124,7 @@ test "the same call sequence runs on both backends" {
         try drawLine(&surface, .{ .x = 0, .y = 15 }, .{ .x = 15, .y = 15 }, 1, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
         try drawText(&surface, .{ .x = 0, .y = 8 }, "hi", .{ .r = 255, .g = 255, .b = 255, .a = 255 });
 
-        var img = try Image.init(alloc, 2, 2, color.RGBA.blank);
+        var img = try RgbaImage.init(alloc, 2, 2, color.RGBA.blank);
         defer img.destroy(alloc);
         try drawImage(&surface, .{ .x = 0, .y = 0 }, &img);
 

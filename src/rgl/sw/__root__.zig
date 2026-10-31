@@ -1,9 +1,9 @@
 //! Software backend: every draw call executes immediately, straight into
-//! `SwSurface`'s own pixel buffer (an rgl.Image). Unlike the vulkan
+//! `SwSurface`'s own pixel buffer (an rgl.RgbaImage). Unlike the vulkan
 //! backend, there's nothing to batch or flush -- a pixel is final the
 //! moment its draw call returns.
 
-const Image = @import("../Image.zig");
+const RgbaImage = @import("../image.zig").RgbaImage;
 const color = @import("../color.zig");
 const RGBA = color.RGBA;
 const draw = @import("../draw.zig");
@@ -21,10 +21,10 @@ pub const InitOptions = struct {
 
 pub const SwSurface = struct {
     const Self = @This();
-    target: Image,
+    target: RgbaImage,
 
     pub fn init(alloc: Allocator, width: u32, height: u32, options: InitOptions) !Self {
-        return .{ .target = try Image.init(alloc, width, height, options.fill) };
+        return .{ .target = try RgbaImage.init(alloc, width, height, options.fill) };
     }
 
     pub fn destroy(self: *Self, alloc: Allocator) void {
@@ -45,9 +45,9 @@ pub fn endFrame(surface: *SwSurface) void {
 /// Blends `c` onto `(x, y)` if it's within `img`'s bounds, silently
 /// dropping it otherwise -- callers routinely pass partially- or
 /// fully-off-screen coordinates (a box straddling the edge, a line to a
-/// negative point), and `Image.setPixel`/`draw.blendPixel` do no bounds
+/// negative point), and `RgbaImage.setPixel`/`draw.blendPixel` do no bounds
 /// checking of their own.
-fn blendPixelClamped(img: *Image, x: i32, y: i32, c: RGBA) void {
+fn blendPixelClamped(img: *RgbaImage, x: i32, y: i32, c: RGBA) void {
     if (x < 0 or y < 0 or x >= img.width or y >= img.height) return;
     draw.blendPixel(img, .{ .x = @intCast(x), .y = @intCast(y) }, c);
 }
@@ -61,7 +61,7 @@ pub fn drawLine(surface: *SwSurface, p0: PointF32, p1: PointF32, width: f32, c: 
 }
 
 /// Bresenham, 1px wide.
-fn drawThinLine(img: *Image, p0: PointF32, p1: PointF32, c: RGBA) void {
+fn drawThinLine(img: *RgbaImage, p0: PointF32, p1: PointF32, c: RGBA) void {
     var x0: i32 = @trunc(@round(p0.x));
     var y0: i32 = @trunc(@round(p0.y));
     const x1: i32 = @trunc(@round(p1.x));
@@ -92,7 +92,7 @@ fn drawThinLine(img: *Image, p0: PointF32, p1: PointF32, c: RGBA) void {
 /// end-cap, for a zero-length one) -- the same shape shaders/rgl.zig's
 /// rotation support draws on the Vulkan side, just rasterized directly
 /// here instead of via a GPU pipeline.
-fn fillOrientedRect(img: *Image, p0: PointF32, p1: PointF32, width: f32, c: RGBA) void {
+fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: RGBA) void {
     const d = p1.sub(p0);
     const length = @sqrt(d.x * d.x + d.y * d.y);
     const half_w = width / 2;
@@ -195,7 +195,7 @@ pub fn drawText(surface: *SwSurface, pos: Point, text: []const u8, c: RGBA) void
 
 /// Straight alpha blit of `src` at `pos`, clipped to `surface`'s bounds.
 /// No scaling: 1:1 source pixel to destination pixel.
-pub fn drawImage(surface: *SwSurface, pos: Point, src: *const Image) void {
+pub fn drawImage(surface: *SwSurface, pos: Point, src: *const RgbaImage) void {
     const img = &surface.target;
     var sy: u32 = 0;
     while (sy < src.height) : (sy += 1) {
@@ -260,12 +260,12 @@ test "drawText blits the VGA font's 'A' glyph" {
     try zigstd.testExpectTrue(surface.target.getPixel(0, 2).equals(color.RGBA.blank));
 }
 
-test "drawImage blits a source Image's pixels" {
+test "drawImage blits a source RgbaImage's pixels" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 10, 10, .{ .fill = color.RGBA.blank });
     defer surface.destroy(alloc);
 
-    var src = try Image.init(alloc, 2, 2, color.RGBA.blank);
+    var src = try RgbaImage.init(alloc, 2, 2, color.RGBA.blank);
     defer src.destroy(alloc);
     src.setPixel(0, 0, red);
     src.setPixel(1, 1, red);

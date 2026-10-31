@@ -1,4 +1,6 @@
-pub const Image = @import("Image.zig");
+const image = @import("image.zig");
+pub const Image = image.Image;
+pub const RgbaImage = image.RgbaImage;
 pub const Surface = @import("Surface.zig");
 pub const codecs = @import("codecs/__root__.zig");
 pub const color = @import("color.zig");
@@ -21,7 +23,7 @@ test {
     // it's only ever analyzed by something that actually imports it.
     //
     // renderdoc is also excluded since it is only conditionally included
-    zigstd.testRefAllDecls(Image);
+    zigstd.testRefAllDecls(image);
     zigstd.testRefAllDecls(Surface);
     zigstd.testRefAllDecls(codecs);
     zigstd.testRefAllDecls(color);

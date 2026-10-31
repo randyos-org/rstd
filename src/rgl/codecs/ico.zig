@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Image = @import("../Image.zig");
+const RgbaImage = @import("../image.zig").RgbaImage;
 const png = @import("png.zig");
 const bytes = @import("../../bytes.zig");
 
@@ -11,7 +11,7 @@ const StdIo = zigstd.StdIo;
 const appendIntLE = bytes.appendIntLE;
 
 /// packs PNG-encoded images (Vista+ supports PNG entries) into one .ico
-pub fn writeICO(allocator: Allocator, io: StdIo, name: []const u8, imgs: []const Image) !void {
+pub fn writeICO(allocator: Allocator, io: StdIo, name: []const u8, imgs: []const RgbaImage) !void {
     const Entry = struct { w: u32, h: u32, png: []const u8 };
     var entries: std.ArrayList(Entry) = .empty;
     defer entries.deinit(allocator);
@@ -62,7 +62,7 @@ test "writeICO produces a valid one-entry ICONDIR header" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var img = try Image.init(alloc, 4, 4, .{ .r = 0, .g = 0, .b = 0, .a = 0 });
+    var img = try RgbaImage.init(alloc, 4, 4, .{ .r = 0, .g = 0, .b = 0, .a = 0 });
     defer img.destroy(alloc);
 
     const path = "_test_ico_write_ico_output.ico";

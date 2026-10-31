@@ -6,17 +6,12 @@ const Allocator = zigstd.Allocator;
 const Vertex = @import("../aux_types.zig").Vertex;
 const tessellate = @import("tessellate.zig");
 
-pub const Bitmap = struct {
-    w: u32,
-    h: u32,
-    stride: u32,
-    /// Row-major 8bpp coverage, `stride` bytes per row. 0 transparent, 255 opaque.
-    pixels: []u8,
-};
+/// 8bpp coverage: 0 transparent, 255 opaque.
+const Coverage = @import("../../../image.zig").Image(u8);
 
 pub fn rasterize(
     gpa: Allocator,
-    result: *Bitmap,
+    result: Coverage,
     flatness_in_pixels: f32,
     vertices: []Vertex,
     scale_x: f32,
@@ -50,7 +45,7 @@ const Edge = struct {
 
 fn rasterizeInner(
     gpa: Allocator,
-    result: *Bitmap,
+    result: Coverage,
     pts: []tessellate.Point,
     wcount: []u32,
     scale_x: f32,
@@ -137,7 +132,7 @@ const ActiveEdge = struct {
 /// Directly anti-alias rasterize edges without supersampling.
 fn rasterizeSortedEdges(
     gpa: Allocator,
-    result: *Bitmap,
+    result: Coverage,
     edges: []Edge,
     off_x: i32,
     off_y: i32,
@@ -148,16 +143,16 @@ fn rasterizeSortedEdges(
 
     var active: ?*ActiveEdge = null;
 
-    const scanline_buffer = try arena.alloc(f32, result.w * 2 + 1);
-    const scanline = scanline_buffer[0..result.w];
-    const scanline2 = scanline_buffer[result.w..][0 .. result.w + 1];
+    const scanline_buffer = try arena.alloc(f32, result.width * 2 + 1);
+    const scanline = scanline_buffer[0..result.width];
+    const scanline2 = scanline_buffer[result.width..][0 .. result.width + 1];
 
     var y: i32 = off_y;
-    edges[edges.len - 1].y0 = @floatFromInt((off_y + @as(i32, @intCast(result.h))) + 1);
+    edges[edges.len - 1].y0 = @floatFromInt((off_y + @as(i32, @intCast(result.height))) + 1);
 
     var j: u32 = 0;
     var e: u32 = 0;
-    while (j < result.h) {
+    while (j < result.height) {
         // find center of pixel for this scanline
         const scan_y_top: f32 = @floatFromInt(y);
         const scan_y_bottom: f32 = @floatFromInt(y + 1);
@@ -197,11 +192,11 @@ fn rasterizeSortedEdges(
             e += 1;
         }
 
-        if (active) |a| fillActiveEdges(scanline, scanline2, result.w, a, scan_y_top);
+        if (active) |a| fillActiveEdges(scanline, scanline2, result.width, a, scan_y_top);
 
         {
             var sum: f32 = 0;
-            for (scanline, scanline2[0..result.w], result.pixels[j * result.stride ..][0..result.w]) |s, s2, *p| {
+            for (scanline, scanline2[0..result.width], result.row(j)) |s, s2, *p| {
                 sum += s2;
                 p.* = @trunc(@min(@abs(s + sum) * 255 + 0.5, 255));
             }
@@ -524,9 +519,9 @@ test "rasterize fills a fully-covered square with full coverage and misses outsi
     const pixels = try alloc.alloc(u8, 8 * 8);
     defer alloc.free(pixels);
     @memset(pixels, 0);
-    var bitmap: Bitmap = .{ .w = 8, .h = 8, .stride = 8, .pixels = pixels };
+    const bitmap: Coverage = .{ .width = 8, .height = 8, .data = pixels };
 
-    try rasterize(alloc, &bitmap, 0.3, &outline, 1, 1, 0, 0, off_x, off_y, true);
+    try rasterize(alloc, bitmap, 0.3, &outline, 1, 1, 0, 0, off_x, off_y, true);
 
     // Local (1,1) is device (3,-5) - inside the square (outline x in [2,6],
     // device_y in [-6,-2]).

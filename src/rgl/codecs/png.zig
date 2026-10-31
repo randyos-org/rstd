@@ -2,7 +2,7 @@ const std = @import("std");
 const flate = std.compress.flate;
 
 const RGBA = @import("../color.zig").RGBA;
-const Image = @import("../Image.zig");
+const RgbaImage = @import("../image.zig").RgbaImage;
 const bytes = @import("../../bytes.zig");
 const zigstd = @import("../../zigstd.zig");
 const Allocator = zigstd.Allocator;
@@ -140,7 +140,7 @@ pub const IHdr = struct {
 
 /// a minimal, non-interlaced, filter-type-0 (None) RGBA8 PNG
 /// encoder. See https://www.w3.org/TR/png/ for the chunk layout.
-pub fn encode(alloc: Allocator, img: *const Image) ![]u8 {
+pub fn encode(alloc: Allocator, img: *const RgbaImage) ![]u8 {
     var out: ByteArrayList = .empty;
     defer out.deinit(alloc);
     try out.appendSlice(alloc, &png_signature);
@@ -198,7 +198,7 @@ pub const DecodeOptions = struct {
 /// any per-scanline filter (None/Sub/Up/Average/Paeth), any chunk ordering
 /// with unrecognized ancillary chunks (pHYs, tEXt, gAMA, iCCP, ...) skipped.
 /// Palette, grayscale, 16-bit, and interlaced PNGs are out of scope.
-pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !Image {
+pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !RgbaImage {
     const sig_len = png_signature.len;
     if (raw_bytes.len < sig_len or !equal(u8, raw_bytes[0..sig_len], &png_signature)) {
         return error.InvalidPngSignature;
@@ -259,7 +259,7 @@ pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !
     const filtered = uncompressed.written();
     if (filtered.len != h * (stride + 1)) return error.TruncatedPngData;
 
-    var img = try Image.init(alloc, width, height, .blank);
+    var img = try RgbaImage.init(alloc, width, height, .blank);
 
     // Un-filter each scanline (PNG filters are defined relative to the
     // pixel to the left, the pixel above, and the pixel above-left - all
@@ -328,7 +328,7 @@ fn paeth(a: u8, b: u8, c: u8) u8 {
 
 test "encode/decode round-trips a small RGBA image" {
     const alloc = zigstd.testAllocator;
-    var img = try Image.init(alloc, 3, 2, null);
+    var img = try RgbaImage.init(alloc, 3, 2, null);
     defer img.destroy(alloc);
     img.setPixel(0, 0, .{ .r = 255, .g = 0, .b = 0, .a = 255 });
     img.setPixel(1, 0, .{ .r = 0, .g = 255, .b = 0, .a = 128 });

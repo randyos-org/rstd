@@ -29,7 +29,7 @@ const PointF32 = geometry.PointF32;
 const Rect = geometry.Rect;
 const color = @import("../color.zig");
 const RGBA = color.RGBA;
-const Image = @import("../Image.zig");
+const RgbaImage = @import("../image.zig").RgbaImage;
 const vga_font = @import("../font/vga/__root__.zig");
 const zigstd = @import("../../zigstd.zig");
 const Allocator = zigstd.Allocator;
@@ -74,11 +74,11 @@ pub const ImageInstance = extern struct {
 
 /// Unlike rect/glyph (which share one atlas or no texture at all), the
 /// image pipeline binds one texture per draw -- so instances have to stay
-/// grouped by source `Image` for batching (same image -> one draw call
+/// grouped by source `RgbaImage` for batching (same image -> one draw call
 /// with N instances) to mean anything. Kept as its own field rather than
 /// going through the generic `Batch` map for exactly that reason.
 pub const ImageDraw = struct {
-    image: *const Image,
+    image: *const RgbaImage,
     instance: ImageInstance,
 };
 
@@ -282,7 +282,7 @@ pub fn drawText(surface: *VkSurface, pos: Point, text: []const u8, c: RGBA) !voi
     }
 }
 
-pub fn drawImage(surface: *VkSurface, pos: Point, img: *const Image) !void {
+pub fn drawImage(surface: *VkSurface, pos: Point, img: *const RgbaImage) !void {
     try surface.images.append(surface.alloc, .{
         .image = img,
         .instance = .{
@@ -319,7 +319,7 @@ test "fillRect/strokeRect/fillCircle/drawText/drawImage batch without touching a
     try drawText(&surface, .{ .x = 0, .y = 0 }, "hi", .{ .r = 255, .g = 255, .b = 255, .a = 255 });
     try zigstd.testExpectEqual(@as(usize, 2), surface.batch(glyph_pipeline_id).?.count());
 
-    var img = try Image.init(alloc, 2, 2, color.RGBA.blank);
+    var img = try RgbaImage.init(alloc, 2, 2, color.RGBA.blank);
     defer img.destroy(alloc);
     try drawImage(&surface, .{ .x = 0, .y = 0 }, &img);
     try zigstd.testExpectEqual(@as(usize, 1), surface.images.items.len);

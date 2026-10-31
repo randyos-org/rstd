@@ -7,6 +7,7 @@ const aux_types = @import("aux_types.zig");
 const render = @import("render/__root__.zig");
 const charstring = @import("tables/cff/charstring.zig");
 const glyf_shape = @import("tables/glyf/shape.zig");
+const Image = @import("../../image.zig").Image;
 
 const Vertex = aux_types.Vertex;
 const bounds = render.bounds;
@@ -354,19 +355,18 @@ pub fn glyphBitmapSubpixel(
 
     if (w == 0 or h == 0) return .empty;
 
-    var gbm: render.rasterize.Bitmap = .{
-        .w = w,
-        .h = h,
-        .stride = w,
-        .pixels = try pixels.addManyAsSlice(gpa, w * h),
+    const gbm: Image(u8) = .{
+        .width = w,
+        .height = h,
+        .data = try pixels.addManyAsSlice(gpa, w * h),
     };
-    errdefer pixels.shrinkRetainingCapacity(pixels.items.len - gbm.pixels.len);
+    errdefer pixels.shrinkRetainingCapacity(pixels.items.len - gbm.data.len);
 
-    try render.rasterize.rasterize(gpa, &gbm, 0.35, vertices, scale_x, scale_y, shift_x, shift_y, box.x0, box.y0, true);
+    try render.rasterize.rasterize(gpa, gbm, 0.35, vertices, scale_x, scale_y, shift_x, shift_y, box.x0, box.y0, true);
 
     return .{
-        .width = @intCast(gbm.w),
-        .height = @intCast(gbm.h),
+        .width = @intCast(gbm.width),
+        .height = @intCast(gbm.height),
         .off_x = @intCast(box.x0),
         .off_y = @intCast(box.y0),
     };

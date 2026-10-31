@@ -6,6 +6,7 @@ const Sfnt = @import("../Sfnt.zig");
 const types = @import("../stream_types.zig");
 const GlyphIndex = types.GlyphIndex;
 const pack = @import("pack.zig");
+const Image = @import("../../../image.zig").Image;
 
 // A persistent, incrementally-populated glyph atlas: unlike
 // render/atlas.zig's buildTextAtlas (which rasterizes and packs every glyph
@@ -16,13 +17,10 @@ const pack = @import("pack.zig");
 // compound key this doesn't bother with.
 const Self = @This();
 
-/// Row-major 8bpp coverage, `width` bytes per row, same convention as
-/// Sfnt.glyphBitmap. Grows (see grow()) but is never shrunk or relocated
-/// mid-cell, so every previously-returned PixelRect stays valid for the
-/// cache's whole lifetime.
-pixels: []u8,
-width: u32,
-height: u32,
+/// 8bpp coverage, same convention as Sfnt.glyphBitmap. Grows (see grow())
+/// but is never shrunk or relocated mid-cell, so every previously-returned
+/// PixelRect stays valid for the cache's whole lifetime.
+atlas: Image(u8),
 pack_ctx: pack.Context,
 locations: std.AutoHashMapUnmanaged(GlyphIndex, PixelRect) = .empty,
 
@@ -38,22 +36,16 @@ pub const PixelRect = struct {
 const empty_rect: PixelRect = .{ .x = 0, .y = 0, .w = 0, .h = 0 };
 
 pub fn init(gpa: Allocator, initial_size: u32) !Self {
-    const pixels = try gpa.alloc(u8, @as(usize, initial_size) * initial_size);
-    @memset(pixels, 0);
-    errdefer gpa.free(pixels);
+    var atlas: Image(u8) = try .init(gpa, initial_size, initial_size, 0);
+    errdefer atlas.destroy(gpa);
 
     const pack_ctx = try pack.Context.create(gpa, @intCast(initial_size), @intCast(initial_size), .{});
 
-    return .{
-        .pixels = pixels,
-        .width = initial_size,
-        .height = initial_size,
-        .pack_ctx = pack_ctx,
-    };
+    return .{ .atlas = atlas, .pack_ctx = pack_ctx };
 }
 
 pub fn deinit(self: *Self, gpa: Allocator) void {
-    gpa.free(self.pixels);
+    self.atlas.destroy(gpa);
     self.pack_ctx.deinit();
     self.locations.deinit(gpa);
     self.* = undefined;
@@ -65,10 +57,10 @@ pub fn deinit(self: *Self, gpa: Allocator) void {
 pub fn reset(self: *Self) !void {
     self.locations.clearRetainingCapacity();
     try self.pack_ctx.clear();
-    @memset(self.pixels, 0);
+    @memset(self.atlas.data, 0);
 }
 
-/// Returns this glyph's placement within `pixels`/`width`/`height`, lazily
+/// Returns this glyph's placement within `atlas`, lazily
 /// rasterizing and packing it on first request; later requests for the same
 /// glyph are a hashmap lookup. Returns null for a glyph with no visible
 /// outline (space, ...), matching Sfnt.glyphBitmap's "empty" convention.
@@ -87,7 +79,7 @@ pub fn getOrAdd(self: *Self, gpa: Allocator, sfnt: Sfnt, glyph: GlyphIndex, scal
     }
 
     const rect = try self.place(gpa, bmp.width, bmp.height);
-    self.blit(rect, raster_pixels.items, bmp.width);
+    self.atlas.blit(rect.x, rect.y, bmp.width, raster_pixels.items);
     try self.locations.put(gpa, glyph, rect);
     return rect;
 }
@@ -110,35 +102,22 @@ fn place(self: *Self, gpa: Allocator, w: u16, h: u16) !PixelRect {
 /// so nothing already placed ever needs to move. Only the newly-added strip
 /// is pushed onto the packer's free-space list - not a full re-pack.
 fn grow(self: *Self, gpa: Allocator) !void {
-    const grow_width = self.width <= self.height;
-    const new_width: u32 = if (grow_width) self.width * 2 else self.width;
-    const new_height: u32 = if (grow_width) self.height else self.height * 2;
+    const width = self.atlas.width;
+    const height = self.atlas.height;
+    const grow_width = width <= height;
+    const new_width: u32 = if (grow_width) width * 2 else width;
+    const new_height: u32 = if (grow_width) height else height * 2;
 
-    const new_pixels = try gpa.alloc(u8, @as(usize, new_width) * new_height);
-    @memset(new_pixels, 0);
-    for (0..self.height) |row| {
-        const src = self.pixels[row * self.width ..][0..self.width];
-        @memcpy(new_pixels[row * new_width ..][0..self.width], src);
-    }
-    gpa.free(self.pixels);
-    self.pixels = new_pixels;
+    var grown: Image(u8) = try .init(gpa, new_width, new_height, 0);
+    grown.blit(0, 0, width, self.atlas.data);
+    self.atlas.destroy(gpa);
+    self.atlas = grown;
 
     const new_area: pack.Rect = if (grow_width)
-        .{ .x = @intCast(self.width), .y = 0, .w = @intCast(self.width), .h = @intCast(self.height) }
+        .{ .x = @intCast(width), .y = 0, .w = @intCast(width), .h = @intCast(height) }
     else
-        .{ .x = 0, .y = @intCast(self.height), .w = @intCast(new_width), .h = @intCast(self.height) };
+        .{ .x = 0, .y = @intCast(height), .w = @intCast(new_width), .h = @intCast(height) };
     try self.pack_ctx.list.append(self.pack_ctx.allocator, new_area);
-
-    self.width = new_width;
-    self.height = new_height;
-}
-
-fn blit(self: *Self, rect: PixelRect, src: []const u8, src_stride: u16) void {
-    for (0..rect.h) |row| {
-        const src_row = src[row * src_stride ..][0..rect.w];
-        const dst_off = (rect.y + row) * self.width + rect.x;
-        @memcpy(self.pixels[dst_off..][0..rect.w], src_row);
-    }
 }
 
 // ---
@@ -300,12 +279,12 @@ test "GlyphCache grows the canvas to fit a glyph larger than the initial size, p
     const rect = (try cache.getOrAdd(alloc, sfnt, glyph, 1.0)).?;
     try zigstd.testExpectEqual(@as(u32, 200), rect.w);
     try zigstd.testExpectEqual(@as(u32, 300), rect.h);
-    try zigstd.testExpectTrue(cache.width >= rect.x + rect.w);
-    try zigstd.testExpectTrue(cache.height >= rect.y + rect.h);
+    try zigstd.testExpectTrue(cache.atlas.width >= rect.x + rect.w);
+    try zigstd.testExpectTrue(cache.atlas.height >= rect.y + rect.h);
 
     // A fully-covered interior pixel of the rasterized box should have
     // landed intact at its placement in the (grown) atlas.
     const mid_x = rect.x + rect.w / 2;
     const mid_y = rect.y + rect.h / 2;
-    try zigstd.testExpectTrue(cache.pixels[mid_y * cache.width + mid_x] > 0);
+    try zigstd.testExpectTrue(cache.atlas.getPixel(mid_x, mid_y) > 0);
 }

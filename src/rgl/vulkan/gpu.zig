@@ -384,7 +384,7 @@ pub fn recordBatch(
 //   try recordBatch(dev, mem_props, cmd, pipelines.glyph, &resources.glyph,
 //       surface.batch(rglvk.glyph_pipeline_id), globals, atlas_descriptor_set);
 
-// TODO: each unique source `Image` (`surface.images`) needs its own
+// TODO: each unique source `RgbaImage` (`surface.images`) needs its own
 // descriptor set (one combined-image-sampler per drawImage call site) --
 // allocating/caching/uploading those per-image textures isn't implemented
 // yet. Once it exists, recording groups `surface.images` by `.image`
