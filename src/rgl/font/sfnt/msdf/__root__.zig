@@ -789,6 +789,15 @@ fn generate(
     }
 }
 
+test {
+    _ = coloring;
+    _ = EdgeSegment;
+    _ = Scanline;
+    _ = Shape;
+    _ = math;
+    _ = error_correction;
+}
+
 pub fn f64i(int: anytype) f64 {
     return @floatFromInt(int);
 }
