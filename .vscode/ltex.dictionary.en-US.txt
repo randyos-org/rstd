@@ -741,6 +741,8 @@ gfxdev
 gfxdraw
 gfxinfo
 gfxxform
+gges
+ggev
 Ghostty
 gidx
 ginfo
@@ -777,6 +779,7 @@ Harwell
 hasc
 hbmv
 hcall
+heev
 heevd
 hegst
 hemm
@@ -962,6 +965,7 @@ landlock_restrict_self
 lange
 Langou
 LAPACK
+lapackfix
 lapic
 lapy
 larl
@@ -1738,6 +1742,7 @@ SIGXFSZ
 simatcopy
 Simdutf
 sinm
+SIPI
 SKYLAKEX
 slaswp
 sldi
@@ -1752,6 +1757,7 @@ smef
 Smelyanskiy
 SMEP
 smin
+SMLNUM
 SMSW
 SMVCH
 smxe
@@ -1853,6 +1859,7 @@ swapj
 swapoff
 swapon
 swc
+syev
 syevd
 sygst
 Sylv
@@ -1882,6 +1889,7 @@ systemd-udevd
 SYSTIMER
 sysv
 sysvcc
+sytrd
 sytrf
 taxpy
 taxpyc
