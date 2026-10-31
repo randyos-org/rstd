@@ -76,6 +76,10 @@ const Machine = struct {
     /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
     /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// The BLAS core a Linux rig must select under `args`, and under `hvf`
+    /// (on the M6); its run fails otherwise.
+    core: ?[]const u8 = null,
+    hvf_core: ?[]const u8 = null,
     /// Kernel objects linked: `.none` for a soft-float ABI, which no
     /// converted kernel serves (`abi.zig`).
     blas_cores: rstdbuild.BlasCores = .all,
@@ -775,6 +779,7 @@ const base_machines = [_]Machine{
         // four CPUs, for the tests that race threads
         .args = &.{ "-M", "virt", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
+        .hvf_core = "vortexm4",
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
@@ -784,6 +789,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
         .qemu = "qemu-system-aarch64",
         .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on", "-smp", "4" },
+        .core = "armv9sme",
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
@@ -832,6 +838,7 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
         .qemu = "qemu-system-ppc64",
         .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .core = "power10",
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
     },
@@ -1088,8 +1095,13 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     var query = target.query;
     if (nix != null) query.abi = .gnu;
     const t = if (nix != null) b.resolveTargetQuery(query) else target;
+    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
+    const core = if (hvf) m.hvf_core else m.core;
+    // a filtered run still prints the core
+    const core_test = "linalg.blas.__root__.test.the core in use";
+    const run_filters = if (core != null and filters.len != 0) try std.mem.concat(b.allocator, []const u8, &.{ filters, &.{core_test} }) else filters;
     const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, filters);
+    const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, run_filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
         .root_source_file = b.path("test/linux/init.zig"),
         .target = target,
@@ -1113,6 +1125,8 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     run.has_side_effects = true;
     // `passed` in test/linux/init.zig
     run.expectStdOutMatch("linuxtest: /test exited 0");
+    // no newline: the serial console sends `\r\n`
+    if (core) |c| run.expectStdOutMatch(b.fmt("blas core: {s}", .{c}));
     return run;
 }
 
