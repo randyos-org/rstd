@@ -33,103 +33,17 @@ The port and its optimization are done, and other rstd work can start, when all 
    or above OpenBLAS within noise, or the gap has an item (T21, T57, T73).
 10. **The public interface is final**: Z1 to Z5 done, or scheduled with M3.
 
-## Running now
+## In progress
 
-Each item sits under its current stage and moves when its agent reports, so this can lag by minutes; the coordinator's status script shows the live build slots and runs.
+One task at a time, worked with the user in the trunk on `review` (user, 2026-10-30). Unfinished
+work stays there as unstaged edits, and the item says what is left, so nothing lives only in a chat
+or a scratchpad.
 
-### Writing code
-
-- [ ] **T101** rstd's `sdot` from 256K floats runs 51 to 53 GB/s on arm64 where its kernel alone
-  runs 98 (R4, results-flyoff.md); bits unchanged. Level-1 threading or `Io.Threaded` (both landed
-  since 6d66239) are the suspects; also look at threaded `cgemm` n = 128 in the VM, whose rate
-  varies 198 to 249 GFLOP/s run to run. Next after the sweeps (user, 2026-10-30): a tier-2
-  regression from rstd's level-1 threading; with T102. Code side started (user, 2026-10-30): find
-  the cause and fix it; the timing session verifies. Running (`wip/perffix`).
-- [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and
-  28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4,
-  results-flyoff.md). Find whether it is code or the guest. Code side started (user, 2026-10-30):
-  find the cause and fix it; the timing session verifies. Running (`wip/perffix`).
-- [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
-  to 1.01) trail OpenBLAS. Next after the sweeps (user, 2026-10-30): tier 1; re-measure after T100,
-  then fix what's left. Code side started (user, 2026-10-30): find the cause and fix it; the timing
-  session verifies. Running (`wip/perffix`).
-
-### Waiting for a build slot
-
-Nothing yet.
-
-### Building (in a slot)
-
-- [ ] **T115** Routines only reference LAPACK has (T113, `lapack/sources.md`): `gecon`,
-  `gebal`/`gebak`, `trexc`/`trsen`, `gelsy`, plus `lange` (no source chosen) and `gelqf` (only
-  libflame's FLAME code besides the reference). The anthology rule picks the best open-source
-  implementation, and here that is the reference: port these from reference LAPACK (its license is
-  in the accepted BSD class) unless faer turns out to have an equivalent, and record each in the
-  table. Running (`wip/refonly`).
-- [ ] **T119** Level-3 small-matrix follow-ups (T30): `sbgemm`'s small-matrix kernels are not
-  ported; the per-core small kernels upstream has (AVX-512, SVE, POWER10, LASX) are not converted;
-  the small-path thresholds are upstream, tuned for its kernels, so time them under T05. Sweep:
-  `3m`, `small`, `interface: gemm` on every rig, `aarch64-sve`, `powerpc64le-power10` and
-  loongarch64 first (their permits allow the small path), `blat3_3m` on `x86_64` and `i386-max`.
-  AVX-512 part pulled into the MVP (user, 2026-10-30): the Skylake-X `sgemm`/`dgemm` and Cooper
-  Lake/Sapphire Rapids `sbgemm` small kernels. Running (`wip/small512`).
-- [ ] **T40** Linux rig gaps: `linux-powerpc64le` never runs POWER10 kernels (baseline build),
-  `linux-aarch64` leaves out the SVE cores, and under HVF it also skips `vortexm4` (cause unknown).
-  Parked 2026-10-30 for the MVP as wip e3c1d759 on `wip/riggaps` (not rebased, not compile-checked):
-  rigs `linux-aarch64-sve` (TCG, `neoverse_v1` build) and `linux-powerpc64le-power10` (`pwr10`,
-  ReleaseSafe), `qemu-check-<rig>` for Linux rigs, docs. Left: verify its `qemu-check`, one smoke
-  run per rig, rebase. Why `vortexm4` (and TCG's `armv9sme`) never run on the Linux rigs: the Debian
-  netboot kernel 6.12 builds without `CONFIG_ARM64_SME` (`depends on BROKEN` in 6.12 to 6.15; fixed
-  in 6.16 by 33c4618d0ac0), so the guest has no SME hwcap; QEMU 11.1.2 under HVF does pass SME2
-  through (issues.md, Linux kernel). Needs an arm64 netboot kernel of 6.16 or later; Apple Silicon's
-  `vortexm4` still runs on the M6 through `ssh-test-aarch64-macos`. Also: `linux-aarch64-sve`
-  doesn't build: std's `Io/fiber.zig` aarch64 context switch clobbers `ffr`, which LLVM rejects on
-  an SVE target ("inline asm clobber list contains reserved registers: FFR"; the build still exits
-  0); hosted SVE builds only, baseline aarch64 is unaffected (issues.md, wip 9af2e523). Finishing
-  the started work (user, 2026-10-30). Running (`wip/riggaps`).
-- [ ] **T117** faer follow-ups (T34): `@Vector` the fused bi-diagonalization pass (scalar now,
-  faer's four partial sums); keep `gesvd`'s `INFO > 0` count (faer doesn't); run
-  divide-and-conquer's two halves in parallel if rstd's threading gains task trees; race
-  `gesvd`/`gesdd` against OpenBLAS's LAPACK, reference LAPACK and Eigen in the timing session (T73's
-  bench). Sweep: watch sparc64-debug's `openblas-l1` part (0x3f3800), which now also pulls in
-  `gesvd` (T39). From T111: port faer's multi-shift QR with aggressive early deflation (n >= 75) and
-  blocked Hessenberg reduction (n >= 256), so large `geev` isn't slow; `xTREVC3`-style overflow
-  scaling in `geev`'s back substitution; thread the fused tri-diagonalization and Hessenberg passes
-  with fixed chunks; make `sytrd`, `gehrd`, `hseqr`, `trevc` public; faer routines the MATLAB layer
-  (M1 to M4) will want: `geqp3`, `getri`, Cholesky rank-1 update, pivoted Cholesky, full-pivoting
-  LU, `pinv`, `gees`, `ggev`/`gges`, determinant; sparc64-debug's `lapack-faer` part needs splitting
-  (tier 3). Correctness parts pulled into the MVP (user, 2026-10-30): `xTREVC3`-style overflow
-  scaling in `geev`, and `gesvd`'s `INFO > 0` count. Running (`wip/lapackfix`).
-- [ ] **T118** ReLAPACK follow-ups (T110): `tgsyl`, which needs reference LAPACK's `xTGSY2` (2x2
-  blocks, up to 8x8 systems), `xGETC2`, `xGESC2` and `xLATDF` (about 1,500 lines); a blocked `gbtrf`
-  from LAPACK's `dgbtrf` (rstd runs the unblocked `xGBTF2`, since ReLAPACK's recursion is wrong);
-  race faer's Bunch-Kaufman (different storage) against `sytrf`. Sweep: `relapack` on every rig, and
-  with `-Drelapack=true` on one or two. `tgsyl` pulled into the MVP (user, 2026-10-30). Running
-  (`wip/lapackfix`).
-
-### Testing (native runs and rigs, outside the slots once zb.sh splits them)
-
-- [ ] **T19** `XDouble` as `f128`: `quad_precision` is hard-wired off; add a build option and a rig
-  configuration for it. The edge tests and level 3's per-routine driver tests still cover no
-  extended type off x86 (the interfaces do). Parked 2026-10-30 for the MVP (tier 3 work off x86):
-  wip d2ea5703 on `wip/quad` (worktree removed) has `-Dquad-precision`, a `blas_options` module and
-  an `aarch64-quad` rig; only `zig build -h` (0.18) and the native types test (31/31) ran; left:
-  0.17 `-h`, wider native tests with quad on and off, `qemu-check-aarch64-quad`. Finishing the
-  started work (user, 2026-10-30). Running (`wip/quad`).
-- [ ] **T47** Hardware-only paths never run: the mips `cpucfg` decode, the sparc `sllx` rewrite,
-  Linux ppc64 `mfpvr`, the Windows arm64 registry MIDR and feature probes, the arm64 sysfs fallback,
-  the FreeBSD arm64 probe, Accelerate's pre-13.3 symbol fallbacks (`$NEWLAPACK`, classic `cblas_*`);
-  NEON and AltiVec flushing seen on rigs only. **Blocked:** hardware. Accelerate's pre-13.3 symbol
-  fallbacks are tier 2 (zfls supports macOS 11.0): they need a macOS 11 or 12 machines or VM to run.
-  Tier-2 parts pulled into the MVP (user, 2026-10-30): Windows arm64 registry probes, arm64 Linux
-  sysfs fallback, Accelerate's pre-13.3 fallbacks, tested with recorded inputs. Running
-  (`wip/probes`).
-
-### Ready to land
-
-Nothing yet.
+Nothing yet: the next item comes off the top of the Queue.
 
 ## Queue
+
+### Testing: sweeps and checks of landed code
 
 - [ ] **T62** Main-merge gate: once T55 and T77 land and R4 has run, one full rig sweep on review,
   plus `wasm-test`, `rstd-check-macho`, `rstd-check-uefi` and `rstd-check-zig017` (Zig 0.17.0,
@@ -155,12 +69,128 @@ Nothing yet.
   values match the reference (a quirk entry if not), and in the timing session whether routing beats
   rstd's threaded `potrf`. Sweep filters: `potrf goes to Accelerate`, `potr`. Tier 2 (Accelerate on
   macOS, user 2026-10-30): the correctness part is required; the timing part waits for the timing
-  session.
+  session. The 13.3 SDK answers the spelling: `dpotrf$NEWLAPACK$ILP64`, no underscore (T47); the
+  special values are left.
+
+### Code and design
+
+- [ ] **T123** LAPACK routines the matlab port (M2) needs, from faer where it has them, else
+  reference LAPACK (split from T120, user 2026-10-30): `getri` (MATLAB `inv`); `gees` (Schur form,
+  `schur`; faer's Schur reordering is crate-internal, so reference `dgees`/`zgees` over the existing
+  `hseqr`); make `gehrd` (`hess`), `hseqr` and `trevc` public with LAPACK's arguments; `laset` and
+  `lapy2` (matlab88's `wset`/`rset`, `pythag`). Already public: `getrf`, `getrs`, `potrf`, `geqrf`,
+  `ormqr`/`unmqr`, `gesvd`, `geev`, `syevd`/`heevd`, `gecon`, `geqp3`, `trtrs`. `pinv`, `rank` and
+  `det` are compositions in the MATLAB layer, not LAPACK. Starts once T117/T118 (`wip/lapackfix`)
+  land, since it makes `trevc` public where T117 edits it.
+- [ ] **T124** `lapack.geev` on `Complex(f128)` doesn't compile (found by M1, 2026-10-30): faer's
+  complex Schur (`faer/complex_schur.zig:33`, `eig22`) calls `std.math.complex.sqrt`, which has no
+  `f128` case (`@compileError`). Give the complex Schur path (and any other `std.math.complex` call
+  in `lapack/`) a square root that takes every float type; a test that builds and runs complex
+  `geev` in `f128`; the std gap to issues.md. M1's E3 needs it.
+- [ ] **M1** Audit `rstd.linalg.matlab` (the matlab88 port of 1980s LINPACK and EISPACK,
+  `src/linalg/matlab/`) against the modern BLAS and LAPACK (design.md, Settled decisions: the matlab
+  port defers): `blas1.zig`'s level-1 kernels and `@Vector` stride-1 paths, `matmul.zig`, and what
+  LU, QR, Cholesky, SVD and the eigen routines call. The default is the modern routine; list only
+  where the old one is more accurate or right on an edge case the modern one gets wrong, each with a
+  test that shows it. Started 2026-10-30, unstaged: `src/linalg/matlab/audit.md` (draft: each
+  routine's modern counterpart and provisional verdict, five findings from reading code, M2's layout
+  recommendation), `audit_explore.zig` (experiments E1 to E9 against an `f128` LAPACK reference,
+  hooked into `matlab/__root__.zig`'s `test` block). Likely keeps: `wgedi`'s scaled determinant
+  (`getrf`'s diagonal product overflows); maybe an unbalanced `eig` (then a no-balance option on
+  the modern routines, after T123, not `comqr3`). First build: E3's `Complex(f128)` reference
+  `geev` doesn't compile (T124); E4's `gesdd` call fixed; the hook is commented out until E3 builds,
+  so the file stays out of every test build. Left: T124 (or E3's reference through real `f128` for
+  real inputs), then run E1 to E9 (`-Drstd-test-filter=matlab audit explore`, the hook back on); a
+  committed test per old-is-better case, run on
+  `arm-softfp` and `powerpc-750` too; final verdicts in audit.md; delete `audit_explore.zig` and
+  its hook. Not examined: `expm`, `svdapi.zig`'s `rank`/`pinv` tolerances, pivot-order ties between
+  `wqrdc` and `geqp3`, `corth`/`comqr3` against `gehrd`/`hseqr` (needs T123).
+- [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
+  `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
+  real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
+  boundary or change the port's layout. Its LINPACK and EISPACK routines map to LAPACK's `getrf`,
+  `getrs`, `getri`, `gecon` (`wgefa`, `wgesl`, `wgedi`, `wgeco`), `potrf` (`wpofa`), `geqp3`,
+  `unmqr`, `trtrs` (`wqrdc`, `wqrsl`), `gesvd` (`wsvdc`, T34), `gehrd` (`corth`), `hseqr` with
+  `trevc` (`comqr3`), `hetrd` and `unmtr` (`htridi`, `htribk`); rstd has `potrf`, `getrf` and
+  `getrs`; T70 adds OpenBLAS's own, and the rest come from Reference-LAPACK (BSD-3, as OpenBLAS
+  ships it in `lapack-netlib/`). Its fills (`wset`, `rset`) are LAPACK `laset`, `pythag` is `lapy2`.
+  Its own tests must still pass. **Needs:** M1.
+- [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS behind it as an implementation detail
+  (design.md, Settled decisions): `linalg.vector` takes fixed-size vectors and small matrices by
+  value, with math names, and per size runs inline `@Vector` code or calls the BLAS (crossover from
+  M4); under SPIR-V each operation is SPIR-V's own instruction (`OpDot`, `OpMatrixTimesVector`,
+  GLSL.std.450). Split `rstd.simd` between them: slice reductions become BLAS routines, element-wise
+  helpers (`mix`, `mulAdd`) move to `linalg.vector`; move its callers (the matlab port, the rgl font
+  code, shaderlib's `mix` and `sum`, `rgl/shaders/types.zig`'s `zigvec` types).
+  `arrayMax`/`arrayMin` use `@reduce`'s NaN rule, not the BLAS's first-NaN one, so moving them
+  changes their special-value results; `arrayProduct`, the bitwise reductions and general
+  `mapReduce` have no BLAS counterpart. Then grow it toward any-size vectors and matrices, as MATLAB
+  takes them. **Needs:** M1, S1. Design proposal first, for the user's review; code after sign-off.
+  Proposal landed 2026-10-30 (9274e27c, `src/linalg/design-linalg.md`): its 11 open questions are
+  in Waiting on the user; its question 10 would narrow this item's Needs (only step 4 needs S1, only
+  step 7 needs M1).
+- [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
+  to 1.01) trail OpenBLAS. Tier 1 (user, 2026-10-30): re-measure after T100, then fix what's left;
+  the timing session verifies. Diagnosed 2026-10-30, no code yet: Zen's `sdot` kernel
+  (`Real(f32,4).dotSum`) is bound by its conversions (32 `vcvtps2pd` per 64 elements, about 70
+  GB/s: the cost of the `f64` rule), and on AVX2 its two `@Vector(32, f64)` accumulators fill all
+  16 ymm registers (about 25 moves and 3 spills per iteration): halve them. `cgemm`/`zgemm`: tiles,
+  `P`/`Q` and the inner loop match OpenBLAS's, but `cgemm_kernel_8x2_haswell.c` reads two or three
+  B panels at once (m8n4/m8n6) with 12 accumulators where ours has 8, exactly FMA latency times
+  throughput: port that shape. The scratch bench (kernel alone against the whole call, at
+  OpenBLAS's `P`/`Q`, against base b5d33fef) is in `tools/blasbench/wip/` (untracked) for the
+  timing session; `flyoff.sh zen3`'s `win-1t`/`lx-1t` `dot s` rows and the level-3 `c`/`z` rows.
+- [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and
+  28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4,
+  results-flyoff.md). Read 2026-10-30, not measured: nothing on rstd's path changed (one kernel call
+  below the threshold, vortex's slot is still the displaced `@Vector` kernel, `vector.zig`'s `axpy`
+  and `scal` and the per-core flags unchanged). The bench's `asm` column reads the same function
+  rstd calls, so the two moved together, while its own copy of that source (`vec x4`) stayed at 55
+  and OpenBLAS's `axpy.S` at 28: the drop follows that one copy in the binary (likely code
+  placement) or the guest. Left, in the timing session: `flyoff.sh m6`'s inc-2 `saxpy`/`zscal`
+  rows, then align the copy or close this as the guest's.
 
 ## Known issues and enhancements (after the MVP)
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
 
+- [ ] **T120** faer follow-ups (split from T117, 2026-10-30): `@Vector` the fused bidiagonalization
+  pass (scalar now, faer's four partial sums); run divide-and-conquer's two halves in parallel if
+  rstd's threading gains task trees; port faer's multishift QR with aggressive early deflation
+  (n >= 75) and blocked Hessenberg reduction (n >= 256), so large `geev` isn't slow; thread the fused
+  tridiagonalization and Hessenberg passes with fixed chunks; make `sytrd`, `gehrd`, `hseqr`,
+  `trevc` public; faer routines beyond what M2 needs (T123 has those): Cholesky rank-1 update,
+  pivoted Cholesky, full-pivoting LU, `ggev`/`gges`; race `gesvd`/`gesdd` against OpenBLAS's LAPACK,
+  reference LAPACK and Eigen in the timing session (T73's bench); split sparc64-debug's
+  `lapack-faer` part (tier 3; `openblas-l1` at 0x3f3800 also pulls in `gesvd`, T39).
+- [ ] **T121** ReLAPACK follow-ups (split from T118, 2026-10-30): a blocked `gbtrf` from LAPACK's
+  `dgbtrf` (rstd runs the unblocked `xGBTF2`, since ReLAPACK's recursion is wrong); race faer's
+  Bunch-Kaufman (different storage) against `sytrf`. `tgsyl`'s `xLATDF` estimator is a local loop
+  in `sylvester.zig` copying the update step of `gecon`'s private `Gecon` (it needs the last
+  vector, which `gecon` doesn't return), not `norm.zig`'s `lacn2` over `latrs` as the docs say:
+  share it or fix the docs; `tgsyl` not timed yet. Sweep: `relapack` on every rig, and with
+  `-Drelapack=true` on one or two.
+- [ ] **T122** Small-matrix follow-ups (split from T119, 2026-10-30): the per-core small kernels for
+  SVE, POWER10 and LASX (tier 3 or untestable here); the small-path thresholds are upstream's, tuned
+  for its kernels, so time them under T05; `sbgemm` small kernels off x86_64; from T119's port:
+  `nn`'s dot rows are read in place, not through upstream's row-major copy (same bits, likely
+  slower on AVX-512 hardware), and Cooper Lake's `sbgemm` small path keeps the portable bits, not
+  `vdpbf16ps`'s pair rounding (by design, documented). Sweep: `3m`, `small`, `interface: gemm` on
+  every rig, `aarch64-sve`, `powerpc64le-power10` and loongarch64 first (their permits allow the
+  small path), `blat3_3m` on `x86_64` and `i386-max`.
+- [ ] **T47** Hardware-only paths never run: the mips `cpucfg` decode, the sparc `sllx` rewrite,
+  Linux ppc64 `mfpvr`, the Windows arm64 registry MIDR and feature probes, the arm64 sysfs fallback,
+  the FreeBSD arm64 probe, Accelerate's pre-13.3 symbol fallbacks (`$NEWLAPACK`, classic `cblas_*`);
+  NEON and AltiVec flushing seen on rigs only. **Blocked:** hardware. Accelerate's pre-13.3 symbol
+  fallbacks are tier 2 (zfls supports macOS 11.0): they need a macOS 11 or 12 machines or VM to run.
+  Tier-2 parts done 2026-10-30 (landed b1cad78a's copy): the Windows arm64 registry and feature
+  probes, the arm64 sysfs fallback and Accelerate's pre-13.3 fallbacks are tested with recorded
+  inputs (Raspberry Pi 3 to 5, Neoverse N1 and N2, Apple M1 under Asahi, Snapdragon X Elite,
+  Microsoft SQ1/SQ2, Azure Cobalt 100; macOS 11.3, 12.3 and 13.3 SDK export lists); no bugs found.
+  Still open: Linux ppc64 `mfpvr`, the mips `cpucfg` decode, the sparc `sllx` rewrite, the FreeBSD
+  arm64 probe, NEON and AltiVec flushing. Possible enhancements: read every Windows
+  `CentralProcessor` key, map Cobalt 100 to `neoversen2` (as LLVM), alias Snapdragon X Elite to
+  `neoversen1` (as OpenBLAS's build-time detection).
 - [ ] **T22** C and intrinsics kernels not yet ported, levels 1 and 2, by T20's strategy, `@Vector`
   first as arm64 did (`vector.zig`); the coverage.md gaps, the largest first. Level 1: riscv64
   outside `axpy`; POWER8 to 10 `asum`, `scal`, `rot`, `swap`, `cdot`; MIPS MSA and zarch; x86_64
@@ -218,7 +248,13 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   AVX2/AVX-512 kernels (`getrf`, `potrf`, `potri`, `getrs`, `getri`, `geqrf`, `gelqf`, small
   `gesvd`; its OpenMP paths only after a same-bits check), libflame's restructured QR for `gesvd`
   and Hermitian eigenvalues (Van Zee et al., TOMS 2014), `FLA_Hevd`/`FLA_Tevd`, and
-  `FLA_Eig_gest`/`FLA_Sylv` against ReLAPACK's `sygst`/`trsyl`.
+  `FLA_Eig_gest`/`FLA_Sylv` against ReLAPACK's `sygst`/`trsyl`. From T101 (threading.md): OpenBLAS
+  threads x86_64 `ddot`/`zdot` and arm64's `dot.c` above 10000 (arm64 with its own neoversev1 and
+  a64fx tables) and never `sdot`, `cdot`, `dsdot` or `dot.S`; rstd threads every precision above
+  10000. Threaded `cgemm` at n = 128 in the arm64 VM varies 198 to 249 GFLOP/s: each call (about
+  75 µs of work) wakes five sleeping `Io.Threaded` pool threads (a task allocation, a mutex and a
+  condvar signal each), whose wake time varies under HVF; no spinning server (threading.md), so a
+  threshold that keeps such calls serial is the fix to time.
 - [ ] **T88** Time T25's races on an idle machine: portable against `@Vector` for `sum`, `sdot` in
   `f64` and in `f32` lanes, `nrm2` and the extremes, natively and as an x87 build (a scalar-FPU
   stand-in); bench and runner in the scratchpad (`vecsum/_vecsum_bench.zig`, `timeit.ps1`). Also
@@ -273,7 +309,8 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   (`checkedObject`), the MIPS64r6 select copy and spill (comptime `conj`), MIPS MSA vector `fma`
   (MSA cores differ from the reference's fused bits until fixed), arm CPU models without an FPU (rig
   pins), WHPX passing AMD CPUID (macOS rig on TCG), QEMU `xststdcsp` (portable `nrm2` avoids
-  `isInf`). Also, wasm bitcode getting its feature flags twice (`asmCheck`'s
+  `isInf`), no fiber `Io` tests on SVE targets (std's fiber switch clobbers `ffr`, T40). Also, wasm
+  bitcode getting its feature flags twice (`asmCheck`'s
   `-disable-llvm-verifier`). The Zig entries were last checked on dev.751. Also: building the
   library for an R6+MSA target CPU (`i6400`) trips LLVM's `Cannot copy registers` assertion
   (`MipsSEInstrInfo.cpp:261`) in `blas2.interface`, `blas3` and `_test`, likely the R6 select bug
@@ -347,38 +384,104 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   fixed (issues.md: a NaN column in staircase QR, complex `rotg`'s `r`, a 2x2 determinant guard that
   broke left eigenvectors at `SMLNUM`, more denormal reciprocals). Native 99 of 100, 1 skipped.
   Follow-ups: T117.
+- [X] **T115** Routines only reference LAPACK has (T113, `lapack/sources.md`): `gecon`,
+  `gebal`/`gebak`, `trexc`/`trsen`, `gelsy`, plus `lange` (no source chosen) and `gelqf` (only
+  libflame's FLAME code besides the reference). The anthology rule picks the best open-source
+  implementation, and here that is the reference: port these from reference LAPACK (its license is
+  in the accepted BSD class) unless faer turns out to have an equivalent, and record each in the
+  table. Running (`wip/refonly`). Done 2026-10-30, landed 82ce5804, 9a9d4f95: `lange`, `gecon` (with
+  `lacn2`, `latrs`, `rscl`, Blue's `lassq`), `trexc`, `trsen` (Sylvester solves through ReLAPACK's
+  `trsyl`) and `gelsy` from reference LAPACK; `gebal`/`gebak` folded into T111's `faer/balance.zig`
+  (every job); `gelqf`/`orglq`/`ormlq` as libflame's UT-transform method on faer's kernels (no
+  libflame code); `geqp3` from faer's pivoted QR (`faer/qr_pivot.zig`). Native 96 of 97, 1 skipped;
+  `arm-softfp`, `powerpc-750` compile. Known issues: extended-type `nrm2` underflows near the
+  threshold (the extreme `gelsy` test skips there); a faer pivoted-QR `1/0` on an all-zero matrix,
+  guarded (issues.md). ReLAPACK's `sygst`, `hegst`, `pbtrf`, `trsyl`, `gbtrf` are not exported from
+  `lapack/__root__.zig`.
+- [X] **T19** `XDouble` as `f128`: `quad_precision` is hard-wired off; add a build option and a rig
+  configuration for it. The edge tests and level 3's per-routine driver tests still cover no
+  extended type off x86 (the interfaces do). Parked 2026-10-30 for the MVP (tier 3 work off x86):
+  wip d2ea5703 on `wip/quad` (worktree removed) has `-Dquad-precision`, a `blas_options` module and
+  an `aarch64-quad` rig; only `zig build -h` (0.18) and the native types test (31/31) ran; left:
+  0.17 `-h`, wider native tests with quad on and off, `qemu-check-aarch64-quad`. Finishing the
+  started work (user, 2026-10-30). Running (`wip/quad`). Done 2026-10-30, landed: `-Dquad-precision`
+  makes `XDouble` `f128` through a `blas_options` module, with an `aarch64-quad` rig; native edge
+  and level-3 driver tests pass with quad off (72/75) and on (73/75), `qemu-check-aarch64-quad` and
+  `arm-softfp` with quad on 64/64, smoke run 23/23 on the Mac. Sweep: `qemu-test-aarch64-quad` in
+  full (tier 3).
+- [X] **T119** AVX-512 small-matrix kernels (user, 2026-10-30, tier 1): OpenBLAS's Skylake-X
+  `sgemm`/`dgemm` small kernels (`nn`/`nt`/`tn`/`tt` and their `b0` forms) and Cooper Lake and
+  Sapphire Rapids `sbgemm` small kernels as `@Vector`, tested natively on Zen 3 (no AVX-512 here).
+  Done 2026-10-30, landed cb5d5a00, 58f9ae29: `blas3/gemm/x86_64/kernel.zig` ports the Skylake-X
+  small kernels (512-bit vectors; the generic kernels' bits except `tn` and `nn`'s last rows, whose
+  lanes sum every 16th or 8th product and reduce in upstream's two orders) for Skylake-X, Cooper
+  Lake and Sapphire Rapids through a `small_kernel.forCore` hook; Cooper Lake's `sbgemm` small path
+  with upstream's permit and portable bits (Sapphire Rapids has none, as upstream); `survey.zig`'s
+  small-matrix table in `gemm/coverage.md`. Native 43/43 (small-kernel filters), `-Dblas-cores=all`
+  134/136 (2 skipped); `qemu-check-x86_64`, `-arm-softfp`, `-powerpc-750` 71/71 on the M6. The
+  AVX-512 code runs only as Zen 3 splits it (T43). Follow-ups: T122. Sweep: `small`, `half gemm`
+  and `interface: gemm` on `x86_64` and `linux-x86_64`; `small permits` everywhere.
+- [X] **T101** rstd's `sdot` from 256K floats runs 51 to 53 GB/s on arm64 where its kernel alone
+  runs 98 (R4, results-flyoff.md). Done 2026-10-30, landed f2b453bc: above n = 10000 a threaded
+  `sdot` summed its chunks with `dsdot_k`, which was arm64's `dot.S` as DSDOT (one dependent `fadd`
+  chain, about 50 GB/s) and x86_64's `sdot.c` as DSDOT (blocks multiplied and summed in `f32`,
+  against the `f64` rule readme.md and threading.md state: a correctness bug too). `dsdot_k` is
+  now routed as `sdot_k` (`vector.routed`): on every core exactly `sdot_k`'s `f64` sum before
+  rounding; bits identical for any worker count; a per-core test checks `sdot_k` against `dsdot_k`
+  rounded. The arm64, loongarch64, riscv64 and x86_64 `dsdot` ports are gone (regenerated). Native
+  `-Dblas-cores=all` 129/132 (3 skipped); no rig compiled it yet, and the speed is unmeasured
+  (timing session, `flyoff.sh m6` `dot s` rows). Sweep: `qemu-check-aarch64`, `-arm-softfp`,
+  `-powerpc-750`; filters `dot` and `level 1` on `aarch64`, `linux-aarch64`, `arm-softfp` and
+  `powerpc-750`. The `cgemm` n = 128 variance went to T05.
+- [X] **T40** Linux rig gaps: `linux-powerpc64le` never ran POWER10 kernels (baseline build),
+  `linux-aarch64` left out the SVE cores, and neither Linux arm64 rig ran `vortexm4` or `armv9sme`
+  (Debian's 6.12 netboot kernel builds without `CONFIG_ARM64_SME`). Done 2026-10-30, landed
+  d6aadaf3, 0d257b04, 408246a2, d44510df: rigs `linux-aarch64-sve` (TCG, `neoverse_v1` build, no
+  fiber `Io` tests on SVE: std's fiber switch clobbers `ffr`, issues.md) and
+  `linux-powerpc64le-power10` (`pwr10`, ReleaseSafe), `qemu-check-<rig>` for the Linux rigs,
+  Debian 14's 7.0.13 arm64 netboot kernel (built with SME) for every Linux arm64 rig, and a check
+  that each rig selects its core (`the core in use` prints it; `core`/`hvf_core` in
+  `qemutest.zig`). Smoke runs on the M6 (`linalg.blas.cpu.`): `power10`, `armv9sme` (TCG) and
+  `vortexm4` (HVF) selected, 119 passed, 0 failed each. Sweep: tier 1 compiles the merged
+  `threading.zig` `Evented` line natively (built only for SVE so far); `linux-aarch64` (tier 2) in
+  full on the new kernel.
+- [X] **T117** `geev` and `gesvd` correctness (from T111 and T34): `xTREVC3`-style overflow scaling
+  in `geev`'s eigenvector back substitution, what `geev` returns after `NoConvergence`, and
+  `gesvd`'s `INFO > 0`. Done 2026-10-30, landed 64f5de92, cf5f88e2: `gesvd` and `geev` take an
+  optional last `unconverged: ?*usize` (LAPACK's `INFO > 0`: `gesvd`'s unconverged
+  superdiagonals, `min(m, n) - 1` for an infinity or NaN; `geev`'s `i`, with `w[i..n]` the
+  converged eigenvalues and no vectors, as `dgeev.f`), reached in tests through `faer/ops.zig`'s
+  `test_iter_limit`; `faer/trevc.zig` ports `dtrevc3.f`, `ztrevc3.f` and `dlaln2.f` (overflow test:
+  a 20 x 20 triangular matrix whose unscaled vectors pass the largest float); `ztrevc3`'s left
+  solve passes `ZLATRS` the wrong columns' norms (issues.md; rstd passes the right ones). Native
+  `lapack`, `faer`, `relapack` and `utest: kernel_regress` 158 of 160 (2 skipped);
+  `qemu-check-x86_64`, `-arm-softfp`, `-powerpc-750` 74 of 74 on the M6. Follow-ups: T120. Sweep:
+  `faer svd`, `faer evd` on every tier-1/2 rig.
+- [X] **T118** ReLAPACK's `tgsyl` and the missing exports. Done 2026-10-30, landed 8cd41249,
+  b79d8486: `tgsyl` by ReLAPACK's recursion over reference LAPACK's `xTGSY2`, `xGETC2`, `xGESC2`
+  and `xLATDF`, every precision, `dif` for `ijob` 0 to 4; two ReLAPACK bugs fixed (issues.md: the
+  transposed updates' leading dimension for `F` and `E`; real `dif` for `ijob` 2 and 4 counting
+  only the last base case); exported from `lapack/__root__.zig`: `sygst`, `hegst`, `pbtrf`,
+  `gbtrf`, `trsyl`, `tgsyl`, `sytrf`, `hetrf`, `sytrfRook`, `hetrfRook`, each with a smoke test.
+  Checks as T117's. Follow-ups: T121. Sweep: `relapack tgsyl`, `relapack trsyl`, `lapack:
+  ReLAPACK` on every tier-1/2 rig, `x86_64`, `aarch64`, `arm-softfp` and `powerpc-750` first
+  (extended types).
+- [X] **S1** Audit what the SPIR-V backend emits for shaderlib's math, operation by operation.
+  Done 2026-10-30, landed 27981ef4, 3352bb51: `src/rgl/shaders/probe.zig` is one fragment shader
+  per operation (`zig build shader-probes -Dvulkan`, one probe with `-Dshader-probe=<op>`; the
+  build reads its `Op` enum), disassembled and `spirv-val`-clean in Debug and ReleaseFast; the
+  results table is in `src/rgl/shaders/lib/readme.md`. Only the math builtins, `@min`/`@max` and
+  `@mulAdd` lower natively; `@Vector` arithmetic stays vector; `dot`, `length`, `distance`,
+  `normalize`, `cross`, `reflect`, `refract`, `faceforward`, `inversesqrt`, rstd's `mulAdd` and
+  `mix`, `step`, `smoothstep`, `fract` and `clamp` are scalar or hand-built; inline `asm` reaches
+  `OpDot` and GLSL.std.450 (`dotAsm`, `crossAsm`); inline asm cannot declare `OpTypeMatrix`
+  (confirmed by compiling one) and `comptimePrint` as an `asm` template crashes the backend (both
+  issues.md); every inlined call keeps its structured blocks even in ReleaseFast. Fixed on the
+  way: shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for vectors. Follow-up:
+  S2 (the probes are its fixture).
 
 ## After the BLAS is feature complete
 
-- [ ] **M1** Audit `rstd.linalg.matlab` (the matlab88 port of 1980s LINPACK and EISPACK,
-  `src/linalg/matlab/`) against the modern BLAS and LAPACK (design.md, Settled decisions: the matlab
-  port defers): `blas1.zig`'s level-1 kernels and `@Vector` stride-1 paths, `matmul.zig`, and what
-  LU, QR, Cholesky, SVD and the eigen routines call. The default is the modern routine; list only
-  where the old one is more accurate or right on an edge case the modern one gets wrong, each with a
-  test that shows it. **Needs:** the queue above.
-
-- [ ] **M2** Replace the matlab port's own BLAS and LAPACK-level code with `rstd.linalg.blas` and
-  `rstd.linalg.lapack`, keeping only what M1 showed better. Decide first how to bridge its split
-  real/imaginary complex layout (`xr`/`xi`) to the BLAS's interleaved `Complex`: convert at the
-  boundary or change the port's layout. Its LINPACK and EISPACK routines map to LAPACK's `getrf`,
-  `getrs`, `getri`, `gecon` (`wgefa`, `wgesl`, `wgedi`, `wgeco`), `potrf` (`wpofa`), `geqp3`,
-  `unmqr`, `trtrs` (`wqrdc`, `wqrsl`), `gesvd` (`wsvdc`, T34), `gehrd` (`corth`), `hseqr` with
-  `trevc` (`comqr3`), `hetrd` and `unmtr` (`htridi`, `htribk`); rstd has `potrf`, `getrf` and
-  `getrs`; T70 adds OpenBLAS's own, and the rest come from Reference-LAPACK (BSD-3, as OpenBLAS
-  ships it in `lapack-netlib/`). Its fills (`wset`, `rset`) are LAPACK `laset`, `pythag` is `lapy2`.
-  Its own tests must still pass. **Needs:** M1.
-
-- [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS behind it as an implementation detail
-  (design.md, Settled decisions): `linalg.vector` takes fixed-size vectors and small matrices by
-  value, with math names, and per size runs inline `@Vector` code or calls the BLAS (crossover from
-  M4); under SPIR-V each operation is SPIR-V's own instruction (`OpDot`, `OpMatrixTimesVector`,
-  GLSL.std.450). Split `rstd.simd` between them: slice reductions become BLAS routines, element-wise
-  helpers (`mix`, `mulAdd`) move to `linalg.vector`; move its callers (the matlab port, the rgl font
-  code, shaderlib's `mix` and `sum`, `rgl/shaders/types.zig`'s `zigvec` types).
-  `arrayMax`/`arrayMin` use `@reduce`'s NaN rule, not the BLAS's first-NaN one, so moving them
-  changes their special-value results; `arrayProduct`, the bitwise reductions and general
-  `mapReduce` have no BLAS counterpart. Then grow it toward any-size vectors and matrices, as MATLAB
-  takes them. **Needs:** M1, S1.
 - [ ] **M4** Time `linalg.vector`'s inline `@Vector` forms against the BLAS calls per size (2, 3, 4,
   then up through sizes such as 28 where either could win) and operation (`dot`, `nrm2`-style
   `length`, `axpy`-style updates, matrix-vector), on the M6 and Zen 3 under their timing rules; set
@@ -390,23 +493,14 @@ Not the BLAS kernels: the fixed-size vector math (`rstd.linalg.vector`, `rstd.si
 `src/rgl/shaders/lib/` (`math.zig`, `sdf.zig`) builds on. Can start any time. SPIR-V's own
 instructions are used as they are, not reimplemented or tuned: the aim is one API, not speed.
 
-- [ ] **S1** Audit what the SPIR-V backend emits for shaderlib's math: dot, cross, length, distance,
-  normalize, reflect, refract, faceforward, inversesqrt, fma, mix, step, smoothstep, fract, clamp,
-  min/max, matrix-vector and matrix-matrix products. For each, whether it lowers to the native
-  instruction (`OpDot`, `OpVectorTimesMatrix`, `OpMatrixTimesVector`, or the GLSL.std.450 extended
-  set) or to scalar code; check by disassembling the compiled shaders. Known already:
-  `blas/fma.zig`'s `hardware` is false on SPIR-V, so `mulAdd` (and `mix`, `linalg.vector.dot`) is an
-  unfused `a*b + c`, never `Fma`; `linalg.vector.dot` is a scalar `mulAdd` chain by design, `length`
-  is `@sqrt(dot2)`, not `Length`, and `norm` is not `Normalize`. Shaderlib's `Mat2` to `Mat4` are
-  arrays of vectors, not `OpTypeMatrix`, so the matrix instructions need a matrix type first; record
-  which.
 - [ ] **S2** Shaderlib stays the shaders' one API (design.md, Settled decisions): GLSL-friendly
   names that alias or wrap `linalg` calls where `linalg` has the operation (`dot`, `length`,
   matrix-vector products, through M3's SPIR-V forms); `cross` moves to `rstd.linalg.vector` and is
   re-exported; `normalize`, `reflect`, `refract`, `faceforward`, `smoothstep`, `fract`, `step` stay
   in shaderlib, lowered to GLSL.std.450 instructions. Add a build-time test that disassembles the
-  shaders and fails if a listed operation comes out as scalar code. **Needs:** S1, M3 (for the
-  `linalg`-backed ones).
+  shaders and fails if a listed operation comes out as scalar code: `zig build shader-probes`
+  (S1's `probe.zig`) with a check over `spirv-dis` output, against `shaders/lib/readme.md`'s table.
+  **Needs:** M3 (for the `linalg`-backed ones); S1 done.
 
 ## Zig-idiomatic interface, last
 
@@ -426,4 +520,9 @@ Decided, not built (design.md, "Planned: a Zig-idiomatic interface").
 
 ## Waiting on the user
 
-Nothing waiting.
+- **M3's proposal** (`src/linalg/design-linalg.md`, Open questions), each with a recommendation:
+  matrix storage (`[C]Vec(R, T)` against packed); fixed-size calls routed to the BLAS above the
+  crossover taking that core's bits; the crossover override (root declaration or build option);
+  plain `normalize` staying in shaderlib; `lu` of a singular matrix; `eig`'s result types (`eigh`);
+  `linalg.blas`/`linalg.lapack` staying public; complex fixed-size vectors deferred; `inv` under
+  SPIR-V; starting steps 1 to 3 and 5 before M1 and S1 finish; the missing SPIR-V matrix type.

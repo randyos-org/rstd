@@ -111,6 +111,7 @@ bgt
 bgtz
 bidiag
 bidiagonal
+bidiagonalization
 bind
 blasbench
 blasint
@@ -362,6 +363,7 @@ DSYNC
 dsyr
 dsyrk
 dtes
+dtrevc
 dtrmm
 dtrmv
 dtrsm
@@ -957,6 +959,7 @@ kpanic
 kres
 KRON
 kwin
+lacn
 laed
 LANCHOR
 landlock_add_rule
@@ -974,6 +977,7 @@ lassq
 laswp
 LASX
 LATDF
+latrs
 lauu
 lauum
 Laxpy
@@ -1290,7 +1294,9 @@ openat2
 openblas
 opteron
 Opto
+orglq
 orgqr
+ormlq
 ormqr
 ortr
 os
@@ -1328,6 +1334,7 @@ passthrough
 passwdpkg
 pathz
 pause
+pbtrf
 pciconfig
 PCID
 pcide
@@ -1339,6 +1346,7 @@ pdict
 Peise
 penryn
 perf_event_open
+perffix
 personality
 pflash
 pftf
@@ -1545,6 +1553,7 @@ rref
 RRGGBB
 rrot
 rrotg
+rscl
 rsdi
 rsdr
 RSDT
@@ -1777,6 +1786,7 @@ sparcv
 sphimp
 sphtext
 Spirv
+spirvaudit
 spki
 splice
 SPMV
@@ -2352,6 +2362,7 @@ zswap
 zsymm
 zsymv
 zsyr
+ztrevc
 ztrmm
 ztrmv
 ztrsm
