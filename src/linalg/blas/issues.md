@@ -789,6 +789,57 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `and` with a mask the combiner cannot see already gives `and.v`)
   > would be right.
 
+### SPIR-V inline assembly cannot declare a matrix type
+
+- **Seen:** S1 (2026-10-30). An `asm` block with `%mat = OpTypeMatrix %v4
+  4` fails to build: "failed to assemble SPIR-V inline assembly", "todo:
+  process type instruction OpTypeMatrix". `Assembler.zig`'s
+  `processTypeInstruction` has an explicit `todo` for `OpTypeArray` too,
+  and the language has no matrix type (`std.lang.Type.Spirv` has sampler,
+  image, sampled image and runtime array only). So `OpMatrixTimesVector`,
+  `OpVectorTimesMatrix` and `OpMatrixTimesMatrix` cannot be reached at all.
+  Every other instruction S1 tried (`OpDot`, GLSL.std.450's `OpExtInst`)
+  assembles.
+- **Workaround:** none needed: shaderlib's matrices are arrays of column
+  vectors (`shaders/types.zig`), multiplied column by column in vector
+  instructions (`src/rgl/shaders/lib/readme.md`).
+- **Issue text:**
+
+  > **SPIR-V: inline assembly cannot declare `OpTypeMatrix`**
+  >
+  > `zig build-obj -fno-llvm -target spirv32-vulkan -mcpu vulkan_v1_2` on
+  >
+  > ```zig
+  > const V4 = @Vector(4, f32);
+  > export fn mv(c0: V4, c1: V4, c2: V4, c3: V4, v: V4) V4 {
+  >     return asm (
+  >         \\%mat = OpTypeMatrix %v4 4
+  >         \\%m = OpCompositeConstruct %mat %c0 %c1 %c2 %c3
+  >         \\%ret = OpMatrixTimesVector %v4 %m %v
+  >         : [ret] "" (-> V4),
+  >         : [v4] "t" (V4), [c0] "" (c0), [c1] "" (c1),
+  >           [c2] "" (c2), [c3] "" (c3), [v] "" (v),
+  >     );
+  > }
+  > ```
+  >
+  > fails with "todo: process type instruction OpTypeMatrix". A case like
+  > `OpTypeVector`'s (column type and count) would make the matrix
+  > instructions usable; a matrix type in `@SpirvType` would too.
+
+### SPIR-V: `std.fmt.comptimePrint` in an `asm` template crashes the compiler
+
+- **Seen:** S1 (2026-10-30). A shader function whose `asm` template is
+  `std.fmt.comptimePrint(...)` (GLSL.std.450's `OpExtInst` with the
+  opcode printed in) panics the self-hosted SPIR-V backend while
+  generating `Io.Writer.unimplementedSendFile` and
+  `Io.Writer.Discarding.sendFile`: "reached unreachable code" in
+  `InternPool.zig`'s `toInt` (`.unresolved => unreachable`). The same
+  template written literally builds, so the formatting code being pulled
+  into the shader is what crashes.
+- **Workaround:** literal templates (`rgl/shaders/probe.zig`'s `crossAsm`).
+- **Issue text:** none yet: first reduce it to a file without rstd.
+
 ## Zig standard library
 
 ### Zig 0.17.0's `Io.Dispatch` does not compile

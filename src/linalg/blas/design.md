@@ -1694,7 +1694,9 @@ Questions decided once, with the reason, so they are not reopened without new ev
   `refract`, `faceforward`, `smoothstep`, `fract` and `step` stay in shaderlib, as shader
   operations lowered to SPIR-V's own instructions. Shaderlib is the developer-friendly face, not
   a second implementation: everything a shader calls ends in a SPIR-V instruction where one
-  exists, through `linalg` or directly.
+  exists, through `linalg` or directly. What the backend emits today, per operation (S1):
+  [`shaders/lib/readme.md`](../../rgl/shaders/lib/readme.md); only the builtins lower natively,
+  and the matrix instructions wait on Zig's SPIR-V assembler (issues.md).
 - **Workers adopt the caller's floating-point control state** (2026-10-29). Threads do not
   inherit it (x86 Windows starts them at 53-bit x87 precision where a MinGW main thread has 64-bit, sources in [`threading.md`](threading.md);
   MXCSR and FPCR differ too if the caller changed rounding or flush to zero), so each task

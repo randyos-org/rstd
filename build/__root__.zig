@@ -8,6 +8,7 @@ const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
 const wasmtest = @import("wasmtest.zig");
 const sshtest = @import("sshtest.zig");
+const shader_probe = @import("../src/rgl/shaders/probe.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const Compile = rstdbuild.CompileStep;
@@ -95,6 +96,23 @@ pub fn build(b: *Build) !void {
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
+        // one shader per shaderlib operation, and rgl's own, to disassemble
+        // (src/rgl/shaders/lib/readme.md)
+        const probes = b.step("shader-probes", "Build each shaderlib probe and rgl's shaders to SPIR-V in zig-out/spv");
+        const only = b.option([]const u8, "shader-probe", "shader-probes builds only this probe");
+        inline for (@typeInfo(shader_probe.Op).@"enum".field_names) |op| {
+            if (only == null or std.mem.eql(u8, only.?, op)) {
+                const opts = b.addOptions();
+                opts.addOption([]const u8, "op", op);
+                const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
+                probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
+            }
+        }
+        for ([_][]const u8{ "rgl", "glyph", "image" }) |n| {
+            const s = try rstdbuild.addShader(b, optimize, b.path(b.fmt("src/rgl/shaders/{s}.zig", .{n})), n, .{ ._rstd_mod = rstd_mod });
+            probes.dependOn(&b.addInstallFile(s.spv_frag_path, b.fmt("spv/{s}.frag.spv", .{n})).step);
+            probes.dependOn(&b.addInstallFile(s.spv_vert_path, b.fmt("spv/{s}.vert.spv", .{n})).step);
+        }
     }
 
     // docs
