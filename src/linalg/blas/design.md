@@ -1878,7 +1878,7 @@ The Linux machines (`build/qemutest.zig`; `qemu-check-<machine>` builds one's in
 | Machine | CPU | Notes |
 | --- | --- | --- |
 | `linux-aarch64` | `max` under TCG, the host's under HVF | baseline build: no SVE cores. No SME either: Debian's 6.12 kernel lacks it, so no `armv9sme` or `vortexm4` ([`issues.md`](issues.md)) |
-| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores |
+| `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores. No fiber `Io` tests: std's switch does not build for SVE ([`issues.md`](issues.md)) |
 | `linux-x86_64` | `max` under TCG | |
 | `linux-arm` | `cortex-a15` | |
 | `linux-riscv64` | `rv64,v=true,vlen=512` | |

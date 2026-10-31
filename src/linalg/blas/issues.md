@@ -1042,6 +1042,18 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > "no field named 'processReplacePath' in struct 'Io.VTable'".
   > `Io.VTable` has `processReplace` only.
 
+### aarch64 SVE: `Io/fiber.zig` clobbers `ffr`, which LLVM rejects
+
+- **Seen:** `qemu-check-linux-aarch64-sve` (Debug, CPU `neoverse_v1`) fails compiling the test
+  executable: "inline asm clobber list contains reserved registers: FFR". `lib/std/Io/fiber.zig`'s
+  aarch64 context switch lists `.ffr = true`; LLVM warns on an SVE target, and Zig makes the
+  warning an error. The build still exits 0 (see "Inline assembly errors exit 0"). 0.18.0-dev.751,
+  2026-10-30. Baseline aarch64 targets build, so only hosted SVE targets meet it.
+- **Where:** the `linux-aarch64-sve` rig (T40), and any hosted SVE build of rstd.
+- **Workaround:** `threading.Evented` is void on SVE targets, so the fiber tests are skipped and
+  nothing compiles the switch (`src/linalg/blas/threading.zig`). Drop it once std builds there.
+- **Issue text:** none yet: first reduce it and check how LLVM expects FFR to be clobbered.
+
 ## Zig package manager and build system
 
 ### `zig fetch` needs an archive and a `Content-Type` header

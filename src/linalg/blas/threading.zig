@@ -791,10 +791,11 @@ pub const threaded_tests = hosted or kernel_smp != null;
 /// set up alike (`init(allocator, .{ .async_limit, .concurrent_limit })`).
 pub const TestIo = if (hosted) Io.Threaded else if (kernel_smp) |k| k.Pool else void;
 
-/// `Io.Evented` for the fiber tests; void where it does not build (Zig 0.17's
+/// `Io.Evented` for the fiber tests; void where it does not build: Zig 0.17's
 /// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
-/// lacks; issues.md). Version-gated: std exposes nothing to detect.
-pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else Io.Evented;
+/// lacks (version-gated, std exposes nothing to detect); SVE targets, whose
+/// LLVM rejects the fiber switch's `ffr` clobber (issues.md).
+pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAARCH64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
 
 /// Starts `ev` with `extra` threads besides the caller's; false where it
 /// cannot be sized so (`Dispatch` sizes its own pool) or does not start.
