@@ -24,6 +24,15 @@ pub const Trans = types.Trans;
 /// What the internal routines return.
 pub const Error = Allocator.Error || Io.Cancelable;
 
+/// Tests only: caps the iterative solvers (`bidiag_svd.qrAlgorithm`, both
+/// `lahqr`s) at this many iterations, so `NoConvergence` can be reached.
+pub var test_iter_limit: ?usize = null;
+
+/// `limit`, or `test_iter_limit` when set.
+pub fn iterLimit(limit: usize) usize {
+    return test_iter_limit orelse limit;
+}
+
 /// A column-major view: element `(i, j)` at `ptr[i + j * ld]`.
 pub fn Mat(comptime T: type) type {
     return struct {

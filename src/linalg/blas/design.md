@@ -926,10 +926,14 @@ allows.
   over faer's SVD: QR first past an aspect ratio of `11 / 6`, then bidiagonalization, then the
   bidiagonal's SVD by QR iteration (`gesvd`, as the reference's `xBDSQR`) or divide and conquer
   from 128 up (`gesdd`, as its `xBDSDC`). No `WORK` arguments: the allocator gives workspace.
-  Failure is an error: `NoConvergence` for the reference's `INFO > 0` (without its count, which
-  faer does not keep) and for an infinite `A`, or a NaN for `gesvd`, since faer refuses a
-  bidiagonal that is not finite; `gesdd` returns `InvalidA` for a NaN, the reference's
-  `INFO = -4` (`dgesdd.f:595`). Four fixes to faer, each in [`issues.md`](issues.md): its
+  Failure is an error: `NoConvergence` for the reference's `INFO > 0` and for an infinite
+  `A`, or a NaN for `gesvd`, since faer refuses a bidiagonal that is not finite; `gesdd`
+  returns `InvalidA` for a NaN, the reference's `INFO = -4` (`dgesdd.f:595`). `gesvd` writes
+  that `INFO`, the count of superdiagonals QR iteration left nonzero (`xBDSQR`'s), to an
+  optional `unconverged: ?*usize`, its last argument, as `potrf`'s `minor`; faer does not keep
+  it, so `svd.zig` counts them from the bidiagonal it gives up on (`min(m, n) - 1` for an
+  infinity or NaN). `S`, `U` and `Vᴴ` are then undefined: the reference's unconverged
+  bidiagonal in `S` and `WORK` has nowhere to go. Four fixes to faer, each in [`issues.md`](issues.md): its
   secular solver can stop far from a root next to a pole, here bisected; reciprocals of
   denormal norms overflow, here divided by; a zero subproblem's two rows of `U` lack the
   identity's last 1; and its tall path leaves `U`'s top right block as found, here zeroed.

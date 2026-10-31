@@ -50,7 +50,7 @@ pub fn qrAlgorithm(comptime F: type, diag: []F, subdiag: []F, u: ?Mat(F), v: ?Ma
     const eps = std.math.floatEps(F);
     const sml = std.math.floatMin(F);
     if (n == 0) return;
-    const max_iters = @max(30, nbits(F) / 2) *| n *| n;
+    const max_iters = ops.iterLimit(@max(30, nbits(F) / 2) *| n *| n);
     const last = n - 1;
     const max = @max(normMax(F, diag), normMax(F, subdiag));
     if (max == 0) return;

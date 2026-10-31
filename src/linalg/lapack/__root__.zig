@@ -70,7 +70,8 @@ pub const LauumError = triangular.LauumError;
 /// `error.Canceled`.
 pub const TrtrsError = triangular.TrtrsError;
 
-/// `gesvd`: bad arguments, `error.NoConvergence`, `error.OutOfMemory` or
+/// `gesvd`: bad arguments, `error.NoConvergence` (its count of unconverged
+/// superdiagonals in the last argument), `error.OutOfMemory` or
 /// `error.Canceled`.
 pub const GesvdError = svd.GesvdError;
 /// `gesdd`: bad arguments (a NaN in `A` is `error.InvalidA`),

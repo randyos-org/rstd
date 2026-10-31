@@ -19,8 +19,9 @@
 //! - no `WORK`, `LWORK`, `RWORK` or `IWORK`: workspace comes from the
 //!   allocator, as the other routines here;
 //! - failure is an error: `NoConvergence` for the reference's `INFO > 0`
-//!   (without its count of unconverged superdiagonals, which faer does not
-//!   keep), and also where `A` holds an infinity, or a NaN for `gesvd`,
+//!   (`gesvd`'s count of unconverged superdiagonals, which faer does not
+//!   keep, counted here from QR iteration's bidiagonal into `unconverged`),
+//!   and also where `A` holds an infinity, or a NaN for `gesvd`,
 //!   since faer's solver refuses a bidiagonal that is not finite
 //!   (`compute_bidiag_real_svd`); `gesdd` returns `InvalidA` for a NaN, the
 //!   reference's `INFO = -4` (`dgesdd.f:595`);
@@ -69,7 +70,13 @@ const qr_ratio = 11.0 / 6.0;
 /// or `A`, `Vᴴ` by `jobvt` into `vt` (`ldvt`) or `A`. `A` is destroyed
 /// unless a job puts its vectors there. `u` and `vt` are not read where
 /// their job does not use them. The bidiagonal by QR iteration.
-pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: isize, n: isize, a: [*]T, lda: isize, s: [*]Float(T), u: [*]T, ldu: isize, vt: [*]T, ldvt: isize) GesvdError!void {
+///
+/// On `error.NoConvergence`, `unconverged` (when given) gets the reference's
+/// `INFO > 0`: how many superdiagonals of the bidiagonal did not converge to
+/// zero (`min(m, n) - 1`, all of them, for an infinity or NaN in `A`); `s`,
+/// `U` and `Vᴴ` are then undefined. The reference also leaves that
+/// bidiagonal in `S` and `WORK`; rstd has no `WORK`.
+pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: isize, n: isize, a: [*]T, lda: isize, s: [*]Float(T), u: [*]T, ldu: isize, vt: [*]T, ldvt: isize, unconverged: ?*usize) GesvdError!void {
     comptime chol.floatType(T, "gesvd");
     const minmn = @min(m, n);
     if (jobu == .o and jobvt == .o) return error.InvalidJobvt;
@@ -82,7 +89,7 @@ pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: J
     if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
     if (!util.fitsMatrix(m, if (jobu == .a) m else if (jobu == .s) minmn else 0, ldu, @sizeOf(T))) return error.InvalidLdu;
     if (!util.fitsMatrix(if (jobvt == .a) n else if (jobvt == .s) minmn else 0, n, ldvt, @sizeOf(T))) return error.InvalidLdvt;
-    run(allocator, io, T, jobu, jobvt, @intCast(m), @intCast(n), a, @intCast(lda), s, u, @intCast(ldu), vt, @intCast(ldvt), std.math.maxInt(usize)) catch |e| return switch (e) {
+    run(allocator, io, T, jobu, jobvt, @intCast(m), @intCast(n), a, @intCast(lda), s, u, @intCast(ldu), vt, @intCast(ldvt), std.math.maxInt(usize), unconverged) catch |e| return switch (e) {
         error.NanInA => error.NoConvergence,
         else => |x| x,
     };
@@ -121,7 +128,7 @@ pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: Job, m: isize
         .o => if (m >= n) .{ .o, .a } else .{ .a, .o },
         .a, .s, .n => .{ jobz, jobz },
     };
-    run(allocator, io, T, jobu, jobvt, @intCast(m), @intCast(n), a, @intCast(lda), s, u, @intCast(ldu), vt, @intCast(ldvt), dc_threshold) catch |e| return switch (e) {
+    run(allocator, io, T, jobu, jobvt, @intCast(m), @intCast(n), a, @intCast(lda), s, u, @intCast(ldu), vt, @intCast(ldvt), dc_threshold, null) catch |e| return switch (e) {
         error.NanInA => error.InvalidA,
         else => |x| x,
     };
@@ -131,7 +138,7 @@ const RunError = error{ NanInA, NoConvergence } || ops.Error;
 
 /// Both drivers after their checks: the scaling of `dgesvd.f:652-667` and
 /// `dgesdd.f:585-606`, faer's SVD, and the vectors where the jobs put them.
-fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize, n: usize, a: [*]T, lda: usize, s: [*]Float(T), u: [*]T, ldu: usize, vt: [*]T, ldvt: usize, threshold: usize) RunError!void {
+fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize, n: usize, a: [*]T, lda: usize, s: [*]Float(T), u: [*]T, ldu: usize, vt: [*]T, ldvt: usize, threshold: usize, unconverged: ?*usize) RunError!void {
     const F = Float(T);
     const minmn = @min(m, n);
     const am: Mat(T) = .{ .ptr = a, .rows = m, .cols = n, .ld = lda };
@@ -139,10 +146,16 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     var anrm: F = 0;
     for (0..n) |j| for (0..m) |i| {
         const x = ops.abs(T, am.get(i, j));
-        if (std.math.isNan(x)) return error.NanInA;
+        if (std.math.isNan(x)) {
+            if (unconverged) |c| c.* = minmn - 1;
+            return error.NanInA;
+        }
         anrm = @max(anrm, x);
     };
-    if (std.math.isInf(anrm)) return error.NoConvergence;
+    if (std.math.isInf(anrm)) {
+        if (unconverged) |c| c.* = minmn - 1;
+        return error.NoConvergence;
+    }
     const smlnum = @sqrt(std.math.floatMin(F)) / std.math.floatEps(F);
     const bignum = 1 / smlnum;
     const to: ?F = if (anrm > 0 and anrm < smlnum) smlnum else if (anrm > bignum) bignum else null;
@@ -162,7 +175,7 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     const vm: ?Mat(T) = if (want_v) try ops.alloc(T, al, n, vcols) else null;
     defer if (vm) |x| ops.free(T, al, x);
     const sv = s[0..minmn];
-    try svd(al, io, T, am, sv, um, vm, threshold);
+    try svd(al, io, T, am, sv, um, vm, threshold, unconverged);
     if (to) |t| {
         // `DLASCL` on S, back
         ops.lascl(F, t, anrm, .{ .ptr = sv.ptr, .rows = minmn, .cols = 1, .ld = @max(minmn, 1) });
@@ -181,16 +194,16 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
 /// (`n x n` or `n x min(m, n)`) from `a`, which is only read; `threshold`
 /// as `bidiagSvd`'s. A wide `a` is decomposed transposed, `U` and `V`
 /// swapped and conjugated after.
-pub fn svd(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u: ?Mat(T), v: ?Mat(T), threshold: usize) bsvd.Error!void {
+pub fn svd(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u: ?Mat(T), v: ?Mat(T), threshold: usize, unconverged: ?*usize) bsvd.Error!void {
     const m = a.rows;
     const n = a.cols;
-    if (m >= n) return svdTall(al, io, T, a, s, u, v, threshold);
+    if (m >= n) return svdTall(al, io, T, a, s, u, v, threshold, unconverged);
     const at = try ops.alloc(T, al, n, m);
     defer ops.free(T, al, at);
     for (0..m) |j| for (0..n) |i| {
         at.at(i, j).* = a.get(j, i);
     };
-    try svdTall(al, io, T, at, s, v, u, threshold);
+    try svdTall(al, io, T, at, s, v, u, threshold, unconverged);
     if (comptime isComplex(T)) for ([_]?Mat(T){ u, v }) |mo| if (mo) |x| {
         for (0..x.cols) |j| for (x.col(j)[0..x.rows]) |*e| {
             e.* = ops.conj(T, e.*);
@@ -199,14 +212,14 @@ pub fn svd(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u:
 }
 
 /// `svd` for `m >= n`.
-fn svdTall(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u: ?Mat(T), v: ?Mat(T), threshold: usize) bsvd.Error!void {
+fn svdTall(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u: ?Mat(T), v: ?Mat(T), threshold: usize, unconverged: ?*usize) bsvd.Error!void {
     const m = a.rows;
     const n = a.cols;
     if (n == 0) {
         if (u) |x| x.identity();
         return;
     }
-    if (@as(f64, @floatFromInt(m)) / @as(f64, @floatFromInt(n)) <= qr_ratio) return squareish(al, io, T, a, s, u, v, threshold);
+    if (@as(f64, @floatFromInt(m)) / @as(f64, @floatFromInt(n)) <= qr_ratio) return squareish(al, io, T, a, s, u, v, threshold, unconverged);
     const bs = qr.blockSize(m, n);
     const q = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, q);
@@ -220,7 +233,7 @@ fn svdTall(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u:
         for (0..n) |j| for (0..n) |i| {
             r.at(i, j).* = if (i <= j) q.get(i, j) else ops.zero(T);
         };
-        try squareish(al, io, T, r, s, if (u) |x| x.sub(0, 0, n, n) else null, v, threshold);
+        try squareish(al, io, T, r, s, if (u) |x| x.sub(0, 0, n, n) else null, v, threshold, unconverged);
     }
     if (u) |x| {
         x.sub(n, 0, m - n, x.cols).fill(ops.zero(T));
@@ -231,7 +244,7 @@ fn svdTall(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u:
 }
 
 /// `svd_imp`: bidiagonalize, decompose `Bᴴ`, rebuild.
-fn squareish(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u: ?Mat(T), v: ?Mat(T), threshold: usize) bsvd.Error!void {
+fn squareish(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), u: ?Mat(T), v: ?Mat(T), threshold: usize, unconverged: ?*usize) bsvd.Error!void {
     const m = a.rows;
     const n = a.cols;
     const bs = qr.blockSize(m, n);
@@ -256,7 +269,7 @@ fn squareish(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), 
     defer if (ub) |x| ops.free(T, al, x);
     const vb: ?Mat(T) = if (u != null) try ops.alloc(T, al, n, n) else null;
     defer if (vb) |x| ops.free(T, al, x);
-    try bidiagSvd(al, io, T, diag, subdiag, ub, vb, threshold);
+    try bidiagSvd(al, io, T, diag, subdiag, ub, vb, threshold, unconverged);
     for (s, diag) |*x, d| x.* = ops.re(T, d);
     if (u) |x| {
         const ncols = x.cols;
@@ -278,8 +291,8 @@ fn squareish(al: Allocator, io: Io, comptime T: type, a: Mat(T), s: []Float(T), 
 /// `compute_bidiag_real_svd` or, complex, `compute_bidiag_cplx_svd`: the
 /// lower bidiagonal's SVD, `u` (`(n + 1) x (n + 1)`) and `v` (`n x n`)
 /// where given; divide and conquer from `threshold` on, else QR iteration.
-fn bidiagSvd(al: Allocator, io: Io, comptime T: type, diag: []T, subdiag: []T, u: ?Mat(T), v: ?Mat(T), threshold: usize) bsvd.Error!void {
-    if (comptime !isComplex(T)) return realBidiagSvd(al, io, T, diag, subdiag, u, v, threshold);
+fn bidiagSvd(al: Allocator, io: Io, comptime T: type, diag: []T, subdiag: []T, u: ?Mat(T), v: ?Mat(T), threshold: usize, unconverged: ?*usize) bsvd.Error!void {
+    if (comptime !isComplex(T)) return realBidiagSvd(al, io, T, diag, subdiag, u, v, threshold, unconverged);
     const F = Float(T);
     const n = diag.len;
     const reals = try al.alloc(F, 2 * n);
@@ -306,7 +319,7 @@ fn bidiagSvd(al: Allocator, io: Io, comptime T: type, diag: []T, subdiag: []T, u
     defer if (ur) |x| ops.free(F, al, x);
     const vr: ?Mat(F) = if (v != null) try ops.alloc(F, al, n, n) else null;
     defer if (vr) |x| ops.free(F, al, x);
-    try realBidiagSvd(al, io, F, dr, sr, ur, vr, threshold);
+    try realBidiagSvd(al, io, F, dr, sr, ur, vr, threshold, unconverged);
     for (diag, dr) |*d, x| d.* = ops.scalar(T, x);
     if (u) |x| {
         const r = ur.?;
@@ -333,13 +346,24 @@ fn normalized(comptime T: type, x: T) T {
     return ops.mulReal(T, y, 1 / ops.abs(T, y));
 }
 
-fn realBidiagSvd(al: Allocator, io: Io, comptime F: type, diag: []F, subdiag: []F, u: ?Mat(F), v: ?Mat(F), threshold: usize) bsvd.Error!void {
+fn realBidiagSvd(al: Allocator, io: Io, comptime F: type, diag: []F, subdiag: []F, u: ?Mat(F), v: ?Mat(F), threshold: usize, unconverged: ?*usize) bsvd.Error!void {
     const n = diag.len;
-    for (diag, subdiag) |d, e| if (!(std.math.isFinite(d) and std.math.isFinite(e))) return error.NoConvergence;
+    for (diag, subdiag) |d, e| if (!(std.math.isFinite(d) and std.math.isFinite(e))) {
+        // every superdiagonal counts as unconverged
+        if (unconverged) |c| c.* = n - 1;
+        return error.NoConvergence;
+    };
     if (n < threshold) {
         if (u) |x| x.identity();
         if (v) |x| x.identity();
-        return bsvd.qrAlgorithm(F, diag, subdiag, if (u) |x| x.sub(0, 0, n, n) else null, v);
+        return bsvd.qrAlgorithm(F, diag, subdiag, if (u) |x| x.sub(0, 0, n, n) else null, v) catch |e| {
+            // `xBDSQR`'s `INFO`: the superdiagonals not yet zero
+            if (unconverged) |c| {
+                c.* = 0;
+                for (subdiag[0 .. n - 1]) |x| c.* += @intFromBool(x != 0);
+            }
+            return e;
+        };
     }
     if (u) |x| return bsvd.divideAndConquer(al, io, F, diag, subdiag, .{ .full = x }, v, threshold);
     const u_two = try ops.alloc(F, al, 2, n + 1);
@@ -430,7 +454,7 @@ fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: Job, jv: J
     a.fill(chol.poisoned(T));
     a.sub(0, 0, m, n).copyFrom(a0);
     switch (r) {
-        .gesvd => try gesvd(al, io, T, ju, jv, @intCast(m), @intCast(n), a.ptr, @intCast(lda), s.ptr, u.ptr, @intCast(u.ld), vt.ptr, @intCast(vt.ld)),
+        .gesvd => try gesvd(al, io, T, ju, jv, @intCast(m), @intCast(n), a.ptr, @intCast(lda), s.ptr, u.ptr, @intCast(u.ld), vt.ptr, @intCast(vt.ld), null),
         .gesdd => try gesdd(al, io, T, ju, @intCast(m), @intCast(n), a.ptr, @intCast(lda), s.ptr, u.ptr, @intCast(u.ld), vt.ptr, @intCast(vt.ld)),
     }
     const k = @min(m, n);
@@ -593,9 +617,47 @@ test "faer svd: NaN and infinity: gesdd's INFO = -4 for NaN, else NoConvergence"
             var vt: [9]T = undefined;
             const want_dd: anyerror = if (std.math.isNan(bad)) error.InvalidA else error.NoConvergence;
             var b = a;
-            try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .a, .a, 4, 3, &b, 4, &s, &u, 4, &vt, 3));
+            var count: usize = 99;
+            try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .a, .a, 4, 3, &b, 4, &s, &u, 4, &vt, 3, &count));
+            try testing.expectEqual(2, count);
             b = a;
             try testing.expectError(want_dd, gesdd(al, check.io, T, .a, 4, 3, &b, 4, &s, &u, 4, &vt, 3));
+        }
+    }
+}
+
+test "faer svd: gesvd's INFO > 0, the unconverged superdiagonals, QR iteration capped" {
+    const al = testing.allocator;
+    defer ops.test_iter_limit = null;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        // diag(A1, A2), 3 x 3 and 4 x 4: the bidiagonal splits between them
+        // with an exact zero, so one sweep (on the bottom block) leaves
+        // 2 + 3 of the 6 superdiagonals; uncapped, everything converges
+        const n = 7;
+        var a0: [n * n]T = undefined;
+        check.fill(T, &a0, 17);
+        for (0..n) |j| for (0..n) |i| {
+            if ((i < 3) != (j < 3)) a0[i + j * n] = ops.zero(T);
+        };
+        var s: [n]F = undefined;
+        var u: [n * n]T = undefined;
+        var vt: [n * n]T = undefined;
+        for ([_]?usize{ 1, null }) |lim| {
+            ops.test_iter_limit = lim;
+            var a = a0;
+            var count: usize = 99;
+            const r = gesvd(al, check.io, T, .a, .a, n, n, &a, n, &s, &u, n, &vt, n, &count);
+            if (lim == null) {
+                try r;
+                try testing.expectEqual(99, count);
+            } else {
+                try testing.expectError(error.NoConvergence, r);
+                try testing.expectEqual(5, count);
+                // no out-parameter: the same error
+                a = a0;
+                try testing.expectError(error.NoConvergence, gesvd(al, check.io, T, .n, .n, n, n, &a, n, &s, &u, 1, &vt, 1, null));
+            }
         }
     }
 }
@@ -607,14 +669,14 @@ test "faer svd: reports the first bad argument and reads nothing when empty" {
     var s: [2]f64 = @splat(nan);
     var u: [4]f64 = @splat(nan);
     var vt: [4]f64 = @splat(nan);
-    try testing.expectError(error.InvalidJobvt, gesvd(fa, check.io, f64, .o, .o, -1, -1, &a, 0, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidM, gesvd(fa, check.io, f64, .a, .a, -1, -1, &a, 0, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidN, gesvd(fa, check.io, f64, .a, .a, 2, -1, &a, 0, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidLda, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 1, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidLdu, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 0));
-    try testing.expectError(error.InvalidLdu, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 0, &vt, 0));
-    try testing.expectError(error.InvalidLdvt, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 1));
-    try testing.expectError(error.InvalidLdvt, gesvd(fa, check.io, f64, .n, .s, 3, 2, &a, 3, &s, &u, 1, &vt, 1));
+    try testing.expectError(error.InvalidJobvt, gesvd(fa, check.io, f64, .o, .o, -1, -1, &a, 0, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.InvalidM, gesvd(fa, check.io, f64, .a, .a, -1, -1, &a, 0, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.InvalidN, gesvd(fa, check.io, f64, .a, .a, 2, -1, &a, 0, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.InvalidLda, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 1, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.InvalidLdu, gesvd(fa, check.io, f64, .a, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 0, null));
+    try testing.expectError(error.InvalidLdu, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 0, &vt, 0, null));
+    try testing.expectError(error.InvalidLdvt, gesvd(fa, check.io, f64, .n, .a, 2, 2, &a, 2, &s, &u, 1, &vt, 1, null));
+    try testing.expectError(error.InvalidLdvt, gesvd(fa, check.io, f64, .n, .s, 3, 2, &a, 3, &s, &u, 1, &vt, 1, null));
     try testing.expectError(error.InvalidM, gesdd(fa, check.io, f64, .a, -1, -1, &a, 0, &s, &u, 0, &vt, 0));
     try testing.expectError(error.InvalidN, gesdd(fa, check.io, f64, .a, 2, -1, &a, 0, &s, &u, 0, &vt, 0));
     try testing.expectError(error.InvalidLda, gesdd(fa, check.io, f64, .a, 2, 2, &a, 1, &s, &u, 0, &vt, 0));
@@ -623,7 +685,7 @@ test "faer svd: reports the first bad argument and reads nothing when empty" {
     try testing.expectError(error.InvalidLdvt, gesdd(fa, check.io, f64, .o, 2, 2, &a, 2, &s, &u, 1, &vt, 1));
     try testing.expectError(error.InvalidLdvt, gesdd(fa, check.io, f64, .s, 3, 2, &a, 3, &s, &u, 3, &vt, 1));
     // empty: nothing read or written
-    try gesvd(fa, check.io, f64, .a, .a, 0, 2, &a, 1, &s, &u, 1, &vt, 2);
+    try gesvd(fa, check.io, f64, .a, .a, 0, 2, &a, 1, &s, &u, 1, &vt, 2, null);
     try gesdd(fa, check.io, f64, .a, 2, 0, &a, 2, &s, &u, 2, &vt, 1);
     for ([_][]const f64{ &a, &s, &u, &vt }) |x| for (x) |e| try testing.expect(std.math.isNan(e));
 }
@@ -634,7 +696,7 @@ test "faer svd: 1 x 1 and a known 2 x 2, exact where the reference is" {
     var s: [1]f64 = undefined;
     var u: [1]f64 = undefined;
     var vt: [1]f64 = undefined;
-    try gesvd(al, check.io, f64, .a, .a, 1, 1, &a, 1, &s, &u, 1, &vt, 1);
+    try gesvd(al, check.io, f64, .a, .a, 1, 1, &a, 1, &s, &u, 1, &vt, 1, null);
     try testing.expectEqual(@as(f64, 3), s[0]);
     try testing.expectEqual(@as(f64, -3), u[0] * s[0] * vt[0]);
     // [3 0; 4 5] has singular values sqrt(45) and sqrt(5)
@@ -644,7 +706,7 @@ test "faer svd: 1 x 1 and a known 2 x 2, exact where the reference is" {
         var u_two: [4]f64 = undefined;
         var v2: [4]f64 = undefined;
         switch (r) {
-            .gesvd => try gesvd(al, check.io, f64, .n, .n, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1),
+            .gesvd => try gesvd(al, check.io, f64, .n, .n, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1, null),
             .gesdd => try gesdd(al, check.io, f64, .n, 2, 2, &b, 2, &s2, &u_two, 1, &v2, 1),
         }
         try testing.expectApproxEqRel(@sqrt(45.0), s2[0], 4e-16);
