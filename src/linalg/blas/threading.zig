@@ -457,7 +457,8 @@ pub const dispatch_futures = true;
 
 /// Whether `io`'s worker tasks run on `Futures`.
 pub fn usesFutures(io: Io) bool {
-    if (comptime !dispatch_futures or Io.Evented != Io.Dispatch) return false;
+    // `Evented`, not `Io.Evented`: Zig 0.17.0 cannot instantiate `Dispatch`
+    if (comptime !dispatch_futures or Evented != Io.Dispatch) return false;
     const S = struct {
         var ev: Io.Dispatch = undefined;
     };
@@ -506,7 +507,7 @@ const Futures = struct {
     left: std.atomic.Value(u32) = .init(1),
     done: Signal = .{},
 
-    const cap = if (dispatch_futures and Io.Evented == Io.Dispatch) chunks_max else 0;
+    const cap = if (dispatch_futures and Evented == Io.Dispatch) chunks_max else 0;
 
     fn Task(comptime function: anytype) type {
         return struct {
@@ -791,8 +792,9 @@ pub const threaded_tests = hosted or kernel_smp != null;
 pub const TestIo = if (hosted) Io.Threaded else if (kernel_smp) |k| k.Pool else void;
 
 /// `Io.Evented` for the fiber tests; void where it does not build (Zig 0.17's
-/// `Uring`, issues.md). Version-gated: std exposes nothing to detect.
-pub const Evented = if (Io.Evented == Io.Uring and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else Io.Evented;
+/// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
+/// lacks; issues.md). Version-gated: std exposes nothing to detect.
+pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else Io.Evented;
 
 /// Starts `ev` with `extra` threads besides the caller's; false where it
 /// cannot be sized so (`Dispatch` sizes its own pool) or does not start.

@@ -791,6 +791,21 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 ## Zig standard library
 
+### Zig 0.17.0's `Io.Dispatch` does not compile
+
+- **Seen:** on `aarch64-macos` and `x86_64-macos`, Zig 0.17.0's
+  `lib/std/Io/Dispatch.zig:439` sets `.processReplacePath` in its `Io.VTable`
+  literal, a field 0.17.0's `Io.VTable` lacks ("no field named
+  'processReplacePath'"). Anything that instantiates `Io.Dispatch` fails to
+  build, so rstd's `threading.usesFutures` (T106) broke `rstd-check-zig017`'s
+  macOS targets, which zfls builds.
+- **Workaround:** `threading.Evented` is `void` for `Dispatch` on Zig 0.17, as
+  it already was for `Uring`, and `usesFutures` and the futures cap test
+  `Evented`, never `Io.Dispatch` itself, so 0.17 never instantiates it. The
+  dev toolchain is unaffected. Drop the gate when zfls moves past 0.17.
+- **Issue text:** fixed upstream after 0.17.0 (master's `Io.VTable` has the
+  field); nothing to file.
+
 ### `SafeAllocator` asks for the CPU count in single-threaded builds
 
 - **Seen:** `std.heap.SafeAllocator.acquireThread` calls
