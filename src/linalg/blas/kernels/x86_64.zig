@@ -30,6 +30,7 @@ const converted = .{
     registry.Kernels(Core, @import("../blas2/hemv/x86_64/asm/__root__.zig")),
     @import("../blas2/symv/x86_64/kernel.zig"),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
+    @import("../blas3/gemm/x86_64/kernel.zig"),
 };
 
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those

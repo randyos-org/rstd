@@ -2,14 +2,29 @@
 //! and `zgemm_small_matrix_kernel_*.c`, each element summed over the depth in
 //! order, the real ones on `@Vector`s of rows and columns of the gemm tile.
 //! One of the gemm tile's `sets` (`kernel.zig`), so each core's object builds
-//! them for its features; imports stay inside `linalg/blas/`.
+//! them for its features, or its own where upstream has them (`forCore`);
+//! imports stay inside `linalg/blas/`.
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
+const coretypes = @import("../../cpu/_coretypes.zig");
 const gk = @import("kernel.zig");
 
 const BlasLong = types.BlasLong;
 const isComplex = types.isComplex;
+
+/// The module whose `Kernels` `core`'s object exports: x86_64's for the
+/// cores whose `KERNEL.<core>` names Skylake-X's `[SD]GEMM_SMALL_K_*`
+/// (`KERNEL.SKYLAKEX`, included by `COOPERLAKE` and `SAPPHIRERAPIDS`), this
+/// one's elsewhere.
+pub fn forCore(comptime core: anytype) type {
+    if (sysinfo.target.cpu.arch == .x86_64 and @TypeOf(core) == coretypes.X86CoreType) switch (core) {
+        .skylakex, .cooperlake, .sapphirerapids => return @import("x86_64/kernel.zig"),
+        else => {},
+    };
+    return @This();
+}
 
 /// The small kernels of `T` under the gemm tile `geo`; named as their slots
 /// less the precision letter.

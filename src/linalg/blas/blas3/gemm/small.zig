@@ -12,7 +12,9 @@
 //! core upstream (`zgemm_small_matrix_permit.c`).
 
 const std = @import("std");
+const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
+const fma = @import("../../fma.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
 const gk = @import("kernel.zig");
@@ -67,6 +69,45 @@ pub fn permitFor(comptime family: params.Family, core: params.CoreOf(family)) Pe
     };
 }
 
+/// The `sbgemm` permit rules: `generic` allows nothing.
+pub const HalfPermit = enum {
+    generic,
+    /// `kernel/x86_64/sbgemm_small_kernel_permit_cooperlake.c`
+    cooperlake,
+};
+
+/// The rule `core` takes for `sbgemm`: `KERNEL.COOPERLAKE`'s
+/// `SBGEMM_SMALL_M_PERMIT`; `KERNEL.SAPPHIRERAPIDS` empties it, so the
+/// generic one, as every other core.
+pub fn halfPermitFor(comptime family: params.Family, core: params.CoreOf(family)) HalfPermit {
+    return switch (family) {
+        .x86_64 => switch (core) {
+            .cooperlake => .cooperlake,
+            else => .generic,
+        },
+        else => .generic,
+    };
+}
+
+/// Whether `rule` lets an `sbgemm` of `m x n` by `k` take the small path:
+/// Cooper Lake's up to `256^3`, for 8, 16 or 32 columns ("small matrix
+/// kernel works well for N = 8, 16, 32").
+pub fn allowsHalf(rule: HalfPermit, m: BlasLong, n: BlasLong, k: BlasLong) bool {
+    const mnk = @as(f64, @floatFromInt(m)) * @as(f64, @floatFromInt(n)) * @as(f64, @floatFromInt(k));
+    return switch (rule) {
+        .generic => false,
+        .cooperlake => mnk <= cube(256) and (n == 8 or n == 16 or n == 32),
+    };
+}
+
+fn HalfPermits(comptime rule: HalfPermit) type {
+    return struct {
+        fn f(_: i32, _: i32, m: BlasLong, n: BlasLong, k: BlasLong, _: f32, _: f32) callconv(.c) i32 {
+            return @intFromBool(allowsHalf(rule, m, n, k));
+        }
+    };
+}
+
 /// `100.0*100.0*100.0` and the like: the cubes the permits compare
 /// `M * N * K` against.
 fn cube(comptime e: comptime_int) f64 {
@@ -117,8 +158,8 @@ fn Permits(comptime rule: Permit) type {
     };
 }
 
-/// Points `vt`'s permits at `rule`'s.
-pub fn installPermits(vt: *Vtable, rule: Permit) void {
+/// Points `vt`'s permits at `rule`'s, and `sbgemm`'s at `half`'s.
+pub fn installPermits(vt: *Vtable, rule: Permit, half: HalfPermit) void {
     switch (rule) {
         inline else => |r| {
             const P = Permits(r);
@@ -127,6 +168,9 @@ pub fn installPermits(vt: *Vtable, rule: Permit) void {
             vt.cgemm_small_matrix_permit = &P.complex(f32);
             vt.zgemm_small_matrix_permit = &P.complex(f64);
         },
+    }
+    switch (half) {
+        inline else => |h| vt.sbgemm_small_matrix_permit = &HalfPermits(h).f,
     }
 }
 
@@ -185,6 +229,34 @@ pub fn gemm(comptime T: type, vt: *const Vtable, ta: bool, tb: bool, ca: bool, c
             },
             else => unreachable,
         }
+    }
+    return true;
+}
+
+/// `sbgemm` on the small path if `vt`'s permit allows it and the core has
+/// the kernel: true if done. After `half.gemm`'s quick returns, as `gemm`.
+pub fn gemmHalf(vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, a: [*]const types.BF16, lda: usize, b: [*]const types.BF16, ldb: usize, beta: f32, c: [*]f32, ldc: usize) bool {
+    const permit = vt.sbgemm_small_matrix_permit orelse return false;
+    const M: BlasLong = @intCast(m);
+    const N: BlasLong = @intCast(n);
+    const K: BlasLong = @intCast(k);
+    const ap: [*]types.BF16 = @constCast(a);
+    const bp: [*]types.BF16 = @constCast(b);
+    switch (ta) {
+        inline else => |xa| switch (tb) {
+            inline else => |xb| {
+                const ops = comptime &[_]u8{ if (xa) 't' else 'n', if (xb) 't' else 'n' };
+                if (beta == 0) {
+                    const f = @field(vt, "sbgemm_small_kernel_b0_" ++ ops) orelse return false;
+                    if (permit(code(ta, false), code(tb, false), M, N, K, alpha, beta) == 0) return false;
+                    _ = f(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), c, @intCast(ldc));
+                } else {
+                    const f = @field(vt, "sbgemm_small_kernel_" ++ ops) orelse return false;
+                    if (permit(code(ta, false), code(tb, false), M, N, K, alpha, beta) == 0) return false;
+                    _ = f(M, N, K, ap, @intCast(lda), alpha, bp, @intCast(ldb), beta, c, @intCast(ldc));
+                }
+            },
+        },
     }
     return true;
 }
@@ -292,11 +364,18 @@ test "small permits: the reference's thresholds" {
     try std.testing.expectEqual(Permit.generic, permitFor(.x86, .skylakex));
     try std.testing.expectEqual(Permit.sve, permitFor(.arm64, .neoversev1));
     try std.testing.expectEqual(Permit.generic, permitFor(.arm64, .neoversev2));
+    // Cooper Lake's `sbgemm`: 8, 16 or 32 columns, up to 256^3
+    try std.testing.expect(allowsHalf(.cooperlake, 256, 32, 2048));
+    try std.testing.expect(!allowsHalf(.cooperlake, 256, 32, 2049));
+    try std.testing.expect(!allowsHalf(.cooperlake, 4, 9, 4));
+    try std.testing.expectEqual(HalfPermit.cooperlake, halfPermitFor(.x86_64, .cooperlake));
+    try std.testing.expectEqual(HalfPermit.generic, halfPermitFor(.x86_64, .sapphirerapids));
     // a core's blocking brings its permit
     var vt: Vtable = .{};
     params.installCore(&vt, .x86_64, .skylakex, .{});
     try std.testing.expectEqual(@as(i32, 1), vt.dgemm_small_matrix_permit.?(0, 0, 10, 10, 10, 1, 0));
     try std.testing.expectEqual(@as(i32, 0), vt.zgemm_small_matrix_permit.?(0, 0, 1, 1, 1, 1, 0, 0, 0));
+    try std.testing.expectEqual(@as(i32, 0), vt.sbgemm_small_matrix_permit.?(0, 0, 8, 8, 8, 1, 0));
     params.installCore(&vt, .x86_64, .haswell, .{});
     try std.testing.expectEqual(@as(i32, 0), vt.dgemm_small_matrix_permit.?(0, 0, 1, 1, 1, 1, 0));
 }
@@ -338,4 +417,130 @@ test "portable small kernels match the wide reference through gemm" {
 
 test "every linked core's small kernels match the wide reference, where this machine runs them" {
     try blas1check.eachCore(cases);
+}
+
+// ---- Skylake-X's kernels, on any x86_64 --------------------------------------------
+
+/// `x86_64/kernel.zig`'s kernels, which LLVM splits into narrower vectors
+/// on a machine without AVX-512: the same lanes, so the same bits.
+const skylakex = @import("x86_64/kernel.zig");
+
+/// Skylake-X's element `(i, j)` of an `m x n x k` problem of `op` (`"nn"`
+/// ...), as upstream computes it: the depth in order, fused, except in the
+/// dot blocks (`L` lanes, the masked tail, `REDUCE_4` or
+/// `_mm512_reduce_add`); then the store.
+fn skylakexModel(comptime T: type, comptime op: []const u8, b0: bool, m: usize, n: usize, k: usize, a: []const T, ld: usize, b: []const T, alpha: T, beta: T, c: T, i: usize, j: usize) T {
+    const L = skylakex.Skylakex(T).lanes;
+    const ta = op[0] == 't';
+    const tb = op[1] == 't';
+    const at = struct {
+        fn f(x: []const T, t: bool, ldx: usize, r: usize, q: usize) T {
+            return if (t) x[q + r * ldx] else x[r + q * ldx];
+        }
+    }.f;
+    // the dot rows: all of `tn`'s; `nn`'s past its vectors, for at most
+    // half a vector of them over a depth of two vectors or more
+    const mm = m % L;
+    const start: ?usize = if (ta and !tb) 0 else if (!ta and !tb and mm > 0 and mm <= L / 2 and k >= 2 * L) m - mm else null;
+    const fused = struct {
+        fn f(x: T, y: T, z: T) T {
+            return @mulAdd(T, x, y, z);
+        }
+    }.f;
+    if (start == null or i < start.?) {
+        var acc: T = 0;
+        for (0..k) |l| acc = fused(at(a, ta, ld, i, l), at(b, tb, ld, l, j), acc);
+        const r = acc * alpha;
+        return if (b0) r else fused(c, beta, r);
+    }
+    var lanes: [64]T = @splat(0);
+    var l0: usize = 0;
+    while (l0 < k) : (l0 += L) for (0..L) |x| {
+        const l = l0 + x;
+        lanes[x] = if (l < k) fused(at(a, ta, ld, i, l), at(b, tb, ld, l, j), lanes[x]) else fused(0, 0, lanes[x]);
+    };
+    const rows4 = (m - start.?) & ~@as(usize, 3);
+    const grouped = i - start.? < rows4 or j < (n & ~@as(usize, 3));
+    var w: usize = L;
+    while (w > 1) : (w /= 2) for (0..w / 2) |x| {
+        lanes[x] = if (grouped) lanes[2 * x] + lanes[2 * x + 1] else lanes[x] + lanes[x + w / 2];
+    };
+    if (grouped) {
+        const s = lanes[0] * alpha;
+        return if (b0) s else fused(c, beta, s);
+    }
+    return if (b0) alpha * lanes[0] else fma.madd(fma.fuse, T, alpha, lanes[0], beta * c);
+}
+
+/// Every Skylake-X kernel over sizes that reach each of its blocks: equal
+/// bits to `skylakexModel` on uneven data, and to plain arithmetic on small
+/// integers; `C`'s padding untouched.
+fn checkSkylakex(comptime T: type) !void {
+    const K = skylakex.Skylakex(T);
+    const L = K.lanes;
+    const al = std.testing.allocator;
+    const ms = [_]usize{ 1, 3, 4, 7, L / 2 + 1, 3 * L / 4, L + 3, 3 * L + L / 2, 7 * L + 3 };
+    const ns = [_]usize{ 1, 2, 3, 7, 13 };
+    const ms_wide = [_]usize{ 1, 3, 4, 9, 3 * L / 4 - 1 };
+    const ns_wide = [_]usize{ 6 * L + L / 2 + 1, 2 * L + 1 };
+    const ks = [_]usize{ 1, 2 * L - 1, 2 * L, 2 * L + L / 2 + 1 };
+    const ld = 7 * L + 3 + 2;
+    const kmax = 2 * L + L / 2 + 1;
+    const size = ld * @max(ld, kmax);
+    const buf = try al.alloc(T, 5 * size);
+    defer al.free(buf);
+    const a = buf[0..size];
+    const b = buf[size..][0..size];
+    const c = buf[2 * size ..][0..size];
+    const want = buf[3 * size ..][0..size];
+    const got = buf[4 * size ..][0..size];
+    var prng = std.Random.DefaultPrng.init(0x5ca1ab1e);
+    const rnd = prng.random();
+    inline for (.{ false, true }) |exact| {
+        for ([_][]T{ a, b, c }) |x| for (x) |*v| {
+            v.* = if (exact) @floatFromInt(rnd.intRangeAtMost(i32, -4, 4)) else std.math.ldexp(rnd.float(T) * 2 - 1, rnd.intRangeAtMost(i32, -6, 6));
+        };
+        const alpha: T = if (exact) 2 else 0.7;
+        const beta: T = if (exact) -3 else 1.3;
+        inline for (.{ "nn", "nt", "tn", "tt" }) |op| inline for (.{ false, true }) |b0| {
+            const f = @field(K, "gemm_small_kernel_" ++ (if (b0) "b0_" else "") ++ op);
+            for ([_][]const usize{ &ms, &ms_wide }, [_][]const usize{ &ns, &ns_wide }) |mlist, nlist| for (mlist) |m| for (nlist) |n| for (ks) |k| {
+                @memcpy(want, c);
+                @memcpy(got, c);
+                for (0..n) |j| for (0..m) |i| {
+                    const p = i + j * ld;
+                    if (exact) {
+                        var s: T = 0;
+                        for (0..k) |l| s += (if (op[0] == 't') a[l + i * ld] else a[i + l * ld]) * (if (op[1] == 't') b[j + l * ld] else b[l + j * ld]);
+                        want[p] = alpha * s + (if (b0) 0 else beta * c[p]);
+                    } else want[p] = skylakexModel(T, op, b0, m, n, k, a, ld, b, alpha, beta, c[p], i, j);
+                };
+                const lm: BlasLong = @intCast(ld);
+                if (b0) _ = f(@intCast(m), @intCast(n), @intCast(k), a.ptr, lm, alpha, b.ptr, lm, got.ptr, lm) else _ = f(@intCast(m), @intCast(n), @intCast(k), a.ptr, lm, alpha, b.ptr, lm, beta, got.ptr, lm);
+                if (!std.mem.eql(u8, std.mem.sliceAsBytes(want), std.mem.sliceAsBytes(got))) {
+                    std.debug.print("{s} {s}{s} exact={} m={d} n={d} k={d}\n", .{ @typeName(T), if (b0) "b0_" else "", op, exact, m, n, k });
+                    return error.TestUnexpectedResult;
+                }
+            };
+        };
+    }
+}
+
+test "Skylake-X small kernels: upstream's blocks, lanes and reductions, on any x86_64" {
+    if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    try checkSkylakex(f32);
+    try checkSkylakex(f64);
+}
+
+test "Skylake-X small kernels match the wide reference through gemm" {
+    if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    inline for (.{ .{ "s", f32 }, .{ "d", f64 } }) |p| {
+        const K = skylakex.Kernels(p[1], gk.geometry(p[1]));
+        inline for (.{ "nn", "nt", "tn", "tt", "b0_nn", "b0_nt", "b0_tn", "b0_tt" }) |op| {
+            @field(vt, p[0] ++ "gemm_small_kernel_" ++ op) = &@field(K, "gemm_small_kernel_" ++ op);
+        }
+    }
+    try cases(&vt);
 }

@@ -551,7 +551,7 @@ pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), e
     switch (core) {
         inline else => |c| {
             defer vt.dtb_entries = dtbFor(family, c);
-            defer small.installPermits(vt, small.permitFor(family, c));
+            defer small.installPermits(vt, small.permitFor(family, c), small.halfPermitFor(family, c));
             if (comptime family == .generic) {
                 installGeneric(vt, native_branch, native_buffer_size, env);
             } else if (tableFor(family, c)) |table| {

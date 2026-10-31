@@ -845,7 +845,9 @@ pub fn Registry(comptime Core: type) type {
             if (comptime !tilesVary()) return;
             inline for (core_precisions) |p| {
                 inline for (sets) |s| {
-                    const K = s.Kernels(p[1], geometry(p[1]));
+                    // a set may hand a core upstream's own kernels
+                    const S = if (@hasDecl(s, "forCore")) s.forCore(core) else s;
+                    const K = S.Kernels(p[1], geometry(p[1]));
                     inline for (comptime slotNames(p[0], K)) |name| {
                         @export(&@field(K, name), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ name), core), .visibility = .hidden });
                     }
