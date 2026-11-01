@@ -8,12 +8,14 @@
 //!   ssh_test <host> <test exe> [args...]
 //!
 //! An argument `local:<path>` is a file or directory copied over too, next
-//! to the executable, passed as its copy's path and removed after.
+//! to the executable, passed as its copy's path and removed after; one
+//! `env:<name>=<value>` sets that variable for the run instead.
 
 const std = @import("std");
 const Io = std.Io;
 
 const local_prefix = "local:";
+const env_prefix = "env:";
 
 pub fn main(init: std.process.Init) void {
     std.process.exit(run(init) catch |err| {
@@ -47,7 +49,15 @@ fn run(init: std.process.Init) !u8 {
     // each argument single-quoted for the remote shell; `local:` ones copied
     var extra: std.ArrayList(u8) = .empty;
     var copies: std.ArrayList(u8) = .empty;
+    var env: std.ArrayList(u8) = .empty;
     for (args[3..], 0..) |a, i| {
+        if (std.mem.startsWith(u8, a, env_prefix)) {
+            const set = a[env_prefix.len..];
+            const eq = std.mem.findScalar(u8, set, '=') orelse return error.EnvWithoutValue;
+            if (std.mem.findScalar(u8, set, '\'') != null) return error.QuoteInArgument;
+            try env.print(arena, "{s}='{s}' ", .{ set[0..eq], set[eq + 1 ..] });
+            continue;
+        }
         const arg = if (std.mem.startsWith(u8, a, local_prefix)) blk: {
             const path = a[local_prefix.len..];
             const copy = try arena.print("{s}.{d}", .{ remote, i });
@@ -65,7 +75,7 @@ fn run(init: std.process.Init) !u8 {
         if (std.mem.findScalar(u8, arg, '\'') != null) return error.QuoteInArgument;
         try extra.print(arena, " '{s}'", .{arg});
     }
-    const command = try arena.print("chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote, extra.items, copies.items });
+    const command = try arena.print("chmod +x {0s} && {3s}RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote, extra.items, copies.items, env.items });
     var ssh: std.ArrayList([]const u8) = .empty;
     try ssh.append(arena, "ssh");
     try ssh.appendSlice(arena, &options);

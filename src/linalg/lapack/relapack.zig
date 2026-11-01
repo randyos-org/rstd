@@ -1302,7 +1302,10 @@ fn potrfCases(vt: *const Vtable) anyerror!void {
         if (check.rig() and n > 70) continue;
         var p = try chol.Problem(T).init(al, n, upper, n * 37 + @intFromBool(upper));
         defer p.deinit(al);
-        try potrf(al, check.io, T, uploOf(upper), @intCast(n), p.a.ptr, @intCast(p.lda), null);
+        potrf(al, check.io, T, uploOf(upper), @intCast(n), p.a.ptr, @intCast(p.lda), null) catch |e| {
+            check.say("relapack potrf {s} n={d} upper={}\n", .{ @typeName(T), n, upper });
+            return e;
+        };
         p.expectFactor() catch |e| {
             check.say("relapack potrf {s} n={d}\n", .{ @typeName(T), n });
             return e;

@@ -42,7 +42,10 @@ or a scratchpad.
 
 ### Working on
 
-T62's tier 2 failures, fixed one at a time on `review` as the sweep finds them (In the background).
+T62's tiers 1 and 2 are done as far as testable (user, 2026-11-01): the Intel Mac's steps count
+as passing until it arrives (T141), and the new `ssh-test-x86_64-macos-avx2`'s first full run is
+the last open check. Tier 3 runs in the background (`t3a` to `t3i` at 5ddbd422, `--keep-going`);
+its failures go to Known issues and enhancements as they come in, and do not hold up other work.
 
 ### In the background
 
@@ -162,32 +165,23 @@ with dev.858: the toolchain's MIPS feature data (`kernel.zig:1020` compares mips
 Mac's Zig too: their tests run one worker unchunked and the others in many chunks, and
 Accelerate's bits follow a part's shape, so they now run on rstd's kernels (the real contract,
 the same chunks at any worker count, `apple_accel`'s split test covers with routing on).
+The MIPS failures are upstream's (Zig 2c5f1044fc dropped `msa` and `fpu_d` from the named cores):
+rstd's MIPS kernels now ask for them (f7ed2415), 34 of 34 on dev.858, 0.17.0 and the Mac's Zig.
 
-#### Build slots
-
-Compiling, one row per slot; a native test compiled on the Mac and run here shows in both tables.
-
-| Slot | Item | Job | Since |
-| --- | --- | --- | --- |
-| Local 1 | T62 | `t2e`: `x86_64-macos`, `check-macho`, `check-uefi`, `check-zig017` (74305c34; Zig 0.18.0-dev.858) | 20:40 |
-| Local 2 | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos`, `T114-x86_64-macos` (23f164c4) | 20:54 |
-| Mac 0.18 | T62 | shared by the sweeps' compiles | 19:05 |
-| Mac 0.17 | free | | |
-
-#### Running tests
-
-Test executables and QEMU rigs, outside the slots. From 21:10 each queued step has a sweep of
-its own (`--tree t2g` to `t2n`, at 23f164c4); `t2b`, `t2d` and `t2f` end after their current step.
-
-| Where | Item | Run | Since |
-| --- | --- | --- | --- |
-| Mac | T62 | `t2a`: `x86_64-uefi` (23f164c4) | 20:54 |
-| Mac | T62 | `t2b`: `x86_64-smp` (74305c34) | 19:05 |
-| Mac | T62 | `t2c`: `linux-aarch64` (74305c34; its sweep died on TERM, the step runs on) | 21:02 |
-| Mac | T62 | `t2d`: `linux-arm` (b165b084; `arm`, `arm-softfp` passed) | 20:00 |
-| Mac | T62 | `t2f`: `ssh-x86_64-macos` (23f164c4) | 20:54 |
-| Mac | T62 | `t2g` `linux-x86_64`, `t2h` `T08-x86_64`, `t2i` `T08-aarch64`, `t2j` `powerpc-750`, `t2k` `powerpc-750-hf`, `t2l` `T08-arm-softfp` and `T08-powerpc-750`, `t2m` `ssh-aarch64-macos`, `t2n` `T114-x86_64-macos` | 21:10 |
-| Local | T62 | `t2e`: the macOS VM, then the three compile checks (74305c34) | 20:40 |
+Merged to main 2026-11-01 (5ddbd422, PR 6); hotfixes follow if the last checks fail. Tier 2 is
+green but for the macOS VM: `linux-x86_64` (3 GB) 978 passed, 53 skipped; `T08-powerpc-750`
+149, 11 skipped; every other step passed earlier. `qemu-test-x86_64-macos` (Skylake-Client,
+TCG, about 9.5 h to test 310 of 1031) failed "relapack potrf: A = L Lᴴ from a known L":
+`NotPositiveDefinite` from `potrf` on every core and the `@Vector` kernels, so not a kernel;
+then `cholesky`'s `potri` went over an hour without output, and the run was stopped. The same
+two tests pass under Rosetta (35 of 35), also with `ROSETTA_ADVERTISE_AVX=1`, but that sets
+cpuid only: `hw.optional.avx2_0` stays 0, so Accelerate likely still takes its SSE path (T141).
+It does show rstd's `sandybridge`, `haswell` and `zen` cores, which plain Rosetta skips, so
+`ssh-test-x86_64-macos-avx2` (`ssh_test`'s new `env:` argument) is a tier 2 step; its first full
+run is at review plus these edits (worktree `rstd-wt/avx2`). Unstaged: that step; the macOS VM
+step takes `-Dqemu-test-filter`; `potrfCases` names the type and size when `potrf` fails. The user bought an Intel Mac (due the week of 2026-11-02), to be set up
+as the M6 is: until then nothing runs on the macOS VM, the M6's tests stand for macOS, and
+later bugs are hotfixes, patched in place (user, 2026-11-01). Tier 3 next.
 
 ## Queue
 
@@ -195,50 +189,34 @@ its own (`--tree t2g` to `t2n`, at 23f164c4); `t2b`, `t2d` and `t2f` end after t
 
 Each moves to In progress when the sweep step that runs it starts.
 
-- [ ] **T08** LAPACK's own tests (`potrf`, `getrf`, `getrs`) on the rigs: add `linalg/lapack` to
-  `src/_test_qemu.zig`, with a sparc64 part. Landed (8c574827): `linalg.lapack.` in the rigs'
-  default filters and `_test_qemu.zig` (so `rstd-check-uefi` links it), sparc64's LAPACK in the
-  `blas3-tri` part, sparc64-debug in four `lapack-*` parts (`getrs`'s every-core test split into
-  real and complex to fit the load window; `getrf` and `cholesky` have about 140 and 240 KiB left);
-  every listed `qemu-check` passes. Check off once T62's sweep runs them; the 32 MiB rig heap is
-  unproven. Scheduled: tier 2 sweep steps 18 to 21
-  (`T08-<rig>`), started by the sweep itself.
-- [ ] **T114** Accelerate's `potrf` (T35) is untested on the Mac: which symbol spelling Apple
-  exports (`load` tries `dpotrf$NEWLAPACK$ILP64` and `dpotrf_$NEWLAPACK$ILP64`), whether its special
-  values match the reference (a quirk entry if not), and in the timing session whether routing beats
-  rstd's threaded `potrf`. Sweep filters: `potrf goes to Accelerate`, `potr`. Tier 2 (Accelerate on
-  macOS, user 2026-10-30): the correctness part is required; the timing part waits for the timing
-  session. The 13.3 SDK answers the spelling: `dpotrf$NEWLAPACK$ILP64`, no underscore (T47); the
-  special values are left. Scheduled: tier 2 sweep
-  steps 22 and 23 (`T114-<host>`), started by the sweep itself.
+- [ ] **T114** Accelerate's `potrf` (T35), the timing part: in the timing session, whether routing
+  beats rstd's threaded `potrf`. The correctness part is done (see Done).
 
 ### Code and design
 
-- [ ] **M7** Redesign the fixed-size vectors and matrices around `@Matrix` (user, 2026-10-31),
-  ahead of M3, whose types follow from it: `Vec(N, T)` over `@Vector`, `StaticMat(R, C, T)` over
-  `@Matrix` where the compiler has it (this toolchain's randy-matrix), and a fallback with the
-  same API where it doesn't (Zig 0.17 for zfls, stock 0.18), so code written for either compiles
-  on both. Settle: the comptime test for `@Matrix`; storage (`@Matrix` pads columns to the vector
-  size, so `@Matrix(3, 2, f32)` is two `@Vector(3, f32)`s, against M5's packed `[C][R]T`) and
-  what views and the BLAS see; complex elements; SPIR-V's `OpTypeMatrix` through `@Matrix`
-  (`tools/spirv_matrix_probe.zig`); the same bits from both forms; `Mat(T)` beside them. It also
-  hosts the vector primitives ported kernels need (pffft's interleave, transpose and half-swap,
-  rstd's N10). Revisits M5's decisions 1, 8 and 11 (design.md); M3, M6 and rstd's N1 follow it.
-  **Needs:** nothing.
+- [ ] **T139** One fusion setting (design.md, decision 15): `fma.zig`'s `fuse`, `fuse_vector`
+  and `fuseFor` read `zigcfg.float_options.fuse_mul_add_bits` (`hardware` goes, its table now
+  `fusedMulAddBits`); the per-core roots (`_kernel.zig`) declare `std_float_options` in place of
+  `blas_fuse_fma` and `blas_fuse_fma_vector`, the MSA cores' explicitly; `rsimd.mulAdd` follows
+  the setting; the 25 files calling `fma.fuse*` move with it. Fixes f64 fusing as a libm call
+  on single-precision-only FMA (arm `vfp4sp`, riscv and loongarch with F but not D).
+  `zigcfg.FloatOptions` and `fusedMulAddBits` written 2026-11-01, not yet compiled.
+  **Needs:** local builds again.
 - [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS and LAPACK behind it, as designed in
   design.md's "Planned: the public `rstd.linalg` layer" (settled in M5, 2026-10-30):
   `StaticMat(R, C, T)` (comptime shape, a value) and unmanaged `Mat(T)` (run-time shape),
   real and complex, one operation set over views, inline `@Vector` code up to 8 per dimension and
   the BLAS and LAPACK above by size alone, SPIR-V's own instructions in shaders; the `rstd.simd`
   split and its callers; its migration plan's seven steps, each a commit;
-  `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`. **Needs:** M7
-  (M1, S1, M5 done); M4 confirms the inline limit after step 4.
+  `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`; `@Matrix`
+  through `rstd_matrix` as M7 settled (decisions 13 to 19), with the pffft primitives (rstd's
+  N10). **Needs:** T139 (M1, S1, M5, M7 done); M4 confirms the inline limit after step 4.
 - [ ] **M6** A type-agnostic matlab port, as the BLAS and LAPACK are: `CxMat` and its routines
   generic over the element type (`comptime T`, any float type), not hard-coded `f64`, with a
   caller-chosen result type where MATLAB fixes `double` (an explicit `comptime` type, the nearest
   Zig has to `@floatFromInt`'s inference). Pulled into the Queue by the user, 2026-10-31.
-  On `@Matrix` where the compiler has it, as M7 designs. **Needs:** M7, then a decision with M3
-  on whether the port keeps its own types or moves onto `Mat(T)`.
+  On `@Matrix` where the compiler has it, as M7 settled. **Needs:** a decision with M3 on
+  whether the port keeps its own types or moves onto `Mat(T)` (M7 done).
 - [ ] **T138** Compensated summation (Neumaier) as an option on the BLAS reductions (`sum`,
   `asum`, `dot`), still bit-identical for any thread count; `rstd.stats` uses it through the BLAS.
   Benchmark it against the plain forms on the M6 Mac mini and Zen 3, then choose the defaults.
@@ -492,11 +470,31 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   them all). `powerpc-power9` (T11) runs power8 and power9 only. Any real 32-bit POWER8 to 10 build
   of rstd fails with this toolchain, against design.md's filling-upstream-gaps decision.
   **Blocked:** upstream (LLVM; issues.md, 32-bit compiler-rt).
+- [ ] **T141** The macOS VM (`qemu-test-x86_64-macos`, Skylake-Client under TCG) fails "relapack
+  potrf: A = L Lᴴ from a known L": `NotPositiveDefinite` on every core and the `@Vector` kernels,
+  so Accelerate's AVX2 path (BLAS calls inside ReLAPACK's `potrf`) or TCG; Rosetta passes, AVX
+  advertised or not. Its `cholesky` `potri` test then ran over an hour silent. First on the Intel
+  Mac once it is set up (`potrfCases` now names the type and size); a filtered VM run with
+  routing on and off would tell the two apart.
+- [ ] **T140** A pass over all of rstd for std declarations this toolchain marks deprecated
+  (`std.builtin` for `std.lang`, `Arch.isMIPS` for `isMips`, and the rest), using the
+  replacement wherever Zig 0.17 has it too (user, 2026-11-01). New code avoids them already.
 
 ## Done
 
 Cleared 2026-10-31; landed work is in `review`'s log.
 
+- [X] **T08** LAPACK's own tests on the rigs (8c574827), in T62's tier 2: `T08-x86_64`,
+  `T08-aarch64`, `T08-arm-softfp` and `T08-powerpc-750` each 149 passed, 11 skipped, in the
+  32 MiB heap where the rig has it.
+- [X] **T114** Accelerate's `potrf`, correctness: `dpotrf$NEWLAPACK$ILP64` (T47); x86_64's
+  complex `potrf` under Rosetta calls `L Lᴴ` not positive definite, so it stays on rstd
+  (`apple_accel`); `T114-aarch64-macos` and `T114-x86_64-macos` pass (46, 1 skipped). The timing
+  part stays in the Queue.
+
+- [X] **M7** The `Vec`/`StaticMat` design around the fork's `@Matrix`, with the user
+  2026-10-31 to 2026-11-01: design.md's decisions 13 to 19. Its build selection
+  (`rstd_matrix`, `src/linalg/_matrix/`) is written, not yet compiled; the rest is T139 and M3.
 - [X] **M2** The matlab port over `rstd.linalg.blas` and `rstd.linalg.lapack` (7511eef3), reviewed
   by the user 2026-10-31; its rig tests run in T62's tier 2.
 

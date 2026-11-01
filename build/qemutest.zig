@@ -959,7 +959,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         }
         const run = switch (m.boot) {
             .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
-            .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
+            .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, filters, mac) orelse continue else continue,
             .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) orelse continue else continue,
         };
         const about = switch (m.boot) {
@@ -1385,10 +1385,11 @@ pub fn addUefiImports(b: *Build, mod: *Build.Module) !void {
 }
 
 /// `m`'s `qemu-setup-`, `qemu-install-` and `qemu-start-<name>` steps, and the
-/// test run: rstd's unit tests copied into the running VM and run over SSH.
+/// test run: rstd's unit tests (`-Dqemu-test-filter` narrows them) copied
+/// into the running VM and run over SSH.
 /// Null until the lazy OSX-KVM dependency is fetched. The VM's files are named
 /// relative to the build root, where its commands run, so none is hashed.
-fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize: Optimize, mac: MacOptions) !?*Build.Step.Run {
+fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, mac: MacOptions) !?*Build.Step.Run {
     const kvm = b.dependencyLazy("osx_kvm", .{}) catch return null;
     const vm = b.fmt(".macos-vm/{s}", .{m.name});
     try b.root.createDirPath(b.graph.io, vm);
@@ -1506,7 +1507,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    const exe = try buildroot.addRstdTest(b, mod, target, optimize, &.{});
+    const exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
     run.addArtifactArg2(exe, .{});
     run.addArg(m.qemu);
     // what that runs, built alone, so a build queue frees its slot before the VM boots

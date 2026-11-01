@@ -21,10 +21,16 @@ pub fn addSshTests(b: *Build, optimize: Optimize, filters: []const []const u8) !
     const tool = sshTool(b);
     // Apple silicon: the cores only real hardware runs (vortex, vortexm4, SME)
     const arm = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos });
-    try addSshTest(b, optimize, filters, mac, tool, arm, "on the Mac");
-    // x86_64 macOS under Rosetta 2, which the Mac must have installed
+    try addSshTest(b, optimize, filters, mac, tool, arm, &.{.{ .where = "on the Mac" }});
+    // x86_64 macOS under Rosetta 2, which the Mac must have installed. Its
+    // cpuid hides AVX unless asked, so rstd's AVX cores run only in `-avx2`.
+    // `hw.optional.avx2_0` stays 0 there, so Accelerate likely keeps its SSE
+    // path: its AVX2 path needs an Intel Mac.
     const x86 = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .macos });
-    try addSshTest(b, optimize, filters, mac, tool, x86, "on the Mac under Rosetta 2");
+    try addSshTest(b, optimize, filters, mac, tool, x86, &.{
+        .{ .where = "on the Mac under Rosetta 2" },
+        .{ .suffix = "-avx2", .env = "ROSETTA_ADVERTISE_AVX=1", .where = "on the Mac under Rosetta 2 with AVX2 and FMA in cpuid (rstd's AVX cores too)" },
+    });
     addGroupRepro(b, optimize, mac, tool, arm);
 
     const libs: BenchLibs = .{
@@ -51,25 +57,33 @@ pub fn sshTool(b: *Build) *rstdbuild.CompileStep {
     return ssh_tool.?;
 }
 
-/// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`.
-fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, where: []const u8) !void {
+/// One `ssh-test-<arch>-macos<suffix>` step: where it runs, and a variable
+/// set for the run.
+const SshVariant = struct { suffix: []const u8 = "", env: ?[]const u8 = null, where: []const u8 };
+
+/// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`, once
+/// per variant.
+fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, variants: []const SshVariant) !void {
     const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
     const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
-    // under the qemu rigs' watchdog: an hour with no output ends it
-    const run = qemutest.watchCommand(b);
-    run.addArg("--");
-    run.addArtifactArg2(tool, .{});
-    run.addArg(mac);
-    run.addArtifactArg2(test_exe, .{});
-    run.stdio = .inherit;
-    run.has_side_effects = true;
-    const name = b.fmt("ssh-test-{t}-macos", .{target.result.cpu.arch});
-    b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-Dssh-mac)", .{ target.result.cpu.arch, where, mac })).dependOn(&run.step);
-    // what that runs, built alone, so a build queue frees its slot before the
-    // Mac runs the tests
-    const check = b.step(b.fmt("ssh-check-{t}-macos", .{target.result.cpu.arch}), b.fmt("Build what ssh-test-{t}-macos runs, without running it", .{target.result.cpu.arch}));
-    check.dependOn(&test_exe.step);
-    check.dependOn(&tool.step);
+    for (variants) |v| {
+        // under the qemu rigs' watchdog: an hour with no output ends it
+        const run = qemutest.watchCommand(b);
+        run.addArg("--");
+        run.addArtifactArg2(tool, .{});
+        run.addArg(mac);
+        run.addArtifactArg2(test_exe, .{});
+        if (v.env) |e| run.addArg(b.fmt("env:{s}", .{e}));
+        run.stdio = .inherit;
+        run.has_side_effects = true;
+        const name = b.fmt("ssh-test-{t}-macos{s}", .{ target.result.cpu.arch, v.suffix });
+        b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-Dssh-mac)", .{ target.result.cpu.arch, v.where, mac })).dependOn(&run.step);
+        // what that runs, built alone, so a build queue frees its slot before
+        // the Mac runs the tests
+        const check = b.step(b.fmt("ssh-check-{t}-macos{s}", .{ target.result.cpu.arch, v.suffix }), b.fmt("Build what {s} runs, without running it", .{name}));
+        check.dependOn(&test_exe.step);
+        check.dependOn(&tool.step);
+    }
 }
 
 /// `ssh-repro-group-aarch64-macos`: `tools/evented_group_repro.zig` on the
