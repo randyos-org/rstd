@@ -76,14 +76,23 @@ const Machine = struct {
     /// `args` under HVF, on a `-Dtest-host` that is an arm64 Mac, unless
     /// `-Dtest-host-tcg`; null where the rig needs a CPU the host lacks.
     hvf: ?[]const []const u8 = null,
+    /// The BLAS core a Linux rig must select under `args`, and under `hvf`
+    /// (on the M6); its run fails otherwise.
+    core: ?[]const u8 = null,
+    hvf_core: ?[]const u8 = null,
     /// Kernel objects linked: `.none` for a soft-float ABI, which no
     /// converted kernel serves (`abi.zig`).
     blas_cores: rstdbuild.BlasCores = .all,
+    /// `XDouble` as `f128` (`-Dquad-precision` for this rig alone).
+    quad_precision: bool = false,
     /// Test sets each run as a kernel of its own, `<name>-<part>`, for a
     /// machine whose firmware maps too little for all the tests in one image;
     /// `-Dqemu-test-part` picks some, and `-Dqemu-test-filter` builds one
     /// image as usual.
     parts: []const Part = &.{},
+    /// CPUs: past 1 the kernel builds multithreaded, starts them all
+    /// (`test/qemu/smp.zig`) and runs `smp_filters` unless filtered.
+    cpus: u8 = 1,
 };
 
 const Part = struct { name: []const u8, filters: []const []const u8 };
@@ -130,7 +139,7 @@ const Boot = union(enum) {
     };
 };
 
-const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" });
+const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" }) ++ quad(&.{"aarch64"});
 
 /// `names` again as `<name>-safe`, in ReleaseSafe (T87): Debug stores every
 /// value to memory, which hides x87 width bugs (T56's showed in ReleaseSafe only).
@@ -146,6 +155,20 @@ fn x87Safe(comptime names: []const []const u8) [names.len]Machine {
     return out;
 }
 
+/// `names` again as `<name>-quad`, with `XDouble` as `f128` (T19): the edge
+/// and level-3 driver tests' only extended type off x86.
+fn quad(comptime names: []const []const u8) [names.len]Machine {
+    var out: [names.len]Machine = undefined;
+    for (names, &out) |name, *o| {
+        o.* = for (base_machines) |m| {
+            if (std.mem.eql(u8, m.name, name)) break m;
+        } else @compileError("no rig " ++ name);
+        o.name = name ++ "-quad";
+        o.quad_precision = true;
+    }
+    return out;
+}
+
 const base_machines = [_]Machine{
     .{
         .name = "aarch64",
@@ -157,6 +180,18 @@ const base_machines = [_]Machine{
         .boot = .{ .kernel = .{
             .linker_script = "test/qemu/aarch64.ld",
         } },
+    },
+    .{
+        // the threaded tests on four cores, started by PSCI
+        .name = "aarch64-smp",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.cortex_a72 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "cortex-a72" },
+        .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host" },
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/aarch64.ld",
+        } },
+        .cpus = 4,
     },
     .{
         // TCG on a Mac too, which has no SVE
@@ -363,6 +398,20 @@ const base_machines = [_]Machine{
             .llvm = true,
             .semihosting = false,
         } },
+    },
+    .{
+        // the threaded tests on four cores, started by INIT-SIPI-SIPI
+        .name = "x86_64-smp",
+        .query = .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.x86.cpu.haswell } },
+        .qemu = "qemu-system-x86_64",
+        .args = &.{ "-M", "pc", "-cpu", "max" },
+        .memory = "128M",
+        .boot = .{ .kernel = .{
+            .linker_script = "test/qemu/x86_64.ld",
+            .llvm = true,
+            .semihosting = false,
+        } },
+        .cpus = 4,
     },
     .{
         // The host CPU under Windows' hypervisor: TCG has no AVX-512, FMA4 or
@@ -730,6 +779,17 @@ const base_machines = [_]Machine{
         // four CPUs, for the tests that race threads
         .args = &.{ "-M", "virt", "-cpu", "max", "-smp", "4" },
         .hvf = &.{ "-accel", "hvf", "-M", "virt", "-cpu", "host", "-smp", "4" },
+        .hvf_core = "vortexm4",
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
+    },
+    .{
+        // the SVE and SME cores, linked only for an SVE target; TCG, as `aarch64-sve`
+        .name = "linux-aarch64-sve",
+        .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_v1 } },
+        .qemu = "qemu-system-aarch64",
+        .args = &.{ "-M", "virt", "-cpu", "max,pauth-impdef=on", "-smp", "4" },
+        .core = "armv9sme",
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_arm64", .kernel = "debian-installer/arm64/linux", .console = "ttyAMA0" } },
     },
@@ -738,7 +798,10 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .linux },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
-        .memory = "1G",
+        // the initramfs and its unpacked copy: the test, with every core's
+        // kernels and their debug info, is about 700 MB, and `/` (where tests
+        // write files) gets half the memory
+        .memory = "3G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{
@@ -767,6 +830,18 @@ const base_machines = [_]Machine{
         // detection sees a POWER10 (the baseline build links up to POWER9's
         // kernels); the caps TCG lacks are off, so qemu warns of none
         .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .memory = "1G",
+        .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
+    },
+    .{
+        // a POWER10 build, so power10's kernels link and run
+        .name = "linux-powerpc64le-power10",
+        // native `f128` from pwr9: FastISel's bug, as the freestanding rigs (issues.md)
+        .optimize = .safe,
+        .query = .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.pwr10 } },
+        .qemu = "qemu-system-ppc64",
+        .args = &.{ "-M", "pseries,cap-cfpc=broken,cap-sbbc=broken,cap-ibs=broken,cap-ccf-assist=off", "-cpu", "power10", "-smp", "4" },
+        .core = "power10",
         .memory = "1G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_ppc64el", .kernel = "debian-installer/ppc64el/vmlinux", .console = "hvc0" } },
     },
@@ -813,6 +888,9 @@ const base_machines = [_]Machine{
 /// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
 pub const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "linalg.lapack.", "simd." } ++ small_filters);
 
+/// The multicore rigs' tests: those that thread.
+const smp_filters: []const []const u8 = &.{ "linalg.blas.threading.", "linalg.blas.blas3.threaded.", "linalg.blas._test.blas2.threaded.", "threaded level 1", "at any worker count" };
+
 /// The smaller BLAS test files: types, `fma`, `portable`, `ext` and `util`.
 const small_filters = [_][]const u8{ "linalg.blas._test.types.", "linalg.blas.fma.", "linalg.blas.portable.", "linalg.blas.ext.", "linalg.blas.util." };
 
@@ -854,11 +932,16 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         if (m.stub != null or (m.whpx and !whpx_host)) continue;
         const target = b.resolveTargetQuery(m.query);
         // one rig's images and asm check, for changes that touch only its arch
-        const rig_check = if (m.boot == .kernel) blk: {
-            const s = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s test images and check their inline asm, without running qemu", .{m.name}));
-            check.dependOn(s);
-            break :blk s;
-        } else check;
+        const rig_check = switch (m.boot) {
+            .kernel => blk: {
+                const s = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s test images and check their inline asm, without running qemu", .{m.name}));
+                check.dependOn(s);
+                break :blk s;
+            },
+            // not in `qemu-check`, which builds the kernel rigs
+            .linux => b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build {s}'s initramfs and check its inline asm, without running qemu", .{m.name})),
+            .macos => check,
+        };
         if (m.boot == .kernel and m.parts.len != 0 and filters.len == 0) {
             const step = b.step(b.fmt("qemu-test-{s}", .{m.name}), b.fmt("Run rstd's tests under qemu-system on {s}, in {d} images (live logs: .zig-cache/qemu-test-{s}-<part>.log)", .{ m.name, m.parts.len, m.name }));
             for (m.parts) |p| {
@@ -877,7 +960,7 @@ pub fn addQemuTests(b: *Build, optimize: Optimize) !void {
         const run = switch (m.boot) {
             .kernel => |k| try addKernelRun(b, m, k, target, m.optimize orelse optimize, filters, test_host, rig_check),
             .macos => if (macos_vm) try addMacosRun(b, m, target, m.optimize orelse optimize, mac) orelse continue else continue,
-            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host) orelse continue else continue,
+            .linux => |l| if (linux_vm) try addLinuxRun(b, m, l, target, m.optimize orelse optimize, filters, test_host, rig_check) orelse continue else continue,
         };
         const about = switch (m.boot) {
             .kernel, .linux => b.fmt("Run rstd's tests under qemu-system on {s} (live log: {s})", .{ m.name, liveLog(b, m) }),
@@ -1004,7 +1087,7 @@ fn addConsole(b: *Build, run: *Build.Step.Run, m: Machine, host: ?TestHost) void
 /// QEMU booting a Debian kernel with an initramfs of `test/linux/init.zig`
 /// and rstd's hosted tests, which see real auxv, sysfs, procfs and threads;
 /// null until the kernel's package is fetched.
-fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost) !?*Build.Step.Run {
+fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedTarget, optimize: Optimize, filters: []const []const u8, host: ?TestHost, rig_check: *Build.Step) !?*Build.Step.Run {
     const kernel = b.dependencyLazy(l.dep, .{}) catch return null;
     // ThreadSanitizer wants glibc, and its loader, from Nix (`tools/nix/blas.sh`)
     const nix: ?[]const u8 = if (!buildroot.tsan or host == null) null else switch (target.result.cpu.arch) {
@@ -1015,8 +1098,13 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     var query = target.query;
     if (nix != null) query.abi = .gnu;
     const t = if (nix != null) b.resolveTargetQuery(query) else target;
+    const hvf = if (testHostFor(m, host)) |h| m.hvf != null and !h.tcg else false;
+    const core = if (hvf) m.hvf_core else m.core;
+    // a filtered run still prints the core
+    const core_test = "linalg.blas.__root__.test.the core in use";
+    const run_filters = if (core != null and filters.len != 0) try std.mem.concat(b.allocator, []const u8, &.{ filters, &.{core_test} }) else filters;
     const mod = try buildroot.addRstdModule(b, null, t, optimize, .all, false, false);
-    const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, filters);
+    const test_exe = try buildroot.addRstdTest(b, mod, t, optimize, run_filters);
     const init_exe = b.addExecutable(.{ .name = b.fmt("init-{s}", .{m.name}), .root_module = b.createModule(.{
         .root_source_file = b.path("test/linux/init.zig"),
         .target = target,
@@ -1026,7 +1114,8 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
     pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
     pack.addArtifactArg2(test_exe, .{ .prefix = "test=" });
-    if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system)).captureStdOut(.{}));
+    if (nix) |system| pack.addPrefixedFileArg("+", (try sshtest.nixBlas(b, host.?.alias, system, false)).captureStdOut(.{}));
+    rig_check.dependOn(&pack.step);
 
     const run = qemuCommand(b, m, host);
     addConsole(b, run, m, host);
@@ -1039,6 +1128,8 @@ fn addLinuxRun(b: *Build, m: Machine, l: Boot.Linux, target: rstdbuild.ResolvedT
     run.has_side_effects = true;
     // `passed` in test/linux/init.zig
     run.expectStdOutMatch("linuxtest: /test exited 0");
+    // no newline: the serial console sends `\r\n`
+    if (core) |c| run.expectStdOutMatch(b.fmt("blas core: {s}", .{c}));
     return run;
 }
 
@@ -1067,7 +1158,7 @@ fn initramfsTool(b: *Build) *Build.Step.Compile {
 /// The Linux VMs of `qemu-bench-linux-<arch>`, on the host's own CPU: never
 /// emulated, so the HVF arguments stand in for TCG's too, and a host
 /// without HVF fails rather than emulates.
-const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model, nix: []const u8, blis: bool }{
+const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model, nix: []const u8, blis: bool, aocl: bool }{
     .{
         .m = .{
             .name = "bench-linux-x86_64",
@@ -1084,6 +1175,8 @@ const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model
         .cpu = null,
         .nix = "x86_64-linux",
         .blis = true,
+        // AOCL-libFLAME: nixpkgs builds it for x86_64-linux only
+        .aocl = true,
     },
     .{
         .m = .{
@@ -1099,6 +1192,7 @@ const bench_machines = [_]struct { m: Machine, cpu: ?*const std.Target.Cpu.Model
         .cpu = &std.Target.aarch64.cpu.apple_m1,
         .nix = "aarch64-linux",
         .blis = false,
+        .aocl = false,
     },
 };
 
@@ -1116,10 +1210,6 @@ fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         if (m.whpx and !whpx_host) continue;
         const l = m.boot.linux;
         const step = b.step(b.fmt("qemu-{s}", .{m.name}), b.fmt("Race rstd's BLAS against nixpkgs' libraries in a Linux VM on the host's CPU (live log: {s})", .{liveLog(b, m)}));
-        const nix = host orelse {
-            step.dependOn(&b.addFail(b.fmt("qemu-{s} gets its libraries from Nix on -Dtest-host", .{m.name})).step);
-            continue;
-        };
         const kernel = b.dependencyLazy(l.dep, .{}) catch continue;
         var query = m.query;
         query.cpu_model = if (bm.cpu) |c| .{ .explicit = c } else .native;
@@ -1129,13 +1219,38 @@ fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
             .target = b.resolveTargetQuery(.{ .cpu_arch = m.query.cpu_arch, .os_tag = .linux }),
             .optimize = .fast,
         }) });
-        // the libraries' closure, fetched once per flake.lock
-        const libs = (try sshtest.nixBlas(b, nix.alias, bm.nix)).captureStdOut(.{});
         const pack = b.addRunArtifact(initramfsTool(b));
         const cpio = pack.addOutputFileArg2("initramfs.cpio", .{});
         pack.addArtifactArg2(init_exe, .{ .prefix = "init=" });
         pack.addArtifactArg2(exe, .{ .prefix = "test=" });
+        // after `--`, init's arguments, which it passes on
+        var append: std.ArrayList(u8) = .empty;
+        try append.print(b.allocator, "console={s} rdinit=/init panic=-1 quiet loglevel=3 -- --openblas=/flyoff/libopenblas.so", .{l.console});
+        if (bm.blis) try append.appendSlice(b.allocator, " --blis=/flyoff/libblis.so");
+        // the reference binaries (`tools/nix/blas.sh`); one it skipped is skipped here
+        try append.appendSlice(b.allocator, " --reference=/flyoff/liblapack.so --eigen=/flyoff/libeigen.so");
+        if (bm.aocl) try append.appendSlice(b.allocator, " --aocl-libflame=/flyoff/libflame.so");
+        const vm_append = try append.clone(b.allocator);
+
+        // the Mac's flyoff packs the libraries there: the initramfs without them
+        const host_mac = m.hvf != null;
+        if (host_mac) {
+            const base = b.addRunArtifact(initramfsTool(b));
+            const base_cpio = base.addOutputFileArg2("base.cpio", .{});
+            base.addArtifactArg2(init_exe, .{ .prefix = "init=" });
+            base.addArtifactArg2(exe, .{ .prefix = "test=" });
+            try addFlyoffStage(b, m, kernel.path(l.kernel), base_cpio, "base.cpio", vm_append.items);
+        }
+
+        const nix = host orelse {
+            step.dependOn(&b.addFail(b.fmt("qemu-{s} gets its libraries from Nix on -Dtest-host", .{m.name})).step);
+            if (!host_mac) b.step("flyoff-stage-zen3", "Stage the Zen 3 flyoff's files in zig-out/flyoff-zen3 (tools/blasbench/flyoff.sh)").dependOn(&b.addFail("flyoff-stage-zen3 gets the VM's libraries from Nix on -Dtest-host").step);
+            continue;
+        };
+        // the libraries' closure, fetched once per flake.lock
+        const libs = (try sshtest.nixBlas(b, nix.alias, bm.nix, true)).captureStdOut(.{});
         pack.addPrefixedFileArg("+", libs);
+        if (!host_mac) try addFlyoffStage(b, m, kernel.path(l.kernel), cpio, "initramfs.cpio", vm_append.items);
 
         const run = qemuCommand(b, m, host);
         addConsole(b, run, m, host);
@@ -1143,15 +1258,43 @@ fn addLinuxBenches(b: *Build, host: ?TestHost, whpx_host: bool) !void {
         fileArg(run, m, host, kernel.path(l.kernel));
         run.addArg("-initrd");
         fileArg(run, m, host, cpio);
-        // after `--`, init's arguments, which it passes on
-        var append: std.ArrayList(u8) = .empty;
-        try append.print(b.allocator, "console={s} rdinit=/init panic=-1 quiet loglevel=3 -- --openblas=/flyoff/libopenblas.so", .{l.console});
-        if (bm.blis) try append.appendSlice(b.allocator, " --blis=/flyoff/libblis.so");
         for (bench_args) |a| try append.print(b.allocator, " {s}", .{a});
         run.addArgs(&.{ "-append", append.items });
         run.has_side_effects = true;
         run.stdio = .inherit;
         step.dependOn(&run.step);
+    }
+}
+
+/// `flyoff-stage-<host>`: `tools/blasbench/flyoff.sh`'s files for the host
+/// whose CPU `m` runs on, in `zig-out/flyoff-<host>`: the host's own bench
+/// (`blas_bench`), the VM's kernel (`linux`) and initramfs (`cpio`, as
+/// `cpio_name`), its QEMU arguments (`vm.args`, one a line) and kernel
+/// command line up to the bench's own arguments (`vm.append`). The Mac's
+/// also gets `tools/nix` (`nix`), `tools/blasbench/nix` (`bench-nix`) and
+/// `flyoff.sh`, since it runs there.
+fn addFlyoffStage(b: *Build, m: Machine, kernel: Build.LazyPath, cpio: Build.LazyPath, cpio_name: []const u8, vm_append: []const u8) !void {
+    const mac = m.hvf != null;
+    const name = if (mac) "m6" else "zen3";
+    const dir: Build.InstallDir = .{ .custom = b.fmt("flyoff-{s}", .{name}) };
+    const step = b.step(b.fmt("flyoff-stage-{s}", .{name}), b.fmt("Stage the {s} flyoff's files in zig-out/flyoff-{s} (tools/blasbench/flyoff.sh)", .{ if (mac) "M6" else "Zen 3", name }));
+    const target = if (mac) b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }) else b.graph.host;
+    const exe = try sshtest.benchExe(b, target, null);
+    step.dependOn(&b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = dir } }).step);
+    step.dependOn(&b.addInstallFileWithDir(kernel, dir, "linux").step);
+    step.dependOn(&b.addInstallFileWithDir(cpio, dir, cpio_name).step);
+    var args: std.ArrayList(u8) = .empty;
+    const console_args = [_][]const u8{ "-m", m.memory, "-nographic", "-no-reboot", "-chardev", "stdio,id=con,mux=on,signal=off", "-serial", "chardev:con", "-monitor", "chardev:con" };
+    for ([_][]const []const u8{ &.{m.qemu}, m.hvf orelse m.args, &console_args }) |part| {
+        for (part) |a| try args.print(b.allocator, "{s}\n", .{a});
+    }
+    const files = b.addWriteFiles();
+    step.dependOn(&b.addInstallFileWithDir(files.add("vm.args", args.items), dir, "vm.args").step);
+    step.dependOn(&b.addInstallFileWithDir(files.add("vm.append", vm_append), dir, "vm.append").step);
+    step.dependOn(&b.addInstallFileWithDir(b.path("tools/blasbench/flyoff.sh"), dir, "flyoff.sh").step);
+    if (mac) {
+        step.dependOn(&b.addInstallDirectory(.{ .source_dir = b.path("tools/nix"), .install_dir = dir, .install_subdir = "nix" }).step);
+        step.dependOn(&b.addInstallDirectory(.{ .source_dir = b.path("tools/blasbench/nix"), .install_dir = dir, .install_subdir = "bench-nix" }).step);
     }
 }
 
@@ -1163,17 +1306,17 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         .target = target,
         .optimize = optimize,
         .code_model = k.code_model,
-        // no threads under a test kernel
-        .single_threaded = true,
+        // threads only where the kernel starts more cores
+        .single_threaded = m.cpus == 1,
     });
     if (k.firmware != null) try addUefiImports(b, test_mod);
     // the kernels of the architectures that have any
-    try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores);
+    try blaskern.addBlasKernels(b, test_mod, target, m.blas_cores, if (m.quad_precision) true else null);
     const test_exe = b.addTest(.{
         .name = b.fmt("rstd-qemu-{s}", .{m.name}),
         .root_module = test_mod,
         .test_runner = .{ .path = b.path("test/qemu/runner.zig"), .mode = .simple },
-        .filters = if (filters.len != 0) filters else default_filters,
+        .filters = if (filters.len != 0) filters else if (m.cpus > 1) smp_filters else default_filters,
         .use_llvm = if (k.llvm) true else null,
         // every rig needs its linker script, which only lld honors
         .use_lld = true,
@@ -1199,6 +1342,7 @@ fn addKernelRun(b: *Build, m: Machine, k: Boot.Kernel, target: rstdbuild.Resolve
         run.step.dependOn(asm_check);
     }
     addConsole(b, run, m, host);
+    if (m.cpus > 1) run.addArgs(&.{ "-smp", b.fmt("{d}", .{m.cpus}) });
     if (k.semihosting) run.addArgs(&.{ "-semihosting-config", "enable=on,target=native,chardev=con" });
     if (k.firmware) |fw| {
         // the app at the removable-media boot path of a read-only FAT drive
@@ -1362,8 +1506,13 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    run.addArtifactArg2(try buildroot.addRstdTest(b, mod, target, optimize, &.{}), .{});
+    const exe = try buildroot.addRstdTest(b, mod, target, optimize, &.{});
+    run.addArtifactArg2(exe, .{});
     run.addArg(m.qemu);
+    // what that runs, built alone, so a build queue frees its slot before the VM boots
+    const check = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build what qemu-test-{s} runs, without starting the VM", .{m.name}));
+    check.dependOn(&exe.step);
+    check.dependOn(&tool.step);
     try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
     if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);
     if (not_ready) |s| run.step.dependOn(s);

@@ -190,13 +190,8 @@ const fma = @import("../../fma.zig");
 const check = @import("../../_test/blas1/check.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type, `conj`
-/// conjugates `x` (`dotc`). `narrow` allows a `dsdot` the error of summing
-/// `f32` products: the reference's blocks do, 32 at a time.
+/// conjugates `x` (`dotc`).
 fn checkDot(comptime T: type, comptime conj: bool, kern: anytype) !void {
-    try checkDotTol(T, conj, kern, false);
-}
-
-fn checkDotTol(comptime T: type, comptime conj: bool, kern: anytype, comptime narrow: bool) !void {
     const F = check.FloatOf(T);
     const complex = comptime check.isComplex(T);
     for (check.sizes) |n| {
@@ -223,7 +218,7 @@ fn checkDotTol(comptime T: type, comptime conj: bool, kern: anytype, comptime na
             const px: [*]F = @ptrCast(&x[check.pos(n, inc[0], 0)]);
             const got = kern(@intCast(n), px, inc[0], @as([*]F, @ptrCast(&y[check.pos(n, inc[1], 0)])), inc[1]);
             const R = @TypeOf(got);
-            const tol = check.tolerance(if (complex or narrow) F else R, 4 * n);
+            const tol = check.tolerance(if (complex) F else R, 4 * n);
             const ok = if (comptime complex)
                 complexRef(F, re, im, got, tol)
             else
@@ -242,7 +237,7 @@ fn checkAll(vt: *const Vtable) !void {
     var failed: ?anyerror = null;
     check.keep(&failed, checkDot(f32, false, vt.sdot_k.?));
     check.keep(&failed, checkDot(f64, false, vt.ddot_k.?));
-    check.keep(&failed, checkDotTol(f32, false, vt.dsdot_k.?, true));
+    check.keep(&failed, checkDot(f32, false, vt.dsdot_k.?));
     check.keep(&failed, checkDot(std.math.Complex(f32), false, vt.cdotu_k.?));
     check.keep(&failed, checkDot(std.math.Complex(f32), true, vt.cdotc_k.?));
     check.keep(&failed, checkDot(std.math.Complex(f64), false, vt.zdotu_k.?));
@@ -254,7 +249,6 @@ test "portable dot kernels match a plain loop" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkAll(&vt);
-    try checkDot(f32, false, vt.dsdot_k.?);
     try checkDot(XDouble, false, vt.qdot_k.?);
     try checkDot(std.math.Complex(XDouble), false, vt.xdotu_k.?);
     try checkDot(std.math.Complex(XDouble), true, vt.xdotc_k.?);
@@ -272,7 +266,8 @@ test "every linked core's dot kernels match a plain loop, where this machine run
 }
 
 /// `sdot` sums in `f64`: within half an ulp of the exact result, and the
-/// `f64` sum's error, which an `f32` sum, in any lanes, exceeds by far.
+/// `f64` sum's error, which an `f32` sum, in any lanes, exceeds by far;
+/// `dsdot` is that sum unrounded.
 fn checkSdotWide(vt: *const Vtable) !void {
     const al = std.testing.allocator;
     const long: usize = if (check.rig()) 1 << 12 else 1 << 14;
@@ -295,6 +290,17 @@ fn checkSdotWide(vt: *const Vtable) !void {
             mag += @abs(p);
         }
         const got = vt.sdot_k.?(@intCast(n), x.ptr, @intCast(inc), y.ptr, @intCast(inc));
+        // `dsdot` is the same sum, unrounded, so a threaded `sdot`'s chunks
+        // are its kernel's (`threading.md`)
+        const wide = vt.dsdot_k.?(@intCast(n), x.ptr, @intCast(inc), y.ptr, @intCast(inc));
+        if (@as(u32, @bitCast(got)) != @as(u32, @bitCast(@as(f32, @floatCast(wide))))) {
+            check.say("sdot {e}, dsdot {e}: ", .{ got, wide });
+            return check.case(error.TestUnexpectedResult, "dsdot", f32, n, .{ inc, inc });
+        }
+        if (@abs(wide - want) > @as(f128, @floatFromInt(n)) * 0x1p-52 * mag) {
+            check.say("dsdot {e}, want {e}: ", .{ wide, @as(f64, @floatCast(want)) });
+            return check.case(error.TestUnexpectedResult, "dsdot", f32, n, .{ inc, inc });
+        }
         const ulp = std.math.ldexp(@as(f128, 1), std.math.ilogb(@as(f32, @floatCast(want))) - 23);
         const tol = ulp / 2 + @as(f128, @floatFromInt(n)) * 0x1p-52 * mag;
         if (@abs(got - want) > tol) {
@@ -304,19 +310,18 @@ fn checkSdotWide(vt: *const Vtable) !void {
     };
 }
 
-test "portable sdot: within half an ulp, summed in f64" {
+test "portable sdot: within half an ulp, summed in f64, dsdot its sum" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     try checkSdotWide(&vt);
 }
 
-test "every linked core's sdot: within half an ulp, summed in f64" {
+test "every linked core's sdot: within half an ulp, summed in f64, dsdot its sum" {
     try check.eachCore(checkSdotWide);
 }
 
 test "the C drivers around the reference's fallback blocks match a plain loop" {
     try checkDot(f64, false, kernel.entry(.ddot_k, 16, null));
-    try checkDotTol(f32, false, kernel.entry(.dsdot_k, 32, null), true);
     inline for (.{ .{ .cdotu_k, false, 16 }, .{ .cdotc_k, true, 16 }, .{ .zdotu_k, false, 8 }, .{ .zdotc_k, true, 8 } }) |r| {
         const F = kernel.form(r[0]).E;
         try checkDot(std.math.Complex(F), r[1], kernel.entry(r[0], r[2], null));
@@ -359,7 +364,7 @@ fn skylakexModel(comptime T: type, comptime wide: bool, comptime fuse: bool, n: 
 test "x86_64's vector blocks sum in the reference's order, bit for bit" {
     if (comptime sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const vb = @import("x86_64/kernel.zig");
-    inline for (.{ .{ .ddot_k, f64, 16 }, .{ .dsdot_k, f32, 32 } }) |r| {
+    inline for (.{.{ .ddot_k, f64, 16 }}) |r| {
         const T = r[1];
         var x: [1024]T = undefined;
         var y: [1024]T = undefined;

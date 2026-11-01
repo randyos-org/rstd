@@ -27,6 +27,7 @@ pub const bytes = @import("bytes.zig");
 pub const crypto = @import("crypto/__root__.zig");
 pub const debug = @import("debug.zig");
 pub const dll = @import("dll.zig");
+pub const fft = @import("fft/__root__.zig");
 pub const io = @import("io.zig");
 pub const linalg = @import("linalg/__root__.zig");
 pub const log = @import("log.zig");
@@ -34,6 +35,8 @@ pub const machine = @import("machine.zig");
 pub const mem = @import("mem.zig");
 pub const msoffice = @import("msoffice/__root__.zig");
 pub const simd = @import("simd/__root__.zig");
+pub const sort = @import("sort.zig");
+pub const stats = @import("stats.zig");
 pub const rgl = @import("rgl/__root__.zig");
 pub const windows = @import("_os/windows/__root__.zig");
 /// zigwin32 bindings, re-exported so consumers share rstd's pinned version

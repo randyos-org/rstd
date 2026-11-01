@@ -10,7 +10,7 @@ Fortran-named (`dgemv_`) entry points, no row-major mapping layer and no `xerbla
 routines are Zig functions over column-major data in the Fortran argument order; bad arguments
 return named errors.
 
-How the code is structured, and why, is in [`design.md`](design.md).
+How the code is structured, and why, is in [`design.md`](../design.md).
 
 ## Supported
 
@@ -19,7 +19,7 @@ How the code is structured, and why, is in [`design.md`](design.md).
 | Type | Letters | Notes |
 | --- | --- | --- |
 | `f32`, `f64` | `s`, `d` | |
-| `types.XDouble` | `q` | x87 `f80` on x86 and x86_64 outside Windows and UEFI, else `f64` |
+| `types.XDouble` | `q` | `f128` with `-Dquad-precision`; else x87 `f80` on x86 and x86_64 outside Windows and UEFI, else `f64` |
 | `std.math.Complex` of those | `c`, `z`, `x` | |
 | any other float type (`f16`, `f80`, `f128`) and its `Complex` | | portable kernels built for the type |
 | `types.BF16`, `types.HF16` | `sb`, `b`, `sh` | the routines under [bfloat16 and half precision](#bfloat16-and-half-precision) |
@@ -45,14 +45,27 @@ How the code is structured, and why, is in [`design.md`](design.md).
   included, and write its order to their last argument; `getrs`, and `getrf` and `gesv`, which
   complete the factorization, then return `error.Singular` for an exactly zero `U(i, i)` and
   write the first `i` to their last argument; `potri`, `trtri` and `trtrs`, which return
-  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`; `gesvd` and
-  `gesdd`, ported from faer, which return `error.NoConvergence` for the reference's `INFO > 0`.
-  Past upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
+  `error.Singular` for a zero on the diagonal; `trti2`, `lauum` and `lauu2`. Ported from faer:
+  `geqrf`, `orgqr` (`ungqr`), `ormqr` (`unmqr`), `gels` (`error.Singular` for a rank-deficient
+  `A`), `gesvd`, `gesdd`, `syevd`, `heevd`, `syev`, `heev` and `geev`, which return
+  `error.NoConvergence` for the reference's `INFO > 0` (`gesvd` and `geev` write that `INFO` to
+  their last argument: the unconverged superdiagonals, or the eigenvalues not found). `geev`'s
+  eigenvectors come from Reference-LAPACK's `xTREVC3`, which scales against overflow. Past
+  upstream's size thresholds they thread with the same bits; on macOS `potrf` goes to
   Accelerate.
-  From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf` and `trsyl`; `sytrf`,
+  From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf`, `trsyl` and `tgsyl` (with
+  its `dif` estimates); `sytrf`,
   `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
-  are wrong ([`issues.md`](issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
+  are wrong ([`issues.md`](../issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.
+  From Reference-LAPACK, where no other source has its own: `lange`, `gecon` (which returns
+  `error.EstimateFailed` for the reference's `INFO = 1`), `gebal`, `gebak`, `trexc` and `trsen`
+  (`error.SwapRejected` for a swap too ill-conditioned to make) and `gelsy` over faer's `geqp3`;
+  and `gelqf`, `orglq`, `ormlq` by libflame's method over faer's reflections.
+  And for the matlab port's `inv`, `hess` and `schur` (T123): `getri` (faer's LU inverse);
+  `gehrd`, `orghr`/`unghr` and `hseqr` (LAPACK's interfaces over faer's Hessenberg reduction
+  and `lahqr`); `trevc3`/`trevc` (every `SIDE` and `HOWMNY`); `gees` (`dgees.f`'s sort, by
+  `trsen`); `laset` and `lapy2`.
 
 Not yet: threading in levels 1 and 2 ([`threading.md`](threading.md)).
 
@@ -62,12 +75,12 @@ Every target compiles, with the portable kernels at least. Per-core kernels exis
 cores; which OpenBLAS source each core uses, and what rstd serves in its place, is in the
 generated `coverage.md` files (every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`),
 and which routines each architecture covers is in
-[`design.md`](design.md#coverage-by-architecture).
+[`design.md`](../design.md#coverage-by-architecture).
 
 | Architecture | Cores |
 | --- | --- |
 | x86_64 | `prescott`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `sandybridge`, `bobcat`, `bulldozer`, `piledriver`, `haswell`, `steamroller`, `excavator`, `zen`, `skylakex`, `cooperlake`, `sapphirerapids` |
-| x86 | `katmai`, `coppermine`, `northwood`, `prescott`, `banias`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `athlon`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `bobcat`, `p5`, `p6`, `viac3`, `yonah`; the AVX cores and Zen run `nehalem`'s or `barcelona`'s, as upstream's 32-bit builds do |
+| x86 | `katmai`, `coppermine`, `northwood`, `prescott`, `banias`, `atom`, `core2`, `penryn`, `dunnington`, `nehalem`, `athlon`, `opteron`, `opteron_sse3`, `barcelona`, `nano`, `bobcat`, `p5`, `p6`, `viac3`, `yonah`; the AVX cores and Zen run `nehalem`'s or `barcelona`'s, as upstream 32-bit builds do |
 | aarch64 | `armv8`, `cortexa53`, `cortexa55`, `cortexa57`, `cortexa72`, `cortexa73`, `falkor`, `thunderx`, `thunderx2t99`, `thunderx3t110`, `tsv110`, `emag8180`, `neoversen1`, `neoversen2`, `neoversev1`, `neoversev2`, `armv8sve`, `a64fx`, `armv9sme`, `vortex`, `vortexm4`, `cortexa76`, `cortexa510`, `cortexa710`, `cortexx1`, `cortexx2`, `ampere1`, `ft2000` |
 | arm | `armv6`, `armv7`, `cortexa9`, `cortexa15` |
 | powerpc, powerpc64 | `power3`, `power4`, `power5`, `power6`, `power8`, `power9`, `power10`, `ppc970`, `cell`, `ppc440`, `ppc440fp2`, `ppcg4` |
@@ -168,7 +181,7 @@ back to the portable kernels, and the next call selects again; no kernel call ma
   memory, nor on the thread count ([`threading.md`](threading.md)).
 - **Denormals.** Rstd never changes the floating-point environment, and denormals are honored on
   every core: where a vector unit flushes them (ARMv7 NEON, pre-VSX AltiVec), `f32` stays out of
-  its lanes ([`design.md`](design.md#denormals-and-the-floating-point-environment)).
+  its lanes ([`design.md`](../design.md#denormals-and-the-floating-point-environment)).
 - **Triangular solves.** `trsv`, `tbsv`, `tpsv` and `trsm` divide by the diagonal, complex by
   Smith's algorithm (`util.cdiv`), as Reference-LAPACK master does; OpenBLAS multiplies by a
   reciprocal, infinite for a denormal diagonal element. Level 2 and level 3 give the same
@@ -182,39 +195,40 @@ back to the portable kernels, and the next call selects again; no kernel call ma
 Some slots never take a converted kernel (`vector.routed`), so their assembly is not converted:
 every core runs the portable or `@Vector` kernels there, so what they do beyond rounding does not
 depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector` kernels go is in
-[`design.md`](design.md#vector-level-1-and-level-2-kernels).
+[`design.md`](../design.md#vector-level-1-and-level-2-kernels).
 
 - **`nrm2`:** `s` and `c` sum the squares in `f64`, where each is exact and none overflows or
   underflows, and round the root once; `d` and `z` take Blue's algorithm, as Reference-LAPACK
   3.10's `dnrm2.f90` (`util.blue`). It is infinite for an infinity and NaN for a NaN. Upstream
   has three algorithms: x86_64 sums in `f64` (`nrm2_sse.S`), x86 and x86_64 in the x87's `f80`
   (`nrm2.S`), the rest scale a one-pass loop, several of them wrong on special values
-  ([`issues.md`](issues.md)).
+  ([`issues.md`](../issues.md)).
 - **The extremes** (`i?amax`, `i?amin`, `i?max`, `i?min` and their values): the first NaN wins,
   its index and NaN for the value, as in Reference-LAPACK master (`50dc1bf`, `b358788`), BLIS's
   `amaxv` and arXiv:2207.09281; else the first extreme. Complex keys are `|re| + |im|`; where one
   overflows for a finite element, the index compares `|re|/4 + |im|/4`, as `izamax.f90` does,
   so an infinite part still wins. The converted kernels pass NaN over, or pick one by vector
   lane.
-- **`sdot`:** products and sum in `f64`, rounded once. Upstream's sum in `f32` on most cores and
-  in the x87's `f80` on x86, so the error of the same `sdot` differed by core by far more than
-  its last bits.
+- **`sdot`:** products and sum in `f64`, rounded once; `dsdot` is the same sum, unrounded.
+  Upstream's sum in `f32` on most cores and in the x87's `f80` on x86, so the error of the same
+  `sdot` differed by core by far more than its last bits; its x86_64 `dsdot` sums 32 products at
+  a time in `f32`.
 - **No address dependence.** x86_64's reductions whose converted kernels peel elements until an
   operand is aligned (`vector.peels`: `asum_sse.S`, `asum_sse2.S`, `asum_atom.S`, `zasum_*.S`,
   `zsum_sse*.S`, `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S` and `dgemv_n*.S`)
   summed the same data otherwise elsewhere in memory. On the cores that use them the `@Vector`
   kernels, which load unaligned and never peel, take their place; the C kernels (`ddot.c` and the
-  like) stay.
+  like) stay. Haswell's `sasum.c` and `dasum.c` blocks peel too; their `@Vector` port does not.
 - **`axpy` with a zero `alpha`** multiplies on every core, so `0 * x` gives NaN for NaN and
   infinities. The interface returns first, as the reference does, but the triangular and banded
   drivers call the kernel with `-x(j)`, which may be zero; kernels that returned at once made
   `trsv` and `tbsv` propagate NaN otherwise on some cores, and are patched or ported without
-  that return ([`design.md`](design.md#fixes-to-upstream-sources)).
+  that return ([`design.md`](../design.md#fixes-to-upstream-sources)).
 
 ### bfloat16 and half precision
 
-The kernels are portable Zig, the same on every core; `riscv64_zvl256b`'s own `sbgemv` and
-`shgemv` (`@Vector`) give the same bits.
+The kernels are portable Zig, the same on every core; the `@Vector` half `gemv` kernels of
+`riscv64_zvl256b`, Cooper Lake, Sapphire Rapids and Neoverse N2, V1 and V2 give the same bits.
 
 - **Conversions** (`sbtobf16`, `bf16to`): round to nearest even; denormals flush to a signed zero
   and NaNs come out quiet, in both directions.
@@ -232,10 +246,12 @@ The kernels are portable Zig, the same on every core; `riscv64_zvl256b`'s own `s
 - **Half `gemm`** (`gemmHalf`: `sbgemm`, `bgemm`, `shgemm`): each element sums `a*b` in `f32` in
   depth order, unfused, over each depth slice of the blocking, and adds `alpha` times that sum to
   `C`, rounded once per slice; for `bgemm`, whose `C` and scalars are bfloat16, `C` is rounded to
-  bfloat16 after every slice, as upstream's kernel stores it, so its bits follow the core's `Q`.
+  bfloat16 after every slice, as upstream kernel stores it, so its bits follow the core's `Q`.
+  Cooper Lake's `sbgemm` small-matrix path (8, 16 or 32 columns, up to `256^3`) slices the depth
+  by 1024 instead, as upstream kernel does; its `vdpbf16ps` rounding is not reproduced.
   `C` is scaled by `beta` first (a zero `beta` never reads it); a zero `alpha` or `k` reads neither
   `A` nor `B`. The scalars count by value, where upstream compares bfloat16 bits
-  ([`issues.md`](issues.md)). The bits do not depend on the thread count.
+  ([`issues.md`](../issues.md)). The bits do not depend on the thread count.
 - **`gemmtHalf`** (`sbgemmt`, and the same for the other two types): a half `gemv` per column of
   the triangle, so each element rounds as `gemvHalf`'s; a zero `alpha` or `k` only scales the
   triangle by `beta`.
@@ -250,7 +266,7 @@ instead ([`threading.md`](threading.md#vendor-backends)). Rstd's checks come fir
 everywhere. Where its results differ from the reference's on special values, those calls run
 rstd's kernels instead, so [one contract](#one-contract-on-every-core) holds there too.
 `RSTD_BLAS_ACCELERATE=0` at init, or `blas.useAccelerate(false)`, turns it off. Which routines
-and quirks are in [`design.md`](design.md#apple-accelerate).
+and quirks are in [`design.md`](../design.md#apple-accelerate).
 
 ## Build options
 
@@ -278,7 +294,7 @@ runs the closest linked core's kernels, or the portable ones.
 
 `OMP_NUM_THREADS`, `OMP_ADAPTIVE`, `OPENBLAS_THREAD_TIMEOUT`, `GOTO_DEBUG` and
 `OPENBLAS_MAIN_FREE`/`GOTOBLAS_MAIN_FREE` are read and have no effect. Values longer than 64
-bytes are ignored. Details are in [`design.md`](design.md#configuration).
+bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 
 ## Tests
 
@@ -286,13 +302,14 @@ bytes are ignored. Details are in [`design.md`](design.md#configuration).
 | --- | --- |
 | `zig build rstd-test` | every test natively; add `-Dblas-cores=all` to test every core the host runs, `-Drstd-test-filter=<name>` to pick tests |
 | `zig build qemu-test` | every emulated machine |
-| `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
+| `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `aarch64-smp`, `aarch64-quad`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `x86_64-smp`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
 | `zig build qemu-test-x86_64-whpx` | the host CPU under WHPX (x86_64 Windows hosts): the AVX-512, FMA4 and XOP cores |
-| `zig build qemu-test-linux-<arch>` | the full suite under Linux (`aarch64`, `x86_64`, `arm`, `riscv64`, `powerpc64le`) |
+| `zig build qemu-test-linux-<machine>` | the full suite under Linux (`aarch64`, `aarch64-sve`, `x86_64`, `arm`, `riscv64`, `powerpc64le`, `powerpc64le-power10`); `qemu-check-linux-<machine>` builds it only |
 | `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemutest.zig`) |
 | `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
 | `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
+| `tools/blasbench/flyoff.sh zen3 <OpenBLAS dll>`, `flyoff.sh m6` | the flyoff under the timing rule, one command per host ([`readme.md`](../../../tools/blasbench/readme.md#rerunning-the-flyoff)); `zig build bench-check` compiles the bench for each host |
 | `zig build wasm-test` | the OS-free tests under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
 | `<zig 0.17.0> build rstd-check-zig017` | build the tests for zfls's targets on Zig 0.17.0 without running them |
@@ -301,16 +318,16 @@ Test names follow the file's path (`linalg.blas._test.blas1.edge.test...`), so a
 a file. The qemu rigs' QEMU runs on another machine, `-Dtest-host=<ssh alias>` (`macmini-m6` by
 default when rstd is the root project; `-Dtest-host-off` runs it here). `-Dfail-fast` ends a rig
 at its first failing test. Rig logs are in `.zig-cache/qemu-test-<machine>.log`. What each rig
-covers, and how the tests are built, is in [`design.md`](design.md#verification).
+covers, and how the tests are built, is in [`design.md`](../design.md#verification).
 
 ## Further reading
 
-- [`design.md`](design.md): structure, core selection, kernel provenance and the fixes to
+- [`design.md`](../design.md): structure, core selection, kernel provenance and the fixes to
   upstream sources, Accelerate, testing.
 - [`threading.md`](threading.md): the threading design, the `io: Io` API and its guardrails.
 - [`comparisons.md`](comparisons.md): the numerical design decisions against BLIS, the reference
   and the exception-handling proposal.
-- [`issues.md`](issues.md): problems found in OpenBLAS, Zig, QEMU and other tools, with
+- [`issues.md`](../issues.md): problems found in OpenBLAS, Zig, QEMU and other tools, with
   workarounds.
 - [`blas1/c_kernels.md`](blas1/c_kernels.md): porting OpenBLAS's C level-1 kernels.
 - [`blas2/buffers.md`](blas2/buffers.md): the level-2 kernels' scratch buffers.

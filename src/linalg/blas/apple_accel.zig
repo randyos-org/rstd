@@ -307,9 +307,9 @@ pub fn lp64Names(comptime field: []const u8) []const [:0]const u8 {
     return &.{ field ++ "$NEWLAPACK", field ++ "" };
 }
 
-/// A LAPACK field's name without Fortran's trailing underscore: the new
-/// interface's spelling is unchecked (no test has run on a Mac yet), so
-/// `load` tries both.
+/// A LAPACK field's name without Fortran's trailing underscore. The macOS
+/// 13.3 SDK's `libLAPACK.tbd` spells the new interface so (`dpotrf$NEWLAPACK`,
+/// tests below); `load` tries the other spelling too, unseen on a Mac.
 fn fortran(comptime field: []const u8) ?[]const u8 {
     return if (field[field.len - 1] == '_') field[0 .. field.len - 1] else null;
 }
@@ -362,17 +362,23 @@ pub const Options = struct {
     lp64: bool = false,
 };
 
+/// The table `load` binds from `lib` (`dll.bind`'s): ILP64 where `lib` has
+/// any of it (macOS 13.3+) unless `lp64`, else the 32-bit one, its new names
+/// first; null where it has neither.
+pub fn bindBlas(lib: anytype, lp64: bool) ?Blas {
+    const ilp = dll.bind(Table(i64), lib, ilp64Names);
+    if (ilp.count() > 0 and !lp64) return .{ .ilp64 = ilp };
+    const lp = dll.bind(Table(c_int), lib, lp64Names);
+    if (lp.count() == 0) return null;
+    return .{ .lp64 = lp };
+}
+
 /// Opens Accelerate and binds its CBLAS; null off macOS or without it. The
 /// framework handle is kept open for the process: the table points into it.
 pub fn load(options: Options) ?AppleAccelerate {
     if (comptime !available) return null;
     var fw = dll.openDarwinFramework("Accelerate") catch return null;
-    const ilp = dll.bind(Table(i64), &fw, ilp64Names);
-    const bound: Blas = if (ilp.count() > 0 and !options.lp64) .{ .ilp64 = ilp } else blk: {
-        const lp = dll.bind(Table(c_int), &fw, lp64Names);
-        if (lp.count() == 0) return null;
-        break :blk .{ .lp64 = lp };
-    };
+    const bound = bindBlas(&fw, options.lp64) orelse return null;
     const acc: AppleAccelerate = .{ .blas = bound, .threads = dll.bind(ThreadApi, &fw, dll.exactName).fns };
     if (options.single_threaded) {
         setMaxThreadsEnv(1) catch {};
@@ -651,6 +657,11 @@ const col = Order.col_major;
 //   imaginary part, where the reference's is NaN.
 // - `axpby`: a zero `alpha`. Accelerate reads `x`, so NaN or an infinity
 //   there reaches `y`.
+// - a zero stride on a vector the routine writes (`swap`, `axpby`).
+//   Accelerate rejects it as an invalid parameter and exits (x86_64; arm64
+//   untested). Zero strides on read vectors go to Accelerate.
+// - complex `gemv`: `beta` with one zero part and NaN or an infinity in
+//   `y`. Accelerate skips that part's products, as for `scal`.
 // - `i?amax`: always (not routed). Accelerate does not take the first NaN.
 // - `trmv`, `trsv`, `tbmv`, `tbsv`, `tpmv`, `tpsv`: NaN or an infinity in
 //   `x`. Past small orders Accelerate multiplies it by the triangle's zeros
@@ -674,6 +685,12 @@ const col = Order.col_major;
 //   `cblas_dsdot` is off by `f32`'s epsilon, not `f64`'s.
 // - `gemm`: NaN or an infinity in `A`. At an edge of `m` it gives NaN where
 //   the reference's is infinite.
+// - complex `potrf`: always. `cpotrf_` and `zpotrf_` report a well
+//   conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are
+//   right).
+// - `trsm`: a diagonal entry too small to invert (a subnormal; arm64
+//   untested). Accelerate multiplies by its reciprocal, which overflows, so
+//   every element comes out infinite or NaN; the reference divides.
 
 /// The level-1 routines `sends` covers; `dot` over `f32` is `sdot`.
 const L1 = enum { copy, swap, scal, dot, dotc, dsdot, nrm2, asum, rot, rotm, axpy, axpby };
@@ -773,6 +790,22 @@ fn isZero(comptime T: type, v: T) bool {
 }
 
 /// `nonFinite` of a `rows` by `cols` matrix at leading dimension `ld`.
+/// Whether an entry on the diagonal of the order `n` matrix at `a` is too
+/// small for its reciprocal: below the smallest normal (for complex, its
+/// square root, as `1 / d` divides by `|d|^2`).
+fn tinyDiagonal(comptime T: type, n: isize, a: [*]const T, lda: isize) bool {
+    const F = Float(T);
+    const lim = if (comptime isComplex(T)) @sqrt(std.math.floatMin(F)) else std.math.floatMin(F);
+    const un: usize = @intCast(n);
+    const ld: usize = @intCast(lda);
+    for (0..un) |i| {
+        const v = a[i * (ld + 1)];
+        const m = if (comptime isComplex(T)) @max(@abs(v.re), @abs(v.im)) else @abs(v);
+        if (m < lim) return true;
+    }
+    return false;
+}
+
 fn nonFiniteMat(comptime T: type, rows: isize, cols: isize, b: [*]const T, ld: isize) bool {
     for (0..@intCast(cols)) |j| {
         if (nonFinite(T, rows, b + j * @as(usize, @intCast(ld)), 1)) return true;
@@ -823,8 +856,9 @@ fn Elementwise(comptime T: type, comptime r: Elem) type {
         /// The call over its parts; false where rstd runs it.
         fn run(e: *const Self, io: Io) Io.Cancelable!bool {
             if (!fits(name, e.b, &.{ e.n, mag(e.incx), mag(e.incy), span(e.n, e.incx), span(e.n, e.incy) })) return false;
+            if (e.incy == 0 or (e.incx == 0 and (r == .swap or r == .scal or r == .rot))) return false;
             // a zero stride's elements depend on each other, as for rstd's own
-            if (e.incx == 0 or e.incy == 0) {
+            if (e.incx == 0) {
                 e.part(whole(e.n));
                 return true;
             }
@@ -981,6 +1015,7 @@ pub inline fn rotm(comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
     if (comptime !covers(T)) return false else {
         if (!sent(.rotm, T, incx == 1 and incy == 1)) return false;
         const b = use(T) orelse return false;
+        if (incx == 0 or incy == 0) return false;
         return call("cblas_" ++ letter(T) ++ "rotm", b, &.{ span(n, incx), span(n, incy) }, .{ n, x, incx, y, incy, param }) != null;
     }
 }
@@ -1001,6 +1036,7 @@ pub inline fn axpby(comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, 
         const b = use(T) orelse return false;
         if (zeroPart(T, alpha) or zeroPart(T, beta)) return false;
         if (comptime !isComplex(T)) if (alpha == 0) return false;
+        if (incy == 0) return false;
         return call("catlas_" ++ letter(T) ++ "axpby", b, &.{ span(n, incx), span(n, incy) }, .{ n, scalar(T, &alpha), x, incx, scalar(T, &beta), y, incy }) != null;
     }
 }
@@ -1044,6 +1080,7 @@ pub inline fn gemv(io: Io, comptime T: type, trans: types.Trans, m: isize, n: is
         const t = transpose(T, trans) orelse return false;
         const lenx = if (trans.transposed()) m else n;
         const leny = if (trans.transposed()) n else m;
+        if (zeroPart(T, beta) and !isZero(T, beta) and nonFinite(T, leny, y, incy)) return false;
         const G = Gemv(T);
         if (!fits(G.name, b, &.{ m, n, lda, mag(incx), mag(incy), mat(m, n, lda), span(lenx, incx), span(leny, incy) })) return false;
         const g: G = .{ .b = b, .t = t, .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .beta = beta, .y = y, .incy = incy };
@@ -1348,6 +1385,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
         const t = transpose(T, transa) orelse return false;
         const ka = if (sd == .l) m else n;
         if (!solve and nonFiniteMat(T, m, n, b_, ldb)) return false;
+        if (solve and dg == .n and tinyDiagonal(T, ka, a, lda)) return false;
         const R = Trmm(T, solve);
         if (!fits(R.name, b, &.{ m, n, lda, ldb, mat(ka, ka, lda), mat(m, n, ldb) })) return false;
         const g: R = .{ .b = b, .sd = side(sd), .u = u, .t = t, .dg = diag(dg), .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb };
@@ -1362,7 +1400,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
 /// `?potrf_`'s `INFO`, or null where rstd runs it. Accelerate's LAPACK runs
 /// on its BLAS, single-threaded as `load` sets it.
 pub inline fn potrf(comptime T: type, ul: types.Uplo, n: isize, a: [*]T, lda: isize) ?isize {
-    if (comptime !covers(T)) return null else {
+    if (comptime !covers(T) or (x86_64 and isComplex(T))) return null else {
         const b = use(T) orelse return null;
         const u: u8 = switch (ul) {
             .u => 'U',
@@ -1408,6 +1446,80 @@ test "load binds the CBLAS table on macOS, and nothing elsewhere" {
         },
     }
     if (acc.threads.BLASSetThreading != null) try zigstd.testExpectEqual(Threading.single_threaded, acc.threading().?);
+}
+
+/// Accelerate's exports of `Table`'s names on one macOS, from the SDK's
+/// `vecLib.framework` `libBLAS.tbd` and `libLAPACK.tbd` (MacOSX11.3, 12.3 and
+/// 13.3.sdk, <https://github.com/alexey-lysiuk/macos-sdk> at 896cd40d; arm64
+/// and x86_64 list the same). Every field but `cblas_i?amin` is there, each
+/// `?potrf_` also as `?potrf`; 13.3 adds each with `$NEWLAPACK` and
+/// `$NEWLAPACK$ILP64`, LAPACK's without the underscore. None has
+/// `BLASSetThreading` (macOS 15+). Re-derive from a newer SDK's `.tbd`s
+/// rather than editing by hand.
+const RecordedAccelerate = struct {
+    /// macOS 13.3 or later
+    new: bool,
+
+    fn has(r: RecordedAccelerate, name: []const u8) bool {
+        const cut = std.mem.findScalar(u8, name, '$') orelse name.len;
+        const base = name[0..cut];
+        const suffix = name[cut..];
+        const known = std.mem.eql(u8, suffix, "") or
+            (r.new and (std.mem.eql(u8, suffix, "$NEWLAPACK") or std.mem.eql(u8, suffix, "$NEWLAPACK$ILP64")));
+        if (!known or std.mem.endsWith(u8, base, "amin")) return false;
+        inline for (@typeInfo(Table(i64)).@"struct".field_names) |f| {
+            if (comptime fortran(f)) |b| {
+                if (std.mem.eql(u8, base, b)) return true;
+                if (std.mem.eql(u8, base, f)) return suffix.len == 0;
+            } else if (std.mem.eql(u8, base, f)) return true;
+        }
+        return false;
+    }
+
+    /// `Dll.lookup`: a pointer no test calls, for a name this macOS has.
+    pub fn lookup(r: *const RecordedAccelerate, comptime T: type, name: [:0]const u8) ?T {
+        return if (r.has(name)) @ptrFromInt(0x1000) else null;
+    }
+};
+
+test "macOS 11 and 12 bind the classic 32-bit names" {
+    const old: RecordedAccelerate = .{ .new = false };
+    for ([_]bool{ false, true }) |lp64| {
+        const b = bindBlas(&old, lp64) orelse return error.TestUnexpectedResult;
+        try zigstd.testExpectTrue(b == .lp64);
+        // 158 fields, less the four `i?amin`
+        try zigstd.testExpectEqual(@as(usize, 154), b.lp64.count());
+        try zigstd.testExpectEqualStrings("cblas_dgemm", b.lp64.name(lp64Names, .cblas_dgemm).?);
+        try zigstd.testExpectEqualStrings("catlas_daxpby", b.lp64.name(lp64Names, .catlas_daxpby).?);
+        try zigstd.testExpectEqualStrings("zpotrf_", b.lp64.name(lp64Names, .zpotrf_).?);
+        try zigstd.testExpectTrue(b.lp64.fns.cblas_isamin == null);
+    }
+    // nor the thread API: `VECLIB_MAXIMUM_THREADS` alone keeps it on one thread
+    const acc: AppleAccelerate = .{ .blas = bindBlas(&old, false).?, .threads = dll.bind(ThreadApi, &old, dll.exactName).fns };
+    try zigstd.testExpectTrue(acc.threading() == null);
+    try zigstd.testExpectError(error.Unsupported, acc.setThreading(.single_threaded));
+}
+
+test "macOS 13.3 binds ILP64, or the new 32-bit names" {
+    const new: RecordedAccelerate = .{ .new = true };
+    const ilp = bindBlas(&new, false) orelse return error.TestUnexpectedResult;
+    try zigstd.testExpectTrue(ilp == .ilp64);
+    try zigstd.testExpectEqual(@as(usize, 154), ilp.ilp64.count());
+    try zigstd.testExpectEqualStrings("cblas_dgemm$NEWLAPACK$ILP64", ilp.ilp64.name(ilp64Names, .cblas_dgemm).?);
+    try zigstd.testExpectEqualStrings("catlas_daxpby$NEWLAPACK$ILP64", ilp.ilp64.name(ilp64Names, .catlas_daxpby).?);
+    try zigstd.testExpectEqualStrings("dpotrf$NEWLAPACK$ILP64", ilp.ilp64.name(ilp64Names, .dpotrf_).?);
+    const lp = bindBlas(&new, true) orelse return error.TestUnexpectedResult;
+    try zigstd.testExpectTrue(lp == .lp64);
+    try zigstd.testExpectEqual(@as(usize, 154), lp.lp64.count());
+    try zigstd.testExpectEqualStrings("cblas_dgemm$NEWLAPACK", lp.lp64.name(lp64Names, .cblas_dgemm).?);
+    try zigstd.testExpectEqualStrings("spotrf$NEWLAPACK", lp.lp64.name(lp64Names, .spotrf_).?);
+    // a library with none of it
+    const Nothing = struct {
+        pub fn lookup(_: *const @This(), comptime T: type, _: [:0]const u8) ?T {
+            return null;
+        }
+    };
+    try zigstd.testExpectTrue(bindBlas(&Nothing{}, false) == null);
 }
 
 test "the 32-bit table binds the new names first, and agrees with ILP64" {

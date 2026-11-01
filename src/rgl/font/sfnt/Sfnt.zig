@@ -7,6 +7,7 @@ const aux_types = @import("aux_types.zig");
 const render = @import("render/__root__.zig");
 const charstring = @import("tables/cff/charstring.zig");
 const glyf_shape = @import("tables/glyf/shape.zig");
+const Image = @import("../../image.zig").Image;
 
 const Vertex = aux_types.Vertex;
 const bounds = render.bounds;
@@ -14,6 +15,7 @@ const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const typeBEToNative = bytes.typeBEToNative;
 const OffsetTable = tables.general.OffsetTable;
+const TtcHeader = tables.general.TtcHeader;
 const TableRecord = tables.general.TableRecord;
 const TableTag = tables.general.TableTag;
 const ScalerType = tables.general.ScalerType;
@@ -99,11 +101,31 @@ stat: ?tables.StatTable = null,
 pub const SfntError = error{
     MissingRequiredTable,
     IndexMapMissing,
+    FontIndexOutOfRange,
 } || TableTag.Error || ScalerType.Error || bytes.BytesError || Allocator.Error || tables.CffError;
 
 const InitOptions = struct {
     check: bool = false,
+    /// Which font of a collection (.ttc/.otc) to load; 0 for a single font.
+    font_index: u32 = 0,
 };
+
+/// How many fonts `font_data` holds: a collection's count, else 1.
+pub fn numberOfFonts(font_data: []const u8) bytes.BytesError!u32 {
+    try bytes.checkSize(font_data, 0, u32);
+    if (bytes.getU32BE(font_data) != TtcHeader.tag) return 1;
+    try bytes.checkSize(font_data, 0, TtcHeader);
+    return typeBEToNative(TtcHeader, font_data).num_fonts;
+}
+
+/// Where font `index`'s OffsetTable starts: 0 for a single font, else the
+/// collection's entry. Table records hold absolute file offsets either way.
+pub fn fontOffset(font_data: []const u8, index: u32) SfntError!usize {
+    if (index >= try numberOfFonts(font_data)) return error.FontIndexOutOfRange;
+    if (bytes.getU32BE(font_data) != TtcHeader.tag) return 0;
+    try bytes.checkArray(font_data, @sizeOf(TtcHeader), @as(usize, index) + 1, u32);
+    return bytes.getU32BE(font_data[@sizeOf(TtcHeader) + @as(usize, index) * @sizeOf(u32) ..]);
+}
 
 /// Every table field above is a plain view over table_data slices borrowed
 /// from font_data; none of them own any heap memory (cmap subtables are the
@@ -112,11 +134,12 @@ const InitOptions = struct {
 /// itself performs is a scratch table-record array, freed before it
 /// returns - so there's nothing for a destroy() to release, and none exists.
 pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntError!Self {
-    if (options.check) try bytes.checkSize(font_data, 0, OffsetTable);
-    const offset_table = typeBEToNative(OffsetTable, font_data);
+    const font_start = try fontOffset(font_data, options.font_index);
+    if (options.check) try bytes.checkSize(font_data, font_start, OffsetTable);
+    const offset_table = typeBEToNative(OffsetTable, font_data[font_start..]);
     if (options.check) _ = try ScalerType.fromInt(offset_table.scaler);
 
-    const tables_start = @sizeOf(OffsetTable);
+    const tables_start = font_start + @sizeOf(OffsetTable);
     const num_tables = offset_table.num_tables;
     if (options.check) try bytes.checkArray(font_data, tables_start, num_tables, TableRecord);
     const table_recs = try bytes.allocArrayBEToNative(alloc, TableRecord, num_tables, font_data[tables_start..]);
@@ -354,19 +377,18 @@ pub fn glyphBitmapSubpixel(
 
     if (w == 0 or h == 0) return .empty;
 
-    var gbm: render.rasterize.Bitmap = .{
-        .w = w,
-        .h = h,
-        .stride = w,
-        .pixels = try pixels.addManyAsSlice(gpa, w * h),
+    const gbm: Image(u8) = .{
+        .width = w,
+        .height = h,
+        .data = try pixels.addManyAsSlice(gpa, w * h),
     };
-    errdefer pixels.shrinkRetainingCapacity(pixels.items.len - gbm.pixels.len);
+    errdefer pixels.shrinkRetainingCapacity(pixels.items.len - gbm.data.len);
 
-    try render.rasterize.rasterize(gpa, &gbm, 0.35, vertices, scale_x, scale_y, shift_x, shift_y, box.x0, box.y0, true);
+    try render.rasterize.rasterize(gpa, gbm, 0.35, vertices, scale_x, scale_y, shift_x, shift_y, box.x0, box.y0, true);
 
     return .{
-        .width = @intCast(gbm.w),
-        .height = @intCast(gbm.h),
+        .width = @intCast(gbm.width),
+        .height = @intCast(gbm.height),
         .off_x = @intCast(box.x0),
         .off_y = @intCast(box.y0),
     };
@@ -410,4 +432,54 @@ test "Sfnt.init frees its scratch table-record buffer even when a later table fa
     // to release since every table is a borrowed view, so a clean error
     // return here is the whole test.
     try zigstd.testExpectError(error.EndOfStream, init(zigstd.testAllocator, &buf, .{ .check = true }));
+}
+
+/// One font with only a `head` table, its OffsetTable at `base`, its head
+/// at `head_start` (both absolute, as in a collection).
+fn writeHeadOnlyFont(buf: []u8, base: usize, head_start: usize, units_per_em: u16) void {
+    setU32BE(buf[base..], 0x00010000); // scaler
+    setU16BE(buf[base + 4 ..], 1); // num_tables
+    const rec = base + 12;
+    @memcpy(buf[rec..][0..4], "head");
+    setU32BE(buf[rec + 8 ..], @intCast(head_start));
+    setU32BE(buf[rec + 12 ..], 54);
+    setU16BE(buf[head_start + 18 ..], units_per_em);
+}
+
+test "Sfnt loads each font of a collection by font_index" {
+    const font_size = 12 + 16 + 54;
+    const fonts_start = 12 + 2 * 4;
+    var buf: [fonts_start + 2 * font_size]u8 = @splat(0);
+    setU32BE(&buf, TtcHeader.tag);
+    setU16BE(buf[4..], 2); // majorVersion
+    setU32BE(buf[8..], 2); // numFonts
+    for (0..2, [_]u16{ 1000, 2048 }) |i, upem| {
+        const base = fonts_start + i * font_size;
+        setU32BE(buf[12 + 4 * i ..], @intCast(base)); // tableDirectoryOffsets[i]
+        writeHeadOnlyFont(&buf, base, base + 12 + 16, upem);
+    }
+
+    try zigstd.testExpectEqual(@as(u32, 2), try numberOfFonts(&buf));
+    for (0..2, [_]u16{ 1000, 2048 }) |i, upem| {
+        const sfnt = try init(zigstd.testAllocator, &buf, .{ .check = true, .font_index = @intCast(i) });
+        try zigstd.testExpectEqual(upem, sfnt.head.?.unitsPerEm());
+    }
+    try zigstd.testExpectError(error.FontIndexOutOfRange, init(zigstd.testAllocator, &buf, .{ .font_index = 2 }));
+}
+
+test "Sfnt treats a plain font as a one-font collection" {
+    var buf: [12 + 16 + 54]u8 = @splat(0);
+    writeHeadOnlyFont(&buf, 0, 12 + 16, 1000);
+
+    try zigstd.testExpectEqual(@as(u32, 1), try numberOfFonts(&buf));
+    try zigstd.testExpectEqual(@as(usize, 0), try fontOffset(&buf, 0));
+    try zigstd.testExpectError(error.FontIndexOutOfRange, fontOffset(&buf, 1));
+}
+
+test "Sfnt rejects a collection header cut short" {
+    var buf: [12 + 4]u8 = @splat(0);
+    setU32BE(&buf, TtcHeader.tag);
+    setU32BE(buf[8..], 2); // numFonts, but room for only one offset
+    try zigstd.testExpectEqual(@as(usize, 0), try fontOffset(&buf, 0));
+    try zigstd.testExpectError(error.EndOfStream, fontOffset(&buf, 1));
 }

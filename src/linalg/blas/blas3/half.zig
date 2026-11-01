@@ -33,6 +33,7 @@ const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
 const bf16_kernel = @import("../ext/bf16/kernel.zig");
+const small_gemm = @import("gemm/small.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -322,6 +323,10 @@ pub fn gemm(allocator: Allocator, io: Io, comptime kind: HalfGemm, vt: *const Vt
         if (beta_f != 1) _ = @field(vt, @tagName(kind) ++ "_beta").?(@intCast(m), @intCast(n), 0, beta, @constCast(a), 0, @constCast(b), 0, c, @intCast(ldc));
         return;
     }
+    // `SMALL_MATRIX_OPT`, which upstream builds for `sbgemm` alone of these
+    if (comptime kind == .sbgemm) {
+        if (small_gemm.gemmHalf(vt, ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)) return;
+    }
     const p: Problem(kind) = .{
         .vt = vt,
         .blk = blocking(kind, vt),
@@ -376,6 +381,7 @@ pub fn gemmt(comptime kind: HalfGemm, vt: *const Vtable, upper: bool, ta: bool, 
 const testing = std.testing;
 const check = @import("../_test/blas1/check.zig");
 const portable = @import("../portable.zig");
+const params = @import("gemm/params.zig");
 const zigstd = @import("../../../zigstd.zig");
 
 const kinds = std.enums.values(HalfGemm);
@@ -439,7 +445,7 @@ fn Case(comptime kind: HalfGemm) type {
 /// (as the beta kernel), then per depth slice the `f32` sum in order and
 /// `C + alpha*sum`, rounded into `O`. The products of half values are exact
 /// in `f32`, so only the sums and the update round.
-fn model(comptime kind: HalfGemm, blk: Blocking, cs: Case(kind), ta: bool, tb: bool, k: usize, alpha: f32, beta: f32, i: usize, j: usize, c0: kind.Out()) kind.Out() {
+fn model(comptime kind: HalfGemm, blk: Blocking, slice: ?usize, cs: Case(kind), ta: bool, tb: bool, k: usize, alpha: f32, beta: f32, i: usize, j: usize, c0: kind.Out()) kind.Out() {
     const O = kind.Out();
     const one = struct {
         fn madd(x: f32, y: f32, z: f32) f32 {
@@ -450,7 +456,7 @@ fn model(comptime kind: HalfGemm, blk: Blocking, cs: Case(kind), ta: bool, tb: b
     var cv: O = if (beta == 1) c0 else if (beta == 0) halfOf(O, 0) else halfOf(O, beta * valOf(O, c0));
     var ls: usize = 0;
     while (ls < k) {
-        const min_l = Blocking.split(k - ls, blk.q, blk.um);
+        const min_l = if (slice) |q| @min(q, k - ls) else Blocking.split(k - ls, blk.q, blk.um);
         var acc: f32 = 0;
         for (ls..ls + min_l) |l| acc = one.madd(cs.opA(ta, i, l), cs.opB(tb, l, j), acc);
         cv = halfOf(O, one.madd(acc, alpha, valOf(O, cv)));
@@ -467,8 +473,9 @@ fn sameBits(comptime T: type, x: T, y: T) bool {
 }
 
 /// `kind` on `vt` at `want` workers against `model`, bit for bit, and the
-/// rows past `m` untouched.
-fn exact(comptime kind: HalfGemm, vt: *const Vtable, io: Io, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, beta: f32, want: u32) !void {
+/// rows past `m` untouched; `slice`: the small path's depth slices, where
+/// it takes the problem.
+fn exact(comptime kind: HalfGemm, vt: *const Vtable, io: Io, slice: ?usize, ta: bool, tb: bool, m: usize, n: usize, k: usize, alpha: f32, beta: f32, want: u32) !void {
     const O = kind.Out();
     const al = testing.allocator;
     const cs = try Case(kind).init(al, ta, tb, m, n, k, m * 131 + n * 17 + k);
@@ -481,7 +488,7 @@ fn exact(comptime kind: HalfGemm, vt: *const Vtable, io: Io, ta: bool, tb: bool,
     const blk = blocking(kind, vt);
     for (0..n) |j| for (0..cs.ldc) |i| {
         const at = i + j * cs.ldc;
-        const want_v = if (i < m) model(kind, blk, cs, ta, tb, k, af, bt, i, j, orig[at]) else orig[at];
+        const want_v = if (i < m) model(kind, blk, slice, cs, ta, tb, k, af, bt, i, j, orig[at]) else orig[at];
         if (!sameBits(O, want_v, cs.c[at])) {
             check.say("{s} ta={} tb={} m={d} n={d} k={d} alpha={d} beta={d} want={d} C[{d},{d}]: got {d}, want {d}\n", .{ @tagName(kind), ta, tb, m, n, k, alpha, beta, want, i, j, valOf(O, cs.c[at]), valOf(O, want_v) });
             return error.TestExpectedEqual;
@@ -512,9 +519,33 @@ test "half gemm: the portable kernels give the model's bits, every trans, shape 
         var vt: Vtable = if (small) smallBlocks() else .{};
         if (!small) portable.install(&vt);
         inline for (kinds) |kind| for (shapes) |s| for (scalars) |ab| for ([_]bool{ false, true }) |ta| for ([_]bool{ false, true }) |tb| {
-            try exact(kind, &vt, check.io, ta, tb, s[0], s[1], s[2], ab[0], ab[1], 1);
+            try exact(kind, &vt, check.io, null, ta, tb, s[0], s[1], s[2], ab[0], ab[1], 1);
         };
     }
+}
+
+fn alwaysHalf(_: i32, _: i32, _: BlasLong, _: BlasLong, _: BlasLong, _: f32, _: f32) callconv(.c) i32 {
+    return 1;
+}
+
+test "half gemm: Cooper Lake's small-matrix sbgemm gives the portable bits in its depth slices" {
+    const Cooperlake = @import("gemm/x86_64/kernel.zig").Cooperlake;
+    var vt: Vtable = .{};
+    portable.install(&vt);
+    vt.sbgemm_small_matrix_permit = &alwaysHalf;
+    inline for (.{ "nn", "nt", "tn", "tt", "b0_nn", "b0_nt", "b0_tn", "b0_tt" }) |op| {
+        const slot = @field(util.Slot, "sbgemm_small_kernel_" ++ op);
+        @field(vt, @tagName(slot)) = Cooperlake.entry(slot);
+    }
+    // every row block and column tail, and depths past one and two slices
+    const deep = [_][3]usize{ .{ 70, 17, 5 }, .{ 15, 8, Cooperlake.slice + 3 }, .{ 33, 2, 2 * Cooperlake.slice + 1 } };
+    for (shapes ++ deep) |s| for (scalars) |ab| for ([_]bool{ false, true }) |ta| for ([_]bool{ false, true }) |tb| {
+        try exact(.sbgemm, &vt, check.io, Cooperlake.slice, ta, tb, s[0], s[1], s[2], ab[0], ab[1], 1);
+    };
+    // Cooper Lake's own permit: 8, 16 or 32 columns up to `256^3`
+    params.installCore(&vt, .x86_64, .cooperlake, .{});
+    try exact(.sbgemm, &vt, check.io, Cooperlake.slice, false, true, 21, 16, 9, 1.5, 2, 1);
+    try exact(.sbgemm, &vt, check.io, null, false, true, 21, 15, 9, 1.5, 2, 1);
 }
 
 test "half gemm: the same bits at 1 to 9 workers, on every Io" {
@@ -523,11 +554,11 @@ test "half gemm: the same bits at 1 to 9 workers, on every Io" {
         var t: Io.Threaded = .init(testing.allocator, .{ .async_limit = .limited(3), .concurrent_limit = .limited(3) });
         defer t.deinit();
         inline for (kinds) |kind| for ([_][3]usize{ .{ 41, 37, 12 }, .{ 70, 9, 11 }, .{ 5, 64, 6 } }) |s| for (1..10) |w| {
-            try exact(kind, &vt, t.io(), true, false, s[0], s[1], s[2], 1.25, 0.5, @intCast(w));
-            try exact(kind, &vt, t.io(), false, true, s[0], s[1], s[2], 1.25, 0.5, @intCast(w));
+            try exact(kind, &vt, t.io(), null, true, false, s[0], s[1], s[2], 1.25, 0.5, @intCast(w));
+            try exact(kind, &vt, t.io(), null, false, true, s[0], s[1], s[2], 1.25, 0.5, @intCast(w));
         };
     }
-    inline for (kinds) |kind| for (1..5) |w| try exact(kind, &vt, Io.failing, false, false, 30, 29, 8, 1, 0, @intCast(w));
+    inline for (kinds) |kind| for (1..5) |w| try exact(kind, &vt, Io.failing, null, false, false, 30, 29, 8, 1, 0, @intCast(w));
 }
 
 test "half gemm: a vector tile's lanes give the scalar bits, special values included" {

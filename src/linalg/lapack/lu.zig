@@ -47,6 +47,7 @@ const triangular = @import("../blas/blas2/triangular.zig");
 const laswp = @import("../blas/ext/laswp/kernel.zig");
 const Vtable = @import("../blas/Vtable.zig");
 const chol = @import("cholesky.zig");
+const lapack_tri = @import("triangular.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -367,6 +368,51 @@ pub fn gesv(allocator: Allocator, io: Io, comptime T: type, n: isize, nrhs: isiz
     try singular(try factorWith(allocator, io, T, m, m, a, la, ipiv, want), pivot);
     if (nrhs == 0) return;
     try solve(allocator, io, T, .n, m, @intCast(nrhs), a, la, ipiv, b, @intCast(ldb), want);
+}
+
+/// What `getri` returns: `Singular` when `U` has a zero on its diagonal.
+pub const GetriError = error{ InvalidN, InvalidLda, InvalidIpiv, Singular } || Allocator.Error || Io.Cancelable;
+
+/// `?GETRI`: `A⁻¹` in place of `getrf`'s `P L U` of `A` and its `ipiv`, by
+/// faer's `lu/partial_pivoting/inverse.rs` (faer v0.24.4,
+/// <https://codeberg.org/sarah-quinones/faer>, MIT): `U⁻¹` and `L⁻¹` in
+/// place (`trtri`), `U⁻¹ L⁻¹` by `trmm` over a copy of `L⁻¹`, then the
+/// columns swapped back, last pivot first (`dgetri.f`'s order). A zero on
+/// `U`'s diagonal returns `error.Singular` before `A` is touched, its index
+/// (1-based) in `pivot`, the reference's `INFO`. Every pivot must lie in
+/// `1..n`, as `getrs` checks.
+pub fn getri(allocator: Allocator, io: Io, comptime T: type, n: isize, a: [*]T, lda: isize, ipiv: [*]const isize, pivot: ?*usize) GetriError!void {
+    comptime chol.floatType(T, "getri");
+    if (n < 0) return error.InvalidN;
+    if (lda < @max(1, n)) return error.InvalidLda;
+    if (n == 0) return;
+    if (!util.fitsMatrix(n, n, lda, @sizeOf(T))) return error.InvalidLda;
+    for (ipiv[0..@intCast(n)]) |p| if (p < 1 or p > n) return error.InvalidIpiv;
+    const m: usize = @intCast(n);
+    const la: usize = @intCast(lda);
+    // `U` first: its singularity check leaves `A` as `getrf` left it
+    for ([_]types.Uplo{ .u, .l }) |uplo| {
+        lapack_tri.trtri(allocator, io, T, uplo, if (uplo == .u) .n else .u, n, a, lda, pivot) catch |e| switch (e) {
+            error.Singular, error.OutOfMemory, error.Canceled => |x| return x,
+            // the arguments are checked above
+            else => unreachable,
+        };
+    }
+    const w = try allocator.alloc(T, m * m);
+    defer allocator.free(w);
+    for (0..m) |j| for (0..m) |i| {
+        w[i + j * m] = if (i > j) a[i + j * la] else scalar(T, if (i == j) 1 else 0);
+    };
+    const vt = chol.table(T);
+    const want = chol.threads(.trtri, T, m) orelse 1;
+    try driver.trmm(allocator, io, T, vt, true, true, false, false, false, m, m, scalar(T, 1), a, la, w.ptr, m, want);
+    for (0..m) |j| @memcpy(a[j * la ..][0..m], w[j * m ..][0..m]);
+    var j = m - 1;
+    while (j > 0) {
+        j -= 1;
+        const p: usize = @intCast(ipiv[j] - 1);
+        if (p != j) for (0..m) |i| std.mem.swap(T, &a[i + j * la], &a[i + p * la]);
+    }
 }
 
 /// `getf2_k.c`, `zgetf2_k.c`: left-looking, a column at a time. Column `j`
@@ -1090,4 +1136,53 @@ test "gesv: getrf then getrs, bit for bit; a singular U before B is touched; the
     try gesv(fa, check.io, f64, 0, 2, &a, 1, &ipiv, &b, 1, null);
     for (a) |v| try testing.expect(std.math.isNan(v));
     try testing.expectEqual([2]isize{ -1, -1 }, ipiv);
+}
+
+test "getri: A A⁻¹ = I on getrf's factor, every type, sizes past the trmm blocks" {
+    const al = testing.allocator;
+    inline for (test_types) |T| {
+        const F = Float(T);
+        for ([_]usize{ 1, 2, 3, 5, 16, 33 }) |n| {
+            // diagonally dominant, so the inverse's error is a few eps
+            const a0 = try al.alloc(T, n * n);
+            defer al.free(a0);
+            check.fill(T, a0, 7 * n + 1);
+            for (0..n) |i| a0[i + i * n] = add(T, a0[i + i * n], scalar(T, @floatFromInt(2 * n)));
+            const a = try al.dupe(T, a0);
+            defer al.free(a);
+            const ipiv = try al.alloc(isize, n);
+            defer al.free(ipiv);
+            try getrf(al, check.io, T, @intCast(n), @intCast(n), a.ptr, @intCast(n), ipiv.ptr, null);
+            try getri(al, check.io, T, @intCast(n), a.ptr, @intCast(n), ipiv.ptr, null);
+            const tol = 64 * @as(F, @floatFromInt(n)) * std.math.floatEps(F);
+            for (0..n) |j| for (0..n) |i| {
+                var s = scalar(T, 0);
+                for (0..n) |k| s = add(T, s, mul(T, a0[i + k * n], a[k + j * n]));
+                try check.expectClose(T, scalar(T, if (i == j) 1 else 0), s, tol);
+            };
+        }
+    }
+}
+
+test "getri: a zero pivot is Singular with A as getrf left it; bad arguments; empty" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64 }) |T| {
+        // [[1, 2], [2, 4]]: U(2, 2) = 0
+        var a: [4]T = .{ scalar(T, 1), scalar(T, 2), scalar(T, 2), scalar(T, 4) };
+        var ipiv: [2]isize = undefined;
+        try testing.expectError(error.Singular, getrf(al, check.io, T, 2, 2, &a, 2, &ipiv, null));
+        const f = a;
+        var pivot: usize = 99;
+        try testing.expectError(error.Singular, getri(al, check.io, T, 2, &a, 2, &ipiv, &pivot));
+        try testing.expectEqual(@as(usize, 2), pivot);
+        try testing.expectEqual(f, a);
+    }
+    const fa = testing.failing_allocator;
+    var a: [4]f64 = @splat(nan);
+    const ipiv: [2]isize = .{ 1, 3 };
+    try testing.expectError(error.InvalidN, getri(fa, check.io, f64, -1, &a, 0, &ipiv, null));
+    try testing.expectError(error.InvalidLda, getri(fa, check.io, f64, 2, &a, 1, &ipiv, null));
+    try testing.expectError(error.InvalidIpiv, getri(fa, check.io, f64, 2, &a, 2, &ipiv, null));
+    try getri(fa, check.io, f64, 0, &a, 1, &ipiv, null);
+    for (a) |v| try testing.expect(std.math.isNan(v));
 }

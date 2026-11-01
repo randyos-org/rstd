@@ -1,74 +1,73 @@
-//! Complex Cholesky factorization, ported from `matlab88.f90`'s WPOFA
-//! (LINPACK's ZPOFA). See `blas1.zig` for the shared matrix/vector
-//! conventions this port uses, and `CxMat.zig` for the `self`-shaped
-//! calling convention matrix-level functions like this one now use.
-
-const blas1 = @import("blas1.zig");
-const CxMat = @import("CxMat.zig");
-const Cx = blas1.Cx;
-const ix = blas1.ix;
-
-/// WPOFA: Cholesky-factor a Hermitian positive-definite matrix, using only
-/// the diagonal and (strict) upper triangle of `self` on input - the lower
-/// triangle is assumed to be their conjugate transpose and is never read.
-/// On success, the upper triangle of `self` holds `R` such that
-/// `ctrans(R)*R == A`; the strict lower triangle is left unmodified (zero
-/// it yourself if a clean triangular matrix is required).
-///
-/// Returns 0 on success, or the 1-based order of the leading minor that
-/// first failed to be positive definite.
-pub fn wpofa(self: CxMat) usize {
-    const ar = self.r;
-    const ai = self.i;
-    const lda = self.lda;
-    const n = self.n;
-
-    var j: usize = 1;
-    while (j <= n) : (j += 1) {
-        var s: f64 = 0.0;
-        if (j >= 2) {
-            var k: usize = 1;
-            while (k <= j - 1) : (k += 1) {
-                const tr = ar[ix(lda, k, j)] - blas1.wdotcr(k - 1, ar[ix(lda, 1, k)..], ai[ix(lda, 1, k)..], 1, ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1);
-                const ti = ai[ix(lda, k, j)] - blas1.wdotci(k - 1, ar[ix(lda, 1, k)..], ai[ix(lda, 1, k)..], 1, ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1);
-                const d = blas1.wdiv(Cx.init(tr, ti), Cx.init(ar[ix(lda, k, k)], ai[ix(lda, k, k)]));
-                ar[ix(lda, k, j)] = d.re;
-                ai[ix(lda, k, j)] = d.im;
-                s += d.squaredMagnitude();
-            }
-        }
-        s = ar[ix(lda, j, j)] - s;
-        if (s <= 0.0 or ai[ix(lda, j, j)] != 0.0) return j;
-        ar[ix(lda, j, j)] = @sqrt(s);
-    }
-    return 0;
-}
+//! CHOL over rstd's LAPACK `potrf(.u)` (M2), in place of matlab88.f90's
+//! WPOFA (LINPACK's ZPOFA): a NaN pivot fails, and a diagonal's imaginary
+//! part is ignored rather than rejected (M1's E9, `linalg/design.md`).
 
 const std = @import("std");
+const CxMat = @import("CxMat.zig");
+const lapack = @import("../lapack/__root__.zig");
+const Complex = CxMat.Complex;
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
-const zigstd = @import("../../zigstd.zig");
+pub const Error = error{NotPositiveDefinite} || Allocator.Error || Io.Cancelable;
 
-test "wpofa factors a known real SPD matrix" {
-    // A = [[4, 2], [2, 3]] (upper triangle supplied, real).
-    var ar = [_]f64{ 4.0, 0.0, 2.0, 3.0 }; // column-major; lower-left unused
-    var ai: [4]f64 = @splat(0.0);
-    const mat = CxMat.initPacked(&ar, &ai, 2, 2);
-    const info = wpofa(mat);
-    try zigstd.testExpectEqual(@as(usize, 0), info);
-
-    // R = [[2, 1], [0, sqrt(2)]]; check ctrans(R)*R == A.
-    const r11 = ar[ix(2, 1, 1)];
-    const r12 = ar[ix(2, 1, 2)];
-    const r22 = ar[ix(2, 2, 2)];
-    try zigstd.testExpectApproxEqAbs(4.0, r11 * r11, 1e-10);
-    try zigstd.testExpectApproxEqAbs(2.0, r11 * r12, 1e-10);
-    try zigstd.testExpectApproxEqAbs(3.0, r12 * r12 + r22 * r22, 1e-10);
+/// CHOL: factor the Hermitian positive-definite `self` (its upper triangle
+/// read) in place into upper-triangular `R`, `ctrans(R)*R == A`, with the
+/// strict lower triangle zeroed. `error.NotPositiveDefinite` puts the
+/// failed leading minor's 1-based order in `minor`, `self` partly factored.
+pub fn chol(self: CxMat, allocator: Allocator, io: Io, minor: ?*usize) Error!void {
+    const ni: isize = @intCast(self.n);
+    if (self.isReal()) {
+        try factored(lapack.potrf(allocator, io, f64, .u, ni, self.r.ptr, @intCast(self.lda), minor));
+    } else {
+        const z = try self.toPacked(Complex, allocator);
+        defer allocator.free(z);
+        defer self.fromPacked(Complex, z);
+        try factored(lapack.potrf(allocator, io, Complex, .u, ni, z.ptr, ni, minor));
+    }
+    for (1..self.n) |j| {
+        const c = self.col(j);
+        @memset(c.r[j..], 0);
+        @memset(c.i[j..], 0);
+    }
 }
 
-test "wpofa rejects a non positive-definite matrix" {
-    var ar = [_]f64{ 1.0, 0.0, 5.0, 1.0 };
+fn factored(r: lapack.PotrfError!void) Error!void {
+    r catch |e| switch (e) {
+        error.NotPositiveDefinite, error.OutOfMemory, error.Canceled => |x| return x,
+        // the arguments come from `self`
+        else => unreachable,
+    };
+}
+
+const zigstd = @import("../../zigstd.zig");
+const testing = std.testing;
+
+test "chol factors a known real SPD matrix and zeros the lower triangle" {
+    // A = [[4, 2], [2, 3]], the lower-left entry never read
+    var ar = [_]f64{ 4.0, 7.0, 2.0, 3.0 };
     var ai: [4]f64 = @splat(0.0);
-    const mat = CxMat.initPacked(&ar, &ai, 2, 2);
-    const info = wpofa(mat);
-    try zigstd.testExpectEqual(@as(usize, 2), info);
+    try chol(CxMat.initPacked(&ar, &ai, 2, 2), testing.allocator, testing.io, null);
+    // R = [[2, 1], [0, sqrt(2)]]
+    try zigstd.testExpectApproxEqAbs(2.0, ar[0], 1e-15);
+    try zigstd.testExpectEqual(@as(f64, 0), ar[1]);
+    try zigstd.testExpectApproxEqAbs(1.0, ar[2], 1e-15);
+    try zigstd.testExpectApproxEqAbs(@sqrt(2.0), ar[3], 1e-15);
+}
+
+test "chol of a complex Hermitian matrix; a non positive-definite one fails" {
+    // A = [[2, i], [-i, 2]]: R = [[sqrt2, i/sqrt2], [0, sqrt(3/2)]]
+    var ar = [_]f64{ 2, 0, 0, 2 };
+    var ai = [_]f64{ 0, -1, 1, 0 };
+    try chol(CxMat.initPacked(&ar, &ai, 2, 2), testing.allocator, testing.io, null);
+    try zigstd.testExpectApproxEqAbs(@sqrt(2.0), ar[0], 1e-15);
+    try zigstd.testExpectApproxEqAbs(1.0 / @sqrt(2.0), ai[2], 1e-15);
+    try zigstd.testExpectApproxEqAbs(@sqrt(1.5), ar[3], 1e-15);
+    try zigstd.testExpectEqual(@as(f64, 0), ai[1]);
+
+    var br = [_]f64{ 1.0, 0.0, 5.0, 1.0 };
+    var bi: [4]f64 = @splat(0.0);
+    var minor: usize = 0;
+    try testing.expectError(error.NotPositiveDefinite, chol(CxMat.initPacked(&br, &bi, 2, 2), testing.allocator, testing.io, &minor));
+    try zigstd.testExpectEqual(@as(usize, 2), minor);
 }

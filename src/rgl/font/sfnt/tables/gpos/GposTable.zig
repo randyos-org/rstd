@@ -1,5 +1,6 @@
 const bytes = @import("../../../../../bytes.zig");
 const types = @import("../../stream_types.zig");
+const ValueFormat = @import("PairPos.zig").ValueFormat;
 
 const Offset16 = types.Offset16;
 const Offset32 = types.Offset32;
@@ -113,8 +114,8 @@ pub const Lookup = struct {
 /// LookupType 9 (Extension Positioning) wrapping one. 0 if none applies.
 pub fn glyphKernAdvance(self: GposTable, a: GlyphIndex, b: GlyphIndex) i16 {
     const table_data = self.table_data;
-    if (self.majorVersion() != 1) return 0; // Major version 1
-    if (self.minorVersion() != 0) return 0; // Minor version 0
+    if (self.majorVersion() != 1) return 0;
+    if (self.minorVersion() > 1) return 0; // 1.1 only appends featureVariationsOffset
 
     const lookup_list: Offset32 = self.lookupListOffset();
     const lookup_count = self.numLookups();
@@ -143,67 +144,57 @@ pub fn glyphKernAdvance(self: GposTable, a: GlyphIndex, b: GlyphIndex) i16 {
             const coverage_offset: Offset32 = bytes.getU16BE(table_data[table + 2 ..]);
             const coverage_index = coverageIndex(table_data, table + coverage_offset, a) orelse continue;
 
+            // Kerning is the first glyph's xAdvance; records size by both formats.
+            const value_format_1: ValueFormat = @bitCast(bytes.getU16BE(table_data[table + 4 ..]));
+            const value_format_2: ValueFormat = @bitCast(bytes.getU16BE(table_data[table + 6 ..]));
+            const x_advance_off = value_format_1.xAdvanceOffset() orelse continue;
+            const value_records_size = value_format_1.size() + value_format_2.size();
+
             switch (pos_format) {
                 1 => {
-                    const value_format_1 = bytes.getU16BE(table_data[table + 4 ..]);
-                    const value_format_2 = bytes.getU16BE(table_data[table + 6 ..]);
-                    if (value_format_1 == 4 and value_format_2 == 0) {
-                        const value_record_pair_size_in_bytes = 2;
-                        const pair_set_count = bytes.getU16BE(table_data[table + 8 ..]);
-                        const pair_pos_offset: Offset32 = bytes.getU16BE(table_data[table + 10 + 2 * coverage_index ..]);
-                        const pair_value_table = table + pair_pos_offset;
-                        const pair_value_count = bytes.getU16BE(table_data[pair_value_table..]);
-                        const pair_value_array = pair_value_table + 2;
+                    const pair_set_count = bytes.getU16BE(table_data[table + 8 ..]);
+                    if (coverage_index >= pair_set_count) return 0;
+                    const pair_pos_offset: Offset32 = bytes.getU16BE(table_data[table + 10 + 2 * coverage_index ..]);
+                    const pair_value_table = table + pair_pos_offset;
+                    const pair_value_count = bytes.getU16BE(table_data[pair_value_table..]);
+                    const pair_value_array = pair_value_table + 2;
+                    if (pair_value_count == 0) return 0;
 
-                        if (coverage_index >= pair_set_count) return 0;
-                        if (pair_value_count == 0) return 0;
+                    const needle = @backingInt(b);
+                    var r: u32 = pair_value_count - 1;
+                    var l: u32 = 0;
 
-                        const needle = @backingInt(b);
-                        var r: u32 = pair_value_count - 1;
-                        var l: u32 = 0;
-
-                        // Binary search.
-                        while (l <= r) {
-                            const m = (l + r) >> 1;
-                            const pair_value = pair_value_array + (2 + value_record_pair_size_in_bytes) * m;
-                            const second_glyph = bytes.getU16BE(table_data[pair_value..]);
-                            const straw = second_glyph;
-                            if (needle < straw) {
-                                if (m == 0) break;
-                                r = m - 1;
-                            } else if (needle > straw) {
-                                l = m + 1;
-                            } else {
-                                return bytes.getI16BE(table_data[pair_value + 2 ..]);
-                            }
+                    // Binary search.
+                    while (l <= r) {
+                        const m = (l + r) >> 1;
+                        const pair_value = pair_value_array + (2 + value_records_size) * m;
+                        const straw = bytes.getU16BE(table_data[pair_value..]);
+                        if (needle < straw) {
+                            if (m == 0) break;
+                            r = m - 1;
+                        } else if (needle > straw) {
+                            l = m + 1;
+                        } else {
+                            return bytes.getI16BE(table_data[pair_value + 2 + x_advance_off ..]);
                         }
-                    } else {
-                        @panic("TODO: implement more glyphKernAdvance value-record shapes (PairPosFormat1)");
                     }
                 },
                 2 => {
-                    const value_format_1 = bytes.getU16BE(table_data[table + 4 ..]);
-                    const value_format_2 = bytes.getU16BE(table_data[table + 6 ..]);
-                    if (value_format_1 == 4 and value_format_2 == 0) {
-                        const class_def10_offset: u32 = bytes.getU16BE(table_data[table + 8 ..]);
-                        const class_def20_offset: u32 = bytes.getU16BE(table_data[table + 10 ..]);
-                        const glyph1class = glyphClass(table_data, table + class_def10_offset, a);
-                        const glyph2class = glyphClass(table_data, table + class_def20_offset, b);
+                    const class_def10_offset: u32 = bytes.getU16BE(table_data[table + 8 ..]);
+                    const class_def20_offset: u32 = bytes.getU16BE(table_data[table + 10 ..]);
+                    const glyph1class = glyphClass(table_data, table + class_def10_offset, a);
+                    const glyph2class = glyphClass(table_data, table + class_def20_offset, b);
 
-                        const class1_count: u32 = bytes.getU16BE(table_data[table + 12 ..]);
-                        const class2_count: u32 = bytes.getU16BE(table_data[table + 14 ..]);
+                    const class1_count: u32 = bytes.getU16BE(table_data[table + 12 ..]);
+                    const class2_count: u32 = bytes.getU16BE(table_data[table + 14 ..]);
 
-                        if (glyph1class >= class1_count) return 0; // malformed
-                        if (glyph2class >= class2_count) return 0; // malformed
+                    if (glyph1class >= class1_count) return 0; // malformed
+                    if (glyph2class >= class2_count) return 0; // malformed
 
-                        const class1_records = table + 16;
-                        const class2_records = class1_records + 2 * (glyph1class * class2_count);
-                        return bytes.getI16BE(table_data[class2_records + 2 * glyph2class ..]);
-                    } else {
-                        @panic("TODO: implement more glyphKernAdvance value-record shapes (PairPosFormat2)");
-                    }
+                    const class2_record = table + 16 + value_records_size * (glyph1class * class2_count + glyph2class);
+                    return bytes.getI16BE(table_data[class2_record + x_advance_off ..]);
                 },
-                else => @panic("TODO: implement more glyphKernAdvance position formats"),
+                else => continue,
             }
         }
     }

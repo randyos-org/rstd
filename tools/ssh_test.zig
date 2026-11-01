@@ -6,9 +6,14 @@
 //! stored here.
 //!
 //!   ssh_test <host> <test exe> [args...]
+//!
+//! An argument `local:<path>` is a file or directory copied over too, next
+//! to the executable, passed as its copy's path and removed after.
 
 const std = @import("std");
 const Io = std.Io;
+
+const local_prefix = "local:";
 
 pub fn main(init: std.process.Init) void {
     std.process.exit(run(init) catch |err| {
@@ -39,13 +44,28 @@ fn run(init: std.process.Init) !u8 {
         return 1;
     }
 
-    // each argument single-quoted for the remote shell
+    // each argument single-quoted for the remote shell; `local:` ones copied
     var extra: std.ArrayList(u8) = .empty;
-    for (args[3..]) |a| {
-        if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;
-        try extra.print(arena, " '{s}'", .{a});
+    var copies: std.ArrayList(u8) = .empty;
+    for (args[3..], 0..) |a, i| {
+        const arg = if (std.mem.startsWith(u8, a, local_prefix)) blk: {
+            const path = a[local_prefix.len..];
+            const copy = try arena.print("{s}.{d}", .{ remote, i });
+            var cp: std.ArrayList([]const u8) = .empty;
+            try cp.append(arena, "scp");
+            try cp.appendSlice(arena, &options);
+            try cp.appendSlice(arena, &.{ "-q", "-r", path, try arena.print("{s}:{s}", .{ host, copy }) });
+            if (try exec(io, cp.items) != 0) {
+                std.debug.print("ssh_test: copying {s} to {s} failed\n", .{ path, host });
+                return 1;
+            }
+            try copies.print(arena, " {s}", .{copy});
+            break :blk copy;
+        } else a;
+        if (std.mem.findScalar(u8, arg, '\'') != null) return error.QuoteInArgument;
+        try extra.print(arena, " '{s}'", .{arg});
     }
-    const command = try arena.print("chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -f {0s}; exit $s", .{ remote, extra.items });
+    const command = try arena.print("chmod +x {0s} && RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote, extra.items, copies.items });
     var ssh: std.ArrayList([]const u8) = .empty;
     try ssh.append(arena, "ssh");
     try ssh.appendSlice(arena, &options);

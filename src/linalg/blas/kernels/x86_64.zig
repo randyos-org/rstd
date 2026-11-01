@@ -14,11 +14,11 @@ const vector = @import("../vector.zig");
 pub const Core = coretypes.X86CoreType;
 
 /// Every routine with kernels here: each routine's converted assembly (its
-/// `asm/__root__.zig`), and for `axpy` and `dot` their own modules, which add
-/// the kernels upstream writes in C.
+/// `asm/__root__.zig`), and a routine's own module (`kernel.zig`) where it
+/// adds the kernels upstream writes in C or intrinsics.
 const converted = .{
     @import("../blas1/axpy/x86_64/kernel.zig"),
-    registry.Kernels(Core, @import("../blas1/asum/x86_64/asm/__root__.zig")),
+    @import("../blas1/asum/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas1/copy/x86_64/asm/__root__.zig")),
     @import("../blas1/dot/x86_64/kernel.zig"),
     @import("../blas1/rot/x86_64/kernel.zig"),
@@ -26,9 +26,11 @@ const converted = .{
     registry.Kernels(Core, @import("../blas1/sum/x86_64/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/swap/x86_64/asm/__root__.zig")),
     @import("../blas2/gemv/x86_64/kernel.zig"),
+    @import("../blas2/ger/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas2/hemv/x86_64/asm/__root__.zig")),
-    registry.Kernels(Core, @import("../blas2/symv/x86_64/asm/__root__.zig")),
+    @import("../blas2/symv/x86_64/kernel.zig"),
     @import("../blas3/gemm/kernel.zig").Registry(Core),
+    @import("../blas3/gemm/x86_64/kernel.zig"),
 };
 
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those

@@ -30,6 +30,7 @@ pub const Dependency = Build.Dependency;
 pub const spirv = @import("spirv.zig");
 pub const wireRglShaders = spirv.wireRglShaders;
 pub const addShader = spirv.addShader;
+pub const addShaderWith = spirv.addShaderWith;
 pub const ShaderStage = spirv.ShaderStage;
 
 const builder_mod = @import("builder.zig");

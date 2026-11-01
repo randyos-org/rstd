@@ -845,7 +845,9 @@ pub fn Registry(comptime Core: type) type {
             if (comptime !tilesVary()) return;
             inline for (core_precisions) |p| {
                 inline for (sets) |s| {
-                    const K = s.Kernels(p[1], geometry(p[1]));
+                    // a set may hand a core upstream's own kernels
+                    const S = if (@hasDecl(s, "forCore")) s.forCore(core) else s;
+                    const K = S.Kernels(p[1], geometry(p[1]));
                     inline for (comptime slotNames(p[0], K)) |name| {
                         @export(&@field(K, name), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ name), core), .visibility = .hidden });
                     }
@@ -1013,7 +1015,12 @@ test "geometry: the most accumulators the registers hold" {
         c.features.addFeature(@backingInt(std.Target.mips.Feature.msa));
         break :blk c;
     };
-    const r6 = comptime std.Target.mips.cpu.i6400.toCpu(.mips64el);
+    // the I6400 with its SIMD unit: newer Zig's model lists it no more
+    const r6 = comptime blk: {
+        var c = std.Target.mips.cpu.i6400.toCpu(.mips64el);
+        c.features.addFeature(@backingInt(std.Target.mips.Feature.msa));
+        break :blk c;
+    };
     inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T|
         try std.testing.expectEqual(comptime geometryFor(T, r6), comptime geometryFor(T, p5600));
     try std.testing.expectEqualSlices(usize, &.{ 4, 2, 1 }, comptime tails(6));

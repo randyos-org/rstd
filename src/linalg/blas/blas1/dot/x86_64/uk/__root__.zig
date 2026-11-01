@@ -7,29 +7,6 @@ const uk = @import("../../../uk_block.zig");
 pub const Entry = uk.Entry;
 
 pub const entries = [_]Entry{
-    .{ .slot = .dsdot_k, .cores = &.{
-        "bulldozer",
-    }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_bulldozer.zig") },
-    .{ .slot = .dsdot_k, .cores = &.{
-        "excavator",
-        "piledriver",
-        "steamroller",
-    }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_steamroller.zig") },
-    .{ .slot = .dsdot_k, .cores = &.{
-        "nehalem",
-    }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_nehalem.zig") },
-    .{ .slot = .dsdot_k, .cores = &.{
-        "haswell",
-        "zen",
-    }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_haswell.zig") },
-    .{ .slot = .dsdot_k, .cores = &.{
-        "cooperlake",
-        "sapphirerapids",
-        "skylakex",
-    }, .mask = 32, .block = .vector, .kernel = "", .module = void },
-    .{ .slot = .dsdot_k, .cores = &.{
-        "sandybridge",
-    }, .mask = 32, .block = .assembly, .kernel = "sdot_kernel_16", .module = @import("sdot_sandy.zig") },
     .{ .slot = .ddot_k, .cores = &.{
         "excavator",
         "steamroller",

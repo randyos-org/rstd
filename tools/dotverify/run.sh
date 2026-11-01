@@ -40,6 +40,7 @@ for fz in f n; do
   done
 done
 "$ZIG" build-exe -lc -O ReleaseFast -mcpu=native $ARGS \
-  --dep blaskern_linked -Mroot=src/linalg/blas/_verify_dot.zig -Mblaskern_linked="$HERE/stub_linked.zig" \
+  --dep blaskern_linked --dep blas_options -Mroot=src/linalg/blas/_verify_dot.zig -Mblaskern_linked="$HERE/stub_linked.zig" \
+  -Mblas_options="$HERE/stub_options.zig" \
   --name verify_dot --cache-dir "$OUT/cache" -femit-bin="$OUT/verify_dot"
 "$OUT/verify_dot"

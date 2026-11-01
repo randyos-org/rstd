@@ -17,7 +17,7 @@ Reference-LAPACK and Eigen are baselines only; Eigen is never a source.
 | libflame | tag `5.2.0` (`53bd60c50b`, 2019-08-09), <https://github.com/flame/libflame> | BSD-3 (`LICENSE`); its f2c parts under AT&T, Lucent and Bellcore's permission notice (same file) | FLAME algorithms behind LAPACK names |
 | AOCL-libFLAME | tag `5.3.2` (`3b3251adec`, 2026-08-20), <https://github.com/amd/libflame> | BSD-3 and MIT, per file (`LICENSE.txt`); third-party parts BSD-3 or MIT (`NOTICE.txt`) | libflame plus AMD's x86 tuning |
 | BLIS | `2.1` (`caf0db6be1`) | BSD-3 | kernels and the level-3 framework; no LAPACK (no `getrf`, `potrf` or `geqrf` under `frame/` or `kernels/`) |
-| Apple Accelerate | macOS's, bound at run time | Apple's; called, never ported | the routines `apple_accel.zig` routes ([BLAS design](../blas/design.md#apple-accelerate)) |
+| Apple Accelerate | macOS's, bound at run time | Apple's; called, never ported | the routines `apple_accel.zig` routes ([BLAS design](../design.md#apple-accelerate)) |
 | Reference-LAPACK | OpenBLAS's `lapack-netlib/` | baseline | the semantics, and a benchmark baseline |
 | Eigen | upstream, built through Nix (todo.md T73) | MPL 2.0 | a benchmark baseline only |
 
@@ -75,15 +75,15 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | `getrs` | has | own, `lapack/getrs/` | - | own, `partial_pivoting/solve.rs` | ref | AMD: `fla_dgetrs_small_notrans` (`dgetrs.c`) | OpenBLAS | Q10 | accuracy tests; not raced |
 | `gesv` | has | own, `interface/lapack/gesv.c` | - | own (`solvers.rs`) | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `laswp` | has (`blas/ext/`) | own, `lapack/laswp/` | - | permutations inside `lu/` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
-| `getri` | M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer | the anthology rule: faer before the reference | not yet raced |
-| `gecon` | M (`wgeco`, `rcond`, `cond`) | - | - | - | ref | ref | open | only the reference's estimator (`xLACN2`) exists; needs a decision | none |
-| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([issues](../blas/issues.md#relapack-openblass-relapack)) | accuracy tests; not raced |
+| `getri` | has (T123); M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer (`lu.zig`: `trtri` on `U` and `L`, `inv(U) inv(L)` by `trmm`, the columns swapped back) | the anthology rule: faer before the reference | `A A⁻¹ = I` every type, sizes 1 to 33; a zero pivot leaves `A` as `getrf` left it; not raced |
+| `gecon` | has (T115); M (`wgeco`, `rcond`, `cond`) | - | - | - | ref | ref | Reference-LAPACK (`norm.zig`, with `xLACN2`, `xLATRS`) | neither faer nor libflame has its own; the reference is the fallback (Q11, 2026-10-30) | within `dtest.in`'s threshold (30) of `1 / (‖A‖ ‖A⁻¹‖)` by `dget06.f`'s ratio, both norms, graded matrices; special values; not raced |
+| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([issues](../issues.md#relapack-openblass-relapack)) | accuracy tests; not raced |
 
 ### Symmetric indefinite and generalized definite
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([issues](../blas/issues.md#relapack-openblass-relapack)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
+| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([issues](../issues.md#relapack-openblass-relapack)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
 | `sytrs`, `sytri` (`hetrs`, `hetri`) | M | - | - | own, `bunch_kaufman/solve.rs`, `inverse.rs` | ref | ref | open | faer's solve reads faer's factor, so it follows the `sytrf` choice | none |
 | `sygst`, `hegst` | T110; M (`eig(A, B)`) | - | own, `dsygst.c` | - | FLAME `FLA_Eig_gest` | FLAME | ReLAPACK | T110 | accuracy tests; not raced; FLAME is the other candidate |
 | `sygv`, `hegv`, `sygvd` | M (`eig(A, B)`) | - | - | - | ref | ref | `potrf`, `sygst`, then `syevd` as chosen | a driver over the rows above | none |
@@ -93,52 +93,52 @@ ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `trsyl` | T110; M (`sylvester`, `lyap`, `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
-| `tgsyl` | T110 (covered; not named) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK | only non-reference source | not yet raced |
+| `tgsyl` | has (T118) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK (`relapack.zig`), the reference's `xTGSY2` below the crossover | only non-reference source; two ReLAPACK bugs fixed ([issues](../issues.md#relapack-openblass-relapack)) | both equations' residuals, every `trans` and type; `dif` against `σ_min` of the Kronecker form and against one `xTGSY2`; not raced |
 
 ### QR, LQ and least squares
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `geqrf` | T111 (and inside T34) | - | - (QR is "not covered: extra FLOPs", `relapack/coverage.md`) | own, `qr/no_pivoting/factor.rs` | FLAME `FLA_QR_UT` | AMD: `fla_[sdcz]geqrf_small` (AVX2), OpenMP (`dgeqrf.c:224`) | faer | T111; ported on `wip/faer` for T34 | not yet raced |
-| `orgqr`, `ungqr` | T111 | - | - | own, `householder.rs` (the block sequence on `I`) | FLAME `FLA_QR_UT_form_Q` | FLAME | faer | T111 | not yet raced |
-| `ormqr`, `unmqr` | T111; M (`wqrsl`) | - | - | own, `householder.rs` | FLAME `FLA_Apply_Q_UT` | AMD: OpenMP (`dormqr.c`) | faer | T111 | not yet raced |
-| `geqp3` | M (`wqrdc`, pivoted `qr`, `rank`) | - | - | own, `qr/col_pivoting/factor.rs` | FLAME `FLA_QR_UT_piv` (`FLA_geqpf.c`) | AMD: `dlaqp2`'s norms (AVX2) | faer | the anthology rule | not yet raced |
-| `gelqf`, `orglq`, `ormlq` | M (wide minimum-norm solves) | - | - | - | FLAME `FLA_LQ_UT` | AMD: `fla_dgelqf_small` | open | FLAME is the only non-reference source; faer's QR of `Aᴴ` is the alternative | none |
-| `gels` | T111; M (rectangular `mldivide`) | - | - | own, `qr/no_pivoting/solve.rs` (`solve_lstsq_in_place`) | ref | ref | faer | T111 | not yet raced |
-| `gelsd`, `gelss`, `gelsy` | M (`pinv`, `lsqminnorm`, rank-deficient `mldivide`) | - | - | SVD pseudoinverse, `svd/mod.rs` | `gelsd` is `gelss` (ref) | ref | open | faer's SVD covers `gelss`; `gelsy`'s complete orthogonal factorization has no non-reference source | none |
+| `geqrf` | has (T111) | - | - (QR is "not covered: extra FLOPs", `relapack/coverage.md`) | own, `qr/no_pivoting/factor.rs` | FLAME `FLA_QR_UT` | AMD: `fla_[sdcz]geqrf_small` (AVX2), OpenMP (`dgeqrf.c:224`) | faer (`qr.zig`) | T111 | `Q R = A`, orthogonality, rank deficient; not raced |
+| `orgqr`, `ungqr` | has (T111) | - | - | own, `householder.rs` (the block sequence on `I`) | FLAME `FLA_QR_UT_form_Q` | FLAME | faer (`qr.zig`) | T111 | against one reflection at a time; not raced |
+| `ormqr`, `unmqr` | has (T111); M (`wqrsl`) | - | - | own, `householder.rs` | FLAME `FLA_Apply_Q_UT` | AMD: OpenMP (`dormqr.c`) | faer (`qr.zig`) | T111 | against one reflection at a time, every side and `op`; not raced |
+| `geqp3` | has (T115, for `gelsy`); M (`wqrdc`, pivoted `qr`, `rank`) | - | - | own, `qr/col_pivoting/factor.rs` | FLAME `FLA_QR_UT_piv` (`FLA_geqpf.c`) | AMD: `dlaqp2`'s norms (AVX2) | faer (`qr_pivot.zig`, without its SIMD-fused update) | the anthology rule | `dqpt01.f`'s and `dqrt11.f`'s ratios, fixed columns, rank deficient, zero; not raced |
+| `gelqf`, `orglq`, `ormlq` | has (T115); M (wide minimum-norm solves) | - | - | - (its QR of `Aᴴ`) | FLAME `FLA_LQ_UT` | AMD: `fla_dgelqf_small` | libflame's method, UT-transform blocks, with faer's reflection kernels on `Aᴴ` (`lq.zig`) | FLAME's is the only LQ of its own; faer's `householder.rs` is the same transform, so no FLAME code is ported | `dlqt01.f`'s and `dlqt03.f`'s ratios, every side and `op`; same bits at any worker count; not raced |
+| `gels` | has (T111); M (rectangular `mldivide`) | - | - | own, `qr/no_pivoting/solve.rs` (`solve_lstsq_in_place`), tall only | ref | ref | faer (`qr_solve.zig`); wide by faer's QR of `Aᴴ` | T111 | known answers, `dqrt17.f`'s residual ratio; not raced |
+| `gelsd`, `gelss`, `gelsy` | `gelsy` has (T115); M (`pinv`, `lsqminnorm`, rank-deficient `mldivide`) | - | - | SVD pseudoinverse, `svd/mod.rs` | `gelsd` is `gelss` (ref) | ref | `gelsy`: Reference-LAPACK (`lsq.zig`) over faer's `geqp3`; `gelss`, `gelsd`: open | `gelsy`'s complete orthogonal factorization has no non-reference source; faer's SVD covers `gelss` | `gelsy`: rank and the SVD's minimum-norm solution, scaled near the range's ends; same bits at any worker count; not raced |
 
 ### SVD
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`faer/svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes (`../blas/issues.md`); not raced |
-| `gesdd` | T34 | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`faer/svd.zig`) | T34 | as `gesvd`; not raced |
+| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes (`../issues.md`); not raced |
+| `gesdd` | T34 | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`svd.zig`) | T34 | as `gesvd`; not raced |
 | `gebrd`, `orgbr`, `ormbr` | inside T34 | - | - (not covered) | own, `svd/bidiag.rs` | FLAME `FLA_Bidiag_UT` | FLAME | faer | T34 | with `gesvd` |
-| `bdsqr`, `bdsdc` | inside T34 | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | faer | T34 | with `gesvd` |
+| `bdsqr`, `bdsdc` | inside T34 | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | `bdsqr`: Reference-LAPACK `xBDSQR` (`bidiag_svd.zig`'s `qrAlgorithm`, with `xLASV2`, `xLAS2`; T126); `bdsdc`: faer's divide and conquer over it | faer's QR iteration loses a graded bidiagonal's small values (an absolute `abs(d) <= eps` test; M1's E4), the reference keeps them (Demmel and Kahan); dqds (`xLASQ1` to `xLASQ6`) for values alone is T131 | with `gesvd`; E4's graded bidiagonal, reversed and random, against `f128` (T126) |
 
 ### Eigenvalues
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrd`, `hetrd` | T111 | - | - (not covered) | own, `evd/tridiag.rs` | FLAME `FLA_Tridiag_UT` | AMD: OpenMP (`dsytrd.c:255`) | faer | T111 | not yet raced |
-| `orgtr`, `ormtr`, `unmtr` | T111; M (`htribk`) | - | - | own, `householder.rs` | FLAME | FLAME | faer | T111 | not yet raced |
-| `syevd`, `heevd` (and `syev`, `steqr`, `stedc`) | T111; M (symmetric `eig`) | - | - | own, `evd/mod.rs`: QR iteration below 128, divide and conquer above (`tridiag_evd.rs`) | ref; `FLA_Hevd` and `FLA_Tevd` exist but no LAPACK name maps to them | ref | faer | T111 | not yet raced |
-| `laed3` (with `laed4`) | T70 (not ported) | own, `lapack/laed3/` | - | faer's own merge, `tridiag_evd.rs` (`secular_eq`, `divide_and_conquer`) | ref | ref | faer's, inside `syevd` | OpenBLAS's serves only the reference's `stedc`, which rstd does not port | not yet raced |
-| `gehrd`, `orghr`, `ormhr` | T111 (`geev`); M (`corth`, `hess`) | - | - (not covered) | own, `evd/hessenberg.rs` | FLAME `FLA_Hess_UT`, off | ref | faer | T111 | not yet raced |
-| `hseqr` | T111; M (`comqr3`) | - | - | own, multishift QR with aggressive early deflation, `evd/schur/` | ref | ref | faer | T111 | not yet raced |
-| `trevc` | T111; M (`comqr3`) | - | - | own, `evd/mod.rs` (`evd_from_real_schur_imp`, `_cplx_`) | ref | ref | faer | T111 | not yet raced |
-| `geev` | T111; M (`eig`) | - | - | own, `evd/mod.rs` (`evd_real`, `evd_cplx`) | ref | ref | faer | T111 | not yet raced |
-| `gees` | M (`schur`) | - | - | own, `evd/schur/` | ref | ref | faer | the anthology rule | not yet raced |
-| `trexc`, `trsen` | M (`ordschur`) | - | - | swaps only, `real_schur.rs` (`schur_swap`), crate-internal | ref | ref | open | no reordering driver outside the reference | none |
-| `gebal`, `gebak` | M (`eig`'s balancing, `balance`) | - | - | - | ref | ref | open | only the reference; needs a decision | none |
+| `sytrd`, `hetrd` | inside T111 (`syevd`; lower only, not public) | - | - (not covered) | own, `evd/tridiag.rs` | FLAME `FLA_Tridiag_UT` | AMD: OpenMP (`dsytrd.c:255`) | faer (`tridiag.zig`) | T111 | `Qᴴ A Q` tridiagonal; not raced |
+| `orgtr`, `ormtr`, `unmtr` | inside T111; M (`htribk`) | - | - | own, `householder.rs` | FLAME | FLAME | faer | T111 | with `syevd` |
+| `syevd`, `heevd` (and `syev`, `steqr`, `stedc`) | has (T111); M (symmetric `eig`) | - | - | own, `evd/mod.rs`: QR iteration below 128, divide and conquer above (`tridiag_evd.rs`) | ref; `FLA_Hevd` and `FLA_Tevd` exist but no LAPACK name maps to them | ref | faer (`evd.zig`, `tridiag_evd.zig`); `syev` and `heev` by QR iteration; `.u` reduced from the bottom (as `J A J`), as `xSYTRD` (T125) | T111 | `A V - V Λ`, orthogonality, special, clustered, graded matrices both ways against `f128` (T125), OpenBLAS's `test_laed3_nan.c`; not raced |
+| `laed3` (with `laed4`) | not ported | own, `lapack/laed3/` | - | faer's own merge, `tridiag_evd.rs` (`secular_eq`, `divide_and_conquer`) | ref | ref | faer's, inside `syevd` | OpenBLAS's serves only the reference's `stedc`, which rstd does not port; its test (`test/test_laed3_nan.c`) runs against `syevd` | `test_laed3_nan.c` |
+| `gehrd`, `orghr`, `ormhr` | `gehrd`, `orghr` have (T123); M (`corth`, `hess`) | - | - (not covered) | own, `evd/hessenberg.rs` (unblocked, and blocked from 256) | FLAME `FLA_Hess_UT`, off | ref | faer (`hessenberg.zig`, unblocked only so far), with LAPACK's `tau` and `ilo`/`ihi`; `orghr` by `dorghr.f`'s shift over `orgqr` | T111 | `Qᴴ A Q` Hessenberg on the `ilo..ihi` block, `Q` unitary; not raced |
+| `hseqr` | has (T123); M (`comqr3`) | - | - | own, multishift QR with aggressive early deflation, `evd/schur/`; `lahqr` below 75 | ref | ref | faer (`real_schur.zig`, `complex_schur.zig`: `lahqr` only so far), `dhseqr.f`'s interface (`evd.zig`) | T111 | `Z T Zᴴ = H`, standardized blocks, the `ilo..ihi` block, both jobs; not raced |
+| `trevc` | `trevc3` (and `trevc`, the same) has (T123); M (`comqr3`) | - | - | own, `evd/mod.rs` (`evd_from_real_schur_imp`, `_cplx_`), no scaling against overflow | ref | ref | Reference-LAPACK `xTREVC3` (`trevc.zig`), every `SIDE` and `HOWMNY` | faer's back substitution overflows where the reference scales (T117) | with `geev`, a triangular matrix whose vectors overflow unscaled, and `A`'s vectors after `gehrd`, `orghr`, `hseqr`, back-transformed and selected |
+| `geev` | has (T111); M (`eig`) | - | - | own, `evd/mod.rs` (`evd_real`, `evd_cplx`) | ref | ref | faer (`evd.zig`) | T111 | right and left residuals, special matrices; not raced |
+| `gees` | has (T123); M (`schur`) | - | - | own, `evd/schur/`, its reordering crate-internal | ref | ref | Reference-LAPACK `dgees.f`, `zgees.f` (`evd.zig`) over faer's `gehrd`, `hseqr` and the reference's `trsen` | faer has no public sorted Schur form | `A = Z T Zᴴ`, unsorted and the left half plane first, a tiny scale; not raced |
+| `trexc`, `trsen` | has (T115); M (`ordschur`) | - | - | swaps only, `real_schur.rs` (`schur_swap`, `schur_move`), crate-internal translations of `dlaexc.f`, `dtrexc.f` | ref | ref | Reference-LAPACK (`schur.zig`); `trsen`'s solves by ReLAPACK's `trsyl` | faer's swaps are the reference's method, and it has no `trsen` | `dget36.f`'s residuals (threshold 20, `dec.in`), every move; `s` against a Kronecker solve, `sep` against its smallest singular value; not raced |
+| `gebal`, `gebak` | has (T115); inside T111 (`geev`); M (`eig`'s balancing, `balance`) | - | - | - | ref | ref | Reference-LAPACK (`balance.zig`, every job; `geev` takes job `B`) | neither faer nor libflame has its own; the reference is the fallback (Q11, 2026-10-30) | the reference's `dbal.in` cases; `D⁻¹ Pᵀ A P D` through `gebak`, every job; `geev` on `D M D⁻¹`; not raced |
 | `ggev`, `gges` (`gghrd`, `hgeqz`, `tgevc`) | M (`eig(A, B)`, `qz`) | - | - | own, `gevd/` (`gen_hessenberg`, `qz_real`, `qz_cplx`) | ref | AMD: `dhgeqz` rotations, `fla_dhrot3` (AVX2, AVX-512) | faer | the anthology rule | not yet raced |
 
 ### Auxiliary
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `lange`, `lansy`, `lanhe` | M (`norm`) | - | - | `reductions/` (`norm_max`, `norm_l2` Frobenius, `norm_l1` entrywise; no operator 1- or infinity-norm) | ref | AMD: `lange` kernels (AVX2, AVX-512) | open | rstd's own over its BLAS (`amax`, `asum`, `nrm2`) is the obvious candidate | none |
-| `laset`, `lacpy`, `lascl`, `lapy2` | M2 (`wset`, `rset`, `pythag`) | - | - | element loops | ref | ref (AMD `dlacpy`) | rstd's own, the reference's semantics | too small to source | none |
+| `lange`, `lansy`, `lanhe` | `lange` has (T115); M (`norm`) | - | - | `reductions/` (`norm_max`, `norm_l2` Frobenius, `norm_l1` entrywise; no operator 1- or infinity-norm) | ref | AMD: `lange` kernels (AVX2, AVX-512) | `lange`: Reference-LAPACK (`norm.zig`, Blue's `xLASSQ`); `lansy`, `lanhe`: open | faer has no operator norms; the reference's NaN rule and scaling | known values, NaN, extreme scales; not raced |
+| `laset`, `lacpy`, `lascl`, `lapy2` | `laset`, `lapy2` have (T123); M2 (`wset`, `rset`, `pythag`) | - | - | element loops | ref | ref (AMD `dlacpy`) | rstd's own, the reference's semantics (`laset` in `norm.zig`, `lapy2` in `schur.zig`) | too small to source | `laset`: every `uplo`, wide and tall |
 
 faer also has what no item asks for yet: pivoted Cholesky (`llt_pivoting`, LAPACK's `pstrf`),
 `LDLᴴ` without pivoting, and full-pivoting LU.
@@ -148,7 +148,7 @@ faer also has what no item asks for yet: pivoted Cholesky (`llt_pivoting`, LAPAC
 Where more than one source serves a family. The per-core detail is in the `coverage.md` files
 (one per level-1 routine, [`blas2/coverage.md`](../blas/blas2/coverage.md),
 [`blas3/gemm/coverage.md`](../blas/blas3/gemm/coverage.md)); the reasoning in
-[BLAS design](../blas/design.md) and [`comparisons.md`](../blas/comparisons.md); the numbers in
+[BLAS design](../design.md) and [`comparisons.md`](../blas/comparisons.md); the numbers in
 `tools/blasbench/results-*.md`.
 
 | Family | Candidates | Choice | Why | Evidence |
@@ -193,7 +193,7 @@ Candidates for the timing session; none is ported, and each would race the curre
    faer's QR iteration in `gesvd` and divide and conquer in `syevd`.
 4. **libflame's `FLA_Eig_gest` and `FLA_Sylv`**: the only non-reference rivals to ReLAPACK's
    `sygst` and `trsyl` (T110); `FLA_Sylv` is mapped only with `FLA_ENABLE_YET_LAPACK2FLAME`.
-5. **libflame's `FLA_LQ_UT`**: the only non-reference `gelqf`.
+5. **libflame's `FLA_LQ_UT`**: the only non-reference `gelqf`; rstd's `gelqf` takes its method over faer's kernels (T115), so a port of FLAME's own blocking would race that.
 
 Not worth a race: libflame's `gesdd` (it is `gesvd`) and `gelsd` (it is `gelss`), and
 AOCL-libFLAME's non-LAPACK extensions (`getrfnp`, `getrfnpi`, `spffrt2`, `spffrtx`).

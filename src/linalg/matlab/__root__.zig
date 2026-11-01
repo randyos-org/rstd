@@ -4,7 +4,7 @@
 //! documentation) - everything callable as a MATLAB function, minus the
 //! REPL itself (parser, tokenizer, `<>` stack machine, `FOR`/`WHILE`/`IF`,
 //! `SAVE`/`LOAD`/`DIARY`/`PLOT` I/O, `HELP` text) since those have no
-//! meaning outside an interactive session. See `README.md` for a usage
+//! meaning outside an interactive session. See `readme.md` for a usage
 //! guide and a full function table.
 //!
 //! The public surface is `CxMat` (bundles a complex matrix and carries
@@ -13,7 +13,7 @@
 //! commands below that were never matrix-self-shaped to begin with
 //! (`hilb`/`magic`, `sum`/`prod`, `pow`, the elementwise `sin`/`cos`/...
 //! family, `poly`/`roots`, vector `norm`, `base`/`rat`/`Rand`). Everything
-//! else (`lu`, `svd`, `qr`, `blas1`, `generators`, ...) is an internal
+//! else (`lu`, `cholesky`, `svdapi`, `blas1`, `generators`, ...) is an internal
 //! implementation detail behind those two surfaces, not part of the public
 //! API - see `CxMat.zig`'s "Domain-file methods" section for how its
 //! methods delegate to them.
@@ -90,12 +90,6 @@ pub fn prod(ar: []const f64, ai: []const f64) Cx {
 const zigstd = @import("../../zigstd.zig");
 const lu = @import("lu.zig");
 const cholesky = @import("cholesky.zig");
-const tridiagonal = @import("tridiagonal.zig");
-const eigen_symmetric = @import("eigen_symmetric.zig");
-const hessenberg = @import("hessenberg.zig");
-const eigen_general = @import("eigen_general.zig");
-const svd = @import("svd.zig");
-const qr = @import("qr.zig");
 const eig = @import("eig.zig");
 const divide = @import("divide.zig");
 const svdapi = @import("svdapi.zig");
@@ -110,12 +104,6 @@ test {
     zigstd.testRefAllDecls(lu);
     zigstd.testRefAllDecls(cholesky);
     zigstd.testRefAllDecls(generators);
-    zigstd.testRefAllDecls(tridiagonal);
-    zigstd.testRefAllDecls(eigen_symmetric);
-    zigstd.testRefAllDecls(hessenberg);
-    zigstd.testRefAllDecls(eigen_general);
-    zigstd.testRefAllDecls(svd);
-    zigstd.testRefAllDecls(qr);
     zigstd.testRefAllDecls(rat_mod);
     zigstd.testRefAllDecls(base_mod);
     zigstd.testRefAllDecls(random);

@@ -8,6 +8,7 @@ const blaskern = @import("blaskern.zig");
 const qemutest = @import("qemutest.zig");
 const wasmtest = @import("wasmtest.zig");
 const sshtest = @import("sshtest.zig");
+const shader_probe = @import("../src/rgl/shaders/probe.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const Compile = rstdbuild.CompileStep;
@@ -40,7 +41,7 @@ pub fn addRstdModule(
     options.addOption(bool, "has_vulkan", vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
-    try blaskern.addBlasKernels(b, mod, target, blas_cores);
+    try blaskern.addBlasKernels(b, mod, target, blas_cores, null);
     rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
     if (has_renderdoc) {
         // null until its lazy dependencies are fetched; the build then reruns
@@ -95,6 +96,23 @@ pub fn build(b: *Build) !void {
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
+        // one shader per shaderlib operation, and rgl's own, to disassemble
+        // (src/rgl/shaders/lib/readme.md)
+        const probes = b.step("shader-probes", "Build each shaderlib probe and rgl's shaders to SPIR-V in zig-out/spv");
+        const only = b.option([]const u8, "shader-probe", "shader-probes builds only this probe");
+        inline for (@typeInfo(shader_probe.Op).@"enum".field_names) |op| {
+            if (only == null or std.mem.eql(u8, only.?, op)) {
+                const opts = b.addOptions();
+                opts.addOption([]const u8, "op", op);
+                const s = try rstdbuild.addShaderWith(b, optimize, b.path("src/rgl/shaders/probe.zig"), op, .{ ._rstd_mod = rstd_mod }, &.{.{ .name = "probe_op", .module = opts.createModule() }});
+                probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
+            }
+        }
+        for ([_][]const u8{ "rgl", "glyph", "image" }) |n| {
+            const s = try rstdbuild.addShader(b, optimize, b.path(b.fmt("src/rgl/shaders/{s}.zig", .{n})), n, .{ ._rstd_mod = rstd_mod });
+            probes.dependOn(&b.addInstallFile(s.spv_frag_path, b.fmt("spv/{s}.frag.spv", .{n})).step);
+            probes.dependOn(&b.addInstallFile(s.spv_vert_path, b.fmt("spv/{s}.vert.spv", .{n})).step);
+        }
     }
 
     // docs
@@ -125,15 +143,25 @@ pub fn build(b: *Build) !void {
     const run_rstd_test = b.addRunArtifact(rstd_test_exe);
     const test_step = b.step("rstd-test", "Run rstd's unit tests");
     test_step.dependOn(&run_rstd_test.step);
+    // compiles exactly what `rstd-test` runs, without running it, so a build
+    // queue can hold its slot for compiling only and run the tests after
+    b.step("rstd-test-build", "Build rstd's unit tests as `rstd-test` would, without running them").dependOn(&rstd_test_exe.step);
+    // the same executable and its debug info in <prefix>/rstd-test, so one
+    // cross-built elsewhere can be fetched and run here
+    const install_test = b.addInstallArtifact(rstd_test_exe, .{ .dest_dir = .{ .override = .{ .custom = "rstd-test" } } });
+    b.step("rstd-test-install", "Install the executable `rstd-test` runs, with its debug info, to <prefix>/rstd-test").dependOn(&install_test.step);
     // as 32-bit x87 code, in Debug and ReleaseSafe: Debug's stores hide x87
     // width bugs (T87); Windows and Linux on x86 hosts
     const x87_step = b.step("rstd-test-x87", "Run rstd's unit tests as pentium3 code on this x86 host, in Debug and ReleaseSafe");
+    const x87_build = b.step("rstd-test-x87-build", "Build what rstd-test-x87 runs, without running it");
     const host = b.graph.host.result;
     if (host.cpu.arch.isX86() and (host.os.tag == .windows or host.os.tag == .linux)) {
         const x87 = b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = host.os.tag, .abi = if (host.os.tag == .windows) .gnu else .musl, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } });
         for ([_]Optimize{ .debug, .safe }) |mode| {
             const x87_mod = try addRstdModule(b, null, x87, mode, blas_cores, false, false);
-            x87_step.dependOn(&b.addRunArtifact(try addRstdTest(b, x87_mod, x87, mode, test_filter)).step);
+            const x87_exe = try addRstdTest(b, x87_mod, x87, mode, test_filter);
+            x87_step.dependOn(&b.addRunArtifact(x87_exe).step);
+            x87_build.dependOn(&x87_exe.step);
         }
     } else x87_step.dependOn(&b.addFail("rstd-test-x87 runs on x86 Windows and Linux hosts").step);
     // the same tests on real machines over SSH, for targets no emulator covers
@@ -156,7 +184,7 @@ pub fn build(b: *Build) !void {
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const uefi = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .uefi });
         const uefi_mod = b.createModule(.{ .root_source_file = b.path("src/_test_qemu.zig"), .target = uefi, .optimize = optimize });
-        try blaskern.addBlasKernels(b, uefi_mod, uefi, .all);
+        try blaskern.addBlasKernels(b, uefi_mod, uefi, .all, null);
         try qemutest.addUefiImports(b, uefi_mod);
         uefi_step.dependOn(&b.addTest(.{
             .name = b.fmt("rstd-check-uefi-{t}", .{arch}),

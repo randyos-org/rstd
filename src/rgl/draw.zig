@@ -1,5 +1,5 @@
 // const std = @import("std");
-const Image = @import("Image.zig");
+const RgbaImage = @import("image.zig").RgbaImage;
 const color = @import("color.zig");
 const RGBA = color.RGBA;
 const geometry = @import("geometry.zig");
@@ -15,7 +15,7 @@ const Allocator = zigstd.Allocator;
 /// partially off-screen) -- only the iteration bounds are clamped to
 /// `dst`'s size, not `start`/`end` themselves, so `insideRound`'s rounding
 /// math still sees the shape's true corners rather than the clipped ones.
-pub fn fillRoundRect(dst: *Image, start: PointF32, end: PointF32, r: f32, c: RGBA) void {
+pub fn fillRoundRect(dst: *RgbaImage, start: PointF32, end: PointF32, r: f32, c: RGBA) void {
     const w: f32 = @floatFromInt(dst.width);
     const h: f32 = @floatFromInt(dst.height);
     const clip_start: PointF32 = .{ .x = @max(start.x, 0), .y = @max(start.y, 0) };
@@ -41,7 +41,7 @@ fn insideRound(p: PointF32, p0: PointF32, p1: PointF32, r: f32) bool {
     return dx * dx + dy * dy <= r * r;
 }
 
-pub fn blendPixel(img: *Image, p: Point, c: RGBA) void {
+pub fn blendPixel(img: *RgbaImage, p: Point, c: RGBA) void {
     if (c.a == 0xFF) {
         img.setPixelPoint(p, c);
         return;
@@ -59,8 +59,8 @@ pub fn blendPixel(img: *Image, p: Point, c: RGBA) void {
 
 /// area-averages a (square) source image down to an n x n image
 /// using premultiplied alpha so transparent edges stay clean.
-pub fn downsample(alloc: Allocator, src: *const Image, n: u32) !Image {
-    var out = try Image.init(alloc, n, n, .blank);
+pub fn downsample(alloc: Allocator, src: *const RgbaImage, n: u32) !RgbaImage {
+    var out = try RgbaImage.init(alloc, n, n, .blank);
     const scale = @as(f32, @floatFromInt(src.width)) / @as(f32, @floatFromInt(n));
 
     var dp: Point = .{ .x = 0, .y = 0 };
@@ -100,7 +100,7 @@ const testExpectEqual = zigstd.testExpectEqual;
 
 test "fillRoundRect clips a box extending past the image's edges without panicking" {
     const alloc = zigstd.testAllocator;
-    var img = try Image.init(alloc, 10, 10, color.RGBA.blank);
+    var img = try RgbaImage.init(alloc, 10, 10, color.RGBA.blank);
     defer img.destroy(alloc);
 
     fillRoundRect(
@@ -120,7 +120,7 @@ test "fillRoundRect clips a box extending past the image's edges without panicki
 
 test "fillRoundRect fills the center and clips a fully-rounded corner" {
     const alloc = zigstd.testAllocator;
-    var img = try Image.init(alloc, 10, 10, color.RGBA.blank);
+    var img = try RgbaImage.init(alloc, 10, 10, color.RGBA.blank);
     defer img.destroy(alloc);
 
     fillRoundRect(
@@ -139,7 +139,7 @@ test "fillRoundRect fills the center and clips a fully-rounded corner" {
 
 test "downsample averages a 2x2 block into one pixel" {
     const alloc = zigstd.testAllocator;
-    var src = try Image.init(alloc, 2, 2, null);
+    var src = try RgbaImage.init(alloc, 2, 2, null);
     defer src.destroy(alloc);
     src.setPixel(0, 0, .{ .r = 255, .g = 0, .b = 0, .a = 255 });
     src.setPixel(1, 0, .{ .r = 0, .g = 255, .b = 0, .a = 255 });
@@ -154,7 +154,7 @@ test "downsample averages a 2x2 block into one pixel" {
 
 test "downsample of a larger image picks the right source blocks" {
     const alloc = zigstd.testAllocator;
-    var src = try Image.init(alloc, 4, 4, color.RGBA.blank);
+    var src = try RgbaImage.init(alloc, 4, 4, color.RGBA.blank);
     defer src.destroy(alloc);
     // top-left quadrant red, everything else stays blank/transparent
     src.setPixel(0, 0, .{ .r = 255, .g = 0, .b = 0, .a = 255 });

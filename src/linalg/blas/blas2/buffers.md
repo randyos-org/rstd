@@ -5,7 +5,7 @@ its OpenBLAS source (v0.3.34-317), and what `interface.zig` gives it. The
 kernel tests (`_test/blas2/guard.zig`) hand every kernel exactly this buffer, with
 canaries on both sides, for shapes up to 129 (and `gemv`'s past 4096). The
 interfaces' own stack buffers hold NaN in tests, as the allocators do. The
-level-2 design is in [`design.md`](../design.md#level-2).
+level-2 design is in [`design.md`](../../design.md#level-2).
 
 ## What the interface allocates
 
@@ -40,6 +40,11 @@ level-2 design is in [`design.md`](../design.md#level-2).
 | power `gemv_[nt].S`, `zgemv_t.S`, `*_ppc440.S` | `y` or `x` copy of `m`, addressed as `CO = BUFFER - SIZE` and stored from `1*SIZE(CO)`, the buffer's first element | `cs*m` elements |
 | sparc `gemv_[nt].S`, `zgemv_[nt].S` | `y` or `x` copy of `m` | `cs*m` elements |
 | generic `ger.c`, `zger.c` (every core's `ger`) | `x` copied there when `incx != 1` | `cs*m` elements for a strided `x`, nothing otherwise |
+| x86_64 `sgemv_n_4.c` on Skylake-X, its few-column path (`m <= 16384`, `n <= 48`, `n != 4`; `gemv/kernel.zig`) | `x` copied to the start when `incx != 1`, `y` after `n` elements when `incy != 1` | `m + n` elements |
+| x86_64 `sgemv_t_4.c` on Skylake-X, its path for `lda == m <= 8`, `n <= 16384` (`gemv/kernel.zig`) | `x` copied to the start when `incx != 1`, `y` after `m` elements when `incy != 1` | `m + n` elements |
+| x86_64 `?symv_[LU].c` (`symv/kernel.zig`) | none | nothing |
+| arm64 `symv_[LU]_asimd_4x4.c` (`symv/kernel.zig`) | `y` copied there when `incy != 1`, then `x` when `incx != 1` (after `y`'s copy, else at the start) | `2m` elements at most |
+| x86_64 `sger.c`, `dger.c` (Sandy Bridge; `ger/x86_64/kernel.zig`) | `x` copied there when `incx != 1` | `m` elements for a strided `x`, nothing otherwise |
 | generic `symv_k.c`, `zsymv_k.c`, `zhemv_k.c` (`symmetric.Compose`) | a `SYMV_P` square block, then `y` and `x` copies (strided only) and gemv's buffer, each from a page boundary | from a page-aligned buffer, `composeBytes` |
 
 Every gemv need is inside the interface's `cs*(m+n) + 128/sizeof` elements,
@@ -58,6 +63,7 @@ not, and the kernel tests hand every form a NaN buffer.
 
 The `ger` size is the reference's own. No ported `ger` kernel touches the
 buffer for a unit stride, which the interface relies on: every call it makes
-takes a unit-stride `x`, the caller's or its copy in the buffer.
-No core has its own `ger` kernel yet (x86_64 `sger.c` and `dger.c` for
-Sandy Bridge, arm64 `ger_sve_v1x3.c`), so none needs a buffer flag.
+takes a unit-stride `x`, the caller's or its copy in the buffer. The
+per-core ones (x86_64 `sger.c` and `dger.c` for Sandy Bridge) copy only a
+strided `x`, so none needs a buffer flag. arm64's `ger_sve_v1x3.c` is not
+ported yet.

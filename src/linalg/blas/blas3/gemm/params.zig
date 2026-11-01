@@ -205,7 +205,8 @@ fn cpucfg(word: u32) u64 {
 // ---- the rules -------------------------------------------------------------
 
 /// `setparam-ref.c`'s L2 rules of the x86 cores whose `p` is open, the LA464
-/// override, and the `parameter.c` `GENERIC` rule.
+/// override, and `parameter.c`'s `GENERIC` rule (`:451`), which is x86's
+/// (`installGeneric` takes `.none` off x86).
 pub fn ruleFor(comptime family: Family, comptime core_name: []const u8) Rule {
     const eq = std.mem.eql;
     if (comptime family == .generic) return .{ .affine = .{ .mul = .{ 56, 28, 28, 14, 14, 7 }, .shift = 6, .cap = 16 } };
@@ -305,7 +306,11 @@ fn setPrec(vt: *Vtable, comptime name: []const u8, sh: Shape, r: Resolved) void 
 
 /// Fills the vtable's blocking parameters for a core of `family`.
 pub fn install(vt: *Vtable, comptime family: Family, comptime core_name: []const u8, table: Table, env: Env) void {
-    const rule = comptime ruleFor(family, core_name);
+    installRule(vt, family, core_name, table, env, comptime ruleFor(family, core_name));
+}
+
+/// `install` under `rule`.
+fn installRule(vt: *Vtable, comptime family: Family, comptime core_name: []const u8, table: Table, env: Env, comptime rule: Rule) void {
     const x86 = comptime (family == .x86 or family == .x86_64);
 
     vt.offsetA = table.offset_a;
@@ -478,6 +483,46 @@ fn familyOf(arch: std.Target.Cpu.Arch, ptr_bits: u16) Family {
     };
 }
 
+/// The branch of `param.h`'s `GENERIC` block a static `TARGET=GENERIC`
+/// build reads, and how its header variables get set: x86 by
+/// `parameter.c:451`'s L2 rule; `ARCH_MIPS` (32-bit MIPS) and
+/// `ARCH_LOONGARCH64` by fixed sets (`param.h:4388-4415`); every other
+/// architecture keeps `parameter.c`'s initializers, `p = q = r = 128`
+/// (`parameter.c:46-48`), as only x86's `blas_set_parameter` sets them for
+/// `GENERIC` (`:760-954`).
+pub const GenericBranch = enum { x86, mips, loongarch64, other };
+
+/// `GenericBranch` of an architecture, as `c_check` names it from `ctest.c`:
+/// mips64 is `ARCH_MIPS64` (`ctest.c:128-134`, `c_check:89-90`), loongarch32
+/// has no `__loongarch64`; architectures with no OpenBLAS port read the
+/// `#else` branch too.
+pub fn genericBranch(arch: std.Target.Cpu.Arch) GenericBranch {
+    return switch (arch) {
+        .x86, .x86_64 => .x86,
+        .mips, .mipsel => .mips,
+        .loongarch64 => .loongarch64,
+        else => .other,
+    };
+}
+
+/// The branch a family's architecture reads, for a core with no table.
+fn familyBranch(family: Family) GenericBranch {
+    return switch (family) {
+        .x86_64, .x86 => .x86,
+        .mips32 => .mips,
+        .loongarch64 => .loongarch64,
+        .arm64, .arm, .power64, .power64be, .power32, .power32le, .riscv64, .s390x, .mips64, .sparc, .wasm, .generic => .other,
+    };
+}
+
+/// Installs the generic table as a static `TARGET=GENERIC` build on `branch`
+/// has it, with `buffer_size` as its `BUFFER_SIZE` (x86 derives `r` from it).
+pub fn installGeneric(vt: *Vtable, comptime branch: GenericBranch, buffer_size: i64, env: Env) void {
+    var table = (if (branch == .x86) data.generic(.generic) else data.generic_off_x86(branch)).?;
+    table.buffer_size = buffer_size;
+    installRule(vt, .generic, "generic", table, env, comptime if (branch == .x86) ruleFor(.generic, "generic") else .none);
+}
+
 /// `BUFFER_SIZE` of the generic table on a target: its own, since OpenBLAS's
 /// generic target sees its architecture's `common_<arch>.h` like any build.
 /// Alpha and C-SKY have a header but no family; other architectures have no
@@ -495,24 +540,24 @@ fn genericBufferSize(arch: std.Target.Cpu.Arch, ptr_bits: u16) i64 {
 /// The generic table's `BUFFER_SIZE` in this build.
 pub const native_buffer_size = genericBufferSize(sysinfo.target.cpu.arch, sysinfo.target.ptrBitWidth());
 
+/// The generic table's branch in this build.
+pub const native_branch = genericBranch(sysinfo.target.cpu.arch);
+
 /// Installs the parameters of `core`. A core `param.h` has no blocking for takes
-/// the generic set and its rule, as OpenBLAS's generic target does, with its
-/// family's `BUFFER_SIZE`; the generic family takes the target's.
+/// the generic set and its rule, as OpenBLAS's generic target does on the
+/// family's architecture, with the family's `BUFFER_SIZE`; the generic family
+/// takes the target's branch and size.
 pub fn installCore(vt: *Vtable, comptime family: Family, core: CoreOf(family), env: Env) void {
     switch (core) {
         inline else => |c| {
             defer vt.dtb_entries = dtbFor(family, c);
-            defer small.installPermits(vt, small.permitFor(family, c));
+            defer small.installPermits(vt, small.permitFor(family, c), small.halfPermitFor(family, c));
             if (comptime family == .generic) {
-                var table = data.generic(c).?;
-                table.buffer_size = native_buffer_size;
-                install(vt, .generic, @tagName(c), table, env);
+                installGeneric(vt, native_branch, native_buffer_size, env);
             } else if (tableFor(family, c)) |table| {
                 install(vt, family, @tagName(c), table, env);
             } else {
-                var table = data.generic(.generic).?;
-                table.buffer_size = @field(data, @tagName(family) ++ "_buffer_size");
-                install(vt, .generic, "generic", table, env);
+                installGeneric(vt, comptime familyBranch(family), @field(data, @tagName(family) ++ "_buffer_size"), env);
             }
         },
     }
@@ -649,9 +694,9 @@ test "every core of the generic family resolves to sane parameters" {
     try checkFamily(.generic);
 }
 
-test "generic follows the GENERIC rule for a 512 KB L2" {
+test "generic follows the GENERIC rule for a 512 KB L2 on x86" {
     var vt: Vtable = .{};
-    installCore(&vt, .generic, .generic, .{});
+    installGeneric(&vt, .x86, native_buffer_size, .{});
     // min(512 >> 6, 16) = 8
     try std.testing.expectEqual(@as(i32, 448), vt.sgemm_p);
     try std.testing.expectEqual(@as(i32, 224), vt.dgemm_p);
@@ -664,12 +709,12 @@ test "generic follows the GENERIC rule for a 512 KB L2" {
 
 test "the block factor scales a computed p in 8s, and the L2 size moves it" {
     var vt: Vtable = .{};
-    installCore(&vt, .generic, .generic, .{ .block_factor = 50 });
+    installGeneric(&vt, .x86, native_buffer_size, .{ .block_factor = 50 });
     try std.testing.expectEqual(@as(i32, 224), vt.sgemm_p);
-    installCore(&vt, .generic, .generic, .{ .block_factor = 1 });
+    installGeneric(&vt, .x86, native_buffer_size, .{ .block_factor = 1 });
     // clamped to 10 percent: 44 in 8s is 40
     try std.testing.expectEqual(@as(i32, 40), vt.sgemm_p);
-    installCore(&vt, .generic, .generic, .{ .l2_kb = 128 });
+    installGeneric(&vt, .x86, native_buffer_size, .{ .l2_kb = 128 });
     try std.testing.expectEqual(@as(i32, 112), vt.sgemm_p);
 }
 
@@ -696,10 +741,43 @@ test "r derives from the core's own BUFFER_SIZE, a fallback from its family's" {
 test "the generic table takes the target's BUFFER_SIZE" {
     const mib: i64 = 1 << 20;
     inline for (.{
-        .{ .x86_64, 64, 128 }, .{ .x86, 32, 16 },     .{ .aarch64, 64, 32 }, .{ .arm, 32, 32 },
+        .{ .x86_64, 64, 128 },  .{ .x86, 32, 16 },     .{ .aarch64, 64, 32 },  .{ .arm, 32, 32 },
         .{ .powerpc, 32, 256 }, .{ .sparc64, 64, 32 }, .{ .mips64el, 64, 64 }, .{ .mips64el, 32, 32 },
-        .{ .wasm32, 32, 16 },   .{ .alpha, 64, 32 },   .{ .csky, 32, 32 },    .{ .m68k, 32, 128 },
+        .{ .wasm32, 32, 16 },   .{ .alpha, 64, 32 },   .{ .csky, 32, 32 },     .{ .m68k, 32, 128 },
     }) |c| try std.testing.expectEqual(c[2] * mib, genericBufferSize(c[0], c[1]));
+}
+
+test "the generic table follows parameter.c's L2 rule on x86 only" {
+    inline for (.{
+        .{ .x86_64, .x86 },    .{ .x86, .x86 },      .{ .aarch64, .other },           .{ .arm, .other },
+        .{ .powerpc, .other }, .{ .mips, .mips },    .{ .mipsel, .mips },             .{ .mips64el, .other },
+        .{ .riscv64, .other }, .{ .wasm32, .other }, .{ .loongarch64, .loongarch64 }, .{ .loongarch32, .other },
+        .{ .sparc64, .other }, .{ .s390x, .other },  .{ .m68k, .other },
+    }) |c| try std.testing.expectEqual(@as(GenericBranch, c[1]), genericBranch(c[0]));
+    var vt: Vtable = .{};
+    const env: Env = .{ .l2_kb = 4096, .block_factor = 50 };
+    // x86: 56 * min(4096 >> 6, 16) at half
+    installGeneric(&vt, .x86, 16 << 20, env);
+    try std.testing.expectEqual(@as(i32, 448), vt.sgemm_p);
+    // elsewhere `parameter.c:46-48`'s 128s, whatever the L2, factor and buffer
+    installGeneric(&vt, .other, 32 << 20, env);
+    inline for (.{ "s", "d", "q", "c", "z", "x" }) |pre| {
+        inline for (.{ "_p", "_q", "_r" }) |f| try std.testing.expectEqual(@as(i32, 128), @field(vt, pre ++ "gemm" ++ f));
+    }
+    // MIPS and LoongArch: `param.h:4388-4415`'s sets, which have no `q` or `x`
+    const want = [4][3]i32{ .{ 128, 240, 12288 }, .{ 128, 120, 8192 }, .{ 96, 120, 4096 }, .{ 64, 120, 4096 } };
+    inline for (.{ .mips, .loongarch64 }) |br| {
+        installGeneric(&vt, br, 32 << 20, env);
+        inline for (.{ "s", "d", "c", "z" }, want) |pre, w| {
+            try std.testing.expectEqual(w, [3]i32{ @field(vt, pre ++ "gemm_p"), @field(vt, pre ++ "gemm_q"), @field(vt, pre ++ "gemm_r") });
+        }
+        try std.testing.expectEqual(@as(i32, 0), vt.qgemm_q);
+    }
+    // a core with no table takes its architecture's branch
+    installCore(&vt, .power64, .unknown, env);
+    try std.testing.expectEqual(@as(i32, 128), vt.dgemm_r);
+    installCore(&vt, .mips32, .unknown, env);
+    try std.testing.expectEqual(@as(i32, 8192), vt.dgemm_r);
 }
 
 test "fixed sets are taken as they are; x86 derives r, others keep the header's" {

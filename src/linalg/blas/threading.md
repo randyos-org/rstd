@@ -7,7 +7,7 @@ and 2 interfaces): every level 3 routine but `gemmt` threads, and levels 1 and 2
 the split keeps the bits ([Levels 1 and 2](#levels-1-and-2-fixed-chunks-dynamic-claiming-ordered-combine)).
 Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts
 (v0.3.34-317), BLIS references to its tag 2.1, std references to Zig's `lib/std` at
-0.18.0-dev.751. The library's overall structure is in [`design.md`](design.md); how this rule
+0.18.0-dev.751. The library's overall structure is in [`design.md`](../design.md); how this rule
 compares with MKL, BLIS and OpenBLAS is in [`comparisons.md`](comparisons.md) (8).
 
 ## Requirements
@@ -125,7 +125,7 @@ and `size_max` is the most workers the routine's threshold justifies for the pro
 effect, since there is no spinning server. The calling thread is worker 0.
 
 The worker count affects only speed. Targets that report one CPU (freestanding builds, the
-qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
+single-core qemu rigs through their `Thread` override) run serially without special cases. When the `Io`
 admits fewer than `w` workers, the surplus run inline on the caller.
 
 ### Levels 1 and 2: fixed chunks, dynamic claiming, ordered combine
@@ -160,8 +160,10 @@ What threads, as landed:
   where the vector does, and each keeps the vector's alignment: an element takes the body or
   tail path one call gives it. A zero stride runs serially, as OpenBLAS's do.
 - **Reductions:** the dots (`dsdot` too), `asum` and `sum` at `f32` and `f64`, real and complex.
-  Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, so it keeps
-  its contract (products and sum in `f64`, rounded once). On the x87 each step of the fold is
+  Partials of `f32` fold in `f64` and round once; `sdot`'s partials are `dsdot`'s, `sdot`'s own
+  kernel's sum unrounded on every core (both routed, `vector.routed`), so it keeps its contract
+  (products and sum in `f64`, rounded once) and its kernel's speed (T101: arm64's converted
+  `dsdot`, one two-lane sum, ran at half of it). On the x87 each step of the fold is
   rounded to its float, so no partial keeps a register's width. Wider types do not thread their sums:
   they give the bits of OpenBLAS's x87 kernels (`readme.md`), which no fold keeps.
 - **Extremes:** values and indices, every type, folded exactly: the first NaN, else the first
@@ -272,7 +274,7 @@ thresholds are `gemm`'s and `symm`'s, as upstream builds them from the same inte
 ### LAPACK
 
 The LAPACK routines (`../lapack/`) thread through the level-3 drivers, at upstream's interface
-thresholds (`cholesky.zig`'s `threads`; [`design.md`](design.md#lapack)). Upstream switches to
+thresholds (`cholesky.zig`'s `threads`; [`design.md`](../design.md#lapack)). Upstream switches to
 its `_parallel.c` algorithms, with other blocks, whenever it has more than one thread; here
 the problem size alone picks the algorithm, so its bits never depend on the worker count.
 `getrf`'s lookahead runs on `team`: the caller factors the next block while the other workers
@@ -304,7 +306,10 @@ with `getrf_single.c`'s blocks, where upstream's depend on its thread count.
 | extremes, indices | `iamax_thunderx2t99.c`, `izamax_thunderx2t99.c`: `n > 10000` | range chunks, exact fold |
 
 The `copy` and extremes rows are OpenBLAS's ThunderX2 kernels' own, taken as defaults for every
-core; the others are its generic interfaces' or x86_64 kernels'. The generic thresholds apply
+core; the others are its generic interfaces' or x86_64 kernels'. Upstream threads `dot` only in
+those kernels: x86_64's `ddot.c` and `zdot.c` and arm64's `dot.c` (`s` and `d`, where a core
+builds it) above 10000; x86_64's `sdot.c` and `cdot.c`, arm64's `dot.S` and every `dsdot` stay
+serial. Rstd's `dot` row holds for every precision and core. The generic thresholds apply
 with `GEMM_MULTITHREAD_THRESHOLD = 4` as a comptime constant,
 together with OpenBLAS's per-core overrides (`neoversev1`/`v2` in `interface/gemm.c` and
 `gemv.c`, `a64fx` and `neoversev1` in `arm64/dot.c`). Complex routines have their own
@@ -312,7 +317,7 @@ constants; `threading.zig`'s `rule` holds them all. These are defaults; per-core
 replace them, and the chunk sizes, later. `switch_ratio` already lives in the vtable
 (`blas3/gemm/params.zig`). M ranges round to `unroll_m` and a cache line to avoid false
 sharing in `C`. The rank-update cut-offs only pick the thread count; their serial small-`n`
-paths are already ported ([`design.md`](design.md), Level 2).
+paths are already ported ([`design.md`](../design.md), Level 2).
 
 ### Memory
 
@@ -348,7 +353,7 @@ brings each to its cancelable futex wait.
 ### Futures on `Dispatch`
 
 With worker threads std's `Group` crashes on `Io.Evented`, `Uring` and `Dispatch` alike
-([`issues.md`](issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
+([`issues.md`](../issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
 plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Group`.
 `usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
 futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
@@ -358,7 +363,7 @@ and their fold are unchanged, so the bits are too. `Uring`'s futures are reused 
 (issues.md), so a multithreaded `Uring` stays unsupported.
 
 A fiber that sleeps or wakes others may resume on another thread, and the control state
-stays with the thread ([`issues.md`](issues.md)); `Dispatch` moves even the caller. On the M6,
+stays with the thread ([`issues.md`](../issues.md)); `Dispatch` moves even the caller. On the M6,
 level 3 under rounding toward zero lost its bits that way. So a level 3 worker holds the
 caller's `FpState` only while it runs (`threading.Lent`): around each futex wait and wake it
 gives its thread's own state back, and takes the caller's again after. The caller re-adopts
@@ -374,8 +379,8 @@ delete `Tasks`' futures path.
 Threading compiles out only under `builtin.single_threaded`: such builds take a comptime
 serial path that never references `Io.Group`, over the same chunks. Freestanding and UEFI are not forced serial, so
 a multithreaded freestanding build (for example a RandyOS kernel with its own `Io`) can
-thread. Today's freestanding rigs build `single_threaded` and report one CPU; UEFI's `Io` runs
-tasks inline.
+thread. The freestanding rigs build `single_threaded` and report one CPU but for the multicore
+ones (Verification); UEFI's `Io` runs tasks inline.
 
 ### Vendor backends
 
@@ -385,7 +390,7 @@ runs it single-threaded. Accelerate's does (its threaded `gemv` rounds otherwise
 documents no mode that keeps its bits across thread counts (MKL has one, CNR), so
 `apple_accel.load` makes it single-threaded for the process and the loading thread; every other
 thread sets its own model (`singleThreadHere`) on its first call into it
-([`design.md`](design.md#apple-accelerate)).
+([`design.md`](../design.md#apple-accelerate)).
 
 Rstd's workers parallelize around it (`apple_accel.split`), under the rules above:
 
@@ -434,7 +439,7 @@ Reproducibility:
   an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
   capture `util.FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
-  caller's state is never changed ([`design.md`](design.md), Settled decisions).
+  caller's state is never changed ([`design.md`](../design.md), Settled decisions).
 
 Memory safety for concurrent work:
 
@@ -483,9 +488,11 @@ What the tests check today, and where they run:
 
 - **Everywhere, rigs included** (`threading.zig`): chunking, rules and their per-core
   overrides, the worker count, chunks that ignore the CPU count and the ceiling, and the
-  ordered combine in several claim orders. The freestanding rigs check that they resolve to
-  one worker over the same chunks.
-- **Hosted** (native Windows; `qemu-test-linux-*` at `-smp 4`; `ssh-test-aarch64-macos`):
+  ordered combine in several claim orders. The single-threaded builds check that they resolve
+  to one worker over the same chunks.
+- **Hosted and multicore kernels** (native Windows; `qemu-test-linux-*` at `-smp 4`;
+  `ssh-test-aarch64-macos`; `qemu-test-x86_64-smp`, `-aarch64-smp`), on `threading.TestIo`:
+  `Io.Threaded`, or the kernel's cores (Freestanding, below):
   - Level 3 (`blas3/threaded.zig`): every threaded routine against the serial driver, bit
     for bit, at 1 to 9 workers. The shapes cross every block, panel and triangle edge, with
     every transpose and option, on `check.zig`'s shrunk blocking and a NaN-poisoning
@@ -501,35 +508,41 @@ What the tests check today, and where they run:
   - Control state: workers adopt the caller's rounding and flush to zero, on `Dispatch`
     too, where fibers change threads.
   - Cancellation: a canceled region and a canceled `gemm` return `error.Canceled` only
-    once no worker runs. `std.testing.allocator` checks every free.
+    once no worker runs; the `gemm` hosted only, since a thread of its own releases the
+    kernel it holds. `std.testing.allocator` checks every free.
+  - A concurrent task runs on a thread of its own, with a fresh copy of the thread-locals.
 - **Split inputs:** each core's `Q`, at every precision, is the same at 0, 1, 2, 3 and 64
   threads (`params.zig`, `checkCore`); only LA464's `P` and `R` move. The level 3 tests
   record the depth of every `gemm`, `trsm` and `trmm` kernel call, so each packed slice's
   `Q`. A threaded run must see the depths the serial driver sees, at every worker count.
   Level 1 and 2 chunks ignore the CPU count and the ceiling (above).
 - **Races** (`race stress` in the test names): `threading.stress_rounds` (1000) rounds per
-  level at 2 to 8 workers, on `Io.Threaded`, each checked bit for bit against one worker.
+  level at 2 to 8 workers, on `TestIo`, each checked bit for bit against one worker.
   Strided vectors' gaps and `A`'s and `C`'s leading-dimension padding are guard bands, and
   scratch comes NaN-poisoned. Level 1 runs `axpy`, `dot` and `iamax`. Level 2 runs `gemv`
   by columns, `ger`, `syr2` and `symv`, whose partial vectors fold. Level 3 runs `gemm`
   with shared packed `B`, `syr2k` and `trsm`. They are meant for the weak-memory rigs
-  (`qemu-test-linux-aarch64`, `-powerpc64le`, `-riscv64`, all `-smp 4`) and the M6. A
+  (`qemu-test-linux-aarch64`, `-powerpc64le`, `-riscv64`, all `-smp 4`; `aarch64-smp`) and
+  the M6. A
   filter of `race stress` runs them alone.
 - **TSan:** `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64
-  Linux rigs then run them on glibc from Nix ([`issues.md`](issues.md) has why not musl or
+  Linux rigs then run them on glibc from Nix ([`issues.md`](../issues.md) has why not musl or
   macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
   report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
   is left out.
-- **Freestanding:** the kernel rigs build `single_threaded` (`build/qemutest.zig`,
-  `addKernelRun`), and `rstd-check-uefi` keeps UEFI compiling. No test builds a
-  multithreaded freestanding target, which would need four things:
-  - secondary cores started in the test kernels (PSCI `CPU_ON` on aarch64 `virt`, for
-    example) with a stack each;
-  - TLS set up per core, since std's `debug.zig` keeps `panic_stage` thread-local once
-    a build is not `single_threaded`;
-  - an `Io` that hands `Group.concurrent` and `Group.async` tasks to those cores, with
-    futex waits, wakes and cancellation;
-  - rigs at `-smp` above 1.
+- **Freestanding:** the kernel rigs build `single_threaded` but for `x86_64-smp` and
+  `aarch64-smp` (`cpus` in `build/qemutest.zig`), which run the threaded tests above
+  (`smp_filters`) on four cores; `rstd-check-uefi` keeps UEFI compiling. In those kernels
+  (`test/qemu/smp.zig`):
+  - the boot core starts the others by INIT-SIPI-SIPI (x86_64, the count from QEMU's
+    fw_cfg) or PSCI `CPU_ON` (aarch64), each on a stack of its own;
+  - each core gets a copy of the TLS image the linker script bounds, since std's
+    `debug.zig` keeps `panic_stage` thread-local once a build is not `single_threaded`;
+  - `Pool`, an `Io`, hands a future or group task to an idle core, or to none: past its
+    limits or with every core busy, `async` runs inline and `concurrent` fails, as on
+    `Io.Threaded`;
+  - futex waits poll the word and the task's cancel, sleeping in `wfe` or `mwait` until a
+    wake or a cancel rings the core.
 - **`Dispatch` with its pool** (`ssh-test-aarch64-macos`): the `threading` and level 3
   tests above, race stress and cancellation included, on the futures path
   (2026-10-30).
@@ -620,7 +633,7 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 - Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
   hang. With worker threads std's `Group` crashes on `Uring` and `Dispatch` (macOS), and
-  `Uring` reuses fibers too early ([`issues.md`](issues.md)): `Dispatch` runs on futures
+  `Uring` reuses fibers too early ([`issues.md`](../issues.md)): `Dispatch` runs on futures
   until `Group` is fixed (Futures on `Dispatch`), and threaded BLAS on a multithreaded `Uring`
   is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes one for `maxInt(u32)`.
   Windows has no `Evented`.

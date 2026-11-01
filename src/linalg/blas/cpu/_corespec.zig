@@ -151,6 +151,12 @@ pub fn riscv(core: coretypes.RiscvCoreType) Spec {
 
 // ---- mips (`Makefile.mips64`: `MSA_FLAGS = -mmsa -mfp64`) --------------------
 
+/// The FPU on the named cores' models: upstream lists only what every
+/// configuration of a core has (Zig 2c5f1044fc, 2026-10-28), so `fpu_d` and
+/// `msa` are opt-in there; older Zig has no `fpu_d` and implies both.
+const mips_fpu = if (@hasField(std.Target.mips.Feature, "fpu_d")) [_][]const u8{"fpu_d"} else [_][]const u8{};
+const mips_simd = [_][]const u8{"msa"} ++ mips_fpu;
+
 pub fn mips(core: coretypes.MipsCoreType) Spec {
     return switch (core) {
         // MSA needs the revision-5 feature bit explicitly; GCC's `-mmsa` implies
@@ -161,7 +167,7 @@ pub fn mips(core: coretypes.MipsCoreType) Spec {
         // `Makefile.mips`, `Makefile.mips64`: release 5 and release 6 cores with
         // the SIMD architecture; the 24K and 1004K have none
         .mips24k, .mips1004k => .{ .model = "mips32r2" },
-        .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
+        .p5600 => .{ .model = "p5600", .features = &mips_simd },
         .i6400, .i6500, .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
         // `Makefile.system`'s `-march=loongson3a`, release 2 to gcc; the
         // 4-operand `madd.s` needs it
@@ -503,9 +509,9 @@ pub fn machine(core: anytype) Spec {
             .loongson3r3 => .{ .model = "mips64r2" },
             .loongson3r4 => .{ .model = "mips64r5", .features = &.{"msa"} },
             .mips24k, .mips1004k => .{ .model = "mips32r2" },
-            .p5600 => .{ .model = "p5600", .features = &.{"msa"} },
-            .i6400 => .{ .model = "i6400", .features = &.{"msa"} },
-            .i6500 => .{ .model = "i6500", .features = &.{"msa"} },
+            .p5600 => .{ .model = "p5600", .features = &mips_simd },
+            .i6400 => .{ .model = "i6400", .features = &mips_simd },
+            .i6500 => .{ .model = "i6500", .features = &mips_simd },
             .p6600 => .{ .model = "mips64r6", .features = &.{"msa"} },
         },
         coretypes.LoongarchCoreType => switch (core) {

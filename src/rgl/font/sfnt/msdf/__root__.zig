@@ -10,8 +10,9 @@ const EdgeSegment = @import("EdgeSegment.zig");
 const math = @import("math.zig");
 const Scanline = @import("Scanline.zig");
 const Shape = @import("Shape.zig");
+const Image = @import("../../../image.zig").Image;
 
-pub const ErrorCorrection = @import("ErrorCorrection.zig");
+pub const error_correction = @import("error_correction.zig");
 
 const Vertex = aux_types.Vertex;
 const V2f64 = aux_types.V2f64;
@@ -95,6 +96,14 @@ pub const SdfType = enum {
         };
     }
 
+    /// Bytes per output texel: msdf10 packs its three channels into four.
+    pub fn bytesPerPixel(self: SdfType) u8 {
+        return switch (self) {
+            .msdf10 => 4,
+            else => self.numChannels(),
+        };
+    }
+
     pub fn requiresColoring(self: SdfType) bool {
         return switch (self) {
             .msdf, .msdf10, .mtsdf => true,
@@ -149,7 +158,7 @@ pub const Options = struct {
     /// Requires `orient_contours` to be disabled.
     scanline_fill_rule: ?Scanline.FillRule = null,
     /// Only MSDFs (both their normal and their 10-bit versions) and MTSDFs can be error corrected.
-    error_correction_opts: ?ErrorCorrection.Options = .{},
+    error_correction_opts: ?error_correction.Options = .{},
     /// The list of arguments to use if the given font has multiple masters.
     var_font_args: []const VarFontArgument = &.{},
     /// Whether to use async tasks over concurrent ones during atlas generation.
@@ -163,6 +172,16 @@ pub const Msdf10Pixel = packed struct(u32) {
     b: u10 = 0,
     a: u2 = std.math.maxInt(u2),
 };
+
+/// A distance texel: one value per channel.
+fn DistPixel(comptime ty: SdfType) type {
+    return [ty.numChannels()]f64;
+}
+
+/// An output texel, as stored in GeneratedGlyph/GeneratedAtlas pixels.
+fn OutPixel(comptime ty: SdfType) type {
+    return [ty.bytesPerPixel()]u8;
+}
 
 sfnt: Sfnt,
 
@@ -429,35 +448,28 @@ pub fn generateAtlas(
         }.lessThan },
     );
 
-    const mod_channels = if (opts.sdf_type == .msdf10)
-        4
-    else
-        opts.sdf_type.numChannels();
-    const pixels = try allocator.alloc(u8, @as(usize, atlas_w) * @as(usize, atlas_h) * @as(usize, mod_channels));
+    const pixels: []u8 = switch (opts.sdf_type) {
+        inline else => |ty| blk: {
+            const Px = OutPixel(ty);
+            const atlas: Image(Px) = try .init(allocator, atlas_w, atlas_h, @splat(0));
+            for (id_rects) |id_rect| {
+                const index: usize = @intCast(id_rect.id);
+                const rect = id_rect.rect;
+                glyphs[index].tex_bounds = rect;
+                if (rect.w <= 0 or rect.h <= 0)
+                    continue;
+
+                atlas.blit(
+                    @intCast(rect.x + glyph_padding),
+                    @intCast(rect.y + glyph_padding),
+                    @intCast(rect.w - glyph_padding * 2),
+                    std.mem.bytesAsSlice(Px, rect_pixels[index]),
+                );
+            }
+            break :blk std.mem.sliceAsBytes(atlas.data);
+        },
+    };
     errdefer allocator.free(pixels);
-    @memset(pixels, 0);
-
-    for (id_rects) |id_rect| {
-        const index: usize = @intCast(id_rect.id);
-        const rect = id_rect.rect;
-        glyphs[index].tex_bounds = rect;
-        if (rect.w <= 0 or rect.h <= 0)
-            continue;
-
-        const glyph_w: usize = @intCast(rect.w - glyph_padding * 2);
-        const glyph_h: usize = @intCast(rect.h - glyph_padding * 2);
-        const cur_atlas_x: usize = @intCast(rect.x + glyph_padding);
-        const cur_atlas_y: usize = @intCast(rect.y + glyph_padding);
-
-        for (0..glyph_h) |j| {
-            const atlas_idx = ((cur_atlas_y + j) * atlas_w + cur_atlas_x) * mod_channels;
-            const src_idx = (j * glyph_w) * mod_channels;
-            @memcpy(
-                pixels[atlas_idx .. atlas_idx + glyph_w * mod_channels],
-                rect_pixels[index][src_idx .. src_idx + glyph_w * mod_channels],
-            );
-        }
-    }
 
     return .{
         .glyphs = glyphs,
@@ -556,88 +568,51 @@ fn getSdfPixels(
     const px_size = f64i(opts.px_size);
     const px_range = f64i(opts.px_range) / px_size;
 
-    var error_correction: ?ErrorCorrection = null;
-    if (opts.sdf_type == .msdf or
-        opts.sdf_type == .mtsdf or
-        opts.sdf_type == .msdf10)
-        if (opts.error_correction_opts) |ec_opts| {
-            error_correction = try .create(allocator, shape, w, h, ec_opts, opts.scanline_fill_rule != null);
-        };
-    defer if (error_correction) |*ec| ec.destroy(allocator);
-
-    const channels = opts.sdf_type.numChannels();
-    const dist_pixels = try allocator.alloc(
-        f64,
-        @as(usize, w) * @as(usize, h) * @as(usize, if (opts.sdf_type == .msdf10) 4 else channels),
-    );
-    defer allocator.free(dist_pixels);
-
     switch (opts.sdf_type) {
         inline else => |ty| {
+            const n = comptime ty.numChannels();
+            var dist: Image(DistPixel(ty)) = try .init(allocator, w, h, null);
+            defer dist.destroy(allocator);
+
             if (ty.requiresColoring()) switch (opts.coloring_method) {
                 .simple => try coloring.colorSimple(allocator, opts.coloring_rng_seed, shape, opts.corner_angle_threshold),
                 .ink_trap => try coloring.colorInkTrap(allocator, opts.coloring_rng_seed, shape, opts.corner_angle_threshold),
                 .distance => try coloring.colorDistance(allocator, opts.coloring_rng_seed, shape, opts.corner_angle_threshold),
             };
-            generate(ty, dist_pixels, w, h, px_size, shape.*, px_range, tfm);
+            generate(ty, dist, px_size, shape.*, px_range, tfm);
+
+            if (!opts.orient_contours)
+                if (opts.scanline_fill_rule) |fill_rule| {
+                    if (comptime n == 1)
+                        try sdfSignCorrection(allocator, dist, px_size, shape.*, tfm, fill_rule)
+                    else
+                        try msdfSignCorrection(n, allocator, dist, px_size, shape.*, tfm, fill_rule);
+                };
+
+            if (comptime ty.requiresColoring())
+                if (opts.error_correction_opts) |ec_opts|
+                    try error_correction.correct(n, allocator, shape, ec_opts, opts.scanline_fill_rule != null, px_size, px_range, tfm, dist);
+
+            const out: Image(OutPixel(ty)) = try .init(allocator, w, h, null);
+            for (out.data, dist.data) |*o, d| {
+                if (comptime ty == .msdf10)
+                    o.* = std.mem.toBytes(Msdf10Pixel{
+                        .r = @trunc(std.math.maxInt(u10) * std.math.clamp(d[0], 0.0, 1.0)),
+                        .g = @trunc(std.math.maxInt(u10) * std.math.clamp(d[1], 0.0, 1.0)),
+                        .b = @trunc(std.math.maxInt(u10) * std.math.clamp(d[2], 0.0, 1.0)),
+                        .a = std.math.maxInt(u2),
+                    })
+                else for (o, d) |*v, c|
+                    v.* = @trunc(std.math.maxInt(u8) * std.math.clamp(c, 0.0, 1.0));
+            }
+            return std.mem.sliceAsBytes(out.data);
         },
     }
-
-    if (!opts.orient_contours)
-        if (opts.scanline_fill_rule) |fill_rule|
-            switch (opts.sdf_type) {
-                .sdf, .psdf => try sdfSignCorrection(
-                    allocator,
-                    dist_pixels,
-                    w,
-                    h,
-                    px_size,
-                    shape.*,
-                    tfm,
-                    fill_rule,
-                ),
-                .msdf, .msdf10, .mtsdf => try msdfSignCorrection(
-                    allocator,
-                    dist_pixels,
-                    w,
-                    h,
-                    px_size,
-                    shape.*,
-                    tfm,
-                    fill_rule,
-                    channels,
-                ),
-            };
-
-    if (error_correction) |*ec|
-        ec.correct(shape, px_size, px_range, tfm, dist_pixels, w, h, channels);
-
-    const mod_channels = if (opts.sdf_type == .msdf10)
-        4
-    else
-        opts.sdf_type.numChannels();
-    const pixels = try allocator.alloc(u8, @as(usize, w) * @as(usize, h) * @as(usize, mod_channels));
-
-    for (0..h) |y| for (0..w) |x| {
-        const idx = y * w * mod_channels + x * mod_channels;
-        if (opts.sdf_type == .msdf10)
-            pixels[y * w * 4 + x * 4 ..][0..4].* = std.mem.toBytes(Msdf10Pixel{
-                .r = @trunc(std.math.maxInt(u10) * std.math.clamp(dist_pixels[idx], 0.0, 1.0)),
-                .g = @trunc(std.math.maxInt(u10) * std.math.clamp(dist_pixels[idx + 1], 0.0, 1.0)),
-                .b = @trunc(std.math.maxInt(u10) * std.math.clamp(dist_pixels[idx + 2], 0.0, 1.0)),
-                .a = std.math.maxInt(u2),
-            })
-        else for (0..mod_channels) |i|
-            pixels[idx + i] = @trunc(std.math.maxInt(u8) * std.math.clamp(dist_pixels[idx + i], 0.0, 1.0));
-    };
-    return pixels;
 }
 
 fn sdfSignCorrection(
     allocator: std.mem.Allocator,
-    out_pixels: []f64,
-    w: u16,
-    h: u16,
+    dist: Image([1]f64),
     scale: f64,
     shape: Shape,
     tfm: V2f64,
@@ -645,54 +620,51 @@ fn sdfSignCorrection(
 ) !void {
     var scanline: Scanline = .{};
     defer scanline.intersections.deinit(allocator);
-    for (0..h) |y| {
-        const row = h - y - 1;
+    for (0..dist.height) |y| {
+        const row: u32 = @intCast(dist.height - y - 1);
         try shape.scanline(&scanline, (f64i(y) + 0.5) / scale + tfm[1], allocator);
-        for (0..w) |x| {
-            const idx = row * w + x;
-            const distance = out_pixels[idx];
+        for (dist.row(row), 0..) |*d, x| {
+            const distance = d[0];
             if ((distance > 0.5) != scanline.filled((f64i(x) + 0.5) / scale + tfm[0], fill_rule))
-                out_pixels[idx] = 1.0 - distance;
+                d[0] = 1.0 - distance;
         }
     }
 }
 
 fn msdfSignCorrection(
+    comptime n: usize,
     allocator: std.mem.Allocator,
-    out_pixels: []f64,
-    w: u16,
-    h: u16,
+    dist: Image([n]f64),
     scale: f64,
     shape: Shape,
     tfm: V2f64,
     fill_rule: Scanline.FillRule,
-    channels: u8,
 ) !void {
     var scanline: Scanline = .{};
     defer scanline.intersections.deinit(allocator);
 
-    const match_map = try allocator.alloc(i32, w * h);
+    const w = dist.width;
+    const h = dist.height;
+    const match_map = try allocator.alloc(i32, @as(usize, w) * h);
     defer allocator.free(match_map);
     @memset(match_map, 0);
 
     var ambiguous = false;
     var match_idx: usize = 0;
-    const scaled_w = w * channels;
     for (0..h) |y| {
-        const row = h - y - 1;
+        const row: u32 = @intCast(h - y - 1);
         try shape.scanline(&scanline, (f64i(y) + 0.5) / scale + tfm[1], allocator);
-        for (0..w) |x| {
+        for (dist.row(row), 0..) |*px, x| {
             const filled = scanline.filled((f64i(x) + 0.5) / scale + tfm[0], fill_rule);
-            const idx = row * scaled_w + x * channels;
-            const distance = math.median(out_pixels[idx], out_pixels[idx + 1], out_pixels[idx + 2]);
+            const distance = math.median(px[0], px[1], px[2]);
             if (distance == 0.5) {
                 ambiguous = true;
             } else if ((distance > 0.5) != filled) {
-                for (0..3) |i| out_pixels[idx + i] = 1.0 - out_pixels[idx + i];
+                for (px[0..3]) |*v| v.* = 1.0 - v.*;
                 match_map[match_idx] = -1;
             } else match_map[match_idx] = 1;
-            if (channels >= 4 and (out_pixels[idx + 3] > 0.5) != filled)
-                out_pixels[idx + 3] = 1.0 - out_pixels[idx + 3];
+            if (n >= 4 and (px[3] > 0.5) != filled)
+                px[3] = 1.0 - px[3];
             match_idx += 1;
         }
     }
@@ -701,18 +673,17 @@ fn msdfSignCorrection(
 
     match_idx = 0;
     for (0..h) |y| {
-        const row = h - y - 1;
-        for (0..w) |x| {
+        const row: u32 = @intCast(h - y - 1);
+        for (dist.row(row), 0..) |*px, x| {
             const match = match_map[match_idx];
             if (match == 0) {
                 var neighbor_match: i32 = 0;
-                if (x > 0) neighbor_match += match - 1;
-                if (x < w - 1) neighbor_match += match + 1;
-                if (y > 0) neighbor_match += match - w;
-                if (y < h - 1) neighbor_match += match + w;
+                if (x > 0) neighbor_match += match_map[match_idx - 1];
+                if (x < w - 1) neighbor_match += match_map[match_idx + 1];
+                if (y > 0) neighbor_match += match_map[match_idx - w];
+                if (y < h - 1) neighbor_match += match_map[match_idx + w];
                 if (neighbor_match < 0) {
-                    for (out_pixels[row * scaled_w + x * channels ..][0..3]) |*px|
-                        px.* = 1.0 - px.*;
+                    for (px[0..3]) |*v| v.* = 1.0 - v.*;
                 }
             }
             match_idx += 1;
@@ -798,37 +769,33 @@ pub fn findDistanceAt(
 
 fn generate(
     comptime sdf_type: SdfType,
-    out_pixels: []f64,
-    w: u16,
-    h: u16,
+    out: Image(DistPixel(sdf_type)),
     scale: f64,
     shape: Shape,
     px_range: f64,
     tfm: V2f64,
 ) void {
-    for (0..h) |y| {
-        const row = h - y - 1;
-        for (0..w) |x| {
+    for (0..out.height) |y| {
+        const row: u32 = @intCast(out.height - y - 1);
+        for (out.row(row), 0..) |*px, x| {
             const p = V2f64{
                 (f64i(x) + 0.5),
                 (f64i(y) + 0.5),
             } / math.splatV2f64(scale) + tfm;
 
-            switch (sdf_type) {
-                .sdf, .psdf => {
-                    const dist = findDistanceAt(sdf_type, shape, p, px_range);
-                    out_pixels[row * w + x] = dist;
-                },
-                .msdf, .msdf10, .mtsdf => {
-                    const channels = sdf_type.numChannels();
-                    for (
-                        out_pixels[row * w * channels + x * channels ..][0..channels],
-                        findDistanceAt(sdf_type, shape, p, px_range),
-                    ) |*v, dist| v.* = dist;
-                },
-            }
+            const dist = findDistanceAt(sdf_type, shape, p, px_range);
+            px.* = if (comptime sdf_type.numChannels() == 1) .{dist} else dist;
         }
     }
+}
+
+test {
+    _ = coloring;
+    _ = EdgeSegment;
+    _ = Scanline;
+    _ = Shape;
+    _ = math;
+    _ = error_correction;
 }
 
 pub fn f64i(int: anytype) f64 {

@@ -80,6 +80,43 @@ const patches = [_]arch.Patch{
     },
     atomZeroIncy("axpy_atom.S", axpy_atom_one, "3"),
     atomZeroIncy("zaxpy_atom.S", zaxpy_atom_one, "2"),
+    // where `y` is aligned, `y` was added before `alpha_i` times the swapped
+    // `x`; where it is not, after `alpha * x` was whole. So `y`'s address
+    // changed the rounding (threading.md, "No address dependence"): add `y`
+    // last on every path
+    yLast("zaxpy_sse2.S", "addpd", "-16", "0", 10),
+    yLast("zaxpy_sse2.S", "addpd", "-14", "1", 8),
+    yLast("zaxpy_sse2.S", "addpd", "-12", "2", 6),
+    yLast("zaxpy_sse2.S", "addpd", "-10", "3", 6),
+    yLast("zaxpy_sse2.S", "addpd", " -8", "4", 4),
+    yLast("zaxpy_sse2.S", "addpd", " -6", "5", 4),
+    yLast("zaxpy_sse2.S", "addpd", " -4", "6", 4),
+    yLast("zaxpy_sse2.S", "addpd", " -2", "7", 4),
+    yLast("zaxpy_sse.S", "addps", "-32", "0", 20),
+    yLast("zaxpy_sse.S", "addps", "-28", "1", 16),
+    yLast("zaxpy_sse.S", "addps", "-24", "2", 12),
+    yLast("zaxpy_sse.S", "addps", "-20", "3", 12),
+    yLast("zaxpy_sse.S", "addps", "-16", "4", 8),
+    yLast("zaxpy_sse.S", "addps", "-12", "5", 8),
+    yLast("zaxpy_sse.S", "addps", " -8", "6", 8),
+    yLast("zaxpy_sse.S", "addps", " -4", "7", 8),
+    // three one-element tails (`.L18`, `.L28`, `.L38`) that add `y` to a
+    // part of `alpha * x`
+    .{
+        .source = "zaxpy_sse.S",
+        .find = "\tmovsd\t-32 * SIZE(Y), %xmm1\n\taddps\t%xmm1,   %xmm0\n\taddps\t%xmm8,   %xmm0\n",
+        .replace = "\tmovsd\t-32 * SIZE(Y), %xmm1\n\taddps\t%xmm8,   %xmm0\n\taddps\t%xmm1,   %xmm0\n",
+    },
+    .{
+        .source = "zaxpy_sse.S",
+        .find = "\taddps\t-32 * SIZE(Y), %xmm8\n\taddps\t%xmm8,   %xmm0\n",
+        .replace = "\taddps\t%xmm8,   %xmm0\n\taddps\t-32 * SIZE(Y), %xmm0\n",
+    },
+    .{
+        .source = "zaxpy_sse.S",
+        .find = "\tmovsd\t-32 * SIZE(Y), %xmm1\n\n\taddps\t%xmm1, %xmm0\n\taddps\t%xmm8,   %xmm0\n",
+        .replace = "\tmovsd\t-32 * SIZE(Y), %xmm1\n\n\taddps\t%xmm8,   %xmm0\n\taddps\t%xmm1, %xmm0\n",
+    },
     // OPTERON loaded by adding to zero, so -0 came out +0 and a signaling
     // NaN quiet; load as the other cores do
     .{ .source = "copy_sse.S", .find = opteronLoad("addps"), .replace = "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\tmovaps\tOFFSET(ADDR), REG\n" },
@@ -148,6 +185,14 @@ const zaxpy_atom_one = ".L28:\n\tmovsd\t 0 * SIZE(X), %xmm0\n\tmovsd\t 1 * SIZE(
     "\taddsd\t%xmm0, %xmm8\n\tADD2\t%xmm1, %xmm9\n\tADD1\t%xmm3, %xmm8\n\taddsd\t%xmm2, %xmm9\n" ++
     "\tmovsd\t%xmm8,   0 * SIZE(Y)\n\tmovsd\t%xmm9,   1 * SIZE(Y)\n" ++
     "\taddq\t INCX, X\n\taddq\t INCY, Y\n\tdecq\t%rax\n\tjg\t.L28\n\tjmp\t.L999\n\n";
+
+/// `count` adds of `y` at `off` into `%xmm<reg>`, each followed by that of
+/// `%xmm8`, the other way round.
+fn yLast(comptime source: []const u8, comptime op: []const u8, comptime off: []const u8, comptime reg: []const u8, comptime count: usize) arch.Patch {
+    const y = "\t" ++ op ++ "\t" ++ off ++ " * SIZE(Y), %xmm" ++ reg ++ "\n";
+    const t = "\t" ++ op ++ "\t%xmm8,   %xmm" ++ reg ++ "\n";
+    return .{ .source = source, .find = y ++ t, .replace = t ++ y, .count = count };
+}
 
 fn opteronLoad(comptime add: []const u8) []const u8 {
     return "#ifdef OPTERON\n#define LOAD(OFFSET, ADDR, REG)\t\txorps\tREG, REG; " ++ add ++ "\tOFFSET(ADDR), REG\n";

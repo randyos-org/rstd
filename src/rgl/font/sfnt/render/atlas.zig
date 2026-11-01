@@ -8,6 +8,7 @@ const pack = @import("pack.zig");
 const layout = @import("layout.zig");
 const GlyphCache = @import("GlyphCache.zig");
 const msdf = @import("../msdf/__root__.zig");
+const Image = @import("../../../image.zig").Image;
 
 const GlyphIndex = types.GlyphIndex;
 
@@ -27,8 +28,8 @@ pub const GlyphPlacement = struct {
 pub const TextAtlas = struct {
     /// Row-major, `width * channels` bytes per row. For `.coverage`, one
     /// 8-bit coverage byte per pixel (0 transparent, 255 opaque). For
-    /// `.msdf`, `channels` signed-distance bytes per pixel per
-    /// `Options.msdf.sdf_type.numChannels()`.
+    /// `.msdf`, `Options.msdf.sdf_type.bytesPerPixel()` signed-distance bytes
+    /// per pixel (msdf10: one packed `msdf.Msdf10Pixel`).
     pixels: []u8,
     width: u32,
     height: u32,
@@ -80,7 +81,7 @@ pub const MsdfOptions = struct {
     coloring_method: msdf.ColoringMethod = .distance,
     corner_angle_threshold: f64 = 3.0,
     coloring_rng_seed: u64 = 0,
-    error_correction_opts: ?msdf.ErrorCorrection.Options = .{},
+    error_correction_opts: ?msdf.error_correction.Options = .{},
     /// Fails the whole atlas build with error.InvalidShape instead of
     /// silently rendering a bad outline if a glyph's decoded contours don't
     /// form a closed loop.
@@ -117,7 +118,7 @@ pub fn buildTextAtlas(
 ) !TextAtlas {
     const channels: u8 = switch (options.type) {
         .coverage => 1,
-        .msdf => options.msdf.sdf_type.numChannels(),
+        .msdf => options.msdf.sdf_type.bytesPerPixel(),
     };
 
     const head = self.head orelse return error.MissingHead;
@@ -253,18 +254,20 @@ pub fn buildTextAtlas(
         atlas_h = @max(atlas_h, @as(u32, @intCast(ir.rect.y + ir.rect.h)));
     }
 
-    const atlas_pixels = try gpa.alloc(u8, @as(usize, atlas_w) * atlas_h * channels);
+    const atlas_pixels: []u8 = switch (channels) {
+        inline 1, 3, 4 => |n| blk: {
+            const Px = [n]u8;
+            const atlas: Image(Px) = try .init(gpa, atlas_w, atlas_h, @splat(0));
+            for (rastered.items, placements) |g, p| {
+                const off = g.bitmap_off orelse continue;
+                const src = raster_pixels.items[off..][0 .. @as(usize, g.width) * g.height * n];
+                atlas.blit(p.x, p.y, g.width, std.mem.bytesAsSlice(Px, src));
+            }
+            break :blk std.mem.sliceAsBytes(atlas.data);
+        },
+        else => unreachable,
+    };
     errdefer gpa.free(atlas_pixels);
-    @memset(atlas_pixels, 0);
-    for (rastered.items, placements) |g, p| {
-        const off = g.bitmap_off orelse continue;
-        const src = raster_pixels.items[off..];
-        for (0..g.height) |row| {
-            const src_row = src[row * g.width * channels ..][0 .. g.width * channels];
-            const dst_off = ((p.y + row) * atlas_w + p.x) * channels;
-            @memcpy(atlas_pixels[dst_off..][0 .. g.width * channels], src_row);
-        }
-    }
 
     // Second pass: walk the glyphs again in pen order, applying kerning
     // between consecutive pairs, to build the final placement list.
@@ -299,8 +302,8 @@ pub fn buildTextAtlas(
 
 /// One glyph's placement when drawn against a persistent `GlyphCache`:
 /// unlike GlyphPlacement, `atlas_pos` here refers into the *cache's* texture
-/// (`cache.pixels`/`width`/`height`), which the caller already holds and
-/// which outlives any single buildTextAtlasCached call.
+/// (`cache.atlas`), which the caller already holds and which outlives any
+/// single buildTextAtlasCached call.
 pub const CachedGlyphPlacement = struct {
     pos: [2]f32,
     size: [2]f32,
@@ -496,6 +499,28 @@ test "buildTextAtlas with .msdf produces a correctly-shaped multi-channel atlas"
     );
     try zigstd.testExpectTrue(atlas.glyphs[0].size[0] > 0);
     try zigstd.testExpectTrue(atlas.glyphs[0].size[1] > 0);
+}
+
+test "buildTextAtlas .msdf10 packs the same distances as .msdf" {
+    const alloc = zigstd.testAllocator;
+    const font_bytes = try buildTestFont(alloc);
+    defer alloc.free(font_bytes);
+    const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
+
+    var m8 = try buildTextAtlas(sfnt, alloc, "A", 32, 0, 0, .{ .type = .msdf });
+    defer m8.deinit(alloc);
+    var m10 = try buildTextAtlas(sfnt, alloc, "A", 32, 0, 0, .{ .type = .msdf, .msdf = .{ .sdf_type = .msdf10 } });
+    defer m10.deinit(alloc);
+
+    try zigstd.testExpectEqual(@as(u8, 4), m10.channels);
+    try zigstd.testExpectEqual(m8.width * m8.height, m10.width * m10.height);
+    for (0..m8.width * m8.height) |i| {
+        const p = std.mem.bytesToValue(msdf.Msdf10Pixel, m10.pixels[i * 4 ..][0..4]);
+        for ([_]u10{ p.r, p.g, p.b }, m8.pixels[i * 3 ..][0..3]) |c10, c8| {
+            const scaled = @as(f64, @floatFromInt(c10)) * 255.0 / 1023.0;
+            try zigstd.testExpectTrue(@abs(scaled - @as(f64, @floatFromInt(c8))) <= 1.0);
+        }
+    }
 }
 
 test "buildTextAtlasCached reuses a glyph's atlas placement across separate calls" {

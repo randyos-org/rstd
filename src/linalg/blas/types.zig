@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const sysinfo = @import("builtin");
+const options = @import("blas_options");
 
 const SrcInfo = std.lang.SourceLocation;
 
@@ -18,8 +19,8 @@ pub const BlasLong = isize;
 /// Whether extended-precision routines use `f128`. `QUAD_PRECISION` in the
 /// reference, which builds it as a software type and rules out
 /// `EXPRECISION`; Zig's `f128` (compiler-rt arithmetic) plays that role.
-/// Opt-in: off unless set here.
-pub const quad_precision = false;
+/// Opt-in, off by default as there (`Makefile.rule:214`): `-Dquad-precision`.
+pub const quad_precision = options.quad_precision;
 
 /// `EXPRECISION`: the `q`/`x` families compute in x87 `long double`. The
 /// reference sets it for x86 and x86_64 built with gcc or clang, never for a

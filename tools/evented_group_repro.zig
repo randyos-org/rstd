@@ -1,5 +1,5 @@
 //! std's `Io.Group` on `Io.Evented` with worker threads, std only
-//! (`src/linalg/blas/issues.md`, "`Group.await` blocks inside a context
+//! (`src/linalg/issues.md`, "`Group.await` blocks inside a context
 //! switch"): three trivial tasks started and awaited, round after round. On
 //! 0.18.0-dev.751 `group` crashes within a few thousand rounds on `Dispatch`
 //! and `Uring`; `futures`, the same loop on plain futures, passes on

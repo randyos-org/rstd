@@ -47,7 +47,7 @@ pub const Skip = struct {
 
 /// Kernels not converted, since no core would install them: the library's
 /// `vector.routed` sends their slots to the portable or `@Vector` kernels
-/// (keep the two in step). The extremes, `nrm2` and `sdot` everywhere; on
+/// (keep the two in step). The extremes, `nrm2`, `sdot` and `dsdot` everywhere; on
 /// x86_64 the reductions whose assembly peels to an aligned operand
 /// (`vector.peels`), routed only on the cores that build it.
 pub const skip = blk: {
@@ -60,7 +60,7 @@ pub const skip = blk: {
         "isamin_k", "idamin_k", "icamin_k", "izamin_k",
         "ismax_k",  "idmax_k",  "ismin_k",  "idmin_k",
         "snrm2_k",  "dnrm2_k",  "cnrm2_k",  "znrm2_k",
-        "sdot_k",
+        "sdot_k",   "dsdot_k",
     }) |s| out = out ++ [_]Skip{.{ .slot = s }};
     for ([_][]const u8{
         "sasum_k", "dasum_k", "casum_k", "zasum_k", "csum_k",  "zsum_k",

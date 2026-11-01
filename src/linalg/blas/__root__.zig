@@ -448,6 +448,12 @@ test "no core puts a kernel of its own in a q or x slot" {
     }
 }
 
+// the Linux rigs match this line against the core they expect (T40)
+test "the core in use" {
+    if (sysinfo.os.tag != .linux) return error.SkipZigTest;
+    std.debug.print("blas core: {s}\n", .{coreName()});
+}
+
 /// One core per call: inlined into the loop, each core's table and install
 /// would keep a frame slot of their own (~400 KB on a 64-bit debug build).
 fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {

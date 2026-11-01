@@ -12,15 +12,23 @@
 const std = @import("std");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
-const svd = @import("svd.zig");
+const svdapi = @import("svdapi.zig");
+const blas = @import("../blas/__root__.zig");
+const level1 = blas1.level1;
+const Io = std.Io;
 
-/// `NORM(V,2)` / `NORM(V)`: Euclidean norm. Alias of `blas1.wnrm2`, which
-/// is already the overflow-safe incremental-`pythag` algorithm the
-/// original used for this.
-pub const vecNorm2 = blas1.wnrm2;
+/// `NORM(V,2)` / `NORM(V)`: Euclidean norm, `hypot` of `dnrm2` over the
+/// real and imaginary parts (M2: BLAS 1, which scales where WNRM2's fast
+/// path lost digits, M1's E8). `incx` as BLAS's: `xr`, `xi` start at the
+/// storage's first element, a negative stride walking it backward.
+pub fn vecNorm2(io: Io, n: usize, xr: []const f64, xi: []const f64, incx: isize) blas.Level1Error!f64 {
+    const ni: isize = @intCast(n);
+    const re = try blas.nrm2(io, f64, ni, @constCast(xr.ptr), incx);
+    return std.math.hypot(re, try blas.nrm2(io, f64, ni, @constCast(xi.ptr), incx));
+}
 
 /// `NORM(V,P)`: general p-norm, `(sum(|v_i|**p))**(1/p)`. For `p == 2`,
-/// prefer `vecNorm2` (`wnrm2`), which is overflow-safe; this general form
+/// prefer `vecNorm2`, which is overflow-safe; this general form
 /// isn't (matches the original, which didn't special-case overflow safety
 /// for arbitrary `p` either).
 pub fn vecNormP(n: usize, xr: []const f64, xi: []const f64, incx: isize, p: f64) f64 {
@@ -48,74 +56,83 @@ pub fn vecNormInf(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     return m;
 }
 
-/// `NORM(X)` / `NORM(X,2)`: largest singular value of `self` (destroyed,
-/// matching `wsvdc`). `sr`/`si` (length `min(self.m+1,self.n)`), `er`/`ei`
-/// (length `self.n`), and `workr`/`worki` (length `self.m`) are `wsvdc`'s
-/// own scratch - see `svdapi.zig`'s `singularValues` (the same job-0,
-/// no-vectors call shape this mirrors) for the exact sizes. Only `sr[0]`
-/// (the largest singular value) is read back here.
-pub fn matNorm2(
-    self: CxMat,
-    sr: []f64,
-    si: []f64,
-    er: []f64,
-    ei: []f64,
-    workr: []f64,
-    worki: []f64,
-) usize {
-    var no_vecs: [1]f64 = .{0.0};
-    const dummy = CxMat.init(&no_vecs, &no_vecs, 1, 1, 1);
-    return svd.wsvdc(self, sr, si, er, ei, dummy, dummy, workr, worki, 0);
+/// `NORM(X)` / `NORM(X,2)`: largest singular value of `self` (not
+/// mutated), by `gesvd`; 0 for an empty `self`.
+pub fn matNorm2(self: CxMat, allocator: std.mem.Allocator, io: std.Io) svdapi.Error!f64 {
+    if (self.m == 0 or self.n == 0) return 0;
+    const s = try svdapi.singularValues(self, allocator, io);
+    defer allocator.free(s);
+    return s[0];
 }
 
-/// `NORM(X,1)`: max column sum of `|re|+|im|` (matches `lu.wgeco`'s own
-/// `anorm` computation, the same convention this port already uses
-/// internally for a matrix 1-norm).
-pub fn matNorm1(self: CxMat) f64 {
+/// `dasum` of `n` entries of `r` and of `i`, `inc` apart: the sum of
+/// `|re| + |im|`.
+fn asum(io: Io, n: usize, r: []f64, i: []f64, inc: usize) Io.Cancelable!f64 {
+    const ni: isize = @intCast(n);
+    const si: isize = @intCast(inc);
+    return try level1(blas.asum(io, f64, ni, r.ptr, si)) + try level1(blas.asum(io, f64, ni, i.ptr, si));
+}
+
+/// `NORM(X,1)`: max column sum of `|re|+|im|` (WGECO's `anorm`), by
+/// `dasum`.
+pub fn matNorm1(self: CxMat, io: Io) Io.Cancelable!f64 {
     var result: f64 = 0.0;
-    var j: usize = 1;
-    while (j <= self.n) : (j += 1) {
-        result = @max(result, blas1.wasum(self.m, self.r[self.idx(1, j)..], self.i[self.idx(1, j)..], 1));
+    for (1..self.n + 1) |j| {
+        const c = self.col(j);
+        result = @max(result, try asum(io, self.m, c.r, c.i, 1));
     }
     return result;
 }
 
-/// `NORM(X,'INF')`: max row sum of `|re|+|im|`. A row is strided (not
-/// contiguous) in this column-major layout, so this doesn't take
-/// `wasum`'s `@Vector` fast path - matching every other row-wise access in
-/// this port.
-pub fn matNormInf(self: CxMat) f64 {
+/// `NORM(X,'INF')`: max row sum of `|re|+|im|`, by `dasum` along each row.
+pub fn matNormInf(self: CxMat, io: Io) Io.Cancelable!f64 {
     var result: f64 = 0.0;
-    var i: usize = 1;
-    while (i <= self.m) : (i += 1) {
-        result = @max(result, blas1.wasum(self.n, self.r[self.idx(i, 1)..], self.i[self.idx(i, 1)..], @intCast(self.lda)));
+    for (1..self.m + 1) |i| {
+        const row = self.rowView(i);
+        result = @max(result, try asum(io, self.n, row.r, row.i, self.lda));
     }
     return result;
 }
 
-/// `NORM(X,'FRO')`: Frobenius norm, `sqrt(sum(|x_ij|**2))` - the whole
-/// `m`x`n` matrix read as one flat length-`m*n` vector and passed straight
-/// to `wnrm2` (a column-major matrix's storage already *is* one flat
-/// contiguous run - only valid when `self.lda == self.m`, i.e. no
-/// submatrix view; a strided view would need a per-column loop instead).
-pub fn matNormFro(self: CxMat) f64 {
-    const len = self.m * self.n;
-    return blas1.wnrm2(len, self.r[0..len], self.i[0..len], 1);
+/// `NORM(X,'FRO')`: Frobenius norm, `sqrt(sum(|x_ij|**2))`, `hypot` over
+/// the columns' `vecNorm2`.
+pub fn matNormFro(self: CxMat, io: Io) Io.Cancelable!f64 {
+    var result: f64 = 0.0;
+    for (1..self.n + 1) |j| {
+        const c = self.col(j);
+        result = std.math.hypot(result, try level1(vecNorm2(io, self.m, c.r, c.i, 1)));
+    }
+    return result;
 }
 
 const zigstd = @import("../../zigstd.zig");
 
-test "vecNorm2 matches wnrm2 and the 3-4-5 triangle" {
+const test_io = std.testing.io;
+
+test "vecNorm2 matches the 3-4-5 triangle" {
     const xr = [_]f64{ 3.0, 0.0 };
     const xi = [_]f64{ 0.0, 4.0 };
-    try zigstd.testExpectApproxEqAbs(5.0, vecNorm2(2, &xr, &xi, 1), 1e-12);
+    try zigstd.testExpectApproxEqAbs(5.0, try vecNorm2(test_io, 2, &xr, &xi, 1), 1e-15);
+}
+
+test "vecNorm2 scales: huge, tiny, partly underflowing and zero vectors (M1's E8)" {
+    // squares of 1e300 overflow and of 1e-200 underflow; at 1e-160 the
+    // squares are subnormal, where WNRM2's fast path lost digits
+    for ([_]f64{ 1e300, 1e-200, 1e-160 }) |x| {
+        const xr = [_]f64{ x, x };
+        const xi = [_]f64{ 0, x };
+        const want = @sqrt(3.0) * x;
+        try zigstd.testExpectApproxEqAbs(want, try vecNorm2(test_io, 2, &xr, &xi, 1), want * 4 * std.math.floatEps(f64));
+    }
+    const zr: [4]f64 = @splat(0.0);
+    try zigstd.testExpectEqual(@as(f64, 0.0), try vecNorm2(test_io, 4, &zr, &zr, 1));
 }
 
 test "vecNormP with p=2 matches vecNorm2, and p=1 is the sum of moduli" {
     // moduli: pythag(3,4)=5, pythag(1,0)=1, pythag(-2,0)=2.
     const xr = [_]f64{ 3.0, 1.0, -2.0 };
     const xi = [_]f64{ 4.0, 0.0, 0.0 };
-    try zigstd.testExpectApproxEqAbs(vecNorm2(3, &xr, &xi, 1), vecNormP(3, &xr, &xi, 1, 2.0), 1e-9);
+    try zigstd.testExpectApproxEqAbs(try vecNorm2(test_io, 3, &xr, &xi, 1), vecNormP(3, &xr, &xi, 1, 2.0), 1e-9);
     try zigstd.testExpectApproxEqAbs(8.0, vecNormP(3, &xr, &xi, 1, 1.0), 1e-9);
 }
 
@@ -133,11 +150,11 @@ test "matNorm1/matNormInf/matNormFro match hand computation for a real 2x2" {
     const a = CxMat.initPacked(&ar, &ai, 2, 2);
 
     // 1-norm: max column sum of abs = max(1+4, 3+2) = 5.
-    try zigstd.testExpectApproxEqAbs(5.0, matNorm1(a), 1e-12);
+    try zigstd.testExpectApproxEqAbs(5.0, try matNorm1(a, test_io), 1e-15);
     // inf-norm: max row sum of abs = max(1+3, 4+2) = 6.
-    try zigstd.testExpectApproxEqAbs(6.0, matNormInf(a), 1e-12);
+    try zigstd.testExpectApproxEqAbs(6.0, try matNormInf(a, test_io), 1e-15);
     // Frobenius: sqrt(1+16+9+4) = sqrt(30).
-    try zigstd.testExpectApproxEqAbs(@sqrt(30.0), matNormFro(a), 1e-9);
+    try zigstd.testExpectApproxEqAbs(@sqrt(30.0), try matNormFro(a, test_io), 1e-15);
 }
 
 test "matNorm2 (largest singular value) matches a known case" {
@@ -145,14 +162,6 @@ test "matNorm2 (largest singular value) matches a known case" {
     // entries, so the largest is trivially known.
     var ar = [_]f64{ 3.0, 0.0, 0.0, -5.0 };
     var ai: [4]f64 = @splat(0.0);
-    var sr: [2]f64 = undefined;
-    var si: [2]f64 = undefined;
-    var er: [2]f64 = undefined;
-    var ei: [2]f64 = undefined;
-    var workr: [2]f64 = undefined;
-    var worki: [2]f64 = undefined;
-
-    const info = matNorm2(CxMat.initPacked(&ar, &ai, 2, 2), &sr, &si, &er, &ei, &workr, &worki);
-    try zigstd.testExpectEqual(@as(usize, 0), info);
-    try zigstd.testExpectApproxEqAbs(5.0, sr[0], 1e-9);
+    const s = try matNorm2(CxMat.initPacked(&ar, &ai, 2, 2), std.testing.allocator, std.testing.io);
+    try zigstd.testExpectApproxEqAbs(5.0, s, 1e-15);
 }

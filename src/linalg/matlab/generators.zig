@@ -6,54 +6,81 @@
 //! `(a, lda, n)` parameters rather than `CxMat` - they're real-only (no
 //! imaginary part to bundle), so a complex-matrix wrapper doesn't fit them.
 
+const std = @import("std");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
+const blas = @import("../blas/__root__.zig");
 const Cx = blas1.Cx;
 const ix = blas1.ix;
+const level1 = blas1.level1;
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 /// RREF: reduce `self` to reduced row-echelon form in place, treating any
 /// entry no larger than `eps * 2*max(M,N) * max_column_norm(A)` as a
-/// numerical zero.
-pub fn rref(self: CxMat, eps: f64) void {
-    const ar = self.r;
-    const ai = self.i;
-    const lda = self.lda;
-    const m = self.m;
-    const n = self.n;
-
-    var tol: f64 = 0.0;
-    var j: usize = 1;
-    while (j <= n) : (j += 1) {
-        tol = @max(tol, blas1.wasum(m, ar[ix(lda, 1, j)..], ai[ix(lda, 1, j)..], 1));
+/// numerical zero. By BLAS 1 (`i?amax`, `?swap`, `?scal`, `?axpy`; M2)
+/// over a packed copy, the real routines for a real `self`.
+pub fn rref(self: CxMat, allocator: Allocator, io: Io, eps: f64) (Allocator.Error || Io.Cancelable)!void {
+    switch (self.isReal()) {
+        inline else => |real| {
+            const T = if (real) f64 else Cx;
+            const x = try self.toPacked(T, allocator);
+            defer allocator.free(x);
+            try rrefPacked(T, io, self.m, self.n, x, eps);
+            self.fromPacked(T, x);
+        },
     }
+}
+
+fn rrefPacked(comptime T: type, io: Io, m: usize, n: usize, x: []T, eps: f64) Io.Cancelable!void {
+    const mi: isize = @intCast(m);
+    var tol: f64 = 0.0;
+    for (0..n) |j| tol = @max(tol, try level1(blas.asum(io, T, mi, x[j * m ..].ptr, 1)));
     tol *= eps * @as(f64, @floatFromInt(2 * @max(m, n)));
 
-    const lda_stride: isize = @intCast(lda);
-    var k: usize = 1;
-    var l: usize = 1;
-    while (k <= m and l <= n) {
-        const piv = blas1.iwamax(m - k + 1, ar[ix(lda, k, l)..], ai[ix(lda, k, l)..], 1) + k - 1;
-        if (blas1.cabs1(ar[ix(lda, piv, l)], ai[ix(lda, piv, l)]) <= tol) {
-            blas1.wset(m - k + 1, Cx.init(0.0, 0.0), ar[ix(lda, k, l)..], ai[ix(lda, k, l)..], 1);
+    // 0-based; a row from column `l` on is `w` entries `m` apart
+    var k: usize = 0;
+    var l: usize = 0;
+    while (k < m and l < n) {
+        const col = x[l * m ..][0..m];
+        const amax = try level1(blas.index(io, T, .amax, @intCast(m - k), col[k..].ptr, 1));
+        const piv = k + @as(usize, @intCast(amax)) - 1;
+        if (mag1(col[piv]) <= tol) {
+            @memset(col[k..], zero(T));
             l += 1;
             continue;
         }
-        blas1.wswap(n - l + 1, ar[ix(lda, piv, l)..], ai[ix(lda, piv, l)..], lda_stride, ar[ix(lda, k, l)..], ai[ix(lda, k, l)..], lda_stride);
-        const inv = blas1.wdiv(Cx.init(1.0, 0.0), Cx.init(ar[ix(lda, k, l)], ai[ix(lda, k, l)]));
-        blas1.wscal(n - l + 1, inv, ar[ix(lda, k, l)..], ai[ix(lda, k, l)..], lda_stride);
-        ar[ix(lda, k, l)] = 1.0;
-        ai[ix(lda, k, l)] = 0.0;
-
-        var row: usize = 1;
-        while (row <= m) : (row += 1) {
-            if (row != k) {
-                const t = Cx.init(-ar[ix(lda, row, l)], -ai[ix(lda, row, l)]);
-                blas1.waxpy(n - l + 1, t, ar[ix(lda, k, l)..], ai[ix(lda, k, l)..], lda_stride, ar[ix(lda, row, l)..], ai[ix(lda, row, l)..], lda_stride);
-            }
+        const w: isize = @intCast(n - l);
+        try level1(blas.swap(io, T, w, x[l * m + piv ..].ptr, mi, x[l * m + k ..].ptr, mi));
+        try level1(blas.scal(io, T, w, recip(col[k]), x[l * m + k ..].ptr, mi));
+        col[k] = one(T);
+        for (0..m) |row| {
+            if (row == k) continue;
+            try level1(blas.axpy(io, T, w, neg(col[row]), x[l * m + k ..].ptr, mi, x[l * m + row ..].ptr, mi));
         }
         k += 1;
         l += 1;
     }
+}
+
+fn zero(comptime T: type) T {
+    return if (T == f64) 0 else Cx.init(0, 0);
+}
+
+fn one(comptime T: type) T {
+    return if (T == f64) 1 else Cx.init(1, 0);
+}
+
+fn mag1(x: anytype) f64 {
+    return if (@TypeOf(x) == f64) @abs(x) else blas1.cabs1(x.re, x.im);
+}
+
+fn recip(x: anytype) @TypeOf(x) {
+    return if (@TypeOf(x) == f64) 1 / x else blas1.wdiv(Cx.init(1, 0), x);
+}
+
+fn neg(x: anytype) @TypeOf(x) {
+    return if (@TypeOf(x) == f64) -x else x.neg();
 }
 
 /// HILBER: generate the exact inverse of the N×N Hilbert matrix directly
@@ -104,7 +131,8 @@ pub fn ones(self: CxMat) void {
     var j: usize = 1;
     while (j <= self.n) : (j += 1) {
         const c = self.col(j);
-        blas1.wset(self.m, Cx.init(1.0, 0.0), c.r, c.i, 1);
+        @memset(c.r[0..self.m], 1.0);
+        @memset(c.i[0..self.m], 0.0);
     }
 }
 
@@ -114,7 +142,7 @@ pub fn ones(self: CxMat) void {
 /// method for singly-even `n`, and a direct pattern for doubly-even `n`.
 /// There is no 2x2 magic square; callers should treat `n == 2` specially
 /// (the original REPL substituted an empty result).
-pub fn magic(a: []f64, lda: usize, n: usize) void {
+pub fn magic(io: Io, a: []f64, lda: usize, n: usize) Io.Cancelable!void {
     if (n % 4 == 0) {
         var k: usize = 1;
         var i: usize = 1;
@@ -173,18 +201,23 @@ pub fn magic(a: []f64, lda: usize, n: usize) void {
     if (m1 == 0) return;
     var jc: usize = 1;
     while (jc <= m1) : (jc += 1) {
-        blas1.rswap(m, a[ix(lda, 1, jc)..], 1, a[ix(lda, m + 1, jc)..], 1);
+        try swap(io, m, a[ix(lda, 1, jc)..], a[ix(lda, m + 1, jc)..]);
     }
     const m1b = (m + 1) / 2;
     const m2b = m1b + m;
-    blas1.rswap(1, a[ix(lda, m1b, 1)..], 1, a[ix(lda, m2b, 1)..], 1);
-    blas1.rswap(1, a[ix(lda, m1b, m1b)..], 1, a[ix(lda, m2b, m1b)..], 1);
+    try swap(io, 1, a[ix(lda, m1b, 1)..], a[ix(lda, m2b, 1)..]);
+    try swap(io, 1, a[ix(lda, m1b, m1b)..], a[ix(lda, m2b, m1b)..]);
     const m1c = n + 1 - (m - 3) / 2;
     if (m1c > n) return;
     var jd: usize = m1c;
     while (jd <= n) : (jd += 1) {
-        blas1.rswap(m, a[ix(lda, 1, jd)..], 1, a[ix(lda, m + 1, jd)..], 1);
+        try swap(io, m, a[ix(lda, 1, jd)..], a[ix(lda, m + 1, jd)..]);
     }
+}
+
+/// `dswap` of `n` contiguous entries.
+fn swap(io: Io, n: usize, x: []f64, y: []f64) Io.Cancelable!void {
+    try level1(blas.swap(io, f64, @intCast(n), x.ptr, 1, y.ptr, 1));
 }
 
 /// DIAG: if `v` (length `n`) is a vector, `diagFromVector` builds the
@@ -194,7 +227,8 @@ pub fn magic(a: []f64, lda: usize, n: usize) void {
 /// zeroed first.
 pub fn diagFromVector(self: CxMat, vr: []const f64, vi: []const f64, n: usize, k: isize) void {
     const order = n + @as(usize, @intCast(@abs(k)));
-    blas1.wset(order * order, Cx.init(0.0, 0.0), self.r, self.i, 1);
+    @memset(self.r[0 .. order * order], 0.0);
+    @memset(self.i[0 .. order * order], 0.0);
     var idx: usize = 1;
     while (idx <= n) : (idx += 1) {
         const row: usize = if (k < 0) idx + @as(usize, @intCast(-k)) else idx;
@@ -237,7 +271,8 @@ pub fn tril(self: CxMat, k: isize) void {
         const count: usize = @intCast(jk - 1);
         if (count > 0) {
             const c = self.col(j);
-            blas1.wset(@min(count, m), Cx.init(0.0, 0.0), c.r, c.i, 1);
+            @memset(c.r[0..@min(count, m)], 0.0);
+            @memset(c.i[0..@min(count, m)], 0.0);
         }
     }
 }
@@ -252,7 +287,8 @@ pub fn triu(self: CxMat, k: isize) void {
         const jk = @as(isize, @intCast(j)) - k;
         const first_zero: usize = if (jk < 1) 1 else @as(usize, @intCast(jk)) + 1;
         if (first_zero > m) continue;
-        blas1.wset(m - first_zero + 1, Cx.init(0.0, 0.0), self.r[self.idx(first_zero, j)..], self.i[self.idx(first_zero, j)..], 1);
+        @memset(self.r[self.idx(first_zero, j)..][0 .. m - first_zero + 1], 0.0);
+        @memset(self.i[self.idx(first_zero, j)..][0 .. m - first_zero + 1], 0.0);
     }
 }
 
@@ -298,8 +334,6 @@ pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
         }
     }
 }
-
-const std = @import("std");
 
 const zigstd = @import("../../zigstd.zig");
 
@@ -356,15 +390,15 @@ fn checkMagicSquare(a: []const f64, n: usize) !void {
 
 test "magic produces valid squares for odd, singly-even and doubly-even orders" {
     var a5: [25]f64 = @splat(0.0);
-    magic(&a5, 5, 5);
+    try magic(std.testing.io, &a5, 5, 5);
     try checkMagicSquare(&a5, 5);
 
     var a6: [36]f64 = @splat(0.0);
-    magic(&a6, 6, 6);
+    try magic(std.testing.io, &a6, 6, 6);
     try checkMagicSquare(&a6, 6);
 
     var a8: [64]f64 = @splat(0.0);
-    magic(&a8, 8, 8);
+    try magic(std.testing.io, &a8, 8, 8);
     try checkMagicSquare(&a8, 8);
 }
 
@@ -434,11 +468,20 @@ test "rref reduces a simple rank-deficient system" {
     // [[1, 2, 3], [2, 4, 6]] -> rank 1, row-reduces to [[1,2,3],[0,0,0]].
     var ar = [_]f64{ 1.0, 2.0, 2.0, 4.0, 3.0, 6.0 }; // column-major, 2x3
     var ai: [6]f64 = @splat(0.0);
-    rref(CxMat.initPacked(&ar, &ai, 2, 3), 1e-12);
+    try rref(CxMat.initPacked(&ar, &ai, 2, 3), std.testing.allocator, std.testing.io, 1e-12);
     try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-9);
     try zigstd.testExpectApproxEqAbs(2.0, ar[ix(2, 1, 2)], 1e-9);
     try zigstd.testExpectApproxEqAbs(3.0, ar[ix(2, 1, 3)], 1e-9);
     try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 1)], 1e-9);
     try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 2)], 1e-9);
     try zigstd.testExpectApproxEqAbs(0.0, ar[ix(2, 2, 3)], 1e-9);
+}
+
+test "rref of a complex rank-deficient matrix" {
+    // [[1, i], [i, -1]]: the second row is i times the first -> [[1, i], [0, 0]]
+    var ar = [_]f64{ 1, 0, 0, -1 };
+    var ai = [_]f64{ 0, 1, 1, 0 };
+    try rref(CxMat.initPacked(&ar, &ai, 2, 2), std.testing.allocator, std.testing.io, 1e-12);
+    try zigstd.testExpectEqualSlices(f64, &.{ 1, 0, 0, 0 }, &ar);
+    try zigstd.testExpectEqualSlices(f64, &.{ 0, 0, 1, 0 }, &ai);
 }

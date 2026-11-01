@@ -459,10 +459,10 @@ pub fn expectSameBits(comptime T: type, ctx: anytype, comptime run: fn (@TypeOf(
     const got = try al.alloc(T, len);
     defer al.free(got);
     try run(ctx, Io.failing, 1, want);
-    var th: if (threading.hosted) Io.Threaded else void = if (comptime threading.hosted) .init(al, .{}) else {};
-    defer if (comptime threading.hosted) th.deinit();
-    for (test_workers) |w| for (0..if (threading.hosted) 2 else 1) |k| {
-        const io = if (comptime threading.hosted) (if (k == 0) Io.failing else th.io()) else Io.failing;
+    var th: if (threading.threaded_tests) threading.TestIo else void = if (comptime threading.threaded_tests) .init(al, .{}) else {};
+    defer if (comptime threading.threaded_tests) th.deinit();
+    for (test_workers) |w| for (0..if (threading.threaded_tests) 2 else 1) |k| {
+        const io = if (comptime threading.threaded_tests) (if (k == 0) Io.failing else th.io()) else Io.failing;
         try run(ctx, io, w, got);
         for (want, got, 0..) |x, y, i| if (!sameBits(T, x, y)) {
             check.say("{s} {s}: {d} workers ({s}) differ from one at element {d}: {any} against {any}\n", .{ what, @typeName(T), w, if (k == 0) "inline" else "threaded", i, y, x });
@@ -688,7 +688,9 @@ test "potrf: the first minor that is not positive definite, by a pivot, NaN or i
 }
 
 test "potrf: a failed pivot is stored, real; minor is written only on failure" {
-    // rstd's own (Accelerate's keeps a complex pivot's imaginary part)
+    // rstd's own (Accelerate's keeps a complex pivot's imaginary part), after
+    // init, which turns routing on
+    _ = blas.vtable();
     const was = accel.routing();
     _ = accel.route(false);
     defer _ = accel.route(was);
@@ -1020,7 +1022,9 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
             defer p.deinit(al);
             const before = accel.calls.load(.monotonic);
             try p.factorIt(al, null);
-            try testing.expect(accel.calls.load(.monotonic) > before);
+            // x86_64's complex `potrf` stays on rstd (`apple_accel.zig`)
+            const routed = !(sysinfo.target.cpu.arch == .x86_64 and isComplex(T));
+            try testing.expectEqual(routed, accel.calls.load(.monotonic) > before);
             p.expectFactor() catch |e| {
                 check.say("Accelerate's {s}potrf_\n", .{@typeName(T)});
                 return e;

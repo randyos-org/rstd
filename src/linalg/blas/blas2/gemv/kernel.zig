@@ -177,14 +177,15 @@ pub fn Fallback(comptime F: type, comptime fuse: bool) type {
 const has_sse3 = sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .sse3);
 
 /// `gemv_n_4.c`'s `CNAME` of `slot` on `core`, around blocks `M` (the
-/// microkernel's) and `O` (the driver's own).
-fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, comptime O: type, comptime fuse: bool) type {
+/// microkernel's) and `O` (the driver's own), and for `sgemv` on Skylake-X
+/// `S`'s (`sgemv_n_microk_skylakex-8.c`: `n128`, `n64`), else void.
+fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
     const F = Elem(slot);
     const p = if (F == f32) "s" else "d";
     const C = Fallback(F, fuse);
     const k4x8 = if (F == f32) choose(N4x8(F), M, O, p ++ "gemv_kernel_4x8", &C.n4x8) else undefined;
     const k4x4 = choose(N4(F), M, O, p ++ "gemv_kernel_4x4", &C.n4x4);
-    const k4x2 = choose(N4(F), M, O, p ++ "gemv_kernel_4x2", null);
+    const k4x2 = if (S != void) undefined else choose(N4(F), M, O, p ++ "gemv_kernel_4x2", null);
     const k4x1 = choose(N1(F), M, O, p ++ "gemv_kernel_4x1", null);
     const nb_max = nbmax(slot, core);
     return struct {
@@ -197,8 +198,33 @@ fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, compt
             }
         }
 
+        /// Skylake-X's whole product for few columns (`HAVE_SGEMV_N_SKYLAKE_KERNEL`):
+        /// `x` copied to the buffer, `y` after it, where strided.
+        fn small(m: BlasLong, n: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) void {
+            const nu: usize = @intCast(n);
+            const mu: usize = @intCast(m);
+            var xb = x;
+            var yb = y;
+            if (inc_x != 1) {
+                xb = buffer;
+                for (0..nu) |i| xb[i] = util.at(F, x, @as(BlasLong, @intCast(i)) * inc_x).*;
+            }
+            if (inc_y != 1) {
+                yb = buffer + nu;
+                for (0..mu) |i| yb[i] = util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).*;
+            }
+            S.n128(m, n, alpha, a, lda, xb, yb);
+            if (inc_y != 1) for (0..mu) |i| {
+                util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).* = yb[i];
+            };
+        }
+
         pub fn call(m: BlasLong, n: BlasLong, _: BlasLong, alpha_in: F, a_in: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {
             if (m < 1 or n < 1) return 0;
+            if (S != void and m <= 16384 and n <= 48 and n != 4) {
+                small(m, n, alpha_in, a_in, lda, x, inc_x, y, inc_y, buffer);
+                return 0;
+            }
             var alpha = alpha_in;
             const pa: [*]const F = @ptrCast(&alpha);
             var a = a_in;
@@ -246,11 +272,13 @@ fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, compt
                         x_ptr += 4;
                     }
                     if (n2 & 2 != 0) {
-                        k4x2(nb, &ap, x_ptr, ybuffer, pa);
+                        if (S != void) S.n64(nb, 2, alpha, a_ptr, lda, x_ptr, ybuffer) else k4x2(nb, &ap, x_ptr, ybuffer, pa);
                         a_ptr += @intCast(lda * 2);
                         x_ptr += 2;
                     }
-                    if (n2 & 1 != 0) k4x1(nb, a_ptr, x_ptr, ybuffer, pa);
+                    if (n2 & 1 != 0) {
+                        if (S != void) S.n64(nb, 1, alpha, a_ptr, lda, x_ptr, ybuffer) else k4x1(nb, a_ptr, x_ptr, ybuffer, pa);
+                    }
                 } else {
                     var i: BlasLong = 0;
                     while (i < n1) : (i += 1) {
@@ -326,8 +354,9 @@ fn GemvN(comptime slot: Slot, comptime core: []const u8, comptime M: type, compt
 }
 
 /// `gemv_t_4.c`'s `CNAME` of `slot` on `core`, around blocks `M` (the
-/// microkernel's) and `O` (the driver's own).
-fn GemvT(comptime slot: Slot, comptime core: []const u8, comptime M: type, comptime O: type, comptime fuse: bool) type {
+/// microkernel's) and `O` (the driver's own), and for `sgemv` on Skylake-X
+/// `S`'s (`sgemv_t_microk_skylakex.c`: `t`), else void.
+fn GemvT(comptime slot: Slot, comptime core: []const u8, comptime M: type, comptime O: type, comptime fuse: bool, comptime S: type) type {
     const F = Elem(slot);
     const p = if (F == f32) "s" else "d";
     const C = Fallback(F, fuse);
@@ -355,8 +384,34 @@ fn GemvT(comptime slot: Slot, comptime core: []const u8, comptime M: type, compt
             for (0..@intCast(n)) |i| dest[i] += src[i] * da;
         }
 
+        /// Skylake-X's whole product for a contiguous `A` of up to 8 rows
+        /// (`HAVE_SGEMV_T_SKYLAKE_KERNEL`): `x` copied to the buffer, `y`
+        /// after it, where strided.
+        fn small(m: BlasLong, n: BlasLong, alpha: F, a: [*]F, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) void {
+            const mu: usize = @intCast(m);
+            const nu: usize = @intCast(n);
+            var xb = x;
+            var yb = y;
+            if (inc_x != 1) {
+                xb = buffer;
+                for (0..mu) |i| xb[i] = util.at(F, x, @as(BlasLong, @intCast(i)) * inc_x).*;
+            }
+            if (inc_y != 1) {
+                yb = buffer + mu;
+                for (0..nu) |i| yb[i] = util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).*;
+            }
+            S.t(mu, nu, alpha, a, xb, yb);
+            if (inc_y != 1) for (0..nu) |i| {
+                util.at(F, y, @as(BlasLong, @intCast(i)) * inc_y).* = yb[i];
+            };
+        }
+
         pub fn call(m: BlasLong, n: BlasLong, _: BlasLong, alpha: F, a_in: [*]F, lda: BlasLong, x_in: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {
             if (m < 1 or n < 1) return 0;
+            if (S != void and lda == m and n <= 16384 and m <= 8) {
+                small(m, n, alpha, a_in, x_in, inc_x, y, inc_y, buffer);
+                return 0;
+            }
             var a = a_in;
             var x = x_in;
             var xbuffer = buffer;
@@ -853,10 +908,22 @@ pub fn entryOf(comptime slot: Slot, comptime core: []const u8, comptime e: uk.En
         .none => struct {},
     };
     return switch (slot) {
-        .sgemv_n, .dgemv_n => &GemvN(slot, core, M, e.own, fma.fuse).call,
-        .sgemv_t, .dgemv_t => &GemvT(slot, core, M, e.own, fma.fuse).call,
+        .sgemv_n, .dgemv_n => &GemvN(slot, core, M, e.own, fma.fuse, void).call,
+        .sgemv_t, .dgemv_t => &GemvT(slot, core, M, e.own, fma.fuse, void).call,
         .cgemv_n, .cgemv_r, .cgemv_o, .cgemv_s, .zgemv_n, .zgemv_r, .zgemv_o, .zgemv_s => &ZgemvN(slot, M, fma.fuse).call,
         .cgemv_t, .cgemv_c, .cgemv_u, .cgemv_d, .zgemv_t, .zgemv_c, .zgemv_u, .zgemv_d => &ZgemvT(slot, M, fma.fuse).call,
         else => @compileError(@tagName(slot) ++ " is not driven here"),
     };
+}
+
+/// Skylake-X's `sgemv_n`: `sgemv_n_4.c` around Haswell's block `e` (its
+/// index entry) and `S`, the intrinsics block (`sgemv_n_microk_skylakex-8.c`).
+pub fn skylakeN(comptime e: uk.Entry, comptime S: type) Kernel(.sgemv_n) {
+    return &GemvN(.sgemv_n, "skylakex", e.module, e.own, fma.fuse, S).call;
+}
+
+/// Skylake-X's `sgemv_t`: `sgemv_t_4.c` around Haswell's block `e` and `S`
+/// (`sgemv_t_microk_skylakex.c`).
+pub fn skylakeT(comptime e: uk.Entry, comptime S: type) Kernel(.sgemv_t) {
+    return &GemvT(.sgemv_t, "skylakex", e.module, e.own, fma.fuse, S).call;
 }

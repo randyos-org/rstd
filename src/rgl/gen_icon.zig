@@ -2,7 +2,7 @@ const std = @import("std");
 
 const rstd = @import("rstd");
 const RGBA = rstd.rgl.color.RGBA;
-const Image = rstd.rgl.Image;
+const RgbaImage = rstd.rgl.RgbaImage;
 const downsample = rstd.rgl.draw.downsample;
 const codecs = rstd.rgl.codecs;
 const png = codecs.png;
@@ -31,13 +31,13 @@ pub fn main(init: std.process.Init) !void {
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = png_path, .data = png_bytes });
 
     const sizes = [_]u32{ 16, 24, 32, 48, 64, 128, 256 };
-    var imgs: [sizes.len]Image = undefined;
+    var imgs: [sizes.len]RgbaImage = undefined;
     for (sizes, 0..) |s, i| imgs[i] = try downsample(alloc, &m, s);
 
-    try ico.writeICO(alloc, io, ico_path, &imgs);
+    try ico.writeICO(alloc, io, std.Io.Dir.cwd(), ico_path, &imgs);
 
     const raw32 = for (sizes, imgs) |s, im| {
         if (s == 32) break im;
     } else unreachable;
-    try raw32.writeRgbaFile(io, raw_path);
+    try raw32.writeRawFile(io, std.Io.Dir.cwd(), raw_path);
 }

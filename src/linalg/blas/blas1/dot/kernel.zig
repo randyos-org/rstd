@@ -1,5 +1,5 @@
 //! Shared pieces of the dot kernels: the reference's kernel ABI and the
-//! drivers of `kernel/x86_64/{s,d,c,z}dot.c`. Nothing here depends on the BLAS
+//! drivers of `kernel/x86_64/{d,c,z}dot.c`. Nothing here depends on the BLAS
 //! root, so the per-core kernel objects (`_kernel.zig`) can use it too.
 //!
 //! A driver is a block kernel for the contiguous part, the reference's scalar
@@ -25,7 +25,7 @@ const CComplex = types.CComplex;
 const Slot = util.Slot;
 
 /// The kernels an architecture's `<arch>/kernel.zig` iterates over.
-pub const slots = [_]Slot{ .dsdot_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
+pub const slots = [_]Slot{ .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k };
 
 /// What a kernel works on: `E` is its element type (a component for the
 /// complex ones), `R` what it returns.
@@ -34,7 +34,6 @@ pub const Form = struct { E: type, R: type, complex: bool };
 /// The form of `slot`, one of `slots`.
 pub fn form(comptime slot: Slot) Form {
     return switch (slot) {
-        .dsdot_k => .{ .E = f32, .R = f64, .complex = false },
         .ddot_k => .{ .E = f64, .R = f64, .complex = false },
         .cdotu_k, .cdotc_k => .{ .E = f32, .R = CComplex(f32), .complex = true },
         .zdotu_k, .zdotc_k => .{ .E = f64, .R = CComplex(f64), .complex = true },
@@ -80,7 +79,7 @@ pub fn Asm(comptime slot: Slot, comptime f: anytype) type {
 }
 
 /// The block the reference's driver falls back on where a core has no
-/// microkernel (`ddot_kernel_8`, `sdot_kernel_16`, `cdot_kernel_16`,
+/// microkernel (`ddot_kernel_8`, `cdot_kernel_16`,
 /// `zdot_kernel_8`): plain C, in its own summation order.
 pub fn Fallback(comptime slot: Slot, comptime fuse: bool) type {
     const E = form(slot).E;
@@ -175,51 +174,6 @@ fn Ddot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) 
     };
 }
 
-/// `sdot.c` built as `DSDOT`: `float` operands, `double` products and sum. Its
-/// block gets chunks of 32 whatever the block size is.
-fn Dsdot(comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
-    return struct {
-        pub fn call(n: BlasLong, x: [*]f32, incx: BlasLong, y: [*]f32, incy: BlasLong) f64 {
-            if (n <= 0) return 0;
-            var dot: f64 = 0;
-
-            if (incx == 1 and incy == 1) {
-                var mydot: f64 = 0;
-                const n1 = n & -mask;
-                var i: BlasLong = 0;
-                while (i < n1) : (i += 32) {
-                    const idx: usize = @intCast(i);
-                    mydot += Block.run(32, x + idx, y + idx);
-                }
-                i = n1;
-                while (i < n) : (i += 1) {
-                    const idx: usize = @intCast(i);
-                    dot = fma.madd(fuse, f64, y[idx], x[idx], dot);
-                }
-                dot += mydot;
-                return dot;
-            }
-
-            const n1 = n & -2;
-            var i: BlasLong = 0;
-            var ix: BlasLong = 0;
-            var iy: BlasLong = 0;
-            while (i < n1) : (i += 2) {
-                const s = fma.madd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, @as(f64, util.at(f32, y, iy + incy).*) * util.at(f32, x, ix + incx).*);
-                dot += s;
-                ix += incx * 2;
-                iy += incy * 2;
-            }
-            while (i < n) : (i += 1) {
-                dot = fma.madd(fuse, f64, util.at(f32, y, iy).*, util.at(f32, x, ix).*, dot);
-                ix += incx;
-                iy += incy;
-            }
-            return dot;
-        }
-    };
-}
-
 /// `cdot.c` (`F` is `f32`: two sets of four partial sums) and `zdot.c`
 /// (`f64`: one); `conj` is `CONJ`, the `*dotc` form.
 fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
@@ -278,7 +232,6 @@ fn Cdot(comptime F: type, comptime conj: bool, comptime mask: comptime_int, comp
 /// the core's microkernel gives, or the reference's own fallback).
 pub fn Driver(comptime slot: Slot, comptime mask: comptime_int, comptime Block: type, comptime fuse: bool) type {
     return switch (slot) {
-        .dsdot_k => Dsdot(mask, Block, fuse),
         .ddot_k => Ddot(mask, Block, fuse),
         .cdotu_k => Cdot(f32, false, mask, Block, fuse),
         .cdotc_k => Cdot(f32, true, mask, Block, fuse),

@@ -11,6 +11,7 @@ const types = @import("types.zig");
 const Config = @import("Config.zig");
 const util = @import("util.zig");
 const coretypes = @import("cpu/_coretypes.zig");
+const root = @import("root");
 
 const Allocator = std.mem.Allocator;
 const FpState = util.FpState;
@@ -456,7 +457,8 @@ pub const dispatch_futures = true;
 
 /// Whether `io`'s worker tasks run on `Futures`.
 pub fn usesFutures(io: Io) bool {
-    if (comptime !dispatch_futures or Io.Evented != Io.Dispatch) return false;
+    // `Evented`, not `Io.Evented`: Zig 0.17.0 cannot instantiate `Dispatch`
+    if (comptime !dispatch_futures or Evented != Io.Dispatch) return false;
     const S = struct {
         var ev: Io.Dispatch = undefined;
     };
@@ -505,7 +507,7 @@ const Futures = struct {
     left: std.atomic.Value(u32) = .init(1),
     done: Signal = .{},
 
-    const cap = if (dispatch_futures and Io.Evented == Io.Dispatch) chunks_max else 0;
+    const cap = if (dispatch_futures and Evented == Io.Dispatch) chunks_max else 0;
 
     fn Task(comptime function: anytype) type {
         return struct {
@@ -779,9 +781,21 @@ pub const hosted = !sysinfo.single_threaded and switch (sysinfo.target.os.tag) {
     else => true,
 };
 
-/// `Io.Evented` for the fiber tests; void where it does not build (Zig 0.17's
-/// `Uring`, issues.md). Version-gated: std exposes nothing to detect.
-pub const Evented = if (Io.Evented == Io.Uring and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else Io.Evented;
+/// A multicore test kernel's cores (`test/qemu/smp.zig`); null elsewhere.
+const kernel_smp: ?type = if (sysinfo.is_test and @hasDecl(root, "qemutest_smp")) root.qemutest_smp else null;
+
+/// Whether the threaded tests run here: hosted, or on a multicore test kernel.
+pub const threaded_tests = hosted or kernel_smp != null;
+
+/// The threaded tests' `Io`: `Io.Threaded`, or on a test kernel its cores,
+/// set up alike (`init(allocator, .{ .async_limit, .concurrent_limit })`).
+pub const TestIo = if (hosted) Io.Threaded else if (kernel_smp) |k| k.Pool else void;
+
+/// `Io.Evented` for the fiber tests; void where it does not build: Zig 0.17's
+/// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
+/// lacks (version-gated, std exposes nothing to detect); SVE targets, whose
+/// LLVM rejects the fiber switch's `ffr` clobber (issues.md).
+pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAARCH64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
 
 /// Starts `ev` with `extra` threads besides the caller's; false where it
 /// cannot be sized so (`Dispatch` sizes its own pool) or does not start.
@@ -985,8 +999,8 @@ test "chunks follow the size and the core, never the CPU count or the ceiling" {
     }
 }
 
-test "single-threaded and freestanding builds resolve to one worker over the same chunks" {
-    if (hosted) return error.SkipZigTest;
+test "single-threaded builds resolve to one worker over the same chunks" {
+    if (!sysinfo.single_threaded) return error.SkipZigTest;
     _ = blas.vtable();
     try zigstd.testExpectEqual(@as(u32, 1), blas.config.cpu_count);
     const p = plan(.dot, f64, 1 << 20, 1 << 20, .even, 1);
@@ -1077,9 +1091,9 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
     try zigstd.testExpectTrue(@as(u64, @bitCast(expected)) != @as(u64, @bitCast(folded(x, &chunks, true))));
 
     try checkRegions(Io.failing, x, marks, &chunks, expected);
-    if (comptime hosted) {
+    if (comptime threaded_tests) {
         for (test_limits) |limit| {
-            var threaded: Io.Threaded = .init(zigstd.testAllocator, .{ .async_limit = limit });
+            var threaded: TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
             defer threaded.deinit();
             try checkRegions(threaded.io(), x, marks, &chunks, expected);
         }
@@ -1093,7 +1107,7 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
 }
 
 test "workers adopt the caller's rounding and flush to zero and leave the caller's state as it was" {
-    if (comptime !hosted or !FpState.governs) return error.SkipZigTest;
+    if (comptime !threaded_tests or !FpState.governs) return error.SkipZigTest;
     const n = 64123;
     const x = try zigstd.testAllocator.alloc(f64, n);
     defer zigstd.testAllocator.free(x);
@@ -1110,7 +1124,7 @@ test "workers adopt the caller's rounding and flush to zero and leave the caller
     // the data can tell the modes apart
     try zigstd.testExpectTrue(@as(u64, @bitCast(nearest)) != @as(u64, @bitCast(expected)));
     for (test_limits) |limit| {
-        var threaded: Io.Threaded = .init(zigstd.testAllocator, .{ .async_limit = limit });
+        var threaded: TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
         defer threaded.deinit();
         // workers started under the default state, which a spawned thread
         // may inherit
@@ -1167,9 +1181,9 @@ fn cancelRegion(io: Io) !void {
 }
 
 test "a canceled region returns error.Canceled after its workers stop" {
-    if (comptime !hosted) return error.SkipZigTest;
+    if (comptime !threaded_tests) return error.SkipZigTest;
     for (test_limits) |limit| {
-        var threaded: Io.Threaded = .init(zigstd.testAllocator, .{ .async_limit = limit });
+        var threaded: TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
         defer threaded.deinit();
         try cancelRegion(threaded.io());
     }
@@ -1194,6 +1208,37 @@ test "worker tasks run on plain futures on Io.Dispatch only" {
         defer ev.deinit();
         try zigstd.testExpectEqual(evented_workers, usesFutures(ev.io()));
     }
+}
+
+threadlocal var probe: u32 = 7;
+
+/// A task's thread and its view of `probe`, which it then sets.
+const Probe = struct {
+    id: std.Thread.Id = undefined,
+    seen: u32 = undefined,
+
+    fn run(p: *Probe) void {
+        p.id = std.Thread.getCurrentId();
+        p.seen = probe;
+        probe = 9;
+    }
+};
+
+test "a concurrent task runs on a thread of its own with its own thread-locals" {
+    if (comptime !threaded_tests) return error.SkipZigTest;
+    var threaded: TestIo = .init(zigstd.testAllocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    probe = 8;
+    defer probe = 7;
+    var p: Probe = .{};
+    var group: Io.Group = .init;
+    group.concurrent(io, Probe.run, .{&p}) catch return error.SkipZigTest;
+    try group.await(io);
+    try zigstd.testExpectTrue(p.id != std.Thread.getCurrentId());
+    // a fresh copy of the initial value, and this thread's untouched
+    try zigstd.testExpectEqual(@as(u32, 7), p.seen);
+    try zigstd.testExpectEqual(@as(u32, 8), probe);
 }
 
 /// Sleeps on `s` until it leaves 0, then counts itself in `woken`.

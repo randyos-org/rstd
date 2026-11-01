@@ -26,8 +26,13 @@ pub const ceil = std.math.ceil;
 pub const mod = std.math.mod;
 pub const clamp = std.math.clamp;
 
+/// Scalar `s` as `T`: splatted when `T` is a vector.
+inline fn like(comptime T: type, s: anytype) T {
+    return if (@typeInfo(T) == .vector) @splat(s) else s;
+}
+
 pub inline fn inversesqrt(x: anytype) @TypeOf(x) {
-    return 1 / @sqrt(x);
+    return like(@TypeOf(x), 1) / @sqrt(x);
 }
 
 pub fn step_scalar(edge: f32, x: f32) f32 {
@@ -62,13 +67,15 @@ pub fn smoothstep_scalar(edge0: f32, edge1: f32, x: f32) f32 {
 }
 
 pub inline fn reflect(i: anytype, n: anytype) @TypeOf(i) {
-    return i - 2 * dot(i, n) * n;
+    const T = @TypeOf(i);
+    return i - like(T, 2 * dot(i, n)) * n;
 }
 
 pub fn refract(i: anytype, n: anytype, eta: f32) @TypeOf(i) {
+    const T = @TypeOf(i);
     const dotni = dot(n, i);
     const k = 1.0 - eta * eta * (1.0 - dotni * dotni);
-    return if (k < 0.0) 0 * i else eta * i - (eta * dotni + @sqrt(k)) * n;
+    return if (k < 0.0) like(T, 0) else like(T, eta) * i - like(T, eta * dotni + @sqrt(k)) * n;
 }
 
 pub inline fn faceforward(n: anytype, i: anytype, nref: anytype) @TypeOf(n) {

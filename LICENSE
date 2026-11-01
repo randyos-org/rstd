@@ -105,6 +105,11 @@ OpenBLAS (https://github.com/OpenMathLib/OpenBLAS)
 Copyright (c) 2011-2014, The OpenBLAS Project
 All rights reserved.
 
+Individual files carry the same notice with later years (to 2026) for The
+OpenBLAS Project, and with this additional holder:
+
+Copyright (c) 2022, Arm Ltd
+
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
 met:
@@ -138,6 +143,17 @@ gotoblas (OpenBLAS fork)
 
 Copyright 2009, 2010 The University of Texas at Austin.
 All rights reserved.
+
+OpenBLAS files under this notice also carry:
+
+Copyright 2009, 2010, 2024 The University of Texas at Austin.
+Copyright 2022, The OpenBLAS Project.
+Copyright 2023 The OpenBLAS Project.
+Copyright 2023, 2025 The OpenBLAS Project.
+Copyright 2023-2024, 2026 The OpenBLAS Project
+Copyright 2024, 2025 The OpenBLAS Project
+Copyright 2024-2025 The OpenBLAS Project.
+Copyright 2025 The OpenBLAS Project.
 
 Redistribution and use in source and binary forms, with or
 without modification, are permitted provided that the following
@@ -270,3 +286,151 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+Reference BLAS test programs (http://netlib.org/blas/, as OpenBLAS ships them in test/ and ctest/)
+
+The Fortran testers (xBLAT1, xBLAT2, xBLAT3) by Jack Dongarra (Argonne
+National Laboratory), Iain Duff (AERE Harwell), Jeremy Du Croz and Sven
+Hammarling (Numerical Algorithms Group Ltd.), Richard Hanson (Sandia National
+Labs), with Univ. of Tennessee, Univ. of California Berkeley, Univ. of
+Colorado Denver and NAG Ltd.; the CBLAS testers by Keita Teranishi,
+D.P. Manley (Digital Equipment Corporation) and T. H. Do (SGI/CRAY Research).
+rstd's ports of them, in src/linalg/blas/_test/from_openblas/, name their
+sources and list their differences in their doc comments.
+
+The license, as OpenBLAS's test/LICENSE and ctest/LICENSE quote it from
+http://netlib.org/blas/faq.html#2:
+
+The reference BLAS is a freely-available software package. It is available from
+netlib via anonymous ftp and the World Wide Web. Thus, it can be included in
+commercial software packages (and has been). We only ask that proper credit be
+given to the authors.
+
+Like all software, it is copyrighted. It is not trademarked, but we do ask the
+following:
+
+If you modify the source for these routines we ask that you change the name of
+the routine and comment the changes made to the original.
+
+We will gladly answer any questions regarding the software. If a modification
+is done, however, it is the responsibility of the person who modified the
+routine to provide support.
+
+---
+
+BLIS (https://github.com/flame/blis; the threaded level-3 design that
+src/linalg/blas/blas3/threaded.zig and threading.zig follow)
+
+Copyright (C) 2012 - 2022, The University of Texas at Austin
+Copyright (C) 2018 - 2025, Southern Methodist University
+Copyright (C) 2016, Hewlett Packard Enterprise Development LP
+Copyright (C) 2018 - 2019, Advanced Micro Devices, Inc.
+Copyright (C) 2022, Oracle Corporation
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+ - Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+ - Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+ - Neither the name(s) of the copyright holder(s) nor the names of its
+   contributors may be used to endorse or promote products derived
+   from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+matlab88 (src/linalg/matlab/: Cleve Moler's Fortran MATLAB, "Version of 05/25/82",
+with the LINPACK and EISPACK routines it is built on)
+
+Public domain. The ported source, src/linalg/matlab/ref/matlab88.f90, carries
+no copyright notice, nor do the LINPACK and EISPACK routines in it; its
+distributor's note, src/linalg/matlab/ref/readme.txt, states: "The package is
+public domain, but of course postage and reproduction cost money. [...] Please
+feel free to distribute the package."
+
+MATLAB is a registered trademark of The MathWorks, Inc. rstd's matlab module
+is a port of the 1982 public-domain program and is not affiliated with or
+endorsed by The MathWorks.
+
+---
+
+msdfgen (https://github.com/Chlumsky/msdfgen; src/rgl/font/sfnt/msdf/, by way of mist)
+
+MIT License
+
+Copyright (c) 2014 - 2025 Viktor Chlumsky
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Inigo Quilez's distance functions (https://iquilezles.org/articles/distfunctions2d/;
+src/rgl/shaders/lib/sdf.zig)
+
+The MIT License, as Inigo Quilez publishes his distance-function shaders on
+Shadertoy (the article page itself was not reachable to confirm its terms).
+
+Copyright (c) Inigo Quilez
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+IBM VGA 8x16 font (src/rgl/font/vga/IBM_VGA_8x16.bin)
+
+IBM's MCGA/VGA (PS/2) video BIOS 8x16 font, taken from
+https://github.com/spacerace/romfont/blob/73f2ba6849e7f1d8a58d5861e462bcf6bf169780/font-bin/IBM_VGA_8x16.bin,
+whose repository carries no license. No license or copyright statement is
+known for these bytes: clone VGA BIOSes (Cirrus Logic, Matrox, S3, Oak,
+Tseng, Trident, NCR) carry them verbatim, and FreeBSD has shipped them since
+its syscons cp437 fonts (share/vt/fonts/vgarom-8x16.hex) with no notice for
+the font. Bitmap glyph shapes are generally not protected by copyright in the
+United States, so these are assumed to be effectively public domain.

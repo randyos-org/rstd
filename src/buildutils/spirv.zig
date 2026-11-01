@@ -33,6 +33,7 @@ fn compileShaderStage(
     name: []const u8,
     stage: ShaderStage,
     rstd_opts: RstdOptions,
+    imports: []const Module.Import,
 ) !LazyPath {
     const shader_opts = b.addOptions();
     shader_opts.addOption(ShaderStage, "stage", stage);
@@ -42,6 +43,7 @@ fn compileShaderStage(
         .root_source_file = src,
         .target = spirv_target,
         .optimize = optimize,
+        .imports = imports,
     });
     shader_mod.addOptions("shader_opts", shader_opts);
     // // A standalone module giving shaders/lib/ access to specific rstd
@@ -75,6 +77,18 @@ pub fn addShader(
     name: []const u8,
     rstd_opts: RstdOptions,
 ) !CompiledShader {
+    return addShaderWith(b, optimize, src, name, rstd_opts, &.{});
+}
+
+/// `addShader`, with more modules for `src` to import.
+pub fn addShaderWith(
+    b: *Build,
+    optimize: Optimize,
+    src: LazyPath,
+    name: []const u8,
+    rstd_opts: RstdOptions,
+    imports: []const Module.Import,
+) !CompiledShader {
     const spirv_target = b.resolveTargetQuery(.{
         .cpu_arch = .spirv32,
         .cpu_model = .{ .explicit = &std.Target.spirv.cpu.vulkan_v1_2 },
@@ -83,8 +97,8 @@ pub fn addShader(
     const vert_name = b.fmt("{s}.vert.spv", .{name});
     const frag_name = b.fmt("{s}.frag.spv", .{name});
     return .{
-        .spv_vert_path = try compileShaderStage(b, spirv_target, optimize, src, vert_name, .vert, rstd_opts),
-        .spv_frag_path = try compileShaderStage(b, spirv_target, optimize, src, frag_name, .frag, rstd_opts),
+        .spv_vert_path = try compileShaderStage(b, spirv_target, optimize, src, vert_name, .vert, rstd_opts, imports),
+        .spv_frag_path = try compileShaderStage(b, spirv_target, optimize, src, frag_name, .frag, rstd_opts, imports),
         .vert_mod_name = vert_name,
         .frag_mod_name = frag_name,
     };

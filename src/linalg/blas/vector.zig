@@ -1188,15 +1188,18 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 /// symmetric, Hermitian, or the Hermitian one's transpose (`HEMVREV`).
 const SymKind = enum { symmetric, hermitian, hermitian_rev };
 
-/// The half-precision gemvs, `sbgemv` (`E` bfloat16) and `shgemv` (`f16`),
-/// in `ext/bf16/kernel.zig`'s bits: each result sums `a*x` in `f32` in
-/// index order, unfused, and rounds once on the store (`readme.md`,
-/// "bfloat16 and half precision"). Upstream's `kernel/riscv64/sbgemv_n_vector.c`
-/// and `sbgemv_t_vector.c` (zvl256b) round `alpha*x[j]` to `E` and fuse,
-/// and the transposed one sums across lanes, so only their shape is kept:
-/// without a transpose a lane per row, with one a lane per column, `A`
+/// The half-precision gemvs, `sbgemv` (`E` bfloat16, `Y` `f32`), `bgemv`
+/// (both bfloat16) and `shgemv` (`f16`, `f32`), in `ext/bf16/kernel.zig`'s
+/// bits: each result sums `a*x` in `f32` in index order, unfused, and rounds
+/// once on the store (`readme.md`, "bfloat16 and half precision"). Upstream's
+/// `kernel/riscv64/sbgemv_n_vector.c` and `sbgemv_t_vector.c` (zvl256b)
+/// round `alpha*x[j]` to `E` and fuse; `kernel/x86_64/sbgemv_n_microk_cooperlake.c`
+/// (AVX-512 BF16 `vdpbf16ps`), `kernel/arm64/sbgemv_n_neon.c`,
+/// `sbgemv_t_bfdot.c` (BFDOT) and `bgemv_n_sve_v3x4.c` (BFMLAL) sum pairs
+/// of products in instructions with their own rounding. Only their shape is
+/// kept: without a transpose a lane per row, with one a lane per column, `A`
 /// transposed a tile at a time in registers.
-pub fn Half(comptime E: type) type {
+pub fn Half(comptime E: type, comptime Y: type) type {
     return struct {
         const N = lanes(f32);
         const V = @Vector(N, f32);
@@ -1229,8 +1232,14 @@ pub fn Half(comptime E: type) type {
             return s.v(alpha) * acc + s.v(beta) * @as(T, yv.*);
         }
 
+        /// `y[at] = alpha*acc + beta*y[at]` in `f32`, rounded to `Y`.
+        inline fn put(yp: *Y, alpha: f32, beta: f32, acc: f32) void {
+            const wy = if (beta == 0) 0 else bf16.wide(Y, yp.*);
+            yp.* = bf16.narrow(Y, result(f32, alpha, beta, acc, &wy));
+        }
+
         /// Rows `r` to `r + B` from column 0 on, `B / N` vectors.
-        fn rowBlock(comptime B: usize, r: usize, cols: usize, alpha: f32, a: [*]E, ld_a: usize, x: [*]E, incx: BlasLong, beta: f32, y: [*]f32, incy: BlasLong) void {
+        fn rowBlock(comptime B: usize, r: usize, cols: usize, alpha: f32, a: [*]E, ld_a: usize, x: [*]E, incx: BlasLong, beta: f32, y: [*]Y, incy: BlasLong) void {
             var acc: [B / N]V = @splat(@splat(0));
             for (0..cols) |q| {
                 const xv: V = @splat(wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*));
@@ -1238,21 +1247,22 @@ pub fn Half(comptime E: type) type {
             }
             inline for (acc, 0..) |s, v| {
                 const r0 = r + v * N;
-                if (incy == 1) {
+                if (Y == f32 and incy == 1) {
                     const yp: *[N]f32 = (y + r0)[0..N];
                     yp.* = result(V, alpha, beta, s, yp);
                 } else {
                     const sa: [N]f32 = s;
                     inline for (sa, 0..) |e, l| {
-                        const yp = util.at(f32, y, @as(BlasLong, @intCast(r0 + l)) * incy);
-                        yp.* = result(f32, alpha, beta, e, yp);
+                        put(util.at(Y, y, @as(BlasLong, @intCast(r0 + l)) * incy), alpha, beta, e);
                     }
                 }
             }
         }
 
         /// `y = alpha*A*x + beta*y`, a lane per row of `A`.
-        pub fn gemv_n(m: BlasLong, n: BlasLong, alpha: f32, a: [*]E, lda: BlasLong, x: [*]E, incx: BlasLong, beta: f32, y: [*]f32, incy: BlasLong) callconv(.c) i32 {
+        pub fn gemv_n(m: BlasLong, n: BlasLong, alpha_y: Y, a: [*]E, lda: BlasLong, x: [*]E, incx: BlasLong, beta_y: Y, y: [*]Y, incy: BlasLong) callconv(.c) i32 {
+            const alpha = bf16.wide(Y, alpha_y);
+            const beta = bf16.wide(Y, beta_y);
             const rows: usize = @intCast(@max(m, 0));
             const cols: usize = @intCast(@max(n, 0));
             const ld_a: usize = @intCast(lda);
@@ -1262,15 +1272,16 @@ pub fn Half(comptime E: type) type {
             while (r < rows) : (r += 1) {
                 var acc: f32 = 0;
                 for (0..cols) |q| acc = acc + wide(a[r + q * ld_a]) * wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*);
-                const yp = util.at(f32, y, @as(BlasLong, @intCast(r)) * incy);
-                yp.* = result(f32, alpha, beta, acc, yp);
+                put(util.at(Y, y, @as(BlasLong, @intCast(r)) * incy), alpha, beta, acc);
             }
             return 0;
         }
 
         /// `y = alpha*A'*x + beta*y`, a lane per column of `A`: `N` columns'
         /// `N` rows at a time, transposed, so each column sums in row order.
-        pub fn gemv_t(m: BlasLong, n: BlasLong, alpha: f32, a: [*]E, lda: BlasLong, x: [*]E, incx: BlasLong, beta: f32, y: [*]f32, incy: BlasLong) callconv(.c) i32 {
+        pub fn gemv_t(m: BlasLong, n: BlasLong, alpha_y: Y, a: [*]E, lda: BlasLong, x: [*]E, incx: BlasLong, beta_y: Y, y: [*]Y, incy: BlasLong) callconv(.c) i32 {
+            const alpha = bf16.wide(Y, alpha_y);
+            const beta = bf16.wide(Y, beta_y);
             const rows: usize = @intCast(@max(m, 0));
             const cols: usize = @intCast(@max(n, 0));
             const ld_a: usize = @intCast(lda);
@@ -1291,15 +1302,13 @@ pub fn Half(comptime E: type) type {
                 }
                 const sa: [N]f32 = acc;
                 inline for (sa, 0..) |e, l| {
-                    const yp = util.at(f32, y, @as(BlasLong, @intCast(c + l)) * incy);
-                    yp.* = result(f32, alpha, beta, e, yp);
+                    put(util.at(Y, y, @as(BlasLong, @intCast(c + l)) * incy), alpha, beta, e);
                 }
             }
             while (c < cols) : (c += 1) {
                 var acc: f32 = 0;
                 for (0..rows) |q| acc = acc + wide(a[q + c * ld_a]) * wide(util.at(E, x, @as(BlasLong, @intCast(q)) * incx).*);
-                const yp = util.at(f32, y, @as(BlasLong, @intCast(c)) * incy);
-                yp.* = result(f32, alpha, beta, acc, yp);
+                put(util.at(Y, y, @as(BlasLong, @intCast(c)) * incy), alpha, beta, acc);
             }
             return 0;
         }
@@ -1345,13 +1354,15 @@ pub fn Half(comptime E: type) type {
 /// every core, so its results follow one contract whatever the core
 /// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
 /// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
-/// sums in `f64`; and no result depends on an operand's address (`peels`).
+/// and `dsdot` sum in `f64`, one sum, so a threaded `sdot`'s chunks are its
+/// kernel's (`threading.md`); and no result depends on an operand's address
+/// (`peels`).
 /// `tools/blas_asm` does not convert their assembly (`roles.zig`'s `skip`,
 /// kept in step with this); an architecture's `Registry` puts these in where
 /// its vector unit is IEEE.
 pub fn routed(comptime slot: Slot) bool {
     return switch (slot) {
-        // the extremes, `nrm2` and `sdot`
+        // the extremes, `nrm2`, `sdot` and `dsdot`
         .samax_k,
         .damax_k,
         .camax_k,
@@ -1381,6 +1392,7 @@ pub fn routed(comptime slot: Slot) bool {
         .cnrm2_k,
         .znrm2_k,
         .sdot_k,
+        .dsdot_k,
         => true,
         else => peels(slot),
     };
@@ -1423,7 +1435,8 @@ fn flushes(comptime core: anytype, comptime slot: Slot) bool {
     if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
     inline for (real_slots ++ complex_slots) |p| {
         inline for (@typeInfo(@TypeOf(p[1])).@"struct".field_names) |name| {
-            if (@field(p[1], name) == slot) return p[0] == f32;
+            const s: ?Slot = @field(p[1], name);
+            if (s == slot) return p[0] == f32;
         }
     }
     return false;
@@ -1456,10 +1469,12 @@ pub fn fills(comptime slot: Slot) bool {
     return false;
 }
 
-/// The slot each function of `Real` fills, by its name there.
+/// The slot each function of `Real` fills, by its name there; `dsdot` over
+/// `f32` only.
 const RealSlots = struct {
     axpy: Slot,
     dot: Slot,
+    dsdot: ?Slot = null,
     scal: Slot,
     nrm2: Slot,
     asum: Slot,
@@ -1510,6 +1525,7 @@ const real_slots = .{
     .{ f32, RealSlots{
         .axpy = .saxpy_k,
         .dot = .sdot_k,
+        .dsdot = .dsdot_k,
         .scal = .sscal_k,
         .nrm2 = .snrm2_k,
         .asum = .sasum_k,
@@ -1615,7 +1631,8 @@ pub const kernels: []const Kernel = blk: {
     for (real_slots) |p| {
         if (!util.vectorIeee(p[0])) continue;
         for (@typeInfo(RealSlots).@"struct".field_names) |name| {
-            r = r ++ &[_]Kernel{.{ .slot = @field(p[1], name), .F = p[0], .complex = false, .f = name }};
+            const slot: ?Slot = @field(p[1], name);
+            if (slot) |s| r = r ++ &[_]Kernel{.{ .slot = s, .F = p[0], .complex = false, .f = name }};
         }
     }
     for (complex_slots) |p| {
@@ -1652,12 +1669,12 @@ pub fn installAll(vt: *Vtable) void {
 pub const ported = struct {
     pub const slots = [_]Slot{
         .saxpby_k, .daxpby_k, .caxpby_k, .zaxpby_k,
-        .srotm_k,  .drotm_k,  .dsdot_k,  .ssymv_U,
-        .ssymv_L,  .dsymv_U,  .dsymv_L,  .csymv_U,
-        .csymv_L,  .zsymv_U,  .zsymv_L,  .chemv_U,
-        .chemv_L,  .chemv_V,  .chemv_M,  .zhemv_U,
-        .zhemv_L,  .zhemv_V,  .zhemv_M,  .sbgemv_n,
-        .sbgemv_t, .shgemv_n, .shgemv_t,
+        .srotm_k,  .drotm_k,  .ssymv_U,  .ssymv_L,
+        .dsymv_U,  .dsymv_L,  .csymv_U,  .csymv_L,
+        .zsymv_U,  .zsymv_L,  .chemv_U,  .chemv_L,
+        .chemv_V,  .chemv_M,  .zhemv_U,  .zhemv_L,
+        .zhemv_V,  .zhemv_M,  .sbgemv_n, .sbgemv_t,
+        .shgemv_n, .shgemv_t, .bgemv_n,  .bgemv_t,
     };
 
     /// `slot`'s kernel, four vectors a step.
@@ -1673,7 +1690,6 @@ pub const ported = struct {
             .zaxpby_k => &Z.axpby,
             .srotm_k => &R.rotm,
             .drotm_k => &D.rotm,
-            .dsdot_k => &R.dsdot,
             .ssymv_U => &R.symv_U,
             .ssymv_L => &R.symv_L,
             .dsymv_U => &D.symv_U,
@@ -1690,10 +1706,12 @@ pub const ported = struct {
             .zhemv_L => &Z.hemv_L,
             .zhemv_V => &Z.hemv_V,
             .zhemv_M => &Z.hemv_M,
-            .sbgemv_n => &Half(types.BF16).gemv_n,
-            .sbgemv_t => &Half(types.BF16).gemv_t,
-            .shgemv_n => &Half(types.HF16).gemv_n,
-            .shgemv_t => &Half(types.HF16).gemv_t,
+            .sbgemv_n => &Half(types.BF16, f32).gemv_n,
+            .sbgemv_t => &Half(types.BF16, f32).gemv_t,
+            .shgemv_n => &Half(types.HF16, f32).gemv_n,
+            .shgemv_t => &Half(types.HF16, f32).gemv_t,
+            .bgemv_n => &Half(types.BF16, types.BF16).gemv_n,
+            .bgemv_t => &Half(types.BF16, types.BF16).gemv_t,
             else => @compileError(@tagName(slot) ++ " has no kernel in vector.ported"),
         };
     }
@@ -1704,11 +1722,14 @@ pub const ported = struct {
     /// `f16` vectors stop LLVM on some targets.
     pub fn builds(comptime slot: Slot) bool {
         const name = @tagName(slot);
-        if (std.mem.startsWith(u8, name, "sbgemv") or std.mem.startsWith(u8, name, "shgemv")) return switch (sysinfo.target.cpu.arch) {
+        const half = for ([_][]const u8{ "sbgemv", "shgemv", "bgemv" }) |f| {
+            if (std.mem.startsWith(u8, name, f)) break true;
+        } else false;
+        if (half) return switch (sysinfo.target.cpu.arch) {
             .x86_64, .aarch64, .riscv64 => true,
             else => false,
         };
-        const single = name[0] == 's' or name[0] == 'c' or std.mem.eql(u8, name, "dsdot_k");
+        const single = name[0] == 's' or name[0] == 'c';
         return !single or util.vectorIeee(f32);
     }
 };

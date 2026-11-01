@@ -43,6 +43,12 @@ test "XDouble is the x87 long double exactly where the reference enables EXPRECI
     try zigstd.testExpectTrue(types.isExtended(f80) and types.isExtended(f128) and !types.isExtended(f64));
 }
 
+test "quad_precision makes XDouble f128 on every target, with EXPRECISION off" {
+    if (!types.quad_precision) return error.SkipZigTest;
+    try zigstd.testExpectTrue(XDouble == f128 and ComplexXD == std.math.Complex(f128));
+    try zigstd.testExpectTrue(!types.exprecision and types.hasSlots(f128));
+}
+
 test "EXPRECISION by target: x87 long double, never a Microsoft ABI" {
     const on = types.exprecisionOn;
     try zigstd.testExpectTrue(on(.x86_64, .linux, 80, true));

@@ -8,7 +8,7 @@ A font library formed by the merger of [sphtext from sphimp](https://github.com/
 
 Turning a font file into a renderable glyph atlas goes through several stages. A handful of terms come straight from the OpenType/TrueType file format specification, or from the distance-field literature.  They're also the actual names used in the code (table names, tags, etc.), so it's worth knowing what they mean rather than avoiding them.
 
-1. **Load** (`TrueType.zig`): every `.ttf`/`.otf` file is wrapped in the same container format, called *sfnt*: a short header followed by a directory of *tables*.  Each table is identified by a 4-byte *tag* (`cmap`, `glyf`, `hhea`, `hmtx`, `maxp`, `kern`, `GPOS`, and `"CFF "` [sic] are all such tags). `load()` reads that directory and records where each table lives in the file.
+1. **Load** (`Sfnt.zig`): every `.ttf`/`.otf` file is wrapped in the same container format, called *sfnt*: a short header followed by a directory of *tables*.  Each table is identified by a 4-byte *tag* (`cmap`, `glyf`, `hhea`, `hmtx`, `maxp`, `kern`, `GPOS`, and `"CFF "` [sic] are all such tags). `init()` reads that directory and records where each table lives in the file. A collection (`.ttc`/`.otc`) prefixes several such directories with a `ttcf` header; `numberOfFonts()` counts them and `init()`'s `font_index` option picks one.
 
    It also checks which of two mutually exclusive ways the font stores its glyph outlines:
 
@@ -19,7 +19,7 @@ Turning a font file into a renderable glyph atlas goes through several stages. A
 
 2. **Character to glyph mapping** (`cmap.zig`): a font doesn't draw "the letter A" directly; it draws *glyphs*, identified by a small integer called a *glyph index* (several different characters can even share one glyph, or one character can be drawn by different glyphs depending on context). The `cmap` table is what maps Unicode codepoints (`'A'`, `'€'`, ...) to glyph indices.  (The `cmap` table actually supports several internal sub-formats for how that mapping is encoded; formats 0, 4, 6, 12, and 13 are handled here.)  `codepointGlyphIndex` searches it and returns a `GlyphIndex`.
 
-3. **Outline extraction** (`TrueType.glyphShape`, dispatching to `glyf.zig` or `cff/charstring.zig`): turns a `GlyphIndex` into a flat list of drawing commands (move-to, line-to, quadratic curve-to, cubic curve-to) describing the glyph's outline, in the font's own internal coordinate units (`[]Vertex`).  Everything above this point is shared by both of the rendering paths--they only differ in what they do with the resulting `[]Vertex`. The two outline formats are read in completely different ways:
+3. **Outline extraction** (`Sfnt.glyphShape`, dispatching to `glyf.zig` or `cff/charstring.zig`): turns a `GlyphIndex` into a flat list of drawing commands (move-to, line-to, quadratic curve-to, cubic curve-to) describing the glyph's outline, in the font's own internal coordinate units (`[]Vertex`).  Everything above this point is shared by both of the rendering paths--they only differ in what they do with the resulting `[]Vertex`. The two outline formats are read in completely different ways:
 
    - `glyf`: walks the `glyf` table's raw point/flag/coordinate byte arrays directly, handling both simple contours and *compound glyphs* - glyphs built by combining other glyphs, e.g. an accented letter made from a base letter plus a separately-defined accent mark.
    - `"cff "`: runs a bytecode interpreter. CFF fonts don't store outlines as raw point lists; they store *Type2 charstrings*.  This is a compact, stack-based bytecode format whose instructions mean things like "move by this much," "draw a curve through these points," or "call this reusable subroutine" (subroutines let a font share common shapes, like the curve of a serif, across many glyphs instead of repeating them). `runCharstring` is the small virtual machine that executes that bytecode. It runs twice per glyph: once just to count how many vertices the shape needs, then again to actually fill them in, as an allocation-avoidance strategy instead of using a growable list.
@@ -73,15 +73,15 @@ Two side paths skip outline extraction entirely, since they're just further tabl
 A single glyph rendered straight to a coverage bitmap (the fast path):
 
 ```zig
-const TrueType = @import("TrueType.zig");
-const tt = try TrueType.load(@embedFile("GoNotoCurrent-Regular.ttf"));
+const Sfnt = @import("Sfnt.zig");
+const sfnt = try Sfnt.init(alloc, @embedFile("GoNotoCurrent-Regular.ttf"), .{});
 
-const glyph = tt.codepointGlyphIndex('A');
-const scale = tt.scaleForPixelHeight(20.0);
+const glyph = sfnt.getGlyphIndex('A') orelse return error.MissingGlyph;
+const scale = sfnt.scaleForPixelHeight(20.0);
 
-var pixels: std.ArrayListUnmanaged(u8) = .empty;
+var pixels: std.ArrayList(u8) = .empty;
 defer pixels.deinit(alloc);
-const bmp = try tt.glyphBitmap(alloc, &pixels, glyph, scale, scale);
+const bmp = try sfnt.glyphBitmap(alloc, &pixels, glyph, scale, scale);
 // pixels.items[0 .. bmp.width * bmp.height] is the 8-bit coverage bitmap;
 // bmp.off_x/off_y is where it sits relative to the glyph origin.
 ```
@@ -107,8 +107,23 @@ defer atlas.deinit(alloc);
 - Codepoint to glyph lookup, kerning, and both direct coverage-bitmap rendering and MSDF/SDF atlas
   generation.
 - Both TrueType (`glyf`) and CFF/Type2 outline formats are supported.
+- Font collections (`.ttc`/`.otc`) load one font at a time by index.
 - Font shaping and ligatures are not supported: a run of text is drawn glyph-by-glyph via `cmap`
   lookups and kerning pairs, not through the more elaborate substitution/positioning rules (as used
   by, say, Arabic script shaping or ligature substitution like "fi" merging into a single glyph)
   that a dedicated shaping engine like HarfBuzz would apply.
 - Untrusted font files are not supported - the parsers here trust the input to be well-formed.
+
+## Upstream baselines
+
+The upstream commit each source was ported from, and the newest upstream commit already reviewed for changes worth pulling in. When syncing, review from "Checked through" forward, then update that column.
+
+| Source | Ported from | Checked through |
+| --- | --- | --- |
+| [TrueType](https://codeberg.org/andrewrk/TrueType) | `8e5b3216906ce32463a0db75e3889b2b4df00bf1` (2026-08-20) | `4fea1e7c0f9d4d79348d0302c7628f485301b6ac` (2026-10-29) |
+| [mist](https://github.com/flut2/mist) | `eb7b593d685befadc666e3d74cbe8ded6894a3cd` (2026-07-28) | `d44f70b0ee744dde72b726f05b93e96a13a795f9` (2026-10-10) |
+| [msdfgen](https://github.com/Chlumsky/msdfgen) | via mist | `1c106ed8117893bf943e577f62eb0665fb271e46` (2026-08-29) |
+| [Turbopack](https://github.com/flut2/turbopack) | `90cc3da6bd6f4d5da142651b861a1c6834f3af9c` (2026-05-24) | `90cc3da6bd6f4d5da142651b861a1c6834f3af9c` (2026-05-24) |
+| [sphimp](https://github.com/sphaerophoria/sphimp) | `b0c1843652638bb77c354c257c1a730b3e23ba60` (2025-04-02) | `b0c1843652638bb77c354c257c1a730b3e23ba60` (2025-04-02) |
+
+TrueType's baseline is exact (rgui's old submodule pin). The others weren't recorded at import time; each is the upstream head when the code landed here (mist 2026-09-15, the rest by 2026-09-14), and mist's matches our `ErrorCorrection.zig` line for line.

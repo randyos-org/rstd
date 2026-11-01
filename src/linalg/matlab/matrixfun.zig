@@ -7,7 +7,6 @@ const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const blas1 = @import("blas1.zig");
 const CxMat = @import("CxMat.zig");
-const eigen_general = @import("eigen_general.zig");
 const eig_mod = @import("eig.zig");
 const divide = @import("divide.zig");
 const elementary = @import("elementary.zig");
@@ -39,10 +38,10 @@ pub fn poly(rootsr: []const f64, rootsi: []const f64, n: usize, cr: []f64, ci: [
 /// ROOTS: the `n` roots of the degree-`n` polynomial with coefficients
 /// `coeffr`/`coeffi` (length `>= n+1`, highest degree first; leading
 /// zero coefficients are skipped), via the eigenvalues of its companion
-/// matrix - which is already upper Hessenberg by construction, so this
-/// skips `corth` and calls `comqr3` directly. Writes into `wr`/`wi` and
-/// returns the degree found (`0` for the zero polynomial).
-pub fn roots(allocator: zigstd.Allocator, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) !usize {
+/// matrix by `eig` (`geev`, which balances it, as MATLAB's `roots`). Writes
+/// into `wr`/`wi` and returns the degree found (`0` for the zero
+/// polynomial).
+pub fn roots(allocator: zigstd.Allocator, io: std.Io, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) eig_mod.EigError!usize {
     var start: usize = 0;
     while (start < coeffr.len and blas1.cabs1(coeffr[start], coeffi[start]) == 0.0) start += 1;
     if (start >= coeffr.len) return 0;
@@ -65,16 +64,10 @@ pub fn roots(allocator: zigstd.Allocator, coeffr: []const f64, coeffi: []const f
         compi[ix(n, 1, j)] = v.im;
     }
 
-    const ortr = try allocator.alloc(f64, n);
-    defer allocator.free(ortr);
-    const orti = try allocator.alloc(f64, n);
-    defer allocator.free(orti);
-    @memset(ortr, 0.0);
-    @memset(orti, 0.0);
-    var dummy: [1]f64 = .{0.0};
-
-    const ierr = eigen_general.comqr3(CxMat.initPacked(compr, compi, n, n), 1, n, ortr, orti, wr[0..n], wi[0..n], CxMat.initPacked(&dummy, &dummy, 1, 1), 0);
-    if (ierr != 0) return error.EigenvalueDidNotConverge;
+    const result = try eig_mod.eig(allocator, io, CxMat.initPacked(compr, compi, n, n), false);
+    defer result.deinit(allocator);
+    @memcpy(wr[0..n], result.values_r);
+    @memcpy(wi[0..n], result.values_i);
     return n;
 }
 
@@ -129,9 +122,9 @@ pub fn atan(ar: []f64, ai: []f64) void {
 /// zero-sized) with a `call(self, Cx) Cx` method rather than a bare
 /// function, so callers needing runtime parameters (e.g. `powm`'s
 /// exponent) can close over them without duplicating this function.
-fn applyMatrixFunction(allocator: zigstd.Allocator, f: anytype, a: CxMat, out: CxMat) !void {
+fn applyMatrixFunction(allocator: zigstd.Allocator, io: std.Io, f: anytype, a: CxMat, out: CxMat) !void {
     const n = a.n;
-    const result = try eig_mod.eig(allocator, a, true);
+    const result = try eig_mod.eig(allocator, io, a, true);
     defer result.deinit(allocator);
     const vr = result.vectors_r.?;
     const vi = result.vectors_i.?;
@@ -153,19 +146,8 @@ fn applyMatrixFunction(allocator: zigstd.Allocator, f: anytype, a: CxMat, out: C
     defer allocator.free(v_copy_i);
     @memcpy(v_copy_r, vr);
     @memcpy(v_copy_i, vi);
-    const ipvt = try allocator.alloc(usize, n);
-    defer allocator.free(ipvt);
-    const zr = try allocator.alloc(f64, n);
-    defer allocator.free(zr);
-    const zi = try allocator.alloc(f64, n);
-    defer allocator.free(zi);
-    const rowr = try allocator.alloc(f64, n);
-    defer allocator.free(rowr);
-    const rowi = try allocator.alloc(f64, n);
-    defer allocator.free(rowi);
-
     const v_copy_mat = CxMat.initPacked(v_copy_r, v_copy_i, n, n);
-    _ = divide.mrdivide(out, v_copy_mat, ipvt, zr, zi, rowr, rowi);
+    _ = try divide.mrdivide(out, v_copy_mat, allocator, io);
 }
 
 const ExpCtx = struct {
@@ -205,23 +187,23 @@ const PowCtx = struct {
     }
 };
 
-pub fn expm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, ExpCtx{}, a, out);
+pub fn expm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, ExpCtx{}, a, out);
 }
-pub fn logm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, LogCtx{}, a, out);
+pub fn logm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, LogCtx{}, a, out);
 }
-pub fn sqrtm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, SqrtCtx{}, a, out);
+pub fn sqrtm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, SqrtCtx{}, a, out);
 }
-pub fn sinm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, SinCtx{}, a, out);
+pub fn sinm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, SinCtx{}, a, out);
 }
-pub fn cosm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, CosCtx{}, a, out);
+pub fn cosm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, CosCtx{}, a, out);
 }
-pub fn atanm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, AtanCtx{}, a, out);
+pub fn atanm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, AtanCtx{}, a, out);
 }
 
 /// POWER (`X**p`, matrix case): `a` raised to the complex power `p`, via
@@ -230,10 +212,9 @@ pub fn atanm(allocator: zigstd.Allocator, a: CxMat, out: CxMat) !void {
 /// instead; this port always goes through the eigendecomposition, so a
 /// caller wanting that accuracy for a known small integer power can chain
 /// `matmul` calls directly.
-pub fn powm(allocator: zigstd.Allocator, a: CxMat, p: Cx, out: CxMat) !void {
-    return applyMatrixFunction(allocator, PowCtx{ .p = p }, a, out);
+pub fn powm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, p: Cx, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, PowCtx{ .p = p }, a, out);
 }
-
 
 test "poly and roots are inverse to each other for known roots" {
     // roots 1, 2, 3 -> (x-1)(x-2)(x-3) = x^3 - 6x^2 + 11x - 6.
@@ -249,7 +230,7 @@ test "poly and roots are inverse to each other for known roots" {
 
     var wr: [3]f64 = @splat(0.0);
     var wi: [3]f64 = @splat(0.0);
-    const n = try roots(zigstd.testAllocator, &cr, &ci, &wr, &wi);
+    const n = try roots(zigstd.testAllocator, std.testing.io, &cr, &ci, &wr, &wi);
     try zigstd.testExpectEqual(@as(usize, 3), n);
     var sorted = wr;
     std.mem.sort(f64, &sorted, {}, std.sort.asc(f64));
@@ -280,7 +261,7 @@ test "expm matches a hand-verifiable diagonalizable case" {
     var out_i: [4]f64 = @splat(0.0);
     var ar_mut = ar;
     var ai_mut = ai;
-    try expm(zigstd.testAllocator, CxMat.initPacked(&ar_mut, &ai_mut, 2, 2), CxMat.initPacked(&out_r, &out_i, 2, 2));
+    try expm(zigstd.testAllocator, std.testing.io, CxMat.initPacked(&ar_mut, &ai_mut, 2, 2), CxMat.initPacked(&out_r, &out_i, 2, 2));
     try zigstd.testExpectApproxEqAbs(1.0, out_r[ix(2, 1, 1)], 1e-8);
     try zigstd.testExpectApproxEqAbs(2.0, out_r[ix(2, 2, 2)], 1e-8);
     try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 1, 2)], 1e-8);
@@ -293,7 +274,7 @@ test "powm matches a hand-verifiable diagonalizable case" {
     var ai: [4]f64 = @splat(0.0);
     var out_r: [4]f64 = @splat(0.0);
     var out_i: [4]f64 = @splat(0.0);
-    try powm(zigstd.testAllocator, CxMat.initPacked(&ar, &ai, 2, 2), Cx.init(3.0, 0.0), CxMat.initPacked(&out_r, &out_i, 2, 2));
+    try powm(zigstd.testAllocator, std.testing.io, CxMat.initPacked(&ar, &ai, 2, 2), Cx.init(3.0, 0.0), CxMat.initPacked(&out_r, &out_i, 2, 2));
     try zigstd.testExpectApproxEqAbs(8.0, out_r[ix(2, 1, 1)], 1e-8);
     try zigstd.testExpectApproxEqAbs(27.0, out_r[ix(2, 2, 2)], 1e-8);
     try zigstd.testExpectApproxEqAbs(0.0, out_r[ix(2, 1, 2)], 1e-8);
