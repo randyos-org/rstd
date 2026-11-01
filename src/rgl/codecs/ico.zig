@@ -10,8 +10,8 @@ const StdIo = zigstd.StdIo;
 
 const appendIntLE = bytes.appendIntLE;
 
-/// packs PNG-encoded images (Vista+ supports PNG entries) into one .ico
-pub fn writeICO(allocator: Allocator, io: StdIo, name: []const u8, imgs: []const RgbaImage) !void {
+/// packs PNG-encoded images (Vista+ supports PNG entries) into one .ico, `name` in `dir`
+pub fn writeICO(allocator: Allocator, io: StdIo, dir: StdIo.Dir, name: []const u8, imgs: []const RgbaImage) !void {
     const Entry = struct { w: u32, h: u32, png: []const u8 };
     var entries: std.ArrayList(Entry) = .empty;
     defer entries.deinit(allocator);
@@ -52,7 +52,7 @@ pub fn writeICO(allocator: Allocator, io: StdIo, name: []const u8, imgs: []const
         allocator.free(e.png);
     }
 
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = name, .data = out.items });
+    try dir.writeFile(io, .{ .sub_path = name, .data = out.items });
 }
 
 test "writeICO produces a valid one-entry ICONDIR header" {
@@ -65,11 +65,12 @@ test "writeICO produces a valid one-entry ICONDIR header" {
     var img = try RgbaImage.init(alloc, 4, 4, .{ .r = 0, .g = 0, .b = 0, .a = 0 });
     defer img.destroy(alloc);
 
-    const path = "_test_ico_write_ico_output.ico";
-    try writeICO(alloc, io, path, &.{img});
-    defer StdIo.Dir.cwd().deleteFile(io, path) catch {};
+    var tmp = zigstd.testTmpDir(.{});
+    defer tmp.cleanup();
+    const path = "out.ico";
+    try writeICO(alloc, io, tmp.dir, path, &.{img});
 
-    const written = try StdIo.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
+    const written = try tmp.dir.readFileAlloc(io, path, alloc, .unlimited);
     defer alloc.free(written);
     // ICONDIR: reserved=0, type=1 (icon), count=1
     try zigstd.testExpectEqual(@as(u16, 0), getU16LE(written));

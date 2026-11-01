@@ -62,9 +62,9 @@ pub fn Image(comptime Pixel: type) type {
             }
         }
 
-        /// Writes `data` as-is: tightly packed, no header.
-        pub fn writeRawFile(self: Self, io: StdIo, path: []const u8) !void {
-            try StdIo.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = bytes.fromSlice(self.data) });
+        /// Writes `data` as-is to `path` in `dir`: tightly packed, no header.
+        pub fn writeRawFile(self: Self, io: StdIo, dir: StdIo.Dir, path: []const u8) !void {
+            try dir.writeFile(io, .{ .sub_path = path, .data = bytes.fromSlice(self.data) });
         }
     };
 }
@@ -120,11 +120,12 @@ test "writeRawFile writes tightly-packed RGBA bytes" {
     img.setPixel(0, 0, .{ .r = 1, .g = 2, .b = 3, .a = 4 });
     img.setPixel(1, 0, .{ .r = 5, .g = 6, .b = 7, .a = 8 });
 
-    const path = "_test_image_write_rgba_output.rgba";
-    try img.writeRawFile(io, path);
-    defer StdIo.Dir.cwd().deleteFile(io, path) catch {};
+    var tmp = zigstd.testTmpDir(.{});
+    defer tmp.cleanup();
+    const path = "out.rgba";
+    try img.writeRawFile(io, tmp.dir, path);
 
-    const written = try StdIo.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
+    const written = try tmp.dir.readFileAlloc(io, path, alloc, .unlimited);
     defer alloc.free(written);
     try zigstd.testExpectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, written);
 }

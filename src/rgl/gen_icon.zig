@@ -34,10 +34,10 @@ pub fn main(init: std.process.Init) !void {
     var imgs: [sizes.len]RgbaImage = undefined;
     for (sizes, 0..) |s, i| imgs[i] = try downsample(alloc, &m, s);
 
-    try ico.writeICO(alloc, io, ico_path, &imgs);
+    try ico.writeICO(alloc, io, std.Io.Dir.cwd(), ico_path, &imgs);
 
     const raw32 = for (sizes, imgs) |s, im| {
         if (s == 32) break im;
     } else unreachable;
-    try raw32.writeRawFile(io, raw_path);
+    try raw32.writeRawFile(io, std.Io.Dir.cwd(), raw_path);
 }

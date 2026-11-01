@@ -22,4 +22,5 @@ pub const testExpectApproxEqAbs = std.testing.expectApproxEqAbs;
 pub const testExpectApproxEqRel = std.testing.expectApproxEqRel;
 pub const testRefAllDecls = std.testing.refAllDecls;
 pub const testAllocator = std.testing.allocator;
+pub const testTmpDir = std.testing.tmpDir;
 pub const TestFailingAllocator = std.testing.FailingAllocator;
