@@ -31,11 +31,9 @@ pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
     }
 }
 
-/// Multiply-add, fused or not as the build's BLAS policy says (by default:
-/// fused when the target has an FMA unit, plain `a*b+c` otherwise, so `@mulAdd`
-/// never degrades into a libm `fma()` call). The decision lives in
-/// `linalg/blas/fma.zig`, which mirrors how the reference's per-core compile
-/// flags decide it.
+/// Multiply-add, fused or not as the root's `std_float_options` says
+/// (`zigcfg.FloatOptions`; by default where the target fuses in hardware),
+/// as the fork's `@Matrix` products are (`linalg/blas/fma.zig`'s `mulAdd`).
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
     return blas_fma.mulAdd(T, a, b, c);
 }

@@ -4,16 +4,18 @@
 //! OpenBLAS builds each core's kernels with that core's flags, and only some
 //! of them enable FMA (`-mfma`, or a `-march=` that includes it); the fusion
 //! itself is then the C compiler's contraction of `a*b + c`. Here a build
-//! states its policy once and every multiply-add asks this file:
+//! states its policy once, as the root's `std_float_options`
+//! (`FloatOptions`; linalg design.md, decision 15), which the fork's compiler
+//! also reads for `@Matrix` products, and every multiply-add asks this file:
 //!
-//!   * the root source file may declare `pub const blas_fuse_fma: bool`; the
-//!     per-core kernel objects do, since their CPU features can include FMA
-//!     only so an assembler accepts a hand-written microkernel while the
-//!     core's flags leave contraction off;
-//!   * otherwise the answer follows the target: fused where the hardware has
-//!     an FMA unit, so `@mulAdd` never degrades into a libm `fma()` call;
-//!   * never for floats wider than `f64` (`fuseFor`): `@mulAdd(f80)` is a
-//!     soft `fmal` call, and the reference's x87 `q`/`x` kernels never fuse;
+//!   * floats of at most `fuse_mul_add_bits` bits may fuse, by default the
+//!     widest the target fuses in hardware (`fusedMulAddBits`); the per-core
+//!     kernel objects set it from their core's flags, since their CPU
+//!     features can include FMA only so an assembler accepts a hand-written
+//!     microkernel while the flags leave contraction off;
+//!   * the BLAS fuses only with an instruction (`fuseFor`), so `@mulAdd` never
+//!     degrades into a libm `fma()` call, and never past `f64`: the
+//!     reference's x87 `q`/`x` kernels never fuse;
 //!   * on MIPS before release 6 only `madd.fmt` can fuse, which Loongson 3A's
 //!     cores do (`fused_madd`); their objects say so, and take it as inline
 //!     asm, where `@mulAdd` would be a libm `fma` call.
@@ -25,7 +27,7 @@
 //! the running sum from the left, and a product kept in its own statement, or
 //! converted (`float` to `double`) before the add, stays rounded.
 //!
-//! `rsimd.mulAdd` delegates here.
+//! `rsimd.mulAdd` delegates to `mulAdd`, which follows the setting alone.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -33,79 +35,92 @@ const root = @import("root");
 const types = @import("types.zig");
 const util = @import("util.zig");
 
-/// Whether floats are computed in hardware: Zig builds a soft-float ABI
-/// (`eabi`, `gnueabi`, ...) all in software, where `@mulAdd` is compiler-rt's
-/// `fma`, several soft operations, and a C compiler's `-msoft-float` has no
-/// fused instruction to contract to.
-const hard_float = sysinfo.target.abi.float() == .hard;
-
-/// Whether the target has a hardware fused multiply-add.
-pub const hardware = hard_float and switch (sysinfo.target.cpu.arch) {
-    // x86 FMA3 is an optional extension, not baseline; must check.
-    .x86_64, .x86 => std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .fma),
-    // AArch64 scalar and NEON FMA is mandatory since ARMv8-A.
-    .aarch64, .aarch64_be => true,
-    // 32-bit ARM FMA needs VFPv4 or later, not guaranteed on the ARMv7 baseline.
-    .arm, .armeb, .thumb, .thumbeb => std.Target.arm.featureSetHasAny(sysinfo.target.cpu.features, .{
-        .vfp4, .vfp4d16, .vfp4d16sp, .vfp4sp,
-    }),
-    // The base PowerPC FPU has had fmadd/fmsub since POWER1.
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
-    // FMA is part of the RISC-V F/D extensions themselves.
-    .riscv32, .riscv32be, .riscv64, .riscv64be => std.Target.riscv.featureSetHasAny(sysinfo.target.cpu.features, .{
-        .f, .d,
-    }),
-    // LoongArch has fmadd.s/fmadd.d in the base F/D ISA.
-    .loongarch32, .loongarch64 => std.Target.loongarch.featureSetHasAny(sysinfo.target.cpu.features, .{ .f, .d }),
-    // z/Architecture has the BFP multiply-and-add (MAEBR/MADBR) in its base.
-    .s390x => true,
-    // Before release 6, MADD.fmt rounds the product; R6 adds the fused
-    // MADDF.fmt. Loongson 3A's fused MADD.fmt is the objects' (`fused_madd`).
-    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHasAny(sysinfo.target.cpu.features, .{
-        .mips32r6, .mips64r6,
-    }),
-    // No scalar fused multiply-add: on SPARC gcc's needs -mfmaf, which
-    // OpenBLAS never passes (LLVM emits `fmaddd` only with `ua2007`), and WebAssembly's only exists as
-    // `relaxed_simd` vector madd (see `vector_madd`).
-    else => false,
+/// A root's `std_float_options` type, re-exported as `zigcfg.FloatOptions`:
+/// `std.Options.Float` where std has it (this project's fork), else a copy
+/// std ignores and rstd reads. Here, not in `zigcfg`, so the per-core
+/// objects, whose module is this directory, can name it.
+pub const FloatOptions = if (has_float_options) std.Options.Float else struct {
+    /// Multiply-adds that may fuse do in floats of at most this many bits: 0
+    /// never fuses, 128 always does.
+    fuse_mul_add_bits: u16 = defaultFuseMulAddBits(),
 };
 
-/// Whether a vector multiply-add (`v_muladd_*` of `intrin.h`, MSA `fmadd`)
-/// fuses on this target: where scalar fusion does, for MIPS with MSA (whose
-/// `fmadd` is fused whatever the scalar ISA), and for WebAssembly with
-/// `relaxed_simd` (`wasm_f32x4_relaxed_madd`; the spec lets an engine fuse or
-/// not, taken here as fused, as on engines with hardware FMA).
-pub const vector_madd = hardware or (hard_float and switch (sysinfo.target.cpu.arch) {
-    .mips, .mipsel, .mips64, .mips64el => std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa),
-    .wasm32, .wasm64 => std.Target.wasm.featureSetHas(sysinfo.target.cpu.features, .relaxed_simd),
-    else => false,
-});
+/// Whether the compiler reads `std_float_options` itself, for `@Matrix`.
+pub const has_float_options = @hasDecl(std.Options, "Float");
 
-/// The build's policy: the root's `blas_fuse_fma` if it declares one.
-pub const fuse: bool = if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else hardware;
+/// The build's float options, the root's or the defaults.
+pub const float_options: FloatOptions = if (has_float_options)
+    std.float_options
+else if (@hasDecl(root, "std_float_options")) root.std_float_options else .{};
 
-/// The same for vector multiply-adds; a root's `blas_fuse_fma_vector` wins,
-/// then its `blas_fuse_fma`.
-pub const fuse_vector: bool = if (@hasDecl(root, "blas_fuse_fma_vector"))
-    root.blas_fuse_fma_vector
-else if (@hasDecl(root, "blas_fuse_fma")) root.blas_fuse_fma else vector_madd;
+const fuse_bits = float_options.fuse_mul_add_bits;
+const hardware_bits = fusedMulAddBits(&sysinfo.target);
+
+/// The widest float, in bits, `target` has a fused multiply-add instruction
+/// for; 0 for none, or a soft-float ABI. Copied from the fork's
+/// `std.Target.fusedMulAddBits` (zig-build/zig-src lib/std/Target.zig,
+/// b5896d765b) for stock Zig's `zigcfg.FloatOptions`; re-derive it from there
+/// rather than hand-edit.
+pub fn fusedMulAddBits(target: *const std.Target) u16 {
+    if (target.abi.float() == .soft) return 0;
+    const cpu = target.cpu;
+    return switch (cpu.arch) {
+        .x86, .x86_64 => if (cpu.has(.x86, .fma)) 64 else 0,
+        .aarch64, .aarch64_be => 64,
+        .arm, .armeb, .thumb, .thumbeb => if (cpu.hasAny(.arm, &.{ .vfp4, .vfp4d16 }))
+            64
+        else if (cpu.hasAny(.arm, &.{ .vfp4sp, .vfp4d16sp })) 32 else 0,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 64,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => if (cpu.has(.riscv, .d))
+            64
+        else if (cpu.has(.riscv, .f)) 32 else 0,
+        .loongarch32, .loongarch64 => if (cpu.has(.loongarch, .d))
+            64
+        else if (cpu.has(.loongarch, .f)) 32 else 0,
+        .s390x => 64,
+        // before release 6, `madd.fmt` rounds the product
+        .mips, .mipsel, .mips64, .mips64el => if (cpu.hasAny(.mips, &.{ .mips32r6, .mips64r6 })) 64 else 0,
+        else => 0,
+    };
+}
+
+/// The fork's default `fuse_mul_add_bits`, for stock Zig's
+/// `zigcfg.FloatOptions`: none where LLVM doesn't compile `@mulAdd` right.
+pub fn defaultFuseMulAddBits() u16 {
+    if (!compiles and sysinfo.zig_backend == .stage2_llvm) return 0;
+    return fusedMulAddBits(&sysinfo.target);
+}
+
+/// Whether the build fuses at all, for kernels taking one flag for every
+/// type; `madd` narrows it per type.
+pub const fuse = fuse_bits > 0;
 
 /// Whether `madd.fmt` rounds once, as on Loongson's GS464 and GS464E (their
 /// manuals; gcc's `ISA_HAS_FUSED_MADD4`): MIPS before release 6, where the
 /// root's `blas_fused_madd` says so. Only the `loongson3r3` and `loongson3r4`
 /// objects' does (`cpu/_corespec.zig`). LLVM also picks `madd.fmt` for a
 /// plain `a*b + c` there, which then fuses too; QEMU rounds it (issues.md).
-pub const fused_madd = sysinfo.target.cpu.arch.isMips() and !hardware and
+pub const fused_madd = sysinfo.target.cpu.arch.isMips() and hardware_bits == 0 and
     @hasDecl(root, "blas_fused_madd") and root.blas_fused_madd;
 
-/// Whether `T`, a float or a vector of them, can fuse at all: not past
-/// `f64`, and only where `compiles` or `fused_madd`.
+/// Whether `T`, a float or a vector of them, has a fused instruction: up to
+/// the hardware's width where `compiles`, or `fused_madd`; never past `f64`.
 pub fn fusible(comptime T: type) bool {
-    const E = switch (@typeInfo(T)) {
+    const E = Elem(T);
+    return !types.isExtended(E) and
+        ((@typeInfo(E).float.bits <= hardware_bits and compiles) or fused_madd);
+}
+
+fn Elem(comptime T: type) type {
+    return switch (@typeInfo(T)) {
         .vector => |v| v.child,
         else => T,
     };
-    return !types.isExtended(E) and (compiles or fused_madd);
+}
+
+/// Whether the setting lets multiply-adds in `T` fuse.
+fn allowed(comptime T: type) bool {
+    return @typeInfo(Elem(T)).float.bits <= fuse_bits;
 }
 
 /// Whether LLVM compiles `@mulAdd` right: not with MSA, where a vector `fma`,
@@ -113,22 +128,23 @@ pub fn fusible(comptime T: type) bool {
 /// addend as a multiplicand (issues.md).
 pub const compiles = !(sysinfo.target.cpu.arch.isMips() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa));
 
-/// `fuse` for multiply-adds in `T`.
+/// Whether the BLAS fuses multiply-adds in `T`: the setting allows it and an
+/// instruction does it.
 pub fn fuseFor(comptime T: type) bool {
-    return fuse and fusible(T);
+    return allowed(T) and fusible(T);
 }
 
-/// `a*b + c`, fused if `fused`; kept out of AltiVec's flushing lanes
-/// (`util.scalar`). For kernels that pick their own fusing (`fuse`,
-/// `fuse_vector`).
+/// `a*b + c`, fused if `fused` and `fuseFor`; kept out of AltiVec's flushing
+/// lanes (`util.scalar`). For kernels that pick their own fusing (`fuse`).
 pub inline fn madd(comptime fused: bool, comptime T: type, a: T, b: T, c: T) T {
-    return util.scalar(T, if (fused and fusible(T)) fusedMadd(T, a, b, c) else if (fused and compiles) @mulAdd(T, a, b, c) else a * b + c);
+    return util.scalar(T, if (comptime fused and fuseFor(T)) fusedMadd(T, a, b, c) else a * b + c);
 }
 
-/// `a*b + c`, fused when `fuseFor` says so (`@mulAdd` is strictly
-/// single-rounded, so it must not be used on targets without an FMA unit).
+/// `a*b + c` by the setting alone, as the fork's `@Matrix` products: fused
+/// in floats it allows, in software past the hardware's width.
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    return if (comptime fuseFor(T)) fusedMadd(T, a, b, c) else a * b + c;
+    if (comptime fuseFor(T)) return fusedMadd(T, a, b, c);
+    return if (comptime allowed(T) and compiles) @mulAdd(T, a, b, c) else a * b + c;
 }
 
 /// `a*b + c` rounded once, for a `fusible` `T`: `@mulAdd`, or with
@@ -174,10 +190,17 @@ test "mulAdd agrees with a*b+c on exact values" {
     try std.testing.expectEqual(@as(f32, 14.0), mulAdd(f32, 2.0, 3.0, 8.0));
 }
 
+test "fusedMulAddBits matches the fork's" {
+    if (@hasDecl(std.Target, "fusedMulAddBits")) {
+        try std.testing.expectEqual(sysinfo.target.fusedMulAddBits(), fusedMulAddBits(&sysinfo.target));
+        try std.testing.expectEqual((std.Options.Float{}).fuse_mul_add_bits, defaultFuseMulAddBits());
+    } else return error.SkipZigTest;
+}
+
 test "extended floats never fuse" {
     inline for (.{ f80, f128, @Vector(2, f80) }) |T| try std.testing.expect(!fuseFor(T));
     // by width, not identity: a 64-bit `c_longdouble` of its own fuses as f64 does
-    try std.testing.expectEqual(fuse and compiles and @typeInfo(c_longdouble).float.bits <= 64, fuseFor(c_longdouble));
+    try std.testing.expectEqual(fuseFor(f64) and @typeInfo(c_longdouble).float.bits <= 64, fuseFor(c_longdouble));
     // (1 + 2^-63)(1 - 2^-63) - 1 is -2^-126 fused, 0 rounded first
     const e: f80 = std.math.ldexp(@as(f80, 1), -63);
     try std.testing.expectEqual(@as(f80, 0), mulAdd(f80, 1 + e, 1 - e, -1));

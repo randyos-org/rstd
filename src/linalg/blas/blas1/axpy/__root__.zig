@@ -44,7 +44,7 @@ fn SimdBlock(comptime T: type) type {
             while (i < end) : (i += lanes) {
                 const vx: V = x[i..][0..lanes].*;
                 const vy: V = y[i..][0..lanes].*;
-                y[i..][0..lanes].* = rsimd.mulAdd(V, valpha, vx, vy);
+                y[i..][0..lanes].* = fma.madd(fma.fuse, V, valpha, vx, vy);
             }
         }
     };

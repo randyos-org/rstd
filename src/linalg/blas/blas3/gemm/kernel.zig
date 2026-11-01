@@ -201,7 +201,7 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
 /// each step is rounded to `T`: a full tile's sums stay in registers, wider
 /// than a partial tile's in memory, and threads move columns between them.
 pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
-    const fused = comptime (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
+    const fused = comptime fma.fuseFor(T);
     if (comptime n == 1 and !fused and util.onX87(T)) return util.rounded(T, util.rounded(T, a * b) + c);
     return fma.madd(fused, Lanes(T, n), a, b, c);
 }

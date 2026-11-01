@@ -795,7 +795,7 @@ fn checkHalfBitsOf(comptime E: type, comptime Y: type, comptime trans: bool, com
 test "half-precision gemv: the kernels are the model, bit for bit, fused or not" {
     inline for (bf16_kernel.families) |f| inline for (.{ false, true }) |trans| {
         try checkHalfBits(f[1], f[2], trans, false);
-        if (comptime fma.hardware) try checkHalfBits(f[1], f[2], trans, true);
+        if (comptime fma.fuseFor(f32)) try checkHalfBits(f[1], f[2], trans, true);
     };
 }
 
