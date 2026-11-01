@@ -377,6 +377,7 @@ const testing = std.testing;
 const check = @import("../blas/_test/blas1/check.zig");
 const types = @import("../blas/types.zig");
 const blas = @import("../blas/__root__.zig");
+const apple_accel = @import("../blas/apple_accel.zig");
 const threading = @import("../blas/threading.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
@@ -717,6 +718,11 @@ test "faer svd: 1 x 1 and a known 2 x 2, exact where the reference is" {
 test "faer svd: gesdd gives one worker's bits at any worker count" {
     if (comptime !threading.hosted) return error.SkipZigTest;
     _ = blas.coreName();
+    // rstd's kernels: one worker's run is one chunk and the others many, and
+    // Accelerate's bits follow a part's shape (its own split keeps the chunks)
+    const was = apple_accel.routing();
+    _ = apple_accel.route(false);
+    defer _ = apple_accel.route(was);
     const al = testing.allocator;
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;

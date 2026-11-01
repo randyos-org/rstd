@@ -151,6 +151,18 @@ of it): 3 GB (943c7810), rerunning. That test writes into the working directory,
 because `accel.route(false)` came before the BLAS's init, which routes again, when the filter
 made it the first BLAS call; it and `threaded.zig`'s `rstdOnly` now init first (unstaged).
 
+The two Mac suites, compiled here with the experimental Zig 0.18.0-dev.858 (earlier runs were
+compiled on the Mac's dev.751-era Zig), fail tests no rstd change touched: `gemm.kernel`'s
+"geometry: the most accumulators the registers hold" (expected 1, found 4) and `_corespec`'s "no
+kernel object needs a feature" (mips64 `i6400`, `i6500` objects now need `fpu_d fpu_s`), both on
+x86_64 and arm64, and on arm64 `faer evd: geev` and `faer svd: gesdd` "one worker's bits at any
+worker count". Built by the Mac's Zig the first two pass (x86_64 and arm64) and fail natively
+with dev.858: the toolchain's MIPS feature data (`kernel.zig:1020` compares mips r6 with `p5600`;
+`_corespec.zig:687`), reported to the user, rstd unchanged. `geev` and `gesdd` failed with the
+Mac's Zig too: their tests run one worker unchunked and the others in many chunks, and
+Accelerate's bits follow a part's shape, so they now run on rstd's kernels (the real contract,
+the same chunks at any worker count, `apple_accel`'s split test covers with routing on).
+
 #### Build slots
 
 Compiling, one row per slot; a native test compiled on the Mac and run here shows in both tables.
