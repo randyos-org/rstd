@@ -272,6 +272,7 @@ covfix
 cpht
 cpio
 Cplx
+cpotrf
 cpucfg
 CPUPERF
 cqty
@@ -1602,6 +1603,7 @@ PREFETCHD
 prefetcht
 prefetchw
 PRFM
+Princen
 prlimit64
 process_madvise
 process_mrelease
@@ -2133,6 +2135,7 @@ TBMV
 tbsv
 tcopy
 tcpkeepalive
+TDAC
 tee
 Teranishi
 termio
@@ -2618,6 +2621,7 @@ zparts
 zpbtrf
 ZPOFA
 zpotf
+zpotrf
 zpotri
 ZQRDC
 ZQRSL

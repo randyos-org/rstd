@@ -96,6 +96,9 @@ fn addGroupRepro(b: *Build, optimize: Optimize, mac: []const u8, tool: *rstdbuil
         prev = &run.step;
     }
     step.dependOn(prev.?);
+    const check = b.step("ssh-repro-group-aarch64-macos-build", "Build what ssh-repro-group-aarch64-macos runs, without running it");
+    check.dependOn(&exe.step);
+    check.dependOn(&tool.step);
 }
 
 /// The libraries the bench's `lib*` and `lapack` sections race, by their
@@ -189,6 +192,9 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
     const step = b.step("ssh-bench-aarch64-macos", b.fmt("Race rstd's BLAS against the libraries on the Mac at SSH alias {s}, and its kernels with -Dopenblas", .{mac}));
     const openblas = b.option([]const u8, "openblas", "OpenBLAS checkout whose vortex gemm assembly ssh-bench-aarch64-macos races");
     const exe = try benchExe(b, target, openblas);
+    const check = b.step("ssh-bench-aarch64-macos-build", "Build what ssh-bench-aarch64-macos runs, without running it");
+    check.dependOn(&exe.step);
+    check.dependOn(&tool.step);
 
     const run = qemutest.watchCommand(b);
     run.addArg("--");
@@ -218,11 +224,13 @@ fn addSshBench(b: *Build, mac: []const u8, target: rstdbuild.ResolvedTarget, too
 /// go to the bench.
 fn addNativeBench(b: *Build, libs: BenchLibs) !void {
     const step = b.step("bench-native", "Race rstd's BLAS against -Dopenblas-lib and -Dblis-lib on this machine");
+    const exe = try benchExe(b, b.graph.host, null);
+    b.step("bench-native-build", "Build what bench-native runs, without running it").dependOn(&exe.step);
     const openblas = libs.openblas orelse {
         step.dependOn(&b.addFail("bench-native needs -Dopenblas-lib=<OpenBLAS library>").step);
         return;
     };
-    const run = b.addRunArtifact(try benchExe(b, b.graph.host, null));
+    const run = b.addRunArtifact(exe);
     run.addArg(b.fmt("--openblas={s}", .{openblas}));
     libs.addArgs(b, run);
     run.addPassthruArgs();

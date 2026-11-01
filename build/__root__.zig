@@ -153,12 +153,15 @@ pub fn build(b: *Build) !void {
     // as 32-bit x87 code, in Debug and ReleaseSafe: Debug's stores hide x87
     // width bugs (T87); Windows and Linux on x86 hosts
     const x87_step = b.step("rstd-test-x87", "Run rstd's unit tests as pentium3 code on this x86 host, in Debug and ReleaseSafe");
+    const x87_build = b.step("rstd-test-x87-build", "Build what rstd-test-x87 runs, without running it");
     const host = b.graph.host.result;
     if (host.cpu.arch.isX86() and (host.os.tag == .windows or host.os.tag == .linux)) {
         const x87 = b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = host.os.tag, .abi = if (host.os.tag == .windows) .gnu else .musl, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } });
         for ([_]Optimize{ .debug, .safe }) |mode| {
             const x87_mod = try addRstdModule(b, null, x87, mode, blas_cores, false, false);
-            x87_step.dependOn(&b.addRunArtifact(try addRstdTest(b, x87_mod, x87, mode, test_filter)).step);
+            const x87_exe = try addRstdTest(b, x87_mod, x87, mode, test_filter);
+            x87_step.dependOn(&b.addRunArtifact(x87_exe).step);
+            x87_build.dependOn(&x87_exe.step);
         }
     } else x87_step.dependOn(&b.addFail("rstd-test-x87 runs on x86 Windows and Linux hosts").step);
     // the same tests on real machines over SSH, for targets no emulator covers

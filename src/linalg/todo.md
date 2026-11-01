@@ -241,7 +241,7 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   2026-10-31 (T62, `t2e`) the VM came up after 527 s and the first `scp` got "Connection reset by
   peer", so the step ran no test and stopped its sweep; the second try failed alike. `patient`
   retries only ssh's exit 255, `scp` exits 1; the copy now retries on any failure (unstaged,
-  checking). Then (2026-11-01) the copy worked but the run got "permission denied": Windows'
+  checking). Then (2026-11-01) the copy worked, but the run got "permission denied": Windows'
   `scp` gives the copy no execute bit; `chmod +x` before running it (unstaged, checking).
 - [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
   `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,

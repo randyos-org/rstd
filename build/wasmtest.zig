@@ -25,9 +25,11 @@ const variants = [_]Variant{
 
 pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
     const step = b.step("wasm-test", "Run rstd's OS-free tests as WASI modules under Node, with and without SIMD128");
+    const check = b.step("wasm-check", "Build wasm-test's modules without running them");
     const filters = b.option([]const []const u8, "wasm-test-filter", "Only run wasm tests whose name contains this (repeatable)") orelse default_filters;
     for (variants) |v| {
         const one = b.step(b.fmt("wasm-test-{s}", .{v.name}), b.fmt("Run wasm-test's {s} module only", .{v.name}));
+        const one_check = b.step(b.fmt("wasm-check-{s}", .{v.name}), b.fmt("Build wasm-test's {s} module without running it", .{v.name}));
         const target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .os_tag = .wasi,
@@ -52,5 +54,7 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
         run.has_side_effects = true;
         one.dependOn(&run.step);
         step.dependOn(&run.step);
+        one_check.dependOn(&test_exe.step);
+        check.dependOn(&test_exe.step);
     }
 }

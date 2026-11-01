@@ -1506,8 +1506,13 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
     run.disable_zig_progress = true;
     run.has_side_effects = true;
     run.addArgs(&.{ "test", vm, b.fmt("{d}", .{mac.port}), b.fmt("{s}@localhost", .{mac.user}), if (mac.keep) "true" else "false" });
-    run.addArtifactArg2(try buildroot.addRstdTest(b, mod, target, optimize, &.{}), .{});
+    const exe = try buildroot.addRstdTest(b, mod, target, optimize, &.{});
+    run.addArtifactArg2(exe, .{});
     run.addArg(m.qemu);
+    // what that runs, built alone, so a build queue frees its slot before the VM boots
+    const check = b.step(b.fmt("qemu-check-{s}", .{m.name}), b.fmt("Build what qemu-test-{s} runs, without starting the VM", .{m.name}));
+    check.dependOn(&exe.step);
+    check.dependOn(&tool.step);
     try qemuArgs(b, run, m, kvm, paths, mac, .{ .headless = true, .monitor = .socket });
     if (mac.user.len == 0) run.step.dependOn(&b.addFail("the macOS VM test needs -Dmac-user=<account>").step);
     if (not_ready) |s| run.step.dependOn(s);
