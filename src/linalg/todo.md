@@ -140,7 +140,13 @@ MB heap in gemm3m's per-core test at `sandybridge` (41.9 MB wanted, 48.2 MB in u
 x86_64 `cpotrf_` and `zpotrf_` under Rosetta call a well-conditioned `L Lᴴ` not positive
 definite from order 2 (real and arm64 right); complex `potrf` on x86_64 now stays on rstd
 (46 of 47, 1 skipped, under Rosetta and on arm64). The native runner's `FAIL (...)` line does not end an SSH step under
-`-Dfail-fast` (it ran on to the end).
+`-Dfail-fast` (it ran on to the end). `linux-aarch64` passed (965, 45 skipped), `T08-aarch64` passed (149, 11
+skipped). `linux-x86_64` could not unpack its initramfs in 1 GB ("write error", the test killed
+by SIGBUS): its test is 711 MB (every x86_64 core's kernels with debug info; 146 MB for an arm
+one), so the rig has 2 GB (8ab4a028). Then it booted, but `rgl.image`'s `writeRawFile` test got
+NoSpaceLeft writing into `/` (the unpacked initramfs, a tmpfs of half the memory, the test 724 MB
+of it): 3 GB (943c7810), rerunning. That test writes into the working directory, not
+`TMPDIR` (`/tmp` on the rigs); rgl's to change.
 `T114-aarch64-macos`: "potrf: a failed pivot is stored" kept the complex pivot's imaginary part,
 because `accel.route(false)` came before the BLAS's init, which routes again, when the filter
 made it the first BLAS call; it and `threaded.zig`'s `rstdOnly` now init first (unstaged).
@@ -152,22 +158,24 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
 | Local 1 | T62 | `t2e`: `x86_64-macos`, `check-macho`, `check-uefi`, `check-zig017` (74305c34; Zig 0.18.0-dev.858) | 20:40 |
-| Local 2 | free | | |
+| Local 2 | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos`, `T114-x86_64-macos` (23f164c4) | 20:54 |
 | Mac 0.18 | T62 | shared by the sweeps' compiles | 19:05 |
 | Mac 0.17 | free | | |
 
 #### Running tests
 
-Test executables and QEMU rigs, outside the slots.
+Test executables and QEMU rigs, outside the slots. From 21:10 each queued step has a sweep of
+its own (`--tree t2g` to `t2n`, at 23f164c4); `t2b`, `t2d` and `t2f` end after their current step.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | T62 | `t2a`: `x86_64` (b165b084) | 17:22 |
-| Mac | T62 | `t2b`: `x86_64-uefi`, `-smp`, `linux-x86_64`, `T08-x86_64` (b165b084) | 17:22 |
-| Mac | T62 | `t2d`: `arm-softfp` on (`arm` passed), `linux-arm`, `powerpc-750`, `-hf`, T08s (b165b084) | 17:22 |
-| Mac | T62 | `t2c`: `aarch64-smp`, `-uefi`, `linux-aarch64`, `T08-aarch64` (74305c34; `aarch64`, `-sve` passed) | 19:05 |
-| Mac | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos` (74305c34, `ZB_WHERE=mac`) | 19:05 |
-| Mac | T62 | `t2e`: T114 both (74305c34, `ZB_WHERE=mac`); left: `x86_64-macos`, the three compile checks (local) | 19:05 |
+| Mac | T62 | `t2a`: `x86_64-uefi` (23f164c4) | 20:54 |
+| Mac | T62 | `t2b`: `x86_64-smp` (74305c34) | 19:05 |
+| Mac | T62 | `t2c`: `linux-aarch64` (74305c34; its sweep died on TERM, the step runs on) | 21:02 |
+| Mac | T62 | `t2d`: `linux-arm` (b165b084; `arm`, `arm-softfp` passed) | 20:00 |
+| Mac | T62 | `t2f`: `ssh-x86_64-macos` (23f164c4) | 20:54 |
+| Mac | T62 | `t2g` `linux-x86_64`, `t2h` `T08-x86_64`, `t2i` `T08-aarch64`, `t2j` `powerpc-750`, `t2k` `powerpc-750-hf`, `t2l` `T08-arm-softfp` and `T08-powerpc-750`, `t2m` `ssh-aarch64-macos`, `t2n` `T114-x86_64-macos` | 21:10 |
+| Local | T62 | `t2e`: the macOS VM, then the three compile checks (74305c34) | 20:40 |
 
 ## Queue
 
@@ -233,7 +241,8 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   2026-10-31 (T62, `t2e`) the VM came up after 527 s and the first `scp` got "Connection reset by
   peer", so the step ran no test and stopped its sweep; the second try failed alike. `patient`
   retries only ssh's exit 255, `scp` exits 1; the copy now retries on any failure (unstaged,
-  checking).
+  checking). Then (2026-11-01) the copy worked but the run got "permission denied": Windows'
+  `scp` gives the copy no execute bit; `chmod +x` before running it (unstaged, checking).
 - [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
   `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,
   `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S`, `dgemv_n*.S`) rstd skips for

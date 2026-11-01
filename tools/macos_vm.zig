@@ -289,7 +289,8 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
         std.debug.print("macOS VM: copying the tests in failed; trying again in {d} s\n", .{patient_pause_s});
         try vm.io.sleep(.fromSeconds(patient_pause_s), .awake);
     }
-    return try sshPatient(vm, &.{"/tmp/rstd-test"}, .inherit) == 0;
+    // Windows' scp gives the copy no execute bit
+    return try sshPatient(vm, &.{ "chmod", "+x", "/tmp/rstd-test", "&&", "/tmp/rstd-test" }, .inherit) == 0;
 }
 
 /// Shuts the VM down from inside, which needs passwordless `sudo shutdown`
