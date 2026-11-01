@@ -864,6 +864,17 @@ When an issue is fixed upstream, drop the workaround and its entry.
 
 ## Zig standard library
 
+### MIPS: the named cores' models no longer list an FPU or MSA
+
+- **Seen:** T62 (2026-11-01), with Zig master past `2c5f1044fc` ("update_cpu_features: flesh out
+  mips features/models", 2026-10-28). Not a bug: a core model now lists only what every
+  configuration of the core has. `i6400`, `i6500`, `p5600` and `p6600` list neither `msa` nor the
+  new `fpu_d`; the generic `mips32r6` and `mips64r6` list `fpu_d`. A `p5600` kernel object built
+  from the model alone was soft-float, and `i6400` had no vector registers.
+- **Workaround:** none needed; rstd adapted. `cpu/_corespec.zig` asks for `msa` and, where it
+  exists, `fpu_d` itself (`mips_simd`), and the gemm geometry test adds MSA to its `i6400`. Drop the
+  `@hasField` guard once no supported Zig lacks `fpu_d` (Zig 0.17.0, zfls, still does).
+
 ### `std.math.complex.sqrt` has only `f32` and `f64`
 
 - **Seen:** T124 (2026-10-30). `lapack.geev` on `Complex(f128)` (and on
