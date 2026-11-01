@@ -1236,11 +1236,13 @@ lyap
 Lzaxpy
 lzma
 machineinstrs
+MADBR
 madd
 maddf
 madt
 MADV
 madvise
+MAEBR
 malloc
 map_shadow_stack
 markdownlint
@@ -2208,6 +2210,7 @@ trtrs
 TrueType
 TrueType-style
 truncate
+tsan
 tsign
 tsml
 tstdc

@@ -1014,7 +1014,7 @@ allows.
   `gelsy` (`lsq.zig`: `xLAIC1`, and `xTZRZF`, `xORMRZ` by their unblocked `xLATRZ`, `xORMR3`) over
   faer's pivoted QR (`qr_pivot.zig`, `geqp3`, which recomputes every norm where the
   reference's `xLAQPS` downdates them). Real and complex share one loop where the `d` and `z`
-  sources differ only in a few steps, which the code marks. faer's `schur_swap` and `schur_move`
+  sources differ only in a few steps, which the code marks. Faer's `schur_swap` and `schur_move`
   are crate-internal translations of `dlaexc.f` and `dtrexc.f`, so `trexc` is the reference
   either way.
 - **The matlab port's routines** (T123): `getri` from faer's LU inverse (`lu.zig`: `trtri` on
@@ -2255,13 +2255,14 @@ here can.
 
 | Rig | How | Covers |
 | --- | --- | --- |
-| `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded` but on the `-smp` machines, a 32 MiB heap (ours, `test/qemu/heap.zig:14`), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
+| `qemu-test-<machine>` (freestanding) | a test kernel per architecture under `qemu-system-*`: boot code and runner in `test/qemu/`, `single_threaded` but on the `-smp` machines, a 32 MiB heap, 64 MiB on x86_64 and aarch64 for the gemm packing buffer (ours, `test/qemu/heap.zig`, T132), every core the target CPU runs linked, LLD for the linker script | every BLAS and LAPACK test but `abi.zig`'s and `apple_accel.zig`'s, which need an OS (`default_filters`) |
 | `qemu-test-<arch>-uefi` | the freestanding rigs' tests and runner as a UEFI application (`test/qemu/uefi.zig`) under QEMU's OVMF and AAVMF, on rstd's UEFI `std.Io`; x86_64 and aarch64 | RandyOS's loader's platforms: PE/COFF, the Microsoft ABI on x86_64, UEFI's CPU state |
 | `qemu-test-x86_64-whpx` | the x86_64 kernel on the host CPU under WHPX, `SapphireRapids,+fma4,+xop`; x86_64 Windows hosts only | the AVX-512 cores and the Bulldozer family, which TCG cannot run |
 | `qemu-test-linux-<machine>` | a Debian netboot kernel with the hosted test executable as PID 1 (`test/linux/init.zig`), `-smp 4` | auxiliary-vector detection, threads, files; the machines below |
-| `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH | Mach-O at run time on an x86 CPU model |
+| `qemu-test-x86_64-macos` | an installed x86_64 macOS VM under TCG, tests over SSH; not run until an Intel Mac replaces it (T141) | Mach-O at run time on an x86 CPU model |
 | `ssh-test-aarch64-macos` | the full suite on an Apple Silicon Mac over SSH (`-Dssh-mac`, default `macmini-m6`) | `vortex`, `vortexm4`, SME without SVE, which QEMU's `-cpu max` cannot show; Accelerate |
-| `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM |
+| `ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac under Rosetta 2 | Mach-O x86_64, faster than the VM; the SSE cores only, since Rosetta hides AVX |
+| `ssh-test-x86_64-macos-avx2` | as above, with `ROSETTA_ADVERTISE_AVX=1` | rstd's `sandybridge`, `haswell` and `zen` cores too; not Accelerate's AVX2 path (SSH Mac below) |
 | `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |
@@ -2309,7 +2310,7 @@ The Linux machines (`build/qemutest.zig`; `qemu-check-<machine>` builds one's in
 | --- | --- | --- |
 | `linux-aarch64` | `max` under TCG, the host's under HVF | baseline build: no SVE cores; `vortexm4` under HVF. Debian 14's kernel (7.0): 13's 6.12 is built without SME, which Linux allows from 6.16 |
 | `linux-aarch64-sve` | `max` under TCG, also on a Mac | built for `neoverse_v1`: the SVE cores and `armv9sme`. No fiber `Io` tests: std's switch does not build for SVE ([`issues.md`](issues.md)) |
-| `linux-x86_64` | `max` under TCG | |
+| `linux-x86_64` | `max` under TCG | 3 GB: the test is over 700 MB (every core's kernels with debug info), and `/`, the unpacked initramfs, gets half the memory |
 | `linux-arm` | `cortex-a15` | |
 | `linux-riscv64` | `rv64,v=true,vlen=512` | |
 | `linux-powerpc64le` | `power10` | baseline (pwr8) build in debug: up to power9's kernels; detection sees a POWER10 |
@@ -2326,7 +2327,7 @@ Rig mechanics:
 - **Results.** Where the machine has semihosting (aarch64, arm, riscv64, MIPS) the runner exits
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
-  at its first failing test.
+  at its first failing test (`tools/qemu_watch.zig`, the SSH steps too; not the macOS VM).
 - **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemutest.zig:333`; OpenBIOS's source not checked), so the sparc64 rigs split
   their tests into images by filter (`parts` in `build/qemutest.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
@@ -2363,7 +2364,9 @@ Rig mechanics:
 - **SSH Mac.** `build/sshtest.zig` cross-compiles and copies the tests to the SSH alias; the
   Mac's address and login stay in the SSH config. `ssh-bench-aarch64-macos
   -Dopenblas=<checkout>` races the kernels there (`tools/blasbench/`); the results are in
-  [`results-m6.md`](../../tools/blasbench/results-m6.md).
+  [`results-m6.md`](../../tools/blasbench/results-m6.md). Rosetta's cpuid shows AVX2 and FMA only
+  with `ROSETTA_ADVERTISE_AVX=1`; its commpage and `hw.optional.avx2_0` never do, and Accelerate's
+  results are bit-identical either way, so Accelerate's AVX2 path needs Intel hardware.
 
 ### What runs where
 
@@ -2376,7 +2379,7 @@ Rig mechanics:
 | `abi.zig` | yes | no | yes | yes | yes |
 | `apple_accel.zig` | yes | no | yes | yes | no |
 | Level 3 | yes | yes | yes | yes | yes |
-| LAPACK | yes | no | yes | yes | yes |
+| LAPACK | yes | yes | yes | yes | yes |
 
 ## Implementation plan
 
