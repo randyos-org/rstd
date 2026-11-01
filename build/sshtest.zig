@@ -65,6 +65,11 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
     run.has_side_effects = true;
     const name = b.fmt("ssh-test-{t}-macos", .{target.result.cpu.arch});
     b.step(name, b.fmt("Run rstd's {t} tests {s} at SSH alias {s} (-Dssh-mac)", .{ target.result.cpu.arch, where, mac })).dependOn(&run.step);
+    // what that runs, built alone, so a build queue frees its slot before the
+    // Mac runs the tests
+    const check = b.step(b.fmt("ssh-check-{t}-macos", .{target.result.cpu.arch}), b.fmt("Build what ssh-test-{t}-macos runs, without running it", .{target.result.cpu.arch}));
+    check.dependOn(&test_exe.step);
+    check.dependOn(&tool.step);
 }
 
 /// `ssh-repro-group-aarch64-macos`: `tools/evented_group_repro.zig` on the
