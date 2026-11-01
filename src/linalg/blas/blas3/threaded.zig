@@ -784,6 +784,8 @@ test "threaded gemm matches the serial driver on the selected core's own blockin
 /// Takes the public routines off Accelerate (macOS), so they run rstd's
 /// threading; returns whether it was routing, for `apple_accel.route`.
 fn rstdOnly() bool {
+    // after init, which turns routing on
+    _ = blas.vtable();
     const was = apple_accel.routing();
     _ = apple_accel.route(false);
     return was;

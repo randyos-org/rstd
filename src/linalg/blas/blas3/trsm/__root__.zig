@@ -5,6 +5,7 @@
 //! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
 
 const blas = @import("../../__root__.zig");
+const apple_accel = @import("../../apple_accel.zig");
 const types = @import("../../types.zig");
 
 const BlasLong = types.BlasLong;
@@ -651,6 +652,12 @@ fn sameUnit(comptime F: type) bool {
 }
 
 test "trsv and trsm give the same bits on the same one-column system" {
+    // rstd's own: Accelerate takes `trsv` here but not `trsm` (its tiny
+    // diagonal), and the two round otherwise; after init, which routes
+    _ = blas.vtable();
+    const was = apple_accel.routing();
+    _ = apple_accel.route(false);
+    defer _ = apple_accel.route(was);
     var skipped = false;
     inline for (precisions) |T| {
         if (sameUnit(types.Float(T))) try sameAsTrsv(T) else {

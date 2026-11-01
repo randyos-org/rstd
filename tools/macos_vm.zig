@@ -278,9 +278,16 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
     try argv.appendSlice(vm.arena, &.{ "scp", "-q", "-P", vm.port });
     try argv.appendSlice(vm.arena, patientOptions(vm));
     try argv.appendSlice(vm.arena, &.{ exe, dest });
-    if (try patient(vm, argv.items, .inherit) != 0) {
-        std.debug.print("macOS VM: copying the tests in failed\n", .{});
-        return false;
+    // `scp` exits 1, not 255, when the connection drops, which `patient`
+    // takes as final; the first copy after boot has been reset (T137)
+    for (0..patient_tries) |attempt| {
+        if (try patient(vm, argv.items, .inherit) == 0) break;
+        if (attempt + 1 == patient_tries) {
+            std.debug.print("macOS VM: copying the tests in failed\n", .{});
+            return false;
+        }
+        std.debug.print("macOS VM: copying the tests in failed; trying again in {d} s\n", .{patient_pause_s});
+        try vm.io.sleep(.fromSeconds(patient_pause_s), .awake);
     }
     return try sshPatient(vm, &.{"/tmp/rstd-test"}, .inherit) == 0;
 }

@@ -685,6 +685,9 @@ const col = Order.col_major;
 //   `cblas_dsdot` is off by `f32`'s epsilon, not `f64`'s.
 // - `gemm`: NaN or an infinity in `A`. At an edge of `m` it gives NaN where
 //   the reference's is infinite.
+// - `trsm`: a diagonal entry too small to invert (a subnormal; arm64
+//   untested). Accelerate multiplies by its reciprocal, which overflows, so
+//   every element comes out infinite or NaN; the reference divides.
 
 /// The level-1 routines `sends` covers; `dot` over `f32` is `sdot`.
 const L1 = enum { copy, swap, scal, dot, dotc, dsdot, nrm2, asum, rot, rotm, axpy, axpby };
@@ -784,6 +787,22 @@ fn isZero(comptime T: type, v: T) bool {
 }
 
 /// `nonFinite` of a `rows` by `cols` matrix at leading dimension `ld`.
+/// Whether an entry on the diagonal of the order `n` matrix at `a` is too
+/// small for its reciprocal: below the smallest normal (for complex, its
+/// square root, as `1 / d` divides by `|d|^2`).
+fn tinyDiagonal(comptime T: type, n: isize, a: [*]const T, lda: isize) bool {
+    const F = Float(T);
+    const lim = if (comptime isComplex(T)) @sqrt(std.math.floatMin(F)) else std.math.floatMin(F);
+    const un: usize = @intCast(n);
+    const ld: usize = @intCast(lda);
+    for (0..un) |i| {
+        const v = a[i * (ld + 1)];
+        const m = if (comptime isComplex(T)) @max(@abs(v.re), @abs(v.im)) else @abs(v);
+        if (m < lim) return true;
+    }
+    return false;
+}
+
 fn nonFiniteMat(comptime T: type, rows: isize, cols: isize, b: [*]const T, ld: isize) bool {
     for (0..@intCast(cols)) |j| {
         if (nonFinite(T, rows, b + j * @as(usize, @intCast(ld)), 1)) return true;
@@ -1363,6 +1382,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
         const t = transpose(T, transa) orelse return false;
         const ka = if (sd == .l) m else n;
         if (!solve and nonFiniteMat(T, m, n, b_, ldb)) return false;
+        if (solve and dg == .n and tinyDiagonal(T, ka, a, lda)) return false;
         const R = Trmm(T, solve);
         if (!fits(R.name, b, &.{ m, n, lda, ldb, mat(ka, ka, lda), mat(m, n, ldb) })) return false;
         const g: R = .{ .b = b, .sd = side(sd), .u = u, .t = t, .dg = diag(dg), .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .b_ = b_, .ldb = ldb };

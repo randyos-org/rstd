@@ -12,9 +12,13 @@ pub const page_size = 4096;
 const page = page_size;
 /// Page indices align as addresses do, up to this.
 pub const max_align = 1 << 16;
-/// The largest region, and what the runner asks for: on x86_64, room for an
-/// AVX core's gemm packing buffer (20 MB) beside a test's operands.
-pub const max_len = if (sysinfo.target.cpu.arch == .x86_64) 64 << 20 else 32 << 20;
+/// The largest region, and what the runner asks for: on x86_64 and aarch64,
+/// room for a core's whole gemm packing buffer (T132; 20 MB on AVX) beside a
+/// test's operands, threaded too.
+pub const max_len = switch (sysinfo.target.cpu.arch) {
+    .x86_64, .aarch64 => 64 << 20,
+    else => 32 << 20,
+};
 
 var region: []align(max_align) u8 = &.{};
 var used: std.bit_set.Static(max_len / page) = .empty;

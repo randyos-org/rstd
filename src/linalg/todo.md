@@ -122,6 +122,19 @@ around.
   on both (b18d7dae). The tier 2 sweep, pinned at da2ae06a, lacks these: its
   `ssh-*-macos` steps need `--only` reruns once they land.
 
+Tier 2 at b165b084 (2026-10-31 evening), so far: `arm` passed (643, 53 skipped). Failures:
+`ssh-x86_64-macos` (Rosetta, Accelerate) "trsv and trsm give the same bits": `trsm` gave NaN for
+every element but an infinity, on a diagonal system with subnormal entries and NaN in the unused
+triangle; then threaded level 2 went 60 minutes without output (the step counted as BROKEN).
+Accelerate's `trsm` multiplies by the diagonal's reciprocal, which overflows for a subnormal
+(the reference divides; the unused triangle and subnormals in `B` are fine): a diagonal entry too
+small to invert now stays on rstd, and the test runs both on rstd. Checked on the M6
+(`ZB_WHERE=mac`, new: builds and runs only there). `aarch64-smp` ran out of its 32 MB heap in
+threaded gemm (35 MB): aarch64's rig heap is 64 MB, as x86_64's.
+`T114-aarch64-macos`: "potrf: a failed pivot is stored" kept the complex pivot's imaginary part,
+because `accel.route(false)` came before the BLAS's init, which routes again, when the filter
+made it the first BLAS call; it and `threaded.zig`'s `rstdOnly` now init first (unstaged).
+
 #### Build slots
 
 Compiling, one row per slot; a native test compiled on the Mac and run here shows in both tables.
@@ -206,8 +219,9 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
 
 - [ ] **T137** `tools/macos_vm.zig` copies the tests in as soon as port 2222 answers; on
   2026-10-31 (T62, `t2e`) the VM came up after 527 s and the first `scp` got "Connection reset by
-  peer", so the step ran no test and stopped its sweep. Wait for a working SSH login, or retry the
-  copy a few times, before giving up.
+  peer", so the step ran no test and stopped its sweep; the second try failed alike. `patient`
+  retries only ssh's exit 255, `scp` exits 1; the copy now retries on any failure (unstaged,
+  checking).
 - [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
   `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,
   `dot_sse2.S`, `dot_atom.S`, `ddot_bulldozer.S`, `zdot_*.S`, `dgemv_n*.S`) rstd skips for

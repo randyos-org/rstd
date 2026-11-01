@@ -688,7 +688,9 @@ test "potrf: the first minor that is not positive definite, by a pivot, NaN or i
 }
 
 test "potrf: a failed pivot is stored, real; minor is written only on failure" {
-    // rstd's own (Accelerate's keeps a complex pivot's imaginary part)
+    // rstd's own (Accelerate's keeps a complex pivot's imaginary part), after
+    // init, which turns routing on
+    _ = blas.vtable();
     const was = accel.routing();
     _ = accel.route(false);
     defer _ = accel.route(was);

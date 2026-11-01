@@ -22,6 +22,7 @@
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
+const apple_accel = @import("../../apple_accel.zig");
 
 const Float = ob.Float;
 const C32 = std.math.Complex(f32);
@@ -771,9 +772,11 @@ test "utest_ext: omatcopy and imatcopy against the definition, and their bad arg
 /// case is 100 square; on a rig, 23.
 fn complexGemm() !void {
     // both calls on rstd: Accelerate has no `R`, and two backends' f32 sums
-    // differ past the source's 1e-4
-    const was = blas.useAccelerate(false);
-    defer _ = blas.useAccelerate(was);
+    // differ past the source's 1e-4; after init, which routes
+    _ = blas.vtable();
+    const was = apple_accel.routing();
+    _ = apple_accel.route(false);
+    defer _ = apple_accel.route(was);
     var prng = std.Random.DefaultPrng.init(0xC2);
     const al = testing.allocator;
     inline for (.{ .{ C32, &gemm_c }, .{ C64, &gemm_z } }) |p| for (p[1]) |case| {
