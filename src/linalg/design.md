@@ -1054,6 +1054,11 @@ proposal): the MATLAB-like layer above the BLAS and LAPACK (Settled decisions: `
 is the public API). M4 confirms the inline limit; S1's results for SPIR-V are in
 `src/rgl/shaders/lib/readme.md`.
 
+**Reopened (user, 2026-10-31):** this toolchain has `@Matrix`, so M7 redesigns the fixed-size
+types around it, with a fallback of the same API for compilers without it (Zig 0.17, stock 0.18);
+its outcome may change decisions 1, 8 and 11 and the types below. The names are `Mat` and
+`StaticMat`, alongside `Vec` (decision 12).
+
 #### Its types
 
 Two matrix types, by when the shape is known; both column-major and packed (`ld = rows`), as the
@@ -1062,20 +1067,20 @@ BLAS, LAPACK and MATLAB (decision 1).
 | Type | Definition | Memory |
 | --- | --- | --- |
 | `Vec(N, T)` | `@Vector(N, T)`, real `T` | a value; `+ - * /`, `@splat`, `@reduce` and indexing keep working |
-| `StaticMatrix(R, C, T)` | `struct { data: [C][R]T }`, `R` rows, `C` columns, `data[j]` column `j` | a value: on the stack, in a global, or on the heap through `allocator.create`, as the caller picks |
-| `Matrix(T)` | `struct { data: []T, rows, cols }` | owned heap storage, unmanaged as `std.ArrayList`: `init(allocator, rows, cols)`, `deinit(allocator)`, no stored allocator |
+| `StaticMat(R, C, T)` | `struct { data: [C][R]T }`, `R` rows, `C` columns, `data[j]` column `j` | a value: on the stack, in a global, or on the heap through `allocator.create`, as the caller picks |
+| `Mat(T)` | `struct { data: []T, rows, cols }` | owned heap storage, unmanaged as `std.ArrayList`: `init(allocator, rows, cols)`, `deinit(allocator)`, no stored allocator |
 | `View(T)`, `ConstView(T)` | `data`, `rows`, `cols`, `ld` | borrowed: `init(slice, rows, cols, ld)` checks the slice covers it; `sub`, `col` |
-| aliases | `V2f32` to `V4f64` (from `zigvec`); `M2f32` to `M4f64` (square `StaticMatrix`) | |
+| aliases | `V2f32` to `V4f64` (from `zigvec`); `M2f32` to `M4f64` (square `StaticMat`) | |
 
-`T` is any float type or its `std.math.Complex` (interleaved), for `StaticMatrix` and `Matrix`
+`T` is any float type or its `std.math.Complex` (interleaved), for `StaticMat` and `Mat`
 alike (decision 8); `Vec` is real only, since `@Vector` cannot hold a struct, so a complex
 fixed-size vector is `[N]Complex(T)`. The pair follows std's `StaticBitSet`/`DynamicBitSet`.
 
-- **Shape errors.** `StaticMatrix`: compile errors. `Matrix` and views: `error.DimensionMismatch`.
-- **Views.** `StaticMatrix` and `Matrix` both give `view()`/`constView()`, and every operation's
+- **Shape errors.** `StaticMat`: compile errors. `Mat` and views: `error.DimensionMismatch`.
+- **Views.** `StaticMat` and `Mat` both give `view()`/`constView()`, and every operation's
   core takes views, so any mix works (section 4).
 - **Shaderlib.** `Vec2` to `Vec4` stay aliases of `V2f32` to `V4f32`; `Mat2` to `Mat4` become
-  `StaticMatrix(N, N, f32)`. Packed, a `mat3`'s columns are 12 bytes where std140 and std430 want
+  `StaticMat(N, N, f32)`. Packed, a `mat3`'s columns are 12 bytes where std140 and std430 want
   16, so a `mat3` uniform is repacked on upload; `OpTypeMatrix` waits on Zig anyway (decision 11).
 - **Z6** revisits the layout (`@Vector` columns, cache lines) once the code is Zig-idiomatic.
 
@@ -1096,7 +1101,7 @@ fixed-size vector is `[N]Complex(T)`. The pair follows std's `StaticBitSet`/`Dyn
 | `norm(v)` | `v / length(v)`; `error{ZeroVector}` for 0 (decision 4) | / `normalize` | `Normalize`, a zero test |
 | `cross(a, b)` | 3D cross product | `cross` / `cross` | `Cross` |
 | `cross2(a, b)` | 2D perp-dot, a scalar | | none |
-| `outer(a, b)` | `a bᴴ`, a `StaticMatrix` | `a * b'` / `outerProduct` | `OpOuterProduct` (†) |
+| `outer(a, b)` | `a bᴴ`, a `StaticMat` | `a * b'` / `outerProduct` | `OpOuterProduct` (†) |
 | `mix(a, b, t)` | `a (1 - t) + b t` | / `mix` | `FMix` |
 | `mulAdd(T, a, b, c)` | `a b + c`, fused per policy | / `fma` | `Fma` |
 | `sum(v)`, `prod(v)` | reductions | `sum`, `prod` | adds, multiplies |
@@ -1116,7 +1121,7 @@ fallback is the caller's: `lv.norm(v) catch fallback`. Shaderlib keeps GLSL's `n
 | `scale(m, s)`, `add(a, b)`, `sub(a, b)` | per element | `s * m`, `a + b` | `OpMatrixTimesScalar` (†), `OpFAdd` per column |
 | `trace(m)` | `Σ m[i][i]` | `trace` | none |
 | `det(m)` | determinant | `det` / `determinant` | `Determinant` (†) |
-| `inv(m)` | `error{Singular}!StaticMatrix`, also under SPIR-V (decision 9) | `inv` / `inverse` | `MatrixInverse` (†), a determinant test |
+| `inv(m)` | `error{Singular}!StaticMat`, also under SPIR-V (decision 9) | `inv` / `inverse` | `MatrixInverse` (†), a determinant test |
 | `solve(a, b)` | `a \ b`, `error{Singular}` | `mldivide` | none |
 
 (†) Needs `OpTypeMatrix`; column code until Zig can declare one.
@@ -1133,15 +1138,15 @@ fallback is the caller's: `lv.norm(v) catch fallback`. Shaderlib keeps GLSL's `n
 #### Dispatch
 
 By size alone, never by type (decision 2): the same numbers take the same path, and give the same
-bits, whether a `StaticMatrix` or a `Matrix` holds them.
+bits, whether a `StaticMat` or a `Mat` holds them.
 
 1. **SPIR-V:** the native instruction where one exists (table below), else inline code.
 2. **CPU, every dimension at or below the inline limit `L` (8):** inline `@Vector` code, blocked
    internally (a 6x6 as 3x3 blocks, register-sized tiles); no allocator, no `Io`, no BLAS call. A
-   `StaticMatrix` picks it at comptime; a `Matrix` by a run-time test of its shape, into inline
+   `StaticMat` picks it at comptime; a `Mat` by a run-time test of its shape, into inline
    kernels with the same operation order, so a run-time 3x3 skips the BLAS's overhead too.
 3. **CPU, above `L`:** the BLAS and LAPACK routines, with their workspace and threading, so the
-   call takes `allocator` and `io`: for a `StaticMatrix`, only the `...Into` forms (a
+   call takes `allocator` and `io`: for a `StaticMat`, only the `...Into` forms (a
    value-returning call past `L` is a compile error naming its `...Into` form). The bits are the
    selected core's.
 
@@ -1189,9 +1194,9 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 
 - `(allocator, io, ...)` where a function allocates (a result or workspace), `(io, ...)`
   otherwise; allocator first. No type stores an allocator.
-- A new matrix comes back owned (`Matrix(T)`), freed with `deinit(allocator)` on the same
+- A new matrix comes back owned (`Mat(T)`), freed with `deinit(allocator)` on the same
   allocator; each such function has an `...Into` form that writes caller storage (a view, so a
-  `StaticMatrix` too).
+  `StaticMat` too).
 - Inputs are const; nothing is overwritten unless the name says `InPlace`.
 - Exact, named error sets per function, plain names; `OutOfMemory` only where it allocates,
   `Canceled` from `io`. Shared names: `DimensionMismatch`, `NotSquare`, `SliceTooShort`,
@@ -1202,8 +1207,8 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 
 ##### Functions
 
-Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`Matrix.zig` holds the types). Each takes
-views (any mix of `StaticMatrix`, `Matrix` and borrowed storage); errors listed are beyond
+Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`Mat.zig` holds the types). Each takes
+views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are beyond
 `OutOfMemory` and `Canceled`.
 
 | Function | Result | Backed by | Errors |
@@ -1211,16 +1216,16 @@ views (any mix of `StaticMatrix`, `Matrix` and borrowed storage); errors listed 
 | `dot(io, x, y)` | `T` (`xᴴ y` for complex) | `dot`, `dotc` | `DimensionMismatch` |
 | `norm(io, x)`, `sum`, `max`, `min` | `norm` the 2-norm of a dynamic vector; scalars | `nrm2`, `sum`, `extreme` | |
 | `axpy(io, a, x, y)`, `scale(io, a, x)` | in place | `axpy`, `scal` | `DimensionMismatch` |
-| `mul(allocator, io, a, b)`, `mulInto(allocator, io, out, a, b)` | `Matrix`, or into `out` | `gemm`; `gemv` for a vector; inline up to `L` | `DimensionMismatch` |
-| `transpose`, `ctranspose` | `Matrix` | `omatcopy` | |
-| `solve(allocator, io, a, b)` | `Matrix`: `A \ B` | triangular: `trtrs`; Hermitian with a positive real diagonal: `potrf`, `potrs`, LU if not positive definite; square: `gesv`; rectangular: `gelsy` (QR with column pivoting, as MATLAB) | `DimensionMismatch`, `Singular` |
+| `mul(allocator, io, a, b)`, `mulInto(allocator, io, out, a, b)` | `Mat`, or into `out` | `gemm`; `gemv` for a vector; inline up to `L` | `DimensionMismatch` |
+| `transpose`, `ctranspose` | `Mat` | `omatcopy` | |
+| `solve(allocator, io, a, b)` | `Mat`: `A \ B` | triangular: `trtrs`; Hermitian with a positive real diagonal: `potrf`, `potrs`, LU if not positive definite; square: `gesv`; rectangular: `gelsy` (QR with column pivoting, as MATLAB) | `DimensionMismatch`, `Singular` |
 | `lu` | `Lu` (factors, `ipiv`, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its `error.Singular` becomes `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
-| `chol` | `Matrix` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
+| `chol` | `Mat` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
 | `qr(..., .economy or .full)` | `Qr` (`q`, `r`) | `geqrf`, `orgqr` | |
 | `svd(..., .values, .economy or .full)` | `Svd` (`s`, `u`, `v`) | `gesdd` or `gesvd`, per `src/linalg/lapack/sources.md` | `NoConvergence` |
 | `eig(..., want_vectors)` | `Eig`: a union of real values and vectors for Hermitian input (`syevd`/`heevd`), complex otherwise (`geev`) (decision 6) | `syevd`, `heevd`, `geev` | `NotSquare`, `NoConvergence` |
-| `inv` | `Matrix` | `getrf`, `getri` | `NotSquare`, `Singular` |
-| `pinv(..., tol: ?F)` | `Matrix` | SVD; default `tol` `max(m, n) eps(σ₁)`, as MATLAB | `NoConvergence` |
+| `inv` | `Mat` | `getrf`, `getri` | `NotSquare`, `Singular` |
+| `pinv(..., tol: ?F)` | `Mat` | SVD; default `tol` `max(m, n) eps(σ₁)`, as MATLAB | `NoConvergence` |
 | `rank(..., tol: ?F)` | `usize` | SVD values | `NoConvergence` |
 | `det` | `T`; 0 when singular | `getrf` (the matlab port's scaled form, M1's E1, past `getrf`'s range) | `NotSquare` |
 | `cond` | `σ₁ / σₙ` | SVD values | `NoConvergence` |
@@ -1265,7 +1270,7 @@ skipped must filter first. No caller outside `src/simd/` uses them today.
 | `src/rgl/font/sfnt/aux_types.zig` | `zigvec.V2f32`, `V2f64` | `linalg.vector` |
 | `src/rgl/font/sfnt/msdf/math.zig` | `zigvec.V2f64`, `splatV2f64`, `rsimd.mix` | `linalg.vector.V2f64`, `splat`, `mix` |
 | `src/rgl/font/sfnt/msdf/` `EdgeSegment`, `Shape`, `ErrorCorrection`, `coloring`, `__root__` | `math.splatV2f64`, `math.mix` | through `msdf/math.zig`; `splatV2f64` becomes `splat` |
-| `src/rgl/shaders/types.zig` | `zigvec.V2f32` to `V4f32`, `splatVecF32`; `Mat2` to `Mat4` | `linalg.vector`; `StaticMatrix(N, N, f32)` |
+| `src/rgl/shaders/types.zig` | `zigvec.V2f32` to `V4f32`, `splatVecF32`; `Mat2` to `Mat4` | `linalg.vector`; `StaticMat(N, N, f32)` |
 | `src/rgl/shaders/lib/math.zig` | `rsimd.mix`, `reduce.arraySum`; `vec.norm`, `vec.cross3` | `linalg.vector.mix`, `sum`; `norm`, `cross` |
 | `src/rgl/shaders/lib/coords.zig`, `sdf.zig`, `shaders/rgl.zig` | `types.splatVec` | `types`' re-export of `splat` |
 | `src/_test_qemu.zig`, `__root__.zig` | `simd` root | unchanged |
@@ -1304,9 +1309,9 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
 1. **`linalg.vector`, inline:** `Vec`, the vector names, `splat`/`zero`, `mix`, `mulAdd`, `norm`'s
    new form; every caller of the `rstd.simd` split moves in the same commit, with no shims left in
    `rstd.simd`. Tests: today's, plus bit-for-bit for `N` 2 to 4 against today's formulas.
-2. **`StaticMatrix`, inline up to `L`:** real and complex, `mul`, `transpose`, `outer`, `det`,
+2. **`StaticMat`, inline up to `L`:** real and complex, `mul`, `transpose`, `outer`, `det`,
    `inv`, `solve` and their `...Into` forms; shaderlib's `Mat2` to `Mat4`.
-3. **Views and `Matrix`:** `View`, `ConstView`, `Matrix`; the dynamic functions over views, with
+3. **Views and `Mat`:** `View`, `ConstView`, `Mat`; the dynamic functions over views, with
    the run-time switch into the inline kernels up to `L`.
 4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's
    `Options`; both paths tested. M4 then times them and confirms `L`.
@@ -1333,6 +1338,8 @@ M5's review with the user (2026-10-30), of M3's proposal (9274e27c):
 9. **`inv` under SPIR-V:** `error.Singular` too, by a determinant test.
 10. **Order:** moot once M1 and S1 landed.
 11. **SPIR-V's matrix type:** in issues.md; column code meanwhile.
+12. **Names** (user, 2026-10-31): `Mat(T)` and `StaticMat(R, C, T)`, named like `Vec` (the
+    alias of `@Vector`).
 
 ### The matlab port against the modern BLAS and LAPACK
 

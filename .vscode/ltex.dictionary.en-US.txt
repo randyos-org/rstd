@@ -875,6 +875,7 @@ gzlib
 gzread
 gzwrite
 halvable
+Hann
 Harf
 Harfbuzz
 HarfBuzz
@@ -1396,6 +1397,7 @@ negl
 neoversen
 neoversev
 NETLINK
+Neumaier
 newfstatat
 NEWLAPACK
 newp
@@ -2049,6 +2051,7 @@ stfssx
 stfsu
 stfsux
 stfsx
+STFT
 STFXDUX
 STFXDX
 stfxsux
@@ -2242,6 +2245,7 @@ umount2
 unalign
 uname
 Uncancelable
+unchunked
 uncompr
 unconj
 unconverged

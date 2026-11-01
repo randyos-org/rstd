@@ -214,14 +214,35 @@ Each moves to In progress when the sweep step that runs it starts.
 
 ### Code and design
 
+- [ ] **M7** Redesign the fixed-size vectors and matrices around `@Matrix` (user, 2026-10-31),
+  ahead of M3, whose types follow from it: `Vec(N, T)` over `@Vector`, `StaticMat(R, C, T)` over
+  `@Matrix` where the compiler has it (this toolchain's randy-matrix), and a fallback with the
+  same API where it doesn't (Zig 0.17 for zfls, stock 0.18), so code written for either compiles
+  on both. Settle: the comptime test for `@Matrix`; storage (`@Matrix` pads columns to the vector
+  size, so `@Matrix(3, 2, f32)` is two `@Vector(3, f32)`s, against M5's packed `[C][R]T`) and
+  what views and the BLAS see; complex elements; SPIR-V's `OpTypeMatrix` through `@Matrix`
+  (`tools/spirv_matrix_probe.zig`); the same bits from both forms; `Mat(T)` beside them. It also
+  hosts the vector primitives ported kernels need (pffft's interleave, transpose and half-swap,
+  rstd's N10). Revisits M5's decisions 1, 8 and 11 (design.md); M3, M6 and rstd's N1 follow it.
+  **Needs:** nothing.
 - [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS and LAPACK behind it, as designed in
   design.md's "Planned: the public `rstd.linalg` layer" (settled in M5, 2026-10-30):
-  `StaticMatrix(R, C, T)` (comptime shape, a value) and unmanaged `Matrix(T)` (run-time shape),
+  `StaticMat(R, C, T)` (comptime shape, a value) and unmanaged `Mat(T)` (run-time shape),
   real and complex, one operation set over views, inline `@Vector` code up to 8 per dimension and
   the BLAS and LAPACK above by size alone, SPIR-V's own instructions in shaders; the `rstd.simd`
   split and its callers; its migration plan's seven steps, each a commit;
-  `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`. **Needs:** nothing
+  `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`. **Needs:** M7
   (M1, S1, M5 done); M4 confirms the inline limit after step 4.
+- [ ] **M6** A type-agnostic matlab port, as the BLAS and LAPACK are: `CxMat` and its routines
+  generic over the element type (`comptime T`, any float type), not hard-coded `f64`, with a
+  caller-chosen result type where MATLAB fixes `double` (an explicit `comptime` type, the nearest
+  Zig has to `@floatFromInt`'s inference). Pulled into the Queue by the user, 2026-10-31.
+  On `@Matrix` where the compiler has it, as M7 designs. **Needs:** M7, then a decision with M3
+  on whether the port keeps its own types or moves onto `Mat(T)`.
+- [ ] **T138** Compensated summation (Neumaier) as an option on the BLAS reductions (`sum`,
+  `asum`, `dot`), still bit-identical for any thread count; `rstd.stats` uses it through the BLAS.
+  Benchmark it against the plain forms on the M6 Mac mini and Zen 3, then choose the defaults.
+  Pulled into the Queue by the user, 2026-10-31.
 - [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79
   to 1.01) trail OpenBLAS. Tier 1 (user, 2026-10-30): re-measure after T100, then fix what's left;
   the timing session verifies. Diagnosed 2026-10-30, no code yet: Zen's `sdot` kernel

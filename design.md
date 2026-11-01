@@ -1,9 +1,9 @@
 # rstd design
 
 This document specifies rstd's modules beyond linear algebra's own (that is in
-[`src/linalg/design.md`](src/linalg/design.md)): statistics, sorting and sets, the FFT, and the
-N-d arrays and sparse matrices that extend `rstd.linalg`. It describes the code as it is, and says
-"Planned" where it is not. The work left is in [`todo.md`](todo.md).
+[`src/linalg/design.md`](src/linalg/design.md)): statistics, sorting and sets, the FFT, signal
+processing, and the N-d arrays and sparse matrices that extend `rstd.linalg`. It describes the
+code as it is, and says "Planned" where it is not. The work left is in [`todo.md`](todo.md).
 
 ## Requirements
 
@@ -64,7 +64,7 @@ For sparse matrices, SuiteSparse's orderings (AMD, COLAMD) are BSD-3, but its fa
 ### Statistics: `rstd.stats`
 
 [`src/stats.zig`](src/stats.zig), over slices. The forms along a dimension are planned with N-d
-arrays; `cov` and `corrcoef` with the public layer's `ConstView` and `Matrix`.
+arrays; `cov` and `corrcoef` with the public layer's `ConstView` and `Mat`.
 
 ```zig
 pub const Normalize = enum { sample, population }; // n - 1 (MATLAB's default) or n
@@ -84,8 +84,8 @@ pub fn Bins(comptime F: type) type; // union(enum) { count: usize, edges: []cons
 pub fn histogram(allocator, xs, bins: Bins(F)) error{ ... }!Histogram(F) // counts, edges
 pub fn histogramInto(counts: []u64, xs, edges: []const F) error{ ... }!void // adds to counts
 // planned
-pub fn cov(allocator, io, x: ConstView(F)) error{ ... }!Matrix(F) // columns are variables
-pub fn corrcoef(allocator, io, x: ConstView(F)) error{ ... }!Matrix(F)
+pub fn cov(allocator, io, x: ConstView(F)) error{ ... }!Mat(F) // columns are variables
+pub fn corrcoef(allocator, io, x: ConstView(F)) error{ ... }!Mat(F)
 ```
 
 - **Quantile methods** are Hyndman and Fan's nine (The American Statistician 50(4), 1996), under
@@ -135,8 +135,9 @@ pub fn isMember(allocator, a, set) error{OutOfMemory}![]?usize // ismember's; fo
 
 ### FFT: `rstd.fft`
 
-[`src/fft/__root__.zig`](src/fft/__root__.zig). PocketFFT's algorithms in Zig as the baseline,
-pffft's to inform the SIMD, Accelerate on macOS. The use cases are audio, numerics and images.
+[`src/fft/__root__.zig`](src/fft/__root__.zig). PocketFFT's algorithms in Zig as the baseline
+(its C++ header), pffft's SIMD kernels ported for speed, Accelerate on macOS by default. The use
+cases are audio, numerics and images.
 
 ```zig
 pub const Direction = enum { forward, backward }; // forward is exp(-2πi jk/n), as NumPy and FFTW
@@ -196,10 +197,21 @@ pub fn realForwardAxes(allocator, io, out, in: ConstArrayView(T), axes, options)
   Parseval's identity, and every size from 1 to a few hundred (primes take Bluestein's path).
 - **Status:** stubs; `init` already rejects `n = 0`.
 
+### Planned: signal processing, `rstd.signal`
+
+Built on `rstd.fft`, for audio first:
+
+- **Window functions:** Hann, Hamming, Blackman, Kaiser, and the Princen-Bradley windows the
+  `Mdct` needs (sine, KBD); symmetric or periodic (MATLAB's `'symmetric'`, `'periodic'`).
+- **STFT** and its inverse by weighted overlap-add, over `RealPlan`; hop, window and FFT size
+  free.
+- **Partitioned convolution:** uniform-partitioned overlap-add over the unordered forms, for long
+  filters (reverb) in real time: fixed latency, no allocation per block.
+
 ### Planned: N-d arrays
 
-In `rstd.linalg` beside `Matrix(T)`, in two kinds, as the public layer's `StaticMatrix` and
-`Matrix`:
+In `rstd.linalg` beside `Mat(T)`, in two kinds, as the public layer's `StaticMat` and
+`Mat`:
 
 - **`StaticArray`:** the shape, and so the rank, is comptime. It's a value with no allocator,
   loops are unrolled, rank-changing operations get their result types at comptime, and shape
@@ -209,7 +221,7 @@ In `rstd.linalg` beside `Matrix(T)`, in two kinds, as the public layer's `Static
 
 Both give views, every operation's core takes views, and dispatch is by size alone (design.md's
 Dispatch), so the same numbers give the same bits in either. Strides are column-major (the first
-index varies fastest), as in MATLAB, LAPACK and `Matrix(T)`, so a rank-2 view with a first stride
+index varies fastest), as in MATLAB, LAPACK and `Mat(T)`, so a rank-2 view with a first stride
 of 1 is a `View(T)` without a copy.
 
 ```zig
@@ -260,9 +272,9 @@ pub fn Csr(comptime T: type) type; // the row-major twin: a Csc of A is a Csr of
 pub fn Triplets(comptime T: type) type; // builder: append(allocator, i, j, x), then toCsc
 fn toCsc(allocator, t) error{OutOfMemory}!Csc(T) // sums duplicates in insertion order
 fn fromDense(allocator, a: ConstView(T), drop_below: F) error{OutOfMemory}!Csc(T)
-fn toDense(allocator, a) error{OutOfMemory}!Matrix(T)
+fn toDense(allocator, a) error{OutOfMemory}!Mat(T)
 fn mulVec(io, a, trans: Trans, alpha: T, x: []const T, beta: T, y: []T) error{ ... }!void
-fn mulDense(allocator, io, a, b: ConstView(T)) error{ ... }!Matrix(T)
+fn mulDense(allocator, io, a, b: ConstView(T)) error{ ... }!Mat(T)
 
 // iterative solvers, matrix-free: anything with apply
 pub fn Operator(comptime T: type) type; // context plus apply(io, x: []const T, y: []T)
@@ -294,10 +306,42 @@ By the user, 2026-10-31:
 - Sparse indices are `u32` throughout.
 - Quantiles take `QuantileOptions`, `.linear` by default.
 - Arrays come in two kinds, `StaticArray` (comptime shape) and `Array` (run time), as the BLAS
-  design's `StaticMatrix` and `Matrix`.
+  design's `StaticMat` and `Mat`.
 - FFT: Zig-native, PocketFFT as the baseline and pffft to inform the SIMD; Accelerate on macOS
   only; no VkFFT or other dependency. Audio, numerics and images are all in scope: audio's SIMD
   comes first, every other feature gets a stub so it can follow.
 - PocketFFT's and pffft's licenses are approved as BSD-3 is (Licenses, above).
 - The API sketches are approved. N-d arrays and sparse matrices start after the public layer
-  (linalg's M3), on its real `View(T)` and `Matrix(T)`.
+  (linalg's M3), on its real `View(T)` and `Mat(T)`.
+- The stubs' changes to the sketches stand for now (explicit `comptime` element types,
+  `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.Layouts`, scratch-bounded
+  batches); they may be revisited.
+- The FFT comes before statistics and sets.
+- PocketFFT's source is its C++ header (cpp branch), pinned to one commit for provenance.
+- Accelerate's FFT routing is on by default on macOS, as the BLAS's, with a way to force native.
+- Kernels follow the BLAS's strategy: port the upstream SIMD kernels first, faithfully; native
+  rewrites come later and stay only where a benchmark backs them. Where an upstream kernel
+  repeats one rstd already has (BLAS, LAPACK), call rstd's instead of porting it.
+- pffft is C intrinsics behind a macro layer, so its faithful port maps each macro to the
+  `@Vector` or `@shuffle` form that emits the same instruction, in pffft's order, without fused
+  multiply-adds pffft lacks; checked by reading the code generated and by matching pffft's bits.
+  The port is a chance to improve `rstd.simd` and `rstd.linalg`'s APIs for such code: its
+  vector primitives (interleave, transpose, half-swap) go in the `Vec` and `StaticMat` code that
+  linalg's M7 redesigns around `@Matrix`, which also decides the N-d arrays' fixed-size kind.
+- Kernels per platform: pffft's own first (SSE on x86_64, NEON on aarch64 and the Pi 3's 32-bit
+  arm), then derived or new ones for other tier 1 and 2 targets as needed; where none fits (the
+  PowerPC 750 has no AltiVec), generic `@Vector` or `@Matrix` code.
+- The bit guarantee is the BLAS's: identical for any thread count on one machine, or one kind of
+  machine. Results may differ between cores.
+- `stats` sums through the BLAS and takes its accuracy from there. Compensated summation becomes
+  a BLAS option (linalg's T138); benchmarks choose the defaults, there and per use case.
+- A caller chooses a result type explicitly, as `@as` does for `@floatFromInt`: Zig gives a
+  function no access to its result type. So `stats.mean(io, R, xs)` takes the result type `R`,
+  and the element type comes from `xs`; for floats today's calls keep their form. The matlab
+  port gets the same (linalg's M6).
+- Signal processing gets its own module, `rstd.signal`: window functions, the STFT and
+  partitioned convolution (Planned: signal processing, above).
+- Front ends are type-agnostic, as the BLAS's: any element type, dispatched on it, integers and
+  `Complex` included where the operation means something to them.
+- Complex values sort in MATLAB's order (by magnitude, then angle), and everything that orders
+  them (`sort`, `unique`, the set operations, `median`) uses it.
