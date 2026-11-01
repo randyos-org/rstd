@@ -389,12 +389,18 @@ const fp_x87 = fp_cpu.arch.isX86() and std.Target.x86.featureSetHas(fp_cpu.featu
 /// The self-hosted x86_64 backend takes no `(%reg)` operand; it gets `m`
 /// operands, which LLVM misreads as inputs (issues.md).
 const fp_mem_ops = sysinfo.zig_backend == .stage2_x86_64;
+/// The e500's SPE, which replaces the FPU; newer Zig has no such feature
+/// (upstream fe259973b6), Zig 0.17 still does.
+const fp_spe = if (@hasField(std.Target.powerpc.Feature, "spe"))
+    std.Target.powerpc.featureSetHas(fp_cpu.features, @field(std.Target.powerpc.Feature, "spe"))
+else
+    false;
 
 const fp_reg: ?FpReg = switch (fp_cpu.arch) {
     .x86, .x86_64 => if (std.Target.x86.featureSetHas(fp_cpu.features, .sse)) .{ .Int = u32, .ctl = 0xffc0, .rounding = 0xe000, .toward_zero = 0xe000 } else null,
     .aarch64, .aarch64_be => if (std.Target.aarch64.featureSetHas(fp_cpu.features, .fp_armv8)) .{ .Int = u64, .ctl = std.math.maxInt(u64), .rounding = 0x1c0_0000, .toward_zero = 0x1c0_0000 } else null,
     .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(fp_cpu.features, .vfp2sp)) .{ .Int = u32, .ctl = 0x07ff_ff00, .rounding = 0x1c0_0000, .toward_zero = 0x1c0_0000 } else null,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (fp_hard and std.Target.powerpc.featureSetHas(fp_cpu.features, .fpu) and !std.Target.powerpc.featureSetHas(fp_cpu.features, .spe)) .{ .Int = u64, .ctl = 0xff, .rounding = 0x3, .toward_zero = 0x1 } else null,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (fp_hard and std.Target.powerpc.featureSetHas(fp_cpu.features, .fpu) and !fp_spe) .{ .Int = u64, .ctl = 0xff, .rounding = 0x3, .toward_zero = 0x1 } else null,
     .riscv32, .riscv32be, .riscv64, .riscv64be => if (std.Target.riscv.featureSetHas(fp_cpu.features, .f)) .{ .Int = usize, .ctl = 0x7, .rounding = 0x7, .toward_zero = 0x1 } else null,
     .mips, .mipsel, .mips64, .mips64el => if (fp_hard) .{ .Int = u32, .ctl = 0x0100_0f83, .clear = 0x0003_f000, .rounding = 0x3, .toward_zero = 0x1 } else null,
     .loongarch32, .loongarch64 => if (std.Target.loongarch.featureSetHas(fp_cpu.features, .f)) .{ .Int = u32, .ctl = 0x31f, .clear = 0x1f00_0000, .rounding = 0x300, .toward_zero = 0x100 } else null,
