@@ -798,7 +798,9 @@ const base_machines = [_]Machine{
         .query = .{ .cpu_arch = .x86_64, .os_tag = .linux },
         .qemu = "qemu-system-x86_64",
         .args = &.{ "-M", "pc", "-cpu", "max", "-smp", "4" },
-        .memory = "1G",
+        // the initramfs and its unpacked copy: the test, with every core's
+        // kernels and their debug info, is about 700 MB
+        .memory = "2G",
         .boot = .{ .linux = .{ .dep = "debian_netboot_amd64", .kernel = "debian-installer/amd64/linux", .console = "ttyS0" } },
     },
     .{
