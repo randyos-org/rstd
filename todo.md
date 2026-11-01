@@ -9,27 +9,16 @@ in [`src/linalg/todo.md`](src/linalg/todo.md); its MVP comes first (user, 2026-1
 
 ### Working on
 
-- [ ] **N3** `rstd.stats` stubs ([`src/stats.zig`](src/stats.zig)), written 2026-10-31, not yet
-  compiled. `Running` is real. Left: N6.
-- [ ] **N4** `rstd.sort` stubs ([`src/sort.zig`](src/sort.zig)), written 2026-10-31, not yet
-  compiled. `order`, `sort`, `argsort` and `searchSorted` are real. Left: N6.
-- [ ] **N5** `rstd.fft` stubs ([`src/fft/__root__.zig`](src/fft/__root__.zig)), written
-  2026-10-31, not yet compiled. Left: N6.
+Nothing here; linalg's T139 and M3 come first (its todo.md).
 
 ## Queue
-
-### Checks
-
-- [ ] **N6** First compile and test of N3 to N5: `zig test` each file alone (they import only
-  std), then rstd's tests; the real parts' tests pass and the stubs' skip. **Needs:** local
-  builds again (stopped 2026-10-31).
 
 ### FFT
 
 - [ ] **N7** `fft.Plan`: complex 1-D, portable, every float type (PocketFFT's mixed radix and
   Bluestein, from its C++ header at a pinned commit). The correctness baseline every later FFT
   item is tested against. Add PocketFFT's `LICENSE` section and per-file provenance with the
-  first ported code. **Needs:** N6.
+  first ported code. **Needs:** nothing (N6 done).
 - [ ] **N8** `fft.RealPlan` (PocketFFT's real transforms). **Needs:** N7.
 - [ ] **N9** `Layout` batches, run concurrently through `io`, as many at once as the scratch
   holds. **Needs:** N7.
@@ -46,7 +35,7 @@ in [`src/linalg/todo.md`](src/linalg/todo.md); its MVP comes first (user, 2026-1
 ### Signal processing
 
 - [ ] **N29** `rstd.signal` window functions: Hann, Hamming, Blackman, Kaiser, sine and KBD,
-  symmetric or periodic. **Needs:** N6.
+  symmetric or periodic. **Needs:** nothing (N6 done).
 - [ ] **N30** `signal` STFT and its inverse (weighted overlap-add) over `RealPlan`. **Needs:**
   N8, N29.
 - [ ] **N31** `signal` uniform-partitioned convolution over the unordered forms: fixed latency,
@@ -55,9 +44,9 @@ in [`src/linalg/todo.md`](src/linalg/todo.md); its MVP comes first (user, 2026-1
 ### Statistics
 
 - [ ] **N11** `stats.mean`, `variance` and `stdDev` through the BLAS `sum`, with its accuracy
-  options once linalg's T138 adds them. **Needs:** N6.
-- [ ] **N12** `stats.median` and the quantiles, all nine methods. **Needs:** N6.
-- [ ] **N13** `stats.histogram` and `histogramInto`. **Needs:** N6.
+  options once linalg's T138 adds them. **Needs:** nothing (N6 done).
+- [ ] **N12** `stats.median` and the quantiles, all nine methods. **Needs:** nothing (N6 done).
+- [ ] **N13** `stats.histogram` and `histogramInto`. **Needs:** nothing (N6 done).
 - [ ] **N33** Type-agnostic `rstd.stats`, as the BLAS: integer and `Complex` inputs beside
   floats, the result type chosen by the caller (`mean(io, R, xs)`, the element type from `xs`).
   **Needs:** N11.
@@ -65,9 +54,9 @@ in [`src/linalg/todo.md`](src/linalg/todo.md); its MVP comes first (user, 2026-1
 ### Sorting and sets
 
 - [ ] **N14** `sort.unique`, `intersect`, `setUnion`, `setDiff` and `isMember`, each NaN distinct.
-  **Needs:** N6.
+  **Needs:** nothing (N6 done).
 - [ ] **N32** `Complex` in `rstd.sort`, in MATLAB's order (by magnitude, then angle), used by
-  every ordering operation, `stats.median` included. **Needs:** N6.
+  every ordering operation, `stats.median` included. **Needs:** nothing (N6 done).
 
 ### After the public layer
 
@@ -104,6 +93,10 @@ Picked up after the Queue, in this order.
 ## Done
 
 - [X] The survey and API design ([`design.md`](design.md)), approved by the user 2026-10-31.
+- [X] **N3** to **N5** The `rstd.stats`, `rstd.sort` and `rstd.fft` stubs, 2026-10-31; the real
+  parts are `Running`, `order`, `sort`, `argsort` and `searchSorted`.
+- [X] **N6** Their first compile, 2026-11-01: each file's `zig test` alone on Zig 0.18 and 0.17,
+  the real parts passing and the stubs skipping; rstd's own tests with T139.
 
 ## Waiting on the user
 

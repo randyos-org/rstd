@@ -692,7 +692,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   Pending upstream: <https://github.com/llvm/llvm-project/pull/233171> (open)
   selects `MADDF`/`MSUBF` for it.
   Speed only; the call is correctly rounded, so the bits are `maddf`'s.
-- **Where:** `fma.hardware` is true on R6, so the main library of an R6
+- **Where:** `fma.fusedMulAddBits` is 64 on R6, so the main library of an R6
   target (the portable kernels, `rsimd.mulAdd`) calls it per multiply-add.
   The R6 kernel objects have MSA, where `fma.compiles` keeps them unfused.
 - **Workaround:** none taken. An inline-asm `maddf` in `fma.madd` and
@@ -732,7 +732,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `gs464`, `gs464e`, `gs264e`, `r8000`); LLVM has no Loongson CPU. The 3A4000
   register manual (V1.5) does not say what GS464V does.
 - **Where:** every pre-R6 rstd build's main library, modeled unfused
-  (`fma.hardware` false): on that silicon it fuses where LLVM picked
+  (`fma.fusedMulAddBits` 0): on that silicon it fuses where LLVM picked
   `madd.fmt` and rounds elsewhere. The `loongson3r3` and `loongson3r4`
   objects are modeled fused (T86, design.md's Settled decisions), as
   OpenBLAS's `-march=loongson3a` build is (its `.S` kernels' `madd.fmt`,

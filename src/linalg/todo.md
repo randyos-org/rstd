@@ -194,14 +194,6 @@ Each moves to In progress when the sweep step that runs it starts.
 
 ### Code and design
 
-- [ ] **T139** One fusion setting (design.md, decision 15): `fma.zig`'s `fuse`, `fuse_vector`
-  and `fuseFor` read `zigcfg.float_options.fuse_mul_add_bits` (`hardware` goes, its table now
-  `fusedMulAddBits`); the per-core roots (`_kernel.zig`) declare `std_float_options` in place of
-  `blas_fuse_fma` and `blas_fuse_fma_vector`, the MSA cores' explicitly; `rsimd.mulAdd` follows
-  the setting; the 25 files calling `fma.fuse*` move with it. Fixes f64 fusing as a libm call
-  on single-precision-only FMA (arm `vfp4sp`, riscv and loongarch with F but not D).
-  `zigcfg.FloatOptions` and `fusedMulAddBits` written 2026-11-01, not yet compiled.
-  **Needs:** local builds again.
 - [ ] **M3** Build `rstd.linalg`'s public layer, the BLAS and LAPACK behind it, as designed in
   design.md's "Planned: the public `rstd.linalg` layer" (settled in M5, 2026-10-30):
   `StaticMat(R, C, T)` (comptime shape, a value) and unmanaged `Mat(T)` (run-time shape),
@@ -210,7 +202,7 @@ Each moves to In progress when the sweep step that runs it starts.
   split and its callers; its migration plan's seven steps, each a commit;
   `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`; `@Matrix`
   through `rstd_matrix` as M7 settled (decisions 13 to 19), with the pffft primitives (rstd's
-  N10). **Needs:** T139 (M1, S1, M5, M7 done); M4 confirms the inline limit after step 4.
+  N10). **Needs:** nothing (M1, S1, M5, M7, T139 done); M4 confirms the inline limit after step 4.
 - [ ] **M6** A type-agnostic matlab port, as the BLAS and LAPACK are: `CxMat` and its routines
   generic over the element type (`comptime T`, any float type), not hard-coded `f64`, with a
   caller-chosen result type where MATLAB fixes `double` (an explicit `comptime` type, the nearest
@@ -493,8 +485,14 @@ Cleared 2026-10-31; landed work is in `review`'s log.
   part stays in the Queue.
 
 - [X] **M7** The `Vec`/`StaticMat` design around the fork's `@Matrix`, with the user
-  2026-10-31 to 2026-11-01: design.md's decisions 13 to 19. Its build selection
-  (`rstd_matrix`, `src/linalg/_matrix/`) is written, not yet compiled; the rest is T139 and M3.
+  2026-10-31 to 2026-11-01: design.md's decisions 13 to 19, with the build's selection
+  (`rstd_matrix`, `src/linalg/_matrix/`); the types are M3's.
+- [X] **T139** One fusion setting (design.md, decision 15), 2026-11-01: the root's
+  `std_float_options` (`zigcfg.FloatOptions`, defined in `fma.zig` for the per-core objects) in
+  place of `blas_fuse_fma` and `blas_fuse_fma_vector`; the BLAS fuses up to its width where an
+  instruction does, `rsimd.mulAdd` by the setting alone. Fixes `f64` fusing as a libm call on
+  single-precision-only FMA (arm `vfp4sp`, riscv and loongarch with F but not D). `fma.madd`
+  no longer takes a software `fma` for `f80`, and WebAssembly's vectors no longer fuse.
 - [X] **M2** The matlab port over `rstd.linalg.blas` and `rstd.linalg.lapack` (7511eef3), reviewed
   by the user 2026-10-31; its rig tests run in T62's tier 2.
 

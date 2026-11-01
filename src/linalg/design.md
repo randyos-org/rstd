@@ -315,11 +315,15 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
 
 `fma.zig` decides whether a multiply-add fuses, the way the reference's compile flags decide it:
 
-- **Hardware.** Fused where the ISA has a scalar fused multiply-add: x86 with FMA, AArch64, ARM
-  with VFPv4, PowerPC, RISC-V F/D, LoongArch, s390x, MIPS release 6. Not on SPARC (its FMA extension of SPARC64 VI and `sparc4`, Oracle Solaris Studio 12.4 Fortran guide, `-xarch`, <https://docs.oracle.com/cd/E37069_01/html/E37076/aevia.html>, is left off, as OpenBLAS's gcc builds take `-mcpu=v9` without `-mfmaf`, `Makefile.sparc:7`), WebAssembly
+- **The setting.** The root's `std_float_options.fuse_mul_add_bits` (decision 15): floats of
+  at most that width may fuse; the BLAS fuses them only where an instruction does
+  (`fusible`), so the setting's 128 never makes a software `fma` call there.
+- **Hardware.** The default, `fusedMulAddBits`, by width: x86 with FMA, AArch64, ARM with
+  VFPv4, PowerPC, RISC-V D, LoongArch D and s390x to `f64`; single-precision VFPv4, RISC-V F and
+  LoongArch F to `f32`; MIPS release 6 to `f64`, but none with MSA under LLVM. Not on SPARC (its FMA extension of SPARC64 VI and `sparc4`, Oracle Solaris Studio 12.4 Fortran guide, `-xarch`, <https://docs.oracle.com/cd/E37069_01/html/E37076/aevia.html>, is left off, as OpenBLAS's gcc builds take `-mcpu=v9` without `-mfmaf`, `Makefile.sparc:7`), WebAssembly
   or earlier MIPS, whose `madd` rounds the product (Loongson 3A's fuses, and LLVM uses it for a
-  plain `a*b + c`: `issues.md`). Vector multiply-adds also fuse on MIPS with
-  MSA and WebAssembly with `relaxed_simd` (`vector_madd`).
+  plain `a*b + c`: `issues.md`). WebAssembly's `relaxed_simd` madd is not used: `@mulAdd` there
+  is a software `fma` per lane.
 - **Loongson 3A.** The `loongson3r3` and `loongson3r4` objects fuse (`Spec.fuse_fma`), and on MIPS
   before release 6 that means `madd.fmt` fuses (`fused_madd`): their multiply-adds are inline
   `madd.s`/`madd.d`, `@mulAdd` being a libm `fma` call there, and `loongson3r4`'s vectors MSA
@@ -330,12 +334,13 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   operations, and a C compiler's `-msoft-float` has no fused instruction to contract to. On the
   `powerpc-750` rig the driver's beta-folding test took 754 s fused and 188 s not (build
   included), and the full Debug run outran the watchdog's hour in one test.
-- **Per-core policy.** A root may declare `blas_fuse_fma` and `blas_fuse_fma_vector`; the
-  per-core objects do (`_kernel.zig`), from the core's `Spec.fuse_fma`. The AMD cores' FMA3/FMA4
+- **Per-core policy.** The per-core objects' roots (`_kernel.zig`) set `std_float_options`
+  from the core's `Spec.fuse_fma`: 64 bits where it is true, 0 where false. The AMD cores' FMA3/FMA4
   features exist so that the assembler accepts their microkernels; their flags leave contraction off
   (`kernel/Makefile:105` adds no `-mfma` for the Bulldozer family).
-- **Width.** Floats wider than `f64` never fuse (`fuseFor`): `@mulAdd(f80)` is a soft `fmal`
-  call, and the x87 kernels never fuse.
+- **Width.** In the BLAS, floats wider than `f64` never fuse (`fuseFor`): `@mulAdd(f80)` is a
+  soft `fmal` call, and the x87 kernels never fuse. `rsimd.mulAdd` (`fma.mulAdd`) follows the
+  setting alone, as the fork's `@Matrix` products do.
 - **Expression rule.** Contraction follows a C compiler's within one expression (clang's
   `-ffp-contract=on`, "fusion in the same statement", Clang User's Manual,
   <https://clang.llvm.org/docs/UsersManual.html>): `a*b + c*d` is `fma(a, b, c*d)`, a longer chain fuses each product into
@@ -1054,10 +1059,10 @@ proposal): the MATLAB-like layer above the BLAS and LAPACK (Settled decisions: `
 is the public API). M4 confirms the inline limit; S1's results for SPIR-V are in
 `src/rgl/shaders/lib/readme.md`.
 
-**Reopened (user, 2026-10-31):** this toolchain has `@Matrix`, so M7 redesigns the fixed-size
-types around it, with a fallback of the same API for compilers without it (Zig 0.17, stock 0.18);
-its outcome may change decisions 1, 8 and 11 and the types below. The names are `Mat` and
-`StaticMat`, alongside `Vec` (decision 12).
+**Reopened (user, 2026-10-31) and settled in M7 (2026-11-01):** this toolchain has `@Matrix`,
+so `StaticMat` computes through it where the compiler has it, with a fallback of the same API
+and bits for compilers without it (Zig 0.17, stock 0.18): decisions 13 to 17. The names are
+`Mat` and `StaticMat`, alongside `Vec` (decision 12).
 
 #### Its types
 
@@ -1067,7 +1072,7 @@ BLAS, LAPACK and MATLAB (decision 1).
 | Type | Definition | Memory |
 | --- | --- | --- |
 | `Vec(N, T)` | `@Vector(N, T)`, real `T` | a value; `+ - * /`, `@splat`, `@reduce` and indexing keep working |
-| `StaticMat(R, C, T)` | `struct { data: [C][R]T }`, `R` rows, `C` columns, `data[j]` column `j` | a value: on the stack, in a global, or on the heap through `allocator.create`, as the caller picks |
+| `StaticMat(R, C, T)` | `struct { data: [C][R]T }`, `R` rows, `C` columns, `data[j]` column `j`; operations load it into `@Matrix` or `[C]@Vector(R, T)` and store back (decision 14) | a value: on the stack, in a global, or on the heap through `allocator.create`, as the caller picks |
 | `Mat(T)` | `struct { data: []T, rows, cols }` | owned heap storage, unmanaged as `std.ArrayList`: `init(allocator, rows, cols)`, `deinit(allocator)`, no stored allocator |
 | `View(T)`, `ConstView(T)` | `data`, `rows`, `cols`, `ld` | borrowed: `init(slice, rows, cols, ld)` checks the slice covers it; `sub`, `col` |
 | aliases | `V2f32` to `V4f64` (from `zigvec`); `M2f32` to `M4f64` (square `StaticMat`) | |
@@ -1081,7 +1086,8 @@ fixed-size vector is `[N]Complex(T)`. The pair follows std's `StaticBitSet`/`Dyn
   core takes views, so any mix works (section 4).
 - **Shaderlib.** `Vec2` to `Vec4` stay aliases of `V2f32` to `V4f32`; `Mat2` to `Mat4` become
   `StaticMat(N, N, f32)`. Packed, a `mat3`'s columns are 12 bytes where std140 and std430 want
-  16, so a `mat3` uniform is repacked on upload; `OpTypeMatrix` waits on Zig anyway (decision 11).
+  16, so a `mat3` uniform is repacked on upload. `OpTypeMatrix` comes through `@Matrix` on this
+  toolchain (decision 17).
 - **Z6** revisits the layout (`@Vector` columns, cache lines) once the code is Zig-idiomatic.
 
 #### Names
@@ -1124,7 +1130,7 @@ fallback is the caller's: `lv.norm(v) catch fallback`. Shaderlib keeps GLSL's `n
 | `inv(m)` | `error{Singular}!StaticMat`, also under SPIR-V (decision 9) | `inv` / `inverse` | `MatrixInverse` (†), a determinant test |
 | `solve(a, b)` | `a \ b`, `error{Singular}` | `mldivide` | none |
 
-(†) Needs `OpTypeMatrix`; column code until Zig can declare one.
+(†) Needs `OpTypeMatrix`: `@Matrix` on this toolchain, column code on stock Zig (decision 17).
 
 - **`...Into` forms.** Each value-returning form has one writing caller storage
   (`lv.mulInto(&out, a, b)`); past the inline limit (section 3) only these exist, and they take
@@ -1159,7 +1165,7 @@ Element-wise operations (`+`, `mix`, `mulAdd`, `splat`, `cross`, `outer`, `trans
   blocking takes over. Practice agrees: Eigen keeps fixed sizes inline "typically up to 4x4,
   sometimes up to 16x16"; LIBXSMM's small kernels reach `(M N K)^(1/3) <= 64`, which rstd's BLAS
   serves with its own small-matrix kernels (T119) behind the `...Into` forms.
-- **Override.** A root declaration, read at comptime as `blas_fuse_fma` is (decision 3):
+- **Override.** A root declaration, read at comptime as `std_float_options` is (decision 3):
 
   ```zig
   pub const rstd_linalg_options: rstd.linalg.Options = .{ .inline_limit = 12 };
@@ -1180,7 +1186,7 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 | `length`, `norm`, `distance`, `cross`, `mix` | `Length`, `Normalize`, `Distance`, `Cross`, `FMix` | inline assembly, `OpExtInst` on `GLSL.std.450` (S1, `src/rgl/shaders/lib/readme.md`) |
 | `mulAdd` | `Fma` | `@mulAdd` (the backend's lowering) |
 | `@sqrt`, `@abs`, `@min`/`@max` and the rest | GLSL.std.450 | already, through the backend |
-| matrix operations (†) | `OpMatrixTimesVector` and the rest | once Zig has `OpTypeMatrix` ([`issues.md`](issues.md)); column code meanwhile (`Σ cols[j] * splat(v[j])`) |
+| matrix operations (†) | `OpMatrixTimesVector` and the rest | `@Matrix`'s own lowering, 2 to 4 by 2 to 4 (`tools/spirv_matrix_probe.zig`); column code on stock Zig (`Σ cols[j] * splat(v[j])`) |
 
 - `N` outside 2 to 4 is not an `OpTypeVector`, so those sizes take the inline code.
 - `mulAdd` changes: today `fma.zig` says unfused on SPIR-V; the Settled decision lists `Fma`,
@@ -1326,7 +1332,7 @@ M5's review with the user (2026-10-30), of M3's proposal (9274e27c):
 1. **Storage:** packed column-major (`[C][R]T`), consistent with the BLAS, LAPACK and MATLAB; the
    padded `[C]Vec(R, T)` would only work around Zig's missing SPIR-V matrix type (no upstream pull
    request as of 2026-10-30; the proposals are GitHub #4960, a matrix type, and #35240, SPIR-V
-   types as builtins). Z6 revisits it.
+   types as builtins). Z6 revisits it. Kept by M7 (decision 14).
 2. **Fixed sizes and the BLAS:** two types by when the shape is known, one operation set over
    views, dispatch by size alone: inline up to 8, the BLAS and LAPACK above with that core's bits.
 3. **Override:** a root declaration (`rstd_linalg_options.inline_limit`).
@@ -1337,9 +1343,36 @@ M5's review with the user (2026-10-30), of M3's proposal (9274e27c):
 8. **Complex fixed sizes:** in the first set, interleaved.
 9. **`inv` under SPIR-V:** `error.Singular` too, by a determinant test.
 10. **Order:** moot once M1 and S1 landed.
-11. **SPIR-V's matrix type:** in issues.md; column code meanwhile.
+11. **SPIR-V's matrix type:** in issues.md; column code meanwhile. Superseded by decision 17.
 12. **Names** (user, 2026-10-31): `Mat(T)` and `StaticMat(R, C, T)`, named like `Vec` (the
     alias of `@Vector`).
+
+M7, with the user (2026-10-31 to 2026-11-01), around the fork's `@Matrix` (zig-build's
+randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
+
+13. **Selection:** stock Zig rejects the name `@Matrix` in any file it parses, even one it never
+    analyzes, so rstd's build gives the `rstd_matrix` module `src/linalg/_matrix/native.zig`
+    where `std.lang.Type` has `matrix`, else `fallback.zig`. Only code spelling `@Matrix` or
+    `@transpose` lives there; the rest branches on `rstd_matrix.has_matrix`.
+14. **Storage stays packed** (decision 1): `StaticMat` holds `[C][R]T` and converts to
+    `@Matrix` or `[C]@Vector(R, T)` only to compute, never padded at rest.
+15. **One fusion setting:** the root's `std_float_options: rstd.zigcfg.FloatOptions`, whose
+    `fuse_mul_add_bits` fuses floats up to that width (0 never, 128 always; default the
+    target's hardware). The fork's compiler reads it for strict-mode `@Matrix` products; the
+    fallback `StaticMat` and `linalg.vector.mulAdd` follow it alone (`fma.mulAdd`), the BLAS
+    where an instruction also fuses (`fma.fuseFor`), and the per-core objects set it in place
+    of `blas_fuse_fma`. `fma.zig` defines it (`zigcfg` re-exports it, as the per-core objects'
+    module is `src/linalg/blas/`), with the fact the compiler lacks (Loongson's fused
+    `madd.fmt`) and the copy of the fork's `fusedMulAddBits` for stock Zig.
+16. **Same bits:** the fallback repeats Sema's order, `M v` as `Σ_k col_k * splat(v[k])` in
+    column order and `v M` as dots in element order, each product after the first fused into the
+    running sum when decision 15 says so.
+17. **SPIR-V:** `@Matrix`'s native `OpTypeMatrix` lowering, 2 to 4 by 2 to 4, replacing column
+    code where the compiler has it; no bit promise there, as before.
+18. **Complex:** interleaved (decision 8 kept). `@Matrix` holds floats only, so complex
+    `StaticMat` always takes the fallback code.
+19. **Conversions** to and from `[C][R]T` and `[C]@Vector(R, T)` are `StaticMat` functions;
+    the fork's compiler stays as it is.
 
 ### The matlab port against the modern BLAS and LAPACK
 
