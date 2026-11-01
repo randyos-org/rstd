@@ -130,7 +130,17 @@ Accelerate's `trsm` multiplies by the diagonal's reciprocal, which overflows for
 (the reference divides; the unused triangle and subnormals in `B` are fine): a diagonal entry too
 small to invert now stays on rstd, and the test runs both on rstd. Checked on the M6
 (`ZB_WHERE=mac`, new: builds and runs only there). `aarch64-smp` ran out of its 32 MB heap in
-threaded gemm (35 MB): aarch64's rig heap is 64 MB, as x86_64's.
+threaded gemm (35 MB): aarch64's rig heap is 64 MB, as x86_64's. `x86_64-uefi` (2 h 37 min) ran out of its 64
+MB heap in gemm3m's per-core test at `sandybridge` (41.9 MB wanted, 48.2 MB in use; the
+`x86_64` rig's peak is 23 MB): `blas3/check.zig` crossed `R` with one row only where
+`os.tag == .freestanding`, so UEFI took `unroll_m + 1`; it now takes one too (23 MB peak on the rig);
+`t2b`'s other steps (`x86_64-smp`, `linux-x86_64`, `T08-x86_64`) run meanwhile, at 74305c34.
+`x86_64` passed (654, 42 skipped, 2 h 58 min); `aarch64-smp` passed; `T114-aarch64-macos` passed
+(46, 1 skipped). `ssh-x86_64-macos` (986 passed, 1 failed): T114's own test, Accelerate's
+x86_64 `cpotrf_` and `zpotrf_` under Rosetta call a well-conditioned `L Lᴴ` not positive
+definite from order 2 (real and arm64 right); complex `potrf` on x86_64 now stays on rstd
+(46 of 47, 1 skipped, under Rosetta and on arm64). The native runner's `FAIL (...)` line does not end an SSH step under
+`-Dfail-fast` (it ran on to the end).
 `T114-aarch64-macos`: "potrf: a failed pivot is stored" kept the complex pivot's imaginary part,
 because `accel.route(false)` came before the BLAS's init, which routes again, when the filter
 made it the first BLAS call; it and `threaded.zig`'s `rstdOnly` now init first (unstaged).
@@ -141,9 +151,9 @@ Compiling, one row per slot; a native test compiled on the Mac and run here show
 
 | Slot | Item | Job | Since |
 | --- | --- | --- | --- |
-| Local 1 | T62 | `t2e`: `x86_64-macos`, T114, compile checks (b165b084) | 17:22 |
-| Local 2 | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos` (b165b084) | 17:22 |
-| Mac 0.18 | T62 | shared by the sweeps' compiles | 17:22 |
+| Local 1 | T62 | `t2e`: `x86_64-macos`, `check-macho`, `check-uefi`, `check-zig017` (74305c34; Zig 0.18.0-dev.858) | 20:40 |
+| Local 2 | free | | |
+| Mac 0.18 | T62 | shared by the sweeps' compiles | 19:05 |
 | Mac 0.17 | free | | |
 
 #### Running tests
@@ -152,10 +162,12 @@ Test executables and QEMU rigs, outside the slots.
 
 | Where | Item | Run | Since |
 | --- | --- | --- | --- |
-| Mac | T62 | `t2a`: `x86_64` (b165b084, fail-fast) | 17:22 |
-| Mac | T62 | `t2b`: `x86_64-uefi`, `-smp`, `linux-x86_64`, `T08-x86_64` | 17:22 |
-| Mac | T62 | `t2c`: `aarch64-sve`, `-smp`, `-uefi`, `linux-aarch64`, `T08-aarch64` (`aarch64` passed at da2ae06a) | 17:22 |
-| Mac | T62 | `t2d`: `arm`, `arm-softfp`, `linux-arm`, `powerpc-750`, `-hf`, their T08 steps | 17:22 |
+| Mac | T62 | `t2a`: `x86_64` (b165b084) | 17:22 |
+| Mac | T62 | `t2b`: `x86_64-uefi`, `-smp`, `linux-x86_64`, `T08-x86_64` (b165b084) | 17:22 |
+| Mac | T62 | `t2d`: `arm-softfp` on (`arm` passed), `linux-arm`, `powerpc-750`, `-hf`, T08s (b165b084) | 17:22 |
+| Mac | T62 | `t2c`: `aarch64-smp`, `-uefi`, `linux-aarch64`, `T08-aarch64` (74305c34; `aarch64`, `-sve` passed) | 19:05 |
+| Mac | T62 | `t2f`: `ssh-x86_64-macos`, `ssh-aarch64-macos` (74305c34, `ZB_WHERE=mac`) | 19:05 |
+| Mac | T62 | `t2e`: T114 both (74305c34, `ZB_WHERE=mac`); left: `x86_64-macos`, the three compile checks (local) | 19:05 |
 
 ## Queue
 

@@ -685,6 +685,9 @@ const col = Order.col_major;
 //   `cblas_dsdot` is off by `f32`'s epsilon, not `f64`'s.
 // - `gemm`: NaN or an infinity in `A`. At an edge of `m` it gives NaN where
 //   the reference's is infinite.
+// - complex `potrf`: always. `cpotrf_` and `zpotrf_` report a well
+//   conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are
+//   right).
 // - `trsm`: a diagonal entry too small to invert (a subnormal; arm64
 //   untested). Accelerate multiplies by its reciprocal, which overflows, so
 //   every element comes out infinite or NaN; the reference divides.
@@ -1397,7 +1400,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
 /// `?potrf_`'s `INFO`, or null where rstd runs it. Accelerate's LAPACK runs
 /// on its BLAS, single-threaded as `load` sets it.
 pub inline fn potrf(comptime T: type, ul: types.Uplo, n: isize, a: [*]T, lda: isize) ?isize {
-    if (comptime !covers(T)) return null else {
+    if (comptime !covers(T) or (x86_64 and isComplex(T))) return null else {
         const b = use(T) orelse return null;
         const u: u8 = switch (ul) {
             .u => 'U',

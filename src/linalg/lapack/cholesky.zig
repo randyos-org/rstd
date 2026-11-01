@@ -1022,7 +1022,9 @@ test "potrf goes to Accelerate where it routes, and agrees with rstd's" {
             defer p.deinit(al);
             const before = accel.calls.load(.monotonic);
             try p.factorIt(al, null);
-            try testing.expect(accel.calls.load(.monotonic) > before);
+            // x86_64's complex `potrf` stays on rstd (`apple_accel.zig`)
+            const routed = !(sysinfo.target.cpu.arch == .x86_64 and isComplex(T));
+            try testing.expectEqual(routed, accel.calls.load(.monotonic) > before);
             p.expectFactor() catch |e| {
                 check.say("Accelerate's {s}potrf_\n", .{@typeName(T)});
                 return e;
