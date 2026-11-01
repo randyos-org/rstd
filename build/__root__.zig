@@ -41,6 +41,10 @@ pub fn addRstdModule(
     options.addOption(bool, "has_vulkan", vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
+    // Stock Zig rejects `@Matrix` even in a file it never analyzes, so the
+    // file spelling it is imported only by compilers that have it.
+    const matrix = if (@hasField(std.lang.Type, "matrix")) "native" else "fallback";
+    mod.addImport("rstd_matrix", b.createModule(.{ .root_source_file = b.path("src/linalg/_matrix/" ++ matrix ++ ".zig") }));
     try blaskern.addBlasKernels(b, mod, target, blas_cores, null);
     rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
     if (has_renderdoc) {
