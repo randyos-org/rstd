@@ -139,6 +139,10 @@ const Boot = union(enum) {
     };
 };
 
+/// Tier 4 (user, 2026-11-01): the images outgrow OpenBIOS's window faster
+/// than parts split them (todo.md T39).
+const sparc64_stub = "tier 4: its images outgrow OpenBIOS's 4 MiB window (rstd todo.md T39)";
+
 const machines = base_machines ++ x87Safe(&.{ "i386", "i386-max" }) ++ quad(&.{"aarch64"});
 
 /// `names` again as `<name>-safe`, in ReleaseSafe (T87): Debug stores every
@@ -432,6 +436,7 @@ const base_machines = [_]Machine{
     },
     .{
         .name = "sparc64",
+        .stub = sparc64_stub,
         .optimize = .fast,
         // OpenBIOS maps 0x400000 to 0x800000 only, and the default set's
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
@@ -466,6 +471,7 @@ const base_machines = [_]Machine{
         // sparc64 in debug, the mode the other rigs build in; its images are
         // larger, so blas3 is split too, and gemm's three test files apart
         .name = "sparc64-debug",
+        .stub = sparc64_stub,
         .optimize = .debug,
         .parts = &.{
             // blas1 in three, as two are past the window

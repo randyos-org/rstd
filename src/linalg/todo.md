@@ -62,17 +62,25 @@ ends at its first failing test and the sweep at its first failing step (`--keep-
 neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
 `apple_accel.zig`, the rigs' memory in design.md's Rigs, upstream causes in issues.md.
 
-- Tier 3: `t3a` to `t3i` at 5ddbd422, `--keep-going`, from 2026-11-01 10:38.
-
-- `ssh-test-x86_64-macos-avx2`'s first full run (worktree `rstd-wt/avx2`, d3fa4af4's code).
+- Tier 3: `t3a` to `t3i` at 5ddbd422, `--keep-going`, from 2026-11-01 10:38. So far `riscv64` and
+  `loongarch64` failed on a test bug (T142, fixed), `powerpc64le` and `-power10` do not compile
+  (T144), and sparc64 is tier 4 now (T39).
 
 - [ ] **T62** Main-merge gate: one full rig sweep on review plus the build checks, by tier. Tier 1
   passed 2026-10-31: `native` (`-Dblas-cores=all`) 963 passed, `x86_64-whpx` 643. Tier 2 passed
   by 2026-11-01 at what merged to main (5ddbd422, PR 6), but for the Intel Mac's steps
-  (`qemu-test-x86_64-macos`, T141), counted as passing until it arrives (user, 2026-11-01);
-  `ssh-test-x86_64-macos-avx2` is new and runs now. Tier 3 (`i386` and `rstd-test-x87` with
+  (`qemu-test-x86_64-macos`, T141), counted as passing until it arrives (user, 2026-11-01).
+  `ssh-test-x86_64-macos-avx2`, new, timed out (T143). Tier 3 (`i386` and `rstd-test-x87` with
   their ReleaseSafe forms, `wasm-test`, every other rig) runs once for the record, its failures
   to Known issues and enhancements. Check off once tier 3 is recorded.
+
+- [X] **T142** A write after free in "threaded symm, hemm, rank-k updates, trmm and trsm match the
+  serial loops' bits" on the `riscv64` and `loongarch64` rigs: `SafeAllocator` finds a freed
+  2240-byte block, 64-aligned (a driver's packing buffer), written at offset 0x140. The test's own
+  bug: `routineShapes` sized its matrices `2 * r + 2 * q + 8` square, but one side is `2 * p + um +
+  1`, 81 against 56 where `um` is 16 (`x280`, `la464`, `Complex(f32)`), so `C` ran over into the
+  heap. The BLAS was right. Fixed (`ld` from the largest side); the test passes on both rigs and
+  native.
 
 ## Queue
 
@@ -125,9 +133,18 @@ neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
 - [ ] **T114** Accelerate's `potrf` (T35), the timing part: in the timing session, whether routing
   beats rstd's threaded `potrf` (its correctness is checked: T62's `T114-<host>` steps).
 
+- [ ] **T143** `ssh-test-x86_64-macos-avx2` ends at the every-core `symm` test (847 of 1031):
+  silent past 60 s in the `atom` core's cases, busy in the test's wide reference, not hung
+  (`sample` on the Mac); the plain step passes it. Find why `ROSETTA_ADVERTISE_AVX` slows the
+  reference, or give the step a longer silence limit.
+
 ## Known issues and enhancements (after the MVP)
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
+
+- [ ] **T144** `powerpc64le` and `powerpc64le-power10` (ReleaseSafe) do not compile: LLVM cannot
+  select a `v1i128` bitcast of an `f128` load in `tridiag_evd.qrAlgorithm`
+  (`tridiag_evd.zig:163`, issues.md). Tier 3; no workaround in rstd. **Blocked:** upstream.
 
 - [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
   `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,
@@ -170,8 +187,7 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   tridiagonalization and Hessenberg passes with fixed chunks; make `sytrd`, `gehrd`, `hseqr`,
   `trevc` public; faer routines beyond what M2 needs (T123 has those): Cholesky rank-1 update,
   pivoted Cholesky, full-pivoting LU, `ggev`/`gges`; race `gesvd`/`gesdd` against OpenBLAS's LAPACK,
-  reference LAPACK and Eigen in the timing session (T73's bench); split sparc64-debug's
-  `lapack-faer` part (tier 3; `openblas-l1` at 0x3f3800 also pulls in `gesvd`, T39).
+  reference LAPACK and Eigen in the timing session (T73's bench).
 
 - [ ] **T121** ReLAPACK follow-ups (split from T118, 2026-10-30): a blocked `gbtrf` from LAPACK's
   `dgbtrf` (rstd runs the unblocked `xGBTF2`, since ReLAPACK's recursion is wrong); race faer's
@@ -216,11 +232,10 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
   `-Drelapack` switch; `trmm` at n = 64 (0.09 to 0.40 of OpenBLAS, busy machine). **Needs:** T06
   for threaded rows.
 
-- [ ] **T94** Fact-check items still open after T78: the sparc64 `-Oz` miscompile (needs a reduced
-  case on the sparc64 rig); the OpenBIOS 0x400000 to 0x800000 window (our observation; check
-  OpenBIOS's source); 32-bit x86 Windows threads starting at x87 0x27f (T03's observation; no
-  source, no test records it: add a test); "MKL leaves FTZ to the application" (from memory); Tegra
-  2 as VFPv3-D16 (a forum post only); `symmetric.zig`'s "4 elements of slack past each".
+- [ ] **T94** Fact-check items still open after T78: 32-bit x86 Windows threads starting at x87
+  0x27f (T03's observation; no source, no test records it: add a test); "MKL leaves FTZ to the
+  application" (from memory); Tegra 2 as VFPv3-D16 (a forum post only); `symmetric.zig`'s "4
+  elements of slack past each".
 
 - [ ] **T20** Kernel strategy: race `@Vector` against the converted assembly per core on a quiet
   machine (only vortex is done, `tools/blasbench/results-m6.md`); keep per-core code only where Zig
@@ -270,16 +285,15 @@ Not needed for the MVP (see Feature complete means): bugs off the RandyOS target
 - [ ] **T32** BLIS assembly kernels, decided per kernel where benchmarks favor them (BSD-3, with a
   license section and per-file provenance). **Needs:** T20.
 
-- [ ] **T39** `sparc64`: replace the image split with a real fix, mapping more memory at boot
-  through the Open Firmware client interface (claim and map), so one image fits. Until then, ten
-  sparc64-debug parts sit inside the window but above 0x3c0000 headroom: `openblas-l1` 0x3f3800,
-  `blas2-edge-complex-cores-2` 0x3f2300, `lapack-getrf` 0x3f1cc0, `openblas-cores-l2-complex`
-  0x3d99c0, `lapack-cholesky` 0x3d9000, `blas2-edge-complex` 0x3d4880, `blas3-kernel` 0x3c7000,
-  `blas2-gemv-cores` 0x3c3000, `openblas-blat2` 0x3c04c0, `blas2-edge-real` 0x3bca80 (T95's agent;
-  `scratchpad/sparcsplit/spans.py` reads them); split them before code growth pushes them over.
+- [ ] **T39** sparc64 is tier 4 (user, 2026-11-01): its images outgrew OpenBIOS's 0x400000 to
+  0x800000 window again (tier 3 at 5ddbd422: `blas3-tri` in ReleaseFast, 34 of 46 parts in Debug),
+  so both rigs are stubs (`build/qemutest.zig`) and out of the sweeps. Bringing it back needs a
+  real fix first: map more memory at boot through the Open Firmware client interface (claim and
+  map), so one image fits. Open there too: the `-Oz` miscompile (issues.md, needs a reduced case)
+  and the window itself (our observation; OpenBIOS's source unchecked).
 
 - [ ] **T71** Linux rigs with no item: loongarch64 (the `AT_HWCAP` LSX/LASX probe), big-endian
-  powerpc64 (`AT_PLATFORM`, the `64be` variant), sparc64, 32-bit mips.
+  powerpc64 (`AT_PLATFORM`, the `64be` variant), 32-bit mips.
 
 - [ ] **T41** `zrot_ppc440.S` (`ppc440fp2`) has a zero-stride patch no rig has run; no rig runs
   `ppc440` (it shares code with `ppcg4`). The 32-bit `ppc440` and `ppc440fp2` kernels rebuilt in

@@ -18,8 +18,9 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
   record; failures go to [`todo.md`](src/linalg/todo.md)'s Known issues and enhancements.
   Choices no rig can check follow OpenBLAS and BLIS where they agree
   ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
-- **Tier 4: unsupported or blocked.** No rig, or blocked upstream. Every target compiles with
-  the portable kernels at least; nothing more is promised. Each entry cites its item.
+- **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
+  target compiles with the portable kernels at least; nothing more is promised. Each entry cites
+  its item.
 
 ## Platforms
 
@@ -49,8 +50,8 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `mips64el`, `mips64`, `mipsel`, `mips` (freestanding) | 3 | | `mips64r2el`, `mips64r2`, `mips64r6el`, `mips64r6`, `mips32r2el`, `mips32r2`, `mips32r5el`, `mips32r5` |
 | `loongarch64-freestanding-none` | 3 | | `loongarch64` |
 | `s390x-freestanding-none` | 3 | | `s390x` |
-| `sparc64-freestanding-none` | 3 | | `sparc64`, `sparc64-debug` |
 | `wasm32-wasi` | 3 | | `wasm-test` (`wasm-test-simd128`, `wasm-test-portable`) |
+| `sparc64-freestanding-none` | 4 | | `sparc64`, `sparc64-debug`, out of the sweeps: their images outgrow OpenBIOS's 4 MiB window (T39) |
 | `sparc-freestanding-none` (32-bit) | 4 | | stub: lld cannot link 32-bit SPARC (T48) |
 | `x86-linux` | 4 | | `linux-i386` stub: TCG's x87 page-crossing bug (T49); `rstd-test-x87` runs it on an x86 Linux host, which is not at hand |
 | `s390x-linux`, `mips64el-linux` | 4 | | no rig: `zig fetch` of single files (T49) |
@@ -153,7 +154,6 @@ and every POWER core is tier 3.
 | riscv64 | `riscv64_zvl256b` | `riscv64-vlen256` |
 | riscv64 | `x280` | `riscv64`, `linux-riscv64` (VLEN 512) |
 | s390x | `z13`, `z14` | `s390x` |
-| sparc64 | `sparcv7`, `sparc` | `sparc64`, `sparc64-debug` |
 | wasm32 | `wasm128_generic` | `wasm-test-simd128` |
 
 ### Tier 4 cores
@@ -162,6 +162,7 @@ and every POWER core is tier 3.
 | --- | --- | --- |
 | `ppc440`, `ppc440fp2` | no rig runs a 440; compile-checked only | T41 |
 | `power10` in 32-bit POWER builds | the dev toolchain's LLVM cannot build 32-bit compiler-rt for it, so it does not link | T105 |
+| every sparc64 object | sparc64 is tier 4; its rigs are out of the sweeps | T39 |
 | every 32-bit SPARC object | lld cannot link 32-bit SPARC | T48 |
 | `c910v` (RISC-V) | no `xtheadvector` in LLVM; no object | [`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig) |
 | POWER BG/P (double FPU) | LLVM cannot assemble its instructions; not converted | [`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig) |

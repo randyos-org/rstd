@@ -650,7 +650,8 @@ fn routineShapes(comptime T: type, vt: *const Vtable, io: Io, r: Routine) !void 
     const tri = r == .trmm or r == .trsm;
     const ns = [_]usize{ 1, blk.un + 1, 2 * blk.p + blk.um + 1, blk.r + 1, 2 * blk.r + 3 };
     const ks = [_]usize{ 1, blk.q + 1, 2 * blk.q + 3 };
-    const ld = 2 * blk.r + 2 * blk.q + 8;
+    // past every side: `2 * p + um + 1` outgrows `r` on wide tiles (T142)
+    const ld = std.mem.max(usize, &ns) + 2 * blk.q + 8;
     const a = try al.alloc(T, ld * ld);
     defer al.free(a);
     const b = try al.alloc(T, ld * ld);

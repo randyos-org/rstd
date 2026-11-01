@@ -302,6 +302,15 @@ When an issue is fixed upstream, drop the workaround and its entry.
   > `0x3fff6a09e667f3bcc908b2fb1366ea95`. It should call `sqrt_f128`, as
   > `sqrtq` (`_Q_sqrt` on sparc32) does.
 
+### powerpc64le: LLVM cannot select a `v1i128` bitcast of an `f128` load
+
+- **Seen:** the tier 3 sweep at 5ddbd422 (Zig 0.18.0-dev.858), compiling the
+  `powerpc64le` and `powerpc64le-power10` rigs (ReleaseSafe, freestanding):
+  `LLVM ERROR: Cannot select: v1i128 = bitcast t5`, `t5` an `f128` load, at
+  `tridiag_evd.zig:163` (`diag[kk] < min`) in `qrAlgorithm`. LLVM aborts.
+- **Workaround:** none; the rigs do not build (todo.md T144).
+- **Issue text:** not ready; needs a reduced case first.
+
 ### powerpc64: FastISel uses FPR-only instructions on VSX v-registers
 
 - **Seen:** on the powerpc64le rigs (pwr9 and pwr10, Debug), every gemm test

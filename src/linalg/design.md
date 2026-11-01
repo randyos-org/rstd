@@ -2290,8 +2290,6 @@ The freestanding and UEFI machines (`build/qemutest.zig`):
 | `i386-safe`, `i386-max-safe` | as `i386`, `i386-max` | ReleaseSafe: Debug stores every value to memory, which hides x87 width bugs (T56's reductions failed only optimized) |
 | `aarch64-quad` | as `aarch64` | `quad_precision`: `XDouble` is `f128`, so the vtable's `q` and `x` slots get tested off x86 |
 | `x86_64` | `max` under TCG | |
-| `sparc64` | `sun4u` | ReleaseFast, in 14 images (OpenBIOS maps 4 MB of each) |
-| `sparc64-debug` | `sun4u` | Debug, in 46 images: every test, the parameter tests per family and the every-core OpenBLAS suites per level |
 | `powerpc64le`, `powerpc64le-power10` | `power9`, `power10` | ReleaseSafe: LLVM's FastISel bug ([`issues.md`](issues.md)) |
 | `powerpc64` | `power10` on `pseries` under VOF, big-endian | every 64-bit POWER core; Zig emits ELFv2 here too, so it boots as the little-endian rigs do; ReleaseSafe |
 | `powerpc` | G4 on `mac99`, OpenBIOS | the `ppcg4` core; builds in debug |
@@ -2317,7 +2315,8 @@ The Linux machines (`build/qemutest.zig`; `qemu-check-<machine>` builds one's in
 | `linux-powerpc64le-power10` | `power10` | built for `pwr10`: power10's kernels; ReleaseSafe, as the freestanding POWER rigs |
 
 Stubs with no step: `sparc` (32-bit; LLD cannot link 32-bit SPARC: LLVM 21.1.0 `lld/ELF/Arch`
-has `SPARCV9.cpp` only), `powerpc-macho` and
+has `SPARCV9.cpp` only), `sparc64` and `sparc64-debug` (`sun4u`, ReleaseFast and Debug in images
+OpenBIOS maps 4 MB of; tier 4, todo.md T39), `powerpc-macho` and
 `linux-i386` (TCG's x87 page-boundary bug). The big-endian rigs are `s390x`, `powerpc64`, and
 `mips64r2`, `mips64r6`, `mips32r2` and `mips32r5`. Every family has a rig that builds in debug.
 `-Dblas-cores` does not change what the rigs link.
@@ -2328,7 +2327,7 @@ Rig mechanics:
   with the number of failed tests; elsewhere the step checks the printed summary for
   "0 failed". Consoles log live to `.zig-cache/qemu-test-<name>.log`. `-Dfail-fast` ends a rig
   at its first failing test (`tools/qemu_watch.zig`, the SSH steps too; not the macOS VM).
-- **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemutest.zig:333`; OpenBIOS's source not checked), so the sparc64 rigs split
+- **Images.** OpenBIOS on `sun4u` maps 0x400000 to 0x800000 only (seen on the rig, `build/qemutest.zig:333`; OpenBIOS's source not checked), so the sparc64 rigs (stubs now) split
   their tests into images by filter (`parts` in `build/qemutest.zig`), and the build, under
   `qemu-check` too, fails an image whose loaded span is past that window (`load_window`,
   `tools/load_window.zig`). `-Dqemu-test-part=<part>` builds and runs only that image.
