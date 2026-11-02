@@ -428,7 +428,8 @@ const skylakex = @import("x86_64/kernel.zig");
 /// Skylake-X's element `(i, j)` of an `m x n x k` problem of `op` (`"nn"`
 /// ...), as upstream computes it: the depth in order, fused, except in the
 /// dot blocks (`L` lanes, the masked tail, `REDUCE_4` or
-/// `_mm512_reduce_add`); then the store.
+/// `_mm512_reduce_add`); then the store. Fused as the kernel's `fma.madd`
+/// does: not without an FMA instruction (a baseline x86_64 build, T154).
 fn skylakexModel(comptime T: type, comptime op: []const u8, b0: bool, m: usize, n: usize, k: usize, a: []const T, ld: usize, b: []const T, alpha: T, beta: T, c: T, i: usize, j: usize) T {
     const L = skylakex.Skylakex(T).lanes;
     const ta = op[0] == 't';
@@ -444,7 +445,7 @@ fn skylakexModel(comptime T: type, comptime op: []const u8, b0: bool, m: usize, 
     const start: ?usize = if (ta and !tb) 0 else if (!ta and !tb and mm > 0 and mm <= L / 2 and k >= 2 * L) m - mm else null;
     const fused = struct {
         fn f(x: T, y: T, z: T) T {
-            return @mulAdd(T, x, y, z);
+            return fma.madd(true, T, x, y, z);
         }
     }.f;
     if (start == null or i < start.?) {
