@@ -53,7 +53,7 @@ or a scratchpad.
 
 M3, step 2 of design.md's migration plan: `StaticMat`, inline up to `L`, real and complex
 (`mul`, `transpose`, `outer`, `det`, `inv`, `solve`, their `...Into` forms) on `rstd_matrix`;
-shaderlib's `Mat2` to `Mat4`. T62's last runs are In the background.
+shaderlib's `Mat2` to `Mat4`.
 
 ### In the background
 
@@ -63,25 +63,7 @@ ends at its first failing test and the sweep at its first failing step (`--keep-
 neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
 `apple_accel.zig`, the rigs' memory in design.md's Rigs, upstream causes in issues.md.
 
-- Tier 3: `t3a` to `t3i` at 5ddbd422, `--keep-going`, from 2026-11-01 10:38. So far `riscv64` and
-  `loongarch64` failed on a test bug (T142, fixed), `powerpc64le` and `-power10` do not compile
-  (T144), and sparc64 is tier 4 now (T39).
-
-- [ ] **T62** Main-merge gate: one full rig sweep on review plus the build checks, by tier. Tier 1
-  passed 2026-10-31: `native` (`-Dblas-cores=all`) 963 passed, `x86_64-whpx` 643. Tier 2 passed
-  by 2026-11-01 at what merged to main (5ddbd422, PR 6), but for the Intel Mac's steps
-  (`qemu-test-x86_64-macos`, T141), counted as passing until it arrives (user, 2026-11-01).
-  `ssh-test-x86_64-macos-avx2`, new, timed out (T143). Tier 3 (`i386` and `rstd-test-x87` with
-  their ReleaseSafe forms, `wasm-test`, every other rig) runs once for the record, its failures
-  to Known issues and enhancements. Check off once tier 3 is recorded.
-
-- [X] **T142** A write after free in "threaded symm, hemm, rank-k updates, trmm and trsm match the
-  serial loops' bits" on the `riscv64` and `loongarch64` rigs: `SafeAllocator` finds a freed
-  2240-byte block, 64-aligned (a driver's packing buffer), written at offset 0x140. The test's own
-  bug: `routineShapes` sized its matrices `2 * r + 2 * q + 8` square, but one side is `2 * p + um +
-  1`, 81 against 56 where `um` is 16 (`x280`, `la464`, `Complex(f32)`), so `C` ran over into the
-  heap. The BLAS was right. Fixed (`ld` from the largest side); the test passes on both rigs and
-  native.
+None running.
 
 ## Queue
 
@@ -90,8 +72,9 @@ neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
   `StaticMat(R, C, T)` (comptime shape, a value) and unmanaged `Mat(T)` (run-time shape),
   real and complex, one operation set over views, inline `@Vector` code up to 8 per dimension and
   the BLAS and LAPACK above by size alone, SPIR-V's own instructions in shaders; `rstd.simd`'s
-  vector math and its callers (moved in step 1; the module removed); its migration plan's seven steps, each a commit;
-  `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`; `@Matrix`
+  vector math and its callers (moved in step 1; the module removed); its migration plan's seven
+  steps, each a commit; `src/linalg/readme.md`, the layer's user guide, linking down to
+  `blas/readme.md`; `@Matrix`
   through `rstd_matrix` as M7 settled (decisions 13 to 19), with the pffft primitives (rstd's
   N10). Step 1 done 2026-11-01. **Needs:** nothing (M1, S1, M5, M7, T139 done); M4 confirms the
   inline limit after step 4.
@@ -144,9 +127,39 @@ neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
 
 Not needed for the MVP (see Feature complete means): bugs off the RandyOS targets, best-effort ports and rigs, follow-ups, tuning, optional work and Blocked items. Picked up after the MVP, in this order.
 
-- [ ] **T144** `powerpc64le` and `powerpc64le-power10` (ReleaseSafe) do not compile: LLVM cannot
-  select a `v1i128` bitcast of an `f128` load in `tridiag_evd.qrAlgorithm`
+- [ ] **T144** `powerpc64le`, `powerpc64le-power10` (ReleaseSafe) and `powerpc64` do not
+  compile: LLVM cannot select a `v1i128` bitcast of an `f128` load in `tridiag_evd.qrAlgorithm`
   (`tridiag_evd.zig:163`, issues.md). Tier 3; no workaround in rstd. **Blocked:** upstream.
+
+- [ ] **T152** `linux-powerpc64le-power10`: six LAPACK tests fail in `Complex(f32)` at denormal
+  or tiny scales: `getrf`'s denormal pivot (dividing by 1.1e-44 gives `inf`, `nan`), `syevd`,
+  `gees` at scale 1e-30, `gesvd` (NoConvergence), `gels` (Singular), the evd NaN test. The
+  power9 rig (`linux-powerpc64le`) passes them all: likely power10 code (LLVM or QEMU) flushing
+  or overflowing in the complex division. Not traced. Tier 3.
+
+- [ ] **T145** x87, Debug only (`i386`, `rstd-test-x87`; the ReleaseSafe forms pass): "geev on
+  special matrices" fails `f64` n = 2 kind 3, the rotation `[0 -1; 1 0]`: an eigenvalue's
+  `x[kbig].im` is past `tolerance(F, n, 1)` (`evd.zig:852`). Likely `f80` intermediates in the
+  2 x 2 standardization; not traced. Tier 3.
+
+- [ ] **T146** x87 (`rstd-test-x87`): matlab's `rat` loses precision (22/7 comes back with
+  numerator 3.14306640625; 3.1416015625 for π, `rat.zig:47`, `:55`), and `base` renders the
+  wrong digits (`base.zig:75`). Not traced; M6 reworks both. Tier 3.
+
+- [ ] **T147** "the registry read works on Windows" (`_detect/arm64.zig:1011`) fails on the
+  32-bit `rstd-test-x87`: `InstallTime` is missing, likely from WOW64's 32-bit view of
+  `HKLM\SOFTWARE` (`KEY_WOW64_64KEY` reads the native one). Matters for 32-bit arm Windows
+  detection too. Tier 3.
+
+- [ ] **T148** Big-endian MSA (`mips32r5`'s `p5600`): `util.abs` clears the low word's top bit
+  of an `f64` instead of its sign (`|x|` off by 2^-22 relative, `-inf` kept), so `amax`, `amin`,
+  `iamax`, `iamin`, `nrm2`, blat1 and utest fail, and `getrf` pivots wrong (`|L| > 1`). The `f64`
+  to `@Vector(n, u32)` bitcast's lane order on big-endian MSA is the likely cause; a mask in
+  `F`-wide lanes avoids it. `mips64r6` fails the same `getrf` tests (its run ends at T149 before
+  the level-1 ones); the little-endian rigs pass. Tier 3.
+
+- [ ] **T149** MIPS R6 (`mips64r6`, `mips64r6el`): "3m: the three passes' copies and kernel give
+  the complex product" panics with integer overflow (no stack on the rig). Not traced. Tier 3.
 
 - [ ] **T136** Evaluate the x86_64 `peels` slots (`vector.peeling`: `asum`, `sum`, `ddot`, `cdot*`,
   `zdot*`, `dgemv_n`), whose converted assembly (`asum_sse*.S`, `zasum_*.S`, `zsum_sse*.S`,
@@ -397,6 +410,19 @@ Cleared 2026-11-01; landed work is in `review`'s log.
   instruction does, `rsimd.mulAdd` by the setting alone. Fixes `f64` fusing as a libm call on
   single-precision-only FMA (arm `vfp4sp`, riscv and loongarch with F but not D). `fma.madd`
   no longer takes a software `fma` for `f80`, and WebAssembly's vectors no longer fuse.
+- [X] **T62** Main-merge gate, 2026-11-01: tier 1 (`native` `-Dblas-cores=all` 963 passed,
+  `x86_64-whpx` 643) and tier 2 passed at what merged to main (5ddbd422, PR 6), the Intel Mac's
+  steps counted as passing until it arrives (T141; user, 2026-11-01);
+  `ssh-test-x86_64-macos-avx2` timed out (T143). Tier 3 recorded at 5ddbd422 and 794b0eba,
+  its failures in Known issues and enhancements (T144 to T149, T152); sparc64 is tier 4 (T39).
+- [X] **T142** "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops' bits"
+  wrote after free on `riscv64` and `loongarch64`: the test's `routineShapes` sized `C` from the
+  wrong side (`2 * p + um + 1` is larger). Fixed (`ld` from the largest side); the BLAS was
+  right.
+- [X] matlab's `blas1.zig` is `scalar.zig` (78718468, 2026-11-01): `cabs1`, `pythag` and `wmul`
+  are the BLAS's `cabs1`, `std.math.hypot` and `Complex.mul`.
+- [X] `rstd.simd` removed (e7eceacf, 2026-11-01): its vector math is `linalg.vector`'s (M3 step
+  1), its reductions had no caller, and `axpy` calls `std.simd.suggestVectorLength`.
 
 ## After the BLAS is feature complete
 
@@ -404,6 +430,17 @@ Cleared 2026-11-01; landed work is in `review`'s log.
   to 16 per operation and type (`dot`, `length`, `mul` matrix by vector and by matrix, `solve`), on
   the M6 and Zen 3 under their timing rules: confirm the inline limit of 8 (design.md, the public
   layer's Dispatch) or move it. **Needs:** M3's step 4.
+
+- [ ] **T150** Sparse matrices (design.md, "Planned: sparse matrices"; Randy ChatGPT
+  discussions): decide with the user whether the kernels live in `rstd.linalg` or stay in
+  srapnol's `src/sparse.zig` (its DES-012), then build CSC with `A x`, `Aᵀ y`, sparse `axpy` and
+  `dot`, `scal`, submatrix extraction, Gustavson `spgemm` (symbolic and numeric) and sparse
+  triangular solves, bit-identical for any thread count. **Needs:** that decision.
+
+- [ ] **T151** Time CSC `A x` and `Aᵀ y` against dense `gemv` over fill (1% to 60%), size (100 to
+  10 000) and pattern (random, banded) on the M6 and Zen 3: the crossover for a dense-or-sparse
+  switch (ChatGPT's 20% to 30% cites no source), and whether AVX2's gather beats scalar loads for
+  `Aᵀ y` (Randy ChatGPT discussions). **Needs:** T150.
 
 ## SPIR-V: vector math in shaders
 

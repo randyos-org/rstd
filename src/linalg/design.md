@@ -3,8 +3,8 @@
 This document specifies how rstd's linear algebra is structured. Most of it is the BLAS: its
 requirements, the layers from the public interface down to the per-core kernels, how a core is
 detected and selected, where every kernel comes from, and how all of it is tested. Then LAPACK,
-the matlab port's audit and the planned public `rstd.linalg` layer, and the decisions behind all
-of them. It describes the code as it is, and says "Planned" where it is not. BLAS usage is in
+the matlab port's audit, the planned public `rstd.linalg` layer and sparse matrices, and the
+decisions behind all of them. It describes the code as it is, and says "Planned" where it is not. BLAS usage is in
 [`readme.md`](blas/readme.md), threading in [`threading.md`](blas/threading.md), problems in other
 projects in [`issues.md`](issues.md), and the numerical decisions measured against BLIS and the
 reference in [`comparisons.md`](blas/comparisons.md).
@@ -1353,6 +1353,38 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
 19. **Conversions** to and from `[C][R]T` and `[C]@Vector(R, T)` are `StaticMat` functions;
     the fork's compiler stays as it is.
 
+### Planned: sparse matrices
+
+Neither decided nor scheduled (todo.md, T150 and T151): the 2025 discussions behind SRAPNOL, as
+corrected on review (Randy ChatGPT discussions).
+
+- **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and
+  `Aᵀ y`, sparse `axpy` and `dot` against a dense vector, `scal`, submatrix extraction,
+  symbolic and numeric `spgemm`, and triangular solves with sparse `L` and `U`. NIST's Sparse
+  BLAS reference calls no dense BLAS, so the dense kernels are not reused.
+- **Storage: CSC.** Sorted row indices per column and `n + 1` column pointers; the index type is
+  a comptime parameter. `A x` is one `axpy` per column, scattering into `y`; `Aᵀ y` is one dot
+  per column, gathering, the form an active-set method's pricing (`g_N - Nᵀ π`) uses.
+  srapnol's DES-012 makes the same choice.
+- **SIMD.** Only the contiguous value runs vectorize. AVX2 gathers but cannot scatter, NEON does
+  neither: scatters stay scalar, and a gather is used where measured faster than scalar loads.
+- **Threads.** `Aᵀ y` splits by columns without conflict. `A x` races on `y`, so its column
+  split is fixed by the problem size and the partial `y`s are summed in a fixed order, as level 3
+  fixes its partition ([Requirements](#requirements), reproducibility).
+- **`spgemm`.** Gustavson's column form, `C(:, j) = Σ_k B(k, j) A(:, k)`, reads only columns,
+  so neither operand is transposed. A symbolic pass (the Boolean product of the patterns) sizes
+  `C`; the numeric pass reuses it while the patterns hold, as a solver's Jacobian does.
+- **Dense or sparse.** `f64` values with `u32` indices cost 12 bytes per nonzero, so memory
+  breaks even at two-thirds fill; time breaks even far lower, at a fill to be measured before
+  any automatic switch.
+- **Bucketed linear COO, not chosen.** One linear index `row + col * nrows` per entry, sorted
+  column-major, with `{col, start}` every 128 columns instead of column pointers. Both store one
+  index per nonzero, so it saves only the `n + 1` pointers; a `u32` linear index caps
+  `nrows * ncols` below 2³², past which `u64` doubles every index; a row costs a division per
+  entry; finding column `k` scans a bucket. Its target, columns far outnumbering nonzeros, is
+  hypersparse storage (DCSC; Buluç and Gilbert, IPDPS 2008), one of SuiteSparse:GraphBLAS's
+  formats, as is the whole-matrix bitmap also considered.
+
 ### The matlab port against the modern BLAS and LAPACK
 
 M1's audit (2026-10-30) of `rstd.linalg.matlab` (`src/linalg/matlab/`, about 6,200 lines:
@@ -2132,6 +2164,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | `std.math.Complex` returns from kernels | Automatic layout cannot be a C return type; `CComplex` is an `extern struct` |
 | Fortran `INTEGER` sizes | No Fortran ABI; `isize` addresses any array that fits in memory |
 | Hand-editing converted kernels | Edits would be lost on regeneration; patches on the upstream text fail loudly when they stop matching |
+| Bindings to a vendor BLAS picked by CPU vendor at build time: MKL on Intel, Accelerate on Apple, BLIS otherwise (Randy ChatGPT discussions, 2025) | One native port serves every target, freestanding and UEFI included, under one numerical contract; Accelerate stays as a run-time route on macOS |
+| One static executable per backend, behind a launcher (Randy ChatGPT discussions, 2025) | The eager vtable makes run-time selection one indirect call per kernel, so one binary serves every core |
 
 ## Verification
 

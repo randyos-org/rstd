@@ -163,6 +163,7 @@ Bsvd
 bufs
 buildah
 buildutils
+Buluç
 bvec
 bwork
 bytecode
@@ -323,6 +324,7 @@ dcigettext
 dcimgui
 DCMX
 dcngettext
+DCSC
 ddot
 decl
 deconverge
@@ -1995,6 +1997,7 @@ softfp
 somatcopy
 sparcv
 spffrtx
+spgemm
 sphimp
 sphtext
 Spirv
@@ -2007,6 +2010,7 @@ sqrtq
 squareish
 sradi
 srai
+SRAPNOL
 srawi
 srcs
 srdi
