@@ -27,6 +27,110 @@ pub fn StaticMat(comptime R: comptime_int, comptime C: comptime_int, comptime T:
         pub const rows = R;
         pub const cols = C;
         pub const Element = T;
+
+        /// A view of `m`'s storage, valid while `m` is.
+        pub fn view(m: *@This()) View(T) {
+            const flat: *[C * R]T = @ptrCast(&m.data);
+            return .{ .data = flat, .rows = R, .cols = C, .ld = R };
+        }
+
+        pub fn constView(m: *const @This()) ConstView(T) {
+            const flat: *const [C * R]T = @ptrCast(&m.data);
+            return .{ .data = flat, .rows = R, .cols = C, .ld = R };
+        }
+    };
+}
+
+/// A borrowed `rows` by `cols` matrix in `data`, column-major with column
+/// stride `ld` (`data[i + j * ld]`): all or part of a `Mat`, a `StaticMat`
+/// or the caller's storage. `ConstView` is its read-only form.
+pub fn View(comptime T: type) type {
+    return ViewOf(T, false);
+}
+
+pub fn ConstView(comptime T: type) type {
+    return ViewOf(T, true);
+}
+
+fn ViewOf(comptime T: type, comptime read_only: bool) type {
+    return struct {
+        data: if (read_only) []const T else []T,
+        rows: usize,
+        cols: usize,
+        ld: usize,
+
+        const Self = @This();
+        pub const Element = T;
+
+        /// `error.DimensionMismatch` for `ld < rows`, `error.SliceTooShort`
+        /// when `data` ends before the last element.
+        pub fn init(data: @FieldType(Self, "data"), rows: usize, cols: usize, ld: usize) error{ DimensionMismatch, SliceTooShort }!Self {
+            if (ld < @max(rows, 1)) return error.DimensionMismatch;
+            if (rows > 0 and cols > 0 and data.len < (cols - 1) * ld + rows) return error.SliceTooShort;
+            return .{ .data = data, .rows = rows, .cols = cols, .ld = ld };
+        }
+
+        pub fn at(v: Self, i: usize, j: usize) T {
+            return v.data[i + j * v.ld];
+        }
+
+        /// Rows `i..i + rows`, columns `j..j + cols`, sharing `v`'s storage.
+        pub fn sub(v: Self, i: usize, j: usize, rows: usize, cols: usize) error{DimensionMismatch}!Self {
+            if (i + rows > v.rows or j + cols > v.cols) return error.DimensionMismatch;
+            const start = if (rows > 0 and cols > 0) i + j * v.ld else 0;
+            const end = if (rows > 0 and cols > 0) start + (cols - 1) * v.ld + rows else 0;
+            return .{ .data = v.data[start..end], .rows = rows, .cols = cols, .ld = v.ld };
+        }
+
+        /// Column `j`, contiguous.
+        pub fn col(v: Self, j: usize) @FieldType(Self, "data") {
+            return v.data[j * v.ld ..][0..v.rows];
+        }
+
+        pub fn constView(v: Self) ConstView(T) {
+            return .{ .data = v.data, .rows = v.rows, .cols = v.cols, .ld = v.ld };
+        }
+    };
+}
+
+/// A `rows` by `cols` matrix on the heap, packed column-major (`ld = rows`),
+/// unmanaged as `std.ArrayList`: freed with `deinit` on the allocator
+/// that made it.
+pub fn Mat(comptime T: type) type {
+    return struct {
+        data: []T,
+        rows: usize,
+        cols: usize,
+
+        const Self = @This();
+        pub const Element = T;
+
+        /// Elements undefined.
+        pub fn init(allocator: std.mem.Allocator, rows: usize, cols: usize) std.mem.Allocator.Error!Self {
+            return .{ .data = try allocator.alloc(T, rows * cols), .rows = rows, .cols = cols };
+        }
+
+        pub fn zeros(allocator: std.mem.Allocator, rows: usize, cols: usize) std.mem.Allocator.Error!Self {
+            const m = try init(allocator, rows, cols);
+            @memset(m.data, eZero(T));
+            return m;
+        }
+
+        pub fn deinit(m: Self, allocator: std.mem.Allocator) void {
+            allocator.free(m.data);
+        }
+
+        pub fn at(m: Self, i: usize, j: usize) T {
+            return m.data[i + j * m.rows];
+        }
+
+        pub fn view(m: Self) View(T) {
+            return .{ .data = m.data, .rows = m.rows, .cols = m.cols, .ld = @max(m.rows, 1) };
+        }
+
+        pub fn constView(m: Self) ConstView(T) {
+            return .{ .data = m.data, .rows = m.rows, .cols = m.cols, .ld = @max(m.rows, 1) };
+        }
     };
 }
 
@@ -65,7 +169,7 @@ inline fn toNative(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).co
 // first product and fuses the rest as `mulAdd` says; a complex product adds
 // `re re` then `-im im`, and `re im` then `im re`.
 
-inline fn eZero(comptime T: type) T {
+pub inline fn eZero(comptime T: type) T {
     return if (comptime isComplex(T)) T.init(0, 0) else 0;
 }
 
@@ -73,7 +177,7 @@ inline fn eOne(comptime T: type) T {
     return if (comptime isComplex(T)) T.init(1, 0) else 1;
 }
 
-inline fn eMul(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
+pub inline fn eMul(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
     const T = @TypeOf(x);
     if (comptime !isComplex(T)) return x * y;
     const R = Real(T);
@@ -84,7 +188,7 @@ inline fn eMul(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
 }
 
 /// `acc + x y`.
-inline fn eMulAdd(x: anytype, y: @TypeOf(x), acc: @TypeOf(x)) @TypeOf(x) {
+pub inline fn eMulAdd(x: anytype, y: @TypeOf(x), acc: @TypeOf(x)) @TypeOf(x) {
     const T = @TypeOf(x);
     if (comptime !isComplex(T)) return mulAdd(T, x, y, acc);
     const R = Real(T);
@@ -110,7 +214,7 @@ inline fn eNeg(x: anytype) @TypeOf(x) {
     return if (comptime isComplex(@TypeOf(x))) x.neg() else -x;
 }
 
-inline fn eConj(x: anytype) @TypeOf(x) {
+pub inline fn eConj(x: anytype) @TypeOf(x) {
     return if (comptime isComplex(@TypeOf(x))) x.conjugate() else x;
 }
 

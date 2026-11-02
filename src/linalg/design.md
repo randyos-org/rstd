@@ -1221,10 +1221,10 @@ views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are be
 | Function | Result | Backed by | Errors |
 | --- | --- | --- | --- |
 | `dot(io, x, y)` | `T` (`xᴴ y` for complex) | `dot`, `dotc` | `DimensionMismatch` |
-| `norm(io, x)`, `sum`, `max`, `min` | `norm` the 2-norm of a dynamic vector; scalars | `nrm2`, `sum`, `extreme` | |
-| `axpy(io, a, x, y)`, `scale(io, a, x)` | in place | `axpy`, `scal` | `DimensionMismatch` |
+| `norm(io, x)`, `sum`, `max`, `min` | `norm` the 2-norm of a dynamic vector; scalars (`max`, `min` real only, 0 when empty) | `nrm2`, `sum` (complex: its real and imaginary parts apart), `extreme`; inline up to `L` | `DimensionMismatch` |
+| `axpy(io, a, x, y)`, `scale(a, x)` | in place | `axpy`; `scale` inline at every size (Dispatch: element-wise), as `linalg.matrix.scale` | `DimensionMismatch` (`axpy`) |
 | `mul(allocator, io, a, b)`, `mulInto(allocator, io, out, a, b)` | `Mat`, or into `out` | `gemm`; `gemv` for a vector; inline up to `L` | `DimensionMismatch` |
-| `transpose`, `ctranspose` | `Mat` | `omatcopy` | |
+| `transpose`, `ctranspose` (and `...Into(io, out, a)`) | `Mat` | `omatcopy` | `DimensionMismatch` (`...Into`) |
 | `solve(allocator, io, a, b)` | `Mat`: `A \ B` | triangular: `trtrs`; Hermitian with a positive real diagonal: `potrf`, `potrs`, LU if not positive definite; square: `gesv`; rectangular: `gelsy` (QR with column pivoting, as MATLAB) | `DimensionMismatch`, `Singular` |
 | `lu` | `Lu` (factors, `ipiv`, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its `error.Singular` becomes `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
 | `chol` | `Mat` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
@@ -1304,7 +1304,12 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    zero pivot). The `...Into` forms take no `allocator` or `io` until step 4. Shaderlib's
    products already lower to SPIR-V's matrix instructions through `@Matrix` (step 5's, for them).
 3. **Views and `Mat`:** `View`, `ConstView`, `Mat`; the dynamic functions over views, with
-   the run-time switch into the inline kernels up to `L`.
+   the run-time switch into the inline kernels up to `L`. In three parts (todo.md, user,
+   2026-11-02): M10 the types (in `matrix.zig`) and the BLAS-backed basics (`dense.zig`, flat at
+   `rstd.linalg`; done 2026-11-02, `L` a constant 8 until M11), M17 the solves and
+   factorizations, M18 the SVD and eigen family. An operand is a view, a `Mat`, a pointer to a
+   `StaticMat` or a slice; up to `L`, `dot`, `norm`, `sum`, `max` and `min` call
+   `linalg.vector`'s forms and `mulInto` repeats `linalg.matrix.mul`'s order, to their bits.
 4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's
    `Options`; both paths tested. M4 then times them and confirms `L`.
 5. **SPIR-V forms;** shaderlib's aliases (S2).

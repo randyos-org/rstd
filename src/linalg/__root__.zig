@@ -4,6 +4,31 @@ pub const matrix = @import("matrix.zig");
 pub const blas = @import("blas/__root__.zig");
 pub const lapack = @import("lapack/__root__.zig");
 
+// the public layer (design.md, "Planned: the public `rstd.linalg` layer"):
+// its types, and `dense.zig`'s run-time-shape functions, flat
+const dense = @import("dense.zig");
+pub const Vec = vector.Vec;
+pub const StaticMat = matrix.StaticMat;
+pub const Mat = matrix.Mat;
+pub const View = matrix.View;
+pub const ConstView = matrix.ConstView;
+pub const VectorError = dense.VectorError;
+pub const MulError = dense.MulError;
+pub const TransposeError = dense.TransposeError;
+pub const dot = dense.dot;
+pub const norm = dense.norm;
+pub const sum = dense.sum;
+pub const max = dense.max;
+pub const min = dense.min;
+pub const axpy = dense.axpy;
+pub const scale = dense.scale;
+pub const mul = dense.mul;
+pub const mulInto = dense.mulInto;
+pub const transpose = dense.transpose;
+pub const ctranspose = dense.ctranspose;
+pub const transposeInto = dense.transposeInto;
+pub const ctransposeInto = dense.ctransposeInto;
+
 test {
     const zigstd = @import("../zigstd.zig");
     zigstd.testRefAllDecls(@This());
