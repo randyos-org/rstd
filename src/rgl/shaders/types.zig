@@ -1,13 +1,12 @@
 const std = @import("std");
 const spirv = std.spirv;
 
-const rsimd = @import("../../simd/__root__.zig");
-const zigvec = rsimd.zigvec;
+const vec = @import("../../linalg/__root__.zig").vector;
 
-pub const V2f32 = zigvec.V2f32;
-pub const V3f32 = zigvec.V3f32;
-pub const V4f32 = zigvec.V4f32;
-pub const splatVec = zigvec.splatVecF32;
+pub const V2f32 = vec.V2f32;
+pub const V3f32 = vec.V3f32;
+pub const V4f32 = vec.V4f32;
+pub const splat = vec.splat;
 
 pub const ShaderStage = @import("../../buildutils/shadertypes.zig").Stage;
 

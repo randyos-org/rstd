@@ -9,8 +9,7 @@
 
 const std = @import("std");
 
-const rsimd = @import("../../simd/__root__.zig");
-const mulAdd = rsimd.mulAdd;
+const mulAdd = @import("../vector.zig").mulAdd;
 
 pub const Cx = std.math.Complex(f64);
 

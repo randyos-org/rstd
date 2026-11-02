@@ -1,42 +1,10 @@
-//! Generic vector-math routines shared by every consumer that works with
-//! `@Vector` types, regardless of component count or scalar type - CPU-side
-//! geometry math builds its domain-specific API on top of these instead of
-//! keeping its own copy of the same handful of formulas.
+//! SIMD widths and reductions. The vector math (`mix`, `mulAdd`, `dot` and
+//! the rest) is `linalg.vector`'s.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
-const blas_fma = @import("../linalg/blas/fma.zig");
 
 pub const zigvec = @import("zigvec.zig");
 pub const reduce = @import("reduce.zig");
-
-/// Linear interpolation, generic over `a`/`b` being a scalar or a vector,
-/// and `t` being a scalar or a per-component vector weight.
-pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
-    const BaseType = @TypeOf(a, b);
-    const WeightType = @TypeOf(t);
-    const weight_info = @typeInfo(WeightType);
-    switch (@typeInfo(BaseType)) {
-        .float, .comptime_float => {
-            if (weight_info != .float and weight_info != .comptime_float)
-                @compileError("Invalid weight type, float base types require float weight types");
-            return mulAdd(@TypeOf(a, b), 1 - t, a, t * b);
-        },
-        .vector => {
-            const weight: BaseType = if (weight_info == .vector) t else @splat(t);
-            const one: BaseType = @splat(1);
-            return mulAdd(@TypeOf(a, b), one - weight, a, weight * b);
-        },
-        else => @compileError("Invalid base type, only floats and their vectors are supported"),
-    }
-}
-
-/// Multiply-add, fused or not as the root's `std_float_options` says
-/// (`zigcfg.FloatOptions`; by default where the target fuses in hardware),
-/// as the fork's `@Matrix` products are (`linalg/blas/fma.zig`'s `mulAdd`).
-pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    return blas_fma.mulAdd(T, a, b, c);
-}
 
 /// Preferred SIMD vector length (element count, not bits) for `T` on the
 /// compile target -- e.g. 2 for `f64` on plain SSE2, 8 once AVX-512 is in
@@ -56,11 +24,6 @@ pub fn vectorLen(comptime T: type) comptime_int {
 }
 
 const zigstd = @import("../zigstd.zig");
-
-test "mulAdd matches plain arithmetic regardless of which path it takes" {
-    try zigstd.testExpectEqual(@as(f64, 14.0), mulAdd(f64, 2.0, 3.0, 8.0));
-    try zigstd.testExpectEqual(@as(f32, 14.0), mulAdd(f32, 2.0, 3.0, 8.0));
-}
 
 test {
     zigstd.testRefAllDecls(@This());

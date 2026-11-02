@@ -7,7 +7,7 @@ const mix = math.mix;
 const dot = math.dot;
 const cross = math.cross;
 const normal = math.normal;
-const splatV2f64 = math.splatV2f64;
+const splat = math.splat;
 
 const aux_types = @import("../aux_types.zig");
 const V2f64 = aux_types.V2f64;
@@ -73,8 +73,8 @@ pub fn create(p0: V2f64, p1: V2f64, maybe_p2: ?V2f64, maybe_p3: ?V2f64, color: E
         if (cross(p1 - p0, p12) == 0.0 and cross(p12, p3 - p2) == 0.0)
             return createLinear(p0, p3, color);
 
-        p12 = p1 * splatV2f64(1.5) - p0 * splatV2f64(0.5);
-        if (std.meta.eql(p12, p2 * splatV2f64(1.5) - p3 * splatV2f64(0.5)))
+        p12 = p1 * splat(1.5) - p0 * splat(0.5);
+        if (std.meta.eql(p12, p2 * splat(1.5) - p3 * splat(0.5)))
             return createQuadratic(p0, p12, p3, color);
 
         return createCubic(p0, p1, p2, p3, color);
@@ -203,10 +203,10 @@ pub fn signedDistance(self: EdgeSegment, origin: V2f64) struct { SignedDist, Poi
                 .d = dot(qa, ab),
             })) |root|
                 if (root > 0.0 and root < 1.0) {
-                    const qe = qa + ab * splatV2f64(root * 2.0) + br * splatV2f64(root * root);
+                    const qe = qa + ab * splat(root * 2.0) + br * splat(root * root);
                     dist = math.length(qe);
                     if (dist < @abs(min_dist)) {
-                        min_dist = math.nonZeroSign(cross(ab + br * splatV2f64(root), qe)) * dist;
+                        min_dist = math.nonZeroSign(cross(ab + br * splat(root), qe)) * dist;
                         point_pos = .fromNormalized(root);
                     }
                 };
@@ -253,14 +253,14 @@ pub fn signedDistance(self: EdgeSegment, origin: V2f64) struct { SignedDist, Poi
                 var t = fi / cubic_starts;
 
                 var qe = qa +
-                    ab * splatV2f64(t * 3.0) +
-                    br * splatV2f64(t * t * 3.0) +
-                    as * splatV2f64(t * t * t);
-                var cd1 = ab * splatV2f64(3.0) +
-                    br * splatV2f64(t * 6.0) +
-                    as * splatV2f64(t * t * 3.0);
-                var cd2 = br * splatV2f64(6.0) +
-                    as * splatV2f64(t * 6.0);
+                    ab * splat(t * 3.0) +
+                    br * splat(t * t * 3.0) +
+                    as * splat(t * t * t);
+                var cd1 = ab * splat(3.0) +
+                    br * splat(t * 6.0) +
+                    as * splat(t * t * 3.0);
+                var cd2 = br * splat(6.0) +
+                    as * splat(t * 6.0);
 
                 var next_t = t - dot(qe, cd1) / (dot(cd1, cd1) + dot(qe, cd2));
                 if (next_t > 0.0 and next_t < 1.0) {
@@ -268,14 +268,14 @@ pub fn signedDistance(self: EdgeSegment, origin: V2f64) struct { SignedDist, Poi
                         t = next_t;
 
                         qe = qa +
-                            ab * splatV2f64(t * 3.0) +
-                            br * splatV2f64(t * t * 3.0) +
-                            as * splatV2f64(t * t * t);
-                        cd1 = ab * splatV2f64(3.0) +
-                            br * splatV2f64(t * 6.0) +
-                            as * splatV2f64(t * t * 3.0);
-                        cd2 = br * splatV2f64(6.0) +
-                            as * splatV2f64(t * 6.0);
+                            ab * splat(t * 3.0) +
+                            br * splat(t * t * 3.0) +
+                            as * splat(t * t * t);
+                        cd1 = ab * splat(3.0) +
+                            br * splat(t * 6.0) +
+                            as * splat(t * t * 3.0);
+                        cd2 = br * splat(6.0) +
+                            as * splat(t * 6.0);
 
                         next_t = t - dot(qe, cd1) / (dot(cd1, cd1) + dot(qe, cd2));
                         if (next_t <= 0.0 or next_t >= 1.0) break;
@@ -480,8 +480,8 @@ pub fn bound(self: EdgeSegment, bounds: *Bounds) void {
             bounds.bound(p[3][0], p[3][1]);
 
             const a0 = p[1] - p[0];
-            const a1 = (p[2] - p[1] - a0) * splatV2f64(2.0);
-            const a2 = p[3] - p[2] * splatV2f64(3.0) + p[1] * splatV2f64(3.0) - p[0];
+            const a1 = (p[2] - p[1] - a0) * splat(2.0);
+            const a2 = p[3] - p[2] * splat(3.0) + p[1] * splat(3.0) - p[0];
 
             var buf: [2]f64 = undefined;
             inline for (0..2) |i| for (math.solveEquation(&buf, &.{
@@ -607,8 +607,8 @@ pub fn deconverge(self: *EdgeSegment, param: u32, vector: V2f64) void {
 
     const p = self.segment.cubic_bezier;
     switch (param) {
-        0 => self.segment.cubic_bezier[1] = p[1] + splatV2f64(math.length(p[1] - p[0])) * vector,
-        1 => self.segment.cubic_bezier[2] = p[2] + splatV2f64(math.length(p[2] - p[3])) * vector,
+        0 => self.segment.cubic_bezier[1] = p[1] + splat(math.length(p[1] - p[0])) * vector,
+        1 => self.segment.cubic_bezier[2] = p[2] + splat(math.length(p[2] - p[3])) * vector,
         else => @panic("Unsupported operation"),
     }
 }

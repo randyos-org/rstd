@@ -1,11 +1,9 @@
 const std = @import("std");
 const aux_types = @import("../aux_types.zig");
 const linalg = @import("../../../../linalg/__root__.zig");
-const rsimd = @import("../../../../simd/__root__.zig");
 
 const vec = linalg.vector;
-const zigvec = rsimd.zigvec;
-const V2f64 = zigvec.V2f64;
+const V2f64 = vec.V2f64;
 
 pub const EquationParams = struct {
     a: f64,
@@ -19,8 +17,12 @@ pub const dot2 = vec.dot2;
 pub const length = vec.length;
 pub const dot = vec.dot;
 pub const cross = vec.cross2;
-pub const mix = rsimd.mix;
-pub const splatV2f64 = zigvec.splatV2f64;
+pub const mix = vec.mix;
+
+/// `x` in both lanes.
+pub inline fn splat(x: f64) V2f64 {
+    return vec.splat(V2f64, x);
+}
 
 pub fn ortho(v: V2f64) V2f64 {
     return .{ -v[1], v[0] };
@@ -31,13 +33,13 @@ fn boolToF64(b: bool) f64 {
 }
 
 pub fn normal(v: V2f64, disallow_zero: bool) V2f64 {
-    return vec.norm(v, .{ 0.0, boolToF64(disallow_zero) });
+    return vec.norm(v) catch .{ 0.0, boolToF64(disallow_zero) };
 }
 
 pub fn orthonormal(v: V2f64, disallow_zero: bool) V2f64 {
     const len = length(v);
     if (len == 0.0) return .{ 0.0, boolToF64(disallow_zero) };
-    return ortho(v) / splatV2f64(len);
+    return ortho(v) / splat(len);
 }
 
 pub fn median(a: anytype, b: anytype, c: anytype) @TypeOf(a) {

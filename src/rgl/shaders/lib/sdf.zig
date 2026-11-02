@@ -11,7 +11,7 @@ const Vec4 = types.Vec4;
 const dot = math.dot;
 const dot2 = math.dot2;
 const length = math.length;
-const splatVec = types.splatVec;
+const splat = types.splat;
 
 /// Circle - exact
 pub fn sdCircle(p: Vec2, r: Float) Float {
@@ -27,8 +27,8 @@ pub fn sdRoundedBoxMultiCorner(p: Vec2, b: Vec2, r: Vec4) Float {
 }
 
 pub fn sdRoundedBox(p: Vec2, b: Vec2, r: Float) Float {
-    const q = @abs(p) - b + splatVec(2, r);
-    return @min(@max(q[0], q[1]), 0.0) + length(@max(q, splatVec(2, 0))) - r;
+    const q = @abs(p) - b + splat(Vec2, r);
+    return @min(@max(q[0], q[1]), 0.0) + length(@max(q, splat(Vec2, 0))) - r;
 }
 
 // // Chamfer Box - exact

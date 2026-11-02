@@ -51,8 +51,9 @@ or a scratchpad.
 
 ### Working on
 
-T62's last runs (In the background); T139's checks after its commit, by another agent in the
-same trunk (user, 2026-11-01).
+M3, step 2 of design.md's migration plan: `StaticMat`, inline up to `L`, real and complex
+(`mul`, `transpose`, `outer`, `det`, `inv`, `solve`, their `...Into` forms) on `rstd_matrix`;
+shaderlib's `Mat2` to `Mat4`. T62's last runs are In the background.
 
 ### In the background
 
@@ -92,7 +93,8 @@ neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
   split and its callers; its migration plan's seven steps, each a commit;
   `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`; `@Matrix`
   through `rstd_matrix` as M7 settled (decisions 13 to 19), with the pffft primitives (rstd's
-  N10). **Needs:** nothing (M1, S1, M5, M7, T139 done); M4 confirms the inline limit after step 4.
+  N10). Step 1 done 2026-11-01. **Needs:** nothing (M1, S1, M5, M7, T139 done); M4 confirms the
+  inline limit after step 4.
 
 - [ ] **M6** A type-agnostic matlab port, as the BLAS and LAPACK are: `CxMat` and its routines
   generic over the element type (`comptime T`, any float type), not hard-coded `f64`, with a

@@ -1315,6 +1315,8 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
 1. **`linalg.vector`, inline:** `Vec`, the vector names, `splat`/`zero`, `mix`, `mulAdd`, `norm`'s
    new form; every caller of the `rstd.simd` split moves in the same commit, with no shims left in
    `rstd.simd`. Tests: today's, plus bit-for-bit for `N` 2 to 4 against today's formulas.
+   Done 2026-11-01, with `[N]T` arrays beside `Vec` (complex `T` too); no limit yet, step 4
+   adds it, and shaderlib's `normalize` keeps 0 for 0 until step 5.
 2. **`StaticMat`, inline up to `L`:** real and complex, `mul`, `transpose`, `outer`, `det`,
    `inv`, `solve` and their `...Into` forms; shaderlib's `Mat2` to `Mat4`.
 3. **Views and `Mat`:** `View`, `ConstView`, `Mat`; the dynamic functions over views, with

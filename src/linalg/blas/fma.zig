@@ -27,7 +27,7 @@
 //! the running sum from the left, and a product kept in its own statement, or
 //! converted (`float` to `double`) before the add, stays rounded.
 //!
-//! `rsimd.mulAdd` delegates to `mulAdd`, which follows the setting alone.
+//! `linalg.vector.mulAdd` delegates to `mulAdd`, which follows the setting alone.
 
 const std = @import("std");
 const sysinfo = @import("builtin");

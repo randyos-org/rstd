@@ -136,7 +136,7 @@ fn Corrector(comptime N: usize) type {
                     const common_color = @backingInt(prev_edge.color) & @backingInt(edge.color);
                     prev_edge = edge;
                     if ((common_color & (common_color -% 1)) != 0) continue;
-                    const p = (edge.point(0) - tfm) * math.splatV2f64(scale);
+                    const p = (edge.point(0) - tfm) * math.splat(scale);
                     const left: i32 = @intFromFloat(@floor(p[0] - 0.5));
                     const bottom: i32 = @intFromFloat(@floor(p[1] - 0.5));
                     const right = left + 1;
@@ -230,7 +230,7 @@ fn Corrector(comptime N: usize) type {
             if (flags.artifact) return true;
             if (!self.options.check_distance or !flags.candidate) return false;
 
-            const t_vec = math.splatV2f64(t) * self.dist_eval.dir;
+            const t_vec = math.splat(t) * self.dist_eval.dir;
 
             const old_sdf = self.interpolate(self.dist_eval.sdf_coord + t_vec);
 
@@ -367,14 +367,14 @@ fn Corrector(comptime N: usize) type {
 
         fn findErrors(self: *Self, scale: f64, px_range: f64, tfm: V2f64) void {
             const min_deviation_ratio = self.options.min_deviation_ratio;
-            const vscale = math.splatV2f64(scale);
+            const vscale = math.splat(scale);
             const span = min_deviation_ratio * texelDelta(scale, px_range);
             const diag_span = span * @sqrt(2.0);
             const sdf_w = self.sdf.width;
             const sdf_h = self.sdf.height;
 
             self.dist_eval.px_range = px_range;
-            self.dist_eval.texel_size = math.splatV2f64(1.0) / vscale;
+            self.dist_eval.texel_size = math.splat(1.0) / vscale;
 
             for (0..sdf_h) |y| for (0..sdf_w) |x| {
                 const current = self.texel(x, y);

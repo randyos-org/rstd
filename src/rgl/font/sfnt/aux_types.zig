@@ -1,15 +1,14 @@
 const types = @import("stream_types.zig");
-const rsimd = @import("../../../simd/__root__.zig");
-const zigvec = rsimd.zigvec;
+const vec = @import("../../../linalg/__root__.zig").vector;
 
 const FWord = types.FWord;
 const UFWord = types.UFWord;
 
 /// A 2-component f32 vector, for glyph-transform math
-pub const V2f32 = zigvec.V2f32;
+pub const V2f32 = vec.V2f32;
 
 /// A 2-component f64 vector, for MSDF geometry (Shape/EdgeSegment)
-pub const V2f64 = zigvec.V2f64;
+pub const V2f64 = vec.V2f64;
 
 /// A glyph's own bounding box, in design units. Wider than FWord (glyf's
 /// on-disk field width) since CFF's bounds come from actually walking a

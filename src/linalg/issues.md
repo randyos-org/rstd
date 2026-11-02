@@ -702,7 +702,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   selects `MADDF`/`MSUBF` for it.
   Speed only; the call is correctly rounded, so the bits are `maddf`'s.
 - **Where:** `fma.fusedMulAddBits` is 64 on R6, so the main library of an R6
-  target (the portable kernels, `rsimd.mulAdd`) calls it per multiply-add.
+  target (the portable kernels, `linalg.vector.mulAdd`) calls it per multiply-add.
   The R6 kernel objects have MSA, where `fma.compiles` keeps them unfused.
 - **Workaround:** none taken. An inline-asm `maddf` in `fma.madd` and
   `fma.mulAdd` for R6 scalars would do, at the cost of hiding the operation

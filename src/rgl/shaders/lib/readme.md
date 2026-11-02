@@ -23,7 +23,7 @@ a vector.
 | `math.dot` (`linalg.vector.dot`) | 3 FMul.s + 2 FAdd.s (scalar `mulAdd` chain) | OpDot |
 | `@reduce(.Add, a * b)` | FMul.v3, 3 extracts, 2 FAdd.s | OpDot |
 | `dotAsm` (inline asm) | OpDot | OpDot |
-| `math.cross` (`vec.cross3`) | 6 FMul.s + 3 FSub.s | Cross (68) |
+| `math.cross` (`vec.cross`) | 6 FMul.s + 3 FSub.s | Cross (68) |
 | `crossAsm` (inline asm) | GLSL.std.450 Cross | Cross (68) |
 | `length` | scalar dot + Sqrt | Length (66) |
 | `distance` | FSub.v3 + scalar dot + Sqrt | Distance (67) |
@@ -32,7 +32,7 @@ a vector.
 | `refract` | scalar dot, Sqrt, vector ops, branch | Refract (72) |
 | `faceforward` | scalar dot + FNegate.v3 + branch | FaceForward (70) |
 | `inversesqrt` | Sqrt + FDiv (scalar or vector) | InverseSqrt (32) |
-| `rsimd.mulAdd` | FMul.v3 + FAdd.v3, unfused | Fma (50) |
+| `linalg.vector.mulAdd` | FMul.v3 + FAdd.v3, unfused | Fma (50) |
 | `@mulAdd` | GLSL.std.450 Fma | Fma (50) |
 | `mix` | 2 FMul + FSub + FAdd, unfused (vector or scalar) | FMix (46) |
 | `step_scalar` | branch | Step (48) |
@@ -48,8 +48,8 @@ a vector.
 - **Native already:** the math builtins (`@sqrt`, `@floor` and the rest), `@min`/`@max` and
   `@mulAdd`. `@Vector` arithmetic stays vector.
 - **Never native through rstd or shaderlib:** Dot, Length, Distance, Normalize, Cross, Reflect,
-  Refract, FaceForward, InverseSqrt, Fma (rstd's `mulAdd` stays unfused: `fma.zig`'s `hardware` is
-  false on SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm`
+  Refract, FaceForward, InverseSqrt, Fma (rstd's `mulAdd` stays unfused: `fma.zig`'s `fusedMulAddBits`
+  is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm`
   (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm`
   show.
 - **Matrices:** shaderlib's `Mat2` to `Mat4` are arrays of columns, and inline asm cannot declare

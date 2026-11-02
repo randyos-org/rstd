@@ -8,7 +8,7 @@ const lib = shader_mod.lib;
 const types = shader_mod.types;
 const Vec2 = types.Vec2;
 const Vec4 = types.Vec4;
-const splatVec = types.splatVec;
+const splat = types.splat;
 const param = lib.compile.param;
 const paramFlat = lib.compile.paramFlat;
 const input = lib.compile.input;
@@ -51,8 +51,8 @@ fn vertMain() callconv(.spirv_vertex) void {
     // where that frame's origin/axes actually sit) gets rotated, about the
     // rect's own center, so drawLine's thin rotated rects work the same
     // way any other shape_kind does.
-    const local_offset = (corner - splatVec(2, 0.5)) * rect_size;
-    const center = in_rect_pos.* + rect_size * splatVec(2, 0.5);
+    const local_offset = (corner - splat(Vec2, 0.5)) * rect_size;
+    const center = in_rect_pos.* + rect_size * splat(Vec2, 0.5);
     const rotation = in_rotation.*;
     const cos_r = lib.math.cos(rotation);
     const sin_r = lib.math.sin(rotation);
@@ -64,7 +64,7 @@ fn vertMain() callconv(.spirv_vertex) void {
     spirv.position_out.* = lib.coords.fromScreenToNdc(pixel_pos, lib.globals.screen_size);
 
     param_local_pos.* = local_offset;
-    param_half_size.* = rect_size * splatVec(2, 0.5);
+    param_half_size.* = rect_size * splat(Vec2, 0.5);
     param_corner_radius.* = in_corner_radius.*;
     param_border_width.* = in_border_width.*;
     param_fill_color.* = in_fill_color.*;

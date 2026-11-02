@@ -77,7 +77,7 @@ pub fn normalize(self: *Shape, allocator: std.mem.Allocator) !void {
                 if (math.dot(prev_dir, cur_dir) < corner_dot_epsilon - 1) {
                     const factor = deconverge_overshoot *
                         @sqrt(1 - (corner_dot_epsilon - 1) * (corner_dot_epsilon - 1)) / (corner_dot_epsilon - 1);
-                    var axis = math.normal(cur_dir - prev_dir, true) * math.splatV2f64(factor);
+                    var axis = math.normal(cur_dir - prev_dir, true) * math.splat(factor);
                     if (convergentCurveOrdering(prev_edge, edge))
                         axis = -axis;
 
@@ -223,16 +223,16 @@ fn convergentCurveOrdering(a: *const EdgeSegment, b: *const EdgeSegment) bool {
     var b3: V2f64 = @splat(0.0);
     if (a_len >= 3) {
         a3 = a_pts[a_len - 3] - a_pts[a_len - 2] - (a_pts[a_len - 2] - a_pts[a_len - 1]) - a2;
-        a2 *= math.splatV2f64(3.0);
+        a2 *= math.splat(3.0);
     }
 
     if (b_len >= 3) {
         b3 = b_pts[3] - b_pts[2] - (b_pts[2] - b_pts[1]) - b2;
-        b2 *= math.splatV2f64(3.0);
+        b2 *= math.splat(3.0);
     }
 
-    a1 *= math.splatV2f64(a_len);
-    b1 *= math.splatV2f64(b_len);
+    a1 *= math.splat(a_len);
+    b1 *= math.splat(b_len);
 
     const a_filled = !eql(a1, @splat(0.0));
     const b_filled = !eql(b1, @splat(0.0));

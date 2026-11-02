@@ -781,7 +781,7 @@ fn generate(
             const p = V2f64{
                 (f64i(x) + 0.5),
                 (f64i(y) + 0.5),
-            } / math.splatV2f64(scale) + tfm;
+            } / math.splat(scale) + tfm;
 
             const dist = findDistanceAt(sdf_type, shape, p, px_range);
             px.* = if (comptime sdf_type.numChannels() == 1) .{dist} else dist;

@@ -1,6 +1,5 @@
 const std = @import("std");
 const linalg = @import("../../../linalg/__root__.zig");
-const rsimd = @import("../../../simd/__root__.zig");
 const types = @import("../types.zig");
 const vec = linalg.vector;
 const V2f32 = types.V2f32;
@@ -49,16 +48,16 @@ pub inline fn median3(a: anytype, b: @TypeOf(a), c: @TypeOf(a)) @TypeOf(a) {
     return @max(@min(a, b), @min(@max(a, b), c));
 }
 
-pub const mix = rsimd.mix;
+pub const mix = vec.mix;
 pub const dot = vec.dot;
 pub const dot2 = vec.dot2;
 pub const length = vec.length;
 pub const distance = vec.distance;
-pub const cross = vec.cross3;
-pub const sum = rsimd.reduce.arraySum;
+pub const cross = vec.cross;
+pub const sum = vec.sum;
 
 pub inline fn normalize(v: V3f32) V3f32 {
-    return vec.norm(v, V3f32{ 0, 0, 0 });
+    return vec.norm(v) catch @splat(0);
 }
 
 pub fn smoothstep_scalar(edge0: f32, edge1: f32, x: f32) f32 {

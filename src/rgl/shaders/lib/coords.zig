@@ -3,7 +3,7 @@ const types = @import("../types.zig");
 const Vec2 = types.Vec2;
 const Vec3 = types.Vec3;
 const Vec4 = types.Vec4;
-const splatVec = types.splatVec;
+const splat = types.splat;
 
 /// Corner of an instanced quad from `vertex_index` alone; no vertex
 /// buffer needed. 0..3 form a triangle strip: (0,0) (1,0) (0,1) (1,1).
@@ -17,7 +17,7 @@ pub fn quadCorner(vertex_index: u32) Vec2 {
 /// Vulkan's Normalized Device Coordinates (NDC) convention is already
 /// x-right/y-down, matching screen coordinates; no axis flip needed.
 pub fn fromScreenToNdc(pixel_pos: Vec2, screen_size: Vec2) Vec4 {
-    const ndc = pixel_pos / screen_size * splatVec(2, 2) - splatVec(2, 1);
+    const ndc = pixel_pos / screen_size * splat(Vec2, 2) - splat(Vec2, 1);
     return .{ ndc[0], ndc[1], 0, 1 };
 }
 
@@ -45,5 +45,5 @@ pub inline fn swizzle3(v: anytype, a: usize, b: usize, c: usize) Vec3 {
 
 pub inline fn rgbPreMulAlpha(rgb_vec: Vec3, alpha: f32) Vec4 {
     const v: Vec4 = .{ rgb_vec[0], rgb_vec[1], rgb_vec[2], 1 };
-    return v * splatVec(4, alpha);
+    return v * splat(Vec4, alpha);
 }
