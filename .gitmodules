@@ -1,0 +1,3 @@
+[submodule "vendor/zigwin32"]
+	path = vendor/zigwin32
+	url = https://github.com/emanspeaks/zigwin32
