@@ -1,6 +1,6 @@
 # Shaderlib
 
-GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` and `rstd.simd`
+GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg`
 (design.md, "Shaders keep their own API"). This file records what Zig's self-hosted SPIR-V backend
 emits for each operation: the native instruction (`OpDot`, the GLSL.std.450 set) or scalar code.
 todo.md's S2 item makes the operations native and checks it at build time.

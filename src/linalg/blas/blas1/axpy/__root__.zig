@@ -10,7 +10,6 @@ const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
-const rsimd = @import("../../../../simd/__root__.zig");
 const fma = @import("../../fma.zig");
 const corespec = @import("../../cpu/_corespec.zig");
 
@@ -36,7 +35,7 @@ pub const Cplx = kernel.Cplx;
 fn SimdBlock(comptime T: type) type {
     return struct {
         pub fn run(n1: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
-            const lanes = comptime rsimd.vectorLen(T);
+            const lanes = comptime std.simd.suggestVectorLength(T) orelse 1;
             const V = @Vector(lanes, T);
             const valpha: V = @splat(alpha);
             var i: usize = 0;

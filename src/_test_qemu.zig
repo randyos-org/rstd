@@ -13,7 +13,6 @@ const sysinfo = @import("builtin");
 pub const uefi_io = if (sysinfo.target.os.tag == .uefi) @import("_os/uefi/io/__root__.zig") else struct {};
 
 test {
-    _ = @import("simd/__root__.zig");
     // the whole BLAS tree; `-Dqemu-test-filter` picks what runs
     _ = @import("linalg/blas/__root__.zig");
     _ = @import("linalg/lapack/__root__.zig");

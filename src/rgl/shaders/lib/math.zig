@@ -1,9 +1,8 @@
 const std = @import("std");
 const linalg = @import("../../../linalg/__root__.zig");
-const types = @import("../types.zig");
 const vec = linalg.vector;
-const V2f32 = types.V2f32;
-const V3f32 = types.V3f32;
+const V2f32 = vec.V2f32;
+const V3f32 = vec.V3f32;
 
 pub const radians = std.math.degreesToRadians;
 pub const degrees = std.math.radiansToDegrees;

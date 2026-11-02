@@ -339,13 +339,13 @@ Not reproduced, by design: the reference's accumulation order elsewhere (`generi
   features exist so that the assembler accepts their microkernels; their flags leave contraction off
   (`kernel/Makefile:105` adds no `-mfma` for the Bulldozer family).
 - **Width.** In the BLAS, floats wider than `f64` never fuse (`fuseFor`): `@mulAdd(f80)` is a
-  soft `fmal` call, and the x87 kernels never fuse. `rsimd.mulAdd` (`fma.mulAdd`) follows the
+  soft `fmal` call, and the x87 kernels never fuse. `linalg.vector.mulAdd` (`fma.mulAdd`) follows the
   setting alone, as the fork's `@Matrix` products do.
 - **Expression rule.** Contraction follows a C compiler's within one expression (clang's
   `-ffp-contract=on`, "fusion in the same statement", Clang User's Manual,
   <https://clang.llvm.org/docs/UsersManual.html>): `a*b + c*d` is `fma(a, b, c*d)`, a longer chain fuses each product into
   the running sum from the left, and a product in its own statement, or converted before the
-  add, stays rounded. `rsimd.mulAdd` delegates here.
+  add, stays rounded. `linalg.vector.mulAdd` delegates here.
 
 The portable kernels follow the build target's policy, so two builds for different CPUs may
 round a portable kernel differently; reproducibility is per build and core.
@@ -1075,7 +1075,7 @@ BLAS, LAPACK and MATLAB (decision 1).
 | `StaticMat(R, C, T)` | `struct { data: [C][R]T }`, `R` rows, `C` columns, `data[j]` column `j`; operations load it into `@Matrix` or `[C]@Vector(R, T)` and store back (decision 14) | a value: on the stack, in a global, or on the heap through `allocator.create`, as the caller picks |
 | `Mat(T)` | `struct { data: []T, rows, cols }` | owned heap storage, unmanaged as `std.ArrayList`: `init(allocator, rows, cols)`, `deinit(allocator)`, no stored allocator |
 | `View(T)`, `ConstView(T)` | `data`, `rows`, `cols`, `ld` | borrowed: `init(slice, rows, cols, ld)` checks the slice covers it; `sub`, `col` |
-| aliases | `V2f32` to `V4f64` (from `zigvec`); `M2f32` to `M4f64` (square `StaticMat`) | |
+| aliases | `V2f32` to `V4f64`; `M2f32` to `M4f64` (square `StaticMat`) | |
 
 `T` is any float type or its `std.math.Complex` (interleaved), for `StaticMat` and `Mat`
 alike (decision 8); `Vec` is real only, since `@Vector` cannot hold a struct, so a complex
@@ -1243,48 +1243,25 @@ The 1980s port, `linalg.matlab`, keeps its own API (split complex) until M2; thi
 depend on it. `linalg.blas` and `linalg.lapack` stay public for tools, tests and experts, the docs
 pointing everyone else here (decision 7).
 
-#### The `rstd.simd` split
+#### `rstd.simd`, removed
 
-| Function | Goes to | Note |
-| --- | --- | --- |
-| `mix` | `linalg.vector.mix` | |
-| `mulAdd` | `linalg.vector.mulAdd` | the BLAS's own use imports `fma.zig`, so the BLAS never imports `linalg.vector` |
-| `vectorLen` | stays | SIMD width, not math |
-| `zigvec.V2f32` to `V4f64` | `linalg.vector` | |
-| `zigvec.SimdVecF32`, `SimdVecF64`, `f32_simd_lanes`, `f64_simd_lanes` | stay | width types |
-| `zigvec`'s 14 splat and zero helpers | `linalg.vector.splat`, `zero`, or plain `@splat` | deleted |
-| `reduce.reduce` | stays | |
-| `arraySum` | float slice: `linalg.sum` (BLAS `sum`); vector: `linalg.vector.sum` | ints and arrays stay |
-| `arrayMax`, `arrayMin` | float slice: `linalg.max`, `min` (BLAS `extreme`); vector: `linalg.vector.max`, `min` | NaN rule changes (below); ints stay |
-| `arrayProduct` | stays | no BLAS counterpart; `linalg.vector.prod` is inline |
-| `arrayAnd`, `arrayOr`, `arrayXor` | stay | |
-| `mapReduce` | stays | its matlab callers become BLAS calls in M2 |
+Step 1 moved its vector math to `linalg.vector` (`mix`, `mulAdd`, `V2f32` to `V4f64`, and the
+splat and zero helpers as `splat`, `zero` or plain `@splat`) with every caller: msdf's
+`math.zig` (`splatV2f64` became its `splat`) and the files using it, `aux_types.zig`,
+shaderlib's `types.zig` (`splatVec` became `splat`), `math.zig`, `coords.zig`, `sdf.zig`,
+`rgl.zig` and `probe.zig`, and the matlab port's `scalar.zig`. What was left had no caller but
+the BLAS's `axpy` (`vectorLen`, now `std.simd.suggestVectorLength` there), so the module is gone
+(user, 2026-11-01): its width types, `reduce` and `mapReduce` (M2 made the matlab port's
+reductions BLAS calls). Nothing in RandyOS, rgui or zfls used it. Step 6 brings the float-slice
+reductions back as `linalg.sum`, `max` and `min` over the BLAS.
 
 **NaN rule.** `@reduce(.Max)` follows `@max`, which returns "the biggest non-NaN value included"
 (langref, `@max`). The BLAS's extremes and `linalg`'s `max`/`min` on both paths return NaN when
 any element is NaN, the first one (`comparisons.md`, (3)). A caller that relied on NaN being
-skipped must filter first. No caller outside `src/simd/` uses them today.
+skipped must filter first.
 
-##### Callers that move
-
-| File | Uses | Becomes |
-| --- | --- | --- |
-| `src/linalg/vector.zig` | `zigvec` types, `splatAs`, `zeroAs`, `mulAdd` | defines them |
-| `src/linalg/matlab/blas1.zig` | `mulAdd`; `f64_simd_lanes`, `SimdVecF64`; `mapReduce` (`wnrm2`, `wasum`, `wdot*`) | `linalg.vector.mulAdd`; width types stay; M2 makes the reductions BLAS `nrm2`, `asum`, `dot`, `dotc` (after its split-complex decision) |
-| `src/linalg/matlab/hessenberg.zig` | `mapReduce(cabs1)` | M2: BLAS `asum` (complex `asum` is `Σ abs(re) + abs(im)`) |
-| `blas1/axpy/__root__.zig` | `vectorLen`, `mulAdd` | `vectorLen` stays; `fma.mulAdd` |
-| `src/rgl/font/sfnt/aux_types.zig` | `zigvec.V2f32`, `V2f64` | `linalg.vector` |
-| `src/rgl/font/sfnt/msdf/math.zig` | `zigvec.V2f64`, `splatV2f64`, `rsimd.mix` | `linalg.vector.V2f64`, `splat`, `mix` |
-| `src/rgl/font/sfnt/msdf/` `EdgeSegment`, `Shape`, `ErrorCorrection`, `coloring`, `__root__` | `math.splatV2f64`, `math.mix` | through `msdf/math.zig`; `splatV2f64` becomes `splat` |
-| `src/rgl/shaders/types.zig` | `zigvec.V2f32` to `V4f32`, `splatVecF32`; `Mat2` to `Mat4` | `linalg.vector`; `StaticMat(N, N, f32)` |
-| `src/rgl/shaders/lib/math.zig` | `rsimd.mix`, `reduce.arraySum`; `vec.norm`, `vec.cross3` | `linalg.vector.mix`, `sum`; `norm`, `cross` |
-| `src/rgl/shaders/lib/coords.zig`, `sdf.zig`, `shaders/rgl.zig` | `types.splatVec` | `types`' re-export of `splat` |
-| `src/_test_qemu.zig`, `__root__.zig` | `simd` root | unchanged |
-
-Not moved: glyf's `transformPoint` (`tables/glyf/shape.zig`): handwritten 2x2 rows with
-`@reduce`, not a `simd` caller, and `mul` could fuse differently and move truncated glyph
-coordinates. Nothing in RandyOS or rgui outside rstd imports `rstd.simd` or `linalg.vector`;
-zfls is not checked here.
+Not moved: glyf's `transformPoint` (`tables/glyf/shape.zig`), handwritten 2x2 rows with
+`@reduce`: `mul` could fuse differently and move truncated glyph coordinates.
 
 #### Bit guarantees
 
@@ -1313,8 +1290,8 @@ Each step is its own commit; tests per step as the tiers ask (native `x86_64-win
 checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
 
 1. **`linalg.vector`, inline:** `Vec`, the vector names, `splat`/`zero`, `mix`, `mulAdd`, `norm`'s
-   new form; every caller of the `rstd.simd` split moves in the same commit, with no shims left in
-   `rstd.simd`. Tests: today's, plus bit-for-bit for `N` 2 to 4 against today's formulas.
+   new form; every caller of `rstd.simd`'s vector math moves in the same commit, with no shims
+   left in `rstd.simd`. Tests: today's, plus bit-for-bit for `N` 2 to 4 against today's formulas.
    Done 2026-11-01, with `[N]T` arrays beside `Vec` (complex `T` too); no limit yet, step 4
    adds it, and shaderlib's `normalize` keeps 0 for 0 until step 5.
 2. **`StaticMat`, inline up to `L`:** real and complex, `mul`, `transpose`, `outer`, `det`,
@@ -1324,7 +1301,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
 4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's
    `Options`; both paths tested. M4 then times them and confirms `L`.
 5. **SPIR-V forms;** shaderlib's aliases (S2).
-6. **Float-slice reductions** to `linalg` (the NaN change), and `rstd.simd` trimmed.
+6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already.
 7. **M2** moves the matlab port onto this layer.
 
 #### Decisions
@@ -2057,8 +2034,8 @@ Questions decided once, with the reason, so they are not reopened without new ev
   inline `@Vector` code (up to 8 per dimension) or calls the BLAS and LAPACK; the choice depends
   only on size and target, not on the type holding the data, so a call gives the same bits every
   time ("Planned: the public `rstd.linalg` layer", above). The BLAS keeps its slice and stride routines for `linalg` to
-  call. `rstd.simd` splits between them: slice reductions become BLAS routines, element-wise
-  helpers (`mix`, `mulAdd`) move to `linalg.vector` (todo.md, M3). Under SPIR-V each operation is
+  call. `rstd.simd` is gone: its element-wise helpers (`mix`, `mulAdd`) moved to
+  `linalg.vector`, and slice reductions become BLAS routines (todo.md, M3). Under SPIR-V each operation is
   SPIR-V's own instruction where one exists (`OpDot`, GLSL.std.450 `Length`, `Fma`: GLSL.std.450
   1.00 revision 17, <https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html>), used as is,
   not rebuilt or tuned: the goal is one API, not GPU speed.
@@ -2251,7 +2228,7 @@ to the same expectations. Where a core's converted kernels did otherwise, they a
 
 ### Rigs
 
-`src/_test_qemu.zig` is the root of the OS-free tests: `simd`, the whole BLAS tree and LAPACK;
+`src/_test_qemu.zig` is the root of the OS-free tests: the whole BLAS tree and LAPACK;
 `src/_test_wasm.zig` runs it on WASI. The rigs run it, or the full test suite, where no host
 here can.
 

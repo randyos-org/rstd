@@ -454,7 +454,7 @@ const base_machines = [_]Machine{
             .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm.", "linalg.lapack." } },
             .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
             .{ .name = "openblas", .filters = &.{"linalg.blas._test.from_openblas."} },
-            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu." } },
             .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
@@ -577,7 +577,7 @@ const base_machines = [_]Machine{
             .{ .name = "lapack-getrs-real", .filters = &.{ "linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, real", "linalg.lapack.lu.test.getrs: a known", "linalg.lapack.lu.test.getrs: reports" } },
             .{ .name = "lapack-getrs-complex", .filters = &.{"linalg.lapack.lu.test.getrs: op(A) X = B on getrf's factor, every op, NaN in one column of B, complex"} },
             .{ .name = "lapack-faer", .filters = &.{"linalg.lapack.faer."} },
-            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "simd." } },
+            .{ .name = "rest", .filters = &.{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu." } },
             .{ .name = "small", .filters = &small_filters },
         },
         .query = .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none, .cpu_model = .{ .explicit = &std.Target.sparc.cpu.v9 } },
@@ -892,7 +892,7 @@ const base_machines = [_]Machine{
 /// Tests that need an OS (files, threads) live in files the test root also
 /// reaches, so the runnable ones are picked by name; the runner supplies a heap.
 /// Left out: `linalg.blas.abi.`, which resolves targets through `std.testing.io`.
-pub const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "linalg.lapack.", "simd." } ++ small_filters);
+pub const default_filters: []const []const u8 = &([_][]const u8{ "linalg.blas.__root__.", "linalg.blas.Config.", "linalg.blas.cpu.", "linalg.blas.blas1.", "linalg.blas.blas2.", "linalg.blas.blas3.", "linalg.blas._test.", "linalg.lapack." } ++ small_filters);
 
 /// The multicore rigs' tests: those that thread.
 const smp_filters: []const []const u8 = &.{ "linalg.blas.threading.", "linalg.blas.blas3.threaded.", "linalg.blas._test.blas2.threaded.", "threaded level 1", "at any worker count" };

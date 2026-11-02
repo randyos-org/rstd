@@ -89,8 +89,8 @@ neither). What T62's runs found is fixed in review's log: Accelerate's quirks in
   design.md's "Planned: the public `rstd.linalg` layer" (settled in M5, 2026-10-30):
   `StaticMat(R, C, T)` (comptime shape, a value) and unmanaged `Mat(T)` (run-time shape),
   real and complex, one operation set over views, inline `@Vector` code up to 8 per dimension and
-  the BLAS and LAPACK above by size alone, SPIR-V's own instructions in shaders; the `rstd.simd`
-  split and its callers; its migration plan's seven steps, each a commit;
+  the BLAS and LAPACK above by size alone, SPIR-V's own instructions in shaders; `rstd.simd`'s
+  vector math and its callers (moved in step 1; the module removed); its migration plan's seven steps, each a commit;
   `src/linalg/readme.md`, the layer's user guide, linking down to `blas/readme.md`; `@Matrix`
   through `rstd_matrix` as M7 settled (decisions 13 to 19), with the pffft primitives (rstd's
   N10). Step 1 done 2026-11-01. **Needs:** nothing (M1, S1, M5, M7, T139 done); M4 confirms the
@@ -407,7 +407,7 @@ Cleared 2026-11-01; landed work is in `review`'s log.
 
 ## SPIR-V: vector math in shaders
 
-Not the BLAS kernels: the fixed-size vector math (`rstd.linalg.vector`, `rstd.simd` until M3) that
+Not the BLAS kernels: the fixed-size vector math (`rstd.linalg.vector`) that
 `src/rgl/shaders/lib/` (`math.zig`, `sdf.zig`) builds on. Can start any time. SPIR-V's own
 instructions are used as they are, not reimplemented or tuned: the aim is one API, not speed.
 

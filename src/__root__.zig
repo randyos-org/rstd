@@ -34,7 +34,6 @@ pub const log = @import("log.zig");
 pub const machine = @import("machine.zig");
 pub const mem = @import("mem.zig");
 pub const msoffice = @import("msoffice/__root__.zig");
-pub const simd = @import("simd/__root__.zig");
 pub const sort = @import("sort.zig");
 pub const stats = @import("stats.zig");
 pub const rgl = @import("rgl/__root__.zig");

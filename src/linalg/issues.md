@@ -437,7 +437,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   they store or accumulate through `util.scalar`, an empty asm the
   vectorizers cannot widen. A new loop without it can still be vectorized:
   the `-femit-asm` of a `-mcpu=g4` build should have no `vaddfp`, `vmaddfp`
-  or `vsubfp` outside `simd`, the other targets' tiles and test models.
+  or `vsubfp` outside the other targets' tiles and test models.
   A ReleaseSafe G4 scan (2026-10-30, T42) found test code in AltiVec lanes
   only where the data is normal-range (`check.fill`'s [-2, 2), `blat3`'s
   tables, `threaded.zig`'s 2^±12): the `scal`, half-`gemv`, triangular,
