@@ -684,7 +684,7 @@ test "faer balance: D⁻¹ Pᵀ A P D is the balanced matrix, isolated eigenvalu
         defer ops.free(T, al, b);
         b.copyFrom(a0);
         var scale: [n]F = undefined;
-                const info = try balance(check.io, T, b, &scale);
+        const info = try balance(check.io, T, b, &scale);
         try testing.expect(info.ilo >= 1 and info.ihi <= n - 1);
         // X = P D, the identity backed: then A X = X B
         const x = try ops.alloc(T, al, n, n);

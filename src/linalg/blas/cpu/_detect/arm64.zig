@@ -724,7 +724,7 @@ fn fakePf(comptime on: []const PF) *const fn (PF) bool {
 
 test "Windows' processor features decode" {
     const all = windowsFeatures(fakePf(&.{
-        .ARM_SVE_INSTRUCTIONS_AVAILABLE,       .ARM_SVE2_INSTRUCTIONS_AVAILABLE,      .ARM_SME_INSTRUCTIONS_AVAILABLE,
+        .ARM_SVE_INSTRUCTIONS_AVAILABLE,        .ARM_SVE2_INSTRUCTIONS_AVAILABLE,     .ARM_SME_INSTRUCTIONS_AVAILABLE,
         .ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE, .ARM_V86_BF16_INSTRUCTIONS_AVAILABLE, .ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE,
     }));
     try std.testing.expect(all.eql(.initMany(&.{ .sve, .sve2, .sme, .sme_f64f64, .bf16, .fcma })));
