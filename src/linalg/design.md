@@ -1092,8 +1092,9 @@ fixed-size vector is `[N]Complex(T)`. The pair follows std's `StaticBitSet`/`Dyn
 
 #### Names
 
-`src/linalg/vector.zig` holds the fixed-size forms, free functions over `anytype` inferring `N`, `R`,
-`C` and `T`; MATLAB names where natural, re-exported by shaderlib under GLSL names.
+`src/linalg/vector.zig` holds the vector forms and `src/linalg/matrix.zig` the matrix ones
+(`outer` too), free functions over `anytype` inferring `N`, `R`, `C` and `T`; MATLAB names where
+natural, re-exported by shaderlib under GLSL names.
 
 ##### Vectors
 
@@ -1213,7 +1214,7 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 
 ##### Functions
 
-Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`Mat.zig` holds the types). Each takes
+Re-exported flat at `rstd.linalg` from `src/linalg/dense.zig` (`matrix.zig` holds the types). Each takes
 views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are beyond
 `OutOfMemory` and `Canceled`.
 
@@ -1295,7 +1296,13 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    Done 2026-11-01, with `[N]T` arrays beside `Vec` (complex `T` too); no limit yet, step 4
    adds it, and shaderlib's `normalize` keeps 0 for 0 until step 5.
 2. **`StaticMat`, inline up to `L`:** real and complex, `mul`, `transpose`, `outer`, `det`,
-   `inv`, `solve` and their `...Into` forms; shaderlib's `Mat2` to `Mat4`.
+   `inv`, `solve` and their `...Into` forms; shaderlib's `Mat2` to `Mat4`. Done 2026-11-02 in
+   `matrix.zig`, with `identity`, `fromCols`, `fromRows`, `row`, `col`, `ctranspose`, `scale`,
+   `add`, `sub` and `trace`. Real `det` and `inv` up to 3 by 3 take cofactors (`inv` the
+   adjugate over `det`, `error.Singular` when it is 0); complex `T`, larger sizes and every
+   `solve` take LU with partial pivoting (`getf2`'s, dividing by the pivot; `error.Singular` at a
+   zero pivot). The `...Into` forms take no `allocator` or `io` until step 4. Shaderlib's
+   products already lower to SPIR-V's matrix instructions through `@Matrix` (step 5's, for them).
 3. **Views and `Mat`:** `View`, `ConstView`, `Mat`; the dynamic functions over views, with
    the run-time switch into the inline kernels up to `L`.
 4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's

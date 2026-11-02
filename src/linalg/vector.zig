@@ -30,7 +30,8 @@ pub const V2f64 = Vec(2, f64);
 pub const V3f64 = Vec(3, f64);
 pub const V4f64 = Vec(4, f64);
 
-fn Elem(comptime V: type) type {
+/// The element type of a `Vec` or an array.
+pub fn Elem(comptime V: type) type {
     return switch (@typeInfo(V)) {
         .vector => |info| info.child,
         .array => |info| info.child,
@@ -38,7 +39,8 @@ fn Elem(comptime V: type) type {
     };
 }
 
-fn count(comptime V: type) comptime_int {
+/// The length of a `Vec` or an array.
+pub fn count(comptime V: type) comptime_int {
     return switch (@typeInfo(V)) {
         .vector => |info| info.len,
         .array => |info| info.len,
@@ -46,13 +48,14 @@ fn count(comptime V: type) comptime_int {
     };
 }
 
-fn isComplex(comptime T: type) bool {
+/// Whether `T` is a `std.math.Complex`.
+pub fn isComplex(comptime T: type) bool {
     return @typeInfo(T) == .@"struct" and @hasField(T, "re") and
         T == std.math.Complex(@FieldType(T, "re"));
 }
 
 /// The real type under element type `T`.
-fn Real(comptime T: type) type {
+pub fn Real(comptime T: type) type {
     return if (isComplex(T)) @FieldType(T, "re") else T;
 }
 

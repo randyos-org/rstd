@@ -1,7 +1,8 @@
 const std = @import("std");
 const spirv = std.spirv;
 
-const vec = @import("../../linalg/__root__.zig").vector;
+const linalg = @import("../../linalg/__root__.zig");
+const vec = linalg.vector;
 
 pub const V2f32 = vec.V2f32;
 pub const V3f32 = vec.V3f32;
@@ -16,9 +17,9 @@ pub const Vec2 = V2f32;
 pub const Vec3 = V3f32;
 pub const Vec4 = V4f32;
 // pub const Mat2 = @SpirvType(.{ .runtime_array =  })
-pub const Mat2 = [2]Vec2; // @Matrix(2, 2, f32);
-pub const Mat3 = [3]Vec3; // @Matrix(3, 3, f32);
-pub const Mat4 = [4]Vec4; // @Matrix(4, 4, f32);
+pub const Mat2 = linalg.matrix.M2f32;
+pub const Mat3 = linalg.matrix.M3f32;
+pub const Mat4 = linalg.matrix.M4f32;
 pub const Sampler2D = Sampler;
 pub const SamplerCube = Sampler;
 

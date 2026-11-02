@@ -11,6 +11,7 @@ const shader_mod = rstd.rgl.shaders;
 const lib = shader_mod.lib;
 const types = shader_mod.types;
 const math = lib.math;
+const matrix = rstd.linalg.matrix;
 const Vec3 = types.Vec3;
 const Vec4 = types.Vec4;
 const Mat4 = types.Mat4;
@@ -95,26 +96,12 @@ fn dotAsm(a: Vec3, b: Vec3) f32 {
     );
 }
 
-/// GLSL's `m * v` on a column-major matrix.
-fn matVec(m: Mat4, v: Vec4) Vec4 {
-    var r = m[0] * @as(Vec4, @splat(v[0]));
-    inline for (1..4) |i| r += m[i] * @as(Vec4, @splat(v[i]));
-    return r;
-}
-
-/// GLSL's `v * m`: one dot per column.
-fn vecMat(v: Vec4, m: Mat4) Vec4 {
-    var r: Vec4 = undefined;
-    inline for (0..4) |i| r[i] = math.dot(v, m[i]);
-    return r;
-}
-
 fn run(comptime op: Op) Vec4 {
     const a = in_a.*;
     const b = in_b.*;
     const c = in_c.*;
     const t = in_t.*;
-    const m: Mat4 = .{ in_m0.*, in_m1.*, in_m2.*, in_m3.* };
+    const m = matrix.fromCols(Mat4, .{ in_m0.*, in_m1.*, in_m2.*, in_m3.* });
     const v = in_v.*;
     return switch (op) {
         .dot => out1(math.dot(a, b)),
@@ -141,13 +128,11 @@ fn run(comptime op: Op) Vec4 {
         .clamp => out1(math.clamp(t, 0.0, 1.0)),
         .clamp_vec => out3(math.clamp(a, b, c)),
         .minmax => out3(@max(@min(a, b), c)),
-        .mat_vec => matVec(m, v),
-        .vec_mat => vecMat(v, m),
+        .mat_vec => matrix.mul(m, v),
+        .vec_mat => matrix.mul(v, m),
         .mat_mat => blk: {
-            const n: Mat4 = .{ v, in_m1.*, in_m2.*, in_m0.* };
-            var r: Mat4 = undefined;
-            inline for (0..4) |j| r[j] = matVec(m, n[j]);
-            break :blk r[0] + r[1] + r[2] + r[3];
+            const r = matrix.mul(m, matrix.fromCols(Mat4, .{ v, in_m1.*, in_m2.*, in_m0.* })).data;
+            break :blk @as(Vec4, r[0]) + r[1] + r[2] + r[3];
         },
         .vec_arith => out3(a * b + c),
     };

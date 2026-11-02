@@ -41,9 +41,9 @@ a vector.
 | `clamp` (`std.math.clamp`) | FMin + FMax + an assert branch | FClamp (43) |
 | `@min`/`@max` | FMin/FMax | FMin (37) / FMax (40) |
 | `a * b + c` on `@Vector` | FMul.v3 + FAdd.v3 | (vector arithmetic) |
-| `matVec` (columns times splats) | 4 FMul.v4 + 3 FAdd.v4 | OpMatrixTimesVector |
-| `vecMat` (a dot per column) | 16 FMul.s + 12 FAdd.s | OpVectorTimesMatrix |
-| matrix times matrix (`matVec` per column) | FMul.v4/FAdd.v4 per column | OpMatrixTimesMatrix |
+| `matrix.mul(m, v)` | OpMatrixTimesVector | OpMatrixTimesVector |
+| `matrix.mul(v, m)` | OpVectorTimesMatrix | OpVectorTimesMatrix |
+| `matrix.mul(m, n)` | OpMatrixTimesMatrix | OpMatrixTimesMatrix |
 
 - **Native already:** the math builtins (`@sqrt`, `@floor` and the rest), `@min`/`@max` and
   `@mulAdd`. `@Vector` arithmetic stays vector.
@@ -52,10 +52,12 @@ a vector.
   is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm`
   (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm`
   show.
-- **Matrices:** shaderlib's `Mat2` to `Mat4` are arrays of columns, and inline asm cannot declare
-  `OpTypeMatrix` (issues.md, "SPIR-V inline assembly cannot declare a matrix type"), so the matrix
-  instructions are out of reach. Column-major products in vector instructions (`matVec`) are the
-  best available; a dot per column (`vecMat`) goes scalar.
+- **Matrices** (M3 step 2, 2026-11-02, 0.18.0-dev.858): shaderlib's `Mat2` to `Mat4` are
+  `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they
+  are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs
+  `OpCompositeExtract`s (36 for a 4 by 4). Before, arrays of columns gave 4 FMul.v4 and 3 FAdd.v4
+  for `m v` and 16 FMul.s and 12 FAdd.s for `v m`; inline asm still cannot declare
+  `OpTypeMatrix` (issues.md, "SPIR-V inline assembly cannot declare a matrix type").
 - **Branches:** every inlined call keeps its structured blocks (phi-carried returns), even in
   ReleaseFast (44 in `vecMat`); `spirv-opt` would fold them.
 - **Fixed on the way:** shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for
