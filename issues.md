@@ -10,7 +10,7 @@ That build is upstream master `cb6f0c25f1` (2026-10-26) with the open
 <https://codeberg.org/ziglang/zig/pulls/31235> merged, so its `dev` number
 is not upstream. Zig source links below are at `cb6f0c25f1`.
 
-When an issue is fixed upstream, drop the workaround and its entry.
+When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](todo.md)'s T52 lists the workarounds to recheck on each Zig update.
 
 ## Zig compiler
 
@@ -102,7 +102,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
   `zdot_cell.S` put the result.
 - **Workaround:** those two kernels are patched to also copy the result to
   `r3`/`r4` (a path the sources already have for the Fortran interface).
-  See [`design.md`](design.md#fixes-to-upstream-sources), "Fixes to
+  See [`design.md`](src/linalg/design.md#fixes-to-upstream-sources), "Fixes to
   upstream sources".
 - **Issue text:**
 
@@ -1462,7 +1462,7 @@ When an issue is fixed upstream, drop the workaround and its entry.
 ## OpenBLAS
 
 The kernel bugs we fixed in the converted sources are listed under "Fixes to
-upstream sources" in [`design.md`](design.md#fixes-to-upstream-sources): `x86_64` argument and flag handling
+upstream sources" in [`design.md`](src/linalg/design.md#fixes-to-upstream-sources): `x86_64` argument and flag handling
 (mostly on Windows), a POWER pair on ELFv2, and the `loongarch64`
 `lsx`/`lasx` kernels, mostly with strides other than 1. One
 issue covering the `loongarch64` ones could read:
@@ -1576,7 +1576,7 @@ only the elements it uses):
 ### Special values some converted kernels treat otherwise
 
 The edge-case tests (`_test/blas1/edge.zig` and `_test/blas2/edge.zig`, on every rig)
-found these. In rstd's extremes the first NaN wins ([`readme.md`](blas/readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
+found these. In rstd's extremes the first NaN wins ([`readme.md`](src/linalg/blas/readme.md#one-contract-on-every-core)); LAPACK 3.10's `nrm2` is infinite for an
 infinity; `kernel/arm/axpby.c` reads no operand whose scalar is zero.
 
 Not used: no core takes a converted extreme kernel. Upstream follows
@@ -1598,7 +1598,7 @@ Reference BLAS 3.12's `i?amax`, which replaces its pick only on a strict
   element is passed over.
 
 Not used: no core takes a converted `nrm2` kernel, so `nrm2` is one
-algorithm everywhere ([`readme.md`](blas/readme.md#one-contract-on-every-core)). x86_64's
+algorithm everywhere ([`readme.md`](src/linalg/blas/readme.md#one-contract-on-every-core)). x86_64's
 `nrm2_sse.S` (an unscaled `f64` sum for `snrm2` and `cnrm2`) and the x87
 `nrm2.S` and `znrm2.S` of x86 and x86_64 (an unscaled `f80` sum) were right
 on special values but their own algorithms; the arm and arm64 ones scale a
@@ -1620,7 +1620,7 @@ one-pass loop as those below do. Those below were wrong:
 
 Fixed by the generator's patches, the extremes' kept as `retired` now that
 they are not converted
-([`design.md`](design.md#fixes-to-upstream-sources)). Issues could read, for the
+([`design.md`](src/linalg/design.md#fixes-to-upstream-sources)). Issues could read, for the
 x86_64 index kernels:
 
 > **x86_64 `iamax_sse.S`, `iamax_sse2.S`, `izamax_sse.S`, `izamax_sse2.S`: `n + 1` for a NaN extreme**
@@ -1693,7 +1693,7 @@ And loongarch64 `axpby`:
 >   path, which has them, fixes it.
 
 Not used: the x86_64 reductions whose bits follow an operand's address.
-No core takes them ([`readme.md`](blas/readme.md#one-contract-on-every-core)); an issue
+No core takes them ([`readme.md`](src/linalg/blas/readme.md#one-contract-on-every-core)); an issue
 could read:
 
 > **x86_64 `asum_sse.S`, `asum_sse2.S`, `zasum_sse2.S`, `dot_sse2.S`, `zdot_sse2.S`, `zsum_sse2.S`, `dgemv_n.S` and kin: the result depends on the alignment of `x` or `y`**
@@ -1763,7 +1763,7 @@ Ours, not a converted kernel:
   call when `y` has no zero, and copies a strided `x` once for all of them.
   OpenBLAS's threaded drivers skip where its serial ones do not, and BLIS
   skips only where an `axpyv` kernel returns for a zero scalar
-  ([`comparisons.md`](blas/comparisons.md) (5)).
+  ([`comparisons.md`](src/linalg/blas/comparisons.md) (5)).
 
 And SPARC `swap`, found by the ported `utest/test_swap.c`:
 
@@ -2162,7 +2162,7 @@ enough to scale. Found by reading the source; not run against OpenBLAS.
   where LAPACK's `zlartg` uses the squared norm `ABSSQ`, so the rotation is
   wrong when `|a|` or `|b|` is outside `[rtmin, rtmax]`."
 
-## ReLAPACK (OpenBLAS's `relapack/`)
+## ReLAPACK in OpenBLAS
 
 At OpenBLAS `v0.3.34-317`, the same as upstream <https://github.com/HPAC/ReLAPACK> `master`
 where the entry says so. The ground truth is a C harness that links ReLAPACK's sources with
@@ -2279,9 +2279,9 @@ the same sequential `f32` sum: about 1% off for 16M floats. Its `sasum` is
 - **Workaround:** none needed; rstd does not call BLIS.
 - **Issue text:** "Single-precision `nrm2` (`snrm2`, `scnrm2`) loses about 1% for 16M floats on `zen3`, from a sequential `f32` sum of squares. Accumulate in `f64`, or in several partial sums."
 
-## faer
+## Faer
 
-faer v0.24.4 (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), as
+Faer v0.24.4 (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), as
 `src/linalg/lapack/` ports it. Found by rstd's tests of the port, then
 reproduced in a standalone copy of it; not run against faer, whose crates
 are not fetched here.

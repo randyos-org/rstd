@@ -353,7 +353,7 @@ brings each to its cancelable futex wait.
 ### Futures on `Dispatch`
 
 With worker threads std's `Group` crashes on `Io.Evented`, `Uring` and `Dispatch` alike
-([`issues.md`](../issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
+([`issues.md`](../../../issues.md)). On `Dispatch` (macOS), `forEach` and `team` start their tasks as
 plain futures instead (`threading.Tasks`, `Futures`); every other `Io` keeps `Group`.
 `usesFutures` matches the `Io`'s vtable, under the comptime switch `dispatch_futures`. The
 futures act as `Group` does: past 64 tasks `async` runs inline and `concurrent` fails;
@@ -363,7 +363,7 @@ and their fold are unchanged, so the bits are too. `Uring`'s futures are reused 
 (issues.md), so a multithreaded `Uring` stays unsupported.
 
 A fiber that sleeps or wakes others may resume on another thread, and the control state
-stays with the thread ([`issues.md`](../issues.md)); `Dispatch` moves even the caller. On the M6,
+stays with the thread ([`issues.md`](../../../issues.md)); `Dispatch` moves even the caller. On the M6,
 level 3 under rounding toward zero lost its bits that way. So a level 3 worker holds the
 caller's `FpState` only while it runs (`threading.Lent`): around each futex wait and wake it
 gives its thread's own state back, and takes the caller's again after. The caller re-adopts
@@ -526,7 +526,7 @@ What the tests check today, and where they run:
   the M6. A
   filter of `race stress` runs them alone.
 - **TSan:** `-Drstd-tsan` builds the `linux-gnu` tests with TSan; the x86_64 and aarch64
-  Linux rigs then run them on glibc from Nix ([`issues.md`](../issues.md) has why not musl or
+  Linux rigs then run them on glibc from Nix ([`issues.md`](../../../issues.md) has why not musl or
   macOS). On `qemu-test-linux-aarch64` (HVF) the `threading` and level-3 threaded tests
   report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
   is left out.
@@ -633,7 +633,7 @@ wash to 4% ahead (geometric mean of the 32 cells per run).
 - Level 3 on `Io.Evented`: `gemm` keeps its bits on `Uring` with every fiber on the caller's
   thread (`thread_limit = 0`, `qemu-test-linux-x86_64`), the case an unbounded spin would
   hang. With worker threads std's `Group` crashes on `Uring` and `Dispatch` (macOS), and
-  `Uring` reuses fibers too early ([`issues.md`](../issues.md)): `Dispatch` runs on futures
+  `Uring` reuses fibers too early ([`issues.md`](../../../issues.md)): `Dispatch` runs on futures
   until `Group` is fixed (Futures on `Dispatch`), and threaded BLAS on a multithreaded `Uring`
   is unsupported. `Signal` wakes `maxInt(i32)`, since `Uring` wakes one for `maxInt(u32)`.
   Windows has no `Evented`.

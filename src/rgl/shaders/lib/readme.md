@@ -3,7 +3,6 @@
 GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg`
 (design.md, "Shaders keep their own API"). This file records what Zig's self-hosted SPIR-V backend
 emits for each operation: the native instruction (`OpDot`, the GLSL.std.450 set) or scalar code.
-todo.md's S2 item makes the operations native and checks it at build time.
 
 ## Probes
 
@@ -52,7 +51,7 @@ a vector.
   is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm`
   (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm`
   show.
-- **Matrices** (M3 step 2, 2026-11-02, 0.18.0-dev.858): shaderlib's `Mat2` to `Mat4` are
+- **Matrices**: shaderlib's `Mat2` to `Mat4` are
   `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they
   are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs
   `OpCompositeExtract`s (36 for a 4 by 4). Before, arrays of columns gave 4 FMul.v4 and 3 FAdd.v4

@@ -8,15 +8,9 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 ## Tiers
 
-- **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and
-  every release. Every kernel object the platform links runs the per-core tests, or is listed
-  below as untested with its item.
-- **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required
-  fixes, also for the MVP. Tested on a rig or machine where one exists; untested cores and paths
-  are listed with their items.
-- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the
-  record; failures go to [`todo.md`](src/linalg/todo.md)'s Known issues and enhancements.
-  Choices no rig can check follow OpenBLAS and BLIS where they agree
+- **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in [`todo.md`](todo.md)'s Queue. Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
+- **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the Queue. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
+- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record; failures go to [`todo.md`](todo.md)'s Known issues and enhancements, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
   ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
 - **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
   target compiles with the portable kernels at least; nothing more is promised. Each entry cites
@@ -27,9 +21,9 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | Target | Tier | Consumer | Tested by |
 | --- | --- | --- | --- |
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
-| `spirv32-vulkan` | 1, deferred | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); nothing validates or runs them |
+| `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); nothing validates or runs them |
 | `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` (TCG `max`), `x86_64-whpx` |
-| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
+| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf` |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF), `rstd-check-uefi` |
@@ -62,8 +56,8 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 Notes:
 
-- **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) is deferred until the CPU
-  BLAS MVP: todo.md's "SPIR-V: vector math in shaders", S1 and S2. The bit guarantees (same bits
+- **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) waited for the CPU BLAS
+  MVP; its work is todo.md's S2 (S1 done), queued after M12. The bit guarantees (same bits
   for any thread count, one contract on every core, the first-NaN rule) are the CPU's only;
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).
 - **macOS 11 and 12** never run: the VM builds for 13.0 and runs Sonoma, the M6 runs 27.2.

@@ -1,5 +1,3 @@
-//! Derived from code in OpenBLAS
-
 const std = @import("std");
 const sysinfo = @import("builtin");
 const portable = @import("portable.zig");

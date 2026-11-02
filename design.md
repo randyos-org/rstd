@@ -312,7 +312,7 @@ By the user, 2026-10-31:
   comes first, every other feature gets a stub so it can follow.
 - PocketFFT's and pffft's licenses are approved as BSD-3 is (Licenses, above).
 - The API sketches are approved. N-d arrays and sparse matrices start after the public layer
-  (linalg's M3), on its real `View(T)` and `Mat(T)`.
+  (linalg's M10), on its real `View(T)` and `Mat(T)`.
 - The stubs' changes to the sketches stand for now (explicit `comptime` element types,
   `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.Layouts`, scratch-bounded
   batches); they may be revisited.
