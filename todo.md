@@ -6,11 +6,11 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 ### Working on
 
-- M10
+- [ ] **T154** "Skylake-X small kernels: upstream's blocks, lanes and reductions, on any x86_64" fails on the Mac under Rosetta with `ROSETTA_ADVERTISE_AVX=1` (`f32`, `nn`, m = n = k = 1; `small.zig`'s `checkSkylakex`) at 5f7ae56f, though it passed there at d3fa4af4 and passes natively on Zen 3. Bisect the commits between (ff7255f9's fusion setting first), then tell rstd's path apart from Rosetta's FMA rounding. Tier 2.
 
 ### In the background
 
-- T143: timing the full x86_64-macos suite on the Mac with AVX advertised.
+- None.
 
 ## Queue
 
@@ -75,8 +75,6 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 - [ ] **N1** N-d array stubs (design.md, "Planned: N-d arrays"). **Needs:** M10, whose `View(T)` and `Mat(T)` they extend.
 
 - [ ] **N15** `stats.cov` and `corrcoef`: `syrk` over the centered columns. **Needs:** M11.
-
-- [ ] **T143** `ssh-test-x86_64-macos-avx2` ends at the every-core `symm` test (847 of 1031): silent past the watchdog's 60 minutes in the `atom` core's cases, busy in the test's wide reference, not hung (`sample` on the Mac); the plain step passes it. Run alone (2026-11-02, `.agent/logs/t143-symm.log`), the test passes in 180 s with AVX advertised (about 10 s a core, 23 s for `sandybridge`, `haswell`, `zen`) and 110 s plain: the stall needs the tests before it, maybe a non-default MXCSR left behind that puts Rosetta on a slow path. A full unwatched run is In the background.
 
 - [ ] **M4** Time `linalg.vector`'s inline `@Vector` forms against the BLAS and LAPACK at sizes 4 to 16 per operation and type (`dot`, `length`, `mul` matrix by vector and by matrix, `solve`), on the M6 and Zen 3 under their timing rules: confirm the inline limit of 8 (src/linalg/design.md, the public layer's Dispatch) or move it. `linalg.matrix`'s LU (`det`, `inv` past 3 by 3, every `solve`; 5f7ae56f) is scalar loops, not the design's inline `@Vector` code: time it too, and vectorize its column updates if it trails. **Needs:** M11.
 
@@ -228,29 +226,7 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 ## Done
 
-Cleared 2026-11-01; landed work is in `review`'s log.
-
-- [X] **M8** The public layer's step 1, 2026-11-01 (c7aff8dd): `linalg.vector` inline (`Vec`, the vector names, `splat`/`zero`, `mix`, `mulAdd`, `norm(v)`), every `rstd.simd` caller moved, no shims.
-
-- [X] **M9** The public layer's step 2, 2026-11-02 (5f7ae56f): `StaticMat` inline up to `L` in `linalg/matrix.zig` on `@Matrix`, real and complex (`mul`, `transpose`, `outer`, `det`, `inv`, `solve`, their `...Into` forms); shaderlib's `Mat2` to `Mat4`.
-
-- [X] The survey and API design ([`design.md`](design.md)), approved by the user 2026-10-31.
-
-- [X] **N3** to **N5** The `rstd.stats`, `rstd.sort` and `rstd.fft` stubs, 2026-10-31; the real parts are `Running`, `order`, `sort`, `argsort` and `searchSorted`.
-
-- [X] **N6** Their first compile, 2026-11-01: each file's `zig test` alone on Zig 0.18 and 0.17, the real parts passing and the stubs skipping; rstd's own tests with T139.
-
-- [X] **M7** The `Vec`/`StaticMat` design around the fork's `@Matrix`, with the user 2026-10-31 to 2026-11-01: src/linalg/design.md's decisions 13 to 19, with the build's selection (`rstd_matrix`, `src/linalg/_matrix/`); the types are M9's and M10's.
-
-- [X] **T139** One fusion setting (src/linalg/design.md, decision 15), 2026-11-01: the root's `std_float_options` (`zigcfg.FloatOptions`, defined in `fma.zig` for the per-core objects) in place of `blas_fuse_fma` and `blas_fuse_fma_vector`; the BLAS fuses up to its width where an instruction does, `rsimd.mulAdd` by the setting alone. Fixes `f64` fusing as a libm call on single-precision-only FMA (arm `vfp4sp`, riscv and loongarch with F but not D). `fma.madd` no longer takes a software `fma` for `f80`, and WebAssembly's vectors no longer fuse.
-
-- [X] **T62** Main-merge gate, 2026-11-01: tier 1 (`native` `-Dblas-cores=all` 963 passed, `x86_64-whpx` 643) and tier 2 passed at what merged to main (5ddbd422, PR 6), the Intel Mac's steps counted as passing until it arrives (T141; user, 2026-11-01); `ssh-test-x86_64-macos-avx2` timed out (T143). Tier 3 recorded at 5ddbd422 and 794b0eba, its failures in Known issues and enhancements (T144 to T149, T152); sparc64 is tier 4 (T39).
-
-- [X] **T142** "threaded symm, hemm, rank-k updates, trmm and trsm match the serial loops' bits" wrote after free on `riscv64` and `loongarch64`: the test's `routineShapes` sized `C` from the wrong side (`2 * p + um + 1` is larger). Fixed (`ld` from the largest side); the BLAS was right.
-
-- [X] matlab's `blas1.zig` is `scalar.zig` (78718468, 2026-11-01): `cabs1`, `pythag` and `wmul` are the BLAS's `cabs1`, `std.math.hypot` and `Complex.mul`.
-
-- [X] `rstd.simd` removed (e7eceacf, 2026-11-01): its vector math is `linalg.vector`'s (M8), its reductions had no caller, and `axpy` calls `std.simd.suggestVectorLength`.
+Cleared 2026-11-02; landed work is in `review`'s log.
 
 ## Waiting on the user
 
