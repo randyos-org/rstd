@@ -6,15 +6,15 @@
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
 
-const Cx = blas1.Cx;
+const Cx = scalar.Cx;
 const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const ix = blas1.ix;
+const ix = scalar.ix;
 
 /// Eigenvalues, and optionally eigenvectors, of an `n`x`n` complex matrix.
 /// All slices are owned by the caller and must be freed with the same

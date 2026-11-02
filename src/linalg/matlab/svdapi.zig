@@ -5,15 +5,15 @@
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
 
-const Cx = blas1.Cx;
+const Cx = scalar.Cx;
 const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const ix = blas1.ix;
+const ix = scalar.ix;
 
 /// `NoConvergence` from `gesvd` (an infinity or NaN in the matrix).
 pub const Error = error{NoConvergence} || Allocator.Error || Io.Cancelable;
@@ -105,7 +105,7 @@ pub fn pinv(allocator: Allocator, io: Io, a: CxMat, tol: ?f64, result_r: []f64, 
                     for (0..r) |l| {
                         const v = cx(vt[(i - 1) * k + l]).conjugate();
                         const w = cx(u[l * m + j - 1]).conjugate();
-                        const t = blas1.wmul(v, w);
+                        const t = v.mul(w);
                         acc = acc.add(Cx.init(t.re / s[l], t.im / s[l]));
                     }
                     out.set(i, j, acc);

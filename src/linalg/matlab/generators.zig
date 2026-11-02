@@ -1,18 +1,18 @@
 //! Row reduction and matrix generation, ported from `matlab88.f90`'s RREF,
 //! HILBER, MAGIC, and the EYE/ONES/DIAG/TRIL/TRIU/KRON command bodies in
-//! `MATFN6`. See `blas1.zig` for the shared matrix/vector conventions this
+//! `MATFN6`. See `scalar.zig` for the shared matrix/vector conventions this
 //! port uses, and `CxMat.zig` for the `self`-shaped calling convention the
 //! complex-matrix functions here now use. `hilber`/`magic` stay on loose
 //! `(a, lda, n)` parameters rather than `CxMat` - they're real-only (no
 //! imaginary part to bundle), so a complex-matrix wrapper doesn't fit them.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const blas = @import("../blas/__root__.zig");
-const Cx = blas1.Cx;
-const ix = blas1.ix;
-const level1 = blas1.level1;
+const Cx = scalar.Cx;
+const ix = scalar.ix;
+const level1 = scalar.level1;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -72,11 +72,11 @@ fn one(comptime T: type) T {
 }
 
 fn mag1(x: anytype) f64 {
-    return if (@TypeOf(x) == f64) @abs(x) else blas1.cabs1(x.re, x.im);
+    return if (@TypeOf(x) == f64) @abs(x) else blas.cabs1(@TypeOf(x), x);
 }
 
 fn recip(x: anytype) @TypeOf(x) {
-    return if (@TypeOf(x) == f64) 1 / x else blas1.wdiv(Cx.init(1, 0), x);
+    return if (@TypeOf(x) == f64) 1 / x else scalar.wdiv(Cx.init(1, 0), x);
 }
 
 fn neg(x: anytype) @TypeOf(x) {
@@ -321,9 +321,9 @@ pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
                 while (i <= m) : (i += 1) {
                     const b_val = b.get(i, j);
                     const v = switch (op) {
-                        .mul => blas1.wmul(a_val, b_val),
-                        .div => blas1.wdiv(a_val, b_val),
-                        .rdiv => blas1.wdiv(b_val, a_val),
+                        .mul => a_val.mul(b_val),
+                        .div => scalar.wdiv(a_val, b_val),
+                        .rdiv => scalar.wdiv(b_val, a_val),
                     };
                     const row = (ia - 1) * m + i;
                     const col = (ja - 1) * n + j;

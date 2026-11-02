@@ -7,14 +7,14 @@
 //! and `CxMat`'s matrix-function (`sinm`, `cosm`, ...) methods.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
-const Cx = blas1.Cx;
+const scalar = @import("scalar.zig");
+const Cx = scalar.Cx;
 
 /// POWER: `x^y = exp(y * log(x))` (principal branch). Same formula as
 /// `std.math.complex.pow`, inheriting `exp`/`log`'s own overflow handling.
 /// A real function, not `pub const wpow = std.math.complex.pow;`: not
 /// currently needed as a first-class value anywhere, but keeping it typed
-/// concretely matches `blas1.wlog`/`watan`'s convention and costs nothing.
+/// concretely matches `scalar.wlog`/`watan`'s convention and costs nothing.
 /// Not yet wired to a REPL-level entry point (the original exposed this via
 /// the `**` operator, which - like `*` matrix multiplication - is REPL
 /// operator-dispatch logic this port hasn't ported yet, not a named
@@ -27,7 +27,7 @@ const zigstd = @import("../../zigstd.zig");
 
 test "wpow matches repeated multiplication for an integer exponent" {
     const x = Cx.init(1.5, -0.5);
-    const cubed = blas1.wmul(blas1.wmul(x, x), x);
+    const cubed = x.mul(x).mul(x);
     const viaPow = wpow(x, Cx.init(3.0, 0.0));
     try zigstd.testExpectApproxEqAbs(cubed.re, viaPow.re, 1e-9);
     try zigstd.testExpectApproxEqAbs(cubed.im, viaPow.im, 1e-9);

@@ -2,14 +2,14 @@
 //! `getrs` (M2), in place of WGECO and WGESL.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lu_mod = @import("lu.zig");
 const Trans = @import("../lapack/__root__.zig").Trans;
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const ix = blas1.ix;
+const ix = scalar.ix;
 
 /// Right matrix division for a square divisor: solve `X*B = A` for `X` -
 /// REPL semantics for `A/B` - as `Bᵀ Xᵀ = Aᵀ`. `a` (`m`x`n`) is
@@ -118,7 +118,7 @@ test "divisions mix real and complex operands; a singular divisor fails" {
         const a_orig = CxMat.initPacked(&cr, &ci, 2, 2);
         for (1..3) |i| {
             for (1..3) |j| {
-                var s = blas1.Cx.init(0, 0);
+                var s = scalar.Cx.init(0, 0);
                 for (1..3) |k| s = s.add(if (right) x.get(i, k).mul(a_orig.get(k, j)) else a_orig.get(i, k).mul(x.get(k, j)));
                 try zigstd.testExpectApproxEqAbs(b0r[ix(2, i, j)], s.re, 1e-12);
                 try zigstd.testExpectApproxEqAbs(0.0, s.im, 1e-12);

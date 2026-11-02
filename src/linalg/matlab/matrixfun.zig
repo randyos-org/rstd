@@ -5,14 +5,15 @@
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
+const blas = @import("../blas/__root__.zig");
 const CxMat = @import("CxMat.zig");
 const eig_mod = @import("eig.zig");
 const divide = @import("divide.zig");
 const elementary = @import("elementary.zig");
 
-const Cx = blas1.Cx;
-const ix = blas1.ix;
+const Cx = scalar.Cx;
+const ix = scalar.ix;
 
 /// POLY: characteristic polynomial coefficients (length `n+1`, highest
 /// degree first, leading coefficient `1`) for the given `n` roots -
@@ -26,7 +27,7 @@ pub fn poly(rootsr: []const f64, rootsi: []const f64, n: usize, cr: []f64, ci: [
         var k: usize = idx + 1;
         while (true) {
             const c = Cx.init(cr[k - 1], ci[k - 1]);
-            const term = blas1.wmul(neg_root, c);
+            const term = neg_root.mul(c);
             cr[k] += term.re;
             ci[k] += term.im;
             if (k == 1) break;
@@ -43,7 +44,7 @@ pub fn poly(rootsr: []const f64, rootsi: []const f64, n: usize, cr: []f64, ci: [
 /// polynomial).
 pub fn roots(allocator: zigstd.Allocator, io: std.Io, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) eig_mod.EigError!usize {
     var start: usize = 0;
-    while (start < coeffr.len and blas1.cabs1(coeffr[start], coeffi[start]) == 0.0) start += 1;
+    while (start < coeffr.len and blas.cabs1(Cx, .init(coeffr[start], coeffi[start])) == 0.0) start += 1;
     if (start >= coeffr.len) return 0;
     const n = coeffr.len - start - 1;
     if (n == 0) return 0;
@@ -59,7 +60,7 @@ pub fn roots(allocator: zigstd.Allocator, io: std.Io, coeffr: []const f64, coeff
     while (j <= n) : (j += 1) {
         if (j < n) compr[ix(n, j + 1, j)] = 1.0;
         const cj = Cx.init(coeffr[start + j], coeffi[start + j]);
-        const v = blas1.wdiv(Cx.init(-cj.re, -cj.im), c0);
+        const v = scalar.wdiv(Cx.init(-cj.re, -cj.im), c0);
         compr[ix(n, 1, j)] = v.re;
         compi[ix(n, 1, j)] = v.im;
     }
@@ -99,16 +100,16 @@ pub fn sqrt(ar: []f64, ai: []f64) void {
     applyElementwise(std.math.complex.sqrt, ar, ai);
 }
 pub fn log(ar: []f64, ai: []f64) void {
-    applyElementwise(blas1.wlog, ar, ai);
+    applyElementwise(scalar.wlog, ar, ai);
 }
 pub fn atan(ar: []f64, ai: []f64) void {
-    applyElementwise(blas1.watan, ar, ai);
+    applyElementwise(scalar.watan, ar, ai);
 }
 
 /// ABS/ROUND/REAL/IMAG/CONJ (elementwise): the remaining `FUN`-style
 /// commands, each trivial enough not to need a loop helper - apply
 /// directly with a `for` where you need them:
-/// `for (ar, ai) |r, i| out[k] = blas1.pythag(r, i);` (ABS),
+/// `for (ar, ai) |r, i| out[k] = std.math.hypot(r, i);` (ABS),
 /// `for (ar) |*r| r.* = @round(r.*);` (ROUND, real part only - the
 /// original ignored the imaginary part), `ar`/`ai` themselves are
 /// REAL/IMAG, and `Cx.init(r, -i)` is CONJG.
@@ -134,7 +135,7 @@ fn applyMatrixFunction(allocator: zigstd.Allocator, io: std.Io, f: anytype, a: C
         const s = f.call(Cx.init(result.values_r[j - 1], result.values_i[j - 1]));
         var i: usize = 1;
         while (i <= n) : (i += 1) {
-            const t = blas1.wmul(Cx.init(vr[ix(n, i, j)], vi[ix(n, i, j)]), s);
+            const t = Cx.init(vr[ix(n, i, j)], vi[ix(n, i, j)]).mul(s);
             out.r[ix(n, i, j)] = t.re;
             out.i[ix(n, i, j)] = t.im;
         }
@@ -157,7 +158,7 @@ const ExpCtx = struct {
 };
 const LogCtx = struct {
     pub fn call(_: @This(), z: Cx) Cx {
-        return blas1.wlog(z);
+        return scalar.wlog(z);
     }
 };
 const SqrtCtx = struct {
@@ -177,7 +178,7 @@ const CosCtx = struct {
 };
 const AtanCtx = struct {
     pub fn call(_: @This(), z: Cx) Cx {
-        return blas1.watan(z);
+        return scalar.watan(z);
     }
 };
 const PowCtx = struct {

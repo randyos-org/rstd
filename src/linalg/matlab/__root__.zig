@@ -13,12 +13,12 @@
 //! commands below that were never matrix-self-shaped to begin with
 //! (`hilb`/`magic`, `sum`/`prod`, `pow`, the elementwise `sin`/`cos`/...
 //! family, `poly`/`roots`, vector `norm`, `base`/`rat`/`Rand`). Everything
-//! else (`lu`, `cholesky`, `svdapi`, `blas1`, `generators`, ...) is an internal
+//! else (`lu`, `cholesky`, `svdapi`, `scalar`, `generators`, ...) is an internal
 //! implementation detail behind those two surfaces, not part of the public
 //! API - see `CxMat.zig`'s "Domain-file methods" section for how its
 //! methods delegate to them.
 
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const elementary = @import("elementary.zig");
 const generators = @import("generators.zig");
 const rat_mod = @import("rat.zig");
@@ -28,7 +28,7 @@ const matrixfun = @import("matrixfun.zig");
 const norm = @import("norm.zig");
 
 pub const CxMat = @import("CxMat.zig");
-pub const Cx = blas1.Cx;
+pub const Cx = scalar.Cx;
 
 /// HILB: REPL name for `hilber` (the closed-form inverse Hilbert matrix).
 pub const hilb = generators.hilber;
@@ -83,7 +83,7 @@ pub fn sum(ar: []const f64, ai: []const f64) Cx {
 /// matter - `ar`/`ai` are read as a flat array).
 pub fn prod(ar: []const f64, ai: []const f64) Cx {
     var acc = Cx.init(1.0, 0.0);
-    for (ar, ai) |vr, vi| acc = blas1.wmul(acc, Cx.init(vr, vi));
+    for (ar, ai) |vr, vi| acc = acc.mul(Cx.init(vr, vi));
     return acc;
 }
 
@@ -99,7 +99,7 @@ const elementwise = @import("elementwise.zig");
 
 test {
     zigstd.testRefAllDecls(CxMat);
-    zigstd.testRefAllDecls(blas1);
+    zigstd.testRefAllDecls(scalar);
     zigstd.testRefAllDecls(elementary);
     zigstd.testRefAllDecls(lu);
     zigstd.testRefAllDecls(cholesky);

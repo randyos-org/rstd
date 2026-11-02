@@ -3,7 +3,7 @@
 //! `ar: []f64, ai: []f64, lda: usize, m: usize, n: usize` through every
 //! matrix-level function call individually.
 //!
-//! Vector-level (BLAS-1) kernels in `blas1.zig` are unchanged by this -
+//! Vector-level (BLAS-1) kernels, rstd's BLAS since M2, are unchanged by this -
 //! they operate on a 1D strided view (a row, a column, or an arbitrary
 //! vector with an explicit `incx`), not a whole matrix, matching real
 //! BLAS's own Level-1-vs-Level-2/3 boundary. `CxMat` starts exactly where
@@ -18,9 +18,9 @@
 //! arguments.
 
 const zigstd = @import("../../zigstd.zig");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const blas = @import("../blas/__root__.zig");
-const Cx = blas1.Cx;
+const Cx = scalar.Cx;
 
 r: []f64,
 i: []f64,
@@ -43,9 +43,9 @@ pub fn initPacked(r: []f64, i: []f64, m: usize, n: usize) Self {
 }
 
 /// 0-based flat offset of 1-based `(row, col)` - same convention as
-/// `blas1.ix`, which this just forwards to.
+/// `scalar.ix`, which this just forwards to.
 pub inline fn idx(self: Self, row: usize, c: usize) usize {
-    return blas1.ix(self.lda, row, c);
+    return scalar.ix(self.lda, row, c);
 }
 
 pub inline fn get(self: Self, row: usize, c: usize) Cx {
@@ -182,7 +182,7 @@ pub fn transpose(self: Self, out: Self) void {
 pub fn scale(self: Self, io: std.Io, s: Cx) std.Io.Cancelable!void {
     for (1..self.n + 1) |j| {
         const c = self.col(j);
-        try blas1.level1(blas.rot(io, f64, @intCast(self.m), c.r.ptr, 1, c.i.ptr, 1, s.re, -s.im));
+        try scalar.level1(blas.rot(io, f64, @intCast(self.m), c.r.ptr, 1, c.i.ptr, 1, s.re, -s.im));
     }
 }
 
@@ -313,19 +313,19 @@ test "det, inv and chol agree on a small real matrix" {
     const rc = try Self.initPacked(&ar_for_inv, &ai_for_inv, 2, 2).inv(zigstd.testAllocator, std.testing.io);
     try zigstd.testExpectTrue(rc > 0.0);
     // inv([[4,2],[2,3]]) = [[3,-2],[-2,4]] / 8.
-    try zigstd.testExpectApproxEqAbs(3.0 / 8.0, ar_for_inv[blas1.ix(2, 1, 1)], 1e-9);
-    try zigstd.testExpectApproxEqAbs(-2.0 / 8.0, ar_for_inv[blas1.ix(2, 1, 2)], 1e-9);
-    try zigstd.testExpectApproxEqAbs(4.0 / 8.0, ar_for_inv[blas1.ix(2, 2, 2)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(3.0 / 8.0, ar_for_inv[scalar.ix(2, 1, 1)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(-2.0 / 8.0, ar_for_inv[scalar.ix(2, 1, 2)], 1e-9);
+    try zigstd.testExpectApproxEqAbs(4.0 / 8.0, ar_for_inv[scalar.ix(2, 2, 2)], 1e-9);
 
     try Self.initPacked(&ar, &ai, 2, 2).chol(zigstd.testAllocator, std.testing.io, null);
-    try zigstd.testExpectApproxEqAbs(0.0, ar[blas1.ix(2, 2, 1)], 1e-12); // lower triangle zeroed
+    try zigstd.testExpectApproxEqAbs(0.0, ar[scalar.ix(2, 2, 1)], 1e-12); // lower triangle zeroed
 }
 
-test "init/get/set/idx agree with blas1.ix" {
+test "init/get/set/idx agree with scalar.ix" {
     var r = [_]f64{ 0, 0, 0, 0 };
     var i = [_]f64{ 0, 0, 0, 0 };
     const mat = Self.initPacked(&r, &i, 2, 2);
-    try zigstd.testExpectEqual(blas1.ix(2, 2, 1), mat.idx(2, 1));
+    try zigstd.testExpectEqual(scalar.ix(2, 2, 1), mat.idx(2, 1));
 
     mat.set(2, 1, Cx.init(3.0, -4.0));
     try zigstd.testExpectEqual(@as(f64, 3.0), r[mat.idx(2, 1)]);

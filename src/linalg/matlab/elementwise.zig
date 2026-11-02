@@ -6,10 +6,10 @@
 //! into `CxMat.zig` to keep files under this project's line-count
 //! guideline.
 
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const generators = @import("generators.zig");
-const Cx = blas1.Cx;
+const Cx = scalar.Cx;
 
 /// ADDITION (`X + Y`): `out(i,j) = a(i,j) + b(i,j)`. `a`, `b`, and `out`
 /// must have the same shape; `out` may alias `a` or `b`.
@@ -47,9 +47,9 @@ fn dotOp(a: CxMat, b: CxMat, out: CxMat, op: generators.KronOp) void {
             const av = a.get(i, j);
             const bv = b.get(i, j);
             const v = switch (op) {
-                .mul => blas1.wmul(av, bv),
-                .div => blas1.wdiv(av, bv),
-                .rdiv => blas1.wdiv(bv, av),
+                .mul => av.mul(bv),
+                .div => scalar.wdiv(av, bv),
+                .rdiv => scalar.wdiv(bv, av),
             };
             out.set(i, j, v);
         }

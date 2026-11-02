@@ -10,11 +10,11 @@
 //! `NORM(X,'FRO')` the Frobenius norm.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const svdapi = @import("svdapi.zig");
 const blas = @import("../blas/__root__.zig");
-const level1 = blas1.level1;
+const level1 = scalar.level1;
 const Io = std.Io;
 
 /// `NORM(V,2)` / `NORM(V)`: Euclidean norm, `hypot` of `dnrm2` over the
@@ -37,7 +37,7 @@ pub fn vecNormP(n: usize, xr: []const f64, xi: []const f64, incx: isize, p: f64)
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const u: usize = @intCast(i_x);
-        acc += std.math.pow(f64, blas1.pythag(xr[u], xi[u]), p);
+        acc += std.math.pow(f64, std.math.hypot(xr[u], xi[u]), p);
         i_x += incx;
     }
     return std.math.pow(f64, acc, 1.0 / p);
@@ -50,7 +50,7 @@ pub fn vecNormInf(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const u: usize = @intCast(i_x);
-        m = @max(m, blas1.pythag(xr[u], xi[u]));
+        m = @max(m, std.math.hypot(xr[u], xi[u]));
         i_x += incx;
     }
     return m;
@@ -129,7 +129,7 @@ test "vecNorm2 scales: huge, tiny, partly underflowing and zero vectors (M1's E8
 }
 
 test "vecNormP with p=2 matches vecNorm2, and p=1 is the sum of moduli" {
-    // moduli: pythag(3,4)=5, pythag(1,0)=1, pythag(-2,0)=2.
+    // moduli: hypot(3,4)=5, hypot(1,0)=1, hypot(-2,0)=2.
     const xr = [_]f64{ 3.0, 1.0, -2.0 };
     const xi = [_]f64{ 4.0, 0.0, 0.0 };
     try zigstd.testExpectApproxEqAbs(try vecNorm2(test_io, 3, &xr, &xi, 1), vecNormP(3, &xr, &xi, 1, 2.0), 1e-9);
@@ -137,7 +137,7 @@ test "vecNormP with p=2 matches vecNorm2, and p=1 is the sum of moduli" {
 }
 
 test "vecNormInf finds the largest-magnitude entry" {
-    // moduli: 1, 2, pythag(0.5,9)=sqrt(81.25)=9.0138782...
+    // moduli: 1, 2, hypot(0.5,9)=sqrt(81.25)=9.0138782...
     const xr = [_]f64{ 1.0, -2.0, 0.5 };
     const xi = [_]f64{ 0.0, 0.0, 9.0 };
     try zigstd.testExpectApproxEqAbs(@sqrt(81.25), vecNormInf(3, &xr, &xi, 1), 1e-9);

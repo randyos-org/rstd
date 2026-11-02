@@ -8,10 +8,11 @@
 //! diagonal, where a plain product of it overflows.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
+const blas = @import("../blas/__root__.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
-const Cx = blas1.Cx;
+const Cx = scalar.Cx;
 const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -98,13 +99,13 @@ pub fn det(self: CxMat, allocator: Allocator, io: Io) Error!Determinant {
     var exp10: f64 = 0.0;
     for (1..self.n + 1) |i| {
         if (f.ipiv[i - 1] != i) d = Cx.init(-d.re, -d.im);
-        d = blas1.wmul(f.diag(i), d);
-        if (blas1.cabs1(d.re, d.im) == 0.0) break;
-        while (blas1.cabs1(d.re, d.im) < 1.0) {
+        d = f.diag(i).mul(d);
+        if (blas.cabs1(Cx, d) == 0.0) break;
+        while (blas.cabs1(Cx, d) < 1.0) {
             d = Cx.init(d.re * 10.0, d.im * 10.0);
             exp10 -= 1.0;
         }
-        while (blas1.cabs1(d.re, d.im) >= 10.0) {
+        while (blas.cabs1(Cx, d) >= 10.0) {
             d = Cx.init(d.re / 10.0, d.im / 10.0);
             exp10 += 1.0;
         }
@@ -188,8 +189,8 @@ test "det and inv of a diagonal matrix, real and complex" {
         const q = 4 + im * im;
         try zigstd.testExpectApproxEqAbs(2 / q, br[0], 1e-12);
         try zigstd.testExpectApproxEqAbs(-im / q, bi[0], 1e-12);
-        try zigstd.testExpectApproxEqAbs(1.0 / 3.0, br[blas1.ix(3, 2, 2)], 1e-12);
-        try zigstd.testExpectApproxEqAbs(-0.25, br[blas1.ix(3, 3, 3)], 1e-12);
+        try zigstd.testExpectApproxEqAbs(1.0 / 3.0, br[scalar.ix(3, 2, 2)], 1e-12);
+        try zigstd.testExpectApproxEqAbs(-0.25, br[scalar.ix(3, 3, 3)], 1e-12);
     }
 }
 
@@ -198,7 +199,7 @@ test "det keeps its range where the pivots' product overflows (M1's E1); a singu
     var ar = [_]f64{ 1e200, 0, 0, 0, 1e200, 0, 0, 0, -3e-100 };
     var ai: [9]f64 = @splat(0.0);
     var product: f64 = 1;
-    for (1..4) |k| product *= ar[blas1.ix(3, k, k)];
+    for (1..4) |k| product *= ar[scalar.ix(3, k, k)];
     try zigstd.testExpectTrue(std.math.isInf(product));
     const d = try det(CxMat.initPacked(&ar, &ai, 3, 3), testing.allocator, testing.io);
     try zigstd.testExpectApproxEqAbs(-3.0, d.mantissa.re, 1e-12);

@@ -6,14 +6,14 @@
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
 const eig_mod = @import("eig.zig");
 const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const ix = blas1.ix;
+const ix = scalar.ix;
 
 /// `<P, H>`: `A`'s unitary similarity `P` and Hessenberg form `H`, so
 /// `A = P*H*P'` (`H` zero below the first subdiagonal - tridiagonal if `A`

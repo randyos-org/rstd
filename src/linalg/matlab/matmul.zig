@@ -6,7 +6,7 @@
 //! is `CxMat.scale`.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const blas = @import("../blas/__root__.zig");
 const Complex = CxMat.Complex;
@@ -48,7 +48,7 @@ fn multiplied(r: blas.Level3Error!void) Error!void {
 }
 
 const zigstd = @import("../../zigstd.zig");
-const ix = blas1.ix;
+const ix = scalar.ix;
 
 test "matmul matches hand computation for a small real case" {
     // A = [[1,2],[3,4]] (2x2), B = [[5,6],[7,8]] (2x2).
