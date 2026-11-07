@@ -1284,6 +1284,18 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   > `std.ArrayListUnmanaged` in Aro's `build/generate_def.zig`. Updating
   > the Aro pin to one that follows Zig master would fix both.
 
+## zigwin32gen (github.com/marlersoft/zigwin32gen)
+
+### `decodeHexByte` mixes `<<` and `|` without parentheses
+
+- **Seen:** zigwin32 at `fb26458` (main, 2026-10-14) does not build on Zig master: `win32/zig.zig`'s `decodeHexByte` returns `... << 4 | ...`, which Zig now rejects as ambiguous precedence (Zig `64e4f9db8f`). The file is copied from zigwin32gen's `src/static/win32/zig.zig` (line 99 at `d03e8715`), so the fix belongs there. No issue or PR covers it in either repo (checked 2026-11-07).
+- **Workaround:** `vendor/zigwin32` is the fork `emanspeaks/zigwin32`, branch `randy`, with one commit (`5bfdb4c`) adding the parentheses.
+- **Issue text:**
+
+  > **Zig 0.18: `decodeHexByte` fails with "ambiguous operator precedence"**
+  >
+  > On Zig master (0.18.0-dev), `src/static/win32/zig.zig` fails to compile: `return @as(u8, @intCast(hexVal(hex[0]))) << 4 | hexVal(hex[1]);` gives `error: ambiguous operator precedence with operators ... << ... | ...; use parentheses to disambiguate`. Zig 0.17 evaluated it as `(... << ...) | ...`, so `(@as(u8, @intCast(hexVal(hex[0]))) << 4) | hexVal(hex[1])` keeps the meaning and builds on both.
+
 ## QEMU
 
 ### WHPX passes the host's AMD CPUID through to an Intel-only guest

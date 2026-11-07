@@ -141,9 +141,10 @@ pub fn Real(comptime T: type) type {
 
 /// `Σ a b` over the real parts in storage order (`re`, then `im`, per complex
 /// element), each product after the first fused into the sum as `mulAdd` says.
-inline fn partDot(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
-    const R = Real(Elem(@TypeOf(a)));
-    if (comptime !isComplex(Elem(@TypeOf(a)))) {
+/// The caller passes `R` and `complex`: every comptime call here counts
+/// against the caller's branch quota, once per inline call.
+inline fn partDot(comptime R: type, comptime complex: bool, a: anytype, b: @TypeOf(a)) R {
+    if (!complex) {
         var acc: R = a[0] * b[0];
         inline for (1..count(@TypeOf(a))) |i| acc = mulAdd(R, a[i], b[i], acc);
         return acc;
@@ -173,23 +174,26 @@ pub inline fn zero(comptime V: type) V {
 /// a complex real part adds `re re` then `im im`, its imaginary part `re im`
 /// then `-im re`. Under SPIR-V `OpDot`.
 pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
-    const T = Elem(@TypeOf(a));
+    // builtins, not `Elem` and `Real` again: calls cost the caller's quota
+    const T = @TypeOf(a[0]);
     if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDot(a, b);
-    if (comptime !isComplex(T)) return partDot(a, b);
-    const R = Real(T);
+    if (comptime !isComplex(T)) return partDot(T, false, a, b);
+    const R = @FieldType(T, "re");
     var im: R = a[0].re * b[0].im;
     im = mulAdd(R, -a[0].im, b[0].re, im);
     inline for (1..count(@TypeOf(a))) |i| {
         im = mulAdd(R, a[i].re, b[i].im, im);
         im = mulAdd(R, -a[i].im, b[i].re, im);
     }
-    return .{ .re = partDot(a, b), .im = im };
+    return .{ .re = partDot(R, true, a, b), .im = im };
 }
 
 /// `dot(v, v)`'s real part, `Σ |v[i]|²`, as the real type.
 pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
     if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvDot(v, v);
-    return partDot(v, v);
+    const E = Elem(@TypeOf(v));
+    const complex = comptime isComplex(E);
+    return partDot(if (complex) @FieldType(E, "re") else E, complex, v, v);
 }
 
 /// The 2-norm (MATLAB's `norm`, GLSL's `length`). Tries `sqrt(dot2(v))`
@@ -295,10 +299,12 @@ pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
 /// Multiply-add, fused or not as the root's `std_float_options` says
 /// (`zigcfg.FloatOptions`; by default where the target fuses in hardware),
 /// as the fork's `@Matrix` products are (`linalg/blas/fma.zig`'s `mulAdd`).
-/// Under SPIR-V `@mulAdd`, GLSL.std.450 `Fma`.
-pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    if (on_spirv) return @mulAdd(T, a, b, c);
-    return fma.mulAdd(T, a, b, c);
+/// Under SPIR-V `@mulAdd`, GLSL.std.450 `Fma`. An alias, not a wrapper: each
+/// inline layer costs its callers' comptime branch quota.
+pub const mulAdd = if (on_spirv) spirvMulAdd else fma.mulAdd;
+
+inline fn spirvMulAdd(comptime T: type, a: T, b: T, c: T) T {
+    return @mulAdd(T, a, b, c);
 }
 
 /// `Σ v[i]`, in element order.

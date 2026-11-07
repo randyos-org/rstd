@@ -140,11 +140,25 @@ pub inline fn madd(comptime fused: bool, comptime T: type, a: T, b: T, c: T) T {
     return util.scalar(T, if (comptime fused and fuseFor(T)) fusedMadd(T, a, b, c) else a * b + c);
 }
 
+/// `fuseFor` and `allowed` by float width, for `mulAdd`: worked out here
+/// once, since a comptime call charges its whole branch count to every
+/// inline caller, memoized or not.
+const by_bits = blk: {
+    var r: [129]struct { fuse: bool, allow: bool } = @splat(.{ .fuse = false, .allow = false });
+    for (.{ f16, f32, f64, f80, f128 }) |F| r[@typeInfo(F).float.bits] = .{ .fuse = fuseFor(F), .allow = allowed(F) };
+    break :blk r;
+};
+
 /// `a*b + c` by the setting alone, as the fork's `@Matrix` products: fused
 /// in floats it allows, in software past the hardware's width.
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
-    if (comptime fuseFor(T)) return fusedMadd(T, a, b, c);
-    return if (comptime allowed(T) and compiles) @mulAdd(T, a, b, c) else a * b + c;
+    const E = switch (@typeInfo(T)) {
+        .vector => |v| v.child,
+        else => T,
+    };
+    const policy = comptime by_bits[@typeInfo(E).float.bits];
+    if (policy.fuse) return fusedMadd(T, a, b, c);
+    return if (policy.allow and compiles) @mulAdd(T, a, b, c) else a * b + c;
 }
 
 /// `a*b + c` rounded once, for a `fusible` `T`: `@mulAdd`, or with
