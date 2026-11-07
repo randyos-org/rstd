@@ -46,11 +46,11 @@ a vector.
 
 - **Native already:** the math builtins (`@sqrt`, `@floor` and the rest), `@min`/`@max` and
   `@mulAdd`. `@Vector` arithmetic stays vector.
-- **Never native through rstd or shaderlib:** Dot, Length, Distance, Normalize, Cross, Reflect,
+- **Never native through rstd or shaderlib (at S1):** Dot, Length, Distance, Normalize, Cross, Reflect,
   Refract, FaceForward, InverseSqrt, Fma (rstd's `mulAdd` stays unfused: `fma.zig`'s `fusedMulAddBits`
   is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm`
   (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm`
-  show.
+  show. M12 made `linalg`'s native (below).
 - **Matrices**: shaderlib's `Mat2` to `Mat4` are
   `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they
   are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs
@@ -63,3 +63,23 @@ a vector.
   vectors (`2 * dot(i, n) * n` mixes a scalar and a vector); they now splat their scalars.
 - **Compiler crash:** `std.fmt.comptimePrint` as an `asm` template crashes the backend (issues.md),
   so templates are literal.
+
+## `linalg`'s SPIR-V forms (M12, 2026-11-07)
+
+0.18.0-dev.859; every module passes `spirv-val`. `linalg.vector` on a `@Vector` of 2 to 4 floats and `linalg.matrix` on a real `@Matrix` of 2 to 4 by 2 to 4 take SPIR-V's own instructions by inline `asm` (design.md, "Dispatch under SPIR-V"); other sizes and complex `T` keep the inline code.
+
+| Operation | Emitted |
+| --- | --- |
+| `math.dot`, `math.dot2` | OpDot |
+| `math.cross` | Cross (68) |
+| `length` | Length (66) |
+| `distance` | Distance (67) |
+| `normalize` | Length + Normalize (69), the zero test between |
+| `linalg.vector.mulAdd` | Fma (50), through `@mulAdd` |
+| `mix`, `mix_scalar` | FMix (46) |
+| `matrix.det` | Determinant (33) |
+| `matrix.inv` | Determinant + MatrixInverse (34), `error.Singular` when 0 |
+| `matrix.outer` | OpOuterProduct |
+
+- **Still shaderlib's own code:** `reflect`, `refract` and `faceforward` (their dot is OpDot now), `inversesqrt`, `step_scalar`, `smoothstep_scalar`, `fract` and `clamp`; S2 lowers them.
+- **`asm` on `@Matrix`:** the block takes the matrix type as a `"t"` input and the matrix as a `""` operand, so it never declares `OpTypeMatrix` (issues.md).

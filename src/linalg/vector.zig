@@ -18,6 +18,86 @@ pub const on_spirv = switch (sysinfo.target.cpu.arch) {
     else => false,
 };
 
+/// Whether `V` is a SPIR-V vector type, `@Vector(N, T)` with `N` 2 to 4 and
+/// float `T`, which takes SPIR-V's own instructions (design.md, "Dispatch
+/// under SPIR-V"); the rest take the inline code. Callers test `on_spirv`
+/// first: the call alone spends a CPU caller's comptime branch quota.
+pub fn spirvVec(comptime V: type) bool {
+    if (!on_spirv) return false;
+    return switch (@typeInfo(V)) {
+        .vector => |info| info.len >= 2 and info.len <= 4 and @typeInfo(info.child) == .float,
+        else => false,
+    };
+}
+
+// SPIR-V's instructions by inline asm. Templates stay literal:
+// `std.fmt.comptimePrint` as a template crashes the backend
+// (src/rgl/shaders/lib/readme.md).
+
+inline fn spvDot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+    return asm (
+        \\%ret = OpDot %T %a %b
+        : [ret] "" (-> Elem(@TypeOf(a))),
+        : [T] "t" (Elem(@TypeOf(a))),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+inline fn spvLength(v: anytype) Elem(@TypeOf(v)) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 66 %v
+        : [ret] "" (-> Elem(@TypeOf(v))),
+        : [T] "t" (Elem(@TypeOf(v))),
+          [v] "" (v),
+    );
+}
+
+inline fn spvDistance(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 67 %a %b
+        : [ret] "" (-> Elem(@TypeOf(a))),
+        : [T] "t" (Elem(@TypeOf(a))),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+inline fn spvCross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 68 %a %b
+        : [ret] "" (-> @TypeOf(a)),
+        : [T] "t" (@TypeOf(a)),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+inline fn spvNormalize(v: anytype) @TypeOf(v) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 69 %v
+        : [ret] "" (-> @TypeOf(v)),
+        : [T] "t" (@TypeOf(v)),
+          [v] "" (v),
+    );
+}
+
+inline fn spvMix(a: anytype, b: @TypeOf(a), t: @TypeOf(a)) @TypeOf(a) {
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 46 %a %b %t
+        : [ret] "" (-> @TypeOf(a)),
+        : [T] "t" (@TypeOf(a)),
+          [a] "" (a),
+          [b] "" (b),
+          [t] "" (t),
+    );
+}
+
 /// `@Vector(N, T)`, real `T` only; a complex fixed-size vector is `[N]Complex(T)`.
 pub fn Vec(comptime N: comptime_int, comptime T: type) type {
     return @Vector(N, T);
@@ -91,9 +171,10 @@ pub inline fn zero(comptime V: type) V {
 /// `Σ conj(a[i]) b[i]`: `aᴴ b` for complex, as MATLAB's `dot`. In element
 /// order, each product after the first fused into the sum as `mulAdd` says;
 /// a complex real part adds `re re` then `im im`, its imaginary part `re im`
-/// then `-im re`.
+/// then `-im re`. Under SPIR-V `OpDot`.
 pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
     const T = Elem(@TypeOf(a));
+    if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDot(a, b);
     if (comptime !isComplex(T)) return partDot(a, b);
     const R = Real(T);
     var im: R = a[0].re * b[0].im;
@@ -107,13 +188,15 @@ pub inline fn dot(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
 
 /// `dot(v, v)`'s real part, `Σ |v[i]|²`, as the real type.
 pub inline fn dot2(v: anytype) Real(Elem(@TypeOf(v))) {
+    if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvDot(v, v);
     return partDot(v, v);
 }
 
 /// The 2-norm (MATLAB's `norm`, GLSL's `length`). Tries `sqrt(dot2(v))`
 /// first and falls back to a `std.math.hypot` fold on overflow or underflow
-/// (except on SPIR-V, which can't use that fallback).
+/// (except on SPIR-V, which can't use that fallback). Under SPIR-V `Length`.
 pub inline fn length(v: anytype) Real(Elem(@TypeOf(v))) {
+    if (on_spirv and comptime spirvVec(@TypeOf(v))) return spvLength(v);
     const sq = dot2(v);
     const looks_fine = on_spirv or (std.math.isFinite(sq) and (sq != 0 or isZero(v)));
     if (looks_fine) return @sqrt(sq);
@@ -136,8 +219,9 @@ inline fn isZero(v: anytype) bool {
     return true;
 }
 
-/// `length(b - a)`.
+/// `length(b - a)`. Under SPIR-V `Distance`.
 pub inline fn distance(a: anytype, b: @TypeOf(a)) Real(Elem(@TypeOf(a))) {
+    if (on_spirv and comptime spirvVec(@TypeOf(a))) return spvDistance(a, b);
     return length(diff(b, a));
 }
 
@@ -152,11 +236,13 @@ inline fn diff(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 }
 
 /// Normalizes `v` to `v / length(v)` (GLSL's `normalize`; MATLAB's `norm` is
-/// `length`). A fallback is the caller's: `norm(v) catch fallback`.
+/// `length`). A fallback is the caller's: `norm(v) catch fallback`. Under
+/// SPIR-V `Normalize` after a `Length` test.
 pub inline fn norm(v: anytype) error{ZeroVector}!@TypeOf(v) {
     const V = @TypeOf(v);
     const len = length(v);
     if (len == 0) return error.ZeroVector;
+    if (on_spirv and comptime spirvVec(V)) return spvNormalize(v);
     if (@typeInfo(V) == .vector) return v / splat(V, len);
     var r: V = undefined;
     inline for (0..count(V)) |i| {
@@ -172,8 +258,9 @@ pub inline fn cross2(a: anytype, b: @TypeOf(a)) Elem(@TypeOf(a)) {
     return a[0] * b[1] - a[1] * b[0];
 }
 
-/// Standard 3D cross product.
+/// Standard 3D cross product. Under SPIR-V `Cross`.
 pub inline fn cross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (on_spirv and comptime spirvVec(@TypeOf(a)) and count(@TypeOf(a)) == 3) return spvCross(a, b);
     return .{
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -182,7 +269,8 @@ pub inline fn cross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 }
 
 /// Linear interpolation, generic over `a`/`b` being a scalar or a vector,
-/// and `t` being a scalar or a per-component vector weight.
+/// and `t` being a scalar or a per-component vector weight. Under SPIR-V
+/// `FMix`.
 pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
     const BaseType = @TypeOf(a, b);
     const WeightType = @TypeOf(t);
@@ -191,10 +279,12 @@ pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
         .float, .comptime_float => {
             if (weight_info != .float and weight_info != .comptime_float)
                 @compileError("Invalid weight type, float base types require float weight types");
+            if (on_spirv and @typeInfo(BaseType) == .float) return spvMix(@as(BaseType, a), b, t);
             return mulAdd(@TypeOf(a, b), 1 - t, a, t * b);
         },
         .vector => {
             const weight: BaseType = if (weight_info == .vector) t else @splat(t);
+            if (on_spirv and comptime spirvVec(BaseType)) return spvMix(@as(BaseType, a), b, weight);
             const one: BaseType = @splat(1);
             return mulAdd(@TypeOf(a, b), one - weight, a, weight * b);
         },
@@ -205,7 +295,9 @@ pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
 /// Multiply-add, fused or not as the root's `std_float_options` says
 /// (`zigcfg.FloatOptions`; by default where the target fuses in hardware),
 /// as the fork's `@Matrix` products are (`linalg/blas/fma.zig`'s `mulAdd`).
+/// Under SPIR-V `@mulAdd`, GLSL.std.450 `Fma`.
 pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
+    if (on_spirv) return @mulAdd(T, a, b, c);
     return fma.mulAdd(T, a, b, c);
 }
 

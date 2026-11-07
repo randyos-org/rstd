@@ -52,6 +52,10 @@ pub const Op = enum {
     mat_vec,
     vec_mat,
     mat_mat,
+    det,
+    inv,
+    outer,
+    dot2,
     vec_arith,
 };
 
@@ -134,6 +138,17 @@ fn run(comptime op: Op) Vec4 {
             const r = matrix.mul(m, matrix.fromCols(Mat4, .{ v, in_m1.*, in_m2.*, in_m0.* })).data;
             break :blk @as(Vec4, r[0]) + r[1] + r[2] + r[3];
         },
+        .det => out1(matrix.det(m)),
+        .inv => blk: {
+            var r = matrix.identity(Mat4).data;
+            if (matrix.inv(m)) |x| r = x.data else |_| {}
+            break :blk @as(Vec4, r[0]) + r[1] + r[2] + r[3];
+        },
+        .outer => blk: {
+            const r = matrix.outer(v, in_m0.*).data;
+            break :blk @as(Vec4, r[0]) + r[1] + r[2] + r[3];
+        },
+        .dot2 => out1(math.dot2(a)),
         .vec_arith => out3(a * b + c),
     };
 }

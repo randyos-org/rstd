@@ -1196,9 +1196,10 @@ No BLAS and no limit; each operation is its native instruction, used as is.
 | `mulAdd` | `Fma` | `@mulAdd` (the backend's lowering) |
 | `@sqrt`, `@abs`, `@min`/`@max` and the rest | GLSL.std.450 | already, through the backend |
 | matrix operations (†) | `OpMatrixTimesVector` and the rest | `@Matrix`'s own lowering, 2 to 4 by 2 to 4 (`tools/spirv_matrix_probe.zig`); column code on stock Zig (`Σ cols[j] * splat(v[j])`) |
+| `det`, `inv`, `outer` (†) | `Determinant`, `MatrixInverse`, `OpOuterProduct` | inline assembly on `@Matrix` operands, which it takes as a `"t"` type, never declaring `OpTypeMatrix` |
 
 - `N` outside 2 to 4 is not an `OpTypeVector`, so those sizes take the inline code.
-- `mulAdd` changes: today `fma.zig` says unfused on SPIR-V; the Settled decision lists `Fma`,
+- `mulAdd`: `fma.zig` says unfused on SPIR-V; the Settled decision lists `Fma`,
   so `linalg.vector.mulAdd` takes `@mulAdd` there, and the CPU keeps `fma.zig`'s policy.
 - `inv` tests the determinant for 0 and returns `error.Singular`, as on the CPU.
 - S2's build test keeps each form native (`zig build shader-probes`).
@@ -1325,7 +1326,10 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `Options`; both paths tested. M4 then times them and confirms `L`. Done 2026-11-07 (M11):
    `dense.zig` already took the BLAS and LAPACK past `L` (M10, M17, M18); M11 added `Options`,
    the `StaticMat` compile errors past `L` and the tests of both paths.
-5. **SPIR-V forms;** shaderlib's aliases (S2).
+5. **SPIR-V forms;** shaderlib's aliases (S2). Done 2026-11-07 (M12): `linalg.vector`'s
+   `dot`, `dot2`, `length`, `distance`, `norm`, `cross`, `mix` and `mulAdd`, and
+   `linalg.matrix`'s `det`, `inv` and `outer`, are their instructions (table above), each
+   checked by a probe (`src/rgl/shaders/lib/readme.md`); shaderlib's aliases stay S2's.
 6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already.
 7. **M2** moves the matlab port onto this layer.
 

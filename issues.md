@@ -833,7 +833,10 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   assembles.
 - **Workaround:** none needed: shaderlib's matrices are arrays of column
   vectors (`shaders/types.zig`), multiplied column by column in vector
-  instructions (`src/rgl/shaders/lib/readme.md`).
+  instructions (`src/rgl/shaders/lib/readme.md`). On the fork, `@Matrix`
+  is `OpTypeMatrix`, and an `asm` block takes it as a `"t"` type and a
+  `""` operand without declaring it: `linalg.matrix`'s `Determinant`,
+  `MatrixInverse` and `OpOuterProduct` (M12, 2026-11-07).
 - **Issue text:**
 
   > **SPIR-V: inline assembly cannot declare `OpTypeMatrix`**
@@ -870,6 +873,16 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   into the shader is what crashes.
 - **Workaround:** literal templates (`rgl/shaders/probe.zig`'s `crossAsm`).
 - **Issue text:** none yet: first reduce it to a file without rstd.
+
+### SPIR-V: returning a struct literal through an error union is a backend TODO
+
+- **Seen:** M12 (2026-11-07), 0.18.0-dev.859. `return .{ .data = x };`
+  from a function returning `error{Singular}!S` fails: "TODO (SPIR-V):
+  implement AIR tag errunion_payload_ptr_set" (the literal is built in
+  the payload's place). Built as a local first (`const r: S = ...;
+  return r;`), it compiles.
+- **Workaround:** that local, in `linalg.matrix`'s `inv`.
+- **Issue text:** none yet; the backend knows it as a TODO.
 
 ## Zig standard library
 

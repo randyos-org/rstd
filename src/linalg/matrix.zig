@@ -206,6 +206,49 @@ inline fn toNative(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).co
     return m.data;
 }
 
+/// Whether an `R` by `C` matrix of `T` is a SPIR-V `OpTypeMatrix` (through
+/// `@Matrix`, 2 to 4 by 2 to 4, real), which takes SPIR-V's own matrix
+/// instructions (design.md, "Dispatch under SPIR-V").
+fn spirvMat(comptime R: comptime_int, comptime C: comptime_int, comptime T: type) bool {
+    return vector.on_spirv and native(T) and R >= 2 and R <= 4 and C >= 2 and C <= 4;
+}
+
+// GLSL.std.450 and core matrix instructions by inline asm, on `@Matrix`
+// operands; literal templates, as `vector.zig`'s.
+
+inline fn spvDeterminant(m: anytype) @TypeOf(m).Element {
+    const T = @TypeOf(m).Element;
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 33 %m
+        : [ret] "" (-> T),
+        : [T] "t" (T),
+          [m] "" (toNative(m)),
+    );
+}
+
+inline fn spvInverse(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element) {
+    const N = rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element);
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 34 %m
+        : [ret] "" (-> N),
+        : [T] "t" (N),
+          [m] "" (toNative(m)),
+    );
+}
+
+inline fn spvOuter(comptime R: comptime_int, comptime C: comptime_int, comptime T: type, a: Vec(R, T), b: Vec(C, T)) rstd_matrix.Matrix(R, C, T) {
+    const N = rstd_matrix.Matrix(R, C, T);
+    return asm (
+        \\%ret = OpOuterProduct %T %a %b
+        : [ret] "" (-> N),
+        : [T] "t" (N),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
 // Element arithmetic over real and complex `T`. A sum of products rounds its
 // first product and fuses the rest as `mulAdd` says; a complex product adds
 // `re re` then `-im im`, and `re im` then `im re`.
@@ -460,6 +503,9 @@ fn Outer(comptime A: type, comptime B: type) type {
 /// `a bᴴ` (GLSL's `outerProduct`; MATLAB's `a * b'`).
 pub fn outer(a: anytype, b: anytype) Outer(@TypeOf(a), @TypeOf(b)) {
     const M = Outer(@TypeOf(a), @TypeOf(b));
+    if (vector.on_spirv and comptime spirvMat(M.rows, M.cols, M.Element)) {
+        return .{ .data = spvOuter(M.rows, M.cols, M.Element, a, b) };
+    }
     var r: M = undefined;
     if (comptime !isComplex(M.Element)) {
         const V = Vec(M.rows, M.Element);
@@ -569,6 +615,7 @@ fn detAnySize(m: anytype) @TypeOf(m).Element {
     comptime expectSquare(M);
     const n = M.rows;
     const T = M.Element;
+    if (vector.on_spirv and comptime spirvMat(n, n, T)) return spvDeterminant(m);
     if (comptime !byLu(n, T)) return closedDet(m);
     var lu = m.data;
     var perm: [n]usize = undefined;
@@ -593,6 +640,12 @@ fn invAnySize(m: anytype) error{Singular}!@TypeOf(m) {
     comptime expectSquare(M);
     const n = M.rows;
     const T = M.Element;
+    if (vector.on_spirv and comptime spirvMat(n, n, T)) {
+        if (spvDeterminant(m) == 0) return error.Singular;
+        // a local: a literal in the payload is a SPIR-V backend TODO (issues.md)
+        const r: M = .{ .data = spvInverse(m) };
+        return r;
+    }
     var r: M = undefined;
     if (comptime !byLu(n, T)) {
         const d = closedDet(m);
