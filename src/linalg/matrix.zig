@@ -173,7 +173,7 @@ pub inline fn eZero(comptime T: type) T {
     return if (comptime isComplex(T)) T.init(0, 0) else 0;
 }
 
-inline fn eOne(comptime T: type) T {
+pub inline fn eOne(comptime T: type) T {
     return if (comptime isComplex(T)) T.init(1, 0) else 1;
 }
 
@@ -210,7 +210,7 @@ inline fn eDiv(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
     return if (comptime isComplex(@TypeOf(x))) x.div(y) else x / y;
 }
 
-inline fn eNeg(x: anytype) @TypeOf(x) {
+pub inline fn eNeg(x: anytype) @TypeOf(x) {
     return if (comptime isComplex(@TypeOf(x))) x.neg() else -x;
 }
 
@@ -223,7 +223,7 @@ inline fn cabs1(x: anytype) Real(@TypeOf(x)) {
     return if (comptime isComplex(@TypeOf(x))) @abs(x.re) + @abs(x.im) else @abs(x);
 }
 
-inline fn eIsZero(x: anytype) bool {
+pub inline fn eIsZero(x: anytype) bool {
     return if (comptime isComplex(@TypeOf(x))) x.re == 0 and x.im == 0 else x == 0;
 }
 
@@ -467,7 +467,7 @@ fn byLu(comptime n: comptime_int, comptime T: type) bool {
 /// `cabs1` in its column, the first of ties. Row `i` of the factors is row
 /// `perm[i]` of `a`; `odd` is the swaps' parity. `error.Singular` at the first
 /// zero pivot, `a` then partly factored.
-fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: *[n]usize, odd: *bool) error{Singular}!void {
+pub fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: *[n]usize, odd: *bool) error{Singular}!void {
     for (perm, 0..) |*p, i| p.* = i;
     odd.* = false;
     for (0..n) |k| {
@@ -494,7 +494,7 @@ fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: *[n]
 }
 
 /// `x` in `A x = b` from `luInPlace`'s factors, `b` in row order of `A`.
-fn luSolve(comptime n: comptime_int, comptime T: type, lu: *const [n][n]T, perm: *const [n]usize, b: [n]T) [n]T {
+pub fn luSolve(comptime n: comptime_int, comptime T: type, lu: *const [n][n]T, perm: *const [n]usize, b: [n]T) [n]T {
     var x: [n]T = undefined;
     for (&x, perm) |*xi, p| xi.* = b[p];
     for (1..n) |i| for (0..i) |k| {

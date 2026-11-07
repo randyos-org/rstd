@@ -4,12 +4,13 @@
 //! in any mix; a vector is a view of one column or one row. Shapes at or
 //! below the inline limit take the fixed-size forms' operation order, so a
 //! `Mat` and a `StaticMat` holding the same numbers give the same bits; past
-//! it, the BLAS. Outputs must not overlap inputs.
+//! it, the BLAS and LAPACK. Outputs must not overlap inputs.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const blas = @import("blas/__root__.zig");
+const lapack = @import("lapack/__root__.zig");
 const vector = @import("vector.zig");
 const matrix = @import("matrix.zig");
 
@@ -19,8 +20,12 @@ const Mat = matrix.Mat;
 const isComplex = vector.isComplex;
 const Real = vector.Real;
 const eZero = matrix.eZero;
+const eOne = matrix.eOne;
 const eMul = matrix.eMul;
 const eMulAdd = matrix.eMulAdd;
+const eNeg = matrix.eNeg;
+const eConj = matrix.eConj;
+const eIsZero = matrix.eIsZero;
 
 /// The inline limit `L` per dimension (design.md, Dispatch); M11 makes it
 /// `rstd_linalg_options.inline_limit`.
@@ -89,10 +94,39 @@ fn Strided(comptime T: type) type {
     };
 }
 
-/// `linalg.vector`'s forms at length `c`, one non-inline function per size so
-/// that each gets its own comptime branch quota.
+/// `linalg.vector`'s forms at length `c` and `linalg.matrix`'s at `c` by `c`,
+/// one non-inline function per size so that each gets its own comptime
+/// branch quota.
 fn Fixed(comptime c: usize) type {
     return struct {
+        fn load(a: anytype) matrix.StaticMat(c, c, @TypeOf(a).Element) {
+            var m: matrix.StaticMat(c, c, @TypeOf(a).Element) = undefined;
+            for (&m.data, 0..) |*mc, j| @memcpy(mc, a.col(j));
+            return m;
+        }
+
+        fn det(a: anytype) @TypeOf(a).Element {
+            return matrix.det(load(a));
+        }
+
+        fn inv(o: anytype, a: ConstView(@TypeOf(o).Element)) error{Singular}!void {
+            const r = try matrix.inv(load(a));
+            for (&r.data, 0..) |*rc, j| @memcpy(o.col(j), rc);
+        }
+
+        /// `matrix.solve`'s LU, factored once for all of `b`'s columns.
+        fn solve(o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) error{Singular}!void {
+            const T = @TypeOf(o).Element;
+            var f = load(a).data;
+            var perm: [c]usize = undefined;
+            var odd: bool = undefined;
+            try matrix.luInPlace(c, T, &f, &perm, &odd);
+            for (0..b.cols) |j| {
+                const x = matrix.luSolve(c, T, &f, &perm, b.col(j)[0..c].*);
+                @memcpy(o.col(j), &x);
+            }
+        }
+
         fn dot(x: anytype, y: @TypeOf(x)) @TypeOf(x.ptr[0]) {
             return vector.dot(x.gather(c), y.gather(c));
         }
@@ -321,6 +355,397 @@ fn transposeWith(comptime trans: blas.Trans, io: Io, o: anytype, a: anytype) Tra
     const one: T = if (comptime isComplex(T)) T.init(1, 0) else 1;
     const t: blas.Trans = if (comptime isComplex(T)) trans else .t;
     blas.omatcopy(io, T, t, len(a.rows), len(a.cols), one, a.data.ptr, len(a.ld), o.data.ptr, len(o.ld)) catch |e| return canceled(e);
+}
+
+/// `a` into `dst`, column stride `ld`.
+fn copyInto(comptime T: type, dst: []T, ld: usize, a: ConstView(T)) void {
+    for (0..a.cols) |j| @memcpy(dst[j * ld ..][0..a.rows], a.col(j));
+}
+
+/// A packed copy of `a`, for LAPACK to overwrite.
+fn copyOf(comptime T: type, allocator: Allocator, a: ConstView(T)) Allocator.Error!Mat(T) {
+    const r = try Mat(T).init(allocator, a.rows, a.cols);
+    copyInto(T, r.data, @max(a.rows, 1), a);
+    return r;
+}
+
+/// As `allocOrCanceled`, passing `Singular` through.
+fn singularOr(e: anyerror) (error{Singular} || Allocator.Error || Io.Cancelable) {
+    return switch (e) {
+        error.Singular => error.Singular,
+        else => allocOrCanceled(e),
+    };
+}
+
+pub const DetError = error{NotSquare} || Allocator.Error || Io.Cancelable;
+
+/// The determinant (MATLAB's `det`); 1 for 0 by 0, 0 when singular.
+/// `linalg.matrix.det` up to the inline limit; else the product of `getrf`'s
+/// pivots, renormalized by powers of 2 as it goes so that it overflows or
+/// underflows only if the result does (design.md, M1's E1). The scaling is
+/// exact, so where the plain product stays in range it has its bits.
+pub fn det(allocator: Allocator, io: Io, a: anytype) DetError!ElementOf(@TypeOf(a)) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const n = ca.rows;
+    switch (n) {
+        0 => return eOne(T),
+        inline 1...inline_limit => |c| return Fixed(c).det(ca),
+        else => {},
+    }
+    const f = try copyOf(T, allocator, ca);
+    defer f.deinit(allocator);
+    const ipiv = try allocator.alloc(isize, n);
+    defer allocator.free(ipiv);
+    lapack.getrf(allocator, io, T, len(n), len(n), f.data.ptr, len(n), ipiv.ptr, null) catch |e| switch (e) {
+        error.Singular => return eZero(T),
+        else => return allocOrCanceled(e),
+    };
+    var d = eOne(T);
+    var exp: i64 = 0;
+    for (ipiv, 0..) |p, i| {
+        d = eMul(d, f.at(i, i));
+        if (p != i + 1) d = eNeg(d);
+        const x = std.math.frexp(if (comptime isComplex(T)) @max(@abs(d.re), @abs(d.im)) else d);
+        exp += x.exponent;
+        d = scaleBy(d, -x.exponent);
+    }
+    return scaleBy(d, @intCast(std.math.clamp(exp, -1 << 16, 1 << 16)));
+}
+
+/// `x 2^e`.
+fn scaleBy(x: anytype, e: i32) @TypeOf(x) {
+    if (comptime !isComplex(@TypeOf(x))) return std.math.ldexp(x, e);
+    return .{ .re = std.math.ldexp(x.re, e), .im = std.math.ldexp(x.im, e) };
+}
+
+pub const InvError = error{ NotSquare, Singular } || Allocator.Error || Io.Cancelable;
+
+/// `a⁻¹` (MATLAB's `inv`), owned by the caller: `linalg.matrix.inv` up to the
+/// inline limit, else `getrf` and `getri`; `error.Singular` with no result.
+pub fn inv(allocator: Allocator, io: Io, a: anytype) InvError!Mat(ElementOf(@TypeOf(a))) {
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, ca.cols);
+    errdefer r.deinit(allocator);
+    try invWith(allocator, io, r.view(), ca);
+    return r;
+}
+
+/// `out = a⁻¹`, `out` untouched on an error.
+pub fn invInto(allocator: Allocator, io: Io, out: anytype, a: anytype) (InvError || error{DimensionMismatch})!void {
+    const o = viewOf(out);
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    if (o.rows != ca.rows or o.cols != ca.cols) return error.DimensionMismatch;
+    return invWith(allocator, io, o, ca);
+}
+
+fn invWith(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
+    const n = a.rows;
+    switch (n) {
+        0 => return,
+        inline 1...inline_limit => |c| return Fixed(c).inv(o, a),
+        else => {},
+    }
+    const f = try copyOf(T, allocator, a);
+    defer f.deinit(allocator);
+    const ipiv = try allocator.alloc(isize, n);
+    defer allocator.free(ipiv);
+    lapack.getrf(allocator, io, T, len(n), len(n), f.data.ptr, len(n), ipiv.ptr, null) catch |e| return singularOr(e);
+    lapack.getri(allocator, io, T, len(n), f.data.ptr, len(n), ipiv.ptr, null) catch |e| return singularOr(e);
+    copyInto(T, o.data, o.ld, f.constView());
+}
+
+pub const SolveError = error{ DimensionMismatch, Singular } || Allocator.Error || Io.Cancelable;
+
+/// `a \ b` (MATLAB's `mldivide`), owned by the caller, `a` `m` by `n` and `b`
+/// `m` by `k`. Square `a` up to the inline limit with `k` within it too:
+/// `linalg.matrix.solve`'s LU. Past it, by `a`'s values alone (MATLAB's
+/// order): triangular by `trtrs`; Hermitian with a positive real diagonal
+/// by `potrf` and `potrs`, LU if that fails; else `gesv`. Square `a` gives
+/// `error.Singular` with no result. Rectangular `a`: the least-squares
+/// solution of least norm by `gelsy`, its rank cut at `max(m, n) eps`, as
+/// MATLAB's QR tolerance.
+pub fn solve(allocator: Allocator, io: Io, a: anytype, b: anytype) SolveError!Mat(ElementOf(@TypeOf(a))) {
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, cb.cols);
+    errdefer r.deinit(allocator);
+    try solveWith(allocator, io, r.view(), ca, cb);
+    return r;
+}
+
+/// `out = a \ b`, `out` untouched on an error.
+pub fn solveInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytype) SolveError!void {
+    const o = viewOf(out);
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (cb.rows != ca.rows or o.rows != ca.cols or o.cols != cb.cols) return error.DimensionMismatch;
+    return solveWith(allocator, io, o, ca, cb);
+}
+
+const Structure = enum { upper, lower, hermitian, general };
+
+/// `solve`'s route past the inline limit, from `a`'s values alone.
+fn structureOf(a: anytype) Structure {
+    const T = @TypeOf(a).Element;
+    const n = a.rows;
+    var upper = true;
+    var lower = true;
+    for (0..n) |j| for (0..n) |i| {
+        if (eIsZero(a.at(i, j))) continue;
+        if (i > j) upper = false;
+        if (i < j) lower = false;
+    };
+    if (upper) return .upper;
+    if (lower) return .lower;
+    for (0..n) |j| {
+        const d = a.at(j, j);
+        const positive = if (comptime isComplex(T)) d.im == 0 and d.re > 0 else d > 0;
+        if (!positive) return .general;
+        for (j + 1..n) |i| {
+            const x = a.at(i, j);
+            const y = eConj(a.at(j, i));
+            const same = if (comptime isComplex(T)) x.re == y.re and x.im == y.im else x == y;
+            if (!same) return .general;
+        }
+    }
+    return .hermitian;
+}
+
+fn solveWith(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
+    const T = @TypeOf(o).Element;
+    const n = a.cols;
+    if (a.rows != n) return leastSquares(allocator, io, o, a, b);
+    if (n <= inline_limit and b.cols <= inline_limit) switch (n) {
+        0 => return,
+        inline 1...inline_limit => |c| return Fixed(c).solve(o, a, b),
+        else => unreachable,
+    };
+    const x = try copyOf(T, allocator, b);
+    defer x.deinit(allocator);
+    const nn = len(n);
+    const k = len(b.cols);
+    const ld = len(@max(n, 1));
+    switch (structureOf(a)) {
+        .upper, .lower => |s| {
+            const uplo: lapack.Uplo = if (s == .upper) .u else .l;
+            lapack.trtrs(allocator, io, T, uplo, .n, .n, nn, k, a.data.ptr, len(a.ld), x.data.ptr, ld, null) catch |e| return singularOr(e);
+        },
+        .hermitian, .general => |s| {
+            const f = try copyOf(T, allocator, a);
+            defer f.deinit(allocator);
+            if (s == .hermitian) cholesky: {
+                lapack.potrf(allocator, io, T, .u, nn, f.data.ptr, ld, null) catch |e| switch (e) {
+                    error.NotPositiveDefinite => {
+                        copyInto(T, f.data, n, a);
+                        break :cholesky;
+                    },
+                    else => return allocOrCanceled(e),
+                };
+                lapack.potrs(allocator, io, T, .u, nn, k, f.data.ptr, ld, x.data.ptr, ld) catch |e| return allocOrCanceled(e);
+                return copyInto(T, o.data, o.ld, x.constView());
+            }
+            const ipiv = try allocator.alloc(isize, n);
+            defer allocator.free(ipiv);
+            lapack.gesv(allocator, io, T, nn, k, f.data.ptr, ld, ipiv.ptr, x.data.ptr, ld, null) catch |e| return singularOr(e);
+        },
+    }
+    copyInto(T, o.data, o.ld, x.constView());
+}
+
+/// `gelsy`'s least-norm least-squares solution, for rectangular `a`.
+fn leastSquares(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
+    const F = Real(T);
+    const m = a.rows;
+    const n = a.cols;
+    if (m == 0 or n == 0) {
+        for (0..o.cols) |j| @memset(o.col(j), eZero(T));
+        return;
+    }
+    const f = try copyOf(T, allocator, a);
+    defer f.deinit(allocator);
+    const ldx = @max(m, n);
+    const x = try allocator.alloc(T, ldx * b.cols);
+    defer allocator.free(x);
+    copyInto(T, x, ldx, b);
+    const jpvt = try allocator.alloc(isize, n);
+    defer allocator.free(jpvt);
+    @memset(jpvt, 0);
+    const rcond = @as(F, @floatFromInt(ldx)) * std.math.floatEps(F);
+    var rank: isize = undefined;
+    lapack.gelsy(allocator, io, T, len(m), len(n), len(b.cols), f.data.ptr, len(m), x.ptr, len(ldx), jpvt.ptr, rcond, &rank) catch |e| return allocOrCanceled(e);
+    for (0..o.cols) |j| @memcpy(o.col(j), x[j * ldx ..][0..n]);
+}
+
+/// `lu`'s result, `P A = L U` for the `m` by `n` `A`, `getrf`'s factors.
+pub fn Lu(comptime T: type) type {
+    return struct {
+        /// `L` below the diagonal (its unit diagonal implied), `U` on and
+        /// above it.
+        factors: Mat(T),
+        /// Row `i` was interchanged with row `ipiv[i]`, for `i` from 0 up.
+        ipiv: []usize,
+        /// The first `i` with `U(i, i)` exactly 0; a singular matrix still
+        /// factors completely (design.md, decision 5).
+        zero_pivot: ?usize,
+
+        const Self = @This();
+
+        pub fn deinit(f: Self, allocator: Allocator) void {
+            f.factors.deinit(allocator);
+            allocator.free(f.ipiv);
+        }
+
+        /// `L`, `m` by `min(m, n)`, unit lower trapezoidal.
+        pub fn l(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
+            const k = @min(f.factors.rows, f.factors.cols);
+            const r = try Mat(T).zeros(allocator, f.factors.rows, k);
+            for (0..k) |j| {
+                r.data[j + j * r.rows] = eOne(T);
+                for (j + 1..r.rows) |i| r.data[i + j * r.rows] = f.factors.at(i, j);
+            }
+            return r;
+        }
+
+        /// `U`, `min(m, n)` by `n`, upper trapezoidal.
+        pub fn u(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
+            const k = @min(f.factors.rows, f.factors.cols);
+            const r = try Mat(T).zeros(allocator, k, f.factors.cols);
+            for (0..r.cols) |j| for (0..@min(j + 1, k)) |i| {
+                r.data[i + j * k] = f.factors.at(i, j);
+            };
+            return r;
+        }
+    };
+}
+
+/// `P A = L U` with partial pivoting (MATLAB's `lu`), by `getrf`.
+pub fn lu(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Lu(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const k = @min(ca.rows, ca.cols);
+    const f = try copyOf(T, allocator, ca);
+    errdefer f.deinit(allocator);
+    const ipiv = try allocator.alloc(usize, k);
+    errdefer allocator.free(ipiv);
+    const piv = try allocator.alloc(isize, k);
+    defer allocator.free(piv);
+    var zero: usize = 0;
+    var zero_pivot: ?usize = null;
+    lapack.getrf(allocator, io, T, len(ca.rows), len(ca.cols), f.data.ptr, len(@max(ca.rows, 1)), piv.ptr, &zero) catch |e| switch (e) {
+        error.Singular => zero_pivot = zero - 1,
+        else => return allocOrCanceled(e),
+    };
+    for (ipiv, piv) |*d, p| d.* = @intCast(p - 1);
+    return .{ .factors = f, .ipiv = ipiv, .zero_pivot = zero_pivot };
+}
+
+pub const CholError = error{ NotSquare, NotPositiveDefinite } || Allocator.Error || Io.Cancelable;
+
+/// The upper `R` with `A = Rᴴ R` (MATLAB's `chol`), by `potrf` on `a`'s
+/// upper triangle (the lower is not read); zeros below the diagonal.
+pub fn chol(allocator: Allocator, io: Io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const n = ca.rows;
+    const r = try copyOf(T, allocator, ca);
+    errdefer r.deinit(allocator);
+    lapack.potrf(allocator, io, T, .u, len(n), r.data.ptr, len(@max(n, 1)), null) catch |e| return switch (e) {
+        error.NotPositiveDefinite => error.NotPositiveDefinite,
+        else => allocOrCanceled(e),
+    };
+    for (0..n) |j| @memset(r.data[j * n + j + 1 .. (j + 1) * n], eZero(T));
+    return r;
+}
+
+/// `qr`'s shapes for the `m` by `n` `A`, `k = min(m, n)`: `.economy` `Q` `m`
+/// by `k` and `R` `k` by `n`; `.full` `Q` `m` by `m` and `R` `m` by `n`.
+pub const QrMode = enum { economy, full };
+
+/// `qr`'s result.
+pub fn Qr(comptime T: type) type {
+    return struct {
+        /// Orthonormal columns.
+        q: Mat(T),
+        /// Upper trapezoidal.
+        r: Mat(T),
+
+        pub fn deinit(f: @This(), allocator: Allocator) void {
+            f.q.deinit(allocator);
+            f.r.deinit(allocator);
+        }
+    };
+}
+
+/// `A = Q R` (MATLAB's `qr`, unpivoted), by `geqrf` and `orgqr` (`ungqr`);
+/// `R`'s diagonal keeps LAPACK's signs.
+pub fn qr(allocator: Allocator, io: Io, a: anytype, mode: QrMode) (Allocator.Error || Io.Cancelable)!Qr(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const m = ca.rows;
+    const n = ca.cols;
+    const k = @min(m, n);
+    const qc = if (mode == .full) m else k;
+    const f = try copyOf(T, allocator, ca);
+    defer f.deinit(allocator);
+    const tau = try allocator.alloc(T, k);
+    defer allocator.free(tau);
+    const ld = len(@max(m, 1));
+    lapack.geqrf(allocator, io, T, len(m), len(n), f.data.ptr, ld, tau.ptr) catch |e| return allocOrCanceled(e);
+    const r = try Mat(T).zeros(allocator, qc, n);
+    errdefer r.deinit(allocator);
+    for (0..n) |j| for (0..@min(j + 1, k)) |i| {
+        r.data[i + j * qc] = f.at(i, j);
+    };
+    const q = try Mat(T).zeros(allocator, m, qc);
+    errdefer q.deinit(allocator);
+    for (0..k) |j| @memcpy(q.data[j * m ..][0..m], f.data[j * m ..][0..m]);
+    if (m > 0) lapack.orgqr(allocator, io, T, len(m), len(qc), len(k), q.data.ptr, ld, tau.ptr) catch |e| return allocOrCanceled(e);
+    return .{ .q = q, .r = r };
+}
+
+/// `matrixNorm`'s norms: the largest column sum of `|a(i, j)|`, the largest
+/// row sum, Frobenius, and the largest singular value.
+pub const MatrixNorm = enum { one, inf, fro, two };
+
+pub const MatrixNormError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
+
+/// A matrix norm (MATLAB's `norm(A, p)`); 0 when empty. `lange`, or `.two`
+/// the first singular value from `gesvd`.
+pub fn matrixNorm(allocator: Allocator, io: Io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const m = ca.rows;
+    const n = ca.cols;
+    if (m == 0 or n == 0) return 0;
+    const kind: lapack.Norm = switch (which) {
+        .one => .o,
+        .inf => .i,
+        .fro => .f,
+        .two => {
+            const f = try copyOf(T, allocator, ca);
+            defer f.deinit(allocator);
+            const s = try allocator.alloc(Real(T), @min(m, n));
+            defer allocator.free(s);
+            var none: [1]T = undefined;
+            lapack.gesvd(allocator, io, T, .n, .n, len(m), len(n), f.data.ptr, len(m), s.ptr, &none, 1, &none, 1, null) catch |e| return switch (e) {
+                error.NoConvergence => error.NoConvergence,
+                else => allocOrCanceled(e),
+            };
+            return s[0];
+        },
+    };
+    return lapack.lange(allocator, io, T, kind, len(m), len(n), ca.data.ptr, len(ca.ld)) catch |e| return switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => unreachable,
+    };
 }
 
 const zigstd = @import("../zigstd.zig");
@@ -557,6 +982,385 @@ test "shape errors" {
     var out: matrix.M3f64 = undefined;
     try testing.expectError(error.DimensionMismatch, mulInto(al, test_io, &out, &a, &a));
     try testing.expectEqual(@as(f64, 0), try sum(test_io, &[_]f64{}));
+    try testing.expectError(error.NotSquare, det(al, test_io, &a));
+    try testing.expectError(error.NotSquare, inv(al, test_io, &a));
+    try testing.expectError(error.NotSquare, chol(al, test_io, &a));
+    try testing.expectError(error.DimensionMismatch, solve(al, test_io, &out, &a));
+    try testing.expectError(error.DimensionMismatch, invInto(al, test_io, &a, &out));
+    var x: [2]f64 = undefined;
+    try testing.expectError(error.DimensionMismatch, solveInto(al, test_io, &x, &out, &[_]f64{ 1, 2, 3 }));
+}
+
+/// `det`, `inv` and `solve` on a `Mat` against `linalg.matrix`'s on the
+/// `StaticMat` of the same numbers.
+fn expectFixedBits(comptime T: type, comptime c: usize, rnd: std.Random) !void {
+    const al = testing.allocator;
+    for (0..10) |_| {
+        var a: matrix.StaticMat(c, c, T) = undefined;
+        var b: matrix.StaticMat(c, 3, T) = undefined;
+        fill(T, rnd, a.view().data);
+        fill(T, rnd, b.view().data);
+        const m = try copyOf(T, al, a.constView());
+        defer m.deinit(al);
+        try testing.expect(sameBits(T, &[_]T{matrix.det(a)}, &[_]T{try det(al, test_io, m)}));
+        var want_inv = try matrix.inv(a);
+        const got_inv = try inv(al, test_io, m);
+        defer got_inv.deinit(al);
+        try testing.expect(sameBits(T, want_inv.view().data, got_inv.data));
+        var want_x = try matrix.solve(a, b);
+        const got_x = try solve(al, test_io, m, &b);
+        defer got_x.deinit(al);
+        try testing.expect(sameBits(T, want_x.view().data, got_x.data));
+    }
+}
+
+test "up to the inline limit, det, inv and solve keep a StaticMat's bits" {
+    var prng: std.Random.DefaultPrng = .init(0x50f7);
+    inline for (.{ f32, f64, C64 }) |T| inline for (.{ 1, 2, 3, 4, 6, 8 }) |c| try expectFixedBits(T, c, prng.random());
+}
+
+fn absOf(x: anytype) f64 {
+    return if (comptime isComplex(@TypeOf(x))) @abs(x.re) + @abs(x.im) else @abs(@as(f64, x));
+}
+
+fn maxAbs(comptime T: type, a: ConstView(T)) f64 {
+    var r: f64 = 0;
+    for (0..a.cols) |j| for (a.col(j)) |x| {
+        r = @max(r, absOf(x));
+    };
+    return r;
+}
+
+/// `max |a(i, j) - b(i, j)|`, `|re| + |im|` for complex.
+fn maxDiff(comptime T: type, a: ConstView(T), b: ConstView(T)) f64 {
+    var r: f64 = 0;
+    for (0..a.cols) |j| for (0..a.rows) |i| {
+        const x = a.at(i, j);
+        const y = b.at(i, j);
+        const d = if (comptime isComplex(T)) @abs(x.re - y.re) + @abs(x.im - y.im) else @abs(@as(f64, x) - y);
+        r = @max(r, d);
+    };
+    return r;
+}
+
+/// 100 `n` roundings of `T`.
+fn tolOf(comptime T: type, n: usize) f64 {
+    return 100 * @as(f64, @floatFromInt(@max(n, 1))) * std.math.floatEps(Real(T));
+}
+
+fn randomMat(comptime T: type, rnd: std.Random, m: usize, n: usize) !Mat(T) {
+    const r = try Mat(T).init(testing.allocator, m, n);
+    fill(T, rnd, r.data);
+    return r;
+}
+
+/// `a(i, i) += s`.
+fn shiftDiag(comptime T: type, a: Mat(T), s: f64) void {
+    for (0..@min(a.rows, a.cols)) |i| {
+        const d = &a.data[i + i * a.rows];
+        d.* = if (comptime isComplex(T)) T.init(d.re + s, d.im) else d.* + @as(T, @floatCast(s));
+    }
+}
+
+/// `Mᴴ M + n I`, exactly Hermitian.
+fn hermitianPd(comptime T: type, rnd: std.Random, n: usize) !Mat(T) {
+    const al = testing.allocator;
+    const m = try randomMat(T, rnd, n, n);
+    defer m.deinit(al);
+    const mh = try ctranspose(al, test_io, m);
+    defer mh.deinit(al);
+    const a = try mul(al, test_io, mh, m);
+    for (0..n) |j| {
+        for (j + 1..n) |i| a.data[i + j * n] = eConj(a.data[j + i * n]);
+        if (comptime isComplex(T)) a.data[j + j * n].im = 0;
+    }
+    shiftDiag(T, a, @floatFromInt(n));
+    return a;
+}
+
+/// `‖a x - b‖ <= tol (n ‖a‖ ‖x‖ + ‖b‖)`, max norms.
+fn expectSolves(comptime T: type, a: ConstView(T), x: ConstView(T), b: ConstView(T)) !void {
+    const al = testing.allocator;
+    const ax = try mul(al, test_io, a, x);
+    defer ax.deinit(al);
+    const n: f64 = @floatFromInt(a.cols);
+    const bound = tolOf(T, a.cols) * (n * maxAbs(T, a) * maxAbs(T, x) + maxAbs(T, b));
+    try testing.expect(maxDiff(T, ax.constView(), b) <= bound);
+}
+
+fn expectSolveRoutes(comptime T: type, n: usize, rnd: std.Random) !void {
+    const al = testing.allocator;
+    const b = try randomMat(T, rnd, n, 3);
+    defer b.deinit(al);
+    const general = try randomMat(T, rnd, n, n);
+    defer general.deinit(al);
+    shiftDiag(T, general, 2);
+    const upper = try randomMat(T, rnd, n, n);
+    defer upper.deinit(al);
+    const lower = try randomMat(T, rnd, n, n);
+    defer lower.deinit(al);
+    for (0..n) |j| for (0..n) |i| {
+        if (i > j) upper.data[i + j * n] = eZero(T);
+        if (i < j) lower.data[i + j * n] = eZero(T);
+    };
+    shiftDiag(T, upper, 4);
+    shiftDiag(T, lower, 4);
+    const pd = try hermitianPd(T, rnd, n);
+    defer pd.deinit(al);
+    // Hermitian, positive diagonal, indefinite: `potrf` fails, LU solves
+    const indefinite = try Mat(T).zeros(al, n, n);
+    defer indefinite.deinit(al);
+    shiftDiag(T, indefinite, 1);
+    indefinite.data[1] = if (comptime isComplex(T)) T.init(2, 0) else 2;
+    indefinite.data[n] = indefinite.data[1];
+    try testing.expectError(error.NotPositiveDefinite, chol(al, test_io, indefinite));
+    for ([_]Mat(T){ general, upper, lower, pd, indefinite }) |a| {
+        const x = try solve(al, test_io, a, b);
+        defer x.deinit(al);
+        try expectSolves(T, a.constView(), x.constView(), b.constView());
+        // one right-hand side: `trsv` and `gesv`'s single column
+        const x1 = try Mat(T).init(al, n, 1);
+        defer x1.deinit(al);
+        try solveInto(al, test_io, x1, a, b.constView().col(0));
+        try expectSolves(T, a.constView(), x1.constView(), (try b.constView().sub(0, 0, n, 1)));
+    }
+}
+
+test "past the inline limit, solve routes by structure, each to a solution" {
+    var prng: std.Random.DefaultPrng = .init(0x501e);
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 9, 30 }) |n| try expectSolveRoutes(T, n, prng.random());
+    // a small square with many right-hand sides is past the limit too
+    const al = testing.allocator;
+    const a = try randomMat(f64, prng.random(), 3, 3);
+    defer a.deinit(al);
+    shiftDiag(f64, a, 2);
+    const b = try randomMat(f64, prng.random(), 3, 20);
+    defer b.deinit(al);
+    const x = try solve(al, test_io, a, b);
+    defer x.deinit(al);
+    try expectSolves(f64, a.constView(), x.constView(), b.constView());
+}
+
+test "solve and inv: error.Singular leaves out untouched" {
+    const al = testing.allocator;
+    inline for (.{ 3, 10 }) |n| {
+        // ones: Hermitian, not positive definite, LU's second pivot exactly 0
+        const ones = try Mat(f64).init(al, n, n);
+        defer ones.deinit(al);
+        @memset(ones.data, 1);
+        // zero: triangular, `trtrs`
+        const zero = try Mat(f64).zeros(al, n, n);
+        defer zero.deinit(al);
+        for ([_]Mat(f64){ ones, zero }) |a| {
+            var out: [n * n]f64 = @splat(7);
+            const v = try View(f64).init(&out, n, n, n);
+            try testing.expectError(error.Singular, solveInto(al, test_io, v, a, a));
+            try testing.expectError(error.Singular, invInto(al, test_io, v, a));
+            try testing.expect(std.mem.allEqual(f64, &out, 7));
+            try testing.expectEqual(@as(f64, 0), try det(al, test_io, a));
+        }
+    }
+}
+
+fn expectLeastSquares(comptime T: type, m: usize, n: usize, rnd: std.Random) !void {
+    const al = testing.allocator;
+    const a = try randomMat(T, rnd, m, n);
+    defer a.deinit(al);
+    const x0 = try randomMat(T, rnd, n, 2);
+    defer x0.deinit(al);
+    const b = try mul(al, test_io, a, x0);
+    defer b.deinit(al);
+    const x = try solve(al, test_io, a, b);
+    defer x.deinit(al);
+    try expectSolves(T, a.constView(), x.constView(), b.constView());
+    if (m > n) {
+        // full column rank: the only solution
+        try testing.expect(maxDiff(T, x.constView(), x0.constView()) <= tolOf(T, m) * 10 * maxAbs(T, x0.constView()));
+        return;
+    }
+    // least norm: `x = aᴴ (a aᴴ)⁻¹ b`
+    const ah = try ctranspose(al, test_io, a);
+    defer ah.deinit(al);
+    const g = try mul(al, test_io, a, ah);
+    defer g.deinit(al);
+    const y = try solve(al, test_io, g, b);
+    defer y.deinit(al);
+    const want = try mul(al, test_io, ah, y);
+    defer want.deinit(al);
+    try testing.expect(maxDiff(T, x.constView(), want.constView()) <= tolOf(T, n) * 10 * maxAbs(T, want.constView()));
+}
+
+test "rectangular solve is gelsy's least-norm least squares" {
+    var prng: std.Random.DefaultPrng = .init(0x9e15);
+    inline for (.{ f32, f64, C64 }) |T| {
+        try expectLeastSquares(T, 15, 9, prng.random());
+        try expectLeastSquares(T, 4, 12, prng.random());
+        try expectLeastSquares(T, 3, 2, prng.random());
+    }
+    const al = testing.allocator;
+    const empty = try Mat(f64).init(al, 0, 4);
+    defer empty.deinit(al);
+    const x = try solve(al, test_io, empty, try empty.constView().sub(0, 0, 0, 2));
+    defer x.deinit(al);
+    try testing.expect(x.rows == 4 and x.cols == 2 and std.mem.allEqual(f64, x.data, 0));
+}
+
+test "det past the inline limit: exact cases, scaled past the range, against inv" {
+    const al = testing.allocator;
+    // `diag(1e200, 1e200, -3e-100, 1, ...)` (design.md, M1's E1)
+    const e1 = try Mat(f64).zeros(al, 10, 10);
+    defer e1.deinit(al);
+    shiftDiag(f64, e1, 1);
+    e1.data[0] = 1e200;
+    e1.data[11] = 1e200;
+    e1.data[22] = -3e-100;
+    const d = try det(al, test_io, e1);
+    try testing.expect(@abs(d + 3e300) <= 1e-14 * 3e300);
+    // `2 I` and a row swap, exact
+    const two = try Mat(f64).zeros(al, 12, 12);
+    defer two.deinit(al);
+    shiftDiag(f64, two, 2);
+    try testing.expectEqual(@as(f64, 4096), try det(al, test_io, two));
+    const swap = try Mat(f64).zeros(al, 9, 9);
+    defer swap.deinit(al);
+    shiftDiag(f64, swap, 1);
+    swap.data[0] = 0;
+    swap.data[10] = 0;
+    swap.data[1] = 1;
+    swap.data[9] = 1;
+    try testing.expectEqual(@as(f64, -1), try det(al, test_io, swap));
+    var zi: [81]C64 = @splat(.init(0, 0));
+    for (0..9) |i| zi[i * 10] = .init(0, 1);
+    try testing.expectEqual(C64.init(0, 1), try det(al, test_io, try ConstView(C64).init(&zi, 9, 9, 9)));
+    try testing.expectEqual(@as(f64, 1), try det(al, test_io, try ConstView(f64).init(&.{}, 0, 0, 1)));
+
+    var prng: std.Random.DefaultPrng = .init(0xde7);
+    inline for (.{ f64, C64 }) |T| {
+        const a = try randomMat(T, prng.random(), 12, 12);
+        defer a.deinit(al);
+        shiftDiag(T, a, 1);
+        const ai = try inv(al, test_io, a);
+        defer ai.deinit(al);
+        const p = eMul(try det(al, test_io, a), try det(al, test_io, ai));
+        try testing.expect(absOf(if (comptime isComplex(T)) T.init(p.re - 1, p.im) else p - 1) <= 1e-10);
+    }
+}
+
+test "inv past the inline limit: a a⁻¹ is I" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x1a7);
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 9, 25 }) |n| {
+        const a = try randomMat(T, prng.random(), n, n);
+        defer a.deinit(al);
+        shiftDiag(T, a, 2);
+        const ai = try inv(al, test_io, a);
+        defer ai.deinit(al);
+        const id = try Mat(T).zeros(al, n, n);
+        defer id.deinit(al);
+        shiftDiag(T, id, 1);
+        try expectSolves(T, a.constView(), ai.constView(), id.constView());
+    };
+}
+
+/// `P A = L U`, rows swapped by `ipiv` in order.
+fn expectLu(comptime T: type, a: Mat(T)) !Lu(T) {
+    const al = testing.allocator;
+    const f = try lu(al, test_io, a);
+    errdefer f.deinit(al);
+    const l = try f.l(al);
+    defer l.deinit(al);
+    const u = try f.u(al);
+    defer u.deinit(al);
+    const p = try mul(al, test_io, l, u);
+    defer p.deinit(al);
+    const pa = try copyOf(T, al, a.constView());
+    defer pa.deinit(al);
+    for (f.ipiv, 0..) |r, i| {
+        if (r == i) continue;
+        for (0..pa.cols) |j| std.mem.swap(T, &pa.data[i + j * pa.rows], &pa.data[r + j * pa.rows]);
+    }
+    try testing.expect(maxDiff(T, pa.constView(), p.constView()) <= tolOf(T, a.cols) * maxAbs(T, a.constView()));
+    return f;
+}
+
+test "lu: P A = L U, singular too" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x10);
+    inline for (.{ f32, f64, C64 }) |T| for ([_][2]usize{ .{ 10, 7 }, .{ 7, 10 }, .{ 12, 12 }, .{ 3, 2 } }) |s| {
+        const a = try randomMat(T, prng.random(), s[0], s[1]);
+        defer a.deinit(al);
+        const f = try expectLu(T, a);
+        defer f.deinit(al);
+        try testing.expectEqual(@as(?usize, null), f.zero_pivot);
+    };
+    // a zero first column: `U(0, 0)` is 0, and the rest still factors
+    const a = try randomMat(f64, prng.random(), 9, 9);
+    defer a.deinit(al);
+    @memset(a.data[0..9], 0);
+    const f = try expectLu(f64, a);
+    defer f.deinit(al);
+    try testing.expectEqual(@as(?usize, 0), f.zero_pivot);
+}
+
+test "chol: Rᴴ R is A, R upper" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0xc401);
+    inline for (.{ f32, f64, C64 }) |T| for ([_]usize{ 3, 20 }) |n| {
+        const a = try hermitianPd(T, prng.random(), n);
+        defer a.deinit(al);
+        const r = try chol(al, test_io, a);
+        defer r.deinit(al);
+        for (0..n) |j| for (j + 1..n) |i| try testing.expect(eIsZero(r.at(i, j)));
+        const rh = try ctranspose(al, test_io, r);
+        defer rh.deinit(al);
+        const p = try mul(al, test_io, rh, r);
+        defer p.deinit(al);
+        try testing.expect(maxDiff(T, p.constView(), a.constView()) <= tolOf(T, n) * maxAbs(T, a.constView()));
+    };
+}
+
+fn expectQr(comptime T: type, a: Mat(T), mode: QrMode) !void {
+    const al = testing.allocator;
+    const f = try qr(al, test_io, a, mode);
+    defer f.deinit(al);
+    const m = a.rows;
+    const qc = if (mode == .full) m else @min(m, a.cols);
+    try testing.expect(f.q.rows == m and f.q.cols == qc and f.r.rows == qc and f.r.cols == a.cols);
+    for (0..a.cols) |j| for (@min(j + 1, qc)..qc) |i| try testing.expect(eIsZero(f.r.at(i, j)));
+    const p = try mul(al, test_io, f.q, f.r);
+    defer p.deinit(al);
+    try testing.expect(maxDiff(T, p.constView(), a.constView()) <= tolOf(T, m) * @max(maxAbs(T, a.constView()), 1));
+    const qh = try ctranspose(al, test_io, f.q);
+    defer qh.deinit(al);
+    const qhq = try mul(al, test_io, qh, f.q);
+    defer qhq.deinit(al);
+    const id = try Mat(T).zeros(al, qc, qc);
+    defer id.deinit(al);
+    shiftDiag(T, id, 1);
+    try testing.expect(maxDiff(T, qhq.constView(), id.constView()) <= tolOf(T, m));
+}
+
+test "qr: Q R is A, Q orthonormal, both modes" {
+    const al = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(0x9a);
+    inline for (.{ f32, f64, C64 }) |T| for ([_][2]usize{ .{ 12, 7 }, .{ 7, 12 }, .{ 5, 5 }, .{ 5, 0 } }) |s| {
+        const a = try randomMat(T, prng.random(), s[0], s[1]);
+        defer a.deinit(al);
+        try expectQr(T, a, .economy);
+        try expectQr(T, a, .full);
+    };
+}
+
+test "matrixNorm: one, inf, fro and two" {
+    const al = testing.allocator;
+    const a = matrix.fromRows(matrix.M2f64, .{ .{ 1, -2 }, .{ 3, 4 } });
+    try testing.expectEqual(@as(f64, 6), try matrixNorm(al, test_io, &a, .one));
+    try testing.expectEqual(@as(f64, 7), try matrixNorm(al, test_io, &a, .inf));
+    try testing.expectApproxEqRel(@sqrt(30.0), try matrixNorm(al, test_io, &a, .fro), 1e-15);
+    try testing.expectApproxEqRel(@sqrt(15 + @sqrt(125.0)), try matrixNorm(al, test_io, &a, .two), 1e-14);
+    const z: matrix.StaticMat(1, 2, C64) = .{ .data = .{ .{.init(3, 4)}, .{.init(0, 0)} } };
+    try testing.expectApproxEqRel(@as(f64, 5), try matrixNorm(al, test_io, &z, .two), 1e-15);
+    try testing.expectEqual(@as(f64, 0), try matrixNorm(al, test_io, try ConstView(f64).init(&.{}, 0, 3, 1), .two));
 }
 
 test {
