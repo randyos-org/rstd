@@ -191,6 +191,7 @@ cdotc
 cdotu
 ceq
 cfgs
+cform
 cfpc
 cgbmv
 cgeadd
@@ -1406,6 +1407,7 @@ nanoftp
 nanosleep
 natecraddock
 nbits
+nbmax
 ncols
 ncopy
 NCPOINTERLAST
@@ -1517,6 +1519,7 @@ os
 osascript
 osdep
 osfxsr
+osinfo
 OSPKE
 osxmmexcpt
 OSXSAVE

@@ -137,11 +137,19 @@ pub fn orientContours(self: *Shape, allocator: std.mem.Allocator) !void {
     try orientations.ensureTotalCapacity(allocator, contours_len);
     try orientations.appendNTimes(allocator, 0, contours_len);
     for (0..contours_len) |i| {
-        if (orientations.items[i] == 0 or self.contours.items[i].edges.items.len == 0) continue;
-        const y0 = self.contours.items[i].edges.items[0].point(0)[1];
+        const edges = self.contours.items[i].edges.items;
+        if (orientations.items[i] != 0 or edges.len == 0) continue;
+        // a height the contour crosses: an endpoint's, else an inner point's
+        const y0 = edges[0].point(0)[1];
         var y1 = y0;
-        for (self.contours.items[i].edges.items) |edge| y1 = edge.point(1)[1];
-        for (self.contours.items[i].edges.items) |edge| y1 = edge.point(ratio)[1];
+        for (edges) |edge| {
+            if (y1 != y0) break;
+            y1 = edge.point(1)[1];
+        }
+        for (edges) |edge| {
+            if (y1 != y0) break;
+            y1 = edge.point(ratio)[1];
+        }
         const y = math.mix(y0, y1, ratio);
         var x: [3]f64 = @splat(0.0);
         var dy: [3]i32 = @splat(0);
@@ -281,4 +289,54 @@ fn convergentCurveOrdering(a: *const EdgeSegment, b: *const EdgeSegment) bool {
     }
 
     return false;
+}
+
+const zigstd = @import("../../../../zigstd.zig");
+
+/// A shape of closed polygons, for tests.
+fn testPolygons(allocator: std.mem.Allocator, polygons: []const []const V2f64) !Shape {
+    var shape: Shape = .{};
+    errdefer shape.deinit(allocator);
+    for (polygons) |points| {
+        const contour = try shape.contours.addOne(allocator);
+        contour.* = .{};
+        for (points, 0..) |p, k|
+            try contour.edges.append(allocator, .create(p, points[(k + 1) % points.len], null, null, .all));
+    }
+    return shape;
+}
+
+/// Twice the signed area: negative clockwise (y up), as msdfgen orients outer contours.
+fn testArea(contour: Contour) f64 {
+    var a: f64 = 0;
+    for (contour.edges.items) |edge| {
+        const p = edge.point(0);
+        const q = edge.point(1);
+        a += p[0] * q[1] - q[0] * p[1];
+    }
+    return a;
+}
+
+test "orientContours reverses a counterclockwise outline and a hole wound like its outline" {
+    const allocator = std.testing.allocator;
+    var shape = try testPolygons(allocator, &.{
+        &.{ .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 } },
+        &.{ .{ 2, 0 }, .{ 2, 4 }, .{ 6, 4 }, .{ 6, 0 } },
+        &.{ .{ 3, 1 }, .{ 3, 3 }, .{ 5, 3 }, .{ 5, 1 } },
+    });
+    defer shape.deinit(allocator);
+    try shape.orientContours(allocator);
+    try zigstd.testExpectTrue(testArea(shape.contours.items[0]) < 0);
+    try zigstd.testExpectTrue(testArea(shape.contours.items[1]) < 0);
+    try zigstd.testExpectTrue(testArea(shape.contours.items[2]) > 0);
+    try zigstd.testExpectTrue(shape.validate());
+}
+
+test "orientContours scans below a contour's closing horizontal edge" {
+    // the last edge lies on y0: a scanline there would cross nothing
+    const allocator = std.testing.allocator;
+    var shape = try testPolygons(allocator, &.{&.{ .{ 0, 1 }, .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 } }});
+    defer shape.deinit(allocator);
+    try shape.orientContours(allocator);
+    try zigstd.testExpectTrue(testArea(shape.contours.items[0]) < 0);
 }

@@ -10,11 +10,9 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 ### In the background
 
-- None.
+- Housekeeping H1 to H112 (not H8; H65 waits on Z6), no builds (user, 2026-11-07): agents in `C:\scratch\git\rstd-wt\hk-*`, merged into `wip/housekeeping` for review, not into `review`.
 
 ## Queue
-
-- [ ] **N36** msdf `Shape.orientContours` (`src/rgl/font/sfnt/msdf/Shape.zig:139-144`) orients nothing: `orientations` starts at 0 and the loop skips contours whose entry is 0, the reverse of msdfgen's `!orientations[i]` (pin `1c106ed`); its two `y1` loops also lack msdfgen's `y0 == y1` stop. Every MSDF atlas runs it (`atlas.zig:97`, on by default). Fix both; test with a reversed contour.
 
 - [ ] **N37** msdf `Shape.calcBounds` (`Shape.zig:95-101`) starts `right` and `top` at `floatMin(f64)`, the smallest positive float, not msdfgen's `-LARGE_VALUE`: a glyph wholly below the baseline (`_`) or left of 0 gets top or right 0, so a wrong box. Use `-floatMax`; test with such a shape.
 
@@ -244,7 +242,7 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 
 - [ ] **H7** `util.scalarArgs(T, v)` (`.{v}` or `.{v.re, v.im}`) replaces about 25 two-armed `if (isComplex(T))` kernel calls in the level-1 and level-2 interfaces, `banded.zig`, `triangular.zig`, `symmetric.zig` and their tests.
 
-- [ ] **H8** The per-slot wrappers (`pub fn sasum_k(...) { return blas.kernel(.sasum_k)(...) }`, about 836 in the blas1, blas2, blas3 and ext `__root__.zig` files) are the API-shape stubs CLAUDE.md keeps; the interfaces reach every kernel by slot (`portable.fetch`, `blas.kernel`), never through them. Only their repeated "Argument names are copied" header (one note in `blas/readme.md`) and unused type aliases go.
+- [ ] **H112** Slots by enum, not by string: about 170 `@field(vt, pre ++ "symv_U")`-style names built from a precision letter (most in `_test/blas1/edge.zig`, `gemm/params.zig`, `half.zig`, `gemm/kernel.zig`, `gemv/__root__.zig`, `small.zig`, the level-3 drivers, `symv`/`hemv`/`ger` installs, `symmetric.zig`'s `pre`) go through one bridge, a `portable.slotPtr(vt, T, op)` over `portable.slot`, with `portable.Op` grown for the half-precision and parameter slots. To split per area before starting.
 
 - [ ] **H9** Shared test support, part 1: `blas/_test/blas1/check.zig` moves to `blas/_test/check.zig`, with `_test/blas2/guard.zig` merged in (53 importers, one alias instead of `blas1check`, `check1` and `check`); one of `guard.use`/`restore` and `testUse`/`testRestore`.
 
@@ -471,6 +469,10 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 ## Done
 
 Cleared 2026-11-02; landed work is in `review`'s log.
+
+- [X] **N36** msdf `Shape.orientContours` orients contours (2026-11-07): it skips a contour once it has an orientation, as msdfgen's `!orientations[i]` (pin `1c106ed`), and its `y1` searches stop at the first height off `y0`. Tests: a counterclockwise outline and a hole wound like its outline are reversed; a contour closing on a horizontal edge at `y0` is scanned below it.
+
+- [X] **H8** Kernels by slot only (2202fc46, 2026-11-07): the 844 unused per-slot wrappers (`pub fn sasum_k(...) { return blas.kernel(.sasum_k)(...) }`) are gone from the blas1, blas2, blas3 and ext `__root__.zig` files, with their repeated "Argument names are copied" header and the type aliases left unused; the roots that held only wrappers (`blas3/hemm`, `ext/omatcopy`, `ext/imatcopy`) are deleted, and the docs no longer call them vtable wrappers.
 
 - [X] **M10** The public layer's step 3, first part (6648ae73, 2026-11-02): `View`, `ConstView` and unmanaged `Mat(T)` in `matrix.zig`, with `view()`/`constView()`; `dense.zig`'s `dot`, `norm`, `sum`, `max`, `min`, `axpy`, `scale`, `mul`/`mulInto`, `transpose`, `ctranspose` over views, flat in `rstd.linalg`. Up to `L` = 8 they give a `StaticMat`'s bits; past it, BLAS. Complex `sum` adds the parts apart; `max`/`min` real only; `scale` inline at every size (design.md).
 
