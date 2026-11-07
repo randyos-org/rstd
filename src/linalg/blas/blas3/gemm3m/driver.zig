@@ -333,8 +333,8 @@ test "3m passes: every conjugation adds op(A) times alpha op(B) once" {
         var re: [2][2]i32 = @splat(@splat(0));
         var im: [2][2]i32 = @splat(@splat(0));
         for (passes(cj[0], cj[1])) |p| for (0..2) |x| for (0..2) |u| {
-            const ax: i32 = if (p.a == .b or @intFromEnum(p.a) == x + 1) 1 else 0;
-            const bu: i32 = if (p.b == .b or @intFromEnum(p.b) == u + 1) 1 else 0;
+            const ax: i32 = if (p.a == .b or @backingInt(p.a) == x + 1) 1 else 0;
+            const bu: i32 = if (p.b == .b or @backingInt(p.b) == u + 1) 1 else 0;
             re[x][u] += p.re * ax * bu;
             im[x][u] += p.im * ax * bu;
         };
