@@ -20,10 +20,15 @@ pub const InvError = dense.InvError;
 pub const SolveError = dense.SolveError;
 pub const CholError = dense.CholError;
 pub const MatrixNormError = dense.MatrixNormError;
+pub const SvdError = dense.SvdError;
+pub const EigError = dense.EigError;
 pub const Lu = dense.Lu;
 pub const Qr = dense.Qr;
 pub const QrMode = dense.QrMode;
 pub const MatrixNorm = dense.MatrixNorm;
+pub const SvdMode = dense.SvdMode;
+pub const Svd = dense.Svd;
+pub const Eig = dense.Eig;
 pub const dot = dense.dot;
 pub const norm = dense.norm;
 pub const sum = dense.sum;
@@ -46,6 +51,11 @@ pub const lu = dense.lu;
 pub const chol = dense.chol;
 pub const qr = dense.qr;
 pub const matrixNorm = dense.matrixNorm;
+pub const svd = dense.svd;
+pub const eig = dense.eig;
+pub const pinv = dense.pinv;
+pub const rank = dense.rank;
+pub const cond = dense.cond;
 
 test {
     const zigstd = @import("../zigstd.zig");

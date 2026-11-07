@@ -1229,13 +1229,13 @@ views (any mix of `StaticMat`, `Mat` and borrowed storage); errors listed are be
 | `lu` | `Lu` (`factors`, `ipiv` 0-based, `l()`, `u()`, `zero_pivot: ?usize`) | `getrf` (its `error.Singular` becomes `zero_pivot`) | none; a singular matrix factors completely (decision 5) |
 | `chol` | `Mat` (upper `R`, `A = Rᴴ R`) | `potrf` | `NotSquare`, `NotPositiveDefinite` |
 | `qr(..., .economy or .full)` | `Qr` (`q`, `r`; `QrMode`) | `geqrf`, `orgqr` | |
-| `svd(..., .values, .economy or .full)` | `Svd` (`s`, `u`, `v`) | `gesdd` or `gesvd`, per `src/linalg/lapack/sources.md` | `NoConvergence` |
-| `eig(..., want_vectors)` | `Eig`: a union of real values and vectors for Hermitian input (`syevd`/`heevd`), complex otherwise (`geev`) (decision 6) | `syevd`, `heevd`, `geev` | `NotSquare`, `NoConvergence` |
+| `svd(..., .values, .economy or .full)` | `Svd` (`s` nonincreasing; `u`, `v` null for `.values`; `SvdMode`); empty with `.full`: identities | values: `gesvd` (QR iteration, `xBDSQR`'s accuracy on graded matrices, M1's E4); with vectors: `gesdd` (divide and conquer), so the two may differ in the last bits | `NoConvergence` (also a NaN) |
+| `eig(..., want_vectors)` | `Eig`: a union, `.hermitian` real values (nondecreasing) and orthonormal vectors, `.general` complex values (a real `A`'s pairs together, positive imaginary part first) and unit right vectors (decision 6); Hermitian by its values exactly, as `solve`'s test | `syevd`, `heevd`, `geev` | `NotSquare`, `NoConvergence` (also a NaN) |
 | `inv`, `invInto` | `Mat` | `linalg.matrix.inv` up to `L`; `getrf`, `getri` | `NotSquare`, `Singular`; `DimensionMismatch` (`invInto`) |
-| `pinv(..., tol: ?F)` | `Mat` | SVD; default `tol` `max(m, n) eps(σ₁)`, as MATLAB | `NoConvergence` |
-| `rank(..., tol: ?F)` | `usize` | SVD values | `NoConvergence` |
+| `pinv(..., tol: ?F)` | `Mat`, `V Σ⁺ Uᴴ` over the values above `tol` | `svd`'s `.economy`, `gemm`; default `tol` `max(m, n) eps(σ₁)`, as MATLAB | `NoConvergence` |
+| `rank(..., tol: ?F)` | `usize`: the values above `tol` (default as `pinv`); 0 when empty | `svd`'s values | `NoConvergence` |
 | `det` | `T`; 0 when singular, 1 when empty | `linalg.matrix.det` up to `L`; `getrf`'s pivots, renormalized by powers of 2 as the matlab port's form by powers of 10 (M1's E1), exact, so it overflows only with the result | `NotSquare` |
-| `cond` | `σ₁ / σₙ` | SVD values | `NoConvergence` |
+| `cond` | `σ₁ / σₖ`; infinite when `σₖ` is 0, 0 when empty, as MATLAB | `svd`'s values | `NoConvergence` |
 | `matrixNorm(..., .one, .inf, .fro or .two)` | `F`; 0 when empty (`MatrixNorm`) | `lange`; `.two` by `gesvd`'s values | `NoConvergence` (`.two`) |
 
 `solve`'s structure tests read only the values, so the same input always takes the same route.
@@ -1307,11 +1307,12 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    the run-time switch into the inline kernels up to `L`. In three parts (todo.md, user,
    2026-11-02): M10 the types (in `matrix.zig`) and the BLAS-backed basics (`dense.zig`, flat at
    `rstd.linalg`; done 2026-11-02, `L` a constant 8 until M11), M17 the solves and
-   factorizations (done 2026-11-07), M18 the SVD and eigen family. An operand is a view, a
-   `Mat`, a pointer to a `StaticMat` or a slice; up to `L`, `dot`, `norm`, `sum`, `max` and
-   `min` call `linalg.vector`'s forms, `mulInto` repeats `linalg.matrix.mul`'s order, and `det`,
-   `inv` and square `solve` call `linalg.matrix`'s, to their bits. `lu`, `chol`, `qr` and
-   `matrixNorm` have no fixed-size form, so they take LAPACK at every size.
+   factorizations (done 2026-11-07), M18 the SVD and eigen family (done 2026-11-07). An operand
+   is a view, a `Mat`, a pointer to a `StaticMat` or a slice; up to `L`, `dot`, `norm`, `sum`,
+   `max` and `min` call `linalg.vector`'s forms, `mulInto` repeats `linalg.matrix.mul`'s order,
+   and `det`, `inv` and square `solve` call `linalg.matrix`'s, to their bits. `lu`, `chol`, `qr`,
+   `matrixNorm`, `svd`, `eig`, `pinv`, `rank` and `cond` have no fixed-size form, so they take
+   LAPACK at every size.
 4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's
    `Options`; both paths tested. M4 then times them and confirms `L`.
 5. **SPIR-V forms;** shaderlib's aliases (S2).

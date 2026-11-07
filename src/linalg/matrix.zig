@@ -82,8 +82,9 @@ fn ViewOf(comptime T: type, comptime read_only: bool) type {
             return .{ .data = v.data[start..end], .rows = rows, .cols = cols, .ld = v.ld };
         }
 
-        /// Column `j`, contiguous.
+        /// Column `j`, contiguous; empty, and in bounds, with no rows.
         pub fn col(v: Self, j: usize) @FieldType(Self, "data") {
+            if (v.rows == 0) return v.data[0..0];
             return v.data[j * v.ld ..][0..v.rows];
         }
 
