@@ -1367,9 +1367,8 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
 
 ### Planned: sparse matrices
 
-Not scheduled (todo.md, T150 and T151): the 2025 discussions behind SRAPNOL, as corrected on
-review (Randy ChatGPT discussions). The kernels live in `rstd.linalg` (user, 2026-11-07): rstd holds
-the low-level math, srapnol only the optimization algorithms.
+Not scheduled (todo.md, T150 and T151): the 2025 linear-algebra discussions, as corrected on
+review (Randy ChatGPT discussions).
 
 - **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and
   `Aᵀ y`, sparse `axpy` and `dot` against a dense vector, `scal`, submatrix extraction,
@@ -1378,7 +1377,6 @@ the low-level math, srapnol only the optimization algorithms.
 - **Storage: CSC.** Sorted row indices per column and `n + 1` column pointers; the index type is
   a comptime parameter. `A x` is one `axpy` per column, scattering into `y`; `Aᵀ y` is one dot
   per column, gathering, the form an active-set method's pricing (`g_N - Nᵀ π`) uses.
-  srapnol's DES-012 makes the same choice.
 - **SIMD.** Only the contiguous value runs vectorize. AVX2 gathers but cannot scatter, NEON does
   neither: scatters stay scalar, and a gather is used where measured faster than scalar loads.
 - **Threads.** `Aᵀ y` splits by columns without conflict. `A x` races on `y`, so its column
