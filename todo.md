@@ -10,7 +10,7 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 ### In the background
 
-- Housekeeping H1 to H112 (not H8; H65 waits on Z6), no builds (user, 2026-11-07): agents in `C:\scratch\git\rstd-wt\hk-*`, merged into `wip/housekeeping` for review, not into `review`.
+- Housekeeping H1 to H112 (not H8; H65 waits on Z6), no builds (user, 2026-11-07): finished on `wip/housekeeping`, waiting for the user's review and a first build; not merged into `review`.
 
 ## Queue
 
