@@ -1367,8 +1367,9 @@ randy-matrix: padded `@Vector` columns, float elements, `+ - *`, `@transpose`):
 
 ### Planned: sparse matrices
 
-Neither decided nor scheduled (todo.md, T150 and T151): the 2025 discussions behind SRAPNOL, as
-corrected on review (Randy ChatGPT discussions).
+Not scheduled (todo.md, T150 and T151): the 2025 discussions behind SRAPNOL, as corrected on
+review (Randy ChatGPT discussions). The kernels live in `rstd.linalg` (user, 2026-11-07): rstd holds
+the low-level math, srapnol only the optimization algorithms.
 
 - **Scope.** The kernels a sparse SQP solver needs, not the Sparse BLAS interface: `A x` and
   `Aᵀ y`, sparse `axpy` and `dot` against a dense vector, `scal`, submatrix extraction,
