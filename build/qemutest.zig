@@ -449,7 +449,7 @@ const base_machines = [_]Machine{
             .{ .name = "blas2-edge", .filters = &.{"linalg.blas._test.blas2.edge."} },
             // one per routine family: together past the window
             .{ .name = "blas3-gemm", .filters = &.{ "linalg.blas.blas3.__root__.", "linalg.blas.blas3.gemm." } },
-            .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
+            .{ .name = "blas3-symm", .filters = &.{"linalg.blas.blas3.symm."} },
             .{ .name = "blas3-rank", .filters = &.{ "linalg.blas.blas3.syrk.", "linalg.blas.blas3.syr2k." } },
             .{ .name = "blas3-tri", .filters = &.{ "linalg.blas.blas3.trmm.", "linalg.blas.blas3.trsm.", "linalg.lapack." } },
             .{ .name = "blas3-interface", .filters = &.{"linalg.blas.blas3.interface."} },
@@ -546,7 +546,7 @@ const base_machines = [_]Machine{
             .{ .name = "blas3-kernel-complex", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels match"} },
             .{ .name = "blas3-kernel-complex-wide", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A plain"} },
             .{ .name = "blas3-kernel-complex-wide-2", .filters = &.{"linalg.blas.blas3.gemm.kernel.test.complex packed kernels of an 8-lane tile match plain arithmetic, A conjugated"} },
-            .{ .name = "blas3-symm", .filters = &.{ "linalg.blas.blas3.symm.", "linalg.blas.blas3.hemm." } },
+            .{ .name = "blas3-symm", .filters = &.{"linalg.blas.blas3.symm."} },
             .{ .name = "blas3-syrk", .filters = &.{"linalg.blas.blas3.syrk."} },
             .{ .name = "blas3-syr2k", .filters = &.{"linalg.blas.blas3.syr2k."} },
             .{ .name = "blas3-trmm", .filters = &.{"linalg.blas.blas3.trmm."} },

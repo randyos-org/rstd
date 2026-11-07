@@ -8,7 +8,6 @@ const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
-const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const fma = @import("../../fma.zig");
 const corespec = @import("../../cpu/_corespec.zig");
@@ -16,9 +15,6 @@ const corespec = @import("../../cpu/_corespec.zig");
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 const Complex = std.math.Complex;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
 
 // ---- kernel ABI and drivers -------------------------------------------------
 

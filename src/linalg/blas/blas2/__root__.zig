@@ -1,7 +1,7 @@
 //! BLAS Level 2 (matrix-vector) routines.
 //!
-//! One directory per kernel-backed routine, holding its vtable wrappers and
-//! portable kernels; `interface.zig`, `triangular.zig` and `banded.zig` are the
+//! One directory per kernel-backed routine, holding its portable kernels and
+//! tests; `interface.zig`, `triangular.zig` and `banded.zig` are the
 //! checks and drivers in front of them (the OpenBLAS `interface/` and
 //! `driver/level2/` code).
 

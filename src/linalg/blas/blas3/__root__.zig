@@ -1,6 +1,6 @@
 //! BLAS Level 3 (matrix-matrix) routines.
 //!
-//! One directory per routine, holding its vtable wrappers and kernels;
+//! One directory per routine, holding its kernels and tests;
 //! `interface.zig` is the checks in front of `driver.zig`, the blocked driver
 //! (OpenBLAS's `interface/` and `driver/level3/`), and `check.zig` the tests'
 //! reference.
@@ -8,7 +8,6 @@
 pub const gemm = @import("gemm/__root__.zig");
 pub const gemm3m = @import("gemm3m/__root__.zig");
 pub const gemmt = @import("gemmt/__root__.zig");
-pub const hemm = @import("hemm/__root__.zig");
 pub const hemm3m = @import("hemm3m/__root__.zig");
 /// `sbgemm`, `bgemm`, `shgemm` and `sbgemmt`.
 pub const half = @import("half.zig");

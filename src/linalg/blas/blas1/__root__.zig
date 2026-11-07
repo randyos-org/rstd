@@ -1,6 +1,6 @@
 //! BLAS Level 1 (vector-vector) routines.
 //!
-//! One file per routine, holding the vtable wrappers for that routine.
+//! One directory per routine, holding its portable kernels and tests.
 
 const Vtable = @import("../Vtable.zig");
 

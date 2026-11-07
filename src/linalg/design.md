@@ -1956,8 +1956,8 @@ interface mirrors an upstream one with a CBLAS row-major branch (`ger`'s `gerv_k
 | `unused/` | git-ignored, kept locally: kernels, slots and stubs no column-major Zig caller reaches (above) |
 | `readme.md`, `threading.md`, `comparisons.md` (with `../design.md` and rstd's `issues.md`) | documentation |
 
-A routine directory holds its `__root__.zig` (the vtable wrappers, its portable kernels and the
-tests of every core's kernels), and per architecture `<arch>/asm/` (generated), `<arch>/uk/`
+A routine directory holds its `__root__.zig` (its portable kernels and the tests of every core's
+kernels; callers reach kernels by slot, `portable.fetch` or `blas.kernel`, never by a named wrapper), and per architecture `<arch>/asm/` (generated), `<arch>/uk/`
 (generated) and `<arch>/kernel.zig` (composition and hand ports) as the routine needs.
 Every `blas1/<routine>/` and `blas3/<routine>/`, and `blas2/`, has a generated `coverage.md`:
 which OpenBLAS source each core uses, and what rstd serves in its place.

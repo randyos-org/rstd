@@ -1,19 +1,4 @@
-//! Vtable wrappers for the `syr2k` kernels.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
-
-const blas = @import("../../__root__.zig");
-const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
+//! Tests of the `syr2k` and `her2k` kernels.
 
 const check = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
