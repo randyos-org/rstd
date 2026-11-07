@@ -13,7 +13,7 @@ const fma = @import("blas/fma.zig");
 /// normalized directions, SDF distances) never approach the extremes that
 /// fallback exists for, so `length` skips it entirely there rather than
 /// failing to compile.
-const on_spirv = switch (sysinfo.target.cpu.arch) {
+pub const on_spirv = switch (sysinfo.target.cpu.arch) {
     .spirv32, .spirv64 => true,
     else => false,
 };

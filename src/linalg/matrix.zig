@@ -14,6 +14,46 @@ const isComplex = vector.isComplex;
 const Real = vector.Real;
 const splat = vector.splat;
 const mulAdd = vector.mulAdd;
+const root = @import("root");
+
+/// `rstd.linalg`'s build settings, from a root's `rstd_linalg_options`
+/// (design.md, Dispatch, decision 3).
+pub const Options = struct {
+    /// `L`, per dimension: at or below it the inline kernels, past it the
+    /// BLAS and LAPACK. At least 4, for shaderlib's `Mat2` to `Mat4`.
+    inline_limit: usize = 8,
+};
+
+/// The root's options, or the defaults.
+pub const options: Options = if (@hasDecl(root, "rstd_linalg_options")) root.rstd_linalg_options else .{};
+
+pub const inline_limit = options.inline_limit;
+
+comptime {
+    if (inline_limit < 4) @compileError(std.fmt.comptimePrint("rstd_linalg_options.inline_limit is {d}, below 4 (shaderlib's Mat4)", .{inline_limit}));
+}
+
+/// `X`'s dimensions: a matrix's rows and columns, a vector's length.
+fn dimsOf(comptime X: type) [2]comptime_int {
+    return if (isMat(X)) .{ X.rows, X.cols } else .{ count(X), 1 };
+}
+
+/// Past the inline limit a `StaticMat` takes `rstd.linalg`'s `instead`,
+/// with an allocator and `io` (design.md, Dispatch); SPIR-V has no limit.
+fn expectInline(comptime X: type, comptime Y: type, comptime instead: []const u8) void {
+    if (vector.on_spirv) return;
+    for (dimsOf(X) ++ dimsOf(Y)) |d| if (d > inline_limit)
+        @compileError(std.fmt.comptimePrint("{s} and {s} pass the inline limit ({d}): use {s}", .{ @typeName(X), @typeName(Y), inline_limit, instead }));
+}
+
+/// `mul`, `det`, `inv` and `solve` at every size, past the inline limit
+/// too: `rstd.linalg`'s inline path (its tests run it to 16) and timing.
+pub const any_size = struct {
+    pub const mul = mulAnySize;
+    pub const det = detAnySize;
+    pub const inv = invAnySize;
+    pub const solve = solveAnySize;
+};
 
 /// `R` rows by `C` columns of `T`, packed column-major: `data[j]` is column
 /// `j` (design.md, decisions 1 and 14). `mul`, `transpose`, `scale`, `add`
@@ -312,7 +352,13 @@ fn Product(comptime A: type, comptime B: type) type {
 /// by a matrix (MATLAB's and GLSL's `*`). `M v` sums the columns scaled by
 /// `v`'s elements in column order, `v M` is a dot per column in element order
 /// (no conjugate), as `@Matrix` (decision 16).
+/// Past the inline limit, a compile error naming `rstd.linalg.mulInto`.
 pub fn mul(a: anytype, b: anytype) Product(@TypeOf(a), @TypeOf(b)) {
+    comptime expectInline(@TypeOf(a), @TypeOf(b), "rstd.linalg.mulInto(allocator, io, &out, &a, &b)");
+    return mulAnySize(a, b);
+}
+
+fn mulAnySize(a: anytype, b: anytype) Product(@TypeOf(a), @TypeOf(b)) {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     if (comptime isMat(A) and isMat(B)) {
@@ -512,8 +558,13 @@ pub fn luSolve(comptime n: comptime_int, comptime T: type, lu: *const [n][n]T, p
 
 /// The determinant (MATLAB's `det`, GLSL's `determinant`): real `m` up to 3
 /// by 3 by cofactors, else the product of LU's pivots in order; 0 when
-/// singular.
+/// singular. Past the inline limit, a compile error naming `rstd.linalg.det`.
 pub fn det(m: anytype) @TypeOf(m).Element {
+    comptime expectInline(@TypeOf(m), @TypeOf(m), "rstd.linalg.det(allocator, io, &m)");
+    return detAnySize(m);
+}
+
+fn detAnySize(m: anytype) @TypeOf(m).Element {
     const M = @TypeOf(m);
     comptime expectSquare(M);
     const n = M.rows;
@@ -530,8 +581,14 @@ pub fn det(m: anytype) @TypeOf(m).Element {
 
 /// `m⁻¹` (MATLAB's `inv`, GLSL's `inverse`): real `m` up to 3 by 3 as its
 /// adjugate over `det`, `error.Singular` when that is 0; else by LU,
-/// `error.Singular` at a zero pivot.
+/// `error.Singular` at a zero pivot. Past the inline limit, a compile error
+/// naming `rstd.linalg.invInto`.
 pub fn inv(m: anytype) error{Singular}!@TypeOf(m) {
+    comptime expectInline(@TypeOf(m), @TypeOf(m), "rstd.linalg.invInto(allocator, io, &out, &m)");
+    return invAnySize(m);
+}
+
+fn invAnySize(m: anytype) error{Singular}!@TypeOf(m) {
     const M = @TypeOf(m);
     comptime expectSquare(M);
     const n = M.rows;
@@ -567,7 +624,13 @@ pub fn inv(m: anytype) error{Singular}!@TypeOf(m) {
 
 /// `a \ b` (MATLAB's `mldivide`) for square `a` and `b` a vector or a matrix
 /// of right-hand sides, by LU at every size; `error.Singular` at a zero pivot.
+/// Past the inline limit, a compile error naming `rstd.linalg.solveInto`.
 pub fn solve(a: anytype, b: anytype) error{Singular}!@TypeOf(b) {
+    comptime expectInline(@TypeOf(a), @TypeOf(b), "rstd.linalg.solveInto(allocator, io, &out, &a, &b)");
+    return solveAnySize(a, b);
+}
+
+fn solveAnySize(a: anytype, b: anytype) error{Singular}!@TypeOf(b) {
     const M = @TypeOf(a);
     const B = @TypeOf(b);
     comptime expectSquare(M);

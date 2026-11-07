@@ -6,6 +6,7 @@
 //! `Mat` and a `StaticMat` holding the same numbers give the same bits; past
 //! it, the BLAS and LAPACK. Outputs must not overlap inputs.
 
+const sysinfo = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -27,9 +28,22 @@ const eNeg = matrix.eNeg;
 const eConj = matrix.eConj;
 const eIsZero = matrix.eIsZero;
 
-/// The inline limit `L` per dimension (design.md, Dispatch); M11 makes it
-/// `rstd_linalg_options.inline_limit`.
-const inline_limit = 8;
+/// The inline limit `L` per dimension, `rstd_linalg_options.inline_limit`
+/// (design.md, Dispatch).
+const inline_limit = matrix.inline_limit;
+
+/// The largest inline size built: `L`, and 16 in tests, which run each path
+/// at every size 1 to 16 (design.md, Dispatch).
+const fixed_max = if (sysinfo.is_test) @max(inline_limit, 16) else inline_limit;
+
+/// The inline kernels or the BLAS and LAPACK; by size alone outside tests.
+const Path = enum { inline_, blas };
+
+/// `.inline_` when every dimension is at or below the inline limit.
+fn pathOf(dims: []const usize) Path {
+    for (dims) |d| if (d > inline_limit) return .blas;
+    return .inline_;
+}
 
 /// The element type of an operand.
 fn ElementOf(comptime X: type) type {
@@ -106,11 +120,11 @@ fn Fixed(comptime c: usize) type {
         }
 
         fn det(a: anytype) @TypeOf(a).Element {
-            return matrix.det(load(a));
+            return matrix.any_size.det(load(a));
         }
 
         fn inv(o: anytype, a: ConstView(@TypeOf(o).Element)) error{Singular}!void {
-            const r = try matrix.inv(load(a));
+            const r = try matrix.any_size.inv(load(a));
             for (&r.data, 0..) |*rc, j| @memcpy(o.col(j), rc);
         }
 
@@ -180,15 +194,19 @@ pub const VectorError = error{DimensionMismatch} || Io.Cancelable;
 /// `xᴴ y` (`Σ conj(x[i]) y[i]`, MATLAB's `dot`); `linalg.vector.dot`'s order
 /// up to the inline limit, else the BLAS's `dot` or `dotc`.
 pub fn dot(io: Io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    const T = ElementOf(@TypeOf(x));
     const sx = try strided(constOf(x));
     const sy = try strided(constOf(y));
     if (sx.n != sy.n) return error.DimensionMismatch;
-    switch (sx.n) {
-        0 => return eZero(T),
-        inline 1...inline_limit => |c| return Fixed(c).dot(sx, sy),
-        else => {},
-    }
+    return dotWith(pathOf(&.{sx.n}), io, sx, sy);
+}
+
+fn dotWith(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@TypeOf(sx.ptr[0]) {
+    const T = @TypeOf(sx.ptr[0]);
+    if (sx.n == 0) return eZero(T);
+    if (path == .inline_) switch (sx.n) {
+        inline 1...fixed_max => |c| return Fixed(c).dot(sx, sy),
+        else => unreachable,
+    };
     const f = if (comptime isComplex(T)) blas.dotc else blas.dot;
     return f(io, T, len(sx.n), sx.ptr, len(sx.inc), sy.ptr, len(sy.inc)) catch |e| return canceled(e);
 }
@@ -196,26 +214,34 @@ pub fn dot(io: Io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x)) {
 /// The 2-norm (MATLAB's `norm` of a vector; `linalg.vector`'s `norm`
 /// normalizes): `linalg.vector.length` up to the inline limit, else `nrm2`.
 pub fn norm(io: Io, x: anytype) VectorError!Real(ElementOf(@TypeOf(x))) {
-    const T = ElementOf(@TypeOf(x));
     const s = try strided(constOf(x));
-    switch (s.n) {
-        0 => return 0,
-        inline 1...inline_limit => |c| return Fixed(c).length(s),
-        else => {},
-    }
+    return normWith(pathOf(&.{s.n}), io, s);
+}
+
+fn normWith(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr[0])) {
+    const T = @TypeOf(s.ptr[0]);
+    if (s.n == 0) return 0;
+    if (path == .inline_) switch (s.n) {
+        inline 1...fixed_max => |c| return Fixed(c).length(s),
+        else => unreachable,
+    };
     return blas.nrm2(io, T, len(s.n), s.ptr, len(s.inc)) catch |e| return canceled(e);
 }
 
 /// `Σ x[i]`: in order up to the inline limit, else the BLAS's `sum`, the
 /// real and imaginary parts apart for complex.
 pub fn sum(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    const T = ElementOf(@TypeOf(x));
     const s = try strided(constOf(x));
-    switch (s.n) {
-        0 => return eZero(T),
-        inline 1...inline_limit => |c| return Fixed(c).sum(s),
-        else => {},
-    }
+    return sumWith(pathOf(&.{s.n}), io, s);
+}
+
+fn sumWith(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
+    const T = @TypeOf(s.ptr[0]);
+    if (s.n == 0) return eZero(T);
+    if (path == .inline_) switch (s.n) {
+        inline 1...fixed_max => |c| return Fixed(c).sum(s),
+        else => unreachable,
+    };
     if (comptime !isComplex(T)) return blas.sum(io, T, len(s.n), s.ptr, len(s.inc)) catch |e| return canceled(e);
     const F = Real(T);
     const parts: [*]F = @ptrCast(s.ptr);
@@ -241,11 +267,16 @@ fn extreme(comptime which: blas.Extreme, io: Io, x: anytype) VectorError!Element
     const T = ElementOf(@TypeOf(x));
     if (comptime isComplex(T)) @compileError("max and min order real elements only");
     const s = try strided(constOf(x));
-    switch (s.n) {
-        0 => return 0,
-        inline 1...inline_limit => |c| return Fixed(c).extreme(which, s),
-        else => {},
-    }
+    return extremeWith(which, pathOf(&.{s.n}), io, s);
+}
+
+fn extremeWith(comptime which: blas.Extreme, path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
+    const T = @TypeOf(s.ptr[0]);
+    if (s.n == 0) return 0;
+    if (path == .inline_) switch (s.n) {
+        inline 1...fixed_max => |c| return Fixed(c).extreme(which, s),
+        else => unreachable,
+    };
     return blas.extreme(io, T, which, len(s.n), s.ptr, len(s.inc)) catch |e| return canceled(e);
 }
 
@@ -286,15 +317,19 @@ pub fn mul(allocator: Allocator, io: Io, a: anytype, b: anytype) MulError!Mat(El
 /// order (each column of `out` the columns of `a` scaled by `b`'s and
 /// summed in order); else `gemv` for one column, `gemm` otherwise.
 pub fn mulInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytype) MulError!void {
-    const T = ElementOf(@TypeOf(a));
     const o = viewOf(out);
     const ca = constOf(a);
     const cb = constOf(b);
     if (ca.cols != cb.rows or o.rows != ca.rows or o.cols != cb.cols) return error.DimensionMismatch;
+    return mulWith(pathOf(&.{ ca.rows, cb.cols, ca.cols }), allocator, io, o, ca, cb);
+}
+
+fn mulWith(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@TypeOf(o).Element), cb: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
     const m = ca.rows;
     const n = cb.cols;
     const k = ca.cols;
-    if (m <= inline_limit and n <= inline_limit and k <= inline_limit) {
+    if (path == .inline_) {
         for (0..n) |j| for (0..m) |i| {
             var acc = eZero(T);
             if (k > 0) {
@@ -385,15 +420,20 @@ pub const DetError = error{NotSquare} || Allocator.Error || Io.Cancelable;
 /// underflows only if the result does (design.md, M1's E1). The scaling is
 /// exact, so where the plain product stays in range it has its bits.
 pub fn det(allocator: Allocator, io: Io, a: anytype) DetError!ElementOf(@TypeOf(a)) {
-    const T = ElementOf(@TypeOf(a));
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
     const n = ca.rows;
-    switch (n) {
-        0 => return eOne(T),
-        inline 1...inline_limit => |c| return Fixed(c).det(ca),
-        else => {},
-    }
+    return detWith(pathOf(&.{n}), allocator, io, ca);
+}
+
+fn detWith(path: Path, allocator: Allocator, io: Io, ca: anytype) (Allocator.Error || Io.Cancelable)!@TypeOf(ca).Element {
+    const T = @TypeOf(ca).Element;
+    const n = ca.rows;
+    if (n == 0) return eOne(T);
+    if (path == .inline_) switch (n) {
+        inline 1...fixed_max => |c| return Fixed(c).det(ca),
+        else => unreachable,
+    };
     const f = try copyOf(T, allocator, ca);
     defer f.deinit(allocator);
     const ipiv = try allocator.alloc(isize, n);
@@ -429,7 +469,7 @@ pub fn inv(allocator: Allocator, io: Io, a: anytype) InvError!Mat(ElementOf(@Typ
     if (ca.rows != ca.cols) return error.NotSquare;
     const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, ca.cols);
     errdefer r.deinit(allocator);
-    try invWith(allocator, io, r.view(), ca);
+    try invWith(pathOf(&.{ca.rows}), allocator, io, r.view(), ca);
     return r;
 }
 
@@ -439,17 +479,17 @@ pub fn invInto(allocator: Allocator, io: Io, out: anytype, a: anytype) (InvError
     const ca = constOf(a);
     if (ca.rows != ca.cols) return error.NotSquare;
     if (o.rows != ca.rows or o.cols != ca.cols) return error.DimensionMismatch;
-    return invWith(allocator, io, o, ca);
+    return invWith(pathOf(&.{ca.rows}), allocator, io, o, ca);
 }
 
-fn invWith(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
+fn invWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
     const T = @TypeOf(o).Element;
     const n = a.rows;
-    switch (n) {
-        0 => return,
-        inline 1...inline_limit => |c| return Fixed(c).inv(o, a),
-        else => {},
-    }
+    if (n == 0) return;
+    if (path == .inline_) switch (n) {
+        inline 1...fixed_max => |c| return Fixed(c).inv(o, a),
+        else => unreachable,
+    };
     const f = try copyOf(T, allocator, a);
     defer f.deinit(allocator);
     const ipiv = try allocator.alloc(isize, n);
@@ -475,7 +515,7 @@ pub fn solve(allocator: Allocator, io: Io, a: anytype, b: anytype) SolveError!Ma
     if (cb.rows != ca.rows) return error.DimensionMismatch;
     const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, cb.cols);
     errdefer r.deinit(allocator);
-    try solveWith(allocator, io, r.view(), ca, cb);
+    try solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, r.view(), ca, cb);
     return r;
 }
 
@@ -485,7 +525,7 @@ pub fn solveInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anyt
     const ca = constOf(a);
     const cb = constOf(b);
     if (cb.rows != ca.rows or o.rows != ca.cols or o.cols != cb.cols) return error.DimensionMismatch;
-    return solveWith(allocator, io, o, ca, cb);
+    return solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, o, ca, cb);
 }
 
 const Structure = enum { upper, lower, hermitian, general };
@@ -511,13 +551,13 @@ fn structureOf(a: anytype) Structure {
     return if (isHermitian(a)) .hermitian else .general;
 }
 
-fn solveWith(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
+fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
     const T = @TypeOf(o).Element;
     const n = a.cols;
     if (a.rows != n) return leastSquares(allocator, io, o, a, b);
-    if (n <= inline_limit and b.cols <= inline_limit) switch (n) {
-        0 => return,
-        inline 1...inline_limit => |c| return Fixed(c).solve(o, a, b),
+    if (n == 0) return;
+    if (path == .inline_) switch (n) {
+        inline 1...fixed_max => |c| return Fixed(c).solve(o, a, b),
         else => unreachable,
     };
     const x = try copyOf(T, allocator, b);
@@ -1837,6 +1877,132 @@ test "pinv, rank and cond" {
     const pe = try pinv(al, test_io, e, null);
     defer pe.deinit(al);
     try testing.expect(pe.rows == 3 and pe.cols == 0);
+}
+
+/// A wider `T` for references: `f64` for `f32`, `f128` for `f64`.
+fn Wide(comptime T: type) type {
+    const W = if (Real(T) == f32) f64 else f128;
+    return if (isComplex(T)) std.math.Complex(W) else W;
+}
+
+fn widen(x: anytype) Wide(@TypeOf(x)) {
+    return if (comptime isComplex(@TypeOf(x))) .init(x.re, x.im) else x;
+}
+
+/// `|re| + |im|` of a wide value, as `f64`.
+fn wideAbs(x: anytype) f64 {
+    return @floatCast(if (comptime isComplex(@TypeOf(x))) @abs(x.re) + @abs(x.im) else @abs(x));
+}
+
+fn wideDiff(x: anytype, ref: Wide(@TypeOf(x))) f64 {
+    const w = widen(x);
+    return wideAbs(if (comptime isComplex(@TypeOf(x))) w.sub(ref) else w - ref);
+}
+
+/// `acc + x y`, unfused.
+fn wideMulAdd(acc: anytype, x: @TypeOf(acc), y: @TypeOf(acc)) @TypeOf(acc) {
+    return if (comptime isComplex(@TypeOf(acc))) acc.add(x.mul(y)) else acc + x * y;
+}
+
+/// `det(a)` by LU with partial pivoting in the wide type.
+fn wideDet(comptime T: type, a: ConstView(T)) !Wide(T) {
+    const W = Wide(T);
+    const n = a.rows;
+    const f = try testing.allocator.alloc(W, n * n);
+    defer testing.allocator.free(f);
+    for (0..n) |j| for (0..n) |i| {
+        f[i + j * n] = widen(a.at(i, j));
+    };
+    var d = eOne(W);
+    for (0..n) |k| {
+        var p = k;
+        for (k + 1..n) |i| {
+            if (wideAbs(f[i + k * n]) > wideAbs(f[p + k * n])) p = i;
+        }
+        if (p != k) {
+            d = eNeg(d);
+            for (0..n) |j| std.mem.swap(W, &f[k + j * n], &f[p + j * n]);
+        }
+        const piv = f[k + k * n];
+        d = if (comptime isComplex(W)) d.mul(piv) else d * piv;
+        for (k + 1..n) |i| {
+            const l = eNeg(if (comptime isComplex(W)) f[i + k * n].div(piv) else f[i + k * n] / piv);
+            for (k + 1..n) |j| f[i + j * n] = wideMulAdd(f[i + j * n], l, f[k + j * n]);
+        }
+    }
+    return d;
+}
+
+fn expectPaths(comptime T: type, n: usize, rnd: std.Random) !void {
+    const al = testing.allocator;
+    const W = Wide(T);
+    const a = try randomMat(T, rnd, n, n);
+    defer a.deinit(al);
+    shiftDiag(T, a, 2);
+    const b = try randomMat(T, rnd, n, 3);
+    defer b.deinit(al);
+    const x = b.constView().col(0);
+    const y = b.constView().col(1);
+    const sx = try strided(constOf(x));
+    const sy = try strided(constOf(y));
+    // the references, and the sums of magnitudes that bound their errors
+    var dot_ref = eZero(W);
+    var sum_ref = eZero(W);
+    var sq: Real(W) = 0;
+    var dot_mag: f64 = 0;
+    var sum_mag: f64 = 0;
+    for (x, y) |xi, yi| {
+        dot_ref = wideMulAdd(dot_ref, eConj(widen(xi)), widen(yi));
+        sum_ref = wideMulAdd(sum_ref, widen(xi), eOne(W));
+        const w = widen(xi);
+        sq += if (comptime isComplex(W)) w.re * w.re + w.im * w.im else w * w;
+        dot_mag += wideAbs(widen(xi)) * wideAbs(widen(yi));
+        sum_mag += wideAbs(widen(xi));
+    }
+    const prod_ref = try al.alloc(W, n * 3);
+    defer al.free(prod_ref);
+    for (0..3) |j| for (0..n) |i| {
+        var acc = eZero(W);
+        for (0..n) |p| acc = wideMulAdd(acc, widen(a.at(i, p)), widen(b.at(p, j)));
+        prod_ref[i + j * n] = acc;
+    };
+    const det_ref = try wideDet(T, a.constView());
+    const tol = tolOf(T, n);
+    const nf: f64 = @floatFromInt(n);
+    for ([_]Path{ .inline_, .blas }) |path| {
+        try testing.expect(wideDiff(try dotWith(path, test_io, sx, sy), dot_ref) <= tol * dot_mag);
+        try testing.expect(wideDiff(try sumWith(path, test_io, sx), sum_ref) <= tol * sum_mag);
+        try testing.expect(wideDiff(try normWith(path, test_io, sx), @sqrt(sq)) <= tol * @as(f64, @floatCast(@sqrt(sq))));
+        if (comptime !isComplex(T)) {
+            try testing.expectEqual(std.mem.max(T, x), try extremeWith(.max, path, test_io, sx));
+            try testing.expectEqual(std.mem.min(T, x), try extremeWith(.min, path, test_io, sx));
+        }
+        // `gemm` and, one column, `gemv`
+        const o = try Mat(T).init(al, n, 3);
+        defer o.deinit(al);
+        const mul_bound = tol * nf * maxAbs(T, a.constView()) * maxAbs(T, b.constView());
+        for ([_]usize{ 3, 1 }) |k| {
+            try mulWith(path, al, test_io, try o.view().sub(0, 0, n, k), a.constView(), try b.constView().sub(0, 0, n, k));
+            for (0..k) |j| for (0..n) |i| try testing.expect(wideDiff(o.at(i, j), prod_ref[i + j * n]) <= mul_bound);
+        }
+        try testing.expect(wideDiff(try detWith(path, al, test_io, a.constView()), det_ref) <= tol * nf * wideAbs(det_ref));
+        const ai = try Mat(T).init(al, n, n);
+        defer ai.deinit(al);
+        try invWith(path, al, test_io, ai.view(), a.constView());
+        const p = try mul(al, test_io, a, ai);
+        defer p.deinit(al);
+        const id = try Mat(T).zeros(al, n, n);
+        defer id.deinit(al);
+        shiftDiag(T, id, 1);
+        try testing.expect(maxDiff(T, p.constView(), id.constView()) <= tol * nf * maxAbs(T, a.constView()) * maxAbs(T, ai.constView()));
+        try solveWith(path, al, test_io, o.view(), a.constView(), b.constView());
+        try expectSolves(T, a.constView(), o.constView(), b.constView());
+    }
+}
+
+test "each path at every size 1 to 16, against a wide reference" {
+    var prng: std.Random.DefaultPrng = .init(0xd15);
+    inline for (.{ f32, f64, C64 }) |T| for (1..17) |n| try expectPaths(T, n, prng.random());
 }
 
 test {

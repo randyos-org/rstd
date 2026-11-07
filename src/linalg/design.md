@@ -1172,10 +1172,18 @@ Element-wise operations (`+`, `mix`, `mulAdd`, `splat`, `cross`, `outer`, `trans
   pub const rstd_linalg_options: rstd.linalg.Options = .{ .inline_limit = 12 };
   ```
 
+  At least 4, a compile error below, so that shaderlib's `Mat2` to `Mat4` stay inline.
+- **A `StaticMat` past `L`.** `linalg.matrix`'s `mul`, `det`, `inv` and `solve` (and their
+  `...Into` forms) are compile errors past `L` in any dimension, naming `rstd.linalg`'s form
+  (`mulInto`, `det`, `invInto`, `solveInto`), which takes the `StaticMat` by pointer and calls
+  the BLAS and LAPACK; under SPIR-V there is no limit. `linalg.matrix.any_size` holds the same
+  four without the check, for `rstd.linalg`'s inline path and timing.
+
 - **M4** times inline against the BLAS at 4 to 16 per operation and type on the M6 and Zen 3, to
   confirm `L` (or move it).
 - **Tests** call each path directly (`mulWith(.inline_, ...)`, `.blas`) at every size 1 to 16
-  against the wide reference, and check a run-time and a comptime shape give the same bits.
+  against the wide reference, and check a run-time and a comptime shape give the same bits. Test
+  builds build the inline kernels to 16 for it; other builds only to `L`.
 
 ##### Dispatch under SPIR-V
 
@@ -1314,7 +1322,9 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `matrixNorm`, `svd`, `eig`, `pinv`, `rank` and `cond` have no fixed-size form, so they take
    LAPACK at every size.
 4. **Past `L`:** the BLAS and LAPACK routines behind the `...Into` forms, the inline limit's
-   `Options`; both paths tested. M4 then times them and confirms `L`.
+   `Options`; both paths tested. M4 then times them and confirms `L`. Done 2026-11-07 (M11):
+   `dense.zig` already took the BLAS and LAPACK past `L` (M10, M17, M18); M11 added `Options`,
+   the `StaticMat` compile errors past `L` and the tests of both paths.
 5. **SPIR-V forms;** shaderlib's aliases (S2).
 6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already.
 7. **M2** moves the matlab port onto this layer.
