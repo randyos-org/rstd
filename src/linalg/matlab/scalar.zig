@@ -1,21 +1,16 @@
-//! The matlab port's complex scalar helpers from `matlab88.f90` (`WDIV`,
-//! `WSIGN`, `WLOG`, `WATAN`), its indexing (`ix`) and its BLAS error adapter
-//! (`level1`). Names match the original Fortran, lowercased. Its vector
-//! kernels (`WNRM2`, `WASUM`, `IWAMAX`, `WSCAL`, `WAXPY`, `WSWAP`, `RSWAP`)
-//! are rstd's BLAS level 1 since M2; `PYTHAG`, `WMUL` and `CABS1` are
-//! `std.math.hypot`, `Complex.mul` and the BLAS's `cabs1`.
-//!
-//! The original's `FLOP(...)` wrapper (a flop-counter for the REPL's status
-//! line) is dropped throughout this port; it had no effect on results.
+//! `matlab88.f90`'s complex scalars (WDIV, WSIGN, WLOG, WATAN), `ix` and
+//! `level1`; level 1 BLAS is rstd's since M2, and FLOP counting is gone.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
+const ops = @import("../lapack/ops.zig");
 
 const mulAdd = @import("../vector.zig").mulAdd;
 
 pub const Cx = std.math.Complex(f64);
 
 /// 0-based flat offset of 1-based matrix element `(i, j)` in a column-major
-/// array with leading dimension `lda` - the Zig equivalent of Fortran
+/// array with leading dimension `lda`; the Zig equivalent of Fortran
 /// handing a subroutine the address of `A(i, j)`.
 pub fn ix(lda: usize, i: usize, j: usize) usize {
     return (i - 1) + (j - 1) * lda;
@@ -42,12 +37,8 @@ pub fn wsign(x: Cx, y: Cx) Cx {
     return Cx.init(y.re / t, y.im / t).mul(x);
 }
 
-/// WLOG: `y = log(x)`. Delegates to `std.math.complex.log`, except this
-/// port's branch-cut convention for the negative real axis is preserved
-/// explicitly: for `x.im == 0.0` (which also matches `-0.0`) and
-/// `x.re < 0.0`, the angle is forced to `+pi` rather than left to
-/// `atan2`'s signed-zero handling (which would give `-pi` for a `-0.0`
-/// imaginary part).
+/// WLOG: `std.math.complex.log`, with the angle `+pi` on the negative real
+/// axis even where `x.im` is `-0.0`.
 pub fn wlog(x: Cx) Cx {
     var r = std.math.complex.log(x);
     if (x.im == 0.0 and x.re < 0.0) r.im = @abs(r.im);
@@ -65,13 +56,10 @@ pub fn watan(x: Cx) Cx {
 /// A level-1 BLAS result, its strides chosen by the caller: only
 /// `error.Canceled` remains.
 pub fn level1(r: anytype) std.Io.Cancelable!@typeInfo(@TypeOf(r)).error_union.payload {
-    return r catch |e| switch (e) {
-        error.Canceled => error.Canceled,
-        error.InvalidIncx, error.InvalidIncy => unreachable,
-    };
+    return r catch |e| ops.narrow(std.Io.Cancelable, e);
 }
 
-const zigstd = @import("../../zigstd.zig");
+// ---- tests ------------------------------------------------------------------
 
 test "wdiv is the inverse of mul" {
     const a = Cx.init(3.0, -2.0);

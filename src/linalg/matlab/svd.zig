@@ -1,16 +1,14 @@
-//! SVD-based conveniences (`COND`, `RANK`, `PINV`) and `ORTH`, over rstd's
-//! LAPACK `gesvd`, `geqrf` and `orgqr` (M2) in place of WSVDC, WQRDC and
-//! WQRSL; a real matrix goes to the real routines, so `pinv` and `orth`
-//! stay real for it.
+//! COND, RANK, PINV and ORTH over LAPACK's `gesvd`, `geqrf` and `orgqr` (M2), for
+//! WSVDC, WQRDC and WQRSL; a real matrix stays real.
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
+const ops = @import("../lapack/ops.zig");
 
 const Cx = scalar.Cx;
-const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const ix = scalar.ix;
@@ -26,11 +24,8 @@ fn gesvd(comptime T: type, allocator: Allocator, io: Io, m: usize, n: usize, x: 
     const job: lapack.Job = if (u != null) .s else .n;
     const up: [*]T = if (u) |y| y.ptr else &none;
     const vp: [*]T = if (vt) |y| y.ptr else &none;
-    lapack.gesvd(allocator, io, T, job, job, @intCast(m), @intCast(n), x.ptr, @intCast(@max(1, m)), s.ptr, up, @intCast(if (u != null) @max(1, m) else 1), vp, @intCast(if (vt != null) @max(1, k) else 1), null) catch |e| switch (e) {
-        error.NoConvergence, error.OutOfMemory, error.Canceled => |y| return y,
-        // the arguments come from the shape
-        else => unreachable,
-    };
+    // the arguments come from the shape
+    lapack.gesvd(allocator, io, T, job, job, @intCast(m), @intCast(n), x.ptr, @intCast(@max(1, m)), s.ptr, up, @intCast(if (u != null) @max(1, m) else 1), vp, @intCast(if (vt != null) @max(1, k) else 1), null) catch |e| return ops.narrow(Error, e);
 }
 
 /// The singular values of `a` (not mutated), nonincreasing. Caller frees.
@@ -39,7 +34,7 @@ pub fn singularValues(a: CxMat, allocator: Allocator, io: Io) Error![]f64 {
     errdefer allocator.free(s);
     switch (a.isReal()) {
         inline else => |real| {
-            const T = if (real) f64 else Complex;
+            const T = if (real) f64 else Cx;
             const x = try a.toPacked(T, allocator);
             defer allocator.free(x);
             try gesvd(T, allocator, io, a.m, a.n, x, s, null, null);
@@ -75,11 +70,8 @@ pub fn rank(allocator: Allocator, io: Io, a: CxMat, tol: ?f64) Error!usize {
     return rankOf(s, a.m, a.n, tol);
 }
 
-/// PINV: Moore-Penrose pseudoinverse of `a`, via SVD
-/// (`pinv(A) = V * pinv(S) * ctrans(U)`, treating singular values at or
-/// below `tol` as zero - `null` uses the same default as `rank`). Writes
-/// the `n`x`m` result into caller-supplied `result_r`/`result_i`
-/// (column-major, leading dimension `n`). `a` is not mutated.
+/// PINV: `V Σ⁺ Uᴴ` of `a` (not mutated), values at or below `tol` (default
+/// as `rank`'s) zero, into `result_r`/`result_i`, `n` by `m`, packed.
 pub fn pinv(allocator: Allocator, io: Io, a: CxMat, tol: ?f64, result_r: []f64, result_i: []f64) Error!void {
     const m = a.m;
     const n = a.n;
@@ -88,7 +80,7 @@ pub fn pinv(allocator: Allocator, io: Io, a: CxMat, tol: ?f64, result_r: []f64, 
     defer allocator.free(s);
     switch (a.isReal()) {
         inline else => |real| {
-            const T = if (real) f64 else Complex;
+            const T = if (real) f64 else Cx;
             const x = try a.toPacked(T, allocator);
             defer allocator.free(x);
             const u = try allocator.alloc(T, m * k);
@@ -120,7 +112,7 @@ fn cx(x: anytype) Cx {
 }
 
 /// ORTH: `Q` from a QR decomposition of `a` (`m`x`n`, `n <= m`, not
-/// mutated), by `geqrf` and `orgqr` - an orthonormal basis (as columns) for
+/// mutated), by `geqrf` and `orgqr`: an orthonormal basis (as columns) for
 /// its column space. Caller owns the returned `m`x`n` slices.
 pub fn orth(allocator: Allocator, io: Io, a: CxMat) (Allocator.Error || Io.Cancelable)!struct { r: []f64, i: []f64 } {
     const m = a.m;
@@ -131,7 +123,7 @@ pub fn orth(allocator: Allocator, io: Io, a: CxMat) (Allocator.Error || Io.Cance
     errdefer allocator.free(result_i);
     switch (a.isReal()) {
         inline else => |real| {
-            const T = if (real) f64 else Complex;
+            const T = if (real) f64 else Cx;
             const x = try a.toPacked(T, allocator);
             defer allocator.free(x);
             const tau = try allocator.alloc(T, n);
@@ -139,15 +131,9 @@ pub fn orth(allocator: Allocator, io: Io, a: CxMat) (Allocator.Error || Io.Cance
             const mi: isize = @intCast(m);
             const ni: isize = @intCast(n);
             const lda: isize = @intCast(@max(1, m));
-            lapack.geqrf(allocator, io, T, mi, ni, x.ptr, lda, tau.ptr) catch |e| switch (e) {
-                error.OutOfMemory, error.Canceled => |y| return y,
-                else => unreachable,
-            };
-            lapack.orgqr(allocator, io, T, mi, ni, ni, x.ptr, lda, tau.ptr) catch |e| switch (e) {
-                error.OutOfMemory, error.Canceled => |y| return y,
-                // `n <= m` is the caller's
-                else => unreachable,
-            };
+            lapack.geqrf(allocator, io, T, mi, ni, x.ptr, lda, tau.ptr) catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
+            // `n <= m` is the caller's
+            lapack.orgqr(allocator, io, T, mi, ni, ni, x.ptr, lda, tau.ptr) catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
             CxMat.initPacked(result_r, result_i, m, n).fromPacked(T, x);
         },
     }

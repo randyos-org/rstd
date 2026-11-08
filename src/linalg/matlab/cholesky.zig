@@ -1,11 +1,12 @@
-//! CHOL over rstd's LAPACK `potrf(.u)` (M2), in place of matlab88.f90's
-//! WPOFA (LINPACK's ZPOFA): a NaN pivot fails, and a diagonal's imaginary
-//! part is ignored rather than rejected (M1's E9, `linalg/design.md`).
+//! CHOL over LAPACK's `potrf(.u)` (M2), in place of WPOFA (LINPACK's ZPOFA);
+//! a NaN pivot fails, a diagonal's imaginary part is ignored (M1's E9).
 
 const std = @import("std");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
-const Complex = CxMat.Complex;
+const ops = @import("../lapack/ops.zig");
+const Cx = scalar.Cx;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -15,29 +16,25 @@ pub const Error = error{NotPositiveDefinite} || Allocator.Error || Io.Cancelable
 /// read) in place into upper-triangular `R`, `ctrans(R)*R == A`, with the
 /// strict lower triangle zeroed. `error.NotPositiveDefinite` puts the
 /// failed leading minor's 1-based order in `minor`, `self` partly factored.
+/// An empty `self` is its own factor.
 pub fn chol(self: CxMat, allocator: Allocator, io: Io, minor: ?*usize) Error!void {
+    // `potrf` rejects an empty matrix's `lda` of 0
+    if (self.n == 0) return;
     const ni: isize = @intCast(self.n);
     if (self.isReal()) {
         try factored(lapack.potrf(allocator, io, f64, .u, ni, self.r.ptr, @intCast(self.lda), minor));
     } else {
-        const z = try self.toPacked(Complex, allocator);
+        const z = try self.toPacked(Cx, allocator);
         defer allocator.free(z);
-        defer self.fromPacked(Complex, z);
-        try factored(lapack.potrf(allocator, io, Complex, .u, ni, z.ptr, ni, minor));
+        defer self.fromPacked(Cx, z);
+        try factored(lapack.potrf(allocator, io, Cx, .u, ni, z.ptr, ni, minor));
     }
-    for (1..self.n) |j| {
-        const c = self.col(j);
-        @memset(c.r[j..], 0);
-        @memset(c.i[j..], 0);
-    }
+    self.triu(0);
 }
 
 fn factored(r: lapack.PotrfError!void) Error!void {
-    r catch |e| switch (e) {
-        error.NotPositiveDefinite, error.OutOfMemory, error.Canceled => |x| return x,
-        // the arguments come from `self`
-        else => unreachable,
-    };
+    // the arguments come from `self`
+    r catch |e| return ops.narrow(Error, e);
 }
 
 const zigstd = @import("../../zigstd.zig");
@@ -70,4 +67,9 @@ test "chol of a complex Hermitian matrix; a non positive-definite one fails" {
     var minor: usize = 0;
     try testing.expectError(error.NotPositiveDefinite, chol(CxMat.initPacked(&br, &bi, 2, 2), testing.allocator, testing.io, &minor));
     try zigstd.testExpectEqual(@as(usize, 2), minor);
+}
+
+test "chol of an empty matrix returns the empty factor" {
+    var e: [0]f64 = .{};
+    try chol(CxMat.initPacked(&e, &e, 0, 0), testing.allocator, testing.io, null);
 }

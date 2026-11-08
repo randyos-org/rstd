@@ -1,20 +1,16 @@
-//! `EIG` over rstd's LAPACK (M2): `syevd`/`heevd` for a Hermitian matrix,
-//! else `geev`, in place of EISPACK's HTRIDI, IMTQL2, HTRIBK, CORTH and
-//! COMQR3; the same Hermitian-or-general dispatch as the original REPL's
-//! `EIG`. A real matrix goes to the real routines, so its complex
-//! eigenvalues come in exact conjugate pairs.
+//! EIG (`syevd`/`heevd` or `geev`) over LAPACK (M2), in place of EISPACK's
+//! HTRIDI, IMTQL2, HTRIBK, CORTH and COMQR3 (`MATFN2`).
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
+const ops = @import("../lapack/ops.zig");
 
 const Cx = scalar.Cx;
-const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const ix = scalar.ix;
 
 /// Eigenvalues, and optionally eigenvectors, of an `n`x`n` complex matrix.
 /// All slices are owned by the caller and must be freed with the same
@@ -28,7 +24,7 @@ pub const EigResult = struct {
     vectors_r: ?[]f64,
     vectors_i: ?[]f64,
 
-    pub fn deinit(self: EigResult, allocator: zigstd.Allocator) void {
+    pub fn deinit(self: EigResult, allocator: Allocator) void {
         allocator.free(self.values_r);
         allocator.free(self.values_i);
         if (self.vectors_r) |v| allocator.free(v);
@@ -56,18 +52,13 @@ fn isHermitian(a: CxMat) bool {
 pub fn converged(r: anytype) EigError!void {
     r catch |e| {
         const x: anyerror = e;
-        if (x == error.NoConvergence or x == error.InvalidA) return error.NoConvergence;
-        if (x == error.OutOfMemory) return error.OutOfMemory;
-        if (x == error.Canceled) return error.Canceled;
-        unreachable;
+        if (x == error.InvalidA) return error.NoConvergence;
+        return ops.narrow(EigError, x);
     };
 }
 
-/// EIG: eigenvalues (and, if `want_vectors`, eigenvectors) of the complex
-/// matrix `a` (not mutated - a packed copy is reduced instead).
-/// Automatically dispatches to the Hermitian eigensolver (`syevd`, real
-/// eigenvalues, nondecreasing) or the general one (`geev`), exactly as the
-/// original REPL's `EIG` command did.
+/// EIG: eigenvalues, and with `want_vectors` eigenvectors, of `a` (not
+/// mutated): `syevd` (nondecreasing) for Hermitian `a`, else `geev`.
 pub fn eig(allocator: Allocator, io: Io, a: CxMat, want_vectors: bool) EigError!EigResult {
     const n = a.n;
     const ni: isize = @intCast(n);
@@ -87,7 +78,7 @@ pub fn eig(allocator: Allocator, io: Io, a: CxMat, want_vectors: bool) EigError!
 
     switch (a.isReal()) {
         inline else => |real| {
-            const T = if (real) f64 else Complex;
+            const T = if (real) f64 else Cx;
             const x = try a.toPacked(T, allocator);
             defer allocator.free(x);
             if (isHermitian(a)) {
@@ -102,7 +93,7 @@ pub fn eig(allocator: Allocator, io: Io, a: CxMat, want_vectors: bool) EigError!
                     try converged(lapack.geev(allocator, io, T, .n, jobz, ni, x.ptr, ld, .{ .re = values_r.ptr, .im = values_i.ptr }, &none, 1, vr.ptr, ldvr, null));
                     if (vectors) |v| unpackPairs(v, values_i, vr);
                 } else {
-                    const w = try allocator.alloc(Complex, n);
+                    const w = try allocator.alloc(Cx, n);
                     defer allocator.free(w);
                     try converged(lapack.geev(allocator, io, T, .n, jobz, ni, x.ptr, ld, w.ptr, &none, 1, vr.ptr, ldvr, null));
                     for (w, values_r, values_i) |e, *re, *im| {
@@ -146,6 +137,8 @@ fn unpackPairs(v: CxMat, wi: []const f64, vr: []const f64) void {
         j += 1;
     }
 }
+
+// ---- tests ------------------------------------------------------------------
 
 const testing = std.testing;
 

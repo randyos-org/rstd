@@ -1,14 +1,12 @@
-//! Continued-fraction rational approximation, ported from `matlab88.f90`'s
-//! `RAT`.
+//! RAT, from `matlab88.f90`'s `RAT`.
+
+const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 
 pub const Fraction = struct { numerator: f64, denominator: f64 };
 
-/// RAT: approximate `x` as `a/b` using a continued fraction of at most
-/// `len` terms, each rounded to an integer no larger in magnitude than
-/// `max_term`. `d` (length `len`) is scratch (the continued fraction's own
-/// term sequence, left in `d[0..k]` where `k <= len` is however many terms
-/// were actually used before the approximation got within `1/max_term` of
-/// `x` or `len` was exhausted).
+/// RAT: `x` as a continued fraction of up to `d.len` rounded terms, kept in
+/// `d`, stopping once the remainder is within `1/max_term`.
 pub fn rat(x: f64, max_term: f64, d: []f64) Fraction {
     var z = x;
     var k: usize = 0;
@@ -38,8 +36,7 @@ pub fn rat(x: f64, max_term: f64, d: []f64) Fraction {
     return .{ .numerator = t, .denominator = s };
 }
 
-const std = @import("std");
-const zigstd = @import("../../zigstd.zig");
+// ---- tests ------------------------------------------------------------------
 
 test "rat recovers a simple exact fraction" {
     var d: [10]f64 = @splat(0.0);

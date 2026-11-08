@@ -1,26 +1,23 @@
-//! Bundles a complex matrix's real/imaginary storage, leading dimension,
-//! and shape into one value, instead of threading
-//! `ar: []f64, ai: []f64, lda: usize, m: usize, n: usize` through every
-//! matrix-level function call individually.
-//!
-//! Vector-level (BLAS-1) kernels, rstd's BLAS since M2, are unchanged by this -
-//! they operate on a 1D strided view (a row, a column, or an arbitrary
-//! vector with an explicit `incx`), not a whole matrix, matching real
-//! BLAS's own Level-1-vs-Level-2/3 boundary. `CxMat` starts exactly where
-//! "operates on a whole matrix" starts.
-//!
-//! Storage stays exactly what it always was: flat, column-major, `lda`
-//! elements per column (may exceed `m`, enabling a submatrix view of a
-//! larger allocated block without copying - see `idx`'s doc comment).
-//! This struct changes nothing about layout or performance, only how many
-//! parameters get threaded through call sites - every method here is a
-//! thin wrapper that unpacks the same fields kernels already took as loose
-//! arguments.
+//! A complex matrix as `matlab88.f90` stores one, split parts `r` and `i`,
+//! column-major with leading dimension `lda`; the self-shaped REPL commands.
 
+const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
 const scalar = @import("scalar.zig");
 const blas = @import("../blas/__root__.zig");
+const cholesky = @import("cholesky.zig");
+const lu = @import("lu.zig");
+const generators = @import("generators.zig");
+const divide = @import("divide.zig");
+const matmul_mod = @import("matmul.zig");
+const elementwise = @import("elementwise.zig");
+const eig_mod = @import("eig.zig");
+const schur_mod = @import("schur.zig");
+const matrixfun = @import("matrixfun.zig");
+const svd = @import("svd.zig");
+const norm_mod = @import("norm.zig");
 const Cx = scalar.Cx;
+const Allocator = std.mem.Allocator;
 
 r: []f64,
 i: []f64,
@@ -31,18 +28,18 @@ n: usize,
 const Self = @This();
 
 /// Wrap existing storage. `r`/`i` must each have at least `lda*n`
-/// elements (matching every kernel's own contract) - not copied.
+/// elements (matching every kernel's own contract); not copied.
 pub fn init(r: []f64, i: []f64, lda: usize, m: usize, n: usize) Self {
     return .{ .r = r, .i = i, .lda = lda, .m = m, .n = n };
 }
 
-/// Wrap a tightly-packed `m`x`n` matrix (`lda == m`, no submatrix view) -
+/// Wrap a tightly-packed `m`x`n` matrix (`lda == m`, no submatrix view);
 /// the common case.
 pub fn initPacked(r: []f64, i: []f64, m: usize, n: usize) Self {
     return init(r, i, m, m, n);
 }
 
-/// 0-based flat offset of 1-based `(row, col)` - same convention as
+/// 0-based flat offset of 1-based `(row, col)`; same convention as
 /// `scalar.ix`, which this just forwards to.
 pub inline fn idx(self: Self, row: usize, c: usize) usize {
     return scalar.ix(self.lda, row, c);
@@ -59,7 +56,7 @@ pub inline fn set(self: Self, row: usize, c: usize, v: Cx) void {
     self.i[k] = v.im;
 }
 
-/// A contiguous length-`m` view of one column's real/imaginary parts -
+/// A contiguous length-`m` view of one column's real/imaginary parts;
 /// unit stride, the fast case every BLAS1 kernel vectorizes. Returned by
 /// `col`.
 pub const ColView = struct { r: []f64, i: []f64 };
@@ -74,7 +71,7 @@ pub inline fn col(self: Self, c: usize) ColView {
 /// storage (not contiguous). Returned by `rowView`.
 pub const RowView = struct { r: []f64, i: []f64, stride: isize };
 
-/// Row `row` (1-based) as a `RowView`, strided by `lda` - matching every
+/// Row `row` (1-based) as a `RowView`, strided by `lda`, matching every
 /// existing row-wise access in this port (see e.g. `norm.matNormInf`),
 /// not gathered into a contiguous buffer.
 pub inline fn rowView(self: Self, row: usize) RowView {
@@ -84,7 +81,7 @@ pub inline fn rowView(self: Self, row: usize) RowView {
 
 /// Copies `self` into freshly-allocated tightly-packed (`lda == m`)
 /// storage. Caller frees the returned `CxMat`'s `.r`/`.i`.
-pub fn clone(self: Self, allocator: zigstd.Allocator) !Self {
+pub fn clone(self: Self, allocator: Allocator) !Self {
     const out_r = try allocator.alloc(f64, self.m * self.n);
     errdefer allocator.free(out_r);
     const out_i = try allocator.alloc(f64, self.m * self.n);
@@ -100,13 +97,10 @@ pub fn clone(self: Self, allocator: zigstd.Allocator) !Self {
     return out;
 }
 
-pub fn deinit(self: Self, allocator: zigstd.Allocator) void {
+pub fn deinit(self: Self, allocator: Allocator) void {
     allocator.free(self.r);
     allocator.free(self.i);
 }
-
-/// The interleaved element of the LAPACK boundary (M2).
-pub const Complex = Cx;
 
 /// Whether every imaginary part is zero: the real LAPACK routines then run
 /// in place on `r`.
@@ -118,8 +112,8 @@ pub fn isReal(self: Self) bool {
 }
 
 /// `self` as a packed (`m` leading dimension) copy for LAPACK: interleaved
-/// for `Complex`, `r` alone for `f64`. Caller frees.
-pub fn toPacked(self: Self, comptime T: type, allocator: zigstd.Allocator) ![]T {
+/// for `Cx`, `r` alone for `f64`. Caller frees.
+pub fn toPacked(self: Self, comptime T: type, allocator: Allocator) ![]T {
     const z = try allocator.alloc(T, self.m * self.n);
     for (1..self.n + 1) |j| {
         const c = self.col(j);
@@ -146,10 +140,7 @@ pub fn fromPacked(self: Self, comptime T: type, z: []const T) void {
     }
 }
 
-/// `X'`: conjugate transpose - REPL semantics for the `'` operator
-/// (always conjugating, unlike plain `transpose`). Writes `out`
-/// (`self.n`x`self.m`) with `out(j,i) = conj(self(i,j))`; `out` must not
-/// alias `self`.
+/// `X'`: `out(j,i) = conj(self(i,j))`, `out` not aliasing `self`.
 pub fn ctranspose(self: Self, out: Self) void {
     var j: usize = 1;
     while (j <= self.n) : (j += 1) {
@@ -161,10 +152,7 @@ pub fn ctranspose(self: Self, out: Self) void {
     }
 }
 
-/// Plain (non-conjugating) transpose: `out(j,i) = self(i,j)`. The REPL's
-/// `'` operator is always the conjugate transpose (`ctranspose`); this is
-/// for real-valued matrices or callers who explicitly don't want
-/// conjugation.
+/// `out(j,i) = self(i,j)`, not conjugating (the REPL's `'` is `ctranspose`).
 pub fn transpose(self: Self, out: Self) void {
     var j: usize = 1;
     while (j <= self.n) : (j += 1) {
@@ -175,9 +163,7 @@ pub fn transpose(self: Self, out: Self) void {
     }
 }
 
-/// Scales every entry of `self` in place by the scalar `s` - REPL
-/// semantics for `s*X`/`X*s` when `s` is a 1x1 matrix (e.g. `3*EYE`).
-/// Per column, `drot` of its real and imaginary parts by `(re s, -im s)`:
+/// `s*X` in place: per column `drot` of the parts by `(re s, -im s)`,
 /// `zscal`'s arithmetic over the split layout.
 pub fn scale(self: Self, io: std.Io, s: Cx) std.Io.Cancelable!void {
     for (1..self.n + 1) |j| {
@@ -186,26 +172,8 @@ pub fn scale(self: Self, io: std.Io, s: Cx) std.Io.Cancelable!void {
     }
 }
 
-// --- Domain-file methods --------------------------------------------------
-// Each alias below gives dot-call syntax (`mat.det(...)`) to a function
-// that takes `self: Self` first but lives in a sibling file (kept there to
-// stay under this project's line-count guideline); those taking an
-// allocator first (`eig`, `cond`, ...) are reached as `CxMat.eig(...)`.
-// `a.foo(b, ...)`-shaped multi-matrix operations (`matmul`, `mrdivide`,
-// `kron`) alias here too - Zig's method sugar only requires the first
-// parameter be `Self`, not that every parameter be.
-
-const cholesky = @import("cholesky.zig");
-const lu = @import("lu.zig");
-const generators = @import("generators.zig");
-const divide = @import("divide.zig");
-const matmul_mod = @import("matmul.zig");
-const eig_mod = @import("eig.zig");
-const schur_mod = @import("schur.zig");
-const matrixfun = @import("matrixfun.zig");
-const svdapi = @import("svdapi.zig");
-const norm_mod = @import("norm.zig");
-const elementwise = @import("elementwise.zig");
+// The commands in the sibling files: `mat.det(...)` where `Self` comes first,
+// `CxMat.eig(allocator, ...)` where the allocator does.
 
 pub const chol = cholesky.chol;
 
@@ -222,10 +190,10 @@ pub const diagFromVector = generators.diagFromVector;
 pub const diagToVector = generators.diagToVector;
 pub const kron = generators.kron;
 
-pub const cond = svdapi.cond;
-pub const rank = svdapi.rank;
-pub const pinv = svdapi.pinv;
-pub const orth = svdapi.orth;
+pub const cond = svd.cond;
+pub const rank = svd.rank;
+pub const pinv = svd.pinv;
+pub const orth = svd.orth;
 
 pub const matNorm2 = norm_mod.matNorm2;
 pub const matNorm1 = norm_mod.matNorm1;
@@ -259,8 +227,6 @@ pub const sinm = matrixfun.sinm;
 pub const cosm = matrixfun.cosm;
 pub const atanm = matrixfun.atanm;
 pub const powm = matrixfun.powm;
-
-const std = @import("std");
 
 test "ctranspose conjugates and transposes a non-square matrix" {
     // A = [[1+i, 2, 3-i]] (1x3) -> A' (3x1) = [[1-i],[2],[3+i]].

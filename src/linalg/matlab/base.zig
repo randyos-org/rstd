@@ -1,26 +1,17 @@
-//! Arbitrary-base number formatting, ported from `matlab88.f90`'s `BASE`.
-//!
-//! The original wrote its digits as indices into the REPL's own display
-//! alphabet (`ALFA`/`ALFB`, used to render MATLAB "text matrices" on
-//! screen) - a table this port never carried over, since it belongs to
-//! the interpreter's text-matrix rendering, not to computing anything.
-//! This keeps the same algorithm (normalize `|x|` to a base-`b` mantissa
-//! in `[1/b, 1)` times `b^k`, with a mantissa length driven by `eps`) but
-//! writes plain ASCII digits (`0`-`9`, then `A`-`Z` for bases up to 36)
-//! instead, so the result is directly usable without that table.
+//! BASE, from `matlab88.f90`'s `BASE`, writing ASCII digits in place of the
+//! REPL's display alphabet.
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
+const Allocator = std.mem.Allocator;
 
 fn digitChar(d: usize) u8 {
     return if (d < 10) '0' + @as(u8, @intCast(d)) else 'A' + @as(u8, @intCast(d - 10));
 }
 
-/// BASE: format `x` in base `b` (`2 <= b <= 36`) as `"<sign>0.<mantissa>,<sign><exponent>"`
-/// - e.g. base 10 renders like `+0.314159,+01` for `pi/10`. `eps` sets the
-/// mantissa length (`-log_b(eps) + 4` digits; pass `0` for a full
-/// double-precision mantissa in base `b`). Caller owns the returned slice.
-pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
+/// BASE: `x` in base `b` (2 to 36) as `"<sign>0.<mantissa>,<sign><exponent>"`;
+/// `-log_b(eps) + 4` digits, or 54 for `eps` 0. Caller frees.
+pub fn base(allocator: Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     var xa = @abs(x);
     var k: i64 = 0;
     if (xa != 0.0) k = @trunc(@floor(@log(xa) / @log(b)));
@@ -67,6 +58,8 @@ pub fn base(allocator: zigstd.Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     try out.appendSlice(allocator, exp_digits.items);
     return out.toOwnedSlice(allocator);
 }
+
+// ---- tests ------------------------------------------------------------------
 
 test "base renders a simple base-10 value" {
     // 3.14 = 0.314 * 10^1.

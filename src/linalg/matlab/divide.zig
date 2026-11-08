@@ -1,21 +1,22 @@
-//! Matrix left/right division (REPL `\`/`/`) over `lu.zig`'s `getrf` and
-//! `getrs` (M2), in place of WGECO and WGESL.
+//! Matrix left and right division (REPL `\`, `/`) over `lu.zig`'s `getrf`
+//! and `getrs` (M2), in place of WGECO and WGESL.
 
 const std = @import("std");
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
-const lu_mod = @import("lu.zig");
-const Trans = @import("../lapack/__root__.zig").Trans;
-
+const lu = @import("lu.zig");
+const lapack = @import("../lapack/__root__.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const ix = scalar.ix;
+const Error = lu.Error;
+const Lu = lu.Lu;
+const lange1 = lu.lange1;
+const rcond = lu.rcond;
 
-/// Right matrix division for a square divisor: solve `X*B = A` for `X` -
-/// REPL semantics for `A/B` - as `Bᵀ Xᵀ = Aᵀ`. `a` (`m`x`n`) is
-/// overwritten with `X`; `b` (`n`x`n`) is destroyed by factorization.
-/// Returns `B`'s `rcond`; an exact zero pivot is `error.Singular`.
-pub fn mrdivide(a: CxMat, b: CxMat, allocator: Allocator, io: Io) lu_mod.Error!f64 {
+/// `A/B`, square `b` (destroyed), as `Bᵀ Xᵀ = Aᵀ`: `a` becomes `X`. Returns
+/// `B`'s `rcond`; an exact zero pivot is `error.Singular`.
+pub fn mrdivide(a: CxMat, b: CxMat, allocator: Allocator, io: Io) Error!f64 {
     const tr = try allocator.alloc(f64, a.m * a.n);
     defer allocator.free(tr);
     const ti = try allocator.alloc(f64, a.m * a.n);
@@ -27,24 +28,23 @@ pub fn mrdivide(a: CxMat, b: CxMat, allocator: Allocator, io: Io) lu_mod.Error!f
     return rc;
 }
 
-/// Left matrix division for a square `self`: solve `self*X = b` for `X` -
-/// REPL semantics for `A\B` (square `A` only; a non-square least-squares
-/// solve is `gels`'s, M2's QR group). `self` is destroyed by factorization;
-/// `b` (`self.n`x`p`) is overwritten with `X`. Returns `self`'s `rcond`; an
-/// exact zero pivot is `error.Singular`.
-pub fn mldivide(self: CxMat, b: CxMat, allocator: Allocator, io: Io) lu_mod.Error!f64 {
+/// `A\B`, square `self` (destroyed): `b` (`n` by `p`) becomes `X`. Returns
+/// `self`'s `rcond`; an exact zero pivot is `error.Singular`.
+pub fn mldivide(self: CxMat, b: CxMat, allocator: Allocator, io: Io) Error!f64 {
     return mldivideWith(self, b, .n, allocator, io);
 }
 
-fn mldivideWith(a: CxMat, b: CxMat, trans: Trans, allocator: Allocator, io: Io) lu_mod.Error!f64 {
-    const anorm = try lu_mod.norm1(a, allocator, io);
-    const f = try lu_mod.Lu.init(a, !b.isReal(), allocator, io);
+fn mldivideWith(a: CxMat, b: CxMat, trans: lapack.Trans, allocator: Allocator, io: Io) Error!f64 {
+    const anorm = try lange1(a, allocator, io);
+    const f = try Lu.init(a, !b.isReal(), allocator, io);
     defer f.deinit(allocator);
     if (f.singular) return error.Singular;
-    const rc = try lu_mod.rcond(f, allocator, io, anorm);
+    const rc = try rcond(f, allocator, io, anorm);
     try f.solve(trans, b, allocator, io);
     return rc;
 }
+
+// ---- tests ------------------------------------------------------------------
 
 const zigstd = @import("../../zigstd.zig");
 const testing = std.testing;

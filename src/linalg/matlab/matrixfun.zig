@@ -1,9 +1,8 @@
-//! `POLY`/`ROOTS`, and elementwise vs. matrix-valued elementary functions,
-//! kept as its own file (rather than folded into `__root__.zig`/`CxMat.zig`,
-//! which re-export these) to keep files under this project's line-count
-//! guideline.
+//! POLY, ROOTS and the elementary functions, entrywise and as matrix functions
+//! (`MATFN2`).
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const zigstd = @import("../../zigstd.zig");
 const scalar = @import("scalar.zig");
 const blas = @import("../blas/__root__.zig");
@@ -16,7 +15,7 @@ const Cx = scalar.Cx;
 const ix = scalar.ix;
 
 /// POLY: characteristic polynomial coefficients (length `n+1`, highest
-/// degree first, leading coefficient `1`) for the given `n` roots -
+/// degree first, leading coefficient `1`) for the given `n` roots:
 /// `prod(x - roots[k])` expanded.
 pub fn poly(rootsr: []const f64, rootsi: []const f64, n: usize, cr: []f64, ci: []f64) void {
     @memset(cr[0 .. n + 1], 0.0);
@@ -36,13 +35,9 @@ pub fn poly(rootsr: []const f64, rootsi: []const f64, n: usize, cr: []f64, ci: [
     }
 }
 
-/// ROOTS: the `n` roots of the degree-`n` polynomial with coefficients
-/// `coeffr`/`coeffi` (length `>= n+1`, highest degree first; leading
-/// zero coefficients are skipped), via the eigenvalues of its companion
-/// matrix by `eig` (`geev`, which balances it, as MATLAB's `roots`). Writes
-/// into `wr`/`wi` and returns the degree found (`0` for the zero
-/// polynomial).
-pub fn roots(allocator: zigstd.Allocator, io: std.Io, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) eig_mod.EigError!usize {
+/// ROOTS: the roots of `coeffr`/`coeffi` (highest degree first, leading zeros
+/// skipped) into `wr`/`wi`, by `geev` of the companion matrix; the degree.
+pub fn roots(allocator: Allocator, io: std.Io, coeffr: []const f64, coeffi: []const f64, wr: []f64, wi: []f64) eig_mod.EigError!usize {
     var start: usize = 0;
     while (start < coeffr.len and blas.cabs1(Cx, .init(coeffr[start], coeffi[start])) == 0.0) start += 1;
     if (start >= coeffr.len) return 0;
@@ -80,13 +75,8 @@ fn applyElementwise(comptime f: anytype, ar: []f64, ai: []f64) void {
     }
 }
 
-/// SIN/COS/EXP/SQRT/LOG/ATAN (elementwise): apply the named elementary
-/// function to every entry of `ar`/`ai` in place (any shape - vector or
-/// matrix, read as a flat array). For the *matrix* function instead (e.g.
-/// the matrix exponential, not entrywise `exp`), see `expm` and friends
-/// below - the original conflated the two based on argument shape
-/// (`sin([1,2,3])` elementwise vs. `sin(square_matrix)` matrix-valued);
-/// this port keeps them as separate, explicitly named functions instead.
+/// SIN, COS, EXP, SQRT, LOG and ATAN of every entry, in place; the original's
+/// forms for a square matrix are `expm` and its siblings.
 pub fn sin(ar: []f64, ai: []f64) void {
     applyElementwise(std.math.complex.sin, ar, ai);
 }
@@ -106,24 +96,9 @@ pub fn atan(ar: []f64, ai: []f64) void {
     applyElementwise(scalar.watan, ar, ai);
 }
 
-/// ABS/ROUND/REAL/IMAG/CONJ (elementwise): the remaining `FUN`-style
-/// commands, each trivial enough not to need a loop helper - apply
-/// directly with a `for` where you need them:
-/// `for (ar, ai) |r, i| out[k] = std.math.hypot(r, i);` (ABS),
-/// `for (ar) |*r| r.* = @round(r.*);` (ROUND, real part only - the
-/// original ignored the imaginary part), `ar`/`ai` themselves are
-/// REAL/IMAG, and `Cx.init(r, -i)` is CONJG.
-/// Applies `f.call(lambda)` to each eigenvalue of the `n`x`n` matrix `a`
-/// (not mutated) and reconstructs `f(A) = V * diag(f(lambda)) * inv(V)` -
-/// the matrix function, not the entrywise one (see `sin`/`cos`/... above
-/// for that). Only correct when `A` is diagonalizable; a defective matrix
-/// (repeated eigenvalue without a full set of eigenvectors) makes `V`
-/// singular and this will fail or blow up, matching the original, which
-/// used the same eigendecomposition approach. `f` is a small value (often
-/// zero-sized) with a `call(self, Cx) Cx` method rather than a bare
-/// function, so callers needing runtime parameters (e.g. `powm`'s
-/// exponent) can close over them without duplicating this function.
-fn applyMatrixFunction(allocator: zigstd.Allocator, io: std.Io, f: anytype, a: CxMat, out: CxMat) !void {
+/// `out = V diag(f.call(λ)) V⁻¹` from `eig(a)`, as the original; a defective
+/// `a` makes `V` singular. `f.call` lets `powm` carry its exponent.
+fn applyMatrixFunction(allocator: Allocator, io: std.Io, f: anytype, a: CxMat, out: CxMat) !void {
     const n = a.n;
     const result = try eig_mod.eig(allocator, io, a, true);
     defer result.deinit(allocator);
@@ -151,36 +126,15 @@ fn applyMatrixFunction(allocator: zigstd.Allocator, io: std.Io, f: anytype, a: C
     _ = try divide.mrdivide(out, v_copy_mat, allocator, io);
 }
 
-const ExpCtx = struct {
-    pub fn call(_: @This(), z: Cx) Cx {
-        return std.math.complex.exp(z);
-    }
-};
-const LogCtx = struct {
-    pub fn call(_: @This(), z: Cx) Cx {
-        return scalar.wlog(z);
-    }
-};
-const SqrtCtx = struct {
-    pub fn call(_: @This(), z: Cx) Cx {
-        return std.math.complex.sqrt(z);
-    }
-};
-const SinCtx = struct {
-    pub fn call(_: @This(), z: Cx) Cx {
-        return std.math.complex.sin(z);
-    }
-};
-const CosCtx = struct {
-    pub fn call(_: @This(), z: Cx) Cx {
-        return std.math.complex.cos(z);
-    }
-};
-const AtanCtx = struct {
-    pub fn call(_: @This(), z: Cx) Cx {
-        return scalar.watan(z);
-    }
-};
+/// `f` as `applyMatrixFunction` takes it.
+fn Unary(comptime f: anytype) type {
+    return struct {
+        pub fn call(_: @This(), z: Cx) Cx {
+            return f(z);
+        }
+    };
+}
+
 const PowCtx = struct {
     p: Cx,
     pub fn call(self: @This(), z: Cx) Cx {
@@ -188,32 +142,28 @@ const PowCtx = struct {
     }
 };
 
-pub fn expm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, io, ExpCtx{}, a, out);
+pub fn expm(allocator: Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, Unary(std.math.complex.exp){}, a, out);
 }
-pub fn logm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, io, LogCtx{}, a, out);
+pub fn logm(allocator: Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, Unary(scalar.wlog){}, a, out);
 }
-pub fn sqrtm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, io, SqrtCtx{}, a, out);
+pub fn sqrtm(allocator: Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, Unary(std.math.complex.sqrt){}, a, out);
 }
-pub fn sinm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, io, SinCtx{}, a, out);
+pub fn sinm(allocator: Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, Unary(std.math.complex.sin){}, a, out);
 }
-pub fn cosm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, io, CosCtx{}, a, out);
+pub fn cosm(allocator: Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, Unary(std.math.complex.cos){}, a, out);
 }
-pub fn atanm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
-    return applyMatrixFunction(allocator, io, AtanCtx{}, a, out);
+pub fn atanm(allocator: Allocator, io: std.Io, a: CxMat, out: CxMat) !void {
+    return applyMatrixFunction(allocator, io, Unary(scalar.watan){}, a, out);
 }
 
-/// POWER (`X**p`, matrix case): `a` raised to the complex power `p`, via
-/// the same eigendecomposition approach as `expm`/`logm`/... above. The
-/// original special-cased positive integer `p` as repeated multiplication
-/// instead; this port always goes through the eigendecomposition, so a
-/// caller wanting that accuracy for a known small integer power can chain
-/// `matmul` calls directly.
-pub fn powm(allocator: zigstd.Allocator, io: std.Io, a: CxMat, p: Cx, out: CxMat) !void {
+/// POWER (`X**p`, matrix `X`), as `expm`; the original multiplied for a
+/// positive integer `p`, which is `matmul` calls here.
+pub fn powm(allocator: Allocator, io: std.Io, a: CxMat, p: Cx, out: CxMat) !void {
     return applyMatrixFunction(allocator, io, PowCtx{ .p = p }, a, out);
 }
 

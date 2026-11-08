@@ -6,13 +6,10 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const fma = @import("blas/fma.zig");
+const types = @import("blas/types.zig");
 
-/// SPIR-V targets (rgl's shaders -- see rgl/shaders/) don't support f64,
-/// which `std.math.hypot`'s overflow/underflow-safe fallback in `length`
-/// below needs internally. Shader inputs (pixel-space positions,
-/// normalized directions, SDF distances) never approach the extremes that
-/// fallback exists for, so `length` skips it entirely there rather than
-/// failing to compile.
+/// SPIR-V (rgl's shaders) has no f64, which `length`'s `hypot` fallback
+/// needs; shader inputs never near its extremes, so `length` skips it there.
 pub const on_spirv = switch (sysinfo.target.cpu.arch) {
     .spirv32, .spirv64 => true,
     else => false,
@@ -129,15 +126,10 @@ pub fn count(comptime V: type) comptime_int {
 }
 
 /// Whether `T` is a `std.math.Complex`.
-pub fn isComplex(comptime T: type) bool {
-    return @typeInfo(T) == .@"struct" and @hasField(T, "re") and
-        T == std.math.Complex(@FieldType(T, "re"));
-}
+pub const isComplex = types.isComplex;
 
 /// The real type under element type `T`.
-pub fn Real(comptime T: type) type {
-    return if (isComplex(T)) @FieldType(T, "re") else T;
-}
+pub const Real = types.Float;
 
 /// `Σ a b` over the real parts in storage order (`re`, then `im`, per complex
 /// element), each product after the first fused into the sum as `mulAdd` says.
@@ -272,27 +264,25 @@ pub inline fn cross(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
     };
 }
 
-/// Linear interpolation, generic over `a`/`b` being a scalar or a vector,
-/// and `t` being a scalar or a per-component vector weight. Under SPIR-V
-/// `FMix`.
+/// `(1 - t) a + t b` (GLSL's `mix`): floats or `Vec`s, `t` a float or, for
+/// `Vec`s, a weight per element. Under SPIR-V `FMix`.
 pub fn mix(a: anytype, b: anytype, t: anytype) @TypeOf(a, b) {
-    const BaseType = @TypeOf(a, b);
-    const WeightType = @TypeOf(t);
-    const weight_info = @typeInfo(WeightType);
-    switch (@typeInfo(BaseType)) {
+    const V = @TypeOf(a, b);
+    const weight_info = @typeInfo(@TypeOf(t));
+    switch (@typeInfo(V)) {
         .float, .comptime_float => {
             if (weight_info != .float and weight_info != .comptime_float)
-                @compileError("Invalid weight type, float base types require float weight types");
-            if (on_spirv and @typeInfo(BaseType) == .float) return spvMix(@as(BaseType, a), b, t);
+                @compileError("expects a float weight for a float, found " ++ @typeName(@TypeOf(t)));
+            if (on_spirv and @typeInfo(V) == .float) return spvMix(@as(V, a), b, t);
             return mulAdd(@TypeOf(a, b), 1 - t, a, t * b);
         },
         .vector => {
-            const weight: BaseType = if (weight_info == .vector) t else @splat(t);
-            if (on_spirv and comptime spirvVec(BaseType)) return spvMix(@as(BaseType, a), b, weight);
-            const one: BaseType = @splat(1);
+            const weight: V = if (weight_info == .vector) t else @splat(t);
+            if (on_spirv and comptime spirvVec(V)) return spvMix(@as(V, a), b, weight);
+            const one: V = @splat(1);
             return mulAdd(@TypeOf(a, b), one - weight, a, weight * b);
         },
-        else => @compileError("Invalid base type, only floats and their vectors are supported"),
+        else => @compileError("expects floats or Vecs, found " ++ @typeName(V)),
     }
 }
 
