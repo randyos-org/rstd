@@ -1,9 +1,11 @@
-//! The core type enums of every architecture, in one import-free file so that
-//! code which only needs to name a core (the per-core kernel objects, which are
-//! compiled on their own) does not pull in the detection code. Each `<arch>.zig`
-//! re-exports its own as `CoreType`.
+//! The core type enums of every architecture, in one file free of rstd
+//! imports so that code which only needs to name a core (the per-core kernel
+//! objects, which are compiled on their own) does not pull in the detection
+//! code. Each `<arch>.zig` re-exports its own as `CoreType`.
 
-// ---- x86.zig ----
+const std = @import("std");
+
+// ---- x86 ----
 /// Core types the reference can select between, in the order of its
 /// `corename[]` table (`driver/others/dynamic.c`). Names are matched
 /// case-insensitively against `OPENBLAS_CORETYPE`.
@@ -43,7 +45,7 @@ pub const X86CoreType = enum {
     yonah,
 };
 
-// ---- arm64.zig ----
+// ---- arm64 ----
 /// Mirrors the reference's `corename[]` ordering.
 pub const Arm64CoreType = enum {
     armv8,
@@ -79,7 +81,7 @@ pub const Arm64CoreType = enum {
     ft2000,
 };
 
-// ---- arm.zig ----
+// ---- arm ----
 pub const ArmCoreType = enum {
     armv5,
     armv6,
@@ -91,7 +93,7 @@ pub const ArmCoreType = enum {
     cortexa15,
 };
 
-// ---- power.zig ----
+// ---- power ----
 /// Mirrors the reference's `corename[]` ordering.
 pub const PowerCoreType = enum {
     unknown,
@@ -111,7 +113,7 @@ pub const PowerCoreType = enum {
     ppcg4,
 };
 
-// ---- riscv.zig ----
+// ---- riscv ----
 /// Vector kernels are selected by guaranteed vector register length
 /// (`VLEN`), not by microarchitecture.
 pub const RiscvCoreType = enum {
@@ -125,14 +127,14 @@ pub const RiscvCoreType = enum {
     x280,
 };
 
-// ---- s390x.zig ----
+// ---- s390x ----
 pub const S390xCoreType = enum {
     zarch_generic,
     z13,
     z14,
 };
 
-// ---- mips.zig ----
+// ---- mips ----
 /// Mirrors the reference's `corename[]` ordering.
 pub const MipsCoreType = enum {
     mips64_generic,
@@ -150,7 +152,7 @@ pub const MipsCoreType = enum {
     p6600,
 };
 
-// ---- loongarch.zig ----
+// ---- loongarch ----
 /// Mirrors the reference's `corename[]` ordering.
 pub const LoongarchCoreType = enum {
     la64_generic,
@@ -162,8 +164,7 @@ pub const LoongarchCoreType = enum {
     unknown,
 };
 
-// ---- generic.zig ----
-// ---- sparc.zig ----
+// ---- sparc ----
 /// The reference's two SPARC targets, named as in its `TARGET`: `SPARC` is
 /// V9 and `SPARCV7` the generic one; neither is detected at run time.
 pub const SparcCoreType = enum {
@@ -171,7 +172,7 @@ pub const SparcCoreType = enum {
     sparc,
 };
 
-// ---- wasm.zig ----
+// ---- wasm ----
 /// The reference has one target for WebAssembly, `WASM128_GENERIC`; the other
 /// core type is a module compiled without SIMD128.
 pub const WasmCoreType = enum {
@@ -179,4 +180,63 @@ pub const WasmCoreType = enum {
     wasm128_generic,
 };
 
+// ---- generic ----
 pub const GenericCoreType = enum { generic };
+
+/// The cores of `Core` no detector returns: the reference's static-only
+/// `TARGET`s, which only `OPENBLAS_CORETYPE` names (`select.staticOnly`).
+pub fn staticOnly(comptime Core: type) []const Core {
+    return switch (Core) {
+        X86CoreType => &.{ .p5, .p6, .viac3, .yonah },
+        Arm64CoreType => &.{ .cortexa76, .cortexa510, .cortexa710, .cortexx1, .cortexx2, .ampere1, .ft2000 },
+        RiscvCoreType => &.{ .c910v, .u74, .x280 },
+        MipsCoreType => &.{ .mips24k, .mips1004k, .p5600, .i6400, .i6500, .p6600 },
+        else => &.{},
+    };
+}
+
+/// Every family's core type.
+pub const all = .{
+    X86CoreType,   Arm64CoreType, ArmCoreType,       PowerCoreType,
+    RiscvCoreType, MipsCoreType,  LoongarchCoreType, S390xCoreType,
+    SparcCoreType, WasmCoreType,  GenericCoreType,
+};
+
+/// The architecture families: one detector and kernel registry each, but
+/// x86 and x86_64 share a detector and core type.
+pub const Family = enum { x86_64, x86, arm64, arm, power, riscv, s390x, mips, loongarch, sparc, wasm, generic };
+
+/// The family of `arch`.
+pub fn familyOf(arch: std.Target.Cpu.Arch) Family {
+    return switch (arch) {
+        .x86_64 => .x86_64,
+        .x86 => .x86,
+        .aarch64, .aarch64_be => .arm64,
+        .arm, .armeb, .thumb, .thumbeb => .arm,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => .power,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => .riscv,
+        .s390x => .s390x,
+        .mips, .mipsel, .mips64, .mips64el => .mips,
+        .loongarch32, .loongarch64 => .loongarch,
+        .sparc, .sparc64 => .sparc,
+        .wasm32, .wasm64 => .wasm,
+        else => .generic,
+    };
+}
+
+/// The core type of `family`.
+pub fn CoreType(comptime family: Family) type {
+    return switch (family) {
+        .x86_64, .x86 => X86CoreType,
+        .arm64 => Arm64CoreType,
+        .arm => ArmCoreType,
+        .power => PowerCoreType,
+        .riscv => RiscvCoreType,
+        .s390x => S390xCoreType,
+        .mips => MipsCoreType,
+        .loongarch => LoongarchCoreType,
+        .sparc => SparcCoreType,
+        .wasm => WasmCoreType,
+        .generic => GenericCoreType,
+    };
+}

@@ -1,15 +1,12 @@
-//! RISC-V CPU detection, mirroring `driver/others/dynamic_riscv64.c`.
-//!
-//! The reference invokes the `riscv_hwprobe` syscall directly rather than
-//! through glibc, falls back to `AT_HWCAP`'s 'V' bit on kernels without it,
-//! then checks the vector unit really is RVV 1.0 (T-Head's 0.7.1 also sets the
-//! bit) and reads `vlenb` to tell VLEN 128 from 256 and up.
+//! RISC-V CPU detection, mirroring `driver/others/dynamic_riscv64.c`:
+//! `riscv_hwprobe`, else `AT_HWCAP`'s V bit, then a check for RVV 1.0
+//! (T-Head's 0.7.1 sets the bit too) and `vlenb` for the VLEN.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
+const osinfo = @import("../osinfo.zig");
 
 pub const CoreType = coretypes.RiscvCoreType;
 pub const Decision = select.Decision(CoreType);
@@ -97,7 +94,7 @@ pub fn probe() Caps {
         if (pairs[0].value & RISCV_HWPROBE_IMA_V == 0) return .{};
     } else {
         // older kernels: the hwcap letter bit, then the 0.7.1 check
-        if (auxv.hwcap() & HWCAP_ISA_V == 0) return .{};
+        if (osinfo.hwcap() & HWCAP_ISA_V == 0) return .{};
         if (!isRvv100()) return .{};
     }
     return .{ .vector = true, .vlenb = readVlenb() };
@@ -121,19 +118,6 @@ pub fn decide(c: Caps) Decision {
     return .{ .core = .riscv64_zvl128b };
 }
 
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
 test "decide reads the vector length" {
     try std.testing.expectEqual(CoreType.riscv64_generic, decide(.{}).core);
     try std.testing.expectEqual(CoreType.riscv64_generic, decide(.{ .vector = true, .vlenb = 0 }).core);
@@ -155,5 +139,5 @@ test "the vector cores need their VLEN" {
 
 test "detect runs on RISC-V targets" {
     if (comptime !sysinfo.target.cpu.arch.isRiscv()) return error.SkipZigTest;
-    try std.testing.expect(supportsCore(detect()));
+    try std.testing.expect(select.canRun(@This(), select.detect(@This(), null)));
 }

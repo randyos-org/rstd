@@ -1,23 +1,11 @@
-//! What each core type is compiled with, taken from how OpenBLAS builds its
-//! per-core kernels (`DYNAMIC_ARCH`): the ISA extensions the core's flags
-//! enable (`Makefile.<arch>`, the `HAVE_*` tables in `getarch.c`) and the
-//! explicit overrides in `kernel/Makefile`.
-//!
-//! This is the single description of that. The build (`build/blaskern.zig`)
-//! reads it to give each kernel object its CPU features, grouping cores whose
-//! specs are equal into one object, and the runtime reads the same data, for
-//! instance to check that the host can run the kernels a core type selects.
-//! It is plain data, so both can use it.
-//!
-//! Names are those of `std.Target.<arch>`'s models and features; a test checks
-//! every one resolves. Only the ISA is described: the reference also passes
-//! `-mtune=`, which only affects scheduling and has no counterpart here.
-//! The non-x86 entries follow the primary (current-compiler) branch of each
-//! Makefile and have not been exercised yet; no kernels are built for those
-//! architectures so far.
+//! What each core type is compiled with, from OpenBLAS's `DYNAMIC_ARCH`
+//! flags (`Makefile.<arch>`'s primary-compiler branch, `getarch.c`'s `HAVE_*`
+//! tables, `kernel/Makefile`'s overrides): plain data the build
+//! (`build/blaskern.zig`) and the runtime share. Names are `std.Target`'s
+//! (a test checks); only the ISA, not `-mtune=`.
 
 const std = @import("std");
-const coretypes = @import("_coretypes.zig");
+const coretypes = @import("coretypes.zig");
 
 pub const Spec = struct {
     /// A named model where the reference passes `-march=`/`-mcpu=` for a core;
@@ -237,42 +225,35 @@ pub fn of(core: anytype) Spec {
 
 /// The core type of `arch`'s registry (`kernels/__root__.zig`'s `ForArch`).
 pub fn CoreType(comptime arch: std.Target.Cpu.Arch) type {
-    return switch (arch) {
-        .x86_64, .x86 => coretypes.X86CoreType,
-        .aarch64, .aarch64_be => coretypes.Arm64CoreType,
-        .arm, .armeb, .thumb, .thumbeb => coretypes.ArmCoreType,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => coretypes.PowerCoreType,
-        .riscv32, .riscv32be, .riscv64, .riscv64be => coretypes.RiscvCoreType,
-        .s390x => coretypes.S390xCoreType,
-        .mips, .mipsel, .mips64, .mips64el => coretypes.MipsCoreType,
-        .loongarch32, .loongarch64 => coretypes.LoongarchCoreType,
-        .sparc, .sparc64 => coretypes.SparcCoreType,
-        .wasm32, .wasm64 => coretypes.WasmCoreType,
-        else => coretypes.GenericCoreType,
-    };
+    return coretypes.CoreType(coretypes.familyOf(arch));
 }
 
-/// The detector of `arch` (`detect()`): light, unlike `cpu/<arch>.zig`, which
-/// adds the kernels.
+/// The detector of `arch` (`select.detect`): light, unlike `cpu.Arch`,
+/// which adds the kernels.
 pub fn Detector(comptime arch: std.Target.Cpu.Arch) type {
-    return switch (arch) {
-        .x86_64, .x86 => @import("_detect/x86.zig"),
-        .aarch64, .aarch64_be => @import("_detect/arm64.zig"),
-        .arm, .armeb, .thumb, .thumbeb => @import("_detect/arm.zig"),
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => @import("_detect/power.zig"),
-        .riscv32, .riscv32be, .riscv64, .riscv64be => @import("_detect/riscv.zig"),
-        .s390x => @import("_detect/s390x.zig"),
-        .mips, .mipsel, .mips64, .mips64el => @import("_detect/mips.zig"),
-        .loongarch32, .loongarch64 => @import("_detect/loongarch.zig"),
-        .sparc, .sparc64 => @import("_detect/sparc.zig"),
-        .wasm32, .wasm64 => @import("_detect/wasm.zig"),
-        else => @import("_detect/generic.zig"),
+    return DetectorOf(coretypes.familyOf(arch));
+}
+
+/// The detector of `family`.
+pub fn DetectorOf(comptime family: coretypes.Family) type {
+    return switch (family) {
+        .x86_64, .x86 => @import("detect/x86.zig"),
+        .arm64 => @import("detect/arm64.zig"),
+        .arm => @import("detect/arm.zig"),
+        .power => @import("detect/power.zig"),
+        .riscv => @import("detect/riscv.zig"),
+        .s390x => @import("detect/s390x.zig"),
+        .mips => @import("detect/mips.zig"),
+        .loongarch => @import("detect/loongarch.zig"),
+        .sparc => @import("detect/sparc.zig"),
+        .wasm => @import("detect/wasm.zig"),
+        .generic => @import("detect/generic.zig"),
     };
 }
 
 /// The cores of `arch` with kernels: each registry's `hasKernels`, as compiled
 /// for that architecture. Derived from the registries; re-derive rather than
-/// edit (the test in `kernels/__root__.zig` fails with the right list).
+/// edit (`cpu/__root__.zig`'s test of it prints the right list).
 pub fn kernelCores(comptime arch: std.Target.Cpu.Arch) []const CoreType(arch) {
     return switch (arch) {
         .x86_64 => &.{ .prescott, .atom, .core2, .penryn, .dunnington, .nehalem, .opteron, .opteron_sse3, .barcelona, .nano, .sandybridge, .bobcat, .bulldozer, .piledriver, .haswell, .steamroller, .excavator, .zen, .skylakex, .cooperlake, .sapphirerapids },

@@ -1,19 +1,8 @@
-//! What the OS tells a program about its CPU, the mechanism every non-x86
-//! detector in `driver/others/dynamic_*.c` leans on.
-//!
-//! x86 is the easy case -- `cpuid` is an unprivileged instruction, so
-//! detection needs no OS cooperation at all. Every other architecture has
-//! to ask the kernel: AArch64 needs `AT_HWCAP & HWCAP_CPUID` before it may
-//! even read `MIDR_EL1`, PowerPC reads `AT_PLATFORM`, s390x and LoongArch
-//! read capability bits directly out of `AT_HWCAP`, and so on. That means
-//! none of them can detect anything on a freestanding target until we
-//! provide an equivalent ourselves.
-//!
-//! The reference does this on Linux and Android only (`getauxval`, `/proc`,
-//! `/sys`) and Darwin (`sysctlbyname`). Here the auxiliary vector also comes
-//! from FreeBSD's `elf_aux_info`, and `sysctlInt` reads the BSDs' and Darwin's
-//! sysctl tree; Windows has `processorFeature`. Anywhere else the answer is
-//! "nothing known", which lands the callers on the generic kernels.
+//! What the OS tells the non-x86 detectors about the CPU, as
+//! `driver/others/dynamic_*.c` ask it: the auxiliary vector (`getauxval`,
+//! FreeBSD's `elf_aux_info`), `/proc` and `/sys`, sysctl (BSDs, Darwin), and
+//! Windows' `processorFeature` and registry. Elsewhere nothing is known,
+//! and the callers take the generic kernels.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -32,7 +21,7 @@ fn number(comptime tag: Tag) ?usize {
     };
 }
 
-/// Returns 0 when there is no auxiliary vector to read -- either because
+/// Returns 0 when there is no auxiliary vector to read; either because
 /// the OS has none, or because we are freestanding and nobody handed
 /// us one. Callers treat 0 as "no capabilities known", which lands them on
 /// the generic kernels.
@@ -51,10 +40,6 @@ pub fn get(comptime tag: Tag) usize {
         },
         else => return 0,
     }
-}
-
-pub fn has(comptime tag: Tag, bit: usize) bool {
-    return get(tag) & bit != 0;
 }
 
 pub fn hwcap() usize {
@@ -132,6 +117,48 @@ pub fn processorFeature(feature: u32) bool {
     return k32.IsProcessorFeaturePresent(feature) != 0;
 }
 
+/// A hex number as the sysfs files print it ("0x00000000411fd070"), the low 32
+/// bits, as `strtoul` into an int gives.
+pub fn parseHex(text: []const u8) ?u32 {
+    var t = std.mem.trim(u8, text, " \t\r\n\x00");
+    if (std.mem.startsWith(u8, t, "0x") or std.mem.startsWith(u8, t, "0X")) t = t[2..];
+    var end: usize = 0;
+    while (end < t.len and std.ascii.isHex(t[end])) end += 1;
+    if (end == 0) return null;
+    return @truncate(std.fmt.parseInt(u64, t[0..end], 16) catch return null);
+}
+
+/// How many CPUs `/sys/devices/system/cpu/possible` ("0-7", or "0") names.
+pub fn cpuCountFromPossible(text: []const u8) usize {
+    const t = std.mem.trim(u8, text, " \t\r\n\x00");
+    if (!std.mem.startsWith(u8, t, "0-")) return 1;
+    var end: usize = 2;
+    while (end < t.len and std.ascii.isDigit(t[end])) end += 1;
+    return (std.fmt.parseInt(usize, t[2..end], 10) catch 0) + 1;
+}
+
+/// A `REG_QWORD` under `HKEY_LOCAL_MACHINE`; null if absent or another type.
+pub fn registryQword(comptime subkey: []const u8, comptime value: []const u8) ?u64 {
+    if (comptime sysinfo.target.os.tag != .windows) return null;
+    const advapi = struct {
+        extern "advapi32" fn RegGetValueW(hkey: usize, subkey: [*:0]const u16, value: [*:0]const u16, flags: u32, kind: ?*u32, data: ?*anyopaque, size: ?*u32) callconv(.winapi) i32;
+    };
+    const HKEY_LOCAL_MACHINE: usize = 0x80000002;
+    const RRF_RT_REG_QWORD: u32 = 0x40;
+    var raw: u64 = 0;
+    var size: u32 = @sizeOf(u64);
+    const rc = advapi.RegGetValueW(
+        HKEY_LOCAL_MACHINE,
+        std.unicode.utf8ToUtf16LeStringLiteral(subkey),
+        std.unicode.utf8ToUtf16LeStringLiteral(value),
+        RRF_RT_REG_QWORD,
+        null,
+        &raw,
+        &size,
+    );
+    return if (rc == 0) raw else null;
+}
+
 test "auxv access is safe to call on any target" {
     // On non-Linux this is a compile-time-constant 0; on Linux without an
     // auxiliary vector it is a runtime 0. Either way it must not fault.
@@ -155,4 +182,13 @@ test "cpuinfoField takes the first matching line" {
 test "sysctlInt and processorFeature answer on any target" {
     _ = sysctlInt("hw.ncpu");
     _ = processorFeature(0);
+}
+
+test "sysfs parsing" {
+    try std.testing.expectEqual(@as(?u32, 0x411fd070), parseHex("0x00000000411fd070\n"));
+    try std.testing.expectEqual(@as(?u32, 0x1000), parseHex("1000"));
+    try std.testing.expectEqual(@as(?u32, null), parseHex("\n"));
+    try std.testing.expectEqual(@as(usize, 8), cpuCountFromPossible("0-7\n"));
+    try std.testing.expectEqual(@as(usize, 1), cpuCountFromPossible("0\n"));
+    try std.testing.expectEqual(@as(usize, 1), cpuCountFromPossible(""));
 }

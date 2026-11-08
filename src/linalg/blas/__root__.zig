@@ -2,6 +2,7 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const portable = @import("portable.zig");
 const threading = @import("threading.zig");
+const test_io = @import("_test/io.zig");
 const apple_accel = @import("apple_accel.zig");
 
 pub const types = @import("types.zig");
@@ -18,6 +19,7 @@ const l1 = blas1.interface;
 const l2 = blas2.interface;
 const tri = blas2.triangular;
 const band = blas2.banded;
+const rank = blas2.rank;
 const l3 = blas3.interface;
 // pub const util = @import("util.zig");
 const util = @import("util.zig");
@@ -98,14 +100,14 @@ pub const sbmv = band.sbmv;
 pub const hbmv = band.hbmv;
 pub const spmv = band.spmv;
 pub const hpmv = band.hpmv;
-pub const syr = band.syr;
-pub const spr = band.spr;
-pub const her = band.her;
-pub const hpr = band.hpr;
-pub const syr2 = band.syr2;
-pub const spr2 = band.spr2;
-pub const her2 = band.her2;
-pub const hpr2 = band.hpr2;
+pub const syr = rank.syr;
+pub const spr = rank.spr;
+pub const her = rank.her;
+pub const hpr = rank.hpr;
+pub const syr2 = rank.syr2;
+pub const spr2 = rank.spr2;
+pub const her2 = rank.her2;
+pub const hpr2 = rank.hpr2;
 
 pub const gemm = l3.gemm;
 pub const symm = l3.symm;
@@ -438,7 +440,7 @@ const qx_slots = blk: {
 
 test "no core puts a kernel of its own in a q or x slot" {
     @setEvalBranchQuota(100_000);
-    const registry = @import("asm_registry.zig");
+    const registry = @import("registry.zig");
     var base: Vtable = .{};
     portable.install(&base);
     inline for (@typeInfo(cpu.CoreType).@"enum".field_names) |name| {
@@ -462,7 +464,10 @@ fn qxUntouched(base: *const Vtable, comptime core: cpu.CoreType) !void {
 
 test {
     _ = @import("abi.zig");
+    _ = @import("FpState.zig");
     _ = @import("apple_accel.zig");
+    // hosted only: the rigs' `linalg.blas._test.` filter would take it
+    if (comptime test_io.hosted) _ = @import("_test/apple_accel.zig");
     _ = @import("threading.zig");
     _ = @import("_test/__root__.zig");
     zigstd.testRefAllDecls(@This());

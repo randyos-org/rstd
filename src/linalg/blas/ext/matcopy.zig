@@ -18,7 +18,10 @@ const std = @import("std");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
-const check = @import("../_test/blas1/check.zig");
+const portable = @import("../portable.zig");
+const check = @import("../_test/check.zig");
+const bitwise = @import("../_test/bitwise.zig");
+const pattern = @import("../_test/pattern.zig");
 
 const BlasLong = types.BlasLong;
 const Complex32 = types.Complex32;
@@ -150,12 +153,38 @@ pub fn installGeneric(vt: *Vtable) void {
     }
 }
 
+/// A kernel by its suffix: `t` transposes, a trailing `c` conjugates (complex only).
+pub const Copy = enum {
+    cn,
+    ct,
+    cnc,
+    ctc,
+
+    /// The `omatcopy` kernel's op.
+    pub fn outOp(c: Copy) portable.Op {
+        return switch (c) {
+            .cn => .omatcopy_k_cn,
+            .ct => .omatcopy_k_ct,
+            .cnc => .omatcopy_k_cnc,
+            .ctc => .omatcopy_k_ctc,
+        };
+    }
+
+    /// The `imatcopy` kernel's op.
+    pub fn inOp(c: Copy) portable.Op {
+        return switch (c) {
+            .cn => .imatcopy_k_cn,
+            .ct => .imatcopy_k_ct,
+            .cnc => .imatcopy_k_cnc,
+            .ctc => .imatcopy_k_ctc,
+        };
+    }
+};
+
 // ---- tests -----------------------------------------------------------------
 
-const Op = enum { cn, ct, cnc, ctc };
-
 /// `alpha*op(A)(i, j)` by the definition, in `T`.
-fn want(comptime T: type, op: Op, alpha: T, a: []const T, lda: usize, i: usize, j: usize) T {
+fn want(comptime T: type, op: Copy, alpha: T, a: []const T, lda: usize, i: usize, j: usize) T {
     const t = op == .ct or op == .ctc;
     var x = if (t) a[j + i * lda] else a[i + j * lda];
     if (comptime types.isComplex(T)) {
@@ -174,7 +203,7 @@ fn checkType(comptime T: type, comptime pre: []const u8, vt: *const Vtable) !voi
     const complex = comptime types.isComplex(T);
     const F = types.Float(T);
     const al = std.testing.allocator;
-    const ops: []const Op = comptime if (complex) &.{ .cn, .ct, .cnc, .ctc } else &.{ .cn, .ct };
+    const ops: []const Copy = comptime if (complex) &.{ .cn, .ct, .cnc, .ctc } else &.{ .cn, .ct };
     const alphas = if (complex) [_]T{ T.init(1.5, -0.75), T.init(0, 0), T.init(1, 0), T.init(0, 1) } else [_]T{ 1.5, 0, 1, -1 };
     const sizes = [_][2]usize{ .{ 1, 1 }, .{ 3, 1 }, .{ 1, 4 }, .{ 5, 3 }, .{ 7, 7 }, .{ 17, 9 } };
     inline for (ops) |op| for (alphas) |alpha| for (sizes) |s| {
@@ -188,12 +217,12 @@ fn checkType(comptime T: type, comptime pre: []const u8, vt: *const Vtable) !voi
         const b = try al.alloc(T, ldb * (if (t) rows else cols));
         defer al.free(b);
         check.fill(T, a, rows * 13 + cols);
-        for (a, 0..) |*v, i| v.* = check.shape(T, v.*, i, .mixed);
+        for (a, 0..) |*v, i| v.* = pattern.shape(T, v.*, i, .mixed);
         const sentinel: T = if (complex) T.init(7, 7) else 7;
         @memset(b, sentinel);
         const ar: [*]F = @ptrCast(a.ptr);
         const br: [*]F = @ptrCast(b.ptr);
-        const k = @field(vt, pre ++ "omatcopy_k_" ++ @tagName(op)).?;
+        const k = portable.slotPtr(vt, .from(pre), op.outOp()).*.?;
         if (complex) {
             _ = k(@intCast(rows), @intCast(cols), alpha.re, alpha.im, ar, @intCast(lda), br, @intCast(ldb));
         } else {
@@ -211,14 +240,14 @@ fn checkType(comptime T: type, comptime pre: []const u8, vt: *const Vtable) !voi
         };
         // in place: the shape kept, or square; the result is the same
         if (t and rows != cols) continue;
-        const ik = @field(vt, pre ++ "imatcopy_k_" ++ @tagName(op)).?;
+        const ik = portable.slotPtr(vt, .from(pre), op.inOp()).*.?;
         if (complex) {
             _ = ik(@intCast(rows), @intCast(cols), alpha.re, alpha.im, ar, @intCast(lda));
         } else {
             _ = ik(@intCast(rows), @intCast(cols), alpha, ar, @intCast(lda));
         }
         for (0..out_cols) |j| for (0..out_rows) |i| {
-            if (!check.same(T, b[i + j * ldb], a[i + j * lda], true)) {
+            if (!bitwise.same(T, b[i + j * ldb], a[i + j * lda], true)) {
                 check.say("{s}imatcopy_k_{s} {d}x{d} alpha {any} at ({d},{d}): ", .{ pre, @tagName(op), rows, cols, alpha, i, j });
                 return error.TestUnexpectedResult;
             }
@@ -226,11 +255,11 @@ fn checkType(comptime T: type, comptime pre: []const u8, vt: *const Vtable) !voi
     };
 }
 
-/// `check.same`, part by part, but any NaN for a NaN: which operand's
+/// `bitwise.same`, part by part, but any NaN for a NaN: which operand's
 /// payload a product keeps varies with the target.
 fn same(comptime T: type, w: T, g: T) bool {
     if (comptime types.isComplex(T)) return same(types.Float(T), w.re, g.re) and same(types.Float(T), w.im, g.im);
-    return check.same(T, w, g, true) or (std.math.isNan(w) and std.math.isNan(g));
+    return bitwise.same(T, w, g, true) or (std.math.isNan(w) and std.math.isNan(g));
 }
 
 test "portable omatcopy and imatcopy kernels follow the definition, and agree with each other bit for bit" {

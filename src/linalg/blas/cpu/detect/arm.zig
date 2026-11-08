@@ -1,17 +1,12 @@
-//! 32-bit ARM CPU detection, mirroring `cpuid_arm.c`.
-//!
-//! The reference has no `dynamic_arm.c` -- 32-bit ARM is the one supported
-//! architecture with no runtime dispatch at all, so the kernel set is fixed at
-//! build time from `TARGET`, which `getarch` finds from `/proc/cpuinfo` (the CPU
-//! part, the model name and the feature list). This does the same at run time,
-//! from the part there and `AT_HWCAP`'s VFP and NEON bits, which are the feature
-//! list's source.
+//! 32-bit ARM CPU detection, mirroring `cpuid_arm.c`: the reference fixes
+//! `TARGET` at build time (it has no `dynamic_arm.c`); this reads the part
+//! and `AT_HWCAP`'s VFP and NEON bits at run time.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
+const osinfo = @import("../osinfo.zig");
 
 pub const CoreType = coretypes.ArmCoreType;
 pub const Decision = select.Decision(CoreType);
@@ -32,7 +27,7 @@ pub const Caps = struct {
 
 /// The "CPU part" of `/proc/cpuinfo` text (the first, as `cpuid_arm.c` reads it).
 pub fn partOf(text: []const u8) u32 {
-    const v = auxv.cpuinfoField(text, "CPU part") orelse return 0;
+    const v = osinfo.cpuinfoField(text, "CPU part") orelse return 0;
     if (!std.mem.startsWith(u8, v, "0x")) return 0;
     return std.fmt.parseInt(u32, v[2..], 16) catch 0;
 }
@@ -45,7 +40,7 @@ pub fn probe() Caps {
         else => {},
     }
     var buf: [4096]u8 = undefined;
-    return .{ .hwcap = auxv.hwcap(), .part = partOf(auxv.readFile("/proc/cpuinfo", &buf)) };
+    return .{ .hwcap = osinfo.hwcap(), .part = partOf(osinfo.readFile("/proc/cpuinfo", &buf)) };
 }
 
 fn cp15(comptime reg: []const u8) u32 {
@@ -115,19 +110,6 @@ pub fn decide(c: Caps) Decision {
     return .{ .core = .armv5 };
 }
 
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
 test "decide follows the VFP and NEON capability bits" {
     // Cortex-A9 with NEON, VFPv3-D32
     const a9: Caps = .{ .hwcap = HWCAP_VFP | HWCAP_NEON | HWCAP_VFPv3 | HWCAP_VFPD32, .part = 0xc09 };
@@ -162,5 +144,5 @@ test "no CPU is given a core it cannot run" {
 
 test "detect runs on 32-bit ARM targets" {
     if (comptime !sysinfo.target.cpu.arch.isArm()) return error.SkipZigTest;
-    try std.testing.expect(supportsCore(detect()));
+    try std.testing.expect(select.canRun(@This(), select.detect(@This(), null)));
 }

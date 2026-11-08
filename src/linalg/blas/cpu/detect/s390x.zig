@@ -1,15 +1,12 @@
-//! IBM Z (s390x) CPU detection, mirroring `driver/others/dynamic_zarch.c`.
-//!
-//! Selection is purely capability-based, straight out of `AT_HWCAP`. As
-//! the reference notes, vector registers may not be used on a z13 or newer
-//! unless the OS kernel advertises support -- it has to save and restore
-//! them across context switches -- so the hwcap bit, not the CPU model, is
-//! the thing that decides.
+//! IBM Z (s390x) CPU detection, mirroring `driver/others/dynamic_zarch.c`:
+//! by `AT_HWCAP` alone, as vector registers are usable only where the OS
+//! saves them across context switches.
 
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const std = @import("std");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
+const osinfo = @import("../osinfo.zig");
 
 pub const CoreType = coretypes.S390xCoreType;
 pub const Decision = select.Decision(CoreType);
@@ -30,7 +27,7 @@ pub fn probe() Caps {
 
 /// `probe`, with the bits of `mask` (`LD_HWCAP_MASK`) only, as in the reference.
 pub fn probeMasked(mask: u64) Caps {
-    const hw = if (comptime sysinfo.target.os.tag == .freestanding) facilities() else auxv.hwcap();
+    const hw = if (comptime sysinfo.target.os.tag == .freestanding) facilities() else osinfo.hwcap();
     return .{ .hwcap = hw & @as(usize, @truncate(mask)) };
 }
 
@@ -67,26 +64,6 @@ pub fn decide(c: Caps) Decision {
     return .{ .core = .zarch_generic };
 }
 
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
-/// `detect`, under `LD_HWCAP_MASK`.
-pub fn detectMasked(mask: u64) CoreType {
-    return decide(probeMasked(mask)).core;
-}
-
-const std = @import("std");
-
 test "the vector bits pick the core" {
     try std.testing.expectEqual(CoreType.zarch_generic, decide(.{}).core);
     try std.testing.expectEqual(CoreType.z13, decide(.{ .hwcap = HWCAP_S390_VX }).core);
@@ -105,6 +82,6 @@ test "LD_HWCAP_MASK hides capabilities" {
 
 test "detect runs on s390x targets" {
     if (comptime sysinfo.target.cpu.arch != .s390x) return error.SkipZigTest;
-    try std.testing.expect(supportsCore(detect()));
-    _ = detectMasked(0);
+    try std.testing.expect(select.canRun(@This(), select.detect(@This(), null)));
+    _ = select.detect(@This(), 0);
 }

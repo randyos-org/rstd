@@ -1,11 +1,9 @@
-//! WebAssembly CPU selection. There is nothing to detect at run time: which
-//! vector instructions the module may use is fixed when it is compiled, so the
-//! core type follows the target's features. The reference has only the one
-//! target for it, `WASM128_GENERIC`, in `kernel/wasm/`.
+//! WebAssembly CPU selection: the module's compiled features decide; the
+//! reference's one target is `WASM128_GENERIC` (`kernel/wasm/`).
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
 
 pub const CoreType = coretypes.WasmCoreType;
@@ -28,14 +26,6 @@ pub fn decide(c: Caps) Decision {
     return .{ .core = if (c.simd128) .wasm128_generic else .wasm_generic };
 }
 
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
 test "SIMD128 modules get the SIMD core" {
     try std.testing.expectEqual(CoreType.wasm128_generic, decide(.{ .simd128 = true }).core);
     try std.testing.expectEqual(CoreType.wasm_generic, decide(.{ .simd128 = false }).core);
@@ -43,5 +33,5 @@ test "SIMD128 modules get the SIMD core" {
 }
 
 test "detect runs" {
-    _ = detect();
+    _ = select.detect(@This(), null);
 }

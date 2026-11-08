@@ -1,18 +1,14 @@
-//! MIPS / MIPS64 CPU detection, mirroring `driver/others/dynamic_mips64.c`.
-//!
-//! Loongson's `cpucfg` instruction when `AT_HWCAP` advertises it, otherwise the
-//! model name in `/proc/cpuinfo`. The reference tests the hwcap bit the wrong way
-//! round (it runs `cpucfg` where the kernel says it is absent, and reads
-//! `/proc/cpuinfo` where it is present), and its `cpucfg` word has both
-//! registers zeroed; both are done as the manuals say here. MSA also comes from
-//! `AT_HWCAP`, for the release 5 and 6 cores the reference only builds statically.
+//! MIPS / MIPS64 CPU detection, mirroring `driver/others/dynamic_mips64.c`:
+//! `cpucfg` where `AT_HWCAP` advertises it, else `/proc/cpuinfo`; MSA from
+//! `AT_HWCAP`. The reference tests that hwcap bit the wrong way round and
+//! zeroes both `cpucfg` registers; this follows the manuals.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
-const corespec = @import("../_corespec.zig");
+const osinfo = @import("../osinfo.zig");
+const corespec = @import("../corespec.zig");
 
 pub const CoreType = coretypes.MipsCoreType;
 pub const Decision = select.Decision(CoreType);
@@ -43,11 +39,11 @@ pub const Caps = struct {
 /// Whether this machine can run `core`'s kernels (for tests). The build links
 /// only cores of the target's word size and release; the SIMD ones also need
 /// MSA turned on.
-pub fn canRun(core: CoreType) bool {
+pub fn runsHere(core: CoreType) bool {
     return !needsMsa(core) or machineHasMsa();
 }
 
-/// The cores whose objects use the SIMD architecture (`_corespec.zig`).
+/// The cores whose objects use the SIMD architecture (`corespec.zig`).
 fn needsMsa(core: CoreType) bool {
     return switch (core) {
         .loongson3r4, .p5600, .i6400, .i6500, .p6600 => true,
@@ -106,7 +102,7 @@ pub fn capsFromCfg1(cfg: u32) Caps {
 /// Caps from the first "model name" line of `/proc/cpuinfo`: 3A/3B 3000 are the
 /// release 3 parts (MMI), 3A/3B 4000 the release 4 ones (MMI and MSA).
 pub fn capsFromCpuinfo(text: []const u8) Caps {
-    const name = auxv.cpuinfoField(text, "model name") orelse return .{};
+    const name = osinfo.cpuinfoField(text, "model name") orelse return .{};
     const has = struct {
         fn any(n: []const u8, a: []const u8, b: []const u8) bool {
             return std.mem.find(u8, n, a) != null or std.mem.find(u8, n, b) != null;
@@ -120,10 +116,10 @@ pub fn capsFromCpuinfo(text: []const u8) Caps {
 pub fn probe() Caps {
     if (comptime !sysinfo.target.cpu.arch.isMips()) return .{};
     if (sysinfo.target.os.tag != .linux) return .{};
-    const hw = auxv.hwcap();
+    const hw = osinfo.hwcap();
     var c = if (hw & HWCAP_LOONGSON_CPUCFG != 0) capsFromCfg1(cpucfg(LOONGSON_CFG1)) else blk: {
         var buf: [4096]u8 = undefined;
-        break :blk capsFromCpuinfo(auxv.readFile("/proc/cpuinfo", &buf));
+        break :blk capsFromCpuinfo(osinfo.readFile("/proc/cpuinfo", &buf));
     };
     if (hw & HWCAP_MIPS_MSA != 0) c.features.insert(.msa);
     return c;
@@ -141,14 +137,6 @@ pub fn runnable(core: CoreType, c: Caps) bool {
 pub fn decide(c: Caps) Decision {
     if (c.has(.mmi)) return .{ .core = if (c.has(.msa)) .loongson3r4 else .loongson3r3 };
     return .{ .core = .mips64_generic };
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
 }
 
 test "the cpucfg instruction word" {
@@ -192,16 +180,6 @@ test "the SIMD cores need MSA, as their objects are built with it" {
 }
 
 test "no CPU is given a core it cannot run" {
-    const Linked = struct {
-        pub const arch: std.Target.Cpu.Arch = .mips64;
-        pub const fallback: ?CoreType = null;
-        pub fn ok(_: @This(), _: CoreType) bool {
-            return true;
-        }
-    };
-    const NoLog = struct {
-        pub fn warn(_: @This(), _: i32, comptime _: []const u8, _: anytype) void {}
-    };
     var mask: u32 = 0;
     while (mask < 4) : (mask += 1) {
         const c: Caps = .{ .features = .init(.{ .mmi = mask & 1 != 0, .msa = mask & 2 != 0 }) };
@@ -209,7 +187,7 @@ test "no CPU is given a core it cannot run" {
         // nor by name
         for (std.enums.values(CoreType)) |core| {
             if (!select.selectable(core)) continue;
-            const r = select.choose(@This(), c, @tagName(core), Linked{}, NoLog{});
+            const r = select.choose(@This(), c, @tagName(core), select.testing.AllLinked(.mips64, CoreType){}, select.testing.NoLog{});
             try std.testing.expect(runnable(r.core, c));
         }
     }
@@ -217,5 +195,5 @@ test "no CPU is given a core it cannot run" {
 
 test "detect runs on MIPS targets" {
     if (comptime !sysinfo.target.cpu.arch.isMips()) return error.SkipZigTest;
-    _ = detect();
+    _ = select.detect(@This(), null);
 }

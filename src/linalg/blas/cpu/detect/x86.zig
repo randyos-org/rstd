@@ -1,30 +1,17 @@
-//! x86 / x86_64 CPU detection, mirroring `driver/others/dynamic.c`, shared
-//! by both widths (`cpuid` is the same in either): `x86.zig` and `x86_64.zig`
-//! add each width's kernel registry and vtable.
-//!
-//! This is the only architecture that can detect itself with no help from
-//! the OS: `cpuid` and `xgetbv` are unprivileged, so everything here works
-//! identically on Windows, Linux, macOS and freestanding. The probes are thin
-//! (`probe` fills a `Caps`); `modelCore` and `decide` are pure functions of it,
-//! which is what the tests feed.
+//! x86 / x86_64 CPU detection, mirroring `driver/others/dynamic.c`: `cpuid`
+//! and `xgetbv` are unprivileged, so it works alike on every OS and
+//! freestanding. `probe` fills a `Caps`; `modelCore` and `decide` are pure.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const corespec = @import("../_corespec.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const corespec = @import("../corespec.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
 
 pub const CoreType = coretypes.X86CoreType;
 pub const Decision = select.Decision(CoreType);
 
 pub const Vendor = enum { unknown, intel, amd, centaur, hygon, zhaoxin };
-
-/// The coarse SIMD capability tiers that actually change which kernel we
-/// want, as opposed to the fine-grained microarchitecture identity above.
-/// The reference distinguishes both: two chips can share a tier (Zen and
-/// Haswell are both AVX2) and still want different cache blocking.
-/// `_unresolved` is only `cachedTier`'s pre-probe state; never returned.
-pub const Tier = enum(u8) { _unresolved, baseline, avx2, avx512 };
 
 /// The extensions the decisions read; the AVX ones only with the OS having
 /// enabled their state (XCR0), as `dynamic.c` does.
@@ -34,7 +21,7 @@ pub const Feature = enum {
     sse4_1,
     avx,
     avx2,
-    /// FMA3, by LLVM's name as `_corespec.zig` spells it
+    /// FMA3, by LLVM's name as `corespec.zig` spells it
     fma,
     fma4,
     avx512,
@@ -73,11 +60,8 @@ pub const Caps = struct {
     pub fn stepping(c: Caps) u32 {
         return c.eax1 & 0xf;
     }
-    /// The display family and model: the extended fields added in as the
-    /// manuals say (family 0xf adds the family, 6 and 0xf the model).
-    pub fn displayFamily(c: Caps) u32 {
-        return if (c.family() == 0xf) c.family() + c.exfamily() else c.family();
-    }
+    /// The display model: the extended field added in as the manuals say
+    /// (families 6 and 0xf).
     pub fn displayModel(c: Caps) u32 {
         return if (c.family() == 6 or c.family() == 0xf) c.model() + (c.exmodel() << 4) else c.model();
     }
@@ -92,12 +76,6 @@ pub const Caps = struct {
     /// Every one of `fs`, the set built at compile time.
     pub fn hasAll(c: Caps, comptime fs: []const Feature) bool {
         return c.features.supersetOf(comptime std.EnumSet(Feature).initMany(fs));
-    }
-    /// The coarse tier the AVX extensions give.
-    pub fn tier(c: Caps) Tier {
-        if (c.has(.avx512)) return .avx512;
-        if (c.has(.avx2)) return .avx2;
-        return .baseline;
     }
 };
 
@@ -121,7 +99,7 @@ pub fn cpuid(leaf: u32, subleaf: u32) CpuidResult {
     return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
-/// Reads XCR0. Only meaningful once CPUID has reported OSXSAVE -- executing
+/// Reads XCR0. Only meaningful once CPUID has reported OSXSAVE; executing
 /// `xgetbv` without that support faults.
 pub fn xgetbv() u32 {
     return asm volatile (
@@ -141,7 +119,7 @@ fn cpuidChecked(max_leaf: u32, leaf: u32, sub: u32) CpuidResult {
 
 // ---- feature detection -----------------------------------------------------
 
-/// The CPUID leaf 0 vendor strings `vendor` distinguishes; tags match the
+/// The CPUID leaf 0 vendor strings `vendorOf` distinguishes; tags match the
 /// strings.
 pub const VendorId = enum { GenuineIntel, AuthenticAMD, CentaurHauls, HygonGenuine, @"  Shanghai  " };
 
@@ -162,11 +140,6 @@ pub fn vendorOf(ebx: u32, edx: u32, ecx: u32, max_leaf: u32) Vendor {
         .HygonGenuine => .hygon,
         .@"  Shanghai  " => .zhaoxin,
     };
-}
-
-pub fn vendor() Vendor {
-    const l = cpuid(0, 0);
-    return vendorOf(l.ebx, l.edx, l.ecx, l.eax);
 }
 
 /// Probes the running CPU: every `cpuid` and `xgetbv` the decisions need.
@@ -222,7 +195,7 @@ pub fn probe() Caps {
 }
 
 /// Whether the host can run what the reference builds for `core`, from `c`:
-/// every extension in the core's spec (`_corespec.zig`). The named models there
+/// every extension in the core's spec (`corespec.zig`). The named models there
 /// are the AVX-512 cores.
 pub fn runnable(core: CoreType, c: Caps) bool {
     switch (core) {
@@ -239,16 +212,11 @@ pub fn runnable(core: CoreType, c: Caps) bool {
         if (core == .cooperlake and !c.has(.avx512_bf16)) return false;
         if (core == .sapphirerapids and !c.hasAll(&.{ .avx512_bf16, .amx_bf16 })) return false;
     }
-    // the extensions `_corespec.zig` names, by their LLVM feature names
+    // the extensions `corespec.zig` names, by their LLVM feature names
     for (s.features) |name| {
         if (!c.has(std.meta.stringToEnum(Feature, name) orelse return false)) return false;
     }
     return true;
-}
-
-/// Whether this machine can run `core`'s kernels (for tests).
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
 }
 
 // ---- core type selection ---------------------------------------------------
@@ -474,35 +442,6 @@ pub fn decide(c: Caps) Decision {
     return decideWidth(c, c.is64);
 }
 
-/// Picks a core type for the running CPU (see `decideWidth`).
-pub fn detect() CoreType {
-    return detectNoted().core;
-}
-
-/// `detect`, with the warning the reference gives when a fallback was taken.
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
-/// The coarse tier, for callers that only care about vector width and FMA
-/// rather than the specific microarchitecture.
-pub fn detectTier() Tier {
-    return probe().tier();
-}
-
-/// Module-level so every kernel and element type shares one probe. Racing
-/// writers store the same value, so `.monotonic` suffices.
-var cached_tier = std.atomic.Value(Tier).init(._unresolved);
-
-/// `detectTier`, probed once and cached; use this on hot paths (cpuid is slow).
-pub fn cachedTier() Tier {
-    const c = cached_tier.load(.monotonic);
-    if (c != ._unresolved) return c;
-    const t = detectTier();
-    cached_tier.store(t, .monotonic);
-    return t;
-}
-
 // ---- tests -----------------------------------------------------------------
 
 /// A CPU as the tests describe it: CPUID.1:EAX and the extensions the OS lets it use.
@@ -692,12 +631,10 @@ test "vendorOf reads the leaf 0 strings" {
     try std.testing.expectEqual(Vendor.unknown, w.v("TransmetaCPU", 0x10));
 }
 
-test "display family and model add the extended fields" {
+test "the display model adds the extended field" {
     const skx = cpu(.intel, 0x50654, .avx512);
-    try std.testing.expectEqual(@as(u32, 6), skx.displayFamily());
     try std.testing.expectEqual(@as(u32, 0x55), skx.displayModel());
     const zen2 = cpu(.amd, 0x870f10, .avx2);
-    try std.testing.expectEqual(@as(u32, 0x17), zen2.displayFamily());
     try std.testing.expectEqual(@as(u32, 0x71), zen2.displayModel());
 }
 
@@ -731,25 +668,15 @@ test "64-bit builds run no 32-bit-only core, and Athlon needs 3DNow!" {
 test "feature probes execute without faulting" {
     if (comptime !sysinfo.target.cpu.arch.isX86()) return error.SkipZigTest;
     const c = probe();
-    // Nothing to assert about which CPU this is -- the point is that every
+    // Nothing to assert about which CPU this is; the point is that every
     // cpuid/xgetbv path runs to completion and reports a coherent result.
-    try std.testing.expect(c.displayFamily() > 0);
+    try std.testing.expect(c.family() > 0);
     if (c.has(.avx512)) try std.testing.expect(c.has(.avx2));
     if (c.has(.avx2)) try std.testing.expect(c.has(.avx));
 }
 
-test "cachedTier matches detectTier and is stable across calls" {
-    if (comptime !sysinfo.target.cpu.arch.isX86()) return error.SkipZigTest;
-    try std.testing.expectEqual(detectTier(), cachedTier());
-    try std.testing.expectEqual(cachedTier(), cachedTier());
-}
-
 test "detect returns a concrete core type the host can run" {
     if (comptime !sysinfo.target.cpu.arch.isX86()) return error.SkipZigTest;
-    try std.testing.expect(detect() != .unknown);
-    try std.testing.expect(supportsCore(detect()));
-    switch (detectTier()) {
-        ._unresolved => unreachable,
-        .baseline, .avx2, .avx512 => {},
-    }
+    try std.testing.expect(select.detect(@This(), null) != .unknown);
+    try std.testing.expect(select.canRun(@This(), select.detect(@This(), null)));
 }

@@ -305,10 +305,10 @@ bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 | `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `aarch64-smp`, `aarch64-quad`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `x86_64-smp`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
 | `zig build qemu-test-x86_64-whpx` | the host CPU under WHPX (x86_64 Windows hosts): the AVX-512, FMA4 and XOP cores |
 | `zig build qemu-test-linux-<machine>` | the full suite under Linux (`aarch64`, `aarch64-sve`, `x86_64`, `arm`, `riscv64`, `powerpc64le`, `powerpc64le-power10`); `qemu-check-linux-<machine>` builds it only |
-| `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemutest.zig`) |
+| `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemu/macos.zig`) |
 | `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
-| `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
+| `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results/results-m6.md)) |
 | `tools/blasbench/flyoff.sh zen3 <OpenBLAS dll>`, `flyoff.sh m6` | the flyoff under the timing rule, one command per host ([`readme.md`](../../../tools/blasbench/readme.md#rerunning-the-flyoff)); `zig build bench-check` compiles the bench for each host |
 | `zig build wasm-test` | the OS-free tests under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
@@ -332,5 +332,5 @@ covers, and how the tests are built, is in [`design.md`](../design.md#verificati
 - [`blas1/c_kernels.md`](blas1/c_kernels.md): porting OpenBLAS's C level-1 kernels.
 - [`blas2/buffers.md`](blas2/buffers.md): the level-2 kernels' scratch buffers.
 - [`blas3/gemm/notes.md`](blas3/gemm/notes.md): gemm kernel measurements.
-- [`results-m6.md`](../../../tools/blasbench/results-m6.md): Zig against converted assembly on
+- [`results-m6.md`](../../../tools/blasbench/results/results-m6.md): Zig against converted assembly on
   Apple M6.

@@ -1,11 +1,11 @@
-//! The x86_64 dot drivers (`blas1/dot/kernel.zig`) against OpenBLAS's own C
+//! The x86_64 dot drivers (`blas1/dot/driver.zig`) against OpenBLAS's own C
 //! (`kernel/x86_64/sdot.c`, `ddot.c`, `cdot.c`, `zdot.c`), bit for bit, fused
 //! and not, on the cores this CPU runs. Not a test: `tools/dotverify/run.sh`
 //! builds it with the C, under a stub `common.h`, and runs it.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const kernel = @import("blas1/dot/kernel.zig");
+const kernel = @import("blas1/dot/driver.zig");
 const x86 = @import("blas1/dot/x86_64/kernel.zig");
 const ukidx = @import("blas1/dot/x86_64/uk/__root__.zig");
 const util = @import("util.zig");

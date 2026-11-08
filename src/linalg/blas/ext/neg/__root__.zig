@@ -6,7 +6,9 @@ const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const pattern = @import("../../_test/pattern.zig");
 const kernel = @import("kernel.zig");
 
 const XDouble = types.XDouble;
@@ -28,8 +30,8 @@ fn checkAll(vt: *const Vtable) !void {
     inline for (precisions) |p| {
         const T = p[1];
         const F = types.Float(T);
-        const neg = @field(vt, p[0] ++ "neg_tcopy").?;
-        const tcopy = @field(vt, p[0] ++ "gemm_itcopy").?;
+        const neg = portable.slotPtr(vt, .from(p[0]), .neg_tcopy).*.?;
+        const tcopy = portable.slotPtr(vt, .from(p[0]), .gemm_itcopy).*.?;
         for ([_]usize{ 1, 2, 3, 7, 17 }) |m| for ([_]usize{ 1, 2, 3, 5, 13, 33, 70 }) |n| {
             const lda = n + 2;
             const a = try al.alloc(T, lda * m);
@@ -40,13 +42,13 @@ fn checkAll(vt: *const Vtable) !void {
             defer al.free(got);
             check.fill(T, a, m * 101 + n);
             // signed zeros, denormals, huge values, infinities and NaN
-            for (a, 0..) |*v, i| v.* = check.shape(T, v.*, i, .mixed);
+            for (a, 0..) |*v, i| v.* = pattern.shape(T, v.*, i, .mixed);
             const pa: [*]F = @ptrCast(a.ptr);
             _ = tcopy(@intCast(m), @intCast(n), pa, @intCast(lda), @ptrCast(want.ptr));
             _ = neg(@intCast(m), @intCast(n), pa, @intCast(lda), @ptrCast(got.ptr));
             for (want, got) |w, g| {
                 const nw = if (comptime types.isComplex(T)) T.init(-w.re, -w.im) else -w;
-                if (!check.same(T, nw, g, true)) {
+                if (!bitwise.same(T, nw, g, true)) {
                     check.say("{s}neg_tcopy m={d} n={d}: ", .{ p[0], m, n });
                     return error.TestUnexpectedResult;
                 }
@@ -79,7 +81,7 @@ test "neg_tcopy at unroll 1 is neg_tcopy_1.c" {
         for (0..m) |i| for (0..n) |j| {
             const v = a[j + i * lda];
             const want: T = if (comptime types.isComplex(T)) T.init(-v.re, -v.im) else -v;
-            try std.testing.expect(check.same(T, want, b[i + j * m], true));
+            try std.testing.expect(bitwise.same(T, want, b[i + j * m], true));
         };
     }
 }

@@ -60,7 +60,7 @@ comptime {
 /// `BF16`. A distinct type over a 16-bit payload rather than an
 /// arithmetic type, because that is what it is in the reference too: a
 /// `uint16_t` bit pattern with explicit conversion kernels
-/// (`sbstobf16_k`, `sbf16tos_k`, ...). Nothing computes in bf16 directly --
+/// (`sbstobf16_k`, `sbf16tos_k`, ...). Nothing computes in bf16 directly;
 /// it is a storage format that gets widened to `f32` to do arithmetic, so
 /// making it non-arithmetic here keeps that honest.
 pub const BF16 = enum(u16) { _ };
@@ -142,13 +142,10 @@ pub const CComplex32 = CComplex(f32);
 pub const CComplex64 = CComplex(f64);
 pub const CComplexXD = CComplex(XDouble);
 
-/// Every element type a BLAS routine can be defined over.
-///
-/// Note these are not always distinct: without `exprecision` or
-/// `quad_precision`, `XDouble` *is* `f64` and `ComplexXD` *is* `Complex64`,
-/// so the `q`/`x` families alias `d`/`z`. That is the reference's behavior too, and it is why this is a
-/// membership test rather than a `switch` -- a switch cannot have the same
-/// type in two prongs.
+/// Every element type a BLAS routine can be defined over. Without
+/// `exprecision` or `quad_precision` `XDouble` is `f64` and the `q`/`x`
+/// families alias `d`/`z`, as in the reference, so `isBlasType` is a
+/// membership test: a switch cannot repeat a type.
 pub const blas_types = .{
     BF16,    HF16,      f32,       f64,
     XDouble, Complex32, Complex64, ComplexXD,
@@ -162,15 +159,8 @@ pub fn isBlasType(comptime T: type) bool {
     return false;
 }
 
-/// Asserts `T` is an element type BLAS routines are defined over -- the
-/// full set the reference supports, not just the classic four: `BF16` and
-/// `HF16` alongside `f32`/`f64`/`XDouble` and their complex counterparts.
-/// See `blas_types`.
-///
-/// This says nothing about whether a given routine implements `T`; that is
-/// each routine's own business, and should be its own compile error naming
-/// what is missing. Call with `comptime assertBlasType(T, @src())` so the
-/// message names the function that got the bad type.
+/// Asserts `T` is one of `blas_types`; whether a routine implements it is
+/// that routine's own error. `comptime assertBlasType(T, @src())` names the caller.
 pub fn assertBlasType(comptime T: type, comptime src: SrcInfo) void {
     if (!isBlasType(T)) {
         @compileError(src.fn_name ++ ": " ++ @typeName(T) ++ " is not a BLAS element type" ++

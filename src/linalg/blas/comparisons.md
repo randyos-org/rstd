@@ -85,7 +85,7 @@ unless there is heavy cancellation, so the result is close to correctly rounded.
 results nearly independent of summation order, which helps the reproducibility rule. No
 reference requires f32 accumulation; no caller can be hurt by extra accuracy. The cost is real
 in cache: widening halves lanes and adds `fcvtl`/`cvtps2pd` work. The M6 table in
-`tools/blasbench/results-m6.md` (`dot`, `s`, 218 GB/s at 4 KiB for `vec x4`) predates `4407e5a`,
+`tools/blasbench/results/results-m6.md` (`dot`, `s`, 218 GB/s at 4 KiB for `vec x4`) predates `4407e5a`,
 so the f64 `sdot` is unmeasured. Out of cache it should be close to bandwidth either way
 (uncertain; not measured).
 
@@ -114,7 +114,7 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
   `vortex`'s converted ones (unmeasured).
 - **Scalar fallbacks.** arm, mips, sparc and the pre-VSX POWER cores now take the `@Vector`
   kernels in the routed slots (the extremes, `nrm2`, `sdot`, `dsdot`), but `s` and `c` on ARMv7's NEON
-  cores, whose lanes flush (`vector.flushing`). Where a type has no vector unit, LLVM splits
+  cores, whose lanes flush (`registry.flushing`). Where a type has no vector unit, LLVM splits
   the vectors into scalar operations. Decided from the generated code (`-OReleaseFast`), since
   this PC was never idle enough to time (below): on SPARC v9 the portable `sdot` adds every
   product into one `faddd` chain, 7 instructions an element, the split `@Vector` one into eight
@@ -126,8 +126,8 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
 - **`f64` `sdot` cost.** The flyoff measured it against OpenBLAS's `f32` lanes, one thread: on
   Zen 3 (Windows) 64 against 218 GB/s at `n = 1024`, 75 against 131 at 8192, 27 against 32 out
   of cache; on the M6 (rstd's own kernels) 96 against 158 at 1024 and 98 against 123 out of cache
-  ([`results-flyoff-windows-x86_64.md`](../../../tools/blasbench/results-flyoff-windows-x86_64.md),
-  [`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results-flyoff-macos-aarch64.md)).
+  ([`results-flyoff-windows-x86_64.md`](../../../tools/blasbench/results/results-flyoff-windows-x86_64.md),
+  [`results-flyoff-macos-aarch64.md`](../../../tools/blasbench/results/results-flyoff-macos-aarch64.md)).
   On Zen 3 the widening (`vcvtps2pd`, one a cycle) bounds it near 2 elements a cycle in cache.
   Kept: the accuracy is the contract; `Dot2` in `f32` lanes stays the option to measure.
 - **Not measured.** `tools/blasbench`-style races of the portable against the `@Vector`
@@ -586,7 +586,7 @@ but VORTEX and VORTEXM4 always take the large set (`param.h:3574`), as `params_d
 ## 10. Special values and denormals
 
 **rstd.** The library never changes MXCSR/FPCR; tests require that denormals do not flush
-(`_test/blas1/edge.zig`; `check.Pattern.denormal` in level 3). Level-2 `trsv` divides by the diagonal for
+(`_test/blas1/edge.zig`; `pattern.Pattern.denormal` in level 3). Level-2 `trsv` divides by the diagonal for
 real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153-163`); level-3
 `trsm` packs the reciprocal of the diagonal (`blas3/trsm/kernel.zig:46-72`, OpenBLAS's
 `compinv` for complex).
@@ -626,7 +626,7 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    q8` and `vfma.f32 q8, q10, q9`. `vectorBits` in `blas3/gemm/kernel.zig` returns 128 for `f32`
    with NEON on arm, so `sgemm`/`cgemm` and every level-3 routine on ARMv7 flush denormal inputs and
    outputs, unlike the scalar VFP level-1/2 kernels. The level-3 `denormal` pattern should fail
-   there under the tolerance in `_test/blas1/check.zig:317`; I did not run the arm rig, and whether QEMU
+   there under the tolerance in `_test/blas1/check.zig:317` (now `_test/pattern.zig`); I did not run the arm rig, and whether QEMU
    applies FZ to AArch32 NEON is unverified. **Investigate**: run the level-3 denormal case on the
    `arm` rig and on hardware; if confirmed, either use scalar VFP for ARMv7 `f32` tiles (as
    OpenBLAS's ARMv7 `sgemm` VFP kernels do) or document flushing as an ARMv7 property.
@@ -638,6 +638,7 @@ real types and multiplies by a reciprocal for complex (`blas2/triangular.zig:153
    v6.12). VSX (POWER7+) is IEEE. **Investigate**
    alongside item 2 on the `powerpc` rig.
    **Done**: confirmed on the `powerpc` and `powerpc-pseries` rigs; scalar FPU there, as item 2.
+   Neither unit has `f64` lanes (LLVM splits them into scalar IEEE operations). LLVM's auto-vectorizer keeps off NEON's `f32` but not AltiVec's, so the AltiVec cores' objects are built without it (`cpu/corespec.zig`) and target loops pass `f32` results through `util.scalar` (`util.vectorIeee`).
    Clearing `NJ` (Java mode, IEEE denormals) was not taken: it changes the caller's environment,
    per thread, and the 970FX traps most such denormals to software (VPU assist interrupt at
    0x1700; IBM, "PowerPC 970FX RISC Microprocessor User's Manual", v1.7, section 12.5.1; mirror:

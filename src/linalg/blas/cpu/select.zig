@@ -1,7 +1,7 @@
 //! Choosing the core that serves a CPU, as pure decisions. A detector says which
-//! core the CPU is (`_detect/<arch>.zig`); this finds the core to run when that
+//! core the CPU is (`detect/<arch>.zig`); this finds the core to run when that
 //! one has no kernel object in the build or the CPU cannot execute it. Light,
-//! like `_corespec.zig`, so tests feed it synthetic values on any host.
+//! like `corespec.zig`, so tests feed it synthetic values on any host.
 //!
 //! The reference does this with `#define gotoblas_X gotoblas_Y` chains
 //! (`dynamic.c`), which follow no rule and are wrong for some builds (Barcelona
@@ -10,8 +10,9 @@
 //! one with the most features wins.
 
 const std = @import("std");
-const coretypes = @import("_coretypes.zig");
-const corespec = @import("_corespec.zig");
+const coretypes = @import("coretypes.zig");
+const corespec = @import("corespec.zig");
+const x86d = @import("detect/x86.zig");
 
 const Set = std.Target.Cpu.Feature.Set;
 
@@ -139,25 +140,7 @@ pub fn served(comptime Core: type, core: Core, linked: anytype) ?Core {
 /// `OPENBLAS_CORETYPE` names them, never a fallback (their tuning is for
 /// another class of CPU).
 pub fn staticOnly(core: anytype) bool {
-    return switch (@TypeOf(core)) {
-        coretypes.X86CoreType => switch (core) {
-            .p5, .p6, .viac3, .yonah => true,
-            else => false,
-        },
-        coretypes.Arm64CoreType => switch (core) {
-            .cortexa76, .cortexa510, .cortexa710, .cortexx1, .cortexx2, .ampere1, .ft2000 => true,
-            else => false,
-        },
-        coretypes.RiscvCoreType => switch (core) {
-            .c910v, .u74, .x280 => true,
-            else => false,
-        },
-        coretypes.MipsCoreType => switch (core) {
-            .mips24k, .mips1004k, .p5600, .i6400, .i6500, .p6600 => true,
-            else => false,
-        },
-        else => false,
-    };
+    return std.mem.findScalar(@TypeOf(core), coretypes.staticOnly(@TypeOf(core)), core) != null;
 }
 
 /// What `OPENBLAS_CORETYPE` can name: every core but the placeholder.
@@ -193,6 +176,25 @@ pub fn guard(comptime D: type, d: Decision(D.CoreType), caps: D.Caps) Decision(D
     return .{ .core = stand, .note = d.note };
 }
 
+/// `D.probe()`, or under `hwcap_mask` (`LD_HWCAP_MASK`, all bits if null)
+/// where `D` takes one (`probeMasked`, s390x).
+pub fn probe(comptime D: type, hwcap_mask: ?u64) D.Caps {
+    if (comptime @hasDecl(D, "probeMasked")) return D.probeMasked(hwcap_mask orelse ~@as(u64, 0));
+    return D.probe();
+}
+
+/// The running CPU's core: `D`'s decision on its probe.
+pub fn detect(comptime D: type, hwcap_mask: ?u64) D.CoreType {
+    return D.decide(probe(D, hwcap_mask)).core;
+}
+
+/// Whether this machine runs `core`'s kernels, for tests: `D.runsHere`
+/// where `D` has one (mips), else `D.runnable` on its probe.
+pub fn canRun(comptime D: type, core: D.CoreType) bool {
+    if (comptime @hasDecl(D, "runsHere")) return D.runsHere(core);
+    return D.runnable(core, D.probe());
+}
+
 /// What `choose` decided: the core the CPU or the user wants, and the core
 /// whose kernels serve it (null: the portable kernels).
 pub fn Chosen(comptime Core: type) type {
@@ -225,7 +227,7 @@ fn ForcedCtx(comptime D: type) type {
 }
 
 /// The whole choice, as `gotoblas_dynamic_init` makes it, for a detector `D`
-/// (`_detect/<arch>.zig`: `CoreType`, `Caps`, `decide`, `runnable`). `forced` is
+/// (`detect/<arch>.zig`: `CoreType`, `Caps`, `decide`, `runnable`). `forced` is
 /// `OPENBLAS_CORETYPE`. A name no core has is reported and detection decides, a
 /// forced core the CPU cannot run is replaced by the closest one it can (`ForcedCtx`), and a
 /// core with no kernels in the build is served by the closest one that has
@@ -261,6 +263,25 @@ pub fn choose(comptime D: type, caps: D.Caps, forced: ?[]const u8, linked: anyty
     }
     return .{ .core = d.core, .served = s };
 }
+
+/// Test doubles for `choose`.
+pub const testing = struct {
+    /// A build with every core of `Core` linked and no fallback.
+    pub fn AllLinked(comptime target: std.Target.Cpu.Arch, comptime Core: type) type {
+        return struct {
+            pub const arch: std.Target.Cpu.Arch = target;
+            pub const fallback: ?Core = null;
+            pub fn ok(_: @This(), _: Core) bool {
+                return true;
+            }
+        };
+    }
+
+    /// A `log` that drops every warning.
+    pub const NoLog = struct {
+        pub fn warn(_: NoLog, _: i32, comptime _: []const u8, _: anytype) void {}
+    };
+};
 
 // ---- tests -----------------------------------------------------------------
 
@@ -319,12 +340,7 @@ test "byName is case insensitive and never names the placeholder" {
 }
 
 test "every core type has a feature set and the sets nest along the AVX-512 line" {
-    inline for (.{
-        coretypes.X86CoreType,       coretypes.Arm64CoreType, coretypes.ArmCoreType,
-        coretypes.PowerCoreType,     coretypes.RiscvCoreType, coretypes.MipsCoreType,
-        coretypes.LoongarchCoreType, coretypes.S390xCoreType, coretypes.SparcCoreType,
-        coretypes.WasmCoreType,
-    }) |C| _ = Sets(C).all;
+    inline for (coretypes.all) |C| _ = Sets(C).all;
 }
 
 const Log = struct {
@@ -354,8 +370,6 @@ fn LinkedList(comptime list: []const X86) type {
         }
     };
 }
-
-const x86d = @import("_detect/x86.zig");
 
 fn intelCaps(eax1: u32, level: u8) x86d.Caps {
     return .{ .vendor = .intel, .eax1 = eax1, .features = .init(.{

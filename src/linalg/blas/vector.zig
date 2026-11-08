@@ -1,15 +1,9 @@
-//! `@Vector` kernels for level-1 and level-2 slots, in the kernel ABI: plain
-//! Zig, `U` native vectors a step. At `U = 4` they mostly match or beat OpenBLAS's
-//! arm64 kernels on Apple's cores (`tools/blasbench/results-m6.md`). Unit
-//! strides take the vectors; other strides, zero and negative ones too, a
-//! scalar loop. NaN, infinities, `scal`'s flag, `i?amax`'s first index and
-//! which strides a kernel refuses are the portable kernels'; `nrm2` sums
-//! plain squares, in `f64` for `f32`, and for `f64` takes Blue's algorithm
-//! where they could have overflowed or underflowed. `Registry` exports them
-//! from the per-core objects for the cores and slots an architecture's
-//! registry picks (`kernels/<arch>.zig`), among them every `routed` slot.
-//! Imports stay inside `linalg/blas/`: the per-core objects compile this
-//! file on their own.
+//! `@Vector` kernels for level-1 and level-2 slots, in the kernel ABI, `U`
+//! native vectors a step; unit strides vectorize, others take a scalar loop,
+//! and the special values are the portable kernels' (design.md). At `U = 4`
+//! they mostly match or beat OpenBLAS's arm64 kernels on Apple's cores
+//! (`tools/blasbench/results/results-m6.md`). `registry.Vector` places them.
+//! Imports stay inside `linalg/blas/`, for the per-core objects.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -18,9 +12,6 @@ const util = @import("util.zig");
 const Vtable = @import("Vtable.zig");
 const fma = @import("fma.zig");
 const extremum = @import("blas1/extremum.zig");
-const coretypes = @import("cpu/_coretypes.zig");
-const select = @import("cpu/_select.zig");
-const corespec = @import("cpu/_corespec.zig");
 const bf16 = @import("ext/bf16/kernel.zig");
 
 const BlasLong = types.BlasLong;
@@ -32,6 +23,11 @@ const Slot = util.Slot;
 pub fn lanes(comptime F: type) comptime_int {
     if (comptime sysinfo.target.cpu.arch.isAarch64()) return 16 / @sizeOf(F);
     return std.simd.suggestVectorLength(F) orelse 1;
+}
+
+/// `e` as `T`: itself where `T` is a float, else in every lane of `T`.
+pub inline fn splatTo(comptime T: type, e: anytype) T {
+    return if (@typeInfo(T) == .vector) @splat(e) else e;
 }
 
 inline fn at(comptime F: type, p: [*]F, i: BlasLong) *F {
@@ -540,15 +536,10 @@ pub fn Real(comptime F: type, comptime U: comptime_int) type {
         const Rotm = enum { full, unit, off };
 
         inline fn rotm1(comptime f: Rotm, comptime T: type, h: [4]F, w: T, z: T) [2]T {
-            const s = struct {
-                inline fn v(e: F) T {
-                    return if (T == F) e else @splat(e);
-                }
-            };
             return switch (f) {
-                .full => .{ mulAdd(T, s.v(h[1]), z, s.v(h[0]) * w), mulAdd(T, s.v(h[3]), z, s.v(h[2]) * w) },
-                .unit => .{ mulAdd(T, s.v(h[1]), z, w), mulAdd(T, s.v(h[2]), w, z) },
-                .off => .{ mulAdd(T, s.v(h[0]), w, z), mulAdd(T, s.v(h[3]), z, -w) },
+                .full => .{ mulAdd(T, splatTo(T, h[1]), z, splatTo(T, h[0]) * w), mulAdd(T, splatTo(T, h[3]), z, splatTo(T, h[2]) * w) },
+                .unit => .{ mulAdd(T, splatTo(T, h[1]), z, w), mulAdd(T, splatTo(T, h[2]), w, z) },
+                .off => .{ mulAdd(T, splatTo(T, h[0]), w, z), mulAdd(T, splatTo(T, h[3]), z, -w) },
             };
         }
 
@@ -643,18 +634,15 @@ const Pick = enum {
     inline fn apply(comptime p: Pick, comptime T: type, a: anytype, b: @TypeOf(a), xp: anytype, yp: anytype) T {
         const F = @TypeOf(a);
         const s = struct {
-            inline fn v(e: F) T {
-                return if (T == F) e else @splat(e);
-            }
             inline fn get(q: anytype) T {
                 return if (T == F) q.* else q[0..@typeInfo(T).vector.len].*;
             }
         };
         return switch (p) {
-            .zero => s.v(0),
-            .ax => s.v(a) * s.get(xp),
-            .by => s.v(b) * s.get(yp),
-            .both => mulAdd(T, s.v(a), s.get(xp), s.v(b) * s.get(yp)),
+            .zero => splatTo(T, @as(F, 0)),
+            .ax => splatTo(T, a) * s.get(xp),
+            .by => splatTo(T, b) * s.get(yp),
+            .both => mulAdd(T, splatTo(T, a), s.get(xp), splatTo(T, b) * s.get(yp)),
         };
     }
 };
@@ -1119,14 +1107,10 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
             }
         }
 
-        /// `y += alpha*S*x` over the columns `offset` selects (the last
-        /// `offset` for the upper triangle, the first for the lower), `S`
-        /// symmetric or Hermitian from one stored triangle by `kind`:
-        /// `kernel/riscv64/zsymv_L_rvv.c`, `zsymv_U_rvv.c`, `zhemv_LM_rvv.c`,
-        /// `zhemv_UV_rvv.c`, `zhemv_LM_vector.c`, `zhemv_UV_vector.c`. Per
-        /// column `j`, `alpha*x[j]` times the column into `y`, its dot with
-        /// `x` times `alpha` into `y[j]`; the diagonal first, a Hermitian
-        /// one's imaginary part unread.
+        /// `y += alpha*S*x` over the columns `offset` selects, `S` from one
+        /// stored triangle by `kind`; per column, the diagonal first (its
+        /// imaginary part unread for Hermitian). `kernel/riscv64/zsymv_L_rvv.c`,
+        /// `zsymv_U_rvv.c`, `zhemv_LM_rvv.c`, `zhemv_UV_rvv.c`, `zhemv_*_vector.c`.
         fn Symv(comptime lower: bool, comptime kind: SymKind) type {
             // `y` takes the column conjugated for `HEMVREV` (`V`, `M`), the
             // dot for the plain Hermitian (`U`, `L`)
@@ -1188,48 +1172,32 @@ pub fn Complex(comptime F: type, comptime U: comptime_int) type {
 /// symmetric, Hermitian, or the Hermitian one's transpose (`HEMVREV`).
 const SymKind = enum { symmetric, hermitian, hermitian_rev };
 
-/// The half-precision gemvs, `sbgemv` (`E` bfloat16, `Y` `f32`), `bgemv`
-/// (both bfloat16) and `shgemv` (`f16`, `f32`), in `ext/bf16/kernel.zig`'s
-/// bits: each result sums `a*x` in `f32` in index order, unfused, and rounds
-/// once on the store (`readme.md`, "bfloat16 and half precision"). Upstream's
-/// `kernel/riscv64/sbgemv_n_vector.c` and `sbgemv_t_vector.c` (zvl256b)
-/// round `alpha*x[j]` to `E` and fuse; `kernel/x86_64/sbgemv_n_microk_cooperlake.c`
-/// (AVX-512 BF16 `vdpbf16ps`), `kernel/arm64/sbgemv_n_neon.c`,
-/// `sbgemv_t_bfdot.c` (BFDOT) and `bgemv_n_sve_v3x4.c` (BFMLAL) sum pairs
-/// of products in instructions with their own rounding. Only their shape is
-/// kept: without a transpose a lane per row, with one a lane per column, `A`
-/// transposed a tile at a time in registers.
+/// The half-precision gemvs (`sbgemv`, `bgemv`, `shgemv`) in
+/// `ext/bf16/kernel.zig`'s bits: `f32` sums in index order, unfused, one
+/// rounding on the store. Only the shape of upstream's kernels is kept
+/// (`kernel/riscv64/sbgemv_?_vector.c`, `kernel/x86_64/sbgemv_n_microk_cooperlake.c`,
+/// `kernel/arm64/sbgemv_n_neon.c`, `sbgemv_t_bfdot.c`, `bgemv_n_sve_v3x4.c`),
+/// whose fused or paired products round otherwise.
 pub fn Half(comptime E: type, comptime Y: type) type {
     return struct {
         const N = lanes(f32);
         const V = @Vector(N, f32);
-        const U16 = @Vector(N, u16);
 
         inline fn wide(e: E) f32 {
             return bf16.wide(E, e);
         }
 
-        /// `N` elements from `p`, widened as `bf16.wide` does: a bfloat16
+        /// `N` elements from `p`, widened as `bf16.widen` does: a bfloat16
         /// denormal flushes to a signed zero and a NaN comes out quiet.
         inline fn widen(p: [*]const E) V {
-            if (E == f16) return @floatCast(@as(@Vector(N, f16), p[0..N].*));
-            const h: U16 = @as(*const [N]u16, @ptrCast(p)).*;
-            const e = h & @as(U16, @splat(0x7f80));
-            const quiet = @select(u16, (h & @as(U16, @splat(0x7f))) != @as(U16, @splat(0)), h | @as(U16, @splat(0x40)), h);
-            var r = @select(u16, e == @as(U16, @splat(0x7f80)), quiet, h);
-            r = @select(u16, e == @as(U16, @splat(0)), h & @as(U16, @splat(0x8000)), r);
-            return @bitCast(@as(@Vector(N, u32), r) << @splat(16));
+            const w = bf16.widen(E, N, p);
+            return if (N == 1) @splat(w) else w;
         }
 
         /// `alpha*acc + beta*y`, rounded once each; `beta == 0` does not read `y`.
         inline fn result(comptime T: type, alpha: f32, beta: f32, acc: T, yv: anytype) T {
-            const s = struct {
-                inline fn v(e: f32) T {
-                    return if (T == f32) e else @splat(e);
-                }
-            };
-            if (beta == 0) return s.v(alpha) * acc;
-            return s.v(alpha) * acc + s.v(beta) * @as(T, yv.*);
+            if (beta == 0) return splatTo(T, alpha) * acc;
+            return splatTo(T, alpha) * acc + splatTo(T, beta) * @as(T, yv.*);
         }
 
         /// `y[at] = alpha*acc + beta*y[at]` in `f32`, rounded to `Y`.
@@ -1351,15 +1319,9 @@ pub fn Half(comptime E: type, comptime Y: type) type {
 // ---- the slots they fill -----------------------------------------------------
 
 /// Whether `slot`'s converted kernels give way to the portable or these on
-/// every core, so its results follow one contract whatever the core
-/// (`readme.md`, "One contract"): `nrm2` sums in `f64` for `s` and `c` and
-/// is Blue's for `d` and `z`; in the extremes the first NaN wins; `sdot`
-/// and `dsdot` sum in `f64`, one sum, so a threaded `sdot`'s chunks are its
-/// kernel's (`threading.md`); and no result depends on an operand's address
-/// (`peels`).
-/// `tools/blas_asm` does not convert their assembly (`roles.zig`'s `skip`,
-/// kept in step with this); an architecture's `Registry` puts these in where
-/// its vector unit is IEEE.
+/// every core, for one contract (`readme.md`, "One contract"): `nrm2`, the
+/// extremes, `sdot` and `dsdot`, and the `peels` slots. `tools/blas_asm`
+/// leaves their assembly out (`roles.zig`'s `skip`, kept in step).
 pub fn routed(comptime slot: Slot) bool {
     return switch (slot) {
         // the extremes, `nrm2`, `sdot` and `dsdot`
@@ -1410,64 +1372,6 @@ pub fn peels(comptime slot: Slot) bool {
 
 /// The slots `peels` names.
 pub const peeling = [_]Slot{ .sasum_k, .dasum_k, .casum_k, .zasum_k, .csum_k, .zsum_k, .ddot_k, .cdotu_k, .cdotc_k, .zdotu_k, .zdotc_k, .dgemv_n };
-
-/// Where these kernels take slots from the converted ones beyond `routed`
-/// (`displaces`): every slot of theirs but `keep` on arm64's `vortex` and
-/// `vortexm4`, where they mostly match or beat the converted kernels
-/// (`tools/blasbench/results-m6.md`); `sum` is unmeasured there. `tools/blas_asm/survey.zig` reads it
-/// as text.
-pub const displacing: struct { cores: []const coretypes.Arm64CoreType, keep: []const Slot } = .{
-    .cores = &.{ .vortex, .vortexm4 },
-    .keep = &.{ .srot_k, .drot_k, .csrot_k, .zdrot_k, .ssum_k, .dsum_k, .csum_k, .zsum_k },
-};
-
-/// The cores whose vectors flush `f32` (`util.vectorIeeeOn` on their specs,
-/// as a test checks): ARMv7's NEON ones. Their objects build no `s` or `c`
-/// kernels here (`kernels`), so these take no such slot there.
-/// `tools/blas_asm/survey.zig` reads it as text.
-pub const flushing: struct { cores: []const coretypes.ArmCoreType } = .{
-    .cores = &.{ .cortexa9, .cortexa15 },
-};
-
-/// Whether `slot` is over `f32` and `core` one of `flushing`'s.
-fn flushes(comptime core: anytype, comptime slot: Slot) bool {
-    if (@TypeOf(core) != coretypes.ArmCoreType) return false;
-    if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
-    inline for (real_slots ++ complex_slots) |p| {
-        inline for (@typeInfo(@TypeOf(p[1])).@"struct".field_names) |name| {
-            const s: ?Slot = @field(p[1], name);
-            if (s == slot) return p[0] == f32;
-        }
-    }
-    return false;
-}
-
-test "vector.flushing names the arm cores whose specs flush f32 lanes" {
-    // soft-float ABIs keep floats out of every vector unit
-    if (sysinfo.target.abi.float() == .soft) return error.SkipZigTest;
-    inline for (comptime corespec.kernelCores(.arm)) |core| {
-        const listed = std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) != null;
-        try std.testing.expectEqual(!util.vectorIeeeOn(f32, select.specCpu(core)), listed);
-    }
-}
-
-/// Whether these kernels take `slot` from `core`'s converted ones, beyond
-/// `routed`, so its object leaves those out (`displacing`). On Apple's
-/// systems Accelerate is to serve instead, and the converted kernels stay.
-pub fn displaces(comptime core: anytype, comptime slot: Slot) bool {
-    if (sysinfo.target.os.tag.isDarwin()) return false;
-    if (@TypeOf(core) != coretypes.Arm64CoreType) return false;
-    return std.mem.indexOfScalar(coretypes.Arm64CoreType, displacing.cores, core) != null and
-        std.mem.indexOfScalar(Slot, displacing.keep, slot) == null and fills(slot);
-}
-
-/// Whether one of these kernels fills `slot` on this target.
-pub fn fills(comptime slot: Slot) bool {
-    inline for (kernels) |k| {
-        if (k.slot == slot) return true;
-    }
-    return false;
-}
 
 /// The slot each function of `Real` fills, by its name there; `dsdot` over
 /// `f32` only.
@@ -1521,7 +1425,7 @@ const ComplexSlots = struct {
     gemv_d: Slot,
 };
 
-const real_slots = .{
+pub const real_slots = .{
     .{ f32, RealSlots{
         .axpy = .saxpy_k,
         .dot = .sdot_k,
@@ -1567,7 +1471,7 @@ const real_slots = .{
     } },
 };
 
-const complex_slots = .{
+pub const complex_slots = .{
     .{ f32, ComplexSlots{
         .axpy = .caxpy_k,
         .axpyc = .caxpyc_k,
@@ -1645,12 +1549,12 @@ pub const kernels: []const Kernel = blk: {
 };
 
 /// The kernel of `k`, `U` vectors a step.
-fn kernel(comptime k: Kernel, comptime U: comptime_int) util.SlotFn(k.slot) {
+pub fn kernel(comptime k: Kernel, comptime U: comptime_int) util.SlotFn(k.slot) {
     return &@field(if (k.complex) Complex(k.F, U) else Real(k.F, U), k.f);
 }
 
 /// The symbol of `slot`'s kernel here for `core`, apart from a converted one's.
-fn symbol(comptime slot: Slot, comptime core: anytype) []const u8 {
+pub fn symbol(comptime slot: Slot, comptime core: anytype) []const u8 {
     return util.kernelSymbol(slot, core) ++ "_vec";
 }
 
@@ -1733,81 +1637,3 @@ pub const ported = struct {
         return !single or util.vectorIeee(f32);
     }
 };
-
-/// Where a registry puts these kernels, its `vector_rule`, which
-/// `tools/blas_asm/survey.zig` reads as text.
-pub fn Rule(comptime Core: type) type {
-    return union(enum) {
-        /// The `routed` slots, on `cores` or every core when null; a `peels`
-        /// slot only where a converted module `skips` its assembly.
-        routed: ?[]const Core,
-        /// The `routed` slots; off Apple, whose Accelerate is to serve the
-        /// rest, also those they `displace` and those no converted module
-        /// fills (`hasSlot`), mostly C upstream, for the portable loop.
-        unfilled,
-        /// `unfilled` on `cores` only: those with a vector unit where others
-        /// have none (riscv64). The rest take none of these kernels.
-        unfilled_on: []const Core,
-    };
-}
-
-/// Whether `rule` puts these kernels in `slot` on `core`, over the
-/// registry's `converted` modules.
-pub fn takes(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
-    if (flushes(core, slot)) return false;
-    switch (rule) {
-        .routed => |cores| {
-            if (!routed(slot)) return false;
-            if (cores) |cs| if (std.mem.indexOfScalar(Core, cs, core) == null) return false;
-            if (!peels(slot)) return true;
-            inline for (converted) |m| {
-                if (@hasDecl(m, "skips") and m.skips(core, slot)) return true;
-            }
-            return false;
-        },
-        .unfilled => return unfilled(Core, converted, core, slot),
-        .unfilled_on => |cores| return std.mem.indexOfScalar(Core, cores, core) != null and unfilled(Core, converted, core, slot),
-    }
-}
-
-/// `Rule.unfilled`'s choice for `slot` on `core`.
-fn unfilled(comptime Core: type, comptime converted: anytype, comptime core: Core, comptime slot: Slot) bool {
-    if (routed(slot)) return true;
-    if (sysinfo.target.os.tag.isDarwin()) return false;
-    if (displaces(core, slot)) return true;
-    inline for (converted) |m| {
-        if (@hasDecl(m, "hasSlot") and m.hasSlot(core, slot)) return false;
-    }
-    return true;
-}
-
-/// The kernels four vectors a step, in a per-core object for the cores and
-/// slots `rule` picks (`takes`). Like the gemm kernels, they never make a
-/// core need an object of its own.
-pub fn Registry(comptime Core: type, comptime rule: Rule(Core), comptime converted: anytype) type {
-    return struct {
-        /// Whether these kernels take `slot` on `core`.
-        pub fn uses(comptime core: Core, comptime slot: Slot) bool {
-            return takes(Core, rule, converted, core, slot);
-        }
-
-        pub fn has(comptime core: Core) bool {
-            _ = core;
-            return false;
-        }
-
-        pub fn exportCore(comptime core: Core) void {
-            inline for (kernels) |k| {
-                if (comptime uses(core, k.slot)) @export(kernel(k, 4), .{ .name = symbol(k.slot, core), .visibility = .hidden });
-            }
-        }
-
-        pub fn install(vt: *Vtable, comptime core: Core) void {
-            inline for (kernels) |k| {
-                if (comptime uses(core, k.slot)) {
-                    @field(vt, @tagName(k.slot)) = @extern(util.SlotFn(k.slot), .{ .name = symbol(k.slot, core), .visibility = .hidden });
-                }
-            }
-        }
-    };
-}

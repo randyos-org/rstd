@@ -1,9 +1,9 @@
-//! SPARC CPU selection. The reference has two static targets and detects
-//! nothing at run time, so the core type follows the target: V9 (any 64-bit
-//! target, or the 32-bit one built for V9) or the generic one.
+//! SPARC CPU selection: the reference's two static targets, by the build's
+//! target (V9, or the generic one); nothing is detected at run time.
 
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const std = @import("std");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
 
 pub const CoreType = coretypes.SparcCoreType;
@@ -26,21 +26,6 @@ pub fn decide(c: Caps) Decision {
     return .{ .core = if (c.v9) .sparc else .sparcv7 };
 }
 
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
-const std = @import("std");
-
 test "V9 targets get the V9 core" {
     try std.testing.expectEqual(CoreType.sparc, decide(.{ .v9 = true }).core);
     try std.testing.expectEqual(CoreType.sparcv7, decide(.{ .v9 = false }).core);
@@ -48,5 +33,5 @@ test "V9 targets get the V9 core" {
 }
 
 test "detect runs" {
-    try std.testing.expect(supportsCore(detect()));
+    try std.testing.expect(select.canRun(@This(), select.detect(@This(), null)));
 }

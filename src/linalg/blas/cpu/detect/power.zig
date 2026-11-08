@@ -1,21 +1,14 @@
-//! PowerPC CPU detection, mirroring `driver/others/dynamic_power.c`.
-//!
-//! The reference uses GCC's `__builtin_cpu_is`, which glibc backs with
-//! `AT_PLATFORM` from the auxiliary vector (glibc 2.42
-//! `sysdeps/powerpc/hwcapinfo.c:36`), `__builtin_cpu_supports` for
-//! POWER10 (ISA 3.1 and MMA), and on AIX or without the builtins the processor
-//! version register. Here: `AT_PLATFORM` first; then the PVR where the OS
-//! lets a program read it (Linux emulates `mfpvr`); then the ISA bits of
-//! `AT_HWCAP` and `AT_HWCAP2`. A CPU none of them names gets the portable
-//! kernels, where the reference guesses POWER8. The older cores (POWER3 to 5,
-//! 970, Cell, G4, 440) are static targets upstream; they are detected here so
-//! no CPU runs another generation's instructions.
+//! PowerPC CPU detection, mirroring `driver/others/dynamic_power.c`:
+//! `AT_PLATFORM` (glibc 2.42 `sysdeps/powerpc/hwcapinfo.c:36` backs
+//! `__builtin_cpu_is` with it), then the PVR, then `AT_HWCAP`/`AT_HWCAP2`.
+//! A CPU none names gets the portable kernels (the reference guesses POWER8);
+//! the static-only older cores are detected, so none runs a newer ISA.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
+const osinfo = @import("../osinfo.zig");
 
 pub const CoreType = coretypes.PowerCoreType;
 pub const Decision = select.Decision(CoreType);
@@ -142,7 +135,7 @@ fn fromHwcap(c: Caps) Generation {
 /// `AT_PLATFORM` (a NUL-terminated string such as "power9"), if it is one we
 /// know. A chip in compatibility mode reports the mode it is in.
 pub fn platform() ?Platform {
-    const name = auxv.platform() orelse return null;
+    const name = osinfo.platform() orelse return null;
     return std.meta.stringToEnum(Platform, name);
 }
 
@@ -156,7 +149,7 @@ pub fn probe() Caps {
     if (comptime !sysinfo.target.cpu.arch.isPowerpc()) return .{};
     // no OS to ask: the PVR, readable in supervisor state
     if (comptime sysinfo.target.os.tag == .freestanding) return .{ .generation = fromPvr(mfpvr()) };
-    var c: Caps = .{ .platform = platform(), .hwcap = auxv.hwcap(), .hwcap2 = auxv.hwcap2() };
+    var c: Caps = .{ .platform = platform(), .hwcap = osinfo.hwcap(), .hwcap2 = osinfo.hwcap2() };
     if (sysinfo.target.os.tag == .linux and c.platform == null) {
         c.generation = fromPvr(mfpvr());
     }
@@ -234,19 +227,6 @@ pub fn decide(c: Caps) Decision {
     } };
     if (d.core == .unknown) return d;
     return select.guard(@This(), d, c);
-}
-
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
 }
 
 test "AT_PLATFORM names the core" {
@@ -344,6 +324,6 @@ test "runnable checks the ISA level" {
 
 test "detect runs on PowerPC targets" {
     if (comptime !sysinfo.target.cpu.arch.isPowerpc()) return error.SkipZigTest;
-    const core = detect();
-    if (core != .unknown) try std.testing.expect(supportsCore(core));
+    const core = select.detect(@This(), null);
+    if (core != .unknown) try std.testing.expect(select.canRun(@This(), core));
 }

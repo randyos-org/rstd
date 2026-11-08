@@ -1,18 +1,11 @@
-//! AArch64 CPU detection, mirroring `driver/others/dynamic_arm64.c`.
-//!
-//! Unlike x86, AArch64 cannot identify itself unaided: `MIDR_EL1` is a
-//! system register that faults in user mode unless the kernel emulates the
-//! read, which Linux and FreeBSD advertise through `AT_HWCAP & HWCAP_CPUID`.
-//! So there are separate paths: Darwin (Apple silicon, answered by `sysctl`),
-//! Linux/Android (`MIDR_EL1`, with `/sys/.../midr_el1` for every CPU when the
-//! kernel lacks the emulation), Windows (the register's copy in the registry),
-//! and everything else (generic). `modelCore` is the part table.
+//! AArch64 CPU detection, mirroring `driver/others/dynamic_arm64.c`; each
+//! OS's probe is in design.md (Core detection). `modelCore` is the part table.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
+const osinfo = @import("../osinfo.zig");
 
 pub const CoreType = coretypes.Arm64CoreType;
 pub const Decision = select.Decision(CoreType);
@@ -79,7 +72,7 @@ pub const Midr = struct {
 };
 
 /// Reads `MIDR_EL1`. Only legal once `HWCAP_CPUID` says the kernel will
-/// emulate it -- calling this unguarded on a kernel without that support
+/// emulate it; calling this unguarded on a kernel without that support
 /// raises SIGILL.
 pub fn readMidr() Midr {
     const raw = asm volatile ("mrs %[out], midr_el1"
@@ -185,27 +178,7 @@ pub fn windowsFeatures(present: *const fn (PF) bool) Features {
 }
 
 fn processorFeature(f: PF) bool {
-    return auxv.processorFeature(@backingInt(f));
-}
-
-/// A hex number as the sysfs files print it ("0x00000000411fd070"), the low 32
-/// bits, as `strtoul` into an int gives.
-pub fn parseHex(text: []const u8) ?u32 {
-    var t = std.mem.trim(u8, text, " \t\r\n\x00");
-    if (std.mem.startsWith(u8, t, "0x") or std.mem.startsWith(u8, t, "0X")) t = t[2..];
-    var end: usize = 0;
-    while (end < t.len and std.ascii.isHex(t[end])) end += 1;
-    if (end == 0) return null;
-    return @truncate(std.fmt.parseInt(u64, t[0..end], 16) catch return null);
-}
-
-/// How many CPUs `/sys/devices/system/cpu/possible` ("0-7", or "0") names.
-pub fn cpuCountFromPossible(text: []const u8) usize {
-    const t = std.mem.trim(u8, text, " \t\r\n\x00");
-    if (!std.mem.startsWith(u8, t, "0-")) return 1;
-    var end: usize = 2;
-    while (end < t.len and std.ascii.isDigit(t[end])) end += 1;
-    return (std.fmt.parseInt(usize, t[2..end], 10) catch 0) + 1;
+    return osinfo.processorFeature(@backingInt(f));
 }
 
 /// The implementer and part a sysfs scan settles on.
@@ -228,7 +201,7 @@ pub const SysfsScan = struct {
     /// One CPU's `midr_el1` and `cpu_capacity` file text (empty if absent).
     /// False when the MIDR cannot be read, where the reference gives up.
     pub fn add(s: *SysfsScan, midr_text: []const u8, capacity_text: []const u8) bool {
-        const midr = parseHex(midr_text) orelse return false;
+        const midr = osinfo.parseHex(midr_text) orelse return false;
         s.implementer = (midr >> 24) & 0xff;
         s.last_part = (midr >> 4) & 0xfff;
         const cap = std.mem.trim(u8, capacity_text, " \t\r\n\x00");
@@ -252,7 +225,7 @@ pub fn midrFromSysfs(os: anytype) ?Part {
     var cap: [16]u8 = undefined;
     const possible = os.read("/sys/devices/system/cpu/possible", &buf);
     // without `possible`, every CPU until the first without a MIDR file
-    const n = if (possible.len != 0) cpuCountFromPossible(possible) else 4096;
+    const n = if (possible.len != 0) osinfo.cpuCountFromPossible(possible) else 4096;
     var scan: SysfsScan = .{};
     for (0..n) |i| {
         var path: [96]u8 = undefined;
@@ -291,7 +264,7 @@ const LiveOs = struct {
     }
 
     fn read(_: LiveOs, path: [*:0]const u8, buf: []u8) []const u8 {
-        return auxv.readFile(path, buf);
+        return osinfo.readFile(path, buf);
     }
 };
 
@@ -314,37 +287,15 @@ pub fn windowsCaps(present: *const fn (PF) bool, midr: ?u64) Caps {
 /// `lib/TargetParser/Host.cpp` read it so).
 const cpu0_key = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
 
-/// A `REG_QWORD` under `HKEY_LOCAL_MACHINE`; null if absent or another type.
-fn registryQword(comptime subkey: []const u8, comptime value: []const u8) ?u64 {
-    if (comptime sysinfo.target.os.tag != .windows) return null;
-    const advapi = struct {
-        extern "advapi32" fn RegGetValueW(hkey: usize, subkey: [*:0]const u16, value: [*:0]const u16, flags: u32, kind: ?*u32, data: ?*anyopaque, size: ?*u32) callconv(.winapi) i32;
-    };
-    const HKEY_LOCAL_MACHINE: usize = 0x80000002;
-    const RRF_RT_REG_QWORD: u32 = 0x40;
-    var raw: u64 = 0;
-    var size: u32 = @sizeOf(u64);
-    const rc = advapi.RegGetValueW(
-        HKEY_LOCAL_MACHINE,
-        std.unicode.utf8ToUtf16LeStringLiteral(subkey),
-        std.unicode.utf8ToUtf16LeStringLiteral(value),
-        RRF_RT_REG_QWORD,
-        null,
-        &raw,
-        &size,
-    );
-    return if (rc == 0) raw else null;
-}
-
 pub fn probe() Caps {
     switch (comptime sysinfo.target.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
-            return .{ .features = darwinFeatures(auxv.sysctlInt("hw.optional.arm.FEAT_SME"), auxv.sysctlInt("hw.optional.arm.FEAT_SME_F64F64")) };
+            return .{ .features = darwinFeatures(osinfo.sysctlInt("hw.optional.arm.FEAT_SME"), osinfo.sysctlInt("hw.optional.arm.FEAT_SME_F64F64")) };
         },
-        .windows => return windowsCaps(&processorFeature, registryQword(cpu0_key, "CP 4000")),
+        .windows => return windowsCaps(&processorFeature, osinfo.registryQword(cpu0_key, "CP 4000")),
         // no OS to ask: the ID registers, readable at EL1 and up
         .freestanding, .uefi => return idRegisters(),
-        else => return hwcapCaps(auxv.hwcap(), auxv.hwcap2(), LiveOs{}),
+        else => return hwcapCaps(osinfo.hwcap(), osinfo.hwcap2(), LiveOs{}),
     }
 }
 
@@ -412,11 +363,6 @@ fn pick(c: Caps) Decision {
     return .{ .core = .armv8 };
 }
 
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
 /// Whether the kernels of `core` run on a CPU with `c`'s extensions. The ISA
 /// level a core is built for (`v8_2a`...) cannot be told apart by the probes; a
 /// part table that names a core only names one the CPU's generation has. But
@@ -463,14 +409,6 @@ pub fn parent(core: CoreType) ?CoreType {
         .armv8, .unknown => null,
         else => .armv8,
     };
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
 }
 
 // ---- tests -----------------------------------------------------------------
@@ -624,45 +562,25 @@ test "no SME core is chosen without F64F64" {
         }
     }.f);
     // nor by name
-    const Linked = struct {
-        pub const arch: std.Target.Cpu.Arch = .aarch64;
-        pub const fallback: ?CoreType = null;
-        pub fn ok(_: @This(), _: CoreType) bool {
-            return true;
-        }
-    };
-    const NoLog = struct {
-        pub fn warn(_: @This(), _: i32, comptime _: []const u8, _: anytype) void {}
-    };
     const c: Caps = .{ .features = .initMany(&.{ .sve, .sve2, .sme, .bf16, .fcma }) };
     for ([_][]const u8{ "armv9sme", "vortexm4" }) |name| {
-        const r = select.choose(@This(), c, name, Linked{}, NoLog{});
+        const r = select.choose(@This(), c, name, select.testing.AllLinked(.aarch64, CoreType){}, select.testing.NoLog{});
         try std.testing.expect(r.core != .armv9sme and r.core != .vortexm4);
     }
 }
 
 test "a forced core the CPU cannot run falls back within what detection found" {
-    const Linked = struct {
-        pub const arch: std.Target.Cpu.Arch = .aarch64;
-        pub const fallback: ?CoreType = null;
-        pub fn ok(_: @This(), _: CoreType) bool {
-            return true;
-        }
-    };
-    const NoLog = struct {
-        pub fn warn(_: @This(), _: i32, comptime _: []const u8, _: anytype) void {}
-    };
     const D = @This();
     // a Cortex-A72 (Raspberry Pi 4) told it is a V1: no ARMv8.2 Neoverse N1
     const a72: Caps = .{ .features = .initOne(.midr), .implementer = 0x41, .part = 0xd08 };
-    const r = select.choose(D, a72, "neoversev1", Linked{}, NoLog{});
+    const r = select.choose(D, a72, "neoversev1", select.testing.AllLinked(.aarch64, CoreType){}, select.testing.NoLog{});
     try std.testing.expect(select.subsetOf(CoreType, r.core, .cortexa72));
     try everyCaps(struct {
         fn f(c: Caps) !void {
             const det = decide(c).core;
             for (std.enums.values(CoreType)) |want| {
                 if (want == .unknown) continue;
-                const got = select.choose(D, c, @tagName(want), Linked{}, NoLog{}).core;
+                const got = select.choose(D, c, @tagName(want), select.testing.AllLinked(.aarch64, CoreType){}, select.testing.NoLog{}).core;
                 try std.testing.expect(runnable(got, c));
                 if (got != want) try std.testing.expect(select.subsetOf(CoreType, got, det));
             }
@@ -742,15 +660,6 @@ test "MIDR_EL1 fields" {
     try std.testing.expectEqual(@as(u32, 1), m.revision);
 }
 
-test "sysfs parsing" {
-    try std.testing.expectEqual(@as(?u32, 0x411fd070), parseHex("0x00000000411fd070\n"));
-    try std.testing.expectEqual(@as(?u32, 0x1000), parseHex("1000"));
-    try std.testing.expectEqual(@as(?u32, null), parseHex("\n"));
-    try std.testing.expectEqual(@as(usize, 8), cpuCountFromPossible("0-7\n"));
-    try std.testing.expectEqual(@as(usize, 1), cpuCountFromPossible("0\n"));
-    try std.testing.expectEqual(@as(usize, 1), cpuCountFromPossible(""));
-}
-
 test "without the MIDR emulation the last CPU's identity decides, unless a big one is named" {
     // little Cortex-A55s then big Cortex-A76s, as sysfs prints them
     const a55 = "0x00000000411fd050\n";
@@ -812,7 +721,7 @@ fn hwcapsOf(fs: Features, cpuid: bool) [2]usize {
 /// The features a `/proc/cpuinfo` block's `Features` line names.
 fn cpuinfoFeatures(text: []const u8) !Features {
     var fs: Features = .empty;
-    var words = std.mem.tokenizeScalar(u8, auxv.cpuinfoField(text, "Features") orelse return error.TestUnexpectedResult, ' ');
+    var words = std.mem.tokenizeScalar(u8, osinfo.cpuinfoField(text, "Features") orelse return error.TestUnexpectedResult, ' ');
     while (words.next()) |w| {
         inline for (hwcap_names) |n| {
             if (std.mem.eql(u8, w, n[1])) fs.insert(n[0]);
@@ -826,7 +735,7 @@ fn cpuinfoFeatures(text: []const u8) !Features {
 fn cpuinfoMidr(text: []const u8) !u64 {
     const get = struct {
         fn f(s: []const u8, key: []const u8) !u64 {
-            return std.fmt.parseInt(u64, auxv.cpuinfoField(s, key) orelse return error.TestUnexpectedResult, 0);
+            return std.fmt.parseInt(u64, osinfo.cpuinfoField(s, key) orelse return error.TestUnexpectedResult, 0);
         }
     }.f;
     const imp = try get(text, "CPU implementer");
@@ -1008,9 +917,9 @@ test "recorded Windows arm64 machines pick OpenBLAS's core" {
 test "the registry read works on Windows" {
     if (comptime sysinfo.target.os.tag != .windows) return error.SkipZigTest;
     // a `REG_QWORD` every Windows 10 and 11 has
-    try std.testing.expect(registryQword("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "InstallTime") != null);
+    try std.testing.expect(osinfo.registryQword("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "InstallTime") != null);
     // `CP 4000` on arm64 alone; x86's key has none
-    const midr = registryQword(cpu0_key, "CP 4000");
+    const midr = osinfo.registryQword(cpu0_key, "CP 4000");
     try std.testing.expect((midr != null) == (sysinfo.target.cpu.arch == .aarch64));
 }
 
@@ -1018,5 +927,5 @@ test "detect runs and returns a concrete core type" {
     if (comptime sysinfo.target.cpu.arch != .aarch64 and sysinfo.target.cpu.arch != .aarch64_be) {
         return error.SkipZigTest;
     }
-    try std.testing.expect(detect() != .unknown);
+    try std.testing.expect(select.detect(@This(), null) != .unknown);
 }

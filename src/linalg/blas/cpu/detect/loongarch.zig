@@ -1,13 +1,11 @@
-//! LoongArch CPU detection, mirroring `driver/others/dynamic_loongarch64.c`.
-//!
-//! Two sources: `AT_HWCAP` for the vector extensions (LSX 128-bit, LASX
-//! 256-bit), and `cpucfg` word 0 (the PRID) for the processor series.
+//! LoongArch CPU detection, mirroring `driver/others/dynamic_loongarch64.c`:
+//! `AT_HWCAP` for LSX and LASX, `cpucfg` word 0 (the PRID) for the series.
 
 const std = @import("std");
-const coretypes = @import("../_coretypes.zig");
-const select = @import("../_select.zig");
+const coretypes = @import("../coretypes.zig");
+const select = @import("../select.zig");
 const sysinfo = @import("builtin");
-const auxv = @import("../_auxv.zig");
+const osinfo = @import("../osinfo.zig");
 
 pub const CoreType = coretypes.LoongarchCoreType;
 pub const Decision = select.Decision(CoreType);
@@ -53,11 +51,11 @@ pub fn cpucfg(word: u32) u32 {
 }
 
 pub fn supportLsx() bool {
-    return auxv.hwcap() & HWCAP_LSX != 0;
+    return osinfo.hwcap() & HWCAP_LSX != 0;
 }
 
 pub fn supportLasx() bool {
-    return auxv.hwcap() & HWCAP_LASX != 0;
+    return osinfo.hwcap() & HWCAP_LASX != 0;
 }
 
 pub fn probe() Caps {
@@ -100,19 +98,6 @@ pub fn decide(c: Caps) Decision {
     return select.guard(@This(), d, c);
 }
 
-/// Whether the kernels of `core` run on this CPU.
-pub fn supportsCore(core: CoreType) bool {
-    return runnable(core, probe());
-}
-
-pub fn detect() CoreType {
-    return decide(probe()).core;
-}
-
-pub fn detectNoted() Decision {
-    return decide(probe());
-}
-
 test "series and OS extensions pick the core" {
     const t = struct {
         fn core(prid: u32, lsx: bool, lasx: bool) CoreType {
@@ -131,5 +116,5 @@ test "series and OS extensions pick the core" {
 
 test "detect runs on LoongArch targets" {
     if (comptime !sysinfo.target.cpu.arch.isLoongarch()) return error.SkipZigTest;
-    try std.testing.expect(supportsCore(detect()));
+    try std.testing.expect(select.canRun(@This(), select.detect(@This(), null)));
 }
