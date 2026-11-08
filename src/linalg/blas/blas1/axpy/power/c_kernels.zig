@@ -9,7 +9,7 @@
 const std = @import("std");
 const types = @import("../../../types.zig");
 const fma = @import("../../../fma.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 const util = @import("../../../util.zig");
 
 const BlasLong = types.BlasLong;

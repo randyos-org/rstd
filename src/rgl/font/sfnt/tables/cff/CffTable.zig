@@ -1,18 +1,19 @@
 const bytes = @import("../../../../../bytes.zig");
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 
 const GlyphIndex = types.GlyphIndex;
 
 const Index = @import("Index.zig");
 const Dict = @import("Dict.zig");
+const zigstd = @import("../../../../../zigstd.zig");
+const std = @import("std");
 
 // Index/Dict lookups are O(n) walks, so init() resolves CharStrings/Subrs
-// indexes once up front instead of per glyph - same idea as LocaTable
+// indexes once up front instead of per glyph; same idea as LocaTable
 // caching num_glyphs/long_format. Charset/Encoding are unused (cmap resolves
 // GIDs directly); the Type 2 charstring interpreter is deferred.
 
-/// Schema for the CFF header, used only to compute field offsets/sizes at
-/// comptime; never instantiated.
+/// The CFF header.
 const StreamLayout = extern struct {
     major_version: u8,
     minor_version: u8,
@@ -28,7 +29,7 @@ pub const CffError = error{
 };
 
 /// Resolves a DICT's Private operator ([size, offset]) and, from within it,
-/// its Subrs operator (relative to the Private DICT's own start - a spec
+/// its Subrs operator (relative to the Private DICT's own start; a spec
 /// quirk, unlike every other CFF offset). Null means no Private entry or no
 /// local Subrs, both common.
 fn resolvePrivateSubrs(cff_bytes: []const u8, dict: Dict, check: bool) bytes.BytesError!?Index {
@@ -78,7 +79,7 @@ pub fn init(table_data: []const u8, check: bool) (bytes.BytesError || CffError)!
     const global_subrs_index = try Index.init(table_data[pos..], check);
 
     // Per spec, a CFF table could list multiple fonts in its Name/Top DICT
-    // INDEXes; only the first is used - OpenType fonts never do this.
+    // INDEXes; only the first is used; OpenType fonts never do this.
     if (top_dict_index.count() == 0) return CffError.MissingCharStrings;
     const top_dict: Dict = .{ .table_data = top_dict_index.get(0) };
 
@@ -184,10 +185,6 @@ pub fn getLocalSubrIndexForGlyph(self: CffTable, glyph: GlyphIndex) ?Index {
     const font_dict: Dict = .{ .table_data = fd_array.get(fd) };
     return resolvePrivateSubrs(self.table_data, font_dict, false) catch null;
 }
-
-const zigstd = @import("../../../../../zigstd.zig");
-
-const std = @import("std");
 
 test "CFF StreamLayout matches the actual spec header (4 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));
@@ -388,7 +385,7 @@ fn buildCidCff(alloc: zigstd.Allocator) ![]u8 {
     var top_dict_bytes = try alloc.alloc(u8, top_dict_len);
     defer alloc.free(top_dict_bytes);
     var p: usize = 0;
-    p = Dict.appendDictInt(top_dict_bytes, p, 0); // ROS operand (value unused - only presence matters)
+    p = Dict.appendDictInt(top_dict_bytes, p, 0); // ROS operand (value unused; only presence matters)
     top_dict_bytes[p] = 12;
     top_dict_bytes[p + 1] = 30; // ROS
     p += 2;

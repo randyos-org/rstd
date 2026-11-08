@@ -1,7 +1,7 @@
 const std = @import("std");
-const types = @import("../../stream_types.zig");
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
+const types = @import("../../types.zig");
 const GlyfTable = @import("GlyfTable.zig");
 
 const Allocator = zigstd.Allocator;
@@ -36,7 +36,7 @@ components: []Component,
 /// instructions belonging to individual component glyphs).
 instructions: []const u8,
 
-pub fn destroy(self: *Self, alloc: Allocator) void {
+pub fn deinit(self: *Self, alloc: Allocator) void {
     alloc.free(self.instructions);
     alloc.free(self.components);
 }

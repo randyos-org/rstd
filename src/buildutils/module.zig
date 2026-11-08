@@ -27,11 +27,11 @@ pub fn cloneModuleWithTarget(b: *Build, existing: *Module, target: ?ResolvedTarg
 }
 
 /// Rebuilds `existing`'s root as a fresh `Module` bound to `target`, carrying
-/// over only its "build_options" and "rstd_options" imports rather than the
-/// whole import table.
+/// over only its "build_options", "rstd_options" and "rstd_matrix" imports
+/// rather than the whole import table.
 ///
 /// Unlike `cloneModuleWithTarget`, this is for a `target` that can't support
-/// `existing`'s other target-specific imports -- e.g. rstd's own `rstd_mod`
+/// `existing`'s other target-specific imports; e.g. rstd's own `rstd_mod`
 /// picks up `win32`/`renderdoc` (which pull in libc) for the native target,
 /// but those can't compile for `spirv32-vulkan`, which `wireRglShaders`
 /// targets by reusing the in-progress `rstd_mod` (rstd can't depend on
@@ -41,7 +41,7 @@ pub fn cloneRootForTarget(b: *Build, existing: *Module, target: ?ResolvedTarget)
         .root_source_file = existing.root_source_file,
         .target = target,
     });
-    for ([_][]const u8{ "build_options", "rstd_options" }) |name| {
+    for ([_][]const u8{ "build_options", "rstd_options", "rstd_matrix" }) |name| {
         if (existing.import_table.get(name)) |options_mod| clone.addImport(name, options_mod);
     }
     return clone;

@@ -1,8 +1,8 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the 'name' header, used only to compute field offsets/sizes at
-/// comptime; never instantiated.
+/// The 'name' header.
 const StreamLayout = extern struct {
     version: u16,
     count: u16,
@@ -11,11 +11,9 @@ const StreamLayout = extern struct {
 
 const records_start = @sizeOf(StreamLayout);
 
-/// Naming table. table_data borrows straight from the parent Sfnt's
-/// font_data; the header, name records, and (version 1) language-tag
-/// records are all read directly from those bytes on each accessor call.
-/// getRawString() only hands back still-encoded bytes (commonly UTF-16BE,
-/// but not always - see the spec): decoding text isn't this table's job.
+/// Naming table. getRawString() only hands back still-encoded bytes (commonly
+/// UTF-16BE, but not always; see the spec): decoding text isn't this table's
+/// job.
 pub const NameTable = struct {
     const Self = @This();
 
@@ -108,7 +106,6 @@ pub const NameTable = struct {
     }
 };
 
-const zigstd = @import("../../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
 test "name StreamLayout/NameRecord match the OpenType stream layout (no padding)" {

@@ -1,11 +1,11 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 const ivs = @import("ivs.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the VVAR header, used only to compute field offsets/sizes at
-/// comptime; never instantiated. Format is analogous to HVAR's (see
-/// hvar.zig), with one addition: vOrgMappingOffset, used only by CFF2
-/// outlines to vary the Y coordinate of a glyph's vertical origin.
+/// The VVAR header. Format is analogous to HVAR's (hvar.zig), with one
+/// addition: vOrgMappingOffset, used only by CFF2 outlines to vary the Y
+/// coordinate of a glyph's vertical origin.
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -18,8 +18,8 @@ const StreamLayout = extern struct {
 
 /// Vertical metrics variations: per-glyph deltas for vmtx's advance heights,
 /// side bearings, and (CFF2 only) vertical origins, keyed to regions in the
-/// shared Item Variation Store (see ivs.zig). Resolving an actual
-/// interpolated value is deferred - this exposes the raw store/mapping data.
+/// shared Item Variation Store (ivs.zig). Resolving an actual
+/// interpolated value is deferred; this exposes the raw store/mapping data.
 pub const VvarTable = struct {
     const Self = @This();
 
@@ -79,8 +79,6 @@ pub const VvarTable = struct {
         return .{ .table_data = self.table_data[off..] };
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "VVAR StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 24), @sizeOf(StreamLayout));

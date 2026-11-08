@@ -7,65 +7,55 @@ const std = @import("std");
 const sysinfo = @import("builtin");
 const zigstd = @import("../../zigstd.zig");
 
-/// `OPENBLAS_VERBOSE` -- 0 quiet, 2 prints the selected core name.
+/// `OPENBLAS_VERBOSE`; 0 quiet, 2 prints the selected core name.
 verbose: i32 = 0,
-/// `OPENBLAS_BLOCK_FACTOR` -- scales the GEMM blocking parameters.
+/// `OPENBLAS_BLOCK_FACTOR`; scales the GEMM blocking parameters.
 block_factor: i32 = 0,
-/// `OPENBLAS_THREAD_TIMEOUT` -- thread-pool spin timeout, log2 ticks.
+/// `OPENBLAS_THREAD_TIMEOUT`; thread-pool spin timeout, log2 ticks.
 thread_timeout: u32 = 0,
 /// `OPENBLAS_NUM_THREADS`, falling back to
 /// `OPENBLAS_DEFAULT_NUM_THREADS`. The reference lets the former win
 /// unless it is unset and the latter is not.
 num_threads: i32 = 0,
-/// `GOTO_NUM_THREADS` -- legacy GotoBLAS spelling.
+/// `GOTO_NUM_THREADS`; legacy GotoBLAS spelling.
 goto_num_threads: i32 = 0,
-/// `OMP_NUM_THREADS` -- consulted only in OpenMP builds.
+/// `OMP_NUM_THREADS`; consulted only in OpenMP builds.
 omp_num_threads: i32 = 0,
 /// `OMP_ADAPTIVE`.
 omp_adaptive: i32 = 0,
-/// `OPENBLAS_CORETYPE` -- forces a core type by name, bypassing CPU
-/// detection entirely. Invaluable for benchmarking and for working
-/// around a bad detection result without a rebuild. Read in every
-/// `dynamic_*.c`, not just x86's. Kept here, not borrowed from the
-/// environment, which may change or go away; see `coreType`.
+/// `OPENBLAS_CORETYPE`; forces a core type by name, bypassing detection
+/// (every `dynamic_*.c`). A copy, as the environment may change (`coreType`).
 core_type_buf: [value_max]u8 = @splat(0),
 core_type_len: u8 = 0,
 
-/// `GET_OPENBLAS_CORETYPE` -- POWER-specific (`dynamic_power.c` only).
-/// A bare presence check (`if (getenv(...))`), not a parsed value: if
-/// set to anything at all, including an empty string, the selected
-/// core name is echoed straight to stderr in addition to the normal
-/// `openblas_warning` mechanism.
+/// `GET_OPENBLAS_CORETYPE` (`dynamic_power.c` only): set at all, even
+/// empty, the selected core name also goes to stderr.
 get_openblas_coretype: bool = false,
 
-/// `GOTO_DEBUG` -- legacy per-call debug print, gating the
+/// `GOTO_DEBUG`; legacy per-call debug print, gating the
 /// `PRINT_DEBUG_CNAME`/`PRINT_DEBUG_NAME` macros (`common.h`).
 /// Does *not* clamp negative values to 0.
 goto_debug: i32 = 0,
 
-/// `OPENBLAS_MAIN_FREE` -- whether the main thread's NUMA
+/// `OPENBLAS_MAIN_FREE`; whether the main thread's NUMA
 /// shared-memory buffer gets freed (`driver/others/init.c`).
 /// Checks `"OPENBLAS_MAIN_FREE" || "GOTOBLAS_MAIN_FREE"`, collapsed to one bool.
 main_free: bool = false,
 
-/// `OPENBLAS_L2_SIZE` -- overrides the detected L2 cache size used by
-/// `kernel/setparam-ref.c`'s tuning heuristics.
-/// No negative clamp); 0 means "not overridden"
-/// (an L2 size of 0 is never a real value to tune for).
+/// `OPENBLAS_L2_SIZE`; overrides the detected L2 cache size used by
+/// `kernel/setparam-ref.c`'s tuning heuristics. Negatives are not clamped;
+/// 0 means not overridden (no L2 is 0 bytes).
 l2_size_override: i32 = 0,
 
 /// Not from the environment: the CPU count `blas.init` caches
 /// (`threading.cpuCount`), 1 until then.
 cpu_count: u32 = 1,
 
-/// `LD_HWCAP_MASK` -- s390x-only (`cpuid_zarch.h`). ANDed against
-/// `getauxval(AT_HWCAP)` to let the user mask *out* specific feature
-/// bits the kernel reports, even if the hardware genuinely has them.
-/// Parsed with `strtoul(p, NULL, 0)` -- base-0, so `0x`/`0`-prefixed
-/// values pick hex/octal the way the C source does.
+/// `LD_HWCAP_MASK` (s390x, `cpuid_zarch.h`): ANDed with `AT_HWCAP` to mask
+/// out features; parsed as `strtoul(p, NULL, 0)` (hex, octal or decimal).
 ld_hwcap_mask: ?u64 = null,
 
-/// `RSTD_BLAS_ACCELERATE` (rstd's own) -- 0 keeps the routines off Apple
+/// `RSTD_BLAS_ACCELERATE` (rstd's own); 0 keeps the routines off Apple
 /// Accelerate on macOS, which is then never loaded; anything else, or unset,
 /// uses it (`apple_accel.zig`).
 accelerate: bool = true,
@@ -164,20 +154,21 @@ pub fn readValue(env: anytype, comptime key: []const u8, buf: *[value_max]u8) ?[
     return if (v.len == 0) null else v;
 }
 
-/// clamps negatives to 0.
+/// `key` as an integer (`readIntRaw`), negatives clamped to 0.
 pub fn readInt(env: anytype, comptime key: []const u8) i32 {
     const parsed = readIntRaw(i32, env, key, 0) orelse 0;
     return if (parsed < 0) 0 else parsed;
 }
 
-/// clamps unset to `default`.
+/// `key` as a `T`, its base from its prefix (`strtoul`'s base 0);
+/// `default` when unset or not a number.
 pub fn readIntRaw(comptime T: type, env: anytype, comptime key: []const u8, default: ?T) ?T {
     var buf: [value_max]u8 = undefined;
     const v = readValue(env, key, &buf) orelse return default;
     return std.fmt.parseInt(T, std.mem.trim(u8, v, " \t\r\n"), 0) catch default;
 }
 
-/// True if `key` is set in the environment at all, regardless of value --
+/// True if `key` is set in the environment at all, regardless of value;
 /// even an empty string counts, matching a bare C `if (getenv(...))`.
 /// `readValue` treats an empty value as "not set," so this can't just
 /// delegate to it.

@@ -33,7 +33,7 @@ pub fn numPoints(self: *const Self) usize {
     return @as(usize, self.end_pts_of_contours[n - 1]) + 1;
 }
 
-pub fn destroy(self: *Self, alloc: Allocator) void {
+pub fn deinit(self: *Self, alloc: Allocator) void {
     alloc.free(self.y_coordinates);
     alloc.free(self.x_coordinates);
     alloc.free(self.flags);
@@ -82,41 +82,10 @@ pub fn parse(alloc: Allocator, glyph_data: []const u8, header: GlyfTable.GlyphHe
         }
     }
 
-    const x_coordinates = try alloc.alloc(i16, num_points);
+    const x_coordinates = try readCoordinates(alloc, glyph_data, &pos, flags, .x, check);
     errdefer alloc.free(x_coordinates);
-    var x: i32 = 0;
-    for (flags, 0..) |flag, idx| {
-        if (flag.x_short_vector) {
-            if (check) try bytes.checkSize(glyph_data, pos, u8);
-            const delta: i32 = glyph_data[pos];
-            pos += 1;
-            x += if (flag.x_is_same_or_positive) delta else -delta;
-        } else if (!flag.x_is_same_or_positive) {
-            if (check) try bytes.checkSize(glyph_data, pos, i16);
-            x += bytes.readIntBE(i16, glyph_data[pos..]);
-            pos += 2;
-        }
-        // else: X_SHORT_VECTOR clear and same-or-positive set means "same as
-        // previous x", i.e. a zero delta with no bytes consumed.
-        x_coordinates[idx] = @intCast(x);
-    }
-
-    const y_coordinates = try alloc.alloc(i16, num_points);
+    const y_coordinates = try readCoordinates(alloc, glyph_data, &pos, flags, .y, check);
     errdefer alloc.free(y_coordinates);
-    var y: i32 = 0;
-    for (flags, 0..) |flag, idx| {
-        if (flag.y_short_vector) {
-            if (check) try bytes.checkSize(glyph_data, pos, u8);
-            const delta: i32 = glyph_data[pos];
-            pos += 1;
-            y += if (flag.y_is_same_or_positive) delta else -delta;
-        } else if (!flag.y_is_same_or_positive) {
-            if (check) try bytes.checkSize(glyph_data, pos, i16);
-            y += bytes.readIntBE(i16, glyph_data[pos..]);
-            pos += 2;
-        }
-        y_coordinates[idx] = @intCast(y);
-    }
 
     return .{
         .header = header,
@@ -126,4 +95,33 @@ pub fn parse(alloc: Allocator, glyph_data: []const u8, header: GlyfTable.GlyphHe
         .x_coordinates = x_coordinates,
         .y_coordinates = y_coordinates,
     };
+}
+
+const Axis = enum { x, y };
+
+/// One axis's coordinates from `pos` on, delta-accumulated to absolute values.
+fn readCoordinates(alloc: Allocator, glyph_data: []const u8, pos: *usize, flags: []const Flag, comptime axis: Axis, check: bool) ![]i16 {
+    const coordinates = try alloc.alloc(i16, flags.len);
+    errdefer alloc.free(coordinates);
+    var v: i32 = 0;
+    for (flags, 0..) |flag, idx| {
+        const short_vector, const same_or_positive = switch (axis) {
+            .x => .{ flag.x_short_vector, flag.x_is_same_or_positive },
+            .y => .{ flag.y_short_vector, flag.y_is_same_or_positive },
+        };
+        if (short_vector) {
+            if (check) try bytes.checkSize(glyph_data, pos.*, u8);
+            const delta: i32 = glyph_data[pos.*];
+            pos.* += 1;
+            v += if (same_or_positive) delta else -delta;
+        } else if (!same_or_positive) {
+            if (check) try bytes.checkSize(glyph_data, pos.*, i16);
+            v += bytes.readIntBE(i16, glyph_data[pos.*..]);
+            pos.* += 2;
+        }
+        // else: short vector clear and same-or-positive set means "same as
+        // previous", a zero delta with no bytes consumed.
+        coordinates[idx] = @intCast(v);
+    }
+    return coordinates;
 }

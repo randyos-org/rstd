@@ -370,7 +370,7 @@ endorsed by The MathWorks.
 
 ---
 
-msdfgen (https://github.com/Chlumsky/msdfgen; src/rgl/font/sfnt/msdf/, by way of mist)
+msdfgen (https://github.com/Chlumsky/msdfgen; src/rgl/font/msdf/, by way of mist)
 
 MIT License
 

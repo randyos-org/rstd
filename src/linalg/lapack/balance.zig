@@ -1,29 +1,20 @@
-//! Balancing, from Reference-LAPACK 3.12.0 as OpenBLAS v0.3.34-317 ships it
-//! (`lapack-netlib/SRC/`, modified BSD): `xGEBAL` permutes `A` to isolate
-//! eigenvalues and scales rows and columns by powers of 2 toward equal
-//! norms; `xGEBAK` takes eigenvectors of the balanced matrix back. Neither
-//! faer nor libflame has its own (libflame's are the reference through f2c);
-//! `dgeev.f` balances before the Hessenberg reduction, and so does `geev`
-//! (`evd.zig`, through `balance` and `back`, job `B`).
-//!
-//! `scale` and `ilo`, `ihi` are the reference's: 1-based, a permuted row's
-//! partner stored as a float index. Row and column norms are rstd's `nrm2`;
-//! swaps and scalings go through its BLAS.
+//! Balancing, `gebal` and `gebak`, from Reference-LAPACK 3.12.0 as OpenBLAS
+//! v0.3.34-317 ships it (`lapack-netlib/SRC/`, modified BSD): `xGEBAL` and
+//! `xGEBAK`, `scale`, `ilo` and `ihi` 1-based as the reference's.
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
-const norm = @import("norm.zig");
-const chol = @import("cholesky.zig");
+const blas_calls = @import("blas_calls.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Side = types.Side;
-const Error = norm.Error;
+const Error = ops.Error;
 const Mat = ops.Mat;
 
 /// `JOB`: nothing (`n`), permute only (`p`), scale only (`s`), or both
@@ -45,7 +36,7 @@ pub const GebalError = error{ InvalidN, InvalidLda, InvalidA } || Io.Cancelable;
 /// each row was swapped with (in the reference's order: from `n` down to
 /// `ihi + 1`, then up from 1), and inside it `D`'s entries.
 pub fn gebal(allocator: Allocator, io: Io, comptime T: type, job: BalanceJob, n: isize, a: [*]T, lda: isize, ilo: *isize, ihi: *isize, scale: [*]Float(T)) GebalError!void {
-    comptime chol.floatType(T, "gebal");
+    comptime ops.requireFloat(T, "gebal");
     _ = allocator;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, n)) return error.InvalidLda;
@@ -87,8 +78,8 @@ pub fn balanceJob(io: Io, comptime T: type, job: BalanceJob, n: usize, a: [*]T, 
                 if (can) {
                     scale[l - 1] = @floatFromInt(i);
                     if (i != l) {
-                        try swap(io, T, l, a + (i - 1) * lda, 1, a + (l - 1) * lda, 1);
-                        try swap(io, T, n - k + 1, a + (i - 1) + (k - 1) * lda, lda, a + (l - 1) + (k - 1) * lda, lda);
+                        try blas_calls.swap(io, T, l, a + (i - 1) * lda, 1, a + (l - 1) * lda, 1);
+                        try blas_calls.swap(io, T, n - k + 1, a + (i - 1) + (k - 1) * lda, lda, a + (l - 1) + (k - 1) * lda, lda);
                     }
                     noconv = true;
                     if (l == 1) return .{ 1, 1 };
@@ -110,8 +101,8 @@ pub fn balanceJob(io: Io, comptime T: type, job: BalanceJob, n: usize, a: [*]T, 
                 if (can) {
                     scale[k - 1] = @floatFromInt(j);
                     if (j != k) {
-                        try swap(io, T, l, a + (j - 1) * lda, 1, a + (k - 1) * lda, 1);
-                        try swap(io, T, n - k + 1, a + (j - 1) + (k - 1) * lda, lda, a + (k - 1) + (k - 1) * lda, lda);
+                        try blas_calls.swap(io, T, l, a + (j - 1) * lda, 1, a + (k - 1) * lda, 1);
+                        try blas_calls.swap(io, T, n - k + 1, a + (j - 1) + (k - 1) * lda, lda, a + (k - 1) + (k - 1) * lda, lda);
                     }
                     noconv = true;
                     k += 1;
@@ -131,11 +122,11 @@ pub fn balanceJob(io: Io, comptime T: type, job: BalanceJob, n: usize, a: [*]T, 
         noconv = false;
         for (k..l + 1) |i| {
             const w = l - k + 1;
-            var c = ops.nrm2(io, T, w, a + (k - 1) + (i - 1) * lda, 1);
-            var r = ops.nrm2(io, T, w, a + (i - 1) + (k - 1) * lda, lda);
-            const ica = norm.iamax(T, l, a + (i - 1) * lda, 1);
+            var c = blas_calls.nrm2(io, T, w, a + (k - 1) + (i - 1) * lda, 1);
+            var r = blas_calls.nrm2(io, T, w, a + (i - 1) + (k - 1) * lda, lda);
+            const ica = blas_calls.iamax(T, l, a + (i - 1) * lda, 1);
             var ca = ops.abs(T, a[ica + (i - 1) * lda]);
-            const ira = norm.iamax(T, n - k + 1, a + (i - 1) + (k - 1) * lda, lda);
+            const ira = blas_calls.iamax(T, n - k + 1, a + (i - 1) + (k - 1) * lda, lda);
             var ra = ops.abs(T, a[(i - 1) + (ira + k - 1) * lda]);
             if (c == 0 or r == 0) continue;
             if (std.math.isNan(c + ca + r + ra)) return error.InvalidA;
@@ -165,8 +156,8 @@ pub fn balanceJob(io: Io, comptime T: type, job: BalanceJob, n: usize, a: [*]T, 
             g = 1 / f;
             scale[i - 1] *= f;
             noconv = true;
-            try norm.scal(io, T, n - k + 1, g, a + (i - 1) + (k - 1) * lda, lda);
-            try norm.scal(io, T, l, f, a + (i - 1) * lda, 1);
+            try blas_calls.scal(io, T, n - k + 1, g, a + (i - 1) + (k - 1) * lda, lda);
+            try blas_calls.scal(io, T, l, f, a + (i - 1) * lda, 1);
         }
     }
     return .{ k, l };
@@ -177,12 +168,6 @@ fn at(a: anytype, lda: usize, i: usize, j: usize) @typeInfo(@TypeOf(a)).pointer.
     return a[(i - 1) + (j - 1) * lda];
 }
 
-/// `?SWAP` through rstd's BLAS.
-fn swap(io: Io, comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usize) Error!void {
-    if (n == 0) return;
-    blas.swap(io, T, @intCast(n), x, @intCast(incx), y, @intCast(incy)) catch |e| return norm.narrow(e);
-}
-
 /// What `gebak` returns.
 pub const GebakError = error{ InvalidN, InvalidIlo, InvalidIhi, InvalidM, InvalidLdv } || Io.Cancelable;
 
@@ -190,7 +175,7 @@ pub const GebakError = error{ InvalidN, InvalidIlo, InvalidIhi, InvalidM, Invali
 /// (`side` `r`) or `V := P D⁻¹ V` for left ones (`l`), the `n x m` `V`'s
 /// rows, from `gebal`'s `job`, `ilo`, `ihi` and `scale`.
 pub fn gebak(allocator: Allocator, io: Io, comptime T: type, job: BalanceJob, side: Side, n: isize, ilo: isize, ihi: isize, scale: [*]const Float(T), m: isize, v: [*]T, ldv: isize) GebakError!void {
-    comptime chol.floatType(T, "gebak");
+    comptime ops.requireFloat(T, "gebak");
     _ = allocator;
     if (n < 0) return error.InvalidN;
     if (ilo < 1 or ilo > @max(1, n)) return error.InvalidIlo;
@@ -210,7 +195,7 @@ pub fn backJob(io: Io, comptime T: type, job: BalanceJob, side: Side, n: usize, 
     if (ilo != ihi and (job == .s or job == .b)) {
         for (ilo..ihi + 1) |i| {
             const s = if (side == .r) scale[i - 1] else 1 / scale[i - 1];
-            try norm.scal(io, T, m, s, v + (i - 1), ldv);
+            try blas_calls.scal(io, T, m, s, v + (i - 1), ldv);
         }
     }
     if (job == .p or job == .b) {
@@ -220,7 +205,7 @@ pub fn backJob(io: Io, comptime T: type, job: BalanceJob, side: Side, n: usize, 
             if (i < ilo) i = ilo - ii;
             const k: usize = @intFromFloat(scale[i - 1]);
             if (k == i) continue;
-            try swap(io, T, m, v + (i - 1), ldv, v + (k - 1), ldv);
+            try blas_calls.swap(io, T, m, v + (i - 1), ldv, v + (k - 1), ldv);
         }
     }
 }
@@ -251,9 +236,10 @@ pub fn back(io: Io, comptime T: type, info: Info, scale: []const Float(T), left:
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 
-const test_types = chol.test_types;
+const test_types = lcheck.test_types;
 
 /// `TESTING/dbal.in` of Reference-LAPACK 3.12.0 (OpenBLAS v0.3.34-317's
 /// `lapack-netlib/`), verbatim: `dchkbl.f`'s cases for `xGEBAL` with job
@@ -556,7 +542,7 @@ test "lapack gebal: the reference's dbal.in cases, and gebak takes vectors back"
             };
             if (!fits) continue;
             var got: [7 * 7]T = undefined;
-            for (0..n * n) |i| got[i] = chol.fromF64(T, a[i]);
+            for (0..n * n) |i| got[i] = lcheck.fromF64(T, a[i]);
             const a0 = got;
             var scale: [7]F = undefined;
             var ilo: isize = 0;
@@ -648,7 +634,7 @@ test "lapack gebal: n = 0 and 1, NaN, bad arguments; gebak's" {
         try testing.expect(ilo == 1 and ihi == 0 and scale[0] == 7);
         try gebal(al, check.io, T, .b, 1, &a, 1, &ilo, &ihi, &scale);
         try testing.expect(ilo == 1 and ihi == 1 and scale[0] == 1);
-        a[1] = chol.poisoned(T);
+        a[1] = lcheck.poisoned(T);
         try testing.expectError(error.InvalidA, gebal(al, check.io, T, .s, 2, &a, 2, &ilo, &ihi, &scale));
     }
     var a = [_]f64{1};
@@ -665,7 +651,7 @@ test "lapack gebal: n = 0 and 1, NaN, bad arguments; gebak's" {
     try gebak(al, check.io, f64, .b, .l, 0, 1, 0, &s, 1, &a, 1);
 }
 
-test "faer balance: D⁻¹ Pᵀ A P D is the balanced matrix, isolated eigenvalues outside ilo..ihi" {
+test "lapack gebal: D⁻¹ Pᵀ A P D is the balanced matrix, isolated eigenvalues outside ilo..ihi" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| {
         const F = Float(T);
@@ -684,7 +670,7 @@ test "faer balance: D⁻¹ Pᵀ A P D is the balanced matrix, isolated eigenvalu
         defer ops.free(T, al, b);
         b.copyFrom(a0);
         var scale: [n]F = undefined;
-                const info = try balance(check.io, T, b, &scale);
+        const info = try balance(check.io, T, b, &scale);
         try testing.expect(info.ilo >= 1 and info.ihi <= n - 1);
         // X = P D, the identity backed: then A X = X B
         const x = try ops.alloc(T, al, n, n);
@@ -695,8 +681,8 @@ test "faer balance: D⁻¹ Pᵀ A P D is the balanced matrix, isolated eigenvalu
         defer ops.free(T, al, ax);
         const xb = try ops.alloc(T, al, n, n);
         defer ops.free(T, al, xb);
-        try ops.gemm(al, check.io, T, .n, .n, ops.one(T), a0, x, ops.zero(T), ax);
-        try ops.gemm(al, check.io, T, .n, .n, ops.one(T), x, b, ops.zero(T), xb);
+        try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), a0, x, ops.zero(T), ax);
+        try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, b, ops.zero(T), xb);
         for (0..n) |j| for (0..n) |i| {
             const err = ops.abs(T, ops.sub(T, ax.get(i, j), xb.get(i, j)));
             try testing.expect(err <= 16 * std.math.floatEps(F) * @max(ops.abs(T, ax.get(i, j)), std.math.floatMin(F)));

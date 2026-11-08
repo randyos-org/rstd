@@ -1,24 +1,16 @@
 //! Least squares by QR, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/qr/no_pivoting/solve.rs` (`solve_lstsq_in_place`:
-//! `Qᴴ B`, then `R`'s solve), behind LAPACK's `?GELS` (Reference-LAPACK's
-//! `dgels.f` and its `s`, `c`, `z` forms: arguments, `xerbla` order, the
-//! scaling of `A` and `B`, the four cases and where the answer lands).
-//!
-//! Faer solves only the tall, untransposed case. The reference factors a
-//! wide `A` as `L Q` (`xGELQF`); faer has no LQ, so a wide `A` is factored
-//! as `Aᴴ = Q R` (`qr.zig`) and written back conjugate transposed, which is
-//! `xGELQF`'s layout: `L = Rᴴ` on and below the diagonal, the reflections
-//! conjugated in the rows right of it. The triangular solves are rstd's
-//! `trtrs`, so a zero on `R`'s diagonal is `error.Singular`, the reference's
-//! `INFO > 0`.
+//! `faer/src/linalg/qr/no_pivoting/solve.rs`, behind Reference-LAPACK's
+//! `?GELS` (`dgels.f` and its forms). A wide `A` is factored as `Aᴴ = Q R`,
+//! `xGELQF`'s layout.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const util = @import("../blas/util.zig");
-const chol = @import("cholesky.zig");
 const tri = @import("triangular.zig");
 const types = @import("../blas/types.zig");
 
@@ -43,7 +35,7 @@ pub const GelsError = error{ InvalidTrans, InvalidM, InvalidN, InvalidNrhs, Inva
 /// `gelqf`'s (`m < n`). `Singular` (with the zero's 1-based index in
 /// `pivot`) leaves `B` part solved, as the reference's `INFO > 0`.
 pub fn gels(allocator: Allocator, io: Io, comptime T: type, trans: Trans, m: isize, n: isize, nrhs: isize, a: [*]T, lda: isize, b: [*]T, ldb: isize, pivot: ?*usize) GelsError!void {
-    comptime chol.floatType(T, "gels");
+    comptime ops.requireFloat(T, "gels");
     switch (trans) {
         .n, .c => {},
         .t => if (comptime isComplex(T)) return error.InvalidTrans,
@@ -77,15 +69,15 @@ fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: M
     const n = a.cols;
     const nrhs = b.cols;
     const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
-    const anrm = ops.normMax(T, a);
+    const anrm = auxiliary.normMax(T, a);
     if (anrm == 0) return b.fill(ops.zero(T));
-    const to_a = ops.scaleTo(F, anrm, smlnum);
-    if (to_a) |t| ops.lascl(T, anrm, t, a);
+    const to_a = auxiliary.scaleTo(F, anrm, smlnum);
+    if (to_a) |t| auxiliary.lascl(T, false, anrm, t, a);
     const brow = if (adjoint) n else m;
     const bb = b.sub(0, 0, brow, nrhs);
-    const bnrm = ops.normMax(T, bb);
-    const to_b = ops.scaleTo(F, bnrm, smlnum);
-    if (to_b) |t| ops.lascl(T, bnrm, t, bb);
+    const bnrm = auxiliary.normMax(T, bb);
+    const to_b = auxiliary.scaleTo(F, bnrm, smlnum);
+    if (to_b) |t| auxiliary.lascl(T, false, bnrm, t, bb);
     // `Aᴴ` (wide) or `A` (tall), factored `Q R`
     const tall = m >= n;
     const fm = if (tall) a else try ops.alloc(T, al, n, m);
@@ -111,8 +103,8 @@ fn solve(al: Allocator, io: Io, comptime T: type, adjoint: bool, a: Mat(T), b: M
     }
     const scllen = if (over) k else big;
     const x = b.sub(0, 0, scllen, nrhs);
-    if (to_a) |t| ops.lascl(T, anrm, t, x);
-    if (to_b) |t| ops.lascl(T, t, bnrm, x);
+    if (to_a) |t| auxiliary.lascl(T, false, anrm, t, x);
+    if (to_b) |t| auxiliary.lascl(T, false, t, bnrm, x);
 }
 
 /// `dst := srcᴴ`.
@@ -136,19 +128,19 @@ fn trtrs(al: Allocator, io: Io, comptime T: type, trans: Trans, r: Mat(T), b: Ma
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 
-/// Reference-LAPACK's test threshold (`TESTING/dtest.in`, `THRESH` 30) on
-/// its residual ratios (`dqrt16.f`, `dqrt17.f`), `‖·‖` the max norm here,
-/// times 10 for `κ(A)` of a random matrix at aspect ratio up to 1 / 2 where
-/// an answer is compared directly.
-const thresh = 30;
+/// `lcheck.thresh` on the residual ratios (`dqrt16.f`, `dqrt17.f`), `‖·‖`
+/// the max norm here, times 10 for `κ(A)` of a random matrix at aspect ratio
+/// up to 1 / 2 where an answer is compared directly.
+const thresh = lcheck.thresh;
 
 /// `x := op(A) y` (`n` or `c`).
 fn apply(comptime T: type, al: Allocator, adjoint: bool, a: Mat(T), y: Mat(T), x: Mat(T)) !void {
-    try ops.gemm(al, check.io, T, if (adjoint) .c else .n, .n, ops.one(T), a, y, ops.zero(T), x);
+    try blas_calls.gemm(al, check.io, T, if (adjoint) .c else .n, .n, ops.one(T), a, y, ops.zero(T), x);
 }
 
 test "faer gels: tall and wide, A and Aᴴ, least squares and minimum norm" {
@@ -193,9 +185,9 @@ test "faer gels: tall and wide, A and Aᴴ, least squares and minimum norm" {
                 const w = try ops.alloc(T, al, rows - cols, nrhs);
                 defer ops.free(T, al, w);
                 check.fill(T, w.ptr[0 .. (rows - cols) * nrhs], 6);
-                try ops.gemm(al, check.io, T, .n, .n, ops.one(T), q.sub(0, cols, rows, rows - cols), w, ops.zero(T), rhs);
-                for (0..nrhs) |j| rnorm[j] = ops.nrm2(check.io, T, rows - cols, w.col(j), 1);
-                try ops.gemm(al, check.io, T, .n, .n, ops.one(T), opa, x0, ops.one(T), rhs);
+                try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), q.sub(0, cols, rows, rows - cols), w, ops.zero(T), rhs);
+                for (0..nrhs) |j| rnorm[j] = blas_calls.nrm2(check.io, T, rows - cols, w.col(j), 1);
+                try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), opa, x0, ops.one(T), rhs);
             } else {
                 // x0 in op(A)ᴴ's range: the minimum-norm answer
                 const z = try ops.alloc(T, al, rows, nrhs);
@@ -212,7 +204,7 @@ test "faer gels: tall and wide, A and Aᴴ, least squares and minimum norm" {
             b.copyFrom(b0);
             try gels(al, check.io, T, if (adj) .c else .n, @intCast(m), @intCast(n), nrhs, a.ptr, @intCast(m), b.ptr, @intCast(big), null);
             const x = b.sub(0, 0, cols, nrhs);
-            const tol = 10 * thresh * @as(F, @floatFromInt(big)) * eps * @max(ops.normMax(T, x0), 1);
+            const tol = 10 * thresh * @as(F, @floatFromInt(big)) * eps * @max(auxiliary.normMax(T, x0), 1);
             for (0..nrhs) |j| for (0..cols) |i| {
                 const err = ops.abs(T, ops.sub(T, x.get(i, j), x0.get(i, j)));
                 if (!(err <= tol)) {
@@ -222,7 +214,7 @@ test "faer gels: tall and wide, A and Aᴴ, least squares and minimum norm" {
             };
             // the residual's norm in the rows past the answer
             if (rows > cols) for (0..nrhs) |j| {
-                const got = ops.nrm2(check.io, T, rows - cols, b.col(j) + cols, 1);
+                const got = blas_calls.nrm2(check.io, T, rows - cols, b.col(j) + cols, 1);
                 try testing.expect(@abs(got - rnorm[j]) <= tol);
             };
         };
@@ -251,12 +243,12 @@ test "faer gels: an inconsistent tall system's residual is orthogonal to A (dqrt
         try gels(al, check.io, T, .n, m, n, nrhs, a.ptr, m, b.ptr, m, null);
         // r = B - A X; ‖Aᴴ r‖ / (max(m, n, nrhs) ‖A‖ ‖B‖ eps) < thresh
         const r = b0;
-        try ops.gemm(al, check.io, T, .n, .n, ops.neg(T, ops.one(T)), a0, b.sub(0, 0, n, nrhs), ops.one(T), r);
+        try blas_calls.gemm(al, check.io, T, .n, .n, ops.neg(T, ops.one(T)), a0, b.sub(0, 0, n, nrhs), ops.one(T), r);
         const g = try ops.alloc(T, al, n, nrhs);
         defer ops.free(T, al, g);
-        try ops.gemm(al, check.io, T, .c, .n, ops.one(T), a0, r, ops.zero(T), g);
-        const bscale = ops.normMax(T, b.sub(0, 0, m, nrhs));
-        const ratio = ops.normMax(T, g) / (@as(F, m) * ops.normMax(T, a0) * @max(bscale, 1) * std.math.floatEps(F));
+        try blas_calls.gemm(al, check.io, T, .c, .n, ops.one(T), a0, r, ops.zero(T), g);
+        const bscale = auxiliary.normMax(T, b.sub(0, 0, m, nrhs));
+        const ratio = auxiliary.normMax(T, g) / (@as(F, m) * auxiliary.normMax(T, a0) * @max(bscale, 1) * std.math.floatEps(F));
         try testing.expect(ratio < thresh);
     }
 }

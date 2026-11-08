@@ -1,18 +1,14 @@
-//! Row reduction and matrix generation, ported from `matlab88.f90`'s RREF,
-//! HILBER, MAGIC, and the EYE/ONES/DIAG/TRIL/TRIU/KRON command bodies in
-//! `MATFN6`. See `blas1.zig` for the shared matrix/vector conventions this
-//! port uses, and `CxMat.zig` for the `self`-shaped calling convention the
-//! complex-matrix functions here now use. `hilber`/`magic` stay on loose
-//! `(a, lda, n)` parameters rather than `CxMat` - they're real-only (no
-//! imaginary part to bundle), so a complex-matrix wrapper doesn't fit them.
+//! Row reduction and matrix generators: `matlab88.f90`'s RREF, HILBER and
+//! MAGIC, and `MATFN6`'s EYE, ONES, DIAG, TRIL, TRIU and KRON bodies.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const blas = @import("../blas/__root__.zig");
-const Cx = blas1.Cx;
-const ix = blas1.ix;
-const level1 = blas1.level1;
+const ops = @import("../lapack/ops.zig");
+const Cx = scalar.Cx;
+const ix = scalar.ix;
+const level1 = scalar.level1;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -45,51 +41,30 @@ fn rrefPacked(comptime T: type, io: Io, m: usize, n: usize, x: []T, eps: f64) Io
         const col = x[l * m ..][0..m];
         const amax = try level1(blas.index(io, T, .amax, @intCast(m - k), col[k..].ptr, 1));
         const piv = k + @as(usize, @intCast(amax)) - 1;
-        if (mag1(col[piv]) <= tol) {
-            @memset(col[k..], zero(T));
+        if (ops.abs1(T, col[piv]) <= tol) {
+            @memset(col[k..], ops.zero(T));
             l += 1;
             continue;
         }
         const w: isize = @intCast(n - l);
         try level1(blas.swap(io, T, w, x[l * m + piv ..].ptr, mi, x[l * m + k ..].ptr, mi));
         try level1(blas.scal(io, T, w, recip(col[k]), x[l * m + k ..].ptr, mi));
-        col[k] = one(T);
+        col[k] = ops.one(T);
         for (0..m) |row| {
             if (row == k) continue;
-            try level1(blas.axpy(io, T, w, neg(col[row]), x[l * m + k ..].ptr, mi, x[l * m + row ..].ptr, mi));
+            try level1(blas.axpy(io, T, w, ops.neg(T, col[row]), x[l * m + k ..].ptr, mi, x[l * m + row ..].ptr, mi));
         }
         k += 1;
         l += 1;
     }
 }
 
-fn zero(comptime T: type) T {
-    return if (T == f64) 0 else Cx.init(0, 0);
-}
-
-fn one(comptime T: type) T {
-    return if (T == f64) 1 else Cx.init(1, 0);
-}
-
-fn mag1(x: anytype) f64 {
-    return if (@TypeOf(x) == f64) @abs(x) else blas1.cabs1(x.re, x.im);
-}
-
 fn recip(x: anytype) @TypeOf(x) {
-    return if (@TypeOf(x) == f64) 1 / x else blas1.wdiv(Cx.init(1, 0), x);
+    return if (@TypeOf(x) == f64) 1 / x else scalar.wdiv(Cx.init(1, 0), x);
 }
 
-fn neg(x: anytype) @TypeOf(x) {
-    return if (@TypeOf(x) == f64) -x else x.neg();
-}
-
-/// HILBER: generate the exact inverse of the N×N Hilbert matrix directly
-/// into the real array `a` (column-major, leading dimension `lda`), using
-/// the closed-form recurrence rather than computing it via LU inversion -
-/// the Hilbert matrix is notoriously ill-conditioned, so an explicit
-/// formula is far more accurate than inverting it numerically. `a` is
-/// real-only; zero the imaginary part yourself if a complex result is
-/// needed.
+/// HILBER: the exact inverse of the `n` by `n` Hilbert matrix into the real
+/// `a` (leading dimension `lda`), by its closed form; inverting is hopeless.
 pub fn hilber(a: []f64, lda: usize, n: usize) void {
     var p: f64 = @floatFromInt(n);
     var i: usize = 1;
@@ -113,7 +88,7 @@ pub fn hilber(a: []f64, lda: usize, n: usize) void {
     }
 }
 
-/// EYE: fill `self` with the (rectangular) identity - 1 where `i == j`, 0
+/// EYE: fill `self` with the (rectangular) identity; 1 where `i == j`, 0
 /// elsewhere.
 pub fn eye(self: CxMat) void {
     var j: usize = 1;
@@ -136,12 +111,9 @@ pub fn ones(self: CxMat) void {
     }
 }
 
-/// MAGIC: fill the `n`x`n` real array `a` (column-major, leading dimension
-/// `lda`) with a magic square (every row, column, and both diagonals sum
-/// to the same value), using the Siamese method for odd `n`, the LUX
-/// method for singly-even `n`, and a direct pattern for doubly-even `n`.
-/// There is no 2x2 magic square; callers should treat `n == 2` specially
-/// (the original REPL substituted an empty result).
+/// MAGIC: an `n` by `n` magic square into the real `a` (leading dimension
+/// `lda`): Siamese for odd `n`, LUX for singly even, a pattern for doubly
+/// even. None is 2 by 2; the REPL gave an empty result.
 pub fn magic(io: Io, a: []f64, lda: usize, n: usize) Io.Cancelable!void {
     if (n % 4 == 0) {
         var k: usize = 1;
@@ -220,11 +192,8 @@ fn swap(io: Io, n: usize, x: []f64, y: []f64) Io.Cancelable!void {
     try level1(blas.swap(io, f64, @intCast(n), x.ptr, 1, y.ptr, 1));
 }
 
-/// DIAG: if `v` (length `n`) is a vector, `diagFromVector` builds the
-/// `n+|k|`-order square matrix with `v` on the `k`-th diagonal (`k == 0`:
-/// main diagonal; `k > 0`: above it; `k < 0`: below it) into `self` (must
-/// be sized for that larger order). Everything off that diagonal is
-/// zeroed first.
+/// DIAG: `v` (length `n`) on the `k`-th diagonal (above for `k > 0`) of
+/// `self`, square of order `n + |k|`, zero elsewhere.
 pub fn diagFromVector(self: CxMat, vr: []const f64, vi: []const f64, n: usize, k: isize) void {
     const order = n + @as(usize, @intCast(@abs(k)));
     @memset(self.r[0 .. order * order], 0.0);
@@ -294,15 +263,8 @@ pub fn triu(self: CxMat, k: isize) void {
 
 pub const KronOp = enum { mul, div, rdiv };
 
-/// KRON: the Kronecker (tensor) product of `a` (must be tightly packed -
-/// `a.lda == a.m`, no padding) and `b`, written into `out`
-/// (`(a.m*b.m)`x`(a.n*b.n)`, tightly packed). Block `(ia, ja)` of the
-/// result is `A(ia,ja)` combined element-by-element with all of `B`, via
-/// `op`: `.mul` is the standard Kronecker product; `.div`/`.rdiv` apply
-/// the same block structure with elementwise division instead
-/// (`A(ia,ja) / B(i,j)` or `B(i,j) / A(ia,ja)`), matching the original's
-/// shared implementation of all three. Three co-equal matrices, so this
-/// isn't a `self`-shaped method the way single-matrix operations are.
+/// KRON: the Kronecker product of `a` and `b` into `out`; `.div` and `.rdiv`
+/// divide each block instead (`A(ia,ja) / B`, `B / A(ia,ja)`).
 pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
     const ma = a.m;
     const na = a.n;
@@ -321,9 +283,9 @@ pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
                 while (i <= m) : (i += 1) {
                     const b_val = b.get(i, j);
                     const v = switch (op) {
-                        .mul => blas1.wmul(a_val, b_val),
-                        .div => blas1.wdiv(a_val, b_val),
-                        .rdiv => blas1.wdiv(b_val, a_val),
+                        .mul => a_val.mul(b_val),
+                        .div => scalar.wdiv(a_val, b_val),
+                        .rdiv => scalar.wdiv(b_val, a_val),
                     };
                     const row = (ia - 1) * m + i;
                     const col = (ja - 1) * n + j;
@@ -336,6 +298,7 @@ pub fn kron(a: CxMat, b: CxMat, out: CxMat, op: KronOp) void {
 }
 
 const zigstd = @import("../../zigstd.zig");
+const testing = std.testing;
 
 test "hilber matches the known inverse of the 3x3 Hilbert matrix" {
     // inv(hilb(3)) = [[9,-36,30],[-36,192,-180],[30,-180,180]].
@@ -468,7 +431,7 @@ test "rref reduces a simple rank-deficient system" {
     // [[1, 2, 3], [2, 4, 6]] -> rank 1, row-reduces to [[1,2,3],[0,0,0]].
     var ar = [_]f64{ 1.0, 2.0, 2.0, 4.0, 3.0, 6.0 }; // column-major, 2x3
     var ai: [6]f64 = @splat(0.0);
-    try rref(CxMat.initPacked(&ar, &ai, 2, 3), std.testing.allocator, std.testing.io, 1e-12);
+    try rref(CxMat.initPacked(&ar, &ai, 2, 3), testing.allocator, testing.io, 1e-12);
     try zigstd.testExpectApproxEqAbs(1.0, ar[ix(2, 1, 1)], 1e-9);
     try zigstd.testExpectApproxEqAbs(2.0, ar[ix(2, 1, 2)], 1e-9);
     try zigstd.testExpectApproxEqAbs(3.0, ar[ix(2, 1, 3)], 1e-9);
@@ -481,7 +444,7 @@ test "rref of a complex rank-deficient matrix" {
     // [[1, i], [i, -1]]: the second row is i times the first -> [[1, i], [0, 0]]
     var ar = [_]f64{ 1, 0, 0, -1 };
     var ai = [_]f64{ 0, 1, 1, 0 };
-    try rref(CxMat.initPacked(&ar, &ai, 2, 2), std.testing.allocator, std.testing.io, 1e-12);
+    try rref(CxMat.initPacked(&ar, &ai, 2, 2), testing.allocator, testing.io, 1e-12);
     try zigstd.testExpectEqualSlices(f64, &.{ 1, 0, 0, 0 }, &ar);
     try zigstd.testExpectEqualSlices(f64, &.{ 0, 0, 1, 0 }, &ai);
 }

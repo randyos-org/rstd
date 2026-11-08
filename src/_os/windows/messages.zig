@@ -4,9 +4,6 @@ const zigstd = @import("../../zigstd.zig");
 
 const wmconst = win32.ui.windows_and_messaging;
 const ctlconst = win32.ui.controls;
-const rich_edit_const = win32.ui.controls.rich_edit;
-const dialogs_const = win32.ui.controls.dialogs;
-const shell_const = win32.ui.shell;
 const tablet_pc_const = win32.ui.tablet_pc;
 
 pub const WinMsg = enum(u32) {

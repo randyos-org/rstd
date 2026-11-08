@@ -14,8 +14,10 @@
 const std = @import("std");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
+const Vtable = @import("../Vtable.zig");
 
 const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
 
 pub const Find = struct {
     /// Compare `|x|` rather than `x`.
@@ -89,10 +91,6 @@ pub fn Extremum(comptime F: type, comptime w: comptime_int, comptime find: Find)
 pub fn Portable(comptime T: type) type {
     const F = types.Float(T);
     const w = if (types.isComplex(T)) 2 else 1;
-    const amax: Find = .{ .abs = true, .max = true };
-    const amin: Find = .{ .abs = true, .max = false };
-    const max: Find = .{ .abs = false, .max = true };
-    const min: Find = .{ .abs = false, .max = false };
     return struct {
         pub const amax_k = &Extremum(F, w, amax).value;
         pub const amin_k = &Extremum(F, w, amin).value;
@@ -102,5 +100,35 @@ pub fn Portable(comptime T: type) type {
         pub const iamin_k = &Extremum(F, w, amin).index;
         pub const imax_k = &Extremum(F, w, max).index;
         pub const imin_k = &Extremum(F, w, min).index;
+    };
+}
+
+pub const amax: Find = .{ .abs = true, .max = true };
+pub const amin: Find = .{ .abs = true, .max = false };
+pub const max: Find = .{ .abs = false, .max = true };
+pub const min: Find = .{ .abs = false, .max = false };
+
+/// The precisions of `routines`' slots, by position: `s`, `d`, `q`, `c`, `z`,
+/// `x`; float and floats an element.
+pub const precisions = .{ .{ f32, 1 }, .{ f64, 1 }, .{ XDouble, 1 }, .{ f32, 2 }, .{ f64, 2 }, .{ XDouble, 2 } };
+
+/// Each routine's search, whether it gives the index, and its slots but
+/// bfloat16's; `max` and `min` are real only.
+pub const routines = .{
+    .{ amax, false, .{ .samax_k, .damax_k, .qamax_k, .camax_k, .zamax_k, .xamax_k } },
+    .{ amin, false, .{ .samin_k, .damin_k, .qamin_k, .camin_k, .zamin_k, .xamin_k } },
+    .{ amax, true, .{ .isamax_k, .idamax_k, .iqamax_k, .icamax_k, .izamax_k, .ixamax_k } },
+    .{ amin, true, .{ .isamin_k, .idamin_k, .iqamin_k, .icamin_k, .izamin_k, .ixamin_k } },
+    .{ max, true, .{ .ismax_k, .idmax_k, .iqmax_k } },
+    .{ min, true, .{ .ismin_k, .idmin_k, .iqmin_k } },
+    .{ max, false, .{ .smax_k, .dmax_k, .qmax_k } },
+    .{ min, false, .{ .smin_k, .dmin_k, .qmin_k } },
+};
+
+/// Points every extremum slot but bfloat16's at the portable kernels.
+pub fn installGeneric(vt: *Vtable) void {
+    inline for (routines) |r| inline for (r[2], 0..) |slot, i| {
+        const E = Extremum(precisions[i][0], precisions[i][1], r[0]);
+        @field(vt, @tagName(slot)) = if (r[1]) &E.index else &E.value;
     };
 }

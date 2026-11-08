@@ -1,10 +1,6 @@
-//! Small fixed-size table mapping small integer file descriptors to real
-//! open UEFI Simple File System file instances. Backs `Io.File.Handle`
-//! (== `std.c.fd_t`, `i32` on this target -- see the upstream toolchain
-//! patch noted in `state.zig`). fds 0/1/2 are reserved for stdin/stdout/
-//! stderr (handled directly by `operate.zig`'s console path -- never
-//! stored here, since they're not `uefi.protocol.File` instances); real
-//! opened files get fds starting at `first_real_fd`.
+//! A fixed table from small fds to open UEFI Simple File System files; backs
+//! `Io.File.Handle` (`i32`). fds 0, 1 and 2 are the console (`operate.zig`),
+//! never stored here; opened files start at `first_real_fd`.
 
 const std = @import("std");
 const uefi = std.os.uefi;
@@ -35,22 +31,36 @@ pub fn alloc(file: *uefi.protocol.File) ?fd_t {
 /// Look up the real file behind `fd`, if `fd` is a real (>= first_real_fd),
 /// currently-open handle.
 pub fn get(fd: fd_t) ?*uefi.protocol.File {
+    return slots[slotIndex(fd) orelse return null];
+}
+
+/// Free `fd`'s slot, if it held one. Does not close the underlying file;
+/// callers close before freeing (see `file.zig`'s `fileClose`).
+pub fn free(fd: fd_t) void {
+    slots[slotIndex(fd) orelse return] = null;
+}
+
+/// `fd`'s slot, if `fd` is a real one in the table's range.
+fn slotIndex(fd: fd_t) ?usize {
     if (fd < first_real_fd) return null;
     const index: usize = @intCast(@as(fd_t, fd) - @as(fd_t, first_real_fd));
     if (index >= slots.len) return null;
-    return slots[index];
+    return index;
 }
 
-/// Free `fd`'s slot, if it held one. Does not close the underlying file --
-/// callers close before freeing (see `file.zig`'s `fileClose`).
-pub fn free(fd: fd_t) void {
-    if (fd < first_real_fd) return;
-    const index: usize = @intCast(@as(fd_t, fd) - @as(fd_t, first_real_fd));
-    if (index >= slots.len) return;
-    slots[index] = null;
+/// Reads `f` into each of `data` in turn, up to a short read (EOF); the bytes read.
+pub fn readInto(f: *uefi.protocol.File, data: []const []u8) error{InputOutput}!usize {
+    var total: usize = 0;
+    for (data) |buffer| {
+        if (buffer.len == 0) continue;
+        const n = f.read(buffer) catch return error.InputOutput;
+        total += n;
+        if (n < buffer.len) break;
+    }
+    return total;
 }
 
-/// Drop all entries without closing them -- call right after
+/// Drop all entries without closing them; call right after
 /// `exitBootServices()`, where the backing protocols are gone regardless
 /// (see `state.stop()`).
 pub fn reset() void {

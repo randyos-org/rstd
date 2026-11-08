@@ -1,48 +1,19 @@
-//! Vtable wrappers for the `laswp` kernels, and the tests of `kernel.zig`'s
-//! row interchanges and `laswp_ncopy`, which the gemm kernels' sets install
-//! (`gemm/kernel.zig`).
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! Tests of `kernel.zig`'s row interchanges and `laswp_ncopy`, which the gemm
+//! kernels' sets install (`gemm/kernel.zig`).
 
 const std = @import("std");
-const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const pattern = @import("../../_test/pattern.zig");
 const kernel = @import("kernel.zig");
 
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
 const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 const ComplexXD = types.ComplexXD;
-
-pub fn sblaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f32, lda: BlasLong, ipiv: [*]isize, buffer: [*]f32) i32 {
-    return blas.kernel(.sblaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
-pub fn slaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f32, lda: BlasLong, ipiv: [*]isize, buffer: [*]f32) i32 {
-    return blas.kernel(.slaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
-pub fn dlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f64, lda: BlasLong, ipiv: [*]isize, buffer: [*]f64) i32 {
-    return blas.kernel(.dlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
-pub fn qlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]XDouble, lda: BlasLong, ipiv: [*]isize, buffer: [*]XDouble) i32 {
-    return blas.kernel(.qlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
-pub fn claswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f32, lda: BlasLong, ipiv: [*]isize, buffer: [*]f32) i32 {
-    return blas.kernel(.claswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
-pub fn zlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]f64, lda: BlasLong, ipiv: [*]isize, buffer: [*]f64) i32 {
-    return blas.kernel(.zlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
-pub fn xlaswp_ncopy(n: BlasLong, k1: BlasLong, k2: BlasLong, a: [*]XDouble, lda: BlasLong, ipiv: [*]isize, buffer: [*]XDouble) i32 {
-    return blas.kernel(.xlaswp_ncopy)(n, k1, k2, a, lda, ipiv, buffer);
-}
 
 // ---- tests -----------------------------------------------------------------
 
@@ -86,8 +57,8 @@ fn checkAll(vt: *const Vtable) !void {
     inline for (precisions) |p| {
         const T = p[1];
         const F = types.Float(T);
-        const ncopy = @field(vt, p[0] ++ "laswp_ncopy").?;
-        const oncopy = @field(vt, p[0] ++ "gemm_oncopy").?;
+        const ncopy = portable.slotPtr(vt, .from(p[0]), .laswp_ncopy).*.?;
+        const oncopy = portable.slotPtr(vt, .from(p[0]), .gemm_oncopy).*.?;
         for ([_]usize{ 1, 2, 3, 5, 13, 40 }) |n| for ([_][2]usize{ .{ 1, 1 }, .{ 1, 4 }, .{ 3, 9 }, .{ 2, 2 } }) |ks| {
             const m = 11;
             const lda = m + 2;
@@ -96,7 +67,7 @@ fn checkAll(vt: *const Vtable) !void {
             const a = try al.alloc(T, lda * n);
             defer al.free(a);
             check.fill(T, a, n * 3 + k2);
-            for (a, 0..) |*v, i| v.* = check.shape(T, v.*, i, .mixed);
+            for (a, 0..) |*v, i| v.* = pattern.shape(T, v.*, i, .mixed);
             var ipiv: [m]isize = undefined;
             pivots(&ipiv, m, n + k1);
             const want = try al.dupe(T, a);
@@ -109,11 +80,11 @@ fn checkAll(vt: *const Vtable) !void {
             defer al.free(got_b);
             _ = oncopy(@intCast(rows), @intCast(n), @ptrCast(want.ptr + (k1 - 1)), lda, @ptrCast(want_b.ptr));
             _ = ncopy(@intCast(n), @intCast(k1), @intCast(k2), @as([*]F, @ptrCast(a.ptr)), lda, &ipiv, @ptrCast(got_b.ptr));
-            for (want, a) |w, g| if (!check.same(T, w, g, true)) {
+            for (want, a) |w, g| if (!bitwise.same(T, w, g, true)) {
                 check.say("{s}laswp_ncopy n={d} k1={d} k2={d}, A: ", .{ p[0], n, k1, k2 });
                 return error.TestUnexpectedResult;
             };
-            for (want_b, got_b) |w, g| if (!check.same(T, w, g, true)) {
+            for (want_b, got_b) |w, g| if (!bitwise.same(T, w, g, true)) {
                 check.say("{s}laswp_ncopy n={d} k1={d} k2={d}, buffer: ", .{ p[0], n, k1, k2 });
                 return error.TestUnexpectedResult;
             };
@@ -149,7 +120,7 @@ test "the interchanges follow dlaswp.f for either sign of incx, pivots repeated"
             laswpRef(T, n, want, lda, ks[0], ks[1], &ipiv, incx);
             const k1: usize = @intCast(ks[0]);
             kernel.swapRows(T, n, a.ptr, lda, k1, @intCast(ks[1]), ipiv[k1 - 1 ..].ptr, incx);
-            for (want, a) |w, g| try std.testing.expect(check.same(T, w, g, true));
+            for (want, a) |w, g| try std.testing.expect(bitwise.same(T, w, g, true));
         };
     }
 }

@@ -1,64 +1,15 @@
 //! `DOT`: `x . y` (`dotu`/`dotc` for complex, `dsdot` summing `f32` in `f64`).
-//! The vtable wrappers, the portable kernels (`*_generic`), and tests of every
-//! core's kernels against a plain loop.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! The portable kernels (`*_generic`) and tests of every core's kernels against a plain loop.
 
-const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sbdot_k(n: BlasLong, x: [*]BF16, inc_x: BlasLong, y: [*]BF16, inc_y: BlasLong) f32 {
-    return blas.kernel(.sbdot_k)(n, x, inc_x, y, inc_y);
-}
-pub fn dsbdot_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong) f64 {
-    return blas.kernel(.dsbdot_k)(n, x, inc_x, y, inc_y);
-}
-pub fn sdot_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong) f32 {
-    return blas.kernel(.sdot_k)(n, x, inc_x, y, inc_y);
-}
-pub fn ddot_k(n: BlasLong, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong) f64 {
-    return blas.kernel(.ddot_k)(n, x, inc_x, y, inc_y);
-}
-pub fn dsdot_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong) f64 {
-    return blas.kernel(.dsdot_k)(n, x, inc_x, y, inc_y);
-}
-pub fn qdot_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong) XDouble {
-    return blas.kernel(.qdot_k)(n, x, inc_x, y, inc_y);
-}
-pub fn cdotu_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong) Complex32 {
-    return blas.kernel(.cdotu_k)(n, x, inc_x, y, inc_y).toComplex();
-}
-pub fn cdotc_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong) Complex32 {
-    return blas.kernel(.cdotc_k)(n, x, inc_x, y, inc_y).toComplex();
-}
-pub fn zdotu_k(n: BlasLong, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong) Complex64 {
-    return blas.kernel(.zdotu_k)(n, x, inc_x, y, inc_y).toComplex();
-}
-pub fn zdotc_k(n: BlasLong, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong) Complex64 {
-    return blas.kernel(.zdotc_k)(n, x, inc_x, y, inc_y).toComplex();
-}
-pub fn xdotu_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong) ComplexXD {
-    return blas.kernel(.xdotu_k)(n, x, inc_x, y, inc_y).toComplex();
-}
-pub fn xdotc_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong) ComplexXD {
-    return blas.kernel(.xdotc_k)(n, x, inc_x, y, inc_y).toComplex();
-}
-
-// ---- portable kernels ------------------------------------------------------
-
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
+
+const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
+
+// ---- portable kernels ------------------------------------------------------
 
 /// `x . y` after `kernel/arm/dot.c`, summed sequentially in `Acc` (`f64` for
 /// `sdot` too, so it is at least as accurate as the reference's `float` or
@@ -185,9 +136,11 @@ pub fn installGeneric(vt: *Vtable) void {
 
 const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
-const kernel = @import("kernel.zig");
+const kernel = @import("driver.zig");
 const fma = @import("../../fma.zig");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const reference = @import("../../_test/reference.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type, `conj`
 /// conjugates `x` (`dotc`).
@@ -200,7 +153,7 @@ fn checkDot(comptime T: type, comptime conj: bool, kern: anytype) !void {
         check.fill(T, &x, n + 1);
         check.fill(T, &y, n + 7);
         for (check.zero_strides) |inc| {
-            const W = check.Wide(F);
+            const W = reference.Wide(F);
             var re: W = 0;
             var im: W = 0;
             for (0..n) |i| {
@@ -228,7 +181,7 @@ fn checkDot(comptime T: type, comptime conj: bool, kern: anytype) !void {
     }
 }
 
-fn complexRef(comptime F: type, re: check.Wide(F), im: check.Wide(F), got: anytype, tol: F) !void {
+fn complexRef(comptime F: type, re: reference.Wide(F), im: reference.Wide(F), got: anytype, tol: F) !void {
     try check.expectCloseRef(F, re, got.re, tol);
     try check.expectCloseRef(F, im, got.im, tol);
 }
@@ -412,12 +365,12 @@ test "the extended dot sums fold in dot.S's and zdot.S's order, bit for bit" {
             check.fill(F, &y, n + 12);
             const len: BlasLong = @intCast(n);
             const li: BlasLong = @intCast(inc);
-            try check.expectBits(F, PlainExtended.dot(F, n, &x, inc, &y, 1), extendedDot(F, len, &x, li, &y, 1), "dot", n, inc);
+            try bitwise.expectBits(F, PlainExtended.dot(F, n, &x, inc, &y, 1), extendedDot(F, len, &x, li, &y, 1), "dot", n, inc);
             inline for (.{ false, true }) |conj| {
                 const want = PlainExtended.zdot(F, conj, n, &x, inc, &y, 2);
                 const got = extendedZdot(F, conj, len, &x, li, &y, 2);
-                try check.expectBits(F, want[0], got[0], "zdot re", n, inc);
-                try check.expectBits(F, want[1], got[1], "zdot im", n, inc);
+                try bitwise.expectBits(F, want[0], got[0], "zdot re", n, inc);
+                try bitwise.expectBits(F, want[1], got[1], "zdot im", n, inc);
             }
         };
     }
@@ -450,4 +403,9 @@ test "the extended dot sums give the values traced by hand from dot.S and zdot.S
     const c = extendedZdot(F, true, 2, &zx, 1, &ones, 1);
     try zigstd.testExpectEqual(2 * t, c[0]);
     try zigstd.testExpectEqual(@as(F, 1), c[1]);
+}
+
+test "portable dsdot accumulates in double, where a sum in f32 would lose" {
+    var xs: [3]f32 = .{ 16777216, 1, 1 };
+    try std.testing.expectEqual(@as(f64, 16777216.0 * 16777216.0 + 2), dsdot_generic(3, &xs, 1, &xs, 1));
 }

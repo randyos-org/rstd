@@ -4,8 +4,8 @@
 //! zvl256b's complex `symv` is `../generic/zsymv_k.c` upstream, which the portable kernel composes
 //! from the core's own gemv. Per-core tests live in `symv/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const vector = @import("../../../vector.zig");
 
 pub const Core = coretypes.RiscvCoreType;

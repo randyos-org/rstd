@@ -1,40 +1,15 @@
-//! `ROTM`: the modified Givens rotation `param` names. The vtable wrappers,
-//! the portable kernels (`*_generic`), and tests of every core's kernels
-//! against a plain loop.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! `ROTM`: the modified Givens rotation `param` names. The portable kernels
+//! (`*_generic`) and tests of every core's kernels against a plain loop.
 
-const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sbrotm_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, param: [*]f32) i32 {
-    return blas.kernel(.sbrotm_k)(n, x, inc_x, y, inc_y, param);
-}
-pub fn srotm_k(n: BlasLong, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, param: [*]f32) i32 {
-    return blas.kernel(.srotm_k)(n, x, inc_x, y, inc_y, param);
-}
-pub fn drotm_k(n: BlasLong, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, param: [*]f64) i32 {
-    return blas.kernel(.drotm_k)(n, x, inc_x, y, inc_y, param);
-}
-pub fn qrotm_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, param: [*]XDouble) i32 {
-    return blas.kernel(.qrotm_k)(n, x, inc_x, y, inc_y, param);
-}
-
-// ---- portable kernels ------------------------------------------------------
-
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
+
+const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
+
+// ---- portable kernels ------------------------------------------------------
 
 /// The matrix `param` names: `param[0]` is the flag, -2 the identity, -1 the
 /// full `[h11 h12; h21 h22]` (`param[1..5]` = h11, h21, h12, h22), 0
@@ -94,7 +69,7 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 
 /// `kern` against a plain loop, for every flag.
 fn checkRotm(comptime F: type, kern: anytype) !void {

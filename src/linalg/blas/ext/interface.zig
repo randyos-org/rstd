@@ -16,9 +16,12 @@ const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const portable = @import("../portable.zig");
+const matcopy = @import("matcopy.zig");
 const laswp_kernel = @import("laswp/kernel.zig");
 const ref = @import("laswp/__root__.zig");
-const check = @import("../_test/blas1/check.zig");
+const check = @import("../_test/check.zig");
+const bitwise = @import("../_test/bitwise.zig");
+const reference = @import("../_test/reference.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -43,14 +46,7 @@ pub const ArgError = error{
 /// What an extension routine returns; only `imatcopy` allocates.
 pub const Error = ArgError || Allocator.Error || Io.Cancelable;
 
-fn floatType(comptime T: type, comptime name: []const u8) void {
-    if (@typeInfo(Float(T)) != .float) @compileError(name ++ ": " ++ @typeName(T) ++ " is not a float type or its Complex");
-}
-
-/// `T`'s elements as the kernels take them: floats, two per complex.
-fn raw(comptime T: type, p: [*]const T) [*]Float(T) {
-    return @ptrCast(@constCast(p));
-}
+const raw = util.raw;
 
 /// `?GEADD` (`interface/geadd.c`, `zgeadd.c`): `C := alpha*op(A) + beta*C`,
 /// `op(A)` and `C` being `m x n`; with `transc` `t`, the same on `C^T`, which
@@ -61,7 +57,7 @@ fn raw(comptime T: type, p: [*]const T) [*]Float(T) {
 /// never reads `C`.
 pub fn geadd(io: Io, comptime T: type, m: isize, n: isize, alpha: T, a: [*]const T, lda: isize, beta: T, c: [*]T, ldc: isize, transa: Trans, transc: Trans) Error!void {
     _ = io;
-    comptime floatType(T, "geadd");
+    comptime util.requireFloat(T, "geadd");
     const ta = transa.transposed();
     const tc = transc.transposed();
     if (m < 0) return error.InvalidM;
@@ -98,7 +94,7 @@ fn plainTrans(comptime T: type, t: Trans) bool {
 /// `A` and `B` must not overlap; `imatcopy` is the in-place form.
 pub fn omatcopy(io: Io, comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) Error!void {
     _ = io;
-    comptime floatType(T, "omatcopy");
+    comptime util.requireFloat(T, "omatcopy");
     const t = trans.transposed();
     try matcopyArgs(trans, rows, cols, lda, ldb);
     if (rows == 0 or cols == 0) return;
@@ -116,7 +112,7 @@ pub fn omatcopy(io: Io, comptime T: type, trans: Trans, rows: isize, cols: isize
 /// default build does. Both give the same bits. Arguments as `omatcopy`'s.
 pub fn imatcopy(allocator: Allocator, io: Io, comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]T, lda: isize, ldb: isize) Error!void {
     _ = io;
-    comptime floatType(T, "imatcopy");
+    comptime util.requireFloat(T, "imatcopy");
     const t = trans.transposed();
     try matcopyArgs(trans, rows, cols, lda, ldb);
     if (rows == 0 or cols == 0) return;
@@ -127,7 +123,7 @@ pub fn imatcopy(allocator: Allocator, io: Io, comptime T: type, trans: Trans, ro
     if (lda == ldb and (!t or rows == cols)) {
         switch (pick(T, trans)) {
             inline else => |p| if (comptime realConj(T, p)) unreachable else {
-                const k = portable.fetch(T, @field(portable.Op, "imatcopy_k_" ++ @tagName(p)), blas.vtable);
+                const k = portable.fetch(T, p.inOp(), blas.vtable);
                 if (comptime isComplex(T)) {
                     _ = k(rows, cols, alpha.re, alpha.im, raw(T, a), lda);
                 } else {
@@ -144,19 +140,13 @@ pub fn imatcopy(allocator: Allocator, io: Io, comptime T: type, trans: Trans, ro
     outOf(T, .n, out_rows, out_cols, one, buf.ptr, out_rows, a, ldb);
 }
 
-/// `?LASWP` (`interface/lapack/laswp.c`, `zlaswp.c`, over
-/// `lapack/laswp/generic/laswp_k_1.c`): rows `k1` to `k2` (1-based) of the
-/// `n` columns of `A` in turn, each swapped with row `ipiv(k)`, as LAPACK's
-/// `dlaswp.f` defines it; `ipiv(k)` is `ipiv[k1 - 1 + (k - k1) * |incx|]`,
-/// and a negative `incx` takes the rows from `k2` back. Nothing for `n <= 0`,
-/// `incx == 0` or `k2 < k1`, as the reference. It checks nothing else; so the
-/// swaps stay in `A`, rstd returns `error.InvalidLda` for `lda < k2`,
-/// `error.InvalidK1` for `k1 < 1`, `error.InvalidIncx` for an `ipiv` past
-/// the address space and `error.InvalidIpiv` for a pivot outside `1..lda`,
-/// checking every pivot before it swaps.
+/// `?LASWP` (`interface/lapack/laswp.c`, `zlaswp.c`,
+/// `lapack/laswp/generic/laswp_k_1.c`), as `dlaswp.f`: rows `k1` to `k2`
+/// (1-based; from `k2` for `incx < 0`) swapped with rows `ipiv(k)`; every
+/// pivot checked before the first swap.
 pub fn laswp(io: Io, comptime T: type, n: isize, a: [*]T, lda: isize, k1: isize, k2: isize, ipiv: [*]const isize, incx: isize) Error!void {
     _ = io;
-    comptime floatType(T, "laswp");
+    comptime util.requireFloat(T, "laswp");
     if (n <= 0 or incx == 0 or k2 < k1) return;
     if (lda < @max(1, k2)) return error.InvalidLda;
     if (k1 < 1) return error.InvalidK1;
@@ -181,9 +171,8 @@ fn matcopyArgs(trans: Trans, rows: isize, cols: isize, lda: isize, ldb: isize) A
     if (ldb < @max(1, if (trans.transposed()) cols else rows)) return error.InvalidLdb;
 }
 
-/// Which `omatcopy` or `imatcopy` kernel `trans` takes: `t` transposes, a
-/// trailing `c` conjugates (complex only).
-const Pick = enum { cn, ct, cnc, ctc };
+/// Which `omatcopy` or `imatcopy` kernel `trans` takes.
+const Pick = matcopy.Copy;
 
 fn pick(comptime T: type, trans: Trans) Pick {
     const c = isComplex(T) and trans.conjA();
@@ -199,7 +188,7 @@ fn realConj(comptime T: type, comptime p: Pick) bool {
 fn outOf(comptime T: type, trans: Trans, rows: isize, cols: isize, alpha: T, a: [*]const T, lda: isize, b: [*]T, ldb: isize) void {
     switch (pick(T, trans)) {
         inline else => |p| if (comptime realConj(T, p)) unreachable else {
-            const k = portable.fetch(T, @field(portable.Op, "omatcopy_k_" ++ @tagName(p)), blas.vtable);
+            const k = portable.fetch(T, p.outOp(), blas.vtable);
             if (comptime isComplex(T)) {
                 _ = k(rows, cols, alpha.re, alpha.im, raw(T, a), lda, raw(T, b), ldb);
             } else {
@@ -260,7 +249,7 @@ test "geadd matches a plain loop, real letters r and c standing in for n and t" 
             for (0..n) |j| for (0..m) |i| {
                 const k = if (tc) j + i * ldc else i + j * ldc;
                 const x = if (ta) a[j + i * lda] else a[i + j * lda];
-                want[k] = check.addW(check.mulW(alpha, x), check.mulW(beta, c[k]));
+                want[k] = reference.addW(reference.mulW(alpha, x), reference.mulW(beta, c[k]));
             };
             try geadd(check.io, T, @intCast(m), @intCast(n), alpha, &a, @intCast(lda), beta, &c, @intCast(ldc), l[0], l[1]);
             try check.expectCloseSlices(T, &want, &c, check.tolerance(Float(T), 4));
@@ -322,7 +311,7 @@ test "omatcopy and imatcopy match the definition for every letter, square and no
             for (0..out_cols) |j| for (0..out_rows) |i| {
                 var x = if (t) a[j + i * lda] else a[i + j * lda];
                 if (complex and tr.conjA()) x = x.conjugate();
-                want[i + j * ldb] = check.mulW(alpha, x);
+                want[i + j * ldb] = reference.mulW(alpha, x);
             };
             try omatcopy(check.io, T, tr, @intCast(rows), @intCast(cols), alpha, a.ptr, @intCast(lda), b.ptr, @intCast(ldb));
             for (0..out_cols) |j| for (0..out_rows) |i| {
@@ -330,7 +319,7 @@ test "omatcopy and imatcopy match the definition for every letter, square and no
             };
             try imatcopy(al, check.io, T, tr, @intCast(rows), @intCast(cols), alpha, a.ptr, @intCast(lda), @intCast(ldb));
             for (0..out_cols) |j| for (0..out_rows) |i| {
-                try testing.expect(check.same(T, b[i + j * ldb], a[i + j * ldb], true));
+                try testing.expect(bitwise.same(T, b[i + j * ldb], a[i + j * ldb], true));
             };
         };
     }
@@ -352,7 +341,7 @@ test "laswp follows dlaswp.f, and reports pivots and rows outside A" {
             defer al.free(want);
             ref.laswpRef(T, n, want, lda, 2, 8, &ipiv, incx);
             try laswp(check.io, T, n, a.ptr, lda, 2, 8, &ipiv, incx);
-            for (want, a) |w, g| try testing.expect(check.same(T, w, g, true));
+            for (want, a) |w, g| try testing.expect(bitwise.same(T, w, g, true));
         }
     }
     var a: [12]f64 = @splat(1);

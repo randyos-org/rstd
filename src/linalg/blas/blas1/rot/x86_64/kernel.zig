@@ -1,6 +1,6 @@
 //! x86_64 real rot kernels, one set per core, built into the per-core kernel
 //! objects (`src/linalg/blas/_kernel.zig`). A core's kernel is a `.S` kernel
-//! (`asm/`) or the C driver `srot.c`/`drot.c` (`../kernel.zig`) around the
+//! (`asm/`) or the C driver `srot.c`/`drot.c` (`../driver.zig`) around the
 //! block `uk/__root__.zig` names, which upstream is intrinsics
 //! (`<p>rot_microk_haswell-2.c`, `_skylakex-2.c`), here the same loops on
 //! `@Vector`s. Tests live in `rot/__root__.zig`.
@@ -8,10 +8,10 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
-const coretypes = @import("../../../cpu/_coretypes.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
 const util = @import("../../../util.zig");
-const kernel = @import("../kernel.zig");
-const uk = @import("../../uk_block.zig");
+const kernel = @import("../driver.zig");
+const uk = @import("../../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;

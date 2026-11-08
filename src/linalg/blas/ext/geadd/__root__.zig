@@ -1,38 +1,18 @@
-//! `GEADD`: `C := alpha*op(A) + beta*C`, or the same on `C^T`. The vtable
-//! wrappers, the portable kernels (`*_generic`), and their tests against a
-//! plain loop.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! `GEADD`: `C := alpha*op(A) + beta*C`, or the same on `C^T`. The portable
+//! kernels (`*_generic`) and their tests against a plain loop.
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
-const check = @import("../../_test/blas1/check.zig");
+const util = @import("../../util.zig");
+const check = @import("../../_test/check.zig");
+const reference = @import("../../_test/reference.zig");
 
 const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sgeadd_k(rows: BlasLong, cols: BlasLong, alpha: f32, a: [*]f32, lda: BlasLong, beta: f32, b: [*]f32, ldb: BlasLong, transa: BlasLong, transb: BlasLong) i32 {
-    return blas.kernel(.sgeadd_k)(rows, cols, alpha, a, lda, beta, b, ldb, transa, transb);
-}
-pub fn dgeadd_k(rows: BlasLong, cols: BlasLong, alpha: f64, a: [*]f64, lda: BlasLong, beta: f64, b: [*]f64, ldb: BlasLong, transa: BlasLong, transb: BlasLong) i32 {
-    return blas.kernel(.dgeadd_k)(rows, cols, alpha, a, lda, beta, b, ldb, transa, transb);
-}
-pub fn cgeadd_k(rows: BlasLong, cols: BlasLong, alpha_r: f32, alpha_i: f32, a: [*]f32, lda: BlasLong, beta_r: f32, beta_i: f32, b: [*]f32, ldb: BlasLong, transa: BlasLong, transb: BlasLong) i32 {
-    return blas.kernel(.cgeadd_k)(rows, cols, alpha_r, alpha_i, a, lda, beta_r, beta_i, b, ldb, transa, transb);
-}
-pub fn zgeadd_k(rows: BlasLong, cols: BlasLong, alpha_r: f64, alpha_i: f64, a: [*]f64, lda: BlasLong, beta_r: f64, beta_i: f64, b: [*]f64, ldb: BlasLong, transa: BlasLong, transb: BlasLong) i32 {
-    return blas.kernel(.zgeadd_k)(rows, cols, alpha_r, alpha_i, a, lda, beta_r, beta_i, b, ldb, transa, transb);
-}
 
 // ---- portable kernels ------------------------------------------------------
 
@@ -119,9 +99,7 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-fn isZero(comptime T: type, v: T) bool {
-    return if (comptime types.isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
-}
+const isZero = util.isZero;
 
 /// `kern` against a plain loop: every transpose pair, `alpha` and `beta`
 /// zero or not, NaN where a zero scalar must not read, and padding that must
@@ -157,7 +135,7 @@ fn checkGeadd(comptime T: type, kern: anytype) !void {
             const k = at(tb, ldb, i, j);
             const x = a[at(ta, lda, i, j)];
             const y = b[k];
-            want[k] = if (a0 and b0) zero else if (a0) check.mulW(beta, y) else if (b0) check.mulW(alpha, x) else check.addW(check.mulW(alpha, x), check.mulW(beta, y));
+            want[k] = if (a0 and b0) zero else if (a0) reference.mulW(beta, y) else if (b0) reference.mulW(alpha, x) else reference.addW(reference.mulW(alpha, x), reference.mulW(beta, y));
         };
         const pa: [*]F = @ptrCast(a.ptr);
         const pb: [*]F = @ptrCast(b.ptr);

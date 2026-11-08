@@ -1,56 +1,18 @@
 //! `GER` kernels: the rank-1 update `A += alpha*x*y^T` (conjugated for the
-//! complex `c` form). The vtable wrappers, the portable kernels,
-//! and tests of every core's kernels against plain arithmetic.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! complex `c` form). The portable kernels and tests of every core's kernels
+//! against plain arithmetic.
 
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas.kernel(.sger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn dger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas.kernel(.dger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn qger_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas.kernel(.qger_k)(m, n, dummy1, alpha, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn cgeru_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f32, alpha_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas.kernel(.cgeru_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn cgerc_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f32, alpha_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, a: [*]f32, lda: BlasLong, buffer: [*]f32) i32 {
-    return blas.kernel(.cgerc_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn zgeru_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas.kernel(.zgeru_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn zgerc_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: f64, alpha_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, a: [*]f64, lda: BlasLong, buffer: [*]f64) i32 {
-    return blas.kernel(.zgerc_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn xgeru_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas.kernel(.xgeru_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
-}
-pub fn xgerc_k(m: BlasLong, n: BlasLong, dummy1: BlasLong, alpha_r: XDouble, alpha_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, a: [*]XDouble, lda: BlasLong, buffer: [*]XDouble) i32 {
-    return blas.kernel(.xgerc_k)(m, n, dummy1, alpha_r, alpha_i, x, inc_x, y, inc_y, a, lda, buffer);
-}
-
-// ---- portable kernels ------------------------------------------------------
-
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
+
+const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
+
+// ---- portable kernels ------------------------------------------------------
 
 /// `kernel/generic/ger.c` and `zger.c`: the rank-1 update `A += alpha*x*y^T`,
 /// `A` column-major `m` by `n`, as a copy of `x` where its stride is not 1
@@ -112,23 +74,23 @@ pub fn Portable(comptime T: type) type {
     };
 }
 
-/// The complex variants by suffix, and whether `y` is conjugated.
-const variants = .{ .{ "u", false }, .{ "c", true } };
+/// The complex variants by op, and whether `y` is conjugated.
+const variants = .{ .{ .geru_k, false }, .{ .gerc_k, true } };
 
 /// Points every ger slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {
-        @field(vt, p[0] ++ "ger_k") = &Ger(p[1], false).k;
+        portable.slotPtr(vt, .from(p[0]), .ger_k).* = &Ger(p[1], false).k;
     }
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        inline for (variants) |v| @field(vt, p[0] ++ "ger" ++ v[0] ++ "_k") = &Ger(std.math.Complex(p[1]), v[1]).k;
+        inline for (variants) |v| portable.slotPtr(vt, .from(p[0]), v[0]).* = &Ger(std.math.Complex(p[1]), v[1]).k;
     }
 }
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas1/check.zig");
-const guard = @import("../../_test/blas2/guard.zig");
+const check = @import("../../_test/check.zig");
+const guard = @import("../../_test/guard.zig");
 
 const C = std.math.Complex;
 /// Shapes across the kernels' blocks, then bigger ones (static storage:
@@ -205,7 +167,7 @@ fn checkSlots(vt: *const Vtable) !void {
     try checkGer(f32, false, vt.sger_k.?);
     try checkGer(f64, false, vt.dger_k.?);
     inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
-        inline for (variants) |v| try checkGer(C(p[1]), v[1], @field(vt, p[0] ++ "ger" ++ v[0] ++ "_k").?);
+        inline for (variants) |v| try checkGer(C(p[1]), v[1], portable.slotPtr(vt, .from(p[0]), v[0]).*.?);
     }
 }
 
@@ -215,7 +177,7 @@ test "portable ger kernels match plain arithmetic" {
     defer guard.restore();
     try checkSlots(vt);
     try checkGer(XDouble, false, vt.qger_k.?);
-    inline for (variants) |v| try checkGer(C(XDouble), v[1], @field(vt, "xger" ++ v[0] ++ "_k").?);
+    inline for (variants) |v| try checkGer(C(XDouble), v[1], portable.slotPtr(vt, .x, v[0]).*.?);
 }
 
 test "every linked core's ger kernels match plain arithmetic, where this machine runs them" {

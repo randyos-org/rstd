@@ -1,9 +1,5 @@
-//! Fails when an ELF image's loaded span (its `PT_LOAD` segments, lowest
-//! address to highest end) is not inside the window a rig's firmware maps:
-//!
-//!   load_window <name> <base> <size> <image> <stamp>
-//!
-//! `<stamp>` gets the span, so the build caches a pass.
+//! `load_window <name> <base> <size> <image> <stamp>`: fails when an ELF image's `PT_LOAD` span is not inside the window a rig's firmware
+//! maps; `<stamp>` gets the span, so the build caches a pass.
 
 const std = @import("std");
 const Io = std.Io;
@@ -33,7 +29,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (hi == 0) return error.NoLoadSegments;
     if (lo < base or hi > base + size) {
-        std.debug.print("{s}: loaded span 0x{x} (0x{x}..0x{x}) is past the firmware's window, 0x{x} at 0x{x}; split its part in build/qemutest.zig\n", .{ name, hi - lo, lo, hi, size, base });
+        std.debug.print("{s}: loaded span 0x{x} (0x{x}..0x{x}) is past the firmware's window, 0x{x} at 0x{x}; split its part in build/qemu/machines.zig\n", .{ name, hi - lo, lo, hi, size, base });
         std.process.exit(1);
     }
     const file = try Io.Dir.cwd().createFile(io, args[5], .{});

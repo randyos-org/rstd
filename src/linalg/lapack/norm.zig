@@ -1,123 +1,27 @@
 //! Matrix norms and condition estimates, from Reference-LAPACK 3.12.0 as
 //! OpenBLAS v0.3.34-317 ships it (`lapack-netlib/SRC/`, modified BSD):
-//! `xLANGE` with `xLASSQ`, `xLACN2` (Higham's estimator), `xLATRS`,
-//! `xRSCL` and `xGECON`. Neither faer nor libflame has its own: faer's
-//! reductions have no operator norms or estimator, libflame's are the
-//! reference through f2c.
-//!
-//! Real and complex share one loop; where `zlatrs.f` departs from
-//! `dlatrs.f` (half-scaled bounds, `|re| + |im|` sizes), the complex branch
-//! says so. Complex division is Smith's (`util.cdiv`) where the reference
-//! takes `ZLADIV`. Vector products go through rstd's BLAS (`dot`, `axpy`,
-//! `trsv`, `scal`); the bits do not depend on the worker count.
+//! `xLANGE` with `xLASSQ`, `xLACN2`, `xLATRS`, `xRSCL` and `xGECON`, real and
+//! complex in one loop (the complex branches say where `zlatrs.f` departs).
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
-const chol = @import("cholesky.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const Trans = types.Trans;
-
-/// What the internal routines return.
-pub const Error = Allocator.Error || Io.Cancelable;
+const Error = ops.Error;
 
 /// `NORM`: the largest `|a(i, j)|` (`m`), the one norm (`o`, LAPACK's `1`
 /// or `O`), the infinity norm (`i`) or the Frobenius norm (`f`, `F` or
 /// `E`). `|.|` is the modulus for complex.
 pub const Norm = enum { m, o, i, f };
-
-// ---- element helpers ---------------------------------------------------------------
-
-/// `|re| + |im|` (`CABS1`), `|x|` for real.
-pub fn abs1(comptime T: type, x: T) Float(T) {
-    return if (comptime isComplex(T)) @abs(x.re) + @abs(x.im) else @abs(x);
-}
-
-/// `x / y`, complex by Smith's algorithm (`util.cdiv`), for `ZLADIV`.
-pub fn div(comptime T: type, x: T, y: T) T {
-    if (comptime !isComplex(T)) return x / y;
-    const q = util.cdiv(Float(T), x.re, x.im, y.re, y.im);
-    return .init(q[0], q[1]);
-}
-
-/// A public level-1 or level-2 routine's error, given arguments it accepts.
-pub fn narrow(e: anyerror) Error {
-    return switch (e) {
-        error.OutOfMemory => error.OutOfMemory,
-        error.Canceled => error.Canceled,
-        else => unreachable,
-    };
-}
-
-/// `?SCAL` (`?DSCAL` for complex) by a real `s`.
-pub fn scal(io: Io, comptime T: type, n: usize, s: Float(T), x: [*]T, inc: usize) Error!void {
-    if (n == 0) return;
-    const r = if (comptime isComplex(T)) blas.scalReal(io, T, @intCast(n), s, x, @intCast(inc)) else blas.scal(io, T, @intCast(n), s, x, @intCast(inc));
-    r catch |e| return narrow(e);
-}
-
-/// `?SCAL` by a complex `s`.
-pub fn scalComplex(io: Io, comptime T: type, n: usize, s: T, x: [*]T, inc: usize) Error!void {
-    if (n == 0) return;
-    blas.scal(io, T, @intCast(n), s, x, @intCast(inc)) catch |e| return narrow(e);
-}
-
-/// `?AXPY`.
-pub fn axpy(io: Io, comptime T: type, n: usize, alpha: T, x: [*]const T, incx: usize, y: [*]T, incy: usize) Error!void {
-    if (n == 0) return;
-    blas.axpy(io, T, @intCast(n), alpha, @constCast(x), @intCast(incx), y, @intCast(incy)) catch |e| return narrow(e);
-}
-
-/// `?DOT`, `?DOTU`, or with `conj` `?DOTC` (`conj(x)ᵀ y`).
-pub fn dot(io: Io, comptime T: type, conj: bool, n: usize, x: [*]const T, incx: usize, y: [*]const T, incy: usize) Error!T {
-    if (n == 0) return ops.zero(T);
-    const r = if (comptime isComplex(T)) (if (conj) blas.dotc(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy)) else blas.dot(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy))) else blas.dot(io, T, @intCast(n), @constCast(x), @intCast(incx), @constCast(y), @intCast(incy));
-    return r catch |e| return narrow(e);
-}
-
-/// The first index of the largest `abs1` (`I?AMAX`); NaN is passed over.
-pub fn iamax(comptime T: type, n: usize, x: [*]const T, inc: usize) usize {
-    var best: usize = 0;
-    var m: Float(T) = -1;
-    for (0..n) |i| {
-        const v = abs1(T, x[i * inc]);
-        if (v > m) {
-            m = v;
-            best = i;
-        }
-    }
-    return best;
-}
-
-// ---- xLASET -----------------------------------------------------------------------
-
-/// What `laset` returns.
-pub const LasetError = error{ InvalidM, InvalidN, InvalidLda };
-
-/// `?LASET` (`dlaset.f`, `zlaset.f`): the `m x n` `A`'s off-diagonal
-/// entries set to `alpha` and its diagonal to `beta`; with `uplo`, only that
-/// strict triangle and the diagonal, the rest untouched (null: all of it).
-pub fn laset(comptime T: type, uplo: ?types.Uplo, m: isize, n: isize, alpha: T, beta: T, a: [*]T, lda: isize) LasetError!void {
-    comptime chol.floatType(T, "laset");
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, m)) return error.InvalidLda;
-    if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(m, n, lda, @sizeOf(T))) return error.InvalidLda;
-    const rows: usize = @intCast(m);
-    const la: usize = @intCast(lda);
-    for (0..@intCast(n)) |j| {
-        const from = if (uplo == .l) @min(j, rows) else 0;
-        const to = if (uplo == .u) @min(j + 1, rows) else rows;
-        for (from..to) |i| a[i + j * la] = if (i == j) beta else alpha;
-    }
-}
 
 // ---- xLANGE, xLASSQ ----------------------------------------------------------------
 
@@ -129,7 +33,7 @@ pub const LangeError = error{ InvalidM, InvalidN, InvalidLda } || Allocator.Erro
 /// negative size or short `lda` is an error. `i` takes `m` reals of
 /// workspace.
 pub fn lange(allocator: Allocator, io: Io, comptime T: type, norm: Norm, m: isize, n: isize, a: [*]const T, lda: isize) LangeError!Float(T) {
-    comptime chol.floatType(T, "lange");
+    comptime ops.requireFloat(T, "lange");
     _ = io;
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
@@ -396,20 +300,18 @@ pub fn rscl(io: Io, comptime T: type, n: usize, sa: Float(T), x: [*]T, inc: usiz
             mul = cnum / cden;
             done = true;
         }
-        try scal(io, T, n, mul, x, inc);
+        try blas_calls.scal(io, T, n, mul, x, inc);
         if (done) return;
     }
 }
 
-/// `TRANS` for `latrs`: `n`, `t`, or `c` (complex only).
-pub const Op = enum { n, t, c };
-
-/// `?LATRS` (`dlatrs.f`, `zlatrs.f`): solves `op(A) x = scale b` for the
-/// `n x n` triangular `A` with `scale <= 1` chosen so `x` cannot overflow;
-/// returns `scale`. `cnorm` (`n`) holds the off-diagonal column norms
-/// (`abs1` sums), computed unless `normin`. A zero on the diagonal gives a
-/// null vector with `scale = 0`. `trsv` takes over where the bounds allow.
-pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit: bool, normin: bool, n: usize, a: [*]const T, lda: usize, x: [*]T, cnorm: [*]Float(T)) Error!Float(T) {
+/// `?LATRS` (`dlatrs.f`, `zlatrs.f`): solves `op(A) x = scale b` (`op` `n`,
+/// `t`, or `c` for complex) for the `n x n` triangular `A` with `scale <= 1`
+/// chosen so `x` cannot overflow; returns `scale`. `cnorm` (`n`) holds the
+/// off-diagonal column norms (`abs1` sums), computed unless `normin`. A zero
+/// on the diagonal gives a null vector with `scale = 0`. `trsv` takes over
+/// where the bounds allow.
+pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Trans, unit: bool, normin: bool, n: usize, a: [*]const T, lda: usize, x: [*]T, cnorm: [*]Float(T)) Error!Float(T) {
     const F = Float(T);
     const cx = comptime isComplex(T);
     // zlatrs halves its bounds, so a sum of two parts cannot overflow
@@ -420,21 +322,17 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
     const smlnum = std.math.floatMin(F) / std.math.floatEps(F);
     const bignum = 1 / smlnum;
     const overflow = std.math.floatMax(F);
-    const at = struct {
-        fn f(p: [*]const T, ld: usize, i: usize, j: usize) T {
-            return p[i + j * ld];
-        }
-    }.f;
+    const am: ops.Mat(T) = .{ .ptr = @constCast(a), .rows = n, .cols = n, .ld = lda };
     if (!normin) {
         for (0..n) |j| {
             const lo, const len = if (upper) .{ @as(usize, 0), j } else .{ j + 1, n - j - 1 };
             var s: F = 0;
-            for (0..len) |i| s += abs1(T, at(a, lda, lo + i, j));
+            for (0..len) |i| s += ops.abs1(T, am.get(lo + i, j));
             cnorm[j] = s;
         }
     }
     // scale the column norms by `tscal` if the largest exceeds `bignum`
-    var tmax = cnorm[iamax(F, n, cnorm, 1)];
+    var tmax = cnorm[blas_calls.iamax(F, n, cnorm, 1)];
     var tscal: F = 1;
     if (tmax > bignum * half) {
         if (tmax <= overflow) {
@@ -446,7 +344,7 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
             for (0..n) |j| {
                 const lo, const len = if (upper) .{ @as(usize, 0), j } else .{ j + 1, n - j - 1 };
                 for (0..len) |i| {
-                    const v = at(a, lda, lo + i, j);
+                    const v = am.get(lo + i, j);
                     tmax = if (cx) @max(tmax, @abs(v.re), @abs(v.im)) else @max(tmax, @abs(v));
                 }
             }
@@ -460,11 +358,11 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
                     if (cx) tscal *= 2;
                     cnorm[j] = 0;
                     const lo, const len = if (upper) .{ @as(usize, 0), j } else .{ j + 1, n - j - 1 };
-                    for (0..len) |i| cnorm[j] += tscal * abs2(T, at(a, lda, lo + i, j));
+                    for (0..len) |i| cnorm[j] += tscal * cabs2(T, am.get(lo + i, j));
                     if (cx) tscal *= 0.5;
                 }
             } else {
-                try trsv(al, io, T, upper, op, unit, n, a, lda, x);
+                try blas_calls.trsv(al, io, T, upper, op, unit, n, a, lda, x);
                 return scale;
             }
         }
@@ -472,9 +370,9 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
     // bound the growth of the solution
     var xmax: F = if (cx) blk: {
         var m: F = 0;
-        for (0..n) |j| m = @max(m, abs2(T, x[j]));
+        for (0..n) |j| m = @max(m, cabs2(T, x[j]));
         break :blk m;
-    } else @abs(x[iamax(T, n, x, 1)]);
+    } else @abs(x[blas_calls.iamax(T, n, x, 1)]);
     var xbnd = xmax;
     // the order of `j`: forward for lower `A` (upper `op(A)`)
     const forward = upper != notran;
@@ -492,7 +390,7 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
                 for (0..n) |k| {
                     const j = step(forward, n, k);
                     if (grow <= smlnum) break :grow;
-                    const tjj = abs1(T, at(a, lda, j, j));
+                    const tjj = ops.abs1(T, am.get(j, j));
                     if (!cx or tjj >= smlnum) xbnd = @min(xbnd, @min(1, tjj) * grow) else xbnd = 0;
                     grow = if (tjj + cnorm[j] >= smlnum) grow * (tjj / (tjj + cnorm[j])) else 0;
                 }
@@ -514,7 +412,7 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
                     if (grow <= smlnum) break :grow;
                     const xj = 1 + cnorm[j];
                     grow = @min(grow, xbnd / xj);
-                    const tjj = abs1(T, at(a, lda, j, j));
+                    const tjj = ops.abs1(T, am.get(j, j));
                     if (!cx or tjj >= smlnum) {
                         if (xj > tjj) xbnd *= tjj / xj;
                     } else xbnd = 0;
@@ -532,11 +430,11 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
     }
     if (grow * tscal > smlnum) {
         // no overflow: the BLAS's solve
-        try trsv(al, io, T, upper, op, unit, n, a, lda, x);
+        try blas_calls.trsv(al, io, T, upper, op, unit, n, a, lda, x);
     } else {
         if (xmax > bignum * half) {
             scale = (bignum * half) / xmax;
-            try scal(io, T, n, scale, x, 1);
+            try blas_calls.scal(io, T, n, scale, x, 1);
             xmax = bignum;
         } else if (cx) {
             xmax *= 2;
@@ -546,64 +444,39 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
             const j = step(forward, n, k);
             if (notran) {
                 // x(j) / A(j, j), then the update of the rest by column j
-                var xj = abs1(T, x[j]);
+                var xj = ops.abs1(T, x[j]);
                 skip: {
-                    const tjjs = if (!unit) ops.mulReal(T, at(a, lda, j, j), tscal) else blk: {
+                    const tjjs = if (!unit) ops.mulReal(T, am.get(j, j), tscal) else blk: {
                         if (tscal == 1) break :skip;
                         break :blk ops.scalar(T, tscal);
                     };
-                    const tjj = abs1(T, tjjs);
-                    if (tjj > smlnum) {
-                        if (tjj < 1 and xj > tjj * bignum) {
-                            const rec = 1 / xj;
-                            try scal(io, T, n, rec, x, 1);
-                            scale *= rec;
-                            xmax *= rec;
-                        }
-                        x[j] = div(T, x[j], tjjs);
-                        xj = abs1(T, x[j]);
-                    } else if (tjj > 0) {
-                        if (xj > tjj * bignum) {
-                            var rec = (tjj * bignum) / xj;
-                            if (cnorm[j] > 1) rec /= cnorm[j];
-                            try scal(io, T, n, rec, x, 1);
-                            scale *= rec;
-                            xmax *= rec;
-                        }
-                        x[j] = div(T, x[j], tjjs);
-                        xj = abs1(T, x[j]);
-                    } else {
-                        @memset(x[0..n], ops.zero(T));
-                        x[j] = ops.one(T);
-                        xj = 1;
-                        scale = 0;
-                        xmax = 0;
-                    }
+                    try divideScaled(io, T, n, x, j, xj, tjjs, cnorm[j], bignum, smlnum, &scale, &xmax);
+                    xj = ops.abs1(T, x[j]);
                 }
                 if (xj > 1) {
                     var rec = 1 / xj;
                     if (cnorm[j] > (bignum - xmax) * rec) {
                         rec *= 0.5;
-                        try scal(io, T, n, rec, x, 1);
+                        try blas_calls.scal(io, T, n, rec, x, 1);
                         scale *= rec;
                     }
                 } else if (xj * cnorm[j] > bignum - xmax) {
-                    try scal(io, T, n, 0.5, x, 1);
+                    try blas_calls.scal(io, T, n, 0.5, x, 1);
                     scale *= 0.5;
                 }
                 const alpha = ops.neg(T, ops.mulReal(T, x[j], tscal));
                 if (upper) {
                     if (j > 0) {
-                        try axpy(io, T, j, alpha, a + j * lda, 1, x, 1);
-                        xmax = abs1(T, x[iamax(T, j, x, 1)]);
+                        try blas_calls.axpy(io, T, j, alpha, a + j * lda, 1, x, 1);
+                        xmax = ops.abs1(T, x[blas_calls.iamax(T, j, x, 1)]);
                     }
                 } else if (j + 1 < n) {
-                    try axpy(io, T, n - j - 1, alpha, a + j + 1 + j * lda, 1, x + j + 1, 1);
-                    xmax = abs1(T, x[j + 1 + iamax(T, n - j - 1, x + j + 1, 1)]);
+                    try blas_calls.axpy(io, T, n - j - 1, alpha, a + j + 1 + j * lda, 1, x + j + 1, 1);
+                    xmax = ops.abs1(T, x[j + 1 + blas_calls.iamax(T, n - j - 1, x + j + 1, 1)]);
                 }
             } else {
                 // x(j) - op(A)(j, :) x, then the division
-                var xj = abs1(T, x[j]);
+                var xj = ops.abs1(T, x[j]);
                 var uscal = ops.scalar(T, tscal);
                 var rec = 1 / @max(xmax, 1);
                 const diag = struct {
@@ -616,13 +489,13 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
                 if (cnorm[j] > (bignum - xj) * rec) {
                     rec *= 0.5;
                     const tjjs = diag(a, lda, j, unit, conj, tscal);
-                    const tjj = abs1(T, tjjs);
+                    const tjj = ops.abs1(T, tjjs);
                     if (tjj > 1) {
                         rec = @min(1, rec * tjj);
-                        uscal = div(T, uscal, tjjs);
+                        uscal = ops.div(T, uscal, tjjs);
                     }
                     if (rec < 1) {
-                        try scal(io, T, n, rec, x, 1);
+                        try blas_calls.scal(io, T, n, rec, x, 1);
                         scale *= rec;
                         xmax *= rec;
                     }
@@ -630,47 +503,25 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
                 const lo, const len = if (upper) .{ @as(usize, 0), j } else .{ j + 1, n - j - 1 };
                 var sumj = ops.zero(T);
                 if (eq(T, uscal, ops.one(T))) {
-                    sumj = try dot(io, T, conj, len, a + lo + j * lda, 1, x + lo, 1);
+                    sumj = try blas_calls.dot(io, T, conj, len, a + lo + j * lda, 1, x + lo, 1);
                 } else {
                     for (0..len) |i| {
-                        const aij = at(a, lda, lo + i, j);
+                        const aij = am.get(lo + i, j);
                         sumj = ops.add(T, sumj, ops.mul(T, ops.mul(T, if (conj) ops.conj(T, aij) else aij, uscal), x[lo + i]));
                     }
                 }
                 if (eq(T, uscal, ops.scalar(T, tscal))) {
                     x[j] = ops.sub(T, x[j], sumj);
-                    xj = abs1(T, x[j]);
+                    xj = ops.abs1(T, x[j]);
                     skip: {
                         if (unit and tscal == 1) break :skip;
                         const tjjs = diag(a, lda, j, unit, conj, tscal);
-                        const tjj = abs1(T, tjjs);
-                        if (tjj > smlnum) {
-                            if (tjj < 1 and xj > tjj * bignum) {
-                                const r = 1 / xj;
-                                try scal(io, T, n, r, x, 1);
-                                scale *= r;
-                                xmax *= r;
-                            }
-                            x[j] = div(T, x[j], tjjs);
-                        } else if (tjj > 0) {
-                            if (xj > tjj * bignum) {
-                                const r = (tjj * bignum) / xj;
-                                try scal(io, T, n, r, x, 1);
-                                scale *= r;
-                                xmax *= r;
-                            }
-                            x[j] = div(T, x[j], tjjs);
-                        } else {
-                            @memset(x[0..n], ops.zero(T));
-                            x[j] = ops.one(T);
-                            scale = 0;
-                            xmax = 0;
-                        }
+                        try divideScaled(io, T, n, x, j, xj, tjjs, null, bignum, smlnum, &scale, &xmax);
                     }
                 } else {
-                    x[j] = ops.sub(T, div(T, x[j], diag(a, lda, j, unit, conj, tscal)), sumj);
+                    x[j] = ops.sub(T, ops.div(T, x[j], diag(a, lda, j, unit, conj, tscal)), sumj);
                 }
-                xmax = @max(xmax, abs1(T, x[j]));
+                xmax = @max(xmax, ops.abs1(T, x[j]));
             }
         }
         scale /= tscal;
@@ -681,23 +532,46 @@ pub fn latrs(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit:
     return scale;
 }
 
+/// `x(j) / tjjs`, `xj` the `abs1` of `x(j)`, with `x` (`n`) scaled first so
+/// the quotient cannot overflow, as `xlatrs.f`'s two copies: by `1 / xj` for
+/// `|tjjs|` below 1, by `tjj bignum / xj` (and `1 / cnorm` past 1, when
+/// given) for a tiny one; a zero `tjjs` gives `x = e(j)`, `scale = 0`.
+fn divideScaled(io: Io, comptime T: type, n: usize, x: [*]T, j: usize, xj: Float(T), tjjs: T, cnorm: ?Float(T), bignum: Float(T), smlnum: Float(T), scale: *Float(T), xmax: *Float(T)) Error!void {
+    const tjj = ops.abs1(T, tjjs);
+    if (tjj > smlnum) {
+        if (tjj < 1 and xj > tjj * bignum) {
+            const rec = 1 / xj;
+            try blas_calls.scal(io, T, n, rec, x, 1);
+            scale.* *= rec;
+            xmax.* *= rec;
+        }
+        x[j] = ops.div(T, x[j], tjjs);
+    } else if (tjj > 0) {
+        if (xj > tjj * bignum) {
+            var rec = (tjj * bignum) / xj;
+            if (cnorm) |c| {
+                if (c > 1) rec /= c;
+            }
+            try blas_calls.scal(io, T, n, rec, x, 1);
+            scale.* *= rec;
+            xmax.* *= rec;
+        }
+        x[j] = ops.div(T, x[j], tjjs);
+    } else {
+        @memset(x[0..n], ops.zero(T));
+        x[j] = ops.one(T);
+        scale.* = 0;
+        xmax.* = 0;
+    }
+}
+
 /// `CABS2` (`zlatrs.f`): `|re / 2| + |im / 2|`; `|x|` for real.
-fn abs2(comptime T: type, x: T) Float(T) {
+fn cabs2(comptime T: type, x: T) Float(T) {
     return if (comptime isComplex(T)) @abs(x.re / 2) + @abs(x.im / 2) else @abs(x);
 }
 
 fn eq(comptime T: type, x: T, y: T) bool {
     return if (comptime isComplex(T)) x.re == y.re and x.im == y.im else x == y;
-}
-
-/// `?TRSV` through rstd's BLAS.
-fn trsv(al: Allocator, io: Io, comptime T: type, upper: bool, op: Op, unit: bool, n: usize, a: [*]const T, lda: usize, x: [*]T) Error!void {
-    const t: Trans = switch (op) {
-        .n => .n,
-        .t => .t,
-        .c => .c,
-    };
-    blas.trsv(al, io, T, if (upper) .u else .l, t, if (unit) .u else .n, @intCast(n), @constCast(a), @intCast(lda), x, 1) catch |e| return narrow(e);
 }
 
 // ---- xGECON ------------------------------------------------------------------------
@@ -718,7 +592,7 @@ pub const GeconError = error{ InvalidNorm, InvalidN, InvalidLda, InvalidAnorm, E
 /// NaN and returns `InvalidAnorm`, and `EstimateFailed` leaves the failed
 /// value. Takes `5 n` elements of workspace.
 pub fn gecon(allocator: Allocator, io: Io, comptime T: type, norm: Norm, n: isize, a: [*]const T, lda: isize, anorm: Float(T), rcond: *Float(T)) GeconError!void {
-    comptime chol.floatType(T, "gecon");
+    comptime ops.requireFloat(T, "gecon");
     const F = Float(T);
     const onenrm = switch (norm) {
         .o => true,
@@ -774,7 +648,7 @@ fn Gecon(comptime T: type) type {
 
         fn apply(s: *Self, adjoint: bool, x: [*]T) Stop!void {
             const F = Float(T);
-            const op: Op = if (comptime isComplex(T)) .c else .t;
+            const op: Trans = if (comptime isComplex(T)) .c else .t;
             const lower_norms = s.cnorm;
             const upper_norms = s.cnorm + s.n;
             var sl: F = undefined;
@@ -789,8 +663,8 @@ fn Gecon(comptime T: type) type {
             const scale = sl * su;
             s.normin = true;
             if (scale != 1) {
-                const ix = iamax(T, s.n, x, 1);
-                if (scale < abs1(T, x[ix]) * std.math.floatMin(F) or scale == 0) return error.Overflow;
+                const ix = blas_calls.iamax(T, s.n, x, 1);
+                if (scale < ops.abs1(T, x[ix]) * std.math.floatMin(F) or scale == 0) return error.Overflow;
                 try rscl(s.io, T, s.n, scale, x, 1);
             }
         }
@@ -800,25 +674,18 @@ fn Gecon(comptime T: type) type {
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 const lu = @import("lu.zig");
 
-const test_types = chol.test_types;
-
-/// `THRESH` of the reference's linear-equation tests (`TESTING/dtest.in`).
-pub const thresh = 30;
-
-/// `T` from parts.
-pub fn cplx(comptime T: type, r: f64, i: f64) T {
-    return if (comptime isComplex(T)) .init(@floatCast(r), @floatCast(i)) else @floatCast(r);
-}
+const test_types = lcheck.test_types;
 
 test "lapack norm: lange's four norms on a known 2 x 3, NaN, empty, bad arguments" {
     const al = testing.allocator;
     inline for (test_types) |T| {
         const F = Float(T);
         // lda 3, columns (1, -2), (3 + 4i, 0), (-6, 0); complex (3, 4) has modulus 5
-        const a = [_]T{ cplx(T, 1, 0), cplx(T, -2, 0), cplx(T, 9, 9), cplx(T, 3, if (isComplex(T)) 4 else 0), cplx(T, 0, 0), cplx(T, 9, 9), cplx(T, -6, 0), cplx(T, 0, 0) };
+        const a = [_]T{ lcheck.cplx(T, 1, 0), lcheck.cplx(T, -2, 0), lcheck.cplx(T, 9, 9), lcheck.cplx(T, 3, if (isComplex(T)) 4 else 0), lcheck.cplx(T, 0, 0), lcheck.cplx(T, 9, 9), lcheck.cplx(T, -6, 0), lcheck.cplx(T, 0, 0) };
         const c2: F = if (comptime isComplex(T)) 5 else 3;
         try testing.expectEqual(@as(F, 6), try lange(al, check.io, T, .m, 2, 3, &a, 3));
         try testing.expectEqual(@as(F, 6), try lange(al, check.io, T, .o, 2, 3, &a, 3));
@@ -826,7 +693,7 @@ test "lapack norm: lange's four norms on a known 2 x 3, NaN, empty, bad argument
         const fro = try lange(al, check.io, T, .f, 2, 3, &a, 3);
         try testing.expectApproxEqRel(@sqrt(41 + c2 * c2), fro, 4 * std.math.floatEps(F));
         var b = a;
-        b[1] = chol.poisoned(T);
+        b[1] = lcheck.poisoned(T);
         for ([_]Norm{ .m, .o, .i, .f }) |nm| try testing.expect(std.math.isNan(try lange(al, check.io, T, nm, 2, 3, &b, 3)));
         try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .i, 0, 3, &b, 1));
         try testing.expectEqual(@as(F, 0), try lange(testing.failing_allocator, check.io, T, .f, 2, 0, &b, 2));
@@ -861,14 +728,6 @@ test "lapack norm: lange's Frobenius norm neither overflows nor underflows (Blue
     }
 }
 
-/// `DGET06` (`TESTING/LIN/dget06.f`): how far an estimate `rcond` is from
-/// the true `rcondc`, as a ratio less `1 - eps`.
-pub fn ratio(comptime F: type, rcond: F, rcondc: F) F {
-    const eps = std.math.floatEps(F);
-    if (rcond > 0) return if (rcondc > 0) @max(rcond, rcondc) / @min(rcond, rcondc) - (1 - eps) else rcond / eps;
-    return if (rcondc > 0) rcondc / eps else 0;
-}
-
 /// `gecon`'s estimate against `1 / (‖A‖ ‖A⁻¹‖)` from `getrs`'s inverse,
 /// as the reference's `dchkge.f` checks it, in both norms.
 fn geconCase(comptime T: type, al: Allocator, n: usize, grade: Float(T), seed: u64) !void {
@@ -899,8 +758,8 @@ fn geconCase(comptime T: type, al: Allocator, n: usize, grade: Float(T), seed: u
         const rcondc = (1 / anorm) / ainvnm;
         var rcond: F = undefined;
         try gecon(al, check.io, T, nm, ni, f.ptr, ni, anorm, &rcond);
-        const r = ratio(F, rcond, rcondc);
-        if (!(r < thresh)) {
+        const r = lcheck.ratio(F, rcond, rcondc);
+        if (!(r < lcheck.thresh)) {
             check.say("gecon {s} n {d} grade {d} norm {s}: rcond {e} against {e}, ratio {d}\n", .{ @typeName(T), n, @as(f64, @floatCast(grade)), @tagName(nm), @as(f64, @floatCast(rcond)), @as(f64, @floatCast(rcondc)), @as(f64, @floatCast(r)) });
             return error.TestUnexpectedResult;
         }
@@ -924,7 +783,7 @@ test "lapack gecon: n = 0, anorm = 0, 1 x 1, a zero pivot, NaN and infinite anor
     inline for (test_types) |T| {
         const F = Float(T);
         var rcond: F = -1;
-        var a = [_]T{ cplx(T, 2, 0), cplx(T, 1, 0), cplx(T, 0, 0), cplx(T, 3, 0) };
+        var a = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0), lcheck.cplx(T, 3, 0) };
         try gecon(al, check.io, T, .o, 0, &a, 1, 1, &rcond);
         try testing.expectEqual(@as(F, 1), rcond);
         try gecon(al, check.io, T, .o, 2, &a, 2, 0, &rcond);
@@ -933,7 +792,7 @@ test "lapack gecon: n = 0, anorm = 0, 1 x 1, a zero pivot, NaN and infinite anor
         try gecon(al, check.io, T, .i, 1, &a, 1, 2, &rcond);
         try testing.expectEqual(@as(F, 1), rcond);
         // U singular: the overflowing solve stops at 0
-        var s = [_]T{ cplx(T, 2, 0), cplx(T, 0.5, 0), cplx(T, 1, 0), cplx(T, 0, 0) };
+        var s = [_]T{ lcheck.cplx(T, 2, 0), lcheck.cplx(T, 0.5, 0), lcheck.cplx(T, 1, 0), lcheck.cplx(T, 0, 0) };
         for ([_]Norm{ .o, .i }) |nm| {
             rcond = -1;
             try gecon(al, check.io, T, nm, 2, &s, 2, 3, &rcond);
@@ -957,15 +816,15 @@ test "lapack gecon: n = 0, anorm = 0, 1 x 1, a zero pivot, NaN and infinite anor
 
 /// `latrs` on an `n x n` triangle with diagonal `d`: `scale` in [0, 1], `x`
 /// finite, and `‖op(A) x - scale b‖ / (‖A‖ ‖x‖ n eps)` below the threshold.
-fn latrsCase(comptime T: type, al: Allocator, upper: bool, op: Op, unit: bool, n: usize, d: Float(T), seed: u64) !void {
+fn latrsCase(comptime T: type, al: Allocator, upper: bool, op: Trans, unit: bool, n: usize, d: Float(T), seed: u64) !void {
     const F = Float(T);
     const a = try al.alloc(T, n * n);
     defer al.free(a);
     check.fill(T, a, seed);
     for (0..n) |j| for (0..n) |i| {
-        if (if (upper) i > j else i < j) a[i + j * n] = chol.poisoned(T);
+        if (if (upper) i > j else i < j) a[i + j * n] = lcheck.poisoned(T);
     };
-    for (0..n) |i| a[i * (n + 1)] = if (unit) chol.poisoned(T) else ops.scalar(T, d);
+    for (0..n) |i| a[i * (n + 1)] = if (unit) lcheck.poisoned(T) else ops.scalar(T, d);
     const b = try al.alloc(T, n);
     defer al.free(b);
     check.fill(T, b, seed + 1);
@@ -977,7 +836,7 @@ fn latrsCase(comptime T: type, al: Allocator, upper: bool, op: Op, unit: bool, n
     const scale = try latrs(al, check.io, T, upper, op, unit, false, n, a.ptr, n, x.ptr, cnorm.ptr);
     try testing.expect(scale >= 0 and scale <= 1);
     var xmax: F = 0;
-    for (x) |v| xmax = @max(xmax, abs1(T, v));
+    for (x) |v| xmax = @max(xmax, ops.abs1(T, v));
     try testing.expect(std.math.isFinite(xmax));
     var amax: F = 0;
     var rmax: F = 0;
@@ -988,15 +847,15 @@ fn latrsCase(comptime T: type, al: Allocator, upper: bool, op: Op, unit: bool, n
             if (if (upper) r > c else r < c) continue;
             var e = if (r == c) (if (unit) ops.one(T) else ops.scalar(T, d)) else a[r + c * n];
             if (op == .c) e = ops.conj(T, e);
-            amax = @max(amax, abs1(T, e));
+            amax = @max(amax, ops.abs1(T, e));
             s = ops.add(T, s, ops.mul(T, e, x[j]));
         }
-        rmax = @max(rmax, abs1(T, s));
+        rmax = @max(rmax, ops.abs1(T, s));
     }
     const eps = std.math.floatEps(F);
     const nf: F = @floatFromInt(n);
     const denom = amax * xmax * nf * eps;
-    if (!(rmax <= thresh * denom)) {
+    if (!(rmax <= lcheck.thresh * denom)) {
         check.say("latrs {s} n {d} upper {} op {s} unit {} d {e}: residual {e}, bound {e}\n", .{ @typeName(T), n, upper, @tagName(op), unit, @as(f64, @floatCast(d)), @as(f64, @floatCast(rmax)), @as(f64, @floatCast(denom)) });
         return error.TestUnexpectedResult;
     }
@@ -1006,7 +865,7 @@ test "lapack norm: latrs solves with scaling, ordinary and near-overflow triangl
     const al = testing.allocator;
     inline for (test_types) |T| {
         const F = Float(T);
-        const op_list: []const Op = if (comptime isComplex(T)) &.{ .n, .t, .c } else &.{ .n, .t };
+        const op_list: []const Trans = if (comptime isComplex(T)) &.{ .n, .t, .c } else &.{ .n, .t };
         for ([_]bool{ true, false }) |upper| for (op_list) |op| for ([_]bool{ false, true }) |unit| {
             for ([_]usize{ 1, 2, 7, 40 }, 0..) |n, k| {
                 // a diagonal of 3 (trsv), and one so small the solution would overflow
@@ -1018,14 +877,14 @@ test "lapack norm: latrs solves with scaling, ordinary and near-overflow triangl
 
 test "lapack norm: laset fills the diagonal and the chosen strict triangle, wide and tall" {
     inline for (.{ f64, types.Complex64 }) |T| {
-        const x = chol.scalar(T, -1);
-        const al_ = chol.scalar(T, 2);
-        const be = chol.scalar(T, 5);
+        const x = ops.scalar(T, -1);
+        const al_ = ops.scalar(T, 2);
+        const be = ops.scalar(T, 5);
         for ([_][2]usize{ .{ 3, 3 }, .{ 2, 4 }, .{ 4, 2 } }) |mn| for ([_]?types.Uplo{ null, .u, .l }) |uplo| {
             const m = mn[0];
             const n = mn[1];
             var a: [16]T = @splat(x);
-            try laset(T, uplo, @intCast(m), @intCast(n), al_, be, &a, @intCast(m));
+            try auxiliary.laset(T, uplo, @intCast(m), @intCast(n), al_, be, &a, @intCast(m));
             for (0..n) |j| for (0..m) |i| {
                 const inside = uplo == null or (uplo == .u and i <= j) or (uplo == .l and i >= j);
                 const want = if (!inside) x else if (i == j) be else al_;
@@ -1034,7 +893,7 @@ test "lapack norm: laset fills the diagonal and the chosen strict triangle, wide
         };
     }
     var a: [4]f64 = @splat(0);
-    try testing.expectError(error.InvalidM, laset(f64, null, -1, 1, 0, 0, &a, 1));
-    try testing.expectError(error.InvalidN, laset(f64, null, 1, -1, 0, 0, &a, 1));
-    try testing.expectError(error.InvalidLda, laset(f64, null, 2, 2, 0, 0, &a, 1));
+    try testing.expectError(error.InvalidM, auxiliary.laset(f64, null, -1, 1, 0, 0, &a, 1));
+    try testing.expectError(error.InvalidN, auxiliary.laset(f64, null, 1, -1, 0, 0, &a, 1));
+    try testing.expectError(error.InvalidLda, auxiliary.laset(f64, null, 2, 2, 0, 0, &a, 1));
 }

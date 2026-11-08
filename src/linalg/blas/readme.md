@@ -56,7 +56,7 @@ How the code is structured, and why, is in [`design.md`](../design.md).
   From ReLAPACK's recursive algorithms: `sygst`, `hegst`, `pbtrf`, `trsyl` and `tgsyl` (with
   its `dif` estimates); `sytrf`,
   `hetrf`, `sytrfRook`, `hetrfRook` and `gbtrf` with Reference-LAPACK's loops where ReLAPACK's
-  are wrong ([`issues.md`](../issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
+  are wrong ([`issues.md`](../../../issues.md)); and with `-Drelapack`, `potrf`, `getrf`, `trtri` and
   `lauum` in place of OpenBLAS's.
   From Reference-LAPACK, where no other source has its own: `lange`, `gecon` (which returns
   `error.EstimateFailed` for the reference's `INFO = 1`), `gebal`, `gebak`, `trexc` and `trsen`
@@ -202,7 +202,7 @@ depend on the core ([`comparisons.md`](comparisons.md), X1). Where the `@Vector`
   3.10's `dnrm2.f90` (`util.blue`). It is infinite for an infinity and NaN for a NaN. Upstream
   has three algorithms: x86_64 sums in `f64` (`nrm2_sse.S`), x86 and x86_64 in the x87's `f80`
   (`nrm2.S`), the rest scale a one-pass loop, several of them wrong on special values
-  ([`issues.md`](../issues.md)).
+  ([`issues.md`](../../../issues.md)).
 - **The extremes** (`i?amax`, `i?amin`, `i?max`, `i?min` and their values): the first NaN wins,
   its index and NaN for the value, as in Reference-LAPACK master (`50dc1bf`, `b358788`), BLIS's
   `amaxv` and arXiv:2207.09281; else the first extreme. Complex keys are `|re| + |im|`; where one
@@ -251,7 +251,7 @@ The kernels are portable Zig, the same on every core; the `@Vector` half `gemv` 
   by 1024 instead, as upstream kernel does; its `vdpbf16ps` rounding is not reproduced.
   `C` is scaled by `beta` first (a zero `beta` never reads it); a zero `alpha` or `k` reads neither
   `A` nor `B`. The scalars count by value, where upstream compares bfloat16 bits
-  ([`issues.md`](../issues.md)). The bits do not depend on the thread count.
+  ([`issues.md`](../../../issues.md)). The bits do not depend on the thread count.
 - **`gemmtHalf`** (`sbgemmt`, and the same for the other two types): a half `gemv` per column of
   the triangle, so each element rounds as `gemvHalf`'s; a zero `alpha` or `k` only scales the
   triangle by `beta`.
@@ -305,10 +305,10 @@ bytes are ignored. Details are in [`design.md`](../design.md#configuration).
 | `zig build qemu-test-<machine>` | one machine (`aarch64`, `aarch64-sve`, `aarch64-smp`, `aarch64-quad`, `arm`, `arm-softfp`, `riscv64`, `loongarch64`, `mips64r2el`, `mips64r6el`, `mips32r2el`, `mips32r5el`, `mips64r2`, `mips64r6`, `mips32r2`, `mips32r5`, `i386`, `x86_64`, `x86_64-smp`, `sparc64`, `sparc64-debug`, `powerpc64le`, `powerpc64le-power10`, `powerpc64`, `powerpc`, `powerpc-pseries`, `s390x`, `x86_64-uefi`, `aarch64-uefi`); `-Dqemu-test-filter=<name>` to pick tests, `-Dqemu-test-part=<part>` one image of a rig split in parts |
 | `zig build qemu-test-x86_64-whpx` | the host CPU under WHPX (x86_64 Windows hosts): the AVX-512, FMA4 and XOP cores |
 | `zig build qemu-test-linux-<machine>` | the full suite under Linux (`aarch64`, `aarch64-sve`, `x86_64`, `arm`, `riscv64`, `powerpc64le`, `powerpc64le-power10`); `qemu-check-linux-<machine>` builds it only |
-| `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemutest.zig`) |
+| `zig build qemu-test-x86_64-macos` | the unit tests in an x86_64 macOS VM, set up once (`build/qemu/macos.zig`) |
 | `zig build ssh-test-aarch64-macos -Dssh-mac=<ssh alias>` | the full suite on an Apple Silicon Mac |
 | `zig build ssh-test-x86_64-macos` | the x86_64 macOS suite on that Mac, under Rosetta 2 |
-| `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results-m6.md)) |
+| `zig build ssh-bench-aarch64-macos -Dopenblas=<checkout>` | the kernel benchmarks on that Mac ([`results-m6.md`](../../../tools/blasbench/results/results-m6.md)) |
 | `tools/blasbench/flyoff.sh zen3 <OpenBLAS dll>`, `flyoff.sh m6` | the flyoff under the timing rule, one command per host ([`readme.md`](../../../tools/blasbench/readme.md#rerunning-the-flyoff)); `zig build bench-check` compiles the bench for each host |
 | `zig build wasm-test` | the OS-free tests under Node, with and without SIMD128 |
 | `zig build rstd-check-macho`, `zig build rstd-check-uefi` | build the tests for macOS and UEFI without running them |
@@ -327,10 +327,10 @@ covers, and how the tests are built, is in [`design.md`](../design.md#verificati
 - [`threading.md`](threading.md): the threading design, the `io: Io` API and its guardrails.
 - [`comparisons.md`](comparisons.md): the numerical design decisions against BLIS, the reference
   and the exception-handling proposal.
-- [`issues.md`](../issues.md): problems found in OpenBLAS, Zig, QEMU and other tools, with
+- [`issues.md`](../../../issues.md): problems found in OpenBLAS, Zig, QEMU and other tools, with
   workarounds.
 - [`blas1/c_kernels.md`](blas1/c_kernels.md): porting OpenBLAS's C level-1 kernels.
 - [`blas2/buffers.md`](blas2/buffers.md): the level-2 kernels' scratch buffers.
 - [`blas3/gemm/notes.md`](blas3/gemm/notes.md): gemm kernel measurements.
-- [`results-m6.md`](../../../tools/blasbench/results-m6.md): Zig against converted assembly on
+- [`results-m6.md`](../../../tools/blasbench/results/results-m6.md): Zig against converted assembly on
   Apple M6.

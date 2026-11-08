@@ -1,6 +1,11 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Vtable = @import("Vtable.zig");
+const types = @import("types.zig");
+
+const isComplex = types.isComplex;
+const Float = types.Float;
+const Allocator = std.mem.Allocator;
 
 /// A vtable slot's name; too many fields for the default branch quota.
 pub const Slot = blk: {
@@ -13,11 +18,8 @@ pub fn SlotFn(comptime slot: Slot) type {
     return @typeInfo(@FieldType(Vtable, @tagName(slot))).optional.child;
 }
 
-/// Equivalent of C's `base[offset]` where `offset` may be negative -- BLAS
-/// routines allow negative `inc_x`/`inc_y` (iterate a vector in reverse),
-/// which does not map onto Zig's `usize`-indexed pointer/slice arithmetic
-/// the way it does onto a C pointer (`x[ix]` with negative `ix` is just
-/// `*(x + ix)` in C).
+/// C's `base[offset]` for a negative `offset` too; BLAS strides may be
+/// negative, which Zig's `usize` indexing does not take.
 pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
     const addr: usize = @intFromPtr(base);
     const byte_offset: i64 = offset * @as(i64, @sizeOf(T));
@@ -28,11 +30,106 @@ pub inline fn at(comptime T: type, base: [*]T, offset: i64) *T {
     return @ptrFromInt(new_addr);
 }
 
-/// `@abs(v)` of a float or float vector; on MIPS MSA by clearing the sign
-/// bits with a mask LLVM cannot see is one: there it takes `fmax_a.df v, v, v`
-/// for a vector `@abs`, a plain mask, or scalar ones it packs, which keeps
-/// the sign (`issues.md`); MSA has no other float lanes than `f32`, `f64`.
-/// Use it wherever an MSA build may vectorize `|x|`.
+/// `base + offset` for any sign of `offset`; `at` as a many-item pointer.
+pub inline fn off(comptime T: type, base: [*]T, offset: i64) [*]T {
+    return @ptrCast(at(T, base, offset));
+}
+
+/// Where a vector of `n` with stride `inc` starts: its last element when
+/// `inc < 0`. The vector must pass `fits`.
+pub fn first(comptime T: type, p: [*]T, n: isize, inc: isize) [*]T {
+    return if (inc < 0) off(T, p, -(n - 1) * inc) else p;
+}
+
+/// `T`'s elements as the kernels take them: floats, two per complex. Drops
+/// `const`; the kernels take mutable pointers.
+pub fn raw(comptime T: type, p: [*]const T) [*]Float(T) {
+    return @ptrCast(@constCast(p));
+}
+
+pub fn zero(comptime T: type) T {
+    return if (comptime isComplex(T)) .init(0, 0) else 0;
+}
+
+pub fn one(comptime T: type) T {
+    return fromReal(T, 1);
+}
+
+/// `v` as a `T`, with a zero imaginary part.
+pub fn fromReal(comptime T: type, v: Float(T)) T {
+    return if (comptime isComplex(T)) .init(v, 0) else v;
+}
+
+pub fn isZero(comptime T: type, v: T) bool {
+    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
+}
+
+pub fn isOne(comptime T: type, v: T) bool {
+    return if (comptime isComplex(T)) v.re == 1 and v.im == 0 else v == 1;
+}
+
+/// `MAX_STACK_ALLOC`: up to this many bytes of a routine's scratch live on
+/// the stack; the rest comes from the allocator.
+pub const stack_bytes = 2048;
+
+/// Scratch for `F` elements: in the caller's `stack` when `stack_bytes` holds
+/// them, else from the allocator, aligned to `heap_align`.
+pub fn Scratch(comptime F: type, comptime stack_align: usize, comptime heap_align: usize) type {
+    return struct {
+        const Self = @This();
+        ptr: [*]F,
+        len: usize,
+        heap: ?[]align(heap_align) F = null,
+
+        pub fn init(allocator: Allocator, stack: *align(stack_align) [stack_bytes]u8, len: usize) Allocator.Error!Self {
+            if (len * @sizeOf(F) <= stack_bytes) {
+                // tests poison it as their allocators do the heap: scratch
+                // read before it is written shows as NaN
+                if (sysinfo.is_test) @memset(stack, 0xff);
+                return .{ .ptr = @ptrCast(stack), .len = len };
+            }
+            return heapOnly(allocator, len);
+        }
+
+        /// Always from the allocator, as the reference's `blas_memory_alloc`.
+        pub fn heapOnly(allocator: Allocator, len: usize) Allocator.Error!Self {
+            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
+            return .{ .ptr = h.ptr, .len = len, .heap = h };
+        }
+
+        pub fn slice(self: Self) []F {
+            return self.ptr[0..self.len];
+        }
+
+        pub fn deinit(self: Self, allocator: Allocator) void {
+            if (self.heap) |h| allocator.free(h);
+        }
+    };
+}
+
+/// A scalar as the kernels take it, for `@call`: `.{v}`, or `.{ v.re, v.im }`
+/// for a complex `T`.
+pub inline fn scalarArgs(comptime T: type, v: T) if (isComplex(T)) struct { Float(T), Float(T) } else struct { T } {
+    return if (comptime isComplex(T)) .{ v.re, v.im } else .{v};
+}
+
+/// Refuses, at compile time, a `T` that is not a float or its `Complex`.
+pub fn requireFloat(comptime T: type, comptime name: []const u8) void {
+    if (@typeInfo(Float(T)) != .float) @compileError(name ++ ": " ++ @typeName(T) ++ " is not a float type or its Complex");
+}
+
+/// Refuses, at compile time, a real `T`.
+pub fn requireComplex(comptime T: type, comptime name: []const u8) void {
+    if (!isComplex(T)) @compileError(name ++ ": " ++ @typeName(T) ++ " is not complex");
+}
+
+/// Refuses, at compile time, a complex `T`.
+pub fn requireReal(comptime T: type, comptime name: []const u8) void {
+    if (isComplex(T)) @compileError(name ++ ": " ++ @typeName(T) ++ " is not real");
+}
+
+/// `@abs(v)` of a float or float vector; on MIPS MSA by a mask LLVM cannot
+/// see, as its `@abs` there keeps the sign (`issues.md`). For any `|x|` MSA may vectorize.
 pub fn abs(v: anytype) @TypeOf(v) {
     const T = @TypeOf(v);
     const F = if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T;
@@ -53,22 +150,22 @@ pub fn abs(v: anytype) @TypeOf(v) {
     return @bitCast(@as(@Vector(n, u32), @bitCast(v)) & @as(@Vector(n, u32), mask));
 }
 
+/// Whether this target is x86 with `feature`.
+pub fn x86Has(comptime feature: std.Target.x86.Feature) bool {
+    return sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, feature);
+}
+
 const msa = sysinfo.target.cpu.arch.isMIPS() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa);
 
-/// The symbol of `core`'s kernel for `slot` (`blaskern_daxpy_k_haswell`). The
-/// per-core objects (`build/blaskern.zig`) export it, with hidden visibility so it
-/// never leaves a shared library rstd is built into, and `kernels/<arch>.zig`'s
-/// `install` looks it up by the same name.
+/// `core`'s kernel symbol for `slot` (`blaskern_daxpy_k_haswell`), exported hidden by
+/// `build/blaskern.zig`'s objects and looked up by `kernels/<arch>.zig`'s `install`.
 pub fn kernelSymbol(comptime slot: Slot, comptime core: anytype) []const u8 {
     return "blaskern_" ++ @tagName(slot) ++ "_" ++ @tagName(core);
 }
 
-/// Loads a `V` from `p`, which is not assumed aligned to `V`'s natural
-/// alignment -- e.g. a kernel walking a caller's buffer by an arbitrary
-/// stride, where nothing guarantees the vector-width alignment `@Vector`
-/// otherwise wants. (Lives here, not in `simd/`, because the per-core kernel
-/// objects that use it are their own module rooted at `_kernel.zig` and
-/// cannot reach outside `linalg/blas/`; see `kernels/__root__.zig`.)
+/// Loads a `V` from `p`, unaligned; a caller's buffer at any stride need not
+/// have `@Vector`'s alignment. Here, not in `simd/`: the per-core objects
+/// (`_kernel.zig`) cannot reach outside `linalg/blas/`.
 pub inline fn load(comptime V: type, p: [*]const @typeInfo(V).vector.child) V {
     return @as(*align(1) const V, @ptrCast(p)).*;
 }
@@ -110,17 +207,10 @@ pub fn hsumFold(v: anytype) @typeInfo(@TypeOf(v)).vector.child {
     return hsumFold(lo + hi);
 }
 
-/// Whether `@Vector` arithmetic in `F` keeps denormals on this target. Not
-/// `f32` on ARMv7 NEON, which flushes to zero whatever FPSCR says (Arm DDI
-/// 0601 2026-09, AArch32 `FPSCR.FZ`), nor on
-/// AltiVec without VSX, which flushes under `VSCR[NJ]`, as Linux (v6.17
-/// `arch/powerpc/kernel/process.c:1995`) and QEMU (v10.1.0
-/// `target/ppc/cpu_init.c:4157`, `vscr_init(env, 0x00010000)`) start it. Neither has `f64` lanes; LLVM splits those into scalar IEEE
-/// operations, as it does every vector under a soft-float ABI. Kernels take
-/// their scalar path where this is false (`comparisons.md`, 10). LLVM's
-/// auto-vectorizer keeps off NEON's `f32` but not AltiVec's: the AltiVec
-/// cores' objects are built without it (`cpu/_corespec.zig`), and the loops
-/// built for the target pass their `f32` results through `scalar`.
+/// Whether `@Vector` arithmetic in `F` keeps denormals here; false where kernels take
+/// their scalar path (`comparisons.md`, 10): `f32` on ARMv7 NEON (Arm DDI 0601
+/// 2026-09, AArch32 `FPSCR.FZ`) and AltiVec without VSX (`VSCR[NJ]`, as Linux v6.17
+/// `arch/powerpc/kernel/process.c:1995` and QEMU v10.1.0 `target/ppc/cpu_init.c:4157` set it).
 pub fn vectorIeee(comptime F: type) bool {
     return vectorIeeeOn(F, sysinfo.target.cpu);
 }
@@ -136,11 +226,8 @@ pub fn vectorIeeeOn(comptime F: type, comptime cpu: std.Target.Cpu) bool {
     };
 }
 
-/// `x` (a float, or an array of them), through an empty asm in a scalar
-/// register where AltiVec's `f32` lanes flush: LLVM's vectorizers cannot
-/// widen a loop or a group of operations through it, so a loop that passes
-/// what it stores or accumulates through it keeps out of those lanes. `x`
-/// itself everywhere else; ARMv7's vectorizers already keep off NEON's `f32`.
+/// `x` (a float or an array of them) through an empty asm where AltiVec's `f32` lanes
+/// flush, so LLVM cannot vectorize a loop through it; `x` itself elsewhere.
 pub inline fn scalar(comptime T: type, x: T) T {
     if (comptime vectorIeee(f32) or !sysinfo.target.cpu.arch.isPowerpc()) return x;
     if (@typeInfo(T) == .array) {
@@ -185,10 +272,8 @@ fn x87Without(comptime unit: std.Target.x86.Feature) bool {
     return cpu.arch.isX86() and has(cpu.features, .x87) and !has(cpu.features, unit);
 }
 
-/// Whether a vector of `n` elements of `size` bytes at stride `inc` fits in
-/// the address space: `((n - 1) * |inc| + 1) * size` bytes, with no overflow.
-/// Where it does not, no such vector can exist; the interfaces refuse it so
-/// no index computation overflows.
+/// Whether `n` elements of `size` bytes at stride `inc` fit in the address space
+/// (`((n - 1) * |inc| + 1) * size` bytes, no overflow); the interfaces refuse the rest.
 pub fn fits(n: isize, inc: isize, size: usize) bool {
     if (inc == std.math.minInt(isize)) return false;
     if (n <= 1) return true;
@@ -205,12 +290,9 @@ pub fn fitsMatrix(rows: isize, cols: isize, ld: isize, size: usize) bool {
     return true;
 }
 
-/// `nrm2`'s algorithm at 64 bits, for the portable and `@Vector` kernels:
-/// Blue's, as Reference-LAPACK 3.10's `BLAS/SRC/dnrm2.f90` has it
-/// (Anderson, "Algorithm 978: Safe Scaling in the Level 1 BLAS", ACM TOMS
-/// 44(1), 1-28, 2017, <https://doi.org/10.1145/3061665>): one pass summing
-/// the squares of small, medium and big magnitudes apart, each scaled by a
-/// power of two so none overflows or underflows; no division. Infinite for an infinity, NaN for a NaN.
+/// 64-bit `nrm2` for the portable and `@Vector` kernels: Blue's, as Reference-LAPACK 3.10's
+/// `BLAS/SRC/dnrm2.f90` (Anderson, "Algorithm 978", ACM TOMS 44(1), 2017,
+/// <https://doi.org/10.1145/3061665>); one scaled pass, no division; Inf and NaN propagate.
 pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x: isize) F {
     // Fortran's `digits`, `minexponent` and `maxexponent`
     const digits = std.math.floatMantissaBits(F) + 1;
@@ -255,11 +337,8 @@ pub fn blue(comptime F: type, comptime w: comptime_int, n: isize, x: [*]F, inc_x
     return @sqrt(amed);
 }
 
-/// `b / a` in parts, by Smith's algorithm (the larger part of `a` divided
-/// out), as gfortran divides; for the triangular solves of levels 2 and 3.
-/// No reciprocal is formed, so a tiny `a` whose reciprocal overflows still
-/// gives a finite quotient wherever one exists. On the x87 every step is
-/// `rounded`, so the bits do not hang on where the compiler spills.
+/// `b / a` in parts by Smith's algorithm, as gfortran divides; no reciprocal, so a tiny
+/// `a` still gives a finite quotient. Each step `rounded` on the x87.
 pub inline fn cdiv(comptime F: type, br: F, bi: F, ar: F, ai: F) [2]F {
     const q = struct {
         inline fn f(x: F) F {
@@ -290,12 +369,9 @@ pub inline fn cmul(comptime F: type, ar: F, ai: F, br: F, bi: F) [2]F {
 /// What `extendedSum` adds up per float.
 pub const Term = enum { abs, square };
 
-/// x86_64 `asum.S`'s and `nrm2.S`'s x87 sums and their complex forms', before
-/// `nrm2`'s square root, which every float wider than `f64` takes: eight
-/// floats a trip into accumulators by float `% 4`, then each remaining
-/// element's float `c` (of `w`) into accumulator `c`, folded
-/// `a3 + ((a2 + a0) + a1)`, nothing fused. At `f80` it gives the assembly's
-/// bits; `kernel/x86/`'s are in the same order.
+/// x86_64 `asum.S`'s and `nrm2.S`'s x87 sums (`nrm2` before its root), for floats wider than
+/// `f64`: 8 floats a trip into accumulator `float % 4`, the rest's float `c` into `c`,
+/// folded `a3 + ((a2 + a0) + a1)` unfused; at `f80` the assembly's bits.
 pub fn extendedSum(comptime F: type, comptime w: comptime_int, comptime term: Term, n: isize, x: [*]F, inc_x: isize) F {
     const per = 8 / w;
     var a: [4]F = @splat(0);
@@ -315,235 +391,4 @@ inline fn of(comptime F: type, comptime term: Term, v: F) F {
         .abs => @abs(v),
         .square => v * v,
     };
-}
-
-// ---- floating-point control state ------------------------------------------------
-
-/// The calling thread's floating-point control state: the x87 control word
-/// and MXCSR's control bits; FPCR; FPSCR's (arm, powerpc); `frm`; FCSR's
-/// (mips, loongarch); FPC's; FSR's. Threads do not inherit it, so a parallel
-/// region captures it on the caller and each worker task adopts it
-/// (`threading.md`). Exception flags stay with each thread. Empty where the
-/// target has no FPU or none of these.
-pub const FpState = struct {
-    x87: if (fp_x87) u16 else void,
-    ctl: if (fp_reg) |r| r.Int else void,
-
-    /// Whether there is no state to carry.
-    pub const empty = !fp_x87 and fp_reg == null;
-    /// Whether Zig's own float code follows it: not under a soft-float ABI,
-    /// whose arithmetic is compiler_rt's; only asm kernels' then.
-    pub const governs = !empty and fp_hard;
-
-    pub fn capture() FpState {
-        var s: FpState = undefined;
-        if (comptime fp_x87) s.x87 = x87Word();
-        if (comptime fp_reg) |r| s.ctl = readFp() & r.ctl;
-        return s;
-    }
-
-    /// Sets this thread's control bits to `s`'s, leaving its flags.
-    pub fn apply(s: FpState) void {
-        if (comptime fp_x87) setX87Word(s.x87);
-        if (comptime fp_reg) |r| writeFp((readFp() & ~@as(r.Int, r.ctl | r.clear)) | s.ctl);
-    }
-
-    /// Puts `s` in force on this thread; returns the state it replaced if
-    /// that differed, to `apply` when the task ends.
-    pub fn adopt(s: FpState) ?FpState {
-        const own = capture();
-        if (own.eql(s)) return null;
-        s.apply();
-        return own;
-    }
-
-    pub fn eql(a: FpState, b: FpState) bool {
-        return std.meta.eql(a, b);
-    }
-
-    /// `s` rounding toward zero, and flushing denormals on x86's SSE and
-    /// Arm's; for tests.
-    pub fn towardZero(s: FpState) FpState {
-        var t = s;
-        if (comptime fp_x87) t.x87 |= 0xc00;
-        if (comptime fp_reg) |r| t.ctl = (t.ctl & ~@as(r.Int, r.rounding)) | r.toward_zero;
-        return t;
-    }
-};
-
-/// A register of floating-point control and status bits.
-const FpReg = struct {
-    Int: type,
-    /// Its control bits.
-    ctl: comptime_int,
-    /// Status bits `apply` clears: a cause bit set with its trap enabled traps.
-    clear: comptime_int = 0,
-    /// The rounding field (and flush to zero), and its value toward zero.
-    rounding: comptime_int,
-    toward_zero: comptime_int,
-};
-
-const fp_cpu = sysinfo.target.cpu;
-const fp_hard = sysinfo.target.abi.float() == .hard;
-const fp_x87 = fp_cpu.arch.isX86() and std.Target.x86.featureSetHas(fp_cpu.features, .x87);
-/// The self-hosted x86_64 backend takes no `(%reg)` operand; it gets `m`
-/// operands, which LLVM misreads as inputs (issues.md).
-const fp_mem_ops = sysinfo.zig_backend == .stage2_x86_64;
-
-const fp_reg: ?FpReg = switch (fp_cpu.arch) {
-    .x86, .x86_64 => if (std.Target.x86.featureSetHas(fp_cpu.features, .sse)) .{ .Int = u32, .ctl = 0xffc0, .rounding = 0xe000, .toward_zero = 0xe000 } else null,
-    .aarch64, .aarch64_be => if (std.Target.aarch64.featureSetHas(fp_cpu.features, .fp_armv8)) .{ .Int = u64, .ctl = std.math.maxInt(u64), .rounding = 0x1c0_0000, .toward_zero = 0x1c0_0000 } else null,
-    .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(fp_cpu.features, .vfp2sp)) .{ .Int = u32, .ctl = 0x07ff_ff00, .rounding = 0x1c0_0000, .toward_zero = 0x1c0_0000 } else null,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (fp_hard and std.Target.powerpc.featureSetHas(fp_cpu.features, .fpu) and !std.Target.powerpc.featureSetHas(fp_cpu.features, .spe)) .{ .Int = u64, .ctl = 0xff, .rounding = 0x3, .toward_zero = 0x1 } else null,
-    .riscv32, .riscv32be, .riscv64, .riscv64be => if (std.Target.riscv.featureSetHas(fp_cpu.features, .f)) .{ .Int = usize, .ctl = 0x7, .rounding = 0x7, .toward_zero = 0x1 } else null,
-    .mips, .mipsel, .mips64, .mips64el => if (fp_hard) .{ .Int = u32, .ctl = 0x0100_0f83, .clear = 0x0003_f000, .rounding = 0x3, .toward_zero = 0x1 } else null,
-    .loongarch32, .loongarch64 => if (std.Target.loongarch.featureSetHas(fp_cpu.features, .f)) .{ .Int = u32, .ctl = 0x31f, .clear = 0x1f00_0000, .rounding = 0x300, .toward_zero = 0x100 } else null,
-    .s390x => if (fp_hard) .{ .Int = u32, .ctl = 0xff00_0077, .rounding = 0x7, .toward_zero = 0x1 } else null,
-    .sparc => if (fp_hard) .{ .Int = u32, .ctl = 0xcfc0_0000, .clear = 0x1f, .rounding = 0xc000_0000, .toward_zero = 0x4000_0000 } else null,
-    .sparc64 => if (fp_hard) .{ .Int = u64, .ctl = 0xcfc0_0000, .clear = 0x1f, .rounding = 0xc000_0000, .toward_zero = 0x4000_0000 } else null,
-    // no-op: none that rstd starts threads on
-    else => null,
-};
-
-fn x87Word() u16 {
-    var w: u16 = undefined;
-    if (comptime fp_mem_ops) asm volatile ("fnstcw %[w]"
-        : [w] "=m" (w),
-    ) else asm volatile ("fnstcw (%[p])"
-        :
-        : [p] "r" (&w),
-        : .{ .memory = true });
-    return w;
-}
-
-fn setX87Word(w: u16) void {
-    if (comptime fp_mem_ops) asm volatile ("fldcw %[w]"
-        :
-        : [w] "m" (w),
-        : .{ .memory = true }) else asm volatile ("fldcw (%[p])"
-        :
-        : [p] "r" (&w),
-        : .{ .memory = true });
-}
-
-fn readFp() fp_reg.?.Int {
-    switch (fp_cpu.arch) {
-        .x86, .x86_64 => {
-            var v: u32 = undefined;
-            if (comptime fp_mem_ops) asm volatile ("stmxcsr %[v]"
-                : [v] "=m" (v),
-            ) else asm volatile ("stmxcsr (%[p])"
-                :
-                : [p] "r" (&v),
-                : .{ .memory = true });
-            return v;
-        },
-        .aarch64, .aarch64_be => return asm volatile ("mrs %[r], fpcr"
-            : [r] "=r" (-> u64),
-        ),
-        .arm, .armeb, .thumb, .thumbeb => return asm volatile ("vmrs %[r], fpscr"
-            : [r] "=r" (-> u32),
-        ),
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => return @bitCast(asm volatile ("mffs %[f]"
-            : [f] "=f" (-> f64),
-        )),
-        .riscv32, .riscv32be, .riscv64, .riscv64be => return asm volatile ("frrm %[r]"
-            : [r] "=r" (-> usize),
-        ),
-        .mips, .mipsel, .mips64, .mips64el => return asm volatile ("cfc1 %[r], $31"
-            : [r] "=r" (-> u32),
-        ),
-        .loongarch32, .loongarch64 => return asm volatile ("movfcsr2gr %[r], $fcsr0"
-            : [r] "=r" (-> u32),
-        ),
-        .s390x => return asm volatile ("efpc %[r]"
-            : [r] "=r" (-> u32),
-        ),
-        .sparc, .sparc64 => {
-            var v: fp_reg.?.Int = undefined;
-            asm volatile ((if (fp_cpu.arch == .sparc64) "stx" else "st") ++ " %%fsr, [%[p]]"
-                :
-                : [p] "r" (&v),
-                : .{ .memory = true });
-            return v;
-        },
-        else => comptime unreachable,
-    }
-}
-
-fn writeFp(v: fp_reg.?.Int) void {
-    switch (fp_cpu.arch) {
-        .x86, .x86_64 => if (comptime fp_mem_ops) asm volatile ("ldmxcsr %[v]"
-            :
-            : [v] "m" (v),
-            : .{ .memory = true }) else asm volatile ("ldmxcsr (%[p])"
-            :
-            : [p] "r" (&v),
-            : .{ .memory = true }),
-        .aarch64, .aarch64_be => asm volatile ("msr fpcr, %[r]"
-            :
-            : [r] "r" (v),
-            : .{ .memory = true }),
-        .arm, .armeb, .thumb, .thumbeb => asm volatile ("vmsr fpscr, %[r]"
-            :
-            : [r] "r" (v),
-            : .{ .memory = true }),
-        // fields 6 and 7: the enables, NI and RN
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile ("mtfsf 3, %[f]"
-            :
-            : [f] "f" (@as(f64, @bitCast(v))),
-            : .{ .memory = true }),
-        .riscv32, .riscv32be, .riscv64, .riscv64be => asm volatile ("fsrm %[r]"
-            :
-            : [r] "r" (v),
-            : .{ .memory = true }),
-        .mips, .mipsel, .mips64, .mips64el => asm volatile ("ctc1 %[r], $31"
-            :
-            : [r] "r" (v),
-            : .{ .memory = true }),
-        .loongarch32, .loongarch64 => asm volatile ("movgr2fcsr $fcsr0, %[r]"
-            :
-            : [r] "r" (v),
-            : .{ .memory = true }),
-        .s390x => asm volatile ("sfpc %[r]"
-            :
-            : [r] "r" (v),
-            : .{ .memory = true }),
-        .sparc, .sparc64 => asm volatile ((if (fp_cpu.arch == .sparc64) "ldx" else "ld") ++ " [%[p]], %%fsr"
-            :
-            : [p] "r" (&v),
-            : .{ .memory = true }),
-        else => comptime unreachable,
-    }
-}
-
-/// `1 + 3/4 ulp`, rounded by this thread's mode: up to nearest, down toward zero.
-fn onePlus(comptime F: type) F {
-    var a: F = 1;
-    var b: F = std.math.floatEps(F) * 0.75;
-    const va: *volatile F = &a;
-    const vb: *volatile F = &b;
-    return rounded(F, va.* + vb.*);
-}
-
-/// Whether `f32` and `f64` round `onePlus` down.
-fn roundsDown() [2]bool {
-    return .{ onePlus(f32) == 1, onePlus(f64) == 1 };
-}
-
-test "FpState: apply sets what capture reads, the rounding follows, and the state comes back" {
-    if (comptime FpState.empty) return error.SkipZigTest;
-    const own: FpState = .capture();
-    defer own.apply();
-    const down = [2]bool{ FpState.governs, FpState.governs };
-    try std.testing.expectEqual([2]bool{ false, false }, roundsDown());
-    const rz = own.towardZero();
-    try std.testing.expect(!rz.eql(own));
-    try std.testing.expect(rz.adopt().?.eql(own));
-    try std.testing.expect(FpState.capture().eql(rz));
-    try std.testing.expect(rz.adopt() == null);
-    try std.testing.expectEqual(down, roundsDown());
-    own.apply();
-    try std.testing.expect(FpState.capture().eql(own));
-    try std.testing.expectEqual([2]bool{ false, false }, roundsDown());
 }

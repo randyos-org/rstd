@@ -16,15 +16,16 @@ const fma = @import("fma.zig");
 
 const kernels = @import("kernels/__root__.zig").ForArch(sysinfo.target.cpu.arch);
 
-/// Read by `fma.zig`.
-pub const blas_fuse_fma: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.hardware;
+/// Read by `fma.zig`, and by the fork's compiler: up to `f64` where the
+/// group's flags fuse, nothing where they don't, else the target's default.
+pub const std_float_options: fma.FloatOptions = if (opts.fuse_fma_set)
+    .{ .fuse_mul_add_bits = if (opts.fuse_fma) 64 else 0 }
+else
+    .{};
 
 /// Read by `fma.zig`: a group that fuses on MIPS before release 6 can only
 /// mean `madd.fmt` does (the Loongson 3A cores).
 pub const blas_fused_madd: bool = opts.fuse_fma_set and opts.fuse_fma;
-
-/// The vector multiply-adds'; the group's policy is for the scalar flags.
-pub const blas_fuse_fma_vector: bool = if (opts.fuse_fma_set) opts.fuse_fma else fma.vector_madd;
 
 comptime {
     @setEvalBranchQuota(1_000_000);

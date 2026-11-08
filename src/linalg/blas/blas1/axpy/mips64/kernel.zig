@@ -1,25 +1,11 @@
-//! MIPS axpy kernels, one set per core, built into the per-core kernel
-//! objects (`src/linalg/blas/_kernel.zig`), for both word sizes, and how they
-//! get installed into the vtable (`install`): cores without an entry keep
-//! the portable kernels from `axpy.installGeneric`. Per-core tests live in
-//! `axpy/__root__.zig`, not here -- they need the full axpy interface
-//! (`checkReal`, ...), which imports outside `src/linalg/blas/` and so
-//! cannot appear in this file (see `kernels/__root__.zig`).
-//!
-//! What a core uses is its `KERNEL.<CORE>` choice, made in the reference by
-//! `NO_MSA` where a core may or may not have the SIMD architecture: the SIMD
-//! cores use `mips/{s,d,c,z}axpy_msa.c` (`msa.zig`), the Loongson 3A R3 the
-//! whole-function `.S` kernels in `asm/` (`asm/__root__.zig`). The cores with
-//! neither keep the portable kernels. On MIPS64 the architecture's `KERNEL`
-//! then resets the complex ones to `arm/zaxpy.c` (it is read after the core's
-//! file), so only `saxpy` and `daxpy` use the SIMD kernels there.
+//! MIPS64 axpy kernels per core (`msa.zig` for `saxpy` and `daxpy` where the core has MSA, `asm/` for Loongson 3A R3); tests in `../__root__.zig`.
 
 const sysinfo = @import("builtin");
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 const msa = @import("../mips/msa.zig");
 
 const Slot = util.Slot;

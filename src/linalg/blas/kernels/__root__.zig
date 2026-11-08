@@ -1,25 +1,30 @@
-//! Which kernel registry serves an architecture. Import-free (only the
-//! registries, which stay inside `linalg/blas/`) because the per-core object
-//! root (`_kernel.zig`) is compiled on its own and cannot reach `cpu/`, which
-//! is where the same choice is made for the rest of the library
-//! (`cpu.GetCpuArch(arch).kernel`); keep the two, and `corespec.CoreType`, in
-//! step.
+//! Which kernel registry serves an architecture's family
+//! (`coretypes.familyOf`). Only the registries and `cpu/coretypes.zig`:
+//! the per-core object root (`_kernel.zig`) is compiled on its own and
+//! cannot reach the rest of `cpu/`, where `cpu.GetCpuArch(arch).kernel`
+//! makes the same choice for the library.
 
 const std = @import("std");
+const coretypes = @import("../cpu/coretypes.zig");
 
 pub fn ForArch(comptime arch: std.Target.Cpu.Arch) type {
-    return switch (arch) {
-        .x86_64 => @import("x86_64.zig"),
-        .x86 => @import("x86.zig"),
-        .aarch64, .aarch64_be => @import("arm64.zig"),
-        .arm, .armeb, .thumb, .thumbeb => @import("arm.zig"),
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => @import("power.zig"),
-        .riscv32, .riscv32be, .riscv64, .riscv64be => @import("riscv.zig"),
-        .s390x => @import("s390x.zig"),
-        .mips, .mipsel, .mips64, .mips64el => @import("mips.zig"),
-        .loongarch32, .loongarch64 => @import("loongarch.zig"),
-        .sparc, .sparc64 => @import("sparc.zig"),
-        .wasm32, .wasm64 => @import("wasm.zig"),
-        else => @import("generic.zig"),
+    return ForFamily(coretypes.familyOf(arch));
+}
+
+/// The registry of `family`.
+pub fn ForFamily(comptime family: coretypes.Family) type {
+    return switch (family) {
+        .x86_64 => @import("x86_64.zig").Registry,
+        .x86 => @import("x86.zig").Registry,
+        .arm64 => @import("arm64.zig").Registry,
+        .arm => @import("arm.zig").Registry,
+        .power => @import("power.zig").Registry,
+        .riscv => @import("riscv.zig").Registry,
+        .s390x => @import("s390x.zig").Registry,
+        .mips => @import("mips.zig").Registry,
+        .loongarch => @import("loongarch.zig").Registry,
+        .sparc => @import("sparc.zig").Registry,
+        .wasm => @import("wasm.zig").Registry,
+        .generic => @import("generic.zig").Registry,
     };
 }

@@ -1,10 +1,11 @@
 const bytes = @import("../../../../../bytes.zig");
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const Coverage = @import("Coverage.zig");
 const ClassDef = @import("ClassDef.zig");
 
 const GlyphIndex = types.GlyphIndex;
 const Offset16 = types.Offset16;
+const zigstd = @import("../../../../../zigstd.zig");
 
 /// A ValueRecord's shape is entirely determined by which of these bits are
 /// set: one present field occupies exactly 2 bytes (an i16, or an Offset16
@@ -39,8 +40,7 @@ pub const ValueFormat = packed struct(u16) {
     }
 };
 
-/// Schema for PairPosFormat1's own header (pairSetOffsets[] follows
-/// immediately after); never instantiated.
+/// PairPosFormat1's own header (pairSetOffsets[] follows immediately after).
 const Format1Header = extern struct {
     format: u16,
     coverage_offset: Offset16,
@@ -124,8 +124,7 @@ pub const PairSet = struct {
     }
 };
 
-/// Schema for PairPosFormat2's own header (Class1Records follow immediately
-/// after); never instantiated.
+/// PairPosFormat2's own header (Class1Records follow immediately after).
 const Format2Header = extern struct {
     format: u16,
     coverage_offset: Offset16,
@@ -199,8 +198,6 @@ pub const PairPosFormat2 = struct {
         return @sizeOf(Format2Header) + class1 * class1_record_size + class2 * class2_record_size;
     }
 };
-
-const zigstd = @import("../../../../../zigstd.zig");
 
 test "Format1Header/Format2Header match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 10), @sizeOf(Format1Header));

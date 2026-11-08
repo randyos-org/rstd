@@ -1,6 +1,6 @@
 //! AArch64 `daxpy` block for the ThunderX: the function `daxpy_kernel_8` of
 //! OpenBLAS `kernel/arm64/daxpy_thunderx.c`, which the shared driver in
-//! `../kernel.zig` calls for the contiguous part in blocks of 32.
+//! `../driver.zig` calls for the contiguous part in blocks of 32.
 //!
 //! The reference is C that is scheduled by hand around prefetches and empty
 //! `asm` statements that pin the results in vector registers so the compiler

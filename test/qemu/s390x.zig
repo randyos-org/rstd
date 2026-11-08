@@ -1,10 +1,5 @@
-//! s390x boot for QEMU's `s390-ccw-virtio` machine (`-kernel`, 64-bit mode).
-//! Console is the SCLP ASCII console (a `servc` call per line); exit loads a
-//! disabled-wait PSW, which makes QEMU power the machine off, so the run step
-//! judges the result from the printed summary rather than an exit code.
-//!
-//! `_start` enables the vector facility and the additional floating-point
-//! registers (CR0 bits 45 and 46) before running compiled code.
+//! s390x boot for `s390-ccw-virtio` (64-bit mode); console the SCLP ASCII console, exit a disabled-wait PSW (qemu powers off; the
+//! summary carries the result). `_start` enables the vector facility and AFP registers (CR0 bits 45, 46) first.
 
 comptime {
     asm (

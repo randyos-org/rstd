@@ -22,13 +22,13 @@
 
 const std = @import("std");
 const Io = std.Io;
-const map = @import("kernel_map.zig");
+const map = @import("openblas.zig");
 
 /// One architecture family: the header macros it needs and the cores it has.
 const Family = struct {
     /// The generated function's name.
     name: []const u8,
-    /// Enum type in `cpu/_coretypes.zig`.
+    /// Enum type in `cpu/coretypes.zig`.
     core_type: []const u8,
     /// What `c_check` puts in `config.h` for the target (the probe itself is
     /// built for the host): architecture, word size, byte order.
@@ -207,7 +207,7 @@ fn probeSource(a: std.mem.Allocator) ![]const u8 {
     return w.items;
 }
 
-/// The enum's field names, read from `cpu/_coretypes.zig`.
+/// The enum's field names, read from `cpu/coretypes.zig`.
 fn coreNames(a: std.mem.Allocator, text: []const u8, type_name: []const u8) ![]const []const u8 {
     const head = try a.print("pub const {s} = enum", .{type_name});
     const start = std.mem.find(u8, text, head) orelse map.die("no enum {s}", .{type_name});
@@ -256,6 +256,50 @@ fn size(a: std.mem.Allocator, w: *std.ArrayList(u8), v: ?i64, dynamic: []const u
         if (variable) |d| return w.print(a, ".{{ .fixed = {d} }}", .{d});
     }
     try w.appendSlice(a, dynamic);
+}
+
+/// A struct's field defaults as `src/.../params.zig` writes them, by name.
+const Defaults = std.array_hash_map.String([]const u8);
+
+/// The defaults of `params.zig`'s `Shape` and `Table`: a table leaves out
+/// what equals its default, so the two cannot drift apart.
+var shape_defaults: Defaults = .empty;
+var table_defaults: Defaults = .empty;
+
+/// Reads the `name: T = value,` fields of `pub const <decl> = struct`.
+fn readDefaults(a: std.mem.Allocator, text: []const u8, comptime decl: []const u8, out: *Defaults) !void {
+    const at = std.mem.find(u8, text, "pub const " ++ decl ++ " = struct {") orelse map.die("no " ++ decl ++ " in params.zig", .{});
+    const end = std.mem.findPos(u8, text, at, "\n};") orelse map.die("no end of " ++ decl ++ " in params.zig", .{});
+    var lines = std.mem.splitScalar(u8, text[at..end], '\n');
+    _ = lines.next();
+    while (lines.next()) |raw| {
+        const l = std.mem.trim(u8, raw, " ");
+        if (std.mem.startsWith(u8, l, "//") or !std.mem.endsWith(u8, l, ",")) continue;
+        const colon = std.mem.findScalar(u8, l, ':') orelse continue;
+        const eq = std.mem.find(u8, l, " = ") orelse continue;
+        try out.put(a, l[0..colon], l[eq + 3 .. l.len - 1]);
+    }
+}
+
+/// Whether `value` is `field`'s default in `d`; numbers by value (`0xffff`).
+fn isDefault(d: *const Defaults, field: []const u8, value: []const u8) bool {
+    const def = d.get(field) orelse return false;
+    const x = std.fmt.parseInt(i64, def, 0) catch return std.mem.eql(u8, def, value);
+    const y = std.fmt.parseInt(i64, value, 0) catch return false;
+    return x == y;
+}
+
+/// Appends `.<field> = <value>` unless it is the default.
+fn putField(a: std.mem.Allocator, w: *std.ArrayList(u8), d: *const Defaults, field: []const u8, value: []const u8) !void {
+    if (isDefault(d, field, value)) return;
+    try w.print(a, "{s}.{s} = {s}", .{ if (w.items.len > 0) ", " else "", field, value });
+}
+
+/// A byte count as a shift where it is a whole number of KiB or MiB.
+fn shifted(a: std.mem.Allocator, n: i64) ![]const u8 {
+    if (n > 0 and @mod(n, 1 << 20) == 0) return a.print("{d} << 20", .{@divExact(n, 1 << 20)});
+    if (n > 0 and @mod(n, 1 << 10) == 0) return a.print("{d} << 10", .{@divExact(n, 1 << 10)});
+    return a.print("{d}", .{n});
 }
 
 /// Writes a switch's prongs, one per distinct value, with every core that has
@@ -418,43 +462,46 @@ fn probeTable(a: std.mem.Allocator, io: std.Io, checkout: []const u8, src_path: 
         const um = (vals.get(try key(a, pr.field, "UNROLL_M")) orelse null);
         const pp = (vals.get(try key(a, pr.field, "P")) orelse null);
         if (um == null and pp == null) continue;
-        try val.print(a, "            .{s} = Shape{{ .unroll_m = {d}, .unroll_n = {d}, .unroll_mn = {d}, .align_k = {d}, .p_base = {d}, .p = ", .{
-            pr.field,
-            um orelse 0,
-            (vals.get(try key(a, pr.field, "UNROLL_N")) orelse null) orelse 0,
-            (vals.get(try key(a, pr.field, "UNROLL_MN")) orelse null) orelse 0,
-            (vals.get(try key(a, pr.field, "ALIGN_K")) orelse null) orelse 0,
-            (vals.get(try key(a, pr.field, "P_BASE")) orelse null) orelse 0,
-        });
-        try size(a, &val, pp, ".dynamic", v[0]);
-        try val.appendSlice(a, ", .q = ");
-        try size(a, &val, (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic", v[1]);
-        try val.appendSlice(a, ", .r = ");
-        try size(a, &val, (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer", v[2]);
-        try val.appendSlice(a, " },\n");
+        var fields: std.ArrayList(u8) = .empty;
+        const ints = [_][2][]const u8{ .{ "unroll_m", "UNROLL_M" }, .{ "unroll_n", "UNROLL_N" }, .{ "unroll_mn", "UNROLL_MN" }, .{ "align_k", "ALIGN_K" }, .{ "p_base", "P_BASE" } };
+        for (ints) |f| try putField(a, &fields, &shape_defaults, f[0], try a.print("{d}", .{(vals.get(try key(a, pr.field, f[1])) orelse null) orelse 0}));
+        const sizes = [_]struct { []const u8, ?i64, []const u8, ?i64 }{
+            .{ "p", pp, ".dynamic", v[0] },
+            .{ "q", (vals.get(try key(a, pr.field, "Q")) orelse null), ".dynamic", v[1] },
+            .{ "r", (vals.get(try key(a, pr.field, "R")) orelse null), ".from_buffer", v[2] },
+        };
+        for (sizes) |s| {
+            var text: std.ArrayList(u8) = .empty;
+            try size(a, &text, s[1], s[2], s[3]);
+            try putField(a, &fields, &shape_defaults, s[0], text.items);
+        }
+        // a shape of defaults is the table's own default
+        if (fields.items.len > 0) try val.print(a, "            .{s} = .{{ {s} }},\n", .{ pr.field, fields.items });
     }
     for (globals) |g| {
         if ((vals.get(g[0]) orelse null)) |x| {
             const field = if (std.mem.eql(u8, g[0], "align")) "align_" else g[0];
-            try val.print(a, "            .{s} = {d},\n", .{ field, x });
+            const text = try a.print("{d}", .{x});
+            if (!isDefault(&table_defaults, field, text)) try val.print(a, "            .{s} = {s},\n", .{ field, text });
         }
     }
-    try val.print(a, "            .buffer_size = {d},\n", .{try bufferSize(a, io, checkout, fam, core_defines)});
+    try val.print(a, "            .buffer_size = {s},\n", .{try shifted(a, try bufferSize(a, io, checkout, fam, core_defines))});
     try val.appendSlice(a, "        }");
     return val.items;
 }
 
 pub fn main(init: std.process.Init) !void {
     const a = init.arena.allocator();
-    const checkout = init.environ_map.get("OPENBLAS") orelse
-        map.die("set OPENBLAS to the OpenBLAS checkout", .{});
-    try map.init(a, init.io, checkout);
+    const checkout = try map.initFromEnv(a, init);
 
     const io = init.io;
-    const types_text = try Io.Dir.cwd().readFileAlloc(io, "src/linalg/blas/cpu/_coretypes.zig", a, .limited(1 << 20));
+    const types_text = try Io.Dir.cwd().readFileAlloc(io, "src/linalg/blas/cpu/coretypes.zig", a, .limited(1 << 20));
     const getarch = map.read(try map.path(&.{ checkout, "getarch.c" })) orelse map.die("cannot read getarch.c", .{});
     const src_path = ".zig-cache/params_probe.c";
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = src_path, .data = try probeSource(a) });
+    const params_text = try Io.Dir.cwd().readFileAlloc(io, "src/linalg/blas/blas3/gemm/params.zig", a, .limited(1 << 20));
+    try readDefaults(a, params_text, "Shape", &shape_defaults);
+    try readDefaults(a, params_text, "Table", &table_defaults);
 
     var out: std.ArrayList(u8) = .empty;
     try out.print(a,
@@ -462,22 +509,25 @@ pub fn main(init: std.process.Init) !void {
         \\//! `param.h` (`BUFFER_SIZE` from `common_<arch>.h`). Generated by
         \\//! `tools/blas_asm/params.zig`; re-derive it rather than editing it.
         \\//! `.dynamic` and `.from_buffer` mark the values the header leaves to
-        \\//! `driver/others/parameter.c` (see `params.zig`).
+        \\//! `driver/others/parameter.c` (see `params.zig`); a field at its
+        \\//! default in `Shape` or `Table` is left out.
         \\
-        \\const coretypes = @import("../../cpu/_coretypes.zig");
+        \\const coretypes = @import("../../cpu/coretypes.zig");
         \\const params = @import("params.zig");
         \\const Table = params.Table;
-        \\const Shape = params.Shape;
         \\
         \\
     , .{map.pin});
 
+    // a family over an earlier one's cores (POWER's other byte order) writes
+    // only the tables that differ, and takes the rest from it
+    const Done = struct { name: []const u8, core_type: []const u8, tables: []const []const u8, dtbs: []const []const u8 };
+    var done: std.ArrayList(Done) = .empty;
     for (families) |fam| {
         const names = try coreNames(a, types_text, fam.core_type);
-        try out.print(a, "/// `BUFFER_SIZE` of a core with no table of its own.\npub const {s}_buffer_size: i64 = {d};\n\n", .{ fam.name, try bufferSize(a, io, checkout, fam, fam.base) });
+        try out.print(a, "/// `BUFFER_SIZE` of a core with no table of its own.\npub const {s}_buffer_size: i64 = {s};\n\n", .{ fam.name, try shifted(a, try bufferSize(a, io, checkout, fam, fam.base)) });
         var dtb: std.ArrayList(u8) = .empty;
         defer dtb.deinit(a);
-        try dtb.print(a, "/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.\npub fn {s}_dtb(core: coretypes.{s}) ?i32 {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
         const macros = try a.alloc([]const u8, names.len);
         for (names, macros) |name, *m| m.* = try coreMacro(a, fam, name);
         const configs = try a.alloc(?Config, names.len);
@@ -487,8 +537,6 @@ pub fn main(init: std.process.Init) !void {
             v.* = if (c) |cfg| if (cfg.dtb) |n| try a.print("{d}", .{n}) else "null" else "null";
         }
         try writeProngs(a, &dtb, names, dtb_vals);
-        try dtb.appendSlice(a, "    };\n}\n\n");
-        try out.print(a, "pub fn {s}(core: coretypes.{s}) ?Table {{\n    return switch (core) {{\n", .{ fam.name, fam.core_type });
         const table_vals = try a.alloc([]const u8, names.len);
         for (names, macros, configs, table_vals) |name, macro, config, *tv| {
             const core_defines = if (config) |c| c.defines else defs: {
@@ -499,9 +547,35 @@ pub fn main(init: std.process.Init) !void {
             };
             tv.* = try probeTable(a, io, checkout, src_path, fam, name, core_defines, null);
         }
-        try writeProngs(a, &out, names, table_vals);
-        try out.appendSlice(a, "    };\n}\n\n");
-        try out.appendSlice(a, dtb.items);
+        // `power64be` is `power64` in the other byte order
+        const order = std.mem.endsWith(u8, fam.name, "be") or std.mem.endsWith(u8, fam.name, "le");
+        const twin: ?Done = if (order) for (done.items) |d| {
+            if (std.mem.eql(u8, d.name, fam.name[0 .. fam.name.len - 2]) and std.mem.eql(u8, d.core_type, fam.core_type)) break d;
+        } else null else null;
+        try done.append(a, .{ .name = fam.name, .core_type = fam.core_type, .tables = table_vals, .dtbs = dtb_vals });
+        if (twin) |t| {
+            var differ_names: std.ArrayList([]const u8) = .empty;
+            var differ_vals: std.ArrayList([]const u8) = .empty;
+            for (names, table_vals, t.tables) |n, v, tv| if (!std.mem.eql(u8, v, tv)) {
+                try differ_names.append(a, n);
+                try differ_vals.append(a, v);
+            };
+            var prongs: std.ArrayList(u8) = .empty;
+            try writeProngs(a, &prongs, differ_names.items, differ_vals.items);
+            try out.print(a, "/// `{s}`'s tables but where the byte order changes them.\npub fn {s}(core: coretypes.{s}) ?Table {{\n    return switch (core) {{\n{s}        else => {s}(core),\n    }};\n}}\n\n", .{ t.name, fam.name, fam.core_type, prongs.items, t.name });
+            const same_dtb = for (dtb_vals, t.dtbs) |x, y| {
+                if (!std.mem.eql(u8, x, y)) break false;
+            } else true;
+            if (same_dtb) {
+                try out.print(a, "pub const {s}_dtb = {s}_dtb;\n\n", .{ fam.name, t.name });
+                continue;
+            }
+        } else {
+            var prongs: std.ArrayList(u8) = .empty;
+            try writeProngs(a, &prongs, names, table_vals);
+            try out.print(a, "pub fn {s}(core: coretypes.{s}) ?Table {{\n    return switch (core) {{\n{s}    }};\n}}\n\n", .{ fam.name, fam.core_type, prongs.items });
+        }
+        try out.print(a, "/// `DTB_DEFAULT_ENTRIES`; null where `getarch.c` has no entry for the core.\npub fn {s}_dtb(core: coretypes.{s}) ?i32 {{\n    return switch (core) {{\n{s}    }};\n}}\n\n", .{ fam.name, fam.core_type, dtb.items });
     }
 
     for (generic_archs) |fam| {
@@ -532,6 +606,6 @@ pub fn main(init: std.process.Init) !void {
 
     const dest = "src/linalg/blas/blas3/gemm/params_data.zig";
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = dest, .data = out.items });
-    _ = try std.process.run(a, io, .{ .argv = &.{ "zig", "fmt", dest } });
+    try map.format(dest);
     std.debug.print("wrote {s}\n", .{dest});
 }

@@ -63,7 +63,7 @@ test "writeICO produces a valid one-entry ICONDIR header" {
     const io = threaded.io();
 
     var img = try RgbaImage.init(alloc, 4, 4, .{ .r = 0, .g = 0, .b = 0, .a = 0 });
-    defer img.destroy(alloc);
+    defer img.deinit(alloc);
 
     var tmp = zigstd.testTmpDir(.{});
     defer tmp.cleanup();

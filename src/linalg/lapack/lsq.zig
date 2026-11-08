@@ -1,76 +1,27 @@
-//! Rank-revealing least squares, from Reference-LAPACK 3.12.0 as OpenBLAS
-//! v0.3.34-317 ships it (`lapack-netlib/SRC/`, modified BSD): `xGELSY`, the
-//! complete orthogonal factorization `A P = Q [R11 R12; 0 R22]`, `R22`
-//! dropped by incremental condition estimation (`xLAIC1`), then `[R11 R12]
-//! = [T11 0] Z` (`xTZRZF` by `xLATRZ`, `xLARZ`, `xORMR3`). Neither faer
-//! (whose SVD serves `gelss`) nor libflame (the reference through f2c) has
-//! its own.
-//!
-//! The pivoted QR is faer's (`qr_pivot.zig`, as the source table picks
-//! for `geqp3`) and `Qᴴ B` faer's `ormqr` (`qr.zig`'s `multiply`).
-//! `xTZRZF` and `xORMRZ` run their unblocked kernels (`xLATRZ`, `xORMR3`):
-//! the reference's blocked forms (`xLARZT`, `xLARZB`) give other roundings
-//! only, and are not ported. Complex division is Smith's (`norm.div`).
+//! Rank-revealing least squares, `gelsy`, from Reference-LAPACK 3.12.0 as
+//! OpenBLAS v0.3.34-317 ships it (`lapack-netlib/SRC/`, modified BSD):
+//! `xGELSY` with `xLAIC1`, `xLATRZ`, `xLARZ` and `xORMR3`, over faer's pivoted
+//! QR (`qr_pivot.zig`). Complex division is Smith's (`ops.div`).
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const qr_pivot = @import("qr_pivot.zig");
 const norm = @import("norm.zig");
-const schur = @import("schur.zig");
 const qr = @import("qr.zig");
-const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Mat = ops.Mat;
 const Float = types.Float;
 const isComplex = types.isComplex;
-const Error = norm.Error;
+const Error = ops.Error;
 
 // ---- xLASCL ------------------------------------------------------------------------
-
-/// `xLASCL` type `G` (or `U`, upper triangle, with `upper`): `A := A * (to
-/// / from)` in steps that neither overflow nor underflow (`dlascl.f`).
-/// `from` is finite and nonzero.
-fn lascl(comptime T: type, upper: bool, from: Float(T), to: Float(T), a: Mat(T)) void {
-    const F = Float(T);
-    const smlnum = std.math.floatMin(F);
-    const bignum = 1 / smlnum;
-    var cfromc = from;
-    var ctoc = to;
-    while (true) {
-        const cfrom1 = cfromc * smlnum;
-        var mul: F = undefined;
-        var done = true;
-        if (cfrom1 == cfromc) {
-            mul = ctoc / cfromc;
-        } else {
-            const cto1 = ctoc / bignum;
-            if (cto1 == ctoc) {
-                mul = ctoc;
-                cfromc = 1;
-            } else if (@abs(cfrom1) > @abs(ctoc) and ctoc != 0) {
-                mul = smlnum;
-                done = false;
-                cfromc = cfrom1;
-            } else if (@abs(cto1) > @abs(cfromc)) {
-                mul = bignum;
-                done = false;
-                ctoc = cto1;
-            } else {
-                mul = ctoc / cfromc;
-                if (mul == 1) return;
-            }
-        }
-        for (0..a.cols) |j| for (a.col(j)[0..if (upper) @min(j + 1, a.rows) else a.rows]) |*x| {
-            x.* = ops.mulReal(T, x.*, mul);
-        };
-        if (done) return;
-    }
-}
 
 // ---- xLAIC1 ------------------------------------------------------------------------
 
@@ -87,7 +38,7 @@ pub const Extreme = enum { max, min };
 pub fn laic1(io: Io, comptime T: type, job: Extreme, j: usize, x: [*]const T, sest: Float(T), w: [*]const T, gamma: T) Error!struct { sestpr: Float(T), s: T, c: T } {
     const F = Float(T);
     const eps = std.math.floatEps(F) / 2;
-    const alpha = try norm.dot(io, T, true, j, x, 1, w, 1);
+    const alpha = try blas_calls.dot(io, T, true, j, x, 1, w, 1);
     const absalp = ops.abs(T, alpha);
     const absgam = ops.abs(T, gamma);
     const absest = @abs(sest);
@@ -100,7 +51,7 @@ pub fn laic1(io: Io, comptime T: type, job: Extreme, j: usize, x: [*]const T, se
     }.f;
     const dr = struct {
         fn f(v: T, d: F) T {
-            return chol.divReal(T, v, d);
+            return ops.divReal(T, v, d);
         }
     }.f;
     switch (job) {
@@ -219,18 +170,18 @@ fn larz(al: Allocator, io: Io, comptime T: type, left: bool, m: usize, n: usize,
     if (left) {
         // w := C(0, :)ᵀ + C(m-l.., :)ᵀ conj(v); C(0, :) -= tau w; C(m-l.., :) -= tau v wᵀ
         for (0..n) |j| work[j] = c.get(0, j);
-        try ops.gemv(al, io, T, .u, one, c.sub(m - l, 0, l, n), vv, incv, one, work, 1);
-        try norm.axpy(io, T, n, ntau, work, 1, c.ptr, c.ld);
-        try ops.ger(al, io, T, ntau, vv, incv, work, 1, c.sub(m - l, 0, l, n));
+        try blas_calls.gemv(al, io, T, .u, one, c.sub(m - l, 0, l, n), vv, incv, one, work, 1);
+        try blas_calls.axpy(io, T, n, ntau, work, 1, c.ptr, c.ld);
+        try blas_calls.ger(al, io, T, ntau, vv, incv, work, 1, c.sub(m - l, 0, l, n));
     } else {
         // w := C(:, 0) + C(:, n-l..) v; C(:, 0) -= tau w; C(:, n-l..) -= tau w vᴴ
         @memcpy(work[0..m], c.col(0)[0..m]);
-        try ops.gemv(al, io, T, .n, one, c.sub(0, n - l, m, l), vv, incv, one, work, 1);
-        try norm.axpy(io, T, m, ntau, work, 1, c.ptr, 1);
+        try blas_calls.gemv(al, io, T, .n, one, c.sub(0, n - l, m, l), vv, incv, one, work, 1);
+        try blas_calls.axpy(io, T, m, ntau, work, 1, c.ptr, 1);
         if (comptime isComplex(T)) {
-            if (m > 0 and l > 0) blas.gerc(al, io, T, @intCast(m), @intCast(l), ntau, work, 1, vv, @intCast(incv), c.ptr + (n - l) * c.ld, @intCast(c.ld)) catch |e| return norm.narrow(e);
+            if (m > 0 and l > 0) blas.gerc(al, io, T, @intCast(m), @intCast(l), ntau, work, 1, vv, @intCast(incv), c.ptr + (n - l) * c.ld, @intCast(c.ld)) catch |e| return ops.narrow(ops.Error, e);
         } else {
-            try ops.ger(al, io, T, ntau, work, 1, vv, incv, c.sub(0, n - l, m, l));
+            try blas_calls.ger(al, io, T, ntau, work, 1, vv, incv, c.sub(0, n - l, m, l));
         }
     }
 }
@@ -256,12 +207,12 @@ fn latrz(al: Allocator, io: Io, comptime T: type, a: Mat(T), tau: [*]T) Error!vo
         if (comptime isComplex(T)) {
             for (0..l) |k| row[k * a.ld] = ops.conj(T, row[k * a.ld]);
             var alpha = ops.conj(T, a.get(i, i));
-            const t = try schur.larfg(io, T, l + 1, &alpha, row, a.ld);
+            const t = try auxiliary.larfg(io, T, l + 1, &alpha, row, a.ld);
             tau[i] = ops.conj(T, t);
             try larz(al, io, T, false, i, n - i, l, row, a.ld, t, a.sub(0, i, i, n - i), work.ptr);
             a.at(i, i).* = ops.conj(T, alpha);
         } else {
-            tau[i] = try schur.larfg(io, T, l + 1, a.at(i, i), row, a.ld);
+            tau[i] = try auxiliary.larfg(io, T, l + 1, a.at(i, i), row, a.ld);
             try larz(al, io, T, false, i, n - i, l, row, a.ld, tau[i], a.sub(0, i, i, n - i), work.ptr);
         }
     }
@@ -296,7 +247,7 @@ pub const GelsyError = error{ InvalidM, InvalidN, InvalidNrhs, InvalidLda, Inval
 /// rows. `jpvt` as `geqp3`'s: nonzero entries fix columns to the front; on
 /// exit, `A P`'s columns. `A` is overwritten by the factorization.
 pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, nrhs: isize, a: [*]T, lda: isize, b: [*]T, ldb: isize, jpvt: [*]isize, rcond: Float(T), rank: *isize) GelsyError!void {
-    comptime chol.floatType(T, "gelsy");
+    comptime ops.requireFloat(T, "gelsy");
     const F = Float(T);
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
@@ -320,10 +271,10 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     const anrm = try norm.matNorm(al, T, .m, um, un, a, am.ld);
     var iascl: F = 0;
     if (anrm > 0 and anrm < smlnum) {
-        lascl(T, false, anrm, smlnum, am);
+        auxiliary.lascl(T, false, anrm, smlnum, am);
         iascl = smlnum;
     } else if (anrm > bignum) {
-        lascl(T, false, anrm, bignum, am);
+        auxiliary.lascl(T, false, anrm, bignum, am);
         iascl = bignum;
     } else if (anrm == 0) {
         bm.fill(ops.zero(T));
@@ -333,10 +284,10 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     const bnrm = try norm.matNorm(al, T, .m, um, bm.cols, b, bm.ld);
     var ibscl: F = 0;
     if (bnrm > 0 and bnrm < smlnum) {
-        lascl(T, false, bnrm, smlnum, brows);
+        auxiliary.lascl(T, false, bnrm, smlnum, brows);
         ibscl = smlnum;
     } else if (bnrm > bignum) {
-        lascl(T, false, bnrm, bignum, brows);
+        auxiliary.lascl(T, false, bnrm, bignum, brows);
         ibscl = bignum;
     }
     const tau = try al.alloc(T, umn);
@@ -378,7 +329,7 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     if (r < un) try latrz(al, io, T, am.sub(0, 0, r, un), ztau.ptr);
     // B := Qᴴ B, then T11⁻¹ on its first `rank` rows
     try qr.multiply(al, io, T, .l, true, am.sub(0, 0, um, umn), tau.ptr, brows);
-    try ops.tri(al, io, T, true, true, .n, false, ops.one(T), am.sub(0, 0, r, r), bm.sub(0, 0, r, bm.cols));
+    try blas_calls.tri(al, io, T, true, true, .n, false, ops.one(T), am.sub(0, 0, r, r), bm.sub(0, 0, r, bm.cols));
     for (0..bm.cols) |j| @memset(bm.col(j)[r..un], ops.zero(T));
     // B := Zᴴ B, then P B
     if (r < un) try ormr3(al, io, T, r, un - r, am, ztau.ptr, bm.sub(0, 0, un, bm.cols));
@@ -392,39 +343,32 @@ pub fn gelsy(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
     // undo the scaling
     const xrows = bm.sub(0, 0, un, bm.cols);
     if (iascl != 0) {
-        lascl(T, false, anrm, iascl, xrows);
-        lascl(T, true, iascl, anrm, am.sub(0, 0, r, r));
+        auxiliary.lascl(T, false, anrm, iascl, xrows);
+        auxiliary.lascl(T, true, iascl, anrm, am.sub(0, 0, r, r));
     }
-    if (ibscl != 0) lascl(T, false, ibscl, bnrm, xrows);
+    if (ibscl != 0) auxiliary.lascl(T, false, ibscl, bnrm, xrows);
 }
 
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
-const threading = @import("../blas/threading.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
+const test_io = @import("../blas/_test/io.zig");
 const svd = @import("svd.zig");
 
-const test_types = chol.test_types;
+const test_types = lcheck.test_types;
 
-/// `THRESH` of the reference's linear-equation tests (`TESTING/dtest.in`).
-const thresh = 30;
+const thresh = lcheck.thresh;
 
 /// A random `m x n` of rank `r` scaled by `s`, and `B` (`max(m, n) x nrhs`)
 /// scaled by `s` too, so `X` does not move.
 fn problem(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs: usize, s: Float(T), seed: u64) !struct { a: Mat(T), b: Mat(T) } {
     const a = try ops.alloc(T, al, m, n);
     errdefer ops.free(T, al, a);
-    const x = try al.alloc(T, m * r);
-    defer al.free(x);
-    const y = try al.alloc(T, r * n);
-    defer al.free(y);
-    check.fill(T, x, seed);
-    check.fill(T, y, seed + 1);
+    try lcheck.rankProduct(T, al, a, r, seed);
     for (0..n) |j| for (0..m) |i| {
-        var v = ops.zero(T);
-        for (0..r) |p| v = ops.add(T, v, ops.mul(T, x[i + p * m], y[p + j * r]));
-        a.at(i, j).* = ops.mulReal(T, v, s);
+        a.at(i, j).* = ops.mulReal(T, a.get(i, j), s);
     };
     const b = try ops.alloc(T, al, @max(m, n), nrhs);
     check.fill(T, b.ptr[0 .. b.ld * nrhs], seed + 2);
@@ -465,7 +409,7 @@ fn gelsyCase(comptime T: type, al: Allocator, m: usize, n: usize, r: usize, nrhs
             // (u_qᴴ b / s_q) v_q, b unscaled
             var d = ops.zero(T);
             for (0..m) |i| d = ops.add(T, d, ops.mul(T, ops.conj(T, u.get(i, q)), ops.mulReal(T, p.b.get(i, c), 1 / s)));
-            d = chol.divReal(T, d, sv[q]);
+            d = ops.divReal(T, d, sv[q]);
             for (0..n) |j| want.at(j, c).* = ops.add(T, want.get(j, c), ops.mul(T, d, ops.conj(T, vt.get(q, j))));
         }
         for (0..n) |j| wmax = @max(wmax, ops.abs(T, want.get(j, c)));
@@ -541,14 +485,11 @@ test "lapack gelsy: a zero A, a fixed column, empty, bad arguments" {
 }
 
 test "lapack gelsy: one worker's bits at any worker count" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !test_io.hosted) return error.SkipZigTest;
     _ = blas.coreName();
     const al = testing.allocator;
-    const cpus = blas.config.cpu_count;
-    defer blas.config.cpu_count = cpus;
-    defer threading.test_serial_max = null;
-    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
-    defer threaded.deinit();
+    var runs: test_io.WorkerRuns = .init(al);
+    defer runs.deinit();
     inline for (.{ f64, types.Complex32 }) |T| {
         const m = 300;
         const n = 90;
@@ -559,15 +500,14 @@ test "lapack gelsy: one worker's bits at any worker count" {
         var outs: [3][]T = undefined;
         for (&outs) |*o| o.* = try al.alloc(T, m * n + m * nrhs);
         defer for (outs) |o| al.free(o);
-        for ([_]u32{ 1, 3, 8 }, 0..) |w, c| {
-            blas.config.cpu_count = w;
-            threading.test_serial_max = if (w == 1) null else 4096;
+        for (0..test_io.worker_runs.len) |c| {
+            const io = runs.io(c);
             @memcpy(outs[c][0 .. m * n], p.a.ptr[0 .. m * n]);
             @memcpy(outs[c][m * n ..], p.b.ptr[0 .. m * nrhs]);
             var jpvt: [n]isize = @splat(0);
             var rank: isize = 0;
-            try gelsy(al, if (w == 1) Io.failing else threaded.io(), T, m, n, nrhs, outs[c].ptr, m, outs[c].ptr + m * n, m, &jpvt, 1e-5, &rank);
+            try gelsy(al, io, T, m, n, nrhs, outs[c].ptr, m, outs[c].ptr + m * n, m, &jpvt, 1e-5, &rank);
         }
-        for (1..3) |c| try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(outs[0]), std.mem.sliceAsBytes(outs[c]));
+        try test_io.expectSameBytes(outs);
     }
 }

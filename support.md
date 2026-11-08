@@ -8,27 +8,22 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 ## Tiers
 
-- **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and
-  every release. Every kernel object the platform links runs the per-core tests, or is listed
-  below as untested with its item.
-- **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required
-  fixes, also for the MVP. Tested on a rig or machine where one exists; untested cores and paths
-  are listed with their items.
-- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the
-  record; failures go to [`todo.md`](src/linalg/todo.md)'s Known issues and enhancements.
-  Choices no rig can check follow OpenBLAS and BLIS where they agree
+- **Tier 1: required first.** Everything implemented works and is tested. Bugs block the MVP and every release, and go in [`todo.md`](todo.md)'s Queue. Every kernel object the platform links runs the per-core tests, or is listed below as untested with its item.
+- **Tier 2: required, after tier 1.** RandyOS's and zfls's other platforms. Bugs are required fixes, also for the MVP, and go in the Queue. Tested on a rig or machine where one exists; untested cores and paths are listed with their items.
+- **Tier 3: best effort.** Every other platform with a rig. The rigs run in each sweep for the record; failures go to [`todo.md`](todo.md)'s Known issues and enhancements, as do tier 4's, tuning, optional and Blocked work. Choices no rig can check follow OpenBLAS and BLIS where they agree
   ([`design.md`](src/linalg/design.md#settled-decisions), "Target platforms come first").
-- **Tier 4: unsupported or blocked.** No rig, or blocked upstream. Every target compiles with
-  the portable kernels at least; nothing more is promised. Each entry cites its item.
+- **Tier 4: unsupported or blocked.** No rig, blocked upstream, or not worth its upkeep. Every
+  target compiles with the portable kernels at least; nothing more is promised. Each entry cites
+  its item.
 
 ## Platforms
 
 | Target | Tier | Consumer | Tested by |
 | --- | --- | --- | --- |
 | `x86_64-windows` | 1 | zfls | native `rstd-test` on the Zen 3 host, with `-Dblas-cores=all`; `x86_64-whpx` (the host CPU); `rstd-check-zig017`; zfls's CI |
-| `spirv32-vulkan` | 1, deferred | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); nothing validates or runs them |
+| `spirv32-vulkan` | 1 | rgl, shaderlib | `-Dvulkan` compiles rgl's shaders (`vulkan_v1_2`); nothing validates or runs them |
 | `x86_64-freestanding-none` | 2 | RandyOS: PC, Intel Mac | `x86_64` (TCG `max`), `x86_64-whpx` |
-| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
+| `aarch64-freestanding-none` | 2 | RandyOS: Raspberry Pi 3 to 5, Apple Silicon | `aarch64` (HVF on the M6, or `cortex-a72`), `aarch64-sve` (TCG `max`) |
 | `arm-freestanding-eabi` | 2 | RandyOS: Raspberry Pi 3, 32-bit | `arm-softfp` (soft-float ABI, A15's VFP), `arm` (`eabihf`) |
 | `powerpc-freestanding-eabi` | 2 | RandyOS: iBook G3, PowerPC 750FX | `powerpc-750` (soft float: portable kernels only), `powerpc-750-hf` |
 | `x86_64-uefi-msvc` | 2 | RandyOS's loader | `x86_64-uefi` (OVMF), `rstd-check-uefi` |
@@ -49,8 +44,8 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 | `mips64el`, `mips64`, `mipsel`, `mips` (freestanding) | 3 | | `mips64r2el`, `mips64r2`, `mips64r6el`, `mips64r6`, `mips32r2el`, `mips32r2`, `mips32r5el`, `mips32r5` |
 | `loongarch64-freestanding-none` | 3 | | `loongarch64` |
 | `s390x-freestanding-none` | 3 | | `s390x` |
-| `sparc64-freestanding-none` | 3 | | `sparc64`, `sparc64-debug` |
 | `wasm32-wasi` | 3 | | `wasm-test` (`wasm-test-simd128`, `wasm-test-portable`) |
+| `sparc64-freestanding-none` | 4 | | `sparc64`, `sparc64-debug`, out of the sweeps: their images outgrow OpenBIOS's 4 MiB window (T39) |
 | `sparc-freestanding-none` (32-bit) | 4 | | stub: lld cannot link 32-bit SPARC (T48) |
 | `x86-linux` | 4 | | `linux-i386` stub: TCG's x87 page-crossing bug (T49); `rstd-test-x87` runs it on an x86 Linux host, which is not at hand |
 | `s390x-linux`, `mips64el-linux` | 4 | | no rig: `zig fetch` of single files (T49) |
@@ -61,8 +56,8 @@ after it. Rig names are `zig build` steps: `qemu-test-<rig>` unless named in ful
 
 Notes:
 
-- **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) is deferred until the CPU
-  BLAS MVP: todo.md's "SPIR-V: vector math in shaders", S1 and S2. The bit guarantees (same bits
+- **SPIR-V** (`rstd.linalg` under SPIR-V, rgl's shaders, shaderlib) waited for the CPU BLAS
+  MVP; its work is todo.md's S2 (S1 done), queued after M12. The bit guarantees (same bits
   for any thread count, one contract on every core, the first-NaN rule) are the CPU's only;
   under SPIR-V, Vulkan's precision rules apply (design.md, Settled decisions).
 - **macOS 11 and 12** never run: the VM builds for 13.0 and runs Sonoma, the M6 runs 27.2.
@@ -87,7 +82,7 @@ tier-2 component of both macOS platforms.
 ## BLAS cores
 
 A core is in its platform's tier. Kernel cores are `kernelCores` in
-[`cpu/_corespec.zig`](src/linalg/blas/cpu/_corespec.zig); a core runs where detection
+[`cpu/corespec.zig`](src/linalg/blas/cpu/corespec.zig); a core runs where detection
 (`runnable`) says the rig's CPU can run it. Unlisted cores have no kernels: the portable ones
 serve them.
 
@@ -153,7 +148,6 @@ and every POWER core is tier 3.
 | riscv64 | `riscv64_zvl256b` | `riscv64-vlen256` |
 | riscv64 | `x280` | `riscv64`, `linux-riscv64` (VLEN 512) |
 | s390x | `z13`, `z14` | `s390x` |
-| sparc64 | `sparcv7`, `sparc` | `sparc64`, `sparc64-debug` |
 | wasm32 | `wasm128_generic` | `wasm-test-simd128` |
 
 ### Tier 4 cores
@@ -162,6 +156,7 @@ and every POWER core is tier 3.
 | --- | --- | --- |
 | `ppc440`, `ppc440fp2` | no rig runs a 440; compile-checked only | T41 |
 | `power10` in 32-bit POWER builds | the dev toolchain's LLVM cannot build 32-bit compiler-rt for it, so it does not link | T105 |
+| every sparc64 object | sparc64 is tier 4; its rigs are out of the sweeps | T39 |
 | every 32-bit SPARC object | lld cannot link 32-bit SPARC | T48 |
 | `c910v` (RISC-V) | no `xtheadvector` in LLVM; no object | [`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig) |
 | POWER BG/P (double FPU) | LLVM cannot assemble its instructions; not converted | [`readme.md`](src/linalg/blas/readme.md#not-supported-by-zig) |

@@ -16,7 +16,7 @@ const std = @import("std");
 const types = @import("../../../types.zig");
 const util = @import("../../../util.zig");
 const fma = @import("../../../fma.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 
 const BlasLong = types.BlasLong;
 
@@ -34,7 +34,7 @@ pub fn Real(comptime T: type) type {
         }
         /// `y + da * x`, contracted as the build's policy says.
         inline fn fmadd(x: V, da: V, y: V) V {
-            return fma.madd(fma.fuse_vector, V, x, da, y);
+            return fma.madd(fma.fuse, V, x, da, y);
         }
 
         pub fn call(
@@ -251,7 +251,7 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
                         var y1 = load(y + at + W);
                         var yr = evens(y1, y0);
                         var yi = odds(y1, y0);
-                        madd(fma.fuse_vector, dar, dai, evens(x1, x0), odds(x1, x0), &yr, &yi);
+                        madd(fma.fuse, dar, dai, evens(x1, x0), odds(x1, x0), &yr, &yi);
                         y0 = zipLow(yr, yi);
                         y1 = zipHigh(yr, yi);
                         store(y + at, y0);
@@ -264,7 +264,7 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
                     const x1 = load(x + at + W);
                     var yr = evens(load(y + at + W), load(y + at));
                     var yi = odds(load(y + at + W), load(y + at));
-                    madd(fma.fuse_vector, dar, dai, evens(x1, x0), odds(x1, x0), &yr, &yi);
+                    madd(fma.fuse, dar, dai, evens(x1, x0), odds(x1, x0), &yr, &yi);
                     store(y + at, zipLow(yr, yi));
                     store(y + at + W, zipHigh(yr, yi));
                 }
@@ -294,7 +294,7 @@ pub fn Cplx(comptime F: type, comptime conj: bool) type {
                     const at = 2 * i;
                     var yr = evens(load(y + at + W), load(y + at));
                     var yi = odds(load(y + at + W), load(y + at));
-                    madd(fma.fuse_vector, dar, dai, evens(xs[1], xs[0]), odds(xs[1], xs[0]), &yr, &yi);
+                    madd(fma.fuse, dar, dai, evens(xs[1], xs[0]), odds(xs[1], xs[0]), &yr, &yi);
                     store(y + at, zipLow(yr, yi));
                     store(y + at + W, zipHigh(yr, yi));
                 }

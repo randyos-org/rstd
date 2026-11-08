@@ -1,5 +1,3 @@
-const log = @import("std").log.scoped(.memory);
-
 // 12 = log2(4096), 4 KiB page size used on every target we build for
 // (x86_64, aarch64, arm, riscv64, ...)
 pub const page_shift: usize = 12;

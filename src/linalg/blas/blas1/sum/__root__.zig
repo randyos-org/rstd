@@ -1,47 +1,15 @@
-//! `SUM`: the sum of `x` (`re + im` for complex). The vtable wrappers, the portable
-//! kernels (`*_generic`), and tests of every core's kernels against a plain loop.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! `SUM`: the sum of `x` (`re + im` for complex). The portable kernels
+//! (`*_generic`) and tests of every core's kernels against a plain loop.
 
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sbsum_k(n: BlasLong, x: [*]f32, inc_x: BlasLong) f32 {
-    return blas.kernel(.sbsum_k)(n, x, inc_x);
-}
-pub fn ssum_k(n: BlasLong, x: [*]f32, inc_x: BlasLong) f32 {
-    return blas.kernel(.ssum_k)(n, x, inc_x);
-}
-pub fn dsum_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) f64 {
-    return blas.kernel(.dsum_k)(n, x, inc_x);
-}
-pub fn qsum_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
-    return blas.kernel(.qsum_k)(n, x, inc_x);
-}
-pub fn csum_k(n: BlasLong, x: [*]f32, inc_x: BlasLong) f32 {
-    return blas.kernel(.csum_k)(n, x, inc_x);
-}
-pub fn zsum_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) f64 {
-    return blas.kernel(.zsum_k)(n, x, inc_x);
-}
-pub fn xsum_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
-    return blas.kernel(.xsum_k)(n, x, inc_x);
-}
-
-// ---- portable kernels ------------------------------------------------------
-
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
+
+const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
+
+// ---- portable kernels ------------------------------------------------------
 
 /// `kernel/arm/sum.c` and `zsum.c`: the sum of `x`, of `re + im` for complex
 /// (unlike `asum`, no absolute value); an element is `w` floats. Up to 32
@@ -90,7 +58,9 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 const std = @import("std");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const reference = @import("../../_test/reference.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type.
 fn checkSum(comptime T: type, kern: anytype) !void {
@@ -100,7 +70,7 @@ fn checkSum(comptime T: type, kern: anytype) !void {
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            const W = check.Wide(F);
+            const W = reference.Wide(F);
             var acc: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
@@ -194,7 +164,7 @@ fn checkVectorSum(comptime F: type, comptime w: comptime_int) !void {
             };
             const want = vectorOrder(F, w, n, &x, inc);
             const got = K.sum(@intCast(n), &x, @intCast(inc));
-            if (!(std.math.isNan(want) and std.math.isNan(got))) try check.expectBits(F, want, got, if (w == 2) "vector sum, complex" else "vector sum", n, inc);
+            if (!(std.math.isNan(want) and std.math.isNan(got))) try bitwise.expectBits(F, want, got, if (w == 2) "vector sum, complex" else "vector sum", n, inc);
             // a negative or zero stride sums nothing, as the portable kernels
             for ([_]BlasLong{ 0, -1, -2 }) |neg| try std.testing.expectEqual(@as(F, 0), K.sum(@intCast(n), &x, neg));
         };

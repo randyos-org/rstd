@@ -1,47 +1,14 @@
-//! `ASUM`: the sum of `|x|`. The vtable wrappers, the portable kernels
-//! (`*_generic`), and tests of every core's kernels against a plain loop.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! `ASUM`: the sum of `|x|`. The portable kernels (`*_generic`)
+//! and tests of every core's kernels against a plain loop.
 
-const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sbasum_k(n: BlasLong, x: [*]f32, inc_x: BlasLong) f32 {
-    return blas.kernel(.sbasum_k)(n, x, inc_x);
-}
-pub fn sasum_k(n: BlasLong, x: [*]f32, inc_x: BlasLong) f32 {
-    return blas.kernel(.sasum_k)(n, x, inc_x);
-}
-pub fn dasum_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) f64 {
-    return blas.kernel(.dasum_k)(n, x, inc_x);
-}
-pub fn qasum_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
-    return blas.kernel(.qasum_k)(n, x, inc_x);
-}
-pub fn casum_k(n: BlasLong, x: [*]f32, inc_x: BlasLong) f32 {
-    return blas.kernel(.casum_k)(n, x, inc_x);
-}
-pub fn zasum_k(n: BlasLong, x: [*]f64, inc_x: BlasLong) f64 {
-    return blas.kernel(.zasum_k)(n, x, inc_x);
-}
-pub fn xasum_k(n: BlasLong, x: [*]XDouble, inc_x: BlasLong) XDouble {
-    return blas.kernel(.xasum_k)(n, x, inc_x);
-}
-
-// ---- portable kernels ------------------------------------------------------
-
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
+
+const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
+
+// ---- portable kernels ------------------------------------------------------
 
 /// `kernel/arm/asum.c` and `zasum.c`: the sum of `|x|`, of `|re| + |im|` for
 /// complex; an element is `w` floats. Up to 32 bits the sum is `f64`, not
@@ -95,7 +62,9 @@ const zigstd = @import("../../../../zigstd.zig");
 const std = @import("std");
 const sysinfo = @import("builtin");
 const x86_64 = @import("x86_64/kernel.zig");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const reference = @import("../../_test/reference.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type.
 fn checkAsum(comptime T: type, kern: anytype) !void {
@@ -104,7 +73,7 @@ fn checkAsum(comptime T: type, kern: anytype) !void {
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            const W = check.Wide(F);
+            const W = reference.Wide(F);
             var want: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
@@ -155,7 +124,7 @@ test "the extended asum sums fold in asum.S's and zasum.S's order, bit for bit" 
             const len: BlasLong = @intCast(n);
             const li: BlasLong = @intCast(inc);
             inline for (.{ 1, 2 }) |w| {
-                try check.expectBits(F, check.plainExtendedSum(F, w, .abs, n, &x, inc), util.extendedSum(F, w, .abs, len, &x, li), "asum", n, inc);
+                try bitwise.expectBits(F, check.plainExtendedSum(F, w, .abs, n, &x, inc), util.extendedSum(F, w, .abs, len, &x, li), "asum", n, inc);
             }
         };
     }

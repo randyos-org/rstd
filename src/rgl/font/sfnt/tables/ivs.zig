@@ -1,15 +1,15 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
 // Item Variation Store: the shared variation-data format used by MVAR,
 // HVAR, VVAR, BASE, GDEF and COLR. Distinct from the Tuple Variation Store
-// gvar/cvar use (see tuple_variation.zig) - this organizes deltas by
+// gvar/cvar use (see tuple_variation.zig); this organizes deltas by
 // *target item* (O(1) lookups) rather than by region, and every row's size
 // is directly computable, so it's fully structural (no run-length packing).
 
-/// Schema for the ItemVariationStore header, used only to compute field
-/// offsets/sizes at comptime; never instantiated. itemVariationDataOffsets[]
-/// follows immediately after.
+/// The ItemVariationStore header. itemVariationDataOffsets[] follows
+/// immediately after.
 const StoreHeader = extern struct {
     format: u16,
     variation_region_list_offset: types.Offset32 align(2),
@@ -59,8 +59,7 @@ pub const RegionAxisCoordinates = extern struct {
     end_coord: types.F2Dot14,
 };
 
-/// Schema for the VariationRegionList header, used only to compute field
-/// offsets/sizes at comptime; never instantiated.
+/// The VariationRegionList header.
 const RegionListHeader = extern struct {
     axis_count: u16,
     region_count: u16,
@@ -98,9 +97,8 @@ pub const WordDeltaCount = packed struct(u16) {
     long_words: bool,
 };
 
-/// Schema for the ItemVariationData header, used only to compute field
-/// offsets/sizes at comptime; never instantiated. regionIndexes[] follows
-/// immediately after, then the deltaSets rows.
+/// The ItemVariationData header. regionIndexes[] follows immediately after,
+/// then the deltaSets rows.
 const DataHeader = extern struct {
     item_count: u16,
     word_delta_count: u16,
@@ -147,7 +145,7 @@ pub const ItemVariationData = struct {
     }
 
     /// The delta for item (row) `item_index`, at this subtable's column
-    /// `region_col` (0..regionIndexCount() - not a raw VariationRegionList
+    /// `region_col` (0..regionIndexCount(); not a raw VariationRegionList
     /// index; use getRegionIndex() to map a column to one).
     pub fn getDelta(self: Self, item_index: usize, region_col: usize) i32 {
         const wdc = self.wordDeltaCount();
@@ -233,8 +231,6 @@ pub const EntryFormat = packed struct(u8) {
     }
 };
 
-const zigstd = @import("../../../../zigstd.zig");
-
 test "ItemVariationStore/VariationRegionList/ItemVariationData headers match the stream layout" {
     try zigstd.testExpectEqual(@as(usize, 8), @sizeOf(StoreHeader));
     try zigstd.testExpectEqual(@as(usize, 2), @offsetOf(StoreHeader, "variation_region_list_offset"));
@@ -246,8 +242,7 @@ test "ItemVariationStore/VariationRegionList/ItemVariationData headers match the
 fn f2dot14(alloc: zigstd.Allocator, values: []const f64) ![]u8 {
     const buf = try alloc.alloc(u8, values.len * 2);
     for (values, 0..) |v, i| {
-        const packed_val = types.F2Dot14.fromFloat(v);
-        bytes.setI16BE(buf[i * 2 ..], @bitCast(packed_val));
+        buf[i * 2 ..][0..2].* = types.F2Dot14.fromFloat(v).toBytes();
     }
     return buf;
 }

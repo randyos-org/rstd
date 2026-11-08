@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# One qemu rig on the test host (tools/test_host.zig), run in the directory
-# holding its files, inside the flake's shell. Waits for one of <jobs> slots
-# (flock(1) locks in /tmp/rstd-qemu-slots, so across builds too; a dead
-# holder's lock goes with it), runs QEMU, ends it when stdin closes (the
-# build's ssh is gone), and removes the directory, and any older one whose run
-# died before it started.
-#
-#   run.sh <jobs> <qemu argv>...
-#
-# `@qemu-data@` in an argument becomes QEMU's data directory.
+# run.sh <jobs> <qemu argv>...: one rig on the test host (tools/test_host.zig) in its files' directory: waits for a slot (flock in
+# /tmp/rstd-qemu-slots), runs QEMU until stdin closes, then removes this and any dead run's directory. `@qemu-data@` is QEMU's data dir.
 set -u
 d=$PWD
 q=

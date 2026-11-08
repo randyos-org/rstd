@@ -1,58 +1,34 @@
-//! Real Vulkan-API glue for the batches `VkSurface` (__root__.zig)
-//! accumulates: pipeline objects and command-buffer recording. Compiled
-//! only when something actually imports it -- see this module's `@import`
-//! of the vulkan-zig bindings below, only available when rstd/rgui is
-//! built with `-Dvulkan=true` (src/buildutils/vulkan.zig).
+//! Vulkan glue for the batches `VkSurface` (__root__.zig) accumulates:
+//! pipelines and command-buffer recording. Analyzed only when imported, since
+//! `@import("vulkan")` exists only with `-Dvulkan=true`
+//! (src/buildutils/vulkan.zig). The caller owns the instance, devices,
+//! swapchain, render pass, command pool and sync objects.
 //!
-//! Deliberately does NOT create or own a VkInstance, physical/logical
-//! device, VkSurfaceKHR, swapchain, render pass, framebuffers, command
-//! pool, or any sync objects (semaphores/fences) -- all of that stays the
-//! caller's responsibility. Every function here takes an already-created
-//! `vk.DeviceProxy` and, where relevant, an already-active render pass
-//! instance (a `vk.CommandBuffer` mid-`vkCmdBeginRenderPass`) to record
-//! into.
-//!
-//! CAVEAT: this file's `@import("vulkan")` resolves to whichever vk-zig
-//! module rstd's own build.zig generated (see addVulkan there). If a
-//! consumer (rgui) pulls rstd in as a `b.dependency(...)` -- as it does
-//! today -- that's a *different* generated module than the one rgui's own
-//! top-level code imports, even though both come from the same generator
-//! commit: vk-zig's types are nominal, so e.g. `vk.Device` from here and
-//! `vk.Device` from rgui's src/render/vulkan/vulkan.zig are NOT the same
-//! type, and handles can't cross that boundary as-is. Fixing that means
-//! either folding rstd into rgui's build in-graph (like wireRglShaders
-//! already does for the SPIR-V sub-target, reusing one `*Module`) instead
-//! of fetching it as an isolated dependency, or moving this file's
-//! contents into rgui's own tree instead of rstd's. Left for whoever
-//! reconciles the real swapchain/device code to decide.
+//! CAVEAT: `@import("vulkan")` is rstd's own generated vk-zig module. When
+//! rgui fetches rstd as a dependency, its vk-zig types are nominally different
+//! from rgui's, so handles can't cross. Fix by building rstd in rgui's graph
+//! (as wireRglShaders does for SPIR-V) or by moving this file into rgui.
 
-const std = @import("std");
 const vk = @import("vulkan");
 
 const rglvk = @import("__root__.zig");
 const RectInstance = rglvk.RectInstance;
 const GlyphInstance = rglvk.GlyphInstance;
 const ImageInstance = rglvk.ImageInstance;
-const VkSurface = rglvk.VkSurface;
 const Batch = rglvk.Batch;
 
 const shaders = @import("../shaders/__root__.zig");
 
-/// Push constant shared by all three pipelines, matching every shader's
-/// `lib.globals.*` reads (shaders/shaders/lib/__root__.zig's `Globals`).
-/// Caller fills `screen_size` from the current swapchain extent each frame.
-pub const Globals = extern struct {
-    screen_size: [2]f32,
-    atlas_size: [2]f32 = .{ 0, 0 },
-    glyph_msdf_px_range: f32 = 0,
-};
+/// The push constant every pipeline reads (shaders/layout.zig). The caller
+/// fills `screen_size` from the swapchain extent each frame.
+pub const Globals = shaders.layout.Globals([2]f32);
 
 pub const Pipeline = struct {
     handle: vk.Pipeline,
     layout: vk.PipelineLayout,
     descriptor_set_layout: vk.DescriptorSetLayout = .null_handle,
 
-    pub fn destroy(self: Pipeline, dev: vk.DeviceProxy) void {
+    pub fn deinit(self: Pipeline, dev: vk.DeviceProxy) void {
         dev.destroyPipeline(self.handle, null);
         dev.destroyPipelineLayout(self.layout, null);
         if (self.descriptor_set_layout != .null_handle) dev.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
@@ -87,7 +63,7 @@ pub const image_attrs = [_]vk.VertexInputAttributeDescription{
     vertexAttr(2, .r32g32b32a32_sfloat, @offsetOf(ImageInstance, "color")),
 };
 
-/// Premultiplied-alpha "over" blend, shared by all three pipelines -- see
+/// Premultiplied-alpha "over" blend, shared by all three pipelines; see
 /// shaders/rgl.zig's header for why they output premultiplied alpha.
 const premultiplied_blend: vk.PipelineColorBlendAttachmentState = .{
     .blend_enable = .true,
@@ -101,12 +77,12 @@ const premultiplied_blend: vk.PipelineColorBlendAttachmentState = .{
 };
 
 /// Builds one instanced-quad pipeline (triangle-strip, 4 vertices, no
-/// vertex buffer of its own -- `quadCorner` derives the corner from
+/// vertex buffer of its own; `quadCorner` derives the corner from
 /// `spirv.vertex_index`). `stride`/`attrs` describe the per-instance data
 /// bound at binding 0 (`input_rate = .instance`); `needs_sampler` adds a
 /// single combined-image-sampler descriptor set (glyph/image; rect needs
 /// none). Caller owns `render_pass` and destroys the returned `Pipeline`
-/// via `.destroy()` before destroying the device.
+/// via `.deinit()` before destroying the device.
 pub fn createPipeline(
     dev: vk.DeviceProxy,
     render_pass: vk.RenderPass,
@@ -248,17 +224,17 @@ pub const Pipelines = struct {
 
     pub fn create(dev: vk.DeviceProxy, render_pass: vk.RenderPass) !Pipelines {
         const rect = try createPipeline(dev, render_pass, shaders.rgl_vert, shaders.rgl_frag, &rect_attrs, @sizeOf(RectInstance), false);
-        errdefer rect.destroy(dev);
+        errdefer rect.deinit(dev);
         const glyph = try createPipeline(dev, render_pass, shaders.glyph_vert, shaders.glyph_frag, &glyph_attrs, @sizeOf(GlyphInstance), true);
-        errdefer glyph.destroy(dev);
+        errdefer glyph.deinit(dev);
         const image = try createPipeline(dev, render_pass, shaders.image_vert, shaders.image_frag, &image_attrs, @sizeOf(ImageInstance), true);
         return .{ .rect = rect, .glyph = glyph, .image = image };
     }
 
-    pub fn destroy(self: Pipelines, dev: vk.DeviceProxy) void {
-        self.rect.destroy(dev);
-        self.glyph.destroy(dev);
-        self.image.destroy(dev);
+    pub fn deinit(self: Pipelines, dev: vk.DeviceProxy) void {
+        self.rect.deinit(dev);
+        self.glyph.deinit(dev);
+        self.image.deinit(dev);
     }
 };
 
@@ -270,24 +246,18 @@ fn findMemoryType(mem_props: vk.PhysicalDeviceMemoryProperties, reqs: vk.MemoryR
     return null;
 }
 
-/// A host-visible vertex buffer that grows (recreating itself) to fit
-/// whatever's uploaded into it. Works directly against a `Batch`'s raw
-/// bytes rather than a typed slice, so the exact same buffer/upload/record
-/// path serves rgl's own built-in pipelines and a caller's custom shader
-/// alike -- gpu.zig never needs to know the instance struct, only its
-/// size (which `Batch.stride` already folds into the byte count). One of
-/// these per pipeline, per frame-in-flight, is the intended usage.
+/// A host-visible vertex buffer that grows (recreating itself) to fit an
+/// upload. Takes a `Batch`'s raw bytes, so built-in and custom pipelines share
+/// it; one per pipeline per frame in flight.
 ///
-/// TODO: this recreates the whole buffer on every capacity increase rather
-/// than a smarter growth policy, and offers no double-buffering of its
-/// own -- fine for now since nothing calls this against a live swapchain
-/// yet, but revisit once a real per-frame-in-flight caller exists.
+/// TODO: recreates the buffer on every growth and has no double-buffering;
+/// revisit once a live per-frame caller exists.
 pub const InstanceBuffer = struct {
     buf: vk.Buffer = .null_handle,
     mem: vk.DeviceMemory = .null_handle,
     capacity_bytes: usize = 0,
 
-    pub fn destroy(self: *InstanceBuffer, dev: vk.DeviceProxy) void {
+    pub fn deinit(self: *InstanceBuffer, dev: vk.DeviceProxy) void {
         if (self.buf != .null_handle) dev.destroyBuffer(self.buf, null);
         if (self.mem != .null_handle) dev.freeMemory(self.mem, null);
         self.* = .{};
@@ -298,7 +268,7 @@ pub const InstanceBuffer = struct {
     pub fn upload(self: *InstanceBuffer, dev: vk.DeviceProxy, mem_props: vk.PhysicalDeviceMemoryProperties, bytes: []const u8) !void {
         if (bytes.len == 0) return;
         if (bytes.len > self.capacity_bytes) {
-            self.destroy(dev);
+            self.deinit(dev);
             self.buf = try dev.createBuffer(&.{
                 .size = bytes.len,
                 .usage = .{ .vertex_buffer = true },
@@ -330,26 +300,20 @@ pub const FrameResources = struct {
     glyph: InstanceBuffer = .{},
     image: InstanceBuffer = .{},
 
-    pub fn destroy(self: *FrameResources, dev: vk.DeviceProxy) void {
-        self.rect.destroy(dev);
-        self.glyph.destroy(dev);
-        self.image.destroy(dev);
+    pub fn deinit(self: *FrameResources, dev: vk.DeviceProxy) void {
+        self.rect.deinit(dev);
+        self.glyph.deinit(dev);
+        self.image.deinit(dev);
     }
 };
 
-/// Uploads `batch` and records its draw into `cmd`, which must already be
-/// recording inside an active render pass instance whose viewport/scissor
-/// were set by the caller (both are dynamic state here, same as
-/// shader_smoke_test.zig). Works for any pipeline -- built-in or custom --
-/// since neither `Batch` nor this function need to know the concrete
-/// instance type, only its byte size. `descriptor_set`, when given, is
-/// bound before drawing (glyph/image's atlas/texture; rect and most custom
-/// shaders need none). No-op if `batch` is null or empty.
+/// Uploads `batch` and records its draw into `cmd`, inside an active render
+/// pass whose dynamic viewport and scissor the caller set. Any pipeline works;
+/// only the instance size matters. `descriptor_set`, if given, is bound first
+/// (glyph and image need one). No-op for a null or empty batch.
 ///
-/// Caller is responsible for calling `clearBatches(surface)` once this
-/// frame's submission is known to have been consumed (e.g. after the
-/// corresponding fence signals) -- recording alone doesn't clear it, since
-/// the instance data has to stay valid until the GPU has actually read it.
+/// The caller calls `clearBatches(surface)` once the GPU has consumed the
+/// submission (its fence signaled); the instance data must live until then.
 pub fn recordBatch(
     dev: vk.DeviceProxy,
     mem_props: vk.PhysicalDeviceMemoryProperties,
@@ -375,19 +339,11 @@ pub fn recordBatch(
     dev.cmdDraw(cmd, 4, @intCast(b.count()), 0, 0);
 }
 
-// TODO: glyph batches need a live glyph atlas texture (upload + image
-// view + sampler + descriptor set, rebuilt whenever the set of on-screen
-// glyphs changes) before there's a `vk.DescriptorSet` to pass to
-// `recordBatch` -- see shader_smoke_test.zig's
-// buildStringAtlasViaSfnt/glyph_tex_* setup for the reference version of
-// that plumbing. Once it exists, recording is just:
-//   try recordBatch(dev, mem_props, cmd, pipelines.glyph, &resources.glyph,
-//       surface.batch(rglvk.glyph_pipeline_id), globals, atlas_descriptor_set);
+// TODO: glyph batches need a live atlas texture and its descriptor set
+// (shader_smoke_test.zig's buildStringAtlasViaSfnt and glyph_tex_* show how);
+// then: recordBatch(dev, mem_props, cmd, pipelines.glyph, &resources.glyph,
+//   surface.batch(rglvk.glyph_pipeline_id), globals, atlas_descriptor_set).
 
-// TODO: each unique source `RgbaImage` (`surface.images`) needs its own
-// descriptor set (one combined-image-sampler per drawImage call site) --
-// allocating/caching/uploading those per-image textures isn't implemented
-// yet. Once it exists, recording groups `surface.images` by `.image`
-// pointer and calls `recordBatch` once per group with that image's own
-// descriptor set and a `Batch`-shaped view of its instances (or a small
-// adapter, since `ImageDraw` isn't stored as a plain `Batch` today).
+// TODO: each source `RgbaImage` in `surface.images` needs its own uploaded
+// texture and descriptor set; then group by `.image` and `recordBatch` each
+// group (`ImageDraw` is not a plain `Batch` today, so through an adapter).

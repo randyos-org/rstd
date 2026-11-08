@@ -1,10 +1,7 @@
-//! x86_64 boot for QEMU's `pc` machine (`-kernel`). QEMU takes an ELF64 kernel
-//! only through the PVH entry note, which starts it in 32-bit protected mode
-//! with paging off; `_start32` builds an identity map of the first gigabyte,
-//! enters long mode and turns on the SSE, AVX and AVX-512 state the CPU has
-//! (XCR0 from CPUID leaf 0xd). Console is COM1; exit powers the machine off
-//! through the ACPI PM control register, so the run step judges the result
-//! from the printed summary.
+//! x86_64 boot for `pc`: QEMU takes an ELF64 kernel only by the PVH note (32-bit, paging off), so `_start32` identity-maps 1 GiB, enters
+//! long mode and turns on the SSE, AVX and AVX-512 state CPUID offers. Console COM1; exit powers off (the summary carries the result).
+
+const pc = @import("pc.zig");
 
 comptime {
     asm (
@@ -108,41 +105,9 @@ comptime {
     );
 }
 
-inline fn outb(port: u16, value: u8) void {
-    asm volatile ("outb %[value], %[port]"
-        :
-        : [value] "{al}" (value),
-          [port] "{dx}" (port),
-    );
-}
-
-inline fn outw(port: u16, value: u16) void {
-    asm volatile ("outw %[value], %[port]"
-        :
-        : [value] "{ax}" (value),
-          [port] "{dx}" (port),
-    );
-}
-
-inline fn inb(port: u16) u8 {
-    return asm volatile ("inb %[port], %[value]"
-        : [value] "={al}" (-> u8),
-        : [port] "{dx}" (port),
-    );
-}
-
-const com1: u16 = 0x3f8;
-
-pub fn writeByte(c: u8) void {
-    // the transmit holding register is empty
-    while (inb(com1 + 5) & 0x20 == 0) {}
-    outb(com1, c);
-}
+pub const writeByte = pc.writeByte;
 
 pub fn exit(code: usize) noreturn {
     _ = code;
-    // S5, at the PIIX4 PM control register and at the newer machines' one
-    outw(0xb004, 0x2000);
-    outw(0x604, 0x2000);
-    while (true) asm volatile ("hlt");
+    pc.powerOff();
 }

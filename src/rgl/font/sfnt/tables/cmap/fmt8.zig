@@ -1,10 +1,10 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
+const zigstd = @import("../../../../../zigstd.zig");
 
-/// Schema for the format-8 header, used only to compute field offsets/sizes
-/// at comptime; never instantiated.
+/// The format-8 header.
 const StreamLayout = extern struct {
     format: u16,
     reserved: u16,
@@ -15,8 +15,8 @@ const StreamLayout = extern struct {
 /// is32 (an 8192-byte bitmap marking which 16-bit words are the leading half
 /// of a 32-bit character code) sits right after the header. Per the spec,
 /// this determination "can be made by looking at the 16-bit value directly,
-/// with no further information required" - i.e. it's redundant with the
-/// standard UTF-16 surrogate range - so it's not consulted by getGlyphIndex()
+/// with no further information required" (it's redundant with the
+/// standard UTF-16 surrogate range), so it's not consulted by getGlyphIndex()
 /// here, which already receives a resolved 32-bit codepoint rather than a
 /// raw UTF-16 code unit. It's still exposed via isLeadingSurrogateWord() for
 /// callers walking raw UTF-16 text who want the font's own bitmap.
@@ -94,7 +94,6 @@ pub const Format8 = struct {
     }
 };
 
-const zigstd = @import("../../../../../zigstd.zig");
 const setU16BE = bytes.setU16BE;
 const setU32BE = bytes.setU32BE;
 

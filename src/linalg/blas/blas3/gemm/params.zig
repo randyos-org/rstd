@@ -1,34 +1,15 @@
-//! The gemm blocking parameters, put in the vtable when a core's kernels are
-//! installed, the way OpenBLAS fills its per-core parameter table
-//! (`kernel/setparam-ref.c`, the `DYNAMIC_ARCH` builder, which is the model for
-//! choosing the core at run time).
-//!
-//! Per precision the table (`params_data.zig`, generated from `param.h` by
-//! `tools/blas_asm/params.zig`) has the unroll sizes, which the kernels fix, and
-//! `p` (rows of A packed at a time), `q` (the depth) and `r` (columns of B). Most
-//! are constants of `param.h`. What `setparam-ref.c` computes is here:
-//!
-//!   * `p` of the older x86 cores follows the L2 size (`Affine`), over the header;
-//!   * on x86, `r` is always derived from the packing buffer;
-//!   * on mips64, `dgemm`'s `r` is 640 for every core;
-//!   * half and bfloat16 are set per family, `r` the header's outside x86;
-//!   * on x86, `p` of `s`, `d`, `c`, `z` and 3M is rounded up to the unroll;
-//!   * on x86 only, the 3M variants take `p` and `q` of the real ones unless
-//!     the header says;
-//!   * LA464 and the AMD AVX-512 parts override sets by cache size and threads.
-//!
-//! `OPENBLAS_BLOCK_FACTOR` (`Config.block_factor`) scales a computed `p` as
-//! `driver/others/parameter.c` does there; OpenBLAS ignores it in dynamic builds,
-//! here it applies wherever `p` comes from a rule.
+//! The gemm blocking parameters, put in the vtable as a core's kernels are
+//! installed, as `kernel/setparam-ref.c` fills OpenBLAS's table: `param.h`'s
+//! constants (`params_data.zig`) and the rules it computes (`notes.md`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Vtable = @import("../../Vtable.zig");
 const Config = @import("../../Config.zig");
 const data = @import("params_data.zig");
-const coretypes = @import("../../cpu/_coretypes.zig");
-const corespec = @import("../../cpu/_corespec.zig");
-const select = @import("../../cpu/_select.zig");
+const coretypes = @import("../../cpu/coretypes.zig");
+const corespec = @import("../../cpu/corespec.zig");
+const select = @import("../../cpu/select.zig");
 const driver = @import("../driver.zig");
 const small = @import("small.zig");
 
@@ -462,7 +443,7 @@ pub fn dtbFor(comptime family: Family, core: CoreOf(family)) i32 {
     };
 }
 
-/// The family a target's `cpu/<arch>.zig` installs.
+/// The family a target's `cpu.Arch` (`cpu/__root__.zig`) installs.
 fn familyOf(arch: std.Target.Cpu.Arch, ptr_bits: u16) Family {
     return switch (arch) {
         .x86_64 => .x86_64,
@@ -622,7 +603,7 @@ fn qOf(vt: *const Vtable) [q_fields.len]i32 {
 }
 
 /// Every core of `family` resolves to sane parameters; one test per family,
-/// so each fits a rig image (`build/qemutest.zig`'s `sparc64-debug`).
+/// so each fits a rig image (`build/qemu/machines.zig`'s `sparc64-debug`).
 fn checkFamily(comptime family: Family) !void {
     @setEvalBranchQuota(2_000_000);
     inline for (@typeInfo(CoreOf(family)).@"enum".field_names) |cname| {

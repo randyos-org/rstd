@@ -1,5 +1,4 @@
 const std = @import("std");
-const uefi = std.os.uefi;
 const Io = std.Io;
 
 const fdtable = @import("fdtable.zig");
@@ -35,15 +34,8 @@ pub fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: []const []
     _ = userdata;
     const f = fdtable.get(file.handle) orelse return error.Unexpected;
     f.setPosition(offset) catch return error.Unexpected;
-    var total: usize = 0;
-    for (data) |buffer| {
-        if (buffer.len == 0) continue;
-        const n = f.read(buffer) catch return error.InputOutput;
-        total += n;
-        // short read = EOF; return bytes available (0 at/past end)
-        if (n < buffer.len) break;
-    }
-    return total;
+    // short read = EOF; return bytes available (0 at/past end)
+    return fdtable.readInto(f, data);
 }
 
 pub const fileSeekBy = Io.failingFileSeekBy;

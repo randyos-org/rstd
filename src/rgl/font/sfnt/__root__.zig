@@ -15,17 +15,16 @@
 // and within the texture.
 
 pub const Sfnt = @import("Sfnt.zig");
-pub const render = @import("render/__root__.zig");
-pub const types = @import("stream_types.zig");
+pub const types = @import("types.zig");
 pub const aux_types = @import("aux_types.zig");
 pub const tables = @import("tables/__root__.zig");
-pub const msdf = @import("msdf/__root__.zig");
+// old paths of font.render and font.msdf, still used by rgui
+pub const render = @import("../render/__root__.zig");
+pub const msdf = @import("../msdf/__root__.zig");
+const zigstd = @import("../../../zigstd.zig");
 
 pub const Vertex = aux_types.Vertex;
 pub const BitmapBox = render.bounds.BitmapBox;
-pub const CharstringCtx = tables.CharstringCtx;
-
-const zigstd = @import("../../../zigstd.zig");
 
 test {
     zigstd.testRefAllDecls(@This());

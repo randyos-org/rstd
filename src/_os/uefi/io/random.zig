@@ -2,9 +2,6 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Io = std.Io;
 
-const logging = @import("../../../log.zig");
-const log = logging.Logger(@This());
-
 const state = @import("state.zig");
 const time = @import("time.zig");
 
@@ -31,7 +28,7 @@ pub fn randomSecure(userdata: ?*anyopaque, buffer: []u8) Io.RandomSecureError!vo
 }
 
 /// Fallback for `random` when firmware has no RNG protocol; seeded from tick
-/// clock on first use. Not crypto-secure -- use `randomSecure` for that.
+/// clock on first use. Not crypto-secure; use `randomSecure` for that.
 var fallback_prng: ?std.Random.DefaultPrng = null;
 
 pub fn random(userdata: ?*anyopaque, buffer: []u8) void {

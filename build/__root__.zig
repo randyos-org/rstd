@@ -5,9 +5,10 @@ const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const build_root = @import("../build.zig");
 const blaskern = @import("blaskern.zig");
-const qemutest = @import("qemutest.zig");
+const qemutest = @import("qemu/__root__.zig");
 const wasmtest = @import("wasmtest.zig");
 const sshtest = @import("sshtest.zig");
+const bench = @import("bench.zig");
 const shader_probe = @import("../src/rgl/shaders/probe.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
@@ -17,7 +18,7 @@ const Optimize = rstdbuild.Optimize;
 
 /// rstd's module for `target`: its options, BLAS kernels and platform imports.
 /// `name` registers it for consumers; null keeps it private to this build (a
-/// second target, as `qemutest.zig`'s macOS VM uses).
+/// second target, as `qemu/__root__.zig`'s macOS VM uses).
 pub fn addRstdModule(
     b: *Build,
     name: ?[]const u8,
@@ -41,6 +42,10 @@ pub fn addRstdModule(
     options.addOption(bool, "has_vulkan", vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
+    // Stock Zig rejects `@Matrix` even in a file it never analyzes, so the
+    // file spelling it is imported only by compilers that have it.
+    const matrix = if (@hasField(std.lang.Type, "matrix")) "native" else "fallback";
+    mod.addImport("rstd_matrix", b.createModule(.{ .root_source_file = b.path("src/linalg/_matrix/" ++ matrix ++ ".zig") }));
     try blaskern.addBlasKernels(b, mod, target, blas_cores, null);
     rstdbuild.addWin32ToModIfWinTgt(b, target, mod);
     if (has_renderdoc) {
@@ -119,19 +124,7 @@ pub fn build(b: *Build) !void {
     // ----
     // We want the rstd docs to be built separately from the other packages,
     // so we will make a separate compile step for them and attach the docs.
-    // A Compile step needs its root module bound to a target, but rstd_mod is
-    // deliberately target-less (consumers set their own via addImport) - so
-    // clone it rather than redeclaring root_source_file/imports/options.
-    const rstd_docs_mod = try rstdbuild.cloneModuleWithTarget(b, rstd_mod, target);
-    // Docs only analyze the source; the kernel objects would make this object
-    // link others, which the self-hosted COFF linker rejects.
-    rstd_docs_mod.link_objects = .empty;
-    // add the standalone rstd build step, just generates an unlinked object file
-    const rstd_docs_obj = b.addObject(.{
-        .name = "rstd",
-        .root_module = rstd_docs_mod,
-    });
-    docs.addCompileStepDocs(b, rstd_docs_obj, "rstd");
+    try docs.addModuleDocs(b, rstd_mod, target, "rstd");
 
     // tests
     // -----
@@ -177,10 +170,10 @@ pub fn build(b: *Build) !void {
         macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, optimize, &.{})).step);
     }
 
-    // UEFI: every OS-free test (the qemu rigs' root: simd, BLAS, every
+    // UEFI: every OS-free test (the qemu rigs' root: BLAS, every
     // interface at every element type, and LAPACK), also those the UEFI rigs
     // (`qemu-test-<arch>-uefi`) filter out, built with their runner, not run
-    const uefi_step = b.step("rstd-check-uefi", "Build rstd's OS-free tests (simd, BLAS, LAPACK) for UEFI (x86_64, aarch64) without running them");
+    const uefi_step = b.step("rstd-check-uefi", "Build rstd's OS-free tests (BLAS, LAPACK) for UEFI (x86_64, aarch64) without running them");
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const uefi = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .uefi });
         const uefi_mod = b.createModule(.{ .root_source_file = b.path("src/_test_qemu.zig"), .target = uefi, .optimize = optimize });
@@ -208,6 +201,7 @@ pub fn build(b: *Build) !void {
     }
 
     // the same tests that need no OS, on emulated machines
-    try qemutest.addQemuTests(b, optimize);
+    const rigs = try qemutest.addQemuTests(b, optimize);
+    if (rigs.linux_vm) try bench.addLinuxBenches(b, rigs.test_host, rigs.whpx_host);
     try wasmtest.addWasmTests(b, optimize);
 }

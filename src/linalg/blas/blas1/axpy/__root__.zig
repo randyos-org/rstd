@@ -8,22 +8,17 @@ const sysinfo = @import("builtin");
 const zigstd = @import("../../../../zigstd.zig");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
-const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
-const rsimd = @import("../../../../simd/__root__.zig");
 const fma = @import("../../fma.zig");
-const corespec = @import("../../cpu/_corespec.zig");
+const corespec = @import("../../cpu/corespec.zig");
+pub const kernel = @import("driver.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 const Complex = std.math.Complex;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
 
 // ---- kernel ABI and drivers -------------------------------------------------
 
-pub const kernel = @import("kernel.zig");
 pub const RealKernel = kernel.RealKernel;
 pub const ComplexKernel = kernel.ComplexKernel;
 pub const realEntry = kernel.realEntry;
@@ -36,7 +31,7 @@ pub const Cplx = kernel.Cplx;
 fn SimdBlock(comptime T: type) type {
     return struct {
         pub fn run(n1: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
-            const lanes = comptime rsimd.vectorLen(T);
+            const lanes = comptime std.simd.suggestVectorLength(T) orelse 1;
             const V = @Vector(lanes, T);
             const valpha: V = @splat(alpha);
             var i: usize = 0;
@@ -44,7 +39,7 @@ fn SimdBlock(comptime T: type) type {
             while (i < end) : (i += lanes) {
                 const vx: V = x[i..][0..lanes].*;
                 const vy: V = y[i..][0..lanes].*;
-                y[i..][0..lanes].* = rsimd.mulAdd(V, valpha, vx, vy);
+                y[i..][0..lanes].* = fma.madd(fma.fuse, V, valpha, vx, vy);
             }
         }
     };
@@ -104,7 +99,7 @@ const isComplex = check.isComplex;
 
 // ---- tests: portable kernels vs. a scalar reference ------------------------
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 const fill = check.fill;
 
 const FloatOf = check.FloatOf;
@@ -188,7 +183,7 @@ pub fn checkComplex(comptime F: type, comptime conj: bool, kern: ComplexKernel(F
 
 const cpu = @import("../../cpu/__root__.zig");
 
-test "generic kernels match a scalar loop (all types, contiguous and strided)" {
+test "portable axpy kernels match a scalar loop (all types, contiguous and strided)" {
     try checkReal(f32, saxpy_generic);
     try checkReal(f64, daxpy_generic);
     try checkReal(XDouble, qaxpy_generic);
@@ -200,14 +195,14 @@ test "generic kernels match a scalar loop (all types, contiguous and strided)" {
     try checkComplex(XDouble, true, xaxpyc_generic);
 }
 
-test "generic kernels at the extended type give a plain unfused loop's bits" {
+test "portable axpy kernels at the extended type give a plain unfused loop's bits" {
     const E = check.Ext;
     try checkReal(E, realEntry(E, GenericReal(E)));
     try checkComplex(E, false, complexEntry(E, GenericCplx(E, false)));
     try checkComplex(E, true, complexEntry(E, GenericCplx(E, true)));
 }
 
-test "a core's kernels fill every axpy slot, for the host's core type" {
+test "a core's axpy kernels fill every axpy slot, for the host's core type" {
     var vt: Vtable = .{};
     installGeneric(&vt);
     cpu.kernel.install(&vt, cpu.detect());
@@ -234,7 +229,7 @@ fn checkAll(vt: *const Vtable) !void {
     if (failed) |e| return e;
 }
 
-test "every linked core's kernels match a scalar loop, where this machine runs them" {
+test "every linked core's axpy kernels match a scalar loop, where this machine runs them" {
     try check.eachCore(checkAll);
 }
 

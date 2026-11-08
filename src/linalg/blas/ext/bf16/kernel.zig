@@ -1,17 +1,7 @@
-//! The bfloat16 and half-precision kernels: the conversions, `bscal`, `sbdot`,
-//! the `bgemv`/`sbgemv`/`shgemv` family and the `bgemm`/`sbgemm`/`shgemm`
-//! one. Nothing here depends on the BLAS root, so the per-core kernel
-//! objects (`_kernel.zig`) can use it too.
-//!
-//! Every bfloat16 conversion, on every core, is `kernel/x86_64/{tobf16,bf16to}.c`
-//! (`Makefile.L1` selects them for all architectures; only the AVX-512 BF16
-//! microkernels of COOPERLAKE and SAPPHIRERAPIDS differ, and those give the
-//! same bits, so there is one portable kernel). Denormals flush to a signed
-//! zero, NaNs come out quiet, the rest round to nearest even.
-//!
-//! These are portable kernels, the same on every core (see the readme,
-//! "bfloat16 and half precision"). The loops are plain, for the compiler to
-//! vectorize.
+//! The bfloat16 and half-precision kernels, portable and free of the BLAS root
+//! so the per-core objects use them too: the conversions (every core's are
+//! `kernel/x86_64/{tobf16,bf16to}.c`, by `Makefile.L1`; denormals flush to a
+//! signed zero, NaNs come out quiet), `bscal`, `sbdot`, `?bgemv` and `?bgemm`.
 
 const std = @import("std");
 const types = @import("../../types.zig");
@@ -19,6 +9,7 @@ const fma = @import("../../fma.zig");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
 const gemm_kernels = @import("../../blas3/gemm/kernel.zig");
+const vector = @import("../../vector.zig");
 
 const BlasLong = types.BlasLong;
 const HF16 = types.HF16;
@@ -349,7 +340,7 @@ pub fn GemmKernels(comptime I: type, comptime O: type) type {
             const V = Lanes(lanes);
             var acc: [wn][nv]V = undefined;
             inline for (0..wn) |j| inline for (0..nv) |v| {
-                acc[j][v] = splat(lanes, 0);
+                acc[j][v] = vector.splatTo(V, @as(f32, 0));
             };
             var a = pa;
             var b = pb;
@@ -357,7 +348,7 @@ pub fn GemmKernels(comptime I: type, comptime O: type) type {
                 var av: [nv]V = undefined;
                 inline for (0..nv) |v| av[v] = widen(I, lanes, a + v * lanes);
                 inline for (0..wn) |j| {
-                    const bv = splat(lanes, wide(I, b[j]));
+                    const bv = vector.splatTo(V, wide(I, b[j]));
                     inline for (0..nv) |v| acc[j][v] = if (lanes == 1) madd(false, av[v], bv, acc[j][v]) else fma.madd(false, V, av[v], bv, acc[j][v]);
                 }
                 a += wm;
@@ -383,10 +374,6 @@ pub fn GemmKernels(comptime I: type, comptime O: type) type {
 
 fn Lanes(comptime n: usize) type {
     return if (n == 1) f32 else @Vector(n, f32);
-}
-
-inline fn splat(comptime n: usize, x: f32) Lanes(n) {
-    return if (n == 1) x else @splat(x);
 }
 
 /// `n` elements at `p` as `f32`, converted as `wide` does each.
@@ -479,7 +466,7 @@ pub fn installGenericGemm(vt: *Vtable) void {
 
 /// Puts back the portable kernels' unrolls where `vt` still holds them: a
 /// core's blocking (`params.installCore`) writes `param.h`'s, which describe
-/// that core's own kernels, not ported (`blas3/gemm/kernel.zig`'s `settle`).
+/// that core's own kernels, not ported (`blas3/kernels.zig`'s `settle`).
 pub fn settleGemm(vt: *Vtable) void {
     inline for (families) |f| {
         const pre = comptime gemmPrefix(f[0]);

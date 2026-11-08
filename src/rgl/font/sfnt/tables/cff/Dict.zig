@@ -1,4 +1,5 @@
 const bytes = @import("../../../../../bytes.zig");
+const zigstd = @import("../../../../../zigstd.zig");
 
 /// A DICT: operand(s)-then-operator tokens (Top/Font/Private DICTs all use
 /// this encoding). table_data is exactly this DICT's own byte range.
@@ -7,7 +8,7 @@ const Dict = @This();
 table_data: []const u8,
 
 /// DICT operators this module reads. Escaped ("12 N") operators are encoded
-/// as 0x100 | N. Non-exhaustive - the spec defines many more we don't need.
+/// as 0x100 | N. Non-exhaustive; the spec defines many more we don't need.
 pub const Operator = enum(u16) {
     charset = 15,
     encoding = 16,
@@ -53,7 +54,7 @@ pub fn has(self: Dict, op: Operator) bool {
 }
 
 /// Decodes up to `out.len` leading integer operands for `op`, returning
-/// how many were found. Real-number operands aren't supported - no
+/// how many were found. Real-number operands aren't supported; no
 /// operator this module reads (offsets, sizes, counts, the CID marker)
 /// ever uses one.
 pub fn getInts(self: Dict, op: Operator, out: []i32) usize {
@@ -73,7 +74,7 @@ pub fn getInt(self: Dict, op: Operator) ?i32 {
 
 /// Decodes one DICT integer operand starting at data[pos.*], advancing
 /// pos.* past it. Caller must have already checked data[pos.*] is an
-/// integer-operand lead byte (28, 29, or 32-254) - not a real-number lead
+/// integer-operand lead byte (28, 29, or 32-254); not a real-number lead
 /// (30) or an operator byte (0-21, 12).
 fn decodeDictInt(data: []const u8, pos: *usize) i32 {
     const b0 = data[pos.*];
@@ -105,7 +106,7 @@ fn decodeDictInt(data: []const u8, pos: *usize) i32 {
 }
 
 /// Skips one DICT operand (integer or real) starting at data[pos.*],
-/// without decoding it - used while scanning past operators we don't care
+/// without decoding it; used while scanning past operators we don't care
 /// about. Real numbers (lead byte 30) are nibble-encoded and terminated by
 /// a 0xF nibble, so they can't be skipped by a fixed byte count like the
 /// integer forms.
@@ -131,8 +132,6 @@ pub fn appendDictInt(buf: []u8, at: usize, value: i32) usize {
     bytes.setI32BE(buf[at + 1 ..], value);
     return at + 5;
 }
-
-const zigstd = @import("../../../../../zigstd.zig");
 
 test "Dict.getInt finds a one-byte and an escaped operator, skipping a real-number operand" {
     // Encodes: [real (skipped, irrelevant)] charset=15

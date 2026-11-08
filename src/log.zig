@@ -72,8 +72,6 @@ pub fn Logger(comptime Scope: type) type {
     };
 }
 
-const log = Logger(@This());
-
 /// platform hook for "seconds since boot" timestamp
 pub var get_time: ?*const fn () f64 = null;
 

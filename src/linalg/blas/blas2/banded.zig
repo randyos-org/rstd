@@ -1,32 +1,10 @@
-//! The level-2 banded, packed and rank-update interface: `?GBMV`, `?SBMV`,
-//! `?HBMV`, `?SPMV`, `?HPMV`, `?SPR`, `?SPR2`, `?HPR`, `?HPR2`, `?SYR`,
-//! `?SYR2`, `?HER`, `?HER2`. Each is `interface/*.c` (validation, `beta`
-//! scaling, negative strides) over `driver/level2/*_k.c` (one column at a
-//! time through the level-1 kernels: copy, scal, dot, axpy, axpyc).
-//!
-//! The complex symmetric forms (`ZSBMV`, `ZSPMV`, `ZSPR`, `ZSPR2`, `ZSYR`,
-//! `ZSYR2`) are OpenBLAS extensions. `V` and `M` in `?HBMV`'s `uplo` are its
-//! `HEMVREV` forms (upper and lower, the transpose of the Hermitian matrix),
-//! which its Fortran interface accepts; the other Hermitian routines get them
-//! only from row-major CBLAS, so they reject them.
-//!
-//! Element type `T` is any float type or its `Complex`; sizes and strides
-//! are `isize`. Vectors with a negative stride start at the
-//! pointer given, as in the Fortran interface. No vtable slot exists for
-//! these routines; every kernel used is a level-1 one (`portable.kernel`),
-//! and `gbmv` uses no gemv kernel.
-//!
-//! There is no xerbla here: bad arguments return `interface.ArgError`
-//! (`info` is the first failing argument in the reference's check order).
-//! Each routine takes an allocator, for copies of strided vectors beyond
-//! `stack_bytes`, and `io`. Above OpenBLAS's thresholds the rank updates
-//! and transposed `gbmv` thread on `io`, by columns, each column the serial
-//! kernel call (`threading.md`). The others add each element of `y` up over
-//! several columns: their chunks of columns, fixed by the size, go into
-//! partial vectors of their own, folded in chunk order.
+//! `?GBMV`, `?SBMV`, `?HBMV`, `?SPMV`, `?HPMV`: `interface/*.c` over
+//! `driver/level2/*_k.c`, a column at a time through the level-1 kernels.
+//! `?HBMV` takes `HEMVREV`'s `V` and `M`, as the Fortran interface does.
+//! Transposed `gbmv` threads by columns; the others through partial vectors
+//! folded in chunk order.
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const blas = @import("../__root__.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
@@ -51,28 +29,13 @@ pub const stack_bytes = interface.stack_bytes;
 const isComplex = types.isComplex;
 const Float = types.Float;
 
-fn raw(comptime T: type, p: [*]T) [*]Float(T) {
-    return @ptrCast(p);
-}
-
-/// `p + i` for any sign of `i`.
-fn at(comptime T: type, p: [*]T, i: BlasLong) [*]T {
-    return @ptrCast(util.at(T, p, i));
-}
-
-fn el(comptime T: type, p: [*]T, i: BlasLong) *T {
-    return util.at(T, p, i);
-}
-
-/// Where a vector of `n` with stride `inc` starts: its last element when
-/// `inc < 0`.
-fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
-    return if (inc < 0) at(T, p, -(n - 1) * inc) else p;
-}
-
-fn zero(comptime T: type) T {
-    return if (comptime isComplex(T)) .init(0, 0) else 0;
-}
+const raw = util.raw;
+const off = util.off;
+const at = util.at;
+const first = util.first;
+const zero = util.zero;
+const isZero = util.isZero;
+const isOne = util.isOne;
 
 fn mul(comptime T: type, a: T, b: T) T {
     return if (comptime isComplex(T)) a.mul(b) else a * b;
@@ -80,7 +43,7 @@ fn mul(comptime T: type, a: T, b: T) T {
 
 /// `mul`, each step rounded on the x87 (`util.cmul`): the rank updates'
 /// scalars.
-fn mulRounded(comptime T: type, a: T, b: T) T {
+pub fn mulRounded(comptime T: type, a: T, b: T) T {
     if (comptime !isComplex(T)) return a * b;
     const p = util.cmul(Float(T), a.re, a.im, b.re, b.im);
     return .init(p[0], p[1]);
@@ -90,32 +53,21 @@ fn add(comptime T: type, a: T, b: T) T {
     return if (comptime isComplex(T)) a.add(b) else a + b;
 }
 
-fn conj(comptime T: type, a: T) T {
+pub fn conj(comptime T: type, a: T) T {
     return if (comptime isComplex(T)) a.conjugate() else a;
 }
 
-fn scaleF(comptime T: type, a: T, f: Float(T)) T {
+pub fn scaleF(comptime T: type, a: T, f: Float(T)) T {
     return if (comptime isComplex(T)) T.init(a.re * f, a.im * f) else a * f;
-}
-
-fn isZero(comptime T: type, a: T) bool {
-    return if (comptime isComplex(T)) a.re == 0 and a.im == 0 else a == 0;
-}
-
-fn isOne(comptime T: type, a: T) bool {
-    return if (comptime isComplex(T)) a.re == 1 and a.im == 0 else a == 1;
 }
 
 // ---- level-1 kernels, unit stride --------------------------------------------
 
 /// `y += alpha*x`, or `alpha*conj(x)`; the kernels take `n >= 1`.
-fn axpyK(comptime T: type, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
+pub fn axpyK(comptime T: type, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
     if (n <= 0) return;
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, if (cj) .axpyc_k else .axpy_k, blas.table)(n, 0, 0, alpha.re, alpha.im, raw(T, x), 1, raw(T, y), 1, raw(T, y), 0);
-    } else {
-        _ = portable.fetch(T, .axpy_k, blas.table)(n, 0, 0, alpha, x, 1, y, 1, y, 0);
-    }
+    const op: portable.Op = comptime if (cj and isComplex(T)) .axpyc_k else .axpy_k;
+    _ = @call(.auto, portable.fetch(T, op, blas.table), .{ n, 0, 0 } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, x), 1, raw(T, y), 1, raw(T, y), 0 });
 }
 
 /// `x . y`, or `conj(x) . y`; `cj` is ignored for real `T`.
@@ -136,39 +88,30 @@ fn copyK(comptime T: type, n: BlasLong, x: [*]T, incx: BlasLong, y: [*]T, incy: 
 fn scalK(comptime T: type, n: BlasLong, beta: T, y: [*]T, incy: BlasLong) void {
     if (n <= 0) return;
     const p = raw(T, y);
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, .scal_k, blas.table)(n, 0, 0, beta.re, beta.im, p, incy, p, 0, p, 0);
-    } else {
-        _ = portable.fetch(T, .scal_k, blas.table)(n, 0, 0, beta, p, incy, p, 0, p, 0);
-    }
+    _ = @call(.auto, portable.fetch(T, .scal_k, blas.table), .{ n, 0, 0 } ++ util.scalarArgs(T, beta) ++ .{ p, incy, p, 0, p, 0 });
 }
 
 // ---- unit-stride copies ------------------------------------------------------
 
 /// Room for one vector copy: on the stack when it fits, else from the
 /// allocator.
-fn Scratch(comptime T: type) type {
+pub fn Scratch(comptime T: type) type {
     return struct {
-        stack: [stack_bytes / @sizeOf(T)]T = undefined,
-        heap: ?[]T = null,
+        stack: [stack_bytes]u8 align(@alignOf(T)) = undefined,
+        buf: ?util.Scratch(T, @alignOf(T), @alignOf(T)) = null,
 
         /// `v` (length `n`, stride `inc`) as a unit-stride vector: `v` itself
         /// at stride 1, else a copy.
-        fn unit(self: *@This(), allocator: Allocator, n: BlasLong, v: [*]T, inc: BlasLong) Allocator.Error![*]T {
+        pub fn unit(self: *@This(), allocator: Allocator, n: BlasLong, v: [*]T, inc: BlasLong) Allocator.Error![*]T {
             if (inc == 1) return v;
-            const len: usize = @intCast(n);
-            const buf: []T = if (len <= self.stack.len) self.stack[0..len] else blk: {
-                self.heap = try allocator.alloc(T, len);
-                break :blk self.heap.?;
-            };
-            // poisoned in tests, as `interface.zig`'s scratch is
-            if (sysinfo.is_test) @memset(std.mem.sliceAsBytes(buf), 0xff);
+            const buf = try util.Scratch(T, @alignOf(T), @alignOf(T)).init(allocator, &self.stack, @intCast(n));
+            self.buf = buf;
             copyK(T, n, v, inc, buf.ptr, 1);
             return buf.ptr;
         }
 
-        fn deinit(self: *@This(), allocator: Allocator) void {
-            if (self.heap) |h| allocator.free(h);
+        pub fn deinit(self: *@This(), allocator: Allocator) void {
+            if (self.buf) |b| b.deinit(allocator);
         }
     };
 }
@@ -254,34 +197,34 @@ fn Gbmv(comptime T: type, comptime tr: bool, comptime cj: bool, comptime xc: boo
         fn columns(g: *const @This(), c0: BlasLong, c1: BlasLong) void {
             var offset_u = g.ku - c0;
             var offset_l = g.ku + g.m - c0;
-            var col = at(T, g.a, c0 * g.lda);
+            var col = off(T, g.a, c0 * g.lda);
             var i: BlasLong = c0;
             while (i < c1) : (i += 1) {
                 const start = @max(offset_u, 0);
                 const end = @min(offset_l, g.ku + g.kl + 1);
                 const length = end - start;
                 if (length > 0) {
-                    const ap = at(T, col, start);
-                    const xs = at(T, g.X, start - offset_u);
+                    const ap = off(T, col, start);
+                    const xs = off(T, g.X, start - offset_u);
                     if (comptime !tr) {
-                        const xi = el(T, g.X, i).*;
-                        axpyK(T, cj, length, mul(T, g.alpha, if (xc) conj(T, xi) else xi), ap, at(T, g.Y, start - offset_u - g.yb));
+                        const xi = at(T, g.X, i).*;
+                        axpyK(T, cj, length, mul(T, g.alpha, if (xc) conj(T, xi) else xi), ap, off(T, g.Y, start - offset_u - g.yb));
                     } else {
                         const t = if (comptime !xc) dotK(T, cj, length, ap, xs) else dotK(T, !cj, length, xs, ap);
                         const v = mul(T, g.alpha, if (comptime xc and cj) conj(T, t) else t);
-                        el(T, g.Y, i).* = add(T, el(T, g.Y, i).*, v);
+                        at(T, g.Y, i).* = add(T, at(T, g.Y, i).*, v);
                     }
                 }
                 offset_u -= 1;
                 offset_l -= 1;
-                col = at(T, col, g.lda);
+                col = off(T, col, g.lda);
             }
         }
     };
 }
 
 /// Which matrix a stored triangle stands for.
-const Kind = enum { symmetric, hermitian, hermitian_rev };
+const Kind = @import("symmetric.zig").Kind;
 
 /// `driver/level2/{sbmv,spmv,zsbmv,zspmv,zhbmv,zhpmv}_k.c`: `y += alpha*S*x`
 /// for `S` in band storage (`k` bands, `lda`) or packed storage. Over more
@@ -353,25 +296,25 @@ fn Mv(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime pack
                 const room: BlasLong = if (lower) n - 1 - i else i;
                 const noff = if (packed_) room else @min(room, g.k);
                 const diag = cs + (if (lower) 0 else if (packed_) i else g.k);
-                const dp = at(T, g.a, diag);
-                const off_a = if (lower) at(T, g.a, diag + 1) else at(T, g.a, diag - noff);
+                const dp = off(T, g.a, diag);
+                const off_a = if (lower) off(T, g.a, diag + 1) else off(T, g.a, diag - noff);
                 const off_i = if (lower) i + 1 else i - noff; // the off-diagonals' rows
-                const xi = el(T, X, i).*;
-                const yi = el(T, Y, i - yb);
+                const xi = at(T, X, i).*;
+                const yi = at(T, Y, i - yb);
                 const ax = mul(T, alpha, xi);
                 switch (kind) {
                     .symmetric => if (packed_ and lower) {
-                        yi.* = add(T, yi.*, mul(T, alpha, dotK(T, false, n - i, dp, at(T, X, i))));
-                        axpyK(T, false, noff, ax, off_a, at(T, Y, off_i - yb));
+                        yi.* = add(T, yi.*, mul(T, alpha, dotK(T, false, n - i, dp, off(T, X, i))));
+                        axpyK(T, false, noff, ax, off_a, off(T, Y, off_i - yb));
                     } else {
-                        axpyK(T, false, noff + 1, ax, if (lower) dp else off_a, at(T, Y, (if (lower) i else off_i) - yb));
-                        if (noff > 0) yi.* = add(T, yi.*, mul(T, alpha, dotK(T, false, noff, off_a, at(T, X, off_i))));
+                        axpyK(T, false, noff + 1, ax, if (lower) dp else off_a, off(T, Y, (if (lower) i else off_i) - yb));
+                        if (noff > 0) yi.* = add(T, yi.*, mul(T, alpha, dotK(T, false, noff, off_a, off(T, X, off_i))));
                     },
                     .hermitian, .hermitian_rev => {
-                        axpyK(T, rev, noff, ax, off_a, at(T, Y, off_i - yb));
+                        axpyK(T, rev, noff, ax, off_a, off(T, Y, off_i - yb));
                         const d = if (comptime isComplex(T)) dp[0].re else dp[0];
                         yi.* = add(T, yi.*, mul(T, alpha, scaleF(T, xi, d)));
-                        if (noff > 0) yi.* = add(T, yi.*, mul(T, alpha, dotK(T, !rev, noff, off_a, at(T, X, off_i))));
+                        if (noff > 0) yi.* = add(T, yi.*, mul(T, alpha, dotK(T, !rev, noff, off_a, off(T, X, off_i))));
                     },
                 }
                 cs += if (!packed_) g.lda else if (lower) n - i else i + 1;
@@ -382,66 +325,9 @@ fn Mv(comptime T: type, comptime kind: Kind, comptime lower: bool, comptime pack
 
 /// Where column `i` of a triangle of order `n` starts, in full (`lda`) or
 /// packed storage.
-fn columnAt(comptime lower: bool, comptime packed_: bool, n: BlasLong, lda: BlasLong, i: BlasLong) BlasLong {
+pub fn columnAt(comptime lower: bool, comptime packed_: bool, n: BlasLong, lda: BlasLong, i: BlasLong) BlasLong {
     if (!packed_) return i * (if (lower) lda + 1 else lda);
     return if (lower) i * n - @divExact(i * (i - 1), 2) else @divExact(i * (i + 1), 2);
-}
-
-/// `run(ctx, c0, c1)` over columns `c0..c1` of a triangle of order `n`: all
-/// of them at once below `family`'s threshold, else in chunks balanced by
-/// their lengths, as `syr_thread.c` and the rest divide them.
-fn byColumns(io: Io, comptime T: type, comptime family: threading.Family, comptime lower: bool, n: BlasLong, ctx: anytype, comptime run: fn (@TypeOf(ctx), BlasLong, BlasLong) void) Io.Cancelable!void {
-    const nu: usize = @intCast(n);
-    // multiples of 8 columns, as their `mask`
-    const p = threading.plan(family, T, nu, nu, if (lower) .falling else .rising, 8);
-    if (p.workers <= 1) return run(ctx, 0, n);
-    const S = struct {
-        fn one(c: @TypeOf(ctx), ch: threading.Chunk) void {
-            run(c, @intCast(ch.start), @intCast(ch.end));
-        }
-    };
-    return threading.forEach(io, &p, ctx, S.one);
-}
-
-/// `driver/level2/{spr,syr,zspr,zsyr,zhpr,zher}_k.c`'s columns `c0..c1`:
-/// `A += alpha*x*x^T`, or `alpha*x*x^H` for `herm` (real `alpha`), on one
-/// triangle in full (`lda`) or packed storage, over a unit-stride `X`. A
-/// column whose `x` is zero is passed over, as the reference does;
-/// OpenBLAS's `zher_k.c` and `zhpr_k.c` do not.
-fn rankColumns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: if (herm) Float(T) else T, X: [*]T, a: [*]T, lda: BlasLong, c0: BlasLong, c1: BlasLong) void {
-    var col = at(T, a, columnAt(lower, packed_, n, lda, c0));
-    var i: BlasLong = c0;
-    while (i < c1) : (i += 1) {
-        const len = if (lower) n - i else i + 1;
-        const xs = if (lower) at(T, X, i) else X;
-        const xi = el(T, X, i).*;
-        if (!isZero(T, xi)) axpyK(T, false, len, if (herm) scaleF(T, conj(T, xi), alpha) else mulRounded(T, alpha, xi), xs, col);
-        if (herm) el(T, col, if (lower) 0 else i).im = 0;
-        col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
-    }
-}
-
-/// `driver/level2/{spr2,syr2,zspr2,zsyr2,zhpr2,zher2}_k.c`'s columns
-/// `c0..c1`: `A += alpha*x*y^T + alpha*y*x^T`, or `alpha*x*y^H +
-/// conj(alpha)*y*x^H` for `herm`, over unit-stride `X` and `Y`. A column
-/// whose `x` and `y` are both zero is passed over, as the reference does;
-/// OpenBLAS's drivers do not.
-fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, comptime packed_: bool, n: BlasLong, alpha: T, X: [*]T, Y: [*]T, a: [*]T, lda: BlasLong, c0: BlasLong, c1: BlasLong) void {
-    var col = at(T, a, columnAt(lower, packed_, n, lda, c0));
-    var i: BlasLong = c0;
-    while (i < c1) : (i += 1) {
-        const len = if (lower) n - i else i + 1;
-        const xs = if (lower) at(T, X, i) else X;
-        const ys = if (lower) at(T, Y, i) else Y;
-        const xi = el(T, X, i).*;
-        const yi = el(T, Y, i).*;
-        if (!isZero(T, xi) or !isZero(T, yi)) {
-            axpyK(T, false, len, if (herm) conj(T, mulRounded(T, alpha, xi)) else mulRounded(T, alpha, xi), ys, col);
-            axpyK(T, false, len, if (herm) mulRounded(T, alpha, conj(T, yi)) else mulRounded(T, alpha, yi), xs, col);
-        }
-        if (herm) el(T, col, if (lower) 0 else i).im = 0;
-        col = at(T, col, if (!packed_) (if (lower) lda + 1 else lda) else len);
-    }
 }
 
 // ---- interface ---------------------------------------------------------------
@@ -449,7 +335,7 @@ fn rank2Columns(comptime T: type, comptime herm: bool, comptime lower: bool, com
 /// Refuses a matrix of order `n` that could not exist in memory
 /// (`util.fitsMatrix`): `lda` columns of band or full storage, or the packed
 /// triangle, bounded by `n` columns of `n`.
-fn spans(comptime T: type, comptime packed_: bool, n: isize, lda: isize) interface.ArgError!void {
+pub fn spans(comptime T: type, comptime packed_: bool, n: isize, lda: isize) interface.ArgError!void {
     if (packed_) {
         if (!util.fitsMatrix(n, n, n, @sizeOf(T))) return error.InvalidN;
     } else if (!util.fitsMatrix(lda, n, lda, @sizeOf(T))) return error.InvalidLda;
@@ -523,7 +409,7 @@ pub fn sbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
 /// `?HBMV` (`interface/zhbmv.c`): `sbmv` for a Hermitian matrix; the
 /// diagonal's imaginary part is not read. `v` and `m` take `conj(S)`.
 pub fn hbmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, k: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("hbmv: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "hbmv");
     if (n < 0) return error.InvalidN;
     if (k < 0) return error.InvalidK;
     if (lda < k + 1) return error.InvalidLda;
@@ -545,7 +431,7 @@ pub fn spmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
 
 /// `?HPMV` (`interface/zhpmv.c`): `hbmv` for packed storage.
 pub fn hpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("hpmv: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "hpmv");
     if (uplo.isRev()) return error.InvalidUplo;
     if (n < 0) return error.InvalidN;
     if (incx == 0) return error.InvalidIncx;
@@ -553,162 +439,25 @@ pub fn hpmv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
     try mvInterface(allocator, io, T, .hermitian, true, uplo.isLower(), n, 0, alpha, a, 0, x, incx, beta, y, incy);
 }
 
-/// The rank updates' columns over unit-stride copies of strided vectors; a
-/// unit-stride vector is taken as it is, so OpenBLAS's small-`n` paths
-/// (`interface/syr.c` and the rest) are these same columns.
-fn rankInterface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: if (herm) Float(T) else T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
-    if (n == 0) return;
-    try spans(T, packed_, n, lda);
-    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
-    if (comptime herm) {
-        if (alpha == 0) return;
-    } else if (isZero(T, alpha)) return;
-    _ = blas.vtable();
-    if (accel.syr(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, a, lda)) return;
-    var sx: Scratch(T) = .{};
-    defer sx.deinit(allocator);
-    const C = struct {
-        alpha: if (herm) Float(T) else T,
-        X: [*]T,
-        a: [*]T,
-        n: BlasLong,
-        lda: BlasLong,
-    };
-    const c: C = .{ .alpha = alpha, .X = try sx.unit(allocator, n, first(T, x, n, incx), incx), .a = a, .n = n, .lda = lda };
-    switch (lower) {
-        inline else => |lo| {
-            const S = struct {
-                fn run(q: C, c0: BlasLong, c1: BlasLong) void {
-                    rankColumns(T, herm, lo, packed_, q.n, q.alpha, q.X, q.a, q.lda, c0, c1);
-                }
-            };
-            try byColumns(io, T, if (herm) .her else .syr, lo, n, c, S.run);
-        },
-    }
-}
-
-fn rank2Interface(allocator: Allocator, io: Io, comptime T: type, comptime herm: bool, comptime packed_: bool, lower: bool, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    if (n == 0 or isZero(T, alpha)) return;
-    try spans(T, packed_, n, lda);
-    if (!util.fits(n, incx, @sizeOf(T))) return error.InvalidIncx;
-    if (!util.fits(n, incy, @sizeOf(T))) return error.InvalidIncy;
-    _ = blas.vtable();
-    if (accel.syr2(T, herm, packed_, if (lower) .l else .u, n, alpha, x, incx, y, incy, a, lda)) return;
-    var sx: Scratch(T) = .{};
-    var sy: Scratch(T) = .{};
-    defer sx.deinit(allocator);
-    defer sy.deinit(allocator);
-    const C = struct { alpha: T, X: [*]T, Y: [*]T, a: [*]T, n: BlasLong, lda: BlasLong };
-    const c: C = .{
-        .alpha = alpha,
-        .X = try sx.unit(allocator, n, first(T, x, n, incx), incx),
-        .Y = try sy.unit(allocator, n, first(T, y, n, incy), incy),
-        .a = a,
-        .n = n,
-        .lda = lda,
-    };
-    switch (lower) {
-        inline else => |lo| {
-            const S = struct {
-                fn run(q: C, c0: BlasLong, c1: BlasLong) void {
-                    rank2Columns(T, herm, lo, packed_, q.n, q.alpha, q.X, q.Y, q.a, q.lda, c0, c1);
-                }
-            };
-            try byColumns(io, T, if (herm) .her else .syr, lo, n, c, S.run);
-        },
-    }
-}
-
-/// `?SPR` (`interface/spr.c`, `zspr.c`): `A += alpha*x*x^T` on the packed
-/// triangle. Columns where `x[i]` is zero are skipped.
-pub fn spr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T) Error!void {
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (incx == 0) return error.InvalidIncx;
-    try rankInterface(allocator, io, T, false, true, uplo.isLower(), n, alpha, x, incx, a, 0);
-}
-
-/// `?SYR` (`interface/syr.c`, `zsyr.c`): `spr` for full storage.
-pub fn syr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (incx == 0) return error.InvalidIncx;
-    try rankInterface(allocator, io, T, false, false, uplo.isLower(), n, alpha, x, incx, a, lda);
-}
-
-/// `?HPR` (`interface/zhpr.c`): `A += alpha*x*x^H` for real `alpha`; the
-/// diagonal's imaginary part becomes zero.
-pub fn hpr(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T) Error!void {
-    if (comptime !isComplex(T)) @compileError("hpr: " ++ @typeName(T) ++ " is not complex");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (incx == 0) return error.InvalidIncx;
-    try rankInterface(allocator, io, T, true, true, uplo.isLower(), n, alpha, x, incx, a, 0);
-}
-
-/// `?HER` (`interface/zher.c`): `hpr` for full storage.
-pub fn her(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: Float(T), x: [*]T, incx: isize, a: [*]T, lda: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("her: " ++ @typeName(T) ++ " is not complex");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (incx == 0) return error.InvalidIncx;
-    try rankInterface(allocator, io, T, true, false, uplo.isLower(), n, alpha, x, incx, a, lda);
-}
-
-/// `?SPR2` (`interface/spr2.c`, `zspr2.c`): `A += alpha*(x*y^T + y*x^T)` on
-/// the packed triangle.
-pub fn spr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (incx == 0) return error.InvalidIncx;
-    if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(allocator, io, T, false, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
-}
-
-/// `?SYR2` (`interface/syr2.c`, `zsyr2.c`): `spr2` for full storage.
-pub fn syr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (incx == 0) return error.InvalidIncx;
-    if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(allocator, io, T, false, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
-}
-
-/// `?HPR2` (`interface/zhpr2.c`): `A += alpha*x*y^H + conj(alpha)*y*x^H`; the
-/// diagonal's imaginary part becomes zero.
-pub fn hpr2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T) Error!void {
-    if (comptime !isComplex(T)) @compileError("hpr2: " ++ @typeName(T) ++ " is not complex");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (incx == 0) return error.InvalidIncx;
-    if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(allocator, io, T, true, true, uplo.isLower(), n, alpha, x, incx, y, incy, a, 0);
-}
-
-/// `?HER2` (`interface/zher2.c`): `hpr2` for full storage.
-pub fn her2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("her2: " ++ @typeName(T) ++ " is not complex");
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (n < 0) return error.InvalidN;
-    if (lda < @max(1, n)) return error.InvalidLda;
-    if (incx == 0) return error.InvalidIncx;
-    if (incy == 0) return error.InvalidIncy;
-    try rank2Interface(allocator, io, T, true, false, uplo.isLower(), n, alpha, x, incx, y, incy, a, lda);
-}
-
 // ---- tests -------------------------------------------------------------------
 
+const rank = @import("rank.zig");
+const spr = rank.spr;
+const syr = rank.syr;
+const hpr = rank.hpr;
+const her = rank.her;
+const spr2 = rank.spr2;
+const syr2 = rank.syr2;
+const hpr2 = rank.hpr2;
+const her2 = rank.her2;
+
 const Vtable = @import("../Vtable.zig");
-const check = @import("../_test/blas1/check.zig");
+const check = @import("../_test/check.zig");
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
-const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
+const all = check.all_types;
 const talloc = std.testing.allocator;
-const max_n = 9;
 const max_mem = 256;
 
 /// Where logical element `i` of a vector of `n` with stride `inc` lives.
@@ -755,9 +504,7 @@ fn tol(comptime T: type, terms: usize) Float(T) {
 const cases = [_]struct { n: usize, k: usize }{ .{ .n = 1, .k = 0 }, .{ .n = 2, .k = 1 }, .{ .n = 3, .k = 0 }, .{ .n = 5, .k = 2 }, .{ .n = 9, .k = 1 }, .{ .n = 9, .k = 4 }, .{ .n = 9, .k = 12 } };
 const inc_pairs = [_][2]isize{ .{ 1, 1 }, .{ 2, 3 }, .{ -1, 1 }, .{ 1, -2 }, .{ -3, -2 } };
 
-fn scalarOf(comptime T: type, re: f64, im: f64) T {
-    return if (comptime isComplex(T)) T.init(@floatCast(re), @floatCast(im)) else @floatCast(re);
-}
+const scalarOf = check.val;
 
 /// Checks `y := alpha*S*x + beta*y` against dense arithmetic.
 fn checkMv(comptime T: type, comptime st: Store, comptime kind: Kind, lower: bool) !void {

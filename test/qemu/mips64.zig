@@ -1,12 +1,8 @@
-//! MIPS64 boot for QEMU's `malta` machine (`-kernel`) and UHI semihosting for
-//! console and exit (`-semihosting`), for release 2 (`-cpu Loongson-3A1000`
-//! or `Loongson-3A4000`, what the Loongson 3A kernels are built for) and
-//! release 6 (`-cpu I6400`). Release 6 has compact branches (no delay slots)
-//! and MSA, which `_start` turns on, as on release 2 where `Config3.MSAP`
-//! says it is there (the 3A4000); both turn on the FPU (with 64-bit
-//! registers, `Status.FR`).
+//! MIPS64 boot for `malta` with UHI semihosting console and exit, release 2 (Loongson 3A1000, 3A4000) and 6 (I6400). `_start` turns on
+//! the FPU with 64-bit registers (`Status.FR`) and MSA where present (r6; `Config3.MSAP` on r2).
 
 const sysinfo = @import("builtin");
+const uhi = @import("uhi.zig");
 
 comptime {
     if (sysinfo.target.cpu.has(.mips, .mips64r6)) {
@@ -89,25 +85,5 @@ comptime {
     }
 }
 
-const UHI_exit = 1;
-const UHI_write = 5;
-
-inline fn uhi3(op: usize, a0: usize, a1: usize, a2: usize) void {
-    asm volatile ("sdbbp 1"
-        :
-        : [op] "{$25}" (op),
-          [a0] "{$4}" (a0),
-          [a1] "{$5}" (a1),
-          [a2] "{$6}" (a2),
-        : .{ .memory = true, .r2 = true, .r3 = true });
-}
-
-pub fn writeByte(c: u8) void {
-    var ch = c;
-    uhi3(UHI_write, 1, @intFromPtr(&ch), 1);
-}
-
-pub fn exit(code: usize) noreturn {
-    uhi3(UHI_exit, code, 0, 0);
-    while (true) {}
-}
+pub const writeByte = uhi.writeByte;
+pub const exit = uhi.exit;

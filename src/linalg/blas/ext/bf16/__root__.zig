@@ -1,47 +1,20 @@
 //! bfloat16 conversions to and from `f32`/`f64`, and the portable bfloat16
-//! kernels of `bscal` and `sbdot` (all in `kernel.zig`). The vtable wrappers
-//! and their tests.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! kernels of `bscal` and `sbdot` (all in `kernel.zig`), with their tests.
 
+const std = @import("std");
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
+const Vtable = @import("../../Vtable.zig");
+const portable = @import("../../portable.zig");
+const kernel = @import("kernel.zig");
+const check = @import("../../_test/check.zig");
 
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
 const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn sbstobf16_k(n: BlasLong, in: [*]f32, inc_in: BlasLong, out: [*]BF16, inc_out: BlasLong) void {
-    blas.kernel(.sbstobf16_k)(n, in, inc_in, out, inc_out);
-}
-pub fn sbdtobf16_k(n: BlasLong, in: [*]f64, inc_in: BlasLong, out: [*]BF16, inc_out: BlasLong) void {
-    blas.kernel(.sbdtobf16_k)(n, in, inc_in, out, inc_out);
-}
-pub fn sbf16tos_k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]f32, inc_out: BlasLong) void {
-    blas.kernel(.sbf16tos_k)(n, in, inc_in, out, inc_out);
-}
-pub fn dbf16tod_k(n: BlasLong, in: [*]BF16, inc_in: BlasLong, out: [*]f64, inc_out: BlasLong) void {
-    blas.kernel(.dbf16tod_k)(n, in, inc_in, out, inc_out);
-}
 
 // ---- portable kernels ------------------------------------------------------
 
-const kernel = @import("kernel.zig");
-
 pub const toBf16 = kernel.toBf16;
 pub const fromBf16 = kernel.fromBf16;
-pub const sbstobf16_generic = kernel.sbstobf16;
-pub const sbdtobf16_generic = kernel.sbdtobf16;
-pub const sbf16tos_generic = kernel.sbf16tos;
-pub const dbf16tod_generic = kernel.dbf16tod;
-pub const bscal_generic = kernel.bscal_k;
-pub const sbdot_generic = kernel.sbdot_portable;
 
 /// Points the conversion, `bscal` and `sbdot` slots at the portable kernels.
 pub const installGeneric = kernel.installGeneric;
@@ -56,9 +29,6 @@ pub fn scalarToF32(v: BF16) f32 {
 }
 
 // ---- tests -----------------------------------------------------------------
-
-const std = @import("std");
-const Vtable = @import("../../Vtable.zig");
 
 fn bitsOf(v: f32) u32 {
     return @bitCast(v);
@@ -116,9 +86,6 @@ test "portable conversions round-trip through strides" {
     vt.dbf16tod_k.?(32, &h, 3, &back_d, 2);
     for (0..32) |i| try std.testing.expectEqual(@as(f64, fromBf16(toBf16(f[2 * i]))), back_d[2 * i]);
 }
-
-const check = @import("../../_test/blas1/check.zig");
-const portable = @import("../../portable.zig");
 
 /// Every bfloat16 and half-precision slot a reachable interface calls.
 const slots = blk: {

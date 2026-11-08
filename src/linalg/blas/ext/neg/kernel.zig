@@ -1,6 +1,6 @@
 //! `neg_tcopy` over the gemm tile: `kernel/generic/neg_tcopy_*.c` and
 //! `zneg_tcopy_*.c`, which are `gemm_tcopy_*.c` with every element negated.
-//! Built with the `gemm_itcopy` it mirrors (`gemm/kernel.zig`'s `sets`), so
+//! Built with the `gemm_itcopy` it mirrors (`blas3/kernels.zig`'s `sets`), so
 //! its layout is the installed gemm kernels' on every core. Nothing upstream
 //! calls it.
 

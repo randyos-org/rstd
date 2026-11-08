@@ -1,20 +1,12 @@
 //! Bidiagonalization, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/svd/bidiag.rs`. `A = U B Vᴴ` in place: `B` upper
-//! bidiagonal on `A`'s diagonal and superdiagonal, `U`'s reflections below
-//! the diagonal (factors in `hl`, `householder.zig`), `V`'s in the rows right
-//! of the superdiagonal (factors in `hr`), each row read as a column.
-//!
-//! One pass per column pair, its rank-2 update deferred into the next
-//! column's products (the "BLAS 2.5" scheme of Howell, Demmel, Fulton,
-//! Hammarling and Marmol, "Cache efficient bidiagonalization using BLAS 2.5
-//! operators", ACM TOMS 34(3), 2008): `A22 -= up y + z vp` fused with
-//! `y := uᴴ A22`, faer's `bidiag_fused_op`. That pass is ported as is and
-//! split by column chunks on `io` (columns are independent, so any worker
-//! count gives the same bits); its other products are `gemv`.
+//! `faer/src/linalg/svd/bidiag.rs`, its fused "BLAS 2.5" pass (Howell et al.,
+//! ACM TOMS 34(3), 2008) split by column chunks, so the bits never depend on
+//! the worker count.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
 const threading = @import("../blas/threading.zig");
 
@@ -22,7 +14,6 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Mat = ops.Mat;
 const Float = ops.Float;
-const isComplex = ops.isComplex;
 const Error = ops.Error;
 
 /// `bidiag_in_place`: `hl` is `bl x min(m, n)`, `hr` `br x (min(m, n) - 1)`
@@ -61,22 +52,22 @@ pub fn bidiagonalize(al: Allocator, io: Io, comptime T: type, a: Mat(T), hl: Mat
             try fused(io, T, a22, a21, a.col(k - 1) + k + 1, z2, y2, a.col(k + 1) + k - 1, a.ld);
         } else {
             // y2 := A21ᴴ A22
-            try ops.gemv(al, io, T, .u, ops.one(T), a22, a21, 1, ops.zero(T), y2, 1);
+            try blas_calls.gemv(al, io, T, .u, ops.one(T), a22, a21, 1, ops.zero(T), y2, 1);
         }
         for (0..c) |j| {
             y2[j] = ops.mulReal(T, ops.add(T, y2[j], a12[j * a.ld]), tl_inv);
             a12[j * a.ld] = ops.sub(T, a12[j * a.ld], y2[j]);
         }
-        const norm = ops.nrm2(io, T, c, a12, a.ld);
+        const norm = blas_calls.nrm2(io, T, c, a12, a.ld);
         if (norm >= std.math.floatMin(Float(T))) {
             const inv = 1 / norm;
             for (0..c) |j| a12[j * a.ld] = ops.mulReal(T, a12[j * a.ld], inv);
         } else if (norm != 0) {
             // faer multiplies by `1 / norm`, which overflows here
-            for (0..c) |j| a12[j * a.ld] = divReal(T, a12[j * a.ld], norm);
+            for (0..c) |j| a12[j * a.ld] = ops.divReal(T, a12[j * a.ld], norm);
         }
         // z2 := A22 conj(A12)
-        try ops.gemv(al, io, T, .o, ops.one(T), a22, a12, a.ld, ops.zero(T), z2, 1);
+        try blas_calls.gemv(al, io, T, .o, ops.one(T), a22, a12, a.ld, ops.zero(T), z2, 1);
         if (k + 1 == size) break;
         const right = hh.make(io, T, &a12[0], c - 1, a12 + a.ld, a.ld, null, 0);
         const tr_inv = 1 / right.tau;
@@ -122,10 +113,6 @@ pub fn bidiagonalize(al: Allocator, io: Io, comptime T: type, a: Mat(T), hl: Mat
     }
 }
 
-fn divReal(comptime T: type, x: T, d: Float(T)) T {
-    return if (comptime isComplex(T)) .init(x.re / d, x.im / d) else x / d;
-}
-
 /// `bidiag_fused_op`: per column `j` of `a22`, `a := a - up y(j) - z vp(j)`,
 /// then `y(j) := uᴴ a`; `vp` at stride `ldv`.
 fn fused(io: Io, comptime T: type, a22: Mat(T), u: [*]const T, up: [*]const T, z: [*]const T, y: [*]T, vp: [*]const T, ldv: usize) Io.Cancelable!void {
@@ -164,7 +151,7 @@ fn column(comptime T: type, m: usize, a: [*]T, u: [*]const T, up: [*]const T, z:
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
 
 test "faer bidiag: Uᴴ A V = B, real and complex, square and tall" {

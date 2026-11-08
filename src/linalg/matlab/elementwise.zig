@@ -1,45 +1,23 @@
-//! Elementwise (entrywise) binary operations on same-shaped matrices - the
-//! REPL's `+`, `-`, and "dot" operators `.*`, `./`, `.\` (as opposed to
-//! `generators.kron`'s Kronecker-block versions `.*.`, `./.`, `.\.`, whose
-//! `KronOp` enum this reuses - same three cases, just applied entrywise
-//! instead of block-expanded). Kept as its own file rather than folded
-//! into `CxMat.zig` to keep files under this project's line-count
-//! guideline.
+//! The REPL's entrywise operators: `+`, `-`, `.*`, `./` and `.\`.
 
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
-const generators = @import("generators.zig");
-const Cx = blas1.Cx;
+const Cx = scalar.Cx;
 
 /// ADDITION (`X + Y`): `out(i,j) = a(i,j) + b(i,j)`. `a`, `b`, and `out`
 /// must have the same shape; `out` may alias `a` or `b`.
 pub fn add(a: CxMat, b: CxMat, out: CxMat) void {
-    var j: usize = 1;
-    while (j <= a.n) : (j += 1) {
-        var i: usize = 1;
-        while (i <= a.m) : (i += 1) {
-            const av = a.get(i, j);
-            const bv = b.get(i, j);
-            out.set(i, j, Cx.init(av.re + bv.re, av.im + bv.im));
-        }
-    }
+    binary(a, b, out, .add);
 }
 
 /// SUBTRACTION (`X - Y`): `out(i,j) = a(i,j) - b(i,j)`. Same shape and
 /// aliasing rules as `add`.
 pub fn sub(a: CxMat, b: CxMat, out: CxMat) void {
-    var j: usize = 1;
-    while (j <= a.n) : (j += 1) {
-        var i: usize = 1;
-        while (i <= a.m) : (i += 1) {
-            const av = a.get(i, j);
-            const bv = b.get(i, j);
-            out.set(i, j, Cx.init(av.re - bv.re, av.im - bv.im));
-        }
-    }
+    binary(a, b, out, .sub);
 }
 
-fn dotOp(a: CxMat, b: CxMat, out: CxMat, op: generators.KronOp) void {
+/// `out(i,j) = a(i,j) op b(i,j)`; `.rdiv` is `b(i,j) / a(i,j)`.
+fn binary(a: CxMat, b: CxMat, out: CxMat, comptime op: enum { add, sub, mul, div, rdiv }) void {
     var j: usize = 1;
     while (j <= a.n) : (j += 1) {
         var i: usize = 1;
@@ -47,9 +25,11 @@ fn dotOp(a: CxMat, b: CxMat, out: CxMat, op: generators.KronOp) void {
             const av = a.get(i, j);
             const bv = b.get(i, j);
             const v = switch (op) {
-                .mul => blas1.wmul(av, bv),
-                .div => blas1.wdiv(av, bv),
-                .rdiv => blas1.wdiv(bv, av),
+                .add => Cx.init(av.re + bv.re, av.im + bv.im),
+                .sub => Cx.init(av.re - bv.re, av.im - bv.im),
+                .mul => av.mul(bv),
+                .div => scalar.wdiv(av, bv),
+                .rdiv => scalar.wdiv(bv, av),
             };
             out.set(i, j, v);
         }
@@ -59,21 +39,21 @@ fn dotOp(a: CxMat, b: CxMat, out: CxMat, op: generators.KronOp) void {
 /// `.*`: entrywise multiplication (Hadamard product), `out(i,j) =
 /// a(i,j)*b(i,j)`. Same shape and aliasing rules as `add`.
 pub fn dotMul(a: CxMat, b: CxMat, out: CxMat) void {
-    dotOp(a, b, out, .mul);
+    binary(a, b, out, .mul);
 }
 
 /// `./`: entrywise division, `out(i,j) = a(i,j)/b(i,j)`.
 pub fn dotDiv(a: CxMat, b: CxMat, out: CxMat) void {
-    dotOp(a, b, out, .div);
+    binary(a, b, out, .div);
 }
 
 /// `.\`: entrywise left division, `out(i,j) = b(i,j)/a(i,j)` (REPL docs:
 /// "`A .\ B` has elements `a(i,j)\b(i,j)`", and `x\y == y/x` for scalars).
 pub fn dotRdiv(a: CxMat, b: CxMat, out: CxMat) void {
-    dotOp(a, b, out, .rdiv);
+    binary(a, b, out, .rdiv);
 }
 
-const std = @import("std");
+// ---- tests ------------------------------------------------------------------
 
 const zigstd = @import("../../zigstd.zig");
 

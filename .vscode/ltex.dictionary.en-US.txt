@@ -25,6 +25,7 @@ addq
 addsd
 addss
 adjtimex
+adjugate
 adrp
 Adwaita
 aeabi
@@ -163,6 +164,7 @@ Bsvd
 bufs
 buildah
 buildutils
+Buluç
 bvec
 bwork
 bytecode
@@ -189,6 +191,7 @@ cdotc
 cdotu
 ceq
 cfgs
+cform
 cfpc
 cgbmv
 cgeadd
@@ -203,6 +206,7 @@ charstrings
 chdir
 chemm
 chemv
+chetrf
 Chlumsky
 chmod
 CHOLMOD
@@ -323,6 +327,7 @@ dcigettext
 dcimgui
 DCMX
 dcngettext
+DCSC
 ddot
 decl
 deconverge
@@ -345,6 +350,7 @@ dgeev
 dgelqf
 dgels
 dgemm
+dgemmt
 dgemv
 DGEMVTKERNEL
 dgeqrf
@@ -360,6 +366,7 @@ dhrot
 dhseqr
 diagonalizable
 difat
+difs
 dimatcopy
 dir
 DIRENV
@@ -381,6 +388,8 @@ DLASR
 dlassq
 dlasv
 dlaswp
+dlasy
+dlauum
 dlopen
 dlqt
 dlsym
@@ -401,6 +410,7 @@ dotni
 dotu
 dotv
 downscaling
+dpbtf
 dpbtrf
 dpotrf
 dpotri
@@ -421,6 +431,7 @@ dsum
 dswap
 dsyev
 dsyevd
+dsygs
 dsygst
 dsymm
 dsymv
@@ -439,6 +450,7 @@ dtrmv
 dtrsm
 dtrsv
 dtrsyl
+dtrtri
 Dubrulle
 dummyi
 dup
@@ -866,6 +878,7 @@ gobject
 gofmt
 gresource
 gsubrs
+Gsyl
 gterm
 gtty
 Guser
@@ -946,8 +959,10 @@ IEND
 ierr
 ifndef
 ifreund
+ifunc
 IGNOREPPC
 ihdr
+iinfo
 ijob
 ilcopyb
 ilcopyi
@@ -1023,8 +1038,10 @@ isbamax
 isbamin
 isbmax
 isbmin
+Isgn
 ismax
 ismin
+isolve
 isub
 isync
 itcopy
@@ -1127,6 +1144,8 @@ latrs
 LATRZ
 lauu
 lauum
+LAVHE
+LAVSY
 Laxpy
 LBTRACKPOINT
 lchown
@@ -1236,11 +1255,13 @@ lyap
 Lzaxpy
 lzma
 machineinstrs
+MADBR
 madd
 maddf
 madt
 MADV
 madvise
+MAEBR
 malloc
 map_shadow_stack
 markdownlint
@@ -1273,6 +1294,7 @@ mfma
 mfmaf
 mfmsr
 mfpvr
+mhalf
 migrate_pages
 mincore
 minmn
@@ -1340,6 +1362,7 @@ msdfgen
 mseal
 msgctl
 msgget
+msgn
 msgrcv
 msgsnd
 msimd
@@ -1385,6 +1408,7 @@ nanoftp
 nanosleep
 natecraddock
 nbits
+nbmax
 ncols
 ncopy
 NCPOINTERLAST
@@ -1406,6 +1430,7 @@ nfsservctl
 ngettext
 ngroups
 NIDENT
+nixos
 nixpkgs
 NLIMITS
 nlist
@@ -1496,6 +1521,7 @@ os
 osascript
 osdep
 osfxsr
+osinfo
 OSPKE
 osxmmexcpt
 OSXSAVE
@@ -1993,6 +2019,7 @@ softfp
 somatcopy
 sparcv
 spffrtx
+spgemm
 sphimp
 sphtext
 Spirv
@@ -2005,9 +2032,11 @@ sqrtq
 squareish
 sradi
 srai
+SRAPNOL
 srawi
 srcs
 srdi
+SREC
 Srmount
 srot
 srotm
@@ -2185,6 +2214,8 @@ toolchain
 topdictidx
 TPMV
 TPSV
+Trana
+Tranb
 transa
 transb
 TRBAK
@@ -2201,6 +2232,7 @@ trmv
 trsen
 trsm
 trsv
+trsy
 trsyl
 trti
 trtri
@@ -2208,6 +2240,7 @@ trtrs
 TrueType
 TrueType-style
 truncate
+tsan
 tsign
 tsml
 tstdc
@@ -2217,6 +2250,7 @@ ttysclp
 Turbopack
 tuxcall
 tvec
+Tview
 Txxxxx
 TZRZF
 UAHDESTROYWINDOW
@@ -2516,6 +2550,7 @@ XSTSTDC
 xststdcdp
 xststdcsp
 xswap
+XSYGST
 xsymm
 xsymv
 xtemp
@@ -2575,6 +2610,7 @@ zdrot
 ZDSCAL
 zfft
 zfls
+zgbtf
 zgeadd
 ZGECO
 ZGEDI
@@ -2590,9 +2626,11 @@ zgeru
 zgerv
 ZGESL
 zgetf
+zgetrf
 zgetrs
 zhat
 zhbmv
+zhegs
 zhegst
 zhemm
 zhemv
@@ -2600,6 +2638,7 @@ zher
 zherk
 zhetf
 zhetrd
+zhetrf
 zhpr
 zhseqr
 zig
@@ -2615,6 +2654,7 @@ zlartg
 zlaswp
 ZLATRS
 zlauu
+zlauum
 ZNAME
 zneg
 znrm
@@ -2622,6 +2662,7 @@ znver
 zomatcopy
 zpart
 zparts
+zpbtf
 zpbtrf
 ZPOFA
 zpotf
@@ -2642,12 +2683,14 @@ zswap
 zsymm
 zsymv
 zsyr
+zsytrf
 ztgsyl
 ztrevc
 ztrmm
 ztrmv
 ztrsm
 ZTRSV
+ztrsyl
 ztrti
 ztrtri
 ztrtrs

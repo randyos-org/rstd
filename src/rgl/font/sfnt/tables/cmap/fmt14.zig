@@ -1,16 +1,15 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
 
 const GlyphIndex = types.GlyphIndex;
 const Offset32 = types.Offset32;
 
-/// Schema for the format-14 header, used only to compute field offsets/sizes
-/// at comptime; never instantiated. length/num_var_selector_records need an
-/// explicit align(2): the wire layout packs them right after the u16 format
-/// field with no padding, but extern struct layout otherwise follows C
-/// alignment rules and would insert 2 bytes before a natively-4-byte-aligned
-/// u32 field, silently shifting every offset after it.
+/// The format-14 header. length/num_var_selector_records need an explicit
+/// align(2): the wire layout packs them right after the u16 format field with
+/// no padding, but extern struct layout otherwise follows C alignment rules and
+/// would insert 2 bytes before a natively-4-byte-aligned u32 field, silently
+/// shifting every offset after it.
 const StreamLayout = extern struct {
     format: u16,
     length: u32 align(2),
@@ -23,9 +22,9 @@ const records_start = @sizeOf(StreamLayout);
 /// is itself just a Unicode scalar value used in that role) as it actually
 /// sits in the stream. Zig doesn't allow u24 as an extern struct field
 /// directly (only power-of-two-bit integers are extern-compatible), so every
-/// 24-bit field below is stored as this raw byte triple instead - like
+/// 24-bit field below is stored as this raw byte triple instead (like
 /// _encoding_id on EncRecord, prefer the type's accessor method over
-/// touching the field directly - and converted to a real u24 only there.
+/// touching the field directly) and converted to a real u24 only there.
 const UnicodeValue = [3]u8;
 
 /// One VariationSelectorRecord. default_uvs_offset needs align(1) since it
@@ -72,10 +71,10 @@ const mapping_size = @sizeOf(UvsMapping);
 // glyphs, rather than codepoints alone. Structurally unlike every other cmap
 // format, so it doesn't fit the getGlyphIndex(code) shape the others share.
 //
-// Every field here - the variation selector records, and each record's
+// Every field here (the variation selector records, and each record's
 // default/non-default UVS tables (which live at their own byte offsets
 // elsewhere in table_data, much like CmapTable's own encoding records point
-// at subtables) - is read directly from table_data on each call rather than
+// at subtables) is read directly from table_data on each call rather than
 // being decoded into owned arrays up front.
 pub const Format14 = struct {
     const Self = @This();
@@ -126,7 +125,7 @@ pub const Format14 = struct {
     }
 
     /// table_offset comes from a record's default_uvs_offset (0 means "no
-    /// default UVS table" - callers only reach here when it's non-zero).
+    /// default UVS table"; callers only reach here when it's non-zero).
     /// Returns 0 if table_offset itself doesn't fit table_data, so a
     /// malformed offset just yields an empty range list rather than an
     /// out-of-bounds read.

@@ -1,21 +1,10 @@
-//! Runs a qemu rig's QEMU on another machine over SSH (`-Dtest-host`):
-//! copies the rig's files and `tools/nix` (the flake that pins QEMU, and
-//! `run.sh`) into a new directory in the host's /tmp, runs QEMU there
-//! through the flake, and passes its console to this stdout and the live
-//! log. `run.sh` waits for one of `jobs` slots, ends QEMU when this ssh's
-//! stdin closes (this process died) and removes the directory.
-//!
-//!   test_host <host> <live log> <jobs> <nix dir> <qemu> --tcg <args>...
-//!     [--hvf <args>...] -- <args>...
-//!
-//! An argument `local:<path>` is a file or directory copied over, passed as
-//! its copy's path; `<text>local:<path>` (`file=fat:local:<dir>`) keeps the
-//! text before. A macOS arm64 host takes the `--hvf` arguments when given, any
-//! other the `--tcg` ones. `ssh` and `scp` come from PATH with their own
-//! config; nothing about the machine is stored here.
+//! A qemu rig's QEMU on another machine over SSH (`-Dtest-host`): copies the rig's files and `tools/nix` to the host's /tmp and streams
+//! the console here and to the live log; `run.sh` takes a job slot and ends QEMU when this ssh's stdin closes. `local:<path>` arguments
+//! are copied over; a macOS arm64 host takes the `--hvf` arguments. ssh and scp come from PATH with their own config.
 
 const std = @import("std");
 const Io = std.Io;
+const remote = @import("remote.zig");
 
 pub fn main(init: std.process.Init) void {
     std.process.exit(run(init) catch |err| {
@@ -23,8 +12,6 @@ pub fn main(init: std.process.Init) void {
         std.process.exit(1);
     });
 }
-
-const options = [_][]const u8{ "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30" };
 
 const local_prefix = "local:";
 
@@ -54,7 +41,7 @@ fn run(init: std.process.Init) !u8 {
     // the files to copy, by name: one directory holds them all
     var scp: std.ArrayList([]const u8) = .empty;
     try scp.append(arena, "scp");
-    try scp.appendSlice(arena, &options);
+    try scp.appendSlice(arena, &remote.options);
     try scp.appendSlice(arena, &.{ "-q", "-r", nix_dir });
     var names: std.ArrayList([]const u8) = .empty;
     try names.append(arena, std.Io.Dir.path.basename(nix_dir));
@@ -83,7 +70,9 @@ fn run(init: std.process.Init) !u8 {
     // each argument single-quoted for the remote shell
     var command: std.ArrayList(u8) = .empty;
     const nix = names.items[0];
-    try command.print(arena, "cd '{0s}' && exec nix shell ./{1s}#qemu ./{1s}#flock -c bash {1s}/run.sh '{2s}'", .{ dir, nix, jobs });
+    // a Mac sleeps through an ssh session without a tty: `caffeinate -i` there
+    const awake = if (std.mem.startsWith(u8, kind, "Darwin ")) "caffeinate -i " else "";
+    try command.print(arena, "cd '{0s}' && exec {3s}nix shell ./{1s}#qemu ./{1s}#flock -c bash {1s}/run.sh '{2s}'", .{ dir, nix, jobs, awake });
     for (qemu_argv.items) |a| {
         if (std.mem.findScalar(u8, a, '\'') != null) return error.QuoteInArgument;
         try command.print(arena, " '{s}'", .{a});
@@ -109,10 +98,7 @@ fn run(init: std.process.Init) !u8 {
         stdout.writeStreamingAll(io, buf[0..n]) catch {};
         out.interface.writeAll(buf[0..n]) catch {};
     }
-    return switch (try ssh.wait(io)) {
-        .exited => |code| code,
-        else => 255,
-    };
+    return remote.status(try ssh.wait(io));
 }
 
 fn usage() u8 {
@@ -126,31 +112,16 @@ fn indexOf(args: []const []const u8, from: usize, arg: []const u8) ?usize {
 }
 
 fn sshArgv(arena: std.mem.Allocator, host: []const u8, command: []const u8) ![]const []const u8 {
-    var argv: std.ArrayList([]const u8) = .empty;
-    try argv.append(arena, "ssh");
-    try argv.appendSlice(arena, &options);
-    try argv.appendSlice(arena, &.{ host, command });
-    return argv.items;
+    return remote.sshArgv(arena, null, &remote.options, host, &.{command});
 }
 
 fn spawn(io: Io, argv: []const []const u8, stdin: std.process.SpawnOptions.StdIo, stdout: std.process.SpawnOptions.StdIo) !std.process.Child {
-    return std.process.spawn(io, .{ .argv = argv, .stdin = stdin, .stdout = stdout, .stderr = .inherit }) catch |err| switch (err) {
-        error.FileNotFound => {
-            std.debug.print("test_host: {s} is not on PATH\n", .{argv[0]});
-            return error.FileNotFound;
-        },
-        else => |e| return e,
-    };
+    return remote.spawn(io, "test_host: ", argv, stdin, stdout, .inherit);
 }
 
-/// Runs `argv` with this process's stdout; its exit status (255 when it did
-/// not exit).
+/// Runs `argv` with this process's stdout; its exit status.
 fn exec(io: Io, argv: []const []const u8) !u8 {
-    var child = try spawn(io, argv, .ignore, .inherit);
-    return switch (try child.wait(io)) {
-        .exited => |code| code,
-        else => 255,
-    };
+    return remote.exec(io, "test_host: ", argv, .inherit, .inherit);
 }
 
 /// `argv`'s stdout, failing unless it exits 0.

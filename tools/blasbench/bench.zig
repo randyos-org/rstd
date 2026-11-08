@@ -1,17 +1,5 @@
-//! Races BLAS kernel implementations against each other over a size sweep.
-//!
-//! Every implementation is called through the reference's own kernel ABI
-//! (`daxpy_k` and friends), so OpenBLAS's assembled `.S` can be linked in and
-//! compared directly with no wrapper between them.
-//!
-//! Correctness is checked once per implementation, before timing. Timing then
-//! runs a batch of calls inside one clock reading, because a single call on a
-//! small vector is shorter than the clock costs to read; the batch size grows
-//! until it is long enough to measure, and the best of several batches is
-//! reported, the run least disturbed by the rest of the machine.
-//!
-//! `race` does the same for any calls (`blas_bench.zig`), taking their
-//! batches in turn so a disturbance falls on every contestant alike.
+//! Races BLAS kernels over a size sweep in the reference's kernel ABI (`daxpy_k`), so OpenBLAS's `.S` links in unwrapped. Each is
+//! checked once, then timed in batches grown past the clock's cost, best of several; `race` does the same for any calls, batches in turn.
 
 const std = @import("std");
 const Io = std.Io;

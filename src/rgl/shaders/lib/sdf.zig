@@ -1,34 +1,22 @@
 //! primitives based on Signed Distance Fields (SDFs).
 //! iquilezles.org/articles/distfunctions2d
 
-const std = @import("std");
 const types = @import("../types.zig");
 const math = @import("math.zig");
 const Float = types.Float;
 const Vec2 = types.Vec2;
-const Vec3 = types.Vec3;
-const Vec4 = types.Vec4;
-const dot = math.dot;
-const dot2 = math.dot2;
 const length = math.length;
-const splatVec = types.splatVec;
+const splat = types.splat;
 
-/// Circle - exact
+/// Circle (exact)
 pub fn sdCircle(p: Vec2, r: Float) Float {
     return length(p) - r;
 }
 
-/// Rounded Box - exact
-/// Takes a `Vec4` of corner radii `r`, one for each corner.
-/// The corners are [top-right, bottom-right, top left, bottom-left]
-pub fn sdRoundedBoxMultiCorner(p: Vec2, b: Vec2, r: Vec4) Float {
-    const x = r[2 * (p.x < 0.0) + (p.y < 0.0)];
-    return sdRoundedBox(p, b, x);
-}
-
+/// Rounded Box (exact)
 pub fn sdRoundedBox(p: Vec2, b: Vec2, r: Float) Float {
-    const q = @abs(p) - b + splatVec(2, r);
-    return @min(@max(q[0], q[1]), 0.0) + length(@max(q, splatVec(2, 0))) - r;
+    const q = @abs(p) - b + splat(Vec2, r);
+    return @min(@max(q[0], q[1]), 0.0) + length(@max(q, splat(Vec2, 0))) - r;
 }
 
 // // Chamfer Box - exact

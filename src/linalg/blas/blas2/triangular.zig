@@ -1,27 +1,8 @@
-//! The triangular level-2 routines: `?TRMV`/`?TRSV` (full storage), `?TBMV`/
-//! `?TBSV` (band) and `?TPMV`/`?TPSV` (packed), for any float type and its
-//! `Complex`. The interface checks and set-up of
-//! `interface/{trmv,trsv,tbmv,tbsv,tpmv,tpsv}.c` and the `z` variants, over
-//! `driver/level2/{,z}{trmv,trsv,tbmv,tbsv,tpmv,tpsv}_{U,L}.c`.
-//!
-//! The drivers are loops over the `copy`, `axpy`, `dot` and `gemv` kernels
-//! (`portable.kernel`), one generic body per routine for every type and variant. As in
-//! the reference, the `_U` driver also does the transposed lower matrix and
-//! the `_L` driver the transposed upper one, so a call picks its driver by
-//! `(uplo == upper) != transposed`. The products' threaded drivers
-//! (`*_thread.c`) are ported as `Split`.
-//!
-//! Invalid arguments return an error from `ArgError`; there is no `xerbla`.
-//! The reference's `info` for each: `InvalidUplo` 1 (`v`, `m`),
-//! `InvalidTrans` 2 (`o` to `d`), `InvalidN` 4, `InvalidK` 5, `InvalidLda` 6
-//! (7 for band), `InvalidIncx` 7 (packed), 8 (full), 9 (band). `n == 0`
-//! returns early. Above OpenBLAS's thresholds the products split their
-//! columns into chunks fixed by `n`, each into a partial vector of its own,
-//! folded in chunk order (`threading.md`); the solves are serial.
-//!
-//! Work space: a copy of `x` when `incx != 1`, and `gemv`'s buffer when `n`
-//! exceeds the vtable's `dtb_entries` (64 when unset). Up to `stack_bytes`
-//! it is on the stack; beyond that it comes from the caller's allocator.
+//! `?TRMV`, `?TRSV`, `?TBMV`, `?TBSV`, `?TPMV`, `?TPSV`: the checks of
+//! `interface/{trmv,trsv,tbmv,tbsv,tpmv,tpsv}.c` over
+//! `driver/level2/{,z}{trmv,trsv,tbmv,tbsv,tpmv,tpsv}_{U,L}.c`, loops over the
+//! copy, axpy, dot and gemv kernels. `_U` also does the transposed lower
+//! matrix, as upstream; the products thread (`Split`), the solves are serial.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -32,7 +13,6 @@ const Vtable = @import("../Vtable.zig");
 const portable = @import("../portable.zig");
 const accel = @import("../apple_accel.zig");
 const threading = @import("../threading.zig");
-
 const interface = @import("interface.zig");
 
 const Allocator = std.mem.Allocator;
@@ -55,25 +35,13 @@ const default_dtb = 64;
 const isComplex = types.isComplex;
 const Float = types.Float;
 
-fn raw(comptime T: type, p: [*]T) [*]Float(T) {
-    return @ptrCast(p);
-}
+const raw = util.raw;
 
-/// `p[i]` for a signed `i`.
-fn at(comptime T: type, p: [*]T, i: BlasLong) *T {
-    return util.at(T, p, i);
-}
+const at = util.at;
 
-/// `p + i` for a signed `i`.
-fn off(comptime T: type, p: [*]T, i: BlasLong) [*]T {
-    return @ptrCast(util.at(T, p, i));
-}
+const off = util.off;
 
-/// Where a vector of `n` with stride `inc` starts: its last element when
-/// `inc < 0`.
-fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
-    return if (inc < 0) off(T, p, -(n - 1) * inc) else p;
-}
+const first = util.first;
 
 /// Arithmetic on `T` that reads the same for real and complex.
 fn Num(comptime T: type) type {
@@ -122,12 +90,8 @@ fn Ops(comptime T: type) type {
 
         /// `y += alpha*x`, `x` conjugated for `cj`.
         fn axpy(s: Self, comptime cj: bool, n: BlasLong, alpha: T, x: [*]T, y: [*]T) void {
-            if (comptime isComplex(T)) {
-                const k = portable.kernel(T, s.vt, if (cj) .axpyc_k else .axpy_k);
-                _ = k(n, 0, 0, alpha.re, alpha.im, raw(T, x), 1, raw(T, y), 1, raw(T, y), 0);
-            } else {
-                _ = portable.kernel(T, s.vt, .axpy_k)(n, 0, 0, alpha, x, 1, y, 1, y, 0);
-            }
+            const op: portable.Op = comptime if (cj and isComplex(T)) .axpyc_k else .axpy_k;
+            _ = @call(.auto, portable.kernel(T, s.vt, op), .{ n, 0, 0 } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, x), 1, raw(T, y), 1, raw(T, y), 0 });
         }
 
         /// `x . y`, `x` conjugated for `cj`.
@@ -506,12 +470,10 @@ fn call(
     }
     // the copy of `x` is rounded to 64 bytes, so the gemv buffer after it
     // keeps the stack's alignment
-    var stack: [stack_bytes / @sizeOf(F)]F align(64) = undefined;
-    const heap = elems > stack.len;
-    const buf: []align(64) F = if (heap) try allocator.alignedAlloc(F, .@"64", elems) else stack[0..elems];
-    defer if (heap) allocator.free(buf);
-    // poisoned in tests, as `interface.zig`'s scratch is
-    if (sysinfo.is_test and !heap) @memset(std.mem.sliceAsBytes(buf), 0xff);
+    var stack: [stack_bytes]u8 align(64) = undefined;
+    const sc = try util.Scratch(F, 64, 64).init(allocator, &stack, elems);
+    defer sc.deinit(allocator);
+    const buf = sc.slice();
     // `zgemv_t.S` and its siblings return NaN if the buffer holds NaN or
     // infinity; cleared as `interface.gemv` does
     if (comptime isComplex(T) and sysinfo.target.cpu.arch == .x86_64) @memset(buf, 0);
@@ -716,8 +678,8 @@ pub fn tpsv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: T
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../_test/blas1/check.zig");
-const guard = @import("../_test/blas2/guard.zig");
+const check = @import("../_test/check.zig");
+const guard = @import("../_test/guard.zig");
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
@@ -908,7 +870,7 @@ test "f80 without slots: triangular routines match dense arithmetic with portabl
     try Check(check.f80_unslotted, every_kind)(&vt);
 }
 
-// in three, so each fits a rig image (`build/qemutest.zig`'s `sparc64-debug`)
+// in three, so each fits a rig image (`build/qemu/machines.zig`'s `sparc64-debug`)
 test "every linked core's kernels give the same triangular results, real" {
     try check.eachCore(Check(real, every_kind));
 }

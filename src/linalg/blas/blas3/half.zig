@@ -1,25 +1,6 @@
-//! Half-precision level 3: `SBGEMM` (bfloat16 in, `f32` out), `BGEMM`
-//! (bfloat16 throughout) and `SHGEMM` (`f16` in, `f32` out), which are
-//! `interface/gemm.c` built `BFLOAT16`, `BFLOAT16`+`BGEMM` and `HFLOAT16`
-//! over `driver/level3/level3.c`'s loops; and `SBGEMMT` (`interface/sbgemmt.c`),
-//! a half `gemv` per column of the triangle. The kernels are
-//! `ext/bf16/kernel.zig`'s, the same on every core.
-//!
-//! The loops are `driver.zig`'s for one element type of `A` and `B` and
-//! another of `C`: `C` split into `R`-wide column blocks, the depth into
-//! `Q`-deep slices and the rows into `P`-tall blocks, `beta` applied to each
-//! block before the first slice reaches it. `BGEMM` rounds `C` to bfloat16
-//! after every slice, as upstream's kernel stores it, so its bits follow `Q`.
-//! Given more than one worker, each takes a range of columns (or of rows,
-//! for a tall `C`) as a problem of its own; the depth slices are the same
-//! and every kernel's element arithmetic is the same wherever a tile falls,
-//! so the bits do not depend on the worker count.
-//!
-//! The scalars are tested by value, as `gemvHalf`'s: upstream compares a
-//! bfloat16 `alpha` and `beta` by their bits (`level3.c`, `gemm_beta.c` on
-//! a `uint16_t`), so there a `-0` multiplies and a `beta` of 1 still scales;
-//! its `bgemm` beta also truncates where every other conversion rounds
-//! (`issues.md`).
+//! `SBGEMM`, `BGEMM`, `SHGEMM` (`interface/gemm.c` over `level3.c`'s loops) and
+//! `SBGEMMT` (`interface/sbgemmt.c`, a half `gemv` per column), on
+//! `ext/bf16/kernel.zig`'s kernels; how they round in `gemm/notes.md`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -28,6 +9,7 @@ const driver = @import("driver.zig");
 const interface = @import("interface.zig");
 const threaded = @import("threaded.zig");
 const threading = @import("../threading.zig");
+const test_io = @import("../_test/io.zig");
 const types = @import("../types.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
@@ -88,21 +70,11 @@ fn toF32(comptime T: type, v: T) f32 {
 /// `beta` first (a zero `beta` never reads it), and `A` and `B` are not read
 /// for a zero `alpha` or `k`. Above `gemm`'s threshold it threads on `io`.
 pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: Trans, transb: Trans, m: isize, n: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, b: [*]const kind.In(), ldb: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize) Error!void {
-    const I = kind.In();
-    const O = kind.Out();
-    if (transa.conjX() or transb.conjX()) return error.InvalidTrans;
+    try interface.gemmArgs(transa, transb, m, n, k, lda, ldb, ldc);
     const ta = transa.transposed();
     const tb = transb.transposed();
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (k < 0) return error.InvalidK;
-    if (lda < @max(1, if (ta) k else m)) return error.InvalidLda;
-    if (ldb < @max(1, if (tb) n else k)) return error.InvalidLdb;
-    if (ldc < @max(1, m)) return error.InvalidLdc;
     if (m == 0 or n == 0) return;
-    if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(I))) return error.InvalidLda;
-    if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, @sizeOf(I))) return error.InvalidLdb;
-    if (!util.fitsMatrix(m, n, ldc, @sizeOf(O))) return error.InvalidLdc;
+    try interface.gemmFits(transa, transb, m, n, k, lda, ldb, ldc, @sizeOf(kind.In()), @sizeOf(kind.Out()));
     // upstream excludes the half types from the per-core tables
     // (`gemm.c:229-239`): every core takes the default rule, as `f16` does
     const w = threaded.workers(.gemm, types.HF16, threading.product(&.{ @intCast(m), @intCast(n), @intCast(k) }));
@@ -119,21 +91,11 @@ pub fn gemmHalf(allocator: Allocator, io: Io, comptime kind: HalfGemm, transa: T
 /// and `B` regardless. Serial, as the half `gemv`s are; nothing is allocated.
 pub fn gemmtHalf(io: Io, comptime kind: HalfGemm, uplo: Uplo, transa: Trans, transb: Trans, m: isize, k: isize, alpha: kind.Out(), a: [*]const kind.In(), lda: isize, b: [*]const kind.In(), ldb: isize, beta: kind.Out(), c: [*]kind.Out(), ldc: isize) HalfError!void {
     _ = io;
-    const I = kind.In();
-    const O = kind.Out();
-    if (uplo.isRev()) return error.InvalidUplo;
-    if (transa.conjX() or transb.conjX()) return error.InvalidTrans;
+    try interface.gemmtArgs(uplo, transa, transb, m, k, lda, ldb, ldc);
     const ta = transa.transposed();
     const tb = transb.transposed();
-    if (m < 0) return error.InvalidM;
-    if (k < 0) return error.InvalidK;
-    if (lda < @max(1, if (ta) k else m)) return error.InvalidLda;
-    if (ldb < @max(1, if (tb) m else k)) return error.InvalidLdb;
-    if (ldc < @max(1, m)) return error.InvalidLdc;
     if (m == 0) return;
-    if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, @sizeOf(I))) return error.InvalidLda;
-    if (!util.fitsMatrix(if (tb) m else k, if (tb) k else m, ldb, @sizeOf(I))) return error.InvalidLdb;
-    if (!util.fitsMatrix(m, m, ldc, @sizeOf(O))) return error.InvalidLdc;
+    try interface.gemmtFits(transa, transb, m, k, lda, ldb, ldc, @sizeOf(kind.In()), @sizeOf(kind.Out()));
     gemmt(kind, blas.vtable(), uplo == .u, ta, tb, @intCast(m), @intCast(k), alpha, a, @intCast(lda), b, @intCast(ldb), beta, c, @intCast(ldc));
 }
 
@@ -142,17 +104,7 @@ pub fn gemmtHalf(io: Io, comptime kind: HalfGemm, uplo: Uplo, transa: Trans, tra
 /// `P`, `Q`, `R` and the unrolls from `kind`'s slots, with `Blocking.of`'s
 /// fallbacks for sizes no rule set (mips64 sets none, arm64 no `sh`).
 pub fn blocking(comptime kind: HalfGemm, vt: *const Vtable) Blocking {
-    const pre = @tagName(kind);
-    const um: usize = @intCast(@max(1, @field(vt, pre ++ "_unroll_m")));
-    const un: usize = @intCast(@max(1, @field(vt, pre ++ "_unroll_n")));
-    const p: usize = @intCast(positive(@field(vt, pre ++ "_p"), 224));
-    const q: usize = @intCast(positive(@field(vt, pre ++ "_q"), 128));
-    const r: usize = @intCast(positive(@field(vt, pre ++ "_r"), 4096));
-    return .{ .p = @max(um, p / um * um), .q = q, .r = @max(un, r), .um = um, .un = un };
-}
-
-fn positive(v: i32, fallback: i32) i32 {
-    return if (v > 0) v else fallback;
+    return .fromSlots(vt, @tagName(kind) ++ "_");
 }
 
 /// One problem: `kind`'s kernels and the operands.
@@ -262,25 +214,15 @@ fn Problem(comptime kind: HalfGemm) type {
                 const lens = W.lens(p.blk, m, n, p.k, false);
                 const len = W.total(lens);
                 var stack: [driver.stack_bytes]u8 align(W.alignment) = undefined;
-                var heap: ?[]align(W.alignment) I = null;
-                defer if (heap) |h| allocator.free(h);
-                const base: [*]I = if (len * @sizeOf(I) <= driver.stack_bytes) stk: {
-                    // poisoned in tests, as `driver.run`'s
-                    if (sysinfo.is_test) @memset(&stack, 0xff);
-                    break :stk @ptrCast(&stack);
-                } else hp: {
-                    heap = try allocator.alignedAlloc(I, .fromByteUnits(W.alignment), len);
-                    break :hp heap.?.ptr;
-                };
-                return p.drive(m, n, W.at(base, lens));
+                const sc = try util.Scratch(I, W.alignment, W.alignment).init(allocator, &stack, len);
+                defer sc.deinit(allocator);
+                return p.drive(m, n, W.at(sc.ptr, lens));
             }
             const Parts = struct {
                 p: *const Self,
                 m: usize,
                 n: usize,
                 cols: bool,
-                buf: [*]I,
-                at: [threading.chunks_max + 1]usize,
 
                 fn dims(s: *const @This(), ch: threading.Chunk) [2]usize {
                     return if (s.cols) .{ s.m, ch.end - ch.start } else .{ ch.end - ch.start, s.n };
@@ -291,10 +233,14 @@ fn Problem(comptime kind: HalfGemm) type {
                     return W.lens(s.p.blk, d[0], d[1], s.p.k, false);
                 }
 
-                fn one(s: *const @This(), ch: threading.Chunk) void {
+                fn len(s: *const @This(), ch: threading.Chunk) usize {
+                    return W.total(s.lens(ch));
+                }
+
+                fn one(s: *const @This(), ch: threading.Chunk, buf: []I) void {
                     const d = s.dims(ch);
                     const q = if (s.cols) s.p.part(0, ch.start) else s.p.part(ch.start, 0);
-                    q.drive(d[0], d[1], W.at(s.buf + s.at[ch.index], s.lens(ch)));
+                    q.drive(d[0], d[1], W.at(buf.ptr, s.lens(ch)));
                 }
             };
             const cols = n >= m;
@@ -302,14 +248,8 @@ fn Problem(comptime kind: HalfGemm) type {
                 .chunks = .init(if (cols) n else m, want, .even, if (cols) p.blk.un else p.blk.um),
                 .workers = want,
             };
-            var parts: Parts = .{ .p = p, .m = m, .n = n, .cols = cols, .buf = undefined, .at = undefined };
-            parts.at[0] = 0;
-            for (0..plan.chunks.count) |i| parts.at[i + 1] = parts.at[i] + W.total(parts.lens(plan.chunks.get(i)));
-            const buf = try allocator.alignedAlloc(I, .fromByteUnits(W.alignment), parts.at[plan.chunks.count]);
-            defer allocator.free(buf);
-            parts.buf = buf.ptr;
-            const ctx: *const Parts = &parts;
-            try threading.forEach(io, &plan, ctx, Parts.one);
+            const parts: Parts = .{ .p = p, .m = m, .n = n, .cols = cols };
+            try threading.forEachPart(allocator, io, &plan, I, W.alignment, &parts, Parts.len, Parts.one);
         }
     };
 }
@@ -379,7 +319,7 @@ pub fn gemmt(comptime kind: HalfGemm, vt: *const Vtable, upper: bool, ta: bool, 
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../_test/blas1/check.zig");
+const check = @import("../_test/check.zig");
 const portable = @import("../portable.zig");
 const params = @import("gemm/params.zig");
 const zigstd = @import("../../../zigstd.zig");
@@ -529,7 +469,7 @@ fn alwaysHalf(_: i32, _: i32, _: BlasLong, _: BlasLong, _: BlasLong, _: f32, _: 
 }
 
 test "half gemm: Cooper Lake's small-matrix sbgemm gives the portable bits in its depth slices" {
-    const Cooperlake = @import("gemm/x86_64/kernel.zig").Cooperlake;
+    const Cooperlake = @import("gemm/small_x86_64.zig").Cooperlake;
     var vt: Vtable = .{};
     portable.install(&vt);
     vt.sbgemm_small_matrix_permit = &alwaysHalf;
@@ -550,7 +490,7 @@ test "half gemm: Cooper Lake's small-matrix sbgemm gives the portable bits in it
 
 test "half gemm: the same bits at 1 to 9 workers, on every Io" {
     var vt = smallBlocks();
-    if (comptime threading.hosted) {
+    if (comptime test_io.hosted) {
         var t: Io.Threaded = .init(testing.allocator, .{ .async_limit = .limited(3), .concurrent_limit = .limited(3) });
         defer t.deinit();
         inline for (kinds) |kind| for ([_][3]usize{ .{ 41, 37, 12 }, .{ 70, 9, 11 }, .{ 5, 64, 6 } }) |s| for (1..10) |w| {
@@ -596,20 +536,15 @@ test "half gemm: alpha 0 or k 0 only scales C; beta 0 overwrites NaN; beta 1 lea
     }
 }
 
-/// A half value of `x`, through `f32`.
-fn hv(comptime E: type, x: f32) E {
-    return halfOf(E, x);
-}
-
 test "interface: half gemm reports the first bad argument and does nothing for empty problems" {
     const fa = testing.failing_allocator;
     inline for (kinds) |kind| {
         const I = kind.In();
         const O = kind.Out();
-        var a = @as([16]I, @splat(hv(I, 1)));
-        var c = @as([16]O, @splat(hv(O, std.math.nan(f32))));
-        const one = hv(O, 1);
-        const zero = hv(O, 0);
+        var a = @as([16]I, @splat(halfOf(I, 1)));
+        var c = @as([16]O, @splat(halfOf(O, std.math.nan(f32))));
+        const one = halfOf(O, 1);
+        const zero = halfOf(O, 0);
         try testing.expectError(error.InvalidTrans, gemmHalf(fa, check.io, kind, .n, .o, -1, -1, -1, one, &a, 0, &a, 0, zero, &c, 0));
         try testing.expectError(error.InvalidM, gemmHalf(fa, check.io, kind, .n, .n, -1, -1, -1, one, &a, 0, &a, 0, zero, &c, 0));
         try testing.expectError(error.InvalidN, gemmHalf(fa, check.io, kind, .n, .n, 0, -1, -1, one, &a, 0, &a, 0, zero, &c, 0));
@@ -626,8 +561,8 @@ test "interface: half gemm reports the first bad argument and does nothing for e
         try gemmHalf(fa, check.io, kind, .n, .n, 3, 0, 2, one, &a, 3, &a, 2, zero, &c, 3);
         try testing.expect(std.math.isNan(valOf(O, c[0])));
         // `r` and `c` are `n` and `t`
-        var x = [_]I{ hv(I, 1), hv(I, 2), hv(I, 3), hv(I, 4) };
-        var y = @as([4]O, @splat(hv(O, 0)));
+        var x = [_]I{ halfOf(I, 1), halfOf(I, 2), halfOf(I, 3), halfOf(I, 4) };
+        var y = @as([4]O, @splat(halfOf(O, 0)));
         try gemmHalf(fa, check.io, kind, .c, .r, 2, 2, 2, one, &x, 2, &x, 2, zero, &y, 2);
         // A^T B for A = B = [1 3; 2 4]
         try testing.expectEqual(@as(f32, 5), valOf(O, y[0]));
@@ -647,7 +582,7 @@ test "interface: half gemm on a problem past the stack, at the global vtable" {
         defer cs.deinit(al);
         const orig = try al.dupe(O, cs.c);
         defer al.free(orig);
-        try gemmHalf(al, check.io, kind, .n, .t, m, n, k, hv(O, 0.75), cs.a.ptr, @intCast(cs.lda), cs.b.ptr, @intCast(cs.ldb), hv(O, -1), cs.c.ptr, @intCast(cs.ldc));
+        try gemmHalf(al, check.io, kind, .n, .t, m, n, k, halfOf(O, 0.75), cs.a.ptr, @intCast(cs.lda), cs.b.ptr, @intCast(cs.ldb), halfOf(O, -1), cs.c.ptr, @intCast(cs.ldc));
         // `bgemm` rounds to bfloat16 per depth slice: 8 bits each, at
         // most `k` slices; `f32` out by the sums alone
         const rel: f32 = if (O == types.BF16) 0.004 * @as(f32, @floatFromInt(k)) else 2e-7 * @as(f32, @floatFromInt(k));
@@ -681,8 +616,8 @@ test "interface: gemmtHalf gives gemvHalf's bits per column, and leaves the othe
             defer cs.deinit(al);
             const want = try al.dupe(O, cs.c);
             defer al.free(want);
-            const alpha = hv(O, ab[0]);
-            const beta = hv(O, ab[1]);
+            const alpha = halfOf(O, ab[0]);
+            const beta = halfOf(O, ab[1]);
             try gemmtHalf(check.io, kind, uplo, transa, transb, m, @intCast(k), alpha, cs.a.ptr, @intCast(cs.lda), cs.b.ptr, @intCast(cs.ldb), beta, cs.c.ptr, @intCast(cs.ldc));
             // the reference: one `gemvHalf` per column
             for (0..m) |i| {
@@ -693,7 +628,7 @@ test "interface: gemmtHalf gives gemvHalf's bits per column, and leaves the othe
                 const col = want.ptr + r0 + i * cs.ldc;
                 if (k == 0) {
                     if (ab[1] != 1) for (col[0..len]) |*v| {
-                        v.* = if (ab[1] == 0) hv(O, 0) else hv(O, ab[1] * valOf(O, v.*));
+                        v.* = if (ab[1] == 0) halfOf(O, 0) else halfOf(O, ab[1] * valOf(O, v.*));
                     };
                 } else if (ta) {
                     try blas.gemvHalf(check.io, @field(blas.HalfGemv, kind.gemv()), .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
@@ -715,9 +650,9 @@ test "interface: gemmtHalf reports the first bad argument, and returns for empty
     inline for (kinds) |kind| {
         const I = kind.In();
         const O = kind.Out();
-        var a = @as([16]I, @splat(hv(I, std.math.nan(f32))));
-        var c = @as([16]O, @splat(hv(O, std.math.nan(f32))));
-        const one = hv(O, 1);
+        var a = @as([16]I, @splat(halfOf(I, std.math.nan(f32))));
+        var c = @as([16]O, @splat(halfOf(O, std.math.nan(f32))));
+        const one = halfOf(O, 1);
         try testing.expectError(error.InvalidUplo, gemmtHalf(check.io, kind, .v, .o, .n, -1, -1, one, &a, 0, &a, 0, one, &c, 0));
         try testing.expectError(error.InvalidTrans, gemmtHalf(check.io, kind, .u, .o, .n, -1, -1, one, &a, 0, &a, 0, one, &c, 0));
         try testing.expectError(error.InvalidM, gemmtHalf(check.io, kind, .u, .n, .n, -1, -1, one, &a, 0, &a, 0, one, &c, 0));
@@ -725,10 +660,10 @@ test "interface: gemmtHalf reports the first bad argument, and returns for empty
         try testing.expectError(error.InvalidLda, gemmtHalf(check.io, kind, .l, .t, .n, 3, 4, one, &a, 3, &a, 4, one, &c, 3));
         try testing.expectError(error.InvalidLdb, gemmtHalf(check.io, kind, .u, .n, .c, 3, 4, one, &a, 3, &a, 2, one, &c, 3));
         try testing.expectError(error.InvalidLdc, gemmtHalf(check.io, kind, .u, .n, .n, 3, 4, one, &a, 3, &a, 4, one, &c, 2));
-        try gemmtHalf(check.io, kind, .u, .n, .n, 0, 3, one, &a, 1, &a, 3, hv(O, 0), &c, 1);
+        try gemmtHalf(check.io, kind, .u, .n, .n, 0, 3, one, &a, 1, &a, 3, halfOf(O, 0), &c, 1);
         try testing.expect(std.math.isNan(valOf(O, c[0])));
         // a zero `alpha` scales the triangle without reading `A` or `B`
-        try gemmtHalf(check.io, kind, .l, .n, .n, 2, 2, hv(O, 0), &a, 2, &a, 2, hv(O, 0), &c, 2);
+        try gemmtHalf(check.io, kind, .l, .n, .n, 2, 2, halfOf(O, 0), &a, 2, &a, 2, halfOf(O, 0), &c, 2);
         try testing.expectEqual(@as(f32, 0), valOf(O, c[0]));
         try testing.expectEqual(@as(f32, 0), valOf(O, c[1]));
         try testing.expect(std.math.isNan(valOf(O, c[2])));

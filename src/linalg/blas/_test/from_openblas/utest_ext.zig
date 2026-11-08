@@ -1,23 +1,6 @@
-//! OpenBLAS's extension unit tests, `utest/test_extensions/test_*.c`,
-//! OpenBLAS v0.3.34-317: the `?amin`, `?amax`, `?sum` and `i?amin` vectors,
-//! `axpby`, `axpyc`, the complex `rot`, `rotg` and `scal`, `gbmv` and
-//! `gemv` with every `trans` letter, the complex symmetric `sbmv` and
-//! `spmv`, `trmv` and `trsv` with `R`, `rotmg`, the column-major `geadd`,
-//! `omatcopy`, `imatcopy` and `gemmt`, and complex `gemm` with `R`. The
-//! tables at the end are the sources' cases (the `c` and `s` files' are the
-//! `z` and `d` ones', but for the matrix extensions, whose files differ, so
-//! each has its own); the `c_api_` cases are the same calls through CBLAS,
-//! so not repeated, but for the column-major ones whose arguments differ.
-//! Random operands come from a seeded generator, not `rand()`.
-//!
-//! `test_bgemm.c` is here too. Not translatable: `gemv`'s bad
-//! letter `Z`, `gemmt`'s bad `UPLO` `O` (only checked to be no `Uplo`), and
-//! the matrix extensions' bad `ORDER`.
-//!
-//! A norm of differences counts elements that agree exactly (infinity with
-//! infinity, NaN with NaN) as equal, so overflow in both is not NaN; the C
-//! passes any NaN norm. `trmv` and `trsv` compare relative to the result,
-//! and single `trsv` with single precision's tolerance (see `trmvTrsv`).
+//! OpenBLAS's extension unit tests, `utest/test_extensions/test_*.c` and
+//! `test_bgemm.c`, OpenBLAS v0.3.34-317; the tables at the end are the
+//! sources' cases. Seeded operands, not `rand()`; norms count equal infinities and NaNs as agreeing.
 
 const std = @import("std");
 const ob = @import("__root__.zig");

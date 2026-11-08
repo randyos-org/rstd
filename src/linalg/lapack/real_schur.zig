@@ -1,18 +1,11 @@
 //! The real Schur form of a Hessenberg matrix, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/evd/schur/real_schur.rs`. `H = Z T Zᵀ`, `T` upper
-//! quasi-triangular: 1 x 1 blocks for real eigenvalues, standardized 2 x 2
-//! ones (equal diagonal, off-diagonals of opposite signs) for complex pairs.
-//!
-//! `lahqr`: the double-shift QR iteration of Reference-LAPACK's `xLAHQR`
-//! (3-element bulges, Ahues and Tisseur's deflation test, an exceptional
-//! shift every 10 sweeps without deflation), each 2 x 2 block standardized
-//! by `lahqr_schur22` (`xLANV2`). Faer's `multishift_qr` (small-bulge
-//! multishift sweeps with aggressive early deflation, from 75 up) is not
-//! ported yet (todo.md); `lahqr` serves every size, as `xLAHQR` can.
+//! `faer/src/linalg/evd/schur/real_schur.rs`'s `lahqr` (`xLAHQR`'s
+//! double-shift QR); `multishift_qr` is not ported yet.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 
 const Io = std.Io;
@@ -373,7 +366,7 @@ pub fn lahqr(io: Io, comptime F: type, want_t: bool, a: Mat(F), z: ?Mat(F), w_re
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 
 test "faer real schur: lahqr, Z T Zᵀ = H with T standardized quasi-triangular" {
     const al = testing.allocator;
@@ -406,7 +399,7 @@ test "faer real schur: lahqr, Z T Zᵀ = H with T standardized quasi-triangular"
             defer al.free(wi);
             try testing.expectEqual(@as(usize, 0), lahqr(check.io, F, true, t, zm, wr, wi, 0, n));
             // Z T Zᵀ against H, faer's test_real_schur tolerance (`128 eps sqrt(8 n)`)
-            const tol = 128 * std.math.floatEps(F) * @sqrt(8 * @as(F, @floatFromInt(n))) * @max(ops.normMax(F, h0), 1);
+            const tol = 128 * std.math.floatEps(F) * @sqrt(8 * @as(F, @floatFromInt(n))) * @max(auxiliary.normMax(F, h0), 1);
             for (0..n) |j| for (0..n) |i| {
                 var s: F = 0;
                 for (0..n) |p| for (0..n) |q| {

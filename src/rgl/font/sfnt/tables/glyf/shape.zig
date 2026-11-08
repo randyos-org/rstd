@@ -1,9 +1,7 @@
 const std = @import("std");
-
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
-
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const aux_types = @import("../../aux_types.zig");
 const LocaTable = @import("../loca.zig").LocaTable;
 const GlyfTable = @import("GlyfTable.zig");
@@ -17,14 +15,14 @@ const V2f32 = aux_types.V2f32;
 
 /// Decodes the glyph occupying `range` (via GlyfTable+CompositeGlyph's
 /// checked parse), then walks its points/components into vmove/vline/vcurve
-/// vertices - the same state machine as the raw-cursor upstream version,
-/// just fed from the already-decoded, bounds-checked aux_types instead of a
+/// vertices; the same state machine as the raw-cursor upstream version,
+/// just fed from the already-decoded, bounds-checked types instead of a
 /// raw byte cursor.
 pub fn glyphShapeTT(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, glyph: GlyphIndex) (Allocator.Error || bytes.BytesError || GlyfTable.Error)![]Vertex {
     const range = loca.getGlyphRange(glyph) orelse return &.{};
 
     var decoded = try glyf.getGlyph(gpa, range, true);
-    defer decoded.destroy(gpa);
+    defer decoded.deinit(gpa);
 
     return switch (decoded) {
         .simple => |simple| simpleGlyphVertices(gpa, simple),
@@ -40,7 +38,7 @@ pub fn glyphBoxTT(loca: LocaTable, glyf: GlyfTable, glyph: GlyphIndex) ?aux_type
 
     const header_size = @sizeOf(GlyfTable.GlyphHeader);
     if (range.end - range.start < header_size) return null;
-    const header_bytes = glyf.data[range.start..][0..header_size];
+    const header_bytes = glyf.table_data[range.start..][0..header_size];
     const header = bytes.typeBEToNative(GlyfTable.GlyphHeader, header_bytes);
     return .{ .x_min = header.x_min, .y_min = header.y_min, .x_max = header.x_max, .y_max = header.y_max };
 }
@@ -94,8 +92,7 @@ fn simpleGlyphVertices(gpa: Allocator, simple: SimpleGlyph) ![]Vertex {
                 sx = x;
                 sy = y;
             }
-            try vertices.append(gpa, undefined);
-            vertices.items[vertices.items.len - 1].set(.vmove, sx, sy, 0, 0);
+            try appendVertex(&vertices, gpa, .vmove, sx, sy, 0, 0);
             was_off = false;
             next_move = @as(usize, simple.end_pts_of_contours[j]) + 1;
             j += 1;
@@ -103,18 +100,16 @@ fn simpleGlyphVertices(gpa: Allocator, simple: SimpleGlyph) ![]Vertex {
             if (!on_curve) { // if it's a curve
                 if (was_off) {
                     // two off-curve control points in a row means interpolate an on-curve midpoint
-                    try vertices.append(gpa, undefined);
-                    vertices.items[vertices.items.len - 1].set(.vcurve, (cx + x) >> 1, (cy + y) >> 1, cx, cy);
+                    try appendVertex(&vertices, gpa, .vcurve, (cx + x) >> 1, (cy + y) >> 1, cx, cy);
                 }
                 cx = x;
                 cy = y;
                 was_off = true;
             } else {
-                try vertices.append(gpa, undefined);
                 if (was_off)
-                    vertices.items[vertices.items.len - 1].set(.vcurve, x, y, cx, cy)
+                    try appendVertex(&vertices, gpa, .vcurve, x, y, cx, cy)
                 else
-                    vertices.items[vertices.items.len - 1].set(.vline, x, y, 0, 0);
+                    try appendVertex(&vertices, gpa, .vline, x, y, 0, 0);
                 was_off = false;
             }
         }
@@ -135,7 +130,7 @@ fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, comp
         // an extra magnitude scale m=sqrt(xscale^2+scale01^2) (and n for y),
         // citing Apple's composite-glyph spec. For a plain axis-aligned
         // scale (scale01=scale10=0) that squares the scale actually applied
-        // to x/y - e.g. xscale=0.5 ends up scaling by 0.25 - while dx/dy
+        // to x/y (xscale=0.5 ends up scaling by 0.25) while dx/dy
         // only pick up one factor of it. That's wrong: the spec's own
         // formula (used here) is just the plain affine transform, no extra
         // magnitude multiply.
@@ -163,7 +158,7 @@ fn compositeGlyphVertices(loca: LocaTable, glyf: GlyfTable, gpa: Allocator, comp
 }
 
 /// 2D affine transform of one (x, y) point via two matrix rows + a
-/// translation, as `V2f32` dot products - mirrors how mist's own
+/// translation, as `V2f32` dot products; mirrors how mist's own
 /// EdgeSegment/Shape geometry represents points, so composite-glyph
 /// transforms and the MSDF math read the same way.
 fn transformPoint(row_x: V2f32, row_y: V2f32, translate: V2f32, x: i16, y: i16) [2]i16 {
@@ -187,16 +182,18 @@ fn closeShape(
 ) !void {
     if (start_off) {
         if (was_off) {
-            try vertices.append(gpa, undefined);
-            vertices.items[vertices.items.len - 1].set(.vcurve, (cx + scx) >> 1, (cy + scy) >> 1, cx, cy);
+            try appendVertex(vertices, gpa, .vcurve, (cx + scx) >> 1, (cy + scy) >> 1, cx, cy);
         }
-        try vertices.append(gpa, undefined);
-        vertices.items[vertices.items.len - 1].set(.vcurve, sx, sy, scx, scy);
+        try appendVertex(vertices, gpa, .vcurve, sx, sy, scx, scy);
     } else {
-        try vertices.append(gpa, undefined);
         if (was_off)
-            vertices.items[vertices.items.len - 1].set(.vcurve, sx, sy, cx, cy)
+            try appendVertex(vertices, gpa, .vcurve, sx, sy, cx, cy)
         else
-            vertices.items[vertices.items.len - 1].set(.vline, sx, sy, 0, 0);
+            try appendVertex(vertices, gpa, .vline, sx, sy, 0, 0);
     }
+}
+
+fn appendVertex(vertices: *std.ArrayList(Vertex), gpa: Allocator, ty: Vertex.Type, x: i32, y: i32, cx: i32, cy: i32) Allocator.Error!void {
+    try vertices.append(gpa, undefined);
+    vertices.items[vertices.items.len - 1].set(ty, x, y, cx, cy);
 }

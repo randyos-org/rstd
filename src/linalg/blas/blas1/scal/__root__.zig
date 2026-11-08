@@ -1,51 +1,15 @@
-//! `SCAL`: `x := alpha*x`. The vtable wrappers, the portable kernels
-//! (`*_generic`), and tests of every core's kernels against a plain loop.
-//!
-//! Argument names are copied from the OpenBLAS kernel sources (see the
-//! `CNAME(...)` definitions under `kernel/<arch>/*.c`). Several are named
-//! `dummy*` in the reference: kernel-ABI padding slots this shape does not use.
+//! `SCAL`: `x := alpha*x`. The portable kernels (`*_generic`)
+//! and tests of every core's kernels against a plain loop.
 
-const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-const HF16 = types.HF16;
-const BF16 = types.BF16;
-const XDouble = types.XDouble;
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-const ComplexXD = types.ComplexXD;
-
-pub fn bscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: BF16, x: [*]BF16, inc_x: BlasLong, y: [*]BF16, inc_y: BlasLong, dummy: [*]BF16, dummy2: BlasLong) i32 {
-    return blas.kernel(.bscal_k)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn sbscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return blas.kernel(.sbscal_k)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn sscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return blas.kernel(.sscal_k)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn dscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, dummy: [*]f64, dummy2: BlasLong) i32 {
-    return blas.kernel(.dscal_k)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn qscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, dummy: [*]XDouble, dummy2: BlasLong) i32 {
-    return blas.kernel(.qscal_k)(n, dummy0, dummy1, da, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn cscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: f32, da_i: f32, x: [*]f32, inc_x: BlasLong, y: [*]f32, inc_y: BlasLong, dummy: [*]f32, dummy2: BlasLong) i32 {
-    return blas.kernel(.cscal_k)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn zscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: f64, da_i: f64, x: [*]f64, inc_x: BlasLong, y: [*]f64, inc_y: BlasLong, dummy: [*]f64, dummy2: BlasLong) i32 {
-    return blas.kernel(.zscal_k)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-pub fn xscal_k(n: BlasLong, dummy0: BlasLong, dummy1: BlasLong, da_r: XDouble, da_i: XDouble, x: [*]XDouble, inc_x: BlasLong, y: [*]XDouble, inc_y: BlasLong, dummy: [*]XDouble, dummy2: BlasLong) i32 {
-    return blas.kernel(.xscal_k)(n, dummy0, dummy1, da_r, da_i, x, inc_x, y, inc_y, dummy, dummy2);
-}
-
-// ---- portable kernels ------------------------------------------------------
-
 const std = @import("std");
 const util = @import("../../util.zig");
 const Vtable = @import("../../Vtable.zig");
+
+const BlasLong = types.BlasLong;
+const XDouble = types.XDouble;
+
+// ---- portable kernels ------------------------------------------------------
 
 /// `kernel/arm/scal.c` and `zscal.c`: `x := alpha*x`. `flag` is the last
 /// argument (`dummy2`): with 0, a zero alpha zeroes `x`; with 1, which the
@@ -110,7 +74,7 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 const zigstd = @import("../../../../zigstd.zig");
 
 /// `kern` against a plain loop, as the interface calls it (flag 1), for a
@@ -215,4 +179,15 @@ test "portable scal: a zero alpha with flag 1 turns NaN and infinity into NaN" {
 
 test "every linked core's scal kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "portable scal with a zero alpha: the flag makes NaN and Inf stay NaN" {
+    var v = [_]f64{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
+    _ = dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 1);
+    try std.testing.expectEqual(@as(f64, 0), v[0]);
+    try std.testing.expect(std.math.isNan(v[1]) and std.math.isNan(v[2]));
+    try std.testing.expectEqual(@as(f64, 0), v[3]);
+    v = .{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
+    _ = dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 0);
+    for (v) |e| try std.testing.expectEqual(@as(f64, 0), e);
 }

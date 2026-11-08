@@ -1,22 +1,6 @@
-//! The `trsm` kernels and packing copies over the gemm tile.
-//!
-//! The copies (`kernel/generic/trsm_{u,l}{n,t}copy_*.c`, `ztrsm_*`) pack a
-//! block of the triangle from its corner: `m` deep, `n` lines, line `j` at
-//! `offset + j` of the depth; element `(j, i)` is `A(j, i)` (`t`) or `A(i,
-//! j)` (`n`) where `A` stores it, one on a unit diagonal, and left unwritten
-//! elsewhere. Upstream packs the diagonal's reciprocal (`compinv` for
-//! complex); here `solve` divides by it, as `trsv` does and
-//! Reference-LAPACK master's `dtrsm.f` (`comparisons.md`, 10), and skips
-//! that on a unit diagonal, which the driver's dummy `alpha` flags as 1.
-//!
-//! The kernels are `kernel/generic/trsm_kernel_{LT,LN,RN,RT}.c` on the gemm
-//! layout's panels (whole panels of `unroll_m` or `unroll_n`, then the
-//! powers of two): each panel takes the gemm kernel's update by what is
-//! solved, then `solve`s its diagonal block, writing the solution to `C` and
-//! to the packed right side the later updates read. `LT` and `RN` go
-//! forward, `LN` and `RT` backward; `LR`, `LC`, `RR` and `RC` are `LN`, `LT`,
-//! `RN` and `RT` conjugating the triangle. Each slot is a thin wrapper: one
-//! copy and one kernel body per precision, the options run-time values.
+//! The `trsm` copies (`kernel/generic/trsm_{u,l}{n,t}copy_*.c`, `ztrsm_*`) and
+//! kernels (`trsm_kernel_{LT,LN,RN,RT}.c`) over the gemm tile; `solve` divides
+//! by the diagonal, where upstream packs its reciprocal (`comparisons.md`, 10).
 
 const types = @import("../../types.zig");
 const util = @import("../../util.zig");

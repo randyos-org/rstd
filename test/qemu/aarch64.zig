@@ -1,13 +1,5 @@
-//! AArch64 boot for QEMU's `virt` machine (`-kernel`, EL1) and ARM
-//! semihosting for console and exit (`-semihosting`). Where `hlt` does not
-//! semihost but traps (HVF), the console is the PL011 and exit PSCI's.
-//!
-//! With the MMU off every data access is Device memory, which faults on the
-//! unaligned accesses compiled code makes, so `_start` builds a one-block
-//! identity map first: 0-1 GiB as device, 1-2 GiB (RAM) as normal cached.
-//!
-//! SVE and SME, where the CPU has them, get vectors of up to 512 bits
-//! (`ZCR_EL1`, `SMCR_EL1`; reset leaves 128), and SME2 gets ZT0 (`EZT0`).
+//! AArch64 boot for `virt` (EL1) with semihosting console and exit, or the PL011 and PSCI where `hlt` traps (HVF). `_start` maps
+//! 0-2 GiB first (with the MMU off unaligned accesses fault), and gives SVE and SME vectors up to 512 bits and SME2 its ZT0.
 
 comptime {
     asm (

@@ -1,5 +1,4 @@
 const std = @import("std");
-const uefi = std.os.uefi;
 const Io = std.Io;
 const Alignment = std.mem.Alignment;
 

@@ -1,9 +1,7 @@
-//! SPARC64 boot for QEMU's `sun4u` machine (`-kernel`, loaded by OpenBIOS)
-//! and the Open Firmware client interface for console and exit, which is
-//! what the firmware leaves a program to use. `_start` gets the interface's
-//! entry point in `%o4`, sets up the biased stack, and turns the FPU on.
-//! Exit resets the machine (`reset-all`), which `-no-reboot` turns into qemu
-//! exiting, so the run step judges the result from the printed summary.
+//! SPARC64 boot for `sun4u` (OpenBIOS); console and exit through the Open Firmware client from `%o4`, the only one the firmware leaves.
+//! Exit is `reset-all`, which `-no-reboot` turns into qemu exiting (the summary carries the result).
+
+const ofw = @import("ofw.zig");
 
 // non-zero so it lives in .data, out of the bss `_start` clears after storing it
 export var client_interface: usize = 1;
@@ -39,16 +37,9 @@ comptime {
     );
 }
 
-/// One client-interface call: the service, then its arguments and room for
-/// its results, all in 64-bit cells.
-fn call(cells: []u64) void {
-    const f: *const fn ([*]u64) callconv(.c) u64 = @ptrFromInt(client_interface);
-    _ = f(cells.ptr);
-}
-
-fn serviceName(comptime s: []const u8) u64 {
-    return @intFromPtr((s ++ "\x00").ptr);
-}
+const of = ofw.Client(u64, u64, &client_interface);
+const call = of.call;
+const serviceName = of.serviceName;
 
 /// The tests' heap, claimed from the firmware: mapped wherever it chooses, so
 /// none of the 4 MB it maps of the image goes to it. Empty if refused.
@@ -73,14 +64,11 @@ fn openStdout() void {
 
 pub fn writeByte(c: u8) void {
     if (stdout_handle == 0) openStdout();
-    var ch = c;
-    var write = [_]u64{ serviceName("write"), 3, 1, stdout_handle, @intFromPtr(&ch), 1, 0 };
-    call(&write);
+    of.write(stdout_handle, c);
 }
 
 pub fn exit(code: usize) noreturn {
     _ = code;
-    var reset = [_]u64{ serviceName("interpret"), 1, 1, serviceName("reset-all"), 0 };
-    call(&reset);
+    of.resetAll();
     while (true) {}
 }

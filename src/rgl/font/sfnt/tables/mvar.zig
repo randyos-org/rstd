@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 const ivs = @import("ivs.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the MVAR header, used only to compute field offsets/sizes at
-/// comptime; never instantiated. valueRecords[] follows, strided by
-/// valueRecordSize (not @sizeOf(ValueRecord)) - see getValueRecord().
+/// The MVAR header. valueRecords[] follows, strided by valueRecordSize (not
+/// @sizeOf(ValueRecord)); see getValueRecord().
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -92,8 +92,6 @@ pub const MvarTable = struct {
         return null;
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "MVAR StreamLayout/ValueRecord match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 12), @sizeOf(StreamLayout));

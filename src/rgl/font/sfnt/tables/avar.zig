@@ -1,11 +1,8 @@
-const std = @import("std");
-
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the avar header (version 1.0 - the only version this spec
-/// text defines), used only to compute field offsets/sizes at comptime;
-/// never instantiated.
+/// The avar header (version 1.0; the only version this spec text defines).
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -98,8 +95,6 @@ pub const AvarTable = struct {
     }
 };
 
-const zigstd = @import("../../../../zigstd.zig");
-
 test "avar StreamLayout/AxisValueMap match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 8), @sizeOf(StreamLayout));
     try zigstd.testExpectEqual(@as(usize, 6), @offsetOf(StreamLayout, "axis_count"));
@@ -108,10 +103,7 @@ test "avar StreamLayout/AxisValueMap match the OpenType stream layout" {
 }
 
 fn f2dot14Bytes(value: f64) [2]u8 {
-    var buf: [2]u8 = undefined;
-    const packed_val = types.F2Dot14.fromFloat(value);
-    bytes.setI16BE(&buf, @bitCast(packed_val));
-    return buf;
+    return types.F2Dot14.fromFloat(value).toBytes();
 }
 
 // Builds an avar table with two axes: the first has a modified segment map

@@ -1,19 +1,9 @@
-//! WebAssembly axpy kernels, one set per core, built into the per-core kernel
-//! objects (`src/linalg/blas/_kernel.zig`), and how they get installed into
-//! the vtable (`install`): cores without an entry keep the portable kernels
-//! from `axpy.installGeneric`. Per-core tests live in `axpy/__root__.zig`,
-//! not here -- they need the full axpy interface (`checkReal`, ...), which
-//! imports outside `src/linalg/blas/` and so cannot appear in this file (see
-//! `kernels/__root__.zig`).
-//!
-//! Only `saxpy` and `daxpy` have a kernel of their own (`simd.zig`, from
-//! `kernel/wasm/axpy.c`, for the core with SIMD128); the complex kernels
-//! upstream are the plain C loops, which the portable kernels are.
+//! WebAssembly axpy kernels: `saxpy` and `daxpy` on SIMD128 (`simd.zig`, `kernel/wasm/axpy.c`); tests in `../__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const Vtable = @import("../../../Vtable.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 const simd = @import("simd.zig");
 
 pub const Core = coretypes.WasmCoreType;

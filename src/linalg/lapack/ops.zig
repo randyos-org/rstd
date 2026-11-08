@@ -1,19 +1,11 @@
-//! What the faer ports share: a column-major matrix view, element arithmetic
-//! over a real or `Complex` `T`, and the BLAS calls that stand in for faer's
-//! own `matmul`, `triangular::matmul` and `triangular_solve`. Level 3 goes
-//! through the drivers on the interface's worker rule (as `../lu.zig` calls
-//! them, so Accelerate never runs them); level 1 and 2 through the public
-//! routines. Every threaded call keeps the BLAS's rule: the same bits for any
-//! worker count.
+//! What the LAPACK routines share: a column-major matrix view, element
+//! arithmetic over a real or `Complex` `T`, and error narrowing. The argument
+//! checks, vtable and thread rules are `interface.zig`'s, the BLAS calls
+//! `blas_calls.zig`'s, the LAPACK auxiliaries `auxiliary.zig`'s.
 
 const std = @import("std");
-const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
-const driver = @import("../blas/blas3/driver.zig");
-const threaded = @import("../blas/blas3/threaded.zig");
-const threading = @import("../blas/threading.zig");
-const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -32,6 +24,9 @@ pub var test_iter_limit: ?usize = null;
 pub fn iterLimit(limit: usize) usize {
     return test_iter_limit orelse limit;
 }
+
+pub const requireFloat = util.requireFloat;
+pub const requireComplex = util.requireComplex;
 
 /// A column-major view: element `(i, j)` at `ptr[i + j * ld]`.
 pub fn Mat(comptime T: type) type {
@@ -89,15 +84,17 @@ pub fn free(comptime T: type, al: Allocator, m: Mat(T)) void {
 
 // ---- element arithmetic -----------------------------------------------------------
 
+pub fn scalar(comptime T: type, v: Float(T)) T {
+    return if (comptime isComplex(T)) .init(v, 0) else v;
+}
+
 pub fn zero(comptime T: type) T {
-    return chol.scalar(T, 0);
+    return scalar(T, 0);
 }
 
 pub fn one(comptime T: type) T {
-    return chol.scalar(T, 1);
+    return scalar(T, 1);
 }
-
-pub const scalar = chol.scalar;
 
 pub fn re(comptime T: type, x: T) Float(T) {
     return if (comptime isComplex(T)) x.re else x;
@@ -126,6 +123,24 @@ pub fn conj(comptime T: type, x: T) T {
 
 pub fn mulReal(comptime T: type, x: T, r: Float(T)) T {
     return if (comptime isComplex(T)) .init(x.re * r, x.im * r) else x * r;
+}
+
+/// `conj(x) * y`.
+pub fn mulConj(comptime T: type, x: T, y: T) T {
+    if (comptime !isComplex(T)) return x * y;
+    return .init(x.re * y.re + x.im * y.im, x.re * y.im - x.im * y.re);
+}
+
+/// `x / d`, part by part: a real `d`, so each part's quotient is exact.
+pub fn divReal(comptime T: type, x: T, d: Float(T)) T {
+    return if (comptime isComplex(T)) .init(x.re / d, x.im / d) else x / d;
+}
+
+/// `x / y`, complex by Smith's algorithm (`util.cdiv`), as `ZLADIV`.
+pub fn div(comptime T: type, x: T, y: T) T {
+    if (comptime !isComplex(T)) return x / y;
+    const q = util.cdiv(Float(T), x.re, x.im, y.re, y.im);
+    return .init(q[0], q[1]);
 }
 
 /// `|x|`, by `hypot` for complex.
@@ -189,161 +204,68 @@ pub fn isFinite(comptime T: type, x: T) bool {
     return if (comptime isComplex(T)) std.math.isFinite(x.re) and std.math.isFinite(x.im) else std.math.isFinite(x);
 }
 
-/// `DLASCL` type `G`: `A := A * (to / from)`, in steps that neither
-/// overflow nor underflow (`lapack-netlib/SRC/dlascl.f`). `from` is finite
-/// and nonzero.
-pub fn lascl(comptime T: type, from: Float(T), to: Float(T), a: Mat(T)) void {
-    const F = Float(T);
-    const smlnum = std.math.floatMin(F);
-    const bignum = 1 / smlnum;
-    var cfromc = from;
-    var ctoc = to;
-    while (true) {
-        const cfrom1 = cfromc * smlnum;
-        var f: F = undefined;
-        var done = true;
-        if (cfrom1 == cfromc) {
-            f = ctoc / cfromc;
-        } else {
-            const cto1 = ctoc / bignum;
-            if (cto1 == ctoc) {
-                f = ctoc;
-                cfromc = 1;
-            } else if (@abs(cfrom1) > @abs(ctoc) and ctoc != 0) {
-                f = smlnum;
-                done = false;
-                cfromc = cfrom1;
-            } else if (@abs(cto1) > @abs(cfromc)) {
-                f = bignum;
-                done = false;
-                ctoc = cto1;
-            } else {
-                f = ctoc / cfromc;
-                if (f == 1) return;
-            }
-        }
-        for (0..a.cols) |j| for (a.col(j)[0..a.rows]) |*x| {
-            x.* = mulReal(T, x.*, f);
-        };
-        if (done) return;
+/// The largest `|x(i)|` of a real `x`, 0 when empty.
+pub fn absMax(comptime F: type, x: []const F) F {
+    var m: F = 0;
+    for (x) |v| m = @max(m, @abs(v));
+    return m;
+}
+
+/// `x *= 1 / max`, by division where that reciprocal overflows (faer
+/// multiplies, which a denormal `max` makes infinite; issues.md).
+pub fn scaleDown(comptime F: type, x: []F, max: F) void {
+    if (max >= std.math.floatMin(F)) {
+        const inv = 1 / max;
+        for (x) |*v| v.* *= inv;
+    } else for (x) |*v| {
+        v.* /= max;
     }
 }
 
-/// `xLANGE('M')`: the largest `|a(i, j)|`, NaN if any is NaN.
-pub fn normMax(comptime T: type, a: Mat(T)) Float(T) {
-    var x: Float(T) = 0;
-    for (0..a.cols) |j| for (0..a.rows) |i| {
-        const v = abs(T, a.get(i, j));
-        if (std.math.isNan(v)) return v;
-        x = @max(x, v);
-    };
-    return x;
+/// Columns `i` and `j` of `m` swapped.
+pub fn swapCols(comptime T: type, m: Mat(T), i: usize, j: usize) void {
+    for (0..m.rows) |r| std.mem.swap(T, m.at(r, i), m.at(r, j));
 }
 
-/// The scale `dgesvd.f`, `dgeev.f` and `dgels.f` bring a matrix of
-/// max-norm `anrm` to: `SMLNUM` below it, `BIGNUM` above, else none.
-pub fn scaleTo(comptime F: type, anrm: F, smlnum: F) ?F {
-    const bignum = 1 / smlnum;
-    return if (anrm > 0 and anrm < smlnum) smlnum else if (anrm > bignum) bignum else null;
+/// `x / |x|` (1 for 0), complex `x`, scaled first so `|x|` cannot overflow.
+/// Faer multiplies by `1 / norm1`, infinite for a denormal `x`; that divides.
+pub fn normalized(comptime T: type, x: T) T {
+    if (isZero(T, x)) return one(T);
+    const norm1 = @max(@abs(x.re), @abs(x.im));
+    const y: T = if (norm1 >= std.math.floatMin(Float(T))) mulReal(T, x, 1 / norm1) else .init(x.re / norm1, x.im / norm1);
+    return mulReal(T, y, 1 / abs(T, y));
 }
 
-// ---- BLAS ------------------------------------------------------------------------
-
-/// How a level-3 operand enters: as is, transposed, conjugated, or
-/// conjugate transposed (real: `r` is `n`, `c` is `t`).
-pub const Op = enum {
-    n,
-    t,
-    r,
-    c,
-
-    fn transposed(op: Op) bool {
-        return op == .t or op == .c;
+/// `e` narrowed to `E`, for a callee given arguments it accepts: the errors
+/// `E` names pass (such as `OutOfMemory`, `Canceled` or `Singular`); any
+/// other is `unreachable`.
+pub fn narrow(comptime E: type, e: anyerror) E {
+    inline for (@typeInfo(E).error_set.?) |x| {
+        if (e == @field(anyerror, x.name)) return @errorCast(e);
     }
-
-    /// Only for a complex `T`.
-    fn conjugated(op: Op, comptime T: type) bool {
-        return isComplex(T) and (op == .r or op == .c);
-    }
-
-    /// `n` or `r` by `conj`, `t` or `c` by `conj` and `transpose`.
-    pub fn of(transpose: bool, conj_: bool) Op {
-        return if (transpose) (if (conj_) .c else .t) else (if (conj_) .r else .n);
-    }
-};
-
-/// `C := alpha op(A) op(B) + beta C`, `C` being `m x n`.
-pub fn gemm(al: Allocator, io: Io, comptime T: type, ta: Op, tb: Op, alpha: T, a: Mat(T), b: Mat(T), beta: T, c: Mat(T)) Error!void {
-    const k = if (ta.transposed()) a.rows else a.cols;
-    if (c.rows == 0 or c.cols == 0) return;
-    const w = threaded.workers(.gemm, T, threading.product(&.{ c.rows, c.cols, k }));
-    try driver.gemm(al, io, T, chol.table(T), ta.transposed(), tb.transposed(), .of(ta.conjugated(T), tb.conjugated(T)), c.rows, c.cols, k, alpha, a.ptr, a.ld, b.ptr, b.ld, beta, c.ptr, c.ld, w);
-}
-
-/// `B := alpha op(A) B` (`solve`: `alpha op(A)⁻¹ B`) from the left, `A`
-/// triangular.
-pub fn tri(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper: bool, op: Op, unit: bool, alpha: T, a: Mat(T), b: Mat(T)) Error!void {
-    if (b.rows == 0 or b.cols == 0) return;
-    const w = threaded.workers(.trsm, T, threading.product(&.{ b.rows, b.cols }));
-    const f = if (solve) driver.trsm else driver.trmm;
-    try f(al, io, T, chol.table(T), true, upper, op.transposed(), op.conjugated(T), unit, b.rows, b.cols, alpha, a.ptr, a.ld, b.ptr, b.ld, w);
-}
-
-/// `B := alpha B op(A)` (`solve`: `alpha B op(A)⁻¹`) from the right, `A`
-/// triangular.
-pub fn triRight(al: Allocator, io: Io, comptime T: type, comptime solve: bool, upper: bool, op: Op, unit: bool, alpha: T, a: Mat(T), b: Mat(T)) Error!void {
-    if (b.rows == 0 or b.cols == 0) return;
-    const w = threaded.workers(.trsm, T, threading.product(&.{ b.rows, b.cols }));
-    const f = if (solve) driver.trsm else driver.trmm;
-    try f(al, io, T, chol.table(T), false, upper, op.transposed(), op.conjugated(T), unit, b.rows, b.cols, alpha, a.ptr, a.ld, b.ptr, b.ld, w);
-}
-
-/// The upper triangle of `C := alpha Aᴴ A + beta C` (real: `Aᵀ A`), `A`
-/// being `k x n`; a complex diagonal comes out real.
-pub fn gramUpper(al: Allocator, io: Io, comptime T: type, alpha: Float(T), a: Mat(T), beta: Float(T), c: Mat(T)) Error!void {
-    const n = a.cols;
-    if (n == 0) return;
-    const w = threaded.workers(.syrk, T, threading.product(&.{ n + 1, n, a.rows }));
-    try driver.syrk(al, io, T, chol.table(T), comptime isComplex(T), true, true, n, a.rows, scalar(T, alpha), a.ptr, a.ld, null, 0, scalar(T, beta), c.ptr, c.ld, w);
-}
-
-/// A public level-1 or level-2 routine's error, given arguments it accepts.
-fn narrow(e: anyerror) Error {
-    return switch (e) {
-        error.OutOfMemory => error.OutOfMemory,
-        error.Canceled => error.Canceled,
-        else => unreachable,
-    };
-}
-
-/// `y := alpha op(A) x + beta y` (`blas.gemv`; `trans` as its letters), `A`
-/// being `m x n`. Unlike `gemv`, `y` is scaled by `beta` even for an empty
-/// product.
-pub fn gemv(al: Allocator, io: Io, comptime T: type, trans: Trans, alpha: T, a: Mat(T), x: [*]T, incx: usize, beta: T, y: [*]T, incy: usize) Error!void {
-    const leny = if (trans.transposed()) a.cols else a.rows;
-    if (a.rows == 0 or a.cols == 0) {
-        for (0..leny) |i| y[i * incy] = if (isZero(T, beta)) zero(T) else mul(T, beta, y[i * incy]);
-        return;
-    }
-    const t: Trans = if (comptime isComplex(T)) trans else switch (trans) {
-        .n, .r, .o, .s => .n,
-        .t, .c, .u, .d => .t,
-    };
-    blas.gemv(al, io, T, t, @intCast(a.rows), @intCast(a.cols), alpha, a.ptr, @intCast(a.ld), x, @intCast(incx), beta, y, @intCast(incy)) catch |e| return narrow(e);
-}
-
-/// `A += alpha x yᵀ` (`blas.ger`), unconjugated.
-pub fn ger(al: Allocator, io: Io, comptime T: type, alpha: T, x: [*]T, incx: usize, y: [*]T, incy: usize, a: Mat(T)) Error!void {
-    if (a.rows == 0 or a.cols == 0) return;
-    blas.ger(al, io, T, @intCast(a.rows), @intCast(a.cols), alpha, x, @intCast(incx), y, @intCast(incy), a.ptr, @intCast(a.ld)) catch |e| return narrow(e);
-}
-
-/// `‖x‖₂` (`blas.nrm2`).
-pub fn nrm2(io: Io, comptime T: type, n: usize, x: [*]T, inc: usize) Float(T) {
-    if (n == 0) return 0;
-    return blas.nrm2(io, T, @intCast(n), x, @intCast(inc)) catch unreachable;
+    unreachable;
 }
 
 test {
     _ = Mat(f64);
+}
+
+const testing = std.testing;
+
+test "ops sqrt: the complex square root in every float type agrees with f64's (T124)" {
+    const C64 = std.math.Complex(f64);
+    const cases = [_]C64{ .init(5, 3), .init(-5, 3), .init(-5, -3), .init(0, 2), .init(-4, 0), .init(1e300, 1e300), .init(-1e-300, 1e-310) };
+    inline for (.{ f80, f128 }) |F| {
+        const C = std.math.Complex(F);
+        for (cases) |z| {
+            const want = std.math.complex.sqrt(z);
+            const got = sqrt(C, .init(z.re, z.im));
+            try testing.expectApproxEqRel(want.re, @as(f64, @floatCast(got.re)), 4 * std.math.floatEps(f64));
+            try testing.expectApproxEqRel(want.im, @as(f64, @floatCast(got.im)), 4 * std.math.floatEps(f64));
+        }
+        const inf = std.math.inf(F);
+        const r = sqrt(C, .init(-inf, 1));
+        try testing.expect(r.re == 0 and r.im == inf);
+        try testing.expect(std.math.isNan(sqrt(C, .init(std.math.nan(F), 1)).re));
+    }
 }

@@ -1,36 +1,25 @@
-//! Reordering a Schur form, from Reference-LAPACK 3.12.0 as OpenBLAS
-//! v0.3.34-317 ships it (`lapack-netlib/SRC/`, modified BSD): `xTREXC`
-//! moves one eigenvalue (a real 2 x 2 block's pair) along the diagonal,
-//! `xTRSEN` moves a selected cluster to the top with its condition numbers.
-//! The real swaps are `dlaexc.f` (with `dlasy2.f`, `dlarfg.f`, `dlarfx.f`,
-//! `dlanv2.f`, `dlartg.f90`), the complex ones `ztrexc.f`'s rotations
-//! (`zlartg` is rstd's `zrotg`).
-//!
-//! faer's `schur_swap` and `schur_move` (`evd/schur/real_schur.rs`,
-//! `complex_schur.rs`) are crate-internal line-for-line translations of
-//! `dlaexc.f` and `dtrexc.f`, and faer has no `trsen`; libflame's are the
-//! reference through f2c. So the reference is the source.
-//!
-//! `trsen`'s Sylvester solves are rstd's `trsyl` (ReLAPACK's recursion,
-//! `relapack.zig`), its estimates `norm.lacn2`. Rotations go through rstd's
-//! BLAS where it has them (`rot`, real), the rest are loops.
+//! Reordering a Schur form, `trexc` and `trsen`, from Reference-LAPACK
+//! 3.12.0 as OpenBLAS v0.3.34-317 ships it (`lapack-netlib/SRC/`, modified
+//! BSD): `xTREXC`, `xTRSEN`, `dlaexc.f` and `ztrexc.f`'s rotations. Faer's
+//! `schur_swap` and `schur_move` translate the same `dlaexc.f` and `dtrexc.f`.
 
 const std = @import("std");
 const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const norm = @import("norm.zig");
 const sylvester = @import("sylvester.zig");
-const relapack = @import("relapack.zig");
-const chol = @import("cholesky.zig");
+const trsyl = @import("trsyl.zig");
 const evd = @import("evd.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
-const Error = norm.Error;
+const Error = ops.Error;
 
 /// `COMPQ`: update `Q` (`v`) or not (`n`).
 pub const Compq = enum { n, v };
@@ -39,109 +28,6 @@ pub const Compq = enum { n, v };
 pub const Eigenvalues = evd.Eigenvalues;
 
 // ---- small real kernels ------------------------------------------------------------
-
-/// `DLARTG` (`dlartg.f90`): `[c s; -s c] [f; g] = [r; 0]`, `r` with `f`'s
-/// sign.
-pub fn lartg(comptime F: type, f: F, g: F) struct { c: F, s: F, r: F } {
-    const safmin = std.math.floatMin(F);
-    const safmax = 1 / safmin;
-    const rtmin = @sqrt(safmin);
-    const rtmax = @sqrt(safmax / 2);
-    const f1 = @abs(f);
-    const g1 = @abs(g);
-    if (g == 0) return .{ .c = 1, .s = 0, .r = f };
-    if (f == 0) return .{ .c = 0, .s = std.math.copysign(@as(F, 1), g), .r = g1 };
-    if (f1 > rtmin and f1 < rtmax and g1 > rtmin and g1 < rtmax) {
-        const d = @sqrt(f * f + g * g);
-        const r = std.math.copysign(d, f);
-        return .{ .c = f1 / d, .s = g / r, .r = r };
-    }
-    const u = @min(safmax, @max(safmin, f1, g1));
-    const fs = f / u;
-    const gs = g / u;
-    const d = @sqrt(fs * fs + gs * gs);
-    const r = std.math.copysign(d, f);
-    return .{ .c = @abs(fs) / d, .s = gs / r, .r = r * u };
-}
-
-/// `DROT` through rstd's BLAS.
-fn rot(io: Io, comptime F: type, n: usize, x: [*]F, incx: usize, y: [*]F, incy: usize, c: F, s: F) Error!void {
-    if (n == 0) return;
-    blas.rot(io, F, @intCast(n), x, @intCast(incx), y, @intCast(incy), c, s) catch |e| return norm.narrow(e);
-}
-
-/// `ZROT` (`zrot.f`): `x := c x + s y`, `y := c y - conj(s) x`, `c` real.
-fn zrot(comptime T: type, n: usize, x: [*]T, incx: usize, y: [*]T, incy: usize, c: Float(T), s: T) void {
-    for (0..n) |i| {
-        const xi = x[i * incx];
-        const yi = y[i * incy];
-        x[i * incx] = ops.add(T, ops.mulReal(T, xi, c), ops.mul(T, s, yi));
-        y[i * incy] = ops.sub(T, ops.mulReal(T, yi, c), ops.mul(T, ops.conj(T, s), xi));
-    }
-}
-
-/// `?LARFG` (`dlarfg.f`, `zlarfg.f`): the reflector `H = I - tau v vᴴ`,
-/// `v(0) = 1`, with `Hᴴ [alpha; x] = [beta; 0]`, `beta` real; `beta`
-/// replaces `alpha`, `v`'s tail `x` (`n - 1`); returns `tau`. Complex
-/// division is Smith's (`norm.div`) where `zlarfg.f` takes `ZLADIV`.
-pub fn larfg(io: Io, comptime T: type, n: usize, alpha: *T, x: [*]T, inc: usize) Error!T {
-    const F = Float(T);
-    const cx = comptime isComplex(T);
-    if (n == 0 or (!cx and n == 1)) return ops.zero(T);
-    var xnorm = ops.nrm2(io, T, n - 1, x, inc);
-    var alphr = ops.re(T, alpha.*);
-    var alphi: F = if (cx) alpha.*.im else 0;
-    if (xnorm == 0 and alphi == 0) return ops.zero(T);
-    var beta = -std.math.copysign(if (cx) lapy3(F, alphr, alphi, xnorm) else lapy2(F, alphr, xnorm), alphr);
-    // `DLAMCH('S') / DLAMCH('E')`, `E` being half of `eps`
-    const safmin = std.math.floatMin(F) / (std.math.floatEps(F) / 2);
-    var knt: usize = 0;
-    if (@abs(beta) < safmin) {
-        const rsafmn = 1 / safmin;
-        while (true) {
-            knt += 1;
-            try norm.scal(io, T, n - 1, rsafmn, x, inc);
-            beta *= rsafmn;
-            alphi *= rsafmn;
-            alphr *= rsafmn;
-            if (!(@abs(beta) < safmin and knt < 20)) break;
-        }
-        xnorm = ops.nrm2(io, T, n - 1, x, inc);
-        beta = -std.math.copysign(if (cx) lapy3(F, alphr, alphi, xnorm) else lapy2(F, alphr, xnorm), alphr);
-    }
-    var tau: T = undefined;
-    if (cx) {
-        tau = .init((beta - alphr) / beta, -alphi / beta);
-        const s = norm.div(T, ops.one(T), .init(alphr - beta, alphi));
-        try norm.scalComplex(io, T, n - 1, s, x, inc);
-    } else {
-        tau = (beta - alphr) / beta;
-        try norm.scal(io, T, n - 1, 1 / (alphr - beta), x, inc);
-    }
-    for (0..knt) |_| beta *= safmin;
-    alpha.* = ops.scalar(T, beta);
-    return tau;
-}
-
-/// `DLAPY2` (`dlapy2.f`): `sqrt(x² + y²)` without overflow, NaN kept.
-pub fn lapy2(comptime F: type, x: F, y: F) F {
-    if (std.math.isNan(x)) return x;
-    if (std.math.isNan(y)) return y;
-    const w = @max(@abs(x), @abs(y));
-    const z = @min(@abs(x), @abs(y));
-    if (z == 0 or w > std.math.floatMax(F)) return w;
-    return w * @sqrt(1 + (z / w) * (z / w));
-}
-
-/// `DLAPY3` (`dlapy3.f`): `sqrt(x² + y² + z²)` without overflow.
-fn lapy3(comptime F: type, x: F, y: F, z: F) F {
-    const xa = @abs(x);
-    const ya = @abs(y);
-    const za = @abs(z);
-    const w = @max(xa, ya, za);
-    if (w == 0 or w > std.math.floatMax(F)) return xa + ya + za;
-    return w * @sqrt((xa / w) * (xa / w) + (ya / w) * (ya / w) + (za / w) * (za / w));
-}
 
 /// `DLARFX` (`dlarfx.f`), order-3 `v`: `C := H C` (`left`, `C` 3 x `n`)
 /// or `C := C H` (`C` `m x 3`), `H = I - tau v vᵀ`, each sum in `v`'s order.
@@ -193,7 +79,7 @@ pub fn lanv2(comptime F: type, a: *F, b: *F, c: *F, d: *F) struct { rt1r: F, rt1
             z = p + std.math.copysign(@sqrt(scale) * @sqrt(z), p);
             a.* = d.* + z;
             d.* = d.* - (bcmax / z) * bcmis;
-            const tau = lapy2(F, c.*, z);
+            const tau = auxiliary.lapy2(F, c.*, z);
             cs = z / tau;
             sn = c.* / tau;
             b.* = b.* - c.*;
@@ -218,7 +104,7 @@ pub fn lanv2(comptime F: type, a: *F, b: *F, c: *F, d: *F) struct { rt1r: F, rt1
                 break;
             }
             p = 0.5 * temp;
-            var tau = lapy2(F, sigma, temp);
+            var tau = auxiliary.lapy2(F, sigma, temp);
             cs = @sqrt(0.5 * (1 + @abs(sigma) / tau));
             sn = -(p / (tau * cs)) * sign(F, sigma);
             const aa = a.* * cs + b.* * sn;
@@ -269,93 +155,6 @@ fn sign(comptime F: type, x: F) F {
     return std.math.copysign(@as(F, 1), x);
 }
 
-/// `LOCU12`, `LOCL21`, `LOCU22`, `XSWPIV`, `BSWPIV` (`dlasy2.f`), 0-based.
-const locu12 = [4]usize{ 2, 3, 0, 1 };
-const locl21 = [4]usize{ 1, 0, 3, 2 };
-const locu22 = [4]usize{ 3, 2, 1, 0 };
-const xswpiv = [4]bool{ false, false, true, true };
-const bswpiv = [4]bool{ false, true, false, true };
-
-/// `DLASY2` (`dlasy2.f`) with `LTRANL`, `LTRANR` false and `ISGN = -1`, as
-/// `dlaexc.f` calls it: `TL X - X TR = scale B` for `TL` `n1 x n1`, `TR`
-/// `n2 x n2` (each 1 or 2). `x` is column-major 2 x 2 (`x[0]`, `x[1]`,
-/// `x[2]`, `x[3]` are `X(1,1)`, `X(2,1)`, `X(1,2)`, `X(2,2)`); the 2 x 2 by
-/// 2 x 2 case is `sylvester.lasy2`.
-fn lasy2(comptime F: type, n1: usize, n2: usize, tl: [*]const F, ldtl: usize, tr: [*]const F, ldtr: usize, b: [*]const F, ldb: usize) sylvester.Small(F) {
-    const sgn: F = -1;
-    const eps = std.math.floatEps(F);
-    const smlnum = std.math.floatMin(F) / eps;
-    var out: sylvester.Small(F) = .{ .x = @splat(0), .scale = 1, .perturbed = false };
-    if (n1 == 2 and n2 == 2) return sylvester.lasy2(F, false, false, sgn, tl, ldtl, tr, ldtr, .{ b[0], b[1], b[ldb], b[1 + ldb] });
-    if (n1 == 1 and n2 == 1) {
-        var tau1 = tl[0] + sgn * tr[0];
-        var bet = @abs(tau1);
-        if (bet <= smlnum) {
-            tau1 = smlnum;
-            bet = smlnum;
-            out.perturbed = true;
-        }
-        const gam = @abs(b[0]);
-        if (smlnum * gam > bet) out.scale = 1 / gam;
-        out.x[0] = (b[0] * out.scale) / tau1;
-        return out;
-    }
-    var tmp: [4]F = undefined;
-    var btmp: [2]F = undefined;
-    var smin: F = undefined;
-    if (n1 == 1) {
-        smin = @max(eps * @max(@abs(tl[0]), @abs(tr[0]), @abs(tr[ldtr]), @abs(tr[1]), @abs(tr[1 + ldtr])), smlnum);
-        tmp[0] = tl[0] + sgn * tr[0];
-        tmp[3] = tl[0] + sgn * tr[1 + ldtr];
-        tmp[1] = sgn * tr[ldtr];
-        tmp[2] = sgn * tr[1];
-        btmp = .{ b[0], b[ldb] };
-    } else {
-        smin = @max(eps * @max(@abs(tr[0]), @abs(tl[0]), @abs(tl[ldtl]), @abs(tl[1]), @abs(tl[1 + ldtl])), smlnum);
-        tmp[0] = tl[0] + sgn * tr[0];
-        tmp[3] = tl[1 + ldtl] + sgn * tr[0];
-        tmp[1] = tl[1];
-        tmp[2] = tl[ldtl];
-        btmp = .{ b[0], b[1] };
-    }
-    // `IDAMAX` of `TMP`
-    var ipiv: usize = 0;
-    for (1..4) |i| if (@abs(tmp[i]) > @abs(tmp[ipiv])) {
-        ipiv = i;
-    };
-    var p11 = tmp[ipiv];
-    if (@abs(p11) <= smin) {
-        out.perturbed = true;
-        p11 = smin;
-    }
-    const p12 = tmp[locu12[ipiv]];
-    const l21 = tmp[locl21[ipiv]] / p11;
-    var p22 = tmp[locu22[ipiv]] - p12 * l21;
-    if (@abs(p22) <= smin) {
-        out.perturbed = true;
-        p22 = smin;
-    }
-    if (bswpiv[ipiv]) {
-        const t = btmp[1];
-        btmp[1] = btmp[0] - l21 * t;
-        btmp[0] = t;
-    } else {
-        btmp[1] = btmp[1] - l21 * btmp[0];
-    }
-    if ((2 * smlnum) * @abs(btmp[1]) > @abs(p22) or (2 * smlnum) * @abs(btmp[0]) > @abs(p11)) {
-        out.scale = 0.5 / @max(@abs(btmp[0]), @abs(btmp[1]));
-        btmp[0] *= out.scale;
-        btmp[1] *= out.scale;
-    }
-    var x2: [2]F = undefined;
-    x2[1] = btmp[1] / p22;
-    x2[0] = btmp[0] / p11 - (p12 / p11) * x2[1];
-    if (xswpiv[ipiv]) std.mem.swap(F, &x2[0], &x2[1]);
-    out.x[0] = x2[0];
-    if (n1 == 1) out.x[2] = x2[1] else out.x[1] = x2[1];
-    return out;
-}
-
 /// `DLAEXC` (`dlaexc.f`): swaps the adjacent diagonal blocks of orders `n1`
 /// and `n2` (1 or 2) at 0-based `j1` of the real Schur form `t`, updating
 /// `q` (`n x n`) when given. Returns false where the swap would leave `t`
@@ -366,20 +165,20 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     const j2 = j1 + 1;
     const j3 = j1 + 2;
     const j4 = j1 + 3;
-    const T = struct {
+    const El = struct {
         fn at(p: [*]F, ld: usize, i: usize, j: usize) *F {
             return &p[i + j * ld];
         }
     };
     if (n1 == 1 and n2 == 1) {
-        const t11 = T.at(t, ldt, j1, j1).*;
-        const t22 = T.at(t, ldt, j2, j2).*;
-        const g = lartg(F, T.at(t, ldt, j1, j2).*, t22 - t11);
-        if (j3 < n) try rot(io, F, n - j1 - 2, t + j1 + j3 * ldt, ldt, t + j2 + j3 * ldt, ldt, g.c, g.s);
-        try rot(io, F, j1, t + j1 * ldt, 1, t + j2 * ldt, 1, g.c, g.s);
-        T.at(t, ldt, j1, j1).* = t22;
-        T.at(t, ldt, j2, j2).* = t11;
-        if (q) |qq| try rot(io, F, n, qq + j1 * ldq, 1, qq + j2 * ldq, 1, g.c, g.s);
+        const t11 = El.at(t, ldt, j1, j1).*;
+        const t22 = El.at(t, ldt, j2, j2).*;
+        const g = auxiliary.lartg(F, El.at(t, ldt, j1, j2).*, t22 - t11);
+        if (j3 < n) try blas_calls.rot(io, F, n - j1 - 2, t + j1 + j3 * ldt, ldt, t + j2 + j3 * ldt, ldt, g.c, g.s);
+        try blas_calls.rot(io, F, j1, t + j1 * ldt, 1, t + j2 * ldt, 1, g.c, g.s);
+        El.at(t, ldt, j1, j1).* = t22;
+        El.at(t, ldt, j2, j2).* = t11;
+        if (q) |qq| try blas_calls.rot(io, F, n, qq + j1 * ldq, 1, qq + j2 * ldq, 1, g.c, g.s);
         return true;
     }
     const ldd = 4;
@@ -387,14 +186,14 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     var d: [16]F = @splat(0);
     var dnorm: F = 0;
     for (0..nd) |j| for (0..nd) |i| {
-        d[i + j * ldd] = T.at(t, ldt, j1 + i, j1 + j).*;
+        d[i + j * ldd] = El.at(t, ldt, j1 + i, j1 + j).*;
         const v = @abs(d[i + j * ldd]);
         if (dnorm < v or std.math.isNan(v)) dnorm = v;
     };
     const eps = std.math.floatEps(F);
     const smlnum = std.math.floatMin(F) / eps;
     const limit = @max(10 * eps * dnorm, smlnum);
-    const sy = lasy2(F, n1, n2, &d, ldd, d[n1 + n1 * ldd ..].ptr, ldd, d[n1 * ldd ..].ptr, ldd);
+    const sy = sylvester.lasy2(F, false, false, -1, n1, n2, &d, ldd, d[n1 + n1 * ldd ..].ptr, ldd, d[n1 * ldd ..].ptr, ldd);
     const x11 = sy.x[0];
     const x21 = sy.x[1];
     const x12 = sy.x[2];
@@ -403,41 +202,41 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
     if (n1 == 1) {
         // n1 = 1, n2 = 2
         var u = [3]F{ scale, x11, x12 };
-        const tau = try larfg(io, F, 3, &u[2], &u, 1);
+        const tau = try auxiliary.larfg(io, F, 3, &u[2], &u, 1);
         u[2] = 1;
-        const t11 = T.at(t, ldt, j1, j1).*;
+        const t11 = El.at(t, ldt, j1, j1).*;
         larfx(F, true, 3, 3, u, tau, &d, ldd);
         larfx(F, false, 3, 3, u, tau, &d, ldd);
         if (@max(@abs(d[2]), @abs(d[2 + ldd]), @abs(d[2 + 2 * ldd] - t11)) > limit) return false;
         larfx(F, true, 3, n - j1, u, tau, t + j1 + j1 * ldt, ldt);
         larfx(F, false, j2 + 1, 3, u, tau, t + j1 * ldt, ldt);
-        T.at(t, ldt, j3, j1).* = 0;
-        T.at(t, ldt, j3, j2).* = 0;
-        T.at(t, ldt, j3, j3).* = t11;
+        El.at(t, ldt, j3, j1).* = 0;
+        El.at(t, ldt, j3, j2).* = 0;
+        El.at(t, ldt, j3, j3).* = t11;
         if (q) |qq| larfx(F, false, n, 3, u, tau, qq + j1 * ldq, ldq);
     } else if (n2 == 1) {
         // n1 = 2, n2 = 1
         var u = [3]F{ -x11, -x21, scale };
-        const tau = try larfg(io, F, 3, &u[0], u[1..].ptr, 1);
+        const tau = try auxiliary.larfg(io, F, 3, &u[0], u[1..].ptr, 1);
         u[0] = 1;
-        const t33 = T.at(t, ldt, j3, j3).*;
+        const t33 = El.at(t, ldt, j3, j3).*;
         larfx(F, true, 3, 3, u, tau, &d, ldd);
         larfx(F, false, 3, 3, u, tau, &d, ldd);
         if (@max(@abs(d[1]), @abs(d[2]), @abs(d[0] - t33)) > limit) return false;
         larfx(F, false, j3 + 1, 3, u, tau, t + j1 * ldt, ldt);
         larfx(F, true, 3, n - j1 - 1, u, tau, t + j1 + j2 * ldt, ldt);
-        T.at(t, ldt, j1, j1).* = t33;
-        T.at(t, ldt, j2, j1).* = 0;
-        T.at(t, ldt, j3, j1).* = 0;
+        El.at(t, ldt, j1, j1).* = t33;
+        El.at(t, ldt, j2, j1).* = 0;
+        El.at(t, ldt, j3, j1).* = 0;
         if (q) |qq| larfx(F, false, n, 3, u, tau, qq + j1 * ldq, ldq);
     } else {
         // n1 = n2 = 2
         var r1 = [3]F{ -x11, -x21, scale };
-        const tau1 = try larfg(io, F, 3, &r1[0], r1[1..].ptr, 1);
+        const tau1 = try auxiliary.larfg(io, F, 3, &r1[0], r1[1..].ptr, 1);
         r1[0] = 1;
         const temp = -tau1 * (x12 + r1[1] * x22);
         var r2 = [3]F{ -temp * r1[1] - x22, -temp * r1[2], scale };
-        const tau2 = try larfg(io, F, 3, &r2[0], r2[1..].ptr, 1);
+        const tau2 = try auxiliary.larfg(io, F, 3, &r2[0], r2[1..].ptr, 1);
         r2[0] = 1;
         larfx(F, true, 3, 4, r1, tau1, &d, ldd);
         larfx(F, false, 4, 3, r1, tau1, &d, ldd);
@@ -448,10 +247,10 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
         larfx(F, false, j4 + 1, 3, r1, tau1, t + j1 * ldt, ldt);
         larfx(F, true, 3, n - j1, r2, tau2, t + j2 + j1 * ldt, ldt);
         larfx(F, false, j4 + 1, 3, r2, tau2, t + j2 * ldt, ldt);
-        T.at(t, ldt, j3, j1).* = 0;
-        T.at(t, ldt, j3, j2).* = 0;
-        T.at(t, ldt, j4, j1).* = 0;
-        T.at(t, ldt, j4, j2).* = 0;
+        El.at(t, ldt, j3, j1).* = 0;
+        El.at(t, ldt, j3, j2).* = 0;
+        El.at(t, ldt, j4, j1).* = 0;
+        El.at(t, ldt, j4, j2).* = 0;
         if (q) |qq| {
             larfx(F, false, n, 3, r1, tau1, qq + j1 * ldq, ldq);
             larfx(F, false, n, 3, r2, tau2, qq + j2 * ldq, ldq);
@@ -468,9 +267,9 @@ fn laexc(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq:
 fn standardize(io: Io, comptime F: type, n: usize, t: [*]F, ldt: usize, q: ?[*]F, ldq: usize, j: usize) Error!void {
     const k = j + 1;
     const r = lanv2(F, &t[j + j * ldt], &t[j + k * ldt], &t[k + j * ldt], &t[k + k * ldt]);
-    if (j + 2 < n) try rot(io, F, n - j - 2, t + j + (j + 2) * ldt, ldt, t + k + (j + 2) * ldt, ldt, r.cs, r.sn);
-    try rot(io, F, j, t + j * ldt, 1, t + k * ldt, 1, r.cs, r.sn);
-    if (q) |qq| try rot(io, F, n, qq + j * ldq, 1, qq + k * ldq, 1, r.cs, r.sn);
+    if (j + 2 < n) try blas_calls.rot(io, F, n - j - 2, t + j + (j + 2) * ldt, ldt, t + k + (j + 2) * ldt, ldt, r.cs, r.sn);
+    try blas_calls.rot(io, F, j, t + j * ldt, 1, t + k * ldt, 1, r.cs, r.sn);
+    if (q) |qq| try blas_calls.rot(io, F, n, qq + j * ldq, 1, qq + k * ldq, 1, r.cs, r.sn);
 }
 
 // ---- xTREXC ------------------------------------------------------------------------
@@ -487,7 +286,7 @@ pub const TrexcError = error{ InvalidN, InvalidLdt, InvalidLdq, InvalidIfst, Inv
 /// blocks; `ifst` moves to its block's first row and `ilst` to the moved
 /// block's final first row, as the reference's. Complex: both unchanged.
 pub fn trexc(allocator: Allocator, io: Io, comptime T: type, compq: Compq, n: isize, t: [*]T, ldt: isize, q: [*]T, ldq: isize, ifst: *isize, ilst: *isize) TrexcError!void {
-    comptime chol.floatType(T, "trexc");
+    comptime ops.requireFloat(T, "trexc");
     _ = allocator;
     const wantq = compq == .v;
     if (n < 0) return error.InvalidN;
@@ -529,11 +328,11 @@ fn moveComplex(comptime T: type, n: usize, t: [*]T, ldt: usize, q: ?[*]T, ldq: u
         var cs: Float(T) = undefined;
         var sn: T = undefined;
         blas.zrotg(T, &r, ops.sub(T, t22, t11), &cs, &sn);
-        if (k + 2 < n) zrot(T, n - k - 2, t + k + (k + 2) * ldt, ldt, t + k + 1 + (k + 2) * ldt, ldt, cs, sn);
-        zrot(T, k, t + k * ldt, 1, t + (k + 1) * ldt, 1, cs, ops.conj(T, sn));
+        if (k + 2 < n) blas_calls.zrot(T, n - k - 2, t + k + (k + 2) * ldt, ldt, t + k + 1 + (k + 2) * ldt, ldt, cs, sn);
+        blas_calls.zrot(T, k, t + k * ldt, 1, t + (k + 1) * ldt, 1, cs, ops.conj(T, sn));
         t[k + k * ldt] = t22;
         t[k + 1 + (k + 1) * ldt] = t11;
-        if (q) |qq| zrot(T, n, qq + k * ldq, 1, qq + (k + 1) * ldq, 1, cs, ops.conj(T, sn));
+        if (q) |qq| blas_calls.zrot(T, n, qq + k * ldq, 1, qq + (k + 1) * ldq, 1, cs, ops.conj(T, sn));
         if (ifst < ilst) {
             if (k + 2 == ilst) break;
             k += 1;
@@ -671,7 +470,7 @@ pub const TrsenError = error{ InvalidN, InvalidLdt, InvalidLdq, SwapRejected } |
 /// reciprocal condition numbers of the cluster (`s`) and of the invariant
 /// subspace (`sep`, an estimate).
 pub fn trsen(allocator: Allocator, io: Io, comptime T: type, job: TrsenJob, compq: Compq, select: [*]const bool, n: isize, t: [*]T, ldt: isize, q: [*]T, ldq: isize, w: Eigenvalues(T), m: *isize, s: *Float(T), sep: *Float(T)) TrsenError!void {
-    comptime chol.floatType(T, "trsen");
+    comptime ops.requireFloat(T, "trsen");
     const wants = job == .e or job == .b;
     const wantsp = job == .v or job == .b;
     const wantq = compq == .v;
@@ -768,7 +567,7 @@ fn Sep(comptime T: type) type {
             const n1: isize = @intCast(s.n1);
             const n2: isize = @intCast(s.n2);
             const ld: isize = @intCast(s.ldt);
-            relapack.trsyl(s.al, s.io, T, tr, tr, -1, n1, n2, s.t, ld, s.t + s.n1 + s.n1 * s.ldt, ld, x, n1, &scale) catch |e| switch (e) {
+            trsyl.trsyl(s.al, s.io, T, tr, tr, -1, n1, n2, s.t, ld, s.t + s.n1 + s.n1 * s.ldt, ld, x, n1, &scale) catch |e| switch (e) {
                 error.Perturbed => {},
                 error.OutOfMemory => return error.OutOfMemory,
                 error.Canceled => return error.Canceled,
@@ -809,11 +608,12 @@ fn eigenvalues(comptime T: type, n: usize, t: [*]const T, ldt: usize, w: Eigenva
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 const lu = @import("lu.zig");
 const svd = @import("svd.zig");
 
-const test_types = chol.test_types;
+const test_types = lcheck.test_types;
 
 /// `THRESH` of the reference's eigenvalue-condition tests
 /// (`TESTING/dec.in`, `dchkec.f`'s `dget36` and `dget38`).

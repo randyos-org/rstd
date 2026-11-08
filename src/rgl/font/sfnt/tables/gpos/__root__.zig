@@ -1,6 +1,6 @@
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 
 const gpos_table = @import("GposTable.zig");
 pub const GposTable = gpos_table;

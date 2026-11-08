@@ -1,47 +1,34 @@
-//! The unblocked kernel of `trsyl` (`relapack.zig`): `op(A) X + isgn X op(B)
-//! = scale C` for upper triangular `A` and `B`, real ones quasi-triangular
-//! (Schur form, 2 x 2 diagonal blocks).
-//!
-//! `trsy2` is ReLAPACK's `RELAPACK_?trsyl_rec2` (`relapack/src/dtrsyl_rec2.c`,
-//! `ztrsyl_rec2.c` and the rest; OpenBLAS v0.3.34-317), Reference-LAPACK's
-//! `xTRSYL` (`lapack-netlib/SRC/dtrsyl.f`, `ztrsyl.f` in that checkout)
-//! through f2c. Its 2 x 2 blocks call `xLALN2` (`trevc.zig`'s, the
-//! real `NW = 1` paths of `dlaln2.f`) and `xLASY2` (`lasy2`, the 2 x 2 by
-//! 2 x 2 path of `dlasy2.f`, the only one `xTRSYL` takes). The four
-//! transposition cases are one loop: the order, the sums' ranges and which
-//! side transposes follow `op`, as the reference's four copies do. The sums
-//! are `?DOT` in order; complex division is Smith's (`util.cdiv`) where the
-//! reference takes `ZLADIV`.
-//!
-//! `tgsy2` is `tgsyl`'s base case, Reference-LAPACK's `xTGSY2` with
-//! `xGETC2`, `xGESC2` and `xLATDF` (`dtgsy2.f`, `ztgsy2.f` and the rest),
-//! `xLATDF`'s `xGECON` from `norm.zig`'s `lacn2` and `latrs`.
+//! The kernels of `trsyl` (`trsyl.zig`) and `tgsyl` (`tgsyl.zig`):
+//! Reference-LAPACK's `xTRSYL` (`trsy2`), `xLALN2`, `xLASY2`, and `xTGSY2`
+//! with `xGETC2`, `xGESC2` and `xLATDF` (`lapack-netlib/SRC/dtrsyl.f`,
+//! `dlaln2.f`, `dlasy2.f`, `dtgsy2.f` and their forms, OpenBLAS
+//! v0.3.34-317). Complex division is Smith's (`util.cdiv`) where the
+//! reference takes `ZLADIV` or `DLADIV`.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
-const util = @import("../blas/util.zig");
-const chol = @import("cholesky.zig");
-const trevc = @import("trevc.zig");
+const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
 const norm = @import("norm.zig");
+const util = @import("../blas/util.zig");
+const driver = @import("../blas/blas3/driver.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Float = types.Float;
 const isComplex = types.isComplex;
-const scalar = chol.scalar;
-const add = chol.add;
-const sub = chol.sub;
-const mul = chol.mul;
+const Trans = types.Trans;
+const scalar = ops.scalar;
+const add = ops.add;
+const sub = ops.sub;
+const mul = ops.mul;
+
+const Error = driver.Error;
 
 /// What `trsy2` returns: `scale` and whether a near-singular system was
 /// perturbed (the reference's `INFO = 1`).
 pub fn Solved(comptime F: type) type {
     return struct { scale: F, perturbed: bool };
-}
-
-/// `|re| + |im|`, `|x|` for real.
-fn abs1(comptime T: type, v: T) Float(T) {
-    return if (comptime isComplex(T)) @abs(v.re) + @abs(v.im) else @abs(v);
 }
 
 /// `xLANGE('M')`: the largest `|a(i, j)|` of the `n x n` `a`, the modulus
@@ -101,27 +88,27 @@ pub fn trsy2(comptime T: type, ta: bool, tb: bool, isgn: isize, m: usize, n: usi
             if (l1 == l2 and k1 == k2) {
                 const vec = ctx.rhs(k1, l1);
                 var a11 = ctx.diag(k1, l1);
-                var da11 = abs1(T, a11);
+                var da11 = ops.abs1(T, a11);
                 if (da11 <= smin) {
                     a11 = scalar(T, smin);
                     da11 = smin;
                     out.perturbed = true;
                 }
-                const db = abs1(T, vec);
+                const db = ops.abs1(T, vec);
                 if (da11 < 1 and db > 1 and db > bignum * da11) scaloc = 1 / db;
-                x[0] = divide(T, chol.mulReal(T, vec, scaloc), a11);
+                x[0] = ops.div(T, ops.mulReal(T, vec, scaloc), a11);
             } else if (comptime !isComplex(T)) {
                 const r = if (l1 == l2) blk: {
                     // a 2 x 1 block of `A`
                     const v = [2]F{ ctx.rhs(k1, l1), ctx.rhs(k2, l1) };
-                    break :blk laln2(F, ta, smin, a + k1 + k1 * lda, lda, v, -sgn * b[l1 + l1 * ldb]);
+                    break :blk laln2Small(F, ta, smin, a + k1 + k1 * lda, lda, v, -sgn * b[l1 + l1 * ldb]);
                 } else if (k1 == k2) blk: {
                     // a 1 x 2 block of `B`, from the right
                     const v = [2]F{ sgn * ctx.rhs(k1, l1), sgn * ctx.rhs(k1, l2) };
-                    break :blk laln2(F, !tb, smin, b + l1 + l1 * ldb, ldb, v, -sgn * a[k1 + k1 * lda]);
+                    break :blk laln2Small(F, !tb, smin, b + l1 + l1 * ldb, ldb, v, -sgn * a[k1 + k1 * lda]);
                 } else blk: {
                     const v = [4]F{ ctx.rhs(k1, l1), ctx.rhs(k2, l1), ctx.rhs(k1, l2), ctx.rhs(k2, l2) };
-                    break :blk lasy2(F, ta, tb, sgn, a + k1 + k1 * lda, lda, b + l1 + l1 * ldb, ldb, v);
+                    break :blk lasy2Square(F, ta, tb, sgn, a + k1 + k1 * lda, lda, b + l1 + l1 * ldb, ldb, v);
                 };
                 if (r.perturbed) out.perturbed = true;
                 scaloc = r.scale;
@@ -129,7 +116,7 @@ pub fn trsy2(comptime T: type, ta: bool, tb: bool, isgn: isize, m: usize, n: usi
             }
             if (scaloc != 1) {
                 for (0..n) |j| for (0..m) |i| {
-                    c[i + j * ldc] = chol.mulReal(T, c[i + j * ldc], scaloc);
+                    c[i + j * ldc] = ops.mulReal(T, c[i + j * ldc], scaloc);
                 };
                 out.scale *= scaloc;
             }
@@ -197,23 +184,17 @@ fn Ctx(comptime T: type) type {
             } else {
                 for (0..s.l1) |q| sumr = add(T, sumr, mul(T, s.c[i + q * s.ldc], s.b[q + j * s.ldb]));
             }
-            return sub(T, s.c[i + j * s.ldc], add(T, suml, chol.mulReal(T, sumr, s.sgn)));
+            return sub(T, s.c[i + j * s.ldc], add(T, suml, ops.mulReal(T, sumr, s.sgn)));
         }
 
         /// `op(A)(i, i) + sgn op(B)(j, j)`, as each case of `ZTRSYL` forms it.
         fn diag(s: Self, i: usize, j: usize) T {
             const aii = s.a[i + i * s.lda];
             const bjj = s.b[j + j * s.ldb];
-            if (s.ta and s.tb) return cj(add(T, aii, chol.mulReal(T, bjj, s.sgn)));
-            return add(T, if (s.ta) cj(aii) else aii, chol.mulReal(T, if (s.tb) cj(bjj) else bjj, s.sgn));
+            if (s.ta and s.tb) return cj(add(T, aii, ops.mulReal(T, bjj, s.sgn)));
+            return add(T, if (s.ta) cj(aii) else aii, ops.mulReal(T, if (s.tb) cj(bjj) else bjj, s.sgn));
         }
     };
-}
-
-fn divide(comptime T: type, x: T, d: T) T {
-    if (comptime !isComplex(T)) return x / d;
-    const z = util.cdiv(Float(T), x.re, x.im, d.re, d.im);
-    return .init(z[0], z[1]);
 }
 
 /// A small solve's result: `x` (column-major), its scale, and whether a
@@ -222,16 +203,270 @@ pub fn Small(comptime F: type) type {
     return struct { x: [4]F, scale: F, perturbed: bool };
 }
 
-/// `DLALN2` with `NA = 2`, `NW = 1` (`trevc.laln2`): `(A' - wr I) x = s v`
+/// `laln2` with `na = 2`, `nw = 1`: `(A' - wr I) x = s v`
 /// for the 2 x 2 `A` at `a` (`A'` its transpose with `ltrans`).
-fn laln2(comptime F: type, ltrans: bool, smin: F, a: [*]const F, lda: usize, v: [2]F, wr: F) Small(F) {
-    const r = trevc.laln2(F, ltrans, 2, 1, smin, a, lda, .{ .{ v[0], 0 }, .{ v[1], 0 } }, wr, 0);
+fn laln2Small(comptime F: type, ltrans: bool, smin: F, a: [*]const F, lda: usize, v: [2]F, wr: F) Small(F) {
+    const r = laln2(F, ltrans, 2, 1, smin, a, lda, .{ .{ v[0], 0 }, .{ v[1], 0 } }, wr, 0);
     return .{ .x = .{ r.x[0][0], r.x[1][0], 0, 0 }, .scale = r.scale, .perturbed = r.perturbed };
 }
 
-/// `DLASY2` with `N1 = N2 = 2`: `op(TL) X + sgn X op(TR) = s V` for 2 x 2
+/// What `laln2` returns: `x[i][k]` the solution's row `i`, real part
+/// (`k = 0`) or imaginary (`k = 1`); `scale <= 1`; `xnorm` its infinity
+/// norm; `perturbed` when a pivot was raised to `smin` (`INFO = 1`).
+pub fn Laln2(comptime F: type) type {
+    return struct { x: [2][2]F, scale: F, xnorm: F, perturbed: bool };
+}
+
+/// `DLALN2`: `(A - (wr + i wi)) X = scale B` (`Aᵀ` with `ltrans`) for the
+/// `na x na` `A` at `a` (`na` 1 or 2), `X` and `B` real (`nw = 1`) or
+/// complex (`nw = 2`, `b[i][1]` the imaginary parts), by complete pivoting;
+/// pivots below `smin` become `smin`.
+pub fn laln2(comptime F: type, ltrans: bool, na: usize, nw: usize, smin: F, a: [*]const F, lda: usize, b: [2][2]F, wr: F, wi: F) Laln2(F) {
+    const ipivot = [4][4]usize{ .{ 0, 1, 2, 3 }, .{ 1, 0, 3, 2 }, .{ 2, 3, 0, 1 }, .{ 3, 2, 1, 0 } };
+    const rswap = [4]bool{ false, true, false, true };
+    const zswap = [4]bool{ false, false, true, true };
+    const smlnum = 2 * std.math.floatMin(F);
+    const bignum = 1 / smlnum;
+    const smini = @max(smin, smlnum);
+    var out: Laln2(F) = .{ .x = @splat(@splat(0)), .scale = 1, .xnorm = 0, .perturbed = false };
+    if (na == 1) {
+        var csr = a[0] - wr;
+        var csi: F = if (nw == 1) 0 else -wi;
+        var cnorm = @abs(csr) + @abs(csi);
+        if (cnorm < smini) {
+            csr = smini;
+            csi = 0;
+            cnorm = smini;
+            out.perturbed = true;
+        }
+        const bnorm = @abs(b[0][0]) + (if (nw == 1) 0 else @abs(b[0][1]));
+        if (cnorm < 1 and bnorm > 1 and bnorm > bignum * cnorm) out.scale = 1 / bnorm;
+        if (nw == 1) {
+            out.x[0][0] = (b[0][0] * out.scale) / csr;
+            out.xnorm = @abs(out.x[0][0]);
+        } else {
+            const z = util.cdiv(F, out.scale * b[0][0], out.scale * b[0][1], csr, csi);
+            out.x[0] = z;
+            out.xnorm = @abs(z[0]) + @abs(z[1]);
+        }
+        return out;
+    }
+    // `CR`, `CI` column-major as `CRV`, `CIV`
+    var crv: [4]F = .{ a[0] - wr, a[1], a[lda], a[1 + lda] - wr };
+    if (ltrans) std.mem.swap(F, &crv[1], &crv[2]);
+    const civ: [4]F = if (nw == 1) @splat(0) else .{ -wi, 0, 0, -wi };
+    var cmax: F = 0;
+    var icmax: usize = 0;
+    for (0..4) |j| if (@abs(crv[j]) + @abs(civ[j]) > cmax) {
+        cmax = @abs(crv[j]) + @abs(civ[j]);
+        icmax = j;
+    };
+    if (cmax < smini) {
+        const bnorm = @max(@abs(b[0][0]) + @abs(b[0][1]), @abs(b[1][0]) + @abs(b[1][1]));
+        if (smini < 1 and bnorm > 1 and bnorm > bignum * smini) out.scale = 1 / bnorm;
+        const temp = out.scale / smini;
+        for (0..2) |i| for (0..nw) |k| {
+            out.x[i][k] = temp * b[i][k];
+        };
+        out.xnorm = temp * bnorm;
+        out.perturbed = true;
+        return out;
+    }
+    const piv = ipivot[icmax];
+    if (nw == 1) {
+        const ur11 = crv[icmax];
+        const cr21 = crv[piv[1]];
+        const ur12 = crv[piv[2]];
+        const cr22 = crv[piv[3]];
+        const ur11r = 1 / ur11;
+        const lr21 = ur11r * cr21;
+        var ur22 = cr22 - ur12 * lr21;
+        if (@abs(ur22) < smini) {
+            ur22 = smini;
+            out.perturbed = true;
+        }
+        const br1 = if (rswap[icmax]) b[1][0] else b[0][0];
+        var br2 = if (rswap[icmax]) b[0][0] else b[1][0];
+        br2 = br2 - lr21 * br1;
+        const bbnd = @max(@abs(br1 * (ur22 * ur11r)), @abs(br2));
+        if (bbnd > 1 and @abs(ur22) < 1 and bbnd >= bignum * @abs(ur22)) out.scale = 1 / bbnd;
+        const xr2 = (br2 * out.scale) / ur22;
+        const xr1 = (out.scale * br1) * ur11r - xr2 * (ur11r * ur12);
+        out.x[0][0] = if (zswap[icmax]) xr2 else xr1;
+        out.x[1][0] = if (zswap[icmax]) xr1 else xr2;
+        out.xnorm = @max(@abs(xr1), @abs(xr2));
+    } else {
+        const ur11 = crv[icmax];
+        const ui11 = civ[icmax];
+        const cr21 = crv[piv[1]];
+        const ci21 = civ[piv[1]];
+        const ur12 = crv[piv[2]];
+        const ui12 = civ[piv[2]];
+        const cr22 = crv[piv[3]];
+        const ci22 = civ[piv[3]];
+        var ur11r: F = undefined;
+        var ui11r: F = undefined;
+        var lr21: F = undefined;
+        var li21: F = undefined;
+        var ur12s: F = undefined;
+        var ui12s: F = undefined;
+        var ur22: F = undefined;
+        var ui22: F = undefined;
+        if (icmax == 0 or icmax == 3) {
+            // the pivoted off-diagonals are real
+            if (@abs(ur11) > @abs(ui11)) {
+                const temp = ui11 / ur11;
+                ur11r = 1 / (ur11 * (1 + temp * temp));
+                ui11r = -temp * ur11r;
+            } else {
+                const temp = ur11 / ui11;
+                ui11r = -1 / (ui11 * (1 + temp * temp));
+                ur11r = -temp * ui11r;
+            }
+            lr21 = cr21 * ur11r;
+            li21 = cr21 * ui11r;
+            ur12s = ur12 * ur11r;
+            ui12s = ur12 * ui11r;
+            ur22 = cr22 - ur12 * lr21;
+            ui22 = ci22 - ur12 * li21;
+        } else {
+            // the pivoted diagonals are real
+            ur11r = 1 / ur11;
+            ui11r = 0;
+            lr21 = cr21 * ur11r;
+            li21 = ci21 * ur11r;
+            ur12s = ur12 * ur11r;
+            ui12s = ui12 * ur11r;
+            ur22 = cr22 - ur12 * lr21 + ui12 * li21;
+            ui22 = -ur12 * li21 - ui12 * lr21;
+        }
+        const u22abs = @abs(ur22) + @abs(ui22);
+        if (u22abs < smini) {
+            ur22 = smini;
+            ui22 = 0;
+            out.perturbed = true;
+        }
+        const r1: usize, const r2: usize = if (rswap[icmax]) .{ 1, 0 } else .{ 0, 1 };
+        var br1 = b[r1][0];
+        var bi1 = b[r1][1];
+        var br2 = b[r2][0];
+        var bi2 = b[r2][1];
+        br2 = br2 - lr21 * br1 + li21 * bi1;
+        bi2 = bi2 - li21 * br1 - lr21 * bi1;
+        const bbnd = @max((@abs(br1) + @abs(bi1)) * (u22abs * (@abs(ur11r) + @abs(ui11r))), @abs(br2) + @abs(bi2));
+        if (bbnd > 1 and u22abs < 1 and bbnd >= bignum * u22abs) {
+            out.scale = 1 / bbnd;
+            br1 *= out.scale;
+            bi1 *= out.scale;
+            br2 *= out.scale;
+            bi2 *= out.scale;
+        }
+        const x2 = util.cdiv(F, br2, bi2, ur22, ui22);
+        const xr1 = ur11r * br1 - ui11r * bi1 - ur12s * x2[0] + ui12s * x2[1];
+        const xi1 = ui11r * br1 + ur11r * bi1 - ui12s * x2[0] - ur12s * x2[1];
+        const x1 = [2]F{ xr1, xi1 };
+        out.x[0] = if (zswap[icmax]) x2 else x1;
+        out.x[1] = if (zswap[icmax]) x1 else x2;
+        out.xnorm = @max(@abs(xr1) + @abs(xi1), @abs(x2[0]) + @abs(x2[1]));
+    }
+    // further scaling if `‖A‖ ‖X‖` would overflow
+    if (out.xnorm > 1 and cmax > 1 and out.xnorm > bignum / cmax) {
+        const temp = cmax / bignum;
+        for (&out.x) |*row| for (row) |*v| {
+            v.* *= temp;
+        };
+        out.xnorm *= temp;
+        out.scale *= temp;
+    }
+    return out;
+}
+
+/// `LOCU12`, `LOCL21`, `LOCU22`, `XSWPIV`, `BSWPIV` (`dlasy2.f`), 0-based.
+const locu12 = [4]usize{ 2, 3, 0, 1 };
+const locl21 = [4]usize{ 1, 0, 3, 2 };
+const locu22 = [4]usize{ 3, 2, 1, 0 };
+const xswpiv = [4]bool{ false, false, true, true };
+const bswpiv = [4]bool{ false, true, false, true };
+
+/// `DLASY2` (`dlasy2.f`): `op(TL) X + sgn X op(TR) = scale B` for `TL`
+/// `n1 x n1` and `TR` `n2 x n2` (each 1 or 2). `x` is column-major 2 x 2
+/// (`X(1,1)`, `X(2,1)`, `X(1,2)`, `X(2,2)`).
+pub fn lasy2(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, n1: usize, n2: usize, tl: [*]const F, ldtl: usize, tr: [*]const F, ldtr: usize, b: [*]const F, ldb: usize) Small(F) {
+    const eps = std.math.floatEps(F);
+    const smlnum = std.math.floatMin(F) / eps;
+    var out: Small(F) = .{ .x = @splat(0), .scale = 1, .perturbed = false };
+    if (n1 == 2 and n2 == 2) return lasy2Square(F, ltranl, ltranr, sgn, tl, ldtl, tr, ldtr, .{ b[0], b[1], b[ldb], b[1 + ldb] });
+    if (n1 == 1 and n2 == 1) {
+        var tau1 = tl[0] + sgn * tr[0];
+        var bet = @abs(tau1);
+        if (bet <= smlnum) {
+            tau1 = smlnum;
+            bet = smlnum;
+            out.perturbed = true;
+        }
+        const gam = @abs(b[0]);
+        if (smlnum * gam > bet) out.scale = 1 / gam;
+        out.x[0] = (b[0] * out.scale) / tau1;
+        return out;
+    }
+    var tmp: [4]F = undefined;
+    var btmp: [2]F = undefined;
+    var smin: F = undefined;
+    if (n1 == 1) {
+        smin = @max(eps * @max(@abs(tl[0]), @abs(tr[0]), @abs(tr[ldtr]), @abs(tr[1]), @abs(tr[1 + ldtr])), smlnum);
+        tmp[0] = tl[0] + sgn * tr[0];
+        tmp[3] = tl[0] + sgn * tr[1 + ldtr];
+        tmp[1] = sgn * (if (ltranr) tr[1] else tr[ldtr]);
+        tmp[2] = sgn * (if (ltranr) tr[ldtr] else tr[1]);
+        btmp = .{ b[0], b[ldb] };
+    } else {
+        smin = @max(eps * @max(@abs(tr[0]), @abs(tl[0]), @abs(tl[ldtl]), @abs(tl[1]), @abs(tl[1 + ldtl])), smlnum);
+        tmp[0] = tl[0] + sgn * tr[0];
+        tmp[3] = tl[1 + ldtl] + sgn * tr[0];
+        tmp[1] = if (ltranl) tl[ldtl] else tl[1];
+        tmp[2] = if (ltranl) tl[1] else tl[ldtl];
+        btmp = .{ b[0], b[1] };
+    }
+    // `IDAMAX` of `TMP`
+    var ipiv: usize = 0;
+    for (1..4) |i| if (@abs(tmp[i]) > @abs(tmp[ipiv])) {
+        ipiv = i;
+    };
+    var p11 = tmp[ipiv];
+    if (@abs(p11) <= smin) {
+        out.perturbed = true;
+        p11 = smin;
+    }
+    const p12 = tmp[locu12[ipiv]];
+    const l21 = tmp[locl21[ipiv]] / p11;
+    var p22 = tmp[locu22[ipiv]] - p12 * l21;
+    if (@abs(p22) <= smin) {
+        out.perturbed = true;
+        p22 = smin;
+    }
+    if (bswpiv[ipiv]) {
+        const t = btmp[1];
+        btmp[1] = btmp[0] - l21 * t;
+        btmp[0] = t;
+    } else {
+        btmp[1] = btmp[1] - l21 * btmp[0];
+    }
+    if ((2 * smlnum) * @abs(btmp[1]) > @abs(p22) or (2 * smlnum) * @abs(btmp[0]) > @abs(p11)) {
+        out.scale = 0.5 / @max(@abs(btmp[0]), @abs(btmp[1]));
+        btmp[0] *= out.scale;
+        btmp[1] *= out.scale;
+    }
+    var x2: [2]F = undefined;
+    x2[1] = btmp[1] / p22;
+    x2[0] = btmp[0] / p11 - (p12 / p11) * x2[1];
+    if (xswpiv[ipiv]) std.mem.swap(F, &x2[0], &x2[1]);
+    out.x[0] = x2[0];
+    if (n1 == 1) out.x[2] = x2[1] else out.x[1] = x2[1];
+    return out;
+}
+/// `lasy2` with `n1 = n2 = 2`: `op(TL) X + sgn X op(TR) = s V` for 2 x 2
 /// blocks, as a 4 x 4 system by complete pivoting.
-pub fn lasy2(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, tl: [*]const F, ldtl: usize, tr: [*]const F, ldtr: usize, v: [4]F) Small(F) {
+fn lasy2Square(comptime F: type, ltranl: bool, ltranr: bool, sgn: F, tl: [*]const F, ldtl: usize, tr: [*]const F, ldtr: usize, v: [4]F) Small(F) {
     const eps = std.math.floatEps(F);
     const smlnum = std.math.floatMin(F) / eps;
     var out: Small(F) = .{ .x = @splat(0), .scale = 1, .perturbed = false };
@@ -353,7 +588,7 @@ fn conjT(comptime T: type, x: T) T {
 /// form (`dtgsyl.f`'s (2)), by `getc2` and `gesc2`; with `ijob` 1 or 2 (not
 /// `trans`), `latdf` instead adds the block's part of the `dif` estimate to
 /// `dif`, unscaled. The reference's four real block shapes are one loop.
-pub fn tgsy2(al: Allocator, io: Io, comptime T: type, trans: bool, ijob: u2, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize, d: [*]const T, ldd: usize, e: [*]const T, lde: usize, f: [*]T, ldf: usize, dif: *Dif(Float(T))) norm.Error!Solved(Float(T)) {
+pub fn tgsy2(al: Allocator, io: Io, comptime T: type, trans: bool, ijob: u2, m: usize, n: usize, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize, d: [*]const T, ldd: usize, e: [*]const T, lde: usize, f: [*]T, ldf: usize, dif: *Dif(Float(T))) ops.Error!Solved(Float(T)) {
     const F = Float(T);
     var out: Solved(F) = .{ .scale = 1, .perturbed = false };
     var p: usize = 0;
@@ -383,8 +618,8 @@ pub fn tgsy2(al: Allocator, io: Io, comptime T: type, trans: bool, ijob: u2, m: 
                     if (kk >= ii) z[k + r + 8 * (kk + mb * jj)] = d[is + ii + (is + kk) * ldd];
                 }
                 for (0..nb) |kk| {
-                    z[r + 8 * (k + ii + mb * kk)] = chol.neg(T, b[js + kk + (js + jj) * ldb]);
-                    if (kk <= jj) z[k + r + 8 * (k + ii + mb * kk)] = chol.neg(T, e[js + kk + (js + jj) * lde]);
+                    z[r + 8 * (k + ii + mb * kk)] = ops.neg(T, b[js + kk + (js + jj) * ldb]);
+                    if (kk <= jj) z[k + r + 8 * (k + ii + mb * kk)] = ops.neg(T, e[js + kk + (js + jj) * lde]);
                 }
             };
             if (trans) for (0..zdim) |col| for (col..zdim) |row| {
@@ -406,8 +641,8 @@ pub fn tgsy2(al: Allocator, io: Io, comptime T: type, trans: bool, ijob: u2, m: 
                 const scaloc = gesc2(T, zdim, &z, &rhs, &ipiv, &jpiv);
                 if (scaloc != 1) {
                     for (0..n) |col| for (0..m) |row| {
-                        c[row + col * ldc] = chol.mulReal(T, c[row + col * ldc], scaloc);
-                        f[row + col * ldf] = chol.mulReal(T, f[row + col * ldf], scaloc);
+                        c[row + col * ldc] = ops.mulReal(T, c[row + col * ldc], scaloc);
+                        f[row + col * ldf] = ops.mulReal(T, f[row + col * ldf], scaloc);
                     };
                     out.scale *= scaloc;
                 }
@@ -509,7 +744,7 @@ fn getc2(comptime T: type, n: usize, z: *[64]T, ipiv: *[8]usize, jpiv: *[8]usize
             info = i + 1;
             z[i + 8 * i] = scalar(T, smin);
         }
-        for (i + 1..n) |j| z[j + 8 * i] = divide(T, z[j + 8 * i], z[i + 8 * i]);
+        for (i + 1..n) |j| z[j + 8 * i] = ops.div(T, z[j + 8 * i], z[i + 8 * i]);
         for (i + 1..n) |col| for (i + 1..n) |row| {
             z[row + 8 * col] = sub(T, z[row + 8 * col], mul(T, z[row + 8 * i], z[i + 8 * col]));
         };
@@ -535,12 +770,12 @@ fn gesc2(comptime T: type, n: usize, z: *const [64]T, rhs: *[8]T, ipiv: *const [
     var scale: F = 1;
     // `I?AMAX`: `|re| + |im|` for complex
     var big: usize = 0;
-    for (0..n) |i| if (abs1(T, rhs[i]) > abs1(T, rhs[big])) {
+    for (0..n) |i| if (ops.abs1(T, rhs[i]) > ops.abs1(T, rhs[big])) {
         big = i;
     };
     if (2 * smlnum * absT(T, rhs[big]) > absT(T, z[n - 1 + 8 * (n - 1)])) {
         const temp = 0.5 / absT(T, rhs[big]);
-        for (rhs[0..n]) |*x| x.* = chol.mulReal(T, x.*, temp);
+        for (rhs[0..n]) |*x| x.* = ops.mulReal(T, x.*, temp);
         scale *= temp;
     }
     backSolve(T, n, z, rhs);
@@ -563,7 +798,7 @@ fn backSolve(comptime T: type, n: usize, z: *const [64]T, rhs: *[8]T) void {
     var i = n;
     while (i > 0) {
         i -= 1;
-        const temp = divide(T, scalar(T, 1), z[i + 8 * i]);
+        const temp = ops.div(T, scalar(T, 1), z[i + 8 * i]);
         rhs[i] = mul(T, rhs[i], temp);
         for (i + 1..n) |j| rhs[i] = sub(T, rhs[i], mul(T, rhs[j], mul(T, z[i + 8 * j], temp)));
     }
@@ -580,7 +815,7 @@ fn redot(comptime T: type, n: usize, x: [*]const T, y: [*]const T) Float(T) {
 /// chosen, from `rhs`, to make `x` large, then `x`'s sum of squares into
 /// `dif`. `ijob` 1: `b`'s entries `±1` by look-ahead; 2: `rhs` plus or
 /// minus an approximate null vector of `Z` (`xGECON`'s last `lacn2` vector).
-fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const [64]T, rhs: *[8]T, dif: *Dif(Float(T)), ipiv: *const [8]usize, jpiv: *const [8]usize) norm.Error!void {
+fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const [64]T, rhs: *[8]T, dif: *Dif(Float(T)), ipiv: *const [8]usize, jpiv: *const [8]usize) ops.Error!void {
     const F = Float(T);
     const one = scalar(T, 1);
     if (ijob == 2) {
@@ -590,7 +825,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
         const temp = 1 / @sqrt(redot(T, n, &xm, &xm));
         var xp: [8]T = undefined;
         for (0..n) |k| {
-            xm[k] = chol.mulReal(T, xm[k], temp);
+            xm[k] = ops.mulReal(T, xm[k], temp);
             xp[k] = add(T, xm[k], rhs[k]);
             rhs[k] = sub(T, rhs[k], xm[k]);
         }
@@ -599,8 +834,8 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
         var sp: F = 0;
         var sr: F = 0;
         for (0..n) |k| {
-            sp += abs1(T, xp[k]);
-            sr += abs1(T, rhs[k]);
+            sp += ops.abs1(T, xp[k]);
+            sr += ops.abs1(T, rhs[k]);
         }
         if (sp > sr) rhs.* = xp;
         norm.lassq(T, n, rhs, 1, &dif.scale, &dif.sum);
@@ -625,7 +860,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
             rhs[j] = add(T, rhs[j], scalar(T, pmone));
             pmone = 1;
         }
-        const temp = chol.neg(T, rhs[j]);
+        const temp = ops.neg(T, rhs[j]);
         for (j + 1..n) |k| rhs[k] = add(T, rhs[k], mul(T, temp, col[k]));
     }
     // the U part, with look-ahead for b(n)
@@ -637,7 +872,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
     var i = n;
     while (i > 0) {
         i -= 1;
-        const temp = divide(T, one, z[i + 8 * i]);
+        const temp = ops.div(T, one, z[i + 8 * i]);
         work[i] = mul(T, work[i], temp);
         rhs[i] = mul(T, rhs[i], temp);
         for (i + 1..n) |k| {
@@ -656,7 +891,7 @@ fn latdf(al: Allocator, io: Io, comptime T: type, ijob: u2, n: usize, z: *const 
 /// `lacn2` leaves in `xGECON`'s `WORK(N+1:2N)`, `(L U)⁻¹ w` for the `w` it
 /// found, from `getc2`'s factors (its swaps left out, as there). An
 /// overflowing solve ends it early, as `xGECON`'s `GO TO 20`.
-fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T, v: *[8]T) norm.Error!void {
+fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T, v: *[8]T) ops.Error!void {
     const F = Float(T);
     const Inv = struct {
         al: Allocator,
@@ -667,11 +902,11 @@ fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T
         normin: bool = false,
 
         const Self = @This();
-        const Stop = norm.Error || error{Overflow};
+        const Stop = ops.Error || error{Overflow};
 
         // the infinity norm's `KASE1 = 2`: `KASE = 2` is `U⁻¹ L⁻¹`
         fn apply(s: *Self, adjoint: bool, x: [*]T) Stop!void {
-            const op: norm.Op = if (comptime isComplex(T)) .c else .t;
+            const op: types.Trans = if (comptime isComplex(T)) .c else .t;
             const lower: [*]F = &s.cnorm;
             const upper: [*]F = s.cnorm[8..].ptr;
             var sl: F = undefined;
@@ -686,8 +921,8 @@ fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T
             const scale = sl * su;
             s.normin = true;
             if (scale != 1) {
-                const ix = norm.iamax(T, s.n, x, 1);
-                if (scale < norm.abs1(T, x[ix]) * std.math.floatMin(F) or scale == 0) return error.Overflow;
+                const ix = blas_calls.iamax(T, s.n, x, 1);
+                if (scale < ops.abs1(T, x[ix]) * std.math.floatMin(F) or scale == 0) return error.Overflow;
                 try norm.rscl(s.io, T, s.n, scale, x, 1);
             }
         }
@@ -697,5 +932,12 @@ fn nullVector(al: Allocator, io: Io, comptime T: type, n: usize, z: *const [64]T
     _ = norm.lacn2(al, T, Inv.Stop, n, v, &x, &ctx, Inv.apply) catch |e| switch (e) {
         error.Overflow => {},
         error.OutOfMemory, error.Canceled => |y| return y,
+    };
+}
+
+/// `?LASCL('G', 1, s)`: `C *= s`, part by part; `trsyl`'s and `tgsyl`'s.
+pub fn scaleBlock(comptime T: type, m: usize, n: usize, s: Float(T), c: [*]T, ldc: usize) void {
+    for (0..n) |j| for (0..m) |i| {
+        c[i + j * ldc] = ops.mulReal(T, c[i + j * ldc], s);
     };
 }

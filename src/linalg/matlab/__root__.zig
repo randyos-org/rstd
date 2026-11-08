@@ -1,24 +1,7 @@
-//! Zig port of `matlab88.f90`'s function library - the 1988 Argonne
-//! National Laboratory "MATLAB" Fortran source (see `ref/matlab88_doc.txt`
-//! / `ref/matlab88_help.txt` / `ref/readme.txt` for the original
-//! documentation) - everything callable as a MATLAB function, minus the
-//! REPL itself (parser, tokenizer, `<>` stack machine, `FOR`/`WHILE`/`IF`,
-//! `SAVE`/`LOAD`/`DIARY`/`PLOT` I/O, `HELP` text) since those have no
-//! meaning outside an interactive session. See `readme.md` for a usage
-//! guide and a full function table.
-//!
-//! The public surface is `CxMat` (bundles a complex matrix and carries
-//! every self-shaped REPL command as a method - `mat.det(...)`,
-//! `mat.eig(allocator, true)`, and so on) plus the handful of REPL
-//! commands below that were never matrix-self-shaped to begin with
-//! (`hilb`/`magic`, `sum`/`prod`, `pow`, the elementwise `sin`/`cos`/...
-//! family, `poly`/`roots`, vector `norm`, `base`/`rat`/`Rand`). Everything
-//! else (`lu`, `cholesky`, `svdapi`, `blas1`, `generators`, ...) is an internal
-//! implementation detail behind those two surfaces, not part of the public
-//! API - see `CxMat.zig`'s "Domain-file methods" section for how its
-//! methods delegate to them.
+//! `matlab88.f90`'s function library (`ref/`) minus the REPL: `CxMat` and its
+//! methods, and the commands below that are not matrix-shaped (`readme.md`).
 
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const elementary = @import("elementary.zig");
 const generators = @import("generators.zig");
 const rat_mod = @import("rat.zig");
@@ -28,7 +11,7 @@ const matrixfun = @import("matrixfun.zig");
 const norm = @import("norm.zig");
 
 pub const CxMat = @import("CxMat.zig");
-pub const Cx = blas1.Cx;
+pub const Cx = scalar.Cx;
 
 /// HILB: REPL name for `hilber` (the closed-form inverse Hilbert matrix).
 pub const hilb = generators.hilber;
@@ -54,8 +37,7 @@ pub const log = matrixfun.log;
 pub const atan = matrixfun.atan;
 
 /// NORM (vector form): see `norm.zig`. The matrix-norm forms
-/// (`matNorm2`/`matNorm1`/`matNormInf`/`matNormFro`) are `CxMat` methods -
-/// see `CxMat.zig`.
+/// (`matNorm2`/`matNorm1`/`matNormInf`/`matNormFro`) are `CxMat` methods.
 pub const vecNorm2 = norm.vecNorm2;
 pub const vecNormP = norm.vecNormP;
 pub const vecNormInf = norm.vecNormInf;
@@ -63,12 +45,12 @@ pub const vecNormInf = norm.vecNormInf;
 /// POWER (`X**Y`): REPL name for `elementary.wpow`.
 pub const pow = elementary.wpow;
 
-/// RAND: REPL name for `random.Urand` - seed with `.init(seed)`, then
+/// RAND: REPL name for `random.Urand`; seed with `.init(seed)`, then
 /// `.next()`/`.nextNormal()`/`.fillUniform()`/`.fillNormal()`.
 pub const Rand = random.Urand;
 
 /// SUM: sum of all entries of a complex vector/matrix (shape doesn't
-/// matter - `ar`/`ai` are read as a flat array).
+/// matter; `ar`/`ai` are read as a flat array).
 pub fn sum(ar: []const f64, ai: []const f64) Cx {
     var sr: f64 = 0.0;
     var si: f64 = 0.0;
@@ -80,10 +62,10 @@ pub fn sum(ar: []const f64, ai: []const f64) Cx {
 }
 
 /// PROD: product of all entries of a complex vector/matrix (shape doesn't
-/// matter - `ar`/`ai` are read as a flat array).
+/// matter; `ar`/`ai` are read as a flat array).
 pub fn prod(ar: []const f64, ai: []const f64) Cx {
     var acc = Cx.init(1.0, 0.0);
-    for (ar, ai) |vr, vi| acc = blas1.wmul(acc, Cx.init(vr, vi));
+    for (ar, ai) |vr, vi| acc = acc.mul(Cx.init(vr, vi));
     return acc;
 }
 
@@ -91,30 +73,14 @@ const zigstd = @import("../../zigstd.zig");
 const lu = @import("lu.zig");
 const cholesky = @import("cholesky.zig");
 const eig = @import("eig.zig");
+const svd = @import("svd.zig");
 const divide = @import("divide.zig");
-const svdapi = @import("svdapi.zig");
-const matmul = @import("matmul.zig");
 const schur = @import("schur.zig");
+const matmul = @import("matmul.zig");
 const elementwise = @import("elementwise.zig");
 
 test {
-    zigstd.testRefAllDecls(CxMat);
-    zigstd.testRefAllDecls(blas1);
-    zigstd.testRefAllDecls(elementary);
-    zigstd.testRefAllDecls(lu);
-    zigstd.testRefAllDecls(cholesky);
-    zigstd.testRefAllDecls(generators);
-    zigstd.testRefAllDecls(rat_mod);
-    zigstd.testRefAllDecls(base_mod);
-    zigstd.testRefAllDecls(random);
-    zigstd.testRefAllDecls(eig);
-    zigstd.testRefAllDecls(divide);
-    zigstd.testRefAllDecls(svdapi);
-    zigstd.testRefAllDecls(matrixfun);
-    zigstd.testRefAllDecls(matmul);
-    zigstd.testRefAllDecls(schur);
-    zigstd.testRefAllDecls(norm);
-    zigstd.testRefAllDecls(elementwise);
+    inline for (.{ CxMat, scalar, elementary, lu, divide, cholesky, generators, rat_mod, base_mod, random, eig, schur, svd, matrixfun, matmul, elementwise, norm }) |m| zigstd.testRefAllDecls(m);
 }
 
 test "sum and prod match hand computation" {

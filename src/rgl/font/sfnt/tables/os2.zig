@@ -1,9 +1,10 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
 /// Schema for the OS/2 table across every version (0-5); each version only
 /// appends fields, so one cumulative layout gives the right offset for any
-/// version - see each accessor's doc comment for its minimum version.
+/// version; see each accessor's doc comment for its minimum version.
 /// ulUnicodeRange1-4/ulCodePageRange1-2 need align(2): the cumulative byte
 /// count is only 2-aligned when they're reached, not the 4 a u32 wants.
 const StreamLayout = extern struct {
@@ -273,8 +274,6 @@ pub const Os2Table = struct {
         return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "us_upper_optical_point_size")..]);
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "OS/2 StreamLayout matches the OpenType stream layout at every version boundary" {
     try zigstd.testExpectEqual(@as(usize, 78), v0_size);

@@ -1,35 +1,14 @@
 //! The Zig gemm kernels for real `T` and its `Complex`: the packing copies,
-//! `beta`, and the register-tile kernel `C += alpha * A * B` on packed panels
-//! (the slots `<p>gemm_{incopy,itcopy,oncopy,otcopy,beta,kernel}`, complex
-//! `kernel_{n,l,r,b}`). Compiled into the main library as the portable
-//! kernels (`installGeneric`), and into every per-core object (`Registry`),
-//! where the core's features set the vector width and register count, so one
-//! source serves every core. The other level-3 routines' packing and kernels
-//! (`sets`) go with them: they share the tile.
-//!
-//! Packed layout, shared by the copies and the kernel: `n / u` panels of
-//! width `u`, then one of each power of two below `u` set in `n % u`. Panel
-//! `p` at column `c0` with width `w` sits at `m * c0`, as `m` groups of `w`.
-//! For a power-of-two `u` this is OpenBLAS's `kernel/generic` layout. A
-//! complex element is its two parts, real first.
-//!
-//! The tile is `mr x nr`: `mv` vectors of `vl` lanes by `nr` columns, the
-//! most accumulators the registers hold beside the `mv` loads of A and a
-//! broadcast of B (`geometry`). Complex lanes hold whole elements, and each
-//! has two accumulators, one per part of B (`kernel/x86_64/zgemm_kernel_4x2_haswell.S`'s
-//! scheme); without vectors the parts are separate scalars. Imports stay
-//! inside `linalg/blas/`: the per-core objects compile this file on their own.
+//! `beta` and the register tile, in the main library and every per-core
+//! object (`../kernels.zig`) alike; layout and tile in `notes.md`. Imports stay in `linalg/blas/`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
 const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
-const Slot = util.Slot;
-const XDouble = types.XDouble;
 const isComplex = types.isComplex;
 
 /// A kernel set's tile: `mv` vectors of `vl` lanes (`mr` rows) by `nr`
@@ -201,7 +180,7 @@ inline fn splat(comptime T: type, comptime n: usize, x: T) Lanes(T, n) {
 /// each step is rounded to `T`: a full tile's sums stay in registers, wider
 /// than a partial tile's in memory, and threads move columns between them.
 pub inline fn madd(comptime T: type, comptime n: usize, a: Lanes(T, n), b: Lanes(T, n), c: Lanes(T, n)) Lanes(T, n) {
-    const fused = comptime (if (n == 1) fma.fuse else fma.fuse_vector) and fma.fusible(T);
+    const fused = comptime fma.fuseFor(T);
     if (comptime n == 1 and !fused and util.onX87(T)) return util.rounded(T, util.rounded(T, a * b) + c);
     return fma.madd(fused, Lanes(T, n), a, b, c);
 }
@@ -679,200 +658,6 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
                 p[0] = @floatCast(nre);
                 p[1] = @floatCast(nim);
             };
-        }
-    };
-}
-
-/// Every module with kernels over the gemm tile: each `Kernels(T, geo)` has
-/// a public function per vtable slot it fills, named as the slot less its
-/// precision letter.
-pub const sets = .{ @This(), @import("../symm/kernel.zig"), @import("../trmm/kernel.zig"), @import("../trsm/kernel.zig"), @import("../../ext/neg/kernel.zig"), @import("../../ext/laswp/kernel.zig"), three_m, @import("small_kernel.zig") };
-
-/// The 3M kernels, whose tile is the real one of the complex type's parts:
-/// their unrolls are their own (`<p>gemm3m_unroll_m`, `_n`).
-const three_m = @import("../gemm3m/kernel.zig");
-
-/// The precisions these kernels serve, by vtable prefix.
-const precisions = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble }, .{ "c", types.Complex32 }, .{ "z", types.Complex64 }, .{ "x", types.ComplexXD } };
-/// Those a core's object may replace: `q` and `x` slots keep the portable kernels.
-const core_precisions = .{ precisions[0], precisions[1], precisions[3], precisions[4] };
-
-/// The slot that says whose kernels a precision has.
-fn witness(comptime T: type) []const u8 {
-    return if (isComplex(T)) "gemm_kernel_n" else "gemm_kernel";
-}
-
-/// The names of `K`'s functions that are slots with prefix `pre`.
-fn slotNames(comptime pre: []const u8, comptime K: type) []const []const u8 {
-    comptime {
-        var out: []const []const u8 = &.{};
-        for (std.meta.declarations(K)) |d| {
-            if (@typeInfo(@TypeOf(@field(K, d))) == .@"fn" and @hasField(Vtable, pre ++ d)) out = out ++ [_][]const u8{d};
-        }
-        return out;
-    }
-}
-
-/// The portable kernel of `T` named `name` (a slot less its letter), from
-/// whichever of `sets` has it: `portable.kernel`'s source for level 3.
-pub fn find(comptime T: type, comptime name: []const u8) @TypeOf(&@field(Owner(T, name).Kernels(T, geometry(T)), name)) {
-    return &@field(Owner(T, name).Kernels(T, geometry(T)), name);
-}
-
-fn Owner(comptime T: type, comptime name: []const u8) type {
-    inline for (sets) |s| {
-        if (@hasDecl(s.Kernels(T, geometry(T)), name)) return s;
-    }
-    @compileError("no level-3 kernel " ++ name ++ " for " ++ @typeName(T));
-}
-
-/// Points `vt`'s level-3 slots at the kernels of each of `list`, and its
-/// gemm unrolls at the tiles, through `source` (`function`, `unroll`).
-fn fill(vt: *Vtable, comptime list: anytype, comptime source: anytype) void {
-    inline for (list) |p| {
-        inline for (sets) |s| {
-            // `q` and `x` alias `d` and `z` where `XDouble` is `f64`, and
-            // nothing reaches their slots but gemm's (`portable.letter`)
-            const alias = XDouble == f64 and (p[0][0] == 'q' or p[0][0] == 'x');
-            if (comptime alias and s != @This()) continue;
-            inline for (comptime slotNames(p[0], s.Kernels(p[1], geometry(p[1])))) |name| {
-                @field(vt, p[0] ++ name) = source.function(p[0], p[1], s, name);
-            }
-        }
-        const um = source.unroll(p[0], p[1], "m");
-        const un = source.unroll(p[0], p[1], "n");
-        @field(vt, p[0] ++ "gemm_unroll_m") = um;
-        @field(vt, p[0] ++ "gemm_unroll_n") = un;
-        @field(vt, p[0] ++ "gemm_unroll_mn") = @max(um, un);
-        if (comptime isComplex(p[1]) and !(XDouble == f64 and p[0][0] == 'x')) {
-            setUnrolls3m(vt, p[0], source.unroll3m(p[0], p[1], "m"), source.unroll3m(p[0], p[1], "n"));
-        }
-    }
-}
-
-fn setUnrolls3m(vt: *Vtable, comptime pre: []const u8, um: i32, un: i32) void {
-    @field(vt, pre ++ "gemm3m_unroll_m") = um;
-    @field(vt, pre ++ "gemm3m_unroll_n") = un;
-    @field(vt, pre ++ "gemm3m_unroll_mn") = @max(um, un);
-}
-
-/// Puts back the portable kernels' unrolls where `vt`'s slots still hold
-/// them: a core's blocking (`params.installCore`), set after them, writes
-/// `param.h`'s, and no per-core object may come to replace both.
-pub fn settle(vt: *Vtable) void {
-    inline for (precisions) |p| {
-        const K = Kernels(p[1], geometry(p[1]));
-        if (@field(vt, p[0] ++ witness(p[1])) == &@field(K, witness(p[1]))) {
-            @field(vt, p[0] ++ "gemm_unroll_m") = K.unroll_m;
-            @field(vt, p[0] ++ "gemm_unroll_n") = K.unroll_n;
-            @field(vt, p[0] ++ "gemm_unroll_mn") = @max(K.unroll_m, K.unroll_n);
-        }
-        if (comptime isComplex(p[1])) {
-            const K3 = three_m.Kernels(p[1], geometry(p[1]));
-            if (@field(vt, p[0] ++ "gemm3m_kernel") == &K3.gemm3m_kernel) setUnrolls3m(vt, p[0], K3.unroll_m, K3.unroll_n);
-        }
-    }
-}
-
-/// The portable kernels: the main library's own build of these.
-pub fn installGeneric(vt: *Vtable) void {
-    fill(vt, precisions, struct {
-        fn function(comptime pre: []const u8, comptime T: type, comptime s: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child {
-            return &@field(s.Kernels(T, geometry(T)), name);
-        }
-        fn unroll(comptime _: []const u8, comptime T: type, comptime which: []const u8) i32 {
-            return @field(Kernels(T, geometry(T)), "unroll_" ++ which);
-        }
-        fn unroll3m(comptime _: []const u8, comptime T: type, comptime which: []const u8) i32 {
-            return @field(three_m.Kernels(T, geometry(T)), "unroll_" ++ which);
-        }
-    });
-}
-
-/// Points `vt`'s slots for `T` (prefix `pre`) at the kernels of tile `geo`,
-/// and its unrolls at the tile: for tests, which run the drivers over tiles
-/// this machine does not choose.
-pub fn installTile(vt: *Vtable, comptime pre: []const u8, comptime T: type, comptime geo: Geometry) void {
-    fill(vt, .{.{ pre, T }}, struct {
-        fn function(comptime p: []const u8, comptime U: type, comptime s: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, p ++ name)).optional.child {
-            return &@field(s.Kernels(U, geo), name);
-        }
-        fn unroll(comptime _: []const u8, comptime U: type, comptime which: []const u8) i32 {
-            return @field(Kernels(U, geo), "unroll_" ++ which);
-        }
-        fn unroll3m(comptime _: []const u8, comptime U: type, comptime which: []const u8) i32 {
-            return @field(three_m.Kernels(U, geo), "unroll_" ++ which);
-        }
-    });
-}
-
-/// Whether a core's features can change this target's tiles (`vectorBits`):
-/// where none can (SPARC), a core's object would only hold the portable
-/// kernels again, so it holds none of these.
-fn tilesVary() bool {
-    return switch (sysinfo.target.cpu.arch) {
-        .sparc, .sparc64 => false,
-        else => true,
-    };
-}
-
-/// The per-core kernels, for an architecture's registry (`kernels/<arch>.zig`):
-/// every per-core object exports them, built for its own features, with
-/// their unrolls as data (the tile depends on the object's features, which
-/// the main library does not have). They never make a core need an object.
-pub fn Registry(comptime Core: type) type {
-    return struct {
-        pub fn has(comptime core: Core) bool {
-            _ = core;
-            return false;
-        }
-
-        fn Unrolls(comptime T: type) type {
-            return struct {
-                const m: i32 = Kernels(T, geometry(T)).unroll_m;
-                const n: i32 = Kernels(T, geometry(T)).unroll_n;
-            };
-        }
-
-        fn Unrolls3m(comptime T: type) type {
-            return struct {
-                const m: i32 = three_m.Kernels(T, geometry(T)).unroll_m;
-                const n: i32 = three_m.Kernels(T, geometry(T)).unroll_n;
-            };
-        }
-
-        pub fn exportCore(comptime core: Core) void {
-            if (comptime !tilesVary()) return;
-            inline for (core_precisions) |p| {
-                inline for (sets) |s| {
-                    // a set may hand a core upstream's own kernels
-                    const S = if (@hasDecl(s, "forCore")) s.forCore(core) else s;
-                    const K = S.Kernels(p[1], geometry(p[1]));
-                    inline for (comptime slotNames(p[0], K)) |name| {
-                        @export(&@field(K, name), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ name), core), .visibility = .hidden });
-                    }
-                }
-                inline for (.{ "m", "n" }) |w| {
-                    @export(&@field(Unrolls(p[1]), w), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ "gemm_unroll_" ++ w), core), .visibility = .hidden });
-                    if (comptime isComplex(p[1])) @export(&@field(Unrolls3m(p[1]), w), .{ .name = util.kernelSymbol(@field(Slot, p[0] ++ "gemm3m_unroll_" ++ w), core), .visibility = .hidden });
-                }
-            }
-        }
-
-        pub fn install(vt: *Vtable, comptime core: Core) void {
-            if (comptime !tilesVary()) return;
-            fill(vt, core_precisions, struct {
-                fn function(comptime pre: []const u8, comptime _: type, comptime _: type, comptime name: []const u8) @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child {
-                    const Fn = @typeInfo(@FieldType(Vtable, pre ++ name)).optional.child;
-                    return @extern(Fn, .{ .name = util.kernelSymbol(@field(Slot, pre ++ name), core), .visibility = .hidden });
-                }
-                fn unroll(comptime pre: []const u8, comptime _: type, comptime which: []const u8) i32 {
-                    return @extern(*const i32, .{ .name = util.kernelSymbol(@field(Slot, pre ++ "gemm_unroll_" ++ which), core), .visibility = .hidden }).*;
-                }
-                fn unroll3m(comptime pre: []const u8, comptime _: type, comptime which: []const u8) i32 {
-                    return @extern(*const i32, .{ .name = util.kernelSymbol(@field(Slot, pre ++ "gemm3m_unroll_" ++ which), core), .visibility = .hidden }).*;
-                }
-            });
         }
     };
 }

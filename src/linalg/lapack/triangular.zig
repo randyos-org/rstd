@@ -1,26 +1,8 @@
-//! Triangular inverse, the products `U Uᴴ` and `Lᴴ L`, and triangular
-//! solves: OpenBLAS's `interface/lapack/trtri.c`, `trti2.c`, `lauum.c`,
-//! `lauu2.c`, `trtrs.c` and their `z` forms, over `lapack/trtri/`,
-//! `lapack/trti2/`, `lapack/lauum/`, `lapack/lauu2/` and `lapack/trtrs/`
-//! (OpenBLAS v0.3.34-317). The semantics are Reference-LAPACK's `xTRTRI`,
-//! `xTRTI2`, `xLAUUM`, `xLAUU2` and `xTRTRS` (`lapack-netlib/SRC/`).
-//!
-//! The blocked forms call the level-3 drivers directly, as upstream calls
-//! its kernels, so Accelerate never runs them; upstream's `lauum_U_single.c`
-//! and `lauum_L_single.c` fuse their `herk` and `trmm` per column block, the
-//! same arithmetic. The unblocked `trti2` and `lauu2` are loops, upstream's
-//! `trmv`, `scal`, `dot` and `gemv` in the reference's order.
-//!
-//! Upstream takes `trtri_[UL]_parallel.c` and `lauum_[UL]_parallel.c`
-//! (other blocks, and for `trtri` another order) when it has more than one
-//! thread; here the size alone picks them (`chol.threads`), and the drivers'
-//! workers keep the bits. `trtrs_parallel.c` is the single form's `trsm` on
-//! threads, as here.
-//!
-//! Where they differ, the reference wins: `trtrs` checks its arguments in
-//! the reference's order (upstream reports a bad `diag` before a bad
-//! `uplo`), and a zero on the diagonal is found by `==`, where upstream asks
-//! `amin` and `iamin`, whose NaN handling varies by kernel.
+//! Triangular inverse, `U Uᴴ` and `Lᴴ L`, and triangular solves: OpenBLAS
+//! v0.3.34-317's `interface/lapack/trtri.c`, `trti2.c`, `lauum.c`,
+//! `lauu2.c`, `trtrs.c` and their `z` forms over `lapack/trtri/` and the
+//! rest, with Reference-LAPACK's semantics (`lapack-netlib/SRC/`).
+//! Departures and threading: design.md's LAPACK section.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
@@ -28,7 +10,8 @@ const util = @import("../blas/util.zig");
 const driver = @import("../blas/blas3/driver.zig");
 const triangular = @import("../blas/blas2/triangular.zig");
 const Vtable = @import("../blas/Vtable.zig");
-const chol = @import("cholesky.zig");
+const ops = @import("ops.zig");
+const interface = @import("interface.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -37,13 +20,13 @@ const Diag = types.Diag;
 const Trans = types.Trans;
 const Float = types.Float;
 const isComplex = types.isComplex;
-const scalar = chol.scalar;
-const add = chol.add;
-const mul = chol.mul;
-const conj = chol.conj;
+const scalar = ops.scalar;
+const add = ops.add;
+const mul = ops.mul;
+const conj = ops.conj;
 
 /// Bad arguments of `trtri`, `trti2`, `lauum` and `lauu2`.
-pub const ArgError = chol.SquareError;
+pub const ArgError = interface.SquareError;
 /// What `trti2`, `lauu2` and `lauum` return.
 pub const LauumError = ArgError || Allocator.Error || Io.Cancelable;
 /// What `trtri` returns: `Singular` for a zero on the diagonal.
@@ -61,39 +44,39 @@ pub const TrtrsError = error{ InvalidUplo, InvalidTrans, InvalidN, InvalidNrhs, 
 /// before `A` is touched, the first one's index (1-based) in `pivot`, the
 /// reference's `INFO`. `pivot` is written only then.
 pub fn trtri(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: isize, a: [*]T, lda: isize, pivot: ?*usize) TrtriError!void {
-    comptime chol.floatType(T, "trtri");
-    if (!try chol.checkSquare(T, uplo, n, lda)) return;
+    comptime ops.requireFloat(T, "trtri");
+    if (!try interface.checkSquare(T, uplo, n, lda)) return;
     const un: usize = @intCast(n);
     const la: usize = @intCast(lda);
     if (diag == .n) if (firstZero(T, un, a, la)) |k| {
         if (pivot) |p| p.* = k;
         return error.Singular;
     };
-    return inverse(allocator, io, T, uplo == .u, diag == .u, un, a, la, chol.threads(.trtri, T, un));
+    return inverse(allocator, io, T, uplo == .u, diag == .u, un, a, la, interface.threads(.trtri, T, un));
 }
 
 /// `?TRTI2`: `trtri` unblocked (`trti2_U.c` and the rest, as loops). No
 /// singularity check, as in the reference: a zero on the diagonal divides.
 pub fn trti2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, diag: Diag, n: isize, a: [*]T, lda: isize) LauumError!void {
-    comptime chol.floatType(T, "trti2");
+    comptime ops.requireFloat(T, "trti2");
     _ = allocator;
     _ = io;
-    if (!try chol.checkSquare(T, uplo, n, lda)) return;
+    if (!try interface.checkSquare(T, uplo, n, lda)) return;
     unblockedInverse(T, uplo == .u, diag == .u, @intCast(n), a, @intCast(lda));
 }
 
 /// The first zero on the diagonal of the `n x n` `a` (1-based), or null.
 pub fn firstZero(comptime T: type, n: usize, a: [*]const T, lda: usize) ?usize {
-    for (0..n) |i| if (chol.isZero(T, a[i * (lda + 1)])) return i + 1;
+    for (0..n) |i| if (ops.isZero(T, a[i * (lda + 1)])) return i + 1;
     return null;
 }
 
-/// `trtri`'s algorithm: with `want` (`chol.threads`), the parallel one on
+/// `trtri`'s algorithm: with `want` (`interface.threads`), the parallel one on
 /// up to that many workers, else the single one.
 pub fn inverse(allocator: Allocator, io: Io, comptime T: type, upper: bool, unit: bool, n: usize, a: [*]T, lda: usize, want: ?u32) driver.Error!void {
-    const vt = chol.table(T);
+    const vt = interface.table(T);
     const blk = driver.Blocking.of(T, vt);
-    if (want) |w| return inverseParallel(allocator, io, T, vt, upper, unit, chol.dtbOf(vt), blk.q, n, a, lda, w);
+    if (want) |w| return inverseParallel(allocator, io, T, vt, upper, unit, interface.dtbOf(vt), blk.q, n, a, lda, w);
     return inverseSingle(allocator, io, T, vt, upper, unit, blk.q, n, a, lda);
 }
 
@@ -189,7 +172,7 @@ pub fn unblockedInverse(comptime T: type, upper: bool, unit: bool, n: usize, a: 
         const ajj: T = if (unit) scalar(T, 1) else recip(T, dj.*);
         if (!unit) dj.* = ajj;
         const x = a + j * lda;
-        const s = chol.neg(T, ajj);
+        const s = ops.neg(T, ajj);
         if (upper) {
             // `x := U(:j, :j) x`, a column at a time, as `xTRMV`
             for (0..j) |k| {
@@ -234,28 +217,28 @@ fn recip(comptime T: type, v: T) T {
 /// in `A`'s `uplo` triangle, into that triangle. The other triangle is never
 /// read. Complex: the diagonal comes out real, as `xLAUUM`'s.
 pub fn lauum(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize) LauumError!void {
-    comptime chol.floatType(T, "lauum");
-    if (!try chol.checkSquare(T, uplo, n, lda)) return;
+    comptime ops.requireFloat(T, "lauum");
+    if (!try interface.checkSquare(T, uplo, n, lda)) return;
     const un: usize = @intCast(n);
-    return product(allocator, io, T, uplo == .u, un, a, @intCast(lda), chol.threads(.lauum, T, un));
+    return product(allocator, io, T, uplo == .u, un, a, @intCast(lda), interface.threads(.lauum, T, un));
 }
 
 /// `?LAUU2`: `lauum` unblocked (`lauu2_U.c` and the rest, as loops).
 pub fn lauu2(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize) LauumError!void {
-    comptime chol.floatType(T, "lauu2");
+    comptime ops.requireFloat(T, "lauu2");
     _ = allocator;
     _ = io;
-    if (!try chol.checkSquare(T, uplo, n, lda)) return;
+    if (!try interface.checkSquare(T, uplo, n, lda)) return;
     unblockedProduct(T, uplo == .u, @intCast(n), a, @intCast(lda));
 }
 
-/// `lauum`'s algorithm: with `want` (`chol.threads`), the parallel one on
+/// `lauum`'s algorithm: with `want` (`interface.threads`), the parallel one on
 /// up to that many workers, else the single one.
 pub fn product(allocator: Allocator, io: Io, comptime T: type, upper: bool, n: usize, a: [*]T, lda: usize, want: ?u32) driver.Error!void {
-    const vt = chol.table(T);
+    const vt = interface.table(T);
     const blk = driver.Blocking.of(T, vt);
     if (want) |w| return productParallel(allocator, io, T, vt, upper, blk, n, a, lda, w);
-    return productSingle(allocator, io, T, vt, upper, chol.dtbOf(vt), blk.q, n, a, lda);
+    return productSingle(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a, lda);
 }
 
 /// `lauum_U_single.c` and `lauum_L_single.c`: `lauu2` up to `dtb_entries`,
@@ -278,7 +261,7 @@ fn productSingle(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtab
 /// `Q`, each block as there, recursively, on up to `want` workers. Upstream
 /// drops to the single form for one thread too; here only the size does.
 fn productParallel(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, upper: bool, blk: driver.Blocking, n: usize, a: [*]T, lda: usize, want: u32) driver.Error!void {
-    if (n <= 2 * blk.un) return productSingle(allocator, io, T, vt, upper, chol.dtbOf(vt), blk.q, n, a, lda);
+    if (n <= 2 * blk.un) return productSingle(allocator, io, T, vt, upper, interface.dtbOf(vt), blk.q, n, a, lda);
     const blocking = @min((n / 2 + blk.un - 1) / blk.un * blk.un, blk.q);
     var i: usize = 0;
     while (i < n) : (i += blocking) {
@@ -317,19 +300,19 @@ pub fn unblockedProduct(comptime T: type, upper: bool, n: usize, a: [*]T, lda: u
     const F = Float(T);
     for (0..n) |i| {
         const d = &a[i * (lda + 1)];
-        const aii = chol.re(T, d.*);
+        const aii = ops.re(T, d.*);
         // column `i` (`l`: row `i`) up to and with the diagonal
         const s: usize = if (upper) 1 else lda;
         const v = if (upper) a + i * lda else a + i;
-        for (0..i + 1) |k| v[k * s] = chol.mulReal(T, v[k * s], aii);
+        for (0..i + 1) |k| v[k * s] = ops.mulReal(T, v[k * s], aii);
         if (i + 1 == n) continue;
         // the rest of row `i` (`l`: column `i`)
         const rs: usize = if (upper) lda else 1;
         const r = if (upper) a + i + (i + 1) * lda else a + i + 1 + i * lda;
         const len = n - i - 1;
         var sum: F = 0;
-        for (0..len) |k| sum += chol.abs2(T, r[k * rs]);
-        d.* = scalar(T, chol.re(T, d.*) + sum);
+        for (0..len) |k| sum += ops.abs2(T, r[k * rs]);
+        d.* = scalar(T, ops.re(T, d.*) + sum);
         if (upper) {
             // `A(:i, i) += A(:i, i+1:) conj(A(i, i+1:))`, a column at a time
             for (0..len) |k| {
@@ -361,7 +344,7 @@ pub fn unblockedProduct(comptime T: type, upper: bool, n: usize, a: [*]T, lda: u
 /// before `B` is touched (even for `nrhs = 0`, as the reference), its index
 /// (1-based) in `pivot`.
 pub fn trtrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: Trans, diag: Diag, n: isize, nrhs: isize, a: [*]const T, lda: isize, b: [*]T, ldb: isize, pivot: ?*usize) TrtrsError!void {
-    comptime chol.floatType(T, "trtrs");
+    comptime ops.requireFloat(T, "trtrs");
     if (uplo.isRev()) return error.InvalidUplo;
     if (trans.conjX()) return error.InvalidTrans;
     if (n < 0) return error.InvalidN;
@@ -378,9 +361,9 @@ pub fn trtrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: 
         return error.Singular;
     };
     if (nrhs == 0) return;
-    const vt = chol.table(T);
+    const vt = interface.table(T);
     if (nrhs == 1) return triangular.trsvTable(allocator, io, T, vt, uplo, trans, diag, m, a, la, b);
-    const want = chol.threads(.trtrs, T, m) orelse 1;
+    const want = interface.threads(.trtrs, T, m) orelse 1;
     try driver.trsm(allocator, io, T, vt, true, uplo == .u, trans.transposed(), trans.conjA(), diag == .u, m, @intCast(nrhs), scalar(T, 1), a, la, b, @intCast(ldb), want);
 }
 
@@ -388,151 +371,20 @@ pub fn trtrs(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, trans: 
 
 const testing = std.testing;
 const blas = @import("../blas/__root__.zig");
-const check = @import("../blas/_test/blas1/check.zig");
-const guard = @import("../blas/_test/blas2/guard.zig");
+const check = @import("../blas/_test/check.zig");
+const guard = @import("../blas/_test/guard.zig");
+const reference = @import("../blas/_test/reference.zig");
+const lcheck = @import("_test/check.zig");
+const fixtures = @import("_test/fixtures.zig");
 
-const W = chol.W;
-const test_types = chol.test_types;
-const poisoned = chol.poisoned;
-const isNanT = chol.isNanT;
+const W = lcheck.W;
+const test_types = lcheck.test_types;
+const poisoned = lcheck.poisoned;
+const isNanT = lcheck.isNanT;
 
 const nan = std.math.nan(f64);
 
-/// A test triangle in `upper`'s side of `n x n`, stored at `lda = n + 2`:
-/// the diagonal in [2.5, 3.5), the rest within `1 / n`, so it and its
-/// inverse are well conditioned; `w` keeps it whole in `W(T)`, a unit
-/// diagonal as ones. The other triangle, the padding and a unit diagonal
-/// hold NaN.
-pub fn Tri(comptime T: type) type {
-    return struct {
-        n: usize,
-        lda: usize,
-        upper: bool,
-        unit: bool,
-        a: []T,
-        w: []W(T),
-
-        const Self = @This();
-
-        pub fn init(al: Allocator, n: usize, upper: bool, unit: bool, seed: u64) !Self {
-            const lda = n + 2;
-            const a = try al.alloc(T, @max(1, lda * n));
-            errdefer al.free(a);
-            const w = try al.alloc(W(T), n * n);
-            errdefer al.free(w);
-            const v = try al.alloc(T, n * n);
-            defer al.free(v);
-            check.fill(T, v, seed);
-            const scale: Float(T) = @floatCast(1 / @as(f64, @floatFromInt(@max(n, 1))));
-            for (0..n) |j| for (0..n) |i| {
-                const x = v[i + j * n];
-                const e = if (if (upper) i > j else i < j)
-                    scalar(T, 0)
-                else if (i == j)
-                    scalar(T, if (unit) 1 else 3 + chol.re(T, x) / 2)
-                else
-                    chol.mulReal(T, x, scale);
-                w[i + j * n] = check.wide(T, e);
-            };
-            var self: Self = .{ .n = n, .lda = lda, .upper = upper, .unit = unit, .a = a, .w = w };
-            self.store();
-            return self;
-        }
-
-        pub fn deinit(self: *Self, al: Allocator) void {
-            al.free(self.a);
-            al.free(self.w);
-        }
-
-        /// Whether the routines read and write `(i, j)` of `a`.
-        pub fn stored(self: *const Self, i: usize, j: usize) bool {
-            if (i >= self.n) return false;
-            if (i == j) return !self.unit;
-            return if (self.upper) i < j else i > j;
-        }
-
-        pub fn store(self: *Self) void {
-            @memset(self.a, poisoned(T));
-            for (0..self.n) |j| for (0..self.n) |i| if (self.stored(i, j)) {
-                self.a[i + j * self.lda] = chol.toT(T, self.w[i + j * self.n]);
-            };
-        }
-
-        /// The computed matrix's `(i, j)`: ones on a unit diagonal, zeros
-        /// outside the triangle.
-        pub fn got(self: *const Self, i: usize, j: usize) W(T) {
-            if (i == j and self.unit) return check.wide(T, scalar(T, 1));
-            if (!self.stored(i, j)) return check.wide(T, scalar(T, 0));
-            return check.wide(T, self.a[i + j * self.lda]);
-        }
-
-        pub fn expectUntouched(self: *const Self, what: []const u8) !void {
-            for (0..self.n) |j| for (0..self.lda) |i| if (!self.stored(i, j) and !isNanT(T, self.a[i + j * self.lda])) {
-                check.say("{s} {s} {s} n={d}: wrote ({d},{d}), outside its triangle\n", .{ what, @typeName(T), if (self.upper) "u" else "l", self.n, i, j });
-                return error.TestUnexpectedResult;
-            };
-        }
-
-        /// `A X = I` within `8 (n + 2)` ulps of `|A| |X|`, `X` the computed
-        /// inverse, nothing outside the triangle written.
-        pub fn expectInverse(self: *const Self) !void {
-            const n = self.n;
-            const eps: f128 = std.math.floatEps(Float(T));
-            const ulps: f128 = @floatFromInt(8 * (n + 2));
-            for (0..n) |j| for (0..n) |i| {
-                if (if (self.upper) i > j else i < j) continue;
-                var s: W(T) = check.wide(T, scalar(T, if (i == j) -1 else 0));
-                var mag: f128 = 0;
-                for (@min(i, j)..@max(i, j) + 1) |k| {
-                    const x = self.w[i + k * n];
-                    const y = self.got(k, j);
-                    s = check.addW(s, check.mulW(x, y));
-                    mag += check.abs1(x) * check.abs1(y);
-                }
-                const d = check.abs1(s);
-                if (!(d <= ulps * eps * mag)) {
-                    check.say("trtri {s} {s}{s} n={d}: (A X - I)({d},{d}) = {e}, allowed {e}\n", .{ @typeName(T), if (self.upper) "u" else "l", if (self.unit) "u" else "n", n, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(ulps * eps * mag)) });
-                    return error.TestUnexpectedResult;
-                }
-            };
-            try self.expectUntouched("trtri");
-        }
-
-        /// The stored triangle against `U Uᴴ` or `Lᴴ L` of `w` within
-        /// `2 (n + 2)` ulps of the product in magnitude, a complex diagonal
-        /// exactly real, nothing outside the triangle written.
-        pub fn expectProduct(self: *const Self) !void {
-            const n = self.n;
-            const eps: f128 = std.math.floatEps(Float(T));
-            const ulps: f128 = @floatFromInt(2 * (n + 2));
-            for (0..n) |j| for (0..n) |i| {
-                if (!self.stored(i, j)) continue;
-                var s: W(T) = check.wide(T, scalar(T, 0));
-                var mag: f128 = 0;
-                for (@max(i, j)..n) |k| {
-                    // `U(i, k) conj(U(j, k))`, or `conj(L(k, i)) L(k, j)`
-                    const x = if (self.upper) self.w[i + k * n] else check.conjW(self.w[k + i * n]);
-                    const y = if (self.upper) check.conjW(self.w[j + k * n]) else self.w[k + j * n];
-                    s = check.addW(s, check.mulW(x, y));
-                    mag += check.abs1(x) * check.abs1(y);
-                }
-                const g = self.a[i + j * self.lda];
-                const d = check.abs1(check.subW(check.wide(T, g), s));
-                if (!(d <= ulps * eps * mag)) {
-                    check.say("lauum {s} {s} n={d}: ({d},{d}) off by {e}, allowed {e}\n", .{ @typeName(T), if (self.upper) "u" else "l", n, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(ulps * eps * mag)) });
-                    return error.TestUnexpectedResult;
-                }
-                if (comptime isComplex(T)) if (i == j and g.im != 0) {
-                    check.say("lauum {s} n={d}: ({d},{d}) has imaginary part {e}\n", .{ @typeName(T), n, i, i, g.im });
-                    return error.TestUnexpectedResult;
-                };
-            };
-            try self.expectUntouched("lauum");
-        }
-    };
-}
-
-/// Sizes around every block edge: on `chol.shrink`'s blocking (`Q` 3,
+/// Sizes around every block edge: on `lcheck.shrink`'s blocking (`Q` 3,
 /// `dtb_entries` 4) and on a core's own.
 const shrunk_sizes = [_]usize{ 1, 2, 3, 4, 5, 8, 9, 12, 13, 14, 23 };
 const own_sizes = [_]usize{ 1, 33, 70, 130 };
@@ -541,15 +393,15 @@ const own_sizes = [_]usize{ 1, 33, 70, 130 };
 /// algorithm (`want` null) and the parallel one on one worker.
 fn eachTri(vt: *const Vtable, comptime unit_too: bool, comptime f: anytype) anyerror!void {
     const al = testing.allocator;
-    inline for (test_types) |T| for ([_]*const Vtable{ chol.shrink(vt), vt }, 0..) |v, vi| {
-        const saved = blas.testUse(v);
-        defer blas.testRestore(saved);
+    inline for (test_types) |T| for ([_]*const Vtable{ lcheck.shrink(vt), vt }, 0..) |v, vi| {
+        guard.use(v);
+        defer guard.restore();
         const sizes: []const usize = if (vi == 0) &shrunk_sizes else &own_sizes;
         for (sizes) |n| for ([_]bool{ true, false }) |upper| for ([_]bool{ false, true }) |unit| {
             if (unit and !unit_too) continue;
             if (check.rig() and n > 70) continue;
             for ([_]?u32{ null, 1 }) |want| {
-                var t = try Tri(T).init(al, n, upper, unit, n * 13 + @as(u64, @intFromBool(upper)) * 2 + @intFromBool(unit));
+                var t = try fixtures.Tri(T).init(al, n, upper, unit, n * 13 + @as(u64, @intFromBool(upper)) * 2 + @intFromBool(unit));
                 defer t.deinit(al);
                 f(T, &t, want) catch |e| {
                     check.say("{s}, blocking {s}, {s} algorithm\n", .{ @typeName(T), if (vi == 0) "shrunk" else "own", if (want == null) "single" else "parallel" });
@@ -560,7 +412,7 @@ fn eachTri(vt: *const Vtable, comptime unit_too: bool, comptime f: anytype) anye
     };
 }
 
-fn inverseCase(comptime T: type, t: *Tri(T), want: ?u32) !void {
+fn inverseCase(comptime T: type, t: *fixtures.Tri(T), want: ?u32) !void {
     var poison: guard.Poison = .{ .child = testing.allocator };
     try inverse(poison.allocator(), check.io, T, t.upper, t.unit, t.n, t.a.ptr, t.lda, want);
     try t.expectInverse();
@@ -574,7 +426,7 @@ test "trtri: A X = I, both triangles and diagonals, both algorithms, on every li
     try check.eachCore(inverseCases);
 }
 
-fn productCase(comptime T: type, t: *Tri(T), want: ?u32) !void {
+fn productCase(comptime T: type, t: *fixtures.Tri(T), want: ?u32) !void {
     var poison: guard.Poison = .{ .child = testing.allocator };
     try product(poison.allocator(), check.io, T, t.upper, t.n, t.a.ptr, t.lda, want);
     try t.expectProduct();
@@ -591,7 +443,7 @@ test "lauum: U Uᴴ and Lᴴ L, both algorithms, on every linked core" {
 test "trti2 and lauu2 are the unblocked forms, and every size picks an algorithm" {
     const al = testing.allocator;
     inline for (.{ f64, types.Complex32 }) |T| for ([_]bool{ true, false }) |upper| {
-        var t = try Tri(T).init(al, 9, upper, false, 3);
+        var t = try fixtures.Tri(T).init(al, 9, upper, false, 3);
         defer t.deinit(al);
         try trti2(al, check.io, T, if (upper) .u else .l, .n, 9, t.a.ptr, @intCast(t.lda));
         try t.expectInverse();
@@ -601,7 +453,7 @@ test "trti2 and lauu2 are the unblocked forms, and every size picks an algorithm
         // the public routines, past upstream's thresholds too
         for ([_]usize{ 40, 200 }) |n| {
             if (check.rig() and n > 70) continue;
-            var p = try Tri(T).init(al, n, upper, false, n);
+            var p = try fixtures.Tri(T).init(al, n, upper, false, n);
             defer p.deinit(al);
             try trtri(al, check.io, T, if (upper) .u else .l, .n, @intCast(n), p.a.ptr, @intCast(p.lda), null);
             try p.expectInverse();
@@ -630,7 +482,7 @@ test "trtri: a zero on the diagonal, the first one's index, nothing written; a u
         pivot = 99;
         try trtri(testing.allocator, check.io, T, uplo, .u, 4, &a, 4, &pivot);
         try testing.expectEqual(@as(usize, 99), pivot);
-        for (0..4) |i| try testing.expect(chol.sameBits(T, before[i * 5], a[i * 5]));
+        for (0..4) |i| try testing.expect(lcheck.sameBits(T, before[i * 5], a[i * 5]));
     };
 }
 
@@ -659,7 +511,7 @@ test "trtri, trti2, lauum, lauu2: the first bad argument, nothing read for n = 0
 /// `trtrs` on `t` for `nrhs` right-hand sides at `ldb = n + 1` (the padding
 /// row NaN): `op(A) X - B` within `8 (n + 2)` ulps of `|op(A)| |X|`, the
 /// padding and `A` untouched.
-fn solveCase(comptime T: type, al: Allocator, t: *const Tri(T), trans: Trans, nrhs: usize, seed: u64) !void {
+fn solveCase(comptime T: type, al: Allocator, t: *const fixtures.Tri(T), trans: Trans, nrhs: usize, seed: u64) !void {
     const n = t.n;
     const ldb = n + 1;
     const b = try al.alloc(T, ldb * nrhs);
@@ -682,15 +534,15 @@ fn solveCase(comptime T: type, al: Allocator, t: *const Tri(T), trans: Trans, nr
     for (0..nrhs) |j| {
         try testing.expect(isNanT(T, b[j * ldb + n]));
         for (0..n) |i| {
-            var s: W(T) = check.wide(T, b0[i + j * n]);
+            var s: W(T) = reference.wide(T, b0[i + j * n]);
             var mag: f128 = 0;
             for (0..n) |k| {
                 const v = if (tr) t.w[k + i * n] else t.w[i + k * n];
-                const x = check.wide(T, b[k + j * ldb]);
-                s = check.subW(s, check.mulW(if (cj) check.conjW(v) else v, x));
-                mag += check.abs1(v) * check.abs1(x);
+                const x = reference.wide(T, b[k + j * ldb]);
+                s = reference.subW(s, reference.mulW(if (cj) reference.conjW(v) else v, x));
+                mag += reference.abs1(v) * reference.abs1(x);
             }
-            const d = check.abs1(s);
+            const d = reference.abs1(s);
             if (!(d <= ulps * eps * mag)) {
                 check.say("trtrs {s} {s}{s} {s} n={d} nrhs={d}: residual ({d},{d}) {e}, allowed {e}\n", .{ @typeName(T), @tagName(uplo), @tagName(diag), @tagName(trans), n, nrhs, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(ulps * eps * mag)) });
                 return error.TestUnexpectedResult;
@@ -703,11 +555,11 @@ fn solveCase(comptime T: type, al: Allocator, t: *const Tri(T), trans: Trans, nr
 fn solveCases(vt: *const Vtable) anyerror!void {
     const al = testing.allocator;
     inline for (test_types) |T| {
-        const saved = blas.testUse(vt);
-        defer blas.testRestore(saved);
+        guard.use(vt);
+        defer guard.restore();
         for ([_]usize{ 1, 2, 7, 33, 70, 130 }) |n| for ([_]bool{ true, false }) |upper| for ([_]bool{ false, true }) |unit| {
             if (check.rig() and n > 70) continue;
-            var t = try Tri(T).init(al, n, upper, unit, n * 7 + @intFromBool(unit));
+            var t = try fixtures.Tri(T).init(al, n, upper, unit, n * 7 + @intFromBool(unit));
             defer t.deinit(al);
             for ([_]Trans{ .n, .t, .r, .c }) |trans| for ([_]usize{ 1, 3 }) |nrhs| {
                 try solveCase(T, al, &t, trans, nrhs, n + nrhs);
@@ -747,7 +599,7 @@ test "trtrs: a zero on the diagonal before B is touched, even with no right-hand
 /// Inputs of a threaded-bits case: a triangle, copied into each run's `out`.
 fn Threaded(comptime T: type) type {
     return struct {
-        t: *const Tri(T),
+        t: *const fixtures.Tri(T),
 
         pub fn inv(c: @This(), io: Io, want: u32, out: []T) anyerror!void {
             @memcpy(out, c.t.a);
@@ -776,11 +628,11 @@ test "trtri's and lauum's parallel algorithms and trtrs give one worker's bits a
     const al = testing.allocator;
     inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| for ([_]bool{ true, false }) |upper| {
         const n: usize = if (check.rig()) 70 else 130;
-        var t = try Tri(T).init(al, n, upper, false, 21);
+        var t = try fixtures.Tri(T).init(al, n, upper, false, 21);
         defer t.deinit(al);
         const c: Threaded(T) = .{ .t = &t };
-        try chol.expectSameBits(T, c, Threaded(T).inv, t.a.len, "trtri");
-        try chol.expectSameBits(T, c, Threaded(T).prod, t.a.len, "lauum");
-        try chol.expectSameBits(T, c, Threaded(T).solve, n * 37, "trtrs");
+        try lcheck.expectSameBits(T, c, Threaded(T).inv, t.a.len, "trtri");
+        try lcheck.expectSameBits(T, c, Threaded(T).prod, t.a.len, "lauum");
+        try lcheck.expectSameBits(T, c, Threaded(T).solve, n * 37, "trtrs");
     };
 }

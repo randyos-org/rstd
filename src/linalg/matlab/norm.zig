@@ -1,20 +1,13 @@
-//! `NORM`, ported from `matlab88.f90`'s `MATFN5` command body. Split into
-//! separate vector/matrix functions rather than one shape-dispatching
-//! `norm()`, matching this port's existing convention (see `matrixfun.zig`'s
-//! doc comment on why `sin`/`cos`/... got the same treatment).
-//!
-//! Vector: `NORM(V,P) = (sum(|V(I)|**P))**(1/P)`, `NORM(V) = NORM(V,2)`,
-//! `NORM(V,'INF') = MAX(ABS(V(I)))`.
-//! Matrix: `NORM(X)`/`NORM(X,2)` is the largest singular value,
-//! `NORM(X,1)` the 1-norm, `NORM(X,'INF')` the infinity-norm,
-//! `NORM(X,'FRO')` the Frobenius norm.
+//! NORM (`MATFN3`): `NORM(V, P)`, `NORM(V)`, `NORM(V, 'INF')`, and for a matrix
+//! the largest singular value, the 1-, infinity- and Frobenius norms.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const Allocator = std.mem.Allocator;
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
-const svdapi = @import("svdapi.zig");
+const svd = @import("svd.zig");
 const blas = @import("../blas/__root__.zig");
-const level1 = blas1.level1;
+const level1 = scalar.level1;
 const Io = std.Io;
 
 /// `NORM(V,2)` / `NORM(V)`: Euclidean norm, `hypot` of `dnrm2` over the
@@ -37,7 +30,7 @@ pub fn vecNormP(n: usize, xr: []const f64, xi: []const f64, incx: isize, p: f64)
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const u: usize = @intCast(i_x);
-        acc += std.math.pow(f64, blas1.pythag(xr[u], xi[u]), p);
+        acc += std.math.pow(f64, std.math.hypot(xr[u], xi[u]), p);
         i_x += incx;
     }
     return std.math.pow(f64, acc, 1.0 / p);
@@ -50,7 +43,7 @@ pub fn vecNormInf(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const u: usize = @intCast(i_x);
-        m = @max(m, blas1.pythag(xr[u], xi[u]));
+        m = @max(m, std.math.hypot(xr[u], xi[u]));
         i_x += incx;
     }
     return m;
@@ -58,9 +51,9 @@ pub fn vecNormInf(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
 
 /// `NORM(X)` / `NORM(X,2)`: largest singular value of `self` (not
 /// mutated), by `gesvd`; 0 for an empty `self`.
-pub fn matNorm2(self: CxMat, allocator: std.mem.Allocator, io: std.Io) svdapi.Error!f64 {
+pub fn matNorm2(self: CxMat, allocator: Allocator, io: std.Io) svd.Error!f64 {
     if (self.m == 0 or self.n == 0) return 0;
-    const s = try svdapi.singularValues(self, allocator, io);
+    const s = try svd.singularValues(self, allocator, io);
     defer allocator.free(s);
     return s[0];
 }
@@ -74,7 +67,7 @@ fn asum(io: Io, n: usize, r: []f64, i: []f64, inc: usize) Io.Cancelable!f64 {
 }
 
 /// `NORM(X,1)`: max column sum of `|re|+|im|` (WGECO's `anorm`), by
-/// `dasum`.
+/// `dasum`; `lu.lange1` is LAPACK's, of `|a(i, j)|`.
 pub fn matNorm1(self: CxMat, io: Io) Io.Cancelable!f64 {
     var result: f64 = 0.0;
     for (1..self.n + 1) |j| {
@@ -129,7 +122,7 @@ test "vecNorm2 scales: huge, tiny, partly underflowing and zero vectors (M1's E8
 }
 
 test "vecNormP with p=2 matches vecNorm2, and p=1 is the sum of moduli" {
-    // moduli: pythag(3,4)=5, pythag(1,0)=1, pythag(-2,0)=2.
+    // moduli: hypot(3,4)=5, hypot(1,0)=1, hypot(-2,0)=2.
     const xr = [_]f64{ 3.0, 1.0, -2.0 };
     const xi = [_]f64{ 4.0, 0.0, 0.0 };
     try zigstd.testExpectApproxEqAbs(try vecNorm2(test_io, 3, &xr, &xi, 1), vecNormP(3, &xr, &xi, 1, 2.0), 1e-9);
@@ -137,7 +130,7 @@ test "vecNormP with p=2 matches vecNorm2, and p=1 is the sum of moduli" {
 }
 
 test "vecNormInf finds the largest-magnitude entry" {
-    // moduli: 1, 2, pythag(0.5,9)=sqrt(81.25)=9.0138782...
+    // moduli: 1, 2, hypot(0.5,9)=sqrt(81.25)=9.0138782...
     const xr = [_]f64{ 1.0, -2.0, 0.5 };
     const xi = [_]f64{ 0.0, 0.0, 9.0 };
     try zigstd.testExpectApproxEqAbs(@sqrt(81.25), vecNormInf(3, &xr, &xi, 1), 1e-9);

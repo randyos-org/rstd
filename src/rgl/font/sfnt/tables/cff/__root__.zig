@@ -7,7 +7,6 @@ pub const CffTable = cff_table;
 pub const CffError = cff_table.CffError;
 
 const charstring = @import("charstring.zig");
-pub const CharstringCtx = charstring.CharstringCtx;
 pub const CharstringError = charstring.CharstringError;
 pub const glyphShapeT2 = charstring.glyphShapeT2;
 pub const glyphBoxT2 = charstring.glyphBoxT2;

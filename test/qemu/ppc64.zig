@@ -1,20 +1,6 @@
-//! 64-bit POWER boot, either endianness, for QEMU's `pseries` machine with
-//! the built-in Virtual Open Firmware (`-M pseries,x-vof=on -kernel`). Console
-//! is the PAPR `H_PUT_TERM_CHAR` hypercall to the default vty; exit is the RTAS
-//! `power-off` call made through `H_RTAS`, which powers the machine off, so the
-//! run step judges the result from the printed summary rather than an exit code.
-//!
-//! The machine enters big-endian, so `_start` opens with the usual
-//! endian-agnostic trampoline: `tdi` is a no-op when little-endian and reads as
-//! `b .+8` when big-endian, which lands on a short big-endian sequence (given
-//! as bytes) that flips MSR.LE with `rfid`; a big-endian image runs `tdi` as
-//! itself, a no-op, and branches past that sequence. Then it sets up the TOC
-//! (r2), enables FP/VMX/VSX and 64-bit mode (SF) in the MSR, and clears bss.
-//! The firmware enters in 32-bit mode, where the carry comes from the low 32
-//! bits, so 64- and 128-bit carries and overflow checks went wrong. Zig emits
-//! ELFv2 for both endiannesses, so the entry needs no function descriptor.
-//!
-//! The loader shifts load addresses, see `ppc64.ld`.
+//! 64-bit POWER boot, either endianness, for `pseries` under VOF; console `H_PUT_TERM_CHAR`, exit RTAS `power-off` (the summary carries the result).
+//! `_start` flips MSR.LE by the usual `tdi` trampoline when little-endian, and sets MSR.SF: VOF enters in 32-bit mode, where carries come
+//! from the low 32 bits. Zig emits ELFv2 either way, so no function descriptor. Load addresses: `ppc64.ld`.
 
 const std = @import("std");
 

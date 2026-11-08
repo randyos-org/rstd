@@ -1,11 +1,5 @@
-//! Writes a Linux initramfs (a `newc` cpio archive) for the Linux qemu rigs:
-//! the directories the rig's init mounts over, `/dev/console` (so the kernel
-//! can give init its stdio), and the named executables.
-//!
-//!   initramfs <out.cpio> <name>=<file>... [+<archive>...]
-//!
-//! puts each `<file>` at `/<name>`, mode 0755, then each `newc` `<archive>`
-//! after the trailer as it is: the kernel unpacks archives one after another.
+//! `initramfs <out.cpio> <name>=<file>... [+<archive>...]`: a `newc` initramfs for the Linux rigs: init's mount points, `/dev/console`,
+//! each `<file>` at `/<name>` (0755), then each `<archive>` as it is after the trailer (the kernel unpacks them in turn).
 
 const std = @import("std");
 const Io = std.Io;

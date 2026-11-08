@@ -9,12 +9,13 @@ const sysinfo = @import("builtin");
 const blas = @import("__root__.zig");
 const types = @import("types.zig");
 const Config = @import("Config.zig");
+const FpState = @import("FpState.zig");
 const util = @import("util.zig");
-const coretypes = @import("cpu/_coretypes.zig");
-const root = @import("root");
+const test_io = @import("_test/io.zig");
+const zigstd = @import("../../zigstd.zig");
+const coretypes = @import("cpu/coretypes.zig");
 
 const Allocator = std.mem.Allocator;
-const FpState = util.FpState;
 const Io = std.Io;
 
 /// The most chunks per call; a reduction keeps one partial each on the stack.
@@ -151,18 +152,19 @@ pub fn rule(comptime family: Family, comptime T: type, core: []const u8) Rule {
     };
 }
 
-fn is(core: []const u8, name: []const u8) bool {
-    return std.mem.eql(u8, core, name);
+/// Whether `core` (`blas.coreName()`) names arm64's `c`.
+fn is(core: []const u8, comptime c: coretypes.Arm64CoreType) bool {
+    return std.mem.eql(u8, core, @tagName(c));
 }
 
 /// `kernel/arm64/dot.c`'s tables.
 fn dotCore(comptime F: type, core: []const u8) ?Rule {
-    if (is(core, "neoversev1")) return switch (F) {
+    if (is(core, .neoversev1)) return switch (F) {
         f64 => .{ .serial_max = 64500, .tiers = comptime &.{ upTo(100000, 2), upTo(150000, 4), upTo(260000, 8), upTo(360000, 16), upTo(520000, 24), upTo(1010000, 56) } },
         f32 => .{ .serial_max = 110000, .tiers = comptime &.{ upTo(200000, 2), upTo(280000, 4), upTo(520000, 8), upTo(830000, 16), upTo(1010000, 24) } },
         else => null,
     };
-    if (is(core, "a64fx")) return switch (F) {
+    if (is(core, .a64fx)) return switch (F) {
         f64 => .{ .serial_max = 11000, .tiers = comptime &.{ upTo(20000, 2), upTo(35000, 4), upTo(50000, 6), upTo(440000, 8), upTo(880000, 16), upTo(1020000, 24) } },
         f32 => .{ .serial_max = 22000, .tiers = comptime &.{ upTo(39000, 2), upTo(79000, 4), upTo(120000, 6), upTo(1020000, 8) } },
         else => null,
@@ -173,19 +175,19 @@ fn dotCore(comptime F: type, core: []const u8) ?Rule {
 /// `interface/gemv.c`'s tables.
 fn gemvCore(comptime F: type, core: []const u8) ?Rule {
     if (F != f32 and F != f64) return null;
-    if (is(core, "neoversev1")) return switch (F) {
+    if (is(core, .neoversev1)) return switch (F) {
         f64 => .{ .serial_max = 8099, .tiers = comptime &.{ .{ .below = 12100, .max = 2 }, .{ .below = 36100, .max = 4 }, .{ .below = 84100, .max = 8 }, .{ .below = 348100, .max = 16 }, .{ .below = 435600, .max = 24 }, .{ .below = 810000, .max = 32 }, .{ .below = 1050625, .max = 40 } } },
         else => .{ .serial_max = 25599, .tiers = comptime &.{ .{ .below = 63001, .max = 4 }, .{ .below = 202500, .max = 8 }, .{ .below = 806404, .max = 16 }, .{ .below = 1638400, .max = 32 } } },
     };
-    if (is(core, "neoversev2")) return .{ .serial_max = 24963, .tiers = comptime &.{ .{ .below = 145924, .max = 8 }, .{ .below = 692224, .max = 16 }, .{ .below = 1638400, .max = 32 } } };
+    if (is(core, .neoversev2)) return .{ .serial_max = 24963, .tiers = comptime &.{ .{ .below = 145924, .max = 8 }, .{ .below = 692224, .max = 16 }, .{ .below = 1638400, .max = 32 } } };
     return null;
 }
 
 /// `interface/gemm.c`'s tables, single precision only.
 fn gemmCore(comptime F: type, core: []const u8) ?Rule {
     if (F != f32) return null;
-    if (is(core, "neoversev1")) return .{ .serial_max = 262143, .tiers = comptime &.{ .{ .below = 1124864, .max = 6 }, .{ .below = 7880599, .max = 12 }, .{ .below = 17173512, .max = 16 }, .{ .below = 33386248, .max = 20 }, .{ .below = 57066625, .max = 24 }, .{ .below = 91733851, .max = 32 }, .{ .below = 265847707, .max = 40 }, .{ .below = 458314011, .max = 48 }, .{ .below = 729000000, .max = 56 } } };
-    if (is(core, "neoversev2")) return .{ .serial_max = 124999, .tiers = comptime &.{ .{ .below = 1092727, .max = 6 }, .{ .below = 2628072, .max = 8 }, .{ .below = 8000000, .max = 12 }, .{ .below = 20346417, .max = 16 }, .{ .below = 57066625, .max = 24 }, .{ .below = 91125000, .max = 28 }, .{ .below = 238328000, .max = 40 }, .{ .below = 454756609, .max = 48 }, .{ .below = 857375000, .max = 56 }, .{ .below = 1073741824, .max = 64 } } };
+    if (is(core, .neoversev1)) return .{ .serial_max = 262143, .tiers = comptime &.{ .{ .below = 1124864, .max = 6 }, .{ .below = 7880599, .max = 12 }, .{ .below = 17173512, .max = 16 }, .{ .below = 33386248, .max = 20 }, .{ .below = 57066625, .max = 24 }, .{ .below = 91733851, .max = 32 }, .{ .below = 265847707, .max = 40 }, .{ .below = 458314011, .max = 48 }, .{ .below = 729000000, .max = 56 } } };
+    if (is(core, .neoversev2)) return .{ .serial_max = 124999, .tiers = comptime &.{ .{ .below = 1092727, .max = 6 }, .{ .below = 2628072, .max = 8 }, .{ .below = 8000000, .max = 12 }, .{ .below = 20346417, .max = 16 }, .{ .below = 57066625, .max = 24 }, .{ .below = 91125000, .max = 28 }, .{ .below = 238328000, .max = 40 }, .{ .below = 454756609, .max = 48 }, .{ .below = 857375000, .max = 56 }, .{ .below = 1073741824, .max = 64 } } };
     return null;
 }
 
@@ -293,20 +295,12 @@ pub const Plan = struct {
     workers: u32,
 };
 
-/// Every family's core types, whose names `rule` may be given.
-const core_types = .{
-    coretypes.X86CoreType,       coretypes.Arm64CoreType,   coretypes.ArmCoreType,
-    coretypes.PowerCoreType,     coretypes.RiscvCoreType,   coretypes.MipsCoreType,
-    coretypes.LoongarchCoreType, coretypes.S390xCoreType,   coretypes.SparcCoreType,
-    coretypes.WasmCoreType,      coretypes.GenericCoreType,
-};
-
 /// The least `serial_max` of `family`'s rule for `T` on any core.
 fn serialFloor(comptime family: Family, comptime T: type) u64 {
     comptime {
         @setEvalBranchQuota(1_000_000);
         var m = rule(family, T, "").serial_max;
-        for (core_types) |C| {
+        for (coretypes.all) |C| {
             for (std.meta.fieldNames(C)) |name| m = @min(m, rule(family, T, name).serial_max);
         }
         return m;
@@ -348,7 +342,7 @@ pub fn planWith(cfg: *const Config, r: Rule, work: u64, len: usize, shape: Shape
 /// `f(ctx, chunk)` for every chunk of `p`, on up to `p.workers` workers that
 /// claim chunks in turn; the caller is worker 0, and the rest start through
 /// `Group.async` (`Tasks`), so an `Io` that admits fewer runs them inline,
-/// and adopt the caller's floating-point control state (`util.FpState`).
+/// and adopt the caller's floating-point control state (`FpState.zig`).
 /// Returns once every task has finished. `error.Canceled` leaves chunks undone.
 pub fn forEach(io: Io, p: *const Plan, ctx: anytype, comptime f: fn (@TypeOf(ctx), Chunk) void) Io.Cancelable!void {
     return forEachIn(io, p, ctx, f, null);
@@ -365,6 +359,35 @@ pub fn reduce(
     comptime fold: fn (R, R) R,
 ) Io.Cancelable!R {
     return reduceIn(io, p, R, ctx, partial, fold, null);
+}
+
+/// `forEach` with scratch: one allocation, cut into `len(ctx, chunk)`
+/// elements per chunk in chunk order; `f` gets its chunk's part.
+pub fn forEachPart(
+    allocator: Allocator,
+    io: Io,
+    p: *const Plan,
+    comptime E: type,
+    comptime alignment: usize,
+    ctx: anytype,
+    comptime len: fn (@TypeOf(ctx), Chunk) usize,
+    comptime f: fn (@TypeOf(ctx), Chunk, []E) void,
+) (Allocator.Error || Io.Cancelable)!void {
+    var at: [chunks_max + 1]usize = undefined;
+    at[0] = 0;
+    for (0..p.chunks.count) |i| at[i + 1] = at[i] + len(ctx, p.chunks.get(i));
+    const buf = try allocator.alignedAlloc(E, .fromByteUnits(alignment), at[p.chunks.count]);
+    defer allocator.free(buf);
+    const Parts = struct {
+        ctx: @TypeOf(ctx),
+        buf: [*]E,
+        at: *const [chunks_max + 1]usize,
+
+        fn one(s: @This(), c: Chunk) void {
+            f(s.ctx, c, s.buf[s.at[c.index]..s.at[c.index + 1]]);
+        }
+    };
+    return forEach(io, p, Parts{ .ctx = ctx, .buf = buf.ptr, .at = &at }, Parts.one);
 }
 
 /// `forEach`, claiming chunks in `order` if given (tests).
@@ -454,6 +477,12 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
 /// with worker threads (issues.md). Once `ssh-repro-group-aarch64-macos`
 /// passes, set this false and delete `Futures`.
 pub const dispatch_futures = true;
+
+/// `Io.Evented` for the fiber tests; void where it does not build: Zig 0.17's
+/// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
+/// lacks (version-gated, std exposes nothing to detect); SVE targets, whose
+/// LLVM rejects the fiber switch's `ffr` clobber (issues.md).
+pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAARCH64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
 
 /// Whether `io`'s worker tasks run on `Futures`.
 pub fn usesFutures(io: Io) bool {
@@ -645,14 +674,10 @@ pub fn Partials(comptime T: type) type {
 
 // ---- level 3: workers that wait on each other ------------------------------------
 
-/// Runs `job` on up to `want` workers that wait on each other, so all must run
-/// at once. The caller is worker 0; the rest start through `Group.concurrent`
-/// (`Tasks`) and wait until the caller has counted them. `job.plan(n)` then
-/// sizes the work for the `n` that started and returns how many take part, and
-/// `job.work(io, i, lent)` runs worker `i`, passing `lent` to its waits.
-/// With none started the caller runs alone. Workers adopt the caller's
-/// floating-point control state while they run (`Lent`). Returns once every
-/// task has finished.
+/// Runs `job` on up to `want` workers that wait on each other, the caller
+/// as worker 0: `job.plan(n)` sizes the work for the `n` that started and
+/// returns how many take part, `job.work(io, i, lent)` runs worker `i`.
+/// Workers hold the caller's control state (`Lent`); returns when all end.
 pub fn team(io: Io, job: anytype, want: u32) Io.Cancelable!void {
     if (comptime sysinfo.single_threaded) {
         _ = job.plan(1);
@@ -773,65 +798,6 @@ pub const Barrier = struct {
 
 // ---- tests -------------------------------------------------------------------------
 
-const zigstd = @import("../../zigstd.zig");
-
-/// Whether `Io.Threaded` runs here, for the threaded tests.
-pub const hosted = !sysinfo.single_threaded and switch (sysinfo.target.os.tag) {
-    .freestanding, .other, .uefi => false,
-    else => true,
-};
-
-/// A multicore test kernel's cores (`test/qemu/smp.zig`); null elsewhere.
-const kernel_smp: ?type = if (sysinfo.is_test and @hasDecl(root, "qemutest_smp")) root.qemutest_smp else null;
-
-/// Whether the threaded tests run here: hosted, or on a multicore test kernel.
-pub const threaded_tests = hosted or kernel_smp != null;
-
-/// The threaded tests' `Io`: `Io.Threaded`, or on a test kernel its cores,
-/// set up alike (`init(allocator, .{ .async_limit, .concurrent_limit })`).
-pub const TestIo = if (hosted) Io.Threaded else if (kernel_smp) |k| k.Pool else void;
-
-/// `Io.Evented` for the fiber tests; void where it does not build: Zig 0.17's
-/// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
-/// lacks (version-gated, std exposes nothing to detect); SVE targets, whose
-/// LLVM rejects the fiber switch's `ffr` clobber (issues.md).
-pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAARCH64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
-
-/// Starts `ev` with `extra` threads besides the caller's; false where it
-/// cannot be sized so (`Dispatch` sizes its own pool) or does not start.
-/// Fibers take large stacks: the page allocator neither fills nor checks them.
-pub fn initEvented(ev: *Evented, extra: u32) bool {
-    var opts: Evented.InitOptions = .{};
-    // the page allocator is thread-safe
-    if (@hasField(Evented.InitOptions, "backing_allocator_needs_mutex")) opts.backing_allocator_needs_mutex = false;
-    if (@hasField(Evented.InitOptions, "thread_limit")) {
-        opts.thread_limit = extra;
-    } else if (@hasField(Evented.InitOptions, "n_threads")) {
-        opts.n_threads = extra + 1;
-    } else if (extra == 0) return false;
-    ev.init(std.heap.page_allocator, opts) catch return false;
-    return true;
-}
-
-/// Whether the threaded tests also run on `Io.Evented` with worker threads:
-/// on `Dispatch` through `Futures` only. `Group` crashes there and on `Uring`,
-/// whose futures are reused early (issues.md).
-pub const evented_workers = hosted and dispatch_futures and Evented == Io.Dispatch;
-
-/// Rounds of the race stress tests (`race stress`, levels 1 to 3): enough for
-/// a weak-memory rig to reorder something, few enough to stay quick.
-pub const stress_rounds = 1000;
-
-/// The worker counts the tests try: 1, 2, 3, 7, this machine's, and more
-/// than there are chunks.
-fn testCounts() [6]u32 {
-    return .{ 1, 2, 3, 7, cpuCount(), chunks_max + 1 };
-}
-
-/// The `async_limit`s of the threaded tests: all inline, fewer than asked,
-/// oversubscribed.
-const test_limits = [_]Io.Limit{ .nothing, .limited(3), .limited(8) };
-
 test "chunks cover the range once, in order, on quantum bounds" {
     const lens = [_]usize{ 0, 1, 2, 3, 10, 63, 64, 65, 100, 1000, 12345, std.math.maxInt(usize) };
     const wants = [_]usize{ 0, 1, 2, 3, 7, 64, 65, 1000 };
@@ -949,7 +915,7 @@ test "serial is exact: its floor is one chunk and one worker on every core" {
             const floor = comptime serialFloor(f, T);
             try zigstd.testExpectTrue(serial(f, T, floor));
             try zigstd.testExpectTrue(!serial(f, T, floor + 1));
-            inline for (core_types) |C| {
+            inline for (coretypes.all) |C| {
                 for (std.meta.fieldNames(C)) |name| {
                     const r = rule(f, T, name);
                     try zigstd.testExpectEqual(@as(usize, 1), r.chunkCount(floor));
@@ -1062,7 +1028,7 @@ fn checkRegions(io: Io, x: []const f64, marks: []u8, chunks: *const Chunks, expe
             prng.random().shuffle(u8, o[0..chunks.count]);
         }
     }
-    for (testCounts()) |w| {
+    for (test_io.counts()) |w| {
         const p: Plan = .{ .chunks = chunks.*, .workers = w };
         try zigstd.testExpectEqual(@as(u64, @bitCast(expected)), @as(u64, @bitCast(try reduce(io, &p, f64, Sum{ .x = x }, Sum.partial, Sum.add))));
         for (&orders) |*o| {
@@ -1091,23 +1057,23 @@ test "a reduction gives the same bits for any worker count, Io and claim order" 
     try zigstd.testExpectTrue(@as(u64, @bitCast(expected)) != @as(u64, @bitCast(folded(x, &chunks, true))));
 
     try checkRegions(Io.failing, x, marks, &chunks, expected);
-    if (comptime threaded_tests) {
-        for (test_limits) |limit| {
-            var threaded: TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
+    if (comptime test_io.threaded_tests) {
+        for (test_io.limits) |limit| {
+            var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
             defer threaded.deinit();
             try checkRegions(threaded.io(), x, marks, &chunks, expected);
         }
     }
-    if (comptime evented_workers) {
+    if (comptime test_io.evented_workers) {
         var ev: Evented = undefined;
-        try zigstd.testExpectTrue(initEvented(&ev, 3));
+        try zigstd.testExpectTrue(test_io.initEvented(&ev, 3));
         defer ev.deinit();
         try checkRegions(ev.io(), x, marks, &chunks, expected);
     }
 }
 
 test "workers adopt the caller's rounding and flush to zero and leave the caller's state as it was" {
-    if (comptime !threaded_tests or !FpState.governs) return error.SkipZigTest;
+    if (comptime !test_io.threaded_tests or !FpState.governs) return error.SkipZigTest;
     const n = 64123;
     const x = try zigstd.testAllocator.alloc(f64, n);
     defer zigstd.testAllocator.free(x);
@@ -1123,8 +1089,8 @@ test "workers adopt the caller's rounding and flush to zero and leave the caller
     const expected = folded(x, &chunks, false);
     // the data can tell the modes apart
     try zigstd.testExpectTrue(@as(u64, @bitCast(nearest)) != @as(u64, @bitCast(expected)));
-    for (test_limits) |limit| {
-        var threaded: TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
+    for (test_io.limits) |limit| {
+        var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
         defer threaded.deinit();
         // workers started under the default state, which a spawned thread
         // may inherit
@@ -1134,9 +1100,9 @@ test "workers adopt the caller's rounding and flush to zero and leave the caller
         try checkRegions(threaded.io(), x, marks, &chunks, expected);
         try zigstd.testExpectTrue(FpState.capture().eql(rz));
     }
-    if (comptime evented_workers) {
+    if (comptime test_io.evented_workers) {
         var ev: Evented = undefined;
-        try zigstd.testExpectTrue(initEvented(&ev, 3));
+        try zigstd.testExpectTrue(test_io.initEvented(&ev, 3));
         defer ev.deinit();
         own.apply();
         try checkRegions(ev.io(), x, marks, &chunks, nearest);
@@ -1181,15 +1147,15 @@ fn cancelRegion(io: Io) !void {
 }
 
 test "a canceled region returns error.Canceled after its workers stop" {
-    if (comptime !threaded_tests) return error.SkipZigTest;
-    for (test_limits) |limit| {
-        var threaded: TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
+    if (comptime !test_io.threaded_tests) return error.SkipZigTest;
+    for (test_io.limits) |limit| {
+        var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{ .async_limit = limit });
         defer threaded.deinit();
         try cancelRegion(threaded.io());
     }
-    if (comptime evented_workers) {
+    if (comptime test_io.evented_workers) {
         var ev: Evented = undefined;
-        try zigstd.testExpectTrue(initEvented(&ev, 3));
+        try zigstd.testExpectTrue(test_io.initEvented(&ev, 3));
         defer ev.deinit();
         try cancelRegion(ev.io());
     }
@@ -1197,16 +1163,16 @@ test "a canceled region returns error.Canceled after its workers stop" {
 
 test "worker tasks run on plain futures on Io.Dispatch only" {
     try zigstd.testExpectTrue(!usesFutures(Io.failing));
-    if (comptime hosted) {
+    if (comptime test_io.hosted) {
         var threaded: Io.Threaded = .init(zigstd.testAllocator, .{});
         defer threaded.deinit();
         try zigstd.testExpectTrue(!usesFutures(threaded.io()));
     }
-    if (comptime hosted and Evented != void) {
+    if (comptime test_io.hosted and Evented != void) {
         var ev: Evented = undefined;
-        if (!initEvented(&ev, if (Evented == Io.Dispatch) 3 else 0)) return error.SkipZigTest;
+        if (!test_io.initEvented(&ev, if (Evented == Io.Dispatch) 3 else 0)) return error.SkipZigTest;
         defer ev.deinit();
-        try zigstd.testExpectEqual(evented_workers, usesFutures(ev.io()));
+        try zigstd.testExpectEqual(test_io.evented_workers, usesFutures(ev.io()));
     }
 }
 
@@ -1225,8 +1191,8 @@ const Probe = struct {
 };
 
 test "a concurrent task runs on a thread of its own with its own thread-locals" {
-    if (comptime !threaded_tests) return error.SkipZigTest;
-    var threaded: TestIo = .init(zigstd.testAllocator, .{});
+    if (comptime !test_io.threaded_tests) return error.SkipZigTest;
+    var threaded: test_io.TestIo = .init(zigstd.testAllocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
     probe = 8;
@@ -1248,9 +1214,9 @@ fn sleeper(s: *Signal, io: Io, woken: *std.atomic.Value(u32)) void {
 }
 
 test "a signal wakes every sleeper on an Io.Evented with worker threads" {
-    if (comptime !hosted or Evented == void) return error.SkipZigTest;
+    if (comptime !test_io.hosted or Evented == void) return error.SkipZigTest;
     var ev: Evented = undefined;
-    if (!initEvented(&ev, 3)) return error.SkipZigTest;
+    if (!test_io.initEvented(&ev, 3)) return error.SkipZigTest;
     defer ev.deinit();
     const io = ev.io();
     const n = 3;

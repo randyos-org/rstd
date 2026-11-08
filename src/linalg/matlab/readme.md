@@ -1,15 +1,6 @@
 # matlab88 linalg port
 
-A Zig port of `matlab88.f90`'s function library - Cleve Moler's Fortran MATLAB, written mostly at
-the University of New Mexico on LINPACK and EISPACK routines (`ref/matlab88_doc.txt`: the
-MATLAB Users' Guide of May 1981, its acknowledgement and references [1]-[3]; the source
-prints "Version of 05/25/82", `ref/matlab88.f90:2902`). `ref/readme.txt` is a later bulletin
-board note; its "developed by Argonne National Laboratories" is the distributor's, not
-Moler's. See those files and `ref/matlab88_help.txt` for the original documentation. The goal is every function a MATLAB88
-user could call, minus the REPL itself: the parser, tokenizer, `<>` stack machine,
-`FOR`/`WHILE`/`IF`, `SAVE`/`LOAD`/`DIARY`/`PLOT`/`PRINT` file and terminal I/O, and
-`HELP` text are all left out, since none of that has meaning outside an interactive
-session.
+A Zig port of `matlab88.f90`'s function library - Cleve Moler's Fortran MATLAB, written mostly at the University of New Mexico on LINPACK and EISPACK routines (`ref/matlab88_doc.txt`: the MATLAB Users' Guide of May 1981, its acknowledgement and references [1]-[3]; the source prints "Version of 05/25/82", `ref/matlab88.f90:2902`). `ref/readme.txt` is a later bulletin board note; its "developed by Argonne National Laboratories" is the distributor's, not Moler's. See those files and `ref/matlab88_help.txt` for the original documentation. The goal is every function a MATLAB88 user could call, minus the REPL itself: the parser, tokenizer, `<>` stack machine, `FOR`/`WHILE`/`IF`, `SAVE`/`LOAD`/`DIARY`/`PLOT`/`PRINT` file and terminal I/O, and `HELP` text are all left out, since none of that has meaning outside an interactive session.
 
 ## Importing
 
@@ -20,56 +11,26 @@ const rstd = @import("rstd");
 const matlab = rstd.linalg.matlab;
 ```
 
-Within `linalg/` itself (or when depending on this directory directly), import
-`matlab/__root__.zig`:
+Within `linalg/` itself (or when depending on this directory directly), import `matlab/__root__.zig`:
 
 ```zig
 const matlab = @import("matlab/__root__.zig");
 ```
 
-`matlab.Cx` is `std.math.Complex(f64)` - the type used for individual complex scalars
-throughout this port (see "Data layout" below for how matrices and vectors are
-represented).
+`matlab.Cx` is `std.math.Complex(f64)` - the type used for individual complex scalars throughout this port (see "Data layout" below for how matrices and vectors are represented).
 
 ## Two surfaces
 
-- **`matlab.CxMat`** - bundles a complex matrix's storage (`r`/`i`), leading dimension
-  (`lda`), and shape (`m`/`n`) into one value, and carries every REPL command that
-  operates on one matrix as its primary subject as a method: `mat.det(allocator, io)`,
-  `mat.eye()`, `mat.chol(allocator, io, null)`, `CxMat.eig(allocator, io, mat, true)`, and so on. Use this
-  for anything self-shaped. See its own doc comment for `lda`/striding details and
-  `init`/`initPacked`/`clone`.
-- **`matlab.<name>`** (top-level) - the REPL commands that *aren't* self-shaped: a
-  real-only generator with no `CxMat` shape to bundle (`hilb`, `magic`), a
-  flat-array/vector operation (`sum`, `prod`, `poly`, `roots`, vector `norm`, the
-  elementwise `sin`/`cos`/... family), or a standalone command (`base`, `rat`, `Rand`).
-  `roots` takes a `std.mem.Allocator` because it needs scratch space sized at runtime;
-  the rest work directly on caller-supplied buffers, same as `CxMat`'s methods.
+- **`matlab.CxMat`** - bundles a complex matrix's storage (`r`/`i`), leading dimension (`lda`), and shape (`m`/`n`) into one value, and carries every REPL command that operates on one matrix as its primary subject as a method: `mat.det(allocator, io)`, `mat.eye()`, `mat.chol(allocator, io, null)`, `CxMat.eig(allocator, io, mat, true)`, and so on. Use this for anything self-shaped. See its own doc comment for `lda`/striding details and `init`/`initPacked`/`clone`.
+- **`matlab.<name>`** (top-level) - the REPL commands that *aren't* self-shaped: a real-only generator with no `CxMat` shape to bundle (`hilb`, `magic`), a flat-array/vector operation (`sum`, `prod`, `poly`, `roots`, vector `norm`, the elementwise `sin`/`cos`/... family), or a standalone command (`base`, `rat`, `Rand`). `roots` takes a `std.mem.Allocator` because it needs scratch space sized at runtime; the rest work directly on caller-supplied buffers, same as `CxMat`'s methods.
 
-Everything else in this directory (`lu`, `cholesky`, `svdapi`, `blas1`, `generators`, ...) - the
-low-level kernels, named after their original Fortran routines (lowercased; Fortran is
-case-insensitive, so this renames nothing about the source) - is an internal
-implementation detail behind those two surfaces, not part of the public API. Every
-matrix-level (not vector-level BLAS1) kernel among these takes its primary matrix as a
-`CxMat` first parameter, so `CxMat`'s methods are exactly these calls with dot-call
-sugar, not a second implementation - `mat.det(allocator, io)` *is* `lu.det(mat, allocator, io)`. See
-"Internal kernels" below if you need to read the source for one of these.
+Everything else in this directory (`lu`, `cholesky`, `svd`, `scalar`, `generators`, ...) - the low-level kernels, named after their original Fortran routines (lowercased; Fortran is case-insensitive, so this renames nothing about the source) - is an internal implementation detail behind those two surfaces, not part of the public API. Every matrix-level (not vector-level BLAS1) kernel among these takes its primary matrix as a `CxMat` first parameter, so `CxMat`'s methods are exactly these calls with dot-call sugar, not a second implementation - `mat.det(allocator, io)` *is* `lu.det(mat, allocator, io)`. See "Internal kernels" below if you need to read the source for one of these.
 
-One deliberate naming departure from the original: MATLAB88 overloaded `SIN`, `COS`,
-`EXP`, `SQRT`, `LOG`, and `ATAN` to mean *elementwise* application for a vector but the
-*matrix function* (via eigendecomposition) for a square matrix, picking one or the
-other based on the argument's shape. This port keeps the elementwise versions under
-those top-level names (`matlab.sin`, `matlab.cos`, ...) and gives the matrix-valued
-versions their own names on `CxMat` (`CxMat.sinm(allocator, io, a, out)`, `cosm`,
-`expm`, `logm`, `sqrtm`, `atanm`) - matching the
-distinction real MATLAB itself later adopted (`expm` vs. `exp`,
-<https://www.mathworks.com/help/matlab/ref/expm.html>), and avoiding a
-shape-dependent meaning change that's easy to trip over in a typed language.
+One deliberate naming departure from the original: MATLAB88 overloaded `SIN`, `COS`, `EXP`, `SQRT`, `LOG`, and `ATAN` to mean *elementwise* application for a vector but the *matrix function* (via eigendecomposition) for a square matrix, picking one or the other based on the argument's shape. This port keeps the elementwise versions under those top-level names (`matlab.sin`, `matlab.cos`, ...) and gives the matrix-valued versions their own names on `CxMat` (`CxMat.sinm(allocator, io, a, out)`, `cosm`, `expm`, `logm`, `sqrtm`, `atanm`) - matching the distinction real MATLAB itself later adopted (`expm` vs. `exp`, <https://www.mathworks.com/help/matlab/ref/expm.html>), and avoiding a shape-dependent meaning change that's easy to trip over in a typed language.
 
 ## Operators (no operator overloading in Zig)
 
-Every REPL operator with matrix/vector meaning has a named `CxMat` method or
-top-level function standing in for it, since Zig has no `+`/`*`/`'` overloading:
+Every REPL operator with matrix/vector meaning has a named `CxMat` method or top-level function standing in for it, since Zig has no `+`/`*`/`'` overloading:
 
 | REPL operator | Meaning | Stands in as |
 | --- | --- | --- |
@@ -89,54 +50,23 @@ top-level function standing in for it, since Zig has no `+`/`*`/`'` overloading:
 | `X**p` | Power (matrix `X`, scalar `p`) | `CxMat.powm(allocator, io, a, p, out)` |
 | `x**y` | Power (scalar `x`) | `matlab.pow(x, y)` |
 
-`ABS`/`ROUND`/`REAL`/`IMAG`/`CONJG` are trivial enough to stay as inline one-liners
-(see the function reference below) rather than named operator stand-ins.
+`ABS`/`ROUND`/`REAL`/`IMAG`/`CONJG` are trivial enough to stay as inline one-liners (see the function reference below) rather than named operator stand-ins.
 
 ## Data layout
 
-Complex matrices and vectors are **split real/imaginary arrays** (`ar: []f64, ai:
-[]f64`), the original Fortran's `AR`/`AI`, not an interleaved `Complex(f64)` slice. The
-numerics are rstd's BLAS and LAPACK (M2), which convert at the boundary
-(`CxMat.isReal`, `toPacked`, `fromPacked`): a real matrix (`ai` all zero) goes to the real
-routines, in place where it can; a complex one through one packed interleaved copy. A
-single complex *scalar* (a multiplier, a temporary, a return value) is
-`Cx = std.math.Complex(f64)`.
+Complex matrices and vectors are **split real/imaginary arrays** (`ar: []f64, ai: []f64`), the original Fortran's `AR`/`AI`, not an interleaved `Complex(f64)` slice. The numerics are rstd's BLAS and LAPACK (M2), which convert at the boundary (`CxMat.isReal`, `toPacked`, `fromPacked`): a real matrix (`ai` all zero) goes to the real routines, in place where it can; a complex one through one packed interleaved copy. A single complex *scalar* (a multiplier, a temporary, a return value) is `Cx = std.math.Complex(f64)`.
 
-Matrices are **column-major**, with an explicit leading dimension (`lda`), matching
-Fortran array storage - `A(i, j)` in the original is `ar[blas1.ix(lda, i, j)]` here.
-Row/column indices passed to these functions are **1-based**, again matching the
-Fortran source; `blas1.ix(lda, i, j)` converts a 1-based `(i, j)` to the 0-based flat
-offset. `lda` is the storage stride between columns - normally equal to the matrix's
-row count `m` (`CxMat.initPacked` assumes this), but it may exceed `m`, letting a
-`CxMat` describe a submatrix view into a larger allocated block without copying.
+Matrices are **column-major**, with an explicit leading dimension (`lda`), matching Fortran array storage - `A(i, j)` in the original is `ar[scalar.ix(lda, i, j)]` here. Row/column indices passed to these functions are **1-based**, again matching the Fortran source; `scalar.ix(lda, i, j)` converts a 1-based `(i, j)` to the 0-based flat offset. `lda` is the storage stride between columns - normally equal to the matrix's row count `m` (`CxMat.initPacked` assumes this), but it may exceed `m`, letting a `CxMat` describe a submatrix view into a larger allocated block without copying.
 
-`CxMat` (`r`/`i`/`lda`/`m`/`n`) bundles exactly these five values so matrix-level
-functions take one parameter instead of five; `CxMat.get`/`.set`/`.col`/`.rowView` give
-indexed/strided access, and `.idx` is `blas1.ix(self.lda, ...)`.
+`CxMat` (`r`/`i`/`lda`/`m`/`n`) bundles exactly these five values so matrix-level functions take one parameter instead of five; `CxMat.get`/`.set`/`.col`/`.rowView` give indexed/strided access, and `.idx` is `scalar.ix(self.lda, ...)`.
 
-Vector arguments (`vecNorm2`, ...) take an explicit stride (`incx`, may be negative) as BLAS
-does: the slice starts at the storage's first element, and a negative stride walks it
-backward.
+Vector arguments (`vecNorm2`, ...) take an explicit stride (`incx`, may be negative) as BLAS does: the slice starts at the storage's first element, and a negative stride walks it backward.
 
-Most of this port doesn't allocate - functions read/write caller-supplied buffers,
-sized as documented on each one. The exceptions are `CxMat`'s `det`, `inv`, `mldivide`,
-`mrdivide`, `chol`, `rref`, `matmul`, `matNorm2`, `eig`, `hess`, `schur`, `cond`, `rank`, `pinv`, `orth`, and the
-`expm`/`logm`/`sqrtm`/`sinm`/`cosm`/`atanm` family, plus the top-level `roots` - all take a
-`std.mem.Allocator` because their scratch requirements depend on a runtime code path (e.g.
-`eig`'s Hermitian-vs-general dispatch), on an eigendecomposition/QR factorization computed
-internally, or on LAPACK (M2: a complex matrix goes through an interleaved copy); those over
-LAPACK also take a `std.Io`.
+Most of this port doesn't allocate - functions read/write caller-supplied buffers, sized as documented on each one. The exceptions are `CxMat`'s `det`, `inv`, `mldivide`, `mrdivide`, `chol`, `rref`, `matmul`, `matNorm2`, `eig`, `hess`, `schur`, `cond`, `rank`, `pinv`, `orth`, and the `expm`/`logm`/`sqrtm`/`sinm`/`cosm`/`atanm` family, plus the top-level `roots` - all take a `std.mem.Allocator` because their scratch requirements depend on a runtime code path (e.g. `eig`'s Hermitian-vs-general dispatch), on an eigendecomposition/QR factorization computed internally, or on LAPACK (M2: a complex matrix goes through an interleaved copy); those over LAPACK also take a `std.Io`.
 
 ## What's *not* here
 
-`matlab88.f90` is half REPL, half numerics. Left out entirely: the parser/tokenizer,
-the `<>` expression stack machine, `FOR`/`WHILE`/`IF`/macros, `SAVE`/`LOAD`/`DIARY`
-(the REPL's own binary variable-persistence format), `PRINT`/`DISP` (terminal
-rendering - `rstd` has its own I/O for that), `PLOT` (line-printer/terminal plotting),
-`EXEC` (script execution), `USER` (linking custom Fortran into the interpreter), and
-the `HELP` text database. `CHAR` and `CHOP` are REPL input/display settings with no
-meaning outside a session. `SIZE` is REPL introspection a typed caller already has
-(the dimensions it passed in).
+`matlab88.f90` is half REPL, half numerics. Left out entirely: the parser/tokenizer, the `<>` expression stack machine, `FOR`/`WHILE`/`IF`/macros, `SAVE`/`LOAD`/`DIARY` (the REPL's own binary variable-persistence format), `PRINT`/`DISP` (terminal rendering - `rstd` has its own I/O for that), `PLOT` (line-printer/terminal plotting), `EXEC` (script execution), `USER` (linking custom Fortran into the interpreter), and the `HELP` text database. `CHAR` and `CHOP` are REPL input/display settings with no meaning outside a session. `SIZE` is REPL introspection a typed caller already has (the dimensions it passed in).
 
 ## Function reference
 
@@ -192,48 +122,43 @@ meaning outside a session. `SIZE` is REPL introspection a typed caller already h
 | `Rand` | see `random.Urand` | Legacy LCG RNG. Alias of `random.Urand`. |
 | `vecNorm2`/`vecNormP`/`vecNormInf` | see `norm.zig` | Vector norms, `vecNorm2` by `dnrm2` (the matrix-norm forms are `CxMat` methods - see above). |
 
-`ABS`/`ROUND`/`REAL`/`IMAG`/`CONJG` weren't given wrapper functions - they're
-one-liners you can inline directly: `blas1.pythag(re, im)` (ABS), `@round(re)` (ROUND,
-real part only - the original ignored the imaginary part), `re`/`im` themselves
-(REAL/IMAG), and `Cx.init(re, -im)` (CONJG). Likewise, `SIN`/`COS`/`EXP`/`SQRT` route
-straight through `std.math.complex` (via `matrixfun.zig`'s
-`applyElementwise`/`applyMatrixFunction`) rather than through a named wrapper in this
-port - std's versions carry overflow/edge-case handling the original Fortran formulas
-didn't have.
+`ABS`/`ROUND`/`REAL`/`IMAG`/`CONJG` weren't given wrapper functions - they're one-liners you can inline directly: `std.math.hypot(re, im)` (ABS), `@round(re)` (ROUND, real part only - the original ignored the imaginary part), `re`/`im` themselves (REAL/IMAG), and `Cx.init(re, -im)` (CONJG). Likewise, `SIN`/`COS`/`EXP`/`SQRT` route straight through `std.math.complex` (via `matrixfun.zig`'s `applyElementwise`/`applyMatrixFunction`) rather than through a named wrapper in this port - std's versions carry overflow/edge-case handling the original Fortran formulas didn't have.
 
 ### Internal kernels, by module (not part of the public API)
 
-These modules aren't reachable as `matlab.<module>` - they're implementation details
-behind `CxMat`'s methods and the top-level functions above (see "Two surfaces"). Listed
-here for anyone reading the source or wanting the exact original Fortran routine name.
+These modules aren't reachable as `matlab.<module>` - they're implementation details behind `CxMat`'s methods and the top-level functions above (see "Two surfaces"). Listed here for anyone reading the source or wanting the exact original Fortran routine name.
 
 | Module | Function | Ported from | What it does |
 | --- | --- | --- | --- |
-| `blas1` | `pythag` | `PYTHAG` | Overflow-safe `sqrt(a^2+b^2)` (aliases `std.math.hypot`). |
-| `blas1` | `wmul`, `wdiv` | `WMUL`, `WDIV` | Complex scalar multiply/divide (`wdiv` is overflow-scaled). |
-| `blas1` | `wsign`, `wlog`, `watan` | `WSIGN`, `WLOG`, `WATAN` | Complex scalar sign-copy, log, arctangent. `WSQRT` is `std.math.complex.sqrt` directly - no wrapper. |
-| `blas1` | `level1` | `WNRM2`, `WASUM`, `IWAMAX`, `WSCAL`, `WAXPY`, `WSWAP`, `RSWAP` | rstd's BLAS level 1 since M2; `level1` drops its stride errors. |
-| `blas1` | `ix` | *(new)* | 1-based `(i, j)` → 0-based flat column-major offset. |
+| `scalar` | `wdiv` | `WDIV` | Complex scalar divide, overflow-scaled. `PYTHAG` is `std.math.hypot` and `WMUL` is `Cx.mul`, no wrappers. |
+| `scalar` | `wsign`, `wlog`, `watan` | `WSIGN`, `WLOG`, `WATAN` | Complex scalar sign-copy, log, arctangent. `WSQRT` is `std.math.complex.sqrt` directly - no wrapper. |
+| `scalar` | `level1` | `WNRM2`, `WASUM`, `IWAMAX`, `WSCAL`, `WAXPY`, `WSWAP`, `RSWAP` | rstd's BLAS level 1 since M2; `level1` drops its stride errors. |
+| `scalar` | `ix` | *(new)* | 1-based `(i, j)` → 0-based flat column-major offset. |
 | `elementary` | `wpow` | `MATFN2`'s power body | `x^y` (principal branch). `SIN`/`COS`/`EXP`/`SQRT` are `std.math.complex` calls directly - no wrapper. `ROUND` is `@round` directly. |
-| `lu` | `Lu`, `norm1`, `rcond` | `WGEFA`, `WGESL`, `WGECO` | LAPACK's `getrf`, `getrs`, `lange` and `gecon` at the split-layout boundary (M2). |
+| `rat` | `rat` | `RAT` | Continued-fraction rational approximation. |
+| `base` | `base` | `BASE` | Format a number in an arbitrary base (ASCII output; see the module doc comment). |
+| `lu` | `Lu`, `lange1`, `rcond` | `WGEFA`, `WGESL`, `WGECO` | LAPACK's `getrf`, `getrs`, `lange` and `gecon` at the split-layout boundary (M2). |
 | `lu` | `det`, `inv` | `WGEDI` | `WGEDI`'s scaled determinant over `getrf`'s factors; the inverse by `getri`. |
+| `divide` | `mldivide`, `mrdivide` | `WGECO`, `WGESL` | `A\B` and `B/A` by `getrf` and `getrs`. |
 | `cholesky` | `chol` | `WPOFA` | LAPACK's `potrf(.u)` at the split-layout boundary (M2). |
-| `generators` | `rref` | `RREF` | Reduced row-echelon form. |
 | `generators` | `hilber` | `HILBER` | Exact inverse Hilbert matrix (closed form). |
 | `generators` | `eye`, `ones` | `MATFN6`'s `EYE`/`ONES` bodies | Identity / all-ones matrix generators. |
 | `generators` | `magic` | `MAGIC` | Magic square (odd/singly-even/doubly-even). |
 | `generators` | `diagFromVector`, `diagToVector` | `MATFN6`'s `DIAG` body | `DIAG`'s vector-to-matrix and matrix-to-vector forms. |
 | `generators` | `tril`, `triu` | `MATFN6`'s `TRIL`/`TRIU` bodies | Zero the opposite triangle. |
+| `generators` | `rref` | `RREF` | Reduced row-echelon form, by BLAS 1. |
 | `generators` | `kron` | `MATFN6`'s `KRON` body | Kronecker product (and its `./`/`.\` elementwise-block variants). |
-| `eig`, `schur` | `eig`, `hess`, `schur` | `HTRIDI`, `IMTQL2`, `HTRIBK`, `CORTH`, `COMQR3` | LAPACK's `syevd`, `geev`, `gehrd`, `orghr` and `gees` (M2). |
-| `svdapi` | `singularValues` | `WSVDC`, `WQRDC`, `WQRSL` | LAPACK's `gesvd`, `geqrf` and `orgqr` behind `cond`, `rank`, `pinv`, `orth` and `matNorm2` (M2). |
-| `rat` | `rat` | `RAT` | Continued-fraction rational approximation. |
-| `base` | `base` | `BASE` | Format a number in an arbitrary base (ASCII output; see the module doc comment). |
+| `matmul` | `matmul` | `STACK2`'s `*` | `C = A*B` by `gemm` (M2). |
+| `elementwise` | `add`, `sub`, `dotMul`, `dotDiv`, `dotRdiv` | `STACK2`'s entrywise operators | `+`, `-`, `.*`, `./`, `.\`. |
+| `__root__` | `sum`, `prod` | `MATFN6`'s `SUM`/`PROD` bodies | Sum/product of all entries. |
+| `eig` | `eig` | `HTRIDI`, `IMTQL2`, `HTRIBK`, `CORTH`, `COMQR3` | LAPACK's `syevd` and `geev` (M2). |
+| `schur` | `hess`, `schur` | `MATFN4`/`MATFN5`'s `HESS`/`SCHUR` bodies, `CORTH`, `COMQR3` | LAPACK's `gehrd`, `orghr` and `gees` (M2). |
+| `svd` | `singularValues` | `WSVDC`, `WQRDC`, `WQRSL` | LAPACK's `gesvd`, `geqrf` and `orgqr` behind `cond`, `rank`, `pinv`, `orth` and `matNorm2` (M2). |
+| `matrixfun` | `poly`, `roots`, `sin` ... `atan`, `expm` ... `powm` | `MATFN2` | Polynomials, and the elementwise and matrix elementary functions. |
+| `norm` | `vecNorm2` ... `matNormFro` | `MATFN3`'s `NORM` body | Vector and matrix norms. |
 | `random` | `Urand` | `URAND` + `MATFN6`'s `RAND` body | Legacy LCG after Knuth (1969), as `URAND`'s comment says (`.next()`), plus `RAND`'s polar (rejection on the unit disk) normal draw (`.nextNormal()`) and matrix fills. Kept for REPL-command parity and reproducible sequences, not statistical quality - reach for `std.Random` elsewhere. |
 
-See each function's doc comment for the full parameter contract (buffer sizes, `job`
-flag encodings, what's destroyed vs. read-only) - the table above is a map of what
-exists, not a substitute for those.
+See each function's doc comment for the full parameter contract (buffer sizes, `job` flag encodings, what's destroyed vs. read-only) - the table above is a map of what exists, not a substitute for those.
 
 ## Example: eigenvalues and eigenvectors
 

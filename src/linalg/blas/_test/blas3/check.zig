@@ -1,17 +1,6 @@
 //! The level-3 test harness: each routine's dense operators in a wider type
-//! as the reference, a forward-error tolerance from epsilon and the depth,
-//! and the cases every set of kernels must pass: every side, triangle,
-//! transpose and diagonal, shapes around every block and panel edge (on a
-//! vtable with its blocking shrunk, so the edges come at small sizes, and
-//! once at its own), padded leading dimensions, the `alpha` and `beta`
-//! special values (`beta` 0 meets a NaN `C`, `alpha` 0 NaN operands), and the
-//! special values of `check.Pattern` in each operand.
-//!
-//! What a routine must not read holds NaN: the padding rows, the triangle a
-//! symmetric or triangular operand does not store, a unit diagonal, the
-//! imaginary parts of a Hermitian diagonal. What it must not write holds a
-//! sentinel: rows of `C` past `m`, what follows its last column, and the
-//! triangle a rank-k update leaves.
+//! as the reference, and the cases every set of kernels must pass, around every
+//! block edge, with NaN where a routine must not read and sentinels where it must not write.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -19,30 +8,33 @@ const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
 const blas = @import("../../__root__.zig");
 const driver = @import("../../blas3/driver.zig");
-const driver3m = @import("../../blas3/gemm3m/driver.zig");
+const driver3m = @import("../../blas3/driver3m.zig");
 const portable = @import("../../portable.zig");
-const check1 = @import("../blas1/check.zig");
-const guard = @import("../blas2/guard.zig");
+const check = @import("../check.zig");
+const bitwise = @import("../bitwise.zig");
+const guard = @import("../guard.zig");
+const pattern = @import("../pattern.zig");
+const reference = @import("../reference.zig");
 
 const XDouble = types.XDouble;
 const Float = types.Float;
 const isComplex = types.isComplex;
 const testing = std.testing;
 
-/// The `Io` the tests pass (`check1.io`).
-pub const io = check1.io;
+/// The `Io` the tests pass (`check.io`).
+pub const io = check.io;
 
-/// `check1.f80_unslotted`.
-pub const f80_unslotted = check1.f80_unslotted;
+/// `check.f80_unslotted`.
+pub const f80_unslotted = check.f80_unslotted;
 
 /// The reference's float: twice the precision.
-fn WideFloat(comptime T: type) type {
+fn RefFloat(comptime T: type) type {
     return if (@bitSizeOf(Float(T)) <= 32) f64 else f128;
 }
 
 /// The reference's type for `T`.
-pub fn Wide(comptime T: type) type {
-    return if (isComplex(T)) std.math.Complex(WideFloat(T)) else WideFloat(T);
+pub fn Ref(comptime T: type) type {
+    return if (isComplex(T)) std.math.Complex(RefFloat(T)) else RefFloat(T);
 }
 
 pub const Routine = enum {
@@ -102,9 +94,9 @@ pub const Case = struct {
     k: usize = 0,
     alpha: [2]f64 = .{ 1, 0 },
     beta: [2]f64 = .{ 0, 0 },
-    /// Special values in operand `where` (`check.shape`, by column-major
+    /// Special values in operand `where` (`pattern.shape`, by column-major
     /// index over its rows and columns); `c` is `trmm`'s and `trsm`'s `B`.
-    p: ?check1.Pattern = null,
+    p: ?pattern.Pattern = null,
     where: Where = .a,
 
     fn rank(case: Case) bool {
@@ -158,21 +150,19 @@ const pad = 3;
 /// What padding holds, so a stray write shows.
 const sentinel = 1234.5;
 
-fn val(comptime T: type, re: f64, im: f64) T {
-    return if (comptime isComplex(T)) .init(@floatCast(re), @floatCast(im)) else @floatCast(re);
-}
+const val = check.val;
 
 fn nanOf(comptime T: type) T {
     const nan = std.math.nan(Float(T));
     return if (comptime isComplex(T)) .init(nan, nan) else nan;
 }
 
-fn wide(comptime T: type, v: T) Wide(T) {
+fn toRef(comptime T: type, v: T) Ref(T) {
     return if (comptime isComplex(T)) .init(v.re, v.im) else v;
 }
 
 fn conjIf(x: anytype, c: bool) @TypeOf(x) {
-    return if (c) check1.conjW(x) else x;
+    return if (c) reference.conjW(x) else x;
 }
 
 fn zeroW(comptime W: type) W {
@@ -202,13 +192,13 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
     defer al.free(a);
     const b = try al.alloc(T, ldb * @max(d.cb, 1));
     defer al.free(b);
-    const c = try al.alloc(T, ldc * case.n + check1.tail);
+    const c = try al.alloc(T, ldc * case.n + check.tail);
     defer al.free(c);
     const c0 = try al.alloc(T, c.len);
     defer al.free(c0);
-    check1.fill(T, a, case.m * 31 + case.k + @backingInt(case.r));
-    check1.fill(T, b, case.n * 17 + case.k);
-    check1.fill(T, c, case.m + case.n);
+    check.fill(T, a, case.m * 31 + case.k + @backingInt(case.r));
+    check.fill(T, b, case.n * 17 + case.k);
+    check.fill(T, c, case.m + case.n);
     const nan = nanOf(T);
     if (case.r == .trsm) wellConditioned(T, case, a, lda);
     if (case.p) |p| switch (case.where) {
@@ -252,13 +242,13 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
     const beta = val(T, case.beta[0], case.beta[1]);
     try runner.run(T, case, a.ptr, lda, b.ptr, ldb, alpha, beta, c.ptr, ldc);
 
-    for (c[ldc * case.n ..]) |v| if (!check1.same(T, v, val(T, sentinel, sentinel), true)) return fail(case, ldc, case.n, "written past the end");
+    for (c[ldc * case.n ..]) |v| if (!bitwise.same(T, v, val(T, sentinel, sentinel), true)) return fail(case, ldc, case.n, "written past the end");
     const ops = Ops(T){ .case = case, .a = a, .lda = lda, .b = b, .ldb = ldb, .c0 = c0, .ldc = ldc };
     if (case.r == .trsm and !alpha0) return ops.checkSolve(c, rc);
     for (0..case.n) |j| for (0..ldc) |i| {
         const got = c[i + j * ldc];
         if (i >= rc or !kept(case, i, j)) {
-            if (!check1.same(T, got, c0[i + j * ldc], true)) return fail(case, i, j, "written outside");
+            if (!bitwise.same(T, got, c0[i + j * ldc], true)) return fail(case, i, j, "written outside");
             continue;
         }
         const ref = ops.element(i, j);
@@ -281,8 +271,8 @@ pub fn one(comptime T: type, case: Case, runner: anytype) !void {
 /// `got` against `want`; with `lax`, a part that should not be finite may
 /// come out NaN or infinite (complex products, and solves, meet infinities
 /// in an order of their own).
-fn compare(comptime T: type, want: Wide(T), got: T, terms: usize, bound: f128, lax: bool) !void {
-    const ulps: f128 = @floatFromInt(2 * (terms + 2));
+fn compare(comptime T: type, want: Ref(T), got: T, terms: usize, bound: f128, lax: bool) !void {
+    const ulps = reference.sumUlps(terms);
     if (comptime isComplex(T)) {
         try part(Float(T), want.re, got.re, ulps, bound, lax);
         try part(Float(T), want.im, got.im, ulps, bound, lax);
@@ -293,10 +283,10 @@ fn compare(comptime T: type, want: Wide(T), got: T, terms: usize, bound: f128, l
 /// difference of them (the imaginary one, or the real one where exactly one
 /// operand is conjugated), takes the error of three sums of `terms`, and of
 /// the copies' `alpha * op(B)` and part sums (Higham 1992).
-fn compare3m(comptime T: type, case: Case, want: Wide(T), got: T, terms: usize, bound: f128) !void {
+fn compare3m(comptime T: type, case: Case, want: Ref(T), got: T, terms: usize, bound: f128) !void {
     if (comptime !isComplex(T)) unreachable;
-    const ulps: f128 = @floatFromInt(2 * (terms + 2));
-    const ulps3: f128 = @floatFromInt(2 * (3 * terms + 4));
+    const ulps = reference.sumUlps(terms);
+    const ulps3 = reference.sumUlps(3 * terms + 2);
     const real3 = case.r == .gemm3m and case.ta.conjugated() != case.tb.conjugated();
     try part(Float(T), want.re, got.re, if (real3) ulps3 else ulps, bound, true);
     try part(Float(T), want.im, got.im, if (real3) ulps else ulps3, bound, true);
@@ -309,12 +299,12 @@ fn part(comptime F: type, want: anytype, got: F, ulps: f128, bound: f128, lax: b
         if (std.math.isFinite(got)) return error.TestUnexpectedResult;
         return;
     }
-    try check1.component(F, w, got, ulps, bound);
+    try pattern.component(F, w, got, ulps, bound);
 }
 
 /// The reference: the routine's operators as dense matrices, by element.
 fn Ops(comptime T: type) type {
-    const W = Wide(T);
+    const W = Ref(T);
     return struct {
         const Self = @This();
         case: Case,
@@ -326,7 +316,7 @@ fn Ops(comptime T: type) type {
         ldc: usize,
 
         fn at(x: []const T, ld: usize, i: usize, j: usize) W {
-            return wide(T, x[i + j * ld]);
+            return toRef(T, x[i + j * ld]);
         }
 
         /// `op(X)(i, l)` of a general `X`.
@@ -376,11 +366,11 @@ fn Ops(comptime T: type) type {
             };
         }
 
-        const Ref = struct { v: W, bound: f128, terms: usize };
+        const Elem = struct { v: W, bound: f128, terms: usize };
 
         /// `C(i, j)` as the routine defines it, the sum of the magnitudes in it,
         /// and how many products it sums.
-        fn element(s: Self, i: usize, j: usize) Ref {
+        fn element(s: Self, i: usize, j: usize) Elem {
             const c = s.case;
             const depth = switch (c.r.base()) {
                 .gemm, .gemmt, .syrk, .herk, .syr2k, .her2k => c.k,
@@ -399,12 +389,12 @@ fn Ops(comptime T: type) type {
                         const f = s.factors(pass == 1, i, j, l);
                         const x = f[0] orelse continue;
                         const y = f[1] orelse continue;
-                        acc = check1.addW(acc, check1.mulW(x, y));
-                        mags += check1.mag(x) * check1.mag(y);
+                        acc = reference.addW(acc, reference.mulW(x, y));
+                        mags += reference.mag(x) * reference.mag(y);
                     }
                     // the second pass of `her2k` takes `conj(alpha)`
-                    const al = if (pass == 1 and c.r == .her2k) check1.conjW(alpha) else alpha;
-                    sum = check1.addW(sum, mulScalar(al, acc));
+                    const al = if (pass == 1 and c.r == .her2k) reference.conjW(alpha) else alpha;
+                    sum = reference.addW(sum, mulScalar(al, acc));
                     bound += magScalar(al) * mags;
                 }
             }
@@ -413,15 +403,15 @@ fn Ops(comptime T: type) type {
                 if (!(c.beta[0] == 0 and c.beta[1] == 0)) {
                     const cw = at(s.c0, s.ldc, i, j);
                     // `herk`'s real `beta` scales each part
-                    sum = check1.addW(sum, if (c.herm() and c.rank()) partwise(c.beta[0], cw) else mulScalar(beta, cw));
-                    bound += magScalar(beta) * check1.mag(cw);
+                    sum = reference.addW(sum, if (c.herm() and c.rank()) partwise(c.beta[0], cw) else mulScalar(beta, cw));
+                    bound += magScalar(beta) * reference.mag(cw);
                 }
             }
             return .{ .v = sum, .bound = bound, .terms = depth * if (c.r == .syr2k or c.r == .her2k) @as(usize, 2) else 1 };
         }
 
         fn partwise(f: f64, x: W) W {
-            const g: WideFloat(T) = @floatCast(f);
+            const g: RefFloat(T) = @floatCast(f);
             return if (comptime isComplex(T)) .init(g * x.re, g * x.im) else g * x;
         }
 
@@ -430,10 +420,10 @@ fn Ops(comptime T: type) type {
         }
         fn mulScalar(s: W, x: W) W {
             // `alpha` and `beta` multiply as the type's scalars
-            return check1.mulW(s, x);
+            return reference.mulW(s, x);
         }
         fn magScalar(s: W) f128 {
-            return check1.mag(s);
+            return reference.mag(s);
         }
 
         /// `trsm`: the solution by substitution in the wide type, element by
@@ -457,19 +447,19 @@ fn Ops(comptime T: type) type {
                 const i = if (c.left and !lower) rows - 1 - ii else ii;
                 const j = if (!c.left and lower) n - 1 - jj else jj;
                 var r = mulScalar(alpha, at(s.c0, s.ldc, i, j));
-                var mags = magScalar(alpha) * check1.mag(at(s.c0, s.ldc, i, j));
+                var mags = magScalar(alpha) * reference.mag(at(s.c0, s.ldc, i, j));
                 for (0..ka) |l| {
                     // the solved neighbors: earlier in the order of substitution
                     const before = if (c.left) (if (lower) l < i else l > i) else (if (lower) l > j else l < j);
                     if (!before) continue;
                     const t = (if (c.left) s.tri(i, l) else s.tri(l, j)) orelse continue;
                     const xv = if (c.left) x[l + j * rows] else x[i + l * rows];
-                    r = check1.subW(r, check1.mulW(t, xv));
-                    mags += check1.mag(t) * check1.mag(xv);
+                    r = reference.subW(r, reference.mulW(t, xv));
+                    mags += reference.mag(t) * reference.mag(xv);
                 }
                 const dg = (if (c.left) s.tri(i, i) else s.tri(j, j)).?;
-                x[i + j * rows] = check1.divW(r, dg);
-                scale[i + j * rows] = mags / @max(check1.mag(dg), 1e-300);
+                x[i + j * rows] = reference.divW(r, dg);
+                scale[i + j * rows] = mags / @max(reference.mag(dg), reference.tiny_mag);
             };
             for (0..n) |j| for (0..rows) |i| {
                 compare(T, x[i + j * rows], got[i + j * s.ldc], 4 * ka, scale[i + j * rows], true) catch return fail(c, i, j, "wrong");
@@ -494,9 +484,9 @@ fn wellConditioned(comptime T: type, case: Case, a: []T, lda: usize) void {
 }
 
 /// Operand `p` shapes, the `rows` by `cols` of `x` at `ld`.
-fn shape(comptime T: type, x: []T, rows: usize, cols: usize, ld: usize, p: check1.Pattern) void {
+fn shape(comptime T: type, x: []T, rows: usize, cols: usize, ld: usize, p: pattern.Pattern) void {
     for (0..cols) |j| for (0..rows) |i| {
-        x[i + j * ld] = check1.shape(T, x[i + j * ld], i + j * rows, p);
+        x[i + j * ld] = pattern.shape(T, x[i + j * ld], i + j * rows, p);
     };
 }
 
@@ -513,9 +503,9 @@ fn fail(case: Case, i: usize, j: usize, what: []const u8) anyerror {
     if (!say_fails) return error.TestUnexpectedResult;
     if (case.p) |p| {
         p.describe();
-        check1.say("in {s}, ", .{@tagName(case.where)});
+        check.say("in {s}, ", .{@tagName(case.where)});
     }
-    check1.say("{s} at ({d},{d}): {s} ta={s} tb={s} left={} upper={} unit={} m={d} n={d} k={d} alpha={d},{d} beta={d},{d}\n", .{ what, i, j, @tagName(case.r), @tagName(case.ta), @tagName(case.tb), case.left, case.upper, case.unit, case.m, case.n, case.k, case.alpha[0], case.alpha[1], case.beta[0], case.beta[1] });
+    check.say("{s} at ({d},{d}): {s} ta={s} tb={s} left={} upper={} unit={} m={d} n={d} k={d} alpha={d},{d} beta={d},{d}\n", .{ what, i, j, @tagName(case.r), @tagName(case.ta), @tagName(case.tb), case.left, case.upper, case.unit, case.m, case.n, case.k, case.alpha[0], case.alpha[1], case.beta[0], case.beta[1] });
     return error.TestUnexpectedResult;
 }
 
@@ -664,25 +654,31 @@ fn scalarsOf(comptime T: type) []const [2][2]f64 {
     return if (comptime isComplex(T)) &complex else &real;
 }
 
+/// Shrinks `vt`'s `T` blocking (the 3M one for `three`) around the unrolls
+/// `um` and `un`, so every block and panel edge comes at small sizes.
+pub fn shrinkBlocking(comptime T: type, vt: *Vtable, comptime three: bool, um: usize, un: usize) void {
+    const pre = comptime portable.letter(T).? ++ if (three) "gemm3m_" else "gemm_";
+    @field(vt.*, pre ++ "p") = @intCast(2 * um);
+    @field(vt.*, pre ++ "q") = 5;
+    @field(vt.*, pre ++ "r") = @intCast(6 * un + 1);
+}
+
 /// Every case of `r` over `T` on `vt`'s kernels.
 pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !void {
     // a 3M routine's blocking is its own
     const three = comptime r != r.base();
-    const pre = comptime portable.letter(T).? ++ if (three) "gemm3m_" else "gemm_";
     const own = if (three) driver3m.blocking(T, vt) else driver.Blocking.of(T, vt);
     const um = own.um;
     const un = own.un;
 
     shrunk = vt.*;
-    @field(shrunk, pre ++ "p") = @intCast(2 * um);
-    @field(shrunk, pre ++ "q") = 5;
-    @field(shrunk, pre ++ "r") = @intCast(6 * un + 1);
+    shrinkBlocking(T, &shrunk, three, um, un);
     const p = 2 * um;
     const q = 5;
     const rr = 6 * un + 1;
     const small: Driver(r) = .{ .vt = &shrunk };
     const full: Driver(r) = .{ .vt = vt };
-    const rig = check1.rig();
+    const rig = check.rig();
     var vbuf: [32]Case = undefined;
     const vs = variants(T, r, &vbuf);
 
@@ -728,8 +724,8 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !v
             .b => d.rb * d.cb,
             .c => c.m * c.n,
         };
-        var buf: [13]check1.Pattern = undefined;
-        for (check1.patternsFor(len, &buf)) |pat| {
+        var buf: [13]pattern.Pattern = undefined;
+        for (pattern.patternsFor(len, &buf)) |pat| {
             var cp = c;
             cp.p = pat;
             cp.where = where;
@@ -775,14 +771,14 @@ fn ported(r: Routine) bool {
 /// `routineCases` for every routine of every precision; `XDouble` only where
 /// it is a type of its own.
 pub fn coreCases(vt: *const Vtable) !void {
-    inline for (.{ f32, f64, types.Complex32, types.Complex64 } ++ check1.x_real ++ check1.x_complex) |T| {
+    inline for (check.all_types) |T| {
         inline for (comptime routinesOf(T)) |r| if (comptime ported(r)) try routineCases(T, vt, r);
     }
 }
 
 /// `routineCases` of one routine for every precision it has.
 pub fn routineAll(vt: *const Vtable, comptime r: Routine) !void {
-    inline for (.{ f32, f64, types.Complex32, types.Complex64 } ++ check1.x_real ++ check1.x_complex) |T| {
+    inline for (check.all_types) |T| {
         if (comptime std.mem.findScalar(Routine, routinesOf(T), r) != null) try routineCases(T, vt, r);
     }
 }
@@ -797,7 +793,7 @@ pub fn interfaceCases(comptime T: type, comptime r: Routine) !void {
 }
 
 /// Through the public routine (`Iface`), as Accelerate runs it: the special
-/// scalars, the special values of `check.Pattern` in each operand and NaN
+/// scalars, the special values of `pattern.Pattern` in each operand and NaN
 /// scalars, at small sizes and past its small-problem paths. Carries on past
 /// a failure, saying each, up to `max_said` per routine.
 pub fn accelerateCases(comptime T: type, comptime r: Routine) !void {
@@ -823,8 +819,8 @@ pub fn accelerateCases(comptime T: type, comptime r: Routine) !void {
                 .b => dd.rb * dd.cb,
                 .c => c.m * c.n,
             };
-            var buf: [13]check1.Pattern = undefined;
-            for (check1.patterns(len, &buf)) |pat| {
+            var buf: [13]pattern.Pattern = undefined;
+            for (pattern.patterns(len, &buf)) |pat| {
                 var cp = c;
                 cp.p = pat;
                 cp.where = where;
@@ -852,7 +848,7 @@ const Bad = struct {
             b.err = e;
             b.count += 1;
             if (b.count == max_said) {
-                check1.say("(more not shown)\n", .{});
+                check.say("(more not shown)\n", .{});
                 say_fails = false;
             }
         };

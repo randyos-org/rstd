@@ -2,6 +2,7 @@
 //! `arch/<name>.zig` fills in an `Arch`; nothing here is specific to one.
 
 const std = @import("std");
+const map = @import("../openblas.zig");
 
 /// What the converters raise: the allocations they make are the only fallible calls.
 pub const Error = std.mem.Allocator.Error;
@@ -59,12 +60,6 @@ pub const Kernel = struct {
     }
 };
 
-/// Whether `c` can be part of a plain assembly name (a coarser version of
-/// the identically-named check in `gen.zig`, which this file cannot import).
-fn isNameChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$';
-}
-
 /// `-DDYNAMIC_ARCH` (`gen.zig` always sets it) turns some sources' calls into
 /// another routine's kernel, upstream self-contained via that routine's own
 /// `gotoblas`-style dispatch trampoline (e.g. `bl camax_k`), into a direct
@@ -78,9 +73,9 @@ fn rewriteDynamicArchCalls(a: std.mem.Allocator, line: []const u8) Error![]const
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < line.len) {
-        if (isNameChar(line[i]) and (i == 0 or !isNameChar(line[i - 1]))) {
+        if (map.isName(line[i]) and (i == 0 or !map.isName(line[i - 1]))) {
             var e = i;
-            while (e < line.len and isNameChar(line[e])) e += 1;
+            while (e < line.len and map.isName(line[e])) e += 1;
             const tok = line[i..e];
             if (std.mem.find(u8, tok, "_k_")) |sep| rewrite: {
                 const role = tok[0..sep];
@@ -155,7 +150,7 @@ pub const Variant = struct {
     /// preprocessing (`nakedLines`'s output, one statement each).
     rewrite: ?*const fn (a: std.mem.Allocator, statement: []const u8) Error![]const u8 = null,
     /// Cores (`KERNEL.<core>` names, any case) never built this way, such as
-    /// 32-bit-only cores in a 64-bit variant (`cpu/_corespec.zig`'s `runsOn`).
+    /// 32-bit-only cores in a 64-bit variant (`cpu/corespec.zig`'s `runsOn`).
     without: []const []const u8 = &.{},
 
     /// Whether `core` has a build of this variant.
@@ -174,6 +169,13 @@ pub const Patch = struct {
     find: []const u8,
     replace: []const u8,
     count: usize = 1,
+
+    /// `text` with the fix applied; stops unless it matches `count` times.
+    pub fn apply(p: Patch, a: std.mem.Allocator, text: []const u8) ![]const u8 {
+        const n = std.mem.count(u8, text, p.find);
+        if (n != p.count) map.die("patch for {s} matches {d} times, not {d}:\n{s}", .{ p.source, n, p.count, p.find });
+        return std.mem.replaceOwned(u8, a, text, p.find, p.replace);
+    }
 };
 
 pub const Arch = struct {

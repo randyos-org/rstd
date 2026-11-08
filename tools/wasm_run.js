@@ -1,9 +1,5 @@
-// Runs a WASI command module under Node, for the wasm32 test step:
-//
-//     node tools/wasm_run.js <module.wasm> [args...]
-//
-// stdio goes through, and the process exits with the module's status, so a
-// failing test fails the step. Needs a Node with the `node:wasi` module.
+// `node tools/wasm_run.js <module.wasm> [args...]`: a WASI command module under Node (`node:wasi`), stdio passed through and its exit
+// status kept, for the wasm test step.
 
 const fs = require("node:fs");
 const { WASI } = require("node:wasi");

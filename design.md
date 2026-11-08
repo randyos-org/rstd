@@ -312,7 +312,7 @@ By the user, 2026-10-31:
   comes first, every other feature gets a stub so it can follow.
 - PocketFFT's and pffft's licenses are approved as BSD-3 is (Licenses, above).
 - The API sketches are approved. N-d arrays and sparse matrices start after the public layer
-  (linalg's M3), on its real `View(T)` and `Mat(T)`.
+  (linalg's M10), on its real `View(T)` and `Mat(T)`.
 - The stubs' changes to the sketches stand for now (explicit `comptime` element types,
   `stats.quantile`, `sort.Keep`, `Selected(T)`, `[]?usize`, `fft.Layouts`, scratch-bounded
   batches); they may be revisited.
@@ -325,7 +325,7 @@ By the user, 2026-10-31:
 - pffft is C intrinsics behind a macro layer, so its faithful port maps each macro to the
   `@Vector` or `@shuffle` form that emits the same instruction, in pffft's order, without fused
   multiply-adds pffft lacks; checked by reading the code generated and by matching pffft's bits.
-  The port is a chance to improve `rstd.simd` and `rstd.linalg`'s APIs for such code: its
+  The port is a chance to improve `rstd.linalg`'s APIs for such code: its
   vector primitives (interleave, transpose, half-swap) go in the `Vec` and `StaticMat` code that
   linalg's M7 redesigns around `@Matrix`, which also decides the N-d arrays' fixed-size kind.
 - Kernels per platform: pffft's own first (SSE on x86_64, NEON on aarch64 and the Pi 3's 32-bit

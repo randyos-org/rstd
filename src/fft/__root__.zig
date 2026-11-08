@@ -1,12 +1,7 @@
 //! Fast Fourier transforms (rstd's design.md, "FFT"): PocketFFT's algorithms
 //! in Zig, pffft's SIMD. Stubs for now: bodies return `error.NotImplemented`,
-//! which leaves each error set when its body lands, and their tests skip
-//! until then. The forms over N-d views (`transformAxes`) come with N-d
-//! arrays.
-//!
-//! A plan depends on `n`, the element type and the core only, never on
-//! timing; it is immutable once built, so one plan serves every thread. A
-//! transform allocates nothing: the plan and the scratch are made up front.
+//! their tests skip. A plan depends only on `n`, the element type and the
+//! core; immutable, it serves every thread. Transforms allocate nothing.
 
 const std = @import("std");
 

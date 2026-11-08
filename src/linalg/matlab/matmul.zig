@@ -1,25 +1,20 @@
-//! Matrix multiplication (`X*Y`), ported from `matlab88.f90`'s `STACK2`
-//! (the `*` operator's `MULTIPLICATION` case, label 05) - REPL operator
-//! dispatch, not a named Fortran subroutine, so there's no `WMATMUL` to
-//! point at. The math is rstd's `gemm` (M2); `STACK2`'s expression-stack
-//! bookkeeping is left out as REPL-only, and its scalar-times-anything case
-//! is `CxMat.scale`.
+//! `X*Y` (`STACK2`, label 05) by `gemm` (M2); a scalar times anything is
+//! `CxMat.scale`.
 
 const std = @import("std");
-const blas1 = @import("blas1.zig");
+const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
 const blas = @import("../blas/__root__.zig");
-const Complex = CxMat.Complex;
+const ops = @import("../lapack/ops.zig");
+const Cx = scalar.Cx;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const ix = scalar.ix;
 
 pub const Error = Allocator.Error || Io.Cancelable;
 
-/// `C = A*B`: `A` is `m`x`n`, `B` is `n`x`p`, `C` is `m`x`p`, by `gemm`:
-/// real in place for real `A` and `B`, else over interleaved copies. The
-/// shared `a.n == b.m` requirement *is* the dimension-compatibility rule
-/// (checked by the caller constructing matching `CxMat`s). `out` must not
-/// alias `a`/`b`.
+/// `out = A*B` by `gemm`, real in place for real operands, else over
+/// interleaved copies; the caller matches the shapes, `out` not aliasing.
 pub fn matmul(a: CxMat, b: CxMat, out: CxMat, allocator: Allocator, io: Io) Error!void {
     const m: isize = @intCast(a.m);
     const n: isize = @intCast(a.n);
@@ -29,26 +24,24 @@ pub fn matmul(a: CxMat, b: CxMat, out: CxMat, allocator: Allocator, io: Io) Erro
         for (1..out.n + 1) |j| @memset(out.col(j).i, 0);
         return;
     }
-    const x = try a.toPacked(Complex, allocator);
+    const x = try a.toPacked(Cx, allocator);
     defer allocator.free(x);
-    const y = try b.toPacked(Complex, allocator);
+    const y = try b.toPacked(Cx, allocator);
     defer allocator.free(y);
-    const z = try allocator.alloc(Complex, out.m * out.n);
+    const z = try allocator.alloc(Cx, out.m * out.n);
     defer allocator.free(z);
-    try multiplied(blas.gemm(allocator, io, Complex, .n, .n, m, p, n, Complex.init(1, 0), x.ptr, @max(1, m), y.ptr, @max(1, n), Complex.init(0, 0), z.ptr, @max(1, m)));
-    out.fromPacked(Complex, z);
+    try multiplied(blas.gemm(allocator, io, Cx, .n, .n, m, p, n, Cx.init(1, 0), x.ptr, @max(1, m), y.ptr, @max(1, n), Cx.init(0, 0), z.ptr, @max(1, m)));
+    out.fromPacked(Cx, z);
 }
 
 fn multiplied(r: blas.Level3Error!void) Error!void {
-    r catch |e| switch (e) {
-        error.OutOfMemory, error.Canceled => |x| return x,
-        // the shapes come from the `CxMat`s
-        else => unreachable,
-    };
+    // the shapes come from the `CxMat`s
+    r catch |e| return ops.narrow(Error, e);
 }
 
+// ---- tests ------------------------------------------------------------------
+
 const zigstd = @import("../../zigstd.zig");
-const ix = blas1.ix;
 
 test "matmul matches hand computation for a small real case" {
     // A = [[1,2],[3,4]] (2x2), B = [[5,6],[7,8]] (2x2).

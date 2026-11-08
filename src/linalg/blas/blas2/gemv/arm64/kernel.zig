@@ -5,13 +5,9 @@
 //! they do. The other gemv slots take `vector.zig`'s kernels through the
 //! registry's `vector_rule`. Tests live in `gemv/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
-const util = @import("../../../util.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const vector = @import("../../../vector.zig");
-const Vtable = @import("../../../Vtable.zig");
-
-const Slot = util.Slot;
 
 pub const Core = coretypes.Arm64CoreType;
 
@@ -23,20 +19,8 @@ pub const ports = [_]registry.Port(Core){
 const P = registry.Ports(Core, "arm64", &ports);
 const A = registry.Kernels(Core, @import("asm/__root__.zig"));
 
-pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-    return A.hasSlot(core, slot) or P.hasSlot(core, slot);
-}
-
-pub fn has(comptime core: Core) bool {
-    return A.has(core) or P.has(core);
-}
-
-pub fn exportCore(comptime core: Core) void {
-    A.exportCore(core);
-    P.exportCore(core);
-}
-
-pub fn install(vt: *Vtable, comptime core: Core) void {
-    A.install(vt, core);
-    P.install(vt, core);
-}
+const U = registry.Union(Core, .{ A, P });
+pub const hasSlot = U.hasSlot;
+pub const has = U.has;
+pub const exportCore = U.exportCore;
+pub const install = U.install;
