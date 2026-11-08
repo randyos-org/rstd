@@ -129,7 +129,7 @@ pub fn requireReal(comptime T: type, comptime name: []const u8) void {
 }
 
 /// `@abs(v)` of a float or float vector; on MIPS MSA by a mask LLVM cannot
-/// see, as its `@abs` there keeps the sign (`issues.md`). For any `|x|` MSA may vectorize.
+/// see, as its `@abs` there keeps the sign (issue #197). For any `|x|` MSA may vectorize.
 pub fn abs(v: anytype) @TypeOf(v) {
     const T = @TypeOf(v);
     const F = if (@typeInfo(T) == .vector) @typeInfo(T).vector.child else T;

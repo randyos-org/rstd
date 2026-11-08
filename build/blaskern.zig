@@ -158,7 +158,7 @@ fn checkedObject(b: *Build, obj: *Compile, query: std.Target.Query) !LazyPath {
 
 /// A step that fails where `comp`'s inline asm has a line LLVM rejects: it
 /// compiles `comp`'s LLVM bitcode with clang. Zig 0.18 drops such lines, yet
-/// exits 0 and caches the output (issues.md, "Inline assembly errors exit 0").
+/// exits 0 and caches the output (issue #190).
 /// `comp` must use LLVM, and `query` name no `ofmt`, which `zig cc` ignores.
 pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step {
     const triple = try query.zigTriple(b.allocator);
@@ -173,7 +173,7 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding))
         check.addArg("-fno-PIC");
     // wasm bitcode already has its `wasm-feature-*` flags, which clang adds again
-    // (issues.md, "wasm bitcode gets its feature flags twice")
+    // (issue #191)
     if (target.cpu.arch.isWasm()) check.addArgs(&.{ "-Xclang", "-disable-llvm-verifier" });
     // a function per section, so calls are relocations the linker resolves; in
     // one section a large image's branches outrun their range (+-32 MiB on

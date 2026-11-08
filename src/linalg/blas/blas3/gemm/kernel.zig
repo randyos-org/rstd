@@ -501,7 +501,7 @@ fn ComplexKernels(comptime T: type, comptime geo: Geometry) type {
         /// `C += alpha * op(A) * op(B)`, `op` conjugating as `conj` says;
         /// the loops of the real kernel. `conj` comptime: a run-time one
         /// selects between vectors, which LLVM cannot compile on MIPS64r6
-        /// (issues.md).
+        /// (issue #192).
         fn run(comptime conj: Conj, bm: BlasLong, bn: BlasLong, bk: BlasLong, ar: F, ai: F, ba: [*]F, bb: [*]F, c: [*]F, ldc: BlasLong) i32 {
             const m: usize = @intCast(bm);
             const n: usize = @intCast(bn);

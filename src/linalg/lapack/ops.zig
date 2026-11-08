@@ -149,7 +149,7 @@ pub fn abs(comptime T: type, x: T) Float(T) {
 }
 
 /// The principal square root. Complex: std's for `f32` and `f64`, which has
-/// no other type (issues.md), and the same musl `csqrt` for the rest (T124).
+/// no other type (issue #202), and the same musl `csqrt` for the rest (T124).
 pub fn sqrt(comptime T: type, x: T) T {
     if (comptime !isComplex(T)) return @sqrt(x);
     const F = Float(T);
@@ -212,7 +212,7 @@ pub fn absMax(comptime F: type, x: []const F) F {
 }
 
 /// `x *= 1 / max`, by division where that reciprocal overflows (faer
-/// multiplies, which a denormal `max` makes infinite; issues.md).
+/// multiplies, which a denormal `max` makes infinite; issue #252).
 pub fn scaleDown(comptime F: type, x: []F, max: F) void {
     if (max >= std.math.floatMin(F)) {
         const inv = 1 / max;

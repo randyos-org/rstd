@@ -122,7 +122,7 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
   The extremes' `@max` was a call to libm's `fmax` per key on ARMv7 VFP, SPARC, pre-VSX POWER,
   MIPS before release 6 (MSA included) and the x87, 15 a block of 16 keys; there they now
   compare and select (`vector.hasMinMax`), with the same results (NaN blocks fall back to the
-  portable scan). MSA also needed its own `abs` ([`issues.md`](../../../issues.md)).
+  portable scan). MSA also needed its own `abs` ([#197](https://github.com/randyos-org/rstd/issues/197)).
 - **`f64` `sdot` cost.** The flyoff measured it against OpenBLAS's `f32` lanes, one thread: on
   Zen 3 (Windows) 64 against 218 GB/s at `n = 1024`, 75 against 131 at 8192, 27 against 32 out
   of cache; on the M6 (rstd's own kernels) 96 against 158 at 1024 and 98 against 123 out of cache
@@ -152,7 +152,7 @@ before the f64 sum differs from `sdsdot.f` only in f64 rounding; harmless.
   `interface/nrm2.c` does.
 - Converted kernels: x86_64 keeps OpenBLAS's `nrm2_sse.S` (f32 widened to f64, unscaled) and
   `nrm2.S` (x87 f80, unscaled). POWER, Loongson, loongarch64 and SPARC fall back to the portable
-  loop because their kernels mishandle Inf, NaN and denormals (`issues.md`).
+  loop because their kernels mishandle Inf, NaN and denormals ([#226](https://github.com/randyos-org/rstd/issues/226)).
 
 **Reference (LAPACK 3.10+).** `BLAS/SRC/dnrm2.f90`
 (<https://github.com/Reference-LAPACK/lapack/blob/master/BLAS/SRC/dnrm2.f90>, Anderson,
@@ -166,7 +166,7 @@ counts `x(1)` `n` times; `incx < 0` walks backwards.
 **OpenBLAS.** Per-arch. x86_64 widens (`kernel/x86_64/nrm2_sse.S:72,99`, `cvtss2sd`/`cvtps2pd`;
 `kernel/x86_64/KERNEL:257-274` selects it for `snrm2`, x87 `nrm2.S` for `dnrm2`). arm64
 ThunderX2 `scnrm2_thunderx2t99.c` also widens with `fcvt`. The others are scaled loops, several
-broken on special values (rstd's `issues.md`).
+broken on special values ([#226](https://github.com/randyos-org/rstd/issues/226)).
 
 **BLIS.** `frame/util/bli_util_unb_var1.c`: `normfv` calls `sumsqv_unb_var1` (lines
 1049-1173), a scalar one-pass scaled loop "mimicking LAPACK's `?lassq()`", with explicit NaN and

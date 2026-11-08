@@ -75,7 +75,7 @@
             .hash = "N-V-__8AAPlKiQI6Ff4yPGDDl3AfuWMrf7hwQswZLDKyV9md",
             .lazy = true,
         },
-        // Its Aro does not build on current Zig master (issues.md);
+        // Its Aro does not build on current Zig master (issue #217);
         // src/buildutils/renderdoc.zig uses the built-in translate-c until it does.
         // .translate_c = .{
         //     .url = "git+https://codeberg.org/ziglang/translate-c#9b5eb014df946d26b86c3d42b5d133d0fe48fe61",

@@ -72,7 +72,7 @@ pub const fuse = fuse_bits > 0;
 /// manuals; gcc's `ISA_HAS_FUSED_MADD4`): MIPS before release 6, where the
 /// root's `blas_fused_madd` says so. Only the `loongson3r3` and `loongson3r4`
 /// objects' does (`cpu/corespec.zig`). LLVM also picks `madd.fmt` for a
-/// plain `a*b + c` there, which then fuses too; QEMU rounds it (issues.md).
+/// plain `a*b + c` there, which then fuses too; QEMU rounds it (issues #196, #224).
 pub const fused_madd = sysinfo.target.cpu.arch.isMips() and hardware_bits == 0 and
     @hasDecl(root, "blas_fused_madd") and root.blas_fused_madd;
 
@@ -98,7 +98,7 @@ fn allowed(comptime T: type) bool {
 
 /// Whether LLVM compiles `@mulAdd` right: not with MSA, where a vector `fma`,
 /// also one the vectorizers make of scalar ones, becomes `fmadd` with the
-/// addend as a multiplicand (issues.md).
+/// addend as a multiplicand (issue #194).
 pub const compiles = !(sysinfo.target.cpu.arch.isMips() and std.Target.mips.featureSetHas(sysinfo.target.cpu.features, .msa));
 
 /// Whether the BLAS fuses multiply-adds in `T`: the setting allows it and an
@@ -136,7 +136,7 @@ pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
 
 /// `a*b + c` rounded once, for a `fusible` `T`: `@mulAdd`, or with
 /// `fused_madd` `madd.fmt` per scalar and MSA's `fmadd` per 128 bits (its
-/// `wd + ws*wt`; LLVM's own `fmadd` swaps operands, issues.md).
+/// `wd + ws*wt`; LLVM's own `fmadd` swaps operands, issue #194).
 pub inline fn fusedMadd(comptime T: type, a: T, b: T, c: T) T {
     if (comptime !fused_madd) return @mulAdd(T, a, b, c);
     const v = switch (@typeInfo(T)) {

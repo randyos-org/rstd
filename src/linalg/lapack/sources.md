@@ -1,6 +1,6 @@
 # LAPACK and kernel sources
 
-The anthology's source table (design.md, Settled decisions: "`rstd.linalg` is an anthology of the best open-source methods", 2026-10-30; todo.md T113). For each LAPACK routine rstd has or plans, and each BLAS kernel family with more than one source, it lists the candidates, which of them implement it (read in their trees at the pins below, not guessed), the current choice, why, and the evidence. A choice changes when a benchmark or an accuracy test favors another source. Reference-LAPACK and Eigen are baselines only; Eigen is never a source.
+The anthology's source table (design.md, Settled decisions: "`rstd.linalg` is an anthology of the best open-source methods", 2026-10-30; T113). For each LAPACK routine rstd has or plans, and each BLAS kernel family with more than one source, it lists the candidates, which of them implement it (read in their trees at the pins below, not guessed), the current choice, why, and the evidence. A choice changes when a benchmark or an accuracy test favors another source. Reference-LAPACK and Eigen are baselines only; Eigen is never a source.
 
 ## Candidates
 
@@ -14,7 +14,7 @@ The anthology's source table (design.md, Settled decisions: "`rstd.linalg` is an
 | BLIS | `2.1` (`caf0db6be1`) | BSD-3 | kernels and the level-3 framework; no LAPACK (no `getrf`, `potrf` or `geqrf` under `frame/` or `kernels/`) |
 | Apple Accelerate | macOS's, bound at run time | Apple's; called, never ported | the routines `apple_accel.zig` routes ([BLAS design](../design.md#apple-accelerate)) |
 | Reference-LAPACK | OpenBLAS's `lapack-netlib/` | baseline | the semantics, and a benchmark baseline |
-| Eigen | upstream, built through Nix (todo.md T73) | MPL 2.0 | a benchmark baseline only |
+| Eigen | upstream, built through Nix ([#120](https://github.com/randyos-org/rstd/issues/120)) | MPL 2.0 | a benchmark baseline only |
 
 The libflame and AOCL-libFLAME clones sit beside the OpenBLAS and BLIS checkouts, read-only. Libflame's `master` is 62 commits past `5.2.0` (to `f38dd83e`, 2024-05-20) with no later tag. AOCL-libFLAME's `5.3.2` is its default branch's head; its dated snapshot tags (`AOCL-20261001`) are newer but not releases.
 
@@ -30,7 +30,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 
 ## LAPACK routines
 
-"Needs" says why rstd wants the routine: **has** (in `src/linalg/lapack/` on `review`), an item (T34 SVD, T110 ReLAPACK, T111 the rest from faer, T70), or **M** for `rstd.linalg`'s MATLAB-like API (todo.md M1 to M4; M2 names the LINPACK and EISPACK routines each replaces). In the source columns "own" is the candidate's own implementation, with its file (OpenBLAS's from its root, ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL-libFLAME's in `src/map/lapack2flamec/` and its `f2c/c/`); "-" is none. Evidence for **has** rows is the accuracy tests design.md's Verification lists for `src/linalg/lapack/`.
+"Needs" says why rstd wants the routine: **has** (in `src/linalg/lapack/` on `review`), an item (T34 SVD, T110 ReLAPACK, T111 the rest from faer, T70), or **M** for `rstd.linalg`'s MATLAB-like API (M1 to M4; M2 names the LINPACK and EISPACK routines each replaces). In the source columns "own" is the candidate's own implementation, with its file (OpenBLAS's from its root, ReLAPACK's in `relapack/src/`, faer's in `faer/src/linalg/`, libflame's and AOCL-libFLAME's in `src/map/lapack2flamec/` and its `f2c/c/`); "-" is none. Evidence for **has** rows is the accuracy tests design.md's Verification lists for `src/linalg/lapack/`.
 
 ### Cholesky and triangular
 
@@ -55,13 +55,13 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 | `laswp` | has (`blas/ext/`) | own, `lapack/laswp/` | - | permutations inside `lu/` | ref | ref | OpenBLAS | Q10 | accuracy tests; not raced |
 | `getri` | has (T123); M (`wgedi`, `inv`) | - | - | own, `partial_pivoting/inverse.rs` | ref | AMD: `lapack_getri_small_d`, plain C (`src/lapack/x86/generic/`) | faer (`lu.zig`: `trtri` on `U` and `L`, `inv(U) inv(L)` by `trmm`, the columns swapped back) | the anthology rule: faer before the reference | `A A⁻¹ = I` every type, sizes 1 to 33; a zero pivot leaves `A` as `getrf` left it; not raced |
 | `gecon` | has (T115); M (`wgeco`, `rcond`, `cond`) | - | - | - | ref | ref | Reference-LAPACK (`norm.zig`, with `xLACN2`, `xLATRS`) | neither faer nor libflame has its own; the reference is the fallback (Q11, 2026-10-30) | within `dtest.in`'s threshold (30) of `1 / (‖A‖ ‖A⁻¹‖)` by `dget06.f`'s ratio, both norms, graded matrices; special values; not raced |
-| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([issues](../../../issues.md#relapack-in-openblas)) | accuracy tests; not raced |
+| `gbtrf` | T110 | - | own, `dgbtrf.c` | - | ref | ref | the reference's `xGBTF2` | ReLAPACK's recursion gives a wrong factor ([#244](https://github.com/randyos-org/rstd/issues/244)) | accuracy tests; not raced |
 
 ### Symmetric indefinite and generalized definite
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([issues](../../../issues.md#relapack-in-openblas)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
+| `sytrf`, `hetrf` (and `_rook`) | T110; M (`ldl`, symmetric `mldivide`) | - | own, recursive, `dsytrf.c`, `dsytrf_rook.c` | own, Bunch-Kaufman with partial, rook and rook-diagonal pivoting, `cholesky/bunch_kaufman/factor.rs` | ref | ref | the reference's blocked loop over ReLAPACK's panels | ReLAPACK's recursion gives a wrong factor ([#242](https://github.com/randyos-org/rstd/issues/242), [#243](https://github.com/randyos-org/rstd/issues/243)); faer's storage is not LAPACK's | accuracy tests; not raced; faer is the other candidate |
 | `sytrs`, `sytri` (`hetrs`, `hetri`) | M | - | - | own, `bunch_kaufman/solve.rs`, `inverse.rs` | ref | ref | open | faer's solve reads faer's factor, so it follows the `sytrf` choice | none |
 | `sygst`, `hegst` | T110; M (`eig(A, B)`) | - | own, `dsygst.c` | - | FLAME `FLA_Eig_gest` | FLAME | ReLAPACK | T110 | accuracy tests; not raced; FLAME is the other candidate |
 | `sygv`, `hegv`, `sygvd` | M (`eig(A, B)`) | - | - | - | ref | ref | `potrf`, `sygst`, then `syevd` as chosen | a driver over the rows above | none |
@@ -71,7 +71,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `trsyl` | T110; M (`sylvester`, `lyap`, `sqrtm`, `logm`) | - | own, recursive, `dtrsyl.c` | - (a 2 x 2 `lasy2` inside `evd/schur/real_schur.rs` only) | FLAME `FLA_Sylv`, off | FLAME `FLA_Sylv`, off | ReLAPACK | T110 | accuracy tests; not raced |
-| `tgsyl` | has (T118) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK (`tgsyl.zig`), the reference's `xTGSY2` below the crossover | only non-reference source; two ReLAPACK bugs fixed ([issues](../../../issues.md#relapack-in-openblas)) | both equations' residuals, every `trans` and type; `dif` against `σ_min` of the Kronecker form and against one `xTGSY2`; not raced |
+| `tgsyl` | has (T118) | - | own, `dtgsyl.c` | - | ref | ref | ReLAPACK (`tgsyl.zig`), the reference's `xTGSY2` below the crossover | only non-reference source; two ReLAPACK bugs fixed ([#246](https://github.com/randyos-org/rstd/issues/246), [#247](https://github.com/randyos-org/rstd/issues/247)) | both equations' residuals, every `trans` and type; `dif` against `σ_min` of the Kronecker form and against one `xTGSY2`; not raced |
 
 ### QR, LQ and least squares
 
@@ -89,7 +89,7 @@ Two of libflame's names are not what they say: `gesdd` is "redirected to GESVD" 
 
 | Routine | Needs | OpenBLAS | ReLAPACK | faer | libflame | AOCL-libFLAME | Choice | Why | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes (`../issues.md`); not raced |
+| `gesvd` | T34 (`wsvdc`, `svd`, `rank`, `null`, `orth`) | - (OpenBLAS's `test_kernel_regress.c` needs it) | - | own, `svd/mod.rs`, QR iteration | FLAME `FLA_Svd_ext`: restructured bidiagonal QR (below) | AMD: `fla_dgesvd_small6`, `_xx_small10` and others (AVX2, `dgesvd.c`) | faer (`svd.zig`) | T34 | `A - U Σ Vᴴ` and orthogonality within faer's `test_svd` tolerance, every job and precision, and `test_kernel_regress.c`; four faer fixes ([#250](https://github.com/randyos-org/rstd/issues/250), [#252](https://github.com/randyos-org/rstd/issues/252), [#253](https://github.com/randyos-org/rstd/issues/253), [#255](https://github.com/randyos-org/rstd/issues/255)); not raced |
 | `gesdd` | T34 | - | - | own, divide and conquer, `svd/bidiag_svd.rs` | redirected to `gesvd` | ref (`dgesdd.c` over `dbdsdc`) | faer (`svd.zig`) | T34 | as `gesvd`; not raced |
 | `gebrd`, `orgbr`, `ormbr` | inside T34 | - | - (not covered) | own, `svd/bidiag.rs` | FLAME `FLA_Bidiag_UT` | FLAME | faer | T34 | with `gesvd` |
 | `bdsqr`, `bdsdc` | inside T34 | - | - | own, `svd/bidiag_svd.rs` | FLAME `FLA_Bsvd`, off | AMD: `dlasr` rotations (AVX2), `dbdsqr_small` | `bdsqr`: Reference-LAPACK `xBDSQR` (`bidiag_svd.zig`'s `qrAlgorithm`, with `xLASV2`, `xLAS2`; T126); `bdsdc`: faer's divide and conquer over it | faer's QR iteration loses a graded bidiagonal's small values (an absolute `abs(d) <= eps` test; M1's E4), the reference keeps them (Demmel and Kahan); dqds (`xLASQ1` to `xLASQ6`) for values alone is T131 | with `gesvd`; E4's graded bidiagonal, reversed and random, against `f128` (T126) |

@@ -3,7 +3,7 @@
 //! the `32` and `64` variants. The `64` variant shifts with `sllx`: the
 //! sources scale 64-bit strides with `sll`, and under qemu (sun4u) `sll`
 //! keeps only the low 32 bits, so a negative stride became a huge positive
-//! one (`issues.md`). `sllx` is right either way.
+//! one (issue #222). `sllx` is right either way.
 
 const std = @import("std");
 const arch = @import("__root__.zig");

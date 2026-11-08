@@ -256,7 +256,7 @@ fn checkFused(vt: *const Vtable) !void {
 
 test "the Loongson 3A cores fuse axpy, as their flags do" {
     if (comptime !sysinfo.target.cpu.arch.isMips()) return error.SkipZigTest;
-    // every mips rig is QEMU, which rounds `madd.fmt` (issues.md)
+    // every mips rig is QEMU, which rounds `madd.fmt` (issue #224)
     if (check.rig()) return error.SkipZigTest;
     try check.eachCore(checkFused);
 }

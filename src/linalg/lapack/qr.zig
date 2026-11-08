@@ -75,7 +75,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: [*]T, ldh: u
             if (info.norm > 0) row += 1;
         } else if (!(info.norm <= threshold)) {
             // faer tests `norm > threshold`, false for NaN, so a NaN column
-            // took no reflection and read as rank deficient (issues.md)
+            // took no reflection and read as rank deficient (issue #256)
             // w := A01 + vᴴ A11, k := -w / tau; A01 += k, A11 += v kᵀ
             const rest = n - c - 1;
             if (rest > 0) {

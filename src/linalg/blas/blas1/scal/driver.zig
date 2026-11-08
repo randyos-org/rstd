@@ -2,7 +2,7 @@
 //! blocks; every element is one product or a stored zero, so any block gives
 //! the same bits. `flag` (upstream's `dummy2`): 1 multiplies even by a zero `alpha`.
 //! The complex C tails, which branch on special values, take the blocks'
-//! full product here (issues.md). No BLAS-root imports (`_kernel.zig`).
+//! full product here (issue #231). No BLAS-root imports (`_kernel.zig`).
 
 const std = @import("std");
 const util = @import("../../util.zig");

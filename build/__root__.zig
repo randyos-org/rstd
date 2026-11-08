@@ -129,7 +129,7 @@ pub fn build(b: *Build) !void {
     // tests
     // -----
     // glibc only: static on musl it faults at start; macOS needs SDK headers
-    // the toolchain lacks (issues.md)
+    // the toolchain lacks (issue #178)
     tsan = b.option(bool, "rstd-tsan", "Build rstd's linux-gnu tests with ThreadSanitizer; the x86_64 and aarch64 Linux rigs then take glibc from Nix on -Dtest-host") orelse false;
     const test_filter = b.option([]const []const u8, "rstd-test-filter", "Only run rstd tests whose name contains this (repeatable)") orelse &.{};
     const rstd_test_exe = try addRstdTest(b, rstd_mod, target, optimize, test_filter);

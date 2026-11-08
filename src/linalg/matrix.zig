@@ -514,7 +514,7 @@ fn invAnySize(m: anytype) error{Singular}!@TypeOf(m) {
     const T = M.Element;
     if (vector.on_spirv and comptime spirvMat(n, n, T)) {
         if (spvDeterminant(m) == 0) return error.Singular;
-        // a local: a literal in the payload is a SPIR-V backend TODO (issues.md)
+        // a local: a literal in the payload is a SPIR-V backend TODO (issue #200)
         const r: M = .{ .data = spvInverse(m) };
         return r;
     }

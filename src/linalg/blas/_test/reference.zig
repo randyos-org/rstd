@@ -54,7 +54,7 @@ pub fn wide(comptime T: type, v: T) Wide(T) {
 }
 
 /// `@sqrt` of a `Wide` value. sparc64's compiler-rt `_Qp_sqrt` takes the root
-/// in `f64` (`issues.md`); two Newton steps there restore `f128`'s precision.
+/// in `f64` (issue #184); two Newton steps there restore `f128`'s precision.
 pub fn sqrtW(x: f128) f128 {
     var y = @sqrt(x);
     if (comptime sysinfo.target.cpu.arch != .sparc64) return y;
@@ -67,7 +67,7 @@ pub fn sqrtW(x: f128) f128 {
 }
 
 /// Ulps of `F` the library's own square roots may add: on sparc64 its `f128`
-/// roots keep `f64`'s precision (`issues.md`, `_Qp_sqrt`).
+/// roots keep `f64`'s precision (issue #184).
 pub fn rootUlps(comptime F: type) f128 {
     return if (sysinfo.target.cpu.arch == .sparc64 and F == f128) 0x1p60 else 0;
 }

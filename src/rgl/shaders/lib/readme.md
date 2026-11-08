@@ -39,10 +39,10 @@ GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` 
 
 - **Native already:** the math builtins (`@sqrt`, `@floor` and the rest), `@min`/`@max` and `@mulAdd`. `@Vector` arithmetic stays vector.
 - **Never native through rstd or shaderlib (at S1):** Dot, Length, Distance, Normalize, Cross, Reflect, Refract, FaceForward, InverseSqrt, Fma (rstd's `mulAdd` stays unfused: `fma.zig`'s `fusedMulAddBits` is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm` (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm` show. M12 made `linalg`'s native (below).
-- **Matrices**: shaderlib's `Mat2` to `Mat4` are `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs `OpCompositeExtract`s (36 for a 4 by 4). Before, arrays of columns gave 4 FMul.v4 and 3 FAdd.v4 for `m v` and 16 FMul.s and 12 FAdd.s for `v m`; inline asm still cannot declare `OpTypeMatrix` (issues.md, "SPIR-V inline assembly cannot declare a matrix type").
+- **Matrices**: shaderlib's `Mat2` to `Mat4` are `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs `OpCompositeExtract`s (36 for a 4 by 4). Before, arrays of columns gave 4 FMul.v4 and 3 FAdd.v4 for `m v` and 16 FMul.s and 12 FAdd.s for `v m`; inline asm still cannot declare `OpTypeMatrix` ([#198](https://github.com/randyos-org/rstd/issues/198)).
 - **Branches:** every inlined call keeps its structured blocks (phi-carried returns), even in ReleaseFast (44 in `vecMat`); `spirv-opt` would fold them.
 - **Fixed on the way:** shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for vectors (`2 * dot(i, n) * n` mixes a scalar and a vector); they now splat their scalars.
-- **Compiler crash:** `std.fmt.comptimePrint` as an `asm` template crashes the backend (issues.md), so templates are literal.
+- **Compiler crash:** `std.fmt.comptimePrint` as an `asm` template crashes the backend ([#199](https://github.com/randyos-org/rstd/issues/199)), so templates are literal.
 
 ## `linalg`'s SPIR-V forms (M12, 2026-11-07)
 
@@ -62,4 +62,4 @@ GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` 
 | `matrix.outer` | OpOuterProduct |
 
 - **Still shaderlib's own code:** `reflect`, `refract` and `faceforward` (their dot is OpDot now), `inversesqrt`, `stepScalar`, `smoothstepScalar`, `fract` and `clamp`; S2 lowers them.
-- **`asm` on `@Matrix`:** the block takes the matrix type as a `"t"` input and the matrix as a `""` operand, so it never declares `OpTypeMatrix` (issues.md).
+- **`asm` on `@Matrix`:** the block takes the matrix type as a `"t"` input and the matrix as a `""` operand, so it never declares `OpTypeMatrix` ([#198](https://github.com/randyos-org/rstd/issues/198)).

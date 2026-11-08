@@ -227,7 +227,7 @@ pub fn GemmKernels(comptime I: type, comptime O: type) type {
         /// `C := beta*C`; a zero `beta` writes zeros without reading `C`.
         /// Upstream's bfloat16 test is on `beta`'s bits (only +0), and its
         /// bfloat16 product truncates; here the value counts, and the
-        /// product rounds as `toBf16` does (`issues.md`).
+        /// product rounds as `toBf16` does (issue #236).
         pub fn beta(m: BlasLong, n: BlasLong, _: BlasLong, b: O, _: [*]I, _: BlasLong, _: [*]I, _: BlasLong, c: [*]O, ldc: BlasLong) callconv(.c) i32 {
             const bf = wide(O, b);
             const h: usize = @intCast(m);

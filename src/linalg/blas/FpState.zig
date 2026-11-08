@@ -70,7 +70,7 @@ const fp_cpu = sysinfo.target.cpu;
 const fp_hard = sysinfo.target.abi.float() == .hard;
 const fp_x87 = fp_cpu.arch.isX86() and std.Target.x86.featureSetHas(fp_cpu.features, .x87);
 /// The self-hosted x86_64 backend takes no `(%reg)` operand; it gets `m`
-/// operands, which LLVM misreads as inputs (issues.md).
+/// operands, which LLVM misreads as inputs (issue #182).
 const fp_mem_ops = sysinfo.zig_backend == .stage2_x86_64;
 /// The e500's SPE, which replaces the FPU; newer Zig has no such feature
 /// (upstream fe259973b6), Zig 0.17 still does.

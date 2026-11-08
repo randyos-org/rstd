@@ -36,7 +36,7 @@ pub const SytrfError = interface.SquareError || error{Singular} || Allocator.Err
 /// factorization, then returns `error.Singular` with the first met block's
 /// first index (1-based; the lowest for `l`, the highest for `u`) in `pivot`.
 /// Reference-LAPACK's blocked `xSYTRF` (`dsytrf.f`, `zsytrf.f`, `zhetrf.f`,
-/// the `_rook` forms) over ReLAPACK's `rec2` panels (`issues.md`).
+/// the `_rook` forms) over ReLAPACK's `rec2` panels (issues #242, #243).
 pub fn sytrf(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, a: [*]T, lda: isize, ipiv: [*]isize, pivot: ?*usize) SytrfError!void {
     comptime ops.requireFloat(T, "sytrf");
     return indefiniteImpl(allocator, io, T, false, false, uplo, n, a, lda, ipiv, pivot);

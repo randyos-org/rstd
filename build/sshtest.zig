@@ -61,7 +61,7 @@ fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: [
 
 /// `ssh-repro-group-aarch64-macos`: `tools/probe/evented_group_repro.zig` on the
 /// Mac, `futures` then `group`; fails while std's `Group` still crashes on
-/// `Dispatch` (`issues.md`). Rerun on each toolchain bump.
+/// `Dispatch` (issue #208). Rerun on each toolchain bump.
 fn addGroupRepro(b: *Build, optimize: Optimize, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget) void {
     const exe = b.addExecutable(.{ .name = "evented_group_repro", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/probe/evented_group_repro.zig"),

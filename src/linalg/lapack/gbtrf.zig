@@ -30,7 +30,7 @@ pub const GbtrfError = error{ InvalidM, InvalidN, InvalidKl, InvalidKu, InvalidL
 /// ReLAPACK's (`relapack/src/dgbtrf.c` and the rest; OpenBLAS v0.3.34-317)
 /// runs the reference's `xGBTF2` (`gbtf2`) unless `n <= kl`, where its
 /// recursion gives a wrong factor, as upstream's full recursion does on most
-/// shapes (`issues.md`); so `gbtrf` is `gbtf2` throughout. `allocator` and
+/// shapes (issue #244); so `gbtrf` is `gbtf2` throughout. `allocator` and
 /// `io` are unused, kept for the blocked form to come.
 pub fn gbtrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, kl: isize, ku: isize, ab: [*]T, ldab: isize, ipiv: [*]isize, pivot: ?*usize) GbtrfError!void {
     comptime ops.requireFloat(T, "gbtrf");

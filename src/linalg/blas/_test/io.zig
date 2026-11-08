@@ -44,7 +44,7 @@ pub fn initEvented(ev: *Evented, extra: u32) bool {
 
 /// Whether the threaded tests also run on `Io.Evented` with worker threads:
 /// on `Dispatch` through `Futures` only. `Group` crashes there and on `Uring`,
-/// whose futures are reused early (issues.md).
+/// whose futures are reused early (issue #209).
 pub const evented_workers = hosted and threading.dispatch_futures and Evented == Io.Dispatch;
 
 /// Rounds of the race stress tests (`race stress`, levels 1 to 3): enough for

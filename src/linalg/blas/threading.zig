@@ -474,14 +474,14 @@ fn Region(comptime Ctx: type, comptime f: fn (Ctx, Chunk) void) type {
 // ---- worker tasks ------------------------------------------------------------------
 
 /// Plain futures instead of `Io.Group` on `Io.Dispatch`, whose `Group` crashes
-/// with worker threads (issues.md). Once `ssh-repro-group-aarch64-macos`
+/// with worker threads (issue #208). Once `ssh-repro-group-aarch64-macos`
 /// passes, set this false and delete `Futures`.
 pub const dispatch_futures = true;
 
 /// `Io.Evented` for the fiber tests; void where it does not build: Zig 0.17's
 /// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
 /// lacks (version-gated, std exposes nothing to detect); SVE targets, whose
-/// LLVM rejects the fiber switch's `ffr` clobber (issues.md).
+/// LLVM rejects the fiber switch's `ffr` clobber (issue #212).
 pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAARCH64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
 
 /// Whether `io`'s worker tasks run on `Futures`.
@@ -772,7 +772,7 @@ pub const Signal = struct {
         if (lent) |l| l.give();
         defer if (lent) |l| l.take();
         // all: `Uring` passes the count on as a C `int`, where `maxInt(u32)`
-        // wakes one (issues.md)
+        // wakes one (issue #207)
         io.futexWake(u32, &s.value.raw, std.math.maxInt(i32));
     }
 };
@@ -1234,7 +1234,7 @@ test "a signal wakes every sleeper on an Io.Evented with worker threads" {
     const got = woken.load(.acquire);
     // free any left asleep, so a failure does not hang
     io.futexWake(u32, &s.value.raw, std.math.maxInt(i32));
-    // let the tasks end first: an await racing a task's end crashes `Group` (issues.md)
+    // let the tasks end first: an await racing a task's end crashes `Group` (issue #208)
     try io.sleep(.fromMilliseconds(50), .awake);
     try group.await(io);
     if (started < n) return error.SkipZigTest;

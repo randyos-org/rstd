@@ -379,7 +379,7 @@ pub fn ArmL(comptime F: type, comptime B: type) type {
 /// arm64 `symv_U_asimd_4x4.c` around block `B`. Where the first column is
 /// not a multiple of 4 it drops the rows from the last multiple of 4 up to
 /// it (`j1 = (j/4)*4`); they are taken here, as `symv_U_sve_v1x4.c`'s block
-/// on `0..j` takes them (`issues.md`).
+/// on `0..j` takes them (issue #233).
 pub fn ArmU(comptime F: type, comptime B: type) type {
     return struct {
         pub fn k(m: BlasLong, offset: BlasLong, alpha: F, a: [*]F, lda: BlasLong, x: [*]F, inc_x: BlasLong, y: [*]F, inc_y: BlasLong, buffer: [*]F) callconv(.c) i32 {

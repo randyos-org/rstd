@@ -3,7 +3,7 @@
 This document specifies rstd's modules beyond linear algebra's own (that is in
 [`src/linalg/design.md`](src/linalg/design.md)): statistics, sorting and sets, the FFT, signal
 processing, and the N-d arrays and sparse matrices that extend `rstd.linalg`. It describes the
-code as it is, and says "Planned" where it is not. The work left is in [`todo.md`](todo.md).
+code as it is, and says "Planned" where it is not. The work left is in [the issues](https://github.com/randyos-org/rstd/issues).
 
 ## Requirements
 
