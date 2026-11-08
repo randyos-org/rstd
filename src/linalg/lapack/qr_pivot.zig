@@ -2,27 +2,15 @@
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
 //! `faer/src/linalg/qr/col_pivoting/factor.rs`'s `qr_in_place_unblocked`,
 //! behind Reference-LAPACK's `?GEQP3` (`dgeqp3.f`, `zgeqp3.f`, 3.12.0 as
-//! OpenBLAS v0.3.34-317 ships it: arguments, `JPVT`'s fixed columns, `tau`).
-//!
-//! `A` is scaled by its largest column norm; each step takes the column of
-//! largest remaining norm, reflects it (`householder.make`) and updates the
-//! next row at once and the rows below one step later, when every norm is
-//! recomputed in full (faer's path without its SIMD-fused update, the same
-//! arithmetic otherwise). The reference's `xLAQPS` downdates norms instead.
-//! Columns `JPVT` fixes lead and are factored unpivoted, as `dgeqp3.f`'s
-//! `xGEQRF` and `xORMQR` do. `tau` is LAPACK's, `1 / faer's` (0 where faer
-//! skips a reflection); a complex `R`'s diagonal is not made real. One fix:
-//! faer scales a zero matrix by an infinite reciprocal (NaN); here it is
-//! left as is. Column norms are rstd's `nrm2`, at an extended type
-//! `nrm2.S`'s unscaled sum of squares, so there a matrix near the underflow
-//! threshold reads as zero.
+//! OpenBLAS v0.3.34-317 ships it). Every norm is recomputed per step, where
+//! `xLAQPS` downdates them.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
-const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -39,7 +27,7 @@ pub const Geqp3Error = error{ InvalidM, InvalidN, InvalidLda } || Allocator.Erro
 /// column `j` to the front; on exit `jpvt[j] = i` (1-based) when column `j`
 /// of `A P` was column `i` of `A`.
 pub fn geqp3(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, jpvt: [*]isize, tau: [*]T) Geqp3Error!void {
-    comptime chol.floatType(T, "geqp3");
+    comptime ops.requireFloat(T, "geqp3");
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, m)) return error.InvalidLda;
@@ -57,7 +45,7 @@ pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), jpvt: [*]isize
     for (0..n) |j| {
         if (jpvt[j] != 0) {
             if (j != nfxd) {
-                swapCols(T, a, j, nfxd);
+                ops.swapCols(T, a, j, nfxd);
                 jpvt[j] = jpvt[nfxd];
                 jpvt[nfxd] = @intCast(j + 1);
             } else {
@@ -70,10 +58,6 @@ pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), jpvt: [*]isize
     }
     if (a.rows == 0) return;
     try unblocked(al, io, T, a, nfxd, jpvt, tau);
-}
-
-fn swapCols(comptime T: type, a: Mat(T), i: usize, j: usize) void {
-    for (0..a.rows) |r| std.mem.swap(T, a.at(r, i), a.at(r, j));
 }
 
 /// `qr_in_place_unblocked`, columns before `nfxd` unpivoted.
@@ -89,7 +73,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
     defer al.free(norm);
     var best: F = 0;
     for (0..n) |j| {
-        norm[j] = ops.nrm2(io, T, m, a.col(j), 1);
+        norm[j] = blas_calls.nrm2(io, T, m, a.col(j), 1);
         if (norm[j] > best) best = norm[j];
     }
     // scale by the largest norm (a zero matrix stays)
@@ -111,10 +95,10 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
         if (k > 0) {
             // the previous reflection's update of the rows below, then the norms
             const a11 = a.sub(k, k, m - k, n - k);
-            try ops.ger(al, io, T, ops.one(T), a.col(k - 1) + k, 1, dot.ptr + k, 1, a11);
+            try blas_calls.ger(al, io, T, ops.one(T), a.col(k - 1) + k, 1, dot.ptr + k, 1, a11);
             best = 0;
             for (k..n) |j| {
-                norm[j] = ops.nrm2(io, T, m - k, a.col(j) + k, 1);
+                norm[j] = blas_calls.nrm2(io, T, m - k, a.col(j) + k, 1);
                 if (k >= nfxd and norm[j] > best) {
                     best = norm[j];
                     best_col = j;
@@ -123,7 +107,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
         }
         if (best_col != k) {
             std.mem.swap(isize, &jpvt[best_col], &jpvt[k]);
-            swapCols(T, a, best_col, k);
+            ops.swapCols(T, a, best_col, k);
             std.mem.swap(T, &dot[best_col], &dot[k]);
             std.mem.swap(F, &norm[best_col], &norm[k]);
         }
@@ -136,7 +120,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
         // dot := A01 + vᴴ A11, then -dot / tau into the next row
         const rest = n - k - 1;
         for (0..rest) |j| dot[k + 1 + j] = a.get(k, k + 1 + j);
-        try ops.gemv(al, io, T, .u, ops.one(T), a.sub(k + 1, k + 1, tail, rest), v, 1, ops.one(T), dot.ptr + k + 1, 1);
+        try blas_calls.gemv(al, io, T, .u, ops.one(T), a.sub(k + 1, k + 1, tail, rest), v, 1, ops.one(T), dot.ptr + k + 1, 1);
         for (k + 1..n) |j| {
             dot[j] = ops.neg(T, ops.mulReal(T, dot[j], tau_inv));
             const p = a.at(k, j);
@@ -152,13 +136,13 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), nfxd: usize, jp
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 const qr = @import("qr.zig");
 
-const test_types = chol.test_types;
+const test_types = lcheck.test_types;
 
-/// `THRESH` of the reference's linear-equation tests (`TESTING/dtest.in`).
-const thresh = 30;
+const thresh = lcheck.thresh;
 
 /// `dqpt01.f`'s `‖A P - Q R‖ / (m ‖A‖ eps)` and `dqrt11.f`'s `‖I - Qᴴ Q‖ /
 /// (m eps)` below the threshold, `|R(k, k)|` not increasing past the fixed
@@ -169,20 +153,7 @@ fn qpCase(comptime T: type, al: Allocator, m: usize, n: usize, rank: usize, fixe
     const k = @min(m, n);
     const a0 = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, a0);
-    // rank `rank`: a product of random m x rank and rank x n
-    {
-        const x = try al.alloc(T, m * rank);
-        defer al.free(x);
-        const y = try al.alloc(T, rank * n);
-        defer al.free(y);
-        check.fill(T, x, seed);
-        check.fill(T, y, seed + 1);
-        for (0..n) |j| for (0..m) |i| {
-            var s = ops.zero(T);
-            for (0..rank) |p| s = ops.add(T, s, ops.mul(T, x[i + p * m], y[p + j * rank]));
-            a0.at(i, j).* = s;
-        };
-    }
+    try lcheck.rankProduct(T, al, a0, rank, seed);
     const a = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, a);
     a.copyFrom(a0);

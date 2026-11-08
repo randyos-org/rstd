@@ -1,23 +1,15 @@
 //! Hessenberg reduction, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/evd/hessenberg.rs`. `A = Q H Qᴴ` in place: `H` on and
-//! above the subdiagonal, `Q`'s reflections below it (factors in `h`,
-//! `householder.zig`), `Q = H(0) ...` acting on rows `1..n`.
-//!
-//! `hessenberg_rearranged_unblocked`: one pass per column, its two-sided
-//! update deferred into the next column's products, `A22 -= u yᴴ + z uᴴ`
-//! fused with `x A22` and `A22 x` (faer's `hessenberg_fused_op`). Faer sums
-//! that pass's `A22 x` over threads, so its bits follow the thread count;
-//! here it is serial, faer's `Par::Seq` path. Faer's blocked form
-//! (`hessenberg_gqvdg_blocked`, from 256 up) is not ported yet (todo.md);
-//! the unblocked one serves every size.
+//! `faer/src/linalg/evd/hessenberg.rs`'s `hessenberg_rearranged_unblocked`,
+//! its fused pass serial (faer's `Par::Seq` path); the blocked form is not
+//! ported yet.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
-const tridiag = @import("tridiag.zig");
 const qr = @import("qr.zig");
-const chol = @import("cholesky.zig");
 const util = @import("../blas/util.zig");
 
 const Allocator = std.mem.Allocator;
@@ -67,8 +59,8 @@ pub fn hessenberg(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T))
             @memcpy(z2[0..rem], w[k + 1 ..][0..rem]);
         } else {
             // z2 := A22 x2; y2 := x2ᴴ A22
-            try ops.gemv(al, io, T, .n, ops.one(T), a22, x2, 1, ops.zero(T), z2, 1);
-            try ops.gemv(al, io, T, .c, ops.one(T), a22, x2, 1, ops.zero(T), y2, 1);
+            try blas_calls.gemv(al, io, T, .n, ops.one(T), a22, x2, 1, ops.zero(T), z2, 1);
+            try blas_calls.gemv(al, io, T, .c, ops.one(T), a22, x2, 1, ops.zero(T), y2, 1);
             if (comptime ops.isComplex(T)) for (y2[0..rem]) |*e| {
                 e.* = ops.conj(T, e.*);
             };
@@ -87,7 +79,7 @@ pub fn hessenberg(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T))
         // A02 := A02 (I - x2 x2ᴴ / tau)
         if (k > 0) {
             const a02 = a.sub(0, k + 1, k, rem);
-            try ops.gemv(al, io, T, .n, ops.one(T), a02, x2, 1, ops.zero(T), w.ptr, 1);
+            try blas_calls.gemv(al, io, T, .n, ops.one(T), a02, x2, 1, ops.zero(T), w.ptr, 1);
             for (0..rem) |j| {
                 const c = ops.mulReal(T, ops.conj(T, x2[j]), -tau_inv);
                 for (0..k) |i| a02.at(i, j).* = ops.add(T, a02.get(i, j), ops.mul(T, w[i], c));
@@ -95,7 +87,7 @@ pub fn hessenberg(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat(T))
         }
         a21[0] = beta;
     }
-    if (n > 1) try tridiag.sequenceFactors(al, io, T, a.sub(1, 0, n - 1, n - 1), h);
+    if (n > 1) try hh.sequenceFactors(al, io, T, a.sub(1, 0, n - 1, n - 1), h);
 }
 
 /// `hessenberg_fused_op`: per column `j` of `a`, `a -= l0 r0(j) + l1
@@ -147,7 +139,7 @@ fn block(comptime T: type, n: isize, ilo: isize, ihi: isize, lda: isize) GehrdEr
 /// reference's `tau`, faer's reciprocal) with `v` below the subdiagonal and
 /// its `tau` in `tau` (`n - 1`, 0 outside `ilo..ihi - 1`).
 pub fn gehrd(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isize, ihi: isize, a: [*]T, lda: isize, tau: [*]T) GehrdError!void {
-    comptime chol.floatType(T, "gehrd");
+    comptime ops.requireFloat(T, "gehrd");
     const b = try block(T, n, ilo, ihi, lda) orelse return;
     const un: usize = @intCast(n);
     @memset(tau[0 .. un - 1], ops.zero(T));
@@ -173,7 +165,7 @@ pub fn gehrd(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isiz
 /// place of its reflections, from them and their `tau`s: shifted one column
 /// right, the identity outside `ilo + 1..ihi`, then `orgqr`'s generation.
 pub fn orghr(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isize, ihi: isize, a: [*]T, lda: isize, tau: [*]const T) OrghrError!void {
-    comptime chol.floatType(T, "orghr");
+    comptime ops.requireFloat(T, "orghr");
     const b = try block(T, n, ilo, ihi, lda) orelse return;
     const un: usize = @intCast(n);
     const lo = b[0];
@@ -199,7 +191,7 @@ pub fn orghr(allocator: Allocator, io: Io, comptime T: type, n: isize, ilo: isiz
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
 
 test "faer hessenberg: Qᴴ A Q = H, real and complex" {
@@ -225,7 +217,7 @@ test "faer hessenberg: Qᴴ A Q = H, real and complex" {
                 try hh.applySequenceTransposed(al, check.io, T, basis, h, true, x.sub(1, 0, n - 1, n));
                 try hh.applySequenceRight(al, check.io, T, basis, h, false, false, x.sub(0, 1, n, n - 1));
             }
-            const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(ops.normMax(T, a0), 1);
+            const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(auxiliary.normMax(T, a0), 1);
             for (0..n) |j| for (0..n) |i| {
                 const want = if (i <= j + 1) hm.get(i, j) else ops.zero(T);
                 const err = ops.abs(T, ops.sub(T, x.get(i, j), want));
@@ -261,7 +253,7 @@ test "gehrd, orghr: Qᴴ A Q = H on the ilo..ihi block, Q unitary, real and comp
             const q = try al.dupe(T, hm);
             defer al.free(q);
             try orghr(al, check.io, T, @intCast(n), @intCast(lo + 1), @intCast(hi), q.ptr, @intCast(n), tau.ptr);
-            const nrm = @max(ops.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
+            const nrm = @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
             const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * nrm;
             for (0..n) |j| for (0..n) |i| {
                 // (Qᴴ A Q)(i, j) against H, zero below the subdiagonal

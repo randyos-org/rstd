@@ -1,197 +1,22 @@
-//! Eigenvectors of a Schur form for `geev`, from Reference-LAPACK (BSD-3, as
+//! Eigenvectors of a Schur form, `trevc3`, from Reference-LAPACK (BSD-3, as
 //! OpenBLAS v0.3.34-317 ships it in `lapack-netlib/SRC/`): `dtrevc3.f` and
-//! `ztrevc3.f` (`HOWMNY = 'A'`, every vector of `T`, each scaled to largest
-//! entry 1), with `dlaln2.f` for the real 1 x 1 and 2 x 2 solves. Faer's back
-//! substitution (`evd/mod.rs`) has no guard against overflow; these scale
-//! each vector as it grows (`SCALE`, `BIGNUM`), so a vector that would
-//! overflow comes out scaled down instead. `evd.zig` multiplies by the Schur
-//! vectors after, as the reference's blocked back-transform does.
-//!
-//! `DLALN2` is ported for `CA = D1 = D2 = 1`, all its callers here and in
-//! `sylvester.zig` pass; complex division is Smith's (`util.cdiv`) where the
-//! reference takes `DLADIV`.
+//! `ztrevc3.f`, the real 1 x 1 and 2 x 2 solves by `sylvester.laln2`. Faer's
+//! back substitution (`evd/mod.rs`) has no guard against overflow; these
+//! scale each vector as it grows (`SCALE`, `BIGNUM`), so a vector that would
+//! overflow comes out scaled down instead.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const norm = @import("norm.zig");
+const sylvester = @import("sylvester.zig");
 const util = @import("../blas/util.zig");
-const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Mat = ops.Mat;
 const Float = ops.Float;
-
-/// What `laln2` returns: `x[i][k]` the solution's row `i`, real part
-/// (`k = 0`) or imaginary (`k = 1`); `scale <= 1`; `xnorm` its infinity
-/// norm; `perturbed` when a pivot was raised to `smin` (`INFO = 1`).
-pub fn Laln2(comptime F: type) type {
-    return struct { x: [2][2]F, scale: F, xnorm: F, perturbed: bool };
-}
-
-/// `DLALN2`: `(A - (wr + i wi)) X = scale B` (`Aᵀ` with `ltrans`) for the
-/// `na x na` `A` at `a` (`na` 1 or 2), `X` and `B` real (`nw = 1`) or
-/// complex (`nw = 2`, `b[i][1]` the imaginary parts), by complete pivoting;
-/// pivots below `smin` become `smin`.
-pub fn laln2(comptime F: type, ltrans: bool, na: usize, nw: usize, smin: F, a: [*]const F, lda: usize, b: [2][2]F, wr: F, wi: F) Laln2(F) {
-    const ipivot = [4][4]usize{ .{ 0, 1, 2, 3 }, .{ 1, 0, 3, 2 }, .{ 2, 3, 0, 1 }, .{ 3, 2, 1, 0 } };
-    const rswap = [4]bool{ false, true, false, true };
-    const zswap = [4]bool{ false, false, true, true };
-    const smlnum = 2 * std.math.floatMin(F);
-    const bignum = 1 / smlnum;
-    const smini = @max(smin, smlnum);
-    var out: Laln2(F) = .{ .x = @splat(@splat(0)), .scale = 1, .xnorm = 0, .perturbed = false };
-    if (na == 1) {
-        var csr = a[0] - wr;
-        var csi: F = if (nw == 1) 0 else -wi;
-        var cnorm = @abs(csr) + @abs(csi);
-        if (cnorm < smini) {
-            csr = smini;
-            csi = 0;
-            cnorm = smini;
-            out.perturbed = true;
-        }
-        const bnorm = @abs(b[0][0]) + (if (nw == 1) 0 else @abs(b[0][1]));
-        if (cnorm < 1 and bnorm > 1 and bnorm > bignum * cnorm) out.scale = 1 / bnorm;
-        if (nw == 1) {
-            out.x[0][0] = (b[0][0] * out.scale) / csr;
-            out.xnorm = @abs(out.x[0][0]);
-        } else {
-            const z = util.cdiv(F, out.scale * b[0][0], out.scale * b[0][1], csr, csi);
-            out.x[0] = z;
-            out.xnorm = @abs(z[0]) + @abs(z[1]);
-        }
-        return out;
-    }
-    // `CR`, `CI` column-major as `CRV`, `CIV`
-    var crv: [4]F = .{ a[0] - wr, a[1], a[lda], a[1 + lda] - wr };
-    if (ltrans) std.mem.swap(F, &crv[1], &crv[2]);
-    const civ: [4]F = if (nw == 1) @splat(0) else .{ -wi, 0, 0, -wi };
-    var cmax: F = 0;
-    var icmax: usize = 0;
-    for (0..4) |j| if (@abs(crv[j]) + @abs(civ[j]) > cmax) {
-        cmax = @abs(crv[j]) + @abs(civ[j]);
-        icmax = j;
-    };
-    if (cmax < smini) {
-        const bnorm = @max(@abs(b[0][0]) + @abs(b[0][1]), @abs(b[1][0]) + @abs(b[1][1]));
-        if (smini < 1 and bnorm > 1 and bnorm > bignum * smini) out.scale = 1 / bnorm;
-        const temp = out.scale / smini;
-        for (0..2) |i| for (0..nw) |k| {
-            out.x[i][k] = temp * b[i][k];
-        };
-        out.xnorm = temp * bnorm;
-        out.perturbed = true;
-        return out;
-    }
-    const piv = ipivot[icmax];
-    if (nw == 1) {
-        const ur11 = crv[icmax];
-        const cr21 = crv[piv[1]];
-        const ur12 = crv[piv[2]];
-        const cr22 = crv[piv[3]];
-        const ur11r = 1 / ur11;
-        const lr21 = ur11r * cr21;
-        var ur22 = cr22 - ur12 * lr21;
-        if (@abs(ur22) < smini) {
-            ur22 = smini;
-            out.perturbed = true;
-        }
-        const br1 = if (rswap[icmax]) b[1][0] else b[0][0];
-        var br2 = if (rswap[icmax]) b[0][0] else b[1][0];
-        br2 = br2 - lr21 * br1;
-        const bbnd = @max(@abs(br1 * (ur22 * ur11r)), @abs(br2));
-        if (bbnd > 1 and @abs(ur22) < 1 and bbnd >= bignum * @abs(ur22)) out.scale = 1 / bbnd;
-        const xr2 = (br2 * out.scale) / ur22;
-        const xr1 = (out.scale * br1) * ur11r - xr2 * (ur11r * ur12);
-        out.x[0][0] = if (zswap[icmax]) xr2 else xr1;
-        out.x[1][0] = if (zswap[icmax]) xr1 else xr2;
-        out.xnorm = @max(@abs(xr1), @abs(xr2));
-    } else {
-        const ur11 = crv[icmax];
-        const ui11 = civ[icmax];
-        const cr21 = crv[piv[1]];
-        const ci21 = civ[piv[1]];
-        const ur12 = crv[piv[2]];
-        const ui12 = civ[piv[2]];
-        const cr22 = crv[piv[3]];
-        const ci22 = civ[piv[3]];
-        var ur11r: F = undefined;
-        var ui11r: F = undefined;
-        var lr21: F = undefined;
-        var li21: F = undefined;
-        var ur12s: F = undefined;
-        var ui12s: F = undefined;
-        var ur22: F = undefined;
-        var ui22: F = undefined;
-        if (icmax == 0 or icmax == 3) {
-            // the pivoted off-diagonals are real
-            if (@abs(ur11) > @abs(ui11)) {
-                const temp = ui11 / ur11;
-                ur11r = 1 / (ur11 * (1 + temp * temp));
-                ui11r = -temp * ur11r;
-            } else {
-                const temp = ur11 / ui11;
-                ui11r = -1 / (ui11 * (1 + temp * temp));
-                ur11r = -temp * ui11r;
-            }
-            lr21 = cr21 * ur11r;
-            li21 = cr21 * ui11r;
-            ur12s = ur12 * ur11r;
-            ui12s = ur12 * ui11r;
-            ur22 = cr22 - ur12 * lr21;
-            ui22 = ci22 - ur12 * li21;
-        } else {
-            // the pivoted diagonals are real
-            ur11r = 1 / ur11;
-            ui11r = 0;
-            lr21 = cr21 * ur11r;
-            li21 = ci21 * ur11r;
-            ur12s = ur12 * ur11r;
-            ui12s = ui12 * ur11r;
-            ur22 = cr22 - ur12 * lr21 + ui12 * li21;
-            ui22 = -ur12 * li21 - ui12 * lr21;
-        }
-        const u22abs = @abs(ur22) + @abs(ui22);
-        if (u22abs < smini) {
-            ur22 = smini;
-            ui22 = 0;
-            out.perturbed = true;
-        }
-        const r1: usize, const r2: usize = if (rswap[icmax]) .{ 1, 0 } else .{ 0, 1 };
-        var br1 = b[r1][0];
-        var bi1 = b[r1][1];
-        var br2 = b[r2][0];
-        var bi2 = b[r2][1];
-        br2 = br2 - lr21 * br1 + li21 * bi1;
-        bi2 = bi2 - li21 * br1 - lr21 * bi1;
-        const bbnd = @max((@abs(br1) + @abs(bi1)) * (u22abs * (@abs(ur11r) + @abs(ui11r))), @abs(br2) + @abs(bi2));
-        if (bbnd > 1 and u22abs < 1 and bbnd >= bignum * u22abs) {
-            out.scale = 1 / bbnd;
-            br1 *= out.scale;
-            bi1 *= out.scale;
-            br2 *= out.scale;
-            bi2 *= out.scale;
-        }
-        const x2 = util.cdiv(F, br2, bi2, ur22, ui22);
-        const xr1 = ur11r * br1 - ui11r * bi1 - ur12s * x2[0] + ui12s * x2[1];
-        const xi1 = ui11r * br1 + ur11r * bi1 - ui12s * x2[0] - ur12s * x2[1];
-        const x1 = [2]F{ xr1, xi1 };
-        out.x[0] = if (zswap[icmax]) x2 else x1;
-        out.x[1] = if (zswap[icmax]) x1 else x2;
-        out.xnorm = @max(@abs(xr1) + @abs(xi1), @abs(x2[0]) + @abs(x2[1]));
-    }
-    // further scaling if `‖A‖ ‖X‖` would overflow
-    if (out.xnorm > 1 and cmax > 1 and out.xnorm > bignum / cmax) {
-        const temp = cmax / bignum;
-        for (&out.x) |*row| for (row) |*v| {
-            v.* *= temp;
-        };
-        out.xnorm *= temp;
-        out.scale *= temp;
-    }
-    return out;
-}
 
 /// `dtrevc3.f`'s and `ztrevc3.f`'s constants: `SMLNUM = UNFL (N / ULP)`,
 /// `BIGNUM = (1 - ULP) / SMLNUM`.
@@ -272,7 +97,7 @@ fn realRight(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(
             while (j > 0) {
                 j -= 1;
                 if (j == 0 or t.get(j, j - 1) == 0) {
-                    var r = laln2(F, false, 1, 1, smin, t.col(j) + j, t.ld, .{ .{ v[j], 0 }, .{ 0, 0 } }, wr, 0);
+                    var r = sylvester.laln2(F, false, 1, 1, smin, t.col(j) + j, t.ld, .{ .{ v[j], 0 }, .{ 0, 0 } }, wr, 0);
                     // keep the update of the rest from overflowing
                     if (r.xnorm > 1 and cn[j] > lim.bignum / r.xnorm) {
                         r.x[0][0] /= r.xnorm;
@@ -282,7 +107,7 @@ fn realRight(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(
                     v[j] = r.x[0][0];
                     axpyCol(F, t, j, j, r.x[0][0], v);
                 } else {
-                    var r = laln2(F, false, 2, 1, smin, t.col(j - 1) + j - 1, t.ld, .{ .{ v[j - 1], 0 }, .{ v[j], 0 } }, wr, 0);
+                    var r = sylvester.laln2(F, false, 2, 1, smin, t.col(j - 1) + j - 1, t.ld, .{ .{ v[j - 1], 0 }, .{ v[j], 0 } }, wr, 0);
                     if (r.xnorm > 1) {
                         const beta = @max(cn[j - 1], cn[j]);
                         if (beta > lim.bignum / r.xnorm) {
@@ -324,7 +149,7 @@ fn realRight(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(
         while (j > 0) {
             j -= 1;
             if (j == 0 or t.get(j, j - 1) == 0) {
-                var r = laln2(F, false, 1, 2, smin, t.col(j) + j, t.ld, .{ .{ xr[j], xi[j] }, .{ 0, 0 } }, wr, wi);
+                var r = sylvester.laln2(F, false, 1, 2, smin, t.col(j) + j, t.ld, .{ .{ xr[j], xi[j] }, .{ 0, 0 } }, wr, wi);
                 if (r.xnorm > 1 and cn[j] > lim.bignum / r.xnorm) {
                     r.x[0][0] /= r.xnorm;
                     r.x[0][1] /= r.xnorm;
@@ -339,7 +164,7 @@ fn realRight(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(
                 axpyCol(F, t, j, j, r.x[0][0], xr);
                 axpyCol(F, t, j, j, r.x[0][1], xi);
             } else {
-                var r = laln2(F, false, 2, 2, smin, t.col(j - 1) + j - 1, t.ld, .{ .{ xr[j - 1], xi[j - 1] }, .{ xr[j], xi[j] } }, wr, wi);
+                var r = sylvester.laln2(F, false, 2, 2, smin, t.col(j - 1) + j - 1, t.ld, .{ .{ xr[j - 1], xi[j - 1] }, .{ xr[j], xi[j] } }, wr, wi);
                 if (r.xnorm > 1) {
                     const beta = @max(cn[j - 1], cn[j]);
                     if (beta > lim.bignum / r.xnorm) {
@@ -410,7 +235,7 @@ fn realLeft(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(F
                 if (j + 1 == n or t.get(j + 1, j) == 0) {
                     g.guard(cn[j], lim.bignum, &.{v[ki..n]});
                     v[j] -= dotCol(F, t, j, ki + 1, j, v);
-                    const r = laln2(F, false, 1, 1, smin, t.col(j) + j, t.ld, .{ .{ v[j], 0 }, .{ 0, 0 } }, wr, 0);
+                    const r = sylvester.laln2(F, false, 1, 1, smin, t.col(j) + j, t.ld, .{ .{ v[j], 0 }, .{ 0, 0 } }, wr, 0);
                     if (r.scale != 1) scal(F, v[ki..n], r.scale);
                     v[j] = r.x[0][0];
                     g.grew(@abs(v[j]), lim.bignum);
@@ -419,7 +244,7 @@ fn realLeft(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(F
                     g.guard(@max(cn[j], cn[j + 1]), lim.bignum, &.{v[ki..n]});
                     v[j] -= dotCol(F, t, j, ki + 1, j, v);
                     v[j + 1] -= dotCol(F, t, j + 1, ki + 1, j, v);
-                    const r = laln2(F, true, 2, 1, smin, t.col(j) + j, t.ld, .{ .{ v[j], 0 }, .{ v[j + 1], 0 } }, wr, 0);
+                    const r = sylvester.laln2(F, true, 2, 1, smin, t.col(j) + j, t.ld, .{ .{ v[j], 0 }, .{ v[j + 1], 0 } }, wr, 0);
                     if (r.scale != 1) scal(F, v[ki..n], r.scale);
                     v[j] = r.x[0][0];
                     v[j + 1] = r.x[1][0];
@@ -456,7 +281,7 @@ fn realLeft(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(F
                 g.guard(cn[j], lim.bignum, &.{ xr[ki..n], xi[ki..n] });
                 xr[j] -= dotCol(F, t, j, ki + 2, j, xr);
                 xi[j] -= dotCol(F, t, j, ki + 2, j, xi);
-                const r = laln2(F, false, 1, 2, smin, t.col(j) + j, t.ld, .{ .{ xr[j], xi[j] }, .{ 0, 0 } }, wr, -wi);
+                const r = sylvester.laln2(F, false, 1, 2, smin, t.col(j) + j, t.ld, .{ .{ xr[j], xi[j] }, .{ 0, 0 } }, wr, -wi);
                 if (r.scale != 1) {
                     scal(F, xr[ki..n], r.scale);
                     scal(F, xi[ki..n], r.scale);
@@ -471,7 +296,7 @@ fn realLeft(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(F
                 xi[j] -= dotCol(F, t, j, ki + 2, j, xi);
                 xr[j + 1] -= dotCol(F, t, j + 1, ki + 2, j, xr);
                 xi[j + 1] -= dotCol(F, t, j + 1, ki + 2, j, xi);
-                const r = laln2(F, true, 2, 2, smin, t.col(j) + j, t.ld, .{ .{ xr[j], xi[j] }, .{ xr[j + 1], xi[j + 1] } }, wr, -wi);
+                const r = sylvester.laln2(F, true, 2, 2, smin, t.col(j) + j, t.ld, .{ .{ xr[j], xi[j] }, .{ xr[j + 1], xi[j + 1] } }, wr, -wi);
                 if (r.scale != 1) {
                     scal(F, xr[ki..n], r.scale);
                     scal(F, xi[ki..n], r.scale);
@@ -498,7 +323,7 @@ fn realLeft(comptime F: type, t: Mat(F), x: Mat(F), cn: []const F, lim: Limits(F
 /// The left solve passes `ZLATRS` the norms of `T`'s columns `ki+1..n`,
 /// bounds on its submatrix's; `ztrevc3.f` passes columns `1..n-ki`, which
 /// belong to other columns (issues.md).
-pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), x: Mat(T), rwork: []Float(T), diag: []T) norm.Error!void {
+pub fn complex(al: Allocator, io: Io, comptime T: type, right: bool, t: Mat(T), x: Mat(T), rwork: []Float(T), diag: []T) ops.Error!void {
     const F = Float(T);
     const n = t.rows;
     const lim = Limits(F).of(n);
@@ -562,7 +387,7 @@ pub const Trevc3Error = error{ InvalidN, InvalidSelect, InvalidLdt, InvalidLdvl,
 /// the columns used. `T` is restored on return (the complex solves scale
 /// its diagonal in place).
 pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny: Howmny, select: ?[*]bool, n: isize, t: [*]T, ldt: isize, vl: [*]T, ldvl: isize, vr: [*]T, ldvr: isize, mm: isize, m: *isize) Trevc3Error!void {
-    comptime chol.floatType(T, "trevc3");
+    comptime ops.requireFloat(T, "trevc3");
     const left = side != .r;
     const right = side != .l;
     if (n < 0) return error.InvalidN;
@@ -613,7 +438,7 @@ pub fn trevc3(allocator: Allocator, io: Io, comptime T: type, side: Side, howmny
                 const q = try ops.alloc(T, allocator, un, un);
                 defer ops.free(T, allocator, q);
                 q.copyFrom(dst.sub(0, 0, un, un));
-                try ops.gemm(allocator, io, T, .n, .n, ops.one(T), q, x, ops.zero(T), dst.sub(0, 0, un, un));
+                try blas_calls.gemm(allocator, io, T, .n, .n, ops.one(T), q, x, ops.zero(T), dst.sub(0, 0, un, un));
                 var j: usize = 0;
                 while (j < un) : (j += 1) {
                     if (comptime ops.isComplex(T)) {
@@ -658,4 +483,120 @@ fn normalizeColumn(comptime T: type, v: []T) void {
     if (big == 0) return;
     const remax = 1 / big;
     for (v) |*e| e.* = ops.mulReal(T, e.*, remax);
+}
+
+// ---- tests ---------------------------------------------------------------------
+
+const testing = std.testing;
+const check = @import("../blas/_test/check.zig");
+const types = @import("../blas/types.zig");
+const evd = @import("evd.zig");
+const hessenberg = @import("hessenberg.zig");
+
+/// `‖A v - λ v‖` (right) or `‖vᴴ A - λ vᴴ‖` (left) for column `j` of `v`
+/// (a real pair's two columns as one complex vector), and its largest
+/// `|re| + |im|`.
+fn eigResidual(comptime T: type, n: usize, a: []const T, v: []const T, j: usize, pair: bool, lam: std.math.Complex(Float(T)), right: bool) [2]Float(T) {
+    const F = Float(T);
+    const C = std.math.Complex(F);
+    var worst: F = 0;
+    var big: F = 0;
+    for (0..n) |k| {
+        const x: C = if (comptime types.isComplex(T)) v[k + j * n] else .init(v[k + j * n], if (pair) v[k + (j + 1) * n] else 0);
+        big = @max(big, @abs(x.re) + @abs(x.im));
+    }
+    for (0..n) |i| {
+        var s: C = .init(0, 0);
+        for (0..n) |k| {
+            const e = if (right) a[i + k * n] else a[k + i * n];
+            const aik: C = if (comptime types.isComplex(T)) e else .init(e, 0);
+            const xk_: C = if (comptime types.isComplex(T)) v[k + j * n] else .init(v[k + j * n], if (pair) v[k + (j + 1) * n] else 0);
+            s = s.add(aik.mul(if (right) xk_ else xk_.conjugate()));
+        }
+        const xi_: C = if (comptime types.isComplex(T)) v[i + j * n] else .init(v[i + j * n], if (pair) v[i + (j + 1) * n] else 0);
+        const r = s.sub(if (right) lam.mul(xi_) else lam.mul(xi_.conjugate()));
+        worst = @max(worst, @sqrt(r.re * r.re + r.im * r.im));
+    }
+    return .{ worst, big };
+}
+
+test "trevc3: A's eigenvectors after gehrd, orghr and hseqr, back-transformed and selected, real and complex" {
+    const al = testing.allocator;
+    inline for (.{ f64, types.Complex64, f32, types.Complex32 }) |T| {
+        const F = Float(T);
+        const C = std.math.Complex(F);
+        for ([_]usize{ 1, 2, 5, 12, 31 }) |n| {
+            const ni: isize = @intCast(n);
+            const a0 = try al.alloc(T, n * n);
+            defer al.free(a0);
+            check.fill(T, a0, 13 * n + 1);
+            const t = try al.dupe(T, a0);
+            defer al.free(t);
+            const tau = try al.alloc(T, @max(n, 2) - 1);
+            defer al.free(tau);
+            try hessenberg.gehrd(al, check.io, T, ni, 1, ni, t.ptr, ni, tau.ptr);
+            const z = try al.dupe(T, t);
+            defer al.free(z);
+            try hessenberg.orghr(al, check.io, T, ni, 1, ni, z.ptr, ni, tau.ptr);
+            const ev = try al.alloc(F, 2 * n);
+            defer al.free(ev);
+            const cw = try al.alloc(T, n);
+            defer al.free(cw);
+            const w: evd.Eigenvalues(T) = if (comptime types.isComplex(T)) cw.ptr else .{ .re = ev.ptr, .im = ev.ptr + n };
+            try evd.hseqr(check.io, T, .s, .v, ni, 1, ni, t.ptr, ni, w, z.ptr, ni, null);
+            const vl = try al.dupe(T, z);
+            defer al.free(vl);
+            const vr = try al.dupe(T, z);
+            defer al.free(vr);
+            var m: isize = 0;
+            try trevc3(al, check.io, T, .b, .b, null, ni, t.ptr, ni, vl.ptr, ni, vr.ptr, ni, ni, &m);
+            try testing.expectEqual(ni, m);
+            const tol = 256 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * @max(auxiliary.normMax(T, .{ .ptr = a0.ptr, .rows = n, .cols = n, .ld = n }), 1);
+            var j: usize = 0;
+            while (j < n) : (j += 1) {
+                const pair = !types.isComplex(T) and ev[n + j] > 0;
+                const lam: C = if (comptime types.isComplex(T)) cw[j] else .init(ev[j], ev[n + j]);
+                for ([_]bool{ true, false }) |right| {
+                    const r = eigResidual(T, n, a0, if (right) vr else vl, j, pair, lam, right);
+                    if (!(r[0] <= tol) or !(@abs(r[1] - 1) <= tol)) {
+                        check.say("trevc3 {s} n={d} vector {d} {s}: residual {e}, largest {e}\n", .{ @typeName(T), n, j, if (right) "right" else "left", r[0], r[1] });
+                        return error.TestUnexpectedResult;
+                    }
+                }
+                if (pair) j += 1;
+            }
+            // selected: every other eigenvalue, a pair picked by its second entry
+            const sel = try al.alloc(bool, n);
+            defer al.free(sel);
+            for (sel, 0..) |*s, i| s.* = i % 2 == 1;
+            const all = try al.alloc(T, n * n);
+            defer al.free(all);
+            const some = try al.alloc(T, n * n);
+            defer al.free(some);
+            try trevc3(al, check.io, T, .r, .a, null, ni, t.ptr, ni, vl.ptr, ni, all.ptr, ni, ni, &m);
+            try trevc3(al, check.io, T, .r, .s, sel.ptr, ni, t.ptr, ni, vl.ptr, ni, some.ptr, ni, ni, &m);
+            var c: usize = 0;
+            j = 0;
+            while (j < n) : (j += 1) {
+                const pair = !types.isComplex(T) and ev[n + j] > 0;
+                if (sel[j]) {
+                    for (0..if (pair) 2 else 1) |o| {
+                        try testing.expectEqualSlices(T, all[(j + o) * n ..][0..n], some[(c + o) * n ..][0..n]);
+                    }
+                    c += if (pair) 2 else 1;
+                }
+                if (pair) {
+                    try testing.expect(!sel[j + 1]);
+                    j += 1;
+                }
+            }
+            try testing.expectEqual(@as(isize, @intCast(c)), m);
+        }
+    }
+    var a: [4]f64 = @splat(0);
+    var m: isize = 0;
+    try testing.expectError(error.InvalidN, trevc3(al, check.io, f64, .r, .a, null, -1, &a, 1, &a, 1, &a, 1, 0, &m));
+    try testing.expectError(error.InvalidSelect, trevc3(al, check.io, f64, .r, .s, null, 2, &a, 2, &a, 1, &a, 2, 2, &m));
+    try testing.expectError(error.InvalidLdvr, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 1, 2, &m));
+    try testing.expectError(error.InvalidMm, trevc3(al, check.io, f64, .r, .a, null, 2, &a, 2, &a, 1, &a, 2, 1, &m));
 }

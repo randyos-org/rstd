@@ -1,33 +1,16 @@
-//! LQ factorization: `?GELQF`, `?ORGLQ`/`?UNGLQ` and `?ORMLQ`/`?UNMLQ`
-//! behind Reference-LAPACK's arguments (`dgelqf.f`, `dorglq.f`, `dormlq.f`
-//! and their `z` forms, 3.12.0 as OpenBLAS v0.3.34-317 ships it).
-//!
-//! The method is libflame's `FLA_LQ_UT` (`src/map/lapack2flamec/FLA_gelqf.c`,
-//! libflame 5.2.0), the only non-reference LQ: blocked Householder with the
-//! UT transform (Joffrain, Low, Quintana-Ortí, van de Geijn and Van Zee,
-//! "Accumulating Householder transformations, revisited", ACM TOMS 32(2),
-//! 2006), applied to the rows. Its kernels are faer's (`householder.zig`,
-//! MIT), which use that same transform, run on `Aᴴ`: LQ of `A` is QR of
-//! `Aᴴ`, `A = L Q` with `L = Rᴴ` and `Q = H(k-1)ᴴ ... H(0)ᴴ`, each row of
-//! `A` past the diagonal holding `conj(v)`, as the reference stores it. No
-//! libflame code is ported.
-//!
-//! Panels are columns of `Aᴴ` reflected one at a time (faer's
-//! `qr_in_place_unblocked`, without its staircase), then joined into one
-//! block factor that updates the rest by level-3 products (faer's blocked
-//! QR's `applyBlock`), blocks of faer's `recommended_block_size`. `tau` is
-//! LAPACK's, `1 / faer's`; a reflection faer skips (a tail below the safe
-//! minimum) has `tau = 0`. Two departures from the reference, both faer's
-//! (as `geqrf`): a complex `L`'s diagonal is not made real (`tau` is real
-//! instead), and a tail below the safe minimum is not scaled up but left.
+//! LQ: `?GELQF`, `?ORGLQ` and `?ORMLQ` behind Reference-LAPACK's arguments
+//! (`dgelqf.f`, `dorglq.f`, `dormlq.f` and their `z` forms, 3.12.0 as
+//! OpenBLAS v0.3.34-317 ships it), by libflame 5.2.0's `FLA_LQ_UT` method
+//! (`src/map/lapack2flamec/FLA_gelqf.c`; no code ported) on faer's
+//! reflections (`householder.zig`, MIT) run on `Aᴴ`.
 
 const std = @import("std");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
 const qr = @import("qr.zig");
-const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -51,7 +34,7 @@ pub const OrmlqError = error{ InvalidTrans, InvalidM, InvalidN, InvalidK, Invali
 /// `Q = H(k-1)ᴴ ... H(0)ᴴ` (`k = min(m, n)`) as reflections right of it
 /// (`conj(v)` in row `i` past column `i`) and their `tau`s in `tau` (`k`).
 pub fn gelqf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, tau: [*]T) GelqfError!void {
-    comptime chol.floatType(T, "gelqf");
+    comptime ops.requireFloat(T, "gelqf");
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, m)) return error.InvalidLda;
@@ -100,13 +83,13 @@ pub fn factor(al: Allocator, io: Io, comptime T: type, a: Mat(T), tau: [*]T) Err
             if (tau_inv < std.math.floatMin(F) or rest == 0) continue;
             // w := A01 + vᴴ A11, w := -w / tau; A01 += w, A11 += v wᵀ
             for (w[0..rest], 0..) |*x, i| x.* = a.get(c, c + 1 + i);
-            try ops.gemv(al, io, T, .u, ops.one(T), a.sub(c + 1, c + 1, tail, rest), v, 1, ops.one(T), w.ptr, 1);
+            try blas_calls.gemv(al, io, T, .u, ops.one(T), a.sub(c + 1, c + 1, tail, rest), v, 1, ops.one(T), w.ptr, 1);
             for (w[0..rest], 0..) |*x, i| {
                 x.* = ops.neg(T, ops.mulReal(T, x.*, tau_inv));
                 const p = a.at(c, c + 1 + i);
                 p.* = ops.add(T, p.*, x.*);
             }
-            try ops.ger(al, io, T, ops.one(T), v, 1, w.ptr, 1, a.sub(c + 1, c + 1, tail, rest));
+            try blas_calls.ger(al, io, T, ops.one(T), v, 1, w.ptr, 1, a.sub(c + 1, c + 1, tail, rest));
         }
         if (j + jb >= n) continue;
         // the block's factor, then the rest: M := Hᴴ M
@@ -128,7 +111,7 @@ fn basisOf(al: Allocator, comptime T: type, a: Mat(T), k: usize) Allocator.Error
 /// of `H(k-1)ᴴ ... H(0)ᴴ`, over the reflections `gelqf` left in `A`'s first
 /// `k` rows.
 pub fn orglq(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, k: isize, a: [*]T, lda: isize, tau: [*]const T) OrglqError!void {
-    comptime chol.floatType(T, "orglq");
+    comptime ops.requireFloat(T, "orglq");
     if (m < 0) return error.InvalidM;
     if (n < m) return error.InvalidN;
     if (k < 0 or k > m) return error.InvalidK;
@@ -156,7 +139,7 @@ pub fn orglq(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize,
 /// for `r`). Only `A`'s strictly upper part is read. A right-side product
 /// works on `Cᴴ`, so takes `m n` elements of workspace.
 pub fn ormlq(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: Trans, m: isize, n: isize, k: isize, a: [*]const T, lda: isize, tau: [*]const T, c: [*]T, ldc: isize) OrmlqError!void {
-    comptime chol.floatType(T, "ormlq");
+    comptime ops.requireFloat(T, "ormlq");
     switch (trans) {
         .n, .c => {},
         .t => if (comptime isComplex(T)) return error.InvalidTrans,
@@ -194,25 +177,14 @@ pub fn ormlq(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: 
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
-const threading = @import("../blas/threading.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
+const test_io = @import("../blas/_test/io.zig");
 const blas = @import("../blas/__root__.zig");
 
-const test_types = chol.test_types;
+const test_types = lcheck.test_types;
 
-/// `THRESH` of the reference's linear-equation tests (`TESTING/dtest.in`).
-const thresh = 30;
-
-/// `‖X - Y‖ max` against `tol`, saying where.
-fn expectNear(comptime T: type, what: []const u8, x: Mat(T), y: Mat(T), tol: Float(T)) !void {
-    for (0..x.cols) |j| for (0..x.rows) |i| {
-        const d = ops.abs(T, ops.sub(T, x.get(i, j), y.get(i, j)));
-        if (!(d <= tol)) {
-            check.say("{s} {s} {d} x {d}: ({d}, {d}) off by {e}, tolerance {e}\n", .{ what, @typeName(T), x.rows, x.cols, i, j, @as(f64, @floatCast(d)), @as(f64, @floatCast(tol)) });
-            return error.TestUnexpectedResult;
-        }
-    };
-}
+const thresh = lcheck.thresh;
 
 /// `C := op(A) op(B)` by loops, in `T`.
 fn mul(comptime T: type, ta: bool, a: Mat(T), tb: bool, b: Mat(T), c: Mat(T)) void {
@@ -266,14 +238,14 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
     for (0..n) |j| for (0..m) |i| {
         want.at(i, j).* = if (j <= i) a.get(i, j) else ops.zero(T);
     };
-    try expectNear(T, "gelqf L", l, want, thresh * nf * eps * @max(anorm, 1));
+    try lcheck.expectNear(T, "gelqf L", l, want, thresh * nf * eps * @max(anorm, 1));
     const g = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, g);
     mul(T, false, q, true, q, g);
     const id = try ops.alloc(T, al, n, n);
     defer ops.free(T, al, id);
     id.identity();
-    try expectNear(T, "orglq Q Qᴴ", g, id, thresh * nf * eps);
+    try lcheck.expectNear(T, "orglq Q Qᴴ", g, id, thresh * nf * eps);
     // ormlq on random C, both sides, against Q's products
     if (k == 0) return;
     const ops_list: []const types.Trans = if (comptime isComplex(T)) &.{ .n, .c } else &.{ .n, .t };
@@ -288,7 +260,7 @@ fn lqCase(comptime T: type, al: Allocator, m: usize, n: usize, seed: u64) !void 
         // Q here is orglq's full n x n, op(Q) = Q or Qᴴ
         if (side == .l) mul(T, tr != .n, q, false, c, r) else mul(T, false, c, tr != .n, q, r);
         try ormlq(al, check.io, T, side, tr, @intCast(cr), @intCast(cc), ki, a.ptr, @intCast(a.ld), tau.ptr, c.ptr, @intCast(c.ld));
-        try expectNear(T, "ormlq", c, r, thresh * nf * eps * 4);
+        try lcheck.expectNear(T, "ormlq", c, r, thresh * nf * eps * 4);
     };
 }
 
@@ -327,14 +299,11 @@ test "lapack gelqf: a zero row and a zero matrix give tau = 0; empty; bad argume
 }
 
 test "lapack gelqf: one worker's bits at any worker count" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !test_io.hosted) return error.SkipZigTest;
     _ = blas.coreName();
     const al = testing.allocator;
-    const cpus = blas.config.cpu_count;
-    defer blas.config.cpu_count = cpus;
-    defer threading.test_serial_max = null;
-    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
-    defer threaded.deinit();
+    var runs: test_io.WorkerRuns = .init(al);
+    defer runs.deinit();
     inline for (.{ f64, types.Complex32 }) |T| {
         const m = 90;
         const n = 300;
@@ -344,12 +313,11 @@ test "lapack gelqf: one worker's bits at any worker count" {
         var outs: [3][]T = undefined;
         for (&outs) |*o| o.* = try al.alloc(T, m * n + m);
         defer for (outs) |o| al.free(o);
-        for ([_]u32{ 1, 3, 8 }, 0..) |w, c| {
-            blas.config.cpu_count = w;
-            threading.test_serial_max = if (w == 1) null else 4096;
+        for (0..test_io.worker_runs.len) |c| {
+            const io = runs.io(c);
             @memcpy(outs[c][0 .. m * n], a0);
-            try gelqf(al, if (w == 1) Io.failing else threaded.io(), T, m, n, outs[c].ptr, m, outs[c].ptr + m * n);
+            try gelqf(al, io, T, m, n, outs[c].ptr, m, outs[c].ptr + m * n);
         }
-        for (1..3) |c| try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(outs[0]), std.mem.sliceAsBytes(outs[c]));
+        try test_io.expectSameBytes(outs);
     }
 }

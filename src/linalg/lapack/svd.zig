@@ -1,45 +1,19 @@
-//! The singular value decomposition `A = U Σ Vᴴ`: LAPACK's `?GESVD` and
-//! `?GESDD` (Reference-LAPACK's `SRC/dgesvd.f`, `dgesdd.f` and their `s`,
-//! `c`, `z` forms, as OpenBLAS v0.3.34-317 ships them in `lapack-netlib/`:
-//! arguments, `xerbla` order, the jobs and the scaling of `A`) over faer
-//! v0.24.4's SVD (<https://codeberg.org/sarah-quinones/faer>, tag
-//! `faer-v0.24.4`, MIT): `faer/src/linalg/svd/mod.rs`.
-//!
-//! Faer's SVD: a matrix more than `11 / 6` times as tall as wide is first
-//! factored `Q R` (`qr.zig`), the `R` decomposed; the rest is bidiagonalized
-//! (`bidiag.zig`), and the bidiagonal (taken as its conjugate transpose,
-//! lower bidiagonal, with complex phases scaled out) decomposed
-//! (`bidiag_svd.zig`); the reflections then build `U` and `V` with `gemm`.
-//! A wide matrix is decomposed transposed. `gesvd` decomposes the bidiagonal
-//! by QR iteration, as the reference's `xBDSQR` does; `gesdd` by divide and
-//! conquer, as its `xBDSDC` does, with faer's threshold of 128 below which
-//! it is QR iteration too.
-//!
-//! Departures, all documented in design.md's LAPACK section:
-//! - no `WORK`, `LWORK`, `RWORK` or `IWORK`: workspace comes from the
-//!   allocator, as the other routines here;
-//! - failure is an error: `NoConvergence` for the reference's `INFO > 0`
-//!   (`gesvd`'s count of unconverged superdiagonals, which faer does not
-//!   keep, counted here from QR iteration's bidiagonal into `unconverged`),
-//!   and also where `A` holds an infinity, or a NaN for `gesvd`,
-//!   since faer's solver refuses a bidiagonal that is not finite
-//!   (`compute_bidiag_real_svd`); `gesdd` returns `InvalidA` for a NaN, the
-//!   reference's `INFO = -4` (`dgesdd.f:595`);
-//! - four fixes to faer (issues.md): its tall path leaves `U`'s top right
-//!   block as it finds it, here zeroed; reciprocals of denormal norms
-//!   overflow, here divided by instead (`normalized`, `bidiag.zig`,
-//!   `bidiag_svd.zig`); the secular solver's secant can stop far from a
-//!   root by a pole, here bisected; a zero subproblem's `TwoRows` lacks its
-//!   last 1 (`bidiag_svd.zig`).
+//! `?GESVD` and `?GESDD`: Reference-LAPACK's arguments, jobs and scaling
+//! (`lapack-netlib/SRC/dgesvd.f`, `dgesdd.f` and their `s`, `c`, `z` forms,
+//! OpenBLAS v0.3.34-317) over faer v0.24.4's SVD
+//! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT,
+//! `faer/src/linalg/svd/mod.rs`). Departures and fixes: design.md's LAPACK
+//! section.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 const qr = @import("qr.zig");
 const bidiag = @import("bidiag.zig");
 const bsvd = @import("bidiag_svd.zig");
 const util = @import("../blas/util.zig");
-const chol = @import("cholesky.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -77,7 +51,7 @@ const qr_ratio = 11.0 / 6.0;
 /// `U` and `Vᴴ` are then undefined. The reference also leaves that
 /// bidiagonal in `S` and `WORK`; rstd has no `WORK`.
 pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: isize, n: isize, a: [*]T, lda: isize, s: [*]Float(T), u: [*]T, ldu: isize, vt: [*]T, ldvt: isize, unconverged: ?*usize) GesvdError!void {
-    comptime chol.floatType(T, "gesvd");
+    comptime ops.requireFloat(T, "gesvd");
     const minmn = @min(m, n);
     if (jobu == .o and jobvt == .o) return error.InvalidJobvt;
     if (m < 0) return error.InvalidM;
@@ -100,7 +74,7 @@ pub fn gesvd(allocator: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: J
 /// `vt` when `m >= n`, else all of `U` in `u` and `Vᴴ` on `A`. The
 /// bidiagonal by divide and conquer.
 pub fn gesdd(allocator: Allocator, io: Io, comptime T: type, jobz: Job, m: isize, n: isize, a: [*]T, lda: isize, s: [*]Float(T), u: [*]T, ldu: isize, vt: [*]T, ldvt: isize) GesddError!void {
-    comptime chol.floatType(T, "gesdd");
+    comptime ops.requireFloat(T, "gesdd");
     const minmn = @min(m, n);
     const as = jobz == .a or jobz == .s;
     if (m < 0) return error.InvalidM;
@@ -142,24 +116,15 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     const F = Float(T);
     const minmn = @min(m, n);
     const am: Mat(T) = .{ .ptr = a, .rows = m, .cols = n, .ld = lda };
-    // `DLANGE('M')`, NaN first
-    var anrm: F = 0;
-    for (0..n) |j| for (0..m) |i| {
-        const x = ops.abs(T, am.get(i, j));
-        if (std.math.isNan(x)) {
-            if (unconverged) |c| c.* = minmn - 1;
-            return error.NanInA;
-        }
-        anrm = @max(anrm, x);
-    };
-    if (std.math.isInf(anrm)) {
+    const scaled = auxiliary.scaleIn(T, am) catch |e| {
         if (unconverged) |c| c.* = minmn - 1;
-        return error.NoConvergence;
-    }
-    const smlnum = @sqrt(std.math.floatMin(F)) / std.math.floatEps(F);
-    const bignum = 1 / smlnum;
-    const to: ?F = if (anrm > 0 and anrm < smlnum) smlnum else if (anrm > bignum) bignum else null;
-    if (to) |t| ops.lascl(T, anrm, t, am);
+        return switch (e) {
+            error.NanInA => error.NanInA,
+            error.InfInA => error.NoConvergence,
+        };
+    };
+    const anrm = scaled.anrm;
+    const to = scaled.to;
     // U: into `u`, or for `o` into a copy that goes to `A`
     const ucols: usize = switch (jobu) {
         .a => m,
@@ -178,7 +143,7 @@ fn run(al: Allocator, io: Io, comptime T: type, jobu: Job, jobvt: Job, m: usize,
     try svd(al, io, T, am, sv, um, vm, threshold, unconverged);
     if (to) |t| {
         // `DLASCL` on S, back
-        ops.lascl(F, t, anrm, .{ .ptr = sv.ptr, .rows = minmn, .cols = 1, .ld = @max(minmn, 1) });
+        auxiliary.lascl(F, false, t, anrm, .{ .ptr = sv.ptr, .rows = minmn, .cols = 1, .ld = @max(minmn, 1) });
     }
     if (uo) |x| am.sub(0, 0, m, minmn).copyFrom(x);
     if (vm) |x| {
@@ -303,15 +268,15 @@ fn bidiagSvd(al: Allocator, io: Io, comptime T: type, diag: []T, subdiag: []T, u
     defer al.free(muls);
     const col_mul = muls[0..n];
     const row_mul = muls[n..];
-    var cn = normalized(T, ops.conj(T, diag[0]));
+    var cn = ops.normalized(T, ops.conj(T, diag[0]));
     col_mul[0] = cn;
     dr[0] = ops.abs(T, diag[0]);
     sr[n - 1] = 0;
     for (1..n) |i| {
-        const rn = normalized(T, ops.conj(T, ops.mul(T, subdiag[i - 1], cn)));
+        const rn = ops.normalized(T, ops.conj(T, ops.mul(T, subdiag[i - 1], cn)));
         sr[i - 1] = ops.abs(T, subdiag[i - 1]);
         row_mul[i - 1] = ops.conj(T, rn);
-        cn = normalized(T, ops.conj(T, ops.mul(T, diag[i], rn)));
+        cn = ops.normalized(T, ops.conj(T, ops.mul(T, diag[i], rn)));
         dr[i] = ops.abs(T, diag[i]);
         col_mul[i] = cn;
     }
@@ -335,15 +300,6 @@ fn bidiagSvd(al: Allocator, io: Io, comptime T: type, diag: []T, subdiag: []T, u
             x.at(i, j).* = ops.mulReal(T, col_mul[i], r.get(i, j));
         };
     }
-}
-
-/// `x / |x|` (1 for 0), scaled first so `|x|` cannot overflow. Faer
-/// multiplies by `1 / norm1`, infinite for a denormal `x`; that divides.
-fn normalized(comptime T: type, x: T) T {
-    if (ops.isZero(T, x)) return ops.one(T);
-    const norm1 = @max(@abs(x.re), @abs(x.im));
-    const y: T = if (norm1 >= std.math.floatMin(Float(T))) ops.mulReal(T, x, 1 / norm1) else .init(x.re / norm1, x.im / norm1);
-    return ops.mulReal(T, y, 1 / ops.abs(T, y));
 }
 
 fn realBidiagSvd(al: Allocator, io: Io, comptime F: type, diag: []F, subdiag: []F, u: ?Mat(F), v: ?Mat(F), threshold: usize, unconverged: ?*usize) bsvd.Error!void {
@@ -374,11 +330,12 @@ fn realBidiagSvd(al: Allocator, io: Io, comptime F: type, diag: []F, subdiag: []
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 const types = @import("../blas/types.zig");
 const blas = @import("../blas/__root__.zig");
 const apple_accel = @import("../blas/apple_accel.zig");
-const threading = @import("../blas/threading.zig");
+const test_io = @import("../blas/_test/io.zig");
 
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 
@@ -419,7 +376,7 @@ fn expectSvd(comptime T: type, al: Allocator, a0: Mat(T), s: []const Float(T), u
     const r = try ops.alloc(T, al, m, n);
     defer ops.free(T, al, r);
     r.copyFrom(a0);
-    try ops.gemm(al, check.io, T, .n, .n, ops.neg(T, ops.one(T)), us, vt.sub(0, 0, k, n), ops.one(T), r);
+    try blas_calls.gemm(al, check.io, T, .n, .n, ops.neg(T, ops.one(T)), us, vt.sub(0, 0, k, n), ops.one(T), r);
     if (maxAbs(T, r) > tol) {
         check.say("{s} {s} {d}x{d}: A - U S Vh = {e}, tol {e}\n", .{ what, @typeName(T), m, n, maxAbs(T, r), tol });
         return error.TestUnexpectedResult;
@@ -428,10 +385,10 @@ fn expectSvd(comptime T: type, al: Allocator, a0: Mat(T), s: []const Float(T), u
     const g = try ops.alloc(T, al, @max(u.cols, vt.rows), @max(u.cols, vt.rows));
     defer ops.free(T, al, g);
     const gu = g.sub(0, 0, u.cols, u.cols);
-    try ops.gemm(al, check.io, T, .c, .n, ops.one(T), u, u, ops.zero(T), gu);
+    try blas_calls.gemm(al, check.io, T, .c, .n, ops.one(T), u, u, ops.zero(T), gu);
     const gv = g.sub(0, 0, vt.rows, vt.rows);
     for ([_]Mat(T){ gu, gv }, 0..) |x, w| {
-        if (w == 1) try ops.gemm(al, check.io, T, .n, .c, ops.one(T), vt, vt, ops.zero(T), gv);
+        if (w == 1) try blas_calls.gemm(al, check.io, T, .n, .c, ops.one(T), vt, vt, ops.zero(T), gv);
         for (0..x.cols) |j| for (0..x.rows) |i| {
             const want = if (i == j) ops.one(T) else ops.zero(T);
             if (!(ops.abs(T, ops.sub(T, x.get(i, j), want)) <= otol)) {
@@ -452,7 +409,7 @@ fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: Job, jv: J
     const lda = m + 1;
     const a = try ops.alloc(T, al, lda, n);
     defer ops.free(T, al, a);
-    a.fill(chol.poisoned(T));
+    a.fill(lcheck.poisoned(T));
     a.sub(0, 0, m, n).copyFrom(a0);
     switch (r) {
         .gesvd => try gesvd(al, io, T, ju, jv, @intCast(m), @intCast(n), a.ptr, @intCast(lda), s.ptr, u.ptr, @intCast(u.ld), vt.ptr, @intCast(vt.ld), null),
@@ -464,7 +421,7 @@ fn decompose(comptime T: type, al: Allocator, io: Io, r: Routine, ju: Job, jv: J
     if (uo) u.sub(0, 0, m, k).copyFrom(a.sub(0, 0, m, k));
     if (vo) vt.sub(0, 0, k, n).copyFrom(a.sub(0, 0, k, n));
     // the padding row
-    for (0..n) |j| try testing.expect(chol.isNanT(T, a.get(m, j)));
+    for (0..n) |j| try testing.expect(lcheck.isNanT(T, a.get(m, j)));
 }
 
 fn svdCases(comptime T: type, al: Allocator, r: Routine, m: usize, n: usize, a0: Mat(T)) !void {
@@ -481,8 +438,8 @@ fn svdCases(comptime T: type, al: Allocator, r: Routine, m: usize, n: usize, a0:
     const name = @tagName(r);
     for (jobs) |j| {
         if (r == .gesdd and j[0] != j[1] and !(j[0] == .o)) continue;
-        u.fill(chol.poisoned(T));
-        vt.fill(chol.poisoned(T));
+        u.fill(lcheck.poisoned(T));
+        vt.fill(lcheck.poisoned(T));
         try decompose(T, al, check.io, r, j[0], j[1], a0, s[0..k], u, vt);
         const gesdd_o = r == .gesdd and j[0] == .o;
         const ucols: usize = if (gesdd_o) (if (m >= n) k else m) else switch (j[0]) {
@@ -498,8 +455,8 @@ fn svdCases(comptime T: type, al: Allocator, r: Routine, m: usize, n: usize, a0:
         if (ucols > 0 and vrows > 0) try expectSvd(T, al, a0, s[0..k], u.sub(0, 0, m, ucols), vt.sub(0, 0, vrows, n), name);
     }
     // the values alone agree
-    u.fill(chol.poisoned(T));
-    vt.fill(chol.poisoned(T));
+    u.fill(lcheck.poisoned(T));
+    vt.fill(lcheck.poisoned(T));
     try decompose(T, al, check.io, r, .n, .n, a0, s2[0..k], u, vt);
     try decompose(T, al, check.io, r, .a, .a, a0, s[0..k], u, vt);
     const tol = tolerance(Float(T), m, n, maxAbs(T, a0));
@@ -547,7 +504,7 @@ test "faer svd: special matrices, faer's test_special: zero, ones, identity; ran
                         defer ops.free(T, al, y);
                         check.fill(T, x.ptr[0 .. m * 3], 1);
                         check.fill(T, y.ptr[0 .. 3 * n], 2);
-                        try ops.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a0);
+                        try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a0);
                     },
                     4, 5, 6 => {
                         check.fill(T, a0.ptr[0 .. m * n], m + n);
@@ -716,7 +673,7 @@ test "faer svd: 1 x 1 and a known 2 x 2, exact where the reference is" {
 }
 
 test "faer svd: gesdd gives one worker's bits at any worker count" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !test_io.hosted) return error.SkipZigTest;
     _ = blas.coreName();
     // rstd's kernels: one worker's run is one chunk and the others many, and
     // Accelerate's bits follow a part's shape (its own split keeps the chunks)
@@ -724,11 +681,8 @@ test "faer svd: gesdd gives one worker's bits at any worker count" {
     _ = apple_accel.route(false);
     defer _ = apple_accel.route(was);
     const al = testing.allocator;
-    const cpus = blas.config.cpu_count;
-    defer blas.config.cpu_count = cpus;
-    defer threading.test_serial_max = null;
-    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
-    defer threaded.deinit();
+    var runs: test_io.WorkerRuns = .init(al);
+    defer runs.deinit();
     inline for (.{ f64, types.Complex32 }) |T| {
         // tall past 11 / 6, square past 128
         for ([_][2]usize{ .{ 300, 90 }, .{ 140, 140 } }) |mn| {
@@ -748,17 +702,14 @@ test "faer svd: gesdd gives one worker's bits at any worker count" {
                 al.free(outs[c]);
                 al.free(svals[c]);
             };
-            for ([_]u32{ 1, 3, 8 }, 0..) |w, c| {
-                blas.config.cpu_count = w;
-                threading.test_serial_max = if (w == 1) null else 4096;
+            for (0..test_io.worker_runs.len) |c| {
+                const io = runs.io(c);
                 const u: Mat(T) = .{ .ptr = outs[c].ptr, .rows = m, .cols = m, .ld = m };
                 const vt: Mat(T) = .{ .ptr = outs[c].ptr + m * m, .rows = n, .cols = n, .ld = n };
-                try decompose(T, al, if (w == 1) Io.failing else threaded.io(), .gesdd, .a, .a, a0, svals[c], u, vt);
+                try decompose(T, al, io, .gesdd, .a, .a, a0, svals[c], u, vt);
             }
-            for (1..3) |c| {
-                try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(outs[0]), std.mem.sliceAsBytes(outs[c]));
-                try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(svals[0]), std.mem.sliceAsBytes(svals[c]));
-            }
+            try test_io.expectSameBytes(outs);
+            try test_io.expectSameBytes(svals);
         }
     }
 }
