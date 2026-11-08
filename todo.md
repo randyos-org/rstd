@@ -10,13 +10,21 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 ### In the background
 
-- Housekeeping H1 to H112 (not H8; H65 waits on Z6), no builds (user, 2026-11-07): finished on `wip/housekeeping`, waiting for the user's review and a first build; not merged into `review`.
+- Housekeeping H1 to H112 (user, 2026-11-07): landed on `housekeeping` with the generator items, `review`'s Intel Mac scripts merged in (now in `tools/macos/`); RandyOS's follow-ups staged on its `main`; waiting for the user's review and a first build.
 
 ## Queue
 
-- [ ] **N37** msdf `Shape.calcBounds` (`Shape.zig:95-101`) starts `right` and `top` at `floatMin(f64)`, the smallest positive float, not msdfgen's `-LARGE_VALUE`: a glyph wholly below the baseline (`_`) or left of 0 gets top or right 0, so a wrong box. Use `-floatMax`; test with such a shape.
+- [ ] **N45** `ssh-test-x86_64-macos` runs on the Intel Mac (`macmini-intel`), not under Rosetta on the M6: an option for the Intel Mac's alias beside `-Dssh-mac` (default `macmini-m6`, help text "Apple silicon"), the x86_64 step pointed at it; Rosetta stays reachable for comparison. Then T141 can rerun there. **Needs:** N43, N44.
 
-- [ ] **N38** `buildTextAtlas` (`src/rgl/font/sfnt/render/atlas.zig:158`) looks up each byte of `text` as a code point, so non-ASCII UTF-8 gives wrong glyphs ("é" as two Latin-1 glyphs), while `layoutText` decodes UTF-8 (`layout.zig:111`). Decode with `std.unicode.Utf8View` and return `InvalidUtf8` as `layoutText` does; test a non-ASCII string.
+- [ ] **N46** The qemu rigs on the Intel Mac (`-Dtest-host=macmini-intel`): `tools/nix/flake.nix` follows nixpkgs-unstable, which dropped x86_64-darwin (26.11 release notes), so give x86_64-darwin a `nixpkgs-26.05-darwin` input (supported to the end of 2026) and check `tools/test_host.zig`/`run.sh` there (`hvf` for x86_64 guests). **Needs:** N44.
+
+- [ ] **N47** `support.md`: the Intel Mac replaces Rosetta 2 and the macOS VM as x86_64 macOS coverage (lines 35, 64 "no Intel Mac is at hand", 77) and joins the test hosts. **Needs:** N45, N46.
+
+- [ ] **N48** rstd `CLAUDE.md`, This machine: the Intel Mac is set up (alias `macmini-intel`, `tools/macos/configure_mac_host_intel.sh`, `configure_mac_nix.sh`), not "coming"; how its ssh and rig steps are reached; drop "the macOS VM runs nothing" once N49 retires the VM. **Needs:** N45, N46.
+
+- [ ] **N37** msdf `Shape.calcBounds` (`Shape.zig:97-101`) starts `right` and `top` at `floatMin(f64)`, the smallest positive float, not msdfgen's `-LARGE_VALUE`: a glyph wholly below the baseline (`_`) or left of 0 gets top or right 0, so a wrong box. Use `-floatMax`; test with such a shape.
+
+- [ ] **N38** `buildTextAtlas` (`src/rgl/font/render/atlas.zig:159`) looks up each byte of `text` as a code point, so non-ASCII UTF-8 gives wrong glyphs ("é" as two Latin-1 glyphs), while `layoutText` decodes UTF-8 (`layout.zig:112`). Decode with `std.unicode.Utf8View` and return `InvalidUtf8` as `layoutText` does; test a non-ASCII string.
 
 - [ ] **S2** Shaderlib stays the shaders' one API (src/linalg/design.md, Settled decisions): GLSL-friendly names that alias or wrap `linalg` calls where `linalg` has the operation (`dot`, `length`, matrix-vector products, through M12's SPIR-V forms); `cross` moves to `rstd.linalg.vector` and is re-exported; `normalize`, `reflect`, `refract`, `faceforward`, `smoothstep`, `fract`, `step` stay in shaderlib, lowered to GLSL.std.450 instructions. Add a build-time test that disassembles the shaders and fails if a listed operation comes out as scalar code: `zig build shader-probes` (S1's `probe.zig`) with a check over `spirv-dis` output, against `src/rgl/shaders/lib/readme.md`'s table. SPIR-V's own instructions are used as they are, not tuned: the aim is one API, not speed. **Needs:** M12 (for the `linalg`-backed ones); S1 done.
 
@@ -78,7 +86,7 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 - [ ] **T21** Zen 3 (flyoff): short real `dot`s (0.30 of OpenBLAS at 1024) and complex `gemm` (0.79 to 1.01) trail OpenBLAS. Tier 1 (user, 2026-10-30): re-measure after T100, then fix what's left; the timing session verifies. Diagnosed 2026-10-30, no code yet: Zen's `sdot` kernel (`Real(f32,4).dotSum`) is bound by its conversions (32 `vcvtps2pd` per 64 elements, about 70 GB/s: the cost of the `f64` rule), and on AVX2 its two `@Vector(32, f64)` accumulators fill all 16 ymm registers (about 25 moves and 3 spills per iteration): halve them. `cgemm`/`zgemm`: tiles, `P`/`Q` and the inner loop match OpenBLAS's, but `cgemm_kernel_8x2_haswell.c` reads two or three B panels at once (m8n4/m8n6) with 12 accumulators where ours has 8, exactly FMA latency times throughput: port that shape. `blas_bench`'s `kern3` section (59faab6c, any host) times the kernel alone against rstd's whole `gemm` on one worker; its first run (busy Zen 3, 2026-10-30) has the driver keeping 0.89 to 0.98 of the kernel for `s`, `d` and `z`, and `cgemm`'s whole call at 1.04 to 1.08 of its kernel block: the `cgemm` gap is the kernel's. For the timing session: `kern3`, `flyoff.sh zen3`'s `win-1t`/`lx-1t` `dot s` rows and the level-3 `c`/`z` rows.
 
-- [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and 28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4, tools/blasbench/results-flyoff.md). Read 2026-10-30, not measured: nothing on rstd's path changed (one kernel call below the threshold, vortex's slot is still the displaced `@Vector` kernel, `vector.zig`'s `axpy` and `scal` and the per-core flags unchanged). The bench's `asm` column reads the same function rstd calls, so the two moved together, while its own copy of that source (`vec x4`) stayed at 55 and OpenBLAS's `axpy.S` at 28: the drop follows that one copy in the binary (likely code placement) or the guest. Left, in the timing session: `flyoff.sh m6`'s inc-2 `saxpy`/`zscal` rows, then align the copy or close this as the guest's.
+- [ ] **T102** Strided `saxpy` and `zscal` (inc 2) in the arm64 Linux VM halved between 6d66239 and 28171adc for both rstd and the converted kernel (`saxpy` 54 to 28 GB/s, `zscal` 139 to 71; R4, tools/blasbench/results/results-flyoff.md). Read 2026-10-30, not measured: nothing on rstd's path changed (one kernel call below the threshold, vortex's slot is still the displaced `@Vector` kernel, `vector.zig`'s `axpy` and `scal` and the per-core flags unchanged). The bench's `asm` column reads the same function rstd calls, so the two moved together, while its own copy of that source (`vec x4`) stayed at 55 and OpenBLAS's `axpy.S` at 28: the drop follows that one copy in the binary (likely code placement) or the guest. Left, in the timing session: `flyoff.sh m6`'s inc-2 `saxpy`/`zscal` rows, then align the copy or close this as the guest's.
 
 - [ ] **T114** Accelerate's `potrf` (T35), the timing part: in the timing session, whether routing beats rstd's threaded `potrf` (its correctness is checked: T62's `T114-<host>` steps).
 
@@ -94,6 +102,20 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and Blocked work.
 
+- [ ] **N49** Deprecate the macOS VM, replaced by the Intel Mac: the `x86_64-macos` rig and its `qemu-setup-`, `qemu-install-`, `qemu-start-` and snapshot steps (`build/qemu/macos.zig`, `tools/macos_vm.zig`, `tools/macos/configure_macos_vm.sh`, `install_macos.sh`, `snapshot_macos.sh`), their docs and `.macos-vm`; retire T53 with it. **Needs:** N45, N46.
+
+- [ ] **T158** matlab on an empty real matrix: `lu.zig`'s `Lu.init`, `solve`, `lange1` and `rcond` (so `det`, `inv`, `mldivide`) pass its `lda` of 0 to LAPACK, which answers `InvalidLda`, and `ops.narrow` makes that `unreachable`. Give 0x0 MATLAB's answers (`det([])` 1, `inv([])` empty, `norm` 0) and test them, as `chol` now does.
+
+- [ ] **T159** `build/blaskern.zig`'s `-Dblas-llvm` help text ("unset uses it only where the kernels need it") is stale: unset now always uses LLVM.
+
+- [ ] **N39** GPOS format-1 `ClassDef.classOf` (`tables/gpos/ClassDef.zig`) computes `start + count` and the record offset `2 * (glyph - start)` in `u16`: they overflow (a panic in safe builds) past glyph 65535 or from 32768 entries. Widen them; test such a ClassDef.
+
+- [ ] **N40** `png.decode` leaks the image when un-filtering fails: no `errdefer` frees it. Add one; test a corrupt filter byte under the testing allocator.
+
+- [ ] **N41** `color.zig`: `RGBAf32`'s, `HSLAf32`'s and `YCbCrAf32`'s `equals` bit-cast the 128-bit color to `u32`, a compile error once anything calls them (nothing does yet). Compare the components; test colors differing only in alpha.
+
+- [ ] **N42** `shaders/layout.zig`'s `Globals` is 24 bytes in the shaders (`V2f32`) and 20 in `gpu.zig`'s push constant (`[2]f32`): check the offsets the shaders read against what the host writes.
+
 - [ ] **T144** `powerpc64le`, `powerpc64le-power10` (ReleaseSafe) and `powerpc64` do not compile: LLVM cannot select a `v1i128` bitcast of an `f128` load in `tridiag_evd.qrAlgorithm` (`tridiag_evd.zig:163`, issues.md). Tier 3; no workaround in rstd. **Blocked:** upstream.
 
 - [ ] **T152** `linux-powerpc64le-power10`: six LAPACK tests fail in `Complex(f32)` at denormal or tiny scales: `getrf`'s denormal pivot (dividing by 1.1e-44 gives `inf`, `nan`), `syevd`, `gees` at scale 1e-30, `gesvd` (NoConvergence), `gels` (Singular), the evd NaN test. The power9 rig (`linux-powerpc64le`) passes them all: likely power10 code (LLVM or QEMU) flushing or overflowing in the complex division. Not traced. Tier 3.
@@ -102,9 +124,9 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 - [ ] **T145** x87, Debug only (`i386`, `rstd-test-x87`; the ReleaseSafe forms pass): "geev on special matrices" fails `f64` n = 2 kind 3, the rotation `[0 -1; 1 0]`: an eigenvalue's `x[kbig].im` is past `tolerance(F, n, 1)` (`evd.zig:852`). Likely `f80` intermediates in the 2 x 2 standardization; not traced. Tier 3.
 
-- [ ] **T146** x87 (`rstd-test-x87`): matlab's `rat` loses precision (22/7 comes back with numerator 3.14306640625; 3.1416015625 for π, `rat.zig:47`, `:55`), and `base` renders the wrong digits (`base.zig:75`). Not traced; M6 reworks both. Tier 3.
+- [ ] **T146** x87 (`rstd-test-x87`): matlab's `rat` loses precision (22/7 comes back with numerator 3.14306640625; 3.1416015625 for π), and `base` renders the wrong digits (both in `matlab/scalar.zig`). Not traced; M6 reworks both. Tier 3.
 
-- [ ] **T147** "the registry read works on Windows" (`_detect/arm64.zig:1011`) fails on the 32-bit `rstd-test-x87`: `InstallTime` is missing, likely from WOW64's 32-bit view of `HKLM\SOFTWARE` (`KEY_WOW64_64KEY` reads the native one). Matters for 32-bit arm Windows detection too. Tier 3.
+- [ ] **T147** "the registry read works on Windows" (`cpu/detect/arm64.zig:917`) fails on the 32-bit `rstd-test-x87`: `InstallTime` is missing, likely from WOW64's 32-bit view of `HKLM\SOFTWARE` (`KEY_WOW64_64KEY` reads the native one). Matters for 32-bit arm Windows detection too. Tier 3.
 
 - [ ] **T148** Big-endian MSA (`mips32r5`'s `p5600`): `util.abs` clears the low word's top bit of an `f64` instead of its sign (`|x|` off by 2^-22 relative, `-inf` kept), so `amax`, `amin`, `iamax`, `iamin`, `nrm2`, blat1 and utest fail, and `getrf` pivots wrong (`|L| > 1`). The `f64` to `@Vector(n, u32)` bitcast's lane order on big-endian MSA is the likely cause; a mask in `F`-wide lanes avoids it. `mips64r6` fails the same `getrf` tests (its run ends at T149 before the level-1 ones); the little-endian rigs pass. Tier 3.
 
@@ -136,7 +158,7 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 - [ ] **T94** Fact-check items still open after T78: 32-bit x86 Windows threads starting at x87 0x27f (T03's observation; no source, no test records it: add a test); "MKL leaves FTZ to the application" (from memory); Tegra 2 as VFPv3-D16 (a forum post only); `symmetric.zig`'s "4 elements of slack past each".
 
-- [ ] **T20** Kernel strategy: race `@Vector` against the converted assembly per core on a quiet machine (only vortex is done, `tools/blasbench/results-m6.md`); keep per-core code only where Zig loses. riscv64 races (from T22): `@Vector` against the `asm` `axpy` on zvl128b and x280, and fixed-length `@Vector` against VLEN-agnostic RVV on hardware wider than a core's minimum VLEN.
+- [ ] **T20** Kernel strategy: race `@Vector` against the converted assembly per core on a quiet machine (only vortex is done, `tools/blasbench/results/results-m6.md`); keep per-core code only where Zig loses. riscv64 races (from T22): `@Vector` against the `asm` `axpy` on zvl128b and x280, and fixed-length `@Vector` against VLEN-agnostic RVV on hardware wider than a core's minimum VLEN.
 
 - [ ] **T05** Thresholds: OpenBLAS's defaults and per-core overrides, tuned by benchmark; then the overrides left out of phase 1 (z13 `axpy`, Windows-on-ARM64 `gemv`) if the numbers agree. **Needs:** T01, T73. T06's smoke run (busy Zen 3, `--threads=4`): threaded level-1 calls were slower than serial at the sizes it ran, so the thresholds need this tuning. Also time T07's split Accelerate calls against one whole call; and the bench's "Accelerate multithreaded" column is single-threaded while rstd's init sets `VECLIB_MAXIMUM_THREADS=1` process-wide, so a fair column runs Accelerate in a separate process. From T113's table: race AOCL-libFLAME's small-matrix AVX2/AVX-512 kernels (`getrf`, `potrf`, `potri`, `getrs`, `getri`, `geqrf`, `gelqf`, small `gesvd`; its OpenMP paths only after a same-bits check), libflame's restructured QR for `gesvd` and Hermitian eigenvalues (Van Zee et al., TOMS 2014), `FLA_Hevd`/`FLA_Tevd`, and `FLA_Eig_gest`/`FLA_Sylv` against ReLAPACK's `sygst`/`trsyl`. From T101 (src/linalg/blas/threading.md): OpenBLAS threads x86_64 `ddot`/`zdot` and arm64's `dot.c` above 10000 (arm64 with its own neoversev1 and a64fx tables) and never `sdot`, `cdot`, `dsdot` or `dot.S`; rstd threads every precision above 10000. Threaded `cgemm` at n = 128 in the arm64 VM varies 198 to 249 GFLOP/s: each call (about 75 µs of work) wakes five sleeping `Io.Threaded` pool threads (a task allocation, a mutex and a condvar signal each), whose wake time varies under HVF; no spinning server (src/linalg/blas/threading.md), so a threshold that keeps such calls serial is the fix to time.
 
@@ -154,7 +176,7 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 - [ ] **T32** BLIS assembly kernels, decided per kernel where benchmarks favor them (BSD-3, with a license section and per-file provenance). **Needs:** T20.
 
-- [ ] **T39** sparc64 is tier 4 (user, 2026-11-01): its images outgrew OpenBIOS's 0x400000 to 0x800000 window again (tier 3 at 5ddbd422: `blas3-tri` in ReleaseFast, 34 of 46 parts in Debug), so both rigs are stubs (`build/qemutest.zig`) and out of the sweeps. Bringing it back needs a real fix first: map more memory at boot through the Open Firmware client interface (claim and map), so one image fits. Open there too: the `-Oz` miscompile (issues.md, needs a reduced case) and the window itself (our observation; OpenBIOS's source unchecked).
+- [ ] **T39** sparc64 is tier 4 (user, 2026-11-01): its images outgrew OpenBIOS's 0x400000 to 0x800000 window again (tier 3 at 5ddbd422: `blas3-tri` in ReleaseFast, 34 of 46 parts in Debug), so both rigs are stubs (`build/qemu/machines.zig`) and out of the sweeps. Bringing it back needs a real fix first: map more memory at boot through the Open Firmware client interface (claim and map), so one image fits. Open there too: the `-Oz` miscompile (issues.md, needs a reduced case) and the window itself (our observation; OpenBIOS's source unchecked).
 
 - [ ] **T71** Linux rigs with no item: loongarch64 (the `AT_HWCAP` LSX/LASX probe), big-endian powerpc64 (`AT_PLATFORM`, the `64be` variant), 32-bit mips.
 
@@ -166,7 +188,7 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 - [ ] **T104** Optional, best effort: the reference's GCC build contracts the MSA kernels' `y0 += da_vec * x0` into `fmadd` on every MSA core, but rstd fuses vectors only on `loongson3r4` (T86). The same inline MSA `fmadd` from `fma.zig` could model `p5600`, `i6400`, `i6500` and `p6600` as the reference builds them; QEMU rounds neither way, so it rests on reading the assembly.
 
-- [ ] **T76** Optional, from src/linalg/blas/comparisons.md: `Dot2` (compensated `f32` lanes) if T25 finds the `f64` `sdot` costly in cache; BLIS's `JR`/`IR` ways for threads sharing an L2; an A-panel prefetch beside T27's `C`-tile one; small-`n` `sgemv_n` tuning (`tools/blasbench/results-m6.md`).
+- [ ] **T76** Optional, from src/linalg/blas/comparisons.md: `Dot2` (compensated `f32` lanes) if T25 finds the `f64` `sdot` costly in cache; BLIS's `JR`/`IR` ways for threads sharing an L2; an A-panel prefetch beside T27's `C`-tile one; small-`n` `sgemv_n` tuning (`tools/blasbench/results/results-m6.md`).
 
 - [ ] **T54** Optional: an inline-asm `maddf` for R6 scalar multiply-adds in the main library, if R6 speed ever matters (LLVM calls `fmaf`).
 
@@ -224,251 +246,313 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 ## Housekeeping
 
-Readability findings from a read-only audit of every handwritten file (2026-11-07), for the user to promote. Highest payoff first in each group. Moves that rename tests also update `build/qemutest.zig`'s filters; generated files change only through `tools/blas_asm`. Of 120k handwritten lines, 15k are comments, in 606 blocks over 4 lines (42 over 20).
+Readability findings from a read-only audit of every handwritten file (2026-11-07), for the user to promote. Highest payoff first in each group. Moves that rename tests also update `build/qemu/machines.zig`'s filters; generated files change only through `tools/blas_asm`. Of 120k handwritten lines, 15k are comments, in 606 blocks over 4 lines (42 over 20).
 
 ### Across rstd
 
-- [ ] **H1** One set of BLAS scalar helpers in `blas/util.zig`: `raw` (7 copies: the level-1, level-2, banded, triangular and ext interfaces, blas3 `driver.zig`, `gemm3m/driver.zig`), `isZero`/`isOne` (12, incl. `apple_accel.zig`, `lapack/cholesky.zig`), `zero`, `one`, `first`; one meaning each for `at` and `off` (`banded.zig` and `triangular.zig` use them oppositely).
+- [ ] **H113** Rest of H2: one `table`/`no_table` for BLAS's and `lapack/ops.zig`'s (not in `util.zig`, which the kernel objects compile: it would import `__root__.zig`).
 
-- [ ] **H2** One set of comptime type checks in `blas/util.zig`: `floatType` (3 copies; rename it, it returns void), `complexType` (2), `table`/`no_table` (2), the dozen inline "is not complex" `@compileError`s in the level-1 and level-2 interfaces; `linalg/vector.zig`'s `isComplex`/`Real` become aliases of `types.isComplex`/`Float` (after T157).
+- [ ] **H115** Slots by enum, part 2: a `portable.Param` enum for the gemm blocking parameter slots (`gemm_p`, `gemm_q`, `gemm_r`, `unroll_*`, `align_k`) in `gemm/params.zig`, `driver.zig`, `driver3m.zig`, `_test/blas3/check.zig`, `lapack/lu.zig` and `lapack/_test/check.zig`.
 
-- [ ] **H3** One element-arithmetic set in `lapack/ops.zig` (`zero`, `one`, `add`, `sub`, `mul`, `conj`, `neg`, `abs1`, `isZero`, plus `mulConj`, `divReal`, a new `div`): delete the copies in `cholesky.zig:354-405` (ops imports from it today), `matrix.zig:256-312` (`eZero` to `eIsZero`, public only for `dense.zig`; keep the fused `eMul`, `eMulAdd`, `eDiv`), `matlab/generators.zig:66-84`, and lapack's local `abs1`, `div`, `conj`, `divide`, `recipOf` (norm, sylvester, relapack, indefinite, bidiag, lsq).
+- [ ] **H116** Slots by enum, part 3: the half-precision and `gemm_small` slots in `half.zig`, `ext/bf16/kernel.zig`, `small.zig`, the half gemv sites in `blas2/interface.zig` and `gemv/__root__.zig`, and symmetric's first and second gemv names.
 
-- [ ] **H4** One error-narrowing helper (pass `OutOfMemory`, `Canceled` and named errors, else `unreachable`) for about 20 hand copies: `dense.zig`'s `canceled`, `allocOrCanceled`, `singularOr`, `svdError`; the identical `narrow` in `lapack/ops.zig` and `norm.zig`; matlab's `level1`, `factored`, `solved`, `multiplied`, `converged` and the inline ones in `lu.zig`, `svdapi.zig`, `schur.zig`.
+- [ ] **H117** Slots by enum, part 4: `gemm/kernel.zig`'s installs and its symbol exports by `Slot` name.
 
-- [ ] **H5** One stack-or-heap scratch buffer: `blas2/interface.zig`'s `Scratch` moves to `blas/util.zig` with an alignment parameter and replaces `banded.zig`'s `Scratch`, `triangular.zig:509-514`, blas3 `driver.zig`'s `run` and `triWork`, `gemm3m/driver.zig` and `half.zig`.
+- [ ] **H118** Slots by enum, part 5: the ops `blas3/driver.zig` and `blas3/triangular.zig` build from routine and option strings, by an exhaustive mapping.
 
-- [ ] **H6** One `threading.forEachPart` for the "parts, one alloc, `forEach`" pattern in `blas3/threaded.zig`, `gemm3m/driver.zig`, `half.zig` and `blas2/interface.zig` (twice).
+- [ ] **H119** Slots by enum, part 6: `_test/blas1/edge.zig`'s and `denormal.zig`'s dot, reduction and extreme loops over string lists; `rotSlot` (3 spellings) once.
 
-- [ ] **H7** `util.scalarArgs(T, v)` (`.{v}` or `.{v.re, v.im}`) replaces about 25 two-armed `if (isComplex(T))` kernel calls in the level-1 and level-2 interfaces, `banded.zig`, `triangular.zig`, `symmetric.zig` and their tests.
-
-- [ ] **H112** Slots by enum, not by string: about 170 `@field(vt, pre ++ "symv_U")`-style names built from a precision letter (most in `_test/blas1/edge.zig`, `gemm/params.zig`, `half.zig`, `gemm/kernel.zig`, `gemv/__root__.zig`, `small.zig`, the level-3 drivers, `symv`/`hemv`/`ger` installs, `symmetric.zig`'s `pre`) go through one bridge, a `portable.slotPtr(vt, T, op)` over `portable.slot`, with `portable.Op` grown for the half-precision and parameter slots. To split per area before starting.
-
-- [ ] **H9** Shared test support, part 1: `blas/_test/blas1/check.zig` moves to `blas/_test/check.zig`, with `_test/blas2/guard.zig` merged in (53 importers, one alias instead of `blas1check`, `check1` and `check`); one of `guard.use`/`restore` and `testUse`/`testRestore`.
-
-- [ ] **H10** Shared test support, part 2: `lapack/cholesky.zig:407-610`'s helpers (`test_types`, `W`, `fromF64`, `sameBits`, `expectSameBits`, `shrink` and the rest) and `norm.zig:808-870`'s `thresh`, `cplx`, `ratio` (five local `thresh = 30`) move to `lapack/_test/check.zig`.
-
-- [ ] **H11** Shared test support, part 3: lapack's shared fixtures (`chol.Problem`, `lu.Problem`, `tri.Tri`, relapack's `Indefinite`, `ldlProduct`, `sandwich`, `dominant`, `expectAgree`) move to `lapack/_test/`.
-
-- [ ] **H12** One copy each of the cross-module test helpers: slice `sameBits` (`dense.zig`, `blas3/threaded.zig`, `gemm3m/driver.zig`, `batch.zig`, `half.zig`), `expectSameBits` (`vector.zig`, `matrix.zig`), `val`/`scalarOf`/`cplx` (8 copies), the mixed-magnitude `fill`, `fillSeq` (3), "shrink blocking" (5), `Wide`/`widen` (3 with two meanings; blas3's becomes `Ref`), the type lists (`all_types`, the `{ "s", f32 }` list; about 14 copies), `rotSlot` (3 spellings).
-
-- [ ] **H13** One worker-count bit-identity harness and one `eachTestIo` (`Io.failing`, `TestIo` limits, Evented) for about 10 inline copies in `qr.zig`, `lq.zig`, `lsq.zig`, `svd.zig`, `evd.zig`, `relapack.zig` and `blas3/threaded.zig`.
-
-- [ ] **H14** Named ulp bounds in the shared check module for the bare `4`, `4*(n+2)`, `2*(n+2)`, `16*(n+2)`, `8`, `2*eps` and `1e-300` in `_test/blas1/edge.zig`, `denormal.zig`, `_test/blas2/edge.zig` and `_test/blas3/check.zig`.
-
-- [ ] **H15** Every import at the top of its file: the mid-file ones in `CxMat.zig`, `lapack/qr.zig:344`, `ext/bf16/__root__.zig:35`, `portable.zig:209`, `_detect/{generic,sparc,s390x}.zig`, `threading.zig:776`, `from_openblas/__root__.zig`, `edge.zig`, `denormal.zig`, `utest_ext.zig`, `test/qemu/runner.zig`, `smp.zig`; drop the unused ones (most routine roots' `HF16` to `ComplexXD` aliases, `std` in a dozen files, `elementwise.zig:76`).
-
-- [ ] **H16** Semicolons for the `--` and ` - ` dashes in comments: `Config.zig`, `types.zig`, `util.zig`, `Vtable.zig`, `cpu/`, `_auxv.zig`, `_detect/`, the axpy arch headers, `vector.zig:10-15`, matlab throughout.
-
-- [ ] **H17** Unwrap the hard-wrapped Markdown: `lapack/sources.md`, `matlab/readme.md`, `rgl/font/sfnt/readme.md`, `rgl/shaders/lib/readme.md`, `blas3/gemm/notes.md`, `blas1/c_kernels.md`, `blas2/buffers.md`, `tools/blasbench/readme.md` and `results-*.md`.
+- [ ] **H114** Rest of H12: one `expectSameBits` (in `_test/check.zig`) for `vector.zig`'s and `matrix.zig`'s.
 
 ### BLAS core: `blas/`, `cpu/`, `kernels/`, `ext/`
 
-- [ ] **H18** One table in `cpu/__root__.zig` replaces the 12 near-identical `cpu/<arch>.zig` stubs (x86's `installExtendedCore` and s390x's masked detect as table options); then drop the `_` prefixes of `_coretypes`, `_select`, `_corespec`, `_auxv` and `_detect/`.
+- [ ] **H147** Rest of H22: `vector.zig`'s `RealSlots` and `ComplexSlots` (150 lines) derive from `portable.slot`; `survey.zig` reads them as text, so it changes too.
 
-- [ ] **H19** One `registry.Arch(...)` builder replaces the 12 `kernels/<arch>.zig` copies of `supports`, `hasKernels`, `exportCore` and `install`; each file keeps only its list and rule.
-
-- [ ] **H20** One `Family` enum and `familyOf(arch)` in `_coretypes.zig` for the five parallel arch switches (`GetCpuArch`, `_corespec.zig`'s `CoreType` and `Detector`, `kernels/__root__.zig`'s `ForArch`, `_select.zig`'s `archOf`), and one `coretypes.all` for the hand lists in `threading.zig`, `_select.zig`, `_corespec.zig`.
-
-- [ ] **H21** One detector API: `detect` and `canRun` defined once over each `_detect/*.zig`'s probe and decision; drop the 10 dead `detectNoted` copies, `mips.zig`'s `canRun` name and s390x's `detectMasked`.
-
-- [ ] **H22** `vector.zig` (1813 lines): the slot-placement policy (`routed` to `Registry`, 1351-1813) moves to the registry file; `RealSlots` and `ComplexSlots` (150 lines) derive from `portable.slot` (update `survey.zig`'s text reads).
-
-- [ ] **H23** `asm_registry.zig` becomes `registry.zig` (it holds ports, links and install too) and takes vector's `Rule`, `takes` and `Registry` (whose `install` repeats `externKernel`; `has` is always false), a `Union(Core, .{A, P})` for the 7 hand merges in the asum, gemv, symv and axpy arch `kernel.zig` files, and `blas1/uk_block.zig` (blas2 uses it too).
-
-- [ ] **H24** `FpState` (`util.zig:320-555`, used only by the threading files) moves to `FpState.zig`.
-
-- [ ] **H25** `apple_accel.zig` (2536 lines): tests (1426-2536) to `_test/apple_accel.zig`, the quirk list (653-693) to readme's Accelerate section; `letter`, `span`, `mat` use `portable.letter` and `util.fits`; fix the misplaced doc at 792.
-
-- [ ] **H26** Threading's test infrastructure (`threading.zig:774-833`: `TestIo`, `Evented`, `testCounts` and the rest, used by about 15 test files) moves to `_test/io.zig`.
-
-- [ ] **H27** `_auxv.zig` becomes `osinfo.zig` and takes arm64's generic OS reads (`registryQword`, the sysfs parsing in `_detect/arm64.zig:191-337`).
-
-- [ ] **H28** Core names as enums, not strings: `threading.zig:154-190`'s thresholds, `gemm/params.zig`'s `ruleFor` (207-234, 353), `uk_block.zig:49-59`, `gemv/kernel.zig`'s `nbmax` and `cform`, the `entryOf(core: []const u8)` functions, with `uk.zig` emitting enum literals.
-
-- [ ] **H29** One static-only core list (`static_only` per enum in `_coretypes.zig`) for `_detect/x86.zig`'s three copies and `_select.staticOnly`; one `select.testing` for the 5 `Linked`/`NoLog` test doubles.
-
-- [ ] **H30** bf16 widening once (`vector.zig`'s `Half.widen` and `wide` call `ext/bf16/kernel.zig`'s `widen`); one scalar-or-splat helper for its 4 copies.
-
-- [ ] **H31** Dead code: `cpu.unsupported`, `_detect/x86.zig`'s `vendor` and test-only `Tier` and `displayFamily`, `_auxv.has`, ext/bf16's six `*_generic` aliases. User's call: Config's unread `thread_timeout`, `goto_debug`, `main_free`, `omp_*`; `_corespec.undecided`; the commented-out lines at `__root__.zig:22,270` and `cpu/__root__.zig:19`.
-
-- [ ] **H32** Stale comments: `_corespec.zig:15-17` and 273-275, `kernels/{s390x,wasm}.zig`, `Config.zig:53,167,173`, the `cpu/<arch>.zig` "CPU detection" headers, `_coretypes.zig`'s section headers.
-
-- [ ] **H33** Comments: cut the BLAS core's long blocks to 1 or 2 lines (headers of `fma.zig` (30 lines), `apple_accel.zig`, `_corespec.zig`, `_auxv.zig`, `ext/*`, `_detect/*`; `apple_accel.zig:405-535`; docs in `util.zig`, `vector.zig`, `types.zig:165-173`, `Vtable.zig`, `threading.zig`, `Config.zig`, `ext/interface.zig:147-156`).
+- [ ] **H148** Rest of H28: core names as enums, not strings, in `gemm/params.zig`'s `ruleFor`, `gemv/driver.zig`'s `nbmax` and `cform`, the `entryOf(core: []const u8)` functions and `uk_block.find`'s core; `rule()`'s string API (fed by `blas.coreName()`) changes with them.
 
 ### BLAS levels 1 and 2
 
-- [ ] **H34** One `blas1/extremum.zig` table replaces the 8 extremum folders (`amax` to `min`, 69–87 lines each); `survey.zig` writes one coverage file.
+- [ ] **H120** Rest of H36: gemv's half-precision tests to `ext/bf16`.
 
-- [ ] **H35** `blas1/interface.zig` (1748 lines): threading tests to `_test/blas1/threaded.zig`; `rotg`, `zrotg`, `rotmg` and their tests to `rot/__root__.zig`; "portable kernels: special values" into the routine roots.
+- [ ] **H38** One set of level-1 wrappers and arithmetic for level 2: `triangular.zig`'s `Ops(T)` and `Num(T)` replace `banded.zig`'s `axpyK` to `scalK` and `mul` to `scaleF`, and `blas2/interface.zig`'s `scaleY`, `gemvCall`, `mvCall`. Set aside 2026-11-07: not provably bit-identical (the two reach the vtable differently and round complex products differently); needs a build and the tests.
 
-- [ ] **H36** `gemv/__root__.zig` (1275 lines): the x87 extended sums and their tests to `gemv/extended.zig` (or one blas `extended.zig` with `util.extendedSum` and dot's); the half-precision tests to `ext/bf16`.
+- [ ] **H40** One `@Vector` axpy block for `axpy/__root__.zig`'s `SimdBlock`, x86_64's `VectorBlock` and `power/c_kernels.zig`'s `SaxpyVec` (also `wasm/simd.zig`'s strided loop, msa's and wasm's `load`/`store`); check the bits on power. Set aside 2026-11-07: the merged block is not provably the same operations in the same order; needs a build.
 
-- [ ] **H37** `banded.zig`: the rank updates (`syr` to `hpr2`) move to `blas2/rank.zig`; its `Kind` is `symmetric.zig`'s.
+- [ ] **H121** Rest of H41: `axpy/{arm,loongarch64,x86,sparc}/kernel.zig` (registry-only wrappers) fold into `kernels/<arch>.zig`.
 
-- [ ] **H38** One set of level-1 wrappers and arithmetic for level 2: `triangular.zig`'s `Ops(T)` and `Num(T)` replace `banded.zig`'s `axpyK` to `scalK` and `mul` to `scaleF`, and `blas2/interface.zig`'s `scaleY`, `gemvCall`, `mvCall`.
+- [ ] **H122** Rest of H42: `symv/driver.zig`'s one-column tail (twice) and 4-column update (3 times), `gather`/`scatter` against gemv's `small` (floating-point kernel code: check the bits).
 
-- [ ] **H39** `symmetric.zig` stops importing test helpers (`check.FloatOf`, `check.isComplex`; use `types`); its derived `copy_cases` (358-450) move to `_test/blas2/`.
+- [ ] **H123** Rest of H42: the x86_64 `kernel.zig` feature constants (5 copies) through `util.x86Has`; their unguarded `featureSetHas` gives another value off x86, where the tests also analyze them.
 
-- [ ] **H40** One `@Vector` axpy block for `axpy/__root__.zig`'s `SimdBlock`, x86_64's `VectorBlock` and `power/c_kernels.zig`'s `SaxpyVec` (also `wasm/simd.zig`'s strided loop, msa's and wasm's `load`/`store`); check the bits on power.
+- [ ] **H124** Rest of H43: `blas2/interface.zig`'s flag table by `Trans`'s methods.
 
-- [ ] **H41** `axpy/{arm,loongarch64,x86,sparc}/kernel.zig` (registry-only wrappers) fold into `kernels/<arch>.zig`; the 11 axpy arch headers (11 to 24 lines of the same preamble) become one line each.
-
-- [ ] **H42** symv and gemv driver repeats: `symv/kernel.zig`'s one-column tail (twice) and 4-column update (3 times), `gather`/`scatter` against gemv's `small`; the x86 feature constants (5 copies) and x86-only checks in `rot/kernel.zig` and `gemv/kernel.zig` move to `util.zig`.
-
-- [ ] **H43** `types.Trans` methods replace the flag tables in `gemv/__root__.zig`, `gemv/kernel.zig:534-547` and `blas2/interface.zig:672`; an `Extreme` method replaces `@field(portable.Op, "i" ++ ...)`.
-
-- [ ] **H44** The routine-level `kernel.zig` drivers (axpy, dot, rot, scal, gemv, symv) become `driver.zig`, so `kernel.zig` means only a per-arch registry (folds into Z6).
-
-- [ ] **H45** Siblings read alike: `checkAll` through `check.keep` in every root, one portable-vtable setup in tests, axpy's "generic" test names, scal's `dummy2`/`flag`, `blas1/__root__.zig`'s routine list written twice.
-
-- [ ] **H46** Comments: cut the level-1 and level-2 module docs (`blas1/interface.zig`, `blas2/interface.zig`, `banded.zig`, `triangular.zig`: 19 to 26 lines each, and 17 more) and the 5-line-plus function comments (`zrotg`'s 9, `symmetric.zig:251-256`, `gerImpl`'s 7).
+- [ ] **H125** Rest of H45: `checkAll` through `check.keep` in every root (changes the tests' flow), one portable-vtable setup in tests (one is static, one on the stack), `blas1/__root__.zig`'s routine list once (by reflection, which changes the install order).
 
 ### BLAS level 3
 
-- [ ] **H47** One gemm and one gemmt argument check, public in `blas3/interface.zig`, for `half.zig` and `batch.zig`.
+- [ ] **H49** One driver loop skeleton (js, ls, is) for `driver.zig`, `driver3m.zig` and `half.zig`; verify the bits with the folded-beta and threaded tests. Set aside 2026-11-07: the order of operations needs the tests to confirm.
 
-- [ ] **H48** `Blocking.fromSlots` and named, cited `default_p`, `default_q`, `default_r` (224, 128, 4096) for `driver.zig`, `gemm3m/driver.zig`, `half.zig` and `gemm/__root__.zig:561`.
+- [ ] **H53** Kernel helpers once: `gemm/params.zig`'s cache detection (from line 125, with private `cpuid`, `cpucfg`) to `cpu/detect/`; 3M's `Sym` is symm's `Source`; one `sideKernel` for trmm and trsm; one `Source` copy driver; one `TileSource` installer; 3M's kernel loops on the real ones through a store function (lower priority). Set aside 2026-11-07: kernel-object code, needs a build.
 
-- [ ] **H49** One driver loop skeleton (js, ls, is) for `driver.zig`, `gemm3m/driver.zig` and `half.zig`; verify the bits with the folded-beta and threaded tests.
-
-- [ ] **H50** `driver.zig` (1215 lines): its triangular half (517-1109) and `threaded.triangular` move to `blas3/triangular.zig`.
-
-- [ ] **H51** Layout (folds into Z6): `gemm3m/driver.zig` to `blas3/driver3m.zig`; the kernel registry (`gemm/kernel.zig:686-878`) to `blas3/kernels.zig`; `hemm/` into `symm/`, `hemm3m/` into `symm3m/`, `syr2k/` into `syrk/`, `gemmt/`'s tests into `_test/blas3/`; `gemm/x86_64/kernel.zig` to `gemm/small_x86_64.zig`; `blas3/__root__.zig`'s order and stale doc.
-
-- [ ] **H52** `threaded.zig`'s tests (370-1103) to `_test/blas3/threaded.zig`, as blas2's are; its `l3thread bench` (1056-1103) to `tools/blasbench` (user's call).
-
-- [ ] **H53** Kernel helpers once: `gemm/params.zig:144-202`'s cache detection (with private `cpuid`, `cpucfg`) to `cpu/_detect/`; 3M's `Sym` is symm's `Source`; one `sideKernel` for trmm and trsm; one `Source` copy driver; one `TileSource` installer; 3M's kernel loops on the real ones through a store function (lower priority).
-
-- [ ] **H54** One test `Routine` enum (`check.Routine`) and dispatcher for `driver.zig:1115-1144` and `threaded.zig:610-630` (which swap syrk's `opt`).
-
-- [ ] **H55** Small fixes: the syrk and syr2k roots' false "Vtable wrappers" header and unused imports; the stale "(T30)" in `batch.zig:11`; `half.zig`'s `hv` wrapper; 3M's `Desc` uses `driver.Conj`; `triPack`/`triRun`'s nested `inline for` become an `inline else` switch; `small.gemm`'s near-copy branches; Skylake-X's and Cooper Lake's masked load and store once.
-
-- [ ] **H56** Comments: cut `driver.zig:1-27`, `gemm/kernel.zig:1-21`, `gemm/params.zig:1-22`, `half.zig:1-22`, the trmm and trsm kernel headers and the rest to 2 or 3 lines, layout notes to `gemm/notes.md`.
+- [ ] **H54** One test `Routine` enum (`check.Routine`) and dispatcher for `blas3/driver.zig`'s (504) and `_test/blas3/threaded.zig`'s (223), which swap syrk's `opt`. Set aside 2026-11-07: the two pass different options (syrk's order, trmm and trsm's `conj`, herk's real `alpha`), so one dispatcher changes which cases run.
 
 ### LAPACK
 
-- [ ] **H57** Shared infrastructure out of `cholesky.zig` into `ops.zig`: `ArgError`, `SquareError`, `default_dtb`, `table`, `dtbOf`, `Routine`, `threads`, `workers`, `checkSquare` (about 80 uses in 15 files).
-
-- [ ] **H58** Real-slice helpers into `ops.zig`: `normMax`, `scaleDown`, `swapCols` (bidiag_svd, tridiag_evd, qr_pivot), `normalized` (svd, evd), one `lascl` with an `upper` flag (lsq's copy), one driver scaling prologue (geev, gees, svd).
-
-- [ ] **H59** BLAS wrappers and auxiliaries into `ops.zig`: `norm.zig`'s `narrow` to `iamax` and `trsv`, balance's `swap`, schur's `rot`/`zrot`, one `Error`; `lartg`, `larfg`, `lapy2`, `lapy3` out of `schur.zig`, `laset` out of `norm.zig`.
-
-- [ ] **H60** `relapack.zig` (2787 lines), part 1: `trsyl`, `tgsyl` and their tests into `sylvester.zig`.
-
-- [ ] **H61** `relapack.zig`, part 2: `sytrf`, `hetrf`, their rook forms and tests into `indefinite.zig`.
-
-- [ ] **H62** `relapack.zig`, part 3: `gbtrf` (Reference-LAPACK's `xGBTF2`, not ReLAPACK) and its tests into `lu.zig`; the remaining tests to `lapack/_test/relapack.zig`.
-
-- [ ] **H63** `evd.zig`'s tests (537-1538) to `lapack/_test/evd.zig`; misplaced tests: trevc3's to `trevc.zig`, `ops.sqrt`'s to `ops.zig`, `rotg`'s to `householder.zig`.
-
-- [ ] **H64** One `lasy2` in `sylvester.zig` (rejoining `schur.zig:272-357`), with `trevc.laln2` beside it; `sequenceFactors` into `householder.zig`.
-
 - [ ] **H65** `hseqr`, `gees` and `Eigenvalues` move from `evd.zig` into the merged Schur file, ending the schur-evd import cycle. **Needs:** Z6.
 
-- [ ] **H66** One blocking-loop test helper for cholesky and lu (10 copies; triangular's `eachTri` already does it) and one NaN-column check.
-
-- [ ] **H67** Shared test generators: rank-r products (5 copies), the Hermitian `A + Aᴴ` (2), `expectNear` (2).
-
-- [ ] **H68** `norm.latrs` (270 lines, 7 deep): one rescaled-divide helper for its two copies, `ops.Mat` for `at`, `abs2` renamed `cabs2`; `norm.Op` becomes `types.Trans`.
-
-- [ ] **H69** Small fixes: `__root__.zig`'s misplaced `GehrdError` doc, `faer_*` aliases and re-export order; `schur.zig`'s `T` struct shadowing the element type; `bidiag_svd.zig`'s dead `eight` and overwritten `@min`/`@max`; stale `trevc.zig:1-12` and `ops.zig:1`; one trevc normalizer; test-name prefixes ("faer balance" is Reference-LAPACK) and qemutest's dead `linalg.lapack.faer.` filter.
-
-- [ ] **H70** Comments: cut the module headers (`lu.zig:1-38`, `svd.zig:1-33`, `evd.zig:1-29`, `cholesky.zig`, `triangular.zig`, `relapack.zig` and 20 more) to a provenance line and one more, rationale to design.md; `relapack.zig`'s `sytrf` (23 lines) and `tgsyl` (24) docs; `__root__.zig:45-181`'s repeated error-set docs.
+- [ ] **H126** Rest of H67: `qr.zig`'s `randomRank` (built by `gemm`: other bits) and the svd and evd special-matrix tests' inline rank-r products onto `rankProduct`.
 
 ### linalg public layer, matlab and fft
 
-- [ ] **H71** `dense.zig`: public functions first, plumbing (31-190) after, section banners; one fixed-size dispatcher for the 7 `inline 1...fixed_max` switches; `Path.inline_` to `.fixed`, `len` to `toIsize`; the views test to `matrix.zig`; `matrix.zig:185-312` in the same order.
-
-- [ ] **H72** matlab file merges (before M14): `divide.zig` and `rref` into `lu.zig`, `schur.zig` into `eig.zig`, `elementary.zig`, `rat.zig` and `base.zig` into `scalar.zig`; a new `operators.zig` for `matmul.zig`, `elementwise.zig`, `kron`, `sum` and `prod`.
-
-- [ ] **H73** matlab dedupe: `triu` for the handwritten triangle zeroing (cholesky, schur); one `binary` loop in `elementwise.zig`; one `Unary` for `matrixfun.zig`'s seven `*Ctx`; `__root__.zig`'s 17 `testRefAllDecls` as one `inline for`.
-
-- [ ] **H74** matlab names: `Cx` only (no `CxMat.Complex`), one `Allocator` spelling; `lu.norm1` and `norm.matNorm1` (different 1-norms) renamed and documented; `svdapi.zig` to `svd.zig`; `vector.mix` like its siblings.
-
-- [ ] **H75** `matlab/readme.md` names a gone `blas1` module and nonexistent `pythag` and `wmul`: fix them and the module table.
-
-- [ ] **H76** Comments: cut the 13 matlab headers and long docs to 1 or 2 lines; delete the "split to keep files under the line-count guideline" notes (`elementwise.zig`, `matrixfun.zig`, `CxMat.zig`); cut `dense.zig:504-511`, `vector.zig:10-15`, `fft/__root__.zig:1-9`.
-
 ### rgl
 
-- [ ] **H77** One synthetic test font (`appendTable` and `buildTestFont`, 3 copies of about 100 lines in `atlas.zig`, `layout.zig`, `GlyphCache.zig`) in `font/sfnt/render/_test/font.zig`.
+- [ ] **H78** One comptime field reader for sfnt tables replaces 256 hand accessors (`os2.zig`, `head.zig`, `hhea.zig`, `maxp.zig`, the cmap formats). Set aside 2026-11-07: needs a generic big-endian reader over every field type and about 256 call sites checked by a compile; rgui calls `head.unitsPerEm()`, so the accessors stay.
 
-- [ ] **H78** One comptime field reader for sfnt tables replaces 256 hand accessors (`os2.zig`, `head.zig`, `hhea.zig`, `maxp.zig`, the cmap formats).
+- [ ] **H81** Generic cmap formats: `GroupFormat` for fmt8, 12, 13 and `TrimmedFormat` for fmt0, 6, 10 (9 files to 5); one record binary search for kern, mvar, cmap, CFF and GPOS (6 copies). Set aside 2026-11-07: the formats differ in header layout, accessor names and search, and a shared search needs a context struct per call site, longer than the loops (CFF's FDSelect is an upper-bound search).
 
-- [ ] **H79** GPOS kerning on the typed views (`Lookup`, `PairPos`, `Coverage.index`, `ClassDef.classOf`) instead of raw offsets (`GposTable.zig:115-303`); fix the docs that call it deferred.
+- [ ] **H127** Rest of H83: rgui to `font.render`, `font.msdf` and `rasterize`'s glyph bitmaps; then drop `Sfnt`'s `glyphBitmap*` and `font.sfnt.render`/`msdf` aliases, ending the Sfnt-render import cycle.
 
-- [ ] **H80** One shared GPU-layout file (`Globals`, `ShapeKind`, the instance structs) for `shaders/` and `vulkan/`, ending the copies kept in sync by hand.
+- [ ] **H128** Rest of H86: `gen_icon.zig` (a build tool's `main`) to `tools/`; rstd's package `.paths` lacks `tools/`, and rgui builds it through the dependency.
 
-- [ ] **H81** Generic cmap formats: `GroupFormat` for fmt8, 12, 13 and `TrimmedFormat` for fmt0, 6, 10 (9 files to 5); one record binary search for kern, mvar, cmap, CFF and GPOS (7 copies).
+- [ ] **H129** Rest of H87: 2-D points on `linalg.vector` (`geometry.zig`'s `PointF32` math, the hand dot and length in sw and vulkan, glyf's `@reduce`); `vector.dot` and `length` may fuse and fall back to hypot, so the bits and `PointF32`'s API change.
 
-- [ ] **H82** One `tables/glyf.zig` from the 5-file `glyf/` folder, with an `appendVertex` helper and one coordinate decoder; `GlyfTable.data` becomes `table_data`.
+- [ ] **H130** Rest of H88: one CFF integer decoder for `Buf` and `Dict.zig`; they treat malformed input differently (`Buf` reads 0 past the end and panics on a bad byte, `Dict` the reverse), so pick one.
 
-- [ ] **H83** `font/sfnt/msdf/` and `render/` move up to `font/` (they work on outlines, not the format); `Sfnt.glyphBitmap*` to `render/rasterize.zig`, ending the Sfnt-render import cycle; msdf's `__root__.zig` (a type) becomes `Generator.zig`, `f64i` moves to `math.zig`, the duplicate `median` goes.
+- [ ] **H131** Rest of H89: atlas's duplicate placement type, the mirrored `MsdfOptions` and a split of the 190-line `buildTextAtlas`. **Needs:** N38.
 
-- [ ] **H84** One `font/sfnt/types.zig` from `stream_types.zig` and `aux_types.zig`, with one `FixedPoint(Int, bits)` for `ShortFrac` and `Fixed`; the test helpers use `F2Dot14.toBytes`.
+- [ ] **H132** Rest of H89: one rectangle type for `geometry.Rect` (`u32` sizes) and `pack.Rect` (`i32`).
 
-- [ ] **H85** msdf coloring's shared 0- and 1-corner branches extracted; HVAR and VVAR merged into `ivs.zig`, `cvar.zig` into `tuple_variation.zig`.
+- [ ] **H133** Rest of H91: the `rgl.zig` shader becomes `shapes.zig` (`build/__root__.zig`'s shader-probes loop takes one string for the file and the output name).
 
-- [ ] **H86** `render.zig`'s nine two-armed backend switches become `inline else` over same-named methods; `draw.zig` into the software backend (`sw/` becomes `sw.zig`), `downsample` an `Image` method; `gen_icon.zig` (a build tool's `main`) to `tools/`.
-
-- [ ] **H87** 2-D points on `linalg.vector` (`geometry.zig`'s hand `PointF32` math, the hand dot and length in sw and vulkan, glyf's `@reduce`); `median3` once.
-
-- [ ] **H88** Charstring interpreter: a switch on `Instruction`, the escape ops in their own function, one CFF integer decoder shared with `Dict.zig`, `CharstringCtx` private.
-
-- [ ] **H89** Rasterizer: `tessellate.zig` and `bounds.zig` into `rasterize.zig` (fix "tesselate"); `fillActiveEdges`'s clip branch as its own function; an options struct for `rasterize`'s 11 parameters; atlas's duplicate placement type, mirrored `MsdfOptions` and 190-line `buildTextAtlas`; `pack.zig` up to `rgl/` with one rectangle type.
-
-- [ ] **H90** Dead or broken code: `shaders/lib/sdf.zig` is 575 of 663 lines of commented-out GLSL (user's call: reference note or delete), and `sdRoundedBoxMultiCorner` cannot compile; `color.zig`'s `equals` (bit-casts 128 bits to 32), `CharstringCtx.deinit`, `Version16Dot16.format`, `textures.zig`; old commented imports and usage examples (user's call).
-
-- [ ] **H91** Names and conventions: the `rgl.zig` shader becomes `shapes.zig`; `step_scalar` in camelCase; `png.zig`'s `Bpp`, `ColorBits`, `crc32` wrapper and long `decode`; one of `destroy`/`deinit` and `create`/`init`, one Allocator spelling; `Sfnt.init`'s stderr prints behind an option.
-
-- [ ] **H92** Stale docs: `font/sfnt/readme.md` (nine gone files, an old API), `Sfnt.zig`'s "Higher-level API" block and its duplicate table docs.
-
-- [ ] **H93** Comments: the "Schema ... never instantiated" and "table_data borrows" lines repeated in about 25 table files said once in `tables/__root__.zig`; cut `vulkan/__root__.zig:1-23`, `gpu.zig:1-27`, `atlas.zig:324-336` and the other long blocks.
+- [ ] **H134** Rest of H91: one of `create`/`init` (`Generator.create`, `pack.Context.create`, called in `buildTextAtlas`). **Needs:** N38.
 
 ### Tests and rigs
 
-- [ ] **H94** `_test/blas1/denormal.zig` folds into `edge.zig` (about 150 duplicated lines), as blas2's does.
+- [ ] **H94** `_test/blas1/denormal.zig` folds into `edge.zig` (about 150 duplicated lines), as blas2's does. Set aside 2026-11-07: the fold would run edge's checks, sizes and gap checks on denormal operands, which changes the tests.
 
-- [ ] **H95** One Fortran harness for `blat2.zig` and `blat3.zig` (`Result`, `Sweep`, `dat`, letter parsing) in `from_openblas/__root__.zig`; `makeVecZeroMid` and `bump` for blat2's repeats.
-
-- [ ] **H96** One failure collector (`check.keep`) for `edge.zig`'s and `denormal.zig`'s `note` and `blas3/check.zig`'s `Bad`; one rig predicate (`ob.reduced` or `check.rig`); dedupe inside `blas3/check.zig`.
-
-- [ ] **H97** `from_openblas/__root__.zig`'s tests named for what they run ("the level-1 suites" runs level 2; "the level-3 suite" runs utest and the extensions); inline the `level1*` wrappers.
-
-- [ ] **H98** One `test/qemu/pc.zig` for the four copies of port I/O and COM1 (`x86.zig`, `x86_64.zig`, `uefi.zig`, `smp.zig`); share MIPS UHI and the Open Firmware client, name ppc32's constants.
-
-- [ ] **H99** Comments: cut the `_test/` and `test/` headers (`_test/blas1/edge.zig:1-21`, `_test/blas2/edge.zig:1-28`, `from_openblas/__root__.zig:1-25` and 25 more) to 2 or 3 lines.
+- [ ] **H96** One failure collector (`check.keep`) for `edge.zig`'s and `denormal.zig`'s `note` and `blas3/check.zig`'s `Bad`; one rig predicate (`ob.reduced` or `check.rig`); dedupe inside `blas3/check.zig`. Set aside 2026-11-07: `note` and `Bad` print and cap differently; `reduced()` and `rig()` differ on macOS and `.other`.
 
 ### Tools, build and the rest of `src/`
 
-- [ ] **H100** Generator: the 716 generated asm files drop their per-file `serves` and `kernel` (the registry answers once; about 15k lines) and get one-line headers and enum `keys`; `uk.zig` writes its "Generated by" marker on one line.
+- [ ] **H149** Rest of H103: one per-arch table for `gen.zig`, `uk.zig`, `survey.zig` and `params.zig`; one getarch reader (`params.zig` preprocesses `getarch.c`, `openblas.zig` reads its `FORCE_` blocks as text); `coreDefines` as data; `uk.emitAsm` in parts.
 
-- [ ] **H101** Generator: a flatter tree (`<routine>/<arch>/*.zig`, no `asm/` level, no folders with empty `entries`) and one gemv uk index (folds into Z6).
+- [ ] **H135** Rest of H106: a contestant and row helper, `Call.of`, an `EnumArray` for the library paths, `std.math.Complex` (may change the operation order); check with `bench-check`.
 
-- [ ] **H102** Generator: `params_data.zig` (2819 lines) without default fields, with shifted sizes and merged byte-order twins; one unwrapped `coverage.md` legend and one 3M file.
+- [ ] **H136** Rest of H107: `tools/rig/` and `tools/macos/macos_vm.zig`, with `tools/remote.zig` as a named module (a file in a subfolder cannot import it).
 
-- [ ] **H103** `tools/blas_asm` internals: one per-arch table (arch, uk, survey, params); `kernel_map.zig` becomes `openblas.zig` with one `initFromEnv`; `map.format` for every `zig fmt`; one getarch reader; `coreDefines` as data; one patch applier and `isName`; split `gen.convert` (250 lines) and `uk.emitAsm`; uk's globals into `Target`.
-
-- [ ] **H104** `build/qemutest.zig` (1683 lines): the rig table to `build/qemu/machines.zig`, the macOS VM to `build/qemu/macos.zig`, the bench steps with `sshtest.zig`'s bench half to `build/bench.zig` (ending the import cycle); its repeats (the initramfs pack 3 times, the kernel command line twice, `.semihosting = false` 21 times, `"macmini-m6"` twice).
-
-- [ ] **H105** One cached `hostTool(b, name)` in `build/tools.zig` for the 6 tool builders; one `tools/remote.zig` for the ssh options and spawn code in `ssh_test`, `test_host` and `macos_vm`.
-
-- [ ] **H106** `tools/blasbench/blas_bench.zig` (3624 lines) into `blas_bench`, `kernels`, `libs` and `ext`; one `checkGemm`, a contestant and row helper, `Call.of`, `fillRandom`, an `EnumArray` for the library paths, `std.math.Complex`.
-
-- [ ] **H107** `tools/` by purpose: `rig/`, `macos/`, `probe/`, `blasbench/results/`; `axpy_bench.zig` cannot build (user's call: delete it and `bench.zig`'s unused half).
-
-- [ ] **H108** `src/` names: `_os/` becomes `os/` (it is public), `machine.zig` becomes `bootinfo.zig` (RandyOS imports it too), `_test_wasm.zig` goes; `buildutils/`'s 16 files become 5, with an options struct for `addRstdModule`'s two bools and one docs-object helper.
-
-- [ ] **H109** UEFI `Io`: the 120-entry vtable built by `inline for`; `net`, `proc` and `progress` into `stubs.zig`; one console loop, read loop and fd helper; one `getTimeSeconds` (with `src/io.zig`); the stale comments in `state.zig`, `stderr.zig`, `fdtable.zig`, `time.zig`, `dir.zig`, `operate.zig`.
-
-- [ ] **H110** Dead code: `blaskern.needsLlvm`, `macos_vm.patientOptions`'s parameter, the unused `log` consts, `zigstd.zig`'s self-import, UEFI io's unused consts, `messages.zig`'s. User's call: `zigtime.zig`'s `@panic("OOM")`, the unused `bytes.zig`, `constants.zig` and `debug.assertMsg` exports, the commented-out code in `renderdoc.zig`, `spirv.zig`, `icon.zig`, `build.zig`, `build.zig.zon`, and `zigstd.zig`'s aliases (127 users).
-
-- [ ] **H111** Comments: cut the tool and build headers (`qemutest.zig:1-45`, `blas_bench.zig:1-40`, `gen.zig:1-31` and about 35 more; usage text into `-h` output or a readme) and `windows/console.zig:23-47`.
+- [ ] **H137** Rest of H108: an options struct for `addRstdModule`'s two bools.
 
 ## Done
 
 Cleared 2026-11-02; landed work is in `review`'s log.
+
+- [X] **N50** `configure_mac_host_intel.sh` disables the Spotlight UI agent too (4583eee7, 2026-11-07): with corespotlightd off, Sequoia's `com.apple.Spotlight` retried its IndexAgent endlessly (85% of a core, 40% more in launchd).
+
+- [X] **N43** Intel Mac host scripts (c98a815e, 2026-11-07): `configure_macos.sh` is now `configure_macos_vm.sh`, `configure_mac_host.sh` is `configure_mac_host_arm.sh`, and `configure_mac_host_intel.sh` set up `macmini-intel`.
+
+- [X] **N44** `tools/configure_mac_nix.sh` (df12e3a8, 2026-11-07): Nix and nix-darwin as on the M6; run on the Intel Mac, with nixos-cfg's `macmini-intel` flake on nixpkgs 26.05.
+
+- [X] **H1** One set of BLAS scalar helpers in `util.zig` (`raw`, `isZero`, `isOne`, `zero`, `one`, `first`; one meaning each for `at` and `off`), `apple_accel.zig`'s and `cholesky.zig`'s copies too (`housekeeping`, 2026-11-07).
+
+- [X] **H2** One set of comptime type checks in `util.zig` (`requireFloat`, `requireComplex`, `requireReal`; lapack's alias them); `linalg.vector`'s `isComplex` and `Real` alias `types.zig`'s. Rest: H113 (`housekeeping`, 2026-11-07).
+
+- [X] **H3** One element-arithmetic set in `lapack/ops.zig` for lapack, `matrix.zig`, `dense.zig` and matlab's generators; `triangular.zig`'s `recip` (`ztrti2_U.c`'s ratio) and matlab's `recip` (`scalar.wdiv`) differ and stay (`housekeeping`, 2026-11-07).
+
+- [X] **H4** One `ops.narrow(E, e)` for the error-narrowing copies in lapack, `dense.zig` and matlab (`housekeeping`, 2026-11-07).
+
+- [X] **H5** One stack-or-heap `Scratch` in `util.zig` for levels 2 and 3 (`housekeeping`, 2026-11-07).
+
+- [X] **H6** `threading.forEachPart` for the per-chunk scratch pattern (`housekeeping`, 2026-11-07).
+
+- [X] **H7** `util.scalarArgs` for the two-armed complex kernel calls; two test calls whose arguments are casts stay (`housekeeping`, 2026-11-07).
+
+- [X] **H9** One shared test module `_test/check.zig`, `guard.zig` merged in; lapack's tests install vtables by `check.use` and `check.restore` (`housekeeping`, 2026-11-07).
+
+- [X] **H10** lapack's test helpers and `thresh`, `cplx`, `ratio` in `lapack/_test/check.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H11** lapack's shared test fixtures in `lapack/_test/check.zig` (`CholProblem`, `LuProblem` and the rest) (`housekeeping`, 2026-11-07).
+
+- [X] **H12** Shared test helpers in `_test/check.zig`; blas3's `Wide` is `Ref`; `dense.zig` takes its `sameBits`. The per-element `sameBits` (`batch.zig`, `half.zig`: they read `f80` differently) and the kernel objects' `fillSeq` stay. Rest: H114 (and `rotSlot`, H119) (`housekeeping`, 2026-11-07).
+
+- [X] **H13** One `WorkerRuns` harness and `eachTestIo` in `_test/io.zig` for qr, lq, lsq, svd, evd and blas3's threaded tests (`housekeeping`, 2026-11-07).
+
+- [X] **H14** Named ulp bounds in `_test/check.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H15** Every import at the top of its file; the unused ones dropped (`housekeeping`, 2026-11-07).
+
+- [X] **H16** Semicolons for the comment dashes (minus signs, list bullets and `// ---` separators kept) (`housekeeping`, 2026-11-07).
+
+- [X] **H17** The listed Markdown unwrapped (`housekeeping`, 2026-11-07).
+
+- [X] **H18** One `cpu.Arch` table replaces the 12 `cpu/<arch>.zig` stubs; `select.zig`, `detect/`, `coretypes.zig` and `corespec.zig` lose their underscores (`_auxv.zig` is H27's `osinfo.zig`) (`housekeeping`, 2026-11-07).
+
+- [X] **H19** `registry.Arch` builds each `kernels/<arch>.zig`'s registry (`housekeeping`, 2026-11-07).
+
+- [X] **H20** `coretypes.Family`, `familyOf` and `coretypes.all` for the arch switches and hand lists; `select.archOf` maps the other way and stays (`housekeeping`, 2026-11-07).
+
+- [X] **H21** One `detect` and `canRun` in `select.zig` over each detector's probe; mips's own is `runsHere` (`housekeeping`, 2026-11-07).
+
+- [X] **H22** vector.zig's slot placement (`Rule`, `takes`, `Registry` as `Vector`) is in the registry file; `routed` and `peels` stay, as the coverage pages cite them. Rest: H147 (`housekeeping`, 2026-11-07).
+
+- [X] **H23** `asm_registry.zig` is `registry.zig`, with vector's placement, `Union` for the asum, gemv and symv merges (axpy's power and mips64 ones are not plain unions: the ports win slot by slot), and `uk_block.zig` beside it in `blas/` (`housekeeping`, 2026-11-07).
+
+- [X] **H24** `FpState` in `FpState.zig`; its users import it (`housekeeping`, 2026-11-07).
+
+- [X] **H25** `apple_accel.zig`'s tests in `_test/apple_accel.zig` (hosted only: the "routed calls split" test, which only skipped there, no longer builds on the SMP rigs), its quirk list in design.md's Accelerate section, `portable.letter`; `span` and `mat` compute extents, not `util.fits`'s overflow check, and stay (`housekeeping`, 2026-11-07).
+
+- [X] **H26** Threading's test infrastructure in `_test/io.zig` (`Evented` stays: `usesFutures` needs it); its users import it (`housekeeping`, 2026-11-07).
+
+- [X] **H27** `_auxv.zig` is `cpu/osinfo.zig`, with arm64's registry and sysfs reads (`housekeeping`, 2026-11-07).
+
+- [X] **H28** Core names as enums in threading's per-core thresholds and in the generated uk and skip lists. Rest: H148 (`housekeeping`, 2026-11-07).
+
+- [X] **H29** `coretypes.staticOnly` lists and one `select.testing` for the test doubles; x86's 32-bit-only prongs are not that list (`housekeeping`, 2026-11-07).
+
+- [X] **H30** Half widens through `bf16.widen`; one `vector.splatTo` for the 4 copies (`housekeeping`, 2026-11-07).
+
+- [X] **H31** Dead code dropped: `cpu.unsupported`, x86's `Tier`, `vendor` and `displayFamily`, `auxv.has`, the bf16 aliases. User's call: H138 (`housekeeping`, 2026-11-07).
+
+- [X] **H32** The stale BLAS core comments fixed (`housekeeping`, 2026-11-07).
+
+- [X] **H33** The BLAS core's long comment blocks cut; Vtable's mirrored C `#define` blocks kept, as derived source (`housekeeping`, 2026-11-07).
+
+- [X] **H34** One `blas1/extremum.zig` table for the 8 extremum routines, and one coverage page, `blas1/extremum_coverage.md` (`housekeeping`, 2026-11-07).
+
+- [X] **H35** `blas1/interface.zig`'s threading tests, `rotg` and `rotmg`, and the special-value tests moved out (`housekeeping`, 2026-11-07).
+
+- [X] **H36** gemv's x87 extended sums and their tests in `gemv/extended.zig`. Rest: H120 (`housekeeping`, 2026-11-07).
+
+- [X] **H37** The rank updates in `blas2/rank.zig`; banded's `Kind` is symmetric's (`housekeeping`, 2026-11-07).
+
+- [X] **H39** `symmetric.zig` takes its types from `types.zig`; `copy_cases` in `_test/blas2/` (`housekeeping`, 2026-11-07).
+
+- [X] **H41** The axpy arch headers are one line each. Rest: H121 (`housekeeping`, 2026-11-07).
+
+- [X] **H42** `util.x86Has` for the gemv and rot drivers' x86 checks. Rest: H122, H123 (`housekeeping`, 2026-11-07).
+
+- [X] **H43** gemv's flag table and `cform` use `Trans`'s methods; `Extreme.op` and `indexOp` name the slots. Rest: H124 (`housekeeping`, 2026-11-07).
+
+- [X] **H44** The routine-level `kernel.zig` drivers are `driver.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H45** axpy's test names as its siblings', scal's flag named as the portable kernels'. Rest: H125 (`housekeeping`, 2026-11-07).
+
+- [X] **H46** The level-1 and level-2 module docs and long function comments cut (`housekeeping`, 2026-11-07).
+
+- [X] **H47** One gemm and one gemmt argument check, public in `blas3/interface.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H48** `Blocking.fromSlots` and named `default_p`, `default_q`, `default_r` (`housekeeping`, 2026-11-07).
+
+- [X] **H50** The trmm and trsm drivers and their threaded split in `blas3/triangular.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H51** `blas3/driver3m.zig`; the kernel registry in `blas3/kernels.zig`; `gemm/small_x86_64.zig`; hemm3m's tests in `symm3m/`, syr2k's in `syrk/`, hemm's, hemm3m's and syr2k's folders gone; gemmt's tests in `_test/blas3/`; `blas3/__root__.zig`'s order and doc (`housekeeping`, 2026-11-07).
+
+- [X] **H52** `blas3/threaded.zig`'s tests in `_test/blas3/threaded.zig`. User's call: H139 (`housekeeping`, 2026-11-07).
+
+- [X] **H55** Level-3 small fixes: headers and imports, `batch.zig`'s stale T30, `hv`, 3M's `Desc` takes `Conj`, `inline else` tri dispatch, `small.gemm`, one masked load and store (`housekeeping`, 2026-11-07).
+
+- [X] **H56** Level-3 headers cut to 3 lines, rationale in `gemm/notes.md` (`housekeeping`, 2026-11-07).
+
+- [X] **H57** `cholesky.zig`'s shared argument, vtable and thread helpers in `ops.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H58** Real-slice helpers, one `lascl` and one driver scaling prologue in `ops.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H59** BLAS wrappers, `lartg`, `larfg`, `lapy2`, `lapy3` and `laset` in `ops.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H60** `trsyl`, `tgsyl` and their tests in `sylvester.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H61** `sytrf`, `hetrf`, their rook forms and tests in `indefinite.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H62** `gbtrf` and its tests in `lu.zig`; relapack's other tests in `lapack/_test/relapack.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H63** evd's tests in `lapack/_test/evd.zig`; trevc3's, `sqrt`'s and `rotg`'s beside their code (`housekeeping`, 2026-11-07).
+
+- [X] **H64** One `lasy2` in `sylvester.zig` (as `dlasy2.f`) with `laln2` beside it; `sequenceFactors` in `householder.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H66** One `eachBlocking` test helper for cholesky and lu, one NaN-column check; cholesky's loops now run type, vtable, triangle, with the same cases (`housekeeping`, 2026-11-07).
+
+- [X] **H67** Shared test generators `rankProduct`, `hermitian` and `expectNear`. Rest: H126 (`housekeeping`, 2026-11-07).
+
+- [X] **H68** latrs's rescaled divide once, `ops.Mat` for `at`, `cabs2`; `norm.Op` is `types.Trans` (`housekeeping`, 2026-11-07).
+
+- [X] **H69** lapack small fixes: root order and aliases, stale docs, dead code, test names; the sparc64 `lapack-faer` filter lists the 12 former `faer_*` modules (it ran none before). User's call: H140 (`housekeeping`, 2026-11-07).
+
+- [X] **H70** lapack's module headers and long docs cut, rationale in design.md (`housekeeping`, 2026-11-07).
+
+- [X] **H71** `dense.zig` public first, one fixed-size dispatcher; `matrix.zig` too (`housekeeping`, 2026-11-07).
+
+- [X] **H72** matlab's file merges: `lu.zig`, `eig.zig`, `scalar.zig`, a new `operators.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H73** matlab dedupe: `triu`, one binary loop, `Unary`, one `inline for`. `chol`, `schur` and `hess` of an empty matrix and `hess` and `schur` of a 1x1 return the empty or trivial factors (`chol([])` panicked in `potrf`'s `lda` check before), with tests (`housekeeping`, 2026-11-07).
+
+- [X] **H74** matlab names: `Cx` only, one `Allocator`, `lu.lange1`, `svd.zig`, `vector.mix`'s docs. User's call: H141, H142 (`housekeeping`, 2026-11-07).
+
+- [X] **H75** `matlab/readme.md`'s module table matches the files (`housekeeping`, 2026-11-07).
+
+- [X] **H76** matlab's headers and long docs cut, with `dense.zig`'s, `vector.zig`'s and `fft`'s; HESS and SCHUR cite `MATFN2`, NORM `MATFN3` (`housekeeping`, 2026-11-07).
+
+- [X] **H77** One synthetic test font in `render/_test/font.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H79** GPOS kerning on the `Lookup`, `PairPos`, `Coverage` and `ClassDef` views; format-1 ClassDef's `u16` offset kept as it was (N39) (`housekeeping`, 2026-11-07).
+
+- [X] **H80** `shaders/layout.zig`: `Globals(V)`, `ShapeKind` and the instance structs, for the shaders and `gpu.zig` (sizes differ: N42) (`housekeeping`, 2026-11-07).
+
+- [X] **H82** One `tables/glyf.zig`: `appendVertex`, one coordinate decoder, `table_data` (`housekeeping`, 2026-11-07).
+
+- [X] **H83** msdf and render up to `font/`; `Generator.zig`; `glyphBitmap*` in `rasterize.zig`. Rest: H127 (`housekeeping`, 2026-11-07).
+
+- [X] **H84** One `font/sfnt/types.zig`; `FixedPoint` for `ShortFrac` and `Fixed` (`housekeeping`, 2026-11-07).
+
+- [X] **H85** msdf coloring's 0- and 1-corner cases shared; HVAR and VVAR in `ivs.zig`, cvar in `tuple_variation.zig` (`housekeeping`, 2026-11-07).
+
+- [X] **H86** render's backends by `inline else`; `draw.zig` into `sw.zig`; `Image.downsample`. Rest: H128 (`housekeeping`, 2026-11-07).
+
+- [X] **H87** One `median3`, shaderlib's, for msdf too. Rest: H129 (`housekeeping`, 2026-11-07).
+
+- [X] **H88** The charstring interpreter switches on `Instruction`, with the escape ops apart; `CharstringCtx` private. Rest: H130 (`housekeeping`, 2026-11-07).
+
+- [X] **H89** `tessellate` and `bounds` in `rasterize.zig`; an options struct; `pack.zig` up to `rgl/`. Rest: H131, H132 (`housekeeping`, 2026-11-07).
+
+- [X] **H90** rgl's dead code dropped: `textures.zig`, `sdRoundedBoxMultiCorner`, `CharstringCtx.deinit`, `Version16Dot16.format`. User's call: H143; `color.equals`: N41 (`housekeeping`, 2026-11-07).
+
+- [X] **H91** `deinit` everywhere, one `Allocator`, `stepScalar`, png's names and split `decode`, `Sfnt.init`'s prints behind `InitOptions.debug`. Rest: H133, H134; user's call: H144 (`housekeeping`, 2026-11-07).
+
+- [X] **H92** The sfnt readme's files and API current; `Sfnt.zig`'s docs trimmed (`housekeeping`, 2026-11-07).
+
+- [X] **H93** rgl's table-view note said once in `tables/__root__.zig`; long comment blocks cut (`housekeeping`, 2026-11-07).
+
+- [X] **H95** Shared `Result`, `bump` and letter parsing for blat2 and blat3; `makeVecZeroMid`. Their `Sweep` and `dat` differ, and stay (`housekeeping`, 2026-11-07).
+
+- [X] **H97** `from_openblas`'s tests named for the suites they run; the level-1 wrappers inlined (`housekeeping`, 2026-11-07).
+
+- [X] **H98** `test/qemu/pc.zig`, `uhi.zig` and `ofw.zig`; ppc32's PAPR constants named (`housekeeping`, 2026-11-07).
+
+- [X] **H99** The `_test/` and `test/` headers cut to 2 or 3 lines, rationale in design.md (`housekeeping`, 2026-11-07).
+
+- [X] **H100** The generated asm files hold only `keys` (core by enum literal, variant, a merged file's parts) and `Body`, with one-line headers; `registry.Entry` answers `serves` and `kernel`; uk.zig's headers on one line too (`housekeeping`, 2026-11-07).
+
+- [X] **H101** Generated kernels in `<routine>/<arch>/` with no `asm/` level, indexed by `<arch>/__root__.zig`; gemv's two uk indexes are one. The indexes whose `entries` are empty stay: their `skipped` lists feed `registry.skips` (`housekeeping`, 2026-11-07).
+
+- [X] **H102** `params_data.zig` without default fields (read from `params.zig`), sizes as shifts, POWER's other byte order as its differences (`ppc970`'s); one unwrapped legend, `blas/coverage.md`; one 3M page (`housekeeping`, 2026-11-07).
+
+- [X] **H103** blas_asm: `openblas.zig` (was `kernel_map.zig`) with `initFromEnv`, one `isName`, `map.format`; one `Patch.apply`; uk's per-target state on `Target`; `gen.convert` in parts. Rest: H149 (`housekeeping`, 2026-11-07).
+
+- [X] **H104** The rigs in `build/qemu/` (`machines.zig`, `macos.zig`, the steps in `__root__.zig`) and the benches in `build/bench.zig`, ending the import cycle; one initramfs packer, `Boot.Linux.commandLine`, `Machine.semihosting()`, `tools.mac_alias` (`housekeeping`, 2026-11-07).
+
+- [X] **H105** `tools.hostTool` for the six tool builders; `tools/remote.zig` for the ssh and spawn code (`housekeeping`, 2026-11-07).
+
+- [X] **H106** `blas_bench.zig` split into it, `kernels`, `libs` and `ext`; one `checkGemm`, `fillRandom`. Rest: H135 (`housekeeping`, 2026-11-07).
+
+- [X] **H107** `tools/probe/`, `tools/macos/`, `tools/blasbench/results/`. Rest: H136; user's call: H145 (`housekeeping`, 2026-11-07).
+
+- [X] **H108** `buildutils/` in 6 files, one docs-object helper; `_test_wasm.zig` gone; `machine.zig` is `bootinfo.zig` (RandyOS's edits staged on its `main`). `_os/` keeps its name: platform code behind the public wrappers (user). Rest: H137 (`housekeeping`, 2026-11-07).
+
+- [X] **H109** The UEFI `Io` vtable built by a loop over its parts; `stubs.zig`; one console and read loop; one `getTimeSeconds`; the stale comments (`housekeeping`, 2026-11-07).
+
+- [X] **H110** Dead code dropped: `needsLlvm`, `patientOptions`' parameter, the unused consts. User's call: H146 (`housekeeping`, 2026-11-07).
+
+- [X] **H111** The tool and build headers cut, usage in the readmes (`housekeeping`, 2026-11-07).
+
+- [X] **H112** The bridge: `portable.Prec`, `slotName`, `slotPtr`, `slotTag`, `gemvOp`; the symv, hemv, ger and gemv installs and tests, level 1's simple edge and denormal sites, ext's matcopy, neg and laswp (one `matcopy.Copy`) and symmetric's copy kernel by op. Rest: H115 to H119 (`housekeeping`, 2026-11-07).
 
 - [X] **N36** msdf `Shape.orientContours` orients contours (2026-11-07): it skips a contour once it has an orientation, as msdfgen's `!orientations[i]` (pin `1c106ed`), and its `y1` searches stop at the first height off `y0`. Tests: a counterclockwise outline and a hole wound like its outline are reversed; a contour closing on a horizontal edge at `y0` is scanned below it.
 
@@ -494,4 +578,20 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 ## Waiting on the user
 
-- None.
+- [ ] **H138** From H31, keep or delete: `Config.zig`'s unread `thread_timeout`, `goto_debug`, `main_free` and `omp_*` fields; `corespec.undecided`; the commented-out lines at `blas/__root__.zig:24` and `cpu/__root__.zig:18` (which names the gone `_auxv.zig`).
+
+- [ ] **H139** From H52: move the `l3thread bench` (now in `_test/blas3/threaded.zig`) to `tools/blasbench`?
+
+- [ ] **H140** From H69: one trevc normalizer? `normalizeColumn` returns early on a zero column, while `normalize` would scale it by infinity, so merging them changes behavior.
+
+- [ ] **H141** From H74: rename `norm.matNorm1` (left only re-documented, as `matNormInf` mirrors its name)?
+
+- [ ] **H142** From H74: make `vector.mix` `inline` like its siblings? It would raise msdf's comptime branch use (T157).
+
+- [ ] **H143** From H90, keep as a reference note or delete: `shaders/lib/sdf.zig`'s commented-out GLSL, the old commented usage examples in `font/__root__.zig` and `font/sfnt/__root__.zig`, and the commented GLSL to-do list in `shaders/lib/math.zig`.
+
+- [ ] **H144** From H91: should `Sfnt`'s new `InitOptions.debug` default to off? It defaults to on, so `Sfnt.init` prints to stderr as before.
+
+- [ ] **H145** From H107: delete `tools/blasbench/axpy_bench.zig` (it cannot build) and `bench.zig`'s unused half?
+
+- [ ] **H146** From H110, keep or change: `zigtime.zig`'s `@panic("OOM")`, the unused `bytes.zig`, `constants.zig` and `debug.assertMsg` exports, the commented-out code in `renderdoc.zig`, `spirv.zig`, `icon.zig`, `build.zig` and `build.zig.zon`, and `zigstd.zig`'s aliases (127 users).
