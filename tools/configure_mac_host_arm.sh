@@ -45,12 +45,23 @@ echo "== auto-login"
 user=$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)
 if [ -n "$user" ] && [ -f /etc/kcpassword ]; then note "on, as $user"
 else note "off: turn it on in Users & Groups (FileVault: $(fdesetup status 2>/dev/null))"; fi
+# Auto-login covers boot only: a wake asks for the password unless the
+# screen lock is off. `sysadminctl` prompts for the password.
+echo "== screen lock"
+lock=$(sysadminctl -screenLock status 2>&1 | sed 's/^.*\] //')
+if [ "$lock" = "screenLock is off" ]; then note "off"
+elif [ -n "$check_only" ]; then note "on ($lock): a wake asks for the password"
+elif sysadminctl -screenLock off -password -; then note "turned off"
+else note "(failed: Lock Screen > Require password after screen saver begins or display is turned off > Never)"; fi
 
-# 2. Never asleep, back after a power cut, reachable on the network. A
-# sleeping Mac drops off ssh mid-run.
-step "no sleep, wake on network, restart after power loss" \
-    sudo pmset -a sleep 0 disksleep 0 standby 0 womp 1 autorestart 1 tcpkeepalive 1
-note "$(pmset -g | grep -E '^ (sleep|disksleep|standby|womp|autorestart) ' | tr -s ' ' | tr '\n' ';')"
+# 2. Idle power: display and any hard disk off after 10 minutes (the SSD
+# ignores disksleep), sleep after 60. An incoming ssh connection wakes it
+# through a Bonjour sleep proxy (a HomePod or Apple TV) or a magic packet; no
+# standby, so the network stays able to. rstd's ssh tools hold `caffeinate
+# -i` for their runs. Back after a power cut.
+step "sleep after 60 minutes, wake on network, restart after power loss" \
+    sudo pmset -a sleep 60 displaysleep 10 disksleep 10 standby 0 womp 1 autorestart 1 tcpkeepalive 1
+note "$(pmset -g | grep -E '^ (sleep|displaysleep|disksleep|standby|womp|autorestart) ' | tr -s ' ' | tr '\n' ';')"
 
 # 3. Spotlight file indexing off.
 step "spotlight indexing off" sudo mdutil -a -i off
