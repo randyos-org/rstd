@@ -75,7 +75,8 @@ fn run(init: std.process.Init) !u8 {
         if (std.mem.findScalar(u8, arg, '\'') != null) return error.QuoteInArgument;
         try extra.print(arena, " '{s}'", .{arg});
     }
-    const command = try arena.print("chmod +x {0s} && {3s}RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote, extra.items, copies.items, env.items });
+    // a Mac sleeps through an ssh session without a tty: `caffeinate -i` there
+    const command = try arena.print("chmod +x {0s} && {3s}RSTD_TEST_PROGRESS=1 $([ \"$(uname)\" = Darwin ] && echo caffeinate -i) {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote, extra.items, copies.items, env.items });
     var ssh: std.ArrayList([]const u8) = .empty;
     try ssh.append(arena, "ssh");
     try ssh.appendSlice(arena, &options);
