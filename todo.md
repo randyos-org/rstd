@@ -14,6 +14,8 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 ## Queue
 
+- [ ] **N52** The Mac ssh tools keep the Mac awake for their runs: `tools/ssh_test.zig`'s remote command and `tools/test_host.zig`'s `nix shell … run.sh` run under `caffeinate -i`, since idle sleep ignores ssh sessions without a tty (`flyoff.sh` already does). `ConnectTimeout=30` covers a wake.
+
 - [ ] **N45** `ssh-test-x86_64-macos` runs on the Intel Mac (`macmini-intel`), not under Rosetta on the M6: an option for the Intel Mac's alias beside `-Dssh-mac` (default `macmini-m6`, help text "Apple silicon"), the x86_64 step pointed at it; Rosetta stays reachable for comparison. Then T141 can rerun there. **Needs:** N43, N44.
 
 - [ ] **N46** The qemu rigs on the Intel Mac (`-Dtest-host=macmini-intel`): `tools/nix/flake.nix` follows nixpkgs-unstable, which dropped x86_64-darwin (26.11 release notes), so give x86_64-darwin a `nixpkgs-26.05-darwin` input (supported to the end of 2026) and check `tools/test_host.zig`/`run.sh` there (`hvf` for x86_64 guests). **Needs:** N44.
@@ -345,6 +347,8 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 ## Done
 
 Cleared 2026-11-02; landed work is in `review`'s log.
+
+- [X] **N51** Mac hosts save power while staying reachable (eba7ac35, 2026-11-08): both host scripts sleep the display and disks after 10 minutes and the Mac after 60 (Intel also `hibernatemode 0`) with the screen lock off (auto-login covers boot only); an incoming ssh packet dark-wakes either Mac in about a second. Rerun the scripts on the Macs once N52 lands.
 
 - [X] **N50** `configure_mac_host_intel.sh` disables the Spotlight UI agent too (4583eee7, 2026-11-07): with corespotlightd off, Sequoia's `com.apple.Spotlight` retried its IndexAgent endlessly (85% of a core, 40% more in launchd).
 
