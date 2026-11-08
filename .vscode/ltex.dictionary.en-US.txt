@@ -388,6 +388,7 @@ DLASR
 dlassq
 dlasv
 dlaswp
+dlasy
 dlauum
 dlopen
 dlqt
@@ -1429,6 +1430,7 @@ nfsservctl
 ngettext
 ngroups
 NIDENT
+nixos
 nixpkgs
 NLIMITS
 nlist
