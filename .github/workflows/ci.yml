@@ -1,8 +1,9 @@
 name: CI
 
-# Modeled on zfls's ci.yml. Every pull request and every push to main is
-# checked with Zig 0.17.0: the unit tests build, the build for zfls's targets
-# (rstd-check-zig017) and zig fmt. Pushes to dev are not run: what reaches dev
+# Modeled on zfls's ci.yml. Every pull request and every push to main runs the
+# unit tests on every platform that can run them here (the "test" job), with
+# Zig 0.17.0 and the fork, and checks the build for zfls's targets
+# (rstd-check-zig017) and zig fmt with 0.17.0. Pushes to dev are not run: what reaches dev
 # is checked by its pull request, and dev as a whole by the pull request that
 # releases it (to main); start the workflow by hand on dev to check it in
 # between. A pull request that only changes the files listed in no-ci.txt
@@ -200,8 +201,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: unit tests build
-            run: zig build rstd-test-build -Dtest-host-off
           - name: zfls's targets
             run: zig build rstd-check-zig017 -Dtest-host-off
           - name: zig fmt
@@ -231,9 +230,83 @@ jobs:
       - name: ${{ matrix.name }}
         run: ${{ matrix.run }}
 
+  # The unit tests on every platform support.md lists with a way to run them
+  # here, with Zig 0.17.0 (zfls's) and the fork the user develops with
+  # (randyos-org/zig-toolchain's build of zig-build). Natively where a hosted
+  # runner has the OS and ISA; 32-bit x86 natively on x86_64; other Linux ISAs
+  # under qemu-user (`-fqemu`, as Zig's own CI ran them); wasm under Node. The
+  # freestanding RandyOS targets need the QEMU rigs (build/qemu), not yet here.
+  # Tier 3 and 4 failures are reported but do not fail CI (support.md).
+  test:
+    name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
+    needs: version
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ${{ matrix.platform.runner }}
+    continue-on-error: ${{ matrix.platform.tier >= 3 }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ['0.17.0', fork]
+        platform:
+          - { name: x86_64-windows, tier: 1, runner: windows-2025 }
+          - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
+          - { name: aarch64-windows, tier: 2, runner: windows-11-arm }
+          - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
+          - { name: x86_64-linux-musl, tier: 2, runner: ubuntu-24.04, args: -Dtarget=x86_64-linux-musl }
+          - { name: x86-linux-musl, tier: 4, runner: ubuntu-24.04, args: -Dtarget=x86-linux-musl }
+          - { name: aarch64-linux-gnu, tier: 2, runner: ubuntu-24.04-arm }
+          - { name: aarch64-linux-musl, tier: 2, runner: ubuntu-24.04-arm, args: -Dtarget=aarch64-linux-musl }
+          - { name: aarch64-macos, tier: 2, runner: macos-15 }
+          - { name: x86_64-macos, tier: 2, runner: macos-15-intel }
+          - { name: arm-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=arm-linux-musleabihf -fqemu, qemu: true }
+          - { name: riscv64-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=riscv64-linux-musl -fqemu, qemu: true }
+          - { name: powerpc64le-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=powerpc64le-linux-musl -fqemu, qemu: true }
+          - { name: powerpc64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=powerpc64-linux-musl -fqemu, qemu: true }
+          - { name: loongarch64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=loongarch64-linux-musl -fqemu, qemu: true }
+          - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
+          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true }
+          - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
+          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          submodules: recursive
+
+      - if: ${{ matrix.zig != 'fork' }}
+        uses: randyos-org/setup-zig@node24  # v2.2.1 on Node.js 24, until upstream releases it
+        with:
+          version: ${{ matrix.zig }}
+
+      - if: ${{ matrix.zig == 'fork' }}
+        uses: randyos-org/zig-toolchain/setup@main
+
+      - name: qemu-user
+        if: ${{ matrix.platform.qemu }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user
+
+      - name: Fetch dependencies
+        run: |
+          for wait in 15 30 60 120; do
+            zig build --fetch=all && exit 0
+            echo "::warning::fetching dependencies failed; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          zig build --fetch=all
+
+      - name: Test
+        env:
+          STEP: ${{ matrix.platform.step || 'rstd-test' }}
+          ARGS: ${{ matrix.platform.args }}
+        # ARGS splits into words on purpose
+        run: zig build "$STEP" $ARGS -Dtest-host-off --summary line
+
   ci-result:
     name: CI
-    needs: [version, version-check, check]
+    needs: [version, version-check, check, test]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -250,8 +323,10 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check]
-    if: ${{ !cancelled() && needs.version.outputs.release == 'true' && needs.check.result == 'success' }}
+    needs: [version, check, test]
+    if: >-
+      ${{ !cancelled() && needs.version.outputs.release == 'true'
+      && needs.check.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
