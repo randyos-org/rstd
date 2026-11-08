@@ -80,11 +80,13 @@ note "$(mdutil -s / 2>/dev/null | tail -1 | tr -d '\t')"
 # matches the Apple silicon host's, and a label this release lacks is a
 # harmless override. Re-enable one with `launchctl enable gui/$UID/<label>`
 # and a reboot. The gui domain exists only while the account is logged in at
-# the console (auto-login, step 3).
+# the console (auto-login, step 3). On Sequoia the Spotlight UI agent
+# (`com.apple.Spotlight`, Cmd-Space) retries corespotlightd's IndexAgent
+# endlessly once that is off (a core in it, half one in launchd), so it goes too.
 agents="com.apple.mediaanalysisd com.apple.photoanalysisd com.apple.textunderstandingd
     com.apple.spotlightknowledged com.apple.spotlightknowledged.importer
     com.apple.spotlightknowledged.updater com.apple.corespotlightd
-    com.apple.intelligenceplatformd com.apple.campo"
+    com.apple.intelligenceplatformd com.apple.campo com.apple.Spotlight"
 if launchctl print gui/$uid > /dev/null 2>&1; then
     for label in $agents; do
         step "off: $label" sh -c "launchctl bootout gui/$uid/$label 2>/dev/null; launchctl disable gui/$uid/$label"
