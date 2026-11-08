@@ -1,15 +1,14 @@
 //! Tests of the `syr2k` and `her2k` kernels.
 
-const check = @import("../../_test/blas3/check.zig");
+const check3 = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
+const check = @import("../../_test/check.zig");
+const portable = @import("../../portable.zig");
 
 fn cases(vt: *const Vtable) !void {
-    try check.routineAll(vt, .syr2k);
-    try check.routineAll(vt, .her2k);
+    try check3.routineAll(vt, .syr2k);
+    try check3.routineAll(vt, .her2k);
 }
-
-const blas1check = @import("../../_test/blas1/check.zig");
-const portable = @import("../../portable.zig");
 
 test "portable syr2k and her2k match the wide reference through the driver" {
     var vt: Vtable = .{};
@@ -18,5 +17,5 @@ test "portable syr2k and her2k match the wide reference through the driver" {
 }
 
 test "every linked core's syr2k and her2k match the wide reference, where this machine runs them" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }

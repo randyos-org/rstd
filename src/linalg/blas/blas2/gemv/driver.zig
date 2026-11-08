@@ -1,21 +1,15 @@
-//! The drivers of `kernel/x86_64/{s,d,c,z}gemv_n_4.c` and `{s,d,c,z}gemv_t_4.c`,
-//! around the blocks a core's `uk/index_n.zig` and `uk/index_t.zig` name.
-//! Each block function is the microkernel's where it has one, else the
-//! driver's own assembly (`uk/<p>gemv_<n|t>_4.zig`), else the driver's C, as
-//! the C's `HAVE_KERNEL_*` tests pick. Nothing here depends on the BLAS root,
-//! so the per-core objects (`_kernel.zig`) can use it.
-//!
-//! The C statements contract as the core's flags say (`fma.madd`): in
-//! `t += a0*x0 + a1*x1` the sum fuses its first product and adds to `t`
-//! unfused; `y += a*x` fuses. Called with `m` and `n` at least 1, as the
-//! interface does; the reference's quick return stays.
+//! The drivers of `kernel/x86_64/{s,d,c,z}gemv_n_4.c` and `gemv_t_4.c` around
+//! the blocks `uk/index_n.zig` and `uk/index_t.zig` name (microkernel, the
+//! driver's assembly, else its C, as `HAVE_KERNEL_*` picks). The C contracts
+//! by the core's flags (`fma.madd`); callers pass `m`, `n` of at least 1. No
+//! BLAS-root imports (`_kernel.zig`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
-const uk = @import("../../blas1/uk_block.zig");
+const uk = @import("../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -174,7 +168,7 @@ pub fn Fallback(comptime F: type, comptime fuse: bool) type {
 
 /// Whether the core being built has SSE3, which the `t` drivers' own
 /// assembly needs.
-const has_sse3 = sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .sse3);
+const has_sse3 = util.x86Has(.sse3);
 
 /// `gemv_n_4.c`'s `CNAME` of `slot` on `core`, around blocks `M` (the
 /// microkernel's) and `O` (the driver's own), and for `sgemv` on Skylake-X
@@ -533,12 +527,8 @@ const Cform = struct { trans: bool, conj: bool, xconj: bool };
 
 fn cform(comptime slot: Slot) Cform {
     const name = @tagName(slot);
-    const v = name[name.len - 1];
-    return .{
-        .trans = std.mem.findScalar(u8, "tcud", v) != null,
-        .conj = std.mem.findScalar(u8, "rcsd", v) != null,
-        .xconj = std.mem.findScalar(u8, "ousd", v) != null,
-    };
+    const t = comptime std.meta.stringToEnum(types.Trans, name[name.len - 1 ..]).?;
+    return .{ .trans = t.transposed(), .conj = t.conjA(), .xconj = t.conjX() };
 }
 
 /// The float type of complex `slot`.

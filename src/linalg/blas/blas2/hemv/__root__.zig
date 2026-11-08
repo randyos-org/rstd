@@ -3,18 +3,18 @@
 //! core's kernels against plain arithmetic.
 
 const types = @import("../../types.zig");
+const std = @import("std");
+const Vtable = @import("../../Vtable.zig");
+const sym = @import("../symmetric.zig");
+const portable = @import("../../portable.zig");
 
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
 
-const std = @import("std");
-const Vtable = @import("../../Vtable.zig");
-const sym = @import("../symmetric.zig");
-
-/// The variants by suffix: lower triangle, and the transposed (`HEMVREV`)
+/// The variants by op: lower triangle, and the transposed (`HEMVREV`)
 /// matrix.
-const variants = .{ .{ "U", false, sym.Kind.hermitian }, .{ "L", true, sym.Kind.hermitian }, .{ "V", false, sym.Kind.hermitian_rev }, .{ "M", true, sym.Kind.hermitian_rev } };
+const variants = .{ .{ .hemv_U, false, sym.Kind.hermitian }, .{ .hemv_L, true, sym.Kind.hermitian }, .{ .hemv_V, false, sym.Kind.hermitian_rev }, .{ .hemv_M, true, sym.Kind.hermitian_rev } };
 
 /// The portable kernels over `T`, any float's `Complex`, by the slot they
 /// would fill (`portable.kernel`): the direct loops, which need no buffer.
@@ -30,13 +30,11 @@ pub fn Portable(comptime T: type) type {
 /// Points every hemv slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        inline for (variants) |v| @field(vt, p[0] ++ "hemv_" ++ v[0]) = &sym.Auto(p[0], std.math.Complex(p[1]), v[1], v[2]).cplx;
+        inline for (variants) |v| portable.slotPtr(vt, .from(p[0]), v[0]).* = &sym.Auto(p[0], std.math.Complex(p[1]), v[1], v[2]).cplx;
     }
 }
 
 // ---- tests -----------------------------------------------------------------
-
-const guard = @import("../../_test/blas2/guard.zig");
 
 fn checkAll(vt: *const Vtable) !void {
     guard.use(vt);
@@ -46,18 +44,19 @@ fn checkAll(vt: *const Vtable) !void {
 
 fn checkSlots(vt: *const Vtable) !void {
     inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
-        inline for (variants) |v| try sym.checkBoth(p[0], std.math.Complex(p[1]), v[1], v[2], @field(vt, p[0] ++ "hemv_" ++ v[0]).?, p[0] ++ "hemv_" ++ v[0]);
+        inline for (variants) |v| try sym.checkBoth(p[0], std.math.Complex(p[1]), v[1], v[2], portable.slotPtr(vt, .from(p[0]), v[0]).*.?, portable.slotName(.from(p[0]), v[0]));
     }
 }
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const guard = @import("../../_test/guard.zig");
 
 test "portable hemv kernels match plain arithmetic" {
     const vt = guard.portableVtable();
     guard.use(vt);
     defer guard.restore();
     try checkSlots(vt);
-    inline for (variants) |v| try sym.checkBoth("x", std.math.Complex(XDouble), v[1], v[2], @field(vt, "xhemv_" ++ v[0]).?, "xhemv_" ++ v[0]);
+    inline for (variants) |v| try sym.checkBoth("x", std.math.Complex(XDouble), v[1], v[2], portable.slotPtr(vt, .x, v[0]).*.?, portable.slotName(.x, v[0]));
 }
 
 test "every linked core's hemv kernels match plain arithmetic, where this machine runs them" {

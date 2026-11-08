@@ -1,13 +1,13 @@
-//! arm64 `symv` kernels: the `@Vector` port (`../kernel.zig`) of
+//! arm64 `symv` kernels: the `@Vector` port (`../driver.zig`) of
 //! `kernel/arm64/symv_L_asimd_4x4.c` and `symv_U_asimd_4x4.c` (NEON
 //! intrinsics). The SVE cores' `symv_[LU]_sve_v1x4.c` are not ported: no
 //! tier-2 rig runs those cores, so they keep the portable kernels. Tests
 //! live in `symv/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const util = @import("../../../util.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 
 const Slot = util.Slot;
 

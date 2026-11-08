@@ -1,11 +1,8 @@
-//! The drivers of OpenBLAS's per-core real `symv` kernels, around their 4x4
-//! blocks written on `@Vector`s: x86_64's `ssymv_L.c`, `ssymv_U.c`,
-//! `dsymv_L.c` and `dsymv_U.c` with their `*_microk_*-2.c` blocks, and
-//! arm64's `symv_L_asimd_4x4.c` and `symv_U_asimd_4x4.c` (`symv_microk_asimd_4x4.c`).
-//! A block's `Shape` says how its microkernel computes; the drivers' C
-//! contracts as the core's flags say (`fma.fuse`). The arches' `kernel.zig`
-//! name the shapes per core. Nothing here depends on the BLAS root, so the
-//! per-core objects (`_kernel.zig`) can use it. Tests live in `__root__.zig`.
+//! The drivers of the per-core real `symv` kernels around their 4x4 blocks on
+//! `@Vector`s: x86_64's `{s,d}symv_{L,U}.c` with `*_microk_*-2.c`, arm64's
+//! `symv_{L,U}_asimd_4x4.c` (`symv_microk_asimd_4x4.c`). A block's `Shape`
+//! says how its microkernel computes; the C contracts by the core's flags
+//! (`fma.fuse`). No BLAS-root imports (`_kernel.zig`); tests in `__root__.zig`.
 
 const std = @import("std");
 const types = @import("../../types.zig");

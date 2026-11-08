@@ -2,14 +2,20 @@
 //! kernels (`*_generic`) and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
+const std = @import("std");
+const setup = @import("rotg.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
-// ---- portable kernels ------------------------------------------------------
+/// Setting up a rotation (`rotg.zig`).
+pub const rotg = setup.rotg;
+pub const zrotg = setup.zrotg;
+pub const rotmg = setup.rotmg;
 
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
+// ---- portable kernels ------------------------------------------------------
 
 /// `kernel/arm/rot.c` and `zrot.c`: the plane rotation `x := c*x + s*y`,
 /// `y := c*y - s*x`; an element is `w` floats, each rotated alike (`csrot`
@@ -61,11 +67,10 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-const std = @import("std");
 const sysinfo = @import("builtin");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 const fma = @import("../../fma.zig");
-const driver = @import("kernel.zig");
+const driver = @import("driver.zig");
 
 /// `check.zero_strides` and both zero, which a kernel that loads a block
 /// before storing it gets wrong.
@@ -161,4 +166,8 @@ test "x86_64's rot drivers rotate every element as the reference's blocks do, bi
             };
         }
     }
+}
+
+test {
+    _ = setup;
 }

@@ -1,36 +1,40 @@
-//! x86_64's own small-matrix gemm kernels (`small.zig`): Skylake-X's
-//! `kernel/x86_64/sgemm_small_kernel_{nn,nt,tn,tt}_skylakex.c` and the
-//! `dgemm_` ones, each also built `B0`, on `@Vector`s of 512 bits; Skylake-X,
-//! Cooper Lake and Sapphire Rapids take them (`KERNEL.SKYLAKEX`, which the
-//! other two include). The gemm tile's registry exports them in place of
-//! `small_kernel.zig`'s on those cores (`small_kernel.forCore`). Cooper
-//! Lake's `sbgemm` ones (`Cooperlake`) are a port of their own (`ports`).
-//!
-//! Every block sums each element over the depth in order, fused, then stores
-//! `alpha*sum`, rounded, fused with `beta*C` as `vfmadd231p[sd]` does: the
-//! generic kernels' bits, but for the dot blocks (`tn`, and `nn`'s last rows
-//! when at most half a vector of them is left and the depth is at least two
-//! vectors), whose lanes sum every `L`-th product and reduce as upstream's
-//! `REDUCE_4` (pairs of neighbors) or `_mm512_reduce_add_p[sd]` (halves).
-//! Upstream's `nn` copies those rows to a `malloc`'d buffer first; here they
-//! are read in place, the same values. Runs only on AVX-512 hardware; the
-//! tests run the same code split into narrower vectors (`small.zig`).
+//! Skylake-X's small-matrix kernels (`sgemm_small_kernel_{nn,nt,tn,tt}_skylakex.c`,
+//! `dgemm_`, with `B0`) on 512-bit `@Vector`s for Skylake-X, Cooper Lake and
+//! Sapphire Rapids, and Cooper Lake's `sbgemm` ones; their sums in `gemm/notes.md`.
 
 const std = @import("std");
-const types = @import("../../../types.zig");
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const fma = @import("../../../fma.zig");
-const registry = @import("../../../asm_registry.zig");
-const util = @import("../../../util.zig");
-const bf16_kernel = @import("../../../ext/bf16/kernel.zig");
-const gk = @import("../kernel.zig");
-const small_kernel = @import("../small_kernel.zig");
+const types = @import("../../types.zig");
+const coretypes = @import("../../cpu/coretypes.zig");
+const fma = @import("../../fma.zig");
+const registry = @import("../../registry.zig");
+const util = @import("../../util.zig");
+const bf16_kernel = @import("../../ext/bf16/kernel.zig");
+const gk = @import("kernel.zig");
+const small_kernel = @import("small_kernel.zig");
 
 const BlasLong = types.BlasLong;
 const BF16 = types.BF16;
 const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
+
+/// `len` of the `L` elements from `p`, zeros past them (`maskz_loadu`).
+inline fn loadPart(comptime T: type, comptime L: usize, p: [*]const T, len: usize) @Vector(L, T) {
+    if (len == L) return p[0..L].*;
+    var v: [L]T = @splat(0);
+    @memcpy(v[0..len], p[0..len]);
+    return v;
+}
+
+/// The first `len` lanes of `v` to `p` (`mask_storeu`).
+inline fn storePart(comptime T: type, comptime L: usize, p: [*]T, v: @Vector(L, T), len: usize) void {
+    if (len == L) {
+        p[0..L].* = v;
+        return;
+    }
+    const w: [L]T = v;
+    @memcpy(p[0..len], w[0..len]);
+}
 
 /// The small kernels of `T`: Skylake-X's for real `T`, the generic ones for
 /// complex, which upstream does not tune.
@@ -277,21 +281,12 @@ pub fn Skylakex(comptime T: type) type {
             return fma.madd(true, V, a, b, c);
         }
 
-        /// `len` elements from `p`, zeros past them (`maskz_loadu`).
         inline fn load(p: [*]const T, len: usize) V {
-            if (len == L) return p[0..L].*;
-            var v: [L]T = @splat(0);
-            @memcpy(v[0..len], p[0..len]);
-            return v;
+            return loadPart(T, L, p, len);
         }
 
         inline fn store(p: [*]T, v: V, len: usize) void {
-            if (len == L) {
-                p[0..L].* = v;
-                return;
-            }
-            const w: [L]T = v;
-            @memcpy(p[0..len], w[0..len]);
+            storePart(T, L, p, v, len);
         }
 
         /// `len` elements `step` apart from `p`, zeros past them.
@@ -421,15 +416,11 @@ pub const Cooperlake = struct {
     }
 
     fn load(p: [*]const f32, len: usize) V {
-        if (len == L) return p[0..L].*;
-        var w: [L]f32 = @splat(0);
-        @memcpy(w[0..len], p[0..len]);
-        return w;
+        return loadPart(f32, L, p, len);
     }
 
     fn store(p: [*]f32, v: V, len: usize) void {
-        const w: [L]f32 = v;
-        @memcpy(p[0..len], w[0..len]);
+        storePart(f32, L, p, v, len);
     }
 };
 

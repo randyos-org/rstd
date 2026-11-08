@@ -1,15 +1,6 @@
-//! Batched `gemm`, column-major: OpenBLAS's `interface/gemm_batch.c` (groups
-//! of problems that share their sizes and scalars) and
-//! `gemm_batch_strided.c` (one problem repeated at fixed strides), for any
-//! type `gemm` takes and for the half gemms (upstream has `sbgemm`'s; `bgemm`
-//! and `shgemm` come along).
-//!
-//! As upstream, every group's arguments are checked before any problem
-//! runs, so a bad one leaves every `C` as it was. Upstream hands whole
-//! problems to its threads (`gemm_batch_thread.c`), each run serially; here
-//! the problems run in order, each threading as `gemm` does. The bits are
-//! `gemm`'s either way. Upstream also takes its small-matrix kernels for
-//! problems up to `100^3` multiply-adds; rstd has none yet (T30).
+//! Batched `gemm`: `interface/gemm_batch.c` and `gemm_batch_strided.c`, for any
+//! type `gemm` takes and the half gemms. Every group is checked before any
+//! problem runs; the problems run in order, each as `gemm` would.
 
 const std = @import("std");
 const interface = @import("interface.zig");
@@ -50,18 +41,8 @@ pub fn Group(comptime In: type, comptime Out: type) type {
 
 /// `gemm`'s checks for one problem shape, in `xerbla`'s order.
 fn checkOne(transa: Trans, transb: Trans, m: isize, n: isize, k: isize, lda: isize, ldb: isize, ldc: isize, size_in: usize, size_out: usize) interface.ArgError!void {
-    if (transa.conjX() or transb.conjX()) return error.InvalidTrans;
-    const ta = transa.transposed();
-    const tb = transb.transposed();
-    if (m < 0) return error.InvalidM;
-    if (n < 0) return error.InvalidN;
-    if (k < 0) return error.InvalidK;
-    if (lda < @max(1, if (ta) k else m)) return error.InvalidLda;
-    if (ldb < @max(1, if (tb) n else k)) return error.InvalidLdb;
-    if (ldc < @max(1, m)) return error.InvalidLdc;
-    if (!util.fitsMatrix(if (ta) k else m, if (ta) m else k, lda, size_in)) return error.InvalidLda;
-    if (!util.fitsMatrix(if (tb) n else k, if (tb) k else n, ldb, size_in)) return error.InvalidLdb;
-    if (!util.fitsMatrix(m, n, ldc, size_out)) return error.InvalidLdc;
+    try interface.gemmArgs(transa, transb, m, n, k, lda, ldb, ldc);
+    try interface.gemmFits(transa, transb, m, n, k, lda, ldb, ldc, size_in, size_out);
 }
 
 /// The routine one problem runs: `gemm` over `T`, or a half gemm.
@@ -123,7 +104,7 @@ pub fn gemmHalfBatchStrided(allocator: Allocator, io: Io, comptime kind: HalfGem
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../_test/blas1/check.zig");
+const check = @import("../_test/check.zig");
 const bf16_kernel = @import("../ext/bf16/kernel.zig");
 
 fn val(comptime T: type, v: f32) T {
@@ -191,6 +172,6 @@ fn groupsCase(comptime In: type, comptime Out: type, comptime kind: ?HalfGemm) !
 }
 
 test "gemm batches: groups and strides give each problem's own gemm bits, and check every group first" {
-    inline for (.{ f32, f64, types.Complex32, types.Complex64 }) |T| try groupsCase(T, T, null);
+    inline for (check.sd_types) |T| try groupsCase(T, T, null);
     inline for (std.enums.values(HalfGemm)) |kind| try groupsCase(kind.In(), kind.Out(), kind);
 }

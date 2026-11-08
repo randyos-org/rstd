@@ -1,10 +1,6 @@
-//! The packing copies of `symm` and `hemm` over the gemm tile: a block of
-//! the whole symmetric or Hermitian matrix, from the triangle `A` stores, in
-//! the gemm kernels' layout (`gemm/kernel.zig`). `kernel/generic/symm_ucopy_*.c`,
-//! `symm_lcopy_*.c`, `zsymm_*copy_*.c`, `zhemm_utcopy_*.c` and
-//! `zhemm_ltcopy_*.c`: `m` deep, `n` lines; line `j`, depth `l` is element
-//! `(posX + j, posY + l)`. The `i` copies pack panels of `unroll_m`, the `o`
-//! copies of `unroll_n`.
+//! The `symm` and `hemm` copies (`kernel/generic/symm_{u,l}copy_*.c`,
+//! `zsymm_*copy_*.c`, `zhemm_{ut,lt}copy_*.c`): a block of the whole matrix
+//! from its stored triangle, in the gemm layout (`gemm/kernel.zig`).
 
 const types = @import("../../types.zig");
 const gk = @import("../gemm/kernel.zig");

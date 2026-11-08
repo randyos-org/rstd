@@ -1,20 +1,25 @@
-//! Denormal results through every level-1 kernel, on every core this machine
-//! runs: the operands denormal and the scalars near 1, so a flushed input or
-//! result shows against the `f128` reference. ARMv7 NEON and pre-VSX AltiVec
-//! flush `f32` lanes (`util.vectorIeee`).
+//! Denormal results through every level-1 kernel on every core this machine
+//! runs, against the `f128` reference; ARMv7 NEON and pre-VSX AltiVec flush
+//! `f32` lanes (`util.vectorIeee`).
 
 const std = @import("std");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("check.zig");
+const portable = @import("../../portable.zig");
+const check = @import("../check.zig");
+const bitwise = @import("../bitwise.zig");
+const pattern = @import("../pattern.zig");
+const reference = @import("../reference.zig");
 const extremum = @import("../../blas1/extremum.zig");
+const blas1 = @import("../../blas1/__root__.zig");
+const util = @import("../../util.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
 const C = std.math.Complex;
 const Float = check.FloatOf;
 const isComplex = check.isComplex;
-const Wide = check.Wide;
+const Wide = reference.Wide;
 const Vector = check.Vector;
 
 /// Past every kernel's blocks, the extremes' `4 * W` keys too.
@@ -61,8 +66,8 @@ fn moveRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isiz
         }
     } else _ = ctx.kern(nl, v[0].first(), stride(v[0]), v[1].first(), stride(v[1]));
     for (0..n) |i| {
-        const x_ok = if (ctx.swap) check.same(T, v[1].was[i], v[0].at(i), true) else true;
-        if (!x_ok or !check.same(T, v[0].was[i], v[1].at(i), true)) {
+        const x_ok = if (ctx.swap) bitwise.same(T, v[1].was[i], v[0].at(i), true) else true;
+        if (!x_ok or !bitwise.same(T, v[0].was[i], v[1].at(i), true)) {
             check.say("element {d} not moved exactly: ", .{i});
             return error.TestUnexpectedResult;
         }
@@ -73,13 +78,9 @@ fn scalRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isiz
     var v = try operands(T, al, n, inc, true);
     const x = &v[0];
     const a = ctx.alpha;
-    if (comptime isComplex(T)) {
-        _ = ctx.kern(@intCast(n), 0, 0, a.re, a.im, x.first(), stride(x.*), x.first(), 0, x.first(), 1);
-    } else {
-        _ = ctx.kern(@intCast(n), 0, 0, a, x.first(), stride(x.*), x.first(), 0, x.first(), 1);
-    }
-    const wa = check.wide(T, a);
-    for (0..n) |i| try check.expectWide(T, check.mulW(wa, x.w(i)), x.at(i), 4, check.mag(wa) * check.mag(x.w(i)));
+    _ = @call(.auto, ctx.kern, .{ @as(BlasLong, @intCast(n)), 0, 0 } ++ util.scalarArgs(T, a) ++ .{ x.first(), stride(x.*), x.first(), 0, x.first(), 1 });
+    const wa = reference.wide(T, a);
+    for (0..n) |i| try pattern.expectWide(T, reference.mulW(wa, x.w(i)), x.at(i), reference.elem_ulps, reference.mag(wa) * reference.mag(x.w(i)));
 }
 
 /// `axpy` (`axpyc` for `conj`) and, with a `beta`, `axpby`.
@@ -91,28 +92,22 @@ fn axpyRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isiz
     const b = ctx.beta;
     const nl: BlasLong = @intCast(n);
     if (ctx.axpby) {
-        if (comptime isComplex(T)) {
-            _ = ctx.kern(nl, a.re, a.im, x.first(), stride(x.*), b.re, b.im, y.first(), stride(y.*));
-        } else {
-            _ = ctx.kern(nl, a, x.first(), stride(x.*), b, y.first(), stride(y.*));
-        }
-    } else if (comptime isComplex(T)) {
-        _ = ctx.kern(nl, 0, 0, a.re, a.im, x.first(), stride(x.*), y.first(), stride(y.*), y.first(), 0);
+        _ = @call(.auto, ctx.kern, .{nl} ++ util.scalarArgs(T, a) ++ .{ x.first(), stride(x.*) } ++ util.scalarArgs(T, b) ++ .{ y.first(), stride(y.*) });
     } else {
-        _ = ctx.kern(nl, 0, 0, a, x.first(), stride(x.*), y.first(), stride(y.*), y.first(), 0);
+        _ = @call(.auto, ctx.kern, .{ nl, 0, 0 } ++ util.scalarArgs(T, a) ++ .{ x.first(), stride(x.*), y.first(), stride(y.*), y.first(), 0 });
     }
-    const wa = check.wide(T, a);
-    const wb = check.wide(T, b);
+    const wa = reference.wide(T, a);
+    const wb = reference.wide(T, b);
     for (0..n) |i| {
-        const xv = if (ctx.conj) check.conjW(x.w(i)) else x.w(i);
-        const want = check.addW(check.mulW(wa, xv), check.mulW(wb, y.w(i)));
-        const scale = check.mag(wa) * check.mag(xv) + check.mag(wb) * check.mag(y.w(i));
-        try check.expectWide(T, want, y.at(i), 4, scale);
+        const xv = if (ctx.conj) reference.conjW(x.w(i)) else x.w(i);
+        const want = reference.addW(reference.mulW(wa, xv), reference.mulW(wb, y.w(i)));
+        const scale = reference.mag(wa) * reference.mag(xv) + reference.mag(wb) * reference.mag(y.w(i));
+        try pattern.expectWide(T, want, y.at(i), reference.elem_ulps, scale);
     }
 }
 
 fn lin(comptime T: type, a: f128, u: Wide(T), b: f128, w: Wide(T)) Wide(T) {
-    return check.addW(check.scaleW(a, u), check.scaleW(b, w));
+    return reference.addW(reference.scaleW(a, u), reference.scaleW(b, w));
 }
 
 /// `rot` by `c` 0.6 and `s` 0.8, or `rotm` for a `flag`.
@@ -132,9 +127,9 @@ fn rotRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isize
         _ = ctx.kern(@intCast(n), x.first(), stride(x.*), y.first(), stride(y.*), @as(F, 0.6), @as(F, 0.8));
     }
     for (0..n) |i| {
-        const scale = check.mag(x.w(i)) + check.mag(y.w(i));
-        try check.expectWide(T, lin(T, h[0], x.w(i), h[1], y.w(i)), x.at(i), 4, scale);
-        try check.expectWide(T, lin(T, h[2], x.w(i), h[3], y.w(i)), y.at(i), 4, scale);
+        const scale = reference.mag(x.w(i)) + reference.mag(y.w(i));
+        try pattern.expectWide(T, lin(T, h[0], x.w(i), h[1], y.w(i)), x.at(i), reference.elem_ulps, scale);
+        try pattern.expectWide(T, lin(T, h[2], x.w(i), h[3], y.w(i)), y.at(i), reference.elem_ulps, scale);
     }
 }
 
@@ -142,16 +137,16 @@ fn rotRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isize
 fn dotRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]isize) !void {
     var v = try operands(T, al, n, inc, false);
     const got = ctx.kern(@intCast(n), v[0].first(), stride(v[0]), v[1].first(), stride(v[1]));
-    var want = check.wide(T, if (comptime isComplex(T)) T.init(0, 0) else 0);
+    var want = reference.wide(T, if (comptime isComplex(T)) T.init(0, 0) else 0);
     var scale: f128 = 0;
     for (0..n) |i| {
-        const xv = if (ctx.conj) check.conjW(v[0].w(i)) else v[0].w(i);
-        want = check.addW(want, check.mulW(xv, v[1].w(i)));
-        scale += check.mag(xv) * check.mag(v[1].w(i));
+        const xv = if (ctx.conj) reference.conjW(v[0].w(i)) else v[0].w(i);
+        want = reference.addW(want, reference.mulW(xv, v[1].w(i)));
+        scale += reference.mag(xv) * reference.mag(v[1].w(i));
     }
-    const ulps: f128 = @floatFromInt(4 * (n + 2));
-    if (comptime isComplex(T)) return check.expectWide(T, want, .init(got.re, got.im), ulps, scale);
-    try check.component(T, want, got, ulps, scale);
+    const ulps = reference.dotUlps(n);
+    if (comptime isComplex(T)) return pattern.expectWide(T, want, .init(got.re, got.im), ulps, scale);
+    try pattern.component(T, want, got, ulps, scale);
 }
 
 const Reduce = enum { asum, sum, nrm2 };
@@ -164,15 +159,15 @@ fn reduceRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]is
     var mag: f128 = 0;
     for (0..n) |i| {
         const w = x.w(i);
-        mag += check.mag(w);
+        mag += reference.mag(w);
         acc += switch (ctx.op) {
-            .asum => check.abs1(w),
+            .asum => reference.abs1(w),
             .sum => if (comptime isComplex(T)) w.re + w.im else w,
             .nrm2 => if (comptime isComplex(T)) w.re * w.re + w.im * w.im else w * w,
         };
     }
-    const want = if (ctx.op == .nrm2) check.sqrtW(acc) else acc;
-    try check.component(Float(T), want, got, @floatFromInt(2 * (n + 2)), if (ctx.op == .nrm2) want else mag);
+    const want = if (ctx.op == .nrm2) reference.sqrtW(acc) else acc;
+    try pattern.component(Float(T), want, got, reference.sumUlps(n), if (ctx.op == .nrm2) want else mag);
 }
 
 /// The extreme's value, or its 1-based index, by the kernel's return type.
@@ -184,14 +179,14 @@ fn extremeRun(comptime T: type, ctx: anytype, al: Allocator, n: usize, inc: [2]i
     var key: f128 = 0;
     for (0..n) |i| {
         const w = x.w(i);
-        const k = if (comptime isComplex(T)) check.abs1(w) else if (ctx.find.abs) @abs(w) else w;
+        const k = if (comptime isComplex(T)) reference.abs1(w) else if (ctx.find.abs) @abs(w) else w;
         if (i == 0 or (if (ctx.find.max) k > key else k < key)) {
             best = i;
             key = k;
         }
     }
     const ok = if (@TypeOf(got) == BlasLong) got == best + 1 else got == key or
-        @abs(@as(f128, got) - key) <= 2 * std.math.floatEps(Float(T)) * @abs(key);
+        @abs(@as(f128, got) - key) <= reference.keyTol(Float(T)) * @abs(key);
     if (ok) return;
     check.say("{any}, want index {d}, key {e}: ", .{ got, best + 1, key });
     return error.TestUnexpectedResult;
@@ -217,7 +212,7 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     inline for (.{ .{ "copy", false }, .{ "swap", true } }) |m| {
         note(sweep(T, l ++ m[0], .{ .kern = @field(vt, l ++ m[0] ++ "_k").?, .swap = m[1] }, moveRun));
     }
-    note(sweep(T, l ++ "scal", .{ .kern = @field(vt, l ++ "scal_k").?, .alpha = one }, scalRun));
+    note(sweep(T, l ++ "scal", .{ .kern = portable.slotPtr(vt, .from(l), .scal_k).*.?, .alpha = one }, scalRun));
     inline for (if (complex) .{ "axpy", "axpyc" } else .{"axpy"}) |r| {
         // a zero alpha too: `y + 0*x` is `y`
         for ([_]T{ one, zero }) |a| {
@@ -225,15 +220,14 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
             note(sweep(T, l ++ r, ctx, axpyRun));
         }
     }
-    if (@hasField(Vtable, l ++ "axpby_k")) if (@field(vt, l ++ "axpby_k")) |k| {
+    if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| {
         for ([_][2]T{ .{ one, beta }, .{ zero, beta }, .{ one, zero } }) |ab| {
             note(sweep(T, l ++ "axpby", .{ .kern = k, .alpha = ab[0], .beta = ab[1], .conj = false, .axpby = true }, axpyRun));
         }
     };
-    const rot = l ++ (if (complex) (if (l[0] == 'c') "s" else "d") else "") ++ "rot_k";
-    note(sweep(T, rot, .{ .kern = @field(vt, rot).? }, rotRun));
+    note(sweep(T, portable.slotName(.from(l), .rot_k), .{ .kern = portable.slotPtr(vt, .from(l), .rot_k).*.? }, rotRun));
     if (!complex) for ([_]f64{ -1, 0, 1 }) |flag| {
-        note(sweep(T, l ++ "rotm", .{ .kern = @field(vt, l ++ "rotm_k").?, .flag = flag }, rotRun));
+        note(sweep(T, l ++ "rotm", .{ .kern = portable.slotPtr(vt, .from(l), .rotm_k).*.?, .flag = flag }, rotRun));
     };
     inline for (if (complex) .{ .{ "dotu", false }, .{ "dotc", true } } else .{.{ "dot", false }}) |d| {
         note(sweep(T, l ++ d[0], .{ .kern = @field(vt, l ++ d[0] ++ "_k").?, .conj = d[1] }, dotRun));
@@ -252,13 +246,10 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
 
 fn checkAll(vt: *const Vtable) !void {
     failed = null;
-    inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", C(f32) }, .{ "z", C(f64) } }) |p| slots(p[0], p[1], vt);
+    inline for (check.sd_letters) |p| slots(p[0], p[1], vt);
     note(sweep(f32, "dsdot", .{ .kern = vt.dsdot_k.?, .conj = false }, dotRun));
     if (failed) |e| return e;
 }
-
-const blas1 = @import("../../blas1/__root__.zig");
-const util = @import("../../util.zig");
 
 test "portable level-1 kernels: denormal results" {
     var vt: Vtable = .{};

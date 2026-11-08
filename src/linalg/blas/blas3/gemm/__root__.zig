@@ -2,27 +2,25 @@
 //! and their tests.
 
 const types = @import("../../types.zig");
-
-const BlasLong = types.BlasLong;
-
 pub const params = @import("params.zig");
 pub const kernel = @import("kernel.zig");
-
-/// Points the level-3 slots at the portable kernels (`kernel.zig`).
-pub const installGeneric = kernel.installGeneric;
-
-const check = @import("../../_test/blas3/check.zig");
+const kernels = @import("../kernels.zig");
+const check3 = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
-
-fn cases(vt: *const Vtable) !void {
-    try check.routineAll(vt, .gemm);
-}
-
 const std = @import("std");
 const sysinfo = @import("builtin");
 const driver = @import("../driver.zig");
 const portable = @import("../../portable.zig");
-const blas1check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+
+const BlasLong = types.BlasLong;
+
+/// Points the level-3 slots at the portable kernels (`../kernels.zig`).
+pub const installGeneric = kernels.installGeneric;
+
+fn cases(vt: *const Vtable) !void {
+    try check3.routineAll(vt, .gemm);
+}
 
 test "portable gemm kernels match the wide reference through the driver" {
     var vt: Vtable = .{};
@@ -31,21 +29,21 @@ test "portable gemm kernels match the wide reference through the driver" {
 }
 
 test "every linked core's gemm kernels match the wide reference, where this machine runs them" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }
 
 test "every routine over tiles other targets choose: NEON's, 8 x 3 complex" {
     // natively only: the rigs run their own tiles, and the freestanding ones
     // have no room for four more sets of kernels
     if (comptime sysinfo.target.os.tag == .freestanding) return error.SkipZigTest;
-    if (blas1check.rig()) return error.SkipZigTest;
+    if (check.rig()) return error.SkipZigTest;
     var vt: Vtable = .{};
     portable.install(&vt);
-    kernel.installTile(&vt, "s", f32, .{ .vl = 4, .mv = 4, .nr = 6 });
-    kernel.installTile(&vt, "d", f64, .{ .vl = 2, .mv = 4, .nr = 6 });
-    kernel.installTile(&vt, "c", std.math.Complex(f32), .{ .vl = 2, .mv = 4, .nr = 3 });
-    kernel.installTile(&vt, "z", std.math.Complex(f64), .{ .vl = 1, .mv = 4, .nr = 3 });
-    try check.coreCases(&vt);
+    kernels.installTile(&vt, "s", f32, .{ .vl = 4, .mv = 4, .nr = 6 });
+    kernels.installTile(&vt, "d", f64, .{ .vl = 2, .mv = 4, .nr = 6 });
+    kernels.installTile(&vt, "c", std.math.Complex(f32), .{ .vl = 2, .mv = 4, .nr = 3 });
+    kernels.installTile(&vt, "z", std.math.Complex(f64), .{ .vl = 1, .mv = 4, .nr = 3 });
+    try check3.coreCases(&vt);
 }
 
 test "the unrolls are the installed kernels' own after a core's blocking" {
@@ -67,8 +65,8 @@ test "negative or zero blocking falls back to the generic sizes" {
     vt.dgemm_q = 0;
     vt.dgemm_r = -100;
     const blk = driver.Blocking.of(f64, &vt);
-    try std.testing.expect(blk.p > 0 and blk.q == 128 and blk.r == 4096);
-    try check.routineCases(f64, &vt, .gemm);
+    try std.testing.expect(blk.p > 0 and blk.q == driver.Blocking.default_q and blk.r == driver.Blocking.default_r);
+    try check3.routineCases(f64, &vt, .gemm);
 }
 
 test "a packing buffer on the stack is poisoned in tests: a copy that writes nothing shows" {
@@ -82,7 +80,7 @@ test "a packing buffer on the stack is poisoned in tests: a copy that writes not
     vt.dgemm_itcopy = &Nop.copy;
     var a: [4]f64 = @splat(1);
     var c: [4]f64 = @splat(0);
-    try driver.gemm(std.testing.failing_allocator, check.io, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2, 1);
+    try driver.gemm(std.testing.failing_allocator, check3.io, f64, &vt, false, false, .n, 2, 2, 2, 1, &a, 2, &a, 2, 0, &c, 2, 1);
     for (c) |v| try std.testing.expect(std.math.isNan(v));
 }
 

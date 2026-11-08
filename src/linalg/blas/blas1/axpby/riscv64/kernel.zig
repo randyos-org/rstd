@@ -3,8 +3,8 @@
 //! `KERNEL.<CORE>` names them. zvl256b's complex `axpby` is plain C upstream (`../arm/zaxpby.c`)
 //! and stays portable. Per-core tests live in `axpby/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const vector = @import("../../../vector.zig");
 
 pub const Core = coretypes.RiscvCoreType;

@@ -1,27 +1,17 @@
-//! The 3M drivers: OpenBLAS's `driver/level3/gemm3m_level3.c`, and through
-//! it `symm3m_k.c` and `hemm3m_k.c`, on a vtable's 3M kernels
-//! (`kernel.zig`). Each depth slice takes three passes, each packing a real
-//! form of `op(A)` and of `alpha * op(B)` and adding their product to both
-//! parts of `C` with a sign each: three real products where `gemm` takes
-//! four. One part of `C` comes from all three, a difference of products, so
-//! it is only normwise stable (Higham, SIAM J. Matrix Anal. Appl. 13(3),
-//! 1992, <https://doi.org/10.1137/0613043>); `comparisons.md` (7).
-//!
-//! The loops are `driver.zig`'s: blocks of `R` columns, `Q` deep slices
-//! (split as `gemm3m_level3.c` splits them), row blocks of `P`, the kernel on
-//! the `3 * unroll_n` chunks it packed, and `beta` applied to each block of
-//! `C` before the first pass of the first slice. Given more than one worker,
-//! `C` is split into parts on whole panels, each a serial problem: the same
-//! bits for any count.
+//! The 3M drivers: `driver/level3/gemm3m_level3.c`, and through it
+//! `symm3m_k.c` and `hemm3m_k.c`, on `driver.zig`'s loops: three real
+//! products a slice where `gemm` takes four, normwise stable only (`gemm/notes.md`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
-const types = @import("../../types.zig");
-const Vtable = @import("../../Vtable.zig");
-const portable = @import("../../portable.zig");
-const threading = @import("../../threading.zig");
-const driver = @import("../driver.zig");
-const Part = @import("kernel.zig").Part;
+const types = @import("../types.zig");
+const Vtable = @import("../Vtable.zig");
+const portable = @import("../portable.zig");
+const util = @import("../util.zig");
+const threading = @import("../threading.zig");
+const test_io = @import("../_test/io.zig");
+const driver = @import("driver.zig");
+const Part = @import("gemm3m/kernel.zig").Part;
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -66,14 +56,13 @@ pub fn depthSplit(rest: usize, max: usize) usize {
 }
 
 /// How the operands are packed (`driver.Pack`): `upper` and `lower` are the
-/// symmetric operand's triangle, Hermitian with `herm`. `conj_a`, `conj_b`:
-/// `op` conjugates (`gemm3m`'s `R` and `C`).
+/// symmetric operand's triangle, Hermitian with `herm`; `conj`: which `op`
+/// conjugates (`gemm3m`'s `R` and `C`).
 pub const Desc = struct {
     rows: Pack,
     cols: Pack,
     herm: bool = false,
-    conj_a: bool = false,
-    conj_b: bool = false,
+    conj: driver.Conj = .n,
 };
 
 /// One pass: the part of `op(A)` and of `alpha * op(B)` it packs, and the
@@ -102,9 +91,7 @@ fn passes(conj_a: bool, conj_b: bool) [3]Pass {
     };
 }
 
-fn raw(comptime T: type, p: [*]T) [*]Float(T) {
-    return @ptrCast(p);
-}
+const raw = util.raw;
 
 fn long(v: usize) BlasLong {
     return @intCast(v);
@@ -171,8 +158,8 @@ fn tile(comptime T: type, vt: *const Vtable, pass: Pass, ib: usize, mi: usize, j
 /// `[n0, n1)` of `C`, depth `k`: `gemm3m_level3.c` over `range_m` and
 /// `range_n`. A null `beta` is 1.
 pub fn drive(comptime T: type, vt: *const Vtable, d: Desc, blk: Blocking, m0: usize, m1: usize, n0: usize, n1: usize, k: usize, alpha: T, x: Matrix(T), y: Matrix(T), beta: ?T, c: [*]T, ldc: usize, work: driver.Work(Float(T))) void {
-    const ps = passes(d.conj_a, d.conj_b);
-    const ai = if (d.conj_b) -alpha.im else alpha.im;
+    const ps = passes(d.conj.ofA(), d.conj.ofB());
+    const ai = if (d.conj.ofB()) -alpha.im else alpha.im;
     var js = n0;
     while (js < n1) : (js += blk.r) {
         const min_j = @min(blk.r, n1 - js);
@@ -220,17 +207,9 @@ fn run(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: Des
     const lens = W.lens(blk, m, n, k, false);
     const len = W.total(lens);
     var stack: [driver.stack_bytes]u8 align(W.alignment) = undefined;
-    var heap: ?[]align(W.alignment) F = null;
-    defer if (heap) |h| allocator.free(h);
-    const base: [*]F = if (len * @sizeOf(F) <= driver.stack_bytes) stk: {
-        // poisoned in tests, as `driver.run`'s
-        if (sysinfo.is_test) @memset(&stack, 0xff);
-        break :stk @ptrCast(&stack);
-    } else hp: {
-        heap = try allocator.alignedAlloc(F, .fromByteUnits(W.alignment), len);
-        break :hp heap.?.ptr;
-    };
-    drive(T, vt, d, blk, 0, m, 0, n, k, alpha, x, y, beta, c, ldc, W.at(base, lens));
+    const sc = try util.Scratch(F, W.alignment, W.alignment).init(allocator, &stack, len);
+    defer sc.deinit(allocator);
+    drive(T, vt, d, blk, 0, m, 0, n, k, alpha, x, y, beta, c, ldc, W.at(sc.ptr, lens));
 }
 
 /// `run` on up to `want` workers: the side of `C` with more panels split in
@@ -255,8 +234,6 @@ fn parts(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: D
         beta: ?T,
         c: [*]T,
         ldc: usize,
-        buf: [*]F,
-        at: [threading.chunks_max + 1]usize,
 
         /// Part `ch`'s rows and columns of `C`.
         fn range(p: *const @This(), ch: threading.Chunk) [4]usize {
@@ -268,23 +245,21 @@ fn parts(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: D
             return W.lens(p.blk, r[1] - r[0], r[3] - r[2], p.k, false);
         }
 
-        fn one(p: *const @This(), ch: threading.Chunk) void {
+        fn len(p: *const @This(), ch: threading.Chunk) usize {
+            return W.total(p.lens(ch));
+        }
+
+        fn one(p: *const @This(), ch: threading.Chunk, buf: []F) void {
             const r = p.range(ch);
-            drive(T, p.vt, p.d, p.blk, r[0], r[1], r[2], r[3], p.k, p.alpha, p.x, p.y, p.beta, p.c, p.ldc, W.at(p.buf + p.at[ch.index], p.lens(ch)));
+            drive(T, p.vt, p.d, p.blk, r[0], r[1], r[2], r[3], p.k, p.alpha, p.x, p.y, p.beta, p.c, p.ldc, W.at(buf.ptr, p.lens(ch)));
         }
     };
     const plan: threading.Plan = .{
         .chunks = .init(if (by_cols) n else m, want, .even, if (by_cols) blk.un else blk.um),
         .workers = want,
     };
-    var ps: Parts = .{ .vt = vt, .d = d, .blk = blk, .by_cols = by_cols, .m = m, .n = n, .k = k, .alpha = alpha, .x = x, .y = y, .beta = beta, .c = c, .ldc = ldc, .buf = undefined, .at = undefined };
-    ps.at[0] = 0;
-    for (0..plan.chunks.count) |i| ps.at[i + 1] = ps.at[i] + W.total(ps.lens(plan.chunks.get(i)));
-    const buf = try allocator.alignedAlloc(F, .fromByteUnits(W.alignment), ps.at[plan.chunks.count]);
-    defer allocator.free(buf);
-    ps.buf = buf.ptr;
-    const ctx: *const Parts = &ps;
-    try threading.forEach(io, &plan, ctx, Parts.one);
+    const ps: Parts = .{ .vt = vt, .d = d, .blk = blk, .by_cols = by_cols, .m = m, .n = n, .k = k, .alpha = alpha, .x = x, .y = y, .beta = beta, .c = c, .ldc = ldc };
+    try threading.forEachPart(allocator, io, &plan, F, W.alignment, &ps, Parts.len, Parts.one);
 }
 
 // ---- the routines ----------------------------------------------------------------
@@ -294,13 +269,13 @@ fn parts(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, d: D
 /// Checked by the caller; `m`, `n` positive. Up to `want` workers.
 pub fn gemm3m(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, ta: bool, tb: bool, conj: driver.Conj, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     const beta1 = driver.unlessOne(T, beta);
-    if (k == 0 or driver.isZero(T, alpha)) {
+    if (k == 0 or util.isZero(T, alpha)) {
         if (beta1) |s| driver.scale(T, vt, m, n, s, c, ldc);
         return;
     }
     const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
     const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
-    const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj_a = conj.ofA(), .conj_b = conj.ofB() };
+    const d: Desc = .{ .rows = if (ta) .t else .n, .cols = if (tb) .t else .n, .conj = conj };
     try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, beta1, c, ldc, want);
 }
 
@@ -309,7 +284,7 @@ pub fn gemm3m(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable,
 /// (`symm3m_k.c`, `hemm3m_k.c`). `m`, `n` positive. Up to `want` workers.
 pub fn symm3m(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, comptime herm: bool, left: bool, upper: bool, m: usize, n: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, beta: T, c: [*]T, ldc: usize, want: u32) Error!void {
     const beta1 = driver.unlessOne(T, beta);
-    if (driver.isZero(T, alpha)) {
+    if (util.isZero(T, alpha)) {
         if (beta1) |s| driver.scale(T, vt, m, n, s, c, ldc);
         return;
     }
@@ -322,8 +297,11 @@ pub fn symm3m(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable,
 
 // ---- tests -----------------------------------------------------------------
 
-const gemm_kernels = @import("../gemm/kernel.zig");
-const guard = @import("../../_test/blas2/guard.zig");
+const gemm_kernels = @import("gemm/kernel.zig");
+const check = @import("../_test/check.zig");
+const bitwise = @import("../_test/bitwise.zig");
+const guard = @import("../_test/guard.zig");
+const check3 = @import("../_test/blas3/check.zig");
 
 test "3m passes: every conjugation adds op(A) times alpha op(B) once" {
     // per pass, the coefficient of each of ArBr, ArBi, AiBr, AiBi in each
@@ -354,23 +332,13 @@ fn shrunk(comptime T: type) Vtable {
     var vt: Vtable = .{};
     portable.install(&vt);
     const blk = blocking(T, &vt);
-    const pre = comptime portable.letter(T).? ++ "gemm3m_";
-    @field(vt, pre ++ "p") = @intCast(2 * blk.um);
-    @field(vt, pre ++ "q") = 5;
-    @field(vt, pre ++ "r") = @intCast(6 * blk.un + 1);
+    check3.shrinkBlocking(T, &vt, true, blk.um, blk.un);
     return vt;
 }
 
-fn fill(comptime T: type, x: []T, seed: u64) void {
-    var prng: std.Random.DefaultPrng = .init(seed);
-    const rand = prng.random();
-    const F = Float(T);
-    for (x) |*v| v.* = .init(std.math.ldexp(rand.float(F) * 2 - 1, rand.intRangeAtMost(i32, -12, 12)), std.math.ldexp(rand.float(F) * 2 - 1, rand.intRangeAtMost(i32, -12, 12)));
-}
+const fill = check.fillMixed;
 
-fn sameBits(comptime T: type, a: []const T, b: []const T) bool {
-    return std.mem.eql(u8, std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
-}
+const sameBits = bitwise.sameBits;
 
 /// Each routine, shapes around every part and panel edge, at 1 to 9 workers
 /// on `io` against one, bit for bit.
@@ -430,7 +398,7 @@ fn shapes(comptime T: type, io: Io) !void {
 test "threaded 3m matches its serial bits at 1 to 9 workers" {
     inline for (.{ types.Complex32, types.Complex64 }) |T| {
         try shapes(T, Io.failing);
-        if (comptime threading.hosted) {
+        if (comptime test_io.hosted) {
             var threaded: Io.Threaded = .init(std.testing.allocator, .{ .async_limit = .limited(3), .concurrent_limit = .limited(3) });
             defer threaded.deinit();
             try shapes(T, threaded.io());

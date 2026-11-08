@@ -1,7 +1,7 @@
 //! x86_64 gemv kernels, one set per core, built into the per-core kernel
 //! objects (`src/linalg/blas/_kernel.zig`). A core's kernel is a `.S` kernel
-//! (`asm/`) or the C driver `{s,d,c,z}gemv_{n,t}_4.c` (`../kernel.zig`) around
-//! the blocks `uk/index_n.zig` and `uk/index_t.zig` name: the reference's
+//! (`asm/`) or the C driver `{s,d,c,z}gemv_{n,t}_4.c` (`../driver.zig`) around
+//! the blocks `uk/__root__.zig` names: the reference's
 //! inline-assembly microkernels, or for the AVX-512 cores' `dgemv_n`, whose
 //! blocks are intrinsics, the same arithmetic on `@Vector`s. Skylake-X's
 //! `sgemv` takes a second, intrinsics block besides Haswell's
@@ -12,16 +12,14 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
-const coretypes = @import("../../../cpu/_coretypes.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
 const fma = @import("../../../fma.zig");
 const util = @import("../../../util.zig");
-const kernel = @import("../kernel.zig");
-const uk = @import("../../../blas1/uk_block.zig");
-const index_n = @import("uk/index_n.zig");
-const index_t = @import("uk/index_t.zig");
-const registry = @import("../../../asm_registry.zig");
+const kernel = @import("../driver.zig");
+const uk = @import("../../../uk_block.zig");
+const ukidx = @import("uk/__root__.zig");
+const registry = @import("../../../registry.zig");
 const vector = @import("../../../vector.zig");
-const Vtable = @import("../../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -71,14 +69,6 @@ pub fn VectorBlockWith(comptime slot: Slot, comptime wide: bool, comptime fuse: 
 fn VectorBlock(comptime slot: Slot) type {
     return VectorBlockWith(slot, has_avx512cd, fma.fuse);
 }
-
-/// Both indexes as one.
-const ukidx = struct {
-    pub const entries = index_n.entries ++ index_t.entries;
-    pub fn find(comptime slot: Slot, comptime core: []const u8) ?uk.Entry {
-        return index_n.find(slot, core) orelse index_t.find(slot, core);
-    }
-};
 
 const K = uk.Kernels(Core, kernel, @import("asm/__root__.zig"), ukidx, VectorBlock);
 
@@ -257,8 +247,8 @@ fn haswellBlock(comptime idx: type, comptime slot: Slot) uk.Entry {
 pub const Skylake = struct {
     pub fn entry(comptime slot: Slot) util.SlotFn(slot) {
         return switch (slot) {
-            .sgemv_n => kernel.skylakeN(haswellBlock(index_n, .sgemv_n), SkylakeBlock),
-            .sgemv_t => kernel.skylakeT(haswellBlock(index_t, .sgemv_t), SkylakeTBlock),
+            .sgemv_n => kernel.skylakeN(haswellBlock(ukidx, .sgemv_n), SkylakeBlock),
+            .sgemv_t => kernel.skylakeT(haswellBlock(ukidx, .sgemv_t), SkylakeTBlock),
             else => @compileError(@tagName(slot) ++ " is not Skylake-X's sgemv"),
         };
     }
@@ -274,22 +264,9 @@ pub const ports = [_]registry.Port(Core){
 
 const P = registry.Ports(Core, "x86_64", &ports);
 
-pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-    return K.hasSlot(core, slot) or P.hasSlot(core, slot);
-}
-
-pub fn has(comptime core: Core) bool {
-    return K.has(core) or P.has(core);
-}
-
-pub const skips = K.skips;
-
-pub fn exportCore(comptime core: Core) void {
-    K.exportCore(core);
-    P.exportCore(core);
-}
-
-pub fn install(vt: *Vtable, comptime core: Core) void {
-    K.install(vt, core);
-    P.install(vt, core);
-}
+const U = registry.Union(Core, .{ K, P });
+pub const hasSlot = U.hasSlot;
+pub const has = U.has;
+pub const skips = U.skips;
+pub const exportCore = U.exportCore;
+pub const install = U.install;

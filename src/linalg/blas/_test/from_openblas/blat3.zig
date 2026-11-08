@@ -1,22 +1,12 @@
-//! The level-3 test programs: `test/sblat3.f`, `dblat3.f`, `cblat3.f`,
-//! `zblat3.f`, `cblat3_3m.f`, `zblat3_3m.f` with their `.dat` files, and
-//! the CBLAS versions `ctest/c_[sdcz]blat3.f`, `c_[cz]blat3_3m.f` with
-//! `ctest/[sdcz]in3`, `[cz]in3_3m`, OpenBLAS v0.3.34-317. `SCHK1` to
-//! `SCHK5`, `SMAKE`, `SMMCH`, `LSERES` and the error exits (`SCHKE`, and
-//! `CCHKE` for complex) are ported; the tables below are the `.dat` values.
-//!
-//! Every routine runs through the public API (`blas.gemm` and the rest).
-//!
-//! Intentional differences: `SMMCH` keeps the largest ratio over every
-//! column, where the Fortran resets it for each; and for `gemm3m` it gauges
-//! the part 3M forms from three products at three times the bound
-//! (`mmch3m`), as only normwise stable (`comparisons.md`, 7), where
-//! `cblat3_3m.f` keeps `CMMCH` as it is.
+//! The level-3 programs `test/[sdcz]blat3.f`, `[cz]blat3_3m.f` and their CBLAS
+//! `ctest/` versions with their `.dat` tables, OpenBLAS v0.3.34-317; `SMMCH`
+//! keeps the largest ratio over all columns and gauges 3M at three times the bound.
 
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
-const guard = @import("../blas2/guard.zig");
+const check = @import("../check.zig");
+const guard = @import("../guard.zig");
 
 const Float = ob.Float;
 const isComplex = ob.isComplex;
@@ -158,7 +148,7 @@ fn lseres(comptime T: type, kind: Kind, uplo: u8, m: usize, n: usize, aa: []cons
     return true;
 }
 
-const Result = struct { err: f64, fatal: bool };
+const Result = ob.Result;
 
 /// `SMMCH`/`CMMCH`: `alpha*op(A)*op(B) + beta*C` for `m` by `n` and `kk`
 /// from the dense `a`, `b`, `c`, against `cc`; gauges are sums of `ABS1`.
@@ -290,25 +280,10 @@ const Call = struct {
     }
 };
 
-fn asTrans(c: u8) blas.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        else => .c,
-    };
-}
-
-fn asSide(c: u8) blas.Side {
-    return if (c == 'L') .l else .r;
-}
-
-fn asUplo(c: u8) blas.Uplo {
-    return if (c == 'U') .u else .l;
-}
-
-fn asDiag(c: u8) blas.Diag {
-    return if (c == 'U') .u else .n;
-}
+const asTrans = ob.transOf;
+const asSide = ob.sideOf;
+const asUplo = ob.uploOf;
+const asDiag = ob.diagOf;
 
 fn run(comptime T: type, comptime r: Routine, c: Call, w: anytype) !void {
     var poison: guard.Poison = .{ .child = testing.allocator };
@@ -373,8 +348,7 @@ const Sweep = struct {
 };
 
 fn bump(ld: usize) ?usize {
-    const l = if (ld < nmax) ld + 1 else ld;
-    return if (l > nmax) null else l;
+    return ob.bump(ld, nmax);
 }
 
 fn val(comptime T: type, v: [2]f64) T {
@@ -419,8 +393,8 @@ fn chk1(comptime T: type, comptime r: Routine, p: Params) !void {
                     try s.same(T, r, c, "B", ob.lse(T, w.bs[0..lbb], w.bb[0..lbb]));
                     try s.same(T, r, c, "C", if (null_) ob.lse(T, w.cs[0..lcc], w.cc[0..lcc]) else lseres(T, .ge, ' ', m, n, w.cc, w.cs, ldc));
                     if (null_) continue;
-                    const check = if (r == .gemm3m) mmch3m else mmch;
-                    try s.result(T, r, c, check(T, ta, tb, m, n, k, val(T, alpha), w.a, nmax, w.b, nmax, val(T, beta), w.c, nmax, w.ct, w.g, w.cc, ldc));
+                    const mm = if (r == .gemm3m) mmch3m else mmch;
+                    try s.result(T, r, c, mm(T, ta, tb, m, n, k, val(T, alpha), w.a, nmax, w.b, nmax, val(T, beta), w.c, nmax, w.ct, w.g, w.cc, ldc));
                 };
             }
         };

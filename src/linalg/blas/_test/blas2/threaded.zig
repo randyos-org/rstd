@@ -1,16 +1,18 @@
-//! Threaded level 2 against one worker, bit for bit, on every linked core:
-//! each routine at one worker, then at several on a threaded `Io` and on an
-//! inline one, over chunks made small (`threading.test_serial_max`). The
-//! routines that fold partial vectors are also checked against one chunk.
+//! Threaded level 2 against one worker, bit for bit, on every linked core, on
+//! a threaded `Io` and an inline one, over small chunks
+//! (`threading.test_serial_max`); folding routines against one chunk too.
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
 const threading = @import("../../threading.zig");
+const test_io = @import("../io.zig");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../blas1/check.zig");
+const check = @import("../check.zig");
+const bitwise = @import("../bitwise.zig");
 const interface = @import("../../blas2/interface.zig");
 const band = @import("../../blas2/banded.zig");
+const rank_updates = @import("../../blas2/rank.zig");
 const tri = @import("../../blas2/triangular.zig");
 
 const Io = std.Io;
@@ -19,17 +21,14 @@ const Trans = types.Trans;
 const isComplex = types.isComplex;
 const Float = types.Float;
 
-const all = .{ f32, f64, types.Complex32, types.Complex64 } ++ check.x_real ++ check.x_complex;
+const all = check.all_types;
 
 /// The long side of a test matrix: several 64-row chunks and a tail.
 const long = 5 * 64 + 37;
 /// The short side.
 const short = 97;
 
-fn val(comptime T: type, re: f64, im: f64) T {
-    if (comptime isComplex(T)) return .init(@floatCast(re), @floatCast(im));
-    return @floatCast(re);
-}
+const val = check.val;
 
 const Body = fn (Allocator, Io, *std.ArrayList(u8)) anyerror!void;
 
@@ -61,10 +60,10 @@ fn nearSerial(comptime T: type, al: Allocator, comptime body: Body, most: u64) !
     threading.test_serial_max = most;
     try body(al, Io.failing, &got);
     try std.testing.expectEqual(want.items.len, got.items.len);
-    const z = check.bitsLen(T);
+    const z = bitwise.bitsLen(T);
     for (0..want.items.len / z) |i| {
-        const w = check.fromBits(T, want.items[i * z ..][0..z]);
-        const g = check.fromBits(T, got.items[i * z ..][0..z]);
+        const w = bitwise.fromBits(T, want.items[i * z ..][0..z]);
+        const g = bitwise.fromBits(T, got.items[i * z ..][0..z]);
         check.expectClose(T, w, g, check.tolerance(Float(T), 8 * long)) catch |e| {
             check.say("element {d}: ", .{i});
             return e;
@@ -101,7 +100,7 @@ fn Cases(comptime T: type) type {
             for (transes) |t| for (shapes) |s| for (incs) |inc| {
                 @memcpy(y, y0);
                 try interface.gemv(al, io, T, t, @intCast(s[0]), @intCast(s[1]), alpha, a.ptr, @intCast(s[0] + 3), x.ptr, inc[0], beta, y.ptr, inc[1]);
-                try check.appendDigest(al, out, y);
+                try bitwise.appendDigest(al, out, y);
             };
         }
 
@@ -121,11 +120,11 @@ fn Cases(comptime T: type) type {
                 };
                 @memcpy(a, a0);
                 try interface.ger(al, io, T, @intCast(s[0]), @intCast(s[1]), alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, @intCast(s[0] + 3));
-                try check.appendDigest(al, out, a[0 .. (s[0] + 3) * s[1]]);
+                try bitwise.appendDigest(al, out, a[0 .. (s[0] + 3) * s[1]]);
                 if (comptime isComplex(T)) {
                     @memcpy(a, a0);
                     try interface.gerc(al, io, T, @intCast(s[0]), @intCast(s[1]), alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, @intCast(s[0] + 3));
-                    try check.appendDigest(al, out, a[0 .. (s[0] + 3) * s[1]]);
+                    try bitwise.appendDigest(al, out, a[0 .. (s[0] + 3) * s[1]]);
                 }
             };
         }
@@ -145,7 +144,7 @@ fn Cases(comptime T: type) type {
             for (transes) |t| for ([_][2]usize{ .{ long, short }, .{ short, long } }) |s| for (incs) |inc| {
                 @memcpy(y, y0);
                 try band.gbmv(al, io, T, t, @intCast(s[0]), @intCast(s[1]), kl, ku, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                try check.appendBits(al, out, y);
+                try bitwise.appendBits(al, out, y);
             };
         }
 
@@ -165,12 +164,12 @@ fn Cases(comptime T: type) type {
                 if (!u.isRev()) {
                     @memcpy(y, y0);
                     try interface.symv(al, io, T, u, n, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try check.appendBits(al, out, y);
+                    try bitwise.appendBits(al, out, y);
                 }
                 if (comptime isComplex(T)) {
                     @memcpy(y, y0);
                     try interface.hemv(al, io, T, u, n, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try check.appendBits(al, out, y);
+                    try bitwise.appendBits(al, out, y);
                 }
             };
         }
@@ -192,12 +191,12 @@ fn Cases(comptime T: type) type {
                 if (!u.isRev()) {
                     @memcpy(y, y0);
                     try band.sbmv(al, io, T, u, n, k, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try check.appendBits(al, out, y);
+                    try bitwise.appendBits(al, out, y);
                 }
                 if (comptime isComplex(T)) {
                     @memcpy(y, y0);
                     try band.hbmv(al, io, T, u, n, k, alpha, a.ptr, lda, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try check.appendBits(al, out, y);
+                    try bitwise.appendBits(al, out, y);
                 }
             };
         }
@@ -216,11 +215,11 @@ fn Cases(comptime T: type) type {
             for ([_]types.Uplo{ .u, .l }) |u| for (incs) |inc| {
                 @memcpy(y, y0);
                 try band.spmv(al, io, T, u, n, alpha, a.ptr, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                try check.appendBits(al, out, y);
+                try bitwise.appendBits(al, out, y);
                 if (comptime isComplex(T)) {
                     @memcpy(y, y0);
                     try band.hpmv(al, io, T, u, n, alpha, a.ptr, x.ptr, inc[0], beta, y.ptr, inc[1]);
-                    try check.appendBits(al, out, y);
+                    try bitwise.appendBits(al, out, y);
                 }
             };
         }
@@ -246,7 +245,7 @@ fn Cases(comptime T: type) type {
                         1 => try tri.tbmv(al, io, T, u, t, d, n, k, a.ptr, k + 1, x.ptr, inc[0]),
                         else => try tri.tpmv(al, io, T, u, t, d, n, a.ptr, x.ptr, inc[0]),
                     }
-                    try check.appendBits(al, out, x);
+                    try bitwise.appendBits(al, out, x);
                 }
             };
         }
@@ -273,21 +272,21 @@ fn Cases(comptime T: type) type {
                 inline for (0..4) |r| {
                     @memcpy(a, a0);
                     switch (r) {
-                        0 => try band.syr(al, io, T, u, ni, alpha, x.ptr, inc[0], a.ptr, ld),
-                        1 => try band.spr(al, io, T, u, ni, alpha, x.ptr, inc[0], a.ptr),
-                        2 => try band.syr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
-                        else => try band.spr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
+                        0 => try rank_updates.syr(al, io, T, u, ni, alpha, x.ptr, inc[0], a.ptr, ld),
+                        1 => try rank_updates.spr(al, io, T, u, ni, alpha, x.ptr, inc[0], a.ptr),
+                        2 => try rank_updates.syr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
+                        else => try rank_updates.spr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
                     }
-                    try check.appendDigest(al, out, a);
+                    try bitwise.appendDigest(al, out, a);
                     if (comptime isComplex(T)) {
                         @memcpy(a, a0);
                         switch (r) {
-                            0 => try band.her(al, io, T, u, ni, @as(ra, 0.75), x.ptr, inc[0], a.ptr, ld),
-                            1 => try band.hpr(al, io, T, u, ni, @as(ra, 0.75), x.ptr, inc[0], a.ptr),
-                            2 => try band.her2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
-                            else => try band.hpr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
+                            0 => try rank_updates.her(al, io, T, u, ni, @as(ra, 0.75), x.ptr, inc[0], a.ptr, ld),
+                            1 => try rank_updates.hpr(al, io, T, u, ni, @as(ra, 0.75), x.ptr, inc[0], a.ptr),
+                            2 => try rank_updates.her2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr, ld),
+                            else => try rank_updates.hpr2(al, io, T, u, ni, alpha, x.ptr, inc[0], y.ptr, inc[1], a.ptr),
                         }
-                        try check.appendDigest(al, out, a);
+                        try bitwise.appendDigest(al, out, a);
                     }
                 }
             };
@@ -299,7 +298,7 @@ fn onCore(vt: *const Vtable) !void {
     const saved = blas.testUse(vt);
     defer blas.testRestore(saved);
     const al = std.testing.allocator;
-    var threaded: threading.TestIo = .init(al, .{});
+    var threaded: test_io.TestIo = .init(al, .{});
     defer threaded.deinit();
     inline for (all) |T| {
         const C = Cases(T);
@@ -321,7 +320,7 @@ fn onCore(vt: *const Vtable) !void {
 }
 
 test "threaded level 2 gives one worker's bits at any worker count, Io and core" {
-    if (comptime !threading.threaded_tests) return error.SkipZigTest;
+    if (comptime !test_io.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
@@ -369,29 +368,29 @@ fn Stress(comptime T: type) type {
             threading.test_serial_max = 32 * rows;
             @memcpy(s.out_y, s.y);
             try interface.gemv(al, io, T, .t, rows, cols, alpha, s.a.ptr, lda, s.x.ptr, 1, beta, s.out_y.ptr, 2);
-            try check.appendBits(al, out, s.out_y);
+            try bitwise.appendBits(al, out, s.out_y);
             @memcpy(s.out_a, s.a);
             try interface.ger(al, io, T, rows, cols, alpha, s.x.ptr, 2, s.y.ptr, 1, s.out_a.ptr, lda);
-            try check.appendBits(al, out, s.out_a);
+            try bitwise.appendBits(al, out, s.out_a);
             threading.test_serial_max = order / 8 + 1;
             @memcpy(s.out_a, s.a);
-            try band.syr2(al, io, T, .l, order, alpha, s.x.ptr, 1, s.y.ptr, 2, s.out_a.ptr, lda);
-            try check.appendBits(al, out, s.out_a);
+            try rank_updates.syr2(al, io, T, .l, order, alpha, s.x.ptr, 1, s.y.ptr, 2, s.out_a.ptr, lda);
+            try bitwise.appendBits(al, out, s.out_a);
             @memcpy(s.out_y, s.y);
             try interface.symv(al, io, T, .u, order, alpha, s.a.ptr, lda, s.x.ptr, 1, beta, s.out_y.ptr, 2);
-            try check.appendBits(al, out, s.out_y);
+            try bitwise.appendBits(al, out, s.out_y);
         }
     };
 }
 
 test "race stress: threaded level 2 keeps one worker's bits and its guard bands, round after round" {
-    if (comptime !threading.threaded_tests) return error.SkipZigTest;
+    if (comptime !test_io.threaded_tests) return error.SkipZigTest;
     _ = blas.coreName();
     const cpus = blas.config.cpu_count;
     defer blas.config.cpu_count = cpus;
     defer threading.test_serial_max = null;
     const al = std.testing.allocator;
-    var threaded: threading.TestIo = .init(al, .{ .async_limit = .limited(8) });
+    var threaded: test_io.TestIo = .init(al, .{ .async_limit = .limited(8) });
     defer threaded.deinit();
     inline for (.{ f64, types.Complex32 }) |T| {
         var s: Stress(T) = try .init(al);
@@ -402,11 +401,11 @@ test "race stress: threaded level 2 keeps one worker's bits and its guard bands,
         try s.round(al, Io.failing, &want);
         var got: std.ArrayList(u8) = .empty;
         defer got.deinit(al);
-        for (0..threading.stress_rounds) |i| {
+        for (0..test_io.stress_rounds) |i| {
             blas.config.cpu_count = @intCast(2 + i % 7);
             got.clearRetainingCapacity();
             try s.round(al, threaded.io(), &got);
-            if (!check.sameBytes(want.items, got.items)) std.testing.expectEqualSlices(u8, want.items, got.items) catch |e| {
+            if (!bitwise.sameBytes(want.items, got.items)) std.testing.expectEqualSlices(u8, want.items, got.items) catch |e| {
                 check.say("{s} round {d}: ", .{ @typeName(T), i });
                 return e;
             };

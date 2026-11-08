@@ -2,14 +2,13 @@
 //! and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 /// `kernel/arm/asum.c` and `zasum.c`: the sum of `|x|`, of `|re| + |im|` for
 /// complex; an element is `w` floats. Up to 32 bits the sum is `f64`, not
@@ -63,7 +62,9 @@ const zigstd = @import("../../../../zigstd.zig");
 const std = @import("std");
 const sysinfo = @import("builtin");
 const x86_64 = @import("x86_64/kernel.zig");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const reference = @import("../../_test/reference.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type.
 fn checkAsum(comptime T: type, kern: anytype) !void {
@@ -72,7 +73,7 @@ fn checkAsum(comptime T: type, kern: anytype) !void {
         for ([_]usize{ 1, 2, 3 }) |inc| {
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            const W = check.Wide(F);
+            const W = reference.Wide(F);
             var want: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
@@ -123,7 +124,7 @@ test "the extended asum sums fold in asum.S's and zasum.S's order, bit for bit" 
             const len: BlasLong = @intCast(n);
             const li: BlasLong = @intCast(inc);
             inline for (.{ 1, 2 }) |w| {
-                try check.expectBits(F, check.plainExtendedSum(F, w, .abs, n, &x, inc), util.extendedSum(F, w, .abs, len, &x, li), "asum", n, inc);
+                try bitwise.expectBits(F, check.plainExtendedSum(F, w, .abs, n, &x, inc), util.extendedSum(F, w, .abs, len, &x, li), "asum", n, inc);
             }
         };
     }

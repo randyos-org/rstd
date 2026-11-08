@@ -1,17 +1,16 @@
 //! x86_64 `symv` kernels: the converted `.S` kernels (`asm/`), and the
 //! `@Vector` ports of `kernel/x86_64/ssymv_L.c`, `ssymv_U.c`, `dsymv_L.c` and
-//! `dsymv_U.c` (`../kernel.zig`) with the arithmetic of each core's
+//! `dsymv_U.c` (`../driver.zig`) with the arithmetic of each core's
 //! `*_microk_<core>-2.c` block. `dsymv_L_microk_skylakex-2.c` is intrinsics,
 //! the others inline assembly; Skylake-X's other three take Haswell's.
 //! Tests live in `symv/__root__.zig`. The AVX-512 and FMA4 cores' kernels
 //! run only on such hardware (T43).
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const fma = @import("../../../fma.zig");
 const util = @import("../../../util.zig");
-const Vtable = @import("../../../Vtable.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 
 const Slot = util.Slot;
 const Shape = kernel.Shape;
@@ -83,22 +82,9 @@ pub const ports = [_]registry.Port(Core){
 const P = registry.Ports(Core, "x86_64", &ports);
 const A = registry.Kernels(Core, @import("asm/__root__.zig"));
 
-pub fn hasSlot(comptime core: Core, comptime slot: Slot) bool {
-    return A.hasSlot(core, slot) or P.hasSlot(core, slot);
-}
-
-pub fn has(comptime core: Core) bool {
-    return A.has(core) or P.has(core);
-}
-
-pub const skips = A.skips;
-
-pub fn exportCore(comptime core: Core) void {
-    A.exportCore(core);
-    P.exportCore(core);
-}
-
-pub fn install(vt: *Vtable, comptime core: Core) void {
-    A.install(vt, core);
-    P.install(vt, core);
-}
+const U = registry.Union(Core, .{ A, P });
+pub const hasSlot = U.hasSlot;
+pub const has = U.has;
+pub const skips = U.skips;
+pub const exportCore = U.exportCore;
+pub const install = U.install;

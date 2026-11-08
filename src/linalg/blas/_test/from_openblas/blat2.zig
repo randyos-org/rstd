@@ -1,18 +1,12 @@
-//! The level-2 test programs: `test/sblat2.f`, `dblat2.f`, `cblat2.f`,
-//! `zblat2.f` with `test/[sdcz]blat2.dat`, and their CBLAS versions
-//! `ctest/c_[sdcz]blat2.f` with `ctest/[sdcz]in2`, OpenBLAS v0.3.34-317.
-//! `SCHK1` to `SCHK6`, `SMAKE`, `SMVCH`, `LSE`, `LSERES` and the error exits
-//! (`SCHKE`; ctest's `c_[sdcz]2chke.c` column-major cases are the same) are
-//! ported; the parameter tables below are the `.dat` files' values.
-//!
-//! Intentional differences: `gbmv` reports a negative `kl` or `ku` as
-//! `InvalidK` (the reference's `info` 4 and 5); a valid call returning an
-//! error fails at once, where the Fortran sets `FATAL`.
+//! The level-2 programs `test/[sdcz]blat2.f` with their `.dat` tables and
+//! their CBLAS `ctest/` versions, OpenBLAS v0.3.34-317; `gbmv`'s negative `kl`
+//! or `ku` is `InvalidK`, and an error on a valid call fails at once.
 
 const std = @import("std");
 const ob = @import("__root__.zig");
 const blas = @import("../../__root__.zig");
-const guard = @import("../blas2/guard.zig");
+const check = @import("../check.zig");
+const guard = @import("../guard.zig");
 
 const Float = ob.Float;
 const isComplex = ob.isComplex;
@@ -228,6 +222,16 @@ fn makeVec(comptime T: type, n: usize, x: []T, xx: []T, inc: usize, gen: *ob.Gen
     make(T, .ge, ' ', ' ', 1, n, x, 1, xx, inc, 0, @as(isize, @intCast(n)) - 1, gen, transl);
 }
 
+/// `makeVec`, and the middle element zero in both, as the Fortran sets it
+/// for `n > 1`.
+fn makeVecZeroMid(comptime T: type, n: usize, x: []T, xx: []T, inc: usize, gen: *ob.Gen, transl: f64) void {
+    makeVec(T, n, x, xx, inc, gen, transl);
+    if (n > 1) {
+        x[n / 2 - 1] = ob.zero(T);
+        xx[inc * (n / 2 - 1)] = ob.zero(T);
+    }
+}
+
 /// `LSERES`: the elements of the `m` by `n` storage outside the result agree,
 /// rows past `m` for `ge`, the other triangle for `sy`.
 fn lseres(comptime T: type, kind: Kind, uplo: u8, m: usize, n: usize, aa: []const T, as: []const T, lda: usize) bool {
@@ -244,7 +248,7 @@ fn lseres(comptime T: type, kind: Kind, uplo: u8, m: usize, n: usize, aa: []cons
 
 // ---- SMVCH ----------------------------------------------------------------
 
-const Result = struct { err: f64, fatal: bool };
+const Result = ob.Result;
 
 /// `SMVCH`/`CMVCH`: `alpha*op(A)*x + beta*y` from the dense `a` (leading
 /// dimension `ld`) and compacted `x`, `y` into `yt`, gauges into `g`, and the
@@ -348,17 +352,8 @@ const Call = struct {
     }
 };
 
-fn transOf(c: u8) blas.Trans {
-    return switch (c) {
-        'N' => .n,
-        'T' => .t,
-        else => .c,
-    };
-}
-
-fn uploOf(c: u8) blas.Uplo {
-    return if (c == 'U') .u else .l;
-}
+const transOf = ob.transOf;
+const uploOf = ob.uploOf;
 
 /// Calls routine `r` on the storage in `w`.
 fn run(comptime T: type, comptime r: Routine, c: Call, w: anytype) !void {
@@ -480,9 +475,7 @@ fn chk1(comptime T: type, comptime r: Routine, p: Params) !void {
             for (0..nk) |iku| {
                 const ku: isize = if (band) @intCast(p.k[iku]) else @as(isize, @intCast(n)) - 1;
                 const kl: isize = if (band) @max(ku - 1, 0) else @as(isize, @intCast(m)) - 1;
-                var lda: usize = if (band) @intCast(kl + ku + 1) else m;
-                if (lda < nmax) lda += 1;
-                if (lda > nmax) continue;
+                const lda = ob.bump(if (band) @intCast(kl + ku + 1) else m, nmax) orelse continue;
                 const laa = lda * n;
                 const null_ = n == 0 or m == 0;
                 make(T, if (band) .gb else .ge, ' ', ' ', m, n, w.a, nmax, w.aa, lda, kl, ku, &gen, 0);
@@ -493,11 +486,7 @@ fn chk1(comptime T: type, comptime r: Routine, p: Params) !void {
                     for (p.inc) |incx| {
                         const ax: usize = @abs(incx);
                         const lx = ax * nl;
-                        makeVec(T, nl, w.x, w.xx, ax, &gen, 0.5);
-                        if (nl > 1) {
-                            w.x[nl / 2 - 1] = ob.zero(T);
-                            w.xx[ax * (nl / 2 - 1)] = ob.zero(T);
-                        }
+                        makeVecZeroMid(T, nl, w.x, w.xx, ax, &gen, 0.5);
                         for (p.inc) |incy| {
                             const ay: usize = @abs(incy);
                             const ly = ay * ml;
@@ -536,9 +525,7 @@ fn chk2(comptime T: type, comptime r: Routine, p: Params) !void {
         const nk = if (band) p.k.len else 1;
         for (0..nk) |ik| {
             const k: isize = if (band) @intCast(p.k[ik]) else @as(isize, @intCast(n)) - 1;
-            var lda: usize = if (band) @intCast(k + 1) else n;
-            if (lda < nmax) lda += 1;
-            if (lda > nmax) continue;
+            const lda = ob.bump(if (band) @intCast(k + 1) else n, nmax) orelse continue;
             const laa = if (pack) n * (n + 1) / 2 else lda * n;
             const null_ = n == 0;
             for ("UL") |uplo| {
@@ -546,11 +533,7 @@ fn chk2(comptime T: type, comptime r: Routine, p: Params) !void {
                 for (p.inc) |incx| {
                     const ax: usize = @abs(incx);
                     const lx = ax * n;
-                    makeVec(T, n, w.x, w.xx, ax, &gen, 0.5);
-                    if (n > 1) {
-                        w.x[n / 2 - 1] = ob.zero(T);
-                        w.xx[ax * (n / 2 - 1)] = ob.zero(T);
-                    }
+                    makeVecZeroMid(T, n, w.x, w.xx, ax, &gen, 0.5);
                     for (p.inc) |incy| {
                         const ay: usize = @abs(incy);
                         const ly = ay * n;
@@ -591,9 +574,7 @@ fn chk3(comptime T: type, comptime r: Routine, p: Params) !void {
         const nk = if (band) p.k.len else 1;
         for (0..nk) |ik| {
             const k: isize = if (band) @intCast(p.k[ik]) else @as(isize, @intCast(n)) - 1;
-            var lda: usize = if (band) @intCast(k + 1) else n;
-            if (lda < nmax) lda += 1;
-            if (lda > nmax) continue;
+            const lda = ob.bump(if (band) @intCast(k + 1) else n, nmax) orelse continue;
             const laa = if (pack) n * (n + 1) / 2 else lda * n;
             const null_ = n == 0;
             for ("UL") |uplo| for ("NTC") |trans| for ("UN") |diag| {
@@ -601,11 +582,7 @@ fn chk3(comptime T: type, comptime r: Routine, p: Params) !void {
                 for (p.inc) |incx| {
                     const ax: usize = @abs(incx);
                     const lx = ax * n;
-                    makeVec(T, n, w.x, w.xx, ax, &gen, 0.5);
-                    if (n > 1) {
-                        w.x[n / 2 - 1] = ob.zero(T);
-                        w.xx[ax * (n / 2 - 1)] = ob.zero(T);
-                    }
+                    makeVecZeroMid(T, n, w.x, w.xx, ax, &gen, 0.5);
                     @memcpy(w.as[0..laa], w.aa[0..laa]);
                     @memcpy(w.xs[0..lx], w.xx[0..lx]);
                     const c: Call = .{ .uplo = uplo, .trans = trans, .diag = diag, .n = n, .k = k, .lda = lda, .incx = incx };
@@ -642,27 +619,17 @@ fn chk4(comptime T: type, comptime r: Routine, p: Params) !void {
         const nd = n / 2 + 1;
         next_m: for (0..2) |im| {
             const m = if (im == 0) n -| nd else @min(n + nd, nmax);
-            var lda = m;
-            if (lda < nmax) lda += 1;
-            if (lda > nmax) continue;
+            const lda = ob.bump(m, nmax) orelse continue;
             const laa = lda * n;
             const null_ = n == 0 or m == 0;
             for (p.inc) |incx| {
                 const ax: usize = @abs(incx);
                 const lx = ax * m;
-                makeVec(T, m, w.x, w.xx, ax, &gen, 0.5);
-                if (m > 1) {
-                    w.x[m / 2 - 1] = ob.zero(T);
-                    w.xx[ax * (m / 2 - 1)] = ob.zero(T);
-                }
+                makeVecZeroMid(T, m, w.x, w.xx, ax, &gen, 0.5);
                 for (p.inc) |incy| {
                     const ay: usize = @abs(incy);
                     const ly = ay * n;
-                    makeVec(T, n, w.y, w.yy, ay, &gen, 0);
-                    if (n > 1) {
-                        w.y[n / 2 - 1] = ob.zero(T);
-                        w.yy[ay * (n / 2 - 1)] = ob.zero(T);
-                    }
+                    makeVecZeroMid(T, n, w.y, w.yy, ay, &gen, 0);
                     for (p.alpha) |alpha| {
                         make(T, .ge, ' ', ' ', m, n, w.a, nmax, w.aa, lda, @as(isize, @intCast(m)) - 1, @as(isize, @intCast(n)) - 1, &gen, 0);
                         @memcpy(w.as[0..laa], w.aa[0..laa]);
@@ -700,20 +667,14 @@ fn chk5(comptime T: type, comptime r: Routine, p: Params) !void {
     var s: Sweep = .{};
     const one = ob.val(T, 1, 0);
     next_n: for (p.n) |n| {
-        var lda = n;
-        if (lda < nmax) lda += 1;
-        if (lda > nmax) continue;
+        const lda = ob.bump(n, nmax) orelse continue;
         const laa = if (pack) n * (n + 1) / 2 else lda * n;
         for ("UL") |uplo| {
             const up = uplo == 'U';
             for (p.inc) |incx| {
                 const ax: usize = @abs(incx);
                 const lx = ax * n;
-                makeVec(T, n, w.x, w.xx, ax, &gen, 0.5);
-                if (n > 1) {
-                    w.x[n / 2 - 1] = ob.zero(T);
-                    w.xx[ax * (n / 2 - 1)] = ob.zero(T);
-                }
+                makeVecZeroMid(T, n, w.x, w.xx, ax, &gen, 0.5);
                 for (p.alpha) |alpha_c| {
                     const alpha: [2]f64 = .{ alpha_c[0], 0 };
                     const null_ = n == 0 or alpha[0] == 0;
@@ -755,28 +716,18 @@ fn chk6(comptime T: type, comptime r: Routine, p: Params) !void {
     var s: Sweep = .{};
     const one = ob.val(T, 1, 0);
     next_n: for (p.n) |n| {
-        var lda = n;
-        if (lda < nmax) lda += 1;
-        if (lda > nmax) continue;
+        const lda = ob.bump(n, nmax) orelse continue;
         const laa = if (pack) n * (n + 1) / 2 else lda * n;
         for ("UL") |uplo| {
             const up = uplo == 'U';
             for (p.inc) |incx| {
                 const ax: usize = @abs(incx);
                 const lx = ax * n;
-                makeVec(T, n, w.x, w.xx, ax, &gen, 0.5);
-                if (n > 1) {
-                    w.x[n / 2 - 1] = ob.zero(T);
-                    w.xx[ax * (n / 2 - 1)] = ob.zero(T);
-                }
+                makeVecZeroMid(T, n, w.x, w.xx, ax, &gen, 0.5);
                 for (p.inc) |incy| {
                     const ay: usize = @abs(incy);
                     const ly = ay * n;
-                    makeVec(T, n, w.y, w.yy, ay, &gen, 0);
-                    if (n > 1) {
-                        w.y[n / 2 - 1] = ob.zero(T);
-                        w.yy[ay * (n / 2 - 1)] = ob.zero(T);
-                    }
+                    makeVecZeroMid(T, n, w.y, w.yy, ay, &gen, 0);
                     for (p.alpha) |alpha| {
                         const av = ob.val(T, alpha[0], alpha[1]);
                         const null_ = n == 0 or ob.isZero(av);
@@ -832,7 +783,7 @@ fn chk(comptime T: type, comptime r: Routine, p: Params) !void {
     try f(T, r, p);
 }
 
-const all_types = .{ f32, f64, std.math.Complex(f32), std.math.Complex(f64) };
+const all_types = check.sd_types;
 
 /// Every type `r` exists for, with the `.dat` table natively, ctest's too,
 /// and the header's on the rigs.

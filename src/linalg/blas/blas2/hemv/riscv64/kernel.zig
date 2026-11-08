@@ -2,8 +2,8 @@
 //! `kernel/riscv64/zhemv_UV_rvv.c`, `zhemv_LM_rvv.c`, `zhemv_UV_vector.c` and `zhemv_LM_vector.c`,
 //! for the cores whose `KERNEL.<CORE>` names them. Per-core tests live in `hemv/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const vector = @import("../../../vector.zig");
 
 pub const Core = coretypes.RiscvCoreType;

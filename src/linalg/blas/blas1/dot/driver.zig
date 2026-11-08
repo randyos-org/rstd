@@ -1,19 +1,8 @@
-//! Shared pieces of the dot kernels: the reference's kernel ABI and the
-//! drivers of `kernel/x86_64/{d,c,z}dot.c`. Nothing here depends on the BLAS
-//! root, so the per-core kernel objects (`_kernel.zig`) can use it too.
-//!
-//! A driver is a block kernel for the contiguous part, the reference's scalar
-//! tail, and its strided loops. A block leaves its sum in the memory the
-//! driver hands it; here `Block.run(n1, x, y)` returns what it left there
-//! (zero before). `fuse` says whether the compiler flags of the core being
-//! built contract multiply-adds (see `fma.zig`); it is applied per statement
-//! the way clang's contraction is: only within one expression, so a product
-//! kept in its own statement stays un-fused, and a `float` product added to a
-//! `double` is rounded first.
-//!
-//! The reference's `SMP` path, which splits a long vector over threads and
-//! adds the partial sums, is the interface's concern, not the kernel's: these
-//! are its single-threaded `dot_compute`.
+//! The dot kernels' ABI and the drivers of `kernel/x86_64/{d,c,z}dot.c`
+//! (`dot_compute`, single-threaded): a block for the contiguous part, whose
+//! sum `Block.run` returns, then the scalar tail and strided loops. `fuse`
+//! contracts per expression, as clang does (`fma.zig`). No BLAS-root imports:
+//! the per-core objects (`_kernel.zig`) use it.
 
 const std = @import("std");
 const util = @import("../../util.zig");

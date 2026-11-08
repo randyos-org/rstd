@@ -1,20 +1,15 @@
 //! The drivers of `kernel/x86_64/srot.c` and `drot.c` (`rot_compute`): unit
-//! strides go to the block (`<p>rot_kernel`), others to the C loop. Each
-//! element is `x' = c*x + s*y`, `y' = c*y - s*x`; the blocks are intrinsics
-//! (`Vector(slot)` of the architecture) or, where the chain names none, the
-//! C block on `../simd/intrin.h` here. Nothing here depends on the BLAS root,
-//! so the per-core objects (`_kernel.zig`) can use it.
-//!
-//! The intrinsics fuse by name (`_mm256_fmadd_pd`: `@mulAdd`); the C
-//! statements contract as the core's flags say (`fma.madd`), `c*x + s*y`
-//! fusing the first product, so on the FMA cores every path gives one value.
+//! strides to the block (intrinsics, or the C block on `../simd/intrin.h`),
+//! others to the C loop. Intrinsics fuse by name; the C contracts by the
+//! core's flags (`fma.madd`), so FMA cores give one value on every path. No
+//! BLAS-root imports (`_kernel.zig`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
 const fma = @import("../../fma.zig");
-const uk = @import("../uk_block.zig");
+const uk = @import("../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -64,16 +59,8 @@ pub inline fn rotateVectors(comptime V: type, comptime count: comptime_int, x: [
 
 /// `V_SIMD` of `../simd/intrin.h` for the core being built: 512 with
 /// AVX-512VL, 256 with AVX2, 128 with SSE2.
-const v_simd: comptime_int = blk: {
-    if (!sysinfo.target.cpu.arch.isX86()) break :blk 0;
-    const f = sysinfo.target.cpu.features;
-    const x86 = std.Target.x86;
-    if (x86.featureSetHas(f, .avx512vl)) break :blk 512;
-    if (x86.featureSetHas(f, .avx2)) break :blk 256;
-    if (x86.featureSetHas(f, .sse2)) break :blk 128;
-    break :blk 0;
-};
-const has_fma3 = sysinfo.target.cpu.arch.isX86() and std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .fma);
+const v_simd: comptime_int = if (util.x86Has(.avx512vl)) 512 else if (util.x86Has(.avx2)) 256 else if (util.x86Has(.sse2)) 128 else 0;
+const has_fma3 = util.x86Has(.fma);
 
 /// The drivers' own `<p>rot_kernel`, for a core whose chain names no block:
 /// vectors of `V_SIMD` bits four at a time, then one, then the C tail; or,

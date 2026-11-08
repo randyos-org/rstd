@@ -3,17 +3,17 @@
 //! plain arithmetic.
 
 const types = @import("../../types.zig");
+const std = @import("std");
+const sysinfo = @import("builtin");
+const x86_64 = @import("x86_64/kernel.zig");
+const ported = @import("driver.zig");
+const Vtable = @import("../../Vtable.zig");
+const sym = @import("../symmetric.zig");
+const portable = @import("../../portable.zig");
 
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const std = @import("std");
-const sysinfo = @import("builtin");
-const x86_64 = @import("x86_64/kernel.zig");
-const ported = @import("kernel.zig");
-const Vtable = @import("../../Vtable.zig");
-const sym = @import("../symmetric.zig");
 
 /// The portable kernels over `T`, any float or its `Complex`, by the slot
 /// they would fill (`portable.kernel`): the direct loops, which need no
@@ -29,18 +29,16 @@ pub fn Portable(comptime T: type) type {
 /// Points every symv slot but bfloat16's at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {
-        @field(vt, p[0] ++ "symv_U") = &sym.Auto(p[0], p[1], false, .symmetric).real;
-        @field(vt, p[0] ++ "symv_L") = &sym.Auto(p[0], p[1], true, .symmetric).real;
+        portable.slotPtr(vt, .from(p[0]), .symv_U).* = &sym.Auto(p[0], p[1], false, .symmetric).real;
+        portable.slotPtr(vt, .from(p[0]), .symv_L).* = &sym.Auto(p[0], p[1], true, .symmetric).real;
     }
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        @field(vt, p[0] ++ "symv_U") = &sym.Auto(p[0], std.math.Complex(p[1]), false, .symmetric).cplx;
-        @field(vt, p[0] ++ "symv_L") = &sym.Auto(p[0], std.math.Complex(p[1]), true, .symmetric).cplx;
+        portable.slotPtr(vt, .from(p[0]), .symv_U).* = &sym.Auto(p[0], std.math.Complex(p[1]), false, .symmetric).cplx;
+        portable.slotPtr(vt, .from(p[0]), .symv_L).* = &sym.Auto(p[0], std.math.Complex(p[1]), true, .symmetric).cplx;
     }
 }
 
 // ---- tests -----------------------------------------------------------------
-
-const guard = @import("../../_test/blas2/guard.zig");
 
 fn checkAll(vt: *const Vtable) !void {
     guard.use(vt);
@@ -49,13 +47,14 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 fn checkSlots(vt: *const Vtable) !void {
-    inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", std.math.Complex(f32) }, .{ "z", std.math.Complex(f64) } }) |p| {
-        try sym.checkBoth(p[0], p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
-        try sym.checkBoth(p[0], p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
+    inline for (check.sd_letters) |p| {
+        try sym.checkBoth(p[0], p[1], false, .symmetric, portable.slotPtr(vt, .from(p[0]), .symv_U).*.?, p[0] ++ "symv_U");
+        try sym.checkBoth(p[0], p[1], true, .symmetric, portable.slotPtr(vt, .from(p[0]), .symv_L).*.?, p[0] ++ "symv_L");
     }
 }
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const guard = @import("../../_test/guard.zig");
 
 test "portable symv kernels match plain arithmetic" {
     const vt = guard.portableVtable();
@@ -63,8 +62,8 @@ test "portable symv kernels match plain arithmetic" {
     defer guard.restore();
     try checkSlots(vt);
     inline for (.{ .{ "q", XDouble }, .{ "x", std.math.Complex(XDouble) } }) |p| {
-        try sym.checkBoth(p[0], p[1], false, .symmetric, @field(vt, p[0] ++ "symv_U").?, p[0] ++ "symv_U");
-        try sym.checkBoth(p[0], p[1], true, .symmetric, @field(vt, p[0] ++ "symv_L").?, p[0] ++ "symv_L");
+        try sym.checkBoth(p[0], p[1], false, .symmetric, portable.slotPtr(vt, .from(p[0]), .symv_U).*.?, p[0] ++ "symv_U");
+        try sym.checkBoth(p[0], p[1], true, .symmetric, portable.slotPtr(vt, .from(p[0]), .symv_L).*.?, p[0] ++ "symv_L");
     }
 }
 

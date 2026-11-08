@@ -1,14 +1,11 @@
-//! The small-matrix gemm kernels (`small.zig`): `kernel/generic/gemm_small_matrix_kernel_*.c`
-//! and `zgemm_small_matrix_kernel_*.c`, each element summed over the depth in
-//! order, the real ones on `@Vector`s of rows and columns of the gemm tile.
-//! One of the gemm tile's `sets` (`kernel.zig`), so each core's object builds
-//! them for its features, or its own where upstream has them (`forCore`);
-//! imports stay inside `linalg/blas/`.
+//! The small-matrix kernels (`small.zig`): `kernel/generic/gemm_small_matrix_kernel_*.c`
+//! and `zgemm_*`, each element summed over the depth in order, on the gemm
+//! tile's `@Vector`s; in every core's object. Imports stay in `linalg/blas/`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
-const coretypes = @import("../../cpu/_coretypes.zig");
+const coretypes = @import("../../cpu/coretypes.zig");
 const gk = @import("kernel.zig");
 
 const BlasLong = types.BlasLong;
@@ -20,7 +17,7 @@ const isComplex = types.isComplex;
 /// one's elsewhere.
 pub fn forCore(comptime core: anytype) type {
     if (sysinfo.target.cpu.arch == .x86_64 and @TypeOf(core) == coretypes.X86CoreType) switch (core) {
-        .skylakex, .cooperlake, .sapphirerapids => return @import("x86_64/kernel.zig"),
+        .skylakex, .cooperlake, .sapphirerapids => return @import("small_x86_64.zig"),
         else => {},
     };
     return @This();

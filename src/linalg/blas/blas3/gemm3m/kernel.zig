@@ -1,16 +1,6 @@
-//! The 3M kernels for complex `T` (Higham, "Stability of a Method for
-//! Multiplying Complex Matrices with Three Real Matrix Multiplications", SIAM
-//! J. Matrix Anal. Appl. 13(3), 681-687, 1992, <https://doi.org/10.1137/0613043>):
-//! the copies that pack one part of an operand, or the sum of both, as real
-//! panels (`kernel/generic/zgemm3m_ncopy_*.c`, `zgemm3m_tcopy_*.c`,
-//! `zsymm3m_ucopy_*.c`, `zsymm3m_lcopy_*.c`, `zhemm3m_ucopy_*.c`,
-//! `zhemm3m_lcopy_*.c`), the `o` copies scaling by `alpha` first, and the
-//! kernel that adds a real product to both parts of `C`
-//! (`kernel/x86_64/zgemm3m_kernel_4x4_haswell.c`). One of the gemm tile's
-//! `sets` (`gemm/kernel.zig`), so every core's object builds them.
-//!
-//! The tile is the real gemm tile of `T`'s parts (`realTile`); the copies
-//! pack in its layout, `m` deep and `n` lines.
+//! The 3M kernels for complex `T`: the copies packing one part or the sum
+//! (`kernel/generic/z{gemm,symm,hemm}3m_*copy_*.c`) and the kernel adding a
+//! real product to both parts of `C` (`zgemm3m_kernel_4x4_haswell.c`), on the real tile.
 
 const std = @import("std");
 const types = @import("../../types.zig");

@@ -2,17 +2,15 @@
 //! routines.
 
 pub const kernel = @import("kernel.zig");
-
-const check = @import("../../_test/blas3/check.zig");
+const check3 = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
+const check = @import("../../_test/check.zig");
+const portable = @import("../../portable.zig");
 
 fn cases(vt: *const Vtable) !void {
-    try check.routineAll(vt, .symm);
-    try check.routineAll(vt, .hemm);
+    try check3.routineAll(vt, .symm);
+    try check3.routineAll(vt, .hemm);
 }
-
-const blas1check = @import("../../_test/blas1/check.zig");
-const portable = @import("../../portable.zig");
 
 test "portable symm and hemm match the wide reference through the driver" {
     var vt: Vtable = .{};
@@ -21,5 +19,5 @@ test "portable symm and hemm match the wide reference through the driver" {
 }
 
 test "every linked core's symm and hemm match the wide reference, where this machine runs them" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }

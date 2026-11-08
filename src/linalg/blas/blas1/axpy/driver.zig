@@ -1,14 +1,8 @@
-//! Shared pieces of the axpy kernels: the reference's kernel ABI and the
-//! `CNAME` drivers of `kernel/x86_64/{s,d,c,z}axpy.c`. Nothing here depends on
-//! the BLAS root, so the per-core kernel objects (`_kernel.zig`) can use
-//! it too.
-//!
-//! A driver is an optional block kernel for the contiguous part plus the
-//! reference's scalar tail and strided loops. `fuse` says whether the
-//! compiler flags of the core being built contract multiply-adds (see
-//! `fma.zig`); it is applied per statement the way clang's contraction is:
-//! only within a single expression, so the strided loop's separate
-//! `m = da * x; y += m` statements stay un-fused.
+//! The axpy kernels' ABI and the `CNAME` drivers of
+//! `kernel/x86_64/{s,d,c,z}axpy.c`: an optional block for the contiguous part,
+//! then the scalar tail and strided loops. `fuse` contracts per expression,
+//! as clang does (`fma.zig`), so `m = da * x; y += m` stays unfused. No
+//! BLAS-root imports: the per-core objects (`_kernel.zig`) use it.
 
 const std = @import("std");
 const util = @import("../../util.zig");
@@ -39,7 +33,7 @@ pub fn form(comptime slot: Slot) Form {
 }
 
 /// A hand port with `Real(T)` and `Cplx(F, conj)` kernels (`call`) as an
-/// `asm_registry.Port` module.
+/// `registry.Port` module.
 pub fn Ported(comptime module: type) type {
     return struct {
         fn K(comptime slot: Slot) type {

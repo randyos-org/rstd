@@ -1,15 +1,6 @@
-//! The small-matrix gemm path (`SMALL_MATRIX_OPT`, `interface/gemm.c`):
-//! where a core's `gemm_small_matrix_permit` allows, `gemm` multiplies
-//! straight from the caller's matrices, without packing, `C := beta*C +
-//! alpha*op(A)*op(B)`, or `alpha*op(A)*op(B)` for a zero `beta`
-//! (`gemm_small_kernel_b0_*`, which never reads `C`).
-//!
-//! The kernels are `kernel/generic`'s (`small_kernel.zig`), in every core's
-//! object. The permits are the reference's per core
-//! (`permitFor`), installed with the core's blocking (`params.installCore`);
-//! every other core takes the generic one, which allows nothing
-//! (`kernel/generic/gemm_small_matrix_permit.c`), as complex does on every
-//! core upstream (`zgemm_small_matrix_permit.c`).
+//! The small-matrix gemm path (`SMALL_MATRIX_OPT`, `interface/gemm.c`): where a
+//! core's `gemm_small_matrix_permit` allows (`permitFor`; the generic one
+//! allows nothing), `gemm` multiplies straight from the caller's matrices.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -263,12 +254,10 @@ pub fn gemmHalf(vt: *const Vtable, ta: bool, tb: bool, m: usize, n: usize, k: us
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas3/check.zig");
-const blas1check = @import("../../_test/blas1/check.zig");
+const check3 = @import("../../_test/blas3/check.zig");
+const check = @import("../../_test/check.zig");
 
-fn fillSeq(comptime F: type, buf: []F, seed: usize) void {
-    for (buf, 0..) |*v, i| v.* = @floatFromInt(@as(i64, @intCast((i * 7 + seed * 13) % 23)) - 11);
-}
+const fillSeq = check.fillSeq;
 
 /// Every kernel against plain arithmetic, around every vector and column
 /// group edge; exact on small integers. `C` padding must survive.
@@ -406,7 +395,7 @@ fn cases(vt: *const Vtable) !void {
     permissive.dgemm_small_matrix_permit = &always(f64);
     permissive.cgemm_small_matrix_permit = &alwaysComplex(f32);
     permissive.zgemm_small_matrix_permit = &alwaysComplex(f64);
-    try check.routineAll(&permissive, .gemm);
+    try check3.routineAll(&permissive, .gemm);
 }
 
 test "portable small kernels match the wide reference through gemm" {
@@ -416,14 +405,14 @@ test "portable small kernels match the wide reference through gemm" {
 }
 
 test "every linked core's small kernels match the wide reference, where this machine runs them" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }
 
 // ---- Skylake-X's kernels, on any x86_64 --------------------------------------------
 
-/// `x86_64/kernel.zig`'s kernels, which LLVM splits into narrower vectors
+/// `small_x86_64.zig`'s kernels, which LLVM splits into narrower vectors
 /// on a machine without AVX-512: the same lanes, so the same bits.
-const skylakex = @import("x86_64/kernel.zig");
+const skylakex = @import("small_x86_64.zig");
 
 /// Skylake-X's element `(i, j)` of an `m x n x k` problem of `op` (`"nn"`
 /// ...), as upstream computes it: the depth in order, fused, except in the

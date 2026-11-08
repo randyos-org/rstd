@@ -4,16 +4,15 @@
 
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
+const portable = @import("../../portable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const std = @import("std");
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
-const portable = @import("../../portable.zig");
 
 /// `kernel/generic/ger.c` and `zger.c`: the rank-1 update `A += alpha*x*y^T`,
 /// `A` column-major `m` by `n`, as a copy of `x` where its stride is not 1
@@ -75,23 +74,23 @@ pub fn Portable(comptime T: type) type {
     };
 }
 
-/// The complex variants by suffix, and whether `y` is conjugated.
-const variants = .{ .{ "u", false }, .{ "c", true } };
+/// The complex variants by op, and whether `y` is conjugated.
+const variants = .{ .{ .geru_k, false }, .{ .gerc_k, true } };
 
 /// Points every ger slot at the portable kernels.
 pub fn installGeneric(vt: *Vtable) void {
     inline for (.{ .{ "s", f32 }, .{ "d", f64 }, .{ "q", XDouble } }) |p| {
-        @field(vt, p[0] ++ "ger_k") = &Ger(p[1], false).k;
+        portable.slotPtr(vt, .from(p[0]), .ger_k).* = &Ger(p[1], false).k;
     }
     inline for (.{ .{ "c", f32 }, .{ "z", f64 }, .{ "x", XDouble } }) |p| {
-        inline for (variants) |v| @field(vt, p[0] ++ "ger" ++ v[0] ++ "_k") = &Ger(std.math.Complex(p[1]), v[1]).k;
+        inline for (variants) |v| portable.slotPtr(vt, .from(p[0]), v[0]).* = &Ger(std.math.Complex(p[1]), v[1]).k;
     }
 }
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas1/check.zig");
-const guard = @import("../../_test/blas2/guard.zig");
+const check = @import("../../_test/check.zig");
+const guard = @import("../../_test/guard.zig");
 
 const C = std.math.Complex;
 /// Shapes across the kernels' blocks, then bigger ones (static storage:
@@ -168,7 +167,7 @@ fn checkSlots(vt: *const Vtable) !void {
     try checkGer(f32, false, vt.sger_k.?);
     try checkGer(f64, false, vt.dger_k.?);
     inline for (.{ .{ "c", f32 }, .{ "z", f64 } }) |p| {
-        inline for (variants) |v| try checkGer(C(p[1]), v[1], @field(vt, p[0] ++ "ger" ++ v[0] ++ "_k").?);
+        inline for (variants) |v| try checkGer(C(p[1]), v[1], portable.slotPtr(vt, .from(p[0]), v[0]).*.?);
     }
 }
 
@@ -178,7 +177,7 @@ test "portable ger kernels match plain arithmetic" {
     defer guard.restore();
     try checkSlots(vt);
     try checkGer(XDouble, false, vt.qger_k.?);
-    inline for (variants) |v| try checkGer(C(XDouble), v[1], @field(vt, "xger" ++ v[0] ++ "_k").?);
+    inline for (variants) |v| try checkGer(C(XDouble), v[1], portable.slotPtr(vt, .x, v[0]).*.?);
 }
 
 test "every linked core's ger kernels match plain arithmetic, where this machine runs them" {

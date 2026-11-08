@@ -1,6 +1,6 @@
 //! x86_64 scal kernels, one set per core, built into the per-core kernel
 //! objects (`src/linalg/blas/_kernel.zig`). A core's kernel is a `.S` kernel
-//! (`asm/`) or the C driver `{s,d,c,z}scal.c` (`../kernel.zig`) around the
+//! (`asm/`) or the C driver `{s,d,c,z}scal.c` (`../driver.zig`) around the
 //! blocks `uk/__root__.zig` names: the reference's inline-assembly
 //! microkernels, or for the AVX-512 cores, whose blocks are intrinsics, the
 //! same loops on `@Vector`s. Tests live in `scal/__root__.zig`.
@@ -8,10 +8,10 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
-const coretypes = @import("../../../cpu/_coretypes.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
 const util = @import("../../../util.zig");
-const kernel = @import("../kernel.zig");
-const uk = @import("../../uk_block.zig");
+const kernel = @import("../driver.zig");
+const uk = @import("../../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;

@@ -1,23 +1,13 @@
-//! The drivers of `kernel/x86_64/{s,d,c,z}scal.c`, around the blocks a core's
-//! `uk/` index names: the unit-stride block, its zeroing twin, and the strided
-//! one (`dscal.c`'s own assembly, the others' C). Every element is one product
-//! or a stored zero, so any block gives the same bits. Nothing here depends on
-//! the BLAS root, so the per-core objects (`_kernel.zig`) can use it.
-//!
-//! The last argument (`dummy2`) is the flag of the portable kernels: 1, which
-//! the interface passes, multiplies even by a zero `alpha` (NaN stays NaN);
-//! otherwise a zero `alpha` stores zeros.
-//!
-//! `cscal.c` and `zscal.c` are built without contraction; their blocks take
-//! the full product, `(ar*xr - ai*xi, ar*xi + ai*xr)`. Their C tails and
-//! strided loops branch on special values and drop zero parts of `alpha`,
-//! which the blocks do not (issues.md); here those take the blocks' product,
-//! so every element keeps one contract.
+//! The drivers of `kernel/x86_64/{s,d,c,z}scal.c` around a core's `uk/`
+//! blocks; every element is one product or a stored zero, so any block gives
+//! the same bits. `flag` (upstream's `dummy2`): 1 multiplies even by a zero `alpha`.
+//! The complex C tails, which branch on special values, take the blocks'
+//! full product here (issues.md). No BLAS-root imports (`_kernel.zig`).
 
 const std = @import("std");
 const util = @import("../../util.zig");
 const types = @import("../../types.zig");
-const uk = @import("../uk_block.zig");
+const uk = @import("../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;
@@ -152,8 +142,8 @@ fn Driver(comptime slot: Slot, comptime B: type) type {
             }
         }
 
-        pub fn call(n: BlasLong, _: BlasLong, _: BlasLong, da: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, dummy2: BlasLong) callconv(.c) i32 {
-            if (dummy2 == 1 and da == 0) {
+        pub fn call(n: BlasLong, _: BlasLong, _: BlasLong, da: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, flag: BlasLong) callconv(.c) i32 {
+            if (flag == 1 and da == 0) {
                 if (inc_x != 1) strided(n, da, x, inc_x) else unit(n, da, x, false);
             } else if (inc_x != 1) {
                 if (da == 0) {
@@ -182,8 +172,8 @@ fn ComplexDriver(comptime slot: Slot, comptime B: type) type {
     const F = Elem(slot);
     const w = width(slot);
     return struct {
-        pub fn call(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, dummy2: BlasLong) callconv(.c) i32 {
-            const zero = da_r == 0 and da_i == 0 and dummy2 == 0;
+        pub fn call(n: BlasLong, _: BlasLong, _: BlasLong, da_r: F, da_i: F, x: [*]F, inc_x: BlasLong, _: [*]F, _: BlasLong, _: [*]F, flag: BlasLong) callconv(.c) i32 {
+            const zero = da_r == 0 and da_i == 0 and flag == 0;
             var i: BlasLong = 0;
             var j: BlasLong = 0;
             if (inc_x == 1) {
