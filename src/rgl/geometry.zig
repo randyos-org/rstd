@@ -1,5 +1,7 @@
-//! Shared, backend-agnostic geometry types -- used by both the sw and vulkan
+//! Shared, backend-agnostic geometry types; used by both the sw and vulkan
 //! rgl backends, and by the public render.zig API.
+
+const zigstd = @import("../zigstd.zig");
 
 pub const Point = struct {
     const Self = @This();
@@ -65,7 +67,7 @@ pub const PointF32 = struct {
     }
 };
 
-/// Axis-aligned, origin top-left, integer pixel rectangle -- the unit every
+/// Axis-aligned, origin top-left, integer pixel rectangle; the unit every
 /// render.zig box primitive (fillRect/strokeRect/fillRoundRect/...) takes.
 pub const Rect = struct {
     const Self = @This();
@@ -98,7 +100,6 @@ pub const Rect = struct {
     }
 };
 
-const zigstd = @import("../zigstd.zig");
 const testExpectEqual = zigstd.testExpectEqual;
 
 test "Point/PointF32/PointI32 conversions and arithmetic" {

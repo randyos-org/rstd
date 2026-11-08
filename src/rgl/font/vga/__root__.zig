@@ -4,13 +4,13 @@
 //! IBM_VGA_8x16.bin is derived from IBM MCGA/VGA (PS/2) video BIOS,
 //! 1 byte/row MSB-first (bit 7 = leftmost pixel).
 
+const zigstd = @import("../../../zigstd.zig");
+
 pub const width: u8 = 8;
 pub const height: u8 = 16;
 pub const glyph_count: usize = 256;
 
 const data = @embedFile("IBM_VGA_8x16.bin");
-
-const zigstd = @import("../../../zigstd.zig");
 
 comptime {
     zigstd.assert(data.len == glyph_count * height);

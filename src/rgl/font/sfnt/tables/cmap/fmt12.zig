@@ -1,10 +1,10 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
+const zigstd = @import("../../../../../zigstd.zig");
 
-/// Schema for the format-12 header, used only to compute field offsets/sizes
-/// at comptime; never instantiated.
+/// The format-12 header.
 const StreamLayout = extern struct {
     format: u16,
     reserved: u16,
@@ -81,7 +81,6 @@ pub const Format12 = struct {
     }
 };
 
-const zigstd = @import("../../../../../zigstd.zig");
 const setU16BE = bytes.setU16BE;
 const setU32BE = bytes.setU32BE;
 

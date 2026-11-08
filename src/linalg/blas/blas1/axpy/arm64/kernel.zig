@@ -1,23 +1,11 @@
-//! AArch64 axpy kernels, one set per core, built into the per-core kernel objects
-//! (`src/linalg/blas/_kernel.zig`), and how they get installed into the
-//! vtable (`install`): cores without an entry keep the portable kernels from
-//! `axpy.installGeneric`. Per-core tests live in `axpy/__root__.zig`, not
-//! here -- they need the full axpy interface (`checkReal`, ...), which
-//! imports outside `src/linalg/blas/` and so cannot appear in this file (see
-//! `kernels/__root__.zig`).
-//!
-//! The kernels that are assembly upstream are in `asm/`, one Zig file per
-//! source and precision with its `#if`s and macros resolved (`asm/__root__.zig`
-//! says which core uses which). `A64FX` and `NEOVERSEV1` use `axpy_sve.c`
-//! (`sve.zig`); `THUNDERX` uses `daxpy_thunderx.c`, its block (`thunderx.zig`)
-//! under the shared driver. Other cores keep the portable kernels.
+//! AArch64 axpy kernels per core (`asm/`, `sve.zig` for A64FX and Neoverse V1, `thunderx.zig`'s block); tests in `../__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const util = @import("../../../util.zig");
 const Vtable = @import("../../../Vtable.zig");
-const kernel = @import("../kernel.zig");
-const uk = @import("../../uk_block.zig");
+const kernel = @import("../driver.zig");
+const uk = @import("../../../uk_block.zig");
 const sve = @import("sve.zig");
 const thunderx = @import("thunderx.zig");
 

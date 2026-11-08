@@ -5,9 +5,8 @@ const Build = rstdbuild.Build;
 const LazyPath = rstdbuild.LazyPath;
 const Optimize = rstdbuild.Optimize;
 const Module = rstdbuild.Module;
-
-const files = @import("files.zig");
-const addRstd = @import("rstd.zig").addRstd;
+const addBuildDir = rstdbuild.addBuildDir;
+const addRstd = rstdbuild.addRstd;
 
 pub const Icon = struct {
     const Self = @This();
@@ -75,11 +74,11 @@ pub const Icon = struct {
         // relative to the .rc file's own directory, so the generated icon.ico
         // needs to sit next to a (likewise generated) icon.rc, not just exist
         // somewhere else in the cache under its own path.
-        const rc_build_dir = files.addBuildDir(b);
+        const rc_build_dir = addBuildDir(b);
         const rc_build_path = rc_build_dir.add(rc_name, b.fmt("1 ICON \"{s}\"\n", .{ico_name}));
         _ = rc_build_dir.addCopyFile(ico_build_path, ico_name);
 
-        // `zig build icon` - not needed for the app build itself (that already
+        // `zig build icon`: not needed for the app build itself (that already
         // depends on genicon's outputs above), but installs copies to zig-out/
         // so a human can open them after tweaking the drawing code.
         const icon_step = b.step("icon", "Regenerate icon.png/icon.ico into zig-out/ for inspection");

@@ -1,21 +1,20 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the 'kern' table header, used only to compute field
-/// offsets/sizes at comptime; never instantiated. This is the OpenType/
-/// Windows header (16-bit version); Apple's own extended kern format (a
-/// 32-bit version field, plus subtable formats 1 and 3) isn't part of the
-/// OpenType spec and isn't supported here. Per spec, CFF-outline fonts don't
-/// use 'kern' at all - they carry kerning in GPOS instead.
+/// The 'kern' table header. This is the OpenType/Windows header (16-bit
+/// version); Apple's own extended kern format (a 32-bit version field, plus
+/// subtable formats 1 and 3) isn't part of the OpenType spec and isn't
+/// supported here. Per spec, CFF-outline fonts don't use 'kern' at all; they
+/// carry kerning in GPOS instead.
 const StreamLayout = extern struct {
     version: u16,
     n_tables: u16,
 };
 
-/// Schema for one kerning subtable's header, shared by every subtable
-/// format; never instantiated.
+/// One kerning subtable's header, shared by every subtable format.
 const SubtableHeader = extern struct {
     version: u16,
     length: u16,
@@ -26,7 +25,7 @@ const SubtableHeader = extern struct {
 /// OpenType-defined subtable layout follows. Only format 0 (a sorted pair
 /// list, "the only subtable format supported by Windows" per spec) is
 /// implemented; format 2 (a class-pair 2D array) is rare in practice and
-/// left unimplemented - KernSubtable.getKernValue() returns null for it.
+/// left unimplemented; KernSubtable.getKernValue() returns null for it.
 pub const Coverage = packed struct(u16) {
     horizontal: bool,
     minimum: bool,
@@ -36,10 +35,8 @@ pub const Coverage = packed struct(u16) {
     format: u8,
 };
 
-/// Legacy pair-kerning table, superseded by GPOS's pair-adjustment
-/// positioning (LookupType 2) but still checked as a fallback by real-world
-/// text renderers. table_data borrows straight from the parent Sfnt's
-/// font_data; everything is read directly from those bytes on each call.
+/// Legacy pair-kerning table, superseded by GPOS's pair-adjustment positioning
+/// (LookupType 2) but still checked as a fallback by real-world text renderers.
 pub const KernTable = struct {
     const Self = @This();
 
@@ -165,8 +162,6 @@ pub const KernSubtable = struct {
         return null;
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "kern StreamLayout/SubtableHeader/Format0Header match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));

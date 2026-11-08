@@ -1,24 +1,10 @@
-//! Runs the tests in the macOS VM, starting and stopping it as needed.
-//!
-//!   macos_vm test <dir> <port> <login> <keep> <test exe> <qemu argv...>
-//!   macos_vm up <dir> <port> <login> <qemu argv...>
-//!   macos_vm down <dir> <port> <login>
-//!   macos_vm kill <dir>
-//!   macos_vm guard <dir>
-//!
-//! `test` starts QEMU headless when SSH does not answer, copies the test
-//! binary in and runs it, then shuts the VM down if this (or an earlier,
-//! interrupted run) started it, unless `keep` is `true`. Started here, QEMU
-//! is detached (no console, own process group); its output goes to
-//! `<dir>/qemu.log`. Ctrl+C before SSH answers kills it.
-//!
-//! `up` only starts it, the same way; `down` shuts it down as `test` does.
-//! `kill` ends the QEMU named in `<dir>/qemu.pid` (QEMU's `-pidfile`);
-//! `guard` fails while that QEMU runs, so a second one is not started.
+//! The macOS VM for the tests: `test` starts QEMU headless (detached, log in `<dir>/qemu.log`) when SSH does not answer, runs the tests
+//! and shuts down a VM it started unless `keep`; `up`, `down`, `kill` (`<dir>/qemu.pid`) and `guard` (fails while it runs); usage in `run`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const Io = std.Io;
+const remote = @import("remote.zig");
 
 /// How often a shutdown is checked for a frozen VM, and how long nothing
 /// may change before it counts as one.
@@ -276,7 +262,7 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
     const dest = try vm.arena.print("{s}:/tmp/rstd-test", .{vm.login});
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(vm.arena, &.{ "scp", "-q", "-P", vm.port });
-    try argv.appendSlice(vm.arena, patientOptions(vm));
+    try argv.appendSlice(vm.arena, &patient_options);
     try argv.appendSlice(vm.arena, &.{ exe, dest });
     // `scp` exits 1, not 255, when the connection drops, which `patient`
     // takes as final; the first copy after boot has been reset (T137)
@@ -294,19 +280,19 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
 }
 
 /// Shuts the VM down from inside, which needs passwordless `sudo shutdown`
-/// (`tools/configure_macos_vm.sh`), then kills QEMU if it is still there.
+/// (`tools/macos/configure_macos_vm.sh`), then kills QEMU if it is still there.
 fn shutdown(vm: Vm) !void {
     std.debug.print("macOS VM: shutting down\n", .{});
     // `-l` lists the rule without running anything
     if (try sshPatient(vm, &.{ "sudo", "-n", "-l", "/sbin/shutdown" }, .quiet) != 0) {
-        std.debug.print("macOS VM: no passwordless sudo shutdown (run tools/configure_macos_vm.sh in the VM); left running\n", .{});
+        std.debug.print("macOS VM: no passwordless sudo shutdown (run tools/macos/configure_macos_vm.sh in the VM); left running\n", .{});
         return error.NoShutdown;
     }
     // the serial console from here on, not the boot again
     const serial_path = try vm.path("serial.log");
     var serial_at: u64 = serialLength(vm.io, serial_path);
     // the connection drops as it goes down, so the result says little
-    _ = try execCode(vm.io, try sshArgv(vm, patientOptions(vm), &.{ "sudo", "-n", "/sbin/shutdown", "-h", "now" }), .quiet);
+    _ = try execCode(vm.io, try sshArgv(vm, &patient_options, &.{ "sudo", "-n", "/sbin/shutdown", "-h", "now" }), .quiet);
     const pid = try qemuPid(vm) orelse return;
     // Never killed for taking long: it may be writing the disk out. Only a
     // VM that looks frozen is, and only if the user says so.
@@ -438,19 +424,11 @@ const patient_timeout_s = 180;
 const patient_tries = 10;
 const patient_pause_s = 15;
 
-fn patientOptions(vm: Vm) []const []const u8 {
-    _ = vm;
-    return &.{ "-o", "BatchMode=yes", "-o", std.fmt.comptimePrint("ConnectTimeout={d}", .{patient_timeout_s}), "-o", "ServerAliveInterval=30", "-o", "StrictHostKeyChecking=accept-new" };
-}
+const patient_options = [_][]const u8{ "-o", "BatchMode=yes", "-o", std.fmt.comptimePrint("ConnectTimeout={d}", .{patient_timeout_s}), "-o", "ServerAliveInterval=30", "-o", "StrictHostKeyChecking=accept-new" };
 
 /// `ssh <options> login command`.
 fn sshArgv(vm: Vm, options: []const []const u8, command: []const []const u8) ![]const []const u8 {
-    var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(vm.arena, &.{ "ssh", "-p", vm.port });
-    try argv.appendSlice(vm.arena, options);
-    try argv.append(vm.arena, vm.login);
-    try argv.appendSlice(vm.arena, command);
-    return argv.items;
+    return remote.sshArgv(vm.arena, vm.port, options, vm.login, command);
 }
 
 /// Runs `command` in the VM over SSH; whether it succeeded. QEMU's port
@@ -461,7 +439,7 @@ fn ssh(vm: Vm, command: []const []const u8, output: Output) !bool {
 
 /// `command` over SSH, patiently; its exit status.
 fn sshPatient(vm: Vm, command: []const []const u8, output: Output) !u8 {
-    return patient(vm, try sshArgv(vm, patientOptions(vm), command), output);
+    return patient(vm, try sshArgv(vm, &patient_options, command), output);
 }
 
 /// Runs an ssh or scp `argv`, again while it could not connect (255).
@@ -485,20 +463,10 @@ fn exec(io: Io, argv: []const []const u8, output: Output) !bool {
     return try execCode(io, argv, output) == 0;
 }
 
-/// Runs `argv` to completion; its exit status (255 when it did not exit).
+/// Runs `argv` to completion; its exit status.
 fn execCode(io: Io, argv: []const []const u8, output: Output) !u8 {
     const stdio: std.process.SpawnOptions.StdIo = if (output == .quiet) .ignore else .inherit;
-    var child = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = stdio, .stderr = stdio }) catch |err| switch (err) {
-        error.FileNotFound => {
-            std.debug.print("{s} is not on PATH\n", .{argv[0]});
-            return error.FileNotFound;
-        },
-        else => |e| return e,
-    };
-    return switch (try child.wait(io)) {
-        .exited => |code| code,
-        else => 255,
-    };
+    return remote.exec(io, "", argv, stdio, stdio);
 }
 
 fn fileExists(vm: Vm, name: []const u8) !bool {

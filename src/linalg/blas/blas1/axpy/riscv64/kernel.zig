@@ -1,21 +1,9 @@
-//! RISC-V axpy kernels, one set per core, built into the per-core kernel
-//! objects (`src/linalg/blas/_kernel.zig`), and how they get installed into
-//! the vtable (`install`): cores without an entry keep the portable kernels
-//! from `axpy.installGeneric`. Per-core tests live in `axpy/__root__.zig`,
-//! not here -- they need the full axpy interface (`checkReal`, ...), which
-//! imports outside `src/linalg/blas/` and so cannot appear in this file (see
-//! `kernels/__root__.zig`).
-//!
-//! The reference's kernels here are C over the vector extension's
-//! intrinsics, `axpy_rvv.c` and `zaxpy_rvv.c` for the cores whose
-//! `KERNEL.<CORE>` names them; they are in `rvv.zig` as the assembly the
-//! intrinsics stand for. The cores that use the plain C loops
-//! (`riscv64_generic`, `u74`) keep the portable kernels.
+//! RISC-V axpy kernels per core (`rvv.zig`: `axpy_rvv.c`, `zaxpy_rvv.c` as the assembly their intrinsics stand for); tests in `../__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const Vtable = @import("../../../Vtable.zig");
-const kernel = @import("../kernel.zig");
+const kernel = @import("../driver.zig");
 const rvv = @import("rvv.zig");
 
 pub const Core = coretypes.RiscvCoreType;

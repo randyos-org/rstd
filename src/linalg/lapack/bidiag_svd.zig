@@ -1,28 +1,14 @@
-//! The SVD of a real bidiagonal matrix, from faer v0.24.4
+//! The SVD of a real lower bidiagonal matrix, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/svd/bidiag_svd.rs`. The matrix is lower bidiagonal,
-//! `n + 1` by `n`: `diag` on its diagonal, `subdiag` below it (`subdiag[n-1]`
-//! in row `n`), so `U` is `(n + 1) x (n + 1)` and `V` `n x n`.
-//!
-//! - `qrAlgorithm`: Reference-LAPACK's `xBDSQR` in place of faer's QR
-//!   iteration (T126): Demmel and Kahan's zero-shift and shifted QR sweeps
-//!   with relative convergence tests, which keep a graded bidiagonal's small
-//!   singular values to high relative accuracy.
-//! - `divideAndConquer`: Gu and Eisenstat's divide and conquer ("A
-//!   divide-and-conquer algorithm for the bidiagonal SVD", SIAM J. Matrix
-//!   Anal. Appl. 16(1), 1995), as Eigen's `BDCSVD`: split at `n / 2`, solve
-//!   the halves, deflate, solve the secular equation, and rebuild the
-//!   vectors with `gemm`. Below `threshold` it is `qrAlgorithm`.
-//!
-//! Faer runs the two halves on two threads (`join_raw`); here they run in
-//! turn, and the products that merge them thread inside the BLAS. Rstd's
-//! threading splits flat ranges into chunks (`threading.md`), not a tree of
-//! tasks; the halves' own products already fill the workers.
+//! `faer/src/linalg/svd/bidiag_svd.rs`'s divide and conquer and secular
+//! solver, with Reference-LAPACK's `xBDSQR` as `qrAlgorithm` (T126).
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
-const lartg = @import("schur.zig").lartg;
+const lartg = auxiliary.lartg;
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -31,12 +17,6 @@ const Mat = ops.Mat;
 /// What the solvers return: `NoConvergence` once `qrAlgorithm` has run its
 /// iterations out.
 pub const Error = ops.Error || error{NoConvergence};
-
-fn normMax(comptime F: type, x: []const F) F {
-    var m: F = 0;
-    for (x) |v| m = @max(m, @abs(v));
-    return m;
-}
 
 /// `nbits`: the significand's bits.
 fn nbits(comptime F: type) usize {
@@ -72,10 +52,10 @@ pub fn qrAlgorithm(comptime F: type, diag: []F, subdiag: []F, u: ?Mat(F), v: ?Ma
     const b: B = .{ .dg = diag, .sd = subdiag };
     // faer's scaling to the largest entry, as `xGESVD` scales before
     // `xBDSQR`, which assumes it (its `MAXITR n² UNFL` floor)
-    const max = @max(normMax(F, diag), normMax(F, subdiag[0 .. n - 1]));
+    const max = @max(ops.absMax(F, diag), ops.absMax(F, subdiag[0 .. n - 1]));
     if (max == 0) return;
-    scaleDown(F, diag, max);
-    scaleDown(F, subdiag[0 .. n - 1], max);
+    ops.scaleDown(F, diag, max);
+    ops.scaleDown(F, subdiag[0 .. n - 1], max);
     if (n > 1) bdsqrSweeps(F, B, b, n, u, v) catch |err| return unscaled(F, diag, subdiag[0 .. n - 1], max, err);
     // `dbdsqr.f:707-748`: nonnegative, then decreasing by selection
     for (1..n + 1) |i| {
@@ -98,8 +78,8 @@ pub fn qrAlgorithm(comptime F: type, diag: []F, subdiag: []F, u: ?Mat(F), v: ?Ma
         if (isub != last) {
             b.d(isub).* = b.d(last).*;
             b.d(last).* = smin;
-            if (u) |um| swapCols(F, um, isub - 1, last - 1);
-            if (v) |vm| swapCols(F, vm, isub - 1, last - 1);
+            if (u) |um| ops.swapCols(F, um, isub - 1, last - 1);
+            if (v) |vm| ops.swapCols(F, vm, isub - 1, last - 1);
         }
     }
     for (diag) |*x| x.* *= max;
@@ -452,26 +432,11 @@ fn lasv2(comptime F: type, f: F, g: F, h: F) struct { ssmin: F, ssmax: F, snr: F
     };
 }
 
-/// `x /= max`, as faer's `x *= 1 / max`, but by division where that
-/// reciprocal overflows (`max` below the safe minimum).
-fn scaleDown(comptime F: type, x: []F, max: F) void {
-    if (max >= std.math.floatMin(F)) {
-        const inv = 1 / max;
-        for (x) |*v| v.* *= inv;
-    } else for (x) |*v| {
-        v.* /= max;
-    }
-}
-
 /// The scaling undone, and `err`.
 fn unscaled(comptime F: type, diag: []F, subdiag: []F, max: F, err: error{NoConvergence}) error{NoConvergence} {
     for (diag) |*x| x.* *= max;
     for (subdiag) |*x| x.* *= max;
     return err;
-}
-
-fn swapCols(comptime F: type, m: Mat(F), i: usize, j: usize) void {
-    for (0..m.rows) |r| std.mem.swap(F, m.at(r, i), m.at(r, j));
 }
 
 /// `U` as `divide_and_conquer` takes it: whole, or only its first and last
@@ -520,7 +485,7 @@ pub fn divideAndConquer(al: Allocator, io: Io, comptime F: type, diag: []F, subd
         }
         return;
     }
-    const max = @max(normMax(F, diag), normMax(F, subdiag));
+    const max = @max(ops.absMax(F, diag), ops.absMax(F, subdiag));
     if (max == 0) {
         switch (u) {
             .full => |um| um.identity(),
@@ -535,8 +500,8 @@ pub fn divideAndConquer(al: Allocator, io: Io, comptime F: type, diag: []F, subd
         if (v) |vm| vm.identity();
         return;
     }
-    scaleDown(F, diag, max);
-    scaleDown(F, subdiag, max);
+    ops.scaleDown(F, diag, max);
+    ops.scaleDown(F, subdiag, max);
     const k = n / 2;
     const rem = n - k - 1;
     const alpha = diag[k];
@@ -555,7 +520,7 @@ pub fn divideAndConquer(al: Allocator, io: Io, comptime F: type, diag: []F, subd
                 var i = k;
                 while (i > 0) {
                     i -= 1;
-                    swapCols(F, um, i, i + 1);
+                    ops.swapCols(F, um, i, i + 1);
                 }
             },
             .full, .two_rows_storage => {},
@@ -668,7 +633,7 @@ pub fn divideAndConquer(al: Allocator, io: Io, comptime F: type, diag: []F, subd
         .two_rows => |ul| {
             const cu = try ops.alloc(F, al, 2, n + 1);
             defer ops.free(F, al, cu);
-            try ops.gemm(al, io, F, .n, .n, 1, ul, um, 0, cu);
+            try blas_calls.gemm(al, io, F, .n, .n, 1, ul, um, 0, cu);
             ul.copyFrom(cu);
         },
         .full => |ul| try updateU(al, io, F, ul, um, k, rem),
@@ -681,9 +646,9 @@ fn updateV(al: Allocator, io: Io, comptime F: type, v: Mat(F), vm: Mat(F), k: us
     const n = v.rows;
     const cv = try ops.alloc(F, al, n, n);
     defer ops.free(F, al, cv);
-    try ops.gemm(al, io, F, .n, .n, 1, v.sub(0, 1, k, k), vm.sub(1, 0, k, n), 0, cv.sub(0, 0, k, n));
-    try ops.gemm(al, io, F, .n, .n, 1, v.sub(k + 1, k + 1, rem, rem), vm.sub(k + 1, 0, rem, n), 0, cv.sub(k + 1, 0, rem, n));
-    try ops.gemm(al, io, F, .n, .n, 1, v.sub(k, 0, 1, 1), vm.sub(0, 0, 1, n), 0, cv.sub(k, 0, 1, n));
+    try blas_calls.gemm(al, io, F, .n, .n, 1, v.sub(0, 1, k, k), vm.sub(1, 0, k, n), 0, cv.sub(0, 0, k, n));
+    try blas_calls.gemm(al, io, F, .n, .n, 1, v.sub(k + 1, k + 1, rem, rem), vm.sub(k + 1, 0, rem, n), 0, cv.sub(k + 1, 0, rem, n));
+    try blas_calls.gemm(al, io, F, .n, .n, 1, v.sub(k, 0, 1, 1), vm.sub(0, 0, 1, n), 0, cv.sub(k, 0, 1, n));
     v.copyFrom(cv);
 }
 
@@ -694,10 +659,10 @@ fn updateU(al: Allocator, io: Io, comptime F: type, u: Mat(F), um: Mat(F), k: us
     defer ops.free(F, al, cu);
     const c1 = cu.sub(0, 0, k + 1, n + 1);
     const c2 = cu.sub(k + 1, 0, rem + 1, n + 1);
-    try ops.gemm(al, io, F, .n, .n, 1, u.sub(0, 0, k + 1, k + 1), um.sub(0, 0, k + 1, n + 1), 0, c1);
-    try ops.gemm(al, io, F, .n, .n, 1, u.sub(0, n, k + 1, 1), um.sub(n, 0, 1, n + 1), 1, c1);
-    try ops.gemm(al, io, F, .n, .n, 1, u.sub(k + 1, k + 1, rem + 1, rem + 1), um.sub(k + 1, 0, rem + 1, n + 1), 0, c2);
-    try ops.gemm(al, io, F, .n, .n, 1, u.sub(k + 1, 0, rem + 1, 1), um.sub(0, 0, 1, n + 1), 1, c2);
+    try blas_calls.gemm(al, io, F, .n, .n, 1, u.sub(0, 0, k + 1, k + 1), um.sub(0, 0, k + 1, n + 1), 0, c1);
+    try blas_calls.gemm(al, io, F, .n, .n, 1, u.sub(0, n, k + 1, 1), um.sub(n, 0, 1, n + 1), 1, c1);
+    try blas_calls.gemm(al, io, F, .n, .n, 1, u.sub(k + 1, k + 1, rem + 1, rem + 1), um.sub(k + 1, 0, rem + 1, n + 1), 0, c2);
+    try blas_calls.gemm(al, io, F, .n, .n, 1, u.sub(k + 1, 0, rem + 1, 1), um.sub(0, 0, 1, n + 1), 1, c2);
     u.copyFrom(cu);
 }
 
@@ -772,12 +737,12 @@ fn singularVectors(io: Io, comptime F: type, um: Mat(F), vm: ?Mat(F), zhat: []co
         const mu = mus[k];
         const shift = shifts[k];
         for (perm) |i| u[outer_perm[i]] = (zhat[i] / ((diag[i] - shift) - mu)) / (diag[i] + (shift + mu));
-        const nu = 1 / ops.nrm2(io, F, n, u, 1);
+        const nu = 1 / blas_calls.nrm2(io, F, n, u, 1);
         for (u[0..n]) |*x| x.* *= nu;
         if (v) |vc| {
             vc[outer_perm[0]] = -1;
             for (perm[1..]) |i| vc[outer_perm[i]] = ((diag[i] * zhat[i]) / ((diag[i] - shift) - mu)) / (diag[i] + (shift + mu));
-            const nv = 1 / ops.nrm2(io, F, n, vc, 1);
+            const nv = 1 / blas_calls.nrm2(io, F, n, vc, 1);
             for (vc[0..n]) |*x| x.* *= nv;
         }
     }
@@ -860,7 +825,7 @@ fn singularValues(io: Io, comptime F: type, shifts: []F, mus: []F, s: []F, diag:
         }
         const last_k = k == actual_n - 1;
         const left = diag[k];
-        const right = if (last_k) diag[actual_n - 1] + ops.nrm2(io, F, n, @constCast(col0.ptr), 1) else blk: {
+        const right = if (last_k) diag[actual_n - 1] + blas_calls.nrm2(io, F, n, @constCast(col0.ptr), 1) else blk: {
             var l = k + 1;
             while (col0[l] == 0) l += 1;
             break :blk diag[l];
@@ -879,7 +844,6 @@ fn singularValues(io: Io, comptime F: type, shifts: []F, mus: []F, s: []F, diag:
 /// bracket. The tridiagonal eigensolver shares it (`tridiag_evd.zig`).
 pub fn rootFinder(comptime F: type, sec: anytype, left: F, right: F, last: bool) [2]F {
     const two: F = 2;
-    const eight: F = 8;
     const half: F = 0.5;
     const epsilon = std.math.floatEps(F);
     const inf = std.math.inf(F);
@@ -995,7 +959,6 @@ pub fn rootFinder(comptime F: type, sec: anytype, left: F, right: F, last: bool)
         }
         mu_cur = (left_shifted + right_shifted) * half;
     }
-    _ = eight;
     return .{ shift, mu_cur };
 }
 
@@ -1019,8 +982,6 @@ fn secant(comptime F: type, sec: anytype, shift: F, left: F, right: F, mu_cur_in
     var use_bisection = false;
     const same_sign = (f_prev > 0) == (f_cur > 0);
     if (!same_sign) {
-        left_candidate = @min(mu_cur, mu_prev);
-        right_candidate = @max(mu_cur, mu_prev);
         if (mu_cur < mu_prev) {
             left_candidate = mu_cur;
             right_candidate = mu_prev;
@@ -1079,8 +1040,8 @@ fn deflate(al: Allocator, comptime F: type, diag: []F, col0: []F, jacobi_coeff: 
     const n = diag.len;
     var jacobi_0i: usize = 0;
     var jacobi_ij: usize = 0;
-    const max_diag = normMax(F, diag[1..]);
-    const max_col0 = normMax(F, col0);
+    const max_diag = ops.absMax(F, diag[1..]);
+    const max_col0 = ops.absMax(F, col0);
     const mx = @max(max_diag, max_col0);
     const eps = std.math.floatEps(F);
     const sml = std.math.floatMin(F);
@@ -1213,7 +1174,7 @@ fn deflation44(comptime F: type, diag: []F, col0: []F, i: usize, j: usize) ?hh.R
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 
 /// `U [S; 0] Vᵀ` against the `(n + 1) x n` (or with `square`, `n x n`)
 /// lower bidiagonal matrix, within faer's `test_divide_and_conquer` (and
@@ -1222,7 +1183,7 @@ const check = @import("../blas/_test/blas1/check.zig");
 fn expectBidiagSvd(comptime F: type, diag: []const F, sub: []const F, d: []const F, u: Mat(F), v: Mat(F), square: bool, factor: F) !void {
     const n = diag.len;
     const rows = if (square) n else n + 1;
-    const scale = @max(normMax(F, diag), normMax(F, sub));
+    const scale = @max(ops.absMax(F, diag), ops.absMax(F, sub));
     const tol = 128 * std.math.floatEps(F) * @max(scale, 1) * @sqrt(@as(F, @floatFromInt(n))) * factor;
     for (0..n) |j| for (0..rows) |i| {
         var x: F = 0;

@@ -2,15 +2,14 @@
 //! and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const std = @import("std");
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 /// `kernel/arm/scal.c` and `zscal.c`: `x := alpha*x`. `flag` is the last
 /// argument (`dummy2`): with 0, a zero alpha zeroes `x`; with 1, which the
@@ -75,7 +74,7 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 const zigstd = @import("../../../../zigstd.zig");
 
 /// `kern` against a plain loop, as the interface calls it (flag 1), for a
@@ -180,4 +179,15 @@ test "portable scal: a zero alpha with flag 1 turns NaN and infinity into NaN" {
 
 test "every linked core's scal kernels match a plain loop, where this machine runs them" {
     try check.eachCore(checkAll);
+}
+
+test "portable scal with a zero alpha: the flag makes NaN and Inf stay NaN" {
+    var v = [_]f64{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
+    _ = dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 1);
+    try std.testing.expectEqual(@as(f64, 0), v[0]);
+    try std.testing.expect(std.math.isNan(v[1]) and std.math.isNan(v[2]));
+    try std.testing.expectEqual(@as(f64, 0), v[3]);
+    v = .{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
+    _ = dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 0);
+    for (v) |e| try std.testing.expectEqual(@as(f64, 0), e);
 }

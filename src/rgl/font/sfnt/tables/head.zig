@@ -1,9 +1,8 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for 'head' used only to compute field offsets/sizes at comptime;
-/// never instantiated. table_data is read directly against these offsets on
-/// every accessor call instead of being decoded into a stored copy.
+/// The 'head' table.
 const StreamLayout = extern struct {
     version: types.Fixed align(2),
     font_revision: types.Fixed align(2),
@@ -24,8 +23,7 @@ const StreamLayout = extern struct {
     glyph_data_format: i16,
 };
 
-/// Font header. table_data borrows straight from the parent Sfnt's font_data;
-/// every field below is byteswapped fresh from those bytes on each call.
+/// Font header.
 pub const HeadTable = struct {
     const Self = @This();
 
@@ -112,8 +110,6 @@ pub const HeadTable = struct {
         return 0xB1B0AFBA - raw_font_checksum_adj0;
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "head StreamLayout matches the OpenType stream layout (54 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 54), @sizeOf(StreamLayout));

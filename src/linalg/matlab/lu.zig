@@ -1,19 +1,13 @@
-//! The matlab port's LU-based operations, `det` and `inv` here and the
-//! divisions in `divide.zig`, over rstd's LAPACK (`getrf`, `getrs`,
-//! `getri`, `gecon`; M2) in place of matlab88.f90's WGEFA, WGESL, WGECO and
-//! WGEDI. They convert at the boundary (`CxMat.zig`): a real matrix goes to
-//! the real routines in place on its `r`, a complex one through one
-//! interleaved copy. WGEDI's determinant scaling stays (M1's E1,
-//! `linalg/design.md`): a mantissa times `10^exponent` over `getrf`'s
-//! diagonal, where a plain product of it overflows.
+//! DET and INV over rstd's LAPACK (M2), for WGEFA, WGESL, WGECO and WGEDI, and
+//! the factors `divide.zig` solves with; WGEDI's determinant scaling stays (M1's E1).
 
 const std = @import("std");
 const scalar = @import("scalar.zig");
 const blas = @import("../blas/__root__.zig");
 const CxMat = @import("CxMat.zig");
 const lapack = @import("../lapack/__root__.zig");
+const ops = @import("../lapack/ops.zig");
 const Cx = scalar.Cx;
-const Complex = CxMat.Complex;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
@@ -30,26 +24,25 @@ pub const Determinant = struct { mantissa: Cx, exponent10: f64 };
 pub const Lu = struct {
     a: CxMat,
     ipiv: []isize,
-    z: ?[]Complex,
+    z: ?[]Cx,
     singular: bool,
 
     pub fn init(a: CxMat, complex: bool, allocator: Allocator, io: Io) Error!Lu {
         const n = a.n;
         const ipiv = try allocator.alloc(isize, n);
         errdefer allocator.free(ipiv);
-        const z: ?[]Complex = if (complex or !a.isReal()) try a.toPacked(Complex, allocator) else null;
+        const z: ?[]Cx = if (complex or !a.isReal()) try a.toPacked(Cx, allocator) else null;
         errdefer if (z) |x| allocator.free(x);
         var singular = false;
         const ni: isize = @intCast(n);
         const r = if (z) |x|
-            lapack.getrf(allocator, io, Complex, ni, ni, x.ptr, ni, ipiv.ptr, null)
+            lapack.getrf(allocator, io, Cx, ni, ni, x.ptr, ni, ipiv.ptr, null)
         else
             lapack.getrf(allocator, io, f64, ni, ni, a.r.ptr, @intCast(a.lda), ipiv.ptr, null);
         r catch |e| switch (e) {
             error.Singular => singular = true,
-            error.OutOfMemory, error.Canceled => |x| return x,
             // the arguments come from `a`
-            else => unreachable,
+            else => |x| return ops.narrow(Allocator.Error || Io.Cancelable, x),
         };
         return .{ .a = a, .ipiv = ipiv, .z = z, .singular = singular };
     }
@@ -65,19 +58,16 @@ pub const Lu = struct {
         const ni: isize = @intCast(f.a.n);
         const p: isize = @intCast(b.n);
         if (f.z) |x| {
-            const zb = try b.toPacked(Complex, allocator);
+            const zb = try b.toPacked(Cx, allocator);
             defer allocator.free(zb);
-            try solved(lapack.getrs(allocator, io, Complex, trans, ni, p, x.ptr, ni, f.ipiv.ptr, zb.ptr, ni));
-            b.fromPacked(Complex, zb);
+            try solved(lapack.getrs(allocator, io, Cx, trans, ni, p, x.ptr, ni, f.ipiv.ptr, zb.ptr, ni));
+            b.fromPacked(Cx, zb);
         } else try solved(lapack.getrs(allocator, io, f64, trans, ni, p, f.a.r.ptr, @intCast(f.a.lda), f.ipiv.ptr, b.r.ptr, @intCast(b.lda)));
     }
 
     fn solved(r: lapack.GetrsError!void) Error!void {
-        r catch |e| switch (e) {
-            error.OutOfMemory, error.Canceled => |x| return x,
-            // the arguments come from the factors
-            else => unreachable,
-        };
+        // the arguments come from the factors
+        r catch |e| return ops.narrow(Allocator.Error || Io.Cancelable, e);
     }
 
     /// `U(k, k)`, 1-based.
@@ -113,19 +103,15 @@ pub fn det(self: CxMat, allocator: Allocator, io: Io) Error!Determinant {
     return .{ .mantissa = d, .exponent10 = exp10 };
 }
 
-/// The 1-norm of the square `self`, as `gecon` wants it before `getrf`.
-pub fn norm1(self: CxMat, allocator: Allocator, io: Io) Allocator.Error!f64 {
+/// `gecon`'s `anorm` of the square `self`, before `getrf`: `lange`'s 1-norm,
+/// the largest column sum of `|a(i, j)|`. Not `norm.matNorm1`, which sums
+/// `|re| + |im|`.
+pub fn lange1(self: CxMat, allocator: Allocator, io: Io) Allocator.Error!f64 {
     const ni: isize = @intCast(self.n);
-    if (self.isReal()) return lapack.lange(allocator, io, f64, .o, ni, ni, self.r.ptr, @intCast(self.lda)) catch |e| switch (e) {
-        error.OutOfMemory => |x| x,
-        else => unreachable,
-    };
-    const z = try self.toPacked(Complex, allocator);
+    if (self.isReal()) return lapack.lange(allocator, io, f64, .o, ni, ni, self.r.ptr, @intCast(self.lda)) catch |e| ops.narrow(Allocator.Error, e);
+    const z = try self.toPacked(Cx, allocator);
     defer allocator.free(z);
-    return lapack.lange(allocator, io, Complex, .o, ni, ni, z.ptr, ni) catch |e| switch (e) {
-        error.OutOfMemory => |x| x,
-        else => unreachable,
-    };
+    return lapack.lange(allocator, io, Cx, .o, ni, ni, z.ptr, ni) catch |e| ops.narrow(Allocator.Error, e);
 }
 
 /// `gecon`'s 1-norm `rcond` of the factored `f`, `anorm` its matrix's 1-norm;
@@ -135,13 +121,12 @@ pub fn rcond(f: Lu, allocator: Allocator, io: Io, anorm: f64) Error!f64 {
     var rc: f64 = 0;
     const ni: isize = @intCast(f.a.n);
     const r = if (f.z) |x|
-        lapack.gecon(allocator, io, Complex, .o, ni, x.ptr, ni, anorm, &rc)
+        lapack.gecon(allocator, io, Cx, .o, ni, x.ptr, ni, anorm, &rc)
     else
         lapack.gecon(allocator, io, f64, .o, ni, f.a.r.ptr, @intCast(f.a.lda), anorm, &rc);
     r catch |e| switch (e) {
         error.EstimateFailed => return 0,
-        error.OutOfMemory, error.Canceled => |x| return x,
-        else => unreachable,
+        else => |x| return ops.narrow(Allocator.Error || Io.Cancelable, x),
     };
     return rc;
 }
@@ -151,23 +136,22 @@ pub fn rcond(f: Lu, allocator: Allocator, io: Io, anorm: f64) Error!f64 {
 /// small that `1 + rcond == 1` means the inverse is not to be trusted. An
 /// exact zero pivot is `error.Singular`, `self` then destroyed.
 pub fn inv(self: CxMat, allocator: Allocator, io: Io) Error!f64 {
-    const anorm = try norm1(self, allocator, io);
+    const anorm = try lange1(self, allocator, io);
     const f = try Lu.init(self, false, allocator, io);
     defer f.deinit(allocator);
     if (f.singular) return error.Singular;
     const rc = try rcond(f, allocator, io, anorm);
     const ni: isize = @intCast(self.n);
     const r = if (f.z) |x|
-        lapack.getri(allocator, io, Complex, ni, x.ptr, ni, f.ipiv.ptr, null)
+        lapack.getri(allocator, io, Cx, ni, x.ptr, ni, f.ipiv.ptr, null)
     else
         lapack.getri(allocator, io, f64, ni, self.r.ptr, @intCast(self.lda), f.ipiv.ptr, null);
-    r catch |e| switch (e) {
-        error.Singular, error.OutOfMemory, error.Canceled => |x| return x,
-        else => unreachable,
-    };
-    if (f.z) |x| self.fromPacked(Complex, x);
+    r catch |e| return ops.narrow(Error, e);
+    if (f.z) |x| self.fromPacked(Cx, x);
     return rc;
 }
+
+// ---- tests ------------------------------------------------------------------
 
 const zigstd = @import("../../zigstd.zig");
 const testing = std.testing;

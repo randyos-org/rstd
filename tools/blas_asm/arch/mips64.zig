@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const arch = @import("__root__.zig");
-const map = @import("../kernel_map.zig");
+const map = @import("../openblas.zig");
 const Error = arch.Error;
 
 const Kernel = arch.Kernel;

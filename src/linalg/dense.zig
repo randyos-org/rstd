@@ -14,19 +14,798 @@ const blas = @import("blas/__root__.zig");
 const lapack = @import("lapack/__root__.zig");
 const vector = @import("vector.zig");
 const matrix = @import("matrix.zig");
+const ops = @import("lapack/ops.zig");
 
 const View = matrix.View;
 const ConstView = matrix.ConstView;
 const Mat = matrix.Mat;
 const isComplex = vector.isComplex;
 const Real = vector.Real;
-const eZero = matrix.eZero;
-const eOne = matrix.eOne;
 const eMul = matrix.eMul;
 const eMulAdd = matrix.eMulAdd;
-const eNeg = matrix.eNeg;
-const eConj = matrix.eConj;
-const eIsZero = matrix.eIsZero;
+
+// ---- vectors ----------------------------------------------------------------
+
+pub const VectorError = error{DimensionMismatch} || Io.Cancelable;
+
+/// `xᴴ y` (`Σ conj(x[i]) y[i]`, MATLAB's `dot`); `linalg.vector.dot`'s order
+/// up to the inline limit, else the BLAS's `dot` or `dotc`.
+pub fn dot(io: Io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x)) {
+    const sx = try strided(constOf(x));
+    const sy = try strided(constOf(y));
+    if (sx.n != sy.n) return error.DimensionMismatch;
+    return dotWith(pathOf(&.{sx.n}), io, sx, sy);
+}
+
+fn dotWith(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@TypeOf(sx.ptr[0]) {
+    const T = @TypeOf(sx.ptr[0]);
+    if (sx.n == 0) return ops.zero(T);
+    if (path == .fixed) return fixed(T, "dot", sx.n, .{ sx, sy });
+    const f = if (comptime isComplex(T)) blas.dotc else blas.dot;
+    return f(io, T, toIsize(sx.n), sx.ptr, toIsize(sx.inc), sy.ptr, toIsize(sy.inc)) catch |e| return narrow(Io.Cancelable, e);
+}
+
+/// The 2-norm (MATLAB's `norm` of a vector; `linalg.vector`'s `norm`
+/// normalizes): `linalg.vector.length` up to the inline limit, else `nrm2`.
+pub fn norm(io: Io, x: anytype) VectorError!Real(ElementOf(@TypeOf(x))) {
+    const s = try strided(constOf(x));
+    return normWith(pathOf(&.{s.n}), io, s);
+}
+
+fn normWith(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr[0])) {
+    const T = @TypeOf(s.ptr[0]);
+    if (s.n == 0) return 0;
+    if (path == .fixed) return fixed(Real(T), "length", s.n, .{s});
+    return blas.nrm2(io, T, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
+}
+
+/// `Σ x[i]`: in order up to the inline limit, else the BLAS's `sum`, the
+/// real and imaginary parts apart for complex.
+pub fn sum(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
+    const s = try strided(constOf(x));
+    return sumWith(pathOf(&.{s.n}), io, s);
+}
+
+fn sumWith(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
+    const T = @TypeOf(s.ptr[0]);
+    if (s.n == 0) return ops.zero(T);
+    if (path == .fixed) return fixed(T, "sum", s.n, .{s});
+    if (comptime !isComplex(T)) return blas.sum(io, T, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
+    const F = Real(T);
+    const parts: [*]F = @ptrCast(s.ptr);
+    const inc = toIsize(2 * s.inc);
+    return .{
+        .re = blas.sum(io, F, toIsize(s.n), parts, inc) catch |e| return narrow(Io.Cancelable, e),
+        .im = blas.sum(io, F, toIsize(s.n), parts + 1, inc) catch |e| return narrow(Io.Cancelable, e),
+    };
+}
+
+/// The largest element, or the first NaN; ties keep the first; 0 for an
+/// empty vector, as the BLAS's `max`. Real only.
+pub fn max(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
+    return extreme(.max, io, x);
+}
+
+/// The smallest element, or the first NaN, as `max`.
+pub fn min(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
+    return extreme(.min, io, x);
+}
+
+fn extreme(comptime which: blas.Extreme, io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
+    const T = ElementOf(@TypeOf(x));
+    if (comptime isComplex(T)) @compileError("max and min order real elements only");
+    const s = try strided(constOf(x));
+    return extremeWith(which, pathOf(&.{s.n}), io, s);
+}
+
+fn extremeWith(comptime which: blas.Extreme, path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
+    const T = @TypeOf(s.ptr[0]);
+    if (s.n == 0) return 0;
+    if (path == .fixed) return fixed(T, "extreme", s.n, .{ which, s });
+    return blas.extreme(io, T, which, toIsize(s.n), s.ptr, toIsize(s.inc)) catch |e| return narrow(Io.Cancelable, e);
+}
+
+/// `y += a x`, by the BLAS's `axpy`.
+pub fn axpy(io: Io, a: anytype, x: anytype, y: anytype) VectorError!void {
+    const T = ElementOf(@TypeOf(y));
+    const sx = try strided(constOf(x));
+    const sy = try strided(viewOf(y).constView());
+    if (sx.n != sy.n) return error.DimensionMismatch;
+    const alpha: T = a;
+    blas.axpy(io, T, toIsize(sx.n), alpha, sx.ptr, toIsize(sx.inc), sy.ptr, toIsize(sy.inc)) catch |e| return narrow(Io.Cancelable, e);
+}
+
+/// `x *= a`, element by element as `linalg.matrix.scale` (design.md,
+/// Dispatch: element-wise forms are inline at every size).
+pub fn scale(a: anytype, x: anytype) void {
+    const v = viewOf(x);
+    const alpha: @TypeOf(v).Element = a;
+    for (0..v.cols) |j| for (v.col(j)) |*e| {
+        e.* = eMul(e.*, alpha);
+    };
+}
+
+// ---- products and transposes ------------------------------------------------
+
+pub const MulError = error{DimensionMismatch} || Allocator.Error || Io.Cancelable;
+
+/// `a b` (MATLAB's `*`), owned by the caller.
+pub fn mul(allocator: Allocator, io: Io, a: anytype, b: anytype) MulError!Mat(ElementOf(@TypeOf(a))) {
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.cols != cb.rows) return error.DimensionMismatch;
+    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, cb.cols);
+    errdefer r.deinit(allocator);
+    try mulInto(allocator, io, r.view(), ca, cb);
+    return r;
+}
+
+/// `out = a b`: up to the inline limit in every dimension, `linalg.matrix.mul`'s
+/// order (each column of `out` the columns of `a` scaled by `b`'s and
+/// summed in order); else `gemv` for one column, `gemm` otherwise.
+pub fn mulInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytype) MulError!void {
+    const o = viewOf(out);
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (ca.cols != cb.rows or o.rows != ca.rows or o.cols != cb.cols) return error.DimensionMismatch;
+    return mulWith(pathOf(&.{ ca.rows, cb.cols, ca.cols }), allocator, io, o, ca, cb);
+}
+
+fn mulWith(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@TypeOf(o).Element), cb: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
+    const m = ca.rows;
+    const n = cb.cols;
+    const k = ca.cols;
+    if (path == .fixed) {
+        for (0..n) |j| for (0..m) |i| {
+            var acc = ops.zero(T);
+            if (k > 0) {
+                acc = eMul(ca.at(i, 0), cb.at(0, j));
+                for (1..k) |p| acc = eMulAdd(ca.at(i, p), cb.at(p, j), acc);
+            }
+            o.data[i + j * o.ld] = acc;
+        };
+        return;
+    }
+    const pa: [*]T = @constCast(ca.data.ptr);
+    const pb: [*]T = @constCast(cb.data.ptr);
+    const one = ops.one(T);
+    if (n == 1) {
+        blas.gemv(allocator, io, T, .n, toIsize(m), toIsize(k), one, pa, toIsize(ca.ld), pb, 1, ops.zero(T), o.data.ptr, 1) catch |e| return narrow(Error, e);
+        return;
+    }
+    blas.gemm(allocator, io, T, .n, .n, toIsize(m), toIsize(n), toIsize(k), one, pa, toIsize(ca.ld), pb, toIsize(cb.ld), ops.zero(T), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Error, e);
+}
+
+pub const TransposeError = error{DimensionMismatch} || Io.Cancelable;
+
+/// `aᵀ` (MATLAB's `a.'`), owned by the caller.
+pub fn transpose(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Mat(ElementOf(@TypeOf(a))) {
+    return transposed(.t, allocator, io, a);
+}
+
+/// `aᴴ` (MATLAB's `a'`); `aᵀ` for real `T`.
+pub fn ctranspose(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Mat(ElementOf(@TypeOf(a))) {
+    return transposed(.c, allocator, io, a);
+}
+
+fn transposed(comptime trans: blas.Trans, allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Mat(ElementOf(@TypeOf(a))) {
+    const ca = constOf(a);
+    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, ca.rows);
+    errdefer r.deinit(allocator);
+    transposeWith(trans, io, r.view(), ca) catch |e| return narrow(Io.Cancelable, e);
+    return r;
+}
+
+/// `out = aᵀ`, by the BLAS's `omatcopy`.
+pub fn transposeInto(io: Io, out: anytype, a: anytype) TransposeError!void {
+    return transposeWith(.t, io, viewOf(out), constOf(a));
+}
+
+/// `out = aᴴ`, by the BLAS's `omatcopy`.
+pub fn ctransposeInto(io: Io, out: anytype, a: anytype) TransposeError!void {
+    return transposeWith(.c, io, viewOf(out), constOf(a));
+}
+
+fn transposeWith(comptime trans: blas.Trans, io: Io, o: anytype, a: anytype) TransposeError!void {
+    const T = @TypeOf(a).Element;
+    if (o.rows != a.cols or o.cols != a.rows) return error.DimensionMismatch;
+    if (a.rows == 0 or a.cols == 0) return;
+    const one = ops.one(T);
+    const t: blas.Trans = if (comptime isComplex(T)) trans else .t;
+    blas.omatcopy(io, T, t, toIsize(a.rows), toIsize(a.cols), one, a.data.ptr, toIsize(a.ld), o.data.ptr, toIsize(o.ld)) catch |e| return narrow(Io.Cancelable, e);
+}
+
+// ---- determinant, inverse and solve -----------------------------------------
+
+pub const DetError = error{NotSquare} || Allocator.Error || Io.Cancelable;
+
+/// The determinant (MATLAB's `det`); 1 for 0 by 0, 0 when singular.
+/// `linalg.matrix.det` up to the inline limit; else the product of `getrf`'s
+/// pivots, renormalized by powers of 2 as it goes so that it overflows or
+/// underflows only if the result does (design.md, M1's E1). The scaling is
+/// exact, so where the plain product stays in range it has its bits.
+pub fn det(allocator: Allocator, io: Io, a: anytype) DetError!ElementOf(@TypeOf(a)) {
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const n = ca.rows;
+    return detWith(pathOf(&.{n}), allocator, io, ca);
+}
+
+fn detWith(path: Path, allocator: Allocator, io: Io, ca: anytype) (Allocator.Error || Io.Cancelable)!@TypeOf(ca).Element {
+    const T = @TypeOf(ca).Element;
+    const n = ca.rows;
+    if (n == 0) return ops.one(T);
+    if (path == .fixed) return fixed(T, "det", n, .{ca});
+    const f = try copyOf(T, allocator, ca);
+    defer f.deinit(allocator);
+    const ipiv = try allocator.alloc(isize, n);
+    defer allocator.free(ipiv);
+    lapack.getrf(allocator, io, T, toIsize(n), toIsize(n), f.data.ptr, toIsize(n), ipiv.ptr, null) catch |e| switch (e) {
+        error.Singular => return ops.zero(T),
+        else => return narrow(Error, e),
+    };
+    var d = ops.one(T);
+    var exp: i64 = 0;
+    for (ipiv, 0..) |p, i| {
+        d = eMul(d, f.at(i, i));
+        if (p != i + 1) d = ops.neg(T, d);
+        const x = std.math.frexp(if (comptime isComplex(T)) @max(@abs(d.re), @abs(d.im)) else d);
+        exp += x.exponent;
+        d = scaleBy(d, -x.exponent);
+    }
+    return scaleBy(d, @intCast(std.math.clamp(exp, -1 << 16, 1 << 16)));
+}
+
+/// `x 2^e`.
+fn scaleBy(x: anytype, e: i32) @TypeOf(x) {
+    if (comptime !isComplex(@TypeOf(x))) return std.math.ldexp(x, e);
+    return .{ .re = std.math.ldexp(x.re, e), .im = std.math.ldexp(x.im, e) };
+}
+
+pub const InvError = error{ NotSquare, Singular } || Allocator.Error || Io.Cancelable;
+
+/// `a⁻¹` (MATLAB's `inv`), owned by the caller: `linalg.matrix.inv` up to the
+/// inline limit, else `getrf` and `getri`; `error.Singular` with no result.
+pub fn inv(allocator: Allocator, io: Io, a: anytype) InvError!Mat(ElementOf(@TypeOf(a))) {
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, ca.cols);
+    errdefer r.deinit(allocator);
+    try invWith(pathOf(&.{ca.rows}), allocator, io, r.view(), ca);
+    return r;
+}
+
+/// `out = a⁻¹`, `out` untouched on an error.
+pub fn invInto(allocator: Allocator, io: Io, out: anytype, a: anytype) (InvError || error{DimensionMismatch})!void {
+    const o = viewOf(out);
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    if (o.rows != ca.rows or o.cols != ca.cols) return error.DimensionMismatch;
+    return invWith(pathOf(&.{ca.rows}), allocator, io, o, ca);
+}
+
+fn invWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
+    const n = a.rows;
+    if (n == 0) return;
+    if (path == .fixed) return fixed(error{Singular}!void, "inv", n, .{ o, a });
+    const f = try copyOf(T, allocator, a);
+    defer f.deinit(allocator);
+    const ipiv = try allocator.alloc(isize, n);
+    defer allocator.free(ipiv);
+    lapack.getrf(allocator, io, T, toIsize(n), toIsize(n), f.data.ptr, toIsize(n), ipiv.ptr, null) catch |e| return narrow(error{Singular} || Error, e);
+    lapack.getri(allocator, io, T, toIsize(n), f.data.ptr, toIsize(n), ipiv.ptr, null) catch |e| return narrow(error{Singular} || Error, e);
+    copyInto(T, o.data, o.ld, f.constView());
+}
+
+pub const SolveError = error{ DimensionMismatch, Singular } || Allocator.Error || Io.Cancelable;
+
+/// `a \ b` (MATLAB's `mldivide`), owned by the caller: square `a` by
+/// `linalg.matrix.solve`'s LU within the inline limit, else by `structureOf`,
+/// `error.Singular` with no result; rectangular `a` by `gelsy`'s least-norm
+/// least squares, rank cut at `max(m, n) eps` (MATLAB's QR tolerance).
+pub fn solve(allocator: Allocator, io: Io, a: anytype, b: anytype) SolveError!Mat(ElementOf(@TypeOf(a))) {
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (cb.rows != ca.rows) return error.DimensionMismatch;
+    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, cb.cols);
+    errdefer r.deinit(allocator);
+    try solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, r.view(), ca, cb);
+    return r;
+}
+
+/// `out = a \ b`, `out` untouched on an error.
+pub fn solveInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytype) SolveError!void {
+    const o = viewOf(out);
+    const ca = constOf(a);
+    const cb = constOf(b);
+    if (cb.rows != ca.rows or o.rows != ca.cols or o.cols != cb.cols) return error.DimensionMismatch;
+    return solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, o, ca, cb);
+}
+
+const Structure = enum { upper, lower, hermitian, general };
+
+/// `solve`'s route past the inline limit, from `a`'s values alone (MATLAB's
+/// order): triangular `trtrs`; Hermitian with a positive real diagonal
+/// `potrf` and `potrs`, LU if that fails; else `gesv`.
+fn structureOf(a: anytype) Structure {
+    const T = @TypeOf(a).Element;
+    const n = a.rows;
+    var upper = true;
+    var lower = true;
+    for (0..n) |j| for (0..n) |i| {
+        if (ops.isZero(T, a.at(i, j))) continue;
+        if (i > j) upper = false;
+        if (i < j) lower = false;
+    };
+    if (upper) return .upper;
+    if (lower) return .lower;
+    for (0..n) |j| {
+        const d = a.at(j, j);
+        const positive = if (comptime isComplex(T)) d.re > 0 else d > 0;
+        if (!positive) return .general;
+    }
+    return if (isHermitian(a)) .hermitian else .general;
+}
+
+fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
+    const T = @TypeOf(o).Element;
+    const n = a.cols;
+    if (a.rows != n) return leastSquares(allocator, io, o, a, b);
+    if (n == 0) return;
+    if (path == .fixed) return fixed(error{Singular}!void, "solve", n, .{ o, a, b });
+    const x = try copyOf(T, allocator, b);
+    defer x.deinit(allocator);
+    const nn = toIsize(n);
+    const k = toIsize(b.cols);
+    const ld = toIsize(@max(n, 1));
+    switch (structureOf(a)) {
+        .upper, .lower => |s| {
+            const uplo: lapack.Uplo = if (s == .upper) .u else .l;
+            lapack.trtrs(allocator, io, T, uplo, .n, .n, nn, k, a.data.ptr, toIsize(a.ld), x.data.ptr, ld, null) catch |e| return narrow(error{Singular} || Error, e);
+        },
+        .hermitian, .general => |s| {
+            const f = try copyOf(T, allocator, a);
+            defer f.deinit(allocator);
+            if (s == .hermitian) cholesky: {
+                lapack.potrf(allocator, io, T, .u, nn, f.data.ptr, ld, null) catch |e| switch (e) {
+                    error.NotPositiveDefinite => {
+                        copyInto(T, f.data, n, a);
+                        break :cholesky;
+                    },
+                    else => return narrow(Error, e),
+                };
+                lapack.potrs(allocator, io, T, .u, nn, k, f.data.ptr, ld, x.data.ptr, ld) catch |e| return narrow(Error, e);
+                return copyInto(T, o.data, o.ld, x.constView());
+            }
+            const ipiv = try allocator.alloc(isize, n);
+            defer allocator.free(ipiv);
+            lapack.gesv(allocator, io, T, nn, k, f.data.ptr, ld, ipiv.ptr, x.data.ptr, ld, null) catch |e| return narrow(error{Singular} || Error, e);
+        },
+    }
+    copyInto(T, o.data, o.ld, x.constView());
+}
+
+/// `gelsy`'s least-norm least-squares solution, for rectangular `a`.
+fn leastSquares(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
+    const T = @TypeOf(o).Element;
+    const F = Real(T);
+    const m = a.rows;
+    const n = a.cols;
+    if (m == 0 or n == 0) {
+        for (0..o.cols) |j| @memset(o.col(j), ops.zero(T));
+        return;
+    }
+    const f = try copyOf(T, allocator, a);
+    defer f.deinit(allocator);
+    const ldx = @max(m, n);
+    const x = try allocator.alloc(T, ldx * b.cols);
+    defer allocator.free(x);
+    copyInto(T, x, ldx, b);
+    const jpvt = try allocator.alloc(isize, n);
+    defer allocator.free(jpvt);
+    @memset(jpvt, 0);
+    const rcond = @as(F, @floatFromInt(ldx)) * std.math.floatEps(F);
+    var got_rank: isize = undefined;
+    lapack.gelsy(allocator, io, T, toIsize(m), toIsize(n), toIsize(b.cols), f.data.ptr, toIsize(m), x.ptr, toIsize(ldx), jpvt.ptr, rcond, &got_rank) catch |e| return narrow(Error, e);
+    for (0..o.cols) |j| @memcpy(o.col(j), x[j * ldx ..][0..n]);
+}
+
+// ---- factorizations ---------------------------------------------------------
+
+/// `lu`'s result, `P A = L U` for the `m` by `n` `A`, `getrf`'s factors.
+pub fn Lu(comptime T: type) type {
+    return struct {
+        /// `L` below the diagonal (its unit diagonal implied), `U` on and
+        /// above it.
+        factors: Mat(T),
+        /// Row `i` was interchanged with row `ipiv[i]`, for `i` from 0 up.
+        ipiv: []usize,
+        /// The first `i` with `U(i, i)` exactly 0; a singular matrix still
+        /// factors completely (design.md, decision 5).
+        zero_pivot: ?usize,
+
+        const Self = @This();
+
+        pub fn deinit(f: Self, allocator: Allocator) void {
+            f.factors.deinit(allocator);
+            allocator.free(f.ipiv);
+        }
+
+        /// `L`, `m` by `min(m, n)`, unit lower trapezoidal.
+        pub fn l(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
+            const k = @min(f.factors.rows, f.factors.cols);
+            const r = try Mat(T).zeros(allocator, f.factors.rows, k);
+            for (0..k) |j| {
+                r.data[j + j * r.rows] = ops.one(T);
+                for (j + 1..r.rows) |i| r.data[i + j * r.rows] = f.factors.at(i, j);
+            }
+            return r;
+        }
+
+        /// `U`, `min(m, n)` by `n`, upper trapezoidal.
+        pub fn u(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
+            const k = @min(f.factors.rows, f.factors.cols);
+            const r = try Mat(T).zeros(allocator, k, f.factors.cols);
+            for (0..r.cols) |j| for (0..@min(j + 1, k)) |i| {
+                r.data[i + j * k] = f.factors.at(i, j);
+            };
+            return r;
+        }
+    };
+}
+
+/// `P A = L U` with partial pivoting (MATLAB's `lu`), by `getrf`.
+pub fn lu(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Lu(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const k = @min(ca.rows, ca.cols);
+    const f = try copyOf(T, allocator, ca);
+    errdefer f.deinit(allocator);
+    const ipiv = try allocator.alloc(usize, k);
+    errdefer allocator.free(ipiv);
+    const piv = try allocator.alloc(isize, k);
+    defer allocator.free(piv);
+    var zero: usize = 0;
+    var zero_pivot: ?usize = null;
+    lapack.getrf(allocator, io, T, toIsize(ca.rows), toIsize(ca.cols), f.data.ptr, toIsize(@max(ca.rows, 1)), piv.ptr, &zero) catch |e| switch (e) {
+        error.Singular => zero_pivot = zero - 1,
+        else => return narrow(Error, e),
+    };
+    for (ipiv, piv) |*d, p| d.* = @intCast(p - 1);
+    return .{ .factors = f, .ipiv = ipiv, .zero_pivot = zero_pivot };
+}
+
+pub const CholError = error{ NotSquare, NotPositiveDefinite } || Allocator.Error || Io.Cancelable;
+
+/// The upper `R` with `A = Rᴴ R` (MATLAB's `chol`), by `potrf` on `a`'s
+/// upper triangle (the lower is not read); zeros below the diagonal.
+pub fn chol(allocator: Allocator, io: Io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const n = ca.rows;
+    const r = try copyOf(T, allocator, ca);
+    errdefer r.deinit(allocator);
+    lapack.potrf(allocator, io, T, .u, toIsize(n), r.data.ptr, toIsize(@max(n, 1)), null) catch |e| return narrow(error{NotPositiveDefinite} || Error, e);
+    for (0..n) |j| @memset(r.data[j * n + j + 1 .. (j + 1) * n], ops.zero(T));
+    return r;
+}
+
+/// `qr`'s shapes for the `m` by `n` `A`, `k = min(m, n)`: `.economy` `Q` `m`
+/// by `k` and `R` `k` by `n`; `.full` `Q` `m` by `m` and `R` `m` by `n`.
+pub const QrMode = enum { economy, full };
+
+/// `qr`'s result.
+pub fn Qr(comptime T: type) type {
+    return struct {
+        /// Orthonormal columns.
+        q: Mat(T),
+        /// Upper trapezoidal.
+        r: Mat(T),
+
+        pub fn deinit(f: @This(), allocator: Allocator) void {
+            f.q.deinit(allocator);
+            f.r.deinit(allocator);
+        }
+    };
+}
+
+/// `A = Q R` (MATLAB's `qr`, unpivoted), by `geqrf` and `orgqr` (`ungqr`);
+/// `R`'s diagonal keeps LAPACK's signs.
+pub fn qr(allocator: Allocator, io: Io, a: anytype, mode: QrMode) (Allocator.Error || Io.Cancelable)!Qr(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const m = ca.rows;
+    const n = ca.cols;
+    const k = @min(m, n);
+    const qc = if (mode == .full) m else k;
+    const f = try copyOf(T, allocator, ca);
+    defer f.deinit(allocator);
+    const tau = try allocator.alloc(T, k);
+    defer allocator.free(tau);
+    const ld = toIsize(@max(m, 1));
+    lapack.geqrf(allocator, io, T, toIsize(m), toIsize(n), f.data.ptr, ld, tau.ptr) catch |e| return narrow(Error, e);
+    const r = try Mat(T).zeros(allocator, qc, n);
+    errdefer r.deinit(allocator);
+    for (0..n) |j| for (0..@min(j + 1, k)) |i| {
+        r.data[i + j * qc] = f.at(i, j);
+    };
+    const q = try Mat(T).zeros(allocator, m, qc);
+    errdefer q.deinit(allocator);
+    for (0..k) |j| @memcpy(q.data[j * m ..][0..m], f.data[j * m ..][0..m]);
+    if (m > 0) lapack.orgqr(allocator, io, T, toIsize(m), toIsize(qc), toIsize(k), q.data.ptr, ld, tau.ptr) catch |e| return narrow(Error, e);
+    return .{ .q = q, .r = r };
+}
+
+// ---- norms, SVD and eigenvalues ---------------------------------------------
+
+/// `matrixNorm`'s norms: the largest column sum of `|a(i, j)|`, the largest
+/// row sum, Frobenius, and the largest singular value.
+pub const MatrixNorm = enum { one, inf, fro, two };
+
+pub const MatrixNormError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
+
+/// A matrix norm (MATLAB's `norm(A, p)`); 0 when empty. `lange`, or `.two`
+/// the first singular value from `gesvd`.
+pub fn matrixNorm(allocator: Allocator, io: Io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const m = ca.rows;
+    const n = ca.cols;
+    if (m == 0 or n == 0) return 0;
+    const kind: lapack.Norm = switch (which) {
+        .one => .o,
+        .inf => .i,
+        .fro => .f,
+        .two => {
+            const s = try singularValues(allocator, io, ca);
+            defer allocator.free(s);
+            return s[0];
+        },
+    };
+    return lapack.lange(allocator, io, T, kind, toIsize(m), toIsize(n), ca.data.ptr, toIsize(ca.ld)) catch |e| return narrow(Allocator.Error, e);
+}
+
+/// `svd`'s outputs for the `m` by `n` `A`, `k = min(m, n)`: `.values` `s`
+/// alone; `.economy` `U` `m` by `k` and `V` `n` by `k`; `.full` `U` `m` by
+/// `m` and `V` `n` by `n`.
+pub const SvdMode = enum { values, economy, full };
+
+/// `svd`'s result, `A = U Σ Vᴴ`.
+pub fn Svd(comptime T: type) type {
+    return struct {
+        /// The `k` singular values, nonincreasing.
+        s: []Real(T),
+        /// Orthonormal columns; null for `.values`.
+        u: ?Mat(T),
+        v: ?Mat(T),
+
+        pub fn deinit(f: @This(), allocator: Allocator) void {
+            allocator.free(f.s);
+            if (f.u) |u| u.deinit(allocator);
+            if (f.v) |v| v.deinit(allocator);
+        }
+    };
+}
+
+/// `svd`'s, `pinv`'s, `rank`'s and `cond`'s: `NoConvergence` also for a NaN
+/// in `A`.
+pub const SvdError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
+
+/// `InvalidA` (a NaN) is `NoConvergence`.
+fn svdError(e: anyerror) SvdError {
+    return if (e == error.InvalidA) error.NoConvergence else narrow(SvdError, e);
+}
+
+/// `A = U Σ Vᴴ` (MATLAB's `svd`): the values alone by `gesvd` (QR
+/// iteration, which keeps a graded matrix's small values), with vectors by
+/// `gesdd` (divide and conquer), so the two may differ in the last bits.
+/// Empty `A` with `.full`: `U` and `V` are identities.
+pub fn svd(allocator: Allocator, io: Io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    if (mode == .values) return .{ .s = try singularValues(allocator, io, ca), .u = null, .v = null };
+    const m = ca.rows;
+    const n = ca.cols;
+    const k = @min(m, n);
+    const uc = if (mode == .full) m else k;
+    const vc = if (mode == .full) n else k;
+    const s = try allocator.alloc(Real(T), k);
+    errdefer allocator.free(s);
+    const u = try Mat(T).zeros(allocator, m, uc);
+    errdefer u.deinit(allocator);
+    const v = try Mat(T).zeros(allocator, n, vc);
+    errdefer v.deinit(allocator);
+    if (k == 0) {
+        for (0..uc) |i| u.data[i * (m + 1)] = ops.one(T);
+        for (0..vc) |i| v.data[i * (n + 1)] = ops.one(T);
+        return .{ .s = s, .u = u, .v = v };
+    }
+    const f = try copyOf(T, allocator, ca);
+    defer f.deinit(allocator);
+    const vt = try allocator.alloc(T, vc * n);
+    defer allocator.free(vt);
+    lapack.gesdd(allocator, io, T, if (mode == .full) .a else .s, toIsize(m), toIsize(n), f.data.ptr, toIsize(m), s.ptr, u.data.ptr, toIsize(m), vt.ptr, toIsize(vc)) catch |e| return svdError(e);
+    for (0..n) |j| for (0..vc) |i| {
+        v.data[j + i * n] = ops.conj(T, vt[i + j * vc]);
+    };
+    return .{ .s = s, .u = u, .v = v };
+}
+
+/// `a`'s `min(m, n)` singular values by `gesvd`, owned by the caller.
+fn singularValues(allocator: Allocator, io: Io, a: anytype) SvdError![]Real(@TypeOf(a).Element) {
+    const T = @TypeOf(a).Element;
+    const m = a.rows;
+    const n = a.cols;
+    const s = try allocator.alloc(Real(T), @min(m, n));
+    errdefer allocator.free(s);
+    if (s.len == 0) return s;
+    const f = try copyOf(T, allocator, a);
+    defer f.deinit(allocator);
+    var none: [1]T = undefined;
+    lapack.gesvd(allocator, io, T, .n, .n, toIsize(m), toIsize(n), f.data.ptr, toIsize(m), s.ptr, &none, 1, &none, 1, null) catch |e| return svdError(e);
+    return s;
+}
+
+/// The spacing of floats at `x` (MATLAB's `eps(x)`).
+fn epsOf(x: anytype) @TypeOf(x) {
+    const F = @TypeOf(x);
+    if (x == 0) return std.math.floatTrueMin(F);
+    const e = std.math.frexp(x).exponent;
+    return @max(std.math.ldexp(std.math.floatEps(F), e - 1), std.math.floatTrueMin(F));
+}
+
+/// How many of the nonincreasing `s` exceed `tol`, by default
+/// `max(m, n) eps(σ₁)` (MATLAB's `rank` and `pinv`).
+fn rankOf(comptime F: type, s: []const F, m: usize, n: usize, tol: ?F) usize {
+    if (s.len == 0) return 0;
+    const t = tol orelse (@as(F, @floatFromInt(@max(m, n))) * epsOf(s[0]));
+    var r: usize = 0;
+    while (r < s.len and s[r] > t) r += 1;
+    return r;
+}
+
+/// The Moore-Penrose pseudoinverse (MATLAB's `pinv`), `n` by `m`, owned by
+/// the caller: `V Σ⁺ Uᴴ` over the singular values above `tol`, by default
+/// `max(m, n) eps(σ₁)`.
+pub fn pinv(allocator: Allocator, io: Io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!Mat(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const ca = constOf(a);
+    const m = ca.rows;
+    const n = ca.cols;
+    const x = try Mat(T).zeros(allocator, n, m);
+    errdefer x.deinit(allocator);
+    const f = try svd(allocator, io, ca, .economy);
+    defer f.deinit(allocator);
+    const r = rankOf(Real(T), f.s, m, n, tol);
+    if (r == 0) return x;
+    const u = f.u.?;
+    const v = f.v.?;
+    for (f.s[0..r], 0..) |sj, j| for (v.data[j * n ..][0..n]) |*e| {
+        e.* = if (comptime isComplex(T)) T.init(e.re / sj, e.im / sj) else e.* / sj;
+    };
+    const t: blas.Trans = if (comptime isComplex(T)) .c else .t;
+    blas.gemm(allocator, io, T, .n, t, toIsize(n), toIsize(m), toIsize(r), ops.one(T), v.data.ptr, toIsize(n), u.data.ptr, toIsize(m), ops.zero(T), x.data.ptr, toIsize(n)) catch |e| return narrow(Error, e);
+    return x;
+}
+
+/// The number of singular values above `tol`, by default `max(m, n)
+/// eps(σ₁)` (MATLAB's `rank`); 0 when empty.
+pub fn rank(allocator: Allocator, io: Io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!usize {
+    const ca = constOf(a);
+    const s = try singularValues(allocator, io, ca);
+    defer allocator.free(s);
+    return rankOf(Real(ElementOf(@TypeOf(a))), s, ca.rows, ca.cols, tol);
+}
+
+/// The 2-norm condition number `σ₁ / σₖ` (MATLAB's `cond`); infinite when
+/// `σₖ` is 0, 0 when empty.
+pub fn cond(allocator: Allocator, io: Io, a: anytype) SvdError!Real(ElementOf(@TypeOf(a))) {
+    const s = try singularValues(allocator, io, constOf(a));
+    defer allocator.free(s);
+    if (s.len == 0) return 0;
+    const last = s[s.len - 1];
+    return if (last == 0) std.math.inf(@TypeOf(last)) else s[0] / last;
+}
+
+/// `eig`'s result: Hermitian `A` (decided by its values alone, exactly)
+/// has real eigenvalues, nondecreasing, and orthonormal eigenvectors;
+/// otherwise they are complex, a real `A`'s conjugate pairs together with
+/// the positive imaginary part first, and each eigenvector (`A v = λ v`) of
+/// unit 2-norm with its largest entry real (design.md, decision 6).
+pub fn Eig(comptime T: type) type {
+    const C = std.math.Complex(Real(T));
+    return union(enum) {
+        hermitian: struct { values: []Real(T), vectors: ?Mat(T) },
+        general: struct { values: []C, vectors: ?Mat(C) },
+
+        pub fn deinit(e: @This(), allocator: Allocator) void {
+            switch (e) {
+                inline else => |r| {
+                    allocator.free(r.values);
+                    if (r.vectors) |v| v.deinit(allocator);
+                },
+            }
+        }
+    };
+}
+
+pub const EigError = error{ NotSquare, NoConvergence } || Allocator.Error || Io.Cancelable;
+
+/// Eigenvalues, and with `want_vectors` eigenvectors (MATLAB's `eig`):
+/// `syevd` (`heevd`) for Hermitian `A`, else `geev`. A NaN in `A` gives
+/// `error.NoConvergence`.
+pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigError!Eig(ElementOf(@TypeOf(a))) {
+    const T = ElementOf(@TypeOf(a));
+    const C = std.math.Complex(Real(T));
+    const ca = constOf(a);
+    if (ca.rows != ca.cols) return error.NotSquare;
+    const n = ca.rows;
+    const ld = toIsize(@max(n, 1));
+    const jobz: lapack.Jobz = if (want_vectors) .v else .n;
+    const f = try copyOf(T, allocator, ca);
+    if (isHermitian(ca)) {
+        errdefer f.deinit(allocator);
+        const w = try allocator.alloc(Real(T), n);
+        errdefer allocator.free(w);
+        lapack.syevd(allocator, io, T, jobz, .u, toIsize(n), f.data.ptr, ld, w.ptr) catch |e| return svdError(e);
+        if (!want_vectors) f.deinit(allocator);
+        return .{ .hermitian = .{ .values = w, .vectors = if (want_vectors) f else null } };
+    }
+    defer f.deinit(allocator);
+    const w = try allocator.alloc(C, n);
+    errdefer allocator.free(w);
+    const vr: ?Mat(T) = if (want_vectors) try Mat(T).init(allocator, n, n) else null;
+    var none: [1]T = undefined;
+    const pr = if (vr) |x| x.data.ptr else &none;
+    if (comptime isComplex(T)) {
+        errdefer if (vr) |x| x.deinit(allocator);
+        lapack.geev(allocator, io, T, .n, jobz, toIsize(n), f.data.ptr, ld, w.ptr, &none, 1, pr, ld, null) catch |e| return svdError(e);
+        return .{ .general = .{ .values = w, .vectors = vr } };
+    }
+    defer if (vr) |x| x.deinit(allocator);
+    const wr = try allocator.alloc(T, 2 * n);
+    defer allocator.free(wr);
+    lapack.geev(allocator, io, T, .n, jobz, toIsize(n), f.data.ptr, ld, .{ .re = wr.ptr, .im = wr[n..].ptr }, &none, 1, pr, ld, null) catch |e| return svdError(e);
+    for (w, wr[0..n], wr[n..]) |*d, re, im| d.* = .init(re, im);
+    const x = vr orelse return .{ .general = .{ .values = w, .vectors = null } };
+    // `v(:, j) ± i v(:, j + 1)` for a pair, `wi(j) > 0` first
+    const v = try Mat(C).init(allocator, n, n);
+    var j: usize = 0;
+    while (j < n) : (j += 1) {
+        const c = x.data[j * n ..][0..n];
+        if (wr[n + j] == 0) {
+            for (v.data[j * n ..][0..n], c) |*d, re| d.* = .init(re, 0);
+            continue;
+        }
+        const ci = x.data[(j + 1) * n ..][0..n];
+        for (v.data[j * n ..][0..n], v.data[(j + 1) * n ..][0..n], c, ci) |*p, *q, re, im| {
+            p.* = .init(re, im);
+            q.* = .init(re, -im);
+        }
+        j += 1;
+    }
+    return .{ .general = .{ .values = w, .vectors = v } };
+}
+
+/// `a == aᴴ` exactly, the diagonal real.
+fn isHermitian(a: anytype) bool {
+    const T = @TypeOf(a).Element;
+    for (0..a.rows) |j| {
+        if (comptime isComplex(T)) if (a.at(j, j).im != 0) return false;
+        for (j + 1..a.rows) |i| {
+            const x = a.at(i, j);
+            const y = ops.conj(T, a.at(j, i));
+            const same = if (comptime isComplex(T)) x.re == y.re and x.im == y.im else x == y;
+            if (!same) return false;
+        }
+    }
+    return true;
+}
+
+// ---- plumbing ---------------------------------------------------------------
 
 /// The inline limit `L` per dimension, `rstd_linalg_options.inline_limit`
 /// (design.md, Dispatch).
@@ -37,12 +816,12 @@ const inline_limit = matrix.inline_limit;
 const fixed_max = if (sysinfo.is_test) @max(inline_limit, 16) else inline_limit;
 
 /// The inline kernels or the BLAS and LAPACK; by size alone outside tests.
-const Path = enum { inline_, blas };
+const Path = enum { fixed, blas };
 
-/// `.inline_` when every dimension is at or below the inline limit.
+/// `.fixed` when every dimension is at or below the inline limit.
 fn pathOf(dims: []const usize) Path {
     for (dims) |d| if (d > inline_limit) return .blas;
-    return .inline_;
+    return .fixed;
 }
 
 /// The element type of an operand.
@@ -159,6 +938,14 @@ fn Fixed(comptime c: usize) type {
     };
 }
 
+/// `Fixed(n).name(args)`, `n` from 1 to `fixed_max`.
+inline fn fixed(comptime R: type, comptime name: []const u8, n: usize, args: anytype) R {
+    switch (n) {
+        inline 1...fixed_max => |c| return @call(.auto, @field(Fixed(c), name), args),
+        else => unreachable,
+    }
+}
+
 /// `v` as a vector: one column, or one row (stride `ld`).
 fn strided(v: anytype) error{DimensionMismatch}!Strided(@TypeOf(v).Element) {
     const p: [*]@TypeOf(v).Element = @constCast(v.data.ptr);
@@ -167,230 +954,14 @@ fn strided(v: anytype) error{DimensionMismatch}!Strided(@TypeOf(v).Element) {
     return error.DimensionMismatch;
 }
 
-fn len(n: usize) isize {
+fn toIsize(n: usize) isize {
     return @intCast(n);
 }
 
-/// A BLAS call's error, of which only `Canceled` can arise here: the
-/// arguments come from views, so the BLAS's argument errors are bugs.
-fn canceled(e: anyerror) Io.Cancelable {
-    return switch (e) {
-        error.Canceled => error.Canceled,
-        else => unreachable,
-    };
-}
-
-/// As `canceled`, for the calls that may also allocate.
-fn allocOrCanceled(e: anyerror) (Allocator.Error || Io.Cancelable) {
-    return switch (e) {
-        error.Canceled => error.Canceled,
-        error.OutOfMemory => error.OutOfMemory,
-        else => unreachable,
-    };
-}
-
-pub const VectorError = error{DimensionMismatch} || Io.Cancelable;
-
-/// `xᴴ y` (`Σ conj(x[i]) y[i]`, MATLAB's `dot`); `linalg.vector.dot`'s order
-/// up to the inline limit, else the BLAS's `dot` or `dotc`.
-pub fn dot(io: Io, x: anytype, y: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    const sx = try strided(constOf(x));
-    const sy = try strided(constOf(y));
-    if (sx.n != sy.n) return error.DimensionMismatch;
-    return dotWith(pathOf(&.{sx.n}), io, sx, sy);
-}
-
-fn dotWith(path: Path, io: Io, sx: anytype, sy: @TypeOf(sx)) Io.Cancelable!@TypeOf(sx.ptr[0]) {
-    const T = @TypeOf(sx.ptr[0]);
-    if (sx.n == 0) return eZero(T);
-    if (path == .inline_) switch (sx.n) {
-        inline 1...fixed_max => |c| return Fixed(c).dot(sx, sy),
-        else => unreachable,
-    };
-    const f = if (comptime isComplex(T)) blas.dotc else blas.dot;
-    return f(io, T, len(sx.n), sx.ptr, len(sx.inc), sy.ptr, len(sy.inc)) catch |e| return canceled(e);
-}
-
-/// The 2-norm (MATLAB's `norm` of a vector; `linalg.vector`'s `norm`
-/// normalizes): `linalg.vector.length` up to the inline limit, else `nrm2`.
-pub fn norm(io: Io, x: anytype) VectorError!Real(ElementOf(@TypeOf(x))) {
-    const s = try strided(constOf(x));
-    return normWith(pathOf(&.{s.n}), io, s);
-}
-
-fn normWith(path: Path, io: Io, s: anytype) Io.Cancelable!Real(@TypeOf(s.ptr[0])) {
-    const T = @TypeOf(s.ptr[0]);
-    if (s.n == 0) return 0;
-    if (path == .inline_) switch (s.n) {
-        inline 1...fixed_max => |c| return Fixed(c).length(s),
-        else => unreachable,
-    };
-    return blas.nrm2(io, T, len(s.n), s.ptr, len(s.inc)) catch |e| return canceled(e);
-}
-
-/// `Σ x[i]`: in order up to the inline limit, else the BLAS's `sum`, the
-/// real and imaginary parts apart for complex.
-pub fn sum(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    const s = try strided(constOf(x));
-    return sumWith(pathOf(&.{s.n}), io, s);
-}
-
-fn sumWith(path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
-    const T = @TypeOf(s.ptr[0]);
-    if (s.n == 0) return eZero(T);
-    if (path == .inline_) switch (s.n) {
-        inline 1...fixed_max => |c| return Fixed(c).sum(s),
-        else => unreachable,
-    };
-    if (comptime !isComplex(T)) return blas.sum(io, T, len(s.n), s.ptr, len(s.inc)) catch |e| return canceled(e);
-    const F = Real(T);
-    const parts: [*]F = @ptrCast(s.ptr);
-    const inc = len(2 * s.inc);
-    return .{
-        .re = blas.sum(io, F, len(s.n), parts, inc) catch |e| return canceled(e),
-        .im = blas.sum(io, F, len(s.n), parts + 1, inc) catch |e| return canceled(e),
-    };
-}
-
-/// The largest element, or the first NaN; ties keep the first; 0 for an
-/// empty vector, as the BLAS's `max`. Real only.
-pub fn max(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    return extreme(.max, io, x);
-}
-
-/// The smallest element, or the first NaN, as `max`.
-pub fn min(io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    return extreme(.min, io, x);
-}
-
-fn extreme(comptime which: blas.Extreme, io: Io, x: anytype) VectorError!ElementOf(@TypeOf(x)) {
-    const T = ElementOf(@TypeOf(x));
-    if (comptime isComplex(T)) @compileError("max and min order real elements only");
-    const s = try strided(constOf(x));
-    return extremeWith(which, pathOf(&.{s.n}), io, s);
-}
-
-fn extremeWith(comptime which: blas.Extreme, path: Path, io: Io, s: anytype) Io.Cancelable!@TypeOf(s.ptr[0]) {
-    const T = @TypeOf(s.ptr[0]);
-    if (s.n == 0) return 0;
-    if (path == .inline_) switch (s.n) {
-        inline 1...fixed_max => |c| return Fixed(c).extreme(which, s),
-        else => unreachable,
-    };
-    return blas.extreme(io, T, which, len(s.n), s.ptr, len(s.inc)) catch |e| return canceled(e);
-}
-
-/// `y += a x`, by the BLAS's `axpy`.
-pub fn axpy(io: Io, a: anytype, x: anytype, y: anytype) VectorError!void {
-    const T = ElementOf(@TypeOf(y));
-    const sx = try strided(constOf(x));
-    const sy = try strided(viewOf(y).constView());
-    if (sx.n != sy.n) return error.DimensionMismatch;
-    const alpha: T = a;
-    blas.axpy(io, T, len(sx.n), alpha, sx.ptr, len(sx.inc), sy.ptr, len(sy.inc)) catch |e| return canceled(e);
-}
-
-/// `x *= a`, element by element as `linalg.matrix.scale` (design.md,
-/// Dispatch: element-wise forms are inline at every size).
-pub fn scale(a: anytype, x: anytype) void {
-    const v = viewOf(x);
-    const alpha: @TypeOf(v).Element = a;
-    for (0..v.cols) |j| for (v.col(j)) |*e| {
-        e.* = eMul(e.*, alpha);
-    };
-}
-
-pub const MulError = error{DimensionMismatch} || Allocator.Error || Io.Cancelable;
-
-/// `a b` (MATLAB's `*`), owned by the caller.
-pub fn mul(allocator: Allocator, io: Io, a: anytype, b: anytype) MulError!Mat(ElementOf(@TypeOf(a))) {
-    const ca = constOf(a);
-    const cb = constOf(b);
-    if (ca.cols != cb.rows) return error.DimensionMismatch;
-    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, cb.cols);
-    errdefer r.deinit(allocator);
-    try mulInto(allocator, io, r.view(), ca, cb);
-    return r;
-}
-
-/// `out = a b`: up to the inline limit in every dimension, `linalg.matrix.mul`'s
-/// order (each column of `out` the columns of `a` scaled by `b`'s and
-/// summed in order); else `gemv` for one column, `gemm` otherwise.
-pub fn mulInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytype) MulError!void {
-    const o = viewOf(out);
-    const ca = constOf(a);
-    const cb = constOf(b);
-    if (ca.cols != cb.rows or o.rows != ca.rows or o.cols != cb.cols) return error.DimensionMismatch;
-    return mulWith(pathOf(&.{ ca.rows, cb.cols, ca.cols }), allocator, io, o, ca, cb);
-}
-
-fn mulWith(path: Path, allocator: Allocator, io: Io, o: anytype, ca: ConstView(@TypeOf(o).Element), cb: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
-    const T = @TypeOf(o).Element;
-    const m = ca.rows;
-    const n = cb.cols;
-    const k = ca.cols;
-    if (path == .inline_) {
-        for (0..n) |j| for (0..m) |i| {
-            var acc = eZero(T);
-            if (k > 0) {
-                acc = eMul(ca.at(i, 0), cb.at(0, j));
-                for (1..k) |p| acc = eMulAdd(ca.at(i, p), cb.at(p, j), acc);
-            }
-            o.data[i + j * o.ld] = acc;
-        };
-        return;
-    }
-    const pa: [*]T = @constCast(ca.data.ptr);
-    const pb: [*]T = @constCast(cb.data.ptr);
-    const one: T = if (comptime isComplex(T)) T.init(1, 0) else 1;
-    if (n == 1) {
-        blas.gemv(allocator, io, T, .n, len(m), len(k), one, pa, len(ca.ld), pb, 1, eZero(T), o.data.ptr, 1) catch |e| return allocOrCanceled(e);
-        return;
-    }
-    blas.gemm(allocator, io, T, .n, .n, len(m), len(n), len(k), one, pa, len(ca.ld), pb, len(cb.ld), eZero(T), o.data.ptr, len(o.ld)) catch |e| return allocOrCanceled(e);
-}
-
-pub const TransposeError = error{DimensionMismatch} || Io.Cancelable;
-
-/// `aᵀ` (MATLAB's `a.'`), owned by the caller.
-pub fn transpose(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Mat(ElementOf(@TypeOf(a))) {
-    return transposed(.t, allocator, io, a);
-}
-
-/// `aᴴ` (MATLAB's `a'`); `aᵀ` for real `T`.
-pub fn ctranspose(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Mat(ElementOf(@TypeOf(a))) {
-    return transposed(.c, allocator, io, a);
-}
-
-fn transposed(comptime trans: blas.Trans, allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Mat(ElementOf(@TypeOf(a))) {
-    const ca = constOf(a);
-    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, ca.rows);
-    errdefer r.deinit(allocator);
-    transposeWith(trans, io, r.view(), ca) catch |e| return switch (e) {
-        error.DimensionMismatch => unreachable,
-        error.Canceled => error.Canceled,
-    };
-    return r;
-}
-
-/// `out = aᵀ`, by the BLAS's `omatcopy`.
-pub fn transposeInto(io: Io, out: anytype, a: anytype) TransposeError!void {
-    return transposeWith(.t, io, viewOf(out), constOf(a));
-}
-
-/// `out = aᴴ`, by the BLAS's `omatcopy`.
-pub fn ctransposeInto(io: Io, out: anytype, a: anytype) TransposeError!void {
-    return transposeWith(.c, io, viewOf(out), constOf(a));
-}
-
-fn transposeWith(comptime trans: blas.Trans, io: Io, o: anytype, a: anytype) TransposeError!void {
-    const T = @TypeOf(a).Element;
-    if (o.rows != a.cols or o.cols != a.rows) return error.DimensionMismatch;
-    if (a.rows == 0 or a.cols == 0) return;
-    const one: T = if (comptime isComplex(T)) T.init(1, 0) else 1;
-    const t: blas.Trans = if (comptime isComplex(T)) trans else .t;
-    blas.omatcopy(io, T, t, len(a.rows), len(a.cols), one, a.data.ptr, len(a.ld), o.data.ptr, len(o.ld)) catch |e| return canceled(e);
-}
+/// What the BLAS and LAPACK calls here pass on (`ops.narrow`): the arguments
+/// come from views, so their argument errors are bugs.
+const Error = Allocator.Error || Io.Cancelable;
+const narrow = ops.narrow;
 
 /// `a` into `dst`, column stride `ld`.
 fn copyInto(comptime T: type, dst: []T, ld: usize, a: ConstView(T)) void {
@@ -404,642 +975,14 @@ fn copyOf(comptime T: type, allocator: Allocator, a: ConstView(T)) Allocator.Err
     return r;
 }
 
-/// As `allocOrCanceled`, passing `Singular` through.
-fn singularOr(e: anyerror) (error{Singular} || Allocator.Error || Io.Cancelable) {
-    return switch (e) {
-        error.Singular => error.Singular,
-        else => allocOrCanceled(e),
-    };
-}
-
-pub const DetError = error{NotSquare} || Allocator.Error || Io.Cancelable;
-
-/// The determinant (MATLAB's `det`); 1 for 0 by 0, 0 when singular.
-/// `linalg.matrix.det` up to the inline limit; else the product of `getrf`'s
-/// pivots, renormalized by powers of 2 as it goes so that it overflows or
-/// underflows only if the result does (design.md, M1's E1). The scaling is
-/// exact, so where the plain product stays in range it has its bits.
-pub fn det(allocator: Allocator, io: Io, a: anytype) DetError!ElementOf(@TypeOf(a)) {
-    const ca = constOf(a);
-    if (ca.rows != ca.cols) return error.NotSquare;
-    const n = ca.rows;
-    return detWith(pathOf(&.{n}), allocator, io, ca);
-}
-
-fn detWith(path: Path, allocator: Allocator, io: Io, ca: anytype) (Allocator.Error || Io.Cancelable)!@TypeOf(ca).Element {
-    const T = @TypeOf(ca).Element;
-    const n = ca.rows;
-    if (n == 0) return eOne(T);
-    if (path == .inline_) switch (n) {
-        inline 1...fixed_max => |c| return Fixed(c).det(ca),
-        else => unreachable,
-    };
-    const f = try copyOf(T, allocator, ca);
-    defer f.deinit(allocator);
-    const ipiv = try allocator.alloc(isize, n);
-    defer allocator.free(ipiv);
-    lapack.getrf(allocator, io, T, len(n), len(n), f.data.ptr, len(n), ipiv.ptr, null) catch |e| switch (e) {
-        error.Singular => return eZero(T),
-        else => return allocOrCanceled(e),
-    };
-    var d = eOne(T);
-    var exp: i64 = 0;
-    for (ipiv, 0..) |p, i| {
-        d = eMul(d, f.at(i, i));
-        if (p != i + 1) d = eNeg(d);
-        const x = std.math.frexp(if (comptime isComplex(T)) @max(@abs(d.re), @abs(d.im)) else d);
-        exp += x.exponent;
-        d = scaleBy(d, -x.exponent);
-    }
-    return scaleBy(d, @intCast(std.math.clamp(exp, -1 << 16, 1 << 16)));
-}
-
-/// `x 2^e`.
-fn scaleBy(x: anytype, e: i32) @TypeOf(x) {
-    if (comptime !isComplex(@TypeOf(x))) return std.math.ldexp(x, e);
-    return .{ .re = std.math.ldexp(x.re, e), .im = std.math.ldexp(x.im, e) };
-}
-
-pub const InvError = error{ NotSquare, Singular } || Allocator.Error || Io.Cancelable;
-
-/// `a⁻¹` (MATLAB's `inv`), owned by the caller: `linalg.matrix.inv` up to the
-/// inline limit, else `getrf` and `getri`; `error.Singular` with no result.
-pub fn inv(allocator: Allocator, io: Io, a: anytype) InvError!Mat(ElementOf(@TypeOf(a))) {
-    const ca = constOf(a);
-    if (ca.rows != ca.cols) return error.NotSquare;
-    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.rows, ca.cols);
-    errdefer r.deinit(allocator);
-    try invWith(pathOf(&.{ca.rows}), allocator, io, r.view(), ca);
-    return r;
-}
-
-/// `out = a⁻¹`, `out` untouched on an error.
-pub fn invInto(allocator: Allocator, io: Io, out: anytype, a: anytype) (InvError || error{DimensionMismatch})!void {
-    const o = viewOf(out);
-    const ca = constOf(a);
-    if (ca.rows != ca.cols) return error.NotSquare;
-    if (o.rows != ca.rows or o.cols != ca.cols) return error.DimensionMismatch;
-    return invWith(pathOf(&.{ca.rows}), allocator, io, o, ca);
-}
-
-fn invWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element)) (error{Singular} || Allocator.Error || Io.Cancelable)!void {
-    const T = @TypeOf(o).Element;
-    const n = a.rows;
-    if (n == 0) return;
-    if (path == .inline_) switch (n) {
-        inline 1...fixed_max => |c| return Fixed(c).inv(o, a),
-        else => unreachable,
-    };
-    const f = try copyOf(T, allocator, a);
-    defer f.deinit(allocator);
-    const ipiv = try allocator.alloc(isize, n);
-    defer allocator.free(ipiv);
-    lapack.getrf(allocator, io, T, len(n), len(n), f.data.ptr, len(n), ipiv.ptr, null) catch |e| return singularOr(e);
-    lapack.getri(allocator, io, T, len(n), f.data.ptr, len(n), ipiv.ptr, null) catch |e| return singularOr(e);
-    copyInto(T, o.data, o.ld, f.constView());
-}
-
-pub const SolveError = error{ DimensionMismatch, Singular } || Allocator.Error || Io.Cancelable;
-
-/// `a \ b` (MATLAB's `mldivide`), owned by the caller, `a` `m` by `n` and `b`
-/// `m` by `k`. Square `a` up to the inline limit with `k` within it too:
-/// `linalg.matrix.solve`'s LU. Past it, by `a`'s values alone (MATLAB's
-/// order): triangular by `trtrs`; Hermitian with a positive real diagonal
-/// by `potrf` and `potrs`, LU if that fails; else `gesv`. Square `a` gives
-/// `error.Singular` with no result. Rectangular `a`: the least-squares
-/// solution of least norm by `gelsy`, its rank cut at `max(m, n) eps`, as
-/// MATLAB's QR tolerance.
-pub fn solve(allocator: Allocator, io: Io, a: anytype, b: anytype) SolveError!Mat(ElementOf(@TypeOf(a))) {
-    const ca = constOf(a);
-    const cb = constOf(b);
-    if (cb.rows != ca.rows) return error.DimensionMismatch;
-    const r = try Mat(ElementOf(@TypeOf(a))).init(allocator, ca.cols, cb.cols);
-    errdefer r.deinit(allocator);
-    try solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, r.view(), ca, cb);
-    return r;
-}
-
-/// `out = a \ b`, `out` untouched on an error.
-pub fn solveInto(allocator: Allocator, io: Io, out: anytype, a: anytype, b: anytype) SolveError!void {
-    const o = viewOf(out);
-    const ca = constOf(a);
-    const cb = constOf(b);
-    if (cb.rows != ca.rows or o.rows != ca.cols or o.cols != cb.cols) return error.DimensionMismatch;
-    return solveWith(pathOf(&.{ ca.rows, cb.cols }), allocator, io, o, ca, cb);
-}
-
-const Structure = enum { upper, lower, hermitian, general };
-
-/// `solve`'s route past the inline limit, from `a`'s values alone.
-fn structureOf(a: anytype) Structure {
-    const T = @TypeOf(a).Element;
-    const n = a.rows;
-    var upper = true;
-    var lower = true;
-    for (0..n) |j| for (0..n) |i| {
-        if (eIsZero(a.at(i, j))) continue;
-        if (i > j) upper = false;
-        if (i < j) lower = false;
-    };
-    if (upper) return .upper;
-    if (lower) return .lower;
-    for (0..n) |j| {
-        const d = a.at(j, j);
-        const positive = if (comptime isComplex(T)) d.re > 0 else d > 0;
-        if (!positive) return .general;
-    }
-    return if (isHermitian(a)) .hermitian else .general;
-}
-
-fn solveWith(path: Path, allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) SolveError!void {
-    const T = @TypeOf(o).Element;
-    const n = a.cols;
-    if (a.rows != n) return leastSquares(allocator, io, o, a, b);
-    if (n == 0) return;
-    if (path == .inline_) switch (n) {
-        inline 1...fixed_max => |c| return Fixed(c).solve(o, a, b),
-        else => unreachable,
-    };
-    const x = try copyOf(T, allocator, b);
-    defer x.deinit(allocator);
-    const nn = len(n);
-    const k = len(b.cols);
-    const ld = len(@max(n, 1));
-    switch (structureOf(a)) {
-        .upper, .lower => |s| {
-            const uplo: lapack.Uplo = if (s == .upper) .u else .l;
-            lapack.trtrs(allocator, io, T, uplo, .n, .n, nn, k, a.data.ptr, len(a.ld), x.data.ptr, ld, null) catch |e| return singularOr(e);
-        },
-        .hermitian, .general => |s| {
-            const f = try copyOf(T, allocator, a);
-            defer f.deinit(allocator);
-            if (s == .hermitian) cholesky: {
-                lapack.potrf(allocator, io, T, .u, nn, f.data.ptr, ld, null) catch |e| switch (e) {
-                    error.NotPositiveDefinite => {
-                        copyInto(T, f.data, n, a);
-                        break :cholesky;
-                    },
-                    else => return allocOrCanceled(e),
-                };
-                lapack.potrs(allocator, io, T, .u, nn, k, f.data.ptr, ld, x.data.ptr, ld) catch |e| return allocOrCanceled(e);
-                return copyInto(T, o.data, o.ld, x.constView());
-            }
-            const ipiv = try allocator.alloc(isize, n);
-            defer allocator.free(ipiv);
-            lapack.gesv(allocator, io, T, nn, k, f.data.ptr, ld, ipiv.ptr, x.data.ptr, ld, null) catch |e| return singularOr(e);
-        },
-    }
-    copyInto(T, o.data, o.ld, x.constView());
-}
-
-/// `gelsy`'s least-norm least-squares solution, for rectangular `a`.
-fn leastSquares(allocator: Allocator, io: Io, o: anytype, a: ConstView(@TypeOf(o).Element), b: ConstView(@TypeOf(o).Element)) (Allocator.Error || Io.Cancelable)!void {
-    const T = @TypeOf(o).Element;
-    const F = Real(T);
-    const m = a.rows;
-    const n = a.cols;
-    if (m == 0 or n == 0) {
-        for (0..o.cols) |j| @memset(o.col(j), eZero(T));
-        return;
-    }
-    const f = try copyOf(T, allocator, a);
-    defer f.deinit(allocator);
-    const ldx = @max(m, n);
-    const x = try allocator.alloc(T, ldx * b.cols);
-    defer allocator.free(x);
-    copyInto(T, x, ldx, b);
-    const jpvt = try allocator.alloc(isize, n);
-    defer allocator.free(jpvt);
-    @memset(jpvt, 0);
-    const rcond = @as(F, @floatFromInt(ldx)) * std.math.floatEps(F);
-    var got_rank: isize = undefined;
-    lapack.gelsy(allocator, io, T, len(m), len(n), len(b.cols), f.data.ptr, len(m), x.ptr, len(ldx), jpvt.ptr, rcond, &got_rank) catch |e| return allocOrCanceled(e);
-    for (0..o.cols) |j| @memcpy(o.col(j), x[j * ldx ..][0..n]);
-}
-
-/// `lu`'s result, `P A = L U` for the `m` by `n` `A`, `getrf`'s factors.
-pub fn Lu(comptime T: type) type {
-    return struct {
-        /// `L` below the diagonal (its unit diagonal implied), `U` on and
-        /// above it.
-        factors: Mat(T),
-        /// Row `i` was interchanged with row `ipiv[i]`, for `i` from 0 up.
-        ipiv: []usize,
-        /// The first `i` with `U(i, i)` exactly 0; a singular matrix still
-        /// factors completely (design.md, decision 5).
-        zero_pivot: ?usize,
-
-        const Self = @This();
-
-        pub fn deinit(f: Self, allocator: Allocator) void {
-            f.factors.deinit(allocator);
-            allocator.free(f.ipiv);
-        }
-
-        /// `L`, `m` by `min(m, n)`, unit lower trapezoidal.
-        pub fn l(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
-            const k = @min(f.factors.rows, f.factors.cols);
-            const r = try Mat(T).zeros(allocator, f.factors.rows, k);
-            for (0..k) |j| {
-                r.data[j + j * r.rows] = eOne(T);
-                for (j + 1..r.rows) |i| r.data[i + j * r.rows] = f.factors.at(i, j);
-            }
-            return r;
-        }
-
-        /// `U`, `min(m, n)` by `n`, upper trapezoidal.
-        pub fn u(f: Self, allocator: Allocator) Allocator.Error!Mat(T) {
-            const k = @min(f.factors.rows, f.factors.cols);
-            const r = try Mat(T).zeros(allocator, k, f.factors.cols);
-            for (0..r.cols) |j| for (0..@min(j + 1, k)) |i| {
-                r.data[i + j * k] = f.factors.at(i, j);
-            };
-            return r;
-        }
-    };
-}
-
-/// `P A = L U` with partial pivoting (MATLAB's `lu`), by `getrf`.
-pub fn lu(allocator: Allocator, io: Io, a: anytype) (Allocator.Error || Io.Cancelable)!Lu(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    const k = @min(ca.rows, ca.cols);
-    const f = try copyOf(T, allocator, ca);
-    errdefer f.deinit(allocator);
-    const ipiv = try allocator.alloc(usize, k);
-    errdefer allocator.free(ipiv);
-    const piv = try allocator.alloc(isize, k);
-    defer allocator.free(piv);
-    var zero: usize = 0;
-    var zero_pivot: ?usize = null;
-    lapack.getrf(allocator, io, T, len(ca.rows), len(ca.cols), f.data.ptr, len(@max(ca.rows, 1)), piv.ptr, &zero) catch |e| switch (e) {
-        error.Singular => zero_pivot = zero - 1,
-        else => return allocOrCanceled(e),
-    };
-    for (ipiv, piv) |*d, p| d.* = @intCast(p - 1);
-    return .{ .factors = f, .ipiv = ipiv, .zero_pivot = zero_pivot };
-}
-
-pub const CholError = error{ NotSquare, NotPositiveDefinite } || Allocator.Error || Io.Cancelable;
-
-/// The upper `R` with `A = Rᴴ R` (MATLAB's `chol`), by `potrf` on `a`'s
-/// upper triangle (the lower is not read); zeros below the diagonal.
-pub fn chol(allocator: Allocator, io: Io, a: anytype) CholError!Mat(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    if (ca.rows != ca.cols) return error.NotSquare;
-    const n = ca.rows;
-    const r = try copyOf(T, allocator, ca);
-    errdefer r.deinit(allocator);
-    lapack.potrf(allocator, io, T, .u, len(n), r.data.ptr, len(@max(n, 1)), null) catch |e| return switch (e) {
-        error.NotPositiveDefinite => error.NotPositiveDefinite,
-        else => allocOrCanceled(e),
-    };
-    for (0..n) |j| @memset(r.data[j * n + j + 1 .. (j + 1) * n], eZero(T));
-    return r;
-}
-
-/// `qr`'s shapes for the `m` by `n` `A`, `k = min(m, n)`: `.economy` `Q` `m`
-/// by `k` and `R` `k` by `n`; `.full` `Q` `m` by `m` and `R` `m` by `n`.
-pub const QrMode = enum { economy, full };
-
-/// `qr`'s result.
-pub fn Qr(comptime T: type) type {
-    return struct {
-        /// Orthonormal columns.
-        q: Mat(T),
-        /// Upper trapezoidal.
-        r: Mat(T),
-
-        pub fn deinit(f: @This(), allocator: Allocator) void {
-            f.q.deinit(allocator);
-            f.r.deinit(allocator);
-        }
-    };
-}
-
-/// `A = Q R` (MATLAB's `qr`, unpivoted), by `geqrf` and `orgqr` (`ungqr`);
-/// `R`'s diagonal keeps LAPACK's signs.
-pub fn qr(allocator: Allocator, io: Io, a: anytype, mode: QrMode) (Allocator.Error || Io.Cancelable)!Qr(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    const m = ca.rows;
-    const n = ca.cols;
-    const k = @min(m, n);
-    const qc = if (mode == .full) m else k;
-    const f = try copyOf(T, allocator, ca);
-    defer f.deinit(allocator);
-    const tau = try allocator.alloc(T, k);
-    defer allocator.free(tau);
-    const ld = len(@max(m, 1));
-    lapack.geqrf(allocator, io, T, len(m), len(n), f.data.ptr, ld, tau.ptr) catch |e| return allocOrCanceled(e);
-    const r = try Mat(T).zeros(allocator, qc, n);
-    errdefer r.deinit(allocator);
-    for (0..n) |j| for (0..@min(j + 1, k)) |i| {
-        r.data[i + j * qc] = f.at(i, j);
-    };
-    const q = try Mat(T).zeros(allocator, m, qc);
-    errdefer q.deinit(allocator);
-    for (0..k) |j| @memcpy(q.data[j * m ..][0..m], f.data[j * m ..][0..m]);
-    if (m > 0) lapack.orgqr(allocator, io, T, len(m), len(qc), len(k), q.data.ptr, ld, tau.ptr) catch |e| return allocOrCanceled(e);
-    return .{ .q = q, .r = r };
-}
-
-/// `matrixNorm`'s norms: the largest column sum of `|a(i, j)|`, the largest
-/// row sum, Frobenius, and the largest singular value.
-pub const MatrixNorm = enum { one, inf, fro, two };
-
-pub const MatrixNormError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
-
-/// A matrix norm (MATLAB's `norm(A, p)`); 0 when empty. `lange`, or `.two`
-/// the first singular value from `gesvd`.
-pub fn matrixNorm(allocator: Allocator, io: Io, a: anytype, which: MatrixNorm) MatrixNormError!Real(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    const m = ca.rows;
-    const n = ca.cols;
-    if (m == 0 or n == 0) return 0;
-    const kind: lapack.Norm = switch (which) {
-        .one => .o,
-        .inf => .i,
-        .fro => .f,
-        .two => {
-            const s = try singularValues(allocator, io, ca);
-            defer allocator.free(s);
-            return s[0];
-        },
-    };
-    return lapack.lange(allocator, io, T, kind, len(m), len(n), ca.data.ptr, len(ca.ld)) catch |e| return switch (e) {
-        error.OutOfMemory => error.OutOfMemory,
-        else => unreachable,
-    };
-}
-
-/// `svd`'s outputs for the `m` by `n` `A`, `k = min(m, n)`: `.values` `s`
-/// alone; `.economy` `U` `m` by `k` and `V` `n` by `k`; `.full` `U` `m` by
-/// `m` and `V` `n` by `n`.
-pub const SvdMode = enum { values, economy, full };
-
-/// `svd`'s result, `A = U Σ Vᴴ`.
-pub fn Svd(comptime T: type) type {
-    return struct {
-        /// The `k` singular values, nonincreasing.
-        s: []Real(T),
-        /// Orthonormal columns; null for `.values`.
-        u: ?Mat(T),
-        v: ?Mat(T),
-
-        pub fn deinit(f: @This(), allocator: Allocator) void {
-            allocator.free(f.s);
-            if (f.u) |u| u.deinit(allocator);
-            if (f.v) |v| v.deinit(allocator);
-        }
-    };
-}
-
-/// `svd`'s, `pinv`'s, `rank`'s and `cond`'s: `NoConvergence` also for a NaN
-/// in `A`.
-pub const SvdError = error{NoConvergence} || Allocator.Error || Io.Cancelable;
-
-fn svdError(e: anyerror) SvdError {
-    return switch (e) {
-        error.NoConvergence, error.InvalidA => error.NoConvergence,
-        else => allocOrCanceled(e),
-    };
-}
-
-/// `A = U Σ Vᴴ` (MATLAB's `svd`): the values alone by `gesvd` (QR
-/// iteration, which keeps a graded matrix's small values), with vectors by
-/// `gesdd` (divide and conquer), so the two may differ in the last bits.
-/// Empty `A` with `.full`: `U` and `V` are identities.
-pub fn svd(allocator: Allocator, io: Io, a: anytype, mode: SvdMode) SvdError!Svd(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    if (mode == .values) return .{ .s = try singularValues(allocator, io, ca), .u = null, .v = null };
-    const m = ca.rows;
-    const n = ca.cols;
-    const k = @min(m, n);
-    const uc = if (mode == .full) m else k;
-    const vc = if (mode == .full) n else k;
-    const s = try allocator.alloc(Real(T), k);
-    errdefer allocator.free(s);
-    const u = try Mat(T).zeros(allocator, m, uc);
-    errdefer u.deinit(allocator);
-    const v = try Mat(T).zeros(allocator, n, vc);
-    errdefer v.deinit(allocator);
-    if (k == 0) {
-        for (0..uc) |i| u.data[i * (m + 1)] = eOne(T);
-        for (0..vc) |i| v.data[i * (n + 1)] = eOne(T);
-        return .{ .s = s, .u = u, .v = v };
-    }
-    const f = try copyOf(T, allocator, ca);
-    defer f.deinit(allocator);
-    const vt = try allocator.alloc(T, vc * n);
-    defer allocator.free(vt);
-    lapack.gesdd(allocator, io, T, if (mode == .full) .a else .s, len(m), len(n), f.data.ptr, len(m), s.ptr, u.data.ptr, len(m), vt.ptr, len(vc)) catch |e| return svdError(e);
-    for (0..n) |j| for (0..vc) |i| {
-        v.data[j + i * n] = eConj(vt[i + j * vc]);
-    };
-    return .{ .s = s, .u = u, .v = v };
-}
-
-/// `a`'s `min(m, n)` singular values by `gesvd`, owned by the caller.
-fn singularValues(allocator: Allocator, io: Io, a: anytype) SvdError![]Real(@TypeOf(a).Element) {
-    const T = @TypeOf(a).Element;
-    const m = a.rows;
-    const n = a.cols;
-    const s = try allocator.alloc(Real(T), @min(m, n));
-    errdefer allocator.free(s);
-    if (s.len == 0) return s;
-    const f = try copyOf(T, allocator, a);
-    defer f.deinit(allocator);
-    var none: [1]T = undefined;
-    lapack.gesvd(allocator, io, T, .n, .n, len(m), len(n), f.data.ptr, len(m), s.ptr, &none, 1, &none, 1, null) catch |e| return svdError(e);
-    return s;
-}
-
-/// The spacing of floats at `x` (MATLAB's `eps(x)`).
-fn epsOf(x: anytype) @TypeOf(x) {
-    const F = @TypeOf(x);
-    if (x == 0) return std.math.floatTrueMin(F);
-    const e = std.math.frexp(x).exponent;
-    return @max(std.math.ldexp(std.math.floatEps(F), e - 1), std.math.floatTrueMin(F));
-}
-
-/// How many of the nonincreasing `s` exceed `tol`, by default
-/// `max(m, n) eps(σ₁)` (MATLAB's `rank` and `pinv`).
-fn rankOf(comptime F: type, s: []const F, m: usize, n: usize, tol: ?F) usize {
-    if (s.len == 0) return 0;
-    const t = tol orelse (@as(F, @floatFromInt(@max(m, n))) * epsOf(s[0]));
-    var r: usize = 0;
-    while (r < s.len and s[r] > t) r += 1;
-    return r;
-}
-
-/// The Moore-Penrose pseudoinverse (MATLAB's `pinv`), `n` by `m`, owned by
-/// the caller: `V Σ⁺ Uᴴ` over the singular values above `tol`, by default
-/// `max(m, n) eps(σ₁)`.
-pub fn pinv(allocator: Allocator, io: Io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!Mat(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const ca = constOf(a);
-    const m = ca.rows;
-    const n = ca.cols;
-    const x = try Mat(T).zeros(allocator, n, m);
-    errdefer x.deinit(allocator);
-    const f = try svd(allocator, io, ca, .economy);
-    defer f.deinit(allocator);
-    const r = rankOf(Real(T), f.s, m, n, tol);
-    if (r == 0) return x;
-    const u = f.u.?;
-    const v = f.v.?;
-    for (f.s[0..r], 0..) |sj, j| for (v.data[j * n ..][0..n]) |*e| {
-        e.* = if (comptime isComplex(T)) T.init(e.re / sj, e.im / sj) else e.* / sj;
-    };
-    const t: blas.Trans = if (comptime isComplex(T)) .c else .t;
-    blas.gemm(allocator, io, T, .n, t, len(n), len(m), len(r), eOne(T), v.data.ptr, len(n), u.data.ptr, len(m), eZero(T), x.data.ptr, len(n)) catch |e| return allocOrCanceled(e);
-    return x;
-}
-
-/// The number of singular values above `tol`, by default `max(m, n)
-/// eps(σ₁)` (MATLAB's `rank`); 0 when empty.
-pub fn rank(allocator: Allocator, io: Io, a: anytype, tol: ?Real(ElementOf(@TypeOf(a)))) SvdError!usize {
-    const ca = constOf(a);
-    const s = try singularValues(allocator, io, ca);
-    defer allocator.free(s);
-    return rankOf(Real(ElementOf(@TypeOf(a))), s, ca.rows, ca.cols, tol);
-}
-
-/// The 2-norm condition number `σ₁ / σₖ` (MATLAB's `cond`); infinite when
-/// `σₖ` is 0, 0 when empty.
-pub fn cond(allocator: Allocator, io: Io, a: anytype) SvdError!Real(ElementOf(@TypeOf(a))) {
-    const s = try singularValues(allocator, io, constOf(a));
-    defer allocator.free(s);
-    if (s.len == 0) return 0;
-    const last = s[s.len - 1];
-    return if (last == 0) std.math.inf(@TypeOf(last)) else s[0] / last;
-}
-
-/// `eig`'s result: Hermitian `A` (decided by its values alone, exactly)
-/// has real eigenvalues, nondecreasing, and orthonormal eigenvectors;
-/// otherwise they are complex, a real `A`'s conjugate pairs together with
-/// the positive imaginary part first, and each eigenvector (`A v = λ v`) of
-/// unit 2-norm with its largest entry real (design.md, decision 6).
-pub fn Eig(comptime T: type) type {
-    const C = std.math.Complex(Real(T));
-    return union(enum) {
-        hermitian: struct { values: []Real(T), vectors: ?Mat(T) },
-        general: struct { values: []C, vectors: ?Mat(C) },
-
-        pub fn deinit(e: @This(), allocator: Allocator) void {
-            switch (e) {
-                inline else => |r| {
-                    allocator.free(r.values);
-                    if (r.vectors) |v| v.deinit(allocator);
-                },
-            }
-        }
-    };
-}
-
-pub const EigError = error{ NotSquare, NoConvergence } || Allocator.Error || Io.Cancelable;
-
-/// Eigenvalues, and with `want_vectors` eigenvectors (MATLAB's `eig`):
-/// `syevd` (`heevd`) for Hermitian `A`, else `geev`. A NaN in `A` gives
-/// `error.NoConvergence`.
-pub fn eig(allocator: Allocator, io: Io, a: anytype, want_vectors: bool) EigError!Eig(ElementOf(@TypeOf(a))) {
-    const T = ElementOf(@TypeOf(a));
-    const C = std.math.Complex(Real(T));
-    const ca = constOf(a);
-    if (ca.rows != ca.cols) return error.NotSquare;
-    const n = ca.rows;
-    const ld = len(@max(n, 1));
-    const jobz: lapack.Jobz = if (want_vectors) .v else .n;
-    const f = try copyOf(T, allocator, ca);
-    if (isHermitian(ca)) {
-        errdefer f.deinit(allocator);
-        const w = try allocator.alloc(Real(T), n);
-        errdefer allocator.free(w);
-        lapack.syevd(allocator, io, T, jobz, .u, len(n), f.data.ptr, ld, w.ptr) catch |e| return svdError(e);
-        if (!want_vectors) f.deinit(allocator);
-        return .{ .hermitian = .{ .values = w, .vectors = if (want_vectors) f else null } };
-    }
-    defer f.deinit(allocator);
-    const w = try allocator.alloc(C, n);
-    errdefer allocator.free(w);
-    const vr: ?Mat(T) = if (want_vectors) try Mat(T).init(allocator, n, n) else null;
-    var none: [1]T = undefined;
-    const pr = if (vr) |x| x.data.ptr else &none;
-    if (comptime isComplex(T)) {
-        errdefer if (vr) |x| x.deinit(allocator);
-        lapack.geev(allocator, io, T, .n, jobz, len(n), f.data.ptr, ld, w.ptr, &none, 1, pr, ld, null) catch |e| return svdError(e);
-        return .{ .general = .{ .values = w, .vectors = vr } };
-    }
-    defer if (vr) |x| x.deinit(allocator);
-    const wr = try allocator.alloc(T, 2 * n);
-    defer allocator.free(wr);
-    lapack.geev(allocator, io, T, .n, jobz, len(n), f.data.ptr, ld, .{ .re = wr.ptr, .im = wr[n..].ptr }, &none, 1, pr, ld, null) catch |e| return svdError(e);
-    for (w, wr[0..n], wr[n..]) |*d, re, im| d.* = .init(re, im);
-    const x = vr orelse return .{ .general = .{ .values = w, .vectors = null } };
-    // `v(:, j) ± i v(:, j + 1)` for a pair, `wi(j) > 0` first
-    const v = try Mat(C).init(allocator, n, n);
-    var j: usize = 0;
-    while (j < n) : (j += 1) {
-        const c = x.data[j * n ..][0..n];
-        if (wr[n + j] == 0) {
-            for (v.data[j * n ..][0..n], c) |*d, re| d.* = .init(re, 0);
-            continue;
-        }
-        const ci = x.data[(j + 1) * n ..][0..n];
-        for (v.data[j * n ..][0..n], v.data[(j + 1) * n ..][0..n], c, ci) |*p, *q, re, im| {
-            p.* = .init(re, im);
-            q.* = .init(re, -im);
-        }
-        j += 1;
-    }
-    return .{ .general = .{ .values = w, .vectors = v } };
-}
-
-/// `a == aᴴ` exactly, the diagonal real.
-fn isHermitian(a: anytype) bool {
-    const T = @TypeOf(a).Element;
-    for (0..a.rows) |j| {
-        if (comptime isComplex(T)) if (a.at(j, j).im != 0) return false;
-        for (j + 1..a.rows) |i| {
-            const x = a.at(i, j);
-            const y = eConj(a.at(j, i));
-            const same = if (comptime isComplex(T)) x.re == y.re and x.im == y.im else x == y;
-            if (!same) return false;
-        }
-    }
-    return true;
-}
+// ---- tests ------------------------------------------------------------------
 
 const zigstd = @import("../zigstd.zig");
+const bitwise = @import("blas/_test/bitwise.zig");
 const testing = std.testing;
+const sameBits = bitwise.sameBits;
 const C64 = std.math.Complex(f64);
 const test_io = Io.failing;
-
-test "views: init's checks, sub, col; StaticMat and Mat views share storage" {
-    var buf = [_]f64{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-    try testing.expectError(error.DimensionMismatch, View(f64).init(&buf, 3, 2, 2));
-    try testing.expectError(error.SliceTooShort, View(f64).init(&buf, 3, 4, 3));
-    const v = try View(f64).init(&buf, 3, 3, 3);
-    try testing.expectEqual(@as(f64, 8), v.at(1, 2));
-    const s = try v.sub(1, 1, 2, 2);
-    try testing.expectEqual(@as(f64, 5), s.at(0, 0));
-    try testing.expectEqual(@as(f64, 9), s.at(1, 1));
-    try testing.expectEqualSlices(f64, &.{ 5, 6 }, s.col(0));
-    try testing.expectError(error.DimensionMismatch, v.sub(2, 0, 2, 1));
-
-    var sm = matrix.fromCols(matrix.M2f64, .{ .{ 1, 2 }, .{ 3, 4 } });
-    sm.view().data[3] = 40;
-    try testing.expectEqual(@as(f64, 40), sm.data[1][1]);
-    try testing.expectEqual(@as(f64, 3), sm.constView().at(0, 1));
-    const m = try Mat(f64).zeros(testing.allocator, 2, 3);
-    defer m.deinit(testing.allocator);
-    m.view().data[5] = 7;
-    try testing.expectEqual(@as(f64, 7), m.at(1, 2));
-}
 
 fn randomElem(comptime T: type, rnd: std.Random) T {
     if (comptime isComplex(T)) return .init(rnd.float(f64) * 2 - 1, rnd.float(f64) * 2 - 1);
@@ -1048,10 +991,6 @@ fn randomElem(comptime T: type, rnd: std.Random) T {
 
 fn fill(comptime T: type, rnd: std.Random, s: []T) void {
     for (s) |*x| x.* = randomElem(T, rnd);
-}
-
-fn sameBits(comptime T: type, a: []const T, b: []const T) bool {
-    return std.mem.eql(u8, std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
 }
 
 /// `mulInto` on a `Mat` against `linalg.matrix.mul` on `StaticMat`s of the
@@ -1337,7 +1276,7 @@ fn hermitianPd(comptime T: type, rnd: std.Random, n: usize) !Mat(T) {
     defer mh.deinit(al);
     const a = try mul(al, test_io, mh, m);
     for (0..n) |j| {
-        for (j + 1..n) |i| a.data[i + j * n] = eConj(a.data[j + i * n]);
+        for (j + 1..n) |i| a.data[i + j * n] = ops.conj(T, a.data[j + i * n]);
         if (comptime isComplex(T)) a.data[j + j * n].im = 0;
     }
     shiftDiag(T, a, @floatFromInt(n));
@@ -1366,8 +1305,8 @@ fn expectSolveRoutes(comptime T: type, n: usize, rnd: std.Random) !void {
     const lower = try randomMat(T, rnd, n, n);
     defer lower.deinit(al);
     for (0..n) |j| for (0..n) |i| {
-        if (i > j) upper.data[i + j * n] = eZero(T);
-        if (i < j) lower.data[i + j * n] = eZero(T);
+        if (i > j) upper.data[i + j * n] = ops.zero(T);
+        if (i < j) lower.data[i + j * n] = ops.zero(T);
     };
     shiftDiag(T, upper, 4);
     shiftDiag(T, lower, 4);
@@ -1576,7 +1515,7 @@ test "chol: Rᴴ R is A, R upper" {
         defer a.deinit(al);
         const r = try chol(al, test_io, a);
         defer r.deinit(al);
-        for (0..n) |j| for (j + 1..n) |i| try testing.expect(eIsZero(r.at(i, j)));
+        for (0..n) |j| for (j + 1..n) |i| try testing.expect(ops.isZero(T, r.at(i, j)));
         const rh = try ctranspose(al, test_io, r);
         defer rh.deinit(al);
         const p = try mul(al, test_io, rh, r);
@@ -1592,7 +1531,7 @@ fn expectQr(comptime T: type, a: Mat(T), mode: QrMode) !void {
     const m = a.rows;
     const qc = if (mode == .full) m else @min(m, a.cols);
     try testing.expect(f.q.rows == m and f.q.cols == qc and f.r.rows == qc and f.r.cols == a.cols);
-    for (0..a.cols) |j| for (@min(j + 1, qc)..qc) |i| try testing.expect(eIsZero(f.r.at(i, j)));
+    for (0..a.cols) |j| for (@min(j + 1, qc)..qc) |i| try testing.expect(ops.isZero(T, f.r.at(i, j)));
     const p = try mul(al, test_io, f.q, f.r);
     defer p.deinit(al);
     try testing.expect(maxDiff(T, p.constView(), a.constView()) <= tolOf(T, m) * @max(maxAbs(T, a.constView()), 1));
@@ -1913,20 +1852,20 @@ fn wideDet(comptime T: type, a: ConstView(T)) !Wide(T) {
     for (0..n) |j| for (0..n) |i| {
         f[i + j * n] = widen(a.at(i, j));
     };
-    var d = eOne(W);
+    var d = ops.one(W);
     for (0..n) |k| {
         var p = k;
         for (k + 1..n) |i| {
             if (wideAbs(f[i + k * n]) > wideAbs(f[p + k * n])) p = i;
         }
         if (p != k) {
-            d = eNeg(d);
+            d = ops.neg(W, d);
             for (0..n) |j| std.mem.swap(W, &f[k + j * n], &f[p + j * n]);
         }
         const piv = f[k + k * n];
         d = if (comptime isComplex(W)) d.mul(piv) else d * piv;
         for (k + 1..n) |i| {
-            const l = eNeg(if (comptime isComplex(W)) f[i + k * n].div(piv) else f[i + k * n] / piv);
+            const l = ops.neg(W, if (comptime isComplex(W)) f[i + k * n].div(piv) else f[i + k * n] / piv);
             for (k + 1..n) |j| f[i + j * n] = wideMulAdd(f[i + j * n], l, f[k + j * n]);
         }
     }
@@ -1946,14 +1885,14 @@ fn expectPaths(comptime T: type, n: usize, rnd: std.Random) !void {
     const sx = try strided(constOf(x));
     const sy = try strided(constOf(y));
     // the references, and the sums of magnitudes that bound their errors
-    var dot_ref = eZero(W);
-    var sum_ref = eZero(W);
+    var dot_ref = ops.zero(W);
+    var sum_ref = ops.zero(W);
     var sq: Real(W) = 0;
     var dot_mag: f64 = 0;
     var sum_mag: f64 = 0;
     for (x, y) |xi, yi| {
-        dot_ref = wideMulAdd(dot_ref, eConj(widen(xi)), widen(yi));
-        sum_ref = wideMulAdd(sum_ref, widen(xi), eOne(W));
+        dot_ref = wideMulAdd(dot_ref, ops.conj(W, widen(xi)), widen(yi));
+        sum_ref = wideMulAdd(sum_ref, widen(xi), ops.one(W));
         const w = widen(xi);
         sq += if (comptime isComplex(W)) w.re * w.re + w.im * w.im else w * w;
         dot_mag += wideAbs(widen(xi)) * wideAbs(widen(yi));
@@ -1962,14 +1901,14 @@ fn expectPaths(comptime T: type, n: usize, rnd: std.Random) !void {
     const prod_ref = try al.alloc(W, n * 3);
     defer al.free(prod_ref);
     for (0..3) |j| for (0..n) |i| {
-        var acc = eZero(W);
+        var acc = ops.zero(W);
         for (0..n) |p| acc = wideMulAdd(acc, widen(a.at(i, p)), widen(b.at(p, j)));
         prod_ref[i + j * n] = acc;
     };
     const det_ref = try wideDet(T, a.constView());
     const tol = tolOf(T, n);
     const nf: f64 = @floatFromInt(n);
-    for ([_]Path{ .inline_, .blas }) |path| {
+    for ([_]Path{ .fixed, .blas }) |path| {
         try testing.expect(wideDiff(try dotWith(path, test_io, sx, sy), dot_ref) <= tol * dot_mag);
         try testing.expect(wideDiff(try sumWith(path, test_io, sx), sum_ref) <= tol * sum_mag);
         try testing.expect(wideDiff(try normWith(path, test_io, sx), @sqrt(sq)) <= tol * @as(f64, @floatCast(@sqrt(sq))));

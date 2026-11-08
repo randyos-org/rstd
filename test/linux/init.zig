@@ -1,4 +1,4 @@
-//! PID 1 of the Linux qemu rigs (`build/qemutest.zig`): mounts what tests
+//! PID 1 of the Linux qemu rigs (`build/qemu/__root__.zig`): mounts what tests
 //! read (`/proc`, `/sys`, `/dev`), runs `/test` with its own arguments (the
 //! kernel command line's after `--`), reports how it ended, and restarts
 //! the machine, which `-no-reboot` turns into qemu exiting.

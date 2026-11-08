@@ -1,14 +1,6 @@
-//! OpenBLAS's unit tests: `utest/test_amax.c`, `test_amin.c`, `test_ismin.c`,
-//! `test_min.c`, `test_axpy.c`, `test_axpby.c`, `test_dnrm2.c`,
-//! `test_dotu.c`, `test_dsdot.c`, `test_rot.c`, `test_rotmg.c`,
-//! `test_swap.c`, `test_trmv.c`, `test_zscal.c`, `test_gemv.c`,
-//! `test_potrs.c` and `test_kernel_regress.c` (through
-//! `rstd.linalg.lapack`), OpenBLAS v0.3.34-317. Inputs and expected values
-//! are the sources' own.
-//!
-//! `test_trmv.c`'s row-major call is its column-major equivalent. An
-//! expected infinity must be met exactly, where `ASSERT_DBL_NEAR_TOL` would
-//! let NaN through.
+//! OpenBLAS's unit tests (`utest/test_*.c`, `test_potrs.c` and
+//! `test_kernel_regress.c` through `rstd.linalg.lapack`), OpenBLAS v0.3.34-317,
+//! with the sources' inputs and expected values; an expected infinity must be exact.
 
 const std = @import("std");
 const ob = @import("__root__.zig");

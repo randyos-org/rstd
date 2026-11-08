@@ -1,10 +1,6 @@
-//! The level-1 test programs: `test/sblat1.f`, `dblat1.f`, `cblat1.f`,
-//! `zblat1.f`, and the parts of their CBLAS versions `ctest/c_[sdcz]blat1.f`
-//! that differ (the real `CHECK3`, `rot` and `rotm` against the programs' own
-//! Fortran, and the complex `CHECK1` data), OpenBLAS v0.3.34-317. The
-//! `CHECK0` to `CHECK3` logic, `STEST`, `CTEST` and `ITEST1` are ported; the
-//! tables at the end are the programs' `DATA` (single and double precision
-//! share them; `st7b` and `ssize3` are `sblat1.f`'s alone).
+//! The level-1 programs `test/[sdcz]blat1.f` and the parts of `ctest/c_[sdcz]blat1.f`
+//! that differ, OpenBLAS v0.3.34-317; the tables at the end are their `DATA`
+//! (`st7b` and `ssize3` `sblat1.f`'s alone).
 
 const std = @import("std");
 const ob = @import("__root__.zig");

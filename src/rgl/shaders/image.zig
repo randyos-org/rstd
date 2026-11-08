@@ -10,8 +10,6 @@ const lib = shader_mod.lib;
 const types = shader_mod.types;
 const Vec2 = types.Vec2;
 const Vec4 = types.Vec4;
-const Image = types.Image;
-const SampledImage = types.SampledImage;
 const param = lib.compile.param;
 const input = lib.compile.input;
 

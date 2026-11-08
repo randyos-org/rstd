@@ -1,25 +1,18 @@
 //! Householder reflections and Givens rotations, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/householder.rs` and `faer/src/linalg/jacobi.rs`.
-//!
-//! A reflection is `H = I - v vᴴ / tau`, `v(0) = 1`, the rest of `v` (its
-//! essential part) stored below the entry it zeroes to. A block of `b` of
-//! them, `V` unit lower trapezoidal, is `H(0) ... H(b-1) = I - V T⁻¹ Vᴴ`
-//! with `T` upper triangular: `tau` on its diagonal and `Vᴴ V` above it
-//! (faer's convention, after Joffrain, Low, Quintana-Ortí, van de Geijn and
-//! Van Zee, "Accumulating Householder transformations, revisited", ACM TOMS
-//! 32(2), 2006). A sequence stores its blocks' `T`s side by side in a
-//! `bs x size` matrix, block `j` (starting at a multiple of `bs`) in rows
-//! `0..b` of columns `j..j+b`.
+//! `faer/src/linalg/householder.rs` and `jacobi.rs`. A block of reflections is
+//! `I - V T⁻¹ Vᴴ`, `T` upper triangular with `tau` on its diagonal (Joffrain
+//! et al., "Accumulating Householder transformations, revisited", ACM TOMS
+//! 32(2), 2006); a sequence keeps its blocks' `T`s side by side.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Mat = ops.Mat;
 const Float = ops.Float;
-const isComplex = ops.isComplex;
 const Error = ops.Error;
 
 /// What `make` found.
@@ -42,7 +35,7 @@ pub fn make(io: Io, comptime T: type, head: *T, n: usize, out: [*]T, out_inc: us
     const F = Float(T);
     const src: [*]const T = input orelse out;
     const src_inc = if (input != null) in_inc else out_inc;
-    const tail_norm = ops.nrm2(io, T, n, @constCast(src), src_inc);
+    const tail_norm = blas_calls.nrm2(io, T, n, @constCast(src), src_inc);
     var head_norm = ops.abs(T, head.*);
     if (head_norm < std.math.floatMin(F)) {
         head.* = ops.zero(T);
@@ -76,9 +69,19 @@ pub fn blockFactor(al: Allocator, io: Io, comptime T: type, v: Mat(T), t: Mat(T)
     for (0..b) |j| for (0..b) |i| {
         w.at(i, j).* = if (i == j) ops.one(T) else if (i > j) v.get(i, j) else ops.zero(T);
     };
-    try ops.gramUpper(al, io, T, 1, w, 0, t);
-    if (v.rows > b) try ops.gramUpper(al, io, T, 1, v.sub(b, 0, v.rows - b, b), 1, t);
+    try blas_calls.gramUpper(al, io, T, 1, w, 0, t);
+    if (v.rows > b) try blas_calls.gramUpper(al, io, T, 1, v.sub(b, 0, v.rows - b, b), 1, t);
     for (taus, 0..) |x, i| t.at(i, i).* = x;
+}
+
+/// The block factors of a sequence whose `tau`s sit in `h`'s first row.
+pub fn sequenceFactors(al: Allocator, io: Io, comptime T: type, basis: Mat(T), h: Mat(T)) Error!void {
+    var j: usize = 0;
+    while (j < h.cols) : (j += h.rows) {
+        const b = @min(h.rows, h.cols - j);
+        for (0..b) |k| h.at(k, j + k).* = h.get(0, j + k);
+        try blockFactor(al, io, T, basis.sub(j, j, basis.rows - j, b), h.sub(0, j, b, b));
+    }
 }
 
 /// `apply_block_householder_on_the_left_in_place_generic`: `M := H M`, or
@@ -96,13 +99,13 @@ pub fn applyBlock(al: Allocator, io: Io, comptime T: type, v: Mat(T), t: Mat(T),
     const one = ops.one(T);
     // tmp := Vᴴ M (conjugated: Vᵀ M)
     tmp.copyFrom(mtop);
-    try ops.tri(al, io, T, false, false, .of(true, !conj), true, one, top, tmp);
-    if (rest > 0) try ops.gemm(al, io, T, .of(true, !conj), .n, one, v.sub(b, 0, rest, b), m.sub(b, 0, rest, k), one, tmp);
+    try blas_calls.tri(al, io, T, false, false, .of(true, !conj), true, one, top, tmp);
+    if (rest > 0) try blas_calls.gemm(al, io, T, .of(true, !conj), .n, one, v.sub(b, 0, rest, b), m.sub(b, 0, rest, k), one, tmp);
     // tmp := T⁻¹ tmp, or T⁻ᴴ tmp
-    try ops.tri(al, io, T, true, true, if (forward) .of(true, !conj) else .of(false, conj), false, one, t, tmp);
+    try blas_calls.tri(al, io, T, true, true, if (forward) .of(true, !conj) else .of(false, conj), false, one, t, tmp);
     // M -= V tmp
-    if (rest > 0) try ops.gemm(al, io, T, .of(false, conj), .n, ops.neg(T, one), v.sub(b, 0, rest, b), tmp, one, m.sub(b, 0, rest, k));
-    try ops.tri(al, io, T, false, false, .of(false, conj), true, one, top, tmp);
+    if (rest > 0) try blas_calls.gemm(al, io, T, .of(false, conj), .n, ops.neg(T, one), v.sub(b, 0, rest, b), tmp, one, m.sub(b, 0, rest, k));
+    try blas_calls.tri(al, io, T, false, false, .of(false, conj), true, one, top, tmp);
     for (0..k) |j| for (0..b) |i| {
         mtop.at(i, j).* = ops.sub(T, mtop.get(i, j), tmp.get(i, j));
     };
@@ -156,13 +159,13 @@ pub fn applyBlockRight(al: Allocator, io: Io, comptime T: type, v: Mat(T), t: Ma
     const one = ops.one(T);
     // tmp := M V
     tmp.copyFrom(mtop);
-    try ops.triRight(al, io, T, false, false, .of(false, conj), true, one, top, tmp);
-    if (rest > 0) try ops.gemm(al, io, T, .n, .of(false, conj), one, m.sub(0, b, k, rest), v.sub(b, 0, rest, b), one, tmp);
+    try blas_calls.triRight(al, io, T, false, false, .of(false, conj), true, one, top, tmp);
+    if (rest > 0) try blas_calls.gemm(al, io, T, .n, .of(false, conj), one, m.sub(0, b, k, rest), v.sub(b, 0, rest, b), one, tmp);
     // tmp := tmp T⁻¹, or tmp T⁻ᴴ
-    try ops.triRight(al, io, T, true, true, if (adjoint) .of(true, !conj) else .of(false, conj), false, one, t, tmp);
+    try blas_calls.triRight(al, io, T, true, true, if (adjoint) .of(true, !conj) else .of(false, conj), false, one, t, tmp);
     // M -= tmp Vᴴ
-    if (rest > 0) try ops.gemm(al, io, T, .n, .of(true, !conj), ops.neg(T, one), tmp, v.sub(b, 0, rest, b), one, m.sub(0, b, k, rest));
-    try ops.triRight(al, io, T, false, false, .of(true, !conj), true, one, top, tmp);
+    if (rest > 0) try blas_calls.gemm(al, io, T, .n, .of(true, !conj), ops.neg(T, one), tmp, v.sub(b, 0, rest, b), one, m.sub(0, b, k, rest));
+    try blas_calls.triRight(al, io, T, false, false, .of(true, !conj), true, one, top, tmp);
     for (0..b) |j| for (0..k) |i| {
         mtop.at(i, j).* = ops.sub(T, mtop.get(i, j), tmp.get(i, j));
     };
@@ -368,7 +371,7 @@ pub fn ComplexRotation(comptime T: type) type {
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
 
 test "faer householder: H x = beta e0, and blocks of reflections match one at a time" {
@@ -448,5 +451,19 @@ test "faer householder: Givens rotations zero their second entry" {
         const r = R.make(pq[0], pq[1]);
         try testing.expectApproxEqAbs(@as(f64, 1), r.c * r.c + r.s * r.s, 4e-16);
         try testing.expect(@abs(r.s * pq[0] + r.c * pq[1]) <= 4e-16 * @abs(std.math.hypot(pq[0], pq[1])));
+    }
+}
+
+test "faer householder: rotg zeroes its second entry, and keeps r = p when q = 0" {
+    const T = types.Complex64;
+    const R = ComplexRotation(T);
+    for ([_][2]T{ .{ .init(3, 1), .init(-2, 5) }, .{ .init(0, 0), .init(1, -1) }, .{ .init(1e-300, 0), .init(0, 1e-300) }, .{ .init(1e300, 1e300), .init(1, 0) }, .{ .init(-2, 7), .init(0, 0) } }) |pq| {
+        const g = R.rotg(pq[0], pq[1]);
+        var x = [_]T{pq[0]};
+        var y = [_]T{pq[1]};
+        g[0].left(1, &x, 1, &y, 1);
+        const scale = @max(ops.abs(T, pq[0]), ops.abs(T, pq[1]));
+        try testing.expect(ops.abs(T, y[0]) <= 4e-16 * scale);
+        try testing.expect(ops.abs(T, ops.sub(T, x[0], g[1])) <= 4e-16 * scale);
     }
 }

@@ -1,14 +1,13 @@
 //! BLAS kernel registry for x86_64: which routines have kernels for which
 //! cores, how the per-core objects (`_kernel.zig`) export them, and how
-//! `cpu/x86_64.zig` points the vtable at them. The build (`build/blaskern.zig`)
+//! `cpu.Arch` points the vtable at them. The build (`build/blaskern.zig`)
 //! asks it which cores need an object at all.
 //!
 //! Add a routine to `converted` to wire it in.
 
 const std = @import("std");
-const coretypes = @import("../cpu/_coretypes.zig");
-const registry = @import("../asm_registry.zig");
-const Vtable = @import("../Vtable.zig");
+const coretypes = @import("../cpu/coretypes.zig");
+const registry = @import("../registry.zig");
 const vector = @import("../vector.zig");
 
 pub const Core = coretypes.X86CoreType;
@@ -29,43 +28,22 @@ const converted = .{
     @import("../blas2/ger/x86_64/kernel.zig"),
     registry.Kernels(Core, @import("../blas2/hemv/x86_64/asm/__root__.zig")),
     @import("../blas2/symv/x86_64/kernel.zig"),
-    @import("../blas3/gemm/kernel.zig").Registry(Core),
-    @import("../blas3/gemm/x86_64/kernel.zig"),
+    @import("../blas3/kernels.zig").Registry(Core),
+    @import("../blas3/gemm/small_x86_64.zig"),
 };
 
 /// Where the `@Vector` kernels (`vector.zig`) go: the `routed` slots, those
 /// routed for their alignment (`vector.peels`) only on the cores whose
 /// upstream assembly they replace, which is not converted (`skips`).
-const vector_rule: vector.Rule(Core) = .{ .routed = null };
+const vector_rule: registry.Rule(Core) = .{ .routed = null };
 
-const Vector = vector.Registry(Core, vector_rule, converted);
+const Vector = registry.Vector(Core, vector_rule, converted);
 
 /// The `@Vector` kernels go over those.
 const modules = converted ++ .{Vector};
 
-/// Whether this registry has kernels for `arch`.
-pub fn supports(arch: std.Target.Cpu.Arch) bool {
-    return arch == .x86_64;
-}
-
-/// Whether any routine has a kernel for `core`.
-pub fn hasKernels(comptime arch: std.Target.Cpu.Arch, comptime core: Core) bool {
-    _ = arch;
-    inline for (modules) |m| {
-        if (comptime m.has(core)) return true;
-    }
-    return false;
-}
-
-/// Exports every kernel `core` has.
-pub fn exportCore(comptime core: Core) void {
-    inline for (modules) |m| m.exportCore(core);
-}
-
-/// Points the vtable at the kernels `core` has (see `asm_registry.install`).
-pub fn install(vt: *Vtable, core: Core) void {
-    registry.install(vt, modules, core);
-}
+/// The registry (`registry.Arch`).
+pub const Registry = registry.Arch(Core, &.{.x86_64}, modules, false);
 
 test "the @Vector kernels take every slot whose peeling assembly was left out" {
     // the routines' own indexes, so a module that forgets `skips` is caught

@@ -2,14 +2,13 @@
 //! and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 /// The Euclidean norm of `n` elements of `w` floats. Up to 32 bits, the
 /// plain sum of squares in `f64`, where every square is exact and none
@@ -68,7 +67,10 @@ pub fn installGeneric(vt: *Vtable) void {
 
 const zigstd = @import("../../../../zigstd.zig");
 const std = @import("std");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
+const bitwise = @import("../../_test/bitwise.zig");
+const pattern = @import("../../_test/pattern.zig");
+const reference = @import("../../_test/reference.zig");
 
 /// `kern` against a plain loop in `f64`; `T` is the element type. A negative
 /// stride starts from the last element, as the interface passes it.
@@ -80,13 +82,13 @@ fn checkNrm2(comptime T: type, kern: anytype) !void {
             const inc = @abs(s);
             var x: [check.capacity]T = undefined;
             check.fill(T, &x, n + 1);
-            const W = check.Wide(F);
+            const W = reference.Wide(F);
             var acc: W = 0;
             for (0..n) |i| {
                 const v = x[i * inc];
                 acc += if (comptime complex) @as(W, v.re) * v.re + @as(W, v.im) * v.im else @as(W, v) * v;
             }
-            const want = check.sqrtW(acc);
+            const want = reference.sqrtW(acc);
             const start = if (s < 0) (n - 1) * inc else 0;
             const got = kern(@intCast(n), @as([*]F, @ptrCast(&x[start])), s);
             check.expectCloseRef(F, want, got, check.tolerance(F, 2 * n) * @max(1, want)) catch |e| return check.case(e, if (s < 0) "nrm2 (stride negated)" else "nrm2", T, n, .{ inc, 0 });
@@ -146,11 +148,11 @@ fn accuracy(comptime T: type, kern: anytype, al: std.mem.Allocator) !void {
             buf[at] = std.math.ldexp(buf[at], r.exps[i % r.exps.len]);
             acc += @as(f128, buf[at]) * buf[at];
         };
-        const want = check.sqrtW(acc);
+        const want = reference.sqrtW(acc);
         const start = if (s < 0) (n - 1) * inc * w else 0;
         const got = kern(@intCast(n), buf.ptr + start, s);
         const ulps: f128 = if (F == f32) 1 else @floatFromInt(n * w / 2 + 2);
-        check.component(F, want, got, ulps, want) catch |e| {
+        pattern.component(F, want, got, ulps, want) catch |e| {
             check.say("{s}: ", .{r.name});
             return check.case(e, "nrm2", T, n, .{ inc, 0 });
         };
@@ -224,7 +226,7 @@ test "the extended nrm2 sums fold in nrm2.S's and znrm2.S's order, bit for bit" 
             const len: BlasLong = @intCast(n);
             const li: BlasLong = @intCast(inc);
             inline for (.{ 1, 2 }) |w| {
-                try check.expectBits(F, check.plainExtendedSum(F, w, .square, n, &x, inc), util.extendedSum(F, w, .square, len, &x, li), "nrm2", n, inc);
+                try bitwise.expectBits(F, check.plainExtendedSum(F, w, .square, n, &x, inc), util.extendedSum(F, w, .square, len, &x, li), "nrm2", n, inc);
             }
         };
     }
@@ -247,4 +249,18 @@ test "the extended nrm2 sums give the values traced by hand from nrm2.S and znrm
     try zigstd.testExpectEqual(t + 4, util.extendedSum(F, 1, .square, 9, &nx, 1));
     var znx = [_]F{ 1, 1, h, 0, 0, 0, 0, 0, 0, 1 };
     try zigstd.testExpectEqual(t + 2, util.extendedSum(F, 2, .square, 5, &znx, 1));
+}
+
+test "portable nrm2 kernels neither overflow nor underflow" {
+    inline for (.{ .{ f32, snrm2_generic }, .{ f64, dnrm2_generic } }) |p| {
+        const T = p[0];
+        const big: T = std.math.floatMax(T) / 2;
+        const tiny: T = std.math.floatMin(T);
+        var x = [_]T{ big, big, big };
+        try check.expectClose(f64, @as(f64, big) * @sqrt(3.0), p[1](3, &x, 1), @as(f64, big) * 1e-6);
+        x = .{ tiny, tiny, tiny };
+        try check.expectClose(f64, @as(f64, tiny) * @sqrt(3.0), p[1](3, &x, 1), @as(f64, tiny) * 1e-6);
+        x = .{ 0, 0, 0 };
+        try std.testing.expectEqual(@as(T, 0), p[1](3, &x, 1));
+    }
 }

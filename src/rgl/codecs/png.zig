@@ -14,15 +14,10 @@ const appendArrayBytes = bytes.appendArrayBytes;
 const getU32BE = bytes.getU32BE;
 const setU32BE = bytes.setU32BE;
 const ByteArrayList = bytes.ByteArrayList;
+const Crc32 = std.hash.Crc32;
 // const structAsBytes = bytes.structAsBytes;
 
 const png_signature = [_]u8{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
-
-fn crc32(data: []const u8) u32 {
-    var h: std.hash.Crc32 = .init();
-    h.update(data);
-    return h.final();
-}
 
 pub const PngChunkType = enum {
     const Self = @This();
@@ -62,7 +57,7 @@ pub const PngChunk = struct {
         const start = list.items.len;
         try appendIntBE(alloc, list, u32, self.chunk_type.toInt());
         try list.appendSlice(alloc, self.data);
-        try appendIntBE(alloc, list, u32, crc32(list.items[start..]));
+        try appendIntBE(alloc, list, u32, Crc32.hash(list.items[start..]));
     }
 
     pub fn fromBytes(in: []const u8) !Self {
@@ -75,7 +70,7 @@ pub const PngChunk = struct {
         const chunk_type = try PngChunkType.fromInt(getU32BE(in[type_start..]));
         const data = in[data_start..crc_start];
         const crc = getU32BE(in[crc_start..]);
-        if (crc != crc32(in[type_start..crc_start])) return error.InvalidPngChunk;
+        if (crc != Crc32.hash(in[type_start..crc_start])) return error.InvalidPngChunk;
         return .{
             .chunk_type = chunk_type,
             .data = data,
@@ -83,7 +78,7 @@ pub const PngChunk = struct {
     }
 };
 
-pub const ColorBits = enum(u8) {
+pub const ColorType = enum(u8) {
     RGB = 2,
     RGBA = 6,
 };
@@ -94,7 +89,7 @@ pub const IHdr = struct {
     width: u32,
     height: u32,
     bit_depth: u8,
-    color_type: ColorBits,
+    color_type: ColorType,
     compression_method: u8,
     filter_method: u8,
     interlace_method: u8,
@@ -121,7 +116,7 @@ pub const IHdr = struct {
         };
     }
 
-    pub fn Bpp(self: *const Self) usize {
+    pub fn bytesPerPixel(self: *const Self) usize {
         return switch (self.color_type) {
             .RGB => 3,
             .RGBA => 4,
@@ -149,7 +144,7 @@ pub fn encode(alloc: Allocator, img: *const RgbaImage) ![]u8 {
         .width = img.width,
         .height = img.height,
         .bit_depth = 8, // bit depth
-        .color_type = ColorBits.RGBA,
+        .color_type = ColorType.RGBA,
         .compression_method = 0, // compression method: deflate
         .filter_method = 0, // filter method
         .interlace_method = 0, // interlace method: none
@@ -212,15 +207,41 @@ pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !
     if (ihdr.bit_depth != 8 or ihdr.interlace_method != 0) return error.UnsupportedPngFormat;
     const width = ihdr.width;
     const height = ihdr.height;
-    const bpp = ihdr.Bpp();
+    const bpp = ihdr.bytesPerPixel();
     pos += ihdr_chunk.len();
 
-    // Collect all IDAT chunks (PNG allows the compressed stream to be split
-    // across several of them) until IEND. PngChunkType.fromInt rejects any
-    // chunk type other than IHDR/IDAT/IEND; ancillary chunks (pHYs, tEXt,
-    // gAMA, iCCP, ...) are skipped rather than aborting the whole decode.
-    var idat: ByteArrayList = .empty;
+    var idat = try collectIdat(alloc, raw_bytes, pos, options);
     defer idat.deinit(alloc);
+
+    if (width == 0 or height == 0 or bpp == 0) return error.MissingIhdr;
+    if (idat.items.len == 0) return error.MissingIdat;
+
+    const w: usize = @intCast(width);
+    const h: usize = @intCast(height);
+    const stride = w * bpp;
+
+    var idat_reader: StdIo.Reader = .fixed(idat.items);
+    var inflate_buf: [flate.max_window_len]u8 = undefined;
+    var decompress: flate.Decompress = .init(&idat_reader, .zlib, &inflate_buf);
+
+    var uncompressed: StdIo.Writer.Allocating = try .initCapacity(alloc, h * (stride + 1));
+    defer uncompressed.deinit();
+    _ = try decompress.reader.streamRemaining(&uncompressed.writer);
+    const filtered = uncompressed.written();
+    if (filtered.len != h * (stride + 1)) return error.TruncatedPngData;
+
+    const img = try RgbaImage.init(alloc, width, height, .blank);
+    try unfilterRows(alloc, img, filtered, w, h, bpp);
+    return img;
+}
+
+/// Every IDAT chunk's data from `start` to IEND, concatenated (PNG may split the
+/// compressed stream). PngChunkType.fromInt rejects any chunk type other than
+/// IHDR/IDAT/IEND; ancillary chunks (pHYs, tEXt, gAMA, iCCP, ...) are skipped.
+fn collectIdat(alloc: Allocator, raw_bytes: []const u8, start: usize, options: DecodeOptions) !ByteArrayList {
+    var pos = start;
+    var idat: ByteArrayList = .empty;
+    errdefer idat.deinit(alloc);
     while (true) {
         const chunk = PngChunk.fromBytes(raw_bytes[pos..]) catch |err| switch (err) {
             error.UnsupportedPngChunk => {
@@ -242,28 +263,13 @@ pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !
         }
     }
 
-    if (width == 0 or height == 0 or bpp == 0) return error.MissingIhdr;
-    if (idat.items.len == 0) return error.MissingIdat;
+    return idat;
+}
 
-    const w: usize = @intCast(width);
-    const h: usize = @intCast(height);
+/// Un-filters each scanline into `img`: PNG filters are relative to the pixel
+/// to the left, above and above-left, all in the already-unfiltered image.
+fn unfilterRows(alloc: Allocator, img: RgbaImage, filtered: []const u8, w: usize, h: usize, bpp: usize) !void {
     const stride = w * bpp;
-
-    var idat_reader: StdIo.Reader = .fixed(idat.items);
-    var inflate_buf: [flate.max_window_len]u8 = undefined;
-    var decompress: flate.Decompress = .init(&idat_reader, .zlib, &inflate_buf);
-
-    var uncompressed: StdIo.Writer.Allocating = try .initCapacity(alloc, h * (stride + 1));
-    defer uncompressed.deinit();
-    _ = try decompress.reader.streamRemaining(&uncompressed.writer);
-    const filtered = uncompressed.written();
-    if (filtered.len != h * (stride + 1)) return error.TruncatedPngData;
-
-    var img = try RgbaImage.init(alloc, width, height, .blank);
-
-    // Un-filter each scanline (PNG filters are defined relative to the
-    // pixel to the left, the pixel above, and the pixel above-left - all
-    // in the already-unfiltered image, not the raw compressed bytes).
     const line_a = try alloc.alloc(u8, stride);
     defer alloc.free(line_a);
     @memset(line_a, 0); // the "row above" row 0 is defined as all zero
@@ -309,8 +315,6 @@ pub fn decode(alloc: Allocator, raw_bytes: []const u8, options: DecodeOptions) !
 
         std.mem.swap([]u8, &prev_line, &cur_line);
     }
-
-    return img;
 }
 
 fn paeth(a: u8, b: u8, c: u8) u8 {
@@ -329,7 +333,7 @@ fn paeth(a: u8, b: u8, c: u8) u8 {
 test "encode/decode round-trips a small RGBA image" {
     const alloc = zigstd.testAllocator;
     var img = try RgbaImage.init(alloc, 3, 2, null);
-    defer img.destroy(alloc);
+    defer img.deinit(alloc);
     img.setPixel(0, 0, .{ .r = 255, .g = 0, .b = 0, .a = 255 });
     img.setPixel(1, 0, .{ .r = 0, .g = 255, .b = 0, .a = 128 });
     img.setPixel(2, 0, .{ .r = 0, .g = 0, .b = 255, .a = 0 });
@@ -341,7 +345,7 @@ test "encode/decode round-trips a small RGBA image" {
     defer alloc.free(raw_bytes);
 
     var decoded = try decode(alloc, raw_bytes, .{});
-    defer decoded.destroy(alloc);
+    defer decoded.deinit(alloc);
 
     try zigstd.testExpectEqual(img.width, decoded.width);
     try zigstd.testExpectEqual(img.height, decoded.height);

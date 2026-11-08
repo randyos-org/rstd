@@ -1,23 +1,20 @@
 //! bfloat16 conversions to and from `f32`/`f64`, and the portable bfloat16
 //! kernels of `bscal` and `sbdot` (all in `kernel.zig`), with their tests.
 
+const std = @import("std");
 const blas = @import("../../__root__.zig");
 const types = @import("../../types.zig");
+const Vtable = @import("../../Vtable.zig");
+const portable = @import("../../portable.zig");
+const kernel = @import("kernel.zig");
+const check = @import("../../_test/check.zig");
 
 const BF16 = types.BF16;
 
 // ---- portable kernels ------------------------------------------------------
 
-const kernel = @import("kernel.zig");
-
 pub const toBf16 = kernel.toBf16;
 pub const fromBf16 = kernel.fromBf16;
-pub const sbstobf16_generic = kernel.sbstobf16;
-pub const sbdtobf16_generic = kernel.sbdtobf16;
-pub const sbf16tos_generic = kernel.sbf16tos;
-pub const dbf16tod_generic = kernel.dbf16tod;
-pub const bscal_generic = kernel.bscal_k;
-pub const sbdot_generic = kernel.sbdot_portable;
 
 /// Points the conversion, `bscal` and `sbdot` slots at the portable kernels.
 pub const installGeneric = kernel.installGeneric;
@@ -32,9 +29,6 @@ pub fn scalarToF32(v: BF16) f32 {
 }
 
 // ---- tests -----------------------------------------------------------------
-
-const std = @import("std");
-const Vtable = @import("../../Vtable.zig");
 
 fn bitsOf(v: f32) u32 {
     return @bitCast(v);
@@ -92,9 +86,6 @@ test "portable conversions round-trip through strides" {
     vt.dbf16tod_k.?(32, &h, 3, &back_d, 2);
     for (0..32) |i| try std.testing.expectEqual(@as(f64, fromBf16(toBf16(f[2 * i]))), back_d[2 * i]);
 }
-
-const check = @import("../../_test/blas1/check.zig");
-const portable = @import("../../portable.zig");
 
 /// Every bfloat16 and half-precision slot a reachable interface calls.
 const slots = blk: {

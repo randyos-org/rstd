@@ -6,8 +6,10 @@
 const std = @import("std");
 const Vtable = @import("Vtable.zig");
 const types = @import("types.zig");
+const util = @import("util.zig");
 const gemm_params = @import("blas3/gemm/params.zig");
 const blas1 = @import("blas1/__root__.zig");
+const extremum = @import("blas1/extremum.zig");
 const blas2 = @import("blas2/__root__.zig");
 const blas3 = @import("blas3/__root__.zig");
 const ext = @import("ext/__root__.zig");
@@ -31,7 +33,7 @@ pub fn install(vt: *Vtable) void {
 /// half-precision ones).
 pub fn finish(vt: *Vtable) void {
     bf16_kernel.alias(vt);
-    blas3.gemm.kernel.settle(vt);
+    blas3.kernels.settle(vt);
     bf16_kernel.settleGemm(vt);
 }
 
@@ -206,7 +208,7 @@ fn Module(comptime op: Op) type {
         .nrm2_k => blas1.nrm2,
         .asum_k => blas1.asum,
         .sum_k => blas1.sum,
-        .amax_k, .amin_k, .max_k, .min_k, .iamax_k, .iamin_k, .imax_k, .imin_k => @import("blas1/extremum.zig"),
+        .amax_k, .amin_k, .max_k, .min_k, .iamax_k, .iamin_k, .imax_k, .imin_k => extremum,
         .rot_k => blas1.rot,
         .rotm_k => blas1.rotm,
         .axpy_k, .axpyc_k => blas1.axpy,
@@ -217,7 +219,7 @@ fn Module(comptime op: Op) type {
         .hemv_U, .hemv_L, .hemv_V, .hemv_M => blas2.hemv,
         .geadd_k => ext.geadd,
         .omatcopy_k_cn, .omatcopy_k_ct, .omatcopy_k_cnc, .omatcopy_k_ctc, .imatcopy_k_cn, .imatcopy_k_ct, .imatcopy_k_cnc, .imatcopy_k_ctc => ext.matcopy,
-        else => @compileError("level-3 kernels come from `blas3.gemm.kernel.find`"),
+        else => @compileError("level-3 kernels come from `blas3.kernels.find`"),
     };
 }
 
@@ -237,21 +239,83 @@ pub fn letter(comptime T: type) ?[]const u8 {
 /// `imatcopy` exist for `s`, `d`, `c`, `z` only.
 const no_extended_slot: std.EnumSet(Op) = .initMany(&.{ .axpby_k, .geadd_k, .omatcopy_k_cn, .omatcopy_k_ct, .omatcopy_k_cnc, .omatcopy_k_ctc, .imatcopy_k_cn, .imatcopy_k_ct, .imatcopy_k_cnc, .imatcopy_k_ctc });
 
+/// A slot's precision, by its letter: `s`, `d` and `q` real, `c`, `z` and
+/// `x` their complex. `q` and `x` are `XDouble`'s, which may be `f64`.
+pub const Prec = enum {
+    s,
+    d,
+    q,
+    c,
+    z,
+    x,
+
+    /// The precision a letter (`"s"`) names.
+    pub fn from(comptime l: []const u8) Prec {
+        return comptime std.meta.stringToEnum(Prec, l) orelse @compileError("no precision " ++ l);
+    }
+
+    /// The real precision of a complex one, a real one itself.
+    pub fn real(p: Prec) Prec {
+        return switch (p) {
+            .s, .c => .s,
+            .d, .z => .d,
+            .q, .x => .q,
+        };
+    }
+
+    pub fn isComplex(p: Prec) bool {
+        return p != p.real();
+    }
+};
+
+/// The vtable field `op` fills at `prec`: `.s` and `.axpy_k` give `saxpy_k`,
+/// `.c` and `.rot_k` `csrot_k`.
+pub fn slotName(comptime prec: Prec, comptime op: Op) []const u8 {
+    return comptime blk: {
+        const l = @tagName(prec);
+        const tag = @tagName(op);
+        break :blk switch (op) {
+            .iamax_k, .iamin_k, .imax_k, .imin_k => "i" ++ l ++ tag[1..],
+            .rot_k => if (prec.isComplex()) l ++ @tagName(prec.real()) ++ tag else l ++ tag,
+            else => l ++ tag,
+        };
+    };
+}
+
+/// gemv's op for `t` (`gemv_n` to `gemv_d`).
+pub fn gemvOp(t: types.Trans) Op {
+    return switch (t) {
+        .n => .gemv_n,
+        .t => .gemv_t,
+        .r => .gemv_r,
+        .c => .gemv_c,
+        .o => .gemv_o,
+        .u => .gemv_u,
+        .s => .gemv_s,
+        .d => .gemv_d,
+    };
+}
+
+/// The `Slot` of `op` at `prec`, for `blas.kernel`.
+pub fn slotTag(comptime prec: Prec, comptime op: Op) util.Slot {
+    return comptime @field(util.Slot, slotName(prec, op));
+}
+
+/// `vt`'s field for `op` at `prec`, by pointer; `vt` points to a `Vtable`.
+pub inline fn slotPtr(vt: anytype, comptime prec: Prec, comptime op: Op) @TypeOf(&@field(vt, slotName(prec, op))) {
+    return &@field(vt, slotName(prec, op));
+}
+
 /// The vtable slot `op` fills for `T`, or null for a type with no slots. A
 /// type with slots that lacks this one is a compile error, unless
 /// `no_extended_slot` says the reference has none.
 pub fn slot(comptime T: type, comptime op: Op) ?[]const u8 {
     return comptime blk: {
         const l = letter(T) orelse break :blk null;
-        const tag = @tagName(op);
-        const name: []const u8 = switch (op) {
-            .iamax_k, .iamin_k, .imax_k, .imin_k => "i" ++ l ++ tag[1..],
-            .rot_k => if (types.isComplex(T)) l ++ letter(types.Float(T)).? ++ tag else l ++ tag,
-            else => l ++ tag,
-        };
+        const prec = Prec.from(l);
+        const name = slotName(prec, op);
         if (@hasField(Vtable, name)) break :blk name;
-        const extended = std.mem.eql(u8, l, "q") or std.mem.eql(u8, l, "x");
-        if (extended and no_extended_slot.contains(op)) break :blk null;
+        if (prec.real() == .q and no_extended_slot.contains(op)) break :blk null;
         @compileError("no vtable slot " ++ name ++ " for " ++ @typeName(T));
     };
 }
@@ -264,19 +328,19 @@ pub fn Kernel(comptime T: type, comptime op: Op) type {
 }
 
 /// Whether `op` is a level-3 kernel, which serves every routine over the
-/// gemm tile (`blas3/gemm/kernel.zig`'s `sets`).
+/// gemm tile (`blas3/kernels.zig`'s `sets`).
 fn level3(comptime op: Op) bool {
     return @backingInt(op) >= @backingInt(Op.gemm_kernel);
 }
 
 fn PortableKernel(comptime T: type, comptime op: Op) type {
-    if (level3(op)) return @TypeOf(blas3.gemm.kernel.find(T, @tagName(op)));
+    if (level3(op)) return @TypeOf(blas3.kernels.find(T, @tagName(op)));
     return @TypeOf(@field(Module(op).Portable(T), @tagName(op)));
 }
 
 /// The portable kernel of `op` over `T`.
 inline fn portableKernel(comptime T: type, comptime op: Op) PortableKernel(T, op) {
-    if (comptime level3(op)) return blas3.gemm.kernel.find(T, @tagName(op));
+    if (comptime level3(op)) return blas3.kernels.find(T, @tagName(op));
     return @field(Module(op).Portable(T), @tagName(op));
 }
 

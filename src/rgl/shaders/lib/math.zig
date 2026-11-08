@@ -1,7 +1,6 @@
 const std = @import("std");
 const linalg = @import("../../../linalg/__root__.zig");
 const vec = linalg.vector;
-const V2f32 = vec.V2f32;
 const V3f32 = vec.V3f32;
 
 pub const radians = std.math.degreesToRadians;
@@ -33,7 +32,7 @@ pub inline fn inversesqrt(x: anytype) @TypeOf(x) {
     return like(@TypeOf(x), 1) / @sqrt(x);
 }
 
-pub fn step_scalar(edge: f32, x: f32) f32 {
+pub fn stepScalar(edge: f32, x: f32) f32 {
     return if (x < edge) 0 else 1;
 }
 
@@ -41,7 +40,7 @@ pub inline fn fract(x: anytype) @TypeOf(x) {
     return x - @floor(x);
 }
 
-/// Median of three scalars - the standard way to recover a signed distance
+/// Median of three scalars; the standard way to recover a signed distance
 /// from a 3-channel MSDF texture sample
 pub inline fn median3(a: anytype, b: @TypeOf(a), c: @TypeOf(a)) @TypeOf(a) {
     return @max(@min(a, b), @min(@max(a, b), c));
@@ -59,7 +58,7 @@ pub inline fn normalize(v: V3f32) V3f32 {
     return vec.norm(v) catch @splat(0);
 }
 
-pub fn smoothstep_scalar(edge0: f32, edge1: f32, x: f32) f32 {
+pub fn smoothstepScalar(edge0: f32, edge1: f32, x: f32) f32 {
     const t = std.math.clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
 }

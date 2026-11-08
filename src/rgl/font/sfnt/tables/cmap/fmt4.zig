@@ -1,4 +1,4 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
 
@@ -6,8 +6,7 @@ const GlyphIndex = types.GlyphIndex;
 const setU16BE = bytes.setU16BE;
 const setI16BE = bytes.setI16BE;
 
-/// Schema for the format-4 header, used only to compute field offsets/sizes
-/// at comptime; never instantiated.
+/// The format-4 header.
 const StreamLayout = extern struct {
     format: u16,
     length: u16,
@@ -45,7 +44,7 @@ pub const Format4 = struct {
     }
 
     /// Byte length of one of the four seg_count-sized parallel arrays
-    /// (endCode/startCode/idDelta/idRangeOffset) - all 2 bytes per entry
+    /// (endCode/startCode/idDelta/idRangeOffset); all 2 bytes per entry
     /// regardless of signedness, so one helper covers all four.
     inline fn segArrayBytes(self: Self) usize {
         return self.seg_count * @sizeOf(u16);

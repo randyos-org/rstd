@@ -1,9 +1,5 @@
-/*
- * QEMU's mac99 loader puts each segment at its physical address's low 28
- * bits plus 0x1000000, and OpenBIOS starts the image there, not at the entry.
- * So the image is linked at 0x1000000 with a physical address of 0, and
- * `_start` comes first.
- */
+/* mac99 loads each segment at its physical address's low 28 bits + 0x1000000 and starts there, not at the entry: linked at 0x1000000,
+ * physical 0, `_start` first. */
 ENTRY(_start)
 PHDRS
 {

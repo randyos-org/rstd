@@ -31,7 +31,7 @@ pub fn cloneModuleWithTarget(b: *Build, existing: *Module, target: ?ResolvedTarg
 /// rather than the whole import table.
 ///
 /// Unlike `cloneModuleWithTarget`, this is for a `target` that can't support
-/// `existing`'s other target-specific imports -- e.g. rstd's own `rstd_mod`
+/// `existing`'s other target-specific imports; e.g. rstd's own `rstd_mod`
 /// picks up `win32`/`renderdoc` (which pull in libc) for the native target,
 /// but those can't compile for `spirv32-vulkan`, which `wireRglShaders`
 /// targets by reusing the in-progress `rstd_mod` (rstd can't depend on

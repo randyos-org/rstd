@@ -265,7 +265,7 @@ per-core tables). Their kernels do the same arithmetic for an element wherever i
 and the depth slices are the serial ones, so the bits match the serial path. `gemmtHalf` stays
 serial, as the half `gemv`s are.
 
-`gemm3m`, `symm3m` and `hemm3m` split `C` the same way (`blas3/gemm3m/driver.zig`), on the side
+`gemm3m`, `symm3m` and `hemm3m` split `C` the same way (`blas3/driver3m.zig`), on the side
 with more panels, where OpenBLAS's `level3_gemm3m_thread.c` is `level3_thread.c`'s flag
 protocol over three passes: each part a serial 3M product on `gemm3m_level3.c`'s ranges, its
 row parts starting on `unroll_m`, so every element meets the serial kernel calls. Their
@@ -371,7 +371,7 @@ its own state after each of those and after its tasks end, so it keeps it wherev
 resumes. Level 1 and 2 workers neither wait nor wake inside a task.
 
 **Revert:** once `zig build ssh-repro-group-aarch64-macos` (std only,
-`tools/evented_group_repro.zig`) passes on a new toolchain, set `dispatch_futures` false and
+`tools/probe/evented_group_repro.zig`) passes on a new toolchain, set `dispatch_futures` false and
 delete `Tasks`' futures path.
 
 ### Single-threaded builds and freestanding targets
@@ -397,7 +397,7 @@ Rstd's workers parallelize around it (`apple_accel.split`), under the rules abov
 - **Parts by size.** Above the routine's threshold (`threading.rule`, as for rstd's kernels) a
   routed call splits into chunks of its output (`threading.plan`), each one Accelerate call on
   the worker that claims it. Accelerate's single-threaded calls gave the same bits on every
-  thread (`apple_accel.zig`'s tests), so no result depends on the worker count.
+  thread (`_test/apple_accel.zig`), so no result depends on the worker count.
 - **Split at one worker too.** Unlike rstd's element-wise kernels, whose paths rstd knows, a
   split call is split whatever the worker count: Accelerate's paths at a part's edges are its
   own. So a call past one chunk differs in its low bits from one Accelerate call, and matches
@@ -437,7 +437,7 @@ Reproducibility:
   Microsoft, "x64 calling convention", FPCSR, <https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention>;
   MinGW's `crtexe.c:216` runs `_fpreset`, an `fninit`, in Zig's `lib/libc/mingw/crt`, but not on
   an exe's new threads, `tlssup.c:84`). Every task enters through `team`'s worker or `Region.work`; `team` and `forEachIn`
-  capture `util.FpState` on the caller, and each task's first step adopts it, restoring its
+  capture `FpState` on the caller, and each task's first step adopts it, restoring its
   thread's own when it ends. Only control bits move: exception flags stay per thread, and the
   caller's state is never changed ([`design.md`](../design.md), Settled decisions).
 
@@ -491,14 +491,14 @@ What the tests check today, and where they run:
   ordered combine in several claim orders. The single-threaded builds check that they resolve
   to one worker over the same chunks.
 - **Hosted and multicore kernels** (native Windows; `qemu-test-linux-*` at `-smp 4`;
-  `ssh-test-aarch64-macos`; `qemu-test-x86_64-smp`, `-aarch64-smp`), on `threading.TestIo`:
+  `ssh-test-aarch64-macos`; `qemu-test-x86_64-smp`, `-aarch64-smp`), on `_test/io.zig`'s `TestIo`:
   `Io.Threaded`, or the kernel's cores (Freestanding, below):
   - Level 3 (`blas3/threaded.zig`): every threaded routine against the serial driver, bit
     for bit, at 1 to 9 workers. The shapes cross every block, panel and triangle edge, with
     every transpose and option, on `check.zig`'s shrunk blocking and a NaN-poisoning
     allocator. `C` carries guard bands that must keep their sentinel. Each case runs on
     `Io.failing` and on `Io.Threaded` with limits 0, 3 and 8 (oversubscribed), and on macOS
-    also on `Io.Dispatch` with its own pool (`threading.evented_workers`). The public
+    also on `Io.Dispatch` with its own pool (`_test/io.zig`'s `evented_workers`). The public
     routines thread above their thresholds and keep those bits; on macOS with Accelerate
     routing off, so rstd's threading runs.
   - Levels 1 and 2 (`blas1/interface.zig`, `_test/blas2/threaded.zig`): every threaded
@@ -516,7 +516,7 @@ What the tests check today, and where they run:
   record the depth of every `gemm`, `trsm` and `trmm` kernel call, so each packed slice's
   `Q`. A threaded run must see the depths the serial driver sees, at every worker count.
   Level 1 and 2 chunks ignore the CPU count and the ceiling (above).
-- **Races** (`race stress` in the test names): `threading.stress_rounds` (1000) rounds per
+- **Races** (`race stress` in the test names): `_test/io.zig`'s `stress_rounds` (1000) rounds per
   level at 2 to 8 workers, on `TestIo`, each checked bit for bit against one worker.
   Strided vectors' gaps and `A`'s and `C`'s leading-dimension padding are guard bands, and
   scratch comes NaN-poisoned. Level 1 runs `axpy`, `dot` and `iamax`. Level 2 runs `gemv`
@@ -531,7 +531,7 @@ What the tests check today, and where they run:
   report no race (2026-10-30); the fiber-`Io` test is killed by signal 9 under TSan, so it
   is left out.
 - **Freestanding:** the kernel rigs build `single_threaded` but for `x86_64-smp` and
-  `aarch64-smp` (`cpus` in `build/qemutest.zig`), which run the threaded tests above
+  `aarch64-smp` (`cpus` in `build/qemu/machines.zig`), which run the threaded tests above
   (`smp_filters`) on four cores; `rstd-check-uefi` keeps UEFI compiling. In those kernels
   (`test/qemu/smp.zig`):
   - the boot core starts the others by INIT-SIPI-SIPI (x86_64, the count from QEMU's

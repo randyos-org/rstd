@@ -1,22 +1,8 @@
-//! The level-1 interface: the checks and pointer set-up OpenBLAS's
-//! `interface/*.c` do before calling a kernel. Each takes the element type `T`
-//! explicitly, any float type or its `Complex`; `n` and strides are `isize`.
-//! A type with vtable slots (`f32`, `f64`, `XDouble` and their `Complex`)
-//! runs the core's kernels, any other the portable ones built for it
-//! (`portable.kernel`).
-//!
-//! A negative stride names the vector's last element first: the interface
-//! moves the pointer to it, and the kernel walks back from there. Kernels
-//! assume `n >= 1`; every routine here returns before calling one otherwise.
-//!
-//! A vector that could not fit the address space returns an `ArgError`
-//! naming its stride, `x`'s checked first; there is no xerbla.
-//!
-//! Every routine takes `io` first and may return `error.Canceled`. Above
-//! OpenBLAS's thresholds, `copy`, `swap`, `scal`, `rot`, `axpy`, the dots,
-//! `asum`, `sum` and the extremes thread on `io` (`threading.md`): the
-//! element-wise ones over any split, the reductions over chunks fixed by `n`
-//! and folded in chunk order, so no result depends on the worker count.
+//! The level-1 interface: `interface/*.c`'s checks and pointer set-up, for
+//! any float `T` or its `Complex` (`portable.kernel`). A negative stride
+//! starts at the last element; kernels get `n >= 1`; a vector past the
+//! address space is its stride's `ArgError`. Above OpenBLAS's thresholds
+//! most routines thread on `io`, reductions folded in chunk order.
 
 const std = @import("std");
 const blas = @import("../__root__.zig");
@@ -26,6 +12,7 @@ const util = @import("../util.zig");
 const portable = @import("../portable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
 const accel = @import("../apple_accel.zig");
+const rot_root = @import("rot/__root__.zig");
 
 const Io = std.Io;
 const BlasLong = types.BlasLong;
@@ -35,21 +22,14 @@ const XDouble = types.XDouble;
 const isComplex = types.isComplex;
 const Float = types.Float;
 
-/// `T`'s elements as the kernels take them: floats, two per complex.
-fn raw(comptime T: type, p: [*]T) [*]Float(T) {
-    return @ptrCast(p);
-}
+const raw = util.raw;
 
 /// Bad arguments, by the reference's names.
 pub const ArgError = error{ InvalidIncx, InvalidIncy };
 /// What a level-1 routine returns.
 pub const Error = ArgError || Io.Cancelable;
 
-/// Where a vector of `n` with stride `inc` starts: its last element when
-/// `inc < 0`. The vector must have passed `spanX`/`spanXY`.
-fn first(comptime T: type, p: [*]T, n: BlasLong, inc: BlasLong) [*]T {
-    return if (inc < 0) @ptrCast(util.at(T, p, -(n - 1) * inc)) else p;
-}
+const first = util.first;
 
 /// Refuses an `x` that could not exist in memory (`util.fits`), so no index
 /// overflows.
@@ -69,7 +49,7 @@ fn spanXY(comptime X: type, comptime Y: type, n: isize, incx: isize, incy: isize
 /// is whole kernel blocks, the last ends where the vector does, and each
 /// starts at the vector's alignment, so every element takes the path, and
 /// gets the bits, one call would give it.
-const quantum = 1024;
+pub const quantum = 1024;
 
 /// `family`'s plan for `n` elements, if it has more than one chunk.
 fn chunked(comptime family: threading.Family, comptime T: type, n: isize) ?threading.Plan {
@@ -209,11 +189,7 @@ pub fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) 
     const S = struct {
         fn run(q: @TypeOf(c), len: isize, at: isize) void {
             const px = raw(T, shift(T, q.x, at, q.incx));
-            if (comptime isComplex(T)) {
-                _ = portable.fetch(T, .scal_k, blas.vtable)(len, 0, 0, q.e.re, q.e.im, px, q.incx, px, 0, px, 1);
-            } else {
-                _ = portable.fetch(T, .scal_k, blas.vtable)(len, 0, 0, q.e, px, q.incx, px, 0, px, 1);
-            }
+            _ = @call(.auto, portable.fetch(T, .scal_k, blas.vtable), .{ len, 0, 0 } ++ util.scalarArgs(T, q.e) ++ .{ px, q.incx, px, 0, px, 1 });
         }
     };
     if (spread(.scal, T, n)) |p| return each(io, &p, c, S.run);
@@ -222,7 +198,7 @@ pub fn scal(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize) 
 
 /// `CSSCAL`/`ZDSCAL`: complex `x` scaled by a real `alpha`.
 pub fn scalReal(io: Io, comptime T: type, n: isize, alpha: Float(T), x: [*]T, incx: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("scalReal: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "scalReal");
     return scal(io, T, n, .init(alpha, 0), x, incx);
 }
 
@@ -235,7 +211,7 @@ pub fn dot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
 
 /// `?DOTC`: `conj(x) . y`. Complex only.
 pub fn dotc(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!T {
-    if (comptime !isComplex(T)) @compileError("dotc: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "dotc");
     return dotImpl(io, T, true, n, x, incx, y, incy);
 }
 
@@ -355,7 +331,32 @@ pub fn sum(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize) Error!Float
 // ---- extremes ----------------------------------------------------------------
 
 /// Which extreme: by magnitude (`|re| + |im|` for complex) or by value.
-pub const Extreme = enum { amax, amin, max, min };
+pub const Extreme = enum {
+    amax,
+    amin,
+    max,
+    min,
+
+    /// The slot of the kernel giving the extreme's value.
+    pub fn op(e: Extreme) portable.Op {
+        return switch (e) {
+            .amax => .amax_k,
+            .amin => .amin_k,
+            .max => .max_k,
+            .min => .min_k,
+        };
+    }
+
+    /// The slot of the kernel giving its index.
+    pub fn indexOp(e: Extreme) portable.Op {
+        return switch (e) {
+            .amax => .iamax_k,
+            .amin => .iamin_k,
+            .max => .imax_k,
+            .min => .imin_k,
+        };
+    }
+};
 
 /// `I?AMAX`, `I?AMIN`, `I?MAX`, `I?MIN` (`interface/imax.c`): the 1-based
 /// index of the first extreme element; 0 for `n <= 0` (and, from the
@@ -369,14 +370,14 @@ pub fn index(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [*]
         const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
         const S = struct {
             fn part(q: @TypeOf(c), len: isize, at: isize) B.Pick {
-                const ret = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(which) ++ "_k"), blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
+                const ret = portable.fetch(T, comptime which.indexOp(), blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
                 const i = at + @as(isize, @intCast(ret)) - 1;
                 return B.of(shift(T, q.x, i, q.incx)[0], i);
             }
         };
         return (try fold(io, &p, B.Pick, c, S.part, B.pick)).at + 1;
     };
-    const ret: BlasLong = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(which) ++ "_k"), blas.vtable)(n, raw(T, x), incx);
+    const ret: BlasLong = portable.fetch(T, comptime which.indexOp(), blas.vtable)(n, raw(T, x), incx);
     return @intCast(@min(ret, n));
 }
 
@@ -394,7 +395,7 @@ pub fn extreme(io: Io, comptime T: type, comptime which: Extreme, n: isize, x: [
     const c: Pair(T, void) = .{ .x = x, .incx = incx, .y = x, .incy = incx, .e = {} };
     const S = struct {
         fn part(q: @TypeOf(c), len: isize, at: isize) Float(T) {
-            return portable.fetch(T, @field(portable.Op, @tagName(which) ++ "_k"), blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
+            return portable.fetch(T, comptime which.op(), blas.vtable)(len, raw(T, shift(T, q.x, at, q.incx)), q.incx);
         }
     };
     if (incx > 0) if (chunked(.index, T, n)) |p| return fold(io, &p, Float(T), c, S.part, Best(T, which).value);
@@ -466,7 +467,7 @@ pub fn rot(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, in
 /// which handles negative strides itself; nothing for `n <= 0`.
 pub fn rotm(io: Io, comptime T: type, n: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, param: *const [5]T) Error!void {
     _ = io;
-    if (comptime isComplex(T)) @compileError("rotm: " ++ @typeName(T) ++ " is not real");
+    comptime util.requireReal(T, "rotm");
     if (n <= 0) return;
     try spanXY(T, T, n, incx, incy);
     if (accel.rotm(T, n, x, incx, y, incy, param)) return;
@@ -483,7 +484,7 @@ pub fn axpy(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, 
 
 /// `?AXPYC`: `y := alpha*conj(x) + y`. Complex only.
 pub fn axpyc(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("axpyc: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "axpyc");
     return axpyImpl(io, T, true, n, alpha, x, incx, y, incy);
 }
 
@@ -517,11 +518,8 @@ fn axpyImpl(io: Io, comptime T: type, comptime conj: bool, n: isize, alpha: T, x
         fn run(q: @TypeOf(c), len: isize, at: isize) void {
             const px = shift(T, q.x, at, q.incx);
             const py = shift(T, q.y, at, q.incy);
-            if (comptime isComplex(T)) {
-                _ = portable.fetch(T, if (conj) .axpyc_k else .axpy_k, blas.vtable)(len, 0, 0, q.e.re, q.e.im, raw(T, px), q.incx, raw(T, py), q.incy, raw(T, py), 0);
-            } else {
-                _ = portable.fetch(T, .axpy_k, blas.vtable)(len, 0, 0, q.e, px, q.incx, py, q.incy, py, 0);
-            }
+            const op: portable.Op = comptime if (conj and isComplex(T)) .axpyc_k else .axpy_k;
+            _ = @call(.auto, portable.fetch(T, op, blas.vtable), .{ len, 0, 0 } ++ util.scalarArgs(T, q.e) ++ .{ raw(T, px), q.incx, raw(T, py), q.incy, raw(T, py), 0 });
         }
     };
     if (incx != 0 and incy != 0) if (spread(.axpy, T, n)) |p| return each(io, &p, c, S.run);
@@ -537,11 +535,7 @@ pub fn axpby(io: Io, comptime T: type, n: isize, alpha: T, x: [*]T, incx: isize,
     if (accel.axpby(T, n, alpha, x, incx, beta, y, incy)) return;
     const px = raw(T, first(T, x, n, incx));
     const py = raw(T, first(T, y, n, incy));
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, .axpby_k, blas.vtable)(n, alpha.re, alpha.im, px, incx, beta.re, beta.im, py, incy);
-    } else {
-        _ = portable.fetch(T, .axpby_k, blas.vtable)(n, alpha, px, incx, beta, py, incy);
-    }
+    _ = @call(.auto, portable.fetch(T, .axpby_k, blas.vtable), .{n} ++ util.scalarArgs(T, alpha) ++ .{ px, incx } ++ util.scalarArgs(T, beta) ++ .{ py, incy });
 }
 
 // ---- bfloat16 ----------------------------------------------------------------
@@ -599,254 +593,9 @@ pub fn bf16to(io: Io, comptime F: type, n: isize, in: [*]BF16, inc_in: isize, ou
 
 // ---- rotation set-up ---------------------------------------------------------
 
-/// `?ROTG` (`interface/rotg.c`): the rotation `[c s; -s c]` that zeroes `b`
-/// against `a`. `a` becomes `r`, `b` the reconstruction value `z`.
-/// Computed in `XDouble`, as the reference does in `long double` on x86 (x87
-/// where `XDouble` is), or in `T` where that is wider; a narrower input is
-/// rounded once on the way out.
-pub fn rotg(comptime T: type, a: *T, b: *T, c: *T, s: *T) void {
-    if (comptime isComplex(T)) @compileError("rotg: use zrotg for " ++ @typeName(T));
-    const X = if (@bitSizeOf(T) > @bitSizeOf(XDouble)) T else XDouble;
-    const da: X = a.*;
-    const db: X = b.*;
-    const safmin: X = std.math.floatMin(T);
-    const ada = @abs(da);
-    const adb = @abs(db);
-    if (adb == 0) {
-        c.* = 1;
-        s.* = 0;
-        b.* = 0;
-        return;
-    }
-    if (ada == 0) {
-        c.* = 0;
-        s.* = 1;
-        a.* = b.*;
-        b.* = 1;
-        return;
-    }
-    const sc = @min(@max(safmin, @max(ada, adb)), 1 / safmin);
-    const sigma = std.math.copysign(@as(X, 1), if (ada > adb) da else db);
-    const aa = da / sc;
-    const bb = db / sc;
-    const r = sigma * sc * @sqrt(aa * aa + bb * bb);
-    const cx = da / r;
-    const sx = db / r;
-    var z: X = 1;
-    if (ada > adb) z = sx;
-    if (ada <= adb and cx != 0) z = 1 / cx;
-    c.* = @floatCast(cx);
-    s.* = @floatCast(sx);
-    a.* = @floatCast(r);
-    b.* = @floatCast(z);
-}
-
-/// `CROTG`/`ZROTG`: the rotation with real `c` and complex `s` that zeroes
-/// `b` against `a`, `[c s; -conj(s) c] [a; b] = [r; 0]`; `a` becomes `r`.
-/// Follows LAPACK's `zlartg`, scaling against overflow and underflow.
-/// `interface/zrotg.c` transcribes the same algorithm but its scaled branches
-/// are wrong (square roots where `zlartg` has squared norms, `a` rescaled by
-/// the wrong factor, a multiply where a divide belongs), so results there
-/// are wrong in the last bits and sometimes worse; this is the sound
-/// algorithm, not a copy of `zrotg.c`, and is tested against a wide-precision
-/// reference over all its branches.
-pub fn zrotg(comptime T: type, a: *T, b: T, c: *Float(T), s: *T) void {
-    if (comptime !isComplex(T)) @compileError("zrotg: " ++ @typeName(T) ++ " is not complex");
-    const F = Float(T);
-    const safmin = std.math.floatMin(F);
-    const safmax = 1 / safmin;
-    const rtmin = @sqrt(safmin);
-    const f = a.*;
-    const g = b;
-    if (g.re == 0 and g.im == 0) {
-        c.* = 1;
-        s.* = .init(0, 0);
-        return;
-    }
-    if (f.re == 0 and f.im == 0) {
-        c.* = 0;
-        if (g.re == 0 or g.im == 0) {
-            const d = @abs(if (g.re == 0) g.im else g.re);
-            s.* = scale(T, g.conjugate(), 1 / d);
-            a.* = .init(d, 0);
-            return;
-        }
-        const g1 = @max(@abs(g.re), @abs(g.im));
-        if (g1 > rtmin and g1 < @sqrt(safmax / 2)) {
-            const d = @sqrt(abssq(T, g));
-            s.* = scale(T, g.conjugate(), 1 / d);
-            a.* = .init(d, 0);
-        } else {
-            const u = @min(safmax, @max(safmin, g1));
-            const gs = scale(T, g, 1 / u);
-            const d = @sqrt(abssq(T, gs));
-            s.* = scale(T, gs.conjugate(), 1 / d);
-            a.* = .init(d * u, 0);
-        }
-        return;
-    }
-    const f1 = @max(@abs(f.re), @abs(f.im));
-    const g1 = @max(@abs(g.re), @abs(g.im));
-    var rtmax = @sqrt(safmax / 4);
-    // unscaled, or scaled by `u` (and `f` by `v`, as `w = v/u`)
-    var u: F = 1;
-    var w: F = 1;
-    var fs = f;
-    var gs = g;
-    if (!(f1 > rtmin and f1 < rtmax and g1 > rtmin and g1 < rtmax)) {
-        u = @min(safmax, @max(safmin, @max(f1, g1)));
-        gs = scale(T, g, 1 / u);
-        if (f1 / u < rtmin) {
-            const v = @min(safmax, @max(safmin, f1));
-            w = v / u;
-            fs = scale(T, f, 1 / v);
-        } else {
-            fs = scale(T, f, 1 / u);
-        }
-    }
-    const f2 = abssq(T, fs);
-    const h2 = f2 * w * w + abssq(T, gs);
-    var r: T = undefined;
-    if (f2 >= h2 * safmin) {
-        c.* = @sqrt(f2 / h2);
-        r = scale(T, fs, 1 / c.*);
-        rtmax *= 2;
-        s.* = if (f2 > rtmin and h2 < rtmax)
-            gs.conjugate().mul(scale(T, fs, 1 / @sqrt(f2 * h2)))
-        else
-            gs.conjugate().mul(scale(T, r, 1 / h2));
-    } else {
-        // intermediates might overflow
-        const d = @sqrt(f2 * h2);
-        c.* = f2 / d;
-        r = if (c.* >= safmin) scale(T, fs, 1 / c.*) else scale(T, fs, h2 / d);
-        s.* = gs.conjugate().mul(scale(T, fs, 1 / d));
-    }
-    c.* *= w;
-    a.* = scale(T, r, u);
-}
-
-fn scale(comptime T: type, z: T, f: Float(T)) T {
-    return .init(z.re * f, z.im * f);
-}
-
-fn abssq(comptime T: type, z: T) Float(T) {
-    return z.re * z.re + z.im * z.im;
-}
-
-/// `?ROTMG` (`interface/rotmg.c`): the modified rotation that zeroes the
-/// second component of `(sqrt(d1)*x1, sqrt(d2)*y1)`, as `param` for `rotm`.
-/// `d1`, `d2` and `x1` are updated.
-pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void {
-    if (comptime isComplex(T)) @compileError("rotmg: " ++ @typeName(T) ++ " is not real");
-    // the reference's bounds, 4096 and its square; a narrow type (`f16`)
-    // keeps `d1`, `d2` within its range by 16 and 256 instead
-    const narrow = @bitSizeOf(T) < 32;
-    const gam: T = if (narrow) 16 else 4096;
-    const gamsq: T = if (narrow) 256 else 16777216;
-    const rgamsq: T = if (narrow) 1.0 / 256.0 else 5.9604645e-8;
-    var h11: T = 0;
-    var h21: T = 0;
-    var h12: T = 0;
-    var h22: T = 0;
-    var flag: T = -1;
-    if (d2.* == 0 or y1 == 0) {
-        param[0] = -2;
-        return;
-    }
-    if (d1.* < 0) {
-        d1.* = 0;
-        d2.* = 0;
-        x1.* = 0;
-    } else if ((d1.* == 0 or x1.* == 0) and d2.* > 0) {
-        flag = 1;
-        h12 = 1;
-        h21 = -1;
-        x1.* = y1;
-        std.mem.swap(T, d1, d2);
-    } else {
-        const p2 = d2.* * y1;
-        const p1 = d1.* * x1.*;
-        const q2 = p2 * y1;
-        const q1 = p1 * x1.*;
-        if (@abs(q1) > @abs(q2)) {
-            h11 = 1;
-            h22 = 1;
-            h21 = -y1 / x1.*;
-            h12 = p2 / p1;
-            const u = 1 - h12 * h21;
-            if (u <= 0) {
-                // only through rounding, as in the reference
-                h11 = 0;
-                h12 = 0;
-                h21 = 0;
-                h22 = 0;
-                d1.* = 0;
-                d2.* = 0;
-                x1.* = 0;
-            } else {
-                flag = 0;
-                d1.* /= u;
-                d2.* /= u;
-                x1.* *= u;
-            }
-        } else if (q2 < 0) {
-            d1.* = 0;
-            d2.* = 0;
-            x1.* = 0;
-        } else {
-            flag = 1;
-            h21 = -1;
-            h12 = 1;
-            h11 = p1 / p2;
-            h22 = x1.* / y1;
-            const u = 1 + h11 * h22;
-            const t = d2.* / u;
-            d2.* = d1.* / u;
-            d1.* = t;
-            x1.* = y1 * u;
-        }
-        while (d1.* <= rgamsq and d1.* != 0) {
-            flag = -1;
-            d1.* *= gam * gam;
-            x1.* /= gam;
-            h11 /= gam;
-            h12 /= gam;
-        }
-        while (@abs(d1.*) > gamsq) {
-            flag = -1;
-            d1.* /= gam * gam;
-            x1.* *= gam;
-            h11 *= gam;
-            h12 *= gam;
-        }
-        while (@abs(d2.*) <= rgamsq and d2.* != 0) {
-            flag = -1;
-            d2.* *= gam * gam;
-            h21 /= gam;
-            h22 /= gam;
-        }
-        while (@abs(d2.*) > gamsq) {
-            flag = -1;
-            d2.* /= gam * gam;
-            h21 *= gam;
-            h22 *= gam;
-        }
-    }
-    if (flag < 0) {
-        param[1] = h11;
-        param[2] = h21;
-        param[3] = h12;
-        param[4] = h22;
-    } else if (flag == 0) {
-        param[2] = h21;
-        param[3] = h12;
-    } else {
-        param[1] = h11;
-        param[4] = h22;
-    }
-    param[0] = flag;
-}
+pub const rotg = rot_root.rotg;
+pub const zrotg = rot_root.zrotg;
+pub const rotmg = rot_root.rotmg;
 
 // ---- complex magnitude -------------------------------------------------------
 
@@ -854,23 +603,22 @@ pub fn rotmg(comptime T: type, d1: *T, d2: *T, x1: *T, y1: T, param: *[5]T) void
 /// POWER and SPARC): `|re| + |im|`, the key the complex extremes compare,
 /// not the modulus. Any complex type; infinite where the sum overflows.
 pub fn cabs1(comptime T: type, z: T) Float(T) {
-    if (comptime !isComplex(T)) @compileError("cabs1: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "cabs1");
     return util.abs(z.re) + util.abs(z.im);
 }
 
 // ---- tests -------------------------------------------------------------------
 
-const check = @import("../_test/blas1/check.zig");
+const check = @import("../_test/check.zig");
+const reference = @import("../_test/reference.zig");
 const blas2_interface = @import("../blas2/interface.zig");
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
 const reals = .{ f32, f64 } ++ check.x_real;
-const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
+const all = check.all_types;
 
-fn zero(comptime T: type) T {
-    return if (comptime isComplex(T)) .init(0, 0) else 0;
-}
+const zero = util.zero;
 
 fn same(comptime T: type, want: []const T, got: []const T) !void {
     try check.expectCloseSlices(T, want, got, check.tolerance(Float(T), 4));
@@ -1152,90 +900,10 @@ test "interface: axpy with negative strides, and axpyc" {
     try same(XDouble, &.{ 3, 5, 7 }, &qy);
 }
 
-test "interface: rotg zeroes b, and rotmg's param zeroes the second component" {
-    inline for (reals) |T| {
-        var a: T = 3;
-        var b: T = 4;
-        var c: T = undefined;
-        var s: T = undefined;
-        rotg(T, &a, &b, &c, &s);
-        try check.expectClose(T, 5, a, check.tolerance(T, 4));
-        try check.expectClose(T, 0.6, c, check.tolerance(T, 4));
-        try check.expectClose(T, 0.8, s, check.tolerance(T, 4));
-        // |a| <= |b| and c != 0: z = 1/c
-        try check.expectClose(T, 1 / @as(T, 0.6), b, check.tolerance(T, 8));
-
-        var d1: T = 2;
-        var d2: T = 3;
-        var x1: T = 1.5;
-        const y1: T = 0.5;
-        const d1_0 = d1;
-        const d2_0 = d2;
-        const x1_0 = x1;
-        var param: [5]T = undefined;
-        rotmg(T, &d1, &d2, &x1, y1, &param);
-        // apply H to (x1, y1): the second component vanishes
-        var hx = [1]T{x1_0};
-        var hy = [1]T{y1};
-        try rotm(check.io, T, 1, &hx, 1, &hy, 1, &param);
-        try check.expectClose(T, 0, hy[0], check.tolerance(T, 8));
-        try check.expectClose(T, x1, hx[0], check.tolerance(T, 8));
-        // and the weighted length is kept: d1*x1^2 + d2*y1^2
-        try check.expectClose(T, d1_0 * x1_0 * x1_0 + d2_0 * y1 * y1, d1 * x1 * x1, check.tolerance(T, 16));
-    }
-}
-
-test "interface: zrotg zeroes b against a over every branch" {
-    inline for (.{ Complex32, Complex64 } ++ check.x_complex) |C| {
-        const F = Float(C);
-        const eps: f64 = if (F == f32) 1e-5 else 1e-12;
-        // magnitudes that take the unscaled and both scaled paths, with a or b zero,
-        // b real or imaginary only, and a tiny against a huge b (and the reverse)
-        const big: f64 = if (F == f32) 1e30 else 1e300;
-        const tiny: f64 = if (F == f32) 1e-30 else 1e-300;
-        const cases = [_][4]f64{
-            .{ 1, 2, 3, -1 },
-            .{ 1 * tiny, 2 * tiny, 3 * tiny, -1 * tiny },
-            .{ 1 * big, 2 * big, 3 * big, -1 * big },
-            .{ 0, 0, 3, -4 },
-            .{ 0, 0, 3 * big, -4 * big },
-            .{ 0, 0, 3 * tiny, -4 * tiny },
-            .{ 0, 0, 0, 5 },
-            .{ 0, 0, -5, 0 },
-            .{ 1, 2, 0, 0 },
-            .{ tiny, tiny, big, big },
-            .{ big, big, tiny, tiny },
-            .{ 1, -2, 0, 3 },
-            .{ -2, 1, 7, 0 },
-        };
-        for (cases) |k| {
-            const a0: C = .init(@floatCast(k[0]), @floatCast(k[1]));
-            const b: C = .init(@floatCast(k[2]), @floatCast(k[3]));
-            var a = a0;
-            var c: F = undefined;
-            var s: C = undefined;
-            zrotg(C, &a, b, &c, &s);
-            // [c s; -conj(s) c] [a0; b] = [r; 0], |r| = |(a0, b)|, c real, c^2 + |s|^2 = 1
-            const norm = @max(@max(@abs(k[0]), @abs(k[1])), @max(@abs(k[2]), @abs(k[3])));
-            const top = scale(C, a0, c).add(s.mul(b));
-            const bottom = C.init(-s.re, s.im).mul(a0).add(scale(C, b, c));
-            try check.expectClose(C, a, top, @floatCast(eps * norm));
-            try check.expectClose(C, .init(0, 0), bottom, @floatCast(eps * norm));
-            const W = check.Wide(F);
-            try check.expectClose(W, 1, @as(W, c) * c + abssq(C, s), eps);
-            // |r| against the norm of (a0, b), formed in f64 on scaled parts
-            const inv = 1 / norm;
-            const want = @sqrt(k[0] * inv * k[0] * inv + k[1] * inv * k[1] * inv + k[2] * inv * k[2] * inv + k[3] * inv * k[3] * inv);
-            const got = @sqrt(@as(W, a.re) * inv * a.re * inv + @as(W, a.im) * inv * a.im * inv);
-            try check.expectClose(W, want, got, eps);
-        }
-    }
-}
-
 /// Level 1 over `T`, which has no vtable slots, against an `f128` reference:
 /// `x` at stride 2 and `y` at stride -1.
 fn anyFloat(comptime T: type) !void {
-    const W = check.Wide(T);
+    const W = reference.Wide(T);
     const n = 37;
     const ulps = 2 * (n + 2);
     var x: [2 * n]T = undefined;
@@ -1245,13 +913,13 @@ fn anyFloat(comptime T: type) !void {
     var wx: [n]W = undefined;
     var wy: [n]W = undefined;
     for (0..n) |i| {
-        wx[i] = check.wide(T, x[2 * i]);
-        wy[i] = check.wide(T, y[n - 1 - i]);
+        wx[i] = reference.wide(T, x[2 * i]);
+        wy[i] = reference.wide(T, y[n - 1 - i]);
     }
     const alpha: T = if (comptime isComplex(T)) .init(1.25, -0.5) else 1.25;
     const beta: T = if (comptime isComplex(T)) .init(-0.75, 0.25) else -0.75;
-    const wa = check.wide(T, alpha);
-    const wb = check.wide(T, beta);
+    const wa = reference.wide(T, alpha);
+    const wb = reference.wide(T, beta);
 
     // reductions
     var d = zero(W);
@@ -1261,60 +929,60 @@ fn anyFloat(comptime T: type) !void {
     var s1: f128 = 0;
     var best: usize = 0;
     for (0..n) |i| {
-        d = check.addW(d, check.mulW(wx[i], wy[i]));
-        dc = check.addW(dc, check.mulW(check.conjW(wx[i]), wy[i]));
-        dscale += check.abs1(wx[i]) * check.abs1(wy[i]);
+        d = reference.addW(d, reference.mulW(wx[i], wy[i]));
+        dc = reference.addW(dc, reference.mulW(reference.conjW(wx[i]), wy[i]));
+        dscale += reference.abs1(wx[i]) * reference.abs1(wy[i]);
         ssq += if (comptime isComplex(T)) wx[i].re * wx[i].re + wx[i].im * wx[i].im else wx[i] * wx[i];
-        s1 += check.abs1(wx[i]);
-        if (check.abs1(wx[i]) > check.abs1(wx[best])) best = i;
+        s1 += reference.abs1(wx[i]);
+        if (reference.abs1(wx[i]) > reference.abs1(wx[best])) best = i;
     }
-    try check.expectNear(T, d, try dot(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
-    if (comptime isComplex(T)) try check.expectNear(T, dc, try dotc(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
-    const norm = check.sqrtW(ssq);
-    try check.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps + check.rootUlps(Float(T)), norm);
-    try check.expectNear(Float(T), s1, try asum(check.io, T, n, &x, 2), ulps, s1);
-    try check.expectNear(Float(T), check.abs1(wx[best]), try extreme(check.io, T, .amax, n, &x, 2), 4, s1);
+    try reference.expectNear(T, d, try dot(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
+    if (comptime isComplex(T)) try reference.expectNear(T, dc, try dotc(check.io, T, n, &x, 2, &y, -1), ulps, dscale);
+    const norm = reference.sqrtW(ssq);
+    try reference.expectNear(Float(T), norm, try nrm2(check.io, T, n, &x, 2), ulps + reference.rootUlps(Float(T)), norm);
+    try reference.expectNear(Float(T), s1, try asum(check.io, T, n, &x, 2), ulps, s1);
+    try reference.expectNear(Float(T), reference.abs1(wx[best]), try extreme(check.io, T, .amax, n, &x, 2), 4, s1);
     // the first of near-equal keys may differ; its key must be the largest
     const at = try index(check.io, T, .amax, n, &x, 2);
-    try check.expectNear(Float(T), check.abs1(wx[best]), @floatCast(check.abs1(wx[@intCast(at - 1)])), 4, check.abs1(wx[best]));
+    try reference.expectNear(Float(T), reference.abs1(wx[best]), @floatCast(reference.abs1(wx[@intCast(at - 1)])), 4, reference.abs1(wx[best]));
 
     // updates, element by element
     var y2 = y;
     try axpy(check.io, T, n, alpha, &x, 2, &y2, -1);
     for (0..n) |i| {
-        const want = check.addW(check.mulW(wa, wx[i]), wy[i]);
-        try check.expectNear(T, want, y2[n - 1 - i], 8, check.abs1(wa) * check.abs1(wx[i]) + check.abs1(wy[i]));
+        const want = reference.addW(reference.mulW(wa, wx[i]), wy[i]);
+        try reference.expectNear(T, want, y2[n - 1 - i], 8, reference.abs1(wa) * reference.abs1(wx[i]) + reference.abs1(wy[i]));
     }
     y2 = y;
     try axpby(check.io, T, n, alpha, &x, 2, beta, &y2, -1);
     for (0..n) |i| {
-        const want = check.addW(check.mulW(wa, wx[i]), check.mulW(wb, wy[i]));
-        try check.expectNear(T, want, y2[n - 1 - i], 8, check.abs1(wa) * check.abs1(wx[i]) + check.abs1(wb) * check.abs1(wy[i]));
+        const want = reference.addW(reference.mulW(wa, wx[i]), reference.mulW(wb, wy[i]));
+        try reference.expectNear(T, want, y2[n - 1 - i], 8, reference.abs1(wa) * reference.abs1(wx[i]) + reference.abs1(wb) * reference.abs1(wy[i]));
     }
     var x2 = x;
     try scal(check.io, T, n, alpha, &x2, 2);
-    for (0..n) |i| try check.expectNear(T, check.mulW(wa, wx[i]), x2[2 * i], 8, check.abs1(wa) * check.abs1(wx[i]));
+    for (0..n) |i| try reference.expectNear(T, reference.mulW(wa, wx[i]), x2[2 * i], 8, reference.abs1(wa) * reference.abs1(wx[i]));
     const c: Float(T) = 0.6;
     const sn: Float(T) = 0.8;
     x2 = x;
     y2 = y;
     try rot(check.io, T, n, &x2, 2, &y2, -1, c, sn);
-    const wc = check.wide(Float(T), c);
-    const ws = check.wide(Float(T), sn);
+    const wc = reference.wide(Float(T), c);
+    const ws = reference.wide(Float(T), sn);
     for (0..n) |i| {
-        const mag = check.abs1(wx[i]) + check.abs1(wy[i]);
+        const mag = reference.abs1(wx[i]) + reference.abs1(wy[i]);
         const rx = if (comptime isComplex(T)) W.init(wc * wx[i].re + ws * wy[i].re, wc * wx[i].im + ws * wy[i].im) else wc * wx[i] + ws * wy[i];
         const ry = if (comptime isComplex(T)) W.init(wc * wy[i].re - ws * wx[i].re, wc * wy[i].im - ws * wx[i].im) else wc * wy[i] - ws * wx[i];
-        try check.expectNear(T, rx, x2[2 * i], 8, mag);
-        try check.expectNear(T, ry, y2[n - 1 - i], 8, mag);
+        try reference.expectNear(T, rx, x2[2 * i], 8, mag);
+        try reference.expectNear(T, ry, y2[n - 1 - i], 8, mag);
     }
     x2 = x;
     y2 = y;
     try swap(check.io, T, n, &x2, 2, &y2, -1);
     try copy(check.io, T, n, &x2, 2, &y2, -1);
     for (0..n) |i| {
-        try check.expectNear(T, wy[i], x2[2 * i], 0, 0);
-        try check.expectNear(T, wy[i], y2[n - 1 - i], 0, 0);
+        try reference.expectNear(T, wy[i], x2[2 * i], 0, 0);
+        try reference.expectNear(T, wy[i], y2[n - 1 - i], 0, 0);
     }
     if (comptime isComplex(T)) return;
 
@@ -1324,21 +992,21 @@ fn anyFloat(comptime T: type) !void {
     try rotm(check.io, T, n, &x2, 2, &y2, -1, &ps);
     for (0..n) |i| {
         const mag = 2 * @abs(wx[i]) + @abs(wy[i]);
-        try check.expectNear(T, 2 * wx[i] - wy[i], x2[2 * i], 8, mag);
-        try check.expectNear(T, 3 * wx[i] + 0.5 * wy[i], y2[n - 1 - i], 8, mag);
+        try reference.expectNear(T, 2 * wx[i] - wy[i], x2[2 * i], 8, mag);
+        try reference.expectNear(T, 3 * wx[i] + 0.5 * wy[i], y2[n - 1 - i], 8, mag);
     }
-    try check.expectNear(T, sumOf(T, &wx), try sum(check.io, T, n, &x, 2), ulps, s1);
+    try reference.expectNear(T, sumOf(T, &wx), try sum(check.io, T, n, &x, 2), ulps, s1);
     var ga: T = 3;
     var gb: T = 4;
     var gc: T = undefined;
     var gs: T = undefined;
     rotg(T, &ga, &gb, &gc, &gs);
-    try check.expectNear(T, 5, ga, 4, 5);
-    try check.expectNear(T, 0.6, gc, 4, 1);
-    try check.expectNear(T, 0.8, gs, 4, 1);
+    try reference.expectNear(T, 5, ga, 4, 5);
+    try reference.expectNear(T, 0.6, gc, 4, 1);
+    try reference.expectNear(T, 0.8, gs, 4, 1);
 }
 
-fn sumOf(comptime T: type, w: []const check.Wide(T)) f128 {
+fn sumOf(comptime T: type, w: []const reference.Wide(T)) f128 {
     var acc: f128 = 0;
     for (w) |v| acc += v;
     return acc;
@@ -1390,28 +1058,6 @@ test "interface: f16 reductions accumulate wide, and counts past its range stay 
     var yz = [_]H{0};
     try axpy(check.io, H, 70000, 1, &x, 0, &yz, 0);
     try check.expectClose(f64, 700, yz[0], 1);
-}
-
-test "interface: rotmg in f16 rescales within its range" {
-    const H = f16;
-    // d1 small and large enough to take each rescaling loop
-    for ([_][4]H{ .{ 1.0 / 1024.0, 1, 1, 0.5 }, .{ 1000, 1, 1, 0.5 }, .{ 2, 3, 1.5, 0.5 }, .{ 1, 1.0 / 2048.0, 0.25, 4 } }) |c| {
-        var d1 = c[0];
-        var d2 = c[1];
-        var x1 = c[2];
-        const y1 = c[3];
-        var param: [5]H = @splat(0);
-        rotmg(H, &d1, &d2, &x1, y1, &param);
-        for ([_]H{ d1, d2, x1 }) |v| try std.testing.expect(std.math.isFinite(v) and v != 0);
-        var hx = [1]H{c[2]};
-        var hy = [1]H{y1};
-        try rotm(check.io, H, 1, &hx, 1, &hy, 1, &param);
-        try check.expectClose(f64, 0, hy[0], 1e-2 * @abs(@as(f64, c[2])));
-        try check.expectClose(f64, x1, hx[0], 4e-3 * @abs(@as(f64, x1)));
-        // the weighted length d1*x1^2 + d2*y1^2 is kept
-        const was = @as(f64, c[0]) * c[2] * c[2] + @as(f64, c[1]) * y1 * y1;
-        try check.expectClose(f64, was, @as(f64, d1) * x1 * x1, 1e-2 * was);
-    }
 }
 
 fn b16(v: f32) BF16 {
@@ -1495,254 +1141,5 @@ test "interface: cabs1 is |re| + |im|, overflowing to infinity" {
         }
         try std.testing.expect(std.math.isNan(cabs1(C, .init(1, std.math.nan(F)))));
         try std.testing.expect(std.math.isNan(cabs1(C, .init(inf, -std.math.nan(F)))));
-    }
-}
-
-test "interface: rotg handles scaled and special inputs" {
-    inline for (reals) |T| {
-        const big: T = std.math.floatMax(T) / 4;
-        const tiny: T = std.math.floatMin(T) * 4;
-        for ([_][2]T{ .{ big, big }, .{ tiny, tiny }, .{ big, tiny }, .{ tiny, big }, .{ -3, 4 }, .{ 3, -4 } }) |ab| {
-            var a = ab[0];
-            var b = ab[1];
-            var c: T = undefined;
-            var s: T = undefined;
-            rotg(T, &a, &b, &c, &s);
-            try std.testing.expect(std.math.isFinite(a));
-            const W = check.Wide(T);
-            try check.expectClose(W, 1, @as(W, c) * c + @as(W, s) * s, 1e-6);
-            // the rotation zeroes b: -s*a0 + c*b0 = 0, relative to the norm
-            const norm = @max(@abs(ab[0]), @abs(ab[1]));
-            const resid = -@as(W, s) * ab[0] + @as(W, c) * ab[1];
-            try std.testing.expect(@abs(resid) <= 1e-6 * norm);
-        }
-        var a: T = 0;
-        var b: T = 0;
-        var c: T = undefined;
-        var s: T = undefined;
-        rotg(T, &a, &b, &c, &s);
-        try std.testing.expectEqual(@as(T, 1), c);
-        try std.testing.expectEqual(@as(T, 0), s);
-        a = std.math.nan(T);
-        b = 1;
-        rotg(T, &a, &b, &c, &s);
-        try std.testing.expect(std.math.isNan(a));
-    }
-}
-
-test "portable kernels: special values and ranges" {
-    const nrm2k = @import("nrm2/__root__.zig");
-    const scalk = @import("scal/__root__.zig");
-    const iamaxk = @import("iamax/__root__.zig");
-    const dotk = @import("dot/__root__.zig");
-    // nrm2 neither overflows nor underflows
-    inline for (.{ .{ f32, nrm2k.snrm2_generic }, .{ f64, nrm2k.dnrm2_generic } }) |p| {
-        const T = p[0];
-        const big: T = std.math.floatMax(T) / 2;
-        const tiny: T = std.math.floatMin(T);
-        var x = [_]T{ big, big, big };
-        try check.expectClose(f64, @as(f64, big) * @sqrt(3.0), p[1](3, &x, 1), @as(f64, big) * 1e-6);
-        x = .{ tiny, tiny, tiny };
-        try check.expectClose(f64, @as(f64, tiny) * @sqrt(3.0), p[1](3, &x, 1), @as(f64, tiny) * 1e-6);
-        x = .{ 0, 0, 0 };
-        try std.testing.expectEqual(@as(T, 0), p[1](3, &x, 1));
-    }
-    // scal with a zero alpha: the flag makes NaN and Inf stay NaN
-    var v = [_]f64{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
-    _ = scalk.dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 1);
-    try std.testing.expectEqual(@as(f64, 0), v[0]);
-    try std.testing.expect(std.math.isNan(v[1]) and std.math.isNan(v[2]));
-    try std.testing.expectEqual(@as(f64, 0), v[3]);
-    v = .{ 1, std.math.inf(f64), std.math.nan(f64), -2 };
-    _ = scalk.dscal_generic(4, 0, 0, 0, &v, 1, &v, 1, &v, 0);
-    for (v) |e| try std.testing.expectEqual(@as(f64, 0), e);
-    // iamax: first of equal maxima, 1-based; the first NaN wins
-    var ties = [_]f64{ 1, -3, 3, 2 };
-    try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.idamax_generic(4, &ties, 1));
-    var nans = [_]f64{ 5, std.math.inf(f64), std.math.nan(f64), 7, std.math.nan(f64) };
-    try std.testing.expectEqual(@as(BlasLong, 3), iamaxk.idamax_generic(5, &nans, 1));
-    // complex: an infinite part beats a finite element whose |re| + |im| overflows
-    const big = std.math.floatMax(f64);
-    var z = [_]f64{ big, big, 1, std.math.inf(f64), big, 0 };
-    try std.testing.expectEqual(@as(BlasLong, 2), iamaxk.izamax_generic(3, &z, 1));
-    z[3] = 1;
-    try std.testing.expectEqual(@as(BlasLong, 1), iamaxk.izamax_generic(3, &z, 1));
-    // dsdot accumulates in double: a sum f32 would lose
-    var xs: [3]f32 = .{ 16777216, 1, 1 };
-    try std.testing.expectEqual(@as(f64, 16777216.0 * 16777216.0 + 2), dotk.dsdot_generic(3, &xs, 1, &xs, 1));
-}
-
-// ---- threading ---------------------------------------------------------------
-
-const Vtable = @import("../Vtable.zig");
-
-fn scalarOf(comptime T: type, re: f64, im: f64) T {
-    if (comptime isComplex(T)) return .init(@floatCast(re), @floatCast(im));
-    return @floatCast(re);
-}
-
-/// A threaded test's length: `test_serial_max` makes it a dozen chunks.
-const threaded_n = 17 * quantum + 517;
-
-/// Every threaded routine's results and outputs for `x0` and `y0`, as bytes.
-fn level1Bits(comptime T: type, al: std.mem.Allocator, io: Io, inc: [2]isize, x0: []const T, y0: []const T, out: *std.ArrayList(u8)) !void {
-    const n: isize = threaded_n;
-    const x = try al.dupe(T, x0);
-    defer al.free(x);
-    const y = try al.dupe(T, y0);
-    defer al.free(y);
-    const a = scalarOf(T, 1.25, -0.75);
-    const pos: isize = @intCast(@abs(inc[0]));
-    try copy(io, T, n, x.ptr, inc[0], y.ptr, inc[1]);
-    try check.appendBits(al, out, y);
-    try swap(io, T, n, x.ptr, inc[0], y.ptr, inc[1]);
-    try check.appendBits(al, out, x);
-    try scal(io, T, n, a, x.ptr, pos);
-    try check.appendBits(al, out, x);
-    try rot(io, T, n, x.ptr, inc[0], y.ptr, inc[1], 0.6, -0.8);
-    try check.appendBits(al, out, x);
-    try check.appendBits(al, out, y);
-    try axpy(io, T, n, a, x.ptr, inc[0], y.ptr, inc[1]);
-    try check.appendBits(al, out, y);
-    try check.appendBits(al, out, try dot(io, T, n, x.ptr, inc[0], y.ptr, inc[1]));
-    if (comptime isComplex(T)) {
-        try axpyc(io, T, n, a, x.ptr, inc[0], y.ptr, inc[1]);
-        try check.appendBits(al, out, y);
-        try check.appendBits(al, out, try dotc(io, T, n, x.ptr, inc[0], y.ptr, inc[1]));
-    }
-    if (comptime T == f32) try check.appendBits(al, out, try dsdot(io, n, x.ptr, inc[0], y.ptr, inc[1]));
-    try check.appendBits(al, out, try asum(io, T, n, x.ptr, pos));
-    try check.appendBits(al, out, try sum(io, T, n, x.ptr, pos));
-    try extremeBits(T, io, x.ptr, pos, out, al);
-}
-
-fn extremeBits(comptime T: type, io: Io, x: [*]T, inc: isize, out: *std.ArrayList(u8), al: std.mem.Allocator) !void {
-    const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
-    inline for (whiches) |w| {
-        try check.appendBits(al, out, try extreme(io, T, w, threaded_n, x, inc));
-        try check.appendBits(al, out, try index(io, T, w, threaded_n, x, inc));
-    }
-}
-
-/// The extremes over chunks against one kernel call: the fold is exact.
-fn expectExtremesExact(comptime T: type, io: Io, x: [*]T, inc: isize) !void {
-    const whiches = if (comptime isComplex(T)) .{ Extreme.amax, Extreme.amin } else .{ Extreme.amax, Extreme.amin, Extreme.max, Extreme.min };
-    inline for (whiches) |w| {
-        const v = portable.fetch(T, @field(portable.Op, @tagName(w) ++ "_k"), blas.vtable)(threaded_n, raw(T, x), inc);
-        const i = portable.fetch(T, @field(portable.Op, "i" ++ @tagName(w) ++ "_k"), blas.vtable)(threaded_n, raw(T, x), inc);
-        try std.testing.expect(check.same(@TypeOf(v), v, try extreme(io, T, w, threaded_n, x, inc), true));
-        try std.testing.expectEqual(@as(isize, @intCast(i)), try index(io, T, w, threaded_n, x, inc));
-    }
-}
-
-/// `x` with NaNs, infinities and, for complex, finite elements whose keys
-/// overflow, spread over several chunks (`variant` 1 and 2).
-fn specials(comptime T: type, x: []T, inc: usize, variant: usize) void {
-    const F = Float(T);
-    const at = [_]usize{ 2 * quantum + 3, 7 * quantum + 11, 11 * quantum + 1, 16 * quantum + 9 };
-    for (at, 0..) |i, k| {
-        const v: F = switch (variant) {
-            1 => if (k % 2 == 0) std.math.nan(F) else std.math.inf(F),
-            else => std.math.floatMax(F) * (0.5 + @as(F, @floatFromInt(k % 3)) / 8),
-        };
-        x[i * inc] = if (comptime isComplex(T)) .init(v, if (k == 3) -v else v) else if (k == 1) -v else v;
-    }
-}
-
-fn threadedType(comptime T: type, al: std.mem.Allocator, tio: Io) !void {
-    const cases = [_][2]isize{ .{ 1, 1 }, .{ 2, -1 }, .{ -3, 2 } };
-    for (cases) |inc| for (0..3) |variant| {
-        if (variant == 2 and !isComplex(T)) continue;
-        const x0 = try al.alloc(T, threaded_n * @abs(inc[0]));
-        defer al.free(x0);
-        const y0 = try al.alloc(T, threaded_n * @abs(inc[1]));
-        defer al.free(y0);
-        check.fill(T, x0, 11 + @as(u64, @abs(inc[0])));
-        check.fill(T, y0, 12 + @as(u64, @abs(inc[1])));
-        if (variant > 0) specials(T, x0, @abs(inc[0]), variant);
-        var want: std.ArrayList(u8) = .empty;
-        defer want.deinit(al);
-        blas.config.cpu_count = 1;
-        try level1Bits(T, al, Io.failing, inc, x0, y0, &want);
-        for ([_]u32{ 3, 8 }) |cpus| for ([_]Io{ tio, Io.failing }) |io| {
-            blas.config.cpu_count = cpus;
-            var got: std.ArrayList(u8) = .empty;
-            defer got.deinit(al);
-            try level1Bits(T, al, io, inc, x0, y0, &got);
-            try std.testing.expectEqualSlices(u8, want.items, got.items);
-            try expectExtremesExact(T, io, x0.ptr, @intCast(@abs(inc[0])));
-        };
-    };
-}
-
-fn threadedCore(vt: *const Vtable) !void {
-    const saved = blas.testUse(vt);
-    defer blas.testRestore(saved);
-    const al = std.testing.allocator;
-    var threaded: threading.TestIo = .init(al, .{});
-    defer threaded.deinit();
-    inline for (all) |T| threadedType(T, al, threaded.io()) catch |e| {
-        check.say("{s}: ", .{@typeName(T)});
-        return e;
-    };
-}
-
-test "interface: threaded level 1 gives one worker's bits at any worker count, Io and core" {
-    if (comptime !threading.threaded_tests) return error.SkipZigTest;
-    _ = blas.coreName();
-    const cpus = blas.config.cpu_count;
-    defer blas.config.cpu_count = cpus;
-    // a dozen chunks of `threaded_n`
-    threading.test_serial_max = 3 * quantum / 2;
-    defer threading.test_serial_max = null;
-    try check.eachCore(threadedCore);
-}
-
-/// The race stress test's length: eight chunks under `test_serial_max`.
-const stress_n = 8 * quantum + 517;
-
-/// One round of the race stress test: an element-wise routine, a reduction
-/// and an exact fold, strided, so the gaps between elements are guard bands.
-fn stressBits(comptime T: type, al: std.mem.Allocator, io: Io, x: []T, y0: []const T, out: *std.ArrayList(u8)) !void {
-    const y = try al.dupe(T, y0);
-    defer al.free(y);
-    try axpy(io, T, stress_n, scalarOf(T, 1.25, -0.75), x.ptr, 2, y.ptr, -3);
-    try check.appendBits(al, out, y);
-    try check.appendBits(al, out, try dot(io, T, stress_n, x.ptr, 2, y.ptr, -3));
-    try check.appendBits(al, out, try index(io, T, .amax, stress_n, x.ptr, 2));
-}
-
-test "interface: race stress: threaded level 1 keeps one worker's bits and its guard bands, round after round" {
-    if (comptime !threading.threaded_tests) return error.SkipZigTest;
-    _ = blas.coreName();
-    const cpus = blas.config.cpu_count;
-    defer blas.config.cpu_count = cpus;
-    threading.test_serial_max = quantum;
-    defer threading.test_serial_max = null;
-    const al = std.testing.allocator;
-    var threaded: threading.TestIo = .init(al, .{ .async_limit = .limited(8) });
-    defer threaded.deinit();
-    inline for (.{ f64, Complex32 }) |T| {
-        const x = try al.alloc(T, stress_n * 2);
-        defer al.free(x);
-        const y0 = try al.alloc(T, stress_n * 3);
-        defer al.free(y0);
-        check.fill(T, x, 21);
-        check.fill(T, y0, 22);
-        var want: std.ArrayList(u8) = .empty;
-        defer want.deinit(al);
-        blas.config.cpu_count = 1;
-        try stressBits(T, al, Io.failing, x, y0, &want);
-        var got: std.ArrayList(u8) = .empty;
-        defer got.deinit(al);
-        for (0..threading.stress_rounds) |round| {
-            blas.config.cpu_count = @intCast(2 + round % 7);
-            got.clearRetainingCapacity();
-            try stressBits(T, al, threaded.io(), x, y0, &got);
-            if (!check.sameBytes(want.items, got.items)) std.testing.expectEqualSlices(u8, want.items, got.items) catch |e| {
-                check.say("{s} round {d}: ", .{ @typeName(T), round });
-                return e;
-            };
-        }
     }
 }

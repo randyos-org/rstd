@@ -13,12 +13,7 @@ const param = lib.compile.param;
 const paramFlat = lib.compile.paramFlat;
 const input = lib.compile.input;
 
-pub const ShapeKind = enum(u32) {
-    /// `corner_radius` 0 is `Rectangle`, nonzero is `RoundRect`.
-    rect = 0,
-    /// `Ellipse`, restricted to circles; see common.zig.
-    circle = 1,
-};
+pub const ShapeKind = shader_mod.layout.ShapeKind;
 
 /// Half-width, in pixels, of the antialiasing band around an edge.
 const aa_width: f32 = 0.75;
@@ -45,7 +40,7 @@ const in_shape_kind = input("instance_shape_kind", u32, 7);
 fn vertMain() callconv(.spirv_vertex) void {
     const corner = lib.coords.quadCorner(spirv.vertex_index);
     const rect_size = in_rect_size.*;
-    // local_offset stays in the shape's own unrotated frame -- it's what
+    // local_offset stays in the shape's own unrotated frame; it's what
     // param_local_pos feeds the SDF math below, which never needs to know
     // about rotation at all. Only the screen-space vertex position (i.e.
     // where that frame's origin/axes actually sit) gets rotated, about the
@@ -84,12 +79,12 @@ fn fragMain() callconv(.{ .spirv_fragment = .{} }) void {
     };
 
     // 1 inside, 0 outside, ramped across dist == 0.
-    const outer_coverage = 1.0 - lib.math.smoothstep_scalar(-aa_width, aa_width, dist);
+    const outer_coverage = 1.0 - lib.math.smoothstepScalar(-aa_width, aa_width, dist);
 
     // Border/fill split is a color mix, not an alpha change.
     const base_color = if (border_width > 0.0) blk: {
         const inner_dist = dist + border_width; // 0 at the seam
-        const fill_mix = lib.math.smoothstep_scalar(-aa_width, aa_width, inner_dist);
+        const fill_mix = lib.math.smoothstepScalar(-aa_width, aa_width, inner_dist);
         break :blk lib.math.mix(param_border_color.*, param_fill_color.*, fill_mix);
     } else param_fill_color.*;
 

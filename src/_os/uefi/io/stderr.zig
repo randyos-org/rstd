@@ -1,32 +1,17 @@
 const std = @import("std");
-const uefi = std.os.uefi;
 const Io = std.Io;
 
 const state = @import("state.zig");
 const console = @import("console.zig");
 
-/// `Io.Writer.VTable` backing `Threaded.stderr_writer` (see state.zig).
-/// `file_writer` must point at Io.File.Writer but never touches `.file` --
-/// writes go through `.interface`, this vtable. state.zig's `File` is a
-/// dummy; `stderrDrain` does the real work.
+/// `Io.Writer.VTable` of `state.stderr_writer`, the `Io.File.Writer` that
+/// `lockStderr` hands out; its `.file` is never written, `stderrDrain` is.
 pub const stderr_writer_vtable: Io.Writer.VTable = .{
     .drain = stderrDrain,
 };
 
 fn stderrDrain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
-    const buffered = w.buffered();
-    console.writeConsole(state.con_out, buffered);
-    var n: usize = buffered.len;
-    if (data.len != 0) {
-        for (data[0 .. data.len - 1]) |chunk| {
-            console.writeConsole(state.con_out, chunk);
-            n += chunk.len;
-        }
-        const last = data[data.len - 1];
-        for (0..splat) |_| console.writeConsole(state.con_out, last);
-        n += last.len * splat;
-    }
-    return w.consume(n);
+    return w.consume(console.writeSplat(state.con_out, w.buffered(), data, splat));
 }
 
 pub fn lockStderr(userdata: ?*anyopaque, terminal_mode: ?Io.Terminal.Mode) Io.Cancelable!Io.LockedStderr {

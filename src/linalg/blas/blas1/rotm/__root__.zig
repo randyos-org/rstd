@@ -2,15 +2,14 @@
 //! (`*_generic`) and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const std = @import("std");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const std = @import("std");
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 /// The matrix `param` names: `param[0]` is the flag, -2 the identity, -1 the
 /// full `[h11 h12; h21 h22]` (`param[1..5]` = h11, h21, h12, h22), 0
@@ -70,7 +69,7 @@ pub fn installGeneric(vt: *Vtable) void {
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 
 /// `kern` against a plain loop, for every flag.
 fn checkRotm(comptime F: type, kern: anytype) !void {

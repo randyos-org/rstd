@@ -6,6 +6,7 @@
 const std = @import("std");
 const rstd_matrix = @import("rstd_matrix");
 const vector = @import("vector.zig");
+const ops = @import("lapack/ops.zig");
 
 const Vec = vector.Vec;
 const Elem = vector.Elem;
@@ -153,7 +154,7 @@ pub fn Mat(comptime T: type) type {
 
         pub fn zeros(allocator: std.mem.Allocator, rows: usize, cols: usize) std.mem.Allocator.Error!Self {
             const m = try init(allocator, rows, cols);
-            @memset(m.data, eZero(T));
+            @memset(m.data, ops.zero(T));
             return m;
         }
 
@@ -182,139 +183,10 @@ pub const M2f64 = StaticMat(2, 2, f64);
 pub const M3f64 = StaticMat(3, 3, f64);
 pub const M4f64 = StaticMat(4, 4, f64);
 
-fn isMat(comptime M: type) bool {
-    return @typeInfo(M) == .@"struct" and @hasDecl(M, "Element") and @hasDecl(M, "rows") and
-        @hasDecl(M, "cols") and M == StaticMat(M.rows, M.cols, M.Element);
-}
-
-/// A length-`n` vector of `T`: a `Vec` for real `T`, an array for complex.
-fn Column(comptime n: comptime_int, comptime T: type) type {
-    return if (isComplex(T)) [n]T else Vec(n, T);
-}
-
-fn expectSquare(comptime M: type) void {
-    if (!isMat(M)) @compileError("expects a StaticMat, found " ++ @typeName(M));
-    if (M.rows != M.cols) @compileError("expects a square matrix, found " ++ @typeName(M));
-}
-
-/// Whether `T` computes through `@Matrix`, which holds real floats only.
-fn native(comptime T: type) bool {
-    return rstd_matrix.has_matrix and !isComplex(T);
-}
-
-inline fn toNative(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element) {
-    return m.data;
-}
-
-/// Whether an `R` by `C` matrix of `T` is a SPIR-V `OpTypeMatrix` (through
-/// `@Matrix`, 2 to 4 by 2 to 4, real), which takes SPIR-V's own matrix
-/// instructions (design.md, "Dispatch under SPIR-V").
-fn spirvMat(comptime R: comptime_int, comptime C: comptime_int, comptime T: type) bool {
-    return vector.on_spirv and native(T) and R >= 2 and R <= 4 and C >= 2 and C <= 4;
-}
-
-// GLSL.std.450 and core matrix instructions by inline asm, on `@Matrix`
-// operands; literal templates, as `vector.zig`'s.
-
-inline fn spvDeterminant(m: anytype) @TypeOf(m).Element {
-    const T = @TypeOf(m).Element;
-    return asm (
-        \\%set = OpExtInstImport "GLSL.std.450"
-        \\%ret = OpExtInst %T %set 33 %m
-        : [ret] "" (-> T),
-        : [T] "t" (T),
-          [m] "" (toNative(m)),
-    );
-}
-
-inline fn spvInverse(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element) {
-    const N = rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element);
-    return asm (
-        \\%set = OpExtInstImport "GLSL.std.450"
-        \\%ret = OpExtInst %T %set 34 %m
-        : [ret] "" (-> N),
-        : [T] "t" (N),
-          [m] "" (toNative(m)),
-    );
-}
-
-inline fn spvOuter(comptime R: comptime_int, comptime C: comptime_int, comptime T: type, a: Vec(R, T), b: Vec(C, T)) rstd_matrix.Matrix(R, C, T) {
-    const N = rstd_matrix.Matrix(R, C, T);
-    return asm (
-        \\%ret = OpOuterProduct %T %a %b
-        : [ret] "" (-> N),
-        : [T] "t" (N),
-          [a] "" (a),
-          [b] "" (b),
-    );
-}
-
-// Element arithmetic over real and complex `T`. A sum of products rounds its
-// first product and fuses the rest as `mulAdd` says; a complex product adds
-// `re re` then `-im im`, and `re im` then `im re`.
-
-pub inline fn eZero(comptime T: type) T {
-    return if (comptime isComplex(T)) T.init(0, 0) else 0;
-}
-
-pub inline fn eOne(comptime T: type) T {
-    return if (comptime isComplex(T)) T.init(1, 0) else 1;
-}
-
-pub inline fn eMul(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
-    const T = @TypeOf(x);
-    if (comptime !isComplex(T)) return x * y;
-    const R = Real(T);
-    return .{
-        .re = mulAdd(R, -x.im, y.im, x.re * y.re),
-        .im = mulAdd(R, x.im, y.re, x.re * y.im),
-    };
-}
-
-/// `acc + x y`.
-pub inline fn eMulAdd(x: anytype, y: @TypeOf(x), acc: @TypeOf(x)) @TypeOf(x) {
-    const T = @TypeOf(x);
-    if (comptime !isComplex(T)) return mulAdd(T, x, y, acc);
-    const R = Real(T);
-    return .{
-        .re = mulAdd(R, -x.im, y.im, mulAdd(R, x.re, y.re, acc.re)),
-        .im = mulAdd(R, x.im, y.re, mulAdd(R, x.re, y.im, acc.im)),
-    };
-}
-
-inline fn eAdd(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
-    return if (comptime isComplex(@TypeOf(x))) x.add(y) else x + y;
-}
-
-inline fn eSub(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
-    return if (comptime isComplex(@TypeOf(x))) x.sub(y) else x - y;
-}
-
-inline fn eDiv(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
-    return if (comptime isComplex(@TypeOf(x))) x.div(y) else x / y;
-}
-
-pub inline fn eNeg(x: anytype) @TypeOf(x) {
-    return if (comptime isComplex(@TypeOf(x))) x.neg() else -x;
-}
-
-pub inline fn eConj(x: anytype) @TypeOf(x) {
-    return if (comptime isComplex(@TypeOf(x))) x.conjugate() else x;
-}
-
-/// `|re| + |im|`, the BLAS's pivot measure.
-inline fn cabs1(x: anytype) Real(@TypeOf(x)) {
-    return if (comptime isComplex(@TypeOf(x))) @abs(x.re) + @abs(x.im) else @abs(x);
-}
-
-pub inline fn eIsZero(x: anytype) bool {
-    return if (comptime isComplex(@TypeOf(x))) x.re == 0 and x.im == 0 else x == 0;
-}
-
 /// `I`, or ones on the diagonal of a rectangular `M` (MATLAB's `eye`).
 pub fn identity(comptime M: type) M {
-    var r: M = .{ .data = @splat(@splat(eZero(M.Element))) };
-    for (0..@min(M.rows, M.cols)) |i| r.data[i][i] = eOne(M.Element);
+    var r: M = .{ .data = @splat(@splat(ops.zero(M.Element))) };
+    for (0..@min(M.rows, M.cols)) |i| r.data[i][i] = ops.one(M.Element);
     return r;
 }
 
@@ -471,7 +343,7 @@ pub fn add(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
     if (comptime native(M.Element)) return .{ .data = toNative(a) + toNative(b) };
     var r: M = undefined;
     for (0..M.cols) |j| for (0..M.rows) |i| {
-        r.data[j][i] = eAdd(a.data[j][i], b.data[j][i]);
+        r.data[j][i] = ops.add(M.Element, a.data[j][i], b.data[j][i]);
     };
     return r;
 }
@@ -482,7 +354,7 @@ pub fn sub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
     if (comptime native(M.Element)) return .{ .data = toNative(a) - toNative(b) };
     var r: M = undefined;
     for (0..M.cols) |j| for (0..M.rows) |i| {
-        r.data[j][i] = eSub(a.data[j][i], b.data[j][i]);
+        r.data[j][i] = ops.sub(M.Element, a.data[j][i], b.data[j][i]);
     };
     return r;
 }
@@ -491,7 +363,7 @@ pub fn sub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 pub fn trace(m: anytype) @TypeOf(m).Element {
     comptime expectSquare(@TypeOf(m));
     var acc = m.data[0][0];
-    for (1..@TypeOf(m).rows) |i| acc = eAdd(acc, m.data[i][i]);
+    for (1..@TypeOf(m).rows) |i| acc = ops.add(@TypeOf(m).Element, acc, m.data[i][i]);
     return acc;
 }
 
@@ -565,9 +437,9 @@ pub fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: 
     odd.* = false;
     for (0..n) |k| {
         var p = k;
-        var big = cabs1(a[k][k]);
+        var big = ops.abs1(T, a[k][k]);
         for (k + 1..n) |i| {
-            const x = cabs1(a[k][i]);
+            const x = ops.abs1(T, a[k][i]);
             if (x > big) {
                 p = i;
                 big = x;
@@ -581,7 +453,7 @@ pub fn luInPlace(comptime n: comptime_int, comptime T: type, a: *[n][n]T, perm: 
         }
         for (k + 1..n) |i| a[k][i] = eDiv(a[k][i], a[k][k]);
         for (k + 1..n) |j| for (k + 1..n) |i| {
-            a[j][i] = eMulAdd(eNeg(a[k][i]), a[j][k], a[j][i]);
+            a[j][i] = eMulAdd(ops.neg(T, a[k][i]), a[j][k], a[j][i]);
         };
     }
 }
@@ -591,12 +463,12 @@ pub fn luSolve(comptime n: comptime_int, comptime T: type, lu: *const [n][n]T, p
     var x: [n]T = undefined;
     for (&x, perm) |*xi, p| xi.* = b[p];
     for (1..n) |i| for (0..i) |k| {
-        x[i] = eMulAdd(eNeg(lu[k][i]), x[k], x[i]);
+        x[i] = eMulAdd(ops.neg(T, lu[k][i]), x[k], x[i]);
     };
     var i: usize = n;
     while (i > 0) {
         i -= 1;
-        for (i + 1..n) |k| x[i] = eMulAdd(eNeg(lu[k][i]), x[k], x[i]);
+        for (i + 1..n) |k| x[i] = eMulAdd(ops.neg(T, lu[k][i]), x[k], x[i]);
         x[i] = eDiv(x[i], lu[i][i]);
     }
     return x;
@@ -620,10 +492,10 @@ fn detAnySize(m: anytype) @TypeOf(m).Element {
     var lu = m.data;
     var perm: [n]usize = undefined;
     var odd: bool = undefined;
-    luInPlace(n, T, &lu, &perm, &odd) catch return eZero(T);
+    luInPlace(n, T, &lu, &perm, &odd) catch return ops.zero(T);
     var acc = lu[0][0];
     for (1..n) |k| acc = eMul(acc, lu[k][k]);
-    return if (odd) eNeg(acc) else acc;
+    return if (odd) ops.neg(T, acc) else acc;
 }
 
 /// `m⁻¹` (MATLAB's `inv`, GLSL's `inverse`): real `m` up to 3 by 3 as its
@@ -668,8 +540,8 @@ fn invAnySize(m: anytype) error{Singular}!@TypeOf(m) {
     var odd: bool = undefined;
     try luInPlace(n, T, &lu, &perm, &odd);
     for (0..n) |j| {
-        var e: [n]T = @splat(eZero(T));
-        e[j] = eOne(T);
+        var e: [n]T = @splat(ops.zero(T));
+        e[j] = ops.one(T);
         r.data[j] = luSolve(n, T, &lu, &perm, e);
     }
     return r;
@@ -749,11 +621,110 @@ pub fn solveInto(out: anytype, a: anytype, b: anytype) error{Singular}!void {
     out.* = try solve(a, b);
 }
 
+// ---- plumbing ---------------------------------------------------------------
+
+fn isMat(comptime M: type) bool {
+    return @typeInfo(M) == .@"struct" and @hasDecl(M, "Element") and @hasDecl(M, "rows") and
+        @hasDecl(M, "cols") and M == StaticMat(M.rows, M.cols, M.Element);
+}
+
+/// A length-`n` vector of `T`: a `Vec` for real `T`, an array for complex.
+fn Column(comptime n: comptime_int, comptime T: type) type {
+    return if (isComplex(T)) [n]T else Vec(n, T);
+}
+
+fn expectSquare(comptime M: type) void {
+    if (!isMat(M)) @compileError("expects a StaticMat, found " ++ @typeName(M));
+    if (M.rows != M.cols) @compileError("expects a square matrix, found " ++ @typeName(M));
+}
+
+/// Whether `T` computes through `@Matrix`, which holds real floats only.
+fn native(comptime T: type) bool {
+    return rstd_matrix.has_matrix and !isComplex(T);
+}
+
+inline fn toNative(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element) {
+    return m.data;
+}
+
+/// Whether an `R` by `C` matrix of `T` is a SPIR-V `OpTypeMatrix` (through
+/// `@Matrix`, 2 to 4 by 2 to 4, real), which takes SPIR-V's own matrix
+/// instructions (design.md, "Dispatch under SPIR-V").
+fn spirvMat(comptime R: comptime_int, comptime C: comptime_int, comptime T: type) bool {
+    return vector.on_spirv and native(T) and R >= 2 and R <= 4 and C >= 2 and C <= 4;
+}
+
+// GLSL.std.450 and core matrix instructions by inline asm, on `@Matrix`
+// operands; literal templates, as `vector.zig`'s.
+
+inline fn spvDeterminant(m: anytype) @TypeOf(m).Element {
+    const T = @TypeOf(m).Element;
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 33 %m
+        : [ret] "" (-> T),
+        : [T] "t" (T),
+          [m] "" (toNative(m)),
+    );
+}
+
+inline fn spvInverse(m: anytype) rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element) {
+    const N = rstd_matrix.Matrix(@TypeOf(m).rows, @TypeOf(m).cols, @TypeOf(m).Element);
+    return asm (
+        \\%set = OpExtInstImport "GLSL.std.450"
+        \\%ret = OpExtInst %T %set 34 %m
+        : [ret] "" (-> N),
+        : [T] "t" (N),
+          [m] "" (toNative(m)),
+    );
+}
+
+inline fn spvOuter(comptime R: comptime_int, comptime C: comptime_int, comptime T: type, a: Vec(R, T), b: Vec(C, T)) rstd_matrix.Matrix(R, C, T) {
+    const N = rstd_matrix.Matrix(R, C, T);
+    return asm (
+        \\%ret = OpOuterProduct %T %a %b
+        : [ret] "" (-> N),
+        : [T] "t" (N),
+          [a] "" (a),
+          [b] "" (b),
+    );
+}
+
+// Element arithmetic over real and complex `T`. A sum of products rounds its
+// first product and fuses the rest as `mulAdd` says; a complex product adds
+// `re re` then `-im im`, and `re im` then `im re`.
+
+pub inline fn eMul(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
+    const T = @TypeOf(x);
+    if (comptime !isComplex(T)) return x * y;
+    const R = Real(T);
+    return .{
+        .re = mulAdd(R, -x.im, y.im, x.re * y.re),
+        .im = mulAdd(R, x.im, y.re, x.re * y.im),
+    };
+}
+
+/// `acc + x y`.
+pub inline fn eMulAdd(x: anytype, y: @TypeOf(x), acc: @TypeOf(x)) @TypeOf(x) {
+    const T = @TypeOf(x);
+    if (comptime !isComplex(T)) return mulAdd(T, x, y, acc);
+    const R = Real(T);
+    return .{
+        .re = mulAdd(R, -x.im, y.im, mulAdd(R, x.re, y.re, acc.re)),
+        .im = mulAdd(R, x.im, y.re, mulAdd(R, x.re, y.im, acc.im)),
+    };
+}
+
+inline fn eDiv(x: anytype, y: @TypeOf(x)) @TypeOf(x) {
+    return if (comptime isComplex(@TypeOf(x))) x.div(y) else x / y;
+}
+
+// ---- tests ------------------------------------------------------------------
+
 const zigstd = @import("../zigstd.zig");
 const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
-const V3f64 = vector.V3f64;
 
 fn expectSameBits(want: anytype, got: @TypeOf(want)) !void {
     const T = @TypeOf(want);
@@ -781,6 +752,28 @@ test "StaticMat construction, access and transposes" {
     try zigstd.testExpectEqual(C.init(1, -2), zh.data[0][0]);
     try zigstd.testExpectEqual(C.init(3, 4), zh.data[0][1]);
     try zigstd.testExpectEqual(C.init(3, -4), transpose(z).data[0][1]);
+}
+
+test "views: init's checks, sub, col; StaticMat and Mat views share storage" {
+    var buf = [_]f64{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+    try std.testing.expectError(error.DimensionMismatch, View(f64).init(&buf, 3, 2, 2));
+    try std.testing.expectError(error.SliceTooShort, View(f64).init(&buf, 3, 4, 3));
+    const v = try View(f64).init(&buf, 3, 3, 3);
+    try std.testing.expectEqual(@as(f64, 8), v.at(1, 2));
+    const s = try v.sub(1, 1, 2, 2);
+    try std.testing.expectEqual(@as(f64, 5), s.at(0, 0));
+    try std.testing.expectEqual(@as(f64, 9), s.at(1, 1));
+    try std.testing.expectEqualSlices(f64, &.{ 5, 6 }, s.col(0));
+    try std.testing.expectError(error.DimensionMismatch, v.sub(2, 0, 2, 1));
+
+    var sm = fromCols(M2f64, .{ .{ 1, 2 }, .{ 3, 4 } });
+    sm.view().data[3] = 40;
+    try std.testing.expectEqual(@as(f64, 40), sm.data[1][1]);
+    try std.testing.expectEqual(@as(f64, 3), sm.constView().at(0, 1));
+    const m = try Mat(f64).zeros(std.testing.allocator, 2, 3);
+    defer m.deinit(std.testing.allocator);
+    m.view().data[5] = 7;
+    try std.testing.expectEqual(@as(f64, 7), m.at(1, 2));
 }
 
 test "mul, scale, add, sub and outer on exact values" {
@@ -889,7 +882,7 @@ test "det, inv and solve on singular matrices" {
 }
 
 fn isClose(x: anytype, y: @TypeOf(x), tol: Real(@TypeOf(x))) bool {
-    return cabs1(eSub(x, y)) <= tol;
+    return ops.abs1(@TypeOf(x), ops.sub(@TypeOf(x), x, y)) <= tol;
 }
 
 /// `inv(m) m` and `m inv(m)` are `I` and `m solve(m, b)` is `b` within `tol`,
@@ -903,7 +896,7 @@ fn expectInverts(comptime T: type, comptime n: comptime_int, random: std.Random)
         var b: [n]T = undefined;
         for (0..n) |j| {
             for (0..n) |i| m.data[j][i] = randomElem(T, random);
-            m.data[j][j] = eAdd(m.data[j][j], if (comptime isComplex(T)) T.init(2 * n, 0) else 2 * n);
+            m.data[j][j] = ops.add(T, m.data[j][j], if (comptime isComplex(T)) T.init(2 * n, 0) else 2 * n);
             b[j] = randomElem(T, random);
         }
         const mi = try inv(m);
@@ -918,7 +911,7 @@ fn expectInverts(comptime T: type, comptime n: comptime_int, random: std.Random)
         // the determinant is the product of the eigenvalues: of `mᵀ` the same
         const d = det(m);
         const dt = det(transpose(m));
-        try zigstd.testExpectTrue(isClose(d, dt, tol * cabs1(d)));
+        try zigstd.testExpectTrue(isClose(d, dt, tol * ops.abs1(T, d)));
     }
 }
 

@@ -1,14 +1,5 @@
-//! Merges `blas_bench` runs of one configuration (`blas_bench --merge
-//! <out.md> <log>...`), for the timing rule's two-run agreement
-//! (`readme.md`): rows are keyed by their cells before the first rate. A
-//! row counts when two runs agree within 3% on every rate; it then shows
-//! that pair's better rate per cell, its ratios recomputed. Otherwise it is
-//! marked noisy and shows the best rate of all. The deterministic cells
-//! (`rstd-<lib>`, `rstd err`, `rstd bits`) must match across runs. A rerun
-//! may hold some sections only: each table is matched by its header. Prints
-//! `NOISY <section> ...` and `MISMATCH ...` lines, or "all rows agree", on
-//! stdout; `flyoff.sh` reruns the noisy sections. From the R4 runs' script
-//! (2026-10-29).
+//! `blas_bench --merge <out.md> <log>...`: merges runs of one configuration by the timing rule (`readme.md`): a row agreeing within 3%
+//! shows the pair's better rates, else is marked noisy; deterministic cells must match. Prints `NOISY` and `MISMATCH` lines for `flyoff.sh`.
 
 const std = @import("std");
 const Io = std.Io;

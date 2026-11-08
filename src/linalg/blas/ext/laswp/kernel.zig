@@ -7,7 +7,7 @@
 //!
 //! `laswp_ncopy` is `kernel/generic/laswp_ncopy_*.c`: the interchanges, then
 //! rows `k1` to `k2` packed as `gemm_oncopy` packs them, so it is built with
-//! the gemm kernels (`gemm/kernel.zig`'s `sets`). Upstream leaves rows `k1` to
+//! the gemm kernels (`blas3/kernels.zig`'s `sets`). Upstream leaves rows `k1` to
 //! `k2` of `A` unswapped, having packed them; here they are swapped too, as
 //! `lapack/getrf/getrf_single.c` does where it calls `laswp_plus` and
 //! `gemm_oncopy` in its place.

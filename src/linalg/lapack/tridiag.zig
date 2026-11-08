@@ -1,19 +1,11 @@
 //! Tridiagonalization of a self-adjoint matrix, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/evd/tridiag.rs`. `A = Q T Qᴴ` in place from `A`'s lower
-//! triangle: `T` on the diagonal and subdiagonal, `Q`'s reflections below
-//! the subdiagonal (factors in `h`, `householder.zig`), `Q = H(0) ...`
-//! acting on rows `1..n`.
-//!
-//! One pass per column, its rank-2 update deferred into the next column's
-//! product, as `bidiag.zig`: `A22 -= u wᴴ + w uᴴ` fused with `y := A22 x`
-//! over the lower triangle (faer's `tridiag_fused_op`). Faer splits that
-//! pass over threads with one partial `y` per thread, summed after, so its
-//! bits follow the thread count; here it is serial, faer's `Par::Seq` path,
-//! so the bits never do.
+//! `faer/src/linalg/evd/tridiag.rs`, its fused pass serial (faer's `Par::Seq`
+//! path), so the bits never depend on the worker count.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 
 const Allocator = std.mem.Allocator;
@@ -79,17 +71,7 @@ pub fn tridiagonalize(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: Mat
         for (0..m) |i| y2[i] = ops.sub(T, y2[i], ops.mul(T, b, x2[i]));
     }
     // the block factors, from the reflections below the subdiagonal
-    if (n > 1) try sequenceFactors(al, io, T, a.sub(1, 0, n - 1, n - 1), h);
-}
-
-/// The block factors of a sequence whose `tau`s sit in `h`'s first row.
-pub fn sequenceFactors(al: Allocator, io: Io, comptime T: type, basis: Mat(T), h: Mat(T)) Error!void {
-    var j: usize = 0;
-    while (j < h.cols) : (j += h.rows) {
-        const b = @min(h.rows, h.cols - j);
-        for (0..b) |k| h.at(k, j + k).* = h.get(0, j + k);
-        try hh.blockFactor(al, io, T, basis.sub(j, j, basis.rows - j, b), h.sub(0, j, b, b));
-    }
+    if (n > 1) try hh.sequenceFactors(al, io, T, a.sub(1, 0, n - 1, n - 1), h);
 }
 
 /// `tridiag_fused_op` over the lower triangle of `a` (`m x m`): with `u`
@@ -121,7 +103,8 @@ fn fused(comptime T: type, a: Mat(T), y: [*]T, z: [*]T, w: ?[*]const T, u: ?[*]c
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
 const types = @import("../blas/types.zig");
 
 test "faer tridiag: Qᴴ A Q = T, real and complex (test_tridiag_real, test_tridiag_cplx)" {
@@ -132,13 +115,7 @@ test "faer tridiag: Qᴴ A Q = T, real and complex (test_tridiag_real, test_trid
         for ([_]usize{ 1, 2, 3, 4, 8, 16, 45 }) |n| {
             const a0 = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, a0);
-            check.fill(T, a0.ptr[0 .. n * n], 3 * n);
-            // A + Aᴴ
-            for (0..n) |j| for (0..j + 1) |i| {
-                const s = ops.add(T, a0.get(i, j), ops.conj(T, a0.get(j, i)));
-                a0.at(i, j).* = s;
-                a0.at(j, i).* = ops.conj(T, s);
-            };
+            lcheck.hermitian(T, a0, 3 * n);
             const v = try ops.alloc(T, al, n, n);
             defer ops.free(T, al, v);
             v.copyFrom(a0);
@@ -155,7 +132,7 @@ test "faer tridiag: Qᴴ A Q = T, real and complex (test_tridiag_real, test_trid
                 try hh.applySequenceTransposed(al, check.io, T, basis, h, true, x.sub(1, 0, n - 1, n));
                 try hh.applySequenceRight(al, check.io, T, basis, h, false, false, x.sub(0, 1, n, n - 1));
             }
-            const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * ops.normMax(T, a0);
+            const tol = 64 * std.math.floatEps(F) * @as(F, @floatFromInt(n + 1)) * auxiliary.normMax(T, a0);
             for (0..n) |j| for (0..n) |i| {
                 const want = if (i == j or i == j + 1) v.get(i, j) else if (j == i + 1) ops.conj(T, v.get(j, i)) else ops.zero(T);
                 const err = ops.abs(T, ops.sub(T, x.get(i, j), want));

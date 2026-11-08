@@ -1,13 +1,6 @@
-//! 32-bit ARM boot for QEMU's `virt` machine (`-cpu cortex-a15 -kernel`, SVC
-//! mode) and ARM semihosting for console and exit (`-semihosting`).
-//!
-//! With the MMU off every data access is strongly ordered, which faults on
-//! unaligned accesses, so `_start` first enables the MMU with a 1 MiB section
-//! identity map: 0-1 GiB as device, 1 GiB + 128 MiB (RAM) as normal cached.
-//!
-//! Before that it turns on the FPU, which the kernels use under either float
-//! ABI. Its `vmsr` is written by encoding, since a build without VFP rejects
-//! the mnemonic (and Zig still exits 0).
+//! 32-bit ARM boot for `virt` (cortex-a15, SVC mode) with semihosting console and exit. `_start` turns on the FPU (`vmsr` by encoding: a
+//! build without VFP rejects the mnemonic, exiting 0) and the MMU with a 1 MiB section identity map, since with it off every access
+//! is strongly ordered and unaligned ones fault.
 
 comptime {
     asm (

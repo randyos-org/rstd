@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 const zigstd = @import("../../../../zigstd.zig");
 

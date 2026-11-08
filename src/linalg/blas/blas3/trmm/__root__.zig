@@ -1,14 +1,13 @@
 //! Tests of the `trmm` kernels.
 
-const check = @import("../../_test/blas3/check.zig");
+const check3 = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
+const check = @import("../../_test/check.zig");
+const portable = @import("../../portable.zig");
 
 fn cases(vt: *const Vtable) !void {
-    try check.routineAll(vt, .trmm);
+    try check3.routineAll(vt, .trmm);
 }
-
-const blas1check = @import("../../_test/blas1/check.zig");
-const portable = @import("../../portable.zig");
 
 test "portable trmm matches the wide reference through the driver" {
     var vt: Vtable = .{};
@@ -17,5 +16,5 @@ test "portable trmm matches the wide reference through the driver" {
 }
 
 test "every linked core's trmm matches the wide reference, where this machine runs it" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }

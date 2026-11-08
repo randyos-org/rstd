@@ -1,18 +1,12 @@
 //! The complex Schur form of a Hessenberg matrix, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/evd/schur/complex_schur.rs`. `H = Z T Zᴴ`, `T` upper
-//! triangular.
-//!
-//! `lahqr`: the single-shift QR iteration of Reference-LAPACK's `xLAHQR`
-//! (complex Givens rotations, Ahues and Tisseur's deflation test, an
-//! exceptional shift every 10 sweeps without deflation; faer's exceptional
-//! shift is the eigenvalue of a 2 x 2 built from the trailing subdiagonal,
-//! where `zlahqr.f` takes `0.75 |h(i, i-1)| + h(i, i)`). Faer's
-//! `multishift_qr` (from 75 up) is not ported yet (todo.md); `lahqr` serves
-//! every size.
+//! `faer/src/linalg/evd/schur/complex_schur.rs`'s `lahqr` (`xLAHQR`'s
+//! single-shift QR, with faer's exceptional shift); `multishift_qr` is not
+//! ported yet.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 
 const Mat = ops.Mat;
@@ -154,7 +148,7 @@ pub fn lahqr(comptime T: type, want_t: bool, a: Mat(T), z: ?Mat(T), w: []T, ilo:
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 const types = @import("../blas/types.zig");
 
 test "faer complex schur: lahqr, Z T Zᴴ = H with T upper triangular" {
@@ -178,7 +172,7 @@ test "faer complex schur: lahqr, Z T Zᴴ = H with T upper triangular" {
             const w = try al.alloc(T, n);
             defer al.free(w);
             try testing.expectEqual(@as(usize, 0), lahqr(T, true, t, zm, w, 0, n));
-            const tol = 128 * std.math.floatEps(F) * @sqrt(8 * @as(F, @floatFromInt(n))) * @max(ops.normMax(T, h0), 1);
+            const tol = 128 * std.math.floatEps(F) * @sqrt(8 * @as(F, @floatFromInt(n))) * @max(auxiliary.normMax(T, h0), 1);
             for (0..n) |j| for (0..n) |i| {
                 var s = ops.zero(T);
                 for (0..n) |p| for (p..n) |q| {
@@ -191,19 +185,5 @@ test "faer complex schur: lahqr, Z T Zᴴ = H with T upper triangular" {
                 try testing.expectEqual(t.get(k, k), w[k]);
             }
         };
-    }
-}
-
-test "faer complex schur: rotg zeroes its second entry, and keeps r = p when q = 0" {
-    const T = types.Complex64;
-    const R = hh.ComplexRotation(T);
-    for ([_][2]T{ .{ .init(3, 1), .init(-2, 5) }, .{ .init(0, 0), .init(1, -1) }, .{ .init(1e-300, 0), .init(0, 1e-300) }, .{ .init(1e300, 1e300), .init(1, 0) }, .{ .init(-2, 7), .init(0, 0) } }) |pq| {
-        const g = R.rotg(pq[0], pq[1]);
-        var x = [_]T{pq[0]};
-        var y = [_]T{pq[1]};
-        g[0].left(1, &x, 1, &y, 1);
-        const scale = @max(ops.abs(T, pq[0]), ops.abs(T, pq[1]));
-        try testing.expect(ops.abs(T, y[0]) <= 4e-16 * scale);
-        try testing.expect(ops.abs(T, ops.sub(T, x[0], g[1])) <= 4e-16 * scale);
     }
 }

@@ -1,24 +1,8 @@
-//! The level-2 interface: the checks, `beta` scaling and pointer set-up
-//! OpenBLAS's `interface/{gemv,zgemv,ger,zger,symv,zsymv,zhemv}.c` do before
-//! calling a kernel. Like `blas1/interface.zig`, each takes the element type
-//! `T` explicitly, any float type or its `Complex`, with `m`, `n`, `lda` and
-//! the strides `isize`; matrices are column-major. Kernels come from
-//! `portable.kernel`: the core's for a type with vtable slots, else the
-//! portable ones built for `T`.
-//!
-//! A negative stride names the vector's last element first: the interface
-//! moves the pointer to it. The kernels need a scratch `buffer`; the
-//! interface takes it from a small stack array (OpenBLAS's `STACK_ALLOC`) and
-//! only allocates beyond that, which is why these take an allocator.
-//!
-//! Invalid arguments return an `ArgError` naming the argument, where the
-//! reference calls `xerbla` with its number (checked in the same order, so
-//! the first bad argument wins). Every routine takes `io` after its
-//! allocator (first without one) and may return `error.Canceled`. Above
-//! OpenBLAS's thresholds `gemv` and `ger` thread on `io` (`threading.md`),
-//! each chunk of `y` or of `A`'s columns a serial kernel call of its own;
-//! `symv` and `hemv` add their chunks of columns into partial vectors folded
-//! in chunk order. No result depends on the worker count.
+//! The level-2 interface: `interface/{gemv,zgemv,ger,zger,symv,zsymv,zhemv}.c`'s
+//! checks, `beta` scaling and pointer set-up, as `blas1/interface.zig` takes
+//! its arguments. Scratch is on the stack up to `stack_bytes` (`STACK_ALLOC`),
+//! else allocated. Above OpenBLAS's thresholds the routines thread on `io`,
+//! `symv` and `hemv` through partial vectors folded in chunk order.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -59,23 +43,13 @@ pub const HalfError = ArgError || Io.Cancelable;
 const isComplex = types.isComplex;
 const Float = types.Float;
 
-fn raw(comptime T: type, p: [*]T) [*]Float(T) {
-    return @ptrCast(p);
-}
+const raw = util.raw;
 
-/// Where a vector of `n` with stride `inc` starts: its last element when
-/// `inc < 0`.
-fn first(comptime T: type, p: [*]T, n: isize, inc: isize) [*]T {
-    return if (inc < 0) @ptrCast(util.at(T, p, -(n - 1) * inc)) else p;
-}
+const first = util.first;
 
-fn isOne(comptime T: type, v: T) bool {
-    return if (comptime isComplex(T)) v.re == 1 and v.im == 0 else v == 1;
-}
+const isOne = util.isOne;
 
-fn isZero(comptime T: type, v: T) bool {
-    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
-}
+const isZero = util.isZero;
 
 /// `y := beta*y` over `n` elements at the unadjusted `y`, the way the
 /// reference does it: with the scal kernel's flag 0, so a zero `beta`
@@ -83,18 +57,13 @@ fn isZero(comptime T: type, v: T) bool {
 fn scaleY(comptime T: type, n: isize, beta: T, y: [*]T, incy: isize) void {
     const py = raw(T, y);
     const inc: BlasLong = @intCast(@abs(incy));
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, beta.re, beta.im, py, inc, py, 0, py, 0);
-    } else {
-        _ = portable.fetch(T, .scal_k, blas.vtable)(n, 0, 0, beta, py, inc, py, 0, py, 0);
-    }
+    _ = @call(.auto, portable.fetch(T, .scal_k, blas.vtable), .{ n, 0, 0 } ++ util.scalarArgs(T, beta) ++ .{ py, inc, py, 0, py, 0 });
 }
 
 // ---- scratch buffer ----------------------------------------------------------
 
-/// `MAX_STACK_ALLOC`: up to this many bytes of scratch live on the stack, in
-/// every level-2 driver; the rest comes from the allocator.
-pub const stack_bytes = 2048;
+/// `MAX_STACK_ALLOC`, in every level-2 driver.
+pub const stack_bytes = util.stack_bytes;
 /// The reference's stack buffers are `aligned(0x20)`; no ported kernel needs
 /// more than 16 (`buffers.md`).
 pub const stack_align = 32;
@@ -102,40 +71,9 @@ pub const stack_align = 32;
 /// their copies out on page boundaries from it.
 pub const heap_align = 4096;
 
-/// Scratch for `F` elements: on the stack when `stack_bytes` holds them, else
-/// from the allocator.
+/// Scratch for `F` elements at the level-2 alignments.
 fn Scratch(comptime F: type) type {
-    return struct {
-        const Self = @This();
-        ptr: [*]F,
-        len: usize,
-        heap: ?[]align(heap_align) F = null,
-
-        fn init(allocator: Allocator, stack: *align(stack_align) [stack_bytes]u8, len: usize) Allocator.Error!Self {
-            if (len * @sizeOf(F) <= stack_bytes) {
-                // tests poison it as their allocators do the heap: scratch
-                // read before it is written shows as NaN
-                if (sysinfo.is_test) @memset(stack, 0xff);
-                return .{ .ptr = @ptrCast(stack), .len = len };
-            }
-            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
-            return .{ .ptr = h.ptr, .len = len, .heap = h };
-        }
-
-        /// Always from the allocator, as the reference's `blas_memory_alloc`.
-        fn heapOnly(allocator: Allocator, len: usize) Allocator.Error!Self {
-            const h = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), len);
-            return .{ .ptr = h.ptr, .len = len, .heap = h };
-        }
-
-        fn slice(self: Self) []F {
-            return self.ptr[0..self.len];
-        }
-
-        fn deinit(self: Self, allocator: Allocator) void {
-            if (self.heap) |h| allocator.free(h);
-        }
-    };
+    return util.Scratch(F, stack_align, heap_align);
 }
 
 // ---- gemv --------------------------------------------------------------------
@@ -176,23 +114,19 @@ const quantum = 64;
 
 /// `gemv`'s row chunks without a transpose start on multiples of this:
 /// x86_64's kernels take rows in blocks of up to 4096 (`NBMAX`), the last
-/// block's remainder first (`gemv/kernel.zig`), so only whole blocks split.
+/// block's remainder first (`gemv/driver.zig`), so only whole blocks split.
 const gemv_rows = 4096;
 
 /// The `op` kernel of `T` on `m` by `n`.
 fn gemvCall(comptime T: type, comptime op: Op, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, buf: [*]Float(T)) void {
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf);
-    } else {
-        _ = portable.fetch(T, op, blas.vtable)(m, n, 0, alpha, a, lda, x, incx, y, incy, buf);
-    }
+    _ = @call(.auto, portable.fetch(T, op, blas.vtable), .{ m, n, 0 } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf });
 }
 
 fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m: isize, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize) (Allocator.Error || Io.Cancelable)!void {
     const F = Float(T);
     const complex = comptime isComplex(T);
     if (comptime !complex and t.conjX()) return;
-    const op = @field(Op, "gemv_" ++ if (complex) @tagName(t) else if (t.transposed()) "t" else "n");
+    const op = comptime portable.gemvOp(if (complex) t else if (t.transposed()) .t else .n);
     const cs = if (complex) 2 else 1;
     // `gemv_thread.c` splits `y`: rows without a transpose, columns with one
     const tr = comptime t.transposed();
@@ -210,33 +144,28 @@ fn gemvRun(allocator: Allocator, io: Io, comptime T: type, comptime t: Trans, m:
             incx: isize,
             y: [*]T,
             incy: isize,
-            buf: [*]F,
-            at: [threading.chunks_max + 1]usize,
 
             fn dims(g: *const @This(), c: threading.Chunk) [2]usize {
                 const k = c.end - c.start;
                 return if (tr) .{ @intCast(g.m), k } else .{ k, @intCast(g.n) };
             }
 
-            fn one(g: *const @This(), c: threading.Chunk) void {
+            /// Each chunk's buffer on a cache line of its own.
+            fn len(g: *const @This(), c: threading.Chunk) usize {
+                const d = g.dims(c);
+                return std.mem.alignForward(usize, sym.gemvLen(F, cs, d[0], d[1]), 64);
+            }
+
+            fn one(g: *const @This(), c: threading.Chunk, part: []F) void {
                 const d = g.dims(c);
                 const s: isize = @intCast(c.start);
                 const pa: [*]T = @ptrCast(util.at(T, g.a, if (tr) s * g.lda else s));
                 const py: [*]T = @ptrCast(util.at(T, g.y, s * g.incy));
-                gemvCall(T, op, @intCast(d[0]), @intCast(d[1]), g.alpha, pa, g.lda, g.x, g.incx, py, g.incy, g.buf + g.at[c.index]);
+                gemvCall(T, op, @intCast(d[0]), @intCast(d[1]), g.alpha, pa, g.lda, g.x, g.incx, py, g.incy, part.ptr);
             }
         };
-        var g: G = .{ .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .y = y, .incy = incy, .buf = undefined, .at = undefined };
-        // each chunk's buffer on a cache line of its own
-        g.at[0] = 0;
-        for (0..p.chunks.count) |i| {
-            const d = g.dims(p.chunks.get(i));
-            g.at[i + 1] = g.at[i] + std.mem.alignForward(usize, sym.gemvLen(F, cs, d[0], d[1]), 64);
-        }
-        const buf = try allocator.alignedAlloc(F, .fromByteUnits(heap_align), g.at[p.chunks.count]);
-        defer allocator.free(buf);
-        g.buf = buf.ptr;
-        return threading.forEach(io, &p, @as(*const G, &g), G.one);
+        const g: G = .{ .m = m, .n = n, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .y = y, .incy = incy };
+        return threading.forEachPart(allocator, io, &p, F, heap_align, &g, G.len, G.one);
     }
     var stack: [stack_bytes]u8 align(stack_align) = undefined;
     const sc = try Scratch(F).init(allocator, &stack, sym.gemvLen(F, cs, mu, nu));
@@ -327,7 +256,7 @@ pub fn ger(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a
 
 /// `?GERC`: `A := alpha*x*y^H + A`. Complex only.
 pub fn gerc(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, alpha: T, x: [*]T, incx: isize, y: [*]T, incy: isize, a: [*]T, lda: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("gerc: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "gerc");
     return gerImpl(allocator, io, T, true, m, n, alpha, x, incx, y, incy, a, lda);
 }
 
@@ -353,13 +282,9 @@ fn gerImpl(allocator: Allocator, io: Io, comptime T: type, comptime conj: bool, 
     // (`buffers.md`), where the reference may pass NULL
     const sc: Scratch(F) = if (incx == 1) .{ .ptr = @ptrCast(&stack), .len = 0 } else try Scratch(F).init(allocator, &stack, (if (complex) 2 else 1) * @as(usize, @intCast(m)));
     defer sc.deinit(allocator);
-    // the reference passes over a column whose `y` is zero, so an infinity or
-    // NaN in `x` stays out of it; the kernels do not, so they get the runs
-    // between zeros (one run, the whole matrix, when there are none). A
-    // strided `x` is copied once, before the first run, and every run takes
-    // the copy at unit stride: one copy however many runs. The reference's
-    // CBLAS row-major `zgerc` swaps `m`/`n`, `x`/`y` and their strides and
-    // takes `gerv_k` (`x` conjugated); no row-major layer here.
+    // the reference passes over a column whose `y` is zero, so NaN in `x`
+    // stays out of it; the kernels get the runs between zeros, a strided `x`
+    // copied once for all of them
     var g: Ger(T, op) = .{ .m = m, .n = n, .alpha = alpha, .x = px, .incx = incx, .y = py, .incy = incy, .a = a, .lda = lda, .buf = sc.ptr };
     // `ger_thread.c` splits the columns
     const p = threading.plan(.ger, T, threading.product(&.{ @intCast(m), @intCast(n) }), @intCast(n), .even, quantum);
@@ -430,11 +355,7 @@ fn Ger(comptime T: type, comptime op: Op) type {
                 const ys: [*]T = @ptrCast(util.at(T, g.y, lo * g.incy));
                 const as: [*]T = @ptrCast(util.at(T, g.a, lo * g.lda));
                 const k = portable.fetch(T, op, blas.vtable);
-                if (comptime isComplex(T)) {
-                    _ = k(g.m, hi - lo, 0, g.alpha.re, g.alpha.im, raw(T, g.x), g.incx, raw(T, ys), g.incy, raw(T, as), g.lda, g.buf);
-                } else {
-                    _ = k(g.m, hi - lo, 0, g.alpha, g.x, g.incx, ys, g.incy, as, g.lda, g.buf);
-                }
+                _ = @call(.auto, k, .{ g.m, hi - lo, 0 } ++ util.scalarArgs(T, g.alpha) ++ .{ raw(T, g.x), g.incx, raw(T, ys), g.incy, raw(T, as), g.lda, g.buf });
             }
         }
     };
@@ -452,7 +373,7 @@ pub fn symv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize
 /// `?HEMV` (`interface/zhemv.c`): the same for the Hermitian `S`; `v` and
 /// `m` use the upper and lower triangles for `conj(S)`. Complex only.
 pub fn hemv(allocator: Allocator, io: Io, comptime T: type, uplo: Uplo, n: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, beta: T, y: [*]T, incy: isize) Error!void {
-    if (comptime !isComplex(T)) @compileError("hemv: " ++ @typeName(T) ++ " is not complex");
+    comptime util.requireComplex(T, "hemv");
     return mv(allocator, io, T, "hemv_", uplo, n, alpha, a, lda, x, incx, beta, y, incy);
 }
 
@@ -519,11 +440,7 @@ fn mvBytes(comptime F: type, comptime complex: bool, m: usize, unit_x: bool, uni
 
 /// The `op` kernel on the columns `offset` selects of an `m` by `m` triangle.
 fn mvCall(comptime T: type, comptime op: Op, m: isize, offset: isize, alpha: T, a: [*]T, lda: isize, x: [*]T, incx: isize, y: [*]T, incy: isize, buf: [*]Float(T)) void {
-    if (comptime isComplex(T)) {
-        _ = portable.fetch(T, op, blas.vtable)(m, offset, alpha.re, alpha.im, raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf);
-    } else {
-        _ = portable.fetch(T, op, blas.vtable)(m, offset, alpha, a, lda, x, incx, y, incy, buf);
-    }
+    _ = @call(.auto, portable.fetch(T, op, blas.vtable), .{ m, offset } ++ util.scalarArgs(T, alpha) ++ .{ raw(T, a), lda, raw(T, x), incx, raw(T, y), incy, buf });
 }
 
 /// `symv_thread.c`'s split over `p`'s column chunks: each chunk's columns
@@ -540,9 +457,7 @@ fn mvChunks(allocator: Allocator, io: Io, comptime T: type, comptime op: Op, com
         lda: isize,
         x: [*]T,
         incx: isize,
-        buf: [*]u8,
-        /// Chunk `i`'s buffer: bytes `at[i]..at[i + 1]`.
-        at: [threading.chunks_max + 1]usize,
+        direct: bool,
         parts: *const threading.Partials(T),
 
         fn rows(g: *const @This(), c: threading.Chunk) threading.Rows {
@@ -554,36 +469,34 @@ fn mvChunks(allocator: Allocator, io: Io, comptime T: type, comptime op: Op, com
             return if (lower) g.n - c.start else c.end;
         }
 
-        fn one(g: *const @This(), c: threading.Chunk) void {
+        /// Bytes of the chunk's buffer.
+        fn len(g: *const @This(), c: threading.Chunk) usize {
+            const bytes = if (g.direct) 0 else mvBytes(F, comptime isComplex(T), g.m(c), g.incx == 1, true);
+            return std.mem.alignForward(usize, bytes, heap_align);
+        }
+
+        fn one(g: *const @This(), c: threading.Chunk, b: []u8) void {
             const part = g.parts.take(c.index);
-            const b = g.buf[g.at[c.index]..g.at[c.index + 1]];
             if (sysinfo.target.cpu.arch == .x86_64) @memset(b, 0);
             const c0: isize = @intCast(c.start);
             const off: isize = if (lower) c0 else 0;
             mvCall(T, op, @intCast(g.m(c)), @intCast(c.end - c.start), g.alpha, @ptrCast(util.at(T, g.a, off * (g.lda + 1))), g.lda, @ptrCast(util.at(T, g.x, off * g.incx)), g.incx, part.ptr, 1, @ptrCast(@alignCast(b.ptr)));
         }
     };
-    var g: G = .{ .n = nu, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .buf = undefined, .at = undefined, .parts = undefined };
-    g.at[0] = 0;
-    for (0..p.chunks.count) |i| {
-        const bytes = if (direct) 0 else mvBytes(F, comptime isComplex(T), g.m(p.chunks.get(i)), incx == 1, true);
-        g.at[i + 1] = g.at[i] + std.mem.alignForward(usize, bytes, heap_align);
-    }
-    const buf = try allocator.alignedAlloc(u8, .fromByteUnits(heap_align), g.at[p.chunks.count]);
-    defer allocator.free(buf);
-    g.buf = buf.ptr;
+    var g: G = .{ .n = nu, .alpha = alpha, .a = a, .lda = lda, .x = x, .incx = incx, .direct = direct, .parts = undefined };
     const parts: threading.Partials(T) = try .init(allocator, p, @as(*const G, &g), G.rows);
     defer parts.deinit(allocator);
     g.parts = &parts;
-    try threading.forEach(io, p, @as(*const G, &g), G.one);
+    try threading.forEachPart(allocator, io, p, u8, heap_align, @as(*const G, &g), G.len, G.one);
     try parts.fold(io, y, incy);
 }
 
 // ---- tests -------------------------------------------------------------------
 
 const Vtable = @import("../Vtable.zig");
-const check = @import("../_test/blas1/check.zig");
-const guard = @import("../_test/blas2/guard.zig");
+const check = @import("../_test/check.zig");
+const guard = @import("../_test/guard.zig");
+const reference = @import("../_test/reference.zig");
 const Complex32 = types.Complex32;
 const Complex64 = types.Complex64;
 
@@ -592,7 +505,7 @@ const band = @import("banded.zig");
 const testing = std.testing;
 /// Scratch from the heap holds NaN, so a missing clear shows.
 var poison: guard.Poison = .{ .child = testing.allocator };
-const all = .{ f32, f64, Complex32, Complex64 } ++ check.x_real ++ check.x_complex;
+const all = check.all_types;
 
 /// Points the global vtable at the portable kernels until
 /// `defer blas.testRestore(saved)`.
@@ -1010,35 +923,35 @@ test "interface: half-precision gemv reports the first bad argument and ignores 
 
 /// `op(A)` element `(r, q)` of the column-major `a`, widened: `A`'s `(q, r)`
 /// for `tr`, conjugated for `cj`.
-fn opAt(comptime T: type, a: []const T, lda: usize, tr: bool, cj: bool, r: usize, q: usize) check.Wide(T) {
-    const e = check.wide(T, if (tr) a[q + r * lda] else a[r + q * lda]);
-    return if (cj) check.conjW(e) else e;
+fn opAt(comptime T: type, a: []const T, lda: usize, tr: bool, cj: bool, r: usize, q: usize) reference.Wide(T) {
+    const e = reference.wide(T, if (tr) a[q + r * lda] else a[r + q * lda]);
+    return if (cj) reference.conjW(e) else e;
 }
 
 /// `y := alpha*M*x + beta*y` against `got`, `M` given by `ctx.at(r, q)`; `x`
 /// at stride 2, `y` and `got` at stride -1.
 fn expectMv(comptime T: type, rows: usize, cols: usize, ctx: anytype, alpha: T, x: []const T, beta: T, y: []const T, got: []const T) !void {
-    const wa = check.wide(T, alpha);
-    const wb = check.wide(T, beta);
+    const wa = reference.wide(T, alpha);
+    const wb = reference.wide(T, beta);
     for (0..rows) |r| {
-        var acc = check.wide(T, zeroT(T));
+        var acc = reference.wide(T, zeroT(T));
         var mag: f128 = 0;
         for (0..cols) |q| {
             const e = ctx.at(r, q);
-            const xv = check.wide(T, x[2 * q]);
-            acc = check.addW(acc, check.mulW(e, xv));
-            mag += check.abs1(e) * check.abs1(xv);
+            const xv = reference.wide(T, x[2 * q]);
+            acc = reference.addW(acc, reference.mulW(e, xv));
+            mag += reference.abs1(e) * reference.abs1(xv);
         }
-        const yv = check.wide(T, y[rows - 1 - r]);
-        const want = check.addW(check.mulW(wa, acc), check.mulW(wb, yv));
-        try check.expectNear(T, want, got[rows - 1 - r], @floatFromInt(2 * (cols + 2)), check.abs1(wa) * mag + check.abs1(wb) * check.abs1(yv));
+        const yv = reference.wide(T, y[rows - 1 - r]);
+        const want = reference.addW(reference.mulW(wa, acc), reference.mulW(wb, yv));
+        try reference.expectNear(T, want, got[rows - 1 - r], @floatFromInt(2 * (cols + 2)), reference.abs1(wa) * mag + reference.abs1(wb) * reference.abs1(yv));
     }
 }
 
 /// Level 2 over `T`, which has no vtable slots, against an `f128` reference:
 /// `gemv`, `ger`, `symv`, `hemv`, `trmv`, `trsv` and `gbmv`.
 fn anyFloat(comptime T: type) !void {
-    const W = check.Wide(T);
+    const W = reference.Wide(T);
     const al = testing.allocator;
     const complex = comptime isComplex(T);
     const m = 7;
@@ -1070,7 +983,7 @@ fn anyFloat(comptime T: type) !void {
         try expectMv(T, if (tr) n else m, if (tr) m else n, ctx, alpha, &x, beta, &y, &got);
     }
 
-    const wa = check.wide(T, alpha);
+    const wa = reference.wide(T, alpha);
     for ([_]bool{ false, true }) |conj| {
         if (conj and !complex) continue;
         var got = a;
@@ -1080,12 +993,12 @@ fn anyFloat(comptime T: type) !void {
             try gerc(al, check.io, T, m, n, alpha, &x, 2, &y, -1, &got, lda);
         }
         for (0..n) |j| for (0..m) |i| {
-            const xv = check.wide(T, x[2 * i]);
-            const yv = check.wide(T, y[n - 1 - j]);
-            const e = check.wide(T, a[i + j * lda]);
-            const want = check.addW(e, check.mulW(wa, check.mulW(xv, if (conj) check.conjW(yv) else yv)));
-            const mag = check.abs1(wa) * check.abs1(xv) * check.abs1(yv) + check.abs1(e);
-            try check.expectNear(T, want, got[i + j * lda], 8, mag);
+            const xv = reference.wide(T, x[2 * i]);
+            const yv = reference.wide(T, y[n - 1 - j]);
+            const e = reference.wide(T, a[i + j * lda]);
+            const want = reference.addW(e, reference.mulW(wa, reference.mulW(xv, if (conj) reference.conjW(yv) else yv)));
+            const mag = reference.abs1(wa) * reference.abs1(xv) * reference.abs1(yv) + reference.abs1(e);
+            try reference.expectNear(T, want, got[i + j * lda], 8, mag);
         };
     }
 
@@ -1095,7 +1008,7 @@ fn anyFloat(comptime T: type) !void {
         kind: sym.Kind,
         upper: bool,
         fn at(c: @This(), r: usize, q: usize) W {
-            return check.wide(T, symAt(T, c.kind, c.upper, c.a, lda, r, q));
+            return reference.wide(T, symAt(T, c.kind, c.upper, c.a, lda, r, q));
         }
     };
     for ([_]bool{ false, true }) |herm| {
@@ -1124,7 +1037,7 @@ fn anyFloat(comptime T: type) !void {
             // `A(i, j)`, zero outside its triangle
             const i = if (c.tr) q else r;
             const j = if (c.tr) r else q;
-            if (if (c.upper) i > j else i < j) return check.wide(T, zeroT(T));
+            if (if (c.upper) i > j else i < j) return reference.wide(T, zeroT(T));
             return opAt(T, c.a, lda, c.tr, c.cj, r, q);
         }
     };
@@ -1141,14 +1054,14 @@ fn anyFloat(comptime T: type) !void {
         try tri.trsv(al, check.io, T, uplo, t, .n, n, &d, lda, &got, 2);
         // the residual of `op(A) z = x`, relative to `|op(A)| |z|`
         for (0..n) |r| {
-            var acc = check.wide(T, zeroT(T));
+            var acc = reference.wide(T, zeroT(T));
             var mag: f128 = 0;
             for (0..n) |q| {
-                const z = check.wide(T, got[2 * q]);
-                acc = check.addW(acc, check.mulW(ctx.at(r, q), z));
-                mag += check.abs1(ctx.at(r, q)) * check.abs1(z);
+                const z = reference.wide(T, got[2 * q]);
+                acc = reference.addW(acc, reference.mulW(ctx.at(r, q), z));
+                mag += reference.abs1(ctx.at(r, q)) * reference.abs1(z);
             }
-            try check.expectNear(T, acc, x[2 * r], @floatFromInt(4 * (n + 2)), mag);
+            try reference.expectNear(T, acc, x[2 * r], @floatFromInt(4 * (n + 2)), mag);
         }
     };
 
@@ -1164,8 +1077,8 @@ fn anyFloat(comptime T: type) !void {
         fn at(c: @This(), r: usize, q: usize) W {
             const i = if (c.tr) q else r;
             const j = if (c.tr) r else q;
-            if (i + ku < j or i > j + kl) return check.wide(T, zeroT(T));
-            return check.wide(T, c.ab[ku + i - j + j * ldb]);
+            if (i + ku < j or i > j + kl) return reference.wide(T, zeroT(T));
+            return reference.wide(T, c.ab[ku + i - j + j * ldb]);
         }
     };
     for ([_]Trans{ .n, .t }) |t| {

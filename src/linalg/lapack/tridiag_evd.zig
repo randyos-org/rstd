@@ -1,25 +1,11 @@
 //! The eigendecomposition of a real symmetric tridiagonal matrix, from faer
 //! v0.24.4 (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`,
-//! MIT): `faer/src/linalg/evd/tridiag_evd.rs`. `diag` holds the diagonal,
-//! `offdiag` the subdiagonal (`offdiag[n-1]`, when present, is 0).
-//!
-//! - `qrAlgorithm`: implicit Wilkinson-shift QR sweeps with Givens
-//!   rotations; the reference's `xSTEQR` method.
-//! - `divideAndConquer`: Cuppen's divide and conquer in Gu and Eisenstat's
-//!   stable form ("A divide-and-conquer algorithm for the symmetric
-//!   tridiagonal eigenproblem", SIAM J. Matrix Anal. Appl. 16(1), 1995), the
-//!   reference's `xSTEDC`: split at `n / 2` by a rank-one tear, solve the
-//!   halves, deflate small `z` entries and (by a Householder reflection per
-//!   run) equal eigenvalues, solve the secular equation with the SVD's root
-//!   finder (`bidiag_svd.rootFinder`), rebuild `z` from the roots (the
-//!   reference's `xLAED3`, `sqrt(-W)`), and merge the vectors with `gemm`.
-//!   Below `threshold` it is `qrAlgorithm`.
-//!
-//! Faer runs the halves on two threads (`join_raw`); here they run in turn,
-//! the products threading inside the BLAS, as `bidiag_svd.zig` does.
+//! MIT): `faer/src/linalg/evd/tridiag_evd.rs`, QR iteration (`xSTEQR`'s
+//! method) and Gu and Eisenstat's divide and conquer (`xSTEDC`'s).
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
 const hh = @import("householder.zig");
 const bsvd = @import("bidiag_svd.zig");
 
@@ -30,27 +16,6 @@ const Mat = ops.Mat;
 /// What the solvers return: `NoConvergence` once `qrAlgorithm` has run its
 /// iterations out.
 pub const Error = ops.Error || error{NoConvergence};
-
-fn normMax(comptime F: type, x: []const F) F {
-    var m: F = 0;
-    for (x) |v| m = @max(m, @abs(v));
-    return m;
-}
-
-/// `x *= 1 / max`, by division where that reciprocal overflows (faer
-/// multiplies, which a denormal `max` makes infinite; issues.md).
-fn scaleDown(comptime F: type, x: []F, max: F) void {
-    if (max >= std.math.floatMin(F)) {
-        const inv = 1 / max;
-        for (x) |*v| v.* *= inv;
-    } else for (x) |*v| {
-        v.* /= max;
-    }
-}
-
-fn swapCols(comptime F: type, m: Mat(F), i: usize, j: usize) void {
-    for (0..m.rows) |r| std.mem.swap(F, m.at(r, i), m.at(r, j));
-}
 
 /// `qr_algorithm`: the eigenvalues into `diag`, nondecreasing; `u`
 /// (`n x n`), when given, set to the eigenvectors.
@@ -106,10 +71,10 @@ pub fn qrAlgorithm(comptime F: type, diag: []F, offdiag: []F, u: ?Mat(F)) error{
         diag[1] = r1;
         return;
     }
-    const max = @max(normMax(F, diag), normMax(F, offdiag));
+    const max = @max(ops.absMax(F, diag), ops.absMax(F, offdiag));
     if (max == 0) return;
-    scaleDown(F, diag, max);
-    scaleDown(F, offdiag, max);
+    ops.scaleDown(F, diag, max);
+    ops.scaleDown(F, offdiag, max);
     var end = n - 1;
     var start: usize = 0;
     const max_iters = @max(30, (std.math.floatMantissaBits(F) + 1) / 2) *| n *| n;
@@ -166,7 +131,7 @@ pub fn qrAlgorithm(comptime F: type, diag: []F, offdiag: []F, u: ?Mat(F)) error{
         };
         if (idx != i) {
             std.mem.swap(F, &diag[i], &diag[idx]);
-            if (u) |um| swapCols(F, um, i, idx);
+            if (u) |um| ops.swapCols(F, um, i, idx);
         }
     }
     for (diag) |*x| x.* *= max;
@@ -321,8 +286,8 @@ fn recurse(al: Allocator, io: Io, comptime F: type, diag: []F, offdiag: []F, u: 
         pd[i] = diag[p];
         pz[i] = z[p];
     }
-    const dmax = normMax(F, pd);
-    const zmax = normMax(F, pz);
+    const dmax = ops.absMax(F, pd);
+    const zmax = ops.absMax(F, pz);
     const tol = 8 * std.math.floatEps(F) * @max(dmax, zmax);
     if (rho * zmax <= tol) {
         // all deflated: the halves' vectors, merged
@@ -414,7 +379,7 @@ fn recurse(al: Allocator, io: Io, comptime F: type, diag: []F, offdiag: []F, u: 
             const shift_j = w.shifts[pj];
             for (w.pl_after[0..nd], 0..) |pa, i| col[pa] = pz[i] / ((pd[i] - shift_j) - mu_j);
             for (w.pl_after[nd .. nd + deflated]) |pa| col[pa] = 0;
-            const inv_norm = 1 / ops.nrm2(io, F, n, col, 1);
+            const inv_norm = 1 / blas_calls.nrm2(io, F, n, col, 1);
             for (col[0..n]) |*x| x.* *= inv_norm;
         }
     }
@@ -441,8 +406,8 @@ fn recurse(al: Allocator, io: Io, comptime F: type, diag: []F, offdiag: []F, u: 
         };
         std.mem.swap(Mat(F), &repaired_u, &tmp);
     }
-    try ops.gemm(al, io, F, .n, .n, 1, ua, repaired_u.sub(0, 0, n1, n), 0, tmp.sub(0, 0, n1, n));
-    try ops.gemm(al, io, F, .n, .n, 1, ub, repaired_u.sub(n1, 0, n - n1, n), 0, tmp.sub(n1, 0, n - n1, n));
+    try blas_calls.gemm(al, io, F, .n, .n, 1, ua, repaired_u.sub(0, 0, n1, n), 0, tmp.sub(0, 0, n1, n));
+    try blas_calls.gemm(al, io, F, .n, .n, 1, ub, repaired_u.sub(n1, 0, n - n1, n), 0, tmp.sub(n1, 0, n - n1, n));
     u.copyFrom(tmp);
     for (0..n) |i| diag[i] = w.mus[w.pr[i]] + w.shifts[w.pr[i]];
 }
@@ -463,7 +428,7 @@ fn lessNanLast(comptime F: type) fn ([]const F, usize, usize) bool {
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
 
 const Solver = enum { qr, dc4, dc8 };
 

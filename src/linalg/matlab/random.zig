@@ -1,40 +1,15 @@
-//! Uniform/normal random number generation, ported from `matlab88.f90`'s
-//! `URAND` (a portable linear-congruential generator after D.E. Knuth,
-//! *The Art of Computer Programming* vol. 2) and the `RAND` command body
-//! in `MATFN6` (uniform fill, and the Marsaglia polar method for a normal
-//! fill).
-//!
-//! `URAND` is a 1970s-vintage generator, carried here for REPL-command
-//! parity (`RAND(N)` and friends) and reproducible sequences, not because
-//! it's a good source of randomness by modern standards - reach for
-//! `std.Random` elsewhere if statistical quality matters.
-//!
-//! The original self-detected the host machine's integer word length at
-//! runtime (many machines of the era had different `INTEGER` widths); this
-//! port fixes that at the canonical 32-bit word size the constants below
-//! were derived for, computing the linear-congruential step in a wider
-//! (`i64`) accumulator so the same overflow-correction logic the original
-//! spelled out by hand (rather than relying on wraparound, which Fortran
-//! did not guarantee portably) runs without tripping Zig's overflow checks.
+//! URAND, a linear-congruential generator after Knuth (TAOCP vol. 2), at a fixed
+//! 32-bit word, and `MATFN6`'s RAND fills: REPL parity, not quality (`std.Random`).
 
 const std = @import("std");
 
 /// URAND's generator state (the original's `IY` parameter).
 pub const Urand = struct {
-    // A genuine 32-bit `INTEGER`, matching the original: this generator
-    // relies on `IY*IA` and `IY+IC` silently wrapping around on overflow,
-    // which is what every real machine the original ran on did for
-    // `INTEGER` arithmetic (undefined by the Fortran standard, universal
-    // in practice) - so the multiply/add below use Zig's explicit
-    // wrapping operators (`*%`/`+%`) to reproduce that on purpose, with
-    // the same manual corrections the original layered on top for
-    // portability to hardware whose overflow behavior differed slightly.
+    // a 32-bit `INTEGER`: `IY*IA` and `IY+IC` wrap, as on the original's
+    // machines (`*%`, `+%`), with its own corrections on top
     iy: i32,
 
-    // The word-length self-detection loop ("double M until doubling stops
-    // increasing it") finds the largest power of 2 a 32-bit *signed*
-    // INTEGER can hold before the next doubling overflows the sign bit:
-    // 2^30, not 2^31.
+    // the original's word-length probe on a 32-bit signed `INTEGER`: 2^30
     const m2: i32 = 1 << 30;
     const half_m: f64 = @floatFromInt(m2);
     // atan(1.0) == pi/4, written directly since std.math.atan won't
@@ -61,11 +36,8 @@ pub const Urand = struct {
         return @as(f64, @floatFromInt(iy)) * scale;
     }
 
-    /// RAND's normal-fill formula: reject-sample a point uniform in the
-    /// unit disk, then rescale it by the Marsaglia polar transform. Only
-    /// one of the transform's two independent normal deviates is used per
-    /// call, matching the original (which drew a fresh disk point per
-    /// matrix element rather than caching the second deviate).
+    /// RAND's normal draw: Marsaglia's polar method, one of its two deviates
+    /// per call, as the original.
     pub fn nextNormal(self: *Urand) f64 {
         while (true) {
             const sr = 2.0 * self.next() - 1.0;

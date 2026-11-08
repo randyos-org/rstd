@@ -3,10 +3,15 @@
 
 test {
     _ = @import("types.zig");
-    _ = @import("blas1/check.zig");
+    _ = @import("check.zig");
+    _ = @import("bitwise.zig");
     _ = @import("blas1/edge.zig");
+    _ = @import("blas1/extremum.zig");
     _ = @import("blas1/denormal.zig");
+    _ = @import("blas1/threaded.zig");
     _ = @import("blas2/edge.zig");
     _ = @import("blas2/threaded.zig");
+    _ = @import("blas3/gemmt.zig");
+    _ = @import("blas3/threaded.zig");
     _ = @import("from_openblas/__root__.zig");
 }

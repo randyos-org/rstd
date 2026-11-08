@@ -5,8 +5,8 @@
 //! Each element is one product and one sum, so the vector width leaves the
 //! bits as they are. Tests live in `ger/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const types = @import("../../../types.zig");
 const util = @import("../../../util.zig");
 

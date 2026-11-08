@@ -1,10 +1,10 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 const tv = @import("tuple_variation.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the gvar header, used only to compute field offsets/sizes at
-/// comptime; never instantiated. All fields land naturally aligned (the two
-/// Offset32 fields each fall on a 4-byte boundary already), unlike HVAR/ivs.
+/// The gvar header. All fields land naturally aligned (the two Offset32 fields
+/// each fall on a 4-byte boundary already), unlike HVAR/ivs.
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -25,7 +25,7 @@ pub const GvarFlags = packed struct(u16) {
 
 /// Glyph variations: per-glyph outline-point deltas, using the Tuple
 /// Variation Store format (see tuple_variation.zig). Interpolating an
-/// actual instance outline is deferred - this exposes each glyph's raw
+/// actual instance outline is deferred; this exposes each glyph's raw
 /// GlyphVariationData.
 pub const GvarTable = struct {
     const Self = @This();
@@ -90,7 +90,7 @@ pub const GvarTable = struct {
 
     /// Always returns an actual byte offset (from glyphVariationDataArrayOffset()),
     /// regardless of whether the stream stores it directly (long format) or
-    /// halved (short format) - mirrors LocaTable.getOffset().
+    /// halved (short format); mirrors LocaTable.getOffset().
     pub inline fn getGlyphVariationDataOffset(self: Self, glyph_index: usize) u32 {
         const array_off = @sizeOf(StreamLayout);
         if (self.flags().long_offsets) {
@@ -100,7 +100,7 @@ pub const GvarTable = struct {
     }
 
     /// Null means this glyph has no variation data (the same outline is used
-    /// across the entire variation space), per spec - a valid condition, not
+    /// across the entire variation space), per spec; a valid condition, not
     /// a malformed-font one.
     pub fn getGlyphVariationData(self: Self, glyph_index: usize) ?tv.GlyphVariationData {
         const start = self.getGlyphVariationDataOffset(glyph_index);
@@ -111,8 +111,6 @@ pub const GvarTable = struct {
         return .{ .table_data = self.table_data[base + start .. base + end], .axis_count = self.axisCount() };
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "gvar StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

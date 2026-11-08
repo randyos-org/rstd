@@ -1,15 +1,5 @@
-//! "seconds since boot" clock for the bootloader.
-//!
-//! RuntimeServices.getTime() only tracks whole seconds (e.g. OVMF always
-//! reports nanosecond=0) -- no sub-second data there regardless of print
-//! precision.
-//!
-//! A cycle counter (rdtsc) would give real precision but is arch-specific;
-//! UEFI isn't, so don't bake that assumption in even though we're
-//! x86_64-only today.
-//!
-//! Instead: periodic Boot Services timer event (100us), plain API on every
-//! UEFI arch.
+//! The bootloader's clock: a periodic Boot Services timer (100 us), on every UEFI arch. `getTime` has whole seconds only (OVMF reports
+//! nanosecond 0) and a cycle counter is arch-specific.
 
 const std = @import("std");
 const uefi = std.os.uefi;
@@ -21,7 +11,7 @@ const state = @import("state.zig");
 /// ns elapsed since init(), updated by tick on each timer fire
 var elapsed_ns: u64 = std.math.maxInt(u64); // "-1", as a sentinel for "never started"
 
-/// granularity of getElapsedNanoseconds(); pub for io.zig's clock resolution
+/// granularity of getElapsedNanoseconds()
 pub const tick_period_ns: u64 = 100_000; // 100us
 /// `setTimer`'s `trigger_time` is in units of 100ns.
 const tick_period_100ns: u64 = tick_period_ns / 100;
@@ -32,13 +22,13 @@ fn tick(event: uefi.Event, context: ?*anyopaque) callconv(uefi.cc) void {
     _ = @atomicRmw(u64, &elapsed_ns, .Add, tick_period_ns, .seq_cst);
 }
 
-/// Start periodic timer event backing getTime(). Call once, early in init.
+/// Start the periodic timer event backing `now`. Call once, early in init.
 ///
 /// Never needs explicit stop: `tick`'s callback only runs via Boot
-/// Services' event loop (firmware code) -- once ExitBootServices succeeds
+/// Services' event loop (firmware code); once ExitBootServices succeeds
 /// that loop never runs again. Event memory is Boot Services-owned,
-/// reclaimable at that point (see main.zig), nothing to leak. Tearing down
-/// the real HW timer is firmware's job during ExitBootServices anyway --
+/// reclaimable at that point, nothing to leak. Tearing down
+/// the real HW timer is firmware's job during ExitBootServices anyway;
 /// moot since we can't call setTimer/closeEvent after that point either.
 pub fn init() !void {
     const bs = state.bootServices() orelse return error.BootServicesUnavailable;
@@ -54,14 +44,6 @@ pub fn init() !void {
 /// sentinel (not a crash) if init() never called/failed.
 pub fn getElapsedNanoseconds() u64 {
     return @atomicLoad(u64, &elapsed_ns, .seq_cst);
-}
-
-/// seconds since init() as f64, shape rstd.logging.get_time wants; -1 if
-/// clock never started
-pub fn getTimeSeconds() f64 {
-    const ns = getElapsedNanoseconds();
-    if (ns == std.math.maxInt(u64)) return -1;
-    return @as(f64, @floatFromInt(ns)) / std.time.ns_per_s;
 }
 
 fn monotonicNow() Io.Timestamp {

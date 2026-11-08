@@ -1,11 +1,5 @@
-//! Runs a rig's qemu with its output passed through, and ends it when the
-//! guest can no longer finish: firmware that halts rather than exits (OpenBIOS
-//! "Stopping execution"), or no output at all for too long. With
-//! `--fail-fast`, also at the first failing test, once its trace has printed.
-//!
-//!   qemu_watch <idle minutes> [--fail-fast] <halt text>... -- <qemu argv>
-//!
-//! Exits with qemu's status, or 1 after ending it.
+//! `qemu_watch <idle minutes> [--fail-fast] <halt text>... -- <qemu argv>`: runs a rig's qemu, output passed through, and ends it on a
+//! firmware halt text, on silence that long, or with `--fail-fast` at the first failing test. Exits with qemu's status, or 1 after ending it.
 
 const std = @import("std");
 const Io = std.Io;

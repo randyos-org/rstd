@@ -1,20 +1,7 @@
 #!/usr/bin/env bash
-# nixpkgs' prebuilt OpenBLAS and BLIS for blas_bench's library sections
-# (build/sshtest.zig), from the nixpkgs of flake.lock; substituted from the
-# binary cache, never built (--max-jobs 0). Run on the Nix machine by
-# tools/ssh_test.zig.
-#
-#   blas.sh <system> <nixpkgs rev> [<bench nix dir>]
-#
-# With the bench's nix directory (tools/blasbench/nix), also the reference
-# binaries (tools/blasbench/readme.md): Reference-LAPACK (lapack-reference),
-# AOCL-libFLAME (amd-libflame, x86_64-linux only; skipped when the cache
-# lacks it), and the Eigen shim, which this machine builds (eigen.nix).
-#
-# Linux: writes a newc cpio to stdout of the libraries' runtime closure (each
-# store path's lib/*.so*), /flyoff/lib{openblas,blis,lapack,eigen,flame}.so,
-# and glibc's loader where Zig's executables look for it. Darwin: links them
-# under /tmp/rstd-blas/<system> and prints their paths.
+# blas.sh <system> <nixpkgs rev> [<bench nix dir>]: nixpkgs' prebuilt OpenBLAS and BLIS (cache only, --max-jobs 0) for blas_bench, and with
+# the nix dir the reference binaries (tools/blasbench/readme.md). Linux: a newc cpio of their closure on stdout, /flyoff/lib*.so and
+# glibc's loader; Darwin: links under /tmp/rstd-blas/<system>, paths printed. Run on the Nix machine by tools/ssh_test.zig.
 set -euo pipefail
 sys=$1
 np=github:NixOS/nixpkgs/$2

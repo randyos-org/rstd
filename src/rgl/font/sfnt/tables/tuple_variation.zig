@@ -1,11 +1,12 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
 // Tuple Variation Store: the shared format used by 'gvar' (per-glyph) and
-// 'cvar' (whole-table), grouping deltas by *region* - distinct from the
+// 'cvar' (whole-table), grouping deltas by *region*; distinct from the
 // Item Variation Store format MVAR/HVAR/VVAR use (see ivs.zig), which
 // groups by target item instead. The header array here is structural; the
-// packed point-number/delta data is not - see serializedData().
+// packed point-number/delta data is not; see serializedData().
 
 /// The high 4 bits of a GlyphVariationData/'cvar' header's tupleVariationCount
 /// field are flags (only SHARED_POINT_NUMBERS is defined); the low 12 bits
@@ -103,7 +104,7 @@ pub const TupleVariationHeader = struct {
     }
 
     /// This header's own byte size within the tupleVariationHeaders array
-    /// (fixed part plus whichever tuples are embedded) - the stride to the
+    /// (fixed part plus whichever tuples are embedded); the stride to the
     /// next header.
     pub fn headerByteSize(self: Self) usize {
         const idx = self.tupleIndex();
@@ -114,8 +115,7 @@ pub const TupleVariationHeader = struct {
     }
 };
 
-/// Schema for a GlyphVariationData/'cvar' header's fixed part, used only to
-/// compute field offsets/sizes at comptime; never instantiated.
+/// A GlyphVariationData/'cvar' header's fixed part.
 const DataHeader = extern struct {
     tuple_variation_count: u16,
     data_offset: types.Offset16,
@@ -162,18 +162,13 @@ pub const GlyphVariationData = struct {
     }
 };
 
-const zigstd = @import("../../../../zigstd.zig");
-
 test "DataHeader matches the GlyphVariationData stream layout" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(DataHeader));
     try zigstd.testExpectEqual(@as(usize, 2), @offsetOf(DataHeader, "data_offset"));
 }
 
 fn f2dot14Bytes(value: f64) [2]u8 {
-    var buf: [2]u8 = undefined;
-    const packed_val = types.F2Dot14.fromFloat(value);
-    bytes.setI16BE(&buf, @bitCast(packed_val));
-    return buf;
+    return types.F2Dot14.fromFloat(value).toBytes();
 }
 
 test "TupleVariationHeader sizes and reads embedded peak + intermediate tuples" {

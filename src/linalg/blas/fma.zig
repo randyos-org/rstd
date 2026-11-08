@@ -1,33 +1,6 @@
-//! Whether a multiply-add is fused, decided the way the reference's compile
-//! flags decide it.
-//!
-//! OpenBLAS builds each core's kernels with that core's flags, and only some
-//! of them enable FMA (`-mfma`, or a `-march=` that includes it); the fusion
-//! itself is then the C compiler's contraction of `a*b + c`. Here a build
-//! states its policy once, as the root's `std_float_options`
-//! (`FloatOptions`; linalg design.md, decision 15), which the fork's compiler
-//! also reads for `@Matrix` products, and every multiply-add asks this file:
-//!
-//!   * floats of at most `fuse_mul_add_bits` bits may fuse, by default the
-//!     widest the target fuses in hardware (`fusedMulAddBits`); the per-core
-//!     kernel objects set it from their core's flags, since their CPU
-//!     features can include FMA only so an assembler accepts a hand-written
-//!     microkernel while the flags leave contraction off;
-//!   * the BLAS fuses only with an instruction (`fuseFor`), so `@mulAdd` never
-//!     degrades into a libm `fma()` call, and never past `f64`: the
-//!     reference's x87 `q`/`x` kernels never fuse;
-//!   * on MIPS before release 6 only `madd.fmt` can fuse, which Loongson 3A's
-//!     cores do (`fused_madd`); their objects say so, and take it as inline
-//!     asm, where `@mulAdd` would be a libm `fma` call.
-//!
-//! Contraction is taken the way a C compiler does it within one expression
-//! (clang's `-ffp-contract=on`, and gcc's `fast` for the single-expression
-//! statements the reference kernels use): `a*b + c*d` is `fma(a, b, c*d)`,
-//! `a*b - c*d` is `fma(a, b, -(c*d))`, a longer chain fuses each product into
-//! the running sum from the left, and a product kept in its own statement, or
-//! converted (`float` to `double`) before the add, stays rounded.
-//!
-//! `linalg.vector.mulAdd` delegates to `mulAdd`, which follows the setting alone.
+//! Whether a multiply-add is fused, as the reference's per-core compile flags
+//! decide it; the policy is the root's `std_float_options` (design.md,
+//! Contraction). `linalg.vector.mulAdd` delegates to `mulAdd`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -98,7 +71,7 @@ pub const fuse = fuse_bits > 0;
 /// Whether `madd.fmt` rounds once, as on Loongson's GS464 and GS464E (their
 /// manuals; gcc's `ISA_HAS_FUSED_MADD4`): MIPS before release 6, where the
 /// root's `blas_fused_madd` says so. Only the `loongson3r3` and `loongson3r4`
-/// objects' does (`cpu/_corespec.zig`). LLVM also picks `madd.fmt` for a
+/// objects' does (`cpu/corespec.zig`). LLVM also picks `madd.fmt` for a
 /// plain `a*b + c` there, which then fuses too; QEMU rounds it (issues.md).
 pub const fused_madd = sysinfo.target.cpu.arch.isMips() and hardware_bits == 0 and
     @hasDecl(root, "blas_fused_madd") and root.blas_fused_madd;

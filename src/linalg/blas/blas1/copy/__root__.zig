@@ -2,14 +2,13 @@
 //! and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 /// `kernel/arm/copy.c` and `zcopy.c`: `y := x`; an element is `w` floats.
 fn Copy(comptime F: type, comptime w: comptime_int) type {
@@ -54,7 +53,7 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 const std = @import("std");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 
 /// `kern` against a plain loop; `T` is the element type, real or complex.
 fn checkCopy(comptime T: type, kern: anytype) !void {

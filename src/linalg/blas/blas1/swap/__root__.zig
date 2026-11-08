@@ -2,14 +2,13 @@
 //! and tests of every core's kernels against a plain loop.
 
 const types = @import("../../types.zig");
+const util = @import("../../util.zig");
+const Vtable = @import("../../Vtable.zig");
 
 const BlasLong = types.BlasLong;
 const XDouble = types.XDouble;
 
 // ---- portable kernels ------------------------------------------------------
-
-const util = @import("../../util.zig");
-const Vtable = @import("../../Vtable.zig");
 
 /// `kernel/arm/swap.c` and `zswap.c`: exchanges `x` and `y`; an element is
 /// `w` floats.
@@ -68,7 +67,7 @@ pub fn installGeneric(vt: *Vtable) void {
 // ---- tests -----------------------------------------------------------------
 
 const std = @import("std");
-const check = @import("../../_test/blas1/check.zig");
+const check = @import("../../_test/check.zig");
 
 /// `check.zero_strides` and both zero, which a kernel that loads a block
 /// before storing it gets wrong.

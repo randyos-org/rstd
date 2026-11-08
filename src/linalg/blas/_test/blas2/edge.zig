@@ -1,47 +1,26 @@
-//! Edge cases through every level-2 routine, on every core this machine runs,
-//! through the interfaces: the special values of `check.Pattern` in one
-//! operand at a time (the matrix, `x` or `y`), against an `f128` reference.
-//! What a routine must not read holds NaN: the other triangle, a unit
-//! diagonal, a Hermitian diagonal's imaginary part, band corners, padding
-//! rows, the gaps of strided vectors, and `y` for a zero `beta` or the matrix
-//! and the vectors for a zero `alpha`; where it must not write, the NaN must
-//! stay.
-//!
-//! Not propagation, on purpose, as the reference has it: a zero `beta`
-//! overwrites `y`, a zero `alpha` returns once `y` is scaled, a Hermitian
-//! update stores a zero imaginary part on the diagonal, entries outside a
-//! band or triangle are never multiplied, nor a unit diagonal, and the rank
-//! updates pass over a column whose factors are zero (`y` for `ger`; `x`,
-//! and `y` for rank 2, otherwise; `zeroFactors` puts them beside the special
-//! values, so every core is held to it). Complex infinities may meet in another
-//! order than the reference's, giving NaN for infinity
-//! (`check.expectWideAnyOrder`).
-//!
-//! A solve divides by the diagonal, whose magnitudes are not its cases: its
-//! patterns go in the off-diagonal entries (none huge, which overflow its
-//! sums) and the right-hand side, and the diagonal dominates.
-//!
-//! Every variant also runs once with strides past a page and a leading
-//! dimension far past the rows, on one shape, kept within the rigs' heap.
-//!
-//! Through Accelerate the routines run on threads of their own, as many as
-//! the CPUs: each case's `f128` reference takes far longer than the call.
+//! Edge cases through every level-2 routine on every core this machine runs,
+//! against an `f128` reference: `pattern.Pattern`'s special values one operand at
+//! a time, NaN where a routine must not read; what may not propagate, `design.md`'s Verification.
 
 const std = @import("std");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("../blas1/check.zig");
-const guard = @import("guard.zig");
+const util = @import("../../util.zig");
+const check = @import("../check.zig");
+const bitwise = @import("../bitwise.zig");
+const guard = @import("../guard.zig");
+const pattern = @import("../pattern.zig");
+const reference = @import("../reference.zig");
 const portable = @import("../../portable.zig");
 const accel = @import("../../apple_accel.zig");
-const threading = @import("../../threading.zig");
+const test_io = @import("../io.zig");
 
 const Allocator = std.mem.Allocator;
 const C = std.math.Complex;
 const Float = check.FloatOf;
 const isComplex = check.isComplex;
-const Wide = check.Wide;
-const Pattern = check.Pattern;
+const Wide = reference.Wide;
+const Pattern = pattern.Pattern;
 const Vector = check.Vector;
 
 const Kind = enum { general, symmetric, hermitian, hermitian_rev, triangular };
@@ -133,7 +112,7 @@ fn Matrix(comptime T: type) type {
                     v = if (comptime isComplex(T)) .init(3 + @abs(v.re), v.im) else 3 + @abs(v);
                 } else {
                     if (s.solve) v = if (comptime isComplex(T)) .init(v.re * sc, v.im * sc) else v * sc;
-                    if (p) |q| v = check.shape(T, v, k, q);
+                    if (p) |q| v = pattern.shape(T, v, k, q);
                     k += 1;
                 }
                 if (comptime isComplex(T)) if (i == j and (s.kind == .hermitian or s.kind == .hermitian_rev)) {
@@ -167,29 +146,29 @@ fn Matrix(comptime T: type) type {
             const s = self.s;
             const z: ?Wide(T) = null;
             switch (s.kind) {
-                .general => return if (s.stored(i, j)) |k| check.wide(T, self.was[k]) else z,
+                .general => return if (s.stored(i, j)) |k| reference.wide(T, self.was[k]) else z,
                 .triangular => {
                     const k = s.stored(i, j) orelse return z;
-                    if (i == j and s.unit) return check.wide(T, if (comptime isComplex(T)) T.init(1, 0) else 1);
-                    return check.wide(T, self.was[k]);
+                    if (i == j and s.unit) return reference.wide(T, if (comptime isComplex(T)) T.init(1, 0) else 1);
+                    return reference.wide(T, self.was[k]);
                 },
                 .symmetric => {
                     const k = s.stored(i, j) orelse s.stored(j, i) orelse return z;
-                    return check.wide(T, self.was[k]);
+                    return reference.wide(T, self.was[k]);
                 },
                 .hermitian, .hermitian_rev => {
                     if (comptime !isComplex(T)) unreachable;
                     if (i == j) return .init(self.was[s.stored(i, i).?].re, 0);
                     const rev = s.kind == .hermitian_rev;
-                    if (s.stored(i, j)) |k| return if (rev) check.conjW(check.wide(T, self.was[k])) else check.wide(T, self.was[k]);
+                    if (s.stored(i, j)) |k| return if (rev) reference.conjW(reference.wide(T, self.was[k])) else reference.wide(T, self.was[k]);
                     const k = s.stored(j, i) orelse return z;
-                    return if (rev) check.wide(T, self.was[k]) else check.conjW(check.wide(T, self.was[k]));
+                    return if (rev) reference.wide(T, self.was[k]) else reference.conjW(reference.wide(T, self.was[k]));
                 },
             }
         }
 
         fn unchanged(self: *const Self) !void {
-            for (self.buf, self.was, 0..) |a, b, k| if (!check.same(T, a, b, true)) {
+            for (self.buf, self.was, 0..) |a, b, k| if (!bitwise.same(T, a, b, true)) {
                 check.say("matrix storage {d} changed: ", .{k});
                 return error.TestUnexpectedResult;
             };
@@ -316,17 +295,13 @@ fn shapeOf(r: Routine, v: usize, c: Case) Shape {
 /// write shows.
 var poison: guard.Poison = .{ .child = std.testing.allocator };
 
-fn val(comptime T: type, re: f64, im: f64) T {
-    return if (comptime isComplex(T)) .init(@floatCast(re), @floatCast(im)) else @floatCast(re);
-}
+const val = check.val;
 
 fn zeroW(v: anytype) bool {
     return if (comptime isComplex(@TypeOf(v))) v.re == 0 and v.im == 0 else v == 0;
 }
 
-fn isZero(comptime T: type, v: T) bool {
-    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
-}
+const isZero = util.isZero;
 
 /// `y := alpha*op(A)*x + beta*y` for the matrix-vector products.
 fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: Case) !void {
@@ -364,28 +339,28 @@ fn mvRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, beta: T, c: 
     }
     try a.unchanged();
     try x.unchanged();
-    const wa = check.wide(T, alpha);
-    const wb = check.wide(T, beta);
+    const wa = reference.wide(T, alpha);
+    const wb = reference.wide(T, beta);
     for (0..rows) |i| {
-        var acc = check.wide(T, val(T, 0, 0));
+        var acc = reference.wide(T, val(T, 0, 0));
         var mag: f128 = 0;
         var terms: usize = 0;
         if (!isZero(T, alpha)) for (0..cols) |j| {
             var e = (if (t[0]) a.at(j, i) else a.at(i, j)) orelse continue;
             terms += 1;
-            if (t[1]) e = check.conjW(e);
-            const xv = if (t[2]) check.conjW(x.w(j)) else x.w(j);
-            acc = check.addW(acc, check.mulW(e, xv));
-            mag += check.mag(e) * check.mag(xv);
+            if (t[1]) e = reference.conjW(e);
+            const xv = if (t[2]) reference.conjW(x.w(j)) else x.w(j);
+            acc = reference.addW(acc, reference.mulW(e, xv));
+            mag += reference.mag(e) * reference.mag(xv);
         };
         // a row with no entries (a band's) is only scaled
-        var want = if (terms == 0) acc else check.mulW(wa, acc);
-        var scale = check.mag(wa) * mag;
+        var want = if (terms == 0) acc else reference.mulW(wa, acc);
+        var scale = reference.mag(wa) * mag;
         if (!isZero(T, beta)) {
-            want = check.addW(want, check.mulW(wb, y.w(i)));
-            scale += check.mag(wb) * check.mag(y.w(i));
+            want = reference.addW(want, reference.mulW(wb, y.w(i)));
+            scale += reference.mag(wb) * reference.mag(y.w(i));
         }
-        check.expectWideAnyOrder(T, want, y.at(i), @floatFromInt(4 * (cols + 2)), scale) catch |e| {
+        pattern.expectWideAnyOrder(T, want, y.at(i), @floatFromInt(4 * (cols + 2)), scale) catch |e| {
             check.say("y[{d}]: ", .{i});
             return e;
         };
@@ -423,7 +398,7 @@ fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
     const M = struct {
         fn at(m: *const Matrix(T), t: bool, conj: bool, i: usize, j: usize) ?Wide(T) {
             const e = (if (t) m.at(j, i) else m.at(i, j)) orelse return null;
-            return if (conj) check.conjW(e) else e;
+            return if (conj) reference.conjW(e) else e;
         }
     };
     var z: [max_order]Wide(T) = undefined;
@@ -431,27 +406,27 @@ fn trRun(comptime T: type, comptime r: Routine, v: usize, c: Case) !void {
     for (0..s.n) |q| {
         // the solve goes from the end its triangle starts at
         const i = if (!r.solve() or lower) q else s.n - 1 - q;
-        var acc = check.wide(T, val(T, 0, 0));
+        var acc = reference.wide(T, val(T, 0, 0));
         var mag: f128 = 0;
         for (0..s.n) |j| {
             if (r.solve() and (j == i or (if (lower) j > i else j < i))) continue;
             const e = M.at(&a, tr, cj, i, j) orelse continue;
             const u = if (r.solve()) z[j] else x.w(j);
             // a unit diagonal is not multiplied by
-            acc = check.addW(acc, if (i == j and s.unit) u else check.mulW(e, u));
-            mag += check.mag(e) * check.mag(u);
+            acc = reference.addW(acc, if (i == j and s.unit) u else reference.mulW(e, u));
+            mag += reference.mag(e) * reference.mag(u);
         }
         if (r.solve()) {
             const d = M.at(&a, tr, cj, i, i).?;
-            const rhs = check.subW(x.w(i), acc);
-            z[i] = if (s.unit) rhs else check.divW(rhs, d);
-            mag = (mag + check.mag(x.w(i))) / check.mag(d);
-            check.expectWideAnyOrder(T, z[i], x.at(i), @floatFromInt(16 * (s.n + 2)), mag) catch |e| {
+            const rhs = reference.subW(x.w(i), acc);
+            z[i] = if (s.unit) rhs else reference.divW(rhs, d);
+            mag = (mag + reference.mag(x.w(i))) / reference.mag(d);
+            pattern.expectWideAnyOrder(T, z[i], x.at(i), reference.solveUlps(s.n), mag) catch |e| {
                 check.say("z[{d}]: ", .{i});
                 return e;
             };
         } else {
-            check.expectWideAnyOrder(T, acc, x.at(i), @floatFromInt(4 * (s.n + 2)), mag) catch |e| {
+            pattern.expectWideAnyOrder(T, acc, x.at(i), @floatFromInt(4 * (s.n + 2)), mag) catch |e| {
                 check.say("x[{d}]: ", .{i});
                 return e;
             };
@@ -548,7 +523,7 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
     if (az) return a.unchanged();
     const herm = s.kind == .hermitian;
     // `her` and `hpr` take the real part
-    const wa = check.wide(T, if (r == .her or r == .hpr) val(T, ar, 0) else alpha);
+    const wa = reference.wide(T, if (r == .her or r == .hpr) val(T, ar, 0) else alpha);
     // everything but the stored entries keeps its NaN
     const hit = try al.alloc(bool, a.buf.len);
     defer al.free(hit);
@@ -557,7 +532,7 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
         hit[k] = true;
     };
     for (a.buf, hit, 0..) |e, h, k| {
-        if (!h and !check.poisoned(T, e)) {
+        if (!h and !bitwise.poisoned(T, e)) {
             check.say("storage {d} written: ", .{k});
             return error.TestUnexpectedResult;
         }
@@ -569,22 +544,22 @@ fn rankRun(comptime T: type, comptime r: Routine, v: usize, alpha: T, c: Case) !
         // a column whose factors are zero is passed over, as the reference
         // does
         const skip = if (r == .ger or r == .gerc) zeroW(y.w(j)) else zeroW(x.w(j)) and (!sym2 or zeroW(y.w(j)));
-        var u = if (skip) check.wide(T, val(T, 0, 0)) else switch (r) {
-            .ger, .syr, .spr => check.mulW(wa, check.mulW(xi, yj)),
-            .gerc => check.mulW(wa, check.mulW(xi, check.conjW(yj))),
+        var u = if (skip) reference.wide(T, val(T, 0, 0)) else switch (r) {
+            .ger, .syr, .spr => reference.mulW(wa, reference.mulW(xi, yj)),
+            .gerc => reference.mulW(wa, reference.mulW(xi, reference.conjW(yj))),
             // a real alpha, part by part
-            .her, .hpr => check.scaleW(ar, check.mulW(xi, check.conjW(yj))),
-            .syr2, .spr2 => check.addW(check.mulW(wa, check.mulW(xi, yj)), check.mulW(wa, check.mulW(y.w(i), x.w(j)))),
-            .her2, .hpr2 => check.addW(check.mulW(wa, check.mulW(xi, check.conjW(yj))), check.mulW(check.conjW(wa), check.mulW(y.w(i), check.conjW(x.w(j))))),
+            .her, .hpr => reference.scaleW(ar, reference.mulW(xi, reference.conjW(yj))),
+            .syr2, .spr2 => reference.addW(reference.mulW(wa, reference.mulW(xi, yj)), reference.mulW(wa, reference.mulW(y.w(i), x.w(j)))),
+            .her2, .hpr2 => reference.addW(reference.mulW(wa, reference.mulW(xi, reference.conjW(yj))), reference.mulW(reference.conjW(wa), reference.mulW(y.w(i), reference.conjW(x.w(j))))),
             else => unreachable,
         };
-        var old = check.wide(T, a.was[k]);
+        var old = reference.wide(T, a.was[k]);
         if (comptime isComplex(T)) if (herm and i == j) {
             old.im = 0;
             u.im = 0;
         };
-        const scale = check.mag(old) + check.mag(wa) * (check.mag(xi) * check.mag(yj) + if (sym2) check.mag(y.w(i)) * check.mag(x.w(j)) else 0);
-        check.expectWideAnyOrder(T, check.addW(old, u), a.buf[k], 8, scale) catch |e| {
+        const scale = reference.mag(old) + reference.mag(wa) * (reference.mag(xi) * reference.mag(yj) + if (sym2) reference.mag(y.w(i)) * reference.mag(x.w(j)) else 0);
+        pattern.expectWideAnyOrder(T, reference.addW(old, u), a.buf[k], reference.update_ulps, scale) catch |e| {
             check.say("A({d},{d}): ", .{ i, j });
             return e;
         };
@@ -636,7 +611,7 @@ fn sweep(comptime T: type, comptime r: Routine) void {
             };
             if (len == 0) continue;
             var buf: [13]Pattern = undefined;
-            for (check.patternsFor(len, &buf)) |p| {
+            for (pattern.patternsFor(len, &buf)) |p| {
                 // huge entries overflow a solve's partial sums, which the
                 // reference's do not
                 if (r.solve() and where == .a and p == .huge) continue;
@@ -769,7 +744,7 @@ fn onThreads(comptime jobs: []const *const fn () void) void {
         }
     };
     var q: Queue = .{};
-    if (comptime !threading.hosted) {
+    if (comptime !test_io.hosted) {
         q.work();
     } else {
         var threads: [jobs.len]std.Thread = undefined;

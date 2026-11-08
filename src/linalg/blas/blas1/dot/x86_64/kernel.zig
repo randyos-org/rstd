@@ -5,7 +5,7 @@
 //!
 //! A core's kernel is one of two things upstream, chosen by its
 //! `KERNEL.<CORE>`: a whole-function `.S` kernel (`asm/`), or the C driver
-//! `{s,d,c,z}dot.c`, which is the shared driver in `../kernel.zig` around a
+//! `{s,d,c,z}dot.c`, which is the shared driver in `../driver.zig` around a
 //! block from `uk/` (the reference's inline-assembly microkernel, as written)
 //! or, for the AVX-512 cores whose upstream block is C intrinsics, the same
 //! reductions on `@Vector`s. `uk/__root__.zig` says which block each core's
@@ -14,11 +14,11 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
-const coretypes = @import("../../../cpu/_coretypes.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
 const fma = @import("../../../fma.zig");
 const util = @import("../../../util.zig");
-const kernel = @import("../kernel.zig");
-const uk = @import("../../uk_block.zig");
+const kernel = @import("../driver.zig");
+const uk = @import("../../../uk_block.zig");
 
 const BlasLong = types.BlasLong;
 const Slot = util.Slot;

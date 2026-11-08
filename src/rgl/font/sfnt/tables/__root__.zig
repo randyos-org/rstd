@@ -1,3 +1,8 @@
+//! sfnt tables as views: each table's `table_data` borrows the parent Sfnt's
+//! `font_data`, and every accessor reads its big-endian field from those bytes
+//! on each call; nothing is copied or allocated. The `extern struct` headers
+//! are schemas for `@offsetOf` and `@sizeOf` only, never instantiated.
+
 pub const general = @import("general.zig");
 pub const HeadTable = @import("head.zig").HeadTable;
 pub const MaxpTable = @import("maxp.zig").MaxpTable;
@@ -21,7 +26,6 @@ pub const StatTable = @import("stat.zig").StatTable;
 const cff = @import("cff/__root__.zig");
 pub const CffTable = cff.CffTable;
 pub const CffError = cff.CffError;
-pub const CharstringCtx = cff.CharstringCtx;
 pub const CharstringError = cff.CharstringError;
 
 const gpos = @import("gpos/__root__.zig");

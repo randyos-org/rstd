@@ -1,37 +1,25 @@
-//! Edge cases through every level-1 kernel, on every core this machine runs,
-//! against an `f128` reference: the special values of `check.Pattern`, NaN
-//! in every gap between strided elements and past the last one (which must
-//! stay as it was), and strides negative and large.
-//!
-//! NaN and infinities reach every output they feed, and denormals do not
-//! flush. Not propagation, on purpose, as the reference has it:
-//! - `axpby` with a zero `beta` never reads `y`, with a zero `alpha` never
-//!   reads `x` (`kernel/arm/axpby.c`); both zero store zeros;
-//! - `rotm` with flag -2 leaves `x` and `y` alone;
-//! - in the extremes the first NaN wins, its index and NaN for the value;
-//!   else they replace only on a strict `>` or `<`, so ties keep the first;
-//! - `nrm2` is Inf for an infinity and NaN for a NaN, as LAPACK 3.10's; past
-//!   `f64` it is the plain sum of squares (`nrm2/`), so tiny and huge
-//!   operands are not its cases there;
-//! - a zero `alpha` in `scal` follows its flag (`scal/`'s `checkFlag`); in
-//!   `axpy` it is the interface's quick return, but a kernel called with one
-//!   multiplies, so NaN and infinities in `x` give NaN.
-//!
-//! The same on every core: where a core's converted kernels did otherwise,
-//! they are not used (`vector.routed`, `issues.md`).
+//! Edge cases through every level-1 kernel on every core this machine runs,
+//! against an `f128` reference: `pattern.Pattern`'s special values, NaN in the
+//! gaps, negative and large strides; what may not propagate, `design.md`'s Verification.
 
 const std = @import("std");
 const types = @import("../../types.zig");
 const Vtable = @import("../../Vtable.zig");
-const check = @import("check.zig");
+const portable = @import("../../portable.zig");
+const util = @import("../../util.zig");
+const check = @import("../check.zig");
+const bitwise = @import("../bitwise.zig");
+const pattern = @import("../pattern.zig");
+const reference = @import("../reference.zig");
 const extremum = @import("../../blas1/extremum.zig");
+const blas1 = @import("../../blas1/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
 const C = std.math.Complex;
 const Float = check.FloatOf;
 const isComplex = check.isComplex;
-const Wide = check.Wide;
+const Wide = reference.Wide;
 const Vector = check.Vector;
 
 /// Sizes past every unroll, for strides up to 3.
@@ -48,7 +36,7 @@ const large_sizes = [_]usize{ 2, 5 };
 
 /// A case: size, strides, pattern, the operand that has it, and where the
 /// operands' storage comes from.
-const Case = struct { n: usize, inc: [2]isize, p: check.Pattern, on_y: bool, al: Allocator };
+const Case = struct { n: usize, inc: [2]isize, p: pattern.Pattern, on_y: bool, al: Allocator };
 
 /// Operand `which` of `c`: 0 for `x`, 1 for `y`.
 fn vec(comptime T: type, c: Case, which: u1) !Vector(T) {
@@ -60,12 +48,10 @@ fn stride(v: anytype) BlasLong {
 }
 
 fn zero(comptime T: type) Wide(T) {
-    return check.wide(T, if (comptime isComplex(T)) T.init(0, 0) else 0);
+    return reference.wide(T, if (comptime isComplex(T)) T.init(0, 0) else 0);
 }
 
-fn isZero(comptime T: type, v: T) bool {
-    return if (comptime isComplex(T)) v.re == 0 and v.im == 0 else v == 0;
-}
+const isZero = util.isZero;
 
 /// `a*u + b*v` for real `a` and `b`.
 fn lin(comptime T: type, a: f128, u: Wide(T), b: f128, v: Wide(T)) Wide(T) {
@@ -85,8 +71,8 @@ fn sweep(comptime T: type, routine: []const u8, two: bool, neg: bool, ctx: anyty
     for ([_]bool{ false, true }) |big| for (if (big) &large else &(strides ++ negative)) |inc| {
         if (!neg and (inc[0] < 0 or inc[1] < 0)) continue;
         for (if (big) &large_sizes else &sizes) |n| {
-            var buf: [13]check.Pattern = undefined;
-            const ps: []const check.Pattern = if (big) &.{.mixed} else check.patterns(n, &buf);
+            var buf: [13]pattern.Pattern = undefined;
+            const ps: []const pattern.Pattern = if (big) &.{.mixed} else pattern.patterns(n, &buf);
             for (ps) |p| for ([_]bool{ false, true }) |on_y| {
                 if (on_y and !two) continue;
                 fba.reset();
@@ -108,7 +94,7 @@ fn copyRun(comptime T: type, kern: anytype, c: Case) !void {
     defer y.deinit(c.al);
     _ = kern(@intCast(c.n), x.first(), stride(x), y.first(), stride(y));
     try x.unchanged();
-    for (0..c.n) |i| if (!check.same(T, x.was[i], y.at(i), true)) {
+    for (0..c.n) |i| if (!bitwise.same(T, x.was[i], y.at(i), true)) {
         check.say("element {d} not copied exactly: ", .{i});
         return error.TestUnexpectedResult;
     };
@@ -126,7 +112,7 @@ fn swapRun(comptime T: type, kern: anytype, c: Case) !void {
     } else {
         _ = kern(n, 0, 0, 0, x.first(), stride(x), y.first(), stride(y), y.first(), 0);
     }
-    for (0..c.n) |i| if (!check.same(T, x.was[i], y.at(i), true) or !check.same(T, y.was[i], x.at(i), true)) {
+    for (0..c.n) |i| if (!bitwise.same(T, x.was[i], y.at(i), true) or !bitwise.same(T, y.was[i], x.at(i), true)) {
         check.say("element {d} not swapped exactly: ", .{i});
         return error.TestUnexpectedResult;
     };
@@ -145,15 +131,11 @@ fn scalRun(comptime T: type, ctx: anytype, c: Case) !void {
     defer x.deinit(c.al);
     const a = ctx.alpha;
     const n: BlasLong = @intCast(c.n);
-    if (comptime isComplex(T)) {
-        _ = ctx.kern(n, 0, 0, a.re, a.im, x.first(), stride(x), x.first(), 0, x.first(), 1);
-    } else {
-        _ = ctx.kern(n, 0, 0, a, x.first(), stride(x), x.first(), 0, x.first(), 1);
-    }
-    const wa = check.wide(T, a);
+    _ = @call(.auto, ctx.kern, .{ n, 0, 0 } ++ util.scalarArgs(T, a) ++ .{ x.first(), stride(x), x.first(), 0, x.first(), 1 });
+    const wa = reference.wide(T, a);
     for (0..c.n) |i| {
-        const want = check.mulW(wa, x.w(i));
-        try check.expectWide(T, want, x.at(i), 4, check.mag(wa) * check.mag(x.w(i)));
+        const want = reference.mulW(wa, x.w(i));
+        try pattern.expectWide(T, want, x.at(i), reference.elem_ulps, reference.mag(wa) * reference.mag(x.w(i)));
         if (comptime !isComplex(T)) if (want == 0 and std.math.signbit(want) != std.math.signbit(x.at(i))) {
             check.say("element {d}: zero of the wrong sign: ", .{i});
             return error.TestUnexpectedResult;
@@ -175,16 +157,12 @@ fn axpyRun(comptime T: type, ctx: anytype, c: Case) !void {
     defer y.deinit(c.al);
     const a = ctx.alpha;
     const n: BlasLong = @intCast(c.n);
-    if (comptime isComplex(T)) {
-        _ = ctx.kern(n, 0, 0, a.re, a.im, x.first(), stride(x), y.first(), stride(y), y.first(), 0);
-    } else {
-        _ = ctx.kern(n, 0, 0, a, x.first(), stride(x), y.first(), stride(y), y.first(), 0);
-    }
-    const wa = check.wide(T, a);
+    _ = @call(.auto, ctx.kern, .{ n, 0, 0 } ++ util.scalarArgs(T, a) ++ .{ x.first(), stride(x), y.first(), stride(y), y.first(), 0 });
+    const wa = reference.wide(T, a);
     for (0..c.n) |i| {
-        const xv = if (ctx.conj) check.conjW(x.w(i)) else x.w(i);
-        const want = check.addW(y.w(i), check.mulW(wa, xv));
-        try check.expectWide(T, want, y.at(i), 4, check.mag(y.w(i)) + check.mag(wa) * check.mag(xv));
+        const xv = if (ctx.conj) reference.conjW(x.w(i)) else x.w(i);
+        const want = reference.addW(y.w(i), reference.mulW(wa, xv));
+        try pattern.expectWide(T, want, y.at(i), reference.elem_ulps, reference.mag(y.w(i)) + reference.mag(wa) * reference.mag(xv));
     }
     try x.unchanged();
     try y.gaps();
@@ -208,18 +186,14 @@ fn axpbyRun(comptime T: type, ctx: anytype, c: Case) !void {
     const a = ctx.alpha;
     const b = ctx.beta;
     const n: BlasLong = @intCast(c.n);
-    if (comptime isComplex(T)) {
-        _ = ctx.kern(n, a.re, a.im, x.first(), stride(x), b.re, b.im, y.first(), stride(y));
-    } else {
-        _ = ctx.kern(n, a, x.first(), stride(x), b, y.first(), stride(y));
-    }
-    const wa = check.wide(T, a);
-    const wb = check.wide(T, b);
+    _ = @call(.auto, ctx.kern, .{n} ++ util.scalarArgs(T, a) ++ .{ x.first(), stride(x) } ++ util.scalarArgs(T, b) ++ .{ y.first(), stride(y) });
+    const wa = reference.wide(T, a);
+    const wb = reference.wide(T, b);
     for (0..c.n) |i| {
-        const ax = if (az) zero(T) else check.mulW(wa, x.w(i));
-        const by = if (bz) zero(T) else check.mulW(wb, y.w(i));
-        const scale = check.mag(wa) * check.mag(x.w(i)) + check.mag(wb) * check.mag(y.w(i));
-        check.expectWide(T, check.addW(ax, by), y.at(i), 4, scale) catch |e| {
+        const ax = if (az) zero(T) else reference.mulW(wa, x.w(i));
+        const by = if (bz) zero(T) else reference.mulW(wb, y.w(i));
+        const scale = reference.mag(wa) * reference.mag(x.w(i)) + reference.mag(wb) * reference.mag(y.w(i));
+        pattern.expectWide(T, reference.addW(ax, by), y.at(i), reference.elem_ulps, scale) catch |e| {
             check.say("y[{d}]: ", .{i});
             return e;
         };
@@ -241,9 +215,9 @@ fn rotRun(comptime T: type, ctx: anytype, c: Case) !void {
     const F = Float(T);
     _ = ctx.kern(@intCast(c.n), x.first(), stride(x), y.first(), stride(y), @as(F, @floatCast(ctx.c)), @as(F, @floatCast(ctx.s)));
     for (0..c.n) |i| {
-        const scale = @abs(ctx.c) * check.mag(x.w(i)) + @abs(ctx.s) * check.mag(y.w(i));
-        try check.expectWide(T, lin(T, ctx.c, x.w(i), ctx.s, y.w(i)), x.at(i), 4, scale);
-        try check.expectWide(T, lin(T, ctx.c, y.w(i), -ctx.s, x.w(i)), y.at(i), 4, scale);
+        const scale = @abs(ctx.c) * reference.mag(x.w(i)) + @abs(ctx.s) * reference.mag(y.w(i));
+        try pattern.expectWide(T, lin(T, ctx.c, x.w(i), ctx.s, y.w(i)), x.at(i), reference.elem_ulps, scale);
+        try pattern.expectWide(T, lin(T, ctx.c, y.w(i), -ctx.s, x.w(i)), y.at(i), reference.elem_ulps, scale);
     }
     try x.gaps();
     try y.gaps();
@@ -269,9 +243,9 @@ fn rotmRun(comptime T: type, ctx: anytype, c: Case) !void {
     // h11, h12, h21, h22
     const h: [4]f128 = if (ctx.flag < 0) .{ 0.75, 0.25, -0.5, 1.25 } else if (ctx.flag == 0) .{ 1, 0.25, -0.5, 1 } else .{ 0.75, 1, -1, 1.25 };
     for (0..c.n) |i| {
-        const scale = check.mag(x.w(i)) + check.mag(y.w(i));
-        try check.expectWide(T, lin(T, h[0], x.w(i), h[1], y.w(i)), x.at(i), 4, scale);
-        try check.expectWide(T, lin(T, h[2], x.w(i), h[3], y.w(i)), y.at(i), 4, scale);
+        const scale = reference.mag(x.w(i)) + reference.mag(y.w(i));
+        try pattern.expectWide(T, lin(T, h[0], x.w(i), h[1], y.w(i)), x.at(i), reference.elem_ulps, scale);
+        try pattern.expectWide(T, lin(T, h[2], x.w(i), h[3], y.w(i)), y.at(i), reference.elem_ulps, scale);
     }
     try x.gaps();
     try y.gaps();
@@ -291,15 +265,15 @@ fn dotRun(comptime T: type, ctx: anytype, c: Case) !void {
     var want = zero(T);
     var scale: f128 = 0;
     for (0..c.n) |i| {
-        const xv = if (ctx.conj) check.conjW(x.w(i)) else x.w(i);
-        want = check.addW(want, check.mulW(xv, y.w(i)));
-        scale += check.mag(xv) * check.mag(y.w(i));
+        const xv = if (ctx.conj) reference.conjW(x.w(i)) else x.w(i);
+        want = reference.addW(want, reference.mulW(xv, y.w(i)));
+        scale += reference.mag(xv) * reference.mag(y.w(i));
     }
-    const ulps: f128 = @floatFromInt(4 * (c.n + 2));
+    const ulps = reference.dotUlps(c.n);
     if (comptime isComplex(T)) {
-        try check.expectWide(T, want, .init(got.re, got.im), ulps, scale);
+        try pattern.expectWide(T, want, .init(got.re, got.im), ulps, scale);
     } else {
-        try check.component(T, want, got, ulps, scale);
+        try pattern.component(T, want, got, ulps, scale);
     }
     try x.unchanged();
     try y.unchanged();
@@ -321,16 +295,16 @@ fn reduceRun(comptime T: type, ctx: anytype, c: Case) !void {
     var mag: f128 = 0;
     for (0..c.n) |i| {
         const v = x.w(i);
-        mag += check.mag(v);
+        mag += reference.mag(v);
         acc += switch (ctx.op) {
-            .asum => check.abs1(v),
+            .asum => reference.abs1(v),
             .sum => if (comptime isComplex(T)) v.re + v.im else v,
             .nrm2 => if (comptime isComplex(T)) v.re * v.re + v.im * v.im else v * v,
         };
     }
-    const want = if (ctx.op == .nrm2) check.sqrtW(acc) else acc;
-    const ulps: f128 = @floatFromInt(2 * (c.n + 2));
-    try check.component(Float(T), want, got, ulps, if (ctx.op == .nrm2) want else mag);
+    const want = if (ctx.op == .nrm2) reference.sqrtW(acc) else acc;
+    const ulps = reference.sumUlps(c.n);
+    try pattern.component(Float(T), want, got, ulps, if (ctx.op == .nrm2) want else mag);
     try x.unchanged();
 }
 
@@ -357,7 +331,7 @@ fn scan(comptime T: type, x: anytype, find: extremum.Find) usize {
 
 fn keyOf(comptime T: type, x: anytype, find: extremum.Find, i: usize) f128 {
     const v = x.w(i);
-    return if (comptime isComplex(T)) check.abs1(v) else if (find.abs) @abs(v) else v;
+    return if (comptime isComplex(T)) reference.abs1(v) else if (find.abs) @abs(v) else v;
 }
 
 /// The extreme's value, or its 1-based index, by the kernel's return type.
@@ -372,7 +346,7 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
         if (got == @as(BlasLong, @intCast(ref))) return;
     } else {
         if ((std.math.isNan(key) and std.math.isNan(got)) or got == key) return;
-        if (@abs(@as(f128, got) - key) <= 2 * std.math.floatEps(Float(T)) * @abs(key)) return;
+        if (@abs(@as(f128, got) - key) <= reference.keyTol(Float(T)) * @abs(key)) return;
     }
     check.say("{any}, want {d}: ", .{ got, if (@TypeOf(got) == BlasLong) @as(f128, @floatFromInt(ref)) else keyOf(T, &x, ctx.find, ref - 1) });
     return error.TestUnexpectedResult;
@@ -401,25 +375,25 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     const nan_b: T = if (complex) .init(0, nan) else nan;
     const zero_t: T = if (complex) .init(0, 0) else 0;
     const beta: T = if (complex) .init(-0.5, 0.25) else -0.5;
-    note(sweep(T, l ++ "copy", false, true, @field(vt, l ++ "copy_k").?, copyRun));
-    note(sweep(T, l ++ "swap", true, true, @field(vt, l ++ "swap_k").?, swapRun));
-    const scal = @field(vt, l ++ "scal_k").?;
+    note(sweep(T, l ++ "copy", false, true, portable.slotPtr(vt, .from(l), .copy_k).*.?, copyRun));
+    note(sweep(T, l ++ "swap", true, true, portable.slotPtr(vt, .from(l), .swap_k).*.?, swapRun));
+    const scal = portable.slotPtr(vt, .from(l), .scal_k).*.?;
     for ([_]T{ one, inf, nan_a, nan_b }) |a| note(sweep(T, l ++ "scal", false, false, Scal(T, @TypeOf(scal)){ .kern = scal, .alpha = a }, scalRun));
-    const axpy = @field(vt, l ++ "axpy_k").?;
+    const axpy = portable.slotPtr(vt, .from(l), .axpy_k).*.?;
     // a zero alpha too, which the triangular drivers pass (`-x(j)`): `0 * x`
     for ([_]T{ one, zero_t, nan_a, nan_b }) |a| {
         note(sweep(T, l ++ "axpy", true, true, Axpy(T, @TypeOf(axpy)){ .kern = axpy, .alpha = a, .conj = false }, axpyRun));
-        if (complex) note(sweep(T, l ++ "axpyc", true, true, Axpy(T, @TypeOf(axpy)){ .kern = @field(vt, l ++ "axpyc_k").?, .alpha = a, .conj = true }, axpyRun));
+        if (complex) note(sweep(T, l ++ "axpyc", true, true, Axpy(T, @TypeOf(axpy)){ .kern = portable.slotPtr(vt, .from(l), .axpyc_k).*.?, .alpha = a, .conj = true }, axpyRun));
     }
-    if (@hasField(Vtable, l ++ "axpby_k")) if (@field(vt, l ++ "axpby_k")) |k| {
+    if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| {
         for ([_][2]T{ .{ one, beta }, .{ zero_t, beta }, .{ one, zero_t }, .{ zero_t, zero_t } }) |ab| {
             note(sweep(T, l ++ "axpby", true, true, Axpby(T, @TypeOf(k)){ .kern = k, .alpha = ab[0], .beta = ab[1] }, axpbyRun));
         }
     };
-    const rot = @field(vt, if (complex) l ++ (if (l[0] == 'c') "s" else if (l[0] == 'z') "d" else "q") ++ "rot_k" else l ++ "rot_k").?;
+    const rot = portable.slotPtr(vt, .from(l), .rot_k).*.?;
     note(sweep(T, l ++ "rot", true, true, Rot(@TypeOf(rot)){ .kern = rot, .c = 0.6, .s = 0.8 }, rotRun));
     if (!complex) for ([_]f64{ -2, -1, 0, 1 }) |flag| {
-        const k = @field(vt, l ++ "rotm_k").?;
+        const k = portable.slotPtr(vt, .from(l), .rotm_k).*.?;
         note(sweep(T, l ++ "rotm", true, true, Rotm(@TypeOf(k)){ .kern = k, .flag = flag }, rotmRun));
     };
     inline for (if (complex) .{ .{ "dotu", false }, .{ "dotc", true } } else .{.{ "dot", false }}) |d| {
@@ -440,7 +414,7 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
     }
 }
 
-const vtable_types = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", C(f32) }, .{ "z", C(f64) } };
+const vtable_types = check.sd_letters;
 
 fn checkAll(vt: *const Vtable) !void {
     failed = null;
@@ -449,7 +423,6 @@ fn checkAll(vt: *const Vtable) !void {
     if (failed) |e| return e;
 }
 
-const blas1 = @import("../../blas1/__root__.zig");
 const XDouble = types.XDouble;
 
 test "portable level-1 kernels: special values, poisoned gaps, and negative and large strides" {
@@ -495,7 +468,7 @@ fn shifted(comptime T: type, routine: []const u8, comptime two: bool, kern: anyt
             const got = if (two) kern(@intCast(n), x, 1, y, 1) else kern(@intCast(n), x, 1);
             const bits: [2]f64 = if (@typeInfo(@TypeOf(got)) == .@"struct") .{ got.re, got.im } else .{ got, 0 };
             if (first) |f| {
-                if (!check.same(f64, f[0], bits[0], true) or !check.same(f64, f[1], bits[1], true)) {
+                if (!bitwise.same(f64, f[0], bits[0], true) or !bitwise.same(f64, f[1], bits[1], true)) {
                     check.say("{s} {s} n={d}: shifted by {d},{d} gave {any}, unshifted {any}: ", .{ routine, @typeName(T), n, ox, oy, bits, f });
                     return error.TestUnexpectedResult;
                 }
@@ -528,9 +501,9 @@ fn shiftedWise(comptime T: type, routine: []const u8, comptime op: Wise, kern: a
             @memcpy(y[0..m], @as([*]const F, @ptrCast(&vals[1]))[0..m]);
             const ni: BlasLong = @intCast(n);
             _ = switch (op) {
-                .scal => if (complex) kern(ni, 0, 0, a.re, a.im, x, 1, x, 0, x, 1) else kern(ni, 0, 0, a, x, 1, x, 0, x, 1),
-                .axpy => if (complex) kern(ni, 0, 0, a.re, a.im, x, 1, y, 1, y, 0) else kern(ni, 0, 0, a, x, 1, y, 1, y, 0),
-                .axpby => if (complex) kern(ni, a.re, a.im, x, 1, b.re, b.im, y, 1) else kern(ni, a, x, 1, b, y, 1),
+                .scal => @call(.auto, kern, .{ ni, 0, 0 } ++ util.scalarArgs(T, a) ++ .{ x, 1, x, 0, x, 1 }),
+                .axpy => @call(.auto, kern, .{ ni, 0, 0 } ++ util.scalarArgs(T, a) ++ .{ x, 1, y, 1, y, 0 }),
+                .axpby => @call(.auto, kern, .{ni} ++ util.scalarArgs(T, a) ++ .{ x, 1 } ++ util.scalarArgs(T, b) ++ .{ y, 1 }),
                 .rot => kern(ni, x, 1, y, 1, @as(F, 0.6), @as(F, 0.8)),
             };
             if (ox == 0 and oy == 0) {
@@ -556,11 +529,10 @@ fn checkShifted(vt: *const Vtable) !void {
         const a: T = if (comptime isComplex(T)) .init(1.5, -0.75) else 1.5;
         // complex kernels branch on a zero part (`scalReal` passes one)
         const scals: []const T = if (comptime isComplex(T)) &.{ a, .init(1.5, 0), .init(0, -0.75) } else &.{a};
-        for (scals) |s| note(shiftedWise(T, l ++ "scal", .scal, @field(vt, l ++ "scal_k").?, s));
+        for (scals) |s| note(shiftedWise(T, l ++ "scal", .scal, portable.slotPtr(vt, .from(l), .scal_k).*.?, s));
         inline for (if (comptime isComplex(T)) .{ "axpy", "axpyc" } else .{"axpy"}) |r| note(shiftedWise(T, l ++ r, .axpy, @field(vt, l ++ r ++ "_k").?, a));
-        if (@hasField(Vtable, l ++ "axpby_k")) if (@field(vt, l ++ "axpby_k")) |k| note(shiftedWise(T, l ++ "axpby", .axpby, k, a));
-        const rot = if (comptime isComplex(T)) l ++ (if (l[0] == 'c') "s" else "d") ++ "rot_k" else l ++ "rot_k";
-        note(shiftedWise(T, l ++ "rot", .rot, @field(vt, rot).?, a));
+        if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| note(shiftedWise(T, l ++ "axpby", .axpby, k, a));
+        note(shiftedWise(T, l ++ "rot", .rot, portable.slotPtr(vt, .from(l), .rot_k).*.?, a));
     }
     note(shifted(f32, "dsdot", true, vt.dsdot_k.?));
     if (failed) |e| return e;
@@ -661,8 +633,8 @@ fn contractCase(comptime l: []const u8, comptime T: type, vt: *const Vtable, ref
             return error.TestUnexpectedResult;
         }
     }
-    const got = @field(vt, l ++ "nrm2_k").?(ni, x, 1);
-    const want = @field(ref, l ++ "nrm2_k").?(ni, x, 1);
+    const got = portable.slotPtr(vt, .from(l), .nrm2_k).*.?(ni, x, 1);
+    const want = portable.slotPtr(ref, .from(l), .nrm2_k).*.?(ni, x, 1);
     const w: f128 = if (complex) 2 else 1;
     const ulps: f128 = if (F == f32) 2 else @as(f128, @floatFromInt(n)) * w + 4;
     if (std.math.isNan(want) != std.math.isNan(got) or std.math.isInf(want) != std.math.isInf(got) or

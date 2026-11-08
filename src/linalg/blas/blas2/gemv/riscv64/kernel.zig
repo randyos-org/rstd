@@ -4,8 +4,8 @@
 //! bits (`vector.Half`). The other `gemv` slots take `vector.zig`'s kernels through the registry's
 //! `vector_rule`. Per-core tests live in `gemv/__root__.zig`.
 
-const coretypes = @import("../../../cpu/_coretypes.zig");
-const registry = @import("../../../asm_registry.zig");
+const coretypes = @import("../../../cpu/coretypes.zig");
+const registry = @import("../../../registry.zig");
 const vector = @import("../../../vector.zig");
 
 pub const Core = coretypes.RiscvCoreType;

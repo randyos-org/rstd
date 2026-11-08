@@ -1,10 +1,11 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const std = @import("std");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the STAT header, used only to compute field offsets/sizes at
-/// comptime; never instantiated. v1.0 (deprecated) omits
-/// elided_fallback_name_id; v1.1 adds it; v1.2 only adds a new
-/// axis-value-table format. offset_to_axis_value_offsets needs align(2).
+/// The STAT header. v1.0 (deprecated) omits elided_fallback_name_id; v1.1 adds
+/// it; v1.2 only adds a new axis-value-table format.
+/// offset_to_axis_value_offsets needs align(2).
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -20,7 +21,7 @@ const StreamLayout = extern struct {
 const v1_0_size = @offsetOf(StreamLayout, "elided_fallback_name_id");
 
 /// One entry in the design axes array. getDesignAxis() strides by
-/// designAxisSize() (not @sizeOf(DesignAxisRecord)) - same pattern as
+/// designAxisSize() (not @sizeOf(DesignAxisRecord)); same pattern as
 /// fvar's VariationAxisRecord.
 pub const DesignAxisRecord = extern struct {
     axis_tag: types.TagStr,
@@ -62,11 +63,10 @@ pub const AxisValueFormat3 = extern struct {
     linked_value: types.Fixed,
 };
 
-/// Schema for format 4's fixed header, used only to compute field
-/// offsets/sizes at comptime; never instantiated. The axisValues[] array
-/// that follows is genuinely variable-length (sized by axisCount), so it's
-/// walked via AxisValueFormat4.getAxisValue() rather than modeled as one
-/// fixed extern struct.
+/// Format 4's fixed header. The axisValues[] array that follows is genuinely
+/// variable-length (sized by axisCount), so it's walked via
+/// AxisValueFormat4.getAxisValue() rather than modeled as one fixed extern
+/// struct.
 const AxisValueFormat4Header = extern struct {
     format: u16,
     axis_count: u16,
@@ -76,7 +76,7 @@ const AxisValueFormat4Header = extern struct {
 
 /// One (axisIndex, value) pair within an AxisValueFormat4's axisValues
 /// array. value's natural 4-byte alignment doesn't match its 2-mod-4 offset
-/// after axis_index, hence align(2) - same situation as StreamLayout above.
+/// after axis_index, hence align(2); same situation as StreamLayout above.
 pub const AxisValueRecord = extern struct {
     axis_index: u16,
     value: types.Fixed align(2),
@@ -180,7 +180,7 @@ pub const StatTable = struct {
         return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "offset_to_axis_value_offsets")..]);
     }
 
-    /// Null in a version 1.0 table (deprecated per spec - use of version
+    /// Null in a version 1.0 table (deprecated per spec; use of version
     /// 1.0 is discouraged and this field is simply absent from the stream).
     pub fn elidedFallbackNameId(self: Self) ?u16 {
         if (self.minorVersion() < 1) return null;
@@ -194,7 +194,7 @@ pub const StatTable = struct {
 
     /// Axis value table offsets are relative to the start of the axis value
     /// offsets array itself (offsetToAxisValueOffsets()), not to the start
-    /// of the STAT table - same indirection style as gvar's
+    /// of the STAT table; same indirection style as gvar's
     /// glyphVariationDataOffsets.
     pub fn getAxisValue(self: Self, index: usize) AxisValueTable {
         const array_off = self.offsetToAxisValueOffsets();
@@ -203,9 +203,6 @@ pub const StatTable = struct {
         return .{ .table_data = self.table_data[array_off + rel ..] };
     }
 };
-
-const std = @import("std");
-const zigstd = @import("../../../../zigstd.zig");
 
 test "STAT StreamLayout/records match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

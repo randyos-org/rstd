@@ -1,7 +1,6 @@
 //! std lib aliases for convenience
 
 const std = @import("std");
-const zigstd = @import("zigstd.zig");
 
 pub const Allocator = std.mem.Allocator;
 pub const MainInit = std.process.Init;

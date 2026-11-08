@@ -3,26 +3,24 @@
 const blas = @import("../../__root__.zig");
 const apple_accel = @import("../../apple_accel.zig");
 const types = @import("../../types.zig");
-
-const Complex32 = types.Complex32;
-const Complex64 = types.Complex64;
-
 const std = @import("std");
-const check = @import("../../_test/blas3/check.zig");
+const check3 = @import("../../_test/blas3/check.zig");
 const Vtable = @import("../../Vtable.zig");
 const driver = @import("../driver.zig");
 const iface = @import("../interface.zig");
 const triangular = @import("../../blas2/triangular.zig");
-const corespec = @import("../../cpu/_corespec.zig");
-const registry = @import("../../asm_registry.zig");
+const corespec = @import("../../cpu/corespec.zig");
+const registry = @import("../../registry.zig");
 const util = @import("../../util.zig");
+const check = @import("../../_test/check.zig");
+const portable = @import("../../portable.zig");
+
+const Complex32 = types.Complex32;
+const Complex64 = types.Complex64;
 
 fn cases(vt: *const Vtable) !void {
-    try check.routineAll(vt, .trsm);
+    try check3.routineAll(vt, .trsm);
 }
-
-const blas1check = @import("../../_test/blas1/check.zig");
-const portable = @import("../../portable.zig");
 
 test "portable trsm matches the wide reference through the driver" {
     var vt: Vtable = .{};
@@ -31,11 +29,11 @@ test "portable trsm matches the wide reference through the driver" {
 }
 
 test "every linked core's trsm matches the wide reference, where this machine runs it" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }
 
 const testing = std.testing;
-const precisions = .{ f32, f64, Complex32, Complex64 };
+const precisions = check.sd_types;
 
 /// A small integer, complex or not, as `[re, im]`.
 const Int = [2]i64;
@@ -63,7 +61,7 @@ fn tinyDiagonal(comptime T: type, vt: *const Vtable) !void {
     const m = 9;
     const n = 7;
     const nan = std.math.nan(F);
-    const ts: []const check.Trans = if (complex) &.{ .n, .t, .r, .c } else &.{ .n, .t };
+    const ts: []const check3.Trans = if (complex) &.{ .n, .t, .r, .c } else &.{ .n, .t };
     for ([_]bool{ true, false }) |left| for ([_]bool{ true, false }) |upper| for (ts) |tr| {
         const ka: usize = if (left) m else n;
         // `A` as integers, then stored scaled, NaN where it is not stored
@@ -79,7 +77,7 @@ fn tinyDiagonal(comptime T: type, vt: *const Vtable) !void {
             a[r + c * ka] = if (kept) scaled(T, v, t) else if (complex) .init(nan, nan) else nan;
         };
         const opA = struct {
-            fn f(p: []const Int, k: usize, trc: check.Trans, i: usize, l: usize) Int {
+            fn f(p: []const Int, k: usize, trc: check3.Trans, i: usize, l: usize) Int {
                 const v = if (trc.transposed()) p[l + i * k] else p[i + l * k];
                 return if (trc.conjugated()) .{ v[0], -v[1] } else v;
             }
@@ -98,7 +96,7 @@ fn tinyDiagonal(comptime T: type, vt: *const Vtable) !void {
             b[i + j * m] = scaled(T, sum, t);
         };
         const one: T = if (complex) .init(1, 0) else 1;
-        try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &a, ka, &b, m, 1);
+        try driver.trsm(testing.allocator, check3.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &a, ka, &b, m, 1);
         for (0..n) |j| for (0..m) |i| {
             const want = scaled(T, x[i + j * m], 1);
             const got = b[i + j * m];
@@ -122,7 +120,7 @@ test "trsm divides by a diagonal whose reciprocal overflows, and stays finite an
 }
 
 test "every linked core's trsm divides by a tiny diagonal, where this machine runs it" {
-    try blas1check.eachCore(tinyCases);
+    try check.eachCore(tinyCases);
 }
 
 /// `trsv` and a one-column `trsm` on the same system, every option, through
@@ -139,8 +137,8 @@ fn sameAsTrsv(comptime T: type) !void {
     const nan: T = if (complex) .init(std.math.nan(F), std.math.nan(F)) else std.math.nan(F);
     var d: [n]T = undefined;
     var rhs: [n]T = undefined;
-    blas1check.fill(T, &d, 5);
-    blas1check.fill(T, &rhs, 6);
+    check.fill(T, &d, 5);
+    check.fill(T, &rhs, 6);
     for (0..n) |i| {
         // a third tiny, all at least 1 in magnitude before scaling
         const s: F = if (i % 3 == 0) t else 1;
@@ -162,8 +160,8 @@ fn sameAsTrsv(comptime T: type) !void {
         var y = rhs;
         const uplo: types.Uplo = if (upper) .u else .l;
         const diag: types.Diag = if (unit) .u else .n;
-        try triangular.trsv(testing.allocator, check.io, T, uplo, tr, diag, n, &a, n, &x, 1);
-        try iface.trsm(testing.allocator, check.io, T, .l, uplo, tr, diag, n, 1, one, &a, n, &y, n);
+        try triangular.trsv(testing.allocator, check3.io, T, uplo, tr, diag, n, &a, n, &x, 1);
+        try iface.trsm(testing.allocator, check3.io, T, .l, uplo, tr, diag, n, 1, one, &a, n, &y, n);
         for (x) |u| {
             const fin = if (complex) std.math.isFinite(u.re) and std.math.isFinite(u.im) else std.math.isFinite(u);
             try testing.expect(fin);
@@ -215,9 +213,9 @@ fn unitCases(vt: *const Vtable) !void {
         const one: T = if (complex) .init(1, 0) else 1;
         var a: [m * m]T = undefined;
         var rhs: [m * n]T = undefined;
-        blas1check.fill(T, &a, 7);
-        blas1check.fill(T, &rhs, 8);
-        const ts: []const check.Trans = if (complex) &.{ .n, .t, .r, .c } else &.{ .n, .t };
+        check.fill(T, &a, 7);
+        check.fill(T, &rhs, 8);
+        const ts: []const check3.Trans = if (complex) &.{ .n, .t, .r, .c } else &.{ .n, .t };
         for ([_]bool{ true, false }) |left| for ([_]bool{ true, false }) |upper| for (ts) |tr| {
             const ka: usize = if (left) m else n;
             var au = a;
@@ -228,8 +226,8 @@ fn unitCases(vt: *const Vtable) !void {
             }
             var bu = rhs;
             var bn = rhs;
-            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), true, m, n, one, &au, ka, &bu, m, 1);
-            try driver.trsm(testing.allocator, check.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &an, ka, &bn, m, 1);
+            try driver.trsm(testing.allocator, check3.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), true, m, n, one, &au, ka, &bu, m, 1);
+            try driver.trsm(testing.allocator, check3.io, T, vt, left, upper, tr.transposed(), tr.conjugated(), false, m, n, one, &an, ka, &bn, m, 1);
             testing.expectEqualSlices(u8, std.mem.asBytes(&bn), std.mem.asBytes(&bu)) catch |e| {
                 std.debug.print("{s} left={} upper={} trans={t}\n", .{ @typeName(T), left, upper, tr });
                 return e;
@@ -245,5 +243,5 @@ test "trsm on a unit diagonal gives the bits of dividing by ones" {
 }
 
 test "every linked core's trsm on a unit diagonal gives the bits of dividing by ones" {
-    try blas1check.eachCore(unitCases);
+    try check.eachCore(unitCases);
 }

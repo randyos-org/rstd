@@ -1,28 +1,17 @@
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
 const LocaTable = @import("../loca.zig").LocaTable;
-
-const Allocator = zigstd.Allocator;
-
 const SimpleGlyph = @import("SimpleGlyph.zig");
 const CompositeGlyph = @import("CompositeGlyph.zig");
 
-// Glyph outlines. Unlike the fixed-size tables, glyf isn't decoded up front:
-// a font can have thousands of glyphs and callers only ever need a handful
-// per frame, so GlyfTable just borrows the raw table bytes and getGlyph()
-// decodes one glyph's outline on demand, given the byte range LocaTable
-// hands back for that glyph index.
-//
-// getGlyph() decodes the stream encoding fully but does not walk composite
-// trees or flatten anything into renderable contours - that belongs to a
-// separate consumer (shape.zig) that recurses through GlyfTable+LocaTable
-// together.
+const Allocator = zigstd.Allocator;
+
 const Self = @This();
 
-data: []const u8,
+table_data: []const u8,
 
 pub fn init(table_data: []const u8) Self {
-    return .{ .data = table_data };
+    return .{ .table_data = table_data };
 }
 
 pub const GlyphHeader = extern struct {
@@ -39,10 +28,10 @@ pub const Glyph = union(enum) {
     simple: SimpleGlyph,
     composite: CompositeGlyph,
 
-    pub fn destroy(self: *Glyph, alloc: Allocator) void {
+    pub fn deinit(self: *Glyph, alloc: Allocator) void {
         switch (self.*) {
-            .simple => |*s| s.destroy(alloc),
-            .composite => |*c| c.destroy(alloc),
+            .simple => |*s| s.deinit(alloc),
+            .composite => |*c| c.deinit(alloc),
         }
     }
 };
@@ -50,7 +39,7 @@ pub const Glyph = union(enum) {
 pub const Error = error{
     /// argument1/argument2 identify points to align rather than an (x,y)
     /// offset; this requires walking the parent's already-placed points
-    /// and isn't supported yet (it's also rare - the spec requires
+    /// and isn't supported yet (it's also rare; the spec requires
     /// ARGS_ARE_XY_VALUES on every composite glyph's first component).
     PointMatchingNotSupported,
 };
@@ -59,8 +48,8 @@ pub const Error = error{
 /// comes from LocaTable.getGlyphRange(glyph); a null range (no outline)
 /// isn't representable here since there's nothing to decode.
 pub fn getGlyph(self: Self, alloc: Allocator, range: LocaTable.GlyphRange, check: bool) !Glyph {
-    if (check) try bytes.checkRange(self.data, range.start, range.end);
-    const glyph_data = self.data[range.start..range.end];
+    if (check) try bytes.checkRange(self.table_data, range.start, range.end);
+    const glyph_data = self.table_data[range.start..range.end];
 
     if (check) try bytes.checkSize(glyph_data, 0, GlyphHeader);
     const header = bytes.typeBEToNative(GlyphHeader, glyph_data);
@@ -118,7 +107,7 @@ test "GlyfTable.getGlyph (simple) accumulates absolute coordinates across every 
     const table = Self.init(glyph_buf);
 
     var glyph = try table.getGlyph(alloc, .{ .start = 0, .end = @intCast(glyph_buf.len) }, true);
-    defer glyph.destroy(alloc);
+    defer glyph.deinit(alloc);
 
     const simple = glyph.simple;
     try zigstd.testExpectEqualSlices(u16, &[_]u16{3}, simple.end_pts_of_contours);
@@ -150,7 +139,7 @@ test "GlyfTable.getGlyph (simple) expands a repeated flag run to one entry per p
     const table = Self.init(buf);
 
     var glyph = try table.getGlyph(alloc, .{ .start = 0, .end = @intCast(buf.len) }, true);
-    defer glyph.destroy(alloc);
+    defer glyph.deinit(alloc);
 
     const simple = glyph.simple;
     try zigstd.testExpectEqual(@as(usize, 5), simple.flags.len);
@@ -177,7 +166,7 @@ test "GlyfTable.getGlyph (composite) decodes a single scaled component" {
     const table = Self.init(buf);
 
     var glyph = try table.getGlyph(alloc, .{ .start = 0, .end = @intCast(buf.len) }, true);
-    defer glyph.destroy(alloc);
+    defer glyph.deinit(alloc);
 
     const composite = glyph.composite;
     try zigstd.testExpectEqual(@as(usize, 1), composite.components.len);
@@ -231,7 +220,7 @@ test "GlyfTable.getGlyph (composite) chains MORE_COMPONENTS and reads trailing i
     const table = Self.init(buf);
 
     var glyph = try table.getGlyph(alloc, .{ .start = 0, .end = @intCast(buf.len) }, true);
-    defer glyph.destroy(alloc);
+    defer glyph.deinit(alloc);
 
     const composite = glyph.composite;
     try zigstd.testExpectEqual(@as(usize, 2), composite.components.len);

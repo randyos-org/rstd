@@ -2,15 +2,14 @@ const std = @import("std");
 const bytes = @import("../../../bytes.zig");
 const zigstd = @import("../../../zigstd.zig");
 const tables = @import("tables/__root__.zig");
-const types = @import("stream_types.zig");
+const types = @import("types.zig");
 const aux_types = @import("aux_types.zig");
-const render = @import("render/__root__.zig");
+const render = @import("../render/__root__.zig");
 const charstring = @import("tables/cff/charstring.zig");
 const glyf_shape = @import("tables/glyf/shape.zig");
-const Image = @import("../../image.zig").Image;
 
 const Vertex = aux_types.Vertex;
-const bounds = render.bounds;
+const rasterize = render.rasterize;
 const Allocator = zigstd.Allocator;
 const GlyphIndex = types.GlyphIndex;
 const typeBEToNative = bytes.typeBEToNative;
@@ -22,80 +21,54 @@ const ScalerType = tables.general.ScalerType;
 
 const Self = @This();
 
-/// The raw font bytes every table below borrows from. Not owned: assumed to
-/// be backed by memory the caller keeps alive for at least as long as this
-/// Sfnt (e.g. a memory-mapped file region), since nothing here copies out of
-/// it.
+/// The raw font bytes every table views (tables/__root__.zig). Not owned: the
+/// caller keeps them alive as long as this Sfnt (a mapped file, say).
 font_data: []const u8 = &.{},
-/// Naming table.  Required.
+/// Required.
 name: ?tables.NameTable = null,
-/// Character to glyph mapping.  Required.
+/// Required.
 cmap: ?tables.CmapTable = null,
-/// Font header. May be missing in bitmap-only fonts, otherwise required.
+/// Missing only in bitmap-only fonts.
 head: ?tables.HeadTable = null,
-/// Horizontal header. May be missing in bitmap-only fonts, otherwise required.
+/// Missing only in bitmap-only fonts.
 hhea: ?tables.HheaTable = null,
-/// Horizontal metrics. May be missing in bitmap-only fonts, otherwise required.
+/// Missing only in bitmap-only fonts.
 hmtx: ?tables.HmtxTable = null,
-/// Maximum profile. Optional per TTF, required per OpenType spec.
+/// Optional per TrueType, required per OpenType.
 maxp: ?tables.MaxpTable = null,
-/// PostScript table. Required.
+/// Required.
 post: ?tables.PostTable = null,
 
-// ---
-// Classic glyph-based TrueType tables. Only required if not CFF.
+// Outlines: glyf and loca, or CFF.
 
-/// Glyph data. Only required if not CFF.
+/// Only if not CFF.
 glyf: ?tables.GlyfTable = null,
-/// Index to location. Only required if glyf is present
+/// Only with glyf.
 loca: ?tables.LocaTable = null,
-
-// ---
-// CFF TABLES: only required if not glyf
-
-/// Compact Font Format
+/// Only if not glyf.
 cff: ?tables.CffTable = null,
 
-// ---
-// OPTIONAL TTF TABLES:
+// Optional tables.
 
-/// Kerning. Legacy pair-kerning fallback; GPOS is the modern source.
+/// Legacy pair kerning, the fallback for GPOS.
 kern: ?tables.KernTable = null,
-
-// ---
-// Advanced typographic tables
-
-/// Glyph positioning data
 gpos: ?tables.GposTable = null,
-
-// ---
-// Platform-specific tables
-
-/// OS/2 and Windows metrics. Needed for exact ascender/descender/line-height
-/// parity with FreeType
+/// For FreeType-exact ascender, descender and line height.
 os2: ?tables.Os2Table = null,
 
-// ---
-// OpenType variations tables (variable fonts)
+// Variable fonts.
 
-/// Font variations: the axes and named instances a variable font supports.
 fvar: ?tables.FvarTable = null,
-/// Axis variations: optional remapping of each axis's default coordinate
-/// normalization.
 avar: ?tables.AvarTable = null,
-/// Glyph variations (TrueType outlines only).
+/// TrueType outlines only.
 gvar: ?tables.GvarTable = null,
-/// CVT variations (TrueType outlines only). Not self-describing: needs
-/// fvar's axisCount, so it's resolved after the table-record loop below,
-/// the same way hmtx/loca are.
+/// TrueType outlines only. Needs fvar's axisCount, so it is resolved after
+/// the table-record loop, as hmtx and loca are.
 cvar: ?tables.CvarTable = null,
-/// Horizontal metrics variations.
 hvar: ?tables.HvarTable = null,
-/// Vertical metrics variations.
 vvar: ?tables.VvarTable = null,
-/// Metrics variations (OS/2, hhea, gasp, post, vhea deltas).
 mvar: ?tables.MvarTable = null,
-/// Style attributes. Required for variable fonts.
+/// Required for variable fonts.
 stat: ?tables.StatTable = null,
 
 pub const SfntError = error{
@@ -108,6 +81,9 @@ const InitOptions = struct {
     check: bool = false,
     /// Which font of a collection (.ttc/.otc) to load; 0 for a single font.
     font_index: u32 = 0,
+    /// Print each skipped (unrecognized) table tag to stderr, as png.zig's
+    /// `DecodeOptions.debug` does.
+    debug: bool = true,
 };
 
 /// How many fonts `font_data` holds: a collection's count, else 1.
@@ -132,7 +108,7 @@ pub fn fontOffset(font_data: []const u8, index: u32) SfntError!usize {
 /// one exception, but those are resolved and owned separately via
 /// CmapTable.getSubtable(), not stored here). The only allocation init()
 /// itself performs is a scratch table-record array, freed before it
-/// returns - so there's nothing for a destroy() to release, and none exists.
+/// returns; so there's nothing for a deinit() to release, and none exists.
 pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntError!Self {
     const font_start = try fontOffset(font_data, options.font_index);
     if (options.check) try bytes.checkSize(font_data, font_start, OffsetTable);
@@ -161,7 +137,7 @@ pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntE
         // (GSUB, gasp, meta, hdmx, DSIG, vendor-private tables, ...) -
         // unrecognized tags are skipped rather than failing the whole load.
         const table_tag = TableTag.fromTagStr(record.tag) catch {
-            std.debug.print("Unrecognized table tag: {s}\n", .{record.tag.strip()});
+            if (options.debug) std.debug.print("Unrecognized table tag: {s}\n", .{record.tag.strip()});
             continue;
         };
         switch (table_tag) {
@@ -226,16 +202,9 @@ pub fn init(alloc: Allocator, font_data: []const u8, options: InitOptions) SfntE
 }
 
 // ---
-// Higher-level API for consumers - namely a future Zig-native replacement
-// for FreeType inside mist, an MSDF atlas generator (see
-// ref/mist/src/Generator.zig for exactly what it calls on a FreeType Face,
-// which is where this interface shape comes from). These signatures are
-// locked in now, while the requirements are fresh, but several bodies are
-// intentionally unimplemented placeholders: getting every table loaded
-// correctly comes first, the resolution algorithms behind these come later.
-// Every value here is in font design units (unscaled - divide by
-// head.unitsPerEm() yourself), matching FreeType's FT_LOAD_NO_SCALE
-// convention, which is the convention mist itself already loads glyphs with.
+// Higher-level API, shaped after what mist calls on a FreeType Face
+// (ref/mist/src/Generator.zig). Values are in font design units (divide by
+// head.unitsPerEm()), as with FreeType's FT_LOAD_NO_SCALE.
 
 pub fn verticalMetrics(self: Self) aux_types.VMetrics {
     var ascender: types.FWord = 0;
@@ -334,68 +303,10 @@ pub fn glyphKernAdvance(self: Self, a: GlyphIndex, b: GlyphIndex) i16 {
     return 0;
 }
 
-/// Caller owns returned memory.
-pub fn glyphBitmap(
-    self: Self,
-    gpa: Allocator,
-    /// Appended to the list.
-    /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
-    /// transparent, 255 is opaque.
-    pixels: *std.ArrayList(u8),
-    glyph: GlyphIndex,
-    scale_x: f32,
-    scale_y: f32,
-) !aux_types.GlyphBitmap {
-    return self.glyphBitmapSubpixel(gpa, pixels, glyph, scale_x, scale_y, 0, 0);
-}
-
-/// Caller owns returned memory.
-pub fn glyphBitmapSubpixel(
-    self: Self,
-    gpa: Allocator,
-    /// Appended to the list.
-    /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
-    /// transparent, 255 is opaque.
-    pixels: *std.ArrayList(u8),
-    glyph: GlyphIndex,
-    scale_x: f32,
-    scale_y: f32,
-    shift_x: f32,
-    shift_y: f32,
-) !aux_types.GlyphBitmap {
-    const vertices = try self.glyphShape(gpa, glyph);
-    defer gpa.free(vertices);
-
-    std.debug.assert(scale_x != 0);
-    std.debug.assert(scale_y != 0);
-
-    const bbox = self.getGlyphBoundingBox(glyph) orelse return .empty;
-    const box = bounds.glyphBitmapBoxSubpixel(bbox, scale_x, scale_y, shift_x, shift_y);
-
-    const w: u32 = @intCast(box.x1 - box.x0);
-    const h: u32 = @intCast(box.y1 - box.y0);
-
-    if (w == 0 or h == 0) return .empty;
-
-    const gbm: Image(u8) = .{
-        .width = w,
-        .height = h,
-        .data = try pixels.addManyAsSlice(gpa, w * h),
-    };
-    errdefer pixels.shrinkRetainingCapacity(pixels.items.len - gbm.data.len);
-
-    try render.rasterize.rasterize(gpa, gbm, 0.35, vertices, scale_x, scale_y, shift_x, shift_y, box.x0, box.y0, true);
-
-    return .{
-        .width = @intCast(gbm.width),
-        .height = @intCast(gbm.height),
-        .off_x = @intCast(box.x0),
-        .off_y = @intCast(box.y0),
-    };
-}
-
-pub const glyphBitmapBoxSubpixel = bounds.glyphBitmapBoxSubpixel;
-pub const glyphBitmapBox = bounds.glyphBitmapBox;
+pub const glyphBitmap = rasterize.glyphBitmap;
+pub const glyphBitmapSubpixel = rasterize.glyphBitmapSubpixel;
+pub const glyphBitmapBoxSubpixel = render.bounds.glyphBitmapBoxSubpixel;
+pub const glyphBitmapBox = render.bounds.glyphBitmapBox;
 pub const buildTextAtlas = render.atlas.buildTextAtlas;
 
 const setU16BE = bytes.setU16BE;

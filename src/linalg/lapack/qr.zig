@@ -1,33 +1,16 @@
 //! QR without pivoting, from faer v0.24.4
 //! (<https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`, MIT):
-//! `faer/src/linalg/qr/no_pivoting/factor.rs`. `A = Q R` in place: `R` on and
-//! above the diagonal, `Q`'s reflections below it (`householder.zig`), their
-//! block factors in a `bs x min(m, n)` matrix.
-//!
-//! Faer's QR is a staircase: a column whose remaining norm is within
-//! `16 (m - row) eps` of its whole norm takes no reflection of its own, so
-//! the rank it returns can fall short of `min(m, n)`; the reflections past it
-//! are the identity (`tau` infinite). Blocks are recursive halves down to
-//! single reflections, each block's trailing columns updated by `gemm`
-//! (`householder.applyBlock`). The SVD factors tall matrices with it.
-//!
-//! LAPACK's `?GEQRF`, `?ORGQR`/`?UNGQR` and `?ORMQR`/`?UNMQR` (arguments and
-//! `xerbla` order of Reference-LAPACK's `dgeqrf.f`, `dorgqr.f`, `dormqr.f`
-//! and their `z` forms) sit over it. `tau` is LAPACK's:
-//! `H = I - tau v vᴴ`, the reciprocal of faer's, so a skipped (identity)
-//! reflection has `tau = 0`. Two departures from the reference's factor,
-//! both faer's: a complex `R`'s diagonal is not made real (`tau` is real
-//! instead), and a column within the staircase's tolerance of the ones
-//! before it takes no reflection, so `R`'s diagonal there is the residual
-//! (`Q R = A` still holds to `16 m eps ‖A‖`). `orgqr` and `ormqr` take any
-//! `tau`, the reference's complex ones too: the block factors are built from
-//! `V` and `1 / tau` (`householder.sequenceFactor`).
+//! `faer/src/linalg/qr/no_pivoting/factor.rs`'s staircase QR, behind
+//! Reference-LAPACK's `?GEQRF`, `?ORGQR` and `?ORMQR` (`dgeqrf.f`,
+//! `dorgqr.f`, `dormqr.f` and their `z` forms). `tau` is LAPACK's, `1 /
+//! faer's`; departures: design.md's LAPACK section.
 
 const std = @import("std");
 const ops = @import("ops.zig");
+const blas_calls = @import("blas_calls.zig");
+const auxiliary = @import("auxiliary.zig");
 const hh = @import("householder.zig");
 const util = @import("../blas/util.zig");
-const chol = @import("cholesky.zig");
 const types = @import("../blas/types.zig");
 
 const Allocator = std.mem.Allocator;
@@ -74,7 +57,7 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: [*]T, ldh: u
     var row = row_start;
     var c = col_start;
     while (row < @min(size, m) and c < n) : (c += 1) {
-        const above = ops.nrm2(io, T, row, a.col(c), 1);
+        const above = blas_calls.nrm2(io, T, row, a.col(c), 1);
         const tail = m - row - 1;
         const info = if (row == c)
             hh.make(io, T, a.at(row, c), tail, a.col(c) + row + 1, 1, null, 0)
@@ -99,13 +82,13 @@ fn unblocked(al: Allocator, io: Io, comptime T: type, a: Mat(T), h: [*]T, ldh: u
                 const w = try al.alloc(T, rest);
                 defer al.free(w);
                 for (w, 0..) |*x, j| x.* = a.get(row, c + 1 + j);
-                try ops.gemv(al, io, T, .u, ops.one(T), a.sub(row + 1, c + 1, tail, rest), v, 1, ops.one(T), w.ptr, 1);
+                try blas_calls.gemv(al, io, T, .u, ops.one(T), a.sub(row + 1, c + 1, tail, rest), v, 1, ops.one(T), w.ptr, 1);
                 for (w, 0..) |*x, j| {
                     x.* = ops.neg(T, ops.mulReal(T, x.*, tau_inv));
                     const p = a.at(row, c + 1 + j);
                     p.* = ops.add(T, p.*, x.*);
                 }
-                try ops.ger(al, io, T, ops.one(T), v, 1, w.ptr, 1, a.sub(row + 1, c + 1, tail, rest));
+                try blas_calls.ger(al, io, T, ops.one(T), v, 1, w.ptr, 1, a.sub(row + 1, c + 1, tail, rest));
             }
             row += 1;
         }
@@ -171,7 +154,7 @@ pub const OrmqrError = error{ InvalidTrans, InvalidM, InvalidN, InvalidK, Invali
 /// `Q = H(0) ... H(k-1)` (`k = min(m, n)`) as reflections below it and
 /// their `tau`s in `tau` (`k`).
 pub fn geqrf(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, a: [*]T, lda: isize, tau: [*]T) GeqrfError!void {
-    comptime chol.floatType(T, "geqrf");
+    comptime ops.requireFloat(T, "geqrf");
     if (m < 0) return error.InvalidM;
     if (n < 0) return error.InvalidN;
     if (lda < @max(1, m)) return error.InvalidLda;
@@ -220,7 +203,7 @@ pub fn factorsOf(al: Allocator, io: Io, comptime T: type, v: Mat(T), tau: [*]con
 /// `n` of `H(0) ... H(k-1)`, over the reflections `geqrf` left in `A`'s
 /// first `k` columns.
 pub fn orgqr(allocator: Allocator, io: Io, comptime T: type, m: isize, n: isize, k: isize, a: [*]T, lda: isize, tau: [*]const T) OrgqrError!void {
-    comptime chol.floatType(T, "orgqr");
+    comptime ops.requireFloat(T, "orgqr");
     if (m < 0) return error.InvalidM;
     if (n < 0 or n > m) return error.InvalidN;
     if (k < 0 or k > n) return error.InvalidK;
@@ -248,7 +231,7 @@ pub fn generate(al: Allocator, io: Io, comptime T: type, a: Mat(T), k: usize, ta
 /// `Q` of `k` reflections in `A`'s first `k` columns (`m` rows for `l`, `n`
 /// for `r`). Only `A`'s strictly lower part is read.
 pub fn ormqr(allocator: Allocator, io: Io, comptime T: type, side: Side, trans: Trans, m: isize, n: isize, k: isize, a: [*]const T, lda: isize, tau: [*]const T, c: [*]T, ldc: isize) OrmqrError!void {
-    comptime chol.floatType(T, "ormqr");
+    comptime ops.requireFloat(T, "ormqr");
     switch (trans) {
         .n, .c => {},
         .t => if (comptime ops.isComplex(T)) return error.InvalidTrans,
@@ -281,7 +264,10 @@ pub fn multiply(al: Allocator, io: Io, comptime T: type, side: Side, adjoint: bo
 // ---- tests -----------------------------------------------------------------------
 
 const testing = std.testing;
-const check = @import("../blas/_test/blas1/check.zig");
+const check = @import("../blas/_test/check.zig");
+const lcheck = @import("_test/check.zig");
+const blas = @import("../blas/__root__.zig");
+const test_io = @import("../blas/_test/io.zig");
 
 /// `Q R` against `A`, within `n eps ‖A‖` per element (faer's `test_qr` takes
 /// `1e-10` at `c64`).
@@ -327,7 +313,7 @@ test "faer qr: Q R = A, square, tall, wide, blocked and rank deficient" {
                 defer ops.free(T, al, y);
                 check.fill(T, x.ptr[0 .. m * c[2]], 3);
                 check.fill(T, y.ptr[0 .. c[2] * n], 5);
-                try ops.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a0);
+                try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a0);
             }
             const qr = try ops.alloc(T, al, m, n);
             defer ops.free(T, al, qr);
@@ -341,25 +327,11 @@ test "faer qr: Q R = A, square, tall, wide, blocked and rank deficient" {
     }
 }
 
-const blas = @import("../blas/__root__.zig");
-const threading = @import("../blas/threading.zig");
-
 const test_types = .{ f32, f64, types.Complex32, types.Complex64 };
 
 /// `expectQr`'s tolerance, `4 (m + n) eps max(1, ‖A‖max)` per element.
 fn qrTol(comptime F: type, m: usize, n: usize, amax: F) F {
     return @as(F, @floatFromInt(4 * (m + n))) * std.math.floatEps(F) * @max(amax, 1);
-}
-
-/// `x` within `tol` of `want` per element.
-fn expectNear(comptime T: type, what: []const u8, x: Mat(T), want: Mat(T), tol: Float(T)) !void {
-    for (0..x.cols) |j| for (0..x.rows) |i| {
-        const err = ops.abs(T, ops.sub(T, x.get(i, j), want.get(i, j)));
-        if (!(err <= tol)) {
-            check.say("{s} {s} {d}x{d}: ({d},{d}) off by {e}, tol {e}\n", .{ what, @typeName(T), x.rows, x.cols, i, j, err, tol });
-            return error.TestUnexpectedResult;
-        }
-    };
 }
 
 /// A random `m x n` of rank `r` (0: full).
@@ -371,7 +343,7 @@ fn randomRank(comptime T: type, al: Allocator, a: Mat(T), r: usize, seed: u64) !
     defer ops.free(T, al, y);
     check.fill(T, x.ptr[0 .. a.rows * r], seed);
     check.fill(T, y.ptr[0 .. r * a.cols], seed + 1);
-    try ops.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a);
+    try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), x, y, ops.zero(T), a);
 }
 
 test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
@@ -392,12 +364,12 @@ test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
             const lda = m + 1;
             const a = try ops.alloc(T, al, lda, n);
             defer ops.free(T, al, a);
-            a.fill(chol.poisoned(T));
+            a.fill(lcheck.poisoned(T));
             a.sub(0, 0, m, n).copyFrom(a0);
             const tau = try al.alloc(T, k);
             defer al.free(tau);
             try geqrf(al, check.io, T, @intCast(m), @intCast(n), a.ptr, @intCast(lda), tau.ptr);
-            for (0..n) |j| try testing.expect(chol.isNanT(T, a.get(m, j)));
+            for (0..n) |j| try testing.expect(lcheck.isNanT(T, a.get(m, j)));
             // R, then Q's first k columns
             const r = try ops.alloc(T, al, k, n);
             defer ops.free(T, al, r);
@@ -408,15 +380,15 @@ test "faer qr: geqrf and orgqr, Q R = A and Qᴴ Q = I in LAPACK's layout" {
             const q = a.sub(0, 0, m, k);
             const qr_ = try ops.alloc(T, al, m, n);
             defer ops.free(T, al, qr_);
-            try ops.gemm(al, check.io, T, .n, .n, ops.one(T), q, r, ops.zero(T), qr_);
-            try expectNear(T, "geqrf Q R", qr_, a0, qrTol(F, m, n, ops.normMax(T, a0)));
+            try blas_calls.gemm(al, check.io, T, .n, .n, ops.one(T), q, r, ops.zero(T), qr_);
+            try lcheck.expectNear(T, "geqrf Q R", qr_, a0, qrTol(F, m, n, auxiliary.normMax(T, a0)));
             const g = try ops.alloc(T, al, k, k);
             defer ops.free(T, al, g);
-            try ops.gemm(al, check.io, T, .c, .n, ops.one(T), q, q, ops.zero(T), g);
+            try blas_calls.gemm(al, check.io, T, .c, .n, ops.one(T), q, q, ops.zero(T), g);
             const id = try ops.alloc(T, al, k, k);
             defer ops.free(T, al, id);
             id.identity();
-            try expectNear(T, "orgqr Qh Q", g, id, qrTol(F, m, n, 1));
+            try lcheck.expectNear(T, "orgqr Qh Q", g, id, qrTol(F, m, n, 1));
             if (c[2] == n + 1) try testing.expect(ops.isZero(T, r.get(4, 4)));
         }
     }
@@ -494,7 +466,7 @@ test "faer qr: ormqr and orgqr against one reflection at a time, faer's tau and 
                 refApply(T, side, adj, v.sub(0, 0, nq, k), tau, want);
                 const tr: Trans = if (adj) .c else .n;
                 try ormqr(al, check.io, T, side, tr, @intCast(rows), @intCast(cols), k, v.ptr, nq, tau.ptr, c.ptr, @intCast(rows));
-                try expectNear(T, "ormqr", c, want, qrTol(F, nq, nq, ops.normMax(T, want)));
+                try lcheck.expectNear(T, "ormqr", c, want, qrTol(F, nq, nq, auxiliary.normMax(T, want)));
             };
             // orgqr: Q's first n columns
             const n = 30;
@@ -506,7 +478,7 @@ test "faer qr: ormqr and orgqr against one reflection at a time, faer's tau and 
             defer ops.free(T, al, want);
             want.identity();
             refApply(T, .l, false, v.sub(0, 0, nq, k), tau, want);
-            try expectNear(T, "orgqr", q.sub(0, 0, nq, n), want, qrTol(F, nq, nq, 1));
+            try lcheck.expectNear(T, "orgqr", q.sub(0, 0, nq, n), want, qrTol(F, nq, nq, 1));
         }
     }
 }
@@ -539,14 +511,11 @@ test "faer qr: geqrf, orgqr and ormqr report the first bad argument and read not
 }
 
 test "faer qr: geqrf and ormqr give one worker's bits at any worker count" {
-    if (comptime !threading.hosted) return error.SkipZigTest;
+    if (comptime !test_io.hosted) return error.SkipZigTest;
     _ = blas.coreName();
     const al = testing.allocator;
-    const cpus = blas.config.cpu_count;
-    defer blas.config.cpu_count = cpus;
-    defer threading.test_serial_max = null;
-    var threaded: Io.Threaded = .init(al, .{ .async_limit = .limited(8) });
-    defer threaded.deinit();
+    var runs: test_io.WorkerRuns = .init(al);
+    defer runs.deinit();
     inline for (.{ f64, types.Complex32 }) |T| {
         const m = 300;
         const n = 140;
@@ -556,10 +525,8 @@ test "faer qr: geqrf and ormqr give one worker's bits at any worker count" {
         var outs: [3][]T = undefined;
         for (&outs) |*o| o.* = try al.alloc(T, m * n + n + m * 40);
         defer for (outs) |o| al.free(o);
-        for ([_]u32{ 1, 3, 8 }, 0..) |w, ci| {
-            blas.config.cpu_count = w;
-            threading.test_serial_max = if (w == 1) null else 4096;
-            const io = if (w == 1) Io.failing else threaded.io();
+        for (0..test_io.worker_runs.len) |ci| {
+            const io = runs.io(ci);
             const o = outs[ci];
             const a: Mat(T) = .{ .ptr = o.ptr, .rows = m, .cols = n, .ld = m };
             a.copyFrom(a0);
@@ -568,6 +535,6 @@ test "faer qr: geqrf and ormqr give one worker's bits at any worker count" {
             check.fill(T, c.ptr[0 .. m * 40], 78);
             try ormqr(al, io, T, .l, .c, m, 40, n, a.ptr, m, o.ptr + m * n, c.ptr, m);
         }
-        for (1..3) |ci| try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(outs[0]), std.mem.sliceAsBytes(outs[ci]));
+        try test_io.expectSameBytes(outs);
     }
 }

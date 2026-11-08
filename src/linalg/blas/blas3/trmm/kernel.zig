@@ -1,21 +1,6 @@
-//! The `trmm` kernels and packing copies over the gemm tile.
-//!
-//! The copies (`kernel/generic/trmm_{u,l}{n,t}copy_*.c`, `ztrmm_*`) pack a
-//! block of `op(A)`: `m` deep from `posX`, `n` lines from `posY`; line `L`,
-//! depth `D` is `A(L, D)` (`t`) or `A(D, L)` (`n`) where `A` stores it, one
-//! on a unit diagonal, and left unwritten elsewhere.
-//!
-//! The kernels follow `trmmkernel_*.c` (`TRMMKERNEL`): `C := alpha * A * B`
-//! on packed panels, only over the depths the triangle has. On the left, the
-//! row panel at `r` is row `offset + r` of `op(A)`, and takes depths from it
-//! (`LN`) or up to it (`LT`); on the right the column panel at `c` is column
-//! `c - offset`, and takes depths up to it (`RN`) or from it (`RT`). `R` and
-//! `C` conjugate the triangle. Unlike the reference, whose tiles multiply the
-//! zeros a diagonal block packs, the diagonal block sums its triangle alone,
-//! so an infinity meets no zero.
-//!
-//! Each slot is a thin wrapper: one copy and one kernel body per precision,
-//! the options run-time values, keep the code small.
+//! The `trmm` copies (`kernel/generic/trmm_{u,l}{n,t}copy_*.c`, `ztrmm_*`) and
+//! kernels (`trmmkernel_*.c`) over the gemm tile; the diagonal block sums its
+//! triangle alone, so an infinity meets no packed zero, unlike upstream.
 
 const types = @import("../../types.zig");
 const util = @import("../../util.zig");

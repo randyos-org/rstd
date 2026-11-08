@@ -1,16 +1,6 @@
-//! OpenBLAS's comparison programs, `test/compare_sgemv_{sbgemv,bgemv,shgemv}.c`
-//! and `test/compare_sgemm_{sbgemm,bgemm,shgemm}.c` with `test_helpers.h`'s
-//! `is_close`, v0.3.34-317: each half routine against `sgemv` or `sgemm` on
-//! the unrounded values and against a plain loop over the rounded ones,
-//! with the sources' tolerances. Random operands come from a seeded
-//! generator, not `rand()`; conversions go through `sbtobf16` and `bf16to`,
-//! as the C's `sbstobf16_` and `sbf16tos_`.
-//!
-//! The sizes are the sources' (every order to 256 for `gemv`; to 100 and
-//! 256 for `gemm`, and `shgemm`'s scalar sweep on 3, 24, 55, 71, 128, 256);
-//! `small` (the rigs, and every core) stops at 24. An order of 0 passes
-//! leading dimensions of 1: rstd checks them against `max(1, rows)`, as the
-//! reference BLAS does, where OpenBLAS lets 0 through.
+//! `test/compare_sgemv_{sbgemv,bgemv,shgemv}.c` and `compare_sgemm_*.c` with
+//! `test_helpers.h`'s `is_close`, OpenBLAS v0.3.34-317, at the sources' sizes
+//! and tolerances (`small` stops at 24); seeded operands, not `rand()`.
 
 const std = @import("std");
 const ob = @import("__root__.zig");

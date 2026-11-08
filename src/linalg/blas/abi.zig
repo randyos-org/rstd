@@ -1,7 +1,7 @@
 //! Which build variant of the converted assembly a target needs, from its C
 //! calling convention (`Target.cCallingConvention`), not its OS: x86_64 UEFI
 //! calls like Windows. The names are the `Variant`s of
-//! `tools/blas_asm/arch/<arch>.zig`; `asm_registry.Kernels` fails to compile
+//! `tools/blas_asm/arch/<arch>.zig`; `registry.Kernels` fails to compile
 //! for a core that lacks the variant, so the two cannot drift apart.
 //!
 //! Import-free, since the build script reads it too (`build/blaskern.zig`).

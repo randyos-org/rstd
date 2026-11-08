@@ -1,17 +1,15 @@
-//! `wasm-test` step: runs the rigs' OS-free tests (`src/_test_wasm.zig`) as
-//! WASI modules under Node (`tools/wasm_run.js`), for the WebAssembly
-//! kernels, which no emulator here runs. One module has SIMD128, so the SIMD
-//! core's kernels run; one has not, so the portable path runs.
+//! `wasm-test` step: the rigs' OS-free tests (`src/_test_qemu.zig`) as WASI modules under Node (`tools/wasm_run.js`), for the wasm
+//! kernels no emulator here runs: one module with SIMD128 for the SIMD core, one without for the portable path.
 
 const std = @import("std");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const Build = rstdbuild.Build;
 const Optimize = rstdbuild.Optimize;
 const blaskern = @import("blaskern.zig");
-const qemutest = @import("qemutest.zig");
+const machines = @import("qemu/machines.zig");
 
 /// The rigs' selection, plus the files WASI can also run.
-const default_filters: []const []const u8 = qemutest.default_filters ++ &[_][]const u8{
+const default_filters: []const []const u8 = machines.default_filters ++ &[_][]const u8{
     "linalg.blas.abi.",
     "linalg.blas.threading.",
 };
@@ -36,7 +34,7 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
             .cpu_features_add = std.Target.wasm.featureSet(v.features),
         });
         const test_mod = b.createModule(.{
-            .root_source_file = b.path("src/_test_wasm.zig"),
+            .root_source_file = b.path("src/_test_qemu.zig"),
             .target = target,
             .optimize = optimize,
         });

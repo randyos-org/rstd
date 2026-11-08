@@ -1,13 +1,9 @@
-//! Helpers for build scripts (rstd's own and its consumers').
-//!
-//! Import only `std`, files in this directory, and `../machine.zig` (std-only
-//! data). A build script's compile depends on every file it can reach by
-//! `@import`, so one edge into the rest of rstd recompiles every consumer's
-//! build script on any rstd edit.
+//! Helpers for build scripts (rstd's own and its consumers'). Import only `std`, files here and `../bootinfo.zig`: a build script
+//! recompiles on any edit to a file it can reach, so an edge into the rest of rstd rebuilds every consumer's build script.
 
 const std = @import("std");
 
-pub const machine = @import("../machine.zig");
+pub const bootinfo = @import("../bootinfo.zig");
 pub const io = @import("io.zig");
 
 pub const Build = std.Build;
@@ -33,56 +29,56 @@ pub const addShader = spirv.addShader;
 pub const addShaderWith = spirv.addShaderWith;
 pub const ShaderStage = spirv.ShaderStage;
 
-const builder_mod = @import("builder.zig");
-pub const getOptimize = builder_mod.getOptimize;
-pub const getTarget = builder_mod.getTarget;
-pub const console = builder_mod.console;
+const builder_file = @import("builder.zig");
+pub const getOptimize = builder_file.getOptimize;
+pub const getTarget = builder_file.getTarget;
+pub const console = builder_file.console;
 
-const module_mod = @import("module.zig");
-pub const cloneModuleWithTarget = module_mod.cloneModuleWithTarget;
-pub const cloneRootForTarget = module_mod.cloneRootForTarget;
+const module_file = @import("module.zig");
+pub const cloneModuleWithTarget = module_file.cloneModuleWithTarget;
+pub const cloneRootForTarget = module_file.cloneRootForTarget;
 
-const files_mod = @import("files.zig");
-pub const addBuildDir = files_mod.addBuildDir;
-pub const installDirLazyPath = files_mod.installDirLazyPath;
+const files_file = @import("files.zig");
+pub const addBuildDir = files_file.addBuildDir;
+pub const installDirLazyPath = files_file.installDirLazyPath;
 
-const docs_mod = @import("docs.zig");
-pub const Docs = docs_mod.Docs;
-pub const addDocs = docs_mod.addDocs;
-pub const addCompileStepDocsToStep = docs_mod.addCompileStepDocsToStep;
+const docs_file = @import("docs.zig");
+pub const Docs = docs_file.Docs;
+pub const addDocs = docs_file.addDocs;
+pub const addCompileStepDocsToStep = docs_file.addCompileStepDocsToStep;
 
-const options_mod = @import("options.zig");
-pub const addBuildOptionsModule = options_mod.addBuildOptionsModule;
-pub const LogLevel = options_mod.LogLevel;
-pub const ScopeLevel = options_mod.ScopeLevel;
-pub const addLogScopeOptions = options_mod.addLogScopeOptions;
-pub const addBuildOptsModToModule = options_mod.addBuildOptsModToModule;
-pub const optionsModule = options_mod.optionsModule;
+const options_file = @import("options.zig");
+pub const addBuildOptionsModule = options_file.addBuildOptionsModule;
+pub const LogLevel = options_file.LogLevel;
+pub const ScopeLevel = options_file.ScopeLevel;
+pub const addLogScopeOptions = options_file.addLogScopeOptions;
+pub const addBuildOptsModToModule = options_file.addBuildOptsModToModule;
+pub const optionsModule = options_file.optionsModule;
 
-const deps_mod = @import("deps.zig");
-pub const DepCLink = deps_mod.DepCLink;
-pub const DepCBind = deps_mod.DepCBind;
-pub const DepModule = deps_mod.DepModule;
-pub const declaresDependency = deps_mod.declaresDependency;
+const deps_file = @import("deps.zig");
+pub const DepCLink = deps_file.DepCLink;
+pub const DepCBind = deps_file.DepCBind;
+pub const DepModule = deps_file.DepModule;
+pub const declaresDependency = deps_file.declaresDependency;
 
-const freedesktop_mod = @import("freedesktop.zig");
-pub const addLinuxDesktopFile = freedesktop_mod.addLinuxDesktopFile;
+const freedesktop_file = @import("freedesktop.zig");
+pub const addLinuxDesktopFile = freedesktop_file.addLinuxDesktopFile;
 
-const icon_mod = @import("icon.zig");
-pub const Icon = icon_mod.Icon;
+const icon_file = @import("icon.zig");
+pub const Icon = icon_file.Icon;
 
-const rstd_dep_mod = @import("rstd.zig");
-pub const addRstd = rstd_dep_mod.addRstd;
-pub const RstdOptions = rstd_dep_mod.RstdOptions;
-pub const BlasCores = rstd_dep_mod.BlasCores;
+const rstd_file = @import("rstd.zig");
+pub const addRstd = rstd_file.addRstd;
+pub const RstdOptions = rstd_file.RstdOptions;
+pub const BlasCores = rstd_file.BlasCores;
 
-const win32_mod = @import("win32.zig");
-pub const addWin32 = win32_mod.addWin32;
-pub const addWin32ToModIfWinTgt = win32_mod.addWin32ToModIfWinTgt;
+const win32_file = @import("win32.zig");
+pub const addWin32 = win32_file.addWin32;
+pub const addWin32ToModIfWinTgt = win32_file.addWin32ToModIfWinTgt;
 
-const renderdoc_mod = @import("renderdoc.zig");
-pub const addRenderDoc = renderdoc_mod.addRenderDoc;
+const renderdoc_file = @import("renderdoc.zig");
+pub const addRenderDoc = renderdoc_file.addRenderDoc;
 
-const vulkan_mod = @import("vulkan.zig");
-pub const addVulkan = vulkan_mod.addVulkan;
-pub const addVulkanImportToModule = vulkan_mod.addVulkanImportToModule;
+const vulkan_file = @import("vulkan.zig");
+pub const addVulkan = vulkan_file.addVulkan;
+pub const addVulkanImportToModule = vulkan_file.addVulkanImportToModule;

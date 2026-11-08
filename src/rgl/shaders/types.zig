@@ -1,6 +1,3 @@
-const std = @import("std");
-const spirv = std.spirv;
-
 const linalg = @import("../../linalg/__root__.zig");
 const vec = linalg.vector;
 

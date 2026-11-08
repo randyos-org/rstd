@@ -1,8 +1,8 @@
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
-const ResolvedTarget = rstdbuild.ResolvedTarget;
 const Module = rstdbuild.Module;
-const DepModule = @import("deps.zig").DepModule;
+const ResolvedTarget = rstdbuild.ResolvedTarget;
+const DepModule = rstdbuild.DepModule;
 
 /// zigwin32, resolved through rstd's own build.zig.zon so packages that use
 /// rstd get rstd's pinned zigwin32 without declaring it themselves. A package

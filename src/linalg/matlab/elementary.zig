@@ -1,29 +1,18 @@
-//! Elementary complex scalar functions ported from `matlab88.f90`'s
-//! `MATFN2` (the `POWER` command body - `SIN`/`COS`/`EXP`/`SQRT` are
-//! `std.math.complex` calls directly, wired in `matrixfun.zig`).
-//!
-//! Operates on a single `Cx` scalar. For applying one across a whole
-//! vector or matrix, see `__root__.zig`'s elementwise (`sin`, `cos`, ...)
-//! and `CxMat`'s matrix-function (`sinm`, `cosm`, ...) methods.
+//! POWER, from `matlab88.f90`'s `MATFN2`; SIN, COS, EXP and SQRT are
+//! `std.math.complex` calls in `matrixfun.zig`.
 
 const std = @import("std");
+const zigstd = @import("../../zigstd.zig");
 const scalar = @import("scalar.zig");
 const Cx = scalar.Cx;
 
-/// POWER: `x^y = exp(y * log(x))` (principal branch). Same formula as
-/// `std.math.complex.pow`, inheriting `exp`/`log`'s own overflow handling.
-/// A real function, not `pub const wpow = std.math.complex.pow;`: not
-/// currently needed as a first-class value anywhere, but keeping it typed
-/// concretely matches `scalar.wlog`/`watan`'s convention and costs nothing.
-/// Not yet wired to a REPL-level entry point (the original exposed this via
-/// the `**` operator, which - like `*` matrix multiplication - is REPL
-/// operator-dispatch logic this port hasn't ported yet, not a named
-/// subroutine); callable directly meanwhile.
+/// POWER: `x^y = exp(y log(x))`, principal branch, by `std.math.complex.pow`;
+/// the REPL's `**` operator itself is not ported.
 pub fn wpow(x: Cx, y: Cx) Cx {
     return std.math.complex.pow(x, y);
 }
 
-const zigstd = @import("../../zigstd.zig");
+// ---- tests ------------------------------------------------------------------
 
 test "wpow matches repeated multiplication for an integer exponent" {
     const x = Cx.init(1.5, -0.5);

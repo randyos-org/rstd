@@ -1,10 +1,10 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
+const zigstd = @import("../../../../../zigstd.zig");
 
-/// Schema for the format-0 header, used only to compute field offsets/sizes
-/// at comptime; never instantiated.
+/// The format-0 header.
 const StreamLayout = extern struct {
     format: u16,
     length: u16,
@@ -47,8 +47,6 @@ pub const Format0 = struct {
         return @fromBackingInt(self.table_data[header_end + codepoint]);
     }
 };
-
-const zigstd = @import("../../../../../zigstd.zig");
 
 test "Format0 stream layout matches the OpenType stream layout (262 bytes total, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 6), @sizeOf(StreamLayout));

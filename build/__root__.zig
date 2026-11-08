@@ -5,9 +5,10 @@ const sysinfo = @import("builtin");
 const rstdbuild = @import("../src/buildutils/__root__.zig");
 const build_root = @import("../build.zig");
 const blaskern = @import("blaskern.zig");
-const qemutest = @import("qemutest.zig");
+const qemutest = @import("qemu/__root__.zig");
 const wasmtest = @import("wasmtest.zig");
 const sshtest = @import("sshtest.zig");
+const bench = @import("bench.zig");
 const shader_probe = @import("../src/rgl/shaders/probe.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
@@ -17,7 +18,7 @@ const Optimize = rstdbuild.Optimize;
 
 /// rstd's module for `target`: its options, BLAS kernels and platform imports.
 /// `name` registers it for consumers; null keeps it private to this build (a
-/// second target, as `qemutest.zig`'s macOS VM uses).
+/// second target, as `qemu/__root__.zig`'s macOS VM uses).
 pub fn addRstdModule(
     b: *Build,
     name: ?[]const u8,
@@ -123,19 +124,7 @@ pub fn build(b: *Build) !void {
     // ----
     // We want the rstd docs to be built separately from the other packages,
     // so we will make a separate compile step for them and attach the docs.
-    // A Compile step needs its root module bound to a target, but rstd_mod is
-    // deliberately target-less (consumers set their own via addImport) - so
-    // clone it rather than redeclaring root_source_file/imports/options.
-    const rstd_docs_mod = try rstdbuild.cloneModuleWithTarget(b, rstd_mod, target);
-    // Docs only analyze the source; the kernel objects would make this object
-    // link others, which the self-hosted COFF linker rejects.
-    rstd_docs_mod.link_objects = .empty;
-    // add the standalone rstd build step, just generates an unlinked object file
-    const rstd_docs_obj = b.addObject(.{
-        .name = "rstd",
-        .root_module = rstd_docs_mod,
-    });
-    docs.addCompileStepDocs(b, rstd_docs_obj, "rstd");
+    try docs.addModuleDocs(b, rstd_mod, target, "rstd");
 
     // tests
     // -----
@@ -212,6 +201,7 @@ pub fn build(b: *Build) !void {
     }
 
     // the same tests that need no OS, on emulated machines
-    try qemutest.addQemuTests(b, optimize);
+    const rigs = try qemutest.addQemuTests(b, optimize);
+    if (rigs.linux_vm) try bench.addLinuxBenches(b, rigs.test_host, rigs.whpx_host);
     try wasmtest.addWasmTests(b, optimize);
 }

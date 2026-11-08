@@ -1,18 +1,11 @@
-//! `NORM`, ported from `matlab88.f90`'s `MATFN5` command body. Split into
-//! separate vector/matrix functions rather than one shape-dispatching
-//! `norm()`, matching this port's existing convention (see `matrixfun.zig`'s
-//! doc comment on why `sin`/`cos`/... got the same treatment).
-//!
-//! Vector: `NORM(V,P) = (sum(|V(I)|**P))**(1/P)`, `NORM(V) = NORM(V,2)`,
-//! `NORM(V,'INF') = MAX(ABS(V(I)))`.
-//! Matrix: `NORM(X)`/`NORM(X,2)` is the largest singular value,
-//! `NORM(X,1)` the 1-norm, `NORM(X,'INF')` the infinity-norm,
-//! `NORM(X,'FRO')` the Frobenius norm.
+//! NORM (`MATFN3`): `NORM(V, P)`, `NORM(V)`, `NORM(V, 'INF')`, and for a matrix
+//! the largest singular value, the 1-, infinity- and Frobenius norms.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const scalar = @import("scalar.zig");
 const CxMat = @import("CxMat.zig");
-const svdapi = @import("svdapi.zig");
+const svd = @import("svd.zig");
 const blas = @import("../blas/__root__.zig");
 const level1 = scalar.level1;
 const Io = std.Io;
@@ -58,9 +51,9 @@ pub fn vecNormInf(n: usize, xr: []const f64, xi: []const f64, incx: isize) f64 {
 
 /// `NORM(X)` / `NORM(X,2)`: largest singular value of `self` (not
 /// mutated), by `gesvd`; 0 for an empty `self`.
-pub fn matNorm2(self: CxMat, allocator: std.mem.Allocator, io: std.Io) svdapi.Error!f64 {
+pub fn matNorm2(self: CxMat, allocator: Allocator, io: std.Io) svd.Error!f64 {
     if (self.m == 0 or self.n == 0) return 0;
-    const s = try svdapi.singularValues(self, allocator, io);
+    const s = try svd.singularValues(self, allocator, io);
     defer allocator.free(s);
     return s[0];
 }
@@ -74,7 +67,7 @@ fn asum(io: Io, n: usize, r: []f64, i: []f64, inc: usize) Io.Cancelable!f64 {
 }
 
 /// `NORM(X,1)`: max column sum of `|re|+|im|` (WGECO's `anorm`), by
-/// `dasum`.
+/// `dasum`; `lu.lange1` is LAPACK's, of `|a(i, j)|`.
 pub fn matNorm1(self: CxMat, io: Io) Io.Cancelable!f64 {
     var result: f64 = 0.0;
     for (1..self.n + 1) |j| {

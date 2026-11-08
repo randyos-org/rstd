@@ -9,8 +9,6 @@ const lib = shader_mod.lib;
 const types = shader_mod.types;
 const Vec2 = types.Vec2;
 const Vec4 = types.Vec4;
-const Image = types.Image;
-const SampledImage = types.SampledImage;
 const param = lib.compile.param;
 const input = lib.compile.input;
 
@@ -49,15 +47,9 @@ fn fragMain() callconv(.{ .spirv_fragment = .{} }) void {
     const color = param_color.*;
     const px_range = lib.globals.glyph_msdf_px_range;
 
-    // 0 (Globals' default) means the bound atlas is plain single-channel
-    // coverage - sample .r directly as alpha, same as before. Otherwise
-    // it's an msdf.Generator atlas: median(r,g,b) recovers the signed
-    // distance, thresholded against px_range for an antialiased edge. This
-    // px_range*(distance-0.5) form is only correct at 1:1 texel:screen-pixel
-    // scale (true here, since a glyph's on-screen quad is exactly the size
-    // buildTextAtlas rasterized it at) - a renderer that scales glyphs up
-    // or down would need the fwidth-based screenPxRange() correction
-    // msdfgen's own example shader uses instead.
+    // px_range 0: plain coverage, .r is alpha. Else an msdf atlas: median(r,g,b)
+    // is the distance, thresholded against px_range. Correct only at 1:1 texel
+    // to pixel (true here); scaled glyphs need msdfgen's fwidth screenPxRange().
     const coverage = if (px_range == 0) sampled[0] else blk: {
         const distance = lib.math.median3(sampled[0], sampled[1], sampled[2]);
         const screen_px_distance = px_range * (distance - 0.5);

@@ -2,13 +2,13 @@
 
 // ---- tests -----------------------------------------------------------------
 
-const check = @import("../../_test/blas3/check.zig");
-const blas1check = @import("../../_test/blas1/check.zig");
+const check3 = @import("../../_test/blas3/check.zig");
+const check = @import("../../_test/check.zig");
 const Vtable = @import("../../Vtable.zig");
 const portable = @import("../../portable.zig");
 
 fn cases(vt: *const Vtable) !void {
-    try check.routineAll(vt, .hemm3m);
+    try check3.routineAll(vt, .hemm3m);
 }
 
 test "portable hemm3m kernels match the wide reference through the driver" {
@@ -18,5 +18,5 @@ test "portable hemm3m kernels match the wide reference through the driver" {
 }
 
 test "every linked core's hemm3m kernels match the wide reference, where this machine runs them" {
-    try blas1check.eachCore(cases);
+    try check.eachCore(cases);
 }

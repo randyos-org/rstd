@@ -1,5 +1,6 @@
 pub const lib = @import("lib/__root__.zig");
 pub const types = @import("types.zig");
+pub const layout = @import("layout.zig");
 
 pub const has_shader_opts = @hasDecl(@import("root"), "shader_opts");
 

@@ -1,36 +1,20 @@
-//! OpenBLAS's own test suites, ported to rstd's interfaces: the reference
-//! BLAS test programs (`test/[sdcz]blat[123].f` and their `.dat` inputs),
-//! their CBLAS versions (`ctest/`), the unit tests (`utest/`) and the half
-//! precision comparisons (`test/compare_*.c`), all from
-//! OpenBLAS v0.3.34-317 (commit a69062524). Each file names its sources. The
-//! sweep tables, data and expected values are transcribed mechanically; if
-//! they go stale, re-derive them from those files rather than edit them.
-//!
-//! The heavy sweeps run their `.dat` tables natively; on the rigs and WASI
-//! (`reduced`) they take the smaller table each program's header documents.
-//! One more test runs every suite, on that table, on each linked core the
-//! machine runs (`check.eachCore`).
-//!
-//! Not translatable, so not ported:
-//! - `xerbla` itself, and the error exits for a bad letter argument: rstd
-//!   takes enums, so only the letters a routine rejects (`O` to `D` but in
-//!   complex `gemv` and `gbmv`, `V` and `M` but in the Hermitian level-2
-//!   routines) stand in for them;
-//! - checks that scalar arguments come back unchanged (Zig passes them by
-//!   value), and the snapshot, summary and stop-on-failure options;
-//! - CBLAS: the row-major layout and the argument numbers shifted by the
-//!   order argument; the column-major ctest cases are the Fortran ones;
-//! - `utest/test_fork.c`, `test_post_fork*.c` (processes and threads), and the
-//!   `ARMV8` `sdot`/`ddot` cases, which preload a vector register by inline
-//!   assembly before the call.
+//! OpenBLAS's own suites (`test/[sdcz]blat[123].f` with their `.dat` files,
+//! `ctest/`, `utest/`, `test/compare_*.c`), OpenBLAS v0.3.34-317 (a69062524);
+//! tables and data transcribed mechanically: re-derive them, don't edit (`design.md`'s Verification).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
-const check = @import("../blas1/check.zig");
+const check = @import("../check.zig");
 const blas = @import("../../__root__.zig");
 const Vtable = @import("../../Vtable.zig");
 const util = @import("../../util.zig");
+const blat1 = @import("blat1.zig");
+const blat2 = @import("blat2.zig");
+const blat3 = @import("blat3.zig");
+const utest = @import("utest.zig");
+const utest_ext = @import("utest_ext.zig");
+const compare = @import("compare.zig");
 
 pub const Float = types.Float;
 pub const isComplex = types.isComplex;
@@ -42,6 +26,37 @@ pub const io = check.io;
 /// names, either case; null for a letter it has none for.
 pub fn letter(comptime E: type, c: u8) ?E {
     return std.meta.stringToEnum(E, &.{std.ascii.toLower(c)});
+}
+
+/// A check's test ratio, and whether the result is less than half accurate.
+pub const Result = struct { err: f64, fatal: bool };
+
+/// A leading dimension one past `ld`, as the Fortran sweeps take it, up to
+/// `max`; null past it.
+pub fn bump(ld: usize, max: usize) ?usize {
+    const l = if (ld < max) ld + 1 else ld;
+    return if (l > max) null else l;
+}
+
+/// The `Trans` of a Fortran letter: `N`, `T`, else `C`.
+pub fn transOf(c: u8) blas.Trans {
+    return switch (c) {
+        'N' => .n,
+        'T' => .t,
+        else => .c,
+    };
+}
+
+pub fn sideOf(c: u8) blas.Side {
+    return if (c == 'L') .l else .r;
+}
+
+pub fn uploOf(c: u8) blas.Uplo {
+    return if (c == 'U') .u else .l;
+}
+
+pub fn diagOf(c: u8) blas.Diag {
+    return if (c == 'U') .u else .n;
 }
 
 /// On a rig: freestanding (32 MiB heap, 1 MiB stack, emulated), WASI, or the
@@ -61,13 +76,9 @@ pub fn Ref(comptime T: type) type {
     return if (isComplex(T)) std.math.Complex(R) else R;
 }
 
-pub fn val(comptime T: type, re: f64, im: f64) T {
-    return if (comptime isComplex(T)) .init(@floatCast(re), @floatCast(im)) else @floatCast(re);
-}
+pub const val = check.val;
 
-pub fn zero(comptime T: type) T {
-    return val(T, 0, 0);
-}
+pub const zero = util.zero;
 
 pub fn isZero(v: anytype) bool {
     return if (comptime isComplex(@TypeOf(v))) v.re == 0 and v.im == 0 else v == 0;
@@ -156,17 +167,10 @@ pub fn expectError(want: anyerror, got: anytype, what: []const u8) !void {
     }
 }
 
-const blat1 = @import("blat1.zig");
-const blat2 = @import("blat2.zig");
-const blat3 = @import("blat3.zig");
-const utest = @import("utest.zig");
-const utest_ext = @import("utest_ext.zig");
-const compare = @import("compare.zig");
-
 /// `suite` on `vt`'s kernels, the sweeps on the rigs' table. The suites go
-/// in pieces, so each test fits a rig image (`build/qemutest.zig`'s
+/// in pieces, so each test fits a rig image (`build/qemu/machines.zig`'s
 /// `sparc64-debug`).
-fn OnCore(comptime suite: fn () anyerror!void) fn (*const Vtable) anyerror!void {
+fn OnCore(comptime suite: anytype) fn (*const Vtable) anyerror!void {
     return struct {
         fn run(vt: *const Vtable) anyerror!void {
             const saved = blas.testUse(vt);
@@ -176,17 +180,9 @@ fn OnCore(comptime suite: fn () anyerror!void) fn (*const Vtable) anyerror!void 
     }.run;
 }
 
-fn level1Blat1() anyerror!void {
-    try blat1.all();
-}
-
 fn level1Utest() anyerror!void {
     try utest.all();
     try utest_ext.all();
-}
-
-fn level1UtestExt2() anyerror!void {
-    try utest_ext.level2All();
 }
 
 fn Level2(comptime T: type) type {
@@ -204,35 +200,35 @@ fn level3() anyerror!void {
     try compare.all(true);
 }
 
-test "the level-1 suites, blat1, on every linked core this machine runs" {
-    try check.eachCore(OnCore(level1Blat1));
+test "blat1 on every linked core this machine runs" {
+    try check.eachCore(OnCore(blat1.all));
 }
 
-test "the level-1 suites, utest, on every linked core this machine runs" {
+test "utest and utest_ext's level-1 cases on every linked core this machine runs" {
     try check.eachCore(OnCore(level1Utest));
 }
 
-test "the level-1 suites, utest_ext's level-2 cases, on every linked core this machine runs" {
-    try check.eachCore(OnCore(level1UtestExt2));
+test "utest_ext's level-2 cases on every linked core this machine runs" {
+    try check.eachCore(OnCore(utest_ext.level2All));
 }
 
-test "the level-2 suite at f32 on every linked core this machine runs" {
+test "blat2 at f32 on every linked core this machine runs" {
     try check.eachCore(OnCore(Level2(f32).run));
 }
 
-test "the level-2 suite at f64 on every linked core this machine runs" {
+test "blat2 at f64 on every linked core this machine runs" {
     try check.eachCore(OnCore(Level2(f64).run));
 }
 
-test "the level-2 suite at complex f32 on every linked core this machine runs" {
+test "blat2 at complex f32 on every linked core this machine runs" {
     try check.eachCore(OnCore(Level2(std.math.Complex(f32)).run));
 }
 
-test "the level-2 suite at complex f64 on every linked core this machine runs" {
+test "blat2 at complex f64 on every linked core this machine runs" {
     try check.eachCore(OnCore(Level2(std.math.Complex(f64)).run));
 }
 
-test "the level-3 suite on every linked core this machine runs" {
+test "blat3, utest's LAPACK cases, utest_ext's level-3 cases and the comparisons on every linked core this machine runs" {
     try check.eachCore(OnCore(level3));
 }
 

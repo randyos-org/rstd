@@ -1,9 +1,7 @@
 const std = @import("std");
 
 const rstd = @import("rstd");
-const RGBA = rstd.rgl.color.RGBA;
 const RgbaImage = rstd.rgl.RgbaImage;
-const downsample = rstd.rgl.draw.downsample;
 const codecs = rstd.rgl.codecs;
 const png = codecs.png;
 const ico = codecs.ico;
@@ -26,13 +24,13 @@ pub fn main(init: std.process.Init) !void {
     const m = try png.decode(alloc, png_data, .{});
 
     // Emit PNG (256) and a multi-size ICO.
-    const icon256 = try downsample(alloc, &m, 256);
+    const icon256 = try m.downsample(alloc, 256);
     const png_bytes = try png.encode(alloc, &icon256);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = png_path, .data = png_bytes });
 
     const sizes = [_]u32{ 16, 24, 32, 48, 64, 128, 256 };
     var imgs: [sizes.len]RgbaImage = undefined;
-    for (sizes, 0..) |s, i| imgs[i] = try downsample(alloc, &m, s);
+    for (sizes, 0..) |s, i| imgs[i] = try m.downsample(alloc, s);
 
     try ico.writeICO(alloc, io, std.Io.Dir.cwd(), ico_path, &imgs);
 

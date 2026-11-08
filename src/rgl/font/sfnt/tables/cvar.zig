@@ -1,8 +1,8 @@
-const types = @import("../stream_types.zig");
 const bytes = @import("../../../../bytes.zig");
 const tv = @import("tuple_variation.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for cvar's fixed header - majorVersion/minorVersion only; what
+/// cvar's fixed header, majorVersion and minorVersion only; what
 /// follows is the shared GlyphVariationData format (tuple_variation.zig).
 const StreamLayout = extern struct {
     major_version: u16,
@@ -39,8 +39,6 @@ pub const CvarTable = struct {
         return .{ .table_data = self.table_data[@sizeOf(StreamLayout)..], .axis_count = self.axis_count };
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "cvar StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 4), @sizeOf(StreamLayout));

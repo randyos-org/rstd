@@ -1,7 +1,8 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
+const zigstd = @import("../../../../zigstd.zig");
 
 // Horizontal metrics. Not self-describing: its record counts come from
 // hhea.num_of_long_hor_metrics and maxp.num_glyphs, so init() takes both
@@ -61,7 +62,6 @@ pub const HmtxTable = struct {
     }
 };
 
-const zigstd = @import("../../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
 test "HMetrics matches the stream layout (4 bytes, no padding)" {

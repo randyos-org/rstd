@@ -1,11 +1,7 @@
-//! The public, backend-agnostic drawing API -- gdi32-style primitive calls
-//! (line/box/text/...) that dispatch to whichever backend `surface` was
-//! created with. Callers never see `sw`/`vulkan` directly.
-//!
-//! sw executes every call immediately, into its own pixel buffer. vulkan
-//! only records instance data (see rgl/vulkan/__root__.zig's header) --
-//! that's the only reason these return `!void` rather than `void`: sw
-//! itself can't fail, but vulkan's append can (allocation failure).
+//! The backend-agnostic drawing API: gdi32-style primitives (line, box,
+//! text) dispatched to the backend `surface` was created with. sw draws each
+//! call at once; vulkan only records instances, and its append can fail
+//! (allocation), hence `!void`.
 
 const Surface = @import("Surface.zig");
 const geometry = @import("geometry.zig");
@@ -16,17 +12,25 @@ pub const Rect = geometry.Rect;
 const color = @import("color.zig");
 const RGBA = color.RGBA;
 const RgbaImage = @import("image.zig").RgbaImage;
-const sw = @import("sw/__root__.zig");
+const sw = @import("sw.zig");
 const vulkan = @import("vulkan/__root__.zig");
 pub const PipelineId = vulkan.PipelineId;
 pub const custom_pipeline_id_start = vulkan.custom_pipeline_id_start;
+const zigstd = @import("../zigstd.zig");
+
+/// The backend module for `tag`; each has the same draw functions.
+fn backend(comptime tag: Surface.Backend) type {
+    return switch (tag) {
+        .sw => sw,
+        .vulkan => vulkan,
+    };
+}
 
 /// Starts a new frame. `clear`, if given, replaces every pixel (sw) or
 /// discards every batched instance (vulkan) left over from the last one.
 pub fn beginFrame(surface: *Surface, clear: ?RGBA) void {
     switch (surface.impl) {
-        .sw => |*s| sw.beginFrame(s, clear),
-        .vulkan => |*v| vulkan.beginFrame(v, clear),
+        inline else => |*s, tag| backend(tag).beginFrame(s, clear),
     }
 }
 
@@ -35,62 +39,54 @@ pub fn beginFrame(surface: *Surface, clear: ?RGBA) void {
 /// since nothing in rstd yet owns a device to submit the batch to.
 pub fn endFrame(surface: *Surface) void {
     switch (surface.impl) {
-        .sw => |*s| sw.endFrame(s),
-        .vulkan => |*v| vulkan.endFrame(v),
+        inline else => |*s, tag| backend(tag).endFrame(s),
     }
 }
 
 pub fn drawLine(surface: *Surface, p0: PointF32, p1: PointF32, width: f32, c: RGBA) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.drawLine(s, p0, p1, width, c),
-        .vulkan => |*v| try vulkan.drawLine(v, p0, p1, width, c),
+        inline else => |*s, tag| return backend(tag).drawLine(s, p0, p1, width, c),
     }
 }
 
 pub fn fillRect(surface: *Surface, rect: Rect, c: RGBA) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.fillRect(s, rect, c),
-        .vulkan => |*v| try vulkan.fillRect(v, rect, c),
+        inline else => |*s, tag| return backend(tag).fillRect(s, rect, c),
     }
 }
 
 pub fn strokeRect(surface: *Surface, rect: Rect, width: f32, c: RGBA) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.strokeRect(s, rect, width, c),
-        .vulkan => |*v| try vulkan.strokeRect(v, rect, width, c),
+        inline else => |*s, tag| return backend(tag).strokeRect(s, rect, width, c),
     }
 }
 
 pub fn fillRoundRect(surface: *Surface, rect: Rect, radius: f32, c: RGBA) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.fillRoundRect(s, rect, radius, c),
-        .vulkan => |*v| try vulkan.fillRoundRect(v, rect, radius, c),
+        inline else => |*s, tag| return backend(tag).fillRoundRect(s, rect, radius, c),
     }
 }
 
 pub fn fillCircle(surface: *Surface, center: PointF32, radius: f32, c: RGBA) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.fillCircle(s, center, radius, c),
-        .vulkan => |*v| try vulkan.fillCircle(v, center, radius, c),
+        inline else => |*s, tag| return backend(tag).fillCircle(s, center, radius, c),
     }
 }
 
 pub fn drawText(surface: *Surface, pos: Point, text: []const u8, c: RGBA) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.drawText(s, pos, text, c),
-        .vulkan => |*v| try vulkan.drawText(v, pos, text, c),
+        inline else => |*s, tag| return backend(tag).drawText(s, pos, text, c),
     }
 }
 
 pub fn drawImage(surface: *Surface, pos: Point, img: *const RgbaImage) !void {
     switch (surface.impl) {
-        .sw => |*s| sw.drawImage(s, pos, img),
-        .vulkan => |*v| try vulkan.drawImage(v, pos, img),
+        inline else => |*s, tag| return backend(tag).drawImage(s, pos, img),
     }
 }
 
 /// Draws one instance of a caller-registered custom pipeline (a shader
-/// other than rgl's own rect/glyph/image built-ins -- e.g. an app's own
+/// other than rgl's own rect/glyph/image built-ins; e.g. an app's own
 /// accelerated path for a common shape). vulkan-only: a custom shader has
 /// no meaning to the sw backend, which has no shader/pipeline concept at
 /// all to begin with, so this fails with `error.CustomShaderUnsupported`
@@ -102,8 +98,6 @@ pub fn drawCustom(surface: *Surface, pipeline: PipelineId, comptime Instance: ty
     }
 }
 
-const zigstd = @import("../zigstd.zig");
-
 test "the same call sequence runs on both backends" {
     const std = @import("std");
     const alloc = zigstd.testAllocator;
@@ -114,7 +108,7 @@ test "the same call sequence runs on both backends" {
     };
     for (options_list) |options| {
         var surface = try Surface.init(alloc, 16, 16, options);
-        defer surface.destroy(alloc);
+        defer surface.deinit(alloc);
 
         beginFrame(&surface, color.RGBA.blank);
         try fillRect(&surface, .{ .x = 0, .y = 0, .w = 4, .h = 4 }, .{ .r = 255, .g = 0, .b = 0, .a = 255 });
@@ -125,7 +119,7 @@ test "the same call sequence runs on both backends" {
         try drawText(&surface, .{ .x = 0, .y = 8 }, "hi", .{ .r = 255, .g = 255, .b = 255, .a = 255 });
 
         var img = try RgbaImage.init(alloc, 2, 2, color.RGBA.blank);
-        defer img.destroy(alloc);
+        defer img.deinit(alloc);
         try drawImage(&surface, .{ .x = 0, .y = 0 }, &img);
 
         endFrame(&surface);
@@ -138,10 +132,10 @@ test "drawCustom works on vulkan and is rejected cleanly on sw" {
     const MyInstance = extern struct { pos: [2]f32 };
 
     var vk_surface = try Surface.init(alloc, 4, 4, .{ .vulkan = .{} });
-    defer vk_surface.destroy(alloc);
+    defer vk_surface.deinit(alloc);
     try drawCustom(&vk_surface, custom_pipeline_id_start, MyInstance, .{ .pos = .{ 1, 2 } });
 
     var sw_surface = try Surface.init(alloc, 4, 4, .{ .sw = .{} });
-    defer sw_surface.destroy(alloc);
+    defer sw_surface.deinit(alloc);
     try zigstd.testExpectError(error.CustomShaderUnsupported, drawCustom(&sw_surface, custom_pipeline_id_start, MyInstance, .{ .pos = .{ 1, 2 } }));
 }
