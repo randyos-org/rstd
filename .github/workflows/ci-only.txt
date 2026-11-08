@@ -1,0 +1,15 @@
+# Files that CI builds or runs but that are not in the package dependents
+# fetch (build.zig.zon's `.paths`): a change to them is tested, and a push to
+# main that only touches these and the files of no-ci.txt is tested but not
+# released.
+# One bash `case` glob per line, matched against the path from the repo
+# root (`*` also matches `/`). Lines starting with # and blank lines are
+# ignored.
+
+# benchmarks, generators, rig and host tools, and the rigs' test programs
+tools/*
+test/*
+# line endings at checkout, which the tests can see
+.gitattributes
+# CI's workflows, lists and scripts, and the release notes' sections
+.github/*
