@@ -1,13 +1,10 @@
-//! Freestanding test runner for `qemu-system-*`. Prints results through the
-//! architecture's semihosting-style console and exits with the failure count
-//! (0 = all passed), which the run step maps to the process exit code.
-//!
-//! Use with `zig test -target <arch>-freestanding --test-runner runner.zig`
-//! and the matching `<arch>.ld`; `<arch>.zig` supplies the boot code. For a
-//! `<arch>-uefi` target, `uefi.zig` does, and no linker script is used.
+//! Freestanding test runner for the qemu rigs: results to `<arch>.zig`'s console (`uefi.zig` on UEFI), exit status the failure count.
+//! `zig test -target <arch>-freestanding --test-runner runner.zig` with `<arch>.ld`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
+const heap = @import("heap.zig");
+const smp_mod = @import("smp.zig");
 
 const is_uefi = sysinfo.target.os.tag == .uefi;
 
@@ -63,7 +60,7 @@ pub const std_os_options: std.Options.OperatingSystem = .{
     .heap = struct {
         pub const page_size_min = heap.page_size;
         pub const page_size_max = heap.page_size;
-        pub const page_allocator = @import("heap.zig").allocator;
+        pub const page_allocator = heap.allocator;
         pub fn queryPageSize() usize {
             return heap.page_size;
         }
@@ -152,7 +149,7 @@ comptime {
 
 /// A multithreaded kernel's other cores and their `Io` (`smp.zig`), which
 /// the threaded tests use.
-pub const qemutest_smp: ?type = if (sysinfo.single_threaded) null else @import("smp.zig");
+pub const qemutest_smp: ?type = if (sysinfo.single_threaded) null else smp_mod;
 
 fn print(s: []const u8) void {
     for (s) |c| arch.writeByte(c);
@@ -247,8 +244,6 @@ fn printHeapFailure(failed: @TypeOf(heap.failed)) void {
     printInt(f.largest);
     print(")");
 }
-
-const heap = @import("heap.zig");
 
 /// The heap, where the boot code cannot get one from the firmware
 /// (`heapRegion`): sparc64's maps only 4 MB of the image; UEFI's.

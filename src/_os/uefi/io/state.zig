@@ -9,11 +9,9 @@ const time = @import("time.zig");
 const stderr_mod = @import("stderr.zig");
 const random = @import("random.zig");
 const dir = @import("dir.zig");
-const net = @import("net.zig");
 const file = @import("file.zig");
-const progress = @import("progress.zig");
 const async = @import("async.zig");
-const proc = @import("proc.zig");
+const stubs = @import("stubs.zig");
 const operate = @import("operate.zig");
 const fdtable = @import("fdtable.zig");
 
@@ -22,7 +20,7 @@ pub var con_out: ?*uefi.protocol.SimpleTextOutput = null;
 
 /// set by stop(); guards all Boot Services use so late print/panic after
 /// exitBootServices() drops output instead of touching reclaimed memory.
-/// Not derived from `boot_services == null` -- don't trust firmware for that.
+/// Not derived from `boot_services == null`; don't trust firmware for that.
 pub var stopped: bool = false;
 
 /// opened boot-volume root dir (see dir.openRootDir). single slot, not a
@@ -51,7 +49,7 @@ pub fn init() void {
     };
 }
 
-/// sever from Boot Services. call right after exitBootServices() succeeds --
+/// sever from Boot Services. call right after exitBootServices() succeeds;
 /// con_out/stall/RNG live in memory firmware may reclaim then.
 pub fn stop() void {
     con_out = null;
@@ -66,133 +64,25 @@ pub fn bootServices() ?*uefi.tables.BootServices {
     return uefi.system_table.boot_services;
 }
 
-/// Comptime-known `Io` value -- `userdata` is a fixed global pointer and
-/// `vtable` a fixed function table, so this is safe to use directly as
-/// `std_options_debug_io` (evaluated at comptime; see `std.Options.debug_io`
-/// and `src/boot/uefi/__root__.zig`). Runtime state (the stderr writer,
-/// `state.io`) is wired separately by `io()`, which must run before this is
-/// used for real output.
+/// Comptime-known `Io`: a null `userdata` and a fixed vtable, so it can be
+/// `std.Options.debug_io` (RandyOS's `src/boot/uefi/__root__.zig`). `init`
+/// runs before any real output.
 pub const io_inst: Io = .{
     .userdata = null, //Io.Threaded.global_single_threaded,
-    .vtable = &.{
-        .crashHandler = async.crashHandler,
-        .async = async.async,
-        .concurrent = async.concurrent,
-        .await = async.await,
-        .cancel = async.cancel,
-        .groupAsync = async.groupAsync,
-        .groupConcurrent = async.groupConcurrent,
-        .groupAwait = async.groupAwait,
-        .groupCancel = async.groupCancel,
-        .recancel = async.recancel,
-        .swapCancelProtection = async.swapCancelProtection,
-        .checkCancel = async.checkCancel,
-        .futexWait = async.futexWait,
-        .futexWaitUncancelable = async.futexWaitUncancelable,
-        .futexWake = async.futexWake,
+    .vtable = &vtable,
+};
 
-        .operate = operate.operate,
+/// Each `Io.VTable` entry, from the one part that declares its name.
+const vtable_parts = .{ async, operate, dir, file, stubs, stderr_mod, time, random };
 
-        .batchAwaitAsync = async.batchAwaitAsync,
-        .batchAwaitConcurrent = async.batchAwaitConcurrent,
-        .batchCancel = async.batchCancel,
-
-        .dirCreateDir = dir.dirCreateDir,
-        .dirCreateDirPath = dir.dirCreateDirPath,
-        .dirCreateDirPathOpen = dir.dirCreateDirPathOpen,
-        .dirOpenDir = dir.dirOpenDir,
-        .dirStat = dir.dirStat,
-        .dirStatFile = dir.dirStatFile,
-        .dirAccess = dir.dirAccess,
-        .dirCreateFile = dir.dirCreateFile,
-        .dirCreateFileAtomic = dir.dirCreateFileAtomic,
-        .dirOpenFile = dir.dirOpenFile,
-        .dirClose = dir.dirClose,
-        .dirRead = dir.dirRead,
-        .dirRealPath = dir.dirRealPath,
-        .dirRealPathFile = dir.dirRealPathFile,
-        .dirDeleteFile = dir.dirDeleteFile,
-        .dirDeleteDir = dir.dirDeleteDir,
-        .dirRename = dir.dirRename,
-        .dirRenamePreserve = dir.dirRenamePreserve,
-        .dirSymLink = dir.dirSymLink,
-        .dirReadLink = dir.dirReadLink,
-        .dirSetOwner = dir.dirSetOwner,
-        .dirSetFileOwner = dir.dirSetFileOwner,
-        .dirSetPermissions = dir.dirSetPermissions,
-        .dirSetFilePermissions = dir.dirSetFilePermissions,
-        .dirSetTimestamps = dir.dirSetTimestamps,
-        .dirHardLink = dir.dirHardLink,
-
-        .fileStat = file.fileStat,
-        .fileLength = file.fileLength,
-        .fileClose = file.fileClose,
-        .fileWritePositional = file.fileWritePositional,
-        .fileWriteFileStreaming = file.fileWriteFileStreaming,
-        .fileWriteFilePositional = file.fileWriteFilePositional,
-        .fileReadPositional = file.fileReadPositional,
-        .fileSeekBy = file.fileSeekBy,
-        .fileSeekTo = file.fileSeekTo,
-        .fileSync = file.fileSync,
-        .fileIsTty = file.fileIsTty,
-        .fileEnableAnsiEscapeCodes = file.fileEnableAnsiEscapeCodes,
-        .fileSupportsAnsiEscapeCodes = file.fileSupportsAnsiEscapeCodes,
-        .fileSetLength = file.fileSetLength,
-        .fileSetOwner = file.fileSetOwner,
-        .fileSetPermissions = file.fileSetPermissions,
-        .fileSetTimestamps = file.fileSetTimestamps,
-        .fileLock = file.fileLock,
-        .fileTryLock = file.fileTryLock,
-        .fileUnlock = file.fileUnlock,
-        .fileDowngradeLock = file.fileDowngradeLock,
-        .fileRealPath = file.fileRealPath,
-        .fileHardLink = file.fileHardLink,
-
-        .fileMemoryMapCreate = file.fileMemoryMapCreate,
-        .fileMemoryMapDestroy = file.fileMemoryMapDestroy,
-        .fileMemoryMapSetLength = file.fileMemoryMapSetLength,
-        .fileMemoryMapRead = file.fileMemoryMapRead,
-        .fileMemoryMapWrite = file.fileMemoryMapWrite,
-
-        .processExecutableOpen = proc.processExecutableOpen,
-        .processExecutablePath = proc.processExecutablePath,
-
-        .lockStderr = stderr_mod.lockStderr,
-        .tryLockStderr = stderr_mod.tryLockStderr,
-        .unlockStderr = stderr_mod.unlockStderr,
-
-        .processCurrentPath = proc.processCurrentPath,
-        .processSetCurrentDir = proc.processSetCurrentDir,
-        .processSetCurrentPath = proc.processSetCurrentPath,
-        .processReplace = proc.processReplace,
-        .processSpawn = proc.processSpawn,
-        .childWait = proc.childWait,
-        .childKill = proc.childKill,
-
-        .progressParentFile = progress.progressParentFile,
-        .inheritParentDir = proc.inheritParentDir,
-        .inheritParentFile = proc.inheritParentFile,
-
-        .now = time.now,
-        .clockResolution = time.clockResolution,
-        .sleep = time.sleep,
-
-        .random = random.random,
-        .randomSecure = random.randomSecure,
-
-        .netListenIp = net.netListenIp,
-        .netBindIp = net.netBindIp,
-        .netConnectIp = net.netConnectIp,
-        .netListenUnix = net.netListenUnix,
-        .netConnectUnix = net.netConnectUnix,
-        .netSocketCreatePair = net.netSocketCreatePair,
-        .netWriteFile = net.netWriteFile,
-        .netClose = net.netClose,
-        .netShutdown = net.netShutdown,
-        .netInterfaceNameResolve = net.netInterfaceNameResolve,
-        .netInterfaceName = net.netInterfaceName,
-        .netLookup = net.netLookup,
-    },
+const vtable: Io.VTable = blk: {
+    var vt: Io.VTable = undefined;
+    for (@typeInfo(Io.VTable).@"struct".field_names) |name| {
+        @field(vt, name) = for (vtable_parts) |part| {
+            if (@hasDecl(part, name)) break @field(part, name);
+        } else @compileError("no UEFI Io entry for " ++ name);
+    }
+    break :blk vt;
 };
 
 pub var stderr_writer: Io.File.Writer = .{

@@ -10,7 +10,7 @@ const state = @import("state.zig");
 const fdtable = @import("fdtable.zig");
 const no_handle = fdtable.no_handle;
 
-/// Locate Simple File System protocol, open root volume into `t.root_dir`,
+/// Locate Simple File System protocol, open root volume into `state.root_dir`,
 /// return placeholder-handle `Io.Dir` token (see state.zig). Idempotent.
 pub fn openRootDir() Io.Dir {
     if (state.root_dir == null) {

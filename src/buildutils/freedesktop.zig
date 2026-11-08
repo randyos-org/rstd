@@ -1,9 +1,8 @@
 const rstdbuild = @import("__root__.zig");
-const files = @import("files.zig");
-
 const Build = rstdbuild.Build;
 const LazyPath = rstdbuild.LazyPath;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
+const addBuildDir = rstdbuild.addBuildDir;
 
 /// add a FreeDesktop `.desktop` file and icon to the install step for Linux targets
 pub fn addLinuxDesktopFile(
@@ -29,7 +28,7 @@ pub fn addLinuxDesktopFile(
         \\Categories=Utility;
         \\
     , .{ display_name, display_name, version, name, name });
-    const build_dir = files.addBuildDir(b);
+    const build_dir = addBuildDir(b);
     const desktop_path = build_dir.add(desktop_name, desktop_contents);
 
     const icon_name = try b.allocator.print("{s}.png", .{name});

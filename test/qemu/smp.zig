@@ -1,13 +1,10 @@
-//! The multicore rigs' cores (`cpus` past 1 in `build/qemutest.zig`). The
-//! boot core starts the rest (PSCI `CPU_ON` on aarch64, INIT-SIPI-SIPI on
-//! x86_64), each on a stack and thread-local storage of its own, and `Pool`
-//! is an `Io` that hands futures and group tasks to idle cores. A task never
-//! queues: with no idle core `async` runs it inline and `concurrent` fails,
-//! as `Io.Threaded` does past its limits. Waits poll, sleeping in `wfe` or
-//! `mwait` where the CPU has them, so a wake or a cancel needs no interrupt.
+//! The multicore rigs' cores: the boot core starts the rest (PSCI `CPU_ON`, INIT-SIPI-SIPI), and `Pool` is an `Io` handing tasks to idle
+//! cores. No queue: with none idle `async` runs inline and `concurrent` fails, as `Io.Threaded` past its limits. Waits poll (`wfe`, `mwait`).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
+const pc = @import("pc.zig");
+const root_mod = @import("root");
 
 const Io = std.Io;
 const Alignment = std.mem.Alignment;
@@ -63,7 +60,6 @@ pub fn start() void {
     // a core that never comes stays offline; none has been seen not to
     var spins: usize = 0;
     while (online.load(.acquire) < 1 + asked and spins < 1 << 30) : (spins += 1) std.atomic.spinLoopHint();
-    const root_mod = @import("root");
     var buf: [64]u8 = undefined;
     root_mod.testWrite(std.fmt.bufPrint(&buf, "{d} of {d} cores up\n", .{ count(), 1 + asked }) catch unreachable);
 }
@@ -118,7 +114,7 @@ fn setupTls(i: usize) void {
 }
 
 fn fail(msg: []const u8) noreturn {
-    @import("root").testWrite("smp: ");
+    root_mod.testWrite("smp: ");
     @panic(msg);
 }
 
@@ -591,15 +587,8 @@ const x86_64 = struct {
     }
 
     fn fwCfgRead(key: u16, out: []u8) void {
-        asm volatile ("outw %[k], %[p]"
-            :
-            : [k] "{ax}" (key),
-              [p] "{dx}" (@as(u16, 0x510)),
-        );
-        for (out) |*b| b.* = asm volatile ("inb %[p], %[v]"
-            : [v] "={al}" (-> u8),
-            : [p] "{dx}" (@as(u16, 0x511)),
-        );
+        pc.outw(0x510, key);
+        for (out) |*b| b.* = pc.inb(0x511);
     }
 
     fn cpuid(leaf: u32) [4]u32 {

@@ -1,18 +1,9 @@
-//! Runs a test executable on another machine over SSH: copies it into the
-//! host's /tmp, runs it there with `RSTD_TEST_PROGRESS` set (so tests that
-//! run every core name each one) and any further arguments, removes it, and
-//! exits with its status. `ssh` and `scp` come from PATH with their own
-//! config, so `host` is an SSH alias or name; nothing about the machine is
-//! stored here.
-//!
-//!   ssh_test <host> <test exe> [args...]
-//!
-//! An argument `local:<path>` is a file or directory copied over too, next
-//! to the executable, passed as its copy's path and removed after; one
-//! `env:<name>=<value>` sets that variable for the run instead.
+//! `ssh_test <host> <test exe> [args...]`: runs the tests in the host's /tmp with `RSTD_TEST_PROGRESS` set and exits with their status.
+//! `local:<path>` arguments are copied over too, `env:<name>=<value>` ones set for the run; ssh and scp come from PATH with their config.
 
 const std = @import("std");
 const Io = std.Io;
+const remote = @import("remote.zig");
 
 const local_prefix = "local:";
 const env_prefix = "env:";
@@ -34,13 +25,12 @@ fn run(init: std.process.Init) !u8 {
     }
     const host = args[1];
     // unique, so runs from two checkouts do not collide
-    const remote = try arena.print("/tmp/rstd-test-{d}", .{Io.Clock.awake.now(io).toNanoseconds()});
-    const options = [_][]const u8{ "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30" };
+    const remote_exe = try arena.print("/tmp/rstd-test-{d}", .{Io.Clock.awake.now(io).toNanoseconds()});
 
     var scp: std.ArrayList([]const u8) = .empty;
     try scp.append(arena, "scp");
-    try scp.appendSlice(arena, &options);
-    try scp.appendSlice(arena, &.{ "-q", args[2], try arena.print("{s}:{s}", .{ host, remote }) });
+    try scp.appendSlice(arena, &remote.options);
+    try scp.appendSlice(arena, &.{ "-q", args[2], try arena.print("{s}:{s}", .{ host, remote_exe }) });
     if (try exec(io, scp.items) != 0) {
         std.debug.print("ssh_test: copying the tests to {s} failed\n", .{host});
         return 1;
@@ -60,10 +50,10 @@ fn run(init: std.process.Init) !u8 {
         }
         const arg = if (std.mem.startsWith(u8, a, local_prefix)) blk: {
             const path = a[local_prefix.len..];
-            const copy = try arena.print("{s}.{d}", .{ remote, i });
+            const copy = try arena.print("{s}.{d}", .{ remote_exe, i });
             var cp: std.ArrayList([]const u8) = .empty;
             try cp.append(arena, "scp");
-            try cp.appendSlice(arena, &options);
+            try cp.appendSlice(arena, &remote.options);
             try cp.appendSlice(arena, &.{ "-q", "-r", path, try arena.print("{s}:{s}", .{ host, copy }) });
             if (try exec(io, cp.items) != 0) {
                 std.debug.print("ssh_test: copying {s} to {s} failed\n", .{ path, host });
@@ -75,26 +65,11 @@ fn run(init: std.process.Init) !u8 {
         if (std.mem.findScalar(u8, arg, '\'') != null) return error.QuoteInArgument;
         try extra.print(arena, " '{s}'", .{arg});
     }
-    const command = try arena.print("chmod +x {0s} && {3s}RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote, extra.items, copies.items, env.items });
-    var ssh: std.ArrayList([]const u8) = .empty;
-    try ssh.append(arena, "ssh");
-    try ssh.appendSlice(arena, &options);
-    try ssh.appendSlice(arena, &.{ host, command });
-    return exec(io, ssh.items);
+    const command = try arena.print("chmod +x {0s} && {3s}RSTD_TEST_PROGRESS=1 {0s}{1s}; s=$?; rm -rf {0s}{2s}; exit $s", .{ remote_exe, extra.items, copies.items, env.items });
+    return exec(io, try remote.sshArgv(arena, null, &remote.options, host, &.{command}));
 }
 
-/// Runs `argv` with this process's stdio; its exit status (255 when it did
-/// not exit).
+/// Runs `argv` with this process's stdout and stderr; its exit status.
 fn exec(io: Io, argv: []const []const u8) !u8 {
-    var child = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .inherit, .stderr = .inherit }) catch |err| switch (err) {
-        error.FileNotFound => {
-            std.debug.print("ssh_test: {s} is not on PATH\n", .{argv[0]});
-            return error.FileNotFound;
-        },
-        else => |e| return e,
-    };
-    return switch (try child.wait(io)) {
-        .exited => |code| code,
-        else => 255,
-    };
+    return remote.exec(io, "ssh_test: ", argv, .inherit, .inherit);
 }

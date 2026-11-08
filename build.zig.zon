@@ -36,10 +36,10 @@
         .osx_kvm = .{
             .url = "git+https://github.com/kholia/OSX-KVM#4c378a4b5e0b219783683012bec680325eb40719",
             .hash = "N-V-__8AAKUnqQKGAifHk6tDAjx9sNpxjFjWRJi9cvVxV9x9",
-            // only with the macOS rigs (build/qemutest.zig: when rstd is the root project, unless -Dmacos-vm-off)
+            // only with the macOS rigs (build/qemu/__root__.zig: when rstd is the root project, unless -Dmacos-vm-off)
             .lazy = true,
         },
-        // Debian 13 netboot kernels for the Linux rigs (build/qemutest.zig: when
+        // Debian 13 netboot kernels for the Linux rigs (build/qemu/__root__.zig: when
         // rstd is the root project, unless -Dlinux-vm-off); a dated installer
         // build, so the archive stays put
         // arm64's is Debian 14's (forky, kernel 7.0.13): 13's 6.12 has no SME,

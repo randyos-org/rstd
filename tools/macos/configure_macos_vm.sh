@@ -1,11 +1,7 @@
 #!/bin/bash
-# One-time settings for the macOS test VM (`build/qemutest.zig`), after its
-# first login. Serve this directory from the host (QEMU's user network shows
-# the host to the guest as 10.0.2.2), e.g. `python -m http.server 8000
-# --directory tools`, then in the VM's Terminal:
+# One-time settings for the macOS test VM, after its first login: serve this directory (`python -m http.server 8000 --directory
+# tools/macos`; the guest sees the host as 10.0.2.2), then in the VM's Terminal:
 #   curl -fsSO http://10.0.2.2:8000/configure_macos_vm.sh && bash configure_macos_vm.sh
-# Each step says what it does and carries on if it fails; running it again
-# is harmless.
 
 step() { echo "== $1"; shift; "$@" || echo "   (failed: $*)"; }
 

@@ -1,3 +1,6 @@
+//! `DepModule`: a dependency's module, and the C library behind it, carried
+//! to a consumer's module.
+
 const std = @import("std");
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;

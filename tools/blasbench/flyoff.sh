@@ -1,31 +1,7 @@
 #!/usr/bin/env bash
-# The flyoff's timing runs (readme.md) under the timing rule, one command per
-# host, from the rstd root under MSYS2's bash (zig as $ZIG, else on PATH):
-#
-#   tools/blasbench/flyoff.sh zen3 <OpenBLAS dll>   Windows here, then the Linux VM (WHPX)
-#   tools/blasbench/flyoff.sh m6                    macOS on the Mac, then its Linux VM (HVF)
-#
-# Both stage their files with `zig build flyoff-stage-<host>` in
-# zig-out/flyoff-<host>. zen3 runs here; m6 copies them to the Mac
-# ($MAC, else macmini-m6) as ~/rstd-flyoff, starts them there detached
-# (`caffeinate`), waits for ~/rstd-flyoff/DONE and copies runs/ back
-# (`flyoff.sh m6 --collect` only collects). Results in
-# zig-out/flyoff-<host>/runs: per configuration <cfg>.merged.md (rows two
-# runs agree on within 3%), <cfg>.report, and each run's .log, .before,
-# .after and .watch.
-#
-# The rule (src/linalg/blas/design.md, "Timing on a host macOS keeps busy";
-# results-flyoff.md, "Timing rule"): a run starts when no QEMU runs, the load
-# is under 2 (on Windows: the processor queue), and no other process passes 5%
-# of a core over 5 s; a watch every 20 s sets aside and repeats (3 times at
-# most) a run another process disturbed; each configuration runs twice, and
-# sections with rows apart by over 3% run again, up to 3 more times
-# (`blas_bench --merge`). From the R4 runs' script (2026-10-29).
-#
-#   flyoff.sh run <macos|windows> <dir> <name>:<sections>:<command>...
-#
-# is the engine each host runs: <command> runs in <dir> with `@` replaced by
-# the sections, output to runs/<name>-<i>.log.
+# `flyoff.sh zen3 <OpenBLAS dll>` or `flyoff.sh m6 [--collect]`: the flyoff's timing runs under the timing rule (readme.md), from the
+# rstd root under MSYS2's bash ($ZIG, $MAC default macmini-m6). `flyoff.sh run <macos|windows> <dir> <name>:<sections>:<command>...`
+# is each host's engine: <command> in <dir> with `@` as the sections, output to runs/<name>-<i>.log. From the R4 runs' script (2026-10-29).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 zig=${ZIG:-zig}

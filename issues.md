@@ -225,7 +225,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   fails with "invalid memory operand: '(%[p])'" under `-fno-llvm`; so do
   `0(%[p])` and `(%rdx)`. Zig 0.17.0 and 0.18.0-dev.751. Found by
   `rstd-check-zig017`: 0.17.0 builds debug x86_64-linux with this backend.
-- **Workaround:** `util.zig`'s `FpState` asm takes `m` operands on this
+- **Workaround:** `FpState.zig`'s asm takes `m` operands on this
   backend (`fp_mem_ops`), the `(%[p])` form elsewhere (the next entry).
 - **Issue text:**
 
@@ -268,7 +268,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   jumps into unrelated code in the gemm parameter test. Still so on
   0.18.0-dev.751: "every core of the x86_64 family" traps with
   `Unhandled Exception 0x10`; the same image at `.fast` passes.
-- **Workaround:** the sparc64 rig builds with `.fast` (`build/qemutest.zig`).
+- **Workaround:** the sparc64 rig builds with `.fast` (`build/qemu/machines.zig`).
 - **Issue text:** not ready; needs a reduced case first. It may belong to
   LLVM rather than Zig.
 
@@ -333,7 +333,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   one like it could feed a check. Clean at `-O1`, with `-fast-isel=false`,
   and for pwr8 and `powerpc64le-linux` (f128 by library calls).
 - **Workaround:** the freestanding pwr9 and pwr10 rigs build with `.safe`
-  (`build/qemutest.zig`), which does not use FastISel; `linux-powerpc64le`
+  (`build/qemu/machines.zig`), which does not use FastISel; `linux-powerpc64le`
   (pwr8) builds in Debug.
 - **Issue text:**
 
@@ -429,11 +429,11 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   AltiVec, though those chips do not. Still so on 0.18.0-dev.751. That
   build's assembly (`-femit-asm`) also had AltiVec in the portable `saxpy`,
   both `gemm_beta`s and the scalar tile, real `trmm` and `trsm`, the half
-  `gemv`, the `cdot` block of `dot/kernel.zig` (SLP, in ReleaseSmall too)
+  `gemv`, the `cdot` block of `dot/driver.zig` (SLP, in ReleaseSmall too)
   and the tests' denormal operands, which came out zero; kept denormal,
   `saxpy` failed on the rig.
 - **Workaround:** the AltiVec cores' objects are built without it
-  (`cpu/_corespec.zig`'s `without`), and those loops pass each `f32` result
+  (`cpu/corespec.zig`'s `without`), and those loops pass each `f32` result
   they store or accumulate through `util.scalar`, an empty asm the
   vectorizers cannot widen. A new loop without it can still be vectorized:
   the `-femit-asm` of a `-mcpu=g4` build should have no `vaddfp`, `vmaddfp`
@@ -457,7 +457,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   `Elf64_Ehdr`), and that linker ignores linker scripts anyway.
 - **Workaround:** none; 32-bit SPARC is compile-checked only (the kernel
   objects build). Its rig, `sparc` (OpenBIOS on `SS-5`), is a stub in
-  `build/qemutest.zig`.
+  `build/qemu/machines.zig`.
 - **Issue text:** none; an lld feature, not a Zig bug, and pending upstream:
   <https://github.com/llvm/llvm-project/pull/228200> (open) adds 32-bit SPARC
   to lld.
@@ -893,7 +893,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   configuration of the core has. `i6400`, `i6500`, `p5600` and `p6600` list neither `msa` nor the
   new `fpu_d`; the generic `mips32r6` and `mips64r6` list `fpu_d`. A `p5600` kernel object built
   from the model alone was soft-float, and `i6400` had no vector registers.
-- **Workaround:** none needed; rstd adapted. `cpu/_corespec.zig` asks for `msa` and, where it
+- **Workaround:** none needed; rstd adapted. `cpu/corespec.zig` asks for `msa` and, where it
   exists, `fpu_d` itself (`mips_simd`), and the gemm geometry test adds MSA to its `i6400`. Drop the
   `@hasField` guard once no supported Zig lacks `fpu_d` (Zig 0.17.0, zfls, still does).
 
@@ -988,7 +988,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   build exited 0, so the FPU stayed off and every converted kernel was
   skipped as not runnable.
 - **Workaround:** the `arm` rig adds `vfp4`, `neon`, `d32`, `hwdiv` and
-  `hwdiv_arm` (`build/qemutest.zig`); the boot code writes its `vmsr` by
+  `hwdiv_arm` (`build/qemu/machines.zig`); the boot code writes its `vmsr` by
   encoding (`test/qemu/arm.zig`).
 - **Issue text** (likely by design, per those commits; check before filing):
 
@@ -1071,10 +1071,10 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   which pass the same loop; the threaded tests run there with worker threads.
   `Uring` keeps `Group` and no worker threads in the tests (its futures hit the
   entry below), so threaded BLAS on a multithreaded `Uring` is unsupported
-  (threading.md). `threading.initEvented` tells `Evented` its page allocator
+  (threading.md). `_test/io.zig`'s `initEvented` tells `Evented` its page allocator
   needs no mutex.
 - **Revert check:** `zig build ssh-repro-group-aarch64-macos` runs
-  `tools/evented_group_repro.zig` (std only) on the Mac, `futures` then
+  `tools/probe/evented_group_repro.zig` (std only) on the Mac, `futures` then
   `group`, 20000 rounds each; rerun it on each toolchain bump. Once `group`
   passes, set `dispatch_futures` false and delete the futures path. The file
   checks `Uring` too on a Linux host; no step runs it there.
@@ -1339,7 +1339,7 @@ When an issue is fixed upstream, drop the workaround and its entry. [`todo.md`](
   arrays of it cross pages; the rstd suite failed its `c_longdouble`
   checks and then crashed in `SafeAllocator` (a misplaced store). x86_64's
   16-byte `f80` never crosses.
-- **Workaround:** `linux-i386` is a stub (`build/qemutest.zig`).
+- **Workaround:** `linux-i386` is a stub (`build/qemu/machines.zig`).
 - **Upstream:** reported as <https://gitlab.com/qemu-project/qemu/-/issues/3582>
   (open; also #4682, closed): `access_ptr` in `target/i386/tcg/access.c` tests
   `offset <= ac->size1 - len`, which wraps when `size1 < len`, so the 8-byte
@@ -1945,7 +1945,7 @@ and the x86_64 kernels are exact to rounding.
 `kernel/Makefile` builds the `HASWELL` and `ZEN` kernels with `-mavx2 -mfma`
 under clang but only `-mavx2` under GCC, so the C parts of the C kernels
 (`gemv`'s row tails and `add_y`, for one) contract multiply-adds under clang
-and not under GCC. Rstd follows clang (`cpu/_corespec.zig`). Against a GCC
+and not under GCC. Rstd follows clang (`cpu/corespec.zig`). Against a GCC
 build (the 0.3.33 Windows release, GCC 9.3: its `libopenblas.dll`'s producer strings read
 `GNU C99 9.3.0`), the converted `gemv` blocks
 agree bit-for-bit and those C statements differ in the last bit; built
@@ -1969,7 +1969,7 @@ for an AMD family 0Fh CPU whose CPUID reports no SSE3. So a transposed `dgemv` w
 would fault there. Not seen on hardware.
 
 - **Workaround:** where the core has no SSE3, the ported driver
-  (`blas2/gemv/kernel.zig`) does those two blocks' arithmetic in SSE2
+  (`blas2/gemv/driver.zig`) does those two blocks' arithmetic in SSE2
   (`Fallback.t4x2`, `t4x1`); a test checks them against the assembly bit for
   bit.
 - **Issue text:** "`dgemv_t_4.c`'s `dgemv_kernel_4x2` and `dgemv_kernel_4x1`
@@ -1996,7 +1996,7 @@ elements, `n % 16` for `cscal`) and the strided loops branch instead:
 
 So one element's result depends on where it falls in the vector.
 
-- **Workaround:** rstd's driver (`blas1/scal/kernel.zig`) takes the blocks'
+- **Workaround:** rstd's driver (`blas1/scal/driver.zig`) takes the blocks'
   full product in the tails and strided loops too, which is the portable
   kernels' contract; the bits of finite values are the reference's.
 - **Issue text:** "In `kernel/x86_64/zscal.c` and `cscal.c` the tail after
@@ -2034,7 +2034,7 @@ those four columns are never added. `interface/symv.c` passes
 reaches it; a direct kernel call can. `symv_U_sve_v1x4.c` calls its block on
 `0..j`.
 
-- **Workaround:** rstd's port (`blas2/symv/kernel.zig`, `ArmU`) adds those
+- **Workaround:** rstd's port (`blas2/symv/driver.zig`, `ArmU`) adds those
   rows after the block, as the x86_64 driver's `kernel_1x4` does.
 - **Issue text:** "In `kernel/arm64/symv_U_asimd_4x4.c`, `j1 = (j / 4) * 4`
   rounds the column start down and `symv_kernel_4x4(0, j1, ...)` is followed
@@ -2208,7 +2208,7 @@ same in upstream ReLAPACK.
 
 - **Workaround:** rstd's `sytrf` and `hetrf` run Reference-LAPACK's blocked `xSYTRF` loop
   (`ILAENV`'s 64 columns) over ReLAPACK's `rec2` panel, its update ahead of the undo
-  (`src/linalg/lapack/relapack.zig`, `indefinite.zig`).
+  (`src/linalg/lapack/sytrf.zig`, `indefinite.zig`).
 - **Issue text:** "`RELAPACK_?sytrf` and `?hetrf` (and the `_rook` forms) return a wrong
   factorization for `n` past the crossover: `?sytrf_rec2` undoes the panel's interchanges
   before the recursion uses the panel to update `A_BR`, where `xLASYF` updates first; and the
@@ -2233,7 +2233,7 @@ differ from `dgbtf2`'s, by up to 8. Upstream's full recursion differs on six of 
 tried. The recursion also swaps `A_Rr` from its first column (`A_Rrj[i] = A_Rr[ip]`), and the
 second half's `dgbtf2` overwrites the first half's `info`.
 
-- **Workaround:** rstd's `gbtrf` is `xGBTF2` throughout (`relapack.zig`).
+- **Workaround:** rstd's `gbtrf` is `xGBTF2` throughout (`gbtrf.zig`).
 - **Issue text:** "`RELAPACK_?gbtrf` returns a wrong factorization whenever its recursion runs
   (`n <= kl` in OpenBLAS; most shapes upstream); compare with `?gbtf2` at `m = 50, n = 40,
   kl = 45, ku = 3`."
@@ -2270,7 +2270,7 @@ recursion passes the same `pq` down, so only the last base case's count survives
 `dtgsyl.f` adds every block's `PPQQ`. Past the crossover the estimate comes out about the
 square root of the number of base cases too small. `ztgsyl.c` takes `m * n`, as `ztgsyl.f`.
 
-- **Workaround:** rstd adds each base case's count (`relapack.zig`, `sylvester.Dif`), tested
+- **Workaround:** rstd adds each base case's count (`tgsyl.zig`, `sylvester.Dif`), tested
   against one `xTGSY2` over the whole problem.
 - **Issue text:** "`RELAPACK_dtgsyl` and `RELAPACK_stgsyl` with `ijob` 2 or 4 compute `dif`
   from the `pq` of the last `?tgsy2` call only, since `?tgsy2` overwrites it; LAPACK's

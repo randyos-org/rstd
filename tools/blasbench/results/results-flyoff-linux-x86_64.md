@@ -1,35 +1,14 @@
 # BLAS flyoff: Linux x86_64
 
-A Linux VM on this PC's own CPU under WHPX. Part of the
-[BLAS flyoff](results-flyoff.md).
+A Linux VM on this PC's own CPU under WHPX. Part of the [BLAS flyoff](results-flyoff.md).
 
-- **Machine:** the Windows PC's Ryzen 7 7730U under QEMU 11.0.1 (MSYS2)
-  with `-accel whpx -M pc -cpu EPYC-Milan -smp 8 -m 4G`: instructions run
-  on the host's cores, never translated. `-cpu host` stops in SeaBIOS under
-  WHPX, so the guest sees the Zen 3 model of its own family (WHPX keeps
-  only the features the host has); OpenBLAS, BLIS and rstd all pick the
-  same Zen kernels as on Windows. Debian 13's netboot kernel, an initramfs
-  holding the bench as `/test` and the libraries' runtime closure. The
-  clock probe read 4.05 to 4.45 GHz.
-- **Build:** as Windows', for `x86_64-linux-gnu`, `-mcpu znver3`; rstd
-  detects `zen`. glibc 2.44 from nixpkgs is the loader.
-- **Libraries:** nixpkgs at `5adc50831c259f87faeb09ddf930d43597197473`
-  (`tools/nix/flake.lock`), from its binary cache:
-  - **OpenBLAS** 0.3.33, `openblasCompat`
-    (`/nix/store/cl1zf7pwrf2wpyfi3k8jdh6ggia918ja-openblas-0.3.33`): 32-bit
-    integers, as plain `openblas` is ILP64 on x86_64-linux.
-    `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP Zen MAX_THREADS=64`.
-  - **BLIS** 2.1 (`/nix/store/04w9c7sbv35h5fh54k6hy5zj56kfpa8a-blis-2.1`),
-    configured `x86_64` (every x86_64 subconfiguration, picked at run
-    time: `zen3` here), OpenMP, 32-bit integers, with its CBLAS layer
-    (`cblas_*` exported).
-- **Threads:** one each (`OPENBLAS_NUM_THREADS`, `BLIS_NUM_THREADS`,
-  `OMP_NUM_THREADS` and the set-threads calls); default threading:
-  OpenBLAS 8 (the VM's CPUs), BLIS still 1 (its own default without an
-  environment variable). rstd ran on `Io.failing` in every row, so one
-  thread either way.
-- **When:** 2026-10-27, 06:33 to 06:38 and 06:38 to 06:40 CDT, with no
-  other `zig` or `qemu-system` process running on the PC.
+- **Machine:** the Windows PC's Ryzen 7 7730U under QEMU 11.0.1 (MSYS2) with `-accel whpx -M pc -cpu EPYC-Milan -smp 8 -m 4G`: instructions run on the host's cores, never translated. `-cpu host` stops in SeaBIOS under WHPX, so the guest sees the Zen 3 model of its own family (WHPX keeps only the features the host has); OpenBLAS, BLIS and rstd all pick the same Zen kernels as on Windows. Debian 13's netboot kernel, an initramfs holding the bench as `/test` and the libraries' runtime closure. The clock probe read 4.05 to 4.45 GHz.
+- **Build:** as Windows', for `x86_64-linux-gnu`, `-mcpu znver3`; rstd detects `zen`. glibc 2.44 from nixpkgs is the loader.
+- **Libraries:** nixpkgs at `5adc50831c259f87faeb09ddf930d43597197473` (`tools/nix/flake.lock`), from its binary cache:
+  - **OpenBLAS** 0.3.33, `openblasCompat` (`/nix/store/cl1zf7pwrf2wpyfi3k8jdh6ggia918ja-openblas-0.3.33`): 32-bit integers, as plain `openblas` is ILP64 on x86_64-linux. `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP Zen MAX_THREADS=64`.
+  - **BLIS** 2.1 (`/nix/store/04w9c7sbv35h5fh54k6hy5zj56kfpa8a-blis-2.1`), configured `x86_64` (every x86_64 subconfiguration, picked at run time: `zen3` here), OpenMP, 32-bit integers, with its CBLAS layer (`cblas_*` exported).
+- **Threads:** one each (`OPENBLAS_NUM_THREADS`, `BLIS_NUM_THREADS`, `OMP_NUM_THREADS` and the set-threads calls); default threading: OpenBLAS 8 (the VM's CPUs), BLIS still 1 (its own default without an environment variable). rstd ran on `Io.failing` in every row, so one thread either way.
+- **When:** 2026-10-27, 06:33 to 06:38 and 06:38 to 06:40 CDT, with no other `zig` or `qemu-system` process running on the PC.
 
 Columns as [`results-flyoff.md`](results-flyoff.md#reading-the-tables) has them.
 

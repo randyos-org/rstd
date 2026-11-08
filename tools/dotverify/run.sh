@@ -1,15 +1,6 @@
 #!/bin/sh
-# The x86_64 dot drivers against OpenBLAS's own C, bit for bit (T38):
-# `src/linalg/blas/_verify_dot.zig` linked with `kernel/x86_64/{sdot,ddot,
-# cdot,zdot}.c`, built per core under the stub `common.h`, fused
-# (`-ffp-contract=on`) and not, for this machine's CPU. From rstd's root:
-#
-#     tools/dotverify/run.sh <OpenBLAS checkout> [zig]
-#
-# Files go to `$DOTVERIFY_OUT`, else a new temporary directory.
-#
-# Runs the cores this CPU can; prints "<runs> runs, <n> mismatches" and exits
-# 1 on any mismatch.
+# run.sh <OpenBLAS checkout> [zig], from rstd's root: the x86_64 dot drivers (`_verify_dot.zig`) against OpenBLAS's kernel/x86_64/*dot.c,
+# bit for bit (T38), per core this CPU runs, fused and not. Files in `$DOTVERIFY_OUT` or a temporary directory; exits 1 on a mismatch.
 set -e
 # a directory as the compiler names it (MSYS shells: `C:/...`, not `/c/...`)
 native() { (cd "$1" && (pwd -W 2>/dev/null || pwd)); }

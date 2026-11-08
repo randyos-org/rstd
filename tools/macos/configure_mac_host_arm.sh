@@ -1,13 +1,7 @@
 #!/bin/bash
-# Settings for an Apple silicon Mac that runs the rigs and the timing over
-# ssh (`-Dtest-host`): headless, logged in, never asleep, with macOS's
-# background indexing stopped so timings stay steady (src/linalg/blas/
-# design.md, Settled decisions: timing on a busy Mac). Run it as the account
-# the rigs log in as.
-#   bash configure_mac_host_arm.sh          apply what a script can, report the rest
-#   bash configure_mac_host_arm.sh --check  only report
-# Steps a script cannot take (SIP, iCloud toggles, a password) say what to do
-# by hand. Running it again is harmless.
+# Settings for the Apple silicon Mac that runs the rigs and timings over ssh: headless, logged in, never asleep, indexing stopped (src/linalg/
+# design.md, "Timing on a host macOS keeps busy"). Run as the rigs' account: `bash configure_mac_host_arm.sh [--check]`; steps a script cannot take say
+# what to do by hand. Running it again is harmless.
 
 check_only=
 [ "$1" = "--check" ] && check_only=1

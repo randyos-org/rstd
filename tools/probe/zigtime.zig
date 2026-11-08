@@ -1,13 +1,5 @@
-//! Runs one `zig` compile with `--time-report` and prints what it reports:
-//! where the compiler spent its time, and the declarations that took the
-//! most semantic analysis (`sema_ns`, and how many times each was analyzed).
-//! It speaks the compiler's `--listen=-` protocol (`std.zig.Server`), the
-//! same one `zig build --time-report` shows on its web page.
-//!
-//!     zig run tools/zigtime.zig -- [--top N] <zig arguments>
-//!
-//! for example, `zig run tools/zigtime.zig -- build-obj -OReleaseFast -Mroot=src/x.zig`.
-//! `zig` must be on `PATH`.
+//! `zig run tools/probe/zigtime.zig -- [--top N] <zig arguments>`: one compile's `--time-report` (phases, and the declarations with the
+//! most `sema_ns`), over the compiler's `--listen=-` protocol. `zig` must be on `PATH`.
 
 const std = @import("std");
 const Io = std.Io;

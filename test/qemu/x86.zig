@@ -1,7 +1,7 @@
-//! 32-bit x86 boot for QEMU's `pc` machine (`-kernel`, Multiboot, 32-bit
-//! protected mode with paging off). Console is COM1; exit powers the machine
-//! off through the ACPI PM control register, so the run step judges the
-//! result from the printed summary rather than an exit code.
+//! 32-bit x86 boot for `pc` (Multiboot, protected mode, paging off). Console COM1; exit powers off through the ACPI PM control register
+//! (the summary carries the result).
+
+const pc = @import("pc.zig");
 
 comptime {
     asm (
@@ -36,41 +36,9 @@ comptime {
     );
 }
 
-inline fn outb(port: u16, value: u8) void {
-    asm volatile ("outb %[value], %[port]"
-        :
-        : [value] "{al}" (value),
-          [port] "{dx}" (port),
-    );
-}
-
-inline fn outw(port: u16, value: u16) void {
-    asm volatile ("outw %[value], %[port]"
-        :
-        : [value] "{ax}" (value),
-          [port] "{dx}" (port),
-    );
-}
-
-inline fn inb(port: u16) u8 {
-    return asm volatile ("inb %[port], %[value]"
-        : [value] "={al}" (-> u8),
-        : [port] "{dx}" (port),
-    );
-}
-
-const com1: u16 = 0x3f8;
-
-pub fn writeByte(c: u8) void {
-    // the transmit holding register is empty
-    while (inb(com1 + 5) & 0x20 == 0) {}
-    outb(com1, c);
-}
+pub const writeByte = pc.writeByte;
 
 pub fn exit(code: usize) noreturn {
     _ = code;
-    // S5, at the PIIX4 PM control register and at the newer machines' one
-    outw(0xb004, 0x2000);
-    outw(0x604, 0x2000);
-    while (true) asm volatile ("hlt");
+    pc.powerOff();
 }

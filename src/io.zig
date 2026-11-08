@@ -1,5 +1,6 @@
 const sysinfo = @import("builtin");
 const std = @import("std");
+const buildutils_io = @import("buildutils/io.zig");
 
 const impl = switch (sysinfo.target.os.tag) {
     .uefi => @import("_os/uefi/io/__root__.zig"),
@@ -25,7 +26,7 @@ pub fn printerr(local_io: std.Io, msg: []const u8) !void {
     try stderr().writeStreamingAll(local_io, msg);
 }
 
-pub const fileExists = @import("buildutils/io.zig").fileExists;
+pub const fileExists = buildutils_io.fileExists;
 
 pub fn getTimeSeconds() f64 {
     const ns = std.Io.Clock.now(.boot, std.Options.debug_io).toNanoseconds();

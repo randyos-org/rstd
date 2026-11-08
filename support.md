@@ -82,7 +82,7 @@ tier-2 component of both macOS platforms.
 ## BLAS cores
 
 A core is in its platform's tier. Kernel cores are `kernelCores` in
-[`cpu/_corespec.zig`](src/linalg/blas/cpu/_corespec.zig); a core runs where detection
+[`cpu/corespec.zig`](src/linalg/blas/cpu/corespec.zig); a core runs where detection
 (`runnable`) says the rig's CPU can run it. Unlisted cores have no kernels: the portable ones
 serve them.
 

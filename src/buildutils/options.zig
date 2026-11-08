@@ -4,7 +4,7 @@ const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const Module = rstdbuild.Module;
 const BuildOptions = rstdbuild.BuildOptions;
-const DepModule = @import("deps.zig").DepModule;
+const DepModule = rstdbuild.DepModule;
 
 /// Creates a package's `build_options`. Pass the package's rstd module
 /// (from `addRstd`) to make rstd read these options too: rstd code such as

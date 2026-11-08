@@ -1,10 +1,6 @@
 # BLAS libraries on the Apple M6 Mac mini
 
-[`results-m6.md`](results-m6.md) found plain Zig `@Vector` x4 kernels
-matching or beating rstd's converted OpenBLAS assembly on `vortex`. This
-races rstd's public routines against the real libraries, to tell whether
-that is our conversion, OpenBLAS's Apple kernels, or Zig. Measured
-2026-10-22 with `blas_bench.zig`'s `lib1`, `lib2` and `lib3` sections:
+[`results-m6.md`](results-m6.md) found plain Zig `@Vector` x4 kernels matching or beating rstd's converted OpenBLAS assembly on `vortex`. This races rstd's public routines against the real libraries, to tell whether that is our conversion, OpenBLAS's Apple kernels, or Zig. Measured 2026-10-22 with `blas_bench.zig`'s `lib1`, `lib2` and `lib3` sections:
 
 ```sh
 zig build remote-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> \
@@ -13,105 +9,35 @@ zig build remote-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> \
 
 ## Answers
 
-- **Our conversion costs nothing.** Where rstd and OpenBLAS run the same
-  kernel (`axpy`, `scal`, `nrm2`, `rot`, `swap`, every `gemv` but `sgemv_n`),
-  rstd's public routine runs at 0.98 to 1.04 of OpenBLAS's `cblas_*`, and
-  the converted kernel alone at 0.98 to 1.06. OpenBLAS's own gemm equals
-  its vortex `.S` driven by the bench's copy of `level3.c` (0.99 to 1.01).
-- **OpenBLAS's real C kernels are better than the armv8 stand-ins**, and
-  `@Vector` x4 still matches or beats them at unit stride. Real `ddot` is
-  1.7 to 2.6 times armv8's, real `?asum` 1.5 to 2.5 times. x4 against the
-  real kernels: `asum` 0.96 to 1.04, `i?amax` 0.86 to 1.40, real `dot` 1.25
-  to 1.34 in L1 and 1.01 to 1.02 beyond, complex `dot` 1.14 to 1.79, `copy`
-  1.95 to 2.05 in L1, `sgemv_n` 0.82 to 0.97. From memory they are within
-  4% of each other, but for complex `dot` (1.14).
-- **rstd itself is far behind wherever vortex has no converted kernel.**
-  The real kernels are C, never ported, so rstd runs its portable loops:
-  `?dot` at 0.09 to 0.61 of OpenBLAS, `?asum` 0.06 to 0.18, `i?amax` 0.07 to
-  0.39, `copy` 0.46 to 0.98 and `sgemv_n` 0.12 to 0.22.
-- **Accelerate is in another class wherever SME can work.** Single-threaded
-  `sgemm` runs at up to 1,923 GFLOP/s, 15 times OpenBLAS and 13 times the
-  NEON peak of 149.5; `dgemm` reaches 511, 8 times. No core's NEON pipes do
-  that: this is the SME unit (`FEAT_SME`, `FEAT_SME2`), similar in design to the undocumented AMX of M1 to M3 (Remke and Breuer, "Hello SME! Generating Fast Matrix Multiplication Kernels Using the Scalable Matrix Extension", 2024, <https://arxiv.org/abs/2409.18779>).
-  With 1 MiB vectors, level 1 runs at 2.6 to 8.3 times OpenBLAS (all but
-  `asum`, `i?amax`, complex `dot` and `dznrm2`), and `gemv` in L2
-  at 6.6 to 18 times (`sgemv_n` 476 GFLOP/s): rates past a NEON core's,
-  which fit SME's streaming loads too. In L1 it wins less (1.2 to 3.9
-  times), from memory it is 0.8 to 1.6 times, and its `i?amax` (0.26 to
-  0.75) and `cdotu` (0.73 to 0.96) are slower than OpenBLAS. Its `dznrm2`
-  barely beats OpenBLAS's scaled loop, where x4 is 11 to 16 times faster.
-- **The `@Vector` win is the kernels' tuning, not Zig.** The hot loops
-  (below) are what LLVM emits for any 4-wide unroll: eight independent
-  accumulators, paired 128-bit loads, immediate offsets. The OpenBLAS
-  kernels it beats were written for ThunderX2 and Neoverse N1: software
-  prefetches every 128 bytes that the M6 does not need and that cost load
-  slots, 16- or 32-byte loops (`copy`, `saxpy`), and the scaled one-pass
-  `nrm2`. Where a loop is bound by the FP pipes instead (`asum`), the two
-  tie. Zig adds nothing that clang on the same source would not.
+- **Our conversion costs nothing.** Where rstd and OpenBLAS run the same kernel (`axpy`, `scal`, `nrm2`, `rot`, `swap`, every `gemv` but `sgemv_n`), rstd's public routine runs at 0.98 to 1.04 of OpenBLAS's `cblas_*`, and the converted kernel alone at 0.98 to 1.06. OpenBLAS's own gemm equals its vortex `.S` driven by the bench's copy of `level3.c` (0.99 to 1.01).
+- **OpenBLAS's real C kernels are better than the armv8 stand-ins**, and `@Vector` x4 still matches or beats them at unit stride. Real `ddot` is 1.7 to 2.6 times armv8's, real `?asum` 1.5 to 2.5 times. x4 against the real kernels: `asum` 0.96 to 1.04, `i?amax` 0.86 to 1.40, real `dot` 1.25 to 1.34 in L1 and 1.01 to 1.02 beyond, complex `dot` 1.14 to 1.79, `copy` 1.95 to 2.05 in L1, `sgemv_n` 0.82 to 0.97. From memory they are within 4% of each other, but for complex `dot` (1.14).
+- **rstd itself is far behind wherever vortex has no converted kernel.** The real kernels are C, never ported, so rstd runs its portable loops: `?dot` at 0.09 to 0.61 of OpenBLAS, `?asum` 0.06 to 0.18, `i?amax` 0.07 to 0.39, `copy` 0.46 to 0.98 and `sgemv_n` 0.12 to 0.22.
+- **Accelerate is in another class wherever SME can work.** Single-threaded `sgemm` runs at up to 1,923 GFLOP/s, 15 times OpenBLAS and 13 times the NEON peak of 149.5; `dgemm` reaches 511, 8 times. No core's NEON pipes do that: this is the SME unit (`FEAT_SME`, `FEAT_SME2`), similar in design to the undocumented AMX of M1 to M3 (Remke and Breuer, "Hello SME! Generating Fast Matrix Multiplication Kernels Using the Scalable Matrix Extension", 2024, <https://arxiv.org/abs/2409.18779>). With 1 MiB vectors, level 1 runs at 2.6 to 8.3 times OpenBLAS (all but `asum`, `i?amax`, complex `dot` and `dznrm2`), and `gemv` in L2 at 6.6 to 18 times (`sgemv_n` 476 GFLOP/s): rates past a NEON core's, which fit SME's streaming loads too. In L1 it wins less (1.2 to 3.9 times), from memory it is 0.8 to 1.6 times, and its `i?amax` (0.26 to 0.75) and `cdotu` (0.73 to 0.96) are slower than OpenBLAS. Its `dznrm2` barely beats OpenBLAS's scaled loop, where x4 is 11 to 16 times faster.
+- **The `@Vector` win is the kernels' tuning, not Zig.** The hot loops (below) are what LLVM emits for any 4-wide unroll: eight independent accumulators, paired 128-bit loads, immediate offsets. The OpenBLAS kernels it beats were written for ThunderX2 and Neoverse N1: software prefetches every 128 bytes that the M6 does not need and that cost load slots, 16- or 32-byte loops (`copy`, `saxpy`), and the scaled one-pass `nrm2`. Where a loop is bound by the FP pipes instead (`asum`), the two tie. Zig adds nothing that clang on the same source would not.
 
 ## Setup
 
-- **Machine, build and peak:** as [`results-m6.md`](results-m6.md#setup):
-  Apple M6 Mac mini, macOS 27.0.1 (26A434); Zig 0.18.0-dev.267+de94864b9,
-  ReleaseFast, CPU model `apple_m1`, `-Dblas-cores=all`; rstd detects
-  `vortexm4`. Peak `fmla` 149.5 GFLOP/s single and 74.7 double, the clock
-  4.78 to 4.79 GHz at every check of the single-threaded runs.
-- **OpenBLAS:** 0.3.33 from nixpkgs' binary cache
-  (`/nix/store/s2xzgzc6dbj1bgz5qf9331zha3g0w1w3-openblas-0.3.33`), built
-  `TARGET=VORTEX`, `DYNAMIC_ARCH`, 32-bit integers. `openblas_get_config()`:
-  `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY neoversen1 MAX_THREADS=64`;
-  `openblas_get_corename()`: `neoversen1`, and `openblas_get_num_threads()`
-  1. A `DYNAMIC_ARCH` build defines `gotoblas_VORTEX` as
-  `gotoblas_NEOVERSEN1`, so `neoversen1` is how it names the vortex core:
-  the same kernels (`KERNEL.VORTEX` includes `KERNEL.NEOVERSEN1`), with
-  N1's blocking. This binary maps `VORTEXM4` there too:
-  `OPENBLAS_CORETYPE=vortexm4` still reports `neoversen1`, with the same
-  gemm rates, so its SME gemm path never runs.
-- **Accelerate:** the system framework, Accelerate 1.11 (vecLib 3.11) of
-  macOS 27.0.1, through its LP64 `cblas_*$NEWLAPACK` entries.
-  `BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)` on the calling thread;
-  `BLASGetThreading()` reports single-threaded. A `lib2` run took 29.33 s
-  of user time in 29.56 s, so nothing ran on a second core.
-- **Threads:** the bench sets `OPENBLAS_NUM_THREADS=1` and
-  `VECLIB_MAXIMUM_THREADS=1` before it `dlopen`s the libraries, except for
-  the one labeled default-threading gemm run. rstd's routines ran on
-  `Io.failing`, one thread, in every run.
+- **Machine, build and peak:** as [`results-m6.md`](results-m6.md#setup): Apple M6 Mac mini, macOS 27.0.1 (26A434); Zig 0.18.0-dev.267+de94864b9, ReleaseFast, CPU model `apple_m1`, `-Dblas-cores=all`; rstd detects `vortexm4`. Peak `fmla` 149.5 GFLOP/s single and 74.7 double, the clock 4.78 to 4.79 GHz at every check of the single-threaded runs.
+- **OpenBLAS:** 0.3.33 from nixpkgs' binary cache (`/nix/store/s2xzgzc6dbj1bgz5qf9331zha3g0w1w3-openblas-0.3.33`), built `TARGET=VORTEX`, `DYNAMIC_ARCH`, 32-bit integers. `openblas_get_config()`: `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY neoversen1 MAX_THREADS=64`; `openblas_get_corename()`: `neoversen1`, and `openblas_get_num_threads()`
+  1. A `DYNAMIC_ARCH` build defines `gotoblas_VORTEX` as `gotoblas_NEOVERSEN1`, so `neoversen1` is how it names the vortex core: the same kernels (`KERNEL.VORTEX` includes `KERNEL.NEOVERSEN1`), with N1's blocking. This binary maps `VORTEXM4` there too: `OPENBLAS_CORETYPE=vortexm4` still reports `neoversen1`, with the same gemm rates, so its SME gemm path never runs.
+- **Accelerate:** the system framework, Accelerate 1.11 (vecLib 3.11) of macOS 27.0.1, through its LP64 `cblas_*$NEWLAPACK` entries. `BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)` on the calling thread; `BLASGetThreading()` reports single-threaded. A `lib2` run took 29.33 s of user time in 29.56 s, so nothing ran on a second core.
+- **Threads:** the bench sets `OPENBLAS_NUM_THREADS=1` and `VECLIB_MAXIMUM_THREADS=1` before it `dlopen`s the libraries, except for the one labeled default-threading gemm run. rstd's routines ran on `Io.failing`, one thread, in every run.
 
 ## Method
 
-As [`results-m6.md`](results-m6.md#method): the same `race`, sizes, data,
-correctness checks, timing (best of 15 batches of at least 10 ms; gemm 7 of
-20 ms) and core placement. No contestant failed a check. What differs:
+As [`results-m6.md`](results-m6.md#method): the same `race`, sizes, data, correctness checks, timing (best of 15 batches of at least 10 ms; gemm 7 of 20 ms) and core placement. No contestant failed a check. What differs:
 
-- **Libraries:** both are `dlopen`ed by absolute path (`std.DynLib`) and
-  called through `cblas_*`, column-major, with the bench's strides. Each
-  call is wrapped in the kernel ABI of the vtable slot it stands for, so
-  the checks and calls are the ones the kernels get. `i?amax` adds one to
-  cblas's 0-based index; complex `dot` is `cblas_?dotu_sub`. `gemv` and
-  `gemm` pass `beta` 1, so every contestant does `y += alpha*op(A)*x` and
-  `C += A*B`.
-- **Repeatability:** two full runs, plus the gemm tables a third and fourth
-  time (`OPENBLAS_CORETYPE=vortexm4`, and an earlier `lib3`). Between the
-  full runs the median cell moved 0.2%, and 7 of 977 moved more than 4%:
-  x4 `copy` with 1 MiB vectors (149 to 225 GB/s), x4 `dasum` from memory,
-  and Accelerate's `copy` from memory (5%). The earlier `lib3` ran 3 to 5%
-  faster for all three NEON contestants alike, their ratios within 0.02.
-  The tables are the first full run.
+- **Libraries:** both are `dlopen`ed by absolute path (`std.DynLib`) and called through `cblas_*`, column-major, with the bench's strides. Each call is wrapped in the kernel ABI of the vtable slot it stands for, so the checks and calls are the ones the kernels get. `i?amax` adds one to cblas's 0-based index; complex `dot` is `cblas_?dotu_sub`. `gemv` and `gemm` pass `beta` 1, so every contestant does `y += alpha*op(A)*x` and `C += A*B`.
+- **Repeatability:** two full runs, plus the gemm tables a third and fourth time (`OPENBLAS_CORETYPE=vortexm4`, and an earlier `lib3`). Between the full runs the median cell moved 0.2%, and 7 of 977 moved more than 4%: x4 `copy` with 1 MiB vectors (149 to 225 GB/s), x4 `dasum` from memory, and Accelerate's `copy` from memory (5%). The earlier `lib3` ran 3 to 5% faster for all three NEON contestants alike, their ratios within 0.02. The tables are the first full run.
 
 ### Contestants
 
 - **openblas:** OpenBLAS's `cblas_*`. Ratios are over it.
-- **rstd:** rstd's public routine (`blas.dot`, `blas.gemv`, `blas.gemm`
-  and the rest), on the table rstd selects. `rstd runs` says whether that slot holds a
-  converted kernel (`asm`) or the portable loop. `gemv` and `gemm` get
-  malloc's allocator; `gemm` takes its packing space from it every call.
-- **asm:** the converted kernel alone, as `results-m6.md`'s asm column:
-  vortex's own, else armv8's stand-in (`from`), else none.
+- **rstd:** rstd's public routine (`blas.dot`, `blas.gemv`, `blas.gemm` and the rest), on the table rstd selects. `rstd runs` says whether that slot holds a converted kernel (`asm`) or the portable loop. `gemv` and `gemm` get malloc's allocator; `gemm` takes its packing space from it every call.
+- **asm:** the converted kernel alone, as `results-m6.md`'s asm column: vortex's own, else armv8's stand-in (`from`), else none.
 - **accelerate:** Accelerate's `cblas_*`.
 - **vec x4:** `vector_kernels.zig`'s 4-wide `@Vector` kernel.
-- **ob .S** (gemm only): OpenBLAS's vortex `sgemm_kernel_16x4.S` or
-  `dgemm_kernel_8x4.S` with their copies, through the bench's copy of
-  `level3.c`'s loops with vortex's `P`, `Q`, `R`.
+- **ob .S** (gemm only): OpenBLAS's vortex `sgemm_kernel_16x4.S` or `dgemm_kernel_8x4.S` with their copies, through the bench's copy of `level3.c`'s loops with vortex's `P`, `Q`, `R`.
 
 ## Level 1
 
@@ -383,9 +309,7 @@ gemm `NN`, square, `C += A*B`, GFLOP/s. rstd has no complex gemm yet.
 
 ### Default threading
 
-Both libraries as they come: OpenBLAS with 12 threads, Accelerate
-multi-threaded. rstd (`Io.failing`) and `ob .S` stay single-threaded. The clock read 4.47
-GHz at the start and end of this run.
+Both libraries as they come: OpenBLAS with 12 threads, Accelerate multi-threaded. rstd (`Io.failing`) and `ob .S` stay single-threaded. The clock read 4.47 GHz at the start and end of this run.
 
 | p | n | openblas | rstd | ob .S | accelerate | rstd/ob | ob .S/ob | accel/ob |
 | - | -: | -------: | ---: | ----: | ---------: | ------: | -------: | -------: |
@@ -414,14 +338,11 @@ GHz at the start and end of this run.
 | z | 1024 | 313.7 | - | - | 537.9 | - | - | 1.71 |
 | z | 2048 | 325.1 | - | - | 536.0 | - | - | 1.65 |
 
-Accelerate gains at most 1.2 times from more threads: its single thread
-already drives the SME unit.
+Accelerate gains at most 1.2 times from more threads: its single thread already drives the SME unit.
 
 ## Hot loops
 
-The x4 kernels' unit-stride loops as Zig emits them (`zig build-obj
--OReleaseFast -target aarch64-macos -femit-asm`), against the OpenBLAS
-source of the kernel the library runs.
+The x4 kernels' unit-stride loops as Zig emits them (`zig build-obj -OReleaseFast -target aarch64-macos -femit-asm`), against the OpenBLAS source of the kernel the library runs.
 
 | routine | x4: per iteration | OpenBLAS: per iteration | x4/ob in L1 |
 | ------- | ----------------- | ----------------------- | ----------: |
@@ -431,46 +352,22 @@ source of the kernel the library runs.
 | `sasum` | 32 floats: 4 `ldp q`, 8 `fabs`, 8 `fadd` into 8 accumulators | `sasum_thunderx2t99.c`, 64 floats: 16 `q` loads, 16 `fabs`, 16 `fadd`, 4 `prfm` | 0.96 to 1.01 |
 | `sgemv_n` | 16 rows by 4 columns: 10 `ldp q` (2 of `y`), 16 `fmla` by element, 2 `stp q` | `sgemv_n_neon.c` (intrinsics), 8 rows by 4 columns: 10 `q` loads (2 of `y`), 8 FMAs, 2 stores | 0.82 (n 90) |
 
-Every x4 loop addresses with immediate offsets from one pointer per
-vector, bumped once per iteration; LLVM splits each `@Vector(16, f32)`
-into four `q` registers, so the two accumulators become eight independent
-chains. None prefetches. The numbers fit a load-slot budget:
+Every x4 loop addresses with immediate offsets from one pointer per vector, bumped once per iteration; LLVM splits each `@Vector(16, f32)` into four `q` registers, so the two accumulators become eight independent chains. None prefetches. The numbers fit a load-slot budget:
 
-- **`sdot`:** x4 reaches 221 GB/s, 46 bytes a cycle at 4.78 GHz, nearly
-  three 16-byte loads. OpenBLAS's loop issues four `prfm` for every 16
-  loads; if each takes a load slot, it gets 16/20 of that, 177 GB/s. It
-  measures 176.
-- **`saxpy`:** `axpy.S` spends 6 load-slot operations per 32 bytes of `x`
-  where x4 spends 8 per 64, 1.5 times as many; x4 runs 1.37 to 1.39 times
-  faster.
-- **`scopy`:** one 16-byte load and store per loop iteration caps
-  `copy_thunderx2t99.c` near one iteration a cycle; x4 moves 64 bytes.
-- **`sasum`** is bound by the FP pipes, not loads: x4's two vectors a cycle
-  need four FP operations (`fabs`, `fadd` each), the probe's four `fmla` a
-  cycle. Both run at 31 bytes a cycle, prefetches and all.
+- **`sdot`:** x4 reaches 221 GB/s, 46 bytes a cycle at 4.78 GHz, nearly three 16-byte loads. OpenBLAS's loop issues four `prfm` for every 16 loads; if each takes a load slot, it gets 16/20 of that, 177 GB/s. It measures 176.
+- **`saxpy`:** `axpy.S` spends 6 load-slot operations per 32 bytes of `x` where x4 spends 8 per 64, 1.5 times as many; x4 runs 1.37 to 1.39 times faster.
+- **`scopy`:** one 16-byte load and store per loop iteration caps `copy_thunderx2t99.c` near one iteration a cycle; x4 moves 64 bytes.
+- **`sasum`** is bound by the FP pipes, not loads: x4's two vectors a cycle need four FP operations (`fabs`, `fadd` each), the probe's four `fmla` a cycle. Both run at 31 bytes a cycle, prefetches and all.
 
-The prefetch reading is an inference from these rates, not a measured
-pipe count. `nrm2` and `i?amax` are different algorithms rather than
-different code (`results-m6.md`'s contestants).
+The prefetch reading is an inference from these rates, not a measured pipe count. `nrm2` and `i?amax` are different algorithms rather than different code (`results-m6.md`'s contestants).
 
 ## Fairness
 
 What could tilt these comparisons:
 
-- **OpenBLAS's build:** one binary, nixpkgs' `DYNAMIC_ARCH` 0.3.33, on
-  the core it selects. A build with the `vortexm4` SME gemm path that
-  upstream's `interface/gemm.c` takes for clang would be much faster at
-  gemm than the openblas column; it was not available to measure.
-- **Call overhead:** every library call goes through a wrapper in the
-  kernel ABI, one indirect call more than the asm column pays. asm/ob is
-  0.98 to 1.06, highest at 4 KiB and strided `zswap`. OpenBLAS's `cblas_*`
-  also does its own argument checks, as rstd's routines do.
-- **rstd's allocations:** its `gemm` allocates its packing space with
-  malloc on every call where OpenBLAS keeps a buffer pool. rstd/ob is
-  lowest at `n` 128 (0.92); kernel against kernel was 0.95 to 0.98.
-- **Accelerate's internals:** the SME attribution follows from rates
-  past the NEON peak on one thread; the bench cannot see which units run.
-- **Strided cases:** OpenBLAS's real `sdot` and `ddot` strided are slower
-  than rstd's portable loop (11.9 and 24.4 GB/s against 16.6 and 36.3).
-- **The rest:** as [`results-m6.md`](results-m6.md#fairness), notably
-  the codegen swings of plain Zig loops between builds.
+- **OpenBLAS's build:** one binary, nixpkgs' `DYNAMIC_ARCH` 0.3.33, on the core it selects. A build with the `vortexm4` SME gemm path that upstream's `interface/gemm.c` takes for clang would be much faster at gemm than the openblas column; it was not available to measure.
+- **Call overhead:** every library call goes through a wrapper in the kernel ABI, one indirect call more than the asm column pays. asm/ob is 0.98 to 1.06, highest at 4 KiB and strided `zswap`. OpenBLAS's `cblas_*` also does its own argument checks, as rstd's routines do.
+- **rstd's allocations:** its `gemm` allocates its packing space with malloc on every call where OpenBLAS keeps a buffer pool. rstd/ob is lowest at `n` 128 (0.92); kernel against kernel was 0.95 to 0.98.
+- **Accelerate's internals:** the SME attribution follows from rates past the NEON peak on one thread; the bench cannot see which units run.
+- **Strided cases:** OpenBLAS's real `sdot` and `ddot` strided are slower than rstd's portable loop (11.9 and 24.4 GB/s against 16.6 and 36.3).
+- **The rest:** as [`results-m6.md`](results-m6.md#fairness), notably the codegen swings of plain Zig loops between builds.

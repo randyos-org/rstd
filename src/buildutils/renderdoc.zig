@@ -1,9 +1,8 @@
 const rstdbuild = @import("__root__.zig");
 const Build = rstdbuild.Build;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
-const Module = rstdbuild.Module;
 const Optimize = rstdbuild.Optimize;
-const DepModule = @import("deps.zig").DepModule;
+const DepModule = rstdbuild.DepModule;
 
 /// RenderDoc's in-app API header translated to a module, or null while its
 /// lazy dependencies (renderdoc, translate_c) are still being fetched; the

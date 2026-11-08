@@ -1,9 +1,4 @@
-/*
- * The firmware loader shifts every load address (and the entry point) up by
- * 0x400000, so the image is linked at 0xc00000 but given a physical address
- * of 0x800000, and the entry is expressed 0x400000 below `_start`. Net effect:
- * it runs where it was linked, and absolute addresses in code and data hold.
- */
+/* The loader shifts load addresses and entry up 0x400000: linked at 0xc00000, physical 0x800000, entry 0x400000 below `_start`. */
 ENTRY(qemutest_entry)
 PHDRS
 {

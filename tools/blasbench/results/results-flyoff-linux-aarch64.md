@@ -1,35 +1,13 @@
 # BLAS flyoff: Linux arm64
 
-A Linux VM on the M6's own cores under HVF. Part of the
-[BLAS flyoff](results-flyoff.md).
+A Linux VM on the M6's own cores under HVF. Part of the [BLAS flyoff](results-flyoff.md).
 
-- **Machine:** the M6 Mac mini (macOS 27.2) under QEMU 11.1.2 (nixpkgs,
-  as `tools/nix` pins it) with `-accel hvf -M virt -cpu host -smp 6 -m 4G`:
-  the host's cores run the guest, never translated. Debian 13's netboot
-  kernel and an initramfs, as for Linux x86_64. The clock probe read 4.77
-  to 4.79 GHz, 4.58 at the end of a threaded run.
-- **Build:** Zig 0.18.0-dev.751+069480a1a, ReleaseFast, `aarch64-linux-gnu`,
-  CPU model `apple_m1` as for macOS; rstd detects `vortex`, not
-  `vortexm4`: HVF does not pass SME to the guest. rstd at `review`
-  `28171adc`, on the bench's own `Io.Threaded`.
-- **OpenBLAS:** 0.3.33 from nixpkgs at `5adc5083`, `openblasCompat`, the
-  same store path as plain `openblas`
-  (`/nix/store/hrvb350dvin5id9mjh8ja07g3xqczbqq-openblas-0.3.33`):
-  `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP neoversen1
-  MAX_THREADS=64`.
+- **Machine:** the M6 Mac mini (macOS 27.2) under QEMU 11.1.2 (nixpkgs, as `tools/nix` pins it) with `-accel hvf -M virt -cpu host -smp 6 -m 4G`: the host's cores run the guest, never translated. Debian 13's netboot kernel and an initramfs, as for Linux x86_64. The clock probe read 4.77 to 4.79 GHz, 4.58 at the end of a threaded run.
+- **Build:** Zig 0.18.0-dev.751+069480a1a, ReleaseFast, `aarch64-linux-gnu`, CPU model `apple_m1` as for macOS; rstd detects `vortex`, not `vortexm4`: HVF does not pass SME to the guest. rstd at `review` `28171adc`, on the bench's own `Io.Threaded`.
+- **OpenBLAS:** 0.3.33 from nixpkgs at `5adc5083`, `openblasCompat`, the same store path as plain `openblas` (`/nix/store/hrvb350dvin5id9mjh8ja07g3xqczbqq-openblas-0.3.33`): `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP neoversen1 MAX_THREADS=64`.
 - **BLIS:** none: nixpkgs builds BLIS for x86_64-linux only.
-- **Threads:** `--threads=1`: one each, rstd at thread ceiling 1. Default
-  threading: OpenBLAS 6 (the VM's CPUs), rstd up to the 6 CPUs.
-- **When:** 2026-10-29, 23:14 to 23:56 CDT, after the macOS runs and never
-  beside them, under the
-  [timing rule](results-flyoff-macos-aarch64.md#timing-rule) of the macOS
-  runs (no other `qemu-system` on the Mac, 1-minute load under 2, no other
-  process over 5%, two runs agreeing within 3% per row, up to 3 reruns,
-  else noisy). The watch set 5 runs aside (`knowledge-agent`, `airportd`,
-  `cfprefsd`, `biomesyncd`, `NotificationCenter`, `AddressBookSourceSync`);
-  `lx-1` kept its fourth try, where `stickersd` passed 5% once. Levels 1 and
-  3 took 3 runs, default threading 5. One row is noisy. Each run's
-  conditions are under [run conditions](#run-conditions).
+- **Threads:** `--threads=1`: one each, rstd at thread ceiling 1. Default threading: OpenBLAS 6 (the VM's CPUs), rstd up to the 6 CPUs.
+- **When:** 2026-10-29, 23:14 to 23:56 CDT, after the macOS runs and never beside them, under the [timing rule](results-flyoff-macos-aarch64.md#timing-rule) of the macOS runs (no other `qemu-system` on the Mac, 1-minute load under 2, no other process over 5%, two runs agreeing within 3% per row, up to 3 reruns, else noisy). The watch set 5 runs aside (`knowledge-agent`, `airportd`, `cfprefsd`, `biomesyncd`, `NotificationCenter`, `AddressBookSourceSync`); `lx-1` kept its fourth try, where `stickersd` passed 5% once. Levels 1 and 3 took 3 runs, default threading 5. One row is noisy. Each run's conditions are under [run conditions](#run-conditions).
 
 Columns as [`results-flyoff.md`](results-flyoff.md#reading-the-tables) has them.
 
@@ -301,12 +279,7 @@ GB/s; ratios are over openblas.
 
 ### Default threading
 
-OpenBLAS at its 6 threads, rstd on `Io.Threaded` up to the 6 CPUs.
-Indicative only. rstd's threaded `gemm` reaches 0.86 to 0.95 of OpenBLAS's
-in real from n = 512 and passes it in complex from n = 256 (1.05 to 1.15);
-at n = 64 and 128 its threads cost more than they bring (0.21 to 0.96).
-Its rate at `c` 128 varied from 198 to 249 GFLOP/s over five runs
-(OpenBLAS's 340.3 to 340.7), so that row is noisy.
+OpenBLAS at its 6 threads, rstd on `Io.Threaded` up to the 6 CPUs. Indicative only. rstd's threaded `gemm` reaches 0.86 to 0.95 of OpenBLAS's in real from n = 512 and passes it in complex from n = 256 (1.05 to 1.15); at n = 64 and 128 its threads cost more than they bring (0.21 to 0.96). Its rate at `c` 128 varied from 198 to 249 GFLOP/s over five runs (OpenBLAS's 340.3 to 340.7), so that row is noisy.
 
 | p | n | openblas | rstd | rstd/ob | rstd-ob | rstd err | rstd bits |
 | - | -: | -: | -: | -: | -: | -: | --- |
@@ -337,11 +310,7 @@ Its rate at `c` 128 varied from 198 to 249 GFLOP/s over five runs
 
 ## Run conditions
 
-The Mac's 1-minute, 5-minute and 15-minute loads, and `top`'s 8 busiest
-processes in % of a core, before and after each kept run (the VM itself is
-`qemu-system`, gone by the time the after sample is taken). `lx` is the bench at
-one thread, `lx-thr` with `--threads=default`; `lx-3` reran levels 1 and
-3, `lx-thr-3` to `-5` level 3.
+The Mac's 1-minute, 5-minute and 15-minute loads, and `top`'s 8 busiest processes in % of a core, before and after each kept run (the VM itself is `qemu-system`, gone by the time the after sample is taken). `lx` is the bench at one thread, `lx-thr` with `--threads=default`; `lx-3` reran levels 1 and 3, `lx-thr-3` to `-5` level 3.
 
 - **lx-1**, 2026-10-29 23:29:10 CDT to 23:33:49: load 1.13 / 1.26 / 1.49 before, 1.09 / 1.18 / 1.39 after; the watch saw `stickersd` at 9.2% (23:32:36). Before: `Activity Monitor` 3.8, `sysmond` 1.7, `top` 1.4, `remindd` 0.5, `kernel_task` 0.3, `AppleCentauriAlp` 0.1, `SetStoreUpdateService` 0.1, `WindowServer` 0.1. After: `Activity Monitor` 3.8, `sysmond` 1.7, `top` 1.5, `kernel_task` 0.7, `stickersd` 0.3, `WindowServer` 0.1, `AppleCentauriAlp` 0.1, `clocksyncd` 0.1.
 - **lx-2**, 2026-10-29 23:38:50 CDT to 23:43:28: load 1.19 / 1.24 / 1.35 before, 1.14 / 1.20 / 1.29 after. Before: `Activity Monitor` 3.8, `sysmond` 1.7, `top` 1.5, `kernel_task` 0.4, `stickersd` 0.2, `AppleCentauriAlp` 0.2, `WindowServer` 0.1, `clocksyncd` 0.1. After: `Activity Monitor` 3.7, `sysmond` 1.8, `top` 1.5, `launchd` 1.1, `kernel_task` 0.9, `Bitwarden Helper` 0.3, `AppleCentauriAlp` 0.3, `clocksyncd` 0.2.
@@ -354,19 +323,9 @@ one thread, `lx-thr` with `--threads=default`; `lx-3` reran levels 1 and
 
 ## Against the busy Mac
 
-The 2026-10-29 runs (02:02 to 02:35 CDT, `review` `6d66239`) took a host
-load of 2.6 to 9.1. Against them, OpenBLAS's median ratio is 1.000 (0.98
-to 1.06, the top end large `asum`), the converted and `@Vector` kernels'
-1.001: the background load had not skewed the one-thread numbers.
-Threaded OpenBLAS is within 5%. What moved is code:
+The 2026-10-29 runs (02:02 to 02:35 CDT, `review` `6d66239`) took a host load of 2.6 to 9.1. Against them, OpenBLAS's median ratio is 1.000 (0.98 to 1.06, the top end large `asum`), the converted and `@Vector` kernels' 1.001: the background load had not skewed the one-thread numbers. Threaded OpenBLAS is within 5%. What moved is code:
 
-- **rstd's call overhead:** its public routine runs 7 to 30% behind the
-  kernel it calls at the smallest n of `axpy`, `scal`, `copy`, `swap`,
-  `rot`, `iamax`, `dot` and `asum`, where it matched before; `sdot` from
-  256K floats runs 51 to 53 GB/s against the kernel's 98.
-- **Strided `saxpy` and `zscal`** (inc 2) halved, rstd's and the converted
-  kernel's alike (54 to 28 GB/s, as macOS's; 139 to 71).
-- **Default threading:** rstd threads now (it ran one thread before), so its
-  `gemm` there rose up to 4.4 times.
-- **`rstd bits`** changed for large `dot` and `asum` (13 rows), a new
-  summation order.
+- **rstd's call overhead:** its public routine runs 7 to 30% behind the kernel it calls at the smallest n of `axpy`, `scal`, `copy`, `swap`, `rot`, `iamax`, `dot` and `asum`, where it matched before; `sdot` from 256K floats runs 51 to 53 GB/s against the kernel's 98.
+- **Strided `saxpy` and `zscal`** (inc 2) halved, rstd's and the converted kernel's alike (54 to 28 GB/s, as macOS's; 139 to 71).
+- **Default threading:** rstd threads now (it ran one thread before), so its `gemm` there rose up to 4.4 times.
+- **`rstd bits`** changed for large `dot` and `asum` (13 rows), a new summation order.

@@ -1,17 +1,9 @@
-//! 32-bit PowerPC boot for QEMU's `mac99` machine (`-kernel`, loaded and
-//! started by OpenBIOS), and for `pseries` under VOF (`-M pseries,x-vof=on`),
-//! whose 64-bit CPUs start in 32-bit mode. Both firmwares jump to the image
-//! with an Open Firmware client interface's entry point in r5; OpenBIOS's
-//! MMU maps RAM one to one, and VOF runs with it off. `_start` keeps r5, sets
-//! up the stack, turns on FP, AltiVec and VSX (where the CPU has them) in the MSR,
-//! and clears bss. Under OpenBIOS the console is the interface's `write`, and
-//! exit resets the machine (`reset-all`), which `-no-reboot` turns into qemu
-//! exiting; on pseries they are ppc64.zig's hypercalls. The run step judges
-//! the result from the printed summary.
-//!
-//! The loaders move the image, see `ppc32.ld` (mac99) and `ppc64.ld` (pseries).
+//! 32-bit PowerPC boot for `mac99` (OpenBIOS) and `pseries` under VOF (64-bit CPUs in 32-bit mode); both pass the Open Firmware client in r5.
+//! Under OpenBIOS console and exit are its `write` and `reset-all` (`-no-reboot` exits qemu); on pseries, ppc64.zig's hypercalls.
+//! Load addresses: `ppc32.ld` (mac99), `ppc64.ld` (pseries).
 
 const sysinfo = @import("builtin");
+const ofw = @import("ofw.zig");
 
 // non-zero so it lives in .data, out of the bss `_start` clears after storing it
 export var client_interface: usize = 1;
@@ -58,16 +50,9 @@ comptime {
     );
 }
 
-/// One client-interface call: the service, then its arguments and room for
-/// its results, all in 32-bit cells.
-fn call(cells: []u32) void {
-    const f: *const fn ([*]u32) callconv(.c) i32 = @ptrFromInt(client_interface);
-    _ = f(cells.ptr);
-}
-
-fn serviceName(comptime s: []const u8) u32 {
-    return @intFromPtr((s ++ "\x00").ptr);
-}
+const of = ofw.Client(u32, i32, &client_interface);
+const call = of.call;
+const serviceName = of.serviceName;
 
 /// Whether this is pseries, where the console and exit are PAPR hypercalls,
 /// as in ppc64.zig: its VOF has no `interpret`, and its `write` shows nothing.
@@ -104,6 +89,12 @@ inline fn hcall(token: usize, a1: usize, a2: usize, a3: usize) void {
         : .{ .memory = true, .r0 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .cr0 = true });
 }
 
+// PAPR's numbers, as ppc64.zig names them
+const H_PUT_TERM_CHAR = 0x58;
+const vty_reg = 0x71000000;
+const H_RTAS = 0xf000;
+const RTAS_POWER_OFF = 0x2003;
+
 pub fn writeByte(c: u8) void {
     if (isPapr()) {
         // `H_PUT_TERM_CHAR` to the default vty, the character in the top
@@ -112,28 +103,25 @@ pub fn writeByte(c: u8) void {
             \\sldi 6, %[c], 56
             \\sc 1
             : [ret] "={r3}" (-> usize),
-            : [tok] "{r3}" (0x58),
-              [reg] "{r4}" (0x71000000),
+            : [tok] "{r3}" (H_PUT_TERM_CHAR),
+              [reg] "{r4}" (vty_reg),
               [len] "{r5}" (1),
               [c] "r" (c),
             : .{ .memory = true, .r0 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .cr0 = true });
         return;
     }
     if (stdout_handle == 0) openStdout();
-    var ch = c;
-    var write = [_]u32{ serviceName("write"), 3, 1, stdout_handle, @intFromPtr(&ch), 1, 0 };
-    call(&write);
+    of.write(stdout_handle, c);
 }
 
 pub fn exit(code: usize) noreturn {
     _ = code;
     if (isPapr()) {
         // RTAS `power-off` through `H_RTAS`
-        var args = [6]u32{ 0x2003, 2, 1, 0, 0, 0 };
-        hcall(0xf000, @intFromPtr(&args), 0, 0);
+        var args = [6]u32{ RTAS_POWER_OFF, 2, 1, 0, 0, 0 };
+        hcall(H_RTAS, @intFromPtr(&args), 0, 0);
     } else {
-        var reset = [_]u32{ serviceName("interpret"), 1, 1, serviceName("reset-all"), 0 };
-        call(&reset);
+        of.resetAll();
     }
     while (true) {}
 }

@@ -1,21 +1,6 @@
-//! Probes `@Matrix` (zig-build's zig-src randy-matrix) through the SPIR-V
-//! backend: one fragment entry point per supported use.
-//!
-//!   zig build-obj tools/spirv_matrix_probe.zig -target spirv32-vulkan \
-//!       -mcpu vulkan_v1_2 -fno-llvm -ofmt=spirv -femit-bin=matrix.spv
-//!   spirv-val --target-env vulkan1.2 matrix.spv
-//!
-//! Phase 1 is the type, its layout and its array coercions; phase 2a adds
-//! `.{ col, col }` init, `m[c]` indexing, `.len`, `for` and destructuring.
-//! On shader targets a matrix of 2 to 4 columns of 2 to 4 floats lowers to
-//! OpTypeMatrix, with ColMajor and MatrixStride on the block members holding
-//! one; other matrices lower to an array of columns. On OpTypeMatrix, `*` and
-//! `@transpose` lower to SPIR-V's matrix instructions, and `+`, `-` and
-//! negation work column by column, as SPIR-V has no matrix forms of those.
-//!
-//! `M` is deliberately not square, so a rows/cols mix-up anywhere changes
-//! a type, and its 3-row columns are padded to 16 bytes, so the column
-//! stride differs from the column's element count.
+//! Probes `@Matrix` (the randy-matrix fork) through the SPIR-V backend, one fragment entry per use: `zig build-obj <this> -target
+//! spirv32-vulkan -mcpu vulkan_v1_2 -fno-llvm -ofmt=spirv -femit-bin=matrix.spv`, then `spirv-val --target-env vulkan1.2 matrix.spv`.
+//! `M` is not square and its 3-row columns pad to 16 bytes, so a rows/cols mix-up or a stride bug changes a type.
 
 const std = @import("std");
 

@@ -8,7 +8,7 @@
 # Full Disk Access: System Settings > General > Sharing > Remote Login. Then,
 # from the PC's MSYS2 shell (alias in ~/.ssh/config):
 #   ssh-copy-id macmini-intel
-#   scp tools/configure_mac_host_intel.sh macmini-intel:
+#   scp tools/macos/configure_mac_host_intel.sh macmini-intel:
 #   ssh -t macmini-intel bash configure_mac_host_intel.sh
 # Steps a script cannot take say what to do by hand. Running it again is
 # harmless.

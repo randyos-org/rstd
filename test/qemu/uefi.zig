@@ -1,20 +1,12 @@
-//! UEFI boot for the OVMF (x86_64, `q35`) and AAVMF (aarch64, `virt`) rigs:
-//! the tests as a UEFI application, which std's `EfiMain` enters at `main`.
-//! `main` takes the heap and a stack from boot services, turns on the vector
-//! state the CPU has (as the bare rigs' boot code does), masks interrupts and
-//! runs `qemutest_main` on the new stack. Nothing calls the firmware after
-//! that: its interrupt handlers save only 128-bit SIMD registers, which
-//! clobbers SVE and SME state, and any boot service unmasks interrupts again.
-//! So the console is the UART itself (COM1, the PL011), and exit is
-//! `ResetSystem`; the printed summary carries the result.
-//!
-//! `std.Io` is rstd's UEFI one (`src/_os/uefi/io`), from the test root. Its
-//! clock is not started: it ticks on interrupts.
+//! UEFI boot for the OVMF (x86_64) and AAVMF (aarch64) rigs: `main` takes heap and stack from boot services, turns on vector state,
+//! masks interrupts and never calls the firmware again (its handlers save only 128-bit SIMD, clobbering SVE and SME). So the console
+//! is the UART (COM1, PL011) and exit `ResetSystem`. `std.Io` is rstd's UEFI one, its clock unstarted (it ticks on interrupts).
 
 const std = @import("std");
 const sysinfo = @import("builtin");
 const uefi = std.os.uefi;
 const heap = @import("heap.zig");
+const pc = @import("pc.zig");
 
 /// rstd's UEFI `std.Io`, for `std_os_options.Io` and the runner's console Io.
 pub const Io = @import("qemutest_root").uefi_io;
@@ -154,19 +146,7 @@ fn say(s: []const u8) void {
 
 pub fn writeByte(c: u8) void {
     switch (sysinfo.target.cpu.arch) {
-        .x86_64 => {
-            const com1: u16 = 0x3f8;
-            // the transmit holding register is empty
-            while (asm volatile ("inb %[port], %[value]"
-                : [value] "={al}" (-> u8),
-                : [port] "{dx}" (com1 + 5),
-            ) & 0x20 == 0) {}
-            asm volatile ("outb %[value], %[port]"
-                :
-                : [value] "{al}" (c),
-                  [port] "{dx}" (com1),
-            );
-        },
+        .x86_64 => pc.writeByte(c),
         .aarch64 => {
             // `virt`'s PL011, which AAVMF set up and maps as device memory
             const uart: [*]volatile u32 = @ptrFromInt(0x0900_0000);

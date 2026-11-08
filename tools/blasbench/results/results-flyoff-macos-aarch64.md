@@ -1,73 +1,33 @@
 # BLAS flyoff: macOS arm64
 
-Bare metal, the Apple M6 Mac mini. Part of the
-[BLAS flyoff](results-flyoff.md).
+Bare metal, the Apple M6 Mac mini. Part of the [BLAS flyoff](results-flyoff.md).
 
-- **Machine:** Apple M6 Mac mini, macOS 27.2 (26B123). The clock probe
-  read 4.77 to 4.79 GHz at every level of the one-thread runs, and 4.47 GHz
-  in the threaded runs.
-- **Build:** Zig 0.18.0-dev.751+069480a1a, ReleaseFast, CPU model
-  `apple_m1`, `-Dblas-cores=all`; rstd detects `vortexm4`. rstd at
-  `review` `28171adc`, on the bench's own `Io.Threaded`. No `-Dopenblas`,
-  so no `ob .S` column.
-- **rstd:** by default its routines run Accelerate wherever
-  `apple_accel.zig` routes them, so `rstd` mostly tracks `accelerate`.
-  [Own kernels](#own-kernels-level-1) is the same bench with
-  `--rstd-accelerate=0`: rstd's own kernels.
-- **OpenBLAS:** 0.3.33 from nixpkgs at `5adc5083`, `openblasCompat`, the
-  same store path as plain `openblas` here
-  (`/nix/store/s2xzgzc6dbj1bgz5qf9331zha3g0w1w3-openblas-0.3.33`), as in
-  [`results-m6-libraries.md`](results-m6-libraries.md). `OpenBLAS 0.3.33
-  DYNAMIC_ARCH NO_AFFINITY neoversen1 MAX_THREADS=64`.
+- **Machine:** Apple M6 Mac mini, macOS 27.2 (26B123). The clock probe read 4.77 to 4.79 GHz at every level of the one-thread runs, and 4.47 GHz in the threaded runs.
+- **Build:** Zig 0.18.0-dev.751+069480a1a, ReleaseFast, CPU model `apple_m1`, `-Dblas-cores=all`; rstd detects `vortexm4`. rstd at `review` `28171adc`, on the bench's own `Io.Threaded`. No `-Dopenblas`, so no `ob .S` column.
+- **rstd:** by default its routines run Accelerate wherever `apple_accel.zig` routes them, so `rstd` mostly tracks `accelerate`. [Own kernels](#own-kernels-level-1) is the same bench with `--rstd-accelerate=0`: rstd's own kernels.
+- **OpenBLAS:** 0.3.33 from nixpkgs at `5adc5083`, `openblasCompat`, the same store path as plain `openblas` here (`/nix/store/s2xzgzc6dbj1bgz5qf9331zha3g0w1w3-openblas-0.3.33`), as in [`results-m6-libraries.md`](results-m6-libraries.md). `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY neoversen1 MAX_THREADS=64`.
 - **Accelerate:** the system framework, through its `$NEWLAPACK` entries.
-- **BLIS:** none: nixpkgs builds BLIS for x86_64-linux only
-  (`meta.platforms`), so its cache has no Darwin build.
-- **Threads:** `--threads=1`: one each, rstd at thread ceiling 1. Default
-  threading (`--threads=default`): OpenBLAS 12, rstd up to the 12 CPUs.
-  rstd's init leaves Accelerate single-threaded for the process: every
-  run's post-init `BLASGetThreading` reads single-threaded, so Accelerate,
-  and rstd routed to it, run one thread there too.
-- **When:** 2026-10-29, 21:52 to 23:13 CDT, under the timing rule below;
-  each run's load and busiest processes are under
-  [run conditions](#run-conditions).
+- **BLIS:** none: nixpkgs builds BLIS for x86_64-linux only (`meta.platforms`), so its cache has no Darwin build.
+- **Threads:** `--threads=1`: one each, rstd at thread ceiling 1. Default threading (`--threads=default`): OpenBLAS 12, rstd up to the 12 CPUs. rstd's init leaves Accelerate single-threaded for the process: every run's post-init `BLASGetThreading` reads single-threaded, so Accelerate, and rstd routed to it, run one thread there too.
+- **When:** 2026-10-29, 21:52 to 23:13 CDT, under the timing rule below; each run's load and busiest processes are under [run conditions](#run-conditions).
 
 Columns as [`results-flyoff.md`](results-flyoff.md#reading-the-tables) has them.
 
 ## Timing rule
 
-The user's rule of 2026-10-29, on a Mac with its indexing daemons
-stopped (SIP off; `tools/configure_mac_host_arm.sh`).
+The user's rule of 2026-10-29, on a Mac with its indexing daemons stopped (SIP off; `tools/macos/configure_mac_host_arm.sh`).
 
-- A run starts when no `qemu-system` process runs, the 1-minute load is
-  under 2 (plus the share of Activity Monitor and its `sysmond`, which the
-  user keeps open), and no other process passes 5% of a core in a
-  `top -l 2 -s 5` sample. Idle, this macOS reads a load of 1.1 to 2.3 with
-  the CPUs 99% idle and no thread runnable, so the limit is 2, not 1.
-  `uptime` and the top 8 processes are recorded before and after each run.
-- A watch every 20 s notes any other process over 5%; such a run is set
-  aside and repeated, 3 times at most. 7 of rstd's own-kernel runs were set
-  aside (`WindowServer`, `XProtect` scans, `mds`, `PerfPowerServices`,
-  Safari's safe-browsing service, `Bitwarden`), none of the others.
-- Each invocation runs twice. A row counts when two runs agree within 3% on
-  every rate; else its section runs again, up to 3 more times, and a row
-  still apart is marked noisy. A row shows the better rate of its agreeing
-  pair. Level 1 took 3 runs with Accelerate, all levels 3 without, default
-  threading 4. No row is noisy.
+- A run starts when no `qemu-system` process runs, the 1-minute load is under 2 (plus the share of Activity Monitor and its `sysmond`, which the user keeps open), and no other process passes 5% of a core in a `top -l 2 -s 5` sample. Idle, this macOS reads a load of 1.1 to 2.3 with the CPUs 99% idle and no thread runnable, so the limit is 2, not 1. `uptime` and the top 8 processes are recorded before and after each run.
+- A watch every 20 s notes any other process over 5%; such a run is set aside and repeated, 3 times at most. 7 of rstd's own-kernel runs were set aside (`WindowServer`, `XProtect` scans, `mds`, `PerfPowerServices`, Safari's safe-browsing service, `Bitwarden`), none of the others.
+- Each invocation runs twice. A row counts when two runs agree within 3% on every rate; else its section runs again, up to 3 more times, and a row still apart is marked noisy. A row shows the better rate of its agreeing pair. Level 1 took 3 runs with Accelerate, all levels 3 without, default threading 4. No row is noisy.
 
 ## Accelerate routing
 
-Against rstd's own kernels, routing is faster in 164 of 228 rows, within
-3% in 62, and slower in 2:
+Against rstd's own kernels, routing is faster in 164 of 228 rows, within 3% in 62, and slower in 2:
 
-- **Faster:** all of `gemm` (6.4 to 15.8 times) and `gemv` (1.45 to 54),
-  contiguous `asum` (5.2 to 34) and `ddot`, `cdot`, `zdot` (2.4 to 32),
-  every `scal` (1.03 to 3.6), and the contiguous `axpy`, `copy`, `swap` and
-  `rot` that fit in cache (up to 8.5).
-- **Within 3%:** every `nrm2`, `sdot` and `i?amax`, which rstd keeps on its
-  own kernels, the large contiguous `axpy`, `copy` and `rot`, and most
-  strided rows.
-- **Slower:** `zcopy` of 4M elements (0.83: Accelerate's 99 GB/s against
-  rstd's 119) and strided `zrot` (0.97, at the edge of noise).
+- **Faster:** all of `gemm` (6.4 to 15.8 times) and `gemv` (1.45 to 54), contiguous `asum` (5.2 to 34) and `ddot`, `cdot`, `zdot` (2.4 to 32), every `scal` (1.03 to 3.6), and the contiguous `axpy`, `copy`, `swap` and `rot` that fit in cache (up to 8.5).
+- **Within 3%:** every `nrm2`, `sdot` and `i?amax`, which rstd keeps on its own kernels, the large contiguous `axpy`, `copy` and `rot`, and most strided rows.
+- **Slower:** `zcopy` of 4M elements (0.83: Accelerate's 99 GB/s against rstd's 119) and strided `zrot` (0.97, at the edge of noise).
 
 ## Level 1
 
@@ -337,11 +297,7 @@ GB/s; ratios are over openblas.
 
 ### Default threading
 
-OpenBLAS at its 12 threads; rstd on `Io.Threaded` up to the 12 CPUs,
-routed to Accelerate. Not a multithreaded comparison: rstd's init leaves
-Accelerate single-threaded (the post-init `BLASGetThreading` reads
-single-threaded in every run), so the `rstd` and `accelerate` columns run
-one thread. Indicative only.
+OpenBLAS at its 12 threads; rstd on `Io.Threaded` up to the 12 CPUs, routed to Accelerate. Not a multithreaded comparison: rstd's init leaves Accelerate single-threaded (the post-init `BLASGetThreading` reads single-threaded in every run), so the `rstd` and `accelerate` columns run one thread. Indicative only.
 
 | p | n | openblas | rstd | accelerate | rstd/ob | accel/ob | rstd-ob | rstd-accel | rstd err | rstd bits |
 | - | -: | -: | -: | -: | -: | -: | -: | -: | -: | --- |
@@ -638,12 +594,7 @@ GB/s; ratios are over openblas.
 
 ## Run conditions
 
-The 1-minute, 5-minute and 15-minute loads, and `top`'s 8 busiest
-processes in % of a core, before and after each kept run (`top` is the
-sample's own). `mac-accel` is the default bench, `mac-kern` the one with
-`--rstd-accelerate=0`, `mac-thr` `--threads=default`; `mac-accel-3` reran
-level 1, `mac-kern-3` every level, `mac-thr-3` and `-4` level 3. The
-threaded runs' own 12 threads raise the load they end at.
+The 1-minute, 5-minute and 15-minute loads, and `top`'s 8 busiest processes in % of a core, before and after each kept run (`top` is the sample's own). `mac-accel` is the default bench, `mac-kern` the one with `--rstd-accelerate=0`, `mac-thr` `--threads=default`; `mac-accel-3` reran level 1, `mac-kern-3` every level, `mac-thr-3` and `-4` level 3. The threaded runs' own 12 threads raise the load they end at.
 
 - **mac-accel-1**, 2026-10-29 21:52:10 CDT to 21:57:26: load 1.81 / 2.44 / 2.79 before, 1.25 / 1.60 / 2.28 after. Before: `Activity Monitor` 1.9, `top` 1.4, `WindowServer` 1.3, `sysmond` 0.9, `kernel_task` 0.7, `AppleCentauriAlp` 0.2, `clocksyncd` 0.1, `ControlCenter` 0.1. After: `Activity Monitor` 1.9, `top` 1.4, `WindowServer` 1.3, `launchd` 1.0, `sysmond` 0.9, `kernel_task` 0.9, `Bitwarden Helper` 0.3, `AppleCentauriAlp` 0.2.
 - **mac-accel-2**, 2026-10-29 21:57:37 CDT to 22:02:52: load 1.35 / 1.61 / 2.27 before, 1.13 / 1.32 / 1.92 after. Before: `Activity Monitor` 1.9, `top` 1.4, `WindowServer` 1.2, `sysmond` 1.0, `kernel_task` 0.8, `Bitwarden Helper` 0.3, `bluetoothd` 0.2, `AppleCentauriAlp` 0.2. After: `Activity Monitor` 1.9, `top` 1.4, `WindowServer` 1.2, `sysmond` 0.9, `kernel_task` 0.8, `dasd` 0.5, `locationd` 0.5, `AppleCentauriAlp` 0.2.
@@ -658,26 +609,11 @@ threaded runs' own 12 threads raise the load they end at.
 
 ## Against the busy Mac
 
-The 2026-10-29 runs (01:35 to 02:35 CDT, `review` `6d66239`, macOS
-27.0.1) took a load of 2.6 to 9.1, with `mediaanalysisd` at about two
-cores. Against them, rates rstd's code does not reach moved little:
-OpenBLAS's median ratio is 1.000 (0.97 to 1.05), the converted and
-`@Vector` kernels' 1.000 (0.96 to 1.10). So the background load had not
-skewed the one-thread numbers. With threads, OpenBLAS's `gemm` gained up to
-9% at n = 128 and 256, where the busy cores had cost it most.
+The 2026-10-29 runs (01:35 to 02:35 CDT, `review` `6d66239`, macOS 27.0.1) took a load of 2.6 to 9.1, with `mediaanalysisd` at about two cores. Against them, rates rstd's code does not reach moved little: OpenBLAS's median ratio is 1.000 (0.97 to 1.05), the converted and `@Vector` kernels' 1.000 (0.96 to 1.10). So the background load had not skewed the one-thread numbers. With threads, OpenBLAS's `gemm` gained up to 9% at n = 128 and 256, where the busy cores had cost it most.
 
 The rows that moved are code or OS changes, not load:
 
-- **Accelerate** on macOS 27.2: `icamax` fell to 0.66 to 0.77 of its rate;
-  `cgemv_n` and `zgemv_n` at the smallest n rose 15 to 33%.
-- **Routing:** `dznrm2` and `dnrm2` now stay on rstd's kernels (up to 15.7
-  times the routed rate), as do strided complex `dot`, `axpy` and `rot`.
-- **rstd's call overhead:** on its own kernels, its public routine fell 7
-  to 20% behind the converted kernel it runs at the smallest n (`axpy`,
-  `scal`, `copy`, `swap`, `rot`, `iamax`), where it matched before; and
-  `sdot` from 256K floats runs 51 to 53 GB/s where the kernel alone runs
-  98, the same `rstd bits`. Level-1 threading and `Io.Threaded` landed
-  between the two runs.
-- **`rstd bits`** changed on its own kernels for large `dot` and `asum` (11
-  rows), a new summation order, and routed for the 13 rows routing no
-  longer sends to Accelerate.
+- **Accelerate** on macOS 27.2: `icamax` fell to 0.66 to 0.77 of its rate; `cgemv_n` and `zgemv_n` at the smallest n rose 15 to 33%.
+- **Routing:** `dznrm2` and `dnrm2` now stay on rstd's kernels (up to 15.7 times the routed rate), as do strided complex `dot`, `axpy` and `rot`.
+- **rstd's call overhead:** on its own kernels, its public routine fell 7 to 20% behind the converted kernel it runs at the smallest n (`axpy`, `scal`, `copy`, `swap`, `rot`, `iamax`), where it matched before; and `sdot` from 256K floats runs 51 to 53 GB/s where the kernel alone runs 98, the same `rstd bits`. Level-1 threading and `Io.Threaded` landed between the two runs.
+- **`rstd bits`** changed on its own kernels for large `dot` and `asum` (11 rows), a new summation order, and routed for the 13 rows routing no longer sends to Accelerate.

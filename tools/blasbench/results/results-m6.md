@@ -1,8 +1,6 @@
 # BLAS kernels on the Apple M6 Mac mini
 
-Whether a generic Zig `@Vector` kernel is as fast as the converted OpenBLAS
-assembly on the Apple cores (`vortex`, `vortexm4`), per routine and
-precision. Measured 2026-10-19 with `blas_bench.zig`:
+Whether a generic Zig `@Vector` kernel is as fast as the converted OpenBLAS assembly on the Apple cores (`vortex`, `vortexm4`), per routine and precision. Measured 2026-10-19 with `blas_bench.zig`:
 
 ```sh
 zig build ssh-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> -j3
@@ -10,78 +8,28 @@ zig build ssh-bench-aarch64-macos -Dopenblas=<OpenBLAS checkout> -j3
 
 ## Setup
 
-- **Machine:** Apple M6 Mac mini, macOS 27.0.1 (26A434), 16 GB. Two "Super"
-  cores (perflevel 0, 128 KiB L1d) and four "Performance" cores (perflevel 1,
-  64 KiB L1d); `sysctl` gives 20 MiB of L2 for each. rstd detects `vortexm4` (SME, no SVE).
-- **Build:** Zig 0.18.0-dev.267+de94864b9, ReleaseFast, `aarch64-macos`
-  (CPU model `apple_m1`, Zig's baseline there), `-Dblas-cores=all`.
+- **Machine:** Apple M6 Mac mini, macOS 27.0.1 (26A434), 16 GB. Two "Super" cores (perflevel 0, 128 KiB L1d) and four "Performance" cores (perflevel 1, 64 KiB L1d); `sysctl` gives 20 MiB of L2 for each. rstd detects `vortexm4` (SME, no SVE).
+- **Build:** Zig 0.18.0-dev.267+de94864b9, ReleaseFast, `aarch64-macos` (CPU model `apple_m1`, Zig's baseline there), `-Dblas-cores=all`.
 - **Reference:** OpenBLAS v0.3.34-317-ga69062524 for the gemm `.S`.
-- **Peak:** 16 independent `fmla` chains measure 149.5 GFLOP/s single and
-  74.7 double (up to 153.2 and 76.6 in other runs): four 128-bit FMA
-  pipes at 4.78 GHz.
+- **Peak:** 16 independent `fmla` chains measure 149.5 GFLOP/s single and 74.7 double (up to 153.2 and 76.6 in other runs): four 128-bit FMA pipes at 4.78 GHz.
 
 ## Method
 
-- **Harness:** `bench.zig`'s `race`. Every contestant is called through the
-  vtable slot's kernel ABI (`daxpy_k`, `dgemv_n`, ...), from a function
-  pointer, the same way for all.
-- **Correctness first:** before timing, each contestant runs once on fresh
-  data at every size and is compared with an `f64` reference: element-wise
-  results within 8 eps of their terms, reductions within `(n + 8)` eps of
-  the sum of magnitudes, `i?amax` exactly the first maximum, and every
-  float outside the vectors (stride gaps, a guard past the end) unchanged.
-  gemm checks 256 sampled entries of `C` (all of it for the kernel alone).
-  No contestant failed.
-- **Statistic:** the minimum time per call. Each batch runs at least 10 ms
-  (20 ms for gemm), its call count doubled until it does; the best of 15
-  batches (7 for gemm) counts. Batches go round the contestants in turn, so
-  a disturbance falls on all of them alike.
-- **Core placement:** the bench sets its thread's QoS to user-interactive,
-  and reports the clock from a chain of dependent adds before each level
-  and at the end: 4.78 to 4.79 GHz throughout, the Super cores. For
-  contrast, the probe alone: default 4.78 GHz and 149.5 GFLOP/s,
-  `taskpolicy -c utility` the same, `taskpolicy -c background` 2.90 GHz and
-  69.6 GFLOP/s (the Performance cluster). Nothing was pinned.
-- **Repeatability:** three full runs. Over the columns no change touched,
-  the median spread between runs is 0.3%, and under 4% but for the cells in
-  [Fairness](#fairness). The tables are the third run.
-- **Sizes:** level 1, bytes per vector: 4 KiB and 32 KiB (L1), 1 MiB (L2),
-  64 MiB (memory), and one strided case, `inc = 2` over a 32 KiB span.
-  Level 2, square, bytes of `A`: 32 KiB, 4 MiB, 64 MiB. Rates count useful
-  bytes (strided too) or flops (`2mn` real, `8mn` complex gemv; `2n^3`
-  gemm).
+- **Harness:** `bench.zig`'s `race`. Every contestant is called through the vtable slot's kernel ABI (`daxpy_k`, `dgemv_n`, ...), from a function pointer, the same way for all.
+- **Correctness first:** before timing, each contestant runs once on fresh data at every size and is compared with an `f64` reference: element-wise results within 8 eps of their terms, reductions within `(n + 8)` eps of the sum of magnitudes, `i?amax` exactly the first maximum, and every float outside the vectors (stride gaps, a guard past the end) unchanged. gemm checks 256 sampled entries of `C` (all of it for the kernel alone). No contestant failed.
+- **Statistic:** the minimum time per call. Each batch runs at least 10 ms (20 ms for gemm), its call count doubled until it does; the best of 15 batches (7 for gemm) counts. Batches go round the contestants in turn, so a disturbance falls on all of them alike.
+- **Core placement:** the bench sets its thread's QoS to user-interactive, and reports the clock from a chain of dependent adds before each level and at the end: 4.78 to 4.79 GHz throughout, the Super cores. For contrast, the probe alone: default 4.78 GHz and 149.5 GFLOP/s, `taskpolicy -c utility` the same, `taskpolicy -c background` 2.90 GHz and 69.6 GFLOP/s (the Performance cluster). Nothing was pinned.
+- **Repeatability:** three full runs. Over the columns no change touched, the median spread between runs is 0.3%, and under 4% but for the cells in [Fairness](#fairness). The tables are the third run.
+- **Sizes:** level 1, bytes per vector: 4 KiB and 32 KiB (L1), 1 MiB (L2), 64 MiB (memory), and one strided case, `inc = 2` over a 32 KiB span. Level 2, square, bytes of `A`: 32 KiB, 4 MiB, 64 MiB. Rates count useful bytes (strided too) or flops (`2mn` real, `8mn` complex gemv; `2n^3` gemm).
 
 ### Contestants
 
-- **asm:** the vtable slot of `cpu.vtableFromCoreType(.vortex)` where vortex
-  has a converted kernel of its own. Where it has none (upstream's vortex
-  kernel there is C: `dot.c`, `*_thunderx2t99.c`, `sgemv_n_neon.c`, not
-  ported, so rstd runs the portable kernel), `armv8`'s converted kernel
-  stands in; `none` where neither has one.
-- **portable:** rstd's portable kernel (`cpu.generic`'s table): scalar
-  loops.
-- **vec, vec x4:** the benchmark's own `@Vector` kernels, since moved to
-  `src/linalg/blas/vector.zig` and changed there; one native
-  vector (`vec`) or four (`vec x4`) wide per step; reductions keep two such
-  accumulators. `i?amax` keeps the first block of `4 * W` with the largest
-  maximum and searches only that block. `nrm2` sums unscaled squares and
-  falls back to the scaled loop only where that could have overflowed or
-  underflowed. Strided paths use four scalar accumulators (real) or one
-  2-lane vector per element (complex).
-- **gemm:** the Zig `@Vector` kernel of the `vortex`, `vortexm4` and
-  portable builds, each with its own copies, against OpenBLAS's vortex
-  kernels (`KERNEL.VORTEX` includes `KERNEL.NEOVERSEN1`):
-  `sgemm_kernel_16x4.S` with `sgemm_tcopy_16.S` and `sgemm_ncopy_4.S`,
-  `dgemm_kernel_8x4.S` with `dgemm_tcopy_8.S` and `dgemm_ncopy_4.S`,
-  assembled from the checkout for Mach-O. `C += A*B`, `NN`, through a copy
-  of `blas3/driver.zig`'s loops with vortex's `P`, `Q`, `R`.
+- **asm:** the vtable slot of `cpu.vtableFromCoreType(.vortex)` where vortex has a converted kernel of its own. Where it has none (upstream's vortex kernel there is C: `dot.c`, `*_thunderx2t99.c`, `sgemv_n_neon.c`, not ported, so rstd runs the portable kernel), `armv8`'s converted kernel stands in; `none` where neither has one.
+- **portable:** rstd's portable kernel (`cpu.generic`'s table): scalar loops.
+- **vec, vec x4:** the benchmark's own `@Vector` kernels, since moved to `src/linalg/blas/vector.zig` and changed there; one native vector (`vec`) or four (`vec x4`) wide per step; reductions keep two such accumulators. `i?amax` keeps the first block of `4 * W` with the largest maximum and searches only that block. `nrm2` sums unscaled squares and falls back to the scaled loop only where that could have overflowed or underflowed. Strided paths use four scalar accumulators (real) or one 2-lane vector per element (complex).
+- **gemm:** the Zig `@Vector` kernel of the `vortex`, `vortexm4` and portable builds, each with its own copies, against OpenBLAS's vortex kernels (`KERNEL.VORTEX` includes `KERNEL.NEOVERSEN1`): `sgemm_kernel_16x4.S` with `sgemm_tcopy_16.S` and `sgemm_ncopy_4.S`, `dgemm_kernel_8x4.S` with `dgemm_tcopy_8.S` and `dgemm_ncopy_4.S`, assembled from the checkout for Mach-O. `C += A*B`, `NN`, through a copy of `blas3/driver.zig`'s loops with vortex's `P`, `Q`, `R`.
 
-`vortexm4` has no level-1 or level-2 kernel of its own: `KERNEL.VORTEXM4`
-includes the same `KERNEL.NEOVERSEN1`, and the converted assembly is the
-same text in both objects, so those tables hold for both cores. Its gemm is
-raced separately. Upstream's one distinct vortexm4 path, the SME
-`sgemm_direct` and `sme_sgemm_kernel` that `interface/gemm.c` takes for
-clang builds, is not ported and was not measured.
+`vortexm4` has no level-1 or level-2 kernel of its own: `KERNEL.VORTEXM4` includes the same `KERNEL.NEOVERSEN1`, and the converted assembly is the same text in both objects, so those tables hold for both cores. Its gemm is raced separately. Upstream's one distinct vortexm4 path, the SME `sgemm_direct` and `sme_sgemm_kernel` that `interface/gemm.c` takes for clang builds, is not ported and was not measured.
 
 ## Level 1
 
@@ -320,8 +268,7 @@ GFLOP/s, square, unit strides.
 
 ## Level 3
 
-`sgemm` kernel alone: 64 x 24, depth 256, on panels its own copies packed
-(in L1 and L2).
+`sgemm` kernel alone: 64 x 24, depth 256, on panels its own copies packed (in L1 and L2).
 
 | kernel | tile | GFLOP/s | over asm |
 | ------ | ---- | ------: | -------: |
@@ -361,18 +308,13 @@ GFLOP/s, square, unit strides.
 | 1024 | 63.8 | 61.0 | 60.9 | 61.0 | 0.96 | 0.96 | 0.96 |
 | 2048 | 64.0 | 61.0 | 61.0 | 60.9 | 0.95 | 0.95 | 0.95 |
 
-`cgemm` and `zgemm`: no Zig kernel yet (only real gemm is ported), so not
-raced.
+`cgemm` and `zgemm`: no Zig kernel yet (only real gemm is ported), so not raced.
 
 ## Recommendations
 
-By the design rule, tuning only where `@Vector` can't. "x4" is the 4-wide
-`@Vector` kernel, plain Zig; the ratios are over the asm unless they name
-real OpenBLAS ("ob", from [`results-m6-libraries.md`](results-m6-libraries.md)).
+By the design rule, tuning only where `@Vector` can't. "x4" is the 4-wide `@Vector` kernel, plain Zig; the ratios are over the asm unless they name real OpenBLAS ("ob", from [`results-m6-libraries.md`](results-m6-libraries.md)).
 
-Most urgent: where vortex's upstream kernel is C (`dot`, `asum`, `i?amax`,
-`copy`, `sgemv_n`), rstd's public routines run the portable loop today, at
-0.06 to 0.61 of OpenBLAS at unit stride.
+Most urgent: where vortex's upstream kernel is C (`dot`, `asum`, `i?amax`, `copy`, `sgemv_n`), rstd's public routines run the portable loop today, at 0.06 to 0.61 of OpenBLAS at unit stride.
 
 | Family | Recommendation | Evidence |
 | ------ | -------------- | -------- |
@@ -395,32 +337,9 @@ Most urgent: where vortex's upstream kernel is C (`dot`, `asum`, `i?amax`,
 
 What could tilt the comparison:
 
-- **Stand-in assembly:** for `dot`, `asum`, `i?amax`, `copy` and `sgemv_n`
-  the asm column is armv8's generic arm64 `.S`, not vortex's upstream kernel,
-  which is C with inline assembly or intrinsics and is not ported.
-  [`results-m6-libraries.md`](results-m6-libraries.md) races the real ones
-  in OpenBLAS 0.3.33: they beat the stand-ins (`ddot` 1.7 to 2.6 times,
-  `?asum` 1.5 to 2.5), and x4 still matches them (`asum` 0.96 to 1.04,
-  `i?amax` 0.86 to 1.40) or beats them (`dot` 1.25 to 1.34 in L1, `copy`
-  1.95 to 2.05), but for `sgemv_n` (0.82 to 0.97).
-- **gemm driver and assembly:** rstd's `driver.gemm` is not public, so the
-  bench runs a copy of its loops; the rates are kernel plus copies through
-  identical loops, not rstd's gemm entry. The upstream `.S` are assembled
-  directly, not through `tools/blas_asm`, which converts no arm64 level-3
-  kernel yet. The Zig tile is 16 x 6 and 8 x 6, the asm's 16 x 4 and 8 x 4.
-  Real OpenBLAS's gemm runs at 0.99 to 1.01 of the `.S` through these
-  loops, so the copy is faithful.
-- **Codegen swings:** three cells changed by up to 2 times between builds
-  whose source for them did not change: portable `sgemv_n` (8.8 GFLOP/s in
-  runs 1 and 2, 4.5 in run 3), the plain `vec` `zrot` at unit stride (0.83
-  of asm in run 1, 0.53 after), and `vec x4` strided `daxpy` (1.89 in runs 1
-  and 2, 0.99 in run 3). Plain Zig loops are sensitive to LLVM's choices; a
-  kept `@Vector` kernel wants checking per build.
-- **vortex and vortexm4 Zig gemm:** the same source runs 2 to 3% slower in
-  the vortexm4 object than in the vortex one (`sgemm`, every run); the
-  objects differ only in target features.
-- **Semantics:** the candidates handle positive strides only. `vec` `sdot`
-  sums in `f32`, as the asm does; rstd's portable `sdot` sums in `f64`.
-- **Machine:** `audiomxd` and `configd` used about one core between them
-  throughout; with six cores the bench kept a Super core (the clock checks),
-  and the minimum over interleaved batches filters what is left.
+- **Stand-in assembly:** for `dot`, `asum`, `i?amax`, `copy` and `sgemv_n` the asm column is armv8's generic arm64 `.S`, not vortex's upstream kernel, which is C with inline assembly or intrinsics and is not ported. [`results-m6-libraries.md`](results-m6-libraries.md) races the real ones in OpenBLAS 0.3.33: they beat the stand-ins (`ddot` 1.7 to 2.6 times, `?asum` 1.5 to 2.5), and x4 still matches them (`asum` 0.96 to 1.04, `i?amax` 0.86 to 1.40) or beats them (`dot` 1.25 to 1.34 in L1, `copy` 1.95 to 2.05), but for `sgemv_n` (0.82 to 0.97).
+- **gemm driver and assembly:** rstd's `driver.gemm` is not public, so the bench runs a copy of its loops; the rates are kernel plus copies through identical loops, not rstd's gemm entry. The upstream `.S` are assembled directly, not through `tools/blas_asm`, which converts no arm64 level-3 kernel yet. The Zig tile is 16 x 6 and 8 x 6, the asm's 16 x 4 and 8 x 4. Real OpenBLAS's gemm runs at 0.99 to 1.01 of the `.S` through these loops, so the copy is faithful.
+- **Codegen swings:** three cells changed by up to 2 times between builds whose source for them did not change: portable `sgemv_n` (8.8 GFLOP/s in runs 1 and 2, 4.5 in run 3), the plain `vec` `zrot` at unit stride (0.83 of asm in run 1, 0.53 after), and `vec x4` strided `daxpy` (1.89 in runs 1 and 2, 0.99 in run 3). Plain Zig loops are sensitive to LLVM's choices; a kept `@Vector` kernel wants checking per build.
+- **vortex and vortexm4 Zig gemm:** the same source runs 2 to 3% slower in the vortexm4 object than in the vortex one (`sgemm`, every run); the objects differ only in target features.
+- **Semantics:** the candidates handle positive strides only. `vec` `sdot` sums in `f32`, as the asm does; rstd's portable `sdot` sums in `f64`.
+- **Machine:** `audiomxd` and `configd` used about one core between them throughout; with six cores the bench kept a Super core (the clock checks), and the minimum over interleaved batches filters what is left.

@@ -1,7 +1,5 @@
-//! LoongArch64 boot for QEMU's `virt` machine (`-kernel`, direct address
-//! mode, no MMU needed). Console is the 16550 UART; exit powers the machine
-//! off through the ACPI GED sleep register, so the run step judges the
-//! result from the printed summary rather than an exit code.
+//! LoongArch64 boot for `virt` (direct address mode, no MMU). Console the 16550 UART; exit powers off through the ACPI GED sleep register
+//! (the summary carries the result).
 
 comptime {
     asm (

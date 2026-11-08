@@ -2,26 +2,12 @@
 
 Bare metal, this PC. Part of the [BLAS flyoff](results-flyoff.md).
 
-- **Machine:** AMD Ryzen 7 7730U (Zen 3, 8 cores, 16 threads), Windows 11
-  Pro 10.0.26300. The clock probe read 4.40 to 4.54 GHz through the
-  one-thread run.
-- **Build:** Zig 0.18.0-dev.751+069480a1a, ReleaseFast, `-mcpu znver3` (the
-  host), `-Dblas-cores=all`; rstd detects `zen`.
-- **OpenBLAS:** 0.3.33, the official `OpenBLAS-0.3.33-x64.zip` from its
-  GitHub releases (SHA-256
-  `7ad797ef0c9a5c42e28903bf726eaaaade307dafe187ff0e923d90cd4002780c`, as the
-  release lists it),
-  `bin/libopenblas.dll` (imports only `KERNEL32` and `msvcrt`).
-  `openblas_get_config()`: `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY Zen
-  MAX_THREADS=64`; core `Zen`. 0.3.34 is out, but 0.3.33 matches nixpkgs'.
-- **BLIS:** none. No official Windows build exists without an account or
-  license click-through: AMD's AOCL for Windows is an installer behind an
-  EULA page, and `amd/blis` and `flame/blis` publish no Windows binaries.
-- **Threads:** one each (`openblas_set_num_threads(1)`, as well as the
-  environment); default threading: OpenBLAS reports 16. rstd always runs
-  one thread, on `Io.failing`.
-- **When:** 2026-10-27, 06:29 to 06:33 (one thread) and 06:32 to 06:33
-  (default) CDT, with no other `zig` or `qemu-system` process running.
+- **Machine:** AMD Ryzen 7 7730U (Zen 3, 8 cores, 16 threads), Windows 11 Pro 10.0.26300. The clock probe read 4.40 to 4.54 GHz through the one-thread run.
+- **Build:** Zig 0.18.0-dev.751+069480a1a, ReleaseFast, `-mcpu znver3` (the host), `-Dblas-cores=all`; rstd detects `zen`.
+- **OpenBLAS:** 0.3.33, the official `OpenBLAS-0.3.33-x64.zip` from its GitHub releases (SHA-256 `7ad797ef0c9a5c42e28903bf726eaaaade307dafe187ff0e923d90cd4002780c`, as the release lists it), `bin/libopenblas.dll` (imports only `KERNEL32` and `msvcrt`). `openblas_get_config()`: `OpenBLAS 0.3.33 DYNAMIC_ARCH NO_AFFINITY Zen MAX_THREADS=64`; core `Zen`. 0.3.34 is out, but 0.3.33 matches nixpkgs'.
+- **BLIS:** none. No official Windows build exists without an account or license click-through: AMD's AOCL for Windows is an installer behind an EULA page, and `amd/blis` and `flame/blis` publish no Windows binaries.
+- **Threads:** one each (`openblas_set_num_threads(1)`, as well as the environment); default threading: OpenBLAS reports 16. rstd always runs one thread, on `Io.failing`.
+- **When:** 2026-10-27, 06:29 to 06:33 (one thread) and 06:32 to 06:33 (default) CDT, with no other `zig` or `qemu-system` process running.
 
 Columns as [`results-flyoff.md`](results-flyoff.md#reading-the-tables) has them.
 

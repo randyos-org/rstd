@@ -1,13 +1,5 @@
-//! std's `Io.Group` on `Io.Evented` with worker threads, std only
-//! (rstd's `issues.md`, "`Group.await` blocks inside a context
-//! switch"): three trivial tasks started and awaited, round after round. On
-//! 0.18.0-dev.751 `group` crashes within a few thousand rounds on `Dispatch`
-//! and `Uring`; `futures`, the same loop on plain futures, passes on
-//! `Dispatch`. Rerun on each toolchain bump (`zig build
-//! ssh-repro-group-aarch64-macos`); once `group` passes, set
-//! `threading.dispatch_futures` false and delete its futures path.
-//!
-//!     evented_group_repro group|futures [rounds]
+//! std's `Io.Group` on `Io.Evented` (`issues.md`): on 0.18.0-dev.751 `group` crashes on `Dispatch` and `Uring`, `futures` passes. Rerun
+//! per toolchain (`ssh-repro-group-aarch64-macos`); once `group` passes, set `threading.dispatch_futures` false and drop its futures path.
 
 const std = @import("std");
 const Io = std.Io;

@@ -1,8 +1,5 @@
-//! The rigs' page allocator, `std.heap.page_allocator` there: a region
-//! handed out in whole pages and tracked by a bitmap, so freed pages are
-//! reused. One test cycling through every core frees as much as it takes.
-//! The runner gives it the region (`use`): a static buffer, or one the boot
-//! code gets from the firmware.
+//! The rigs' `std.heap.page_allocator`: a region the runner hands over (`use`; static, or from the firmware) in whole pages, tracked
+//! by a bitmap so freed pages are reused, as a test cycling through every core needs.
 
 const std = @import("std");
 const sysinfo = @import("builtin");

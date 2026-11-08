@@ -1,25 +1,6 @@
-//! Per-core BLAS kernel objects.
-//!
-//! OpenBLAS (`DYNAMIC_ARCH`) compiles its kernel tree once per core type with
-//! that core's flags. This does the same: one LLVM-built object per group of
-//! cores whose flags are equal, from `src/linalg/blas/_kernel.zig`, linked into
-//! the `rstd` module so the main library can stay on the target's baseline CPU
-//! and any backend.
-//!
-//! What each core is compiled with is not written here: it is
-//! `src/linalg/blas/cpu/_corespec.zig`, shared with the runtime. This takes
-//! the target architecture's cores with kernels (`corespec.kernelCores`),
-//! keeps those the target can run, groups them by equal spec, and builds one
-//! object per group.
-//!
-//! `-Dblas-cores=target` (the debug default) builds only the group the target
-//! maps to: the host's detected core for a native target, else the group with
-//! the most features the target has. A detected core not linked at runtime
-//! uses that one instead (`asm_registry.install`).
-//!
-//! Supporting another architecture means filling in its `kernels/<arch>.zig`
-//! (a stub exists for each) and listing its cores in `corespec.kernelCores`;
-//! its specs are already in `_corespec.zig`.
+//! Per-core BLAS kernel objects, as OpenBLAS's `DYNAMIC_ARCH`: one LLVM-built object per group of cores with equal specs
+//! (`cpu/corespec.zig`, shared with the runtime), linked into `rstd` so the library stays on the target's baseline. `-Dblas-cores=target`
+//! builds only the target's group. A new architecture fills in `kernels/<arch>.zig` and lists its cores in `corespec.kernelCores`.
 
 const std = @import("std");
 const sysinfo = @import("builtin");
@@ -30,10 +11,11 @@ const Compile = rstdbuild.CompileStep;
 const LazyPath = rstdbuild.LazyPath;
 const ResolvedTarget = rstdbuild.ResolvedTarget;
 
-// Only `cpu/`'s light files (`_corespec.zig` and the `_detect/<arch>.zig` detectors
-// it names): the registries or `cpu/<arch>.zig` would make this script's
+// Only `cpu/`'s light files (`corespec.zig`, `select.zig` and the `detect/<arch>.zig` detectors
+// it names): the registries or `cpu.Arch` would make this script's
 // compile depend on every kernel source.
-const corespec = @import("../src/linalg/blas/cpu/_corespec.zig");
+const corespec = @import("../src/linalg/blas/cpu/corespec.zig");
+const select = @import("../src/linalg/blas/cpu/select.zig");
 const abi = @import("../src/linalg/blas/abi.zig");
 
 /// Cores with equal specs, served by one object.
@@ -60,7 +42,7 @@ pub fn defaultCores(target: ResolvedTarget, optimize: rstdbuild.Optimize) rstdbu
 /// Builds the per-core kernel objects for `target` and links them into `mod`:
 /// for every core the target can run (`.all`), or only the core the target
 /// maps to (`.target`), or none (`.none`). It also gives `mod` the
-/// `blaskern_linked` module, which tells `asm_registry.install` what got linked,
+/// `blaskern_linked` module, which tells `registry.install` what got linked,
 /// `blas_options` (`quad_precision`), which the kernel objects get too, and
 /// `lapack_options` (`-Drelapack`), since every module with the BLAS has
 /// LAPACK too. `quad` null takes `-Dquad-precision`.
@@ -140,8 +122,9 @@ fn addForArch(
         opts.addOption(bool, "fuse_fma_set", g.spec.fuse_fma != null);
         opts.addOption(bool, "fuse_fma", g.spec.fuse_fma orelse false);
 
-        // LLVM only where the kernels need it; `-Dblas-llvm` overrides either way.
-        const llvm = force_llvm orelse needsLlvm(arch, g.cores.items);
+        // Always LLVM unless `-Dblas-llvm=false`: self-hosted x86_64 rejects the converted
+        // asm's `(%rdx)` operands and VEX/EVEX, wasm emits invalid SIMD, others lack asm/vectors.
+        const llvm = force_llvm orelse true;
         const obj = b.addObject(.{
             .name = b.fmt("rstd-blaskernel-{s}", .{g.cores.items[0]}),
             .root_module = b.createModule(.{
@@ -221,7 +204,7 @@ fn objectPic(mod: *Module, target: ResolvedTarget) ?bool {
     };
 }
 
-/// Tells `asm_registry.install` which cores' objects are linked.
+/// Tells `registry.install` which cores' objects are linked.
 fn addLinked(b: *Build, mod: *Module, linked: []const []const u8, fallback: ?[]const u8) void {
     const opts = b.addOptions();
     opts.addOption([]const []const u8, "cores", linked);
@@ -245,7 +228,7 @@ fn checkIsa(b: *Build, target: ResolvedTarget, query: std.Target.Query, core: an
     for (arch.allFeaturesList(), 0..) |f, i| {
         if (ex.isEnabled(@intCast(i))) try names.print(b.allocator, " {s}", .{f.name});
     }
-    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/_corespec.zig)", .{
+    std.process.fatal("the BLAS kernel object serving {s} on {s} uses{s}, which some {s} CPUs lack (`machine` in cpu/corespec.zig)", .{
         @tagName(core), target.result.cpu.model.name, names.items, @tagName(core),
     });
 }
@@ -261,7 +244,7 @@ fn pickTarget(
 ) ?struct { group: usize, core: []const u8 } {
     if (comptime arch_tag == sysinfo.target.cpu.arch) {
         if (target.query.isNativeCpu()) {
-            const name = @tagName(corespec.objectCore(arch_tag, corespec.Detector(arch_tag).detect()));
+            const name = @tagName(corespec.objectCore(arch_tag, select.detect(corespec.Detector(arch_tag), null)));
             for (groups, 0..) |g, i| {
                 for (g.cores.items) |c| {
                     if (std.mem.eql(u8, c, name)) return .{ .group = i, .core = c };
@@ -281,21 +264,4 @@ fn pickTarget(
     }
     const i = best orelse return null;
     return .{ .group = i, .core = groups[i].cores.items[0] };
-}
-
-/// Whether the kernels of `cores` can only be built with LLVM, found by building
-/// every architecture with `-Dblas-llvm=false`:
-///
-///   * wasm32/wasm64: yes. The self-hosted backend builds them but emits invalid
-///     wasm for the SIMD kernel (node: "type error in branch, expected v128, got
-///     i32" in `Real(f32).unit`).
-///   * x86_64: yes for every core that has kernels. The self-hosted backend's own
-///     assembler rejects the register-based memory operands (`(%rdx)`) of the
-///     converted assembly and, past SSE, the VEX/EVEX mnemonics (`vzeroupper`).
-///   * aarch64, riscv64 and the rest: yes; they have no self-hosted backend that
-///     covers inline assembly and vectors, and riscv64 also fails on `zbb` in std.
-fn needsLlvm(arch: std.Target.Cpu.Arch, cores: []const []const u8) bool {
-    _ = arch;
-    _ = cores;
-    return true;
 }

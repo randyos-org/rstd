@@ -1,14 +1,5 @@
-//! Console setup for GUI-subsystem Windows programs (`exe.subsystem =
-//! .windows`), which get no console on launch so they open no console window
-//! from a shortcut, double-click, or another program's launch.
-//!
-//! Such a process also has no valid STD_OUTPUT_HANDLE or STD_ERROR_HANDLE
-//! unless its launcher redirected them, and Zig reads those handles live from
-//! the PEB on every print. `setup` points them somewhere writable before
-//! anything prints: a console when one is wanted (typically for `--debug`),
-//! otherwise the NUL device. Handles a launcher redirected (`app 2> log.txt`,
-//! a pipe) are left as they are. `redirectStdioToFile` sends them to a log
-//! file instead.
+//! Console setup for GUI-subsystem Windows programs, which start without a console and, unless redirected, without valid std handles,
+//! which Zig reads from the PEB on every print. `setup` points them at a console or NUL first, leaving redirected ones be.
 const std = @import("std");
 const sysinfo = @import("builtin");
 const win32 = @import("win32");
@@ -20,35 +11,12 @@ const console = win32.system.console;
 const fs = win32.storage.file_system;
 const kernel32 = win32.kernel32;
 
-/// The EXE is built with the GUI subsystem (`exe.subsystem = .windows`), so no
-/// console is auto-allocated on launch - normal double-click/shortcut runs,
-/// and just as importantly launches with no inherited console at all (e.g.
-/// `zig build run` from some shells, or any other detached CreateProcess),
-/// leave STD_OUTPUT_HANDLE/STD_ERROR_HANDLE unset. Left alone that's fatal:
-/// a C library's own logging can be kept off the C runtime's stdio (rgui
-/// intercepts raylib's TraceLog), but Zig's own `std.debug.print` reads
-/// STD_ERROR_HANDLE live out of the PEB on every call (`Io.File.stderr()`)
-/// and does not tolerate it being absent the way the C runtime's own cached
-/// stdio might.
-///
-/// Pass "--debug" on the command line to opt into a *visible* console
-/// (reused from the parent process if there is one, else freshly
-/// allocated). Either way - debug console or not - this always points
-/// STD_OUTPUT_HANDLE/STD_ERROR_HANDLE at *some* valid, writable handle
-/// before any other code in the process can print: the real console when
-/// "--debug" is set, otherwise the NUL device, so every `std.debug.print`
-/// call (this file's own callers included - no gating needed) silently
-/// drains instead of touching an absent/invalid handle. Must run before any
-/// prints - `SetStdHandle` is what updates the PEB field `Io.File.stderr()`
-/// reads; `AllocConsole`/`AttachConsole` alone does not re-target a
-/// GUI-subsystem process's (previously invalid) std handles to the console.
-///
-/// A stderr the launcher redirected to a file or pipe (`app 2> log.txt`, a
-/// pipe) is left as it is; see `redirected`.
+/// `setup`, with a visible console when the command line has `--debug` (the
+/// parent's, else a new one), else the NUL device.
 pub fn maybeAllocDebugConsole(init: zigstd.MainInit) bool {
     // `toSlice` documents that its result may reinterpret/point into the
     // allocator's memory in ways that aren't a single well-formed `alloc`
-    // call - freeing it back piecewise (e.g. via a GeneralPurposeAllocator)
+    // call; freeing it back piecewise (e.g. via a GeneralPurposeAllocator)
     // trips its bucket/canary accounting. It requires an arena, whose
     // backing memory `init.arena` already cleans up on process exit, so no
     // manual free is needed here.
@@ -122,7 +90,7 @@ fn invalidHandle(handle: win32.foundation.HANDLE) bool {
     return handle == win32.foundation.INVALID_HANDLE_VALUE;
 }
 
-/// No console at all (or "--debug" wasn't passed, or setup above failed) -
+/// No console at all (or "--debug" wasn't passed, or setup above failed):
 /// point std handles at the NUL device instead of leaving them unset, so
 /// any live-PEB-reading print always has somewhere safe to write.
 fn setStdHandlesToNul() void {
@@ -144,6 +112,8 @@ pub fn redirectStdioToFile(alloc: zigstd.Allocator, name: []const u8) !void {
     setStdHandles(handle);
 }
 
+/// `SetStdHandle` updates the PEB fields Zig prints through; `AllocConsole` and
+/// `AttachConsole` alone leave a GUI-subsystem process's handles invalid.
 fn setStdHandles(handle: win32.foundation.HANDLE) void {
     _ = kernel32.SetStdHandle(console.STD_OUTPUT_HANDLE, handle);
     _ = kernel32.SetStdHandle(console.STD_ERROR_HANDLE, handle);

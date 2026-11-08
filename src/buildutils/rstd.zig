@@ -1,12 +1,9 @@
 const rstdbuild = @import("__root__.zig");
-const docs_mod = @import("docs.zig");
-const module = @import("module.zig");
-
 const Build = rstdbuild.Build;
-const ResolvedTarget = rstdbuild.ResolvedTarget;
-const Docs = docs_mod.Docs;
-const DepModule = @import("deps.zig").DepModule;
 const Module = rstdbuild.Module;
+const ResolvedTarget = rstdbuild.ResolvedTarget;
+const DepModule = rstdbuild.DepModule;
+const Docs = rstdbuild.Docs;
 
 /// Which cores get a BLAS kernel object: `target`, only the one the build
 /// target maps to; `all`, every core it can run (for runtime dispatch);
@@ -48,25 +45,12 @@ pub fn addRstd(
     // 'build_options0'"). Using `cloneRootForTarget` rather than
     // `cloneModuleWithTarget` here also matters: `rmod` is rstd's own native
     // `rstd_mod`, which by this point carries `win32`/`renderdoc` (added for
-    // the native target and pulling in libc) -- fine for docs/tests, but
+    // the native target and pulling in libc); fine for docs/tests, but
     // fatal for a spirv32-vulkan `target` (no libc), which is the case this
     // branch (`_rstd_mod` reuse, from `wireRglShaders`) exists for.
-    const rstd_mod = if (options._rstd_mod) |rmod| module.cloneRootForTarget(b, rmod, target) else rstd_dep.?.module("rstd");
+    const rstd_mod = if (options._rstd_mod) |rmod| rstdbuild.cloneRootForTarget(b, rmod, target) else rstd_dep.?.module("rstd");
 
-    if (docs) |d| {
-        // The registered "rstd" module has no target (consumers set their
-        // own via addImport), so clone it with one bound rather than
-        // redeclaring root_source_file/imports/options.
-        const rstd_docs_mod = try module.cloneModuleWithTarget(b, rstd_mod, target);
-        // Docs only analyze the source; the BLAS kernel objects would make
-        // this object link others, which the self-hosted COFF linker rejects.
-        rstd_docs_mod.link_objects = .empty;
-        const rstd_docs_obj = b.addObject(.{
-            .name = "rstd",
-            .root_module = rstd_docs_mod,
-        });
-        d.addCompileStepDocs(b, rstd_docs_obj, "rstd");
-    }
+    if (docs) |d| try d.addModuleDocs(b, rstd_mod, target, "rstd");
 
     return .{
         .mod = rstd_mod,
