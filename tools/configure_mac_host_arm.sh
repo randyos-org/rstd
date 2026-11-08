@@ -1,6 +1,6 @@
 #!/bin/bash
 # Settings for an Apple silicon Mac that runs the rigs and the timing over
-# ssh (`-Dtest-host`): headless, logged in, never asleep, with macOS's
+# ssh (`-Dtest-host`): headless, logged in, waking on ssh, with macOS's
 # background indexing stopped so timings stay steady (src/linalg/blas/
 # design.md, Settled decisions: timing on a busy Mac). Run it as the account
 # the rigs log in as.
