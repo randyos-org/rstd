@@ -14,7 +14,7 @@ Open work in priority order, top to bottom. **Needs:** items that must land firs
 
 ## Queue
 
-- [ ] **N45** `ssh-test-x86_64-macos` runs on the Intel Mac (`macmini-intel`), not under Rosetta on the M6: an option for the Intel Mac's alias beside `-Dssh-mac` (default `macmini-m6`, help text "Apple silicon"), the x86_64 step pointed at it; Rosetta stays reachable for comparison. Then T141 can rerun there. **Needs:** N43, N44.
+- [ ] **N45** `ssh-test-x86_64-macos` runs on the Intel Mac (`macmini-intel`), not under Rosetta on the M6: an option for the Intel Mac's alias beside `-Dssh-mac` (default `macmini-m6`, help text "Apple Silicon"), the x86_64 step pointed at it; Rosetta stays reachable for comparison. Then T141 can rerun there. **Needs:** N43, N44.
 
 - [ ] **N46** The qemu rigs on the Intel Mac (`-Dtest-host=macmini-intel`): `tools/nix/flake.nix` follows nixpkgs-unstable, which dropped x86_64-darwin (26.11 release notes), so give x86_64-darwin a `nixpkgs-26.05-darwin` input (supported to the end of 2026) and check `tools/test_host.zig`/`run.sh` there (`hvf` for x86_64 guests). **Needs:** N44.
 
@@ -124,7 +124,7 @@ Picked up after the Queue: tier 3 and 4 bugs, follow-ups, tuning, optional and B
 
 - [ ] **T145** x87, Debug only (`i386`, `rstd-test-x87`; the ReleaseSafe forms pass): "geev on special matrices" fails `f64` n = 2 kind 3, the rotation `[0 -1; 1 0]`: an eigenvalue's `x[kbig].im` is past `tolerance(F, n, 1)` (`evd.zig:852`). Likely `f80` intermediates in the 2 x 2 standardization; not traced. Tier 3.
 
-- [ ] **T146** x87 (`rstd-test-x87`): matlab's `rat` loses precision (22/7 comes back with numerator 3.14306640625; 3.1416015625 for π), and `base` renders the wrong digits (both in `matlab/scalar.zig`). Not traced; M6 reworks both. Tier 3.
+- [ ] **T146** x87 (`rstd-test-x87`): matlab's `rat` loses precision (22/7 comes back with numerator 3.14306640625; 3.1416015625 for π), and `base` renders the wrong digits (`matlab/rat.zig`, `matlab/base.zig`). Not traced; M6 reworks both. Tier 3.
 
 - [ ] **T147** "the registry read works on Windows" (`cpu/detect/arm64.zig:917`) fails on the 32-bit `rstd-test-x87`: `InstallTime` is missing, likely from WOW64's 32-bit view of `HKLM\SOFTWARE` (`KEY_WOW64_64KEY` reads the native one). Matters for 32-bit arm Windows detection too. Tier 3.
 
@@ -250,7 +250,7 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 
 ### Across rstd
 
-- [ ] **H113** Rest of H2: one `table`/`no_table` for BLAS's and `lapack/ops.zig`'s (not in `util.zig`, which the kernel objects compile: it would import `__root__.zig`).
+- [ ] **H113** Rest of H2: one `table`/`no_table` for BLAS's and `lapack/interface.zig`'s (not in `util.zig`, which the kernel objects compile: it would import `__root__.zig`).
 
 - [ ] **H115** Slots by enum, part 2: a `portable.Param` enum for the gemm blocking parameter slots (`gemm_p`, `gemm_q`, `gemm_r`, `unroll_*`, `align_k`) in `gemm/params.zig`, `driver.zig`, `driver3m.zig`, `_test/blas3/check.zig`, `lapack/lu.zig` and `lapack/_test/check.zig`.
 
@@ -262,7 +262,7 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 
 - [ ] **H119** Slots by enum, part 6: `_test/blas1/edge.zig`'s and `denormal.zig`'s dot, reduction and extreme loops over string lists; `rotSlot` (3 spellings) once.
 
-- [ ] **H114** Rest of H12: one `expectSameBits` (in `_test/check.zig`) for `vector.zig`'s and `matrix.zig`'s.
+- [ ] **H114** Rest of H12: one `expectSameBits` (in `_test/bitwise.zig`) for `vector.zig`'s and `matrix.zig`'s.
 
 ### BLAS core: `blas/`, `cpu/`, `kernels/`, `ext/`
 
@@ -286,7 +286,7 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 
 - [ ] **H124** Rest of H43: `blas2/interface.zig`'s flag table by `Trans`'s methods.
 
-- [ ] **H125** Rest of H45: `checkAll` through `check.keep` in every root (changes the tests' flow), one portable-vtable setup in tests (one is static, one on the stack), `blas1/__root__.zig`'s routine list once (by reflection, which changes the install order).
+- [ ] **H125** Rest of H45: `checkAll` through `check.keep` in every root (changes the tests' flow), one portable-vtable setup in tests (one is static, one on the stack), `blas1/__root__.zig`'s routine list once (by reflection, which changes the installation order).
 
 ### BLAS level 3
 
@@ -346,6 +346,10 @@ Readability findings from a read-only audit of every handwritten file (2026-11-0
 
 Cleared 2026-11-02; landed work is in `review`'s log.
 
+- [X] **N52** The Mac ssh tools keep the Mac awake for their runs (4c9fbba4, 2026-11-08): `ssh_test.zig`'s remote command and `test_host.zig`'s `nix shell … run.sh` run under `caffeinate -i` on a Darwin host, since idle sleep ignores ssh sessions without a tty.
+
+- [X] **N51** Mac hosts save power while staying reachable (eba7ac35, 2026-11-08): both host scripts sleep the display and disks after 10 minutes and the Mac after 60 (Intel also `hibernatemode 0`) with the screen lock off (auto-login covers boot only); an incoming ssh packet dark-wakes either Mac in about a second. Rerun the scripts on the Macs once N52 lands.
+
 - [X] **N50** `configure_mac_host_intel.sh` disables the Spotlight UI agent too (4583eee7, 2026-11-07): with corespotlightd off, Sequoia's `com.apple.Spotlight` retried its IndexAgent endlessly (85% of a core, 40% more in launchd).
 
 - [X] **N43** Intel Mac host scripts (c98a815e, 2026-11-07): `configure_macos.sh` is now `configure_macos_vm.sh`, `configure_mac_host.sh` is `configure_mac_host_arm.sh`, and `configure_mac_host_intel.sh` set up `macmini-intel`.
@@ -366,17 +370,17 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H7** `util.scalarArgs` for the two-armed complex kernel calls; two test calls whose arguments are casts stay (`housekeeping`, 2026-11-07).
 
-- [X] **H9** One shared test module `_test/check.zig`, `guard.zig` merged in; lapack's tests install vtables by `check.use` and `check.restore` (`housekeeping`, 2026-11-07).
+- [X] **H9** One shared test module `_test/check.zig` beside `_test/guard.zig` (`use`, `restore`, `Poison`), `_test/reference.zig` (the `f128` reference, ulp bounds), `_test/pattern.zig` and `_test/bitwise.zig`; lapack's tests install vtables by `guard.use` and `guard.restore` (`housekeeping`, 2026-11-07).
 
 - [X] **H10** lapack's test helpers and `thresh`, `cplx`, `ratio` in `lapack/_test/check.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H11** lapack's shared test fixtures in `lapack/_test/check.zig` (`CholProblem`, `LuProblem` and the rest) (`housekeeping`, 2026-11-07).
+- [X] **H11** lapack's shared test fixtures in `lapack/_test/fixtures.zig` (`CholProblem`, `LuProblem`, `Tri`, `schur`) and `_test/symmetric.zig` (`Indefinite`, `ldlProduct`, `sandwich`) (`housekeeping`, 2026-11-07).
 
 - [X] **H12** Shared test helpers in `_test/check.zig`; blas3's `Wide` is `Ref`; `dense.zig` takes its `sameBits`. The per-element `sameBits` (`batch.zig`, `half.zig`: they read `f80` differently) and the kernel objects' `fillSeq` stay. Rest: H114 (and `rotSlot`, H119) (`housekeeping`, 2026-11-07).
 
 - [X] **H13** One `WorkerRuns` harness and `eachTestIo` in `_test/io.zig` for qr, lq, lsq, svd, evd and blas3's threaded tests (`housekeeping`, 2026-11-07).
 
-- [X] **H14** Named ulp bounds in `_test/check.zig` (`housekeeping`, 2026-11-07).
+- [X] **H14** Named ulp bounds in `_test/reference.zig` (`housekeeping`, 2026-11-07).
 
 - [X] **H15** Every import at the top of its file; the unused ones dropped (`housekeeping`, 2026-11-07).
 
@@ -416,9 +420,9 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H33** The BLAS core's long comment blocks cut; Vtable's mirrored C `#define` blocks kept, as derived source (`housekeeping`, 2026-11-07).
 
-- [X] **H34** One `blas1/extremum.zig` table for the 8 extremum routines, and one coverage page, `blas1/extremum_coverage.md` (`housekeeping`, 2026-11-07).
+- [X] **H34** One `blas1/extremum.zig` table for the 8 extremum routines; their folders keep their coverage pages (`housekeeping`, 2026-11-07).
 
-- [X] **H35** `blas1/interface.zig`'s threading tests, `rotg` and `rotmg`, and the special-value tests moved out (`housekeeping`, 2026-11-07).
+- [X] **H35** `blas1/interface.zig`'s threading tests and special-value tests moved out; `rotg`, `zrotg`, `rotmg` in `blas1/rot/rotg.zig` (`housekeeping`, 2026-11-07).
 
 - [X] **H36** gemv's x87 extended sums and their tests in `gemv/extended.zig`. Rest: H120 (`housekeeping`, 2026-11-07).
 
@@ -444,7 +448,7 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H50** The trmm and trsm drivers and their threaded split in `blas3/triangular.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H51** `blas3/driver3m.zig`; the kernel registry in `blas3/kernels.zig`; `gemm/small_x86_64.zig`; hemm3m's tests in `symm3m/`, syr2k's in `syrk/`, hemm's, hemm3m's and syr2k's folders gone; gemmt's tests in `_test/blas3/`; `blas3/__root__.zig`'s order and doc (`housekeeping`, 2026-11-07).
+- [X] **H51** `blas3/driver3m.zig`; the kernel registry in `blas3/kernels.zig`; `gemm/small_x86_64.zig`; gemmt's tests in `_test/blas3/`; `blas3/__root__.zig`'s order and doc. The routine folders (hemm, hemm3m, syr2k) stay (`housekeeping`, 2026-11-07).
 
 - [X] **H52** `blas3/threaded.zig`'s tests in `_test/blas3/threaded.zig`. User's call: H139 (`housekeeping`, 2026-11-07).
 
@@ -452,17 +456,17 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H56** Level-3 headers cut to 3 lines, rationale in `gemm/notes.md` (`housekeeping`, 2026-11-07).
 
-- [X] **H57** `cholesky.zig`'s shared argument, vtable and thread helpers in `ops.zig` (`housekeeping`, 2026-11-07).
+- [X] **H57** `cholesky.zig`'s shared argument, vtable and thread helpers in `lapack/interface.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H58** Real-slice helpers, one `lascl` and one driver scaling prologue in `ops.zig` (`housekeeping`, 2026-11-07).
+- [X] **H58** Real-slice helpers in `ops.zig`; one `lascl` in `auxiliary.zig`; one driver scaling prologue (`housekeeping`, 2026-11-07).
 
-- [X] **H59** BLAS wrappers, `lartg`, `larfg`, `lapy2`, `lapy3` and `laset` in `ops.zig` (`housekeeping`, 2026-11-07).
+- [X] **H59** BLAS wrappers in `lapack/blas_calls.zig`; `lartg`, `larfg`, `lapy2`, `lapy3` and `laset` in `auxiliary.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H60** `trsyl`, `tgsyl` and their tests in `sylvester.zig` (`housekeeping`, 2026-11-07).
+- [X] **H60** `trsyl` and `tgsyl` with their tests in `trsyl.zig` and `tgsyl.zig`, out of `relapack.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H61** `sytrf`, `hetrf`, their rook forms and tests in `indefinite.zig` (`housekeeping`, 2026-11-07).
+- [X] **H61** `sytrf`, `hetrf`, their rook forms and tests in `sytrf.zig`, out of `relapack.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H62** `gbtrf` and its tests in `lu.zig`; relapack's other tests in `lapack/_test/relapack.zig` (`housekeeping`, 2026-11-07).
+- [X] **H62** `gbtrf` and its tests in `gbtrf.zig`; relapack's other tests in `lapack/_test/relapack.zig` (`housekeeping`, 2026-11-07).
 
 - [X] **H63** evd's tests in `lapack/_test/evd.zig`; trevc3's, `sqrt`'s and `rotg`'s beside their code (`housekeeping`, 2026-11-07).
 
@@ -480,7 +484,7 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H71** `dense.zig` public first, one fixed-size dispatcher; `matrix.zig` too (`housekeeping`, 2026-11-07).
 
-- [X] **H72** matlab's file merges: `lu.zig`, `eig.zig`, `scalar.zig`, a new `operators.zig` (`housekeeping`, 2026-11-07).
+- [X] **H72** Not done (user, 2026-11-07): matlab's files stay one per unit, so the merges into `lu.zig`, `eig.zig`, `scalar.zig` and an `operators.zig` were undone (`housekeeping`, 2026-11-07).
 
 - [X] **H73** matlab dedupe: `triu`, one binary loop, `Unary`, one `inline for`. `chol`, `schur` and `hess` of an empty matrix and `hess` and `schur` of a 1x1 return the empty or trivial factors (`chol([])` panicked in `potrf`'s `lda` check before), with tests (`housekeeping`, 2026-11-07).
 
@@ -496,25 +500,25 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H80** `shaders/layout.zig`: `Globals(V)`, `ShapeKind` and the instance structs, for the shaders and `gpu.zig` (sizes differ: N42) (`housekeeping`, 2026-11-07).
 
-- [X] **H82** One `tables/glyf.zig`: `appendVertex`, one coordinate decoder, `table_data` (`housekeeping`, 2026-11-07).
+- [X] **H82** glyf's files deduplicated (`appendVertex`, one coordinate decoder, `table_data`); the `tables/glyf/` folder stays (`housekeeping`, 2026-11-07).
 
 - [X] **H83** msdf and render up to `font/`; `Generator.zig`; `glyphBitmap*` in `rasterize.zig`. Rest: H127 (`housekeeping`, 2026-11-07).
 
-- [X] **H84** One `font/sfnt/types.zig`; `FixedPoint` for `ShortFrac` and `Fixed` (`housekeeping`, 2026-11-07).
+- [X] **H84** `stream_types.zig` is `sfnt/types.zig`, with `FixedPoint` for `ShortFrac` and `Fixed`; `aux_types.zig` stays (`housekeeping`, 2026-11-07).
 
-- [X] **H85** msdf coloring's 0- and 1-corner cases shared; HVAR and VVAR in `ivs.zig`, cvar in `tuple_variation.zig` (`housekeeping`, 2026-11-07).
+- [X] **H85** msdf coloring's 0- and 1-corner cases shared; HVAR, VVAR and cvar stay their own table files (`housekeeping`, 2026-11-07).
 
-- [X] **H86** render's backends by `inline else`; `draw.zig` into `sw.zig`; `Image.downsample`. Rest: H128 (`housekeeping`, 2026-11-07).
+- [X] **H86** render's backends by `inline else`; `sw/` is `sw.zig`; `Image.downsample`; `draw.zig` stays. Rest: H128 (`housekeeping`, 2026-11-07).
 
 - [X] **H87** One `median3`, shaderlib's, for msdf too. Rest: H129 (`housekeeping`, 2026-11-07).
 
 - [X] **H88** The charstring interpreter switches on `Instruction`, with the escape ops apart; `CharstringCtx` private. Rest: H130 (`housekeeping`, 2026-11-07).
 
-- [X] **H89** `tessellate` and `bounds` in `rasterize.zig`; an options struct; `pack.zig` up to `rgl/`. Rest: H131, H132 (`housekeeping`, 2026-11-07).
+- [X] **H89** An options struct for `rasterize`; `pack.zig` up to `rgl/`; `tessellate.zig` and `bounds.zig` stay. Rest: H131, H132 (`housekeeping`, 2026-11-07).
 
 - [X] **H90** rgl's dead code dropped: `textures.zig`, `sdRoundedBoxMultiCorner`, `CharstringCtx.deinit`, `Version16Dot16.format`. User's call: H143; `color.equals`: N41 (`housekeeping`, 2026-11-07).
 
-- [X] **H91** `deinit` everywhere, one `Allocator`, `stepScalar`, png's names and split `decode`, `Sfnt.init`'s prints behind `InitOptions.debug`. Rest: H133, H134; user's call: H144 (`housekeeping`, 2026-11-07).
+- [X] **H91** `deinit` everywhere, one `Allocator`, `stepScalar`, PNG's names and split `decode`, `Sfnt.init`'s prints behind `InitOptions.debug`. Rest: H133, H134; user's call: H144 (`housekeeping`, 2026-11-07).
 
 - [X] **H92** The sfnt readme's files and API current; `Sfnt.zig`'s docs trimmed (`housekeeping`, 2026-11-07).
 
@@ -530,9 +534,9 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H100** The generated asm files hold only `keys` (core by enum literal, variant, a merged file's parts) and `Body`, with one-line headers; `registry.Entry` answers `serves` and `kernel`; uk.zig's headers on one line too (`housekeeping`, 2026-11-07).
 
-- [X] **H101** Generated kernels in `<routine>/<arch>/` with no `asm/` level, indexed by `<arch>/__root__.zig`; gemv's two uk indexes are one. The indexes whose `entries` are empty stay: their `skipped` lists feed `registry.skips` (`housekeeping`, 2026-11-07).
+- [X] **H101** One gemv uk index; the generated kernels stay under `<arch>/asm/`, apart from the handwritten `kernel.zig` (`housekeeping`, 2026-11-07).
 
-- [X] **H102** `params_data.zig` without default fields (read from `params.zig`), sizes as shifts, POWER's other byte order as its differences (`ppc970`'s); one unwrapped legend, `blas/coverage.md`; one 3M page (`housekeeping`, 2026-11-07).
+- [X] **H102** `params_data.zig` without default fields (read from `params.zig`), sizes as shifts, POWER's other byte order as its differences (`ppc970`'s); one unwrapped legend, `blas/coverage.md`, linked from each routine's page (`housekeeping`, 2026-11-07).
 
 - [X] **H103** blas_asm: `openblas.zig` (was `kernel_map.zig`) with `initFromEnv`, one `isName`, `map.format`; one `Patch.apply`; uk's per-target state on `Target`; `gen.convert` in parts. Rest: H149 (`housekeeping`, 2026-11-07).
 
@@ -544,7 +548,7 @@ Cleared 2026-11-02; landed work is in `review`'s log.
 
 - [X] **H107** `tools/probe/`, `tools/macos/`, `tools/blasbench/results/`. Rest: H136; user's call: H145 (`housekeeping`, 2026-11-07).
 
-- [X] **H108** `buildutils/` in 6 files, one docs-object helper; `_test_wasm.zig` gone; `machine.zig` is `bootinfo.zig` (RandyOS's edits staged on its `main`). `_os/` keeps its name: platform code behind the public wrappers (user). Rest: H137 (`housekeeping`, 2026-11-07).
+- [X] **H108** `_test_wasm.zig` gone; `machine.zig` is `bootinfo.zig` (RandyOS's edits staged on its `main`); `buildutils/` keeps its 16 files, with one docs-object helper in `docs.zig`; `_os/` keeps its name: platform code behind the public wrappers (user). Rest: H137 (`housekeeping`, 2026-11-07).
 
 - [X] **H109** The UEFI `Io` vtable built by a loop over its parts; `stubs.zig`; one console and read loop; one `getTimeSeconds`; the stale comments (`housekeeping`, 2026-11-07).
 

@@ -61,16 +61,28 @@ echo "== auto-login"
 user=$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)
 if [ -n "$user" ] && [ -f /etc/kcpassword ]; then note "on, as $user"
 else note "off: turn it on in Users & Groups (FileVault: $(fdesetup status 2>/dev/null))"; fi
+# Auto-login covers boot only: a wake asks for the password unless the
+# screen lock is off. `sysadminctl` prompts for the password.
+echo "== screen lock"
+lock=$(sysadminctl -screenLock status 2>&1 | sed 's/^.*\] //')
+if [ "$lock" = "screenLock is off" ]; then note "off"
+elif [ -n "$check_only" ]; then note "on ($lock): a wake asks for the password"
+elif sysadminctl -screenLock off -password -; then note "turned off"
+else note "(failed: Lock Screen > Require password after screen saver begins or display is turned off > Never)"; fi
 
-# 4. Never asleep, back after a power cut, reachable on the network. Only
-# the settings this model has (`pmset -g cap`; no `autopoweroff` on a 2018
-# Mac mini); `pmset -g` can lag, so the saved ones are reported.
-power="sleep 0 disksleep 0 standby 0 autopoweroff 0 powernap 0 womp 1 autorestart 1 tcpkeepalive 1"
+# 4. Idle power: display and any hard disk off after 10 minutes (the SSD
+# ignores disksleep), sleep after 60. An incoming ssh connection wakes it
+# through a Bonjour sleep proxy (a HomePod or Apple TV) or a magic packet; no
+# standby or hibernation, so the network stays able to and wakes are quick.
+# rstd's ssh tools hold `caffeinate -i` for their runs. Only the settings this
+# model has (`pmset -g cap`; no `autopoweroff` on a 2018 Mac mini); `pmset -g`
+# can lag, so the saved ones are reported.
+power="sleep 60 displaysleep 10 disksleep 10 standby 0 autopoweroff 0 hibernatemode 0 powernap 0 womp 1 autorestart 1 tcpkeepalive 1"
 cap=$(pmset -g cap)
 args=$(echo $power | xargs -n2 | while read k v; do
     echo "$cap" | grep -qx " $k" && echo "$k $v"; done | xargs)
-step "no sleep, wake on network, restart after power loss" sudo pmset -a $args
-note "$(pmset -g custom | grep -E '^ (sleep|disksleep|standby|powernap|womp|autorestart|tcpkeepalive) ' | tr -s ' ' | tr '\n' ';')"
+step "sleep after 60 minutes, wake on network, restart after power loss" sudo pmset -a $args
+note "$(pmset -g custom | grep -E '^ (sleep|displaysleep|disksleep|standby|hibernatemode|powernap|womp|autorestart|tcpkeepalive) ' | tr -s ' ' | tr '\n' ';')"
 
 # 5. Spotlight file indexing off.
 step "spotlight indexing off" sudo mdutil -a -i off
