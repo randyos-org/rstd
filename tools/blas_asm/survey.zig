@@ -5,29 +5,29 @@
 //!
 //! With no argument, writes `blas1/<routine>/coverage.md` for every level-1
 //! routine (the roles of `Makefile.L1`, grouped as `roles.dirFor` does), or
-//! with `<routine>` for that one. With `l3`, the level-3 routines'
-//! (`l3_families`), `gemm`'s among them. With `l2`, `blas2/coverage.md`
-//! (`l2_families`), and which C sources carry assembly or intrinsics.
-//! Run from the rstd root.
+//! with `<routine>` for that one. With `l3`, the level-3 routines' (`l3_families`), `gemm`'s
+//! among them. With `l2`, `blas2/coverage.md` (`l2_families`), and which C
+//! sources carry assembly or intrinsics. Each also writes `coverage.md`, how
+//! the pages read. Run from the rstd root.
 //!
 //! Reads `kernel/<arch>/KERNEL.<core>`, falling back to `kernel/<arch>/KERNEL`
 //! and then to the defaults in `kernel/Makefile.L*`, as the build does. A core
 //! that assigns a kernel under a conditional lists every alternative, joined
 //! by `|`; which one applies depends on the compiler or byte order. What rstd
-//! serves is read from its generated indexes (`asm/`, `uk/`), the hand ports
+//! serves is read from its generated indexes (`asm/__root__.zig`, `uk/`), the hand ports
 //! of each `<arch>/kernel.zig` (`ports`), and its registries
 //! (`kernels/<arch>.zig`, their `vector_rule`) and `vector.zig`.
 
 const std = @import("std");
 const Io = std.Io;
 const asm_arch = @import("arch/__root__.zig");
-const map = @import("kernel_map.zig");
+const map = @import("openblas.zig");
 const roles = @import("roles.zig");
 const uk = @import("uk.zig");
 
 /// An OpenBLAS `kernel/<name>` directory and where rstd serves it: the
 /// routine subdirectory `dir`, the registry `kernels/<registry>.zig`, the
-/// core enum `cpu/_coretypes.zig`'s `cores`. An empty `dir`: no rstd target.
+/// core enum `cpu/coretypes.zig`'s `cores`. An empty `dir`: no rstd target.
 const Arch = struct {
     name: []const u8,
     dir: []const u8 = "",
@@ -78,13 +78,12 @@ fn contains(list: []const []const u8, name: []const u8) bool {
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
-    const checkout = init.environ_map.get("OPENBLAS") orelse
-        map.die("set OPENBLAS to the OpenBLAS checkout", .{});
-    try map.init(arena, init.io, checkout);
+    _ = try map.initFromEnv(arena, init);
 
     var args = try init.minimal.args.iterateAllocator(arena);
     _ = args.next();
     const mode = args.next();
+    try writeLegend(init, arena);
     if (mode) |m| {
         if (std.mem.eql(u8, m, "l2")) return try l2(init, arena, args.next() orelse "src/linalg/blas/blas2/coverage.md");
         if (std.mem.eql(u8, m, "l3")) return try l3(init, arena);
@@ -124,7 +123,7 @@ const Upstream = enum {
 /// A source's kind, and the CPU feature its intrinsics need (`needs`).
 const Kind = struct { kind: Upstream, need: ?[]const u8 = null };
 
-/// The feature each intrinsics header needs, as `cpu/_corespec.zig` names
+/// The feature each intrinsics header needs, as `cpu/corespec.zig` names
 /// it. Only one `machine` lists on every core that has it, so its absence
 /// says the core lacks it: MSA, which the mips `KERNEL` files pick by the
 /// compiler (`ifndef NO_MSA`), not the core.
@@ -187,7 +186,7 @@ fn upstreamCell(arena: std.mem.Allocator, ar: Arch, core: []const u8, sources: [
     return .{ .text = out.items, .tuned = tuned };
 }
 
-/// The features `cpu/_corespec.zig`'s `machine` lists for each core, keyed
+/// The features `cpu/corespec.zig`'s `machine` lists for each core, keyed
 /// `<enum>.<core>`; read once.
 var machine_features: ?std.array_hash_map.String([]const []const u8) = null;
 
@@ -203,8 +202,8 @@ fn lacksFeature(arena: std.mem.Allocator, ar: Arch, core: []const u8, feature: [
 /// Reads `machine`'s prongs, one line each.
 fn readMachine(arena: std.mem.Allocator) !std.array_hash_map.String([]const []const u8) {
     var out: std.array_hash_map.String([]const []const u8) = .empty;
-    const text = map.read(blas ++ "/cpu/_corespec.zig") orelse map.die("cannot read cpu/_corespec.zig", .{});
-    const at = std.mem.find(u8, text, "pub fn machine(") orelse map.die("no machine in cpu/_corespec.zig", .{});
+    const text = map.read(blas ++ "/cpu/corespec.zig") orelse map.die("cannot read cpu/corespec.zig", .{});
+    const at = std.mem.find(u8, text, "pub fn machine(") orelse map.die("no machine in cpu/corespec.zig", .{});
     var enum_name: []const u8 = "";
     var lines = std.mem.splitScalar(u8, text[at..], '\n');
     while (lines.next()) |raw| {
@@ -217,17 +216,52 @@ fn readMachine(arena: std.mem.Allocator) !std.array_hash_map.String([]const []co
         if (line.len == 0 or line[0] != '.') continue;
         const arrow = std.mem.find(u8, line, " => ") orelse continue;
         const value = line[arrow..];
-        const features = if (field(value, "features")) |f| try quoted(arena, f[0 .. std.mem.findScalar(u8, f, '}') orelse f.len]) else &.{};
+        const features = if (field(value, "features")) |f| try featureList(arena, text, f) else &.{};
         var names = std.mem.tokenizeAny(u8, line[0..arrow], ", .");
         while (names.next()) |n| try out.put(arena, try arena.print("{s}.{s}", .{ enum_name, n }), features);
     }
     return out;
 }
 
+/// A `.features` value of `machine`: a literal list (`&.{"msa"}`), a named
+/// one of `text` (`&mips_simd`) or a `++` of those (`&(rv64gc ++ ...)`),
+/// named lists read through. A conditional list reads as its first branch.
+fn featureList(arena: std.mem.Allocator, text: []const u8, f: []const u8) ![]const []const u8 {
+    if (!std.mem.startsWith(u8, f, "&")) return &.{};
+    const rest = f[1..];
+    const expr = if (std.mem.startsWith(u8, rest, "("))
+        rest[1 .. std.mem.findScalar(u8, rest, ')') orelse rest.len]
+    else if (std.mem.startsWith(u8, rest, ".{"))
+        rest[0 .. std.mem.findScalar(u8, rest, '}') orelse rest.len]
+    else
+        rest[0 .. std.mem.findAny(u8, rest, " ,}") orelse rest.len];
+    var out: std.ArrayList([]const u8) = .empty;
+    try addFeatures(arena, text, expr, &out, 0);
+    return out.items;
+}
+
+/// Adds the names of `expr`'s `++` terms: a list literal's strings, or a
+/// named list's, read from its `const` in `text`.
+fn addFeatures(arena: std.mem.Allocator, text: []const u8, expr: []const u8, out: *std.ArrayList([]const u8), depth: usize) !void {
+    if (depth > 8) map.die("cpu/corespec.zig: feature lists nest too deep at {s}", .{expr});
+    var terms = std.mem.splitSequence(u8, expr, "++");
+    while (terms.next()) |raw| {
+        const t = std.mem.trim(u8, raw, " \n\t()");
+        if (t.len == 0) continue;
+        if (std.mem.findAny(u8, t, "\"{") != null) {
+            for (try quoted(arena, t)) |q| if (!contains(out.items, q)) try out.append(arena, q);
+            continue;
+        }
+        const tag = try arena.print("\nconst {s} = ", .{t});
+        const at = (std.mem.find(u8, text, tag) orelse map.die("cpu/corespec.zig: no feature list {s}", .{t})) + tag.len;
+        try addFeatures(arena, text, text[at .. std.mem.findScalarPos(u8, text, at, ';') orelse text.len], out, depth + 1);
+    }
+}
+
 // ---- what rstd serves -------------------------------------------------------
 
 /// A row of a generated index: a slot, the cores it names, and its block
-/// kind (`uk/`) or nothing (`asm/`).
+/// kind (`uk/`) or nothing (`asm/__root__.zig`).
 const Row = struct { slot: []const u8, cores: []const []const u8, block: []const u8 = "" };
 
 /// Where rstd's per-core kernels for one routine on one architecture come
@@ -273,7 +307,7 @@ const Served = struct {
     }
 };
 
-/// A row of a `kernel.zig`'s `ports` (`asm_registry.Port`).
+/// A row of a `kernel.zig`'s `ports` (`registry.Port`).
 const Port = struct {
     cores: []const []const u8,
     slots: []const []const u8,
@@ -281,7 +315,8 @@ const Port = struct {
     arch: ?[]const u8,
 };
 
-/// The names of the enum literals of `t`, a list starting `&.{`.
+/// The names of the enum literals of `t`, a list starting `&.{`; a name
+/// that is not an identifier is spelled `.@"name"`.
 fn literals(arena: std.mem.Allocator, t: []const u8) ![]const []const u8 {
     if (!std.mem.startsWith(u8, t, "&.{")) map.die("not a literal list: {s}", .{t[0..@min(t.len, 40)]});
     const body = t[3 .. std.mem.findScalar(u8, t, '}') orelse t.len];
@@ -289,7 +324,7 @@ fn literals(arena: std.mem.Allocator, t: []const u8) ![]const []const u8 {
     var it = std.mem.tokenizeAny(u8, body, ", \t\r\n");
     while (it.next()) |tok| {
         if (tok[0] != '.') map.die("not an enum literal: {s}", .{tok});
-        try out.append(arena, tok[1..]);
+        try out.append(arena, std.mem.trim(u8, tok[1..], "@\""));
     }
     return out.items;
 }
@@ -331,7 +366,7 @@ fn readPorts(arena: std.mem.Allocator, text: []const u8) !?[]const Port {
 }
 
 /// How a registry routes the `@Vector` kernels: its `vector_rule`
-/// (`vector.Rule`), or none.
+/// (`registry.Rule`), or none.
 const VectorRule = union(enum) {
     none,
     routed: ?[]const []const u8,
@@ -342,9 +377,9 @@ const VectorRule = union(enum) {
 fn readRule(arena: std.mem.Allocator, ar: Arch) !VectorRule {
     if (ar.registry.len == 0) return .none;
     const reg = map.read(try arena.print(blas ++ "/kernels/{s}.zig", .{ar.registry})) orelse return .none;
-    const tag = "vector_rule: vector.Rule(Core) = ";
+    const tag = "vector_rule: registry.Rule(Core) = ";
     const at = std.mem.find(u8, reg, tag) orelse {
-        if (std.mem.find(u8, reg, "vector.Registry(") != null) map.die("kernels/{s}.zig has the @Vector kernels but no vector_rule", .{ar.registry});
+        if (std.mem.find(u8, reg, "registry.Vector(") != null) map.die("kernels/{s}.zig has the @Vector kernels but no vector_rule", .{ar.registry});
         return .none;
     };
     const v = reg[at + tag.len .. std.mem.findScalarPos(u8, reg, at, ';') orelse reg.len];
@@ -355,19 +390,19 @@ fn readRule(arena: std.mem.Allocator, ar: Arch) !VectorRule {
     map.die("kernels/{s}.zig: cannot read vector_rule = {s}", .{ ar.registry, v });
 }
 
-/// `vector.displacing`: the cores of enum `cores_enum` where the `@Vector`
-/// kernels take every slot of theirs but `keep`; or `vector.flushing`: the
+/// `registry.displacing`: the cores of enum `cores_enum` where the `@Vector`
+/// kernels take every slot of theirs but `keep`; or `registry.flushing`: the
 /// cores where they take no `s` or `c` slot (no `keep`).
 const Displacing = struct { cores_enum: []const u8, cores: []const []const u8, keep: []const []const u8 = &.{} };
 
-/// `vector.zig`'s `pub const <name>: struct { cores: ..., keep: ... }`.
+/// `registry.zig`'s `pub const <name>: struct { cores: ..., keep: ... }`.
 fn readCores(arena: std.mem.Allocator, comptime name: []const u8, comptime keep: bool) !Displacing {
-    const text = map.read(blas ++ "/vector.zig") orelse map.die("cannot read vector.zig", .{});
+    const text = map.read(blas ++ "/registry.zig") orelse map.die("cannot read registry.zig", .{});
     const tag = "pub const " ++ name ++ ": struct { cores: []const coretypes.";
-    const at = std.mem.find(u8, text, tag) orelse map.die("no " ++ name ++ " in vector.zig", .{});
+    const at = std.mem.find(u8, text, tag) orelse map.die("no " ++ name ++ " in registry.zig", .{});
     const rest = text[at + tag.len ..];
     const body = rest[0 .. std.mem.find(u8, rest, "};") orelse rest.len];
-    const value = body[std.mem.find(u8, body, "} = .{") orelse map.die("cannot read vector." ++ name, .{}) ..];
+    const value = body[std.mem.find(u8, body, "} = .{") orelse map.die("cannot read registry." ++ name, .{}) ..];
     return .{
         .cores_enum = rest[0 .. std.mem.findAny(u8, rest, ", ") orelse 0],
         .cores = try literals(arena, field(value, "cores") orelse map.die("no " ++ name ++ ".cores", .{})),
@@ -388,7 +423,7 @@ fn quoted(arena: std.mem.Allocator, t: []const u8) ![]const []const u8 {
 }
 
 /// The rows of a generated index: each `.slot = .<slot>` up to the next.
-/// An `asm/` entry's cores are the `keys` of the file it imports.
+/// An `asm/__root__.zig` entry's cores are the `keys` of the file it imports.
 fn readIndex(arena: std.mem.Allocator, dir: []const u8, text: []const u8, entries: *std.ArrayList(Row), cored: *std.ArrayList(Row)) !void {
     const tag = ".slot = .";
     var at = std.mem.find(u8, text, tag);
@@ -399,8 +434,7 @@ fn readIndex(arena: std.mem.Allocator, dir: []const u8, text: []const u8, entrie
         at = next;
         const slot = body[0 .. std.mem.findScalar(u8, body, ',') orelse continue];
         if (std.mem.find(u8, body, ".cores = &.{")) |c| {
-            const list = body[c..][0 .. std.mem.findScalar(u8, body[c..], '}') orelse continue];
-            var row: Row = .{ .slot = slot, .cores = try quoted(arena, list) };
+            var row: Row = .{ .slot = slot, .cores = try literals(arena, body[c + ".cores = ".len ..]) };
             if (std.mem.find(u8, body, ".block = .")) |b| {
                 const rest = body[b + ".block = .".len ..];
                 row.block = rest[0 .. std.mem.findScalar(u8, rest, ',') orelse rest.len];
@@ -412,10 +446,14 @@ fn readIndex(arena: std.mem.Allocator, dir: []const u8, text: []const u8, entrie
             const keys_at = std.mem.find(u8, mod, "const keys") orelse continue;
             const keys = mod[keys_at .. std.mem.findPos(u8, mod, keys_at, "};") orelse mod.len];
             var cores: std.ArrayList([]const u8) = .empty;
+            const core_tag = ".core = .";
             var lines = std.mem.splitScalar(u8, keys, '\n');
             while (lines.next()) |l| {
-                const q = try quoted(arena, l);
-                if (q.len > 0) try cores.append(arena, q[0]);
+                const c = std.mem.find(u8, l, core_tag) orelse continue;
+                const name = l[c + core_tag.len ..];
+                const end = std.mem.findScalar(u8, name, ',') orelse continue;
+                // a name that is not an identifier is spelled `@"name"`
+                try cores.append(arena, std.mem.trim(u8, name[0..end], "@\""));
             }
             try entries.append(arena, .{ .slot = slot, .cores = cores.items });
         }
@@ -439,11 +477,6 @@ fn readServed(arena: std.mem.Allocator, ar: Arch, level: []const u8, routine: []
     var unused: std.ArrayList(Row) = .empty;
     if (map.read(try map.path(&.{ uk_dir, "__root__.zig" }))) |t| try readIndex(arena, uk_dir, t, &unused, &blocks);
     const kernel = map.read(try map.path(&.{ root, "kernel.zig" }));
-    // the split indexes it imports (gemv's `uk/index_n.zig`, `uk/index_t.zig`)
-    if (kernel) |t| for (try quoted(arena, t)) |file| {
-        if (!std.mem.startsWith(u8, file, "uk/index")) continue;
-        if (map.read(try map.path(&.{ root, file }))) |x| try readIndex(arena, uk_dir, x, &unused, &blocks);
-    };
     s.converted = converted.items;
     s.skipped = skipped.items;
     s.blocks = blocks.items;
@@ -456,7 +489,7 @@ fn readServed(arena: std.mem.Allocator, ar: Arch, level: []const u8, routine: []
             i = m + 1;
             const file = (try quoted(arena, t[m..]))[0];
             if (std.mem.startsWith(u8, file, "../../") or std.mem.startsWith(u8, file, "asm/") or
-                std.mem.startsWith(u8, file, "uk/") or std.mem.eql(u8, file, "../kernel.zig") or
+                std.mem.startsWith(u8, file, "uk/") or std.mem.eql(u8, file, "../driver.zig") or
                 !std.mem.endsWith(u8, file, ".zig")) continue;
             try hand.append(arena, file);
         }
@@ -465,11 +498,11 @@ fn readServed(arena: std.mem.Allocator, ar: Arch, level: []const u8, routine: []
     return s;
 }
 
-/// The names of `cpu/_coretypes.zig`'s `enum_name`.
+/// The names of `cpu/coretypes.zig`'s `enum_name`.
 fn coreNames(arena: std.mem.Allocator, enum_name: []const u8) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     if (enum_name.len == 0) return out.items;
-    const text = map.read(blas ++ "/cpu/_coretypes.zig") orelse map.die("cannot read cpu/_coretypes.zig; run from the rstd root", .{});
+    const text = map.read(blas ++ "/cpu/coretypes.zig") orelse map.die("cannot read cpu/coretypes.zig; run from the rstd root", .{});
     const at = std.mem.find(u8, text, try arena.print("pub const {s} = enum {{", .{enum_name})) orelse map.die("no {s}", .{enum_name});
     const open = std.mem.findScalarPos(u8, text, at, '{').? + 1;
     const body = text[open..std.mem.findScalarPos(u8, text, open, '}').?];
@@ -527,7 +560,7 @@ const Rstd = enum {
 /// A slot's `Rstd`, and whether a hand port may take it instead.
 const Got = struct { r: Rstd, unsure: bool = false };
 
-/// How the registry routes the `@Vector` kernels (`vector.takes`).
+/// How the registry routes the `@Vector` kernels (`registry.takes`).
 const Routing = struct { rule: VectorRule, displacing: Displacing, flushing: Displacing };
 
 /// What `core` gets for `slot`, as the registry's `install` picks it: the
@@ -572,33 +605,46 @@ fn serve(ar: Arch, s: Served, routing: Routing, core: []const u8, role: roles.Ro
     return .{ .r = if (routed) .routed else .portable, .unsure = unsure };
 }
 
-/// How a page reads, after its first paragraph.
+/// How the pages read: `blas/coverage.md`, which each page links. One
+/// paragraph or item per line, as the repository's Markdown is.
 const legend =
-    \\Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot
-    \\assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and
-    \\`+intrinsics` mark C whose block for that core (or the file, or a `.c` it
-    \\includes) has inline assembly or intrinsics, a text search; unmarked C is
-    \\plain C. `(no <feature>)` marks intrinsics the core cannot run
-    \\(`cpu/_corespec.zig`'s `machine`), which upstream picks by the compiler.
-    \\Neither counts as tuned.
+    \\# Reading the kernel coverage pages
+    \\
+    \\Generated by `tools/blas_asm/survey.zig` from OpenBLAS `kernel/` (`{s}`); re-derive it rather than editing it. Each page (`blas1/<routine>/coverage.md`, `blas2/coverage.md`, `blas3/<routine>/coverage.md`) lists, per architecture and core, the source each kernel is built from and what rstd serves in its place, so the gaps show.
+    \\
+    \\## Levels 1 and 2
+    \\
+    \\Each cell is the source that core's `KERNEL.<core>` selects for the column's make variable, falling back to the architecture's `KERNEL`, then to the `Makefile.L1` or `Makefile.L2` default (`|` separates alternatives chosen by a conditional), and after the arrow what rstd serves for that core.
+    \\
+    \\A level-2 cell covers every role built from its source: the complex `gemv` forms `r`/`o`/`s` build the `n` source and `c`/`u`/`d` the `t` source (`CONJ`/`XCONJ`). `ger`'s `v`/`d` forms, built from the `u`/`c` source with `XCONJ`, have no vtable slot (`Vtable.zig`) and are left out. The half-precision kernels are built only with `BUILD_BFLOAT16`/`BUILD_HFLOAT16`; rstd's are `ext/bf16/kernel.zig`'s, the same on every core (`portable` there).
+    \\
+    \\Upstream: a `.S` file is assembly, `(unsupported)` where LLVM cannot assemble it (the generator's `arch/<arch>.zig` leaves it out); `+asm` and `+intrinsics` mark C whose block for that core (or the file, or a `.c` it includes) has inline assembly or intrinsics, a text search; unmarked C is plain C. `(no <feature>)` marks intrinsics the core cannot run (`cpu/corespec.zig`'s `machine`), which upstream picks by the compiler. Neither counts as tuned.
     \\
     \\rstd:
     \\
     \\- `asm`: the converted `.S` (`asm/`);
-    \\- `C+asm`, `C+vec`, `C`: the Zig port of the C upstream: around its
-    \\  converted inline-assembly block (`uk/`) or in `asm` written for its
-    \\  intrinsics, on `@Vector`s for its intrinsics, or in plain Zig (a hand
-    \\  port is in its `kernel.zig`'s `ports`);
+    \\- `C+asm`, `C+vec`, `C`: the Zig port of the C upstream: around its converted inline-assembly block (`uk/`) or in `asm` written for its intrinsics, on `@Vector`s for its intrinsics, or in plain Zig (a hand port is in its `kernel.zig`'s `ports`);
     \\- `vec`: the `@Vector` kernels (`vector.zig`);
     \\- `routed`: the portable kernels, by design (`vector.routed`);
     \\- `portable`: the portable kernels, **bold** where upstream is tuned (a gap);
     \\- `n/a`: rstd has no such core.
     \\
-    \\The `Q` and `X` columns stay portable by design. On Apple's systems arm64
-    \\takes `vec` only for routed slots. A core whose kernel object is not linked
-    \\runs those of the core that serves it (`asm_registry.served`).
+    \\The `Q` and `X` columns stay portable by design. On Apple's systems arm64 takes `vec` only for routed slots. A core whose kernel object is not linked runs those of the core that serves it (`registry.served`).
+    \\
+    \\## Level 3
+    \\
+    \\Each cell is the source that core's `KERNEL.<core>` selects for the column's make variable, falling back to the architecture's `KERNEL`, then to the `Makefile.L3` default; `generic` where that default is `kernel/generic`'s file for the core's unroll, `-` where upstream does not build it. `|` separates alternatives chosen by a conditional. `+asm` and `+intrinsics` mark C with inline assembly or intrinsics in the file or a `.c` it includes (a text search); `(unsupported)` marks assembly LLVM cannot assemble, `(no <feature>)` intrinsics the core cannot run, neither counted as tuned.
+    \\
+    \\The `rstd` row says what rstd serves for every core of the architecture: `tile` is the Zig port of `kernel/generic` over the `@Vector` gemm tile (`gemm/kernel.zig`), built into each core's kernel object (a core with none runs the portable build of the same source); `none` is nothing yet; `n/a`, no rstd target. A cell is **bold** where upstream is tuned and rstd has nothing (a gap); cores rstd does not know are left out of the gaps.
     \\
 ;
+
+/// Writes `blas/coverage.md`, how the pages read.
+fn writeLegend(init: std.process.Init, arena: std.mem.Allocator) !void {
+    const dest = blas ++ "/coverage.md";
+    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try arena.print(legend, .{map.pin}) });
+    std.debug.print("wrote {s}\n", .{dest});
+}
 
 /// What a page's rstd cells add up to: the (core, role) pairs by label, and
 /// the gaps, one row per core.
@@ -671,6 +717,9 @@ fn note(arena: std.mem.Allocator, w: *std.ArrayList(u8), ar: Arch, s: Served) !v
 
 // ---- level 1 ----------------------------------------------------------------
 
+/// The routines of `blas1/extremum.zig`, whose folders hold only their pages.
+const extremum = [_][]const u8{ "amax", "amin", "iamax", "iamin", "imax", "imin", "max", "min" };
+
 fn l1(init: std.process.Init, arena: std.mem.Allocator, only: ?[]const u8) !void {
     const text = map.read(try map.path(&.{ map.root, "kernel", "Makefile.L1" })).?;
     var routines: std.array_hash_map.String(std.ArrayList(roles.Role)) = .empty;
@@ -678,7 +727,7 @@ fn l1(init: std.process.Init, arena: std.mem.Allocator, only: ?[]const u8) !void
         if (r.slot == null) continue;
         const dir = try roles.dirFor(arena, r.key);
         if (only) |o| if (!std.mem.eql(u8, o, dir)) continue;
-        if (map.read(try arena.print(blas ++ "/blas1/{s}/__root__.zig", .{dir})) == null) continue;
+        if (!contains(&extremum, dir) and map.read(try arena.print(blas ++ "/blas1/{s}/__root__.zig", .{dir})) == null) continue;
         const e = try routines.getOrPut(arena, dir);
         if (!e.found_existing) e.value_ptr.* = .empty;
         try e.value_ptr.append(arena, r);
@@ -687,10 +736,25 @@ fn l1(init: std.process.Init, arena: std.mem.Allocator, only: ?[]const u8) !void
     const fills = try vectorSlots(arena);
     const displacing = try readCores(arena, "displacing", true);
     const flushing = try readCores(arena, "flushing", false);
-    for (routines.keys(), routines.values()) |name, rs| try routine1(init, arena, name, rs.items, fills, displacing, flushing);
+    for (routines.keys(), routines.values()) |name, rs| {
+        const body = try routine1(arena, name, rs.items, fills, displacing, flushing);
+        try writePage(init, arena, try arena.print(blas ++ "/blas1/{s}/coverage.md", .{name}), try arena.print("`{s}` kernel coverage", .{name}), "survey.zig", true, "../../coverage.md", "", body);
+    }
 }
 
-fn routine1(init: std.process.Init, arena: std.mem.Allocator, routine: []const u8, rs: []const roles.Role, fills: []const []const u8, displacing: Displacing, flushing: Displacing) !void {
+/// Writes a coverage page: its title, where it comes from, a link to how to
+/// read it (`coverage.md`, `writeLegend`), its note and `body`.
+fn writePage(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8, title: []const u8, tool: []const u8, indexes: bool, legend_link: []const u8, note_text: []const u8, body: []const u8) !void {
+    var w: std.ArrayList(u8) = .empty;
+    try w.print(arena, "# {s}\n\nGenerated by `tools/blas_asm/{s}` from OpenBLAS `kernel/` (`{s}`){s}; re-derive it rather than editing it. How to read it: [`coverage.md`]({s}).\n\n", .{ title, tool, map.pin, if (indexes) " and rstd's kernel indexes" else "", legend_link });
+    if (note_text.len > 0) try w.print(arena, "{s}\n\n", .{note_text});
+    try w.appendSlice(arena, body);
+    try Io.Dir.cwd().createDirPath(init.io, std.Io.Dir.path.dirname(dest) orelse ".");
+    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try alignTables(arena, w.items) });
+    std.debug.print("wrote {s}\n", .{dest});
+}
+
+fn routine1(arena: std.mem.Allocator, routine: []const u8, rs: []const roles.Role, fills: []const []const u8, displacing: Displacing, flushing: Displacing) ![]const u8 {
     // one column per make variable, holding the roles built from it
     var columns: std.array_hash_map.String(std.ArrayList(roles.Role)) = .empty;
     const ordered = try arena.dupe(roles.Role, rs);
@@ -711,19 +775,6 @@ fn routine1(init: std.process.Init, arena: std.mem.Allocator, routine: []const u
     }
 
     var w: std.ArrayList(u8) = .empty;
-    try w.print(arena,
-        \\# `{s}` kernel coverage
-        \\
-        \\Generated by `tools/blas_asm/survey.zig` from OpenBLAS `kernel/` (`{s}`) and rstd's
-        \\kernel indexes; re-derive it rather than editing it. Each cell is the
-        \\source that core's `KERNEL.<core>` selects, falling back to the
-        \\architecture's `KERNEL`, then to the `Makefile.L1` default (`|` separates
-        \\alternatives chosen by a conditional), and after the arrow what rstd
-        \\serves for that core.
-        \\
-        \\
-    ++ legend ++ "\n", .{ routine, map.pin });
-
     var t: Tally = .{};
 
     for (arches) |ar| {
@@ -759,9 +810,8 @@ fn routine1(init: std.process.Init, arena: std.mem.Allocator, routine: []const u
     }
 
     try t.write(arena, &w);
-    const dest = try arena.print(blas ++ "/blas1/{s}/coverage.md", .{routine});
-    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try alignTables(arena, w.items) });
-    std.debug.print("wrote {s}: {d} gaps\n", .{ dest, t.n_gaps });
+    std.debug.print("{s}: {d} gaps\n", .{ routine, t.n_gaps });
+    return w.items;
 }
 
 // ---- level 3 ----------------------------------------------------------------
@@ -838,7 +888,7 @@ fn gemmCopies(comptime p: []const u8) []const L3Col {
 }
 
 /// The small-matrix kernels (`SMALL_MATRIX_OPT`): the `B0` forms name the
-/// same files on every core. rstd ports Skylake-X's (`gemm/x86_64/kernel.zig`)
+/// same files on every core. rstd ports Skylake-X's (`gemm/small_x86_64.zig`)
 /// and Cooper Lake's `sbgemm` ones; the others run `kernel/generic`'s, and
 /// `sbgemm` nothing.
 const small_forms = &[_][]const u8{ "NN", "NT", "TN", "TT" };
@@ -863,7 +913,7 @@ const l3_families = [_]L3Family{
         .{ .name = "copies", .cols = gemmCopies("S") ++ gemmCopies("Z") },
         .{ .name = "small-matrix kernels", .cols = small_kernels },
     }, .note = "Only the `S` and `Z` copies are shown; `D` and `C` name the same layouts in nearly every source. " ++
-        "The small-matrix kernels' `B0` forms name the same files; rstd ports Skylake-X's and Cooper Lake's (`gemm/x86_64/kernel.zig`), " ++
+        "The small-matrix kernels' `B0` forms name the same files; rstd ports Skylake-X's and Cooper Lake's (`gemm/small_x86_64.zig`), " ++
         "the latter in the portable half gemm's bits, and runs `kernel/generic`'s elsewhere (`gemm/small_kernel.zig`), where `sbgemm` has none." },
     .{ .dir = "symm", .note = sme, .tables = &.{
         .{ .name = "kernels", .cols = gemm_kernels ++ direct("SYMM") },
@@ -954,34 +1004,14 @@ fn l3Sources(ar: Arch, core: []const u8, c: L3Col) !?[]const []const u8 {
 }
 
 fn l3(init: std.process.Init, arena: std.mem.Allocator) !void {
-    for (l3_families) |fam| try family3(init, arena, fam);
+    for (l3_families) |fam| {
+        const dest = try arena.print(blas ++ "/blas3/{s}/coverage.md", .{fam.dir});
+        try writePage(init, arena, dest, try arena.print("`{s}` kernel coverage", .{fam.dir}), "survey.zig l3", false, "../../coverage.md", fam.note, try family3(arena, fam));
+    }
 }
 
-fn family3(init: std.process.Init, arena: std.mem.Allocator, fam: L3Family) !void {
+fn family3(arena: std.mem.Allocator, fam: L3Family) ![]const u8 {
     var w: std.ArrayList(u8) = .empty;
-    try w.print(arena,
-        \\# `{s}` kernel coverage
-        \\
-        \\Generated by `tools/blas_asm/survey.zig l3` from OpenBLAS `kernel/` (`{s}`);
-        \\re-derive it rather than editing it. Each cell is the source that core's
-        \\`KERNEL.<core>` selects for the column's make variable, falling back to the
-        \\architecture's `KERNEL`, then to the `Makefile.L3` default; `generic` where
-        \\that default is `kernel/generic`'s file for the core's unroll, `-` where
-        \\upstream does not build it. `|` separates alternatives chosen by a
-        \\conditional. `+asm` and `+intrinsics` mark C with inline assembly or
-        \\intrinsics in the file or a `.c` it includes (a text search);
-        \\`(unsupported)` marks assembly LLVM cannot assemble, `(no <feature>)`
-        \\intrinsics the core cannot run, neither counted as tuned.
-        \\
-        \\The `rstd` row says what rstd serves for every core of the architecture:
-        \\`tile` is the Zig port of `kernel/generic` over the `@Vector` gemm tile
-        \\(`gemm/kernel.zig`), built into each core's kernel object (a core with none
-        \\runs the portable build of the same source); `none` is nothing yet; `n/a`,
-        \\no rstd target. A cell is **bold** where upstream is tuned and rstd has
-        \\nothing (a gap); cores rstd does not know are left out of the gaps.
-        \\
-        \\{s}
-    , .{ fam.dir, map.pin, if (fam.note.len > 0) try arena.print("{s}\n\n", .{fam.note}) else "" });
 
     var gaps: std.ArrayList(u8) = .empty;
     var n_gaps: usize = 0;
@@ -1062,10 +1092,8 @@ fn family3(init: std.process.Init, arena: std.mem.Allocator, fam: L3Family) !voi
         try w.print(arena, "{d} (core, column) cells where upstream is tuned and rstd is not.\n\n| architecture | column | cores |\n|---|---|---|\n", .{n_gaps});
         try w.appendSlice(arena, gaps.items);
     }
-
-    const dest = try arena.print(blas ++ "/blas3/{s}/coverage.md", .{fam.dir});
-    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try alignTables(arena, w.items) });
-    std.debug.print("wrote {s}: {d} gaps\n", .{ dest, n_gaps });
+    std.debug.print("{s}: {d} gaps\n", .{ fam.dir, n_gaps });
+    return w.items;
 }
 
 /// `text` with every table's columns padded to one width, which markdownlint's
@@ -1240,25 +1268,6 @@ fn vtableSlots(arena: std.mem.Allocator) ![]const []const u8 {
 
 fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void {
     var w: std.ArrayList(u8) = .empty;
-    try w.print(arena,
-        \\# Level-2 kernel coverage
-        \\
-        \\Generated by `tools/blas_asm/survey.zig l2` from OpenBLAS `kernel/` (`{s}`) and
-        \\rstd's kernel indexes; re-derive it rather than editing it. Each cell is
-        \\the source that core's `KERNEL.<core>` selects for the column's make
-        \\variable, falling back to the architecture's `KERNEL`, then to the
-        \\`Makefile.L2` default (`|` separates alternatives chosen by a
-        \\conditional), and after the arrow what rstd serves for that core, for
-        \\every role built from it: the complex `gemv` forms `r`/`o`/`s` build the
-        \\`n` source and `c`/`u`/`d` the `t` source (`CONJ`/`XCONJ`). `ger`'s
-        \\`v`/`d` forms, built from the `u`/`c` source with `XCONJ`, have no
-        \\vtable slot (`Vtable.zig`) and are left out. The half-precision kernels
-        \\are built only with `BUILD_BFLOAT16`/`BUILD_HFLOAT16`; rstd's are
-        \\`ext/bf16/kernel.zig`'s, the same on every core (`portable` here).
-        \\
-        \\
-    ++ legend ++ "\n", .{map.pin});
-
     const text = map.read(try map.path(&.{ map.root, "kernel", "Makefile.L2" })).?;
     const all_roles = try roles.parse(arena, text);
     const slots = try vtableSlots(arena);
@@ -1368,6 +1377,6 @@ fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void 
     }
     try w.print(arena, "\n{d} distinct (architecture, source) pairs: {d} assembly, {d} C ({d} with inline assembly in the file or an included `.c`, {d} more with intrinsics only), {d} missing.\n", .{ seen.count(), n_asm, n_c, n_c_asm, n_c_intr, n_missing });
 
-    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dest, .data = try alignTables(arena, w.items) });
-    std.debug.print("wrote {s}: {d} gaps; {d} sources ({d} asm, {d} C, {d} C with asm)\n", .{ dest, t.n_gaps, seen.count(), n_asm, n_c, n_c_asm });
+    try writePage(init, arena, dest, "Level-2 kernel coverage", "survey.zig l2", true, "../coverage.md", "", w.items);
+    std.debug.print("{d} gaps; {d} sources ({d} asm, {d} C, {d} C with asm)\n", .{ t.n_gaps, seen.count(), n_asm, n_c, n_c_asm });
 }

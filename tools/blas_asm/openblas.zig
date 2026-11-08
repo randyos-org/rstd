@@ -12,8 +12,8 @@ pub var root: []const u8 = undefined;
 /// The checkout's `git describe` (`v0.3.34-317-ga69062524`, `-dirty` when
 /// modified), which the generated files name as their source.
 pub var pin: []const u8 = undefined;
-/// The BLAS directory `uk.zig`'s output goes under, as
-/// `<out_root>/<Routine.dir>/<arch>/uk/`.
+/// The BLAS directory the generators' output goes under (`gen.zig`'s
+/// `<out_root>/blas<n>/...`, `uk.zig`'s `<out_root>/<Routine.dir>/<arch>/uk/`).
 pub var out_root: []const u8 = "src/linalg/blas";
 
 /// A routine whose C kernels are converted, and what its roles are.
@@ -107,15 +107,6 @@ pub const Routine = enum {
         };
     }
 
-    /// The index's file name in `uk/`; the gemv forms share a directory.
-    pub fn index(r: Routine) []const u8 {
-        return switch (r) {
-            .gemv_n => "index_n.zig",
-            .gemv_t => "index_t.zig",
-            else => "__root__.zig",
-        };
-    }
-
     /// The C driver of precision `letter`: `daxpy.c`, `dgemv_n_4.c`.
     pub fn driver(r: Routine, letter: u8) ![]const u8 {
         const suffix = switch (r) {
@@ -149,6 +140,15 @@ pub fn die(comptime f: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
+/// `init` from the environment, `OPENBLAS` naming the checkout; `BLAS_OUT`,
+/// where given, replaces `out_root`. Returns the checkout.
+pub fn initFromEnv(a: std.mem.Allocator, process: std.process.Init) ![]const u8 {
+    const checkout = process.environ_map.get("OPENBLAS") orelse die("set OPENBLAS to the OpenBLAS checkout", .{});
+    try init(a, process.io, checkout);
+    if (process.environ_map.get("BLAS_OUT")) |o| out_root = o;
+    return checkout;
+}
+
 pub fn init(a: std.mem.Allocator, i: Io, checkout: []const u8) !void {
     arena = a;
     io = i;
@@ -175,6 +175,11 @@ pub fn format(p: []const u8) !void {
         else => {},
     }
     die("zig fmt rejects {s}:\n{s}", .{ p, r.stderr });
+}
+
+/// Whether `c` can be part of a label or macro name.
+pub fn isName(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$';
 }
 
 pub fn read(p: []const u8) ?[]const u8 {
