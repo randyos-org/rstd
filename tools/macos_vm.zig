@@ -294,12 +294,12 @@ fn runTests(vm: Vm, exe: []const u8) !bool {
 }
 
 /// Shuts the VM down from inside, which needs passwordless `sudo shutdown`
-/// (`tools/configure_macos.sh`), then kills QEMU if it is still there.
+/// (`tools/configure_macos_vm.sh`), then kills QEMU if it is still there.
 fn shutdown(vm: Vm) !void {
     std.debug.print("macOS VM: shutting down\n", .{});
     // `-l` lists the rule without running anything
     if (try sshPatient(vm, &.{ "sudo", "-n", "-l", "/sbin/shutdown" }, .quiet) != 0) {
-        std.debug.print("macOS VM: no passwordless sudo shutdown (run tools/configure_macos.sh in the VM); left running\n", .{});
+        std.debug.print("macOS VM: no passwordless sudo shutdown (run tools/configure_macos_vm.sh in the VM); left running\n", .{});
         return error.NoShutdown;
     }
     // the serial console from here on, not the boot again

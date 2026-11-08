@@ -36,7 +36,7 @@ Columns as [`results-flyoff.md`](results-flyoff.md#reading-the-tables) has them.
 ## Timing rule
 
 The user's rule of 2026-10-29, on a Mac with its indexing daemons
-stopped (SIP off; `tools/configure_mac_host.sh`).
+stopped (SIP off; `tools/configure_mac_host_arm.sh`).
 
 - A run starts when no `qemu-system` process runs, the 1-minute load is
   under 2 (plus the share of Activity Monitor and its `sysmond`, which the

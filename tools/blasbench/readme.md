@@ -100,7 +100,7 @@ run already finished. Results land in `zig-out/flyoff-<host>/runs`: per configur
 **The timing rule** (R4; design.md, "Timing on a host macOS keeps busy"; its details in
 [`results-flyoff.md`](results-flyoff.md#timing-rule)):
 
-- Quiet the host first: on the Mac `tools/configure_mac_host.sh` (auto-login, indexing daemons off
+- Quiet the host first: on the Mac `tools/configure_mac_host_arm.sh` (auto-login, indexing daemons off
   with SIP off). A first window starts when the host is idle twice two minutes apart.
 - A run starts when no QEMU runs, the one-minute load is under 2, and no other process passes 5%
   of a core in a 5 s sample. Activity Monitor and `sysmond` are left out of the 5% test, their

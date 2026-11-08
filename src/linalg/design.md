@@ -2041,7 +2041,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
   (whose model has none) build the same rig.
 - **Timing on a host macOS keeps busy** (2026-10-29). Quiet the host first: the M6 auto-logs
   in, so `audiomxd` and `configd` rest, and with SIP off its indexing and model daemons are
-  disabled (`tools/configure_mac_host.sh`). It runs macOS 27.2 (26B123). A run starts when no
+  disabled (`tools/configure_mac_host_arm.sh`). It runs macOS 27.2 (26B123). A run starts when no
   QEMU runs, the one-minute load is under 2, and no process passes 5% of a core in a
   `top -l 2 -s 5` sample; Activity Monitor and `sysmond`, which the user keeps open, are left out
   of the 5% test and their share is added to the limit. The limit is 2, not 1, because idle this

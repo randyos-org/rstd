@@ -251,7 +251,7 @@ above did; each table's notes name rstd's `Io`. `bench-native` and
 The user's rule of 2026-10-29 for the Mac, its indexing daemons
 (`mediaanalysisd`, `photoanalysisd`, `textunderstandingd`,
 `spotlightknowledged`, `corespotlightd`, Siri's models) disabled with SIP
-off (`tools/configure_mac_host.sh`), on macOS 27.2 (26B123):
+off (`tools/configure_mac_host_arm.sh`), on macOS 27.2 (26B123):
 
 - A run starts when no `qemu-system` process (by name) runs on the Mac,
   the 1-minute load is under 2, and no process passes 5% of a core in a

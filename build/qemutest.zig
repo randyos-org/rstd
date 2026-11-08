@@ -30,7 +30,7 @@
 //!   2. `zig build qemu-install-<name>`, then in the window: "macOS Base
 //!      System" in the OpenCore picker; Disk Utility, erase the QEMU HARDDISK
 //!      as APFS; reinstall macOS onto it (pick "macOS Installer", then the
-//!      disk, at each reboot); create an account; run `tools/configure_macos.sh`
+//!      disk, at each reboot); create an account; run `tools/configure_macos_vm.sh`
 //!      in it (its header says how), which makes the disk the default boot,
 //!      turns on Remote Login and turns off what slows an emulated Mac.
 //!   3. Authorize an SSH key (`ssh-keygen` makes one if you have none):
@@ -1437,7 +1437,7 @@ fn addMacosRun(b: *Build, m: Machine, target: rstdbuild.ResolvedTarget, optimize
             setup.dependOn(&copy.step);
         } else setup.dependOn(&b.addFail("no edk2-i386-vars.fd next to qemu-system-x86_64; pass the 4 MiB OVMF variable store with -Dmac-ovmf-vars=<path>").step);
     }
-    // OpenCore's own copy, writable: `configure_macos.sh` edits its config
+    // OpenCore's own copy, writable: `configure_macos_vm.sh` edits its config
     // (boot-args) from inside the VM
     const opencore_missing = !try exists(b, paths.opencore);
     if (opencore_missing) {
