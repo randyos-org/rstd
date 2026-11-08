@@ -3,47 +3,49 @@ const std = @import("std");
 const bytes = @import("../../../bytes.zig");
 const zigstd = @import("../../../zigstd.zig");
 
-const getI16BE = bytes.getI16BE;
-const setI16BE = bytes.setI16BE;
-const getI32BE = bytes.getI32BE;
-const setI32BE = bytes.setI32BE;
 const getU32BE = bytes.getU32BE;
 const setU32BE = bytes.setU32BE;
 
 const testExpectEqual = zigstd.testExpectEqual;
 const testExpectEqualSlices = zigstd.testExpectEqualSlices;
 
-pub const ShortFrac = packed struct(i16) {
-    const Self = @This();
-    const scalar = 1 << 14;
+/// A signed fixed-point number with `frac_bits` fraction bits, stored
+/// big-endian as an `Int`.
+pub fn FixedPoint(comptime Int: type, comptime frac_bits: comptime_int) type {
+    return packed struct(Int) {
+        const Self = @This();
+        const scalar = 1 << frac_bits;
 
-    fraction: u14,
-    integer: i2,
+        fraction: @Int(.unsigned, frac_bits),
+        integer: @Int(.signed, @bitSizeOf(Int) - frac_bits),
 
-    pub fn toFloat(self: Self, comptime T: type) T {
-        const raw: i16 = @bitCast(self);
-        const denom: T = @floatFromInt(scalar);
-        return @as(T, @floatFromInt(raw)) / denom;
-    }
+        pub fn toFloat(self: Self, comptime T: type) T {
+            const raw: Int = @bitCast(self);
+            const denom: T = @floatFromInt(scalar);
+            return @as(T, @floatFromInt(raw)) / denom;
+        }
 
-    pub fn fromFloat(value: anytype) Self {
-        const scaled = value * scalar;
-        const clamped = std.math.clamp(scaled, std.math.minInt(i16), std.math.maxInt(i16));
-        const raw: i16 = @trunc(clamped);
-        return @bitCast(raw);
-    }
+        pub fn fromFloat(value: anytype) Self {
+            const scaled = value * scalar;
+            const clamped = std.math.clamp(scaled, std.math.minInt(Int), std.math.maxInt(Int));
+            const raw: Int = @trunc(clamped);
+            return @bitCast(raw);
+        }
 
-    pub fn toBytes(self: Self) [2]u8 {
-        var buf: [2]u8 = undefined;
-        setI16BE(&buf, @as(i16, @bitCast(self)));
-        return buf;
-    }
+        pub fn toBytes(self: Self) [@sizeOf(Int)]u8 {
+            var buf: [@sizeOf(Int)]u8 = undefined;
+            bytes.writeIntBE(Int, &buf, @as(Int, @bitCast(self)));
+            return buf;
+        }
 
-    pub fn fromBytes(raw_bytes: []const u8) Self {
-        const raw = getI16BE(raw_bytes);
-        return @bitCast(raw);
-    }
-};
+        pub fn fromBytes(raw_bytes: []const u8) Self {
+            const raw = bytes.readIntBE(Int, raw_bytes);
+            return @bitCast(raw);
+        }
+    };
+}
+
+pub const ShortFrac = FixedPoint(i16, 14);
 pub const F2Dot14 = ShortFrac;
 
 test "ShortFrac: Boundary and conversion testing" {
@@ -84,37 +86,7 @@ test "ShortFrac: Boundary and conversion testing" {
     try testExpectEqualSlices(u8, &expected_quarter, &quarter_bytes);
 }
 
-pub const Fixed = packed struct(i32) {
-    const Self = @This();
-    const scalar = 1 << 16;
-
-    fraction: u16,
-    integer: i16,
-
-    pub fn toFloat(self: Self, comptime T: type) T {
-        const raw: i32 = @bitCast(self);
-        const denom: T = @floatFromInt(scalar);
-        return @as(T, @floatFromInt(raw)) / denom;
-    }
-
-    pub fn fromFloat(value: anytype) Self {
-        const scaled = value * scalar;
-        const clamped = std.math.clamp(scaled, std.math.minInt(i32), std.math.maxInt(i32));
-        const raw: i32 = @trunc(clamped);
-        return @bitCast(raw);
-    }
-
-    pub fn toBytes(self: Self) [4]u8 {
-        var buf: [4]u8 = undefined;
-        setI32BE(&buf, @as(i32, @bitCast(self)));
-        return buf;
-    }
-
-    pub fn fromBytes(raw_bytes: []const u8) Self {
-        const raw = getI32BE(raw_bytes);
-        return @bitCast(raw);
-    }
-};
+pub const Fixed = FixedPoint(i32, 16);
 
 test "TTF Fixed type serialization and math" {
     // 1. Test reading 1.0 (0x00010000)
@@ -140,26 +112,6 @@ pub const Version16Dot16 = packed struct(u32) {
     pub fn fromBytes(raw_bytes: []const u8) Version16Dot16 {
         const raw = getU32BE(raw_bytes);
         return @bitCast(raw);
-    }
-
-    /// Formats the version correctly as a string without float rounding issues.
-    /// This handles the Microsoft quirk by treating the minor version as a literal integer.
-    pub fn format(
-        self: Version16Dot16,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-
-        // If minor is 0x0050, it prints "1.50" or "1.5", not "1.00122"
-        if (self.minor == 0) {
-            try writer.print("{d}.0", .{self.major});
-        } else {
-            // Standard OpenType approach: print major and the raw minor integer
-            try writer.print("{d}.{d}", .{ self.major, self.minor });
-        }
     }
 };
 

@@ -1,12 +1,13 @@
 const std = @import("std");
 
 const EdgeSegment = @import("EdgeSegment.zig");
-const f64i = @import("__root__.zig").f64i;
+const f64i = @import("math.zig").f64i;
 const math = @import("math.zig");
 const Shape = @import("Shape.zig");
 
-const aux_types = @import("../aux_types.zig");
-const zigstd = @import("../../../../zigstd.zig");
+const aux_types = @import("../sfnt/aux_types.zig");
+const zigstd = @import("../../../zigstd.zig");
+const Allocator = zigstd.Allocator;
 const V2f64 = aux_types.V2f64;
 
 const max_distance_recolors = 32;
@@ -112,7 +113,7 @@ fn isCorner(a: V2f64, b: V2f64, cross_threshold: f64) bool {
     return math.dot(a, b) <= 0 or @abs(math.cross(a, b)) > cross_threshold;
 }
 
-fn findCorners(allocator: std.mem.Allocator, contour: *const Shape.Contour, corners: *std.ArrayList(u32), cross_threshold: f64) !void {
+fn findCorners(allocator: Allocator, contour: *const Shape.Contour, corners: *std.ArrayList(u32), cross_threshold: f64) !void {
     corners.clearRetainingCapacity();
     var prev_dir = math.normal(contour.edges.last().?.direction(1), true);
     for (contour.edges.items, 0..) |edge, i| {
@@ -141,8 +142,38 @@ fn estimateEdgeLength(edge: *const EdgeSegment) f64 {
     return len;
 }
 
+/// colorSimple's and colorInkTrap's contour without corners: one random color.
+fn colorNoCorners(contour: *Shape.Contour, color: *EdgeColor, rng: *std.Random.DefaultPrng) void {
+    color.random(rng);
+    for (contour.edges.items) |*edge| edge.color = color.*;
+}
+
+/// colorSimple's and colorInkTrap's contour with one corner at edge `corner`.
+fn colorOneCorner(allocator: Allocator, contour: *Shape.Contour, corner: u32, rng: *std.Random.DefaultPrng) !void {
+    const colors: [3]EdgeColor = .{ .init(rng), .all, .init(rng) };
+    const corner_idx = 3 * corner;
+    const edges_len = contour.edges.items.len;
+    if (edges_len >= 3) {
+        for (contour.edges.items, 0..) |*edge, i|
+            edge.color = colors[@intCast(1 + symmetricalTrichotomy(i, edges_len))];
+    } else if (edges_len >= 1) {
+        var parts: [7]EdgeSegment = @splat(.{ .color = .none, .segment = undefined });
+
+        @memcpy(parts[corner_idx..][0..3], &contour.edges.items[0].splitInThirds());
+        if (edges_len >= 2) {
+            @memcpy(parts[3 - corner_idx ..][0..3], &contour.edges.items[1].splitInThirds());
+            for (0..6) |i| parts[i].color = colors[i / 2];
+        } else for (0..3) |i| parts[i].color = colors[i];
+
+        contour.edges.clearRetainingCapacity();
+        var i: usize = 0;
+        while (parts[i].color != .none) : (i += 1)
+            try contour.edges.append(allocator, parts[i]);
+    }
+}
+
 pub fn colorSimple(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     rng_seed: u64,
     shape: *Shape,
     angle_threshold: f64,
@@ -162,33 +193,8 @@ pub fn colorSimple(
 
         const corners_len = corners.items.len;
         switch (corners_len) {
-            0 => {
-                color.random(&rng);
-                for (contour.edges.items) |*edge| edge.color = color;
-            },
-            1 => {
-                const colors: [3]EdgeColor = .{ .init(&rng), .all, .init(&rng) };
-                const corner = corners.items[0];
-                const corner_idx = 3 * corner;
-                const edges_len = contour.edges.items.len;
-                if (edges_len >= 3) {
-                    for (contour.edges.items, 0..) |*edge, i|
-                        edge.color = colors[@intCast(1 + symmetricalTrichotomy(i, edges_len))];
-                } else if (edges_len >= 1) {
-                    var parts: [7]EdgeSegment = @splat(.{ .color = .none, .segment = undefined });
-
-                    @memcpy(parts[corner_idx..][0..3], &contour.edges.items[0].splitInThirds());
-                    if (edges_len >= 2) {
-                        @memcpy(parts[3 - corner_idx ..][0..3], &contour.edges.items[1].splitInThirds());
-                        for (0..6) |i| parts[i].color = colors[i / 2];
-                    } else for (0..3) |i| parts[i].color = colors[i];
-
-                    contour.edges.clearRetainingCapacity();
-                    var i: usize = 0;
-                    while (parts[i].color != .none) : (i += 1)
-                        try contour.edges.append(allocator, parts[i]);
-                }
-            },
+            0 => colorNoCorners(contour, &color, &rng),
+            1 => try colorOneCorner(allocator, contour, corners.items[0], &rng),
             else => {
                 const start = corners.items[0];
                 const edges_len = contour.edges.items.len;
@@ -214,7 +220,7 @@ pub fn colorSimple(
 }
 
 pub fn colorInkTrap(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     rng_seed: u64,
     shape: *Shape,
     angle_threshold: f64,
@@ -254,33 +260,8 @@ pub fn colorInkTrap(
 
         const corners_len = corners.items.len;
         switch (corners_len) {
-            0 => {
-                color.random(&rng);
-                for (contour.edges.items) |*edge| edge.color = color;
-            },
-            1 => {
-                const colors: [3]EdgeColor = .{ .init(&rng), .all, .init(&rng) };
-                const corner = corners.items[0].idx;
-                const corner_idx = 3 * corner;
-                const edges_len = contour.edges.items.len;
-                if (edges_len >= 3) {
-                    for (contour.edges.items, 0..) |*edge, i|
-                        edge.color = colors[@intCast(1 + symmetricalTrichotomy(i, edges_len))];
-                } else if (edges_len >= 1) {
-                    var parts: [7]EdgeSegment = @splat(.{ .color = .none, .segment = undefined });
-
-                    @memcpy(parts[corner_idx..][0..3], &contour.edges.items[0].splitInThirds());
-                    if (edges_len >= 2) {
-                        @memcpy(parts[3 - corner_idx ..][0..3], &contour.edges.items[1].splitInThirds());
-                        for (0..6) |i| parts[i].color = colors[i / 2];
-                    } else for (0..3) |i| parts[i].color = colors[i];
-
-                    contour.edges.clearRetainingCapacity();
-                    var i: usize = 0;
-                    while (parts[i].color != .none) : (i += 1)
-                        try contour.edges.append(allocator, parts[i]);
-                }
-            },
+            0 => colorNoCorners(contour, &color, &rng),
+            1 => try colorOneCorner(allocator, contour, corners.items[0].idx, &rng),
             else => {
                 var significant_corners = corners_len;
                 if (corners_len > 3) {
@@ -421,7 +402,7 @@ fn vertexPossibleColors(colors: []EdgeColor, edge_vec: []const bool) ?EdgeColor 
 }
 
 fn uncolorSameNeighbors(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     uncolored: *std.Deque(u32),
     colors: []EdgeColor,
     edge_matrix: []const []const bool,
@@ -441,7 +422,7 @@ fn uncolorSameNeighbors(
         };
 }
 
-fn addEdge(allocator: std.mem.Allocator, front_buf: []EdgeColor, back_buf: []EdgeColor, edge_matrix: [][]bool, a: usize, b: usize) !bool {
+fn addEdge(allocator: Allocator, front_buf: []EdgeColor, back_buf: []EdgeColor, edge_matrix: [][]bool, a: usize, b: usize) !bool {
     edge_matrix[a][b] = true;
     edge_matrix[b][a] = true;
 
@@ -506,7 +487,7 @@ fn addEdge(allocator: std.mem.Allocator, front_buf: []EdgeColor, back_buf: []Edg
 }
 
 pub fn colorDistance(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     rng_seed: u64,
     shape: *Shape,
     angle_threshold: f64,

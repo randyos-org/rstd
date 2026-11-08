@@ -1,8 +1,8 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the fvar header, used only to compute field offsets/sizes at
-/// comptime; never instantiated.
+/// The fvar header.
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -35,7 +35,7 @@ pub const AxisFlags = packed struct(u16) {
 
 /// Font variations: the axes of variation a variable font supports, and any
 /// designer-provided named instances (e.g. "Bold"). Resolving a coordinate
-/// set into actual outline/metric deltas is gvar/HVAR/MVAR's job - fvar
+/// set into actual outline/metric deltas is gvar/HVAR/MVAR's job; fvar
 /// only describes the variation space itself.
 pub const FvarTable = struct {
     const Self = @This();
@@ -125,8 +125,6 @@ pub const FvarTable = struct {
         return bytes.getU16BE(self.table_data[off..]);
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "fvar StreamLayout/VariationAxisRecord match the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 16), @sizeOf(StreamLayout));

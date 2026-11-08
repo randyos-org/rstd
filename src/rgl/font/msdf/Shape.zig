@@ -4,7 +4,7 @@ const EdgeSegment = @import("EdgeSegment.zig");
 const math = @import("math.zig");
 const Scanline = @import("Scanline.zig");
 
-const aux_types = @import("../aux_types.zig");
+const aux_types = @import("../sfnt/aux_types.zig");
 const V2f64 = aux_types.V2f64;
 
 const deconverge_overshoot = 1.11111111111111111;
@@ -291,7 +291,7 @@ fn convergentCurveOrdering(a: *const EdgeSegment, b: *const EdgeSegment) bool {
     return false;
 }
 
-const zigstd = @import("../../../../zigstd.zig");
+const zigstd = @import("../../../zigstd.zig");
 
 /// A shape of closed polygons, for tests.
 fn testPolygons(allocator: std.mem.Allocator, polygons: []const []const V2f64) !Shape {

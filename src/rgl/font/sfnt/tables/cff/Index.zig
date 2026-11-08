@@ -1,11 +1,12 @@
 const bytes = @import("../../../../../bytes.zig");
 const zigstd = @import("../../../../../zigstd.zig");
+const std = @import("std");
 
 /// A CFF INDEX: count + offSize header, an offset array, and concatenated
-/// entry data - used for the Name/Top DICT/String/Global Subr/CharStrings/
+/// entry data; used for the Name/Top DICT/String/Global Subr/CharStrings/
 /// Font DICT/Local Subr INDEXes alike. table_data is exactly this INDEX's
 /// own extent (validated and bounded by init()), so byteSize() after that
-/// is just table_data.len - callers walking several INDEXes back-to-back
+/// is just table_data.len; callers walking several INDEXes back-to-back
 /// (as CffTable.init() does) advance by that length.
 const Index = @This();
 
@@ -51,14 +52,14 @@ fn dataStart(self: Index) usize {
 }
 
 /// Computes the total byte size from table_data directly, without
-/// re-checking bounds - callers must have already validated at least
+/// re-checking bounds; callers must have already validated at least
 /// through the offset array (as init() does) before calling this.
 fn byteSizeUnchecked(self: Index) usize {
     return self.dataStart() + self.rawOffset(self.count()) - 1;
 }
 
 /// Total byte size of this INDEX (header + offset array + data), i.e.
-/// where the next structure begins - equal to table_data.len once
+/// where the next structure begins; equal to table_data.len once
 /// init() has bounded table_data to exactly this INDEX's extent.
 pub inline fn byteSize(self: Index) usize {
     return self.table_data.len;
@@ -110,8 +111,6 @@ pub fn buildIndex(alloc: zigstd.Allocator, entries: []const []const u8) ![]u8 {
 
     return buf;
 }
-
-const std = @import("std");
 
 test "Index.get/count/byteSize walk a small INDEX" {
     const alloc = zigstd.testAllocator;

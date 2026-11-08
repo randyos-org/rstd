@@ -1,8 +1,8 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the 'post' header, used only to compute field offsets/sizes at
-/// comptime; never instantiated.
+/// The 'post' header.
 const StreamLayout = extern struct {
     version: types.Version16Dot16,
     italic_angle: types.Fixed,
@@ -17,12 +17,10 @@ const StreamLayout = extern struct {
 
 const header_end = @sizeOf(StreamLayout);
 
-/// PostScript information. table_data borrows straight from the parent
-/// Sfnt's font_data; every field is read directly from those bytes on each
-/// accessor call. Versions 2.0 and 2.5 additionally carry a variable-length
-/// glyph-name section right after the fixed header (see numGlyphs() and the
-/// accessors below it), which is why init() validates array bounds based on
-/// version() rather than a single fixed size.
+/// PostScript information. Versions 2.0 and 2.5 additionally carry a
+/// variable-length glyph-name section right after the fixed header (see
+/// numGlyphs() and the accessors below it), which is why init() validates array
+/// bounds based on version() rather than a single fixed size.
 pub const PostTable = struct {
     const Self = @This();
 
@@ -122,8 +120,6 @@ pub const PostTable = struct {
         return @bitCast(self.table_data[indicesStart() + index]);
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "post StreamLayout matches the OpenType stream layout (32 bytes, no padding)" {
     try zigstd.testExpectEqual(@as(usize, 32), @sizeOf(StreamLayout));

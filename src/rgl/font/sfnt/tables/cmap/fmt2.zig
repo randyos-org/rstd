@@ -1,10 +1,10 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
+const zigstd = @import("../../../../../zigstd.zig");
 
-/// Schema for the format-2 header, used only to compute field offsets/sizes
-/// at comptime; never instantiated.
+/// The format-2 header.
 const StreamLayout = extern struct {
     format: u16,
     length: u16,
@@ -26,12 +26,12 @@ pub const SubHeader = extern struct {
 /// A codepoint split into the leading byte that selects a subheader and the
 /// trailing byte matched against it. First declared field gets the
 /// low-order bits in a packed struct, so this lines up with @bitCast(c)
-/// directly - no manual >>8/&0xFF needed.
+/// directly; no manual >>8/&0xFF needed.
 const HiLo = packed struct(u16) {
     lo: u8,
     hi: u8,
 
-    /// v must already fit in u16 - callers are expected to have rejected
+    /// v must already fit in u16; callers are expected to have rejected
     /// anything past whatever range their format can represent first.
     fn fromU32(v: u32) HiLo {
         return @bitCast(@as(u16, @intCast(v)));
@@ -103,7 +103,7 @@ pub const Format2 = struct {
         if (rel >= sh.entry_count) return .notdef;
 
         // idRangeOffset is a byte offset measured from the location of the
-        // idRangeOffset field itself in the stream - the spec's own
+        // idRangeOffset field itself in the stream; the spec's own
         // pointer-following convention, usable directly now that we read
         // straight from table_data instead of separately-allocated arrays.
         const id_range_offset_field_pos = header_end + sh_index * @sizeOf(SubHeader) + @offsetOf(SubHeader, "id_range_offset");
@@ -118,7 +118,6 @@ pub const Format2 = struct {
     }
 };
 
-const zigstd = @import("../../../../../zigstd.zig");
 const setU16BE = bytes.setU16BE;
 const setI16BE = bytes.setI16BE;
 

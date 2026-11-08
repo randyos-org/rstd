@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const zigstd = @import("../../../../../zigstd.zig");
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const aux_types = @import("../../aux_types.zig");
 const CffTable = @import("CffTable.zig");
 const Index = @import("Index.zig");
@@ -11,7 +11,7 @@ const Allocator = zigstd.Allocator;
 const Vertex = aux_types.Vertex;
 const GlyphIndex = types.GlyphIndex;
 
-pub const CharstringCtx = struct {
+const CharstringCtx = struct {
     first_x: f32,
     first_y: f32,
     x: f32,
@@ -49,10 +49,6 @@ pub const CharstringCtx = struct {
             .max_y = 0,
             .num_vertices = 0,
         };
-    }
-    pub fn deinit(ctx: *CharstringCtx, alloc: Allocator) void {
-        if (ctx.flags.mode == .verts)
-            alloc.free(ctx.allVertices());
     }
 
     fn trackVertex(ctx: *CharstringCtx, x: i32, y: i32) void {
@@ -118,7 +114,7 @@ pub const CharstringCtx = struct {
 };
 
 /// Errors from the Type 2 charstring interpreter itself (malformed operand
-/// stacks, unimplemented operators, a missing subroutine, ...) - distinct
+/// stacks, unimplemented operators, a missing subroutine, ...); distinct
 /// from CffTable.CffError (which is about resolving the table structure
 /// itself) and from Allocator.Error, which callers union in separately.
 pub const CharstringError = error{
@@ -200,20 +196,22 @@ const Instruction = enum(u8) {
     ret = 0x0B,
     endchar = 0x0E,
     twoByteEscape = 0x0C,
+    _,
+};
+
+/// The second byte of a twoByteEscape operator.
+const Escape = enum(u8) {
     hflex = 0x22,
     flex = 0x23,
     hflex1 = 0x24,
     flex1 = 0x25,
-
-    pub fn toInt(i: Instruction) u16 {
-        return @backingInt(i);
-    }
+    _,
 };
 
 /// A cursor into one charstring or subroutine's bytes, for the interpreter's
 /// own bytecode walk. Index/Dict/CffTable already own INDEX- and DICT-
 /// structure parsing (with real bounds checking); this is deliberately
-/// slimmer than a general-purpose CFF reader - just enough to execute one
+/// slimmer than a general-purpose CFF reader; just enough to execute one
 /// program.
 const Buf = struct {
     data: []const u8,
@@ -309,47 +307,48 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
     while (b.cursor < b.size()) {
         var i: u32 = 0;
         clear_stack = true;
-        const b0: u16 = b.get8();
+        const b0 = b.get8();
+        const op: Instruction = @fromBackingInt(@intCast(b0));
 
-        sw: switch (b0) {
+        sw: switch (op) {
             // @TODO implement hinting
-            Instruction.hintmask.toInt(), // 0x13
-            Instruction.cntrmask.toInt(), // 0x14
+            .hintmask, // 0x13
+            .cntrmask, // 0x14
             => {
                 if (in_header) maskbits += (sp / 2); // implicit "vstem"
                 in_header = false;
                 b.skip((maskbits + 7) / 8);
             },
-            Instruction.hstem.toInt(), // 0x01
-            Instruction.vstem.toInt(), // 0x03
-            Instruction.hstemhm.toInt(), // 0x12
-            Instruction.vstemhm.toInt(), // 0x17
+            .hstem, // 0x01
+            .vstem, // 0x03
+            .hstemhm, // 0x12
+            .vstemhm, // 0x17
             => {
                 maskbits += (sp / 2);
             },
-            Instruction.rmoveto.toInt() => { // 0x15
+            .rmoveto => { // 0x15
                 in_header = false;
                 if (sp < 2) return error.RMoveToStack;
                 try ctx.rmoveTo(s[sp - 2], s[sp - 1]);
             },
-            Instruction.vmoveto.toInt() => { // 0x04
+            .vmoveto => { // 0x04
                 in_header = false;
                 if (sp < 1) return error.VMoveToStack;
                 try ctx.rmoveTo(0, s[sp - 1]);
             },
-            Instruction.hmoveto.toInt() => { // 0x16
+            .hmoveto => { // 0x16
                 in_header = false;
                 if (sp < 1) return error.HMoveToStack;
                 try ctx.rmoveTo(s[sp - 1], 0);
             },
-            Instruction.rlineto.toInt() => { // 0x05
+            .rlineto => { // 0x05
                 if (sp < 2) return error.RLineToStack;
                 while (i + 1 < sp) : (i += 2)
                     try ctx.rlineTo(s[i], s[i + 1]);
             },
             // hlineto/vlineto and vhcurveto/hvcurveto alternate horizontal and vertical
             // starting from a different place.
-            Instruction.vlineto.toInt() => { // 0x07
+            .vlineto => { // 0x07
                 if (sp < 1) return error.VLineToStack;
                 while (true) {
                     if (i >= sp) break;
@@ -360,7 +359,7 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                     i += 1;
                 }
             },
-            Instruction.hlineto.toInt() => { // 0x06
+            .hlineto => { // 0x06
                 if (sp < 1) return error.HLineToStack;
                 while (true) {
                     if (i >= sp) break;
@@ -371,7 +370,7 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                     i += 1;
                 }
             },
-            Instruction.hvcurveto.toInt() => { // 0x1F
+            .hvcurveto => { // 0x1F
                 if (sp < 4) return error.HCurveToStack;
                 while (true) {
                     if (i + 3 >= sp) break;
@@ -382,7 +381,7 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                     i += 4;
                 }
             },
-            Instruction.vhcurveto.toInt() => { // 0x1E
+            .vhcurveto => { // 0x1E
                 if (sp < 4) return error.HCurveToStack;
                 while (true) {
                     if (i + 3 >= sp) break;
@@ -393,27 +392,27 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                     i += 4;
                 }
             },
-            Instruction.rrcurveto.toInt() => { // 0x08
+            .rrcurveto => { // 0x08
                 if (sp < 6) return error.RCurveToStack;
                 while (i + 5 < sp) : (i += 6)
                     try ctx.rccurveTo(s[i], s[i + 1], s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
             },
-            Instruction.rcurveline.toInt() => { // 0x18
+            .rcurveline => { // 0x18
                 if (sp < 8) return error.RCurveLineStack;
                 while (i + 5 < sp - 2) : (i += 6)
                     try ctx.rccurveTo(s[i], s[i + 1], s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
                 if (i + 1 >= sp) return error.CurveLineStack;
                 try ctx.rlineTo(s[i], s[i + 1]);
             },
-            Instruction.rlinecurve.toInt() => { // 0x19
+            .rlinecurve => { // 0x19
                 if (sp < 8) return error.RLineCurveStack;
                 while (i + 1 < sp - 6) : (i += 2)
                     try ctx.rlineTo(s[i], s[i + 1]);
                 if (i + 5 >= sp) return error.RLineCurveStack;
                 try ctx.rccurveTo(s[i], s[i + 1], s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
             },
-            Instruction.vvcurveto.toInt(), // 0x1A
-            Instruction.hhcurveto.toInt(), // 0x1B
+            .vvcurveto, // 0x1A
+            .hhcurveto, // 0x1B
             => {
                 if (sp < 4) return error.CurveToStack;
                 var f: f32 = 0.0;
@@ -422,26 +421,26 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                     i += 1;
                 }
                 while (i + 3 < sp) : (i += 4) {
-                    if (b0 == Instruction.hhcurveto.toInt()) //  0x1B
+                    if (op == .hhcurveto) //  0x1B
                         try ctx.rccurveTo(s[i], f, s[i + 1], s[i + 2], s[i + 3], 0.0)
                     else
                         try ctx.rccurveTo(f, s[i], s[i + 1], s[i + 2], 0.0, s[i + 3]);
                     f = 0.0;
                 }
             },
-            Instruction.callsubr.toInt() => { // 0x0A
+            .callsubr => { // 0x0A
                 if (!has_subrs) {
                     local_subrs = cff.getLocalSubrIndexForGlyph(glyph);
                     has_subrs = true;
                 }
-                continue :sw Instruction.callgsubr.toInt();
+                continue :sw .callgsubr;
                 // FALLTHROUGH
             },
-            Instruction.callgsubr.toInt() => { // 0x1D
+            .callgsubr => { // 0x1D
                 sp = std.math.sub(u32, sp, 1) catch return error.CallGSubRStack;
                 const v: i32 = @trunc(s[sp]);
                 subr_stack.appendBounded(b) catch return error.RecursionLimit;
-                const subr_bytes = if (b0 == Instruction.callsubr.toInt()) // 0x0A
+                const subr_bytes = if (op == .callsubr) // 0x0A
                     getBiasedSubr(local_subrs orelse return error.SubRNotFound, v)
                 else
                     getBiasedSubr(cff.global_subrs_index, v);
@@ -449,90 +448,15 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
                 b = .init(subr_bytes);
                 clear_stack = false;
             },
-            Instruction.ret.toInt() => { // 0x0B
+            .ret => { // 0x0B
                 b = subr_stack.pop() orelse return error.ReturnOutsideSubR;
                 clear_stack = false;
             },
-            Instruction.endchar.toInt() => { // 0x0E
+            .endchar => { // 0x0E
                 try ctx.closeShape();
                 return;
             },
-            Instruction.twoByteEscape.toInt() => { // 0x0C
-                const b1 = b.get8();
-                switch (b1) {
-                    // @TODO These "flex" implementations ignore the flex-depth and resolution,
-                    // and always draw beziers.
-                    Instruction.hflex.toInt() => { // 0x22
-                        if (sp < 7) return error.HFlexStack;
-                        const dx1 = s[0];
-                        const dx2 = s[1];
-                        const dy2 = s[2];
-                        const dx3 = s[3];
-                        const dx4 = s[4];
-                        const dx5 = s[5];
-                        const dx6 = s[6];
-                        try ctx.rccurveTo(dx1, 0, dx2, dy2, dx3, 0);
-                        try ctx.rccurveTo(dx4, 0, dx5, -dy2, dx6, 0);
-                    },
-                    Instruction.flex.toInt() => { // 0x23
-                        if (sp < 13) return error.FlexStack;
-                        const dx1 = s[0];
-                        const dy1 = s[1];
-                        const dx2 = s[2];
-                        const dy2 = s[3];
-                        const dx3 = s[4];
-                        const dy3 = s[5];
-                        const dx4 = s[6];
-                        const dy4 = s[7];
-                        const dx5 = s[8];
-                        const dy5 = s[9];
-                        const dx6 = s[10];
-                        const dy6 = s[11];
-                        //fd is s[12]
-                        try ctx.rccurveTo(dx1, dy1, dx2, dy2, dx3, dy3);
-                        try ctx.rccurveTo(dx4, dy4, dx5, dy5, dx6, dy6);
-                    },
-                    Instruction.hflex1.toInt() => { // 0x24
-                        if (sp < 9) return error.HFlex1Stack;
-                        const dx1 = s[0];
-                        const dy1 = s[1];
-                        const dx2 = s[2];
-                        const dy2 = s[3];
-                        const dx3 = s[4];
-                        const dx4 = s[5];
-                        const dx5 = s[6];
-                        const dy5 = s[7];
-                        const dx6 = s[8];
-                        try ctx.rccurveTo(dx1, dy1, dx2, dy2, dx3, 0);
-                        try ctx.rccurveTo(dx4, 0, dx5, dy5, dx6, -(dy1 + dy2 + dy5));
-                    },
-                    Instruction.flex1.toInt() => { // 0x25
-                        if (sp < 11) return error.Flex1Stack;
-                        const dx1 = s[0];
-                        const dy1 = s[1];
-                        const dx2 = s[2];
-                        const dy2 = s[3];
-                        const dx3 = s[4];
-                        const dy3 = s[5];
-                        const dx4 = s[6];
-                        const dy4 = s[7];
-                        const dx5 = s[8];
-                        const dy5 = s[9];
-                        var dx6 = s[10];
-                        var dy6 = s[10];
-                        const dx = dx1 + dx2 + dx3 + dx4 + dx5;
-                        const dy = dy1 + dy2 + dy3 + dy4 + dy5;
-                        if (@abs(dx) > @abs(dy))
-                            dy6 = -dy
-                        else
-                            dx6 = -dx;
-                        try ctx.rccurveTo(dx1, dy1, dx2, dy2, dx3, dy3);
-                        try ctx.rccurveTo(dx4, dy4, dx5, dy5, dx6, dy6);
-                    },
-
-                    else => return error.Unimplemented,
-                }
-            },
+            .twoByteEscape => try runEscape(ctx, @fromBackingInt(@intCast(b.get8())), &s, sp), // 0x0C
             else => {
                 if (b0 != 255 and b0 != 28 and b0 < 32)
                     return error.ReservedOperator;
@@ -553,4 +477,81 @@ fn runCharstring(cff: CffTable, glyph: GlyphIndex, ctx: *CharstringCtx) !void {
         if (clear_stack) sp = 0;
     }
     return error.NoEndChar;
+}
+
+/// The two-byte escape operators (12 x): the flex family.
+fn runEscape(ctx: *CharstringCtx, op: Escape, s: *const [48]f32, sp: u32) !void {
+    switch (op) {
+        // @TODO These "flex" implementations ignore the flex-depth and resolution,
+        // and always draw beziers.
+        .hflex => { // 0x22
+            if (sp < 7) return error.HFlexStack;
+            const dx1 = s[0];
+            const dx2 = s[1];
+            const dy2 = s[2];
+            const dx3 = s[3];
+            const dx4 = s[4];
+            const dx5 = s[5];
+            const dx6 = s[6];
+            try ctx.rccurveTo(dx1, 0, dx2, dy2, dx3, 0);
+            try ctx.rccurveTo(dx4, 0, dx5, -dy2, dx6, 0);
+        },
+        .flex => { // 0x23
+            if (sp < 13) return error.FlexStack;
+            const dx1 = s[0];
+            const dy1 = s[1];
+            const dx2 = s[2];
+            const dy2 = s[3];
+            const dx3 = s[4];
+            const dy3 = s[5];
+            const dx4 = s[6];
+            const dy4 = s[7];
+            const dx5 = s[8];
+            const dy5 = s[9];
+            const dx6 = s[10];
+            const dy6 = s[11];
+            //fd is s[12]
+            try ctx.rccurveTo(dx1, dy1, dx2, dy2, dx3, dy3);
+            try ctx.rccurveTo(dx4, dy4, dx5, dy5, dx6, dy6);
+        },
+        .hflex1 => { // 0x24
+            if (sp < 9) return error.HFlex1Stack;
+            const dx1 = s[0];
+            const dy1 = s[1];
+            const dx2 = s[2];
+            const dy2 = s[3];
+            const dx3 = s[4];
+            const dx4 = s[5];
+            const dx5 = s[6];
+            const dy5 = s[7];
+            const dx6 = s[8];
+            try ctx.rccurveTo(dx1, dy1, dx2, dy2, dx3, 0);
+            try ctx.rccurveTo(dx4, 0, dx5, dy5, dx6, -(dy1 + dy2 + dy5));
+        },
+        .flex1 => { // 0x25
+            if (sp < 11) return error.Flex1Stack;
+            const dx1 = s[0];
+            const dy1 = s[1];
+            const dx2 = s[2];
+            const dy2 = s[3];
+            const dx3 = s[4];
+            const dy3 = s[5];
+            const dx4 = s[6];
+            const dy4 = s[7];
+            const dx5 = s[8];
+            const dy5 = s[9];
+            var dx6 = s[10];
+            var dy6 = s[10];
+            const dx = dx1 + dx2 + dx3 + dx4 + dx5;
+            const dy = dy1 + dy2 + dy3 + dy4 + dy5;
+            if (@abs(dx) > @abs(dy))
+                dy6 = -dy
+            else
+                dx6 = -dx;
+            try ctx.rccurveTo(dx1, dy1, dx2, dy2, dx3, dy3);
+            try ctx.rccurveTo(dx4, dy4, dx5, dy5, dx6, dy6);
+        },
+
+        else => return error.Unimplemented,
+    }
 }

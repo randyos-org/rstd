@@ -1,11 +1,13 @@
 const std = @import("std");
+const zigstd = @import("../../../zigstd.zig");
+const Allocator = zigstd.Allocator;
 
-const f64i = @import("__root__.zig").f64i;
-const findDistanceAt = @import("__root__.zig").findDistanceAt;
+const f64i = @import("math.zig").f64i;
+const findDistanceAt = @import("Generator.zig").findDistanceAt;
 const math = @import("math.zig");
 const Shape = @import("Shape.zig");
-const aux_types = @import("../aux_types.zig");
-const Image = @import("../../../image.zig").Image;
+const aux_types = @import("../sfnt/aux_types.zig");
+const Image = @import("../../image.zig").Image;
 
 const V2f64 = aux_types.V2f64;
 
@@ -60,7 +62,7 @@ const DistanceEvaluationInfo = struct {
 /// it would invalidate.
 pub fn correct(
     comptime N: usize,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     shape: *const Shape,
     options: Options,
     scanline_pass: bool,
@@ -76,7 +78,7 @@ pub fn correct(
     }
 
     var stencil: Image(StencilFlags) = try .init(allocator, sdf.width, sdf.height, .{});
-    defer stencil.destroy(allocator);
+    defer stencil.deinit(allocator);
 
     var self: Corrector(N) = .{
         .options = opts,

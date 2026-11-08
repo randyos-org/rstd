@@ -1,9 +1,9 @@
-const types = @import("../stream_types.zig");
+const types = @import("../types.zig");
 const bytes = @import("../../../../bytes.zig");
 const ivs = @import("ivs.zig");
+const zigstd = @import("../../../../zigstd.zig");
 
-/// Schema for the HVAR header, used only to compute field offsets/sizes at
-/// comptime; never instantiated.
+/// The HVAR header.
 const StreamLayout = extern struct {
     major_version: u16,
     minor_version: u16,
@@ -15,8 +15,8 @@ const StreamLayout = extern struct {
 
 /// Horizontal metrics variations: per-glyph deltas for hmtx's advance
 /// widths and side bearings, keyed to regions in the shared Item Variation
-/// Store (see ivs.zig). Resolving an actual interpolated delta is
-/// deferred - this exposes the raw store/mapping data.
+/// Store (ivs.zig). Resolving an actual interpolated delta is
+/// deferred; this exposes the raw store/mapping data.
 pub const HvarTable = struct {
     const Self = @This();
 
@@ -68,8 +68,6 @@ pub const HvarTable = struct {
         return .{ .table_data = self.table_data[off..] };
     }
 };
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "HVAR StreamLayout matches the OpenType stream layout" {
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(StreamLayout));

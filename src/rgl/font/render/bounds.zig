@@ -1,4 +1,5 @@
-const aux_types = @import("../aux_types.zig");
+const zigstd = @import("../../../zigstd.zig");
+const aux_types = @import("../sfnt/aux_types.zig");
 
 /// Computes the pixel-space bounding box an outline's own bounding box
 /// (in outline-space units) covers at the given scale/subpixel shift,
@@ -32,8 +33,6 @@ pub fn glyphBitmapBoxSubpixel(
 pub fn glyphBitmapBox(bbox: aux_types.GlyphBoundingBox, scale_x: f32, scale_y: f32) BitmapBox {
     return glyphBitmapBoxSubpixel(bbox, scale_x, scale_y, 0, 0);
 }
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "glyphBitmapBoxSubpixel scales and flips a glyph bbox into device space" {
     const bbox: aux_types.GlyphBoundingBox = .{ .x_min = 0, .y_min = -10, .x_max = 100, .y_max = 200 };

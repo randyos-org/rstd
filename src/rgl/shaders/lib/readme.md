@@ -1,21 +1,14 @@
 # Shaderlib
 
-GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg`
-(design.md, "Shaders keep their own API"). This file records what Zig's self-hosted SPIR-V backend
-emits for each operation: the native instruction (`OpDot`, the GLSL.std.450 set) or scalar code.
+GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` (design.md, "Shaders keep their own API"). This file records what Zig's self-hosted SPIR-V backend emits for each operation: the native instruction (`OpDot`, the GLSL.std.450 set) or scalar code.
 
 ## Probes
 
-`../probe.zig` is one fragment shader per operation (its `Op` enum). `zig build shader-probes
--Dvulkan` builds every probe (`-Dshader-probe=<op>` builds one) and the `rgl`, `glyph` and `image`
-shaders, and installs the `.spv` files to `zig-out/spv/`. Disassemble with `spirv-dis` and check
-with `spirv-val --target-env vulkan1.2` (Vulkan SDK).
+`../probe.zig` is one fragment shader per operation (its `Op` enum). `zig build shader-probes -Dvulkan` builds every probe (`-Dshader-probe=<op>` builds one) and the `rgl`, `glyph` and `image` shaders, and installs the `.spv` files to `zig-out/spv/`. Disassemble with `spirv-dis` and check with `spirv-val --target-env vulkan1.2` (Vulkan SDK).
 
 ## What the backend emits (S1, 2026-10-30)
 
-0.18.0-dev.751, Debug and ReleaseFast alike (no optimizer runs, so the two differ only in safety
-code); every module passes `spirv-val`. Counts are of the probe's function; `s` is scalar, `v3`/`v4`
-a vector.
+0.18.0-dev.751, Debug and ReleaseFast alike (no optimizer runs, so the two differ only in safety code); every module passes `spirv-val`. Counts are of the probe's function; `s` is scalar, `v3`/`v4` a vector.
 
 | Operation | Emitted | Native instruction |
 | --- | --- | --- |
@@ -34,8 +27,8 @@ a vector.
 | `linalg.vector.mulAdd` | FMul.v3 + FAdd.v3, unfused | Fma (50) |
 | `@mulAdd` | GLSL.std.450 Fma | Fma (50) |
 | `mix` | 2 FMul + FSub + FAdd, unfused (vector or scalar) | FMix (46) |
-| `step_scalar` | branch | Step (48) |
-| `smoothstep_scalar` | FMin/FMax + 3 FMul.s, 3 FSub.s, FDiv.s | SmoothStep (49) |
+| `stepScalar` | branch | Step (48) |
+| `smoothstepScalar` | FMin/FMax + 3 FMul.s, 3 FSub.s, FDiv.s | SmoothStep (49) |
 | `fract` | Floor + FSub | Fract (10) |
 | `clamp` (`std.math.clamp`) | FMin + FMax + an assert branch | FClamp (43) |
 | `@min`/`@max` | FMin/FMax | FMin (37) / FMax (40) |
@@ -44,25 +37,12 @@ a vector.
 | `matrix.mul(v, m)` | OpVectorTimesMatrix | OpVectorTimesMatrix |
 | `matrix.mul(m, n)` | OpMatrixTimesMatrix | OpMatrixTimesMatrix |
 
-- **Native already:** the math builtins (`@sqrt`, `@floor` and the rest), `@min`/`@max` and
-  `@mulAdd`. `@Vector` arithmetic stays vector.
-- **Never native through rstd or shaderlib (at S1):** Dot, Length, Distance, Normalize, Cross, Reflect,
-  Refract, FaceForward, InverseSqrt, Fma (rstd's `mulAdd` stays unfused: `fma.zig`'s `fusedMulAddBits`
-  is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm`
-  (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm`
-  show. M12 made `linalg`'s native (below).
-- **Matrices**: shaderlib's `Mat2` to `Mat4` are
-  `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they
-  are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs
-  `OpCompositeExtract`s (36 for a 4 by 4). Before, arrays of columns gave 4 FMul.v4 and 3 FAdd.v4
-  for `m v` and 16 FMul.s and 12 FAdd.s for `v m`; inline asm still cannot declare
-  `OpTypeMatrix` (issues.md, "SPIR-V inline assembly cannot declare a matrix type").
-- **Branches:** every inlined call keeps its structured blocks (phi-carried returns), even in
-  ReleaseFast (44 in `vecMat`); `spirv-opt` would fold them.
-- **Fixed on the way:** shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for
-  vectors (`2 * dot(i, n) * n` mixes a scalar and a vector); they now splat their scalars.
-- **Compiler crash:** `std.fmt.comptimePrint` as an `asm` template crashes the backend (issues.md),
-  so templates are literal.
+- **Native already:** the math builtins (`@sqrt`, `@floor` and the rest), `@min`/`@max` and `@mulAdd`. `@Vector` arithmetic stays vector.
+- **Never native through rstd or shaderlib (at S1):** Dot, Length, Distance, Normalize, Cross, Reflect, Refract, FaceForward, InverseSqrt, Fma (rstd's `mulAdd` stays unfused: `fma.zig`'s `fusedMulAddBits` is 0 for SPIR-V), FMix, Step, SmoothStep, Fract, FClamp. Each is reachable through inline `asm` (`OpDot`; `OpExtInst` with the GLSL.std.450 opcode as an integer), as `dotAsm` and `crossAsm` show. M12 made `linalg`'s native (below).
+- **Matrices**: shaderlib's `Mat2` to `Mat4` are `linalg.matrix.StaticMat(N, N, f32)`, whose products go through the fork's `@Matrix`, so they are SPIR-V's matrix instructions. Loading the packed `[C][R]f32` into `OpTypeMatrix` costs `OpCompositeExtract`s (36 for a 4 by 4). Before, arrays of columns gave 4 FMul.v4 and 3 FAdd.v4 for `m v` and 16 FMul.s and 12 FAdd.s for `v m`; inline asm still cannot declare `OpTypeMatrix` (issues.md, "SPIR-V inline assembly cannot declare a matrix type").
+- **Branches:** every inlined call keeps its structured blocks (phi-carried returns), even in ReleaseFast (44 in `vecMat`); `spirv-opt` would fold them.
+- **Fixed on the way:** shaderlib's `inversesqrt`, `reflect` and `refract` did not compile for vectors (`2 * dot(i, n) * n` mixes a scalar and a vector); they now splat their scalars.
+- **Compiler crash:** `std.fmt.comptimePrint` as an `asm` template crashes the backend (issues.md), so templates are literal.
 
 ## `linalg`'s SPIR-V forms (M12, 2026-11-07)
 
@@ -81,5 +61,5 @@ a vector.
 | `matrix.inv` | Determinant + MatrixInverse (34), `error.Singular` when 0 |
 | `matrix.outer` | OpOuterProduct |
 
-- **Still shaderlib's own code:** `reflect`, `refract` and `faceforward` (their dot is OpDot now), `inversesqrt`, `step_scalar`, `smoothstep_scalar`, `fract` and `clamp`; S2 lowers them.
+- **Still shaderlib's own code:** `reflect`, `refract` and `faceforward` (their dot is OpDot now), `inversesqrt`, `stepScalar`, `smoothstepScalar`, `fract` and `clamp`; S2 lowers them.
 - **`asm` on `@Matrix`:** the block takes the matrix type as a `"t"` input and the matrix as a `""` operand, so it never declares `OpTypeMatrix` (issues.md).

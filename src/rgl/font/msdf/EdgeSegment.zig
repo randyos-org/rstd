@@ -9,8 +9,9 @@ const cross = math.cross;
 const normal = math.normal;
 const splat = math.splat;
 
-const aux_types = @import("../aux_types.zig");
+const aux_types = @import("../sfnt/aux_types.zig");
 const V2f64 = aux_types.V2f64;
+const zigstd = @import("../../../zigstd.zig");
 
 const EdgeSegment = @This();
 
@@ -612,8 +613,6 @@ pub fn deconverge(self: *EdgeSegment, param: u32, vector: V2f64) void {
         else => @panic("Unsupported operation"),
     }
 }
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "cubic signedDistance searches from the curve's end too" {
     // Nearest point is near t = 0.95: seeds stopping at t = 0.75 settle on

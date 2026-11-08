@@ -1,18 +1,18 @@
 //! Software backend: every draw call executes immediately, straight into
 //! `SwSurface`'s own pixel buffer (an rgl.RgbaImage). Unlike the vulkan
-//! backend, there's nothing to batch or flush -- a pixel is final the
+//! backend, there's nothing to batch or flush; a pixel is final the
 //! moment its draw call returns.
 
-const RgbaImage = @import("../image.zig").RgbaImage;
-const color = @import("../color.zig");
+const RgbaImage = @import("image.zig").RgbaImage;
+const color = @import("color.zig");
+const draw = @import("draw.zig");
 const RGBA = color.RGBA;
-const draw = @import("../draw.zig");
-const geometry = @import("../geometry.zig");
+const geometry = @import("geometry.zig");
 const Point = geometry.Point;
 const PointF32 = geometry.PointF32;
 const Rect = geometry.Rect;
-const vga_font = @import("../font/vga/__root__.zig");
-const zigstd = @import("../../zigstd.zig");
+const vga_font = @import("font/vga/__root__.zig");
+const zigstd = @import("../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
 pub const InitOptions = struct {
@@ -27,8 +27,8 @@ pub const SwSurface = struct {
         return .{ .target = try RgbaImage.init(alloc, width, height, options.fill) };
     }
 
-    pub fn destroy(self: *Self, alloc: Allocator) void {
-        self.target.destroy(alloc);
+    pub fn deinit(self: *Self, alloc: Allocator) void {
+        self.target.deinit(alloc);
     }
 };
 
@@ -43,7 +43,7 @@ pub fn endFrame(surface: *SwSurface) void {
 }
 
 /// Blends `c` onto `(x, y)` if it's within `img`'s bounds, silently
-/// dropping it otherwise -- callers routinely pass partially- or
+/// dropping it otherwise; callers routinely pass partially- or
 /// fully-off-screen coordinates (a box straddling the edge, a line to a
 /// negative point), and `RgbaImage.setPixel`/`draw.blendPixel` do no bounds
 /// checking of their own.
@@ -89,7 +89,7 @@ fn drawThinLine(img: *RgbaImage, p0: PointF32, p1: PointF32, c: RGBA) void {
 }
 
 /// Fills the thin rotated rect a thick line sweeps out (a filled square
-/// end-cap, for a zero-length one) -- the same shape shaders/rgl.zig's
+/// end-cap, for a zero-length one); the same shape shaders/rgl.zig's
 /// rotation support draws on the Vulkan side, just rasterized directly
 /// here instead of via a GPU pipeline.
 fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: RGBA) void {
@@ -97,7 +97,7 @@ fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: 
     const length = @sqrt(d.x * d.x + d.y * d.y);
     const half_w = width / 2;
     if (length == 0) {
-        draw.fillRoundRect(img, .{ .x = p0.x - half_w, .y = p0.y - half_w }, .{ .x = p0.x + half_w, .y = p0.y + half_w }, 0, c);
+        draw.fillRoundRectPixels(img, .{ .x = p0.x - half_w, .y = p0.y - half_w }, .{ .x = p0.x + half_w, .y = p0.y + half_w }, 0, c);
         return;
     }
     const unit: PointF32 = .{ .x = d.x / length, .y = d.y / length };
@@ -141,7 +141,7 @@ fn fillOrientedRect(img: *RgbaImage, p0: PointF32, p1: PointF32, width: f32, c: 
 }
 
 pub fn fillRect(surface: *SwSurface, rect: Rect, c: RGBA) void {
-    draw.fillRoundRect(&surface.target, rect.topLeftF32(), rect.bottomRightF32(), 0, c);
+    draw.fillRoundRectPixels(&surface.target, rect.topLeftF32(), rect.bottomRightF32(), 0, c);
 }
 
 pub fn strokeRect(surface: *SwSurface, rect: Rect, width: f32, c: RGBA) void {
@@ -156,11 +156,11 @@ pub fn strokeRect(surface: *SwSurface, rect: Rect, width: f32, c: RGBA) void {
 }
 
 pub fn fillRoundRect(surface: *SwSurface, rect: Rect, radius: f32, c: RGBA) void {
-    draw.fillRoundRect(&surface.target, rect.topLeftF32(), rect.bottomRightF32(), radius, c);
+    draw.fillRoundRectPixels(&surface.target, rect.topLeftF32(), rect.bottomRightF32(), radius, c);
 }
 
 pub fn fillCircle(surface: *SwSurface, center: PointF32, radius: f32, c: RGBA) void {
-    draw.fillRoundRect(
+    draw.fillRoundRectPixels(
         &surface.target,
         .{ .x = center.x - radius, .y = center.y - radius },
         .{ .x = center.x + radius, .y = center.y + radius },
@@ -170,7 +170,7 @@ pub fn fillCircle(surface: *SwSurface, center: PointF32, radius: f32, c: RGBA) v
 }
 
 /// Blits `text` using the embedded 8x16 VGA/CP437 font, one glyph cell per
-/// byte of `text` (no UTF-8 decoding -- non-CP437 bytes just show
+/// byte of `text` (no UTF-8 decoding; non-CP437 bytes just show
 /// whichever glyph that byte happens to map to). Background is left
 /// untouched (transparent, gdi32 TRANSPARENT-mode style); only set bits
 /// blend `c`.
@@ -211,7 +211,7 @@ const red: RGBA = .{ .r = 255, .g = 0, .b = 0, .a = 255 };
 test "fillRect fills exactly the requested box" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 10, 10, .{ .fill = color.RGBA.blank });
-    defer surface.destroy(alloc);
+    defer surface.deinit(alloc);
 
     fillRect(&surface, .{ .x = 2, .y = 2, .w = 3, .h = 3 }, red);
     try zigstd.testExpectTrue(surface.target.getPixel(2, 2).equals(red));
@@ -222,7 +222,7 @@ test "fillRect fills exactly the requested box" {
 test "drawLine (thin) draws a horizontal 1px line" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 10, 10, .{ .fill = color.RGBA.blank });
-    defer surface.destroy(alloc);
+    defer surface.deinit(alloc);
 
     drawLine(&surface, .{ .x = 1, .y = 5 }, .{ .x = 8, .y = 5 }, 1, red);
     try zigstd.testExpectTrue(surface.target.getPixel(1, 5).equals(red));
@@ -233,7 +233,7 @@ test "drawLine (thin) draws a horizontal 1px line" {
 test "drawLine (thick) and off-screen coordinates don't panic" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 10, 10, .{ .fill = color.RGBA.blank });
-    defer surface.destroy(alloc);
+    defer surface.deinit(alloc);
 
     drawLine(&surface, .{ .x = -5, .y = 5 }, .{ .x = 5, .y = 5 }, 4, red);
     try zigstd.testExpectTrue(surface.target.getPixel(0, 5).equals(red));
@@ -242,7 +242,7 @@ test "drawLine (thick) and off-screen coordinates don't panic" {
 test "fillCircle fills the center and clips the far corner" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 10, 10, .{ .fill = color.RGBA.blank });
-    defer surface.destroy(alloc);
+    defer surface.deinit(alloc);
 
     fillCircle(&surface, .{ .x = 5, .y = 5 }, 4, red);
     try zigstd.testExpectTrue(surface.target.getPixel(5, 5).equals(red));
@@ -252,7 +252,7 @@ test "fillCircle fills the center and clips the far corner" {
 test "drawText blits the VGA font's 'A' glyph" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 16, 16, .{ .fill = color.RGBA.blank });
-    defer surface.destroy(alloc);
+    defer surface.deinit(alloc);
 
     drawText(&surface, .{ .x = 0, .y = 0 }, "A", red);
     // Row 2 of 'A' (0-indexed) is 0x10 = 0b0001_0000 -> column 3 lit.
@@ -263,10 +263,10 @@ test "drawText blits the VGA font's 'A' glyph" {
 test "drawImage blits a source RgbaImage's pixels" {
     const alloc = zigstd.testAllocator;
     var surface = try SwSurface.init(alloc, 10, 10, .{ .fill = color.RGBA.blank });
-    defer surface.destroy(alloc);
+    defer surface.deinit(alloc);
 
     var src = try RgbaImage.init(alloc, 2, 2, color.RGBA.blank);
-    defer src.destroy(alloc);
+    defer src.deinit(alloc);
     src.setPixel(0, 0, red);
     src.setPixel(1, 1, red);
 

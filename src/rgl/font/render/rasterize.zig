@@ -1,31 +1,111 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const zigstd = @import("../../../../zigstd.zig");
+const zigstd = @import("../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
-const Vertex = @import("../aux_types.zig").Vertex;
+const Sfnt = @import("../sfnt/Sfnt.zig");
+const types = @import("../sfnt/types.zig");
+const aux_types = @import("../sfnt/aux_types.zig");
 const tessellate = @import("tessellate.zig");
+const bounds = @import("bounds.zig");
+
+const Vertex = aux_types.Vertex;
+const GlyphIndex = types.GlyphIndex;
+const Point = tessellate.Point;
+const flattenCurves = tessellate.flattenCurves;
+const glyphBitmapBoxSubpixel = bounds.glyphBitmapBoxSubpixel;
 
 /// 8bpp coverage: 0 transparent, 255 opaque.
-const Coverage = @import("../../../image.zig").Image(u8);
+const Coverage = @import("../../image.zig").Image(u8);
 
-pub fn rasterize(
-    gpa: Allocator,
-    result: Coverage,
+/// How `rasterize` maps outline space onto its `Coverage`.
+pub const RasterizeOptions = struct {
     flatness_in_pixels: f32,
-    vertices: []Vertex,
     scale_x: f32,
     scale_y: f32,
     shift_x: f32,
     shift_y: f32,
+    /// The bitmap's top-left corner in device space.
     off_x: i32,
     off_y: i32,
+    /// Flip Y (outline space is Y-up, bitmap rows Y-down).
     invert: bool,
-) Allocator.Error!void {
-    const scale = @min(scale_x, scale_y);
-    var windings = try tessellate.flattenCurves(gpa, vertices, flatness_in_pixels / scale);
+};
+
+pub fn rasterize(gpa: Allocator, result: Coverage, vertices: []Vertex, o: RasterizeOptions) Allocator.Error!void {
+    const scale = @min(o.scale_x, o.scale_y);
+    var windings = try flattenCurves(gpa, vertices, o.flatness_in_pixels / scale);
     defer windings.deinit(gpa);
-    try rasterizeInner(gpa, result, windings.points, windings.contour_lengths, scale_x, scale_y, shift_x, shift_y, off_x, off_y, invert);
+    try rasterizeInner(gpa, result, windings.points, windings.contour_lengths, o.scale_x, o.scale_y, o.shift_x, o.shift_y, o.off_x, o.off_y, o.invert);
+}
+
+/// Caller owns returned memory.
+pub fn glyphBitmap(
+    sfnt: Sfnt,
+    gpa: Allocator,
+    /// Appended to the list.
+    /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
+    /// transparent, 255 is opaque.
+    pixels: *std.ArrayList(u8),
+    glyph: GlyphIndex,
+    scale_x: f32,
+    scale_y: f32,
+) !aux_types.GlyphBitmap {
+    return glyphBitmapSubpixel(sfnt, gpa, pixels, glyph, scale_x, scale_y, 0, 0);
+}
+
+/// Caller owns returned memory.
+pub fn glyphBitmapSubpixel(
+    sfnt: Sfnt,
+    gpa: Allocator,
+    /// Appended to the list.
+    /// Stored left-to-right, top-to-bottom. 8 bits per pixel. 0 is
+    /// transparent, 255 is opaque.
+    pixels: *std.ArrayList(u8),
+    glyph: GlyphIndex,
+    scale_x: f32,
+    scale_y: f32,
+    shift_x: f32,
+    shift_y: f32,
+) !aux_types.GlyphBitmap {
+    const vertices = try sfnt.glyphShape(gpa, glyph);
+    defer gpa.free(vertices);
+
+    std.debug.assert(scale_x != 0);
+    std.debug.assert(scale_y != 0);
+
+    const bbox = sfnt.getGlyphBoundingBox(glyph) orelse return .empty;
+    const box = glyphBitmapBoxSubpixel(bbox, scale_x, scale_y, shift_x, shift_y);
+
+    const w: u32 = @intCast(box.x1 - box.x0);
+    const h: u32 = @intCast(box.y1 - box.y0);
+
+    if (w == 0 or h == 0) return .empty;
+
+    const gbm: Coverage = .{
+        .width = w,
+        .height = h,
+        .data = try pixels.addManyAsSlice(gpa, w * h),
+    };
+    errdefer pixels.shrinkRetainingCapacity(pixels.items.len - gbm.data.len);
+
+    try rasterize(gpa, gbm, vertices, .{
+        .flatness_in_pixels = 0.35,
+        .scale_x = scale_x,
+        .scale_y = scale_y,
+        .shift_x = shift_x,
+        .shift_y = shift_y,
+        .off_x = box.x0,
+        .off_y = box.y0,
+        .invert = true,
+    });
+
+    return .{
+        .width = @intCast(gbm.width),
+        .height = @intCast(gbm.height),
+        .off_x = @intCast(box.x0),
+        .off_y = @intCast(box.y0),
+    };
 }
 
 const Edge = struct {
@@ -46,7 +126,7 @@ const Edge = struct {
 fn rasterizeInner(
     gpa: Allocator,
     result: Coverage,
-    pts: []tessellate.Point,
+    pts: []Point,
     wcount: []u32,
     scale_x: f32,
     scale_y: f32,
@@ -71,7 +151,7 @@ fn rasterizeInner(
     var n: u32 = 0;
     var m: u32 = 0;
     for (wcount) |wcount_elem| {
-        const p: []tessellate.Point = pts[m..];
+        const p: []Point = pts[m..];
         m += wcount_elem;
         var j: u32 = wcount_elem - 1;
         var k: u32 = 0;
@@ -347,19 +427,10 @@ fn fillActiveEdges(scanline: []f32, scanline_fill: []f32, len: u32, start_edge: 
                         dy = (y_final - y_crossing) / (x2f - x1p1f); // if denom=0, y_final = y_crossing, so y_final <= y_bottom
                     }
 
-                    // in second pixel, area covered by line segment found in first pixel
-                    // is always a rectangle 1 wide * the height of that line segment; this
-                    // is exactly what the variable 'area' stores. it also gets a contribution
-                    // from the line segment within it. the THIRD pixel will get the first
-                    // pixel's rectangle contribution, the second pixel's rectangle contribution,
-                    // and its own contribution. the 'own contribution' is the same in every pixel except
-                    // the leftmost and rightmost, a trapezoid that slides down in each pixel.
-                    // the second pixel's contribution to the third pixel will be the
-                    // rectangle 1 wide times the height change in the second pixel, which is dy.
-
-                    const step: f32 = sign * dy * 1; // dy is dy/dx, change in y for every 1 change in x,
-                    // which multiplied by 1-pixel-width is how much pixel area changes for each step in x
-                    // so the area advances by 'step' every time
+                    // each middle pixel gets the rectangles of the pixels to its left (`area`)
+                    // plus its own trapezoid, which slides down by dy per pixel
+                    // (dy is dy/dx, so the area grows by `step` per pixel)
+                    const step: f32 = sign * dy * 1;
 
                     for (scanline[x1 + 1 .. x2]) |*s| {
                         s.* += area + step / 2; // area of trapezoid is 1*step/2
@@ -376,66 +447,58 @@ fn fillActiveEdges(scanline: []f32, scanline_fill: []f32, len: u32, start_edge: 
                     scanline_fill[x2 + 1] += sign * (sy1 - sy0);
                 }
             } else {
-                // if edge goes outside of box we're drawing, we require
-                // clipping logic. since this does not match the intended use
-                // of this library, we use a different, very slow brute
-                // force implementation
-                // note though that this does happen some of the time because
-                // x_top and x_bottom can be extrapolated at the top & bottom of
-                // the shape and actually lie outside the bounding box
-                for (0..len) |x_usize| {
-                    const x: u32 = @intCast(x_usize);
-                    // cases:
-                    //
-                    // there can be up to two intersections with the pixel. any intersection
-                    // with left or right edges can be handled by splitting into two (or three)
-                    // regions. intersections with top & bottom do not necessitate case-wise logic.
-                    //
-                    // the old way of doing this found the intersections with the left & right edges,
-                    // then used some simple logic to produce up to three segments in sorted order
-                    // from top-to-bottom. however, this had a problem: if an x edge was epsilon
-                    // across the x border, then the corresponding y position might not be distinct
-                    // from the other y segment, and it might ignored as an empty segment. to avoid
-                    // that, we need to explicitly produce segments based on x positions.
-
-                    // rename variables to clearly-defined pairs
-                    const y0: f32 = y_top;
-                    const x1: f32 = @floatFromInt(x);
-                    const x2: f32 = @floatFromInt(x + 1);
-                    const x3: f32 = xb;
-                    const y3: f32 = y_bottom;
-
-                    // x = e.x + e.dx * (y-y_top)
-                    // (y-y_top) = (x - e.x) / e.dx
-                    // y = (x - e.x) / e.dx + y_top
-                    const y1: f32 = (x1 - x0) / dx + y_top;
-                    const y2: f32 = (x1 + 1 - x0) / dx + y_top;
-
-                    if (x0 < x1 and x3 > x2) { // three segments descending down-right
-                        handleClippedEdge(scanline, x, e, x0, y0, x1, y1);
-                        handleClippedEdge(scanline, x, e, x1, y1, x2, y2);
-                        handleClippedEdge(scanline, x, e, x2, y2, x3, y3);
-                    } else if (x3 < x1 and x0 > x2) { // three segments descending down-left
-                        handleClippedEdge(scanline, x, e, x0, y0, x2, y2);
-                        handleClippedEdge(scanline, x, e, x2, y2, x1, y1);
-                        handleClippedEdge(scanline, x, e, x1, y1, x3, y3);
-                    } else if (x0 < x1 and x3 > x1) { // two segments across x, down-right
-                        handleClippedEdge(scanline, x, e, x0, y0, x1, y1);
-                        handleClippedEdge(scanline, x, e, x1, y1, x3, y3);
-                    } else if (x3 < x1 and x0 > x1) { // two segments across x, down-left
-                        handleClippedEdge(scanline, x, e, x0, y0, x1, y1);
-                        handleClippedEdge(scanline, x, e, x1, y1, x3, y3);
-                    } else if (x0 < x2 and x3 > x2) { // two segments across x+1, down-right
-                        handleClippedEdge(scanline, x, e, x0, y0, x2, y2);
-                        handleClippedEdge(scanline, x, e, x2, y2, x3, y3);
-                    } else if (x3 < x2 and x0 > x2) { // two segments across x+1, down-left
-                        handleClippedEdge(scanline, x, e, x0, y0, x2, y2);
-                        handleClippedEdge(scanline, x, e, x2, y2, x3, y3);
-                    } else { // one segment
-                        handleClippedEdge(scanline, x, e, x0, y0, x3, y3);
-                    }
-                }
+                // the edge leaves the box (x_top and x_bottom can be extrapolated past
+                // it): clip by a slow brute force per pixel
+                fillClippedEdge(scanline, len, e, x0, xb, dx, y_top, y_bottom);
             }
+        }
+    }
+}
+
+/// fillActiveEdges for an edge that leaves the box: x0 and xb are its x at
+/// y_top and y_bottom, dx its slope.
+fn fillClippedEdge(scanline: []f32, len: u32, e: *ActiveEdge, x0: f32, xb: f32, dx: f32, y_top: f32, y_bottom: f32) void {
+    for (0..len) |x_usize| {
+        const x: u32 = @intCast(x_usize);
+        // up to two intersections with the pixel; left or right ones split it into
+        // two or three regions. Segments come from x positions, not sorted y ones,
+        // so an edge epsilon across an x border is not lost as an empty segment.
+
+        // rename variables to clearly-defined pairs
+        const y0: f32 = y_top;
+        const x1: f32 = @floatFromInt(x);
+        const x2: f32 = @floatFromInt(x + 1);
+        const x3: f32 = xb;
+        const y3: f32 = y_bottom;
+
+        // x = e.x + e.dx * (y-y_top)
+        // (y-y_top) = (x - e.x) / e.dx
+        // y = (x - e.x) / e.dx + y_top
+        const y1: f32 = (x1 - x0) / dx + y_top;
+        const y2: f32 = (x1 + 1 - x0) / dx + y_top;
+
+        if (x0 < x1 and x3 > x2) { // three segments descending down-right
+            handleClippedEdge(scanline, x, e, x0, y0, x1, y1);
+            handleClippedEdge(scanline, x, e, x1, y1, x2, y2);
+            handleClippedEdge(scanline, x, e, x2, y2, x3, y3);
+        } else if (x3 < x1 and x0 > x2) { // three segments descending down-left
+            handleClippedEdge(scanline, x, e, x0, y0, x2, y2);
+            handleClippedEdge(scanline, x, e, x2, y2, x1, y1);
+            handleClippedEdge(scanline, x, e, x1, y1, x3, y3);
+        } else if (x0 < x1 and x3 > x1) { // two segments across x, down-right
+            handleClippedEdge(scanline, x, e, x0, y0, x1, y1);
+            handleClippedEdge(scanline, x, e, x1, y1, x3, y3);
+        } else if (x3 < x1 and x0 > x1) { // two segments across x, down-left
+            handleClippedEdge(scanline, x, e, x0, y0, x1, y1);
+            handleClippedEdge(scanline, x, e, x1, y1, x3, y3);
+        } else if (x0 < x2 and x3 > x2) { // two segments across x+1, down-right
+            handleClippedEdge(scanline, x, e, x0, y0, x2, y2);
+            handleClippedEdge(scanline, x, e, x2, y2, x3, y3);
+        } else if (x3 < x2 and x0 > x2) { // two segments across x+1, down-left
+            handleClippedEdge(scanline, x, e, x0, y0, x2, y2);
+            handleClippedEdge(scanline, x, e, x2, y2, x3, y3);
+        } else { // one segment
+            handleClippedEdge(scanline, x, e, x0, y0, x3, y3);
         }
     }
 }
@@ -521,11 +584,11 @@ test "rasterize fills a fully-covered square with full coverage and misses outsi
     @memset(pixels, 0);
     const bitmap: Coverage = .{ .width = 8, .height = 8, .data = pixels };
 
-    try rasterize(alloc, bitmap, 0.3, &outline, 1, 1, 0, 0, off_x, off_y, true);
+    try rasterize(alloc, bitmap, &outline, .{ .flatness_in_pixels = 0.3, .scale_x = 1, .scale_y = 1, .shift_x = 0, .shift_y = 0, .off_x = off_x, .off_y = off_y, .invert = true });
 
-    // Local (1,1) is device (3,-5) - inside the square (outline x in [2,6],
+    // Local (1,1) is device (3,-5); inside the square (outline x in [2,6],
     // device_y in [-6,-2]).
     try zigstd.testExpectEqual(@as(u8, 255), pixels[1 * 8 + 1]);
-    // Local (6,6) is device (8,0) - outside the square (x=8 > 6).
+    // Local (6,6) is device (8,0); outside the square (x=8 > 6).
     try zigstd.testExpectEqual(@as(u8, 0), pixels[6 * 8 + 6]);
 }

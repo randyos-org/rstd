@@ -1,6 +1,6 @@
 const std = @import("std");
-const aux_types = @import("../aux_types.zig");
-const linalg = @import("../../../../linalg/__root__.zig");
+const linalg = @import("../../../linalg/__root__.zig");
+const shader_math = @import("../../shaders/lib/math.zig");
 
 const vec = linalg.vector;
 const V2f64 = vec.V2f64;
@@ -18,6 +18,7 @@ pub const length = vec.length;
 pub const dot = vec.dot;
 pub const cross = vec.cross2;
 pub const mix = vec.mix;
+pub const median = shader_math.median3;
 
 /// `x` in both lanes.
 pub inline fn splat(x: f64) V2f64 {
@@ -42,8 +43,8 @@ pub fn orthonormal(v: V2f64, disallow_zero: bool) V2f64 {
     return ortho(v) / splat(len);
 }
 
-pub fn median(a: anytype, b: anytype, c: anytype) @TypeOf(a) {
-    return @max(@min(a, b), @min(@max(a, b), c));
+pub fn f64i(int: anytype) f64 {
+    return @floatFromInt(int);
 }
 
 pub fn boolSign(b: bool) i2 {

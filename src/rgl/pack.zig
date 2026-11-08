@@ -1,8 +1,10 @@
 const std = @import("std");
+const zigstd = @import("../zigstd.zig");
+const Allocator = zigstd.Allocator;
 
 // A guillotine-style rectangle bin packer: starts from one free space (the
 // whole canvas) and, for each rect placed, splits the space it landed in
-// into up to two new free spaces along the leftover width/height - no
+// into up to two new free spaces along the leftover width/height; no
 // rotation, no multiple bins, just placement + splitting. General-purpose
 // (not font-specific); used here to lay out a glyph atlas bitmaps.
 
@@ -38,7 +40,7 @@ pub const IdRect = struct {
 };
 
 pub const Context = struct {
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     list: std.ArrayList(Rect),
     w: i32,
     h: i32,
@@ -46,7 +48,7 @@ pub const Context = struct {
     /// spaces_to_prealloc should be set to 2x rects supplied to pack() until
     /// deinit if setting assume_capacity to true in pack(). Lower values
     /// will likely work, but are not guaranteed to.
-    pub fn create(allocator: std.mem.Allocator, w: i32, h: i32, opts: struct { spaces_to_prealloc: u32 = 0 }) std.mem.Allocator.Error!Context {
+    pub fn create(allocator: Allocator, w: i32, h: i32, opts: struct { spaces_to_prealloc: u32 = 0 }) Allocator.Error!Context {
         var list: std.ArrayList(Rect) = if (opts.spaces_to_prealloc > 0)
             try .initCapacity(allocator, opts.spaces_to_prealloc)
         else
@@ -57,7 +59,7 @@ pub const Context = struct {
 
     /// Capacity stays intact, so it's safe to use assume_capacity again if
     /// it was supplied in create().
-    pub fn clear(self: *Context) std.mem.Allocator.Error!void {
+    pub fn clear(self: *Context) Allocator.Error!void {
         self.list.clearRetainingCapacity();
         try self.list.append(self.allocator, .{ .w = self.w, .h = self.h, .x = 0, .y = 0 });
     }
@@ -76,17 +78,17 @@ pub const Context = struct {
 
 inline fn append(
     comptime assume_capacity: bool,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     noalias list: *std.ArrayList(Rect),
     rect: Rect,
-) std.mem.Allocator.Error!void {
+) Allocator.Error!void {
     if (assume_capacity)
         list.appendAssumeCapacity(rect)
     else
         try list.append(allocator, rect);
 }
 
-/// Sorting is highly recommended for most real-world inputs - it tends to
+/// Sorting is highly recommended for most real-world inputs; it tends to
 /// pack tighter and faster when the rects have high w/h entropy. Good
 /// metrics to sort on (descending), roughly in order of usefulness:
 /// max(w, h), then min(w, h), then area, then perimeter.
@@ -98,7 +100,7 @@ pub fn pack(
         assume_capacity: bool = false,
         sortLessThanFn: ?fn (context: void, lhs: RectType, rhs: RectType) bool = null,
     },
-) (error{NoSpaceLeft} || std.mem.Allocator.Error)!void {
+) (error{NoSpaceLeft} || Allocator.Error)!void {
     if (RectType != Rect and RectType != IdRect)
         @compileError("Invalid rect type. Valid ones are 'Rect' and 'IdRect'.");
 
@@ -182,8 +184,6 @@ pub fn pack(
 fn rectsOverlap(a: Rect, b: Rect) bool {
     return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y;
 }
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "pack places non-overlapping rects that all fit within the canvas" {
     const alloc = zigstd.testAllocator;

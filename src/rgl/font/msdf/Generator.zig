@@ -1,8 +1,10 @@
 const std = @import("std");
+const zigstd = @import("../../../zigstd.zig");
+const Allocator = zigstd.Allocator;
 
-const Sfnt = @import("../Sfnt.zig");
-const aux_types = @import("../aux_types.zig");
-const pack = @import("../render/pack.zig");
+const Sfnt = @import("../sfnt/Sfnt.zig");
+const aux_types = @import("../sfnt/aux_types.zig");
+const pack = @import("../../pack.zig");
 
 const coloring = @import("coloring.zig");
 const EdgeColor = coloring.EdgeColor;
@@ -10,12 +12,13 @@ const EdgeSegment = @import("EdgeSegment.zig");
 const math = @import("math.zig");
 const Scanline = @import("Scanline.zig");
 const Shape = @import("Shape.zig");
-const Image = @import("../../../image.zig").Image;
+const Image = @import("../../image.zig").Image;
 
 pub const error_correction = @import("error_correction.zig");
 
 const Vertex = aux_types.Vertex;
 const V2f64 = aux_types.V2f64;
+const f64i = math.f64i;
 
 const Generator = @This();
 
@@ -47,7 +50,7 @@ pub const GeneratedGlyph = struct {
     metrics: GlyphMetricsEm,
     pixels: []const u8,
 
-    pub fn deinit(self: GeneratedGlyph, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: GeneratedGlyph, allocator: Allocator) void {
         allocator.free(self.pixels);
     }
 };
@@ -67,7 +70,7 @@ pub const GeneratedAtlas = struct {
     /// like with 10-bit ABGR GPU formats (assuming a little endian host).
     pixels: []const u8,
 
-    pub fn deinit(self: GeneratedAtlas, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: GeneratedAtlas, allocator: Allocator) void {
         allocator.free(self.glyphs);
         allocator.free(self.kernings);
         allocator.free(self.pixels);
@@ -188,7 +191,7 @@ sfnt: Sfnt,
 /// `sfnt` should stay valid and available during the entire Generator
 /// lifecycle: it's a borrowed view over the font's bytes, re-read on every
 /// call, since Sfnt itself owns no allocated state (see Sfnt.init's doc
-/// comment) - there's nothing for a destroy() to release, and none exists.
+/// comment); there's nothing for a deinit() to release, and none exists.
 pub fn create(sfnt: Sfnt) Generator {
     return .{ .sfnt = sfnt };
 }
@@ -220,9 +223,9 @@ fn handleVarFont(self: *Generator, var_args: []const VarFontArgument) void {
 /// Walks a decomposed glyph outline (see Sfnt.glyphShape) into `shape`,
 /// scaling design-unit coordinates into em space. Replaces what upstream
 /// mist did via FT_Outline_Decompose + its four ftMoveTo/ftLineTo/ftConicTo/
-/// ftCubicTo callbacks - same edge-building logic, just driven by a plain
+/// ftCubicTo callbacks; same edge-building logic, just driven by a plain
 /// loop instead of a C callback API.
-fn appendVertices(shape: *Shape, allocator: std.mem.Allocator, vertices: []const Vertex, scale: f64) !void {
+fn appendVertices(shape: *Shape, allocator: Allocator, vertices: []const Vertex, scale: f64) !void {
     var pos: V2f64 = @splat(0.0);
     var contour: ?*Shape.Contour = null;
     for (vertices) |vtx| switch (vtx.type) {
@@ -268,7 +271,7 @@ fn scaledVertexVec(x: i16, y: i16, scale: f64) V2f64 {
 /// The result is under the caller's ownership (call `deinit()` or deallocate fields manually)
 pub fn generateSingle(
     self: *Generator,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     codepoint: u21,
     opts: *const Options,
 ) !GeneratedGlyph {
@@ -357,7 +360,7 @@ pub fn generateSingle(
 /// The result is under the caller's ownership (call `deinit()` or deallocate fields manually)
 pub fn generateAtlas(
     self: *Generator,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     io: std.Io,
     codepoints: []const u21,
     atlas_w: u16,
@@ -483,7 +486,7 @@ pub fn generateAtlas(
 
 fn processAtlasCodepoint(
     self: *Generator,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     opts: *const Options,
     codepoint: u21,
     glyph: *GeneratedAtlasGlyph,
@@ -507,7 +510,7 @@ fn processAtlasCodepoint(
 
 fn processAtlasCodepointInner(
     self: *Generator,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     opts: *const Options,
     glyph: *GeneratedAtlasGlyph,
     id_rect: *pack.IdRect,
@@ -558,7 +561,7 @@ fn processAtlasCodepointInner(
 }
 
 fn getSdfPixels(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     opts: *const Options,
     w: u16,
     h: u16,
@@ -572,7 +575,7 @@ fn getSdfPixels(
         inline else => |ty| {
             const n = comptime ty.numChannels();
             var dist: Image(DistPixel(ty)) = try .init(allocator, w, h, null);
-            defer dist.destroy(allocator);
+            defer dist.deinit(allocator);
 
             if (ty.requiresColoring()) switch (opts.coloring_method) {
                 .simple => try coloring.colorSimple(allocator, opts.coloring_rng_seed, shape, opts.corner_angle_threshold),
@@ -611,7 +614,7 @@ fn getSdfPixels(
 }
 
 fn sdfSignCorrection(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     dist: Image([1]f64),
     scale: f64,
     shape: Shape,
@@ -633,7 +636,7 @@ fn sdfSignCorrection(
 
 fn msdfSignCorrection(
     comptime n: usize,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     dist: Image([n]f64),
     scale: f64,
     shape: Shape,
@@ -796,8 +799,4 @@ test {
     _ = Shape;
     _ = math;
     _ = error_correction;
-}
-
-pub fn f64i(int: anytype) f64 {
-    return @floatFromInt(int);
 }

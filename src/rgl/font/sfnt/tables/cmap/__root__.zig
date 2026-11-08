@@ -1,4 +1,4 @@
-const types = @import("../../stream_types.zig");
+const types = @import("../../types.zig");
 const bytes = @import("../../../../../bytes.zig");
 
 const GlyphIndex = types.GlyphIndex;
@@ -12,6 +12,7 @@ const Format10 = @import("fmt10.zig").Format10;
 const Format12 = @import("fmt12.zig").Format12;
 const Format13 = @import("fmt13.zig").Format13;
 const Format14 = @import("fmt14.zig").Format14;
+const zigstd = @import("../../../../../zigstd.zig");
 
 pub const PlatformId = enum(u16) {
     unicode = 0,
@@ -57,8 +58,7 @@ pub const EncodingId = union(enum) {
     microsoft: MicrosoftEncodingId,
 };
 
-/// Schema for the 'cmap' header, used only to compute field offsets/sizes at
-/// comptime; never instantiated.
+/// The 'cmap' header.
 const StreamLayout = extern struct {
     version: u16,
     num_tables: u16,
@@ -91,7 +91,7 @@ pub const EncRecord = extern struct {
     }
 
     /// A full-repertoire Unicode encoding (format 12/13-capable, i.e. not
-    /// limited to the BMP) - (3,10) on Windows, or (0,4)/(0,6) on the
+    /// limited to the BMP); (3,10) on Windows, or (0,4)/(0,6) on the
     /// Unicode platform.
     pub fn isUnicodeFull(self: Self) bool {
         const encoding_id = self.encodingId() orelse return false;
@@ -152,10 +152,7 @@ pub const CmapSubtable = union(enum) {
     }
 };
 
-/// Character to glyph mapping. cmap_bytes borrows straight from the parent
-/// Sfnt's font_data; the header, encoding records, and every resolved
-/// subtable format are all plain views read directly from those bytes on
-/// each call, so nothing here ever allocates.
+/// Character to glyph mapping.
 pub const CmapTable = struct {
     const Self = @This();
 
@@ -184,7 +181,7 @@ pub const CmapTable = struct {
     }
 
     /// Scans records for a Unicode BMP-compatible encoding (Windows Unicode
-    /// BMP or Unicode platform BMP) - the encoding renderers almost always
+    /// BMP or Unicode platform BMP); the encoding renderers almost always
     /// want. Returns null if the font has none.
     pub fn findUnicodeBmpRecord(self: Self) ?EncRecord {
         var i: usize = 0;
@@ -212,7 +209,6 @@ pub const CmapTable = struct {
     }
 };
 
-const zigstd = @import("../../../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
 test "cmap StreamLayout/EncRecord match the OpenType stream layout (no padding)" {
@@ -341,7 +337,7 @@ test "CmapTable.findUnicodeFullRecord finds a (3,10) record and skips a BMP-only
     const buf = try buildCmap(alloc);
     defer alloc.free(buf);
 
-    // buildCmap() only has mac + Windows-BMP records - no full-repertoire
+    // buildCmap() only has mac + Windows-BMP records; no full-repertoire
     // encoding present yet.
     const cmap = try CmapTable.init(buf, true);
     try zigstd.testExpectTrue(cmap.findUnicodeFullRecord() == null);

@@ -2,16 +2,12 @@ const std = @import("std");
 const math = std.math;
 const clamp = math.clamp;
 const pow = math.pow;
+const zigstd = @import("../zigstd.zig");
 
-/// Parameters for the linear-segment + power-law transfer function curve shared by
-/// every gamma standard.
-///
-/// Encode (linear -> nonlinear): `linear_slope * L` for `L <= threshold`, else
-/// `power_scale * L^gamma - (power_scale - 1)`. The bias is always `power_scale - 1`,
-/// not an independent constant: any correctly-normalized OETF must map peak white to
-/// peak white (`V(1) = 1`), which algebraically forces that relationship.
-/// Decode (nonlinear -> linear): the algebraic inverse of the above; the decode-side
-/// threshold (`threshold * linear_slope`) is derived rather than stored separately.
+/// The linear-segment plus power-law transfer curve every gamma standard uses.
+/// Encode: `linear_slope * L` for `L <= threshold`, else
+/// `power_scale * L^gamma - (power_scale - 1)`; that bias makes `V(1) = 1`.
+/// Decode is the inverse, with threshold `threshold * linear_slope`.
 pub const GammaLawConsts = struct {
     threshold: f32,
     linear_slope: f32,
@@ -133,7 +129,7 @@ pub inline fn floatToByte(value: f32) u8 {
 }
 
 /// Converts a `u8` channel encoded as `offset + value * scale` back to `value`
-/// (e.g. luma or chroma, whatever domain `value` is naturally in -- there's no
+/// (e.g. luma or chroma, whatever domain `value` is naturally in; there's no
 /// clamp here since the arithmetic is just the inverse affine map).
 pub inline fn byteToScaledOffset(value: u8, scale: f32, offset: f32) f32 {
     return (@as(f32, @floatFromInt(value)) - offset) / scale;
@@ -141,7 +137,7 @@ pub inline fn byteToScaledOffset(value: u8, scale: f32, offset: f32) f32 {
 
 /// Encodes `value` as `offset + value * scale`, rounded to the nearest `u8`. There's
 /// no domain-specific clamp on `value` itself (luma's is `[0, 1]`, chroma's is
-/// `[-0.5, 0.5]`) -- `roundToByte`'s clamp to `[0, 255]` already saturates correctly
+/// `[-0.5, 0.5]`); `roundToByte`'s clamp to `[0, 255]` already saturates correctly
 /// in the right direction for any of them, since the map is a monotonic affine one.
 pub inline fn scaledOffsetToByte(value: f32, scale: f32, offset: f32) u8 {
     return roundToByte(offset + value * scale);
@@ -460,7 +456,7 @@ pub const YCbCrAf32 = packed struct {
 };
 
 /// Byte-quantized Y'CbCr, per `YCbCrRange` (full or safe). Which `YCbCrConsts`
-/// matrix it was derived from is not stored -- pass the same one back in when
+/// matrix it was derived from is not stored; pass the same one back in when
 /// converting back to RGB.
 pub const YCbCrA = packed struct {
     const Self = @This();
@@ -541,8 +537,6 @@ const _hsl_rgb_samples = [_]_HslRgbSample{
     .{ .r = 0.495, .g = 0.493, .b = 0.721, .h_deg = 240.5, .s = 0.290, .l = 0.607 }, // #7E7EB8
 };
 
-const zigstd = @import("../zigstd.zig");
-
 test "RGBAf32.toHSLAf32 matches the Wikipedia HSL reference table" {
     for (_hsl_rgb_samples) |sample| {
         const rgba = RGBAf32{ .r = sample.r, .g = sample.g, .b = sample.b, .a = 1 };
@@ -587,7 +581,7 @@ test "HSLA <-> HSLAf32 round-trips every byte value exactly" {
 // Gamma (transfer function) reference points and round-trip checks.
 //
 // The exact 0/1 endpoints and the sRGB midpoint are well-known fixed points of these
-// curves (e.g. sRGB-encoded 0.5 corresponds to ~21.4% linear light -- see e.g.
+// curves (e.g. sRGB-encoded 0.5 corresponds to ~21.4% linear light; see e.g.
 // https://en.wikipedia.org/wiki/SRGB#Transfer_function_(%22gamma%22)); the rest is
 // a round-trip property check against the formulas cited above, not an external table.
 const _gamma_laws = [_]GammaLawConsts{ SrgbStd.gamma_law, Rec601Std.gamma_law, Rec709Std.gamma_law, Rec2020Std.gamma_law };
@@ -622,16 +616,10 @@ test "rec601 and rec709 share the same gamma curve" {
     }
 }
 
-// YCbCr reference test vectors and round-trip checks.
-//
-// Source for the BT.601 full-range values: Wikipedia, "YCbCr" article, "JPEG
-// conversion" section (the 0.299/0.587/0.114, 0.168736/0.331264, 0.418688/0.081312
-// matrix and the full-range quantization): https://en.wikipedia.org/wiki/YCbCr
-// (retrieved 2026-08-23). The (Y, Cb, Cr) byte triples below are this repository's
-// own application of that cited formula to primary colors, not a table copied
-// directly from the article -- they match the commonly-quoted JPEG conversion
-// values for white/black/red/green/blue. Since `.srgb` borrows the same BT.601
-// matrix (see `SrgbStd`), these values apply to it too.
+// YCbCr reference vectors: BT.601 full range from Wikipedia, "YCbCr", "JPEG
+// conversion" (https://en.wikipedia.org/wiki/YCbCr, retrieved 2026-08-23),
+// applied here to the primaries (matching the usual JPEG values). `.srgb`
+// shares the BT.601 matrix (`SrgbStd`), so they apply to it too.
 const _YCbCr601FullRangeSample = struct {
     r: f32,
     g: f32,

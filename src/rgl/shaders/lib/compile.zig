@@ -1,5 +1,3 @@
-const std = @import("std");
-
 // Fetched via the calling shader's own root rather than
 // `@import("shader_opts")` directly to avoid circular dependency issues.
 const shader_opts = @import("root").shader_opts;

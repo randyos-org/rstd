@@ -1,16 +1,17 @@
 const std = @import("std");
-const zigstd = @import("../../../../zigstd.zig");
+const zigstd = @import("../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
-const Sfnt = @import("../Sfnt.zig");
-const types = @import("../stream_types.zig");
-const pack = @import("pack.zig");
+const Sfnt = @import("../sfnt/Sfnt.zig");
+const types = @import("../sfnt/types.zig");
+const pack = @import("../../pack.zig");
 const layout = @import("layout.zig");
 const GlyphCache = @import("GlyphCache.zig");
-const msdf = @import("../msdf/__root__.zig");
-const Image = @import("../../../image.zig").Image;
+const msdf = @import("../msdf/Generator.zig");
+const Image = @import("../../image.zig").Image;
 
 const GlyphIndex = types.GlyphIndex;
+const test_font = @import("_test/font.zig");
 
 /// One glyph's placement within a TextAtlas: where to draw it (in the same
 /// coordinate space as buildTextAtlas's start_x/baseline_y, already
@@ -87,12 +88,12 @@ pub const MsdfOptions = struct {
     /// form a closed loop.
     validate_shape: bool = true,
     /// Deconverges near-degenerate/converging curve corners before
-    /// generating the SDF - fixes some corner-adjacent stray-texel
+    /// generating the SDF; fixes some corner-adjacent stray-texel
     /// artifacts that show up at small sizes.
     normalize_shape: bool = true,
     /// Geometrically determines each contour's correct winding direction,
     /// rather than relying on the single-sample-point `winding: .guess`
-    /// heuristic - matters for multi-contour glyphs (most letters with a
+    /// heuristic; matters for multi-contour glyphs (most letters with a
     /// counter/hole).
     orient_contours: bool = true,
 };
@@ -102,9 +103,9 @@ pub const Options = struct {
     msdf: MsdfOptions = .{},
 };
 
-/// Rasterizes every glyph in `text` - via glyphBitmapSubpixel (the analytic
+/// Rasterizes every glyph in `text`; via glyphBitmapSubpixel (the analytic
 /// coverage rasterizer) for `.coverage`, or via the msdf module's Generator
-/// for `.msdf` - packs the bitmaps into one shared atlas (via the guillotine
+/// for `.msdf`; packs the bitmaps into one shared atlas (via the guillotine
 /// packer in pack.zig, growing the canvas until everything fits), and lays
 /// them out left to right from (start_x, baseline_y).
 pub fn buildTextAtlas(
@@ -321,19 +322,12 @@ pub const CachedTextLayout = struct {
     }
 };
 
-/// Like buildTextAtlas, but backed by a persistent, incrementally-populated
-/// `GlyphCache` instead of rasterizing and packing every glyph from
-/// scratch: a glyph already seen by `cache` (from this call or an earlier
-/// one) is reused rather than re-rasterized. Also exposes `layout.Options`,
-/// so callers can request word-wrapping - buildTextAtlas itself stays
-/// single-line-only and untouched, since its bitmap-box rounding and this
-/// function's layout-box rounding aren't guaranteed pixel-identical, and
-/// buildTextAtlas has no test coverage to safely verify a shared code path
-/// against.
+/// Like buildTextAtlas, but through a persistent `GlyphCache`: glyphs it has
+/// seen are reused, not re-rasterized; `layout.Options` adds word wrap.
+/// buildTextAtlas stays separate: its bitmap-box rounding may differ from this
+/// layout-box rounding, and it has no tests to check a shared path against.
 ///
-/// `cache` must have been created for this same (font, pixel_size) pairing;
-/// mixing sizes through one cache isn't supported (see GlyphCache's own
-/// doc comment).
+/// `cache` must be for this same font and pixel_size (see GlyphCache).
 pub fn buildTextAtlasCached(
     self: Sfnt,
     gpa: Allocator,
@@ -376,115 +370,9 @@ pub fn buildTextAtlasCached(
     };
 }
 
-// ---
-// Same synthetic-font approach as layout.zig's/GlyphCache.zig's tests.
-
-const bytes = @import("../../../../bytes.zig");
-const general = @import("../tables/general.zig");
-const TableTag = general.TableTag;
-
-fn appendTable(buf: []u8, table_dir_off: usize, table_idx: usize, tag: TableTag, data: []const u8, off: usize) void {
-    const rec_off = table_dir_off + table_idx * 16;
-    bytes.setU32BE(buf[rec_off..], tag.toInt());
-    bytes.setU32BE(buf[rec_off + 4 ..], 0);
-    bytes.setU32BE(buf[rec_off + 8 ..], @intCast(off));
-    bytes.setU32BE(buf[rec_off + 12 ..], @intCast(data.len));
-    @memcpy(buf[off..][0..data.len], data);
-}
-
-fn buildTestFont(alloc: Allocator) ![]u8 {
-    const num_tables = 7;
-    const table_dir_off = 12;
-    const tables_start = table_dir_off + num_tables * 16;
-
-    var head_buf: [54]u8 = @splat(0);
-    bytes.setU16BE(head_buf[18..], 1000);
-    bytes.setI16BE(head_buf[50..], 1);
-
-    var hhea_buf: [36]u8 = @splat(0);
-    bytes.setI16BE(hhea_buf[4..], 800);
-    bytes.setI16BE(hhea_buf[6..], -200);
-    bytes.setI16BE(hhea_buf[8..], 0);
-    bytes.setU16BE(hhea_buf[34..], 3);
-
-    var maxp_buf: [6]u8 = @splat(0);
-    bytes.setU32BE(maxp_buf[0..], 0x00005000);
-    bytes.setU16BE(maxp_buf[4..], 3);
-
-    var hmtx_buf: [12]u8 = @splat(0);
-    bytes.setU16BE(hmtx_buf[4..], 250);
-    bytes.setU16BE(hmtx_buf[8..], 150);
-
-    var loca_buf: [16]u8 = @splat(0);
-    bytes.setU32BE(loca_buf[0..], 0);
-    bytes.setU32BE(loca_buf[4..], 0);
-    bytes.setU32BE(loca_buf[8..], 34);
-    bytes.setU32BE(loca_buf[12..], 34);
-
-    var glyf_buf: [34]u8 = @splat(0);
-    bytes.setI16BE(glyf_buf[0..], 1);
-    bytes.setI16BE(glyf_buf[2..], 0);
-    bytes.setI16BE(glyf_buf[4..], 0);
-    bytes.setI16BE(glyf_buf[6..], 200);
-    bytes.setI16BE(glyf_buf[8..], 300);
-    bytes.setU16BE(glyf_buf[10..], 3);
-    bytes.setU16BE(glyf_buf[12..], 0);
-    const flags_start = 14;
-    @memset(glyf_buf[flags_start..][0..4], 0x01);
-    const x_start = flags_start + 4;
-    bytes.setI16BE(glyf_buf[x_start + 0 ..], 0);
-    bytes.setI16BE(glyf_buf[x_start + 2 ..], 200);
-    bytes.setI16BE(glyf_buf[x_start + 4 ..], 0);
-    bytes.setI16BE(glyf_buf[x_start + 6 ..], -200);
-    const y_start = x_start + 8;
-    bytes.setI16BE(glyf_buf[y_start + 0 ..], 0);
-    bytes.setI16BE(glyf_buf[y_start + 2 ..], 0);
-    bytes.setI16BE(glyf_buf[y_start + 4 ..], 300);
-    bytes.setI16BE(glyf_buf[y_start + 6 ..], 0);
-
-    var cmap_buf: [4 + 8 + 262]u8 = @splat(0);
-    bytes.setU16BE(cmap_buf[0..], 0);
-    bytes.setU16BE(cmap_buf[2..], 1);
-    bytes.setU16BE(cmap_buf[4..], 3);
-    bytes.setU16BE(cmap_buf[6..], 1);
-    bytes.setU32BE(cmap_buf[8..], 12);
-    const sub = cmap_buf[12..];
-    bytes.setU16BE(sub, 0);
-    bytes.setU16BE(sub[2..], 262);
-    bytes.setU16BE(sub[4..], 0);
-    var c: u8 = 'A';
-    while (c <= 'Z') : (c += 1) sub[6 + @as(usize, c)] = 1;
-    sub[6 + @as(usize, ' ')] = 2;
-
-    var buf = try alloc.alloc(u8, tables_start + head_buf.len + hhea_buf.len + maxp_buf.len + hmtx_buf.len + loca_buf.len + cmap_buf.len + glyf_buf.len);
-    errdefer alloc.free(buf);
-    @memset(buf, 0);
-
-    bytes.setU32BE(buf[0..], 0x00010000);
-    bytes.setU16BE(buf[4..], num_tables);
-
-    var off: usize = tables_start;
-    appendTable(buf, table_dir_off, 0, .head, &head_buf, off);
-    off += head_buf.len;
-    appendTable(buf, table_dir_off, 1, .hhea, &hhea_buf, off);
-    off += hhea_buf.len;
-    appendTable(buf, table_dir_off, 2, .maxp, &maxp_buf, off);
-    off += maxp_buf.len;
-    appendTable(buf, table_dir_off, 3, .hmtx, &hmtx_buf, off);
-    off += hmtx_buf.len;
-    appendTable(buf, table_dir_off, 4, .loca, &loca_buf, off);
-    off += loca_buf.len;
-    appendTable(buf, table_dir_off, 5, .cmap, &cmap_buf, off);
-    off += cmap_buf.len;
-    appendTable(buf, table_dir_off, 6, .glyf, &glyf_buf, off);
-    off += glyf_buf.len;
-
-    return buf;
-}
-
 test "buildTextAtlas with .msdf produces a correctly-shaped multi-channel atlas" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 
@@ -503,7 +391,7 @@ test "buildTextAtlas with .msdf produces a correctly-shaped multi-channel atlas"
 
 test "buildTextAtlas .msdf10 packs the same distances as .msdf" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 
@@ -525,7 +413,7 @@ test "buildTextAtlas .msdf10 packs the same distances as .msdf" {
 
 test "buildTextAtlasCached reuses a glyph's atlas placement across separate calls" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 
@@ -544,7 +432,7 @@ test "buildTextAtlasCached reuses a glyph's atlas placement across separate call
 
 test "buildTextAtlasCached wraps text across lines when a wrap width is given" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const math = @import("math.zig");
+const zigstd = @import("../../../zigstd.zig");
 
 const Scanline = @This();
 
@@ -123,8 +123,6 @@ pub fn moveTo(self: *Scanline, x: f64) ?u32 {
     self.last_index = index;
     return index;
 }
-
-const zigstd = @import("../../../../zigstd.zig");
 
 test "Scanline.overlap and countIntersections over two spans" {
     const alloc = zigstd.testAllocator;

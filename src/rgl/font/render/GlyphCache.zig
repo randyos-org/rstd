@@ -1,19 +1,20 @@
 const std = @import("std");
-const zigstd = @import("../../../../zigstd.zig");
+const zigstd = @import("../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
-const Sfnt = @import("../Sfnt.zig");
-const types = @import("../stream_types.zig");
+const Sfnt = @import("../sfnt/Sfnt.zig");
+const types = @import("../sfnt/types.zig");
 const GlyphIndex = types.GlyphIndex;
-const pack = @import("pack.zig");
-const Image = @import("../../../image.zig").Image;
+const pack = @import("../../pack.zig");
+const Image = @import("../../image.zig").Image;
+const test_font = @import("_test/font.zig");
 
 // A persistent, incrementally-populated glyph atlas: unlike
 // render/atlas.zig's buildTextAtlas (which rasterizes and packs every glyph
 // from scratch on every call), a GlyphCache rasterizes a glyph once and
 // reuses its placement for as long as the cache lives. One cache is meant
 // to back one (font, pixel size) pairing, since a glyph's rasterized size
-// depends on scale - mixing sizes through the same cache would require a
+// depends on scale; mixing sizes through the same cache would require a
 // compound key this doesn't bother with.
 const Self = @This();
 
@@ -37,7 +38,7 @@ const empty_rect: PixelRect = .{ .x = 0, .y = 0, .w = 0, .h = 0 };
 
 pub fn init(gpa: Allocator, initial_size: u32) !Self {
     var atlas: Image(u8) = try .init(gpa, initial_size, initial_size, 0);
-    errdefer atlas.destroy(gpa);
+    errdefer atlas.deinit(gpa);
 
     const pack_ctx = try pack.Context.create(gpa, @intCast(initial_size), @intCast(initial_size), .{});
 
@@ -45,7 +46,7 @@ pub fn init(gpa: Allocator, initial_size: u32) !Self {
 }
 
 pub fn deinit(self: *Self, gpa: Allocator) void {
-    self.atlas.destroy(gpa);
+    self.atlas.deinit(gpa);
     self.pack_ctx.deinit();
     self.locations.deinit(gpa);
     self.* = undefined;
@@ -100,7 +101,7 @@ fn place(self: *Self, gpa: Allocator, w: u16, h: u16) !PixelRect {
 /// pixel content and every already-cached PixelRect stay valid: growth only
 /// ever extends the canvas outward from the already-used top-left corner,
 /// so nothing already placed ever needs to move. Only the newly-added strip
-/// is pushed onto the packer's free-space list - not a full re-pack.
+/// is pushed onto the packer's free-space list; not a full re-pack.
 fn grow(self: *Self, gpa: Allocator) !void {
     const width = self.atlas.width;
     const height = self.atlas.height;
@@ -110,7 +111,7 @@ fn grow(self: *Self, gpa: Allocator) !void {
 
     var grown: Image(u8) = try .init(gpa, new_width, new_height, 0);
     grown.blit(0, 0, width, self.atlas.data);
-    self.atlas.destroy(gpa);
+    self.atlas.deinit(gpa);
     self.atlas = grown;
 
     const new_area: pack.Rect = if (grow_width)
@@ -120,117 +121,9 @@ fn grow(self: *Self, gpa: Allocator) !void {
     try self.pack_ctx.list.append(self.pack_ctx.allocator, new_area);
 }
 
-// ---
-// Same synthetic-font approach as layout.zig's tests: units_per_em = 1000,
-// glyph 1 is a visible 200x300-funit box mapped from every uppercase ASCII
-// letter, glyph 2 is an invisible (no outline) space.
-
-const bytes = @import("../../../../bytes.zig");
-const general = @import("../tables/general.zig");
-const TableTag = general.TableTag;
-
-fn appendTable(buf: []u8, table_dir_off: usize, table_idx: usize, tag: TableTag, data: []const u8, off: usize) void {
-    const rec_off = table_dir_off + table_idx * 16;
-    bytes.setU32BE(buf[rec_off..], tag.toInt());
-    bytes.setU32BE(buf[rec_off + 4 ..], 0);
-    bytes.setU32BE(buf[rec_off + 8 ..], @intCast(off));
-    bytes.setU32BE(buf[rec_off + 12 ..], @intCast(data.len));
-    @memcpy(buf[off..][0..data.len], data);
-}
-
-fn buildTestFont(alloc: Allocator) ![]u8 {
-    const num_tables = 7;
-    const table_dir_off = 12;
-    const tables_start = table_dir_off + num_tables * 16;
-
-    var head_buf: [54]u8 = @splat(0);
-    bytes.setU16BE(head_buf[18..], 1000);
-    bytes.setI16BE(head_buf[50..], 1);
-
-    var hhea_buf: [36]u8 = @splat(0);
-    bytes.setI16BE(hhea_buf[4..], 800);
-    bytes.setI16BE(hhea_buf[6..], -200);
-    bytes.setI16BE(hhea_buf[8..], 0);
-    bytes.setU16BE(hhea_buf[34..], 3);
-
-    var maxp_buf: [6]u8 = @splat(0);
-    bytes.setU32BE(maxp_buf[0..], 0x00005000);
-    bytes.setU16BE(maxp_buf[4..], 3);
-
-    var hmtx_buf: [12]u8 = @splat(0);
-    bytes.setU16BE(hmtx_buf[4..], 250);
-    bytes.setU16BE(hmtx_buf[8..], 150);
-
-    var loca_buf: [16]u8 = @splat(0);
-    bytes.setU32BE(loca_buf[0..], 0);
-    bytes.setU32BE(loca_buf[4..], 0);
-    bytes.setU32BE(loca_buf[8..], 34);
-    bytes.setU32BE(loca_buf[12..], 34);
-
-    var glyf_buf: [34]u8 = @splat(0);
-    bytes.setI16BE(glyf_buf[0..], 1);
-    bytes.setI16BE(glyf_buf[2..], 0);
-    bytes.setI16BE(glyf_buf[4..], 0);
-    bytes.setI16BE(glyf_buf[6..], 200);
-    bytes.setI16BE(glyf_buf[8..], 300);
-    bytes.setU16BE(glyf_buf[10..], 3);
-    bytes.setU16BE(glyf_buf[12..], 0);
-    const flags_start = 14;
-    @memset(glyf_buf[flags_start..][0..4], 0x01);
-    const x_start = flags_start + 4;
-    bytes.setI16BE(glyf_buf[x_start + 0 ..], 0);
-    bytes.setI16BE(glyf_buf[x_start + 2 ..], 200);
-    bytes.setI16BE(glyf_buf[x_start + 4 ..], 0);
-    bytes.setI16BE(glyf_buf[x_start + 6 ..], -200);
-    const y_start = x_start + 8;
-    bytes.setI16BE(glyf_buf[y_start + 0 ..], 0);
-    bytes.setI16BE(glyf_buf[y_start + 2 ..], 0);
-    bytes.setI16BE(glyf_buf[y_start + 4 ..], 300);
-    bytes.setI16BE(glyf_buf[y_start + 6 ..], 0);
-
-    var cmap_buf: [4 + 8 + 262]u8 = @splat(0);
-    bytes.setU16BE(cmap_buf[0..], 0);
-    bytes.setU16BE(cmap_buf[2..], 1);
-    bytes.setU16BE(cmap_buf[4..], 3);
-    bytes.setU16BE(cmap_buf[6..], 1);
-    bytes.setU32BE(cmap_buf[8..], 12);
-    const sub = cmap_buf[12..];
-    bytes.setU16BE(sub, 0);
-    bytes.setU16BE(sub[2..], 262);
-    bytes.setU16BE(sub[4..], 0);
-    var c: u8 = 'A';
-    while (c <= 'Z') : (c += 1) sub[6 + @as(usize, c)] = 1;
-    sub[6 + @as(usize, ' ')] = 2;
-
-    var buf = try alloc.alloc(u8, tables_start + head_buf.len + hhea_buf.len + maxp_buf.len + hmtx_buf.len + loca_buf.len + cmap_buf.len + glyf_buf.len);
-    errdefer alloc.free(buf);
-    @memset(buf, 0);
-
-    bytes.setU32BE(buf[0..], 0x00010000);
-    bytes.setU16BE(buf[4..], num_tables);
-
-    var off: usize = tables_start;
-    appendTable(buf, table_dir_off, 0, .head, &head_buf, off);
-    off += head_buf.len;
-    appendTable(buf, table_dir_off, 1, .hhea, &hhea_buf, off);
-    off += hhea_buf.len;
-    appendTable(buf, table_dir_off, 2, .maxp, &maxp_buf, off);
-    off += maxp_buf.len;
-    appendTable(buf, table_dir_off, 3, .hmtx, &hmtx_buf, off);
-    off += hmtx_buf.len;
-    appendTable(buf, table_dir_off, 4, .loca, &loca_buf, off);
-    off += loca_buf.len;
-    appendTable(buf, table_dir_off, 5, .cmap, &cmap_buf, off);
-    off += cmap_buf.len;
-    appendTable(buf, table_dir_off, 6, .glyf, &glyf_buf, off);
-    off += glyf_buf.len;
-
-    return buf;
-}
-
 test "GlyphCache.getOrAdd caches a glyph's placement across repeated calls" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 
@@ -251,7 +144,7 @@ test "GlyphCache.getOrAdd caches a glyph's placement across repeated calls" {
 
 test "GlyphCache.getOrAdd returns null and caches the miss for a glyph with no visible outline" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 
@@ -266,7 +159,7 @@ test "GlyphCache.getOrAdd returns null and caches the miss for a glyph with no v
 
 test "GlyphCache grows the canvas to fit a glyph larger than the initial size, preserving its pixels" {
     const alloc = zigstd.testAllocator;
-    const font_bytes = try buildTestFont(alloc);
+    const font_bytes = try test_font.build(alloc);
     defer alloc.free(font_bytes);
     const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
 

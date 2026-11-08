@@ -1,8 +1,8 @@
 const std = @import("std");
-const zigstd = @import("../../../../zigstd.zig");
+const zigstd = @import("../../../zigstd.zig");
 const Allocator = zigstd.Allocator;
 
-const Vertex = @import("../aux_types.zig").Vertex;
+const Vertex = @import("../sfnt/aux_types.zig").Vertex;
 
 pub const Point = struct { x: f32, y: f32 };
 
@@ -55,7 +55,7 @@ pub fn flattenCurves(
                 try points.append(gpa, .{ .x = x, .y = y });
             },
             .vcurve => {
-                try tesselateCurve(
+                try tessellateCurve(
                     gpa,
                     &points,
                     x,
@@ -71,7 +71,7 @@ pub fn flattenCurves(
                 y = @floatFromInt(v.y);
             },
             .vcubic => {
-                try tesselateCubic(
+                try tessellateCubic(
                     gpa,
                     &points,
                     x,
@@ -100,7 +100,7 @@ pub fn flattenCurves(
 }
 
 /// tessellate until threshold p is happy... @TODO warped to compensate for non-linear stretching
-fn tesselateCurve(
+fn tessellateCurve(
     gpa: Allocator,
     points: *std.ArrayList(Point),
     x0: f32,
@@ -121,14 +121,14 @@ fn tesselateCurve(
     if (n > 16) // 65536 segments on one curve better be enough!
         return;
     if (dx * dx + dy * dy > objspace_flatness_squared) { // half-pixel error allowed... need to be smaller if AA
-        try tesselateCurve(gpa, points, x0, y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0, mx, my, objspace_flatness_squared, n + 1);
-        try tesselateCurve(gpa, points, mx, my, (x1 + x2) / 2.0, (y1 + y2) / 2.0, x2, y2, objspace_flatness_squared, n + 1);
+        try tessellateCurve(gpa, points, x0, y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0, mx, my, objspace_flatness_squared, n + 1);
+        try tessellateCurve(gpa, points, mx, my, (x1 + x2) / 2.0, (y1 + y2) / 2.0, x2, y2, objspace_flatness_squared, n + 1);
     } else {
         try points.append(gpa, .{ .x = x2, .y = y2 });
     }
 }
 
-fn tesselateCubic(
+fn tessellateCubic(
     gpa: Allocator,
     points: *std.ArrayList(Point),
     x0: f32,
@@ -175,8 +175,8 @@ fn tesselateCubic(
         const mx = (xa + xb) / 2;
         const my = (ya + yb) / 2;
 
-        try tesselateCubic(gpa, points, x0, y0, x01, y01, xa, ya, mx, my, objspace_flatness_squared, n + 1);
-        try tesselateCubic(gpa, points, mx, my, xb, yb, x23, y23, x3, y3, objspace_flatness_squared, n + 1);
+        try tessellateCubic(gpa, points, x0, y0, x01, y01, xa, ya, mx, my, objspace_flatness_squared, n + 1);
+        try tessellateCubic(gpa, points, mx, my, xb, yb, x23, y23, x3, y3, objspace_flatness_squared, n + 1);
     } else {
         try points.append(gpa, .{ .x = x3, .y = y3 });
     }
