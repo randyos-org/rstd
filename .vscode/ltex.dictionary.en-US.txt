@@ -2,6 +2,7 @@ _sysctl
 AAPCS
 AAVMF
 ABGR
+abicalls
 abig
 abiversion
 abse
@@ -71,6 +72,7 @@ ARMEB
 armhf
 asimd
 ASLR
+asmcheck
 asmfmt
 asml
 asr
@@ -161,6 +163,7 @@ brk
 bscal
 BSDRDATA
 Bsvd
+btver
 bufs
 buildah
 buildutils
@@ -231,6 +234,7 @@ clone
 clone3
 close
 close_range
+clzero
 clzg
 CMOV
 cmovb
@@ -746,6 +750,7 @@ ftsystem
 fttype
 ftver
 ftwinfnt
+fullfp
 Funit
 funs
 Fupp
@@ -1294,6 +1299,7 @@ mflr
 mfma
 mfmaf
 mfmsr
+mfpu
 mfpvr
 mhalf
 migrate_pages
@@ -1402,6 +1408,7 @@ MVAR
 mvec
 mvghi
 MWAIT
+mwaitx
 mydot
 mzvector
 name_to_handle_at
@@ -2642,6 +2649,8 @@ zhetrd
 zhetrf
 zhpr
 zhseqr
+zicsr
+zifencei
 zig
 zigcfg
 zigfmt
