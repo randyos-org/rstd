@@ -144,6 +144,9 @@ fn addForArch(
             // write Mach-O, so macOS objects keep the self-hosted linker
             .use_lld = llvm and target.result.ofmt != .macho,
         });
+        // the whole-file cache, whatever `-fincremental` says: incremental state does not
+        // survive a restart, so each new `zig build` would recompile every object
+        obj.incremental = false;
         // `zig cc` ignores `-ofmt`, so an explicit object format goes unchecked
         if (llvm and g.query.ofmt == null) mod.addObjectFile(try checkedObject(b, obj, g.query)) else mod.addObject(obj);
     }
