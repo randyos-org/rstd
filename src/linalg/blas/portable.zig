@@ -249,9 +249,10 @@ pub const Prec = enum {
     z,
     x,
 
-    /// The precision a letter (`"s"`) names.
+    /// The precision a letter (`"s"`) names. `@field`, not `stringToEnum`,
+    /// whose comptime map costs every caller's branch quota.
     pub fn from(comptime l: []const u8) Prec {
-        return comptime std.meta.stringToEnum(Prec, l) orelse @compileError("no precision " ++ l);
+        return @field(Prec, l);
     }
 
     /// The real precision of a complex one, a real one itself.

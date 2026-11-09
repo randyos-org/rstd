@@ -240,8 +240,8 @@ pub fn normalized(comptime T: type, x: T) T {
 /// `E` names pass (such as `OutOfMemory`, `Canceled` or `Singular`); any
 /// other is `unreachable`.
 pub fn narrow(comptime E: type, e: anyerror) E {
-    inline for (@typeInfo(E).error_set.?) |x| {
-        if (e == @field(anyerror, x.name)) return @errorCast(e);
+    inline for (@typeInfo(E).error_set.error_names.?) |name| {
+        if (e == @field(anyerror, name)) return @errorCast(e);
     }
     unreachable;
 }
