@@ -269,9 +269,12 @@ jobs:
           - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
           - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test }
         exclude:
-          # zig-toolchain has no Intel macOS build: upstream ships no devkit for it
+          # zig-toolchain has no Intel macOS build (upstream ships no devkit for
+          # it) and none yet for Arm Windows (zig2 does not link there)
           - zig: fork
             platform: { name: x86_64-macos, tier: 2, runner: macos-15-intel }
+          - zig: fork
+            platform: { name: aarch64-windows, tier: 2, runner: windows-11-arm }
     steps:
       - uses: actions/checkout@v7
         with:
