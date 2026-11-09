@@ -286,11 +286,13 @@ jobs:
       - if: ${{ matrix.zig == 'latest' }}
         uses: randyos-org/zig-toolchain/setup@main
 
-      # the runner's CPU, which picks the BLAS core a native leg tests
+      # the runner's CPU, which picks the BLAS core a native leg tests; only
+      # informational, so it never fails the leg
       - name: CPU
+        continue-on-error: true
         run: |
           case "$RUNNER_OS" in
-            Linux) grep -m1 -E '^(model name|CPU part)' /proc/cpuinfo || true; grep -o -m1 -w -E 'avx512f|avx2' /proc/cpuinfo | sort -u | tr '\n' ' '; echo ;;
+            Linux) grep -m1 -E '^(model name|CPU part)' /proc/cpuinfo || true; { grep -o -m1 -w -E 'avx512f|avx2' /proc/cpuinfo || true; } | sort -u | tr '\n' ' '; echo ;;
             macOS) sysctl -n machdep.cpu.brand_string; sysctl -n machdep.cpu.leaf7_features 2>&1 || true ;;
             Windows) powershell -NoProfile -Command '(Get-CimInstance Win32_Processor).Name' ;;
           esac
