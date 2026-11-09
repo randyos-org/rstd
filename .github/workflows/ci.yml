@@ -292,14 +292,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-user
 
+      # every dependency, then exit: 0.17.0 spells it `--fetch=all`, the latest `--fetch`
       - name: Fetch dependencies
+        env:
+          FETCH: ${{ matrix.zig == 'latest' && '--fetch' || '--fetch=all' }}
         run: |
           for wait in 15 30 60 120; do
-            zig build --fetch=all && exit 0
+            zig build "$FETCH" && exit 0
             echo "::warning::fetching dependencies failed; retrying in ${wait}s"
             sleep "$wait"
           done
-          zig build --fetch=all
+          zig build "$FETCH"
 
       - name: Test
         env:
