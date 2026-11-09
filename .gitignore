@@ -21,3 +21,5 @@ __pycache__/
 # BLAS code that does not apply to rstd's column-major Zig API, kept locally
 # (src/linalg/blas/design.md)
 /src/linalg/blas/unused/
+
+*.log

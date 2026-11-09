@@ -200,6 +200,30 @@ pub fn build(b: *Build) !void {
         zig017_step.dependOn(&t_test.step);
     }
 
+    // a console command (`zig build --watch`) in a pseudoconsole, its output
+    // also logged for another reader
+    const pty_tee_install = if (host.os.tag == .windows) install: {
+        // rstd's root for the host; `addRstd` keeps only its options imports, so win32 is added back
+        const pty_tee_rstd = try rstdbuild.addRstd(b, b.graph.host, null, false, .{ ._rstd_mod = rstd_mod });
+        rstdbuild.addWin32ToModIfWinTgt(b, b.graph.host, pty_tee_rstd.mod);
+
+        const pty_tee_mod = b.createModule(.{
+            .root_source_file = b.path("tools/pty-tee.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        });
+        pty_tee_rstd.addImportToModule(pty_tee_mod);
+
+        const pty_tee_exe = b.addExecutable(.{
+            .name = "pty-tee",
+            .root_module = pty_tee_mod,
+        });
+        break :install &b.addInstallArtifact(pty_tee_exe, .{}).step;
+    } else &b.addFail("pty-tee is Windows only; use script elsewhere").step;
+
+    const pty_tee_step = b.step("pty-tee", "Install tools/pty-tee.zig, which runs a console command with its output logged, to <prefix>/bin");
+    pty_tee_step.dependOn(pty_tee_install);
+
     // the same tests that need no OS, on emulated machines
     const rigs = try qemutest.addQemuTests(b, optimize);
     if (rigs.linux_vm) try bench.addLinuxBenches(b, rigs.test_host, rigs.whpx_host);

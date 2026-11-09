@@ -267,6 +267,7 @@ configd
 congruential
 CONJG
 connect
+conpty
 copy_file_range
 corespotlightd
 cortexx
