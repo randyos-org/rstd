@@ -395,6 +395,15 @@ pub fn gemm(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, t
     try run(allocator, io, T, vt, d, m, n, k, alpha, x, y, null, unlessOne(T, beta), c, ldc, want);
 }
 
+/// `C += alpha*A*B` on the blocked loops alone, one worker, never the
+/// small-matrix path: upstream's LAPACK drivers call the kernels
+/// (`getrf_single.c`), so the bits match `drive` on any part of `C`.
+pub fn gemmBlocked(allocator: Allocator, io: Io, comptime T: type, vt: *const Vtable, m: usize, n: usize, k: usize, alpha: T, a: [*]const T, lda: usize, b: [*]const T, ldb: usize, c: [*]T, ldc: usize) Error!void {
+    const x: Matrix(T) = .{ .p = @constCast(a), .ld = lda };
+    const y: Matrix(T) = .{ .p = @constCast(b), .ld = ldb };
+    try run(allocator, io, T, vt, .{ .rows = .n, .cols = .n }, m, n, k, alpha, x, y, null, null, c, ldc, 1);
+}
+
 /// `C := alpha*op(A)*op(B) + beta*C` on the `upper` or lower triangle of the
 /// `m x m` `C`, `op(A)` being `m x k`: `gemm`'s operands over `syrk`'s
 /// triangle. Upstream's `interface/gemmt.c` takes a `gemv` per column
