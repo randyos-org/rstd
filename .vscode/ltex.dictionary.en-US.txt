@@ -364,6 +364,7 @@ dgesdd
 dgesvd
 dget
 dgetrf
+dgetri
 dgetrs
 dgettext
 dhgeqz
@@ -1154,6 +1155,7 @@ LAVHE
 LAVSY
 Laxpy
 LBTRACKPOINT
+lcheck
 lchown
 lctlg
 lcur
@@ -1463,6 +1465,7 @@ nouveau
 nranges
 nref
 nret
+Nrhs
 nrmxl
 nrmxli
 nrmxlr
@@ -2660,6 +2663,8 @@ zigimg
 zigvec
 zimatcopy
 zink
+ZLADIV
+zlahqr
 zlartg
 zlaswp
 ZLATRS
