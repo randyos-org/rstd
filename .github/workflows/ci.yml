@@ -2,7 +2,7 @@ name: CI
 
 # Modeled on zfls's ci.yml. Every pull request and every push to main runs the
 # unit tests on every platform that can run them here (the "test" job), with
-# Zig 0.17.0 and the fork, and checks the build for zfls's targets
+# Zig 0.17.0 and the latest Zig, and checks the build for zfls's targets
 # (rstd-check-zig017) and zig fmt with 0.17.0. Pushes to dev are not run: what reaches dev
 # is checked by its pull request, and dev as a whole by the pull request that
 # releases it (to main); start the workflow by hand on dev to check it in
@@ -231,7 +231,7 @@ jobs:
         run: ${{ matrix.run }}
 
   # The unit tests on every platform support.md lists with a way to run them
-  # here, with Zig 0.17.0 (zfls's) and the fork the user develops with
+  # here, with Zig 0.17.0 (zfls's) and the latest Zig the user develops with
   # (randyos-org/zig-toolchain's build of zig-build). Natively where a hosted
   # runner has the OS and ISA; 32-bit x86 natively on x86_64; other Linux ISAs
   # under qemu-user (`-fqemu`, as Zig's own CI ran them); wasm under Node. The
@@ -247,7 +247,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        zig: ['0.17.0', fork]
+        zig: ['0.17.0', latest]
         platform:
           - { name: x86_64-windows, tier: 1, runner: windows-2025 }
           - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
@@ -271,9 +271,9 @@ jobs:
         exclude:
           # zig-toolchain has no Intel macOS build (upstream ships no devkit for
           # it) and none yet for Arm Windows (zig2 does not link there)
-          - zig: fork
+          - zig: latest
             platform: { name: x86_64-macos, tier: 2, runner: macos-15-intel }
-          - zig: fork
+          - zig: latest
             platform: { name: aarch64-windows, tier: 2, runner: windows-11-arm }
     steps:
       - uses: actions/checkout@v7
@@ -281,12 +281,12 @@ jobs:
           ref: ${{ needs.version.outputs.sha }}
           submodules: recursive
 
-      - if: ${{ matrix.zig != 'fork' }}
+      - if: ${{ matrix.zig != 'latest' }}
         uses: randyos-org/setup-zig@node24  # v2.2.1 on Node.js 24, until upstream releases it
         with:
           version: ${{ matrix.zig }}
 
-      - if: ${{ matrix.zig == 'fork' }}
+      - if: ${{ matrix.zig == 'latest' }}
         uses: randyos-org/zig-toolchain/setup@main
 
       - name: qemu-user
