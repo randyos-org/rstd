@@ -906,7 +906,7 @@ allows.
   `getrs_parallel.c` gives each thread a column block.
 - **`gesv`** (`lu.zig`, `interface/lapack/gesv.c`): `getrf`, then `getrs` unless `U` is
   singular, as `xGESV`, both on `gesv`'s thread rule.
-- **faer's routines**: faer v0.24.4 (MIT,
+- **Faer's routines**: faer v0.24.4 (MIT,
   <https://codeberg.org/sarah-quinones/faer>, tag `faer-v0.24.4`), behind Reference-LAPACK's
   interfaces. Each file
   ports one faer source and names it: `ops.zig` (a column-major `Mat` view and element
@@ -1572,7 +1572,7 @@ routine and matches the reference; `apple_accel.zig` binds it and routes to it.
   - x86_64 (under Rosetta 2; no Intel Mac was at hand): `cblas_dsdot` is off by `f32`'s epsilon,
     so `dsdot`, `sdot`, `snrm2` and `scnrm2` run rstd's; `gemm` with NaN or an infinity in `A`,
     which gives NaN at an edge of `m`.
-  - x86_64: complex `potrf`, always: `cpotrf_` and `zpotrf_` report a well conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are right). `trsm` with a diagonal entry too small to invert (a subnormal; arm64 untested): it multiplies by the reciprocal, which overflows, where the reference divides.
+  - x86_64: complex `potrf`, always: `cpotrf_` and `zpotrf_` report a well conditioned `L Lᴴ` as not positive definite from order 2 (arm64's are right). `trsm` with a diagonal entry too small to invert (a subnormal; arm64 untested): it multiplies by the reciprocal, which overflows, where the reference divides. `trsm` with NaN or an infinity in `B` (complex, left, upper, order 19 seen in CI): it spreads to entries that do not depend on it, so `trsm` falls back as `trmm` does.
 
 ### Core detection and selection
 

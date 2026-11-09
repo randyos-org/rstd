@@ -1303,7 +1303,7 @@ pub inline fn trmm(io: Io, comptime T: type, comptime solve: bool, sd: types.Sid
         const u = uplo(ul) orelse return false;
         const t = transpose(T, transa) orelse return false;
         const ka = if (sd == .l) m else n;
-        if (!solve and nonFiniteMat(T, m, n, b_, ldb)) return false;
+        if (nonFiniteMat(T, m, n, b_, ldb)) return false;
         if (solve and dg == .n and tinyDiagonal(T, ka, a, lda)) return false;
         const R = Trmm(T, solve);
         if (!fits(R.name, b, &.{ m, n, lda, ldb, mat(ka, ka, lda), mat(m, n, ldb) })) return false;
