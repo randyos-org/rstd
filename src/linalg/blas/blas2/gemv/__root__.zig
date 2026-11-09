@@ -616,7 +616,8 @@ test "half-precision gemv: the row blocks of the non-transposed kernel sum each 
 
 // the extended types' x87 sums
 test "x86_64's dgemv_n vector block and SSE2 dgemv_t blocks give the reference's arithmetic, bit for bit" {
-    if (sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    // Zig's own x86_64 backend rejects these blocks' operands and VEX (the objects take LLVM)
+    if (sysinfo.target.cpu.arch != .x86_64 or sysinfo.zig_backend != .stage2_llvm) return error.SkipZigTest;
     const driver = @import("driver.zig");
     const xk = @import("x86_64/kernel.zig");
     const own = @import("x86_64/uk/dgemv_t_4.zig");
@@ -662,7 +663,7 @@ test "x86_64's dgemv_n vector block and SSE2 dgemv_t blocks give the reference's
 }
 
 test "x86_64's Skylake-X sgemv (Haswell's blocks and its own) matches plain arithmetic, where this build has AVX2 and FMA" {
-    if (sysinfo.target.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (sysinfo.target.cpu.arch != .x86_64 or sysinfo.zig_backend != .stage2_llvm) return error.SkipZigTest;
     const f = sysinfo.target.cpu.features;
     if (comptime !std.Target.x86.featureSetHasAll(f, .{ .avx2, .fma })) return error.SkipZigTest;
     const S = @import("x86_64/kernel.zig").Skylake;
