@@ -190,20 +190,20 @@ pub fn identity(comptime M: type) M {
     return r;
 }
 
-/// The matrix with columns `c`.
-pub fn fromCols(comptime M: type, c: [M.cols]Column(M.rows, M.Element)) M {
+/// The matrix with columns `c`. Arrays, not vectors: Zig 0.17.0 lays out an
+/// array of 5-element vectors wrong on aarch64 (issue #263).
+pub fn fromCols(comptime M: type, c: [M.cols][M.rows]M.Element) M {
     var r: M = undefined;
     inline for (0..M.cols) |j| r.data[j] = c[j];
     return r;
 }
 
-/// The matrix with rows `r`.
-pub fn fromRows(comptime M: type, r: [M.rows]Column(M.cols, M.Element)) M {
+/// The matrix with rows `r`, arrays as `fromCols` takes.
+pub fn fromRows(comptime M: type, r: [M.rows][M.cols]M.Element) M {
     var m: M = undefined;
-    for (0..M.rows) |i| {
-        const ri: [M.cols]M.Element = r[i];
-        for (0..M.cols) |j| m.data[j][i] = ri[j];
-    }
+    for (0..M.rows) |i| for (0..M.cols) |j| {
+        m.data[j][i] = r[i][j];
+    };
     return m;
 }
 
