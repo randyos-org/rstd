@@ -94,10 +94,11 @@ pub fn arm(core: coretypes.ArmCoreType) Spec {
     return switch (core) {
         .armv5 => .{},
         .armv6 => .{ .features = &.{ "v6", "vfp2" } },
-        .armv7 => .{ .features = &.{ "v7a", "vfp3" } },
+        // without NEON, which 0.17.0's LLVM has `v7a` imply (as `vfpv4`)
+        .armv7 => .{ .features = &.{ "v7a", "vfp3" }, .without = &.{"neon"} },
         // Cortex-A9 and A15: `-mfpu=neon` for their `HAVE_NEON`
         .neon, .cortexa9, .cortexa15 => .{ .features = &.{ "v7a", "neon" } },
-        .vfpv4 => .{ .features = &.{ "v7a", "vfp4" } },
+        .vfpv4 => .{ .features = &.{ "v7a", "vfp4" }, .without = &.{"neon"} },
     };
 }
 
