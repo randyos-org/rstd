@@ -482,7 +482,7 @@ pub const dispatch_futures = true;
 /// `Uring`, and its `Dispatch`, whose vtable names a field 0.17's `Io.VTable`
 /// lacks (version-gated, std exposes nothing to detect); SVE targets, whose
 /// LLVM rejects the fiber switch's `ffr` clobber (issue #212).
-pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAARCH64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
+pub const Evented = if ((Io.Evented == Io.Uring or Io.Evented == Io.Dispatch) and sysinfo.zig_version.major == 0 and sysinfo.zig_version.minor == 17) void else if (sysinfo.cpu.arch.isAarch64() and std.Target.aarch64.featureSetHas(sysinfo.cpu.features, .sve)) void else Io.Evented;
 
 /// Whether `io`'s worker tasks run on `Futures`.
 pub fn usesFutures(io: Io) bool {
