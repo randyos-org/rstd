@@ -4,6 +4,7 @@
 
 const types = @import("types.zig");
 const util = @import("util.zig");
+const Vtable = @import("Vtable.zig");
 
 const XDouble = types.XDouble;
 
@@ -34,6 +35,16 @@ pub const Gemm = enum {
     z3m,
     x3m,
 
+    /// The 3M gemm of complex `g`.
+    pub fn threeM(comptime g: Gemm) Gemm {
+        return switch (g) {
+            .c => .c3m,
+            .z => .z3m,
+            .x => .x3m,
+            else => @compileError(@tagName(g) ++ " has no 3M gemm"),
+        };
+    }
+
     /// `T`'s gemm, its 3M one for `three`.
     pub fn of(comptime T: type, comptime three: bool) Gemm {
         return comptime @field(Gemm, letter(T).? ++ if (three) "3m" else "");
@@ -51,6 +62,24 @@ pub const Gemm = enum {
 /// A gemm's blocking parameter: `.p` is `sgemm_p` for `.s`, `cgemm3m_p`
 /// for `.c3m`.
 pub const Param = enum { p, q, r, unroll_m, unroll_n, unroll_mn, align_k };
+
+/// `paramPtr`'s `Slot`, for a kernel object's symbol.
+pub fn paramTag(comptime g: Gemm, comptime param: Param) util.Slot {
+    return comptime @field(util.Slot, g.prefix() ++ "_" ++ @tagName(param));
+}
+
+/// The slot of precision `g`'s level-3 kernel `name`, as a kernel set
+/// names it (the slot less its letter: `gemm_kernel` is `dgemm_kernel` for
+/// `.d`), or null if the vtable has none.
+pub fn kernelSlot(comptime g: Gemm, comptime name: []const u8) ?util.Slot {
+    const field = @tagName(g) ++ name;
+    return comptime if (@hasField(Vtable, field)) @field(util.Slot, field) else null;
+}
+
+/// `vt`'s field for `s`, by pointer; `vt` points to a `Vtable`.
+pub inline fn fieldPtr(vt: anytype, comptime s: util.Slot) @TypeOf(&@field(vt, @tagName(s))) {
+    return &@field(vt, @tagName(s));
+}
 
 /// `vt`'s parameter `param` of `g`, by pointer; `vt` points to a `Vtable`.
 pub inline fn paramPtr(vt: anytype, comptime g: Gemm, comptime param: Param) @TypeOf(&@field(vt, g.prefix() ++ "_" ++ @tagName(param))) {
