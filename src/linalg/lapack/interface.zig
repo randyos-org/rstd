@@ -8,7 +8,6 @@ const blas = @import("../blas/__root__.zig");
 const types = @import("../blas/types.zig");
 const util = @import("../blas/util.zig");
 const threading = @import("../blas/threading.zig");
-const portable = @import("../blas/portable.zig");
 const Vtable = @import("../blas/Vtable.zig");
 
 const Float = types.Float;
@@ -30,13 +29,7 @@ pub const SquareError = error{ InvalidUplo, InvalidN, InvalidLda };
 /// `dtb_entries` of a hand-built vtable that has none (`blas2/triangular.zig`).
 pub const default_dtb = 64;
 
-/// The vtable for `T`; a type without slots runs the portable kernels and
-/// never reads it (as `blas3/interface.zig`'s `table`).
-pub fn table(comptime T: type) *const Vtable {
-    return if (comptime portable.letter(T) != null) blas.vtable() else &no_table;
-}
-
-const no_table: Vtable = .{};
+pub const table = blas.tableOf;
 
 /// `dtb_entries` of `vt`, or `default_dtb`.
 pub fn dtbOf(vt: *const Vtable) usize {

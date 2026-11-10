@@ -179,6 +179,14 @@ pub inline fn table() *const Vtable {
     return &_vtable;
 }
 
+/// The vtable for `T`: a type without slots runs the portable kernels and
+/// never reads it.
+pub fn tableOf(comptime T: type) *const Vtable {
+    return if (comptime portable.letter(T) != null) vtable() else &no_table;
+}
+
+const no_table: Vtable = .{};
+
 /// The kernel in vtable slot `slot` (`.daxpy_k`), as the reference's `DAXPY_K`
 /// is `gotoblas->daxpy_k`. A slot with no kernel for the running core, and no
 /// portable one, is a bug in the caller.
