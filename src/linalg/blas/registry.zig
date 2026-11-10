@@ -364,11 +364,8 @@ pub const flushing: struct { cores: []const coretypes.ArmCoreType } = .{
 fn flushes(comptime core: anytype, comptime slot: Slot) bool {
     if (@TypeOf(core) != coretypes.ArmCoreType) return false;
     if (std.mem.indexOfScalar(coretypes.ArmCoreType, flushing.cores, core) == null) return false;
-    inline for (vector.real_slots ++ vector.complex_slots) |p| {
-        inline for (@typeInfo(@TypeOf(p[1])).@"struct".field_names) |name| {
-            const s: ?Slot = @field(p[1], name);
-            if (s == slot) return p[0] == f32;
-        }
+    inline for (vector.every) |k| {
+        if (k.slot == slot) return k.F == f32;
     }
     return false;
 }
