@@ -5,8 +5,6 @@
 //! microkernels, or for the AVX-512 cores, whose blocks are intrinsics, the
 //! same loops on `@Vector`s. Tests live in `scal/__root__.zig`.
 
-const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
 const coretypes = @import("../../../cpu/coretypes.zig");
 const util = @import("../../../util.zig");
@@ -20,7 +18,7 @@ pub const Core = coretypes.X86CoreType;
 
 /// The reference compiles the blocks with 512-bit vectors when
 /// `__AVX512CD__` is defined, else 256-bit ones.
-const has_avx512cd = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512cd);
+const has_avx512cd = util.x86Has(.avx512cd);
 
 /// `{s,d,c,z}scal_microk_skylakex-2.c`: `x *= alpha` and its zeroing twin
 /// over a whole block, one vector at a time. A complex one multiplies each

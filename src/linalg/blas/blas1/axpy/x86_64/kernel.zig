@@ -1,7 +1,5 @@
 //! x86_64 axpy kernels per core (`asm/`, or `../driver.zig` around a `uk/` block or `@Vector`s for AVX-512); tests in `../__root__.zig`.
 
-const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
 const coretypes = @import("../../../cpu/coretypes.zig");
 const fma = @import("../../../fma.zig");
@@ -14,7 +12,7 @@ const Slot = util.Slot;
 
 pub const Core = coretypes.X86CoreType;
 
-const has_avx512f = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512f);
+const has_avx512f = util.x86Has(.avx512f);
 
 /// `y += alpha * x` over a whole block, on vectors as wide as the core's
 /// widest: what the reference's intrinsics block does (real slots only).

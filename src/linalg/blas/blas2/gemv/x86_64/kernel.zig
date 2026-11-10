@@ -9,8 +9,6 @@
 //! out, so it is a port here (`ports`). Tests live in `gemv/__root__.zig`;
 //! the AVX-512 kernels run only on such hardware (T43).
 
-const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../../../types.zig");
 const coretypes = @import("../../../cpu/coretypes.zig");
 const fma = @import("../../../fma.zig");
@@ -28,7 +26,7 @@ pub const Core = coretypes.X86CoreType;
 
 /// The reference compiles the blocks with a 512-bit pass first when
 /// `__AVX512CD__` is defined.
-const has_avx512cd = std.Target.x86.featureSetHas(sysinfo.target.cpu.features, .avx512cd);
+const has_avx512cd = util.x86Has(.avx512cd);
 
 /// `dgemv_n_microk_skylakex-4.c`: `y += alpha * (a0*x0 + a1*x1 + ...)` per row,
 /// as vector expressions the compiler contracts (`fuse`): the sum's first
