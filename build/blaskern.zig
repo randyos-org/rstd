@@ -172,9 +172,13 @@ pub fn asmCheck(b: *Build, comp: *Compile, query: std.Target.Query) !*Build.Step
     if (!target.cpu.arch.isX86())
         check.addArg(b.fmt("-mcpu={s}", .{try query.serializeCpuAlloc(b.allocator)}));
     // as Zig builds it; `zig cc` makes freestanding mips PIC, which its asm
-    // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC
-    if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding))
+    // fails, and non-abicalls MIPS code (`objectPic`) cannot be PIC; N64 implies
+    // abicalls, so clang ignores a bare `-fno-PIC` there and its warning fails
+    // the step
+    if (comp.root_module.pic == false or (comp.root_module.pic == null and target.os.tag == .freestanding)) {
         check.addArg("-fno-PIC");
+        if (target.cpu.arch.isMips()) check.addArg("-mno-abicalls");
+    }
     // wasm bitcode already has its `wasm-feature-*` flags, which clang adds again
     // (issue #191)
     if (target.cpu.arch.isWasm()) check.addArgs(&.{ "-Xclang", "-disable-llvm-verifier" });
