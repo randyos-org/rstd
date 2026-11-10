@@ -362,7 +362,9 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"' | tee -a "$GITHUB_STEP_SUMMARY"
-          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
+          # test-tier34 only reports: continue-on-error passes its failed legs,
+          # but not one cancelled at the job time limit
+          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.key != "test-tier34") | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
           if [ -n "$bad" ]; then
             echo "::error::failed or cancelled: $bad"
             exit 1
