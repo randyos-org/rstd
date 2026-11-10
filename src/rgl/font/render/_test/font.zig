@@ -1,6 +1,6 @@
 //! A synthetic sfnt for the render tests: units_per_em 1000; glyph 0
 //! (.notdef) empty, glyph 1 a 200x300-funit box (advance 250) mapped from
-//! 'A' to 'Z', glyph 2 an outline-less 150-funit space mapped from ' '.
+//! 'A' to 'Z' and 'É', glyph 2 an outline-less 150-funit space mapped from ' '.
 
 const bytes = @import("../../../../bytes.zig");
 const general = @import("../../sfnt/tables/general.zig");
@@ -73,7 +73,7 @@ pub fn build(alloc: Allocator) ![]u8 {
     bytes.setI16BE(glyf_buf[y_start + 4 ..], 300); // p2 dy
     bytes.setI16BE(glyf_buf[y_start + 6 ..], 0); // p3 dy
 
-    // cmap: format 0, one Windows-Unicode-BMP record. 'A'-'Z' -> glyph 1,
+    // cmap: format 0, one Windows-Unicode-BMP record. 'A'-'Z' and 'É' -> glyph 1,
     // ' ' -> glyph 2, everything else unmapped (.notdef).
     var cmap_buf: [4 + 8 + 262]u8 = @splat(0);
     bytes.setU16BE(cmap_buf[0..], 0); // version
@@ -88,6 +88,7 @@ pub fn build(alloc: Allocator) ![]u8 {
     var c: u8 = 'A';
     while (c <= 'Z') : (c += 1) sub[6 + @as(usize, c)] = 1;
     sub[6 + @as(usize, ' ')] = 2;
+    sub[6 + 0xC9] = 1; // 'É', two bytes in UTF-8
 
     var buf = try alloc.alloc(u8, tables_start + head_buf.len + hhea_buf.len + maxp_buf.len + hmtx_buf.len + loca_buf.len + cmap_buf.len + glyf_buf.len);
     errdefer alloc.free(buf);

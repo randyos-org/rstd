@@ -156,7 +156,9 @@ pub fn buildTextAtlas(
     var raster_pixels: std.ArrayList(u8) = .empty;
     defer raster_pixels.deinit(gpa);
 
-    for (text) |ch| {
+    const view = std.unicode.Utf8View.init(text) catch return error.InvalidUtf8;
+    var code_points = view.iterator();
+    while (code_points.nextCodepoint()) |ch| {
         const glyph = self.getGlyphIndex(ch) orelse continue;
 
         switch (options.type) {
@@ -387,6 +389,19 @@ test "buildTextAtlas with .msdf produces a correctly-shaped multi-channel atlas"
     );
     try zigstd.testExpectTrue(atlas.glyphs[0].size[0] > 0);
     try zigstd.testExpectTrue(atlas.glyphs[0].size[1] > 0);
+}
+
+test "buildTextAtlas decodes UTF-8 and rejects invalid UTF-8" {
+    const alloc = zigstd.testAllocator;
+    const font_bytes = try test_font.build(alloc);
+    defer alloc.free(font_bytes);
+    const sfnt = try Sfnt.init(alloc, font_bytes, .{ .check = true });
+
+    // "AÉ": byte by byte, 0xC3 and 0x89 map to no glyph
+    var atlas = try buildTextAtlas(sfnt, alloc, "A\u{C9}", 32, 0, 0, .{});
+    defer atlas.deinit(alloc);
+    try zigstd.testExpectEqual(@as(usize, 2), atlas.glyphs.len);
+    try zigstd.testExpectError(error.InvalidUtf8, buildTextAtlas(sfnt, alloc, "A\xC3", 32, 0, 0, .{}));
 }
 
 test "buildTextAtlas .msdf10 packs the same distances as .msdf" {
