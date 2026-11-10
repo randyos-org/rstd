@@ -532,7 +532,10 @@ fn zeroT(comptime T: type) T {
 }
 
 fn val(comptime T: type, re: Float(T), im: Float(T)) T {
-    return if (comptime isComplex(T)) .init(re, im) else re;
+    if (comptime isComplex(T)) return .init(re, im);
+    // an unused f80 argument leaks an x87 register on the x86_64 backend (issue #272)
+    std.mem.doNotOptimizeAway(im);
+    return re;
 }
 
 /// Element `i` of a vector of `n` at stride `inc`, as an index into its
