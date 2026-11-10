@@ -4,6 +4,7 @@
 const std = @import("std");
 const sysinfo = @import("builtin");
 const zigstd = @import("../../../zigstd.zig");
+const math = @import("../../../math.zig");
 const types = @import("../types.zig");
 const check = @import("check.zig");
 
@@ -13,6 +14,25 @@ const FloatOf = types.Float;
 /// Whether two slices hold the same bytes.
 pub fn sameBits(comptime T: type, a: []const T, b: []const T) bool {
     return std.mem.eql(u8, std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
+}
+
+/// `sameBits`, but for `f64` on x87 within a few ulps of the largest entry:
+/// there the compiler picks, per code path, where excess precision is
+/// rounded off (issue #264).
+pub fn sameBitsOrX87(comptime T: type, a: []const T, b: []const T) bool {
+    if (comptime !(math.x87_f64 and FloatOf(T) == f64)) return sameBits(T, a, b);
+    var big: f64 = 0;
+    for (a) |x| big = @max(big, mag(x));
+    const tol = 8 * std.math.floatEps(f64) * big;
+    for (a, b) |x, y| {
+        const d = if (comptime isComplex(T)) @abs(x.re - y.re) + @abs(x.im - y.im) else @abs(x - y);
+        if (!(d <= tol)) return false;
+    }
+    return true;
+}
+
+fn mag(x: anytype) f64 {
+    return if (comptime isComplex(@TypeOf(x))) @abs(x.re) + @abs(x.im) else @abs(x);
 }
 
 /// Fails unless `want` and `got`, a scalar or a `@Vector`, have the same bits.

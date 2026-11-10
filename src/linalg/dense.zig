@@ -3,7 +3,8 @@
 //! `ConstView`, a `Mat`, a pointer to a `StaticMat` or a slice (a column),
 //! in any mix; a vector is a view of one column or one row. Shapes at or
 //! below the inline limit take the fixed-size forms' operation order, so a
-//! `Mat` and a `StaticMat` holding the same numbers give the same bits; past
+//! `Mat` and a `StaticMat` holding the same numbers give the same bits (not
+//! `f64` on x87, which rounds excess precision per code path; issue #264); past
 //! it, the BLAS and LAPACK. Outputs must not overlap inputs.
 
 const sysinfo = @import("builtin");
@@ -980,7 +981,7 @@ fn copyOf(comptime T: type, allocator: Allocator, a: ConstView(T)) Allocator.Err
 const zigstd = @import("../zigstd.zig");
 const bitwise = @import("blas/_test/bitwise.zig");
 const testing = std.testing;
-const sameBits = bitwise.sameBits;
+const sameBitsOrX87 = bitwise.sameBitsOrX87;
 const C64 = std.math.Complex(f64);
 const test_io = Io.failing;
 
@@ -1006,12 +1007,12 @@ fn expectStaticBits(comptime T: type, comptime r: usize, comptime k: usize, comp
         const got = try mul(al, test_io, &a, &b);
         defer got.deinit(al);
         var w = want;
-        try testing.expect(sameBits(T, w.view().data, got.data));
+        try testing.expect(sameBitsOrX87(T, w.view().data, got.data));
         // a column: `M v`
         const v: [k]T = b.data[0];
         var col: [r]T = undefined;
         try mulInto(al, test_io, &col, &a, &v);
-        try testing.expect(sameBits(T, &col, &@as([r]T, w.data[0])));
+        try testing.expect(sameBitsOrX87(T, &col, &@as([r]T, w.data[0])));
     }
 }
 
@@ -1207,15 +1208,15 @@ fn expectFixedBits(comptime T: type, comptime c: usize, rnd: std.Random) !void {
         fill(T, rnd, b.view().data);
         const m = try copyOf(T, al, a.constView());
         defer m.deinit(al);
-        try testing.expect(sameBits(T, &[_]T{matrix.det(a)}, &[_]T{try det(al, test_io, m)}));
+        try testing.expect(sameBitsOrX87(T, &[_]T{matrix.det(a)}, &[_]T{try det(al, test_io, m)}));
         var want_inv = try matrix.inv(a);
         const got_inv = try inv(al, test_io, m);
         defer got_inv.deinit(al);
-        try testing.expect(sameBits(T, want_inv.view().data, got_inv.data));
+        try testing.expect(sameBitsOrX87(T, want_inv.view().data, got_inv.data));
         var want_x = try matrix.solve(a, b);
         const got_x = try solve(al, test_io, m, &b);
         defer got_x.deinit(al);
-        try testing.expect(sameBits(T, want_x.view().data, got_x.data));
+        try testing.expect(sameBitsOrX87(T, want_x.view().data, got_x.data));
     }
 }
 

@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
+const math = @import("../../math.zig");
 const Allocator = std.mem.Allocator;
 
 fn digitChar(d: usize) u8 {
@@ -14,7 +15,7 @@ fn digitChar(d: usize) u8 {
 pub fn base(allocator: Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     var xa = @abs(x);
     var k: i64 = 0;
-    if (xa != 0.0) k = @trunc(@floor(@log(xa) / @log(b)));
+    if (xa != 0.0) k = @trunc(math.floor(@log(xa) / @log(b)));
     if (xa > 1.0) k += 1;
     xa /= std.math.pow(f64, b, @floatFromInt(k));
     if (b * xa >= b) {
@@ -23,7 +24,7 @@ pub fn base(allocator: Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     }
 
     const mantissa_digits: usize = if (eps != 0.0)
-        @trunc(@floor(-@log(eps) / @log(b) + 4.0))
+        @trunc(math.floor(-@log(eps) / @log(b) + 4.0))
     else
         54;
 
@@ -35,7 +36,7 @@ pub fn base(allocator: Allocator, x: f64, b: f64, eps: f64) ![]u8 {
     var l: usize = 0;
     while (l < mantissa_digits) : (l += 1) {
         xa = b * xa;
-        const j: usize = @trunc(@floor(xa));
+        const j: usize = @trunc(math.floor(xa));
         try out.append(allocator, digitChar(j));
         xa -= @floatFromInt(j);
     }
@@ -51,7 +52,7 @@ pub fn base(allocator: Allocator, x: f64, b: f64, eps: f64) ![]u8 {
         while (t > 0.0) {
             const j: usize = @trunc(@mod(t, b));
             try exp_digits.append(allocator, digitChar(j));
-            t = @floor(t / b);
+            t = math.floor(t / b);
         }
     }
     std.mem.reverse(u8, exp_digits.items);

@@ -145,13 +145,15 @@ pub fn registryQword(comptime subkey: []const u8, comptime value: []const u8) ?u
     };
     const HKEY_LOCAL_MACHINE: usize = 0x80000002;
     const RRF_RT_REG_QWORD: u32 = 0x40;
+    // the 64-bit view from a 32-bit process too, not `WOW6432Node` (issue #264)
+    const RRF_SUBKEY_WOW6464KEY: u32 = 0x10000;
     var raw: u64 = 0;
     var size: u32 = @sizeOf(u64);
     const rc = advapi.RegGetValueW(
         HKEY_LOCAL_MACHINE,
         std.unicode.utf8ToUtf16LeStringLiteral(subkey),
         std.unicode.utf8ToUtf16LeStringLiteral(value),
-        RRF_RT_REG_QWORD,
+        RRF_RT_REG_QWORD | RRF_SUBKEY_WOW6464KEY,
         null,
         &raw,
         &size,

@@ -725,7 +725,8 @@ const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
 
-const expectSameBits = @import("blas/_test/bitwise.zig").expectSameBits;
+const bitwise = @import("blas/_test/bitwise.zig");
+const expectSameBits = bitwise.expectSameBits;
 
 test "StaticMat construction, access and transposes" {
     const M = StaticMat(2, 3, f32);
@@ -899,7 +900,7 @@ fn expectInverts(comptime T: type, comptime n: comptime_int, random: std.Random)
         const x = try solve(m, b);
         for (mul(m, x), b) |got, want| try zigstd.testExpectTrue(isClose(got, want, tol));
         const xs = try solve(m, fromCols(StaticMat(n, 1, T), .{b}));
-        try zigstd.testExpectEqual(x, xs.data[0]);
+        try zigstd.testExpectTrue(bitwise.sameBitsOrX87(T, &x, &xs.data[0]));
         // the determinant is the product of the eigenvalues: of `mᵀ` the same
         const d = det(m);
         const dt = det(transpose(m));

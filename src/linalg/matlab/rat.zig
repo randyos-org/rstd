@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const zigstd = @import("../../zigstd.zig");
+const math = @import("../../math.zig");
 
 pub const Fraction = struct { numerator: f64, denominator: f64 };
 
@@ -12,7 +13,7 @@ pub fn rat(x: f64, max_term: f64, d: []f64) Fraction {
     var k: usize = 0;
     for (0..d.len) |i| {
         k = i;
-        d[k] = @round(z);
+        d[k] = math.round(z);
         z -= d[k];
         if (@abs(z) * max_term <= 1.0) break;
         z = 1.0 / z;
