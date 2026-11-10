@@ -11,6 +11,11 @@ const util = @import("../../util.zig");
 const BlasLong = types.BlasLong;
 const isComplex = types.isComplex;
 
+// s390x vector features: `vx`, `vxeh` on Zig 0.18; `vector`, `vector_enhancements_1` on 0.17 (issue #266)
+const S390x = std.Target.s390x.Feature;
+const s390x_vx: S390x = @field(S390x, if (@hasField(S390x, "vx")) "vx" else "vector");
+const s390x_vxeh: S390x = @field(S390x, if (@hasField(S390x, "vxeh")) "vxeh" else "vector_enhancements_1");
+
 /// A kernel set's tile: `mv` vectors of `vl` lanes (`mr` rows) by `nr`
 /// columns; `mr` and `nr` are also the copies' unrolls. For complex, `vl`
 /// counts elements, and `split` holds their parts in scalars.
@@ -57,7 +62,7 @@ fn vectorBits(comptime T: type, comptime cpu: std.Target.Cpu) u16 {
         .loongarch32, .loongarch64 => if (cpu.has(.loongarch, .lasx)) 256 else if (cpu.has(.loongarch, .lsx)) 128 else 0,
         .mips, .mipsel, .mips64, .mips64el => if (cpu.has(.mips, .msa)) 128 else 0,
         // z13 vectors hold doubles; singles need the z14 enhancements
-        .s390x => if (cpu.has(.s390x, .vx) and (double or cpu.has(.s390x, .vxeh))) 128 else 0,
+        .s390x => if (cpu.has(.s390x, s390x_vx) and (double or cpu.has(.s390x, s390x_vxeh))) 128 else 0,
         .wasm32, .wasm64 => if (cpu.has(.wasm, .simd128)) 128 else 0,
         else => 0,
     };

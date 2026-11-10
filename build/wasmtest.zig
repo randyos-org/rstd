@@ -25,6 +25,8 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
     const step = b.step("wasm-test", "Run rstd's OS-free tests as WASI modules under Node, with and without SIMD128");
     const check = b.step("wasm-check", "Build wasm-test's modules without running them");
     const filters = b.option([]const []const u8, "wasm-test-filter", "Only run wasm tests whose name contains this (repeatable)") orelse default_filters;
+    // one module compiles at a time: two at once can pass a CI runner's memory (issue #268)
+    var prev: ?*Build.Step = null;
     for (variants) |v| {
         const one = b.step(b.fmt("wasm-test-{s}", .{v.name}), b.fmt("Run wasm-test's {s} module only", .{v.name}));
         const one_check = b.step(b.fmt("wasm-check-{s}", .{v.name}), b.fmt("Build wasm-test's {s} module without running it", .{v.name}));
@@ -44,6 +46,8 @@ pub fn addWasmTests(b: *Build, optimize: Optimize) !void {
             .root_module = test_mod,
             .filters = filters,
         });
+        if (prev) |p| test_exe.step.dependOn(p);
+        prev = &test_exe.step;
 
         const run = b.addSystemCommand(&.{"node"});
         run.setName(b.fmt("run rstd-wasm-{s}", .{v.name}));

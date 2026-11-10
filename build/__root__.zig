@@ -64,7 +64,13 @@ pub fn addRstdTest(b: *Build, mod: *Module, target: ResolvedTarget, optimize: Op
     const test_mod = try rstdbuild.cloneModuleWithTarget(b, mod, target);
     test_mod.optimize = optimize;
     if (tsan and target.result.os.tag == .linux and target.result.abi.isGnu()) test_mod.sanitize_thread = true;
-    return b.addTest(.{ .root_module = test_mod, .filters = filters });
+    const t = b.addTest(.{ .root_module = test_mod, .filters = filters });
+    // POWER: the Debug test object passes a branch's 32 MiB reach; with function
+    // sections the linker adds long-branch stubs (issue #265)
+    if (target.result.cpu.arch == .powerpc64 or target.result.cpu.arch == .powerpc64le) {
+        if (@hasField(Compile, "function_sections")) t.function_sections = true else t.link_function_sections = true;
+    }
+    return t;
 }
 
 /// zfls's release targets: the `Cross-compile and package` step of zfls's
