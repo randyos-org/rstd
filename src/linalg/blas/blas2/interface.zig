@@ -593,8 +593,8 @@ fn testGemv(comptime T: type, trans: Trans, m: usize, n: usize, incx: isize, inc
     defer testing.allocator.free(y);
     const want = try testing.allocator.dupe(T, y);
     defer testing.allocator.free(want);
-    const conj_a = trans == .r or trans == .c or trans == .s or trans == .d;
-    const conj_x = trans == .o or trans == .u or trans == .s or trans == .d;
+    const conj_a = trans.conjA();
+    const conj_x = trans.conjX();
     for (0..leny) |r| {
         var acc = zeroT(T);
         for (0..lenx) |q| {
