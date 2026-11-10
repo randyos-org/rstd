@@ -551,12 +551,8 @@ fn processAtlasCodepointInner(
             .height = @intCast(id_rect.rect.h),
         },
         .codepoint = codepoint,
-        .tex_bounds = .{
-            .x = std.math.minInt(i32),
-            .y = std.math.minInt(i32),
-            .w = std.math.minInt(i32),
-            .h = std.math.minInt(i32),
-        },
+        // placed by the packer (`generate`)
+        .tex_bounds = id_rect.rect,
     };
 }
 

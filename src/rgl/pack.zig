@@ -1,6 +1,7 @@
 const std = @import("std");
 const zigstd = @import("../zigstd.zig");
 const Allocator = zigstd.Allocator;
+const geometry = @import("geometry.zig");
 
 // A guillotine-style rectangle bin packer: starts from one free space (the
 // whole canvas) and, for each rect placed, splits the space it landed in
@@ -8,21 +9,8 @@ const Allocator = zigstd.Allocator;
 // rotation, no multiple bins, just placement + splitting. General-purpose
 // (not font-specific); used here to lay out a glyph atlas bitmaps.
 
-pub const Rect = struct {
-    w: i32,
-    h: i32,
-    // x/y are overwritten during packing and are effectively return values.
-    x: i32 = 0,
-    y: i32 = 0,
-
-    pub inline fn area(self: Rect) i32 {
-        return self.w * self.h;
-    }
-
-    pub inline fn perimeter(self: Rect) i32 {
-        return 2 * (self.w + self.h);
-    }
-};
+/// A rect to place: `pack` writes its `x` and `y`.
+pub const Rect = geometry.Rect;
 
 /// Only useful if you don't want to track which output rect corresponds to
 /// which input yourself.
@@ -30,11 +18,11 @@ pub const IdRect = struct {
     id: i32,
     rect: Rect,
 
-    pub inline fn area(self: IdRect) i32 {
+    pub inline fn area(self: IdRect) u64 {
         return self.rect.area();
     }
 
-    pub inline fn perimeter(self: IdRect) i32 {
+    pub inline fn perimeter(self: IdRect) u64 {
         return self.rect.perimeter();
     }
 };
@@ -42,13 +30,13 @@ pub const IdRect = struct {
 pub const Context = struct {
     allocator: Allocator,
     list: std.ArrayList(Rect),
-    w: i32,
-    h: i32,
+    w: u32,
+    h: u32,
 
     /// spaces_to_prealloc should be set to 2x rects supplied to pack() until
     /// deinit if setting assume_capacity to true in pack(). Lower values
     /// will likely work, but are not guaranteed to.
-    pub fn create(allocator: Allocator, w: i32, h: i32, opts: struct { spaces_to_prealloc: u32 = 0 }) Allocator.Error!Context {
+    pub fn create(allocator: Allocator, w: u32, h: u32, opts: struct { spaces_to_prealloc: u32 = 0 }) Allocator.Error!Context {
         var list: std.ArrayList(Rect) = if (opts.spaces_to_prealloc > 0)
             try .initCapacity(allocator, opts.spaces_to_prealloc)
         else
@@ -65,9 +53,9 @@ pub const Context = struct {
     }
 
     pub fn areaFree(self: Context) f32 {
-        const total_space: f32 = @floatFromInt(self.w * self.h);
+        const total_space: f32 = @floatFromInt(@as(u64, self.w) * self.h);
         var free_space: f32 = 0.0;
-        for (self.list.items) |space| free_space += @floatFromInt(space.w * space.h);
+        for (self.list.items) |space| free_space += @floatFromInt(space.area());
         return if (free_space == 0.0) return 0.0 else free_space / total_space;
     }
 
@@ -114,9 +102,12 @@ pub fn pack(
         var iter = std.mem.reverseIterator(ctx.list.items);
         var i: usize = ctx.list.items.len -% 1;
         while (iter.next()) |space| : (i -%= 1) {
+            if (rect.w > space.w or rect.h > space.h) continue;
             const free_w = space.w - rect.w;
             const free_h = space.h - rect.h;
-            if (free_w < 0 or free_h < 0) continue;
+            // where the free spaces right of and below `rect` begin
+            const right = space.x + @as(i32, @intCast(rect.w));
+            const below = space.y + @as(i32, @intCast(rect.h));
 
             defer {
                 rect.x = space.x;
@@ -131,7 +122,7 @@ pub fn pack(
                     opts.assume_capacity,
                     ctx.allocator,
                     &ctx.list,
-                    .{ .x = space.x + rect.w, .y = space.y, .w = space.w - rect.w, .h = space.h },
+                    .{ .x = right, .y = space.y, .w = free_w, .h = space.h },
                 );
                 continue :rectLoop;
             }
@@ -141,7 +132,7 @@ pub fn pack(
                     opts.assume_capacity,
                     ctx.allocator,
                     &ctx.list,
-                    .{ .x = space.x, .y = space.y + rect.h, .w = space.w, .h = space.h - rect.h },
+                    .{ .x = space.x, .y = below, .w = space.w, .h = free_h },
                 );
                 continue :rectLoop;
             }
@@ -151,13 +142,13 @@ pub fn pack(
                     opts.assume_capacity,
                     ctx.allocator,
                     &ctx.list,
-                    .{ .x = space.x + rect.w, .y = space.y, .w = free_w, .h = space.h },
+                    .{ .x = right, .y = space.y, .w = free_w, .h = space.h },
                 );
                 try append(
                     opts.assume_capacity,
                     ctx.allocator,
                     &ctx.list,
-                    .{ .x = space.x, .y = space.y + rect.h, .w = rect.w, .h = free_h },
+                    .{ .x = space.x, .y = below, .w = rect.w, .h = free_h },
                 );
                 continue :rectLoop;
             }
@@ -166,13 +157,13 @@ pub fn pack(
                 opts.assume_capacity,
                 ctx.allocator,
                 &ctx.list,
-                .{ .x = space.x, .y = space.y + rect.h, .w = space.w, .h = free_h },
+                .{ .x = space.x, .y = below, .w = space.w, .h = free_h },
             );
             try append(
                 opts.assume_capacity,
                 ctx.allocator,
                 &ctx.list,
-                .{ .x = space.x + rect.w, .y = space.y, .w = free_w, .h = rect.h },
+                .{ .x = right, .y = space.y, .w = free_w, .h = rect.h },
             );
             continue :rectLoop;
         }
@@ -182,7 +173,9 @@ pub fn pack(
 }
 
 fn rectsOverlap(a: Rect, b: Rect) bool {
-    return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y;
+    const a1 = a.bottomRight();
+    const b1 = b.bottomRight();
+    return a.x < b1.x and a1.x > b.x and a.y < b1.y and a1.y > b.y;
 }
 
 test "pack places non-overlapping rects that all fit within the canvas" {
@@ -203,7 +196,7 @@ test "pack places non-overlapping rects that all fit within the canvas" {
 
     for (rects) |r| {
         try zigstd.testExpectTrue(r.x >= 0 and r.y >= 0);
-        try zigstd.testExpectTrue(r.x + r.w <= 64 and r.y + r.h <= 64);
+        try zigstd.testExpectTrue(r.bottomRight().x <= 64 and r.bottomRight().y <= 64);
     }
     for (0..rects.len) |i| {
         for (i + 1..rects.len) |j| {

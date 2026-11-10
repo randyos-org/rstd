@@ -69,12 +69,21 @@ pub const PointF32 = struct {
 
 /// Axis-aligned, origin top-left, integer pixel rectangle; the unit every
 /// render.zig box primitive (fillRect/strokeRect/fillRoundRect/...) takes.
+/// A rectangle: its top-left corner and its size. `pack` places these.
 pub const Rect = struct {
     const Self = @This();
-    x: i32,
-    y: i32,
+    x: i32 = 0,
+    y: i32 = 0,
     w: u32,
     h: u32,
+
+    pub fn area(self: Self) u64 {
+        return @as(u64, self.w) * self.h;
+    }
+
+    pub fn perimeter(self: Self) u64 {
+        return 2 * (@as(u64, self.w) + self.h);
+    }
 
     pub fn topLeft(self: Self) PointI32 {
         return .{ .x = self.x, .y = self.y };

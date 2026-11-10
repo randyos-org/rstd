@@ -229,7 +229,7 @@ pub fn buildTextAtlas(
 
     // Start from a modest canvas and double it until every glyph fits,
     // rather than assuming a fixed size up front.
-    var canvas: i32 = 256;
+    var canvas: u32 = 256;
     var pack_ctx: pack.Context = while (true) {
         var ctx = try pack.Context.create(gpa, canvas, canvas, .{});
         const result = pack.pack(pack.IdRect, &ctx, id_rects.items, .{ .sortLessThanFn = packSortLessThan });
@@ -253,8 +253,8 @@ pub fn buildTextAtlas(
     for (id_rects.items) |ir| {
         const idx: usize = @intCast(ir.id);
         placements[idx] = .{ .x = @intCast(ir.rect.x), .y = @intCast(ir.rect.y) };
-        atlas_w = @max(atlas_w, @as(u32, @intCast(ir.rect.x + ir.rect.w)));
-        atlas_h = @max(atlas_h, @as(u32, @intCast(ir.rect.y + ir.rect.h)));
+        atlas_w = @max(atlas_w, @as(u32, @intCast(ir.rect.bottomRight().x)));
+        atlas_h = @max(atlas_h, @as(u32, @intCast(ir.rect.bottomRight().y)));
     }
 
     const atlas_pixels: []u8 = switch (channels) {
