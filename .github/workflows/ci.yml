@@ -241,7 +241,6 @@ jobs:
     needs: version
     if: ${{ needs.version.outputs.ci == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -334,7 +333,6 @@ jobs:
     if: ${{ needs.version.outputs.ci == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
     continue-on-error: true
-    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
