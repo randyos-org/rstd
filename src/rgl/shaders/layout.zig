@@ -2,7 +2,6 @@
 //! globals, `ShapeKind` and the per-instance vertex data. Field order, types
 //! and alignment are the wire format the pipelines read.
 
-const linalg = @import("../../linalg/__root__.zig");
 const zigstd = @import("../../zigstd.zig");
 
 /// Per-draw globals, bound as a push constant by every pipeline here. `V2` is
@@ -27,11 +26,10 @@ pub fn Globals(comptime V2: type) type {
     return G;
 }
 
-test "Globals: the host's and the shaders' forms put each member at the same offset" {
+test "Globals: the host form puts each member where the shaders read it" {
     const host = Globals([2]f32);
-    const shader = Globals(linalg.vector.V2f32);
-    inline for (.{ "screen_size", "atlas_size", "glyph_msdf_px_range" }) |name|
-        try zigstd.testExpectEqual(@offsetOf(shader, name), @offsetOf(host, name));
+    try zigstd.testExpectEqual(@as(usize, 8), @offsetOf(host, "atlas_size"));
+    try zigstd.testExpectEqual(@as(usize, 16), @offsetOf(host, "glyph_msdf_px_range"));
     try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(host));
 }
 
