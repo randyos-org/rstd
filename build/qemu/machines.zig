@@ -402,7 +402,7 @@ const base_machines = [_]Machine{
         // code alone is about 5 MB; blas2 by itself is 3.3 MB
         .parts = &.{
             .{ .name = "blas1", .filters = &.{ "linalg.blas.blas1.", "linalg.blas._test.blas1.", "linalg.blas._test.check.", "linalg.blas._test.bitwise." } },
-            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
+            .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.", "linalg.blas._test.bf16.", "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{ "linalg.blas.blas2.banded.", "linalg.blas.blas2.symmetric." } },
             .{ .name = "blas2-triangular", .filters = &.{"linalg.blas.blas2.triangular."} },
             .{ .name = "blas2-interface", .filters = &.{"linalg.blas.blas2.interface."} },
@@ -441,7 +441,7 @@ const base_machines = [_]Machine{
             // the dense routines, the triangular ones, the interface and the
             // complex edge cases each in two, as one is past the window
             .{ .name = "blas2-dense", .filters = &.{ "linalg.blas.blas2.__root__.", "linalg.blas.blas2.gemv.__root__.test.portable", "linalg.blas.blas2.gemv.__root__.test_" } },
-            .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas.blas2.gemv.__root__.test.half-precision gemv:", "linalg.blas.blas2.gemv.extended.test.extended gemv:" } },
+            .{ .name = "blas2-gemv-x87", .filters = &.{ "linalg.blas._test.bf16.gemv.", "linalg.blas.blas2.gemv.extended.test.extended gemv:" } },
             .{ .name = "blas2-gemv-cores", .filters = &.{"linalg.blas.blas2.gemv.__root__.test.every linked core's"} },
             .{ .name = "blas2-dense-2", .filters = &.{ "linalg.blas.blas2.ger.", "linalg.blas.blas2.hemv.", "linalg.blas.blas2.symv." } },
             .{ .name = "blas2-banded", .filters = &.{
