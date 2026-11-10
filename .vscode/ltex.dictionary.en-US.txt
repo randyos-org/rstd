@@ -93,6 +93,7 @@ axpyc
 AXPYKERNEL
 AXPYU
 axpyv
+bacc
 balc
 bbnd
 bbox
@@ -270,6 +271,7 @@ condvar
 configd
 congruential
 CONJG
+conjs
 connect
 conpty
 copy_file_range
@@ -1105,6 +1107,7 @@ kincy
 klogo
 kloop
 kmain
+kmax
 kmod
 kpanic
 kres
@@ -1267,6 +1270,7 @@ MACI
 MADBR
 madd
 maddf
+madds
 madt
 MADV
 madvise
@@ -2395,6 +2399,7 @@ vlenb
 vline
 vlineto
 vmetrics
+vmla
 vmls
 vmov
 vmovddup
@@ -2441,6 +2446,7 @@ vvcurveto
 vvfat
 VXAI
 VXAR
+vxeh
 vzeroall
 vzeroupper
 wait4
