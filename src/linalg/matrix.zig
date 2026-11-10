@@ -190,8 +190,7 @@ pub fn identity(comptime M: type) M {
     return r;
 }
 
-/// The matrix with columns `c`. Arrays, not vectors: Zig 0.17.0 lays out an
-/// array of 5-element vectors wrong on aarch64 (issue #263).
+/// The matrix with columns `c`; vector literals coerce.
 pub fn fromCols(comptime M: type, c: [M.cols][M.rows]M.Element) M {
     var r: M = undefined;
     inline for (0..M.cols) |j| r.data[j] = c[j];
