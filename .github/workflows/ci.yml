@@ -267,7 +267,7 @@ jobs:
           - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
           - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true }
           - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
-          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test }
+          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -292,6 +292,17 @@ jobs:
             macOS) sysctl -n machdep.cpu.brand_string; sysctl -n machdep.cpu.leaf7_features 2>&1 || true ;;
             Windows) powershell -NoProfile -Command '(Get-CimInstance Win32_Processor).Name' ;;
           esac
+
+      # the wasm modules' compile can pass the runner's 16 GB, and the runner
+      # is killed without a word from Zig (issue #268)
+      - name: Swap
+        if: ${{ matrix.platform.swap }}
+        run: |
+          sudo fallocate -l 12G /mnt/rstd-swap
+          sudo chmod 600 /mnt/rstd-swap
+          sudo mkswap /mnt/rstd-swap
+          sudo swapon /mnt/rstd-swap
+          free -h
 
       - name: qemu-user
         if: ${{ matrix.platform.qemu }}
