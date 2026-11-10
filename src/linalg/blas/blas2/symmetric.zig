@@ -173,17 +173,18 @@ pub fn Compose(comptime pre: []const u8, comptime T: type, comptime lower: bool,
     const F = types.Float(T);
     const cs: usize = if (complex) 2 else 1;
     const es = cs * @sizeOf(F);
+    const prec: portable.Prec = .from(pre);
     // the gemv that reads `A` transposed, and the one that adds `A x`
-    const first = pre ++ "gemv_" ++ switch (kind) {
-        .symmetric, .hermitian_rev => "t",
-        .hermitian => "c",
+    const first: portable.Op = switch (kind) {
+        .symmetric, .hermitian_rev => .gemv_t,
+        .hermitian => .gemv_c,
     };
-    const second = pre ++ "gemv_" ++ if (kind == .hermitian_rev) "r" else "n";
+    const second: portable.Op = if (kind == .hermitian_rev) .gemv_r else .gemv_n;
     return struct {
         pub const first_gemv = first;
         pub const second_gemv = second;
-        fn gemv(comptime name: []const u8, m: BlasLong, n: BlasLong, ar: F, ai: F, a: [*]F, lda: BlasLong, x: [*]F, y: [*]F, buf: [*]F) void {
-            const f = blas.kernel(@field(blas.Slot, name));
+        fn gemv(comptime op: portable.Op, m: BlasLong, n: BlasLong, ar: F, ai: F, a: [*]F, lda: BlasLong, x: [*]F, y: [*]F, buf: [*]F) void {
+            const f = blas.kernel(comptime portable.slotTag(prec, op));
             if (comptime complex) {
                 _ = f(m, n, 0, ar, ai, a, lda, x, 1, y, 1, buf);
             } else {
@@ -227,7 +228,7 @@ pub fn Compose(comptime pre: []const u8, comptime T: type, comptime lower: bool,
                     gemv(second, is, min_i, ar, ai, col, lda, at(xs, is), ys, gb);
                 }
                 copyBlock(T, lower, kind, @intCast(min_i), at(a, is + is * lda), @intCast(lda), symbuffer);
-                gemv(pre ++ "gemv_n", min_i, min_i, ar, ai, symbuffer, min_i, at(xs, is), at(ys, is), gb);
+                gemv(.gemv_n, min_i, min_i, ar, ai, symbuffer, min_i, at(xs, is), at(ys, is), gb);
                 if (lower and m - is > min_i) {
                     const below = at(a, is + min_i + is * lda);
                     gemv(first, m - is - min_i, min_i, ar, ai, below, lda, at(xs, is + min_i), at(ys, is), gb);
@@ -258,8 +259,8 @@ pub fn Auto(comptime pre: []const u8, comptime T: type, comptime lower: bool, co
         /// Whether the running core's gemv is its own, so the composed form
         /// runs; the direct loops need no buffer.
         pub fn native() bool {
-            inline for (.{ C.first_gemv, C.second_gemv, pre ++ "gemv_n" }) |name| {
-                if (@field(blas.table().*, name) != @field(portable_gemv, name)) return true;
+            inline for ([_]portable.Op{ C.first_gemv, C.second_gemv, .gemv_n }) |op| {
+                if (portable.slotPtr(blas.table(), .from(pre), op).* != portable.slotPtr(&portable_gemv, .from(pre), op).*) return true;
             }
             return false;
         }

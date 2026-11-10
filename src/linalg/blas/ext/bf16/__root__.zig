@@ -91,9 +91,9 @@ test "portable conversions round-trip through strides" {
 const slots = blk: {
     var out: []const []const u8 = &.{ "sbstobf16_k", "sbdtobf16_k", "sbf16tos_k", "dbf16tod_k", "bscal_k", "sbdot_k" };
     for (kernel.aliases) |a| out = out ++ [_][]const u8{a[0]};
-    for (kernel.families) |f| out = out ++ [_][]const u8{ f[0] ++ "_n", f[0] ++ "_t" };
+    for (kernel.families) |f| out = out ++ [_][]const u8{ portable.halfGemvName(f[0], false), portable.halfGemvName(f[0], true) };
     for (kernel.families) |f| for (kernel.gemm_slots) |s| {
-        out = out ++ [_][]const u8{kernel.gemmPrefix(f[0]) ++ s};
+        out = out ++ [_][]const u8{portable.gemmSlotName(f[0], s)};
     };
     break :blk out;
 };

@@ -484,8 +484,8 @@ fn checkHalf(comptime E: type, comptime Y: type, comptime trans: bool, kern: any
 
 fn checkAllHalf(vt: *const Vtable) !void {
     inline for (bf16_kernel.families) |f| {
-        try checkHalf(f[1], f[2], false, @field(vt, f[0] ++ "_n").?);
-        try checkHalf(f[1], f[2], true, @field(vt, f[0] ++ "_t").?);
+        try checkHalf(f[1], f[2], false, portable.halfGemvPtr(vt, f[0], false).*.?);
+        try checkHalf(f[1], f[2], true, portable.halfGemvPtr(vt, f[0], true).*.?);
     }
 }
 
@@ -559,8 +559,8 @@ test "half-precision gemv: the kernels are the model, bit for bit, fused or not"
 test "half-precision gemv: the @Vector kernels are the model, bit for bit" {
     if (comptime !vector.ported.builds(.sbgemv_n)) return error.SkipZigTest;
     inline for (bf16_kernel.families) |f| {
-        try checkHalfBitsOf(f[1], f[2], false, false, vector.ported.entry(@field(blas.Slot, f[0] ++ "_n")));
-        try checkHalfBitsOf(f[1], f[2], true, false, vector.ported.entry(@field(blas.Slot, f[0] ++ "_t")));
+        try checkHalfBitsOf(f[1], f[2], false, false, vector.ported.entry(portable.halfGemvSlot(f[0], false)));
+        try checkHalfBitsOf(f[1], f[2], true, false, vector.ported.entry(portable.halfGemvSlot(f[0], true)));
     }
 }
 

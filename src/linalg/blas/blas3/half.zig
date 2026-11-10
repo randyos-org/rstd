@@ -57,9 +57,12 @@ pub const HalfGemm = enum {
     }
 
     /// The `gemv` of the same types (`sbgemmt`'s kernel).
-    fn gemv(comptime k: HalfGemm) []const u8 {
-        const t = @tagName(k);
-        return t[0 .. t.len - 1] ++ "v";
+    fn gemv(comptime k: HalfGemm) blas.HalfGemv {
+        return switch (k) {
+            .sbgemm => .sbgemv,
+            .bgemm => .bgemv,
+            .shgemm => .shgemv,
+        };
     }
 };
 
@@ -319,9 +322,9 @@ pub fn gemmt(comptime kind: HalfGemm, vt: *const Vtable, upper: bool, ta: bool, 
         }
         const bb = if (tb) pb + i else pb + i * ldb;
         if (ta) {
-            _ = @field(vt, kind.gemv() ++ "_t").?(@intCast(k), @intCast(len), alpha, pa + r0 * lda, @intCast(lda), bb, incb, beta, cc, 1);
+            _ = portable.halfGemvPtr(vt, comptime kind.gemm(), true).*.?(@intCast(k), @intCast(len), alpha, pa + r0 * lda, @intCast(lda), bb, incb, beta, cc, 1);
         } else {
-            _ = @field(vt, kind.gemv() ++ "_n").?(@intCast(len), @intCast(k), alpha, pa + r0, @intCast(lda), bb, incb, beta, cc, 1);
+            _ = portable.halfGemvPtr(vt, comptime kind.gemm(), false).*.?(@intCast(len), @intCast(k), alpha, pa + r0, @intCast(lda), bb, incb, beta, cc, 1);
         }
     }
 }
@@ -451,11 +454,10 @@ fn smallBlocks() Vtable {
     var vt: Vtable = .{};
     portable.install(&vt);
     inline for (kinds) |kind| {
-        const pre = @tagName(kind);
-        const um = @field(vt, pre ++ "_unroll_m");
-        @field(vt, pre ++ "_p") = 2 * um;
-        @field(vt, pre ++ "_q") = 5;
-        @field(vt, pre ++ "_r") = 3 * @field(vt, pre ++ "_unroll_n") + 1;
+        const g = comptime kind.gemm();
+        portable.paramPtr(&vt, g, .p).* = 2 * portable.paramPtr(&vt, g, .unroll_m).*;
+        portable.paramPtr(&vt, g, .q).* = 5;
+        portable.paramPtr(&vt, g, .r).* = 3 * portable.paramPtr(&vt, g, .unroll_n).* + 1;
     }
     return vt;
 }
@@ -482,10 +484,10 @@ test "half gemm: Cooper Lake's small-matrix sbgemm gives the portable bits in it
     var vt: Vtable = .{};
     portable.install(&vt);
     vt.sbgemm_small_matrix_permit = &alwaysHalf;
-    inline for (.{ "nn", "nt", "tn", "tt", "b0_nn", "b0_nt", "b0_tn", "b0_tt" }) |op| {
-        const slot = @field(util.Slot, "sbgemm_small_kernel_" ++ op);
-        @field(vt, @tagName(slot)) = Cooperlake.entry(slot);
-    }
+    inline for (.{ false, true }) |b0| inline for (0..2) |xa| inline for (0..2) |xb| {
+        const s = comptime portable.GemmSlot.small(b0, xa, xb);
+        portable.gemmSlotPtr(&vt, .sb, s).* = Cooperlake.entry(comptime portable.gemmSlotTag(.sb, s));
+    };
     // every row block and column tail, and depths past one and two slices
     const deep = [_][3]usize{ .{ 70, 17, 5 }, .{ 15, 8, Cooperlake.slice + 3 }, .{ 33, 2, 2 * Cooperlake.slice + 1 } };
     for (shapes ++ deep) |s| for (scalars) |ab| for ([_]bool{ false, true }) |ta| for ([_]bool{ false, true }) |tb| {
@@ -640,9 +642,9 @@ test "interface: gemmtHalf gives gemvHalf's bits per column, and leaves the othe
                         v.* = if (ab[1] == 0) halfOf(O, 0) else halfOf(O, ab[1] * valOf(O, v.*));
                     };
                 } else if (ta) {
-                    try blas.gemvHalf(check.io, @field(blas.HalfGemv, kind.gemv()), .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
+                    try blas.gemvHalf(check.io, comptime kind.gemv(), .t, @intCast(k), @intCast(len), alpha, cs.a.ptr + r0 * cs.lda, @intCast(cs.lda), bb, incb, beta, col, 1);
                 } else {
-                    try blas.gemvHalf(check.io, @field(blas.HalfGemv, kind.gemv()), .n, @intCast(len), @intCast(k), alpha, cs.a.ptr + r0, @intCast(cs.lda), bb, incb, beta, col, 1);
+                    try blas.gemvHalf(check.io, comptime kind.gemv(), .n, @intCast(len), @intCast(k), alpha, cs.a.ptr + r0, @intCast(cs.lda), bb, incb, beta, col, 1);
                 }
             }
             for (want, cs.c, 0..) |w, g, at| {
@@ -684,11 +686,10 @@ test "every core keeps the portable half gemm kernels and their unrolls" {
     const Each = struct {
         fn run(vt: *const Vtable) anyerror!void {
             inline for (bf16_kernel.families) |f| {
-                const pre = comptime bf16_kernel.gemmPrefix(f[0]);
                 const K = bf16_kernel.GemmKernels(f[1], f[2]);
-                inline for (bf16_kernel.gemm_slots) |s| try zigstd.testExpectTrue(@field(vt, pre ++ s) == &@field(K, s[1..]));
-                try zigstd.testExpectEqual(K.unroll_m, @field(vt, pre ++ "_unroll_m"));
-                try zigstd.testExpectEqual(K.unroll_n, @field(vt, pre ++ "_unroll_n"));
+                inline for (bf16_kernel.gemm_slots) |s| try zigstd.testExpectTrue(portable.gemmSlotPtr(vt, f[0], s).* == &@field(K, @tagName(s)));
+                try zigstd.testExpectEqual(K.unroll_m, portable.paramPtr(vt, f[0], .unroll_m).*);
+                try zigstd.testExpectEqual(K.unroll_n, portable.paramPtr(vt, f[0], .unroll_n).*);
             }
         }
     };

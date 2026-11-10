@@ -801,6 +801,7 @@ gemms
 gemmt
 gemmtrsm
 gemv
+gemvs
 genfft
 geqp
 geqpf
