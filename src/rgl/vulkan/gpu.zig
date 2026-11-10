@@ -64,7 +64,7 @@ pub const image_attrs = [_]vk.VertexInputAttributeDescription{
 };
 
 /// Premultiplied-alpha "over" blend, shared by all three pipelines; see
-/// shaders/rgl.zig's header for why they output premultiplied alpha.
+/// shaders/shapes.zig's header for why they output premultiplied alpha.
 const premultiplied_blend: vk.PipelineColorBlendAttachmentState = .{
     .blend_enable = .true,
     .src_color_blend_factor = .one,

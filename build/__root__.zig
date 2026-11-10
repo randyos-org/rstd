@@ -124,7 +124,7 @@ pub fn build(b: *Build) !void {
                 probes.dependOn(&b.addInstallFile(s.spv_frag_path, "spv/" ++ op ++ ".frag.spv").step);
             }
         }
-        for ([_][]const u8{ "rgl", "glyph", "image" }) |n| {
+        for ([_][]const u8{ "shapes", "glyph", "image" }) |n| {
             const s = try rstdbuild.addShader(b, optimize, b.path(b.fmt("src/rgl/shaders/{s}.zig", .{n})), n, .{ ._rstd_mod = rstd_mod });
             probes.dependOn(&b.addInstallFile(s.spv_frag_path, b.fmt("spv/{s}.frag.spv", .{n})).step);
             probes.dependOn(&b.addInstallFile(s.spv_vert_path, b.fmt("spv/{s}.vert.spv", .{n})).step);

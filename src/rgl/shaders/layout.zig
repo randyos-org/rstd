@@ -41,7 +41,7 @@ pub const ShapeKind = enum(u32) {
     circle = 1,
 };
 
-/// One instance of the rect/roundrect/circle/line pipeline (shaders/rgl.zig).
+/// One instance of the rect/roundrect/circle/line pipeline (shaders/shapes.zig).
 /// `rotation` (radians, about the rect's own center) is what makes an
 /// arbitrary-angle `drawLine` possible as just a thin rotated rect.
 pub const RectInstance = extern struct {
