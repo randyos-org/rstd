@@ -9,7 +9,7 @@ A Zig std lib supplement
 - **`fft`, `stats`, `sort`:** the FFT, statistics, and sorting and sets over `linalg`; planned or in progress ([`design.md`](design.md)).
 - **Smaller pieces:** `crypto` (DER, RSA, X.509), `zip`, `msoffice` (compound files), `dll`, `io`, `log`, `debug`, `mem` and the build helpers in `buildutils`.
 
-It builds with Zig 0.17.0 and with 0.18-dev; zfls and RandyOS check it out as a git submodule.
+It builds with Zig 0.17.1 and with 0.18-dev; zfls and RandyOS check it out as a git submodule.
 
 ## Supported platforms
 
