@@ -30,14 +30,14 @@ pub const Error = driver.Error;
 pub fn blocking(comptime T: type, vt: *const Vtable) Blocking {
     const real = Blocking.of(Float(T), vt);
     if (comptime portable.letter(T) == null) return real;
-    const pre = comptime portable.letter(T).? ++ "gemm3m_";
-    const um: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_m")));
-    const un: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_n")));
-    const p = own(@field(vt, pre ++ "p"), real.p);
+    const g = comptime portable.Gemm.of(T, true);
+    const um: usize = @intCast(@max(1, portable.paramPtr(vt, g, .unroll_m).*));
+    const un: usize = @intCast(@max(1, portable.paramPtr(vt, g, .unroll_n).*));
+    const p = own(portable.paramPtr(vt, g, .p).*, real.p);
     return .{
         .p = @max(um, p / um * um),
-        .q = own(@field(vt, pre ++ "q"), real.q),
-        .r = @max(un, own(@field(vt, pre ++ "r"), real.r)),
+        .q = own(portable.paramPtr(vt, g, .q).*, real.q),
+        .r = @max(un, own(portable.paramPtr(vt, g, .r).*, real.r)),
         .um = um,
         .un = un,
     };

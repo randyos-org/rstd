@@ -43,18 +43,18 @@ pub const Blocking = struct {
             const un: usize = K.unroll_n;
             return .{ .p = @max(um, default_p / um * um), .q = default_q, .r = @max(un, default_r), .um = um, .un = un };
         }
-        return fromSlots(vt, comptime portable.letter(T).? ++ "gemm_");
+        return fromSlots(vt, comptime .of(T, false));
     }
 
-    /// From `vt`'s slots `<pre>p`, `q`, `r`, `unroll_m` and `unroll_n`; a
+    /// From `vt`'s `p`, `q`, `r`, `unroll_m` and `unroll_n` of `g`; a
     /// size no rule set, or a rule left negative (`params.derivedR` for a
     /// wide element), takes its default.
-    pub fn fromSlots(vt: *const Vtable, comptime pre: []const u8) Blocking {
-        const um: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_m")));
-        const un: usize = @intCast(@max(1, @field(vt, pre ++ "unroll_n")));
-        const p: usize = @intCast(positive(@field(vt, pre ++ "p"), default_p));
-        const q: usize = @intCast(positive(@field(vt, pre ++ "q"), default_q));
-        const r: usize = @intCast(positive(@field(vt, pre ++ "r"), default_r));
+    pub fn fromSlots(vt: *const Vtable, comptime g: portable.Gemm) Blocking {
+        const um: usize = @intCast(@max(1, portable.paramPtr(vt, g, .unroll_m).*));
+        const un: usize = @intCast(@max(1, portable.paramPtr(vt, g, .unroll_n).*));
+        const p: usize = @intCast(positive(portable.paramPtr(vt, g, .p).*, default_p));
+        const q: usize = @intCast(positive(portable.paramPtr(vt, g, .q).*, default_q));
+        const r: usize = @intCast(positive(portable.paramPtr(vt, g, .r).*, default_r));
         return .{
             // `p` a whole number of row panels
             .p = @max(um, p / um * um),

@@ -307,6 +307,45 @@ pub inline fn slotPtr(vt: anytype, comptime prec: Prec, comptime op: Op) @TypeOf
     return &@field(vt, slotName(prec, op));
 }
 
+/// A gemm with blocking parameters, by `blas3/gemm/params.zig`'s `Table`
+/// field: a precision, a half-precision gemm or a 3M one.
+pub const Gemm = enum {
+    s,
+    d,
+    q,
+    c,
+    z,
+    x,
+    sh,
+    b,
+    sb,
+    c3m,
+    z3m,
+    x3m,
+
+    /// `T`'s gemm, its 3M one for `three`.
+    pub fn of(comptime T: type, comptime three: bool) Gemm {
+        return comptime @field(Gemm, letter(T).? ++ if (three) "3m" else "");
+    }
+
+    /// Its vtable fields' prefix: `sgemm`, `cgemm3m`, `sbgemm`.
+    fn prefix(comptime g: Gemm) []const u8 {
+        return comptime switch (g) {
+            .c3m, .z3m, .x3m => @tagName(g)[0..1] ++ "gemm3m",
+            else => @tagName(g) ++ "gemm",
+        };
+    }
+};
+
+/// A gemm's blocking parameter: `.p` is `sgemm_p` for `.s`, `cgemm3m_p`
+/// for `.c3m`.
+pub const Param = enum { p, q, r, unroll_m, unroll_n, unroll_mn, align_k };
+
+/// `vt`'s parameter `param` of `g`, by pointer; `vt` points to a `Vtable`.
+pub inline fn paramPtr(vt: anytype, comptime g: Gemm, comptime param: Param) @TypeOf(&@field(vt, g.prefix() ++ "_" ++ @tagName(param))) {
+    return &@field(vt, g.prefix() ++ "_" ++ @tagName(param));
+}
+
 /// The vtable slot `op` fills for `T`, or null for a type with no slots. A
 /// type with slots that lacks this one is a compile error, unless
 /// `no_extended_slot` says the reference has none.

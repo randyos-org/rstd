@@ -11,6 +11,7 @@ const threaded = @import("threaded.zig");
 const threading = @import("../threading.zig");
 const test_io = @import("../_test/io.zig");
 const types = @import("../types.zig");
+const portable = @import("../portable.zig");
 const util = @import("../util.zig");
 const Vtable = @import("../Vtable.zig");
 const bf = @import("../ext/bf16/__root__.zig");
@@ -35,6 +36,15 @@ pub const HalfGemm = enum {
     sbgemm,
     bgemm,
     shgemm,
+
+    /// Its blocking parameters' gemm.
+    fn gemm(comptime k: HalfGemm) portable.Gemm {
+        return switch (k) {
+            .sbgemm => .sb,
+            .bgemm => .b,
+            .shgemm => .sh,
+        };
+    }
 
     /// The type of `A` and `B`.
     pub fn In(comptime k: HalfGemm) type {
@@ -104,7 +114,7 @@ pub fn gemmtHalf(io: Io, comptime kind: HalfGemm, uplo: Uplo, transa: Trans, tra
 /// `P`, `Q`, `R` and the unrolls from `kind`'s slots, with `Blocking.of`'s
 /// fallbacks for sizes no rule set (mips64 sets none, arm64 no `sh`).
 pub fn blocking(comptime kind: HalfGemm, vt: *const Vtable) Blocking {
-    return .fromSlots(vt, @tagName(kind) ++ "_");
+    return .fromSlots(vt, comptime kind.gemm());
 }
 
 /// One problem: `kind`'s kernels and the operands.
@@ -320,7 +330,6 @@ pub fn gemmt(comptime kind: HalfGemm, vt: *const Vtable, upper: bool, ta: bool, 
 
 const testing = std.testing;
 const check = @import("../_test/check.zig");
-const portable = @import("../portable.zig");
 const params = @import("gemm/params.zig");
 const zigstd = @import("../../../zigstd.zig");
 

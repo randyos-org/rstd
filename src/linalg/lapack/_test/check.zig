@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const types = @import("../../blas/types.zig");
+const portable = @import("../../blas/portable.zig");
 const test_io = @import("../../blas/_test/io.zig");
 const Vtable = @import("../../blas/Vtable.zig");
 const check = @import("../../blas/_test/check.zig");
@@ -110,7 +111,7 @@ var shrunk: Vtable = undefined;
 pub fn shrink(vt: *const Vtable) *const Vtable {
     shrunk = vt.*;
     shrunk.dtb_entries = 4;
-    inline for (.{ "s", "d", "q", "c", "z", "x" }) |p| @field(shrunk, p ++ "gemm_q") = 3;
+    inline for ([_]portable.Gemm{ .s, .d, .q, .c, .z, .x }) |g| portable.paramPtr(&shrunk, g, .q).* = 3;
     return &shrunk;
 }
 

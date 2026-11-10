@@ -474,9 +474,9 @@ var shrunk: Vtable = undefined;
 
 fn shrink(vt: *const Vtable) *const Vtable {
     shrunk = vt.*;
-    inline for (.{ "s", "d", "q", "c", "z", "x" }) |p| {
-        const un = @max(1, @field(shrunk, p ++ "gemm_unroll_n"));
-        @field(shrunk, p ++ "gemm_q") = 2 * un + 1;
+    inline for ([_]portable.Gemm{ .s, .d, .q, .c, .z, .x }) |g| {
+        const un = @max(1, portable.paramPtr(&shrunk, g, .unroll_n).*);
+        portable.paramPtr(&shrunk, g, .q).* = 2 * un + 1;
     }
     return &shrunk;
 }
