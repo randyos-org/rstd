@@ -36,7 +36,7 @@ pub const Context = struct {
     /// spaces_to_prealloc should be set to 2x rects supplied to pack() until
     /// deinit if setting assume_capacity to true in pack(). Lower values
     /// will likely work, but are not guaranteed to.
-    pub fn create(allocator: Allocator, w: u32, h: u32, opts: struct { spaces_to_prealloc: u32 = 0 }) Allocator.Error!Context {
+    pub fn init(allocator: Allocator, w: u32, h: u32, opts: struct { spaces_to_prealloc: u32 = 0 }) Allocator.Error!Context {
         var list: std.ArrayList(Rect) = if (opts.spaces_to_prealloc > 0)
             try .initCapacity(allocator, opts.spaces_to_prealloc)
         else
@@ -46,7 +46,7 @@ pub const Context = struct {
     }
 
     /// Capacity stays intact, so it's safe to use assume_capacity again if
-    /// it was supplied in create().
+    /// it was supplied in init().
     pub fn clear(self: *Context) Allocator.Error!void {
         self.list.clearRetainingCapacity();
         try self.list.append(self.allocator, .{ .w = self.w, .h = self.h, .x = 0, .y = 0 });
@@ -180,7 +180,7 @@ fn rectsOverlap(a: Rect, b: Rect) bool {
 
 test "pack places non-overlapping rects that all fit within the canvas" {
     const alloc = zigstd.testAllocator;
-    var ctx = try Context.create(alloc, 64, 64, .{});
+    var ctx = try Context.init(alloc, 64, 64, .{});
     defer ctx.deinit();
 
     var rects = [_]Rect{
@@ -207,7 +207,7 @@ test "pack places non-overlapping rects that all fit within the canvas" {
 
 test "pack reports NoSpaceLeft when a rect can't possibly fit" {
     const alloc = zigstd.testAllocator;
-    var ctx = try Context.create(alloc, 16, 16, .{});
+    var ctx = try Context.init(alloc, 16, 16, .{});
     defer ctx.deinit();
 
     var rects = [_]Rect{.{ .w = 32, .h = 32 }};

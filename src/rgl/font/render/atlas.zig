@@ -125,7 +125,7 @@ pub fn buildTextAtlas(
     const head = self.head orelse return error.MissingHead;
     const scale = pixel_size / @as(f32, @floatFromInt(head.unitsPerEm()));
 
-    var generator: msdf = .create(self);
+    var generator: msdf = .init(self);
     const msdf_opts: msdf.Options = .{
         .sdf_type = options.msdf.sdf_type,
         .px_size = @round(pixel_size),
@@ -231,7 +231,7 @@ pub fn buildTextAtlas(
     // rather than assuming a fixed size up front.
     var canvas: u32 = 256;
     var pack_ctx: pack.Context = while (true) {
-        var ctx = try pack.Context.create(gpa, canvas, canvas, .{});
+        var ctx = try pack.Context.init(gpa, canvas, canvas, .{});
         const result = pack.pack(pack.IdRect, &ctx, id_rects.items, .{ .sortLessThanFn = packSortLessThan });
         if (result) {
             break ctx;
