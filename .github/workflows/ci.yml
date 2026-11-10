@@ -236,39 +236,27 @@ jobs:
   # runner has the OS and ISA; 32-bit x86 natively on x86_64; other Linux ISAs
   # under qemu-user (`-fqemu`, as Zig's own CI ran them); wasm under Node. The
   # freestanding RandyOS targets need the QEMU rigs (build/qemu), not yet here.
-  # Tier 3 and 4 failures are reported but do not fail CI (support.md).
   test:
     name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
     needs: version
     if: ${{ needs.version.outputs.ci == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
-    continue-on-error: ${{ matrix.platform.tier >= 3 }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         zig: ['0.17.1', latest]
         platform:
-          - { name: x86_64-windows, tier: 1, runner: windows-2025 }
-          - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
+          # every field the shared steps read, so both matrices have the same shape
+          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, swap: false }
           - { name: aarch64-windows, tier: 2, runner: windows-11-arm }
           - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
           - { name: x86_64-linux-musl, tier: 2, runner: ubuntu-24.04, args: -Dtarget=x86_64-linux-musl }
-          - { name: x86-linux-musl, tier: 4, runner: ubuntu-24.04, args: -Dtarget=x86-linux-musl }
           - { name: aarch64-linux-gnu, tier: 2, runner: ubuntu-24.04-arm }
           - { name: aarch64-linux-musl, tier: 2, runner: ubuntu-24.04-arm, args: -Dtarget=aarch64-linux-musl }
           - { name: aarch64-macos, tier: 2, runner: macos-15 }
           - { name: x86_64-macos, tier: 2, runner: macos-15-intel }
-          - { name: arm-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=arm-linux-musleabihf -fqemu, qemu: true }
-          - { name: riscv64-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=riscv64-linux-musl -fqemu, qemu: true }
-          - { name: powerpc64le-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=powerpc64le-linux-musl -fqemu, qemu: true }
-          - { name: powerpc64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=powerpc64-linux-musl -fqemu, qemu: true }
-          - { name: loongarch64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=loongarch64-linux-musl -fqemu, qemu: true }
-          - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
-          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true }
-          - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
-          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true }
-    steps:
+    steps: &test-steps
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.sha }}
@@ -329,9 +317,37 @@ jobs:
         # ARGS splits into words on purpose
         run: zig build "$STEP" $ARGS -Dtest-host-off --summary line
 
+  # Tier 3 and 4, once tier 1 and 2 pass: the legs that matter get the runners
+  # first and fail fast. Their failures are reported but do not fail CI
+  # (support.md).
+  test-tier34:
+    name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
+    needs: [version, test]
+    if: ${{ needs.version.outputs.ci == 'true' }}
+    runs-on: ${{ matrix.platform.runner }}
+    continue-on-error: true
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ['0.17.1', latest]
+        platform:
+          - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
+          - { name: x86-linux-musl, tier: 4, runner: ubuntu-24.04, args: -Dtarget=x86-linux-musl }
+          - { name: arm-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=arm-linux-musleabihf -fqemu, qemu: true }
+          - { name: riscv64-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=riscv64-linux-musl -fqemu, qemu: true }
+          - { name: powerpc64le-linux, tier: 3, runner: ubuntu-24.04, args: -Dtarget=powerpc64le-linux-musl -fqemu, qemu: true }
+          - { name: powerpc64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=powerpc64-linux-musl -fqemu, qemu: true }
+          - { name: loongarch64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=loongarch64-linux-musl -fqemu, qemu: true }
+          - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
+          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true }
+          - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
+          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true }
+    steps: *test-steps
+
   ci-result:
     name: CI
-    needs: [version, version-check, check, test]
+    needs: [version, version-check, check, test, test-tier34]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -348,7 +364,7 @@ jobs:
 
   release:
     name: Release v${{ needs.version.outputs.version }}
-    needs: [version, check, test]
+    needs: [version, check, test, test-tier34]
     if: >-
       ${{ !cancelled() && needs.version.outputs.release == 'true'
       && needs.check.result == 'success' && needs.test.result == 'success' }}
