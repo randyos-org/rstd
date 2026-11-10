@@ -1,7 +1,8 @@
 const std = @import("std");
 const flate = std.compress.flate;
 
-const RGBA = @import("../color.zig").RGBA;
+const color = @import("../color.zig");
+const RGBA = color.RGBA;
 const RgbaImage = @import("../image.zig").RgbaImage;
 const bytes = @import("../../bytes.zig");
 const zigstd = @import("../../zigstd.zig");
@@ -144,9 +145,11 @@ pub fn encode(alloc: Allocator, img: *const RgbaImage) ![]u8 {
     var y: usize = 0;
     while (y < h) : (y += 1) {
         try uncompressed.append(alloc, 0); // filter type: None
-        // RGBA is a packed struct of four u8 fields, so each row's pixels are
-        // already byte-for-byte identical to PNG's expected R,G,B,A order.
-        try appendArrayBytes(alloc, &uncompressed, img.data[y * w .. (y + 1) * w]);
+        // a packed RGBA row is PNG's R,G,B,A bytes as-is, unless `swapped`
+        const row = img.data[y * w .. (y + 1) * w];
+        if (color.swapped) {
+            for (row) |p| try uncompressed.appendSlice(alloc, &p.toArray());
+        } else try appendArrayBytes(alloc, &uncompressed, row);
     }
     return encodeScanlines(alloc, img.width, img.height, uncompressed.items);
 }
