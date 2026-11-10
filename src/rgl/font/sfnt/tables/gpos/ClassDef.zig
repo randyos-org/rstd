@@ -56,10 +56,11 @@ pub fn classOf(self: ClassDef, glyph: GlyphIndex) u32 {
     const glyph_int = @backingInt(glyph);
     switch (self.format()) {
         1 => {
-            const start_glyph_id = self.startGlyphId();
-            const glyph_count = self.classCount();
-            if (glyph_int >= start_glyph_id and glyph_int < start_glyph_id + glyph_count)
-                return bytes.getU16BE(self.table_data[@as(u32, 3 * @sizeOf(u16)) + 2 * (glyph_int - start_glyph_id) ..]);
+            // in u32: start + count and the entry's offset pass 65535
+            const start: u32 = self.startGlyphId();
+            const count: u32 = self.classCount();
+            if (glyph_int >= start and glyph_int < start + count)
+                return self.getClassValue(glyph_int - start);
         },
         2 => {
             const class_range_count = self.classRangeCount();
@@ -85,6 +86,22 @@ pub fn classOf(self: ClassDef, glyph: GlyphIndex) u32 {
         else => {},
     }
     return 0;
+}
+
+test "classOf: format 1 past glyph 65535 and past 32768 entries" {
+    // start + count is 70000, and glyph 65535's entry sits at byte 71076
+    const start = 30000;
+    const count = 40000;
+    const data = try zigstd.testAllocator.alloc(u8, 6 + 2 * count);
+    defer zigstd.testAllocator.free(data);
+    @memset(data, 0);
+    bytes.setU16BE(data[0..], 1);
+    bytes.setU16BE(data[2..], start);
+    bytes.setU16BE(data[4..], count);
+    bytes.setU16BE(data[6 + 2 * (65535 - start) ..], 7);
+    const cd: ClassDef = .{ .table_data = data };
+    try zigstd.testExpectEqual(@as(u32, 7), cd.classOf(@fromBackingInt(@intCast(65535))));
+    try zigstd.testExpectEqual(@as(u32, 0), cd.classOf(@fromBackingInt(@intCast(29999))));
 }
 
 test "ClassRangeRecord matches the OpenType stream layout" {
