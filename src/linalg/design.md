@@ -50,12 +50,12 @@ Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts,
   `std.mem.Allocator`; nothing uses a global allocator.
 - **Every target.** The same source serves hosted, freestanding, UEFI and WebAssembly targets.
   A target with no per-core kernels runs the portable ones, with no special cases in callers.
-- **Zig 0.17.0 as well as 0.18.** Zfls vendors rstd with `minimum_zig_version = "0.17.0"`
-  (its `build.zig.zon`) and builds it on Zig 0.17.0 for x86_64 and aarch64 Linux, macOS 11 and
-  Windows (its `.github/workflows/ci.yml`). A shim for a 0.17 difference detects the API
-  (`@hasDecl`, `@hasField`, `zig_backend`), and checks the version only for a std bug with
-  nothing to detect (`threading.Evented`, [#203](https://github.com/randyos-org/rstd/issues/203), [#211](https://github.com/randyos-org/rstd/issues/211)). `rstd-check-zig017`, run
-  with 0.17.0, builds the unit tests for those targets with every core's kernels.
+- **Zig 0.17.1 as well as 0.18.** Zfls vendors rstd and builds it on Zig 0.17.1 for x86_64 and
+  aarch64 Linux, macOS 11 and Windows (its `.github/workflows/ci.yml`). A shim for a 0.17
+  difference detects the API (`@hasDecl`, `@hasField`, `zig_backend`), and checks the version
+  only for a std bug with nothing to detect. 0.17.0 is not supported: its `Io.Uring` and
+  `Io.Dispatch` do not compile. `rstd-check-zig017`, run with 0.17.1, builds the unit tests for
+  those targets with every core's kernels.
 
 ## Background
 
@@ -2318,7 +2318,7 @@ here can.
 | `wasm-test` | WASI under Node, a module with SIMD128 and one without (`wasm-test-simd128`, `wasm-test-portable`) | the freestanding rigs' tests, `abi.zig` and `threading.zig`, on the SIMD core and the portable path |
 | `rstd-check-macho` | build only, x86_64 and aarch64 macOS, every core | Mach-O assembly errors |
 | `rstd-check-uefi` | build only, x86_64 and aarch64 UEFI, the UEFI rigs' runner, no filter | every OS-free test compiles for UEFI, also those the rigs leave out |
-| `rstd-check-zig017` | build and link only, with Zig 0.17.0, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
+| `rstd-check-zig017` | build and link only, with Zig 0.17.1, zfls's six targets, every core | zfls's toolchain builds rstd (Requirements) |
 | `rstd-test-x87` | the native suite as `pentium3` code (`x86-windows-gnu` or `x86-linux-musl`), Debug and ReleaseSafe; x86 hosts | x87 widths with threads and an OS; run in each full sweep, with the `-safe` rigs |
 
 The freestanding and UEFI machines (`build/qemu/machines.zig`):

@@ -186,11 +186,11 @@ pub fn build(b: *Build) !void {
         }).step);
     }
 
-    // zfls vendors rstd and builds it with Zig 0.17.0 for these targets
+    // zfls vendors rstd and builds it with Zig 0.17.1 for these targets
     // (design.md, Requirements); every core's kernels, built, not run
-    const zig017_step = b.step("rstd-check-zig017", "Build rstd's unit tests for zfls's targets without running them; run with Zig 0.17.0");
-    if (sysinfo.zig_version.major != 0 or sysinfo.zig_version.minor != 17)
-        zig017_step.dependOn(&b.addFail("rstd-check-zig017 checks Zig 0.17.0; run it with that zig").step);
+    const zig017_step = b.step("rstd-check-zig017", "Build rstd's unit tests for zfls's targets without running them; run with Zig 0.17.1 or a later 0.17");
+    if (sysinfo.zig_version.major != 0 or sysinfo.zig_version.minor != 17 or sysinfo.zig_version.patch < 1)
+        zig017_step.dependOn(&b.addFail("rstd-check-zig017 checks Zig 0.17.1 or a later 0.17; run it with that zig").step);
     for (zfls_targets) |query| {
         const t = b.resolveTargetQuery(query);
         const t_mod = try addRstdModule(b, null, t, optimize, .all, false, false);

@@ -2,8 +2,8 @@ name: CI
 
 # Modeled on zfls's ci.yml. Every pull request and every push to main runs the
 # unit tests on every platform that can run them here (the "test" job), with
-# Zig 0.17.0 and the latest Zig, and checks the build for zfls's targets
-# (rstd-check-zig017) and zig fmt with 0.17.0. Pushes to dev are not run: what reaches dev
+# Zig 0.17.1 and the latest Zig, and checks the build for zfls's targets
+# (rstd-check-zig017) and zig fmt with 0.17.1. Pushes to dev are not run: what reaches dev
 # is checked by its pull request, and dev as a whole by the pull request that
 # releases it (to main); start the workflow by hand on dev to check it in
 # between. A pull request that only changes the files listed in no-ci.txt
@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  ZIG_VERSION: 0.17.0
+  ZIG_VERSION: 0.17.1
 
 defaults:
   run:
@@ -231,7 +231,7 @@ jobs:
         run: ${{ matrix.run }}
 
   # The unit tests on every platform support.md lists with a way to run them
-  # here, with Zig 0.17.0 (zfls's) and the latest Zig the user develops with
+  # here, with Zig 0.17.1 (zfls's) and the latest Zig the user develops with
   # (randyos-org/zig-toolchain's build of zig-build). Natively where a hosted
   # runner has the OS and ISA; 32-bit x86 natively on x86_64; other Linux ISAs
   # under qemu-user (`-fqemu`, as Zig's own CI ran them); wasm under Node. The
@@ -247,7 +247,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        zig: ['0.17.0', latest]
+        zig: ['0.17.1', latest]
         platform:
           - { name: x86_64-windows, tier: 1, runner: windows-2025 }
           - { name: x86-windows (x87), tier: 3, runner: windows-2025, step: rstd-test-x87 }
@@ -299,7 +299,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-user
 
-      # every dependency, then exit: 0.17.0 spells it `--fetch=all`, the latest `--fetch`
+      # every dependency, then exit: 0.17 spells it `--fetch=all`, the latest `--fetch`
       - name: Fetch dependencies
         env:
           FETCH: ${{ matrix.zig == 'latest' && '--fetch' || '--fetch=all' }}

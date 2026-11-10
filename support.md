@@ -166,4 +166,4 @@ and every POWER core is tier 3.
 | Toolchain | Used by | Checked by |
 | --- | --- | --- |
 | Zig 0.18.0-dev.751+069480a1a (self-built) | rstd itself, RandyOS | every step above |
-| Zig 0.17.0 | zfls (ReleaseSafe, its six targets) | `rstd-check-zig017`: builds and links zfls's targets, every core, without running them; `zig build -h` after build-script edits |
+| Zig 0.17.1 | zfls (ReleaseSafe, its six targets) | `rstd-check-zig017`: builds and links zfls's targets, every core, without running them; `zig build -h` after build-script edits |
