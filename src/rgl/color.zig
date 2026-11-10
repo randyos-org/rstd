@@ -201,7 +201,7 @@ pub const RGBAf32 = packed struct {
     pub const blank: Self = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return @as(u32, @bitCast(self)) == @as(u32, @bitCast(other));
+        return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a;
     }
 
     pub fn print(self: Self) void {
@@ -312,7 +312,7 @@ pub const HSLAf32 = packed struct {
     a: f32,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return @as(u32, @bitCast(self)) == @as(u32, @bitCast(other));
+        return self.h == other.h and self.s == other.s and self.l == other.l and self.a == other.a;
     }
 
     pub fn print(self: Self) void {
@@ -413,7 +413,7 @@ pub const YCbCrAf32 = packed struct {
     a: f32,
 
     pub inline fn equals(self: Self, other: Self) bool {
-        return @as(u32, @bitCast(self)) == @as(u32, @bitCast(other));
+        return self.y == other.y and self.cb == other.cb and self.cr == other.cr and self.a == other.a;
     }
 
     pub fn print(self: Self) void {
@@ -702,4 +702,18 @@ test "RGBAf32 <-> YCbCrAf32 round-trips for every standard and range" {
             }
         }
     }
+}
+
+test "f32 colors' equals compares every component, alpha too" {
+    const rgba: RGBAf32 = .{ .r = 0.25, .g = 0.5, .b = 0.75, .a = 1 };
+    var rgba2 = rgba;
+    try zigstd.testExpectTrue(rgba.equals(rgba2));
+    rgba2.a = 0.5;
+    try zigstd.testExpectTrue(!rgba.equals(rgba2));
+    const hsla: HSLAf32 = .{ .h = 0.25, .s = 0.5, .l = 0.75, .a = 1 };
+    try zigstd.testExpectTrue(hsla.equals(hsla));
+    try zigstd.testExpectTrue(!hsla.equals(.{ .h = 0.25, .s = 0.5, .l = 0.75, .a = 0.5 }));
+    const ycbcr: YCbCrAf32 = .{ .y = 0.25, .cb = 0.5, .cr = 0.75, .a = 1 };
+    try zigstd.testExpectTrue(ycbcr.equals(ycbcr));
+    try zigstd.testExpectTrue(!ycbcr.equals(.{ .y = 0.25, .cb = 0.5, .cr = 0.75, .a = 0.5 }));
 }
