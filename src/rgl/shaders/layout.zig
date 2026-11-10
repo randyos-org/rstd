@@ -2,11 +2,16 @@
 //! globals, `ShapeKind` and the per-instance vertex data. Field order, types
 //! and alignment are the wire format the pipelines read.
 
+const linalg = @import("../../linalg/__root__.zig");
+const zigstd = @import("../../zigstd.zig");
+
 /// Per-draw globals, bound as a push constant by every pipeline here. `V2` is
 /// `Vec2` in the shaders (shaders/lib/__root__.zig) and `[2]f32` on the host
-/// (vulkan/gpu.zig).
+/// (vulkan/gpu.zig). The shaders' is 24 bytes and the host's 20: only the
+/// trailing padding differs, so the host's 20-byte push range covers every
+/// member a shader reads.
 pub fn Globals(comptime V2: type) type {
-    return extern struct {
+    const G = extern struct {
         screen_size: V2,
         /// only meaningful to `glyph.zig` (normalizes atlas texture coordinates)
         atlas_size: V2 = .{ 0, 0 },
@@ -16,6 +21,18 @@ pub fn Globals(comptime V2: type) type {
         /// built with, switching to median(r,g,b) signed-distance sampling.
         glyph_msdf_px_range: f32 = 0,
     };
+    // the offsets every side must agree on
+    if (@offsetOf(G, "atlas_size") != 8 or @offsetOf(G, "glyph_msdf_px_range") != 16)
+        @compileError("Globals' members moved: the shaders and the host would disagree");
+    return G;
+}
+
+test "Globals: the host's and the shaders' forms put each member at the same offset" {
+    const host = Globals([2]f32);
+    const shader = Globals(linalg.vector.V2f32);
+    inline for (.{ "screen_size", "atlas_size", "glyph_msdf_px_range" }) |name|
+        try zigstd.testExpectEqual(@offsetOf(shader, name), @offsetOf(host, name));
+    try zigstd.testExpectEqual(@as(usize, 20), @sizeOf(host));
 }
 
 /// rgl.zig's shape, per instance.
