@@ -11,10 +11,9 @@ const registry = @import("../registry.zig");
 pub const Core = coretypes.SparcCoreType;
 
 /// Every routine with kernels here: each routine's converted assembly (its
-/// `asm/__root__.zig`), and `axpy`'s own module, which adds the kernels
-/// upstream writes in C.
+/// `asm/__root__.zig`).
 const converted = .{
-    @import("../blas1/axpy/sparc/kernel.zig"),
+    registry.Kernels(Core, @import("../blas1/axpy/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/asum/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/copy/sparc/asm/__root__.zig")),
     registry.Kernels(Core, @import("../blas1/dot/sparc/asm/__root__.zig")),
