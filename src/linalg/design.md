@@ -53,9 +53,9 @@ Upstream references are to the OpenBLAS checkout that `tools/blas_asm` converts,
 - **Zig 0.17.1 as well as 0.18.** Zfls vendors rstd and builds it on Zig 0.17.1 for x86_64 and
   aarch64 Linux, macOS 11 and Windows (its `.github/workflows/ci.yml`). A shim for a 0.17
   difference detects the API (`@hasDecl`, `@hasField`, `zig_backend`), and checks the version
-  only for a std bug with nothing to detect. 0.17.0 is not supported: its `Io.Uring` and
-  `Io.Dispatch` do not compile. `rstd-check-zig017`, run with 0.17.1, builds the unit tests for
-  those targets with every core's kernels.
+  only for a std bug with nothing to detect (`threading.Evented`, [#203](https://github.com/randyos-org/rstd/issues/203), [#211](https://github.com/randyos-org/rstd/issues/211); 0.17.1's `Io.Uring` still
+  does not compile). `rstd-check-zig017`, run with 0.17.1, builds the unit tests for those
+  targets with every core's kernels.
 
 ## Background
 
