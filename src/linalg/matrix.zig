@@ -725,14 +725,7 @@ const V2f32 = vector.V2f32;
 const V3f32 = vector.V3f32;
 const V4f64 = vector.V4f64;
 
-fn expectSameBits(want: anytype, got: @TypeOf(want)) !void {
-    const T = @TypeOf(want);
-    const U = switch (@typeInfo(T)) {
-        .vector => |info| @Vector(info.len, @Int(.unsigned, @bitSizeOf(info.child))),
-        else => @Int(.unsigned, @bitSizeOf(T)),
-    };
-    try zigstd.testExpectEqual(@as(U, @bitCast(want)), @as(U, @bitCast(got)));
-}
+const expectSameBits = @import("blas/_test/bitwise.zig").expectSameBits;
 
 test "StaticMat construction, access and transposes" {
     const M = StaticMat(2, 3, f32);

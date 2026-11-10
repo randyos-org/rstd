@@ -15,6 +15,16 @@ pub fn sameBits(comptime T: type, a: []const T, b: []const T) bool {
     return std.mem.eql(u8, std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
 }
 
+/// Fails unless `want` and `got`, a scalar or a `@Vector`, have the same bits.
+pub fn expectSameBits(want: anytype, got: @TypeOf(want)) !void {
+    const T = @TypeOf(want);
+    const U = switch (@typeInfo(T)) {
+        .vector => |info| @Vector(info.len, @Int(.unsigned, @bitSizeOf(info.child))),
+        else => @Int(.unsigned, @bitSizeOf(T)),
+    };
+    try zigstd.testExpectEqual(@as(U, @bitCast(want)), @as(U, @bitCast(got)));
+}
+
 fn Bits(comptime F: type) type {
     return @Int(.unsigned, @bitSizeOf(F));
 }

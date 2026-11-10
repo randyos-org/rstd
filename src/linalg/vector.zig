@@ -452,14 +452,7 @@ const Before = struct {
     }
 };
 
-fn expectSameBits(want: anytype, got: @TypeOf(want)) !void {
-    const T = @TypeOf(want);
-    const U = switch (@typeInfo(T)) {
-        .vector => |info| @Vector(info.len, @Int(.unsigned, @bitSizeOf(info.child))),
-        else => @Int(.unsigned, @bitSizeOf(T)),
-    };
-    try zigstd.testExpectEqual(@as(U, @bitCast(want)), @as(U, @bitCast(got)));
-}
+const expectSameBits = @import("blas/_test/bitwise.zig").expectSameBits;
 
 fn expectAsBefore(comptime T: type, comptime n: comptime_int, random: std.Random) !void {
     const scales = [_]f64{ 1, 1e-3, 1e3, 1e30, 1e-30, 1e200, 1e-200 };
