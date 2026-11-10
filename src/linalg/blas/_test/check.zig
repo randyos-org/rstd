@@ -40,6 +40,29 @@ pub const sd_types = .{ f32, f64, types.Complex32, types.Complex64 };
 /// `sd_types` and the extended types with slots of their own.
 pub const all_types = sd_types ++ x_real ++ x_complex;
 /// `sd_types` by their precision letters.
+/// The level-1 reductions the edge and denormal tests sweep.
+pub const Reduce = enum {
+    asum,
+    sum,
+    nrm2,
+
+    pub fn op(r: Reduce) portable.Op {
+        return switch (r) {
+            .asum => .asum_k,
+            .sum => .sum_k,
+            .nrm2 => .nrm2_k,
+        };
+    }
+};
+
+/// The level-1 extremes: the value op, the index op, and what they find.
+pub const extremes = [_]struct { portable.Op, portable.Op, extremum.Find }{
+    .{ .amax_k, .iamax_k, .{ .abs = true, .max = true } },
+    .{ .amin_k, .iamin_k, .{ .abs = true, .max = false } },
+    .{ .max_k, .imax_k, .{ .abs = false, .max = true } },
+    .{ .min_k, .imin_k, .{ .abs = false, .max = false } },
+};
+
 pub const sd_letters = .{ .{ "s", f32 }, .{ "d", f64 }, .{ "c", types.Complex32 }, .{ "z", types.Complex64 } };
 
 /// Lengths that straddle every unroll and block size of the kernels. Not 0:

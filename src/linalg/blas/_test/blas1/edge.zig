@@ -279,7 +279,7 @@ fn dotRun(comptime T: type, ctx: anytype, c: Case) !void {
     try y.unchanged();
 }
 
-const Reduce = enum { asum, sum, nrm2 };
+const Reduce = check.Reduce;
 
 fn Reduction(comptime K: type) type {
     return struct { kern: K, op: Reduce };
@@ -396,20 +396,20 @@ fn slots(comptime l: []const u8, comptime T: type, vt: *const Vtable) void {
         const k = portable.slotPtr(vt, .from(l), .rotm_k).*.?;
         note(sweep(T, l ++ "rotm", true, true, Rotm(@TypeOf(k)){ .kern = k, .flag = flag }, rotmRun));
     };
-    inline for (if (complex) .{ .{ "dotu", false }, .{ "dotc", true } } else .{.{ "dot", false }}) |d| {
-        const k = @field(vt, l ++ d[0] ++ "_k").?;
-        note(sweep(T, l ++ d[0], true, true, Dot(@TypeOf(k)){ .kern = k, .conj = d[1] }, dotRun));
+    const prec: portable.Prec = comptime .from(l);
+    inline for (if (complex) .{ .{ portable.Op.dotu_k, false }, .{ portable.Op.dotc_k, true } } else .{.{ portable.Op.dot_k, false }}) |d| {
+        const k = portable.slotPtr(vt, prec, d[0]).*.?;
+        note(sweep(T, portable.slotName(prec, d[0]), true, true, Dot(@TypeOf(k)){ .kern = k, .conj = d[1] }, dotRun));
     }
     inline for (comptime std.enums.values(Reduce)) |op| {
-        const k = @field(vt, l ++ @tagName(op) ++ "_k").?;
-        note(sweep(T, l ++ @tagName(op), false, op == .nrm2, Reduction(@TypeOf(k)){ .kern = k, .op = op }, reduceRun));
+        const k = portable.slotPtr(vt, prec, op.op()).*.?;
+        note(sweep(T, portable.slotName(prec, op.op()), false, op == .nrm2, Reduction(@TypeOf(k)){ .kern = k, .op = op }, reduceRun));
     }
-    inline for (.{ "amax", "amin", "max", "min" }) |name| {
-        if (comptime complex and name[0] != 'a') continue;
-        const find: extremum.Find = .{ .abs = name[0] == 'a', .max = comptime std.mem.endsWith(u8, name, "max") };
-        inline for (.{ "", "i" }) |i| {
-            const k = @field(vt, i ++ l ++ name ++ "_k").?;
-            note(sweep(T, i ++ l ++ name, false, false, Extreme(@TypeOf(k)){ .kern = k, .find = find }, extremeRun));
+    inline for (check.extremes) |e| {
+        if (comptime complex and !e[2].abs) continue;
+        inline for (.{ e[0], e[1] }) |op| {
+            const k = portable.slotPtr(vt, prec, op).*.?;
+            note(sweep(T, portable.slotName(prec, op), false, false, Extreme(@TypeOf(k)){ .kern = k, .find = e[2] }, extremeRun));
         }
     }
 }
@@ -524,13 +524,14 @@ fn checkShifted(vt: *const Vtable) !void {
     inline for (vtable_types) |p| {
         const l = p[0];
         const T = p[1];
-        inline for (.{ "asum", "sum", "nrm2" }) |r| note(shifted(T, l ++ r, false, @field(vt, l ++ r ++ "_k").?));
-        inline for (if (comptime isComplex(T)) .{ "dotu", "dotc" } else .{"dot"}) |r| note(shifted(T, l ++ r, true, @field(vt, l ++ r ++ "_k").?));
+        const prec: portable.Prec = comptime .from(l);
+        inline for (comptime std.enums.values(Reduce)) |r| note(shifted(T, portable.slotName(prec, r.op()), false, portable.slotPtr(vt, prec, r.op()).*.?));
+        inline for (if (comptime isComplex(T)) .{ portable.Op.dotu_k, portable.Op.dotc_k } else .{portable.Op.dot_k}) |r| note(shifted(T, portable.slotName(prec, r), true, portable.slotPtr(vt, prec, r).*.?));
         const a: T = if (comptime isComplex(T)) .init(1.5, -0.75) else 1.5;
         // complex kernels branch on a zero part (`scalReal` passes one)
         const scals: []const T = if (comptime isComplex(T)) &.{ a, .init(1.5, 0), .init(0, -0.75) } else &.{a};
         for (scals) |s| note(shiftedWise(T, l ++ "scal", .scal, portable.slotPtr(vt, .from(l), .scal_k).*.?, s));
-        inline for (if (comptime isComplex(T)) .{ "axpy", "axpyc" } else .{"axpy"}) |r| note(shiftedWise(T, l ++ r, .axpy, @field(vt, l ++ r ++ "_k").?, a));
+        inline for (if (comptime isComplex(T)) .{ portable.Op.axpy_k, portable.Op.axpyc_k } else .{portable.Op.axpy_k}) |r| note(shiftedWise(T, portable.slotName(prec, r), .axpy, portable.slotPtr(vt, prec, r).*.?, a));
         if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| note(shiftedWise(T, l ++ "axpby", .axpby, k, a));
         note(shiftedWise(T, l ++ "rot", .rot, portable.slotPtr(vt, .from(l), .rot_k).*.?, a));
     }
@@ -618,18 +619,19 @@ fn contractCase(comptime l: []const u8, comptime T: type, vt: *const Vtable, ref
     const F = Float(T);
     const complex = comptime isComplex(T);
     const ni: BlasLong = @intCast(n);
-    inline for (.{ "amax", "amin", "max", "min" }) |name| {
-        if (comptime complex and name[0] != 'a') continue;
-        const i_got = @field(vt, "i" ++ l ++ name ++ "_k").?(ni, x, 1);
-        const i_want = @field(ref, "i" ++ l ++ name ++ "_k").?(ni, x, 1);
+    const prec: portable.Prec = comptime .from(l);
+    inline for (check.extremes) |e| {
+        if (comptime complex and !e[2].abs) continue;
+        const i_got = portable.slotPtr(vt, prec, e[1]).*.?(ni, x, 1);
+        const i_want = portable.slotPtr(ref, prec, e[1]).*.?(ni, x, 1);
         if (i_got != i_want) {
-            check.say("i{s}{s}: {d}, the portable kernel {d}: ", .{ l, name, i_got, i_want });
+            check.say("{s}: {d}, the portable kernel {d}: ", .{ portable.slotName(prec, e[1]), i_got, i_want });
             return error.TestUnexpectedResult;
         }
-        const got = @field(vt, l ++ name ++ "_k").?(ni, x, 1);
-        const want = @field(ref, l ++ name ++ "_k").?(ni, x, 1);
+        const got = portable.slotPtr(vt, prec, e[0]).*.?(ni, x, 1);
+        const want = portable.slotPtr(ref, prec, e[0]).*.?(ni, x, 1);
         if (!(got == want or (std.math.isNan(got) and std.math.isNan(want)))) {
-            check.say("{s}{s}: {e}, the portable kernel {e}: ", .{ l, name, got, want });
+            check.say("{s}: {e}, the portable kernel {e}: ", .{ portable.slotName(prec, e[0]), got, want });
             return error.TestUnexpectedResult;
         }
     }
