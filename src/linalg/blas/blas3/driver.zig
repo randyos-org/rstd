@@ -215,15 +215,27 @@ pub fn Matrix(comptime T: type) type {
     return struct { p: [*]T, ld: usize };
 }
 
+/// Which operand a copy packs, as the reference names its copies: `i` the
+/// inner (`A`'s panel), `o` the outer (`B`'s).
+pub const Side = enum { i, o };
+
+/// `<symm|hemm>_<io><u|l>tcopy`.
+fn symCopyOp(comptime herm: bool, comptime io: Side, comptime upper: bool) Op {
+    return switch (io) {
+        .i => if (herm) (if (upper) .hemm_iutcopy else .hemm_iltcopy) else (if (upper) .symm_iutcopy else .symm_iltcopy),
+        .o => if (herm) (if (upper) .hemm_outcopy else .hemm_oltcopy) else (if (upper) .symm_outcopy else .symm_oltcopy),
+    };
+}
+
 /// A symmetric (or `herm`, Hermitian) copy: `io` the side, `upper` the triangle.
-fn symCopy(comptime T: type, vt: *const Vtable, comptime io: []const u8, herm: bool, upper: bool, m: usize, n: usize, a: [*]T, lda: usize, x: usize, y: usize, dst: [*]T) void {
+fn symCopy(comptime T: type, vt: *const Vtable, comptime io: Side, herm: bool, upper: bool, m: usize, n: usize, a: [*]T, lda: usize, x: usize, y: usize, dst: [*]T) void {
     if (comptime isComplex(T)) {
         if (herm) return if (upper)
-            placed(T, vt, @field(Op, "hemm_" ++ io ++ "utcopy"), m, n, a, lda, x, y, dst)
+            placed(T, vt, comptime symCopyOp(true, io, true), m, n, a, lda, x, y, dst)
         else
-            placed(T, vt, @field(Op, "hemm_" ++ io ++ "ltcopy"), m, n, a, lda, x, y, dst);
+            placed(T, vt, comptime symCopyOp(true, io, false), m, n, a, lda, x, y, dst);
     }
-    if (upper) placed(T, vt, @field(Op, "symm_" ++ io ++ "utcopy"), m, n, a, lda, x, y, dst) else placed(T, vt, @field(Op, "symm_" ++ io ++ "ltcopy"), m, n, a, lda, x, y, dst);
+    if (upper) placed(T, vt, comptime symCopyOp(false, io, true), m, n, a, lda, x, y, dst) else placed(T, vt, comptime symCopyOp(false, io, false), m, n, a, lda, x, y, dst);
 }
 
 /// Rows of `op(A)` (`gemm_incopy` for `A^T`, else `gemm_itcopy`).
@@ -241,7 +253,7 @@ pub fn packRows(comptime T: type, vt: *const Vtable, d: Desc, x: Matrix(T), min_
     switch (d.rows) {
         .n => rowsCopy(T, vt, false, min_l, min_i, x.p + is + ls * x.ld, x.ld, dst),
         .t => rowsCopy(T, vt, true, min_l, min_i, x.p + ls + is * x.ld, x.ld, dst),
-        .upper, .lower => symCopy(T, vt, "i", d.herm, d.rows == .upper, min_l, min_i, x.p, x.ld, is, ls, dst),
+        .upper, .lower => symCopy(T, vt, .i, d.herm, d.rows == .upper, min_l, min_i, x.p, x.ld, is, ls, dst),
     }
 }
 
@@ -250,7 +262,7 @@ pub fn packCols(comptime T: type, vt: *const Vtable, d: Desc, y: Matrix(T), min_
     switch (d.cols) {
         .n => colsCopy(T, vt, false, min_l, min_jj, y.p + ls + jjs * y.ld, y.ld, dst),
         .t => colsCopy(T, vt, true, min_l, min_jj, y.p + jjs + ls * y.ld, y.ld, dst),
-        .upper, .lower => symCopy(T, vt, "o", d.herm, d.cols == .upper, min_l, min_jj, y.p, y.ld, jjs, ls, dst),
+        .upper, .lower => symCopy(T, vt, .o, d.herm, d.cols == .upper, min_l, min_jj, y.p, y.ld, jjs, ls, dst),
     }
 }
 
