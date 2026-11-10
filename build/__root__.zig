@@ -19,27 +19,32 @@ const Optimize = rstdbuild.Optimize;
 /// rstd's module for `target`: its options, BLAS kernels and platform imports.
 /// `name` registers it for consumers; null keeps it private to this build (a
 /// second target, as `qemu/__root__.zig`'s macOS VM uses).
+/// What `addRstdModule` builds in beyond the library itself.
+pub const ModuleOptions = struct {
+    vulkan: bool = false,
+    /// RenderDoc's in-app API for `rgl.renderdoc`; desktop targets only.
+    renderdoc: bool = false,
+};
+
 pub fn addRstdModule(
     b: *Build,
     name: ?[]const u8,
     target: ResolvedTarget,
     optimize: Optimize,
     blas_cores: rstdbuild.BlasCores,
-    vulkan: bool,
-    /// RenderDoc's in-app API for `rgl.renderdoc`; desktop targets only.
-    renderdoc: bool,
+    opts: ModuleOptions,
 ) !*Module {
     const root = b.path("src/__root__.zig");
     const mod = if (name) |n|
         b.addModule(n, .{ .root_source_file = root })
     else
         b.createModule(.{ .root_source_file = root, .target = target, .optimize = optimize });
-    const has_renderdoc = renderdoc and switch (target.result.os.tag) {
+    const has_renderdoc = opts.renderdoc and switch (target.result.os.tag) {
         .windows, .linux, .macos => true,
         else => false,
     };
     const options = try rstdbuild.addBuildOptionsModule(b, @tagName(zon.name), zon.version, null);
-    options.addOption(bool, "has_vulkan", vulkan);
+    options.addOption(bool, "has_vulkan", opts.vulkan);
     options.addOption(bool, "has_renderdoc", has_renderdoc);
     mod.addImport("rstd_options", try rstdbuild.optionsModule(options));
     // Stock Zig rejects `@Matrix` even in a file it never analyzes, so the
@@ -103,7 +108,7 @@ pub fn build(b: *Build) !void {
     // compiling them only happens when asked for.
     const vulkan_opt = b.option(bool, "vulkan", "Compile rgl's Vulkan/SPIR-V shaders") orelse false;
     const renderdoc_opt = b.option(bool, "renderdoc", "Link RenderDoc's in-app capture API (fetches renderdoc and translate-c)") orelse false;
-    const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, vulkan_opt, renderdoc_opt);
+    const rstd_mod = try addRstdModule(b, "rstd", target, optimize, blas_cores, .{ .vulkan = vulkan_opt, .renderdoc = renderdoc_opt });
     if (vulkan_opt) {
         try rstdbuild.wireRglShaders(b, optimize, rstd_mod);
         rstdbuild.addVulkan(b).addImportToModule(rstd_mod);
@@ -157,7 +162,7 @@ pub fn build(b: *Build) !void {
     if (host.cpu.arch.isX86() and (host.os.tag == .windows or host.os.tag == .linux)) {
         const x87 = b.resolveTargetQuery(.{ .cpu_arch = .x86, .os_tag = host.os.tag, .abi = if (host.os.tag == .windows) .gnu else .musl, .cpu_model = .{ .explicit = &std.Target.x86.cpu.pentium3 } });
         for ([_]Optimize{ .debug, .safe }) |mode| {
-            const x87_mod = try addRstdModule(b, null, x87, mode, blas_cores, false, false);
+            const x87_mod = try addRstdModule(b, null, x87, mode, blas_cores, .{});
             const x87_exe = try addRstdTest(b, x87_mod, x87, mode, test_filter);
             x87_step.dependOn(&b.addRunArtifact(x87_exe).step);
             x87_build.dependOn(&x87_exe.step);
@@ -172,7 +177,7 @@ pub fn build(b: *Build) !void {
     const macho_step = b.step("rstd-check-macho", "Build rstd's unit tests for macOS (x86_64, aarch64) without running them");
     for ([_]std.Target.Cpu.Arch{ .x86_64, .aarch64 }) |arch| {
         const macho = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .macos });
-        const macho_mod = try addRstdModule(b, null, macho, optimize, .all, false, false);
+        const macho_mod = try addRstdModule(b, null, macho, optimize, .all, .{});
         macho_step.dependOn(&(try addRstdTest(b, macho_mod, macho, optimize, &.{})).step);
     }
 
@@ -199,7 +204,7 @@ pub fn build(b: *Build) !void {
         zig017_step.dependOn(&b.addFail("rstd-check-zig017 checks Zig 0.17.1 or a later 0.17; run it with that zig").step);
     for (zfls_targets) |query| {
         const t = b.resolveTargetQuery(query);
-        const t_mod = try addRstdModule(b, null, t, optimize, .all, false, false);
+        const t_mod = try addRstdModule(b, null, t, optimize, .all, .{});
         const t_test = try addRstdTest(b, t_mod, t, optimize, test_filter);
         // emitted, so codegen and the link run too, as in zfls's builds
         _ = t_test.getEmittedBin();

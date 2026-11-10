@@ -37,7 +37,7 @@ const SshVariant = struct { suffix: []const u8 = "", env: ?[]const u8 = null, wh
 /// `ssh-test-<arch>-macos`: the full suite for `target`, run on `mac`, once
 /// per variant.
 fn addSshTest(b: *Build, optimize: Optimize, filters: []const []const u8, mac: []const u8, tool: *rstdbuild.CompileStep, target: rstdbuild.ResolvedTarget, variants: []const SshVariant) !void {
-    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, false, false);
+    const mod = try buildroot.addRstdModule(b, null, target, optimize, .all, .{});
     const test_exe = try buildroot.addRstdTest(b, mod, target, optimize, filters);
     for (variants) |v| {
         // under the qemu rigs' watchdog: an hour with no output ends it
