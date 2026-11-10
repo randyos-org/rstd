@@ -248,7 +248,7 @@ jobs:
         zig: ['0.17.1', latest]
         platform:
           # every field the shared steps read, so both matrices have the same shape
-          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, swap: false }
+          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, swap: false, node: '' }
           - { name: aarch64-windows, tier: 2, runner: windows-11-arm }
           - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
           - { name: x86_64-linux-musl, tier: 2, runner: ubuntu-24.04, args: -Dtarget=x86_64-linux-musl }
@@ -291,6 +291,14 @@ jobs:
           sudo mkswap /mnt/rstd-swap
           sudo swapon /mnt/rstd-swap
           free -h
+
+      # the runner's node 22.23.4 crashes in a GC during the wasm modules' WASI
+      # writes; 20, 22.19 and 24 run them (issue #274)
+      - name: Node
+        if: ${{ matrix.platform.node }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.platform.node }}
 
       - name: qemu-user
         if: ${{ matrix.platform.qemu }}
@@ -342,7 +350,7 @@ jobs:
           - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
           - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true }
           - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
-          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true }
+          - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true, node: '24' }
     steps: *test-steps
 
   ci-result:
