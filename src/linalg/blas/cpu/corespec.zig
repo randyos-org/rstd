@@ -313,6 +313,17 @@ pub fn runsOn(cpu: std.Target.Cpu, core: anytype) bool {
     };
 }
 
+/// Whether a target's features can tell that its CPU runs `core`'s kernels:
+/// not the Loongson 3A ones, whose MMI and EXT instructions no Zig feature
+/// names. A build for the target never picks those (`-Dblas-cores=target`);
+/// detection reaches them where they are linked.
+pub fn targetPickable(core: anytype) bool {
+    return switch (@TypeOf(core)) {
+        coretypes.MipsCoreType => core != .loongson3r3 and core != .loongson3r4,
+        else => true,
+    };
+}
+
 fn runsOnMips(cpu: std.Target.Cpu, core: coretypes.MipsCoreType) bool {
     const wide = cpu.arch.isMips64();
     return switch (core) {

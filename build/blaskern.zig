@@ -262,6 +262,7 @@ fn pickTarget(
     var best: ?usize = null;
     var best_count: usize = 0;
     for (groups, 0..) |g, i| {
+        if (!pickable(arch_tag, g)) continue;
         const features = b.resolveTargetQuery(g.query).result.cpu.features;
         if (!target.result.cpu.features.isSuperSetOf(features)) continue;
         if (best == null or features.count() > best_count) {
@@ -271,4 +272,13 @@ fn pickTarget(
     }
     const i = best orelse return null;
     return .{ .group = i, .core = groups[i].cores.items[0] };
+}
+
+/// Whether every core of `g` may be the target's pick (`corespec.targetPickable`).
+fn pickable(comptime arch_tag: std.Target.Cpu.Arch, g: Group) bool {
+    for (g.cores.items) |name| {
+        const core = std.meta.stringToEnum(corespec.CoreType(arch_tag), name).?;
+        if (!corespec.targetPickable(core)) return false;
+    }
+    return true;
 }
