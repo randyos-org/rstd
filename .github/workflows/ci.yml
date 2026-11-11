@@ -247,7 +247,7 @@ jobs:
         zig: ['0.17.1', latest]
         platform:
           # every field the shared steps read, so both matrices have the same shape
-          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, swap: false, node: '' }
+          - { name: x86_64-windows, tier: 1, runner: windows-2025, step: rstd-test, qemu: false, qemu_cpu: '', swap: false, node: '' }
           - { name: aarch64-windows, tier: 2, runner: windows-11-arm }
           - { name: x86_64-linux-gnu, tier: 2, runner: ubuntu-24.04 }
           - { name: x86_64-linux-musl, tier: 2, runner: ubuntu-24.04, args: -Dtarget=x86_64-linux-musl }
@@ -301,9 +301,13 @@ jobs:
 
       - name: qemu-user
         if: ${{ matrix.platform.qemu }}
+        env:
+          CPU: ${{ matrix.platform.qemu_cpu }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-user
+          # an empty QEMU_CPU is an unknown model, so only when a leg names one
+          if [ -n "$CPU" ]; then echo "QEMU_CPU=$CPU" >> "$GITHUB_ENV"; fi
 
       # every dependency, then exit: 0.17 spells it `--fetch=all`, the latest `--fetch`
       - name: Fetch dependencies
@@ -346,7 +350,9 @@ jobs:
           - { name: powerpc64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=powerpc64-linux-musl -fqemu, qemu: true }
           - { name: loongarch64-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=loongarch64-linux-musl -fqemu, qemu: true }
           - { name: s390x-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=s390x-linux-musl -fqemu, qemu: true }
-          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true }
+          # qemu-user's own pick, 5KEf, drops every FCSR write (issue #275); the
+          # Loongson cores run on the 3A4000 rig
+          - { name: mips64el-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mips64el-linux-muslabi64 -fqemu, qemu: true, qemu_cpu: MIPS64R2-generic }
           - { name: mipsel-linux, tier: 4, runner: ubuntu-24.04, args: -Dtarget=mipsel-linux-musleabihf -fqemu, qemu: true }
           - { name: wasm32-wasi, tier: 3, runner: ubuntu-24.04, step: wasm-test, swap: true, node: '24' }
     steps: *test-steps

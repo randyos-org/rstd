@@ -14,6 +14,9 @@ pub const CoreType = coretypes.MipsCoreType;
 pub const Decision = select.Decision(CoreType);
 
 pub const HWCAP_LOONGSON_CPUCFG: usize = 1 << 14;
+/// Linux's `HWCAP_LOONGSON_MMI` and `HWCAP_LOONGSON_EXT`: every 3A has both.
+pub const HWCAP_LOONGSON_MMI: usize = 1 << 11;
+pub const HWCAP_LOONGSON_EXT: usize = 1 << 12;
 /// Linux's `HWCAP_MIPS_MSA` (`asm/hwcap.h`).
 pub const HWCAP_MIPS_MSA: usize = 1 << 1;
 
@@ -22,7 +25,7 @@ const MMI_MASK: u32 = 0x00000010;
 const MSA_MASK: u32 = 0x00000020;
 
 pub const Feature = enum {
-    /// Loongson multimedia instructions
+    /// Loongson 3A's multimedia and EXT instructions
     mmi,
     /// MIPS SIMD architecture
     msa,
@@ -38,9 +41,37 @@ pub const Caps = struct {
 
 /// Whether this machine can run `core`'s kernels (for tests). The build links
 /// only cores of the target's word size and release; the SIMD ones also need
-/// MSA turned on.
+/// MSA turned on, and the Loongson ones a Loongson 3A (`gslqc1` and the like).
 pub fn runsHere(core: CoreType) bool {
-    return !needsMsa(core) or machineHasMsa();
+    if (needsMsa(core) and !machineHasMsa()) return false;
+    return !needsLoongson(core) or machineIsLoongson();
+}
+
+fn needsLoongson(core: CoreType) bool {
+    return switch (core) {
+        .loongson3r3, .loongson3r4 => true,
+        .mips64_generic, .unknown, .mips24k, .mips1004k, .p5600, .i6400, .i6500, .p6600 => false,
+    };
+}
+
+fn machineIsLoongson() bool {
+    if (comptime !sysinfo.target.cpu.arch.isMips()) return false;
+    return switch (sysinfo.target.os.tag) {
+        .linux => probe().has(.mmi),
+        // the rigs' test kernels, in kernel mode
+        .freestanding => cp0Loongson(),
+        else => false,
+    };
+}
+
+/// A Loongson 3A by `PRId`, as Linux's `cpu-probe.c` reads it: implementation
+/// 0x63 from revision 5 (2E and 2F are 2 and 3), or 0xc0. Kernel mode only.
+fn cp0Loongson() bool {
+    const prid = asm volatile ("mfc0 %[r], $15, 0"
+        : [r] "=r" (-> u32),
+    );
+    const imp = (prid >> 8) & 0xff;
+    return (imp == 0x63 and prid & 0xff >= 0x05) or imp == 0xc0;
 }
 
 /// The cores whose objects use the SIMD architecture (`corespec.zig`).
@@ -122,6 +153,7 @@ pub fn probe() Caps {
         break :blk capsFromCpuinfo(osinfo.readFile("/proc/cpuinfo", &buf));
     };
     if (hw & HWCAP_MIPS_MSA != 0) c.features.insert(.msa);
+    if (hw & HWCAP_LOONGSON_MMI != 0 and hw & HWCAP_LOONGSON_EXT != 0) c.features.insert(.mmi);
     return c;
 }
 
