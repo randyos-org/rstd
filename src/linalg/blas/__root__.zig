@@ -456,9 +456,12 @@ test "no core puts a kernel of its own in a q or x slot" {
     }
 }
 
-// the Linux rigs match this line against the core they expect (T40)
+// the Linux rigs match this line against the core they expect (T40); only
+// there, as `zig build` reports a passing test's stderr as a failed command
+// (issue #276)
 test "the core in use" {
     if (sysinfo.os.tag != .linux) return error.SkipZigTest;
+    if (std.testing.environ.getPosix("RSTD_TEST_PROGRESS") == null) return error.SkipZigTest;
     std.debug.print("blas core: {s}\n", .{coreName()});
 }
 
