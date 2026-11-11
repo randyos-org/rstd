@@ -328,12 +328,11 @@ jobs:
         # ARGS splits into words on purpose
         run: zig build "$STEP" $ARGS -Dtest-host-off --summary line
 
-  # Tier 3 and 4, once tier 1 and 2 pass: the legs that matter get the runners
-  # first and fail fast. Their failures are reported but do not fail CI
-  # (support.md).
+  # Tier 3 and 4, beside tier 1 and 2. Their failures are reported but do not
+  # fail CI (support.md).
   test-tier34:
     name: Test (${{ matrix.platform.name }}, ${{ matrix.zig }})
-    needs: [version, test]
+    needs: version
     if: ${{ needs.version.outputs.ci == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
     continue-on-error: true
