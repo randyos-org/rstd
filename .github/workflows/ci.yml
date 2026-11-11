@@ -125,6 +125,12 @@ jobs:
 
           release=false
           [ "$on_main" = true ] && [ "$releasable" = true ] && release=true
+          # Off until the v0.1.0 pull request: the CI setup merges into main
+          # without a tag or a dev bump. That pull request removes this.
+          if [ "$release" = true ]; then
+            echo "::notice::Releases are off until v0.1.0; v$version is not tagged."
+            release=false
+          fi
 
           if tagged "$version"; then
             next=$(next_patch "$version")
