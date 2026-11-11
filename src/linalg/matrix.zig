@@ -727,6 +727,7 @@ const V4f64 = vector.V4f64;
 
 const bitwise = @import("blas/_test/bitwise.zig");
 const expectSameBits = bitwise.expectSameBits;
+const math = @import("../math.zig");
 
 test "StaticMat construction, access and transposes" {
     const M = StaticMat(2, 3, f32);
@@ -809,7 +810,18 @@ fn randomMat(comptime M: type, random: std.Random, s: M.Element) M {
 }
 
 fn expectSameMatBits(want: anytype, got: @TypeOf(want)) !void {
-    for (want.data, got.data) |wc, gc| try expectSameBits(@as(Vec(@TypeOf(want).rows, @TypeOf(want).Element), wc), gc);
+    for (want.data, got.data) |wc, gc| try expectSameOrX87(@as(Vec(@TypeOf(want).rows, @TypeOf(want).Element), wc), gc);
+}
+
+/// `expectSameBits` of two `@Vector`s, but for `f64` on x87 within
+/// `bitwise.sameBitsOrX87`'s few ulps: there each code path rounds its 80-bit
+/// intermediates where it stores them (issue #264).
+fn expectSameOrX87(want: anytype, got: @TypeOf(want)) !void {
+    const V = @typeInfo(@TypeOf(want)).vector;
+    if (comptime !(math.x87_f64 and V.child == f64)) return expectSameBits(want, got);
+    const wa: [V.len]f64 = want;
+    const ga: [V.len]f64 = got;
+    try zigstd.testExpectTrue(bitwise.sameBitsOrX87(f64, &wa, &ga));
 }
 
 /// `mul`'s `@Matrix` forms against its column code, for `R` by `K` times `K`
@@ -823,8 +835,8 @@ fn expectNativeBits(comptime T: type, comptime r: comptime_int, comptime k: comp
         const v: Vec(k, T) = b.data[0];
         const w: Vec(r, T) = a.data[0];
         try expectSameMatBits(mulCols(a, b), mul(a, b));
-        try expectSameBits(@as(Vec(r, T), matVec(a, v)), mul(a, v));
-        try expectSameBits(@as(Vec(k, T), vecMat(w, a)), mul(w, a));
+        try expectSameOrX87(@as(Vec(r, T), matVec(a, v)), mul(a, v));
+        try expectSameOrX87(@as(Vec(k, T), vecMat(w, a)), mul(w, a));
         try expectSameMatBits(transpose(transpose(a)), a);
     }
 }
