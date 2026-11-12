@@ -1,28 +1,15 @@
 //! 32-bit x86: the x87 kernels. Every argument is on the stack, the same
 //! on every OS.
 
-const std = @import("std");
 const arch = @import("__root__.zig");
-const map = @import("../openblas.zig");
-const Error = arch.Error;
-
-const Kernel = arch.Kernel;
-
-fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const []const u8 {
-    // what getarch's `config.h` defines, where it knows the core; the AVX cores
-    // take their 32-bit fallback's (their `KERNEL.<core>` already matches it)
-    if (try map.getarch(map.target32(core))) |d| return d;
-    const out = try a.alloc([]const u8, 1);
-    out[0] = try a.print("-D{s}", .{core});
-    return out;
-}
+const arch_table = @import("../arches.zig");
 
 pub const x86: arch.Arch = .{
-    .name = "x86",
+    .arch = arch_table.x86,
     .triple = "x86-linux-gnu",
     .config_h = "#define ARCH_X86 1\n#define BINARY32 1\n" ++ @import("x86_64.zig").dtb_default,
     .defines = &.{ "-DASSEMBLER", "-DARCH_X86", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
-    .core_defines = coreDefines,
+    .binary32 = true,
     .align_bytes = true,
     .patches = &patches,
     .retired = &retired,

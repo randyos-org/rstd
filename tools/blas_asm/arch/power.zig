@@ -3,27 +3,14 @@
 //! `32le` (SysV), `64` (little-endian ELFv2) and `64be` (big-endian ELFv2;
 //! Zig emits ELFv2 for every 64-bit target, glibc's included).
 
-const std = @import("std");
 const arch = @import("__root__.zig");
-const map = @import("../openblas.zig");
-const Error = arch.Error;
-
-const Kernel = arch.Kernel;
-
-fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const []const u8 {
-    // what getarch's `config.h` defines, where it knows the core
-    if (try map.getarch(core)) |d| return d;
-    const out = try a.alloc([]const u8, 1);
-    out[0] = try a.print("-D{s}", .{core});
-    return out;
-}
+const arch_table = @import("../arches.zig");
 
 pub const power: arch.Arch = .{
-    .name = "power",
+    .arch = arch_table.power,
     .triple = "powerpc64le-linux-gnu",
     .config_h = "#define ARCH_POWER 1\n#define BINARY64 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_POWER", "-DOS_LINUX", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k" },
-    .core_defines = coreDefines,
     .patches = &(flag_slot ++ zero_strides),
     // the Blue Gene double-precision FPU instructions are not in LLVM
     .unsupported = &.{ "axpy_hummer.S", "zaxpy_hummer.S" },

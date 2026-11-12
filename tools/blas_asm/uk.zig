@@ -30,6 +30,7 @@ const Io = std.Io;
 const map = @import("openblas.zig");
 const arch = @import("arch/__root__.zig");
 const roles = @import("roles.zig");
+const arch_table = @import("arches.zig");
 
 const Precision = struct { letter: u8, float: []const u8, complex: bool };
 
@@ -316,21 +317,40 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
     const secs = sections(stmt);
     const colon = std.mem.find(u8, stmt, secs[0]).? - 1;
     const template = try literals(stmt[0..colon]);
-    // text outside the string literals is an unexpanded macro
-    {
-        var in_lit = false;
-        for (stmt[0..colon], 0..) |c, k| {
-            if (c == '"' and (k == 0 or stmt[k - 1] != '\\')) in_lit = !in_lit;
-            if (!in_lit and c != '"' and !std.ascii.isWhitespace(c)) map.die("unexpanded macro text in the template of {s}: {s}", .{ name, stmt[k -| 40..k] });
-        }
-    }
+    checkTemplate(stmt[0..colon], name);
     const outs = try parseOperands(target, secs[0], 0);
     const ins = try parseOperands(target, secs[1], outs.len);
     var all: std.ArrayList(Operand) = .empty;
     try all.appendSlice(map.arena, outs);
     try all.appendSlice(map.arena, ins);
+    const text = try namedOperands(template, all.items, name);
+    const plan = try spillPlan(outs, ins);
 
-    // `%N` to `%[name]`; `%%` is the register prefix and stays
+    // Each gets its own value, or the compiler shares one register among
+    // the inputs that are all undefined.
+    var distinct: usize = 1;
+    for (outs, 0..) |o, k| {
+        if (!plan.moved[k]) continue;
+        try put(w, "{s}{s} = @splat({d});\n", .{ indent, o.expr, distinct });
+        distinct += 1;
+    }
+    try put(w, "{s}asm volatile (\n", .{indent});
+    try emitTemplate(target, w, indent, text);
+    try emitOperands(w, indent, outs, ins, plan, locals);
+    try emitClobbers(target, w, indent, secs[2], text);
+}
+
+/// Stops on text outside the template's string literals: an unexpanded macro.
+fn checkTemplate(src: []const u8, name: []const u8) void {
+    var in_lit = false;
+    for (src, 0..) |c, k| {
+        if (c == '"' and (k == 0 or src[k - 1] != '\\')) in_lit = !in_lit;
+        if (!in_lit and c != '"' and !std.ascii.isWhitespace(c)) map.die("unexpanded macro text in the template of {s}: {s}", .{ name, src[k -| 40..k] });
+    }
+}
+
+/// `template` with `%N` as `%[name]`; `%%` is the register prefix and stays.
+fn namedOperands(template: []const u8, all: []const Operand, name: []const u8) ![]const u8 {
     var text_out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < template.len) : (i += 1) {
@@ -349,9 +369,9 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
                 var n: usize = 0;
                 while (j < template.len and std.ascii.isDigit(template[j])) : (j += 1) n = n * 10 + (template[j] - '0');
                 // a dropped memory operand is only ever named in a comment
-                if (all.items[n].dropped) {
+                if (all[n].dropped) {
                     try text_out.appendSlice(map.arena, "<mem>");
-                } else try text_out.print(map.arena, "%[{s}{s}]", .{ all.items[n].name, if (modifier) ":x" else "" });
+                } else try text_out.print(map.arena, "%[{s}{s}]", .{ all[n].name, if (modifier) ":x" else "" });
                 i = j - 1;
             } else if (template[i + 1] == '[') {
                 // a named operand, spelled as Zig does
@@ -359,11 +379,23 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
             } else map.die("unhandled operand form in {s}", .{name});
         } else try text_out.append(map.arena, template[i]);
     }
+    return text_out.items;
+}
 
-    // Zig takes 15 outputs in practice (16 crashes AstGen). The scratch vector
-    // registers past that go in as inputs, which the asm overwrites and which
-    // are dead after it; the outputs are then early-clobber so that none
-    // shares a register. An output an input is tied to (`"16"`) stays.
+/// Zig takes 15 outputs in practice (16 crashes AstGen). The scratch vector
+/// registers past that go in as inputs, which the asm overwrites and which
+/// are dead after it; the outputs are then early-clobber so that none
+/// shares a register. An output an input is tied to (`"16"`) stays.
+const Spill = struct {
+    /// Whether the outputs are past 15.
+    spill: bool,
+    /// The outputs moved to the inputs.
+    moved: []bool,
+    /// Where each output lands among those emitted, which is what a tie names.
+    position: []usize,
+};
+
+fn spillPlan(outs: []const Operand, ins: []const Operand) !Spill {
     const moved_flag = try map.arena.alloc(bool, outs.len);
     @memset(moved_flag, false);
     var kept: usize = 0;
@@ -381,7 +413,6 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
             need -= 1;
         }
     }
-    // where each output lands among those emitted, which is what a tie names
     const position = try map.arena.alloc(usize, outs.len);
     {
         var p: usize = 0;
@@ -390,16 +421,12 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
             if (!o.dropped and !moved_flag[k]) p += 1;
         }
     }
-    // Each gets its own value, or the compiler shares one register among
-    // the inputs that are all undefined.
-    var distinct: usize = 1;
-    for (outs, 0..) |o, k| {
-        if (!moved_flag[k]) continue;
-        try put(w, "{s}{s} = @splat({d});\n", .{ indent, o.expr, distinct });
-        distinct += 1;
-    }
-    try put(w, "{s}asm volatile (\n", .{indent});
-    var tl = std.mem.splitScalar(u8, text_out.items, '\n');
+    return .{ .spill = spill, .moved = moved_flag, .position = position };
+}
+
+/// The template's lines as a Zig multiline string.
+fn emitTemplate(target: Target, w: *std.ArrayList(u8), indent: []const u8, text_out: []const u8) !void {
+    var tl = std.mem.splitScalar(u8, text_out, '\n');
     while (tl.next()) |raw| {
         // tabs are not allowed in a Zig multiline string; the alignment is only cosmetic
         var line: std.ArrayList(u8) = .empty;
@@ -423,16 +450,19 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
         }
         try put(w, "{s}    \\\\{s}\n", .{ indent, line.items });
     }
+}
 
+/// The output and input sections, the moved outputs among the inputs.
+fn emitOperands(w: *std.ArrayList(u8), indent: []const u8, outs: []const Operand, ins: []const Operand, plan: Spill, locals: []const []const u8) !void {
     var sep: []const u8 = ":";
     var moved: std.ArrayList(Operand) = .empty;
     for (outs, 0..) |o, k| {
         if (o.dropped) continue;
-        if (moved_flag[k]) {
+        if (plan.moved[k]) {
             try moved.append(map.arena, .{ .constraint = o.constraint[1..], .expr = o.expr, .name = o.name });
             continue;
         }
-        const constraint = if (spill and o.constraint[0] == '=') try map.arena.print("=&{s}", .{o.constraint[1..]}) else o.constraint;
+        const constraint = if (plan.spill and o.constraint[0] == '=') try map.arena.print("=&{s}", .{o.constraint[1..]}) else o.constraint;
         try put(w, "{s}    {s} [{s}] \"{s}\" ({s}),\n", .{ indent, sep, o.name, constraint, try zigExpr(o.expr) });
         sep = " ";
     }
@@ -449,18 +479,20 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
         } else false;
         const value = if (std.ascii.isDigit(o.expr[0])) try map.arena.print("@as(isize, {s})", .{o.expr}) else try zigExpr(o.expr);
         const tie = tieOf(o.constraint);
-        const constraint = if (tie) |t| try map.arena.print("{d}", .{position[t]}) else o.constraint;
+        const constraint = if (tie) |t| try map.arena.print("{d}", .{plan.position[t]}) else o.constraint;
         try put(w, "{s}    {s} [{s}] \"{s}\" ({s}{s}),\n", .{ indent, sep, o.name, constraint, if (is_local_array) "&" else "", value });
         sep = " ";
     }
     if (allDropped(all_ins.items)) try put(w, "{s}    :\n", .{indent});
+}
 
-    // clobbers, at the width of the vector registers the text uses
+/// The clobbers, at the width of the vector registers the text uses.
+fn emitClobbers(target: Target, w: *std.ArrayList(u8), indent: []const u8, clobbers: []const u8, text_out: []const u8) !void {
     try put(w, "{s}    : .{{", .{indent});
     var csep: []const u8 = " ";
     var saw_memory = false;
     var declared_vs: [64]bool = @splat(false);
-    var cl = std.mem.tokenizeAny(u8, secs[2], ", \t\r\n");
+    var cl = std.mem.tokenizeAny(u8, clobbers, ", \t\r\n");
     while (cl.next()) |tok| {
         const written = std.mem.trim(u8, tok, "\"%");
         const c = if (std.mem.eql(u8, written, "cc")) target.ccName() else written;
@@ -471,7 +503,7 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
         }
         if (std.mem.startsWith(u8, c, "xmm")) {
             const n = c[3..];
-            const wide = if (std.mem.find(u8, text_out.items, try map.arena.print("%%zmm{s}", .{n})) != null) "zmm" else if (std.mem.find(u8, text_out.items, try map.arena.print("%%ymm{s}", .{n})) != null) "ymm" else "xmm";
+            const wide = if (std.mem.find(u8, text_out, try map.arena.print("%%zmm{s}", .{n})) != null) "zmm" else if (std.mem.find(u8, text_out, try map.arena.print("%%ymm{s}", .{n})) != null) "ymm" else "xmm";
             try put(w, "{s}.{s}{s} = true", .{ csep, wide, n });
         } else try put(w, "{s}.{s} = true", .{ csep, c });
         csep = ", ";
@@ -480,7 +512,7 @@ fn emitAsm(target: Target, w: *std.ArrayList(u8), indent: []const u8, stmt: []co
         // the numbered vector registers the text names, as the reference
         // does not declare them
         var seen: [64]bool = @splat(false);
-        var lines2 = std.mem.splitScalar(u8, text_out.items, '\n');
+        var lines2 = std.mem.splitScalar(u8, text_out, '\n');
         while (lines2.next()) |ln| {
             const t = std.mem.trim(u8, ln, " ");
             if (t.len == 0 or (t[0] != 'x' and !std.mem.startsWith(u8, t, "lxv") and !std.mem.startsWith(u8, t, "stxv"))) continue;
@@ -738,10 +770,8 @@ fn unconvertible(statement: []const u8, name: []const u8) Unconvertible {
 /// An architecture's block kernels: where they are in OpenBLAS, and where
 /// they go here.
 const Target = struct {
-    /// Under `kernel/`.
-    ob_dir: []const u8,
-    /// Under `blas1/<routine>/`.
-    out: []const u8,
+    /// Its `kernel/<ob>` directory, and `<routine>/<dir>/` here.
+    arch: arch_table.Arch,
     /// Whether the block is a function in the driver's own file, not in an
     /// included `_microk_` header chosen by an `#if` chain.
     in_file: bool,
@@ -754,14 +784,14 @@ const Target = struct {
     /// written as `.balign`, which means bytes on every object format (as
     /// `arch.Arch.align_bytes` does for the `.S` kernels).
     align_bytes: bool = false,
-    /// Fixes for upstream bugs, by the file's name under `kernel/<ob_dir>/`.
+    /// Fixes for upstream bugs, by the file's name under `kernel/<ob>/`.
     patches: []const arch.Patch = &.{},
     /// The routines converted for this target.
     routines: []const map.Routine,
 
     /// What the target calls the condition codes in a clobber list.
     fn ccName(t: Target) []const u8 {
-        return if (std.mem.eql(u8, t.out, "s390x")) "ps" else "cc";
+        return if (std.mem.eql(u8, t.arch.dir, "s390x")) "ps" else "cc";
     }
 
     /// Extra preprocessor arguments: POWER's blocks use VSX registers by number.
@@ -778,9 +808,9 @@ const Target = struct {
 const arch_x86_64 = @import("arch/x86_64.zig").x86_64;
 
 const targets = [_]Target{
-    .{ .ob_dir = "x86_64", .out = "x86_64", .in_file = false, .align_bytes = true, .patches = arch_x86_64.patches, .routines = &.{ .axpy, .dot, .scal, .rot, .gemv_n, .gemv_t } },
-    .{ .ob_dir = "zarch", .out = "s390x", .in_file = true, .routines = &.{.axpy} },
-    .{ .ob_dir = "power", .out = "power", .in_file = false, .power = true, .index = false, .routines = &.{.axpy} },
+    .{ .arch = arch_table.x86_64, .in_file = false, .align_bytes = true, .patches = arch_x86_64.patches, .routines = &.{ .axpy, .dot, .scal, .rot, .gemv_n, .gemv_t } },
+    .{ .arch = arch_table.zarch, .in_file = true, .routines = &.{.axpy} },
+    .{ .arch = arch_table.power, .in_file = false, .power = true, .index = false, .routines = &.{.axpy} },
 };
 
 /// Converts one file of blocks into `out_dir`: a microkernel, or with `own`
@@ -881,12 +911,12 @@ fn convertFile(t: Target, routine: map.Routine, path: []const u8, out_dir: []con
             \\//! `{c}{s}` driver kernels, the functions with assembly the driver defines itself, from OpenBLAS `kernel/{s}/{s}` (`{s}`); generated by `tools/blas_asm/uk.zig`, re-derive it rather than editing it.
             \\
             \\
-        , .{ prec.letter, name, t.ob_dir, base, map.pin });
+        , .{ prec.letter, name, t.arch.ob, base, map.pin });
     } else try put(&out,
         \\//! `{c}{s}` block kernel{s}, the assembly as written, from OpenBLAS `kernel/{s}/{s}` (`{s}`); generated by `tools/blas_asm/uk.zig`, re-derive it rather than editing it.
         \\
         \\
-    , .{ prec.letter, name, if (count > 1 and !has_conj) "s" else "", t.ob_dir, base, map.pin });
+    , .{ prec.letter, name, if (count > 1 and !has_conj) "s" else "", t.arch.ob, base, map.pin });
     // one byte-order test for every split kernel in the file
     if (split) try out.appendSlice(map.arena,
         \\const sysinfo = @import("builtin");
@@ -918,10 +948,10 @@ pub fn main(init: std.process.Init) !void {
     for (wanted_routines.items) |routine| for (targets) |t| {
         if (std.mem.findScalar(map.Routine, t.routines, routine) == null) continue;
         const name = @tagName(routine);
-        const out_dir = try a.print("{s}/{s}/{s}/uk", .{ map.out_root, try routine.dir(), t.out });
+        const out_dir = try a.print("{s}/{s}/{s}/uk", .{ map.out_root, try routine.dir(), t.arch.dir });
         try Io.Dir.cwd().createDirPath(init.io, out_dir);
 
-        var dir = try Io.Dir.cwd().openDir(init.io, try map.path(&.{ map.root, "kernel", t.ob_dir }), .{ .iterate = true });
+        var dir = try Io.Dir.cwd().openDir(init.io, try map.path(&.{ map.root, "kernel", t.arch.ob }), .{ .iterate = true });
         defer dir.close(init.io);
         const in_file_driver = (try routine.driver('s'))[1..];
         const microk = try a.print("{s}_microk_", .{name});
@@ -930,9 +960,9 @@ pub fn main(init: std.process.Init) !void {
         while (try it.next(init.io)) |e| {
             if (e.kind != .file or !std.mem.endsWith(u8, e.name, ".c")) continue;
             const wanted = if (t.in_file)
-                std.mem.eql(u8, e.name[1..], in_file_driver) and converts(routine, t.ob_dir, e.name[0])
+                std.mem.eql(u8, e.name[1..], in_file_driver) and converts(routine, t.arch.ob, e.name[0])
             else
-                std.mem.startsWith(u8, e.name[1..], microk) and converts(routine, t.ob_dir, e.name[0]);
+                std.mem.startsWith(u8, e.name[1..], microk) and converts(routine, t.arch.ob, e.name[0]);
             if (wanted) try names.append(a, try a.dupe(u8, e.name));
         }
         std.mem.sort([]const u8, names.items, {}, struct {
@@ -940,11 +970,11 @@ pub fn main(init: std.process.Init) !void {
                 return std.mem.lessThan(u8, x, y);
             }
         }.lt);
-        for (names.items) |n| _ = try convertFile(t, routine, try map.path(&.{ map.root, "kernel", t.ob_dir, n }), out_dir, false);
+        for (names.items) |n| _ = try convertFile(t, routine, try map.path(&.{ map.root, "kernel", t.arch.ob, n }), out_dir, false);
         // the assembly a driver defines itself, unless the driver is the block
         if (!t.in_file) for ("sdcz") |letter| {
-            if (!converts(routine, t.ob_dir, letter)) continue;
-            const driver = try map.path(&.{ map.root, "kernel", t.ob_dir, try routine.driver(letter) });
+            if (!converts(routine, t.arch.ob, letter)) continue;
+            const driver = try map.path(&.{ map.root, "kernel", t.arch.ob, try routine.driver(letter) });
             if (map.read(driver) == null) continue;
             _ = try convertFile(t, routine, driver, out_dir, true);
         };
@@ -1058,7 +1088,7 @@ var indexes: std.array_hash_map.String(Index) = .empty;
 
 /// Adds `routine`'s entries to its folder's index; `writeIndexes` writes them.
 fn writeIndex(a: std.mem.Allocator, t: Target, routine: map.Routine, out_dir: []const u8) !void {
-    const arch_dir = t.ob_dir;
+    const arch_dir = t.arch.ob;
     const name = @tagName(routine);
     const idx = try indexes.getOrPut(a, out_dir);
     if (!idx.found_existing) idx.value_ptr.* = .{ .arch_dir = arch_dir };

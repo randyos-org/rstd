@@ -24,33 +24,10 @@ const asm_arch = @import("arch/__root__.zig");
 const map = @import("openblas.zig");
 const roles = @import("roles.zig");
 const uk = @import("uk.zig");
+const arch_table = @import("arches.zig");
 
-/// An OpenBLAS `kernel/<name>` directory and where rstd serves it: the
-/// routine subdirectory `dir`, the registry `kernels/<registry>.zig`, the
-/// core enum `cpu/coretypes.zig`'s `cores`. An empty `dir`: no rstd target.
-const Arch = struct {
-    name: []const u8,
-    dir: []const u8 = "",
-    registry: []const u8 = "",
-    cores: []const u8 = "",
-};
-
-const arches = [_]Arch{
-    .{ .name = "x86_64", .dir = "x86_64", .registry = "x86_64", .cores = "X86CoreType" },
-    .{ .name = "x86", .dir = "x86", .registry = "x86", .cores = "X86CoreType" },
-    .{ .name = "arm64", .dir = "arm64", .registry = "arm64", .cores = "Arm64CoreType" },
-    .{ .name = "arm", .dir = "arm", .registry = "arm", .cores = "ArmCoreType" },
-    .{ .name = "power", .dir = "power", .registry = "power", .cores = "PowerCoreType" },
-    .{ .name = "mips64", .dir = "mips64", .registry = "mips", .cores = "MipsCoreType" },
-    .{ .name = "mips", .dir = "mips64", .registry = "mips", .cores = "MipsCoreType" },
-    .{ .name = "riscv64", .dir = "riscv64", .registry = "riscv", .cores = "RiscvCoreType" },
-    .{ .name = "loongarch64", .dir = "loongarch64", .registry = "loongarch", .cores = "LoongarchCoreType" },
-    .{ .name = "zarch", .dir = "s390x", .registry = "s390x", .cores = "S390xCoreType" },
-    .{ .name = "sparc", .dir = "sparc", .registry = "sparc", .cores = "SparcCoreType" },
-    .{ .name = "alpha" },
-    .{ .name = "ia64" },
-    .{ .name = "wasm", .dir = "wasm", .registry = "wasm", .cores = "WasmCoreType" },
-};
+const Arch = arch_table.Arch;
+const arches = arch_table.surveyed;
 
 const blas = "src/linalg/blas";
 
@@ -165,7 +142,7 @@ fn upstreamKind(arena: std.mem.Allocator, arch: []const u8, core: []const u8, so
 /// Whether the generator's `arch/<arch>.zig` can assemble `source`.
 fn assembles(arch: []const u8, source: []const u8) bool {
     for (asm_arch.all) |a| {
-        if (std.mem.eql(u8, a.name, arch)) return a.assembles(source);
+        if (std.mem.eql(u8, a.arch.ob, arch)) return a.assembles(source);
     }
     return true;
 }
@@ -176,7 +153,7 @@ fn upstreamCell(arena: std.mem.Allocator, ar: Arch, core: []const u8, sources: [
     var out: std.ArrayList(u8) = .empty;
     var tuned = false;
     for (sources, 0..) |s, i| {
-        const k = try upstreamKind(arena, ar.name, core, s);
+        const k = try upstreamKind(arena, ar.ob, core, s);
         const lacks = if (k.need) |n| try lacksFeature(arena, ar, core, n) else false;
         tuned = tuned or (k.kind.tuned() and !lacks);
         if (i > 0) try out.appendSlice(arena, " \\| ");
@@ -592,9 +569,9 @@ fn serve(ar: Arch, s: Served, routing: Routing, core: []const u8, role: roles.Ro
     if (role.extended) return .{
         .r = .extended,
     };
-    const port = s.port(ar.name, slot, core);
+    const port = s.port(ar.ob, slot, core);
     const indexed = Served.find(s.converted, slot, core) != null or s.block(slot, core) != null or port != null;
-    const skip = roles.skipped(ar.name, slot);
+    const skip = roles.skipped(ar.ob, slot);
     const routed = if (skip) |k| !k.cores or Served.find(s.skipped, slot, core) != null else false;
     const d = routing.displacing;
     const displaced = std.mem.eql(u8, ar.cores, d.cores_enum) and contains(d.cores, core) and !contains(d.keep, slot);
@@ -690,7 +667,7 @@ const Tally = struct {
             e.value_ptr.* += 1;
             if (is_gap) {
                 t.n_gaps += 1;
-                const a = try t.by_arch.getOrPut(arena, ar.name);
+                const a = try t.by_arch.getOrPut(arena, ar.ob);
                 if (!a.found_existing) a.value_ptr.* = 0;
                 a.value_ptr.* += 1;
                 try gap_roles.append(arena, role.name);
@@ -798,11 +775,11 @@ fn routine1(arena: std.mem.Allocator, routine: []const u8, rs: []const roles.Rol
     var t: Tally = .{};
 
     for (arches) |ar| {
-        const cores = try map.cores(ar.name) orelse continue;
+        const cores = try map.cores(ar.ob) orelse continue;
         const known = try coreNames(arena, ar.cores);
         const s = try readServed(arena, ar, "blas1", routine);
         const routing: Routing = .{ .rule = try readRule(arena, ar), .displacing = displacing, .flushing = flushing };
-        try w.print(arena, "## {s}\n\n", .{ar.name});
+        try w.print(arena, "## {s}\n\n", .{ar.ob});
         try note(arena, &w, ar, s);
         try w.appendSlice(arena, "| core |");
         for (columns.values()) |group| {
@@ -819,12 +796,12 @@ fn routine1(arena: std.mem.Allocator, routine: []const u8, rs: []const roles.Rol
             var gap_roles: std.ArrayList([]const u8) = .empty;
             try w.print(arena, "| {s} |", .{core});
             for (columns.keys(), columns.values()) |key, group| {
-                const up = try upstreamCell(arena, ar, core, try map.resolveKey(ar.name, core, key, "Makefile.L1"));
+                const up = try upstreamCell(arena, ar, core, try map.resolveKey(ar.ob, core, key, "Makefile.L1"));
                 const rstd = try t.cell(arena, ar, s, routing, lower, here, group.items, up.tuned, fills, &gap_roles);
                 try w.print(arena, " {s} → {s} |", .{ up.text, rstd });
             }
             try w.append(arena, '\n');
-            try t.row(arena, ar.name, core, gap_roles.items);
+            try t.row(arena, ar.ob, core, gap_roles.items);
         }
         try w.append(arena, '\n');
     }
@@ -1014,12 +991,12 @@ fn flagSet(flag: []const u8, arch: []const u8, core: []const u8) bool {
 /// The sources `core` builds column `c` from; null where it is not built.
 fn l3Sources(ar: Arch, core: []const u8, c: L3Col) !?[]const []const u8 {
     var key: []const u8 = c.key;
-    if (c.gate) |g| if (!flagSet(g, ar.name, core)) {
+    if (c.gate) |g| if (!flagSet(g, ar.ob, core)) {
         key = c.fallback orelse return null;
     };
-    const v = try map.resolveKey(ar.name, core, key, "Makefile.L3");
+    const v = try map.resolveKey(ar.ob, core, key, "Makefile.L3");
     if (v.len > 0) return v;
-    if (c.fallback) |f| return try map.resolveKey(ar.name, core, f, "Makefile.L3");
+    if (c.fallback) |f| return try map.resolveKey(ar.ob, core, f, "Makefile.L3");
     return v;
 }
 
@@ -1037,9 +1014,9 @@ fn family3(arena: std.mem.Allocator, fam: L3Family) ![]const u8 {
     var n_gaps: usize = 0;
 
     for (arches) |ar| {
-        const cores = try map.cores(ar.name) orelse continue;
+        const cores = try map.cores(ar.ob) orelse continue;
         const known = try coreNames(arena, ar.cores);
-        try w.print(arena, "## {s}\n\n", .{ar.name});
+        try w.print(arena, "## {s}\n\n", .{ar.ob});
         var gap_cols: std.array_hash_map.String(std.ArrayList([]const u8)) = .empty;
         for (fam.tables) |t| {
             // every row first, to fold a table of defaults into a line
@@ -1092,7 +1069,7 @@ fn family3(arena: std.mem.Allocator, fam: L3Family) ![]const u8 {
                 try w.print(arena, "The {s} are `generic` on every core.\n\n", .{t.name});
                 continue;
             }
-            try w.print(arena, "### {s} {s}\n\n| core |", .{ ar.name, t.name });
+            try w.print(arena, "### {s} {s}\n\n| core |", .{ ar.ob, t.name });
             for (t.cols) |c| try w.print(arena, " {s} |", .{c.label});
             try w.appendSlice(arena, "\n|---|");
             for (t.cols) |_| try w.appendSlice(arena, "---|");
@@ -1102,7 +1079,7 @@ fn family3(arena: std.mem.Allocator, fam: L3Family) ![]const u8 {
             try w.appendSlice(arena, rows.items);
             try w.append(arena, '\n');
         }
-        for (gap_cols.keys(), gap_cols.values()) |label, list| try gaps.print(arena, "| {s} | {s} | {s} |\n", .{ ar.name, label, try std.mem.join(arena, ", ", list.items) });
+        for (gap_cols.keys(), gap_cols.values()) |label, list| try gaps.print(arena, "| {s} | {s} | {s} |\n", .{ ar.ob, label, try std.mem.join(arena, ", ", list.items) });
     }
 
     try w.appendSlice(arena, "## Gaps\n\n");
@@ -1299,7 +1276,7 @@ fn l2(init: std.process.Init, arena: std.mem.Allocator, dest: []const u8) !void 
     var seen: std.array_hash_map.String(Use) = .empty;
 
     for (arches) |ar| {
-        const arch = ar.name;
+        const arch = ar.ob;
         const cores = try map.cores(arch) orelse continue;
         const known = try coreNames(arena, ar.cores);
         const routing: Routing = .{ .rule = try readRule(arena, ar), .displacing = displacing, .flushing = flushing };

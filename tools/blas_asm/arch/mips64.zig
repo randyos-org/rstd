@@ -1,29 +1,16 @@
 //! MIPS64 (n64): the sources read their arguments from the n64 registers
 //! and schedule their own delay slots (`.set noreorder`).
 
-const std = @import("std");
 const arch = @import("__root__.zig");
-const map = @import("../openblas.zig");
-const Error = arch.Error;
-
-const Kernel = arch.Kernel;
-
-fn coreDefines(a: std.mem.Allocator, _: Kernel, core: []const u8) Error![]const []const u8 {
-    // what getarch's `config.h` defines, where it knows the core
-    if (try map.getarch(core)) |d| return d;
-    const out = try a.alloc([]const u8, 1);
-    out[0] = try a.print("-D{s}", .{core});
-    return out;
-}
+const arch_table = @import("../arches.zig");
 
 pub const mips64: arch.Arch = .{
-    .name = "mips64",
+    .arch = arch_table.mips64,
     .triple = "mips64el-linux-gnuabi64",
     // getarch's `config.h` defines `__64BIT__` for a 64-bit build; without it
     // `LDARG` is `lw`, which reads a stack argument's high half big-endian
     .config_h = "#define ARCH_MIPS64 1\n#define BINARY64 1\n#define __64BIT__ 1\n",
     .defines = &.{ "-DASSEMBLER", "-DARCH_MIPS64", "-DASMNAME=k", "-DASMFNAME=k_", "-DNAME=k_", "-DCNAME=k", "-DOS_LINUX" },
-    .core_defines = coreDefines,
     .patches = &patches,
     .retired = &retired,
 };

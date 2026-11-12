@@ -3,6 +3,8 @@
 
 const std = @import("std");
 const map = @import("../openblas.zig");
+const getarch = @import("../getarch.zig");
+const arch_table = @import("../arches.zig");
 
 /// What the converters raise: the allocations they make are the only fallible calls.
 pub const Error = std.mem.Allocator.Error;
@@ -179,17 +181,22 @@ pub const Patch = struct {
 };
 
 pub const Arch = struct {
-    /// The directory under OpenBLAS's `kernel/` and under each `blas1/<routine>/`.
-    name: []const u8,
+    /// Its `kernel/<ob>` directory, and `blas<n>/<routine>/<dir>/` here.
+    arch: arch_table.Arch,
     /// The target the preprocessor is told, to pick the right headers.
     triple: []const u8,
     /// A stand-in for the `config.h` the OpenBLAS build generates.
     config_h: []const u8,
     /// `-D` symbols for every source.
     defines: []const []const u8,
-    /// `-D` symbols for one kernel on one core, beyond `DOUBLE`, `COMPLEX`
-    /// and `CONJ`. `core` is the upper-case `KERNEL.<core>` name.
-    core_defines: *const fn (a: std.mem.Allocator, k: Kernel, core: []const u8) Error![]const []const u8,
+    /// `-D` symbols for a core with no `getarch.c` entry (`generic`), after
+    /// `-D<core>`; see `coreDefines`.
+    fallback_defines: []const []const u8 = &.{},
+    /// Whether such a core also defines `CORE_<core>`.
+    fallback_core_macro: bool = false,
+    /// Whether a core takes its 32-bit build's entry (`getarch.target32`),
+    /// as x86's AVX cores do; their `KERNEL.<core>` already matches it.
+    binary32: bool = false,
     /// Sources the toolchain cannot assemble. They are not converted; the
     /// platforms and cores are listed in `src/linalg/blas/readme.md`.
     unsupported: []const []const u8 = &.{},
@@ -218,6 +225,20 @@ pub const Arch = struct {
             if (std.mem.eql(u8, u, source)) return false;
         }
         return std.mem.find(u8, source, "_hummer") == null;
+    }
+
+    /// `-D` symbols for one core, beyond `DOUBLE`, `COMPLEX` and `CONJ`: what
+    /// getarch's `config.h` defines (`PRESCOTT` builds as `PENTIUM4`; the
+    /// gemvs read `DTB_DEFAULT_ENTRIES`), or where it has no entry for the
+    /// core, `-D<core>` and the fallbacks. `core` is the `KERNEL.<core>` name.
+    pub fn coreDefines(ar: Arch, a: std.mem.Allocator, core: []const u8) ![]const []const u8 {
+        const entry = if (ar.binary32) getarch.target32(core) else core;
+        if (try getarch.config(ar.triple, entry, &.{})) |c| return c.defines;
+        var out: std.ArrayList([]const u8) = .empty;
+        try out.append(a, try a.print("-D{s}", .{core}));
+        if (ar.fallback_core_macro) try out.append(a, try a.print("-DCORE_{s}", .{core}));
+        try out.appendSlice(a, ar.fallback_defines);
+        return out.items;
     }
 };
 
