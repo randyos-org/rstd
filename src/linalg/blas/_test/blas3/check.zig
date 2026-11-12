@@ -496,16 +496,12 @@ fn padNan(comptime T: type, x: []T, rows: usize, ld: usize) void {
     while (j * ld < x.len) : (j += 1) @memset(x[j * ld + rows .. @min(x.len, (j + 1) * ld)], nanOf(T));
 }
 
-/// Whether `fail` describes the case (`accelerateCases` stops after a few).
-var say_fails = true;
-
 fn fail(case: Case, i: usize, j: usize, what: []const u8) anyerror {
-    if (!say_fails) return error.TestUnexpectedResult;
     if (case.p) |p| {
         p.describe();
         check.say("in {s}, ", .{@tagName(case.where)});
     }
-    check.say("{s} at ({d},{d}): {s} ta={s} tb={s} left={} upper={} unit={} m={d} n={d} k={d} alpha={d},{d} beta={d},{d}\n", .{ what, i, j, @tagName(case.r), @tagName(case.ta), @tagName(case.tb), case.left, case.upper, case.unit, case.m, case.n, case.k, case.alpha[0], case.alpha[1], case.beta[0], case.beta[1] });
+    check.say("{s} at ({d},{d}): {s} ta={s} tb={s} left={} upper={} unit={} m={d} n={d} k={d} alpha={d},{d} beta={d},{d}: ", .{ what, i, j, @tagName(case.r), @tagName(case.ta), @tagName(case.tb), case.left, case.upper, case.unit, case.m, case.n, case.k, case.alpha[0], case.alpha[1], case.beta[0], case.beta[1] });
     return error.TestUnexpectedResult;
 }
 
@@ -697,46 +693,9 @@ pub fn routineCases(comptime T: type, vt: *const Vtable, comptime r: Routine) !v
         try one(T, sized(v, m, if (v.triangle() and ni == 0) m else n, k, .{ -0.75, 0.25 }, .{ 0.5, -0.5 }), small);
     };
 
-    // the special scalars, on a shape with every remainder; every transpose
-    // pair of `gemm`
-    const sm = 2 * um + 3;
-    const sn = 2 * un + 1;
-    for (scalarsOf(T)) |s| {
-        if (r.base() == .gemm) {
-            const all_t: []const Trans = if (comptime isComplex(T)) &.{ .n, .t, .r, .c } else &.{ .n, .t };
-            for (all_t) |ta| for (all_t) |tb| {
-                try one(T, sized(.{ .r = r, .ta = ta, .tb = tb, .m = 0, .n = 0 }, sm, sn, 7, s[0], s[1]), full);
-            };
-        } else for (vs) |v| try one(T, sized(v, sm, sn, 7, s[0], s[1]), full);
-    }
-
-    // special values in each operand, and NaN scalars
-    for (vs, 0..) |v, vi| for ([_]Where{ .a, .b, .c }) |where| {
-        if (rig and vi % 4 != 0) continue;
-        const has_b = r.base() == .gemm or r == .gemmt or r.base() == .symm or r.base() == .hemm or r == .syr2k or r == .her2k;
-        if (where == .b and !has_b) continue;
-        // a solve's special values go in its right side
-        if (r == .trsm and where == .a) continue;
-        const c = sized(v, sm, sn, 9, .{ -0.75, 0.25 }, .{ 0.5, 0 });
-        const d = dims(c);
-        const len = switch (where) {
-            .a => d.ra * d.ca,
-            .b => d.rb * d.cb,
-            .c => c.m * c.n,
-        };
-        var buf: [13]pattern.Pattern = undefined;
-        for (pattern.patternsFor(len, &buf)) |pat| {
-            var cp = c;
-            cp.p = pat;
-            cp.where = where;
-            try one(T, cp, full);
-        }
-    };
-    const nan = std.math.nan(f64);
-    for ([_][2][2]f64{ .{ .{ nan, 0 }, .{ 0.5, 0 } }, .{ .{ 1.5, 0 }, .{ nan, 0 } } }) |s| {
-        if (vs[0].triangular() and std.math.isNan(s[1][0])) continue;
-        try one(T, sized(vs[vs.len - 1], sm, sn, 7, s[0], s[1]), full);
-    }
+    // the special scalars, special values and NaN scalars, on a shape with
+    // every remainder
+    try edgeCases(T, r, vs, .{ .m = 2 * um + 3, .n = 2 * un + 1, .k = 7, .k_special = 9, .thin = rig }, full);
 
     // past each of the vtable's own blocks once (row blocks split in two)
     try one(T, sized(vs[0], own.p + um + 1, 3 * un + 2, own.q + 1, .{ 1.5, 0 }, .{ -1, 0 }), full);
@@ -799,58 +758,77 @@ pub fn interfaceCases(comptime T: type, comptime r: Routine) !void {
 pub fn accelerateCases(comptime T: type, comptime r: Routine) !void {
     var vbuf: [32]Case = undefined;
     const vs = variants(T, r, &vbuf);
-    const all_t: []const Trans = if (comptime isComplex(T)) &.{ .n, .t, .r, .c } else &.{ .n, .t };
-    var bad: Bad = .{};
-    defer say_fails = true;
+    var failed: ?anyerror = null;
+    check.capKeep(max_said);
+    defer check.uncap();
     for ([_][3]usize{ .{ 19, 9, 9 }, .{ 70, 45, 40 } }) |d| {
-        for (scalarsOf(T)) |s| {
-            if (r == .gemm) {
-                for (all_t) |ta| for (all_t) |tb| bad.note(one(T, sized(.{ .r = r, .ta = ta, .tb = tb, .m = 0, .n = 0 }, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
-            } else for (vs) |v| bad.note(one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
-        }
-        for (vs) |v| for ([_]Where{ .a, .b, .c }) |where| {
-            const has_b = r == .gemm or r == .gemmt or r == .symm or r == .hemm or r == .syr2k or r == .her2k;
-            if (where == .b and !has_b) continue;
-            if (r == .trsm and where == .a) continue;
-            const c = sized(v, d[0], d[1], d[2], .{ -0.75, 0.25 }, .{ 0.5, 0 });
-            const dd = dims(c);
-            const len = switch (where) {
-                .a => dd.ra * dd.ca,
-                .b => dd.rb * dd.cb,
-                .c => c.m * c.n,
-            };
-            var buf: [13]pattern.Pattern = undefined;
-            for (pattern.patterns(len, &buf)) |pat| {
-                var cp = c;
-                cp.p = pat;
-                cp.where = where;
-                bad.note(one(T, cp, Iface(r){}));
-            }
-        };
-        const nan = std.math.nan(f64);
-        for (vs) |v| for ([_][2][2]f64{ .{ .{ nan, 0 }, .{ 0.5, 0 } }, .{ .{ 1.5, 0 }, .{ nan, 0 } } }) |s| {
-            if (v.triangular() and std.math.isNan(s[1][0])) continue;
-            bad.note(one(T, sized(v, d[0], d[1], d[2], s[0], s[1]), Iface(r){}));
-        };
+        try edgeCases(T, r, vs, .{ .m = d[0], .n = d[1], .k = d[2], .k_special = d[2], .every_pattern = true, .nan_every_variant = true, .keep = &failed }, Iface(r){});
     }
-    if (bad.err) |e| return e;
+    if (failed) |e| return e;
 }
 
 /// How many failing cases `accelerateCases` describes per routine.
 const max_said = 8;
 
-const Bad = struct {
-    err: ?anyerror = null,
-    count: usize = 0,
-
-    fn note(b: *Bad, r: anyerror!void) void {
-        r catch |e| {
-            b.err = e;
-            b.count += 1;
-            if (b.count == max_said) {
-                check.say("(more not shown)\n", .{});
-                say_fails = false;
-            }
-        };
-    }
+/// The shapes and reach of `edgeCases`.
+const Edges = struct {
+    m: usize,
+    n: usize,
+    /// The depth of the scalar cases, and of the special values'.
+    k: usize,
+    k_special: usize,
+    /// Every fourth variant's special values only.
+    thin: bool = false,
+    /// `pattern.patterns`, not the rigs' few (`patternsFor`).
+    every_pattern: bool = false,
+    /// The NaN scalars on every variant, not the last alone.
+    nan_every_variant: bool = false,
+    /// Carries on past a failure, kept here (`check.keep`), not returned.
+    keep: ?*?anyerror = null,
 };
+
+/// The special scalars (every transpose pair for `gemm`), the special
+/// values of `pattern.Pattern` in each operand, and NaN scalars, of `r`'s
+/// variants `vs` through `runner`.
+fn edgeCases(comptime T: type, comptime r: Routine, vs: []const Case, e: Edges, runner: anytype) !void {
+    for (scalarsOf(T)) |s| {
+        if (r.base() == .gemm) {
+            const all_t: []const Trans = if (comptime isComplex(T)) &.{ .n, .t, .r, .c } else &.{ .n, .t };
+            for (all_t) |ta| for (all_t) |tb| {
+                try edge(e, one(T, sized(.{ .r = r, .ta = ta, .tb = tb, .m = 0, .n = 0 }, e.m, e.n, e.k, s[0], s[1]), runner));
+            };
+        } else for (vs) |v| try edge(e, one(T, sized(v, e.m, e.n, e.k, s[0], s[1]), runner));
+    }
+    const has_b = r.base() == .gemm or r == .gemmt or r.base() == .symm or r.base() == .hemm or r == .syr2k or r == .her2k;
+    for (vs, 0..) |v, vi| for ([_]Where{ .a, .b, .c }) |where| {
+        if (e.thin and vi % 4 != 0) continue;
+        if (where == .b and !has_b) continue;
+        // a solve's special values go in its right side
+        if (r == .trsm and where == .a) continue;
+        const c = sized(v, e.m, e.n, e.k_special, .{ -0.75, 0.25 }, .{ 0.5, 0 });
+        const d = dims(c);
+        const len = switch (where) {
+            .a => d.ra * d.ca,
+            .b => d.rb * d.cb,
+            .c => c.m * c.n,
+        };
+        var buf: [13]pattern.Pattern = undefined;
+        for (if (e.every_pattern) pattern.patterns(len, &buf) else pattern.patternsFor(len, &buf)) |pat| {
+            var cp = c;
+            cp.p = pat;
+            cp.where = where;
+            try edge(e, one(T, cp, runner));
+        }
+    };
+    const nan = std.math.nan(f64);
+    for (if (e.nan_every_variant) vs else vs[vs.len - 1 ..]) |v| for ([_][2][2]f64{ .{ .{ nan, 0 }, .{ 0.5, 0 } }, .{ .{ 1.5, 0 }, .{ nan, 0 } } }) |s| {
+        if (v.triangular() and std.math.isNan(s[1][0])) continue;
+        try edge(e, one(T, sized(v, e.m, e.n, e.k, s[0], s[1]), runner));
+    };
+}
+
+/// One of `edgeCases`'s results: kept or returned, as `e` says.
+fn edge(e: Edges, r: anyerror!void) anyerror!void {
+    if (e.keep) |f| return check.keep(f, r);
+    return r;
+}

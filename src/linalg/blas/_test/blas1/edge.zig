@@ -389,15 +389,8 @@ fn extremeRun(comptime T: type, ctx: anytype, c: Case) !void {
     return error.TestUnexpectedResult;
 }
 
-/// The first failure of each routine, so one run names every one.
+/// The first failure of each routine, so one run names every one (`check.keep`).
 var failed: ?anyerror = null;
-
-fn note(r: anyerror!void) void {
-    r catch |e| {
-        check.say("\n", .{});
-        failed = e;
-    };
-}
 
 /// Every routine of `T`, whose slots begin with `l`.
 fn slots(comptime l: []const u8, comptime T: type, mode: Mode, vt: *const Vtable) void {
@@ -412,41 +405,41 @@ fn slots(comptime l: []const u8, comptime T: type, mode: Mode, vt: *const Vtable
     const nan_b: T = if (complex) .init(0, nan) else nan;
     const zero_t: T = if (complex) .init(0, 0) else 0;
     const beta: T = if (complex) .init(-0.5, 0.25) else -0.5;
-    note(sweep(T, mode, l ++ "copy", false, true, portable.slotPtr(vt, .from(l), .copy_k).*.?, copyRun));
-    note(sweep(T, mode, l ++ "swap", true, true, portable.slotPtr(vt, .from(l), .swap_k).*.?, swapRun));
+    check.keep(&failed, sweep(T, mode, l ++ "copy", false, true, portable.slotPtr(vt, .from(l), .copy_k).*.?, copyRun));
+    check.keep(&failed, sweep(T, mode, l ++ "swap", true, true, portable.slotPtr(vt, .from(l), .swap_k).*.?, swapRun));
     const scal = portable.slotPtr(vt, .from(l), .scal_k).*.?;
-    for ([_]T{ one, inf, nan_a, nan_b }) |a| note(sweep(T, mode, l ++ "scal", false, false, Scal(T, @TypeOf(scal)){ .kern = scal, .alpha = a }, scalRun));
+    for ([_]T{ one, inf, nan_a, nan_b }) |a| check.keep(&failed, sweep(T, mode, l ++ "scal", false, false, Scal(T, @TypeOf(scal)){ .kern = scal, .alpha = a }, scalRun));
     const axpy = portable.slotPtr(vt, .from(l), .axpy_k).*.?;
     // a zero alpha too, which the triangular drivers pass (`-x(j)`): `0 * x`
     for ([_]T{ one, zero_t, nan_a, nan_b }) |a| {
-        note(sweep(T, mode, l ++ "axpy", true, true, Axpy(T, @TypeOf(axpy)){ .kern = axpy, .alpha = a, .conj = false }, axpyRun));
-        if (complex) note(sweep(T, mode, l ++ "axpyc", true, true, Axpy(T, @TypeOf(axpy)){ .kern = portable.slotPtr(vt, .from(l), .axpyc_k).*.?, .alpha = a, .conj = true }, axpyRun));
+        check.keep(&failed, sweep(T, mode, l ++ "axpy", true, true, Axpy(T, @TypeOf(axpy)){ .kern = axpy, .alpha = a, .conj = false }, axpyRun));
+        if (complex) check.keep(&failed, sweep(T, mode, l ++ "axpyc", true, true, Axpy(T, @TypeOf(axpy)){ .kern = portable.slotPtr(vt, .from(l), .axpyc_k).*.?, .alpha = a, .conj = true }, axpyRun));
     }
     if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| {
         for ([_][2]T{ .{ one, beta }, .{ zero_t, beta }, .{ one, zero_t }, .{ zero_t, zero_t } }) |ab| {
-            note(sweep(T, mode, l ++ "axpby", true, true, Axpby(T, @TypeOf(k)){ .kern = k, .alpha = ab[0], .beta = ab[1] }, axpbyRun));
+            check.keep(&failed, sweep(T, mode, l ++ "axpby", true, true, Axpby(T, @TypeOf(k)){ .kern = k, .alpha = ab[0], .beta = ab[1] }, axpbyRun));
         }
     };
     const rot = portable.slotPtr(vt, .from(l), .rot_k).*.?;
-    note(sweep(T, mode, l ++ "rot", true, true, Rot(@TypeOf(rot)){ .kern = rot, .c = 0.6, .s = 0.8 }, rotRun));
+    check.keep(&failed, sweep(T, mode, l ++ "rot", true, true, Rot(@TypeOf(rot)){ .kern = rot, .c = 0.6, .s = 0.8 }, rotRun));
     if (!complex) for ([_]f64{ -2, -1, 0, 1 }) |flag| {
         const k = portable.slotPtr(vt, .from(l), .rotm_k).*.?;
-        note(sweep(T, mode, l ++ "rotm", true, true, Rotm(@TypeOf(k)){ .kern = k, .flag = flag }, rotmRun));
+        check.keep(&failed, sweep(T, mode, l ++ "rotm", true, true, Rotm(@TypeOf(k)){ .kern = k, .flag = flag }, rotmRun));
     };
     const prec: portable.Prec = comptime .from(l);
     inline for (if (complex) .{ .{ portable.Op.dotu_k, false }, .{ portable.Op.dotc_k, true } } else .{.{ portable.Op.dot_k, false }}) |d| {
         const k = portable.slotPtr(vt, prec, d[0]).*.?;
-        note(sweep(T, mode, portable.slotName(prec, d[0]), true, true, Dot(@TypeOf(k)){ .kern = k, .conj = d[1] }, dotRun));
+        check.keep(&failed, sweep(T, mode, portable.slotName(prec, d[0]), true, true, Dot(@TypeOf(k)){ .kern = k, .conj = d[1] }, dotRun));
     }
     inline for (comptime std.enums.values(Reduce)) |op| {
         const k = portable.slotPtr(vt, prec, op.op()).*.?;
-        note(sweep(T, mode, portable.slotName(prec, op.op()), false, op == .nrm2, Reduction(@TypeOf(k)){ .kern = k, .op = op }, reduceRun));
+        check.keep(&failed, sweep(T, mode, portable.slotName(prec, op.op()), false, op == .nrm2, Reduction(@TypeOf(k)){ .kern = k, .op = op }, reduceRun));
     }
     inline for (check.extremes) |e| {
         if (comptime complex and !e[2].abs) continue;
         inline for (.{ e[0], e[1] }) |op| {
             const k = portable.slotPtr(vt, prec, op).*.?;
-            note(sweep(T, mode, portable.slotName(prec, op), false, false, Extreme(@TypeOf(k)){ .kern = k, .find = e[2] }, extremeRun));
+            check.keep(&failed, sweep(T, mode, portable.slotName(prec, op), false, false, Extreme(@TypeOf(k)){ .kern = k, .find = e[2] }, extremeRun));
         }
     }
 }
@@ -456,7 +449,7 @@ const vtable_types = check.sd_letters;
 fn checkMode(vt: *const Vtable, mode: Mode) !void {
     failed = null;
     inline for (vtable_types) |p| slots(p[0], p[1], mode, vt);
-    note(sweep(f32, mode, "dsdot", true, true, Dot(@TypeOf(vt.dsdot_k.?)){ .kern = vt.dsdot_k.?, .conj = false }, dotRun));
+    check.keep(&failed, sweep(f32, mode, "dsdot", true, true, Dot(@TypeOf(vt.dsdot_k.?)){ .kern = vt.dsdot_k.?, .conj = false }, dotRun));
     if (failed) |e| return e;
 }
 
@@ -604,17 +597,17 @@ fn checkShifted(vt: *const Vtable) !void {
         const l = p[0];
         const T = p[1];
         const prec: portable.Prec = comptime .from(l);
-        inline for (comptime std.enums.values(Reduce)) |r| note(shifted(T, portable.slotName(prec, r.op()), false, portable.slotPtr(vt, prec, r.op()).*.?));
-        inline for (if (comptime isComplex(T)) .{ portable.Op.dotu_k, portable.Op.dotc_k } else .{portable.Op.dot_k}) |r| note(shifted(T, portable.slotName(prec, r), true, portable.slotPtr(vt, prec, r).*.?));
+        inline for (comptime std.enums.values(Reduce)) |r| check.keep(&failed, shifted(T, portable.slotName(prec, r.op()), false, portable.slotPtr(vt, prec, r.op()).*.?));
+        inline for (if (comptime isComplex(T)) .{ portable.Op.dotu_k, portable.Op.dotc_k } else .{portable.Op.dot_k}) |r| check.keep(&failed, shifted(T, portable.slotName(prec, r), true, portable.slotPtr(vt, prec, r).*.?));
         const a: T = if (comptime isComplex(T)) .init(1.5, -0.75) else 1.5;
         // complex kernels branch on a zero part (`scalReal` passes one)
         const scals: []const T = if (comptime isComplex(T)) &.{ a, .init(1.5, 0), .init(0, -0.75) } else &.{a};
-        for (scals) |s| note(shiftedWise(T, l ++ "scal", .scal, portable.slotPtr(vt, .from(l), .scal_k).*.?, s));
-        inline for (if (comptime isComplex(T)) .{ portable.Op.axpy_k, portable.Op.axpyc_k } else .{portable.Op.axpy_k}) |r| note(shiftedWise(T, portable.slotName(prec, r), .axpy, portable.slotPtr(vt, prec, r).*.?, a));
-        if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| note(shiftedWise(T, l ++ "axpby", .axpby, k, a));
-        note(shiftedWise(T, l ++ "rot", .rot, portable.slotPtr(vt, .from(l), .rot_k).*.?, a));
+        for (scals) |s| check.keep(&failed, shiftedWise(T, l ++ "scal", .scal, portable.slotPtr(vt, .from(l), .scal_k).*.?, s));
+        inline for (if (comptime isComplex(T)) .{ portable.Op.axpy_k, portable.Op.axpyc_k } else .{portable.Op.axpy_k}) |r| check.keep(&failed, shiftedWise(T, portable.slotName(prec, r), .axpy, portable.slotPtr(vt, prec, r).*.?, a));
+        if (@hasField(Vtable, portable.slotName(.from(l), .axpby_k))) if (portable.slotPtr(vt, .from(l), .axpby_k).*) |k| check.keep(&failed, shiftedWise(T, l ++ "axpby", .axpby, k, a));
+        check.keep(&failed, shiftedWise(T, l ++ "rot", .rot, portable.slotPtr(vt, .from(l), .rot_k).*.?, a));
     }
-    note(shifted(f32, "dsdot", true, vt.dsdot_k.?));
+    check.keep(&failed, shifted(f32, "dsdot", true, vt.dsdot_k.?));
     if (failed) |e| return e;
 }
 
@@ -653,7 +646,7 @@ fn contract(vt: *const Vtable) !void {
     var ref: Vtable = .{};
     blas1.installGeneric(&ref);
     failed = null;
-    inline for (vtable_types) |p| note(contractOf(p[0], p[1], vt, &ref));
+    inline for (vtable_types) |p| check.keep(&failed, contractOf(p[0], p[1], vt, &ref));
     if (failed) |e| return e;
 }
 

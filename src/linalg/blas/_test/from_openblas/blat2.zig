@@ -790,7 +790,7 @@ const all_types = check.sd_types;
 fn sweep(comptime r: Routine) !void {
     inline for (all_types) |T| {
         if (r == .gerc and !comptime isComplex(T)) continue;
-        if (ob.reduced()) {
+        if (check.rig()) {
             try chk(T, r, withN(dat(T), &rig_n));
         } else {
             try chk(T, r, dat(T));

@@ -86,11 +86,36 @@ pub const zero_strides = signed: {
 } ++ [_][2]isize{ .{ 0, 1 }, .{ 1, 0 }, .{ 0, 2 }, .{ 3, 0 }, .{ -1, 0 }, .{ 0, -1 }, .{ -2, 0 }, .{ 0, -3 } };
 
 /// Keeps `r`'s error in `failed`, so the checks after it still run and one
-/// run names every failing kernel.
+/// run names every failing kernel; ends the failure's line (`say`'s
+/// messages end in ": ") with the error's name.
 pub fn keep(failed: *?anyerror, r: anyerror!void) void {
     r catch |e| {
+        say("{t}\n", .{e});
         failed.* = e;
+        kept += 1;
+        if (keep_cap) |c| if (kept == c) {
+            say("(more not shown)\n", .{});
+            quiet = true;
+        };
     };
+}
+
+/// After how many failures `keep` silences `say`; null for never.
+var keep_cap: ?usize = null;
+var kept: usize = 0;
+/// Set by `keep` at its cap: `say` prints nothing.
+var quiet = false;
+
+/// Has `keep` describe only the next `n` failures.
+pub fn capKeep(n: usize) void {
+    keep_cap = n;
+    kept = 0;
+}
+
+/// Lifts `capKeep`'s cap, and lets `say` speak again.
+pub fn uncap() void {
+    keep_cap = null;
+    quiet = false;
 }
 
 /// Where element `i` of a vector of `n` at stride `inc` sits: from the far
@@ -314,6 +339,7 @@ pub fn plainExtendedSum(comptime F: type, w: usize, term: util.Term, n: usize, x
 
 /// Says which case of a check failed: on stderr, or a qemu rig's console.
 pub fn say(comptime f: []const u8, args: anytype) void {
+    if (quiet) return;
     if (comptime sysinfo.target.os.tag != .freestanding) {
         std.debug.print(f, args);
     } else if (comptime @hasDecl(root, "testWrite")) {
@@ -370,7 +396,7 @@ fn withVector(comptime check: fn (*const Vtable) anyerror!void) anyerror!void {
 /// native runs.
 pub fn rig() bool {
     return switch (sysinfo.target.os.tag) {
-        .freestanding, .uefi, .wasi => true,
+        .freestanding, .other, .uefi, .wasi => true,
         .linux, .macos => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
         else => false,
     };

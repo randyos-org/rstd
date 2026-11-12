@@ -60,7 +60,7 @@ fn dat(comptime T: type) Params {
 /// The `.dat` table natively, ctest's after it; the header's on the rigs.
 fn tables(comptime T: type) [2]?Params {
     var p = dat(T);
-    if (ob.reduced()) {
+    if (check.rig()) {
         p.n = &rig_n;
         return .{ p, null };
     }

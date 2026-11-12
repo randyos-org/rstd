@@ -3,7 +3,6 @@
 //! tables and data transcribed mechanically: re-derive them, don't edit (`design.md`'s Verification).
 
 const std = @import("std");
-const sysinfo = @import("builtin");
 const types = @import("../../types.zig");
 const check = @import("../check.zig");
 const blas = @import("../../__root__.zig");
@@ -57,16 +56,6 @@ pub fn uploOf(c: u8) blas.Uplo {
 
 pub fn diagOf(c: u8) blas.Diag {
     return if (c == 'U') .u else .n;
-}
-
-/// On a rig: freestanding (32 MiB heap, 1 MiB stack, emulated), WASI, or the
-/// Linux rigs, whose init sets `RSTD_TEST_PROGRESS`.
-pub fn reduced() bool {
-    return switch (sysinfo.target.os.tag) {
-        .linux => std.testing.environ.getPosix("RSTD_TEST_PROGRESS") != null,
-        .freestanding, .other, .uefi, .wasi => true,
-        else => false,
-    };
 }
 
 /// The precision a check computes its expected values in: `f64` for single
