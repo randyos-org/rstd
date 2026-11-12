@@ -1973,7 +1973,7 @@ which OpenBLAS source each core uses, and what rstd serves in its place.
 | `_test/check.zig` | `eachCore`, `rig`, random operands, tolerant comparison |
 | `_test/reference.zig`, `_test/pattern.zig`, `_test/bitwise.zig` | the wide reference `Wide`, `sqrtW`, `rootUlps` and the ulp bounds; the special-value `Pattern`s; bit-for-bit comparison |
 | `_test/guard.zig` | `use` and `restore` of the global vtable; level 2's buffer guards, static operands and NaN-filling allocator |
-| `_test/blas1/edge.zig`, `_test/blas1/denormal.zig` | level-1 special values and denormals on every core |
+| `_test/blas1/edge.zig` | level-1 special values and denormals on every core |
 | `_test/blas2/edge.zig` | level-2 special values |
 | `_test/blas3/check.zig` | the level-3 harness each routine's tests call |
 | `_test/from_openblas/` | OpenBLAS's own suites, ported |
@@ -2210,7 +2210,7 @@ Questions decided once, with the reason, so they are not reopened without new ev
 | --- | --- | --- |
 | Per-core kernels | each routine's `__root__.zig` | every linked core's kernels (`check.eachCore`) against a plain loop or a wide reference, over sizes and strides past every unroll, and zero strides, one beside a nonzero one too |
 | Edge cases | `_test/blas1/edge.zig`, `_test/blas2/edge.zig` | special values against an `f128` reference, NaN in gaps and past the end, negative and page-sized strides; the reductions give the same bits with their operands shifted by any number of floats (`gemv`'s in `blas2/gemv/__root__.zig`) |
-| Denormals | `_test/blas1/denormal.zig` | denormal operands and results through every level-1 kernel, unflushed; `f32` lanes flush where `util.vectorIeee` says they do |
+| Denormals | `_test/blas1/edge.zig` | denormal operands and results through every level-1 kernel, unflushed; `f32` lanes flush where `util.vectorIeee` says they do |
 | Level 3 | `_test/blas3/check.zig` (used by each routine's tests) | every side, triangle, transpose and diagonal, shapes around block edges, special values |
 | Bit-exact models | `blas1/dot/__root__.zig`, `blas1/asum/__root__.zig`, `blas1/nrm2/__root__.zig`, `blas2/gemv/__root__.zig` | the Zig kernels that replace converted or C code give its bits (the x87 sums, `skylakexModel`, the half-precision `gemv`) |
 | Buffers | `_test/guard.zig` | each level-2 kernel gets exactly the buffer its contract promises, with canaries |
