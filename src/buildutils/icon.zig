@@ -52,7 +52,7 @@ pub const Icon = struct {
         const rstd = try addRstd(b, target, null, false, .{ .blas_cores = .none });
 
         const mod = b.createModule(.{
-            .root_source_file = rstd.dep.?.path("src/rgl/gen_icon.zig"),
+            .root_source_file = rstd.dep.?.path("tools/gen_icon.zig"),
             .target = target,
             .optimize = optimize,
         });
