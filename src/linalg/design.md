@@ -1331,7 +1331,7 @@ checks of the tier-2 rigs, `zig build shader-probes -Dvulkan` for SPIR-V).
    `dot`, `dot2`, `length`, `distance`, `norm`, `cross`, `mix` and `mulAdd`, and
    `linalg.matrix`'s `det`, `inv` and `outer`, are their instructions (table above), each
    checked by a probe (`src/rgl/shaders/lib/readme.md`); shaderlib's aliases stay S2's.
-6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already.
+6. **Float-slice reductions** to `linalg` (the NaN change); `rstd.simd` is gone already. Done 2026-11-12 (M13): M10 had already made `sum`, `max` and `min` take slices and views, inline up to `L` and the BLAS past it, with the first-NaN rule on both paths; M13 tests that rule on plain slices on both paths.
 7. **M2** moves the matlab port onto this layer.
 
 #### Decisions
