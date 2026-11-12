@@ -4,7 +4,7 @@ GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` 
 
 ## Probes
 
-`../probe.zig` is one fragment shader per operation (its `Op` enum). `zig build shader-probes -Dvulkan` builds every probe (`-Dshader-probe=<op>` builds one) and the `rgl`, `glyph` and `image` shaders, and installs the `.spv` files to `zig-out/spv/`. Disassemble with `spirv-dis` and check with `spirv-val --target-env vulkan1.2` (Vulkan SDK).
+`../probe.zig` is one fragment shader per operation (its `Op` enum). `zig build shader-probes -Dvulkan` builds every probe (`-Dshader-probe=<op>` builds one) and the `rgl`, `glyph` and `image` shaders, and installs the `.spv` files to `zig-out/spv/`. Each probe with a native instruction (`probe.expect`) is disassembled with `spirv-dis` (Vulkan SDK, on `PATH`), and the step fails if the instruction is missing, so an operation that falls back to scalar code breaks the build. Check modules with `spirv-val --target-env vulkan1.2`.
 
 ## What the backend emits (S1, 2026-10-30)
 
@@ -61,5 +61,5 @@ GLSL-friendly math for rgl's shaders (`math.zig`, `sdf.zig`) over `rstd.linalg` 
 | `matrix.inv` | Determinant + MatrixInverse (34), `error.Singular` when 0 |
 | `matrix.outer` | OpOuterProduct |
 
-- **Still shaderlib's own code:** `reflect`, `refract` and `faceforward` (their dot is OpDot now), `inversesqrt`, `stepScalar`, `smoothstepScalar`, `fract` and `clamp`; S2 lowers them.
+- **Shaderlib's own (S2, 2026-11-12):** `reflect`, `refract`, `faceforward`, `inversesqrt`, `stepScalar`, `smoothstepScalar`, `fract` and `clamp` (on floats) are GLSL.std.450 Reflect (71), Refract (72), FaceForward (70), InverseSqrt (32), Step (48), SmoothStep (49), Fract (10) and FClamp (43) by inline `asm` under SPIR-V, the plain formulas elsewhere; `clamp` is `std.math.clamp` off SPIR-V and for integers.
 - **`asm` on `@Matrix`:** the block takes the matrix type as a `"t"` input and the matrix as a `""` operand, so it never declares `OpTypeMatrix` ([#198](https://github.com/randyos-org/rstd/issues/198)).
