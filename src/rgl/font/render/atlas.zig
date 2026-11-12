@@ -7,6 +7,7 @@ const types = @import("../sfnt/types.zig");
 const pack = @import("../../pack.zig");
 const layout = @import("layout.zig");
 const GlyphCache = @import("GlyphCache.zig");
+const rasterize = @import("rasterize.zig");
 const msdf = @import("../msdf/Generator.zig");
 const Image = @import("../../image.zig").Image;
 
@@ -166,7 +167,7 @@ pub fn buildTextAtlas(
                 const advance = @as(f32, @floatFromInt(self.getGlyphMetrics(glyph).advance_width)) * scale;
 
                 const off = raster_pixels.items.len;
-                const bmp = try self.glyphBitmapSubpixel(gpa, &raster_pixels, glyph, scale, scale, 0, 0);
+                const bmp = try rasterize.glyphBitmapSubpixel(self, gpa, &raster_pixels, glyph, scale, scale, 0, 0);
 
                 try glyphs.append(gpa, glyph);
                 try rastered.append(gpa, .{
