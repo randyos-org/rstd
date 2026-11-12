@@ -84,17 +84,17 @@ pub const Format14 = struct {
 
     pub fn init(table_data: []const u8, check: bool) !Self {
         if (check) try bytes.checkSize(table_data, 0, StreamLayout);
-        const num_records = bytes.getU32BE(table_data[@offsetOf(StreamLayout, "num_var_selector_records")..]);
+        const num_records = types.field(StreamLayout, "num_var_selector_records", table_data);
         if (check) try bytes.checkArray(table_data, records_start, num_records, VariationSelectorRecord);
         return .{ .table_data = table_data, .num_records = num_records };
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn length(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn numRecords(self: Self) u32 {

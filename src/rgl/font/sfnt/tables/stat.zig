@@ -89,15 +89,15 @@ pub const AxisValueFormat4 = struct {
     table_data: []const u8,
 
     pub inline fn axisCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(AxisValueFormat4Header, "axis_count")..]);
+        return types.field(AxisValueFormat4Header, "axis_count", self.table_data);
     }
 
     pub inline fn flags(self: Self) AxisValueFlags {
-        return @bitCast(bytes.getU16BE(self.table_data[@offsetOf(AxisValueFormat4Header, "flags")..]));
+        return @bitCast(types.field(AxisValueFormat4Header, "flags", self.table_data));
     }
 
     pub inline fn valueNameId(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(AxisValueFormat4Header, "value_name_id")..]);
+        return types.field(AxisValueFormat4Header, "value_name_id", self.table_data);
     }
 
     pub fn getAxisValue(self: Self, index: usize) AxisValueRecord {
@@ -150,41 +150,41 @@ pub const StatTable = struct {
     }
 
     pub inline fn majorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "major_version")..]);
+        return types.field(StreamLayout, "major_version", self.table_data);
     }
 
     pub inline fn minorVersion(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "minor_version")..]);
+        return types.field(StreamLayout, "minor_version", self.table_data);
     }
 
     /// Size in bytes of each DesignAxisRecord in this font; use this (not
     /// @sizeOf(DesignAxisRecord)) as the stride when walking design axes,
     /// per spec.
     pub inline fn designAxisSize(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "design_axis_size")..]);
+        return types.field(StreamLayout, "design_axis_size", self.table_data);
     }
 
     pub inline fn designAxisCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "design_axis_count")..]);
+        return types.field(StreamLayout, "design_axis_count", self.table_data);
     }
 
     inline fn designAxesOffset(self: Self) types.Offset32 {
-        return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "design_axes_offset")..]);
+        return types.field(StreamLayout, "design_axes_offset", self.table_data);
     }
 
     pub inline fn axisValueCount(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "axis_value_count")..]);
+        return types.field(StreamLayout, "axis_value_count", self.table_data);
     }
 
     inline fn offsetToAxisValueOffsets(self: Self) types.Offset32 {
-        return bytes.readIntBE(types.Offset32, self.table_data[@offsetOf(StreamLayout, "offset_to_axis_value_offsets")..]);
+        return types.field(StreamLayout, "offset_to_axis_value_offsets", self.table_data);
     }
 
     /// Null in a version 1.0 table (deprecated per spec; use of version
     /// 1.0 is discouraged and this field is simply absent from the stream).
     pub fn elidedFallbackNameId(self: Self) ?u16 {
         if (self.minorVersion() < 1) return null;
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "elided_fallback_name_id")..]);
+        return types.field(StreamLayout, "elided_fallback_name_id", self.table_data);
     }
 
     pub fn getDesignAxis(self: Self, index: usize) DesignAxisRecord {

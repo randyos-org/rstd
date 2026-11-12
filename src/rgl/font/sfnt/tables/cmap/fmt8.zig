@@ -48,19 +48,19 @@ pub const Format8 = struct {
     }
 
     pub inline fn format(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "format")..]);
+        return types.field(StreamLayout, "format", self.table_data);
     }
 
     pub inline fn reserved(self: Self) u16 {
-        return bytes.getU16BE(self.table_data[@offsetOf(StreamLayout, "reserved")..]);
+        return types.field(StreamLayout, "reserved", self.table_data);
     }
 
     pub inline fn length(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "length")..]);
+        return types.field(StreamLayout, "length", self.table_data);
     }
 
     pub inline fn language(self: Self) u32 {
-        return bytes.getU32BE(self.table_data[@offsetOf(StreamLayout, "language")..]);
+        return types.field(StreamLayout, "language", self.table_data);
     }
 
     /// Per the spec: "To determine if a particular word (cp) is the first
