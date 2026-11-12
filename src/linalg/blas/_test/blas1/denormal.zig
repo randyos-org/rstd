@@ -11,7 +11,6 @@ const bitwise = @import("../bitwise.zig");
 const pattern = @import("../pattern.zig");
 const reference = @import("../reference.zig");
 const extremum = @import("../../blas1/extremum.zig");
-const blas1 = @import("../../blas1/__root__.zig");
 const util = @import("../../util.zig");
 
 const Allocator = std.mem.Allocator;
@@ -252,9 +251,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable level-1 kernels: denormal results" {
-    var vt: Vtable = .{};
-    blas1.installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
 }
 
 test "every linked core's level-1 kernels: denormal results" {

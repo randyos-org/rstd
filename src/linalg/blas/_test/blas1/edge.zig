@@ -12,7 +12,6 @@ const bitwise = @import("../bitwise.zig");
 const pattern = @import("../pattern.zig");
 const reference = @import("../reference.zig");
 const extremum = @import("../../blas1/extremum.zig");
-const blas1 = @import("../../blas1/__root__.zig");
 
 const Allocator = std.mem.Allocator;
 const BlasLong = types.BlasLong;
@@ -426,13 +425,12 @@ fn checkAll(vt: *const Vtable) !void {
 const XDouble = types.XDouble;
 
 test "portable level-1 kernels: special values, poisoned gaps, and negative and large strides" {
-    var vt: Vtable = .{};
-    blas1.installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     failed = null;
     if (XDouble != f64) {
-        slots("q", XDouble, &vt);
-        slots("x", C(XDouble), &vt);
+        slots("q", XDouble, vt);
+        slots("x", C(XDouble), vt);
     }
     if (failed) |e| return e;
 }
@@ -540,9 +538,8 @@ fn checkShifted(vt: *const Vtable) !void {
 }
 
 test "portable level-1 reductions and element-wise kernels: the same bits whatever the address" {
-    var vt: Vtable = .{};
-    blas1.installGeneric(&vt);
-    try checkShifted(&vt);
+    const vt = check.portableVtable();
+    try checkShifted(vt);
 }
 
 test "every linked core's level-1 reductions and element-wise kernels: the same bits whatever the address" {
@@ -571,10 +568,9 @@ const Specials = struct { nan: ?usize = null, nan2: ?usize = null, inf: ?usize =
 /// past the vector blocks: the same index, NaN or infinity where they give
 /// one, and values within their accuracy class.
 fn contract(vt: *const Vtable) !void {
-    var ref: Vtable = .{};
-    blas1.installGeneric(&ref);
+    const ref = check.portableVtable();
     failed = null;
-    inline for (vtable_types) |p| note(contractOf(p[0], p[1], vt, &ref));
+    inline for (vtable_types) |p| note(contractOf(p[0], p[1], vt, ref));
     if (failed) |e| return e;
 }
 

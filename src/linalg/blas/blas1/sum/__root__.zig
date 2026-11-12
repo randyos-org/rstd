@@ -84,16 +84,17 @@ fn checkSum(comptime T: type, kern: anytype) !void {
 }
 
 fn checkAll(vt: *const Vtable) !void {
-    try checkSum(f32, vt.ssum_k.?);
-    try checkSum(f64, vt.dsum_k.?);
-    try checkSum(std.math.Complex(f32), vt.csum_k.?);
-    try checkSum(std.math.Complex(f64), vt.zsum_k.?);
+    var failed: ?anyerror = null;
+    check.keep(&failed, checkSum(f32, vt.ssum_k.?));
+    check.keep(&failed, checkSum(f64, vt.dsum_k.?));
+    check.keep(&failed, checkSum(std.math.Complex(f32), vt.csum_k.?));
+    check.keep(&failed, checkSum(std.math.Complex(f64), vt.zsum_k.?));
+    if (failed) |e| return e;
 }
 
 test "portable sum kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkSum(XDouble, vt.qsum_k.?);
     try checkSum(std.math.Complex(XDouble), vt.xsum_k.?);
 }

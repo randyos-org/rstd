@@ -110,9 +110,8 @@ fn checkAll(vt: *const Vtable) !void {
 }
 
 test "portable rotm kernels match a plain loop" {
-    var vt: Vtable = .{};
-    installGeneric(&vt);
-    try checkAll(&vt);
+    const vt = check.portableVtable();
+    try checkAll(vt);
     try checkRotm(XDouble, vt.qrotm_k.?);
 }
 
